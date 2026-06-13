@@ -12,10 +12,13 @@
   import PomodoroSection from "./PomodoroSection.svelte";
   import NotificationsSection from "./NotificationsSection.svelte";
   import RecurrenceSection from "./RecurrenceSection.svelte";
+  import ProjectSelector from "$lib/components/projects/ProjectSelector.svelte";
+  import type { ProjectTask } from "$lib/projects/types";
   import { onMount, tick, untrack } from "svelte";
   import { slide } from "svelte/transition";
   import { cubicOut } from "svelte/easing";
   import { getTheme } from "$lib/stores/theme.svelte";
+  import { getProjects } from "$lib/stores/projects.svelte";
   import { deleteActionForCalendarEvent } from "./occurrence-protection";
   import { getPreferences } from "$lib/stores/preferences.svelte";
   import { getViewport } from "$lib/stores/viewport.svelte";
@@ -74,9 +77,13 @@
   import Smile from "@lucide/svelte/icons/smile";
   import Eye from "@lucide/svelte/icons/eye";
   import Lock from "@lucide/svelte/icons/lock";
+  import Check from "@lucide/svelte/icons/check";
+  import Search from "@lucide/svelte/icons/search";
+  import X from "@lucide/svelte/icons/x";
 
 
   const theme = getTheme();
+  const projects = getProjects();
   const preferences = getPreferences();
   const viewport = getViewport();
   const localization = getLocalization();
@@ -95,6 +102,7 @@
     start,
     end,
     event,
+    initialCreateData,
     anchor,
     initialAllDay = false,
     externalDirty = false,
@@ -124,6 +132,7 @@
     start?: string;
     end?: string;
     event?: CalendarEvent;
+    initialCreateData?: Partial<CalendarEvent>;
     anchor: { x: number; y: number; width: number; height: number };
     initialAllDay?: boolean;
     externalDirty?: boolean;
@@ -171,6 +180,12 @@
   let startDate = $state("");
   let endDate = $state("");
   let color: EventColor | undefined = $state(undefined);
+  let projectId: string | undefined = $state(undefined);
+  let linkedTaskIds: string[] = $state([]);
+  let taskLinkSearch = $state("");
+  let taskLinksChangedByUser = $state(false);
+  let environmentId: string | undefined = $state(undefined);
+  let playlistId: string | undefined = $state(undefined);
   let description = $state("");
   let scope: RecurringScope = $state("this");
 
@@ -629,6 +644,128 @@
     }
   }
 
+  function addMinutesToLocalDateTime(date: string, time: string, minutes: number): { date: string; time: string } | null {
+    if (!date || !time || minutes <= 0) return null;
+    const [year, month, day] = date.split("-").map(Number);
+    const [hour, minute] = time.split(":").map(Number);
+    if (
+      !Number.isInteger(year)
+      || !Number.isInteger(month)
+      || !Number.isInteger(day)
+      || !Number.isInteger(hour)
+      || !Number.isInteger(minute)
+    ) {
+      return null;
+    }
+    const next = new Date(year, month - 1, day, hour, minute + minutes);
+    return {
+      date: `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-${String(next.getDate()).padStart(2, "0")}`,
+      time: `${String(next.getHours()).padStart(2, "0")}:${String(next.getMinutes()).padStart(2, "0")}`,
+    };
+  }
+
+  function applyProjectPomodoroPreset(
+    preset: Exclude<typeof pomodoroPreset, "custom">,
+    idleTimeoutMinutes: number | null,
+  ): void {
+    const rhythm = COUNT_PRESET_RHYTHMS[preset];
+    pomodoroEnabled = true;
+    pomodoroPreset = preset;
+    focusDuration = rhythm.focusDurationMinutes;
+    shortBreak = rhythm.shortBreakMinutes;
+    longBreak = rhythm.longBreakMinutes;
+    longBreakAfterFocusCount = rhythm.longBreakAfterFocusCount;
+    customRhythmMode = "simple";
+    sequenceSteps = [{
+      focusDurationMinutes: rhythm.focusDurationMinutes,
+      breakPhase: "short_break",
+      breakDurationMinutes: rhythm.shortBreakMinutes,
+    }];
+    idleTimeoutEnabled = idleTimeoutMinutes !== null;
+  }
+
+  function applyPomodoroConfigDraft(
+    config: CalendarEvent["pomodoroConfig"],
+    fallbackEnabled: boolean,
+  ): void {
+    pomodoroEnabled = !!config || fallbackEnabled;
+    if (!config) {
+      focusDuration = 40;
+      shortBreak = 5;
+      longBreak = 10;
+      longBreakAfterFocusCount = 4;
+      customRhythmMode = "simple";
+      sequenceSteps = [{ focusDurationMinutes: 40, breakPhase: "short_break", breakDurationMinutes: 5 }];
+      pomodoroPreset = "adaptive";
+      applyDefaultIdleTimeoutPreference();
+      return;
+    }
+
+    pomodoroPreset = config.rhythmSource === "preset" && config.presetKey
+      ? config.presetKey
+      : "custom";
+    if (config.rhythm.kind === "count") {
+      focusDuration = config.rhythm.focusDurationMinutes;
+      shortBreak = config.rhythm.shortBreakMinutes;
+      longBreak = config.rhythm.longBreakMinutes;
+      longBreakAfterFocusCount = config.rhythm.longBreakAfterFocusCount;
+      customRhythmMode = "simple";
+      sequenceSteps = [{
+        focusDurationMinutes: config.rhythm.focusDurationMinutes,
+        breakPhase: "short_break",
+        breakDurationMinutes: config.rhythm.shortBreakMinutes,
+      }];
+    } else {
+      const firstStep = config.rhythm.steps[0] ?? {
+        focusDurationMinutes: COUNT_PRESET_RHYTHMS.adaptive.focusDurationMinutes,
+        breakPhase: "short_break" as const,
+        breakDurationMinutes: COUNT_PRESET_RHYTHMS.adaptive.shortBreakMinutes,
+      };
+      focusDuration = firstStep.focusDurationMinutes;
+      shortBreak = firstStep.breakPhase === "short_break"
+        ? firstStep.breakDurationMinutes
+        : COUNT_PRESET_RHYTHMS.adaptive.shortBreakMinutes;
+      longBreak = firstStep.breakPhase === "long_break"
+        ? firstStep.breakDurationMinutes
+        : COUNT_PRESET_RHYTHMS.adaptive.longBreakMinutes;
+      longBreakAfterFocusCount = config.rhythm.steps.length;
+      customRhythmMode = "sequence";
+      sequenceSteps = config.rhythm.steps.map((step: SequencePomodoroRhythmStep) => ({ ...step }));
+    }
+    idleTimeoutEnabled = config.idleTimeoutMinutes !== null;
+  }
+
+  function handleProjectSelect(nextProjectId: string | undefined): void {
+    projectId = nextProjectId;
+    keepProjectTaskLinks(nextProjectId);
+    const selectedProject = projects.projectById(nextProjectId);
+    environmentId = selectedProject?.workEnvironmentId;
+    playlistId = selectedProject?.focusPlaylistId;
+    if (selectedProject) {
+      if (!title.trim()) title = selectedProject.name;
+      if (color === undefined && selectedProject.color !== undefined) color = selectedProject.color;
+      if (mode === "create" && !allDay) {
+        const nextEnd = addMinutesToLocalDateTime(
+          startDate,
+          startTime,
+          selectedProject.defaultEventDurationMinutes,
+        );
+        if (nextEnd) {
+          endDate = nextEnd.date;
+          endTime = nextEnd.time;
+          syncTimeDrafts();
+        }
+        if (selectedProject.defaultPomodoroPresetKey) {
+          applyProjectPomodoroPreset(
+            selectedProject.defaultPomodoroPresetKey,
+            selectedProject.defaultIdleTimeoutMinutes ?? null,
+          );
+        }
+      }
+    }
+    emitChange();
+  }
+
   // ─── Tab system ─────────────────────────────────────────────────
   type Section = "meeting" | "pomodoro" | "notifications" | "repeat" | "music";
   let openSection: Section | null = $state(null);
@@ -770,6 +907,66 @@
   const isRecurring = $derived(
     mode === "edit" && recurringScopeEnabled,
   );
+  const taskLinksEnabled = $derived(!isRecurring);
+  const linkedTaskIdSet = $derived(new Set(linkedTaskIds));
+  const linkedTasks = $derived.by(() =>
+    linkedTaskIds
+      .map((taskId) => projects.taskById(taskId))
+      .filter((task): task is ProjectTask => !!task),
+  );
+  const taskLinkCandidates = $derived.by(() => {
+    if (!projectId || !taskLinksEnabled) return [];
+    const normalizedSearch = taskLinkSearch.trim().toLowerCase();
+    return projects.tasksForProject(projectId)
+      .filter((task) => !task.parentTaskId && !task.archivedAt)
+      .filter((task) =>
+        linkedTaskIdSet.has(task.id)
+        || !normalizedSearch
+        || task.title.toLowerCase().includes(normalizedSearch)
+      )
+      .slice(0, 12);
+  });
+
+  function uniqueTaskIds(taskIds: readonly string[]): string[] {
+    return Array.from(new Set(taskIds.filter((taskId) => taskId.trim().length > 0)));
+  }
+
+  function eventLinkedTaskIds(): string[] {
+    if (mode === "create") return uniqueTaskIds(initialCreateData?.linkedTaskIds ?? []);
+    if (!event?.id) return [];
+    return uniqueTaskIds(projects.eventLinksForEvent(event.id).map((link) => link.taskId));
+  }
+
+  function setLinkedTaskDraft(taskIds: readonly string[], changedByUser: boolean): void {
+    linkedTaskIds = uniqueTaskIds(taskIds);
+    taskLinksChangedByUser = changedByUser;
+  }
+
+  function keepProjectTaskLinks(nextProjectId: string | undefined): void {
+    if (!nextProjectId) {
+      setLinkedTaskDraft([], true);
+      return;
+    }
+    setLinkedTaskDraft(
+      linkedTaskIds.filter((taskId) => projects.taskById(taskId)?.projectId === nextProjectId),
+      true,
+    );
+  }
+
+  function toggleLinkedTask(task: ProjectTask): void {
+    if (controlsDisabled || !taskLinksEnabled || task.projectId !== projectId) return;
+    const next = linkedTaskIdSet.has(task.id)
+      ? linkedTaskIds.filter((taskId) => taskId !== task.id)
+      : [...linkedTaskIds, task.id];
+    setLinkedTaskDraft(next, true);
+    emitChange();
+  }
+
+  function removeLinkedTask(taskId: string): void {
+    if (controlsDisabled || !taskLinksEnabled) return;
+    setLinkedTaskDraft(linkedTaskIds.filter((id) => id !== taskId), true);
+    emitChange();
+  }
 
   // ─── Initialization ─────────────────────────────────────────────
   // Edit mode normally receives a full event row preloaded by CalendarView,
@@ -779,6 +976,7 @@
   let lastInitKey = "";
   let lastFullKey = "";
   let lastHeavyAppliedKey = "";
+  let lastTaskLinkHydrationKey = "";
   let initialized = $state(false);
   let fullEvent = $state<CalendarEvent | null>(null);
   let savePending = $state(false);
@@ -839,6 +1037,11 @@
       endTime = event.end.split(" ")[1] ?? "";
       syncTimeDrafts();
       color = event.color;
+      projectId = event.projectId;
+      setLinkedTaskDraft(eventLinkedTaskIds(), false);
+      taskLinkSearch = "";
+      environmentId = event.environmentId;
+      playlistId = event.playlistId;
       recurrence = event.recurrence ? { ...event.recurrence } : undefined;
       allDay = event.allDay ?? false;
       stashedStartTime = "";
@@ -859,49 +1062,7 @@
       geo = event.geo;
       meetingEnabled = hasMeetingState(event);
 
-      const pc = event.pomodoroConfig;
-      pomodoroEnabled = !!pc;
-      if (pc) {
-        pomodoroPreset = pc.rhythmSource === "preset" && pc.presetKey
-          ? pc.presetKey
-          : "custom";
-        if (pc.rhythm.kind === "count") {
-          focusDuration = pc.rhythm.focusDurationMinutes;
-          shortBreak = pc.rhythm.shortBreakMinutes;
-          longBreak = pc.rhythm.longBreakMinutes;
-          longBreakAfterFocusCount = pc.rhythm.longBreakAfterFocusCount;
-          customRhythmMode = "simple";
-          sequenceSteps = [{
-            focusDurationMinutes: pc.rhythm.focusDurationMinutes,
-            breakPhase: "short_break",
-            breakDurationMinutes: pc.rhythm.shortBreakMinutes,
-          }];
-        } else {
-          const firstStep = pc.rhythm.steps[0] ?? {
-            focusDurationMinutes: COUNT_PRESET_RHYTHMS.adaptive.focusDurationMinutes,
-            breakPhase: "short_break" as const,
-            breakDurationMinutes: COUNT_PRESET_RHYTHMS.adaptive.shortBreakMinutes,
-          };
-          focusDuration = firstStep.focusDurationMinutes;
-          shortBreak = firstStep.breakPhase === "short_break"
-            ? firstStep.breakDurationMinutes
-            : COUNT_PRESET_RHYTHMS.adaptive.shortBreakMinutes;
-          longBreak = firstStep.breakPhase === "long_break"
-            ? firstStep.breakDurationMinutes
-            : COUNT_PRESET_RHYTHMS.adaptive.longBreakMinutes;
-          longBreakAfterFocusCount = pc.rhythm.steps.length;
-          customRhythmMode = "sequence";
-          sequenceSteps = pc.rhythm.steps.map((step: SequencePomodoroRhythmStep) => ({ ...step }));
-        }
-        idleTimeoutEnabled = pc.idleTimeoutMinutes !== null;
-      } else {
-        focusDuration = 40; shortBreak = 5; longBreak = 10;
-        longBreakAfterFocusCount = 4;
-        customRhythmMode = "simple";
-        sequenceSteps = [{ focusDurationMinutes: 40, breakPhase: "short_break", breakDurationMinutes: 5 }];
-        pomodoroPreset = "adaptive";
-        applyDefaultIdleTimeoutPreference();
-      }
+      applyPomodoroConfigDraft(event.pomodoroConfig, false);
 
       const notifs = event.notifications;
       notifEnabled = !!notifs && notifs.length > 0;
@@ -927,36 +1088,38 @@
       }
 
     } else if (mode === "create") {
-      title = "";
-      startDate = (start ?? "").split(" ")[0] ?? "";
-      startTime = (start ?? "").split(" ")[1] ?? "";
-      endDate = (end ?? "").split(" ")[0] ?? "";
-      endTime = (end ?? "").split(" ")[1] ?? "";
+      const createData = initialCreateData ?? {};
+      const initialStart = createData.start ?? start ?? "";
+      const initialEnd = createData.end ?? end ?? "";
+      title = createData.title ?? "";
+      startDate = initialStart.split(" ")[0] ?? "";
+      startTime = initialStart.split(" ")[1] ?? "";
+      endDate = initialEnd.split(" ")[0] ?? "";
+      endTime = initialEnd.split(" ")[1] ?? "";
       syncTimeDrafts();
-      color = undefined;
-      description = "";
-      recurrence = undefined;
-      pomodoroEnabled = true;
-      pomodoroPreset = "adaptive";
-      focusDuration = 40; shortBreak = 5; longBreak = 10;
-      longBreakAfterFocusCount = 4;
-      customRhythmMode = "simple";
-      sequenceSteps = [{ focusDurationMinutes: 40, breakPhase: "short_break", breakDurationMinutes: 5 }];
-      applyDefaultIdleTimeoutPreference();
-      notifEnabled = true;
-      notifSelected = new Set([0]);
+      color = createData.color;
+      projectId = createData.projectId;
+      setLinkedTaskDraft(eventLinkedTaskIds(), false);
+      taskLinkSearch = "";
+      environmentId = createData.environmentId;
+      playlistId = createData.playlistId;
+      description = createData.description ?? "";
+      recurrence = createData.recurrence ? { ...createData.recurrence } : undefined;
+      applyPomodoroConfigDraft(createData.pomodoroConfig, true);
+      notifEnabled = createData.notifications !== undefined ? createData.notifications.length > 0 : true;
+      notifSelected = new Set(createData.notifications ?? [0]);
       customNotifs = [];
-      allDay = initialAllDay;
+      allDay = createData.allDay ?? initialAllDay;
       stashedStartTime = "";
       stashedEndTime = "";
-      location = "";
-      eventUrl = "";
-      transparency = "opaque";
-      eventStatus = "confirmed";
-      visibility = "private";
+      location = createData.location ?? "";
+      eventUrl = createData.url ?? "";
+      transparency = createData.transparency ?? "opaque";
+      eventStatus = createData.status ?? "confirmed";
+      visibility = createData.visibility ?? "private";
       organizer = undefined;
-      attendees = [];
-      localParticipationStatus = undefined;
+      attendees = createData.attendees ? [...createData.attendees] : [];
+      localParticipationStatus = createData.localParticipationStatus;
       guestCanModify = false;
       guestCanInviteOthers = true;
       guestCanSeeOtherGuests = true;
@@ -971,6 +1134,8 @@
     timePickerKeyboardOpen = false;
     openSection = null;
     scope = "this";
+    taskLinksChangedByUser = false;
+    lastTaskLinkHydrationKey = "";
     dragOffset = { x: 0, y: 0 };
     userDragged = false;
 
@@ -1004,6 +1169,24 @@
     }
   });
 
+  $effect(() => {
+    if (parked || mode !== "edit" || !event?.id || !projects.loaded || taskLinksChangedByUser) return;
+    const key = `${panelSessionKey}:${event.id}:${projects.eventLinks.length}`;
+    if (key === lastTaskLinkHydrationKey) return;
+    lastTaskLinkHydrationKey = key;
+    const next = eventLinkedTaskIds();
+    if (JSON.stringify(next) === JSON.stringify(linkedTaskIds)) return;
+    setLinkedTaskDraft(next, false);
+    if (initialized) (onInitialSync ?? onChange)?.({ linkedTaskIds: next });
+  });
+
+  $effect(() => {
+    if (!projectId || projects.projectDataLoaded(projectId)) return;
+    void projects.ensureProjectData(projectId).catch((error) => {
+      console.error("load project data failed", error);
+    });
+  });
+
   // Heavy-field init: runs once per fullEvent arrival. The setInitialChanges
   // pattern merges these keys into both `changes` and `baseline` on the
   // session, so a subsequent emitChange that re-emits the same heavy values
@@ -1017,6 +1200,9 @@
     lastHeavyAppliedKey = fullEvent.id;
 
     description = fullEvent.description ?? "";
+    projectId = fullEvent.projectId;
+    environmentId = fullEvent.environmentId;
+    playlistId = fullEvent.playlistId;
     eventUrl = fullEvent.url ?? "";
     visibility = fullEvent.visibility ?? "public";
     organizer = fullEvent.organizer;
@@ -1232,6 +1418,10 @@
       endDate,
       endTime,
       color,
+      projectId,
+      linkedTaskIds,
+      environmentId,
+      playlistId,
       description,
       recurrence,
       notifications: collectEventPanelNotifications({
@@ -1522,6 +1712,10 @@
   // (ConfirmDialog) is open, its capture-phase window listener swallows the
   // event before it reaches this handler.
   onMount(() => {
+    void projects.ensureLoaded().catch((error) => {
+      console.error("load projects failed", error);
+    });
+
     function handleKeydown(e: KeyboardEvent) {
       if (parked) return;
       if (
@@ -1801,6 +1995,91 @@
       </div>
       </div>
 
+    </div>
+
+    <div class="px-1 pt-2">
+      <div class="mb-1 text-[0.733333rem] font-medium text-event-panel-muted-text">
+        {t("calendar.eventPanel.project")}
+      </div>
+      <ProjectSelector
+        selectedProjectId={projectId}
+        disabled={controlsDisabled}
+        compact
+        onSelect={handleProjectSelect}
+      />
+      {#if projectId}
+        <div class="mt-2 rounded-md border border-event-panel-divider/70 bg-event-panel-contrast/45 p-2">
+          <div class="mb-1 flex items-center justify-between gap-2 text-[0.733333rem] font-medium text-event-panel-muted-text">
+            <span>{t("calendar.eventPanel.tasks")}</span>
+            {#if linkedTaskIds.length > 0}
+              <span>{t("calendar.eventPanel.linkedTaskCount", linkedTaskIds.length)}</span>
+            {/if}
+          </div>
+
+          {#if !taskLinksEnabled}
+            <div class="text-[0.766667rem] text-event-panel-muted-text">
+              {t("calendar.eventPanel.taskLinksRecurring")}
+            </div>
+          {:else}
+            {#if linkedTasks.length > 0}
+              <div class="mb-1.5 flex min-w-0 flex-wrap gap-1">
+                {#each linkedTasks as task (task.id)}
+                  <button
+                    type="button"
+                    class="inline-flex max-w-full items-center gap-1 rounded border border-event-panel-divider bg-event-panel-bg px-1.5 py-0.5 text-[0.733333rem] text-event-panel-input-text hover:bg-event-panel-contrast disabled:cursor-not-allowed disabled:opacity-60"
+                    disabled={controlsDisabled}
+                    aria-label={t("calendar.eventPanel.removeLinkedTask", task.title)}
+                    onclick={() => removeLinkedTask(task.id)}
+                  >
+                    <span class="truncate">{task.title}</span>
+                    <X size={12} strokeWidth={1.75} class="shrink-0" />
+                  </button>
+                {/each}
+              </div>
+            {/if}
+
+            <div class="mb-1.5 flex min-h-7 items-center gap-1 rounded border border-event-panel-divider bg-event-panel-bg px-2">
+              <Search size={12} strokeWidth={1.75} class="shrink-0 text-event-panel-muted-text" />
+              <input
+                bind:value={taskLinkSearch}
+                disabled={controlsDisabled}
+                placeholder={t("calendar.eventPanel.searchTasks")}
+                class="min-w-0 flex-1 bg-transparent text-[0.766667rem] text-event-panel-input-text placeholder:text-event-panel-placeholder disabled:cursor-not-allowed"
+              />
+            </div>
+
+            <div class="max-h-28 overflow-y-auto">
+              {#each taskLinkCandidates as task (task.id)}
+                <button
+                  type="button"
+                  class="flex min-h-7 w-full min-w-0 items-center gap-2 rounded px-1.5 text-left text-[0.766667rem] text-event-panel-text hover:bg-event-panel-contrast disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={controlsDisabled}
+                  aria-pressed={linkedTaskIdSet.has(task.id)}
+                  onclick={() => toggleLinkedTask(task)}
+                >
+                  <span
+                    class={cn(
+                      "flex h-4 w-4 shrink-0 items-center justify-center rounded border",
+                      linkedTaskIdSet.has(task.id)
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-event-panel-divider",
+                    )}
+                  >
+                    {#if linkedTaskIdSet.has(task.id)}
+                      <Check size={11} strokeWidth={2} />
+                    {/if}
+                  </span>
+                  <span class="truncate">{task.title}</span>
+                </button>
+              {:else}
+                <div class="px-1 py-1 text-[0.766667rem] text-event-panel-muted-text">
+                  {t("calendar.eventPanel.noProjectTasks")}
+                </div>
+              {/each}
+            </div>
+          {/if}
+        </div>
+      {/if}
     </div>
   </div>
 

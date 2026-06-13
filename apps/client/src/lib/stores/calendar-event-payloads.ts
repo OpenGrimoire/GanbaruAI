@@ -19,6 +19,9 @@ export type CalendarUpdateField =
   | { field: "endTime"; value: string }
   | { field: "timezone"; value: string }
   | { field: "calendarId"; value: string }
+  | { field: "projectId"; value: string | null }
+  | { field: "environmentId"; value: string | null }
+  | { field: "playlistId"; value: string | null }
   | { field: "color"; value: number | null }
   | { field: "description"; value: string }
   | { field: "rrule"; value: string | null }
@@ -86,6 +89,9 @@ export interface CalendarDetachInstancePayload {
   endTime: string;
   timezone: string;
   calendarId: string;
+  projectId: string | null;
+  environmentId: string | null;
+  playlistId: string | null;
   color: number | null;
   notifications: string | null;
   allDay: boolean;
@@ -105,6 +111,9 @@ export interface CalendarSplitSeriesPayload {
   endTime: string;
   timezone: string;
   calendarId: string;
+  projectId: string | null;
+  environmentId: string | null;
+  playlistId: string | null;
   color: number | null;
   notifications: string | null;
   exceptions: string | null;
@@ -304,6 +313,15 @@ export function prepareUpdateBlockPayload(
       case "calendarId":
         addField({ field: "calendarId", value: toUpdate.calendarId ?? "local" });
         break;
+      case "projectId":
+        addField({ field: "projectId", value: toUpdate.projectId ?? null });
+        break;
+      case "environmentId":
+        addField({ field: "environmentId", value: toUpdate.environmentId ?? null });
+        break;
+      case "playlistId":
+        addField({ field: "playlistId", value: toUpdate.playlistId ?? null });
+        break;
       case "color":
         addField({ field: "color", value: toUpdate.color ?? null });
         break;
@@ -414,6 +432,7 @@ export function prepareUpdateBlockPayload(
       case "hasCallLink":
       case "surfaceStatus":
       case "surfaceAttendees":
+      case "linkedTaskIds":
       case "icalendarComponentId":
       case "icalendarPreservationStatus":
       case "icalendarProjectionWarnings":

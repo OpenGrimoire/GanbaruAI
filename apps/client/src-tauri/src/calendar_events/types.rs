@@ -68,6 +68,9 @@ pub struct CalendarEventCreate {
     pub(super) end_time: String,
     pub(super) timezone: String,
     pub(super) calendar_id: String,
+    pub(super) project_id: Option<String>,
+    pub(super) environment_id: Option<String>,
+    pub(super) playlist_id: Option<String>,
     pub(super) color: Option<i64>,
     pub(super) description: String,
     pub(super) rrule: Option<String>,
@@ -179,6 +182,12 @@ pub(super) enum CalendarEventUpdateField {
     Timezone(String),
     #[serde(rename = "calendarId")]
     CalendarId(String),
+    #[serde(rename = "projectId")]
+    ProjectId(Option<String>),
+    #[serde(rename = "environmentId")]
+    EnvironmentId(Option<String>),
+    #[serde(rename = "playlistId")]
+    PlaylistId(Option<String>),
     #[serde(rename = "color")]
     Color(Option<i64>),
     #[serde(rename = "description")]
@@ -235,6 +244,9 @@ impl CalendarEventUpdateField {
             CalendarEventUpdateField::EndTime(_) => "endTime",
             CalendarEventUpdateField::Timezone(_) => "timezone",
             CalendarEventUpdateField::CalendarId(_) => "calendarId",
+            CalendarEventUpdateField::ProjectId(_) => "projectId",
+            CalendarEventUpdateField::EnvironmentId(_) => "environmentId",
+            CalendarEventUpdateField::PlaylistId(_) => "playlistId",
             CalendarEventUpdateField::Color(_) => "color",
             CalendarEventUpdateField::Description(_) => "description",
             CalendarEventUpdateField::Rrule(_) => "rrule",
@@ -303,6 +315,9 @@ pub struct CalendarDetachInstance {
     pub(super) end_time: String,
     pub(super) timezone: String,
     pub(super) calendar_id: String,
+    pub(super) project_id: Option<String>,
+    pub(super) environment_id: Option<String>,
+    pub(super) playlist_id: Option<String>,
     pub(super) color: Option<i64>,
     pub(super) notifications: Option<String>,
     pub(super) all_day: bool,
@@ -324,6 +339,9 @@ pub struct CalendarSplitSeries {
     pub(super) end_time: String,
     pub(super) timezone: String,
     pub(super) calendar_id: String,
+    pub(super) project_id: Option<String>,
+    pub(super) environment_id: Option<String>,
+    pub(super) playlist_id: Option<String>,
     pub(super) color: Option<i64>,
     pub(super) notifications: Option<String>,
     pub(super) exceptions: Option<String>,

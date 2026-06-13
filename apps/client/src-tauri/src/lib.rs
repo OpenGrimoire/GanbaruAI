@@ -19,6 +19,7 @@ mod music;
 mod notification;
 mod pomodoro;
 mod pomodoro_enforcement;
+mod projects;
 mod recurrence;
 mod themes;
 mod tray;
@@ -818,6 +819,40 @@ pub fn run() {
             pomodoro::pomodoro_heartbeat,
             pomodoro::pomodoro_record_run_event,
             pomodoro::pomodoro_recover_open_runs,
+            projects::projects_load_snapshot,
+            projects::projects_create_group,
+            projects::projects_update_group,
+            projects::projects_set_group_collapsed,
+            projects::projects_create_project,
+            projects::projects_update_project,
+            projects::projects_create_section,
+            projects::projects_update_section,
+            projects::projects_create_status,
+            projects::projects_update_status,
+            projects::projects_create_task,
+            projects::projects_create_checklist_item,
+            projects::projects_update_checklist_item,
+            projects::projects_delete_checklist_item,
+            projects::projects_create_label,
+            projects::projects_update_label,
+            projects::projects_delete_label,
+            projects::projects_link_task_label,
+            projects::projects_unlink_task_label,
+            projects::projects_create_custom_field,
+            projects::projects_update_custom_field,
+            projects::projects_delete_custom_field,
+            projects::projects_create_custom_field_option,
+            projects::projects_update_custom_field_option,
+            projects::projects_delete_custom_field_option,
+            projects::projects_update_custom_field_value,
+            projects::projects_link_task_event,
+            projects::projects_unlink_task_event,
+            projects::projects_search_linkable_events,
+            projects::projects_create_task_dependency,
+            projects::projects_delete_task_dependency,
+            projects::projects_update_task,
+            projects::projects_upsert_view_preference,
+            projects::projects_delete_view_preference,
             doomscrolling::doomscrolling_close_desktop_app,
             doomscrolling::doomscrolling_close_current_foreground_desktop_app,
             doomscrolling::doomscrolling_get_foreground_desktop_app,

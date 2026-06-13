@@ -81,6 +81,15 @@ pub(super) fn validate_event_create(event: &CalendarEventCreate) -> Result<(), S
     require_non_empty(&event.end_time, "end_time")?;
     require_non_empty(&event.timezone, "timezone")?;
     require_non_empty(&event.calendar_id, "calendar_id")?;
+    if let Some(project_id) = &event.project_id {
+        require_non_empty(project_id, "project_id")?;
+    }
+    if let Some(environment_id) = &event.environment_id {
+        require_non_empty(environment_id, "environment_id")?;
+    }
+    if let Some(playlist_id) = &event.playlist_id {
+        require_non_empty(playlist_id, "playlist_id")?;
+    }
     require_non_empty(&event.created_at, "created_at")?;
     require_non_empty(&event.updated_at, "updated_at")?;
     validate_color(event.color, "color")?;
@@ -145,6 +154,15 @@ pub(super) fn validate_detach_instance(input: &CalendarDetachInstance) -> Result
     require_non_empty(&input.end_time, "end_time")?;
     require_non_empty(&input.timezone, "timezone")?;
     require_non_empty(&input.calendar_id, "calendar_id")?;
+    if let Some(project_id) = &input.project_id {
+        require_non_empty(project_id, "project_id")?;
+    }
+    if let Some(environment_id) = &input.environment_id {
+        require_non_empty(environment_id, "environment_id")?;
+    }
+    if let Some(playlist_id) = &input.playlist_id {
+        require_non_empty(playlist_id, "playlist_id")?;
+    }
     require_non_empty(&input.now, "now")?;
     validate_json_option(&Some(input.exceptions.clone()), "exceptions")?;
     validate_color(input.color, "color")?;
@@ -168,6 +186,15 @@ pub(super) fn validate_split_series(input: &CalendarSplitSeries) -> Result<(), S
     require_non_empty(&input.end_time, "end_time")?;
     require_non_empty(&input.timezone, "timezone")?;
     require_non_empty(&input.calendar_id, "calendar_id")?;
+    if let Some(project_id) = &input.project_id {
+        require_non_empty(project_id, "project_id")?;
+    }
+    if let Some(environment_id) = &input.environment_id {
+        require_non_empty(environment_id, "environment_id")?;
+    }
+    if let Some(playlist_id) = &input.playlist_id {
+        require_non_empty(playlist_id, "playlist_id")?;
+    }
     require_non_empty(&input.now, "now")?;
     validate_color(input.color, "color")?;
     validate_json_option(&input.notifications, "notifications")?;
@@ -197,6 +224,24 @@ pub(super) fn validate_update_field(field: &CalendarEventUpdateField) -> Result<
         CalendarEventUpdateField::EndTime(value) => require_non_empty(value, "end_time"),
         CalendarEventUpdateField::Timezone(value) => require_non_empty(value, "timezone"),
         CalendarEventUpdateField::CalendarId(value) => require_non_empty(value, "calendar_id"),
+        CalendarEventUpdateField::ProjectId(value) => {
+            if let Some(value) = value {
+                require_non_empty(value, "project_id")?;
+            }
+            Ok(())
+        }
+        CalendarEventUpdateField::EnvironmentId(value) => {
+            if let Some(value) = value {
+                require_non_empty(value, "environment_id")?;
+            }
+            Ok(())
+        }
+        CalendarEventUpdateField::PlaylistId(value) => {
+            if let Some(value) = value {
+                require_non_empty(value, "playlist_id")?;
+            }
+            Ok(())
+        }
         CalendarEventUpdateField::Color(value) => validate_color(*value, "color"),
         CalendarEventUpdateField::Description(_) => Ok(()),
         CalendarEventUpdateField::Rrule(_) => Ok(()),

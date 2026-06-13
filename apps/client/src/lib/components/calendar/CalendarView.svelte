@@ -12,6 +12,7 @@
   import type { TimezoneAbbrMode } from "./utils";
   import { getCalendar } from "$lib/stores/calendar.svelte";
   import { getCalendars } from "$lib/stores/calendars.svelte";
+  import { getProjects } from "$lib/stores/projects.svelte";
   import { calendarIdentityEmail } from "$lib/calendar/calendar-display";
   import { getPomodoro } from "$lib/stores/pomodoro.svelte";
   import { getTheme } from "$lib/stores/theme.svelte";
@@ -76,6 +77,7 @@
 
   const calendarStore = getCalendar();
   const calendarsStore = getCalendars();
+  const projects = getProjects();
   const pomodoro = getPomodoro();
   const calZoom = getCalendarZoom();
   const theme = getTheme();
@@ -95,6 +97,7 @@
         sessionKey: number;
         start: string;
         end: string;
+        initialCreateData: Partial<CalendarEvent>;
         anchor: PanelAnchor;
         initialAllDay: boolean;
       }
@@ -119,6 +122,7 @@
         sessionKey: number;
         start: string;
         end: string;
+        initialCreateData: Partial<CalendarEvent>;
         anchor: PanelAnchor;
         initialAllDay: boolean;
         event?: undefined;
@@ -153,6 +157,10 @@
     start: string;
     end: string;
     color?: EventColor;
+    projectId?: string;
+    linkedTaskIds?: string[];
+    environmentId?: string;
+    playlistId?: string;
     description: string;
     recurrence?: RecurrenceConfig;
     notifications?: number[];
@@ -168,6 +176,12 @@
     localParticipationStatus?: AttendeeStatus;
     guestPermissions?: GuestPermissions;
   };
+  type CalendarCreateDefaultsInput = {
+    start: string;
+    end: string;
+    allDay?: boolean;
+  };
+  type CalendarCreateDefaults = Partial<CalendarEvent>;
 
   const CREATE_CLOSE_GUARD_MS = 500;
 
@@ -175,6 +189,17 @@
   let loadingEventPanel: Promise<void> | null = null;
   let panelOpenRequestId = 0;
   let parkedPanelSnapshot = $state<ParkedPanelSnapshot | null>(null);
+  let {
+    eventFilter,
+    createDefaults,
+    initialViewMode = preferences.calendarViewMode,
+    onViewModeChange,
+  }: {
+    eventFilter?: (event: CalendarEvent) => boolean;
+    createDefaults?: (input: CalendarCreateDefaultsInput) => CalendarCreateDefaults;
+    initialViewMode?: CalendarViewMode;
+    onViewModeChange?: (mode: CalendarViewMode) => void;
+  } = $props();
 
   function loadEventPanel(): Promise<void> {
     if (EventPanel) return Promise.resolve();
@@ -243,10 +268,13 @@
     }
   }
 
-  const initialViewMode: CalendarViewMode = preferences.calendarViewMode;
   const initialAnchorDate = new Date();
 
-  let viewMode: CalendarViewMode = $state(initialViewMode);
+  function getInitialViewMode(): CalendarViewMode {
+    return initialViewMode;
+  }
+
+  let viewMode: CalendarViewMode = $state(getInitialViewMode());
   let dayHeaderReturnMode: DayHeaderReturnMode = $state(DEFAULT_DAY_HEADER_RETURN_MODE);
   let anchorDate: Date = $state(initialAnchorDate);
   let timezones: string[] = $state([getLocalTimezone()]);
@@ -294,9 +322,10 @@
 
   function visibleStoreEventsForWindow(window: typeof viewWindow): CalendarEvent[] {
     const visIds = calendarsStore.visibleIds;
-    return calendarStore
+    const visibleEvents = calendarStore
       .eventsInWindow(window.start, window.end)
       .filter((event) => visIds.has(event.calendarId));
+    return eventFilter ? visibleEvents.filter(eventFilter) : visibleEvents;
   }
 
   const displayResult = $derived.by(() => {
@@ -478,7 +507,8 @@
       dayHeaderReturnMode = mode;
     },
     setPreferredViewMode: (mode) => {
-      preferences.setCalendarViewMode(mode);
+      if (onViewModeChange) onViewModeChange(mode);
+      else preferences.setCalendarViewMode(mode);
     },
     setViewMode: (mode) => {
       viewMode = mode;
@@ -585,6 +615,7 @@
         sessionKey: s.sessionKey,
         start: s.start,
         end: s.end,
+        initialCreateData: { ...session.changes },
         anchor: s.anchor,
         initialAllDay: !!session.changes.allDay,
       };
@@ -620,6 +651,7 @@
         sessionKey: s.sessionKey,
         start: s.start,
         end: s.end,
+        initialCreateData: { ...session.changes },
         anchor: s.anchor,
         initialAllDay: !!session.changes.allDay,
         detailsLoaded: false,
@@ -665,6 +697,7 @@
         sessionKey: parkedPanelSnapshot.sessionKey,
         start: parkedPanelSnapshot.start,
         end: parkedPanelSnapshot.end,
+        initialCreateData: parkedPanelSnapshot.initialCreateData,
         anchor: parkedPanelSnapshot.anchor,
         initialAllDay: parkedPanelSnapshot.initialAllDay,
         detailsLoaded: false,
@@ -834,7 +867,8 @@
   async function restoreDeletedBlock(e: CalendarEvent): Promise<void> {
     await calendarStore.addBlock({
       id: e.id, title: e.title, start: e.start, end: e.end,
-      timezone: e.timezone, calendarId: e.calendarId, color: e.color,
+      timezone: e.timezone, calendarId: e.calendarId, projectId: e.projectId, color: e.color,
+      environmentId: e.environmentId, playlistId: e.playlistId,
       description: e.description, recurrence: e.recurrence,
       notifications: e.notifications, exceptions: e.exceptions,
       pomodoroConfig: e.pomodoroConfig,
@@ -1112,6 +1146,10 @@
     if (panelCommitHidden) return;
 
     const openCreate = async () => {
+      const initialData = createDefaults?.({ start, end, allDay }) ?? {};
+      const initialStart = initialData.start ?? start;
+      const initialEnd = initialData.end ?? end;
+      const initialAllDay = initialData.allDay ?? allDay;
       const requestId = ++panelOpenRequestId;
       pendingEditEventId = undefined;
       // Track that a create operation ended (prevents click-to-close)
@@ -1131,7 +1169,7 @@
       });
       try {
         const panelReady = ensureEventPanelReady(requestId);
-        session.openCreate(start, end, anchor, allDay);
+        session.openCreate(initialStart, initialEnd, anchor, initialAllDay, initialData);
         perfMark("panel.state-open", { request: requestId });
         if (panelReady) await panelReady;
         if (requestId !== panelOpenRequestId) return;
@@ -1400,28 +1438,48 @@
     closeSession();
   }
 
+  interface PanelPersistResult {
+    saveRefreshedVisibleWindow: boolean;
+    taskLinkEventId?: string;
+  }
+
+  function calendarDataOnly(data: PanelSaveData): PanelSaveData {
+    const { linkedTaskIds: _linkedTaskIds, ...calendarData } = data;
+    return calendarData;
+  }
+
+  async function syncPanelTaskLinks(eventId: string | undefined, taskIds: readonly string[] | undefined): Promise<void> {
+    if (!eventId || !taskIds) return;
+    await projects.setEventTaskLinks(eventId, taskIds);
+  }
+
   async function persistPanelData(
     data: PanelSaveData,
     scope?: RecurringScope,
     options: { syncActivePomodoro?: boolean } = {},
-  ): Promise<boolean> {
+  ): Promise<PanelPersistResult> {
     const s = session.state;
     let saveRefreshedVisibleWindow = false;
+    let taskLinkEventId: string | undefined;
     const syncActivePomodoro = options.syncActivePomodoro ?? true;
-    if (s.mode === "closed") return false;
+    const calendarData = calendarDataOnly(data);
+    if (s.mode === "closed") return { saveRefreshedVisibleWindow };
     if (s.mode === "create") {
-      await calendarStore.addBlock({
-        title: data.title, start: data.start, end: data.end,
-        color: data.color, description: data.description,
-        recurrence: data.recurrence, notifications: data.notifications,
-        pomodoroConfig: data.pomodoroConfig,
-        allDay: data.allDay, location: data.location, url: data.url,
-        meetingEnabled: data.meetingEnabled,
-        transparency: data.transparency, status: data.status,
-        visibility: data.visibility, attendees: data.attendees,
-        localParticipationStatus: data.localParticipationStatus,
-        guestPermissions: data.guestPermissions,
+      const createdEvent = await calendarStore.addBlock({
+        title: calendarData.title, start: calendarData.start, end: calendarData.end,
+        color: calendarData.color, projectId: calendarData.projectId,
+        environmentId: calendarData.environmentId, playlistId: calendarData.playlistId,
+        description: calendarData.description,
+        recurrence: calendarData.recurrence, notifications: calendarData.notifications,
+        pomodoroConfig: calendarData.pomodoroConfig,
+        allDay: calendarData.allDay, location: calendarData.location, url: calendarData.url,
+        meetingEnabled: calendarData.meetingEnabled,
+        transparency: calendarData.transparency, status: calendarData.status,
+        visibility: calendarData.visibility, attendees: calendarData.attendees,
+        localParticipationStatus: calendarData.localParticipationStatus,
+        guestPermissions: calendarData.guestPermissions,
       });
+      taskLinkEventId = createdEvent.id;
     } else if (s.mode === "edit") {
       const instanceEvent = s.instanceEvent;
       const isRec = isRecurring(s.originalEvent);
@@ -1434,7 +1492,7 @@
           rawBlocks: calendarStore.rawBlocks,
           templateId: s.templateId,
           instanceEvent,
-          changes: data,
+          changes: calendarData,
           scope: effectiveScope,
           activeBlockId: pomodoro.isActive && activeDate ? pomodoro.activeBlockId ?? undefined : undefined,
           activeDate,
@@ -1450,13 +1508,14 @@
         });
         saveRefreshedVisibleWindow = recurrencePlan.requiresCanonicalRefresh;
       } else {
-        const updated: CalendarEvent = { ...s.originalEvent, ...data };
+        const updated: CalendarEvent = { ...s.originalEvent, ...calendarData };
         await calendarStore.updateBlock(updated);
         if (syncActivePomodoro) await syncSavedActivePomodoro(updated);
+        taskLinkEventId = s.originalEvent.id;
       }
     }
 
-    return saveRefreshedVisibleWindow;
+    return { saveRefreshedVisibleWindow, taskLinkEventId };
   }
 
   function shouldEnablePomodoroForActiveCalendarEvent(data: PanelSaveData): boolean {
@@ -1477,13 +1536,15 @@
     const saveToastId = toasts.showSavePendingToast(t("calendar.view.saving"));
 
     try {
-      const updated: CalendarEvent = { ...s.originalEvent, ...data };
+      const calendarData = calendarDataOnly(data);
+      const updated: CalendarEvent = { ...s.originalEvent, ...calendarData };
       await calendarStore.updateBlock(updated);
+      await syncPanelTaskLinks(s.originalEvent.id, data.linkedTaskIds);
       await pomodoro.startFromBlock(
         s.originalEvent.id,
         config,
-        data.end,
-        data.start.split(" ")[0],
+        calendarData.end,
+        calendarData.start.split(" ")[0],
         config.idleTimeoutMinutes,
       );
       await calendarStore.refreshWindow(viewWindow.start, viewWindow.end);
@@ -1541,7 +1602,9 @@
     const saveToastId = toasts.showSavePendingToast(t("calendar.view.saving"));
 
     try {
-      saveRefreshedVisibleWindow = await persistPanelData(data, scope);
+      const persistResult = await persistPanelData(data, scope);
+      saveRefreshedVisibleWindow = persistResult.saveRefreshedVisibleWindow;
+      await syncPanelTaskLinks(persistResult.taskLinkEventId, data.linkedTaskIds);
 
       // Stop session after all mutations complete because hybrid save logic needs activeBlockId intact.
       if (sessionStopPending) {
@@ -1589,11 +1652,15 @@
 
     try {
       if (!completesPomodoro && !isRecurring(s.originalEvent)) {
-        await calendarStore.updateBlock({ id: s.originalEvent.id, end: endedData.end });
+        const calendarEndedData = calendarDataOnly(endedData);
+        await calendarStore.updateBlock({ id: s.originalEvent.id, end: calendarEndedData.end });
+        await syncPanelTaskLinks(s.originalEvent.id, endedData.linkedTaskIds);
       } else {
-        saveRefreshedVisibleWindow = await persistPanelData(endedData, scope, {
+        const persistResult = await persistPanelData(endedData, scope, {
           syncActivePomodoro: false,
         });
+        saveRefreshedVisibleWindow = persistResult.saveRefreshedVisibleWindow;
+        await syncPanelTaskLinks(persistResult.taskLinkEventId, endedData.linkedTaskIds);
       }
       if (completesPomodoro) {
         await pomodoro.completeActiveBlockAt(endIso);
@@ -1845,6 +1912,7 @@
       start={render.start}
       end={render.end}
       event={render.mode === "edit" ? render.event : undefined}
+      initialCreateData={render.mode === "create" ? render.initialCreateData : undefined}
       recurringScopeEnabled={render.mode === "edit" ? render.recurringScopeEnabled : false}
       anchor={render.anchor}
       initialAllDay={render.initialAllDay}

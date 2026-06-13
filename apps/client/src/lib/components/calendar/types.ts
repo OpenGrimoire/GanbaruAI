@@ -182,6 +182,9 @@ export interface CalendarEvent {
   /** IANA zone (e.g. "America/New_York") used for recurrence math and ICS re-export. */
   timezone: string;
   calendarId: string;
+  projectId?: string;
+  environmentId?: string;
+  playlistId?: string;
   color?: EventColor;
   description?: string;
   recurrence?: RecurrenceConfig;
@@ -221,6 +224,8 @@ export interface CalendarEvent {
   sequence?: number;
   /** Database creation timestamp. Used for deterministic scheduler tiebreakers. */
   createdAt?: string;
+  /** Frontend-only event panel metadata for project task links. */
+  linkedTaskIds?: string[];
   /** RFC 5545 RDATE: additional recurrence dates beyond the RRULE pattern. */
   rdate?: string[];
   /** Arbitrary extended properties (X-* from iCalendar). */

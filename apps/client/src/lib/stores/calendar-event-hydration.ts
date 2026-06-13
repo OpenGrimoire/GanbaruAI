@@ -178,6 +178,9 @@ export function slimEvent(e: CalendarEvent): CalendarEvent {
     timezone: e.timezone,
     calendarId: e.calendarId,
   };
+  if (e.projectId) slim.projectId = e.projectId;
+  if (e.environmentId) slim.environmentId = e.environmentId;
+  if (e.playlistId) slim.playlistId = e.playlistId;
   if (e.color !== undefined) slim.color = e.color;
   if (e.recurrence) slim.recurrence = e.recurrence;
   if (e.notifications && e.notifications.length > 0) slim.notifications = e.notifications;

@@ -24,6 +24,269 @@ VALUES (
     strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
 );
 
+CREATE TABLE project_groups (
+    id TEXT PRIMARY KEY CHECK (trim(id) <> ''),
+    name TEXT NOT NULL CHECK (trim(name) <> ''),
+    icon TEXT NOT NULL DEFAULT 'folder' CHECK (trim(icon) <> ''),
+    color INTEGER CHECK (color IS NULL OR (color >= 0 AND color < 32)),
+    sort_order INTEGER NOT NULL DEFAULT 0 CHECK (sort_order >= 0),
+    collapsed INTEGER NOT NULL DEFAULT 0 CHECK (collapsed IN (0, 1)),
+    hidden_at TEXT,
+    archived_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) CHECK (trim(created_at) <> ''),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) CHECK (trim(updated_at) <> '')
+);
+CREATE INDEX idx_project_groups_sort ON project_groups(sort_order, name);
+
+CREATE TABLE projects (
+    id TEXT PRIMARY KEY CHECK (trim(id) <> ''),
+    group_id TEXT NOT NULL REFERENCES project_groups(id) ON DELETE CASCADE,
+    name TEXT NOT NULL CHECK (trim(name) <> ''),
+    icon TEXT NOT NULL DEFAULT 'folder' CHECK (trim(icon) <> ''),
+    color INTEGER CHECK (color IS NULL OR (color >= 0 AND color < 32)),
+    sort_order INTEGER NOT NULL DEFAULT 0 CHECK (sort_order >= 0),
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'hidden', 'archived')),
+    default_event_duration_minutes INTEGER NOT NULL DEFAULT 60 CHECK (default_event_duration_minutes > 0),
+    default_pomodoro_preset_key TEXT CHECK (
+        default_pomodoro_preset_key IS NULL
+        OR default_pomodoro_preset_key IN ('adaptive', 'creative', 'balanced', 'deep', 'extended')
+    ),
+    default_idle_timeout_minutes INTEGER CHECK (
+        default_idle_timeout_minutes IS NULL OR default_idle_timeout_minutes > 0
+    ),
+    focus_playlist_id TEXT,
+    break_playlist_id TEXT,
+    work_environment_id TEXT,
+    blocker_ruleset_id TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) CHECK (trim(created_at) <> ''),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) CHECK (trim(updated_at) <> '')
+);
+CREATE INDEX idx_projects_group_sort ON projects(group_id, status, sort_order, name);
+CREATE INDEX idx_projects_status ON projects(status);
+
+CREATE TABLE project_sections (
+    id TEXT PRIMARY KEY CHECK (trim(id) <> ''),
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    name TEXT NOT NULL CHECK (trim(name) <> ''),
+    sort_order INTEGER NOT NULL DEFAULT 0 CHECK (sort_order >= 0),
+    collapsed INTEGER NOT NULL DEFAULT 0 CHECK (collapsed IN (0, 1)),
+    hidden_at TEXT,
+    archived_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) CHECK (trim(created_at) <> ''),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) CHECK (trim(updated_at) <> '')
+);
+CREATE INDEX idx_project_sections_project_sort ON project_sections(project_id, sort_order, name);
+
+CREATE TABLE project_statuses (
+    id TEXT PRIMARY KEY CHECK (trim(id) <> ''),
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    name TEXT NOT NULL CHECK (trim(name) <> ''),
+    category TEXT NOT NULL CHECK (category IN ('not_started', 'active', 'blocked', 'done')),
+    sort_order INTEGER NOT NULL DEFAULT 0 CHECK (sort_order >= 0),
+    terminal INTEGER NOT NULL DEFAULT 0 CHECK (terminal IN (0, 1)),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) CHECK (trim(created_at) <> ''),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) CHECK (trim(updated_at) <> '')
+);
+CREATE INDEX idx_project_statuses_project_sort ON project_statuses(project_id, sort_order, name);
+
+CREATE TABLE project_tasks (
+    id TEXT PRIMARY KEY CHECK (trim(id) <> ''),
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    section_id TEXT NOT NULL REFERENCES project_sections(id) ON DELETE RESTRICT,
+    status_id TEXT NOT NULL REFERENCES project_statuses(id) ON DELETE RESTRICT,
+    parent_task_id TEXT REFERENCES project_tasks(id) ON DELETE CASCADE,
+    title TEXT NOT NULL CHECK (trim(title) <> ''),
+    description TEXT NOT NULL DEFAULT '',
+    priority TEXT NOT NULL DEFAULT 'normal' CHECK (priority IN ('low', 'normal', 'high', 'urgent')),
+    task_type TEXT NOT NULL DEFAULT 'task' CHECK (task_type IN ('task', 'milestone', 'bug', 'habit')),
+    section_sort_order REAL NOT NULL DEFAULT 0,
+    status_sort_order REAL NOT NULL DEFAULT 0,
+    estimate_minutes INTEGER CHECK (estimate_minutes IS NULL OR estimate_minutes > 0),
+    due_date TEXT,
+    start_date TEXT,
+    target_end_date TEXT,
+    completed_at TEXT,
+    archived_at TEXT,
+    blocker_reason TEXT,
+    milestone INTEGER NOT NULL DEFAULT 0 CHECK (milestone IN (0, 1)),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) CHECK (trim(created_at) <> ''),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) CHECK (trim(updated_at) <> ''),
+    CHECK (parent_task_id IS NULL OR parent_task_id <> id),
+    CHECK (start_date IS NULL OR target_end_date IS NULL OR start_date <= target_end_date)
+);
+CREATE INDEX idx_project_tasks_project_section ON project_tasks(project_id, section_id, section_sort_order);
+CREATE INDEX idx_project_tasks_project_status ON project_tasks(project_id, status_id, status_sort_order);
+CREATE INDEX idx_project_tasks_parent ON project_tasks(parent_task_id, section_sort_order);
+CREATE INDEX idx_project_tasks_due ON project_tasks(project_id, due_date);
+CREATE INDEX idx_project_tasks_archived ON project_tasks(project_id, archived_at);
+
+CREATE TABLE project_checklist_items (
+    id TEXT PRIMARY KEY CHECK (trim(id) <> ''),
+    task_id TEXT NOT NULL REFERENCES project_tasks(id) ON DELETE CASCADE,
+    title TEXT NOT NULL CHECK (trim(title) <> ''),
+    completed_at TEXT,
+    sort_order INTEGER NOT NULL DEFAULT 0 CHECK (sort_order >= 0),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) CHECK (trim(created_at) <> ''),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) CHECK (trim(updated_at) <> '')
+);
+CREATE INDEX idx_project_checklist_items_task ON project_checklist_items(task_id, sort_order);
+
+CREATE TABLE project_labels (
+    id TEXT PRIMARY KEY CHECK (trim(id) <> ''),
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    name TEXT NOT NULL CHECK (trim(name) <> ''),
+    color INTEGER CHECK (color IS NULL OR (color >= 0 AND color < 32)),
+    sort_order INTEGER NOT NULL DEFAULT 0 CHECK (sort_order >= 0),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) CHECK (trim(created_at) <> ''),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) CHECK (trim(updated_at) <> '')
+);
+CREATE UNIQUE INDEX idx_project_labels_project_name ON project_labels(project_id, lower(name));
+CREATE INDEX idx_project_labels_project_sort ON project_labels(project_id, sort_order, name);
+
+CREATE TABLE project_task_label_links (
+    task_id TEXT NOT NULL REFERENCES project_tasks(id) ON DELETE CASCADE,
+    label_id TEXT NOT NULL REFERENCES project_labels(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) CHECK (trim(created_at) <> ''),
+    PRIMARY KEY (task_id, label_id)
+);
+CREATE INDEX idx_project_task_label_links_label ON project_task_label_links(label_id);
+
+CREATE TABLE project_custom_fields (
+    id TEXT PRIMARY KEY CHECK (trim(id) <> ''),
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    name TEXT NOT NULL CHECK (trim(name) <> ''),
+    field_type TEXT NOT NULL CHECK (field_type IN ('text', 'number', 'date', 'select', 'multi_select', 'checkbox', 'url')),
+    sort_order INTEGER NOT NULL DEFAULT 0 CHECK (sort_order >= 0),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) CHECK (trim(created_at) <> ''),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) CHECK (trim(updated_at) <> '')
+);
+CREATE UNIQUE INDEX idx_project_custom_fields_project_name ON project_custom_fields(project_id, lower(name));
+CREATE INDEX idx_project_custom_fields_project_sort ON project_custom_fields(project_id, sort_order, name);
+
+CREATE TABLE project_custom_field_options (
+    id TEXT PRIMARY KEY CHECK (trim(id) <> ''),
+    field_id TEXT NOT NULL REFERENCES project_custom_fields(id) ON DELETE CASCADE,
+    name TEXT NOT NULL CHECK (trim(name) <> ''),
+    sort_order INTEGER NOT NULL DEFAULT 0 CHECK (sort_order >= 0),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) CHECK (trim(created_at) <> ''),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) CHECK (trim(updated_at) <> ''),
+    UNIQUE (field_id, id)
+);
+CREATE UNIQUE INDEX idx_project_custom_field_options_field_name ON project_custom_field_options(field_id, lower(name));
+CREATE INDEX idx_project_custom_field_options_field_sort ON project_custom_field_options(field_id, sort_order, name);
+
+CREATE TABLE project_custom_field_values (
+    task_id TEXT NOT NULL REFERENCES project_tasks(id) ON DELETE CASCADE,
+    field_id TEXT NOT NULL REFERENCES project_custom_fields(id) ON DELETE CASCADE,
+    text_value TEXT,
+    number_value REAL,
+    date_value TEXT,
+    checkbox_value INTEGER CHECK (checkbox_value IS NULL OR checkbox_value IN (0, 1)),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) CHECK (trim(updated_at) <> ''),
+    PRIMARY KEY (task_id, field_id),
+    CHECK (
+        (text_value IS NOT NULL AND number_value IS NULL AND date_value IS NULL AND checkbox_value IS NULL) OR
+        (text_value IS NULL AND number_value IS NOT NULL AND date_value IS NULL AND checkbox_value IS NULL) OR
+        (text_value IS NULL AND number_value IS NULL AND date_value IS NOT NULL AND checkbox_value IS NULL) OR
+        (text_value IS NULL AND number_value IS NULL AND date_value IS NULL AND checkbox_value IS NOT NULL)
+    )
+);
+CREATE INDEX idx_project_custom_field_values_field ON project_custom_field_values(field_id);
+CREATE INDEX idx_project_custom_field_values_number ON project_custom_field_values(field_id, number_value);
+CREATE INDEX idx_project_custom_field_values_date ON project_custom_field_values(field_id, date_value);
+
+CREATE TABLE project_custom_field_option_values (
+    task_id TEXT NOT NULL REFERENCES project_tasks(id) ON DELETE CASCADE,
+    field_id TEXT NOT NULL REFERENCES project_custom_fields(id) ON DELETE CASCADE,
+    option_id TEXT NOT NULL REFERENCES project_custom_field_options(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) CHECK (trim(created_at) <> ''),
+    PRIMARY KEY (task_id, field_id, option_id),
+    FOREIGN KEY (field_id, option_id) REFERENCES project_custom_field_options(field_id, id) ON DELETE CASCADE
+);
+CREATE INDEX idx_project_custom_field_option_values_field ON project_custom_field_option_values(field_id, option_id);
+
+CREATE TABLE project_task_dependencies (
+    id TEXT PRIMARY KEY CHECK (trim(id) <> ''),
+    blocking_task_id TEXT NOT NULL REFERENCES project_tasks(id) ON DELETE CASCADE,
+    blocked_task_id TEXT NOT NULL REFERENCES project_tasks(id) ON DELETE CASCADE,
+    dependency_type TEXT NOT NULL DEFAULT 'blocks' CHECK (dependency_type IN ('blocks')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) CHECK (trim(created_at) <> ''),
+    CHECK (blocking_task_id <> blocked_task_id)
+);
+CREATE UNIQUE INDEX idx_project_task_dependencies_unique
+    ON project_task_dependencies(blocking_task_id, blocked_task_id, dependency_type);
+CREATE INDEX idx_project_task_dependencies_blocked ON project_task_dependencies(blocked_task_id);
+
+CREATE TABLE project_task_change_events (
+    id TEXT PRIMARY KEY CHECK (trim(id) <> ''),
+    task_id TEXT NOT NULL REFERENCES project_tasks(id) ON DELETE CASCADE,
+    event_type TEXT NOT NULL CHECK (
+        event_type IN (
+            'created',
+            'updated',
+            'status_changed',
+            'scheduled',
+            'completed',
+            'reopened',
+            'archived',
+            'event_unlinked',
+            'dependency_added',
+            'dependency_removed'
+        )
+    ),
+    field_name TEXT,
+    old_value TEXT,
+    new_value TEXT,
+    reason TEXT,
+    occurred_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) CHECK (trim(occurred_at) <> '')
+);
+CREATE INDEX idx_project_task_change_events_task ON project_task_change_events(task_id, occurred_at);
+
+CREATE TABLE project_view_preferences (
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    view_id TEXT NOT NULL CHECK (view_id IN ('list', 'board', 'calendar', 'gantt', 'summary')),
+    preference_key TEXT NOT NULL CHECK (trim(preference_key) <> ''),
+    preference_value TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) CHECK (trim(updated_at) <> ''),
+    PRIMARY KEY (project_id, view_id, preference_key)
+);
+
+INSERT INTO project_groups (id, name, icon, color, sort_order)
+VALUES ('group-routine', 'Routine', 'repeat', 0, 0);
+
+INSERT INTO projects (id, group_id, name, icon, color, sort_order, default_event_duration_minutes, default_pomodoro_preset_key)
+VALUES
+    ('project-routine-eat', 'group-routine', 'Eat', 'apple', 1, 0, 45, NULL),
+    ('project-routine-learning', 'group-routine', 'Learning', 'graduation-cap', 2, 10, 60, 'balanced'),
+    ('project-routine-reading', 'group-routine', 'Reading', 'book-open', 3, 20, 45, 'creative'),
+    ('project-routine-exercise', 'group-routine', 'Exercise', 'dumbbell', 4, 30, 60, NULL),
+    ('project-routine-hygiene', 'group-routine', 'Hygiene', 'bath', 5, 40, 30, NULL),
+    ('project-routine-social', 'group-routine', 'Social', 'heart', 6, 50, 60, NULL),
+    ('project-routine-chores', 'group-routine', 'Chores', 'sparkles', 7, 60, 45, NULL),
+    ('project-routine-leisure', 'group-routine', 'Leisure', 'clapperboard', 8, 70, 60, NULL),
+    ('project-routine-meditate', 'group-routine', 'Meditate', 'smile', 9, 80, 20, NULL),
+    ('project-routine-sleep', 'group-routine', 'Sleep', 'bed', 10, 90, 480, NULL);
+
+INSERT INTO project_sections (id, project_id, name, sort_order)
+SELECT 'section-' || substr(id, 9) || '-general', id, 'General', 0
+FROM projects;
+
+INSERT INTO project_statuses (id, project_id, name, category, sort_order, terminal)
+SELECT 'status-' || substr(id, 9) || '-backlog', id, 'Backlog', 'not_started', 0, 0
+FROM projects
+UNION ALL
+SELECT 'status-' || substr(id, 9) || '-todo', id, 'To do', 'not_started', 10, 0
+FROM projects
+UNION ALL
+SELECT 'status-' || substr(id, 9) || '-in-progress', id, 'In progress', 'active', 20, 0
+FROM projects
+UNION ALL
+SELECT 'status-' || substr(id, 9) || '-blocked', id, 'Blocked', 'blocked', 30, 0
+FROM projects
+UNION ALL
+SELECT 'status-' || substr(id, 9) || '-done', id, 'Done', 'done', 40, 1
+FROM projects;
+
 CREATE TABLE icalendar_objects (
     id TEXT PRIMARY KEY,
     calendar_id TEXT NOT NULL REFERENCES calendars(id) ON DELETE CASCADE,
@@ -122,6 +385,7 @@ CREATE TABLE calendar_events (
     end_time TEXT NOT NULL CHECK (trim(end_time) <> ''),
     timezone TEXT NOT NULL DEFAULT 'UTC' CHECK (trim(timezone) <> ''),
     calendar_id TEXT NOT NULL DEFAULT 'local' REFERENCES calendars(id) ON DELETE RESTRICT,
+    project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
     color INTEGER CHECK (color IS NULL OR (color >= 0 AND color < 32)),
     description TEXT NOT NULL DEFAULT '',
     rrule TEXT,
@@ -162,8 +426,18 @@ CREATE TABLE calendar_events (
 CREATE INDEX idx_calendar_events_start ON calendar_events(start_time);
 CREATE INDEX idx_calendar_events_end ON calendar_events(end_time);
 CREATE INDEX idx_calendar_events_calendar ON calendar_events(calendar_id);
+CREATE INDEX idx_calendar_events_project ON calendar_events(project_id, start_time);
 CREATE UNIQUE INDEX idx_calendar_events_source_uid ON calendar_events(calendar_id, source_uid);
 CREATE INDEX idx_calendar_events_icalendar_component ON calendar_events(icalendar_component_id);
+
+CREATE TABLE project_task_event_links (
+    task_id TEXT NOT NULL REFERENCES project_tasks(id) ON DELETE CASCADE,
+    event_id TEXT NOT NULL REFERENCES calendar_events(id) ON DELETE CASCADE,
+    link_kind TEXT NOT NULL DEFAULT 'scheduled' CHECK (link_kind IN ('scheduled', 'reference')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) CHECK (trim(created_at) <> ''),
+    PRIMARY KEY (task_id, event_id)
+);
+CREATE INDEX idx_project_task_event_links_event ON project_task_event_links(event_id);
 
 CREATE TABLE calendar_event_overrides (
     id TEXT PRIMARY KEY CHECK (trim(id) <> ''),
@@ -423,6 +697,7 @@ CREATE TABLE calendar_events_archive (
     end_time TEXT NOT NULL CHECK (trim(end_time) <> ''),
     timezone TEXT NOT NULL DEFAULT 'UTC' CHECK (trim(timezone) <> ''),
     calendar_id TEXT NOT NULL CHECK (trim(calendar_id) <> ''),
+    project_id TEXT,
     color INTEGER CHECK (color IS NULL OR (color >= 0 AND color < 32)),
     description TEXT NOT NULL DEFAULT '',
     rrule TEXT,

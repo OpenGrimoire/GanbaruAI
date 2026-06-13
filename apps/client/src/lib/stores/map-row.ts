@@ -33,6 +33,9 @@ export interface DbCalendarEvent {
   end_time: string;
   timezone: string;
   calendar_id: string;
+  project_id: string | null;
+  environment_id: string | null;
+  playlist_id: string | null;
   color: number | null;
   rrule: string | null;
   notifications: string | null;
@@ -257,6 +260,9 @@ export function mapRow(r: DbCalendarEvent, renderZone: string): CalendarEvent {
     timezone: r.timezone,
     calendarId: r.calendar_id,
   };
+  if (r.project_id) slim.projectId = r.project_id;
+  if (r.environment_id) slim.environmentId = r.environment_id;
+  if (r.playlist_id) slim.playlistId = r.playlist_id;
   const color = normalizeEventColor(r.color);
   if (color !== undefined) slim.color = color;
   if (r.rrule) {

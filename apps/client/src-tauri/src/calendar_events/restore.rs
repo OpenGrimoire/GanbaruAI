@@ -80,7 +80,7 @@ pub(super) async fn restore_archived_event_row(
     sqlx::query(
         "INSERT INTO calendar_events (
             id, title, start_time, end_time, timezone, calendar_id,
-            color, description, rrule, repeat_until, environment_id, playlist_id,
+            project_id, color, description, rrule, repeat_until, environment_id, playlist_id,
             all_day, location, url, transparency, status, source_uid, visibility,
             priority, geo_lat, geo_lng, sequence, guest_can_modify,
             guest_can_invite_others, guest_can_see_other_guests, created_at, updated_at,
@@ -88,7 +88,7 @@ pub(super) async fn restore_archived_event_row(
          )
          SELECT
             source_event_id, title, start_time, end_time, timezone, calendar_id,
-            color, description, rrule, repeat_until, environment_id, playlist_id,
+            project_id, color, description, rrule, repeat_until, environment_id, playlist_id,
             all_day, location, url, transparency, status, source_uid, visibility,
             priority, geo_lat, geo_lng, sequence, guest_can_modify,
             guest_can_invite_others, guest_can_see_other_guests, created_at, updated_at,
