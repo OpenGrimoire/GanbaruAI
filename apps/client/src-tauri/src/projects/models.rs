@@ -1,0 +1,690 @@
+use serde::{Deserialize, Serialize};
+
+#[derive(Serialize)]
+pub struct ProjectGroupRow {
+    pub(in crate::projects) id: String,
+    pub(in crate::projects) name: String,
+    pub(in crate::projects) icon: String,
+    pub(in crate::projects) color: Option<i64>,
+    pub(in crate::projects) sort_order: i64,
+    pub(in crate::projects) collapsed: i64,
+    pub(in crate::projects) hidden_at: Option<String>,
+    pub(in crate::projects) archived_at: Option<String>,
+    pub(in crate::projects) created_at: String,
+    pub(in crate::projects) updated_at: String,
+}
+impl_sqlite_from_row!(ProjectGroupRow {
+    id,
+    name,
+    icon,
+    color,
+    sort_order,
+    collapsed,
+    hidden_at,
+    archived_at,
+    created_at,
+    updated_at,
+});
+
+#[derive(Serialize)]
+pub struct ProjectRow {
+    pub(in crate::projects) id: String,
+    pub(in crate::projects) group_id: String,
+    pub(in crate::projects) name: String,
+    pub(in crate::projects) icon: String,
+    pub(in crate::projects) color: Option<i64>,
+    pub(in crate::projects) sort_order: i64,
+    pub(in crate::projects) status: String,
+    pub(in crate::projects) default_event_duration_minutes: i64,
+    pub(in crate::projects) default_pomodoro_preset_key: Option<String>,
+    pub(in crate::projects) default_idle_timeout_minutes: Option<i64>,
+    pub(in crate::projects) focus_playlist_id: Option<String>,
+    pub(in crate::projects) break_playlist_id: Option<String>,
+    pub(in crate::projects) work_environment_id: Option<String>,
+    pub(in crate::projects) blocker_ruleset_id: Option<String>,
+    pub(in crate::projects) created_at: String,
+    pub(in crate::projects) updated_at: String,
+}
+impl_sqlite_from_row!(ProjectRow {
+    id,
+    group_id,
+    name,
+    icon,
+    color,
+    sort_order,
+    status,
+    default_event_duration_minutes,
+    default_pomodoro_preset_key,
+    default_idle_timeout_minutes,
+    focus_playlist_id,
+    break_playlist_id,
+    work_environment_id,
+    blocker_ruleset_id,
+    created_at,
+    updated_at,
+});
+
+#[derive(Serialize)]
+pub struct ProjectSectionRow {
+    pub(in crate::projects) id: String,
+    pub(in crate::projects) project_id: String,
+    pub(in crate::projects) name: String,
+    pub(in crate::projects) sort_order: i64,
+    pub(in crate::projects) collapsed: i64,
+    pub(in crate::projects) hidden_at: Option<String>,
+    pub(in crate::projects) archived_at: Option<String>,
+    pub(in crate::projects) created_at: String,
+    pub(in crate::projects) updated_at: String,
+}
+impl_sqlite_from_row!(ProjectSectionRow {
+    id,
+    project_id,
+    name,
+    sort_order,
+    collapsed,
+    hidden_at,
+    archived_at,
+    created_at,
+    updated_at,
+});
+
+#[derive(Serialize)]
+pub struct ProjectStatusRow {
+    pub(in crate::projects) id: String,
+    pub(in crate::projects) project_id: String,
+    pub(in crate::projects) name: String,
+    pub(in crate::projects) category: String,
+    pub(in crate::projects) sort_order: i64,
+    pub(in crate::projects) terminal: i64,
+    pub(in crate::projects) created_at: String,
+    pub(in crate::projects) updated_at: String,
+}
+impl_sqlite_from_row!(ProjectStatusRow {
+    id,
+    project_id,
+    name,
+    category,
+    sort_order,
+    terminal,
+    created_at,
+    updated_at,
+});
+
+#[derive(Serialize)]
+pub struct ProjectTaskRow {
+    pub(in crate::projects) id: String,
+    pub(in crate::projects) project_id: String,
+    pub(in crate::projects) section_id: String,
+    pub(in crate::projects) status_id: String,
+    pub(in crate::projects) parent_task_id: Option<String>,
+    pub(in crate::projects) title: String,
+    pub(in crate::projects) description: String,
+    pub(in crate::projects) priority: String,
+    pub(in crate::projects) task_type: String,
+    pub(in crate::projects) section_sort_order: f64,
+    pub(in crate::projects) status_sort_order: f64,
+    pub(in crate::projects) estimate_minutes: Option<i64>,
+    pub(in crate::projects) due_date: Option<String>,
+    pub(in crate::projects) start_date: Option<String>,
+    pub(in crate::projects) target_end_date: Option<String>,
+    pub(in crate::projects) completed_at: Option<String>,
+    pub(in crate::projects) archived_at: Option<String>,
+    pub(in crate::projects) blocker_reason: Option<String>,
+    pub(in crate::projects) milestone: i64,
+    pub(in crate::projects) created_at: String,
+    pub(in crate::projects) updated_at: String,
+}
+impl_sqlite_from_row!(ProjectTaskRow {
+    id,
+    project_id,
+    section_id,
+    status_id,
+    parent_task_id,
+    title,
+    description,
+    priority,
+    task_type,
+    section_sort_order,
+    status_sort_order,
+    estimate_minutes,
+    due_date,
+    start_date,
+    target_end_date,
+    completed_at,
+    archived_at,
+    blocker_reason,
+    milestone,
+    created_at,
+    updated_at,
+});
+
+#[derive(Serialize)]
+pub struct ProjectChecklistItemRow {
+    pub(in crate::projects) id: String,
+    pub(in crate::projects) task_id: String,
+    pub(in crate::projects) title: String,
+    pub(in crate::projects) completed_at: Option<String>,
+    pub(in crate::projects) sort_order: i64,
+    pub(in crate::projects) created_at: String,
+    pub(in crate::projects) updated_at: String,
+}
+impl_sqlite_from_row!(ProjectChecklistItemRow {
+    id,
+    task_id,
+    title,
+    completed_at,
+    sort_order,
+    created_at,
+    updated_at,
+});
+
+#[derive(Serialize)]
+pub struct ProjectLabelRow {
+    pub(in crate::projects) id: String,
+    pub(in crate::projects) project_id: String,
+    pub(in crate::projects) name: String,
+    pub(in crate::projects) color: Option<i64>,
+    pub(in crate::projects) sort_order: i64,
+    pub(in crate::projects) created_at: String,
+    pub(in crate::projects) updated_at: String,
+}
+impl_sqlite_from_row!(ProjectLabelRow {
+    id,
+    project_id,
+    name,
+    color,
+    sort_order,
+    created_at,
+    updated_at,
+});
+
+#[derive(Serialize)]
+pub struct ProjectTaskLabelLinkRow {
+    pub(in crate::projects) task_id: String,
+    pub(in crate::projects) label_id: String,
+    pub(in crate::projects) created_at: String,
+}
+impl_sqlite_from_row!(ProjectTaskLabelLinkRow {
+    task_id,
+    label_id,
+    created_at,
+});
+
+#[derive(Serialize)]
+pub struct ProjectCustomFieldRow {
+    pub(in crate::projects) id: String,
+    pub(in crate::projects) project_id: String,
+    pub(in crate::projects) name: String,
+    pub(in crate::projects) field_type: String,
+    pub(in crate::projects) sort_order: i64,
+    pub(in crate::projects) created_at: String,
+    pub(in crate::projects) updated_at: String,
+}
+impl_sqlite_from_row!(ProjectCustomFieldRow {
+    id,
+    project_id,
+    name,
+    field_type,
+    sort_order,
+    created_at,
+    updated_at,
+});
+
+#[derive(Serialize)]
+pub struct ProjectCustomFieldOptionRow {
+    pub(in crate::projects) id: String,
+    pub(in crate::projects) field_id: String,
+    pub(in crate::projects) name: String,
+    pub(in crate::projects) sort_order: i64,
+    pub(in crate::projects) created_at: String,
+    pub(in crate::projects) updated_at: String,
+}
+impl_sqlite_from_row!(ProjectCustomFieldOptionRow {
+    id,
+    field_id,
+    name,
+    sort_order,
+    created_at,
+    updated_at,
+});
+
+#[derive(Serialize)]
+pub struct ProjectCustomFieldValueRow {
+    pub(in crate::projects) task_id: String,
+    pub(in crate::projects) field_id: String,
+    pub(in crate::projects) text_value: Option<String>,
+    pub(in crate::projects) number_value: Option<f64>,
+    pub(in crate::projects) date_value: Option<String>,
+    pub(in crate::projects) checkbox_value: Option<i64>,
+    pub(in crate::projects) updated_at: String,
+}
+impl_sqlite_from_row!(ProjectCustomFieldValueRow {
+    task_id,
+    field_id,
+    text_value,
+    number_value,
+    date_value,
+    checkbox_value,
+    updated_at,
+});
+
+#[derive(Serialize)]
+pub struct ProjectCustomFieldOptionValueRow {
+    pub(in crate::projects) task_id: String,
+    pub(in crate::projects) field_id: String,
+    pub(in crate::projects) option_id: String,
+    pub(in crate::projects) created_at: String,
+}
+impl_sqlite_from_row!(ProjectCustomFieldOptionValueRow {
+    task_id,
+    field_id,
+    option_id,
+    created_at,
+});
+
+#[derive(Serialize)]
+pub struct ProjectTaskDependencyRow {
+    pub(in crate::projects) id: String,
+    pub(in crate::projects) blocking_task_id: String,
+    pub(in crate::projects) blocked_task_id: String,
+    pub(in crate::projects) dependency_type: String,
+    pub(in crate::projects) created_at: String,
+}
+impl_sqlite_from_row!(ProjectTaskDependencyRow {
+    id,
+    blocking_task_id,
+    blocked_task_id,
+    dependency_type,
+    created_at,
+});
+
+#[derive(Serialize)]
+pub struct ProjectTaskEventLinkRow {
+    pub(in crate::projects) task_id: String,
+    pub(in crate::projects) event_id: String,
+    pub(in crate::projects) link_kind: String,
+    pub(in crate::projects) created_at: String,
+}
+impl_sqlite_from_row!(ProjectTaskEventLinkRow {
+    task_id,
+    event_id,
+    link_kind,
+    created_at,
+});
+
+#[derive(Serialize)]
+pub struct ProjectTaskChangeEventRow {
+    pub(in crate::projects) id: String,
+    pub(in crate::projects) task_id: String,
+    pub(in crate::projects) event_type: String,
+    pub(in crate::projects) field_name: Option<String>,
+    pub(in crate::projects) old_value: Option<String>,
+    pub(in crate::projects) new_value: Option<String>,
+    pub(in crate::projects) reason: Option<String>,
+    pub(in crate::projects) occurred_at: String,
+}
+impl_sqlite_from_row!(ProjectTaskChangeEventRow {
+    id,
+    task_id,
+    event_type,
+    field_name,
+    old_value,
+    new_value,
+    reason,
+    occurred_at,
+});
+
+#[derive(Serialize)]
+pub struct ProjectViewPreferenceRow {
+    pub(in crate::projects) project_id: String,
+    pub(in crate::projects) view_id: String,
+    pub(in crate::projects) preference_key: String,
+    pub(in crate::projects) preference_value: String,
+    pub(in crate::projects) updated_at: String,
+}
+impl_sqlite_from_row!(ProjectViewPreferenceRow {
+    project_id,
+    view_id,
+    preference_key,
+    preference_value,
+    updated_at,
+});
+
+#[derive(Serialize)]
+pub struct ProjectLinkableEventTask {
+    pub(in crate::projects) task_id: String,
+    pub(in crate::projects) title: String,
+    pub(in crate::projects) archived_at: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct ProjectLinkableEvent {
+    pub(in crate::projects) id: String,
+    pub(in crate::projects) project_id: String,
+    pub(in crate::projects) title: String,
+    pub(in crate::projects) start_time: String,
+    pub(in crate::projects) end_time: String,
+    pub(in crate::projects) timezone: String,
+    pub(in crate::projects) calendar_id: String,
+    pub(in crate::projects) color: Option<i64>,
+    pub(in crate::projects) all_day: i64,
+    pub(in crate::projects) status: String,
+    pub(in crate::projects) linked_tasks: Vec<ProjectLinkableEventTask>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectLinkableEventSearch {
+    pub(in crate::projects) project_id: String,
+    pub(in crate::projects) task_id: Option<String>,
+    pub(in crate::projects) query: Option<String>,
+    pub(in crate::projects) start_date: Option<String>,
+    pub(in crate::projects) end_date: Option<String>,
+    pub(in crate::projects) limit: Option<i64>,
+}
+
+#[derive(Serialize)]
+pub(in crate::projects) struct ProjectLinkableEventRow {
+    pub(in crate::projects) id: String,
+    pub(in crate::projects) project_id: String,
+    pub(in crate::projects) title: String,
+    pub(in crate::projects) start_time: String,
+    pub(in crate::projects) end_time: String,
+    pub(in crate::projects) timezone: String,
+    pub(in crate::projects) calendar_id: String,
+    pub(in crate::projects) color: Option<i64>,
+    pub(in crate::projects) all_day: i64,
+    pub(in crate::projects) status: String,
+}
+impl_sqlite_from_row!(ProjectLinkableEventRow {
+    id,
+    project_id,
+    title,
+    start_time,
+    end_time,
+    timezone,
+    calendar_id,
+    color,
+    all_day,
+    status,
+});
+
+pub(in crate::projects) struct ProjectLinkableEventTaskRow {
+    pub(in crate::projects) event_id: String,
+    pub(in crate::projects) task_id: String,
+    pub(in crate::projects) title: String,
+    pub(in crate::projects) archived_at: Option<String>,
+}
+impl_sqlite_from_row!(ProjectLinkableEventTaskRow {
+    event_id,
+    task_id,
+    title,
+    archived_at,
+});
+
+#[derive(Serialize)]
+pub struct ProjectsSnapshot {
+    pub(in crate::projects) groups: Vec<ProjectGroupRow>,
+    pub(in crate::projects) projects: Vec<ProjectRow>,
+    pub(in crate::projects) sections: Vec<ProjectSectionRow>,
+    pub(in crate::projects) statuses: Vec<ProjectStatusRow>,
+    pub(in crate::projects) tasks: Vec<ProjectTaskRow>,
+    pub(in crate::projects) checklist_items: Vec<ProjectChecklistItemRow>,
+    pub(in crate::projects) labels: Vec<ProjectLabelRow>,
+    pub(in crate::projects) task_label_links: Vec<ProjectTaskLabelLinkRow>,
+    pub(in crate::projects) custom_fields: Vec<ProjectCustomFieldRow>,
+    pub(in crate::projects) custom_field_options: Vec<ProjectCustomFieldOptionRow>,
+    pub(in crate::projects) custom_field_values: Vec<ProjectCustomFieldValueRow>,
+    pub(in crate::projects) custom_field_option_values: Vec<ProjectCustomFieldOptionValueRow>,
+    pub(in crate::projects) dependencies: Vec<ProjectTaskDependencyRow>,
+    pub(in crate::projects) event_links: Vec<ProjectTaskEventLinkRow>,
+    pub(in crate::projects) task_change_events: Vec<ProjectTaskChangeEventRow>,
+    pub(in crate::projects) view_preferences: Vec<ProjectViewPreferenceRow>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectGroupCreate {
+    pub(in crate::projects) id: String,
+    pub(in crate::projects) name: String,
+    pub(in crate::projects) icon: String,
+    pub(in crate::projects) color: Option<i64>,
+    pub(in crate::projects) sort_order: i64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectGroupUpdate {
+    pub(in crate::projects) id: String,
+    pub(in crate::projects) name: String,
+    pub(in crate::projects) icon: String,
+    pub(in crate::projects) color: Option<i64>,
+    pub(in crate::projects) sort_order: i64,
+    pub(in crate::projects) collapsed: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectCreate {
+    pub(in crate::projects) id: String,
+    pub(in crate::projects) group_id: String,
+    pub(in crate::projects) template_id: String,
+    pub(in crate::projects) name: String,
+    pub(in crate::projects) icon: String,
+    pub(in crate::projects) color: Option<i64>,
+    pub(in crate::projects) sort_order: i64,
+    pub(in crate::projects) default_event_duration_minutes: i64,
+    pub(in crate::projects) default_pomodoro_preset_key: Option<String>,
+    pub(in crate::projects) default_idle_timeout_minutes: Option<i64>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectUpdate {
+    pub(in crate::projects) id: String,
+    pub(in crate::projects) group_id: String,
+    pub(in crate::projects) name: String,
+    pub(in crate::projects) icon: String,
+    pub(in crate::projects) color: Option<i64>,
+    pub(in crate::projects) sort_order: i64,
+    pub(in crate::projects) status: String,
+    pub(in crate::projects) default_event_duration_minutes: i64,
+    pub(in crate::projects) default_pomodoro_preset_key: Option<String>,
+    pub(in crate::projects) default_idle_timeout_minutes: Option<i64>,
+    pub(in crate::projects) focus_playlist_id: Option<String>,
+    pub(in crate::projects) break_playlist_id: Option<String>,
+    pub(in crate::projects) work_environment_id: Option<String>,
+    pub(in crate::projects) blocker_ruleset_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectSectionCreate {
+    pub(in crate::projects) id: String,
+    pub(in crate::projects) project_id: String,
+    pub(in crate::projects) name: String,
+    pub(in crate::projects) sort_order: i64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectSectionUpdate {
+    pub(in crate::projects) id: String,
+    pub(in crate::projects) name: String,
+    pub(in crate::projects) sort_order: i64,
+    pub(in crate::projects) collapsed: bool,
+    pub(in crate::projects) hidden_at: Option<String>,
+    pub(in crate::projects) archived_at: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectStatusCreate {
+    pub(in crate::projects) id: String,
+    pub(in crate::projects) project_id: String,
+    pub(in crate::projects) name: String,
+    pub(in crate::projects) category: String,
+    pub(in crate::projects) sort_order: i64,
+    pub(in crate::projects) terminal: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectStatusUpdate {
+    pub(in crate::projects) id: String,
+    pub(in crate::projects) name: String,
+    pub(in crate::projects) category: String,
+    pub(in crate::projects) sort_order: i64,
+    pub(in crate::projects) terminal: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectTaskCreate {
+    pub(in crate::projects) id: String,
+    pub(in crate::projects) project_id: String,
+    pub(in crate::projects) section_id: String,
+    pub(in crate::projects) status_id: String,
+    pub(in crate::projects) parent_task_id: Option<String>,
+    pub(in crate::projects) title: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectTaskUpdate {
+    pub(in crate::projects) id: String,
+    pub(in crate::projects) section_id: String,
+    pub(in crate::projects) status_id: String,
+    pub(in crate::projects) parent_task_id: Option<String>,
+    pub(in crate::projects) title: String,
+    pub(in crate::projects) description: String,
+    pub(in crate::projects) priority: String,
+    pub(in crate::projects) task_type: String,
+    pub(in crate::projects) section_sort_order: f64,
+    pub(in crate::projects) status_sort_order: f64,
+    pub(in crate::projects) estimate_minutes: Option<i64>,
+    pub(in crate::projects) due_date: Option<String>,
+    pub(in crate::projects) start_date: Option<String>,
+    pub(in crate::projects) target_end_date: Option<String>,
+    pub(in crate::projects) archived_at: Option<String>,
+    pub(in crate::projects) blocker_reason: Option<String>,
+    pub(in crate::projects) milestone: bool,
+    pub(in crate::projects) change_reason: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectTaskDependencyCreate {
+    pub(in crate::projects) id: String,
+    pub(in crate::projects) blocking_task_id: String,
+    pub(in crate::projects) blocked_task_id: String,
+    pub(in crate::projects) dependency_type: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectChecklistItemCreate {
+    pub(in crate::projects) id: String,
+    pub(in crate::projects) task_id: String,
+    pub(in crate::projects) title: String,
+    pub(in crate::projects) sort_order: i64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectChecklistItemUpdate {
+    pub(in crate::projects) id: String,
+    pub(in crate::projects) title: String,
+    pub(in crate::projects) completed: bool,
+    pub(in crate::projects) sort_order: i64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectLabelCreate {
+    pub(in crate::projects) id: String,
+    pub(in crate::projects) project_id: String,
+    pub(in crate::projects) name: String,
+    pub(in crate::projects) color: Option<i64>,
+    pub(in crate::projects) sort_order: i64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectLabelUpdate {
+    pub(in crate::projects) id: String,
+    pub(in crate::projects) name: String,
+    pub(in crate::projects) color: Option<i64>,
+    pub(in crate::projects) sort_order: i64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectTaskLabelLinkCreate {
+    pub(in crate::projects) task_id: String,
+    pub(in crate::projects) label_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectCustomFieldCreate {
+    pub(in crate::projects) id: String,
+    pub(in crate::projects) project_id: String,
+    pub(in crate::projects) name: String,
+    pub(in crate::projects) field_type: String,
+    pub(in crate::projects) sort_order: i64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectCustomFieldUpdate {
+    pub(in crate::projects) id: String,
+    pub(in crate::projects) name: String,
+    pub(in crate::projects) sort_order: i64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectCustomFieldOptionCreate {
+    pub(in crate::projects) id: String,
+    pub(in crate::projects) field_id: String,
+    pub(in crate::projects) name: String,
+    pub(in crate::projects) sort_order: i64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectCustomFieldOptionUpdate {
+    pub(in crate::projects) id: String,
+    pub(in crate::projects) name: String,
+    pub(in crate::projects) sort_order: i64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectCustomFieldValueUpdate {
+    pub(in crate::projects) task_id: String,
+    pub(in crate::projects) field_id: String,
+    pub(in crate::projects) text_value: Option<String>,
+    pub(in crate::projects) number_value: Option<f64>,
+    pub(in crate::projects) date_value: Option<String>,
+    pub(in crate::projects) checkbox_value: Option<bool>,
+    pub(in crate::projects) option_ids: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectTaskEventLinkCreate {
+    pub(in crate::projects) task_id: String,
+    pub(in crate::projects) event_id: String,
+    pub(in crate::projects) link_kind: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectViewPreferenceUpsert {
+    pub(in crate::projects) project_id: String,
+    pub(in crate::projects) view_id: String,
+    pub(in crate::projects) preference_key: String,
+    pub(in crate::projects) preference_value: String,
+}
