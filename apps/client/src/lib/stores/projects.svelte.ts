@@ -640,21 +640,33 @@ async function moveStatus(status: ProjectStatus, direction: -1 | 1): Promise<voi
 async function addTask(
   projectId: string,
   title: string,
-  sectionId = defaultSection(projectId)?.id,
-  statusId = defaultStatus(projectId)?.id,
+  sectionId?: string,
+  statusId?: string,
   parentTaskId: string | null = null,
-): Promise<void> {
+): Promise<ProjectTask | undefined> {
   const displayTitle = normalizeProjectName(title);
-  if (!displayTitle || !sectionId || !statusId) return;
+  if (!displayTitle) return;
+  await ensureProjectData(projectId);
+  const resolvedSectionId = sectionId ?? defaultSection(projectId)?.id;
+  const resolvedStatusId = statusId ?? defaultStatus(projectId)?.id;
+  if (!resolvedSectionId || !resolvedStatusId) {
+    throw new Error("project needs at least one section and one status");
+  }
+  const taskId = crypto.randomUUID();
   await createProjectTask({
-    id: crypto.randomUUID(),
+    id: taskId,
     projectId,
-    sectionId,
-    statusId,
+    sectionId: resolvedSectionId,
+    statusId: resolvedStatusId,
     parentTaskId,
     title: displayTitle,
   });
-  await reload();
+  await reload(projectId);
+  const createdTask = taskById(taskId);
+  if (!createdTask) {
+    throw new Error("created task was not returned by the project snapshot");
+  }
+  return createdTask;
 }
 
 async function addChecklistItem(taskId: string, title: string): Promise<void> {

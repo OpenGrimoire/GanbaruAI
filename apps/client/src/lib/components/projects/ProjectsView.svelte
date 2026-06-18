@@ -109,6 +109,7 @@
   const TASK_DEPENDENCY_FILTERS: ProjectTaskDependencyFilter[] = ["all", "linked", "blocked_by", "blocking", "none"];
   const TASK_SORT_MODES: ProjectCoreTaskSortMode[] = [...PROJECT_TASK_SORT_MODES];
   const PROJECT_LIST_DRAG_MIME = "application/x-ganbaru-project-list-task";
+  type TaskCreateTarget = "quick" | `section:${string}`;
 
   let showInactiveProjects = $state(false);
   let showInactiveSections = $state(false);
@@ -133,6 +134,9 @@
   let savedViewSaving = $state(false);
   let savedViewError = $state<string | null>(null);
   let quickTaskTitle = $state("");
+  let taskCreatePendingTarget = $state<TaskCreateTarget | null>(null);
+  let taskCreateErrorTarget = $state<TaskCreateTarget | null>(null);
+  let taskCreateErrorMessage = $state<string | null>(null);
   let sectionDraft = $state("");
   let sectionTaskDrafts = $state<Record<string, string>>({});
   let schedulingTaskId = $state<string | null>(null);
@@ -1042,17 +1046,90 @@
     return "border-border bg-background/70 text-foreground";
   }
 
+  function revealCreatedTask(task: ProjectTask | undefined): void {
+    if (!task) return;
+    projects.activeView = "list";
+    taskSearch = "";
+    taskStatusFilter = "all";
+    taskSectionFilter = "all";
+    taskPriorityFilter = "all";
+    taskDueFilter = "all";
+    taskDueRangeStart = "";
+    taskDueRangeEnd = "";
+    taskScheduleFilter = "all";
+    taskDependencyFilter = "all";
+    taskLabelFilter = "all";
+    taskCustomFieldFilters = [];
+    selectedTaskId = task.id;
+    selectedTaskIds = [];
+    showArchivedTasks = false;
+    showInactiveSections = false;
+  }
+
+  function sectionTaskCreateTarget(sectionId: string): TaskCreateTarget {
+    return `section:${sectionId}`;
+  }
+
+  function clearTaskCreateError(target: TaskCreateTarget): void {
+    if (taskCreateErrorTarget !== target) return;
+    taskCreateErrorTarget = null;
+    taskCreateErrorMessage = null;
+  }
+
+  function setTaskCreateError(target: TaskCreateTarget, message: string): void {
+    taskCreateErrorTarget = target;
+    taskCreateErrorMessage = message;
+  }
+
+  function taskCreateErrorFor(target: TaskCreateTarget): string | null {
+    return taskCreateErrorTarget === target ? taskCreateErrorMessage : null;
+  }
+
+  function taskCreateFailedMessage(error: unknown): string {
+    const message = error instanceof Error ? error.message : String(error);
+    return t("projects.tasks.createFailed", message);
+  }
+
+  async function createTaskFromDraft(target: TaskCreateTarget, title: string, sectionId?: string): Promise<ProjectTask | undefined> {
+    const projectId = selectedProjectId;
+    if (!projectId) {
+      setTaskCreateError(target, t("projects.tasks.selectProjectFirst"));
+      return undefined;
+    }
+    const displayTitle = title.trim();
+    if (!displayTitle) return undefined;
+    taskCreatePendingTarget = target;
+    clearTaskCreateError(target);
+    try {
+      return await projects.addTask(projectId, displayTitle, sectionId);
+    } catch (error) {
+      console.error("create project task failed", error);
+      setTaskCreateError(target, taskCreateFailedMessage(error));
+      return undefined;
+    } finally {
+      if (taskCreatePendingTarget === target) {
+        taskCreatePendingTarget = null;
+      }
+    }
+  }
+
   async function submitQuickTask(): Promise<void> {
-    if (!selectedProjectId) return;
-    await projects.addTask(selectedProjectId, quickTaskTitle);
+    const title = quickTaskTitle.trim();
+    if (!title) return;
+    const createdTask = await createTaskFromDraft("quick", title);
+    if (!createdTask) return;
     quickTaskTitle = "";
+    revealCreatedTask(createdTask);
   }
 
   async function submitSectionTask(sectionId: string): Promise<void> {
-    if (!selectedProjectId) return;
-    const title = sectionTaskDrafts[sectionId] ?? "";
-    await projects.addTask(selectedProjectId, title, sectionId);
+    const target = sectionTaskCreateTarget(sectionId);
+    const title = (sectionTaskDrafts[sectionId] ?? "").trim();
+    if (!title) return;
+    const createdTask = await createTaskFromDraft(target, title, sectionId);
+    if (!createdTask) return;
     sectionTaskDrafts = { ...sectionTaskDrafts, [sectionId]: "" };
+    revealCreatedTask(createdTask);
   }
 
   async function submitSection(): Promise<void> {
@@ -1455,17 +1532,29 @@
               class="min-h-8 min-w-0 flex-1 bg-transparent text-[0.8rem] placeholder:text-muted-foreground"
             />
           </div>
-          <form class="flex min-w-48 flex-1 gap-1" onsubmit={(event) => { event.preventDefault(); void submitQuickTask(); }}>
-            <input
-              bind:value={quickTaskTitle}
-              placeholder={t("projects.header.quickAddPlaceholder")}
-              class="min-h-8 min-w-0 flex-1 rounded-md border border-border bg-background px-2 text-[0.8rem] placeholder:text-muted-foreground"
-            />
-            <button type="submit" class="flex min-h-8 items-center gap-1.5 rounded-md bg-primary px-2 text-[0.8rem] font-medium text-primary-foreground">
-              <Plus size={14} strokeWidth={1.75} />
-              <span>{t("projects.header.addTask")}</span>
-            </button>
-          </form>
+          <div class="flex min-w-48 flex-1 flex-col gap-1">
+            <form class="flex gap-1" onsubmit={(event) => { event.preventDefault(); void submitQuickTask(); }}>
+              <input
+                bind:value={quickTaskTitle}
+                placeholder={t("projects.header.quickAddPlaceholder")}
+                class="min-h-8 min-w-0 flex-1 rounded-md border border-border bg-background px-2 text-[0.8rem] placeholder:text-muted-foreground"
+              />
+              <button
+                type="button"
+                disabled={taskCreatePendingTarget !== null}
+                onclick={(event) => { event.preventDefault(); void submitQuickTask(); }}
+                class="flex min-h-8 items-center gap-1.5 rounded-md bg-primary px-2 text-[0.8rem] font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <Plus size={14} strokeWidth={1.75} />
+                <span>{t("projects.header.addTask")}</span>
+              </button>
+            </form>
+            {#if taskCreateErrorFor("quick")}
+              <div class="rounded border border-destructive/30 bg-destructive/10 px-2 py-1 text-[0.733333rem] text-destructive">
+                {taskCreateErrorFor("quick")}
+              </div>
+            {/if}
+          </div>
         </div>
         <div class="flex min-w-0 flex-wrap items-center gap-2 text-[0.766667rem]">
           <div class="flex h-8 shrink-0 items-center gap-1.5 text-muted-foreground">
@@ -2601,22 +2690,34 @@
                       </div>
                     {/if}
                   </div>
-                  <form class="flex gap-1 pl-7" onsubmit={(event) => { event.preventDefault(); void submitSectionTask(section.id); }}>
-                    <input
-                      value={sectionTaskDrafts[section.id] ?? ""}
-                      oninput={(event) => {
-                        sectionTaskDrafts = {
-                          ...sectionTaskDrafts,
-                          [section.id]: event.currentTarget.value,
-                        };
-                      }}
-                      placeholder={t("projects.list.addTaskInSection", section.name)}
-                      class="min-h-8 min-w-0 flex-1 rounded-md border border-border bg-card px-2 text-[0.8rem]"
-                    />
-                    <button type="submit" class="flex min-h-8 items-center justify-center rounded-md border border-border bg-card px-2 text-[0.8rem] hover:bg-accent">
-                      <Plus size={14} strokeWidth={1.75} />
-                    </button>
-                  </form>
+                  <div class="grid gap-1 pl-7">
+                    <form class="flex gap-1" onsubmit={(event) => { event.preventDefault(); void submitSectionTask(section.id); }}>
+                      <input
+                        value={sectionTaskDrafts[section.id] ?? ""}
+                        oninput={(event) => {
+                          sectionTaskDrafts = {
+                            ...sectionTaskDrafts,
+                            [section.id]: event.currentTarget.value,
+                          };
+                        }}
+                        placeholder={t("projects.list.addTaskInSection", section.name)}
+                        class="min-h-8 min-w-0 flex-1 rounded-md border border-border bg-card px-2 text-[0.8rem]"
+                      />
+                      <button
+                        type="button"
+                        disabled={taskCreatePendingTarget !== null}
+                        onclick={(event) => { event.preventDefault(); void submitSectionTask(section.id); }}
+                        class="flex min-h-8 items-center justify-center rounded-md border border-border bg-card px-2 text-[0.8rem] hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        <Plus size={14} strokeWidth={1.75} />
+                      </button>
+                    </form>
+                    {#if taskCreateErrorFor(sectionTaskCreateTarget(section.id))}
+                      <div class="rounded border border-destructive/30 bg-destructive/10 px-2 py-1 text-[0.733333rem] text-destructive">
+                        {taskCreateErrorFor(sectionTaskCreateTarget(section.id))}
+                      </div>
+                    {/if}
+                  </div>
                 {/if}
               </section>
             {/each}

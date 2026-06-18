@@ -1421,7 +1421,7 @@ async fn next_task_sort_order(
     sort_column: &'static str,
 ) -> Result<f64, String> {
     let sql = format!(
-        "SELECT COALESCE(MAX({sort_column}), 0) + 1000
+        "SELECT CAST(COALESCE(MAX({sort_column}), 0) + 1000 AS REAL)
          FROM project_tasks
          WHERE project_id = ? AND {owner_column} = ?"
     );
@@ -1786,6 +1786,62 @@ mod tests {
             milestone: task.milestone != 0,
             change_reason: None,
         }
+    }
+
+    #[test]
+    fn next_task_sort_order_handles_empty_project() {
+        tauri::async_runtime::block_on(async {
+            let pool = migrated_memory_pool().await;
+            sqlx::query(
+                "INSERT INTO project_groups (id, name, icon, sort_order)
+                 VALUES ('group-empty', 'Group Empty', 'folder', 100)",
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+            sqlx::query(
+                "INSERT INTO projects (id, group_id, name, icon, sort_order)
+                 VALUES ('project-empty', 'group-empty', 'Project Empty', 'folder', 100)",
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+            sqlx::query(
+                "INSERT INTO project_sections (id, project_id, name, sort_order)
+                 VALUES ('section-empty', 'project-empty', 'General', 100)",
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+            sqlx::query(
+                "INSERT INTO project_statuses (id, project_id, name, category, sort_order, terminal)
+                 VALUES ('status-empty', 'project-empty', 'To do', 'not_started', 100, 0)",
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+
+            let mut tx = pool.begin().await.unwrap();
+            let section_order = next_task_sort_order(
+                &mut tx,
+                "section_id",
+                "project-empty",
+                "section-empty",
+                "section_sort_order",
+            )
+            .await;
+            let status_order = next_task_sort_order(
+                &mut tx,
+                "status_id",
+                "project-empty",
+                "status-empty",
+                "status_sort_order",
+            )
+            .await;
+
+            assert_eq!(section_order, Ok(1000.0));
+            assert_eq!(status_order, Ok(1000.0));
+        });
     }
 
     #[test]

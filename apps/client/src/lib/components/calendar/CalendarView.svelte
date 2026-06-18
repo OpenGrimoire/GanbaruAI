@@ -1440,17 +1440,11 @@
 
   interface PanelPersistResult {
     saveRefreshedVisibleWindow: boolean;
-    taskLinkEventId?: string;
   }
 
   function calendarDataOnly(data: PanelSaveData): PanelSaveData {
     const { linkedTaskIds: _linkedTaskIds, ...calendarData } = data;
     return calendarData;
-  }
-
-  async function syncPanelTaskLinks(eventId: string | undefined, taskIds: readonly string[] | undefined): Promise<void> {
-    if (!eventId || !taskIds) return;
-    await projects.setEventTaskLinks(eventId, taskIds);
   }
 
   async function persistPanelData(
@@ -1460,12 +1454,11 @@
   ): Promise<PanelPersistResult> {
     const s = session.state;
     let saveRefreshedVisibleWindow = false;
-    let taskLinkEventId: string | undefined;
     const syncActivePomodoro = options.syncActivePomodoro ?? true;
     const calendarData = calendarDataOnly(data);
     if (s.mode === "closed") return { saveRefreshedVisibleWindow };
     if (s.mode === "create") {
-      const createdEvent = await calendarStore.addBlock({
+      await calendarStore.addBlock({
         title: calendarData.title, start: calendarData.start, end: calendarData.end,
         color: calendarData.color, projectId: calendarData.projectId,
         environmentId: calendarData.environmentId, playlistId: calendarData.playlistId,
@@ -1479,7 +1472,6 @@
         localParticipationStatus: calendarData.localParticipationStatus,
         guestPermissions: calendarData.guestPermissions,
       });
-      taskLinkEventId = createdEvent.id;
     } else if (s.mode === "edit") {
       const instanceEvent = s.instanceEvent;
       const isRec = isRecurring(s.originalEvent);
@@ -1511,11 +1503,10 @@
         const updated: CalendarEvent = { ...s.originalEvent, ...calendarData };
         await calendarStore.updateBlock(updated);
         if (syncActivePomodoro) await syncSavedActivePomodoro(updated);
-        taskLinkEventId = s.originalEvent.id;
       }
     }
 
-    return { saveRefreshedVisibleWindow, taskLinkEventId };
+    return { saveRefreshedVisibleWindow };
   }
 
   function shouldEnablePomodoroForActiveCalendarEvent(data: PanelSaveData): boolean {
@@ -1539,7 +1530,6 @@
       const calendarData = calendarDataOnly(data);
       const updated: CalendarEvent = { ...s.originalEvent, ...calendarData };
       await calendarStore.updateBlock(updated);
-      await syncPanelTaskLinks(s.originalEvent.id, data.linkedTaskIds);
       await pomodoro.startFromBlock(
         s.originalEvent.id,
         config,
@@ -1604,7 +1594,6 @@
     try {
       const persistResult = await persistPanelData(data, scope);
       saveRefreshedVisibleWindow = persistResult.saveRefreshedVisibleWindow;
-      await syncPanelTaskLinks(persistResult.taskLinkEventId, data.linkedTaskIds);
 
       // Stop session after all mutations complete because hybrid save logic needs activeBlockId intact.
       if (sessionStopPending) {
@@ -1654,13 +1643,11 @@
       if (!completesPomodoro && !isRecurring(s.originalEvent)) {
         const calendarEndedData = calendarDataOnly(endedData);
         await calendarStore.updateBlock({ id: s.originalEvent.id, end: calendarEndedData.end });
-        await syncPanelTaskLinks(s.originalEvent.id, endedData.linkedTaskIds);
       } else {
         const persistResult = await persistPanelData(endedData, scope, {
           syncActivePomodoro: false,
         });
         saveRefreshedVisibleWindow = persistResult.saveRefreshedVisibleWindow;
-        await syncPanelTaskLinks(persistResult.taskLinkEventId, endedData.linkedTaskIds);
       }
       if (completesPomodoro) {
         await pomodoro.completeActiveBlockAt(endIso);

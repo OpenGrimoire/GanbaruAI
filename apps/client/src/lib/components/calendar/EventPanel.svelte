@@ -13,7 +13,6 @@
   import NotificationsSection from "./NotificationsSection.svelte";
   import RecurrenceSection from "./RecurrenceSection.svelte";
   import ProjectSelector from "$lib/components/projects/ProjectSelector.svelte";
-  import type { ProjectTask } from "$lib/projects/types";
   import { onMount, tick, untrack } from "svelte";
   import { slide } from "svelte/transition";
   import { cubicOut } from "svelte/easing";
@@ -77,9 +76,6 @@
   import Smile from "@lucide/svelte/icons/smile";
   import Eye from "@lucide/svelte/icons/eye";
   import Lock from "@lucide/svelte/icons/lock";
-  import Check from "@lucide/svelte/icons/check";
-  import Search from "@lucide/svelte/icons/search";
-  import X from "@lucide/svelte/icons/x";
 
 
   const theme = getTheme();
@@ -181,9 +177,6 @@
   let endDate = $state("");
   let color: EventColor | undefined = $state(undefined);
   let projectId: string | undefined = $state(undefined);
-  let linkedTaskIds: string[] = $state([]);
-  let taskLinkSearch = $state("");
-  let taskLinksChangedByUser = $state(false);
   let environmentId: string | undefined = $state(undefined);
   let playlistId: string | undefined = $state(undefined);
   let description = $state("");
@@ -737,7 +730,6 @@
 
   function handleProjectSelect(nextProjectId: string | undefined): void {
     projectId = nextProjectId;
-    keepProjectTaskLinks(nextProjectId);
     const selectedProject = projects.projectById(nextProjectId);
     environmentId = selectedProject?.workEnvironmentId;
     playlistId = selectedProject?.focusPlaylistId;
@@ -907,66 +899,6 @@
   const isRecurring = $derived(
     mode === "edit" && recurringScopeEnabled,
   );
-  const taskLinksEnabled = $derived(!isRecurring);
-  const linkedTaskIdSet = $derived(new Set(linkedTaskIds));
-  const linkedTasks = $derived.by(() =>
-    linkedTaskIds
-      .map((taskId) => projects.taskById(taskId))
-      .filter((task): task is ProjectTask => !!task),
-  );
-  const taskLinkCandidates = $derived.by(() => {
-    if (!projectId || !taskLinksEnabled) return [];
-    const normalizedSearch = taskLinkSearch.trim().toLowerCase();
-    return projects.tasksForProject(projectId)
-      .filter((task) => !task.parentTaskId && !task.archivedAt)
-      .filter((task) =>
-        linkedTaskIdSet.has(task.id)
-        || !normalizedSearch
-        || task.title.toLowerCase().includes(normalizedSearch)
-      )
-      .slice(0, 12);
-  });
-
-  function uniqueTaskIds(taskIds: readonly string[]): string[] {
-    return Array.from(new Set(taskIds.filter((taskId) => taskId.trim().length > 0)));
-  }
-
-  function eventLinkedTaskIds(): string[] {
-    if (mode === "create") return uniqueTaskIds(initialCreateData?.linkedTaskIds ?? []);
-    if (!event?.id) return [];
-    return uniqueTaskIds(projects.eventLinksForEvent(event.id).map((link) => link.taskId));
-  }
-
-  function setLinkedTaskDraft(taskIds: readonly string[], changedByUser: boolean): void {
-    linkedTaskIds = uniqueTaskIds(taskIds);
-    taskLinksChangedByUser = changedByUser;
-  }
-
-  function keepProjectTaskLinks(nextProjectId: string | undefined): void {
-    if (!nextProjectId) {
-      setLinkedTaskDraft([], true);
-      return;
-    }
-    setLinkedTaskDraft(
-      linkedTaskIds.filter((taskId) => projects.taskById(taskId)?.projectId === nextProjectId),
-      true,
-    );
-  }
-
-  function toggleLinkedTask(task: ProjectTask): void {
-    if (controlsDisabled || !taskLinksEnabled || task.projectId !== projectId) return;
-    const next = linkedTaskIdSet.has(task.id)
-      ? linkedTaskIds.filter((taskId) => taskId !== task.id)
-      : [...linkedTaskIds, task.id];
-    setLinkedTaskDraft(next, true);
-    emitChange();
-  }
-
-  function removeLinkedTask(taskId: string): void {
-    if (controlsDisabled || !taskLinksEnabled) return;
-    setLinkedTaskDraft(linkedTaskIds.filter((id) => id !== taskId), true);
-    emitChange();
-  }
 
   // ─── Initialization ─────────────────────────────────────────────
   // Edit mode normally receives a full event row preloaded by CalendarView,
@@ -976,7 +908,6 @@
   let lastInitKey = "";
   let lastFullKey = "";
   let lastHeavyAppliedKey = "";
-  let lastTaskLinkHydrationKey = "";
   let initialized = $state(false);
   let fullEvent = $state<CalendarEvent | null>(null);
   let savePending = $state(false);
@@ -1038,8 +969,6 @@
       syncTimeDrafts();
       color = event.color;
       projectId = event.projectId;
-      setLinkedTaskDraft(eventLinkedTaskIds(), false);
-      taskLinkSearch = "";
       environmentId = event.environmentId;
       playlistId = event.playlistId;
       recurrence = event.recurrence ? { ...event.recurrence } : undefined;
@@ -1099,8 +1028,6 @@
       syncTimeDrafts();
       color = createData.color;
       projectId = createData.projectId;
-      setLinkedTaskDraft(eventLinkedTaskIds(), false);
-      taskLinkSearch = "";
       environmentId = createData.environmentId;
       playlistId = createData.playlistId;
       description = createData.description ?? "";
@@ -1134,8 +1061,6 @@
     timePickerKeyboardOpen = false;
     openSection = null;
     scope = "this";
-    taskLinksChangedByUser = false;
-    lastTaskLinkHydrationKey = "";
     dragOffset = { x: 0, y: 0 };
     userDragged = false;
 
@@ -1167,24 +1092,6 @@
         }
       });
     }
-  });
-
-  $effect(() => {
-    if (parked || mode !== "edit" || !event?.id || !projects.loaded || taskLinksChangedByUser) return;
-    const key = `${panelSessionKey}:${event.id}:${projects.eventLinks.length}`;
-    if (key === lastTaskLinkHydrationKey) return;
-    lastTaskLinkHydrationKey = key;
-    const next = eventLinkedTaskIds();
-    if (JSON.stringify(next) === JSON.stringify(linkedTaskIds)) return;
-    setLinkedTaskDraft(next, false);
-    if (initialized) (onInitialSync ?? onChange)?.({ linkedTaskIds: next });
-  });
-
-  $effect(() => {
-    if (!projectId || projects.projectDataLoaded(projectId)) return;
-    void projects.ensureProjectData(projectId).catch((error) => {
-      console.error("load project data failed", error);
-    });
   });
 
   // Heavy-field init: runs once per fullEvent arrival. The setInitialChanges
@@ -1419,7 +1326,7 @@
       endTime,
       color,
       projectId,
-      linkedTaskIds,
+      linkedTaskIds: [],
       environmentId,
       playlistId,
       description,
@@ -1843,6 +1750,11 @@
           onkeydown={inputKeydown}
         />
       </div>
+      <ProjectSelector
+        selectedProjectId={projectId}
+        disabled={controlsDisabled}
+        onSelect={handleProjectSelect}
+      />
       {#if !controlsDisabled}
         <ColorPicker {color} theme={theme.current} onselect={(c) => { color = c; emitChange(); }} />
       {/if}
@@ -1997,90 +1909,6 @@
 
     </div>
 
-    <div class="px-1 pt-2">
-      <div class="mb-1 text-[0.733333rem] font-medium text-event-panel-muted-text">
-        {t("calendar.eventPanel.project")}
-      </div>
-      <ProjectSelector
-        selectedProjectId={projectId}
-        disabled={controlsDisabled}
-        compact
-        onSelect={handleProjectSelect}
-      />
-      {#if projectId}
-        <div class="mt-2 rounded-md border border-event-panel-divider/70 bg-event-panel-contrast/45 p-2">
-          <div class="mb-1 flex items-center justify-between gap-2 text-[0.733333rem] font-medium text-event-panel-muted-text">
-            <span>{t("calendar.eventPanel.tasks")}</span>
-            {#if linkedTaskIds.length > 0}
-              <span>{t("calendar.eventPanel.linkedTaskCount", linkedTaskIds.length)}</span>
-            {/if}
-          </div>
-
-          {#if !taskLinksEnabled}
-            <div class="text-[0.766667rem] text-event-panel-muted-text">
-              {t("calendar.eventPanel.taskLinksRecurring")}
-            </div>
-          {:else}
-            {#if linkedTasks.length > 0}
-              <div class="mb-1.5 flex min-w-0 flex-wrap gap-1">
-                {#each linkedTasks as task (task.id)}
-                  <button
-                    type="button"
-                    class="inline-flex max-w-full items-center gap-1 rounded border border-event-panel-divider bg-event-panel-bg px-1.5 py-0.5 text-[0.733333rem] text-event-panel-input-text hover:bg-event-panel-contrast disabled:cursor-not-allowed disabled:opacity-60"
-                    disabled={controlsDisabled}
-                    aria-label={t("calendar.eventPanel.removeLinkedTask", task.title)}
-                    onclick={() => removeLinkedTask(task.id)}
-                  >
-                    <span class="truncate">{task.title}</span>
-                    <X size={12} strokeWidth={1.75} class="shrink-0" />
-                  </button>
-                {/each}
-              </div>
-            {/if}
-
-            <div class="mb-1.5 flex min-h-7 items-center gap-1 rounded border border-event-panel-divider bg-event-panel-bg px-2">
-              <Search size={12} strokeWidth={1.75} class="shrink-0 text-event-panel-muted-text" />
-              <input
-                bind:value={taskLinkSearch}
-                disabled={controlsDisabled}
-                placeholder={t("calendar.eventPanel.searchTasks")}
-                class="min-w-0 flex-1 bg-transparent text-[0.766667rem] text-event-panel-input-text placeholder:text-event-panel-placeholder disabled:cursor-not-allowed"
-              />
-            </div>
-
-            <div class="max-h-28 overflow-y-auto">
-              {#each taskLinkCandidates as task (task.id)}
-                <button
-                  type="button"
-                  class="flex min-h-7 w-full min-w-0 items-center gap-2 rounded px-1.5 text-left text-[0.766667rem] text-event-panel-text hover:bg-event-panel-contrast disabled:cursor-not-allowed disabled:opacity-60"
-                  disabled={controlsDisabled}
-                  aria-pressed={linkedTaskIdSet.has(task.id)}
-                  onclick={() => toggleLinkedTask(task)}
-                >
-                  <span
-                    class={cn(
-                      "flex h-4 w-4 shrink-0 items-center justify-center rounded border",
-                      linkedTaskIdSet.has(task.id)
-                        ? "border-primary bg-primary text-primary-foreground"
-                        : "border-event-panel-divider",
-                    )}
-                  >
-                    {#if linkedTaskIdSet.has(task.id)}
-                      <Check size={11} strokeWidth={2} />
-                    {/if}
-                  </span>
-                  <span class="truncate">{task.title}</span>
-                </button>
-              {:else}
-                <div class="px-1 py-1 text-[0.766667rem] text-event-panel-muted-text">
-                  {t("calendar.eventPanel.noProjectTasks")}
-                </div>
-              {/each}
-            </div>
-          {/if}
-        </div>
-      {/if}
-    </div>
   </div>
 
   <!-- Metadata strip -->

@@ -1593,6 +1593,10 @@ export const en = {
       upcoming: "Upcoming project events",
       none: "No scheduled project events in the loaded calendar window",
     },
+    tasks: {
+      createFailed: (message: string) => `Could not create task: ${message}`,
+      selectProjectFirst: "Select a project before adding a task.",
+    },
     schedule: {
       date: "Date",
       start: "Start",

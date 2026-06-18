@@ -1,11 +1,14 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
+  import CircleQuestionMark from "@lucide/svelte/icons/circle-question-mark";
   import Plus from "@lucide/svelte/icons/plus";
   import Search from "@lucide/svelte/icons/search";
   import X from "@lucide/svelte/icons/x";
+  import { getEventColor } from "$lib/components/calendar/utils";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { getTheme } from "$lib/stores/theme.svelte";
   import { getProjects } from "$lib/stores/projects.svelte";
   import { cn } from "$lib/utils";
   import ProjectIcon from "./ProjectIcon.svelte";
@@ -15,16 +18,15 @@
   let {
     selectedProjectId = undefined,
     disabled = false,
-    compact = false,
     onSelect,
   }: {
     selectedProjectId?: string;
     disabled?: boolean;
-    compact?: boolean;
     onSelect: (projectId: string | undefined) => void;
   } = $props();
 
   const projects = getProjects();
+  const theme = getTheme();
   const { t } = getLocalization();
   let open = $state(false);
   let search = $state("");
@@ -33,9 +35,12 @@
   let projectTemplateDraftByGroup = $state<Record<string, ProjectTemplateId>>({});
   let createGroupOpen = $state(false);
   let createProjectGroupId = $state<string | null>(null);
+  let triggerEl: HTMLButtonElement | undefined = $state();
+  let dropdownStyle = $state("");
 
   const selectedProject = $derived(projects.projectById(selectedProjectId));
   const selectedGroup = $derived(projects.groupById(selectedProject?.groupId));
+  const pickerColor = $derived(getEventColor(selectedProject?.color, theme.current));
   const normalizedSearch = $derived(search.trim().toLowerCase());
   const groups = $derived.by(() => projects.visibleGroups());
 
@@ -43,7 +48,88 @@
     void projects.ensureLoaded().catch((error) => {
       console.error("load projects failed", error);
     });
+
+    const updateWhenOpen = () => {
+      if (open) updateDropdownGeometry();
+    };
+    window.addEventListener("resize", updateWhenOpen);
+    window.addEventListener("scroll", updateWhenOpen, true);
+    return () => {
+      window.removeEventListener("resize", updateWhenOpen);
+      window.removeEventListener("scroll", updateWhenOpen, true);
+    };
   });
+
+  interface DropdownBounds {
+    left: number;
+    right: number;
+    top: number;
+    bottom: number;
+  }
+
+  function dropdownBounds(): DropdownBounds {
+    const margin = 8;
+    const panelRect = triggerEl?.closest(".event-panel-scroll")?.getBoundingClientRect();
+    const viewportBounds = {
+      left: margin,
+      right: window.innerWidth - margin,
+      top: margin,
+      bottom: window.innerHeight - margin,
+    };
+    if (!panelRect) return viewportBounds;
+    return {
+      left: Math.max(panelRect.left, viewportBounds.left),
+      right: Math.min(panelRect.right, viewportBounds.right),
+      top: Math.max(panelRect.top, viewportBounds.top),
+      bottom: Math.min(panelRect.bottom, viewportBounds.bottom),
+    };
+  }
+
+  function updateDropdownGeometry(): void {
+    if (!triggerEl) return;
+    const triggerRect = triggerEl.getBoundingClientRect();
+    const bounds = dropdownBounds();
+    const gap = 4;
+    const maxHeight = 304;
+    const minWidth = 224;
+    const maxWidth = 288;
+    const boundsWidth = Math.max(0, bounds.right - bounds.left);
+    const width = Math.min(maxWidth, Math.max(minWidth, boundsWidth));
+    const left = Math.min(
+      Math.max(triggerRect.right - width, bounds.left),
+      bounds.right - width,
+    );
+    const spaceBelow = bounds.bottom - triggerRect.bottom - gap;
+    const spaceAbove = triggerRect.top - bounds.top - gap;
+    const openAbove = spaceBelow < 144 && spaceAbove > spaceBelow;
+    const availableHeight = Math.max(0, openAbove ? spaceAbove : spaceBelow);
+    const height = Math.min(maxHeight, availableHeight);
+    const top = openAbove
+      ? Math.max(bounds.top, triggerRect.top - gap - height)
+      : triggerRect.bottom + gap;
+    dropdownStyle = [
+      `left: ${Math.round(left)}px`,
+      `top: ${Math.round(top)}px`,
+      `width: ${Math.round(width)}px`,
+      `max-height: ${Math.round(height)}px`,
+    ].join("; ");
+  }
+
+  async function openDropdown(): Promise<void> {
+    updateDropdownGeometry();
+    open = true;
+    await tick();
+    updateDropdownGeometry();
+  }
+
+  function closeDropdown(): void {
+    open = false;
+  }
+
+  function toggleDropdown(): void {
+    if (open) closeDropdown();
+    else void openDropdown();
+  }
 
   function projectsInGroup(group: ProjectGroup): Project[] {
     const groupProjects = projects.projectsForGroup(group.id).filter((project) => project.status === "active");
@@ -64,7 +150,7 @@
 
   function selectProject(project: Project): void {
     onSelect(project.id);
-    open = false;
+    closeDropdown();
     search = "";
   }
 
@@ -89,7 +175,7 @@
     projectTemplateDraftByGroup = { ...projectTemplateDraftByGroup, [groupId]: "blank" };
     createProjectGroupId = null;
     onSelect(projects.selectedProjectId ?? undefined);
-    open = false;
+    closeDropdown();
   }
 
   function projectTemplateLabel(templateId: ProjectTemplateId): string {
@@ -103,42 +189,48 @@
 
   function clearSelection(): void {
     onSelect(undefined);
-    open = false;
+    closeDropdown();
   }
+
+  const pickerTitle = $derived.by(() => {
+    if (!selectedProject) return t("calendar.eventPanel.projectPlaceholder");
+    return selectedGroup ? `${selectedProject.name}, ${selectedGroup.name}` : selectedProject.name;
+  });
+
+  const pickerStyle = $derived(`background-color: ${pickerColor.bg}; color: ${pickerColor.text};`);
 </script>
 
-<div class="relative" data-app-shortcuts="ignore">
+<div class="relative flex items-center" data-app-shortcuts="ignore">
   <button
+    bind:this={triggerEl}
     type="button"
     disabled={disabled}
     class={cn(
-      "flex w-full items-center gap-2 rounded-md border border-event-panel-divider/70 bg-event-panel-contrast/70 px-2.5 text-left text-event-panel-input-text transition-colors hover:bg-event-panel-contrast",
-      compact ? "min-h-8 py-1.5" : "min-h-10 py-2",
+      "flex size-4.5 shrink-0 items-center justify-center rounded-sm border border-event-panel-divider/70 transition-opacity hover:opacity-90",
       disabled && "cursor-not-allowed opacity-60",
     )}
+    style={pickerStyle}
+    title={pickerTitle}
+    aria-label={pickerTitle}
+    data-app-tooltip-focus-disabled="true"
     onclick={() => {
-      if (!disabled) open = !open;
+      if (!disabled) toggleDropdown();
     }}
   >
-    <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-background/70 text-event-panel-muted-text">
-      <ProjectIcon name={selectedProject?.icon} size={14} />
-    </span>
-    <span class="min-w-0 flex-1">
-      <span class="block truncate text-[0.866667rem] leading-4">
-        {selectedProject?.name ?? t("calendar.eventPanel.projectPlaceholder")}
-      </span>
-      {#if selectedGroup}
-        <span class="block truncate text-[0.733333rem] leading-4 text-event-panel-muted-text">
-          {selectedGroup.name}
-        </span>
-      {/if}
-    </span>
-    <ChevronDown size={14} strokeWidth={1.75} class="shrink-0 text-event-panel-muted-text" />
+    {#if selectedProject}
+      <ProjectIcon name={selectedProject.icon} size={13} strokeWidth={2} />
+    {:else}
+      <CircleQuestionMark size={13} strokeWidth={2} />
+    {/if}
   </button>
 
   {#if open}
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="fixed inset-0 z-60" onclick={closeDropdown}></div>
     <div
-      class="absolute left-0 right-0 top-[calc(100%+0.25rem)] z-80 max-h-[min(19rem,calc(100dvh-5rem))] overflow-hidden rounded-md border border-event-panel-divider bg-event-panel-bg shadow-xl"
+      class="fixed z-61 flex flex-col overflow-hidden rounded-md border border-event-panel-divider bg-event-panel-bg shadow-xl"
+      style={dropdownStyle}
     >
       <div class="flex items-center gap-2 border-b border-event-panel-divider/70 px-2 py-1.5">
         <Search size={13} strokeWidth={1.75} class="shrink-0 text-event-panel-muted-text" />
@@ -159,7 +251,7 @@
         {/if}
       </div>
 
-      <div class="max-h-52 overflow-y-auto py-1">
+      <div class="min-h-0 flex-1 overflow-y-auto py-1">
         {#if projects.loading && !projects.loaded}
           <div class="px-3 py-2 text-[0.8rem] text-event-panel-muted-text">
             {t("projects.loading")}

@@ -1610,6 +1610,10 @@ export const es = {
       upcoming: "Próximos eventos del proyecto",
       none: "No hay eventos del proyecto en la ventana cargada del calendario",
     },
+    tasks: {
+      createFailed: (message: string) => `No se pudo crear la tarea: ${message}`,
+      selectProjectFirst: "Selecciona un proyecto antes de agregar una tarea.",
+    },
     schedule: {
       date: "Fecha",
       start: "Inicio",
