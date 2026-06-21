@@ -205,6 +205,7 @@
   let projectNavigatorPanelStyle = $state("");
   let sectionOptionsMenuId = $state<string | null>(null);
   let statusMenuTaskId = $state<string | null>(null);
+  let projectsRootElement = $state<HTMLDivElement | null>(null);
   let projectViewScrollContainer = $state<HTMLDivElement | null>(null);
 
   function cssPixelValue(value: string): number {
@@ -796,6 +797,15 @@
     return !target.closest("input, textarea, select, [contenteditable='true'], [role='textbox']");
   }
 
+  function projectsEditableSelectionTarget(target: EventTarget | null): boolean {
+    if (!(target instanceof Element)) return false;
+    return Boolean(target.closest("input, textarea, [contenteditable='true'], [role='textbox']"));
+  }
+
+  function projectsSelectionNodeInside(node: Node | null): boolean {
+    return Boolean(projectsRootElement && node && projectsRootElement.contains(node));
+  }
+
   function handleProjectListHorizontalKeydown(event: KeyboardEvent): boolean {
     if (projects.activeView !== "list") return false;
     if (event.altKey || event.ctrlKey || event.metaKey) return false;
@@ -875,6 +885,24 @@
     ) {
       statusMenuTaskId = null;
     }
+  }
+
+  function handleProjectDocumentSelectStart(event: Event): void {
+    const target = event.target;
+    if (!(target instanceof Node) || !projectsRootElement?.contains(target)) return;
+    if (projectsEditableSelectionTarget(target)) return;
+    event.preventDefault();
+  }
+
+  function handleProjectDocumentSelectionChange(): void {
+    const selection = document.getSelection();
+    if (!selection || selection.isCollapsed) return;
+
+    const activeElement = document.activeElement;
+    if (activeElement && projectsEditableSelectionTarget(activeElement)) return;
+    if (!projectsSelectionNodeInside(selection.anchorNode) && !projectsSelectionNodeInside(selection.focusNode)) return;
+
+    selection.removeAllRanges();
   }
 
   function clearProjectFilterChip(chip: ProjectFilterChip): void {
@@ -2010,7 +2038,12 @@
   onpointerdown={handleProjectWindowPointerDown}
 />
 
-<div class="relative flex h-full min-h-0 overflow-hidden text-foreground" style="background-color: var(--cal-bg);">
+<svelte:document
+  onselectstart={handleProjectDocumentSelectStart}
+  onselectionchange={handleProjectDocumentSelectionChange}
+/>
+
+<div bind:this={projectsRootElement} class="projects-view-root relative flex h-full min-h-0 overflow-hidden text-foreground" style="background-color: var(--cal-bg);">
   <section class="flex min-w-0 flex-1 flex-col">
     {#if selectedProject && selectedGroup}
       <header class="flex shrink-0 flex-col" style="background-color: var(--cal-header-bg);">
@@ -3061,7 +3094,7 @@
                 </div>
                 {#if !section.collapsed && !section.archivedAt && !section.hiddenAt}
                   <div
-                    class="project-list-divider group/column-header grid min-h-11 items-center px-1 text-[0.866667rem] text-foreground"
+                    class="project-list-divider group/column-header grid min-h-11 items-center px-1 text-[0.866667rem] font-semibold text-foreground"
                     style={`grid-template-columns: ${taskListGridTemplate}; min-width: ${taskListGridMinWidth};`}
                   >
                     <div></div>
@@ -3504,7 +3537,7 @@
                     </span>
                   </div>
                   <div
-                    class="project-list-divider group/list-column-header grid min-h-11 items-center px-1 text-[0.866667rem] text-foreground"
+                    class="project-list-divider group/list-column-header grid min-h-11 items-center px-1 text-[0.866667rem] font-semibold text-foreground"
                     style={`grid-template-columns: ${taskListGridTemplate}; min-width: ${taskListGridMinWidth};`}
                   >
                     <div></div>
@@ -3902,6 +3935,18 @@
 </div>
 
 <style>
+  :global(.projects-view-root),
+  :global(.projects-view-root *) {
+    user-select: none;
+  }
+
+  :global(.projects-view-root input),
+  :global(.projects-view-root textarea),
+  :global(.projects-view-root [contenteditable="true"]),
+  :global(.projects-view-root [contenteditable="true"] *) {
+    user-select: text;
+  }
+
   .project-list-divider {
     position: relative;
     --project-list-divider-left: 3rem;
