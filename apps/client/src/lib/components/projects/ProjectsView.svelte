@@ -3911,6 +3911,8 @@
   }
 
   .project-list-scroll {
+    overflow-x: hidden;
+    overflow-y: auto;
     padding-right: 0.5rem;
     padding-bottom: 0.5rem;
     scrollbar-width: none;
