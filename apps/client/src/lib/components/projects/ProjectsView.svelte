@@ -2979,10 +2979,10 @@
                   </button>
                   <div
                     class={cn(
-                      "flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-md border px-2 transition-colors focus-within:border-foreground/50 focus-within:bg-card",
+                      "flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 transition-colors focus-within:bg-card focus-within:ring-1 focus-within:ring-inset focus-within:ring-foreground/50",
                       sectionDraftDirty(section)
-                        ? "border-border bg-card shadow-sm"
-                        : "border-transparent bg-transparent hover:bg-card/60",
+                        ? "bg-card shadow-sm ring-1 ring-inset ring-border"
+                        : "bg-transparent ring-0 hover:bg-card/60",
                     )}
                   >
                     <input
@@ -3949,7 +3949,7 @@
 
   .project-list-divider {
     position: relative;
-    --project-list-divider-left: 3rem;
+    --project-list-divider-left: 3.25rem;
     --project-list-divider-right: 0.25rem;
   }
 
@@ -3971,7 +3971,7 @@
 
   .project-list-inline-divider {
     position: relative;
-    --project-list-divider-left: 3rem;
+    --project-list-divider-left: 3.25rem;
     --project-list-divider-right: 0.25rem;
   }
 
