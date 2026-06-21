@@ -124,6 +124,7 @@
   const PROJECT_LIST_SECTION_DRAG_MIME = "application/x-ganbaru-project-list-section";
   const LIST_ROW_DRAG_THRESHOLD_PX = 4;
   const LIST_ROW_DRAG_HOLD_MS = 120;
+  const PROJECT_LIST_KEYBOARD_SCROLL_PX = 48;
   type TaskCreateTarget = `section:${string}`;
   interface ListRowDragGesture {
     taskId: string;
@@ -206,18 +207,23 @@
   let statusMenuTaskId = $state<string | null>(null);
   let projectViewScrollContainer = $state<HTMLDivElement | null>(null);
 
+  function setProjectListCounterScroll(scrollLeft: number): void {
+    const el = projectViewScrollContainer;
+    if (!el) return;
+    el.style.setProperty("--project-list-scroll-left", `${scrollLeft}px`);
+    el.style.setProperty("--project-list-scroll-left-negative", `${-scrollLeft}px`);
+  }
+
   function syncProjectListCounterScroll(): void {
     const el = projectViewScrollContainer;
     if (!el) return;
-    el.style.setProperty("--project-list-scroll-left", `${el.scrollLeft}px`);
-    el.style.setProperty("--project-list-scroll-left-negative", `${-el.scrollLeft}px`);
+    setProjectListCounterScroll(el.scrollLeft);
   }
 
   $effect(() => {
     const el = projectViewScrollContainer;
     if (!el || projects.activeView !== "list") return;
-    el.style.setProperty("--project-list-scroll-left", `${el.scrollLeft}px`);
-    el.style.setProperty("--project-list-scroll-left-negative", `${-el.scrollLeft}px`);
+    setProjectListCounterScroll(el.scrollLeft);
   });
 
   const selectedProject = $derived(projects.selectedProject);
@@ -746,9 +752,38 @@
     closeTaskFinder();
   }
 
+  function projectListKeyboardScrollAllowed(target: EventTarget | null): boolean {
+    if (!(target instanceof Element)) return true;
+    return !target.closest("input, textarea, select, [contenteditable='true'], [role='textbox']");
+  }
+
+  function handleProjectListHorizontalKeydown(event: KeyboardEvent): boolean {
+    if (projects.activeView !== "list") return false;
+    if (event.altKey || event.ctrlKey || event.metaKey) return false;
+    if (!projectListKeyboardScrollAllowed(event.target)) return false;
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return false;
+
+    const el = projectViewScrollContainer;
+    if (!el) return false;
+    const maxScrollLeft = el.scrollWidth - el.clientWidth;
+    if (maxScrollLeft <= 0) return false;
+
+    const delta = event.key === "ArrowRight"
+      ? PROJECT_LIST_KEYBOARD_SCROLL_PX
+      : -PROJECT_LIST_KEYBOARD_SCROLL_PX;
+    const nextScrollLeft = Math.max(0, Math.min(maxScrollLeft, el.scrollLeft + delta));
+    if (nextScrollLeft === el.scrollLeft) return false;
+
+    event.preventDefault();
+    setProjectListCounterScroll(nextScrollLeft);
+    el.scrollLeft = nextScrollLeft;
+    return true;
+  }
+
   function handleProjectWindowKeydown(event: KeyboardEvent): void {
     if (event.defaultPrevented) return;
     if (projectSettingsOpen || selectedTaskId) return;
+    if (handleProjectListHorizontalKeydown(event)) return;
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f") {
       event.preventDefault();
       openTaskFinder();
@@ -3745,7 +3780,10 @@
         {/if}
         </div>
         {#if projects.activeView === "list"}
-          <ProjectListScrollbars scrollContainer={projectViewScrollContainer} />
+          <ProjectListScrollbars
+            scrollContainer={projectViewScrollContainer}
+            onScrollPositionChange={setProjectListCounterScroll}
+          />
         {/if}
       </div>
     {:else}

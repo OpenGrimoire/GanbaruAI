@@ -1,8 +1,10 @@
 <script lang="ts">
   let {
     scrollContainer,
+    onScrollPositionChange,
   }: {
     scrollContainer: HTMLElement | null | undefined;
+    onScrollPositionChange?: (scrollLeft: number) => void;
   } = $props();
 
   const SCROLLBAR_VISIBILITY_THRESHOLD_PX = 2;
@@ -70,6 +72,13 @@
     updateVerticalThumb();
   }
 
+  function setHorizontalScrollLeft(nextScrollLeft: number): void {
+    if (!scrollContainer) return;
+    onScrollPositionChange?.(nextScrollLeft);
+    scrollContainer.scrollLeft = nextScrollLeft;
+    updateThumbs();
+  }
+
   $effect(() => {
     const el = scrollContainer;
     if (!el) return;
@@ -102,7 +111,7 @@
       const thumbRange = trackWidth - horizontalThumbWidth;
       if (thumbRange <= 0) return;
       const targetRatio = (clickX - horizontalThumbWidth / 2) / thumbRange;
-      scrollContainer.scrollLeft = Math.max(0, Math.min(scrollRange, targetRatio * scrollRange));
+      setHorizontalScrollLeft(Math.max(0, Math.min(scrollRange, targetRatio * scrollRange)));
     }
 
     dragging = {
@@ -150,7 +159,7 @@
       const thumbRange = trackWidth - horizontalThumbWidth;
       if (thumbRange <= 0) return;
 
-      scrollContainer.scrollLeft = dragging.startScrollPosition + (deltaX / thumbRange) * scrollRange;
+      setHorizontalScrollLeft(dragging.startScrollPosition + (deltaX / thumbRange) * scrollRange);
       return;
     }
 
@@ -195,7 +204,7 @@
     if (nextScrollLeft === currentScrollLeft) return;
 
     event.preventDefault();
-    scrollContainer.scrollLeft = nextScrollLeft;
+    setHorizontalScrollLeft(nextScrollLeft);
   }
 
   $effect(() => {
