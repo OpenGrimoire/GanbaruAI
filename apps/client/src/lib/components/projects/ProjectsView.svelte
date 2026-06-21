@@ -207,17 +207,56 @@
   let statusMenuTaskId = $state<string | null>(null);
   let projectViewScrollContainer = $state<HTMLDivElement | null>(null);
 
-  function setProjectListCounterScroll(scrollLeft: number): void {
+  function cssPixelValue(value: string): number {
+    const parsed = Number.parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  function projectListMaxHorizontalScrollLeft(): number {
     const el = projectViewScrollContainer;
-    if (!el) return;
-    el.style.setProperty("--project-list-scroll-left", `${scrollLeft}px`);
-    el.style.setProperty("--project-list-scroll-left-negative", `${-scrollLeft}px`);
+    if (!el) return 0;
+
+    const content = el.firstElementChild;
+    if (!(content instanceof HTMLElement)) {
+      return Math.max(0, el.scrollWidth - el.clientWidth);
+    }
+
+    const contentStyle = getComputedStyle(content);
+    const paddingRight = cssPixelValue(contentStyle.paddingRight);
+    let contentRight = 0;
+
+    for (const child of Array.from(content.children)) {
+      if (!(child instanceof HTMLElement)) continue;
+      contentRight = Math.max(contentRight, child.offsetLeft + child.offsetWidth);
+    }
+
+    if (contentRight <= 0) return Math.max(0, el.scrollWidth - el.clientWidth);
+    return Math.max(0, contentRight + paddingRight - el.clientWidth);
+  }
+
+  function setProjectListCounterScroll(scrollLeft: number): number {
+    const el = projectViewScrollContainer;
+    if (!el) return scrollLeft;
+    const maxScrollLeft = projectListMaxHorizontalScrollLeft();
+    const nextScrollLeft = Math.max(0, Math.min(maxScrollLeft, scrollLeft));
+    el.style.setProperty("--project-list-scroll-left", `${nextScrollLeft}px`);
+    el.style.setProperty("--project-list-scroll-left-negative", `${-nextScrollLeft}px`);
+    return nextScrollLeft;
+  }
+
+  function setProjectListHorizontalScroll(scrollLeft: number): number {
+    const el = projectViewScrollContainer;
+    const nextScrollLeft = setProjectListCounterScroll(scrollLeft);
+    if (el && el.scrollLeft !== nextScrollLeft) {
+      el.scrollLeft = nextScrollLeft;
+    }
+    return nextScrollLeft;
   }
 
   function syncProjectListCounterScroll(): void {
     const el = projectViewScrollContainer;
     if (!el) return;
-    setProjectListCounterScroll(el.scrollLeft);
+    setProjectListHorizontalScroll(el.scrollLeft);
   }
 
   $effect(() => {
@@ -765,7 +804,7 @@
 
     const el = projectViewScrollContainer;
     if (!el) return false;
-    const maxScrollLeft = el.scrollWidth - el.clientWidth;
+    const maxScrollLeft = projectListMaxHorizontalScrollLeft();
     if (maxScrollLeft <= 0) return false;
 
     const delta = event.key === "ArrowRight"
@@ -775,8 +814,7 @@
     if (nextScrollLeft === el.scrollLeft) return false;
 
     event.preventDefault();
-    setProjectListCounterScroll(nextScrollLeft);
-    el.scrollLeft = nextScrollLeft;
+    setProjectListHorizontalScroll(nextScrollLeft);
     return true;
   }
 
@@ -3782,7 +3820,8 @@
         {#if projects.activeView === "list"}
           <ProjectListScrollbars
             scrollContainer={projectViewScrollContainer}
-            onScrollPositionChange={setProjectListCounterScroll}
+            getMaxScrollLeft={projectListMaxHorizontalScrollLeft}
+            onScrollPositionChange={setProjectListHorizontalScroll}
           />
         {/if}
       </div>

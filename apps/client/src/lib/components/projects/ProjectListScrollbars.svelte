@@ -1,10 +1,12 @@
 <script lang="ts">
   let {
     scrollContainer,
+    getMaxScrollLeft,
     onScrollPositionChange,
   }: {
     scrollContainer: HTMLElement | null | undefined;
-    onScrollPositionChange?: (scrollLeft: number) => void;
+    getMaxScrollLeft?: () => number;
+    onScrollPositionChange?: (scrollLeft: number) => number;
   } = $props();
 
   const SCROLLBAR_VISIBILITY_THRESHOLD_PX = 2;
@@ -29,11 +31,16 @@
   let dragging = $state<DragState | null>(null);
   let hoveredAxis = $state<ScrollbarAxis | null>(null);
 
+  function maxHorizontalScrollLeft(): number {
+    if (!scrollContainer) return 0;
+    return getMaxScrollLeft?.() ?? Math.max(0, scrollContainer.scrollWidth - scrollContainer.clientWidth);
+  }
+
   function updateHorizontalThumb(): void {
     if (!scrollContainer || !horizontalTrackEl) return;
 
-    const { scrollLeft, scrollWidth, clientWidth } = scrollContainer;
-    const scrollRange = scrollWidth - clientWidth;
+    const { scrollLeft, clientWidth } = scrollContainer;
+    const scrollRange = maxHorizontalScrollLeft();
     if (scrollRange <= SCROLLBAR_VISIBILITY_THRESHOLD_PX) {
       horizontalThumbLeft = 0;
       horizontalThumbWidth = 0;
@@ -41,10 +48,10 @@
     }
 
     const trackWidth = horizontalTrackEl.clientWidth;
-    const ratio = clientWidth / scrollWidth;
+    const ratio = clientWidth / (clientWidth + scrollRange);
     horizontalThumbWidth = Math.min(trackWidth, Math.max(ratio * trackWidth, MIN_THUMB_WIDTH_PX));
     horizontalThumbLeft = scrollRange > 0
-      ? (scrollLeft / scrollRange) * (trackWidth - horizontalThumbWidth)
+      ? (Math.min(scrollLeft, scrollRange) / scrollRange) * (trackWidth - horizontalThumbWidth)
       : 0;
   }
 
@@ -74,8 +81,10 @@
 
   function setHorizontalScrollLeft(nextScrollLeft: number): void {
     if (!scrollContainer) return;
-    onScrollPositionChange?.(nextScrollLeft);
-    scrollContainer.scrollLeft = nextScrollLeft;
+    const scrollRange = maxHorizontalScrollLeft();
+    const clampedScrollLeft = Math.max(0, Math.min(scrollRange, nextScrollLeft));
+    const actualScrollLeft = onScrollPositionChange?.(clampedScrollLeft) ?? clampedScrollLeft;
+    scrollContainer.scrollLeft = actualScrollLeft;
     updateThumbs();
   }
 
@@ -107,7 +116,7 @@
 
     if (!onThumb) {
       const trackWidth = horizontalTrackEl.clientWidth;
-      const scrollRange = scrollContainer.scrollWidth - scrollContainer.clientWidth;
+      const scrollRange = maxHorizontalScrollLeft();
       const thumbRange = trackWidth - horizontalThumbWidth;
       if (thumbRange <= 0) return;
       const targetRatio = (clickX - horizontalThumbWidth / 2) / thumbRange;
@@ -155,7 +164,7 @@
 
       const deltaX = event.clientX - dragging.startPointerPosition;
       const trackWidth = horizontalTrackEl.clientWidth;
-      const scrollRange = scrollContainer.scrollWidth - scrollContainer.clientWidth;
+      const scrollRange = maxHorizontalScrollLeft();
       const thumbRange = trackWidth - horizontalThumbWidth;
       if (thumbRange <= 0) return;
 
@@ -193,7 +202,7 @@
   function handleContainerWheel(event: WheelEvent): void {
     if (!scrollContainer) return;
 
-    const maxScrollLeft = scrollContainer.scrollWidth - scrollContainer.clientWidth;
+    const maxScrollLeft = maxHorizontalScrollLeft();
     if (maxScrollLeft <= SCROLLBAR_VISIBILITY_THRESHOLD_PX) return;
 
     const delta = wheelDeltaPixels(event, scrollContainer.clientWidth);
