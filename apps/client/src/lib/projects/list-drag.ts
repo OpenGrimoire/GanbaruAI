@@ -6,12 +6,24 @@ export interface ProjectListDragTask {
   sectionSortOrder: number;
 }
 
+export interface ProjectListDragSection {
+  id: string;
+  sortOrder: number;
+}
+
 export interface ProjectListDropInput {
   orderedTasks: readonly ProjectListDragTask[];
   draggedTaskId: string;
   overTaskId?: string;
   position?: ProjectListDropPosition;
   sortDirection: ProjectListSortDirection;
+}
+
+export interface ProjectListSectionDropInput {
+  orderedSections: readonly ProjectListDragSection[];
+  draggedSectionId: string;
+  overSectionId?: string;
+  position?: ProjectListDropPosition;
 }
 
 const SORT_STEP = 1000;
@@ -54,5 +66,22 @@ export function projectListDropSortOrder(input: ProjectListDropInput): number {
   if (before && after) return orderBetween(before, after, input.sortDirection);
   if (after) return orderBeforeFirst(after, input.sortDirection);
   if (before) return orderAfterLast(before, input.sortDirection);
+  return SORT_STEP;
+}
+
+export function projectListSectionDropSortOrder(input: ProjectListSectionDropInput): number {
+  const candidates = input.orderedSections.filter((section) => section.id !== input.draggedSectionId);
+  const overIndex = input.overSectionId
+    ? candidates.findIndex((section) => section.id === input.overSectionId)
+    : -1;
+  const insertIndex = overIndex >= 0
+    ? overIndex + (input.position === "after" ? 1 : 0)
+    : candidates.length;
+
+  const before = candidates[insertIndex - 1];
+  const after = candidates[insertIndex];
+  if (before && after) return midpoint(before.sortOrder, after.sortOrder);
+  if (after) return after.sortOrder > 0 ? after.sortOrder / 2 : 0;
+  if (before) return before.sortOrder + SORT_STEP;
   return SORT_STEP;
 }

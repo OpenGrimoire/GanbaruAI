@@ -15,7 +15,6 @@
   import EyeOff from "@lucide/svelte/icons/eye-off";
   import Funnel from "@lucide/svelte/icons/funnel";
   import Folder from "@lucide/svelte/icons/folder";
-  import GripVertical from "@lucide/svelte/icons/grip-vertical";
   import List from "@lucide/svelte/icons/list";
   import MoreHorizontal from "@lucide/svelte/icons/more-horizontal";
   import Plus from "@lucide/svelte/icons/plus";
@@ -30,6 +29,7 @@
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getProjects } from "$lib/stores/projects.svelte";
   import { getTheme } from "$lib/stores/theme.svelte";
+  import { getViewport } from "$lib/stores/viewport.svelte";
   import { formatCalendarDate, getEventColor } from "$lib/components/calendar/utils";
   import { createPresetPomodoroConfig } from "$lib/pomodoro/rhythm";
   import { cn } from "$lib/utils";
@@ -87,13 +87,24 @@
     projectTaskCustomFieldKey,
   } from "$lib/projects/task-view";
   import {
+    deriveProjectFilterChips,
+    deriveProjectListColumnControls,
+    pickProjectTaskModalLayout,
+    projectNavigatorPanelGeometry,
+    toggleProjectListColumn,
+    type ProjectFilterChip,
+    type ProjectToolbarPanel,
+  } from "$lib/projects/project-toolbar";
+  import {
     projectListDropSortOrder,
+    projectListSectionDropSortOrder,
     type ProjectListDropPosition,
   } from "$lib/projects/list-drag";
   import ProjectBoardView from "./ProjectBoardView.svelte";
   import ProjectIcon from "./ProjectIcon.svelte";
   import ProjectNavigator from "./ProjectNavigator.svelte";
   import ProjectGanttView from "./ProjectGanttView.svelte";
+  import ProjectListScrollbars from "./ProjectListScrollbars.svelte";
   import ProjectSettingsPanel from "./ProjectSettingsPanel.svelte";
   import ProjectSummaryView from "./ProjectSummaryView.svelte";
   import ProjectTaskDetailPanel from "./ProjectTaskDetailPanel.svelte";
@@ -101,6 +112,7 @@
   const projects = getProjects();
   const calendar = getCalendar();
   const theme = getTheme();
+  const viewport = getViewport();
   const { t } = getLocalization();
 
   const TASK_STATUS_FILTERS: ProjectTaskStatusFilter[] = ["all", "open", "blocked", "done"];
@@ -109,12 +121,32 @@
   const TASK_DEPENDENCY_FILTERS: ProjectTaskDependencyFilter[] = ["all", "linked", "blocked_by", "blocking", "none"];
   const TASK_SORT_MODES: ProjectCoreTaskSortMode[] = [...PROJECT_TASK_SORT_MODES];
   const PROJECT_LIST_DRAG_MIME = "application/x-ganbaru-project-list-task";
-  type TaskCreateTarget = "quick" | `section:${string}`;
+  const PROJECT_LIST_SECTION_DRAG_MIME = "application/x-ganbaru-project-list-section";
+  const LIST_ROW_DRAG_THRESHOLD_PX = 4;
+  const LIST_ROW_DRAG_HOLD_MS = 120;
+  type TaskCreateTarget = `section:${string}`;
+  interface ListRowDragGesture {
+    taskId: string;
+    pointerId: number;
+    startX: number;
+    startY: number;
+    startedAt: number;
+  }
+  interface ListSectionDragGesture {
+    sectionId: string;
+    pointerId: number;
+    startX: number;
+    startY: number;
+    startedAt: number;
+  }
 
   let showInactiveProjects = $state(false);
+  let projectNavigatorOpen = $state(false);
   let showInactiveSections = $state(false);
   let showArchivedTasks = $state(false);
   let taskSearch = $state("");
+  let taskFinderOpen = $state(false);
+  let taskFinderInputElement = $state<HTMLInputElement | null>(null);
   let taskStatusFilter = $state<ProjectTaskStatusFilter>("all");
   let taskSectionFilter = $state<string | "all">("all");
   let taskPriorityFilter = $state<ProjectPriority | "all">("all");
@@ -133,7 +165,6 @@
   let savedViewNameDraft = $state("");
   let savedViewSaving = $state(false);
   let savedViewError = $state<string | null>(null);
-  let quickTaskTitle = $state("");
   let taskCreatePendingTarget = $state<TaskCreateTarget | null>(null);
   let taskCreateErrorTarget = $state<TaskCreateTarget | null>(null);
   let taskCreateErrorMessage = $state<string | null>(null);
@@ -154,12 +185,40 @@
   let listDragOverTaskId = $state<string | null>(null);
   let listDragOverPosition = $state<ProjectListDropPosition | "section" | null>(null);
   let listDropPendingTaskId = $state<string | null>(null);
+  let listRowDragGesture = $state<ListRowDragGesture | null>(null);
+  let listDraggingSectionId = $state<string | null>(null);
+  let listSectionDragOverId = $state<string | null>(null);
+  let listSectionDragOverPosition = $state<ProjectListDropPosition | null>(null);
+  let listSectionDropPendingId = $state<string | null>(null);
+  let listSectionDragGesture = $state<ListSectionDragGesture | null>(null);
+  let suppressedTaskOpenTaskId = $state<string | null>(null);
   let selectedTaskId = $state<string | null>(null);
   let selectedTaskIds = $state<string[]>([]);
   let bulkTaskActionPending = $state(false);
   let bulkTaskError = $state<string | null>(null);
   let projectSettingsOpen = $state(false);
   let sectionNameDrafts = $state<Record<string, string>>({});
+  let projectToolbarPanel = $state<ProjectToolbarPanel | null>(null);
+  let projectNavigatorTriggerElement = $state<HTMLButtonElement | null>(null);
+  let projectNavigatorPanelElement = $state<HTMLDivElement | null>(null);
+  let projectNavigatorPanelStyle = $state("");
+  let sectionOptionsMenuId = $state<string | null>(null);
+  let statusMenuTaskId = $state<string | null>(null);
+  let projectViewScrollContainer = $state<HTMLDivElement | null>(null);
+
+  function syncProjectListCounterScroll(): void {
+    const el = projectViewScrollContainer;
+    if (!el) return;
+    el.style.setProperty("--project-list-scroll-left", `${el.scrollLeft}px`);
+    el.style.setProperty("--project-list-scroll-left-negative", `${-el.scrollLeft}px`);
+  }
+
+  $effect(() => {
+    const el = projectViewScrollContainer;
+    if (!el || projects.activeView !== "list") return;
+    el.style.setProperty("--project-list-scroll-left", `${el.scrollLeft}px`);
+    el.style.setProperty("--project-list-scroll-left-negative", `${-el.scrollLeft}px`);
+  });
 
   const selectedProject = $derived(projects.selectedProject);
   const selectedGroup = $derived(projects.selectedGroup);
@@ -211,14 +270,6 @@
       optionIdsByTaskField.set(key, optionIds);
     }
     return optionIdsByTaskField;
-  });
-  const visibleCustomFieldListFields = $derived.by(() => {
-    const fieldsById = new Map(projectCustomFields.map((field) => [field.id, field]));
-    return taskListColumns
-      .map(customFieldIdFromTaskListColumn)
-      .filter((fieldId): fieldId is string => fieldId !== undefined)
-      .map((fieldId) => fieldsById.get(fieldId))
-      .filter((field): field is ProjectCustomField => field !== undefined);
   });
   const taskLabelIdsByTaskId = $derived.by(() => {
     const labelsByTask = new Map<string, Set<string>>();
@@ -390,22 +441,43 @@
     return allProjectEvents.filter((event) => !taskDataFiltersActive || eventIdsForMatchedTasks.has(event.id));
   });
   const scheduledThisWeekMinutes = $derived.by(() => thisWeekScheduledMinutes());
-  const nextUpcomingProjectEvent = $derived.by(() =>
-    allProjectEvents.find((event) => event.start.slice(0, 10) >= todayDate)
-  );
-  const openTaskCount = $derived(tasks.filter((task) => {
-    const status = projects.statusById(task.statusId);
-    return !status?.terminal;
-  }).length);
-  const blockedTaskCount = $derived(tasks.filter((task) =>
-    projects.statusById(task.statusId)?.category === "blocked"
-  ).length);
-  const completedTaskCount = $derived(tasks.filter((task) =>
-    projects.statusById(task.statusId)?.terminal
-  ).length);
   const selectedTask = $derived.by(() =>
     selectedTaskId ? allProjectTasks.find((task) => task.id === selectedTaskId) : undefined
   );
+  const availableTaskListColumns = $derived.by(() => [
+    ...PROJECT_TASK_LIST_COLUMNS,
+    ...projectCustomFields.map((field) => customTaskListColumn(field.id)),
+  ]);
+  const taskListColumnControls = $derived.by(() =>
+    deriveProjectListColumnControls(availableTaskListColumns, taskListColumns, taskListColumnLabel)
+  );
+  const taskListGridTemplate = $derived.by(() => [
+    "1.5rem",
+    "1.75rem",
+    "minmax(16rem, 2fr)",
+    ...taskListColumns.map(taskListColumnTrack),
+    "2.25rem",
+  ].join(" "));
+  const taskListGridMinWidth = $derived.by(() => {
+    const remWidth = Math.max(47, 25 + taskListColumns.length * 8.5);
+    return `${remWidth}rem`;
+  });
+  const activeFilterChips = $derived.by(() => deriveProjectFilterChips({
+    search: taskSearch,
+    statusLabel: taskStatusFilter === "all" ? undefined : taskStatusFilterLabel(taskStatusFilter),
+    sectionLabel: taskSectionFilter === "all" ? undefined : taskSectionFilterLabel(),
+    priorityLabel: taskPriorityFilter === "all" ? undefined : priorityLabel(taskPriorityFilter),
+    dueLabel: taskDueFilter === "all" ? undefined : taskDueFilterChipLabel(),
+    scheduleLabel: taskScheduleFilter === "all" ? undefined : taskScheduleFilterLabel(taskScheduleFilter),
+    dependencyLabel: taskDependencyFilter === "all" ? undefined : taskDependencyFilterLabel(taskDependencyFilter),
+    labelFilterLabel: taskLabelFilter === "all" ? undefined : taskLabelFilterLabel(taskLabelFilter),
+    customFieldFilters: taskCustomFieldFilters,
+    customFieldFilterLabel,
+  }));
+  const taskDetailModalLayout = $derived(pickProjectTaskModalLayout({
+    viewportWidth: viewport.width,
+    viewportHeight: viewport.height,
+  }));
 
 
   onMount(() => {
@@ -501,15 +573,15 @@
     return t("projects.columns.status");
   }
 
-  function taskListColumnVisible(column: ProjectTaskListColumn): boolean {
-    return taskListColumns.includes(column);
+  function taskListColumnTrack(column: ProjectTaskListColumn): string {
+    if (column === "priority" || column === "estimate" || column === "due") return "minmax(7rem, 0.7fr)";
+    if (column === "status" || column === "scheduled" || column === "dependencies") return "minmax(8rem, 0.8fr)";
+    return "minmax(9rem, 0.85fr)";
   }
 
   async function toggleTaskListColumn(column: ProjectTaskListColumn): Promise<void> {
     if (!selectedProjectId) return;
-    const nextColumns = taskListColumnVisible(column)
-      ? taskListColumns.filter((entry) => entry !== column)
-      : [...taskListColumns, column];
+    const nextColumns = toggleProjectListColumn(taskListColumns, column);
     taskListColumns = nextColumns;
     await projects.saveTaskListColumns(selectedProjectId, nextColumns);
   }
@@ -573,6 +645,202 @@
     if (filter === "all") return t("projects.filters.allLabels");
     if (filter === "none") return t("projects.filters.noLabels");
     return projectLabels.find((label) => label.id === filter)?.name ?? t("projects.filters.allLabels");
+  }
+
+  function taskSectionFilterLabel(): string {
+    if (taskSectionFilter === "all") return t("projects.filters.allSections");
+    return sections.find((section) => section.id === taskSectionFilter)?.name
+      ?? t("projects.filters.allSections");
+  }
+
+  function taskDueFilterChipLabel(): string {
+    if (taskDueFilter !== "range") return taskDueFilterLabel(taskDueFilter);
+    const start = normalizedTaskDueRangeStart ?? t("projects.filters.dueRangeStart");
+    const end = normalizedTaskDueRangeEnd ?? t("projects.filters.dueRangeEnd");
+    return t("projects.filters.dueRangeChip", start, end);
+  }
+
+  function customFieldFilterLabel(filter: ProjectCustomFieldFilter): string {
+    const field = projectCustomFields.find((entry) => entry.id === filter.fieldId);
+    const fieldName = field?.name ?? t("projects.columns.customField");
+    if (filter.mode === "filled") return t("projects.filters.customFieldChip", fieldName, t("projects.filters.filled"));
+    if (filter.mode === "empty") return t("projects.filters.customFieldChip", fieldName, t("projects.filters.empty"));
+    if (filter.mode === "checkbox") {
+      return t(
+        "projects.filters.customFieldChip",
+        fieldName,
+        filter.checked ? t("projects.customFields.checked") : t("projects.customFields.unchecked"),
+      );
+    }
+    if (filter.mode === "option") {
+      const optionName = projectCustomFields
+        .flatMap((entry) => projects.customFieldOptionsForField(entry.id))
+        .find((option) => option.id === filter.optionId)?.name ?? t("projects.filters.allValues");
+      return t("projects.filters.customFieldChip", fieldName, optionName);
+    }
+    return fieldName;
+  }
+
+  function toggleProjectToolbarPanel(panel: ProjectToolbarPanel): void {
+    projectToolbarPanel = projectToolbarPanel === panel ? null : panel;
+  }
+
+  function focusTaskFinderInput(): void {
+    requestAnimationFrame(() => {
+      taskFinderInputElement?.focus();
+      taskFinderInputElement?.select();
+    });
+  }
+
+  function openTaskFinder(): void {
+    taskFinderOpen = true;
+    projectToolbarPanel = null;
+    focusTaskFinderInput();
+  }
+
+  function clearAndCloseTaskFinder(): void {
+    taskSearch = "";
+    taskFinderOpen = false;
+  }
+
+  function closeTaskFinder(): void {
+    taskFinderOpen = false;
+  }
+
+  function refreshProjectNavigatorPanelGeometry(): void {
+    if (!projectNavigatorOpen || !projectNavigatorTriggerElement) return;
+    const rect = projectNavigatorTriggerElement.getBoundingClientRect();
+    const geometry = projectNavigatorPanelGeometry({
+      anchorLeft: rect.left,
+      anchorBottom: rect.bottom,
+      viewportWidth: viewport.width,
+      viewportHeight: viewport.height,
+    });
+    projectNavigatorPanelStyle = [
+      `left: ${Math.round(geometry.left)}px`,
+      `top: ${Math.round(geometry.top)}px`,
+      `width: ${Math.round(geometry.width)}px`,
+      `height: ${Math.round(geometry.height)}px`,
+    ].join("; ");
+  }
+
+  function openProjectNavigator(): void {
+    projectNavigatorOpen = true;
+    refreshProjectNavigatorPanelGeometry();
+    requestAnimationFrame(refreshProjectNavigatorPanelGeometry);
+  }
+
+  function toggleProjectNavigator(): void {
+    if (projectNavigatorOpen) {
+      projectNavigatorOpen = false;
+      return;
+    }
+    openProjectNavigator();
+  }
+
+  function closeOrClearTaskFinder(): void {
+    if (taskSearch.trim()) {
+      clearAndCloseTaskFinder();
+      return;
+    }
+    closeTaskFinder();
+  }
+
+  function handleProjectWindowKeydown(event: KeyboardEvent): void {
+    if (event.defaultPrevented) return;
+    if (projectSettingsOpen || selectedTaskId) return;
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f") {
+      event.preventDefault();
+      openTaskFinder();
+      return;
+    }
+    if (event.key === "Escape" && taskFinderOpen) {
+      event.preventDefault();
+      closeTaskFinder();
+    }
+  }
+
+  function handleTaskFinderKeydown(event: KeyboardEvent): void {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    if (taskSearch.trim()) {
+      clearAndCloseTaskFinder();
+      return;
+    }
+    closeTaskFinder();
+  }
+
+  $effect(() => {
+    if (!projectNavigatorOpen) return;
+    const viewportWidth = viewport.width;
+    const viewportHeight = viewport.height;
+    void viewportWidth;
+    void viewportHeight;
+    requestAnimationFrame(refreshProjectNavigatorPanelGeometry);
+  });
+
+  function handleProjectWindowPointerDown(event: PointerEvent): void {
+    const target = event.target;
+    if (!(target instanceof Node)) return;
+    if (projectNavigatorOpen
+      && !projectNavigatorTriggerElement?.contains(target)
+      && !projectNavigatorPanelElement?.contains(target)
+    ) {
+      projectNavigatorOpen = false;
+    }
+    if (
+      sectionOptionsMenuId
+      && target instanceof Element
+      && !target.closest("[data-section-options-root='true']")
+    ) {
+      sectionOptionsMenuId = null;
+    }
+    if (
+      statusMenuTaskId
+      && target instanceof Element
+      && !target.closest("[data-list-status-menu-root='true']")
+    ) {
+      statusMenuTaskId = null;
+    }
+  }
+
+  function clearProjectFilterChip(chip: ProjectFilterChip): void {
+    if (chip.clearTarget === "search") {
+      taskSearch = "";
+      return;
+    }
+    if (chip.clearTarget === "status") {
+      taskStatusFilter = "all";
+      return;
+    }
+    if (chip.clearTarget === "section") {
+      taskSectionFilter = "all";
+      return;
+    }
+    if (chip.clearTarget === "priority") {
+      taskPriorityFilter = "all";
+      return;
+    }
+    if (chip.clearTarget === "due") {
+      taskDueFilter = "all";
+      taskDueRangeStart = "";
+      taskDueRangeEnd = "";
+      return;
+    }
+    if (chip.clearTarget === "schedule") {
+      taskScheduleFilter = "all";
+      return;
+    }
+    if (chip.clearTarget === "dependency") {
+      taskDependencyFilter = "all";
+      return;
+    }
+    if (chip.clearTarget === "label") {
+      taskLabelFilter = "all";
+      return;
+    }
+    const fieldId = chip.clearTarget.slice("custom:".length);
+    clearTaskCustomFieldFilter(fieldId);
   }
 
   function taskGroupModeLabel(mode: ProjectTaskGroupMode): string {
@@ -803,6 +1071,10 @@
     return taskGroupBy === "section" && taskSortMode === "manual";
   }
 
+  function listSectionDragEnabled(): boolean {
+    return taskGroupBy === "section";
+  }
+
   function subtasksForTask(parent: ProjectTask): ProjectTask[] {
     return showArchivedTasks
       ? projects.subtasksForTaskIncludingArchived(parent.id)
@@ -813,14 +1085,120 @@
     return allProjectTasks.find((task) => task.id === taskId);
   }
 
+  function sectionById(sectionId: string): ProjectSection | undefined {
+    return sections.find((section) => section.id === sectionId);
+  }
+
+  function canStartListTaskDrag(task: ProjectTask): boolean {
+    return listDragEnabled()
+      && !task.archivedAt
+      && !task.parentTaskId
+      && listDropPendingTaskId === null;
+  }
+
+  function canStartListSectionDrag(section: ProjectSection): boolean {
+    return listSectionDragEnabled()
+      && !section.archivedAt
+      && !section.hiddenAt
+      && listSectionDropPendingId === null;
+  }
+
+  function listRowDragTargetAllowed(target: EventTarget | null): boolean {
+    if (!(target instanceof Element)) return true;
+    if (target.closest("[data-list-row-drag-source='true']")) return true;
+    return !target.closest("button, input, textarea, select, a, [role='button']");
+  }
+
+  function listSectionDragTargetAllowed(target: EventTarget | null): boolean {
+    if (!(target instanceof Element)) return true;
+    if (target.closest("[data-list-section-drag-source='true']")) return true;
+    return !target.closest("button, textarea, select, a, [role='button']");
+  }
+
+  function handleListRowPointerDown(event: PointerEvent, task: ProjectTask): void {
+    if (event.button !== 0 || !canStartListTaskDrag(task) || !listRowDragTargetAllowed(event.target)) {
+      listRowDragGesture = null;
+      return;
+    }
+    listRowDragGesture = {
+      taskId: task.id,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      startedAt: Date.now(),
+    };
+  }
+
+  function clearListRowDragGesture(event?: PointerEvent): void {
+    if (event && listRowDragGesture && event.pointerId !== listRowDragGesture.pointerId) return;
+    listRowDragGesture = null;
+  }
+
+  function handleListSectionPointerDown(event: PointerEvent, section: ProjectSection): void {
+    if (
+      event.button !== 0
+      || !canStartListSectionDrag(section)
+      || !listSectionDragTargetAllowed(event.target)
+    ) {
+      listSectionDragGesture = null;
+      return;
+    }
+    listSectionDragGesture = {
+      sectionId: section.id,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      startedAt: Date.now(),
+    };
+  }
+
+  function clearListSectionDragGesture(event?: PointerEvent): void {
+    if (event && listSectionDragGesture && event.pointerId !== listSectionDragGesture.pointerId) return;
+    listSectionDragGesture = null;
+  }
+
+  function listRowDragGestureReady(event: DragEvent, task: ProjectTask): boolean {
+    const gesture = listRowDragGesture;
+    if (!gesture || gesture.taskId !== task.id) return false;
+    const distance = Math.hypot(event.clientX - gesture.startX, event.clientY - gesture.startY);
+    const elapsed = Date.now() - gesture.startedAt;
+    return distance >= LIST_ROW_DRAG_THRESHOLD_PX
+      || (elapsed >= LIST_ROW_DRAG_HOLD_MS && distance >= 1);
+  }
+
+  function listSectionDragGestureReady(event: DragEvent, section: ProjectSection): boolean {
+    const gesture = listSectionDragGesture;
+    if (!gesture || gesture.sectionId !== section.id) return false;
+    const distance = Math.hypot(event.clientX - gesture.startX, event.clientY - gesture.startY);
+    const elapsed = Date.now() - gesture.startedAt;
+    return distance >= LIST_ROW_DRAG_THRESHOLD_PX
+      || (elapsed >= LIST_ROW_DRAG_HOLD_MS && distance >= 1);
+  }
+
+  function suppressNextTaskOpen(taskId: string): void {
+    suppressedTaskOpenTaskId = taskId;
+    window.setTimeout(() => {
+      if (suppressedTaskOpenTaskId === taskId) suppressedTaskOpenTaskId = null;
+    }, 0);
+  }
+
   function resetListDragTarget(): void {
     listDragOverSectionId = null;
     listDragOverTaskId = null;
     listDragOverPosition = null;
   }
 
+  function resetListSectionDragTarget(): void {
+    listSectionDragOverId = null;
+    listSectionDragOverPosition = null;
+  }
+
   function listDragTaskId(event: DragEvent): string | null {
     return event.dataTransfer?.getData(PROJECT_LIST_DRAG_MIME) || listDraggingTaskId;
+  }
+
+  function listDragSectionId(event: DragEvent): string | null {
+    return event.dataTransfer?.getData(PROJECT_LIST_SECTION_DRAG_MIME) || listDraggingSectionId;
   }
 
   function canDropListTask(task: ProjectTask | undefined, section: ProjectSection): task is ProjectTask {
@@ -833,23 +1211,65 @@
       && task.projectId === section.projectId;
   }
 
+  function canDropListSection(
+    draggedSection: ProjectSection | undefined,
+    targetSection: ProjectSection,
+  ): draggedSection is ProjectSection {
+    return listSectionDragEnabled()
+      && !!draggedSection
+      && !draggedSection.archivedAt
+      && !draggedSection.hiddenAt
+      && !targetSection.archivedAt
+      && !targetSection.hiddenAt
+      && draggedSection.projectId === targetSection.projectId;
+  }
+
   function handleListTaskDragStart(event: DragEvent, task: ProjectTask): void {
-    if (!listDragEnabled() || task.archivedAt || task.parentTaskId) {
+    if (!canStartListTaskDrag(task) || !listRowDragGestureReady(event, task)) {
       event.preventDefault();
       return;
     }
+    event.stopPropagation();
     listDraggingTaskId = task.id;
+    listRowDragGesture = null;
+    suppressNextTaskOpen(task.id);
     event.dataTransfer?.setData(PROJECT_LIST_DRAG_MIME, task.id);
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+  }
+
+  function handleListSectionDragStart(event: DragEvent, section: ProjectSection): void {
+    if (!canStartListSectionDrag(section) || !listSectionDragGestureReady(event, section)) {
+      event.preventDefault();
+      return;
+    }
+    event.stopPropagation();
+    listDraggingSectionId = section.id;
+    listSectionDragGesture = null;
+    resetListDragTarget();
+    event.dataTransfer?.setData(PROJECT_LIST_SECTION_DRAG_MIME, section.id);
     if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
   }
 
   function handleListTaskDragEnd(): void {
     listDraggingTaskId = null;
     listDropPendingTaskId = null;
+    listRowDragGesture = null;
     resetListDragTarget();
   }
 
+  function handleListSectionDragEnd(): void {
+    listDraggingSectionId = null;
+    listSectionDropPendingId = null;
+    listSectionDragGesture = null;
+    resetListSectionDragTarget();
+  }
+
   function listRowDropPosition(event: DragEvent): ProjectListDropPosition {
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    return event.clientY >= rect.top + rect.height / 2 ? "after" : "before";
+  }
+
+  function listSectionDropPosition(event: DragEvent): ProjectListDropPosition {
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
     return event.clientY >= rect.top + rect.height / 2 ? "after" : "before";
   }
@@ -873,6 +1293,20 @@
     listDragOverSectionId = section.id;
     listDragOverTaskId = null;
     listDragOverPosition = "section";
+  }
+
+  function handleListSectionGroupDragOver(event: DragEvent, section: ProjectSection): void {
+    const draggedSection = sectionById(listDragSectionId(event) ?? "");
+    if (canDropListSection(draggedSection, section) && draggedSection.id !== section.id) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+      resetListDragTarget();
+      listSectionDragOverId = section.id;
+      listSectionDragOverPosition = listSectionDropPosition(event);
+      return;
+    }
+    handleListSectionDragOver(event, section);
   }
 
   async function dropListTask(
@@ -919,6 +1353,47 @@
     }
   }
 
+  async function dropListSection(event: DragEvent, targetSection: ProjectSection): Promise<void> {
+    event.preventDefault();
+    event.stopPropagation();
+    const draggedSection = sectionById(listDragSectionId(event) ?? "");
+    if (!canDropListSection(draggedSection, targetSection) || draggedSection.id === targetSection.id) {
+      resetListSectionDragTarget();
+      return;
+    }
+
+    const orderedSections = sections.filter((section) => !section.archivedAt && !section.hiddenAt);
+    const nextSortOrder = projectListSectionDropSortOrder({
+      orderedSections,
+      draggedSectionId: draggedSection.id,
+      overSectionId: targetSection.id,
+      position: listSectionDropPosition(event),
+    });
+
+    if (draggedSection.sortOrder === nextSortOrder) {
+      resetListSectionDragTarget();
+      return;
+    }
+
+    listSectionDropPendingId = draggedSection.id;
+    resetListSectionDragTarget();
+    try {
+      await projects.updateSection(draggedSection, { sortOrder: nextSortOrder });
+    } finally {
+      listSectionDropPendingId = null;
+      listDraggingSectionId = null;
+    }
+  }
+
+  async function dropListSectionOrTask(event: DragEvent, section: ProjectSection): Promise<void> {
+    const draggedSection = sectionById(listDragSectionId(event) ?? "");
+    if (canDropListSection(draggedSection, section)) {
+      await dropListSection(event, section);
+      return;
+    }
+    await dropListTask(event, section);
+  }
+
   function listDropMarkerVisible(
     section: ProjectSection,
     task: ProjectTask,
@@ -929,6 +1404,14 @@
       && listDragOverPosition === position;
   }
 
+  function listSectionDropMarkerVisible(
+    section: ProjectSection,
+    position: ProjectListDropPosition,
+  ): boolean {
+    return listSectionDragOverId === section.id
+      && listSectionDragOverPosition === position;
+  }
+
   function statusForTask(task: ProjectTask): ProjectStatus | undefined {
     return projects.statusById(task.statusId);
   }
@@ -937,10 +1420,29 @@
     return selectedTaskIdSet.has(task.id);
   }
 
+  function allTasksSelected(groupTasks: ProjectTask[]): boolean {
+    return groupTasks.length > 0 && groupTasks.every((task) => selectedTaskIdSet.has(task.id));
+  }
+
+  function someTasksSelected(groupTasks: ProjectTask[]): boolean {
+    return groupTasks.some((task) => selectedTaskIdSet.has(task.id));
+  }
+
   function toggleTaskSelection(task: ProjectTask): void {
     selectedTaskIds = taskSelected(task)
       ? selectedTaskIds.filter((taskId) => taskId !== task.id)
       : [...selectedTaskIds, task.id];
+  }
+
+  function toggleTaskGroupSelection(groupTasks: ProjectTask[]): void {
+    if (groupTasks.length === 0) return;
+    const nextIds = new Set(selectedTaskIds);
+    if (allTasksSelected(groupTasks)) {
+      for (const task of groupTasks) nextIds.delete(task.id);
+    } else {
+      for (const task of groupTasks) nextIds.add(task.id);
+    }
+    selectedTaskIds = Array.from(nextIds);
   }
 
   function selectFilteredTasks(): void {
@@ -1019,24 +1521,20 @@
     return sections.find((section) => section.id === task.sectionId);
   }
 
-  function adjacentSection(section: ProjectSection, direction: -1 | 1): ProjectSection | undefined {
-    const index = sections.findIndex((entry) => entry.id === section.id);
-    if (index < 0) return undefined;
-    return sections[index + direction];
-  }
-
-  function adjacentTaskInSection(task: ProjectTask, direction: -1 | 1): ProjectTask | undefined {
-    const ordered = projects.topLevelTasksForSection(task.projectId, task.sectionId);
-    const index = ordered.findIndex((entry) => entry.id === task.id);
-    if (index < 0) return undefined;
-    return ordered[index + direction];
-  }
-
   function statusBadgeClass(status: ProjectStatus | undefined): string {
     if (status?.category === "done") return "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
     if (status?.category === "blocked") return "border-destructive/40 bg-destructive/10 text-destructive";
     if (status?.category === "active") return "border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-300";
     return "border-border bg-muted/50 text-muted-foreground";
+  }
+
+  async function setTaskStatusFromList(task: ProjectTask, status: ProjectStatus): Promise<void> {
+    if (task.archivedAt || task.statusId === status.id) {
+      statusMenuTaskId = null;
+      return;
+    }
+    await projects.setTasksStatus([task], status.id);
+    statusMenuTaskId = null;
   }
 
   function priorityClass(priority: ProjectPriority): string {
@@ -1113,15 +1611,6 @@
     }
   }
 
-  async function submitQuickTask(): Promise<void> {
-    const title = quickTaskTitle.trim();
-    if (!title) return;
-    const createdTask = await createTaskFromDraft("quick", title);
-    if (!createdTask) return;
-    quickTaskTitle = "";
-    revealCreatedTask(createdTask);
-  }
-
   async function submitSectionTask(sectionId: string): Promise<void> {
     const target = sectionTaskCreateTarget(sectionId);
     const title = (sectionTaskDrafts[sectionId] ?? "").trim();
@@ -1133,19 +1622,35 @@
   }
 
   async function submitSection(): Promise<void> {
-    if (!selectedProjectId) return;
-    await projects.addSection(selectedProjectId, sectionDraft);
+    const name = sectionDraft.trim();
+    if (!selectedProjectId || !name) return;
+    await projects.addSection(selectedProjectId, name);
     sectionDraft = "";
   }
 
+  function sectionNameDraft(section: ProjectSection): string {
+    return sectionNameDrafts[section.id] ?? section.name;
+  }
+
   function sectionDraftDirty(section: ProjectSection): boolean {
-    return (sectionNameDrafts[section.id] ?? section.name) !== section.name;
+    return sectionNameDraft(section) !== section.name;
+  }
+
+  function sectionDraftSaveable(section: ProjectSection): boolean {
+    return sectionDraftDirty(section)
+      && sectionNameDraft(section).trim().length > 0
+      && !section.hiddenAt
+      && !section.archivedAt;
   }
 
   async function saveSection(section: ProjectSection): Promise<void> {
-    const name = (sectionNameDrafts[section.id] ?? section.name).trim();
+    const name = sectionNameDraft(section).trim();
     if (!name) return;
     await projects.updateSection(section, { name });
+    sectionNameDrafts = {
+      ...sectionNameDrafts,
+      [section.id]: name,
+    };
   }
 
   async function hideSection(section: ProjectSection): Promise<void> {
@@ -1160,15 +1665,15 @@
     await projects.restoreSection(section);
   }
 
-  async function moveSection(section: ProjectSection, direction: -1 | 1): Promise<void> {
-    await projects.moveSection(section, direction);
-  }
-
   async function toggleSectionCollapsed(section: ProjectSection): Promise<void> {
     await projects.updateSection(section, { collapsed: !section.collapsed });
   }
 
   function openTaskDetail(task: ProjectTask): void {
+    if (suppressedTaskOpenTaskId === task.id) {
+      suppressedTaskOpenTaskId = null;
+      return;
+    }
     projectSettingsOpen = false;
     selectedTaskId = task.id;
   }
@@ -1187,13 +1692,6 @@
       return undefined;
     }
   }
-
-  async function moveTaskWithinSection(task: ProjectTask, direction: -1 | 1): Promise<void> {
-    if (taskSortMode !== "manual") return;
-    await projects.moveTaskInSection(task, direction);
-  }
-
-
 
   async function runBulkTaskAction(action: () => Promise<void>): Promise<void> {
     if (selectedTasks.length === 0) return;
@@ -1248,17 +1746,6 @@
         return eventDate >= todayDate && eventDate <= weekEnd;
       })
       .reduce((total, event) => total + eventDurationMinutes(event), 0);
-  }
-
-  function formatMinutesAsHours(minutes: number): string {
-    if (minutes < 60) return t("projects.summary.minutes", minutes);
-    const hours = minutes / 60;
-    return t("projects.summary.hours", Number.isInteger(hours) ? hours.toFixed(0) : hours.toFixed(1));
-  }
-
-  function projectHeaderEventLabel(event: CalendarEvent): string {
-    const title = event.title.trim() || t("calendar.event.noTitle");
-    return t("projects.header.nextEvent", title, event.start);
   }
 
   function defaultScheduleStart(): { date: string; time: string } {
@@ -1445,75 +1932,84 @@
   }
 </script>
 
-<div class="flex h-full min-h-0 bg-background text-foreground">
-  <ProjectNavigator
-    selectedProjectId={selectedProjectId}
-    showInactiveProjects={showInactiveProjects}
-    onShowInactiveProjectsChange={(value) => {
-      showInactiveProjects = value;
-    }}
-    onProjectSelected={() => {
-      selectedTaskId = null;
-      projectSettingsOpen = false;
-    }}
-  />
+<svelte:window
+  onkeydown={handleProjectWindowKeydown}
+  onpointerdown={handleProjectWindowPointerDown}
+/>
 
+<div class="relative flex h-full min-h-0 overflow-hidden text-foreground" style="background-color: var(--cal-bg);">
   <section class="flex min-w-0 flex-1 flex-col">
     {#if selectedProject && selectedGroup}
-      <header class="flex shrink-0 flex-col gap-2 border-b border-border bg-card/40 px-3 py-2">
-        <div class="flex min-w-0 items-center gap-2">
-          <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-accent text-accent-foreground">
-            <ProjectIcon name={selectedProject.icon} size={16} />
-          </span>
-          <div class="min-w-0 flex-1">
-            <div class="truncate text-[0.933333rem] font-semibold leading-5">{selectedProject.name}</div>
-            <div class="flex min-w-0 items-center gap-1.5">
-              <span class="truncate text-[0.733333rem] text-muted-foreground">{selectedGroup.name}</span>
+      <header class="flex shrink-0 flex-col" style="background-color: var(--cal-header-bg);">
+        <div
+          class="flex shrink-0 items-center gap-1 overflow-x-auto px-3"
+          style="height: var(--cal-header-row-h); background-color: var(--cal-header-bg); border-bottom: 1px solid var(--sidebar);"
+          onscroll={refreshProjectNavigatorPanelGeometry}
+        >
+          <div class="relative min-w-36 shrink-0 min-[760px]:max-w-md">
+            <button
+              bind:this={projectNavigatorTriggerElement}
+              type="button"
+              class={cn(
+                "flex h-7 min-w-0 max-w-full items-center gap-1.5 rounded-md px-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground",
+                projectNavigatorOpen && "bg-accent text-accent-foreground",
+              )}
+              aria-label={t("projects.navigator.open")}
+              aria-expanded={projectNavigatorOpen}
+              onclick={toggleProjectNavigator}
+            >
+              <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-accent text-accent-foreground">
+                <ProjectIcon name={selectedGroup.icon} size={14} />
+              </span>
+              <span class="min-w-0 truncate font-semibold text-foreground">{selectedGroup.name}</span>
+              <span class="shrink-0 font-semibold text-foreground">/</span>
+              <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-accent text-accent-foreground">
+                <ProjectIcon name={selectedProject.icon} size={14} />
+              </span>
+              <span class="min-w-0 truncate font-semibold text-foreground">{selectedProject.name}</span>
+              <ChevronDown size={14} strokeWidth={1.75} class="shrink-0 text-muted-foreground" />
               {#if selectedProject.status !== "active"}
                 <span class={cn("shrink-0 rounded border px-1.5 py-0.5 text-[0.666667rem]", projectLifecycleBadgeClass(selectedProject.status))}>
                   {projectLifecycleLabel(selectedProject.status)}
                 </span>
               {/if}
-            </div>
-          </div>
-          <div class="hidden shrink-0 items-center gap-1 text-[0.733333rem] text-muted-foreground min-[760px]:flex">
-            <span>{t("projects.header.openTasks", openTaskCount)}</span>
-            <span class="h-3 w-px bg-border"></span>
-            <span>{t("projects.header.blockedTasks", blockedTaskCount)}</span>
-            <span class="h-3 w-px bg-border"></span>
-            <span>{t("projects.header.scheduledEvents", projectEvents.length)}</span>
-            <span class="h-3 w-px bg-border"></span>
-            <span>{t("projects.header.completedTasks", completedTaskCount)}</span>
-            {#if scheduledThisWeekMinutes > 0}
-              <span class="h-3 w-px bg-border"></span>
-              <span>{t("projects.header.scheduledThisWeek", formatMinutesAsHours(scheduledThisWeekMinutes))}</span>
+            </button>
+            {#if projectNavigatorOpen}
+              <div
+                bind:this={projectNavigatorPanelElement}
+                class="fixed z-80"
+                style={projectNavigatorPanelStyle}
+                role="dialog"
+                tabindex="-1"
+                aria-label={t("projects.navigator.pickerLabel")}
+              >
+                <ProjectNavigator
+                  selectedProjectId={selectedProjectId}
+                  showInactiveProjects={showInactiveProjects}
+                  presentation="panel"
+                  onShowInactiveProjectsChange={(value) => {
+                    showInactiveProjects = value;
+                  }}
+                  onProjectSelected={() => {
+                    selectedTaskId = null;
+                    projectSettingsOpen = false;
+                    projectNavigatorOpen = false;
+                  }}
+                />
+              </div>
             {/if}
-            {#if nextUpcomingProjectEvent}
-              {@const nextEventLabel = projectHeaderEventLabel(nextUpcomingProjectEvent)}
-              <span class="hidden h-3 w-px bg-border min-[1180px]:block"></span>
-              <span class="hidden max-w-48 truncate min-[1180px]:block" title={nextEventLabel}>{nextEventLabel}</span>
-            {/if}
           </div>
-          <button
-            type="button"
-            class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-            aria-label={t("projects.header.projectSettings")}
-            onclick={openProjectSettings}
-          >
-            <MoreHorizontal size={15} strokeWidth={1.75} />
-          </button>
-        </div>
-        <div class="flex min-w-0 flex-wrap items-center gap-2">
-          <nav class="flex min-w-0 gap-1 overflow-x-auto rounded-md bg-muted/60 p-0.5">
+          <div class="flex-1"></div>
+          <nav class="flex min-w-0 shrink-0 items-center gap-0.5 overflow-x-auto">
             {#each PROJECT_VIEW_IDS as view}
               {@const Icon = viewIcon(view)}
               <button
                 type="button"
                 class={cn(
-                  "flex h-8 shrink-0 items-center gap-1.5 rounded px-2 text-[0.8rem] font-medium",
+                  "flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-xs font-medium transition-colors",
                   projects.activeView === view
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:bg-background/60 hover:text-foreground",
+                    ? "bg-card text-card-foreground"
+                    : "text-muted-foreground hover:bg-accent hover:text-foreground",
                 )}
                 onclick={() => {
                   projects.activeView = view;
@@ -1524,39 +2020,68 @@
               </button>
             {/each}
           </nav>
-          <div class="flex min-w-44 flex-1 items-center gap-2 rounded-md border border-border bg-background px-2">
-            <Search size={14} strokeWidth={1.75} class="shrink-0 text-muted-foreground" />
-            <input
-              bind:value={taskSearch}
-              placeholder={t("projects.header.searchPlaceholder")}
-              class="min-h-8 min-w-0 flex-1 bg-transparent text-[0.8rem] placeholder:text-muted-foreground"
-            />
-          </div>
-          <div class="flex min-w-48 flex-1 flex-col gap-1">
-            <form class="flex gap-1" onsubmit={(event) => { event.preventDefault(); void submitQuickTask(); }}>
-              <input
-                bind:value={quickTaskTitle}
-                placeholder={t("projects.header.quickAddPlaceholder")}
-                class="min-h-8 min-w-0 flex-1 rounded-md border border-border bg-background px-2 text-[0.8rem] placeholder:text-muted-foreground"
-              />
+          <button
+            type="button"
+            class={cn(
+              "flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs font-medium transition-colors hover:bg-accent hover:text-foreground",
+              projectToolbarPanel === "filters" ? "bg-accent text-foreground" : "text-muted-foreground",
+            )}
+            aria-expanded={projectToolbarPanel === "filters"}
+            onclick={() => toggleProjectToolbarPanel("filters")}
+          >
+            <Funnel size={13} strokeWidth={1.75} />
+            <span>{t("projects.filters.title")}</span>
+            {#if activeFilterChips.length > 0}
+              <span class="rounded bg-primary/10 px-1 text-[0.666667rem] text-primary">
+                {activeFilterChips.length}
+              </span>
+            {/if}
+          </button>
+          <button
+            type="button"
+            class={cn(
+              "flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs font-medium transition-colors hover:bg-accent hover:text-foreground",
+              projectToolbarPanel === "customize" ? "bg-accent text-foreground" : "text-muted-foreground",
+            )}
+            aria-expanded={projectToolbarPanel === "customize"}
+            onclick={() => toggleProjectToolbarPanel("customize")}
+          >
+            <CircleGauge size={13} strokeWidth={1.75} />
+            <span>{t("projects.toolbar.customize")}</span>
+          </button>
+          <button
+            type="button"
+            class={cn(
+              "flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground",
+              projectToolbarPanel === "more" && "bg-accent text-foreground",
+            )}
+            aria-label={t("projects.toolbar.more")}
+            aria-expanded={projectToolbarPanel === "more"}
+            onclick={() => toggleProjectToolbarPanel("more")}
+          >
+            <MoreHorizontal size={14} strokeWidth={1.75} />
+          </button>
+        </div>
+        {#if activeFilterChips.length > 0}
+          <div class="flex min-w-0 flex-wrap items-center gap-1 px-3 py-1 text-[0.733333rem]">
+            {#each activeFilterChips as chip (chip.id)}
               <button
                 type="button"
-                disabled={taskCreatePendingTarget !== null}
-                onclick={(event) => { event.preventDefault(); void submitQuickTask(); }}
-                class="flex min-h-8 items-center gap-1.5 rounded-md bg-primary px-2 text-[0.8rem] font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                class="flex max-w-52 items-center gap-1 rounded-full border border-border bg-card px-2 py-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                title={chip.label}
+                onclick={() => clearProjectFilterChip(chip)}
               >
-                <Plus size={14} strokeWidth={1.75} />
-                <span>{t("projects.header.addTask")}</span>
+                <span class="truncate">{chip.label}</span>
+                <X size={12} strokeWidth={1.75} />
               </button>
-            </form>
-            {#if taskCreateErrorFor("quick")}
-              <div class="rounded border border-destructive/30 bg-destructive/10 px-2 py-1 text-[0.733333rem] text-destructive">
-                {taskCreateErrorFor("quick")}
-              </div>
-            {/if}
+            {/each}
+            <span class="rounded-full border border-border bg-muted/60 px-2 py-1 text-muted-foreground">
+              {t("projects.filters.matchingTasks", matchingTaskCount, allProjectTasks.length)}
+            </span>
           </div>
-        </div>
-        <div class="flex min-w-0 flex-wrap items-center gap-2 text-[0.766667rem]">
+        {/if}
+        {#if projectToolbarPanel === "filters"}
+        <div class="mx-3 my-2 flex min-w-0 flex-wrap items-center gap-2 rounded-md border border-border bg-card p-2 text-[0.766667rem]">
           <div class="flex h-8 shrink-0 items-center gap-1.5 text-muted-foreground">
             <Funnel size={14} strokeWidth={1.75} />
             <span>{t("projects.filters.title")}</span>
@@ -1971,8 +2496,33 @@
               {showArchivedTasks
                 ? t("projects.filters.hideArchived")
                 : t("projects.filters.showArchived", archivedProjectTaskCount)}
-            </span>
-          </button>
+              </span>
+            </button>
+          {#if inactiveSectionCount > 0}
+            <button
+              type="button"
+              class={cn(
+                "flex h-7 shrink-0 items-center gap-1 rounded-md border border-border bg-background px-2 font-medium hover:bg-accent hover:text-foreground",
+                showInactiveSections ? "text-foreground" : "text-muted-foreground",
+              )}
+              aria-label={showInactiveSections ? t("projects.filters.hideInactiveSections") : t("projects.filters.showInactiveSections")}
+              title={showInactiveSections ? t("projects.filters.hideInactiveSections") : t("projects.filters.showInactiveSections")}
+              onclick={() => {
+                showInactiveSections = !showInactiveSections;
+              }}
+            >
+              {#if showInactiveSections}
+                <EyeOff size={13} strokeWidth={1.75} />
+              {:else}
+                <Eye size={13} strokeWidth={1.75} />
+              {/if}
+              <span>
+                {showInactiveSections
+                  ? t("projects.filters.hideInactiveSectionsShort")
+                  : t("projects.filters.showInactiveSectionsShort", inactiveSectionCount)}
+              </span>
+            </button>
+          {/if}
           {#if taskFiltersActive}
             <button
               type="button"
@@ -1984,7 +2534,9 @@
             </button>
           {/if}
         </div>
-        <div class="flex min-w-0 flex-wrap items-center gap-1 text-[0.766667rem]">
+        {/if}
+        {#if projectToolbarPanel === "customize"}
+        <div class="mx-3 my-2 flex min-w-0 flex-wrap items-center gap-2 rounded-md border border-border bg-card p-2 text-[0.766667rem]">
           <form
             class="flex min-w-52 max-w-full flex-1 gap-1 min-[820px]:max-w-sm"
             onsubmit={(event) => { event.preventDefault(); void saveCurrentTaskView(); }}
@@ -2033,43 +2585,22 @@
             <span class="shrink-0 px-1 text-[0.733333rem] font-medium text-muted-foreground">
               {t("projects.columns.title")}
             </span>
-            {#each PROJECT_TASK_LIST_COLUMNS as column}
+            {#each taskListColumnControls as control (control.column)}
               <button
                 type="button"
                 class={cn(
-                  "h-7 shrink-0 rounded px-2 font-medium",
-                  taskListColumnVisible(column)
+                  "h-7 max-w-40 shrink-0 rounded px-2 font-medium",
+                  control.visible
                     ? "bg-accent text-accent-foreground"
                     : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
                 )}
-                aria-pressed={taskListColumnVisible(column)}
-                onclick={() => { void toggleTaskListColumn(column); }}
+                aria-pressed={control.visible}
+                title={control.label}
+                onclick={() => { void toggleTaskListColumn(control.column); }}
               >
-                {taskListColumnLabel(column)}
+                <span class="block truncate">{control.label}</span>
               </button>
             {/each}
-            {#if projectCustomFields.length > 0}
-              <span class="shrink-0 px-1 text-[0.733333rem] font-medium text-muted-foreground">
-                {t("projects.customFields.title")}
-              </span>
-              {#each projectCustomFields as field (field.id)}
-                {@const column = customTaskListColumn(field.id)}
-                <button
-                  type="button"
-                  class={cn(
-                    "h-7 max-w-40 shrink-0 rounded px-2 font-medium",
-                    taskListColumnVisible(column)
-                      ? "bg-accent text-accent-foreground"
-                      : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
-                  )}
-                  aria-pressed={taskListColumnVisible(column)}
-                  title={field.name}
-                  onclick={() => { void toggleTaskListColumn(column); }}
-                >
-                  <span class="block truncate">{field.name}</span>
-                </button>
-              {/each}
-            {/if}
           </div>
           {#if savedViewError}
             <div class="basis-full rounded border border-destructive/30 bg-destructive/10 px-2 py-1 text-destructive">
@@ -2077,9 +2608,43 @@
             </div>
           {/if}
         </div>
+        {/if}
+        {#if projectToolbarPanel === "more"}
+          <div class="mx-3 my-2 flex min-w-0 flex-wrap items-center gap-2 rounded-md border border-border bg-card p-2 text-[0.766667rem]">
+            <button
+              type="button"
+              class="flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-border bg-card px-2 font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+              onclick={openProjectSettings}
+            >
+              <MoreHorizontal size={13} strokeWidth={1.75} />
+              <span>{t("projects.header.projectSettings")}</span>
+            </button>
+            <button
+              type="button"
+              class="flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-border bg-card px-2 font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+              onclick={openTaskFinder}
+            >
+              <Search size={13} strokeWidth={1.75} />
+              <span>{t("projects.finder.open")}</span>
+            </button>
+            {#if taskFiltersActive}
+              <button
+                type="button"
+                class="flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-border bg-card px-2 font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+                onclick={clearTaskFilters}
+              >
+                <RotateCcw size={13} strokeWidth={1.75} />
+                <span>{t("projects.filters.reset")}</span>
+              </button>
+            {/if}
+            <span class="h-8 shrink-0 rounded-md border border-border bg-muted/60 px-2 py-1.5 text-muted-foreground">
+              {t("projects.filters.matchingTasks", matchingTaskCount, allProjectTasks.length)}
+            </span>
+          </div>
+        {/if}
         {#if selectedTasks.length > 0}
           {@const bulkSchedulableCount = selectedSchedulableTasks().length}
-          <div class="flex min-w-0 flex-wrap items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-[0.766667rem]">
+          <div class="mx-3 my-2 flex min-w-0 flex-wrap items-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-[0.766667rem]">
             <span class="mr-1 shrink-0 font-medium">{t("projects.bulk.selected", selectedTasks.length)}</span>
             <button
               type="button"
@@ -2225,66 +2790,77 @@
         {/if}
       </header>
 
-      <div class={cn("min-h-0 flex-1", projects.activeView === "calendar" ? "overflow-hidden" : "overflow-auto")}>
+      <div class="relative min-h-0 flex-1" style="background-color: var(--cal-bg);">
+        <div
+          bind:this={projectViewScrollContainer}
+          class={cn(
+            "h-full min-h-0",
+            projects.activeView === "calendar" && "overflow-hidden",
+            projects.activeView === "list" && "overflow-auto project-list-scroll",
+            projects.activeView !== "calendar" && projects.activeView !== "list" && "overflow-auto",
+          )}
+          onscroll={syncProjectListCounterScroll}
+        >
         {#if projects.activeView === "list"}
-          <div class="flex min-h-full flex-col gap-3 p-3">
-            <div class="flex flex-wrap items-center gap-2">
-              <form class="flex min-w-52 max-w-md flex-1 gap-1" onsubmit={(event) => { event.preventDefault(); void submitSection(); }}>
-                <input
-                  bind:value={sectionDraft}
-                  placeholder={t("projects.header.addSection")}
-                  class="min-h-8 min-w-0 flex-1 rounded-md border border-border bg-card px-2 text-[0.8rem]"
-                />
-                <button type="submit" class="flex min-h-8 items-center gap-1 rounded-md border border-border bg-card px-2 text-[0.8rem] hover:bg-accent">
-                  <Plus size={14} strokeWidth={1.75} />
-                  <span>{t("common.save")}</span>
-                </button>
-              </form>
-              {#if inactiveSectionCount > 0}
-                <button
-                  type="button"
-                  class={cn(
-                    "flex min-h-8 shrink-0 items-center gap-1.5 rounded-md border border-border bg-card px-2 text-[0.8rem] font-medium hover:bg-accent",
-                    showInactiveSections ? "text-foreground" : "text-muted-foreground",
-                  )}
-                  aria-label={showInactiveSections ? t("projects.filters.hideInactiveSections") : t("projects.filters.showInactiveSections")}
-                  title={showInactiveSections ? t("projects.filters.hideInactiveSections") : t("projects.filters.showInactiveSections")}
-                  onclick={() => {
-                    showInactiveSections = !showInactiveSections;
-                  }}
-                >
-                  {#if showInactiveSections}
-                    <EyeOff size={14} strokeWidth={1.75} />
-                  {:else}
-                    <Eye size={14} strokeWidth={1.75} />
-                  {/if}
-                  <span>
-                    {showInactiveSections
-                      ? t("projects.filters.hideInactiveSectionsShort")
-                      : t("projects.filters.showInactiveSectionsShort", inactiveSectionCount)}
-                  </span>
-                </button>
-              {/if}
-            </div>
+          <div class="flex min-h-full flex-col gap-5 p-3">
             {#if taskGroupBy === "section"}
             {#each sections as section (section.id)}
               {@const sectionTasks = tasksForSection(section)}
-              {@const previousSection = adjacentSection(section, -1)}
-              {@const nextSection = adjacentSection(section, 1)}
+              {#if listSectionDropMarkerVisible(section, "before")}
+                <div class="h-1 rounded-full bg-primary"></div>
+              {/if}
               <section
                 class={cn(
-                  "flex flex-col gap-1 rounded-lg border border-transparent p-1",
+                  "flex flex-col gap-0 border border-transparent",
                   listDragOverSectionId === section.id && "border-primary/40 bg-primary/5",
+                  listDraggingSectionId === section.id && "opacity-50",
+                  listSectionDropPendingId === section.id && "opacity-60",
                 )}
+                style={`min-width: max(100%, ${taskListGridMinWidth});`}
                 role="list"
                 aria-label={section.name}
-                ondragover={(event) => handleListSectionDragOver(event, section)}
-                ondrop={(event) => { void dropListTask(event, section); }}
+                ondragover={(event) => handleListSectionGroupDragOver(event, section)}
+                ondrop={(event) => { void dropListSectionOrTask(event, section); }}
               >
-                <div class="flex min-h-9 items-center gap-1 border-b border-border/70 px-1">
+                <div
+                  class={cn(
+                    "project-list-divider project-list-sticky-row group/section-header grid min-h-11 items-center px-1",
+                    canStartListSectionDrag(section) && "cursor-grab active:cursor-grabbing",
+                  )}
+                  style={`grid-template-columns: ${taskListGridTemplate}; min-width: ${taskListGridMinWidth};`}
+                  role="group"
+                  aria-label={section.name}
+                  draggable={canStartListSectionDrag(section)}
+                  onpointerdown={(event) => handleListSectionPointerDown(event, section)}
+                  onpointerup={clearListSectionDragGesture}
+                  onpointercancel={clearListSectionDragGesture}
+                  ondragstart={(event) => handleListSectionDragStart(event, section)}
+                  ondragend={handleListSectionDragEnd}
+                >
+                  <div class="flex h-7 items-center justify-center">
+                    <button
+                      type="button"
+                      class={cn(
+                        "flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded border transition-opacity",
+                        allTasksSelected(sectionTasks)
+                          ? "border-primary bg-primary text-primary-foreground opacity-100"
+                          : "border-border bg-background opacity-0 hover:bg-accent group-hover/section-header:opacity-100 group-focus-within/section-header:opacity-100",
+                        someTasksSelected(sectionTasks) && !allTasksSelected(sectionTasks) && "border-primary/70 bg-primary/10 text-primary opacity-100",
+                      )}
+                      aria-label={allTasksSelected(sectionTasks) ? t("projects.actions.unselectTaskGroup", section.name) : t("projects.actions.selectTaskGroup", section.name)}
+                      disabled={sectionTasks.length === 0}
+                      onclick={() => toggleTaskGroupSelection(sectionTasks)}
+                    >
+                      {#if allTasksSelected(sectionTasks)}
+                        <Check size={13} strokeWidth={2} />
+                      {:else if someTasksSelected(sectionTasks)}
+                        <span class="h-0.5 w-2.5 rounded-full bg-current"></span>
+                      {/if}
+                    </button>
+                  </div>
                   <button
                     type="button"
-                    class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                    class="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
                     aria-label={section.collapsed ? t("projects.actions.expandSection", section.name) : t("projects.actions.collapseSection", section.name)}
                     title={section.collapsed ? t("projects.actions.expandSection", section.name) : t("projects.actions.collapseSection", section.name)}
                     onclick={() => { void toggleSectionCollapsed(section); }}
@@ -2295,24 +2871,45 @@
                       <ChevronDown size={14} strokeWidth={1.75} />
                     {/if}
                   </button>
-                  <input
-                    value={sectionNameDrafts[section.id] ?? section.name}
-                    class="min-h-8 min-w-0 flex-1 bg-transparent text-[0.866667rem] font-semibold"
-                    aria-label={t("projects.list.sectionName")}
-                    oninput={(event) => {
-                      sectionNameDrafts = {
-                        ...sectionNameDrafts,
-                        [section.id]: event.currentTarget.value,
-                      };
-                    }}
-                    onkeydown={(event) => {
-                      if (event.key === "Enter") {
-                        event.preventDefault();
-                        void saveSection(section);
-                      }
-                    }}
-                  />
-                  <span class="text-[0.733333rem] text-muted-foreground">{sectionTasks.length}</span>
+                  <div
+                    class={cn(
+                      "flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-md border px-2 transition-colors focus-within:border-foreground/50 focus-within:bg-card",
+                      sectionDraftDirty(section)
+                        ? "border-border bg-card shadow-sm"
+                        : "border-transparent bg-transparent hover:bg-card/60",
+                    )}
+                  >
+                    <input
+                      value={sectionNameDraft(section)}
+                      data-list-section-drag-source="true"
+                      class="min-h-7 min-w-0 flex-1 bg-transparent text-[0.866667rem] font-semibold disabled:text-muted-foreground"
+                      aria-label={t("projects.list.sectionName")}
+                      disabled={Boolean(section.hiddenAt || section.archivedAt)}
+                      oninput={(event) => {
+                        sectionNameDrafts = {
+                          ...sectionNameDrafts,
+                          [section.id]: event.currentTarget.value,
+                        };
+                      }}
+                      onkeydown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          void saveSection(section);
+                        }
+                      }}
+                    />
+                    {#if sectionDraftDirty(section)}
+                      <button
+                        type="button"
+                        class="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md bg-muted text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                        disabled={!sectionDraftSaveable(section)}
+                        aria-label={t("projects.list.saveSection")}
+                        title={t("projects.list.saveSection")}
+                        onclick={() => { void saveSection(section); }}
+                      >
+                        <Check size={14} strokeWidth={2} />
+                      </button>
+                    {/if}
                   {#if section.hiddenAt}
                     <span class="rounded border border-sky-500/40 bg-sky-500/10 px-1.5 py-0.5 text-[0.733333rem] text-sky-700 dark:text-sky-300">
                       {t("projects.list.hiddenSection")}
@@ -2323,76 +2920,92 @@
                       {t("projects.list.archivedSection")}
                     </span>
                   {/if}
-                  <button
-                    type="button"
-                    class="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-                    disabled={!previousSection || Boolean(section.hiddenAt || section.archivedAt)}
-                    aria-label={t("projects.actions.moveSectionUp", section.name)}
-                    title={t("projects.actions.moveSectionUp", section.name)}
-                    onclick={() => { void moveSection(section, -1); }}
-                  >
-                    <ArrowUp size={13} strokeWidth={1.75} />
-                  </button>
-                  <button
-                    type="button"
-                    class="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-                    disabled={!nextSection || Boolean(section.hiddenAt || section.archivedAt)}
-                    aria-label={t("projects.actions.moveSectionDown", section.name)}
-                    title={t("projects.actions.moveSectionDown", section.name)}
-                    onclick={() => { void moveSection(section, 1); }}
-                  >
-                    <ArrowDown size={13} strokeWidth={1.75} />
-                  </button>
-                  <button
-                    type="button"
-                    class="flex h-7 items-center gap-1 rounded-md border border-border bg-card px-2 text-[0.733333rem] hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-                    disabled={!sectionDraftDirty(section) || Boolean(section.hiddenAt || section.archivedAt)}
-                    onclick={() => { void saveSection(section); }}
-                  >
-                    <Save size={13} strokeWidth={1.75} />
-                    <span>{t("projects.list.saveSection")}</span>
-                  </button>
-                  {#if section.hiddenAt || section.archivedAt}
+                  <div class="relative shrink-0" data-section-options-root="true">
                     <button
                       type="button"
-                      class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-                      aria-label={t("projects.actions.restoreSection", section.name)}
-                      title={t("projects.actions.restoreSection", section.name)}
-                      onclick={() => { void restoreSection(section); }}
+                      class={cn(
+                        "flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover/section-header:opacity-100 group-focus-within/section-header:opacity-100",
+                        sectionOptionsMenuId === section.id && "bg-accent text-foreground opacity-100",
+                      )}
+                      aria-label={t("projects.actions.sectionOptions", section.name)}
+                      title={t("projects.actions.sectionOptions", section.name)}
+                      aria-expanded={sectionOptionsMenuId === section.id}
+                      onclick={() => {
+                        sectionOptionsMenuId = sectionOptionsMenuId === section.id ? null : section.id;
+                      }}
                     >
-                      <ArchiveRestore size={13} strokeWidth={1.75} />
+                      <MoreHorizontal size={14} strokeWidth={1.75} />
                     </button>
-                  {:else}
-                    <button
-                      type="button"
-                      class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-                      aria-label={t("projects.actions.hideSection", section.name)}
-                      title={t("projects.actions.hideSection", section.name)}
-                      onclick={() => { void hideSection(section); }}
-                    >
-                      <EyeOff size={13} strokeWidth={1.75} />
-                    </button>
-                    <button
-                      type="button"
-                      class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-                      aria-label={t("projects.actions.archiveSection", section.name)}
-                      title={t("projects.actions.archiveSection", section.name)}
-                      onclick={() => { void archiveSection(section); }}
-                    >
-                      <Archive size={13} strokeWidth={1.75} />
-                    </button>
-                  {/if}
+                    {#if sectionOptionsMenuId === section.id}
+                      <div
+                        class="absolute right-0 top-8 z-30 w-52 rounded-lg border border-border bg-popover p-1 text-[0.866667rem] text-popover-foreground shadow-sm"
+                        role="menu"
+                        aria-label={t("projects.actions.sectionOptions", section.name)}
+                      >
+                        {#if section.hiddenAt || section.archivedAt}
+                          <button
+                            type="button"
+                            class="flex min-h-9 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-left hover:bg-accent hover:text-foreground"
+                            role="menuitem"
+                            onclick={() => {
+                              sectionOptionsMenuId = null;
+                              void restoreSection(section);
+                            }}
+                          >
+                            <ArchiveRestore size={14} strokeWidth={1.75} class="shrink-0 text-muted-foreground" />
+                            <span>{t("projects.actions.restoreSection", section.name)}</span>
+                          </button>
+                        {:else}
+                          <button
+                            type="button"
+                            class="flex min-h-9 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-left hover:bg-accent hover:text-foreground"
+                            role="menuitem"
+                            onclick={() => {
+                              sectionOptionsMenuId = null;
+                              void hideSection(section);
+                            }}
+                          >
+                            <EyeOff size={14} strokeWidth={1.75} class="shrink-0 text-muted-foreground" />
+                            <span>{t("projects.actions.hideSection", section.name)}</span>
+                          </button>
+                          <button
+                            type="button"
+                            class="flex min-h-9 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-left hover:bg-accent hover:text-foreground"
+                            role="menuitem"
+                            onclick={() => {
+                              sectionOptionsMenuId = null;
+                              void archiveSection(section);
+                            }}
+                          >
+                            <Archive size={14} strokeWidth={1.75} class="shrink-0 text-muted-foreground" />
+                            <span>{t("projects.actions.archiveSection", section.name)}</span>
+                          </button>
+                        {/if}
+                      </div>
+                    {/if}
+                  </div>
+                  </div>
                 </div>
                 {#if !section.collapsed && !section.archivedAt && !section.hiddenAt}
-                  <div class="grid gap-1">
+                  <div
+                    class="project-list-divider group/column-header grid min-h-11 items-center px-1 text-[0.866667rem] text-foreground"
+                    style={`grid-template-columns: ${taskListGridTemplate}; min-width: ${taskListGridMinWidth};`}
+                  >
+                    <div></div>
+                    <div></div>
+                    <div class="truncate px-2">{t("projects.list.name")}</div>
+                    {#each taskListColumns as column (column)}
+                      <div class="truncate px-2">{taskListColumnLabel(column)}</div>
+                    {/each}
+                    <div></div>
+                  </div>
+                  <div class="grid">
                     {#each sectionTasks as task (task.id)}
                       {@const status = statusForTask(task)}
                       {@const subtasks = subtasksForTask(task)}
                       {@const scheduled = scheduledLabel(task.id)}
                       {@const taskLabels = visibleTaskLabels(task)}
                       {@const hiddenLabels = hiddenTaskLabelCount(task)}
-                      {@const previousSectionTask = adjacentTaskInSection(task, -1)}
-                      {@const nextSectionTask = adjacentTaskInSection(task, 1)}
                       {@const blockedByCount = blockedByDependencies(task).length}
                       {@const blocksCount = blocksDependencies(task).length}
                       {#if listDropMarkerVisible(section, task, "before")}
@@ -2401,33 +3014,30 @@
                       <div
                         role="listitem"
                         class={cn(
-                          "rounded-md border bg-card px-2 py-1.5",
-                          selectedTaskId === task.id ? "border-primary/60 ring-1 ring-primary/20" : "border-border",
+                          "project-list-divider group/row relative grid min-h-11 items-center px-1 transition-colors hover:bg-accent/35",
+                          selectedTaskId === task.id && "bg-accent/40 ring-1 ring-inset ring-primary/20",
                           task.archivedAt && "opacity-70",
                           listDraggingTaskId === task.id && "opacity-50",
                           listDropPendingTaskId === task.id && "opacity-60",
                         )}
+                        style={`grid-template-columns: ${taskListGridTemplate}; min-width: ${taskListGridMinWidth};`}
+                        draggable={canStartListTaskDrag(task)}
+                        onpointerdown={(event) => handleListRowPointerDown(event, task)}
+                        onpointerup={clearListRowDragGesture}
+                        onpointercancel={clearListRowDragGesture}
+                        ondragstart={(event) => handleListTaskDragStart(event, task)}
+                        ondragend={handleListTaskDragEnd}
                         ondragover={(event) => handleListRowDragOver(event, section, task)}
                         ondrop={(event) => { void dropListTask(event, section, task, listRowDropPosition(event)); }}
                       >
-                        <div class="grid min-h-8 grid-cols-[auto_auto_auto_minmax(0,1fr)_auto] items-center gap-2">
-                          <button
-                            type="button"
-                            class="flex h-5 w-5 shrink-0 cursor-grab items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-40"
-                            draggable={listDragEnabled() && !task.archivedAt && listDropPendingTaskId === null}
-                            disabled={!listDragEnabled() || Boolean(task.archivedAt) || listDropPendingTaskId !== null}
-                            aria-label={t("projects.actions.dragTask", task.title)}
-                            title={t("projects.actions.dragTask", task.title)}
-                            ondragstart={(event) => handleListTaskDragStart(event, task)}
-                            ondragend={handleListTaskDragEnd}
-                          >
-                            <GripVertical size={13} strokeWidth={1.75} />
-                          </button>
+                        <div class="flex h-full items-center justify-center">
                           <button
                             type="button"
                             class={cn(
-                              "flex h-5 w-5 shrink-0 items-center justify-center rounded border",
-                              taskSelected(task) ? "border-primary bg-primary text-primary-foreground" : "border-border hover:bg-accent",
+                              "flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded border transition-opacity",
+                              taskSelected(task)
+                                ? "border-primary bg-primary text-primary-foreground opacity-100"
+                                : "border-border bg-background opacity-0 hover:bg-accent group-hover/row:opacity-100 group-focus-within/row:opacity-100",
                             )}
                             aria-label={taskSelected(task) ? t("projects.actions.unselectTask", task.title) : t("projects.actions.selectTask", task.title)}
                             onclick={() => toggleTaskSelection(task)}
@@ -2436,65 +3046,102 @@
                               <Check size={13} strokeWidth={2} />
                             {/if}
                           </button>
+                        </div>
+                        <div class="flex h-full items-center justify-center">
                           <button
                             type="button"
-                            class={cn(
-                              "flex h-5 w-5 shrink-0 items-center justify-center rounded border disabled:cursor-not-allowed disabled:opacity-40",
-                              status?.terminal ? "border-emerald-500 bg-emerald-500 text-white" : "border-border hover:bg-accent",
-                            )}
-                            aria-label={t("projects.actions.toggleComplete")}
-                            disabled={Boolean(task.archivedAt)}
-                            onclick={() => { void projects.toggleTaskDone(task); }}
-                          >
-                            {#if status?.terminal}
-                              <Check size={13} strokeWidth={2} />
-                            {/if}
-                          </button>
-                          <button
-                            type="button"
-                            class="min-w-0 text-left"
+                            class="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover/row:opacity-100 group-focus-within/row:opacity-100"
                             aria-label={t("projects.actions.openTaskDetails", task.title)}
                             onclick={() => openTaskDetail(task)}
                           >
-                            <div class="truncate text-[0.866667rem]">{task.title}</div>
-                            {#if taskLabels.length > 0}
-                              <div class="mt-1 flex min-w-0 flex-wrap gap-1">
-                                {#each taskLabels as label (label.id)}
-                                  <span class="inline-flex max-w-full items-center gap-1 rounded border border-border bg-muted/50 px-1.5 py-0.5 text-[0.666667rem] text-muted-foreground">
-                                    <span
-                                      class={cn("h-1.5 w-1.5 shrink-0 rounded-full border", labelColorSwatchClass(label.color))}
-                                      style={labelColorDotStyle(label.color)}
-                                    ></span>
-                                    <span class="truncate">{label.name}</span>
-                                  </span>
-                                {/each}
-                                {#if hiddenLabels > 0}
-                                  <span class="rounded border border-border bg-muted/50 px-1.5 py-0.5 text-[0.666667rem] text-muted-foreground">
-                                    {t("projects.list.moreLabels", hiddenLabels)}
-                                  </span>
+                            <ChevronRight size={14} strokeWidth={1.75} />
+                          </button>
+                        </div>
+                        <button
+                          type="button"
+                          data-list-row-drag-source="true"
+                          class="min-w-0 cursor-pointer px-2 text-left"
+                          aria-label={t("projects.actions.openTaskDetails", task.title)}
+                          onclick={() => openTaskDetail(task)}
+                        >
+                          <div class="truncate text-[0.866667rem]">{task.title}</div>
+                          {#if taskLabels.length > 0}
+                            <div class="mt-1 flex min-w-0 flex-wrap gap-1">
+                              {#each taskLabels as label (label.id)}
+                                <span class="inline-flex max-w-full items-center gap-1 rounded border border-border bg-muted/50 px-1.5 py-0.5 text-[0.666667rem] text-muted-foreground">
+                                  <span
+                                    class={cn("h-1.5 w-1.5 shrink-0 rounded-full border", labelColorSwatchClass(label.color))}
+                                    style={labelColorDotStyle(label.color)}
+                                  ></span>
+                                  <span class="truncate">{label.name}</span>
+                                </span>
+                              {/each}
+                              {#if hiddenLabels > 0}
+                                <span class="rounded border border-border bg-muted/50 px-1.5 py-0.5 text-[0.666667rem] text-muted-foreground">
+                                  {t("projects.list.moreLabels", hiddenLabels)}
+                                </span>
+                              {/if}
+                            </div>
+                          {/if}
+                          {#if subtasks.length > 0}
+                            <div class="truncate text-[0.733333rem] text-muted-foreground">
+                              {t("projects.list.subtasks", subtasks.length)}
+                            </div>
+                          {/if}
+                          {#if task.archivedAt}
+                            <span class={cn("mt-1 inline-flex w-fit rounded border px-1.5 py-0.5 text-[0.733333rem]", taskArchivedBadgeClass(task))}>
+                              {t("projects.taskLifecycle.archived")}
+                            </span>
+                          {/if}
+                        </button>
+                        {#each taskListColumns as column (column)}
+                          <div class="flex min-w-0 items-center px-2">
+                            {#if column === "status"}
+                              <div class="relative max-w-full" data-list-status-menu-root="true">
+                                <button
+                                  type="button"
+                                  class={cn(
+                                    "max-w-full cursor-pointer truncate rounded border px-1.5 py-0.5 text-[0.733333rem] disabled:cursor-not-allowed disabled:opacity-60",
+                                    statusBadgeClass(status),
+                                  )}
+                                  disabled={Boolean(task.archivedAt)}
+                                  aria-haspopup="menu"
+                                  aria-expanded={statusMenuTaskId === task.id}
+                                  onclick={() => {
+                                    statusMenuTaskId = statusMenuTaskId === task.id ? null : task.id;
+                                  }}
+                                >
+                                  {status?.name ?? t("projects.list.status")}
+                                </button>
+                                {#if statusMenuTaskId === task.id}
+                                  <div
+                                    class="absolute left-0 top-7 z-30 w-44 rounded-lg border border-border bg-popover p-1 text-[0.8rem] text-popover-foreground shadow-sm"
+                                    role="menu"
+                                  >
+                                    {#each statuses as nextStatus (nextStatus.id)}
+                                      <button
+                                        type="button"
+                                        class="flex min-h-8 w-full cursor-pointer items-center justify-between gap-2 rounded-md px-2 text-left hover:bg-accent hover:text-foreground"
+                                        role="menuitemradio"
+                                        aria-checked={task.statusId === nextStatus.id}
+                                        onclick={() => { void setTaskStatusFromList(task, nextStatus); }}
+                                      >
+                                        <span class={cn("min-w-0 truncate rounded border px-1.5 py-0.5 text-[0.733333rem]", statusBadgeClass(nextStatus))}>
+                                          {nextStatus.name}
+                                        </span>
+                                        {#if task.statusId === nextStatus.id}
+                                          <Check size={13} strokeWidth={2} class="shrink-0 text-muted-foreground" />
+                                        {/if}
+                                      </button>
+                                    {/each}
+                                  </div>
                                 {/if}
                               </div>
-                            {/if}
-                            {#if subtasks.length > 0}
-                              <div class="truncate text-[0.733333rem] text-muted-foreground">
-                                {t("projects.list.subtasks", subtasks.length)}
-                              </div>
-                            {/if}
-                          </button>
-                          <div class="flex min-w-0 items-center justify-end gap-1">
-                            {#if taskListColumnVisible("status")}
-                              <button
-                                type="button"
-                                class={cn("rounded border px-1.5 py-0.5 text-[0.733333rem]", statusBadgeClass(status))}
-                              >
-                                {status?.name ?? t("projects.list.status")}
-                              </button>
-                            {/if}
-                            {#if taskListColumnVisible("priority")}
+                            {:else if column === "priority"}
                               <button
                                 type="button"
                                 class={cn(
-                                  "rounded border px-1.5 py-0.5 text-[0.733333rem] disabled:cursor-not-allowed disabled:opacity-60",
+                                  "max-w-full cursor-pointer truncate rounded border px-1.5 py-0.5 text-[0.733333rem] disabled:cursor-not-allowed disabled:opacity-60",
                                   priorityClass(task.priority),
                                 )}
                                 disabled={Boolean(task.archivedAt)}
@@ -2502,86 +3149,64 @@
                               >
                                 {priorityLabel(task.priority)}
                               </button>
-                            {/if}
-                            {#if taskListColumnVisible("estimate") && task.estimateMinutes !== undefined}
-                              <span class="rounded border border-border bg-background px-1.5 py-0.5 text-[0.733333rem] text-muted-foreground">
-                                {estimateLabel(task.estimateMinutes)}
-                              </span>
-                            {/if}
-                            {#if taskListColumnVisible("due") && task.dueDate}
-                              <span class="rounded border border-border bg-background px-1.5 py-0.5 text-[0.733333rem] text-muted-foreground">
-                                {task.dueDate}
-                              </span>
-                            {/if}
-                            {#each visibleCustomFieldListFields as field (field.id)}
-                              {@const customValue = customFieldDisplayValue(task, field)}
-                              {#if customValue}
-                                <span
-                                  class="inline-flex min-w-0 max-w-48 items-center gap-1 rounded border border-border bg-background px-1.5 py-0.5 text-[0.733333rem]"
-                                  title={`${field.name}: ${customValue}`}
-                                >
-                                  <span class="max-w-20 truncate text-muted-foreground">{field.name}</span>
-                                  <span class="max-w-28 truncate text-foreground">{customValue}</span>
+                            {:else if column === "estimate"}
+                              {#if task.estimateMinutes !== undefined}
+                                <span class="truncate rounded border border-border bg-background px-1.5 py-0.5 text-[0.733333rem] text-muted-foreground">
+                                  {estimateLabel(task.estimateMinutes)}
                                 </span>
                               {/if}
-                            {/each}
-                            {#if taskListColumnVisible("scheduled") && scheduled}
-                              <span class="rounded border border-sky-500/40 bg-sky-500/10 px-1.5 py-0.5 text-[0.733333rem] text-sky-700 dark:text-sky-300">
-                                {scheduled}
-                              </span>
-                            {/if}
-                            {#if task.archivedAt}
-                              <span class={cn("rounded border px-1.5 py-0.5 text-[0.733333rem]", taskArchivedBadgeClass(task))}>
-                                {t("projects.taskLifecycle.archived")}
-                              </span>
-                            {/if}
-                            {#if taskListColumnVisible("dependencies")}
-                              {#if blockedByCount > 0}
-                                <span class="rounded border border-destructive/40 bg-destructive/10 px-1.5 py-0.5 text-[0.733333rem] text-destructive">
-                                  {t("projects.list.blockedBy", blockedByCount)}
+                            {:else if column === "due"}
+                              {#if task.dueDate}
+                                <span class="truncate text-[0.8rem] text-muted-foreground">{task.dueDate}</span>
+                              {/if}
+                            {:else if column === "scheduled"}
+                              {#if scheduled}
+                                <span class="truncate rounded border border-sky-500/40 bg-sky-500/10 px-1.5 py-0.5 text-[0.733333rem] text-sky-700 dark:text-sky-300">
+                                  {scheduled}
                                 </span>
                               {/if}
-                              {#if blocksCount > 0}
-                                <span class="rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[0.733333rem] text-amber-700 dark:text-amber-300">
-                                  {t("projects.list.blocks", blocksCount)}
-                                </span>
+                            {:else if column === "dependencies"}
+                              <div class="flex min-w-0 flex-wrap gap-1">
+                                {#if blockedByCount > 0}
+                                  <span class="rounded border border-destructive/40 bg-destructive/10 px-1.5 py-0.5 text-[0.733333rem] text-destructive">
+                                    {t("projects.list.blockedBy", blockedByCount)}
+                                  </span>
+                                {/if}
+                                {#if blocksCount > 0}
+                                  <span class="rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[0.733333rem] text-amber-700 dark:text-amber-300">
+                                    {t("projects.list.blocks", blocksCount)}
+                                  </span>
+                                {/if}
+                              </div>
+                            {:else}
+                              {@const customFieldId = customFieldIdFromTaskListColumn(column)}
+                              {@const customField = customFieldId ? projectCustomFields.find((field) => field.id === customFieldId) : undefined}
+                              {#if customField}
+                                {@const customValue = customFieldDisplayValue(task, customField)}
+                                {#if customValue}
+                                  <span class="min-w-0 truncate text-[0.8rem] text-muted-foreground" title={`${customField.name}: ${customValue}`}>
+                                    {customValue}
+                                  </span>
+                                {/if}
                               {/if}
                             {/if}
-                            <button
-                              type="button"
-                              class="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-                              disabled={Boolean(task.archivedAt) || taskSortMode !== "manual" || !previousSectionTask}
-                              aria-label={previousSectionTask ? t("projects.actions.moveTaskUp", task.title) : t("projects.actions.noPreviousTask")}
-                              title={previousSectionTask ? t("projects.actions.moveTaskUp", task.title) : t("projects.actions.noPreviousTask")}
-                              onclick={() => { void moveTaskWithinSection(task, -1); }}
-                            >
-                              <ArrowUp size={13} strokeWidth={1.75} />
-                            </button>
-                            <button
-                              type="button"
-                              class="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-                              disabled={Boolean(task.archivedAt) || taskSortMode !== "manual" || !nextSectionTask}
-                              aria-label={nextSectionTask ? t("projects.actions.moveTaskDown", task.title) : t("projects.actions.noNextTask")}
-                              title={nextSectionTask ? t("projects.actions.moveTaskDown", task.title) : t("projects.actions.noNextTask")}
-                              onclick={() => { void moveTaskWithinSection(task, 1); }}
-                            >
-                              <ArrowDown size={13} strokeWidth={1.75} />
-                            </button>
-                            <button
-                              type="button"
-                              class="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-                              disabled={Boolean(task.archivedAt)}
-                              aria-label={t("projects.actions.scheduleTask")}
-                              title={t("projects.actions.scheduleTask")}
-                              onclick={() => openScheduleForm(task)}
-                            >
-                              <CalendarDays size={13} strokeWidth={1.75} />
-                            </button>
                           </div>
+                        {/each}
+                        <div class="flex items-center justify-end">
+                          <button
+                            type="button"
+                            class="flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover/row:opacity-100 group-focus-within/row:opacity-100 disabled:cursor-not-allowed disabled:opacity-40"
+                            disabled={Boolean(task.archivedAt)}
+                            aria-label={t("projects.actions.scheduleTask")}
+                            title={t("projects.actions.scheduleTask")}
+                            onclick={() => openScheduleForm(task)}
+                          >
+                            <CalendarDays size={13} strokeWidth={1.75} />
+                          </button>
                         </div>
                         {#if schedulingTaskId === task.id && !task.archivedAt}
                           <form
-                            class="mt-2 grid gap-2 border-t border-border/70 pt-2 min-[720px]:grid-cols-[minmax(0,1fr)_7rem_6rem_auto_auto]"
+                            class="project-list-inline-divider col-span-full mt-2 grid gap-2 pt-2 min-[720px]:grid-cols-[minmax(0,1fr)_7rem_6rem_auto_auto]"
                             onsubmit={(event) => { event.preventDefault(); void scheduleTask(task); }}
                           >
                             <label class="grid gap-1 text-[0.733333rem] text-muted-foreground">
@@ -2613,13 +3238,13 @@
                             <button
                               type="submit"
                               disabled={schedulePending}
-                              class="self-end rounded-md bg-primary px-2 py-1.5 text-[0.8rem] font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                              class="self-end cursor-pointer rounded-md bg-primary px-2 py-1.5 text-[0.8rem] font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-60"
                             >
                               {t("projects.schedule.schedule")}
                             </button>
                             <button
                               type="button"
-                              class="self-end rounded-md border border-border bg-card px-2 py-1.5 text-[0.8rem] hover:bg-accent"
+                              class="self-end cursor-pointer rounded-md border border-border bg-card px-2 py-1.5 text-[0.8rem] hover:bg-accent"
                               onclick={closeScheduleForm}
                             >
                               {t("common.cancel")}
@@ -2632,7 +3257,7 @@
                           </form>
                         {/if}
                         {#if subtasks.length > 0}
-                          <div class="mt-1 grid gap-1 border-t border-border/70 pt-1">
+                          <div class="project-list-inline-divider col-span-full mt-1 grid gap-1 pt-1">
                             {#each subtasks as subtask (subtask.id)}
                               {@const subtaskStatus = statusForTask(subtask)}
                               <div
@@ -2646,7 +3271,7 @@
                                 <button
                                   type="button"
                                   class={cn(
-                                    "flex h-5 w-5 shrink-0 items-center justify-center rounded border",
+                                    "flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded border",
                                     subtaskStatus?.terminal ? "border-emerald-500 bg-emerald-500 text-white" : "border-border hover:bg-accent",
                                   )}
                                   aria-label={t("projects.actions.toggleComplete")}
@@ -2658,7 +3283,7 @@
                                 </button>
                                 <button
                                   type="button"
-                                  class="min-w-0 text-left"
+                                  class="min-w-0 cursor-pointer text-left"
                                   aria-label={t("projects.actions.openTaskDetails", subtask.title)}
                                   onclick={() => openTaskDetail(subtask)}
                                 >
@@ -2684,14 +3309,23 @@
                     {#if listDragOverSectionId === section.id && listDragOverPosition === "section"}
                       <div class="h-1 rounded-full bg-primary"></div>
                     {/if}
-                    {#if sectionTasks.length === 0}
-                      <div class="rounded-md border border-dashed border-border px-2 py-2 text-[0.8rem] text-muted-foreground">
-                        {t("projects.list.emptySection")}
-                      </div>
-                    {/if}
                   </div>
-                  <div class="grid gap-1 pl-7">
-                    <form class="flex gap-1" onsubmit={(event) => { event.preventDefault(); void submitSectionTask(section.id); }}>
+                  <div
+                    class="project-list-divider grid items-center px-1 py-1.5"
+                    style={`grid-template-columns: ${taskListGridTemplate}; min-width: ${taskListGridMinWidth};`}
+                  >
+                    <div></div>
+                    <div></div>
+                    <form class="group flex min-w-0 items-center gap-2 px-2" onsubmit={(event) => { event.preventDefault(); void submitSectionTask(section.id); }}>
+                      <span
+                        class={cn(
+                          "flex h-5 w-5 shrink-0 items-center justify-center text-muted-foreground transition-opacity",
+                          (sectionTaskDrafts[section.id] ?? "").trim() ? "opacity-0" : "opacity-100",
+                        )}
+                        aria-hidden="true"
+                      >
+                        <Plus size={15} strokeWidth={1.75} />
+                      </span>
                       <input
                         value={sectionTaskDrafts[section.id] ?? ""}
                         oninput={(event) => {
@@ -2701,38 +3335,114 @@
                           };
                         }}
                         placeholder={t("projects.list.addTaskInSection", section.name)}
-                        class="min-h-8 min-w-0 flex-1 rounded-md border border-border bg-card px-2 text-[0.8rem]"
+                        class="min-h-8 min-w-0 flex-1 bg-transparent text-[0.866667rem] text-foreground placeholder:text-muted-foreground"
                       />
                       <button
-                        type="button"
+                        type="submit"
                         disabled={taskCreatePendingTarget !== null}
-                        onclick={(event) => { event.preventDefault(); void submitSectionTask(section.id); }}
-                        class="flex min-h-8 items-center justify-center rounded-md border border-border bg-card px-2 text-[0.8rem] hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+                        class="flex h-7 shrink-0 cursor-pointer items-center justify-center rounded-md border border-border bg-card px-2 text-[0.733333rem] text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover:opacity-100 group-focus-within:opacity-100 disabled:cursor-not-allowed disabled:opacity-60"
                       >
-                        <Plus size={14} strokeWidth={1.75} />
+                        {t("common.save")}
                       </button>
                     </form>
+                    {#each taskListColumns as column (column)}
+                      <div></div>
+                    {/each}
+                    <div></div>
                     {#if taskCreateErrorFor(sectionTaskCreateTarget(section.id))}
-                      <div class="rounded border border-destructive/30 bg-destructive/10 px-2 py-1 text-[0.733333rem] text-destructive">
+                      <div class="col-span-full rounded border border-destructive/30 bg-destructive/10 px-2 py-1 text-[0.733333rem] text-destructive">
                         {taskCreateErrorFor(sectionTaskCreateTarget(section.id))}
                       </div>
                     {/if}
                   </div>
                 {/if}
               </section>
+              {#if listSectionDropMarkerVisible(section, "after")}
+                <div class="h-1 rounded-full bg-primary"></div>
+              {/if}
             {/each}
+            <div
+              class="project-list-sticky-row grid items-center px-1 py-1.5"
+              style={`grid-template-columns: ${taskListGridTemplate}; min-width: max(100%, ${taskListGridMinWidth});`}
+            >
+              <div></div>
+              <div></div>
+              <form class="group flex min-w-0 items-center gap-2 px-2" onsubmit={(event) => { event.preventDefault(); void submitSection(); }}>
+                <span
+                  class={cn(
+                    "flex h-5 w-5 shrink-0 items-center justify-center text-muted-foreground transition-opacity",
+                    sectionDraft.trim() ? "opacity-0" : "opacity-100",
+                  )}
+                  aria-hidden="true"
+                >
+                  <Plus size={15} strokeWidth={1.75} />
+                </span>
+                <input
+                  bind:value={sectionDraft}
+                  placeholder={t("projects.header.addSection")}
+                  class="min-h-8 min-w-0 flex-1 bg-transparent text-[0.866667rem] text-foreground placeholder:text-muted-foreground"
+                />
+                <button
+                  type="submit"
+                  class="flex h-7 shrink-0 cursor-pointer items-center justify-center rounded-md border border-border bg-card px-2 text-[0.733333rem] text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover:opacity-100 group-focus-within:opacity-100"
+                >
+                  {t("common.save")}
+                </button>
+              </form>
+              {#each taskListColumns as column (column)}
+                <div></div>
+              {/each}
+              <div></div>
+            </div>
             {:else}
               {#each listTaskGroups as group (group.id)}
-                <section class="flex flex-col gap-1">
-                  <div class="flex min-h-9 items-center gap-2 border-b border-border/70 px-1">
-                    <span class="min-w-0 flex-1 truncate text-[0.866667rem] font-semibold">
+                <section
+                  class="flex flex-col gap-0"
+                  style={`min-width: max(100%, ${taskListGridMinWidth});`}
+                >
+                  <div
+                    class="project-list-divider project-list-sticky-row group/list-group-header grid min-h-11 items-center px-1"
+                    style={`grid-template-columns: ${taskListGridTemplate}; min-width: ${taskListGridMinWidth};`}
+                  >
+                    <div class="flex h-7 items-center justify-center">
+                      <button
+                        type="button"
+                        class={cn(
+                          "flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded border transition-opacity",
+                          allTasksSelected(group.tasks)
+                            ? "border-primary bg-primary text-primary-foreground opacity-100"
+                            : "border-border bg-background opacity-0 hover:bg-accent group-hover/list-group-header:opacity-100 group-focus-within/list-group-header:opacity-100",
+                          someTasksSelected(group.tasks) && !allTasksSelected(group.tasks) && "border-primary/70 bg-primary/10 text-primary opacity-100",
+                        )}
+                        aria-label={allTasksSelected(group.tasks) ? t("projects.actions.unselectTaskGroup", taskListGroupTitle(group.value)) : t("projects.actions.selectTaskGroup", taskListGroupTitle(group.value))}
+                        disabled={group.tasks.length === 0}
+                        onclick={() => toggleTaskGroupSelection(group.tasks)}
+                      >
+                        {#if allTasksSelected(group.tasks)}
+                          <Check size={13} strokeWidth={2} />
+                        {:else if someTasksSelected(group.tasks)}
+                          <span class="h-0.5 w-2.5 rounded-full bg-current"></span>
+                        {/if}
+                      </button>
+                    </div>
+                    <div></div>
+                    <span class="min-w-0 truncate px-2 text-[0.866667rem] font-semibold">
                       {taskListGroupTitle(group.value)}
                     </span>
-                    <span class="rounded border border-border bg-background px-1.5 py-0.5 text-[0.733333rem] text-muted-foreground">
-                      {group.tasks.length}
-                    </span>
                   </div>
-                  <div class="grid gap-1">
+                  <div
+                    class="project-list-divider group/list-column-header grid min-h-11 items-center px-1 text-[0.866667rem] text-foreground"
+                    style={`grid-template-columns: ${taskListGridTemplate}; min-width: ${taskListGridMinWidth};`}
+                  >
+                    <div></div>
+                    <div></div>
+                    <div class="truncate px-2">{t("projects.list.name")}</div>
+                    {#each taskListColumns as column (column)}
+                      <div class="truncate px-2">{taskListColumnLabel(column)}</div>
+                    {/each}
+                    <div></div>
+                  </div>
+                  <div class="grid">
                     {#each group.tasks as task (task.id)}
                       {@const status = statusForTask(task)}
                       {@const section = sectionForTask(task)}
@@ -2744,17 +3454,20 @@
                       {@const blocksCount = blocksDependencies(task).length}
                       <div
                         class={cn(
-                          "rounded-md border bg-card px-2 py-1.5",
-                          selectedTaskId === task.id ? "border-primary/60 ring-1 ring-primary/20" : "border-border",
+                          "project-list-divider group/row relative grid min-h-11 items-center px-1 transition-colors hover:bg-accent/35",
+                          selectedTaskId === task.id && "bg-accent/40 ring-1 ring-inset ring-primary/20",
                           task.archivedAt && "opacity-70",
                         )}
+                        style={`grid-template-columns: ${taskListGridTemplate}; min-width: ${taskListGridMinWidth};`}
                       >
-                        <div class="grid min-h-8 grid-cols-[auto_auto_minmax(0,1fr)_auto] items-center gap-2">
+                        <div class="flex h-full items-center justify-center">
                           <button
                             type="button"
                             class={cn(
-                              "flex h-5 w-5 shrink-0 items-center justify-center rounded border",
-                              taskSelected(task) ? "border-primary bg-primary text-primary-foreground" : "border-border hover:bg-accent",
+                              "flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded border transition-opacity",
+                              taskSelected(task)
+                                ? "border-primary bg-primary text-primary-foreground opacity-100"
+                                : "border-border bg-background opacity-0 hover:bg-accent group-hover/row:opacity-100 group-focus-within/row:opacity-100",
                             )}
                             aria-label={taskSelected(task) ? t("projects.actions.unselectTask", task.title) : t("projects.actions.selectTask", task.title)}
                             onclick={() => toggleTaskSelection(task)}
@@ -2763,68 +3476,104 @@
                               <Check size={13} strokeWidth={2} />
                             {/if}
                           </button>
+                        </div>
+                        <div class="flex h-full items-center justify-center">
                           <button
                             type="button"
-                            class={cn(
-                              "flex h-5 w-5 shrink-0 items-center justify-center rounded border disabled:cursor-not-allowed disabled:opacity-40",
-                              status?.terminal ? "border-emerald-500 bg-emerald-500 text-white" : "border-border hover:bg-accent",
-                            )}
-                            aria-label={t("projects.actions.toggleComplete")}
-                            disabled={Boolean(task.archivedAt)}
-                            onclick={() => { void projects.toggleTaskDone(task); }}
-                          >
-                            {#if status?.terminal}
-                              <Check size={13} strokeWidth={2} />
-                            {/if}
-                          </button>
-                          <button
-                            type="button"
-                            class="min-w-0 text-left"
+                            class="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover/row:opacity-100 group-focus-within/row:opacity-100"
                             aria-label={t("projects.actions.openTaskDetails", task.title)}
                             onclick={() => openTaskDetail(task)}
                           >
-                            <div class="truncate text-[0.866667rem]">{task.title}</div>
-                            <div class="mt-0.5 flex min-w-0 flex-wrap items-center gap-1 text-[0.733333rem] text-muted-foreground">
-                              {#if section}
-                                <span class="truncate">{section.name}</span>
-                              {/if}
-                              {#if subtasks.length > 0}
-                                <span>{t("projects.list.subtasks", subtasks.length)}</span>
+                            <ChevronRight size={14} strokeWidth={1.75} />
+                          </button>
+                        </div>
+                        <button
+                          type="button"
+                          class="min-w-0 cursor-pointer px-2 text-left"
+                          aria-label={t("projects.actions.openTaskDetails", task.title)}
+                          onclick={() => openTaskDetail(task)}
+                        >
+                          <div class="truncate text-[0.866667rem]">{task.title}</div>
+                          <div class="mt-0.5 flex min-w-0 flex-wrap items-center gap-1 text-[0.733333rem] text-muted-foreground">
+                            {#if section}
+                              <span class="truncate">{section.name}</span>
+                            {/if}
+                            {#if subtasks.length > 0}
+                              <span>{t("projects.list.subtasks", subtasks.length)}</span>
+                            {/if}
+                          </div>
+                          {#if taskLabels.length > 0}
+                            <div class="mt-1 flex min-w-0 flex-wrap gap-1">
+                              {#each taskLabels as label (label.id)}
+                                <span class="inline-flex max-w-full items-center gap-1 rounded border border-border bg-muted/50 px-1.5 py-0.5 text-[0.666667rem] text-muted-foreground">
+                                  <span
+                                    class={cn("h-1.5 w-1.5 shrink-0 rounded-full border", labelColorSwatchClass(label.color))}
+                                    style={labelColorDotStyle(label.color)}
+                                  ></span>
+                                  <span class="truncate">{label.name}</span>
+                                </span>
+                              {/each}
+                              {#if hiddenLabels > 0}
+                                <span class="rounded border border-border bg-muted/50 px-1.5 py-0.5 text-[0.666667rem] text-muted-foreground">
+                                  {t("projects.list.moreLabels", hiddenLabels)}
+                                </span>
                               {/if}
                             </div>
-                            {#if taskLabels.length > 0}
-                              <div class="mt-1 flex min-w-0 flex-wrap gap-1">
-                                {#each taskLabels as label (label.id)}
-                                  <span class="inline-flex max-w-full items-center gap-1 rounded border border-border bg-muted/50 px-1.5 py-0.5 text-[0.666667rem] text-muted-foreground">
-                                    <span
-                                      class={cn("h-1.5 w-1.5 shrink-0 rounded-full border", labelColorSwatchClass(label.color))}
-                                      style={labelColorDotStyle(label.color)}
-                                    ></span>
-                                    <span class="truncate">{label.name}</span>
-                                  </span>
-                                {/each}
-                                {#if hiddenLabels > 0}
-                                  <span class="rounded border border-border bg-muted/50 px-1.5 py-0.5 text-[0.666667rem] text-muted-foreground">
-                                    {t("projects.list.moreLabels", hiddenLabels)}
-                                  </span>
+                          {/if}
+                          {#if task.archivedAt}
+                            <span class={cn("mt-1 inline-flex w-fit rounded border px-1.5 py-0.5 text-[0.733333rem]", taskArchivedBadgeClass(task))}>
+                              {t("projects.taskLifecycle.archived")}
+                            </span>
+                          {/if}
+                        </button>
+                        {#each taskListColumns as column (column)}
+                          <div class="flex min-w-0 items-center px-2">
+                            {#if column === "status"}
+                              <div class="relative max-w-full" data-list-status-menu-root="true">
+                                <button
+                                  type="button"
+                                  class={cn(
+                                    "max-w-full cursor-pointer truncate rounded border px-1.5 py-0.5 text-[0.733333rem] disabled:cursor-not-allowed disabled:opacity-60",
+                                    statusBadgeClass(status),
+                                  )}
+                                  disabled={Boolean(task.archivedAt)}
+                                  aria-haspopup="menu"
+                                  aria-expanded={statusMenuTaskId === task.id}
+                                  onclick={() => {
+                                    statusMenuTaskId = statusMenuTaskId === task.id ? null : task.id;
+                                  }}
+                                >
+                                  {status?.name ?? t("projects.list.status")}
+                                </button>
+                                {#if statusMenuTaskId === task.id}
+                                  <div
+                                    class="absolute left-0 top-7 z-30 w-44 rounded-lg border border-border bg-popover p-1 text-[0.8rem] text-popover-foreground shadow-sm"
+                                    role="menu"
+                                  >
+                                    {#each statuses as nextStatus (nextStatus.id)}
+                                      <button
+                                        type="button"
+                                        class="flex min-h-8 w-full cursor-pointer items-center justify-between gap-2 rounded-md px-2 text-left hover:bg-accent hover:text-foreground"
+                                        role="menuitemradio"
+                                        aria-checked={task.statusId === nextStatus.id}
+                                        onclick={() => { void setTaskStatusFromList(task, nextStatus); }}
+                                      >
+                                        <span class={cn("min-w-0 truncate rounded border px-1.5 py-0.5 text-[0.733333rem]", statusBadgeClass(nextStatus))}>
+                                          {nextStatus.name}
+                                        </span>
+                                        {#if task.statusId === nextStatus.id}
+                                          <Check size={13} strokeWidth={2} class="shrink-0 text-muted-foreground" />
+                                        {/if}
+                                      </button>
+                                    {/each}
+                                  </div>
                                 {/if}
                               </div>
-                            {/if}
-                          </button>
-                          <div class="flex min-w-0 items-center justify-end gap-1">
-                            {#if taskListColumnVisible("status")}
-                              <button
-                                type="button"
-                                class={cn("rounded border px-1.5 py-0.5 text-[0.733333rem]", statusBadgeClass(status))}
-                              >
-                                {status?.name ?? t("projects.list.status")}
-                              </button>
-                            {/if}
-                            {#if taskListColumnVisible("priority")}
+                            {:else if column === "priority"}
                               <button
                                 type="button"
                                 class={cn(
-                                  "rounded border px-1.5 py-0.5 text-[0.733333rem] disabled:cursor-not-allowed disabled:opacity-60",
+                                  "max-w-full cursor-pointer truncate rounded border px-1.5 py-0.5 text-[0.733333rem] disabled:cursor-not-allowed disabled:opacity-60",
                                   priorityClass(task.priority),
                                 )}
                                 disabled={Boolean(task.archivedAt)}
@@ -2832,66 +3581,64 @@
                               >
                                 {priorityLabel(task.priority)}
                               </button>
-                            {/if}
-                            {#if taskListColumnVisible("estimate") && task.estimateMinutes !== undefined}
-                              <span class="rounded border border-border bg-background px-1.5 py-0.5 text-[0.733333rem] text-muted-foreground">
-                                {estimateLabel(task.estimateMinutes)}
-                              </span>
-                            {/if}
-                            {#if taskListColumnVisible("due") && task.dueDate}
-                              <span class="rounded border border-border bg-background px-1.5 py-0.5 text-[0.733333rem] text-muted-foreground">
-                                {task.dueDate}
-                              </span>
-                            {/if}
-                            {#each visibleCustomFieldListFields as field (field.id)}
-                              {@const customValue = customFieldDisplayValue(task, field)}
-                              {#if customValue}
-                                <span
-                                  class="inline-flex min-w-0 max-w-48 items-center gap-1 rounded border border-border bg-background px-1.5 py-0.5 text-[0.733333rem]"
-                                  title={`${field.name}: ${customValue}`}
-                                >
-                                  <span class="max-w-20 truncate text-muted-foreground">{field.name}</span>
-                                  <span class="max-w-28 truncate text-foreground">{customValue}</span>
+                            {:else if column === "estimate"}
+                              {#if task.estimateMinutes !== undefined}
+                                <span class="truncate rounded border border-border bg-background px-1.5 py-0.5 text-[0.733333rem] text-muted-foreground">
+                                  {estimateLabel(task.estimateMinutes)}
                                 </span>
                               {/if}
-                            {/each}
-                            {#if taskListColumnVisible("scheduled") && scheduled}
-                              <span class="rounded border border-sky-500/40 bg-sky-500/10 px-1.5 py-0.5 text-[0.733333rem] text-sky-700 dark:text-sky-300">
-                                {scheduled}
-                              </span>
-                            {/if}
-                            {#if task.archivedAt}
-                              <span class={cn("rounded border px-1.5 py-0.5 text-[0.733333rem]", taskArchivedBadgeClass(task))}>
-                                {t("projects.taskLifecycle.archived")}
-                              </span>
-                            {/if}
-                            {#if taskListColumnVisible("dependencies")}
-                              {#if blockedByCount > 0}
-                                <span class="rounded border border-destructive/40 bg-destructive/10 px-1.5 py-0.5 text-[0.733333rem] text-destructive">
-                                  {t("projects.list.blockedBy", blockedByCount)}
+                            {:else if column === "due"}
+                              {#if task.dueDate}
+                                <span class="truncate text-[0.8rem] text-muted-foreground">{task.dueDate}</span>
+                              {/if}
+                            {:else if column === "scheduled"}
+                              {#if scheduled}
+                                <span class="truncate rounded border border-sky-500/40 bg-sky-500/10 px-1.5 py-0.5 text-[0.733333rem] text-sky-700 dark:text-sky-300">
+                                  {scheduled}
                                 </span>
                               {/if}
-                              {#if blocksCount > 0}
-                                <span class="rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[0.733333rem] text-amber-700 dark:text-amber-300">
-                                  {t("projects.list.blocks", blocksCount)}
-                                </span>
+                            {:else if column === "dependencies"}
+                              <div class="flex min-w-0 flex-wrap gap-1">
+                                {#if blockedByCount > 0}
+                                  <span class="rounded border border-destructive/40 bg-destructive/10 px-1.5 py-0.5 text-[0.733333rem] text-destructive">
+                                    {t("projects.list.blockedBy", blockedByCount)}
+                                  </span>
+                                {/if}
+                                {#if blocksCount > 0}
+                                  <span class="rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[0.733333rem] text-amber-700 dark:text-amber-300">
+                                    {t("projects.list.blocks", blocksCount)}
+                                  </span>
+                                {/if}
+                              </div>
+                            {:else}
+                              {@const customFieldId = customFieldIdFromTaskListColumn(column)}
+                              {@const customField = customFieldId ? projectCustomFields.find((field) => field.id === customFieldId) : undefined}
+                              {#if customField}
+                                {@const customValue = customFieldDisplayValue(task, customField)}
+                                {#if customValue}
+                                  <span class="min-w-0 truncate text-[0.8rem] text-muted-foreground" title={`${customField.name}: ${customValue}`}>
+                                    {customValue}
+                                  </span>
+                                {/if}
                               {/if}
                             {/if}
-                            <button
-                              type="button"
-                              class="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-                              disabled={Boolean(task.archivedAt)}
-                              aria-label={t("projects.actions.scheduleTask")}
-                              title={t("projects.actions.scheduleTask")}
-                              onclick={() => openScheduleForm(task)}
-                            >
-                              <CalendarDays size={13} strokeWidth={1.75} />
-                            </button>
                           </div>
+                        {/each}
+                        <div class="flex items-center justify-end">
+                          <button
+                            type="button"
+                            class="flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover/row:opacity-100 group-focus-within/row:opacity-100 disabled:cursor-not-allowed disabled:opacity-40"
+                            disabled={Boolean(task.archivedAt)}
+                            aria-label={t("projects.actions.scheduleTask")}
+                            title={t("projects.actions.scheduleTask")}
+                            onclick={() => openScheduleForm(task)}
+                          >
+                            <CalendarDays size={13} strokeWidth={1.75} />
+                          </button>
                         </div>
                         {#if schedulingTaskId === task.id && !task.archivedAt}
                           <form
-                            class="mt-2 grid gap-2 border-t border-border/70 pt-2 min-[720px]:grid-cols-[minmax(0,1fr)_7rem_6rem_auto_auto]"
+                            class="project-list-inline-divider col-span-full mt-2 grid gap-2 pt-2 min-[720px]:grid-cols-[minmax(0,1fr)_7rem_6rem_auto_auto]"
                             onsubmit={(event) => { event.preventDefault(); void scheduleTask(task); }}
                           >
                             <label class="grid gap-1 text-[0.733333rem] text-muted-foreground">
@@ -2923,13 +3670,13 @@
                             <button
                               type="submit"
                               disabled={schedulePending}
-                              class="self-end rounded-md bg-primary px-2 py-1.5 text-[0.8rem] font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                              class="self-end cursor-pointer rounded-md bg-primary px-2 py-1.5 text-[0.8rem] font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-60"
                             >
                               {t("projects.schedule.schedule")}
                             </button>
                             <button
                               type="button"
-                              class="self-end rounded-md border border-border bg-card px-2 py-1.5 text-[0.8rem] hover:bg-accent"
+                              class="self-end cursor-pointer rounded-md border border-border bg-card px-2 py-1.5 text-[0.8rem] hover:bg-accent"
                               onclick={closeScheduleForm}
                             >
                               {t("common.cancel")}
@@ -2996,13 +3743,57 @@
             onOpenTask={openTaskDetail}
           />
         {/if}
+        </div>
+        {#if projects.activeView === "list"}
+          <ProjectListScrollbars scrollContainer={projectViewScrollContainer} />
+        {/if}
       </div>
     {:else}
-      <div class="flex h-full items-center justify-center p-4 text-[0.866667rem] text-muted-foreground">
-        {projects.loading ? t("projects.loading") : t("projects.navigator.empty")}
+      <div class="flex h-full flex-col items-center justify-center gap-3 p-4 text-center text-[0.866667rem] text-muted-foreground">
+        <div>{projects.loading ? t("projects.loading") : t("projects.navigator.empty")}</div>
+        {#if !projects.loading}
+          <button
+            type="button"
+            class="flex min-h-9 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-[0.8rem] font-medium text-foreground hover:bg-accent"
+            onclick={openProjectNavigator}
+          >
+            <Folder size={14} strokeWidth={1.75} />
+            <span>{t("projects.navigator.open")}</span>
+          </button>
+        {/if}
       </div>
     {/if}
   </section>
+
+  {#if selectedProject && (taskFinderOpen || taskSearch.trim().length > 0)}
+    <div class="pointer-events-none absolute inset-x-0 bottom-4 z-40 flex justify-center px-3">
+      <div class="pointer-events-auto flex min-h-10 w-[min(32rem,100%)] items-center gap-2 rounded-lg border border-border bg-card px-2">
+        <Search size={15} strokeWidth={1.75} class="shrink-0 text-muted-foreground" />
+        <input
+          bind:this={taskFinderInputElement}
+          bind:value={taskSearch}
+          aria-label={t("projects.finder.label")}
+          placeholder={t("projects.header.searchPlaceholder")}
+          class="min-w-0 flex-1 bg-transparent text-[0.866667rem] placeholder:text-muted-foreground"
+          onkeydown={handleTaskFinderKeydown}
+        />
+        <span class="hidden shrink-0 rounded-md bg-muted/70 px-2 py-1 text-[0.733333rem] text-muted-foreground min-[520px]:inline">
+          {t("projects.filters.matchingTasks", matchingTaskCount, allProjectTasks.length)}
+        </span>
+        <span class="hidden shrink-0 rounded-md border border-border px-2 py-1 text-[0.733333rem] text-muted-foreground min-[420px]:inline">
+          {t("projects.finder.shortcut")}
+        </span>
+        <button
+          type="button"
+          class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+          aria-label={taskSearch.trim() ? t("projects.finder.clear") : t("common.close")}
+          onclick={closeOrClearTaskFinder}
+        >
+          <X size={14} strokeWidth={1.75} />
+        </button>
+      </div>
+    </div>
+  {/if}
 
   {#if projectSettingsOpen && selectedProjectId}
     <ProjectSettingsPanel
@@ -3017,6 +3808,7 @@
   {:else if selectedTaskId}
     <ProjectTaskDetailPanel
       taskId={selectedTaskId}
+      layout={taskDetailModalLayout}
       showArchivedTasks={showArchivedTasks}
       showInactiveSections={showInactiveSections}
       onClose={() => {
@@ -3031,3 +3823,62 @@
     />
   {/if}
 </div>
+
+<style>
+  .project-list-divider {
+    position: relative;
+    --project-list-divider-left: 3rem;
+    --project-list-divider-right: 0.25rem;
+  }
+
+  .project-list-divider::after {
+    position: absolute;
+    right: var(--project-list-divider-right);
+    bottom: 0;
+    left: var(--project-list-divider-left);
+    height: 0;
+    border-bottom: 1px solid var(--cal-gridline);
+    content: "";
+    pointer-events: none;
+  }
+
+  .project-list-sticky-row.project-list-divider::after {
+    transform: translateX(var(--project-list-scroll-left-negative, 0px));
+    will-change: transform;
+  }
+
+  .project-list-inline-divider {
+    position: relative;
+    --project-list-divider-left: 3rem;
+    --project-list-divider-right: 0.25rem;
+  }
+
+  .project-list-inline-divider::before {
+    position: absolute;
+    top: 0;
+    right: var(--project-list-divider-right);
+    left: var(--project-list-divider-left);
+    height: 0;
+    border-bottom: 1px solid var(--cal-gridline);
+    content: "";
+    pointer-events: none;
+  }
+
+  .project-list-sticky-row {
+    position: relative;
+    z-index: 1;
+    transform: translateX(var(--project-list-scroll-left, 0px));
+    background-color: var(--cal-bg);
+    will-change: transform;
+  }
+
+  .project-list-scroll {
+    padding-right: 0.5rem;
+    padding-bottom: 0.5rem;
+    scrollbar-width: none;
+  }
+
+  .project-list-scroll::-webkit-scrollbar {
+    display: none;
+  }
+</style>

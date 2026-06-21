@@ -1,8 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { projectListDropSortOrder, type ProjectListDragTask } from "./list-drag";
+import {
+  projectListDropSortOrder,
+  projectListSectionDropSortOrder,
+  type ProjectListDragSection,
+  type ProjectListDragTask,
+} from "./list-drag";
 
 function task(id: string, sectionSortOrder: number): ProjectListDragTask {
   return { id, sectionSortOrder };
+}
+
+function section(id: string, sortOrder: number): ProjectListDragSection {
+  return { id, sortOrder };
 }
 
 describe("projectListDropSortOrder", () => {
@@ -61,6 +70,42 @@ describe("projectListDropSortOrder", () => {
       overTaskId: "b",
       position: "after",
       sortDirection: "asc",
+    })).toBe(4000);
+  });
+});
+
+describe("projectListSectionDropSortOrder", () => {
+  it("places a section between visual neighbors", () => {
+    expect(projectListSectionDropSortOrder({
+      orderedSections: [section("a", 1000), section("b", 2000), section("c", 3000)],
+      draggedSectionId: "dragged",
+      overSectionId: "b",
+      position: "after",
+    })).toBe(2500);
+  });
+
+  it("places a section before the first section", () => {
+    expect(projectListSectionDropSortOrder({
+      orderedSections: [section("a", 1000), section("b", 2000)],
+      draggedSectionId: "dragged",
+      overSectionId: "a",
+      position: "before",
+    })).toBe(500);
+  });
+
+  it("appends a section when no target section is supplied", () => {
+    expect(projectListSectionDropSortOrder({
+      orderedSections: [section("a", 1000), section("b", 2000)],
+      draggedSectionId: "dragged",
+    })).toBe(3000);
+  });
+
+  it("ignores the dragged section when calculating same-list insertion", () => {
+    expect(projectListSectionDropSortOrder({
+      orderedSections: [section("a", 1000), section("dragged", 2000), section("b", 3000)],
+      draggedSectionId: "dragged",
+      overSectionId: "b",
+      position: "after",
     })).toBe(4000);
   });
 });

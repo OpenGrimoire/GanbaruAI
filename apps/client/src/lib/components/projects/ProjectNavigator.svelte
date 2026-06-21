@@ -26,16 +26,20 @@
   import { cn } from "$lib/utils";
   import ProjectIcon from "./ProjectIcon.svelte";
 
+  type ProjectNavigatorPresentation = "sidebar" | "panel";
+
   let {
     selectedProjectId,
     showInactiveProjects,
     onShowInactiveProjectsChange,
     onProjectSelected,
+    presentation = "sidebar",
   }: {
     selectedProjectId: string | null;
     showInactiveProjects: boolean;
     onShowInactiveProjectsChange: (value: boolean) => void;
     onProjectSelected: () => void;
+    presentation?: ProjectNavigatorPresentation;
   } = $props();
 
   const projects = getProjects();
@@ -202,7 +206,14 @@
   }
 </script>
 
-  <aside class="flex min-h-0 w-[min(17rem,42vw)] min-w-40 shrink-0 flex-col border-r border-border bg-card/70">
+  <aside
+    class={cn(
+      "flex min-h-0 flex-col bg-card/95",
+      presentation === "sidebar"
+        ? "w-[min(17rem,42vw)] min-w-40 shrink-0 border-r border-border"
+        : "h-full w-full overflow-hidden rounded-md border border-border bg-popover text-popover-foreground",
+    )}
+  >
     <div class="flex shrink-0 items-center gap-2 border-b border-border px-2.5 py-2">
       <Search size={14} strokeWidth={1.75} class="shrink-0 text-muted-foreground" />
       <input

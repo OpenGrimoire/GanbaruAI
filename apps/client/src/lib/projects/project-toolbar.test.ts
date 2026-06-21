@@ -1,0 +1,107 @@
+import { describe, expect, it } from "vitest";
+import {
+  deriveProjectFilterChips,
+  deriveProjectListColumnControls,
+  pickProjectTaskModalLayout,
+  projectNavigatorPanelGeometry,
+  toggleProjectListColumn,
+} from "./project-toolbar";
+import type { ProjectCustomFieldFilter, ProjectTaskListColumn } from "./types";
+
+describe("project toolbar", () => {
+  it("derives active filter chips from non-default filters", () => {
+    const customFieldFilter: ProjectCustomFieldFilter = {
+      fieldId: "field-risk",
+      mode: "filled",
+    };
+
+    expect(deriveProjectFilterChips({
+      search: "  Example  ",
+      statusLabel: "Open",
+      sectionLabel: undefined,
+      priorityLabel: "High",
+      dueLabel: undefined,
+      scheduleLabel: "Scheduled",
+      dependencyLabel: undefined,
+      labelFilterLabel: "Design",
+      customFieldFilters: [customFieldFilter],
+      customFieldFilterLabel: (filter) => `Field ${filter.fieldId}`,
+    })).toEqual([
+      { id: "search", label: "Example", clearTarget: "search" },
+      { id: "status", label: "Open", clearTarget: "status" },
+      { id: "priority", label: "High", clearTarget: "priority" },
+      { id: "schedule", label: "Scheduled", clearTarget: "schedule" },
+      { id: "label", label: "Design", clearTarget: "label" },
+      { id: "custom:field-risk", label: "Field field-risk", clearTarget: "custom:field-risk" },
+    ]);
+  });
+
+  it("derives customize column controls and toggles visibility", () => {
+    const columns: ProjectTaskListColumn[] = ["status", "priority", "due"];
+
+    expect(deriveProjectListColumnControls(columns, ["priority"], (column) => column)).toEqual([
+      { column: "status", label: "status", visible: false },
+      { column: "priority", label: "priority", visible: true },
+      { column: "due", label: "due", visible: false },
+    ]);
+    expect(toggleProjectListColumn(["priority"], "due")).toEqual(["priority", "due"]);
+    expect(toggleProjectListColumn(["priority", "due"], "priority")).toEqual(["due"]);
+  });
+
+  it("picks a centered task modal when desktop space is available", () => {
+    expect(pickProjectTaskModalLayout({
+      viewportWidth: 1440,
+      viewportHeight: 900,
+    })).toBe("modal");
+  });
+
+  it("uses sheet and fullscreen layouts when the modal cannot fit", () => {
+    expect(pickProjectTaskModalLayout({
+      viewportWidth: 600,
+      viewportHeight: 800,
+    })).toBe("sheet");
+    expect(pickProjectTaskModalLayout({
+      viewportWidth: 360,
+      viewportHeight: 800,
+    })).toBe("fullscreen");
+    expect(pickProjectTaskModalLayout({
+      viewportWidth: 900,
+      viewportHeight: 440,
+    })).toBe("fullscreen");
+  });
+
+  it("positions the project navigator below the breadcrumb without overflowing desktop viewports", () => {
+    expect(projectNavigatorPanelGeometry({
+      anchorLeft: 24,
+      anchorBottom: 42,
+      viewportWidth: 1200,
+      viewportHeight: 800,
+    })).toEqual({
+      left: 24,
+      top: 46,
+      width: 448,
+      height: 384,
+    });
+
+    expect(projectNavigatorPanelGeometry({
+      anchorLeft: 1100,
+      anchorBottom: 42,
+      viewportWidth: 1200,
+      viewportHeight: 800,
+    }).left).toBe(744);
+  });
+
+  it("uses a compact fixed project navigator layout on narrow viewports", () => {
+    expect(projectNavigatorPanelGeometry({
+      anchorLeft: 24,
+      anchorBottom: 42,
+      viewportWidth: 360,
+      viewportHeight: 500,
+    })).toEqual({
+      left: 8,
+      top: 48,
+      width: 344,
+      height: 384,
+    });
+  });
+});

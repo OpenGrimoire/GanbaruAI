@@ -6,12 +6,15 @@
   import ArrowLeft from "@lucide/svelte/icons/arrow-left";
   import ArrowRight from "@lucide/svelte/icons/arrow-right";
   import ArrowUp from "@lucide/svelte/icons/arrow-up";
+  import CalendarDays from "@lucide/svelte/icons/calendar-days";
   import Check from "@lucide/svelte/icons/check";
   import Plus from "@lucide/svelte/icons/plus";
-  import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
   import Save from "@lucide/svelte/icons/save";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import X from "@lucide/svelte/icons/x";
+  import CalendarScrollbar from "$lib/components/calendar/CalendarScrollbar.svelte";
+  import MiniDatePicker from "$lib/components/calendar/MiniDatePicker.svelte";
+  import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
   import { getEventColor } from "$lib/components/calendar/utils";
   import type { CalendarEvent, EventColor } from "$lib/components/calendar/types";
   import { getLocalization } from "$lib/i18n/translator.svelte";
@@ -27,7 +30,6 @@
     ProjectLabel,
     ProjectLinkableEvent,
     ProjectPriority,
-    ProjectSection,
     ProjectStatus,
     ProjectTask,
     ProjectTaskChangeEvent,
@@ -37,9 +39,11 @@
   import { getProjects } from "$lib/stores/projects.svelte";
   import { getTheme } from "$lib/stores/theme.svelte";
   import { cn } from "$lib/utils";
+  import type { ProjectTaskModalLayout } from "$lib/projects/project-toolbar";
 
   let {
     taskId,
+    layout = "modal",
     showArchivedTasks,
     showInactiveSections,
     onClose,
@@ -47,6 +51,7 @@
     onShowArchivedTasks,
   }: {
     taskId: string;
+    layout?: ProjectTaskModalLayout;
     showArchivedTasks: boolean;
     showInactiveSections: boolean;
     onClose: () => void;
@@ -76,6 +81,11 @@
   let detailMilestone = $state(false);
   let detailSaving = $state(false);
   let detailError = $state<string | null>(null);
+  let detailScrollContainer: HTMLDivElement | undefined = $state();
+  let discardCloseConfirmOpen = $state(false);
+  let datePickerTarget: DetailDateTarget | null = $state(null);
+  let customFieldDatePickerTarget = $state<string | null>(null);
+  let pendingTaskOpenId = $state<string | null>(null);
   let subtaskDraft = $state("");
   let checklistDraft = $state("");
   let labelDraft = $state("");
@@ -95,6 +105,8 @@
   let eventLinkSearchPending = $state(false);
   let eventLinkSearchError = $state<string | null>(null);
   let eventLinkSearchRunId = 0;
+
+  type DetailDateTarget = "start" | "due" | "target" | "eventStart" | "eventEnd";
 
   const selectedTask = $derived(projects.taskById(taskId));
   const selectedProjectId = $derived(selectedTask?.projectId ?? null);
@@ -134,6 +146,13 @@
       || detailBlockerReason !== (selectedTask.blockerReason ?? "")
       || detailMilestone !== selectedTask.milestone;
   });
+  const detailHasUnsavedEdits = $derived.by(() => {
+    if (!selectedTask) return false;
+    return detailDirty
+      || projectCustomFields.some((field) => customFieldValueDirty(selectedTask, field))
+      || projects.checklistItemsForTask(selectedTask.id).some((item) => checklistItemDirty(item));
+  });
+  const todayDate = $derived(Temporal.Now.plainDateISO().toString());
 
   $effect(() => {
     if (!selectedTask) return;
@@ -460,10 +479,6 @@
     return ordered[index + direction];
   }
 
-  function sectionForTask(task: ProjectTask): ProjectSection | undefined {
-    return sections.find((section) => section.id === task.sectionId);
-  }
-
   function loadTaskDetailDraft(task: ProjectTask): void {
     detailDraftTaskId = task.id;
     detailDraftUpdatedAt = task.updatedAt;
@@ -516,15 +531,55 @@
     eventLinkEndDate = "";
     eventLinkResults = [];
     eventLinkSearchError = null;
+    datePickerTarget = null;
+    customFieldDatePickerTarget = null;
   }
 
-  function closeTaskDetail(): void {
+  function closeTaskDetailImmediately(): void {
     if (selectedTask) loadTaskDetailDraft(selectedTask);
     onClose();
   }
 
+  function requestTaskDetailClose(): void {
+    if (detailHasUnsavedEdits) {
+      pendingTaskOpenId = null;
+      discardCloseConfirmOpen = true;
+      return;
+    }
+    closeTaskDetailImmediately();
+  }
+
+  function confirmDiscardTaskDetail(): void {
+    discardCloseConfirmOpen = false;
+    const nextTaskId = pendingTaskOpenId;
+    pendingTaskOpenId = null;
+    if (selectedTask) loadTaskDetailDraft(selectedTask);
+    if (nextTaskId) {
+      onOpenTask(nextTaskId);
+      return;
+    }
+    onClose();
+  }
+
+  function cancelDiscardTaskDetail(): void {
+    discardCloseConfirmOpen = false;
+    pendingTaskOpenId = null;
+  }
+
   function openTaskDetail(task: ProjectTask): void {
+    if (detailHasUnsavedEdits) {
+      pendingTaskOpenId = task.id;
+      discardCloseConfirmOpen = true;
+      return;
+    }
     onOpenTask(task.id);
+  }
+
+  function handleTaskDetailKeydown(event: KeyboardEvent): void {
+    if (event.key !== "Escape" || discardCloseConfirmOpen) return;
+    event.preventDefault();
+    event.stopPropagation();
+    requestTaskDetailClose();
   }
 
   function normalizeOptionalDate(value: string): string | undefined {
@@ -545,6 +600,59 @@
       throw new Error(t("projects.detail.invalidEstimate"));
     }
     return parsed;
+  }
+
+  function setDetailDateValue(target: DetailDateTarget, value: string): void {
+    if (target === "start") {
+      detailStartDate = value;
+      return;
+    }
+    if (target === "due") {
+      detailDueDate = value;
+      return;
+    }
+    if (target === "target") {
+      detailTargetEndDate = value;
+      return;
+    }
+    if (target === "eventStart") {
+      eventLinkStartDate = value;
+      return;
+    }
+    eventLinkEndDate = value;
+  }
+
+  function toggleDetailDatePicker(target: DetailDateTarget): void {
+    datePickerTarget = datePickerTarget === target ? null : target;
+    customFieldDatePickerTarget = null;
+  }
+
+  function selectDetailDate(dateStr: string): void {
+    if (!datePickerTarget) return;
+    setDetailDateValue(datePickerTarget, dateStr);
+    datePickerTarget = null;
+  }
+
+  function clearDetailDate(target: DetailDateTarget): void {
+    setDetailDateValue(target, "");
+    if (datePickerTarget === target) datePickerTarget = null;
+  }
+
+  function selectCustomFieldDate(dateStr: string): void {
+    if (!customFieldDatePickerTarget) return;
+    customFieldDateDrafts = {
+      ...customFieldDateDrafts,
+      [customFieldDatePickerTarget]: dateStr,
+    };
+    customFieldDatePickerTarget = null;
+  }
+
+  function clearCustomFieldDate(fieldId: string): void {
+    customFieldDateDrafts = {
+      ...customFieldDateDrafts,
+      [fieldId]: "",
+    };
+    if (customFieldDatePickerTarget === fieldId) customFieldDatePickerTarget = null;
   }
 
   function toggleCustomFieldMultiOption(field: ProjectCustomField, option: ProjectCustomFieldOption): void {
@@ -833,9 +941,9 @@
   }
 </script>
 
+<svelte:window onkeydown={handleTaskDetailKeydown} />
+
 {#if selectedTask}
-    {@const selectedTaskStatus = statusForTask(selectedTask)}
-    {@const selectedTaskSection = sectionForTask(selectedTask)}
     {@const selectedTaskEvents = linkedEventRowsForTask(selectedTask)}
     {@const selectedTaskHistory = projects.taskChangeEventsForTask(selectedTask.id).slice(0, 8)}
     {@const selectedTaskChecklist = projects.checklistItemsForTask(selectedTask.id)}
@@ -847,14 +955,33 @@
     {@const selectedTaskParent = selectedTask.parentTaskId ? taskById(selectedTask.parentTaskId) : undefined}
     {@const selectedTaskDependencyCandidates = dependencyCandidateTasks(selectedTask)}
     {@const selectedTaskEventCandidates = eventLinkCandidateEvents(selectedTask)}
-    <aside class="flex min-h-0 w-[min(23rem,42vw)] min-w-64 shrink-0 flex-col border-l border-border bg-card max-[760px]:fixed max-[760px]:inset-2 max-[760px]:z-30 max-[760px]:w-auto max-[760px]:rounded-md max-[760px]:border">
-      <header class="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2">
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+      class="fixed inset-0 z-70 flex items-center justify-center bg-black/30 p-3"
+      onclick={requestTaskDetailClose}
+    >
+    <div
+      class={cn(
+        "flex min-h-0 flex-col overflow-hidden border border-border bg-card text-card-foreground",
+        layout === "fullscreen" && "h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] rounded-md",
+        layout === "sheet" && "h-[min(88dvh,48rem)] w-[calc(100vw-1rem)] max-w-3xl rounded-md",
+        layout === "modal" && "h-[min(86dvh,54rem)] w-[min(56rem,calc(100vw-2rem))] rounded-md",
+      )}
+      role="dialog"
+      aria-modal="true"
+      aria-label={t("projects.detail.title")}
+      tabindex="-1"
+      onclick={(event) => event.stopPropagation()}
+    >
+      <header class="flex shrink-0 items-center gap-2 border-b border-border bg-card px-4 py-3">
         <div class="min-w-0 flex-1">
-          <div class="truncate text-[0.933333rem] font-semibold">{t("projects.detail.title")}</div>
-          <div class="flex min-w-0 items-center gap-1.5">
-            <span class="truncate text-[0.733333rem] text-muted-foreground">
-              {selectedTaskSection?.name ?? t("projects.list.general")} / {selectedTaskStatus?.name ?? t("projects.list.status")}
-            </span>
+          <div class="flex min-w-0 items-center gap-2">
+            <input
+              bind:value={detailTitle}
+              aria-label={t("projects.detail.titleLabel")}
+              class="min-h-8 min-w-0 flex-1 rounded-md bg-transparent px-1 text-[1.1rem] font-semibold text-foreground outline-none focus:bg-background focus:ring-2 focus:ring-ring/30"
+            />
             {#if selectedTask.archivedAt}
               <span class={cn("shrink-0 rounded border px-1.5 py-0.5 text-[0.666667rem]", taskArchivedBadgeClass(selectedTask))}>
                 {t("projects.taskLifecycle.archived")}
@@ -865,46 +992,31 @@
         <button
           type="button"
           class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-          aria-label={t("projects.detail.discard")}
-          title={t("projects.detail.discard")}
-          disabled={!detailDirty}
-          onclick={() => loadTaskDetailDraft(selectedTask)}
-        >
-          <RotateCcw size={14} strokeWidth={1.75} />
-        </button>
-        <button
-          type="button"
-          class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
           aria-label={t("projects.detail.close")}
           title={t("projects.detail.close")}
-          onclick={closeTaskDetail}
+          onclick={requestTaskDetailClose}
         >
           <X size={15} strokeWidth={1.75} />
         </button>
       </header>
 
       <form class="flex min-h-0 flex-1 flex-col" onsubmit={(event) => { event.preventDefault(); void saveTaskDetail(); }}>
-        <div class="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-          <div class="grid gap-3">
-            <label class="grid gap-1 text-[0.733333rem] font-medium text-muted-foreground">
-              <span>{t("projects.detail.titleLabel")}</span>
-              <input
-                bind:value={detailTitle}
-                class="min-h-9 rounded-md border border-border bg-background px-2 text-[0.9rem] font-medium text-foreground"
-              />
-            </label>
-
-            <label class="grid gap-1 text-[0.733333rem] font-medium text-muted-foreground">
+        <div class="relative min-h-0 flex-1 bg-background/50">
+          <div bind:this={detailScrollContainer} class="hide-scrollbar h-full overflow-y-auto px-4 py-4">
+          <div class="mx-auto grid max-w-5xl gap-5">
+            <section class="task-detail-section task-detail-section-first">
+              <label class="grid gap-1 text-[0.733333rem] font-medium text-muted-foreground">
               <span>{t("projects.detail.description")}</span>
               <textarea
                 bind:value={detailDescription}
                 rows="5"
-                class="min-h-28 resize-none rounded-md border border-border bg-background px-2 py-2 text-[0.833333rem] text-foreground"
+                class="min-h-28 resize-none rounded-md border border-border bg-card px-3 py-2 text-[0.833333rem] text-foreground outline-none focus:ring-2 focus:ring-ring/30"
               ></textarea>
-            </label>
+              </label>
+            </section>
 
-            <section class="grid gap-2 border-t border-border/70 pt-3">
-              <h2 class="text-[0.8rem] font-semibold">{t("projects.detail.properties")}</h2>
+            <section class="task-detail-section">
+              <h2 class="task-detail-section-title">{t("projects.detail.properties")}</h2>
 
               <div class="grid gap-1">
                 <div class="text-[0.733333rem] font-medium text-muted-foreground">{t("projects.detail.status")}</div>
@@ -1000,9 +1112,156 @@
               </label>
             </section>
 
-            <section class="grid gap-2 border-t border-border/70 pt-3">
+            <section class="task-detail-section">
+              <h2 class="task-detail-section-title">{t("projects.detail.dates")}</h2>
+              <div class="grid gap-3 min-[760px]:grid-cols-2">
+                <label class="grid gap-1 text-[0.733333rem] font-medium text-muted-foreground">
+                  <span>{t("projects.detail.estimateMinutes")}</span>
+                  <input
+                    bind:value={detailEstimateMinutes}
+                    inputmode="numeric"
+                    class="min-h-8 rounded-md border border-border bg-card px-2 text-[0.8rem] text-foreground outline-none focus:ring-2 focus:ring-ring/30"
+                  />
+                </label>
+
+                <div class="grid gap-1 text-[0.733333rem] font-medium text-muted-foreground">
+                  <span>{t("projects.detail.startDate")}</span>
+                  <div class="flex gap-1">
+                    <button
+                      type="button"
+                      class={cn(
+                        "flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-md border border-border bg-card px-2 text-left text-[0.8rem] text-foreground hover:bg-accent",
+                        !detailStartDate && "text-muted-foreground",
+                      )}
+                      onclick={() => toggleDetailDatePicker("start")}
+                    >
+                      <CalendarDays size={14} strokeWidth={1.75} class="shrink-0" />
+                      <span class="truncate">{detailStartDate || t("projects.detail.noDate")}</span>
+                    </button>
+                    {#if detailStartDate}
+                      <button
+                        type="button"
+                        class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground"
+                        aria-label={t("projects.detail.clearDate", t("projects.detail.startDate"))}
+                        onclick={() => clearDetailDate("start")}
+                      >
+                        <X size={13} strokeWidth={1.75} />
+                      </button>
+                    {/if}
+                  </div>
+                  {#if datePickerTarget === "start"}
+                    <div class="w-fit rounded-lg border border-border bg-card p-2">
+                      <MiniDatePicker
+                        selectedDate={detailStartDate || todayDate}
+                        small
+                        highlightMode="none"
+                        activeHighlight="primary"
+                        onselect={selectDetailDate}
+                        oncancel={() => { datePickerTarget = null; }}
+                      />
+                    </div>
+                  {/if}
+                </div>
+
+                <div class="grid gap-1 text-[0.733333rem] font-medium text-muted-foreground">
+                  <span>{t("projects.detail.dueDate")}</span>
+                  <div class="flex gap-1">
+                    <button
+                      type="button"
+                      class={cn(
+                        "flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-md border border-border bg-card px-2 text-left text-[0.8rem] text-foreground hover:bg-accent",
+                        !detailDueDate && "text-muted-foreground",
+                      )}
+                      onclick={() => toggleDetailDatePicker("due")}
+                    >
+                      <CalendarDays size={14} strokeWidth={1.75} class="shrink-0" />
+                      <span class="truncate">{detailDueDate || t("projects.detail.noDate")}</span>
+                    </button>
+                    {#if detailDueDate}
+                      <button
+                        type="button"
+                        class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground"
+                        aria-label={t("projects.detail.clearDate", t("projects.detail.dueDate"))}
+                        onclick={() => clearDetailDate("due")}
+                      >
+                        <X size={13} strokeWidth={1.75} />
+                      </button>
+                    {/if}
+                  </div>
+                  {#if datePickerTarget === "due"}
+                    <div class="w-fit rounded-lg border border-border bg-card p-2">
+                      <MiniDatePicker
+                        selectedDate={detailDueDate || todayDate}
+                        small
+                        highlightMode="none"
+                        activeHighlight="primary"
+                        onselect={selectDetailDate}
+                        oncancel={() => { datePickerTarget = null; }}
+                      />
+                    </div>
+                  {/if}
+                </div>
+
+                <div class="grid gap-1 text-[0.733333rem] font-medium text-muted-foreground">
+                  <span>{t("projects.detail.targetEndDate")}</span>
+                  <div class="flex gap-1">
+                    <button
+                      type="button"
+                      class={cn(
+                        "flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-md border border-border bg-card px-2 text-left text-[0.8rem] text-foreground hover:bg-accent",
+                        !detailTargetEndDate && "text-muted-foreground",
+                      )}
+                      onclick={() => toggleDetailDatePicker("target")}
+                    >
+                      <CalendarDays size={14} strokeWidth={1.75} class="shrink-0" />
+                      <span class="truncate">{detailTargetEndDate || t("projects.detail.noDate")}</span>
+                    </button>
+                    {#if detailTargetEndDate}
+                      <button
+                        type="button"
+                        class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground"
+                        aria-label={t("projects.detail.clearDate", t("projects.detail.targetEndDate"))}
+                        onclick={() => clearDetailDate("target")}
+                      >
+                        <X size={13} strokeWidth={1.75} />
+                      </button>
+                    {/if}
+                  </div>
+                  {#if datePickerTarget === "target"}
+                    <div class="w-fit rounded-lg border border-border bg-card p-2">
+                      <MiniDatePicker
+                        selectedDate={detailTargetEndDate || todayDate}
+                        small
+                        highlightMode="none"
+                        activeHighlight="primary"
+                        onselect={selectDetailDate}
+                        oncancel={() => { datePickerTarget = null; }}
+                      />
+                    </div>
+                  {/if}
+                </div>
+              </div>
+              <label class="grid gap-1 text-[0.733333rem] font-medium text-muted-foreground">
+                <span>{t("projects.detail.blockerReason")}</span>
+                <input
+                  bind:value={detailBlockerReason}
+                  class="min-h-8 rounded-md border border-border bg-card px-2 text-[0.8rem] text-foreground outline-none focus:ring-2 focus:ring-ring/30"
+                />
+              </label>
+              <label class="grid gap-1 text-[0.733333rem] font-medium text-muted-foreground">
+                <span>{t("projects.detail.changeReason")}</span>
+                <input
+                  bind:value={detailChangeReason}
+                  maxlength="1000"
+                  placeholder={t("projects.detail.changeReasonPlaceholder")}
+                  class="min-h-8 rounded-md border border-border bg-card px-2 text-[0.8rem] text-foreground outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring/30"
+                />
+              </label>
+            </section>
+
+            <section class="task-detail-section">
               <div class="flex items-center justify-between gap-2">
-                <h2 class="text-[0.8rem] font-semibold">{t("projects.detail.labels")}</h2>
+                <h2 class="task-detail-section-title">{t("projects.detail.labels")}</h2>
                 <span class="text-[0.733333rem] text-muted-foreground">{selectedTaskLabels.length}</span>
               </div>
               {#if selectedTaskLabels.length > 0}
@@ -1090,9 +1349,9 @@
             </section>
 
             {#if projectCustomFields.length > 0}
-              <section class="grid gap-2 border-t border-border/70 pt-3">
+              <section class="task-detail-section">
                 <div class="flex items-center justify-between gap-2">
-                  <h2 class="text-[0.8rem] font-semibold">{t("projects.customFields.taskValues")}</h2>
+                  <h2 class="task-detail-section-title">{t("projects.customFields.taskValues")}</h2>
                   <span class="text-[0.733333rem] text-muted-foreground">{projectCustomFields.length}</span>
                 </div>
                 <div class="grid gap-2">
@@ -1155,23 +1414,46 @@
                           }}
                         />
                       {:else if field.fieldType === "date"}
-                        <input
-                          value={customFieldDateDrafts[field.id] ?? ""}
-                          placeholder="YYYY-MM-DD"
-                          class="min-h-8 rounded-md border border-border bg-card px-2 text-[0.8rem] text-foreground"
-                          oninput={(event) => {
-                            customFieldDateDrafts = {
-                              ...customFieldDateDrafts,
-                              [field.id]: event.currentTarget.value,
-                            };
-                          }}
-                          onkeydown={(event) => {
-                            if (event.key === "Enter") {
-                              event.preventDefault();
-                              void saveTaskCustomField(selectedTask, field);
-                            }
-                          }}
-                        />
+                        <div class="grid gap-1">
+                          <div class="flex gap-1">
+                            <button
+                              type="button"
+                              class={cn(
+                                "flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-md border border-border bg-card px-2 text-left text-[0.8rem] text-foreground hover:bg-accent",
+                                !(customFieldDateDrafts[field.id] ?? "") && "text-muted-foreground",
+                              )}
+                              onclick={() => {
+                                customFieldDatePickerTarget = customFieldDatePickerTarget === field.id ? null : field.id;
+                                datePickerTarget = null;
+                              }}
+                            >
+                              <CalendarDays size={14} strokeWidth={1.75} class="shrink-0" />
+                              <span class="truncate">{customFieldDateDrafts[field.id] || t("projects.detail.noDate")}</span>
+                            </button>
+                            {#if customFieldDateDrafts[field.id]}
+                              <button
+                                type="button"
+                                class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground"
+                                aria-label={t("projects.detail.clearDate", field.name)}
+                                onclick={() => clearCustomFieldDate(field.id)}
+                              >
+                                <X size={13} strokeWidth={1.75} />
+                              </button>
+                            {/if}
+                          </div>
+                          {#if customFieldDatePickerTarget === field.id}
+                            <div class="w-fit rounded-lg border border-border bg-card p-2">
+                              <MiniDatePicker
+                                selectedDate={customFieldDateDrafts[field.id] || todayDate}
+                                small
+                                highlightMode="none"
+                                activeHighlight="primary"
+                                onselect={selectCustomFieldDate}
+                                oncancel={() => { customFieldDatePickerTarget = null; }}
+                              />
+                            </div>
+                          {/if}
+                        </div>
                       {:else if field.fieldType === "checkbox"}
                         <label class="flex min-h-8 items-center gap-2 rounded-md border border-border bg-card px-2 text-[0.8rem]">
                           <input
@@ -1262,63 +1544,9 @@
               </section>
             {/if}
 
-            <section class="grid gap-2 border-t border-border/70 pt-3">
-              <h2 class="text-[0.8rem] font-semibold">{t("projects.detail.dates")}</h2>
-              <div class="grid gap-2 min-[980px]:grid-cols-2">
-                <label class="grid gap-1 text-[0.733333rem] font-medium text-muted-foreground">
-                  <span>{t("projects.detail.estimateMinutes")}</span>
-                  <input
-                    bind:value={detailEstimateMinutes}
-                    inputmode="numeric"
-                    class="min-h-8 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground"
-                  />
-                </label>
-                <label class="grid gap-1 text-[0.733333rem] font-medium text-muted-foreground">
-                  <span>{t("projects.detail.startDate")}</span>
-                  <input
-                    bind:value={detailStartDate}
-                    placeholder="YYYY-MM-DD"
-                    class="min-h-8 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground"
-                  />
-                </label>
-                <label class="grid gap-1 text-[0.733333rem] font-medium text-muted-foreground">
-                  <span>{t("projects.detail.dueDate")}</span>
-                  <input
-                    bind:value={detailDueDate}
-                    placeholder="YYYY-MM-DD"
-                    class="min-h-8 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground"
-                  />
-                </label>
-                <label class="grid gap-1 text-[0.733333rem] font-medium text-muted-foreground">
-                  <span>{t("projects.detail.targetEndDate")}</span>
-                  <input
-                    bind:value={detailTargetEndDate}
-                    placeholder="YYYY-MM-DD"
-                    class="min-h-8 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground"
-                  />
-                </label>
-              </div>
-              <label class="grid gap-1 text-[0.733333rem] font-medium text-muted-foreground">
-                <span>{t("projects.detail.blockerReason")}</span>
-                <input
-                  bind:value={detailBlockerReason}
-                  class="min-h-8 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground"
-                />
-              </label>
-              <label class="grid gap-1 text-[0.733333rem] font-medium text-muted-foreground">
-                <span>{t("projects.detail.changeReason")}</span>
-                <input
-                  bind:value={detailChangeReason}
-                  maxlength="1000"
-                  placeholder={t("projects.detail.changeReasonPlaceholder")}
-                  class="min-h-8 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground placeholder:text-muted-foreground"
-                />
-              </label>
-            </section>
-
-            <section class="grid gap-2 border-t border-border/70 pt-3">
+            <section class="task-detail-section">
               <div class="flex items-center justify-between gap-2">
-                <h2 class="text-[0.8rem] font-semibold">{t("projects.detail.parentTask")}</h2>
+                <h2 class="task-detail-section-title">{t("projects.detail.parentTask")}</h2>
                 {#if selectedTask.parentTaskId}
                   <button
                     type="button"
@@ -1366,9 +1594,9 @@
               {/if}
             </section>
 
-            <section class="grid gap-2 border-t border-border/70 pt-3">
+            <section class="task-detail-section">
               <div class="flex items-center justify-between gap-2">
-                <h2 class="text-[0.8rem] font-semibold">{t("projects.detail.dependencies")}</h2>
+                <h2 class="task-detail-section-title">{t("projects.detail.dependencies")}</h2>
                 <span class="text-[0.733333rem] text-muted-foreground">
                   {selectedTaskBlockedBy.length + selectedTaskBlocks.length}
                 </span>
@@ -1452,9 +1680,9 @@
               </div>
             </section>
 
-            <section class="grid gap-2 border-t border-border/70 pt-3">
+            <section class="task-detail-section">
               <div class="flex items-center justify-between gap-2">
-                <h2 class="text-[0.8rem] font-semibold">{t("projects.detail.checklist")}</h2>
+                <h2 class="task-detail-section-title">{t("projects.detail.checklist")}</h2>
                 <span class="text-[0.733333rem] text-muted-foreground">{selectedTaskChecklist.length}</span>
               </div>
               <div class="grid gap-1">
@@ -1563,9 +1791,9 @@
               </div>
             </section>
 
-            <section class="grid gap-2 border-t border-border/70 pt-3">
+            <section class="task-detail-section">
               <div class="flex items-center justify-between gap-2">
-                <h2 class="text-[0.8rem] font-semibold">{t("projects.detail.subtasks")}</h2>
+                <h2 class="task-detail-section-title">{t("projects.detail.subtasks")}</h2>
                 <span class="text-[0.733333rem] text-muted-foreground">{selectedTaskSubtasks.length}</span>
               </div>
               <div class="grid gap-1">
@@ -1658,9 +1886,9 @@
               </div>
             </section>
 
-            <section class="grid gap-2 border-t border-border/70 pt-3">
+            <section class="task-detail-section">
               <div class="flex items-center justify-between gap-2">
-                <h2 class="text-[0.8rem] font-semibold">{t("projects.detail.scheduledBlocks")}</h2>
+                <h2 class="task-detail-section-title">{t("projects.detail.scheduledBlocks")}</h2>
                 <span class="text-[0.733333rem] text-muted-foreground">{selectedTaskEvents.length}</span>
               </div>
               <div class="grid gap-1">
@@ -1701,23 +1929,83 @@
                     class="min-h-8 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground"
                   />
                 </label>
-                <div class="grid gap-2 min-[980px]:grid-cols-2">
-                  <label class="grid gap-1 text-[0.733333rem] font-medium text-muted-foreground">
+                <div class="grid gap-2 min-[760px]:grid-cols-2">
+                  <div class="grid gap-1 text-[0.733333rem] font-medium text-muted-foreground">
                     <span>{t("projects.detail.eventLinkStartDate")}</span>
-                    <input
-                      bind:value={eventLinkStartDate}
-                      placeholder="YYYY-MM-DD"
-                      class="min-h-8 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground placeholder:text-muted-foreground"
-                    />
-                  </label>
-                  <label class="grid gap-1 text-[0.733333rem] font-medium text-muted-foreground">
+                    <div class="flex gap-1">
+                      <button
+                        type="button"
+                        class={cn(
+                          "flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-md border border-border bg-card px-2 text-left text-[0.8rem] text-foreground hover:bg-accent",
+                          !eventLinkStartDate && "text-muted-foreground",
+                        )}
+                        onclick={() => toggleDetailDatePicker("eventStart")}
+                      >
+                        <CalendarDays size={14} strokeWidth={1.75} class="shrink-0" />
+                        <span class="truncate">{eventLinkStartDate || t("projects.detail.noDate")}</span>
+                      </button>
+                      {#if eventLinkStartDate}
+                        <button
+                          type="button"
+                          class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground"
+                          aria-label={t("projects.detail.clearDate", t("projects.detail.eventLinkStartDate"))}
+                          onclick={() => clearDetailDate("eventStart")}
+                        >
+                          <X size={13} strokeWidth={1.75} />
+                        </button>
+                      {/if}
+                    </div>
+                    {#if datePickerTarget === "eventStart"}
+                      <div class="w-fit rounded-lg border border-border bg-card p-2">
+                        <MiniDatePicker
+                          selectedDate={eventLinkStartDate || todayDate}
+                          small
+                          highlightMode="none"
+                          activeHighlight="primary"
+                          onselect={selectDetailDate}
+                          oncancel={() => { datePickerTarget = null; }}
+                        />
+                      </div>
+                    {/if}
+                  </div>
+                  <div class="grid gap-1 text-[0.733333rem] font-medium text-muted-foreground">
                     <span>{t("projects.detail.eventLinkEndDate")}</span>
-                    <input
-                      bind:value={eventLinkEndDate}
-                      placeholder="YYYY-MM-DD"
-                      class="min-h-8 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground placeholder:text-muted-foreground"
-                    />
-                  </label>
+                    <div class="flex gap-1">
+                      <button
+                        type="button"
+                        class={cn(
+                          "flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-md border border-border bg-card px-2 text-left text-[0.8rem] text-foreground hover:bg-accent",
+                          !eventLinkEndDate && "text-muted-foreground",
+                        )}
+                        onclick={() => toggleDetailDatePicker("eventEnd")}
+                      >
+                        <CalendarDays size={14} strokeWidth={1.75} class="shrink-0" />
+                        <span class="truncate">{eventLinkEndDate || t("projects.detail.noDate")}</span>
+                      </button>
+                      {#if eventLinkEndDate}
+                        <button
+                          type="button"
+                          class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground"
+                          aria-label={t("projects.detail.clearDate", t("projects.detail.eventLinkEndDate"))}
+                          onclick={() => clearDetailDate("eventEnd")}
+                        >
+                          <X size={13} strokeWidth={1.75} />
+                        </button>
+                      {/if}
+                    </div>
+                    {#if datePickerTarget === "eventEnd"}
+                      <div class="w-fit rounded-lg border border-border bg-card p-2">
+                        <MiniDatePicker
+                          selectedDate={eventLinkEndDate || todayDate}
+                          small
+                          highlightMode="none"
+                          activeHighlight="primary"
+                          onselect={selectDetailDate}
+                          oncancel={() => { datePickerTarget = null; }}
+                        />
+                      </div>
+                    {/if}
+                  </div>
                 </div>
                 <div class="grid gap-1">
                   {#if eventLinkSearchPending}
@@ -1753,9 +2041,9 @@
               </div>
             </section>
 
-            <section class="grid gap-2 border-t border-border/70 pt-3">
+            <section class="task-detail-section">
               <div class="flex items-center justify-between gap-2">
-                <h2 class="text-[0.8rem] font-semibold">{t("projects.detail.history")}</h2>
+                <h2 class="task-detail-section-title">{t("projects.detail.history")}</h2>
                 <span class="text-[0.733333rem] text-muted-foreground">{selectedTaskHistory.length}</span>
               </div>
               <div class="grid gap-1">
@@ -1784,6 +2072,13 @@
             {/if}
           </div>
         </div>
+        <CalendarScrollbar
+          scrollContainer={detailScrollContainer}
+          stickyTop={8}
+          stickyBottom={8}
+          wheelPassthrough
+        />
+        </div>
 
         <footer class="flex shrink-0 items-center justify-end gap-2 border-t border-border px-3 py-2">
           {#if selectedTask.archivedAt}
@@ -1808,15 +2103,6 @@
             </button>
           {/if}
           <button
-            type="button"
-            class="flex min-h-8 items-center gap-1.5 rounded-md border border-border bg-card px-2 text-[0.8rem] hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-            disabled={!detailDirty}
-            onclick={() => loadTaskDetailDraft(selectedTask)}
-          >
-            <RotateCcw size={14} strokeWidth={1.75} />
-            <span>{t("projects.detail.discard")}</span>
-          </button>
-          <button
             type="submit"
             class="flex min-h-8 items-center gap-1.5 rounded-md bg-primary px-2 text-[0.8rem] font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-60"
             disabled={detailSaving || !detailDirty}
@@ -1826,5 +2112,38 @@
           </button>
         </footer>
       </form>
-    </aside>
+    </div>
+    </div>
+    {#if discardCloseConfirmOpen}
+      <ConfirmDialog
+        title={t("calendar.view.discardUnsavedTitle")}
+        message={t("calendar.view.changesLost")}
+        confirmLabel={t("calendar.view.discard")}
+        cancelLabel={t("common.cancelShortcut")}
+        onConfirm={confirmDiscardTaskDetail}
+        onCancel={cancelDiscardTaskDetail}
+      />
+    {/if}
 {/if}
+
+<style>
+  .task-detail-section {
+    display: grid;
+    gap: 0.75rem;
+    padding-top: 1.1rem;
+  }
+
+  .task-detail-section + .task-detail-section {
+    border-top: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
+  }
+
+  .task-detail-section-first {
+    padding-top: 0;
+  }
+
+  .task-detail-section-title {
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0;
+  }
+</style>

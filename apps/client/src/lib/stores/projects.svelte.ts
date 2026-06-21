@@ -119,6 +119,7 @@ let selectedProjectId = $state<string | null>(loadSavedActiveProjectId());
 let activeView = $state<ProjectViewId>(loadSavedProjectViewId());
 let loadedProjectIds = $state<string[]>([]);
 let loadRequestId = 0;
+let selectProjectRequestId = 0;
 
 function activeProjects(): Project[] {
   return projectSnapshot.activeProjects(snapshot);
@@ -432,8 +433,15 @@ async function ensureProjectData(projectId: string | null | undefined): Promise<
 }
 
 async function selectProject(projectId: string | null): Promise<void> {
-  setSelectedProjectId(projectId);
+  const requestId = ++selectProjectRequestId;
+  if (!projectId || projectDataLoaded(projectId)) {
+    setSelectedProjectId(projectId);
+    return;
+  }
   await ensureProjectData(projectId);
+  if (requestId !== selectProjectRequestId) return;
+  if (!projectDataLoaded(projectId)) return;
+  setSelectedProjectId(projectId);
 }
 
 async function addGroup(name: string): Promise<void> {
@@ -568,16 +576,6 @@ async function applySectionCollapseState(projectId: string, collapsedSectionIds:
     }));
   }
   if (updates.length > 0) await reload();
-}
-
-async function moveSection(section: ProjectSection, direction: -1 | 1): Promise<void> {
-  const ordered = sectionsForProject(section.projectId);
-  const index = ordered.findIndex((entry) => entry.id === section.id);
-  const target = ordered[index + direction];
-  if (index < 0 || !target) return;
-  await updateProjectSection(sectionUpdatePayload(section, { sortOrder: target.sortOrder }));
-  await updateProjectSection(sectionUpdatePayload(target, { sortOrder: section.sortOrder }));
-  await reload();
 }
 
 async function addStatus(
@@ -1216,7 +1214,6 @@ export function getProjects() {
     archiveSection,
     restoreSection,
     applySectionCollapseState,
-    moveSection,
     addStatus,
     updateStatus,
     moveStatus,
