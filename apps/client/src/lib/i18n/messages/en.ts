@@ -1582,7 +1582,7 @@ export const en = {
     list: {
       general: "General",
       name: "Name",
-      addTaskInSection: (section: string) => `Add task in ${section}`,
+      addTaskInSection: (_section: string) => "Add task",
       noTasks: "No tasks yet",
       hiddenSection: "Hidden",
       archivedSection: "Archived",
@@ -1595,6 +1595,7 @@ export const en = {
       scheduled: "Scheduled",
       sectionName: "Section name",
       saveSection: "Save",
+      saveWithEnter: "Save (Enter)",
       blockedBy: (count: number) => `Blocked by ${count}`,
       blocks: (count: number) => `Blocks ${count}`,
       moreLabels: (count: number) => `+${count}`,

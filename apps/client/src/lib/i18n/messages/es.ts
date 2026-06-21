@@ -1599,7 +1599,7 @@ export const es = {
     list: {
       general: "General",
       name: "Nombre",
-      addTaskInSection: (section: string) => `Agregar tarea en ${section}`,
+      addTaskInSection: (_section: string) => "Agregar tarea",
       noTasks: "Aún no hay tareas",
       hiddenSection: "Oculta",
       archivedSection: "Archivada",
@@ -1612,6 +1612,7 @@ export const es = {
       scheduled: "Programada",
       sectionName: "Nombre de la sección",
       saveSection: "Guardar",
+      saveWithEnter: "Guardar (Enter)",
       blockedBy: (count: number) => `Bloqueada por ${count}`,
       blocks: (count: number) => `Bloquea ${count}`,
       moreLabels: (count: number) => `+${count}`,

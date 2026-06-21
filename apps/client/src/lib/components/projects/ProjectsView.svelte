@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Temporal } from "@js-temporal/polyfill";
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import Archive from "@lucide/svelte/icons/archive";
   import ArchiveRestore from "@lucide/svelte/icons/archive-restore";
   import ArrowDown from "@lucide/svelte/icons/arrow-down";
@@ -122,6 +122,11 @@
   const TASK_SORT_MODES: ProjectCoreTaskSortMode[] = [...PROJECT_TASK_SORT_MODES];
   const PROJECT_LIST_DRAG_MIME = "application/x-ganbaru-project-list-task";
   const PROJECT_LIST_SECTION_DRAG_MIME = "application/x-ganbaru-project-list-section";
+
+  type ProjectListAddRowInputFocusOptions = {
+    selector: string;
+    beforeFocus?: () => void;
+  };
   const LIST_ROW_DRAG_THRESHOLD_PX = 4;
   const LIST_ROW_DRAG_HOLD_MS = 120;
   const PROJECT_LIST_KEYBOARD_SCROLL_PX = 48;
@@ -171,6 +176,8 @@
   let taskCreateErrorMessage = $state<string | null>(null);
   let sectionDraft = $state("");
   let sectionTaskDrafts = $state<Record<string, string>>({});
+  let activeSectionTaskDraftInputId = $state<string | null>(null);
+  let sectionDraftInputActive = $state(false);
   let schedulingTaskId = $state<string | null>(null);
   let scheduleDate = $state("");
   let scheduleStartTime = $state("");
@@ -804,6 +811,56 @@
 
   function projectsSelectionNodeInside(node: Node | null): boolean {
     return Boolean(projectsRootElement && node && projectsRootElement.contains(node));
+  }
+
+  function projectListAddRowClickShouldFocus(target: EventTarget | null): boolean {
+    if (!(target instanceof Element)) return true;
+    return !target.closest("input, textarea, select, button, a, [contenteditable='true'], [role='textbox']");
+  }
+
+  function focusProjectListTextInput(input: HTMLInputElement): void {
+    input.focus({ preventScroll: true });
+    const caretPosition = input.value.length;
+    input.setSelectionRange(caretPosition, caretPosition);
+    requestAnimationFrame(() => {
+      input.focus({ preventScroll: true });
+      input.setSelectionRange(caretPosition, caretPosition);
+    });
+  }
+
+  function focusProjectListInputFromRow(node: HTMLElement, options: ProjectListAddRowInputFocusOptions, event: MouseEvent): void {
+    if (projects.activeView !== "list" || event.button !== 0) return;
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    if (!projectListAddRowClickShouldFocus(target)) return;
+
+    options.beforeFocus?.();
+    void tick().then(() => {
+      const input = node.querySelector<HTMLInputElement>(options.selector);
+      if (!input) return;
+      focusProjectListTextInput(input);
+    });
+  }
+
+  function projectListAddRowInputFocus(node: HTMLElement, options: ProjectListAddRowInputFocusOptions): {
+    update: (nextOptions: ProjectListAddRowInputFocusOptions) => void;
+    destroy: () => void;
+  } {
+    let currentOptions = options;
+    const handleClick = (event: MouseEvent): void => {
+      focusProjectListInputFromRow(node, currentOptions, event);
+    };
+
+    node.addEventListener("click", handleClick);
+
+    return {
+      update(nextOptions: ProjectListAddRowInputFocusOptions) {
+        currentOptions = nextOptions;
+      },
+      destroy() {
+        node.removeEventListener("click", handleClick);
+      },
+    };
   }
 
   function handleProjectListHorizontalKeydown(event: KeyboardEvent): boolean {
@@ -3417,44 +3474,63 @@
                     {/if}
                   </div>
                   <div
-                    class="project-list-divider grid items-center px-1 py-1.5"
+                    class="project-list-divider grid cursor-text items-center px-1 py-1.5"
+                    data-section-task-add-row={section.id}
                     style={`grid-template-columns: ${taskListGridTemplate}; min-width: ${taskListGridMinWidth};`}
+                    use:projectListAddRowInputFocus={{ selector: "[data-section-task-input]" }}
                   >
-                    <div></div>
-                    <div></div>
-                    <form class="group flex min-w-0 items-center gap-2 px-2" onsubmit={(event) => { event.preventDefault(); void submitSectionTask(section.id); }}>
-                      <span
-                        class={cn(
-                          "flex h-5 w-5 shrink-0 items-center justify-center text-muted-foreground transition-opacity",
-                          (sectionTaskDrafts[section.id] ?? "").trim() ? "opacity-0" : "opacity-100",
-                        )}
-                        aria-hidden="true"
-                      >
-                        <Plus size={15} strokeWidth={1.75} />
-                      </span>
-                      <input
-                        value={sectionTaskDrafts[section.id] ?? ""}
-                        oninput={(event) => {
-                          sectionTaskDrafts = {
-                            ...sectionTaskDrafts,
-                            [section.id]: event.currentTarget.value,
-                          };
-                        }}
-                        placeholder={t("projects.list.addTaskInSection", section.name)}
-                        class="min-h-8 min-w-0 flex-1 bg-transparent text-[0.866667rem] text-foreground placeholder:text-muted-foreground"
-                      />
-                      <button
-                        type="submit"
-                        disabled={taskCreatePendingTarget !== null}
-                        class="flex h-7 shrink-0 cursor-pointer items-center justify-center rounded-md border border-border bg-card px-2 text-[0.733333rem] text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover:opacity-100 group-focus-within:opacity-100 disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        {t("common.save")}
-                      </button>
+                    <div class="absolute inset-0 z-0 cursor-text" aria-hidden="true"></div>
+                    <div class="relative z-10"></div>
+                    <div class="relative z-10"></div>
+                    <form
+                      class="contents"
+                      onsubmit={(event) => { event.preventDefault(); void submitSectionTask(section.id); }}
+                    >
+                      <div class="relative z-10 min-w-0 px-2" style="grid-column: 3;">
+                        {#if !(sectionTaskDrafts[section.id] ?? "").trim() && activeSectionTaskDraftInputId !== section.id}
+                          <div
+                            class="pointer-events-none absolute inset-y-0 left-2 flex items-center gap-2 text-muted-foreground"
+                            aria-hidden="true"
+                          >
+                            <span class="flex h-5 w-5 shrink-0 items-center justify-center">
+                              <Plus size={15} strokeWidth={1.75} />
+                            </span>
+                            <span class="text-[0.866667rem]">{t("projects.list.addTaskInSection", section.name)}</span>
+                          </div>
+                        {/if}
+                        <input
+                          data-section-task-input={section.id}
+                          aria-label={t("projects.list.addTaskInSection", section.name)}
+                          value={sectionTaskDrafts[section.id] ?? ""}
+                          onfocus={() => {
+                            activeSectionTaskDraftInputId = section.id;
+                          }}
+                          onblur={() => {
+                            if (activeSectionTaskDraftInputId === section.id) {
+                              activeSectionTaskDraftInputId = null;
+                            }
+                          }}
+                          oninput={(event) => {
+                            sectionTaskDrafts = {
+                              ...sectionTaskDrafts,
+                              [section.id]: event.currentTarget.value,
+                            };
+                          }}
+                          class="min-h-8 w-full min-w-0 bg-transparent text-[0.866667rem] text-foreground"
+                        />
+                      </div>
+                      {#if (sectionTaskDrafts[section.id] ?? "").trim()}
+                        <div class="relative z-10 flex min-w-0 items-center px-2" style="grid-column: 4;">
+                          <button
+                            type="submit"
+                            disabled={taskCreatePendingTarget !== null}
+                            class="flex h-7 shrink-0 cursor-pointer items-center justify-center rounded-md border border-border bg-card px-2 text-[0.733333rem] text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {t("projects.list.saveWithEnter")}
+                          </button>
+                        </div>
+                      {/if}
                     </form>
-                    {#each taskListColumns as column (column)}
-                      <div></div>
-                    {/each}
-                    <div></div>
                     {#if taskCreateErrorFor(sectionTaskCreateTarget(section.id))}
                       <div class="col-span-full rounded border border-destructive/30 bg-destructive/10 px-2 py-1 text-[0.733333rem] text-destructive">
                         {taskCreateErrorFor(sectionTaskCreateTarget(section.id))}
@@ -3468,37 +3544,65 @@
               {/if}
             {/each}
             <div
-              class="project-list-sticky-row grid items-center px-1 py-1.5"
+              class="project-list-sticky-row grid cursor-text items-center px-1 py-1.5"
+              data-add-section-row="true"
               style={`grid-template-columns: ${taskListGridTemplate}; min-width: max(100%, ${taskListGridMinWidth});`}
+              use:projectListAddRowInputFocus={{
+                selector: "[data-add-section-input='true']",
+                beforeFocus: () => {
+                  sectionDraftInputActive = true;
+                },
+              }}
             >
-              <div></div>
-              <div></div>
-              <form class="group flex min-w-0 items-center gap-2 px-2" onsubmit={(event) => { event.preventDefault(); void submitSection(); }}>
-                <span
-                  class={cn(
-                    "flex h-5 w-5 shrink-0 items-center justify-center text-muted-foreground transition-opacity",
-                    sectionDraft.trim() ? "opacity-0" : "opacity-100",
-                  )}
-                  aria-hidden="true"
-                >
-                  <Plus size={15} strokeWidth={1.75} />
-                </span>
-                <input
-                  bind:value={sectionDraft}
-                  placeholder={t("projects.header.addSection")}
-                  class="min-h-8 min-w-0 flex-1 bg-transparent text-[0.866667rem] text-foreground placeholder:text-muted-foreground"
-                />
-                <button
-                  type="submit"
-                  class="flex h-7 shrink-0 cursor-pointer items-center justify-center rounded-md border border-border bg-card px-2 text-[0.733333rem] text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover:opacity-100 group-focus-within:opacity-100"
-                >
-                  {t("common.save")}
-                </button>
+              <div class="absolute inset-0 z-0 cursor-text" aria-hidden="true"></div>
+              <div class="relative z-10"></div>
+              <div class="relative z-10"></div>
+              <form
+                class="contents"
+                onsubmit={(event) => { event.preventDefault(); void submitSection(); }}
+              >
+                <div class="relative z-10 min-w-0 px-2" style="grid-column: 3;">
+                  {#if !sectionDraft.trim() && !sectionDraftInputActive}
+                    <div
+                      class="pointer-events-none absolute inset-y-0 left-2 flex items-center gap-2 text-muted-foreground"
+                      aria-hidden="true"
+                    >
+                      <span class="flex h-5 w-5 shrink-0 items-center justify-center">
+                        <Plus size={15} strokeWidth={1.75} />
+                      </span>
+                      <span class="text-[0.866667rem]">{t("projects.header.addSection")}</span>
+                    </div>
+                  {/if}
+                  <input
+                    data-add-section-input="true"
+                    aria-label={t("projects.header.addSection")}
+                    bind:value={sectionDraft}
+                    onfocus={() => {
+                      sectionDraftInputActive = true;
+                    }}
+                    onblur={() => {
+                      sectionDraftInputActive = false;
+                    }}
+                    class="min-h-8 w-full min-w-0 bg-transparent text-[0.866667rem] text-foreground"
+                  />
+                  {#if sectionDraftInputActive && !sectionDraft.trim()}
+                    <span
+                      class="project-list-add-section-caret pointer-events-none absolute left-2 top-1/2 h-4 w-px -translate-y-1/2 bg-foreground"
+                      aria-hidden="true"
+                    ></span>
+                  {/if}
+                </div>
+                {#if sectionDraft.trim()}
+                  <div class="relative z-10 flex min-w-0 items-center px-2" style="grid-column: 4;">
+                    <button
+                      type="submit"
+                      class="flex h-7 shrink-0 cursor-pointer items-center justify-center rounded-md border border-border bg-card px-2 text-[0.733333rem] text-muted-foreground hover:bg-accent hover:text-foreground"
+                    >
+                      {t("projects.list.saveWithEnter")}
+                    </button>
+                  </div>
+                {/if}
               </form>
-              {#each taskListColumns as column (column)}
-                <div></div>
-              {/each}
-              <div></div>
             </div>
             {:else}
               {#each listTaskGroups as group (group.id)}
@@ -3992,6 +4096,22 @@
     transform: translateX(var(--project-list-scroll-left, 0px));
     background-color: var(--cal-bg);
     will-change: transform;
+  }
+
+  .project-list-add-section-caret {
+    animation: project-list-caret-blink 1s step-end infinite;
+  }
+
+  @keyframes project-list-caret-blink {
+    0%,
+    49% {
+      opacity: 1;
+    }
+
+    50%,
+    100% {
+      opacity: 0;
+    }
   }
 
   .project-list-scroll {
