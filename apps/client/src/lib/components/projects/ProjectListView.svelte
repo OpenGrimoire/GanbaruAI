@@ -1086,6 +1086,13 @@
   }
 </script>
 
+{#snippet listColumnHeaderCell(label: string)}
+  <div class="project-list-header-cell relative flex min-h-11 min-w-0 items-center self-stretch rounded-md px-2 py-1 hover:bg-accent/20">
+    <span class="relative z-10 truncate">{label}</span>
+    <span class="project-list-column-resize-hit" aria-hidden="true"></span>
+  </div>
+{/snippet}
+
 <svelte:window onkeydown={handleProjectListHorizontalKeydown} onpointerdown={handleProjectWindowPointerDown} />
 
 <div
@@ -1271,9 +1278,9 @@
             >
               <div></div>
               <div></div>
-              <div class="truncate px-2">{t("projects.list.name")}</div>
+              {@render listColumnHeaderCell(t("projects.list.name"))}
               {#each taskListColumns as column (column)}
-                <div class="truncate px-2">{taskListColumnLabel(column)}</div>
+                {@render listColumnHeaderCell(taskListColumnLabel(column))}
               {/each}
             </div>
             <div class="grid">
@@ -1556,9 +1563,9 @@
           >
             <div></div>
             <div></div>
-            <div class="truncate px-2">{t("projects.list.name")}</div>
+            {@render listColumnHeaderCell(t("projects.list.name"))}
             {#each taskListColumns as column (column)}
-              <div class="truncate px-2">{taskListColumnLabel(column)}</div>
+              {@render listColumnHeaderCell(taskListColumnLabel(column))}
             {/each}
           </div>
           <div class="grid">
@@ -1709,6 +1716,47 @@
     transform: translateX(var(--project-list-scroll-left, 0px));
     background-color: var(--cal-bg);
     will-change: transform;
+  }
+
+  .project-list-header-cell::before {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    border: 1px solid transparent;
+    border-radius: 0.375rem;
+    content: "";
+    pointer-events: none;
+  }
+
+  .project-list-header-cell:hover::before {
+    border-color: color-mix(in srgb, var(--foreground) 25%, transparent);
+  }
+
+  .project-list-column-resize-hit {
+    position: absolute;
+    top: 0.375rem;
+    right: -0.375rem;
+    bottom: 0.375rem;
+    z-index: 20;
+    width: 0.75rem;
+    cursor: col-resize;
+  }
+
+  .project-list-column-resize-hit::after {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    width: 0.25rem;
+    transform: translateX(-50%);
+    border-radius: 9999px;
+    background: var(--primary);
+    content: "";
+    opacity: 0;
+  }
+
+  .project-list-column-resize-hit:hover::after {
+    opacity: 1;
   }
 
   .project-list-add-row-caret {

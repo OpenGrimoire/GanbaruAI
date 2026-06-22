@@ -244,6 +244,7 @@
       class="absolute inset-0 z-0 cursor-pointer rounded-md disabled:cursor-not-allowed"
       disabled={Boolean(task.archivedAt)}
       aria-label={status?.name ?? t("projects.list.status")}
+      data-app-tooltip-disabled="true"
       aria-haspopup="menu"
       aria-expanded={statusMenuOpen}
       onclick={onToggleStatusMenu}
@@ -282,6 +283,7 @@
       class="absolute inset-0 z-0 cursor-pointer rounded-md disabled:cursor-not-allowed"
       disabled={Boolean(task.archivedAt)}
       aria-label={projectPriorityLabel(task.priority, t)}
+      data-app-tooltip-disabled="true"
       aria-haspopup="menu"
       aria-expanded={priorityMenuOpen}
       onclick={onTogglePriorityMenu}
@@ -342,6 +344,7 @@
         class="absolute inset-0 z-0 cursor-pointer rounded-md disabled:cursor-not-allowed"
         disabled={Boolean(task.archivedAt)}
         aria-label={dateButtonText(dateValue, timeValue, emptyDateLabel)}
+        data-app-tooltip-disabled="true"
         aria-haspopup="dialog"
         aria-expanded={dateMenuOpen}
         onclick={() => {
@@ -398,7 +401,7 @@
                     type="button"
                     class="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
                     aria-label={t("projects.columns.clearHour")}
-                    title={t("projects.columns.clearHour")}
+                    data-app-tooltip-disabled="true"
                     onclick={() => {
                       if (column === "start") onClearStartTime();
                       else onClearDueTime();
@@ -412,7 +415,7 @@
                   type="button"
                   class="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
                   aria-label={t("projects.detail.clearDate", dateLabel)}
-                  title={t("projects.detail.clearDate", dateLabel)}
+                  data-app-tooltip-disabled="true"
                   onclick={() => {
                     if (column === "start") onClearStartDate();
                     else onClearDueDate();
@@ -475,7 +478,7 @@
     {#if customField}
       {@const customValue = customFieldDisplayValue(task, customField)}
       {#if customValue}
-        <span class="min-w-0 truncate text-[0.8rem] text-muted-foreground" title={`${customField.name}: ${customValue}`}>
+        <span class="min-w-0 truncate text-[0.8rem] text-muted-foreground">
           {customValue}
         </span>
       {/if}
