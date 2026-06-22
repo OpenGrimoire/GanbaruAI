@@ -56,8 +56,16 @@ export const PROJECT_TASK_FILTER_DEFAULTS = Object.freeze({
 
 export function projectTaskListColumnTrack(column: ProjectTaskListColumn): string {
   if (column === "priority" || column === "estimate" || column === "start" || column === "due") return "minmax(7rem, 0.7fr)";
+  if (column === "assignee" || column === "reviewer") return "minmax(6rem, 0.55fr)";
   if (column === "status" || column === "scheduled" || column === "dependencies") return "minmax(8rem, 0.8fr)";
   return "minmax(9rem, 0.85fr)";
+}
+
+function projectTaskListColumnMinWidthRem(column: ProjectTaskListColumn): number {
+  if (column === "priority" || column === "estimate" || column === "start" || column === "due") return 7;
+  if (column === "assignee" || column === "reviewer") return 6;
+  if (column === "status" || column === "scheduled" || column === "dependencies") return 8;
+  return 9;
 }
 
 export function projectTaskListGridTemplate(columns: readonly ProjectTaskListColumn[]): string {
@@ -70,7 +78,7 @@ export function projectTaskListGridTemplate(columns: readonly ProjectTaskListCol
 }
 
 export function projectTaskListGridMinWidth(columns: readonly ProjectTaskListColumn[]): string {
-  const remWidth = Math.max(47, 25 + columns.length * 8.5);
+  const remWidth = Math.max(47, 25 + columns.reduce((total, column) => total + projectTaskListColumnMinWidthRem(column), 0));
   return `${remWidth}rem`;
 }
 

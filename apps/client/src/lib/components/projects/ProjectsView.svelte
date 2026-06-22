@@ -440,6 +440,8 @@
     if (column === "due") return t("projects.columns.due");
     if (column === "scheduled") return t("projects.columns.scheduled");
     if (column === "dependencies") return t("projects.columns.dependencies");
+    if (column === "assignee") return t("projects.columns.assignee");
+    if (column === "reviewer") return t("projects.columns.reviewer");
     return t("projects.columns.status");
   }
 

@@ -5,6 +5,7 @@ import {
   projectLabelColorDotStyle,
   projectLabelColorSwatchClass,
   projectLifecycleBadgeClass,
+  projectPersonInitials,
   projectPriorityBadgeClass,
   projectPriorityLabel,
   projectStatusBadgeClass,
@@ -45,5 +46,12 @@ describe("project display helpers", () => {
     expect(projectLabelColorSwatchClass(undefined)).toContain("muted");
     expect(projectLabelColorDotStyle(undefined, lightTheme)).toBe("");
     expect(projectLabelColorDotStyle(2, lightTheme)).toMatch(/^background-color: #[0-9a-f]{6};$/i);
+  });
+
+  it("returns compact initials for task people", () => {
+    expect(projectPersonInitials("You")).toBe("Y");
+    expect(projectPersonInitials("Victor Rivera")).toBe("VR");
+    expect(projectPersonInitials("  Ana Maria Lopez  ")).toBe("AM");
+    expect(projectPersonInitials("")).toBe("?");
   });
 });

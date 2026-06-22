@@ -20,8 +20,8 @@ function preference(value: string): ProjectViewPreference {
 }
 
 describe("task list columns", () => {
-  it("defaults to status, start date, due date, and priority after the fixed name column", () => {
-    expect(DEFAULT_TASK_LIST_COLUMNS).toEqual(["status", "start", "due", "priority"]);
+  it("defaults to status, dates, priority, assignee, and reviewer after the fixed name column", () => {
+    expect(DEFAULT_TASK_LIST_COLUMNS).toEqual(["status", "start", "due", "priority", "assignee", "reviewer"]);
   });
 
   it("round-trips selected columns", () => {
@@ -41,6 +41,9 @@ describe("task list columns", () => {
       DEFAULT_TASK_LIST_COLUMNS,
     );
     expect(parseTaskListColumns(taskListColumnsPreferenceValue(["due", "priority", "status"]))).toEqual(
+      DEFAULT_TASK_LIST_COLUMNS,
+    );
+    expect(parseTaskListColumns(taskListColumnsPreferenceValue(["status", "start", "due", "priority"]))).toEqual(
       DEFAULT_TASK_LIST_COLUMNS,
     );
   });

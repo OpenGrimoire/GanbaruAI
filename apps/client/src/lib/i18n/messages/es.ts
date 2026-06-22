@@ -1937,7 +1937,12 @@ export const es = {
       clearHour: "Quitar hora",
       scheduled: "Programada",
       dependencies: "Enlaces",
+      assignee: "Responsable",
+      reviewer: "Revisor",
       customField: "Campo personalizado",
+    },
+    people: {
+      you: "Tú",
     },
     templates: {
       blank: "En blanco",

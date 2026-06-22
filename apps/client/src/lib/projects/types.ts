@@ -26,7 +26,17 @@ export const PROJECT_TASK_SORT_MODES = [
 export type ProjectCoreTaskSortMode = (typeof PROJECT_TASK_SORT_MODES)[number];
 export type ProjectTaskSortMode = ProjectCoreTaskSortMode | ProjectCustomFieldReference;
 export type ProjectTaskSortDirection = "asc" | "desc";
-export const PROJECT_TASK_LIST_COLUMNS = ["status", "start", "due", "priority", "estimate", "scheduled", "dependencies"] as const;
+export const PROJECT_TASK_LIST_COLUMNS = [
+  "status",
+  "start",
+  "due",
+  "priority",
+  "assignee",
+  "reviewer",
+  "estimate",
+  "scheduled",
+  "dependencies",
+] as const;
 export type ProjectCoreTaskListColumn = (typeof PROJECT_TASK_LIST_COLUMNS)[number];
 export type ProjectTaskListColumn = ProjectCoreTaskListColumn | ProjectCustomFieldReference;
 export const PROJECT_TASK_GROUP_MODES = ["section", "status", "priority", "due", "scheduled"] as const;

@@ -1920,7 +1920,12 @@ export const en = {
       clearHour: "Remove hour",
       scheduled: "Scheduled",
       dependencies: "Links",
+      assignee: "Assignee",
+      reviewer: "Reviewer",
       customField: "Custom field",
+    },
+    people: {
+      you: "You",
     },
     templates: {
       blank: "Blank",

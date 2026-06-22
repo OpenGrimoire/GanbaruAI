@@ -15,8 +15,11 @@ export const DEFAULT_TASK_LIST_COLUMNS: ProjectCoreTaskListColumn[] = [
   "start",
   "due",
   "priority",
+  "assignee",
+  "reviewer",
 ];
 const LEGACY_DEFAULT_TASK_LIST_COLUMNS: readonly ProjectCoreTaskListColumn[][] = [
+  ["status", "start", "due", "priority"],
   ["status", "due", "priority"],
   ["due", "priority", "status"],
 ];

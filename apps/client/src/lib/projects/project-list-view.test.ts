@@ -36,6 +36,7 @@ describe("project list view helpers", () => {
   it("builds stable grid tracks for core and custom columns", () => {
     expect(projectTaskListColumnTrack("priority")).toBe("minmax(7rem, 0.7fr)");
     expect(projectTaskListColumnTrack("start")).toBe("minmax(7rem, 0.7fr)");
+    expect(projectTaskListColumnTrack("assignee")).toBe("minmax(6rem, 0.55fr)");
     expect(projectTaskListColumnTrack("status")).toBe("minmax(8rem, 0.8fr)");
     expect(projectTaskListColumnTrack("custom:field-a")).toBe("minmax(9rem, 0.85fr)");
     expect(projectTaskListGridTemplate(["status", "custom:field-a"])).toBe(
@@ -45,7 +46,8 @@ describe("project list view helpers", () => {
 
   it("keeps the list width stable as columns are added", () => {
     expect(projectTaskListGridMinWidth([])).toBe("47rem");
-    expect(projectTaskListGridMinWidth(["status", "priority", "estimate"])).toBe("50.5rem");
+    expect(projectTaskListGridMinWidth(["status", "priority", "estimate"])).toBe("47rem");
+    expect(projectTaskListGridMinWidth(["status", "start", "due", "priority", "assignee", "reviewer"])).toBe("66rem");
   });
 
   it("removes selected tasks that are no longer visible", () => {

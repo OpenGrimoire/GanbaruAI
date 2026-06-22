@@ -8,6 +8,7 @@
   import { formatTimeLabel } from "$lib/components/calendar/utils";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import {
+    projectPersonInitials,
     projectPriorityBadgeClass,
     projectPriorityLabel,
     projectStatusBadgeClass,
@@ -319,6 +320,15 @@
         {estimateLabel(task.estimateMinutes)}
       </span>
     {/if}
+  {:else if column === "assignee" || column === "reviewer"}
+    {@const personName = t("projects.people.you")}
+    <span
+      class="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-foreground text-[0.733333rem] font-semibold leading-none text-background"
+      aria-label={personName}
+      title={personName}
+    >
+      {projectPersonInitials(personName)}
+    </span>
   {:else if column === "start" || column === "due"}
     {@const dateValue = column === "start" ? task.startDate : task.dueDate}
     {@const timeValue = column === "start" ? task.startTime : task.dueTime}
