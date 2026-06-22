@@ -35,10 +35,11 @@ const t = ((key: string, ...args: unknown[]) => [key, ...args].join("|")) as Tra
 describe("project list view helpers", () => {
   it("builds stable grid tracks for core and custom columns", () => {
     expect(projectTaskListColumnTrack("priority")).toBe("minmax(7rem, 0.7fr)");
+    expect(projectTaskListColumnTrack("start")).toBe("minmax(7rem, 0.7fr)");
     expect(projectTaskListColumnTrack("status")).toBe("minmax(8rem, 0.8fr)");
     expect(projectTaskListColumnTrack("custom:field-a")).toBe("minmax(9rem, 0.85fr)");
     expect(projectTaskListGridTemplate(["status", "custom:field-a"])).toBe(
-      "1.5rem 1.75rem minmax(16rem, 2fr) minmax(8rem, 0.8fr) minmax(9rem, 0.85fr) 2.25rem",
+      "1.5rem 1.75rem minmax(16rem, 2fr) minmax(8rem, 0.8fr) minmax(9rem, 0.85fr)",
     );
   });
 

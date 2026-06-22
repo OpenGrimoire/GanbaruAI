@@ -1927,6 +1927,7 @@ export const es = {
     columns: {
       title: "Columnas",
       status: "Estado",
+      start: "Fecha de inicio",
       priority: "Prioridad",
       estimate: "Estimación",
       due: "Fecha límite",

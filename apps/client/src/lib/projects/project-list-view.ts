@@ -55,7 +55,7 @@ export const PROJECT_TASK_FILTER_DEFAULTS = Object.freeze({
 } satisfies ProjectTaskFilterState);
 
 export function projectTaskListColumnTrack(column: ProjectTaskListColumn): string {
-  if (column === "priority" || column === "estimate" || column === "due") return "minmax(7rem, 0.7fr)";
+  if (column === "priority" || column === "estimate" || column === "start" || column === "due") return "minmax(7rem, 0.7fr)";
   if (column === "status" || column === "scheduled" || column === "dependencies") return "minmax(8rem, 0.8fr)";
   return "minmax(9rem, 0.85fr)";
 }
@@ -66,7 +66,6 @@ export function projectTaskListGridTemplate(columns: readonly ProjectTaskListCol
     "1.75rem",
     "minmax(16rem, 2fr)",
     ...columns.map(projectTaskListColumnTrack),
-    "2.25rem",
   ].join(" ");
 }
 

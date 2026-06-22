@@ -12,8 +12,13 @@ export const CUSTOM_TASK_LIST_COLUMN_PREFIX = CUSTOM_FIELD_REFERENCE_PREFIX;
 
 export const DEFAULT_TASK_LIST_COLUMNS: ProjectCoreTaskListColumn[] = [
   "status",
+  "start",
   "due",
   "priority",
+];
+const LEGACY_DEFAULT_TASK_LIST_COLUMNS: readonly ProjectCoreTaskListColumn[][] = [
+  ["status", "due", "priority"],
+  ["due", "priority", "status"],
 ];
 
 const CORE_TASK_LIST_COLUMNS: ProjectCoreTaskListColumn[] = [...PROJECT_TASK_LIST_COLUMNS];
@@ -71,6 +76,19 @@ function uniqueTaskListColumns(
   return columns;
 }
 
+function taskListColumnSetsMatch(
+  first: readonly ProjectTaskListColumn[],
+  second: readonly ProjectTaskListColumn[],
+): boolean {
+  return first.length === second.length && first.every((column, index) => column === second[index]);
+}
+
+function normalizeDefaultTaskListColumns(columns: ProjectTaskListColumn[]): ProjectTaskListColumn[] {
+  return LEGACY_DEFAULT_TASK_LIST_COLUMNS.some((legacyColumns) => taskListColumnSetsMatch(columns, legacyColumns))
+    ? [...DEFAULT_TASK_LIST_COLUMNS]
+    : columns;
+}
+
 export function parseTaskListColumns(
   value: string | undefined,
   customFieldIds?: ReadonlySet<string>,
@@ -88,7 +106,7 @@ export function parseTaskListColumns(
       ? (parsed as { visibleColumns?: unknown }).visibleColumns
       : undefined;
   if (!Array.isArray(rawColumns)) return [...DEFAULT_TASK_LIST_COLUMNS];
-  return uniqueTaskListColumns(rawColumns, customFieldIds);
+  return normalizeDefaultTaskListColumns(uniqueTaskListColumns(rawColumns, customFieldIds));
 }
 
 export function taskListColumnsPreferenceValue(columns: readonly ProjectTaskListColumn[]): string {

@@ -1910,6 +1910,7 @@ export const en = {
     columns: {
       title: "Columns",
       status: "Status",
+      start: "Start date",
       priority: "Priority",
       estimate: "Estimate",
       due: "Due date",

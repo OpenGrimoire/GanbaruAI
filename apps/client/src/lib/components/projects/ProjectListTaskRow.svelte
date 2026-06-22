@@ -1,5 +1,4 @@
 <script lang="ts">
-  import CalendarDays from "@lucide/svelte/icons/calendar-days";
   import Check from "@lucide/svelte/icons/check";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import { getLocalization } from "$lib/i18n/translator.svelte";
@@ -19,7 +18,6 @@
   import type { Theme } from "$lib/stores/themes";
   import { cn } from "$lib/utils";
   import ProjectListColumnCell from "./ProjectListColumnCell.svelte";
-  import ProjectListInlineScheduleForm from "./ProjectListInlineScheduleForm.svelte";
   import ProjectListSubtaskRows from "./ProjectListSubtaskRows.svelte";
 
   let {
@@ -44,12 +42,8 @@
     dropPending,
     statusMenuOpen,
     priorityMenuOpen,
-    schedulingOpen,
-    scheduleDate,
-    scheduleStartTime,
-    scheduleDurationMinutes,
-    schedulePending,
-    scheduleError,
+    startDateMenuOpen,
+    dueDateMenuOpen,
     theme,
     estimateLabel,
     customFieldDisplayValue,
@@ -67,12 +61,14 @@
     onSetStatus,
     onTogglePriorityMenu,
     onSetPriority,
-    onOpenScheduleForm,
-    onScheduleDateChange,
-    onScheduleStartTimeChange,
-    onScheduleDurationMinutesChange,
-    onScheduleSubmit,
-    onCloseScheduleForm,
+    onToggleStartDateMenu,
+    onCloseStartDateMenu,
+    onSetStartDate,
+    onClearStartDate,
+    onToggleDueDateMenu,
+    onCloseDueDateMenu,
+    onSetDueDate,
+    onClearDueDate,
     onToggleSubtaskDone,
   }: {
     task: ProjectTask;
@@ -96,12 +92,8 @@
     dropPending: boolean;
     statusMenuOpen: boolean;
     priorityMenuOpen: boolean;
-    schedulingOpen: boolean;
-    scheduleDate: string;
-    scheduleStartTime: string;
-    scheduleDurationMinutes: number;
-    schedulePending: boolean;
-    scheduleError: string | null;
+    startDateMenuOpen: boolean;
+    dueDateMenuOpen: boolean;
     theme: Theme;
     estimateLabel: (minutes: number) => string;
     customFieldDisplayValue: (task: ProjectTask, field: ProjectCustomField) => string | undefined;
@@ -119,12 +111,14 @@
     onSetStatus: (status: ProjectStatus) => void;
     onTogglePriorityMenu: () => void;
     onSetPriority: (priority: ProjectPriority) => void;
-    onOpenScheduleForm: () => void;
-    onScheduleDateChange: (value: string) => void;
-    onScheduleStartTimeChange: (value: string) => void;
-    onScheduleDurationMinutesChange: (value: number) => void;
-    onScheduleSubmit: () => void;
-    onCloseScheduleForm: () => void;
+    onToggleStartDateMenu: () => void;
+    onCloseStartDateMenu: () => void;
+    onSetStartDate: (startDate: string) => void;
+    onClearStartDate: () => void;
+    onToggleDueDateMenu: () => void;
+    onCloseDueDateMenu: () => void;
+    onSetDueDate: (dueDate: string) => void;
+    onClearDueDate: () => void;
     onToggleSubtaskDone: (task: ProjectTask) => void;
   } = $props();
 
@@ -227,6 +221,8 @@
       {statuses}
       statusMenuOpen={statusMenuOpen}
       priorityMenuOpen={priorityMenuOpen}
+      startDateMenuOpen={startDateMenuOpen}
+      dueDateMenuOpen={dueDateMenuOpen}
       {projectCustomFields}
       {scheduled}
       {blockedByCount}
@@ -237,34 +233,16 @@
       onSetStatus={onSetStatus}
       onTogglePriorityMenu={onTogglePriorityMenu}
       onSetPriority={onSetPriority}
+      onToggleStartDateMenu={onToggleStartDateMenu}
+      onCloseStartDateMenu={onCloseStartDateMenu}
+      onSetStartDate={onSetStartDate}
+      onClearStartDate={onClearStartDate}
+      onToggleDueDateMenu={onToggleDueDateMenu}
+      onCloseDueDateMenu={onCloseDueDateMenu}
+      onSetDueDate={onSetDueDate}
+      onClearDueDate={onClearDueDate}
     />
   {/each}
-  <div class="flex items-center justify-end">
-    <button
-      type="button"
-      class="flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover/row:opacity-100 group-focus-within/row:opacity-100 disabled:cursor-not-allowed disabled:opacity-40"
-      disabled={Boolean(task.archivedAt)}
-      aria-label={t("projects.actions.scheduleTask")}
-      title={t("projects.actions.scheduleTask")}
-      onclick={onOpenScheduleForm}
-    >
-      <CalendarDays size={13} strokeWidth={1.75} />
-    </button>
-  </div>
-  {#if schedulingOpen && !task.archivedAt}
-    <ProjectListInlineScheduleForm
-      {scheduleDate}
-      {scheduleStartTime}
-      {scheduleDurationMinutes}
-      {schedulePending}
-      {scheduleError}
-      onScheduleDateChange={onScheduleDateChange}
-      onScheduleStartTimeChange={onScheduleStartTimeChange}
-      onScheduleDurationMinutesChange={onScheduleDurationMinutesChange}
-      onSubmit={onScheduleSubmit}
-      onCancel={onCloseScheduleForm}
-    />
-  {/if}
   <ProjectListSubtaskRows
     {subtasks}
     {selectedTaskId}

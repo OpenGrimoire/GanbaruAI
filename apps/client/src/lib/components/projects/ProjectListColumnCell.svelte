@@ -1,5 +1,8 @@
 <script lang="ts">
+  import CalendarDays from "@lucide/svelte/icons/calendar-days";
   import Check from "@lucide/svelte/icons/check";
+  import X from "@lucide/svelte/icons/x";
+  import MiniDatePicker from "$lib/components/calendar/MiniDatePicker.svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import {
     projectPriorityBadgeClass,
@@ -24,6 +27,8 @@
     statuses,
     statusMenuOpen,
     priorityMenuOpen,
+    startDateMenuOpen,
+    dueDateMenuOpen,
     projectCustomFields,
     scheduled,
     blockedByCount,
@@ -34,6 +39,14 @@
     onSetStatus,
     onTogglePriorityMenu,
     onSetPriority,
+    onToggleStartDateMenu,
+    onCloseStartDateMenu,
+    onSetStartDate,
+    onClearStartDate,
+    onToggleDueDateMenu,
+    onCloseDueDateMenu,
+    onSetDueDate,
+    onClearDueDate,
   }: {
     column: ProjectTaskListColumn;
     task: ProjectTask;
@@ -41,6 +54,8 @@
     statuses: ProjectStatus[];
     statusMenuOpen: boolean;
     priorityMenuOpen: boolean;
+    startDateMenuOpen: boolean;
+    dueDateMenuOpen: boolean;
     projectCustomFields: ProjectCustomField[];
     scheduled: string | null;
     blockedByCount: number;
@@ -51,9 +66,21 @@
     onSetStatus: (status: ProjectStatus) => void;
     onTogglePriorityMenu: () => void;
     onSetPriority: (priority: ProjectPriority) => void;
+    onToggleStartDateMenu: () => void;
+    onCloseStartDateMenu: () => void;
+    onSetStartDate: (startDate: string) => void;
+    onClearStartDate: () => void;
+    onToggleDueDateMenu: () => void;
+    onCloseDueDateMenu: () => void;
+    onSetDueDate: (dueDate: string) => void;
+    onClearDueDate: () => void;
   } = $props();
 
   const { t } = getLocalization();
+  const todayDate = $derived.by(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  });
 </script>
 
 <div class="flex min-w-0 items-center px-2">
@@ -141,10 +168,67 @@
         {estimateLabel(task.estimateMinutes)}
       </span>
     {/if}
-  {:else if column === "due"}
-    {#if task.dueDate}
-      <span class="truncate text-[0.8rem] text-muted-foreground">{task.dueDate}</span>
-    {/if}
+  {:else if column === "start" || column === "due"}
+    {@const dateValue = column === "start" ? task.startDate : task.dueDate}
+    {@const dateMenuOpen = column === "start" ? startDateMenuOpen : dueDateMenuOpen}
+    {@const dateLabel = column === "start" ? t("projects.columns.start") : t("projects.columns.due")}
+    {@const emptyDateLabel = column === "start" ? t("projects.detail.noDate") : t("projects.filters.noDueDate")}
+    <div class="relative max-w-full" data-list-date-menu-root="true">
+      <button
+        type="button"
+        class={cn(
+          "flex max-w-full cursor-pointer items-center gap-1.5 truncate rounded border px-1.5 py-0.5 text-[0.733333rem] disabled:cursor-not-allowed disabled:opacity-60",
+          dateValue
+            ? "border-border bg-background text-foreground hover:bg-accent"
+            : "border-transparent text-muted-foreground hover:border-border hover:bg-accent hover:text-foreground",
+        )}
+        disabled={Boolean(task.archivedAt)}
+        aria-haspopup="dialog"
+        aria-expanded={dateMenuOpen}
+        onclick={() => {
+          if (column === "start") onToggleStartDateMenu();
+          else onToggleDueDateMenu();
+        }}
+      >
+        <CalendarDays size={12} strokeWidth={1.75} class="shrink-0" />
+        <span class="truncate">{dateValue ?? emptyDateLabel}</span>
+      </button>
+      {#if dateMenuOpen}
+        <div
+          class="absolute left-0 top-7 z-30 w-60 rounded-lg border border-border bg-popover p-2 text-popover-foreground shadow-sm"
+          role="dialog"
+          aria-label={dateLabel}
+        >
+          <MiniDatePicker
+            selectedDate={dateValue || todayDate}
+            small
+            highlightToday={false}
+            activeHighlight="primary"
+            onselect={(dateStr) => {
+              if (column === "start") onSetStartDate(dateStr);
+              else onSetDueDate(dateStr);
+            }}
+            oncancel={() => {
+              if (column === "start") onCloseStartDateMenu();
+              else onCloseDueDateMenu();
+            }}
+          />
+          {#if dateValue}
+            <button
+              type="button"
+              class="mt-2 flex min-h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-left text-[0.8rem] text-muted-foreground hover:bg-accent hover:text-foreground"
+              onclick={() => {
+                if (column === "start") onClearStartDate();
+                else onClearDueDate();
+              }}
+            >
+              <X size={13} strokeWidth={1.75} class="shrink-0" />
+              <span>{t("projects.detail.clearDate", dateLabel)}</span>
+            </button>
+          {/if}
+        </div>
+      {/if}
+    </div>
   {:else if column === "scheduled"}
     {#if scheduled}
       <span class="truncate rounded border border-sky-500/40 bg-sky-500/10 px-1.5 py-0.5 text-[0.733333rem] text-sky-700 dark:text-sky-300">

@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { Temporal } from "@js-temporal/polyfill";
   import { tick } from "svelte";
   import Archive from "@lucide/svelte/icons/archive";
   import ArchiveRestore from "@lucide/svelte/icons/archive-restore";
@@ -9,19 +8,12 @@
   import EyeOff from "@lucide/svelte/icons/eye-off";
   import MoreHorizontal from "@lucide/svelte/icons/more-horizontal";
   import Plus from "@lucide/svelte/icons/plus";
-  import { createPresetPomodoroConfig } from "$lib/pomodoro/rhythm";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getCalendar } from "$lib/stores/calendar.svelte";
   import { getProjects } from "$lib/stores/projects.svelte";
   import { getTheme } from "$lib/stores/theme.svelte";
   import { cn } from "$lib/utils";
   import { projectPriorityLabel } from "$lib/projects/project-display";
-  import {
-    formatProjectScheduleWindowStart,
-    projectDefaultScheduleStart,
-    projectScheduleWindowFor,
-    type ProjectScheduleWindow,
-  } from "$lib/projects/project-scheduling";
   import {
     projectTaskListGridMinWidth,
     projectTaskListGridTemplate,
@@ -33,7 +25,6 @@
   } from "$lib/projects/list-drag";
   import {
     PROJECT_PRIORITIES,
-    type Project,
     type ProjectCustomField,
     type ProjectCustomFieldOption,
     type ProjectLabel,
@@ -71,7 +62,6 @@
   }
 
   let {
-    selectedProject,
     selectedProjectId,
     sections,
     statuses,
@@ -90,7 +80,6 @@
     onSelectedTaskIdsChange,
     onRevealTask,
   }: {
-    selectedProject: Project;
     selectedProjectId: string | null;
     sections: ProjectSection[];
     statuses: ProjectStatus[];
@@ -128,12 +117,6 @@
   let sectionTaskDrafts = $state<Record<string, string>>({});
   let activeSectionTaskDraftInputId = $state<string | null>(null);
   let sectionDraftInputActive = $state(false);
-  let schedulingTaskId = $state<string | null>(null);
-  let scheduleDate = $state("");
-  let scheduleStartTime = $state("");
-  let scheduleDurationMinutes = $state(60);
-  let schedulePending = $state(false);
-  let scheduleError = $state<string | null>(null);
   let listDraggingTaskId = $state<string | null>(null);
   let listDragOverSectionId = $state<string | null>(null);
   let listDragOverTaskId = $state<string | null>(null);
@@ -150,6 +133,8 @@
   let sectionOptionsMenuId = $state<string | null>(null);
   let statusMenuTaskId = $state<string | null>(null);
   let priorityMenuTaskId = $state<string | null>(null);
+  let startDateMenuTaskId = $state<string | null>(null);
+  let dueDateMenuTaskId = $state<string | null>(null);
   let projectViewScrollContainer = $state<HTMLDivElement | null>(null);
 
   const selectedTaskIdSet = $derived.by(() => new Set(selectedTaskIds));
@@ -330,6 +315,14 @@
     ) {
       priorityMenuTaskId = null;
     }
+    if (
+      (startDateMenuTaskId || dueDateMenuTaskId)
+      && targetElement
+      && !targetElement.closest("[data-list-date-menu-root='true']")
+    ) {
+      startDateMenuTaskId = null;
+      dueDateMenuTaskId = null;
+    }
   }
 
   function projectListAddRowClickShouldFocus(target: EventTarget | null): boolean {
@@ -410,6 +403,7 @@
     }
     if (column === "priority") return t("projects.columns.priority");
     if (column === "estimate") return t("projects.columns.estimate");
+    if (column === "start") return t("projects.columns.start");
     if (column === "due") return t("projects.columns.due");
     if (column === "scheduled") return t("projects.columns.scheduled");
     if (column === "dependencies") return t("projects.columns.dependencies");
@@ -871,6 +865,24 @@
     priorityMenuTaskId = null;
   }
 
+  async function setTaskStartDateFromList(task: ProjectTask, startDate: string | undefined): Promise<void> {
+    if (task.archivedAt || task.startDate === startDate) {
+      startDateMenuTaskId = null;
+      return;
+    }
+    await projects.updateTask(task, { startDate });
+    startDateMenuTaskId = null;
+  }
+
+  async function setTaskDueDateFromList(task: ProjectTask, dueDate: string | undefined): Promise<void> {
+    if (task.archivedAt || task.dueDate === dueDate) {
+      dueDateMenuTaskId = null;
+      return;
+    }
+    await projects.updateTask(task, { dueDate });
+    dueDateMenuTaskId = null;
+  }
+
   function sectionTaskCreateTarget(sectionId: string): TaskCreateTarget {
     return `section:${sectionId}`;
   }
@@ -988,24 +1000,6 @@
     return t("projects.list.estimateMinutes", minutes);
   }
 
-  function defaultScheduleStart() {
-    return projectDefaultScheduleStart();
-  }
-
-  function openScheduleForm(task: ProjectTask): void {
-    const start = defaultScheduleStart();
-    schedulingTaskId = task.id;
-    scheduleDate = task.startDate ?? task.dueDate ?? start.date;
-    scheduleStartTime = start.time;
-    scheduleDurationMinutes = selectedProject.defaultEventDurationMinutes ?? 60;
-    scheduleError = null;
-  }
-
-  function closeScheduleForm(): void {
-    schedulingTaskId = null;
-    scheduleError = null;
-  }
-
   function scheduledLinksForTask(taskId: string) {
     return projects.eventLinksForTask(taskId).filter((link) => link.linkKind === "scheduled");
   }
@@ -1022,79 +1016,6 @@
     const nextStart = starts.find((start) => start >= date) ?? starts[0];
     if (nextStart) return t("projects.schedule.nextScheduled", nextStart.slice(0, 16), count);
     return count > 0 ? t("projects.schedule.scheduledCount", count) : null;
-  }
-
-  function scheduleWindow(): ProjectScheduleWindow | null {
-    return projectScheduleWindowFor(scheduleDate, scheduleStartTime, scheduleDurationMinutes);
-  }
-
-  async function createScheduledTaskBlock(
-    task: ProjectTask,
-    project: Project,
-    scheduledWindow: ProjectScheduleWindow,
-  ): Promise<void> {
-    let createdEventId: string | null = null;
-    try {
-      const event = await calendar.addBlock({
-        title: task.title,
-        start: scheduledWindow.start,
-        end: scheduledWindow.end,
-        projectId: project.id,
-        color: project.color,
-        pomodoroConfig: project.defaultPomodoroPresetKey
-          ? createPresetPomodoroConfig(
-              project.defaultPomodoroPresetKey,
-              project.defaultIdleTimeoutMinutes ?? null,
-            )
-          : undefined,
-      });
-      createdEventId = event.id;
-      const scheduledDate = scheduledWindow.start.slice(0, 10);
-      await projects.linkTaskEvent(task.id, event.id, "scheduled");
-      await projects.updateTask(task, {
-        startDate: scheduledDate,
-        targetEndDate: scheduledDate,
-        dueDate: task.dueDate ?? scheduledDate,
-      });
-    } catch (error) {
-      if (createdEventId) {
-        await calendar.deleteBlock(createdEventId).catch((deleteError) => {
-          console.error("delete failed scheduled event after task link error", deleteError);
-        });
-      }
-      throw error;
-    }
-  }
-
-  async function scheduleTask(task: ProjectTask): Promise<void> {
-    const scheduledWindow = scheduleWindow();
-    if (!scheduledWindow) {
-      scheduleError = t("projects.schedule.invalid");
-      return;
-    }
-    schedulePending = true;
-    scheduleError = null;
-    try {
-      await createScheduledTaskBlock(task, selectedProject, scheduledWindow);
-      closeScheduleForm();
-      projects.activeView = "calendar";
-    } catch (error) {
-      scheduleError = t("projects.schedule.failed", error instanceof Error ? error.message : String(error));
-    } finally {
-      schedulePending = false;
-    }
-  }
-
-  function scheduleDateChange(value: string): void {
-    scheduleDate = value;
-  }
-
-  function scheduleStartTimeChange(value: string): void {
-    scheduleStartTime = value;
-  }
-
-  function scheduleDurationChange(value: number): void {
-    scheduleDurationMinutes = value;
   }
 </script>
 
@@ -1287,7 +1208,6 @@
               {#each taskListColumns as column (column)}
                 <div class="truncate px-2">{taskListColumnLabel(column)}</div>
               {/each}
-              <div></div>
             </div>
             <div class="grid">
               {#each sectionTasks as task (task.id)}
@@ -1317,12 +1237,8 @@
                   dropPending={listDropPendingTaskId === task.id}
                   statusMenuOpen={statusMenuTaskId === task.id}
                   priorityMenuOpen={priorityMenuTaskId === task.id}
-                  schedulingOpen={schedulingTaskId === task.id}
-                  {scheduleDate}
-                  {scheduleStartTime}
-                  {scheduleDurationMinutes}
-                  {schedulePending}
-                  {scheduleError}
+                  startDateMenuOpen={startDateMenuTaskId === task.id}
+                  dueDateMenuOpen={dueDateMenuTaskId === task.id}
                   theme={theme.current}
                   {estimateLabel}
                   {customFieldDisplayValue}
@@ -1339,21 +1255,47 @@
                   onToggleStatusMenu={() => {
                     const nextTaskId = statusMenuTaskId === task.id ? null : task.id;
                     statusMenuTaskId = nextTaskId;
-                    if (nextTaskId) priorityMenuTaskId = null;
+                    if (nextTaskId) {
+                      priorityMenuTaskId = null;
+                      startDateMenuTaskId = null;
+                      dueDateMenuTaskId = null;
+                    }
                   }}
                   onSetStatus={(nextStatus) => { void setTaskStatusFromList(task, nextStatus); }}
                   onTogglePriorityMenu={() => {
                     const nextTaskId = priorityMenuTaskId === task.id ? null : task.id;
                     priorityMenuTaskId = nextTaskId;
-                    if (nextTaskId) statusMenuTaskId = null;
+                    if (nextTaskId) {
+                      statusMenuTaskId = null;
+                      startDateMenuTaskId = null;
+                      dueDateMenuTaskId = null;
+                    }
                   }}
                   onSetPriority={(priority) => { void setTaskPriorityFromList(task, priority); }}
-                  onOpenScheduleForm={() => openScheduleForm(task)}
-                  onScheduleDateChange={scheduleDateChange}
-                  onScheduleStartTimeChange={scheduleStartTimeChange}
-                  onScheduleDurationMinutesChange={scheduleDurationChange}
-                  onScheduleSubmit={() => { void scheduleTask(task); }}
-                  onCloseScheduleForm={closeScheduleForm}
+                  onToggleStartDateMenu={() => {
+                    const nextTaskId = startDateMenuTaskId === task.id ? null : task.id;
+                    startDateMenuTaskId = nextTaskId;
+                    if (nextTaskId) {
+                      statusMenuTaskId = null;
+                      priorityMenuTaskId = null;
+                      dueDateMenuTaskId = null;
+                    }
+                  }}
+                  onCloseStartDateMenu={() => { startDateMenuTaskId = null; }}
+                  onSetStartDate={(startDate) => { void setTaskStartDateFromList(task, startDate); }}
+                  onClearStartDate={() => { void setTaskStartDateFromList(task, undefined); }}
+                  onToggleDueDateMenu={() => {
+                    const nextTaskId = dueDateMenuTaskId === task.id ? null : task.id;
+                    dueDateMenuTaskId = nextTaskId;
+                    if (nextTaskId) {
+                      statusMenuTaskId = null;
+                      priorityMenuTaskId = null;
+                      startDateMenuTaskId = null;
+                    }
+                  }}
+                  onCloseDueDateMenu={() => { dueDateMenuTaskId = null; }}
+                  onSetDueDate={(dueDate) => { void setTaskDueDateFromList(task, dueDate); }}
+                  onClearDueDate={() => { void setTaskDueDateFromList(task, undefined); }}
                   onToggleSubtaskDone={(subtask) => { void projects.toggleTaskDone(subtask); }}
                 />
                 {#if listDropMarkerVisible(section, task, "after")}
@@ -1547,7 +1489,6 @@
             {#each taskListColumns as column (column)}
               <div class="truncate px-2">{taskListColumnLabel(column)}</div>
             {/each}
-            <div></div>
           </div>
           <div class="grid">
             {#each group.tasks as task (task.id)}
@@ -1575,12 +1516,8 @@
                 dropPending={false}
                 statusMenuOpen={statusMenuTaskId === task.id}
                 priorityMenuOpen={priorityMenuTaskId === task.id}
-                schedulingOpen={schedulingTaskId === task.id}
-                {scheduleDate}
-                {scheduleStartTime}
-                {scheduleDurationMinutes}
-                {schedulePending}
-                {scheduleError}
+                startDateMenuOpen={startDateMenuTaskId === task.id}
+                dueDateMenuOpen={dueDateMenuTaskId === task.id}
                 theme={theme.current}
                 {estimateLabel}
                 {customFieldDisplayValue}
@@ -1590,21 +1527,47 @@
                 onToggleStatusMenu={() => {
                   const nextTaskId = statusMenuTaskId === task.id ? null : task.id;
                   statusMenuTaskId = nextTaskId;
-                  if (nextTaskId) priorityMenuTaskId = null;
+                  if (nextTaskId) {
+                    priorityMenuTaskId = null;
+                    startDateMenuTaskId = null;
+                    dueDateMenuTaskId = null;
+                  }
                 }}
                 onSetStatus={(nextStatus) => { void setTaskStatusFromList(task, nextStatus); }}
                 onTogglePriorityMenu={() => {
                   const nextTaskId = priorityMenuTaskId === task.id ? null : task.id;
                   priorityMenuTaskId = nextTaskId;
-                  if (nextTaskId) statusMenuTaskId = null;
+                  if (nextTaskId) {
+                    statusMenuTaskId = null;
+                    startDateMenuTaskId = null;
+                    dueDateMenuTaskId = null;
+                  }
                 }}
                 onSetPriority={(priority) => { void setTaskPriorityFromList(task, priority); }}
-                onOpenScheduleForm={() => openScheduleForm(task)}
-                onScheduleDateChange={scheduleDateChange}
-                onScheduleStartTimeChange={scheduleStartTimeChange}
-                onScheduleDurationMinutesChange={scheduleDurationChange}
-                onScheduleSubmit={() => { void scheduleTask(task); }}
-                onCloseScheduleForm={closeScheduleForm}
+                onToggleStartDateMenu={() => {
+                  const nextTaskId = startDateMenuTaskId === task.id ? null : task.id;
+                  startDateMenuTaskId = nextTaskId;
+                  if (nextTaskId) {
+                    statusMenuTaskId = null;
+                    priorityMenuTaskId = null;
+                    dueDateMenuTaskId = null;
+                  }
+                }}
+                onCloseStartDateMenu={() => { startDateMenuTaskId = null; }}
+                onSetStartDate={(startDate) => { void setTaskStartDateFromList(task, startDate); }}
+                onClearStartDate={() => { void setTaskStartDateFromList(task, undefined); }}
+                onToggleDueDateMenu={() => {
+                  const nextTaskId = dueDateMenuTaskId === task.id ? null : task.id;
+                  dueDateMenuTaskId = nextTaskId;
+                  if (nextTaskId) {
+                    statusMenuTaskId = null;
+                    priorityMenuTaskId = null;
+                    startDateMenuTaskId = null;
+                  }
+                }}
+                onCloseDueDateMenu={() => { dueDateMenuTaskId = null; }}
+                onSetDueDate={(dueDate) => { void setTaskDueDateFromList(task, dueDate); }}
+                onClearDueDate={() => { void setTaskDueDateFromList(task, undefined); }}
                 onToggleSubtaskDone={(subtask) => { void projects.toggleTaskDone(subtask); }}
               />
             {/each}

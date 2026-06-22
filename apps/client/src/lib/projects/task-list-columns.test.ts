@@ -20,8 +20,8 @@ function preference(value: string): ProjectViewPreference {
 }
 
 describe("task list columns", () => {
-  it("defaults to status, due date, and priority after the fixed name column", () => {
-    expect(DEFAULT_TASK_LIST_COLUMNS).toEqual(["status", "due", "priority"]);
+  it("defaults to status, start date, due date, and priority after the fixed name column", () => {
+    expect(DEFAULT_TASK_LIST_COLUMNS).toEqual(["status", "start", "due", "priority"]);
   });
 
   it("round-trips selected columns", () => {
@@ -34,6 +34,15 @@ describe("task list columns", () => {
     expect(parseTaskListColumns(JSON.stringify({
       visibleColumns: ["status", "unknown", "status", "dependencies"],
     }))).toEqual(["status", "dependencies"]);
+  });
+
+  it("upgrades old default-shaped preferences to the current default", () => {
+    expect(parseTaskListColumns(taskListColumnsPreferenceValue(["status", "due", "priority"]))).toEqual(
+      DEFAULT_TASK_LIST_COLUMNS,
+    );
+    expect(parseTaskListColumns(taskListColumnsPreferenceValue(["due", "priority", "status"]))).toEqual(
+      DEFAULT_TASK_LIST_COLUMNS,
+    );
   });
 
   it("keeps custom field columns when the field still exists", () => {

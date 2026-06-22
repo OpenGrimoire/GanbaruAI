@@ -436,6 +436,7 @@
     }
     if (column === "priority") return t("projects.columns.priority");
     if (column === "estimate") return t("projects.columns.estimate");
+    if (column === "start") return t("projects.columns.start");
     if (column === "due") return t("projects.columns.due");
     if (column === "scheduled") return t("projects.columns.scheduled");
     if (column === "dependencies") return t("projects.columns.dependencies");
@@ -857,7 +858,6 @@
       <div class="relative min-h-0 flex-1" style="background-color: var(--cal-bg);">
         {#if projects.activeView === "list"}
           <ProjectListView
-            {selectedProject}
             {selectedProjectId}
             {sections}
             {statuses}
