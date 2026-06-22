@@ -5,6 +5,7 @@
   import Check from "@lucide/svelte/icons/check";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
+  import CirclePlus from "@lucide/svelte/icons/circle-plus";
   import EyeOff from "@lucide/svelte/icons/eye-off";
   import MoreHorizontal from "@lucide/svelte/icons/more-horizontal";
   import Plus from "@lucide/svelte/icons/plus";
@@ -19,8 +20,13 @@
   import { cn } from "$lib/utils";
   import { projectPriorityLabel } from "$lib/projects/project-display";
   import {
+    clampProjectTaskListManualColumnWidth,
+    projectTaskListDoubleClickColumnWidthRem,
+    projectTaskListResizableColumnWidthRem,
     projectTaskListGridMinWidth,
     projectTaskListGridTemplate,
+    type ProjectTaskListColumnWidths,
+    type ProjectTaskListResizableColumn,
   } from "$lib/projects/project-list-view";
   import {
     projectListDropSortOrder,
@@ -64,6 +70,16 @@
     startY: number;
     startedAt: number;
   }
+  interface ListColumnResizeGesture {
+    column: ProjectTaskListResizableColumn;
+    pointerId: number;
+    startClientX: number;
+    startWidthRem: number;
+    rootFontSizePx: number;
+    widthsAtStart: ProjectTaskListColumnWidths;
+    draftWidths: ProjectTaskListColumnWidths;
+    moved: boolean;
+  }
 
   let {
     selectedProjectId,
@@ -76,6 +92,7 @@
     taskSortMode,
     taskSortDirection,
     taskListColumns,
+    taskListColumnWidths,
     projectCustomFields,
     selectedTaskId,
     selectedTaskIds,
@@ -83,6 +100,7 @@
     onOpenTask,
     onSelectedTaskIdsChange,
     onRevealTask,
+    onTaskListColumnWidthsChange,
   }: {
     selectedProjectId: string | null;
     sections: ProjectSection[];
@@ -94,6 +112,7 @@
     taskSortMode: ProjectTaskSortMode;
     taskSortDirection: ProjectTaskSortDirection;
     taskListColumns: ProjectTaskListColumn[];
+    taskListColumnWidths: ProjectTaskListColumnWidths;
     projectCustomFields: ProjectCustomField[];
     selectedTaskId: string | null;
     selectedTaskIds: string[];
@@ -101,6 +120,7 @@
     onOpenTask: (task: ProjectTask) => void;
     onSelectedTaskIdsChange: (taskIds: string[]) => void;
     onRevealTask: (task: ProjectTask | undefined) => void;
+    onTaskListColumnWidthsChange: (widths: ProjectTaskListColumnWidths, options?: { persist?: boolean }) => void;
   } = $props();
 
   const projects = getProjects();
@@ -140,10 +160,27 @@
   let startDateMenuTaskId = $state<string | null>(null);
   let dueDateMenuTaskId = $state<string | null>(null);
   let projectViewScrollContainer = $state<HTMLDivElement | null>(null);
+  let listColumnResizeGesture = $state<ListColumnResizeGesture | null>(null);
 
   const selectedTaskIdSet = $derived.by(() => new Set(selectedTaskIds));
-  const taskListGridTemplate = $derived(projectTaskListGridTemplate(taskListColumns));
-  const taskListGridMinWidth = $derived(projectTaskListGridMinWidth(taskListColumns));
+  const effectiveTaskListColumnWidths = $derived(listColumnResizeGesture?.draftWidths ?? taskListColumnWidths);
+  const taskListGridInput = $derived({
+    columns: taskListColumns,
+    columnWidths: effectiveTaskListColumnWidths,
+    tasks,
+    statuses,
+    customFields: projectCustomFields,
+    nameLabel: t("projects.list.name"),
+    sectionLabels: sections.map((section) => section.name),
+    groupLabels: listTaskGroups.map((group) => taskListGroupTitle(group.value)),
+    columnLabel: taskListColumnLabel,
+    priorityLabel: (priority: ProjectPriority) => projectPriorityLabel(priority, t),
+    estimateLabel,
+    customFieldDisplayValue,
+    scheduledLabel,
+  });
+  const taskListGridTemplate = $derived(projectTaskListGridTemplate(taskListGridInput));
+  const taskListGridMinWidth = $derived(projectTaskListGridMinWidth(taskListGridInput));
   const listRangeDateColumnsVisible = $derived(taskListColumns.includes("start") && taskListColumns.includes("due"));
 
   function cssPixelValue(value: string): number {
@@ -196,6 +233,114 @@
     const el = projectViewScrollContainer;
     if (!el) return;
     setProjectListHorizontalScroll(el.scrollLeft);
+  }
+
+  function projectListRootFontSizePx(): number {
+    const parsed = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 16;
+  }
+
+  function roundProjectListColumnWidthRem(width: number): number {
+    return Math.round(width * 100) / 100;
+  }
+
+  function startProjectListColumnResize(
+    event: PointerEvent,
+    column: ProjectTaskListResizableColumn,
+  ): void {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const trigger = event.currentTarget;
+    if (!(trigger instanceof HTMLElement)) return;
+    const rootFontSizePx = projectListRootFontSizePx();
+    const headerCell = trigger.closest(".project-list-header-cell");
+    const startWidthRem = headerCell instanceof HTMLElement
+      ? headerCell.getBoundingClientRect().width / rootFontSizePx
+      : projectTaskListResizableColumnWidthRem(column, taskListGridInput);
+    const widthsAtStart = { ...effectiveTaskListColumnWidths };
+    const draftWidths = {
+      ...widthsAtStart,
+      [column]: roundProjectListColumnWidthRem(clampProjectTaskListManualColumnWidth(column, startWidthRem)),
+    };
+    listColumnResizeGesture = {
+      column,
+      pointerId: event.pointerId,
+      startClientX: event.clientX,
+      startWidthRem,
+      rootFontSizePx,
+      widthsAtStart,
+      draftWidths,
+      moved: false,
+    };
+    trigger.setPointerCapture(event.pointerId);
+  }
+
+  function handleProjectListColumnResizePointerMove(event: PointerEvent): void {
+    const gesture = listColumnResizeGesture;
+    if (!gesture || event.pointerId !== gesture.pointerId) return;
+    event.preventDefault();
+    const deltaRem = (event.clientX - gesture.startClientX) / gesture.rootFontSizePx;
+    const nextWidth = roundProjectListColumnWidthRem(
+      clampProjectTaskListManualColumnWidth(gesture.column, gesture.startWidthRem + deltaRem),
+    );
+    const draftWidths = {
+      ...gesture.widthsAtStart,
+      [gesture.column]: nextWidth,
+    };
+    listColumnResizeGesture = {
+      ...gesture,
+      draftWidths,
+      moved: gesture.moved || Math.abs(event.clientX - gesture.startClientX) >= 1,
+    };
+    void tick().then(syncProjectListCounterScroll);
+  }
+
+  function finishProjectListColumnResize(event: PointerEvent, persist: boolean): void {
+    const gesture = listColumnResizeGesture;
+    if (!gesture || event.pointerId !== gesture.pointerId) return;
+    if (persist && gesture.moved) {
+      onTaskListColumnWidthsChange(gesture.draftWidths, { persist: true });
+    }
+    listColumnResizeGesture = null;
+    void tick().then(syncProjectListCounterScroll);
+  }
+
+  function handleProjectListColumnResizeDoubleClick(
+    event: MouseEvent,
+    column: ProjectTaskListResizableColumn,
+  ): void {
+    event.preventDefault();
+    event.stopPropagation();
+    const nextWidths = { ...effectiveTaskListColumnWidths };
+    const nextWidth = projectTaskListDoubleClickColumnWidthRem(column, taskListGridInput);
+    if (nextWidth === undefined) {
+      delete nextWidths[column];
+    } else {
+      nextWidths[column] = roundProjectListColumnWidthRem(nextWidth);
+    }
+    onTaskListColumnWidthsChange(nextWidths, { persist: true });
+    void tick().then(syncProjectListCounterScroll);
+  }
+
+  function handleProjectListColumnResizeKeydown(
+    event: KeyboardEvent,
+    column: ProjectTaskListResizableColumn,
+  ): void {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    event.stopPropagation();
+    const direction = event.key === "ArrowRight" ? 1 : -1;
+    const step = event.shiftKey ? 2 : 0.5;
+    const currentWidth = projectTaskListResizableColumnWidthRem(column, taskListGridInput);
+    const nextWidth = roundProjectListColumnWidthRem(
+      clampProjectTaskListManualColumnWidth(column, currentWidth + direction * step),
+    );
+    onTaskListColumnWidthsChange({
+      ...effectiveTaskListColumnWidths,
+      [column]: nextWidth,
+    }, { persist: true });
+    void tick().then(syncProjectListCounterScroll);
   }
 
   $effect(() => {
@@ -1086,14 +1231,37 @@
   }
 </script>
 
-{#snippet listColumnHeaderCell(label: string)}
+{#snippet listColumnHeaderCell(label: string, column: ProjectTaskListResizableColumn)}
   <div class="project-list-header-cell relative flex min-h-11 min-w-0 items-center self-stretch rounded-md px-2 py-1 hover:bg-accent/20">
     <span class="relative z-10 truncate">{label}</span>
-    <span class="project-list-column-resize-hit" aria-hidden="true"></span>
+    <button
+      type="button"
+      class="project-list-column-resize-hit"
+      aria-label={t("projects.columns.resizeColumn", label)}
+      data-app-tooltip-disabled="true"
+      onpointerdown={(event) => startProjectListColumnResize(event, column)}
+      ondblclick={(event) => handleProjectListColumnResizeDoubleClick(event, column)}
+      onkeydown={(event) => handleProjectListColumnResizeKeydown(event, column)}
+    ></button>
   </div>
 {/snippet}
 
-<svelte:window onkeydown={handleProjectListHorizontalKeydown} onpointerdown={handleProjectWindowPointerDown} />
+{#snippet listAddColumnHeaderCell()}
+  <div
+    class="flex min-h-11 min-w-0 items-center justify-center self-stretch rounded-md text-muted-foreground"
+    aria-hidden="true"
+  >
+    <CirclePlus size={15} strokeWidth={1.75} />
+  </div>
+{/snippet}
+
+<svelte:window
+  onkeydown={handleProjectListHorizontalKeydown}
+  onpointerdown={handleProjectWindowPointerDown}
+  onpointermove={handleProjectListColumnResizePointerMove}
+  onpointerup={(event) => finishProjectListColumnResize(event, true)}
+  onpointercancel={(event) => finishProjectListColumnResize(event, false)}
+/>
 
 <div
   bind:this={projectViewScrollContainer}
@@ -1278,10 +1446,11 @@
             >
               <div></div>
               <div></div>
-              {@render listColumnHeaderCell(t("projects.list.name"))}
+              {@render listColumnHeaderCell(t("projects.list.name"), "name")}
               {#each taskListColumns as column (column)}
-                {@render listColumnHeaderCell(taskListColumnLabel(column))}
+                {@render listColumnHeaderCell(taskListColumnLabel(column), column)}
               {/each}
+              {@render listAddColumnHeaderCell()}
             </div>
             <div class="grid">
               {#each sectionTasks as task (task.id)}
@@ -1563,10 +1732,11 @@
           >
             <div></div>
             <div></div>
-            {@render listColumnHeaderCell(t("projects.list.name"))}
+            {@render listColumnHeaderCell(t("projects.list.name"), "name")}
             {#each taskListColumns as column (column)}
-              {@render listColumnHeaderCell(taskListColumnLabel(column))}
+              {@render listColumnHeaderCell(taskListColumnLabel(column), column)}
             {/each}
+            {@render listAddColumnHeaderCell()}
           </div>
           <div class="grid">
             {#each group.tasks as task (task.id)}
@@ -1739,7 +1909,10 @@
     bottom: 0.375rem;
     z-index: 20;
     width: 0.75rem;
+    border: 0;
+    background: transparent;
     cursor: col-resize;
+    padding: 0;
   }
 
   .project-list-column-resize-hit::after {
@@ -1755,7 +1928,9 @@
     opacity: 0;
   }
 
-  .project-list-column-resize-hit:hover::after {
+  .project-list-column-resize-hit:hover::after,
+  .project-list-column-resize-hit:focus-visible::after,
+  .project-list-column-resize-hit:active::after {
     opacity: 1;
   }
 

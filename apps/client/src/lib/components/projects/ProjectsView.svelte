@@ -39,6 +39,8 @@
   import {
     projectTaskActiveFilterChips,
     selectedProjectTaskIdsInView,
+    taskListColumnWidthsForProject,
+    type ProjectTaskListColumnWidths,
   } from "$lib/projects/project-list-view";
   import {
     PROJECT_CUSTOM_FIELD_TYPES,
@@ -102,6 +104,7 @@
   let taskSortMode = $state<ProjectTaskSortMode>("manual");
   let taskSortDirection = $state<ProjectTaskSortDirection>("asc");
   let taskListColumns = $state<ProjectTaskListColumn[]>([...DEFAULT_TASK_LIST_COLUMNS]);
+  let taskListColumnWidths = $state<ProjectTaskListColumnWidths>({});
   let projectCalendarViewMode = $state<CalendarViewMode>("week");
   let savedViewNameDraft = $state("");
   let savedViewSaving = $state(false);
@@ -380,10 +383,16 @@
   });
 
   $effect(() => {
+    const customFieldIds = new Set(projectCustomFields.map((field) => field.id));
     taskListColumns = taskListColumnsForProject(
       projects.viewPreferences,
       selectedProjectId,
-      new Set(projectCustomFields.map((field) => field.id)),
+      customFieldIds,
+    );
+    taskListColumnWidths = taskListColumnWidthsForProject(
+      projects.viewPreferences,
+      selectedProjectId,
+      customFieldIds,
     );
   });
 
@@ -450,6 +459,15 @@
     const nextColumns = toggleProjectListColumn(taskListColumns, column);
     taskListColumns = nextColumns;
     await projects.saveTaskListColumns(selectedProjectId, nextColumns);
+  }
+
+  async function updateTaskListColumnWidths(
+    widths: ProjectTaskListColumnWidths,
+    options: { persist?: boolean } = {},
+  ): Promise<void> {
+    taskListColumnWidths = widths;
+    if (!options.persist || !selectedProjectId) return;
+    await projects.saveTaskListColumnWidths(selectedProjectId, widths);
   }
 
   function estimateLabel(minutes: number): string {
@@ -870,6 +888,7 @@
             {taskSortMode}
             {taskSortDirection}
             {taskListColumns}
+            {taskListColumnWidths}
             {projectCustomFields}
             {selectedTaskId}
             {selectedTaskIds}
@@ -879,6 +898,9 @@
               selectedTaskIds = taskIds;
             }}
             onRevealTask={revealCreatedTask}
+            onTaskListColumnWidthsChange={(widths, options) => {
+              void updateTaskListColumnWidths(widths, options);
+            }}
           />
         {:else if projects.activeView === "board"}
           <ProjectBoardView

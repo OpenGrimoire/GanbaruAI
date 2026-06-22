@@ -39,6 +39,11 @@ import {
   savedTaskViewPreferenceValue,
 } from "$lib/projects/saved-task-views";
 import {
+  TASK_LIST_COLUMN_WIDTHS_PREFERENCE_KEY,
+  taskListColumnWidthsPreferenceValue,
+  type ProjectTaskListColumnWidths,
+} from "$lib/projects/project-list-view";
+import {
   TASK_LIST_COLUMNS_PREFERENCE_KEY,
   taskListColumnsPreferenceValue,
 } from "$lib/projects/task-list-columns";
@@ -1077,6 +1082,19 @@ async function saveTaskListColumns(
   await reload();
 }
 
+async function saveTaskListColumnWidths(
+  projectId: string,
+  widths: ProjectTaskListColumnWidths,
+): Promise<void> {
+  await upsertProjectViewPreference({
+    projectId,
+    viewId: "list",
+    preferenceKey: TASK_LIST_COLUMN_WIDTHS_PREFERENCE_KEY,
+    preferenceValue: taskListColumnWidthsPreferenceValue(widths),
+  });
+  await reload();
+}
+
 export function getProjects() {
   return {
     get snapshot(): ProjectsSnapshot {
@@ -1263,5 +1281,6 @@ export function getProjects() {
     saveTaskView,
     deleteTaskView,
     saveTaskListColumns,
+    saveTaskListColumnWidths,
   };
 }

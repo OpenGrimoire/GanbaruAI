@@ -1,10 +1,12 @@
 import type {
+  ProjectCoreTaskListColumn,
   ProjectCustomField,
   ProjectCustomFieldOption,
   ProjectCustomFieldFilter,
   ProjectLabel,
   ProjectPriority,
   ProjectSection,
+  ProjectStatus,
   ProjectTask,
   ProjectTaskDependencyFilter,
   ProjectTaskDueFilter,
@@ -15,9 +17,12 @@ import type {
   ProjectTaskSortDirection,
   ProjectTaskSortMode,
   ProjectTaskStatusFilter,
+  ProjectViewPreference,
 } from "./types";
+import { PROJECT_TASK_LIST_COLUMNS } from "./types";
 import type { Translate } from "$lib/i18n/translator.svelte";
 import { projectPriorityLabel } from "./project-display";
+import { customFieldIdFromTaskListColumn } from "./task-list-columns";
 import { deriveProjectFilterChips, type ProjectFilterChip } from "./project-toolbar";
 
 export interface ProjectTaskFilterState {
@@ -54,32 +59,331 @@ export const PROJECT_TASK_FILTER_DEFAULTS = Object.freeze({
   sortDirection: "asc",
 } satisfies ProjectTaskFilterState);
 
-export function projectTaskListColumnTrack(column: ProjectTaskListColumn): string {
-  if (column === "priority" || column === "estimate" || column === "start" || column === "due") return "minmax(7rem, 0.7fr)";
-  if (column === "assignee" || column === "reviewer") return "minmax(6rem, 0.55fr)";
-  if (column === "status" || column === "scheduled" || column === "dependencies") return "minmax(8rem, 0.8fr)";
-  return "minmax(9rem, 0.85fr)";
+export const TASK_LIST_COLUMN_WIDTHS_PREFERENCE_KEY = "list-column-widths";
+export type ProjectTaskListResizableColumn = "name" | ProjectTaskListColumn;
+export type ProjectTaskListColumnWidths = Partial<Record<ProjectTaskListResizableColumn, number>>;
+
+interface ProjectTaskListColumnWidthBounds {
+  min: number;
+  autoMin?: number;
+  max: number;
+  manualMax?: number;
 }
 
-function projectTaskListColumnMinWidthRem(column: ProjectTaskListColumn): number {
-  if (column === "priority" || column === "estimate" || column === "start" || column === "due") return 7;
-  if (column === "assignee" || column === "reviewer") return 6;
-  if (column === "status" || column === "scheduled" || column === "dependencies") return 8;
-  return 9;
+export interface ProjectTaskListGridInput {
+  columns: readonly ProjectTaskListColumn[];
+  columnWidths?: ProjectTaskListColumnWidths;
+  tasks?: readonly ProjectTask[];
+  statuses?: readonly ProjectStatus[];
+  customFields?: readonly ProjectCustomField[];
+  nameLabel?: string;
+  sectionLabels?: readonly string[];
+  groupLabels?: readonly string[];
+  columnLabel?: (column: ProjectTaskListColumn) => string;
+  priorityLabel?: (priority: ProjectPriority) => string;
+  estimateLabel?: (minutes: number) => string;
+  customFieldDisplayValue?: (task: ProjectTask, field: ProjectCustomField) => string | undefined;
+  scheduledLabel?: (taskId: string) => string | null;
 }
 
-export function projectTaskListGridTemplate(columns: readonly ProjectTaskListColumn[]): string {
+const PROJECT_LIST_SELECTION_TRACK_REM = 1.5;
+const PROJECT_LIST_OPEN_TRACK_REM = 1.75;
+const PROJECT_LIST_ADD_COLUMN_TRACK_REM = 2.75;
+const PROJECT_LIST_TEXT_PADDING_REM = 1.35;
+const PROJECT_LIST_TEXT_CHARACTER_REM = 0.5;
+const PROJECT_LIST_DATE_TIME_TEXT = "0000-00-00 00:00";
+const PROJECT_LIST_NAME_WIDTH: ProjectTaskListColumnWidthBounds = { min: 12, autoMin: 24, max: 32 };
+const PROJECT_LIST_COLUMN_WIDTHS = {
+  status: { min: 7.25, max: 12.5 },
+  start: { min: 10.25, max: 12.5 },
+  due: { min: 10.25, max: 12.5 },
+  priority: { min: 6.5, max: 8.5 },
+  assignee: { min: 6.5, max: 9 },
+  reviewer: { min: 6.5, max: 9 },
+  estimate: { min: 6.5, max: 8.5 },
+  scheduled: { min: 8.5, max: 14 },
+  dependencies: { min: 8.5, max: 11 },
+  custom: { min: 7, max: 14 },
+} satisfies Record<string, ProjectTaskListColumnWidthBounds>;
+
+function normalizeProjectTaskListGridInput(
+  input: readonly ProjectTaskListColumn[] | ProjectTaskListGridInput,
+): ProjectTaskListGridInput {
+  return "columns" in input ? input : { columns: input };
+}
+
+function isProjectTaskListCoreColumn(value: string): value is ProjectCoreTaskListColumn {
+  return PROJECT_TASK_LIST_COLUMNS.includes(value as ProjectCoreTaskListColumn);
+}
+
+function isProjectTaskListResizableColumn(
+  value: string,
+  customFieldIds?: ReadonlySet<string>,
+): value is ProjectTaskListResizableColumn {
+  if (value === "name" || isProjectTaskListCoreColumn(value)) return true;
+  const customFieldId = customFieldIdFromTaskListColumn(value as ProjectTaskListColumn);
+  if (!customFieldId) return false;
+  return customFieldIds ? customFieldIds.has(customFieldId) : true;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function projectTaskListColumnLabel(input: ProjectTaskListGridInput, column: ProjectTaskListColumn): string {
+  return input.columnLabel?.(column) ?? column;
+}
+
+function projectTaskListTextWidthRem(text: string): number {
+  const normalized = text.trim();
+  if (!normalized) return 0;
+  return PROJECT_LIST_TEXT_PADDING_REM + Array.from(normalized).length * PROJECT_LIST_TEXT_CHARACTER_REM;
+}
+
+function clampProjectTaskListColumnWidth(width: number, bounds: ProjectTaskListColumnWidthBounds): number {
+  return Math.min(bounds.max, Math.max(bounds.autoMin ?? bounds.min, width));
+}
+
+export function clampProjectTaskListManualColumnWidth(
+  column: ProjectTaskListResizableColumn,
+  width: number,
+): number {
+  const bounds = projectTaskListResizableColumnBounds(column);
+  return Math.min(bounds.manualMax ?? 64, Math.max(bounds.min, width));
+}
+
+function formatProjectTaskListRem(value: number): string {
+  const rounded = Math.round(value * 100) / 100;
+  return `${rounded}rem`;
+}
+
+function projectTaskListWidthFromTexts(
+  texts: readonly string[],
+  bounds: ProjectTaskListColumnWidthBounds,
+): number {
+  const estimatedWidth = texts.reduce((maxWidth, text) => Math.max(maxWidth, projectTaskListTextWidthRem(text)), 0);
+  return clampProjectTaskListColumnWidth(estimatedWidth, bounds);
+}
+
+function projectTaskListRawWidthFromTexts(texts: readonly string[]): number {
+  return texts.reduce((maxWidth, text) => Math.max(maxWidth, projectTaskListTextWidthRem(text)), 0);
+}
+
+function projectTaskListDateText(date: string | undefined, time: string | undefined): string {
+  if (!date) return "";
+  return time ? `${date} ${time}` : date;
+}
+
+function projectTaskListColumnBounds(column: ProjectTaskListColumn): ProjectTaskListColumnWidthBounds {
+  if (column === "status") return PROJECT_LIST_COLUMN_WIDTHS.status;
+  if (column === "start") return PROJECT_LIST_COLUMN_WIDTHS.start;
+  if (column === "due") return PROJECT_LIST_COLUMN_WIDTHS.due;
+  if (column === "priority") return PROJECT_LIST_COLUMN_WIDTHS.priority;
+  if (column === "assignee") return PROJECT_LIST_COLUMN_WIDTHS.assignee;
+  if (column === "reviewer") return PROJECT_LIST_COLUMN_WIDTHS.reviewer;
+  if (column === "estimate") return PROJECT_LIST_COLUMN_WIDTHS.estimate;
+  if (column === "scheduled") return PROJECT_LIST_COLUMN_WIDTHS.scheduled;
+  if (column === "dependencies") return PROJECT_LIST_COLUMN_WIDTHS.dependencies;
+  return PROJECT_LIST_COLUMN_WIDTHS.custom;
+}
+
+function projectTaskListResizableColumnBounds(column: ProjectTaskListResizableColumn): ProjectTaskListColumnWidthBounds {
+  if (column === "name") return PROJECT_LIST_NAME_WIDTH;
+  return projectTaskListColumnBounds(column);
+}
+
+function projectTaskListManualWidth(
+  input: ProjectTaskListGridInput,
+  column: ProjectTaskListResizableColumn,
+): number | undefined {
+  const width = input.columnWidths?.[column];
+  return typeof width === "number" && Number.isFinite(width)
+    ? clampProjectTaskListManualColumnWidth(column, width)
+    : undefined;
+}
+
+function projectTaskListColumnTexts(input: ProjectTaskListGridInput, column: ProjectTaskListColumn): string[] {
+  const tasks = input.tasks ?? [];
+  const label = projectTaskListColumnLabel(input, column);
+  if (column === "status") {
+    return [label, ...(input.statuses ?? []).map((status) => status.name)];
+  }
+  if (column === "start") {
+    return [
+      label,
+      PROJECT_LIST_DATE_TIME_TEXT,
+      ...tasks.map((task) => projectTaskListDateText(task.startDate, task.startTime)),
+    ];
+  }
+  if (column === "due") {
+    return [
+      label,
+      PROJECT_LIST_DATE_TIME_TEXT,
+      ...tasks.map((task) => projectTaskListDateText(task.dueDate, task.dueTime)),
+    ];
+  }
+  if (column === "priority") {
+    return [label, ...tasks.map((task) => input.priorityLabel?.(task.priority) ?? task.priority)];
+  }
+  if (column === "estimate") {
+    return [
+      label,
+      ...tasks.map((task) =>
+        task.estimateMinutes === undefined
+          ? ""
+          : input.estimateLabel?.(task.estimateMinutes) ?? String(task.estimateMinutes)
+      ),
+    ];
+  }
+  if (column === "scheduled") {
+    return [label, ...tasks.map((task) => input.scheduledLabel?.(task.id) ?? "")];
+  }
+  if (column === "dependencies") {
+    return [label];
+  }
+  const customFieldId = customFieldIdFromTaskListColumn(column);
+  const customField = customFieldId
+    ? input.customFields?.find((field) => field.id === customFieldId)
+    : undefined;
+  if (!customField || !input.customFieldDisplayValue) return [label];
   return [
-    "1.5rem",
-    "1.75rem",
-    "minmax(16rem, 2fr)",
-    ...columns.map(projectTaskListColumnTrack),
-  ].join(" ");
+    label,
+    ...tasks.map((task) => input.customFieldDisplayValue?.(task, customField) ?? ""),
+  ];
 }
 
-export function projectTaskListGridMinWidth(columns: readonly ProjectTaskListColumn[]): string {
-  const remWidth = Math.max(47, 25 + columns.reduce((total, column) => total + projectTaskListColumnMinWidthRem(column), 0));
-  return `${remWidth}rem`;
+function projectTaskListNameColumnTexts(input: ProjectTaskListGridInput): string[] {
+  return [
+    input.nameLabel ?? "Name",
+    ...(input.sectionLabels ?? []),
+    ...(input.groupLabels ?? []),
+    ...(input.tasks ?? []).map((task) => task.title),
+  ];
+}
+
+function projectTaskListNameColumnWidth(input: ProjectTaskListGridInput, allowManualWidth = true): number {
+  const manualWidth = projectTaskListManualWidth(input, "name");
+  if (allowManualWidth && manualWidth !== undefined) return manualWidth;
+  return projectTaskListWidthFromTexts(projectTaskListNameColumnTexts(input), PROJECT_LIST_NAME_WIDTH);
+}
+
+export function projectTaskListColumnWidthRem(
+  column: ProjectTaskListColumn,
+  input: ProjectTaskListGridInput = { columns: [] },
+  allowManualWidth = true,
+): number {
+  const manualWidth = projectTaskListManualWidth(input, column);
+  if (allowManualWidth && manualWidth !== undefined) return manualWidth;
+  return projectTaskListWidthFromTexts(projectTaskListColumnTexts(input, column), projectTaskListColumnBounds(column));
+}
+
+export function projectTaskListResizableColumnWidthRem(
+  column: ProjectTaskListResizableColumn,
+  input: ProjectTaskListGridInput,
+  allowManualWidth = true,
+): number {
+  if (column === "name") return projectTaskListNameColumnWidth(input, allowManualWidth);
+  return projectTaskListColumnWidthRem(column, input, allowManualWidth);
+}
+
+export function projectTaskListContentFitColumnWidthRem(
+  column: ProjectTaskListResizableColumn,
+  input: ProjectTaskListGridInput,
+): number {
+  const texts = column === "name" ? projectTaskListNameColumnTexts(input) : projectTaskListColumnTexts(input, column);
+  return clampProjectTaskListManualColumnWidth(column, projectTaskListRawWidthFromTexts(texts));
+}
+
+export function projectTaskListDoubleClickColumnWidthRem(
+  column: ProjectTaskListResizableColumn,
+  input: ProjectTaskListGridInput,
+): number | undefined {
+  const defaultWidth = projectTaskListResizableColumnWidthRem(column, input, false);
+  const contentFitWidth = projectTaskListContentFitColumnWidthRem(column, input);
+  return contentFitWidth > defaultWidth ? contentFitWidth : undefined;
+}
+
+export function projectTaskListColumnTrack(
+  column: ProjectTaskListColumn,
+  input: ProjectTaskListGridInput = { columns: [] },
+): string {
+  return formatProjectTaskListRem(projectTaskListColumnWidthRem(column, input));
+}
+
+export function projectTaskListGridColumnWidths(
+  input: readonly ProjectTaskListColumn[] | ProjectTaskListGridInput,
+): number[] {
+  const normalizedInput = normalizeProjectTaskListGridInput(input);
+  return [
+    PROJECT_LIST_SELECTION_TRACK_REM,
+    PROJECT_LIST_OPEN_TRACK_REM,
+    projectTaskListNameColumnWidth(normalizedInput),
+    ...normalizedInput.columns.map((column) => projectTaskListColumnWidthRem(column, normalizedInput)),
+    PROJECT_LIST_ADD_COLUMN_TRACK_REM,
+  ];
+}
+
+export function projectTaskListGridTemplate(
+  input: readonly ProjectTaskListColumn[] | ProjectTaskListGridInput,
+): string {
+  return projectTaskListGridColumnWidths(input)
+    .map(formatProjectTaskListRem)
+    .join(" ");
+}
+
+export function projectTaskListGridMinWidth(
+  input: readonly ProjectTaskListColumn[] | ProjectTaskListGridInput,
+): string {
+  const remWidth = projectTaskListGridColumnWidths(input).reduce((total, width) => total + width, 0);
+  return formatProjectTaskListRem(remWidth);
+}
+
+export function parseProjectTaskListColumnWidths(
+  value: string | undefined,
+  customFieldIds?: ReadonlySet<string>,
+): ProjectTaskListColumnWidths {
+  if (value === undefined) return {};
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    return {};
+  }
+  const rawWidths = isRecord(parsed) && "widths" in parsed ? parsed.widths : parsed;
+  if (!isRecord(rawWidths)) return {};
+  const widths: ProjectTaskListColumnWidths = {};
+  for (const [column, rawWidth] of Object.entries(rawWidths)) {
+    if (!isProjectTaskListResizableColumn(column, customFieldIds)) continue;
+    if (typeof rawWidth !== "number" || !Number.isFinite(rawWidth)) continue;
+    widths[column] = clampProjectTaskListManualColumnWidth(column, rawWidth);
+  }
+  return widths;
+}
+
+export function taskListColumnWidthsPreferenceValue(widths: ProjectTaskListColumnWidths): string {
+  const normalizedEntries = Object.entries(widths)
+    .filter((entry): entry is [ProjectTaskListResizableColumn, number] =>
+      isProjectTaskListResizableColumn(entry[0])
+      && typeof entry[1] === "number"
+      && Number.isFinite(entry[1])
+    )
+    .map(([column, width]) => [column, clampProjectTaskListManualColumnWidth(column, width)] as const)
+    .sort(([firstColumn], [secondColumn]) => firstColumn.localeCompare(secondColumn));
+  return JSON.stringify({ widths: Object.fromEntries(normalizedEntries) });
+}
+
+export function taskListColumnWidthsForProject(
+  preferences: readonly ProjectViewPreference[],
+  projectId: string | null | undefined,
+  customFieldIds?: ReadonlySet<string>,
+): ProjectTaskListColumnWidths {
+  if (!projectId) return {};
+  const preference = preferences.find((entry) =>
+    entry.projectId === projectId
+    && entry.viewId === "list"
+    && entry.preferenceKey === TASK_LIST_COLUMN_WIDTHS_PREFERENCE_KEY
+  );
+  return parseProjectTaskListColumnWidths(preference?.preferenceValue, customFieldIds);
 }
 
 export function selectedProjectTaskIdsInView(

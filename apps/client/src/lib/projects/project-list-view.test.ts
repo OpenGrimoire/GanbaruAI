@@ -1,15 +1,21 @@
 import { describe, expect, it } from "vitest";
 import type { Translate } from "$lib/i18n/translator.svelte";
-import type { ProjectTask } from "./types";
+import type { ProjectStatus, ProjectTask } from "./types";
 import {
   PROJECT_TASK_FILTER_DEFAULTS,
   projectTaskActiveFilterChips,
   projectTaskDataFiltersActive,
   projectTaskFiltersActive,
+  parseProjectTaskListColumnWidths,
+  projectTaskListDoubleClickColumnWidthRem,
+  projectTaskListColumnWidthRem,
   projectTaskListColumnTrack,
   projectTaskListGridMinWidth,
   projectTaskListGridTemplate,
   selectedProjectTaskIdsInView,
+  taskListColumnWidthsForProject,
+  taskListColumnWidthsPreferenceValue,
+  TASK_LIST_COLUMN_WIDTHS_PREFERENCE_KEY,
 } from "./project-list-view";
 
 function task(id: string): ProjectTask {
@@ -30,24 +36,120 @@ function task(id: string): ProjectTask {
   };
 }
 
+function status(name: string): ProjectStatus {
+  return {
+    id: `status-${name}`,
+    projectId: "project-a",
+    name,
+    category: "active",
+    sortOrder: 1000,
+    terminal: false,
+    createdAt: "2026-06-21T00:00:00.000Z",
+    updatedAt: "2026-06-21T00:00:00.000Z",
+  };
+}
+
 const t = ((key: string, ...args: unknown[]) => [key, ...args].join("|")) as Translate;
 
 describe("project list view helpers", () => {
-  it("builds stable grid tracks for core and custom columns", () => {
-    expect(projectTaskListColumnTrack("priority")).toBe("minmax(7rem, 0.7fr)");
-    expect(projectTaskListColumnTrack("start")).toBe("minmax(7rem, 0.7fr)");
-    expect(projectTaskListColumnTrack("assignee")).toBe("minmax(6rem, 0.55fr)");
-    expect(projectTaskListColumnTrack("status")).toBe("minmax(8rem, 0.8fr)");
-    expect(projectTaskListColumnTrack("custom:field-a")).toBe("minmax(9rem, 0.85fr)");
+  it("builds compact fixed grid tracks for core and custom columns", () => {
+    expect(projectTaskListColumnTrack("priority")).toBe("6.5rem");
+    expect(projectTaskListColumnTrack("start")).toBe("10.25rem");
+    expect(projectTaskListColumnTrack("assignee")).toBe("6.5rem");
+    expect(projectTaskListColumnTrack("status")).toBe("7.25rem");
+    expect(projectTaskListColumnTrack("custom:field-a")).toBe("8.35rem");
     expect(projectTaskListGridTemplate(["status", "custom:field-a"])).toBe(
-      "1.5rem 1.75rem minmax(16rem, 2fr) minmax(8rem, 0.8fr) minmax(9rem, 0.85fr)",
+      "1.5rem 1.75rem 24rem 7.25rem 8.35rem 2.75rem",
     );
   });
 
-  it("keeps the list width stable as columns are added", () => {
-    expect(projectTaskListGridMinWidth([])).toBe("47rem");
-    expect(projectTaskListGridMinWidth(["status", "priority", "estimate"])).toBe("47rem");
-    expect(projectTaskListGridMinWidth(["status", "start", "due", "priority", "assignee", "reviewer"])).toBe("66rem");
+  it("sizes tracks from visible content without using flexible ratios", () => {
+    const shortTask = task("task-a");
+    const longTask = {
+      ...task("task-b"),
+      title: "Review launch checklist and copy",
+      startDate: "2026-06-21",
+      startTime: "12:30",
+    };
+
+    expect(projectTaskListColumnWidthRem("status", {
+      columns: ["status"],
+      statuses: [status("Needs outside review before release")],
+    })).toBe(12.5);
+    expect(projectTaskListGridTemplate({
+      columns: ["status", "start"],
+      tasks: [shortTask, longTask],
+      statuses: [status("In progress")],
+      nameLabel: "Name",
+      columnLabel: (column) => column === "start" ? "Start date" : "Status",
+    })).toBe("1.5rem 1.75rem 24rem 7.25rem 10.25rem 2.75rem");
+  });
+
+  it("keeps the list width to the content tracks instead of the viewport", () => {
+    expect(projectTaskListGridMinWidth([])).toBe("30rem");
+    expect(projectTaskListGridMinWidth(["status", "priority", "estimate"])).toBe("50.25rem");
+    expect(projectTaskListGridMinWidth(["status", "start", "due", "priority", "assignee", "reviewer"])).toBe("77.25rem");
+  });
+
+  it("applies manual column widths over automatic list sizing", () => {
+    expect(projectTaskListGridTemplate({
+      columns: ["status", "due"],
+      columnWidths: {
+        name: 18,
+        status: 9,
+        due: 14,
+      },
+    })).toBe("1.5rem 1.75rem 18rem 9rem 14rem 2.75rem");
+  });
+
+  it("uses double-click sizing to reset or fit hidden content", () => {
+    expect(projectTaskListDoubleClickColumnWidthRem("priority", {
+      columns: ["priority"],
+      columnWidths: { priority: 4 },
+    })).toBeUndefined();
+    expect(projectTaskListDoubleClickColumnWidthRem("status", {
+      columns: ["status"],
+      statuses: [status("Needs outside review before release")],
+    })).toBe(18.85);
+  });
+
+  it("round-trips list column width preferences with validation", () => {
+    const value = taskListColumnWidthsPreferenceValue({
+      name: 11,
+      status: 9,
+      due: 80,
+      "custom:field-a": 12,
+    });
+    expect(parseProjectTaskListColumnWidths(value, new Set(["field-a"]))).toEqual({
+      "custom:field-a": 12,
+      due: 64,
+      name: 12,
+      status: 9,
+    });
+    expect(parseProjectTaskListColumnWidths(value, new Set(["other"]))).toEqual({
+      due: 64,
+      name: 12,
+      status: 9,
+    });
+  });
+
+  it("loads list column widths from the matching project preference", () => {
+    expect(taskListColumnWidthsForProject([
+      {
+        projectId: "project-a",
+        viewId: "list",
+        preferenceKey: TASK_LIST_COLUMN_WIDTHS_PREFERENCE_KEY,
+        preferenceValue: taskListColumnWidthsPreferenceValue({ name: 20, priority: 7 }),
+        updatedAt: "2026-06-21T00:00:00.000Z",
+      },
+      {
+        projectId: "project-b",
+        viewId: "list",
+        preferenceKey: TASK_LIST_COLUMN_WIDTHS_PREFERENCE_KEY,
+        preferenceValue: taskListColumnWidthsPreferenceValue({ status: 10 }),
+        updatedAt: "2026-06-21T00:00:00.000Z",
+      },
+    ], "project-a")).toEqual({ name: 20, priority: 7 });
   });
 
   it("removes selected tasks that are no longer visible", () => {

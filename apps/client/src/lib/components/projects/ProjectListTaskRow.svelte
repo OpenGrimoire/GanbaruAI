@@ -263,6 +263,7 @@
         onClearDueTime={onClearDueTime}
       />
     {/each}
+    <div class="min-h-11 self-stretch" aria-hidden="true"></div>
   </div>
   <ProjectListSubtaskRows
     {subtasks}

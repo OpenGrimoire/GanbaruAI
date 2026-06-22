@@ -1940,6 +1940,7 @@ export const es = {
       assignee: "Responsable",
       reviewer: "Revisor",
       customField: "Campo personalizado",
+      resizeColumn: (column: string) => `Cambiar ancho de ${column}`,
     },
     people: {
       you: "Tú",

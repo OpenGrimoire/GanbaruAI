@@ -1923,6 +1923,7 @@ export const en = {
       assignee: "Assignee",
       reviewer: "Reviewer",
       customField: "Custom field",
+      resizeColumn: (column: string) => `Resize ${column} column`,
     },
     people: {
       you: "You",
