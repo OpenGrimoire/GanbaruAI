@@ -20,6 +20,10 @@ function preference(value: string): ProjectViewPreference {
 }
 
 describe("task list columns", () => {
+  it("defaults to status, due date, and priority after the fixed name column", () => {
+    expect(DEFAULT_TASK_LIST_COLUMNS).toEqual(["status", "due", "priority"]);
+  });
+
   it("round-trips selected columns", () => {
     const columns = ["status", "due", "scheduled"] as const;
 

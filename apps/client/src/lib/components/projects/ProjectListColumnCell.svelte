@@ -7,11 +7,13 @@
     projectStatusBadgeClass,
   } from "$lib/projects/project-display";
   import { customFieldIdFromTaskListColumn } from "$lib/projects/task-list-columns";
-  import type {
-    ProjectCustomField,
-    ProjectStatus,
-    ProjectTask,
-    ProjectTaskListColumn,
+  import {
+    PROJECT_PRIORITIES,
+    type ProjectCustomField,
+    type ProjectPriority,
+    type ProjectStatus,
+    type ProjectTask,
+    type ProjectTaskListColumn,
   } from "$lib/projects/types";
   import { cn } from "$lib/utils";
 
@@ -21,6 +23,7 @@
     status,
     statuses,
     statusMenuOpen,
+    priorityMenuOpen,
     projectCustomFields,
     scheduled,
     blockedByCount,
@@ -29,13 +32,15 @@
     customFieldDisplayValue,
     onToggleStatusMenu,
     onSetStatus,
-    onCyclePriority,
+    onTogglePriorityMenu,
+    onSetPriority,
   }: {
     column: ProjectTaskListColumn;
     task: ProjectTask;
     status: ProjectStatus | undefined;
     statuses: ProjectStatus[];
     statusMenuOpen: boolean;
+    priorityMenuOpen: boolean;
     projectCustomFields: ProjectCustomField[];
     scheduled: string | null;
     blockedByCount: number;
@@ -44,7 +49,8 @@
     customFieldDisplayValue: (task: ProjectTask, field: ProjectCustomField) => string | undefined;
     onToggleStatusMenu: () => void;
     onSetStatus: (status: ProjectStatus) => void;
-    onCyclePriority: () => void;
+    onTogglePriorityMenu: () => void;
+    onSetPriority: (priority: ProjectPriority) => void;
   } = $props();
 
   const { t } = getLocalization();
@@ -91,17 +97,44 @@
       {/if}
     </div>
   {:else if column === "priority"}
-    <button
-      type="button"
-      class={cn(
-        "max-w-full cursor-pointer truncate rounded border px-1.5 py-0.5 text-[0.733333rem] disabled:cursor-not-allowed disabled:opacity-60",
-        projectPriorityBadgeClass(task.priority),
-      )}
-      disabled={Boolean(task.archivedAt)}
-      onclick={onCyclePriority}
-    >
-      {projectPriorityLabel(task.priority, t)}
-    </button>
+    <div class="relative max-w-full" data-list-priority-menu-root="true">
+      <button
+        type="button"
+        class={cn(
+          "max-w-full cursor-pointer truncate rounded border px-1.5 py-0.5 text-[0.733333rem] disabled:cursor-not-allowed disabled:opacity-60",
+          projectPriorityBadgeClass(task.priority),
+        )}
+        disabled={Boolean(task.archivedAt)}
+        aria-haspopup="menu"
+        aria-expanded={priorityMenuOpen}
+        onclick={onTogglePriorityMenu}
+      >
+        {projectPriorityLabel(task.priority, t)}
+      </button>
+      {#if priorityMenuOpen}
+        <div
+          class="absolute left-0 top-7 z-30 w-44 rounded-lg border border-border bg-popover p-1 text-[0.8rem] text-popover-foreground shadow-sm"
+          role="menu"
+        >
+          {#each PROJECT_PRIORITIES as priority}
+            <button
+              type="button"
+              class="flex min-h-8 w-full cursor-pointer items-center justify-between gap-2 rounded-md px-2 text-left hover:bg-accent hover:text-foreground"
+              role="menuitemradio"
+              aria-checked={task.priority === priority}
+              onclick={() => onSetPriority(priority)}
+            >
+              <span class={cn("min-w-0 truncate rounded border px-1.5 py-0.5 text-[0.733333rem]", projectPriorityBadgeClass(priority))}>
+                {projectPriorityLabel(priority, t)}
+              </span>
+              {#if task.priority === priority}
+                <Check size={13} strokeWidth={2} class="shrink-0 text-muted-foreground" />
+              {/if}
+            </button>
+          {/each}
+        </div>
+      {/if}
+    </div>
   {:else if column === "estimate"}
     {#if task.estimateMinutes !== undefined}
       <span class="truncate rounded border border-border bg-background px-1.5 py-0.5 text-[0.733333rem] text-muted-foreground">

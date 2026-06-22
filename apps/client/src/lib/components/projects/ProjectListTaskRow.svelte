@@ -11,6 +11,7 @@
   import type {
     ProjectCustomField,
     ProjectLabel,
+    ProjectPriority,
     ProjectStatus,
     ProjectTask,
     ProjectTaskListColumn,
@@ -42,6 +43,7 @@
     dragging,
     dropPending,
     statusMenuOpen,
+    priorityMenuOpen,
     schedulingOpen,
     scheduleDate,
     scheduleStartTime,
@@ -63,7 +65,8 @@
     onDrop,
     onToggleStatusMenu,
     onSetStatus,
-    onCyclePriority,
+    onTogglePriorityMenu,
+    onSetPriority,
     onOpenScheduleForm,
     onScheduleDateChange,
     onScheduleStartTimeChange,
@@ -92,6 +95,7 @@
     dragging: boolean;
     dropPending: boolean;
     statusMenuOpen: boolean;
+    priorityMenuOpen: boolean;
     schedulingOpen: boolean;
     scheduleDate: string;
     scheduleStartTime: string;
@@ -113,7 +117,8 @@
     onDrop?: (event: DragEvent) => void;
     onToggleStatusMenu: () => void;
     onSetStatus: (status: ProjectStatus) => void;
-    onCyclePriority: () => void;
+    onTogglePriorityMenu: () => void;
+    onSetPriority: (priority: ProjectPriority) => void;
     onOpenScheduleForm: () => void;
     onScheduleDateChange: (value: string) => void;
     onScheduleStartTimeChange: (value: string) => void;
@@ -221,6 +226,7 @@
       {status}
       {statuses}
       statusMenuOpen={statusMenuOpen}
+      priorityMenuOpen={priorityMenuOpen}
       {projectCustomFields}
       {scheduled}
       {blockedByCount}
@@ -229,7 +235,8 @@
       {customFieldDisplayValue}
       onToggleStatusMenu={onToggleStatusMenu}
       onSetStatus={onSetStatus}
-      onCyclePriority={onCyclePriority}
+      onTogglePriorityMenu={onTogglePriorityMenu}
+      onSetPriority={onSetPriority}
     />
   {/each}
   <div class="flex items-center justify-end">

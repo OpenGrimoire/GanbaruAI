@@ -1,8 +1,9 @@
-import type {
-  ProjectCoreTaskListColumn,
-  ProjectCustomFieldReference,
-  ProjectTaskListColumn,
-  ProjectViewPreference,
+import {
+  PROJECT_TASK_LIST_COLUMNS,
+  type ProjectCoreTaskListColumn,
+  type ProjectCustomFieldReference,
+  type ProjectTaskListColumn,
+  type ProjectViewPreference,
 } from "./types";
 
 export const TASK_LIST_COLUMNS_PREFERENCE_KEY = "list-visible-columns";
@@ -11,16 +12,15 @@ export const CUSTOM_TASK_LIST_COLUMN_PREFIX = CUSTOM_FIELD_REFERENCE_PREFIX;
 
 export const DEFAULT_TASK_LIST_COLUMNS: ProjectCoreTaskListColumn[] = [
   "status",
-  "priority",
-  "estimate",
   "due",
-  "scheduled",
-  "dependencies",
+  "priority",
 ];
+
+const CORE_TASK_LIST_COLUMNS: ProjectCoreTaskListColumn[] = [...PROJECT_TASK_LIST_COLUMNS];
 
 function isCoreTaskListColumn(value: unknown): value is ProjectCoreTaskListColumn {
   return typeof value === "string"
-    && DEFAULT_TASK_LIST_COLUMNS.includes(value as ProjectCoreTaskListColumn);
+    && CORE_TASK_LIST_COLUMNS.includes(value as ProjectCoreTaskListColumn);
 }
 
 export function customFieldReference(fieldId: string): ProjectCustomFieldReference {

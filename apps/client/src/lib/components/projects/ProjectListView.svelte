@@ -15,10 +15,7 @@
   import { getProjects } from "$lib/stores/projects.svelte";
   import { getTheme } from "$lib/stores/theme.svelte";
   import { cn } from "$lib/utils";
-  import {
-    projectPriorityLabel,
-    projectStatusBadgeClass,
-  } from "$lib/projects/project-display";
+  import { projectPriorityLabel } from "$lib/projects/project-display";
   import {
     formatProjectScheduleWindowStart,
     projectDefaultScheduleStart,
@@ -152,6 +149,7 @@
   let sectionNameDrafts = $state<Record<string, string>>({});
   let sectionOptionsMenuId = $state<string | null>(null);
   let statusMenuTaskId = $state<string | null>(null);
+  let priorityMenuTaskId = $state<string | null>(null);
   let projectViewScrollContainer = $state<HTMLDivElement | null>(null);
 
   const selectedTaskIdSet = $derived.by(() => new Set(selectedTaskIds));
@@ -258,6 +256,13 @@
     ) {
       statusMenuTaskId = null;
     }
+    if (
+      priorityMenuTaskId
+      && target instanceof Element
+      && !target.closest("[data-list-priority-menu-root='true']")
+    ) {
+      priorityMenuTaskId = null;
+    }
   }
 
   function projectListAddRowClickShouldFocus(target: EventTarget | null): boolean {
@@ -342,13 +347,6 @@
     if (column === "scheduled") return t("projects.columns.scheduled");
     if (column === "dependencies") return t("projects.columns.dependencies");
     return t("projects.columns.status");
-  }
-
-  function nextPriority(priority: ProjectPriority): ProjectPriority {
-    if (priority === "low") return "normal";
-    if (priority === "normal") return "high";
-    if (priority === "high") return "urgent";
-    return "low";
   }
 
   function tasksForSection(section: ProjectSection): ProjectTask[] {
@@ -797,6 +795,15 @@
     statusMenuTaskId = null;
   }
 
+  async function setTaskPriorityFromList(task: ProjectTask, priority: ProjectPriority): Promise<void> {
+    if (task.archivedAt || task.priority === priority) {
+      priorityMenuTaskId = null;
+      return;
+    }
+    await projects.setTaskPriority(task, priority);
+    priorityMenuTaskId = null;
+  }
+
   function sectionTaskCreateTarget(sectionId: string): TaskCreateTarget {
     return `section:${sectionId}`;
   }
@@ -1242,6 +1249,7 @@
                   dragging={listDraggingTaskId === task.id}
                   dropPending={listDropPendingTaskId === task.id}
                   statusMenuOpen={statusMenuTaskId === task.id}
+                  priorityMenuOpen={priorityMenuTaskId === task.id}
                   schedulingOpen={schedulingTaskId === task.id}
                   {scheduleDate}
                   {scheduleStartTime}
@@ -1262,10 +1270,17 @@
                   onDragOver={(event) => handleListRowDragOver(event, section, task)}
                   onDrop={(event) => { void dropListTask(event, section, task, listRowDropPosition(event)); }}
                   onToggleStatusMenu={() => {
-                    statusMenuTaskId = statusMenuTaskId === task.id ? null : task.id;
+                    const nextTaskId = statusMenuTaskId === task.id ? null : task.id;
+                    statusMenuTaskId = nextTaskId;
+                    if (nextTaskId) priorityMenuTaskId = null;
                   }}
                   onSetStatus={(nextStatus) => { void setTaskStatusFromList(task, nextStatus); }}
-                  onCyclePriority={() => { void projects.setTaskPriority(task, nextPriority(task.priority)); }}
+                  onTogglePriorityMenu={() => {
+                    const nextTaskId = priorityMenuTaskId === task.id ? null : task.id;
+                    priorityMenuTaskId = nextTaskId;
+                    if (nextTaskId) statusMenuTaskId = null;
+                  }}
+                  onSetPriority={(priority) => { void setTaskPriorityFromList(task, priority); }}
                   onOpenScheduleForm={() => openScheduleForm(task)}
                   onScheduleDateChange={scheduleDateChange}
                   onScheduleStartTimeChange={scheduleStartTimeChange}
@@ -1486,6 +1501,7 @@
                 dragging={false}
                 dropPending={false}
                 statusMenuOpen={statusMenuTaskId === task.id}
+                priorityMenuOpen={priorityMenuTaskId === task.id}
                 schedulingOpen={schedulingTaskId === task.id}
                 {scheduleDate}
                 {scheduleStartTime}
@@ -1499,10 +1515,17 @@
                 onToggleTaskSelection={toggleTaskSelection}
                 onOpenTask={openTaskDetail}
                 onToggleStatusMenu={() => {
-                  statusMenuTaskId = statusMenuTaskId === task.id ? null : task.id;
+                  const nextTaskId = statusMenuTaskId === task.id ? null : task.id;
+                  statusMenuTaskId = nextTaskId;
+                  if (nextTaskId) priorityMenuTaskId = null;
                 }}
                 onSetStatus={(nextStatus) => { void setTaskStatusFromList(task, nextStatus); }}
-                onCyclePriority={() => { void projects.setTaskPriority(task, nextPriority(task.priority)); }}
+                onTogglePriorityMenu={() => {
+                  const nextTaskId = priorityMenuTaskId === task.id ? null : task.id;
+                  priorityMenuTaskId = nextTaskId;
+                  if (nextTaskId) statusMenuTaskId = null;
+                }}
+                onSetPriority={(priority) => { void setTaskPriorityFromList(task, priority); }}
                 onOpenScheduleForm={() => openScheduleForm(task)}
                 onScheduleDateChange={scheduleDateChange}
                 onScheduleStartTimeChange={scheduleStartTimeChange}
