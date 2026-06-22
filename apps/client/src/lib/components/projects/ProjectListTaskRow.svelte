@@ -136,7 +136,7 @@
 <div
   role="listitem"
   class={cn(
-    "project-list-divider group/row relative grid min-h-11 items-center px-1 transition-colors hover:bg-accent/35",
+    "project-list-divider group/row relative grid min-h-11 items-center px-1 transition-colors hover:bg-accent/20",
     selectedTaskId === task.id && "bg-accent/40 ring-1 ring-inset ring-primary/20",
     task.archivedAt && "opacity-70",
     dragging && "opacity-50",
@@ -182,7 +182,7 @@
   <button
     type="button"
     data-list-row-drag-source="true"
-    class="min-w-0 cursor-pointer px-2 text-left"
+    class="project-list-cell-frame relative flex min-h-11 min-w-0 cursor-pointer flex-col justify-center self-stretch rounded-md px-2 py-1 text-left"
     aria-label={t("projects.actions.openTaskDetails", task.title)}
     onclick={() => onOpenTask(task)}
   >
@@ -263,3 +263,21 @@
     onOpenTask={onOpenTask}
   />
 </div>
+
+<style>
+  .project-list-cell-frame::before {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    border: 1px solid transparent;
+    border-radius: 0.375rem;
+    content: "";
+    pointer-events: none;
+    transition: border-color 150ms ease;
+  }
+
+  .project-list-cell-frame:hover::before,
+  .project-list-cell-frame:focus-visible::before {
+    border-color: color-mix(in srgb, var(--foreground) 25%, transparent);
+  }
+</style>

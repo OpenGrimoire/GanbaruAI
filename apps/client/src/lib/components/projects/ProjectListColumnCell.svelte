@@ -1,5 +1,4 @@
 <script lang="ts">
-  import CalendarDays from "@lucide/svelte/icons/calendar-days";
   import Check from "@lucide/svelte/icons/check";
   import Clock from "@lucide/svelte/icons/clock";
   import Eraser from "@lucide/svelte/icons/eraser";
@@ -232,25 +231,30 @@
   }
 </script>
 
-<div class="flex min-w-0 items-center px-2">
+<div
+  class="project-list-cell-frame relative flex min-h-11 min-w-0 self-stretch items-center rounded-md px-2 py-1"
+  data-list-status-menu-root={column === "status" ? "true" : undefined}
+  data-list-priority-menu-root={column === "priority" ? "true" : undefined}
+  data-list-date-menu-root={column === "start" || column === "due" ? "true" : undefined}
+>
   {#if column === "status"}
-    <div class="relative max-w-full" data-list-status-menu-root="true">
-      <button
-        type="button"
-        class={cn(
-          "max-w-full cursor-pointer truncate rounded border px-1.5 py-0.5 text-[0.733333rem] disabled:cursor-not-allowed disabled:opacity-60",
-          projectStatusBadgeClass(status),
-        )}
-        disabled={Boolean(task.archivedAt)}
-        aria-haspopup="menu"
-        aria-expanded={statusMenuOpen}
-        onclick={onToggleStatusMenu}
-      >
+    <button
+      type="button"
+      class="absolute inset-0 z-0 cursor-pointer rounded-md disabled:cursor-not-allowed"
+      disabled={Boolean(task.archivedAt)}
+      aria-label={status?.name ?? t("projects.list.status")}
+      aria-haspopup="menu"
+      aria-expanded={statusMenuOpen}
+      onclick={onToggleStatusMenu}
+    ></button>
+    <div class="pointer-events-none relative z-10 min-w-0 max-w-full">
+      <span class="block truncate text-[0.8rem] text-foreground">
         {status?.name ?? t("projects.list.status")}
-      </button>
+      </span>
+    </div>
       {#if statusMenuOpen}
         <div
-          class="absolute left-0 top-7 z-30 w-44 rounded-lg border border-border bg-popover p-1 text-[0.8rem] text-popover-foreground shadow-sm"
+          class="absolute left-0 top-full z-30 mt-1 w-44 rounded-lg border border-border bg-popover p-1 text-[0.8rem] text-popover-foreground shadow-sm"
           role="menu"
         >
           {#each statuses as nextStatus (nextStatus.id)}
@@ -271,25 +275,24 @@
           {/each}
         </div>
       {/if}
-    </div>
   {:else if column === "priority"}
-    <div class="relative max-w-full" data-list-priority-menu-root="true">
-      <button
-        type="button"
-        class={cn(
-          "max-w-full cursor-pointer truncate rounded border px-1.5 py-0.5 text-[0.733333rem] disabled:cursor-not-allowed disabled:opacity-60",
-          projectPriorityBadgeClass(task.priority),
-        )}
-        disabled={Boolean(task.archivedAt)}
-        aria-haspopup="menu"
-        aria-expanded={priorityMenuOpen}
-        onclick={onTogglePriorityMenu}
-      >
+    <button
+      type="button"
+      class="absolute inset-0 z-0 cursor-pointer rounded-md disabled:cursor-not-allowed"
+      disabled={Boolean(task.archivedAt)}
+      aria-label={projectPriorityLabel(task.priority, t)}
+      aria-haspopup="menu"
+      aria-expanded={priorityMenuOpen}
+      onclick={onTogglePriorityMenu}
+    ></button>
+    <div class="pointer-events-none relative z-10 min-w-0 max-w-full">
+      <span class="block truncate text-[0.8rem] text-foreground">
         {projectPriorityLabel(task.priority, t)}
-      </button>
+      </span>
+    </div>
       {#if priorityMenuOpen}
         <div
-          class="absolute left-0 top-7 z-30 w-44 rounded-lg border border-border bg-popover p-1 text-[0.8rem] text-popover-foreground shadow-sm"
+          class="absolute left-0 top-full z-30 mt-1 w-44 rounded-lg border border-border bg-popover p-1 text-[0.8rem] text-popover-foreground shadow-sm"
           role="menu"
         >
           {#each PROJECT_PRIORITIES as priority}
@@ -310,7 +313,6 @@
           {/each}
         </div>
       {/if}
-    </div>
   {:else if column === "estimate"}
     {#if task.estimateMinutes !== undefined}
       <span class="truncate rounded border border-border bg-background px-1.5 py-0.5 text-[0.733333rem] text-muted-foreground">
@@ -324,27 +326,22 @@
     {@const dateLabel = column === "start" ? t("projects.columns.start") : t("projects.columns.due")}
     {@const emptyDateLabel = column === "start" ? t("projects.detail.noDate") : t("projects.filters.noDueDate")}
     {@const datePickerAnchor = dateValue || (column === "start" ? task.dueDate : task.startDate) || todayDate}
-    <div class="relative max-w-full" data-list-date-menu-root="true">
       <button
         bind:this={dateTriggerEl}
         type="button"
-        class={cn(
-          "flex max-w-full cursor-pointer items-center gap-1.5 truncate rounded border px-1.5 py-0.5 text-[0.733333rem] disabled:cursor-not-allowed disabled:opacity-60",
-          dateValue
-            ? "border-border bg-background text-foreground hover:bg-accent"
-            : "border-transparent text-muted-foreground hover:border-border hover:bg-accent hover:text-foreground",
-        )}
+        class="absolute inset-0 z-0 cursor-pointer rounded-md disabled:cursor-not-allowed"
         disabled={Boolean(task.archivedAt)}
+        aria-label={dateButtonText(dateValue, timeValue, emptyDateLabel)}
         aria-haspopup="dialog"
         aria-expanded={dateMenuOpen}
         onclick={() => {
           if (column === "start") onToggleStartDateMenu();
           else onToggleDueDateMenu();
         }}
-      >
-        <CalendarDays size={12} strokeWidth={1.75} class="shrink-0" />
-        <span class="truncate">{dateButtonText(dateValue, timeValue, emptyDateLabel)}</span>
-      </button>
+      ></button>
+      <span class={cn("pointer-events-none relative z-10 block min-w-0 truncate text-[0.8rem]", dateValue ? "text-foreground" : "text-muted-foreground")}>
+        {dateButtonText(dateValue, timeValue, emptyDateLabel)}
+      </span>
       {#if dateMenuOpen}
         <div
           class="fixed z-30 w-60 rounded-lg border border-border bg-popover p-2 text-popover-foreground shadow-sm"
@@ -443,7 +440,6 @@
           {/if}
         </div>
       {/if}
-    </div>
   {:else if column === "scheduled"}
     {#if scheduled}
       <span class="truncate rounded border border-sky-500/40 bg-sky-500/10 px-1.5 py-0.5 text-[0.733333rem] text-sky-700 dark:text-sky-300">
@@ -478,6 +474,22 @@
 </div>
 
 <style>
+  .project-list-cell-frame::before {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    border: 1px solid transparent;
+    border-radius: 0.375rem;
+    content: "";
+    pointer-events: none;
+    transition: border-color 150ms ease;
+  }
+
+  .project-list-cell-frame:hover::before,
+  .project-list-cell-frame:focus-within::before {
+    border-color: color-mix(in srgb, var(--foreground) 25%, transparent);
+  }
+
   :global(.project-list-time-panel .time-picker-scroll) {
     max-height: var(--project-list-time-picker-max-height, 12.5rem);
   }
