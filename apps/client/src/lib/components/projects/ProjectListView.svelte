@@ -1342,6 +1342,12 @@
                     }}
                     class="min-h-8 w-full min-w-0 bg-transparent text-[0.866667rem] text-foreground"
                   />
+                  {#if activeSectionTaskDraftInputId === section.id && !(sectionTaskDrafts[section.id] ?? "").trim()}
+                    <span
+                      class="project-list-add-row-caret pointer-events-none absolute left-2 top-1/2 h-4 w-px -translate-y-1/2 bg-foreground"
+                      aria-hidden="true"
+                    ></span>
+                  {/if}
                 </div>
                 {#if (sectionTaskDrafts[section.id] ?? "").trim()}
                   <div class="relative z-10 flex min-w-0 items-center px-2" style="grid-column: 4;">
@@ -1411,7 +1417,7 @@
             />
             {#if sectionDraftInputActive && !sectionDraft.trim()}
               <span
-                class="project-list-add-section-caret pointer-events-none absolute left-2 top-1/2 h-4 w-px -translate-y-1/2 bg-foreground"
+                class="project-list-add-row-caret pointer-events-none absolute left-2 top-1/2 h-4 w-px -translate-y-1/2 bg-foreground"
                 aria-hidden="true"
               ></span>
             {/if}
@@ -1600,7 +1606,7 @@
     will-change: transform;
   }
 
-  .project-list-add-section-caret {
+  .project-list-add-row-caret {
     animation: project-list-caret-blink 1s step-end infinite;
   }
 
