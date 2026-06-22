@@ -65,10 +65,14 @@
     onCloseStartDateMenu,
     onSetStartDate,
     onClearStartDate,
+    onSetStartTime,
+    onClearStartTime,
     onToggleDueDateMenu,
     onCloseDueDateMenu,
     onSetDueDate,
     onClearDueDate,
+    onSetDueTime,
+    onClearDueTime,
     onToggleSubtaskDone,
   }: {
     task: ProjectTask;
@@ -115,10 +119,14 @@
     onCloseStartDateMenu: () => void;
     onSetStartDate: (startDate: string) => void;
     onClearStartDate: () => void;
+    onSetStartTime: (startTime: string) => void;
+    onClearStartTime: () => void;
     onToggleDueDateMenu: () => void;
     onCloseDueDateMenu: () => void;
     onSetDueDate: (dueDate: string) => void;
     onClearDueDate: () => void;
+    onSetDueTime: (dueTime: string) => void;
+    onClearDueTime: () => void;
     onToggleSubtaskDone: (task: ProjectTask) => void;
   } = $props();
 
@@ -237,10 +245,14 @@
       onCloseStartDateMenu={onCloseStartDateMenu}
       onSetStartDate={onSetStartDate}
       onClearStartDate={onClearStartDate}
+      onSetStartTime={onSetStartTime}
+      onClearStartTime={onClearStartTime}
       onToggleDueDateMenu={onToggleDueDateMenu}
       onCloseDueDateMenu={onCloseDueDateMenu}
       onSetDueDate={onSetDueDate}
       onClearDueDate={onClearDueDate}
+      onSetDueTime={onSetDueTime}
+      onClearDueTime={onClearDueTime}
     />
   {/each}
   <ProjectListSubtaskRows

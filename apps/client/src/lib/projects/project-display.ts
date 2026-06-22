@@ -88,7 +88,9 @@ export function projectTaskHistoryFieldLabel(fieldName: string, t: Translate): s
   if (fieldName === "type") return t("projects.history.fields.type");
   if (fieldName === "estimate") return t("projects.history.fields.estimate");
   if (fieldName === "due_date") return t("projects.history.fields.dueDate");
+  if (fieldName === "due_time") return t("projects.history.fields.dueTime");
   if (fieldName === "start_date") return t("projects.history.fields.startDate");
+  if (fieldName === "start_time") return t("projects.history.fields.startTime");
   if (fieldName === "target_date") return t("projects.history.fields.targetDate");
   if (fieldName === "archived_at") return t("projects.history.fields.archiveState");
   if (fieldName === "blocker_reason") return t("projects.history.fields.blockerReason");

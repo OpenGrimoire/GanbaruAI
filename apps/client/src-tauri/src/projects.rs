@@ -601,7 +601,9 @@ pub async fn projects_update_task<R: Runtime>(
              status_sort_order = ?,
              estimate_minutes = ?,
              due_date = ?,
+             due_time = ?,
              start_date = ?,
+             start_time = ?,
              target_end_date = ?,
              completed_at = ?,
              archived_at = ?,
@@ -621,7 +623,9 @@ pub async fn projects_update_task<R: Runtime>(
     .bind(task.status_sort_order)
     .bind(task.estimate_minutes)
     .bind(&task.due_date)
+    .bind(&task.due_time)
     .bind(&task.start_date)
+    .bind(&task.start_time)
     .bind(&task.target_end_date)
     .bind(&completed_at)
     .bind(&task.archived_at)
@@ -1779,7 +1783,9 @@ mod tests {
             status_sort_order: task.status_sort_order,
             estimate_minutes: task.estimate_minutes,
             due_date: task.due_date.clone(),
+            due_time: task.due_time.clone(),
             start_date: task.start_date.clone(),
+            start_time: task.start_time.clone(),
             target_end_date: task.target_end_date.clone(),
             archived_at: task.archived_at.clone(),
             blocker_reason: task.blocker_reason.clone(),
@@ -2143,6 +2149,37 @@ mod tests {
             assert_eq!(
                 validate_task_update(&task),
                 Err("change_reason is too long".to_string())
+            );
+        });
+    }
+
+    #[test]
+    fn task_update_validates_task_times() {
+        tauri::async_runtime::block_on(async {
+            let pool = migrated_memory_pool().await;
+            insert_project_graph_fixture(&pool).await;
+            let previous = sqlx::query_as::<_, ProjectTaskRow>(
+                "SELECT * FROM project_tasks WHERE id = 'task-a'",
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            let mut task = task_update_from_row(&previous);
+
+            task.start_time = Some("09:30".to_string());
+            assert_eq!(
+                validate_task_update(&task),
+                Err("start_time requires start_date".to_string())
+            );
+
+            task.start_date = Some("2026-06-21".to_string());
+            assert_eq!(validate_task_update(&task), Ok(()));
+
+            task.due_date = Some("2026-06-22".to_string());
+            task.due_time = Some("24:00".to_string());
+            assert_eq!(
+                validate_task_update(&task),
+                Err("due_time must use HH:MM".to_string())
             );
         });
     }

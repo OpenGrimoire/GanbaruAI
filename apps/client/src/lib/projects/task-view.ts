@@ -387,6 +387,7 @@ function compareTasks(
   }
   if (input.sortMode === "due") {
     return compareOptionalText(a.dueDate, b.dueDate, input.sortDirection)
+      || compareOptionalText(a.dueTime, b.dueTime, input.sortDirection)
       || manualSectionCompare(a, b);
   }
   if (input.sortMode === "scheduled") {

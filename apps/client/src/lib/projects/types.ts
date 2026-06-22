@@ -175,7 +175,9 @@ export interface ProjectTask {
   statusSortOrder: number;
   estimateMinutes?: number;
   dueDate?: string;
+  dueTime?: string;
   startDate?: string;
+  startTime?: string;
   targetEndDate?: string;
   completedAt?: string;
   archivedAt?: string;
@@ -550,7 +552,9 @@ export interface ProjectTaskUpdate {
   statusSortOrder: number;
   estimateMinutes: number | null;
   dueDate: string | null;
+  dueTime: string | null;
   startDate: string | null;
+  startTime: string | null;
   targetEndDate: string | null;
   archivedAt: string | null;
   blockerReason: string | null;

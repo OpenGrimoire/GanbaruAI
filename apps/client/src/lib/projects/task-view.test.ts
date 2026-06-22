@@ -55,7 +55,9 @@ function task(input: Partial<ProjectTask> & Pick<ProjectTask, "id" | "title">): 
     statusSortOrder: input.statusSortOrder ?? 1000,
     estimateMinutes: input.estimateMinutes,
     dueDate: input.dueDate,
+    dueTime: input.dueTime,
     startDate: input.startDate,
+    startTime: input.startTime,
     targetEndDate: input.targetEndDate,
     completedAt: input.completedAt,
     archivedAt: input.archivedAt,
@@ -169,6 +171,20 @@ describe("buildProjectTaskView", () => {
     });
 
     expect(result.tasks.map((entry) => entry.id)).toEqual(["earlier", "later", "unscheduled"]);
+  });
+
+  it("sorts due dates by due time before manual fallback", () => {
+    const result = view({
+      tasks: [
+        task({ id: "late", title: "Late", dueDate: "2026-06-13", dueTime: "16:00", sectionSortOrder: 1000 }),
+        task({ id: "early", title: "Early", dueDate: "2026-06-13", dueTime: "09:00", sectionSortOrder: 2000 }),
+        task({ id: "no-time-a", title: "No time A", dueDate: "2026-06-14", sectionSortOrder: 4000 }),
+        task({ id: "no-time-b", title: "No time B", dueDate: "2026-06-14", sectionSortOrder: 3000 }),
+      ],
+      sortMode: "due",
+    });
+
+    expect(result.tasks.map((entry) => entry.id)).toEqual(["early", "late", "no-time-b", "no-time-a"]);
   });
 
   it("filters overdue tasks without treating completed tasks as overdue", () => {

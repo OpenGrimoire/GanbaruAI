@@ -167,6 +167,14 @@ pub(super) fn validate_task_update(task: &ProjectTaskUpdate) -> Result<(), Strin
     if task.status_sort_order < 0.0 {
         return Err("status_sort_order must be non-negative".to_string());
     }
+    validate_optional_task_time(&task.start_time, "start_time")?;
+    validate_optional_task_time(&task.due_time, "due_time")?;
+    if task.start_time.is_some() && task.start_date.is_none() {
+        return Err("start_time requires start_date".to_string());
+    }
+    if task.due_time.is_some() && task.due_date.is_none() {
+        return Err("due_time requires due_date".to_string());
+    }
     if let (Some(start_date), Some(target_end_date)) = (&task.start_date, &task.target_end_date) {
         if start_date > target_end_date {
             return Err("start_date must be before target_end_date".to_string());
@@ -179,6 +187,28 @@ pub(super) fn validate_task_update(task: &ProjectTaskUpdate) -> Result<(), Strin
         .is_some_and(|reason| reason.len() > MAX_TASK_CHANGE_REASON_LENGTH)
     {
         return Err("change_reason is too long".to_string());
+    }
+    Ok(())
+}
+
+fn validate_optional_task_time(value: &Option<String>, field: &str) -> Result<(), String> {
+    let Some(time) = value else {
+        return Ok(());
+    };
+    let bytes = time.as_bytes();
+    if bytes.len() != 5
+        || bytes[2] != b':'
+        || !bytes[0].is_ascii_digit()
+        || !bytes[1].is_ascii_digit()
+        || !bytes[3].is_ascii_digit()
+        || !bytes[4].is_ascii_digit()
+    {
+        return Err(format!("{field} must use HH:MM"));
+    }
+    let hour = (bytes[0] - b'0') * 10 + (bytes[1] - b'0');
+    let minute = (bytes[3] - b'0') * 10 + (bytes[4] - b'0');
+    if hour > 23 || minute > 59 {
+        return Err(format!("{field} must use HH:MM"));
     }
     Ok(())
 }

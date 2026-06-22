@@ -543,7 +543,7 @@ Project management stores structured work data in SQLite. The user-facing hierar
 - `projects`: scheduleable units under a group. Calendar events can reference a project through `calendar_events.project_id`. Projects store default event duration, event color, Pomodoro preset, idle-pause minutes, focus playlist id, break playlist id, work environment id, and blocker ruleset id. Focus playlist and work environment defaults can be copied into new calendar events now. Break playlist and blocker ruleset defaults are stored for the future runtime surfaces that will consume them.
 - `project_sections`: project-local task organization with editable names and sort order.
 - `project_statuses`: project-local status columns or list statuses with editable names, categories, and sort order. Done-category statuses are terminal, and terminal statuses use the Done category.
-- `project_tasks`: actionable work items with priority, task type, section order, status order, optional parent task, dates, estimate, completion, archive state, and blocker reason.
+- `project_tasks`: actionable work items with priority, task type, section order, status order, optional parent task, dates, optional start and due hours, estimate, completion, archive state, and blocker reason.
 - `project_checklist_items`: checklist rows under a task.
 - `project_task_dependencies`: task-to-task blocking relationships. Dependency writes require both tasks to belong to the same project and reject cycles.
 - `project_task_event_links`: explicit task-to-calendar-event links. Scheduled links must connect a task and event that belong to the same project.

@@ -248,6 +248,18 @@ pub(in crate::projects) async fn insert_task_update_change_events(
         )
         .await?;
     }
+    if previous.due_time != next.due_time {
+        insert_task_change_event_owned(
+            tx,
+            task_id,
+            "updated",
+            "due_time",
+            previous.due_time.clone(),
+            next.due_time.clone(),
+            change_reason.as_deref(),
+        )
+        .await?;
+    }
     if previous.start_date != next.start_date {
         insert_task_change_event_owned(
             tx,
@@ -256,6 +268,18 @@ pub(in crate::projects) async fn insert_task_update_change_events(
             "start_date",
             previous.start_date.clone(),
             next.start_date.clone(),
+            change_reason.as_deref(),
+        )
+        .await?;
+    }
+    if previous.start_time != next.start_time {
+        insert_task_change_event_owned(
+            tx,
+            task_id,
+            "updated",
+            "start_time",
+            previous.start_time.clone(),
+            next.start_time.clone(),
             change_reason.as_deref(),
         )
         .await?;

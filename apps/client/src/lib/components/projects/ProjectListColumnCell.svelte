@@ -1,8 +1,12 @@
 <script lang="ts">
   import CalendarDays from "@lucide/svelte/icons/calendar-days";
   import Check from "@lucide/svelte/icons/check";
-  import X from "@lucide/svelte/icons/x";
+  import Clock from "@lucide/svelte/icons/clock";
+  import Eraser from "@lucide/svelte/icons/eraser";
+  import Trash2 from "@lucide/svelte/icons/trash-2";
   import MiniDatePicker from "$lib/components/calendar/MiniDatePicker.svelte";
+  import TimePicker from "$lib/components/calendar/TimePicker.svelte";
+  import { formatTimeLabel } from "$lib/components/calendar/utils";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import {
     projectPriorityBadgeClass,
@@ -18,6 +22,7 @@
     type ProjectTask,
     type ProjectTaskListColumn,
   } from "$lib/projects/types";
+  import { getPreferences } from "$lib/stores/preferences.svelte";
   import { cn } from "$lib/utils";
 
   let {
@@ -43,10 +48,14 @@
     onCloseStartDateMenu,
     onSetStartDate,
     onClearStartDate,
+    onSetStartTime,
+    onClearStartTime,
     onToggleDueDateMenu,
     onCloseDueDateMenu,
     onSetDueDate,
     onClearDueDate,
+    onSetDueTime,
+    onClearDueTime,
   }: {
     column: ProjectTaskListColumn;
     task: ProjectTask;
@@ -70,17 +79,157 @@
     onCloseStartDateMenu: () => void;
     onSetStartDate: (startDate: string) => void;
     onClearStartDate: () => void;
+    onSetStartTime: (startTime: string) => void;
+    onClearStartTime: () => void;
     onToggleDueDateMenu: () => void;
     onCloseDueDateMenu: () => void;
     onSetDueDate: (dueDate: string) => void;
     onClearDueDate: () => void;
+    onSetDueTime: (dueTime: string) => void;
+    onClearDueTime: () => void;
   } = $props();
 
   const { t } = getLocalization();
+  const preferences = getPreferences();
+  const FLOATING_PANEL_GAP = 6;
+  const FLOATING_PANEL_MARGIN = 8;
+  const DATE_PICKER_PANEL_WIDTH = 240;
+  const DATE_PICKER_PANEL_MIN_HEIGHT = 180;
+  const TIME_PICKER_PANEL_WIDTH = 160;
+  const TIME_PICKER_PANEL_HEIGHT = 200;
+  const TIME_PICKER_PANEL_MIN_HEIGHT = 96;
+  const DEFAULT_TIME_PICKER_ANCHOR = "12:00";
+
+  let timePickerOpen = $state(false);
+  let dateTriggerEl: HTMLButtonElement | undefined = $state();
+  let timeTriggerEl: HTMLButtonElement | undefined = $state();
+
   const todayDate = $derived.by(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   });
+  const ownDateMenuOpen = $derived(column === "start" ? startDateMenuOpen : column === "due" ? dueDateMenuOpen : false);
+
+  $effect(() => {
+    if (!ownDateMenuOpen) {
+      timePickerOpen = false;
+    }
+  });
+
+  function dateButtonText(dateValue: string | undefined, timeValue: string | undefined, emptyDateLabel: string): string {
+    if (!dateValue) return emptyDateLabel;
+    if (!timeValue) return dateValue;
+    return `${dateValue} ${formatTimeLabel(timeValue, preferences.calendarTimeFormat)}`;
+  }
+
+  function positionPanel(
+    node: HTMLElement,
+    anchor: HTMLElement | undefined,
+    options: {
+      fallbackWidth: number;
+      minHeight: number;
+      preferredHeight?: number;
+      applyNodeMaxHeight?: boolean;
+      maxHeightProperty?: string;
+    },
+  ): void {
+    if (!anchor) return;
+    const triggerRect = anchor.getBoundingClientRect();
+    const panelWidth = node.offsetWidth || options.fallbackWidth;
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    const usableViewportHeight = Math.max(0, viewportHeight - FLOATING_PANEL_MARGIN * 2);
+    const preferredHeight = Math.min(
+      options.preferredHeight ?? Math.max(node.scrollHeight, node.offsetHeight, options.minHeight),
+      usableViewportHeight,
+    );
+    const minimumHeight = Math.min(options.minHeight, usableViewportHeight);
+    const left = Math.max(
+      FLOATING_PANEL_MARGIN,
+      Math.min(
+        triggerRect.left,
+        viewportWidth - panelWidth - FLOATING_PANEL_MARGIN,
+      ),
+    );
+    const belowTop = triggerRect.bottom + FLOATING_PANEL_GAP;
+    const aboveBottom = triggerRect.top - FLOATING_PANEL_GAP;
+    const belowSpace = Math.max(0, viewportHeight - FLOATING_PANEL_MARGIN - belowTop);
+    const aboveSpace = Math.max(0, aboveBottom - FLOATING_PANEL_MARGIN);
+    const preferBelow = belowSpace >= preferredHeight || belowSpace >= aboveSpace;
+    const availableHeight = preferBelow ? belowSpace : aboveSpace;
+    const maxHeight = Math.max(
+      minimumHeight,
+      Math.min(preferredHeight, availableHeight || usableViewportHeight),
+    );
+    const unclampedTop = preferBelow
+      ? belowTop
+      : aboveBottom - maxHeight;
+    const top = Math.max(
+      FLOATING_PANEL_MARGIN,
+      Math.min(
+        unclampedTop,
+        viewportHeight - FLOATING_PANEL_MARGIN - maxHeight,
+      ),
+    );
+
+    node.style.left = `${Math.round(left)}px`;
+    node.style.top = `${Math.round(top)}px`;
+    if (options.applyNodeMaxHeight ?? true) {
+      node.style.maxHeight = `${Math.round(maxHeight)}px`;
+      node.style.overflowY = "auto";
+    }
+    if (options.maxHeightProperty) {
+      node.style.setProperty(options.maxHeightProperty, `${Math.round(maxHeight)}px`);
+    }
+  }
+
+  function positionDatePickerPanel(node: HTMLElement) {
+    function updatePosition(): void {
+      positionPanel(node, dateTriggerEl, {
+        fallbackWidth: DATE_PICKER_PANEL_WIDTH,
+        minHeight: DATE_PICKER_PANEL_MIN_HEIGHT,
+      });
+    }
+
+    const frame = requestAnimationFrame(updatePosition);
+    const resizeObserver = new ResizeObserver(updatePosition);
+    resizeObserver.observe(node);
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+
+    return {
+      destroy() {
+        cancelAnimationFrame(frame);
+        resizeObserver.disconnect();
+        window.removeEventListener("resize", updatePosition);
+        window.removeEventListener("scroll", updatePosition, true);
+      },
+    };
+  }
+
+  function positionTimePickerPanel(node: HTMLElement) {
+    function updatePosition(): void {
+      positionPanel(node, timeTriggerEl, {
+        fallbackWidth: TIME_PICKER_PANEL_WIDTH,
+        minHeight: TIME_PICKER_PANEL_MIN_HEIGHT,
+        preferredHeight: TIME_PICKER_PANEL_HEIGHT,
+        applyNodeMaxHeight: false,
+        maxHeightProperty: "--project-list-time-picker-max-height",
+      });
+    }
+
+    const frame = requestAnimationFrame(updatePosition);
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+
+    return {
+      destroy() {
+        cancelAnimationFrame(frame);
+        window.removeEventListener("resize", updatePosition);
+        window.removeEventListener("scroll", updatePosition, true);
+      },
+    };
+  }
 </script>
 
 <div class="flex min-w-0 items-center px-2">
@@ -170,12 +319,14 @@
     {/if}
   {:else if column === "start" || column === "due"}
     {@const dateValue = column === "start" ? task.startDate : task.dueDate}
+    {@const timeValue = column === "start" ? task.startTime : task.dueTime}
     {@const dateMenuOpen = column === "start" ? startDateMenuOpen : dueDateMenuOpen}
     {@const dateLabel = column === "start" ? t("projects.columns.start") : t("projects.columns.due")}
     {@const emptyDateLabel = column === "start" ? t("projects.detail.noDate") : t("projects.filters.noDueDate")}
     {@const datePickerAnchor = dateValue || (column === "start" ? task.dueDate : task.startDate) || todayDate}
     <div class="relative max-w-full" data-list-date-menu-root="true">
       <button
+        bind:this={dateTriggerEl}
         type="button"
         class={cn(
           "flex max-w-full cursor-pointer items-center gap-1.5 truncate rounded border px-1.5 py-0.5 text-[0.733333rem] disabled:cursor-not-allowed disabled:opacity-60",
@@ -192,13 +343,14 @@
         }}
       >
         <CalendarDays size={12} strokeWidth={1.75} class="shrink-0" />
-        <span class="truncate">{dateValue ?? emptyDateLabel}</span>
+        <span class="truncate">{dateButtonText(dateValue, timeValue, emptyDateLabel)}</span>
       </button>
       {#if dateMenuOpen}
         <div
-          class="absolute left-0 top-7 z-30 w-60 rounded-lg border border-border bg-popover p-2 text-popover-foreground shadow-sm"
+          class="fixed z-30 w-60 rounded-lg border border-border bg-popover p-2 text-popover-foreground shadow-sm"
           role="dialog"
           aria-label={dateLabel}
+          use:positionDatePickerPanel
         >
           <MiniDatePicker
             selectedDate={datePickerAnchor}
@@ -217,17 +369,77 @@
             }}
           />
           {#if dateValue}
-            <button
-              type="button"
-              class="mt-2 flex min-h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-left text-[0.8rem] text-muted-foreground hover:bg-accent hover:text-foreground"
-              onclick={() => {
-                if (column === "start") onClearStartDate();
-                else onClearDueDate();
-              }}
-            >
-              <X size={13} strokeWidth={1.75} class="shrink-0" />
-              <span>{t("projects.detail.clearDate", dateLabel)}</span>
-            </button>
+            <div class="mt-2 border-t border-border/70 pt-2">
+              <div class="flex items-center gap-1">
+                <button
+                  bind:this={timeTriggerEl}
+                  type="button"
+                  class="flex min-h-8 min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md px-2 text-left text-[0.8rem] text-muted-foreground hover:bg-accent hover:text-foreground"
+                  aria-haspopup="dialog"
+                  aria-expanded={timePickerOpen}
+                  onclick={() => {
+                    timePickerOpen = !timePickerOpen;
+                  }}
+                >
+                  <Clock size={13} strokeWidth={1.75} class="shrink-0" />
+                  <span class="truncate">
+                    {timeValue ? formatTimeLabel(timeValue, preferences.calendarTimeFormat) : t("projects.columns.selectHour")}
+                  </span>
+                </button>
+                {#if timeValue}
+                  <button
+                    type="button"
+                    class="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                    aria-label={t("projects.columns.clearHour")}
+                    title={t("projects.columns.clearHour")}
+                    onclick={() => {
+                      if (column === "start") onClearStartTime();
+                      else onClearDueTime();
+                      timePickerOpen = false;
+                    }}
+                  >
+                    <Eraser size={13} strokeWidth={1.75} />
+                  </button>
+                {/if}
+                <button
+                  type="button"
+                  class="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                  aria-label={t("projects.detail.clearDate", dateLabel)}
+                  title={t("projects.detail.clearDate", dateLabel)}
+                  onclick={() => {
+                    if (column === "start") onClearStartDate();
+                    else onClearDueDate();
+                    timePickerOpen = false;
+                  }}
+                >
+                  <Trash2 size={13} strokeWidth={1.75} />
+                </button>
+              </div>
+              {#if timePickerOpen}
+                <div
+                  class="project-list-time-panel fixed z-40 w-40 overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-sm"
+                  role="dialog"
+                  aria-label={`${dateLabel} ${t("projects.columns.selectHour")}`}
+                  use:positionTimePickerPanel
+                >
+                  <TimePicker
+                    currentTime={timeValue ?? ""}
+                    activeTime={timeValue ?? DEFAULT_TIME_PICKER_ANCHOR}
+                    scrollTime={timeValue ?? DEFAULT_TIME_PICKER_ANCHOR}
+                    emphasizedTime={timeValue ? undefined : null}
+                    focusOnOpen
+                    onselect={(time) => {
+                      if (column === "start") onSetStartTime(time);
+                      else onSetDueTime(time);
+                      timePickerOpen = false;
+                    }}
+                    oncancel={() => {
+                      timePickerOpen = false;
+                    }}
+                  />
+                </div>
+              {/if}
+            </div>
           {/if}
         </div>
       {/if}
@@ -264,3 +476,9 @@
     {/if}
   {/if}
 </div>
+
+<style>
+  :global(.project-list-time-panel .time-picker-scroll) {
+    max-height: var(--project-list-time-picker-max-height, 12.5rem);
+  }
+</style>

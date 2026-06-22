@@ -930,6 +930,24 @@
     startDateMenuTaskId = shouldPromptForStartDate ? task.id : null;
   }
 
+  async function setTaskStartTimeFromList(task: ProjectTask, startTime: string | undefined): Promise<void> {
+    if (task.archivedAt) {
+      startDateMenuTaskId = null;
+      return;
+    }
+    if (!task.startDate || task.startTime === startTime) return;
+    await projects.updateTask(task, { startTime });
+  }
+
+  async function setTaskDueTimeFromList(task: ProjectTask, dueTime: string | undefined): Promise<void> {
+    if (task.archivedAt) {
+      dueDateMenuTaskId = null;
+      return;
+    }
+    if (!task.dueDate || task.dueTime === dueTime) return;
+    await projects.updateTask(task, { dueTime });
+  }
+
   function sectionTaskCreateTarget(sectionId: string): TaskCreateTarget {
     return `section:${sectionId}`;
   }
@@ -1331,6 +1349,8 @@
                   onCloseStartDateMenu={() => { startDateMenuTaskId = null; }}
                   onSetStartDate={(startDate) => { void setTaskStartDateFromList(task, startDate); }}
                   onClearStartDate={() => { void setTaskStartDateFromList(task, undefined); }}
+                  onSetStartTime={(startTime) => { void setTaskStartTimeFromList(task, startTime); }}
+                  onClearStartTime={() => { void setTaskStartTimeFromList(task, undefined); }}
                   onToggleDueDateMenu={() => {
                     const nextTaskId = dueDateMenuTaskId === task.id ? null : task.id;
                     dueDateMenuTaskId = nextTaskId;
@@ -1343,6 +1363,8 @@
                   onCloseDueDateMenu={() => { dueDateMenuTaskId = null; }}
                   onSetDueDate={(dueDate) => { void setTaskDueDateFromList(task, dueDate); }}
                   onClearDueDate={() => { void setTaskDueDateFromList(task, undefined); }}
+                  onSetDueTime={(dueTime) => { void setTaskDueTimeFromList(task, dueTime); }}
+                  onClearDueTime={() => { void setTaskDueTimeFromList(task, undefined); }}
                   onToggleSubtaskDone={(subtask) => { void projects.toggleTaskDone(subtask); }}
                 />
                 {#if listDropMarkerVisible(section, task, "after")}
@@ -1603,6 +1625,8 @@
                 onCloseStartDateMenu={() => { startDateMenuTaskId = null; }}
                 onSetStartDate={(startDate) => { void setTaskStartDateFromList(task, startDate); }}
                 onClearStartDate={() => { void setTaskStartDateFromList(task, undefined); }}
+                onSetStartTime={(startTime) => { void setTaskStartTimeFromList(task, startTime); }}
+                onClearStartTime={() => { void setTaskStartTimeFromList(task, undefined); }}
                 onToggleDueDateMenu={() => {
                   const nextTaskId = dueDateMenuTaskId === task.id ? null : task.id;
                   dueDateMenuTaskId = nextTaskId;
@@ -1615,6 +1639,8 @@
                 onCloseDueDateMenu={() => { dueDateMenuTaskId = null; }}
                 onSetDueDate={(dueDate) => { void setTaskDueDateFromList(task, dueDate); }}
                 onClearDueDate={() => { void setTaskDueDateFromList(task, undefined); }}
+                onSetDueTime={(dueTime) => { void setTaskDueTimeFromList(task, dueTime); }}
+                onClearDueTime={() => { void setTaskDueTimeFromList(task, undefined); }}
                 onToggleSubtaskDone={(subtask) => { void projects.toggleTaskDone(subtask); }}
               />
             {/each}

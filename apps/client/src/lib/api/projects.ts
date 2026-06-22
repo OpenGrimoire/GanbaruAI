@@ -116,7 +116,9 @@ interface ProjectTaskRow {
   status_sort_order: number;
   estimate_minutes: number | null;
   due_date: string | null;
+  due_time: string | null;
   start_date: string | null;
+  start_time: string | null;
   target_end_date: string | null;
   completed_at: string | null;
   archived_at: string | null;
@@ -347,7 +349,9 @@ function mapTask(row: ProjectTaskRow): ProjectTask {
     statusSortOrder: row.status_sort_order,
     estimateMinutes: optionalNumber(row.estimate_minutes),
     dueDate: optionalText(row.due_date),
+    dueTime: optionalText(row.due_time),
     startDate: optionalText(row.start_date),
+    startTime: optionalText(row.start_time),
     targetEndDate: optionalText(row.target_end_date),
     completedAt: optionalText(row.completed_at),
     archivedAt: optionalText(row.archived_at),
