@@ -35,6 +35,10 @@
   import { isPanelArrowKey, panelArrowKeyTarget } from "./event-panel-arrow-nav";
   import { formatCalendarDate, formatTimeLabel } from "./utils";
   import {
+    selectDateRangeEnd,
+    selectDateRangeStart,
+  } from "$lib/calendar/date-range-selection";
+  import {
     EVENT_PANEL_EDGE_MARGIN,
     EVENT_PANEL_MAX_WIDTH,
     EVENT_PANEL_TITLE_BAR_HEIGHT,
@@ -279,26 +283,29 @@
 
   function selectDpDay(dateStr: string, source?: "keyboard" | "pointer") {
     if (startControlsDisabled) return;
-    if (startDate && endDate) {
-      const [oy, om, od] = startDate.split("-").map(Number);
-      const [ey, em, ed] = endDate.split("-").map(Number);
-      const oldStart = new Date(oy, om - 1, od);
-      const oldEnd = new Date(ey, em - 1, ed);
-      const daySpan = Math.round((oldEnd.getTime() - oldStart.getTime()) / 86400000);
-      const [ny, nm, nd] = dateStr.split("-").map(Number);
-      const newEnd = new Date(ny, nm - 1, nd + daySpan);
-      endDate = `${newEnd.getFullYear()}-${String(newEnd.getMonth() + 1).padStart(2, "0")}-${String(newEnd.getDate()).padStart(2, "0")}`;
-    } else {
-      endDate = dateStr;
-    }
-    startDate = dateStr;
+    const nextRange = selectDateRangeStart({
+      selectedDate: dateStr,
+      startDate,
+      endDate,
+      fillMissingEndDate: true,
+    });
+    startDate = nextRange.startDate ?? dateStr;
+    endDate = nextRange.endDate ?? dateStr;
     datepickerOpen = false;
     emitChange();
     if (source === "keyboard") void focusDateButton("start");
   }
 
   function selectEdpDay(dateStr: string, source?: "keyboard" | "pointer") {
-    endDate = dateStr;
+    if (controlsDisabled) return;
+    const nextRange = selectDateRangeEnd({
+      selectedDate: dateStr,
+      startDate,
+      endDate,
+      fillMissingStartDate: true,
+    });
+    startDate = nextRange.startDate ?? dateStr;
+    endDate = nextRange.endDate ?? dateStr;
     endDatepickerOpen = false;
     emitChange();
     if (source === "keyboard") void focusDateButton("end");
@@ -1795,6 +1802,8 @@
           <div class="absolute left-0 top-full z-20 mt-1 w-60 rounded-lg bg-popover p-2 shadow-lg ring-1 ring-border/60">
             <MiniDatePicker
               selectedDate={startDate}
+              rangeStartDate={startDate}
+              rangeEndDate={endDate}
               highlightToday={false}
               activeHighlight="primary"
               onselect={selectDpDay}
@@ -1896,7 +1905,8 @@
           <div class="absolute right-0 top-full z-20 mt-1 w-60 rounded-lg bg-popover p-2 shadow-lg ring-1 ring-border/60">
             <MiniDatePicker
               selectedDate={endDate}
-              minDate={startDate}
+              rangeStartDate={startDate}
+              rangeEndDate={endDate}
               highlightToday={false}
               activeHighlight="primary"
               onselect={selectEdpDay}

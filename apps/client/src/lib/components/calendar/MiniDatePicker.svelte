@@ -7,6 +7,7 @@
     buildCalendarGrid,
   } from "./date-picker-utils";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { normalizedDateRange } from "$lib/calendar/date-range-selection";
   import { workCycleRangeForDate } from "./utils";
 
   const WEEKDAY_HEADER_DATES = [
@@ -22,6 +23,8 @@
   let {
     selectedDate,
     minDate,
+    rangeStartDate,
+    rangeEndDate,
     small = false,
     highlightMode = "day",
     highlightToday = true,
@@ -31,6 +34,8 @@
   }: {
     selectedDate: string;
     minDate?: string;
+    rangeStartDate?: string;
+    rangeEndDate?: string;
     small?: boolean;
     highlightMode?: "day" | "week" | "workweek" | "none";
     highlightToday?: boolean;
@@ -109,22 +114,24 @@
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   });
+  const explicitRange = $derived(normalizedDateRange(rangeStartDate, rangeEndDate));
 
   const selectedRange = $derived.by(() => {
+    if (explicitRange) return explicitRange;
     if (highlightMode !== "week" && highlightMode !== "workweek") return undefined;
     const parsed = parseDateParts(activeDateStr);
     if (!parsed) return undefined;
     const selected = new Date(parsed.year, parsed.month - 1, parsed.day);
     if (highlightMode === "workweek") {
       const range = workCycleRangeForDate(selected);
-      return { start: formatDateStr(range.start), end: formatDateStr(range.end) };
+      return { startDate: formatDateStr(range.start), endDate: formatDateStr(range.end) };
     }
     const mondayOffset = selected.getDay() === 0 ? -6 : 1 - selected.getDay();
     const start = new Date(selected);
     start.setDate(selected.getDate() + mondayOffset);
     const end = new Date(start);
     end.setDate(start.getDate() + 6);
-    return { start: formatDateStr(start), end: formatDateStr(end) };
+    return { startDate: formatDateStr(start), endDate: formatDateStr(end) };
   });
 
   $effect(() => {
@@ -367,19 +374,57 @@
   }
 
   function dayIsSelected(day: DatePickerDay): boolean {
+    if (explicitRange) {
+      return day.dateStr === explicitRange.startDate || day.dateStr === explicitRange.endDate;
+    }
     return highlightMode === "day" && day.dateStr === activeDateStr;
   }
 
   function dayIsInSelectedRange(day: DatePickerDay): boolean {
-    return !!selectedRange
-      && day.dateStr >= selectedRange.start
-      && day.dateStr <= selectedRange.end;
+    if (!selectedRange) return false;
+    if (explicitRange) {
+      return day.dateStr > selectedRange.startDate && day.dateStr < selectedRange.endDate;
+    }
+    return day.dateStr >= selectedRange.startDate && day.dateStr <= selectedRange.endDate;
   }
 
   function activeDayStyle(): string {
     return activeHighlight === "primary"
       ? "background-color: var(--primary); color: var(--primary-foreground); font-weight: 700;"
       : "background-color: var(--accent); color: var(--foreground); font-weight: 600;";
+  }
+
+  function dayIsPast(day: DatePickerDay): boolean {
+    return day.currentMonth && day.dateStr < todayStr;
+  }
+
+  function dayButtonStyle(day: DatePickerDay, belowMin: boolean): string {
+    const past = dayIsPast(day);
+    const todayWeight = day.today ? "font-weight: 700;" : "";
+    if (explicitRange && dayIsSelected(day)) {
+      return past
+        ? "background-color: var(--primary); color: color-mix(in srgb, var(--primary-foreground) 88%, var(--primary)); font-weight: 700;"
+        : "background-color: var(--primary); color: var(--primary-foreground); font-weight: 700;";
+    }
+    if (highlightToday && day.today) {
+      return "background-color: var(--primary); color: var(--primary-foreground); font-weight: 700;";
+    }
+    if (dayIsSelected(day)) return activeDayStyle();
+    if (dayIsInSelectedRange(day)) {
+      return past
+        ? `background-color: color-mix(in srgb, var(--accent) 50%, transparent); color: color-mix(in srgb, var(--foreground) 62%, var(--background)); ${todayWeight}`
+        : `background-color: color-mix(in srgb, var(--accent) 50%, transparent); color: var(--foreground); ${todayWeight}`;
+    }
+    if (belowMin) {
+      return `color: color-mix(in srgb, var(--foreground) 20%, var(--background)); ${todayWeight}`;
+    }
+    if (!day.currentMonth) {
+      return `color: color-mix(in srgb, var(--foreground) 25%, var(--background)); ${todayWeight}`;
+    }
+    if (past) {
+      return `color: color-mix(in srgb, var(--foreground) 45%, var(--background)); ${todayWeight}`;
+    }
+    return `color: var(--foreground); ${todayWeight}`;
   }
 
   function selectDay(day: DatePickerDay) {
@@ -493,7 +538,6 @@
     <div class="grid grid-cols-7 gap-x-0 text-center">
       {#each days as day}
         {@const belowMin = !!minDate && day.dateStr < minDate}
-        {@const past = day.currentMonth && day.dateStr < todayStr}
         <button
           data-date={day.dateStr}
           tabindex={day.dateStr === activeDateStr ? 0 : -1}
@@ -501,19 +545,7 @@
           onclick={() => selectDay(day)}
           class="flex h-6 w-full items-center justify-center rounded-sm {textSize}
             {belowMin ? 'cursor-not-allowed' : 'hover:bg-accent'}"
-          style={highlightToday && day.today
-            ? "background-color: var(--primary); color: var(--primary-foreground); font-weight: 700;"
-            : dayIsSelected(day)
-              ? activeDayStyle()
-            : dayIsInSelectedRange(day)
-              ? "background-color: color-mix(in srgb, var(--accent) 50%, transparent); color: var(--foreground);"
-              : belowMin
-                ? "color: color-mix(in srgb, var(--foreground) 20%, var(--background));"
-                : !day.currentMonth
-                  ? "color: color-mix(in srgb, var(--foreground) 25%, var(--background));"
-                  : past
-                    ? "color: color-mix(in srgb, var(--foreground) 45%, var(--background));"
-                    : "color: var(--foreground);"}
+          style={dayButtonStyle(day, belowMin)}
         >{day.day}</button>
       {/each}
     </div>

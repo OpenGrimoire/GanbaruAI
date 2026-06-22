@@ -173,6 +173,7 @@
     {@const dateMenuOpen = column === "start" ? startDateMenuOpen : dueDateMenuOpen}
     {@const dateLabel = column === "start" ? t("projects.columns.start") : t("projects.columns.due")}
     {@const emptyDateLabel = column === "start" ? t("projects.detail.noDate") : t("projects.filters.noDueDate")}
+    {@const datePickerAnchor = dateValue || (column === "start" ? task.dueDate : task.startDate) || todayDate}
     <div class="relative max-w-full" data-list-date-menu-root="true">
       <button
         type="button"
@@ -200,7 +201,9 @@
           aria-label={dateLabel}
         >
           <MiniDatePicker
-            selectedDate={dateValue || todayDate}
+            selectedDate={datePickerAnchor}
+            rangeStartDate={task.startDate}
+            rangeEndDate={task.dueDate}
             small
             highlightToday={false}
             activeHighlight="primary"

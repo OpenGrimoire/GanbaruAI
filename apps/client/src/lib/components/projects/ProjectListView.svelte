@@ -9,6 +9,10 @@
   import MoreHorizontal from "@lucide/svelte/icons/more-horizontal";
   import Plus from "@lucide/svelte/icons/plus";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import {
+    selectDateRangeEnd,
+    selectDateRangeStart,
+  } from "$lib/calendar/date-range-selection";
   import { getCalendar } from "$lib/stores/calendar.svelte";
   import { getProjects } from "$lib/stores/projects.svelte";
   import { getTheme } from "$lib/stores/theme.svelte";
@@ -140,6 +144,7 @@
   const selectedTaskIdSet = $derived.by(() => new Set(selectedTaskIds));
   const taskListGridTemplate = $derived(projectTaskListGridTemplate(taskListColumns));
   const taskListGridMinWidth = $derived(projectTaskListGridMinWidth(taskListColumns));
+  const listRangeDateColumnsVisible = $derived(taskListColumns.includes("start") && taskListColumns.includes("due"));
 
   function cssPixelValue(value: string): number {
     const parsed = Number.parseFloat(value);
@@ -866,21 +871,63 @@
   }
 
   async function setTaskStartDateFromList(task: ProjectTask, startDate: string | undefined): Promise<void> {
-    if (task.archivedAt || task.startDate === startDate) {
+    if (task.archivedAt) {
       startDateMenuTaskId = null;
       return;
     }
-    await projects.updateTask(task, { startDate });
+    if (!startDate) {
+      if (task.startDate !== undefined) {
+        await projects.updateTask(task, { startDate });
+      }
+      startDateMenuTaskId = null;
+      return;
+    }
+    const nextRange = selectDateRangeStart({
+      selectedDate: startDate,
+      startDate: task.startDate,
+      endDate: task.dueDate,
+    });
+    if (task.startDate === nextRange.startDate && task.dueDate === nextRange.endDate) {
+      startDateMenuTaskId = null;
+      return;
+    }
+    const shouldPromptForDueDate = listRangeDateColumnsVisible && !task.dueDate && !nextRange.endDate;
+    await projects.updateTask(task, {
+      startDate: nextRange.startDate,
+      dueDate: nextRange.endDate,
+    });
     startDateMenuTaskId = null;
+    dueDateMenuTaskId = shouldPromptForDueDate ? task.id : null;
   }
 
   async function setTaskDueDateFromList(task: ProjectTask, dueDate: string | undefined): Promise<void> {
-    if (task.archivedAt || task.dueDate === dueDate) {
+    if (task.archivedAt) {
       dueDateMenuTaskId = null;
       return;
     }
-    await projects.updateTask(task, { dueDate });
+    if (!dueDate) {
+      if (task.dueDate !== undefined) {
+        await projects.updateTask(task, { dueDate });
+      }
+      dueDateMenuTaskId = null;
+      return;
+    }
+    const nextRange = selectDateRangeEnd({
+      selectedDate: dueDate,
+      startDate: task.startDate,
+      endDate: task.dueDate,
+    });
+    if (task.startDate === nextRange.startDate && task.dueDate === nextRange.endDate) {
+      dueDateMenuTaskId = null;
+      return;
+    }
+    const shouldPromptForStartDate = listRangeDateColumnsVisible && !task.startDate && !nextRange.startDate;
+    await projects.updateTask(task, {
+      startDate: nextRange.startDate,
+      dueDate: nextRange.endDate,
+    });
     dueDateMenuTaskId = null;
+    startDateMenuTaskId = shouldPromptForStartDate ? task.id : null;
   }
 
   function sectionTaskCreateTarget(sectionId: string): TaskCreateTarget {

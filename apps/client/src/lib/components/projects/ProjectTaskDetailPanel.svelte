@@ -16,6 +16,10 @@
   import MiniDatePicker from "$lib/components/calendar/MiniDatePicker.svelte";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
   import type { CalendarEvent } from "$lib/components/calendar/types";
+  import {
+    selectDateRangeEnd,
+    selectDateRangeStart,
+  } from "$lib/calendar/date-range-selection";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import {
     projectCustomFieldTypeLabel,
@@ -546,6 +550,28 @@
 
   function selectDetailDate(dateStr: string): void {
     if (!datePickerTarget) return;
+    if (datePickerTarget === "start") {
+      const nextRange = selectDateRangeStart({
+        selectedDate: dateStr,
+        startDate: detailStartDate || undefined,
+        endDate: detailDueDate || undefined,
+      });
+      detailStartDate = nextRange.startDate ?? "";
+      detailDueDate = nextRange.endDate ?? "";
+      datePickerTarget = null;
+      return;
+    }
+    if (datePickerTarget === "due") {
+      const nextRange = selectDateRangeEnd({
+        selectedDate: dateStr,
+        startDate: detailStartDate || undefined,
+        endDate: detailDueDate || undefined,
+      });
+      detailStartDate = nextRange.startDate ?? "";
+      detailDueDate = nextRange.endDate ?? "";
+      datePickerTarget = null;
+      return;
+    }
     setDetailDateValue(datePickerTarget, dateStr);
     datePickerTarget = null;
   }
@@ -1070,8 +1096,10 @@
                     <div class="w-fit rounded-lg border border-border bg-card p-2">
                       <MiniDatePicker
                         selectedDate={detailStartDate || todayDate}
+                        rangeStartDate={detailStartDate || undefined}
+                        rangeEndDate={detailDueDate || undefined}
                         small
-                        highlightMode="none"
+                        highlightToday={false}
                         activeHighlight="primary"
                         onselect={selectDetailDate}
                         oncancel={() => { datePickerTarget = null; }}
@@ -1109,8 +1137,10 @@
                     <div class="w-fit rounded-lg border border-border bg-card p-2">
                       <MiniDatePicker
                         selectedDate={detailDueDate || todayDate}
+                        rangeStartDate={detailStartDate || undefined}
+                        rangeEndDate={detailDueDate || undefined}
                         small
-                        highlightMode="none"
+                        highlightToday={false}
                         activeHighlight="primary"
                         onselect={selectDetailDate}
                         oncancel={() => { datePickerTarget = null; }}
