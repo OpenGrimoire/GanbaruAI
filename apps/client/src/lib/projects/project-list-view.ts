@@ -88,22 +88,22 @@ export interface ProjectTaskListGridInput {
 
 const PROJECT_LIST_SELECTION_TRACK_REM = 1.5;
 const PROJECT_LIST_OPEN_TRACK_REM = 1.75;
-const PROJECT_LIST_ADD_COLUMN_TRACK_REM = 2.75;
+const PROJECT_LIST_ADD_COLUMN_TRACK_REM = 2.25;
 const PROJECT_LIST_TEXT_PADDING_REM = 1.35;
-const PROJECT_LIST_TEXT_CHARACTER_REM = 0.5;
+const PROJECT_LIST_TEXT_CHARACTER_REM = 0.42;
 const PROJECT_LIST_DATE_TIME_TEXT = "0000-00-00 00:00";
 const PROJECT_LIST_NAME_WIDTH: ProjectTaskListColumnWidthBounds = { min: 12, autoMin: 24, max: 32 };
 const PROJECT_LIST_COLUMN_WIDTHS = {
-  status: { min: 7.25, max: 12.5 },
-  start: { min: 10.25, max: 12.5 },
-  due: { min: 10.25, max: 12.5 },
-  priority: { min: 6.5, max: 8.5 },
-  assignee: { min: 6.5, max: 9 },
-  reviewer: { min: 6.5, max: 9 },
-  estimate: { min: 6.5, max: 8.5 },
-  scheduled: { min: 8.5, max: 14 },
-  dependencies: { min: 8.5, max: 11 },
-  custom: { min: 7, max: 14 },
+  status: { min: 5.8, max: 10 },
+  start: { min: 7.75, max: 8.25 },
+  due: { min: 7.75, max: 8.25 },
+  priority: { min: 5.2, max: 6.8 },
+  assignee: { min: 5.2, max: 7.2 },
+  reviewer: { min: 5.2, max: 7.2 },
+  estimate: { min: 5.2, max: 6.8 },
+  scheduled: { min: 6.8, max: 11.2 },
+  dependencies: { min: 6.8, max: 8.8 },
+  custom: { min: 5.6, max: 11.2 },
 } satisfies Record<string, ProjectTaskListColumnWidthBounds>;
 
 function normalizeProjectTaskListGridInput(
