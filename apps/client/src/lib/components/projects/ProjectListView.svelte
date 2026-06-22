@@ -220,6 +220,14 @@
   }
 
   function handleProjectListHorizontalKeydown(event: KeyboardEvent): void {
+    if (event.key === "Escape" && projectListAddDraftActive()) {
+      event.preventDefault();
+      event.stopPropagation();
+      cancelActiveProjectListAddDrafts();
+      projectListBlurTarget(event.target);
+      return;
+    }
+
     if (event.altKey || event.ctrlKey || event.metaKey) return;
     if (!projectListKeyboardScrollAllowed(event.target)) return;
     if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
@@ -239,27 +247,86 @@
     setProjectListHorizontalScroll(nextScrollLeft);
   }
 
+  function projectListEventTargetElement(target: EventTarget | null): Element | null {
+    if (target instanceof Element) return target;
+    if (target instanceof Node) return target.parentElement;
+    return null;
+  }
+
+  function projectListBlurTarget(target: EventTarget | null): void {
+    const targetElement = projectListEventTargetElement(target);
+    if (targetElement instanceof HTMLElement) {
+      targetElement.blur();
+      return;
+    }
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+  }
+
+  function projectListAddDraftActive(): boolean {
+    return activeSectionTaskDraftInputId !== null
+      || sectionDraftInputActive
+      || sectionDraft.trim().length > 0;
+  }
+
+  function cancelActiveProjectListAddDrafts(): void {
+    if (activeSectionTaskDraftInputId) {
+      const targetId = activeSectionTaskDraftInputId;
+      sectionTaskDrafts = { ...sectionTaskDrafts, [targetId]: "" };
+      activeSectionTaskDraftInputId = null;
+      clearTaskCreateError(sectionTaskCreateTarget(targetId));
+    }
+
+    if (sectionDraftInputActive || sectionDraft.trim()) {
+      sectionDraft = "";
+      sectionDraftInputActive = false;
+    }
+  }
+
+  function cancelProjectListAddDraftsForOutsideTarget(target: Element): void {
+    if (activeSectionTaskDraftInputId) {
+      const taskAddRow = target.closest("[data-section-task-add-row]");
+      const taskAddRowSectionId = taskAddRow?.getAttribute("data-section-task-add-row");
+      if (taskAddRowSectionId !== activeSectionTaskDraftInputId) {
+        const targetId = activeSectionTaskDraftInputId;
+        sectionTaskDrafts = { ...sectionTaskDrafts, [targetId]: "" };
+        activeSectionTaskDraftInputId = null;
+        clearTaskCreateError(sectionTaskCreateTarget(targetId));
+      }
+    }
+
+    if ((sectionDraftInputActive || sectionDraft.trim()) && !target.closest("[data-add-section-row='true']")) {
+      sectionDraft = "";
+      sectionDraftInputActive = false;
+    }
+  }
+
   function handleProjectWindowPointerDown(event: PointerEvent): void {
     const target = event.target;
     if (!(target instanceof Node)) return;
+    const targetElement = projectListEventTargetElement(target);
+    if (targetElement) {
+      cancelProjectListAddDraftsForOutsideTarget(targetElement);
+    }
     if (
       sectionOptionsMenuId
-      && target instanceof Element
-      && !target.closest("[data-section-options-root='true']")
+      && targetElement
+      && !targetElement.closest("[data-section-options-root='true']")
     ) {
       sectionOptionsMenuId = null;
     }
     if (
       statusMenuTaskId
-      && target instanceof Element
-      && !target.closest("[data-list-status-menu-root='true']")
+      && targetElement
+      && !targetElement.closest("[data-list-status-menu-root='true']")
     ) {
       statusMenuTaskId = null;
     }
     if (
       priorityMenuTaskId
-      && target instanceof Element
-      && !target.closest("[data-list-priority-menu-root='true']")
+      && targetElement
+      && !targetElement.closest("[data-list-priority-menu-root='true']")
     ) {
       priorityMenuTaskId = null;
     }
