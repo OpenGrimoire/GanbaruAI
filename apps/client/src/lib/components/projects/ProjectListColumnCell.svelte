@@ -482,7 +482,6 @@
     border-radius: 0.375rem;
     content: "";
     pointer-events: none;
-    transition: border-color 150ms ease;
   }
 
   .project-list-cell-frame:hover::before,
