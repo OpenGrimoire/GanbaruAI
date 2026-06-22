@@ -15,10 +15,13 @@
   import {
     PROJECT_TEMPLATE_IDS,
   } from "$lib/projects/types";
+  import {
+    projectLifecycleBadgeClass,
+    projectLifecycleLabel,
+  } from "$lib/projects/project-display";
   import type {
     Project,
     ProjectGroup,
-    ProjectLifecycleStatus,
     ProjectTemplateId,
   } from "$lib/projects/types";
   import { getProjects } from "$lib/stores/projects.svelte";
@@ -112,18 +115,6 @@
     if (templateId === "reading") return t("projects.templates.reading");
     if (templateId === "chores") return t("projects.templates.chores");
     return t("projects.templates.blank");
-  }
-
-  function projectLifecycleLabel(status: ProjectLifecycleStatus): string {
-    if (status === "hidden") return t("projects.lifecycle.hidden");
-    if (status === "archived") return t("projects.lifecycle.archived");
-    return t("projects.lifecycle.active");
-  }
-
-  function projectLifecycleBadgeClass(status: ProjectLifecycleStatus): string {
-    if (status === "hidden") return "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300";
-    if (status === "archived") return "border-muted-foreground/30 bg-muted/50 text-muted-foreground";
-    return "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
   }
 
   async function submitGroup(): Promise<void> {
@@ -447,7 +438,7 @@
                       <span class="min-w-0 flex-1 truncate">{project.name}</span>
                       {#if project.status !== "active"}
                         <span class={cn("shrink-0 rounded border px-1.5 py-0.5 text-[0.666667rem]", projectLifecycleBadgeClass(project.status))}>
-                          {projectLifecycleLabel(project.status)}
+                          {projectLifecycleLabel(project.status, t)}
                         </span>
                       {/if}
                       {#if project.color !== undefined}

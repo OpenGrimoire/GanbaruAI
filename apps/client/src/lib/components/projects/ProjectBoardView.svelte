@@ -10,9 +10,13 @@
     projectBoardDropSortOrder,
     type ProjectBoardDropPosition,
   } from "$lib/projects/board-drag";
+  import {
+    projectPriorityLabel,
+    projectStatusBadgeClass,
+    projectTaskArchivedBadgeClass,
+  } from "$lib/projects/project-display";
   import { manualStatusCompare } from "$lib/projects/task-view";
   import type {
-    ProjectPriority,
     ProjectStatus,
     ProjectTask,
     ProjectTaskSortDirection,
@@ -51,13 +55,6 @@
   let boardDropPendingTaskId = $state<string | null>(null);
 
   const selectedTaskIdSet = $derived.by(() => new Set(selectedTaskIds));
-
-  function priorityLabel(priority: ProjectPriority): string {
-    if (priority === "low") return t("projects.priority.low");
-    if (priority === "high") return t("projects.priority.high");
-    if (priority === "urgent") return t("projects.priority.urgent");
-    return t("projects.priority.normal");
-  }
 
   function tasksForStatus(status: ProjectStatus): ProjectTask[] {
     const statusTasks = tasks.filter((task) => task.statusId === status.id && !task.parentTaskId);
@@ -211,19 +208,6 @@
     return ordered[index + direction];
   }
 
-  function statusBadgeClass(status: ProjectStatus | undefined): string {
-    if (status?.category === "done") return "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
-    if (status?.category === "blocked") return "border-destructive/40 bg-destructive/10 text-destructive";
-    if (status?.category === "active") return "border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-300";
-    return "border-border bg-muted/50 text-muted-foreground";
-  }
-
-  function taskArchivedBadgeClass(task: ProjectTask): string {
-    return task.archivedAt
-      ? "border-muted-foreground/30 bg-muted/50 text-muted-foreground"
-      : "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
-  }
-
   async function moveTaskToStatus(task: ProjectTask, status: ProjectStatus | undefined): Promise<void> {
     if (!status || status.id === task.statusId) return;
     await projects.setTaskStatus(task, status.id);
@@ -248,7 +232,7 @@
       ondragover={(event) => handleBoardColumnDragOver(event, status)}
       ondrop={(event) => { void dropBoardTask(event, status); }}
     >
-      <div class={cn("rounded-md border px-2 py-1.5 text-[0.8rem] font-semibold", statusBadgeClass(status))}>
+      <div class={cn("rounded-md border px-2 py-1.5 text-[0.8rem] font-semibold", projectStatusBadgeClass(status))}>
         {status.name} ({statusTasks.length})
       </div>
       <div class="flex flex-col gap-2">
@@ -305,14 +289,14 @@
               >
                 <span class="block truncate text-[0.866667rem]">{task.title}</span>
                 <span class="mt-1 flex items-center gap-1 text-[0.733333rem] text-muted-foreground">
-                  {priorityLabel(task.priority)}
+                  {projectPriorityLabel(task.priority, t)}
                   {#if task.dueDate}
                     <span>/</span>
                     <span>{task.dueDate}</span>
                   {/if}
                 </span>
                 {#if task.archivedAt}
-                  <span class={cn("mt-1 inline-flex rounded border px-1.5 py-0.5 text-[0.733333rem]", taskArchivedBadgeClass(task))}>
+                  <span class={cn("mt-1 inline-flex rounded border px-1.5 py-0.5 text-[0.733333rem]", projectTaskArchivedBadgeClass(task))}>
                     {t("projects.taskLifecycle.archived")}
                   </span>
                 {/if}

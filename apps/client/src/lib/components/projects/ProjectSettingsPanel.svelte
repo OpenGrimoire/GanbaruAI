@@ -8,10 +8,16 @@
   import X from "@lucide/svelte/icons/x";
   import ColorPicker from "$lib/components/calendar/ColorPicker.svelte";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
-  import { getEventColor } from "$lib/components/calendar/utils";
   import type { EventColor } from "$lib/components/calendar/types";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { COUNT_PRESET_RHYTHMS, type PomodoroPresetKey } from "$lib/pomodoro/rhythm";
+  import {
+    projectCustomFieldTypeLabel,
+    projectLabelColorDotStyle,
+    projectLabelColorSwatchClass,
+    projectLifecycleBadgeClass,
+    projectLifecycleLabel,
+  } from "$lib/projects/project-display";
   import {
     PROJECT_CUSTOM_FIELD_TYPES,
     PROJECT_LIFECYCLE_STATUSES,
@@ -30,6 +36,7 @@
   import { getTheme } from "$lib/stores/theme.svelte";
   import { cn } from "$lib/utils";
   import ProjectIcon from "./ProjectIcon.svelte";
+  import ProjectSettingsDefaultsSection from "./ProjectSettingsDefaultsSection.svelte";
 
   let {
     projectId,
@@ -222,34 +229,12 @@
     return t("projects.statusCategory.notStarted");
   }
 
-  function projectLifecycleLabel(status: ProjectLifecycleStatus): string {
-    if (status === "hidden") return t("projects.lifecycle.hidden");
-    if (status === "archived") return t("projects.lifecycle.archived");
-    return t("projects.lifecycle.active");
-  }
-
-  function projectLifecycleBadgeClass(status: ProjectLifecycleStatus): string {
-    if (status === "hidden") return "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300";
-    if (status === "archived") return "border-muted-foreground/30 bg-muted/50 text-muted-foreground";
-    return "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
-  }
-
   function pomodoroPresetLabel(preset: PomodoroPresetKey): string {
     if (preset === "creative") return t("projects.pomodoro.creative");
     if (preset === "balanced") return t("projects.pomodoro.balanced");
     if (preset === "deep") return t("projects.pomodoro.deep");
     if (preset === "extended") return t("projects.pomodoro.extended");
     return t("projects.pomodoro.adaptive");
-  }
-
-  function customFieldTypeLabel(fieldType: ProjectCustomFieldType): string {
-    if (fieldType === "number") return t("projects.customFields.typeNumber");
-    if (fieldType === "date") return t("projects.customFields.typeDate");
-    if (fieldType === "select") return t("projects.customFields.typeSelect");
-    if (fieldType === "multi_select") return t("projects.customFields.typeMultiSelect");
-    if (fieldType === "checkbox") return t("projects.customFields.typeCheckbox");
-    if (fieldType === "url") return t("projects.customFields.typeUrl");
-    return t("projects.customFields.typeText");
   }
 
   function customFieldAcceptsOptions(field: ProjectCustomField): boolean {
@@ -337,15 +322,6 @@
     return projectLabels.some((label) =>
       label.id !== ignoredLabelId && label.name.trim().toLowerCase() === normalized
     );
-  }
-
-  function labelColorDotStyle(color: EventColor | undefined): string {
-    if (color === undefined) return "";
-    return `background-color: ${getEventColor(color, theme.current).bg};`;
-  }
-
-  function labelColorSwatchClass(color: EventColor | undefined): string {
-    return color === undefined ? "border-border bg-muted/50" : "border-transparent";
   }
 
   function adjacentLabel(label: ProjectLabel, direction: -1 | 1): ProjectLabel | undefined {
@@ -798,7 +774,7 @@
                     projectStatusDraft = status;
                   }}
                 >
-                  {projectLifecycleLabel(status)}
+                  {projectLifecycleLabel(status, t)}
                 </button>
               {/each}
             </div>
@@ -851,101 +827,17 @@
           </div>
         </section>
 
-        <section class="grid gap-2 border-t border-border/70 pt-3">
-          <h2 class="text-[0.8rem] font-semibold">{t("projects.settings.defaults")}</h2>
-          <label class="grid gap-1 text-[0.733333rem] font-medium text-muted-foreground">
-            <span>{t("projects.settings.defaultDuration")}</span>
-            <input
-              bind:value={projectDurationDraft}
-              inputmode="numeric"
-              class="min-h-8 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground"
-            />
-          </label>
-
-          <div class="grid gap-1">
-            <div class="text-[0.733333rem] font-medium text-muted-foreground">{t("projects.settings.defaultPomodoro")}</div>
-            <div class="flex flex-wrap gap-1">
-              <button
-                type="button"
-                class={cn(
-                  "rounded-md border px-2 py-1 text-[0.766667rem]",
-                  projectPomodoroDraft === "none"
-                    ? "border-primary/50 bg-primary/10 text-primary"
-                    : "border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground",
-                )}
-                onclick={() => {
-                  projectPomodoroDraft = "none";
-                }}
-              >
-                {t("common.none")}
-              </button>
-              {#each PROJECT_POMODORO_OPTIONS as preset}
-                <button
-                  type="button"
-                  class={cn(
-                    "rounded-md border px-2 py-1 text-[0.766667rem]",
-                    projectPomodoroDraft === preset
-                      ? "border-primary/50 bg-primary/10 text-primary"
-                      : "border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground",
-                  )}
-                  onclick={() => {
-                    projectPomodoroDraft = preset;
-                  }}
-                >
-                  {pomodoroPresetLabel(preset)}
-                </button>
-              {/each}
-            </div>
-          </div>
-
-          <label class="grid gap-1 text-[0.733333rem] font-medium text-muted-foreground">
-            <span>{t("projects.settings.defaultIdleTimeout")}</span>
-            <input
-              bind:value={projectIdleTimeoutDraft}
-              inputmode="numeric"
-              placeholder={t("common.disabled")}
-              class="min-h-8 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground"
-            />
-          </label>
-
-          <div class="grid gap-2 border-t border-border/60 pt-2">
-            <h3 class="text-[0.766667rem] font-semibold">{t("projects.settings.automationDefaults")}</h3>
-            <div class="grid gap-2 min-[980px]:grid-cols-2">
-              <label class="grid gap-1 text-[0.733333rem] font-medium text-muted-foreground">
-                <span>{t("projects.settings.focusPlaylist")}</span>
-                <input
-                  bind:value={projectFocusPlaylistDraft}
-                  placeholder={t("common.none")}
-                  class="min-h-8 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground placeholder:text-muted-foreground"
-                />
-              </label>
-              <label class="grid gap-1 text-[0.733333rem] font-medium text-muted-foreground">
-                <span>{t("projects.settings.breakPlaylist")}</span>
-                <input
-                  bind:value={projectBreakPlaylistDraft}
-                  placeholder={t("common.none")}
-                  class="min-h-8 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground placeholder:text-muted-foreground"
-                />
-              </label>
-              <label class="grid gap-1 text-[0.733333rem] font-medium text-muted-foreground">
-                <span>{t("projects.settings.workEnvironment")}</span>
-                <input
-                  bind:value={projectWorkEnvironmentDraft}
-                  placeholder={t("common.none")}
-                  class="min-h-8 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground placeholder:text-muted-foreground"
-                />
-              </label>
-              <label class="grid gap-1 text-[0.733333rem] font-medium text-muted-foreground">
-                <span>{t("projects.settings.blockerRuleset")}</span>
-                <input
-                  bind:value={projectBlockerRulesetDraft}
-                  placeholder={t("common.none")}
-                  class="min-h-8 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground placeholder:text-muted-foreground"
-                />
-              </label>
-            </div>
-          </div>
-        </section>
+        <ProjectSettingsDefaultsSection
+          pomodoroOptions={PROJECT_POMODORO_OPTIONS}
+          {pomodoroPresetLabel}
+          bind:projectDurationDraft
+          bind:projectPomodoroDraft
+          bind:projectIdleTimeoutDraft
+          bind:projectFocusPlaylistDraft
+          bind:projectBreakPlaylistDraft
+          bind:projectWorkEnvironmentDraft
+          bind:projectBlockerRulesetDraft
+        />
 
         <section class="grid gap-2 border-t border-border/70 pt-3">
           <div class="flex items-center justify-between gap-2">
@@ -960,8 +852,8 @@
               <div class="grid gap-2 rounded-md border border-border bg-background p-2">
                 <div class="flex gap-1">
                   <span
-                    class={cn("mt-2.5 h-2.5 w-2.5 shrink-0 rounded-full border", labelColorSwatchClass(draftColor))}
-                    style={labelColorDotStyle(draftColor)}
+                    class={cn("mt-2.5 h-2.5 w-2.5 shrink-0 rounded-full border", projectLabelColorSwatchClass(draftColor))}
+                    style={projectLabelColorDotStyle(draftColor, theme.current)}
                   ></span>
                   <input
                     value={labelNameDraftValue(label)}
@@ -1064,8 +956,8 @@
           <div class="grid gap-1 rounded-md border border-dashed border-border p-2">
             <div class="flex gap-1">
               <span
-                class={cn("mt-2.5 h-2.5 w-2.5 shrink-0 rounded-full border", labelColorSwatchClass(newLabelColorValue()))}
-                style={labelColorDotStyle(newLabelColorValue())}
+                class={cn("mt-2.5 h-2.5 w-2.5 shrink-0 rounded-full border", projectLabelColorSwatchClass(newLabelColorValue()))}
+                style={projectLabelColorDotStyle(newLabelColorValue(), theme.current)}
               ></span>
               <input
                 bind:value={newLabelName}
@@ -1158,7 +1050,7 @@
                 </div>
                 <div class="flex flex-wrap items-center gap-1">
                   <span class="rounded border border-border bg-card px-2 py-1 text-[0.733333rem] text-muted-foreground">
-                    {customFieldTypeLabel(field.fieldType)}
+                    {projectCustomFieldTypeLabel(field.fieldType, t)}
                   </span>
                   <button
                     type="button"
@@ -1335,7 +1227,7 @@
                     newCustomFieldType = fieldType;
                   }}
                 >
-                  {customFieldTypeLabel(fieldType)}
+                  {projectCustomFieldTypeLabel(fieldType, t)}
                 </button>
               {/each}
             </div>

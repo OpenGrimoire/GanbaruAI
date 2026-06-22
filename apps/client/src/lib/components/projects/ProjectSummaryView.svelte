@@ -2,11 +2,14 @@
   import CircleAlert from "@lucide/svelte/icons/circle-alert";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import type {
-    ProjectPriority,
     ProjectStatus,
     ProjectTask,
     ProjectTaskChangeEvent,
   } from "$lib/projects/types";
+  import {
+    projectPriorityLabel,
+    projectTaskHistoryEventLabel,
+  } from "$lib/projects/project-display";
   import { getProjects } from "$lib/stores/projects.svelte";
 
   let {
@@ -31,13 +34,6 @@
   const { t } = getLocalization();
 
   const completedTaskCount = $derived(tasks.filter((task) => isTaskDone(task)).length);
-
-  function priorityLabel(priority: ProjectPriority): string {
-    if (priority === "low") return t("projects.priority.low");
-    if (priority === "high") return t("projects.priority.high");
-    if (priority === "urgent") return t("projects.priority.urgent");
-    return t("projects.priority.normal");
-  }
 
   function taskCountForStatus(status: ProjectStatus): number {
     return tasks.filter((task) => task.statusId === status.id && !task.parentTaskId).length;
@@ -120,44 +116,6 @@
 
   function historyTaskTitle(event: ProjectTaskChangeEvent): string {
     return taskById(event.taskId)?.title ?? t("projects.detail.missingHistoryTask");
-  }
-
-  function historyEventLabel(event: ProjectTaskChangeEvent): string {
-    const field = event.fieldName ? historyFieldLabel(event.fieldName) : "";
-    const oldValue = event.oldValue ?? t("projects.history.emptyValue");
-    const newValue = event.newValue ?? t("projects.history.emptyValue");
-    if (event.eventType === "created") return t("projects.history.created");
-    if (event.eventType === "scheduled") return t("projects.history.scheduled");
-    if (event.eventType === "event_unlinked") return t("projects.history.eventUnlinked");
-    if (event.eventType === "dependency_added") return t("projects.history.dependencyAdded", newValue);
-    if (event.eventType === "dependency_removed") return t("projects.history.dependencyRemoved", oldValue);
-    if (event.eventType === "completed") return t("projects.history.completed", oldValue, newValue);
-    if (event.eventType === "reopened") return t("projects.history.reopened", oldValue, newValue);
-    if (event.eventType === "archived") return t("projects.history.archived");
-    if (event.fieldName) return t("projects.history.fieldChanged", field, oldValue, newValue);
-    return t("projects.history.updated");
-  }
-
-  function historyFieldLabel(fieldName: string): string {
-    if (fieldName.startsWith("custom_field:")) return fieldName.slice("custom_field:".length);
-    if (fieldName === "title") return t("projects.history.fields.title");
-    if (fieldName === "description") return t("projects.history.fields.description");
-    if (fieldName === "status") return t("projects.history.fields.status");
-    if (fieldName === "section") return t("projects.history.fields.section");
-    if (fieldName === "parent") return t("projects.history.fields.parent");
-    if (fieldName === "priority") return t("projects.history.fields.priority");
-    if (fieldName === "type") return t("projects.history.fields.type");
-    if (fieldName === "estimate") return t("projects.history.fields.estimate");
-    if (fieldName === "due_date") return t("projects.history.fields.dueDate");
-    if (fieldName === "start_date") return t("projects.history.fields.startDate");
-    if (fieldName === "target_date") return t("projects.history.fields.targetDate");
-    if (fieldName === "archived_at") return t("projects.history.fields.archiveState");
-    if (fieldName === "blocker_reason") return t("projects.history.fields.blockerReason");
-    if (fieldName === "milestone") return t("projects.history.fields.milestone");
-    if (fieldName === "checklist") return t("projects.history.fields.checklist");
-    if (fieldName === "event_id") return t("projects.history.fields.event");
-    if (fieldName === "blocking_task_id") return t("projects.history.fields.dependency");
-    return fieldName;
   }
 
   function totalOpenEstimateMinutes(): number {
@@ -277,7 +235,7 @@
           onclick={() => onOpenTask(task)}
         >
           <span class="truncate">{task.title}</span>
-          <span class="text-[0.733333rem] text-muted-foreground">{priorityLabel(task.priority)}</span>
+          <span class="text-[0.733333rem] text-muted-foreground">{projectPriorityLabel(task.priority, t)}</span>
         </button>
       {:else}
         <div class="text-[0.8rem] text-muted-foreground">{t("projects.summary.noMissingEstimates")}</div>
@@ -299,7 +257,7 @@
         >
           <span class="min-w-0">
             <span class="block truncate text-[0.8rem]">{historyTaskTitle(event)}</span>
-            <span class="block truncate text-[0.733333rem] text-muted-foreground">{historyEventLabel(event)}</span>
+            <span class="block truncate text-[0.733333rem] text-muted-foreground">{projectTaskHistoryEventLabel(event, t)}</span>
             {#if event.reason}
               <span class="block truncate text-[0.733333rem] text-muted-foreground">
                 {t("projects.history.reason", event.reason)}

@@ -15,9 +15,18 @@
   import CalendarScrollbar from "$lib/components/calendar/CalendarScrollbar.svelte";
   import MiniDatePicker from "$lib/components/calendar/MiniDatePicker.svelte";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
-  import { getEventColor } from "$lib/components/calendar/utils";
-  import type { CalendarEvent, EventColor } from "$lib/components/calendar/types";
+  import type { CalendarEvent } from "$lib/components/calendar/types";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import {
+    projectCustomFieldTypeLabel,
+    projectLabelColorDotStyle,
+    projectLabelColorSwatchClass,
+    projectPriorityBadgeClass,
+    projectPriorityLabel,
+    projectStatusBadgeClass,
+    projectTaskArchivedBadgeClass,
+    projectTaskTypeLabel,
+  } from "$lib/projects/project-display";
   import {
     PROJECT_PRIORITIES,
     PROJECT_TASK_TYPES,
@@ -26,13 +35,11 @@
     ProjectChecklistItem,
     ProjectCustomField,
     ProjectCustomFieldOption,
-    ProjectCustomFieldType,
     ProjectLabel,
     ProjectLinkableEvent,
     ProjectPriority,
     ProjectStatus,
     ProjectTask,
-    ProjectTaskChangeEvent,
     ProjectTaskType,
   } from "$lib/projects/types";
   import { getCalendar } from "$lib/stores/calendar.svelte";
@@ -40,6 +47,7 @@
   import { getTheme } from "$lib/stores/theme.svelte";
   import { cn } from "$lib/utils";
   import type { ProjectTaskModalLayout } from "$lib/projects/project-toolbar";
+  import ProjectTaskDetailHistorySection from "./ProjectTaskDetailHistorySection.svelte";
 
   let {
     taskId,
@@ -296,50 +304,6 @@
       .some((label) => label.name.trim().toLowerCase() === name.toLowerCase());
   }
 
-  function priorityLabel(priority: ProjectPriority): string {
-    if (priority === "low") return t("projects.priority.low");
-    if (priority === "high") return t("projects.priority.high");
-    if (priority === "urgent") return t("projects.priority.urgent");
-    return t("projects.priority.normal");
-  }
-
-  function taskTypeLabel(taskType: ProjectTaskType): string {
-    if (taskType === "bug") return t("projects.taskType.bug");
-    if (taskType === "habit") return t("projects.taskType.habit");
-    if (taskType === "milestone") return t("projects.taskType.milestone");
-    return t("projects.taskType.task");
-  }
-
-  function taskArchivedBadgeClass(task: ProjectTask): string {
-    return task.archivedAt
-      ? "border-muted-foreground/30 bg-muted/50 text-muted-foreground"
-      : "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
-  }
-
-  function statusBadgeClass(status: ProjectStatus | undefined): string {
-    if (status?.category === "done") return "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
-    if (status?.category === "blocked") return "border-destructive/40 bg-destructive/10 text-destructive";
-    if (status?.category === "active") return "border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-300";
-    return "border-border bg-muted/50 text-muted-foreground";
-  }
-
-  function priorityClass(priority: ProjectPriority): string {
-    if (priority === "urgent") return "border-destructive/40 bg-destructive/10 text-destructive";
-    if (priority === "high") return "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300";
-    if (priority === "low") return "border-muted-foreground/20 bg-muted/30 text-muted-foreground";
-    return "border-border bg-background/70 text-foreground";
-  }
-
-  function customFieldTypeLabel(fieldType: ProjectCustomFieldType): string {
-    if (fieldType === "number") return t("projects.customFields.typeNumber");
-    if (fieldType === "date") return t("projects.customFields.typeDate");
-    if (fieldType === "select") return t("projects.customFields.typeSelect");
-    if (fieldType === "multi_select") return t("projects.customFields.typeMultiSelect");
-    if (fieldType === "checkbox") return t("projects.customFields.typeCheckbox");
-    if (fieldType === "url") return t("projects.customFields.typeUrl");
-    return t("projects.customFields.typeText");
-  }
-
   function customFieldOptions(field: ProjectCustomField): ProjectCustomFieldOption[] {
     return projects.customFieldOptionsForField(field.id);
   }
@@ -365,15 +329,6 @@
     const currentIds = optionValues.map((option) => option.id).sort();
     const draftIds = [...(customFieldMultiDrafts[field.id] ?? [])].sort();
     return currentIds.join("\u0000") !== draftIds.join("\u0000");
-  }
-
-  function labelColorDotStyle(color: EventColor | undefined): string {
-    if (color === undefined) return "";
-    return `background-color: ${getEventColor(color, theme.current).bg};`;
-  }
-
-  function labelColorSwatchClass(color: EventColor | undefined): string {
-    return color === undefined ? "border-border bg-muted/50" : "border-transparent";
   }
 
   function linkedEventRowsForTask(task: ProjectTask): ProjectLinkableEvent[] {
@@ -410,44 +365,6 @@
       .filter((linkedTask) => linkedTask.taskId !== task.id)
       .map((linkedTask) => linkedTask.title)
       .join(", ");
-  }
-
-  function historyEventLabel(event: ProjectTaskChangeEvent): string {
-    const field = event.fieldName ? historyFieldLabel(event.fieldName) : "";
-    const oldValue = event.oldValue ?? t("projects.history.emptyValue");
-    const newValue = event.newValue ?? t("projects.history.emptyValue");
-    if (event.eventType === "created") return t("projects.history.created");
-    if (event.eventType === "scheduled") return t("projects.history.scheduled");
-    if (event.eventType === "event_unlinked") return t("projects.history.eventUnlinked");
-    if (event.eventType === "dependency_added") return t("projects.history.dependencyAdded", newValue);
-    if (event.eventType === "dependency_removed") return t("projects.history.dependencyRemoved", oldValue);
-    if (event.eventType === "completed") return t("projects.history.completed", oldValue, newValue);
-    if (event.eventType === "reopened") return t("projects.history.reopened", oldValue, newValue);
-    if (event.eventType === "archived") return t("projects.history.archived");
-    if (event.fieldName) return t("projects.history.fieldChanged", field, oldValue, newValue);
-    return t("projects.history.updated");
-  }
-
-  function historyFieldLabel(fieldName: string): string {
-    if (fieldName.startsWith("custom_field:")) return fieldName.slice("custom_field:".length);
-    if (fieldName === "title") return t("projects.history.fields.title");
-    if (fieldName === "description") return t("projects.history.fields.description");
-    if (fieldName === "status") return t("projects.history.fields.status");
-    if (fieldName === "section") return t("projects.history.fields.section");
-    if (fieldName === "parent") return t("projects.history.fields.parent");
-    if (fieldName === "priority") return t("projects.history.fields.priority");
-    if (fieldName === "type") return t("projects.history.fields.type");
-    if (fieldName === "estimate") return t("projects.history.fields.estimate");
-    if (fieldName === "due_date") return t("projects.history.fields.dueDate");
-    if (fieldName === "start_date") return t("projects.history.fields.startDate");
-    if (fieldName === "target_date") return t("projects.history.fields.targetDate");
-    if (fieldName === "archived_at") return t("projects.history.fields.archiveState");
-    if (fieldName === "blocker_reason") return t("projects.history.fields.blockerReason");
-    if (fieldName === "milestone") return t("projects.history.fields.milestone");
-    if (fieldName === "checklist") return t("projects.history.fields.checklist");
-    if (fieldName === "event_id") return t("projects.history.fields.event");
-    if (fieldName === "blocking_task_id") return t("projects.history.fields.dependency");
-    return fieldName;
   }
 
   function checklistItemDraftTitle(item: ProjectChecklistItem): string {
@@ -983,7 +900,7 @@
               class="min-h-8 min-w-0 flex-1 rounded-md bg-transparent px-1 text-[1.1rem] font-semibold text-foreground outline-none focus:bg-background focus:ring-2 focus:ring-ring/30"
             />
             {#if selectedTask.archivedAt}
-              <span class={cn("shrink-0 rounded border px-1.5 py-0.5 text-[0.666667rem]", taskArchivedBadgeClass(selectedTask))}>
+              <span class={cn("shrink-0 rounded border px-1.5 py-0.5 text-[0.666667rem]", projectTaskArchivedBadgeClass(selectedTask))}>
                 {t("projects.taskLifecycle.archived")}
               </span>
             {/if}
@@ -1027,7 +944,7 @@
                       class={cn(
                         "rounded-md border px-2 py-1 text-[0.766667rem]",
                         detailStatusId === status.id
-                          ? statusBadgeClass(status)
+                          ? projectStatusBadgeClass(status)
                           : "border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground",
                       )}
                       onclick={() => {
@@ -1071,14 +988,14 @@
                       class={cn(
                         "rounded-md border px-2 py-1 text-[0.766667rem]",
                         detailPriority === priority
-                          ? priorityClass(priority)
+                          ? projectPriorityBadgeClass(priority)
                           : "border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground",
                       )}
                       onclick={() => {
                         detailPriority = priority;
                       }}
                     >
-                      {priorityLabel(priority)}
+                      {projectPriorityLabel(priority, t)}
                     </button>
                   {/each}
                 </div>
@@ -1100,7 +1017,7 @@
                         detailTaskType = taskType;
                       }}
                     >
-                      {taskTypeLabel(taskType)}
+                      {projectTaskTypeLabel(taskType, t)}
                     </button>
                   {/each}
                 </div>
@@ -1269,8 +1186,8 @@
                   {#each selectedTaskLabels as label (label.id)}
                     <span class="inline-flex min-h-7 max-w-full items-center gap-1 rounded-md border border-border bg-background px-2 text-[0.766667rem]">
                       <span
-                        class={cn("h-2 w-2 shrink-0 rounded-full border", labelColorSwatchClass(label.color))}
-                        style={labelColorDotStyle(label.color)}
+                        class={cn("h-2 w-2 shrink-0 rounded-full border", projectLabelColorSwatchClass(label.color))}
+                        style={projectLabelColorDotStyle(label.color, theme.current)}
                       ></span>
                       <span class="truncate">{label.name}</span>
                       <button
@@ -1321,8 +1238,8 @@
                     >
                       <span class="flex min-w-0 items-center gap-2">
                         <span
-                          class={cn("h-2 w-2 shrink-0 rounded-full border", labelColorSwatchClass(label.color))}
-                          style={labelColorDotStyle(label.color)}
+                          class={cn("h-2 w-2 shrink-0 rounded-full border", projectLabelColorSwatchClass(label.color))}
+                          style={projectLabelColorDotStyle(label.color, theme.current)}
                         ></span>
                         <span class="truncate text-[0.8rem]">{label.name}</span>
                       </span>
@@ -1361,7 +1278,7 @@
                         <div class="min-w-0">
                           <div class="truncate text-[0.8rem] font-medium">{field.name}</div>
                           <div class="truncate text-[0.733333rem] text-muted-foreground">
-                            {customFieldTypeLabel(field.fieldType)}
+                            {projectCustomFieldTypeLabel(field.fieldType, t)}
                           </div>
                         </div>
                         <button
@@ -1823,7 +1740,7 @@
                     >
                       <span class="block truncate text-[0.8rem]">{subtask.title}</span>
                     </button>
-                    <span class={cn("rounded border px-1.5 py-0.5 text-[0.733333rem]", statusBadgeClass(subtaskStatus))}>
+                    <span class={cn("rounded border px-1.5 py-0.5 text-[0.733333rem]", projectStatusBadgeClass(subtaskStatus))}>
                       {subtaskStatus?.name ?? t("projects.list.status")}
                     </span>
                     <button
@@ -2041,29 +1958,7 @@
               </div>
             </section>
 
-            <section class="task-detail-section">
-              <div class="flex items-center justify-between gap-2">
-                <h2 class="task-detail-section-title">{t("projects.detail.history")}</h2>
-                <span class="text-[0.733333rem] text-muted-foreground">{selectedTaskHistory.length}</span>
-              </div>
-              <div class="grid gap-1">
-                {#each selectedTaskHistory as event (event.id)}
-                  <div class="rounded-md border border-border bg-background px-2 py-1.5">
-                    <div class="truncate text-[0.8rem]">{historyEventLabel(event)}</div>
-                    {#if event.reason}
-                      <div class="truncate text-[0.733333rem] text-muted-foreground">
-                        {t("projects.history.reason", event.reason)}
-                      </div>
-                    {/if}
-                    <div class="truncate text-[0.733333rem] text-muted-foreground">{event.occurredAt}</div>
-                  </div>
-                {:else}
-                  <div class="rounded-md border border-dashed border-border px-2 py-2 text-[0.8rem] text-muted-foreground">
-                    {t("projects.detail.noHistory")}
-                  </div>
-                {/each}
-              </div>
-            </section>
+            <ProjectTaskDetailHistorySection events={selectedTaskHistory} />
 
             {#if detailError}
               <div class="rounded-md border border-destructive/30 bg-destructive/10 px-2 py-2 text-[0.8rem] text-destructive">

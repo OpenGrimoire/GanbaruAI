@@ -34,6 +34,7 @@ Each project starts with a General section and default statuses: Backlog, To do,
 
 The Projects tab now has an initial project management surface with:
 
+- The Projects frontend is split into a workspace shell, header, toolbar panels, task finder, bulk action controller, first-class List view, list row and column pieces, and focused detail or settings section components. Shared display, scheduling, and list view calculations live under `$lib/projects/` so labels, chips, scheduling windows, list grids, selected-task cleanup, and active filter chips can be tested without Svelte, DOM, or Tauri.
 - Group and project navigation lives in an on-demand project selector opened from the project header, not as a persistent left rail. The selector is fixed to the `Group / Project` breadcrumb trigger so toolbar scrolling and content overflow cannot clip it.
 - Inline group editing from the navigator, including group name, icon, color, and group ordering.
 - Project ordering inside a group from the navigator, plus project group reassignment from project settings.
