@@ -23,7 +23,7 @@ function savedView(overrides: Partial<ProjectSavedTaskView> = {}): ProjectSavedT
     id: "view",
     projectId: "project",
     name: "Blocked this week",
-    viewId: "board",
+    viewId: "kanban",
     search: "api",
     statusFilter: "blocked",
     sectionFilter: "section-a",
@@ -50,11 +50,20 @@ describe("saved task views", () => {
   it("round-trips a saved task view through a preference row", () => {
     const view = savedView();
     const result = parseSavedTaskViewPreference(preference({
-      viewId: "board",
+      viewId: "kanban",
       preferenceValue: savedTaskViewPreferenceValue(view),
     }));
 
     expect(result).toEqual(view);
+  });
+
+  it("maps legacy saved view ids to their current view ids", () => {
+    expect(parseSavedTaskViewPreference(preference({
+      preferenceValue: JSON.stringify({ ...savedView(), viewId: "board" }),
+    }))?.viewId).toBe("kanban");
+    expect(parseSavedTaskViewPreference(preference({
+      preferenceValue: JSON.stringify({ ...savedView(), viewId: "summary" }),
+    }))?.viewId).toBe("dashboard");
   });
 
   it("defaults stale enum values instead of trusting persisted data", () => {

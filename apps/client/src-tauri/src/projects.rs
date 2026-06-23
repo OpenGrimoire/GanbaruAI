@@ -1397,7 +1397,7 @@ pub async fn projects_delete_view_preference<R: Runtime>(
     validate_enum(
         &view_id,
         "view_id",
-        &["list", "board", "calendar", "gantt", "summary"],
+        &["dashboard", "list", "kanban", "calendar", "gantt"],
     )?;
     require_non_empty(&preference_key, "preference_key")?;
     let pool = connect_sqlite(app, db_url).await?;

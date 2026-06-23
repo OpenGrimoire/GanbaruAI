@@ -11,6 +11,8 @@ export function isProjectViewId(value: unknown): value is ProjectViewId {
 }
 
 export function parseStoredProjectViewId(value: unknown): ProjectViewId {
+  if (value === "board") return "kanban";
+  if (value === "summary") return "dashboard";
   return isProjectViewId(value) ? value : DEFAULT_PROJECT_VIEW_ID;
 }
 

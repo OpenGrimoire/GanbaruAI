@@ -1,6 +1,6 @@
 import type { EventColor } from "$lib/components/calendar/types";
 
-export const PROJECT_VIEW_IDS = ["list", "board", "calendar", "gantt", "summary"] as const;
+export const PROJECT_VIEW_IDS = ["dashboard", "list", "kanban", "calendar", "gantt"] as const;
 export type ProjectViewId = (typeof PROJECT_VIEW_IDS)[number];
 
 export const PROJECT_PRIORITIES = ["low", "normal", "high", "urgent"] as const;

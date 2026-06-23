@@ -84,7 +84,7 @@ describe("task list columns", () => {
     expect(taskListColumnsForProject([
       preference(taskListColumnsPreferenceValue(["priority"])),
       { ...preference(taskListColumnsPreferenceValue(["due"])), projectId: "other" },
-      { ...preference(taskListColumnsPreferenceValue(["scheduled"])), viewId: "board" },
+      { ...preference(taskListColumnsPreferenceValue(["scheduled"])), viewId: "kanban" },
     ], "project")).toEqual(["priority"]);
   });
 });

@@ -8,17 +8,20 @@ import {
 
 describe("project ui preferences", () => {
   it("accepts supported project view ids only", () => {
+    expect(isProjectViewId("dashboard")).toBe(true);
     expect(isProjectViewId("list")).toBe(true);
-    expect(isProjectViewId("board")).toBe(true);
+    expect(isProjectViewId("kanban")).toBe(true);
     expect(isProjectViewId("calendar")).toBe(true);
     expect(isProjectViewId("gantt")).toBe(true);
-    expect(isProjectViewId("summary")).toBe(true);
+    expect(isProjectViewId("board")).toBe(false);
+    expect(isProjectViewId("summary")).toBe(false);
     expect(isProjectViewId("timeline")).toBe(false);
     expect(isProjectViewId(undefined)).toBe(false);
   });
 
-  it("falls back to the list view for invalid stored view ids", () => {
-    expect(parseStoredProjectViewId("board")).toBe("board");
+  it("maps legacy view ids and falls back to the list view for invalid stored view ids", () => {
+    expect(parseStoredProjectViewId("board")).toBe("kanban");
+    expect(parseStoredProjectViewId("summary")).toBe("dashboard");
     expect(parseStoredProjectViewId("timeline")).toBe(DEFAULT_PROJECT_VIEW_ID);
     expect(parseStoredProjectViewId(null)).toBe(DEFAULT_PROJECT_VIEW_ID);
   });

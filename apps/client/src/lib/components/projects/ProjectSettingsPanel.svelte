@@ -40,10 +40,12 @@
 
   let {
     projectId,
+    presentation = "side",
     onClose,
     onRevealInactive,
   }: {
     projectId: string;
+    presentation?: "side" | "popover";
     onClose: () => void;
     onRevealInactive: () => void;
   } = $props();
@@ -693,7 +695,14 @@
 </script>
 
 {#if selectedProject}
-<aside class="flex min-h-0 w-[min(23rem,42vw)] min-w-64 shrink-0 flex-col border-l border-border bg-card max-[760px]:fixed max-[760px]:inset-2 max-[760px]:z-30 max-[760px]:w-auto max-[760px]:rounded-md max-[760px]:border">
+<aside
+  class={cn(
+    "flex min-h-0 flex-col bg-card",
+    presentation === "popover"
+      ? "h-full w-full"
+      : "w-[min(23rem,42vw)] min-w-64 shrink-0 border-l border-border max-[760px]:fixed max-[760px]:inset-2 max-[760px]:z-30 max-[760px]:w-auto max-[760px]:rounded-md max-[760px]:border",
+  )}
+>
   <header class="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2">
     <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-accent text-accent-foreground">
       <ProjectIcon name={projectIconDraft} size={16} />

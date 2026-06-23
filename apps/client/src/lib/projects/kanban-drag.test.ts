@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { projectBoardDropSortOrder, type ProjectBoardDragTask } from "./board-drag";
+import { projectKanbanDropSortOrder, type ProjectKanbanDragTask } from "./kanban-drag";
 
-function task(id: string, statusSortOrder: number): ProjectBoardDragTask {
+function task(id: string, statusSortOrder: number): ProjectKanbanDragTask {
   return { id, statusSortOrder };
 }
 
-describe("projectBoardDropSortOrder", () => {
+describe("projectKanbanDropSortOrder", () => {
   it("places a card between visual neighbors in ascending order", () => {
-    expect(projectBoardDropSortOrder({
+    expect(projectKanbanDropSortOrder({
       orderedTasks: [task("a", 1000), task("b", 2000), task("c", 3000)],
       draggedTaskId: "dragged",
       overTaskId: "b",
@@ -17,7 +17,7 @@ describe("projectBoardDropSortOrder", () => {
   });
 
   it("places a card before the first visual card in ascending order", () => {
-    expect(projectBoardDropSortOrder({
+    expect(projectKanbanDropSortOrder({
       orderedTasks: [task("a", 1000), task("b", 2000)],
       draggedTaskId: "dragged",
       overTaskId: "a",
@@ -27,7 +27,7 @@ describe("projectBoardDropSortOrder", () => {
   });
 
   it("appends a card in ascending order when no target card is supplied", () => {
-    expect(projectBoardDropSortOrder({
+    expect(projectKanbanDropSortOrder({
       orderedTasks: [task("a", 1000), task("b", 2000)],
       draggedTaskId: "dragged",
       sortDirection: "asc",
@@ -35,7 +35,7 @@ describe("projectBoardDropSortOrder", () => {
   });
 
   it("places a card between visual neighbors in descending order", () => {
-    expect(projectBoardDropSortOrder({
+    expect(projectKanbanDropSortOrder({
       orderedTasks: [task("c", 3000), task("b", 2000), task("a", 1000)],
       draggedTaskId: "dragged",
       overTaskId: "b",
@@ -45,7 +45,7 @@ describe("projectBoardDropSortOrder", () => {
   });
 
   it("places a card before the first visual card in descending order", () => {
-    expect(projectBoardDropSortOrder({
+    expect(projectKanbanDropSortOrder({
       orderedTasks: [task("b", 2000), task("a", 1000)],
       draggedTaskId: "dragged",
       overTaskId: "b",
@@ -55,7 +55,7 @@ describe("projectBoardDropSortOrder", () => {
   });
 
   it("ignores the dragged card when calculating a same-column insertion", () => {
-    expect(projectBoardDropSortOrder({
+    expect(projectKanbanDropSortOrder({
       orderedTasks: [task("a", 1000), task("dragged", 2000), task("b", 3000)],
       draggedTaskId: "dragged",
       overTaskId: "b",

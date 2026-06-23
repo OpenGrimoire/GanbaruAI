@@ -3,7 +3,7 @@ import type {
   ProjectTaskListColumn,
 } from "./types";
 
-export type ProjectToolbarPanel = "filters" | "customize" | "more";
+export type ProjectToolbarPanel = "filters" | "customize" | "settings";
 export type ProjectTaskModalLayout = "modal" | "sheet" | "fullscreen";
 
 export interface ProjectFilterChipInput {
@@ -67,6 +67,27 @@ export interface ProjectNavigatorPanelGeometry {
   height: number;
 }
 
+export interface ProjectToolbarPanelGeometryInput {
+  anchorLeft: number;
+  anchorRight: number;
+  anchorTop: number;
+  anchorBottom: number;
+  viewportWidth: number;
+  viewportHeight: number;
+  edgeMargin?: number;
+  gap?: number;
+  preferredWidth?: number;
+  preferredHeight?: number;
+  compactBreakpoint?: number;
+}
+
+export interface ProjectToolbarPanelGeometry {
+  left: number;
+  top: number;
+  width: number;
+  maxHeight: number;
+}
+
 export const PROJECT_TASK_MODAL_TITLE_BAR_HEIGHT = 42;
 export const PROJECT_TASK_MODAL_EDGE_MARGIN = 12;
 export const PROJECT_TASK_MODAL_MIN_FULLSCREEN_WIDTH = 390;
@@ -78,6 +99,11 @@ export const PROJECT_NAVIGATOR_PANEL_WIDTH = 448;
 export const PROJECT_NAVIGATOR_PANEL_HEIGHT = 384;
 export const PROJECT_NAVIGATOR_PANEL_COMPACT_BREAKPOINT = 520;
 export const PROJECT_NAVIGATOR_PANEL_COMPACT_TOP = 48;
+export const PROJECT_TOOLBAR_PANEL_EDGE_MARGIN = 8;
+export const PROJECT_TOOLBAR_PANEL_GAP = 6;
+export const PROJECT_TOOLBAR_PANEL_WIDTH = 380;
+export const PROJECT_TOOLBAR_PANEL_HEIGHT = 560;
+export const PROJECT_TOOLBAR_PANEL_COMPACT_BREAKPOINT = 460;
 
 function boundedNumber(value: number): number {
   return Number.isFinite(value) ? Math.max(0, value) : 0;
@@ -179,4 +205,47 @@ export function projectNavigatorPanelGeometry(
   const height = Math.min(preferredHeight, Math.max(0, viewportHeight - top - edge));
 
   return { left, top, width, height };
+}
+
+export function projectToolbarPanelGeometry(
+  input: ProjectToolbarPanelGeometryInput,
+): ProjectToolbarPanelGeometry {
+  const viewportWidth = boundedNumber(input.viewportWidth);
+  const viewportHeight = boundedNumber(input.viewportHeight);
+  const edge = boundedNumber(input.edgeMargin ?? PROJECT_TOOLBAR_PANEL_EDGE_MARGIN);
+  const gap = boundedNumber(input.gap ?? PROJECT_TOOLBAR_PANEL_GAP);
+  const preferredWidth = boundedNumber(input.preferredWidth ?? PROJECT_TOOLBAR_PANEL_WIDTH);
+  const preferredHeight = boundedNumber(input.preferredHeight ?? PROJECT_TOOLBAR_PANEL_HEIGHT);
+  const compactBreakpoint = boundedNumber(
+    input.compactBreakpoint ?? PROJECT_TOOLBAR_PANEL_COMPACT_BREAKPOINT,
+  );
+  const usableWidth = Math.max(0, viewportWidth - edge * 2);
+  const compact = viewportWidth <= compactBreakpoint;
+  const width = compact ? usableWidth : Math.min(preferredWidth, usableWidth);
+  const left = compact
+    ? edge
+    : clamp(
+      boundedNumber(input.anchorRight) - width,
+      edge,
+      Math.max(edge, viewportWidth - edge - width),
+    );
+
+  const anchorTop = boundedNumber(input.anchorTop);
+  const anchorBottom = boundedNumber(input.anchorBottom);
+  const belowTop = anchorBottom + gap;
+  const aboveBottom = anchorTop - gap;
+  const availableBelow = Math.max(0, viewportHeight - belowTop - edge);
+  const availableAbove = Math.max(0, aboveBottom - edge);
+  const useAbove = availableBelow < Math.min(preferredHeight, availableAbove);
+  const maxHeight = Math.min(preferredHeight, useAbove ? availableAbove : availableBelow);
+  const top = useAbove
+    ? Math.max(edge, aboveBottom - maxHeight)
+    : Math.min(belowTop, Math.max(edge, viewportHeight - edge - maxHeight));
+
+  return {
+    left,
+    top,
+    width,
+    maxHeight,
+  };
 }

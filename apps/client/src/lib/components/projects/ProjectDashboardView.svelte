@@ -83,7 +83,7 @@
       .slice(0, 5);
   }
 
-  function blockedSummaryTasks(): ProjectTask[] {
+  function blockedDashboardTasks(): ProjectTask[] {
     return tasks
       .filter((task) =>
         projects.statusById(task.statusId)?.category === "blocked"
@@ -125,27 +125,27 @@
   }
 
   function formatMinutesAsHours(minutes: number): string {
-    if (minutes < 60) return t("projects.summary.minutes", minutes);
+    if (minutes < 60) return t("projects.dashboard.minutes", minutes);
     const hours = minutes / 60;
-    return t("projects.summary.hours", Number.isInteger(hours) ? hours.toFixed(0) : hours.toFixed(1));
+    return t("projects.dashboard.hours", Number.isInteger(hours) ? hours.toFixed(0) : hours.toFixed(1));
   }
 </script>
 
 <div class="grid gap-3 p-3 min-[760px]:grid-cols-2">
   <section class="rounded-md border border-border bg-card p-3">
-    <h2 class="mb-2 text-[0.866667rem] font-semibold">{t("projects.summary.taskCounts")}</h2>
+    <h2 class="mb-2 text-[0.866667rem] font-semibold">{t("projects.dashboard.taskCounts")}</h2>
     <div class="grid gap-2 min-[520px]:grid-cols-3">
       <div>
         <div class="text-[1.6rem] font-semibold">{projectCompletionPercent()}%</div>
-        <div class="text-[0.733333rem] text-muted-foreground">{t("projects.summary.complete")}</div>
+        <div class="text-[0.733333rem] text-muted-foreground">{t("projects.dashboard.complete")}</div>
       </div>
       <div>
         <div class="text-[1.2rem] font-semibold">{formatMinutesAsHours(totalOpenEstimateMinutes())}</div>
-        <div class="text-[0.733333rem] text-muted-foreground">{t("projects.summary.openEstimate")}</div>
+        <div class="text-[0.733333rem] text-muted-foreground">{t("projects.dashboard.openEstimate")}</div>
       </div>
       <div>
         <div class="text-[1.2rem] font-semibold">{formatMinutesAsHours(scheduledThisWeekMinutes)}</div>
-        <div class="text-[0.733333rem] text-muted-foreground">{t("projects.summary.scheduledThisWeek")}</div>
+        <div class="text-[0.733333rem] text-muted-foreground">{t("projects.dashboard.scheduledThisWeek")}</div>
       </div>
     </div>
     <div class="mt-3 grid gap-1 text-[0.8rem] text-muted-foreground">
@@ -158,9 +158,9 @@
     </div>
   </section>
   <section class="rounded-md border border-border bg-card p-3">
-    <h2 class="mb-2 text-[0.866667rem] font-semibold">{t("projects.summary.blocked")}</h2>
+    <h2 class="mb-2 text-[0.866667rem] font-semibold">{t("projects.dashboard.blocked")}</h2>
     <div class="grid gap-1">
-      {#each blockedSummaryTasks() as task (task.id)}
+      {#each blockedDashboardTasks() as task (task.id)}
         <button
           type="button"
           class="flex min-w-0 items-center gap-2 rounded border border-border px-2 py-1 text-left text-[0.8rem] hover:bg-accent"
@@ -170,12 +170,12 @@
           <span class="truncate">{task.title}</span>
         </button>
       {:else}
-        <div class="text-[0.8rem] text-muted-foreground">{t("projects.summary.noBlockedTasks")}</div>
+        <div class="text-[0.8rem] text-muted-foreground">{t("projects.dashboard.noBlockedTasks")}</div>
       {/each}
     </div>
   </section>
   <section class="rounded-md border border-border bg-card p-3">
-    <h2 class="mb-2 text-[0.866667rem] font-semibold">{t("projects.summary.upcomingDeadlines")}</h2>
+    <h2 class="mb-2 text-[0.866667rem] font-semibold">{t("projects.dashboard.upcomingDeadlines")}</h2>
     <div class="grid gap-1">
       {#each upcomingDeadlineTasks() as task (task.id)}
         <button
@@ -187,12 +187,12 @@
           <span class="text-[0.733333rem] text-muted-foreground">{taskDateForDeadline(task)}</span>
         </button>
       {:else}
-        <div class="text-[0.8rem] text-muted-foreground">{t("projects.summary.noDeadlines")}</div>
+        <div class="text-[0.8rem] text-muted-foreground">{t("projects.dashboard.noDeadlines")}</div>
       {/each}
     </div>
   </section>
   <section class="rounded-md border border-border bg-card p-3">
-    <h2 class="mb-2 text-[0.866667rem] font-semibold">{t("projects.summary.overdue")}</h2>
+    <h2 class="mb-2 text-[0.866667rem] font-semibold">{t("projects.dashboard.overdue")}</h2>
     <div class="grid gap-1">
       {#each overdueTasks() as task (task.id)}
         <button
@@ -204,12 +204,12 @@
           <span class="text-[0.733333rem] text-destructive">{taskDateForDeadline(task)}</span>
         </button>
       {:else}
-        <div class="text-[0.8rem] text-muted-foreground">{t("projects.summary.noOverdueTasks")}</div>
+        <div class="text-[0.8rem] text-muted-foreground">{t("projects.dashboard.noOverdueTasks")}</div>
       {/each}
     </div>
   </section>
   <section class="rounded-md border border-border bg-card p-3">
-    <h2 class="mb-2 text-[0.866667rem] font-semibold">{t("projects.summary.unscheduledWithDueDate")}</h2>
+    <h2 class="mb-2 text-[0.866667rem] font-semibold">{t("projects.dashboard.unscheduledWithDueDate")}</h2>
     <div class="grid gap-1">
       {#each unscheduledDueTasks() as task (task.id)}
         <button
@@ -221,12 +221,12 @@
           <span class="text-[0.733333rem] text-muted-foreground">{task.dueDate}</span>
         </button>
       {:else}
-        <div class="text-[0.8rem] text-muted-foreground">{t("projects.summary.noUnscheduledDueTasks")}</div>
+        <div class="text-[0.8rem] text-muted-foreground">{t("projects.dashboard.noUnscheduledDueTasks")}</div>
       {/each}
     </div>
   </section>
   <section class="rounded-md border border-border bg-card p-3">
-    <h2 class="mb-2 text-[0.866667rem] font-semibold">{t("projects.summary.needsEstimates")}</h2>
+    <h2 class="mb-2 text-[0.866667rem] font-semibold">{t("projects.dashboard.needsEstimates")}</h2>
     <div class="grid gap-1">
       {#each tasksWithoutEstimates() as task (task.id)}
         <button
@@ -238,12 +238,12 @@
           <span class="text-[0.733333rem] text-muted-foreground">{projectPriorityLabel(task.priority, t)}</span>
         </button>
       {:else}
-        <div class="text-[0.8rem] text-muted-foreground">{t("projects.summary.noMissingEstimates")}</div>
+        <div class="text-[0.8rem] text-muted-foreground">{t("projects.dashboard.noMissingEstimates")}</div>
       {/each}
     </div>
   </section>
   <section class="rounded-md border border-border bg-card p-3 min-[760px]:col-span-2">
-    <h2 class="mb-2 text-[0.866667rem] font-semibold">{t("projects.summary.recentChanges")}</h2>
+    <h2 class="mb-2 text-[0.866667rem] font-semibold">{t("projects.dashboard.recentChanges")}</h2>
     <div class="grid gap-1 min-[760px]:grid-cols-2">
       {#each recentProjectChangeEvents() as event (event.id)}
         {@const historyTask = taskById(event.taskId)}
@@ -267,12 +267,12 @@
           <span class="text-[0.733333rem] text-muted-foreground">{event.occurredAt}</span>
         </button>
       {:else}
-        <div class="text-[0.8rem] text-muted-foreground">{t("projects.summary.noRecentChanges")}</div>
+        <div class="text-[0.8rem] text-muted-foreground">{t("projects.dashboard.noRecentChanges")}</div>
       {/each}
     </div>
   </section>
   <section class="rounded-md border border-border bg-card p-3 min-[760px]:col-span-2">
-    <h2 class="mb-2 text-[0.866667rem] font-semibold">{t("projects.summary.recentlyCompleted")}</h2>
+    <h2 class="mb-2 text-[0.866667rem] font-semibold">{t("projects.dashboard.recentlyCompleted")}</h2>
     <div class="grid gap-1 min-[760px]:grid-cols-2">
       {#each recentlyCompletedTasks() as task (task.id)}
         <button
@@ -284,7 +284,7 @@
           <span class="text-[0.733333rem] text-muted-foreground">{task.completedAt?.slice(0, 10)}</span>
         </button>
       {:else}
-        <div class="text-[0.8rem] text-muted-foreground">{t("projects.summary.noRecentlyCompleted")}</div>
+        <div class="text-[0.8rem] text-muted-foreground">{t("projects.dashboard.noRecentlyCompleted")}</div>
       {/each}
     </div>
   </section>

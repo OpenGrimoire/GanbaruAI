@@ -459,7 +459,7 @@ describe("buildProjectTaskListGroups", () => {
 });
 
 describe("manualStatusCompare", () => {
-  it("uses status order before section order for board columns", () => {
+  it("uses status order before section order for kanban columns", () => {
     const first = task({ id: "first", title: "First", statusSortOrder: 1000, sectionSortOrder: 2000 });
     const second = task({ id: "second", title: "Second", statusSortOrder: 2000, sectionSortOrder: 1000 });
 

@@ -8,7 +8,7 @@
   import { getViewport } from "$lib/stores/viewport.svelte";
   import { formatCalendarDate } from "$lib/components/calendar/utils";
   import { createPresetPomodoroConfig } from "$lib/pomodoro/rhythm";
-  import { cn } from "$lib/utils";
+  import { cn, isAppShortcutBlockedTarget, isEditableKeyboardTarget } from "$lib/utils";
   import type {
     CalendarEvent,
     CalendarViewMode,
@@ -31,13 +31,13 @@
     ProjectTaskSortDirection,
     ProjectTaskSortMode,
     ProjectTaskStatusFilter,
+    ProjectViewId,
   } from "$lib/projects/types";
   import {
     projectEventDurationMinutes,
     projectScheduleWindowFor,
   } from "$lib/projects/project-scheduling";
   import {
-    projectTaskActiveFilterChips,
     selectedProjectTaskIdsInView,
     taskListColumnWidthsForProject,
     type ProjectTaskListColumnWidths,
@@ -47,6 +47,7 @@
     PROJECT_LIFECYCLE_STATUSES,
     PROJECT_TASK_LIST_COLUMNS,
     PROJECT_TASK_TYPES,
+    PROJECT_VIEW_IDS,
   } from "$lib/projects/types";
   import {
     customFieldIdFromCustomFieldReference,
@@ -64,16 +65,14 @@
     deriveProjectListColumnControls,
     pickProjectTaskModalLayout,
     toggleProjectListColumn,
-    type ProjectFilterChip,
     type ProjectToolbarPanel,
   } from "$lib/projects/project-toolbar";
-  import ProjectBoardView from "./ProjectBoardView.svelte";
+  import ProjectDashboardView from "./ProjectDashboardView.svelte";
+  import ProjectKanbanView from "./ProjectKanbanView.svelte";
   import ProjectBulkActionController from "./ProjectBulkActionController.svelte";
   import ProjectEmptyState from "./ProjectEmptyState.svelte";
   import ProjectGanttView from "./ProjectGanttView.svelte";
   import ProjectListView from "./ProjectListView.svelte";
-  import ProjectSettingsPanel from "./ProjectSettingsPanel.svelte";
-  import ProjectSummaryView from "./ProjectSummaryView.svelte";
   import ProjectTaskFinder from "./ProjectTaskFinder.svelte";
   import ProjectTaskDetailPanel from "./ProjectTaskDetailPanel.svelte";
   import ProjectToolbarPanels from "./ProjectToolbarPanels.svelte";
@@ -83,6 +82,9 @@
   const calendar = getCalendar();
   const viewport = getViewport();
   const { t } = getLocalization();
+  const PROJECT_VIEW_SHORTCUTS = new Map<string, ProjectViewId>(
+    PROJECT_VIEW_IDS.map((view, index) => [String(index + 1), view]),
+  );
 
   let showInactiveProjects = $state(false);
   let showInactiveSections = $state(false);
@@ -111,10 +113,16 @@
   let savedViewError = $state<string | null>(null);
   let selectedTaskId = $state<string | null>(null);
   let selectedTaskIds = $state<string[]>([]);
-  let projectSettingsOpen = $state(false);
   let projectToolbarPanel = $state<ProjectToolbarPanel | null>(null);
   let projectsRootElement = $state<HTMLDivElement | null>(null);
 
+  function taskListColumnsMatch(
+    firstColumns: readonly ProjectTaskListColumn[],
+    secondColumns: readonly ProjectTaskListColumn[],
+  ): boolean {
+    return firstColumns.length === secondColumns.length
+      && firstColumns.every((column, index) => column === secondColumns[index]);
+  }
 
   const selectedProject = $derived(projects.selectedProject);
   const selectedGroup = $derived(projects.selectedGroup);
@@ -316,6 +324,8 @@
   const matchingTaskCount = $derived(taskView.matchedTaskIds.size);
   const activeTaskFilterCount = $derived(taskView.activeFilterCount);
   const taskFiltersActive = $derived(activeTaskFilterCount > 0);
+  const taskFilterControlsActive = $derived(taskFiltersActive || showArchivedTasks || showInactiveSections);
+  const taskCustomizeActive = $derived(!taskListColumnsMatch(taskListColumns, DEFAULT_TASK_LIST_COLUMNS));
   const taskDataFiltersActive = $derived.by(() =>
     taskSearch.trim().length > 0
     || taskStatusFilter !== "all"
@@ -347,29 +357,6 @@
   const taskListColumnControls = $derived.by(() =>
     deriveProjectListColumnControls(availableTaskListColumns, taskListColumns, taskListColumnLabel)
   );
-  const activeFilterChips = $derived.by(() => projectTaskActiveFilterChips({
-    search: taskSearch,
-    statusFilter: taskStatusFilter,
-    sectionFilter: taskSectionFilter,
-    priorityFilter: taskPriorityFilter,
-    dueFilter: taskDueFilter,
-    dueRangeStart: taskDueRangeStart,
-    dueRangeEnd: taskDueRangeEnd,
-    scheduleFilter: taskScheduleFilter,
-    dependencyFilter: taskDependencyFilter,
-    labelFilter: taskLabelFilter,
-    customFieldFilters: taskCustomFieldFilters,
-    groupBy: taskGroupBy,
-    sortMode: taskSortMode,
-    sortDirection: taskSortDirection,
-    sections,
-    labels: projectLabels,
-    customFields: projectCustomFields,
-    customFieldOptionsForField: (fieldId) => projects.customFieldOptionsForField(fieldId),
-    normalizedDueRangeStart: normalizedTaskDueRangeStart,
-    normalizedDueRangeEnd: normalizedTaskDueRangeEnd,
-    t,
-  }));
   const taskDetailModalLayout = $derived(pickProjectTaskModalLayout({
     viewportWidth: viewport.width,
     viewportHeight: viewport.height,
@@ -510,6 +497,30 @@
     closeTaskFinder();
   }
 
+  function projectsKeyboardTargetBlocked(target: EventTarget | null): boolean {
+    return isEditableKeyboardTarget(target)
+      || isAppShortcutBlockedTarget(target)
+      || (target instanceof Element && target.closest("[role='dialog']") !== null);
+  }
+
+  function projectsViewShortcutBlocked(event: KeyboardEvent): boolean {
+    return selectedTaskId !== null
+      || taskFinderOpen
+      || projectToolbarPanel !== null
+      || projectsKeyboardTargetBlocked(event.target)
+      || projectsKeyboardTargetBlocked(document.activeElement)
+      || projectsRootElement?.querySelector("[role='dialog']") !== null;
+  }
+
+  function handleProjectViewShortcut(event: KeyboardEvent): boolean {
+    if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return false;
+    const view = PROJECT_VIEW_SHORTCUTS.get(event.key);
+    if (!view || projectsViewShortcutBlocked(event)) return false;
+    event.preventDefault();
+    projects.activeView = view;
+    return true;
+  }
+
 
   function projectsEditableSelectionTarget(target: EventTarget | null): boolean {
     if (!(target instanceof Element)) return false;
@@ -522,7 +533,8 @@
 
   function handleProjectWindowKeydown(event: KeyboardEvent): void {
     if (event.defaultPrevented) return;
-    if (projectSettingsOpen || selectedTaskId) return;
+    if (selectedTaskId) return;
+    if (handleProjectViewShortcut(event)) return;
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f") {
       event.preventDefault();
       openTaskFinder();
@@ -551,45 +563,6 @@
     if (!projectsSelectionNodeInside(selection.anchorNode) && !projectsSelectionNodeInside(selection.focusNode)) return;
 
     selection.removeAllRanges();
-  }
-
-  function clearProjectFilterChip(chip: ProjectFilterChip): void {
-    if (chip.clearTarget === "search") {
-      taskSearch = "";
-      return;
-    }
-    if (chip.clearTarget === "status") {
-      taskStatusFilter = "all";
-      return;
-    }
-    if (chip.clearTarget === "section") {
-      taskSectionFilter = "all";
-      return;
-    }
-    if (chip.clearTarget === "priority") {
-      taskPriorityFilter = "all";
-      return;
-    }
-    if (chip.clearTarget === "due") {
-      taskDueFilter = "all";
-      taskDueRangeStart = "";
-      taskDueRangeEnd = "";
-      return;
-    }
-    if (chip.clearTarget === "schedule") {
-      taskScheduleFilter = "all";
-      return;
-    }
-    if (chip.clearTarget === "dependency") {
-      taskDependencyFilter = "all";
-      return;
-    }
-    if (chip.clearTarget === "label") {
-      taskLabelFilter = "all";
-      return;
-    }
-    const fieldId = chip.clearTarget.slice("custom:".length);
-    clearTaskCustomFieldFilter(fieldId);
   }
 
   function clearTaskCustomFieldFilter(fieldId: string): void {
@@ -762,13 +735,8 @@
   }
 
   function openTaskDetail(task: ProjectTask): void {
-    projectSettingsOpen = false;
+    projectToolbarPanel = null;
     selectedTaskId = task.id;
-  }
-
-  function openProjectSettings(): void {
-    selectedTaskId = null;
-    projectSettingsOpen = true;
   }
 
   function normalizeFilterDate(value: string): string | undefined {
@@ -811,28 +779,25 @@
           {selectedProjectId}
           {showInactiveProjects}
           {projectToolbarPanel}
-          {activeFilterChips}
-          {matchingTaskCount}
-          totalTaskCount={allProjectTasks.length}
+          taskFiltersActive={taskFilterControlsActive}
+          {taskCustomizeActive}
           onShowInactiveProjectsChange={(value) => {
             showInactiveProjects = value;
           }}
           onProjectSelected={() => {
             selectedTaskId = null;
-            projectSettingsOpen = false;
+            projectToolbarPanel = null;
           }}
           onToggleToolbarPanel={toggleProjectToolbarPanel}
-          onClearFilterChip={clearProjectFilterChip}
         />
         <ProjectToolbarPanels
           panel={projectToolbarPanel}
+          projectId={selectedProjectId}
           {sections}
           {projectLabels}
           {projectCustomFields}
           {savedTaskViews}
           {taskListColumnControls}
-          {matchingTaskCount}
-          totalTaskCount={allProjectTasks.length}
           {archivedProjectTaskCount}
           {inactiveSectionCount}
           {taskFiltersActive}
@@ -854,13 +819,17 @@
           bind:showArchivedTasks
           bind:showInactiveSections
           bind:savedViewNameDraft
+          onClose={() => {
+            projectToolbarPanel = null;
+          }}
+          onRevealInactive={() => {
+            showInactiveProjects = true;
+          }}
           onClearTaskFilters={clearTaskFilters}
           onSaveCurrentTaskView={() => { void saveCurrentTaskView(); }}
           onApplyTaskView={(view) => { void applyTaskView(view); }}
           onDeleteSavedTaskView={(view) => { void deleteSavedTaskView(view); }}
           onToggleTaskListColumn={(column) => { void toggleTaskListColumn(column); }}
-          onOpenProjectSettings={openProjectSettings}
-          onOpenTaskFinder={openTaskFinder}
         />
         <ProjectBulkActionController
           {selectedProject}
@@ -902,8 +871,8 @@
               void updateTaskListColumnWidths(widths, options);
             }}
           />
-        {:else if projects.activeView === "board"}
-          <ProjectBoardView
+        {:else if projects.activeView === "kanban"}
+          <ProjectKanbanView
             {tasks}
             {statuses}
             {selectedTaskIds}
@@ -934,8 +903,8 @@
               void toggleSectionCollapsed(section);
             }}
           />
-        {:else}
-          <ProjectSummaryView
+        {:else if projects.activeView === "dashboard"}
+          <ProjectDashboardView
             projectId={selectedProjectId}
             {tasks}
             {statuses}
@@ -952,7 +921,7 @@
         bind:showInactiveProjects
         onProjectSelected={() => {
           selectedTaskId = null;
-          projectSettingsOpen = false;
+          projectToolbarPanel = null;
         }}
       />
     {/if}
@@ -972,17 +941,7 @@
     />
   {/if}
 
-  {#if projectSettingsOpen && selectedProjectId}
-    <ProjectSettingsPanel
-      projectId={selectedProjectId}
-      onClose={() => {
-        projectSettingsOpen = false;
-      }}
-      onRevealInactive={() => {
-        showInactiveProjects = true;
-      }}
-    />
-  {:else if selectedTaskId}
+  {#if selectedTaskId}
     <ProjectTaskDetailPanel
       taskId={selectedTaskId}
       layout={taskDetailModalLayout}

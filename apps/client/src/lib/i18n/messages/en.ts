@@ -924,6 +924,7 @@ export const en = {
       group: {
         general: "General",
         calendar: "Calendar",
+        projects: "Projects",
         music: "Music",
       },
       action: {
@@ -955,6 +956,11 @@ export const en = {
         resetCalendarZoom: "Reset calendar timeline zoom",
         saveEvent: "Save event",
         deleteEvent: "Delete event",
+        dashboardView: "Dashboard view",
+        projectListView: "List view",
+        kanbanView: "Kanban view",
+        projectCalendarView: "Project calendar view",
+        ganttView: "Gantt view",
         playPause: "Play or pause",
         showHidePlaylist: "Show or hide playlist",
         muteUnmute: "Mute or unmute",
@@ -1465,8 +1471,15 @@ export const en = {
       nextEvent: (title: string, start: string) => `Next: ${title}, ${start}`,
     },
     toolbar: {
-      customize: "Customize",
+      customize: "Columns",
+      sort: "Sort",
       more: "More project actions",
+      activeFilters: "Active filters",
+      columnsPanelSubtitle: "Saved views and visible columns",
+      default: "Default",
+      settingsPanelSubtitle: "Defaults, workflow, labels, and fields",
+      none: "None",
+      visibility: "Visibility",
     },
     finder: {
       open: "Search tasks",
@@ -1495,11 +1508,11 @@ export const en = {
       empty: "No projects",
     },
     tabs: {
+      dashboard: "Dashboard",
       list: "List",
-      board: "Board",
+      kanban: "Kanban",
       calendar: "Calendar",
       gantt: "Gantt",
-      summary: "Summary",
     },
     filters: {
       title: "Filters",
@@ -1571,6 +1584,7 @@ export const en = {
       missingStatus: "Missing status",
     },
     savedViews: {
+      title: "Saved views",
       namePlaceholder: "Save current view...",
       save: "Save view",
       delete: (name: string) => `Delete saved view ${name}`,
@@ -1600,7 +1614,7 @@ export const en = {
       blocks: (count: number) => `Blocks ${count}`,
       moreLabels: (count: number) => `+${count}`,
     },
-    board: {
+    kanban: {
       emptyColumn: "No tasks",
       openDetails: "Details",
     },
@@ -1886,7 +1900,7 @@ export const en = {
       noDatedTasks: "No tasks with start or target dates",
       noDate: "No date",
     },
-    summary: {
+    dashboard: {
       taskCounts: "Task counts",
       complete: "Complete",
       openEstimate: "Open estimate",

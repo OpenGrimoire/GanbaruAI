@@ -4,6 +4,7 @@ import {
   deriveProjectListColumnControls,
   pickProjectTaskModalLayout,
   projectNavigatorPanelGeometry,
+  projectToolbarPanelGeometry,
   toggleProjectListColumn,
 } from "./project-toolbar";
 import type { ProjectCustomFieldFilter, ProjectTaskListColumn } from "./types";
@@ -102,6 +103,48 @@ describe("project toolbar", () => {
       top: 48,
       width: 344,
       height: 384,
+    });
+  });
+
+  it("positions toolbar panels from the trigger without overflowing the viewport", () => {
+    expect(projectToolbarPanelGeometry({
+      anchorLeft: 1080,
+      anchorRight: 1112,
+      anchorTop: 8,
+      anchorBottom: 36,
+      viewportWidth: 1200,
+      viewportHeight: 800,
+    })).toEqual({
+      left: 732,
+      top: 42,
+      width: 380,
+      maxHeight: 560,
+    });
+
+    expect(projectToolbarPanelGeometry({
+      anchorLeft: 1170,
+      anchorRight: 1198,
+      anchorTop: 8,
+      anchorBottom: 36,
+      viewportWidth: 1200,
+      viewportHeight: 800,
+    }).left).toBe(812);
+  });
+
+  it("flips toolbar panels above the trigger when bottom space is constrained", () => {
+    expect(projectToolbarPanelGeometry({
+      anchorLeft: 420,
+      anchorRight: 452,
+      anchorTop: 510,
+      anchorBottom: 538,
+      viewportWidth: 900,
+      viewportHeight: 560,
+      preferredHeight: 320,
+    })).toEqual({
+      left: 72,
+      top: 184,
+      width: 380,
+      maxHeight: 320,
     });
   });
 });

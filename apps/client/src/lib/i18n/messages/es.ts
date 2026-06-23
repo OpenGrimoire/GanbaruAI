@@ -932,6 +932,7 @@ export const es = {
       group: {
         general: "General",
         calendar: "Calendario",
+        projects: "Proyectos",
         music: "Música",
       },
       action: {
@@ -963,6 +964,11 @@ export const es = {
         resetCalendarZoom: "Restablecer zoom de línea de tiempo del calendario",
         saveEvent: "Guardar evento",
         deleteEvent: "Eliminar evento",
+        dashboardView: "Vista de dashboard",
+        projectListView: "Vista de lista",
+        kanbanView: "Vista Kanban",
+        projectCalendarView: "Vista de calendario del proyecto",
+        ganttView: "Vista Gantt",
         playPause: "Reproducir o pausar",
         showHidePlaylist: "Mostrar u ocultar playlist",
         muteUnmute: "Silenciar o activar sonido",
@@ -1482,8 +1488,15 @@ export const es = {
       nextEvent: (title: string, start: string) => `Siguiente: ${title}, ${start}`,
     },
     toolbar: {
-      customize: "Personalizar",
+      customize: "Columnas",
+      sort: "Ordenar",
       more: "Más acciones del proyecto",
+      activeFilters: "Filtros activos",
+      columnsPanelSubtitle: "Vistas guardadas y columnas visibles",
+      default: "Predeterminado",
+      settingsPanelSubtitle: "Predeterminados, flujo, etiquetas y campos",
+      none: "Ninguna",
+      visibility: "Visibilidad",
     },
     finder: {
       open: "Buscar tareas",
@@ -1512,11 +1525,11 @@ export const es = {
       empty: "Sin proyectos",
     },
     tabs: {
+      dashboard: "Dashboard",
       list: "Lista",
-      board: "Tablero",
+      kanban: "Kanban",
       calendar: "Calendario",
       gantt: "Gantt",
-      summary: "Resumen",
     },
     filters: {
       title: "Filtros",
@@ -1588,6 +1601,7 @@ export const es = {
       missingStatus: "Estado faltante",
     },
     savedViews: {
+      title: "Vistas guardadas",
       namePlaceholder: "Guardar vista actual...",
       save: "Guardar vista",
       delete: (name: string) => `Eliminar vista guardada ${name}`,
@@ -1617,7 +1631,7 @@ export const es = {
       blocks: (count: number) => `Bloquea ${count}`,
       moreLabels: (count: number) => `+${count}`,
     },
-    board: {
+    kanban: {
       emptyColumn: "Sin tareas",
       openDetails: "Detalles",
     },
@@ -1903,7 +1917,7 @@ export const es = {
       noDatedTasks: "No hay tareas con inicio o fecha objetivo",
       noDate: "Sin fecha",
     },
-    summary: {
+    dashboard: {
       taskCounts: "Conteo de tareas",
       complete: "Completado",
       openEstimate: "Estimación abierta",

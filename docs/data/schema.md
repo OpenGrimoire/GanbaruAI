@@ -548,7 +548,7 @@ Project management stores structured work data in SQLite. The user-facing hierar
 - `project_task_dependencies`: task-to-task blocking relationships. Dependency writes require both tasks to belong to the same project and reject cycles.
 - `project_task_event_links`: explicit task-to-calendar-event links. Scheduled links must connect a task and event that belong to the same project.
 - `project_task_change_events`: append-only task activity and requirement change events.
-- `project_view_preferences`: per-project view settings.
+- `project_view_preferences`: per-project view settings for Dashboard, List, Kanban, Calendar, and Gantt.
 - `project_custom_fields`: project-local typed field definitions. Supported field types are text, number, date, select, multi-select, checkbox, and URL.
 - `project_custom_field_options`: ordered option rows for select and multi-select fields.
 - `project_custom_field_values`: typed scalar task values for text, number, date, checkbox, and URL fields. Values are queryable columns, not JSON blobs.

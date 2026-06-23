@@ -344,7 +344,7 @@ pub(super) fn validate_view_preference(
     validate_enum(
         &preference.view_id,
         "view_id",
-        &["list", "board", "calendar", "gantt", "summary"],
+        &["dashboard", "list", "kanban", "calendar", "gantt"],
     )?;
     require_non_empty(&preference.preference_key, "preference_key")?;
     if preference.preference_value.len() > 20_000 {

@@ -7,9 +7,9 @@
   import GripVertical from "@lucide/svelte/icons/grip-vertical";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import {
-    projectBoardDropSortOrder,
-    type ProjectBoardDropPosition,
-  } from "$lib/projects/board-drag";
+    projectKanbanDropSortOrder,
+    type ProjectKanbanDropPosition,
+  } from "$lib/projects/kanban-drag";
   import {
     projectPriorityLabel,
     projectStatusBadgeClass,
@@ -46,13 +46,13 @@
   const projects = getProjects();
   const { t } = getLocalization();
 
-  const PROJECT_BOARD_DRAG_MIME = "application/x-ganbaru-project-task";
+  const PROJECT_KANBAN_DRAG_MIME = "application/x-ganbaru-project-task";
 
-  let boardDraggingTaskId = $state<string | null>(null);
-  let boardDragOverStatusId = $state<string | null>(null);
-  let boardDragOverTaskId = $state<string | null>(null);
-  let boardDragOverPosition = $state<ProjectBoardDropPosition | "column" | null>(null);
-  let boardDropPendingTaskId = $state<string | null>(null);
+  let kanbanDraggingTaskId = $state<string | null>(null);
+  let kanbanDragOverStatusId = $state<string | null>(null);
+  let kanbanDragOverTaskId = $state<string | null>(null);
+  let kanbanDragOverPosition = $state<ProjectKanbanDropPosition | "column" | null>(null);
+  let kanbanDropPendingTaskId = $state<string | null>(null);
 
   const selectedTaskIdSet = $derived.by(() => new Set(selectedTaskIds));
 
@@ -64,90 +64,90 @@
     );
   }
 
-  function boardOrderTasksForStatus(status: ProjectStatus): ProjectTask[] {
+  function kanbanOrderTasksForStatus(status: ProjectStatus): ProjectTask[] {
     if (taskSortMode === "manual") return tasksForStatus(status);
     return projects.topLevelTasksForStatus(status.projectId, status.id);
   }
 
-  function resetBoardDragTarget(): void {
-    boardDragOverStatusId = null;
-    boardDragOverTaskId = null;
-    boardDragOverPosition = null;
+  function resetKanbanDragTarget(): void {
+    kanbanDragOverStatusId = null;
+    kanbanDragOverTaskId = null;
+    kanbanDragOverPosition = null;
   }
 
-  function boardDragTaskId(event: DragEvent): string | null {
-    return event.dataTransfer?.getData(PROJECT_BOARD_DRAG_MIME) || boardDraggingTaskId;
+  function kanbanDragTaskId(event: DragEvent): string | null {
+    return event.dataTransfer?.getData(PROJECT_KANBAN_DRAG_MIME) || kanbanDraggingTaskId;
   }
 
   function taskById(taskId: string): ProjectTask | undefined {
     return tasks.find((task) => task.id === taskId);
   }
 
-  function canDropBoardTask(task: ProjectTask | undefined, status: ProjectStatus): task is ProjectTask {
+  function canDropKanbanTask(task: ProjectTask | undefined, status: ProjectStatus): task is ProjectTask {
     return !!task
       && !task.archivedAt
       && !task.parentTaskId
       && task.projectId === status.projectId;
   }
 
-  function handleBoardTaskDragStart(event: DragEvent, task: ProjectTask): void {
+  function handleKanbanTaskDragStart(event: DragEvent, task: ProjectTask): void {
     if (task.archivedAt || task.parentTaskId) {
       event.preventDefault();
       return;
     }
-    boardDraggingTaskId = task.id;
-    event.dataTransfer?.setData(PROJECT_BOARD_DRAG_MIME, task.id);
+    kanbanDraggingTaskId = task.id;
+    event.dataTransfer?.setData(PROJECT_KANBAN_DRAG_MIME, task.id);
     if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
   }
 
-  function handleBoardTaskDragEnd(): void {
-    boardDraggingTaskId = null;
-    boardDropPendingTaskId = null;
-    resetBoardDragTarget();
+  function handleKanbanTaskDragEnd(): void {
+    kanbanDraggingTaskId = null;
+    kanbanDropPendingTaskId = null;
+    resetKanbanDragTarget();
   }
 
-  function boardCardDropPosition(event: DragEvent): ProjectBoardDropPosition {
+  function kanbanCardDropPosition(event: DragEvent): ProjectKanbanDropPosition {
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
     return event.clientY >= rect.top + rect.height / 2 ? "after" : "before";
   }
 
-  function handleBoardCardDragOver(event: DragEvent, status: ProjectStatus, task: ProjectTask): void {
-    const dragged = taskById(boardDragTaskId(event) ?? "");
-    if (!canDropBoardTask(dragged, status) || dragged.id === task.id) return;
+  function handleKanbanCardDragOver(event: DragEvent, status: ProjectStatus, task: ProjectTask): void {
+    const dragged = taskById(kanbanDragTaskId(event) ?? "");
+    if (!canDropKanbanTask(dragged, status) || dragged.id === task.id) return;
     event.preventDefault();
     event.stopPropagation();
     if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
-    boardDragOverStatusId = status.id;
-    boardDragOverTaskId = task.id;
-    boardDragOverPosition = boardCardDropPosition(event);
+    kanbanDragOverStatusId = status.id;
+    kanbanDragOverTaskId = task.id;
+    kanbanDragOverPosition = kanbanCardDropPosition(event);
   }
 
-  function handleBoardColumnDragOver(event: DragEvent, status: ProjectStatus): void {
-    const dragged = taskById(boardDragTaskId(event) ?? "");
-    if (!canDropBoardTask(dragged, status)) return;
+  function handleKanbanColumnDragOver(event: DragEvent, status: ProjectStatus): void {
+    const dragged = taskById(kanbanDragTaskId(event) ?? "");
+    if (!canDropKanbanTask(dragged, status)) return;
     event.preventDefault();
     if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
-    boardDragOverStatusId = status.id;
-    boardDragOverTaskId = null;
-    boardDragOverPosition = "column";
+    kanbanDragOverStatusId = status.id;
+    kanbanDragOverTaskId = null;
+    kanbanDragOverPosition = "column";
   }
 
-  async function dropBoardTask(
+  async function dropKanbanTask(
     event: DragEvent,
     status: ProjectStatus,
     targetTask?: ProjectTask,
-    position?: ProjectBoardDropPosition,
+    position?: ProjectKanbanDropPosition,
   ): Promise<void> {
     event.preventDefault();
     event.stopPropagation();
-    const dragged = taskById(boardDragTaskId(event) ?? "");
-    if (!canDropBoardTask(dragged, status) || dragged.id === targetTask?.id) {
-      resetBoardDragTarget();
+    const dragged = taskById(kanbanDragTaskId(event) ?? "");
+    if (!canDropKanbanTask(dragged, status) || dragged.id === targetTask?.id) {
+      resetKanbanDragTarget();
       return;
     }
 
-    const orderedTasks = boardOrderTasksForStatus(status);
-    const nextStatusSortOrder = projectBoardDropSortOrder({
+    const orderedTasks = kanbanOrderTasksForStatus(status);
+    const nextStatusSortOrder = projectKanbanDropSortOrder({
       orderedTasks,
       draggedTaskId: dragged.id,
       overTaskId: targetTask?.id,
@@ -156,31 +156,31 @@
     });
 
     if (dragged.statusId === status.id && dragged.statusSortOrder === nextStatusSortOrder) {
-      resetBoardDragTarget();
+      resetKanbanDragTarget();
       return;
     }
 
-    boardDropPendingTaskId = dragged.id;
-    resetBoardDragTarget();
+    kanbanDropPendingTaskId = dragged.id;
+    resetKanbanDragTarget();
     try {
       await projects.updateTask(dragged, {
         statusId: status.id,
         statusSortOrder: nextStatusSortOrder,
       });
     } finally {
-      boardDropPendingTaskId = null;
-      boardDraggingTaskId = null;
+      kanbanDropPendingTaskId = null;
+      kanbanDraggingTaskId = null;
     }
   }
 
-  function boardDropMarkerVisible(
+  function kanbanDropMarkerVisible(
     status: ProjectStatus,
     task: ProjectTask,
-    position: ProjectBoardDropPosition,
+    position: ProjectKanbanDropPosition,
   ): boolean {
-    return boardDragOverStatusId === status.id
-      && boardDragOverTaskId === task.id
-      && boardDragOverPosition === position;
+    return kanbanDragOverStatusId === status.id
+      && kanbanDragOverTaskId === task.id
+      && kanbanDragOverPosition === position;
   }
 
   function taskSelected(task: ProjectTask): boolean {
@@ -225,12 +225,12 @@
     <section
       class={cn(
         "flex w-64 shrink-0 flex-col gap-2 rounded-lg border border-transparent p-1",
-        boardDragOverStatusId === status.id && "border-primary/40 bg-primary/5",
+        kanbanDragOverStatusId === status.id && "border-primary/40 bg-primary/5",
       )}
       role="list"
       aria-label={status.name}
-      ondragover={(event) => handleBoardColumnDragOver(event, status)}
-      ondrop={(event) => { void dropBoardTask(event, status); }}
+      ondragover={(event) => handleKanbanColumnDragOver(event, status)}
+      ondrop={(event) => { void dropKanbanTask(event, status); }}
     >
       <div class={cn("rounded-md border px-2 py-1.5 text-[0.8rem] font-semibold", projectStatusBadgeClass(status))}>
         {status.name} ({statusTasks.length})
@@ -243,29 +243,29 @@
           {@const nextStatusTask = adjacentTaskInStatus(task, 1)}
           {@const blockedByCount = blockedByDependencies(task).length}
           {@const blocksCount = blocksDependencies(task).length}
-          {#if boardDropMarkerVisible(status, task, "before")}
+          {#if kanbanDropMarkerVisible(status, task, "before")}
             <div class="h-1 rounded-full bg-primary"></div>
           {/if}
           <article
             class={cn(
               "rounded-md border border-border bg-card p-2",
               task.archivedAt && "opacity-70",
-              boardDraggingTaskId === task.id && "opacity-50",
-              boardDropPendingTaskId === task.id && "opacity-60",
+              kanbanDraggingTaskId === task.id && "opacity-50",
+              kanbanDropPendingTaskId === task.id && "opacity-60",
             )}
-            ondragover={(event) => handleBoardCardDragOver(event, status, task)}
-            ondrop={(event) => { void dropBoardTask(event, status, task, boardCardDropPosition(event)); }}
+            ondragover={(event) => handleKanbanCardDragOver(event, status, task)}
+            ondrop={(event) => { void dropKanbanTask(event, status, task, kanbanCardDropPosition(event)); }}
           >
             <div class="grid grid-cols-[auto_auto_minmax(0,1fr)] gap-2">
               <button
                 type="button"
                 class="mt-0.5 flex h-5 w-5 shrink-0 cursor-grab items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-40"
-                draggable={!task.archivedAt && boardDropPendingTaskId === null}
-                disabled={Boolean(task.archivedAt) || boardDropPendingTaskId !== null}
+                draggable={!task.archivedAt && kanbanDropPendingTaskId === null}
+                disabled={Boolean(task.archivedAt) || kanbanDropPendingTaskId !== null}
                 aria-label={t("projects.actions.dragTask", task.title)}
                 title={t("projects.actions.dragTask", task.title)}
-                ondragstart={(event) => handleBoardTaskDragStart(event, task)}
-                ondragend={handleBoardTaskDragEnd}
+                ondragstart={(event) => handleKanbanTaskDragStart(event, task)}
+                ondragend={handleKanbanTaskDragEnd}
               >
                 <GripVertical size={13} strokeWidth={1.75} />
               </button>
@@ -342,7 +342,7 @@
                 class="min-w-0 rounded border border-border px-1.5 py-0.5 text-[0.733333rem] text-muted-foreground hover:bg-accent hover:text-foreground"
                 onclick={() => onOpenTask(task)}
               >
-                <span class="block truncate">{t("projects.board.openDetails")}</span>
+                <span class="block truncate">{t("projects.kanban.openDetails")}</span>
               </button>
               <button
                 type="button"
@@ -366,16 +366,16 @@
               </button>
             </div>
           </article>
-          {#if boardDropMarkerVisible(status, task, "after")}
+          {#if kanbanDropMarkerVisible(status, task, "after")}
             <div class="h-1 rounded-full bg-primary"></div>
           {/if}
         {/each}
-        {#if boardDragOverStatusId === status.id && boardDragOverPosition === "column"}
+        {#if kanbanDragOverStatusId === status.id && kanbanDragOverPosition === "column"}
           <div class="h-1 rounded-full bg-primary"></div>
         {/if}
         {#if statusTasks.length === 0}
           <div class="rounded-md border border-dashed border-border px-2 py-3 text-[0.8rem] text-muted-foreground">
-            {t("projects.board.emptyColumn")}
+            {t("projects.kanban.emptyColumn")}
           </div>
         {/if}
       </div>

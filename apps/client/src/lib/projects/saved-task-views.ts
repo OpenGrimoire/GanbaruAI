@@ -40,6 +40,12 @@ function isOneOf<T extends string>(value: unknown, options: readonly T[]): value
   return typeof value === "string" && options.includes(value as T);
 }
 
+function parseProjectViewId(value: unknown, fallback: ProjectSavedTaskView["viewId"]): ProjectSavedTaskView["viewId"] {
+  if (value === "board") return "kanban";
+  if (value === "summary") return "dashboard";
+  return isOneOf(value, PROJECT_VIEW_IDS) ? value : fallback;
+}
+
 export function savedTaskViewPreferenceKey(viewId: string): string {
   return `${SAVED_TASK_VIEW_PREFIX}${viewId}`;
 }
@@ -61,7 +67,7 @@ export function parseSavedTaskViewPreference(
   if (!isRecord(parsed)) return undefined;
   const name = typeof parsed.name === "string" ? parsed.name.trim() : "";
   if (!name) return undefined;
-  const viewId = isOneOf(parsed.viewId, PROJECT_VIEW_IDS) ? parsed.viewId : preference.viewId;
+  const viewId = parseProjectViewId(parsed.viewId, preference.viewId);
   const search = typeof parsed.search === "string" ? parsed.search : "";
   const statusFilter = isOneOf(parsed.statusFilter, TASK_STATUS_FILTERS) ? parsed.statusFilter : "all";
   const sectionFilter = typeof parsed.sectionFilter === "string" && parsed.sectionFilter.trim()
