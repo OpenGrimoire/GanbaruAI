@@ -22,7 +22,7 @@
     "@tauri-apps/api": "2.11.0",
     "@tauri-apps/plugin-opener": "2.5.4",
     "@tauri-apps/plugin-updater": "2.10.1",
-    "dompurify": "^3.4.0",
+    "dompurify": "^3.4.11",
     "ical.js": "^2.2.1"
   },
   "devDependencies": {
