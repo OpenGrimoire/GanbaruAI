@@ -25,6 +25,9 @@ import { cn } from "$lib/utils";
 
   const projects = getProjects();
   const { t } = getLocalization();
+  const eventPanelProjectIconSize = 18;
+  const eventPanelProjectEmojiScale = 0.82;
+  const eventPanelSelectedProjectIconStrokeWidth = 1.5;
   const eventPanelIconStrokeWidth = 1.6;
   let open = $state(false);
   let search = $state("");
@@ -212,9 +215,15 @@ import { cn } from "$lib/utils";
     }}
   >
     {#if selectedProject}
-      <ProjectIcon name={selectedProject.icon} size={18} strokeWidth={eventPanelIconStrokeWidth} ignoreColor />
+      <ProjectIcon
+        name={selectedProject.icon}
+        size={eventPanelProjectIconSize}
+        strokeWidth={eventPanelSelectedProjectIconStrokeWidth}
+        ignoreColor
+        emojiScale={eventPanelProjectEmojiScale}
+      />
     {:else}
-      <FolderX size={18} strokeWidth={eventPanelIconStrokeWidth} />
+      <FolderX size={eventPanelProjectIconSize} strokeWidth={eventPanelIconStrokeWidth} />
     {/if}
   </button>
 

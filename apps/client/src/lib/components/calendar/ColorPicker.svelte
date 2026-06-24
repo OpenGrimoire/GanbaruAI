@@ -127,6 +127,7 @@
 
 <div class="relative flex items-center">
   <button
+    type="button"
     bind:this={buttonEl}
     onclick={togglePalette}
     onkeydown={handleButtonKeydown}
@@ -153,6 +154,7 @@
       {#each EVENT_COLOR_OPTIONS as c, index}
         {@const entry = getEventColor(c, theme)}
         <button
+          type="button"
           data-color-index={index}
           aria-label={ariaLabel ? `${ariaLabel} ${index + 1}` : t("calendar.color.selectEventColor", index + 1)}
           tabindex={activeIndex === index ? 0 : -1}

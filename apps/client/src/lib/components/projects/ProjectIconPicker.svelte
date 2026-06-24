@@ -3,7 +3,6 @@
   import Check from "@lucide/svelte/icons/check";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import CircleEllipsis from "@lucide/svelte/icons/circle-ellipsis";
-  import Flag from "@lucide/svelte/icons/flag";
   import ImageIcon from "@lucide/svelte/icons/image";
   import LayoutGrid from "@lucide/svelte/icons/layout-grid";
   import Leaf from "@lucide/svelte/icons/leaf";
@@ -93,6 +92,10 @@
     iconNode: readonly ProjectLucideIconNode[] | null;
     anchor: HTMLElement;
     placement: IconColorChoicePlacement;
+  };
+  type VisibleEmojiCategory = {
+    id: ProjectEmojiCategoryId;
+    label: string;
   };
 
   let {
@@ -191,12 +194,23 @@
     "Navigation and places",
   ];
   const primaryLucideCategorySet = new Set<ProjectLucideCategory>(primaryLucideCategories);
+  const visibleEmojiCategoryIds = new Set<ProjectEmojiCategoryId>([
+    "smileys",
+    "people",
+    "nature",
+    "food",
+    "activity",
+    "travel",
+    "objects",
+    "symbols",
+  ]);
 
   let open = $state(false);
   let activeTab = $state<ProjectIconPickerTab>("icons");
   let triggerElement = $state<HTMLButtonElement | undefined>();
   let panelElement = $state<HTMLElement | undefined>();
   let customPanelElement = $state<HTMLElement | undefined>();
+  let customEmojiTriggerElement = $state<HTMLButtonElement | undefined>();
   let iconColorChoicePanelElement = $state<HTMLElement | undefined>();
   let iconCategoryMenuElement = $state<HTMLElement | undefined>();
   let iconCategoryMenuTriggerElement = $state<HTMLButtonElement | undefined>();
@@ -264,8 +278,16 @@
     if (!query) return projects.customEmojis;
     return projects.customEmojis.filter((emoji) => emoji.name.toLowerCase().includes(query));
   });
-  const emojiGroups = $derived.by(() =>
+  const visibleEmojiCategories = $derived.by((): readonly VisibleEmojiCategory[] =>
     PROJECT_EMOJI_CATEGORIES
+      .filter((category) => visibleEmojiCategoryIds.has(category.id))
+      .map((category) => ({
+        id: category.id,
+        label: category.id === "symbols" ? t("projects.iconPicker.symbolsAndFlags") : category.label,
+      }))
+  );
+  const emojiGroups = $derived.by(() =>
+    visibleEmojiCategories
       .filter((category) => emojiCategory === "all" || emojiCategory === category.id)
       .map((category) => ({
         category,
@@ -553,22 +575,34 @@
   }
 
   function placeCustomPanel(): void {
-    const panel = panelElement;
-    if (!panel) return;
-    const rect = panel.getBoundingClientRect();
+    const trigger = customEmojiTriggerElement;
+    if (!trigger) return;
+    const rect = trigger.getBoundingClientRect();
     const viewportWidth = window.innerWidth;
     const viewportHeight = window.innerHeight;
     const margin = 8;
-    const height = Math.min(360, viewportHeight - margin * 2);
-    const right = viewportWidth - rect.right - margin;
-    const left = rect.left - margin;
+    const gap = 4;
+    const availableAbove = Math.max(0, rect.top - margin - gap);
+    const availableBelow = Math.max(0, viewportHeight - rect.bottom - margin - gap);
+    const preferredHeight = 360;
+    const minimumUsefulHeight = 180;
+    const maxViewportHeight = Math.max(1, viewportHeight - margin * 2);
+    const openAbove = availableAbove >= Math.min(preferredHeight, minimumUsefulHeight)
+      || availableAbove >= availableBelow;
+    const height = Math.min(
+      preferredHeight,
+      maxViewportHeight,
+      Math.max(minimumUsefulHeight, openAbove ? availableAbove : availableBelow),
+    );
     customPanelPlacement = {
-      left: right >= customPanelWidth
-        ? rect.right + margin
-        : left >= customPanelWidth
-          ? rect.left - customPanelWidth - margin
-          : clamp(rect.left, margin, Math.max(margin, viewportWidth - customPanelWidth - margin)),
-      top: clamp(rect.top, margin, Math.max(margin, viewportHeight - height - margin)),
+      left: clamp(
+        rect.right - customPanelWidth,
+        margin,
+        Math.max(margin, viewportWidth - customPanelWidth - margin),
+      ),
+      top: openAbove
+        ? Math.max(margin, rect.top - height - gap)
+        : clamp(rect.bottom + gap, margin, Math.max(margin, viewportHeight - height - margin)),
       maxHeight: height,
     };
   }
@@ -1212,7 +1246,7 @@
         >
           <LayoutGrid size={16} strokeWidth={1.75} />
         </button>
-        {#each PROJECT_EMOJI_CATEGORIES as category}
+        {#each visibleEmojiCategories as category}
           <button
             type="button"
             class={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-md", emojiCategory === category.id ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground")}
@@ -1239,12 +1273,11 @@
               <Package size={16} strokeWidth={1.75} />
             {:else if category.id === "symbols"}
               <Shapes size={16} strokeWidth={1.75} />
-            {:else}
-              <Flag size={16} strokeWidth={1.75} />
             {/if}
           </button>
         {/each}
         <button
+          bind:this={customEmojiTriggerElement}
           type="button"
           class={cn(
             "ml-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground",
@@ -1546,22 +1579,26 @@
           class={cn(
             "flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[0.8rem]",
             iconCategory === option.category
-              ? "bg-accent text-foreground"
-              : "text-muted-foreground hover:bg-accent hover:text-foreground",
+              ? "bg-accent/70 text-foreground"
+              : "text-foreground hover:bg-accent/40",
           )}
           aria-checked={iconCategory === option.category}
           role="menuitemradio"
           onclick={() => selectIconCategory(option.category)}
         >
-          {#if option.icon}
-            <LucideNodeIcon iconNode={option.icon.iconNode} size={15} strokeWidth={1.75} class="shrink-0" />
-          {:else}
-            <Shapes size={15} strokeWidth={1.75} class="shrink-0" />
-          {/if}
+          <span class="flex h-5 w-5 shrink-0 items-center justify-center">
+            {#if option.icon}
+              <LucideNodeIcon iconNode={option.icon.iconNode} size={15} strokeWidth={1.75} class="block" />
+            {:else}
+              <Shapes size={15} strokeWidth={1.75} class="block" />
+            {/if}
+          </span>
           <span class="min-w-0 flex-1 truncate">{option.category}</span>
+          <span class="flex h-4 w-4 shrink-0 items-center justify-center">
           {#if iconCategory === option.category}
-            <Check size={14} strokeWidth={1.75} class="shrink-0" />
+            <Check size={14} strokeWidth={1.75} />
           {/if}
+          </span>
         </button>
       {/each}
     </div>

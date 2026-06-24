@@ -88,7 +88,9 @@ export function filterProjectEmojiEntries(
   category: ProjectEmojiCategoryId | "all",
 ): ProjectEmojiEntry[] {
   return entries.filter((entry) =>
-    (category === "all" || entry.category === category)
+    (category === "all"
+      || entry.category === category
+      || (category === "symbols" && entry.category === "flags"))
     && matchesQuery(entry.terms, query)
   );
 }

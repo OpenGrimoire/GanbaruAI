@@ -28,12 +28,14 @@
     size = 14,
     strokeWidth = 1.75,
     ignoreColor = false,
+    emojiScale = 1,
     class: className = "",
   }: {
     name?: string;
     size?: number;
     strokeWidth?: number;
     ignoreColor?: boolean;
+    emojiScale?: number;
     class?: string;
   } = $props();
 
@@ -88,6 +90,7 @@
       ? `color: ${getEventColor(eventIconColor, theme.current).bg};`
       : undefined,
   );
+  const emojiFontSize = $derived(Math.max(1, size * emojiScale));
 
   $effect(() => {
     const currentPath = relativeAssetPath;
@@ -124,7 +127,7 @@
 {:else if parsedIcon.kind === "emoji"}
   <span
     class={className}
-    style={`display: inline-flex; width: ${size}px; height: ${size}px; align-items: center; justify-content: center; font-size: ${size}px; line-height: 1;`}
+    style={`display: inline-flex; width: ${size}px; height: ${size}px; align-items: center; justify-content: center; overflow: hidden; font-size: ${emojiFontSize}px; line-height: 1;`}
     aria-hidden="true"
   >
     {parsedIcon.emoji}

@@ -52,6 +52,8 @@
   const projects = getProjects();
   const viewport = getViewport();
   const { t } = getLocalization();
+  const projectIdentityIconStrokeWidth = 1.5;
+  const projectIdentityEmojiScale = 0.94;
 
   let projectNavigatorOpen = $state(false);
   let projectHeaderElement = $state<HTMLDivElement | null>(null);
@@ -224,10 +226,24 @@
       aria-expanded={projectNavigatorOpen}
       onclick={toggleProjectNavigator}
     >
-      <ProjectIcon name={selectedGroup.icon} size={14} ignoreColor class="shrink-0" />
+      <ProjectIcon
+        name={selectedGroup.icon}
+        size={14}
+        strokeWidth={projectIdentityIconStrokeWidth}
+        ignoreColor
+        emojiScale={projectIdentityEmojiScale}
+        class="shrink-0"
+      />
       <span class="min-w-0 truncate font-semibold text-foreground">{selectedGroup.name}</span>
       <span class="shrink-0 font-semibold text-foreground">/</span>
-      <ProjectIcon name={selectedProject.icon} size={14} ignoreColor class="shrink-0" />
+      <ProjectIcon
+        name={selectedProject.icon}
+        size={14}
+        strokeWidth={projectIdentityIconStrokeWidth}
+        ignoreColor
+        emojiScale={projectIdentityEmojiScale}
+        class="shrink-0"
+      />
       <span class="min-w-0 truncate font-semibold text-foreground">{selectedProject.name}</span>
       <ChevronDown size={14} strokeWidth={1.75} class="shrink-0 text-muted-foreground" />
       {#if selectedProject.status !== "active"}

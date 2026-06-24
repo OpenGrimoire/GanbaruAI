@@ -11,6 +11,7 @@
     projectTaskHistoryEventLabel,
   } from "$lib/projects/project-display";
   import { getProjects } from "$lib/stores/projects.svelte";
+  import ProjectListScrollbars from "./ProjectListScrollbars.svelte";
 
   let {
     projectId,
@@ -32,6 +33,8 @@
 
   const projects = getProjects();
   const { t } = getLocalization();
+
+  let dashboardScrollContainer = $state<HTMLElement | undefined>();
 
   const completedTaskCount = $derived(tasks.filter((task) => isTaskDone(task)).length);
 
@@ -131,7 +134,9 @@
   }
 </script>
 
-<div class="grid gap-3 p-3 min-[760px]:grid-cols-2">
+<div class="relative h-full min-h-0">
+  <div bind:this={dashboardScrollContainer} class="project-dashboard-scroll h-full min-h-0 overflow-y-auto">
+    <div class="grid min-h-full gap-3 p-3 min-[760px]:grid-cols-2">
   <section class="rounded-md border border-border bg-card p-3">
     <h2 class="mb-2 text-[0.866667rem] font-semibold">{t("projects.dashboard.taskCounts")}</h2>
     <div class="grid gap-2 min-[520px]:grid-cols-3">
@@ -288,4 +293,20 @@
       {/each}
     </div>
   </section>
+    </div>
+  </div>
+  <ProjectListScrollbars scrollContainer={dashboardScrollContainer} />
 </div>
+
+<style>
+  .project-dashboard-scroll {
+    overflow-x: hidden;
+    padding-right: 0.5rem;
+    padding-bottom: 0.5rem;
+    scrollbar-width: none;
+  }
+
+  .project-dashboard-scroll::-webkit-scrollbar {
+    display: none;
+  }
+</style>

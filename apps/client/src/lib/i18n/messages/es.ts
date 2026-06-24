@@ -1532,6 +1532,7 @@ export const es = {
       recent: "Recientes",
       custom: "Personalizados",
       all: "Todo",
+      symbolsAndFlags: "Símbolos y banderas",
       filter: "Filtrar...",
       random: "Icono aleatorio",
       addCustomEmoji: "Agregar emoji personalizado",

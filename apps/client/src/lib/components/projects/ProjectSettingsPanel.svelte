@@ -93,6 +93,11 @@
   let pendingDeleteCustomFieldId = $state<string | null>(null);
   let pendingDeleteCustomFieldOptionId = $state<string | null>(null);
   let settingsScrollElement = $state<HTMLElement | undefined>();
+  let settingsContentElement = $state<HTMLElement | undefined>();
+  let settingsScrollable = $state(false);
+  let settingsCanScrollUp = $state(false);
+  let settingsCanScrollDown = $state(false);
+  let settingsScrollStateFrame: number | null = null;
 
   const selectedProject = $derived(projects.projectById(projectId));
   const selectedProjectId = $derived(selectedProject?.id ?? null);
@@ -350,6 +355,30 @@
 
   function fieldForCustomFieldOption(option: ProjectCustomFieldOption | undefined): ProjectCustomField | undefined {
     return option ? projectCustomFields.find((field) => field.id === option.fieldId) : undefined;
+  }
+
+  function refreshSettingsScrollState(): void {
+    settingsScrollStateFrame = null;
+    const element = settingsScrollElement;
+    if (!element) {
+      settingsScrollable = false;
+      settingsCanScrollUp = false;
+      settingsCanScrollDown = false;
+      return;
+    }
+    const maxScrollTop = element.scrollHeight - element.clientHeight;
+    settingsScrollable = maxScrollTop > 1;
+    settingsCanScrollUp = element.scrollTop > 1;
+    settingsCanScrollDown = element.scrollTop < maxScrollTop - 1;
+  }
+
+  function requestSettingsScrollStateRefresh(): void {
+    if (settingsScrollStateFrame !== null) cancelAnimationFrame(settingsScrollStateFrame);
+    settingsScrollStateFrame = requestAnimationFrame(refreshSettingsScrollState);
+  }
+
+  function handleSettingsScroll(): void {
+    refreshSettingsScrollState();
   }
 
   function labelNameDraftValue(label: ProjectLabel): string {
@@ -745,6 +774,22 @@
       projectSettingsSaving = false;
     }
   }
+
+  $effect(() => {
+    const scrollElement = settingsScrollElement;
+    if (!scrollElement) return;
+    const resizeObserver = new ResizeObserver(requestSettingsScrollStateRefresh);
+    resizeObserver.observe(scrollElement);
+    if (settingsContentElement) resizeObserver.observe(settingsContentElement);
+    requestSettingsScrollStateRefresh();
+    return () => {
+      resizeObserver.disconnect();
+      if (settingsScrollStateFrame !== null) {
+        cancelAnimationFrame(settingsScrollStateFrame);
+        settingsScrollStateFrame = null;
+      }
+    };
+  });
 </script>
 
 {#snippet sectionHeading(label: string, count: string | null = null)}
@@ -795,12 +840,29 @@
       <div
         bind:this={settingsScrollElement}
         data-settings-content
-        class="hide-scrollbar h-full min-h-0 overflow-y-auto px-3 pb-3 pt-1"
+        class={cn(
+          "project-settings-scroll-area hide-scrollbar h-full min-h-0 overflow-y-auto px-3 pb-3 pt-1",
+          settingsScrollable
+            && settingsCanScrollUp
+            && settingsCanScrollDown
+            && "project-settings-scroll-both",
+          settingsScrollable
+            && settingsCanScrollUp
+            && !settingsCanScrollDown
+            && "project-settings-scroll-top",
+          settingsScrollable
+            && !settingsCanScrollUp
+            && settingsCanScrollDown
+            && "project-settings-scroll-bottom",
+        )}
+        onscroll={handleSettingsScroll}
       >
-        <div class="flex flex-col gap-4">
-          <section class="flex flex-col gap-4">
-            {@render sectionHeading(t("projects.settings.identity"))}
-            <div class="flex flex-col gap-3">
+        <div bind:this={settingsContentElement} class="flex flex-col gap-4">
+          <section class="flex flex-col gap-2">
+            <div class="h-px bg-border/70" aria-hidden="true"></div>
+            <div class="flex flex-col gap-4">
+              {@render sectionHeading(t("projects.settings.identity"))}
+              <div class="flex flex-col gap-3">
               <label class="flex items-center justify-between gap-4 px-1 py-1 max-[480px]:flex-col max-[480px]:items-stretch max-[480px]:gap-2">
                 <span class="min-w-0 flex-1 text-[0.866667rem] text-foreground">{t("projects.settings.name")}</span>
                 <input
@@ -863,6 +925,7 @@
                   />
                 </div>
               </div>
+            </div>
             </div>
           </section>
 
@@ -1403,3 +1466,24 @@
     onCancel={cancelDeleteCustomFieldOption}
   />
 {/if}
+
+<style>
+  .project-settings-scroll-area {
+    transition: -webkit-mask-image 120ms ease, mask-image 120ms ease;
+  }
+
+  .project-settings-scroll-top {
+    -webkit-mask-image: linear-gradient(to bottom, transparent, black 20px, black);
+    mask-image: linear-gradient(to bottom, transparent, black 20px, black);
+  }
+
+  .project-settings-scroll-bottom {
+    -webkit-mask-image: linear-gradient(to bottom, black, black calc(100% - 20px), transparent);
+    mask-image: linear-gradient(to bottom, black, black calc(100% - 20px), transparent);
+  }
+
+  .project-settings-scroll-both {
+    -webkit-mask-image: linear-gradient(to bottom, transparent, black 20px, black calc(100% - 20px), transparent);
+    mask-image: linear-gradient(to bottom, transparent, black 20px, black calc(100% - 20px), transparent);
+  }
+</style>

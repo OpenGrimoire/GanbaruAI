@@ -20,6 +20,7 @@ import type { ProjectLucideIconEntry } from "./project-lucide-catalog.generated"
 const emojiEntries: readonly ProjectEmojiEntry[] = [
   { emoji: "🚀", name: "rocket", category: "travel", terms: "🚀 rocket" },
   { emoji: "✅", name: "check", category: "symbols", terms: "✅ check done" },
+  { emoji: "🏁", name: "chequered flag", category: "flags", terms: "🏁 chequered flag" },
   { emoji: "☕", name: "coffee", category: "food", terms: "☕ coffee drink" },
 ];
 
@@ -32,7 +33,7 @@ const lucideEntries: readonly ProjectLucideIconEntry[] = [
 describe("project icon picker helpers", () => {
   it("filters emoji by category and search terms", () => {
     expect(filterProjectEmojiEntries(emojiEntries, "coffee", "all").map((entry) => entry.emoji)).toEqual(["☕"]);
-    expect(filterProjectEmojiEntries(emojiEntries, "", "symbols").map((entry) => entry.emoji)).toEqual(["✅"]);
+    expect(filterProjectEmojiEntries(emojiEntries, "", "symbols").map((entry) => entry.emoji)).toEqual(["✅", "🏁"]);
   });
 
   it("filters Lucide icons by category and search terms", () => {

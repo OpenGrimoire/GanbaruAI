@@ -1515,6 +1515,7 @@ export const en = {
       recent: "Recent",
       custom: "Custom",
       all: "All",
+      symbolsAndFlags: "Symbols and flags",
       filter: "Filter...",
       random: "Random icon",
       addCustomEmoji: "Add custom emoji",
