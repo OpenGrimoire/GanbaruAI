@@ -564,6 +564,11 @@ export async function updateProjectGroup(group: ProjectGroupUpdate): Promise<voi
   await invoke("projects_update_group", { dbUrl, group });
 }
 
+export async function deleteProjectGroup(groupId: string): Promise<void> {
+  const dbUrl = await ensureDbUrl();
+  await invoke("projects_delete_group", { dbUrl, groupId });
+}
+
 export async function setProjectGroupCollapsed(
   groupId: string,
   collapsed: boolean,

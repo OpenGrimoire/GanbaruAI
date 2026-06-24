@@ -1522,6 +1522,14 @@ export const es = {
       selectGroupIcon: (icon: string) => `Seleccionar icono ${icon} del grupo`,
       groupNameRequired: "El nombre del grupo es obligatorio.",
       groupSaveFailed: (message: string) => `No se pudo guardar el grupo: ${message}`,
+      groupDeleteFailed: (message: string) => `No se pudo eliminar el grupo: ${message}`,
+      deleteGroup: (group: string) => `Eliminar grupo ${group}`,
+      deleteGroupTitle: (group: string) => `¿Eliminar ${group}?`,
+      deleteGroupMessage: (group: string, projectCount: number) =>
+        `Esto elimina permanentemente ${group}, ${projectCount} ${
+          projectCount === 1 ? "proyecto" : "proyectos"
+        }, y todos los datos de tareas dentro. Los eventos vinculados permanecen en el calendario sin proyecto.`,
+      deleteGroupConfirm: "Eliminar grupo (Enter)",
       empty: "Sin proyectos",
     },
     iconPicker: {

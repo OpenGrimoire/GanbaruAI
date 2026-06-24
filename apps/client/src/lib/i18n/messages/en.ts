@@ -1505,6 +1505,14 @@ export const en = {
       selectGroupIcon: (icon: string) => `Select ${icon} group icon`,
       groupNameRequired: "Group name is required.",
       groupSaveFailed: (message: string) => `Could not save group: ${message}`,
+      groupDeleteFailed: (message: string) => `Could not delete group: ${message}`,
+      deleteGroup: (group: string) => `Delete group ${group}`,
+      deleteGroupTitle: (group: string) => `Delete ${group}?`,
+      deleteGroupMessage: (group: string, projectCount: number) =>
+        `This permanently deletes ${group}, ${projectCount} ${
+          projectCount === 1 ? "project" : "projects"
+        }, and all task data under them. Linked calendar events stay in the calendar with no project.`,
+      deleteGroupConfirm: "Delete group (Enter)",
       empty: "No projects",
     },
     iconPicker: {

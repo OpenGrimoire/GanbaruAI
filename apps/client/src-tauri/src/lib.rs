@@ -823,6 +823,7 @@ pub fn run() {
             projects::projects_load_snapshot,
             projects::projects_create_group,
             projects::projects_update_group,
+            projects::projects_delete_group,
             projects::projects_set_group_collapsed,
             projects::projects_create_project,
             projects::projects_update_project,

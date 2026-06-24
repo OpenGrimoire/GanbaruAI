@@ -127,7 +127,7 @@
 {:else if parsedIcon.kind === "emoji"}
   <span
     class={className}
-    style={`display: inline-flex; width: ${size}px; height: ${size}px; align-items: center; justify-content: center; overflow: hidden; font-size: ${emojiFontSize}px; line-height: 1;`}
+    style={`display: inline-flex; width: ${size}px; height: ${size}px; align-items: center; justify-content: center; overflow: visible; font-size: ${emojiFontSize}px; line-height: 1;`}
     aria-hidden="true"
   >
     {parsedIcon.emoji}

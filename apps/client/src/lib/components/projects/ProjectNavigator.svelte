@@ -9,7 +9,9 @@
   import Plus from "@lucide/svelte/icons/plus";
   import Save from "@lucide/svelte/icons/save";
   import Search from "@lucide/svelte/icons/search";
+  import Trash2 from "@lucide/svelte/icons/trash-2";
   import ColorPicker from "$lib/components/calendar/ColorPicker.svelte";
+  import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
   import type { EventColor } from "$lib/components/calendar/types";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import {
@@ -62,9 +64,14 @@
   let groupEditorColor = $state<EventColor | undefined>(undefined);
   let groupEditorSaving = $state(false);
   let groupEditorError = $state<string | null>(null);
+  let pendingDeleteGroupId = $state<string | null>(null);
+  let groupEditorDeleting = $state(false);
 
   const visibleProjectGroups = $derived.by(() => projects.visibleGroups());
   const normalizedProjectSearch = $derived(projectSearch.trim().toLowerCase());
+  const pendingDeleteGroup = $derived.by(() =>
+    pendingDeleteGroupId ? projects.groupById(pendingDeleteGroupId) : undefined
+  );
 
   function filteredProjectsForGroup(groupId: string) {
     const groupProjects = showInactiveProjects
@@ -166,6 +173,35 @@
         "projects.navigator.groupSaveFailed",
         error instanceof Error ? error.message : String(error),
       );
+    }
+  }
+
+  function requestDeleteGroup(group: ProjectGroup): void {
+    pendingDeleteGroupId = group.id;
+  }
+
+  function cancelDeleteGroup(): void {
+    pendingDeleteGroupId = null;
+  }
+
+  async function confirmDeleteGroup(): Promise<void> {
+    if (!pendingDeleteGroup || groupEditorDeleting) return;
+    const group = pendingDeleteGroup;
+    pendingDeleteGroupId = null;
+    groupEditorDeleting = true;
+    groupEditorError = null;
+    try {
+      await projects.removeGroup(group);
+      if (editingGroupId === group.id) editingGroupId = null;
+      if (createProjectGroupId === group.id) createProjectGroupId = null;
+      onProjectSelected();
+    } catch (error) {
+      groupEditorError = t(
+        "projects.navigator.groupDeleteFailed",
+        error instanceof Error ? error.message : String(error),
+      );
+    } finally {
+      groupEditorDeleting = false;
     }
   }
 
@@ -339,6 +375,17 @@
                     <Save size={13} strokeWidth={1.75} />
                     <span>{groupEditorSaving ? t("common.loading") : t("common.save")}</span>
                   </button>
+                  <button
+                    type="button"
+                    class="flex min-h-8 items-center gap-1 rounded border border-destructive/35 bg-background px-2 text-[0.733333rem] text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={groupEditorSaving || groupEditorDeleting}
+                    aria-label={t("projects.navigator.deleteGroup", group.name)}
+                    title={t("projects.navigator.deleteGroup", group.name)}
+                    onclick={() => requestDeleteGroup(group)}
+                  >
+                    <Trash2 size={13} strokeWidth={1.75} />
+                    <span>{groupEditorDeleting ? t("common.loading") : t("common.delete")}</span>
+                  </button>
                 </div>
                 {#if groupEditorError}
                   <div class="rounded border border-destructive/40 bg-destructive/10 px-2 py-1 text-[0.733333rem] text-destructive">
@@ -474,3 +521,18 @@
       {/if}
     </div>
   </aside>
+
+  {#if pendingDeleteGroup}
+    <ConfirmDialog
+      title={t("projects.navigator.deleteGroupTitle", pendingDeleteGroup.name)}
+      message={t(
+        "projects.navigator.deleteGroupMessage",
+        pendingDeleteGroup.name,
+        projects.projectsForGroupIncludingInactive(pendingDeleteGroup.id).length,
+      )}
+      confirmLabel={t("projects.navigator.deleteGroupConfirm")}
+      cancelLabel={t("common.cancelShortcut")}
+      onConfirm={() => { void confirmDeleteGroup(); }}
+      onCancel={cancelDeleteGroup}
+    />
+  {/if}

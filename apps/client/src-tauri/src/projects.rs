@@ -277,6 +277,30 @@ pub async fn projects_update_group<R: Runtime>(
 }
 
 #[tauri::command]
+pub async fn projects_delete_group<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    group_id: String,
+) -> Result<(), String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    delete_project_group(&pool, group_id.trim()).await
+}
+
+async fn delete_project_group(pool: &sqlx::SqlitePool, group_id: &str) -> Result<(), String> {
+    let normalized_group_id = group_id.trim();
+    require_non_empty(normalized_group_id, "group_id")?;
+    let result = sqlx::query("DELETE FROM project_groups WHERE id = ?")
+        .bind(normalized_group_id)
+        .execute(pool)
+        .await
+        .map_err(|e| format!("delete project group: {e}"))?;
+    if result.rows_affected() == 0 {
+        return Err("project group not found".to_string());
+    }
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn projects_set_group_collapsed<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
@@ -1915,6 +1939,64 @@ mod tests {
 
             assert_eq!(section_order, Ok(1000.0));
             assert_eq!(status_order, Ok(1000.0));
+        });
+    }
+
+    #[test]
+    fn delete_group_cascades_projects_and_keeps_calendar_events() {
+        tauri::async_runtime::block_on(async {
+            let pool = migrated_memory_pool().await;
+            insert_project_graph_fixture(&pool).await;
+            sqlx::query(
+                "INSERT INTO calendar_events (id, title, start_time, end_time, project_id)
+                 VALUES ('event-a', 'Event A', '2026-06-24T10:00:00Z', '2026-06-24T11:00:00Z', 'project-a')",
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+            sqlx::query(
+                "INSERT INTO project_task_event_links (task_id, event_id)
+                 VALUES ('task-a', 'event-a')",
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+
+            delete_project_group(&pool, " group-a ").await.unwrap();
+
+            let group_count: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM project_groups WHERE id = 'group-a'")
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+            let project_count: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM projects WHERE id = 'project-a'")
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+            let task_count: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM project_tasks WHERE project_id = 'project-a'",
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            let link_count: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM project_task_event_links WHERE event_id = 'event-a'",
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            let event_project_id: Option<String> =
+                sqlx::query_scalar("SELECT project_id FROM calendar_events WHERE id = 'event-a'")
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+
+            assert_eq!(group_count, 0);
+            assert_eq!(project_count, 0);
+            assert_eq!(task_count, 0);
+            assert_eq!(link_count, 0);
+            assert_eq!(event_project_id, None);
         });
     }
 

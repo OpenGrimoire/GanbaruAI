@@ -10,6 +10,7 @@ import {
   createProjectStatus,
   createProjectTaskDependency,
   createProjectTask,
+  deleteProjectGroup,
   deleteProjectCustomField,
   deleteProjectCustomFieldOption,
   deleteProjectCustomEmoji,
@@ -488,6 +489,14 @@ async function updateGroup(
   const nextName = normalizeProjectName(patch.name ?? group.name);
   if (!nextName) return;
   await updateProjectGroup(groupUpdatePayload(group, { ...patch, name: nextName }));
+  await reload();
+}
+
+async function removeGroup(group: ProjectGroup): Promise<void> {
+  await deleteProjectGroup(group.id);
+  if (selectedProjectId && group.id === projectById(selectedProjectId)?.groupId) {
+    setSelectedProjectId(null);
+  }
   await reload();
 }
 
@@ -1253,6 +1262,7 @@ export function getProjects() {
     addGroup,
     setGroupCollapsed,
     updateGroup,
+    removeGroup,
     moveGroup,
     addProject,
     updateProject,

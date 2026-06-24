@@ -142,7 +142,7 @@
     <div class="fixed inset-0 z-60" onclick={() => closePalette("pointer")}></div>
     <div
       bind:this={paletteEl}
-      class="absolute right-0 top-full z-61 mt-1 grid gap-2 rounded-lg p-2.5 shadow-lg ring-1"
+      class="absolute -right-1 top-full z-61 mt-1 grid gap-2 rounded-lg p-2.5 shadow-lg ring-1"
       style="
         grid-template-columns: repeat(4, 1.375rem);
         background-color: {pickerBg};
