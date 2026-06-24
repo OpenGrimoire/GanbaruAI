@@ -291,6 +291,9 @@ describe("computeEditDisplay", () => {
       changes,
       "this",
       TEST_WINDOW,
+      undefined,
+      "2026-06-10",
+      "12:00",
     );
     const followingResult = computeEditDisplay(
       [template],
@@ -299,6 +302,9 @@ describe("computeEditDisplay", () => {
       changes,
       "following",
       TEST_WINDOW,
+      undefined,
+      "2026-06-10",
+      "12:00",
     );
     const allResult = computeEditDisplay(
       [template],
@@ -307,6 +313,9 @@ describe("computeEditDisplay", () => {
       changes,
       "all",
       TEST_WINDOW,
+      undefined,
+      "2026-06-10",
+      "12:00",
     );
 
     expect(thisResult.events.find((event) => event.id === inst20.id)?.recurrence).toBeUndefined();
