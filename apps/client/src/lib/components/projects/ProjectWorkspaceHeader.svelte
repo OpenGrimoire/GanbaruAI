@@ -224,14 +224,10 @@
       aria-expanded={projectNavigatorOpen}
       onclick={toggleProjectNavigator}
     >
-      <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-accent text-accent-foreground">
-        <ProjectIcon name={selectedGroup.icon} size={14} />
-      </span>
+      <ProjectIcon name={selectedGroup.icon} size={14} ignoreColor class="shrink-0" />
       <span class="min-w-0 truncate font-semibold text-foreground">{selectedGroup.name}</span>
       <span class="shrink-0 font-semibold text-foreground">/</span>
-      <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-accent text-accent-foreground">
-        <ProjectIcon name={selectedProject.icon} size={14} />
-      </span>
+      <ProjectIcon name={selectedProject.icon} size={14} ignoreColor class="shrink-0" />
       <span class="min-w-0 truncate font-semibold text-foreground">{selectedProject.name}</span>
       <ChevronDown size={14} strokeWidth={1.75} class="shrink-0 text-muted-foreground" />
       {#if selectedProject.status !== "active"}

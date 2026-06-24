@@ -332,6 +332,22 @@ export interface ProjectViewPreferenceUpsert {
   preferenceValue: string;
 }
 
+export interface ProjectCustomEmoji {
+  id: string;
+  name: string;
+  assetPath: string;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectCustomEmojiCreate {
+  id: string;
+  name: string;
+  assetPath: string;
+  sortOrder: number;
+}
+
 export interface ProjectSavedTaskView {
   id: string;
   projectId: string;
@@ -458,6 +474,7 @@ export interface ProjectsSnapshot {
   eventLinks: ProjectTaskEventLink[];
   taskChangeEvents: ProjectTaskChangeEvent[];
   viewPreferences: ProjectViewPreference[];
+  customEmojis: ProjectCustomEmoji[];
 }
 
 export interface ProjectGroupCreate {

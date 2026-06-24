@@ -1,16 +1,14 @@
 <script lang="ts">
-  import { onMount, tick } from "svelte";
-  import ChevronDown from "@lucide/svelte/icons/chevron-down";
-  import ChevronRight from "@lucide/svelte/icons/chevron-right";
-  import CircleQuestionMark from "@lucide/svelte/icons/circle-question-mark";
-  import Plus from "@lucide/svelte/icons/plus";
-  import Search from "@lucide/svelte/icons/search";
-  import X from "@lucide/svelte/icons/x";
-  import { getEventColor } from "$lib/components/calendar/utils";
-  import { getLocalization } from "$lib/i18n/translator.svelte";
-  import { getTheme } from "$lib/stores/theme.svelte";
-  import { getProjects } from "$lib/stores/projects.svelte";
-  import { cn } from "$lib/utils";
+import { onMount, tick } from "svelte";
+import ChevronDown from "@lucide/svelte/icons/chevron-down";
+import ChevronRight from "@lucide/svelte/icons/chevron-right";
+import FolderX from "@lucide/svelte/icons/folder-x";
+import Plus from "@lucide/svelte/icons/plus";
+import Search from "@lucide/svelte/icons/search";
+import X from "@lucide/svelte/icons/x";
+import { getLocalization } from "$lib/i18n/translator.svelte";
+import { getProjects } from "$lib/stores/projects.svelte";
+import { cn } from "$lib/utils";
   import ProjectIcon from "./ProjectIcon.svelte";
   import { PROJECT_TEMPLATE_IDS } from "$lib/projects/types";
   import type { Project, ProjectGroup, ProjectTemplateId } from "$lib/projects/types";
@@ -26,8 +24,8 @@
   } = $props();
 
   const projects = getProjects();
-  const theme = getTheme();
   const { t } = getLocalization();
+  const eventPanelIconStrokeWidth = 1.6;
   let open = $state(false);
   let search = $state("");
   let groupDraft = $state("");
@@ -40,7 +38,6 @@
 
   const selectedProject = $derived(projects.projectById(selectedProjectId));
   const selectedGroup = $derived(projects.groupById(selectedProject?.groupId));
-  const pickerColor = $derived(getEventColor(selectedProject?.color, theme.current));
   const normalizedSearch = $derived(search.trim().toLowerCase());
   const groups = $derived.by(() => projects.visibleGroups());
 
@@ -196,8 +193,6 @@
     if (!selectedProject) return t("calendar.eventPanel.projectPlaceholder");
     return selectedGroup ? `${selectedProject.name}, ${selectedGroup.name}` : selectedProject.name;
   });
-
-  const pickerStyle = $derived(`background-color: ${pickerColor.bg}; color: ${pickerColor.text};`);
 </script>
 
 <div class="relative flex items-center" data-app-shortcuts="ignore">
@@ -206,10 +201,9 @@
     type="button"
     disabled={disabled}
     class={cn(
-      "flex size-4.5 shrink-0 items-center justify-center rounded-sm border border-event-panel-divider/70 transition-opacity hover:opacity-90",
+      "flex size-4.5 shrink-0 items-center justify-center rounded-sm text-event-panel-muted-text transition-colors hover:text-event-panel-input-text",
       disabled && "cursor-not-allowed opacity-60",
     )}
-    style={pickerStyle}
     title={pickerTitle}
     aria-label={pickerTitle}
     data-app-tooltip-focus-disabled="true"
@@ -218,9 +212,9 @@
     }}
   >
     {#if selectedProject}
-      <ProjectIcon name={selectedProject.icon} size={13} strokeWidth={2} />
+      <ProjectIcon name={selectedProject.icon} size={18} strokeWidth={eventPanelIconStrokeWidth} ignoreColor />
     {:else}
-      <CircleQuestionMark size={13} strokeWidth={2} />
+      <FolderX size={18} strokeWidth={eventPanelIconStrokeWidth} />
     {/if}
   </button>
 
@@ -233,7 +227,7 @@
       style={dropdownStyle}
     >
       <div class="flex items-center gap-2 border-b border-event-panel-divider/70 px-2 py-1.5">
-        <Search size={13} strokeWidth={1.75} class="shrink-0 text-event-panel-muted-text" />
+        <Search size={13} strokeWidth={eventPanelIconStrokeWidth} class="shrink-0 text-event-panel-muted-text" />
         <input
           bind:value={search}
           placeholder={t("calendar.eventPanel.searchProjects")}
@@ -246,7 +240,7 @@
             class="flex h-6 w-6 shrink-0 items-center justify-center rounded text-event-panel-muted-text hover:bg-event-panel-contrast hover:text-event-panel-input-text"
             aria-label={t("calendar.eventPanel.projectPlaceholder")}
           >
-            <X size={13} strokeWidth={1.75} />
+            <X size={13} strokeWidth={eventPanelIconStrokeWidth} />
           </button>
         {/if}
       </div>
@@ -275,11 +269,11 @@
                   onclick={() => { void toggleGroup(group); }}
                 >
                   {#if groupExpanded(group)}
-                    <ChevronDown size={13} strokeWidth={1.75} class="shrink-0" />
+                    <ChevronDown size={13} strokeWidth={eventPanelIconStrokeWidth} class="shrink-0" />
                   {:else}
-                    <ChevronRight size={13} strokeWidth={1.75} class="shrink-0" />
+                    <ChevronRight size={13} strokeWidth={eventPanelIconStrokeWidth} class="shrink-0" />
                   {/if}
-                  <ProjectIcon name={group.icon} size={13} class="shrink-0" />
+                  <ProjectIcon name={group.icon} size={13} strokeWidth={eventPanelIconStrokeWidth} ignoreColor class="shrink-0" />
                   <span class="truncate">{group.name}</span>
                 </button>
                 <button
@@ -290,7 +284,7 @@
                     createProjectGroupId = createProjectGroupId === group.id ? null : group.id;
                   }}
                 >
-                  <Plus size={13} strokeWidth={1.75} />
+                  <Plus size={13} strokeWidth={eventPanelIconStrokeWidth} />
                 </button>
               </div>
               {#if createProjectGroupId === group.id}
@@ -351,7 +345,7 @@
                       aria-label={t("projects.actions.selectProject", project.name, group.name)}
                       onclick={() => selectProject(project)}
                     >
-                      <ProjectIcon name={project.icon} size={13} class="shrink-0" />
+                      <ProjectIcon name={project.icon} size={13} strokeWidth={eventPanelIconStrokeWidth} ignoreColor class="shrink-0" />
                       <span class="truncate">{project.name}</span>
                     </button>
                   {/each}
@@ -383,7 +377,7 @@
             class="flex min-h-8 w-full items-center justify-center gap-1.5 rounded text-[0.8rem] text-event-panel-text hover:bg-event-panel-contrast"
             onclick={() => { createGroupOpen = true; }}
           >
-            <Plus size={13} strokeWidth={1.75} />
+            <Plus size={13} strokeWidth={eventPanelIconStrokeWidth} />
             <span>{t("calendar.eventPanel.createGroup")}</span>
           </button>
         {/if}

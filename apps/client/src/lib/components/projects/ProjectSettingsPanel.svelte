@@ -6,7 +6,9 @@
   import Save from "@lucide/svelte/icons/save";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import X from "@lucide/svelte/icons/x";
+  import CalendarScrollbar from "$lib/components/calendar/CalendarScrollbar.svelte";
   import ColorPicker from "$lib/components/calendar/ColorPicker.svelte";
+  import CustomSelect from "$lib/components/settings/CustomSelect.svelte";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
   import type { EventColor } from "$lib/components/calendar/types";
   import { getLocalization } from "$lib/i18n/translator.svelte";
@@ -15,7 +17,6 @@
     projectCustomFieldTypeLabel,
     projectLabelColorDotStyle,
     projectLabelColorSwatchClass,
-    projectLifecycleBadgeClass,
     projectLifecycleLabel,
   } from "$lib/projects/project-display";
   import {
@@ -35,7 +36,7 @@
   import { getProjects } from "$lib/stores/projects.svelte";
   import { getTheme } from "$lib/stores/theme.svelte";
   import { cn } from "$lib/utils";
-  import ProjectIcon from "./ProjectIcon.svelte";
+  import ProjectIconPicker from "./ProjectIconPicker.svelte";
   import ProjectSettingsDefaultsSection from "./ProjectSettingsDefaultsSection.svelte";
 
   let {
@@ -54,23 +55,10 @@
   const theme = getTheme();
   const { t } = getLocalization();
 
-  const PROJECT_ICON_OPTIONS = [
-    "folder",
-    "repeat",
-    "apple",
-    "graduation-cap",
-    "book-open",
-    "dumbbell",
-    "bath",
-    "heart",
-    "sparkles",
-    "clapperboard",
-    "smile",
-    "bed",
-  ] as const;
   const PROJECT_POMODORO_OPTIONS = Object.keys(COUNT_PRESET_RHYTHMS) as PomodoroPresetKey[];
   const PROJECT_STATUS_CATEGORIES: ProjectStatusCategory[] = ["not_started", "active", "blocked", "done"];
   type ProjectLabelColorDraft = EventColor | "none";
+  type SelectOption = { value: string; label: string };
 
   let projectDraftId = $state<string | null>(null);
   let projectDraftUpdatedAt = $state<string | null>(null);
@@ -104,14 +92,35 @@
   let newCustomFieldOptionDrafts = $state<Record<string, string>>({});
   let pendingDeleteCustomFieldId = $state<string | null>(null);
   let pendingDeleteCustomFieldOptionId = $state<string | null>(null);
+  let settingsScrollElement = $state<HTMLElement | undefined>();
 
   const selectedProject = $derived(projects.projectById(projectId));
   const selectedProjectId = $derived(selectedProject?.id ?? null);
-  const selectedGroup = $derived(projects.groupById(selectedProject?.groupId));
   const visibleProjectGroups = $derived.by(() => projects.visibleGroups());
   const statuses = $derived(projects.statusesForProject(selectedProjectId));
   const projectLabels = $derived(projects.labelsForProject(selectedProjectId));
   const projectCustomFields = $derived(projects.customFieldsForProject(selectedProjectId));
+  const projectGroupOptions = $derived<SelectOption[]>(
+    visibleProjectGroups.map((group) => ({ value: group.id, label: group.name })),
+  );
+  const lifecycleOptions = $derived<SelectOption[]>(
+    PROJECT_LIFECYCLE_STATUSES.map((status) => ({
+      value: status,
+      label: projectLifecycleLabel(status, t),
+    })),
+  );
+  const statusCategoryOptions = $derived<SelectOption[]>(
+    PROJECT_STATUS_CATEGORIES.map((category) => ({
+      value: category,
+      label: statusCategoryLabel(category),
+    })),
+  );
+  const customFieldTypeOptions = $derived<SelectOption[]>(
+    PROJECT_CUSTOM_FIELD_TYPES.map((fieldType) => ({
+      value: fieldType,
+      label: projectCustomFieldTypeLabel(fieldType, t),
+    })),
+  );
   const pendingDeleteLabel = $derived.by(() =>
     pendingDeleteLabelId ? projectLabels.find((label) => label.id === pendingDeleteLabelId) : undefined
   );
@@ -229,6 +238,50 @@
     if (category === "blocked") return t("projects.statusCategory.blocked");
     if (category === "done") return t("projects.statusCategory.done");
     return t("projects.statusCategory.notStarted");
+  }
+
+  function setLifecycleStatus(value: string): void {
+    if (PROJECT_LIFECYCLE_STATUSES.includes(value as ProjectLifecycleStatus)) {
+      projectStatusDraft = value as ProjectLifecycleStatus;
+    }
+  }
+
+  function setStatusCategory(statusId: string, value: string): void {
+    if (!PROJECT_STATUS_CATEGORIES.includes(value as ProjectStatusCategory)) return;
+    statusCategoryDrafts = {
+      ...statusCategoryDrafts,
+      [statusId]: value as ProjectStatusCategory,
+    };
+  }
+
+  function setNewStatusCategory(value: string): void {
+    if (PROJECT_STATUS_CATEGORIES.includes(value as ProjectStatusCategory)) {
+      newStatusCategory = value as ProjectStatusCategory;
+    }
+  }
+
+  function setNewCustomFieldType(value: string): void {
+    if (PROJECT_CUSTOM_FIELD_TYPES.includes(value as ProjectCustomFieldType)) {
+      newCustomFieldType = value as ProjectCustomFieldType;
+    }
+  }
+
+  function compactChoiceClass(active: boolean): string {
+    return cn(
+      "min-h-7 rounded-md px-2 text-[0.733333rem] font-medium transition-colors",
+      active
+        ? "bg-accent text-foreground"
+        : "text-muted-foreground hover:bg-accent/70 hover:text-foreground",
+    );
+  }
+
+  function iconButtonClass(tone: "neutral" | "danger" = "neutral"): string {
+    return cn(
+      "flex h-7 w-7 shrink-0 items-center justify-center rounded-md disabled:cursor-not-allowed disabled:opacity-40",
+      tone === "danger"
+        ? "text-destructive hover:bg-destructive/10"
+        : "text-muted-foreground hover:bg-accent hover:text-foreground",
+    );
   }
 
   function pomodoroPresetLabel(preset: PomodoroPresetKey): string {
@@ -694,6 +747,15 @@
   }
 </script>
 
+{#snippet sectionHeading(label: string, count: string | null = null)}
+  <div class="flex min-h-7 items-center justify-between gap-3 px-1">
+    <h2 class="truncate text-[0.866667rem] font-semibold text-foreground">{label}</h2>
+    {#if count}
+      <span class="shrink-0 text-[0.733333rem] font-medium text-muted-foreground">{count}</span>
+    {/if}
+  </div>
+{/snippet}
+
 {#if selectedProject}
 <aside
   class={cn(
@@ -703,13 +765,9 @@
       : "w-[min(23rem,42vw)] min-w-64 shrink-0 border-l border-border max-[760px]:fixed max-[760px]:inset-2 max-[760px]:z-30 max-[760px]:w-auto max-[760px]:rounded-md max-[760px]:border",
   )}
 >
-  <header class="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2">
-    <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-accent text-accent-foreground">
-      <ProjectIcon name={projectIconDraft} size={16} />
-    </span>
+  <header class="sticky top-0 z-10 flex shrink-0 items-center gap-2 bg-card px-3 pb-1 pt-2">
     <div class="min-w-0 flex-1">
       <div class="truncate text-[0.933333rem] font-semibold">{t("projects.settings.title")}</div>
-      <div class="truncate text-[0.733333rem] text-muted-foreground">{selectedGroup?.name ?? ""}</div>
     </div>
     <button
       type="button"
@@ -733,140 +791,112 @@
   </header>
 
   <form class="flex min-h-0 flex-1 flex-col" onsubmit={(event) => { event.preventDefault(); void saveProjectSettings(); }}>
-    <div class="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-      <div class="grid gap-3">
-        <label class="grid gap-1 text-[0.733333rem] font-medium text-muted-foreground">
-          <span>{t("projects.settings.name")}</span>
-          <input
-            bind:value={projectNameDraft}
-            class="min-h-9 rounded-md border border-border bg-background px-2 text-[0.9rem] font-medium text-foreground"
-          />
-        </label>
+    <div class="relative min-h-0 flex-1">
+      <div
+        bind:this={settingsScrollElement}
+        data-settings-content
+        class="hide-scrollbar h-full min-h-0 overflow-y-auto px-3 pb-3 pt-1"
+      >
+        <div class="flex flex-col gap-4">
+          <section class="flex flex-col gap-4">
+            {@render sectionHeading(t("projects.settings.identity"))}
+            <div class="flex flex-col gap-3">
+              <label class="flex items-center justify-between gap-4 px-1 py-1 max-[480px]:flex-col max-[480px]:items-stretch max-[480px]:gap-2">
+                <span class="min-w-0 flex-1 text-[0.866667rem] text-foreground">{t("projects.settings.name")}</span>
+                <input
+                  bind:value={projectNameDraft}
+                  class="h-7 w-44 min-w-0 rounded-md border border-border bg-card px-2.5 text-left text-[0.8rem] font-medium text-foreground outline-none transition-colors focus:border-ring dark:bg-transparent max-[480px]:w-full"
+                />
+              </label>
 
-        <section class="grid gap-2 border-t border-border/70 pt-3">
-          <h2 class="text-[0.8rem] font-semibold">{t("projects.settings.identity")}</h2>
-          <div class="grid gap-1">
-            <div class="text-[0.733333rem] font-medium text-muted-foreground">{t("projects.settings.group")}</div>
-            <div class="grid gap-1">
-              {#each visibleProjectGroups as group (group.id)}
-                <button
-                  type="button"
-                  class={cn(
-                    "flex min-h-8 items-center gap-2 rounded-md border px-2 text-left text-[0.8rem]",
-                    projectGroupDraft === group.id
-                      ? "border-primary/50 bg-primary/10 text-primary"
-                      : "border-border bg-background text-foreground hover:bg-accent",
-                  )}
-                  onclick={() => {
-                    projectGroupDraft = group.id;
-                  }}
-                >
-                  <ProjectIcon name={group.icon} size={14} class="shrink-0" />
-                  <span class="min-w-0 flex-1 truncate">{group.name}</span>
-                </button>
-              {/each}
-            </div>
-          </div>
-          <div class="grid gap-1">
-            <div class="text-[0.733333rem] font-medium text-muted-foreground">{t("projects.settings.lifecycle")}</div>
-            <div class="grid grid-cols-3 gap-1">
-              {#each PROJECT_LIFECYCLE_STATUSES as status}
-                <button
-                  type="button"
-                  class={cn(
-                    "min-h-8 rounded-md border px-2 text-[0.766667rem] font-medium",
-                    projectStatusDraft === status
-                      ? projectLifecycleBadgeClass(status)
-                      : "border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground",
-                  )}
-                  onclick={() => {
-                    projectStatusDraft = status;
-                  }}
-                >
-                  {projectLifecycleLabel(status, t)}
-                </button>
-              {/each}
-            </div>
-          </div>
-          <div class="grid gap-1">
-            <div class="text-[0.733333rem] font-medium text-muted-foreground">{t("projects.settings.icon")}</div>
-            <div class="grid grid-cols-6 gap-1">
-              {#each PROJECT_ICON_OPTIONS as icon}
-                <button
-                  type="button"
-                  class={cn(
-                    "flex h-8 items-center justify-center rounded-md border",
-                    projectIconDraft === icon
-                      ? "border-primary/50 bg-primary/10 text-primary"
-                      : "border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground",
-                  )}
-                  aria-label={t("projects.settings.selectIcon", icon)}
-                  onclick={() => {
-                    projectIconDraft = icon;
-                  }}
-                >
-                  <ProjectIcon name={icon} size={15} />
-                </button>
-              {/each}
-            </div>
-          </div>
-
-          <div class="flex min-h-8 items-center justify-between gap-3 rounded-md border border-border bg-background px-2">
-            <span class="text-[0.8rem]">{t("projects.settings.color")}</span>
-            <div class="flex items-center gap-2">
-              <button
-                type="button"
-                class="rounded-md border border-border px-2 py-1 text-[0.733333rem] text-muted-foreground hover:bg-accent hover:text-foreground"
-                onclick={() => {
-                  projectColorDraft = undefined;
+              <CustomSelect
+                label={t("projects.settings.group")}
+                value={projectGroupDraft}
+                options={projectGroupOptions}
+                onChange={(value) => {
+                  projectGroupDraft = value;
                 }}
-              >
-                {t("common.none")}
-              </button>
-              <ColorPicker
-                color={projectColorDraft}
-                theme={theme.current}
-                title={t("projects.settings.color")}
-                ariaLabel={t("projects.settings.selectColor")}
-                onselect={(color) => {
-                  projectColorDraft = color;
-                }}
+                class="w-44"
               />
+
+              <CustomSelect
+                label={t("projects.settings.lifecycle")}
+                value={projectStatusDraft}
+                options={lifecycleOptions}
+                onChange={setLifecycleStatus}
+                class="w-44"
+              />
+
+              <div class="flex items-start justify-between gap-4 px-1 py-1 max-[480px]:flex-col max-[480px]:items-stretch max-[480px]:gap-2">
+                <div class="min-w-0 flex-1 text-[0.866667rem] text-foreground">{t("projects.settings.icon")}</div>
+                <ProjectIconPicker
+                  value={projectIconDraft}
+                  ariaLabel={t("projects.settings.selectIcon", projectIconDraft)}
+                  allowIconColors={false}
+                  class="w-44 max-[480px]:w-full"
+                  onChange={(nextIcon) => {
+                    projectIconDraft = nextIcon;
+                  }}
+                />
+              </div>
+
+              <div class="flex items-center justify-between gap-4 px-1 py-1 max-[480px]:items-start">
+                <div class="min-w-0 flex-1 text-[0.866667rem] text-foreground">{t("projects.settings.color")}</div>
+                <div class="flex items-center gap-1">
+                  <button
+                    type="button"
+                    class={compactChoiceClass(projectColorDraft === undefined)}
+                    onclick={() => {
+                      projectColorDraft = undefined;
+                    }}
+                  >
+                    {t("common.none")}
+                  </button>
+                  <ColorPicker
+                    color={projectColorDraft}
+                    theme={theme.current}
+                    title={t("projects.settings.color")}
+                    ariaLabel={t("projects.settings.selectColor")}
+                    onselect={(color) => {
+                      projectColorDraft = color;
+                    }}
+                  />
+                </div>
+              </div>
             </div>
-          </div>
-        </section>
+          </section>
 
-        <ProjectSettingsDefaultsSection
-          pomodoroOptions={PROJECT_POMODORO_OPTIONS}
-          {pomodoroPresetLabel}
-          bind:projectDurationDraft
-          bind:projectPomodoroDraft
-          bind:projectIdleTimeoutDraft
-          bind:projectFocusPlaylistDraft
-          bind:projectBreakPlaylistDraft
-          bind:projectWorkEnvironmentDraft
-          bind:projectBlockerRulesetDraft
-        />
+          <div class="h-px bg-border/70" aria-hidden="true"></div>
 
-        <section class="grid gap-2 border-t border-border/70 pt-3">
-          <div class="flex items-center justify-between gap-2">
-            <h2 class="text-[0.8rem] font-semibold">{t("projects.settings.labels")}</h2>
-            <span class="text-[0.733333rem] text-muted-foreground">{projectLabels.length}</span>
-          </div>
-          <div class="grid gap-2">
-            {#each projectLabels as label (label.id)}
-              {@const previousLabel = adjacentLabel(label, -1)}
-              {@const nextLabel = adjacentLabel(label, 1)}
-              {@const draftColor = labelColorDraftValue(label)}
-              <div class="grid gap-2 rounded-md border border-border bg-background p-2">
-                <div class="flex gap-1">
+          <ProjectSettingsDefaultsSection
+            pomodoroOptions={PROJECT_POMODORO_OPTIONS}
+            {pomodoroPresetLabel}
+            bind:projectDurationDraft
+            bind:projectPomodoroDraft
+            bind:projectIdleTimeoutDraft
+            bind:projectFocusPlaylistDraft
+            bind:projectBreakPlaylistDraft
+            bind:projectWorkEnvironmentDraft
+            bind:projectBlockerRulesetDraft
+          />
+
+          <div class="h-px bg-border/70" aria-hidden="true"></div>
+
+          <section class="flex flex-col gap-4">
+            {@render sectionHeading(t("projects.settings.labels"), String(projectLabels.length))}
+            <div class="flex flex-col gap-1">
+              {#each projectLabels as label (label.id)}
+                {@const previousLabel = adjacentLabel(label, -1)}
+                {@const nextLabel = adjacentLabel(label, 1)}
+                {@const draftColor = labelColorDraftValue(label)}
+                <div class="grid min-h-8 grid-cols-[auto_minmax(0,1fr)_auto_auto_auto_auto_auto_auto] items-center gap-1 px-1 py-1">
                   <span
-                    class={cn("mt-2.5 h-2.5 w-2.5 shrink-0 rounded-full border", projectLabelColorSwatchClass(draftColor))}
+                    class={cn("h-2.5 w-2.5 shrink-0 rounded-full border", projectLabelColorSwatchClass(draftColor))}
                     style={projectLabelColorDotStyle(draftColor, theme.current)}
                   ></span>
                   <input
                     value={labelNameDraftValue(label)}
-                    class="min-h-8 min-w-0 flex-1 rounded-md border border-border bg-card px-2 text-[0.8rem] text-foreground"
+                    class="h-7 min-w-0 rounded-md bg-transparent px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:bg-card"
                     aria-label={t("projects.settings.labelName")}
                     oninput={(event) => {
                       labelNameDrafts = {
@@ -883,26 +913,7 @@
                   />
                   <button
                     type="button"
-                    class="flex min-h-8 items-center gap-1.5 rounded-md border border-border bg-card px-2 text-[0.8rem] hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-                    disabled={!labelDraftDirty(label)}
-                    onclick={() => { void saveLabel(label); }}
-                  >
-                    <Save size={13} strokeWidth={1.75} />
-                    <span>{t("projects.settings.saveLabel")}</span>
-                  </button>
-                </div>
-                <div class="flex flex-wrap items-center gap-1">
-                  <span class="mr-1 text-[0.733333rem] font-medium text-muted-foreground">
-                    {t("projects.settings.labelColor")}
-                  </span>
-                  <button
-                    type="button"
-                    class={cn(
-                      "rounded-md border px-2 py-1 text-[0.733333rem]",
-                      draftColor === undefined
-                        ? "border-primary/50 bg-primary/10 text-primary"
-                        : "border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground",
-                    )}
+                    class={compactChoiceClass(draftColor === undefined)}
                     onclick={() => {
                       labelColorDrafts = {
                         ...labelColorDrafts,
@@ -926,7 +937,17 @@
                   />
                   <button
                     type="button"
-                    class="ml-auto flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                    class={iconButtonClass()}
+                    disabled={!labelDraftDirty(label)}
+                    aria-label={t("projects.settings.saveLabel")}
+                    title={t("projects.settings.saveLabel")}
+                    onclick={() => { void saveLabel(label); }}
+                  >
+                    <Save size={13} strokeWidth={1.75} />
+                  </button>
+                  <button
+                    type="button"
+                    class={iconButtonClass()}
                     disabled={!previousLabel}
                     aria-label={t("projects.actions.moveLabelUp", label.name)}
                     title={t("projects.actions.moveLabelUp", label.name)}
@@ -936,7 +957,7 @@
                   </button>
                   <button
                     type="button"
-                    class="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                    class={iconButtonClass()}
                     disabled={!nextLabel}
                     aria-label={t("projects.actions.moveLabelDown", label.name)}
                     title={t("projects.actions.moveLabelDown", label.name)}
@@ -946,7 +967,7 @@
                   </button>
                   <button
                     type="button"
-                    class="flex h-7 w-7 items-center justify-center rounded-md text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-40"
+                    class={iconButtonClass("danger")}
                     aria-label={t("projects.actions.deleteLabel", label.name)}
                     title={t("projects.actions.deleteLabel", label.name)}
                     onclick={() => requestDeleteLabel(label)}
@@ -954,23 +975,21 @@
                     <Trash2 size={13} strokeWidth={1.75} />
                   </button>
                 </div>
-              </div>
-            {:else}
-              <div class="rounded-md border border-dashed border-border px-2 py-2 text-[0.8rem] text-muted-foreground">
-                {t("projects.settings.noLabels")}
-              </div>
-            {/each}
-          </div>
+              {:else}
+                <div class="px-1 py-2 text-[0.8rem] text-muted-foreground">
+                  {t("projects.settings.noLabels")}
+                </div>
+              {/each}
+            </div>
 
-          <div class="grid gap-1 rounded-md border border-dashed border-border p-2">
-            <div class="flex gap-1">
+            <div class="grid min-h-8 grid-cols-[auto_minmax(0,1fr)_auto_auto_auto] items-center gap-1 px-1 py-1">
               <span
-                class={cn("mt-2.5 h-2.5 w-2.5 shrink-0 rounded-full border", projectLabelColorSwatchClass(newLabelColorValue()))}
+                class={cn("h-2.5 w-2.5 shrink-0 rounded-full border", projectLabelColorSwatchClass(newLabelColorValue()))}
                 style={projectLabelColorDotStyle(newLabelColorValue(), theme.current)}
               ></span>
               <input
                 bind:value={newLabelName}
-                class="min-h-8 min-w-0 flex-1 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground"
+                class="h-7 min-w-0 rounded-md bg-transparent px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:bg-card"
                 placeholder={t("projects.settings.newLabelPlaceholder")}
                 onkeydown={(event) => {
                   if (event.key === "Enter") {
@@ -981,25 +1000,7 @@
               />
               <button
                 type="button"
-                class="flex min-h-8 items-center gap-1 rounded-md bg-primary px-2 text-[0.733333rem] font-medium text-primary-foreground"
-                onclick={() => { void submitLabel(); }}
-              >
-                <Plus size={13} strokeWidth={1.75} />
-                <span>{t("projects.settings.addLabel")}</span>
-              </button>
-            </div>
-            <div class="flex flex-wrap items-center gap-1">
-              <span class="mr-1 text-[0.733333rem] font-medium text-muted-foreground">
-                {t("projects.settings.labelColor")}
-              </span>
-              <button
-                type="button"
-                class={cn(
-                  "rounded-md border px-2 py-1 text-[0.733333rem]",
-                  newLabelColor === "none"
-                    ? "border-primary/50 bg-primary/10 text-primary"
-                    : "border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground",
-                )}
+                class={compactChoiceClass(newLabelColor === "none")}
                 onclick={() => {
                   newLabelColor = "none";
                 }}
@@ -1015,196 +1016,202 @@
                   newLabelColor = color ?? "none";
                 }}
               />
+              <button
+                type="button"
+                class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                aria-label={t("projects.settings.addLabel")}
+                title={t("projects.settings.addLabel")}
+                onclick={() => { void submitLabel(); }}
+              >
+                <Plus size={13} strokeWidth={1.75} />
+              </button>
             </div>
-          </div>
-        </section>
+          </section>
 
-        <section class="grid gap-2 border-t border-border/70 pt-3">
-          <div class="flex items-center justify-between gap-2">
-            <h2 class="text-[0.8rem] font-semibold">{t("projects.customFields.title")}</h2>
-            <span class="text-[0.733333rem] text-muted-foreground">{projectCustomFields.length}</span>
-          </div>
-          <div class="grid gap-2">
-            {#each projectCustomFields as field (field.id)}
-              {@const previousField = adjacentCustomField(field, -1)}
-              {@const nextField = adjacentCustomField(field, 1)}
-              <div class="grid gap-2 rounded-md border border-border bg-background p-2">
-                <div class="grid grid-cols-[minmax(0,1fr)_auto] gap-1">
-                  <input
-                    value={customFieldNameDraftValue(field)}
-                    class="min-h-8 min-w-0 rounded-md border border-border bg-card px-2 text-[0.8rem] text-foreground"
-                    aria-label={t("projects.customFields.fieldName")}
-                    oninput={(event) => {
-                      customFieldNameDrafts = {
-                        ...customFieldNameDrafts,
-                        [field.id]: event.currentTarget.value,
-                      };
-                    }}
-                    onkeydown={(event) => {
-                      if (event.key === "Enter") {
-                        event.preventDefault();
-                        void saveCustomField(field);
-                      }
-                    }}
-                  />
-                  <button
-                    type="button"
-                    class="flex min-h-8 items-center gap-1.5 rounded-md border border-border bg-card px-2 text-[0.8rem] hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-                    disabled={!customFieldDraftDirty(field)}
-                    onclick={() => { void saveCustomField(field); }}
-                  >
-                    <Save size={13} strokeWidth={1.75} />
-                    <span>{t("projects.customFields.saveField")}</span>
-                  </button>
-                </div>
-                <div class="flex flex-wrap items-center gap-1">
-                  <span class="rounded border border-border bg-card px-2 py-1 text-[0.733333rem] text-muted-foreground">
-                    {projectCustomFieldTypeLabel(field.fieldType, t)}
-                  </span>
-                  <button
-                    type="button"
-                    class="ml-auto flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-                    disabled={!previousField}
-                    aria-label={t("projects.actions.moveCustomFieldUp", field.name)}
-                    title={t("projects.actions.moveCustomFieldUp", field.name)}
-                    onclick={() => { void moveProjectCustomField(field, -1); }}
-                  >
-                    <ArrowUp size={13} strokeWidth={1.75} />
-                  </button>
-                  <button
-                    type="button"
-                    class="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-                    disabled={!nextField}
-                    aria-label={t("projects.actions.moveCustomFieldDown", field.name)}
-                    title={t("projects.actions.moveCustomFieldDown", field.name)}
-                    onclick={() => { void moveProjectCustomField(field, 1); }}
-                  >
-                    <ArrowDown size={13} strokeWidth={1.75} />
-                  </button>
-                  <button
-                    type="button"
-                    class="flex h-7 w-7 items-center justify-center rounded-md text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-40"
-                    aria-label={t("projects.actions.deleteCustomField", field.name)}
-                    title={t("projects.actions.deleteCustomField", field.name)}
-                    onclick={() => requestDeleteCustomField(field)}
-                  >
-                    <Trash2 size={13} strokeWidth={1.75} />
-                  </button>
-                </div>
+          <div class="h-px bg-border/70" aria-hidden="true"></div>
 
-                {#if customFieldAcceptsOptions(field)}
-                  <div class="grid gap-1 border-t border-border/60 pt-2">
-                    <div class="text-[0.733333rem] font-medium text-muted-foreground">
-                      {t("projects.customFields.options")}
-                    </div>
-                    {#each customFieldOptions(field) as option (option.id)}
-                      {@const previousOption = adjacentCustomFieldOption(option, -1)}
-                      {@const nextOption = adjacentCustomFieldOption(option, 1)}
-                      <div class="grid min-h-8 grid-cols-[minmax(0,1fr)_auto_auto_auto_auto] items-center gap-1 rounded-md border border-border bg-card px-2">
+          <section class="flex flex-col gap-4">
+            {@render sectionHeading(t("projects.customFields.title"), String(projectCustomFields.length))}
+            <div class="flex flex-col gap-1">
+              {#each projectCustomFields as field (field.id)}
+                {@const previousField = adjacentCustomField(field, -1)}
+                {@const nextField = adjacentCustomField(field, 1)}
+                <div class="flex flex-col gap-1 px-1 py-1">
+                  <div class="grid min-h-8 grid-cols-[minmax(0,1fr)_auto_auto_auto_auto_auto] items-center gap-1">
+                    <input
+                      value={customFieldNameDraftValue(field)}
+                      class="h-7 min-w-0 rounded-md bg-transparent px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:bg-card"
+                      aria-label={t("projects.customFields.fieldName")}
+                      oninput={(event) => {
+                        customFieldNameDrafts = {
+                          ...customFieldNameDrafts,
+                          [field.id]: event.currentTarget.value,
+                        };
+                      }}
+                      onkeydown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          void saveCustomField(field);
+                        }
+                      }}
+                    />
+                    <span class="px-2 text-[0.766667rem] font-medium text-muted-foreground">
+                      {projectCustomFieldTypeLabel(field.fieldType, t)}
+                    </span>
+                    <button
+                      type="button"
+                      class={iconButtonClass()}
+                      disabled={!customFieldDraftDirty(field)}
+                      aria-label={t("projects.customFields.saveField")}
+                      title={t("projects.customFields.saveField")}
+                      onclick={() => { void saveCustomField(field); }}
+                    >
+                      <Save size={13} strokeWidth={1.75} />
+                    </button>
+                    <button
+                      type="button"
+                      class={iconButtonClass()}
+                      disabled={!previousField}
+                      aria-label={t("projects.actions.moveCustomFieldUp", field.name)}
+                      title={t("projects.actions.moveCustomFieldUp", field.name)}
+                      onclick={() => { void moveProjectCustomField(field, -1); }}
+                    >
+                      <ArrowUp size={13} strokeWidth={1.75} />
+                    </button>
+                    <button
+                      type="button"
+                      class={iconButtonClass()}
+                      disabled={!nextField}
+                      aria-label={t("projects.actions.moveCustomFieldDown", field.name)}
+                      title={t("projects.actions.moveCustomFieldDown", field.name)}
+                      onclick={() => { void moveProjectCustomField(field, 1); }}
+                    >
+                      <ArrowDown size={13} strokeWidth={1.75} />
+                    </button>
+                    <button
+                      type="button"
+                      class={iconButtonClass("danger")}
+                      aria-label={t("projects.actions.deleteCustomField", field.name)}
+                      title={t("projects.actions.deleteCustomField", field.name)}
+                      onclick={() => requestDeleteCustomField(field)}
+                    >
+                      <Trash2 size={13} strokeWidth={1.75} />
+                    </button>
+                  </div>
+
+                  {#if customFieldAcceptsOptions(field)}
+                    <div class="flex flex-col gap-1 pl-3">
+                      <div class="px-2 py-0.5 text-[0.733333rem] font-medium text-muted-foreground">
+                        {t("projects.customFields.options")}
+                      </div>
+                      {#each customFieldOptions(field) as option (option.id)}
+                        {@const previousOption = adjacentCustomFieldOption(option, -1)}
+                        {@const nextOption = adjacentCustomFieldOption(option, 1)}
+                        <div class="grid min-h-8 grid-cols-[minmax(0,1fr)_auto_auto_auto_auto] items-center gap-1">
+                          <input
+                            value={customFieldOptionNameDraftValue(option)}
+                            class="h-7 min-w-0 rounded-md bg-transparent px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:bg-card"
+                            aria-label={t("projects.customFields.optionName")}
+                            oninput={(event) => {
+                              customFieldOptionNameDrafts = {
+                                ...customFieldOptionNameDrafts,
+                                [option.id]: event.currentTarget.value,
+                              };
+                            }}
+                            onkeydown={(event) => {
+                              if (event.key === "Enter") {
+                                event.preventDefault();
+                                void saveCustomFieldOption(option);
+                              }
+                            }}
+                          />
+                          <button
+                            type="button"
+                            class={iconButtonClass()}
+                            disabled={!customFieldOptionDraftDirty(option)}
+                            aria-label={t("projects.actions.saveCustomFieldOption", option.name)}
+                            title={t("projects.actions.saveCustomFieldOption", option.name)}
+                            onclick={() => { void saveCustomFieldOption(option); }}
+                          >
+                            <Save size={13} strokeWidth={1.75} />
+                          </button>
+                          <button
+                            type="button"
+                            class={iconButtonClass()}
+                            disabled={!previousOption}
+                            aria-label={t("projects.actions.moveCustomFieldOptionUp", option.name)}
+                            title={t("projects.actions.moveCustomFieldOptionUp", option.name)}
+                            onclick={() => { void moveProjectCustomFieldOption(option, -1); }}
+                          >
+                            <ArrowUp size={13} strokeWidth={1.75} />
+                          </button>
+                          <button
+                            type="button"
+                            class={iconButtonClass()}
+                            disabled={!nextOption}
+                            aria-label={t("projects.actions.moveCustomFieldOptionDown", option.name)}
+                            title={t("projects.actions.moveCustomFieldOptionDown", option.name)}
+                            onclick={() => { void moveProjectCustomFieldOption(option, 1); }}
+                          >
+                            <ArrowDown size={13} strokeWidth={1.75} />
+                          </button>
+                          <button
+                            type="button"
+                            class={iconButtonClass("danger")}
+                            aria-label={t("projects.actions.deleteCustomFieldOption", option.name)}
+                            title={t("projects.actions.deleteCustomFieldOption", option.name)}
+                            onclick={() => requestDeleteCustomFieldOption(option)}
+                          >
+                            <Trash2 size={13} strokeWidth={1.75} />
+                          </button>
+                        </div>
+                      {:else}
+                        <div class="px-2 py-1.5 text-[0.8rem] text-muted-foreground">
+                          {t("projects.customFields.noOptions")}
+                        </div>
+                      {/each}
+                      <div class="grid min-h-8 grid-cols-[minmax(0,1fr)_auto] items-center gap-1">
                         <input
-                          value={customFieldOptionNameDraftValue(option)}
-                          class="min-h-7 min-w-0 bg-transparent px-1 text-[0.8rem] text-foreground"
-                          aria-label={t("projects.customFields.optionName")}
+                          value={newCustomFieldOptionDrafts[field.id] ?? ""}
+                          class="h-7 min-w-0 rounded-md bg-transparent px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:bg-card"
+                          placeholder={t("projects.customFields.newOptionPlaceholder")}
                           oninput={(event) => {
-                            customFieldOptionNameDrafts = {
-                              ...customFieldOptionNameDrafts,
-                              [option.id]: event.currentTarget.value,
+                            newCustomFieldOptionDrafts = {
+                              ...newCustomFieldOptionDrafts,
+                              [field.id]: event.currentTarget.value,
                             };
                           }}
                           onkeydown={(event) => {
                             if (event.key === "Enter") {
                               event.preventDefault();
-                              void saveCustomFieldOption(option);
+                              void submitCustomFieldOption(field);
                             }
                           }}
                         />
                         <button
                           type="button"
-                          class="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-                          disabled={!customFieldOptionDraftDirty(option)}
-                          aria-label={t("projects.actions.saveCustomFieldOption", option.name)}
-                          title={t("projects.actions.saveCustomFieldOption", option.name)}
-                          onclick={() => { void saveCustomFieldOption(option); }}
+                          class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                          aria-label={t("projects.customFields.addOption")}
+                          title={t("projects.customFields.addOption")}
+                          onclick={() => { void submitCustomFieldOption(field); }}
                         >
-                          <Save size={13} strokeWidth={1.75} />
-                        </button>
-                        <button
-                          type="button"
-                          class="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-                          disabled={!previousOption}
-                          aria-label={t("projects.actions.moveCustomFieldOptionUp", option.name)}
-                          title={t("projects.actions.moveCustomFieldOptionUp", option.name)}
-                          onclick={() => { void moveProjectCustomFieldOption(option, -1); }}
-                        >
-                          <ArrowUp size={13} strokeWidth={1.75} />
-                        </button>
-                        <button
-                          type="button"
-                          class="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-                          disabled={!nextOption}
-                          aria-label={t("projects.actions.moveCustomFieldOptionDown", option.name)}
-                          title={t("projects.actions.moveCustomFieldOptionDown", option.name)}
-                          onclick={() => { void moveProjectCustomFieldOption(option, 1); }}
-                        >
-                          <ArrowDown size={13} strokeWidth={1.75} />
-                        </button>
-                        <button
-                          type="button"
-                          class="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                          aria-label={t("projects.actions.deleteCustomFieldOption", option.name)}
-                          title={t("projects.actions.deleteCustomFieldOption", option.name)}
-                          onclick={() => requestDeleteCustomFieldOption(option)}
-                        >
-                          <Trash2 size={13} strokeWidth={1.75} />
+                          <Plus size={13} strokeWidth={1.75} />
                         </button>
                       </div>
-                    {:else}
-                      <div class="rounded-md border border-dashed border-border px-2 py-2 text-[0.8rem] text-muted-foreground">
-                        {t("projects.customFields.noOptions")}
-                      </div>
-                    {/each}
-                    <div class="flex gap-1">
-                      <input
-                        value={newCustomFieldOptionDrafts[field.id] ?? ""}
-                        class="min-h-8 min-w-0 flex-1 rounded-md border border-border bg-card px-2 text-[0.8rem] text-foreground"
-                        placeholder={t("projects.customFields.newOptionPlaceholder")}
-                        oninput={(event) => {
-                          newCustomFieldOptionDrafts = {
-                            ...newCustomFieldOptionDrafts,
-                            [field.id]: event.currentTarget.value,
-                          };
-                        }}
-                        onkeydown={(event) => {
-                          if (event.key === "Enter") {
-                            event.preventDefault();
-                            void submitCustomFieldOption(field);
-                          }
-                        }}
-                      />
-                      <button
-                        type="button"
-                        class="flex min-h-8 items-center gap-1 rounded-md border border-border bg-card px-2 text-[0.733333rem] hover:bg-accent"
-                        onclick={() => { void submitCustomFieldOption(field); }}
-                      >
-                        <Plus size={13} strokeWidth={1.75} />
-                        <span>{t("projects.customFields.addOption")}</span>
-                      </button>
                     </div>
-                  </div>
-                {/if}
-              </div>
-            {:else}
-              <div class="rounded-md border border-dashed border-border px-2 py-2 text-[0.8rem] text-muted-foreground">
-                {t("projects.customFields.noFields")}
-              </div>
-            {/each}
-          </div>
+                  {/if}
+                </div>
+              {:else}
+                <div class="px-1 py-2 text-[0.8rem] text-muted-foreground">
+                  {t("projects.customFields.noFields")}
+                </div>
+              {/each}
+            </div>
 
-          <div class="grid gap-2 rounded-md border border-dashed border-border p-2">
-            <div class="flex gap-1">
+            <div class="grid min-h-8 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-1 px-1 py-1">
               <input
                 bind:value={newCustomFieldName}
-                class="min-h-8 min-w-0 flex-1 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground"
+                class="h-7 min-w-0 rounded-md bg-transparent px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:bg-card"
                 placeholder={t("projects.customFields.newFieldPlaceholder")}
                 onkeydown={(event) => {
                   if (event.key === "Enter") {
@@ -1213,47 +1220,37 @@
                   }
                 }}
               />
+              <CustomSelect
+                value={newCustomFieldType}
+                options={customFieldTypeOptions}
+                onChange={setNewCustomFieldType}
+                ariaLabel={t("projects.customFields.fieldType")}
+                class="w-32"
+              />
               <button
                 type="button"
-                class="flex min-h-8 items-center gap-1 rounded-md bg-primary px-2 text-[0.733333rem] font-medium text-primary-foreground"
+                class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                aria-label={t("projects.customFields.addField")}
+                title={t("projects.customFields.addField")}
                 onclick={() => { void submitCustomField(); }}
               >
                 <Plus size={13} strokeWidth={1.75} />
-                <span>{t("projects.customFields.addField")}</span>
               </button>
             </div>
-            <div class="flex flex-wrap gap-1">
-              {#each PROJECT_CUSTOM_FIELD_TYPES as fieldType}
-                <button
-                  type="button"
-                  class={cn(
-                    "rounded-md border px-2 py-1 text-[0.733333rem]",
-                    newCustomFieldType === fieldType
-                      ? "border-primary/50 bg-primary/10 text-primary"
-                      : "border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground",
-                  )}
-                  onclick={() => {
-                    newCustomFieldType = fieldType;
-                  }}
-                >
-                  {projectCustomFieldTypeLabel(fieldType, t)}
-                </button>
-              {/each}
-            </div>
-          </div>
-        </section>
+          </section>
 
-        <section class="grid gap-2 border-t border-border/70 pt-3">
-          <h2 class="text-[0.8rem] font-semibold">{t("projects.settings.workflow")}</h2>
-          <div class="grid gap-2">
-            {#each statuses as status (status.id)}
-              {@const previousStatus = adjacentWorkflowStatus(status, -1)}
-              {@const nextStatus = adjacentWorkflowStatus(status, 1)}
-              <div class="grid gap-1 rounded-md border border-border bg-background p-2">
-                <div class="flex gap-1">
+          <div class="h-px bg-border/70" aria-hidden="true"></div>
+
+          <section class="flex flex-col gap-4">
+            {@render sectionHeading(t("projects.settings.workflow"), String(statuses.length))}
+            <div class="flex flex-col gap-1">
+              {#each statuses as status (status.id)}
+                {@const previousStatus = adjacentWorkflowStatus(status, -1)}
+                {@const nextStatus = adjacentWorkflowStatus(status, 1)}
+                <div class="grid min-h-8 grid-cols-[minmax(0,1fr)_auto_auto_auto_auto] items-center gap-1 px-1 py-1">
                   <input
                     value={statusNameDrafts[status.id] ?? status.name}
-                    class="min-h-8 min-w-0 flex-1 rounded-md border border-border bg-card px-2 text-[0.8rem] text-foreground"
+                    class="h-7 min-w-0 rounded-md bg-transparent px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:bg-card"
                     aria-label={t("projects.settings.statusName")}
                     oninput={(event) => {
                       statusNameDrafts = {
@@ -1268,39 +1265,26 @@
                       }
                     }}
                   />
+                  <CustomSelect
+                    value={statusCategoryDrafts[status.id] ?? status.category}
+                    options={statusCategoryOptions}
+                    onChange={(value) => setStatusCategory(status.id, value)}
+                    ariaLabel={t("projects.settings.statusName")}
+                    class="w-32"
+                  />
                   <button
                     type="button"
-                    class="flex min-h-8 items-center gap-1.5 rounded-md border border-border bg-card px-2 text-[0.8rem] hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+                    class={iconButtonClass()}
                     disabled={!statusDraftDirty(status)}
+                    aria-label={t("projects.settings.saveStatus")}
+                    title={t("projects.settings.saveStatus")}
                     onclick={() => { void saveStatus(status); }}
                   >
                     <Save size={13} strokeWidth={1.75} />
-                    <span>{t("projects.settings.saveStatus")}</span>
                   </button>
-                </div>
-                <div class="flex flex-wrap gap-1">
-                  {#each PROJECT_STATUS_CATEGORIES as category}
-                    <button
-                      type="button"
-                      class={cn(
-                        "rounded-md border px-2 py-1 text-[0.733333rem]",
-                        (statusCategoryDrafts[status.id] ?? status.category) === category
-                          ? "border-primary/50 bg-primary/10 text-primary"
-                          : "border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground",
-                      )}
-                      onclick={() => {
-                        statusCategoryDrafts = {
-                          ...statusCategoryDrafts,
-                          [status.id]: category,
-                        };
-                      }}
-                    >
-                      {statusCategoryLabel(category)}
-                    </button>
-                  {/each}
                   <button
                     type="button"
-                    class="ml-auto flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                    class={iconButtonClass()}
                     disabled={!previousStatus}
                     aria-label={t("projects.actions.moveStatusUp", status.name)}
                     title={t("projects.actions.moveStatusUp", status.name)}
@@ -1310,7 +1294,7 @@
                   </button>
                   <button
                     type="button"
-                    class="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                    class={iconButtonClass()}
                     disabled={!nextStatus}
                     aria-label={t("projects.actions.moveStatusDown", status.name)}
                     title={t("projects.actions.moveStatusDown", status.name)}
@@ -1319,72 +1303,60 @@
                     <ArrowDown size={13} strokeWidth={1.75} />
                   </button>
                 </div>
-              </div>
-            {/each}
-          </div>
-
-          <div class="grid gap-1 rounded-md border border-dashed border-border p-2">
-            <input
-              bind:value={newStatusName}
-              class="min-h-8 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground"
-              placeholder={t("projects.settings.newStatusPlaceholder")}
-              onkeydown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  void submitStatus();
-                }
-              }}
-            />
-            <div class="flex flex-wrap gap-1">
-              {#each PROJECT_STATUS_CATEGORIES as category}
-                <button
-                  type="button"
-                  class={cn(
-                    "rounded-md border px-2 py-1 text-[0.733333rem]",
-                    newStatusCategory === category
-                      ? "border-primary/50 bg-primary/10 text-primary"
-                      : "border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground",
-                  )}
-                  onclick={() => {
-                    newStatusCategory = category;
-                  }}
-                >
-                  {statusCategoryLabel(category)}
-                </button>
               {/each}
+            </div>
+
+            <div class="grid min-h-8 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-1 px-1 py-1">
+              <input
+                bind:value={newStatusName}
+                class="h-7 min-w-0 rounded-md bg-transparent px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:bg-card"
+                placeholder={t("projects.settings.newStatusPlaceholder")}
+                onkeydown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    void submitStatus();
+                  }
+                }}
+              />
+              <CustomSelect
+                value={newStatusCategory}
+                options={statusCategoryOptions}
+                onChange={setNewStatusCategory}
+                ariaLabel={t("projects.settings.statusName")}
+                class="w-32"
+              />
               <button
                 type="button"
-                class="ml-auto flex min-h-7 items-center gap-1 rounded-md bg-primary px-2 text-[0.733333rem] font-medium text-primary-foreground"
+                class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                aria-label={t("projects.settings.addStatus")}
+                title={t("projects.settings.addStatus")}
                 onclick={() => { void submitStatus(); }}
               >
                 <Plus size={13} strokeWidth={1.75} />
-                <span>{t("projects.settings.addStatus")}</span>
               </button>
             </div>
-          </div>
-        </section>
-
-        {#if projectSettingsError}
-          <div class="rounded-md border border-destructive/30 bg-destructive/10 px-2 py-2 text-[0.8rem] text-destructive">
-            {projectSettingsError}
-          </div>
-        {/if}
+          </section>
+        </div>
       </div>
+      <CalendarScrollbar
+        scrollContainer={settingsScrollElement}
+        stickyTop={8}
+        stickyBottom={8}
+        wheelPassthrough
+      />
     </div>
 
-    <footer class="flex shrink-0 items-center justify-end gap-2 border-t border-border px-3 py-2">
-      <button
-        type="button"
-        class="flex min-h-8 items-center gap-1.5 rounded-md border border-border bg-card px-2 text-[0.8rem] hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-        disabled={!projectSettingsDirty}
-        onclick={() => loadProjectSettingsDraft(selectedProject)}
-      >
-        <RotateCcw size={14} strokeWidth={1.75} />
-        <span>{t("projects.settings.discard")}</span>
-      </button>
+    <footer class="flex shrink-0 items-center gap-2 bg-card px-3 pb-2 pt-1">
+      {#if projectSettingsError}
+        <div class="min-w-0 flex-1 rounded-md border border-destructive/30 bg-destructive/10 px-2 py-1.5 text-[0.766667rem] text-destructive">
+          {projectSettingsError}
+        </div>
+      {:else}
+        <div class="min-w-0 flex-1"></div>
+      {/if}
       <button
         type="submit"
-        class="flex min-h-8 items-center gap-1.5 rounded-md bg-primary px-2 text-[0.8rem] font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-60"
+        class="flex min-h-8 shrink-0 items-center gap-1.5 rounded-md bg-primary px-2 text-[0.8rem] font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-60"
         disabled={projectSettingsSaving || !projectSettingsDirty}
       >
         <Save size={14} strokeWidth={1.75} />

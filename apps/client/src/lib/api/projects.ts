@@ -9,6 +9,8 @@ import type {
   ProjectChecklistItemCreate,
   ProjectChecklistItemUpdate,
   ProjectCreate,
+  ProjectCustomEmoji,
+  ProjectCustomEmojiCreate,
   ProjectCustomField,
   ProjectCustomFieldCreate,
   ProjectCustomFieldOption,
@@ -224,6 +226,15 @@ interface ProjectViewPreferenceRow {
   updated_at: string;
 }
 
+interface ProjectCustomEmojiRow {
+  id: string;
+  name: string;
+  asset_path: string;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
 interface ProjectLinkableEventTaskRow {
   task_id: string;
   title: string;
@@ -261,6 +272,7 @@ interface ProjectsSnapshotRows {
   event_links: ProjectTaskEventLinkRow[];
   task_change_events: ProjectTaskChangeEventRow[];
   view_preferences: ProjectViewPreferenceRow[];
+  custom_emojis: ProjectCustomEmojiRow[];
 }
 
 function optionalText(value: string | null): string | undefined {
@@ -480,6 +492,17 @@ function mapViewPreference(row: ProjectViewPreferenceRow): ProjectViewPreference
   };
 }
 
+function mapCustomEmoji(row: ProjectCustomEmojiRow): ProjectCustomEmoji {
+  return {
+    id: row.id,
+    name: row.name,
+    assetPath: row.asset_path,
+    sortOrder: row.sort_order,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
 function mapLinkableEvent(row: ProjectLinkableEventRow): ProjectLinkableEvent {
   const renderZone = localTimezone();
   const allDay = row.all_day !== 0;
@@ -521,6 +544,7 @@ function mapSnapshot(rows: ProjectsSnapshotRows): ProjectsSnapshot {
     eventLinks: rows.event_links.map(mapEventLink),
     taskChangeEvents: rows.task_change_events.map(mapTaskChangeEvent),
     viewPreferences: rows.view_preferences.map(mapViewPreference),
+    customEmojis: rows.custom_emojis.map(mapCustomEmoji),
   };
 }
 
@@ -722,4 +746,14 @@ export async function deleteProjectViewPreference(
 ): Promise<void> {
   const dbUrl = await ensureDbUrl();
   await invoke("projects_delete_view_preference", { dbUrl, projectId, viewId, preferenceKey });
+}
+
+export async function createProjectCustomEmoji(emoji: ProjectCustomEmojiCreate): Promise<void> {
+  const dbUrl = await ensureDbUrl();
+  await invoke("projects_create_custom_emoji", { dbUrl, emoji });
+}
+
+export async function deleteProjectCustomEmoji(emojiId: string): Promise<void> {
+  const dbUrl = await ensureDbUrl();
+  await invoke("projects_delete_custom_emoji", { dbUrl, emojiId });
 }

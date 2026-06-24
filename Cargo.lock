@@ -1399,6 +1399,7 @@ name = "ganbaru-ai"
 version = "0.1.5"
 dependencies = [
  "ammonia",
+ "base64 0.22.1",
  "chrono",
  "gtk",
  "libc",
@@ -1407,9 +1408,12 @@ dependencies = [
  "objc2-app-kit",
  "objc2-core-foundation",
  "objc2-foundation",
+ "reqwest",
  "rodio",
+ "rustls",
  "serde",
  "serde_json",
+ "sha2",
  "sqlx",
  "tauri",
  "tauri-build",

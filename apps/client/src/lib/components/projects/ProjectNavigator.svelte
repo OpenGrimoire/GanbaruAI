@@ -28,6 +28,7 @@
   import { getTheme } from "$lib/stores/theme.svelte";
   import { cn } from "$lib/utils";
   import ProjectIcon from "./ProjectIcon.svelte";
+  import ProjectIconPicker from "./ProjectIconPicker.svelte";
 
   type ProjectNavigatorPresentation = "sidebar" | "panel";
 
@@ -48,21 +49,6 @@
   const projects = getProjects();
   const theme = getTheme();
   const { t } = getLocalization();
-
-  const PROJECT_ICON_OPTIONS = [
-    "folder",
-    "repeat",
-    "apple",
-    "graduation-cap",
-    "book-open",
-    "dumbbell",
-    "bath",
-    "heart",
-    "sparkles",
-    "clapperboard",
-    "smile",
-    "bed",
-  ] as const;
 
   let projectSearch = $state("");
   let groupDraft = $state("");
@@ -292,25 +278,14 @@
                   class="min-h-8 min-w-0 rounded border border-border bg-background px-2 text-[0.8rem]"
                   aria-label={t("projects.navigator.groupName")}
                 />
-                <div class="grid grid-cols-6 gap-1">
-                  {#each PROJECT_ICON_OPTIONS as icon}
-                    <button
-                      type="button"
-                      class={cn(
-                        "flex h-7 items-center justify-center rounded border",
-                        groupEditorIcon === icon
-                          ? "border-primary/50 bg-primary/10 text-primary"
-                          : "border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground",
-                      )}
-                      aria-label={t("projects.navigator.selectGroupIcon", icon)}
-                      onclick={() => {
-                        groupEditorIcon = icon;
-                      }}
-                    >
-                      <ProjectIcon name={icon} size={14} />
-                    </button>
-                  {/each}
-                </div>
+                <ProjectIconPicker
+                  value={groupEditorIcon}
+                  ariaLabel={t("projects.navigator.selectGroupIcon", groupEditorIcon)}
+                  class="w-full"
+                  onChange={(nextIcon) => {
+                    groupEditorIcon = nextIcon;
+                  }}
+                />
                 <div class="flex min-h-8 items-center justify-between gap-2 rounded border border-border bg-background px-2">
                   <span class="text-[0.733333rem] text-muted-foreground">{t("projects.navigator.groupColor")}</span>
                   <div class="flex items-center gap-1">

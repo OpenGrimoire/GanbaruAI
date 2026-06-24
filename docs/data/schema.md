@@ -539,8 +539,8 @@ The adaptive algorithm treats missing block events differently from zero block p
 
 Project management stores structured work data in SQLite. The user-facing hierarchy is group, project, section, task.
 
-- `project_groups`: top-level containers such as a company name or Routine.
-- `projects`: scheduleable units under a group. Calendar events can reference a project through `calendar_events.project_id`. Projects store default event duration, event color, Pomodoro preset, idle-pause minutes, focus playlist id, break playlist id, work environment id, and blocker ruleset id. Focus playlist and work environment defaults can be copied into new calendar events now. Break playlist and blocker ruleset defaults are stored for the future runtime surfaces that will consume them.
+- `project_groups`: top-level containers such as a company name or Routine. The `icon` column stores a legacy Lucide slug or a prefixed icon source value.
+- `projects`: scheduleable units under a group. Calendar events can reference a project through `calendar_events.project_id`. Projects store default event duration, event color, Pomodoro preset, idle-pause minutes, focus playlist id, break playlist id, work environment id, blocker ruleset id, and an `icon` value. Focus playlist and work environment defaults can be copied into new calendar events now. Break playlist and blocker ruleset defaults are stored for the future runtime surfaces that will consume them.
 - `project_sections`: project-local task organization with editable names and sort order.
 - `project_statuses`: project-local status columns or list statuses with editable names, categories, and sort order. Done-category statuses are terminal, and terminal statuses use the Done category.
 - `project_tasks`: actionable work items with priority, task type, section order, status order, optional parent task, dates, optional start and due hours, estimate, completion, archive state, and blocker reason.
@@ -549,6 +549,7 @@ Project management stores structured work data in SQLite. The user-facing hierar
 - `project_task_event_links`: explicit task-to-calendar-event links. Scheduled links must connect a task and event that belong to the same project.
 - `project_task_change_events`: append-only task activity and requirement change events.
 - `project_view_preferences`: per-project view settings for Dashboard, List, Kanban, Calendar, and Gantt.
+- `project_custom_emojis`: vault-level reusable custom emoji for project and group icons. Rows store a display name, sort order, and an asset path under `assets/project-icons/`; names are required but not globally unique. Image assets support PNG, JPEG, and WebP files.
 - `project_custom_fields`: project-local typed field definitions. Supported field types are text, number, date, select, multi-select, checkbox, and URL.
 - `project_custom_field_options`: ordered option rows for select and multi-select fields.
 - `project_custom_field_values`: typed scalar task values for text, number, date, checkbox, and URL fields. Values are queryable columns, not JSON blobs.

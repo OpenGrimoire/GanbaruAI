@@ -186,6 +186,7 @@ pub async fn projects_load_snapshot<R: Runtime>(
     .fetch_all(&pool)
     .await
     .map_err(|e| format!("load project view preferences: {e}"))?;
+    let custom_emojis = load_project_custom_emojis(&pool).await?;
 
     Ok(ProjectsSnapshot {
         groups,
@@ -204,7 +205,19 @@ pub async fn projects_load_snapshot<R: Runtime>(
         event_links,
         task_change_events,
         view_preferences,
+        custom_emojis,
     })
+}
+
+async fn load_project_custom_emojis(
+    pool: &sqlx::SqlitePool,
+) -> Result<Vec<ProjectCustomEmojiRow>, String> {
+    sqlx::query_as::<_, ProjectCustomEmojiRow>(
+        "SELECT * FROM project_custom_emojis ORDER BY sort_order ASC, name ASC",
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("load project custom emoji: {e}"))
 }
 
 #[tauri::command]
@@ -1417,6 +1430,61 @@ pub async fn projects_delete_view_preference<R: Runtime>(
     Ok(())
 }
 
+#[tauri::command]
+pub async fn projects_create_custom_emoji<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    emoji: ProjectCustomEmojiCreate,
+) -> Result<(), String> {
+    validate_custom_emoji_create(&emoji)?;
+    let pool = connect_sqlite(app, db_url).await?;
+    insert_project_custom_emoji(&pool, &emoji).await
+}
+
+async fn insert_project_custom_emoji(
+    pool: &sqlx::SqlitePool,
+    emoji: &ProjectCustomEmojiCreate,
+) -> Result<(), String> {
+    sqlx::query(
+        "INSERT INTO project_custom_emojis (id, name, asset_path, sort_order)
+         VALUES (?, ?, ?, ?)",
+    )
+    .bind(emoji.id.trim())
+    .bind(emoji.name.trim())
+    .bind(emoji.asset_path.trim())
+    .bind(emoji.sort_order)
+    .execute(pool)
+    .await
+    .map_err(|e| format!("create project custom emoji: {e}"))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn projects_delete_custom_emoji<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    emoji_id: String,
+) -> Result<(), String> {
+    require_non_empty(&emoji_id, "emoji_id")?;
+    let pool = connect_sqlite(app, db_url).await?;
+    delete_project_custom_emoji(&pool, &emoji_id).await
+}
+
+async fn delete_project_custom_emoji(
+    pool: &sqlx::SqlitePool,
+    emoji_id: &str,
+) -> Result<(), String> {
+    let result = sqlx::query("DELETE FROM project_custom_emojis WHERE id = ?")
+        .bind(emoji_id.trim())
+        .execute(pool)
+        .await
+        .map_err(|e| format!("delete project custom emoji: {e}"))?;
+    if result.rows_affected() == 0 {
+        return Err("project custom emoji not found".to_string());
+    }
+    Ok(())
+}
+
 async fn next_task_sort_order(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     owner_column: &'static str,
@@ -1847,6 +1915,39 @@ mod tests {
 
             assert_eq!(section_order, Ok(1000.0));
             assert_eq!(status_order, Ok(1000.0));
+        });
+    }
+
+    #[test]
+    fn custom_emoji_create_list_delete_round_trips() {
+        tauri::async_runtime::block_on(async {
+            let pool = migrated_memory_pool().await;
+            let emoji = ProjectCustomEmojiCreate {
+                id: " emoji-a ".to_string(),
+                name: " Focus ".to_string(),
+                asset_path: " project-icons/abcdef.png ".to_string(),
+                sort_order: 200,
+            };
+
+            insert_project_custom_emoji(&pool, &emoji).await.unwrap();
+
+            let emojis = load_project_custom_emojis(&pool).await.unwrap();
+            assert_eq!(emojis.len(), 1);
+            assert_eq!(emojis[0].id, "emoji-a");
+            assert_eq!(emojis[0].name, "Focus");
+            assert_eq!(emojis[0].asset_path, "project-icons/abcdef.png");
+            assert_eq!(emojis[0].sort_order, 200);
+
+            delete_project_custom_emoji(&pool, " emoji-a ")
+                .await
+                .unwrap();
+
+            let emojis = load_project_custom_emojis(&pool).await.unwrap();
+            assert!(emojis.is_empty());
+            assert_eq!(
+                delete_project_custom_emoji(&pool, "emoji-a").await,
+                Err("project custom emoji not found".to_string())
+            );
         });
     }
 

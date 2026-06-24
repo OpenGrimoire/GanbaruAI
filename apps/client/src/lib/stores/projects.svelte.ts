@@ -1,5 +1,6 @@
 import {
   createProjectChecklistItem,
+  createProjectCustomEmoji,
   createProjectCustomField,
   createProjectCustomFieldOption,
   createProjectLabel,
@@ -11,6 +12,7 @@ import {
   createProjectTask,
   deleteProjectCustomField,
   deleteProjectCustomFieldOption,
+  deleteProjectCustomEmoji,
   deleteProjectChecklistItem,
   deleteProjectLabel,
   deleteProjectViewPreference,
@@ -71,6 +73,7 @@ import type {
   Project,
   ProjectChecklistItem,
   ProjectCreate,
+  ProjectCustomEmoji,
   ProjectCustomField,
   ProjectCustomFieldOption,
   ProjectCustomFieldOptionValue,
@@ -116,6 +119,7 @@ let snapshot = $state<ProjectsSnapshot>({
   eventLinks: [],
   taskChangeEvents: [],
   viewPreferences: [],
+  customEmojis: [],
 });
 let loaded = $state(false);
 let loading = $state(false);
@@ -380,6 +384,10 @@ function nextCustomFieldOptionSortOrder(fieldId: string): number {
   return projectSnapshot.nextCustomFieldOptionSortOrder(snapshot, fieldId);
 }
 
+function nextCustomEmojiSortOrder(): number {
+  return Math.max(0, ...snapshot.customEmojis.map((emoji) => emoji.sortOrder)) + 1000;
+}
+
 function nextTaskStatusSortOrder(projectId: string, statusId: string): number {
   return projectSnapshot.nextTaskStatusSortOrder(snapshot, projectId, statusId);
 }
@@ -391,6 +399,7 @@ function applyLoadedSnapshot(incoming: ProjectsSnapshot, projectId: string | nul
       groups: incoming.groups,
       projects: incoming.projects,
       viewPreferences: incoming.viewPreferences,
+      customEmojis: incoming.customEmojis,
     };
     return;
   }
@@ -781,6 +790,25 @@ async function addAndLinkTaskLabel(task: ProjectTask, name: string): Promise<voi
   await linkTaskLabel(task.id, label.id);
 }
 
+async function addCustomEmoji(name: string, assetPath: string): Promise<ProjectCustomEmoji | undefined> {
+  const displayName = normalizeProjectName(name);
+  if (!displayName) return undefined;
+  const emojiId = crypto.randomUUID();
+  await createProjectCustomEmoji({
+    id: emojiId,
+    name: displayName,
+    assetPath,
+    sortOrder: nextCustomEmojiSortOrder(),
+  });
+  await reload();
+  return snapshot.customEmojis.find((emoji) => emoji.id === emojiId);
+}
+
+async function removeCustomEmoji(emojiId: string): Promise<void> {
+  await deleteProjectCustomEmoji(emojiId);
+  await reload();
+}
+
 async function addCustomField(
   projectId: string,
   name: string,
@@ -1148,6 +1176,9 @@ export function getProjects() {
     get viewPreferences(): ProjectViewPreference[] {
       return snapshot.viewPreferences;
     },
+    get customEmojis(): ProjectCustomEmoji[] {
+      return snapshot.customEmojis;
+    },
     get selectedProjectId(): string | null {
       ensureSelectedProject();
       return selectedProjectId;
@@ -1248,6 +1279,8 @@ export function getProjects() {
     linkTaskLabel,
     unlinkTaskLabel,
     addAndLinkTaskLabel,
+    addCustomEmoji,
+    removeCustomEmoji,
     addCustomField,
     updateCustomField,
     moveCustomField,

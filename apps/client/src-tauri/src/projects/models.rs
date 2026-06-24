@@ -355,6 +355,24 @@ impl_sqlite_from_row!(ProjectViewPreferenceRow {
 });
 
 #[derive(Serialize)]
+pub struct ProjectCustomEmojiRow {
+    pub(in crate::projects) id: String,
+    pub(in crate::projects) name: String,
+    pub(in crate::projects) asset_path: String,
+    pub(in crate::projects) sort_order: i64,
+    pub(in crate::projects) created_at: String,
+    pub(in crate::projects) updated_at: String,
+}
+impl_sqlite_from_row!(ProjectCustomEmojiRow {
+    id,
+    name,
+    asset_path,
+    sort_order,
+    created_at,
+    updated_at,
+});
+
+#[derive(Serialize)]
 pub struct ProjectLinkableEventTask {
     pub(in crate::projects) task_id: String,
     pub(in crate::projects) title: String,
@@ -444,6 +462,7 @@ pub struct ProjectsSnapshot {
     pub(in crate::projects) event_links: Vec<ProjectTaskEventLinkRow>,
     pub(in crate::projects) task_change_events: Vec<ProjectTaskChangeEventRow>,
     pub(in crate::projects) view_preferences: Vec<ProjectViewPreferenceRow>,
+    pub(in crate::projects) custom_emojis: Vec<ProjectCustomEmojiRow>,
 }
 
 #[derive(Deserialize)]
@@ -693,4 +712,13 @@ pub struct ProjectViewPreferenceUpsert {
     pub(in crate::projects) view_id: String,
     pub(in crate::projects) preference_key: String,
     pub(in crate::projects) preference_value: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectCustomEmojiCreate {
+    pub(in crate::projects) id: String,
+    pub(in crate::projects) name: String,
+    pub(in crate::projects) asset_path: String,
+    pub(in crate::projects) sort_order: i64,
 }

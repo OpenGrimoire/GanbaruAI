@@ -1,7 +1,7 @@
 <script lang="ts">
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import type { PomodoroPresetKey } from "$lib/pomodoro/rhythm";
-  import { cn } from "$lib/utils";
+  import CustomSelect from "$lib/components/settings/CustomSelect.svelte";
 
   let {
     pomodoroOptions,
@@ -14,7 +14,7 @@
     projectWorkEnvironmentDraft = $bindable<string>(),
     projectBlockerRulesetDraft = $bindable<string>(),
   }: {
-    pomodoroOptions: PomodoroPresetKey[];
+    pomodoroOptions: readonly PomodoroPresetKey[];
     pomodoroPresetLabel: (preset: PomodoroPresetKey) => string;
     projectDurationDraft: string;
     projectPomodoroDraft: PomodoroPresetKey | "none";
@@ -26,100 +26,99 @@
   } = $props();
 
   const { t } = getLocalization();
+
+  type SelectOption = { value: string; label: string };
+
+  const pomodoroSelectOptions = $derived<SelectOption[]>([
+    { value: "none", label: t("common.none") },
+    ...pomodoroOptions.map((preset) => ({
+      value: preset,
+      label: pomodoroPresetLabel(preset),
+    })),
+  ]);
+
+  function setPomodoroPreset(value: string): void {
+    if (value === "none") {
+      projectPomodoroDraft = "none";
+      return;
+    }
+    if (pomodoroOptions.includes(value as PomodoroPresetKey)) {
+      projectPomodoroDraft = value as PomodoroPresetKey;
+    }
+  }
 </script>
 
-<section class="grid gap-2 border-t border-border/70 pt-3">
-  <h2 class="text-[0.8rem] font-semibold">{t("projects.settings.defaults")}</h2>
-  <label class="grid gap-1 text-[0.733333rem] font-medium text-muted-foreground">
-    <span>{t("projects.settings.defaultDuration")}</span>
-    <input
-      bind:value={projectDurationDraft}
-      inputmode="numeric"
-      class="min-h-8 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground"
-    />
-  </label>
+<section class="flex flex-col gap-4">
+  <h2 class="px-1 text-[0.866667rem] font-semibold text-foreground">{t("projects.settings.defaults")}</h2>
+  <div class="flex flex-col gap-3">
+    <label class="flex items-center justify-between gap-4 px-1 py-1 max-[480px]:flex-col max-[480px]:items-stretch max-[480px]:gap-2">
+      <span class="min-w-0 flex-1 text-[0.866667rem] text-foreground">{t("projects.settings.defaultDuration")}</span>
+      <input
+        bind:value={projectDurationDraft}
+        inputmode="numeric"
+        class="h-7 w-44 min-w-0 rounded-md border border-border bg-card px-2.5 text-left text-[0.8rem] font-medium text-foreground outline-none transition-colors focus:border-ring dark:bg-transparent max-[480px]:w-full"
+      />
+    </label>
 
-  <div class="grid gap-1">
-    <div class="text-[0.733333rem] font-medium text-muted-foreground">{t("projects.settings.defaultPomodoro")}</div>
-    <div class="flex flex-wrap gap-1">
-      <button
-        type="button"
-        class={cn(
-          "rounded-md border px-2 py-1 text-[0.766667rem]",
-          projectPomodoroDraft === "none"
-            ? "border-primary/50 bg-primary/10 text-primary"
-            : "border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground",
-        )}
-        onclick={() => {
-          projectPomodoroDraft = "none";
-        }}
-      >
-        {t("common.none")}
-      </button>
-      {#each pomodoroOptions as preset}
-        <button
-          type="button"
-          class={cn(
-            "rounded-md border px-2 py-1 text-[0.766667rem]",
-            projectPomodoroDraft === preset
-              ? "border-primary/50 bg-primary/10 text-primary"
-              : "border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground",
-          )}
-          onclick={() => {
-            projectPomodoroDraft = preset;
-          }}
-        >
-          {pomodoroPresetLabel(preset)}
-        </button>
-      {/each}
-    </div>
+    <CustomSelect
+      label={t("projects.settings.defaultPomodoro")}
+      value={projectPomodoroDraft}
+      options={pomodoroSelectOptions}
+      onChange={setPomodoroPreset}
+      class="w-44"
+    />
+
+    <label class="flex items-center justify-between gap-4 px-1 py-1 max-[480px]:flex-col max-[480px]:items-stretch max-[480px]:gap-2">
+      <span class="min-w-0 flex-1 text-[0.866667rem] text-foreground">{t("projects.settings.defaultIdleTimeout")}</span>
+      <input
+        bind:value={projectIdleTimeoutDraft}
+        inputmode="numeric"
+        placeholder={t("common.disabled")}
+        class="h-7 w-44 min-w-0 rounded-md border border-border bg-card px-2.5 text-left text-[0.8rem] font-medium text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-ring dark:bg-transparent max-[480px]:w-full"
+      />
+    </label>
   </div>
+</section>
 
-  <label class="grid gap-1 text-[0.733333rem] font-medium text-muted-foreground">
-    <span>{t("projects.settings.defaultIdleTimeout")}</span>
-    <input
-      bind:value={projectIdleTimeoutDraft}
-      inputmode="numeric"
-      placeholder={t("common.disabled")}
-      class="min-h-8 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground"
-    />
-  </label>
+<div class="h-px bg-border/70" aria-hidden="true"></div>
 
-  <div class="grid gap-2 border-t border-border/60 pt-2">
-    <h3 class="text-[0.766667rem] font-semibold">{t("projects.settings.automationDefaults")}</h3>
-    <div class="grid gap-2 min-[980px]:grid-cols-2">
-      <label class="grid gap-1 text-[0.733333rem] font-medium text-muted-foreground">
-        <span>{t("projects.settings.focusPlaylist")}</span>
-        <input
-          bind:value={projectFocusPlaylistDraft}
-          placeholder={t("common.none")}
-          class="min-h-8 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground placeholder:text-muted-foreground"
-        />
-      </label>
-      <label class="grid gap-1 text-[0.733333rem] font-medium text-muted-foreground">
-        <span>{t("projects.settings.breakPlaylist")}</span>
-        <input
-          bind:value={projectBreakPlaylistDraft}
-          placeholder={t("common.none")}
-          class="min-h-8 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground placeholder:text-muted-foreground"
-        />
-      </label>
-      <label class="grid gap-1 text-[0.733333rem] font-medium text-muted-foreground">
-        <span>{t("projects.settings.workEnvironment")}</span>
-        <input
-          bind:value={projectWorkEnvironmentDraft}
-          placeholder={t("common.none")}
-          class="min-h-8 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground placeholder:text-muted-foreground"
-        />
-      </label>
-      <label class="grid gap-1 text-[0.733333rem] font-medium text-muted-foreground">
-        <span>{t("projects.settings.blockerRuleset")}</span>
-        <input
-          bind:value={projectBlockerRulesetDraft}
-          placeholder={t("common.none")}
-          class="min-h-8 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground placeholder:text-muted-foreground"
-        />
-      </label>
-    </div>
+<section class="flex flex-col gap-4">
+  <h2 class="px-1 text-[0.866667rem] font-semibold text-foreground">{t("projects.settings.automationDefaults")}</h2>
+  <div class="flex flex-col gap-3">
+    <label class="flex items-center justify-between gap-4 px-1 py-1 max-[480px]:flex-col max-[480px]:items-stretch max-[480px]:gap-2">
+      <span class="min-w-0 flex-1 text-[0.866667rem] text-foreground">{t("projects.settings.focusPlaylist")}</span>
+      <input
+        bind:value={projectFocusPlaylistDraft}
+        placeholder={t("common.none")}
+        class="h-7 w-44 min-w-0 rounded-md border border-border bg-card px-2.5 text-left text-[0.8rem] font-medium text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-ring dark:bg-transparent max-[480px]:w-full"
+      />
+    </label>
+
+    <label class="flex items-center justify-between gap-4 px-1 py-1 max-[480px]:flex-col max-[480px]:items-stretch max-[480px]:gap-2">
+      <span class="min-w-0 flex-1 text-[0.866667rem] text-foreground">{t("projects.settings.breakPlaylist")}</span>
+      <input
+        bind:value={projectBreakPlaylistDraft}
+        placeholder={t("common.none")}
+        class="h-7 w-44 min-w-0 rounded-md border border-border bg-card px-2.5 text-left text-[0.8rem] font-medium text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-ring dark:bg-transparent max-[480px]:w-full"
+      />
+    </label>
+
+    <label class="flex items-center justify-between gap-4 px-1 py-1 max-[480px]:flex-col max-[480px]:items-stretch max-[480px]:gap-2">
+      <span class="min-w-0 flex-1 text-[0.866667rem] text-foreground">{t("projects.settings.workEnvironment")}</span>
+      <input
+        bind:value={projectWorkEnvironmentDraft}
+        placeholder={t("common.none")}
+        class="h-7 w-44 min-w-0 rounded-md border border-border bg-card px-2.5 text-left text-[0.8rem] font-medium text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-ring dark:bg-transparent max-[480px]:w-full"
+      />
+    </label>
+
+    <label class="flex items-center justify-between gap-4 px-1 py-1 max-[480px]:flex-col max-[480px]:items-stretch max-[480px]:gap-2">
+      <span class="min-w-0 flex-1 text-[0.866667rem] text-foreground">{t("projects.settings.blockerRuleset")}</span>
+      <input
+        bind:value={projectBlockerRulesetDraft}
+        placeholder={t("common.none")}
+        class="h-7 w-44 min-w-0 rounded-md border border-border bg-card px-2.5 text-left text-[0.8rem] font-medium text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-ring dark:bg-transparent max-[480px]:w-full"
+      />
+    </label>
   </div>
 </section>

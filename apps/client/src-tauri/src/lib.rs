@@ -19,6 +19,7 @@ mod music;
 mod notification;
 mod pomodoro;
 mod pomodoro_enforcement;
+mod project_icons;
 mod projects;
 mod recurrence;
 mod themes;
@@ -853,6 +854,14 @@ pub fn run() {
             projects::projects_update_task,
             projects::projects_upsert_view_preference,
             projects::projects_delete_view_preference,
+            projects::projects_create_custom_emoji,
+            projects::projects_delete_custom_emoji,
+            project_icons::project_icon_pick_image_file,
+            project_icons::project_icon_save_image_data_url,
+            project_icons::project_icon_download_image_url,
+            project_icons::project_icon_asset_path,
+            project_icons::project_icon_asset_data_url,
+            project_icons::project_icon_delete_assets_if_unreferenced,
             doomscrolling::doomscrolling_close_desktop_app,
             doomscrolling::doomscrolling_close_current_foreground_desktop_app,
             doomscrolling::doomscrolling_get_foreground_desktop_app,

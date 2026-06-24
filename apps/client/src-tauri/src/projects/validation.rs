@@ -353,6 +353,38 @@ pub(super) fn validate_view_preference(
     Ok(())
 }
 
+pub(super) fn validate_custom_emoji_create(emoji: &ProjectCustomEmojiCreate) -> Result<(), String> {
+    require_non_empty(&emoji.id, "id")?;
+    require_non_empty(&emoji.name, "name")?;
+    validate_project_icon_asset_path(&emoji.asset_path)?;
+    validate_non_negative(emoji.sort_order, "sort_order")
+}
+
+fn validate_project_icon_asset_path(asset_path: &str) -> Result<(), String> {
+    let trimmed = asset_path.trim();
+    let Some(file_name) = trimmed.strip_prefix("project-icons/") else {
+        return Err("asset_path must stay under project-icons".to_string());
+    };
+    if file_name.is_empty()
+        || file_name.contains('/')
+        || file_name.contains('\\')
+        || file_name.contains("..")
+    {
+        return Err("asset_path cannot contain nested or parent paths".to_string());
+    }
+    let extension = file_name
+        .rsplit_once('.')
+        .map(|(_, extension)| extension)
+        .unwrap_or_default();
+    if !["png", "jpg", "jpeg", "webp"]
+        .iter()
+        .any(|allowed| extension.eq_ignore_ascii_case(allowed))
+    {
+        return Err("asset_path must use a PNG, JPG, or WebP image".to_string());
+    }
+    Ok(())
+}
+
 pub(super) fn validate_color(value: Option<i64>) -> Result<(), String> {
     if value.is_some_and(|color| !(0..PALETTE_SIZE).contains(&color)) {
         return Err("color is outside the event palette".to_string());
