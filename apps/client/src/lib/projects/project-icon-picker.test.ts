@@ -6,8 +6,10 @@ import {
   filterProjectLucideIcons,
   prependProjectIconRecentValue,
   projectEmojiSkinToneFromEmoji,
+  projectIconPickerPanelPlacement,
   projectIconVirtualWindow,
   stripProjectEmojiSkinTone,
+  type ProjectIconPickerRect,
 } from "./project-icon-picker";
 import {
   PROJECT_EMOJI_CATALOG_VERSION,
@@ -29,6 +31,27 @@ const lucideEntries: readonly ProjectLucideIconEntry[] = [
   { slug: "folder", label: "Folder", category: "File icons", terms: "folder file", iconNode: [] },
   { slug: "check", label: "Check", category: "Mathematics", terms: "check done", iconNode: [] },
 ];
+
+const pickerBoundary: ProjectIconPickerRect = {
+  top: 40,
+  right: 900,
+  bottom: 620,
+  left: 0,
+  width: 900,
+  height: 580,
+};
+
+function pickerTrigger(overrides: Partial<ProjectIconPickerRect> = {}): ProjectIconPickerRect {
+  return {
+    top: 120,
+    right: 640,
+    bottom: 152,
+    left: 464,
+    width: 176,
+    height: 32,
+    ...overrides,
+  };
+}
 
 describe("project icon picker helpers", () => {
   it("filters emoji by category and search terms", () => {
@@ -66,6 +89,44 @@ describe("project icon picker helpers", () => {
       beforeHeight: 36,
       afterHeight: 504,
     });
+  });
+
+  it("anchors the icon picker panel from the trigger bottom trailing edge", () => {
+    expect(projectIconPickerPanelPlacement({
+      triggerRect: pickerTrigger(),
+      boundaryRect: pickerBoundary,
+      preferredWidth: 360,
+      preferredHeight: 440,
+    })).toEqual({
+      left: 280,
+      top: 156,
+      width: 360,
+      height: 440,
+    });
+  });
+
+  it("caps the icon picker panel before the lower boundary", () => {
+    const placement = projectIconPickerPanelPlacement({
+      triggerRect: pickerTrigger({ top: 280, bottom: 312 }),
+      boundaryRect: pickerBoundary,
+      preferredWidth: 360,
+      preferredHeight: 440,
+    });
+
+    expect(placement.top).toBe(316);
+    expect(placement.top + placement.height).toBeLessThanOrEqual(pickerBoundary.bottom - 8);
+  });
+
+  it("keeps the icon picker panel inside the viewport width", () => {
+    const placement = projectIconPickerPanelPlacement({
+      triggerRect: pickerTrigger({ left: 840, right: 960, width: 120 }),
+      boundaryRect: pickerBoundary,
+      preferredWidth: 360,
+      preferredHeight: 160,
+    });
+
+    expect(placement.left + placement.width).toBeLessThanOrEqual(pickerBoundary.right - 8);
+    expect(placement.left).toBe(532);
   });
 
   it("applies skin tone only to supported emoji", () => {

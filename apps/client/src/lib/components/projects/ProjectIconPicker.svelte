@@ -44,8 +44,10 @@
     filterProjectLucideIcons,
     prependProjectIconRecentValue,
     projectEmojiSkinToneFromEmoji,
+    projectIconPickerPanelPlacement,
     stripProjectEmojiSkinTone,
     type ProjectEmojiSkinTone,
+    type ProjectIconPickerRect,
   } from "$lib/projects/project-icon-picker";
   import {
     parseProjectIcon,
@@ -63,6 +65,7 @@
   import { getTheme } from "$lib/stores/theme.svelte";
   import { resolveAppTokens } from "$lib/stores/themes";
   import { cn } from "$lib/utils";
+  import { portal } from "$lib/utils/portal";
   import {
     ensureConfigLoaded,
     getConfigKey,
@@ -215,7 +218,7 @@
   let iconCategoryMenuElement = $state<HTMLElement | undefined>();
   let iconCategoryMenuTriggerElement = $state<HTMLButtonElement | undefined>();
   let gridScrollElement = $state<HTMLElement | undefined>();
-  let panelPlacement = $state({ left: 0, top: 0, height: panelPreferredHeight });
+  let panelPlacement = $state({ left: 0, top: 0, width: panelWidth, height: panelPreferredHeight });
   let customPanelPlacement = $state({ left: 0, top: 0, maxHeight: 360 });
   let iconCategoryMenuPlacement = $state({ left: 0, top: 0, maxHeight: iconCategoryMenuMaxHeight });
   let emojiQuery = $state("");
@@ -344,7 +347,7 @@
     Math.max(0, gridScrollTop - lucideRecentHeight),
   ));
   const panelStyle = $derived.by(() => {
-    const baseStyle = `left: ${panelPlacement.left}px; top: ${panelPlacement.top}px; width: ${panelWidth}px;`;
+    const baseStyle = `left: ${panelPlacement.left}px; top: ${panelPlacement.top}px; width: ${panelPlacement.width}px;`;
     if (activeTab === "upload") return `${baseStyle} max-height: ${panelPlacement.height}px;`;
     return `${baseStyle} height: ${panelPlacement.height}px;`;
   });
@@ -550,6 +553,45 @@
     return uploadError ? baseHeight + uploadWarningHeight : baseHeight;
   }
 
+  function toPickerRect(rect: DOMRect): ProjectIconPickerRect {
+    return {
+      top: rect.top,
+      right: rect.right,
+      bottom: rect.bottom,
+      left: rect.left,
+      width: rect.width,
+      height: rect.height,
+    };
+  }
+
+  function viewportBoundaryRect(): ProjectIconPickerRect {
+    return {
+      top: 0,
+      right: window.innerWidth,
+      bottom: window.innerHeight,
+      left: 0,
+      width: window.innerWidth,
+      height: window.innerHeight,
+    };
+  }
+
+  function panelBoundaryRect(trigger: HTMLElement): ProjectIconPickerRect {
+    const viewport = viewportBoundaryRect();
+    const settingsContent = trigger.closest<HTMLElement>("[data-settings-content]");
+    if (!settingsContent) return viewport;
+    const rect = settingsContent.getBoundingClientRect();
+    const top = Math.max(viewport.top, rect.top);
+    const bottom = Math.min(viewport.bottom, rect.bottom);
+    return {
+      top,
+      right: viewport.right,
+      bottom,
+      left: viewport.left,
+      width: viewport.width,
+      height: Math.max(0, bottom - top),
+    };
+  }
+
   async function refreshPanelPlacement(): Promise<void> {
     await tick();
     placePanel();
@@ -558,20 +600,12 @@
   function placePanel(): void {
     const trigger = triggerElement;
     if (!trigger) return;
-    const rect = trigger.getBoundingClientRect();
-    const viewportWidth = window.innerWidth;
-    const viewportHeight = window.innerHeight;
-    const margin = 8;
-    const height = Math.min(preferredPanelHeight(), viewportHeight - margin * 2);
-    const below = viewportHeight - rect.bottom - margin;
-    const above = rect.top - margin;
-    panelPlacement = {
-      left: clamp(rect.left, margin, Math.max(margin, viewportWidth - panelWidth - margin)),
-      top: below >= Math.min(height, activeTab === "upload" ? height : 300) || below >= above
-        ? rect.bottom + margin
-        : Math.max(margin, rect.top - height - margin),
-      height,
-    };
+    panelPlacement = projectIconPickerPanelPlacement({
+      triggerRect: toPickerRect(trigger.getBoundingClientRect()),
+      boundaryRect: panelBoundaryRect(trigger),
+      preferredWidth: panelWidth,
+      preferredHeight: preferredPanelHeight(),
+    });
   }
 
   function placeCustomPanel(): void {
@@ -1053,6 +1087,7 @@
 {#if open}
   <div
     bind:this={panelElement}
+    use:portal
     class="fixed z-90 flex min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-xl"
     style={panelStyle}
     role="dialog"
@@ -1568,6 +1603,7 @@
   {#if iconCategoryMenuOpen}
     <div
       bind:this={iconCategoryMenuElement}
+      use:portal
       class="fixed z-100 min-h-0 overflow-y-auto rounded-xl border border-border bg-popover p-1.5 text-popover-foreground shadow-xl"
       style={iconCategoryMenuStyle}
       role="dialog"
@@ -1607,6 +1643,7 @@
   {#if iconColorChoice && allowIconColors}
     <div
       bind:this={iconColorChoicePanelElement}
+      use:portal
       class="fixed z-100 rounded-xl border border-border bg-popover p-2.5 text-popover-foreground shadow-xl"
       style={iconColorChoiceStyle(iconColorChoice)}
       role="dialog"
@@ -1647,6 +1684,7 @@
   {#if customEmojiPanelOpen}
     <section
       bind:this={customPanelElement}
+      use:portal
       class="fixed z-90 flex min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-popover p-4 text-popover-foreground shadow-xl"
       style={customPanelStyle}
       onpaste={handleCustomEmojiPaste}

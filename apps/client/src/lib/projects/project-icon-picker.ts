@@ -49,6 +49,40 @@ export interface ProjectIconVirtualWindow {
   afterHeight: number;
 }
 
+export interface ProjectIconPickerRect {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+  width: number;
+  height: number;
+}
+
+export interface ProjectIconPickerPanelPlacement {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+interface ProjectIconPickerPanelPlacementInput {
+  triggerRect: ProjectIconPickerRect;
+  boundaryRect: ProjectIconPickerRect;
+  preferredWidth: number;
+  preferredHeight: number;
+  gap?: number;
+  inset?: number;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  if (max < min) return min;
+  return Math.min(Math.max(value, min), max);
+}
+
+function finiteOrZero(value: number): number {
+  return Number.isFinite(value) ? Math.max(0, value) : 0;
+}
+
 export function stripProjectEmojiSkinTone(emoji: string): string {
   return emoji.replace(PROJECT_EMOJI_SKIN_TONE_PATTERN, "");
 }
@@ -161,5 +195,38 @@ export function projectIconVirtualWindow(
     endIndex,
     beforeHeight: startRow * safeRowHeight,
     afterHeight: Math.max(0, (rowCount - endRow) * safeRowHeight),
+  };
+}
+
+export function projectIconPickerPanelPlacement({
+  triggerRect,
+  boundaryRect,
+  preferredWidth,
+  preferredHeight,
+  gap = 4,
+  inset = 8,
+}: ProjectIconPickerPanelPlacementInput): ProjectIconPickerPanelPlacement {
+  const safeGap = finiteOrZero(gap);
+  const safeInset = finiteOrZero(inset);
+  const leftBound = boundaryRect.left + safeInset;
+  const rightBound = boundaryRect.right - safeInset;
+  const topBound = boundaryRect.top + safeInset;
+  const bottomBound = boundaryRect.bottom - safeInset;
+  const maxWidth = finiteOrZero(rightBound - leftBound);
+  const width = Math.min(finiteOrZero(preferredWidth), maxWidth);
+  const preferredLeft = triggerRect.right - width;
+  const left = clamp(preferredLeft, leftBound, rightBound - width);
+  const preferredTop = triggerRect.bottom + safeGap;
+  const top = Math.max(topBound, preferredTop);
+  const height = Math.min(
+    finiteOrZero(preferredHeight),
+    finiteOrZero(bottomBound - top),
+  );
+
+  return {
+    left,
+    top,
+    width,
+    height,
   };
 }
