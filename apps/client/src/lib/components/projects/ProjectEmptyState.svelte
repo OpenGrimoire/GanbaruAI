@@ -38,7 +38,6 @@
         <ProjectNavigator
           {selectedProjectId}
           {showInactiveProjects}
-          presentation="panel"
           onShowInactiveProjectsChange={(value) => {
             showInactiveProjects = value;
           }}

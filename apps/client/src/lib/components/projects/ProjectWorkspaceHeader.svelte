@@ -17,6 +17,7 @@
   import {
     projectNavigatorPanelGeometry,
     type ProjectToolbarPanel,
+    type ProjectNavigatorPanelMode,
   } from "$lib/projects/project-toolbar";
   import { PROJECT_VIEW_IDS, type Project, type ProjectGroup, type ProjectViewId } from "$lib/projects/types";
   import { getProjects } from "$lib/stores/projects.svelte";
@@ -56,15 +57,26 @@
   const projectIdentityEmojiScale = 0.94;
 
   let projectNavigatorOpen = $state(false);
+  let projectNavigatorMode = $state<ProjectNavigatorPanelMode>("groups");
   let projectHeaderElement = $state<HTMLDivElement | null>(null);
   let projectIdentityElement = $state<HTMLDivElement | null>(null);
-  let projectNavigatorTriggerElement = $state<HTMLButtonElement | null>(null);
+  let projectNavigatorAnchorElement = $state<HTMLButtonElement | null>(null);
+  let projectGroupTriggerElement = $state<HTMLButtonElement | null>(null);
+  let projectProjectTriggerElement = $state<HTMLButtonElement | null>(null);
   let projectNavigatorPanelElement = $state<HTMLDivElement | null>(null);
   let expandedViewTabsMeasureElement = $state<HTMLElement | null>(null);
   let toolbarActionsElement = $state<HTMLDivElement | null>(null);
   let viewLabelsCollapsed = $state(false);
   let projectNavigatorPanelStyle = $state("");
+  let projectNavigatorPanelMaxHeight = $state(0);
   let viewTabDensityFrame: number | null = null;
+
+  interface ProjectNavigatorBounds {
+    left: number;
+    right: number;
+    top: number;
+    bottom: number;
+  }
 
   function viewIcon(view: ProjectViewId) {
     if (view === "dashboard") return FileChartColumnIncreasing;
@@ -128,35 +140,64 @@
     viewTabDensityFrame = requestAnimationFrame(syncViewTabDensity);
   }
 
+  function projectNavigatorBounds(): ProjectNavigatorBounds {
+    const boundsElement = projectHeaderElement?.closest(".projects-view-root");
+    const rect = boundsElement?.getBoundingClientRect();
+    if (rect) {
+      return {
+        left: rect.left,
+        right: rect.right,
+        top: rect.top,
+        bottom: rect.bottom,
+      };
+    }
+
+    return {
+      left: 0,
+      right: viewport.width,
+      top: 0,
+      bottom: viewport.height,
+    };
+  }
+
   function refreshProjectNavigatorPanelGeometry(): void {
-    if (!projectNavigatorOpen || !projectNavigatorTriggerElement) return;
-    const rect = projectNavigatorTriggerElement.getBoundingClientRect();
+    if (!projectNavigatorOpen || !projectNavigatorAnchorElement) return;
+    const rect = projectNavigatorAnchorElement.getBoundingClientRect();
+    const bounds = projectNavigatorBounds();
     const geometry = projectNavigatorPanelGeometry({
       anchorLeft: rect.left,
       anchorBottom: rect.bottom,
       viewportWidth: viewport.width,
       viewportHeight: viewport.height,
+      boundsLeft: bounds.left,
+      boundsRight: bounds.right,
+      boundsTop: bounds.top,
+      boundsBottom: bounds.bottom,
     });
     projectNavigatorPanelStyle = [
       `left: ${Math.round(geometry.left)}px`,
       `top: ${Math.round(geometry.top)}px`,
       `width: ${Math.round(geometry.width)}px`,
-      `height: ${Math.round(geometry.height)}px`,
     ].join("; ");
+    projectNavigatorPanelMaxHeight = geometry.height;
   }
 
-  function openProjectNavigator(): void {
+  function openProjectNavigator(mode: ProjectNavigatorPanelMode): void {
+    projectNavigatorMode = mode;
+    projectNavigatorAnchorElement = mode === "groups"
+      ? projectGroupTriggerElement
+      : projectProjectTriggerElement;
     projectNavigatorOpen = true;
     refreshProjectNavigatorPanelGeometry();
     requestAnimationFrame(refreshProjectNavigatorPanelGeometry);
   }
 
-  function toggleProjectNavigator(): void {
-    if (projectNavigatorOpen) {
+  function toggleProjectNavigator(mode: ProjectNavigatorPanelMode): void {
+    if (projectNavigatorOpen && projectNavigatorMode === mode) {
       projectNavigatorOpen = false;
       return;
     }
-    openProjectNavigator();
+    openProjectNavigator(mode);
   }
 
   function handleProjectWindowPointerDown(event: PointerEvent): void {
@@ -164,7 +205,8 @@
     if (!(target instanceof Node)) return;
     if (
       projectNavigatorOpen
-      && !projectNavigatorTriggerElement?.contains(target)
+      && !projectGroupTriggerElement?.contains(target)
+      && !projectProjectTriggerElement?.contains(target)
       && !projectNavigatorPanelElement?.contains(target)
     ) {
       projectNavigatorOpen = false;
@@ -215,43 +257,59 @@
   onscroll={refreshProjectNavigatorPanelGeometry}
 >
   <div bind:this={projectIdentityElement} class="relative min-w-36 shrink-0 min-[760px]:max-w-md">
-    <button
-      bind:this={projectNavigatorTriggerElement}
-      type="button"
-      class={cn(
-        "flex h-7 min-w-0 max-w-full items-center gap-1.5 rounded-md px-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground",
-        projectNavigatorOpen && "bg-accent text-accent-foreground",
-      )}
-      aria-label={t("projects.navigator.open")}
-      aria-expanded={projectNavigatorOpen}
-      onclick={toggleProjectNavigator}
-    >
-      <ProjectIcon
-        name={selectedGroup.icon}
-        size={14}
-        strokeWidth={projectIdentityIconStrokeWidth}
-        ignoreColor
-        emojiScale={projectIdentityEmojiScale}
-        class="shrink-0"
-      />
-      <span class="min-w-0 truncate font-semibold text-foreground">{selectedGroup.name}</span>
-      <span class="shrink-0 font-semibold text-foreground">/</span>
-      <ProjectIcon
-        name={selectedProject.icon}
-        size={14}
-        strokeWidth={projectIdentityIconStrokeWidth}
-        ignoreColor
-        emojiScale={projectIdentityEmojiScale}
-        class="shrink-0"
-      />
-      <span class="min-w-0 truncate font-semibold text-foreground">{selectedProject.name}</span>
-      <ChevronDown size={14} strokeWidth={1.75} class="shrink-0 text-muted-foreground" />
-      {#if selectedProject.status !== "active"}
-        <span class={cn("shrink-0 rounded border px-1.5 py-0.5 text-[0.666667rem]", projectLifecycleBadgeClass(selectedProject.status))}>
-          {projectLifecycleLabel(selectedProject.status, t)}
-        </span>
-      {/if}
-    </button>
+    <div class="flex h-7 min-w-0 max-w-full items-center gap-0.5 text-sm">
+      <button
+        bind:this={projectGroupTriggerElement}
+        type="button"
+        class={cn(
+          "flex h-7 min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left hover:bg-accent hover:text-accent-foreground",
+          projectNavigatorOpen && projectNavigatorMode === "groups" && "bg-accent text-accent-foreground",
+        )}
+        aria-label={t("projects.navigator.open")}
+        aria-expanded={projectNavigatorOpen && projectNavigatorMode === "groups"}
+        onpointerenter={() => openProjectNavigator("groups")}
+        onclick={() => toggleProjectNavigator("groups")}
+      >
+        <ProjectIcon
+          name={selectedGroup.icon}
+          size={14}
+          strokeWidth={projectIdentityIconStrokeWidth}
+          ignoreColor
+          emojiScale={projectIdentityEmojiScale}
+          class="shrink-0"
+        />
+        <span class="min-w-0 truncate font-semibold text-foreground">{selectedGroup.name}</span>
+      </button>
+      <span class="shrink-0 px-0.5 font-semibold text-muted-foreground">/</span>
+      <button
+        bind:this={projectProjectTriggerElement}
+        type="button"
+        class={cn(
+          "flex h-7 min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left hover:bg-accent hover:text-accent-foreground",
+          projectNavigatorOpen && projectNavigatorMode === "projects" && "bg-accent text-accent-foreground",
+        )}
+        aria-label={t("projects.navigator.open")}
+        aria-expanded={projectNavigatorOpen && projectNavigatorMode === "projects"}
+        onpointerenter={() => openProjectNavigator("projects")}
+        onclick={() => toggleProjectNavigator("projects")}
+      >
+        <ProjectIcon
+          name={selectedProject.icon}
+          size={14}
+          strokeWidth={projectIdentityIconStrokeWidth}
+          ignoreColor
+          emojiScale={projectIdentityEmojiScale}
+          class="shrink-0"
+        />
+        <span class="min-w-0 truncate font-semibold text-foreground">{selectedProject.name}</span>
+        <ChevronDown size={14} strokeWidth={1.75} class="shrink-0 text-muted-foreground" />
+        {#if selectedProject.status !== "active"}
+          <span class={cn("shrink-0 rounded border px-1.5 py-0.5 text-[0.666667rem]", projectLifecycleBadgeClass(selectedProject.status))}>
+            {projectLifecycleLabel(selectedProject.status, t)}
+          </span>
+        {/if}
+      </button>
+    </div>
     {#if projectNavigatorOpen}
       <div
         bind:this={projectNavigatorPanelElement}
@@ -263,8 +321,10 @@
       >
         <ProjectNavigator
           {selectedProjectId}
+          selectedGroupId={selectedGroup.id}
           {showInactiveProjects}
-          presentation="panel"
+          panelMode={projectNavigatorMode}
+          panelMaxHeight={projectNavigatorPanelMaxHeight}
           onShowInactiveProjectsChange={onShowInactiveProjectsChange}
           onProjectSelected={() => {
             projectNavigatorOpen = false;

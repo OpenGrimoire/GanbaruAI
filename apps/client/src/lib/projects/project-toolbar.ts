@@ -4,6 +4,7 @@ import type {
 } from "./types";
 
 export type ProjectToolbarPanel = "filters" | "customize" | "settings";
+export type ProjectNavigatorPanelMode = "groups" | "projects";
 export type ProjectTaskModalLayout = "modal" | "sheet" | "fullscreen";
 
 export interface ProjectFilterChipInput {
@@ -52,10 +53,13 @@ export interface ProjectNavigatorPanelGeometryInput {
   anchorBottom: number;
   viewportWidth: number;
   viewportHeight: number;
+  boundsLeft?: number;
+  boundsRight?: number;
+  boundsTop?: number;
+  boundsBottom?: number;
   edgeMargin?: number;
   gap?: number;
   preferredWidth?: number;
-  preferredHeight?: number;
   compactBreakpoint?: number;
   compactTop?: number;
 }
@@ -95,8 +99,7 @@ export const PROJECT_TASK_MODAL_MIN_FULLSCREEN_HEIGHT = 420;
 export const PROJECT_TASK_MODAL_SHEET_WIDTH = 720;
 export const PROJECT_NAVIGATOR_PANEL_EDGE_MARGIN = 8;
 export const PROJECT_NAVIGATOR_PANEL_GAP = 4;
-export const PROJECT_NAVIGATOR_PANEL_WIDTH = 448;
-export const PROJECT_NAVIGATOR_PANEL_HEIGHT = 384;
+export const PROJECT_NAVIGATOR_PANEL_WIDTH = 320;
 export const PROJECT_NAVIGATOR_PANEL_COMPACT_BREAKPOINT = 520;
 export const PROJECT_NAVIGATOR_PANEL_COMPACT_TOP = 48;
 export const PROJECT_TOOLBAR_PANEL_EDGE_MARGIN = 8;
@@ -184,25 +187,36 @@ export function projectNavigatorPanelGeometry(
   const edge = boundedNumber(input.edgeMargin ?? PROJECT_NAVIGATOR_PANEL_EDGE_MARGIN);
   const gap = boundedNumber(input.gap ?? PROJECT_NAVIGATOR_PANEL_GAP);
   const preferredWidth = boundedNumber(input.preferredWidth ?? PROJECT_NAVIGATOR_PANEL_WIDTH);
-  const preferredHeight = boundedNumber(input.preferredHeight ?? PROJECT_NAVIGATOR_PANEL_HEIGHT);
   const compactBreakpoint = boundedNumber(
     input.compactBreakpoint ?? PROJECT_NAVIGATOR_PANEL_COMPACT_BREAKPOINT,
   );
   const compactTop = boundedNumber(input.compactTop ?? PROJECT_NAVIGATOR_PANEL_COMPACT_TOP);
-  const usableWidth = Math.max(0, viewportWidth - edge * 2);
-  const compact = viewportWidth <= compactBreakpoint;
+  const boundsLeft = boundedNumber(input.boundsLeft ?? 0);
+  const boundsTop = boundedNumber(input.boundsTop ?? 0);
+  const boundsRight = boundedNumber(input.boundsRight ?? viewportWidth);
+  const boundsBottom = boundedNumber(input.boundsBottom ?? viewportHeight);
+  const minLeft = boundsLeft + edge;
+  const maxRight = Math.max(minLeft, boundsRight - edge);
+  const minTop = boundsTop + edge;
+  const maxBottom = Math.max(minTop, boundsBottom - edge);
+  const usableWidth = Math.max(0, maxRight - minLeft);
+  const compact = usableWidth <= compactBreakpoint;
   const width = compact ? usableWidth : Math.min(preferredWidth, usableWidth);
   const left = compact
-    ? edge
+    ? minLeft
     : clamp(
       boundedNumber(input.anchorLeft),
-      edge,
-      Math.max(edge, viewportWidth - edge - width),
+      minLeft,
+      Math.max(minLeft, maxRight - width),
     );
-  const top = compact
-    ? Math.min(compactTop, Math.max(edge, viewportHeight - edge))
+  const preferredTop = compact
+    ? Math.max(minTop, boundsTop + compactTop)
     : boundedNumber(input.anchorBottom) + gap;
-  const height = Math.min(preferredHeight, Math.max(0, viewportHeight - top - edge));
+  const top = Math.min(
+    Math.max(minTop, preferredTop),
+    maxBottom,
+  );
+  const height = Math.max(0, maxBottom - top);
 
   return { left, top, width, height };
 }

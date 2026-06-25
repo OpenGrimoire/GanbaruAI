@@ -80,8 +80,8 @@ describe("project toolbar", () => {
     })).toEqual({
       left: 24,
       top: 46,
-      width: 448,
-      height: 384,
+      width: 320,
+      height: 746,
     });
 
     expect(projectNavigatorPanelGeometry({
@@ -89,10 +89,28 @@ describe("project toolbar", () => {
       anchorBottom: 42,
       viewportWidth: 1200,
       viewportHeight: 800,
-    }).left).toBe(744);
+    }).left).toBe(872);
   });
 
-  it("uses a compact fixed project navigator layout on narrow viewports", () => {
+  it("keeps the project navigator inside explicit tab bounds", () => {
+    expect(projectNavigatorPanelGeometry({
+      anchorLeft: 24,
+      anchorBottom: 42,
+      viewportWidth: 1200,
+      viewportHeight: 800,
+      boundsLeft: 10,
+      boundsRight: 610,
+      boundsTop: 42,
+      boundsBottom: 500,
+    })).toEqual({
+      left: 24,
+      top: 50,
+      width: 320,
+      height: 442,
+    });
+  });
+
+  it("uses a compact project navigator layout on narrow viewports", () => {
     expect(projectNavigatorPanelGeometry({
       anchorLeft: 24,
       anchorBottom: 42,
@@ -102,7 +120,7 @@ describe("project toolbar", () => {
       left: 8,
       top: 48,
       width: 344,
-      height: 384,
+      height: 444,
     });
   });
 
