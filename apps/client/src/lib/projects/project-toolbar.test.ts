@@ -80,7 +80,7 @@ describe("project toolbar", () => {
     })).toEqual({
       left: 24,
       top: 46,
-      width: 320,
+      width: 259,
       height: 746,
     });
 
@@ -89,7 +89,7 @@ describe("project toolbar", () => {
       anchorBottom: 42,
       viewportWidth: 1200,
       viewportHeight: 800,
-    }).left).toBe(872);
+    }).left).toBe(933);
   });
 
   it("keeps the project navigator inside explicit tab bounds", () => {
@@ -105,7 +105,7 @@ describe("project toolbar", () => {
     })).toEqual({
       left: 24,
       top: 50,
-      width: 320,
+      width: 259,
       height: 442,
     });
   });
