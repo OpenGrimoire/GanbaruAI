@@ -1091,6 +1091,7 @@
     class="fixed z-90 flex min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-xl"
     style={panelStyle}
     role="dialog"
+    data-app-floating-surface
     aria-label={ariaLabel}
     tabindex="-1"
     onpaste={activeTab === "upload" ? handleUploadPaste : undefined}
@@ -1607,6 +1608,7 @@
       class="fixed z-100 min-h-0 overflow-y-auto rounded-xl border border-border bg-popover p-1.5 text-popover-foreground shadow-xl"
       style={iconCategoryMenuStyle}
       role="dialog"
+      data-app-floating-surface
       aria-label={t("projects.iconPicker.moreCategories")}
     >
       {#each lucideCategoryOptions as option (option.category)}
@@ -1647,6 +1649,7 @@
       class="fixed z-100 rounded-xl border border-border bg-popover p-2.5 text-popover-foreground shadow-xl"
       style={iconColorChoiceStyle(iconColorChoice)}
       role="dialog"
+      data-app-floating-surface
       aria-label={iconColorChoice.label}
     >
       <div class="grid gap-2" style="grid-template-columns: repeat(8, 1.375rem);">
@@ -1687,6 +1690,7 @@
       use:portal
       class="fixed z-90 flex min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-popover p-4 text-popover-foreground shadow-xl"
       style={customPanelStyle}
+      data-app-floating-surface
       onpaste={handleCustomEmojiPaste}
     >
       <div class="mb-1 text-[0.933333rem] font-semibold text-foreground">{t("projects.iconPicker.addCustomEmoji")}</div>

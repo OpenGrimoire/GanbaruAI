@@ -59,7 +59,11 @@
   import { getProjects } from "$lib/stores/projects.svelte";
   import { getTheme } from "$lib/stores/theme.svelte";
   import { getViewport } from "$lib/stores/viewport.svelte";
-  import { cn } from "$lib/utils";
+  import {
+    APP_FLOATING_SURFACE_SELECTOR,
+    cn,
+    isAppFloatingSurfaceTarget,
+  } from "$lib/utils";
   import ProjectSettingsPanel from "./ProjectSettingsPanel.svelte";
 
   const TASK_STATUS_FILTERS: ProjectTaskStatusFilter[] = ["all", "open", "blocked", "done"];
@@ -293,6 +297,7 @@
     const target = event.target;
     if (!(target instanceof Node)) return;
     const trigger = panelTriggerElement(panel);
+    if (isAppFloatingSurfaceTarget(target)) return;
     if (trigger?.contains(target) || subpanelElement?.contains(target)) return;
     if (panelElement?.contains(target)) {
       const element = target instanceof Element ? target : target.parentElement;
@@ -306,6 +311,7 @@
 
   function handlePanelKeydown(event: KeyboardEvent): void {
     if (!panel || event.key !== "Escape") return;
+    if (isAppFloatingSurfaceTarget(event.target) || document.querySelector(APP_FLOATING_SURFACE_SELECTOR)) return;
     event.preventDefault();
     if (activeSubpanel) {
       closeSubpanel();

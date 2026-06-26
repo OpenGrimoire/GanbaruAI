@@ -210,6 +210,7 @@
           bind:this={popoverEl}
           use:portal
           role="listbox"
+          data-app-floating-surface
           class="fixed z-80 overflow-y-auto rounded-md border border-border bg-popover py-1 shadow-lg"
           style="top: {popoverGeometry.top}px; left: {popoverGeometry.left}px; min-width: {popoverGeometry.minWidth}px; max-width: {popoverGeometry.maxWidth}px; max-height: {popoverGeometry.maxHeight}px; visibility: {popoverReady ? 'visible' : 'hidden'};"
         >
