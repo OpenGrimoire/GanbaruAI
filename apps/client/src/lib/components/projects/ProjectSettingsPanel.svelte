@@ -860,9 +860,9 @@
         <div bind:this={settingsContentElement} class="flex flex-col gap-4">
           <section class="flex flex-col gap-2">
             <div class="h-px bg-border/70" aria-hidden="true"></div>
-            <div class="flex flex-col gap-4">
+            <div class="flex flex-col gap-1.5">
               {@render sectionHeading(t("projects.settings.identity"))}
-              <div class="flex flex-col gap-3">
+              <div class="flex flex-col gap-1.5">
               <label class="flex items-center justify-between gap-4 px-1 py-1 max-[480px]:flex-col max-[480px]:items-stretch max-[480px]:gap-2">
                 <span class="min-w-0 flex-1 text-[0.866667rem] text-foreground">{t("projects.settings.name")}</span>
                 <input
@@ -936,7 +936,7 @@
 
           <div class="h-px bg-border/70" aria-hidden="true"></div>
 
-          <section class="flex flex-col gap-4">
+          <section class="flex flex-col gap-1">
             {@render sectionHeading(t("projects.settings.labels"), String(projectLabels.length))}
             <div class="flex flex-col gap-1">
               {#each projectLabels as label (label.id)}
@@ -1084,7 +1084,7 @@
 
           <div class="h-px bg-border/70" aria-hidden="true"></div>
 
-          <section class="flex flex-col gap-4">
+          <section class="flex flex-col gap-1">
             {@render sectionHeading(t("projects.customFields.title"), String(projectCustomFields.length))}
             <div class="flex flex-col gap-1">
               {#each projectCustomFields as field (field.id)}
@@ -1295,7 +1295,7 @@
 
           <div class="h-px bg-border/70" aria-hidden="true"></div>
 
-          <section class="flex flex-col gap-4">
+          <section class="flex flex-col gap-1">
             {@render sectionHeading(t("projects.settings.workflow"), String(statuses.length))}
             <div class="flex flex-col gap-1">
               {#each statuses as status (status.id)}

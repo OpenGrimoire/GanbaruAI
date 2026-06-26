@@ -48,9 +48,9 @@
   }
 </script>
 
-<section class="flex flex-col gap-4">
+<section class="flex flex-col gap-1.5">
   <h2 class="px-1 text-[0.866667rem] font-semibold text-foreground">{t("projects.settings.defaults")}</h2>
-  <div class="flex flex-col gap-3">
+  <div class="flex flex-col gap-1.5">
     <label class="flex items-center justify-between gap-4 px-1 py-1 max-[480px]:flex-col max-[480px]:items-stretch max-[480px]:gap-2">
       <span class="min-w-0 flex-1 text-[0.866667rem] text-foreground">{t("projects.settings.defaultDuration")}</span>
       <input
@@ -82,9 +82,9 @@
 
 <div class="h-px bg-border/70" aria-hidden="true"></div>
 
-<section class="flex flex-col gap-4">
+<section class="flex flex-col gap-1.5">
   <h2 class="px-1 text-[0.866667rem] font-semibold text-foreground">{t("projects.settings.automationDefaults")}</h2>
-  <div class="flex flex-col gap-3">
+  <div class="flex flex-col gap-1.5">
     <label class="flex items-center justify-between gap-4 px-1 py-1 max-[480px]:flex-col max-[480px]:items-stretch max-[480px]:gap-2">
       <span class="min-w-0 flex-1 text-[0.866667rem] text-foreground">{t("projects.settings.focusPlaylist")}</span>
       <input
