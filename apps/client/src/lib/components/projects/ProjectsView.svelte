@@ -37,7 +37,6 @@
     projectEventDurationMinutes,
     projectScheduleWindowFor,
   } from "$lib/projects/project-scheduling";
-  import { projectEffectiveDurationMinutes } from "$lib/projects/project-settings-duration";
   import {
     selectedProjectTaskIdsInView,
     taskListColumnWidthsForProject,
@@ -221,13 +220,13 @@
     const project = selectedProject;
     if (!project) return {};
     let end = input.end;
-    if (!input.allDay) {
+    if (!input.allDay && project.defaultEventDurationMinutes !== null) {
       const startDate = input.start.split(" ")[0] ?? "";
       const startTime = input.start.split(" ")[1] ?? "";
       const nextWindow = projectScheduleWindowFor(
         startDate,
         startTime,
-        projectEffectiveDurationMinutes(project.defaultEventDurationMinutes),
+        project.defaultEventDurationMinutes,
       );
       if (nextWindow) end = nextWindow.end;
     }

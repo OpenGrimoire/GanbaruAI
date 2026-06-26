@@ -23,7 +23,6 @@
   import { getViewport } from "$lib/stores/viewport.svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { projectDefaultPomodoroConfig } from "$lib/projects/project-default-pomodoro";
-  import { projectEffectiveDurationMinutes } from "$lib/projects/project-settings-duration";
   import { cn } from "$lib/utils";
   import { formatShortcut, hasOnlyShortcutModifier, hasShortcutModifier } from "$lib/keyboard-shortcuts";
   import {
@@ -726,15 +725,17 @@
       if (!title.trim()) title = selectedProject.name;
       if (color === undefined && selectedProject.color !== undefined) color = selectedProject.color;
       if (mode === "create" && !allDay) {
-        const nextEnd = addMinutesToLocalDateTime(
-          startDate,
-          startTime,
-          projectEffectiveDurationMinutes(selectedProject.defaultEventDurationMinutes),
-        );
-        if (nextEnd) {
-          endDate = nextEnd.date;
-          endTime = nextEnd.time;
-          syncTimeDrafts();
+        if (selectedProject.defaultEventDurationMinutes !== null) {
+          const nextEnd = addMinutesToLocalDateTime(
+            startDate,
+            startTime,
+            selectedProject.defaultEventDurationMinutes,
+          );
+          if (nextEnd) {
+            endDate = nextEnd.date;
+            endTime = nextEnd.time;
+            syncTimeDrafts();
+          }
         }
         applyPomodoroConfigDraft(projectDefaultPomodoroConfig(selectedProject), false);
       }
