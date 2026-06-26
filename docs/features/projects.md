@@ -11,18 +11,18 @@ Do not add another user-facing hierarchy level between group and project. The ev
 
 ## Defaults
 
-Fresh databases create one normal group named Routine. Its default projects are:
+Fresh databases create one normal group named Routine. Its default projects and visible event color labels are:
 
-- Eat
-- Learning
-- Reading
-- Exercise
-- Hygiene
-- Social
-- Chores
-- Leisure
-- Meditate
-- Sleep
+- Eat, Color 14
+- Learning, Color 9
+- Reading, Color 26
+- Exercise, Color 1
+- Hygiene, Color 16
+- Social, Color 22
+- Chores, Color 5
+- Leisure, Color 32
+- Meditate, Color 24
+- Sleep, Color 31
 
 Routine is not a special object type. It is a group, and each item under it is a project. Users can create additional groups and projects from the Projects view or from the event panel project selector.
 
