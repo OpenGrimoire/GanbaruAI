@@ -16,6 +16,18 @@ export interface DraftCommit<T> {
   committed: boolean;
 }
 
+export interface ProjectDurationDefaultInput {
+  mode: "create" | "edit";
+  allDay: boolean;
+  activeEdit: boolean;
+  defaultEventDurationMinutes: number | null;
+}
+
+export interface ProjectDefaultEventTitleInput {
+  currentTitle: string;
+  defaultEventName: string | null;
+}
+
 /**
  * Local keydown handler for panel input/textarea elements.
  *
@@ -28,6 +40,20 @@ export function panelInputKeydown(e: KeyboardEvent): void {
   if ((e.key === "d" || e.key === "D") && hasOnlyShortcutModifier(e)) return;
   if (e.key === "Escape") return;
   e.stopPropagation();
+}
+
+export function projectDurationDefaultForSelection(
+  input: ProjectDurationDefaultInput,
+): number | null {
+  if (input.allDay || input.activeEdit) return null;
+  return input.defaultEventDurationMinutes;
+}
+
+export function projectDefaultEventTitleForSelection(
+  input: ProjectDefaultEventTitleInput,
+): string {
+  if (input.currentTitle.trim()) return input.currentTitle;
+  return input.defaultEventName ?? "";
 }
 
 function clamp(value: number, min: number, max: number): number {

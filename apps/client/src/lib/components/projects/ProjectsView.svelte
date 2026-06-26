@@ -231,7 +231,7 @@
       if (nextWindow) end = nextWindow.end;
     }
     return {
-      title: project.name,
+      title: project.defaultEventName ?? "",
       start: input.start,
       end,
       projectId: project.id,

@@ -24,6 +24,7 @@ pub(super) fn validate_project_create(project: &ProjectCreate) -> Result<(), Str
     require_non_empty(&project.icon, "icon")?;
     validate_color(project.color)?;
     validate_non_negative(project.sort_order, "sort_order")?;
+    validate_optional_text(&project.default_event_name, "default_event_name")?;
     validate_project_event_duration(project.default_event_duration_minutes)?;
     validate_project_default_pomodoro(
         &project.default_pomodoro_mode,
@@ -50,6 +51,7 @@ pub(super) fn validate_project_update(project: &ProjectUpdate) -> Result<(), Str
     validate_color(project.color)?;
     validate_non_negative(project.sort_order, "sort_order")?;
     validate_enum(&project.status, "status", &["active", "hidden", "archived"])?;
+    validate_optional_text(&project.default_event_name, "default_event_name")?;
     validate_project_event_duration(project.default_event_duration_minutes)?;
     validate_project_default_pomodoro(
         &project.default_pomodoro_mode,
@@ -147,8 +149,12 @@ pub(super) fn validate_optional_identifier(
     value: &Option<String>,
     field: &str,
 ) -> Result<(), String> {
-    if let Some(identifier) = value {
-        require_non_empty(identifier, field)?;
+    validate_optional_text(value, field)
+}
+
+pub(super) fn validate_optional_text(value: &Option<String>, field: &str) -> Result<(), String> {
+    if let Some(text) = value {
+        require_non_empty(text, field)?;
     }
     Ok(())
 }

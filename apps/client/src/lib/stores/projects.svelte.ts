@@ -522,6 +522,7 @@ async function addProject(groupId: string, name: string, templateId: ProjectTemp
     icon: templateDefaults.icon,
     color: templateDefaults.color,
     sortOrder: nextProjectSortOrder(groupId),
+    defaultEventName: templateDefaults.defaultEventName,
     defaultEventDurationMinutes: templateDefaults.defaultEventDurationMinutes,
     defaultPomodoroMode: templateDefaults.defaultPomodoroMode,
     defaultPomodoroPresetKey: templateDefaults.defaultPomodoroPresetKey,

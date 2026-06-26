@@ -342,13 +342,14 @@ pub async fn projects_create_project<R: Runtime>(
     sqlx::query(
         "INSERT INTO projects (
             id, group_id, name, icon, color, sort_order,
+            default_event_name,
             default_event_duration_minutes,
             default_pomodoro_mode, default_pomodoro_preset_key,
             default_pomodoro_focus_minutes, default_pomodoro_short_break_minutes,
             default_pomodoro_long_break_minutes, default_pomodoro_long_break_after_focus_count,
             default_idle_timeout_minutes
          )
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&project.id)
     .bind(&project.group_id)
@@ -356,6 +357,9 @@ pub async fn projects_create_project<R: Runtime>(
     .bind(project.icon.trim())
     .bind(project.color)
     .bind(project.sort_order)
+    .bind(normalized_optional_text(
+        project.default_event_name.as_deref(),
+    ))
     .bind(project.default_event_duration_minutes)
     .bind(&project.default_pomodoro_mode)
     .bind(&project.default_pomodoro_preset_key)
@@ -391,6 +395,7 @@ pub async fn projects_update_project<R: Runtime>(
              color = ?,
              sort_order = ?,
              status = ?,
+             default_event_name = ?,
              default_event_duration_minutes = ?,
              default_pomodoro_mode = ?,
              default_pomodoro_preset_key = ?,
@@ -412,6 +417,9 @@ pub async fn projects_update_project<R: Runtime>(
     .bind(project.color)
     .bind(project.sort_order)
     .bind(&project.status)
+    .bind(normalized_optional_text(
+        project.default_event_name.as_deref(),
+    ))
     .bind(project.default_event_duration_minutes)
     .bind(&project.default_pomodoro_mode)
     .bind(&project.default_pomodoro_preset_key)
@@ -1812,6 +1820,10 @@ async fn delete_label_with_history(
 }
 
 fn normalized_optional_identifier(value: Option<&str>) -> Option<String> {
+    normalized_optional_text(value)
+}
+
+fn normalized_optional_text(value: Option<&str>) -> Option<String> {
     value.and_then(|identifier| {
         let trimmed = identifier.trim();
         if trimmed.is_empty() {
@@ -2400,6 +2412,7 @@ mod tests {
             color: None,
             sort_order: 100,
             status: "active".to_string(),
+            default_event_name: None,
             default_event_duration_minutes: Some(60),
             default_pomodoro_mode: "none".to_string(),
             default_pomodoro_preset_key: None,
@@ -2417,6 +2430,37 @@ mod tests {
         assert_eq!(
             validate_project_update(&project),
             Err("focus_playlist_id cannot be empty".to_string())
+        );
+    }
+
+    #[test]
+    fn project_update_rejects_blank_default_event_name() {
+        let project = ProjectUpdate {
+            id: "project-a".to_string(),
+            group_id: "group-a".to_string(),
+            name: "Project A".to_string(),
+            icon: "folder".to_string(),
+            color: None,
+            sort_order: 100,
+            status: "active".to_string(),
+            default_event_name: Some(" ".to_string()),
+            default_event_duration_minutes: Some(60),
+            default_pomodoro_mode: "none".to_string(),
+            default_pomodoro_preset_key: None,
+            default_pomodoro_focus_minutes: None,
+            default_pomodoro_short_break_minutes: None,
+            default_pomodoro_long_break_minutes: None,
+            default_pomodoro_long_break_after_focus_count: None,
+            default_idle_timeout_minutes: None,
+            focus_playlist_id: None,
+            break_playlist_id: None,
+            work_environment_id: None,
+            blocker_ruleset_id: None,
+        };
+
+        assert_eq!(
+            validate_project_update(&project),
+            Err("default_event_name cannot be empty".to_string())
         );
     }
 

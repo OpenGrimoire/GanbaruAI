@@ -70,6 +70,7 @@ interface ProjectRow {
   color: number | null;
   sort_order: number;
   status: Project["status"];
+  default_event_name: string | null;
   default_event_duration_minutes: number | null;
   default_pomodoro_mode: Project["defaultPomodoroMode"];
   default_pomodoro_preset_key: NonNullable<Project["defaultPomodoroPresetKey"]> | null;
@@ -312,6 +313,7 @@ function mapProject(row: ProjectRow): Project {
     color: optionalNumber(row.color),
     sortOrder: row.sort_order,
     status: row.status,
+    defaultEventName: row.default_event_name,
     defaultEventDurationMinutes: row.default_event_duration_minutes,
     defaultPomodoroMode: row.default_pomodoro_mode,
     defaultPomodoroPresetKey: row.default_pomodoro_preset_key ?? undefined,

@@ -28,7 +28,9 @@
   import {
     commitTimeDraft,
     displayTimeDraft,
+    projectDefaultEventTitleForSelection,
     moveRovingIndex,
+    projectDurationDefaultForSelection,
     restoreTimeDraft,
     sanitizeTimeDraftInput,
   } from "./event-panel-utils";
@@ -722,15 +724,20 @@
     environmentId = selectedProject?.workEnvironmentId;
     playlistId = selectedProject?.focusPlaylistId;
     if (selectedProject) {
-      if (!title.trim()) title = selectedProject.name;
-      if (color === undefined && selectedProject.color !== undefined) color = selectedProject.color;
-      if (mode === "create" && !allDay) {
-        if (selectedProject.defaultEventDurationMinutes !== null) {
-          const nextEnd = addMinutesToLocalDateTime(
-            startDate,
-            startTime,
-            selectedProject.defaultEventDurationMinutes,
-          );
+      title = projectDefaultEventTitleForSelection({
+        currentTitle: title,
+        defaultEventName: selectedProject.defaultEventName,
+      });
+      color = selectedProject.color;
+      if (!allDay) {
+        const durationMinutes = projectDurationDefaultForSelection({
+          mode,
+          allDay,
+          activeEdit: mode === "edit" && lockStartControls,
+          defaultEventDurationMinutes: selectedProject.defaultEventDurationMinutes,
+        });
+        if (durationMinutes !== null) {
+          const nextEnd = addMinutesToLocalDateTime(startDate, startTime, durationMinutes);
           if (nextEnd) {
             endDate = nextEnd.date;
             endTime = nextEnd.time;

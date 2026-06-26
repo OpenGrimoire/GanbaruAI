@@ -1719,6 +1719,7 @@ export const es = {
       selectIcon: (icon: string) => `Seleccionar icono ${icon}`,
       selectColor: "Seleccionar color predeterminado de eventos",
       defaults: "Predeterminados de eventos",
+      defaultEventName: "Nombre predeterminado de evento",
       defaultDuration: "Duración predeterminada",
       defaultDurationNone: "Ninguna",
       durationMinutes: (count: number) => `${count} minutos`,

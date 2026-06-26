@@ -37,6 +37,7 @@
     pomodoroOptions,
     pomodoroPresetLabel,
     projectColorDraft = $bindable<EventColor | undefined>(),
+    projectDefaultEventNameDraft = $bindable<string>(),
     projectDurationDraft = $bindable<string>(),
     projectPomodoroModeDraft = $bindable<ProjectDefaultPomodoroMode>(),
     projectPomodoroPresetDraft = $bindable<PomodoroPresetKey>(),
@@ -54,6 +55,7 @@
     pomodoroOptions: readonly PomodoroPresetKey[];
     pomodoroPresetLabel: (preset: PomodoroPresetKey) => string;
     projectColorDraft: EventColor | undefined;
+    projectDefaultEventNameDraft: string;
     projectDurationDraft: string;
     projectPomodoroModeDraft: ProjectDefaultPomodoroMode;
     projectPomodoroPresetDraft: PomodoroPresetKey;
@@ -383,6 +385,16 @@
 <section class="flex flex-col gap-1.5">
   <h2 class="px-1 text-[0.866667rem] font-semibold text-foreground">{t("projects.settings.defaults")}</h2>
   <div class="flex flex-col gap-1.5">
+    <div class="flex items-center justify-between gap-4 px-1 py-1 max-[480px]:flex-col max-[480px]:items-stretch max-[480px]:gap-2">
+      <span class="min-w-0 flex-1 text-[0.866667rem] text-foreground">{t("projects.settings.defaultEventName")}</span>
+      <input
+        bind:value={projectDefaultEventNameDraft}
+        placeholder={t("common.none")}
+        aria-label={t("projects.settings.defaultEventName")}
+        class="h-7 w-44 min-w-0 rounded-md border border-border bg-card px-2.5 text-left text-[0.8rem] font-medium text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-ring dark:bg-transparent max-[480px]:w-full"
+      />
+    </div>
+
     <div class="flex items-center justify-between gap-4 px-1 py-1 max-[480px]:flex-col max-[480px]:items-stretch max-[480px]:gap-2">
       <div class="min-w-0 flex-1 text-[0.866667rem] text-foreground">{t("projects.settings.color")}</div>
       <ColorPicker

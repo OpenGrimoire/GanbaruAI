@@ -88,6 +88,7 @@ export interface Project {
   color?: EventColor;
   sortOrder: number;
   status: ProjectLifecycleStatus;
+  defaultEventName: string | null;
   defaultEventDurationMinutes: number | null;
   defaultPomodoroMode: ProjectDefaultPomodoroMode;
   defaultPomodoroPresetKey?: PomodoroPresetKey;
@@ -108,6 +109,7 @@ export const PROJECT_TEMPLATE_DEFAULTS = {
   blank: {
     icon: "folder",
     color: null,
+    defaultEventName: null,
     defaultEventDurationMinutes: null,
     defaultPomodoroMode: "preset",
     defaultPomodoroPresetKey: "adaptive",
@@ -120,6 +122,7 @@ export const PROJECT_TEMPLATE_DEFAULTS = {
   software: {
     icon: "folder",
     color: null,
+    defaultEventName: null,
     defaultEventDurationMinutes: null,
     defaultPomodoroMode: "preset",
     defaultPomodoroPresetKey: "adaptive",
@@ -132,6 +135,7 @@ export const PROJECT_TEMPLATE_DEFAULTS = {
   course: {
     icon: "graduation-cap",
     color: null,
+    defaultEventName: null,
     defaultEventDurationMinutes: null,
     defaultPomodoroMode: "preset",
     defaultPomodoroPresetKey: "adaptive",
@@ -144,6 +148,7 @@ export const PROJECT_TEMPLATE_DEFAULTS = {
   routine: {
     icon: "repeat",
     color: null,
+    defaultEventName: null,
     defaultEventDurationMinutes: null,
     defaultPomodoroMode: "preset",
     defaultPomodoroPresetKey: "adaptive",
@@ -156,6 +161,7 @@ export const PROJECT_TEMPLATE_DEFAULTS = {
   reading: {
     icon: "book-open",
     color: null,
+    defaultEventName: null,
     defaultEventDurationMinutes: null,
     defaultPomodoroMode: "preset",
     defaultPomodoroPresetKey: "adaptive",
@@ -168,6 +174,7 @@ export const PROJECT_TEMPLATE_DEFAULTS = {
   chores: {
     icon: "sparkles",
     color: null,
+    defaultEventName: null,
     defaultEventDurationMinutes: null,
     defaultPomodoroMode: "preset",
     defaultPomodoroPresetKey: "adaptive",
@@ -180,6 +187,7 @@ export const PROJECT_TEMPLATE_DEFAULTS = {
 } satisfies Record<ProjectTemplateId, {
   icon: string;
   color: EventColor | null;
+  defaultEventName: string | null;
   defaultEventDurationMinutes: number | null;
   defaultPomodoroMode: ProjectDefaultPomodoroMode;
   defaultPomodoroPresetKey: PomodoroPresetKey | null;
@@ -544,6 +552,7 @@ export interface ProjectCreate {
   icon: string;
   color: EventColor | null;
   sortOrder: number;
+  defaultEventName: string | null;
   defaultEventDurationMinutes: number | null;
   defaultPomodoroMode: ProjectDefaultPomodoroMode;
   defaultPomodoroPresetKey: PomodoroPresetKey | null;
@@ -562,6 +571,7 @@ export interface ProjectUpdate {
   color: EventColor | null;
   sortOrder: number;
   status: ProjectLifecycleStatus;
+  defaultEventName: string | null;
   defaultEventDurationMinutes: number | null;
   defaultPomodoroMode: ProjectDefaultPomodoroMode;
   defaultPomodoroPresetKey: PomodoroPresetKey | null;

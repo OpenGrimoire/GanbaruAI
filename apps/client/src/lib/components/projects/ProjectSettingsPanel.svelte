@@ -73,6 +73,7 @@
   let projectIconDraft = $state("folder");
   let projectStatusDraft = $state<ProjectLifecycleStatus>("active");
   let projectColorDraft = $state<EventColor | undefined>(undefined);
+  let projectDefaultEventNameDraft = $state("");
   let projectDurationDraft = $state("60");
   let projectPomodoroModeDraft = $state<ProjectDefaultPomodoroMode>("preset");
   let projectPomodoroPresetDraft = $state<PomodoroPresetKey>("adaptive");
@@ -160,6 +161,7 @@
       || projectIconDraft !== selectedProject.icon
       || projectStatusDraft !== selectedProject.status
       || projectColorDraft !== selectedProject.color
+      || projectDefaultEventNameDraft !== (selectedProject.defaultEventName ?? "")
       || projectDurationDraft !== String(selectedProject.defaultEventDurationMinutes ?? "")
       || projectPomodoroSettingsDirty(selectedProject)
       || projectIdleTimeoutDraft !== String(selectedProject.defaultIdleTimeoutMinutes ?? "")
@@ -187,6 +189,7 @@
     projectIconDraft = project.icon;
     projectStatusDraft = project.status;
     projectColorDraft = project.color;
+    projectDefaultEventNameDraft = project.defaultEventName ?? "";
     projectDurationDraft = String(project.defaultEventDurationMinutes ?? "");
     projectPomodoroModeDraft = project.defaultPomodoroMode;
     projectPomodoroPresetDraft = project.defaultPomodoroPresetKey ?? "adaptive";
@@ -253,6 +256,11 @@
   }
 
   function normalizeOptionalIdentifier(value: string): string | null {
+    const trimmed = value.trim();
+    return trimmed || null;
+  }
+
+  function normalizeOptionalText(value: string): string | null {
     const trimmed = value.trim();
     return trimmed || null;
   }
@@ -806,6 +814,7 @@
           ? selectedProject.sortOrder
           : nextProjectSortOrderForGroup(projectGroupDraft, selectedProject.id),
         status: projectStatusDraft,
+        defaultEventName: normalizeOptionalText(projectDefaultEventNameDraft),
         defaultEventDurationMinutes,
         defaultPomodoroMode: projectPomodoroModeDraft,
         defaultPomodoroPresetKey: projectPomodoroModeDraft === "preset" ? projectPomodoroPresetDraft : null,
@@ -979,6 +988,7 @@
             pomodoroOptions={PROJECT_POMODORO_PRESET_ORDER}
             {pomodoroPresetLabel}
             bind:projectColorDraft
+            bind:projectDefaultEventNameDraft
             bind:projectDurationDraft
             bind:projectPomodoroModeDraft
             bind:projectPomodoroPresetDraft
