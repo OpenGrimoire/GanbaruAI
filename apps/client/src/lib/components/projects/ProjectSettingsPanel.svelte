@@ -889,20 +889,20 @@
                 class="w-44"
               />
 
-              <div class="flex items-start justify-between gap-4 px-1 py-1 max-[480px]:flex-col max-[480px]:items-stretch max-[480px]:gap-2">
+              <div class="flex items-center justify-between gap-4 px-1 py-1 max-[480px]:flex-col max-[480px]:items-stretch max-[480px]:gap-2">
                 <div class="min-w-0 flex-1 text-[0.866667rem] text-foreground">{t("projects.settings.icon")}</div>
                 <ProjectIconPicker
                   value={projectIconDraft}
                   ariaLabel={t("projects.settings.selectIcon", projectIconDraft)}
                   allowIconColors={false}
-                  class="w-44 max-[480px]:w-full"
+                  class="h-7 w-44 max-[480px]:w-full"
                   onChange={(nextIcon) => {
                     projectIconDraft = nextIcon;
                   }}
                 />
               </div>
 
-              <div class="flex items-start justify-between gap-4 px-1 py-1 max-[480px]:flex-col max-[480px]:items-stretch max-[480px]:gap-2">
+              <div class="flex items-center justify-between gap-4 px-1 py-1 max-[480px]:flex-col max-[480px]:items-stretch max-[480px]:gap-2">
                 <div class="min-w-0 flex-1 text-[0.866667rem] text-foreground">{t("projects.settings.color")}</div>
                 <ColorPicker
                   color={projectColorDraft}

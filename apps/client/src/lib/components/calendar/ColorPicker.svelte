@@ -139,7 +139,7 @@
     onclick={togglePalette}
     onkeydown={handleButtonKeydown}
     class={displayLabel
-      ? "flex h-8 w-full max-w-full items-center justify-between gap-2 rounded-md border border-border bg-card px-2 text-left text-[0.8rem] text-foreground transition-colors hover:bg-accent/60 dark:bg-transparent"
+      ? "flex h-7 w-full max-w-full items-center justify-between gap-2 rounded-md border border-border bg-card px-2 text-left text-[0.8rem] text-foreground transition-colors hover:bg-accent/60 dark:bg-transparent"
       : "size-4.5 shrink-0 rounded-sm"}
     style={displayLabel ? undefined : `background-color: ${colorEntry.bg};`}
     title={buttonTitle}
