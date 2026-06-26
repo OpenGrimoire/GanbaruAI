@@ -19,6 +19,7 @@
     projectLabelColorSwatchClass,
     projectLifecycleLabel,
   } from "$lib/projects/project-display";
+  import { PROJECT_MAX_DURATION_MINUTES } from "$lib/projects/project-settings-duration";
   import {
     PROJECT_CUSTOM_FIELD_TYPES,
     PROJECT_LIFECYCLE_STATUSES,
@@ -68,7 +69,7 @@
   let projectStatusDraft = $state<ProjectLifecycleStatus>("active");
   let projectColorDraft = $state<EventColor | undefined>(undefined);
   let projectDurationDraft = $state("60");
-  let projectPomodoroDraft = $state<PomodoroPresetKey | "none">("none");
+  let projectPomodoroDraft = $state<PomodoroPresetKey | "none">("adaptive");
   let projectIdleTimeoutDraft = $state("");
   let projectFocusPlaylistDraft = $state("");
   let projectBreakPlaylistDraft = $state("");
@@ -147,7 +148,7 @@
       || projectIconDraft !== selectedProject.icon
       || projectStatusDraft !== selectedProject.status
       || projectColorDraft !== selectedProject.color
-      || projectDurationDraft !== String(selectedProject.defaultEventDurationMinutes)
+      || projectDurationDraft !== String(selectedProject.defaultEventDurationMinutes ?? "")
       || projectPomodoroDraft !== (selectedProject.defaultPomodoroPresetKey ?? "none")
       || projectIdleTimeoutDraft !== String(selectedProject.defaultIdleTimeoutMinutes ?? "")
       || projectFocusPlaylistDraft !== (selectedProject.focusPlaylistId ?? "")
@@ -174,7 +175,7 @@
     projectIconDraft = project.icon;
     projectStatusDraft = project.status;
     projectColorDraft = project.color;
-    projectDurationDraft = String(project.defaultEventDurationMinutes);
+    projectDurationDraft = String(project.defaultEventDurationMinutes ?? "");
     projectPomodoroDraft = project.defaultPomodoroPresetKey ?? "none";
     projectIdleTimeoutDraft = String(project.defaultIdleTimeoutMinutes ?? "");
     projectFocusPlaylistDraft = project.focusPlaylistId ?? "";
@@ -219,6 +220,15 @@
     const trimmed = value.trim();
     const parsed = Number(trimmed);
     if (!trimmed || !Number.isInteger(parsed) || parsed <= 0) {
+      throw new Error(errorMessage);
+    }
+    return parsed;
+  }
+
+  function normalizeProjectDuration(value: string, errorMessage: string): number | null {
+    if (!value.trim()) return null;
+    const parsed = normalizeProjectPositiveInteger(value, errorMessage);
+    if (parsed > PROJECT_MAX_DURATION_MINUTES) {
       throw new Error(errorMessage);
     }
     return parsed;
@@ -736,7 +746,7 @@
     projectSettingsSaving = true;
     projectSettingsError = null;
     try {
-      const defaultEventDurationMinutes = normalizeProjectPositiveInteger(
+      const defaultEventDurationMinutes = normalizeProjectDuration(
         projectDurationDraft,
         t("projects.settings.invalidDuration"),
       );
@@ -863,68 +873,55 @@
             <div class="flex flex-col gap-1.5">
               {@render sectionHeading(t("projects.settings.identity"))}
               <div class="flex flex-col gap-1.5">
-              <label class="flex items-center justify-between gap-4 px-1 py-1 max-[480px]:flex-col max-[480px]:items-stretch max-[480px]:gap-2">
-                <span class="min-w-0 flex-1 text-[0.866667rem] text-foreground">{t("projects.settings.name")}</span>
-                <input
-                  bind:value={projectNameDraft}
-                  class="h-7 w-44 min-w-0 rounded-md border border-border bg-card px-2.5 text-left text-[0.8rem] font-medium text-foreground outline-none transition-colors focus:border-ring dark:bg-transparent max-[480px]:w-full"
-                />
-              </label>
+                <label class="flex items-center justify-between gap-4 px-1 py-1 max-[480px]:flex-col max-[480px]:items-stretch max-[480px]:gap-2">
+                  <span class="min-w-0 flex-1 text-[0.866667rem] text-foreground">{t("projects.settings.name")}</span>
+                  <input
+                    bind:value={projectNameDraft}
+                    class="h-7 w-44 min-w-0 rounded-md border border-border bg-card px-2.5 text-left text-[0.8rem] font-medium text-foreground outline-none transition-colors focus:border-ring dark:bg-transparent max-[480px]:w-full"
+                  />
+                </label>
 
-              <CustomSelect
-                label={t("projects.settings.group")}
-                value={projectGroupDraft}
-                options={projectGroupOptions}
-                onChange={(value) => {
-                  projectGroupDraft = value;
-                }}
-                class="w-44"
-              />
-
-              <CustomSelect
-                label={t("projects.settings.lifecycle")}
-                value={projectStatusDraft}
-                options={lifecycleOptions}
-                onChange={setLifecycleStatus}
-                class="w-44"
-              />
-
-              <div class="flex items-center justify-between gap-4 px-1 py-1 max-[480px]:flex-col max-[480px]:items-stretch max-[480px]:gap-2">
-                <div class="min-w-0 flex-1 text-[0.866667rem] text-foreground">{t("projects.settings.icon")}</div>
-                <ProjectIconPicker
-                  value={projectIconDraft}
-                  ariaLabel={t("projects.settings.selectIcon", projectIconDraft)}
-                  allowIconColors={false}
-                  class="h-7 w-44 max-[480px]:w-full"
-                  onChange={(nextIcon) => {
-                    projectIconDraft = nextIcon;
+                <CustomSelect
+                  label={t("projects.settings.group")}
+                  value={projectGroupDraft}
+                  options={projectGroupOptions}
+                  onChange={(value) => {
+                    projectGroupDraft = value;
                   }}
+                  class="w-44"
                 />
-              </div>
 
-              <div class="flex items-center justify-between gap-4 px-1 py-1 max-[480px]:flex-col max-[480px]:items-stretch max-[480px]:gap-2">
-                <div class="min-w-0 flex-1 text-[0.866667rem] text-foreground">{t("projects.settings.color")}</div>
-                <ColorPicker
-                  color={projectColorDraft}
-                  theme={theme.current}
-                  title={t("projects.settings.color")}
-                  ariaLabel={t("projects.settings.selectColor")}
-                  displayLabel
-                  class="w-44 max-[480px]:w-full"
-                  onselect={(color) => {
-                    projectColorDraft = color;
-                  }}
+                <CustomSelect
+                  label={t("projects.settings.lifecycle")}
+                  value={projectStatusDraft}
+                  options={lifecycleOptions}
+                  onChange={setLifecycleStatus}
+                  class="w-44"
                 />
+
+                <div class="flex items-center justify-between gap-4 px-1 py-1 max-[480px]:flex-col max-[480px]:items-stretch max-[480px]:gap-2">
+                  <div class="min-w-0 flex-1 text-[0.866667rem] text-foreground">{t("projects.settings.icon")}</div>
+                  <ProjectIconPicker
+                    value={projectIconDraft}
+                    ariaLabel={t("projects.settings.selectIcon", projectIconDraft)}
+                    allowIconColors={false}
+                    class="h-7 w-44 max-[480px]:w-full"
+                    onChange={(nextIcon) => {
+                      projectIconDraft = nextIcon;
+                    }}
+                  />
+                </div>
               </div>
-            </div>
             </div>
           </section>
 
           <div class="h-px bg-border/70" aria-hidden="true"></div>
 
           <ProjectSettingsDefaultsSection
+            theme={theme.current}
             pomodoroOptions={PROJECT_POMODORO_OPTIONS}
             {pomodoroPresetLabel}
+            bind:projectColorDraft
             bind:projectDurationDraft
             bind:projectPomodoroDraft
             bind:projectIdleTimeoutDraft
@@ -1397,6 +1394,7 @@
         stickyTop={8}
         stickyBottom={8}
         wheelPassthrough
+        activeThumb
       />
     </div>
 
@@ -1460,21 +1458,35 @@
 
 <style>
   .project-settings-scroll-area {
+    --project-settings-scroll-fade-size: 2rem;
+
     transition: -webkit-mask-image 120ms ease, mask-image 120ms ease;
   }
 
   .project-settings-scroll-top {
-    -webkit-mask-image: linear-gradient(to bottom, transparent, black 20px, black);
-    mask-image: linear-gradient(to bottom, transparent, black 20px, black);
+    -webkit-mask-image: linear-gradient(to bottom, transparent, black var(--project-settings-scroll-fade-size), black);
+    mask-image: linear-gradient(to bottom, transparent, black var(--project-settings-scroll-fade-size), black);
   }
 
   .project-settings-scroll-bottom {
-    -webkit-mask-image: linear-gradient(to bottom, black, black calc(100% - 20px), transparent);
-    mask-image: linear-gradient(to bottom, black, black calc(100% - 20px), transparent);
+    -webkit-mask-image: linear-gradient(to bottom, black, black calc(100% - var(--project-settings-scroll-fade-size)), transparent);
+    mask-image: linear-gradient(to bottom, black, black calc(100% - var(--project-settings-scroll-fade-size)), transparent);
   }
 
   .project-settings-scroll-both {
-    -webkit-mask-image: linear-gradient(to bottom, transparent, black 20px, black calc(100% - 20px), transparent);
-    mask-image: linear-gradient(to bottom, transparent, black 20px, black calc(100% - 20px), transparent);
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      transparent,
+      black var(--project-settings-scroll-fade-size),
+      black calc(100% - var(--project-settings-scroll-fade-size)),
+      transparent
+    );
+    mask-image: linear-gradient(
+      to bottom,
+      transparent,
+      black var(--project-settings-scroll-fade-size),
+      black calc(100% - var(--project-settings-scroll-fade-size)),
+      transparent
+    );
   }
 </style>

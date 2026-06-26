@@ -37,6 +37,7 @@
     projectEventDurationMinutes,
     projectScheduleWindowFor,
   } from "$lib/projects/project-scheduling";
+  import { projectEffectiveDurationMinutes } from "$lib/projects/project-settings-duration";
   import {
     selectedProjectTaskIdsInView,
     taskListColumnWidthsForProject,
@@ -226,7 +227,7 @@
       const nextWindow = projectScheduleWindowFor(
         startDate,
         startTime,
-        project.defaultEventDurationMinutes,
+        projectEffectiveDurationMinutes(project.defaultEventDurationMinutes),
       );
       if (nextWindow) end = nextWindow.end;
     }

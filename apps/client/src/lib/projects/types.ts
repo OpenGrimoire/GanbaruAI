@@ -86,7 +86,7 @@ export interface Project {
   color?: EventColor;
   sortOrder: number;
   status: ProjectLifecycleStatus;
-  defaultEventDurationMinutes: number;
+  defaultEventDurationMinutes: number | null;
   defaultPomodoroPresetKey?: "adaptive" | "creative" | "balanced" | "deep" | "extended";
   defaultIdleTimeoutMinutes?: number;
   focusPlaylistId?: string;
@@ -101,49 +101,49 @@ export const PROJECT_TEMPLATE_DEFAULTS = {
   blank: {
     icon: "folder",
     color: null,
-    defaultEventDurationMinutes: 60,
-    defaultPomodoroPresetKey: null,
+    defaultEventDurationMinutes: null,
+    defaultPomodoroPresetKey: "adaptive",
     defaultIdleTimeoutMinutes: null,
   },
   software: {
     icon: "folder",
     color: null,
-    defaultEventDurationMinutes: 90,
-    defaultPomodoroPresetKey: "deep",
+    defaultEventDurationMinutes: null,
+    defaultPomodoroPresetKey: "adaptive",
     defaultIdleTimeoutMinutes: 5,
   },
   course: {
     icon: "graduation-cap",
     color: null,
-    defaultEventDurationMinutes: 60,
-    defaultPomodoroPresetKey: "balanced",
+    defaultEventDurationMinutes: null,
+    defaultPomodoroPresetKey: "adaptive",
     defaultIdleTimeoutMinutes: 5,
   },
   routine: {
     icon: "repeat",
     color: null,
-    defaultEventDurationMinutes: 45,
-    defaultPomodoroPresetKey: null,
+    defaultEventDurationMinutes: null,
+    defaultPomodoroPresetKey: "adaptive",
     defaultIdleTimeoutMinutes: null,
   },
   reading: {
     icon: "book-open",
     color: null,
-    defaultEventDurationMinutes: 45,
-    defaultPomodoroPresetKey: "creative",
+    defaultEventDurationMinutes: null,
+    defaultPomodoroPresetKey: "adaptive",
     defaultIdleTimeoutMinutes: null,
   },
   chores: {
     icon: "sparkles",
     color: null,
-    defaultEventDurationMinutes: 45,
-    defaultPomodoroPresetKey: null,
+    defaultEventDurationMinutes: null,
+    defaultPomodoroPresetKey: "adaptive",
     defaultIdleTimeoutMinutes: null,
   },
 } satisfies Record<ProjectTemplateId, {
   icon: string;
   color: EventColor | null;
-  defaultEventDurationMinutes: number;
+  defaultEventDurationMinutes: number | null;
   defaultPomodoroPresetKey: Project["defaultPomodoroPresetKey"] | null;
   defaultIdleTimeoutMinutes: number | null;
 }>;
@@ -502,7 +502,7 @@ export interface ProjectCreate {
   icon: string;
   color: EventColor | null;
   sortOrder: number;
-  defaultEventDurationMinutes: number;
+  defaultEventDurationMinutes: number | null;
   defaultPomodoroPresetKey: Project["defaultPomodoroPresetKey"] | null;
   defaultIdleTimeoutMinutes: number | null;
 }
@@ -515,7 +515,7 @@ export interface ProjectUpdate {
   color: EventColor | null;
   sortOrder: number;
   status: ProjectLifecycleStatus;
-  defaultEventDurationMinutes: number;
+  defaultEventDurationMinutes: number | null;
   defaultPomodoroPresetKey: Project["defaultPomodoroPresetKey"] | null;
   defaultIdleTimeoutMinutes: number | null;
   focusPlaylistId: string | null;

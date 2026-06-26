@@ -6,6 +6,7 @@ const PALETTE_SIZE: i64 = 32;
 const PROJECT_TEMPLATE_IDS: &[&str] = &[
     "blank", "software", "course", "routine", "reading", "chores",
 ];
+const MAX_PROJECT_EVENT_DURATION_MINUTES: i64 = 24 * 60;
 const MAX_TASK_CHANGE_REASON_LENGTH: usize = 1000;
 
 mod custom_fields;
@@ -2377,7 +2378,7 @@ mod tests {
             color: None,
             sort_order: 100,
             status: "active".to_string(),
-            default_event_duration_minutes: 60,
+            default_event_duration_minutes: Some(60),
             default_pomodoro_preset_key: None,
             default_idle_timeout_minutes: None,
             focus_playlist_id: Some(" ".to_string()),

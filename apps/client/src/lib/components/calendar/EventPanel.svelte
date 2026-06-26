@@ -22,6 +22,7 @@
   import { getPreferences } from "$lib/stores/preferences.svelte";
   import { getViewport } from "$lib/stores/viewport.svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { projectEffectiveDurationMinutes } from "$lib/projects/project-settings-duration";
   import { cn } from "$lib/utils";
   import { formatShortcut, hasOnlyShortcutModifier, hasShortcutModifier } from "$lib/keyboard-shortcuts";
   import {
@@ -747,7 +748,7 @@
         const nextEnd = addMinutesToLocalDateTime(
           startDate,
           startTime,
-          selectedProject.defaultEventDurationMinutes,
+          projectEffectiveDurationMinutes(selectedProject.defaultEventDurationMinutes),
         );
         if (nextEnd) {
           endDate = nextEnd.date;
@@ -759,6 +760,8 @@
             selectedProject.defaultPomodoroPresetKey,
             selectedProject.defaultIdleTimeoutMinutes ?? null,
           );
+        } else {
+          pomodoroEnabled = false;
         }
       }
     }

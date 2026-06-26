@@ -24,9 +24,7 @@ pub(super) fn validate_project_create(project: &ProjectCreate) -> Result<(), Str
     require_non_empty(&project.icon, "icon")?;
     validate_color(project.color)?;
     validate_non_negative(project.sort_order, "sort_order")?;
-    if project.default_event_duration_minutes <= 0 {
-        return Err("default_event_duration_minutes must be positive".to_string());
-    }
+    validate_project_event_duration(project.default_event_duration_minutes)?;
     validate_pomodoro_preset(project.default_pomodoro_preset_key.as_deref())?;
     if project
         .default_idle_timeout_minutes
@@ -45,9 +43,7 @@ pub(super) fn validate_project_update(project: &ProjectUpdate) -> Result<(), Str
     validate_color(project.color)?;
     validate_non_negative(project.sort_order, "sort_order")?;
     validate_enum(&project.status, "status", &["active", "hidden", "archived"])?;
-    if project.default_event_duration_minutes <= 0 {
-        return Err("default_event_duration_minutes must be positive".to_string());
-    }
+    validate_project_event_duration(project.default_event_duration_minutes)?;
     validate_pomodoro_preset(project.default_pomodoro_preset_key.as_deref())?;
     if project
         .default_idle_timeout_minutes
@@ -388,6 +384,18 @@ fn validate_project_icon_asset_path(asset_path: &str) -> Result<(), String> {
 pub(super) fn validate_color(value: Option<i64>) -> Result<(), String> {
     if value.is_some_and(|color| !(0..PALETTE_SIZE).contains(&color)) {
         return Err("color is outside the event palette".to_string());
+    }
+    Ok(())
+}
+
+pub(super) fn validate_project_event_duration(value: Option<i64>) -> Result<(), String> {
+    if let Some(minutes) = value {
+        if minutes <= 0 {
+            return Err("default_event_duration_minutes must be positive".to_string());
+        }
+        if minutes > MAX_PROJECT_EVENT_DURATION_MINUTES {
+            return Err("default_event_duration_minutes must be at most 24 hours".to_string());
+        }
     }
     Ok(())
 }

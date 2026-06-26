@@ -6,6 +6,7 @@
     projectDefaultScheduleStart,
     type ProjectScheduleWindow,
   } from "$lib/projects/project-scheduling";
+  import { projectEffectiveDurationMinutes } from "$lib/projects/project-settings-duration";
   import type {
     Project,
     ProjectPriority,
@@ -107,7 +108,7 @@
     bulkScheduleOpen = true;
     bulkScheduleDate = start.date;
     bulkScheduleStartTime = start.time;
-    bulkScheduleDurationMinutes = selectedProject.defaultEventDurationMinutes ?? 60;
+    bulkScheduleDurationMinutes = projectEffectiveDurationMinutes(selectedProject.defaultEventDurationMinutes);
     bulkTaskError = null;
   }
 

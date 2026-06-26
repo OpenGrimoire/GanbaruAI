@@ -70,7 +70,7 @@ interface ProjectRow {
   color: number | null;
   sort_order: number;
   status: Project["status"];
-  default_event_duration_minutes: number;
+  default_event_duration_minutes: number | null;
   default_pomodoro_preset_key: NonNullable<Project["defaultPomodoroPresetKey"]> | null;
   default_idle_timeout_minutes: number | null;
   focus_playlist_id: string | null;

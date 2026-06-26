@@ -46,8 +46,11 @@ CREATE TABLE projects (
     color INTEGER CHECK (color IS NULL OR (color >= 0 AND color < 32)),
     sort_order INTEGER NOT NULL DEFAULT 0 CHECK (sort_order >= 0),
     status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'hidden', 'archived')),
-    default_event_duration_minutes INTEGER NOT NULL DEFAULT 60 CHECK (default_event_duration_minutes > 0),
-    default_pomodoro_preset_key TEXT CHECK (
+    default_event_duration_minutes INTEGER CHECK (
+        default_event_duration_minutes IS NULL
+        OR (default_event_duration_minutes > 0 AND default_event_duration_minutes <= 1440)
+    ),
+    default_pomodoro_preset_key TEXT DEFAULT 'adaptive' CHECK (
         default_pomodoro_preset_key IS NULL
         OR default_pomodoro_preset_key IN ('adaptive', 'creative', 'balanced', 'deep', 'extended')
     ),
@@ -256,16 +259,16 @@ VALUES ('group-routine', 'Routine', 'repeat', 0, 0);
 
 INSERT INTO projects (id, group_id, name, icon, color, sort_order, default_event_duration_minutes, default_pomodoro_preset_key)
 VALUES
-    ('project-routine-eat', 'group-routine', 'Eat', 'apple', 1, 0, 45, NULL),
-    ('project-routine-learning', 'group-routine', 'Learning', 'graduation-cap', 2, 10, 60, 'balanced'),
-    ('project-routine-reading', 'group-routine', 'Reading', 'book-open', 3, 20, 45, 'creative'),
-    ('project-routine-exercise', 'group-routine', 'Exercise', 'dumbbell', 4, 30, 60, NULL),
-    ('project-routine-hygiene', 'group-routine', 'Hygiene', 'bath', 5, 40, 30, NULL),
-    ('project-routine-social', 'group-routine', 'Social', 'heart', 6, 50, 60, NULL),
-    ('project-routine-chores', 'group-routine', 'Chores', 'sparkles', 7, 60, 45, NULL),
-    ('project-routine-leisure', 'group-routine', 'Leisure', 'clapperboard', 8, 70, 60, NULL),
-    ('project-routine-meditate', 'group-routine', 'Meditate', 'smile', 9, 80, 20, NULL),
-    ('project-routine-sleep', 'group-routine', 'Sleep', 'bed', 10, 90, 480, NULL);
+    ('project-routine-eat', 'group-routine', 'Eat', 'apple', 1, 0, NULL, NULL),
+    ('project-routine-learning', 'group-routine', 'Learning', 'graduation-cap', 2, 10, NULL, 'adaptive'),
+    ('project-routine-reading', 'group-routine', 'Reading', 'book-open', 3, 20, NULL, NULL),
+    ('project-routine-exercise', 'group-routine', 'Exercise', 'dumbbell', 4, 30, NULL, NULL),
+    ('project-routine-hygiene', 'group-routine', 'Hygiene', 'bath', 5, 40, NULL, NULL),
+    ('project-routine-social', 'group-routine', 'Social', 'heart', 6, 50, NULL, NULL),
+    ('project-routine-chores', 'group-routine', 'Chores', 'sparkles', 7, 60, NULL, NULL),
+    ('project-routine-leisure', 'group-routine', 'Leisure', 'clapperboard', 8, 70, NULL, NULL),
+    ('project-routine-meditate', 'group-routine', 'Meditate', 'smile', 9, 80, NULL, NULL),
+    ('project-routine-sleep', 'group-routine', 'Sleep', 'bed', 10, 90, NULL, NULL);
 
 INSERT INTO project_sections (id, project_id, name, sort_order)
 SELECT 'section-' || substr(id, 9) || '-general', id, 'General', 0
