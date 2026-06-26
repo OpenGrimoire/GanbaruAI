@@ -15,6 +15,7 @@
   } from "$lib/projects/types";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getCalendar } from "$lib/stores/calendar.svelte";
+  import { getPreferences } from "$lib/stores/preferences.svelte";
   import { getProjects } from "$lib/stores/projects.svelte";
   import type { CalendarEvent } from "$lib/components/calendar/types";
   import ProjectBulkActionBar from "./ProjectBulkActionBar.svelte";
@@ -43,6 +44,7 @@
 
   const projects = getProjects();
   const calendar = getCalendar();
+  const preferences = getPreferences();
   const { t } = getLocalization();
 
   let bulkTaskActionPending = $state(false);
@@ -130,7 +132,7 @@
         end: scheduledWindow.end,
         projectId: project.id,
         color: project.color,
-        pomodoroConfig: projectDefaultPomodoroConfig(project),
+        pomodoroConfig: projectDefaultPomodoroConfig(project, globalFocusIdleTimeoutMinutes()),
       });
       createdEventId = event.id;
       const scheduledDate = scheduledWindow.start.slice(0, 10);
@@ -149,6 +151,10 @@
       }
       throw error;
     }
+  }
+
+  function globalFocusIdleTimeoutMinutes(): number | null {
+    return preferences.focusIdlePauseOnEventCreate ? preferences.focusIdleThresholdMinutes : null;
   }
 
   async function bulkScheduleSelectedTasks(): Promise<void> {

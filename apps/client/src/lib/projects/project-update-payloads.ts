@@ -128,7 +128,6 @@ export function projectUpdatePayload(project: Project, patch: Partial<Project>):
     defaultPomodoroShortBreakMinutes: merged.defaultPomodoroShortBreakMinutes ?? null,
     defaultPomodoroLongBreakMinutes: merged.defaultPomodoroLongBreakMinutes ?? null,
     defaultPomodoroLongBreakAfterFocusCount: merged.defaultPomodoroLongBreakAfterFocusCount ?? null,
-    defaultIdleTimeoutMinutes: merged.defaultIdleTimeoutMinutes ?? null,
     focusPlaylistId: merged.focusPlaylistId ?? null,
     breakPlaylistId: merged.breakPlaylistId ?? null,
     workEnvironmentId: merged.workEnvironmentId ?? null,

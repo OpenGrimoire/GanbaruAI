@@ -346,10 +346,9 @@ pub async fn projects_create_project<R: Runtime>(
             default_event_duration_minutes,
             default_pomodoro_mode, default_pomodoro_preset_key,
             default_pomodoro_focus_minutes, default_pomodoro_short_break_minutes,
-            default_pomodoro_long_break_minutes, default_pomodoro_long_break_after_focus_count,
-            default_idle_timeout_minutes
+            default_pomodoro_long_break_minutes, default_pomodoro_long_break_after_focus_count
          )
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&project.id)
     .bind(&project.group_id)
@@ -367,7 +366,6 @@ pub async fn projects_create_project<R: Runtime>(
     .bind(project.default_pomodoro_short_break_minutes)
     .bind(project.default_pomodoro_long_break_minutes)
     .bind(project.default_pomodoro_long_break_after_focus_count)
-    .bind(project.default_idle_timeout_minutes)
     .execute(&mut *tx)
     .await
     .map_err(|e| format!("create project: {e}"))?;
@@ -403,7 +401,6 @@ pub async fn projects_update_project<R: Runtime>(
              default_pomodoro_short_break_minutes = ?,
              default_pomodoro_long_break_minutes = ?,
              default_pomodoro_long_break_after_focus_count = ?,
-             default_idle_timeout_minutes = ?,
              focus_playlist_id = ?,
              break_playlist_id = ?,
              work_environment_id = ?,
@@ -427,7 +424,6 @@ pub async fn projects_update_project<R: Runtime>(
     .bind(project.default_pomodoro_short_break_minutes)
     .bind(project.default_pomodoro_long_break_minutes)
     .bind(project.default_pomodoro_long_break_after_focus_count)
-    .bind(project.default_idle_timeout_minutes)
     .bind(normalized_optional_identifier(
         project.focus_playlist_id.as_deref(),
     ))
@@ -2420,7 +2416,6 @@ mod tests {
             default_pomodoro_short_break_minutes: None,
             default_pomodoro_long_break_minutes: None,
             default_pomodoro_long_break_after_focus_count: None,
-            default_idle_timeout_minutes: None,
             focus_playlist_id: Some(" ".to_string()),
             break_playlist_id: None,
             work_environment_id: None,
@@ -2451,7 +2446,6 @@ mod tests {
             default_pomodoro_short_break_minutes: None,
             default_pomodoro_long_break_minutes: None,
             default_pomodoro_long_break_after_focus_count: None,
-            default_idle_timeout_minutes: None,
             focus_playlist_id: None,
             break_playlist_id: None,
             work_environment_id: None,

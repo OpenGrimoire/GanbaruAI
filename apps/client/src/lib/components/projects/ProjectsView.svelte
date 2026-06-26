@@ -4,6 +4,7 @@
   import CalendarView from "$lib/components/calendar/CalendarView.svelte";
   import { getCalendar } from "$lib/stores/calendar.svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { getPreferences } from "$lib/stores/preferences.svelte";
   import { getProjects } from "$lib/stores/projects.svelte";
   import { getViewport } from "$lib/stores/viewport.svelte";
   import { formatCalendarDate } from "$lib/components/calendar/utils";
@@ -80,6 +81,7 @@
 
   const projects = getProjects();
   const calendar = getCalendar();
+  const preferences = getPreferences();
   const viewport = getViewport();
   const { t } = getLocalization();
   const PROJECT_VIEW_SHORTCUTS = new Map<string, ProjectViewId>(
@@ -238,8 +240,14 @@
       color: project.color,
       environmentId: project.workEnvironmentId,
       playlistId: project.focusPlaylistId,
-      pomodoroConfig: input.allDay ? undefined : projectDefaultPomodoroConfig(project),
+      pomodoroConfig: input.allDay
+        ? undefined
+        : projectDefaultPomodoroConfig(project, globalFocusIdleTimeoutMinutes()),
     };
+  }
+
+  function globalFocusIdleTimeoutMinutes(): number | null {
+    return preferences.focusIdlePauseOnEventCreate ? preferences.focusIdleThresholdMinutes : null;
   }
   const nextScheduledStartByTaskId = $derived.by(() => {
     const startsByTaskId = new Map<string, string[]>();

@@ -43,7 +43,6 @@ pub struct ProjectRow {
     pub(in crate::projects) default_pomodoro_short_break_minutes: Option<i64>,
     pub(in crate::projects) default_pomodoro_long_break_minutes: Option<i64>,
     pub(in crate::projects) default_pomodoro_long_break_after_focus_count: Option<i64>,
-    pub(in crate::projects) default_idle_timeout_minutes: Option<i64>,
     pub(in crate::projects) focus_playlist_id: Option<String>,
     pub(in crate::projects) break_playlist_id: Option<String>,
     pub(in crate::projects) work_environment_id: Option<String>,
@@ -67,7 +66,6 @@ impl_sqlite_from_row!(ProjectRow {
     default_pomodoro_short_break_minutes,
     default_pomodoro_long_break_minutes,
     default_pomodoro_long_break_after_focus_count,
-    default_idle_timeout_minutes,
     focus_playlist_id,
     break_playlist_id,
     work_environment_id,
@@ -516,7 +514,6 @@ pub struct ProjectCreate {
     pub(in crate::projects) default_pomodoro_short_break_minutes: Option<i64>,
     pub(in crate::projects) default_pomodoro_long_break_minutes: Option<i64>,
     pub(in crate::projects) default_pomodoro_long_break_after_focus_count: Option<i64>,
-    pub(in crate::projects) default_idle_timeout_minutes: Option<i64>,
 }
 
 #[derive(Deserialize)]
@@ -537,7 +534,6 @@ pub struct ProjectUpdate {
     pub(in crate::projects) default_pomodoro_short_break_minutes: Option<i64>,
     pub(in crate::projects) default_pomodoro_long_break_minutes: Option<i64>,
     pub(in crate::projects) default_pomodoro_long_break_after_focus_count: Option<i64>,
-    pub(in crate::projects) default_idle_timeout_minutes: Option<i64>,
     pub(in crate::projects) focus_playlist_id: Option<String>,
     pub(in crate::projects) break_playlist_id: Option<String>,
     pub(in crate::projects) work_environment_id: Option<String>,

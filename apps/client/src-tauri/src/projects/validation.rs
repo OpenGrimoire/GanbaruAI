@@ -34,12 +34,6 @@ pub(super) fn validate_project_create(project: &ProjectCreate) -> Result<(), Str
         project.default_pomodoro_long_break_minutes,
         project.default_pomodoro_long_break_after_focus_count,
     )?;
-    if project
-        .default_idle_timeout_minutes
-        .is_some_and(|value| value <= 0)
-    {
-        return Err("default_idle_timeout_minutes must be positive".to_string());
-    }
     Ok(())
 }
 
@@ -61,12 +55,6 @@ pub(super) fn validate_project_update(project: &ProjectUpdate) -> Result<(), Str
         project.default_pomodoro_long_break_minutes,
         project.default_pomodoro_long_break_after_focus_count,
     )?;
-    if project
-        .default_idle_timeout_minutes
-        .is_some_and(|value| value <= 0)
-    {
-        return Err("default_idle_timeout_minutes must be positive".to_string());
-    }
     validate_optional_identifier(&project.focus_playlist_id, "focus_playlist_id")?;
     validate_optional_identifier(&project.break_playlist_id, "break_playlist_id")?;
     validate_optional_identifier(&project.work_environment_id, "work_environment_id")?;

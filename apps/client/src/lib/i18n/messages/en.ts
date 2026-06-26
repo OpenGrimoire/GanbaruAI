@@ -1713,7 +1713,6 @@ export const en = {
       durationUnitMinutes: "Minutes",
       durationUnitHours: "Hours",
       defaultPomodoro: "Default Pomodoro",
-      defaultIdleTimeout: "Idle pause minutes",
       automationDefaults: "Automation defaults",
       focusPlaylist: "Focus playlist ID",
       breakPlaylist: "Break playlist ID",
@@ -1746,7 +1745,6 @@ export const en = {
       nameRequired: "Project name is required.",
       groupRequired: "Select a group.",
       invalidDuration: "Choose a default duration from 1 minute to 24 hours.",
-      invalidIdleTimeout: "Idle pause minutes must be a positive whole number.",
       saveFailed: (message: string) => `Could not save project settings: ${message}`,
     },
     lifecycle: {

@@ -83,7 +83,6 @@
   let projectPomodoroLongBreakAfterFocusDraft = $state(
     PROJECT_DEFAULT_CUSTOM_POMODORO.longBreakAfterFocusCount,
   );
-  let projectIdleTimeoutDraft = $state("");
   let projectFocusPlaylistDraft = $state("");
   let projectBreakPlaylistDraft = $state("");
   let projectWorkEnvironmentDraft = $state("");
@@ -164,7 +163,6 @@
       || projectDefaultEventNameDraft !== (selectedProject.defaultEventName ?? "")
       || projectDurationDraft !== String(selectedProject.defaultEventDurationMinutes ?? "")
       || projectPomodoroSettingsDirty(selectedProject)
-      || projectIdleTimeoutDraft !== String(selectedProject.defaultIdleTimeoutMinutes ?? "")
       || projectFocusPlaylistDraft !== (selectedProject.focusPlaylistId ?? "")
       || projectBreakPlaylistDraft !== (selectedProject.breakPlaylistId ?? "")
       || projectWorkEnvironmentDraft !== (selectedProject.workEnvironmentId ?? "")
@@ -198,7 +196,6 @@
     projectPomodoroShortBreakDraft = customPomodoro.shortBreakMinutes;
     projectPomodoroLongBreakDraft = customPomodoro.longBreakMinutes;
     projectPomodoroLongBreakAfterFocusDraft = customPomodoro.longBreakAfterFocusCount;
-    projectIdleTimeoutDraft = String(project.defaultIdleTimeoutMinutes ?? "");
     projectFocusPlaylistDraft = project.focusPlaylistId ?? "";
     projectBreakPlaylistDraft = project.breakPlaylistId ?? "";
     projectWorkEnvironmentDraft = project.workEnvironmentId ?? "";
@@ -800,9 +797,6 @@
         projectDurationDraft,
         t("projects.settings.invalidDuration"),
       );
-      const defaultIdleTimeoutMinutes = projectIdleTimeoutDraft.trim()
-        ? normalizeProjectPositiveInteger(projectIdleTimeoutDraft, t("projects.settings.invalidIdleTimeout"))
-        : undefined;
       const defaultPomodoroCustom = projectPomodoroCustomDraft();
       await projects.updateProject({
         id: selectedProject.id,
@@ -830,7 +824,6 @@
         defaultPomodoroLongBreakAfterFocusCount: projectPomodoroModeDraft === "custom"
           ? defaultPomodoroCustom.longBreakAfterFocusCount
           : null,
-        defaultIdleTimeoutMinutes: defaultIdleTimeoutMinutes ?? null,
         focusPlaylistId: normalizeOptionalIdentifier(projectFocusPlaylistDraft),
         breakPlaylistId: normalizeOptionalIdentifier(projectBreakPlaylistDraft),
         workEnvironmentId: normalizeOptionalIdentifier(projectWorkEnvironmentDraft),
@@ -842,7 +835,6 @@
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       projectSettingsError = message === t("projects.settings.invalidDuration")
-        || message === t("projects.settings.invalidIdleTimeout")
         ? message
         : t("projects.settings.saveFailed", message);
     } finally {
@@ -996,7 +988,6 @@
             bind:projectPomodoroShortBreakDraft
             bind:projectPomodoroLongBreakDraft
             bind:projectPomodoroLongBreakAfterFocusDraft
-            bind:projectIdleTimeoutDraft
             bind:projectFocusPlaylistDraft
             bind:projectBreakPlaylistDraft
             bind:projectWorkEnvironmentDraft

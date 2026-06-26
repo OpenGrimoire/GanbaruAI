@@ -1730,7 +1730,6 @@ export const es = {
       durationUnitMinutes: "Minutos",
       durationUnitHours: "Horas",
       defaultPomodoro: "Pomodoro predeterminado",
-      defaultIdleTimeout: "Minutos para pausa por inactividad",
       automationDefaults: "Predeterminados de automatización",
       focusPlaylist: "ID de playlist de enfoque",
       breakPlaylist: "ID de playlist de descanso",
@@ -1763,7 +1762,6 @@ export const es = {
       nameRequired: "El nombre del proyecto es obligatorio.",
       groupRequired: "Selecciona un grupo.",
       invalidDuration: "Elige una duración predeterminada de 1 minuto a 24 horas.",
-      invalidIdleTimeout: "Los minutos para pausa por inactividad deben ser un número entero positivo.",
       saveFailed: (message: string) => `No se pudo guardar la configuración del proyecto: ${message}`,
     },
     lifecycle: {

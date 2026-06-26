@@ -744,7 +744,7 @@
             syncTimeDrafts();
           }
         }
-        applyPomodoroConfigDraft(projectDefaultPomodoroConfig(selectedProject), false);
+        applyPomodoroConfigDraft(projectDefaultPomodoroConfig(selectedProject, idleTimeoutMinutesForPayload()), false);
       }
     }
     emitChange();

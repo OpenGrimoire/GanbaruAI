@@ -530,7 +530,6 @@ async function addProject(groupId: string, name: string, templateId: ProjectTemp
     defaultPomodoroShortBreakMinutes: templateDefaults.defaultPomodoroShortBreakMinutes,
     defaultPomodoroLongBreakMinutes: templateDefaults.defaultPomodoroLongBreakMinutes,
     defaultPomodoroLongBreakAfterFocusCount: templateDefaults.defaultPomodoroLongBreakAfterFocusCount,
-    defaultIdleTimeoutMinutes: templateDefaults.defaultIdleTimeoutMinutes,
   };
   await createProjectBackend(project);
   setSelectedProjectId(project.id);

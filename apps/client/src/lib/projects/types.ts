@@ -96,7 +96,6 @@ export interface Project {
   defaultPomodoroShortBreakMinutes?: number;
   defaultPomodoroLongBreakMinutes?: number;
   defaultPomodoroLongBreakAfterFocusCount?: number;
-  defaultIdleTimeoutMinutes?: number;
   focusPlaylistId?: string;
   breakPlaylistId?: string;
   workEnvironmentId?: string;
@@ -117,7 +116,6 @@ export const PROJECT_TEMPLATE_DEFAULTS = {
     defaultPomodoroShortBreakMinutes: null,
     defaultPomodoroLongBreakMinutes: null,
     defaultPomodoroLongBreakAfterFocusCount: null,
-    defaultIdleTimeoutMinutes: null,
   },
   software: {
     icon: "folder",
@@ -130,7 +128,6 @@ export const PROJECT_TEMPLATE_DEFAULTS = {
     defaultPomodoroShortBreakMinutes: null,
     defaultPomodoroLongBreakMinutes: null,
     defaultPomodoroLongBreakAfterFocusCount: null,
-    defaultIdleTimeoutMinutes: 5,
   },
   course: {
     icon: "graduation-cap",
@@ -143,7 +140,6 @@ export const PROJECT_TEMPLATE_DEFAULTS = {
     defaultPomodoroShortBreakMinutes: null,
     defaultPomodoroLongBreakMinutes: null,
     defaultPomodoroLongBreakAfterFocusCount: null,
-    defaultIdleTimeoutMinutes: 5,
   },
   routine: {
     icon: "repeat",
@@ -156,7 +152,6 @@ export const PROJECT_TEMPLATE_DEFAULTS = {
     defaultPomodoroShortBreakMinutes: null,
     defaultPomodoroLongBreakMinutes: null,
     defaultPomodoroLongBreakAfterFocusCount: null,
-    defaultIdleTimeoutMinutes: null,
   },
   reading: {
     icon: "book-open",
@@ -169,7 +164,6 @@ export const PROJECT_TEMPLATE_DEFAULTS = {
     defaultPomodoroShortBreakMinutes: null,
     defaultPomodoroLongBreakMinutes: null,
     defaultPomodoroLongBreakAfterFocusCount: null,
-    defaultIdleTimeoutMinutes: null,
   },
   chores: {
     icon: "sparkles",
@@ -182,7 +176,6 @@ export const PROJECT_TEMPLATE_DEFAULTS = {
     defaultPomodoroShortBreakMinutes: null,
     defaultPomodoroLongBreakMinutes: null,
     defaultPomodoroLongBreakAfterFocusCount: null,
-    defaultIdleTimeoutMinutes: null,
   },
 } satisfies Record<ProjectTemplateId, {
   icon: string;
@@ -195,7 +188,6 @@ export const PROJECT_TEMPLATE_DEFAULTS = {
   defaultPomodoroShortBreakMinutes: number | null;
   defaultPomodoroLongBreakMinutes: number | null;
   defaultPomodoroLongBreakAfterFocusCount: number | null;
-  defaultIdleTimeoutMinutes: number | null;
 }>;
 
 export interface ProjectSection {
@@ -560,7 +552,6 @@ export interface ProjectCreate {
   defaultPomodoroShortBreakMinutes: number | null;
   defaultPomodoroLongBreakMinutes: number | null;
   defaultPomodoroLongBreakAfterFocusCount: number | null;
-  defaultIdleTimeoutMinutes: number | null;
 }
 
 export interface ProjectUpdate {
@@ -579,7 +570,6 @@ export interface ProjectUpdate {
   defaultPomodoroShortBreakMinutes: number | null;
   defaultPomodoroLongBreakMinutes: number | null;
   defaultPomodoroLongBreakAfterFocusCount: number | null;
-  defaultIdleTimeoutMinutes: number | null;
   focusPlaylistId: string | null;
   breakPlaylistId: string | null;
   workEnvironmentId: string | null;

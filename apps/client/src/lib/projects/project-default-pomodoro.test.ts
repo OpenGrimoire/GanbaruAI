@@ -25,8 +25,7 @@ describe("project default pomodoro helpers", () => {
     expect(projectDefaultPomodoroConfig({
       defaultPomodoroMode: "preset",
       defaultPomodoroPresetKey: "creative",
-      defaultIdleTimeoutMinutes: 5,
-    })).toEqual({
+    }, 5)).toEqual({
       rhythm: {
         kind: "count",
         focusDurationMinutes: 25,
@@ -47,7 +46,6 @@ describe("project default pomodoro helpers", () => {
       defaultPomodoroShortBreakMinutes: 8,
       defaultPomodoroLongBreakMinutes: 20,
       defaultPomodoroLongBreakAfterFocusCount: 3,
-      defaultIdleTimeoutMinutes: undefined,
     })).toEqual({
       rhythm: {
         kind: "count",

@@ -78,7 +78,6 @@ interface ProjectRow {
   default_pomodoro_short_break_minutes: number | null;
   default_pomodoro_long_break_minutes: number | null;
   default_pomodoro_long_break_after_focus_count: number | null;
-  default_idle_timeout_minutes: number | null;
   focus_playlist_id: string | null;
   break_playlist_id: string | null;
   work_environment_id: string | null;
@@ -321,7 +320,6 @@ function mapProject(row: ProjectRow): Project {
     defaultPomodoroShortBreakMinutes: optionalNumber(row.default_pomodoro_short_break_minutes),
     defaultPomodoroLongBreakMinutes: optionalNumber(row.default_pomodoro_long_break_minutes),
     defaultPomodoroLongBreakAfterFocusCount: optionalNumber(row.default_pomodoro_long_break_after_focus_count),
-    defaultIdleTimeoutMinutes: optionalNumber(row.default_idle_timeout_minutes),
     focusPlaylistId: optionalText(row.focus_playlist_id),
     breakPlaylistId: optionalText(row.break_playlist_id),
     workEnvironmentId: optionalText(row.work_environment_id),

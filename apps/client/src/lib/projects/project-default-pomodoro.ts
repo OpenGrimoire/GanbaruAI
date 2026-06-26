@@ -22,7 +22,6 @@ export interface ProjectDefaultPomodoroConfigInput {
   defaultPomodoroShortBreakMinutes?: number;
   defaultPomodoroLongBreakMinutes?: number;
   defaultPomodoroLongBreakAfterFocusCount?: number;
-  defaultIdleTimeoutMinutes?: number;
 }
 
 export const PROJECT_POMODORO_PRESET_ORDER: PomodoroPresetKey[] = [
@@ -67,8 +66,8 @@ export function projectCustomPomodoroFromDefaults(
  */
 export function projectDefaultPomodoroConfig(
   input: ProjectDefaultPomodoroConfigInput,
+  idleTimeoutMinutes: number | null = null,
 ): PomodoroConfig | undefined {
-  const idleTimeoutMinutes = input.defaultIdleTimeoutMinutes ?? null;
   if (input.defaultPomodoroMode === "none") return undefined;
   if (input.defaultPomodoroMode === "preset") {
     return input.defaultPomodoroPresetKey
