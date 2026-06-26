@@ -1068,7 +1068,7 @@
   bind:this={triggerElement}
   type="button"
   class={cn(
-    "flex h-8 min-w-0 items-center justify-between gap-2 rounded-md border border-border bg-card px-2 text-left text-[0.8rem] font-medium text-foreground hover:bg-accent/60",
+    "flex h-8 min-w-0 items-center justify-between gap-2 rounded-md border border-border bg-card px-2.5 text-left text-[0.8rem] font-medium text-foreground hover:bg-accent/60",
     className,
   )}
   aria-label={ariaLabel}
@@ -1081,7 +1081,11 @@
     <ProjectIcon name={value} size={15} strokeWidth={1.8} ignoreColor={!allowIconColors} class="shrink-0" />
     <span class="truncate">{pickerLabel}</span>
   </span>
-  <ChevronDown size={14} strokeWidth={1.75} class="shrink-0 text-muted-foreground" />
+  <ChevronDown
+    size={13}
+    strokeWidth={2}
+    class={cn("shrink-0 text-muted-foreground transition-transform", open && "rotate-180")}
+  />
 </button>
 
 {#if open}

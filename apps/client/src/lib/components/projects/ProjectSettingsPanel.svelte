@@ -929,13 +929,14 @@
             <div class="flex flex-col gap-1.5">
               {@render sectionHeading(t("projects.settings.identity"))}
               <div class="flex flex-col gap-1.5">
-                <label class="flex items-center justify-between gap-4 px-1 py-1 max-[480px]:flex-col max-[480px]:items-stretch max-[480px]:gap-2">
+                <div class="flex items-center justify-between gap-4 px-1 py-1 max-[480px]:flex-col max-[480px]:items-stretch max-[480px]:gap-2">
                   <span class="min-w-0 flex-1 text-[0.866667rem] text-foreground">{t("projects.settings.name")}</span>
                   <input
                     bind:value={projectNameDraft}
+                    aria-label={t("projects.settings.name")}
                     class="h-7 w-44 min-w-0 rounded-md border border-border bg-card px-2.5 text-left text-[0.8rem] font-medium text-foreground outline-none transition-colors focus:border-ring dark:bg-transparent max-[480px]:w-full"
                   />
-                </label>
+                </div>
 
                 <CustomSelect
                   label={t("projects.settings.group")}

@@ -139,7 +139,7 @@
     onclick={togglePalette}
     onkeydown={handleButtonKeydown}
     class={displayLabel
-      ? "flex h-7 w-full max-w-full items-center justify-between gap-2 rounded-md border border-border bg-card px-2 text-left text-[0.8rem] font-medium text-foreground transition-colors hover:bg-accent/60 dark:bg-transparent"
+      ? "flex h-7 w-full max-w-full items-center justify-between gap-2 rounded-md border border-border bg-card px-2.5 text-left text-[0.8rem] font-medium text-foreground transition-colors hover:bg-accent/60 dark:bg-transparent"
       : "size-4.5 shrink-0 rounded-sm"}
     style={displayLabel ? undefined : `background-color: ${colorEntry.bg};`}
     title={buttonTitle}
@@ -154,7 +154,11 @@
         ></span>
         <span class="truncate">{buttonLabel}</span>
       </span>
-      <ChevronDown size={14} strokeWidth={1.75} class={cn("shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
+      <ChevronDown
+        size={13}
+        strokeWidth={2}
+        class={cn("shrink-0 text-muted-foreground transition-transform", open && "rotate-180")}
+      />
     {/if}
   </button>
   {#if open}

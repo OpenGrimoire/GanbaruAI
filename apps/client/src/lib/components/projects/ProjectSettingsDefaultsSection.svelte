@@ -468,15 +468,16 @@
       </div>
     {/if}
 
-    <label class="flex items-center justify-between gap-4 px-1 py-1 max-[480px]:flex-col max-[480px]:items-stretch max-[480px]:gap-2">
+    <div class="flex items-center justify-between gap-4 px-1 py-1 max-[480px]:flex-col max-[480px]:items-stretch max-[480px]:gap-2">
       <span class="min-w-0 flex-1 text-[0.866667rem] text-foreground">{t("projects.settings.defaultIdleTimeout")}</span>
       <input
         bind:value={projectIdleTimeoutDraft}
         inputmode="numeric"
         placeholder={t("common.disabled")}
+        aria-label={t("projects.settings.defaultIdleTimeout")}
         class="h-7 w-44 min-w-0 rounded-md border border-border bg-card px-2.5 text-left text-[0.8rem] font-medium text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-ring dark:bg-transparent max-[480px]:w-full"
       />
-    </label>
+    </div>
   </div>
 </section>
 
@@ -485,41 +486,45 @@
 <section class="flex flex-col gap-1.5">
   <h2 class="px-1 text-[0.866667rem] font-semibold text-foreground">{t("projects.settings.automationDefaults")}</h2>
   <div class="flex flex-col gap-1.5">
-    <label class="flex items-center justify-between gap-4 px-1 py-1 max-[480px]:flex-col max-[480px]:items-stretch max-[480px]:gap-2">
+    <div class="flex items-center justify-between gap-4 px-1 py-1 max-[480px]:flex-col max-[480px]:items-stretch max-[480px]:gap-2">
       <span class="min-w-0 flex-1 text-[0.866667rem] text-foreground">{t("projects.settings.focusPlaylist")}</span>
       <input
         bind:value={projectFocusPlaylistDraft}
         placeholder={t("common.none")}
+        aria-label={t("projects.settings.focusPlaylist")}
         class="h-7 w-44 min-w-0 rounded-md border border-border bg-card px-2.5 text-left text-[0.8rem] font-medium text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-ring dark:bg-transparent max-[480px]:w-full"
       />
-    </label>
+    </div>
 
-    <label class="flex items-center justify-between gap-4 px-1 py-1 max-[480px]:flex-col max-[480px]:items-stretch max-[480px]:gap-2">
+    <div class="flex items-center justify-between gap-4 px-1 py-1 max-[480px]:flex-col max-[480px]:items-stretch max-[480px]:gap-2">
       <span class="min-w-0 flex-1 text-[0.866667rem] text-foreground">{t("projects.settings.breakPlaylist")}</span>
       <input
         bind:value={projectBreakPlaylistDraft}
         placeholder={t("common.none")}
+        aria-label={t("projects.settings.breakPlaylist")}
         class="h-7 w-44 min-w-0 rounded-md border border-border bg-card px-2.5 text-left text-[0.8rem] font-medium text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-ring dark:bg-transparent max-[480px]:w-full"
       />
-    </label>
+    </div>
 
-    <label class="flex items-center justify-between gap-4 px-1 py-1 max-[480px]:flex-col max-[480px]:items-stretch max-[480px]:gap-2">
+    <div class="flex items-center justify-between gap-4 px-1 py-1 max-[480px]:flex-col max-[480px]:items-stretch max-[480px]:gap-2">
       <span class="min-w-0 flex-1 text-[0.866667rem] text-foreground">{t("projects.settings.workEnvironment")}</span>
       <input
         bind:value={projectWorkEnvironmentDraft}
         placeholder={t("common.none")}
+        aria-label={t("projects.settings.workEnvironment")}
         class="h-7 w-44 min-w-0 rounded-md border border-border bg-card px-2.5 text-left text-[0.8rem] font-medium text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-ring dark:bg-transparent max-[480px]:w-full"
       />
-    </label>
+    </div>
 
-    <label class="flex items-center justify-between gap-4 px-1 py-1 max-[480px]:flex-col max-[480px]:items-stretch max-[480px]:gap-2">
+    <div class="flex items-center justify-between gap-4 px-1 py-1 max-[480px]:flex-col max-[480px]:items-stretch max-[480px]:gap-2">
       <span class="min-w-0 flex-1 text-[0.866667rem] text-foreground">{t("projects.settings.blockerRuleset")}</span>
       <input
         bind:value={projectBlockerRulesetDraft}
         placeholder={t("common.none")}
+        aria-label={t("projects.settings.blockerRuleset")}
         class="h-7 w-44 min-w-0 rounded-md border border-border bg-card px-2.5 text-left text-[0.8rem] font-medium text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-ring dark:bg-transparent max-[480px]:w-full"
       />
-    </label>
+    </div>
   </div>
 </section>
 

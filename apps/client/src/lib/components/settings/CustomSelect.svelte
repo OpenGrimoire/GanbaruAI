@@ -219,7 +219,7 @@
       <ChevronDown
         size={13}
         strokeWidth={2}
-        class={cn("shrink-0 transition-transform", open && "rotate-180")}
+        class={cn("shrink-0 text-muted-foreground transition-transform", open && "rotate-180")}
       />
     </button>
     {#if open}
