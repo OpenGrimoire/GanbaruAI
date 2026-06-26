@@ -3,6 +3,11 @@ import { ensureDbUrl } from "$lib/api/db";
 import { normalizeEventColor } from "$lib/components/calendar/utils";
 import { localTimezone } from "$lib/stores/calendar-event-payloads";
 import { toCalendarDate } from "$lib/stores/map-row";
+import {
+  DEFAULT_FOCUS_IDLE_THRESHOLD_MINUTES,
+  FOCUS_IDLE_THRESHOLD_MINUTES_OPTIONS,
+  type FocusIdleThresholdMinutes,
+} from "$lib/stores/preferences";
 import type {
   Project,
   ProjectChecklistItem,
@@ -78,6 +83,9 @@ interface ProjectRow {
   default_pomodoro_short_break_minutes: number | null;
   default_pomodoro_long_break_minutes: number | null;
   default_pomodoro_long_break_after_focus_count: number | null;
+  default_idle_settings_source: string;
+  default_idle_pause_enabled: number;
+  default_idle_threshold_minutes: number;
   focus_playlist_id: string | null;
   break_playlist_id: string | null;
   work_environment_id: string | null;
@@ -288,6 +296,18 @@ function optionalNumber(value: number | null): number | undefined {
   return value ?? undefined;
 }
 
+function mapProjectIdleSettingsSource(value: string): Project["defaultIdleSettingsSource"] {
+  return value === "custom" ? "custom" : "global";
+}
+
+function isFocusIdleThresholdMinutes(value: number): value is FocusIdleThresholdMinutes {
+  return FOCUS_IDLE_THRESHOLD_MINUTES_OPTIONS.some((option) => option === value);
+}
+
+function mapFocusIdleThresholdMinutes(value: number): FocusIdleThresholdMinutes {
+  return isFocusIdleThresholdMinutes(value) ? value : DEFAULT_FOCUS_IDLE_THRESHOLD_MINUTES;
+}
+
 function mapGroup(row: ProjectGroupRow): ProjectGroup {
   return {
     id: row.id,
@@ -320,6 +340,9 @@ function mapProject(row: ProjectRow): Project {
     defaultPomodoroShortBreakMinutes: optionalNumber(row.default_pomodoro_short_break_minutes),
     defaultPomodoroLongBreakMinutes: optionalNumber(row.default_pomodoro_long_break_minutes),
     defaultPomodoroLongBreakAfterFocusCount: optionalNumber(row.default_pomodoro_long_break_after_focus_count),
+    defaultIdleSettingsSource: mapProjectIdleSettingsSource(row.default_idle_settings_source),
+    defaultIdlePauseEnabled: row.default_idle_pause_enabled !== 0,
+    defaultIdleThresholdMinutes: mapFocusIdleThresholdMinutes(row.default_idle_threshold_minutes),
     focusPlaylistId: optionalText(row.focus_playlist_id),
     breakPlaylistId: optionalText(row.break_playlist_id),
     workEnvironmentId: optionalText(row.work_environment_id),

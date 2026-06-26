@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  projectDefaultIdleTimeoutMinutes,
   projectDefaultPomodoroConfig,
   projectPomodoroSummaryLabel,
 } from "./project-default-pomodoro";
@@ -58,5 +59,34 @@ describe("project default pomodoro helpers", () => {
       presetKey: null,
       idleTimeoutMinutes: null,
     });
+  });
+
+  it("resolves global and custom idle defaults", () => {
+    expect(projectDefaultIdleTimeoutMinutes({
+      defaultIdleSettingsSource: "global",
+      defaultIdlePauseEnabled: false,
+      defaultIdleThresholdMinutes: 15,
+    }, {
+      idlePauseEnabled: true,
+      idleThresholdMinutes: 5,
+    })).toBe(5);
+
+    expect(projectDefaultIdleTimeoutMinutes({
+      defaultIdleSettingsSource: "custom",
+      defaultIdlePauseEnabled: true,
+      defaultIdleThresholdMinutes: 15,
+    }, {
+      idlePauseEnabled: false,
+      idleThresholdMinutes: 5,
+    })).toBe(15);
+
+    expect(projectDefaultIdleTimeoutMinutes({
+      defaultIdleSettingsSource: "custom",
+      defaultIdlePauseEnabled: false,
+      defaultIdleThresholdMinutes: 15,
+    }, {
+      idlePauseEnabled: true,
+      idleThresholdMinutes: 5,
+    })).toBeNull();
   });
 });

@@ -338,7 +338,7 @@ pub(super) fn validate_pomodoro_config(config: &CalendarPomodoroConfig) -> Resul
         }
     }
     if let Some(idle) = config.idle_timeout_minutes {
-        validate_non_negative(idle, "idle_timeout_minutes")?;
+        validate_positive(idle, "idle_timeout_minutes")?;
     }
     Ok(())
 }

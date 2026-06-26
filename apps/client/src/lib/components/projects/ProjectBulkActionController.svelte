@@ -1,6 +1,9 @@
 <script lang="ts">
   import { Temporal } from "@js-temporal/polyfill";
-  import { projectDefaultPomodoroConfig } from "$lib/projects/project-default-pomodoro";
+  import {
+    projectDefaultIdleTimeoutMinutes,
+    projectDefaultPomodoroConfig,
+  } from "$lib/projects/project-default-pomodoro";
   import {
     formatProjectScheduleWindowStart,
     projectDefaultScheduleStart,
@@ -132,7 +135,7 @@
         end: scheduledWindow.end,
         projectId: project.id,
         color: project.color,
-        pomodoroConfig: projectDefaultPomodoroConfig(project, globalFocusIdleTimeoutMinutes()),
+        pomodoroConfig: projectDefaultPomodoroConfig(project, projectIdleTimeoutMinutes(project)),
       });
       createdEventId = event.id;
       const scheduledDate = scheduledWindow.start.slice(0, 10);
@@ -153,8 +156,11 @@
     }
   }
 
-  function globalFocusIdleTimeoutMinutes(): number | null {
-    return preferences.focusIdlePauseOnEventCreate ? preferences.focusIdleThresholdMinutes : null;
+  function projectIdleTimeoutMinutes(project: Project): number | null {
+    return projectDefaultIdleTimeoutMinutes(project, {
+      idlePauseEnabled: preferences.focusIdlePauseOnEventCreate,
+      idleThresholdMinutes: preferences.focusIdleThresholdMinutes,
+    });
   }
 
   async function bulkScheduleSelectedTasks(): Promise<void> {

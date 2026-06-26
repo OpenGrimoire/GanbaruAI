@@ -5,8 +5,14 @@ import {
   type PomodoroConfig,
   type PomodoroPresetKey,
 } from "$lib/pomodoro/rhythm";
+import {
+  DEFAULT_FOCUS_IDLE_PAUSE_ON_EVENT_CREATE,
+  DEFAULT_FOCUS_IDLE_THRESHOLD_MINUTES,
+  FOCUS_IDLE_THRESHOLD_MINUTES_OPTIONS,
+} from "$lib/stores/preferences";
 
 export type ProjectDefaultPomodoroMode = "none" | "preset" | "custom";
+export type ProjectDefaultIdleSettingsSource = "global" | "custom";
 
 export interface ProjectDefaultPomodoroCustom {
   focusDurationMinutes: number;
@@ -22,6 +28,17 @@ export interface ProjectDefaultPomodoroConfigInput {
   defaultPomodoroShortBreakMinutes?: number;
   defaultPomodoroLongBreakMinutes?: number;
   defaultPomodoroLongBreakAfterFocusCount?: number;
+}
+
+export interface ProjectDefaultIdleConfigInput {
+  defaultIdleSettingsSource?: ProjectDefaultIdleSettingsSource;
+  defaultIdlePauseEnabled?: boolean;
+  defaultIdleThresholdMinutes?: number;
+}
+
+export interface ProjectGlobalIdleDefaults {
+  idlePauseEnabled: boolean;
+  idleThresholdMinutes: number;
 }
 
 export const PROJECT_POMODORO_PRESET_ORDER: PomodoroPresetKey[] = [
@@ -62,6 +79,23 @@ export function projectCustomPomodoroFromDefaults(
 }
 
 /**
+ * Resolves the idle timeout that should be copied into a project Pomodoro event.
+ */
+export function projectDefaultIdleTimeoutMinutes(
+  input: ProjectDefaultIdleConfigInput,
+  globalDefaults: ProjectGlobalIdleDefaults,
+): number | null {
+  const useProjectIdleSettings = input.defaultIdleSettingsSource === "custom";
+  const idlePauseEnabled = useProjectIdleSettings
+    ? input.defaultIdlePauseEnabled ?? DEFAULT_FOCUS_IDLE_PAUSE_ON_EVENT_CREATE
+    : globalDefaults.idlePauseEnabled;
+  if (!idlePauseEnabled) return null;
+  return useProjectIdleSettings
+    ? normalizeIdleThresholdMinutes(input.defaultIdleThresholdMinutes)
+    : normalizeIdleThresholdMinutes(globalDefaults.idleThresholdMinutes);
+}
+
+/**
  * Builds the Pomodoro config to copy into a new project event.
  */
 export function projectDefaultPomodoroConfig(
@@ -80,4 +114,11 @@ export function projectDefaultPomodoroConfig(
 
 function formatDurationSlot(value: number): string {
   return String(value).padStart(2, "0");
+}
+
+function normalizeIdleThresholdMinutes(value: number | undefined): number {
+  if (value === undefined) return DEFAULT_FOCUS_IDLE_THRESHOLD_MINUTES;
+  return FOCUS_IDLE_THRESHOLD_MINUTES_OPTIONS.some((option) => option === value)
+    ? value
+    : DEFAULT_FOCUS_IDLE_THRESHOLD_MINUTES;
 }

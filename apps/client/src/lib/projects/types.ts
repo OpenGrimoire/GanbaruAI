@@ -1,6 +1,14 @@
 import type { EventColor } from "$lib/components/calendar/types";
-import type { ProjectDefaultPomodoroMode } from "$lib/projects/project-default-pomodoro";
+import type {
+  ProjectDefaultIdleSettingsSource,
+  ProjectDefaultPomodoroMode,
+} from "$lib/projects/project-default-pomodoro";
 import type { PomodoroPresetKey } from "$lib/pomodoro/rhythm";
+import {
+  DEFAULT_FOCUS_IDLE_PAUSE_ON_EVENT_CREATE,
+  DEFAULT_FOCUS_IDLE_THRESHOLD_MINUTES,
+  type FocusIdleThresholdMinutes,
+} from "$lib/stores/preferences";
 
 export const PROJECT_VIEW_IDS = ["dashboard", "list", "kanban", "calendar", "gantt"] as const;
 export type ProjectViewId = (typeof PROJECT_VIEW_IDS)[number];
@@ -96,6 +104,9 @@ export interface Project {
   defaultPomodoroShortBreakMinutes?: number;
   defaultPomodoroLongBreakMinutes?: number;
   defaultPomodoroLongBreakAfterFocusCount?: number;
+  defaultIdleSettingsSource: ProjectDefaultIdleSettingsSource;
+  defaultIdlePauseEnabled: boolean;
+  defaultIdleThresholdMinutes: FocusIdleThresholdMinutes;
   focusPlaylistId?: string;
   breakPlaylistId?: string;
   workEnvironmentId?: string;
@@ -116,6 +127,9 @@ export const PROJECT_TEMPLATE_DEFAULTS = {
     defaultPomodoroShortBreakMinutes: null,
     defaultPomodoroLongBreakMinutes: null,
     defaultPomodoroLongBreakAfterFocusCount: null,
+    defaultIdleSettingsSource: "global",
+    defaultIdlePauseEnabled: DEFAULT_FOCUS_IDLE_PAUSE_ON_EVENT_CREATE,
+    defaultIdleThresholdMinutes: DEFAULT_FOCUS_IDLE_THRESHOLD_MINUTES,
   },
   software: {
     icon: "folder",
@@ -128,6 +142,9 @@ export const PROJECT_TEMPLATE_DEFAULTS = {
     defaultPomodoroShortBreakMinutes: null,
     defaultPomodoroLongBreakMinutes: null,
     defaultPomodoroLongBreakAfterFocusCount: null,
+    defaultIdleSettingsSource: "global",
+    defaultIdlePauseEnabled: DEFAULT_FOCUS_IDLE_PAUSE_ON_EVENT_CREATE,
+    defaultIdleThresholdMinutes: DEFAULT_FOCUS_IDLE_THRESHOLD_MINUTES,
   },
   course: {
     icon: "graduation-cap",
@@ -140,6 +157,9 @@ export const PROJECT_TEMPLATE_DEFAULTS = {
     defaultPomodoroShortBreakMinutes: null,
     defaultPomodoroLongBreakMinutes: null,
     defaultPomodoroLongBreakAfterFocusCount: null,
+    defaultIdleSettingsSource: "global",
+    defaultIdlePauseEnabled: DEFAULT_FOCUS_IDLE_PAUSE_ON_EVENT_CREATE,
+    defaultIdleThresholdMinutes: DEFAULT_FOCUS_IDLE_THRESHOLD_MINUTES,
   },
   routine: {
     icon: "repeat",
@@ -152,6 +172,9 @@ export const PROJECT_TEMPLATE_DEFAULTS = {
     defaultPomodoroShortBreakMinutes: null,
     defaultPomodoroLongBreakMinutes: null,
     defaultPomodoroLongBreakAfterFocusCount: null,
+    defaultIdleSettingsSource: "global",
+    defaultIdlePauseEnabled: DEFAULT_FOCUS_IDLE_PAUSE_ON_EVENT_CREATE,
+    defaultIdleThresholdMinutes: DEFAULT_FOCUS_IDLE_THRESHOLD_MINUTES,
   },
   reading: {
     icon: "book-open",
@@ -164,6 +187,9 @@ export const PROJECT_TEMPLATE_DEFAULTS = {
     defaultPomodoroShortBreakMinutes: null,
     defaultPomodoroLongBreakMinutes: null,
     defaultPomodoroLongBreakAfterFocusCount: null,
+    defaultIdleSettingsSource: "global",
+    defaultIdlePauseEnabled: DEFAULT_FOCUS_IDLE_PAUSE_ON_EVENT_CREATE,
+    defaultIdleThresholdMinutes: DEFAULT_FOCUS_IDLE_THRESHOLD_MINUTES,
   },
   chores: {
     icon: "sparkles",
@@ -176,6 +202,9 @@ export const PROJECT_TEMPLATE_DEFAULTS = {
     defaultPomodoroShortBreakMinutes: null,
     defaultPomodoroLongBreakMinutes: null,
     defaultPomodoroLongBreakAfterFocusCount: null,
+    defaultIdleSettingsSource: "global",
+    defaultIdlePauseEnabled: DEFAULT_FOCUS_IDLE_PAUSE_ON_EVENT_CREATE,
+    defaultIdleThresholdMinutes: DEFAULT_FOCUS_IDLE_THRESHOLD_MINUTES,
   },
 } satisfies Record<ProjectTemplateId, {
   icon: string;
@@ -188,6 +217,9 @@ export const PROJECT_TEMPLATE_DEFAULTS = {
   defaultPomodoroShortBreakMinutes: number | null;
   defaultPomodoroLongBreakMinutes: number | null;
   defaultPomodoroLongBreakAfterFocusCount: number | null;
+  defaultIdleSettingsSource: ProjectDefaultIdleSettingsSource;
+  defaultIdlePauseEnabled: boolean;
+  defaultIdleThresholdMinutes: FocusIdleThresholdMinutes;
 }>;
 
 export interface ProjectSection {
@@ -552,6 +584,9 @@ export interface ProjectCreate {
   defaultPomodoroShortBreakMinutes: number | null;
   defaultPomodoroLongBreakMinutes: number | null;
   defaultPomodoroLongBreakAfterFocusCount: number | null;
+  defaultIdleSettingsSource: ProjectDefaultIdleSettingsSource;
+  defaultIdlePauseEnabled: boolean;
+  defaultIdleThresholdMinutes: FocusIdleThresholdMinutes;
 }
 
 export interface ProjectUpdate {
@@ -570,6 +605,9 @@ export interface ProjectUpdate {
   defaultPomodoroShortBreakMinutes: number | null;
   defaultPomodoroLongBreakMinutes: number | null;
   defaultPomodoroLongBreakAfterFocusCount: number | null;
+  defaultIdleSettingsSource: ProjectDefaultIdleSettingsSource;
+  defaultIdlePauseEnabled: boolean;
+  defaultIdleThresholdMinutes: FocusIdleThresholdMinutes;
   focusPlaylistId: string | null;
   breakPlaylistId: string | null;
   workEnvironmentId: string | null;

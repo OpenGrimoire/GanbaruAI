@@ -17,6 +17,7 @@
     PROJECT_DEFAULT_CUSTOM_POMODORO,
     PROJECT_POMODORO_PRESET_ORDER,
     projectCustomPomodoroFromDefaults,
+    type ProjectDefaultIdleSettingsSource,
     type ProjectDefaultPomodoroMode,
   } from "$lib/projects/project-default-pomodoro";
   import {
@@ -42,6 +43,11 @@
   } from "$lib/projects/types";
   import { getProjects } from "$lib/stores/projects.svelte";
   import { getTheme } from "$lib/stores/theme.svelte";
+  import {
+    DEFAULT_FOCUS_IDLE_PAUSE_ON_EVENT_CREATE,
+    DEFAULT_FOCUS_IDLE_THRESHOLD_MINUTES,
+    type FocusIdleThresholdMinutes,
+  } from "$lib/stores/preferences";
   import { cn } from "$lib/utils";
   import ProjectIconPicker from "./ProjectIconPicker.svelte";
   import ProjectSettingsDefaultsSection from "./ProjectSettingsDefaultsSection.svelte";
@@ -82,6 +88,11 @@
   let projectPomodoroLongBreakDraft = $state(PROJECT_DEFAULT_CUSTOM_POMODORO.longBreakMinutes);
   let projectPomodoroLongBreakAfterFocusDraft = $state(
     PROJECT_DEFAULT_CUSTOM_POMODORO.longBreakAfterFocusCount,
+  );
+  let projectIdleSettingsSourceDraft = $state<ProjectDefaultIdleSettingsSource>("global");
+  let projectIdlePauseEnabledDraft = $state(DEFAULT_FOCUS_IDLE_PAUSE_ON_EVENT_CREATE);
+  let projectIdleThresholdMinutesDraft = $state<FocusIdleThresholdMinutes>(
+    DEFAULT_FOCUS_IDLE_THRESHOLD_MINUTES,
   );
   let projectFocusPlaylistDraft = $state("");
   let projectBreakPlaylistDraft = $state("");
@@ -153,6 +164,9 @@
       .flatMap((field) => projects.customFieldOptionsForField(field.id))
       .find((entry) => entry.id === pendingDeleteCustomFieldOptionId);
   });
+  const projectSettingsDraftReady = $derived(
+    Boolean(selectedProject && projectDraftId === selectedProject.id),
+  );
   const projectSettingsDirty = $derived.by(() => {
     if (!selectedProject) return false;
     return projectNameDraft !== selectedProject.name
@@ -163,6 +177,7 @@
       || projectDefaultEventNameDraft !== (selectedProject.defaultEventName ?? "")
       || projectDurationDraft !== String(selectedProject.defaultEventDurationMinutes ?? "")
       || projectPomodoroSettingsDirty(selectedProject)
+      || projectIdleSettingsDirty(selectedProject)
       || projectFocusPlaylistDraft !== (selectedProject.focusPlaylistId ?? "")
       || projectBreakPlaylistDraft !== (selectedProject.breakPlaylistId ?? "")
       || projectWorkEnvironmentDraft !== (selectedProject.workEnvironmentId ?? "")
@@ -196,6 +211,9 @@
     projectPomodoroShortBreakDraft = customPomodoro.shortBreakMinutes;
     projectPomodoroLongBreakDraft = customPomodoro.longBreakMinutes;
     projectPomodoroLongBreakAfterFocusDraft = customPomodoro.longBreakAfterFocusCount;
+    projectIdleSettingsSourceDraft = project.defaultIdleSettingsSource;
+    projectIdlePauseEnabledDraft = project.defaultIdlePauseEnabled;
+    projectIdleThresholdMinutesDraft = project.defaultIdleThresholdMinutes;
     projectFocusPlaylistDraft = project.focusPlaylistId ?? "";
     projectBreakPlaylistDraft = project.breakPlaylistId ?? "";
     projectWorkEnvironmentDraft = project.workEnvironmentId ?? "";
@@ -343,6 +361,12 @@
         || projectPomodoroLongBreakAfterFocusDraft !== customPomodoro.longBreakAfterFocusCount;
     }
     return false;
+  }
+
+  function projectIdleSettingsDirty(project: Project): boolean {
+    return projectIdleSettingsSourceDraft !== project.defaultIdleSettingsSource
+      || projectIdlePauseEnabledDraft !== project.defaultIdlePauseEnabled
+      || projectIdleThresholdMinutesDraft !== project.defaultIdleThresholdMinutes;
   }
 
   function projectPomodoroCustomDraft() {
@@ -824,6 +848,9 @@
         defaultPomodoroLongBreakAfterFocusCount: projectPomodoroModeDraft === "custom"
           ? defaultPomodoroCustom.longBreakAfterFocusCount
           : null,
+        defaultIdleSettingsSource: projectIdleSettingsSourceDraft,
+        defaultIdlePauseEnabled: projectIdlePauseEnabledDraft,
+        defaultIdleThresholdMinutes: projectIdleThresholdMinutesDraft,
         focusPlaylistId: normalizeOptionalIdentifier(projectFocusPlaylistDraft),
         breakPlaylistId: normalizeOptionalIdentifier(projectBreakPlaylistDraft),
         workEnvironmentId: normalizeOptionalIdentifier(projectWorkEnvironmentDraft),
@@ -886,7 +913,7 @@
       class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
       aria-label={t("projects.settings.discard")}
       title={t("projects.settings.discard")}
-      disabled={!projectSettingsDirty}
+      disabled={!projectSettingsDraftReady || !projectSettingsDirty}
       onclick={() => loadProjectSettingsDraft(selectedProject)}
     >
       <RotateCcw size={14} strokeWidth={1.75} />
@@ -903,6 +930,7 @@
   </header>
 
   <form class="flex min-h-0 flex-1 flex-col" onsubmit={(event) => { event.preventDefault(); void saveProjectSettings(); }}>
+    {#if projectSettingsDraftReady}
     <div class="relative min-h-0 flex-1">
       <div
         bind:this={settingsScrollElement}
@@ -988,6 +1016,9 @@
             bind:projectPomodoroShortBreakDraft
             bind:projectPomodoroLongBreakDraft
             bind:projectPomodoroLongBreakAfterFocusDraft
+            bind:projectIdleSettingsSourceDraft
+            bind:projectIdlePauseEnabledDraft
+            bind:projectIdleThresholdMinutesDraft
             bind:projectFocusPlaylistDraft
             bind:projectBreakPlaylistDraft
             bind:projectWorkEnvironmentDraft
@@ -1477,6 +1508,7 @@
         <span>{projectSettingsSaving ? t("common.loading") : t("projects.settings.save")}</span>
       </button>
     </footer>
+    {/if}
   </form>
 </aside>
 {/if}

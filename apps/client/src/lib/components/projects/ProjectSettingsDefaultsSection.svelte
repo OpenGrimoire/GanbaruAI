@@ -18,6 +18,7 @@
   import {
     PROJECT_DEFAULT_CUSTOM_POMODORO,
     projectPomodoroSummaryLabel,
+    type ProjectDefaultIdleSettingsSource,
     type ProjectDefaultPomodoroMode,
   } from "$lib/projects/project-default-pomodoro";
   import {
@@ -30,6 +31,11 @@
     type ProjectDurationUnit,
   } from "$lib/projects/project-settings-duration";
   import CustomSelect from "$lib/components/settings/CustomSelect.svelte";
+  import ToggleSetting from "$lib/components/settings/ToggleSetting.svelte";
+  import {
+    FOCUS_IDLE_THRESHOLD_MINUTES_OPTIONS,
+    type FocusIdleThresholdMinutes,
+  } from "$lib/stores/preferences";
   import type { Theme } from "$lib/stores/themes";
 
   let {
@@ -45,6 +51,9 @@
     projectPomodoroShortBreakDraft = $bindable<number>(),
     projectPomodoroLongBreakDraft = $bindable<number>(),
     projectPomodoroLongBreakAfterFocusDraft = $bindable<number>(),
+    projectIdleSettingsSourceDraft = $bindable<ProjectDefaultIdleSettingsSource>(),
+    projectIdlePauseEnabledDraft = $bindable<boolean>(),
+    projectIdleThresholdMinutesDraft = $bindable<FocusIdleThresholdMinutes>(),
     projectFocusPlaylistDraft = $bindable<string>(),
     projectBreakPlaylistDraft = $bindable<string>(),
     projectWorkEnvironmentDraft = $bindable<string>(),
@@ -62,6 +71,9 @@
     projectPomodoroShortBreakDraft: number;
     projectPomodoroLongBreakDraft: number;
     projectPomodoroLongBreakAfterFocusDraft: number;
+    projectIdleSettingsSourceDraft: ProjectDefaultIdleSettingsSource;
+    projectIdlePauseEnabledDraft: boolean;
+    projectIdleThresholdMinutesDraft: FocusIdleThresholdMinutes;
     projectFocusPlaylistDraft: string;
     projectBreakPlaylistDraft: string;
     projectWorkEnvironmentDraft: string;
@@ -110,6 +122,12 @@
     { value: "hours", label: t("projects.settings.durationUnitHours") },
     { value: "minutes", label: t("projects.settings.durationUnitMinutes") },
   ]);
+  const idleThresholdOptions = $derived<SelectOption[]>(
+    FOCUS_IDLE_THRESHOLD_MINUTES_OPTIONS.map((minutes) => ({
+      value: String(minutes),
+      label: t("settings.focus.minutesShort", minutes),
+    })),
+  );
   const pomodoroSelectValue = $derived<PomodoroSelectValue>(
     projectPomodoroModeDraft === "none"
       ? "none"
@@ -305,6 +323,21 @@
     }
   }
 
+  function isFocusIdleThresholdMinutes(value: number): value is FocusIdleThresholdMinutes {
+    return FOCUS_IDLE_THRESHOLD_MINUTES_OPTIONS.some((option) => option === value);
+  }
+
+  function setUseGlobalIdleSettings(checked: boolean): void {
+    projectIdleSettingsSourceDraft = checked ? "global" : "custom";
+  }
+
+  function setIdleThresholdMinutes(value: string): void {
+    const minutes = Number(value);
+    if (Number.isInteger(minutes) && isFocusIdleThresholdMinutes(minutes)) {
+      projectIdleThresholdMinutesDraft = minutes;
+    }
+  }
+
   function commitPomodoroFocusDraft(): void {
     const result = commitIntegerDraft(
       pomodoroFocusInputDraft,
@@ -476,6 +509,30 @@
           {/each}
         </div>
       </div>
+    {/if}
+
+    <ToggleSetting
+      label={t("projects.settings.useGlobalIdleSettings")}
+      checked={projectIdleSettingsSourceDraft === "global"}
+      onChange={setUseGlobalIdleSettings}
+    />
+
+    {#if projectIdleSettingsSourceDraft === "custom"}
+      <ToggleSetting
+        label={t("projects.settings.idlePauseDefault")}
+        checked={projectIdlePauseEnabledDraft}
+        onChange={(checked) => {
+          projectIdlePauseEnabledDraft = checked;
+        }}
+      />
+
+      <CustomSelect
+        label={t("projects.settings.idleThreshold")}
+        value={String(projectIdleThresholdMinutesDraft)}
+        options={idleThresholdOptions}
+        onChange={setIdleThresholdMinutes}
+        class="w-44"
+      />
     {/if}
 
   </div>

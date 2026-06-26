@@ -34,6 +34,10 @@ pub(super) fn validate_project_create(project: &ProjectCreate) -> Result<(), Str
         project.default_pomodoro_long_break_minutes,
         project.default_pomodoro_long_break_after_focus_count,
     )?;
+    validate_project_default_idle_settings(
+        &project.default_idle_settings_source,
+        project.default_idle_threshold_minutes,
+    )?;
     Ok(())
 }
 
@@ -54,6 +58,10 @@ pub(super) fn validate_project_update(project: &ProjectUpdate) -> Result<(), Str
         project.default_pomodoro_short_break_minutes,
         project.default_pomodoro_long_break_minutes,
         project.default_pomodoro_long_break_after_focus_count,
+    )?;
+    validate_project_default_idle_settings(
+        &project.default_idle_settings_source,
+        project.default_idle_threshold_minutes,
     )?;
     validate_optional_identifier(&project.focus_playlist_id, "focus_playlist_id")?;
     validate_optional_identifier(&project.break_playlist_id, "break_playlist_id")?;
@@ -479,6 +487,21 @@ fn validate_project_default_pomodoro(
             )?;
         }
         _ => {}
+    }
+    Ok(())
+}
+
+fn validate_project_default_idle_settings(
+    source: &str,
+    threshold_minutes: i64,
+) -> Result<(), String> {
+    validate_enum(
+        source,
+        "default_idle_settings_source",
+        PROJECT_IDLE_SETTINGS_SOURCES,
+    )?;
+    if !PROJECT_IDLE_THRESHOLD_MINUTES.contains(&threshold_minutes) {
+        return Err("default_idle_threshold_minutes has unsupported value".to_string());
     }
     Ok(())
 }

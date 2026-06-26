@@ -22,7 +22,10 @@
   import { getPreferences } from "$lib/stores/preferences.svelte";
   import { getViewport } from "$lib/stores/viewport.svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
-  import { projectDefaultPomodoroConfig } from "$lib/projects/project-default-pomodoro";
+  import {
+    projectDefaultIdleTimeoutMinutes,
+    projectDefaultPomodoroConfig,
+  } from "$lib/projects/project-default-pomodoro";
   import { cn } from "$lib/utils";
   import { formatShortcut, hasOnlyShortcutModifier, hasShortcutModifier } from "$lib/keyboard-shortcuts";
   import {
@@ -224,6 +227,7 @@
   let customRhythmMode: "simple" | "sequence" = $state("simple");
   let sequenceSteps: SequencePomodoroRhythmStep[] = $state([]);
   let idleTimeoutEnabled = $state(true);
+  let idleTimeoutMinutesDraft = $state(preferences.focusIdleThresholdMinutes);
   const timedSectionsVisible = $derived(!allDay);
   const pomodoroControlsDisabled = $derived(
     parked || !timedSectionsVisible || (readOnly && !allowPomodoroWhenReadOnly),
@@ -234,10 +238,18 @@
 
   function applyDefaultIdleTimeoutPreference(): void {
     idleTimeoutEnabled = preferences.focusIdlePauseOnEventCreate;
+    idleTimeoutMinutesDraft = preferences.focusIdleThresholdMinutes;
   }
 
   function idleTimeoutMinutesForPayload(): number | null {
-    return idleTimeoutEnabled ? preferences.focusIdleThresholdMinutes : null;
+    return idleTimeoutEnabled ? idleTimeoutMinutesDraft : null;
+  }
+
+  function globalFocusIdleDefaults() {
+    return {
+      idlePauseEnabled: preferences.focusIdlePauseOnEventCreate,
+      idleThresholdMinutes: preferences.focusIdleThresholdMinutes,
+    };
   }
 
   // ─── Notifications ──────────────────────────────────────────────
@@ -716,6 +728,11 @@
       sequenceSteps = config.rhythm.steps.map((step: SequencePomodoroRhythmStep) => ({ ...step }));
     }
     idleTimeoutEnabled = config.idleTimeoutMinutes !== null;
+    if (config.idleTimeoutMinutes !== null) {
+      idleTimeoutMinutesDraft = config.idleTimeoutMinutes;
+    } else {
+      idleTimeoutMinutesDraft = preferences.focusIdleThresholdMinutes;
+    }
   }
 
   function handleProjectSelect(nextProjectId: string | undefined): void {
@@ -744,7 +761,13 @@
             syncTimeDrafts();
           }
         }
-        applyPomodoroConfigDraft(projectDefaultPomodoroConfig(selectedProject, idleTimeoutMinutesForPayload()), false);
+        applyPomodoroConfigDraft(
+          projectDefaultPomodoroConfig(
+            selectedProject,
+            projectDefaultIdleTimeoutMinutes(selectedProject, globalFocusIdleDefaults()),
+          ),
+          false,
+        );
       }
     }
     emitChange();

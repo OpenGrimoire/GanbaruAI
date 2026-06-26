@@ -388,7 +388,7 @@ export function isValidPomodoroConfig(config: PomodoroConfig): boolean {
 
   if (
     config.idleTimeoutMinutes !== null &&
-    (!Number.isInteger(config.idleTimeoutMinutes) || config.idleTimeoutMinutes < 0)
+    (!Number.isInteger(config.idleTimeoutMinutes) || config.idleTimeoutMinutes <= 0)
   ) {
     return false;
   }
