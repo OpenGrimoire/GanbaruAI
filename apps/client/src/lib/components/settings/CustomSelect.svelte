@@ -10,12 +10,14 @@
   import {
     pickSelectPopoverGeometry,
     type SelectPopoverGeometry,
+    type SelectPopoverHorizontalAlign,
     type SelectPopoverRect,
   } from "./customSelectPosition";
 
   interface Option {
     value: string;
     label: string;
+    summary?: string;
     /** Optional inline style applied to the option label (e.g. for font previews). */
     style?: string;
   }
@@ -31,6 +33,10 @@
     canReset = false,
     onReset,
     inline = false,
+    showSelectedSummary = true,
+    showActiveCheck = true,
+    alignOptionSummaryEnd = false,
+    popoverAlign = "start",
     class: className = "",
   }: {
     value: string;
@@ -43,6 +49,10 @@
     canReset?: boolean;
     onReset?: () => void;
     inline?: boolean;
+    showSelectedSummary?: boolean;
+    showActiveCheck?: boolean;
+    alignOptionSummaryEnd?: boolean;
+    popoverAlign?: SelectPopoverHorizontalAlign;
     class?: string;
   } = $props();
 
@@ -52,6 +62,7 @@
   const DEFAULT_POPOVER_GEOMETRY: SelectPopoverGeometry = {
     top: 0,
     left: 0,
+    width: null,
     minWidth: 0,
     maxWidth: 0,
     maxHeight: 0,
@@ -121,8 +132,18 @@
       triggerRect: toRect(triggerEl.getBoundingClientRect()),
       boundaryRect: getBoundaryRect(),
       contentHeight: popoverEl?.scrollHeight ?? ESTIMATED_DROPDOWN_HEIGHT,
+      contentWidth: popoverEl?.scrollWidth,
+      horizontalAlign: popoverAlign,
     });
     popoverReady = true;
+  }
+
+  function popoverStyle(): string {
+    if (!popoverReady) {
+      return "top: 0px; left: 0px; min-width: max-content; max-width: max-content; max-height: none; visibility: hidden;";
+    }
+    const width = popoverGeometry.width === null ? "" : ` width: ${popoverGeometry.width}px;`;
+    return `top: ${popoverGeometry.top}px; left: ${popoverGeometry.left}px;${width} min-width: ${popoverGeometry.minWidth}px; max-width: ${popoverGeometry.maxWidth}px; max-height: ${popoverGeometry.maxHeight}px; visibility: visible;`;
   }
 
   async function toggle() {
@@ -189,7 +210,12 @@
       aria-label={ariaLabel ?? label}
       class="flex h-7 w-full max-w-full items-center justify-between gap-2 rounded-md border border-border bg-card px-2.5 text-[0.8rem] font-medium text-foreground transition-colors hover:bg-accent max-[480px]:w-full dark:bg-transparent"
     >
-      <span class="truncate" style={current?.style}>{current?.label ?? value}</span>
+      <span class="flex min-w-0 flex-1 items-center gap-1.5">
+        <span class="truncate" style={current?.style}>{current?.label ?? value}</span>
+        {#if showSelectedSummary && current?.summary}
+          <span class="shrink-0 text-[0.733333rem] text-muted-foreground">{current.summary}</span>
+        {/if}
+      </span>
       <ChevronDown
         size={13}
         strokeWidth={2}
@@ -202,8 +228,8 @@
         use:portal
         role="listbox"
         data-app-floating-surface
-        class="fixed z-80 overflow-y-auto rounded-md border border-border bg-popover py-1 shadow-lg"
-        style="top: {popoverGeometry.top}px; left: {popoverGeometry.left}px; min-width: {popoverGeometry.minWidth}px; max-width: {popoverGeometry.maxWidth}px; max-height: {popoverGeometry.maxHeight}px; visibility: {popoverReady ? 'visible' : 'hidden'};"
+        class="fixed z-80 overflow-x-hidden overflow-y-auto rounded-md border border-border bg-popover py-1 shadow-lg"
+        style={popoverStyle()}
       >
         {#each options as option}
           {@const isActive = option.value === value}
@@ -219,8 +245,20 @@
                 : "text-foreground hover:bg-accent/40",
             )}
           >
-            <span class="truncate" style={option.style}>{option.label}</span>
-            {#if isActive}
+            <span
+              class={cn(
+                "min-w-0 flex-1",
+                alignOptionSummaryEnd
+                  ? "grid grid-cols-[minmax(max-content,1fr)_max-content] items-center gap-4"
+                  : "flex items-center gap-1.5",
+              )}
+            >
+              <span class="truncate" style={option.style}>{option.label}</span>
+              {#if option.summary}
+                <span class="shrink-0 justify-self-end text-[0.733333rem] text-muted-foreground">{option.summary}</span>
+              {/if}
+            </span>
+            {#if showActiveCheck && isActive}
               <Check size={12} strokeWidth={2.5} class="shrink-0" />
             {/if}
           </button>

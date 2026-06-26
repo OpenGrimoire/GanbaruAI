@@ -523,7 +523,12 @@ async function addProject(groupId: string, name: string, templateId: ProjectTemp
     color: templateDefaults.color,
     sortOrder: nextProjectSortOrder(groupId),
     defaultEventDurationMinutes: templateDefaults.defaultEventDurationMinutes,
+    defaultPomodoroMode: templateDefaults.defaultPomodoroMode,
     defaultPomodoroPresetKey: templateDefaults.defaultPomodoroPresetKey,
+    defaultPomodoroFocusMinutes: templateDefaults.defaultPomodoroFocusMinutes,
+    defaultPomodoroShortBreakMinutes: templateDefaults.defaultPomodoroShortBreakMinutes,
+    defaultPomodoroLongBreakMinutes: templateDefaults.defaultPomodoroLongBreakMinutes,
+    defaultPomodoroLongBreakAfterFocusCount: templateDefaults.defaultPomodoroLongBreakAfterFocusCount,
     defaultIdleTimeoutMinutes: templateDefaults.defaultIdleTimeoutMinutes,
   };
   await createProjectBackend(project);

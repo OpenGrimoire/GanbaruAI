@@ -7,6 +7,10 @@ const PROJECT_TEMPLATE_IDS: &[&str] = &[
     "blank", "software", "course", "routine", "reading", "chores",
 ];
 const MAX_PROJECT_EVENT_DURATION_MINUTES: i64 = 24 * 60;
+const MAX_PROJECT_POMODORO_FOCUS_MINUTES: i64 = 120;
+const MAX_PROJECT_POMODORO_SHORT_BREAK_MINUTES: i64 = 30;
+const MAX_PROJECT_POMODORO_LONG_BREAK_MINUTES: i64 = 60;
+const MAX_PROJECT_POMODORO_CYCLE_COUNT: i64 = 12;
 const MAX_TASK_CHANGE_REASON_LENGTH: usize = 1000;
 
 mod custom_fields;
@@ -338,10 +342,13 @@ pub async fn projects_create_project<R: Runtime>(
     sqlx::query(
         "INSERT INTO projects (
             id, group_id, name, icon, color, sort_order,
-            default_event_duration_minutes, default_pomodoro_preset_key,
+            default_event_duration_minutes,
+            default_pomodoro_mode, default_pomodoro_preset_key,
+            default_pomodoro_focus_minutes, default_pomodoro_short_break_minutes,
+            default_pomodoro_long_break_minutes, default_pomodoro_long_break_after_focus_count,
             default_idle_timeout_minutes
          )
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&project.id)
     .bind(&project.group_id)
@@ -350,7 +357,12 @@ pub async fn projects_create_project<R: Runtime>(
     .bind(project.color)
     .bind(project.sort_order)
     .bind(project.default_event_duration_minutes)
+    .bind(&project.default_pomodoro_mode)
     .bind(&project.default_pomodoro_preset_key)
+    .bind(project.default_pomodoro_focus_minutes)
+    .bind(project.default_pomodoro_short_break_minutes)
+    .bind(project.default_pomodoro_long_break_minutes)
+    .bind(project.default_pomodoro_long_break_after_focus_count)
     .bind(project.default_idle_timeout_minutes)
     .execute(&mut *tx)
     .await
@@ -380,7 +392,12 @@ pub async fn projects_update_project<R: Runtime>(
              sort_order = ?,
              status = ?,
              default_event_duration_minutes = ?,
+             default_pomodoro_mode = ?,
              default_pomodoro_preset_key = ?,
+             default_pomodoro_focus_minutes = ?,
+             default_pomodoro_short_break_minutes = ?,
+             default_pomodoro_long_break_minutes = ?,
+             default_pomodoro_long_break_after_focus_count = ?,
              default_idle_timeout_minutes = ?,
              focus_playlist_id = ?,
              break_playlist_id = ?,
@@ -396,7 +413,12 @@ pub async fn projects_update_project<R: Runtime>(
     .bind(project.sort_order)
     .bind(&project.status)
     .bind(project.default_event_duration_minutes)
+    .bind(&project.default_pomodoro_mode)
     .bind(&project.default_pomodoro_preset_key)
+    .bind(project.default_pomodoro_focus_minutes)
+    .bind(project.default_pomodoro_short_break_minutes)
+    .bind(project.default_pomodoro_long_break_minutes)
+    .bind(project.default_pomodoro_long_break_after_focus_count)
     .bind(project.default_idle_timeout_minutes)
     .bind(normalized_optional_identifier(
         project.focus_playlist_id.as_deref(),
@@ -2379,7 +2401,12 @@ mod tests {
             sort_order: 100,
             status: "active".to_string(),
             default_event_duration_minutes: Some(60),
+            default_pomodoro_mode: "none".to_string(),
             default_pomodoro_preset_key: None,
+            default_pomodoro_focus_minutes: None,
+            default_pomodoro_short_break_minutes: None,
+            default_pomodoro_long_break_minutes: None,
+            default_pomodoro_long_break_after_focus_count: None,
             default_idle_timeout_minutes: None,
             focus_playlist_id: Some(" ".to_string()),
             break_playlist_id: None,

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Temporal } from "@js-temporal/polyfill";
-  import { createPresetPomodoroConfig } from "$lib/pomodoro/rhythm";
+  import { projectDefaultPomodoroConfig } from "$lib/projects/project-default-pomodoro";
   import {
     formatProjectScheduleWindowStart,
     projectDefaultScheduleStart,
@@ -130,12 +130,7 @@
         end: scheduledWindow.end,
         projectId: project.id,
         color: project.color,
-        pomodoroConfig: project.defaultPomodoroPresetKey
-          ? createPresetPomodoroConfig(
-              project.defaultPomodoroPresetKey,
-              project.defaultIdleTimeoutMinutes ?? null,
-            )
-          : undefined,
+        pomodoroConfig: projectDefaultPomodoroConfig(project),
       });
       createdEventId = event.id;
       const scheduledDate = scheduledWindow.start.slice(0, 10);

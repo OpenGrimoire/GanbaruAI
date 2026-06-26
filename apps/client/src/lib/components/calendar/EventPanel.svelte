@@ -22,6 +22,7 @@
   import { getPreferences } from "$lib/stores/preferences.svelte";
   import { getViewport } from "$lib/stores/viewport.svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { projectDefaultPomodoroConfig } from "$lib/projects/project-default-pomodoro";
   import { projectEffectiveDurationMinutes } from "$lib/projects/project-settings-duration";
   import { cn } from "$lib/utils";
   import { formatShortcut, hasOnlyShortcutModifier, hasShortcutModifier } from "$lib/keyboard-shortcuts";
@@ -665,26 +666,6 @@
     };
   }
 
-  function applyProjectPomodoroPreset(
-    preset: Exclude<typeof pomodoroPreset, "custom">,
-    idleTimeoutMinutes: number | null,
-  ): void {
-    const rhythm = COUNT_PRESET_RHYTHMS[preset];
-    pomodoroEnabled = true;
-    pomodoroPreset = preset;
-    focusDuration = rhythm.focusDurationMinutes;
-    shortBreak = rhythm.shortBreakMinutes;
-    longBreak = rhythm.longBreakMinutes;
-    longBreakAfterFocusCount = rhythm.longBreakAfterFocusCount;
-    customRhythmMode = "simple";
-    sequenceSteps = [{
-      focusDurationMinutes: rhythm.focusDurationMinutes,
-      breakPhase: "short_break",
-      breakDurationMinutes: rhythm.shortBreakMinutes,
-    }];
-    idleTimeoutEnabled = idleTimeoutMinutes !== null;
-  }
-
   function applyPomodoroConfigDraft(
     config: CalendarEvent["pomodoroConfig"],
     fallbackEnabled: boolean,
@@ -755,14 +736,7 @@
           endTime = nextEnd.time;
           syncTimeDrafts();
         }
-        if (selectedProject.defaultPomodoroPresetKey) {
-          applyProjectPomodoroPreset(
-            selectedProject.defaultPomodoroPresetKey,
-            selectedProject.defaultIdleTimeoutMinutes ?? null,
-          );
-        } else {
-          pomodoroEnabled = false;
-        }
+        applyPomodoroConfigDraft(projectDefaultPomodoroConfig(selectedProject), false);
       }
     }
     emitChange();

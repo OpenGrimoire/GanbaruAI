@@ -84,4 +84,33 @@ describe("pickSelectPopoverGeometry", () => {
     expect(result.minWidth).toBe(384);
     expect(result.maxWidth).toBe(384);
   });
+
+  it("aligns an end dropdown to the trigger right edge when content is wider", () => {
+    const result = pickSelectPopoverGeometry({
+      triggerRect: trigger({ left: 300, right: 420, width: 120 }),
+      boundaryRect: boundary,
+      contentHeight: 100,
+      contentWidth: 260,
+      horizontalAlign: "end",
+    });
+
+    expect(result.left).toBe(160);
+    expect(result.width).toBe(260);
+    expect(result.left + (result.width ?? 0)).toBe(420);
+    expect(result.minWidth).toBe(120);
+  });
+
+  it("keeps an end dropdown inside the settings boundary when content is too wide", () => {
+    const result = pickSelectPopoverGeometry({
+      triggerRect: trigger({ left: 300, right: 420, width: 120 }),
+      boundaryRect: boundary,
+      contentHeight: 100,
+      contentWidth: 700,
+      horizontalAlign: "end",
+    });
+
+    expect(result.left).toBe(108);
+    expect(result.width).toBe(384);
+    expect(result.left + (result.width ?? 0)).toBe(boundary.right - 8);
+  });
 });

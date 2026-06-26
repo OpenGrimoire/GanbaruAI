@@ -71,7 +71,12 @@ interface ProjectRow {
   sort_order: number;
   status: Project["status"];
   default_event_duration_minutes: number | null;
+  default_pomodoro_mode: Project["defaultPomodoroMode"];
   default_pomodoro_preset_key: NonNullable<Project["defaultPomodoroPresetKey"]> | null;
+  default_pomodoro_focus_minutes: number | null;
+  default_pomodoro_short_break_minutes: number | null;
+  default_pomodoro_long_break_minutes: number | null;
+  default_pomodoro_long_break_after_focus_count: number | null;
   default_idle_timeout_minutes: number | null;
   focus_playlist_id: string | null;
   break_playlist_id: string | null;
@@ -308,7 +313,12 @@ function mapProject(row: ProjectRow): Project {
     sortOrder: row.sort_order,
     status: row.status,
     defaultEventDurationMinutes: row.default_event_duration_minutes,
+    defaultPomodoroMode: row.default_pomodoro_mode,
     defaultPomodoroPresetKey: row.default_pomodoro_preset_key ?? undefined,
+    defaultPomodoroFocusMinutes: optionalNumber(row.default_pomodoro_focus_minutes),
+    defaultPomodoroShortBreakMinutes: optionalNumber(row.default_pomodoro_short_break_minutes),
+    defaultPomodoroLongBreakMinutes: optionalNumber(row.default_pomodoro_long_break_minutes),
+    defaultPomodoroLongBreakAfterFocusCount: optionalNumber(row.default_pomodoro_long_break_after_focus_count),
     defaultIdleTimeoutMinutes: optionalNumber(row.default_idle_timeout_minutes),
     focusPlaylistId: optionalText(row.focus_playlist_id),
     breakPlaylistId: optionalText(row.break_playlist_id),

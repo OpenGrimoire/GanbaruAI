@@ -25,7 +25,14 @@ pub(super) fn validate_project_create(project: &ProjectCreate) -> Result<(), Str
     validate_color(project.color)?;
     validate_non_negative(project.sort_order, "sort_order")?;
     validate_project_event_duration(project.default_event_duration_minutes)?;
-    validate_pomodoro_preset(project.default_pomodoro_preset_key.as_deref())?;
+    validate_project_default_pomodoro(
+        &project.default_pomodoro_mode,
+        project.default_pomodoro_preset_key.as_deref(),
+        project.default_pomodoro_focus_minutes,
+        project.default_pomodoro_short_break_minutes,
+        project.default_pomodoro_long_break_minutes,
+        project.default_pomodoro_long_break_after_focus_count,
+    )?;
     if project
         .default_idle_timeout_minutes
         .is_some_and(|value| value <= 0)
@@ -44,7 +51,14 @@ pub(super) fn validate_project_update(project: &ProjectUpdate) -> Result<(), Str
     validate_non_negative(project.sort_order, "sort_order")?;
     validate_enum(&project.status, "status", &["active", "hidden", "archived"])?;
     validate_project_event_duration(project.default_event_duration_minutes)?;
-    validate_pomodoro_preset(project.default_pomodoro_preset_key.as_deref())?;
+    validate_project_default_pomodoro(
+        &project.default_pomodoro_mode,
+        project.default_pomodoro_preset_key.as_deref(),
+        project.default_pomodoro_focus_minutes,
+        project.default_pomodoro_short_break_minutes,
+        project.default_pomodoro_long_break_minutes,
+        project.default_pomodoro_long_break_after_focus_count,
+    )?;
     if project
         .default_idle_timeout_minutes
         .is_some_and(|value| value <= 0)
@@ -407,6 +421,80 @@ pub(super) fn validate_pomodoro_preset(value: Option<&str>) -> Result<(), String
             "default_pomodoro_preset_key",
             &["adaptive", "creative", "balanced", "deep", "extended"],
         )?;
+    }
+    Ok(())
+}
+
+fn validate_project_default_pomodoro(
+    mode: &str,
+    preset_key: Option<&str>,
+    focus_minutes: Option<i64>,
+    short_break_minutes: Option<i64>,
+    long_break_minutes: Option<i64>,
+    long_break_after_focus_count: Option<i64>,
+) -> Result<(), String> {
+    validate_enum(mode, "default_pomodoro_mode", &["none", "preset", "custom"])?;
+    match mode {
+        "none" => {
+            if preset_key.is_some()
+                || focus_minutes.is_some()
+                || short_break_minutes.is_some()
+                || long_break_minutes.is_some()
+                || long_break_after_focus_count.is_some()
+            {
+                return Err("default_pomodoro_mode none cannot include config values".to_string());
+            }
+        }
+        "preset" => {
+            validate_pomodoro_preset(preset_key)?;
+            if focus_minutes.is_some()
+                || short_break_minutes.is_some()
+                || long_break_minutes.is_some()
+                || long_break_after_focus_count.is_some()
+            {
+                return Err("default_pomodoro_mode preset cannot include custom values".to_string());
+            }
+        }
+        "custom" => {
+            if preset_key.is_some() {
+                return Err("default_pomodoro_mode custom cannot include preset_key".to_string());
+            }
+            validate_range(
+                focus_minutes,
+                "default_pomodoro_focus_minutes",
+                1,
+                MAX_PROJECT_POMODORO_FOCUS_MINUTES,
+            )?;
+            validate_range(
+                short_break_minutes,
+                "default_pomodoro_short_break_minutes",
+                1,
+                MAX_PROJECT_POMODORO_SHORT_BREAK_MINUTES,
+            )?;
+            validate_range(
+                long_break_minutes,
+                "default_pomodoro_long_break_minutes",
+                1,
+                MAX_PROJECT_POMODORO_LONG_BREAK_MINUTES,
+            )?;
+            validate_range(
+                long_break_after_focus_count,
+                "default_pomodoro_long_break_after_focus_count",
+                1,
+                MAX_PROJECT_POMODORO_CYCLE_COUNT,
+            )?;
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn validate_range(value: Option<i64>, field: &str, min: i64, max: i64) -> Result<(), String> {
+    let Some(value) = value else {
+        return Err(format!("{field} is required"));
+    };
+    if !(min..=max).contains(&value) {
+        return Err(format!("{field} must be between {min} and {max}"));
     }
     Ok(())
 }

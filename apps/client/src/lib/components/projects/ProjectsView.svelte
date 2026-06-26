@@ -7,7 +7,7 @@
   import { getProjects } from "$lib/stores/projects.svelte";
   import { getViewport } from "$lib/stores/viewport.svelte";
   import { formatCalendarDate } from "$lib/components/calendar/utils";
-  import { createPresetPomodoroConfig } from "$lib/pomodoro/rhythm";
+  import { projectDefaultPomodoroConfig } from "$lib/projects/project-default-pomodoro";
   import { cn, isAppShortcutBlockedTarget, isEditableKeyboardTarget } from "$lib/utils";
   import type {
     CalendarEvent,
@@ -239,12 +239,7 @@
       color: project.color,
       environmentId: project.workEnvironmentId,
       playlistId: project.focusPlaylistId,
-      pomodoroConfig: !input.allDay && project.defaultPomodoroPresetKey
-        ? createPresetPomodoroConfig(
-            project.defaultPomodoroPresetKey,
-            project.defaultIdleTimeoutMinutes ?? null,
-          )
-        : undefined,
+      pomodoroConfig: input.allDay ? undefined : projectDefaultPomodoroConfig(project),
     };
   }
   const nextScheduledStartByTaskId = $derived.by(() => {

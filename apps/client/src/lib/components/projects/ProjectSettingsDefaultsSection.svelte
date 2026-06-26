@@ -1,8 +1,25 @@
 <script lang="ts">
   import ColorPicker from "$lib/components/calendar/ColorPicker.svelte";
   import type { EventColor } from "$lib/components/calendar/types";
+  import { commitIntegerDraft, panelInputKeydown } from "$lib/components/calendar/event-panel-utils";
   import { getLocalization } from "$lib/i18n/translator.svelte";
-  import type { PomodoroPresetKey } from "$lib/pomodoro/rhythm";
+  import {
+    COUNT_PRESET_RHYTHMS,
+    MAX_FOCUS_MINUTES,
+    MAX_LONG_BREAK_MINUTES,
+    MAX_RHYTHM_POSITIONS,
+    MAX_SHORT_BREAK_MINUTES,
+    MIN_FOCUS_MINUTES,
+    MIN_LONG_BREAK_MINUTES,
+    MIN_RHYTHM_POSITIONS,
+    MIN_SHORT_BREAK_MINUTES,
+    type PomodoroPresetKey,
+  } from "$lib/pomodoro/rhythm";
+  import {
+    PROJECT_DEFAULT_CUSTOM_POMODORO,
+    projectPomodoroSummaryLabel,
+    type ProjectDefaultPomodoroMode,
+  } from "$lib/projects/project-default-pomodoro";
   import {
     isProjectCustomDurationInputShape,
     PROJECT_DURATION_PRESET_MINUTES,
@@ -21,7 +38,12 @@
     pomodoroPresetLabel,
     projectColorDraft = $bindable<EventColor | undefined>(),
     projectDurationDraft = $bindable<string>(),
-    projectPomodoroDraft = $bindable<PomodoroPresetKey | "none">(),
+    projectPomodoroModeDraft = $bindable<ProjectDefaultPomodoroMode>(),
+    projectPomodoroPresetDraft = $bindable<PomodoroPresetKey>(),
+    projectPomodoroFocusDraft = $bindable<number>(),
+    projectPomodoroShortBreakDraft = $bindable<number>(),
+    projectPomodoroLongBreakDraft = $bindable<number>(),
+    projectPomodoroLongBreakAfterFocusDraft = $bindable<number>(),
     projectIdleTimeoutDraft = $bindable<string>(),
     projectFocusPlaylistDraft = $bindable<string>(),
     projectBreakPlaylistDraft = $bindable<string>(),
@@ -33,7 +55,12 @@
     pomodoroPresetLabel: (preset: PomodoroPresetKey) => string;
     projectColorDraft: EventColor | undefined;
     projectDurationDraft: string;
-    projectPomodoroDraft: PomodoroPresetKey | "none";
+    projectPomodoroModeDraft: ProjectDefaultPomodoroMode;
+    projectPomodoroPresetDraft: PomodoroPresetKey;
+    projectPomodoroFocusDraft: number;
+    projectPomodoroShortBreakDraft: number;
+    projectPomodoroLongBreakDraft: number;
+    projectPomodoroLongBreakAfterFocusDraft: number;
     projectIdleTimeoutDraft: string;
     projectFocusPlaylistDraft: string;
     projectBreakPlaylistDraft: string;
@@ -43,12 +70,30 @@
 
   const { t } = getLocalization();
 
-  type SelectOption = { value: string; label: string };
+  type SelectOption = { value: string; label: string; summary?: string };
+  type PomodoroSelectValue = "none" | PomodoroPresetKey | "custom";
+  type PomodoroCustomField = {
+    label: string;
+    compactLabel: string;
+    value: string;
+    setDraft: (value: string) => void;
+    commit: () => void;
+    restore: () => void;
+    maxLength: number;
+    slotClass: "duration-summary-slot" | "cycle-summary-slot";
+  };
+
+  const CUSTOM_DURATION_SLOT_MAX = 99;
+  const CUSTOM_CYCLE_SLOT_MAX = 9;
 
   let durationPreset = $state<ProjectDurationPresetValue>("default");
   let customDurationValue = $state("");
   let customDurationUnit = $state<ProjectDurationUnit>("hours");
   let lastSyncedDurationDraft = $state("");
+  let pomodoroFocusInputDraft = $state(String(PROJECT_DEFAULT_CUSTOM_POMODORO.focusDurationMinutes));
+  let pomodoroShortBreakInputDraft = $state(String(PROJECT_DEFAULT_CUSTOM_POMODORO.shortBreakMinutes));
+  let pomodoroLongBreakInputDraft = $state(String(PROJECT_DEFAULT_CUSTOM_POMODORO.longBreakMinutes));
+  let pomodoroLongBreakAfterInputDraft = $state(String(PROJECT_DEFAULT_CUSTOM_POMODORO.longBreakAfterFocusCount));
 
   const durationPresetOptions = $derived<SelectOption[]>([
     { value: "default", label: t("projects.settings.defaultDurationNone") },
@@ -65,13 +110,99 @@
     { value: "hours", label: t("projects.settings.durationUnitHours") },
     { value: "minutes", label: t("projects.settings.durationUnitMinutes") },
   ]);
+  const pomodoroSelectValue = $derived<PomodoroSelectValue>(
+    projectPomodoroModeDraft === "none"
+      ? "none"
+      : projectPomodoroModeDraft === "custom"
+        ? "custom"
+        : projectPomodoroPresetDraft,
+  );
   const pomodoroSelectOptions = $derived<SelectOption[]>([
     { value: "none", label: t("common.none") },
     ...pomodoroOptions.map((preset) => ({
       value: preset,
       label: pomodoroPresetLabel(preset),
+      summary: projectPomodoroSummaryLabel(COUNT_PRESET_RHYTHMS[preset]),
     })),
+    {
+      value: "custom",
+      label: t("calendar.pomodoro.custom"),
+    },
   ]);
+  const pomodoroCustomFields = $derived<PomodoroCustomField[]>([
+    {
+      label: t("calendar.pomodoro.focus"),
+      compactLabel: t("calendar.pomodoro.focusCompact"),
+      value: pomodoroFocusInputDraft,
+      setDraft: (value: string) => {
+        pomodoroFocusInputDraft = sanitizePomodoroNumberDraft(value, 2);
+      },
+      commit: commitPomodoroFocusDraft,
+      restore: () => {
+        pomodoroFocusInputDraft = formatPomodoroDurationSlot(projectPomodoroFocusDraft);
+      },
+      maxLength: 2,
+      slotClass: "duration-summary-slot",
+    },
+    {
+      label: t("calendar.pomodoro.shortBreak"),
+      compactLabel: t("calendar.pomodoro.shortBreakCompact"),
+      value: pomodoroShortBreakInputDraft,
+      setDraft: (value: string) => {
+        pomodoroShortBreakInputDraft = sanitizePomodoroNumberDraft(value, 2);
+      },
+      commit: commitPomodoroShortBreakDraft,
+      restore: () => {
+        pomodoroShortBreakInputDraft = formatPomodoroDurationSlot(projectPomodoroShortBreakDraft);
+      },
+      maxLength: 2,
+      slotClass: "duration-summary-slot",
+    },
+    {
+      label: t("calendar.pomodoro.longBreak"),
+      compactLabel: t("calendar.pomodoro.longBreakCompact"),
+      value: pomodoroLongBreakInputDraft,
+      setDraft: (value: string) => {
+        pomodoroLongBreakInputDraft = sanitizePomodoroNumberDraft(value, 2);
+      },
+      commit: commitPomodoroLongBreakDraft,
+      restore: () => {
+        pomodoroLongBreakInputDraft = formatPomodoroDurationSlot(projectPomodoroLongBreakDraft);
+      },
+      maxLength: 2,
+      slotClass: "duration-summary-slot",
+    },
+    {
+      label: t("calendar.pomodoro.longBreakAfter"),
+      compactLabel: t("calendar.pomodoro.cycleCompact"),
+      value: pomodoroLongBreakAfterInputDraft,
+      setDraft: (value: string) => {
+        pomodoroLongBreakAfterInputDraft = sanitizePomodoroNumberDraft(value, 1);
+      },
+      commit: commitPomodoroLongBreakAfterDraft,
+      restore: () => {
+        pomodoroLongBreakAfterInputDraft = formatPomodoroCycleSlot(projectPomodoroLongBreakAfterFocusDraft);
+      },
+      maxLength: 1,
+      slotClass: "cycle-summary-slot",
+    },
+  ]);
+
+  $effect(() => {
+    pomodoroFocusInputDraft = formatPomodoroDurationSlot(projectPomodoroFocusDraft);
+  });
+
+  $effect(() => {
+    pomodoroShortBreakInputDraft = formatPomodoroDurationSlot(projectPomodoroShortBreakDraft);
+  });
+
+  $effect(() => {
+    pomodoroLongBreakInputDraft = formatPomodoroDurationSlot(projectPomodoroLongBreakDraft);
+  });
+
+  $effect(() => {
+    pomodoroLongBreakAfterInputDraft = formatPomodoroCycleSlot(projectPomodoroLongBreakAfterFocusDraft);
+  });
 
   function parseStoredDurationDraft(value: string): number | null | "custom" {
     const trimmed = value.trim();
@@ -161,12 +292,91 @@
 
   function setPomodoroPreset(value: string): void {
     if (value === "none") {
-      projectPomodoroDraft = "none";
+      projectPomodoroModeDraft = "none";
+      return;
+    }
+    if (value === "custom") {
+      projectPomodoroModeDraft = "custom";
       return;
     }
     if (pomodoroOptions.includes(value as PomodoroPresetKey)) {
-      projectPomodoroDraft = value as PomodoroPresetKey;
+      projectPomodoroModeDraft = "preset";
+      projectPomodoroPresetDraft = value as PomodoroPresetKey;
     }
+  }
+
+  function commitPomodoroFocusDraft(): void {
+    const result = commitIntegerDraft(
+      pomodoroFocusInputDraft,
+      projectPomodoroFocusDraft,
+      MIN_FOCUS_MINUTES,
+      Math.min(MAX_FOCUS_MINUTES, CUSTOM_DURATION_SLOT_MAX),
+    );
+    pomodoroFocusInputDraft = formatPomodoroDurationSlot(result.value);
+    if (result.committed) projectPomodoroFocusDraft = result.value;
+  }
+
+  function commitPomodoroShortBreakDraft(): void {
+    const result = commitIntegerDraft(
+      pomodoroShortBreakInputDraft,
+      projectPomodoroShortBreakDraft,
+      MIN_SHORT_BREAK_MINUTES,
+      Math.min(MAX_SHORT_BREAK_MINUTES, CUSTOM_DURATION_SLOT_MAX),
+    );
+    pomodoroShortBreakInputDraft = formatPomodoroDurationSlot(result.value);
+    if (result.committed) projectPomodoroShortBreakDraft = result.value;
+  }
+
+  function commitPomodoroLongBreakDraft(): void {
+    const result = commitIntegerDraft(
+      pomodoroLongBreakInputDraft,
+      projectPomodoroLongBreakDraft,
+      MIN_LONG_BREAK_MINUTES,
+      Math.min(MAX_LONG_BREAK_MINUTES, CUSTOM_DURATION_SLOT_MAX),
+    );
+    pomodoroLongBreakInputDraft = formatPomodoroDurationSlot(result.value);
+    if (result.committed) projectPomodoroLongBreakDraft = result.value;
+  }
+
+  function commitPomodoroLongBreakAfterDraft(): void {
+    const result = commitIntegerDraft(
+      pomodoroLongBreakAfterInputDraft,
+      projectPomodoroLongBreakAfterFocusDraft,
+      MIN_RHYTHM_POSITIONS,
+      Math.min(MAX_RHYTHM_POSITIONS, CUSTOM_CYCLE_SLOT_MAX),
+    );
+    pomodoroLongBreakAfterInputDraft = formatPomodoroCycleSlot(result.value);
+    if (result.committed) projectPomodoroLongBreakAfterFocusDraft = result.value;
+  }
+
+  function formatPomodoroDurationSlot(value: number): string {
+    return String(value);
+  }
+
+  function formatPomodoroCycleSlot(value: number): string {
+    return String(value);
+  }
+
+  function sanitizePomodoroNumberDraft(value: string, maxLength: number): string {
+    return value.replace(/\D/g, "").slice(0, maxLength);
+  }
+
+  function handlePomodoroNumberKeydown(event: KeyboardEvent, commit: () => void, restore: () => void): void {
+    if (!event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        event.stopPropagation();
+        commit();
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        restore();
+        return;
+      }
+    }
+    panelInputKeydown(event);
   }
 </script>
 
@@ -222,11 +432,41 @@
 
     <CustomSelect
       label={t("projects.settings.defaultPomodoro")}
-      value={projectPomodoroDraft}
+      value={pomodoroSelectValue}
       options={pomodoroSelectOptions}
       onChange={setPomodoroPreset}
+      showSelectedSummary={false}
+      showActiveCheck={false}
+      alignOptionSummaryEnd
+      popoverAlign="end"
       class="w-44"
     />
+
+    {#if projectPomodoroModeDraft === "custom"}
+      <div class="flex justify-end px-1 py-1">
+        <div class="project-pomodoro-rhythm flex h-7 w-56 min-w-0 items-center justify-end gap-1.5 text-[0.733333rem] text-muted-foreground max-[480px]:w-full max-[480px]:justify-start">
+          {#each pomodoroCustomFields as field, fieldIndex}
+            <span>{field.compactLabel}</span>
+            <label class="contents">
+              <input
+                type="text"
+                inputmode="numeric"
+                value={field.value}
+                maxlength={field.maxLength}
+                aria-label={field.label}
+                oninput={(event) => field.setDraft(event.currentTarget.value)}
+                onblur={field.commit}
+                onkeydown={(event) => handlePomodoroNumberKeydown(event, field.commit, field.restore)}
+                class="project-pomodoro-number {field.slotClass} bg-transparent px-0 text-right text-[0.733333rem] text-foreground outline-none"
+              />
+            </label>
+            {#if fieldIndex < pomodoroCustomFields.length - 1}
+              <span>/</span>
+            {/if}
+          {/each}
+        </div>
+      </div>
+    {/if}
 
     <label class="flex items-center justify-between gap-4 px-1 py-1 max-[480px]:flex-col max-[480px]:items-stretch max-[480px]:gap-2">
       <span class="min-w-0 flex-1 text-[0.866667rem] text-foreground">{t("projects.settings.defaultIdleTimeout")}</span>
@@ -282,3 +522,29 @@
     </label>
   </div>
 </section>
+
+<style>
+  .project-pomodoro-number {
+    -moz-appearance: textfield;
+    appearance: textfield;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .project-pomodoro-number::-webkit-inner-spin-button,
+  .project-pomodoro-number::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  .project-pomodoro-rhythm {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .duration-summary-slot {
+    width: 2ch;
+  }
+
+  .cycle-summary-slot {
+    width: 1ch;
+  }
+</style>

@@ -12,7 +12,13 @@
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
   import type { EventColor } from "$lib/components/calendar/types";
   import { getLocalization } from "$lib/i18n/translator.svelte";
-  import { COUNT_PRESET_RHYTHMS, type PomodoroPresetKey } from "$lib/pomodoro/rhythm";
+  import type { PomodoroPresetKey } from "$lib/pomodoro/rhythm";
+  import {
+    PROJECT_DEFAULT_CUSTOM_POMODORO,
+    PROJECT_POMODORO_PRESET_ORDER,
+    projectCustomPomodoroFromDefaults,
+    type ProjectDefaultPomodoroMode,
+  } from "$lib/projects/project-default-pomodoro";
   import {
     projectCustomFieldTypeLabel,
     projectLabelColorDotStyle,
@@ -56,7 +62,6 @@
   const theme = getTheme();
   const { t } = getLocalization();
 
-  const PROJECT_POMODORO_OPTIONS = Object.keys(COUNT_PRESET_RHYTHMS) as PomodoroPresetKey[];
   const PROJECT_STATUS_CATEGORIES: ProjectStatusCategory[] = ["not_started", "active", "blocked", "done"];
   type ProjectLabelColorDraft = EventColor | "none";
   type SelectOption = { value: string; label: string };
@@ -69,7 +74,14 @@
   let projectStatusDraft = $state<ProjectLifecycleStatus>("active");
   let projectColorDraft = $state<EventColor | undefined>(undefined);
   let projectDurationDraft = $state("60");
-  let projectPomodoroDraft = $state<PomodoroPresetKey | "none">("adaptive");
+  let projectPomodoroModeDraft = $state<ProjectDefaultPomodoroMode>("preset");
+  let projectPomodoroPresetDraft = $state<PomodoroPresetKey>("adaptive");
+  let projectPomodoroFocusDraft = $state(PROJECT_DEFAULT_CUSTOM_POMODORO.focusDurationMinutes);
+  let projectPomodoroShortBreakDraft = $state(PROJECT_DEFAULT_CUSTOM_POMODORO.shortBreakMinutes);
+  let projectPomodoroLongBreakDraft = $state(PROJECT_DEFAULT_CUSTOM_POMODORO.longBreakMinutes);
+  let projectPomodoroLongBreakAfterFocusDraft = $state(
+    PROJECT_DEFAULT_CUSTOM_POMODORO.longBreakAfterFocusCount,
+  );
   let projectIdleTimeoutDraft = $state("");
   let projectFocusPlaylistDraft = $state("");
   let projectBreakPlaylistDraft = $state("");
@@ -149,7 +161,7 @@
       || projectStatusDraft !== selectedProject.status
       || projectColorDraft !== selectedProject.color
       || projectDurationDraft !== String(selectedProject.defaultEventDurationMinutes ?? "")
-      || projectPomodoroDraft !== (selectedProject.defaultPomodoroPresetKey ?? "none")
+      || projectPomodoroSettingsDirty(selectedProject)
       || projectIdleTimeoutDraft !== String(selectedProject.defaultIdleTimeoutMinutes ?? "")
       || projectFocusPlaylistDraft !== (selectedProject.focusPlaylistId ?? "")
       || projectBreakPlaylistDraft !== (selectedProject.breakPlaylistId ?? "")
@@ -176,7 +188,13 @@
     projectStatusDraft = project.status;
     projectColorDraft = project.color;
     projectDurationDraft = String(project.defaultEventDurationMinutes ?? "");
-    projectPomodoroDraft = project.defaultPomodoroPresetKey ?? "none";
+    projectPomodoroModeDraft = project.defaultPomodoroMode;
+    projectPomodoroPresetDraft = project.defaultPomodoroPresetKey ?? "adaptive";
+    const customPomodoro = projectCustomPomodoroFromDefaults(project);
+    projectPomodoroFocusDraft = customPomodoro.focusDurationMinutes;
+    projectPomodoroShortBreakDraft = customPomodoro.shortBreakMinutes;
+    projectPomodoroLongBreakDraft = customPomodoro.longBreakMinutes;
+    projectPomodoroLongBreakAfterFocusDraft = customPomodoro.longBreakAfterFocusCount;
     projectIdleTimeoutDraft = String(project.defaultIdleTimeoutMinutes ?? "");
     projectFocusPlaylistDraft = project.focusPlaylistId ?? "";
     projectBreakPlaylistDraft = project.breakPlaylistId ?? "";
@@ -305,6 +323,30 @@
     if (preset === "deep") return t("projects.pomodoro.deep");
     if (preset === "extended") return t("projects.pomodoro.extended");
     return t("projects.pomodoro.adaptive");
+  }
+
+  function projectPomodoroSettingsDirty(project: Project): boolean {
+    if (projectPomodoroModeDraft !== project.defaultPomodoroMode) return true;
+    if (projectPomodoroModeDraft === "preset") {
+      return projectPomodoroPresetDraft !== (project.defaultPomodoroPresetKey ?? "adaptive");
+    }
+    if (projectPomodoroModeDraft === "custom") {
+      const customPomodoro = projectCustomPomodoroFromDefaults(project);
+      return projectPomodoroFocusDraft !== customPomodoro.focusDurationMinutes
+        || projectPomodoroShortBreakDraft !== customPomodoro.shortBreakMinutes
+        || projectPomodoroLongBreakDraft !== customPomodoro.longBreakMinutes
+        || projectPomodoroLongBreakAfterFocusDraft !== customPomodoro.longBreakAfterFocusCount;
+    }
+    return false;
+  }
+
+  function projectPomodoroCustomDraft() {
+    return {
+      focusDurationMinutes: projectPomodoroFocusDraft,
+      shortBreakMinutes: projectPomodoroShortBreakDraft,
+      longBreakMinutes: projectPomodoroLongBreakDraft,
+      longBreakAfterFocusCount: projectPomodoroLongBreakAfterFocusDraft,
+    };
   }
 
   function customFieldAcceptsOptions(field: ProjectCustomField): boolean {
@@ -753,6 +795,7 @@
       const defaultIdleTimeoutMinutes = projectIdleTimeoutDraft.trim()
         ? normalizeProjectPositiveInteger(projectIdleTimeoutDraft, t("projects.settings.invalidIdleTimeout"))
         : undefined;
+      const defaultPomodoroCustom = projectPomodoroCustomDraft();
       await projects.updateProject({
         id: selectedProject.id,
         groupId: projectGroupDraft,
@@ -764,7 +807,20 @@
           : nextProjectSortOrderForGroup(projectGroupDraft, selectedProject.id),
         status: projectStatusDraft,
         defaultEventDurationMinutes,
-        defaultPomodoroPresetKey: projectPomodoroDraft === "none" ? null : projectPomodoroDraft,
+        defaultPomodoroMode: projectPomodoroModeDraft,
+        defaultPomodoroPresetKey: projectPomodoroModeDraft === "preset" ? projectPomodoroPresetDraft : null,
+        defaultPomodoroFocusMinutes: projectPomodoroModeDraft === "custom"
+          ? defaultPomodoroCustom.focusDurationMinutes
+          : null,
+        defaultPomodoroShortBreakMinutes: projectPomodoroModeDraft === "custom"
+          ? defaultPomodoroCustom.shortBreakMinutes
+          : null,
+        defaultPomodoroLongBreakMinutes: projectPomodoroModeDraft === "custom"
+          ? defaultPomodoroCustom.longBreakMinutes
+          : null,
+        defaultPomodoroLongBreakAfterFocusCount: projectPomodoroModeDraft === "custom"
+          ? defaultPomodoroCustom.longBreakAfterFocusCount
+          : null,
         defaultIdleTimeoutMinutes: defaultIdleTimeoutMinutes ?? null,
         focusPlaylistId: normalizeOptionalIdentifier(projectFocusPlaylistDraft),
         breakPlaylistId: normalizeOptionalIdentifier(projectBreakPlaylistDraft),
@@ -919,11 +975,16 @@
 
           <ProjectSettingsDefaultsSection
             theme={theme.current}
-            pomodoroOptions={PROJECT_POMODORO_OPTIONS}
+            pomodoroOptions={PROJECT_POMODORO_PRESET_ORDER}
             {pomodoroPresetLabel}
             bind:projectColorDraft
             bind:projectDurationDraft
-            bind:projectPomodoroDraft
+            bind:projectPomodoroModeDraft
+            bind:projectPomodoroPresetDraft
+            bind:projectPomodoroFocusDraft
+            bind:projectPomodoroShortBreakDraft
+            bind:projectPomodoroLongBreakDraft
+            bind:projectPomodoroLongBreakAfterFocusDraft
             bind:projectIdleTimeoutDraft
             bind:projectFocusPlaylistDraft
             bind:projectBreakPlaylistDraft
