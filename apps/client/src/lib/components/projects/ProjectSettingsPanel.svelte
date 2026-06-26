@@ -902,28 +902,19 @@
                 />
               </div>
 
-              <div class="flex items-center justify-between gap-4 px-1 py-1 max-[480px]:items-start">
+              <div class="flex items-start justify-between gap-4 px-1 py-1 max-[480px]:flex-col max-[480px]:items-stretch max-[480px]:gap-2">
                 <div class="min-w-0 flex-1 text-[0.866667rem] text-foreground">{t("projects.settings.color")}</div>
-                <div class="flex items-center gap-1">
-                  <button
-                    type="button"
-                    class={compactChoiceClass(projectColorDraft === undefined)}
-                    onclick={() => {
-                      projectColorDraft = undefined;
-                    }}
-                  >
-                    {t("common.none")}
-                  </button>
-                  <ColorPicker
-                    color={projectColorDraft}
-                    theme={theme.current}
-                    title={t("projects.settings.color")}
-                    ariaLabel={t("projects.settings.selectColor")}
-                    onselect={(color) => {
-                      projectColorDraft = color;
-                    }}
-                  />
-                </div>
+                <ColorPicker
+                  color={projectColorDraft}
+                  theme={theme.current}
+                  title={t("projects.settings.color")}
+                  ariaLabel={t("projects.settings.selectColor")}
+                  displayLabel
+                  class="w-44 max-[480px]:w-full"
+                  onselect={(color) => {
+                    projectColorDraft = color;
+                  }}
+                />
               </div>
             </div>
             </div>

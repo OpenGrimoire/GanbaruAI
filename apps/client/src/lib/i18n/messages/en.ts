@@ -310,6 +310,7 @@ export const en = {
     },
     color: {
       eventColor: "Event color",
+      eventColorNumber: (index: number) => `Color ${index}`,
       selectEventColor: (index: number) => `Select event color ${index}`,
     },
     event: {

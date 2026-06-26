@@ -307,6 +307,7 @@ export const es = {
     },
     color: {
       eventColor: "Color del evento",
+      eventColorNumber: (index: number) => `Color ${index}`,
       selectEventColor: (index: number) => `Seleccionar color de evento ${index}`,
     },
     event: {

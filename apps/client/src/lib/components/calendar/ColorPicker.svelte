@@ -1,11 +1,13 @@
 <script lang="ts">
   import { tick } from "svelte";
+  import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import { FALLBACK_COLOR_INDEX, type EventColor } from "./types";
   import { moveRovingIndex } from "./event-panel-utils";
   import { EVENT_COLOR_OPTIONS, getEventColor } from "./utils";
   import { contrastRatio } from "$lib/components/ui/colorMath";
   import { resolveCalendarTokens, type Theme } from "$lib/stores/themes";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { cn } from "$lib/utils";
 
   const { t } = getLocalization();
 
@@ -15,12 +17,16 @@
     onselect,
     title,
     ariaLabel,
+    displayLabel = false,
+    class: className = "",
   }: {
     color: EventColor | undefined;
     theme: Theme;
     onselect: (color: EventColor | undefined) => void;
     title?: string;
     ariaLabel?: string;
+    displayLabel?: boolean;
+    class?: string;
   } = $props();
 
   let open = $state(false);
@@ -30,6 +36,7 @@
 
   const selectedColor = $derived(color ?? FALLBACK_COLOR_INDEX);
   const colorEntry = $derived(getEventColor(color, theme));
+  const buttonLabel = $derived(t("calendar.color.eventColorNumber", selectedColor + 1));
   const buttonTitle = $derived(title ?? t("calendar.color.eventColor"));
   const calendarTokens = $derived(resolveCalendarTokens(theme));
   const pickerBg = $derived(calendarTokens["--cal-bg"]);
@@ -76,7 +83,7 @@
   }
 
   function selectColor(nextColor: EventColor, source: "keyboard" | "pointer"): void {
-    if (selectedColor !== nextColor) onselect(nextColor);
+    if (color !== nextColor) onselect(nextColor);
     if (source === "keyboard") closePalette("keyboard");
   }
 
@@ -125,24 +132,41 @@
   }
 </script>
 
-<div class="relative flex items-center">
+<div class={cn("relative flex items-center", displayLabel && "min-w-0", className)}>
   <button
     type="button"
     bind:this={buttonEl}
     onclick={togglePalette}
     onkeydown={handleButtonKeydown}
-    class="size-4.5 shrink-0 rounded-sm"
-    style="background-color: {colorEntry.bg};"
+    class={displayLabel
+      ? "flex h-8 w-full max-w-full items-center justify-between gap-2 rounded-md border border-border bg-card px-2 text-left text-[0.8rem] text-foreground transition-colors hover:bg-accent/60 dark:bg-transparent"
+      : "size-4.5 shrink-0 rounded-sm"}
+    style={displayLabel ? undefined : `background-color: ${colorEntry.bg};`}
     title={buttonTitle}
     data-app-tooltip-focus-disabled="true"
-  ></button>
+  >
+    {#if displayLabel}
+      <span class="flex min-w-0 items-center gap-2">
+        <span
+          class="h-3.5 w-3.5 shrink-0 rounded-[3px] border border-transparent"
+          style="background-color: {colorEntry.bg};"
+          aria-hidden="true"
+        ></span>
+        <span class="truncate">{buttonLabel}</span>
+      </span>
+      <ChevronDown size={14} strokeWidth={1.75} class={cn("shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
+    {/if}
+  </button>
   {#if open}
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div class="fixed inset-0 z-60" onclick={() => closePalette("pointer")}></div>
     <div
       bind:this={paletteEl}
-      class="absolute -right-1 top-full z-61 mt-1 grid gap-2 rounded-lg p-2.5 shadow-lg ring-1"
+      class={cn(
+        "absolute top-full z-61 mt-1 grid gap-2 rounded-lg p-2.5 shadow-lg ring-1",
+        displayLabel ? "left-0" : "-right-1",
+      )}
       style="
         grid-template-columns: repeat(4, 1.375rem);
         background-color: {pickerBg};
