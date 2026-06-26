@@ -870,7 +870,7 @@
 {#if selectedProject}
 <aside
   class={cn(
-    "flex min-h-0 flex-col bg-card",
+    "project-settings-panel flex min-h-0 flex-col bg-card",
     presentation === "popover"
       ? "h-full w-full"
       : "w-[min(23rem,42vw)] min-w-64 shrink-0 border-l border-border max-[760px]:fixed max-[760px]:inset-2 max-[760px]:z-30 max-[760px]:w-auto max-[760px]:rounded-md max-[760px]:border",
@@ -1456,7 +1456,6 @@
         stickyTop={8}
         stickyBottom={8}
         wheelPassthrough
-        activeThumb
       />
     </div>
 
@@ -1519,6 +1518,11 @@
 {/if}
 
 <style>
+  .project-settings-panel {
+    --cal-scrollbar-thumb: color-mix(in srgb, var(--card-foreground) 18%, var(--card));
+    --cal-scrollbar-thumb-hover: color-mix(in srgb, var(--card-foreground) 36%, var(--card));
+  }
+
   .project-settings-scroll-area {
     --project-settings-scroll-fade-size: 2rem;
 
