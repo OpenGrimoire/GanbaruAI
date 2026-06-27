@@ -112,6 +112,7 @@ pub struct ProjectStatusRow {
     pub(in crate::projects) project_id: String,
     pub(in crate::projects) name: String,
     pub(in crate::projects) category: String,
+    pub(in crate::projects) color: i64,
     pub(in crate::projects) sort_order: i64,
     pub(in crate::projects) terminal: i64,
     pub(in crate::projects) created_at: String,
@@ -122,6 +123,7 @@ impl_sqlite_from_row!(ProjectStatusRow {
     project_id,
     name,
     category,
+    color,
     sort_order,
     terminal,
     created_at,
@@ -583,6 +585,7 @@ pub struct ProjectStatusCreate {
     pub(in crate::projects) project_id: String,
     pub(in crate::projects) name: String,
     pub(in crate::projects) category: String,
+    pub(in crate::projects) color: i64,
     pub(in crate::projects) sort_order: i64,
     pub(in crate::projects) terminal: bool,
 }
@@ -593,6 +596,7 @@ pub struct ProjectStatusUpdate {
     pub(in crate::projects) id: String,
     pub(in crate::projects) name: String,
     pub(in crate::projects) category: String,
+    pub(in crate::projects) color: i64,
     pub(in crate::projects) sort_order: i64,
     pub(in crate::projects) terminal: bool,
 }

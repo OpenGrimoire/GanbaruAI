@@ -1,7 +1,13 @@
 import { getEventColor } from "$lib/components/calendar/utils";
 import type { EventColor } from "$lib/components/calendar/types";
+import {
+  blendHex,
+  pickReadableForeground,
+  relativeLuminance,
+  walkFraction,
+} from "$lib/components/ui/colorMath";
 import type { Translate } from "$lib/i18n/translator.svelte";
-import type { Theme } from "$lib/stores/themes";
+import { resolveAppTokens, type Theme } from "$lib/stores/themes";
 import type {
   ProjectCustomFieldType,
   ProjectLifecycleStatus,
@@ -32,10 +38,46 @@ export function projectLifecycleBadgeClass(status: ProjectLifecycleStatus): stri
 }
 
 export function projectStatusBadgeClass(status: ProjectStatus | undefined): string {
-  if (status?.category === "done") return "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
-  if (status?.category === "blocked") return "border-destructive/40 bg-destructive/10 text-destructive";
-  if (status?.category === "active") return "border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-300";
-  return "border-border bg-muted/50 text-muted-foreground";
+  return status === undefined
+    ? "bg-muted/50 text-muted-foreground"
+    : "";
+}
+
+function projectStatusPalette(color: EventColor, theme: Theme): {
+  background: string;
+  foreground: string;
+  dot: string;
+} {
+  const tokens = resolveAppTokens(theme);
+  const appBg = tokens["--background"];
+  const appFg = tokens["--foreground"];
+  const entry = getEventColor(color, theme);
+  const darkSurface = relativeLuminance(appBg) < 0.45;
+  const background = blendHex(entry.bg, appBg, darkSurface ? 0.48 : 0.18);
+  const textAnchor = walkFraction(entry.bg, appFg, darkSurface ? 0.78 : 0.68);
+  const foreground = pickReadableForeground(background, {
+    ink: textAnchor,
+    canvas: appFg,
+  });
+  return { background, foreground, dot: entry.bg };
+}
+
+export function projectStatusBadgeStyle(
+  status: ProjectStatus | undefined,
+  theme: Theme,
+): string {
+  if (!status) return "";
+  const palette = projectStatusPalette(status.color, theme);
+  return `background-color: ${palette.background}; color: ${palette.foreground};`;
+}
+
+export function projectStatusBadgeDotStyle(
+  status: ProjectStatus | undefined,
+  theme: Theme,
+): string {
+  if (!status) return "";
+  const palette = projectStatusPalette(status.color, theme);
+  return `background-color: ${palette.dot};`;
 }
 
 export function projectTaskArchivedBadgeClass(task: Pick<ProjectTask, "archivedAt">): string {

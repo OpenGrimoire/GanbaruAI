@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { ensureDbUrl } from "$lib/api/db";
 import { normalizeEventColor } from "$lib/components/calendar/utils";
+import { FALLBACK_COLOR_INDEX } from "$lib/components/calendar/types";
 import { localTimezone } from "$lib/stores/calendar-event-payloads";
 import { toCalendarDate } from "$lib/stores/map-row";
 import {
@@ -112,6 +113,7 @@ interface ProjectStatusRow {
   project_id: string;
   name: string;
   category: ProjectStatus["category"];
+  color: number;
   sort_order: number;
   terminal: number;
   created_at: string;
@@ -374,6 +376,7 @@ function mapStatus(row: ProjectStatusRow): ProjectStatus {
     projectId: row.project_id,
     name: row.name,
     category: row.category,
+    color: normalizeEventColor(row.color) ?? FALLBACK_COLOR_INDEX,
     sortOrder: row.sort_order,
     terminal: row.terminal !== 0,
     createdAt: row.created_at,

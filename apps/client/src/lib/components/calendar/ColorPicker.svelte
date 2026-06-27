@@ -8,8 +8,14 @@
   import { resolveCalendarTokens, type Theme } from "$lib/stores/themes";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { cn } from "$lib/utils";
+  import { portal } from "$lib/utils/portal";
 
   const { t } = getLocalization();
+  const PALETTE_COLUMNS = 4;
+  const PALETTE_SWATCH_REM = 1.375;
+  const PALETTE_GAP_REM = 0.5;
+  const PALETTE_PADDING_REM = 0.625;
+  const PALETTE_EDGE_PX = 8;
 
   let {
     color,
@@ -19,6 +25,7 @@
     ariaLabel,
     displayLabel = false,
     class: className = "",
+    buttonClass = "",
   }: {
     color: EventColor | undefined;
     theme: Theme;
@@ -27,12 +34,14 @@
     ariaLabel?: string;
     displayLabel?: boolean;
     class?: string;
+    buttonClass?: string;
   } = $props();
 
   let open = $state(false);
   let buttonEl: HTMLButtonElement | undefined = $state();
   let paletteEl: HTMLDivElement | undefined = $state();
   let activeIndex = $state(0);
+  let palettePosition = $state({ left: PALETTE_EDGE_PX, top: PALETTE_EDGE_PX });
 
   const selectedColor = $derived(color ?? FALLBACK_COLOR_INDEX);
   const colorEntry = $derived(getEventColor(color, theme));
@@ -56,6 +65,43 @@
     return Math.max(0, EVENT_COLOR_OPTIONS.findIndex((entry) => entry === selectedColor));
   }
 
+  function rootRemPx(): number {
+    const fontSize = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
+    return Number.isFinite(fontSize) && fontSize > 0 ? fontSize : 16;
+  }
+
+  function paletteSizePx(): { width: number; height: number } {
+    const rem = rootRemPx();
+    const rows = Math.ceil(EVENT_COLOR_OPTIONS.length / PALETTE_COLUMNS);
+    return {
+      width: PALETTE_COLUMNS * PALETTE_SWATCH_REM * rem
+        + (PALETTE_COLUMNS - 1) * PALETTE_GAP_REM * rem
+        + PALETTE_PADDING_REM * rem * 2,
+      height: rows * PALETTE_SWATCH_REM * rem
+        + Math.max(0, rows - 1) * PALETTE_GAP_REM * rem
+        + PALETTE_PADDING_REM * rem * 2,
+    };
+  }
+
+  function computePalettePosition(): void {
+    if (!buttonEl) return;
+    const rect = buttonEl.getBoundingClientRect();
+    const { width, height } = paletteSizePx();
+    const rem = rootRemPx();
+    const offset = PALETTE_PADDING_REM / 2 * rem;
+    const maxLeft = Math.max(PALETTE_EDGE_PX, window.innerWidth - width - PALETTE_EDGE_PX);
+    const preferredLeft = displayLabel
+      ? rect.left
+      : rect.right - width + offset;
+    const left = Math.min(Math.max(PALETTE_EDGE_PX, preferredLeft), maxLeft);
+    const belowTop = rect.bottom + offset;
+    const aboveTop = rect.top - height - offset;
+    const top = belowTop + height + PALETTE_EDGE_PX <= window.innerHeight
+      ? belowTop
+      : Math.max(PALETTE_EDGE_PX, aboveTop);
+    palettePosition = { left, top };
+  }
+
   async function focusButton() {
     await tick();
     buttonEl?.focus();
@@ -68,8 +114,12 @@
 
   function openPalette(source: "keyboard" | "pointer") {
     activeIndex = selectedIndex();
+    computePalettePosition();
     open = true;
-    if (source === "keyboard") void focusSwatch(activeIndex);
+    void tick().then(() => {
+      computePalettePosition();
+      if (source === "keyboard") void focusSwatch(activeIndex);
+    });
   }
 
   function closePalette(source: "keyboard" | "pointer") {
@@ -130,6 +180,39 @@
     activeIndex = nextIndex;
     void focusSwatch(nextIndex);
   }
+
+  function handleBackdropPointerDown(event: PointerEvent): void {
+    event.stopPropagation();
+    closePalette("pointer");
+  }
+
+  $effect(() => {
+    if (!open) return;
+    function handleResize(): void {
+      computePalettePosition();
+    }
+    function handleScroll(event: Event): void {
+      const target = event.target;
+      if (target instanceof Node && paletteEl?.contains(target)) return;
+      closePalette("pointer");
+    }
+    window.addEventListener("resize", handleResize);
+    window.addEventListener("scroll", handleScroll, true);
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      window.removeEventListener("scroll", handleScroll, true);
+    };
+  });
+
+  const paletteStyle = $derived(`
+    left: ${palettePosition.left}px;
+    top: ${palettePosition.top}px;
+    grid-template-columns: repeat(${PALETTE_COLUMNS}, 1.375rem);
+    background-color: ${pickerBg};
+    color: ${pickerText};
+    --selection-border: ${selectionBorder};
+    --tw-ring-color: ${pickerRing};
+  `);
 </script>
 
 <div class={cn("relative flex items-center", displayLabel && "min-w-0", className)}>
@@ -139,8 +222,8 @@
     onclick={togglePalette}
     onkeydown={handleButtonKeydown}
     class={displayLabel
-      ? "flex h-7 w-full max-w-full items-center justify-between gap-2 rounded-md border border-border bg-card px-2.5 text-left text-[0.8rem] font-medium text-foreground transition-colors hover:bg-accent/60 dark:bg-transparent"
-      : "size-4.5 shrink-0 rounded-sm"}
+      ? cn("flex h-7 w-full max-w-full items-center justify-between gap-2 rounded-md border border-border bg-card px-2.5 text-left text-[0.8rem] font-medium text-foreground transition-colors hover:bg-accent/60 dark:bg-transparent", buttonClass)
+      : cn("size-4.5 shrink-0 rounded-sm", buttonClass)}
     style={displayLabel ? undefined : `background-color: ${colorEntry.bg};`}
     title={buttonTitle}
     data-app-tooltip-focus-disabled="true"
@@ -162,22 +245,22 @@
     {/if}
   </button>
   {#if open}
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="fixed inset-0 z-60" onclick={() => closePalette("pointer")}></div>
+    <div
+      use:portal
+      role="presentation"
+      aria-hidden="true"
+      class="fixed inset-0 z-90"
+      data-app-floating-surface
+      onpointerdown={handleBackdropPointerDown}
+    ></div>
     <div
       bind:this={paletteEl}
+      use:portal
+      data-app-floating-surface
       class={cn(
-        "absolute top-full z-61 mt-1 grid gap-2 rounded-lg p-2.5 shadow-lg ring-1",
-        displayLabel ? "left-0" : "-right-1",
+        "fixed z-100 grid gap-2 rounded-lg p-2.5 shadow-lg ring-1",
       )}
-      style="
-        grid-template-columns: repeat(4, 1.375rem);
-        background-color: {pickerBg};
-        color: {pickerText};
-        --selection-border: {selectionBorder};
-        --tw-ring-color: {pickerRing};
-      "
+      style={paletteStyle}
     >
       {#each EVENT_COLOR_OPTIONS as c, index}
         {@const entry = getEventColor(c, theme)}

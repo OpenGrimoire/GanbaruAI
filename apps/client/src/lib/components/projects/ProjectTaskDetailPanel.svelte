@@ -27,7 +27,6 @@
     projectLabelColorSwatchClass,
     projectPriorityBadgeClass,
     projectPriorityLabel,
-    projectStatusBadgeClass,
     projectTaskArchivedBadgeClass,
     projectTaskTypeLabel,
   } from "$lib/projects/project-display";
@@ -51,6 +50,7 @@
   import { getTheme } from "$lib/stores/theme.svelte";
   import { cn } from "$lib/utils";
   import type { ProjectTaskModalLayout } from "$lib/projects/project-toolbar";
+  import ProjectStatusBadge from "./ProjectStatusBadge.svelte";
   import ProjectTaskDetailHistorySection from "./ProjectTaskDetailHistorySection.svelte";
 
   let {
@@ -968,16 +968,19 @@
                     <button
                       type="button"
                       class={cn(
-                        "rounded-md border px-2 py-1 text-[0.766667rem]",
-                        detailStatusId === status.id
-                          ? projectStatusBadgeClass(status)
-                          : "border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground",
+                        "rounded-full outline-none transition-shadow hover:ring-1 hover:ring-ring/50 focus:ring-1 focus:ring-ring",
+                        detailStatusId === status.id && "ring-1 ring-ring",
                       )}
                       onclick={() => {
                         detailStatusId = status.id;
                       }}
                     >
-                      {status.name}
+                      <ProjectStatusBadge
+                        {status}
+                        theme={theme.current}
+                        label={status.name}
+                        class="text-[0.766667rem]"
+                      />
                     </button>
                   {/each}
                 </div>
@@ -1770,9 +1773,12 @@
                     >
                       <span class="block truncate text-[0.8rem]">{subtask.title}</span>
                     </button>
-                    <span class={cn("rounded border px-1.5 py-0.5 text-[0.733333rem]", projectStatusBadgeClass(subtaskStatus))}>
-                      {subtaskStatus?.name ?? t("projects.list.status")}
-                    </span>
+                    <ProjectStatusBadge
+                      status={subtaskStatus}
+                      theme={theme.current}
+                      label={subtaskStatus?.name ?? t("projects.list.status")}
+                      class="text-[0.733333rem]"
+                    />
                     <button
                       type="button"
                       class="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"

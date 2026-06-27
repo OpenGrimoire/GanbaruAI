@@ -248,6 +248,7 @@ export interface ProjectStatus {
   projectId: string;
   name: string;
   category: ProjectStatusCategory;
+  color: EventColor;
   sortOrder: number;
   terminal: boolean;
   createdAt: string;
@@ -646,6 +647,7 @@ export interface ProjectStatusCreate {
   projectId: string;
   name: string;
   category: ProjectStatusCategory;
+  color: EventColor;
   sortOrder: number;
   terminal: boolean;
 }
@@ -654,6 +656,7 @@ export interface ProjectStatusUpdate {
   id: string;
   name: string;
   category: ProjectStatusCategory;
+  color: EventColor;
   sortOrder: number;
   terminal: boolean;
 }

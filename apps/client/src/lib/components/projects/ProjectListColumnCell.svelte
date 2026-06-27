@@ -11,7 +11,6 @@
     projectPersonInitials,
     projectPriorityBadgeClass,
     projectPriorityLabel,
-    projectStatusBadgeClass,
   } from "$lib/projects/project-display";
   import { customFieldIdFromTaskListColumn } from "$lib/projects/task-list-columns";
   import {
@@ -23,7 +22,9 @@
     type ProjectTaskListColumn,
   } from "$lib/projects/types";
   import { getPreferences } from "$lib/stores/preferences.svelte";
+  import { getTheme } from "$lib/stores/theme.svelte";
   import { cn } from "$lib/utils";
+  import ProjectStatusBadge from "./ProjectStatusBadge.svelte";
 
   let {
     column,
@@ -90,6 +91,7 @@
   } = $props();
 
   const { t } = getLocalization();
+  const theme = getTheme();
   const preferences = getPreferences();
   const FLOATING_PANEL_GAP = 6;
   const FLOATING_PANEL_MARGIN = 8;
@@ -250,9 +252,12 @@
       onclick={onToggleStatusMenu}
     ></button>
     <div class="pointer-events-none relative z-10 min-w-0 max-w-full">
-      <span class="block truncate text-[0.8rem] text-foreground">
-        {status?.name ?? t("projects.list.status")}
-      </span>
+      <ProjectStatusBadge
+        {status}
+        theme={theme.current}
+        label={status?.name ?? t("projects.list.status")}
+        class="text-[0.733333rem]"
+      />
     </div>
       {#if statusMenuOpen}
         <div
@@ -267,9 +272,12 @@
               aria-checked={task.statusId === nextStatus.id}
               onclick={() => onSetStatus(nextStatus)}
             >
-              <span class={cn("min-w-0 truncate rounded border px-1.5 py-0.5 text-[0.733333rem]", projectStatusBadgeClass(nextStatus))}>
-                {nextStatus.name}
-              </span>
+              <ProjectStatusBadge
+                status={nextStatus}
+                theme={theme.current}
+                label={nextStatus.name}
+                class="text-[0.733333rem]"
+              />
               {#if task.statusId === nextStatus.id}
                 <Check size={13} strokeWidth={2} class="shrink-0 text-muted-foreground" />
               {/if}

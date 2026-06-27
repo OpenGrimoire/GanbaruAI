@@ -35,6 +35,7 @@ function status(
     projectId: "project",
     name,
     category,
+    color: 0,
     sortOrder,
     terminal,
     createdAt: "2026-06-01T00:00:00Z",

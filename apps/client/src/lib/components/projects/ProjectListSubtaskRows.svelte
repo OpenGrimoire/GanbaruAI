@@ -2,11 +2,12 @@
   import Check from "@lucide/svelte/icons/check";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import {
-    projectStatusBadgeClass,
     projectTaskArchivedBadgeClass,
   } from "$lib/projects/project-display";
   import type { ProjectStatus, ProjectTask } from "$lib/projects/types";
+  import { getTheme } from "$lib/stores/theme.svelte";
   import { cn } from "$lib/utils";
+  import ProjectStatusBadge from "./ProjectStatusBadge.svelte";
 
   let {
     subtasks,
@@ -23,6 +24,7 @@
   } = $props();
 
   const { t } = getLocalization();
+  const theme = getTheme();
 </script>
 
 {#if subtasks.length > 0}
@@ -58,9 +60,12 @@
         >
           <span class="block truncate text-[0.8rem]">{subtask.title}</span>
         </button>
-        <span class={cn("rounded border px-1.5 py-0.5 text-[0.733333rem]", projectStatusBadgeClass(subtaskStatus))}>
-          {subtaskStatus?.name ?? t("projects.list.status")}
-        </span>
+        <ProjectStatusBadge
+          status={subtaskStatus}
+          theme={theme.current}
+          label={subtaskStatus?.name ?? t("projects.list.status")}
+          class="text-[0.733333rem]"
+        />
         {#if subtask.archivedAt}
           <span class={cn("rounded border px-1.5 py-0.5 text-[0.733333rem]", projectTaskArchivedBadgeClass(subtask))}>
             {t("projects.taskLifecycle.archived")}

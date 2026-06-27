@@ -1738,6 +1738,9 @@ export const en = {
         `This removes ${label} from every task in this project. Tasks and task history stay intact.`,
       deleteLabelConfirm: "Delete label (Enter)",
       taskStatuses: "Task statuses",
+      statusColor: "Status color",
+      selectStatusColor: (status: string) => `Select color for ${status}`,
+      selectNewStatusColor: "Select color for new status",
       statusName: "Status name",
       addStatus: "Add status",
       deleteStatus: (status: string) => `Delete ${status}`,
@@ -1750,7 +1753,7 @@ export const en = {
       statusReorderFailed: "Could not reorder task status.",
       deleteStatusTitle: (status: string) => `Delete ${status}?`,
       deleteStatusMessage: (status: string) =>
-        `This removes ${status} from this project's task statuses. Only statuses with no tasks can be deleted.`,
+        `This removes ${status} from this project's task statuses.`,
       deleteStatusConfirm: "Delete status (Enter)",
       nameRequired: "Project name is required.",
       groupRequired: "Select a group.",

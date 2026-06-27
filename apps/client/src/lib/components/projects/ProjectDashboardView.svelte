@@ -11,7 +11,9 @@
     projectTaskHistoryEventLabel,
   } from "$lib/projects/project-display";
   import { getProjects } from "$lib/stores/projects.svelte";
+  import { getTheme } from "$lib/stores/theme.svelte";
   import ProjectListScrollbars from "./ProjectListScrollbars.svelte";
+  import ProjectStatusBadge from "./ProjectStatusBadge.svelte";
 
   let {
     projectId,
@@ -32,6 +34,7 @@
   } = $props();
 
   const projects = getProjects();
+  const theme = getTheme();
   const { t } = getLocalization();
 
   let dashboardScrollContainer = $state<HTMLElement | undefined>();
@@ -156,7 +159,12 @@
     <div class="mt-3 grid gap-1 text-[0.8rem] text-muted-foreground">
       {#each statuses as status (status.id)}
         <div class="flex items-center justify-between gap-2">
-          <span>{status.name}</span>
+          <ProjectStatusBadge
+            {status}
+            theme={theme.current}
+            label={status.name}
+            class="text-[0.733333rem]"
+          />
           <span>{taskCountForStatus(status)}</span>
         </div>
       {/each}

@@ -12,7 +12,6 @@
   } from "$lib/projects/kanban-drag";
   import {
     projectPriorityLabel,
-    projectStatusBadgeClass,
     projectTaskArchivedBadgeClass,
   } from "$lib/projects/project-display";
   import { manualStatusCompare } from "$lib/projects/task-view";
@@ -23,7 +22,9 @@
     ProjectTaskSortMode,
   } from "$lib/projects/types";
   import { getProjects } from "$lib/stores/projects.svelte";
+  import { getTheme } from "$lib/stores/theme.svelte";
   import { cn } from "$lib/utils";
+  import ProjectStatusBadge from "./ProjectStatusBadge.svelte";
 
   let {
     tasks,
@@ -44,6 +45,7 @@
   } = $props();
 
   const projects = getProjects();
+  const theme = getTheme();
   const { t } = getLocalization();
 
   const PROJECT_KANBAN_DRAG_MIME = "application/x-ganbaru-project-task";
@@ -232,8 +234,13 @@
       ondragover={(event) => handleKanbanColumnDragOver(event, status)}
       ondrop={(event) => { void dropKanbanTask(event, status); }}
     >
-      <div class={cn("rounded-md border px-2 py-1.5 text-[0.8rem] font-semibold", projectStatusBadgeClass(status))}>
-        {status.name} ({statusTasks.length})
+      <div class="min-w-0 px-1 py-1">
+        <ProjectStatusBadge
+          {status}
+          theme={theme.current}
+          label={`${status.name} (${statusTasks.length})`}
+          class="text-[0.8rem]"
+        />
       </div>
       <div class="flex flex-col gap-2">
         {#each statusTasks as task (task.id)}

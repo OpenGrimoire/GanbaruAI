@@ -9,6 +9,7 @@ import {
   projectPriorityBadgeClass,
   projectPriorityLabel,
   projectStatusBadgeClass,
+  projectStatusBadgeStyle,
   projectTaskArchivedBadgeClass,
 } from "./project-display";
 
@@ -34,12 +35,31 @@ describe("project display helpers", () => {
       projectId: "project-a",
       name: "Blocked",
       category: "blocked",
+      color: 2,
       sortOrder: 1000,
       terminal: false,
       createdAt: "2026-06-21T00:00:00.000Z",
       updatedAt: "2026-06-21T00:00:00.000Z",
-    })).toContain("destructive");
+    })).toBe("");
     expect(projectPriorityBadgeClass("high")).toContain("amber");
+  });
+
+  it("returns readable status badge colors from the event palette", () => {
+    const style = projectStatusBadgeStyle({
+      id: "status-a",
+      projectId: "project-a",
+      name: "Blocked",
+      category: "blocked",
+      color: 2,
+      sortOrder: 1000,
+      terminal: false,
+      createdAt: "2026-06-21T00:00:00.000Z",
+      updatedAt: "2026-06-21T00:00:00.000Z",
+    }, lightTheme);
+
+    expect(style).toContain("background-color: #");
+    expect(style).toContain("color: #");
+    expect(style).not.toContain("border-color");
   });
 
   it("returns label swatch styling only when a palette color exists", () => {

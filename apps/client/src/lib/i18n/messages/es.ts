@@ -1755,6 +1755,9 @@ export const es = {
         `Esto quita ${label} de todas las tareas de este proyecto. Las tareas y su historial se conservan.`,
       deleteLabelConfirm: "Eliminar etiqueta (Enter)",
       taskStatuses: "Estados de tarea",
+      statusColor: "Color del estado",
+      selectStatusColor: (status: string) => `Seleccionar color para ${status}`,
+      selectNewStatusColor: "Seleccionar color para el estado nuevo",
       statusName: "Nombre del estado",
       addStatus: "Agregar estado",
       deleteStatus: (status: string) => `Eliminar ${status}`,
@@ -1767,7 +1770,7 @@ export const es = {
       statusReorderFailed: "No se pudo reordenar el estado de tarea.",
       deleteStatusTitle: (status: string) => `¿Eliminar ${status}?`,
       deleteStatusMessage: (status: string) =>
-        `Esto quita ${status} de los estados de tarea de este proyecto. Solo se pueden eliminar estados sin tareas.`,
+        `Esto quita ${status} de los estados de tarea de este proyecto.`,
       deleteStatusConfirm: "Eliminar estado (Enter)",
       nameRequired: "El nombre del proyecto es obligatorio.",
       groupRequired: "Selecciona un grupo.",

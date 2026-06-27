@@ -95,6 +95,7 @@ pub(super) fn validate_status_create(status: &ProjectStatusCreate) -> Result<(),
     validate_status_fields(
         &status.name,
         &status.category,
+        status.color,
         status.sort_order,
         status.terminal,
     )
@@ -105,6 +106,7 @@ pub(super) fn validate_status_update(status: &ProjectStatusUpdate) -> Result<(),
     validate_status_fields(
         &status.name,
         &status.category,
+        status.color,
         status.sort_order,
         status.terminal,
     )
@@ -113,6 +115,7 @@ pub(super) fn validate_status_update(status: &ProjectStatusUpdate) -> Result<(),
 pub(super) fn validate_status_fields(
     name: &str,
     category: &str,
+    color: i64,
     sort_order: i64,
     terminal: bool,
 ) -> Result<(), String> {
@@ -122,6 +125,7 @@ pub(super) fn validate_status_fields(
         "category",
         &["not_started", "active", "blocked", "done"],
     )?;
+    validate_color(Some(color))?;
     validate_non_negative(sort_order, "sort_order")?;
     if (category == "done") != terminal {
         return Err(

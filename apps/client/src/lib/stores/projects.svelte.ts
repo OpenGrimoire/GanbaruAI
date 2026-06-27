@@ -38,6 +38,7 @@ import {
   updateProjectTask,
   upsertProjectViewPreference,
 } from "$lib/api/projects";
+import type { EventColor } from "$lib/components/calendar/types";
 import {
   savedTaskViewPreferenceKey,
   savedTaskViewPreferenceValue,
@@ -615,6 +616,7 @@ async function addStatus(
   projectId: string,
   name: string,
   category: ProjectStatusCategory,
+  color: EventColor,
 ): Promise<void> {
   const displayName = normalizeProjectName(name);
   if (!displayName) return;
@@ -623,6 +625,7 @@ async function addStatus(
     projectId,
     name: displayName,
     category,
+    color,
     sortOrder: nextStatusSortOrder(projectId),
     terminal: category === "done",
   });
@@ -631,7 +634,7 @@ async function addStatus(
 
 async function updateStatus(
   status: ProjectStatus,
-  patch: Partial<Pick<ProjectStatus, "name" | "category" | "sortOrder">>,
+  patch: Partial<Pick<ProjectStatus, "name" | "category" | "color" | "sortOrder">>,
 ): Promise<void> {
   const displayName = normalizeProjectName(patch.name ?? status.name);
   if (!displayName) return;
@@ -640,6 +643,7 @@ async function updateStatus(
     id: status.id,
     name: displayName,
     category,
+    color: patch.color ?? status.color,
     sortOrder: patch.sortOrder ?? status.sortOrder,
     terminal: category === "done",
   });
@@ -655,6 +659,7 @@ async function moveStatus(status: ProjectStatus, direction: -1 | 1): Promise<voi
     id: status.id,
     name: status.name,
     category: status.category,
+    color: status.color,
     sortOrder: target.sortOrder,
     terminal: status.category === "done",
   });
@@ -662,6 +667,7 @@ async function moveStatus(status: ProjectStatus, direction: -1 | 1): Promise<voi
     id: target.id,
     name: target.name,
     category: target.category,
+    color: target.color,
     sortOrder: status.sortOrder,
     terminal: target.category === "done",
   });

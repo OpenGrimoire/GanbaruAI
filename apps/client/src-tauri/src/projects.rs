@@ -535,13 +535,14 @@ pub async fn projects_create_status<R: Runtime>(
     let pool = connect_sqlite(app, db_url).await?;
     ensure_project_exists_in_pool(&pool, &status.project_id).await?;
     sqlx::query(
-        "INSERT INTO project_statuses (id, project_id, name, category, sort_order, terminal)
-         VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO project_statuses (id, project_id, name, category, color, sort_order, terminal)
+         VALUES (?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&status.id)
     .bind(&status.project_id)
     .bind(status.name.trim())
     .bind(&status.category)
+    .bind(status.color)
     .bind(status.sort_order)
     .bind(if status.terminal { 1_i64 } else { 0_i64 })
     .execute(&pool)
@@ -562,6 +563,7 @@ pub async fn projects_update_status<R: Runtime>(
         "UPDATE project_statuses
          SET name = ?,
              category = ?,
+             color = ?,
              sort_order = ?,
              terminal = ?,
              updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
@@ -569,6 +571,7 @@ pub async fn projects_update_status<R: Runtime>(
     )
     .bind(status.name.trim())
     .bind(&status.category)
+    .bind(status.color)
     .bind(status.sort_order)
     .bind(if status.terminal { 1_i64 } else { 0_i64 })
     .bind(&status.id)

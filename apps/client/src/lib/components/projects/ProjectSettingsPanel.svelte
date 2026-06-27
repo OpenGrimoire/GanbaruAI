@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from "svelte";
   import ArrowDown from "@lucide/svelte/icons/arrow-down";
   import ArrowUp from "@lucide/svelte/icons/arrow-up";
   import GripVertical from "@lucide/svelte/icons/grip-vertical";
@@ -9,9 +10,10 @@
   import X from "@lucide/svelte/icons/x";
   import CalendarScrollbar from "$lib/components/calendar/CalendarScrollbar.svelte";
   import ColorPicker from "$lib/components/calendar/ColorPicker.svelte";
+  import { EVENT_COLOR_OPTIONS } from "$lib/components/calendar/utils";
   import CustomSelect from "$lib/components/settings/CustomSelect.svelte";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
-  import type { EventColor } from "$lib/components/calendar/types";
+  import { FALLBACK_COLOR_INDEX, type EventColor } from "$lib/components/calendar/types";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import type { PomodoroPresetKey } from "$lib/pomodoro/rhythm";
   import {
@@ -73,6 +75,7 @@
   const { t } = getLocalization();
 
   const PROJECT_STATUS_CATEGORIES: ProjectStatusCategory[] = ["not_started", "active", "blocked", "done"];
+  const NEW_STATUS_FIRST_COLOR: EventColor = 8;
   const PROJECT_STATUS_DRAG_DATA_TYPE = "application/x-ganbaru-project-status";
   type ProjectLabelColorDraft = EventColor | "none";
   type SelectOption = { value: string; label: string };
@@ -81,6 +84,7 @@
     status: ProjectStatus;
     name: string;
     category: ProjectStatusCategory;
+    color: EventColor;
   };
 
   let projectDraftId = $state<string | null>(null);
@@ -112,8 +116,10 @@
   let projectSettingsError = $state<string | null>(null);
   let statusNameDrafts = $state<Record<string, string>>({});
   let statusCategoryDrafts = $state<Record<string, ProjectStatusCategory>>({});
+  let statusColorDrafts = $state<Record<string, EventColor>>({});
   let newStatusName = $state("");
   let newStatusCategory = $state<ProjectStatusCategory>("active");
+  let newStatusColor = $state<EventColor>(NEW_STATUS_FIRST_COLOR);
   let pendingDeleteStatusId = $state<string | null>(null);
   let labelNameDrafts = $state<Record<string, string>>({});
   let labelColorDrafts = $state<Record<string, ProjectLabelColorDraft>>({});
@@ -129,6 +135,7 @@
   let pendingDeleteCustomFieldOptionId = $state<string | null>(null);
   let settingsScrollElement = $state<HTMLElement | undefined>();
   let settingsContentElement = $state<HTMLElement | undefined>();
+  let newStatusRowElement = $state<HTMLDivElement | undefined>();
   let settingsScrollable = $state(false);
   let settingsCanScrollUp = $state(false);
   let settingsCanScrollDown = $state(false);
@@ -241,6 +248,7 @@
     statusCategoryDrafts = Object.fromEntries(
       statuses.map((status) => [status.id, status.category]),
     );
+    statusColorDrafts = Object.fromEntries(statuses.map((status) => [status.id, status.color]));
     labelNameDrafts = Object.fromEntries(projectLabels.map((label) => [label.id, label.name]));
     const nextLabelColorDrafts: Record<string, ProjectLabelColorDraft> = {};
     for (const label of projectLabels) {
@@ -255,6 +263,7 @@
     );
     newStatusName = "";
     newStatusCategory = "active";
+    newStatusColor = nextUnusedStatusColor(NEW_STATUS_FIRST_COLOR);
     pendingDeleteStatusId = null;
     newLabelName = "";
     newLabelColor = "none";
@@ -477,6 +486,57 @@
     settingsScrollStateFrame = requestAnimationFrame(refreshSettingsScrollState);
   }
 
+  function randomStatusColor(): EventColor {
+    const index = Math.floor(Math.random() * EVENT_COLOR_OPTIONS.length);
+    return EVENT_COLOR_OPTIONS[index] ?? NEW_STATUS_FIRST_COLOR;
+  }
+
+  function nextPaletteColor(color: EventColor): EventColor {
+    const index = EVENT_COLOR_OPTIONS.indexOf(color);
+    if (index < 0) return NEW_STATUS_FIRST_COLOR;
+    return EVENT_COLOR_OPTIONS[(index + 1) % EVENT_COLOR_OPTIONS.length] ?? NEW_STATUS_FIRST_COLOR;
+  }
+
+  function usedStatusColors(extraColor?: EventColor): Set<EventColor> {
+    const used = new Set<EventColor>();
+    for (const status of statuses) {
+      used.add(statusColorDraftValue(status));
+    }
+    if (extraColor !== undefined) used.add(extraColor);
+    return used;
+  }
+
+  function nextUnusedStatusColor(preferredColor: EventColor, extraColor?: EventColor): EventColor {
+    const used = usedStatusColors(extraColor);
+    if (used.size >= EVENT_COLOR_OPTIONS.length) return randomStatusColor();
+    const preferredIndex = Math.max(0, EVENT_COLOR_OPTIONS.indexOf(preferredColor));
+    for (let offset = 0; offset < EVENT_COLOR_OPTIONS.length; offset += 1) {
+      const color = EVENT_COLOR_OPTIONS[(preferredIndex + offset) % EVENT_COLOR_OPTIONS.length];
+      if (color !== undefined && !used.has(color)) return color;
+    }
+    return randomStatusColor();
+  }
+
+  async function scrollToNewStatusRow(): Promise<void> {
+    await tick();
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => resolve());
+    });
+    const scrollElement = settingsScrollElement;
+    const rowElement = newStatusRowElement;
+    if (!scrollElement || !rowElement) return;
+    const scrollRect = scrollElement.getBoundingClientRect();
+    const rowRect = rowElement.getBoundingClientRect();
+    const rowTop = scrollElement.scrollTop + rowRect.top - scrollRect.top;
+    const preferredTopPadding = Math.min(72, Math.max(36, scrollElement.clientHeight * 0.18));
+    const maxScrollTop = Math.max(0, scrollElement.scrollHeight - scrollElement.clientHeight);
+    scrollElement.scrollTo({
+      top: Math.min(Math.max(0, rowTop - preferredTopPadding), maxScrollTop),
+      behavior: "auto",
+    });
+    requestSettingsScrollStateRefresh();
+  }
+
   function handleSettingsScroll(): void {
     refreshSettingsScrollState();
   }
@@ -616,7 +676,24 @@
 
   function statusDraftDirty(status: ProjectStatus): boolean {
     return (statusNameDrafts[status.id] ?? status.name) !== status.name
-      || (statusCategoryDrafts[status.id] ?? status.category) !== status.category;
+      || (statusCategoryDrafts[status.id] ?? status.category) !== status.category
+      || statusColorDraftValue(status) !== status.color;
+  }
+
+  function statusColorDraftValue(status: ProjectStatus): EventColor {
+    return statusColorDrafts[status.id] ?? status.color ?? FALLBACK_COLOR_INDEX;
+  }
+
+  function setStatusColor(statusId: string, color: EventColor | undefined): void {
+    if (color === undefined) return;
+    statusColorDrafts = {
+      ...statusColorDrafts,
+      [statusId]: color,
+    };
+  }
+
+  function setNewStatusColor(color: EventColor | undefined): void {
+    if (color !== undefined) newStatusColor = color;
   }
 
   function statusTaskCount(status: ProjectStatus): number {
@@ -679,6 +756,7 @@
         status,
         name,
         category: statusCategoryDrafts[status.id] ?? status.category,
+        color: statusColorDraftValue(status),
       });
     }
     return drafts;
@@ -687,15 +765,18 @@
   async function submitStatus(): Promise<void> {
     if (!selectedProjectId) return;
     const name = newStatusName.trim();
+    const createdColor = newStatusColor;
     if (!name) {
       projectSettingsError = t("projects.settings.statusNameRequired");
       return;
     }
     projectSettingsError = null;
     try {
-      await projects.addStatus(selectedProjectId, name, newStatusCategory);
+      await projects.addStatus(selectedProjectId, name, newStatusCategory, createdColor);
       newStatusName = "";
       newStatusCategory = "active";
+      newStatusColor = nextUnusedStatusColor(nextPaletteColor(createdColor), createdColor);
+      await scrollToNewStatusRow();
     } catch (error) {
       projectSettingsError = t(
         "projects.settings.statusSaveFailed",
@@ -1037,9 +1118,11 @@
         await projects.updateStatus(draft.status, {
           name: draft.name,
           category: draft.category,
+          color: draft.color,
         });
         statusNameDrafts = { ...statusNameDrafts, [draft.status.id]: draft.name };
         statusCategoryDrafts = { ...statusCategoryDrafts, [draft.status.id]: draft.category };
+        statusColorDrafts = { ...statusColorDrafts, [draft.status.id]: draft.color };
       }
       if (shouldRevealInactive) {
         onRevealInactive();
@@ -1121,7 +1204,7 @@
         bind:this={settingsScrollElement}
         data-settings-content
         class={cn(
-          "project-settings-scroll-area hide-scrollbar h-full min-h-0 overflow-y-auto px-3 pb-3 pt-1",
+          "project-settings-scroll-area hide-scrollbar h-full min-h-0 overflow-y-auto px-3 pb-8 pt-1",
           settingsScrollable
             && settingsCanScrollUp
             && settingsCanScrollDown
@@ -1212,7 +1295,7 @@
           <div class="h-px bg-border/70" aria-hidden="true"></div>
 
           <section class="flex flex-col gap-1">
-            {@render sectionHeading(t("projects.settings.labels"), String(projectLabels.length))}
+              {@render sectionHeading(t("projects.settings.labels"))}
             <div class="flex flex-col gap-1">
               {#each projectLabels as label (label.id)}
                 {@const previousLabel = adjacentLabel(label, -1)}
@@ -1360,7 +1443,7 @@
           <div class="h-px bg-border/70" aria-hidden="true"></div>
 
           <section class="flex flex-col gap-1">
-            {@render sectionHeading(t("projects.customFields.title"), String(projectCustomFields.length))}
+            {@render sectionHeading(t("projects.customFields.title"))}
             <div class="flex flex-col gap-1">
               {#each projectCustomFields as field (field.id)}
                 {@const previousField = adjacentCustomField(field, -1)}
@@ -1571,13 +1654,13 @@
           <div class="h-px bg-border/70" aria-hidden="true"></div>
 
           <section class="flex flex-col gap-0.5">
-            {@render sectionHeading(t("projects.settings.taskStatuses"), String(statuses.length))}
+            {@render sectionHeading(t("projects.settings.taskStatuses"))}
             <div class="flex flex-col gap-0.5">
               {#each statuses as status (status.id)}
                 {@const deleteStatusTitle = statusDeleteTitle(status)}
                 <div
                   class={cn(
-                    "relative grid min-h-7 grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-1 px-1 py-0.5",
+                    "relative grid min-h-7 grid-cols-[auto_auto_minmax(0,1fr)_auto_auto] items-center gap-1 px-1 py-0.5",
                     draggedStatusId === status.id && "opacity-50",
                   )}
                   role="group"
@@ -1597,7 +1680,6 @@
                     draggable={statuses.length > 1 && !statusReorderPending}
                     disabled={statuses.length <= 1 || statusReorderPending}
                     aria-label={t("projects.actions.dragStatus", status.name)}
-                    title={t("projects.actions.dragStatus", status.name)}
                     ondragstart={(event) => handleStatusDragStart(event, status)}
                     ondragend={clearStatusDrag}
                     onkeydown={(event) => {
@@ -1613,9 +1695,18 @@
                   >
                     <GripVertical size={13} strokeWidth={1.75} />
                   </button>
+                  <ColorPicker
+                    color={statusColorDraftValue(status)}
+                    theme={theme.current}
+                    title={t("projects.settings.statusColor")}
+                    ariaLabel={t("projects.settings.selectStatusColor", status.name)}
+                    class="h-7 w-7 justify-center"
+                    buttonClass="size-6.5 rounded-md"
+                    onselect={(color) => setStatusColor(status.id, color)}
+                  />
                   <input
                     value={statusNameDrafts[status.id] ?? status.name}
-                    class="h-7 min-w-0 rounded-md bg-transparent px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:bg-card"
+                    class="h-7 min-w-0 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:border-ring placeholder:text-muted-foreground"
                     aria-label={t("projects.settings.statusName")}
                     oninput={(event) => {
                       statusNameDrafts = {
@@ -1645,10 +1736,23 @@
               {/each}
             </div>
 
-            <div class="grid min-h-7 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-1 px-1 py-0.5">
+            <div
+              bind:this={newStatusRowElement}
+              class="grid min-h-7 grid-cols-[auto_auto_minmax(0,1fr)_auto_auto] items-center gap-1 px-1 py-0.5"
+            >
+              <div class="h-7 w-7 shrink-0" aria-hidden="true"></div>
+              <ColorPicker
+                color={newStatusColor}
+                theme={theme.current}
+                title={t("projects.settings.statusColor")}
+                ariaLabel={t("projects.settings.selectNewStatusColor")}
+                class="h-7 w-7 justify-center"
+                buttonClass="size-6.5 rounded-md"
+                onselect={setNewStatusColor}
+              />
               <input
                 bind:value={newStatusName}
-                class="h-7 min-w-0 rounded-md bg-transparent px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:bg-card"
+                class="h-7 min-w-0 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:border-ring placeholder:text-muted-foreground"
                 placeholder={t("projects.settings.newStatusPlaceholder")}
                 onkeydown={(event) => {
                   if (event.key === "Enter") {

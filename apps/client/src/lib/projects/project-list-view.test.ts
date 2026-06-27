@@ -42,6 +42,7 @@ function status(name: string): ProjectStatus {
     projectId: "project-a",
     name,
     category: "active",
+    color: 0,
     sortOrder: 1000,
     terminal: false,
     createdAt: "2026-06-21T00:00:00.000Z",
@@ -56,10 +57,10 @@ describe("project list view helpers", () => {
     expect(projectTaskListColumnTrack("priority")).toBe("5.2rem");
     expect(projectTaskListColumnTrack("start")).toBe("8.07rem");
     expect(projectTaskListColumnTrack("assignee")).toBe("5.2rem");
-    expect(projectTaskListColumnTrack("status")).toBe("5.8rem");
+    expect(projectTaskListColumnTrack("status")).toBe("7.5rem");
     expect(projectTaskListColumnTrack("custom:field-a")).toBe("7.23rem");
     expect(projectTaskListGridTemplate(["status", "custom:field-a"])).toBe(
-      "1.5rem 1.75rem 24rem 5.8rem 7.23rem 2.25rem",
+      "1.5rem 1.75rem 24rem 7.5rem 7.23rem 2.25rem",
     );
   });
 
@@ -75,20 +76,20 @@ describe("project list view helpers", () => {
     expect(projectTaskListColumnWidthRem("status", {
       columns: ["status"],
       statuses: [status("Needs outside review before release")],
-    })).toBe(10);
+    })).toBe(12);
     expect(projectTaskListGridTemplate({
       columns: ["status", "start"],
       tasks: [shortTask, longTask],
       statuses: [status("In progress")],
       nameLabel: "Name",
       columnLabel: (column) => column === "start" ? "Start date" : "Status",
-    })).toBe("1.5rem 1.75rem 24rem 5.97rem 8.07rem 2.25rem");
+    })).toBe("1.5rem 1.75rem 24rem 7.52rem 8.07rem 2.25rem");
   });
 
   it("keeps the list width to the content tracks instead of the viewport", () => {
     expect(projectTaskListGridMinWidth([])).toBe("29.5rem");
-    expect(projectTaskListGridMinWidth(["status", "priority", "estimate"])).toBe("45.7rem");
-    expect(projectTaskListGridMinWidth(["status", "start", "due", "priority", "assignee", "reviewer"])).toBe("67.04rem");
+    expect(projectTaskListGridMinWidth(["status", "priority", "estimate"])).toBe("47.4rem");
+    expect(projectTaskListGridMinWidth(["status", "start", "due", "priority", "assignee", "reviewer"])).toBe("68.74rem");
   });
 
   it("applies manual column widths over automatic list sizing", () => {
@@ -110,7 +111,7 @@ describe("project list view helpers", () => {
     expect(projectTaskListDoubleClickColumnWidthRem("status", {
       columns: ["status"],
       statuses: [status("Needs outside review before release")],
-    })).toBeCloseTo(16.05);
+    })).toBeCloseTo(17.6);
   });
 
   it("round-trips list column width preferences with validation", () => {

@@ -91,10 +91,11 @@ const PROJECT_LIST_OPEN_TRACK_REM = 1.75;
 const PROJECT_LIST_ADD_COLUMN_TRACK_REM = 2.25;
 const PROJECT_LIST_TEXT_PADDING_REM = 1.35;
 const PROJECT_LIST_TEXT_CHARACTER_REM = 0.42;
+const PROJECT_LIST_STATUS_BADGE_EXTRA_REM = 1.55;
 const PROJECT_LIST_DATE_TIME_TEXT = "0000-00-00 00:00";
 const PROJECT_LIST_NAME_WIDTH: ProjectTaskListColumnWidthBounds = { min: 12, autoMin: 24, max: 32 };
 const PROJECT_LIST_COLUMN_WIDTHS = {
-  status: { min: 5.8, max: 10 },
+  status: { min: 7.5, max: 12 },
   start: { min: 7.75, max: 8.25 },
   due: { min: 7.75, max: 8.25 },
   priority: { min: 5.2, max: 6.8 },
@@ -140,6 +141,12 @@ function projectTaskListTextWidthRem(text: string): number {
   return PROJECT_LIST_TEXT_PADDING_REM + Array.from(normalized).length * PROJECT_LIST_TEXT_CHARACTER_REM;
 }
 
+function projectTaskListStatusWidthRem(text: string): number {
+  const normalized = text.trim();
+  if (!normalized) return PROJECT_LIST_COLUMN_WIDTHS.status.min;
+  return projectTaskListTextWidthRem(normalized) + PROJECT_LIST_STATUS_BADGE_EXTRA_REM;
+}
+
 function clampProjectTaskListColumnWidth(width: number, bounds: ProjectTaskListColumnWidthBounds): number {
   return Math.min(bounds.max, Math.max(bounds.autoMin ?? bounds.min, width));
 }
@@ -160,13 +167,17 @@ function formatProjectTaskListRem(value: number): string {
 function projectTaskListWidthFromTexts(
   texts: readonly string[],
   bounds: ProjectTaskListColumnWidthBounds,
+  textWidth: (text: string) => number = projectTaskListTextWidthRem,
 ): number {
-  const estimatedWidth = texts.reduce((maxWidth, text) => Math.max(maxWidth, projectTaskListTextWidthRem(text)), 0);
+  const estimatedWidth = texts.reduce((maxWidth, text) => Math.max(maxWidth, textWidth(text)), 0);
   return clampProjectTaskListColumnWidth(estimatedWidth, bounds);
 }
 
-function projectTaskListRawWidthFromTexts(texts: readonly string[]): number {
-  return texts.reduce((maxWidth, text) => Math.max(maxWidth, projectTaskListTextWidthRem(text)), 0);
+function projectTaskListRawWidthFromTexts(
+  texts: readonly string[],
+  textWidth: (text: string) => number = projectTaskListTextWidthRem,
+): number {
+  return texts.reduce((maxWidth, text) => Math.max(maxWidth, textWidth(text)), 0);
 }
 
 function projectTaskListDateText(date: string | undefined, time: string | undefined): string {
@@ -274,7 +285,12 @@ export function projectTaskListColumnWidthRem(
 ): number {
   const manualWidth = projectTaskListManualWidth(input, column);
   if (allowManualWidth && manualWidth !== undefined) return manualWidth;
-  return projectTaskListWidthFromTexts(projectTaskListColumnTexts(input, column), projectTaskListColumnBounds(column));
+  const textWidth = column === "status" ? projectTaskListStatusWidthRem : projectTaskListTextWidthRem;
+  return projectTaskListWidthFromTexts(
+    projectTaskListColumnTexts(input, column),
+    projectTaskListColumnBounds(column),
+    textWidth,
+  );
 }
 
 export function projectTaskListResizableColumnWidthRem(
@@ -291,7 +307,8 @@ export function projectTaskListContentFitColumnWidthRem(
   input: ProjectTaskListGridInput,
 ): number {
   const texts = column === "name" ? projectTaskListNameColumnTexts(input) : projectTaskListColumnTexts(input, column);
-  return clampProjectTaskListManualColumnWidth(column, projectTaskListRawWidthFromTexts(texts));
+  const textWidth = column === "status" ? projectTaskListStatusWidthRem : projectTaskListTextWidthRem;
+  return clampProjectTaskListManualColumnWidth(column, projectTaskListRawWidthFromTexts(texts, textWidth));
 }
 
 export function projectTaskListDoubleClickColumnWidthRem(

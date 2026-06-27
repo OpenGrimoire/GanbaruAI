@@ -1,10 +1,10 @@
-const DEFAULT_STATUSES: &[(&str, &str, &str, i64, i64)] = &[
-    ("backlog", "Backlog", "not_started", 0, 0),
-    ("todo", "To do", "not_started", 10, 0),
-    ("in-progress", "In progress", "active", 20, 0),
-    ("in-review", "In review", "active", 30, 0),
-    ("blocked", "Blocked", "blocked", 40, 0),
-    ("done", "Done", "done", 50, 1),
+const DEFAULT_STATUSES: &[(&str, &str, &str, i64, i64, i64)] = &[
+    ("backlog", "Backlog", "not_started", 30, 0, 0),
+    ("todo", "To do", "not_started", 31, 10, 0),
+    ("in-progress", "In progress", "active", 19, 20, 0),
+    ("in-review", "In review", "active", 23, 30, 0),
+    ("blocked", "Blocked", "blocked", 2, 40, 0),
+    ("done", "Done", "done", 13, 50, 1),
 ];
 
 const BLANK_TEMPLATE_SECTIONS: &[(&str, &str, i64)] = &[("general", "General", 0)];
@@ -74,15 +74,16 @@ pub(super) async fn insert_default_statuses(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     project_id: &str,
 ) -> Result<(), String> {
-    for (slug, name, category, sort_order, terminal) in DEFAULT_STATUSES {
+    for (slug, name, category, color, sort_order, terminal) in DEFAULT_STATUSES {
         sqlx::query(
-            "INSERT INTO project_statuses (id, project_id, name, category, sort_order, terminal)
-             VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO project_statuses (id, project_id, name, category, color, sort_order, terminal)
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(format!("status-{project_id}-{slug}"))
         .bind(project_id)
         .bind(name)
         .bind(category)
+        .bind(color)
         .bind(sort_order)
         .bind(terminal)
         .execute(&mut **tx)
