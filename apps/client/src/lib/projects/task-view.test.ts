@@ -16,9 +16,11 @@ import {
 
 const statuses: ProjectStatus[] = [
   status("backlog", "Backlog", "not_started", 1000, false),
-  status("doing", "In progress", "active", 2000, false),
-  status("blocked", "Blocked", "blocked", 3000, false),
-  status("done", "Done", "done", 4000, true),
+  status("todo", "To do", "not_started", 2000, false),
+  status("doing", "In progress", "active", 3000, false),
+  status("review", "In review", "active", 4000, false),
+  status("blocked", "Blocked", "blocked", 5000, false),
+  status("done", "Done", "done", 6000, true),
 ];
 
 function status(
@@ -407,7 +409,11 @@ describe("buildProjectTaskListGroups", () => {
 
     expect(groups.map((group) => [group.value, group.tasks.map((entry) => entry.id)])).toEqual([
       ["backlog", ["later"]],
+      ["todo", []],
       ["doing", ["parent"]],
+      ["review", []],
+      ["blocked", []],
+      ["done", []],
     ]);
   });
 
@@ -438,10 +444,29 @@ describe("buildProjectTaskListGroups", () => {
     ]);
   });
 
+  it("keeps empty priority groups visible", () => {
+    const groups = buildProjectTaskListGroups({
+      tasks: [
+        task({ id: "normal", title: "Normal priority", priority: "normal" }),
+      ],
+      statuses,
+      scheduledTaskIds: new Set(),
+      today: "2026-06-12",
+      weekEnd: "2026-06-19",
+      groupBy: "priority",
+    });
+
+    expect(groups.map((group) => [group.value, group.tasks.map((entry) => entry.id)])).toEqual([
+      ["urgent", []],
+      ["high", []],
+      ["normal", ["normal"]],
+      ["low", []],
+    ]);
+  });
+
   it("groups scheduled tasks before unscheduled tasks", () => {
     const groups = buildProjectTaskListGroups({
       tasks: [
-        task({ id: "unscheduled", title: "Unscheduled" }),
         task({ id: "scheduled", title: "Scheduled" }),
       ],
       statuses,
@@ -453,7 +478,7 @@ describe("buildProjectTaskListGroups", () => {
 
     expect(groups.map((group) => [group.value, group.tasks.map((entry) => entry.id)])).toEqual([
       ["scheduled", ["scheduled"]],
-      ["unscheduled", ["unscheduled"]],
+      ["unscheduled", []],
     ]);
   });
 });

@@ -55,7 +55,7 @@
     selector: string;
     beforeFocus?: () => void;
   };
-  type TaskCreateTarget = `section:${string}`;
+  type TaskCreateTarget = `section:${string}` | `group:${string}`;
   interface ListRowDragGesture {
     taskId: string;
     pointerId: number;
@@ -139,7 +139,9 @@
   let taskCreateErrorMessage = $state<string | null>(null);
   let sectionDraft = $state("");
   let sectionTaskDrafts = $state<Record<string, string>>({});
+  let groupTaskDrafts = $state<Record<string, string>>({});
   let activeSectionTaskDraftInputId = $state<string | null>(null);
+  let activeGroupTaskDraftInputId = $state<string | null>(null);
   let sectionDraftInputActive = $state(false);
   let listDraggingTaskId = $state<string | null>(null);
   let listDragOverSectionId = $state<string | null>(null);
@@ -401,8 +403,10 @@
 
   function projectListAddDraftActive(): boolean {
     return activeSectionTaskDraftInputId !== null
+      || activeGroupTaskDraftInputId !== null
       || sectionDraftInputActive
-      || sectionDraft.trim().length > 0;
+      || sectionDraft.trim().length > 0
+      || Object.values(groupTaskDrafts).some((draft) => draft.trim().length > 0);
   }
 
   function cancelActiveProjectListAddDrafts(): void {
@@ -411,6 +415,13 @@
       sectionTaskDrafts = { ...sectionTaskDrafts, [targetId]: "" };
       activeSectionTaskDraftInputId = null;
       clearTaskCreateError(sectionTaskCreateTarget(targetId));
+    }
+
+    if (activeGroupTaskDraftInputId) {
+      const targetId = activeGroupTaskDraftInputId;
+      groupTaskDrafts = { ...groupTaskDrafts, [targetId]: "" };
+      activeGroupTaskDraftInputId = null;
+      clearTaskCreateError(groupTaskCreateTarget(targetId));
     }
 
     if (sectionDraftInputActive || sectionDraft.trim()) {
@@ -428,6 +439,17 @@
         sectionTaskDrafts = { ...sectionTaskDrafts, [targetId]: "" };
         activeSectionTaskDraftInputId = null;
         clearTaskCreateError(sectionTaskCreateTarget(targetId));
+      }
+    }
+
+    if (activeGroupTaskDraftInputId) {
+      const taskAddRow = target.closest("[data-group-task-add-row]");
+      const taskAddRowGroupId = taskAddRow?.getAttribute("data-group-task-add-row");
+      if (taskAddRowGroupId !== activeGroupTaskDraftInputId) {
+        const targetId = activeGroupTaskDraftInputId;
+        groupTaskDrafts = { ...groupTaskDrafts, [targetId]: "" };
+        activeGroupTaskDraftInputId = null;
+        clearTaskCreateError(groupTaskCreateTarget(targetId));
       }
     }
 
@@ -1099,6 +1121,51 @@
     return `section:${sectionId}`;
   }
 
+  function groupTaskDraftKey(group: ProjectTaskListGroup): string {
+    return `${taskGroupBy}:${group.value}`;
+  }
+
+  function groupTaskCreateTarget(groupKey: string): TaskCreateTarget {
+    return `group:${groupKey}`;
+  }
+
+  function terminalTaskStatus(): ProjectStatus | undefined {
+    return statuses.find((status) => status.terminal);
+  }
+
+  function dueDateForGroup(value: string): string | undefined {
+    const today = Temporal.Now.plainDateISO();
+    if (value === "today") return today.toString();
+    if (value === "week") return today.add({ days: 7 }).toString();
+    if (value === "later") return today.add({ days: 8 }).toString();
+    if (value === "overdue" || value === "earlier") return today.subtract({ days: 1 }).toString();
+    return undefined;
+  }
+
+  function groupTaskQuickAddEnabled(group: ProjectTaskListGroup): boolean {
+    if (taskGroupBy === "status") return statuses.some((status) => status.id === group.value);
+    if (taskGroupBy === "priority") return PROJECT_PRIORITIES.includes(group.value as ProjectPriority);
+    if (taskGroupBy === "due") return group.value !== "earlier" || terminalTaskStatus() !== undefined;
+    if (taskGroupBy === "scheduled") return group.value === "unscheduled";
+    return false;
+  }
+
+  function groupTaskStatusId(group: ProjectTaskListGroup): string | undefined {
+    if (taskGroupBy === "status") return group.value;
+    if (taskGroupBy === "due" && group.value === "earlier") return terminalTaskStatus()?.id;
+    return undefined;
+  }
+
+  function groupTaskPatch(group: ProjectTaskListGroup): Partial<Pick<ProjectTask, "priority" | "dueDate">> {
+    if (taskGroupBy === "priority" && PROJECT_PRIORITIES.includes(group.value as ProjectPriority)) {
+      return { priority: group.value as ProjectPriority };
+    }
+    if (taskGroupBy === "due") {
+      return { dueDate: dueDateForGroup(group.value) };
+    }
+    return {};
+  }
+
   function clearTaskCreateError(target: TaskCreateTarget): void {
     if (taskCreateErrorTarget !== target) return;
     taskCreateErrorTarget = null;
@@ -1119,7 +1186,15 @@
     return t("projects.tasks.createFailed", message);
   }
 
-  async function createTaskFromDraft(target: TaskCreateTarget, title: string, sectionId?: string): Promise<ProjectTask | undefined> {
+  async function createTaskFromDraft(
+    target: TaskCreateTarget,
+    title: string,
+    options: {
+      sectionId?: string;
+      statusId?: string;
+      patch?: Partial<Pick<ProjectTask, "priority" | "dueDate">>;
+    } = {},
+  ): Promise<ProjectTask | undefined> {
     const projectId = selectedProjectId;
     if (!projectId) {
       setTaskCreateError(target, t("projects.tasks.selectProjectFirst"));
@@ -1130,7 +1205,10 @@
     taskCreatePendingTarget = target;
     clearTaskCreateError(target);
     try {
-      return await projects.addTask(projectId, displayTitle, sectionId);
+      const createdTask = await projects.addTask(projectId, displayTitle, options.sectionId, options.statusId);
+      if (!createdTask || !options.patch || Object.keys(options.patch).length === 0) return createdTask;
+      await projects.updateTask(createdTask, options.patch);
+      return projects.taskById(createdTask.id) ?? createdTask;
     } catch (error) {
       console.error("create project task failed", error);
       setTaskCreateError(target, taskCreateFailedMessage(error));
@@ -1146,9 +1224,24 @@
     const target = sectionTaskCreateTarget(sectionId);
     const title = (sectionTaskDrafts[sectionId] ?? "").trim();
     if (!title) return;
-    const createdTask = await createTaskFromDraft(target, title, sectionId);
+    const createdTask = await createTaskFromDraft(target, title, { sectionId });
     if (!createdTask) return;
     sectionTaskDrafts = { ...sectionTaskDrafts, [sectionId]: "" };
+    onRevealTask(createdTask);
+  }
+
+  async function submitGroupTask(group: ProjectTaskListGroup): Promise<void> {
+    if (!groupTaskQuickAddEnabled(group)) return;
+    const groupKey = groupTaskDraftKey(group);
+    const target = groupTaskCreateTarget(groupKey);
+    const title = (groupTaskDrafts[groupKey] ?? "").trim();
+    if (!title) return;
+    const createdTask = await createTaskFromDraft(target, title, {
+      statusId: groupTaskStatusId(group),
+      patch: groupTaskPatch(group),
+    });
+    if (!createdTask) return;
+    groupTaskDrafts = { ...groupTaskDrafts, [groupKey]: "" };
     onRevealTask(createdTask);
   }
 
@@ -1692,6 +1785,9 @@
       </div>
     {:else}
       {#each listTaskGroups as group (group.id)}
+        {@const groupKey = groupTaskDraftKey(group)}
+        {@const groupTitle = taskListGroupTitle(group.value)}
+        {@const groupCreateTarget = groupTaskCreateTarget(groupKey)}
         <section
           class="flex flex-col gap-0"
           style={`min-width: max(100%, ${taskListGridMinWidth});`}
@@ -1823,6 +1919,78 @@
                 onToggleSubtaskDone={(subtask) => { void projects.toggleTaskDone(subtask); }}
               />
             {/each}
+            {#if groupTaskQuickAddEnabled(group)}
+              <div
+                class="project-list-divider grid cursor-text items-center px-1 py-1.5"
+                data-group-task-add-row={groupKey}
+                style={`grid-template-columns: ${taskListGridTemplate}; min-width: ${taskListGridMinWidth};`}
+                use:projectListAddRowInputFocus={{ selector: "[data-group-task-input]" }}
+              >
+                <div class="absolute inset-0 z-0 cursor-text" aria-hidden="true"></div>
+                <div class="relative z-10"></div>
+                <div class="relative z-10"></div>
+                <form
+                  class="contents"
+                  onsubmit={(event) => { event.preventDefault(); void submitGroupTask(group); }}
+                >
+                  <div class="relative z-10 min-w-0 px-2" style="grid-column: 3;">
+                    {#if !(groupTaskDrafts[groupKey] ?? "").trim() && activeGroupTaskDraftInputId !== groupKey}
+                      <div
+                        class="pointer-events-none absolute inset-y-0 left-2 flex items-center gap-2 text-muted-foreground"
+                        aria-hidden="true"
+                      >
+                        <span class="flex h-5 w-5 shrink-0 items-center justify-center">
+                          <Plus size={15} strokeWidth={1.75} />
+                        </span>
+                        <span class="text-[0.866667rem]">{t("projects.list.addTaskInSection", groupTitle)}</span>
+                      </div>
+                    {/if}
+                    <input
+                      data-group-task-input={groupKey}
+                      aria-label={t("projects.list.addTaskInSection", groupTitle)}
+                      value={groupTaskDrafts[groupKey] ?? ""}
+                      onfocus={() => {
+                        activeGroupTaskDraftInputId = groupKey;
+                      }}
+                      onblur={() => {
+                        if (activeGroupTaskDraftInputId === groupKey) {
+                          activeGroupTaskDraftInputId = null;
+                        }
+                      }}
+                      oninput={(event) => {
+                        groupTaskDrafts = {
+                          ...groupTaskDrafts,
+                          [groupKey]: event.currentTarget.value,
+                        };
+                      }}
+                      class="min-h-8 w-full min-w-0 bg-transparent text-[0.866667rem] text-foreground"
+                    />
+                    {#if activeGroupTaskDraftInputId === groupKey && !(groupTaskDrafts[groupKey] ?? "").trim()}
+                      <span
+                        class="project-list-add-row-caret pointer-events-none absolute left-2 top-1/2 h-4 w-px -translate-y-1/2 bg-foreground"
+                        aria-hidden="true"
+                      ></span>
+                    {/if}
+                  </div>
+                  {#if (groupTaskDrafts[groupKey] ?? "").trim()}
+                    <div class="relative z-10 flex min-w-0 items-center px-2" style="grid-column: 4;">
+                      <button
+                        type="submit"
+                        disabled={taskCreatePendingTarget !== null}
+                        class="flex h-7 shrink-0 cursor-pointer items-center justify-center rounded-md border border-border bg-card px-2 text-[0.733333rem] text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {t("projects.list.saveWithEnter")}
+                      </button>
+                    </div>
+                  {/if}
+                </form>
+                {#if taskCreateErrorFor(groupCreateTarget)}
+                  <div class="col-span-full rounded border border-destructive/30 bg-destructive/10 px-2 py-1 text-[0.733333rem] text-destructive">
+                    {taskCreateErrorFor(groupCreateTarget)}
+                  </div>
+                {/if}
+              </div>
+            {/if}
           </div>
         </section>
       {/each}

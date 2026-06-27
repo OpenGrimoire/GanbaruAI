@@ -3,7 +3,7 @@ import type {
   ProjectTaskListColumn,
 } from "./types";
 
-export type ProjectToolbarPanel = "filters" | "customize" | "settings";
+export type ProjectToolbarPanel = "group" | "filters" | "customize" | "settings";
 export type ProjectNavigatorPanelMode = "groups" | "projects";
 export type ProjectTaskModalLayout = "modal" | "sheet" | "fullscreen";
 

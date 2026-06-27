@@ -2,8 +2,9 @@ const DEFAULT_STATUSES: &[(&str, &str, &str, i64, i64)] = &[
     ("backlog", "Backlog", "not_started", 0, 0),
     ("todo", "To do", "not_started", 10, 0),
     ("in-progress", "In progress", "active", 20, 0),
-    ("blocked", "Blocked", "blocked", 30, 0),
-    ("done", "Done", "done", 40, 1),
+    ("in-review", "In review", "active", 30, 0),
+    ("blocked", "Blocked", "blocked", 40, 0),
+    ("done", "Done", "done", 50, 1),
 ];
 
 const BLANK_TEMPLATE_SECTIONS: &[(&str, &str, i64)] = &[("general", "General", 0)];

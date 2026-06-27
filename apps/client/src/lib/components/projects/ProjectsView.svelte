@@ -345,6 +345,7 @@
   const activeTaskFilterCount = $derived(taskView.activeFilterCount);
   const taskFiltersActive = $derived(activeTaskFilterCount > 0);
   const taskFilterControlsActive = $derived(taskFiltersActive || showArchivedTasks || showInactiveSections);
+  const taskGroupingActive = $derived(taskGroupBy !== "section");
   const taskCustomizeActive = $derived(!taskListColumnsMatch(taskListColumns, DEFAULT_TASK_LIST_COLUMNS));
   const taskDataFiltersActive = $derived.by(() =>
     taskSearch.trim().length > 0
@@ -610,7 +611,6 @@
     taskDependencyFilter = "all";
     taskLabelFilter = "all";
     taskCustomFieldFilters = [];
-    taskGroupBy = "section";
     taskSortMode = "manual";
     taskSortDirection = "asc";
   }
@@ -799,6 +799,7 @@
           {selectedProjectId}
           {showInactiveProjects}
           {projectToolbarPanel}
+          {taskGroupingActive}
           taskFiltersActive={taskFilterControlsActive}
           {taskCustomizeActive}
           onShowInactiveProjectsChange={(value) => {

@@ -4,6 +4,7 @@
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import Columns3 from "@lucide/svelte/icons/columns-3";
   import FileChartColumnIncreasing from "@lucide/svelte/icons/file-chart-column-increasing";
+  import Layers from "@lucide/svelte/icons/layers";
   import ListFilter from "@lucide/svelte/icons/list-filter";
   import Route from "@lucide/svelte/icons/route";
   import ListCollapse from "@lucide/svelte/icons/list-collapse";
@@ -32,6 +33,7 @@
     selectedProjectId,
     showInactiveProjects,
     projectToolbarPanel,
+    taskGroupingActive,
     taskFiltersActive,
     taskCustomizeActive,
     onShowInactiveProjectsChange,
@@ -43,6 +45,7 @@
     selectedProjectId: string | null;
     showInactiveProjects: boolean;
     projectToolbarPanel: ProjectToolbarPanel | null;
+    taskGroupingActive: boolean;
     taskFiltersActive: boolean;
     taskCustomizeActive: boolean;
     onShowInactiveProjectsChange: (value: boolean) => void;
@@ -408,6 +411,17 @@
       onclick={() => onToggleToolbarPanel("customize")}
     >
       <Columns3 size={14} strokeWidth={1.75} />
+    </button>
+    <button
+      type="button"
+      data-project-toolbar-trigger="group"
+      class={toolbarIconButtonClass(taskGroupingActive, projectToolbarPanel === "group")}
+      aria-label={t("projects.toolbar.group")}
+      title={t("projects.toolbar.group")}
+      aria-expanded={projectToolbarPanel === "group"}
+      onclick={() => onToggleToolbarPanel("group")}
+    >
+      <Layers size={14} strokeWidth={1.75} />
     </button>
     <button
       type="button"

@@ -299,7 +299,6 @@ function activeFilterCount(input: ProjectTaskViewInput): number {
     input.dependencyFilter !== "all",
     input.labelFilter !== "all",
     input.customFieldFilters.length > 0,
-    input.groupBy !== "section",
     input.sortMode !== "manual" || input.sortDirection !== "asc",
   ].filter(Boolean).length;
 }
@@ -456,8 +455,7 @@ function groupedTopLevelTasksByValue(
   }
 
   const groups = orderedValues
-    .map((value) => ({ id: value, value, tasks: groupsByValue.get(value) ?? [] }))
-    .filter((group) => group.tasks.length > 0);
+    .map((value) => ({ id: value, value, tasks: groupsByValue.get(value) ?? [] }));
 
   const orderedValueSet = new Set(orderedValues);
   const extraGroups = Array.from(groupsByValue.entries())

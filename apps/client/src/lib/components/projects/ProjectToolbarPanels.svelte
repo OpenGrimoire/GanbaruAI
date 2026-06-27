@@ -11,7 +11,6 @@
   import Eye from "@lucide/svelte/icons/eye";
   import EyeOff from "@lucide/svelte/icons/eye-off";
   import Flag from "@lucide/svelte/icons/flag";
-  import Layers from "@lucide/svelte/icons/layers";
   import Link2 from "@lucide/svelte/icons/link-2";
   import ListTree from "@lucide/svelte/icons/list-tree";
   import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
@@ -81,7 +80,6 @@
     | "filter-label"
     | `filter-custom:${string}`
     | "sort"
-    | "group"
     | "visibility"
     | "saved-views"
     | "columns";
@@ -182,17 +180,20 @@
 
   function panelPreferredWidth(currentPanel: ProjectToolbarPanel): number {
     if (currentPanel === "settings") return 430;
+    if (currentPanel === "group") return 240;
     return 300;
   }
 
   function panelPreferredHeight(currentPanel: ProjectToolbarPanel): number {
     if (currentPanel === "settings") return 680;
     if (currentPanel === "customize") return 360;
+    if (currentPanel === "group") return 240;
     return 440;
   }
 
   function panelTitle(currentPanel: ProjectToolbarPanel): string {
     if (currentPanel === "settings") return t("projects.settings.title");
+    if (currentPanel === "group") return t("projects.toolbar.group");
     if (currentPanel === "customize") return t("projects.toolbar.customize");
     return t("projects.filters.title");
   }
@@ -503,7 +504,6 @@
     if (subpanel === "filter-dependency") return t("projects.columns.dependencies");
     if (subpanel === "filter-label") return t("projects.settings.labels");
     if (subpanel === "sort") return t("projects.toolbar.sort");
-    if (subpanel === "group") return t("projects.grouping.title");
     if (subpanel === "visibility") return t("projects.toolbar.visibility");
     if (subpanel === "saved-views") return t("projects.savedViews.title");
     return t("projects.columns.title");
@@ -637,6 +637,26 @@
         onClose={onClose}
         onRevealInactive={onRevealInactive}
       />
+    {:else if panel === "group"}
+      <header class="sticky top-0 z-10 flex shrink-0 items-center gap-2 bg-card px-3 pb-1 pt-2">
+        <div class="min-w-0 flex-1 truncate text-[0.9rem] font-semibold">{panelTitle(panel)}</div>
+        <button
+          type="button"
+          class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+          aria-label={t("common.close")}
+          title={t("common.close")}
+          onclick={onClose}
+        >
+          <X size={14} strokeWidth={1.75} />
+        </button>
+      </header>
+      <div class="min-h-0 flex-1 overflow-y-auto px-2 pb-2 pt-0.5">
+        <div class="grid">
+          {#each PROJECT_TASK_GROUP_MODES as mode}
+            {@render optionRow(taskGroupModeLabel(mode), taskGroupBy === mode, () => { taskGroupBy = mode; })}
+          {/each}
+        </div>
+      </div>
     {:else if panel === "filters"}
       <header class="sticky top-0 z-10 flex shrink-0 items-center gap-2 bg-card px-3 pb-1 pt-2">
         <div class="min-w-0 flex-1 truncate text-[0.9rem] font-semibold">{panelTitle(panel)}</div>
@@ -676,7 +696,6 @@
           <div class="my-1 border-t border-border"></div>
 
           {@render menuRow(t("projects.toolbar.sort"), sortSummary(), ArrowUpDown, "sort")}
-          {@render menuRow(t("projects.grouping.title"), taskGroupModeLabel(taskGroupBy), Layers, "group")}
           {@render menuRow(t("projects.toolbar.visibility"), visibilitySummary(), Eye, "visibility")}
         </div>
       </div>
@@ -817,10 +836,6 @@
           {/each}
           <div class="my-1 border-t border-border"></div>
           {@render toggleRow(taskSortDirectionLabel(taskSortDirection), true, taskSortDirection === "asc" ? ArrowUp : ArrowDown, () => { taskSortDirection = taskSortDirection === "asc" ? "desc" : "asc"; })}
-        {:else if activeSubpanel === "group"}
-          {#each PROJECT_TASK_GROUP_MODES as mode}
-            {@render optionRow(taskGroupModeLabel(mode), taskGroupBy === mode, () => { taskGroupBy = mode; })}
-          {/each}
         {:else if activeSubpanel === "visibility"}
           {@render toggleRow(showArchivedTasks ? t("projects.filters.hideArchived") : t("projects.filters.showArchived", archivedProjectTaskCount), showArchivedTasks, Archive, () => { showArchivedTasks = !showArchivedTasks; })}
           {#if inactiveSectionCount > 0}

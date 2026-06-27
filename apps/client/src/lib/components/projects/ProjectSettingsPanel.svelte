@@ -76,8 +76,8 @@
   const PROJECT_STATUS_DRAG_DATA_TYPE = "application/x-ganbaru-project-status";
   type ProjectLabelColorDraft = EventColor | "none";
   type SelectOption = { value: string; label: string };
-  type WorkflowDropPosition = "before" | "after";
-  type WorkflowStatusSaveDraft = {
+  type StatusDropPosition = "before" | "after";
+  type StatusSaveDraft = {
     status: ProjectStatus;
     name: string;
     category: ProjectStatusCategory;
@@ -132,10 +132,10 @@
   let settingsScrollable = $state(false);
   let settingsCanScrollUp = $state(false);
   let settingsCanScrollDown = $state(false);
-  let workflowDragStatusId = $state<string | null>(null);
-  let workflowDragOverStatusId = $state<string | null>(null);
-  let workflowDropPosition = $state<WorkflowDropPosition | null>(null);
-  let workflowReorderPending = $state(false);
+  let draggedStatusId = $state<string | null>(null);
+  let dragOverStatusId = $state<string | null>(null);
+  let statusDropPosition = $state<StatusDropPosition | null>(null);
+  let statusReorderPending = $state(false);
   let settingsScrollStateFrame: number | null = null;
 
   const selectedProject = $derived(projects.projectById(projectId));
@@ -200,8 +200,8 @@
       || projectFocusPlaylistDraft !== (selectedProject.focusPlaylistId ?? "")
       || projectBreakPlaylistDraft !== (selectedProject.breakPlaylistId ?? "");
   });
-  const workflowSettingsDirty = $derived.by(() => statuses.some(statusDraftDirty));
-  const projectSettingsDirty = $derived(projectFieldSettingsDirty || workflowSettingsDirty);
+  const statusSettingsDirty = $derived.by(() => statuses.some(statusDraftDirty));
+  const projectSettingsDirty = $derived(projectFieldSettingsDirty || statusSettingsDirty);
 
   $effect(() => {
     if (!selectedProject) return;
@@ -514,53 +514,53 @@
     return projectLabels[index + direction];
   }
 
-  function clearWorkflowStatusDrag(): void {
-    workflowDragStatusId = null;
-    workflowDragOverStatusId = null;
-    workflowDropPosition = null;
+  function clearStatusDrag(): void {
+    draggedStatusId = null;
+    dragOverStatusId = null;
+    statusDropPosition = null;
   }
 
-  function workflowDropPositionForEvent(event: DragEvent, target: HTMLElement): WorkflowDropPosition {
+  function statusDropPositionForEvent(event: DragEvent, target: HTMLElement): StatusDropPosition {
     const bounds = target.getBoundingClientRect();
     return event.clientY < bounds.top + bounds.height / 2 ? "before" : "after";
   }
 
-  function workflowDropMarkerVisible(statusId: string, position: WorkflowDropPosition): boolean {
-    return workflowDragStatusId !== null
-      && workflowDragStatusId !== statusId
-      && workflowDragOverStatusId === statusId
-      && workflowDropPosition === position;
+  function statusDropMarkerVisible(statusId: string, position: StatusDropPosition): boolean {
+    return draggedStatusId !== null
+      && draggedStatusId !== statusId
+      && dragOverStatusId === statusId
+      && statusDropPosition === position;
   }
 
-  function handleWorkflowStatusDragStart(event: DragEvent, status: ProjectStatus): void {
-    workflowDragStatusId = status.id;
-    workflowDragOverStatusId = null;
-    workflowDropPosition = null;
+  function handleStatusDragStart(event: DragEvent, status: ProjectStatus): void {
+    draggedStatusId = status.id;
+    dragOverStatusId = null;
+    statusDropPosition = null;
     if (!event.dataTransfer) return;
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData(PROJECT_STATUS_DRAG_DATA_TYPE, status.id);
     event.dataTransfer.setData("text/plain", status.id);
   }
 
-  function handleWorkflowStatusDragOver(
+  function handleStatusDragOver(
     event: DragEvent,
     status: ProjectStatus,
     target: HTMLElement,
   ): void {
-    if (!workflowDragStatusId || workflowReorderPending) return;
-    if (workflowDragStatusId === status.id) {
-      workflowDragOverStatusId = null;
-      workflowDropPosition = null;
+    if (!draggedStatusId || statusReorderPending) return;
+    if (draggedStatusId === status.id) {
+      dragOverStatusId = null;
+      statusDropPosition = null;
       return;
     }
     event.preventDefault();
     if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
-    workflowDragOverStatusId = status.id;
-    workflowDropPosition = workflowDropPositionForEvent(event, target);
+    dragOverStatusId = status.id;
+    statusDropPosition = statusDropPositionForEvent(event, target);
   }
 
-  async function moveWorkflowStatusToIndex(statusId: string, targetIndex: number): Promise<void> {
-    workflowReorderPending = true;
+  async function moveStatusToIndex(statusId: string, targetIndex: number): Promise<void> {
+    statusReorderPending = true;
     projectSettingsError = null;
     try {
       let currentIndex = statuses.findIndex((entry) => entry.id === statusId);
@@ -582,36 +582,36 @@
         error instanceof Error ? error.message : String(error),
       );
     } finally {
-      workflowReorderPending = false;
-      clearWorkflowStatusDrag();
+      statusReorderPending = false;
+      clearStatusDrag();
     }
   }
 
-  async function dropWorkflowStatus(event: DragEvent, targetStatus: ProjectStatus): Promise<void> {
+  async function dropStatus(event: DragEvent, targetStatus: ProjectStatus): Promise<void> {
     event.preventDefault();
-    const draggedStatusId = workflowDragStatusId
+    const statusId = draggedStatusId
       ?? event.dataTransfer?.getData(PROJECT_STATUS_DRAG_DATA_TYPE)
       ?? event.dataTransfer?.getData("text/plain")
       ?? null;
-    if (!draggedStatusId || draggedStatusId === targetStatus.id) {
-      clearWorkflowStatusDrag();
+    if (!statusId || statusId === targetStatus.id) {
+      clearStatusDrag();
       return;
     }
 
-    const sourceIndex = statuses.findIndex((entry) => entry.id === draggedStatusId);
+    const sourceIndex = statuses.findIndex((entry) => entry.id === statusId);
     let targetIndex = statuses.findIndex((entry) => entry.id === targetStatus.id);
     if (sourceIndex < 0 || targetIndex < 0) {
-      clearWorkflowStatusDrag();
+      clearStatusDrag();
       return;
     }
-    if ((workflowDropPosition ?? "before") === "after") targetIndex += 1;
+    if ((statusDropPosition ?? "before") === "after") targetIndex += 1;
     if (sourceIndex < targetIndex) targetIndex -= 1;
     const boundedTargetIndex = Math.max(0, Math.min(statuses.length - 1, targetIndex));
     if (boundedTargetIndex === sourceIndex) {
-      clearWorkflowStatusDrag();
+      clearStatusDrag();
       return;
     }
-    await moveWorkflowStatusToIndex(draggedStatusId, boundedTargetIndex);
+    await moveStatusToIndex(statusId, boundedTargetIndex);
   }
 
   function statusDraftDirty(status: ProjectStatus): boolean {
@@ -619,7 +619,7 @@
       || (statusCategoryDrafts[status.id] ?? status.category) !== status.category;
   }
 
-  function workflowStatusTaskCount(status: ProjectStatus): number {
+  function statusTaskCount(status: ProjectStatus): number {
     return projects
       .tasksForProjectIncludingArchived(status.projectId)
       .filter((task) => task.statusId === status.id)
@@ -627,12 +627,12 @@
   }
 
   function statusDeleteDisabled(status: ProjectStatus): boolean {
-    return statuses.length <= 1 || workflowStatusTaskCount(status) > 0;
+    return statuses.length <= 1 || statusTaskCount(status) > 0;
   }
 
   function statusDeleteTitle(status: ProjectStatus): string {
     if (statuses.length <= 1) return t("projects.settings.deleteStatusBlockedLast");
-    if (workflowStatusTaskCount(status) > 0) return t("projects.settings.deleteStatusBlockedTasks");
+    if (statusTaskCount(status) > 0) return t("projects.settings.deleteStatusBlockedTasks");
     return t("projects.settings.deleteStatus", status.name);
   }
 
@@ -666,8 +666,8 @@
     }
   }
 
-  function workflowStatusSaveDrafts(): WorkflowStatusSaveDraft[] | null {
-    const drafts: WorkflowStatusSaveDraft[] = [];
+  function statusSaveDrafts(): StatusSaveDraft[] | null {
+    const drafts: StatusSaveDraft[] = [];
     for (const status of statuses) {
       if (!statusDraftDirty(status)) continue;
       const name = (statusNameDrafts[status.id] ?? status.name).trim();
@@ -959,7 +959,7 @@
     }
   }
 
-  async function moveWorkflowStatus(status: ProjectStatus, direction: -1 | 1): Promise<void> {
+  async function moveStatusByDirection(status: ProjectStatus, direction: -1 | 1): Promise<void> {
     projectSettingsError = null;
     try {
       await projects.moveStatus(status, direction);
@@ -982,8 +982,8 @@
       projectSettingsError = t("projects.settings.groupRequired");
       return;
     }
-    const workflowDrafts = workflowStatusSaveDrafts();
-    if (!workflowDrafts) return;
+    const statusDrafts = statusSaveDrafts();
+    if (!statusDrafts) return;
     const shouldUpdateProject = projectFieldSettingsDirty;
     const shouldRevealInactive = shouldUpdateProject && projectStatusDraft !== "active";
     projectSettingsSaving = true;
@@ -1033,7 +1033,7 @@
           blockerRulesetId: selectedProject.blockerRulesetId ?? null,
         });
       }
-      for (const draft of workflowDrafts) {
+      for (const draft of statusDrafts) {
         await projects.updateStatus(draft.status, {
           name: draft.name,
           category: draft.category,
@@ -1571,43 +1571,43 @@
           <div class="h-px bg-border/70" aria-hidden="true"></div>
 
           <section class="flex flex-col gap-0.5">
-            {@render sectionHeading(t("projects.settings.workflow"), String(statuses.length))}
+            {@render sectionHeading(t("projects.settings.taskStatuses"), String(statuses.length))}
             <div class="flex flex-col gap-0.5">
               {#each statuses as status (status.id)}
                 {@const deleteStatusTitle = statusDeleteTitle(status)}
                 <div
                   class={cn(
                     "relative grid min-h-7 grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-1 px-1 py-0.5",
-                    workflowDragStatusId === status.id && "opacity-50",
+                    draggedStatusId === status.id && "opacity-50",
                   )}
                   role="group"
                   aria-label={status.name}
-                  ondragover={(event) => handleWorkflowStatusDragOver(event, status, event.currentTarget)}
-                  ondrop={(event) => { void dropWorkflowStatus(event, status); }}
+                  ondragover={(event) => handleStatusDragOver(event, status, event.currentTarget)}
+                  ondrop={(event) => { void dropStatus(event, status); }}
                 >
-                  {#if workflowDropMarkerVisible(status.id, "before")}
+                  {#if statusDropMarkerVisible(status.id, "before")}
                     <div class="pointer-events-none absolute left-1 right-1 top-0 h-0.5 rounded-full bg-primary"></div>
                   {/if}
-                  {#if workflowDropMarkerVisible(status.id, "after")}
+                  {#if statusDropMarkerVisible(status.id, "after")}
                     <div class="pointer-events-none absolute bottom-0 left-1 right-1 h-0.5 rounded-full bg-primary"></div>
                   {/if}
                   <button
                     type="button"
                     class="flex h-7 w-7 shrink-0 cursor-grab items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-40"
-                    draggable={statuses.length > 1 && !workflowReorderPending}
-                    disabled={statuses.length <= 1 || workflowReorderPending}
+                    draggable={statuses.length > 1 && !statusReorderPending}
+                    disabled={statuses.length <= 1 || statusReorderPending}
                     aria-label={t("projects.actions.dragStatus", status.name)}
                     title={t("projects.actions.dragStatus", status.name)}
-                    ondragstart={(event) => handleWorkflowStatusDragStart(event, status)}
-                    ondragend={clearWorkflowStatusDrag}
+                    ondragstart={(event) => handleStatusDragStart(event, status)}
+                    ondragend={clearStatusDrag}
                     onkeydown={(event) => {
                       if (event.key === "ArrowUp") {
                         event.preventDefault();
-                        void moveWorkflowStatus(status, -1);
+                        void moveStatusByDirection(status, -1);
                       }
                       if (event.key === "ArrowDown") {
                         event.preventDefault();
-                        void moveWorkflowStatus(status, 1);
+                        void moveStatusByDirection(status, 1);
                       }
                     }}
                   >

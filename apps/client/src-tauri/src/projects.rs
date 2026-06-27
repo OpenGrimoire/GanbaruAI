@@ -1593,7 +1593,7 @@ async fn delete_unused_status(
             .await
             .map_err(|e| format!("count project statuses: {e}"))?;
     if status_count <= 1 {
-        return Err("project must keep at least one workflow status".to_string());
+        return Err("project must keep at least one task status".to_string());
     }
 
     let task_count: i64 =
@@ -1603,7 +1603,7 @@ async fn delete_unused_status(
             .await
             .map_err(|e| format!("count status tasks: {e}"))?;
     if task_count > 0 {
-        return Err("move or delete tasks before deleting this workflow status".to_string());
+        return Err("move or delete tasks before deleting this task status".to_string());
     }
 
     let result = sqlx::query("DELETE FROM project_statuses WHERE id = ?")
@@ -2380,7 +2380,7 @@ mod tests {
 
             assert_eq!(
                 result,
-                Err("move or delete tasks before deleting this workflow status".to_string())
+                Err("move or delete tasks before deleting this task status".to_string())
             );
         });
     }
@@ -2416,7 +2416,7 @@ mod tests {
 
             assert_eq!(
                 result,
-                Err("project must keep at least one workflow status".to_string())
+                Err("project must keep at least one task status".to_string())
             );
         });
     }
