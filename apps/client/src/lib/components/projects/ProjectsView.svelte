@@ -225,9 +225,18 @@
   }): Partial<CalendarEvent> {
     const project = selectedProject;
     if (!project) return {};
+    const usesProjectAllDayDefault = !input.allDay && project.defaultEventTimeMode === "all_day";
+    const allDay = input.allDay || usesProjectAllDayDefault;
+    let start = input.start;
     let end = input.end;
-    if (!input.allDay && project.defaultEventDurationMinutes !== null) {
+    if (usesProjectAllDayDefault) {
       const startDate = input.start.split(" ")[0] ?? "";
+      if (startDate) {
+        start = `${startDate} 00:00`;
+        end = `${startDate} 00:00`;
+      }
+    } else if (!allDay && project.defaultEventDurationMinutes !== null) {
+      const startDate = start.split(" ")[0] ?? "";
       const startTime = input.start.split(" ")[1] ?? "";
       const nextWindow = projectScheduleWindowFor(
         startDate,
@@ -238,13 +247,14 @@
     }
     return {
       title: project.defaultEventName ?? "",
-      start: input.start,
+      start,
       end,
+      allDay: allDay || undefined,
       projectId: project.id,
       color: project.color,
       environmentId: project.workEnvironmentId,
       playlistId: project.focusPlaylistId,
-      pomodoroConfig: input.allDay
+      pomodoroConfig: allDay
         ? undefined
         : projectDefaultPomodoroConfig(project, projectIdleTimeoutMinutes(project)),
     };

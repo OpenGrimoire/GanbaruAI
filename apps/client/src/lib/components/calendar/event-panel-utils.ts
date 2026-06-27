@@ -1,5 +1,6 @@
 import { hasOnlyShortcutModifier, hasShortcutModifier } from "$lib/keyboard-shortcuts";
 import type { CalendarTimeFormat } from "$lib/stores/preferences";
+import type { ProjectDefaultEventTimeMode } from "$lib/projects/project-settings-duration";
 
 export type RovingOrientation = "horizontal" | "vertical" | "grid";
 
@@ -20,6 +21,7 @@ export interface ProjectDurationDefaultInput {
   mode: "create" | "edit";
   allDay: boolean;
   activeEdit: boolean;
+  defaultEventTimeMode: ProjectDefaultEventTimeMode;
   defaultEventDurationMinutes: number | null;
 }
 
@@ -45,8 +47,13 @@ export function panelInputKeydown(e: KeyboardEvent): void {
 export function projectDurationDefaultForSelection(
   input: ProjectDurationDefaultInput,
 ): number | null {
-  if (input.allDay || input.activeEdit) return null;
+  if (input.allDay || input.activeEdit || input.defaultEventTimeMode === "all_day") return null;
   return input.defaultEventDurationMinutes;
+}
+
+export function projectAllDayDefaultForSelection(input: ProjectDurationDefaultInput): boolean {
+  if (input.allDay || input.activeEdit) return false;
+  return input.defaultEventTimeMode === "all_day";
 }
 
 export function projectDefaultEventTitleForSelection(

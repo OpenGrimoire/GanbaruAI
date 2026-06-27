@@ -12,6 +12,11 @@ describe("project settings duration helpers", () => {
     expect(projectDurationPresetFromMinutes(null)).toBe("default");
   });
 
+  it("maps all-day time mode to the all-day preset", () => {
+    expect(projectDurationPresetFromMinutes(null, "all_day")).toBe("all_day");
+    expect(projectDurationPresetFromMinutes(90, "all_day")).toBe("all_day");
+  });
+
   it("keeps an explicit hour separate from the default preset", () => {
     expect(projectDurationPresetFromMinutes(60)).toBe("60");
   });

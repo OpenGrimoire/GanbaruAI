@@ -25,7 +25,10 @@ pub(super) fn validate_project_create(project: &ProjectCreate) -> Result<(), Str
     validate_color(project.color)?;
     validate_non_negative(project.sort_order, "sort_order")?;
     validate_optional_text(&project.default_event_name, "default_event_name")?;
-    validate_project_event_duration(project.default_event_duration_minutes)?;
+    validate_project_event_time_defaults(
+        &project.default_event_time_mode,
+        project.default_event_duration_minutes,
+    )?;
     validate_project_default_pomodoro(
         &project.default_pomodoro_mode,
         project.default_pomodoro_preset_key.as_deref(),
@@ -50,7 +53,10 @@ pub(super) fn validate_project_update(project: &ProjectUpdate) -> Result<(), Str
     validate_non_negative(project.sort_order, "sort_order")?;
     validate_enum(&project.status, "status", &["active", "hidden", "archived"])?;
     validate_optional_text(&project.default_event_name, "default_event_name")?;
-    validate_project_event_duration(project.default_event_duration_minutes)?;
+    validate_project_event_time_defaults(
+        &project.default_event_time_mode,
+        project.default_event_duration_minutes,
+    )?;
     validate_project_default_pomodoro(
         &project.default_pomodoro_mode,
         project.default_pomodoro_preset_key.as_deref(),
@@ -402,6 +408,23 @@ pub(super) fn validate_color(value: Option<i64>) -> Result<(), String> {
         return Err("color is outside the event palette".to_string());
     }
     Ok(())
+}
+
+pub(super) fn validate_project_event_time_defaults(
+    time_mode: &str,
+    duration_minutes: Option<i64>,
+) -> Result<(), String> {
+    validate_enum(
+        time_mode,
+        "default_event_time_mode",
+        PROJECT_EVENT_TIME_MODES,
+    )?;
+    if time_mode == "all_day" && duration_minutes.is_some() {
+        return Err(
+            "default_event_duration_minutes must be empty for all-day defaults".to_string(),
+        );
+    }
+    validate_project_event_duration(duration_minutes)
 }
 
 pub(super) fn validate_project_event_duration(value: Option<i64>) -> Result<(), String> {

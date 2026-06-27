@@ -26,7 +26,10 @@
     projectLabelColorSwatchClass,
     projectLifecycleLabel,
   } from "$lib/projects/project-display";
-  import { PROJECT_MAX_DURATION_MINUTES } from "$lib/projects/project-settings-duration";
+  import {
+    PROJECT_MAX_DURATION_MINUTES,
+    type ProjectDefaultEventTimeMode,
+  } from "$lib/projects/project-settings-duration";
   import {
     PROJECT_CUSTOM_FIELD_TYPES,
     PROJECT_LIFECYCLE_STATUSES,
@@ -80,6 +83,7 @@
   let projectStatusDraft = $state<ProjectLifecycleStatus>("active");
   let projectColorDraft = $state<EventColor | undefined>(undefined);
   let projectDefaultEventNameDraft = $state("");
+  let projectEventTimeModeDraft = $state<ProjectDefaultEventTimeMode>("timed");
   let projectDurationDraft = $state("60");
   let projectPomodoroModeDraft = $state<ProjectDefaultPomodoroMode>("preset");
   let projectPomodoroPresetDraft = $state<PomodoroPresetKey>("adaptive");
@@ -175,6 +179,7 @@
       || projectStatusDraft !== selectedProject.status
       || projectColorDraft !== selectedProject.color
       || projectDefaultEventNameDraft !== (selectedProject.defaultEventName ?? "")
+      || projectEventTimeModeDraft !== selectedProject.defaultEventTimeMode
       || projectDurationDraft !== String(selectedProject.defaultEventDurationMinutes ?? "")
       || projectPomodoroSettingsDirty(selectedProject)
       || projectIdleSettingsDirty(selectedProject)
@@ -203,6 +208,7 @@
     projectStatusDraft = project.status;
     projectColorDraft = project.color;
     projectDefaultEventNameDraft = project.defaultEventName ?? "";
+    projectEventTimeModeDraft = project.defaultEventTimeMode;
     projectDurationDraft = String(project.defaultEventDurationMinutes ?? "");
     projectPomodoroModeDraft = project.defaultPomodoroMode;
     projectPomodoroPresetDraft = project.defaultPomodoroPresetKey ?? "adaptive";
@@ -817,10 +823,12 @@
     projectSettingsSaving = true;
     projectSettingsError = null;
     try {
-      const defaultEventDurationMinutes = normalizeProjectDuration(
-        projectDurationDraft,
-        t("projects.settings.invalidDuration"),
-      );
+      const defaultEventDurationMinutes = projectEventTimeModeDraft === "all_day"
+        ? null
+        : normalizeProjectDuration(
+            projectDurationDraft,
+            t("projects.settings.invalidDuration"),
+          );
       const defaultPomodoroCustom = projectPomodoroCustomDraft();
       await projects.updateProject({
         id: selectedProject.id,
@@ -833,6 +841,7 @@
           : nextProjectSortOrderForGroup(projectGroupDraft, selectedProject.id),
         status: projectStatusDraft,
         defaultEventName: normalizeOptionalText(projectDefaultEventNameDraft),
+        defaultEventTimeMode: projectEventTimeModeDraft,
         defaultEventDurationMinutes,
         defaultPomodoroMode: projectPomodoroModeDraft,
         defaultPomodoroPresetKey: projectPomodoroModeDraft === "preset" ? projectPomodoroPresetDraft : null,
@@ -1009,6 +1018,7 @@
             {pomodoroPresetLabel}
             bind:projectColorDraft
             bind:projectDefaultEventNameDraft
+            bind:projectEventTimeModeDraft
             bind:projectDurationDraft
             bind:projectPomodoroModeDraft
             bind:projectPomodoroPresetDraft

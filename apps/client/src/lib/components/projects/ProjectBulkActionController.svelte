@@ -128,17 +128,25 @@
     scheduledWindow: ProjectScheduleWindow,
   ): Promise<CalendarEvent> {
     let createdEventId: string | null = null;
+    const allDay = project.defaultEventTimeMode === "all_day";
+    const scheduledDate = scheduledWindow.start.slice(0, 10);
+    const start = allDay ? `${scheduledDate} 00:00` : scheduledWindow.start;
+    const end = allDay ? `${scheduledDate} 00:00` : scheduledWindow.end;
     try {
       const event = await calendar.addBlock({
         title: task.title,
-        start: scheduledWindow.start,
-        end: scheduledWindow.end,
+        start,
+        end,
         projectId: project.id,
         color: project.color,
-        pomodoroConfig: projectDefaultPomodoroConfig(project, projectIdleTimeoutMinutes(project)),
+        environmentId: project.workEnvironmentId,
+        playlistId: project.focusPlaylistId,
+        allDay: allDay || undefined,
+        pomodoroConfig: allDay
+          ? undefined
+          : projectDefaultPomodoroConfig(project, projectIdleTimeoutMinutes(project)),
       });
       createdEventId = event.id;
-      const scheduledDate = scheduledWindow.start.slice(0, 10);
       await projects.linkTaskEvent(task.id, event.id, "scheduled");
       await projects.updateTask(task, {
         startDate: scheduledDate,

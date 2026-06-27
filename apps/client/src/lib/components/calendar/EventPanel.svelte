@@ -31,6 +31,7 @@
   import {
     commitTimeDraft,
     displayTimeDraft,
+    projectAllDayDefaultForSelection,
     projectDefaultEventTitleForSelection,
     moveRovingIndex,
     projectDurationDefaultForSelection,
@@ -746,11 +747,27 @@
         defaultEventName: selectedProject.defaultEventName,
       });
       color = selectedProject.color;
+      if (projectAllDayDefaultForSelection({
+        mode,
+        allDay,
+        activeEdit: mode === "edit" && lockStartControls,
+        defaultEventTimeMode: selectedProject.defaultEventTimeMode,
+        defaultEventDurationMinutes: selectedProject.defaultEventDurationMinutes,
+      })) {
+        allDay = true;
+        stashedStartTime = startTime;
+        stashedEndTime = endTime;
+        endDate = startDate;
+        startTime = "00:00";
+        endTime = "00:00";
+        syncTimeDrafts();
+      }
       if (!allDay) {
         const durationMinutes = projectDurationDefaultForSelection({
           mode,
           allDay,
           activeEdit: mode === "edit" && lockStartControls,
+          defaultEventTimeMode: selectedProject.defaultEventTimeMode,
           defaultEventDurationMinutes: selectedProject.defaultEventDurationMinutes,
         });
         if (durationMinutes !== null) {

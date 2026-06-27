@@ -9,6 +9,7 @@ import {
   DEFAULT_FOCUS_IDLE_THRESHOLD_MINUTES,
   type FocusIdleThresholdMinutes,
 } from "$lib/stores/preferences";
+import type { ProjectDefaultEventTimeMode } from "$lib/projects/project-settings-duration";
 
 export const PROJECT_VIEW_IDS = ["dashboard", "list", "kanban", "calendar", "gantt"] as const;
 export type ProjectViewId = (typeof PROJECT_VIEW_IDS)[number];
@@ -97,6 +98,7 @@ export interface Project {
   sortOrder: number;
   status: ProjectLifecycleStatus;
   defaultEventName: string | null;
+  defaultEventTimeMode: ProjectDefaultEventTimeMode;
   defaultEventDurationMinutes: number | null;
   defaultPomodoroMode: ProjectDefaultPomodoroMode;
   defaultPomodoroPresetKey?: PomodoroPresetKey;
@@ -120,6 +122,7 @@ export const PROJECT_TEMPLATE_DEFAULTS = {
     icon: "folder",
     color: null,
     defaultEventName: null,
+    defaultEventTimeMode: "timed",
     defaultEventDurationMinutes: null,
     defaultPomodoroMode: "preset",
     defaultPomodoroPresetKey: "adaptive",
@@ -135,6 +138,7 @@ export const PROJECT_TEMPLATE_DEFAULTS = {
     icon: "folder",
     color: null,
     defaultEventName: null,
+    defaultEventTimeMode: "timed",
     defaultEventDurationMinutes: null,
     defaultPomodoroMode: "preset",
     defaultPomodoroPresetKey: "adaptive",
@@ -150,6 +154,7 @@ export const PROJECT_TEMPLATE_DEFAULTS = {
     icon: "graduation-cap",
     color: null,
     defaultEventName: null,
+    defaultEventTimeMode: "timed",
     defaultEventDurationMinutes: null,
     defaultPomodoroMode: "preset",
     defaultPomodoroPresetKey: "adaptive",
@@ -165,6 +170,7 @@ export const PROJECT_TEMPLATE_DEFAULTS = {
     icon: "repeat",
     color: null,
     defaultEventName: null,
+    defaultEventTimeMode: "timed",
     defaultEventDurationMinutes: null,
     defaultPomodoroMode: "preset",
     defaultPomodoroPresetKey: "adaptive",
@@ -180,6 +186,7 @@ export const PROJECT_TEMPLATE_DEFAULTS = {
     icon: "book-open",
     color: null,
     defaultEventName: null,
+    defaultEventTimeMode: "timed",
     defaultEventDurationMinutes: null,
     defaultPomodoroMode: "preset",
     defaultPomodoroPresetKey: "adaptive",
@@ -195,6 +202,7 @@ export const PROJECT_TEMPLATE_DEFAULTS = {
     icon: "sparkles",
     color: null,
     defaultEventName: null,
+    defaultEventTimeMode: "timed",
     defaultEventDurationMinutes: null,
     defaultPomodoroMode: "preset",
     defaultPomodoroPresetKey: "adaptive",
@@ -210,6 +218,7 @@ export const PROJECT_TEMPLATE_DEFAULTS = {
   icon: string;
   color: EventColor | null;
   defaultEventName: string | null;
+  defaultEventTimeMode: ProjectDefaultEventTimeMode;
   defaultEventDurationMinutes: number | null;
   defaultPomodoroMode: ProjectDefaultPomodoroMode;
   defaultPomodoroPresetKey: PomodoroPresetKey | null;
@@ -577,6 +586,7 @@ export interface ProjectCreate {
   color: EventColor | null;
   sortOrder: number;
   defaultEventName: string | null;
+  defaultEventTimeMode: ProjectDefaultEventTimeMode;
   defaultEventDurationMinutes: number | null;
   defaultPomodoroMode: ProjectDefaultPomodoroMode;
   defaultPomodoroPresetKey: PomodoroPresetKey | null;
@@ -598,6 +608,7 @@ export interface ProjectUpdate {
   sortOrder: number;
   status: ProjectLifecycleStatus;
   defaultEventName: string | null;
+  defaultEventTimeMode: ProjectDefaultEventTimeMode;
   defaultEventDurationMinutes: number | null;
   defaultPomodoroMode: ProjectDefaultPomodoroMode;
   defaultPomodoroPresetKey: PomodoroPresetKey | null;

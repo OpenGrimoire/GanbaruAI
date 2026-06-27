@@ -27,6 +27,7 @@
     projectCustomDurationDraftFromMinutes,
     projectDurationMinutesFromCustomInput,
     projectDurationPresetFromMinutes,
+    type ProjectDefaultEventTimeMode,
     type ProjectDurationPresetValue,
     type ProjectDurationUnit,
   } from "$lib/projects/project-settings-duration";
@@ -44,6 +45,7 @@
     pomodoroPresetLabel,
     projectColorDraft = $bindable<EventColor | undefined>(),
     projectDefaultEventNameDraft = $bindable<string>(),
+    projectEventTimeModeDraft = $bindable<ProjectDefaultEventTimeMode>(),
     projectDurationDraft = $bindable<string>(),
     projectPomodoroModeDraft = $bindable<ProjectDefaultPomodoroMode>(),
     projectPomodoroPresetDraft = $bindable<PomodoroPresetKey>(),
@@ -64,6 +66,7 @@
     pomodoroPresetLabel: (preset: PomodoroPresetKey) => string;
     projectColorDraft: EventColor | undefined;
     projectDefaultEventNameDraft: string;
+    projectEventTimeModeDraft: ProjectDefaultEventTimeMode;
     projectDurationDraft: string;
     projectPomodoroModeDraft: ProjectDefaultPomodoroMode;
     projectPomodoroPresetDraft: PomodoroPresetKey;
@@ -102,6 +105,7 @@
   let customDurationValue = $state("");
   let customDurationUnit = $state<ProjectDurationUnit>("hours");
   let lastSyncedDurationDraft = $state("");
+  let lastSyncedEventTimeMode = $state<ProjectDefaultEventTimeMode>("timed");
   let pomodoroFocusInputDraft = $state(String(PROJECT_DEFAULT_CUSTOM_POMODORO.focusDurationMinutes));
   let pomodoroShortBreakInputDraft = $state(String(PROJECT_DEFAULT_CUSTOM_POMODORO.shortBreakMinutes));
   let pomodoroLongBreakInputDraft = $state(String(PROJECT_DEFAULT_CUSTOM_POMODORO.longBreakMinutes));
@@ -116,6 +120,7 @@
     { value: "120", label: t("projects.settings.durationHours", 2) },
     { value: "180", label: t("projects.settings.durationHours", 3) },
     { value: "240", label: t("projects.settings.durationHours", 4) },
+    { value: "all_day", label: t("projects.settings.defaultDurationAllDay") },
     { value: "custom", label: t("projects.settings.durationCustom") },
   ]);
   const durationUnitOptions = $derived<SelectOption[]>([
@@ -231,7 +236,15 @@
       : "custom";
   }
 
-  function syncDurationControlsFromDraft(value: string): void {
+  function syncDurationControlsFromDraft(value: string, timeMode = projectEventTimeModeDraft): void {
+    if (timeMode === "all_day") {
+      durationPreset = "all_day";
+      customDurationValue = "";
+      customDurationUnit = "hours";
+      lastSyncedDurationDraft = value;
+      lastSyncedEventTimeMode = timeMode;
+      return;
+    }
     const minutes = parseStoredDurationDraft(value);
     durationPreset = minutes === "custom" ? "custom" : projectDurationPresetFromMinutes(minutes);
     if (durationPreset === "custom") {
@@ -248,13 +261,17 @@
       customDurationUnit = "hours";
     }
     lastSyncedDurationDraft = value;
+    lastSyncedEventTimeMode = timeMode;
   }
 
-  syncDurationControlsFromDraft(projectDurationDraft);
+  syncDurationControlsFromDraft(projectDurationDraft, projectEventTimeModeDraft);
 
   $effect(() => {
-    if (projectDurationDraft !== lastSyncedDurationDraft) {
-      syncDurationControlsFromDraft(projectDurationDraft);
+    if (
+      projectDurationDraft !== lastSyncedDurationDraft
+      || projectEventTimeModeDraft !== lastSyncedEventTimeMode
+    ) {
+      syncDurationControlsFromDraft(projectDurationDraft, projectEventTimeModeDraft);
     }
   });
 
@@ -264,7 +281,10 @@
   }
 
   function isDurationPresetValue(value: string): value is ProjectDurationPresetValue {
-    return value === "default" || value === "custom" || value in PROJECT_DURATION_PRESET_MINUTES;
+    return value === "default"
+      || value === "all_day"
+      || value === "custom"
+      || value in PROJECT_DURATION_PRESET_MINUTES;
   }
 
   function isDurationUnit(value: string): value is ProjectDurationUnit {
@@ -274,6 +294,14 @@
   function setDurationPreset(value: string): void {
     if (!isDurationPresetValue(value)) return;
     durationPreset = value;
+    if (value === "all_day") {
+      projectEventTimeModeDraft = "all_day";
+      customDurationValue = "";
+      customDurationUnit = "hours";
+      setProjectDurationDraft("");
+      return;
+    }
+    projectEventTimeModeDraft = "timed";
     if (value === "custom") {
       customDurationValue = "";
       customDurationUnit = "hours";
@@ -288,6 +316,7 @@
   }
 
   function syncCustomDurationDraft(): void {
+    projectEventTimeModeDraft = "timed";
     const minutes = projectDurationMinutesFromCustomInput(customDurationValue, customDurationUnit);
     setProjectDurationDraft(minutes === null ? "custom" : String(minutes));
   }

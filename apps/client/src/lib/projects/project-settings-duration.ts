@@ -1,6 +1,8 @@
 export type ProjectDurationUnit = "minutes" | "hours";
+export type ProjectDefaultEventTimeMode = "timed" | "all_day";
 export type ProjectDurationPresetValue =
   | "default"
+  | "all_day"
   | "10"
   | "15"
   | "30"
@@ -21,7 +23,7 @@ export const PROJECT_DURATION_PRESET_MINUTES = {
   "120": 120,
   "180": 180,
   "240": 240,
-} satisfies Record<Exclude<ProjectDurationPresetValue, "custom" | "default">, number>;
+} satisfies Record<Exclude<ProjectDurationPresetValue, "custom" | "default" | "all_day">, number>;
 
 export interface ProjectCustomDurationDraft {
   value: string;
@@ -33,7 +35,11 @@ const customDurationShape = /^\d+(?:\.\d{0,2})?$/;
 /**
  * Returns the preset that should represent a stored duration in the settings UI.
  */
-export function projectDurationPresetFromMinutes(minutes: number | null): ProjectDurationPresetValue {
+export function projectDurationPresetFromMinutes(
+  minutes: number | null,
+  timeMode: ProjectDefaultEventTimeMode = "timed",
+): ProjectDurationPresetValue {
+  if (timeMode === "all_day") return "all_day";
   if (minutes === null) return "default";
   const preset = Object.entries(PROJECT_DURATION_PRESET_MINUTES)
     .find(([, value]) => value === minutes);

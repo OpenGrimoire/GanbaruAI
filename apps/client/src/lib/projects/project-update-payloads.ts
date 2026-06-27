@@ -121,6 +121,7 @@ export function projectUpdatePayload(project: Project, patch: Partial<Project>):
     sortOrder: merged.sortOrder,
     status: merged.status,
     defaultEventName: merged.defaultEventName,
+    defaultEventTimeMode: merged.defaultEventTimeMode,
     defaultEventDurationMinutes: merged.defaultEventDurationMinutes,
     defaultPomodoroMode: merged.defaultPomodoroMode,
     defaultPomodoroPresetKey: merged.defaultPomodoroPresetKey ?? null,

@@ -11,6 +11,7 @@ const MAX_PROJECT_POMODORO_FOCUS_MINUTES: i64 = 120;
 const MAX_PROJECT_POMODORO_SHORT_BREAK_MINUTES: i64 = 30;
 const MAX_PROJECT_POMODORO_LONG_BREAK_MINUTES: i64 = 60;
 const MAX_PROJECT_POMODORO_CYCLE_COUNT: i64 = 12;
+const PROJECT_EVENT_TIME_MODES: &[&str] = &["timed", "all_day"];
 const PROJECT_IDLE_SETTINGS_SOURCES: &[&str] = &["global", "custom"];
 const PROJECT_IDLE_THRESHOLD_MINUTES: &[i64] = &[1, 2, 3, 4, 5, 10, 15];
 const MAX_TASK_CHANGE_REASON_LENGTH: usize = 1000;
@@ -344,14 +345,14 @@ pub async fn projects_create_project<R: Runtime>(
     sqlx::query(
         "INSERT INTO projects (
             id, group_id, name, icon, color, sort_order,
-            default_event_name,
+            default_event_name, default_event_time_mode,
             default_event_duration_minutes,
             default_pomodoro_mode, default_pomodoro_preset_key,
             default_pomodoro_focus_minutes, default_pomodoro_short_break_minutes,
             default_pomodoro_long_break_minutes, default_pomodoro_long_break_after_focus_count,
             default_idle_settings_source, default_idle_pause_enabled, default_idle_threshold_minutes
          )
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&project.id)
     .bind(&project.group_id)
@@ -362,6 +363,7 @@ pub async fn projects_create_project<R: Runtime>(
     .bind(normalized_optional_text(
         project.default_event_name.as_deref(),
     ))
+    .bind(&project.default_event_time_mode)
     .bind(project.default_event_duration_minutes)
     .bind(&project.default_pomodoro_mode)
     .bind(&project.default_pomodoro_preset_key)
@@ -404,6 +406,7 @@ pub async fn projects_update_project<R: Runtime>(
              sort_order = ?,
              status = ?,
              default_event_name = ?,
+             default_event_time_mode = ?,
              default_event_duration_minutes = ?,
              default_pomodoro_mode = ?,
              default_pomodoro_preset_key = ?,
@@ -430,6 +433,7 @@ pub async fn projects_update_project<R: Runtime>(
     .bind(normalized_optional_text(
         project.default_event_name.as_deref(),
     ))
+    .bind(&project.default_event_time_mode)
     .bind(project.default_event_duration_minutes)
     .bind(&project.default_pomodoro_mode)
     .bind(&project.default_pomodoro_preset_key)
@@ -2429,6 +2433,7 @@ mod tests {
             sort_order: 100,
             status: "active".to_string(),
             default_event_name: None,
+            default_event_time_mode: "timed".to_string(),
             default_event_duration_minutes: Some(60),
             default_pomodoro_mode: "none".to_string(),
             default_pomodoro_preset_key: None,
@@ -2462,6 +2467,7 @@ mod tests {
             sort_order: 100,
             status: "active".to_string(),
             default_event_name: Some(" ".to_string()),
+            default_event_time_mode: "timed".to_string(),
             default_event_duration_minutes: Some(60),
             default_pomodoro_mode: "none".to_string(),
             default_pomodoro_preset_key: None,
