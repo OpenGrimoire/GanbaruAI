@@ -100,8 +100,6 @@
   );
   let projectFocusPlaylistDraft = $state("");
   let projectBreakPlaylistDraft = $state("");
-  let projectWorkEnvironmentDraft = $state("");
-  let projectBlockerRulesetDraft = $state("");
   let projectSettingsSaving = $state(false);
   let projectSettingsError = $state<string | null>(null);
   let statusNameDrafts = $state<Record<string, string>>({});
@@ -184,9 +182,7 @@
       || projectPomodoroSettingsDirty(selectedProject)
       || projectIdleSettingsDirty(selectedProject)
       || projectFocusPlaylistDraft !== (selectedProject.focusPlaylistId ?? "")
-      || projectBreakPlaylistDraft !== (selectedProject.breakPlaylistId ?? "")
-      || projectWorkEnvironmentDraft !== (selectedProject.workEnvironmentId ?? "")
-      || projectBlockerRulesetDraft !== (selectedProject.blockerRulesetId ?? "");
+      || projectBreakPlaylistDraft !== (selectedProject.breakPlaylistId ?? "");
   });
 
   $effect(() => {
@@ -220,10 +216,8 @@
     projectIdleSettingsSourceDraft = project.defaultIdleSettingsSource;
     projectIdlePauseEnabledDraft = project.defaultIdlePauseEnabled;
     projectIdleThresholdMinutesDraft = project.defaultIdleThresholdMinutes;
-    projectFocusPlaylistDraft = project.focusPlaylistId ?? "";
-    projectBreakPlaylistDraft = project.breakPlaylistId ?? "";
-    projectWorkEnvironmentDraft = project.workEnvironmentId ?? "";
-    projectBlockerRulesetDraft = project.blockerRulesetId ?? "";
+    projectFocusPlaylistDraft = "";
+    projectBreakPlaylistDraft = "";
     projectSettingsError = null;
     statusNameDrafts = Object.fromEntries(statuses.map((status) => [status.id, status.name]));
     statusCategoryDrafts = Object.fromEntries(
@@ -862,8 +856,8 @@
         defaultIdleThresholdMinutes: projectIdleThresholdMinutesDraft,
         focusPlaylistId: normalizeOptionalIdentifier(projectFocusPlaylistDraft),
         breakPlaylistId: normalizeOptionalIdentifier(projectBreakPlaylistDraft),
-        workEnvironmentId: normalizeOptionalIdentifier(projectWorkEnvironmentDraft),
-        blockerRulesetId: normalizeOptionalIdentifier(projectBlockerRulesetDraft),
+        workEnvironmentId: selectedProject.workEnvironmentId ?? null,
+        blockerRulesetId: selectedProject.blockerRulesetId ?? null,
       });
       if (projectStatusDraft !== "active") {
         onRevealInactive();
@@ -1031,8 +1025,6 @@
             bind:projectIdleThresholdMinutesDraft
             bind:projectFocusPlaylistDraft
             bind:projectBreakPlaylistDraft
-            bind:projectWorkEnvironmentDraft
-            bind:projectBlockerRulesetDraft
           />
 
           <div class="h-px bg-border/70" aria-hidden="true"></div>

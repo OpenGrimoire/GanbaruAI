@@ -58,8 +58,6 @@
     projectIdleThresholdMinutesDraft = $bindable<FocusIdleThresholdMinutes>(),
     projectFocusPlaylistDraft = $bindable<string>(),
     projectBreakPlaylistDraft = $bindable<string>(),
-    projectWorkEnvironmentDraft = $bindable<string>(),
-    projectBlockerRulesetDraft = $bindable<string>(),
   }: {
     theme: Theme;
     pomodoroOptions: readonly PomodoroPresetKey[];
@@ -79,8 +77,6 @@
     projectIdleThresholdMinutesDraft: FocusIdleThresholdMinutes;
     projectFocusPlaylistDraft: string;
     projectBreakPlaylistDraft: string;
-    projectWorkEnvironmentDraft: string;
-    projectBlockerRulesetDraft: string;
   } = $props();
 
   const { t } = getLocalization();
@@ -126,6 +122,9 @@
   const durationUnitOptions = $derived<SelectOption[]>([
     { value: "hours", label: t("projects.settings.durationUnitHours") },
     { value: "minutes", label: t("projects.settings.durationUnitMinutes") },
+  ]);
+  const playlistOptions = $derived<SelectOption[]>([
+    { value: "none", label: t("common.none") },
   ]);
   const idleThresholdOptions = $derived<SelectOption[]>(
     FOCUS_IDLE_THRESHOLD_MINUTES_OPTIONS.map((minutes) => ({
@@ -335,6 +334,15 @@
     if (!isDurationUnit(value)) return;
     customDurationUnit = value;
     syncCustomDurationDraft();
+  }
+
+  function setProjectPlaylistDraft(target: "focus" | "break", value: string): void {
+    const nextValue = value === "none" ? "" : value;
+    if (target === "focus") {
+      projectFocusPlaylistDraft = nextValue;
+    } else {
+      projectBreakPlaylistDraft = nextValue;
+    }
   }
 
   function setPomodoroPreset(value: string): void {
@@ -564,53 +572,22 @@
       />
     {/if}
 
-  </div>
-</section>
+    <CustomSelect
+      label={t("projects.settings.focusPlaylist")}
+      value="none"
+      options={playlistOptions}
+      onChange={(value) => setProjectPlaylistDraft("focus", value)}
+      class="w-44"
+    />
 
-<div class="h-px bg-border/70" aria-hidden="true"></div>
+    <CustomSelect
+      label={t("projects.settings.breakPlaylist")}
+      value="none"
+      options={playlistOptions}
+      onChange={(value) => setProjectPlaylistDraft("break", value)}
+      class="w-44"
+    />
 
-<section class="flex flex-col gap-1.5">
-  <h2 class="px-1 text-[0.866667rem] font-semibold text-foreground">{t("projects.settings.automationDefaults")}</h2>
-  <div class="flex flex-col gap-1.5">
-    <div class="flex items-center justify-between gap-4 px-1 py-1 max-[480px]:flex-col max-[480px]:items-stretch max-[480px]:gap-2">
-      <span class="min-w-0 flex-1 text-[0.866667rem] text-foreground">{t("projects.settings.focusPlaylist")}</span>
-      <input
-        bind:value={projectFocusPlaylistDraft}
-        placeholder={t("common.none")}
-        aria-label={t("projects.settings.focusPlaylist")}
-        class="h-7 w-44 min-w-0 rounded-md border border-border bg-card px-2.5 text-left text-[0.8rem] font-medium text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-ring dark:bg-transparent max-[480px]:w-full"
-      />
-    </div>
-
-    <div class="flex items-center justify-between gap-4 px-1 py-1 max-[480px]:flex-col max-[480px]:items-stretch max-[480px]:gap-2">
-      <span class="min-w-0 flex-1 text-[0.866667rem] text-foreground">{t("projects.settings.breakPlaylist")}</span>
-      <input
-        bind:value={projectBreakPlaylistDraft}
-        placeholder={t("common.none")}
-        aria-label={t("projects.settings.breakPlaylist")}
-        class="h-7 w-44 min-w-0 rounded-md border border-border bg-card px-2.5 text-left text-[0.8rem] font-medium text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-ring dark:bg-transparent max-[480px]:w-full"
-      />
-    </div>
-
-    <div class="flex items-center justify-between gap-4 px-1 py-1 max-[480px]:flex-col max-[480px]:items-stretch max-[480px]:gap-2">
-      <span class="min-w-0 flex-1 text-[0.866667rem] text-foreground">{t("projects.settings.workEnvironment")}</span>
-      <input
-        bind:value={projectWorkEnvironmentDraft}
-        placeholder={t("common.none")}
-        aria-label={t("projects.settings.workEnvironment")}
-        class="h-7 w-44 min-w-0 rounded-md border border-border bg-card px-2.5 text-left text-[0.8rem] font-medium text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-ring dark:bg-transparent max-[480px]:w-full"
-      />
-    </div>
-
-    <div class="flex items-center justify-between gap-4 px-1 py-1 max-[480px]:flex-col max-[480px]:items-stretch max-[480px]:gap-2">
-      <span class="min-w-0 flex-1 text-[0.866667rem] text-foreground">{t("projects.settings.blockerRuleset")}</span>
-      <input
-        bind:value={projectBlockerRulesetDraft}
-        placeholder={t("common.none")}
-        aria-label={t("projects.settings.blockerRuleset")}
-        class="h-7 w-44 min-w-0 rounded-md border border-border bg-card px-2.5 text-left text-[0.8rem] font-medium text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-ring dark:bg-transparent max-[480px]:w-full"
-      />
-    </div>
   </div>
 </section>
 
