@@ -1,6 +1,7 @@
 <script lang="ts">
   import ArrowDown from "@lucide/svelte/icons/arrow-down";
   import ArrowUp from "@lucide/svelte/icons/arrow-up";
+  import GripVertical from "@lucide/svelte/icons/grip-vertical";
   import Plus from "@lucide/svelte/icons/plus";
   import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
   import Save from "@lucide/svelte/icons/save";
@@ -72,8 +73,15 @@
   const { t } = getLocalization();
 
   const PROJECT_STATUS_CATEGORIES: ProjectStatusCategory[] = ["not_started", "active", "blocked", "done"];
+  const PROJECT_STATUS_DRAG_DATA_TYPE = "application/x-ganbaru-project-status";
   type ProjectLabelColorDraft = EventColor | "none";
   type SelectOption = { value: string; label: string };
+  type WorkflowDropPosition = "before" | "after";
+  type WorkflowStatusSaveDraft = {
+    status: ProjectStatus;
+    name: string;
+    category: ProjectStatusCategory;
+  };
 
   let projectDraftId = $state<string | null>(null);
   let projectDraftUpdatedAt = $state<string | null>(null);
@@ -106,6 +114,7 @@
   let statusCategoryDrafts = $state<Record<string, ProjectStatusCategory>>({});
   let newStatusName = $state("");
   let newStatusCategory = $state<ProjectStatusCategory>("active");
+  let pendingDeleteStatusId = $state<string | null>(null);
   let labelNameDrafts = $state<Record<string, string>>({});
   let labelColorDrafts = $state<Record<string, ProjectLabelColorDraft>>({});
   let newLabelName = $state("");
@@ -123,6 +132,10 @@
   let settingsScrollable = $state(false);
   let settingsCanScrollUp = $state(false);
   let settingsCanScrollDown = $state(false);
+  let workflowDragStatusId = $state<string | null>(null);
+  let workflowDragOverStatusId = $state<string | null>(null);
+  let workflowDropPosition = $state<WorkflowDropPosition | null>(null);
+  let workflowReorderPending = $state(false);
   let settingsScrollStateFrame: number | null = null;
 
   const selectedProject = $derived(projects.projectById(projectId));
@@ -166,10 +179,13 @@
       .flatMap((field) => projects.customFieldOptionsForField(field.id))
       .find((entry) => entry.id === pendingDeleteCustomFieldOptionId);
   });
+  const pendingDeleteStatus = $derived.by(() =>
+    pendingDeleteStatusId ? statuses.find((status) => status.id === pendingDeleteStatusId) : undefined
+  );
   const projectSettingsDraftReady = $derived(
     Boolean(selectedProject && projectDraftId === selectedProject.id),
   );
-  const projectSettingsDirty = $derived.by(() => {
+  const projectFieldSettingsDirty = $derived.by(() => {
     if (!selectedProject) return false;
     return projectNameDraft !== selectedProject.name
       || projectGroupDraft !== selectedProject.groupId
@@ -184,6 +200,8 @@
       || projectFocusPlaylistDraft !== (selectedProject.focusPlaylistId ?? "")
       || projectBreakPlaylistDraft !== (selectedProject.breakPlaylistId ?? "");
   });
+  const workflowSettingsDirty = $derived.by(() => statuses.some(statusDraftDirty));
+  const projectSettingsDirty = $derived(projectFieldSettingsDirty || workflowSettingsDirty);
 
   $effect(() => {
     if (!selectedProject) return;
@@ -237,6 +255,7 @@
     );
     newStatusName = "";
     newStatusCategory = "active";
+    pendingDeleteStatusId = null;
     newLabelName = "";
     newLabelColor = "none";
     pendingDeleteLabelId = null;
@@ -495,10 +514,104 @@
     return projectLabels[index + direction];
   }
 
-  function adjacentWorkflowStatus(status: ProjectStatus, direction: -1 | 1): ProjectStatus | undefined {
-    const index = statuses.findIndex((entry) => entry.id === status.id);
-    if (index < 0) return undefined;
-    return statuses[index + direction];
+  function clearWorkflowStatusDrag(): void {
+    workflowDragStatusId = null;
+    workflowDragOverStatusId = null;
+    workflowDropPosition = null;
+  }
+
+  function workflowDropPositionForEvent(event: DragEvent, target: HTMLElement): WorkflowDropPosition {
+    const bounds = target.getBoundingClientRect();
+    return event.clientY < bounds.top + bounds.height / 2 ? "before" : "after";
+  }
+
+  function workflowDropMarkerVisible(statusId: string, position: WorkflowDropPosition): boolean {
+    return workflowDragStatusId !== null
+      && workflowDragStatusId !== statusId
+      && workflowDragOverStatusId === statusId
+      && workflowDropPosition === position;
+  }
+
+  function handleWorkflowStatusDragStart(event: DragEvent, status: ProjectStatus): void {
+    workflowDragStatusId = status.id;
+    workflowDragOverStatusId = null;
+    workflowDropPosition = null;
+    if (!event.dataTransfer) return;
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData(PROJECT_STATUS_DRAG_DATA_TYPE, status.id);
+    event.dataTransfer.setData("text/plain", status.id);
+  }
+
+  function handleWorkflowStatusDragOver(
+    event: DragEvent,
+    status: ProjectStatus,
+    target: HTMLElement,
+  ): void {
+    if (!workflowDragStatusId || workflowReorderPending) return;
+    if (workflowDragStatusId === status.id) {
+      workflowDragOverStatusId = null;
+      workflowDropPosition = null;
+      return;
+    }
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+    workflowDragOverStatusId = status.id;
+    workflowDropPosition = workflowDropPositionForEvent(event, target);
+  }
+
+  async function moveWorkflowStatusToIndex(statusId: string, targetIndex: number): Promise<void> {
+    workflowReorderPending = true;
+    projectSettingsError = null;
+    try {
+      let currentIndex = statuses.findIndex((entry) => entry.id === statusId);
+      let remainingMoves = statuses.length;
+      while (currentIndex >= 0 && currentIndex !== targetIndex && remainingMoves > 0) {
+        const direction: -1 | 1 = currentIndex < targetIndex ? 1 : -1;
+        const status = statuses[currentIndex];
+        if (!status) break;
+        await projects.moveStatus(status, direction);
+        currentIndex = statuses.findIndex((entry) => entry.id === statusId);
+        remainingMoves -= 1;
+      }
+      if (currentIndex !== targetIndex) {
+        projectSettingsError = t("projects.settings.statusReorderFailed");
+      }
+    } catch (error) {
+      projectSettingsError = t(
+        "projects.settings.statusSaveFailed",
+        error instanceof Error ? error.message : String(error),
+      );
+    } finally {
+      workflowReorderPending = false;
+      clearWorkflowStatusDrag();
+    }
+  }
+
+  async function dropWorkflowStatus(event: DragEvent, targetStatus: ProjectStatus): Promise<void> {
+    event.preventDefault();
+    const draggedStatusId = workflowDragStatusId
+      ?? event.dataTransfer?.getData(PROJECT_STATUS_DRAG_DATA_TYPE)
+      ?? event.dataTransfer?.getData("text/plain")
+      ?? null;
+    if (!draggedStatusId || draggedStatusId === targetStatus.id) {
+      clearWorkflowStatusDrag();
+      return;
+    }
+
+    const sourceIndex = statuses.findIndex((entry) => entry.id === draggedStatusId);
+    let targetIndex = statuses.findIndex((entry) => entry.id === targetStatus.id);
+    if (sourceIndex < 0 || targetIndex < 0) {
+      clearWorkflowStatusDrag();
+      return;
+    }
+    if ((workflowDropPosition ?? "before") === "after") targetIndex += 1;
+    if (sourceIndex < targetIndex) targetIndex -= 1;
+    const boundedTargetIndex = Math.max(0, Math.min(statuses.length - 1, targetIndex));
+    if (boundedTargetIndex === sourceIndex) {
+      clearWorkflowStatusDrag();
+      return;
+    }
+    await moveWorkflowStatusToIndex(draggedStatusId, boundedTargetIndex);
   }
 
   function statusDraftDirty(status: ProjectStatus): boolean {
@@ -506,22 +619,69 @@
       || (statusCategoryDrafts[status.id] ?? status.category) !== status.category;
   }
 
-  async function saveStatus(status: ProjectStatus): Promise<void> {
-    const name = (statusNameDrafts[status.id] ?? status.name).trim();
-    const category = statusCategoryDrafts[status.id] ?? status.category;
-    if (!name) {
-      projectSettingsError = t("projects.settings.statusNameRequired");
-      return;
-    }
+  function workflowStatusTaskCount(status: ProjectStatus): number {
+    return projects
+      .tasksForProjectIncludingArchived(status.projectId)
+      .filter((task) => task.statusId === status.id)
+      .length;
+  }
+
+  function statusDeleteDisabled(status: ProjectStatus): boolean {
+    return statuses.length <= 1 || workflowStatusTaskCount(status) > 0;
+  }
+
+  function statusDeleteTitle(status: ProjectStatus): string {
+    if (statuses.length <= 1) return t("projects.settings.deleteStatusBlockedLast");
+    if (workflowStatusTaskCount(status) > 0) return t("projects.settings.deleteStatusBlockedTasks");
+    return t("projects.settings.deleteStatus", status.name);
+  }
+
+  function requestDeleteStatus(status: ProjectStatus): void {
+    if (statusDeleteDisabled(status)) return;
+    pendingDeleteStatusId = status.id;
+  }
+
+  function cancelDeleteStatus(): void {
+    pendingDeleteStatusId = null;
+  }
+
+  async function confirmDeleteStatus(): Promise<void> {
+    if (!pendingDeleteStatus) return;
+    const status = pendingDeleteStatus;
+    pendingDeleteStatusId = null;
     projectSettingsError = null;
     try {
-      await projects.updateStatus(status, { name, category });
+      await projects.removeStatus(status.id);
+      const remainingNames = { ...statusNameDrafts };
+      const remainingCategories = { ...statusCategoryDrafts };
+      delete remainingNames[status.id];
+      delete remainingCategories[status.id];
+      statusNameDrafts = remainingNames;
+      statusCategoryDrafts = remainingCategories;
     } catch (error) {
       projectSettingsError = t(
-        "projects.settings.statusSaveFailed",
+        "projects.settings.statusDeleteFailed",
         error instanceof Error ? error.message : String(error),
       );
     }
+  }
+
+  function workflowStatusSaveDrafts(): WorkflowStatusSaveDraft[] | null {
+    const drafts: WorkflowStatusSaveDraft[] = [];
+    for (const status of statuses) {
+      if (!statusDraftDirty(status)) continue;
+      const name = (statusNameDrafts[status.id] ?? status.name).trim();
+      if (!name) {
+        projectSettingsError = t("projects.settings.statusNameRequired");
+        return null;
+      }
+      drafts.push({
+        status,
+        name,
+        category: statusCategoryDrafts[status.id] ?? status.category,
+      });
+    }
+    return drafts;
   }
 
   async function submitStatus(): Promise<void> {
@@ -800,7 +960,15 @@
   }
 
   async function moveWorkflowStatus(status: ProjectStatus, direction: -1 | 1): Promise<void> {
-    await projects.moveStatus(status, direction);
+    projectSettingsError = null;
+    try {
+      await projects.moveStatus(status, direction);
+    } catch (error) {
+      projectSettingsError = t(
+        "projects.settings.statusSaveFailed",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
   }
 
   async function saveProjectSettings(): Promise<void> {
@@ -814,52 +982,66 @@
       projectSettingsError = t("projects.settings.groupRequired");
       return;
     }
+    const workflowDrafts = workflowStatusSaveDrafts();
+    if (!workflowDrafts) return;
+    const shouldUpdateProject = projectFieldSettingsDirty;
+    const shouldRevealInactive = shouldUpdateProject && projectStatusDraft !== "active";
     projectSettingsSaving = true;
     projectSettingsError = null;
     try {
-      const defaultEventDurationMinutes = projectEventTimeModeDraft === "all_day"
-        ? null
-        : normalizeProjectDuration(
-            projectDurationDraft,
-            t("projects.settings.invalidDuration"),
-          );
-      const defaultPomodoroCustom = projectPomodoroCustomDraft();
-      await projects.updateProject({
-        id: selectedProject.id,
-        groupId: projectGroupDraft,
-        name,
-        icon: projectIconDraft,
-        color: projectColorDraft ?? null,
-        sortOrder: projectGroupDraft === selectedProject.groupId
-          ? selectedProject.sortOrder
-          : nextProjectSortOrderForGroup(projectGroupDraft, selectedProject.id),
-        status: projectStatusDraft,
-        defaultEventName: normalizeOptionalText(projectDefaultEventNameDraft),
-        defaultEventTimeMode: projectEventTimeModeDraft,
-        defaultEventDurationMinutes,
-        defaultPomodoroMode: projectPomodoroModeDraft,
-        defaultPomodoroPresetKey: projectPomodoroModeDraft === "preset" ? projectPomodoroPresetDraft : null,
-        defaultPomodoroFocusMinutes: projectPomodoroModeDraft === "custom"
-          ? defaultPomodoroCustom.focusDurationMinutes
-          : null,
-        defaultPomodoroShortBreakMinutes: projectPomodoroModeDraft === "custom"
-          ? defaultPomodoroCustom.shortBreakMinutes
-          : null,
-        defaultPomodoroLongBreakMinutes: projectPomodoroModeDraft === "custom"
-          ? defaultPomodoroCustom.longBreakMinutes
-          : null,
-        defaultPomodoroLongBreakAfterFocusCount: projectPomodoroModeDraft === "custom"
-          ? defaultPomodoroCustom.longBreakAfterFocusCount
-          : null,
-        defaultIdleSettingsSource: projectIdleSettingsSourceDraft,
-        defaultIdlePauseEnabled: projectIdlePauseEnabledDraft,
-        defaultIdleThresholdMinutes: projectIdleThresholdMinutesDraft,
-        focusPlaylistId: normalizeOptionalIdentifier(projectFocusPlaylistDraft),
-        breakPlaylistId: normalizeOptionalIdentifier(projectBreakPlaylistDraft),
-        workEnvironmentId: selectedProject.workEnvironmentId ?? null,
-        blockerRulesetId: selectedProject.blockerRulesetId ?? null,
-      });
-      if (projectStatusDraft !== "active") {
+      if (shouldUpdateProject) {
+        const defaultEventDurationMinutes = projectEventTimeModeDraft === "all_day"
+          ? null
+          : normalizeProjectDuration(
+              projectDurationDraft,
+              t("projects.settings.invalidDuration"),
+            );
+        const defaultPomodoroCustom = projectPomodoroCustomDraft();
+        await projects.updateProject({
+          id: selectedProject.id,
+          groupId: projectGroupDraft,
+          name,
+          icon: projectIconDraft,
+          color: projectColorDraft ?? null,
+          sortOrder: projectGroupDraft === selectedProject.groupId
+            ? selectedProject.sortOrder
+            : nextProjectSortOrderForGroup(projectGroupDraft, selectedProject.id),
+          status: projectStatusDraft,
+          defaultEventName: normalizeOptionalText(projectDefaultEventNameDraft),
+          defaultEventTimeMode: projectEventTimeModeDraft,
+          defaultEventDurationMinutes,
+          defaultPomodoroMode: projectPomodoroModeDraft,
+          defaultPomodoroPresetKey: projectPomodoroModeDraft === "preset" ? projectPomodoroPresetDraft : null,
+          defaultPomodoroFocusMinutes: projectPomodoroModeDraft === "custom"
+            ? defaultPomodoroCustom.focusDurationMinutes
+            : null,
+          defaultPomodoroShortBreakMinutes: projectPomodoroModeDraft === "custom"
+            ? defaultPomodoroCustom.shortBreakMinutes
+            : null,
+          defaultPomodoroLongBreakMinutes: projectPomodoroModeDraft === "custom"
+            ? defaultPomodoroCustom.longBreakMinutes
+            : null,
+          defaultPomodoroLongBreakAfterFocusCount: projectPomodoroModeDraft === "custom"
+            ? defaultPomodoroCustom.longBreakAfterFocusCount
+            : null,
+          defaultIdleSettingsSource: projectIdleSettingsSourceDraft,
+          defaultIdlePauseEnabled: projectIdlePauseEnabledDraft,
+          defaultIdleThresholdMinutes: projectIdleThresholdMinutesDraft,
+          focusPlaylistId: normalizeOptionalIdentifier(projectFocusPlaylistDraft),
+          breakPlaylistId: normalizeOptionalIdentifier(projectBreakPlaylistDraft),
+          workEnvironmentId: selectedProject.workEnvironmentId ?? null,
+          blockerRulesetId: selectedProject.blockerRulesetId ?? null,
+        });
+      }
+      for (const draft of workflowDrafts) {
+        await projects.updateStatus(draft.status, {
+          name: draft.name,
+          category: draft.category,
+        });
+        statusNameDrafts = { ...statusNameDrafts, [draft.status.id]: draft.name };
+        statusCategoryDrafts = { ...statusCategoryDrafts, [draft.status.id]: draft.category };
+      }
+      if (shouldRevealInactive) {
         onRevealInactive();
       }
     } catch (error) {
@@ -1388,13 +1570,49 @@
 
           <div class="h-px bg-border/70" aria-hidden="true"></div>
 
-          <section class="flex flex-col gap-1">
+          <section class="flex flex-col gap-0.5">
             {@render sectionHeading(t("projects.settings.workflow"), String(statuses.length))}
-            <div class="flex flex-col gap-1">
+            <div class="flex flex-col gap-0.5">
               {#each statuses as status (status.id)}
-                {@const previousStatus = adjacentWorkflowStatus(status, -1)}
-                {@const nextStatus = adjacentWorkflowStatus(status, 1)}
-                <div class="grid min-h-8 grid-cols-[minmax(0,1fr)_auto_auto_auto_auto] items-center gap-1 px-1 py-1">
+                {@const deleteStatusTitle = statusDeleteTitle(status)}
+                <div
+                  class={cn(
+                    "relative grid min-h-7 grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-1 px-1 py-0.5",
+                    workflowDragStatusId === status.id && "opacity-50",
+                  )}
+                  role="group"
+                  aria-label={status.name}
+                  ondragover={(event) => handleWorkflowStatusDragOver(event, status, event.currentTarget)}
+                  ondrop={(event) => { void dropWorkflowStatus(event, status); }}
+                >
+                  {#if workflowDropMarkerVisible(status.id, "before")}
+                    <div class="pointer-events-none absolute left-1 right-1 top-0 h-0.5 rounded-full bg-primary"></div>
+                  {/if}
+                  {#if workflowDropMarkerVisible(status.id, "after")}
+                    <div class="pointer-events-none absolute bottom-0 left-1 right-1 h-0.5 rounded-full bg-primary"></div>
+                  {/if}
+                  <button
+                    type="button"
+                    class="flex h-7 w-7 shrink-0 cursor-grab items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-40"
+                    draggable={statuses.length > 1 && !workflowReorderPending}
+                    disabled={statuses.length <= 1 || workflowReorderPending}
+                    aria-label={t("projects.actions.dragStatus", status.name)}
+                    title={t("projects.actions.dragStatus", status.name)}
+                    ondragstart={(event) => handleWorkflowStatusDragStart(event, status)}
+                    ondragend={clearWorkflowStatusDrag}
+                    onkeydown={(event) => {
+                      if (event.key === "ArrowUp") {
+                        event.preventDefault();
+                        void moveWorkflowStatus(status, -1);
+                      }
+                      if (event.key === "ArrowDown") {
+                        event.preventDefault();
+                        void moveWorkflowStatus(status, 1);
+                      }
+                    }}
+                  >
+                    <GripVertical size={13} strokeWidth={1.75} />
+                  </button>
                   <input
                     value={statusNameDrafts[status.id] ?? status.name}
                     class="h-7 min-w-0 rounded-md bg-transparent px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:bg-card"
@@ -1404,12 +1622,6 @@
                         ...statusNameDrafts,
                         [status.id]: event.currentTarget.value,
                       };
-                    }}
-                    onkeydown={(event) => {
-                      if (event.key === "Enter") {
-                        event.preventDefault();
-                        void saveStatus(status);
-                      }
                     }}
                   />
                   <CustomSelect
@@ -1421,39 +1633,19 @@
                   />
                   <button
                     type="button"
-                    class={iconButtonClass()}
-                    disabled={!statusDraftDirty(status)}
-                    aria-label={t("projects.settings.saveStatus")}
-                    title={t("projects.settings.saveStatus")}
-                    onclick={() => { void saveStatus(status); }}
+                    class={iconButtonClass("danger")}
+                    disabled={statusDeleteDisabled(status)}
+                    aria-label={deleteStatusTitle}
+                    title={deleteStatusTitle}
+                    onclick={() => requestDeleteStatus(status)}
                   >
-                    <Save size={13} strokeWidth={1.75} />
-                  </button>
-                  <button
-                    type="button"
-                    class={iconButtonClass()}
-                    disabled={!previousStatus}
-                    aria-label={t("projects.actions.moveStatusUp", status.name)}
-                    title={t("projects.actions.moveStatusUp", status.name)}
-                    onclick={() => { void moveWorkflowStatus(status, -1); }}
-                  >
-                    <ArrowUp size={13} strokeWidth={1.75} />
-                  </button>
-                  <button
-                    type="button"
-                    class={iconButtonClass()}
-                    disabled={!nextStatus}
-                    aria-label={t("projects.actions.moveStatusDown", status.name)}
-                    title={t("projects.actions.moveStatusDown", status.name)}
-                    onclick={() => { void moveWorkflowStatus(status, 1); }}
-                  >
-                    <ArrowDown size={13} strokeWidth={1.75} />
+                    <Trash2 size={13} strokeWidth={1.75} />
                   </button>
                 </div>
               {/each}
             </div>
 
-            <div class="grid min-h-8 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-1 px-1 py-1">
+            <div class="grid min-h-7 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-1 px-1 py-0.5">
               <input
                 bind:value={newStatusName}
                 class="h-7 min-w-0 rounded-md bg-transparent px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:bg-card"
@@ -1513,6 +1705,17 @@
     {/if}
   </form>
 </aside>
+{/if}
+
+{#if pendingDeleteStatus}
+  <ConfirmDialog
+    title={t("projects.settings.deleteStatusTitle", pendingDeleteStatus.name)}
+    message={t("projects.settings.deleteStatusMessage", pendingDeleteStatus.name)}
+    confirmLabel={t("projects.settings.deleteStatusConfirm")}
+    cancelLabel={t("common.cancelShortcut")}
+    onConfirm={() => { void confirmDeleteStatus(); }}
+    onCancel={cancelDeleteStatus}
+  />
 {/if}
 
 {#if pendingDeleteLabel}

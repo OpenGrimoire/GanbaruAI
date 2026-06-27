@@ -582,6 +582,20 @@ pub async fn projects_update_status<R: Runtime>(
 }
 
 #[tauri::command]
+pub async fn projects_delete_status<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    status_id: String,
+) -> Result<(), String> {
+    require_non_empty(&status_id, "status_id")?;
+    let pool = connect_sqlite(app, db_url).await?;
+    let mut tx = pool.begin().await.map_err(|e| format!("begin: {e}"))?;
+    delete_unused_status(&mut tx, status_id.trim()).await?;
+    tx.commit().await.map_err(|e| format!("commit: {e}"))?;
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn projects_create_task<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
@@ -1560,6 +1574,49 @@ async fn delete_project_custom_emoji(
     Ok(())
 }
 
+async fn delete_unused_status(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    status_id: &str,
+) -> Result<(), String> {
+    let project_id =
+        sqlx::query_scalar::<_, String>("SELECT project_id FROM project_statuses WHERE id = ?")
+            .bind(status_id)
+            .fetch_optional(&mut **tx)
+            .await
+            .map_err(|e| format!("load project status: {e}"))?
+            .ok_or_else(|| "project status not found".to_string())?;
+
+    let status_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM project_statuses WHERE project_id = ?")
+            .bind(&project_id)
+            .fetch_one(&mut **tx)
+            .await
+            .map_err(|e| format!("count project statuses: {e}"))?;
+    if status_count <= 1 {
+        return Err("project must keep at least one workflow status".to_string());
+    }
+
+    let task_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM project_tasks WHERE status_id = ?")
+            .bind(status_id)
+            .fetch_one(&mut **tx)
+            .await
+            .map_err(|e| format!("count status tasks: {e}"))?;
+    if task_count > 0 {
+        return Err("move or delete tasks before deleting this workflow status".to_string());
+    }
+
+    let result = sqlx::query("DELETE FROM project_statuses WHERE id = ?")
+        .bind(status_id)
+        .execute(&mut **tx)
+        .await
+        .map_err(|e| format!("delete project status: {e}"))?;
+    if result.rows_affected() == 0 {
+        return Err("project status not found".to_string());
+    }
+    Ok(())
+}
+
 async fn next_task_sort_order(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     owner_column: &'static str,
@@ -2273,6 +2330,93 @@ mod tests {
             assert_eq!(
                 result,
                 Err("calendar event does not belong to the task project".to_string())
+            );
+        });
+    }
+
+    #[test]
+    fn delete_status_removes_empty_status() {
+        tauri::async_runtime::block_on(async {
+            let pool = migrated_memory_pool().await;
+            insert_project_graph_fixture(&pool).await;
+            sqlx::query(
+                "INSERT INTO project_statuses (id, project_id, name, category, sort_order, terminal)
+                 VALUES ('status-empty', 'project-a', 'Later', 'active', 200, 0)",
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+
+            let mut tx = pool.begin().await.unwrap();
+            delete_unused_status(&mut tx, "status-empty").await.unwrap();
+            tx.commit().await.unwrap();
+
+            let status_count: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM project_statuses WHERE id = 'status-empty'",
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+            assert_eq!(status_count, 0);
+        });
+    }
+
+    #[test]
+    fn delete_status_rejects_status_with_tasks() {
+        tauri::async_runtime::block_on(async {
+            let pool = migrated_memory_pool().await;
+            insert_project_graph_fixture(&pool).await;
+            sqlx::query(
+                "INSERT INTO project_statuses (id, project_id, name, category, sort_order, terminal)
+                 VALUES ('status-empty', 'project-a', 'Later', 'active', 200, 0)",
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+
+            let mut tx = pool.begin().await.unwrap();
+            let result = delete_unused_status(&mut tx, "status-a").await;
+
+            assert_eq!(
+                result,
+                Err("move or delete tasks before deleting this workflow status".to_string())
+            );
+        });
+    }
+
+    #[test]
+    fn delete_status_rejects_last_project_status() {
+        tauri::async_runtime::block_on(async {
+            let pool = migrated_memory_pool().await;
+            sqlx::query(
+                "INSERT INTO project_groups (id, name, icon, sort_order)
+                 VALUES ('group-empty', 'Group Empty', 'folder', 100)",
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+            sqlx::query(
+                "INSERT INTO projects (id, group_id, name, icon, sort_order)
+                 VALUES ('project-empty', 'group-empty', 'Project Empty', 'folder', 100)",
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+            sqlx::query(
+                "INSERT INTO project_statuses (id, project_id, name, category, sort_order, terminal)
+                 VALUES ('status-empty', 'project-empty', 'To do', 'not_started', 100, 0)",
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+
+            let mut tx = pool.begin().await.unwrap();
+            let result = delete_unused_status(&mut tx, "status-empty").await;
+
+            assert_eq!(
+                result,
+                Err("project must keep at least one workflow status".to_string())
             );
         });
     }

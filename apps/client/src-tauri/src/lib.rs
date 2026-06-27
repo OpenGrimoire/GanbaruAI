@@ -831,6 +831,7 @@ pub fn run() {
             projects::projects_update_section,
             projects::projects_create_status,
             projects::projects_update_status,
+            projects::projects_delete_status,
             projects::projects_create_task,
             projects::projects_create_checklist_item,
             projects::projects_update_checklist_item,

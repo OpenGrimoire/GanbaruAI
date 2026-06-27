@@ -16,6 +16,7 @@ import {
   deleteProjectCustomEmoji,
   deleteProjectChecklistItem,
   deleteProjectLabel,
+  deleteProjectStatus,
   deleteProjectViewPreference,
   deleteProjectTaskDependency,
   loadProjectsSnapshot,
@@ -667,6 +668,11 @@ async function moveStatus(status: ProjectStatus, direction: -1 | 1): Promise<voi
   await reload();
 }
 
+async function removeStatus(statusId: string): Promise<void> {
+  await deleteProjectStatus(statusId);
+  await reload();
+}
+
 async function addTask(
   projectId: string,
   title: string,
@@ -1285,6 +1291,7 @@ export function getProjects() {
     addStatus,
     updateStatus,
     moveStatus,
+    removeStatus,
     addTask,
     addChecklistItem,
     setChecklistItemCompleted,

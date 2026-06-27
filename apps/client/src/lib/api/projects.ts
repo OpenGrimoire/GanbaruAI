@@ -642,6 +642,11 @@ export async function updateProjectStatus(status: ProjectStatusUpdate): Promise<
   await invoke("projects_update_status", { dbUrl, status });
 }
 
+export async function deleteProjectStatus(statusId: string): Promise<void> {
+  const dbUrl = await ensureDbUrl();
+  await invoke("projects_delete_status", { dbUrl, statusId });
+}
+
 export async function createProjectTask(task: ProjectTaskCreate): Promise<void> {
   const dbUrl = await ensureDbUrl();
   await invoke("projects_create_task", { dbUrl, task });
