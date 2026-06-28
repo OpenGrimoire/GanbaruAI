@@ -354,16 +354,16 @@ SELECT 'status-' || substr(id, 9) || '-done', id, 'Done', 'done', 40, 1
 FROM projects;
 
 INSERT INTO project_priorities (id, project_id, name, color, sort_order)
-SELECT 'low', id, 'Low', 30, 0
+SELECT 'urgent', id, 'Urgent', 2, 0
 FROM projects
 UNION ALL
-SELECT 'normal', id, 'Normal', 19, 10
+SELECT 'high', id, 'High', 7, 10
 FROM projects
 UNION ALL
-SELECT 'high', id, 'High', 7, 20
+SELECT 'normal', id, 'Normal', 19, 20
 FROM projects
 UNION ALL
-SELECT 'urgent', id, 'Urgent', 2, 30
+SELECT 'low', id, 'Low', 30, 30
 FROM projects;
 
 CREATE TABLE icalendar_objects (

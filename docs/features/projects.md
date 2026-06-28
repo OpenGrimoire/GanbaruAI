@@ -30,7 +30,7 @@ Routine defaults can be hidden or archived like any other project. Hiding keeps 
 
 Routine default projects use their own project names as default event names. They start with no project-specific default duration. They also start with Default Pomodoro set to None except Learning, which starts with Adaptive. User-created projects start with no default event name. Project idle settings use global Focus defaults unless the user switches a project to custom idle settings.
 
-Each project starts with a General section and default statuses: Backlog, To do, In progress, In review, Blocked, and Done. Default status colors use event palette slots 31, 32, 20, 24, 3, and 14 respectively. Each project also starts with default priorities: Low, Normal, High, and Urgent, with event palette slots 31, 20, 8, and 3 respectively.
+Each project starts with a General section and default statuses: Backlog, To do, In progress, In review, Blocked, and Done. Default status colors use event palette slots 31, 32, 20, 24, 3, and 14 respectively. Each project also starts with default priorities: Urgent, High, Normal, and Low, with event palette slots 3, 8, 20, and 31 respectively.
 
 ## Current implementation
 

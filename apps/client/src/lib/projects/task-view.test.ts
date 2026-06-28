@@ -25,10 +25,10 @@ const statuses: ProjectStatus[] = [
 ];
 
 const priorities: ProjectPriorityConfig[] = [
-  priority("low", "Low", 30, 1000),
-  priority("normal", "Normal", 19, 2000),
-  priority("high", "High", 7, 3000),
-  priority("urgent", "Urgent", 2, 4000),
+  priority("urgent", "Urgent", 2, 1000),
+  priority("high", "High", 7, 2000),
+  priority("normal", "Normal", 19, 3000),
+  priority("low", "Low", 30, 4000),
 ];
 
 function status(
@@ -487,10 +487,10 @@ describe("buildProjectTaskListGroups", () => {
     });
 
     expect(groups.map((group) => [group.value, group.tasks.map((entry) => entry.id)])).toEqual([
-      ["low", []],
-      ["normal", ["normal"]],
-      ["high", []],
       ["urgent", []],
+      ["high", []],
+      ["normal", ["normal"]],
+      ["low", []],
     ]);
   });
 

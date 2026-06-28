@@ -140,7 +140,9 @@ function comparePriorityOrder(
   if (firstIndex === undefined && secondIndex === undefined) return 0;
   if (firstIndex === undefined) return 1;
   if (secondIndex === undefined) return -1;
-  return withDirection(firstIndex - secondIndex, direction);
+  return direction === "desc"
+    ? firstIndex - secondIndex
+    : secondIndex - firstIndex;
 }
 
 function taskStatusMatches(

@@ -8,10 +8,10 @@ const DEFAULT_STATUSES: &[(&str, &str, &str, i64, i64, i64)] = &[
 ];
 
 const DEFAULT_PRIORITIES: &[(&str, &str, i64, i64)] = &[
-    ("low", "Low", 30, 0),
-    ("normal", "Normal", 19, 10),
-    ("high", "High", 7, 20),
-    ("urgent", "Urgent", 2, 30),
+    ("urgent", "Urgent", 2, 0),
+    ("high", "High", 7, 10),
+    ("normal", "Normal", 19, 20),
+    ("low", "Low", 30, 30),
 ];
 
 const BLANK_TEMPLATE_SECTIONS: &[(&str, &str, i64)] = &[("general", "General", 0)];
