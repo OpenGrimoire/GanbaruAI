@@ -591,6 +591,29 @@
     return randomStatusColor();
   }
 
+  function cssLengthToPixels(value: string, context: HTMLElement, fallback: number): number {
+    const trimmed = value.trim();
+    const parsed = Number.parseFloat(trimmed);
+    if (!Number.isFinite(parsed)) return fallback;
+    if (trimmed.endsWith("rem")) {
+      const rootFontSize = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
+      return parsed * (Number.isFinite(rootFontSize) ? rootFontSize : 16);
+    }
+    if (trimmed.endsWith("em")) {
+      const contextFontSize = Number.parseFloat(getComputedStyle(context).fontSize);
+      return parsed * (Number.isFinite(contextFontSize) ? contextFontSize : 16);
+    }
+    return parsed;
+  }
+
+  function settingsScrollFadeInset(scrollElement: HTMLElement): number {
+    return cssLengthToPixels(
+      getComputedStyle(scrollElement).getPropertyValue("--project-settings-scroll-fade-size"),
+      scrollElement,
+      32,
+    );
+  }
+
   async function scrollToSettingsRow(rowElement: HTMLElement | undefined): Promise<void> {
     await tick();
     await new Promise<void>((resolve) => {
@@ -600,13 +623,23 @@
     if (!scrollElement || !rowElement) return;
     const scrollRect = scrollElement.getBoundingClientRect();
     const rowRect = rowElement.getBoundingClientRect();
-    const rowTop = scrollElement.scrollTop + rowRect.top - scrollRect.top;
-    const preferredTopPadding = Math.min(72, Math.max(36, scrollElement.clientHeight * 0.18));
     const maxScrollTop = Math.max(0, scrollElement.scrollHeight - scrollElement.clientHeight);
-    scrollElement.scrollTo({
-      top: Math.min(Math.max(0, rowTop - preferredTopPadding), maxScrollTop),
-      behavior: "auto",
-    });
+    const fadeInset = settingsScrollFadeInset(scrollElement);
+    const breathingRoom = 4;
+    const safeTop = scrollRect.top + (scrollElement.scrollTop > 1 ? fadeInset : 0) + breathingRoom;
+    const safeBottom = scrollRect.bottom
+      - (scrollElement.scrollTop < maxScrollTop - 1 ? fadeInset : 0)
+      - breathingRoom;
+    if (rowRect.top >= safeTop && rowRect.bottom <= safeBottom) return;
+    const scrollDelta = rowRect.top < safeTop
+      ? rowRect.top - safeTop
+      : rowRect.bottom - safeBottom;
+    const nextScrollTop = Math.min(
+      Math.max(0, scrollElement.scrollTop + scrollDelta),
+      maxScrollTop,
+    );
+    if (Math.abs(nextScrollTop - scrollElement.scrollTop) <= 1) return;
+    scrollElement.scrollTo({ top: nextScrollTop, behavior: "auto" });
     requestSettingsScrollStateRefresh();
   }
 
