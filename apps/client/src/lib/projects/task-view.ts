@@ -3,6 +3,7 @@ import type {
   ProjectCustomFieldFilter,
   ProjectCustomFieldOption,
   ProjectCustomFieldValue,
+  ProjectPriorityConfig,
   ProjectPriority,
   ProjectStatus,
   ProjectTask,
@@ -20,6 +21,7 @@ import { customFieldIdFromCustomFieldReference } from "./task-list-columns";
 export interface ProjectTaskViewInput {
   tasks: readonly ProjectTask[];
   statuses: readonly ProjectStatus[];
+  priorities: readonly ProjectPriorityConfig[];
   customFields: readonly ProjectCustomField[];
   customFieldOptions: readonly ProjectCustomFieldOption[];
   customFieldValuesByTaskField: ReadonlyMap<string, ProjectCustomFieldValue>;
@@ -63,18 +65,12 @@ export interface ProjectTaskListGroup {
 export interface ProjectTaskListGroupInput {
   tasks: readonly ProjectTask[];
   statuses: readonly ProjectStatus[];
+  priorities: readonly ProjectPriorityConfig[];
   scheduledTaskIds: ReadonlySet<string>;
   today: string;
   weekEnd: string;
   groupBy: Exclude<ProjectTaskGroupMode, "section">;
 }
-
-const PRIORITY_RANK: Record<ProjectPriority, number> = {
-  low: 0,
-  normal: 1,
-  high: 2,
-  urgent: 3,
-};
 
 export function projectTaskCustomFieldKey(taskId: string, fieldId: string): string {
   return `${taskId}\u0000${fieldId}`;
@@ -127,6 +123,24 @@ export function manualStatusCompare(a: ProjectTask, b: ProjectTask): number {
 
 function statusIndexById(statuses: readonly ProjectStatus[]): ReadonlyMap<string, number> {
   return new Map(statuses.map((status, index) => [status.id, index]));
+}
+
+function priorityIndexById(priorities: readonly ProjectPriorityConfig[]): ReadonlyMap<string, number> {
+  return new Map(priorities.map((priority, index) => [priority.id, index]));
+}
+
+function comparePriorityOrder(
+  firstPriorityId: string,
+  secondPriorityId: string,
+  indexByPriorityId: ReadonlyMap<string, number>,
+  direction: ProjectTaskSortDirection,
+): number {
+  const firstIndex = indexByPriorityId.get(firstPriorityId);
+  const secondIndex = indexByPriorityId.get(secondPriorityId);
+  if (firstIndex === undefined && secondIndex === undefined) return 0;
+  if (firstIndex === undefined) return 1;
+  if (secondIndex === undefined) return -1;
+  return withDirection(firstIndex - secondIndex, direction);
 }
 
 function taskStatusMatches(
@@ -365,6 +379,7 @@ function compareTasks(
   b: ProjectTask,
   input: ProjectTaskViewInput,
   indexByStatusId: ReadonlyMap<string, number>,
+  indexByPriorityId: ReadonlyMap<string, number>,
 ): number {
   if (input.sortMode === "manual") {
     return withDirection(manualSectionCompare(a, b), input.sortDirection);
@@ -381,7 +396,7 @@ function compareTasks(
       || manualSectionCompare(a, b);
   }
   if (input.sortMode === "priority") {
-    return withDirection(PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority], input.sortDirection)
+    return comparePriorityOrder(a.priority, b.priority, indexByPriorityId, input.sortDirection)
       || manualSectionCompare(a, b);
   }
   if (input.sortMode === "due") {
@@ -429,9 +444,10 @@ export function buildProjectTaskView(input: ProjectTaskViewInput): ProjectTaskVi
     }
   }
   const indexByStatusId = statusIndexById(input.statuses);
+  const indexByPriorityId = priorityIndexById(input.priorities);
   const tasks = input.tasks
     .filter((task) => visibleTaskIds.has(task.id))
-    .sort((a, b) => compareTasks(a, b, input, indexByStatusId));
+    .sort((a, b) => compareTasks(a, b, input, indexByStatusId, indexByPriorityId));
   return {
     tasks,
     matchedTaskIds,
@@ -495,7 +511,7 @@ export function buildProjectTaskListGroups(input: ProjectTaskListGroupInput): Pr
   if (input.groupBy === "priority") {
     return groupedTopLevelTasksByValue(
       input.tasks,
-      ["urgent", "high", "normal", "low"],
+      input.priorities.map((priority) => priority.id),
       (task) => task.priority,
     );
   }

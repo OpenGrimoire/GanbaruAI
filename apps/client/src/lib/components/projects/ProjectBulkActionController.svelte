@@ -13,6 +13,7 @@
   import type {
     Project,
     ProjectPriority,
+    ProjectPriorityConfig,
     ProjectStatus,
     ProjectTask,
   } from "$lib/projects/types";
@@ -25,6 +26,7 @@
 
   let {
     selectedProject,
+    priorities,
     selectedTasks,
     selectableTasks,
     selectedActiveTaskCount,
@@ -35,6 +37,7 @@
     showArchivedTasks = $bindable<boolean>(),
   }: {
     selectedProject: Project;
+    priorities: ProjectPriorityConfig[];
     selectedTasks: ProjectTask[];
     selectableTasks: ProjectTask[];
     selectedActiveTaskCount: number;
@@ -223,6 +226,7 @@
     {bulkScheduleStartTime}
     {bulkScheduleDurationMinutes}
     {bulkTaskError}
+    {priorities}
     canMarkDone={Boolean(terminalStatus)}
     canReopen={Boolean(firstOpenStatus)}
     onSelectFiltered={selectFilteredTasks}

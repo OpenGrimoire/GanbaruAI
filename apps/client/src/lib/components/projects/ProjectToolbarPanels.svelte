@@ -24,7 +24,7 @@
   import {
     projectLabelColorDotStyle,
     projectLabelColorSwatchClass,
-    projectPriorityLabel,
+    projectPriorityDisplayLabel,
   } from "$lib/projects/project-display";
   import {
     projectToolbarPanelGeometry,
@@ -36,13 +36,13 @@
     customFieldReference,
   } from "$lib/projects/task-list-columns";
   import {
-    PROJECT_PRIORITIES,
     PROJECT_TASK_GROUP_MODES,
     PROJECT_TASK_SORT_MODES,
     type ProjectCustomField,
     type ProjectCustomFieldFilter,
     type ProjectLabel,
     type ProjectPriority,
+    type ProjectPriorityConfig,
     type ProjectSavedTaskView,
     type ProjectSection,
     type ProjectTaskDependencyFilter,
@@ -63,6 +63,7 @@
     cn,
     isAppFloatingSurfaceTarget,
   } from "$lib/utils";
+  import PriorityFlagIcon from "./PriorityFlagIcon.svelte";
   import ProjectSettingsPanel from "./ProjectSettingsPanel.svelte";
 
   const TASK_STATUS_FILTERS: ProjectTaskStatusFilter[] = ["all", "open", "blocked", "done"];
@@ -88,6 +89,7 @@
     panel,
     projectId,
     sections,
+    priorities,
     projectLabels,
     projectCustomFields,
     savedTaskViews,
@@ -124,6 +126,7 @@
     panel: ProjectToolbarPanel | null;
     projectId: string | null;
     sections: ProjectSection[];
+    priorities: ProjectPriorityConfig[];
     projectLabels: ProjectLabel[];
     projectCustomFields: ProjectCustomField[];
     savedTaskViews: ProjectSavedTaskView[];
@@ -454,7 +457,7 @@
   function taskPriorityFilterLabel(): string {
     return taskPriorityFilter === "all"
       ? t("projects.filters.allPriorities")
-      : projectPriorityLabel(taskPriorityFilter, t);
+      : projectPriorityDisplayLabel(taskPriorityFilter, priorities, t);
   }
 
   function customFieldFilterLabel(field: ProjectCustomField): string {
@@ -598,6 +601,25 @@
   >
     <span class="truncate">{label}</span>
     {#if active}
+      <Check size={13} strokeWidth={1.75} class="shrink-0" />
+    {/if}
+  </button>
+{/snippet}
+
+{#snippet priorityOptionRow(priority: ProjectPriorityConfig)}
+  <button
+    type="button"
+    class={panelOptionClass(taskPriorityFilter === priority.id)}
+    onclick={() => {
+      taskPriorityFilter = priority.id;
+      refreshActiveSubpanelAfterSelection();
+    }}
+  >
+    <span class="flex min-w-0 items-center gap-1.5">
+      <PriorityFlagIcon color={priority.color} theme={theme.current} size={13} class="shrink-0" />
+      <span class="min-w-0 truncate">{priority.name}</span>
+    </span>
+    {#if taskPriorityFilter === priority.id}
       <Check size={13} strokeWidth={1.75} class="shrink-0" />
     {/if}
   </button>
@@ -770,8 +792,8 @@
           {/each}
         {:else if activeSubpanel === "filter-priority"}
           {@render optionRow(t("projects.filters.allPriorities"), taskPriorityFilter === "all", () => { taskPriorityFilter = "all"; })}
-          {#each PROJECT_PRIORITIES as priority}
-            {@render optionRow(projectPriorityLabel(priority, t), taskPriorityFilter === priority, () => { taskPriorityFilter = priority; })}
+          {#each priorities as priority (priority.id)}
+            {@render priorityOptionRow(priority)}
           {/each}
         {:else if activeSubpanel === "filter-due"}
           {#each TASK_DUE_FILTERS as filter}

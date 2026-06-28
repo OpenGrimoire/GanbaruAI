@@ -93,7 +93,7 @@ describe("saved task views", () => {
       search: "",
       statusFilter: "all",
       sectionFilter: "all",
-      priorityFilter: "all",
+      priorityFilter: "maximum",
       dueFilter: "all",
       dueRangeStart: "",
       dueRangeEnd: "",

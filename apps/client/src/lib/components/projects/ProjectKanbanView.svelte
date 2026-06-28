@@ -11,11 +11,13 @@
     type ProjectKanbanDropPosition,
   } from "$lib/projects/kanban-drag";
   import {
-    projectPriorityLabel,
+    projectPriorityDisplayColor,
+    projectPriorityDisplayLabel,
     projectTaskArchivedBadgeClass,
   } from "$lib/projects/project-display";
   import { manualStatusCompare } from "$lib/projects/task-view";
   import type {
+    ProjectPriorityConfig,
     ProjectStatus,
     ProjectTask,
     ProjectTaskSortDirection,
@@ -24,11 +26,13 @@
   import { getProjects } from "$lib/stores/projects.svelte";
   import { getTheme } from "$lib/stores/theme.svelte";
   import { cn } from "$lib/utils";
+  import PriorityFlagIcon from "./PriorityFlagIcon.svelte";
   import ProjectStatusBadge from "./ProjectStatusBadge.svelte";
 
   let {
     tasks,
     statuses,
+    priorities,
     selectedTaskIds,
     taskSortMode,
     taskSortDirection,
@@ -37,6 +41,7 @@
   }: {
     tasks: ProjectTask[];
     statuses: ProjectStatus[];
+    priorities: ProjectPriorityConfig[];
     selectedTaskIds: string[];
     taskSortMode: ProjectTaskSortMode;
     taskSortDirection: ProjectTaskSortDirection;
@@ -296,7 +301,13 @@
               >
                 <span class="block truncate text-[0.866667rem]">{task.title}</span>
                 <span class="mt-1 flex items-center gap-1 text-[0.733333rem] text-muted-foreground">
-                  {projectPriorityLabel(task.priority, t)}
+                  <PriorityFlagIcon
+                    color={projectPriorityDisplayColor(task.priority, priorities)}
+                    theme={theme.current}
+                    size={12}
+                    class="shrink-0"
+                  />
+                  <span>{projectPriorityDisplayLabel(task.priority, priorities, t)}</span>
                   {#if task.dueDate}
                     <span>/</span>
                     <span>{task.dueDate}</span>

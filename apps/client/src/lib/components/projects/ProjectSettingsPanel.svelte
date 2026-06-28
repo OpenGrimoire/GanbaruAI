@@ -44,6 +44,7 @@
     ProjectCustomFieldType,
     ProjectLabel,
     ProjectLifecycleStatus,
+    ProjectPriorityConfig,
     ProjectStatus,
     ProjectStatusCategory,
   } from "$lib/projects/types";
@@ -76,14 +77,22 @@
 
   const PROJECT_STATUS_CATEGORIES: ProjectStatusCategory[] = ["not_started", "active", "blocked", "done"];
   const NEW_STATUS_FIRST_COLOR: EventColor = 8;
+  const NEW_PRIORITY_FIRST_COLOR: EventColor = 13;
   const PROJECT_STATUS_DRAG_DATA_TYPE = "application/x-ganbaru-project-status";
+  const PROJECT_PRIORITY_DRAG_DATA_TYPE = "application/x-ganbaru-project-priority";
   type ProjectLabelColorDraft = EventColor | "none";
   type SelectOption = { value: string; label: string };
   type StatusDropPosition = "before" | "after";
+  type PriorityDropPosition = "before" | "after";
   type StatusSaveDraft = {
     status: ProjectStatus;
     name: string;
     category: ProjectStatusCategory;
+    color: EventColor;
+  };
+  type PrioritySaveDraft = {
+    priority: ProjectPriorityConfig;
+    name: string;
     color: EventColor;
   };
 
@@ -117,10 +126,15 @@
   let statusNameDrafts = $state<Record<string, string>>({});
   let statusCategoryDrafts = $state<Record<string, ProjectStatusCategory>>({});
   let statusColorDrafts = $state<Record<string, EventColor>>({});
+  let priorityNameDrafts = $state<Record<string, string>>({});
+  let priorityColorDrafts = $state<Record<string, EventColor>>({});
   let newStatusName = $state("");
   let newStatusCategory = $state<ProjectStatusCategory>("active");
   let newStatusColor = $state<EventColor>(NEW_STATUS_FIRST_COLOR);
+  let newPriorityName = $state("");
+  let newPriorityColor = $state<EventColor>(NEW_PRIORITY_FIRST_COLOR);
   let pendingDeleteStatusId = $state<string | null>(null);
+  let pendingDeletePriorityId = $state<string | null>(null);
   let labelNameDrafts = $state<Record<string, string>>({});
   let labelColorDrafts = $state<Record<string, ProjectLabelColorDraft>>({});
   let newLabelName = $state("");
@@ -136,6 +150,7 @@
   let settingsScrollElement = $state<HTMLElement | undefined>();
   let settingsContentElement = $state<HTMLElement | undefined>();
   let newStatusRowElement = $state<HTMLDivElement | undefined>();
+  let newPriorityRowElement = $state<HTMLDivElement | undefined>();
   let settingsScrollable = $state(false);
   let settingsCanScrollUp = $state(false);
   let settingsCanScrollDown = $state(false);
@@ -143,12 +158,17 @@
   let dragOverStatusId = $state<string | null>(null);
   let statusDropPosition = $state<StatusDropPosition | null>(null);
   let statusReorderPending = $state(false);
+  let draggedPriorityId = $state<string | null>(null);
+  let dragOverPriorityId = $state<string | null>(null);
+  let priorityDropPosition = $state<PriorityDropPosition | null>(null);
+  let priorityReorderPending = $state(false);
   let settingsScrollStateFrame: number | null = null;
 
   const selectedProject = $derived(projects.projectById(projectId));
   const selectedProjectId = $derived(selectedProject?.id ?? null);
   const visibleProjectGroups = $derived.by(() => projects.visibleGroups());
   const statuses = $derived(projects.statusesForProject(selectedProjectId));
+  const priorities = $derived(projects.prioritiesForProject(selectedProjectId));
   const projectLabels = $derived(projects.labelsForProject(selectedProjectId));
   const projectCustomFields = $derived(projects.customFieldsForProject(selectedProjectId));
   const projectGroupOptions = $derived<SelectOption[]>(
@@ -189,6 +209,9 @@
   const pendingDeleteStatus = $derived.by(() =>
     pendingDeleteStatusId ? statuses.find((status) => status.id === pendingDeleteStatusId) : undefined
   );
+  const pendingDeletePriority = $derived.by(() =>
+    pendingDeletePriorityId ? priorities.find((priority) => priority.id === pendingDeletePriorityId) : undefined
+  );
   const projectSettingsDraftReady = $derived(
     Boolean(selectedProject && projectDraftId === selectedProject.id),
   );
@@ -208,7 +231,8 @@
       || projectBreakPlaylistDraft !== (selectedProject.breakPlaylistId ?? "");
   });
   const statusSettingsDirty = $derived.by(() => statuses.some(statusDraftDirty));
-  const projectSettingsDirty = $derived(projectFieldSettingsDirty || statusSettingsDirty);
+  const prioritySettingsDirty = $derived.by(() => priorities.some(priorityDraftDirty));
+  const projectSettingsDirty = $derived(projectFieldSettingsDirty || statusSettingsDirty || prioritySettingsDirty);
 
   $effect(() => {
     if (!selectedProject) return;
@@ -249,6 +273,8 @@
       statuses.map((status) => [status.id, status.category]),
     );
     statusColorDrafts = Object.fromEntries(statuses.map((status) => [status.id, status.color]));
+    priorityNameDrafts = Object.fromEntries(priorities.map((priority) => [priority.id, priority.name]));
+    priorityColorDrafts = Object.fromEntries(priorities.map((priority) => [priority.id, priority.color]));
     labelNameDrafts = Object.fromEntries(projectLabels.map((label) => [label.id, label.name]));
     const nextLabelColorDrafts: Record<string, ProjectLabelColorDraft> = {};
     for (const label of projectLabels) {
@@ -265,6 +291,9 @@
     newStatusCategory = "active";
     newStatusColor = nextUnusedStatusColor(NEW_STATUS_FIRST_COLOR);
     pendingDeleteStatusId = null;
+    newPriorityName = "";
+    newPriorityColor = nextUnusedPriorityColor(NEW_PRIORITY_FIRST_COLOR);
+    pendingDeletePriorityId = null;
     newLabelName = "";
     newLabelColor = "none";
     pendingDeleteLabelId = null;
@@ -506,6 +535,15 @@
     return used;
   }
 
+  function usedPriorityColors(extraColor?: EventColor): Set<EventColor> {
+    const used = new Set<EventColor>();
+    for (const priority of priorities) {
+      used.add(priorityColorDraftValue(priority));
+    }
+    if (extraColor !== undefined) used.add(extraColor);
+    return used;
+  }
+
   function nextUnusedStatusColor(preferredColor: EventColor, extraColor?: EventColor): EventColor {
     const used = usedStatusColors(extraColor);
     if (used.size >= EVENT_COLOR_OPTIONS.length) return randomStatusColor();
@@ -517,13 +555,23 @@
     return randomStatusColor();
   }
 
-  async function scrollToNewStatusRow(): Promise<void> {
+  function nextUnusedPriorityColor(preferredColor: EventColor, extraColor?: EventColor): EventColor {
+    const used = usedPriorityColors(extraColor);
+    if (used.size >= EVENT_COLOR_OPTIONS.length) return randomStatusColor();
+    const preferredIndex = Math.max(0, EVENT_COLOR_OPTIONS.indexOf(preferredColor));
+    for (let offset = 0; offset < EVENT_COLOR_OPTIONS.length; offset += 1) {
+      const color = EVENT_COLOR_OPTIONS[(preferredIndex + offset) % EVENT_COLOR_OPTIONS.length];
+      if (color !== undefined && !used.has(color)) return color;
+    }
+    return randomStatusColor();
+  }
+
+  async function scrollToSettingsRow(rowElement: HTMLElement | undefined): Promise<void> {
     await tick();
     await new Promise<void>((resolve) => {
       requestAnimationFrame(() => resolve());
     });
     const scrollElement = settingsScrollElement;
-    const rowElement = newStatusRowElement;
     if (!scrollElement || !rowElement) return;
     const scrollRect = scrollElement.getBoundingClientRect();
     const rowRect = rowElement.getBoundingClientRect();
@@ -535,6 +583,14 @@
       behavior: "auto",
     });
     requestSettingsScrollStateRefresh();
+  }
+
+  async function scrollToNewStatusRow(): Promise<void> {
+    await scrollToSettingsRow(newStatusRowElement);
+  }
+
+  async function scrollToNewPriorityRow(): Promise<void> {
+    await scrollToSettingsRow(newPriorityRowElement);
   }
 
   function handleSettingsScroll(): void {
@@ -580,7 +636,18 @@
     statusDropPosition = null;
   }
 
+  function clearPriorityDrag(): void {
+    draggedPriorityId = null;
+    dragOverPriorityId = null;
+    priorityDropPosition = null;
+  }
+
   function statusDropPositionForEvent(event: DragEvent, target: HTMLElement): StatusDropPosition {
+    const bounds = target.getBoundingClientRect();
+    return event.clientY < bounds.top + bounds.height / 2 ? "before" : "after";
+  }
+
+  function priorityDropPositionForEvent(event: DragEvent, target: HTMLElement): PriorityDropPosition {
     const bounds = target.getBoundingClientRect();
     return event.clientY < bounds.top + bounds.height / 2 ? "before" : "after";
   }
@@ -592,6 +659,13 @@
       && statusDropPosition === position;
   }
 
+  function priorityDropMarkerVisible(priorityId: string, position: PriorityDropPosition): boolean {
+    return draggedPriorityId !== null
+      && draggedPriorityId !== priorityId
+      && dragOverPriorityId === priorityId
+      && priorityDropPosition === position;
+  }
+
   function handleStatusDragStart(event: DragEvent, status: ProjectStatus): void {
     draggedStatusId = status.id;
     dragOverStatusId = null;
@@ -600,6 +674,16 @@
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData(PROJECT_STATUS_DRAG_DATA_TYPE, status.id);
     event.dataTransfer.setData("text/plain", status.id);
+  }
+
+  function handlePriorityDragStart(event: DragEvent, priority: ProjectPriorityConfig): void {
+    draggedPriorityId = priority.id;
+    dragOverPriorityId = null;
+    priorityDropPosition = null;
+    if (!event.dataTransfer) return;
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData(PROJECT_PRIORITY_DRAG_DATA_TYPE, priority.id);
+    event.dataTransfer.setData("text/plain", priority.id);
   }
 
   function handleStatusDragOver(
@@ -617,6 +701,23 @@
     if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
     dragOverStatusId = status.id;
     statusDropPosition = statusDropPositionForEvent(event, target);
+  }
+
+  function handlePriorityDragOver(
+    event: DragEvent,
+    priority: ProjectPriorityConfig,
+    target: HTMLElement,
+  ): void {
+    if (!draggedPriorityId || priorityReorderPending) return;
+    if (draggedPriorityId === priority.id) {
+      dragOverPriorityId = null;
+      priorityDropPosition = null;
+      return;
+    }
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+    dragOverPriorityId = priority.id;
+    priorityDropPosition = priorityDropPositionForEvent(event, target);
   }
 
   async function moveStatusToIndex(statusId: string, targetIndex: number): Promise<void> {
@@ -647,6 +748,34 @@
     }
   }
 
+  async function movePriorityToIndex(priorityId: string, targetIndex: number): Promise<void> {
+    priorityReorderPending = true;
+    projectSettingsError = null;
+    try {
+      let currentIndex = priorities.findIndex((entry) => entry.id === priorityId);
+      let remainingMoves = priorities.length;
+      while (currentIndex >= 0 && currentIndex !== targetIndex && remainingMoves > 0) {
+        const direction: -1 | 1 = currentIndex < targetIndex ? 1 : -1;
+        const priority = priorities[currentIndex];
+        if (!priority) break;
+        await projects.movePriority(priority, direction);
+        currentIndex = priorities.findIndex((entry) => entry.id === priorityId);
+        remainingMoves -= 1;
+      }
+      if (currentIndex !== targetIndex) {
+        projectSettingsError = t("projects.settings.priorityReorderFailed");
+      }
+    } catch (error) {
+      projectSettingsError = t(
+        "projects.settings.prioritySaveFailed",
+        error instanceof Error ? error.message : String(error),
+      );
+    } finally {
+      priorityReorderPending = false;
+      clearPriorityDrag();
+    }
+  }
+
   async function dropStatus(event: DragEvent, targetStatus: ProjectStatus): Promise<void> {
     event.preventDefault();
     const statusId = draggedStatusId
@@ -672,6 +801,33 @@
       return;
     }
     await moveStatusToIndex(statusId, boundedTargetIndex);
+  }
+
+  async function dropPriority(event: DragEvent, targetPriority: ProjectPriorityConfig): Promise<void> {
+    event.preventDefault();
+    const priorityId = draggedPriorityId
+      ?? event.dataTransfer?.getData(PROJECT_PRIORITY_DRAG_DATA_TYPE)
+      ?? event.dataTransfer?.getData("text/plain")
+      ?? null;
+    if (!priorityId || priorityId === targetPriority.id) {
+      clearPriorityDrag();
+      return;
+    }
+
+    const sourceIndex = priorities.findIndex((entry) => entry.id === priorityId);
+    let targetIndex = priorities.findIndex((entry) => entry.id === targetPriority.id);
+    if (sourceIndex < 0 || targetIndex < 0) {
+      clearPriorityDrag();
+      return;
+    }
+    if ((priorityDropPosition ?? "before") === "after") targetIndex += 1;
+    if (sourceIndex < targetIndex) targetIndex -= 1;
+    const boundedTargetIndex = Math.max(0, Math.min(priorities.length - 1, targetIndex));
+    if (boundedTargetIndex === sourceIndex) {
+      clearPriorityDrag();
+      return;
+    }
+    await movePriorityToIndex(priorityId, boundedTargetIndex);
   }
 
   function statusDraftDirty(status: ProjectStatus): boolean {
@@ -738,6 +894,114 @@
     } catch (error) {
       projectSettingsError = t(
         "projects.settings.statusDeleteFailed",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+
+  function priorityDraftDirty(priority: ProjectPriorityConfig): boolean {
+    return (priorityNameDrafts[priority.id] ?? priority.name) !== priority.name
+      || priorityColorDraftValue(priority) !== priority.color;
+  }
+
+  function priorityColorDraftValue(priority: ProjectPriorityConfig): EventColor {
+    return priorityColorDrafts[priority.id] ?? priority.color ?? FALLBACK_COLOR_INDEX;
+  }
+
+  function setPriorityColor(priorityId: string, color: EventColor | undefined): void {
+    if (color === undefined) return;
+    priorityColorDrafts = {
+      ...priorityColorDrafts,
+      [priorityId]: color,
+    };
+  }
+
+  function setNewPriorityColor(color: EventColor | undefined): void {
+    if (color !== undefined) newPriorityColor = color;
+  }
+
+  function priorityTaskCount(priority: ProjectPriorityConfig): number {
+    return projects
+      .tasksForProjectIncludingArchived(priority.projectId)
+      .filter((task) => task.priority === priority.id)
+      .length;
+  }
+
+  function priorityDeleteDisabled(priority: ProjectPriorityConfig): boolean {
+    return priorities.length <= 1 || priorityTaskCount(priority) > 0;
+  }
+
+  function priorityDeleteTitle(priority: ProjectPriorityConfig): string {
+    if (priorities.length <= 1) return t("projects.settings.deletePriorityBlockedLast");
+    if (priorityTaskCount(priority) > 0) return t("projects.settings.deletePriorityBlockedTasks");
+    return t("projects.settings.deletePriority", priority.name);
+  }
+
+  function requestDeletePriority(priority: ProjectPriorityConfig): void {
+    if (priorityDeleteDisabled(priority)) return;
+    pendingDeletePriorityId = priority.id;
+  }
+
+  function cancelDeletePriority(): void {
+    pendingDeletePriorityId = null;
+  }
+
+  async function confirmDeletePriority(): Promise<void> {
+    if (!pendingDeletePriority) return;
+    const priority = pendingDeletePriority;
+    pendingDeletePriorityId = null;
+    projectSettingsError = null;
+    try {
+      await projects.removePriority(priority);
+      const remainingNames = { ...priorityNameDrafts };
+      const remainingColors = { ...priorityColorDrafts };
+      delete remainingNames[priority.id];
+      delete remainingColors[priority.id];
+      priorityNameDrafts = remainingNames;
+      priorityColorDrafts = remainingColors;
+    } catch (error) {
+      projectSettingsError = t(
+        "projects.settings.priorityDeleteFailed",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+
+  function prioritySaveDrafts(): PrioritySaveDraft[] | null {
+    const drafts: PrioritySaveDraft[] = [];
+    for (const priority of priorities) {
+      if (!priorityDraftDirty(priority)) continue;
+      const name = (priorityNameDrafts[priority.id] ?? priority.name).trim();
+      if (!name) {
+        projectSettingsError = t("projects.settings.priorityNameRequired");
+        return null;
+      }
+      drafts.push({
+        priority,
+        name,
+        color: priorityColorDraftValue(priority),
+      });
+    }
+    return drafts;
+  }
+
+  async function submitPriority(): Promise<void> {
+    if (!selectedProjectId) return;
+    const name = newPriorityName.trim();
+    const createdColor = newPriorityColor;
+    if (!name) {
+      projectSettingsError = t("projects.settings.priorityNameRequired");
+      return;
+    }
+    projectSettingsError = null;
+    try {
+      await projects.addPriority(selectedProjectId, name, createdColor);
+      newPriorityName = "";
+      newPriorityColor = nextUnusedPriorityColor(nextPaletteColor(createdColor), createdColor);
+      await scrollToNewPriorityRow();
+    } catch (error) {
+      projectSettingsError = t(
+        "projects.settings.prioritySaveFailed",
         error instanceof Error ? error.message : String(error),
       );
     }
@@ -1052,6 +1316,18 @@
     }
   }
 
+  async function movePriorityByDirection(priority: ProjectPriorityConfig, direction: -1 | 1): Promise<void> {
+    projectSettingsError = null;
+    try {
+      await projects.movePriority(priority, direction);
+    } catch (error) {
+      projectSettingsError = t(
+        "projects.settings.prioritySaveFailed",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+
   async function saveProjectSettings(): Promise<void> {
     if (!selectedProject) return;
     const name = projectNameDraft.trim();
@@ -1065,6 +1341,8 @@
     }
     const statusDrafts = statusSaveDrafts();
     if (!statusDrafts) return;
+    const priorityDrafts = prioritySaveDrafts();
+    if (!priorityDrafts) return;
     const shouldUpdateProject = projectFieldSettingsDirty;
     const shouldRevealInactive = shouldUpdateProject && projectStatusDraft !== "active";
     projectSettingsSaving = true;
@@ -1123,6 +1401,14 @@
         statusNameDrafts = { ...statusNameDrafts, [draft.status.id]: draft.name };
         statusCategoryDrafts = { ...statusCategoryDrafts, [draft.status.id]: draft.category };
         statusColorDrafts = { ...statusColorDrafts, [draft.status.id]: draft.color };
+      }
+      for (const draft of priorityDrafts) {
+        await projects.updatePriority(draft.priority, {
+          name: draft.name,
+          color: draft.color,
+        });
+        priorityNameDrafts = { ...priorityNameDrafts, [draft.priority.id]: draft.name };
+        priorityColorDrafts = { ...priorityColorDrafts, [draft.priority.id]: draft.color };
       }
       if (shouldRevealInactive) {
         onRevealInactive();
@@ -1779,6 +2065,121 @@
               </button>
             </div>
           </section>
+
+          <div class="h-px bg-border/70" aria-hidden="true"></div>
+
+          <section class="flex flex-col gap-0.5">
+            {@render sectionHeading(t("projects.settings.taskPriorities"))}
+            <div class="flex flex-col gap-0.5">
+              {#each priorities as priority (priority.id)}
+                {@const deletePriorityTitle = priorityDeleteTitle(priority)}
+                <div
+                  class={cn(
+                    "relative grid min-h-7 grid-cols-[auto_auto_minmax(0,1fr)_auto] items-center gap-1 px-1 py-0.5",
+                    draggedPriorityId === priority.id && "opacity-50",
+                  )}
+                  role="group"
+                  aria-label={priority.name}
+                  ondragover={(event) => handlePriorityDragOver(event, priority, event.currentTarget)}
+                  ondrop={(event) => { void dropPriority(event, priority); }}
+                >
+                  {#if priorityDropMarkerVisible(priority.id, "before")}
+                    <div class="pointer-events-none absolute left-1 right-1 top-0 h-0.5 rounded-full bg-primary"></div>
+                  {/if}
+                  {#if priorityDropMarkerVisible(priority.id, "after")}
+                    <div class="pointer-events-none absolute bottom-0 left-1 right-1 h-0.5 rounded-full bg-primary"></div>
+                  {/if}
+                  <button
+                    type="button"
+                    class="flex h-7 w-7 shrink-0 cursor-grab items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-40"
+                    draggable={priorities.length > 1 && !priorityReorderPending}
+                    disabled={priorities.length <= 1 || priorityReorderPending}
+                    aria-label={t("projects.actions.dragPriority", priority.name)}
+                    ondragstart={(event) => handlePriorityDragStart(event, priority)}
+                    ondragend={clearPriorityDrag}
+                    onkeydown={(event) => {
+                      if (event.key === "ArrowUp") {
+                        event.preventDefault();
+                        void movePriorityByDirection(priority, -1);
+                      }
+                      if (event.key === "ArrowDown") {
+                        event.preventDefault();
+                        void movePriorityByDirection(priority, 1);
+                      }
+                    }}
+                  >
+                    <GripVertical size={13} strokeWidth={1.75} />
+                  </button>
+                  <ColorPicker
+                    color={priorityColorDraftValue(priority)}
+                    theme={theme.current}
+                    title={t("projects.settings.priorityColor")}
+                    ariaLabel={t("projects.settings.selectPriorityColor", priority.name)}
+                    class="h-7 w-7 justify-center"
+                    buttonClass="size-6.5 rounded-md"
+                    onselect={(color) => setPriorityColor(priority.id, color)}
+                  />
+                  <input
+                    value={priorityNameDrafts[priority.id] ?? priority.name}
+                    class="h-7 min-w-0 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:border-ring placeholder:text-muted-foreground"
+                    aria-label={t("projects.settings.priorityName")}
+                    oninput={(event) => {
+                      priorityNameDrafts = {
+                        ...priorityNameDrafts,
+                        [priority.id]: event.currentTarget.value,
+                      };
+                    }}
+                  />
+                  <button
+                    type="button"
+                    class={iconButtonClass("danger")}
+                    disabled={priorityDeleteDisabled(priority)}
+                    aria-label={deletePriorityTitle}
+                    title={deletePriorityTitle}
+                    onclick={() => requestDeletePriority(priority)}
+                  >
+                    <Trash2 size={13} strokeWidth={1.75} />
+                  </button>
+                </div>
+              {/each}
+            </div>
+
+            <div
+              bind:this={newPriorityRowElement}
+              class="grid min-h-7 grid-cols-[auto_auto_minmax(0,1fr)_auto] items-center gap-1 px-1 py-0.5"
+            >
+              <div class="h-7 w-7 shrink-0" aria-hidden="true"></div>
+              <ColorPicker
+                color={newPriorityColor}
+                theme={theme.current}
+                title={t("projects.settings.priorityColor")}
+                ariaLabel={t("projects.settings.selectNewPriorityColor")}
+                class="h-7 w-7 justify-center"
+                buttonClass="size-6.5 rounded-md"
+                onselect={setNewPriorityColor}
+              />
+              <input
+                bind:value={newPriorityName}
+                class="h-7 min-w-0 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:border-ring placeholder:text-muted-foreground"
+                placeholder={t("projects.settings.newPriorityPlaceholder")}
+                onkeydown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    void submitPriority();
+                  }
+                }}
+              />
+              <button
+                type="button"
+                class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                aria-label={t("projects.settings.addPriority")}
+                title={t("projects.settings.addPriority")}
+                onclick={() => { void submitPriority(); }}
+              >
+                <Plus size={13} strokeWidth={1.75} />
+              </button>
+            </div>
+          </section>
         </div>
       </div>
       <CalendarScrollbar
@@ -1819,6 +2220,17 @@
     cancelLabel={t("common.cancelShortcut")}
     onConfirm={() => { void confirmDeleteStatus(); }}
     onCancel={cancelDeleteStatus}
+  />
+{/if}
+
+{#if pendingDeletePriority}
+  <ConfirmDialog
+    title={t("projects.settings.deletePriorityTitle", pendingDeletePriority.name)}
+    message={t("projects.settings.deletePriorityMessage", pendingDeletePriority.name)}
+    confirmLabel={t("projects.settings.deletePriorityConfirm")}
+    cancelLabel={t("common.cancelShortcut")}
+    onConfirm={() => { void confirmDeletePriority(); }}
+    onCancel={cancelDeletePriority}
   />
 {/if}
 

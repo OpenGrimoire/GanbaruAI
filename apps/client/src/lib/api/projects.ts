@@ -33,6 +33,9 @@ import type {
   ProjectLabelCreate,
   ProjectLabelUpdate,
   ProjectLinkableEvent,
+  ProjectPriorityConfig,
+  ProjectPriorityCreate,
+  ProjectPriorityUpdate,
   ProjectSection,
   ProjectSectionCreate,
   ProjectSectionUpdate,
@@ -116,6 +119,16 @@ interface ProjectStatusRow {
   color: number;
   sort_order: number;
   terminal: number;
+  created_at: string;
+  updated_at: string;
+}
+
+interface ProjectPriorityRow {
+  id: string;
+  project_id: string;
+  name: string;
+  color: number;
+  sort_order: number;
   created_at: string;
   updated_at: string;
 }
@@ -276,6 +289,7 @@ interface ProjectsSnapshotRows {
   projects: ProjectRow[];
   sections: ProjectSectionRow[];
   statuses: ProjectStatusRow[];
+  priorities: ProjectPriorityRow[];
   tasks: ProjectTaskRow[];
   checklist_items: ProjectChecklistItemRow[];
   labels: ProjectLabelRow[];
@@ -379,6 +393,18 @@ function mapStatus(row: ProjectStatusRow): ProjectStatus {
     color: normalizeEventColor(row.color) ?? FALLBACK_COLOR_INDEX,
     sortOrder: row.sort_order,
     terminal: row.terminal !== 0,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mapPriority(row: ProjectPriorityRow): ProjectPriorityConfig {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    name: row.name,
+    color: normalizeEventColor(row.color) ?? FALLBACK_COLOR_INDEX,
+    sortOrder: row.sort_order,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -570,6 +596,7 @@ function mapSnapshot(rows: ProjectsSnapshotRows): ProjectsSnapshot {
     projects: rows.projects.map(mapProject),
     sections: rows.sections.map(mapSection),
     statuses: rows.statuses.map(mapStatus),
+    priorities: rows.priorities.map(mapPriority),
     tasks: rows.tasks.map(mapTask),
     checklistItems: rows.checklist_items.map(mapChecklistItem),
     labels: rows.labels.map(mapLabel),
@@ -648,6 +675,21 @@ export async function updateProjectStatus(status: ProjectStatusUpdate): Promise<
 export async function deleteProjectStatus(statusId: string): Promise<void> {
   const dbUrl = await ensureDbUrl();
   await invoke("projects_delete_status", { dbUrl, statusId });
+}
+
+export async function createProjectPriority(priority: ProjectPriorityCreate): Promise<void> {
+  const dbUrl = await ensureDbUrl();
+  await invoke("projects_create_priority", { dbUrl, priority });
+}
+
+export async function updateProjectPriority(priority: ProjectPriorityUpdate): Promise<void> {
+  const dbUrl = await ensureDbUrl();
+  await invoke("projects_update_priority", { dbUrl, priority });
+}
+
+export async function deleteProjectPriority(projectId: string, priorityId: string): Promise<void> {
+  const dbUrl = await ensureDbUrl();
+  await invoke("projects_delete_priority", { dbUrl, projectId, priorityId });
 }
 
 export async function createProjectTask(task: ProjectTaskCreate): Promise<void> {

@@ -12,6 +12,7 @@ import type {
   ProjectCustomFieldType,
   ProjectLifecycleStatus,
   ProjectPriority,
+  ProjectPriorityConfig,
   ProjectStatus,
   ProjectTask,
   ProjectTaskChangeEvent,
@@ -23,6 +24,33 @@ export function projectPriorityLabel(priority: ProjectPriority, t: Translate): s
   if (priority === "high") return t("projects.priority.high");
   if (priority === "urgent") return t("projects.priority.urgent");
   return t("projects.priority.normal");
+}
+
+export function projectPriorityById(
+  priorities: readonly ProjectPriorityConfig[],
+  priorityId: ProjectPriority,
+): ProjectPriorityConfig | undefined {
+  return priorities.find((priority) => priority.id === priorityId);
+}
+
+export function projectPriorityDisplayLabel(
+  priorityId: ProjectPriority,
+  priorities: readonly ProjectPriorityConfig[],
+  t: Translate,
+): string {
+  return projectPriorityById(priorities, priorityId)?.name ?? projectPriorityLabel(priorityId, t);
+}
+
+export function projectPriorityDisplayColor(
+  priorityId: ProjectPriority,
+  priorities: readonly ProjectPriorityConfig[],
+): EventColor {
+  const priority = projectPriorityById(priorities, priorityId);
+  if (priority) return priority.color;
+  if (priorityId === "urgent") return 2;
+  if (priorityId === "high") return 7;
+  if (priorityId === "normal") return 19;
+  return 30;
 }
 
 export function projectLifecycleLabel(status: ProjectLifecycleStatus, t: Translate): string {

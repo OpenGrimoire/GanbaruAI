@@ -6,12 +6,9 @@
   import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
   import X from "@lucide/svelte/icons/x";
   import { getLocalization } from "$lib/i18n/translator.svelte";
-  import {
-    projectPriorityBadgeClass,
-    projectPriorityLabel,
-  } from "$lib/projects/project-display";
-  import { PROJECT_PRIORITIES, type ProjectPriority } from "$lib/projects/types";
-  import { cn } from "$lib/utils";
+  import type { ProjectPriority, ProjectPriorityConfig } from "$lib/projects/types";
+  import { getTheme } from "$lib/stores/theme.svelte";
+  import PriorityFlagIcon from "./PriorityFlagIcon.svelte";
 
   let {
     selectedTaskCount,
@@ -25,6 +22,7 @@
     bulkScheduleStartTime,
     bulkScheduleDurationMinutes,
     bulkTaskError,
+    priorities,
     canMarkDone,
     canReopen,
     onSelectFiltered,
@@ -52,6 +50,7 @@
     bulkScheduleStartTime: string;
     bulkScheduleDurationMinutes: number;
     bulkTaskError: string | null;
+    priorities: ProjectPriorityConfig[];
     canMarkDone: boolean;
     canReopen: boolean;
     onSelectFiltered: () => void;
@@ -70,6 +69,7 @@
   } = $props();
 
   const { t } = getLocalization();
+  const theme = getTheme();
 </script>
 
 <div class="mx-3 my-2 flex min-w-0 flex-wrap items-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-[0.766667rem]">
@@ -111,14 +111,15 @@
     <span>{t("projects.bulk.schedule")}</span>
   </button>
   <div class="flex max-w-full items-center gap-1 overflow-x-auto rounded-md bg-muted/60 p-0.5">
-    {#each PROJECT_PRIORITIES as priority}
+    {#each priorities as priority (priority.id)}
       <button
         type="button"
-        class={cn("h-6 shrink-0 rounded px-2 font-medium", projectPriorityBadgeClass(priority))}
+        class="flex h-6 shrink-0 items-center gap-1.5 rounded px-2 font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
         disabled={bulkTaskActionPending}
-        onclick={() => onSetPriority(priority)}
+        onclick={() => onSetPriority(priority.id)}
       >
-        {projectPriorityLabel(priority, t)}
+        <PriorityFlagIcon color={priority.color} theme={theme.current} size={12} class="shrink-0" />
+        <span>{priority.name}</span>
       </button>
     {/each}
   </div>

@@ -27,7 +27,7 @@ use custom_fields::{
 };
 use history::*;
 pub use models::*;
-use templates::{insert_default_statuses, insert_template_sections};
+use templates::{insert_default_priorities, insert_default_statuses, insert_template_sections};
 use validation::*;
 
 #[tauri::command]
@@ -72,6 +72,15 @@ pub async fn projects_load_snapshot<R: Runtime>(
     .fetch_all(&pool)
     .await
     .map_err(|e| format!("load project statuses: {e}"))?;
+    let priorities = sqlx::query_as::<_, ProjectPriorityRow>(
+        "SELECT * FROM project_priorities
+         WHERE project_id = ?
+         ORDER BY project_id ASC, sort_order ASC, name ASC",
+    )
+    .bind(normalized_project_id)
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| format!("load project priorities: {e}"))?;
     let tasks = sqlx::query_as::<_, ProjectTaskRow>(
         "SELECT * FROM project_tasks
          WHERE project_id = ?
@@ -201,6 +210,7 @@ pub async fn projects_load_snapshot<R: Runtime>(
         projects,
         sections,
         statuses,
+        priorities,
         tasks,
         checklist_items,
         labels,
@@ -384,6 +394,7 @@ pub async fn projects_create_project<R: Runtime>(
 
     insert_template_sections(&mut tx, &project.id, &project.template_id).await?;
     insert_default_statuses(&mut tx, &project.id).await?;
+    insert_default_priorities(&mut tx, &project.id).await?;
 
     tx.commit().await.map_err(|e| format!("commit: {e}"))?;
     Ok(())
@@ -599,6 +610,76 @@ pub async fn projects_delete_status<R: Runtime>(
 }
 
 #[tauri::command]
+pub async fn projects_create_priority<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    priority: ProjectPriorityCreate,
+) -> Result<(), String> {
+    validate_priority_create(&priority)?;
+    let pool = connect_sqlite(app, db_url).await?;
+    ensure_project_exists_in_pool(&pool, &priority.project_id).await?;
+    sqlx::query(
+        "INSERT INTO project_priorities (id, project_id, name, color, sort_order)
+         VALUES (?, ?, ?, ?, ?)",
+    )
+    .bind(priority.id.trim())
+    .bind(&priority.project_id)
+    .bind(priority.name.trim())
+    .bind(priority.color)
+    .bind(priority.sort_order)
+    .execute(&pool)
+    .await
+    .map_err(|e| format!("create project priority: {e}"))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn projects_update_priority<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    priority: ProjectPriorityUpdate,
+) -> Result<(), String> {
+    validate_priority_update(&priority)?;
+    let pool = connect_sqlite(app, db_url).await?;
+    let result = sqlx::query(
+        "UPDATE project_priorities
+         SET name = ?,
+             color = ?,
+             sort_order = ?,
+             updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+         WHERE project_id = ? AND id = ?",
+    )
+    .bind(priority.name.trim())
+    .bind(priority.color)
+    .bind(priority.sort_order)
+    .bind(&priority.project_id)
+    .bind(priority.id.trim())
+    .execute(&pool)
+    .await
+    .map_err(|e| format!("update project priority: {e}"))?;
+    if result.rows_affected() == 0 {
+        return Err("project priority not found".to_string());
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn projects_delete_priority<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    project_id: String,
+    priority_id: String,
+) -> Result<(), String> {
+    require_non_empty(&project_id, "project_id")?;
+    require_non_empty(&priority_id, "priority_id")?;
+    let pool = connect_sqlite(app, db_url).await?;
+    let mut tx = pool.begin().await.map_err(|e| format!("begin: {e}"))?;
+    delete_unused_priority(&mut tx, project_id.trim(), priority_id.trim()).await?;
+    tx.commit().await.map_err(|e| format!("commit: {e}"))?;
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn projects_create_task<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
@@ -680,6 +761,7 @@ pub async fn projects_update_task<R: Runtime>(
         &task.status_id,
     )
     .await?;
+    ensure_priority_matches_project(&mut tx, &project_id, &task.priority).await?;
     if let Some(parent_id) = &task.parent_task_id {
         ensure_parent_task_matches_project(&mut tx, &project_id, parent_id).await?;
         if parent_id == &task.id {
@@ -1620,6 +1702,57 @@ async fn delete_unused_status(
     Ok(())
 }
 
+async fn delete_unused_priority(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    project_id: &str,
+    priority_id: &str,
+) -> Result<(), String> {
+    let priority_exists: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM project_priorities WHERE project_id = ? AND id = ?",
+    )
+    .bind(project_id)
+    .bind(priority_id)
+    .fetch_one(&mut **tx)
+    .await
+    .map_err(|e| format!("load project priority: {e}"))?;
+    if priority_exists == 0 {
+        return Err("project priority not found".to_string());
+    }
+
+    let priority_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM project_priorities WHERE project_id = ?")
+            .bind(project_id)
+            .fetch_one(&mut **tx)
+            .await
+            .map_err(|e| format!("count project priorities: {e}"))?;
+    if priority_count <= 1 {
+        return Err("project must keep at least one task priority".to_string());
+    }
+
+    let task_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM project_tasks WHERE project_id = ? AND priority = ?",
+    )
+    .bind(project_id)
+    .bind(priority_id)
+    .fetch_one(&mut **tx)
+    .await
+    .map_err(|e| format!("count priority tasks: {e}"))?;
+    if task_count > 0 {
+        return Err("move or delete tasks before deleting this task priority".to_string());
+    }
+
+    let result = sqlx::query("DELETE FROM project_priorities WHERE project_id = ? AND id = ?")
+        .bind(project_id)
+        .bind(priority_id)
+        .execute(&mut **tx)
+        .await
+        .map_err(|e| format!("delete project priority: {e}"))?;
+    if result.rows_affected() == 0 {
+        return Err("project priority not found".to_string());
+    }
+    Ok(())
+}
+
 async fn next_task_sort_order(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     owner_column: &'static str,
@@ -1665,6 +1798,37 @@ async fn ensure_section_and_status_match_project(
             .map_err(|e| format!("check project status: {e}"))?;
     if status_count == 0 {
         return Err("status does not belong to project".to_string());
+    }
+    Ok(())
+}
+
+async fn ensure_priority_matches_project(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    project_id: &str,
+    priority_id: &str,
+) -> Result<(), String> {
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM project_priorities WHERE id = ? AND project_id = ?",
+    )
+    .bind(priority_id)
+    .bind(project_id)
+    .fetch_one(&mut **tx)
+    .await
+    .map_err(|e| format!("check project priority: {e}"))?;
+    if count > 0 {
+        return Ok(());
+    }
+    let project_priority_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM project_priorities WHERE project_id = ?")
+            .bind(project_id)
+            .fetch_one(&mut **tx)
+            .await
+            .map_err(|e| format!("count project priorities: {e}"))?;
+    if project_priority_count == 0 && matches!(priority_id, "low" | "normal" | "high" | "urgent") {
+        return Ok(());
+    }
+    if count == 0 {
+        return Err("priority does not belong to project".to_string());
     }
     Ok(())
 }

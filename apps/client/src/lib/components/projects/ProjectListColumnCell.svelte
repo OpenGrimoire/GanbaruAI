@@ -9,14 +9,14 @@
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import {
     projectPersonInitials,
-    projectPriorityBadgeClass,
-    projectPriorityLabel,
+    projectPriorityDisplayColor,
+    projectPriorityDisplayLabel,
   } from "$lib/projects/project-display";
   import { customFieldIdFromTaskListColumn } from "$lib/projects/task-list-columns";
   import {
-    PROJECT_PRIORITIES,
     type ProjectCustomField,
     type ProjectPriority,
+    type ProjectPriorityConfig,
     type ProjectStatus,
     type ProjectTask,
     type ProjectTaskListColumn,
@@ -24,6 +24,7 @@
   import { getPreferences } from "$lib/stores/preferences.svelte";
   import { getTheme } from "$lib/stores/theme.svelte";
   import { cn } from "$lib/utils";
+  import PriorityFlagIcon from "./PriorityFlagIcon.svelte";
   import ProjectStatusBadge from "./ProjectStatusBadge.svelte";
 
   let {
@@ -31,6 +32,7 @@
     task,
     status,
     statuses,
+    priorities,
     statusMenuOpen,
     priorityMenuOpen,
     startDateMenuOpen,
@@ -62,6 +64,7 @@
     task: ProjectTask;
     status: ProjectStatus | undefined;
     statuses: ProjectStatus[];
+    priorities: ProjectPriorityConfig[];
     statusMenuOpen: boolean;
     priorityMenuOpen: boolean;
     startDateMenuOpen: boolean;
@@ -286,19 +289,22 @@
         </div>
       {/if}
   {:else if column === "priority"}
+    {@const selectedPriorityLabel = projectPriorityDisplayLabel(task.priority, priorities, t)}
+    {@const selectedPriorityColor = projectPriorityDisplayColor(task.priority, priorities)}
     <button
       type="button"
       class="absolute inset-0 z-0 cursor-pointer rounded-md disabled:cursor-not-allowed"
       disabled={Boolean(task.archivedAt)}
-      aria-label={projectPriorityLabel(task.priority, t)}
+      aria-label={selectedPriorityLabel}
       data-app-tooltip-disabled="true"
       aria-haspopup="menu"
       aria-expanded={priorityMenuOpen}
       onclick={onTogglePriorityMenu}
     ></button>
     <div class="pointer-events-none relative z-10 min-w-0 max-w-full">
-      <span class="block truncate text-[0.8rem] text-foreground">
-        {projectPriorityLabel(task.priority, t)}
+      <span class="flex min-w-0 items-center gap-1.5 text-[0.8rem] text-foreground">
+        <PriorityFlagIcon color={selectedPriorityColor} theme={theme.current} size={13} class="shrink-0" />
+        <span class="min-w-0 truncate">{selectedPriorityLabel}</span>
       </span>
     </div>
       {#if priorityMenuOpen}
@@ -306,18 +312,19 @@
           class="absolute left-0 top-full z-30 mt-1 w-44 rounded-lg border border-border bg-popover p-1 text-[0.8rem] text-popover-foreground shadow-sm"
           role="menu"
         >
-          {#each PROJECT_PRIORITIES as priority}
+          {#each priorities as priority (priority.id)}
             <button
               type="button"
               class="flex min-h-8 w-full cursor-pointer items-center justify-between gap-2 rounded-md px-2 text-left hover:bg-accent hover:text-foreground"
               role="menuitemradio"
-              aria-checked={task.priority === priority}
-              onclick={() => onSetPriority(priority)}
+              aria-checked={task.priority === priority.id}
+              onclick={() => onSetPriority(priority.id)}
             >
-              <span class={cn("min-w-0 truncate rounded border px-1.5 py-0.5 text-[0.733333rem]", projectPriorityBadgeClass(priority))}>
-                {projectPriorityLabel(priority, t)}
+              <span class="flex min-w-0 items-center gap-1.5 text-[0.8rem] text-foreground">
+                <PriorityFlagIcon color={priority.color} theme={theme.current} size={13} class="shrink-0" />
+                <span class="min-w-0 truncate">{priority.name}</span>
               </span>
-              {#if task.priority === priority}
+              {#if task.priority === priority.id}
                 <Check size={13} strokeWidth={2} class="shrink-0 text-muted-foreground" />
               {/if}
             </button>

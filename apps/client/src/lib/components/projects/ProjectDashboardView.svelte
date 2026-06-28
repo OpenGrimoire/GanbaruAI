@@ -2,23 +2,27 @@
   import CircleAlert from "@lucide/svelte/icons/circle-alert";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import type {
+    ProjectPriorityConfig,
     ProjectStatus,
     ProjectTask,
     ProjectTaskChangeEvent,
   } from "$lib/projects/types";
   import {
-    projectPriorityLabel,
+    projectPriorityDisplayColor,
+    projectPriorityDisplayLabel,
     projectTaskHistoryEventLabel,
   } from "$lib/projects/project-display";
   import { getProjects } from "$lib/stores/projects.svelte";
   import { getTheme } from "$lib/stores/theme.svelte";
   import ProjectListScrollbars from "./ProjectListScrollbars.svelte";
+  import PriorityFlagIcon from "./PriorityFlagIcon.svelte";
   import ProjectStatusBadge from "./ProjectStatusBadge.svelte";
 
   let {
     projectId,
     tasks,
     statuses,
+    priorities,
     todayDate,
     scheduledTaskIds,
     scheduledThisWeekMinutes,
@@ -27,6 +31,7 @@
     projectId: string | null;
     tasks: ProjectTask[];
     statuses: ProjectStatus[];
+    priorities: ProjectPriorityConfig[];
     todayDate: string;
     scheduledTaskIds: ReadonlySet<string>;
     scheduledThisWeekMinutes: number;
@@ -248,7 +253,15 @@
           onclick={() => onOpenTask(task)}
         >
           <span class="truncate">{task.title}</span>
-          <span class="text-[0.733333rem] text-muted-foreground">{projectPriorityLabel(task.priority, t)}</span>
+          <span class="flex items-center gap-1.5 text-[0.733333rem] text-muted-foreground">
+            <PriorityFlagIcon
+              color={projectPriorityDisplayColor(task.priority, priorities)}
+              theme={theme.current}
+              size={12}
+              class="shrink-0"
+            />
+            <span>{projectPriorityDisplayLabel(task.priority, priorities, t)}</span>
+          </span>
         </button>
       {:else}
         <div class="text-[0.8rem] text-muted-foreground">{t("projects.dashboard.noMissingEstimates")}</div>

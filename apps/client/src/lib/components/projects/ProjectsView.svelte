@@ -148,6 +148,7 @@
   );
   const visibleSectionIds = $derived.by(() => new Set(sections.map((section) => section.id)));
   const statuses = $derived(projects.statusesForProject(selectedProjectId));
+  const priorities = $derived(projects.prioritiesForProject(selectedProjectId));
   const activeProjectTasks = $derived.by(() =>
     projects.tasksForProject(selectedProjectId).filter((task) => visibleSectionIds.has(task.sectionId))
   );
@@ -296,6 +297,7 @@
   const taskView = $derived.by(() => buildProjectTaskView({
     tasks: allProjectTasks,
     statuses,
+    priorities,
     scheduledTaskIds,
     nextScheduledStartByTaskId,
     taskLabelIdsByTaskId,
@@ -330,6 +332,7 @@
     return buildProjectTaskListGroups({
       tasks,
       statuses,
+      priorities,
       scheduledTaskIds,
       today: todayDate,
       weekEnd: taskFilterWeekEnd,
@@ -815,6 +818,7 @@
           panel={projectToolbarPanel}
           projectId={selectedProjectId}
           {sections}
+          {priorities}
           {projectLabels}
           {projectCustomFields}
           {savedTaskViews}
@@ -854,6 +858,7 @@
         />
         <ProjectBulkActionController
           {selectedProject}
+          {priorities}
           {selectedTasks}
           {selectableTasks}
           {selectedActiveTaskCount}
@@ -871,6 +876,7 @@
             {selectedProjectId}
             {sections}
             {statuses}
+            {priorities}
             {tasks}
             {allProjectTasks}
             {listTaskGroups}
@@ -896,6 +902,7 @@
           <ProjectKanbanView
             {tasks}
             {statuses}
+            {priorities}
             {selectedTaskIds}
             {taskSortMode}
             {taskSortDirection}
@@ -929,6 +936,7 @@
             projectId={selectedProjectId}
             {tasks}
             {statuses}
+            {priorities}
             {todayDate}
             {scheduledTaskIds}
             {scheduledThisWeekMinutes}

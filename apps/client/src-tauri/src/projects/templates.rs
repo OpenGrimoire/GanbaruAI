@@ -7,6 +7,13 @@ const DEFAULT_STATUSES: &[(&str, &str, &str, i64, i64, i64)] = &[
     ("done", "Done", "done", 13, 50, 1),
 ];
 
+const DEFAULT_PRIORITIES: &[(&str, &str, i64, i64)] = &[
+    ("low", "Low", 30, 0),
+    ("normal", "Normal", 19, 10),
+    ("high", "High", 7, 20),
+    ("urgent", "Urgent", 2, 30),
+];
+
 const BLANK_TEMPLATE_SECTIONS: &[(&str, &str, i64)] = &[("general", "General", 0)];
 const SOFTWARE_TEMPLATE_SECTIONS: &[(&str, &str, i64)] = &[
     ("planning", "Planning", 0),
@@ -89,6 +96,27 @@ pub(super) async fn insert_default_statuses(
         .execute(&mut **tx)
         .await
         .map_err(|e| format!("create default project status: {e}"))?;
+    }
+    Ok(())
+}
+
+pub(super) async fn insert_default_priorities(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    project_id: &str,
+) -> Result<(), String> {
+    for (id, name, color, sort_order) in DEFAULT_PRIORITIES {
+        sqlx::query(
+            "INSERT INTO project_priorities (id, project_id, name, color, sort_order)
+             VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(id)
+        .bind(project_id)
+        .bind(name)
+        .bind(color)
+        .bind(sort_order)
+        .execute(&mut **tx)
+        .await
+        .map_err(|e| format!("create default project priority: {e}"))?;
     }
     Ok(())
 }

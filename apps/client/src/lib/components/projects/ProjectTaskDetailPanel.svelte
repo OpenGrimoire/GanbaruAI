@@ -25,15 +25,10 @@
     projectCustomFieldTypeLabel,
     projectLabelColorDotStyle,
     projectLabelColorSwatchClass,
-    projectPriorityBadgeClass,
-    projectPriorityLabel,
     projectTaskArchivedBadgeClass,
     projectTaskTypeLabel,
   } from "$lib/projects/project-display";
-  import {
-    PROJECT_PRIORITIES,
-    PROJECT_TASK_TYPES,
-  } from "$lib/projects/types";
+  import { PROJECT_TASK_TYPES } from "$lib/projects/types";
   import type {
     ProjectChecklistItem,
     ProjectCustomField,
@@ -50,6 +45,7 @@
   import { getTheme } from "$lib/stores/theme.svelte";
   import { cn } from "$lib/utils";
   import type { ProjectTaskModalLayout } from "$lib/projects/project-toolbar";
+  import PriorityFlagIcon from "./PriorityFlagIcon.svelte";
   import ProjectStatusBadge from "./ProjectStatusBadge.svelte";
   import ProjectTaskDetailHistorySection from "./ProjectTaskDetailHistorySection.svelte";
 
@@ -128,6 +124,7 @@
   );
   const visibleSectionIds = $derived.by(() => new Set(sections.map((section) => section.id)));
   const statuses = $derived(projects.statusesForProject(selectedProjectId));
+  const priorities = $derived(projects.prioritiesForProject(selectedProjectId));
   const activeProjectTasks = $derived.by(() =>
     projects.tasksForProject(selectedProjectId).filter((task) => visibleSectionIds.has(task.sectionId))
   );
@@ -1011,20 +1008,19 @@
               <div class="grid gap-1">
                 <div class="text-[0.733333rem] font-medium text-muted-foreground">{t("projects.detail.priority")}</div>
                 <div class="flex flex-wrap gap-1">
-                  {#each PROJECT_PRIORITIES as priority}
+                  {#each priorities as priority (priority.id)}
                     <button
                       type="button"
                       class={cn(
-                        "rounded-md border px-2 py-1 text-[0.766667rem]",
-                        detailPriority === priority
-                          ? projectPriorityBadgeClass(priority)
-                          : "border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground",
+                        "flex min-h-7 items-center gap-1.5 rounded-md px-2 text-[0.766667rem] text-foreground hover:bg-accent",
+                        detailPriority === priority.id && "bg-accent",
                       )}
                       onclick={() => {
-                        detailPriority = priority;
+                        detailPriority = priority.id;
                       }}
                     >
-                      {projectPriorityLabel(priority, t)}
+                      <PriorityFlagIcon color={priority.color} theme={theme.current} size={13} class="shrink-0" />
+                      <span>{priority.name}</span>
                     </button>
                   {/each}
                 </div>

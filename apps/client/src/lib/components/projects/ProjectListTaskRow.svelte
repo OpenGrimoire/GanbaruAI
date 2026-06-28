@@ -11,6 +11,7 @@
     ProjectCustomField,
     ProjectLabel,
     ProjectPriority,
+    ProjectPriorityConfig,
     ProjectStatus,
     ProjectTask,
     ProjectTaskListColumn,
@@ -24,6 +25,7 @@
     task,
     status,
     statuses,
+    priorities,
     subtasks,
     scheduled,
     taskLabels,
@@ -78,6 +80,7 @@
     task: ProjectTask;
     status: ProjectStatus | undefined;
     statuses: ProjectStatus[];
+    priorities: ProjectPriorityConfig[];
     subtasks: ProjectTask[];
     scheduled: string | null;
     taskLabels: ProjectLabel[];
@@ -235,6 +238,7 @@
         {task}
         {status}
         {statuses}
+        {priorities}
         statusMenuOpen={statusMenuOpen}
         priorityMenuOpen={priorityMenuOpen}
         startDateMenuOpen={startDateMenuOpen}

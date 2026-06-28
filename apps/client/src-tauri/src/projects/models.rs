@@ -131,6 +131,26 @@ impl_sqlite_from_row!(ProjectStatusRow {
 });
 
 #[derive(Serialize)]
+pub struct ProjectPriorityRow {
+    pub(in crate::projects) id: String,
+    pub(in crate::projects) project_id: String,
+    pub(in crate::projects) name: String,
+    pub(in crate::projects) color: i64,
+    pub(in crate::projects) sort_order: i64,
+    pub(in crate::projects) created_at: String,
+    pub(in crate::projects) updated_at: String,
+}
+impl_sqlite_from_row!(ProjectPriorityRow {
+    id,
+    project_id,
+    name,
+    color,
+    sort_order,
+    created_at,
+    updated_at,
+});
+
+#[derive(Serialize)]
 pub struct ProjectTaskRow {
     pub(in crate::projects) id: String,
     pub(in crate::projects) project_id: String,
@@ -470,6 +490,7 @@ pub struct ProjectsSnapshot {
     pub(in crate::projects) projects: Vec<ProjectRow>,
     pub(in crate::projects) sections: Vec<ProjectSectionRow>,
     pub(in crate::projects) statuses: Vec<ProjectStatusRow>,
+    pub(in crate::projects) priorities: Vec<ProjectPriorityRow>,
     pub(in crate::projects) tasks: Vec<ProjectTaskRow>,
     pub(in crate::projects) checklist_items: Vec<ProjectChecklistItemRow>,
     pub(in crate::projects) labels: Vec<ProjectLabelRow>,
@@ -599,6 +620,26 @@ pub struct ProjectStatusUpdate {
     pub(in crate::projects) color: i64,
     pub(in crate::projects) sort_order: i64,
     pub(in crate::projects) terminal: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectPriorityCreate {
+    pub(in crate::projects) id: String,
+    pub(in crate::projects) project_id: String,
+    pub(in crate::projects) name: String,
+    pub(in crate::projects) color: i64,
+    pub(in crate::projects) sort_order: i64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectPriorityUpdate {
+    pub(in crate::projects) id: String,
+    pub(in crate::projects) project_id: String,
+    pub(in crate::projects) name: String,
+    pub(in crate::projects) color: i64,
+    pub(in crate::projects) sort_order: i64,
 }
 
 #[derive(Deserialize)]

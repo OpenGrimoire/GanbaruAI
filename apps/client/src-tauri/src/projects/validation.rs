@@ -136,6 +136,28 @@ pub(super) fn validate_status_fields(
     Ok(())
 }
 
+pub(super) fn validate_priority_create(priority: &ProjectPriorityCreate) -> Result<(), String> {
+    require_non_empty(&priority.id, "id")?;
+    require_non_empty(&priority.project_id, "project_id")?;
+    validate_priority_fields(&priority.name, priority.color, priority.sort_order)
+}
+
+pub(super) fn validate_priority_update(priority: &ProjectPriorityUpdate) -> Result<(), String> {
+    require_non_empty(&priority.id, "id")?;
+    require_non_empty(&priority.project_id, "project_id")?;
+    validate_priority_fields(&priority.name, priority.color, priority.sort_order)
+}
+
+pub(super) fn validate_priority_fields(
+    name: &str,
+    color: i64,
+    sort_order: i64,
+) -> Result<(), String> {
+    require_non_empty(name, "name")?;
+    validate_color(Some(color))?;
+    validate_non_negative(sort_order, "sort_order")
+}
+
 pub(super) fn validate_task_create(task: &ProjectTaskCreate) -> Result<(), String> {
     require_non_empty(&task.id, "id")?;
     require_non_empty(&task.project_id, "project_id")?;
@@ -170,11 +192,7 @@ pub(super) fn validate_task_update(task: &ProjectTaskUpdate) -> Result<(), Strin
     require_non_empty(&task.section_id, "section_id")?;
     require_non_empty(&task.status_id, "status_id")?;
     require_non_empty(&task.title, "title")?;
-    validate_enum(
-        &task.priority,
-        "priority",
-        &["low", "normal", "high", "urgent"],
-    )?;
+    require_non_empty(&task.priority, "priority")?;
     validate_enum(
         &task.task_type,
         "task_type",

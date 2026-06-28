@@ -8,6 +8,7 @@ import type {
   ProjectCustomFieldValue,
   ProjectGroup,
   ProjectLabel,
+  ProjectPriorityConfig,
   ProjectSavedTaskView,
   ProjectSection,
   ProjectsSnapshot,
@@ -84,6 +85,16 @@ export function statusesForProject(
   if (!projectId) return [];
   return source.statuses
     .filter((status) => status.projectId === projectId)
+    .sort(sortByOrderAndName);
+}
+
+export function prioritiesForProject(
+  source: ProjectsSnapshot,
+  projectId: string | null | undefined,
+): ProjectPriorityConfig[] {
+  if (!projectId) return [];
+  return source.priorities
+    .filter((priority) => priority.projectId === projectId)
     .sort(sortByOrderAndName);
 }
 
@@ -462,6 +473,10 @@ export function nextStatusSortOrder(source: ProjectsSnapshot, projectId: string)
   return Math.max(0, ...statusesForProject(source, projectId).map((status) => status.sortOrder)) + 1000;
 }
 
+export function nextPrioritySortOrder(source: ProjectsSnapshot, projectId: string): number {
+  return Math.max(0, ...prioritiesForProject(source, projectId).map((priority) => priority.sortOrder)) + 1000;
+}
+
 export function nextTaskSectionSortOrder(
   source: ProjectsSnapshot,
   projectId: string,
@@ -541,6 +556,7 @@ function snapshotWithoutProjectData(source: ProjectsSnapshot, projectId: string)
     ...source,
     sections: source.sections.filter((section) => section.projectId !== projectId),
     statuses: source.statuses.filter((status) => status.projectId !== projectId),
+    priorities: source.priorities.filter((priority) => priority.projectId !== projectId),
     tasks: source.tasks.filter((task) => task.projectId !== projectId),
     checklistItems: source.checklistItems.filter((item) => !taskIds.has(item.taskId)),
     labels: source.labels.filter((label) => label.projectId !== projectId),
@@ -575,6 +591,7 @@ export function mergeProjectSnapshot(
     customEmojis: incoming.customEmojis,
     sections: [...base.sections, ...incoming.sections],
     statuses: [...base.statuses, ...incoming.statuses],
+    priorities: [...base.priorities, ...incoming.priorities],
     tasks: [...base.tasks, ...incoming.tasks],
     checklistItems: [...base.checklistItems, ...incoming.checklistItems],
     labels: [...base.labels, ...incoming.labels],

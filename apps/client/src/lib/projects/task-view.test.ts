@@ -4,6 +4,7 @@ import type {
   ProjectCustomField,
   ProjectCustomFieldOption,
   ProjectCustomFieldValue,
+  ProjectPriorityConfig,
   ProjectStatus,
   ProjectTask,
 } from "./types";
@@ -23,6 +24,13 @@ const statuses: ProjectStatus[] = [
   status("done", "Done", "done", 6000, true),
 ];
 
+const priorities: ProjectPriorityConfig[] = [
+  priority("low", "Low", 30, 1000),
+  priority("normal", "Normal", 19, 2000),
+  priority("high", "High", 7, 3000),
+  priority("urgent", "Urgent", 2, 4000),
+];
+
 function status(
   id: string,
   name: string,
@@ -38,6 +46,23 @@ function status(
     color: 0,
     sortOrder,
     terminal,
+    createdAt: "2026-06-01T00:00:00Z",
+    updatedAt: "2026-06-01T00:00:00Z",
+  };
+}
+
+function priority(
+  id: string,
+  name: string,
+  color: ProjectPriorityConfig["color"],
+  sortOrder: number,
+): ProjectPriorityConfig {
+  return {
+    id,
+    projectId: "project",
+    name,
+    color,
+    sortOrder,
     createdAt: "2026-06-01T00:00:00Z",
     updatedAt: "2026-06-01T00:00:00Z",
   };
@@ -104,6 +129,7 @@ function view(overrides: Partial<Parameters<typeof buildProjectTaskView>[0]>) {
   return buildProjectTaskView({
     tasks: [],
     statuses,
+    priorities,
     customFields: [],
     customFieldOptions: [],
     customFieldValuesByTaskField: new Map(),
@@ -402,6 +428,7 @@ describe("buildProjectTaskListGroups", () => {
         task({ id: "later", title: "Later", statusId: "backlog" }),
       ],
       statuses,
+      priorities,
       scheduledTaskIds: new Set(),
       today: "2026-06-12",
       weekEnd: "2026-06-19",
@@ -429,6 +456,7 @@ describe("buildProjectTaskListGroups", () => {
         task({ id: "week", title: "Week", dueDate: "2026-06-15" }),
       ],
       statuses,
+      priorities,
       scheduledTaskIds: new Set(),
       today: "2026-06-12",
       weekEnd: "2026-06-19",
@@ -451,6 +479,7 @@ describe("buildProjectTaskListGroups", () => {
         task({ id: "normal", title: "Normal priority", priority: "normal" }),
       ],
       statuses,
+      priorities,
       scheduledTaskIds: new Set(),
       today: "2026-06-12",
       weekEnd: "2026-06-19",
@@ -458,10 +487,10 @@ describe("buildProjectTaskListGroups", () => {
     });
 
     expect(groups.map((group) => [group.value, group.tasks.map((entry) => entry.id)])).toEqual([
-      ["urgent", []],
-      ["high", []],
-      ["normal", ["normal"]],
       ["low", []],
+      ["normal", ["normal"]],
+      ["high", []],
+      ["urgent", []],
     ]);
   });
 
@@ -471,6 +500,7 @@ describe("buildProjectTaskListGroups", () => {
         task({ id: "scheduled", title: "Scheduled" }),
       ],
       statuses,
+      priorities,
       scheduledTaskIds: new Set(["scheduled"]),
       today: "2026-06-12",
       weekEnd: "2026-06-19",

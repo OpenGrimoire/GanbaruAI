@@ -15,7 +15,7 @@ export const PROJECT_VIEW_IDS = ["dashboard", "list", "kanban", "calendar", "gan
 export type ProjectViewId = (typeof PROJECT_VIEW_IDS)[number];
 
 export const PROJECT_PRIORITIES = ["low", "normal", "high", "urgent"] as const;
-export type ProjectPriority = (typeof PROJECT_PRIORITIES)[number];
+export type ProjectPriority = string;
 
 export type ProjectTaskStatusFilter = "all" | "open" | "blocked" | "done";
 export type ProjectTaskDueFilter = "all" | "overdue" | "today" | "week" | "none" | "range";
@@ -251,6 +251,16 @@ export interface ProjectStatus {
   color: EventColor;
   sortOrder: number;
   terminal: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectPriorityConfig {
+  id: string;
+  projectId: string;
+  name: string;
+  color: EventColor;
+  sortOrder: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -546,6 +556,7 @@ export interface ProjectsSnapshot {
   projects: Project[];
   sections: ProjectSection[];
   statuses: ProjectStatus[];
+  priorities: ProjectPriorityConfig[];
   tasks: ProjectTask[];
   checklistItems: ProjectChecklistItem[];
   labels: ProjectLabel[];
@@ -659,6 +670,22 @@ export interface ProjectStatusUpdate {
   color: EventColor;
   sortOrder: number;
   terminal: boolean;
+}
+
+export interface ProjectPriorityCreate {
+  id: string;
+  projectId: string;
+  name: string;
+  color: EventColor;
+  sortOrder: number;
+}
+
+export interface ProjectPriorityUpdate {
+  id: string;
+  projectId: string;
+  name: string;
+  color: EventColor;
+  sortOrder: number;
 }
 
 export interface ProjectTaskCreate {

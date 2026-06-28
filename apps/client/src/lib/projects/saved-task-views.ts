@@ -1,5 +1,4 @@
 import {
-  PROJECT_PRIORITIES,
   PROJECT_TASK_GROUP_MODES,
   PROJECT_TASK_SORT_MODES,
   PROJECT_VIEW_IDS,
@@ -73,7 +72,7 @@ export function parseSavedTaskViewPreference(
   const sectionFilter = typeof parsed.sectionFilter === "string" && parsed.sectionFilter.trim()
     ? parsed.sectionFilter
     : "all";
-  const priorityFilter = parsed.priorityFilter === "all" || isOneOf(parsed.priorityFilter, PROJECT_PRIORITIES)
+  const priorityFilter = typeof parsed.priorityFilter === "string" && parsed.priorityFilter.trim()
     ? parsed.priorityFilter
     : "all";
   const dueFilter = isOneOf(parsed.dueFilter, TASK_DUE_FILTERS) ? parsed.dueFilter : "all";

@@ -18,7 +18,7 @@
   import { getProjects } from "$lib/stores/projects.svelte";
   import { getTheme } from "$lib/stores/theme.svelte";
   import { cn } from "$lib/utils";
-  import { projectPriorityLabel } from "$lib/projects/project-display";
+  import { projectPriorityDisplayLabel } from "$lib/projects/project-display";
   import {
     clampProjectTaskListManualColumnWidth,
     projectTaskListDoubleClickColumnWidthRem,
@@ -34,11 +34,11 @@
     type ProjectListDropPosition,
   } from "$lib/projects/list-drag";
   import {
-    PROJECT_PRIORITIES,
     type ProjectCustomField,
     type ProjectCustomFieldOption,
     type ProjectLabel,
     type ProjectPriority,
+    type ProjectPriorityConfig,
     type ProjectSection,
     type ProjectStatus,
     type ProjectTask,
@@ -85,6 +85,7 @@
     selectedProjectId,
     sections,
     statuses,
+    priorities,
     tasks,
     allProjectTasks,
     listTaskGroups,
@@ -105,6 +106,7 @@
     selectedProjectId: string | null;
     sections: ProjectSection[];
     statuses: ProjectStatus[];
+    priorities: ProjectPriorityConfig[];
     tasks: ProjectTask[];
     allProjectTasks: ProjectTask[];
     listTaskGroups: ProjectTaskListGroup[];
@@ -176,7 +178,7 @@
     sectionLabels: sections.map((section) => section.name),
     groupLabels: listTaskGroups.map((group) => taskListGroupTitle(group.value)),
     columnLabel: taskListColumnLabel,
-    priorityLabel: (priority: ProjectPriority) => projectPriorityLabel(priority, t),
+    priorityLabel: (priority: ProjectPriority) => projectPriorityDisplayLabel(priority, priorities, t),
     estimateLabel,
     customFieldDisplayValue,
     scheduledLabel,
@@ -551,8 +553,8 @@
     if (taskGroupBy === "status") {
       return statuses.find((status) => status.id === value)?.name ?? t("projects.grouping.missingStatus");
     }
-    if (taskGroupBy === "priority" && PROJECT_PRIORITIES.includes(value as ProjectPriority)) {
-      return projectPriorityLabel(value as ProjectPriority, t);
+    if (taskGroupBy === "priority") {
+      return projectPriorityDisplayLabel(value, priorities, t);
     }
     if (taskGroupBy === "due") {
       if (value === "overdue") return t("projects.filters.overdue");
@@ -1144,7 +1146,7 @@
 
   function groupTaskQuickAddEnabled(group: ProjectTaskListGroup): boolean {
     if (taskGroupBy === "status") return statuses.some((status) => status.id === group.value);
-    if (taskGroupBy === "priority") return PROJECT_PRIORITIES.includes(group.value as ProjectPriority);
+    if (taskGroupBy === "priority") return priorities.some((priority) => priority.id === group.value);
     if (taskGroupBy === "due") return group.value !== "earlier" || terminalTaskStatus() !== undefined;
     if (taskGroupBy === "scheduled") return group.value === "unscheduled";
     return false;
@@ -1157,8 +1159,8 @@
   }
 
   function groupTaskPatch(group: ProjectTaskListGroup): Partial<Pick<ProjectTask, "priority" | "dueDate">> {
-    if (taskGroupBy === "priority" && PROJECT_PRIORITIES.includes(group.value as ProjectPriority)) {
-      return { priority: group.value as ProjectPriority };
+    if (taskGroupBy === "priority" && priorities.some((priority) => priority.id === group.value)) {
+      return { priority: group.value };
     }
     if (taskGroupBy === "due") {
       return { dueDate: dueDateForGroup(group.value) };
@@ -1556,6 +1558,7 @@
                   {task}
                   {status}
                   {statuses}
+                  {priorities}
                   {subtasks}
                   scheduled={scheduledLabel(task.id)}
                   taskLabels={visibleTaskLabels(task)}
@@ -1842,6 +1845,7 @@
                 {task}
                 {status}
                 {statuses}
+                {priorities}
                 subtasks={subtasksForTask(task)}
                 scheduled={scheduledLabel(task.id)}
                 taskLabels={visibleTaskLabels(task)}

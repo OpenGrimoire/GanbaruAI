@@ -6,6 +6,7 @@ import {
   createProjectLabel,
   createProject as createProjectBackend,
   createProjectGroup,
+  createProjectPriority,
   createProjectSection,
   createProjectStatus,
   createProjectTaskDependency,
@@ -16,6 +17,7 @@ import {
   deleteProjectCustomEmoji,
   deleteProjectChecklistItem,
   deleteProjectLabel,
+  deleteProjectPriority,
   deleteProjectStatus,
   deleteProjectViewPreference,
   deleteProjectTaskDependency,
@@ -32,6 +34,7 @@ import {
   updateProjectCustomFieldValue,
   updateProjectGroup,
   updateProjectLabel,
+  updateProjectPriority,
   updateProject as updateProjectBackend,
   updateProjectSection,
   updateProjectStatus,
@@ -87,6 +90,7 @@ import type {
   ProjectLabel,
   ProjectLinkableEvent,
   ProjectPriority,
+  ProjectPriorityConfig,
   ProjectSavedTaskView,
   ProjectsSnapshot,
   ProjectSection,
@@ -110,6 +114,7 @@ let snapshot = $state<ProjectsSnapshot>({
   projects: [],
   sections: [],
   statuses: [],
+  priorities: [],
   tasks: [],
   checklistItems: [],
   labels: [],
@@ -188,6 +193,10 @@ function sectionsForProjectIncludingInactive(projectId: string | null | undefine
 
 function statusesForProject(projectId: string | null | undefined): ProjectStatus[] {
   return projectSnapshot.statusesForProject(snapshot, projectId);
+}
+
+function prioritiesForProject(projectId: string | null | undefined): ProjectPriorityConfig[] {
+  return projectSnapshot.prioritiesForProject(snapshot, projectId);
 }
 
 function tasksForProject(projectId: string | null | undefined): ProjectTask[] {
@@ -361,6 +370,10 @@ function nextSectionSortOrder(projectId: string): number {
 
 function nextStatusSortOrder(projectId: string): number {
   return projectSnapshot.nextStatusSortOrder(snapshot, projectId);
+}
+
+function nextPrioritySortOrder(projectId: string): number {
+  return projectSnapshot.nextPrioritySortOrder(snapshot, projectId);
 }
 
 function nextTaskSectionSortOrder(projectId: string, sectionId: string): number {
@@ -676,6 +689,66 @@ async function moveStatus(status: ProjectStatus, direction: -1 | 1): Promise<voi
 
 async function removeStatus(statusId: string): Promise<void> {
   await deleteProjectStatus(statusId);
+  await reload();
+}
+
+async function addPriority(
+  projectId: string,
+  name: string,
+  color: EventColor,
+): Promise<void> {
+  const displayName = normalizeProjectName(name);
+  if (!displayName) return;
+  await createProjectPriority({
+    id: crypto.randomUUID(),
+    projectId,
+    name: displayName,
+    color,
+    sortOrder: nextPrioritySortOrder(projectId),
+  });
+  await reload();
+}
+
+async function updatePriority(
+  priority: ProjectPriorityConfig,
+  patch: Partial<Pick<ProjectPriorityConfig, "name" | "color" | "sortOrder">>,
+): Promise<void> {
+  const displayName = normalizeProjectName(patch.name ?? priority.name);
+  if (!displayName) return;
+  await updateProjectPriority({
+    id: priority.id,
+    projectId: priority.projectId,
+    name: displayName,
+    color: patch.color ?? priority.color,
+    sortOrder: patch.sortOrder ?? priority.sortOrder,
+  });
+  await reload();
+}
+
+async function movePriority(priority: ProjectPriorityConfig, direction: -1 | 1): Promise<void> {
+  const ordered = prioritiesForProject(priority.projectId);
+  const index = ordered.findIndex((entry) => entry.id === priority.id);
+  const target = ordered[index + direction];
+  if (index < 0 || !target) return;
+  await updateProjectPriority({
+    id: priority.id,
+    projectId: priority.projectId,
+    name: priority.name,
+    color: priority.color,
+    sortOrder: target.sortOrder,
+  });
+  await updateProjectPriority({
+    id: target.id,
+    projectId: target.projectId,
+    name: target.name,
+    color: target.color,
+    sortOrder: priority.sortOrder,
+  });
+  await reload();
+}
+
+async function removePriority(priority: ProjectPriorityConfig): Promise<void> {
+  await deleteProjectPriority(priority.projectId, priority.id);
   await reload();
 }
 
@@ -1170,6 +1243,9 @@ export function getProjects() {
     get statuses(): ProjectStatus[] {
       return snapshot.statuses;
     },
+    get priorities(): ProjectPriorityConfig[] {
+      return snapshot.priorities;
+    },
     get tasks(): ProjectTask[] {
       return snapshot.tasks;
     },
@@ -1252,6 +1328,7 @@ export function getProjects() {
     sectionsForProject,
     sectionsForProjectIncludingInactive,
     statusesForProject,
+    prioritiesForProject,
     tasksForProject,
     tasksForProjectIncludingArchived,
     topLevelTasksForSection,
@@ -1298,6 +1375,10 @@ export function getProjects() {
     updateStatus,
     moveStatus,
     removeStatus,
+    addPriority,
+    updatePriority,
+    movePriority,
+    removePriority,
     addTask,
     addChecklistItem,
     setChecklistItemCompleted,
