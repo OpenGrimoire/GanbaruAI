@@ -1725,7 +1725,6 @@ export const en = {
       tagColor: "Color",
       addTag: "Add tag",
       newTagPlaceholder: "New tag...",
-      noTags: "No project tags",
       selectTagColor: (tag: string) => `Select color for ${tag}`,
       selectNewTagColor: "Select color for new tag",
       tagNameRequired: "Tag name is required.",
@@ -1872,7 +1871,6 @@ export const en = {
       fieldType: "Field type",
       addField: "Add field",
       newFieldPlaceholder: "New field...",
-      noFields: "No custom fields",
       saveField: "Save field",
       deleteFieldTitle: (field: string) => `Delete ${field}?`,
       deleteFieldMessage: (field: string) =>

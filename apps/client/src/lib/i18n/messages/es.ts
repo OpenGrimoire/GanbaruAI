@@ -1742,7 +1742,6 @@ export const es = {
       tagColor: "Color",
       addTag: "Agregar tag",
       newTagPlaceholder: "Nuevo tag...",
-      noTags: "No hay tags del proyecto",
       selectTagColor: (tag: string) => `Seleccionar color para ${tag}`,
       selectNewTagColor: "Seleccionar color para el tag nuevo",
       tagNameRequired: "El nombre del tag es obligatorio.",
@@ -1889,7 +1888,6 @@ export const es = {
       fieldType: "Tipo de campo",
       addField: "Agregar campo",
       newFieldPlaceholder: "Nuevo campo...",
-      noFields: "No hay campos personalizados",
       saveField: "Guardar campo",
       deleteFieldTitle: (field: string) => `¿Eliminar ${field}?`,
       deleteFieldMessage: (field: string) =>

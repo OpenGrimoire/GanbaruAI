@@ -1793,10 +1793,6 @@
                     <Trash2 size={13} strokeWidth={1.75} />
                   </button>
                 </div>
-              {:else}
-                <div class="px-1 py-2 text-[0.8rem] text-muted-foreground">
-                  {t("projects.settings.noTags")}
-                </div>
               {/each}
 
               <div
@@ -2009,10 +2005,6 @@
                       </div>
                     </div>
                   {/if}
-                </div>
-              {:else}
-                <div class="px-1 py-2 text-[0.8rem] text-muted-foreground">
-                  {t("projects.customFields.noFields")}
                 </div>
               {/each}
             </div>
