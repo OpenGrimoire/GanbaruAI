@@ -223,7 +223,7 @@ impl_sqlite_from_row!(ProjectChecklistItemRow {
 });
 
 #[derive(Serialize)]
-pub struct ProjectLabelRow {
+pub struct ProjectTagRow {
     pub(in crate::projects) id: String,
     pub(in crate::projects) project_id: String,
     pub(in crate::projects) name: String,
@@ -232,7 +232,7 @@ pub struct ProjectLabelRow {
     pub(in crate::projects) created_at: String,
     pub(in crate::projects) updated_at: String,
 }
-impl_sqlite_from_row!(ProjectLabelRow {
+impl_sqlite_from_row!(ProjectTagRow {
     id,
     project_id,
     name,
@@ -243,14 +243,14 @@ impl_sqlite_from_row!(ProjectLabelRow {
 });
 
 #[derive(Serialize)]
-pub struct ProjectTaskLabelLinkRow {
+pub struct ProjectTaskTagLinkRow {
     pub(in crate::projects) task_id: String,
-    pub(in crate::projects) label_id: String,
+    pub(in crate::projects) tag_id: String,
     pub(in crate::projects) created_at: String,
 }
-impl_sqlite_from_row!(ProjectTaskLabelLinkRow {
+impl_sqlite_from_row!(ProjectTaskTagLinkRow {
     task_id,
-    label_id,
+    tag_id,
     created_at,
 });
 
@@ -493,8 +493,8 @@ pub struct ProjectsSnapshot {
     pub(in crate::projects) priorities: Vec<ProjectPriorityRow>,
     pub(in crate::projects) tasks: Vec<ProjectTaskRow>,
     pub(in crate::projects) checklist_items: Vec<ProjectChecklistItemRow>,
-    pub(in crate::projects) labels: Vec<ProjectLabelRow>,
-    pub(in crate::projects) task_label_links: Vec<ProjectTaskLabelLinkRow>,
+    pub(in crate::projects) tags: Vec<ProjectTagRow>,
+    pub(in crate::projects) task_tag_links: Vec<ProjectTaskTagLinkRow>,
     pub(in crate::projects) custom_fields: Vec<ProjectCustomFieldRow>,
     pub(in crate::projects) custom_field_options: Vec<ProjectCustomFieldOptionRow>,
     pub(in crate::projects) custom_field_values: Vec<ProjectCustomFieldValueRow>,
@@ -707,7 +707,7 @@ pub struct ProjectChecklistItemUpdate {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ProjectLabelCreate {
+pub struct ProjectTagCreate {
     pub(in crate::projects) id: String,
     pub(in crate::projects) project_id: String,
     pub(in crate::projects) name: String,
@@ -717,7 +717,7 @@ pub struct ProjectLabelCreate {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ProjectLabelUpdate {
+pub struct ProjectTagUpdate {
     pub(in crate::projects) id: String,
     pub(in crate::projects) name: String,
     pub(in crate::projects) color: Option<i64>,
@@ -726,9 +726,9 @@ pub struct ProjectLabelUpdate {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ProjectTaskLabelLinkCreate {
+pub struct ProjectTaskTagLinkCreate {
     pub(in crate::projects) task_id: String,
-    pub(in crate::projects) label_id: String,
+    pub(in crate::projects) tag_id: String,
 }
 
 #[derive(Deserialize)]

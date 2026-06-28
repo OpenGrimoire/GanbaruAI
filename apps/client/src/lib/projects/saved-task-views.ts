@@ -84,8 +84,8 @@ export function parseSavedTaskViewPreference(
   const dependencyFilter = isOneOf(parsed.dependencyFilter, TASK_DEPENDENCY_FILTERS)
     ? parsed.dependencyFilter
     : "all";
-  const labelFilter = typeof parsed.labelFilter === "string" && parsed.labelFilter.trim()
-    ? parsed.labelFilter
+  const tagFilter = typeof parsed.tagFilter === "string" && parsed.tagFilter.trim()
+    ? parsed.tagFilter
     : "all";
   const customFieldFilters = parseCustomFieldFilters(
     parsed.customFieldFilters,
@@ -111,7 +111,7 @@ export function parseSavedTaskViewPreference(
     dueRangeEnd,
     scheduleFilter,
     dependencyFilter,
-    labelFilter,
+    tagFilter,
     customFieldFilters,
     sortMode,
     sortDirection,
@@ -220,7 +220,7 @@ export function savedTaskViewPreferenceValue(view: ProjectSavedTaskView): string
     dueRangeEnd: view.dueRangeEnd,
     scheduleFilter: view.scheduleFilter,
     dependencyFilter: view.dependencyFilter,
-    labelFilter: view.labelFilter,
+    tagFilter: view.tagFilter,
     customFieldFilters: view.customFieldFilters,
     sortMode: view.sortMode,
     sortDirection: view.sortDirection,

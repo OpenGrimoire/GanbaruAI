@@ -283,26 +283,24 @@ pub(super) fn validate_checklist_item_update(
     validate_non_negative(item.sort_order, "sort_order")
 }
 
-pub(super) fn validate_label_create(label: &ProjectLabelCreate) -> Result<(), String> {
-    require_non_empty(&label.id, "id")?;
-    require_non_empty(&label.project_id, "project_id")?;
-    require_non_empty(&label.name, "name")?;
-    validate_color(label.color)?;
-    validate_non_negative(label.sort_order, "sort_order")
+pub(super) fn validate_tag_create(tag: &ProjectTagCreate) -> Result<(), String> {
+    require_non_empty(&tag.id, "id")?;
+    require_non_empty(&tag.project_id, "project_id")?;
+    require_non_empty(&tag.name, "name")?;
+    validate_color(tag.color)?;
+    validate_non_negative(tag.sort_order, "sort_order")
 }
 
-pub(super) fn validate_label_update(label: &ProjectLabelUpdate) -> Result<(), String> {
-    require_non_empty(&label.id, "id")?;
-    require_non_empty(&label.name, "name")?;
-    validate_color(label.color)?;
-    validate_non_negative(label.sort_order, "sort_order")
+pub(super) fn validate_tag_update(tag: &ProjectTagUpdate) -> Result<(), String> {
+    require_non_empty(&tag.id, "id")?;
+    require_non_empty(&tag.name, "name")?;
+    validate_color(tag.color)?;
+    validate_non_negative(tag.sort_order, "sort_order")
 }
 
-pub(super) fn validate_task_label_link_create(
-    link: &ProjectTaskLabelLinkCreate,
-) -> Result<(), String> {
+pub(super) fn validate_task_tag_link_create(link: &ProjectTaskTagLinkCreate) -> Result<(), String> {
     require_non_empty(&link.task_id, "task_id")?;
-    require_non_empty(&link.label_id, "label_id")
+    require_non_empty(&link.tag_id, "tag_id")
 }
 
 pub(super) fn validate_custom_field_create(field: &ProjectCustomFieldCreate) -> Result<(), String> {

@@ -29,9 +29,9 @@ import type {
   ProjectGroup,
   ProjectGroupCreate,
   ProjectGroupUpdate,
-  ProjectLabel,
-  ProjectLabelCreate,
-  ProjectLabelUpdate,
+  ProjectTag,
+  ProjectTagCreate,
+  ProjectTagUpdate,
   ProjectLinkableEvent,
   ProjectPriorityConfig,
   ProjectPriorityCreate,
@@ -51,8 +51,8 @@ import type {
   ProjectTaskDependencyCreate,
   ProjectTaskEventLink,
   ProjectTaskEventLinkCreate,
-  ProjectTaskLabelLink,
-  ProjectTaskLabelLinkCreate,
+  ProjectTaskTagLink,
+  ProjectTaskTagLinkCreate,
   ProjectTaskUpdate,
   ProjectViewPreference,
   ProjectViewPreferenceUpsert,
@@ -169,7 +169,7 @@ interface ProjectChecklistItemRow {
   updated_at: string;
 }
 
-interface ProjectLabelRow {
+interface ProjectTagRow {
   id: string;
   project_id: string;
   name: string;
@@ -179,9 +179,9 @@ interface ProjectLabelRow {
   updated_at: string;
 }
 
-interface ProjectTaskLabelLinkRow {
+interface ProjectTaskTagLinkRow {
   task_id: string;
-  label_id: string;
+  tag_id: string;
   created_at: string;
 }
 
@@ -292,8 +292,8 @@ interface ProjectsSnapshotRows {
   priorities: ProjectPriorityRow[];
   tasks: ProjectTaskRow[];
   checklist_items: ProjectChecklistItemRow[];
-  labels: ProjectLabelRow[];
-  task_label_links: ProjectTaskLabelLinkRow[];
+  tags: ProjectTagRow[];
+  task_tag_links: ProjectTaskTagLinkRow[];
   custom_fields: ProjectCustomFieldRow[];
   custom_field_options: ProjectCustomFieldOptionRow[];
   custom_field_values: ProjectCustomFieldValueRow[];
@@ -450,7 +450,7 @@ function mapChecklistItem(row: ProjectChecklistItemRow): ProjectChecklistItem {
   };
 }
 
-function mapLabel(row: ProjectLabelRow): ProjectLabel {
+function mapTag(row: ProjectTagRow): ProjectTag {
   return {
     id: row.id,
     projectId: row.project_id,
@@ -462,10 +462,10 @@ function mapLabel(row: ProjectLabelRow): ProjectLabel {
   };
 }
 
-function mapTaskLabelLink(row: ProjectTaskLabelLinkRow): ProjectTaskLabelLink {
+function mapTaskTagLink(row: ProjectTaskTagLinkRow): ProjectTaskTagLink {
   return {
     taskId: row.task_id,
-    labelId: row.label_id,
+    tagId: row.tag_id,
     createdAt: row.created_at,
   };
 }
@@ -599,8 +599,8 @@ function mapSnapshot(rows: ProjectsSnapshotRows): ProjectsSnapshot {
     priorities: rows.priorities.map(mapPriority),
     tasks: rows.tasks.map(mapTask),
     checklistItems: rows.checklist_items.map(mapChecklistItem),
-    labels: rows.labels.map(mapLabel),
-    taskLabelLinks: rows.task_label_links.map(mapTaskLabelLink),
+    tags: rows.tags.map(mapTag),
+    taskTagLinks: rows.task_tag_links.map(mapTaskTagLink),
     customFields: rows.custom_fields.map(mapCustomField),
     customFieldOptions: rows.custom_field_options.map(mapCustomFieldOption),
     customFieldValues: rows.custom_field_values.map(mapCustomFieldValue),
@@ -712,29 +712,29 @@ export async function deleteProjectChecklistItem(itemId: string): Promise<void> 
   await invoke("projects_delete_checklist_item", { dbUrl, itemId });
 }
 
-export async function createProjectLabel(label: ProjectLabelCreate): Promise<void> {
+export async function createProjectTag(tag: ProjectTagCreate): Promise<void> {
   const dbUrl = await ensureDbUrl();
-  await invoke("projects_create_label", { dbUrl, label });
+  await invoke("projects_create_tag", { dbUrl, tag });
 }
 
-export async function updateProjectLabel(label: ProjectLabelUpdate): Promise<void> {
+export async function updateProjectTag(tag: ProjectTagUpdate): Promise<void> {
   const dbUrl = await ensureDbUrl();
-  await invoke("projects_update_label", { dbUrl, label });
+  await invoke("projects_update_tag", { dbUrl, tag });
 }
 
-export async function deleteProjectLabel(labelId: string): Promise<void> {
+export async function deleteProjectTag(tagId: string): Promise<void> {
   const dbUrl = await ensureDbUrl();
-  await invoke("projects_delete_label", { dbUrl, labelId });
+  await invoke("projects_delete_tag", { dbUrl, tagId });
 }
 
-export async function linkProjectTaskLabel(link: ProjectTaskLabelLinkCreate): Promise<void> {
+export async function linkProjectTaskTag(link: ProjectTaskTagLinkCreate): Promise<void> {
   const dbUrl = await ensureDbUrl();
-  await invoke("projects_link_task_label", { dbUrl, link });
+  await invoke("projects_link_task_tag", { dbUrl, link });
 }
 
-export async function unlinkProjectTaskLabel(taskId: string, labelId: string): Promise<void> {
+export async function unlinkProjectTaskTag(taskId: string, tagId: string): Promise<void> {
   const dbUrl = await ensureDbUrl();
-  await invoke("projects_unlink_task_label", { dbUrl, taskId, labelId });
+  await invoke("projects_unlink_task_tag", { dbUrl, taskId, tagId });
 }
 
 export async function createProjectCustomField(field: ProjectCustomFieldCreate): Promise<void> {

@@ -24,7 +24,7 @@ describe("project toolbar", () => {
       dueLabel: undefined,
       scheduleLabel: "Scheduled",
       dependencyLabel: undefined,
-      labelFilterLabel: "Design",
+      tagFilterLabel: "Design",
       customFieldFilters: [customFieldFilter],
       customFieldFilterLabel: (filter) => `Field ${filter.fieldId}`,
     })).toEqual([
@@ -32,7 +32,7 @@ describe("project toolbar", () => {
       { id: "status", label: "Open", clearTarget: "status" },
       { id: "priority", label: "High", clearTarget: "priority" },
       { id: "schedule", label: "Scheduled", clearTarget: "schedule" },
-      { id: "label", label: "Design", clearTarget: "label" },
+      { id: "tag", label: "Design", clearTarget: "tag" },
       { id: "custom:field-risk", label: "Field field-risk", clearTarget: "custom:field-risk" },
     ]);
   });

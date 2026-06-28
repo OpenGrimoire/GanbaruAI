@@ -3,7 +3,7 @@ import {
   createProjectCustomEmoji,
   createProjectCustomField,
   createProjectCustomFieldOption,
-  createProjectLabel,
+  createProjectTag,
   createProject as createProjectBackend,
   createProjectGroup,
   createProjectPriority,
@@ -16,24 +16,24 @@ import {
   deleteProjectCustomFieldOption,
   deleteProjectCustomEmoji,
   deleteProjectChecklistItem,
-  deleteProjectLabel,
+  deleteProjectTag,
   deleteProjectPriority,
   deleteProjectStatus,
   deleteProjectViewPreference,
   deleteProjectTaskDependency,
   loadProjectsSnapshot,
-  linkProjectTaskLabel,
+  linkProjectTaskTag,
   linkProjectTaskEvent,
   searchProjectLinkableEvents,
   setProjectGroupCollapsed,
-  unlinkProjectTaskLabel,
+  unlinkProjectTaskTag,
   unlinkProjectTaskEvent,
   updateProjectChecklistItem,
   updateProjectCustomField,
   updateProjectCustomFieldOption,
   updateProjectCustomFieldValue,
   updateProjectGroup,
-  updateProjectLabel,
+  updateProjectTag,
   updateProjectPriority,
   updateProject as updateProjectBackend,
   updateProjectSection,
@@ -62,13 +62,13 @@ import {
   customFieldOptionUpdatePayload,
   customFieldUpdatePayload,
   groupUpdatePayload,
-  labelUpdatePayload,
+  tagUpdatePayload,
   projectUpdatePayload,
   sectionUpdatePayload,
   taskUpdatePayload,
   type ProjectTaskUpdatePatch,
 } from "$lib/projects/project-update-payloads";
-import { PROJECT_TEMPLATE_DEFAULTS } from "$lib/projects/types";
+import { PROJECT_TAG_DEFAULT_COLOR, PROJECT_TEMPLATE_DEFAULTS } from "$lib/projects/types";
 import {
   loadSavedActiveProjectId,
   loadSavedProjectViewId,
@@ -87,7 +87,7 @@ import type {
   ProjectCustomFieldValue,
   ProjectCustomFieldValueUpdate,
   ProjectGroup,
-  ProjectLabel,
+  ProjectTag,
   ProjectLinkableEvent,
   ProjectPriority,
   ProjectPriorityConfig,
@@ -102,7 +102,7 @@ import type {
   ProjectTaskChangeEvent,
   ProjectTaskDependency,
   ProjectTaskEventLink,
-  ProjectTaskLabelLink,
+  ProjectTaskTagLink,
   ProjectTaskListColumn,
   ProjectTaskType,
   ProjectViewPreference,
@@ -117,8 +117,8 @@ let snapshot = $state<ProjectsSnapshot>({
   priorities: [],
   tasks: [],
   checklistItems: [],
-  labels: [],
-  taskLabelLinks: [],
+  tags: [],
+  taskTagLinks: [],
   customFields: [],
   customFieldOptions: [],
   customFieldValues: [],
@@ -282,28 +282,28 @@ function checklistItemsForTask(taskId: string | null | undefined): ProjectCheckl
   return projectSnapshot.checklistItemsForTask(snapshot, taskId);
 }
 
-function labelsForProject(projectId: string | null | undefined): ProjectLabel[] {
-  return projectSnapshot.labelsForProject(snapshot, projectId);
+function tagsForProject(projectId: string | null | undefined): ProjectTag[] {
+  return projectSnapshot.tagsForProject(snapshot, projectId);
 }
 
-function labelById(labelId: string | null | undefined): ProjectLabel | undefined {
-  return projectSnapshot.labelById(snapshot, labelId);
+function tagById(tagId: string | null | undefined): ProjectTag | undefined {
+  return projectSnapshot.tagById(snapshot, tagId);
 }
 
-function taskLabelLinksForTask(taskId: string | null | undefined): ProjectTaskLabelLink[] {
-  return projectSnapshot.taskLabelLinksForTask(snapshot, taskId);
+function taskTagLinksForTask(taskId: string | null | undefined): ProjectTaskTagLink[] {
+  return projectSnapshot.taskTagLinksForTask(snapshot, taskId);
 }
 
-function labelsForTask(taskId: string | null | undefined): ProjectLabel[] {
-  return projectSnapshot.labelsForTask(snapshot, taskId);
+function tagsForTask(taskId: string | null | undefined): ProjectTag[] {
+  return projectSnapshot.tagsForTask(snapshot, taskId);
 }
 
-function unlinkedLabelsForTask(task: ProjectTask | null | undefined): ProjectLabel[] {
-  return projectSnapshot.unlinkedLabelsForTask(snapshot, task);
+function unlinkedTagsForTask(task: ProjectTask | null | undefined): ProjectTag[] {
+  return projectSnapshot.unlinkedTagsForTask(snapshot, task);
 }
 
-function projectLabelByName(projectId: string, name: string): ProjectLabel | undefined {
-  return projectSnapshot.projectLabelByName(snapshot, projectId, name);
+function projectTagByName(projectId: string, name: string): ProjectTag | undefined {
+  return projectSnapshot.projectTagByName(snapshot, projectId, name);
 }
 
 function customFieldsForProject(projectId: string | null | undefined): ProjectCustomField[] {
@@ -388,8 +388,8 @@ function nextChecklistSortOrder(taskId: string): number {
   return projectSnapshot.nextChecklistSortOrder(snapshot, taskId);
 }
 
-function nextLabelSortOrder(projectId: string): number {
-  return projectSnapshot.nextLabelSortOrder(snapshot, projectId);
+function nextTagSortOrder(projectId: string): number {
+  return projectSnapshot.nextTagSortOrder(snapshot, projectId);
 }
 
 function nextCustomFieldSortOrder(projectId: string): number {
@@ -831,66 +831,66 @@ async function removeChecklistItem(itemId: string): Promise<void> {
   await reload();
 }
 
-async function addLabel(
+async function addTag(
   projectId: string,
   name: string,
-  color: ProjectLabel["color"] | null = null,
-): Promise<ProjectLabel | undefined> {
+  color: ProjectTag["color"] | null = PROJECT_TAG_DEFAULT_COLOR,
+): Promise<ProjectTag | undefined> {
   const displayName = normalizeProjectName(name);
   if (!displayName) return undefined;
-  const existingLabel = projectLabelByName(projectId, displayName);
-  if (existingLabel) return existingLabel;
-  const labelId = crypto.randomUUID();
-  await createProjectLabel({
-    id: labelId,
+  const existingTag = projectTagByName(projectId, displayName);
+  if (existingTag) return existingTag;
+  const tagId = crypto.randomUUID();
+  await createProjectTag({
+    id: tagId,
     projectId,
     name: displayName,
-    color: color ?? null,
-    sortOrder: nextLabelSortOrder(projectId),
+    color: color ?? PROJECT_TAG_DEFAULT_COLOR,
+    sortOrder: nextTagSortOrder(projectId),
   });
   await reload();
-  return labelById(labelId);
+  return tagById(tagId);
 }
 
-async function updateLabel(
-  label: ProjectLabel,
-  patch: Partial<Pick<ProjectLabel, "name" | "color" | "sortOrder">>,
+async function updateTag(
+  tag: ProjectTag,
+  patch: Partial<Pick<ProjectTag, "name" | "color" | "sortOrder">>,
 ): Promise<void> {
-  const nextName = normalizeProjectName(patch.name ?? label.name);
+  const nextName = normalizeProjectName(patch.name ?? tag.name);
   if (!nextName) return;
-  await updateProjectLabel(labelUpdatePayload(label, { ...patch, name: nextName }));
+  await updateProjectTag(tagUpdatePayload(tag, { ...patch, name: nextName }));
   await reload();
 }
 
-async function moveLabel(label: ProjectLabel, direction: -1 | 1): Promise<void> {
-  const ordered = labelsForProject(label.projectId);
-  const index = ordered.findIndex((entry) => entry.id === label.id);
+async function moveTag(tag: ProjectTag, direction: -1 | 1): Promise<void> {
+  const ordered = tagsForProject(tag.projectId);
+  const index = ordered.findIndex((entry) => entry.id === tag.id);
   const target = ordered[index + direction];
   if (index < 0 || !target) return;
-  await updateProjectLabel(labelUpdatePayload(label, { sortOrder: target.sortOrder }));
-  await updateProjectLabel(labelUpdatePayload(target, { sortOrder: label.sortOrder }));
+  await updateProjectTag(tagUpdatePayload(tag, { sortOrder: target.sortOrder }));
+  await updateProjectTag(tagUpdatePayload(target, { sortOrder: tag.sortOrder }));
   await reload();
 }
 
-async function removeLabel(labelId: string): Promise<void> {
-  await deleteProjectLabel(labelId);
+async function removeTag(tagId: string): Promise<void> {
+  await deleteProjectTag(tagId);
   await reload();
 }
 
-async function linkTaskLabel(taskId: string, labelId: string): Promise<void> {
-  await linkProjectTaskLabel({ taskId, labelId });
+async function linkTaskTag(taskId: string, tagId: string): Promise<void> {
+  await linkProjectTaskTag({ taskId, tagId });
   await reload();
 }
 
-async function unlinkTaskLabel(taskId: string, labelId: string): Promise<void> {
-  await unlinkProjectTaskLabel(taskId, labelId);
+async function unlinkTaskTag(taskId: string, tagId: string): Promise<void> {
+  await unlinkProjectTaskTag(taskId, tagId);
   await reload();
 }
 
-async function addAndLinkTaskLabel(task: ProjectTask, name: string): Promise<void> {
-  const label = await addLabel(task.projectId, name);
-  if (!label) return;
-  await linkTaskLabel(task.id, label.id);
+async function addAndLinkTaskTag(task: ProjectTask, name: string): Promise<void> {
+  const tag = await addTag(task.projectId, name);
+  if (!tag) return;
+  await linkTaskTag(task.id, tag.id);
 }
 
 async function addCustomEmoji(name: string, assetPath: string): Promise<ProjectCustomEmoji | undefined> {
@@ -1252,11 +1252,11 @@ export function getProjects() {
     get checklistItems(): ProjectChecklistItem[] {
       return snapshot.checklistItems;
     },
-    get labels(): ProjectLabel[] {
-      return snapshot.labels;
+    get tags(): ProjectTag[] {
+      return snapshot.tags;
     },
-    get taskLabelLinks(): ProjectTaskLabelLink[] {
-      return snapshot.taskLabelLinks;
+    get taskTagLinks(): ProjectTaskTagLink[] {
+      return snapshot.taskTagLinks;
     },
     get customFields(): ProjectCustomField[] {
       return snapshot.customFields;
@@ -1344,11 +1344,11 @@ export function getProjects() {
     taskChangeEventsForTask,
     recentTaskChangeEventsForProject,
     checklistItemsForTask,
-    labelsForProject,
-    labelById,
-    taskLabelLinksForTask,
-    labelsForTask,
-    unlinkedLabelsForTask,
+    tagsForProject,
+    tagById,
+    taskTagLinksForTask,
+    tagsForTask,
+    unlinkedTagsForTask,
     customFieldsForProject,
     customFieldById,
     customFieldOptionsForField,
@@ -1385,13 +1385,13 @@ export function getProjects() {
     updateChecklistItem,
     moveChecklistItem,
     removeChecklistItem,
-    addLabel,
-    updateLabel,
-    moveLabel,
-    removeLabel,
-    linkTaskLabel,
-    unlinkTaskLabel,
-    addAndLinkTaskLabel,
+    addTag,
+    updateTag,
+    moveTag,
+    removeTag,
+    linkTaskTag,
+    unlinkTaskTag,
+    addAndLinkTaskTag,
     addCustomEmoji,
     removeCustomEmoji,
     addCustomField,

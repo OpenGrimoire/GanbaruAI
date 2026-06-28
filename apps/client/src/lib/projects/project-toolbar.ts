@@ -15,7 +15,7 @@ export interface ProjectFilterChipInput {
   dueLabel?: string;
   scheduleLabel?: string;
   dependencyLabel?: string;
-  labelFilterLabel?: string;
+  tagFilterLabel?: string;
   customFieldFilters: readonly ProjectCustomFieldFilter[];
   customFieldFilterLabel: (filter: ProjectCustomFieldFilter) => string;
 }
@@ -31,7 +31,7 @@ export interface ProjectFilterChip {
     | "due"
     | "schedule"
     | "dependency"
-    | "label"
+    | "tag"
     | `custom:${string}`;
 }
 
@@ -130,7 +130,7 @@ export function deriveProjectFilterChips(input: ProjectFilterChipInput): Project
   if (input.dueLabel) chips.push(chip("due", input.dueLabel, "due"));
   if (input.scheduleLabel) chips.push(chip("schedule", input.scheduleLabel, "schedule"));
   if (input.dependencyLabel) chips.push(chip("dependency", input.dependencyLabel, "dependency"));
-  if (input.labelFilterLabel) chips.push(chip("label", input.labelFilterLabel, "label"));
+  if (input.tagFilterLabel) chips.push(chip("tag", input.tagFilterLabel, "tag"));
   for (const filter of input.customFieldFilters) {
     chips.push(chip(`custom:${filter.fieldId}`, input.customFieldFilterLabel(filter), `custom:${filter.fieldId}`));
   }

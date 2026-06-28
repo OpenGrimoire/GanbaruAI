@@ -16,12 +16,13 @@ export type ProjectViewId = (typeof PROJECT_VIEW_IDS)[number];
 
 export const PROJECT_PRIORITIES = ["low", "normal", "high", "urgent"] as const;
 export type ProjectPriority = string;
+export const PROJECT_TAG_DEFAULT_COLOR: EventColor = 13;
 
 export type ProjectTaskStatusFilter = "all" | "open" | "blocked" | "done";
 export type ProjectTaskDueFilter = "all" | "overdue" | "today" | "week" | "none" | "range";
 export type ProjectTaskScheduleFilter = "all" | "scheduled" | "unscheduled";
 export type ProjectTaskDependencyFilter = "all" | "linked" | "blocked_by" | "blocking" | "none";
-export type ProjectTaskLabelFilter = string | "all" | "none";
+export type ProjectTaskTagFilter = string | "all" | "none";
 export type ProjectCustomFieldReference = `custom:${string}`;
 export const PROJECT_TASK_SORT_MODES = [
   "manual",
@@ -301,7 +302,7 @@ export interface ProjectChecklistItem {
   updatedAt: string;
 }
 
-export interface ProjectLabel {
+export interface ProjectTag {
   id: string;
   projectId: string;
   name: string;
@@ -311,9 +312,9 @@ export interface ProjectLabel {
   updatedAt: string;
 }
 
-export interface ProjectTaskLabelLink {
+export interface ProjectTaskTagLink {
   taskId: string;
-  labelId: string;
+  tagId: string;
   createdAt: string;
 }
 
@@ -456,7 +457,7 @@ export interface ProjectSavedTaskView {
   dueRangeEnd: string;
   scheduleFilter: ProjectTaskScheduleFilter;
   dependencyFilter: ProjectTaskDependencyFilter;
-  labelFilter: ProjectTaskLabelFilter;
+  tagFilter: ProjectTaskTagFilter;
   customFieldFilters: ProjectCustomFieldFilter[];
   sortMode: ProjectTaskSortMode;
   sortDirection: ProjectTaskSortDirection;
@@ -494,7 +495,7 @@ export interface ProjectChecklistItemUpdate {
   sortOrder: number;
 }
 
-export interface ProjectLabelCreate {
+export interface ProjectTagCreate {
   id: string;
   projectId: string;
   name: string;
@@ -502,16 +503,16 @@ export interface ProjectLabelCreate {
   sortOrder: number;
 }
 
-export interface ProjectLabelUpdate {
+export interface ProjectTagUpdate {
   id: string;
   name: string;
   color: EventColor | null;
   sortOrder: number;
 }
 
-export interface ProjectTaskLabelLinkCreate {
+export interface ProjectTaskTagLinkCreate {
   taskId: string;
-  labelId: string;
+  tagId: string;
 }
 
 export interface ProjectCustomFieldCreate {
@@ -559,8 +560,8 @@ export interface ProjectsSnapshot {
   priorities: ProjectPriorityConfig[];
   tasks: ProjectTask[];
   checklistItems: ProjectChecklistItem[];
-  labels: ProjectLabel[];
-  taskLabelLinks: ProjectTaskLabelLink[];
+  tags: ProjectTag[];
+  taskTagLinks: ProjectTaskTagLink[];
   customFields: ProjectCustomField[];
   customFieldOptions: ProjectCustomFieldOption[];
   customFieldValues: ProjectCustomFieldValue[];

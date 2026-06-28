@@ -7,8 +7,8 @@ import {
 import { darkTheme, lightTheme } from "$lib/stores/themes";
 import { translateFromPartialCatalog, type Translate } from "$lib/i18n/translator.svelte";
 import {
-  projectLabelColorDotStyle,
-  projectLabelColorSwatchClass,
+  projectTagColorDotStyle,
+  projectTagColorSwatchClass,
   projectLifecycleBadgeClass,
   projectPersonInitials,
   projectPriorityBadgeClass,
@@ -122,9 +122,9 @@ describe("project display helpers", () => {
   });
 
   it("returns label swatch styling only when a palette color exists", () => {
-    expect(projectLabelColorSwatchClass(undefined)).toContain("muted");
-    expect(projectLabelColorDotStyle(undefined, lightTheme)).toBe("");
-    expect(projectLabelColorDotStyle(2, lightTheme)).toMatch(/^background-color: #[0-9a-f]{6};$/i);
+    expect(projectTagColorSwatchClass(undefined)).toContain("muted");
+    expect(projectTagColorDotStyle(undefined, lightTheme)).toBe("");
+    expect(projectTagColorDotStyle(2, lightTheme)).toMatch(/^background-color: #[0-9a-f]{6};$/i);
   });
 
   it("returns compact initials for task people", () => {

@@ -8,8 +8,8 @@ import type {
   ProjectCustomFieldUpdate,
   ProjectGroup,
   ProjectGroupUpdate,
-  ProjectLabel,
-  ProjectLabelUpdate,
+  ProjectTag,
+  ProjectTagUpdate,
   ProjectSection,
   ProjectSectionUpdate,
   ProjectTask,
@@ -58,11 +58,11 @@ export function checklistItemUpdatePayload(
   };
 }
 
-export function labelUpdatePayload(
-  label: ProjectLabel,
-  patch: Partial<Pick<ProjectLabel, "name" | "color" | "sortOrder">>,
-): ProjectLabelUpdate {
-  const merged = { ...label, ...patch };
+export function tagUpdatePayload(
+  tag: ProjectTag,
+  patch: Partial<Pick<ProjectTag, "name" | "color" | "sortOrder">>,
+): ProjectTagUpdate {
+  const merged = { ...tag, ...patch };
   return {
     id: merged.id,
     name: merged.name,

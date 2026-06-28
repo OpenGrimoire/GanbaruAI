@@ -136,7 +136,7 @@ function view(overrides: Partial<Parameters<typeof buildProjectTaskView>[0]>) {
     customFieldOptionIdsByTaskField: new Map(),
     scheduledTaskIds: new Set(),
     nextScheduledStartByTaskId: new Map(),
-    taskLabelIdsByTaskId: new Map(),
+    taskTagIdsByTaskId: new Map(),
     dependencyBlockedTaskIds: new Set(),
     dependencyBlockingTaskIds: new Set(),
     today: "2026-06-12",
@@ -148,7 +148,7 @@ function view(overrides: Partial<Parameters<typeof buildProjectTaskView>[0]>) {
     dueFilter: "all",
     scheduleFilter: "all",
     dependencyFilter: "all",
-    labelFilter: "all",
+    tagFilter: "all",
     customFieldFilters: [],
     groupBy: "section",
     sortMode: "manual",
@@ -294,28 +294,28 @@ describe("buildProjectTaskView", () => {
     }).tasks.map((entry) => entry.id)).toEqual(["independent"]);
   });
 
-  it("filters tasks by project labels", () => {
+  it("filters tasks by project tags", () => {
     const tasks = [
       task({ id: "backend", title: "Backend task" }),
       task({ id: "frontend", title: "Frontend task" }),
-      task({ id: "unlabeled", title: "Unlabeled task" }),
+      task({ id: "untagged", title: "Untagged task" }),
     ];
-    const taskLabelIdsByTaskId = new Map([
-      ["backend", new Set(["label-backend"])],
-      ["frontend", new Set(["label-frontend"])],
+    const taskTagIdsByTaskId = new Map([
+      ["backend", new Set(["tag-backend"])],
+      ["frontend", new Set(["tag-frontend"])],
     ]);
 
     expect(view({
       tasks,
-      taskLabelIdsByTaskId,
-      labelFilter: "label-backend",
+      taskTagIdsByTaskId,
+      tagFilter: "tag-backend",
     }).tasks.map((entry) => entry.id)).toEqual(["backend"]);
 
     expect(view({
       tasks,
-      taskLabelIdsByTaskId,
-      labelFilter: "none",
-    }).tasks.map((entry) => entry.id)).toEqual(["unlabeled"]);
+      taskTagIdsByTaskId,
+      tagFilter: "none",
+    }).tasks.map((entry) => entry.id)).toEqual(["untagged"]);
   });
 
   it("filters tasks by typed custom fields", () => {

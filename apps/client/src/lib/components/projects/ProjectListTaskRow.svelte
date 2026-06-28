@@ -3,13 +3,13 @@
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import {
-    projectLabelColorDotStyle,
-    projectLabelColorSwatchClass,
+    projectTagColorDotStyle,
+    projectTagColorSwatchClass,
     projectTaskArchivedBadgeClass,
   } from "$lib/projects/project-display";
   import type {
     ProjectCustomField,
-    ProjectLabel,
+    ProjectTag,
     ProjectPriority,
     ProjectPriorityConfig,
     ProjectStatus,
@@ -28,8 +28,8 @@
     priorities,
     subtasks,
     scheduled,
-    taskLabels,
-    hiddenLabels,
+    taskTags,
+    hiddenTags,
     blockedByCount,
     blocksCount,
     taskListColumns,
@@ -83,8 +83,8 @@
     priorities: ProjectPriorityConfig[];
     subtasks: ProjectTask[];
     scheduled: string | null;
-    taskLabels: ProjectLabel[];
-    hiddenLabels: number;
+    taskTags: ProjectTag[];
+    hiddenTags: number;
     blockedByCount: number;
     blocksCount: number;
     taskListColumns: ProjectTaskListColumn[];
@@ -208,20 +208,20 @@
           {/if}
         </div>
       {/if}
-      {#if taskLabels.length > 0}
+      {#if taskTags.length > 0}
         <div class="mt-1 flex min-w-0 flex-wrap gap-1">
-          {#each taskLabels as label (label.id)}
+          {#each taskTags as tag (tag.id)}
             <span class="inline-flex max-w-full items-center gap-1 rounded border border-border bg-muted/50 px-1.5 py-0.5 text-[0.666667rem] text-muted-foreground">
               <span
-                class={cn("h-1.5 w-1.5 shrink-0 rounded-full border", projectLabelColorSwatchClass(label.color))}
-                style={projectLabelColorDotStyle(label.color, theme)}
+                class={cn("h-1.5 w-1.5 shrink-0 rounded-full border", projectTagColorSwatchClass(tag.color))}
+                style={projectTagColorDotStyle(tag.color, theme)}
               ></span>
-              <span class="truncate">{label.name}</span>
+              <span class="truncate">{tag.name}</span>
             </span>
           {/each}
-          {#if hiddenLabels > 0}
+          {#if hiddenTags > 0}
             <span class="rounded border border-border bg-muted/50 px-1.5 py-0.5 text-[0.666667rem] text-muted-foreground">
-              {t("projects.list.moreLabels", hiddenLabels)}
+              {t("projects.list.moreTags", hiddenTags)}
             </span>
           {/if}
         </div>

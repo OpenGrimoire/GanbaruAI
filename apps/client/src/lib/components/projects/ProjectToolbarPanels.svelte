@@ -22,8 +22,8 @@
   import type { Component } from "svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import {
-    projectLabelColorDotStyle,
-    projectLabelColorSwatchClass,
+    projectTagColorDotStyle,
+    projectTagColorSwatchClass,
     projectPriorityDisplayLabel,
   } from "$lib/projects/project-display";
   import {
@@ -40,7 +40,7 @@
     PROJECT_TASK_SORT_MODES,
     type ProjectCustomField,
     type ProjectCustomFieldFilter,
-    type ProjectLabel,
+    type ProjectTag,
     type ProjectPriority,
     type ProjectPriorityConfig,
     type ProjectSavedTaskView,
@@ -48,7 +48,7 @@
     type ProjectTaskDependencyFilter,
     type ProjectTaskDueFilter,
     type ProjectTaskGroupMode,
-    type ProjectTaskLabelFilter,
+    type ProjectTaskTagFilter,
     type ProjectTaskListColumn,
     type ProjectTaskScheduleFilter,
     type ProjectTaskSortDirection,
@@ -78,7 +78,7 @@
     | "filter-due"
     | "filter-schedule"
     | "filter-dependency"
-    | "filter-label"
+    | "filter-tag"
     | `filter-custom:${string}`
     | "sort"
     | "visibility"
@@ -90,7 +90,7 @@
     projectId,
     sections,
     priorities,
-    projectLabels,
+    projectTags,
     projectCustomFields,
     savedTaskViews,
     taskListColumnControls,
@@ -107,7 +107,7 @@
     taskDueRangeEnd = $bindable<string>(),
     taskScheduleFilter = $bindable<ProjectTaskScheduleFilter>(),
     taskDependencyFilter = $bindable<ProjectTaskDependencyFilter>(),
-    taskLabelFilter = $bindable<ProjectTaskLabelFilter>(),
+    taskTagFilter = $bindable<ProjectTaskTagFilter>(),
     taskCustomFieldFilters = $bindable<ProjectCustomFieldFilter[]>(),
     taskGroupBy = $bindable<ProjectTaskGroupMode>(),
     taskSortMode = $bindable<ProjectTaskSortMode>(),
@@ -127,7 +127,7 @@
     projectId: string | null;
     sections: ProjectSection[];
     priorities: ProjectPriorityConfig[];
-    projectLabels: ProjectLabel[];
+    projectTags: ProjectTag[];
     projectCustomFields: ProjectCustomField[];
     savedTaskViews: ProjectSavedTaskView[];
     taskListColumnControls: ProjectListColumnControl[];
@@ -144,7 +144,7 @@
     taskDueRangeEnd: string;
     taskScheduleFilter: ProjectTaskScheduleFilter;
     taskDependencyFilter: ProjectTaskDependencyFilter;
-    taskLabelFilter: ProjectTaskLabelFilter;
+    taskTagFilter: ProjectTaskTagFilter;
     taskCustomFieldFilters: ProjectCustomFieldFilter[];
     taskGroupBy: ProjectTaskGroupMode;
     taskSortMode: ProjectTaskSortMode;
@@ -443,10 +443,10 @@
     return t("projects.filters.allDependencies");
   }
 
-  function taskLabelFilterLabel(filter: ProjectTaskLabelFilter): string {
-    if (filter === "all") return t("projects.filters.allLabels");
-    if (filter === "none") return t("projects.filters.noLabels");
-    return projectLabels.find((label) => label.id === filter)?.name ?? t("projects.filters.allLabels");
+  function taskTagFilterLabel(filter: ProjectTaskTagFilter): string {
+    if (filter === "all") return t("projects.filters.allTags");
+    if (filter === "none") return t("projects.filters.noTags");
+    return projectTags.find((tag) => tag.id === filter)?.name ?? t("projects.filters.allTags");
   }
 
   function taskSectionFilterLabel(): string {
@@ -505,7 +505,7 @@
     if (subpanel === "filter-due") return t("projects.columns.due");
     if (subpanel === "filter-schedule") return t("projects.columns.scheduled");
     if (subpanel === "filter-dependency") return t("projects.columns.dependencies");
-    if (subpanel === "filter-label") return t("projects.settings.labels");
+    if (subpanel === "filter-tag") return t("projects.settings.tags");
     if (subpanel === "sort") return t("projects.toolbar.sort");
     if (subpanel === "visibility") return t("projects.toolbar.visibility");
     if (subpanel === "saved-views") return t("projects.savedViews.title");
@@ -710,7 +710,7 @@
           {@render menuRow(t("projects.columns.due"), taskDueFilterLabel(taskDueFilter), CalendarRange, "filter-due")}
           {@render menuRow(t("projects.columns.scheduled"), taskScheduleFilterLabel(taskScheduleFilter), CalendarRange, "filter-schedule")}
           {@render menuRow(t("projects.columns.dependencies"), taskDependencyFilterLabel(taskDependencyFilter), Link2, "filter-dependency")}
-          {@render menuRow(t("projects.settings.labels"), taskLabelFilterLabel(taskLabelFilter), Tags, "filter-label")}
+          {@render menuRow(t("projects.settings.tags"), taskTagFilterLabel(taskTagFilter), Tags, "filter-tag")}
           {#each projectCustomFields as field (field.id)}
             {@render menuRow(field.name, customFieldFilterLabel(field), SlidersHorizontal, `filter-custom:${field.id}`)}
           {/each}
@@ -824,26 +824,26 @@
           {#each TASK_DEPENDENCY_FILTERS as filter}
             {@render optionRow(taskDependencyFilterLabel(filter), taskDependencyFilter === filter, () => { taskDependencyFilter = filter; })}
           {/each}
-        {:else if activeSubpanel === "filter-label"}
-          {@render optionRow(taskLabelFilterLabel("all"), taskLabelFilter === "all", () => { taskLabelFilter = "all"; })}
-          {@render optionRow(taskLabelFilterLabel("none"), taskLabelFilter === "none", () => { taskLabelFilter = "none"; })}
-          {#each projectLabels as label (label.id)}
+        {:else if activeSubpanel === "filter-tag"}
+          {@render optionRow(taskTagFilterLabel("all"), taskTagFilter === "all", () => { taskTagFilter = "all"; })}
+          {@render optionRow(taskTagFilterLabel("none"), taskTagFilter === "none", () => { taskTagFilter = "none"; })}
+          {#each projectTags as tag (tag.id)}
             <button
               type="button"
-              class={panelOptionClass(taskLabelFilter === label.id)}
+              class={panelOptionClass(taskTagFilter === tag.id)}
               onclick={() => {
-                taskLabelFilter = label.id;
+                taskTagFilter = tag.id;
                 refreshActiveSubpanelAfterSelection();
               }}
             >
               <span class="flex min-w-0 items-center gap-2">
                 <span
-                  class={cn("h-2 w-2 shrink-0 rounded-full border", projectLabelColorSwatchClass(label.color))}
-                  style={projectLabelColorDotStyle(label.color, theme.current)}
+                  class={cn("h-2 w-2 shrink-0 rounded-full border", projectTagColorSwatchClass(tag.color))}
+                  style={projectTagColorDotStyle(tag.color, theme.current)}
                 ></span>
-                <span class="truncate">{label.name}</span>
+                <span class="truncate">{tag.name}</span>
               </span>
-              {#if taskLabelFilter === label.id}
+              {#if taskTagFilter === tag.id}
                 <Check size={13} strokeWidth={1.75} class="shrink-0" />
               {/if}
             </button>

@@ -7,7 +7,7 @@ import type {
   ProjectCustomFieldOption,
   ProjectCustomFieldValue,
   ProjectGroup,
-  ProjectLabel,
+  ProjectTag,
   ProjectPriorityConfig,
   ProjectSavedTaskView,
   ProjectSection,
@@ -17,7 +17,7 @@ import type {
   ProjectTaskChangeEvent,
   ProjectTaskDependency,
   ProjectTaskEventLink,
-  ProjectTaskLabelLink,
+  ProjectTaskTagLink,
 } from "$lib/projects/types";
 
 function sortByOrderAndName<T extends { sortOrder: number; name: string }>(a: T, b: T): number {
@@ -273,60 +273,60 @@ export function checklistItemsForTask(
     .sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt.localeCompare(b.createdAt));
 }
 
-export function labelsForProject(
+export function tagsForProject(
   source: ProjectsSnapshot,
   projectId: string | null | undefined,
-): ProjectLabel[] {
+): ProjectTag[] {
   if (!projectId) return [];
-  return source.labels
-    .filter((label) => label.projectId === projectId)
+  return source.tags
+    .filter((tag) => tag.projectId === projectId)
     .sort(sortByOrderAndName);
 }
 
-export function labelById(
+export function tagById(
   source: ProjectsSnapshot,
-  labelId: string | null | undefined,
-): ProjectLabel | undefined {
-  if (!labelId) return undefined;
-  return source.labels.find((label) => label.id === labelId);
+  tagId: string | null | undefined,
+): ProjectTag | undefined {
+  if (!tagId) return undefined;
+  return source.tags.find((tag) => tag.id === tagId);
 }
 
-export function taskLabelLinksForTask(
+export function taskTagLinksForTask(
   source: ProjectsSnapshot,
   taskId: string | null | undefined,
-): ProjectTaskLabelLink[] {
+): ProjectTaskTagLink[] {
   if (!taskId) return [];
-  return source.taskLabelLinks.filter((link) => link.taskId === taskId);
+  return source.taskTagLinks.filter((link) => link.taskId === taskId);
 }
 
-export function labelsForTask(
+export function tagsForTask(
   source: ProjectsSnapshot,
   taskId: string | null | undefined,
-): ProjectLabel[] {
-  const labelIds = new Set(taskLabelLinksForTask(source, taskId).map((link) => link.labelId));
-  return source.labels
-    .filter((label) => labelIds.has(label.id))
+): ProjectTag[] {
+  const tagIds = new Set(taskTagLinksForTask(source, taskId).map((link) => link.tagId));
+  return source.tags
+    .filter((tag) => tagIds.has(tag.id))
     .sort(sortByOrderAndName);
 }
 
-export function unlinkedLabelsForTask(
+export function unlinkedTagsForTask(
   source: ProjectsSnapshot,
   task: ProjectTask | null | undefined,
-): ProjectLabel[] {
+): ProjectTag[] {
   if (!task) return [];
-  const linkedLabelIds = new Set(taskLabelLinksForTask(source, task.id).map((link) => link.labelId));
-  return labelsForProject(source, task.projectId).filter((label) => !linkedLabelIds.has(label.id));
+  const linkedTagIds = new Set(taskTagLinksForTask(source, task.id).map((link) => link.tagId));
+  return tagsForProject(source, task.projectId).filter((tag) => !linkedTagIds.has(tag.id));
 }
 
-export function projectLabelByName(
+export function projectTagByName(
   source: ProjectsSnapshot,
   projectId: string,
   name: string,
-): ProjectLabel | undefined {
+): ProjectTag | undefined {
   const normalized = normalizeProjectName(name).toLowerCase();
   if (!normalized) return undefined;
-  return source.labels.find((label) =>
-    label.projectId === projectId && label.name.trim().toLowerCase() === normalized
+  return source.tags.find((tag) =>
+    tag.projectId === projectId && tag.name.trim().toLowerCase() === normalized
   );
 }
 
@@ -506,8 +506,8 @@ export function nextChecklistSortOrder(source: ProjectsSnapshot, taskId: string)
   return Math.max(0, ...checklistItemsForTask(source, taskId).map((item) => item.sortOrder)) + 1000;
 }
 
-export function nextLabelSortOrder(source: ProjectsSnapshot, projectId: string): number {
-  return Math.max(0, ...labelsForProject(source, projectId).map((label) => label.sortOrder)) + 1000;
+export function nextTagSortOrder(source: ProjectsSnapshot, projectId: string): number {
+  return Math.max(0, ...tagsForProject(source, projectId).map((tag) => tag.sortOrder)) + 1000;
 }
 
 export function nextCustomFieldSortOrder(source: ProjectsSnapshot, projectId: string): number {
@@ -544,14 +544,14 @@ function fieldIdsForProject(source: ProjectsSnapshot, projectId: string): Set<st
   return new Set(source.customFields.filter((field) => field.projectId === projectId).map((field) => field.id));
 }
 
-function labelIdsForProject(source: ProjectsSnapshot, projectId: string): Set<string> {
-  return new Set(source.labels.filter((label) => label.projectId === projectId).map((label) => label.id));
+function tagIdsForProject(source: ProjectsSnapshot, projectId: string): Set<string> {
+  return new Set(source.tags.filter((tag) => tag.projectId === projectId).map((tag) => tag.id));
 }
 
 function snapshotWithoutProjectData(source: ProjectsSnapshot, projectId: string): ProjectsSnapshot {
   const taskIds = taskIdsForProject(source, projectId);
   const fieldIds = fieldIdsForProject(source, projectId);
-  const labelIds = labelIdsForProject(source, projectId);
+  const tagIds = tagIdsForProject(source, projectId);
   return {
     ...source,
     sections: source.sections.filter((section) => section.projectId !== projectId),
@@ -559,8 +559,8 @@ function snapshotWithoutProjectData(source: ProjectsSnapshot, projectId: string)
     priorities: source.priorities.filter((priority) => priority.projectId !== projectId),
     tasks: source.tasks.filter((task) => task.projectId !== projectId),
     checklistItems: source.checklistItems.filter((item) => !taskIds.has(item.taskId)),
-    labels: source.labels.filter((label) => label.projectId !== projectId),
-    taskLabelLinks: source.taskLabelLinks.filter((link) => !taskIds.has(link.taskId) && !labelIds.has(link.labelId)),
+    tags: source.tags.filter((tag) => tag.projectId !== projectId),
+    taskTagLinks: source.taskTagLinks.filter((link) => !taskIds.has(link.taskId) && !tagIds.has(link.tagId)),
     customFields: source.customFields.filter((field) => field.projectId !== projectId),
     customFieldOptions: source.customFieldOptions.filter((option) => !fieldIds.has(option.fieldId)),
     customFieldValues: source.customFieldValues.filter((value) =>
@@ -594,8 +594,8 @@ export function mergeProjectSnapshot(
     priorities: [...base.priorities, ...incoming.priorities],
     tasks: [...base.tasks, ...incoming.tasks],
     checklistItems: [...base.checklistItems, ...incoming.checklistItems],
-    labels: [...base.labels, ...incoming.labels],
-    taskLabelLinks: [...base.taskLabelLinks, ...incoming.taskLabelLinks],
+    tags: [...base.tags, ...incoming.tags],
+    taskTagLinks: [...base.taskTagLinks, ...incoming.taskTagLinks],
     customFields: [...base.customFields, ...incoming.customFields],
     customFieldOptions: [...base.customFieldOptions, ...incoming.customFieldOptions],
     customFieldValues: [...base.customFieldValues, ...incoming.customFieldValues],

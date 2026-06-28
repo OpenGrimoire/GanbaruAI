@@ -183,7 +183,7 @@ describe("project list view helpers", () => {
       dueFilter: "range",
       dueRangeStart: "invalid",
       dueRangeEnd: "invalid",
-      labelFilter: "label-a",
+      tagFilter: "tag-a",
       customFieldFilters: [{ fieldId: "field-a", mode: "option", optionId: "option-a" }],
       sections: [{
         id: "section-a",
@@ -194,8 +194,8 @@ describe("project list view helpers", () => {
         createdAt: "2026-06-21T00:00:00.000Z",
         updatedAt: "2026-06-21T00:00:00.000Z",
       }],
-      labels: [{
-        id: "label-a",
+      tags: [{
+        id: "tag-a",
         projectId: "project-a",
         name: "Design",
         color: 2,

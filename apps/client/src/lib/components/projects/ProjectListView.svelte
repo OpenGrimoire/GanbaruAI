@@ -36,7 +36,7 @@
   import {
     type ProjectCustomField,
     type ProjectCustomFieldOption,
-    type ProjectLabel,
+    type ProjectTag,
     type ProjectPriority,
     type ProjectPriorityConfig,
     type ProjectSection,
@@ -978,16 +978,16 @@
     return projects.dependenciesBlockedByTask(task.id);
   }
 
-  function labelsForTask(task: ProjectTask): ProjectLabel[] {
-    return projects.labelsForTask(task.id);
+  function tagsForTask(task: ProjectTask): ProjectTag[] {
+    return projects.tagsForTask(task.id);
   }
 
-  function visibleTaskLabels(task: ProjectTask): ProjectLabel[] {
-    return labelsForTask(task).slice(0, 3);
+  function visibleTaskTags(task: ProjectTask): ProjectTag[] {
+    return tagsForTask(task).slice(0, 3);
   }
 
-  function hiddenTaskLabelCount(task: ProjectTask): number {
-    return Math.max(0, labelsForTask(task).length - visibleTaskLabels(task).length);
+  function hiddenTaskTagCount(task: ProjectTask): number {
+    return Math.max(0, tagsForTask(task).length - visibleTaskTags(task).length);
   }
 
   function customFieldOptions(field: ProjectCustomField): ProjectCustomFieldOption[] {
@@ -1561,8 +1561,8 @@
                   {priorities}
                   {subtasks}
                   scheduled={scheduledLabel(task.id)}
-                  taskLabels={visibleTaskLabels(task)}
-                  hiddenLabels={hiddenTaskLabelCount(task)}
+                  taskTags={visibleTaskTags(task)}
+                  hiddenTags={hiddenTaskTagCount(task)}
                   blockedByCount={blockedByDependencies(task).length}
                   blocksCount={blocksDependencies(task).length}
                   {taskListColumns}
@@ -1848,8 +1848,8 @@
                 {priorities}
                 subtasks={subtasksForTask(task)}
                 scheduled={scheduledLabel(task.id)}
-                taskLabels={visibleTaskLabels(task)}
-                hiddenLabels={hiddenTaskLabelCount(task)}
+                taskTags={visibleTaskTags(task)}
+                hiddenTags={hiddenTaskTagCount(task)}
                 blockedByCount={blockedByDependencies(task).length}
                 blocksCount={blocksDependencies(task).length}
                 {taskListColumns}

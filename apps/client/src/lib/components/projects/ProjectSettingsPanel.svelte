@@ -25,8 +25,6 @@
   } from "$lib/projects/project-default-pomodoro";
   import {
     projectCustomFieldTypeLabel,
-    projectLabelColorDotStyle,
-    projectLabelColorSwatchClass,
     projectLifecycleLabel,
   } from "$lib/projects/project-display";
   import {
@@ -36,13 +34,14 @@
   import {
     PROJECT_CUSTOM_FIELD_TYPES,
     PROJECT_LIFECYCLE_STATUSES,
+    PROJECT_TAG_DEFAULT_COLOR,
   } from "$lib/projects/types";
   import type {
     Project,
     ProjectCustomField,
     ProjectCustomFieldOption,
     ProjectCustomFieldType,
-    ProjectLabel,
+    ProjectTag,
     ProjectLifecycleStatus,
     ProjectPriorityConfig,
     ProjectStatus,
@@ -78,12 +77,14 @@
   const PROJECT_STATUS_CATEGORIES: ProjectStatusCategory[] = ["not_started", "active", "blocked", "done"];
   const NEW_STATUS_FIRST_COLOR: EventColor = 8;
   const NEW_PRIORITY_FIRST_COLOR: EventColor = 13;
+  const NEW_TAG_FIRST_COLOR = PROJECT_TAG_DEFAULT_COLOR;
   const PROJECT_STATUS_DRAG_DATA_TYPE = "application/x-ganbaru-project-status";
   const PROJECT_PRIORITY_DRAG_DATA_TYPE = "application/x-ganbaru-project-priority";
-  type ProjectLabelColorDraft = EventColor | "none";
+  const PROJECT_TAG_DRAG_DATA_TYPE = "application/x-ganbaru-project-tag";
   type SelectOption = { value: string; label: string };
   type StatusDropPosition = "before" | "after";
   type PriorityDropPosition = "before" | "after";
+  type TagDropPosition = "before" | "after";
   type StatusSaveDraft = {
     status: ProjectStatus;
     name: string;
@@ -92,6 +93,11 @@
   };
   type PrioritySaveDraft = {
     priority: ProjectPriorityConfig;
+    name: string;
+    color: EventColor;
+  };
+  type TagSaveDraft = {
+    tag: ProjectTag;
     name: string;
     color: EventColor;
   };
@@ -135,11 +141,11 @@
   let newPriorityColor = $state<EventColor>(NEW_PRIORITY_FIRST_COLOR);
   let pendingDeleteStatusId = $state<string | null>(null);
   let pendingDeletePriorityId = $state<string | null>(null);
-  let labelNameDrafts = $state<Record<string, string>>({});
-  let labelColorDrafts = $state<Record<string, ProjectLabelColorDraft>>({});
-  let newLabelName = $state("");
-  let newLabelColor = $state<ProjectLabelColorDraft>("none");
-  let pendingDeleteLabelId = $state<string | null>(null);
+  let tagNameDrafts = $state<Record<string, string>>({});
+  let tagColorDrafts = $state<Record<string, EventColor>>({});
+  let newTagName = $state("");
+  let newTagColor = $state<EventColor>(NEW_TAG_FIRST_COLOR);
+  let pendingDeleteTagId = $state<string | null>(null);
   let customFieldNameDrafts = $state<Record<string, string>>({});
   let customFieldOptionNameDrafts = $state<Record<string, string>>({});
   let newCustomFieldName = $state("");
@@ -151,6 +157,7 @@
   let settingsContentElement = $state<HTMLElement | undefined>();
   let newStatusRowElement = $state<HTMLDivElement | undefined>();
   let newPriorityRowElement = $state<HTMLDivElement | undefined>();
+  let newTagRowElement = $state<HTMLDivElement | undefined>();
   let settingsScrollable = $state(false);
   let settingsCanScrollUp = $state(false);
   let settingsCanScrollDown = $state(false);
@@ -162,6 +169,10 @@
   let dragOverPriorityId = $state<string | null>(null);
   let priorityDropPosition = $state<PriorityDropPosition | null>(null);
   let priorityReorderPending = $state(false);
+  let draggedTagId = $state<string | null>(null);
+  let dragOverTagId = $state<string | null>(null);
+  let tagDropPosition = $state<TagDropPosition | null>(null);
+  let tagReorderPending = $state(false);
   let settingsScrollStateFrame: number | null = null;
 
   const selectedProject = $derived(projects.projectById(projectId));
@@ -169,7 +180,7 @@
   const visibleProjectGroups = $derived.by(() => projects.visibleGroups());
   const statuses = $derived(projects.statusesForProject(selectedProjectId));
   const priorities = $derived(projects.prioritiesForProject(selectedProjectId));
-  const projectLabels = $derived(projects.labelsForProject(selectedProjectId));
+  const projectTags = $derived(projects.tagsForProject(selectedProjectId));
   const projectCustomFields = $derived(projects.customFieldsForProject(selectedProjectId));
   const projectGroupOptions = $derived<SelectOption[]>(
     visibleProjectGroups.map((group) => ({ value: group.id, label: group.name })),
@@ -192,8 +203,8 @@
       label: projectCustomFieldTypeLabel(fieldType, t),
     })),
   );
-  const pendingDeleteLabel = $derived.by(() =>
-    pendingDeleteLabelId ? projectLabels.find((label) => label.id === pendingDeleteLabelId) : undefined
+  const pendingDeleteTag = $derived.by(() =>
+    pendingDeleteTagId ? projectTags.find((tag) => tag.id === pendingDeleteTagId) : undefined
   );
   const pendingDeleteCustomField = $derived.by(() =>
     pendingDeleteCustomFieldId
@@ -232,7 +243,10 @@
   });
   const statusSettingsDirty = $derived.by(() => statuses.some(statusDraftDirty));
   const prioritySettingsDirty = $derived.by(() => priorities.some(priorityDraftDirty));
-  const projectSettingsDirty = $derived(projectFieldSettingsDirty || statusSettingsDirty || prioritySettingsDirty);
+  const tagSettingsDirty = $derived.by(() => projectTags.some(tagDraftDirty));
+  const projectSettingsDirty = $derived(
+    projectFieldSettingsDirty || statusSettingsDirty || prioritySettingsDirty || tagSettingsDirty,
+  );
 
   $effect(() => {
     if (!selectedProject) return;
@@ -275,12 +289,12 @@
     statusColorDrafts = Object.fromEntries(statuses.map((status) => [status.id, status.color]));
     priorityNameDrafts = Object.fromEntries(priorities.map((priority) => [priority.id, priority.name]));
     priorityColorDrafts = Object.fromEntries(priorities.map((priority) => [priority.id, priority.color]));
-    labelNameDrafts = Object.fromEntries(projectLabels.map((label) => [label.id, label.name]));
-    const nextLabelColorDrafts: Record<string, ProjectLabelColorDraft> = {};
-    for (const label of projectLabels) {
-      nextLabelColorDrafts[label.id] = label.color ?? "none";
+    tagNameDrafts = Object.fromEntries(projectTags.map((tag) => [tag.id, tag.name]));
+    const nextTagColorDrafts: Record<string, EventColor> = {};
+    for (const tag of projectTags) {
+      nextTagColorDrafts[tag.id] = tag.color ?? FALLBACK_COLOR_INDEX;
     }
-    labelColorDrafts = nextLabelColorDrafts;
+    tagColorDrafts = nextTagColorDrafts;
     customFieldNameDrafts = Object.fromEntries(projectCustomFields.map((field) => [field.id, field.name]));
     customFieldOptionNameDrafts = Object.fromEntries(
       projectCustomFields.flatMap((field) =>
@@ -294,9 +308,9 @@
     newPriorityName = "";
     newPriorityColor = nextUnusedPriorityColor(NEW_PRIORITY_FIRST_COLOR);
     pendingDeletePriorityId = null;
-    newLabelName = "";
-    newLabelColor = "none";
-    pendingDeleteLabelId = null;
+    newTagName = "";
+    newTagColor = nextUnusedTagColor(NEW_TAG_FIRST_COLOR);
+    pendingDeleteTagId = null;
     newCustomFieldName = "";
     newCustomFieldType = "text";
     newCustomFieldOptionDrafts = {};
@@ -377,15 +391,6 @@
     if (PROJECT_CUSTOM_FIELD_TYPES.includes(value as ProjectCustomFieldType)) {
       newCustomFieldType = value as ProjectCustomFieldType;
     }
-  }
-
-  function compactChoiceClass(active: boolean): string {
-    return cn(
-      "min-h-7 rounded-md px-2 text-[0.733333rem] font-medium transition-colors",
-      active
-        ? "bg-accent text-foreground"
-        : "text-muted-foreground hover:bg-accent/70 hover:text-foreground",
-    );
   }
 
   function iconButtonClass(tone: "neutral" | "danger" = "neutral"): string {
@@ -544,6 +549,15 @@
     return used;
   }
 
+  function usedTagColors(extraColor?: EventColor): Set<EventColor> {
+    const used = new Set<EventColor>();
+    for (const tag of projectTags) {
+      used.add(tagColorDraftValue(tag));
+    }
+    if (extraColor !== undefined) used.add(extraColor);
+    return used;
+  }
+
   function nextUnusedStatusColor(preferredColor: EventColor, extraColor?: EventColor): EventColor {
     const used = usedStatusColors(extraColor);
     if (used.size >= EVENT_COLOR_OPTIONS.length) return randomStatusColor();
@@ -557,6 +571,17 @@
 
   function nextUnusedPriorityColor(preferredColor: EventColor, extraColor?: EventColor): EventColor {
     const used = usedPriorityColors(extraColor);
+    if (used.size >= EVENT_COLOR_OPTIONS.length) return randomStatusColor();
+    const preferredIndex = Math.max(0, EVENT_COLOR_OPTIONS.indexOf(preferredColor));
+    for (let offset = 0; offset < EVENT_COLOR_OPTIONS.length; offset += 1) {
+      const color = EVENT_COLOR_OPTIONS[(preferredIndex + offset) % EVENT_COLOR_OPTIONS.length];
+      if (color !== undefined && !used.has(color)) return color;
+    }
+    return randomStatusColor();
+  }
+
+  function nextUnusedTagColor(preferredColor: EventColor, extraColor?: EventColor): EventColor {
+    const used = usedTagColors(extraColor);
     if (used.size >= EVENT_COLOR_OPTIONS.length) return randomStatusColor();
     const preferredIndex = Math.max(0, EVENT_COLOR_OPTIONS.indexOf(preferredColor));
     for (let offset = 0; offset < EVENT_COLOR_OPTIONS.length; offset += 1) {
@@ -593,41 +618,33 @@
     await scrollToSettingsRow(newPriorityRowElement);
   }
 
+  async function scrollToNewTagRow(): Promise<void> {
+    await scrollToSettingsRow(newTagRowElement);
+  }
+
   function handleSettingsScroll(): void {
     refreshSettingsScrollState();
   }
 
-  function labelNameDraftValue(label: ProjectLabel): string {
-    return labelNameDrafts[label.id] ?? label.name;
+  function tagNameDraftValue(tag: ProjectTag): string {
+    return tagNameDrafts[tag.id] ?? tag.name;
   }
 
-  function labelColorDraftValue(label: ProjectLabel): EventColor | undefined {
-    const draft = labelColorDrafts[label.id];
-    if (draft === "none") return undefined;
-    return draft ?? label.color;
+  function tagColorDraftValue(tag: ProjectTag): EventColor {
+    return tagColorDrafts[tag.id] ?? tag.color ?? FALLBACK_COLOR_INDEX;
   }
 
-  function newLabelColorValue(): EventColor | undefined {
-    return newLabelColor === "none" ? undefined : newLabelColor;
+  function tagDraftDirty(tag: ProjectTag): boolean {
+    return tagNameDraftValue(tag) !== tag.name
+      || tagColorDraftValue(tag) !== (tag.color ?? FALLBACK_COLOR_INDEX);
   }
 
-  function labelDraftDirty(label: ProjectLabel): boolean {
-    return labelNameDraftValue(label) !== label.name
-      || labelColorDraftValue(label) !== label.color;
-  }
-
-  function labelNameExists(name: string, ignoredLabelId?: string): boolean {
+  function tagNameExists(name: string, ignoredTagId?: string): boolean {
     const normalized = name.trim().toLowerCase();
     if (!normalized) return false;
-    return projectLabels.some((label) =>
-      label.id !== ignoredLabelId && label.name.trim().toLowerCase() === normalized
+    return projectTags.some((tag) =>
+      tag.id !== ignoredTagId && tag.name.trim().toLowerCase() === normalized
     );
-  }
-
-  function adjacentLabel(label: ProjectLabel, direction: -1 | 1): ProjectLabel | undefined {
-    const index = projectLabels.findIndex((entry) => entry.id === label.id);
-    if (index < 0) return undefined;
-    return projectLabels[index + direction];
   }
 
   function clearStatusDrag(): void {
@@ -642,12 +659,23 @@
     priorityDropPosition = null;
   }
 
+  function clearTagDrag(): void {
+    draggedTagId = null;
+    dragOverTagId = null;
+    tagDropPosition = null;
+  }
+
   function statusDropPositionForEvent(event: DragEvent, target: HTMLElement): StatusDropPosition {
     const bounds = target.getBoundingClientRect();
     return event.clientY < bounds.top + bounds.height / 2 ? "before" : "after";
   }
 
   function priorityDropPositionForEvent(event: DragEvent, target: HTMLElement): PriorityDropPosition {
+    const bounds = target.getBoundingClientRect();
+    return event.clientY < bounds.top + bounds.height / 2 ? "before" : "after";
+  }
+
+  function tagDropPositionForEvent(event: DragEvent, target: HTMLElement): TagDropPosition {
     const bounds = target.getBoundingClientRect();
     return event.clientY < bounds.top + bounds.height / 2 ? "before" : "after";
   }
@@ -664,6 +692,13 @@
       && draggedPriorityId !== priorityId
       && dragOverPriorityId === priorityId
       && priorityDropPosition === position;
+  }
+
+  function tagDropMarkerVisible(tagId: string, position: TagDropPosition): boolean {
+    return draggedTagId !== null
+      && draggedTagId !== tagId
+      && dragOverTagId === tagId
+      && tagDropPosition === position;
   }
 
   function handleStatusDragStart(event: DragEvent, status: ProjectStatus): void {
@@ -684,6 +719,16 @@
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData(PROJECT_PRIORITY_DRAG_DATA_TYPE, priority.id);
     event.dataTransfer.setData("text/plain", priority.id);
+  }
+
+  function handleTagDragStart(event: DragEvent, tag: ProjectTag): void {
+    draggedTagId = tag.id;
+    dragOverTagId = null;
+    tagDropPosition = null;
+    if (!event.dataTransfer) return;
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData(PROJECT_TAG_DRAG_DATA_TYPE, tag.id);
+    event.dataTransfer.setData("text/plain", tag.id);
   }
 
   function handleStatusDragOver(
@@ -718,6 +763,23 @@
     if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
     dragOverPriorityId = priority.id;
     priorityDropPosition = priorityDropPositionForEvent(event, target);
+  }
+
+  function handleTagDragOver(
+    event: DragEvent,
+    tag: ProjectTag,
+    target: HTMLElement,
+  ): void {
+    if (!draggedTagId || tagReorderPending) return;
+    if (draggedTagId === tag.id) {
+      dragOverTagId = null;
+      tagDropPosition = null;
+      return;
+    }
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+    dragOverTagId = tag.id;
+    tagDropPosition = tagDropPositionForEvent(event, target);
   }
 
   async function moveStatusToIndex(statusId: string, targetIndex: number): Promise<void> {
@@ -776,6 +838,34 @@
     }
   }
 
+  async function moveTagToIndex(tagId: string, targetIndex: number): Promise<void> {
+    tagReorderPending = true;
+    projectSettingsError = null;
+    try {
+      let currentIndex = projectTags.findIndex((entry) => entry.id === tagId);
+      let remainingMoves = projectTags.length;
+      while (currentIndex >= 0 && currentIndex !== targetIndex && remainingMoves > 0) {
+        const direction: -1 | 1 = currentIndex < targetIndex ? 1 : -1;
+        const tag = projectTags[currentIndex];
+        if (!tag) break;
+        await projects.moveTag(tag, direction);
+        currentIndex = projectTags.findIndex((entry) => entry.id === tagId);
+        remainingMoves -= 1;
+      }
+      if (currentIndex !== targetIndex) {
+        projectSettingsError = t("projects.settings.tagReorderFailed");
+      }
+    } catch (error) {
+      projectSettingsError = t(
+        "projects.settings.tagSaveFailed",
+        error instanceof Error ? error.message : String(error),
+      );
+    } finally {
+      tagReorderPending = false;
+      clearTagDrag();
+    }
+  }
+
   async function dropStatus(event: DragEvent, targetStatus: ProjectStatus): Promise<void> {
     event.preventDefault();
     const statusId = draggedStatusId
@@ -828,6 +918,33 @@
       return;
     }
     await movePriorityToIndex(priorityId, boundedTargetIndex);
+  }
+
+  async function dropTag(event: DragEvent, targetTag: ProjectTag): Promise<void> {
+    event.preventDefault();
+    const tagId = draggedTagId
+      ?? event.dataTransfer?.getData(PROJECT_TAG_DRAG_DATA_TYPE)
+      ?? event.dataTransfer?.getData("text/plain")
+      ?? null;
+    if (!tagId || tagId === targetTag.id) {
+      clearTagDrag();
+      return;
+    }
+
+    const sourceIndex = projectTags.findIndex((entry) => entry.id === tagId);
+    let targetIndex = projectTags.findIndex((entry) => entry.id === targetTag.id);
+    if (sourceIndex < 0 || targetIndex < 0) {
+      clearTagDrag();
+      return;
+    }
+    if ((tagDropPosition ?? "before") === "after") targetIndex += 1;
+    if (sourceIndex < targetIndex) targetIndex -= 1;
+    const boundedTargetIndex = Math.max(0, Math.min(projectTags.length - 1, targetIndex));
+    if (boundedTargetIndex === sourceIndex) {
+      clearTagDrag();
+      return;
+    }
+    await moveTagToIndex(tagId, boundedTargetIndex);
   }
 
   function statusDraftDirty(status: ProjectStatus): boolean {
@@ -1049,90 +1166,105 @@
     }
   }
 
-  async function saveLabel(label: ProjectLabel): Promise<void> {
-    const name = labelNameDraftValue(label).trim();
-    if (!name) {
-      projectSettingsError = t("projects.settings.labelNameRequired");
-      return;
-    }
-    if (labelNameExists(name, label.id)) {
-      projectSettingsError = t("projects.settings.labelNameExists");
-      return;
-    }
-    const color = labelColorDraftValue(label);
-    projectSettingsError = null;
-    try {
-      await projects.updateLabel(label, { name, color });
-      labelNameDrafts = { ...labelNameDrafts, [label.id]: name };
-      labelColorDrafts = { ...labelColorDrafts, [label.id]: color ?? "none" };
-    } catch (error) {
-      projectSettingsError = t(
-        "projects.settings.labelSaveFailed",
-        error instanceof Error ? error.message : String(error),
-      );
-    }
+  function setTagColor(tagId: string, color: EventColor | undefined): void {
+    if (color === undefined) return;
+    tagColorDrafts = {
+      ...tagColorDrafts,
+      [tagId]: color,
+    };
   }
 
-  async function submitLabel(): Promise<void> {
+  function setNewTagColor(color: EventColor | undefined): void {
+    if (color !== undefined) newTagColor = color;
+  }
+
+  function tagSaveDrafts(): TagSaveDraft[] | null {
+    const drafts: TagSaveDraft[] = [];
+    const seenNames = new Set<string>();
+    for (const tag of projectTags) {
+      const name = tagNameDraftValue(tag).trim();
+      if (!name) {
+        projectSettingsError = t("projects.settings.tagNameRequired");
+        return null;
+      }
+      const normalizedName = name.toLowerCase();
+      if (seenNames.has(normalizedName)) {
+        projectSettingsError = t("projects.settings.tagNameExists");
+        return null;
+      }
+      seenNames.add(normalizedName);
+      if (!tagDraftDirty(tag)) continue;
+      drafts.push({
+        tag,
+        name,
+        color: tagColorDraftValue(tag),
+      });
+    }
+    return drafts;
+  }
+
+  async function submitTag(): Promise<void> {
     if (!selectedProjectId) return;
-    const name = newLabelName.trim();
+    const name = newTagName.trim();
+    const createdColor = newTagColor;
     if (!name) {
-      projectSettingsError = t("projects.settings.labelNameRequired");
+      projectSettingsError = t("projects.settings.tagNameRequired");
       return;
     }
-    if (labelNameExists(name)) {
-      projectSettingsError = t("projects.settings.labelNameExists");
+    if (tagNameExists(name)) {
+      projectSettingsError = t("projects.settings.tagNameExists");
       return;
     }
     projectSettingsError = null;
     try {
-      await projects.addLabel(selectedProjectId, name, newLabelColorValue());
-      newLabelName = "";
-      newLabelColor = "none";
+      await projects.addTag(selectedProjectId, name, createdColor);
+      newTagName = "";
+      newTagColor = nextUnusedTagColor(nextPaletteColor(createdColor), createdColor);
+      await scrollToNewTagRow();
     } catch (error) {
       projectSettingsError = t(
-        "projects.settings.labelSaveFailed",
+        "projects.settings.tagSaveFailed",
         error instanceof Error ? error.message : String(error),
       );
     }
   }
 
-  async function moveProjectLabel(label: ProjectLabel, direction: -1 | 1): Promise<void> {
+  async function moveTagByDirection(tag: ProjectTag, direction: -1 | 1): Promise<void> {
     projectSettingsError = null;
     try {
-      await projects.moveLabel(label, direction);
+      await projects.moveTag(tag, direction);
     } catch (error) {
       projectSettingsError = t(
-        "projects.settings.labelSaveFailed",
+        "projects.settings.tagSaveFailed",
         error instanceof Error ? error.message : String(error),
       );
     }
   }
 
-  function requestDeleteLabel(label: ProjectLabel): void {
-    pendingDeleteLabelId = label.id;
+  function requestDeleteTag(tag: ProjectTag): void {
+    pendingDeleteTagId = tag.id;
   }
 
-  function cancelDeleteLabel(): void {
-    pendingDeleteLabelId = null;
+  function cancelDeleteTag(): void {
+    pendingDeleteTagId = null;
   }
 
-  async function confirmDeleteLabel(): Promise<void> {
-    if (!pendingDeleteLabel) return;
-    const label = pendingDeleteLabel;
-    pendingDeleteLabelId = null;
+  async function confirmDeleteTag(): Promise<void> {
+    if (!pendingDeleteTag) return;
+    const tag = pendingDeleteTag;
+    pendingDeleteTagId = null;
     projectSettingsError = null;
     try {
-      await projects.removeLabel(label.id);
-      const remainingNames = { ...labelNameDrafts };
-      const remainingColors = { ...labelColorDrafts };
-      delete remainingNames[label.id];
-      delete remainingColors[label.id];
-      labelNameDrafts = remainingNames;
-      labelColorDrafts = remainingColors;
+      await projects.removeTag(tag.id);
+      const remainingNames = { ...tagNameDrafts };
+      const remainingColors = { ...tagColorDrafts };
+      delete remainingNames[tag.id];
+      delete remainingColors[tag.id];
+      tagNameDrafts = remainingNames;
+      tagColorDrafts = remainingColors;
     } catch (error) {
       projectSettingsError = t(
-        "projects.settings.labelDeleteFailed",
+        "projects.settings.tagDeleteFailed",
         error instanceof Error ? error.message : String(error),
       );
     }
@@ -1343,6 +1475,8 @@
     if (!statusDrafts) return;
     const priorityDrafts = prioritySaveDrafts();
     if (!priorityDrafts) return;
+    const tagDrafts = tagSaveDrafts();
+    if (!tagDrafts) return;
     const shouldUpdateProject = projectFieldSettingsDirty;
     const shouldRevealInactive = shouldUpdateProject && projectStatusDraft !== "active";
     projectSettingsSaving = true;
@@ -1409,6 +1543,14 @@
         });
         priorityNameDrafts = { ...priorityNameDrafts, [draft.priority.id]: draft.name };
         priorityColorDrafts = { ...priorityColorDrafts, [draft.priority.id]: draft.color };
+      }
+      for (const draft of tagDrafts) {
+        await projects.updateTag(draft.tag, {
+          name: draft.name,
+          color: draft.color,
+        });
+        tagNameDrafts = { ...tagNameDrafts, [draft.tag.id]: draft.name };
+        tagColorDrafts = { ...tagColorDrafts, [draft.tag.id]: draft.color };
       }
       if (shouldRevealInactive) {
         onRevealInactive();
@@ -1580,149 +1722,118 @@
 
           <div class="h-px bg-border/70" aria-hidden="true"></div>
 
-          <section class="flex flex-col gap-1">
-              {@render sectionHeading(t("projects.settings.labels"))}
-            <div class="flex flex-col gap-1">
-              {#each projectLabels as label (label.id)}
-                {@const previousLabel = adjacentLabel(label, -1)}
-                {@const nextLabel = adjacentLabel(label, 1)}
-                {@const draftColor = labelColorDraftValue(label)}
-                <div class="grid min-h-8 grid-cols-[auto_minmax(0,1fr)_auto_auto_auto_auto_auto_auto] items-center gap-1 px-1 py-1">
-                  <span
-                    class={cn("h-2.5 w-2.5 shrink-0 rounded-full border", projectLabelColorSwatchClass(draftColor))}
-                    style={projectLabelColorDotStyle(draftColor, theme.current)}
-                  ></span>
-                  <input
-                    value={labelNameDraftValue(label)}
-                    class="h-7 min-w-0 rounded-md bg-transparent px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:bg-card"
-                    aria-label={t("projects.settings.labelName")}
-                    oninput={(event) => {
-                      labelNameDrafts = {
-                        ...labelNameDrafts,
-                        [label.id]: event.currentTarget.value,
-                      };
-                    }}
+          <section class="flex flex-col gap-0.5">
+            {@render sectionHeading(t("projects.settings.tags"))}
+            <div class="flex flex-col gap-2">
+              {#each projectTags as tag (tag.id)}
+                <div
+                  class={cn(
+                    "relative grid min-h-7 grid-cols-[auto_auto_minmax(0,1fr)_auto] items-center gap-1.5 px-1 py-0.5",
+                    draggedTagId === tag.id && "opacity-50",
+                  )}
+                  role="group"
+                  aria-label={tag.name}
+                  ondragover={(event) => handleTagDragOver(event, tag, event.currentTarget)}
+                  ondrop={(event) => { void dropTag(event, tag); }}
+                >
+                  {#if tagDropMarkerVisible(tag.id, "before")}
+                    <div class="pointer-events-none absolute left-1 right-1 top-0 h-0.5 rounded-full bg-primary"></div>
+                  {/if}
+                  {#if tagDropMarkerVisible(tag.id, "after")}
+                    <div class="pointer-events-none absolute bottom-0 left-1 right-1 h-0.5 rounded-full bg-primary"></div>
+                  {/if}
+                  <button
+                    type="button"
+                    class="flex h-7 w-7 shrink-0 cursor-grab items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-40"
+                    draggable={projectTags.length > 1 && !tagReorderPending}
+                    disabled={projectTags.length <= 1 || tagReorderPending}
+                    aria-label={t("projects.actions.dragTag", tag.name)}
+                    ondragstart={(event) => handleTagDragStart(event, tag)}
+                    ondragend={clearTagDrag}
                     onkeydown={(event) => {
-                      if (event.key === "Enter") {
+                      if (event.key === "ArrowUp") {
                         event.preventDefault();
-                        void saveLabel(label);
+                        void moveTagByDirection(tag, -1);
+                      }
+                      if (event.key === "ArrowDown") {
+                        event.preventDefault();
+                        void moveTagByDirection(tag, 1);
                       }
                     }}
-                  />
-                  <button
-                    type="button"
-                    class={compactChoiceClass(draftColor === undefined)}
-                    onclick={() => {
-                      labelColorDrafts = {
-                        ...labelColorDrafts,
-                        [label.id]: "none",
-                      };
-                    }}
                   >
-                    {t("common.none")}
+                    <GripVertical size={13} strokeWidth={1.75} />
                   </button>
                   <ColorPicker
-                    color={draftColor}
+                    color={tagColorDraftValue(tag)}
                     theme={theme.current}
-                    title={t("projects.settings.labelColor")}
-                    ariaLabel={t("projects.settings.selectLabelColor", label.name)}
-                    onselect={(color) => {
-                      labelColorDrafts = {
-                        ...labelColorDrafts,
-                        [label.id]: color ?? "none",
+                    title={t("projects.settings.tagColor")}
+                    ariaLabel={t("projects.settings.selectTagColor", tag.name)}
+                    class="h-7 w-7 justify-center self-center"
+                    buttonClass="size-6 rounded-md"
+                    onselect={(color) => setTagColor(tag.id, color)}
+                  />
+                  <input
+                    value={tagNameDraftValue(tag)}
+                    class="h-7 min-w-0 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:border-ring placeholder:text-muted-foreground"
+                    aria-label={t("projects.settings.tagName")}
+                    oninput={(event) => {
+                      tagNameDrafts = {
+                        ...tagNameDrafts,
+                        [tag.id]: event.currentTarget.value,
                       };
                     }}
                   />
-                  <button
-                    type="button"
-                    class={iconButtonClass()}
-                    disabled={!labelDraftDirty(label)}
-                    aria-label={t("projects.settings.saveLabel")}
-                    title={t("projects.settings.saveLabel")}
-                    onclick={() => { void saveLabel(label); }}
-                  >
-                    <Save size={13} strokeWidth={1.75} />
-                  </button>
-                  <button
-                    type="button"
-                    class={iconButtonClass()}
-                    disabled={!previousLabel}
-                    aria-label={t("projects.actions.moveLabelUp", label.name)}
-                    title={t("projects.actions.moveLabelUp", label.name)}
-                    onclick={() => { void moveProjectLabel(label, -1); }}
-                  >
-                    <ArrowUp size={13} strokeWidth={1.75} />
-                  </button>
-                  <button
-                    type="button"
-                    class={iconButtonClass()}
-                    disabled={!nextLabel}
-                    aria-label={t("projects.actions.moveLabelDown", label.name)}
-                    title={t("projects.actions.moveLabelDown", label.name)}
-                    onclick={() => { void moveProjectLabel(label, 1); }}
-                  >
-                    <ArrowDown size={13} strokeWidth={1.75} />
-                  </button>
                   <button
                     type="button"
                     class={iconButtonClass("danger")}
-                    aria-label={t("projects.actions.deleteLabel", label.name)}
-                    title={t("projects.actions.deleteLabel", label.name)}
-                    onclick={() => requestDeleteLabel(label)}
+                    aria-label={t("projects.actions.deleteTag", tag.name)}
+                    title={t("projects.actions.deleteTag", tag.name)}
+                    onclick={() => requestDeleteTag(tag)}
                   >
                     <Trash2 size={13} strokeWidth={1.75} />
                   </button>
                 </div>
               {:else}
                 <div class="px-1 py-2 text-[0.8rem] text-muted-foreground">
-                  {t("projects.settings.noLabels")}
+                  {t("projects.settings.noTags")}
                 </div>
               {/each}
-            </div>
 
-            <div class="grid min-h-8 grid-cols-[auto_minmax(0,1fr)_auto_auto_auto] items-center gap-1 px-1 py-1">
-              <span
-                class={cn("h-2.5 w-2.5 shrink-0 rounded-full border", projectLabelColorSwatchClass(newLabelColorValue()))}
-                style={projectLabelColorDotStyle(newLabelColorValue(), theme.current)}
-              ></span>
-              <input
-                bind:value={newLabelName}
-                class="h-7 min-w-0 rounded-md bg-transparent px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:bg-card"
-                placeholder={t("projects.settings.newLabelPlaceholder")}
-                onkeydown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    void submitLabel();
-                  }
-                }}
-              />
-              <button
-                type="button"
-                class={compactChoiceClass(newLabelColor === "none")}
-                onclick={() => {
-                  newLabelColor = "none";
-                }}
+              <div
+                bind:this={newTagRowElement}
+                class="grid min-h-7 grid-cols-[auto_auto_minmax(0,1fr)_auto] items-center gap-1.5 px-1 py-0.5"
               >
-                {t("common.none")}
-              </button>
-              <ColorPicker
-                color={newLabelColorValue()}
-                theme={theme.current}
-                title={t("projects.settings.labelColor")}
-                ariaLabel={t("projects.settings.selectNewLabelColor")}
-                onselect={(color) => {
-                  newLabelColor = color ?? "none";
-                }}
-              />
-              <button
-                type="button"
-                class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
-                aria-label={t("projects.settings.addLabel")}
-                title={t("projects.settings.addLabel")}
-                onclick={() => { void submitLabel(); }}
-              >
-                <Plus size={13} strokeWidth={1.75} />
-              </button>
+                <div class="h-7 w-7 shrink-0" aria-hidden="true"></div>
+                <ColorPicker
+                  color={newTagColor}
+                  theme={theme.current}
+                  title={t("projects.settings.tagColor")}
+                  ariaLabel={t("projects.settings.selectNewTagColor")}
+                  class="h-7 w-7 justify-center self-center"
+                  buttonClass="size-6 rounded-md"
+                  onselect={setNewTagColor}
+                />
+                <input
+                  bind:value={newTagName}
+                  class="h-7 min-w-0 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:border-ring placeholder:text-muted-foreground"
+                  placeholder={t("projects.settings.newTagPlaceholder")}
+                  onkeydown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      void submitTag();
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                  aria-label={t("projects.settings.addTag")}
+                  title={t("projects.settings.addTag")}
+                  onclick={() => { void submitTag(); }}
+                >
+                  <Plus size={13} strokeWidth={1.75} />
+                </button>
+              </div>
             </div>
           </section>
 
@@ -2234,14 +2345,14 @@
   />
 {/if}
 
-{#if pendingDeleteLabel}
+{#if pendingDeleteTag}
   <ConfirmDialog
-    title={t("projects.settings.deleteLabelTitle", pendingDeleteLabel.name)}
-    message={t("projects.settings.deleteLabelMessage", pendingDeleteLabel.name)}
-    confirmLabel={t("projects.settings.deleteLabelConfirm")}
+    title={t("projects.settings.deleteTagTitle", pendingDeleteTag.name)}
+    message={t("projects.settings.deleteTagMessage", pendingDeleteTag.name)}
+    confirmLabel={t("projects.settings.deleteTagConfirm")}
     cancelLabel={t("common.cancelShortcut")}
-    onConfirm={() => { void confirmDeleteLabel(); }}
-    onCancel={cancelDeleteLabel}
+    onConfirm={() => { void confirmDeleteTag(); }}
+    onCancel={cancelDeleteTag}
   />
 {/if}
 

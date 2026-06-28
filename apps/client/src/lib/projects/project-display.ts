@@ -143,12 +143,12 @@ export function projectPriorityBadgeClass(priority: ProjectPriority): string {
   return "border-border bg-background/70 text-foreground";
 }
 
-export function projectLabelColorDotStyle(color: EventColor | undefined, theme: Theme): string {
+export function projectTagColorDotStyle(color: EventColor | undefined, theme: Theme): string {
   if (color === undefined) return "";
   return `background-color: ${getEventColor(color, theme).bg};`;
 }
 
-export function projectLabelColorSwatchClass(color: EventColor | undefined): string {
+export function projectTagColorSwatchClass(color: EventColor | undefined): string {
   return color === undefined ? "border-border bg-muted/50" : "border-transparent";
 }
 
@@ -198,6 +198,7 @@ export function projectTaskHistoryFieldLabel(fieldName: string, t: Translate): s
   if (fieldName === "archived_at") return t("projects.history.fields.archiveState");
   if (fieldName === "blocker_reason") return t("projects.history.fields.blockerReason");
   if (fieldName === "milestone") return t("projects.history.fields.milestone");
+  if (fieldName === "tags") return t("projects.history.fields.tags");
   if (fieldName === "checklist") return t("projects.history.fields.checklist");
   if (fieldName === "event_id") return t("projects.history.fields.event");
   if (fieldName === "blocking_task_id") return t("projects.history.fields.dependency");

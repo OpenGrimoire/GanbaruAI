@@ -101,26 +101,26 @@ pub async fn projects_load_snapshot<R: Runtime>(
     .fetch_all(&pool)
     .await
     .map_err(|e| format!("load project checklist items: {e}"))?;
-    let labels = sqlx::query_as::<_, ProjectLabelRow>(
-        "SELECT * FROM project_labels
+    let tags = sqlx::query_as::<_, ProjectTagRow>(
+        "SELECT * FROM project_tags
          WHERE project_id = ?
          ORDER BY project_id ASC, sort_order ASC, name ASC",
     )
     .bind(normalized_project_id)
     .fetch_all(&pool)
     .await
-    .map_err(|e| format!("load project labels: {e}"))?;
-    let task_label_links = sqlx::query_as::<_, ProjectTaskLabelLinkRow>(
-        "SELECT project_task_label_links.*
-         FROM project_task_label_links
-         JOIN project_tasks ON project_tasks.id = project_task_label_links.task_id
+    .map_err(|e| format!("load project tags: {e}"))?;
+    let task_tag_links = sqlx::query_as::<_, ProjectTaskTagLinkRow>(
+        "SELECT project_task_tag_links.*
+         FROM project_task_tag_links
+         JOIN project_tasks ON project_tasks.id = project_task_tag_links.task_id
          WHERE project_tasks.project_id = ?
-         ORDER BY project_task_label_links.created_at ASC",
+         ORDER BY project_task_tag_links.created_at ASC",
     )
     .bind(normalized_project_id)
     .fetch_all(&pool)
     .await
-    .map_err(|e| format!("load project task label links: {e}"))?;
+    .map_err(|e| format!("load project task tag links: {e}"))?;
     let custom_fields = sqlx::query_as::<_, ProjectCustomFieldRow>(
         "SELECT * FROM project_custom_fields
          WHERE project_id = ?
@@ -213,8 +213,8 @@ pub async fn projects_load_snapshot<R: Runtime>(
         priorities,
         tasks,
         checklist_items,
-        labels,
-        task_label_links,
+        tags,
+        task_tag_links,
         custom_fields,
         custom_field_options,
         custom_field_values,
@@ -998,100 +998,100 @@ pub async fn projects_delete_checklist_item<R: Runtime>(
 }
 
 #[tauri::command]
-pub async fn projects_create_label<R: Runtime>(
+pub async fn projects_create_tag<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
-    label: ProjectLabelCreate,
+    tag: ProjectTagCreate,
 ) -> Result<(), String> {
-    validate_label_create(&label)?;
+    validate_tag_create(&tag)?;
     let pool = connect_sqlite(app, db_url).await?;
-    ensure_project_exists_in_pool(&pool, label.project_id.trim()).await?;
+    ensure_project_exists_in_pool(&pool, tag.project_id.trim()).await?;
     sqlx::query(
-        "INSERT INTO project_labels (id, project_id, name, color, sort_order)
+        "INSERT INTO project_tags (id, project_id, name, color, sort_order)
          VALUES (?, ?, ?, ?, ?)",
     )
-    .bind(label.id.trim())
-    .bind(label.project_id.trim())
-    .bind(label.name.trim())
-    .bind(label.color)
-    .bind(label.sort_order)
+    .bind(tag.id.trim())
+    .bind(tag.project_id.trim())
+    .bind(tag.name.trim())
+    .bind(tag.color)
+    .bind(tag.sort_order)
     .execute(&pool)
     .await
-    .map_err(|e| format!("create project label: {e}"))?;
+    .map_err(|e| format!("create project tag: {e}"))?;
     Ok(())
 }
 
 #[tauri::command]
-pub async fn projects_update_label<R: Runtime>(
+pub async fn projects_update_tag<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
-    label: ProjectLabelUpdate,
+    tag: ProjectTagUpdate,
 ) -> Result<(), String> {
-    validate_label_update(&label)?;
+    validate_tag_update(&tag)?;
     let pool = connect_sqlite(app, db_url).await?;
     let result = sqlx::query(
-        "UPDATE project_labels
+        "UPDATE project_tags
          SET name = ?,
              color = ?,
              sort_order = ?,
              updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
          WHERE id = ?",
     )
-    .bind(label.name.trim())
-    .bind(label.color)
-    .bind(label.sort_order)
-    .bind(label.id.trim())
+    .bind(tag.name.trim())
+    .bind(tag.color)
+    .bind(tag.sort_order)
+    .bind(tag.id.trim())
     .execute(&pool)
     .await
-    .map_err(|e| format!("update project label: {e}"))?;
+    .map_err(|e| format!("update project tag: {e}"))?;
     if result.rows_affected() == 0 {
-        return Err("project label not found".to_string());
+        return Err("project tag not found".to_string());
     }
     Ok(())
 }
 
 #[tauri::command]
-pub async fn projects_delete_label<R: Runtime>(
+pub async fn projects_delete_tag<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
-    label_id: String,
+    tag_id: String,
 ) -> Result<(), String> {
-    require_non_empty(&label_id, "label_id")?;
+    require_non_empty(&tag_id, "tag_id")?;
     let pool = connect_sqlite(app, db_url).await?;
     let mut tx = pool.begin().await.map_err(|e| format!("begin: {e}"))?;
-    delete_label_with_history(&mut tx, label_id.trim()).await?;
+    delete_tag_with_history(&mut tx, tag_id.trim()).await?;
     tx.commit().await.map_err(|e| format!("commit: {e}"))?;
     Ok(())
 }
 
 #[tauri::command]
-pub async fn projects_link_task_label<R: Runtime>(
+pub async fn projects_link_task_tag<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
-    link: ProjectTaskLabelLinkCreate,
+    link: ProjectTaskTagLinkCreate,
 ) -> Result<(), String> {
-    validate_task_label_link_create(&link)?;
+    validate_task_tag_link_create(&link)?;
     let pool = connect_sqlite(app, db_url).await?;
     let mut tx = pool.begin().await.map_err(|e| format!("begin: {e}"))?;
-    let label_name = label_for_task_label_link(&mut tx, &link.task_id, &link.label_id).await?;
+    let tag_name = tag_for_task_tag_link(&mut tx, &link.task_id, &link.tag_id).await?;
     let result = sqlx::query(
-        "INSERT INTO project_task_label_links (task_id, label_id)
+        "INSERT INTO project_task_tag_links (task_id, tag_id)
          VALUES (?, ?)
-         ON CONFLICT(task_id, label_id) DO NOTHING",
+         ON CONFLICT(task_id, tag_id) DO NOTHING",
     )
     .bind(link.task_id.trim())
-    .bind(link.label_id.trim())
+    .bind(link.tag_id.trim())
     .execute(&mut *tx)
     .await
-    .map_err(|e| format!("link project task label: {e}"))?;
+    .map_err(|e| format!("link project task tag: {e}"))?;
     if result.rows_affected() > 0 {
         insert_task_change_event(
             &mut tx,
             link.task_id.trim(),
             "updated",
-            Some("labels"),
+            Some("tags"),
             None,
-            Some(&label_name),
+            Some(&tag_name),
         )
         .await?;
     }
@@ -1100,33 +1100,32 @@ pub async fn projects_link_task_label<R: Runtime>(
 }
 
 #[tauri::command]
-pub async fn projects_unlink_task_label<R: Runtime>(
+pub async fn projects_unlink_task_tag<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     task_id: String,
-    label_id: String,
+    tag_id: String,
 ) -> Result<(), String> {
     require_non_empty(&task_id, "task_id")?;
-    require_non_empty(&label_id, "label_id")?;
+    require_non_empty(&tag_id, "tag_id")?;
     let pool = connect_sqlite(app, db_url).await?;
     let mut tx = pool.begin().await.map_err(|e| format!("begin: {e}"))?;
-    let label_name =
-        label_for_existing_task_label_link(&mut tx, task_id.trim(), label_id.trim()).await?;
+    let tag_name = tag_for_existing_task_tag_link(&mut tx, task_id.trim(), tag_id.trim()).await?;
     sqlx::query(
-        "DELETE FROM project_task_label_links
-         WHERE task_id = ? AND label_id = ?",
+        "DELETE FROM project_task_tag_links
+         WHERE task_id = ? AND tag_id = ?",
     )
     .bind(task_id.trim())
-    .bind(label_id.trim())
+    .bind(tag_id.trim())
     .execute(&mut *tx)
     .await
-    .map_err(|e| format!("unlink project task label: {e}"))?;
+    .map_err(|e| format!("unlink project task tag: {e}"))?;
     insert_task_change_event(
         &mut tx,
         task_id.trim(),
         "updated",
-        Some("labels"),
-        Some(&label_name),
+        Some("tags"),
+        Some(&tag_name),
         None,
     )
     .await?;
@@ -1986,79 +1985,72 @@ async fn task_id_for_checklist_item(
         .ok_or_else(|| "project checklist item not found".to_string())
 }
 
-async fn label_for_task_label_link(
+async fn tag_for_task_tag_link(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     task_id: &str,
-    label_id: &str,
+    tag_id: &str,
 ) -> Result<String, String> {
     sqlx::query_scalar(
         "SELECT pl.name
-         FROM project_labels pl
+         FROM project_tags pl
          JOIN project_tasks pt ON pt.project_id = pl.project_id
          WHERE pt.id = ? AND pl.id = ?",
     )
     .bind(task_id.trim())
-    .bind(label_id.trim())
+    .bind(tag_id.trim())
     .fetch_optional(&mut **tx)
     .await
-    .map_err(|e| format!("load project task label: {e}"))?
-    .ok_or_else(|| "label must belong to the task project".to_string())
+    .map_err(|e| format!("load project task tag: {e}"))?
+    .ok_or_else(|| "tag must belong to the task project".to_string())
 }
 
-async fn label_for_existing_task_label_link(
+async fn tag_for_existing_task_tag_link(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     task_id: &str,
-    label_id: &str,
+    tag_id: &str,
 ) -> Result<String, String> {
     sqlx::query_scalar(
         "SELECT pl.name
-         FROM project_task_label_links ptl
-         JOIN project_labels pl ON pl.id = ptl.label_id
-         WHERE ptl.task_id = ? AND ptl.label_id = ?",
+         FROM project_task_tag_links ptl
+         JOIN project_tags pl ON pl.id = ptl.tag_id
+         WHERE ptl.task_id = ? AND ptl.tag_id = ?",
     )
     .bind(task_id.trim())
-    .bind(label_id.trim())
+    .bind(tag_id.trim())
     .fetch_optional(&mut **tx)
     .await
-    .map_err(|e| format!("load project task label link: {e}"))?
-    .ok_or_else(|| "project task label link not found".to_string())
+    .map_err(|e| format!("load project task tag link: {e}"))?
+    .ok_or_else(|| "project task tag link not found".to_string())
 }
 
-async fn delete_label_with_history(
+async fn delete_tag_with_history(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
-    label_id: &str,
+    tag_id: &str,
 ) -> Result<(), String> {
-    let label = sqlx::query_as::<_, ProjectLabelRow>("SELECT * FROM project_labels WHERE id = ?")
-        .bind(label_id)
+    let tag = sqlx::query_as::<_, ProjectTagRow>("SELECT * FROM project_tags WHERE id = ?")
+        .bind(tag_id)
         .fetch_optional(&mut **tx)
         .await
-        .map_err(|e| format!("load project label: {e}"))?
-        .ok_or_else(|| "project label not found".to_string())?;
+        .map_err(|e| format!("load project tag: {e}"))?
+        .ok_or_else(|| "project tag not found".to_string())?;
     let linked_task_ids = sqlx::query_scalar::<_, String>(
         "SELECT task_id
-         FROM project_task_label_links
-         WHERE label_id = ?
+         FROM project_task_tag_links
+         WHERE tag_id = ?
          ORDER BY created_at ASC",
     )
-    .bind(label_id)
+    .bind(tag_id)
     .fetch_all(&mut **tx)
     .await
-    .map_err(|e| format!("load project label tasks: {e}"))?;
-    sqlx::query("DELETE FROM project_labels WHERE id = ?")
-        .bind(label_id)
+    .map_err(|e| format!("load project tag tasks: {e}"))?;
+    sqlx::query("DELETE FROM project_tags WHERE id = ?")
+        .bind(tag_id)
         .execute(&mut **tx)
         .await
-        .map_err(|e| format!("delete project label: {e}"))?;
+        .map_err(|e| format!("delete project tag: {e}"))?;
     for task_id in linked_task_ids {
-        insert_task_change_event(
-            tx,
-            &task_id,
-            "updated",
-            Some("labels"),
-            Some(&label.name),
-            None,
-        )
-        .await?;
+        insert_task_change_event(tx, &task_id, "updated", Some("tags"), Some(&tag.name), None)
+            .await?;
     }
     Ok(())
 }
@@ -2355,7 +2347,7 @@ mod tests {
     }
 
     #[test]
-    fn task_label_link_rejects_labels_from_another_project() {
+    fn task_tag_link_rejects_tags_from_another_project() {
         tauri::async_runtime::block_on(async {
             let pool = migrated_memory_pool().await;
             insert_project_graph_fixture(&pool).await;
@@ -2388,19 +2380,19 @@ mod tests {
             .await
             .unwrap();
             sqlx::query(
-                "INSERT INTO project_labels (id, project_id, name, sort_order)
-                 VALUES ('label-a', 'project-a', 'Backend', 100)",
+                "INSERT INTO project_tags (id, project_id, name, sort_order)
+                 VALUES ('tag-a', 'project-a', 'Backend', 100)",
             )
             .execute(&pool)
             .await
             .unwrap();
 
             let mut tx = pool.begin().await.unwrap();
-            let result = label_for_task_label_link(&mut tx, "task-other", "label-a").await;
+            let result = tag_for_task_tag_link(&mut tx, "task-other", "tag-a").await;
 
             assert_eq!(
                 result,
-                Err("label must belong to the task project".to_string())
+                Err("tag must belong to the task project".to_string())
             );
         });
     }
@@ -2589,21 +2581,21 @@ mod tests {
     }
 
     #[test]
-    fn delete_label_removes_links_and_records_task_history() {
+    fn delete_tag_removes_links_and_records_task_history() {
         tauri::async_runtime::block_on(async {
             let pool = migrated_memory_pool().await;
             insert_project_graph_fixture(&pool).await;
             sqlx::query(
-                "INSERT INTO project_labels (id, project_id, name, sort_order)
-                 VALUES ('label-a', 'project-a', 'Backend', 100)",
+                "INSERT INTO project_tags (id, project_id, name, sort_order)
+                 VALUES ('tag-a', 'project-a', 'Backend', 100)",
             )
             .execute(&pool)
             .await
             .unwrap();
             for task_id in ["task-a", "task-b"] {
                 sqlx::query(
-                    "INSERT INTO project_task_label_links (task_id, label_id)
-                     VALUES (?, 'label-a')",
+                    "INSERT INTO project_task_tag_links (task_id, tag_id)
+                     VALUES (?, 'tag-a')",
                 )
                 .bind(task_id)
                 .execute(&pool)
@@ -2612,16 +2604,16 @@ mod tests {
             }
 
             let mut tx = pool.begin().await.unwrap();
-            delete_label_with_history(&mut tx, "label-a").await.unwrap();
+            delete_tag_with_history(&mut tx, "tag-a").await.unwrap();
             tx.commit().await.unwrap();
 
-            let label_count: i64 =
-                sqlx::query_scalar("SELECT COUNT(*) FROM project_labels WHERE id = 'label-a'")
+            let tag_count: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM project_tags WHERE id = 'tag-a'")
                     .fetch_one(&pool)
                     .await
                     .unwrap();
             let link_count: i64 = sqlx::query_scalar(
-                "SELECT COUNT(*) FROM project_task_label_links WHERE label_id = 'label-a'",
+                "SELECT COUNT(*) FROM project_task_tag_links WHERE tag_id = 'tag-a'",
             )
             .fetch_one(&pool)
             .await
@@ -2629,7 +2621,7 @@ mod tests {
             let history_count: i64 = sqlx::query_scalar(
                 "SELECT COUNT(*)
                  FROM project_task_change_events
-                 WHERE field_name = 'labels'
+                 WHERE field_name = 'tags'
                    AND old_value = 'Backend'
                    AND new_value IS NULL",
             )
@@ -2637,7 +2629,7 @@ mod tests {
             .await
             .unwrap();
 
-            assert_eq!(label_count, 0);
+            assert_eq!(tag_count, 0);
             assert_eq!(link_count, 0);
             assert_eq!(history_count, 2);
         });

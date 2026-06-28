@@ -10,7 +10,7 @@ import type {
   ProjectTaskDependencyFilter,
   ProjectTaskDueFilter,
   ProjectTaskGroupMode,
-  ProjectTaskLabelFilter,
+  ProjectTaskTagFilter,
   ProjectTaskScheduleFilter,
   ProjectTaskSortDirection,
   ProjectTaskSortMode,
@@ -28,7 +28,7 @@ export interface ProjectTaskViewInput {
   customFieldOptionIdsByTaskField: ReadonlyMap<string, ReadonlySet<string>>;
   scheduledTaskIds: ReadonlySet<string>;
   nextScheduledStartByTaskId: ReadonlyMap<string, string>;
-  taskLabelIdsByTaskId: ReadonlyMap<string, ReadonlySet<string>>;
+  taskTagIdsByTaskId: ReadonlyMap<string, ReadonlySet<string>>;
   dependencyBlockedTaskIds: ReadonlySet<string>;
   dependencyBlockingTaskIds: ReadonlySet<string>;
   today: string;
@@ -42,7 +42,7 @@ export interface ProjectTaskViewInput {
   dueRangeEnd?: string;
   scheduleFilter: ProjectTaskScheduleFilter;
   dependencyFilter: ProjectTaskDependencyFilter;
-  labelFilter: ProjectTaskLabelFilter;
+  tagFilter: ProjectTaskTagFilter;
   customFieldFilters: readonly ProjectCustomFieldFilter[];
   groupBy: ProjectTaskGroupMode;
   sortMode: ProjectTaskSortMode;
@@ -205,15 +205,15 @@ function taskDependencyMatches(
   return blockedByDependency || blockingDependency;
 }
 
-function taskLabelMatches(
+function taskTagMatches(
   taskId: string,
-  taskLabelIdsByTaskId: ReadonlyMap<string, ReadonlySet<string>>,
-  filter: ProjectTaskLabelFilter,
+  taskTagIdsByTaskId: ReadonlyMap<string, ReadonlySet<string>>,
+  filter: ProjectTaskTagFilter,
 ): boolean {
   if (filter === "all") return true;
-  const labelIds = taskLabelIdsByTaskId.get(taskId) ?? new Set<string>();
-  if (filter === "none") return labelIds.size === 0;
-  return labelIds.has(filter);
+  const tagIds = taskTagIdsByTaskId.get(taskId) ?? new Set<string>();
+  if (filter === "none") return tagIds.size === 0;
+  return tagIds.has(filter);
 }
 
 function taskCustomFieldValue(
@@ -300,7 +300,7 @@ function taskMatches(input: ProjectTaskViewInput, task: ProjectTask): boolean {
       input.dependencyBlockingTaskIds,
       input.dependencyFilter,
     )
-    && taskLabelMatches(task.id, input.taskLabelIdsByTaskId, input.labelFilter)
+    && taskTagMatches(task.id, input.taskTagIdsByTaskId, input.tagFilter)
     && taskCustomFieldsMatch(input, task);
 }
 
@@ -313,7 +313,7 @@ function activeFilterCount(input: ProjectTaskViewInput): number {
     input.dueFilter !== "all",
     input.scheduleFilter !== "all",
     input.dependencyFilter !== "all",
-    input.labelFilter !== "all",
+    input.tagFilter !== "all",
     input.customFieldFilters.length > 0,
     input.sortMode !== "manual" || input.sortDirection !== "asc",
   ].filter(Boolean).length;

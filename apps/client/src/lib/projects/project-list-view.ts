@@ -3,7 +3,7 @@ import type {
   ProjectCustomField,
   ProjectCustomFieldOption,
   ProjectCustomFieldFilter,
-  ProjectLabel,
+  ProjectTag,
   ProjectPriority,
   ProjectSection,
   ProjectStatus,
@@ -11,7 +11,7 @@ import type {
   ProjectTaskDependencyFilter,
   ProjectTaskDueFilter,
   ProjectTaskGroupMode,
-  ProjectTaskLabelFilter,
+  ProjectTaskTagFilter,
   ProjectTaskListColumn,
   ProjectTaskScheduleFilter,
   ProjectTaskSortDirection,
@@ -35,7 +35,7 @@ export interface ProjectTaskFilterState {
   dueRangeEnd: string;
   scheduleFilter: ProjectTaskScheduleFilter;
   dependencyFilter: ProjectTaskDependencyFilter;
-  labelFilter: ProjectTaskLabelFilter;
+  tagFilter: ProjectTaskTagFilter;
   customFieldFilters: readonly ProjectCustomFieldFilter[];
   groupBy: ProjectTaskGroupMode;
   sortMode: ProjectTaskSortMode;
@@ -52,7 +52,7 @@ export const PROJECT_TASK_FILTER_DEFAULTS = Object.freeze({
   dueRangeEnd: "",
   scheduleFilter: "all",
   dependencyFilter: "all",
-  labelFilter: "all",
+  tagFilter: "all",
   customFieldFilters: [],
   groupBy: "section",
   sortMode: "manual",
@@ -419,7 +419,7 @@ export function projectTaskDataFiltersActive(input: ProjectTaskFilterState): boo
     || input.dueFilter !== "all"
     || input.scheduleFilter !== "all"
     || input.dependencyFilter !== "all"
-    || input.labelFilter !== "all"
+    || input.tagFilter !== "all"
     || input.customFieldFilters.length > 0;
 }
 
@@ -432,7 +432,7 @@ export function projectTaskFiltersActive(input: ProjectTaskFilterState): boolean
 
 export interface ProjectTaskActiveFilterChipInput extends ProjectTaskFilterState {
   sections: readonly ProjectSection[];
-  labels: readonly ProjectLabel[];
+  tags: readonly ProjectTag[];
   customFields: readonly ProjectCustomField[];
   customFieldOptionsForField: (fieldId: string) => readonly ProjectCustomFieldOption[];
   normalizedDueRangeStart?: string;
@@ -470,14 +470,14 @@ export function projectTaskDependencyFilterLabel(filter: ProjectTaskDependencyFi
   return t("projects.filters.allDependencies");
 }
 
-export function projectTaskLabelFilterLabel(
-  filter: ProjectTaskLabelFilter,
-  labels: readonly ProjectLabel[],
+export function projectTaskTagFilterLabel(
+  filter: ProjectTaskTagFilter,
+  tags: readonly ProjectTag[],
   t: Translate,
 ): string {
-  if (filter === "all") return t("projects.filters.allLabels");
-  if (filter === "none") return t("projects.filters.noLabels");
-  return labels.find((label) => label.id === filter)?.name ?? t("projects.filters.allLabels");
+  if (filter === "all") return t("projects.filters.allTags");
+  if (filter === "none") return t("projects.filters.noTags");
+  return tags.find((tag) => tag.id === filter)?.name ?? t("projects.filters.allTags");
 }
 
 export function projectTaskSectionFilterLabel(
@@ -549,9 +549,9 @@ export function projectTaskActiveFilterChips(input: ProjectTaskActiveFilterChipI
     dependencyLabel: input.dependencyFilter === "all"
       ? undefined
       : projectTaskDependencyFilterLabel(input.dependencyFilter, input.t),
-    labelFilterLabel: input.labelFilter === "all"
+    tagFilterLabel: input.tagFilter === "all"
       ? undefined
-      : projectTaskLabelFilterLabel(input.labelFilter, input.labels, input.t),
+      : projectTaskTagFilterLabel(input.tagFilter, input.tags, input.t),
     customFieldFilters: input.customFieldFilters,
     customFieldFilterLabel: (filter) =>
       projectTaskCustomFieldFilterLabel(filter, input.customFields, input.customFieldOptionsForField, input.t),

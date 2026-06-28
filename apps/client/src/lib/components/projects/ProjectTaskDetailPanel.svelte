@@ -23,8 +23,8 @@
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import {
     projectCustomFieldTypeLabel,
-    projectLabelColorDotStyle,
-    projectLabelColorSwatchClass,
+    projectTagColorDotStyle,
+    projectTagColorSwatchClass,
     projectTaskArchivedBadgeClass,
     projectTaskTypeLabel,
   } from "$lib/projects/project-display";
@@ -33,7 +33,7 @@
     ProjectChecklistItem,
     ProjectCustomField,
     ProjectCustomFieldOption,
-    ProjectLabel,
+    ProjectTag,
     ProjectLinkableEvent,
     ProjectPriority,
     ProjectStatus,
@@ -96,7 +96,7 @@
   let pendingTaskOpenId = $state<string | null>(null);
   let subtaskDraft = $state("");
   let checklistDraft = $state("");
-  let labelDraft = $state("");
+  let tagDraft = $state("");
   let checklistTitleDrafts = $state<Record<string, string>>({});
   let customFieldTextDrafts = $state<Record<string, string>>({});
   let customFieldNumberDrafts = $state<Record<string, string>>({});
@@ -287,22 +287,22 @@
       .slice(0, 8);
   }
 
-  function labelsForTask(task: ProjectTask): ProjectLabel[] {
-    return projects.labelsForTask(task.id);
+  function tagsForTask(task: ProjectTask): ProjectTag[] {
+    return projects.tagsForTask(task.id);
   }
 
-  function labelCandidateLabels(task: ProjectTask): ProjectLabel[] {
-    const query = labelDraft.trim().toLowerCase();
-    return projects.unlinkedLabelsForTask(task)
-      .filter((label) => !query || label.name.toLowerCase().includes(query))
+  function tagCandidateTags(task: ProjectTask): ProjectTag[] {
+    const query = tagDraft.trim().toLowerCase();
+    return projects.unlinkedTagsForTask(task)
+      .filter((tag) => !query || tag.name.toLowerCase().includes(query))
       .slice(0, 8);
   }
 
-  function canCreateLabel(task: ProjectTask): boolean {
-    const name = labelDraft.trim();
+  function canCreateTag(task: ProjectTask): boolean {
+    const name = tagDraft.trim();
     if (!name) return false;
-    return !projects.labelsForProject(task.projectId)
-      .some((label) => label.name.trim().toLowerCase() === name.toLowerCase());
+    return !projects.tagsForProject(task.projectId)
+      .some((tag) => tag.name.trim().toLowerCase() === name.toLowerCase());
   }
 
   function customFieldOptions(field: ProjectCustomField): ProjectCustomFieldOption[] {
@@ -416,7 +416,7 @@
     detailError = null;
     subtaskDraft = "";
     checklistDraft = "";
-    labelDraft = "";
+    tagDraft = "";
     checklistTitleDrafts = Object.fromEntries(
       projects.checklistItemsForTask(task.id).map((item) => [item.id, item.title]),
     );
@@ -684,44 +684,44 @@
     checklistTitleDrafts = { ...checklistTitleDrafts, [item.id]: title };
   }
 
-  async function attachExistingLabel(task: ProjectTask, label: ProjectLabel): Promise<void> {
+  async function attachExistingTag(task: ProjectTask, tag: ProjectTag): Promise<void> {
     detailError = null;
     try {
-      await projects.linkTaskLabel(task.id, label.id);
-      labelDraft = "";
+      await projects.linkTaskTag(task.id, tag.id);
+      tagDraft = "";
     } catch (error) {
       detailError = t(
-        "projects.detail.labelSaveFailed",
+        "projects.detail.tagSaveFailed",
         error instanceof Error ? error.message : String(error),
       );
     }
   }
 
-  async function submitTaskLabel(task: ProjectTask): Promise<void> {
-    const name = labelDraft.trim();
+  async function submitTaskTag(task: ProjectTask): Promise<void> {
+    const name = tagDraft.trim();
     if (!name) {
-      detailError = t("projects.detail.labelNameRequired");
+      detailError = t("projects.detail.tagNameRequired");
       return;
     }
     detailError = null;
     try {
-      await projects.addAndLinkTaskLabel(task, name);
-      labelDraft = "";
+      await projects.addAndLinkTaskTag(task, name);
+      tagDraft = "";
     } catch (error) {
       detailError = t(
-        "projects.detail.labelSaveFailed",
+        "projects.detail.tagSaveFailed",
         error instanceof Error ? error.message : String(error),
       );
     }
   }
 
-  async function detachTaskLabel(task: ProjectTask, label: ProjectLabel): Promise<void> {
+  async function detachTaskTag(task: ProjectTask, tag: ProjectTag): Promise<void> {
     detailError = null;
     try {
-      await projects.unlinkTaskLabel(task.id, label.id);
+      await projects.unlinkTaskTag(task.id, tag.id);
     } catch (error) {
       detailError = t(
-        "projects.detail.labelSaveFailed",
+        "projects.detail.tagSaveFailed",
         error instanceof Error ? error.message : String(error),
       );
     }
@@ -887,8 +887,8 @@
     {@const selectedTaskEvents = linkedEventRowsForTask(selectedTask)}
     {@const selectedTaskHistory = projects.taskChangeEventsForTask(selectedTask.id).slice(0, 8)}
     {@const selectedTaskChecklist = projects.checklistItemsForTask(selectedTask.id)}
-    {@const selectedTaskLabels = labelsForTask(selectedTask)}
-    {@const selectedTaskLabelCandidates = labelCandidateLabels(selectedTask)}
+    {@const selectedTaskTags = tagsForTask(selectedTask)}
+    {@const selectedTaskTagCandidates = tagCandidateTags(selectedTask)}
     {@const selectedTaskSubtasks = subtasksForTask(selectedTask)}
     {@const selectedTaskBlockedBy = blockedByDependencies(selectedTask)}
     {@const selectedTaskBlocks = blocksDependencies(selectedTask)}
@@ -1207,24 +1207,24 @@
 
             <section class="task-detail-section">
               <div class="flex items-center justify-between gap-2">
-                <h2 class="task-detail-section-title">{t("projects.detail.labels")}</h2>
-                <span class="text-[0.733333rem] text-muted-foreground">{selectedTaskLabels.length}</span>
+                <h2 class="task-detail-section-title">{t("projects.detail.tags")}</h2>
+                <span class="text-[0.733333rem] text-muted-foreground">{selectedTaskTags.length}</span>
               </div>
-              {#if selectedTaskLabels.length > 0}
+              {#if selectedTaskTags.length > 0}
                 <div class="flex flex-wrap gap-1">
-                  {#each selectedTaskLabels as label (label.id)}
+                  {#each selectedTaskTags as tag (tag.id)}
                     <span class="inline-flex min-h-7 max-w-full items-center gap-1 rounded-md border border-border bg-background px-2 text-[0.766667rem]">
                       <span
-                        class={cn("h-2 w-2 shrink-0 rounded-full border", projectLabelColorSwatchClass(label.color))}
-                        style={projectLabelColorDotStyle(label.color, theme.current)}
+                        class={cn("h-2 w-2 shrink-0 rounded-full border", projectTagColorSwatchClass(tag.color))}
+                        style={projectTagColorDotStyle(tag.color, theme.current)}
                       ></span>
-                      <span class="truncate">{label.name}</span>
+                      <span class="truncate">{tag.name}</span>
                       <button
                         type="button"
                         class="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                        aria-label={t("projects.actions.removeLabel", label.name)}
-                        title={t("projects.actions.removeLabel", label.name)}
-                        onclick={() => { void detachTaskLabel(selectedTask, label); }}
+                        aria-label={t("projects.actions.removeTag", tag.name)}
+                        title={t("projects.actions.removeTag", tag.name)}
+                        onclick={() => { void detachTaskTag(selectedTask, tag); }}
                       >
                         <X size={12} strokeWidth={1.75} />
                       </button>
@@ -1233,60 +1233,60 @@
                 </div>
               {:else}
                 <div class="rounded-md border border-dashed border-border px-2 py-2 text-[0.8rem] text-muted-foreground">
-                  {t("projects.detail.noLabels")}
+                  {t("projects.detail.noTags")}
                 </div>
               {/if}
               <div class="grid gap-1">
                 <div class="flex gap-1">
                   <input
-                    bind:value={labelDraft}
-                    placeholder={t("projects.detail.addLabelPlaceholder")}
+                    bind:value={tagDraft}
+                    placeholder={t("projects.detail.addTagPlaceholder")}
                     class="min-h-8 min-w-0 flex-1 rounded-md border border-border bg-background px-2 text-[0.8rem]"
                     onkeydown={(event) => {
                       if (event.key === "Enter") {
                         event.preventDefault();
-                        void submitTaskLabel(selectedTask);
+                        void submitTaskTag(selectedTask);
                       }
                     }}
                   />
                   <button
                     type="button"
                     class="flex min-h-8 items-center justify-center rounded-md border border-border bg-background px-2 text-[0.8rem] hover:bg-accent"
-                    aria-label={t("projects.detail.addLabel")}
-                    onclick={() => { void submitTaskLabel(selectedTask); }}
+                    aria-label={t("projects.detail.addTag")}
+                    onclick={() => { void submitTaskTag(selectedTask); }}
                   >
                     <Plus size={14} strokeWidth={1.75} />
                   </button>
                 </div>
                 <div class="grid gap-1">
-                  {#each selectedTaskLabelCandidates as label (label.id)}
+                  {#each selectedTaskTagCandidates as tag (tag.id)}
                     <button
                       type="button"
                       class="grid min-h-8 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md border border-border bg-background px-2 text-left hover:bg-accent"
-                      onclick={() => { void attachExistingLabel(selectedTask, label); }}
+                      onclick={() => { void attachExistingTag(selectedTask, tag); }}
                     >
                       <span class="flex min-w-0 items-center gap-2">
                         <span
-                          class={cn("h-2 w-2 shrink-0 rounded-full border", projectLabelColorSwatchClass(label.color))}
-                          style={projectLabelColorDotStyle(label.color, theme.current)}
+                          class={cn("h-2 w-2 shrink-0 rounded-full border", projectTagColorSwatchClass(tag.color))}
+                          style={projectTagColorDotStyle(tag.color, theme.current)}
                         ></span>
-                        <span class="truncate text-[0.8rem]">{label.name}</span>
+                        <span class="truncate text-[0.8rem]">{tag.name}</span>
                       </span>
                       <Plus size={13} strokeWidth={1.75} class="text-muted-foreground" />
                     </button>
                   {:else}
-                    {#if canCreateLabel(selectedTask)}
+                    {#if canCreateTag(selectedTask)}
                       <button
                         type="button"
                         class="grid min-h-8 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md border border-border bg-background px-2 text-left hover:bg-accent"
-                        onclick={() => { void submitTaskLabel(selectedTask); }}
+                        onclick={() => { void submitTaskTag(selectedTask); }}
                       >
-                        <span class="truncate text-[0.8rem]">{t("projects.detail.createLabel", labelDraft.trim())}</span>
+                        <span class="truncate text-[0.8rem]">{t("projects.detail.createTag", tagDraft.trim())}</span>
                         <Plus size={13} strokeWidth={1.75} class="text-muted-foreground" />
                       </button>
                     {:else}
                       <div class="rounded-md border border-dashed border-border px-2 py-2 text-[0.8rem] text-muted-foreground">
-                        {t("projects.detail.noLabelCandidates")}
+                        {t("projects.detail.noTagCandidates")}
                       </div>
                     {/if}
                   {/each}

@@ -30,7 +30,7 @@
     ProjectTaskDependencyFilter,
     ProjectTaskDueFilter,
     ProjectTaskGroupMode,
-    ProjectTaskLabelFilter,
+    ProjectTaskTagFilter,
     ProjectTaskListColumn,
     ProjectTaskScheduleFilter,
     ProjectTaskSortDirection,
@@ -106,7 +106,7 @@
   let taskDueRangeEnd = $state("");
   let taskScheduleFilter = $state<ProjectTaskScheduleFilter>("all");
   let taskDependencyFilter = $state<ProjectTaskDependencyFilter>("all");
-  let taskLabelFilter = $state<ProjectTaskLabelFilter>("all");
+  let taskTagFilter = $state<ProjectTaskTagFilter>("all");
   let taskCustomFieldFilters = $state<ProjectCustomFieldFilter[]>([]);
   let taskGroupBy = $state<ProjectTaskGroupMode>("section");
   let taskSortMode = $state<ProjectTaskSortMode>("manual");
@@ -161,7 +161,7 @@
   );
   const allProjectTasks = $derived(showArchivedTasks ? allProjectTasksWithArchived : activeProjectTasks);
   const allProjectTaskIds = $derived.by(() => new Set(allProjectTasks.map((task) => task.id)));
-  const projectLabels = $derived(projects.labelsForProject(selectedProjectId));
+  const projectTags = $derived(projects.tagsForProject(selectedProjectId));
   const projectCustomFields = $derived(projects.customFieldsForProject(selectedProjectId));
   const customFieldValuesByTaskField = $derived.by(() => {
     const values = new Map<string, ProjectCustomFieldValue>();
@@ -182,15 +182,15 @@
     }
     return optionIdsByTaskField;
   });
-  const taskLabelIdsByTaskId = $derived.by(() => {
-    const labelsByTask = new Map<string, Set<string>>();
-    for (const link of projects.taskLabelLinks) {
+  const taskTagIdsByTaskId = $derived.by(() => {
+    const tagsByTask = new Map<string, Set<string>>();
+    for (const link of projects.taskTagLinks) {
       if (!allProjectTaskIds.has(link.taskId)) continue;
-      const labelIds = labelsByTask.get(link.taskId) ?? new Set<string>();
-      labelIds.add(link.labelId);
-      labelsByTask.set(link.taskId, labelIds);
+      const tagIds = tagsByTask.get(link.taskId) ?? new Set<string>();
+      tagIds.add(link.tagId);
+      tagsByTask.set(link.taskId, tagIds);
     }
-    return labelsByTask;
+    return tagsByTask;
   });
   const todayDate = $derived(Temporal.Now.plainDateISO().toString());
   const taskFilterWeekEnd = $derived(Temporal.PlainDate.from(todayDate).add({ days: 7 }).toString());
@@ -300,7 +300,7 @@
     priorities,
     scheduledTaskIds,
     nextScheduledStartByTaskId,
-    taskLabelIdsByTaskId,
+    taskTagIdsByTaskId,
     dependencyBlockedTaskIds,
     dependencyBlockingTaskIds,
     today: todayDate,
@@ -314,7 +314,7 @@
     dueRangeEnd: normalizedTaskDueRangeEnd,
     scheduleFilter: taskScheduleFilter,
     dependencyFilter: taskDependencyFilter,
-    labelFilter: taskLabelFilter,
+    tagFilter: taskTagFilter,
     customFields: projectCustomFields,
     customFieldOptions: projects.customFieldOptions,
     customFieldValuesByTaskField,
@@ -358,7 +358,7 @@
     || taskDueFilter !== "all"
     || taskScheduleFilter !== "all"
     || taskDependencyFilter !== "all"
-    || taskLabelFilter !== "all"
+    || taskTagFilter !== "all"
     || taskCustomFieldFilters.length > 0
   );
   const savedTaskViews = $derived.by(() => projects.savedTaskViewsForProject(selectedProjectId));
@@ -425,11 +425,11 @@
       taskSectionFilter = "all";
     }
     if (
-      taskLabelFilter !== "all"
-      && taskLabelFilter !== "none"
-      && !projectLabels.some((label) => label.id === taskLabelFilter)
+      taskTagFilter !== "all"
+      && taskTagFilter !== "none"
+      && !projectTags.some((tag) => tag.id === taskTagFilter)
     ) {
-      taskLabelFilter = "all";
+      taskTagFilter = "all";
     }
     const fieldIds = new Set(projectCustomFields.map((field) => field.id));
     const optionIds = new Set(
@@ -612,7 +612,7 @@
     taskDueRangeEnd = "";
     taskScheduleFilter = "all";
     taskDependencyFilter = "all";
-    taskLabelFilter = "all";
+    taskTagFilter = "all";
     taskCustomFieldFilters = [];
     taskSortMode = "manual";
     taskSortDirection = "asc";
@@ -634,7 +634,7 @@
       dueRangeEnd: normalizedTaskDueRangeEnd ?? "",
       scheduleFilter: taskScheduleFilter,
       dependencyFilter: taskDependencyFilter,
-      labelFilter: taskLabelFilter,
+      tagFilter: taskTagFilter,
       customFieldFilters: taskCustomFieldFilters,
       sortMode: taskSortMode,
       sortDirection: taskSortDirection,
@@ -683,7 +683,7 @@
     taskDueRangeEnd = view.dueRangeEnd;
     taskScheduleFilter = view.scheduleFilter;
     taskDependencyFilter = view.dependencyFilter;
-    taskLabelFilter = view.labelFilter;
+    taskTagFilter = view.tagFilter;
     taskCustomFieldFilters = view.customFieldFilters;
     taskGroupBy = view.groupBy;
     taskSortMode = view.sortMode;
@@ -744,7 +744,7 @@
     taskDueRangeEnd = "";
     taskScheduleFilter = "all";
     taskDependencyFilter = "all";
-    taskLabelFilter = "all";
+    taskTagFilter = "all";
     taskCustomFieldFilters = [];
     selectedTaskId = task.id;
     selectedTaskIds = [];
@@ -819,7 +819,7 @@
           projectId={selectedProjectId}
           {sections}
           {priorities}
-          {projectLabels}
+          {projectTags}
           {projectCustomFields}
           {savedTaskViews}
           {taskListColumnControls}
@@ -836,7 +836,7 @@
           bind:taskDueRangeEnd
           bind:taskScheduleFilter
           bind:taskDependencyFilter
-          bind:taskLabelFilter
+          bind:taskTagFilter
           bind:taskCustomFieldFilters
           bind:taskGroupBy
           bind:taskSortMode
