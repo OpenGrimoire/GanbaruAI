@@ -2,9 +2,9 @@ import { getEventColor } from "$lib/components/calendar/utils";
 import type { EventColor } from "$lib/components/calendar/types";
 import {
   blendHex,
+  contrastRatio,
   pickReadableForeground,
   relativeLuminance,
-  walkFraction,
 } from "$lib/components/ui/colorMath";
 import type { Translate } from "$lib/i18n/translator.svelte";
 import { resolveAppTokens, type Theme } from "$lib/stores/themes";
@@ -43,6 +43,32 @@ export function projectStatusBadgeClass(status: ProjectStatus | undefined): stri
     : "";
 }
 
+const STATUS_TEXT_CONTRAST_TARGET = 4.5;
+const STATUS_DARK_TEXT_COLOR_WEIGHT = 0.22;
+const STATUS_LIGHT_TEXT_COLOR_WEIGHT = 0.28;
+
+function projectStatusForeground(
+  background: string,
+  color: string,
+  appFg: string,
+  darkSurface: boolean,
+): string {
+  const textAnchor = blendHex(
+    color,
+    appFg,
+    darkSurface ? STATUS_DARK_TEXT_COLOR_WEIGHT : STATUS_LIGHT_TEXT_COLOR_WEIGHT,
+  );
+  if (contrastRatio(background, textAnchor) >= STATUS_TEXT_CONTRAST_TARGET) {
+    return textAnchor;
+  }
+
+  return pickReadableForeground(background, {
+    ink: textAnchor,
+    canvas: appFg,
+    target: STATUS_TEXT_CONTRAST_TARGET,
+  });
+}
+
 function projectStatusPalette(color: EventColor, theme: Theme): {
   background: string;
   foreground: string;
@@ -54,11 +80,7 @@ function projectStatusPalette(color: EventColor, theme: Theme): {
   const entry = getEventColor(color, theme);
   const darkSurface = relativeLuminance(appBg) < 0.45;
   const background = blendHex(entry.bg, appBg, darkSurface ? 0.48 : 0.18);
-  const textAnchor = walkFraction(entry.bg, appFg, darkSurface ? 0.78 : 0.68);
-  const foreground = pickReadableForeground(background, {
-    ink: textAnchor,
-    canvas: appFg,
-  });
+  const foreground = projectStatusForeground(background, entry.bg, appFg, darkSurface);
   return { background, foreground, dot: entry.bg };
 }
 
