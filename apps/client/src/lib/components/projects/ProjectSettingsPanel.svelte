@@ -1,7 +1,6 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import ArrowDown from "@lucide/svelte/icons/arrow-down";
-  import ArrowUp from "@lucide/svelte/icons/arrow-up";
+  import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import GripVertical from "@lucide/svelte/icons/grip-vertical";
   import Plus from "@lucide/svelte/icons/plus";
   import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
@@ -81,10 +80,15 @@
   const PROJECT_STATUS_DRAG_DATA_TYPE = "application/x-ganbaru-project-status";
   const PROJECT_PRIORITY_DRAG_DATA_TYPE = "application/x-ganbaru-project-priority";
   const PROJECT_TAG_DRAG_DATA_TYPE = "application/x-ganbaru-project-tag";
+  const PROJECT_CUSTOM_FIELD_DRAG_DATA_TYPE = "application/x-ganbaru-project-custom-field";
+  const PROJECT_CUSTOM_FIELD_OPTION_DRAG_DATA_TYPE = "application/x-ganbaru-project-custom-field-option";
   type SelectOption = { value: string; label: string };
   type StatusDropPosition = "before" | "after";
   type PriorityDropPosition = "before" | "after";
   type TagDropPosition = "before" | "after";
+  type CustomFieldDropPosition = "before" | "after";
+  type CustomFieldOptionDropPosition = "before" | "after";
+  type NewCustomFieldOptionDraft = { id: string; name: string };
   type StatusSaveDraft = {
     status: ProjectStatus;
     name: string;
@@ -95,6 +99,14 @@
     priority: ProjectPriorityConfig;
     name: string;
     color: EventColor;
+  };
+  type CustomFieldSaveDraft = {
+    field: ProjectCustomField;
+    name: string;
+  };
+  type CustomFieldOptionSaveDraft = {
+    option: ProjectCustomFieldOption;
+    name: string;
   };
   type TagSaveDraft = {
     tag: ProjectTag;
@@ -151,6 +163,8 @@
   let newCustomFieldName = $state("");
   let newCustomFieldType = $state<ProjectCustomFieldType>("text");
   let newCustomFieldOptionDrafts = $state<Record<string, string>>({});
+  let newCustomFieldOptionRows = $state<NewCustomFieldOptionDraft[]>([]);
+  let newCustomFieldOptionName = $state("");
   let pendingDeleteCustomFieldId = $state<string | null>(null);
   let pendingDeleteCustomFieldOptionId = $state<string | null>(null);
   let settingsScrollElement = $state<HTMLElement | undefined>();
@@ -158,6 +172,7 @@
   let newStatusRowElement = $state<HTMLDivElement | undefined>();
   let newPriorityRowElement = $state<HTMLDivElement | undefined>();
   let newTagRowElement = $state<HTMLDivElement | undefined>();
+  let newCustomFieldRowElement = $state<HTMLDivElement | undefined>();
   let settingsScrollable = $state(false);
   let settingsCanScrollUp = $state(false);
   let settingsCanScrollDown = $state(false);
@@ -173,6 +188,14 @@
   let dragOverTagId = $state<string | null>(null);
   let tagDropPosition = $state<TagDropPosition | null>(null);
   let tagReorderPending = $state(false);
+  let draggedCustomFieldId = $state<string | null>(null);
+  let dragOverCustomFieldId = $state<string | null>(null);
+  let customFieldDropPosition = $state<CustomFieldDropPosition | null>(null);
+  let customFieldReorderPending = $state(false);
+  let draggedCustomFieldOptionId = $state<string | null>(null);
+  let dragOverCustomFieldOptionId = $state<string | null>(null);
+  let customFieldOptionDropPosition = $state<CustomFieldOptionDropPosition | null>(null);
+  let customFieldOptionReorderPending = $state(false);
   let settingsScrollStateFrame: number | null = null;
 
   const selectedProject = $derived(projects.projectById(projectId));
@@ -244,8 +267,16 @@
   const statusSettingsDirty = $derived.by(() => statuses.some(statusDraftDirty));
   const prioritySettingsDirty = $derived.by(() => priorities.some(priorityDraftDirty));
   const tagSettingsDirty = $derived.by(() => projectTags.some(tagDraftDirty));
+  const customFieldSettingsDirty = $derived.by(() =>
+    projectCustomFields.some(customFieldDraftDirty)
+      || projectCustomFields.some((field) => customFieldOptions(field).some(customFieldOptionDraftDirty))
+  );
   const projectSettingsDirty = $derived(
-    projectFieldSettingsDirty || statusSettingsDirty || prioritySettingsDirty || tagSettingsDirty,
+    projectFieldSettingsDirty
+      || statusSettingsDirty
+      || prioritySettingsDirty
+      || tagSettingsDirty
+      || customFieldSettingsDirty,
   );
 
   $effect(() => {
@@ -314,8 +345,12 @@
     newCustomFieldName = "";
     newCustomFieldType = "text";
     newCustomFieldOptionDrafts = {};
+    newCustomFieldOptionRows = [];
+    newCustomFieldOptionName = "";
     pendingDeleteCustomFieldId = null;
     pendingDeleteCustomFieldOptionId = null;
+    clearCustomFieldDrag();
+    clearCustomFieldOptionDrag();
   }
 
   function closeProjectSettings(): void {
@@ -444,6 +479,10 @@
     return field.fieldType === "select" || field.fieldType === "multi_select";
   }
 
+  function newCustomFieldAcceptsOptions(): boolean {
+    return newCustomFieldType === "select" || newCustomFieldType === "multi_select";
+  }
+
   function customFieldNameDraftValue(field: ProjectCustomField): string {
     return customFieldNameDrafts[field.id] ?? field.name;
   }
@@ -452,7 +491,7 @@
     const normalized = name.trim().toLowerCase();
     if (!normalized) return false;
     return projectCustomFields.some((field) =>
-      field.id !== ignoredFieldId && field.name.trim().toLowerCase() === normalized
+      field.id !== ignoredFieldId && customFieldNameDraftValue(field).trim().toLowerCase() === normalized
     );
   }
 
@@ -460,14 +499,13 @@
     return customFieldNameDraftValue(field) !== field.name;
   }
 
-  function adjacentCustomField(field: ProjectCustomField, direction: -1 | 1): ProjectCustomField | undefined {
-    const index = projectCustomFields.findIndex((entry) => entry.id === field.id);
-    if (index < 0) return undefined;
-    return projectCustomFields[index + direction];
-  }
-
   function customFieldOptions(field: ProjectCustomField): ProjectCustomFieldOption[] {
     return projects.customFieldOptionsForField(field.id);
+  }
+
+  function customFieldOptionById(optionId: string | null | undefined): ProjectCustomFieldOption | undefined {
+    if (!optionId) return undefined;
+    return projects.customFieldOptions.find((option) => option.id === optionId);
   }
 
   function customFieldOptionNameDraftValue(option: ProjectCustomFieldOption): string {
@@ -478,7 +516,7 @@
     const normalized = name.trim().toLowerCase();
     if (!normalized) return false;
     return projects.customFieldOptionsForField(fieldId).some((option) =>
-      option.id !== ignoredOptionId && option.name.trim().toLowerCase() === normalized
+      option.id !== ignoredOptionId && customFieldOptionNameDraftValue(option).trim().toLowerCase() === normalized
     );
   }
 
@@ -486,18 +524,16 @@
     return customFieldOptionNameDraftValue(option) !== option.name;
   }
 
-  function adjacentCustomFieldOption(
-    option: ProjectCustomFieldOption,
-    direction: -1 | 1,
-  ): ProjectCustomFieldOption | undefined {
-    const options = projects.customFieldOptionsForField(option.fieldId);
-    const index = options.findIndex((entry) => entry.id === option.id);
-    if (index < 0) return undefined;
-    return options[index + direction];
-  }
-
   function fieldForCustomFieldOption(option: ProjectCustomFieldOption | undefined): ProjectCustomField | undefined {
     return option ? projectCustomFields.find((field) => field.id === option.fieldId) : undefined;
+  }
+
+  function newCustomFieldOptionDraftNameExists(name: string, ignoredDraftId?: string): boolean {
+    const normalized = name.trim().toLowerCase();
+    if (!normalized) return false;
+    return newCustomFieldOptionRows.some((option) =>
+      option.id !== ignoredDraftId && option.name.trim().toLowerCase() === normalized
+    );
   }
 
   function refreshSettingsScrollState(): void {
@@ -655,6 +691,10 @@
     await scrollToSettingsRow(newTagRowElement);
   }
 
+  async function scrollToNewCustomFieldRow(): Promise<void> {
+    await scrollToSettingsRow(newCustomFieldRowElement);
+  }
+
   function handleSettingsScroll(): void {
     refreshSettingsScrollState();
   }
@@ -698,6 +738,18 @@
     tagDropPosition = null;
   }
 
+  function clearCustomFieldDrag(): void {
+    draggedCustomFieldId = null;
+    dragOverCustomFieldId = null;
+    customFieldDropPosition = null;
+  }
+
+  function clearCustomFieldOptionDrag(): void {
+    draggedCustomFieldOptionId = null;
+    dragOverCustomFieldOptionId = null;
+    customFieldOptionDropPosition = null;
+  }
+
   function statusDropPositionForEvent(event: DragEvent, target: HTMLElement): StatusDropPosition {
     const bounds = target.getBoundingClientRect();
     return event.clientY < bounds.top + bounds.height / 2 ? "before" : "after";
@@ -709,6 +761,19 @@
   }
 
   function tagDropPositionForEvent(event: DragEvent, target: HTMLElement): TagDropPosition {
+    const bounds = target.getBoundingClientRect();
+    return event.clientY < bounds.top + bounds.height / 2 ? "before" : "after";
+  }
+
+  function customFieldDropPositionForEvent(event: DragEvent, target: HTMLElement): CustomFieldDropPosition {
+    const bounds = target.getBoundingClientRect();
+    return event.clientY < bounds.top + bounds.height / 2 ? "before" : "after";
+  }
+
+  function customFieldOptionDropPositionForEvent(
+    event: DragEvent,
+    target: HTMLElement,
+  ): CustomFieldOptionDropPosition {
     const bounds = target.getBoundingClientRect();
     return event.clientY < bounds.top + bounds.height / 2 ? "before" : "after";
   }
@@ -732,6 +797,23 @@
       && draggedTagId !== tagId
       && dragOverTagId === tagId
       && tagDropPosition === position;
+  }
+
+  function customFieldDropMarkerVisible(fieldId: string, position: CustomFieldDropPosition): boolean {
+    return draggedCustomFieldId !== null
+      && draggedCustomFieldId !== fieldId
+      && dragOverCustomFieldId === fieldId
+      && customFieldDropPosition === position;
+  }
+
+  function customFieldOptionDropMarkerVisible(
+    optionId: string,
+    position: CustomFieldOptionDropPosition,
+  ): boolean {
+    return draggedCustomFieldOptionId !== null
+      && draggedCustomFieldOptionId !== optionId
+      && dragOverCustomFieldOptionId === optionId
+      && customFieldOptionDropPosition === position;
   }
 
   function handleStatusDragStart(event: DragEvent, status: ProjectStatus): void {
@@ -762,6 +844,26 @@
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData(PROJECT_TAG_DRAG_DATA_TYPE, tag.id);
     event.dataTransfer.setData("text/plain", tag.id);
+  }
+
+  function handleCustomFieldDragStart(event: DragEvent, field: ProjectCustomField): void {
+    draggedCustomFieldId = field.id;
+    dragOverCustomFieldId = null;
+    customFieldDropPosition = null;
+    if (!event.dataTransfer) return;
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData(PROJECT_CUSTOM_FIELD_DRAG_DATA_TYPE, field.id);
+    event.dataTransfer.setData("text/plain", field.id);
+  }
+
+  function handleCustomFieldOptionDragStart(event: DragEvent, option: ProjectCustomFieldOption): void {
+    draggedCustomFieldOptionId = option.id;
+    dragOverCustomFieldOptionId = null;
+    customFieldOptionDropPosition = null;
+    if (!event.dataTransfer) return;
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData(PROJECT_CUSTOM_FIELD_OPTION_DRAG_DATA_TYPE, option.id);
+    event.dataTransfer.setData("text/plain", option.id);
   }
 
   function handleStatusDragOver(
@@ -813,6 +915,42 @@
     if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
     dragOverTagId = tag.id;
     tagDropPosition = tagDropPositionForEvent(event, target);
+  }
+
+  function handleCustomFieldDragOver(
+    event: DragEvent,
+    field: ProjectCustomField,
+    target: HTMLElement,
+  ): void {
+    if (!draggedCustomFieldId || customFieldReorderPending) return;
+    if (draggedCustomFieldId === field.id) {
+      dragOverCustomFieldId = null;
+      customFieldDropPosition = null;
+      return;
+    }
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+    dragOverCustomFieldId = field.id;
+    customFieldDropPosition = customFieldDropPositionForEvent(event, target);
+  }
+
+  function handleCustomFieldOptionDragOver(
+    event: DragEvent,
+    option: ProjectCustomFieldOption,
+    target: HTMLElement,
+  ): void {
+    if (!draggedCustomFieldOptionId || customFieldOptionReorderPending) return;
+    const draggedOption = customFieldOptionById(draggedCustomFieldOptionId);
+    if (!draggedOption || draggedOption.fieldId !== option.fieldId) return;
+    if (draggedCustomFieldOptionId === option.id) {
+      dragOverCustomFieldOptionId = null;
+      customFieldOptionDropPosition = null;
+      return;
+    }
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+    dragOverCustomFieldOptionId = option.id;
+    customFieldOptionDropPosition = customFieldOptionDropPositionForEvent(event, target);
   }
 
   async function moveStatusToIndex(statusId: string, targetIndex: number): Promise<void> {
@@ -899,6 +1037,67 @@
     }
   }
 
+  async function moveCustomFieldToIndex(fieldId: string, targetIndex: number): Promise<void> {
+    customFieldReorderPending = true;
+    projectSettingsError = null;
+    try {
+      let currentIndex = projectCustomFields.findIndex((entry) => entry.id === fieldId);
+      let remainingMoves = projectCustomFields.length;
+      while (currentIndex >= 0 && currentIndex !== targetIndex && remainingMoves > 0) {
+        const direction: -1 | 1 = currentIndex < targetIndex ? 1 : -1;
+        const field = projectCustomFields[currentIndex];
+        if (!field) break;
+        await projects.moveCustomField(field, direction);
+        currentIndex = projectCustomFields.findIndex((entry) => entry.id === fieldId);
+        remainingMoves -= 1;
+      }
+      if (currentIndex !== targetIndex) {
+        projectSettingsError = t("projects.customFields.reorderFailed");
+      }
+    } catch (error) {
+      projectSettingsError = t(
+        "projects.customFields.saveFailed",
+        error instanceof Error ? error.message : String(error),
+      );
+    } finally {
+      customFieldReorderPending = false;
+      clearCustomFieldDrag();
+    }
+  }
+
+  async function moveCustomFieldOptionToIndex(optionId: string, targetIndex: number): Promise<void> {
+    const initialOption = customFieldOptionById(optionId);
+    if (!initialOption) return;
+    const fieldId = initialOption.fieldId;
+    customFieldOptionReorderPending = true;
+    projectSettingsError = null;
+    try {
+      let options = projects.customFieldOptionsForField(fieldId);
+      let currentIndex = options.findIndex((entry) => entry.id === optionId);
+      let remainingMoves = options.length;
+      while (currentIndex >= 0 && currentIndex !== targetIndex && remainingMoves > 0) {
+        const direction: -1 | 1 = currentIndex < targetIndex ? 1 : -1;
+        const option = options[currentIndex];
+        if (!option) break;
+        await projects.moveCustomFieldOption(option, direction);
+        options = projects.customFieldOptionsForField(fieldId);
+        currentIndex = options.findIndex((entry) => entry.id === optionId);
+        remainingMoves -= 1;
+      }
+      if (currentIndex !== targetIndex) {
+        projectSettingsError = t("projects.customFields.optionReorderFailed");
+      }
+    } catch (error) {
+      projectSettingsError = t(
+        "projects.customFields.optionSaveFailed",
+        error instanceof Error ? error.message : String(error),
+      );
+    } finally {
+      customFieldOptionReorderPending = false;
+      clearCustomFieldOptionDrag();
+    }
+  }
+
   async function dropStatus(event: DragEvent, targetStatus: ProjectStatus): Promise<void> {
     event.preventDefault();
     const statusId = draggedStatusId
@@ -978,6 +1177,69 @@
       return;
     }
     await moveTagToIndex(tagId, boundedTargetIndex);
+  }
+
+  async function dropCustomField(event: DragEvent, targetField: ProjectCustomField): Promise<void> {
+    event.preventDefault();
+    const fieldId = draggedCustomFieldId
+      ?? event.dataTransfer?.getData(PROJECT_CUSTOM_FIELD_DRAG_DATA_TYPE)
+      ?? event.dataTransfer?.getData("text/plain")
+      ?? null;
+    if (!fieldId || fieldId === targetField.id) {
+      clearCustomFieldDrag();
+      return;
+    }
+
+    const sourceIndex = projectCustomFields.findIndex((entry) => entry.id === fieldId);
+    let targetIndex = projectCustomFields.findIndex((entry) => entry.id === targetField.id);
+    if (sourceIndex < 0 || targetIndex < 0) {
+      clearCustomFieldDrag();
+      return;
+    }
+    if ((customFieldDropPosition ?? "before") === "after") targetIndex += 1;
+    if (sourceIndex < targetIndex) targetIndex -= 1;
+    const boundedTargetIndex = Math.max(0, Math.min(projectCustomFields.length - 1, targetIndex));
+    if (boundedTargetIndex === sourceIndex) {
+      clearCustomFieldDrag();
+      return;
+    }
+    await moveCustomFieldToIndex(fieldId, boundedTargetIndex);
+  }
+
+  async function dropCustomFieldOption(
+    event: DragEvent,
+    targetOption: ProjectCustomFieldOption,
+  ): Promise<void> {
+    event.preventDefault();
+    const optionId = draggedCustomFieldOptionId
+      ?? event.dataTransfer?.getData(PROJECT_CUSTOM_FIELD_OPTION_DRAG_DATA_TYPE)
+      ?? event.dataTransfer?.getData("text/plain")
+      ?? null;
+    if (!optionId || optionId === targetOption.id) {
+      clearCustomFieldOptionDrag();
+      return;
+    }
+    const sourceOption = customFieldOptionById(optionId);
+    if (!sourceOption || sourceOption.fieldId !== targetOption.fieldId) {
+      clearCustomFieldOptionDrag();
+      return;
+    }
+
+    const options = projects.customFieldOptionsForField(targetOption.fieldId);
+    const sourceIndex = options.findIndex((entry) => entry.id === optionId);
+    let targetIndex = options.findIndex((entry) => entry.id === targetOption.id);
+    if (sourceIndex < 0 || targetIndex < 0) {
+      clearCustomFieldOptionDrag();
+      return;
+    }
+    if ((customFieldOptionDropPosition ?? "before") === "after") targetIndex += 1;
+    if (sourceIndex < targetIndex) targetIndex -= 1;
+    const boundedTargetIndex = Math.max(0, Math.min(options.length - 1, targetIndex));
+    if (boundedTargetIndex === sourceIndex) {
+      clearCustomFieldOptionDrag();
+      return;
+    }
+    await moveCustomFieldOptionToIndex(optionId, boundedTargetIndex);
   }
 
   function statusDraftDirty(status: ProjectStatus): boolean {
@@ -1303,26 +1565,105 @@
     }
   }
 
-  async function saveCustomField(field: ProjectCustomField): Promise<void> {
-    const name = customFieldNameDraftValue(field).trim();
+  function customFieldSaveDrafts(): CustomFieldSaveDraft[] | null {
+    const drafts: CustomFieldSaveDraft[] = [];
+    const seenNames = new Set<string>();
+    for (const field of projectCustomFields) {
+      const name = customFieldNameDraftValue(field).trim();
+      if (!name) {
+        projectSettingsError = t("projects.customFields.nameRequired");
+        return null;
+      }
+      const normalizedName = name.toLowerCase();
+      if (seenNames.has(normalizedName)) {
+        projectSettingsError = t("projects.customFields.nameExists");
+        return null;
+      }
+      seenNames.add(normalizedName);
+      if (!customFieldDraftDirty(field)) continue;
+      drafts.push({ field, name });
+    }
+    return drafts;
+  }
+
+  function customFieldOptionSaveDrafts(): CustomFieldOptionSaveDraft[] | null {
+    const drafts: CustomFieldOptionSaveDraft[] = [];
+    for (const field of projectCustomFields) {
+      if (!customFieldAcceptsOptions(field)) continue;
+      const seenNames = new Set<string>();
+      for (const option of customFieldOptions(field)) {
+        const name = customFieldOptionNameDraftValue(option).trim();
+        if (!name) {
+          projectSettingsError = t("projects.customFields.optionNameRequired");
+          return null;
+        }
+        const normalizedName = name.toLowerCase();
+        if (seenNames.has(normalizedName)) {
+          projectSettingsError = t("projects.customFields.optionNameExists");
+          return null;
+        }
+        seenNames.add(normalizedName);
+        if (!customFieldOptionDraftDirty(option)) continue;
+        drafts.push({ option, name });
+      }
+    }
+    return drafts;
+  }
+
+  function newCustomFieldOptionNamesForCreate(): string[] | null {
+    if (!newCustomFieldAcceptsOptions()) return [];
+    const names: string[] = [];
+    const seenNames = new Set<string>();
+    for (const option of newCustomFieldOptionRows) {
+      const name = option.name.trim();
+      if (!name) {
+        projectSettingsError = t("projects.customFields.optionNameRequired");
+        return null;
+      }
+      const normalizedName = name.toLowerCase();
+      if (seenNames.has(normalizedName)) {
+        projectSettingsError = t("projects.customFields.optionNameExists");
+        return null;
+      }
+      seenNames.add(normalizedName);
+      names.push(name);
+    }
+    const pendingName = newCustomFieldOptionName.trim();
+    if (pendingName) {
+      const normalizedName = pendingName.toLowerCase();
+      if (seenNames.has(normalizedName)) {
+        projectSettingsError = t("projects.customFields.optionNameExists");
+        return null;
+      }
+      names.push(pendingName);
+    }
+    return names;
+  }
+
+  function setNewCustomFieldOptionDraftName(optionId: string, name: string): void {
+    newCustomFieldOptionRows = newCustomFieldOptionRows.map((option) =>
+      option.id === optionId ? { ...option, name } : option
+    );
+  }
+
+  function removeNewCustomFieldOptionDraft(optionId: string): void {
+    newCustomFieldOptionRows = newCustomFieldOptionRows.filter((option) => option.id !== optionId);
+  }
+
+  function submitNewCustomFieldOptionDraft(): void {
+    if (!newCustomFieldAcceptsOptions()) return;
+    const name = newCustomFieldOptionName.trim();
     if (!name) {
-      projectSettingsError = t("projects.customFields.nameRequired");
+      projectSettingsError = t("projects.customFields.optionNameRequired");
       return;
     }
-    if (customFieldNameExists(name, field.id)) {
-      projectSettingsError = t("projects.customFields.nameExists");
+    if (newCustomFieldOptionDraftNameExists(name)) {
+      projectSettingsError = t("projects.customFields.optionNameExists");
       return;
     }
+    newCustomFieldOptionRows = [...newCustomFieldOptionRows, { id: crypto.randomUUID(), name }];
+    newCustomFieldOptionName = "";
     projectSettingsError = null;
-    try {
-      await projects.updateCustomField(field, { name });
-      customFieldNameDrafts = { ...customFieldNameDrafts, [field.id]: name };
-    } catch (error) {
-      projectSettingsError = t(
-        "projects.customFields.saveFailed",
-        error instanceof Error ? error.message : String(error),
-      );
-    }
   }
 
   async function submitCustomField(): Promise<void> {
@@ -1336,11 +1677,21 @@
       projectSettingsError = t("projects.customFields.nameExists");
       return;
     }
+    const optionNames = newCustomFieldOptionNamesForCreate();
+    if (!optionNames) return;
     projectSettingsError = null;
     try {
-      await projects.addCustomField(selectedProjectId, name, newCustomFieldType);
+      const field = await projects.addCustomField(selectedProjectId, name, newCustomFieldType);
+      if (field) {
+        for (const optionName of optionNames) {
+          await projects.addCustomFieldOption(field.id, optionName);
+        }
+      }
       newCustomFieldName = "";
       newCustomFieldType = "text";
+      newCustomFieldOptionRows = [];
+      newCustomFieldOptionName = "";
+      await scrollToNewCustomFieldRow();
     } catch (error) {
       projectSettingsError = t(
         "projects.customFields.saveFailed",
@@ -1382,28 +1733,6 @@
     } catch (error) {
       projectSettingsError = t(
         "projects.customFields.deleteFailed",
-        error instanceof Error ? error.message : String(error),
-      );
-    }
-  }
-
-  async function saveCustomFieldOption(option: ProjectCustomFieldOption): Promise<void> {
-    const name = customFieldOptionNameDraftValue(option).trim();
-    if (!name) {
-      projectSettingsError = t("projects.customFields.optionNameRequired");
-      return;
-    }
-    if (customFieldOptionNameExists(option.fieldId, name, option.id)) {
-      projectSettingsError = t("projects.customFields.optionNameExists");
-      return;
-    }
-    projectSettingsError = null;
-    try {
-      await projects.updateCustomFieldOption(option, { name });
-      customFieldOptionNameDrafts = { ...customFieldOptionNameDrafts, [option.id]: name };
-    } catch (error) {
-      projectSettingsError = t(
-        "projects.customFields.optionSaveFailed",
         error instanceof Error ? error.message : String(error),
       );
     }
@@ -1510,6 +1839,10 @@
     if (!priorityDrafts) return;
     const tagDrafts = tagSaveDrafts();
     if (!tagDrafts) return;
+    const customFieldDrafts = customFieldSaveDrafts();
+    if (!customFieldDrafts) return;
+    const customFieldOptionDrafts = customFieldOptionSaveDrafts();
+    if (!customFieldOptionDrafts) return;
     const shouldUpdateProject = projectFieldSettingsDirty;
     const shouldRevealInactive = shouldUpdateProject && projectStatusDraft !== "active";
     projectSettingsSaving = true;
@@ -1584,6 +1917,18 @@
         });
         tagNameDrafts = { ...tagNameDrafts, [draft.tag.id]: draft.name };
         tagColorDrafts = { ...tagColorDrafts, [draft.tag.id]: draft.color };
+      }
+      for (const draft of customFieldDrafts) {
+        await projects.updateCustomField(draft.field, {
+          name: draft.name,
+        });
+        customFieldNameDrafts = { ...customFieldNameDrafts, [draft.field.id]: draft.name };
+      }
+      for (const draft of customFieldOptionDrafts) {
+        await projects.updateCustomFieldOption(draft.option, {
+          name: draft.name,
+        });
+        customFieldOptionNameDrafts = { ...customFieldOptionNameDrafts, [draft.option.id]: draft.name };
       }
       if (shouldRevealInactive) {
         onRevealInactive();
@@ -1881,17 +2226,52 @@
 
           <div class="h-px bg-border/70" aria-hidden="true"></div>
 
-          <section class="flex flex-col gap-1">
+          <section class="flex flex-col gap-0.5">
             {@render sectionHeading(t("projects.customFields.title"))}
-            <div class="flex flex-col gap-1">
+            <div class="flex flex-col gap-2">
               {#each projectCustomFields as field (field.id)}
-                {@const previousField = adjacentCustomField(field, -1)}
-                {@const nextField = adjacentCustomField(field, 1)}
-                <div class="flex flex-col gap-1 px-1 py-1">
-                  <div class="grid min-h-8 grid-cols-[minmax(0,1fr)_auto_auto_auto_auto_auto] items-center gap-1">
+                {@const fieldOptions = customFieldOptions(field)}
+                <div class="flex flex-col gap-2">
+                  <div
+                    class={cn(
+                      "relative grid min-h-7 grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-1.5 px-1 py-0.5",
+                      draggedCustomFieldId === field.id && "opacity-50",
+                    )}
+                    role="group"
+                    aria-label={field.name}
+                    ondragover={(event) => handleCustomFieldDragOver(event, field, event.currentTarget)}
+                    ondrop={(event) => { void dropCustomField(event, field); }}
+                  >
+                    {#if customFieldDropMarkerVisible(field.id, "before")}
+                      <div class="pointer-events-none absolute left-1 right-1 top-0 h-0.5 rounded-full bg-primary"></div>
+                    {/if}
+                    {#if customFieldDropMarkerVisible(field.id, "after")}
+                      <div class="pointer-events-none absolute bottom-0 left-1 right-1 h-0.5 rounded-full bg-primary"></div>
+                    {/if}
+                    <button
+                      type="button"
+                      class="flex h-7 w-7 shrink-0 cursor-grab items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-40"
+                      draggable={projectCustomFields.length > 1 && !customFieldReorderPending}
+                      disabled={projectCustomFields.length <= 1 || customFieldReorderPending}
+                      aria-label={t("projects.actions.dragCustomField", field.name)}
+                      ondragstart={(event) => handleCustomFieldDragStart(event, field)}
+                      ondragend={clearCustomFieldDrag}
+                      onkeydown={(event) => {
+                        if (event.key === "ArrowUp") {
+                          event.preventDefault();
+                          void moveProjectCustomField(field, -1);
+                        }
+                        if (event.key === "ArrowDown") {
+                          event.preventDefault();
+                          void moveProjectCustomField(field, 1);
+                        }
+                      }}
+                    >
+                      <GripVertical size={13} strokeWidth={1.75} />
+                    </button>
                     <input
                       value={customFieldNameDraftValue(field)}
-                      class="h-7 min-w-0 rounded-md bg-transparent px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:bg-card"
+                      class="h-7 min-w-0 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:border-ring placeholder:text-muted-foreground"
                       aria-label={t("projects.customFields.fieldName")}
                       oninput={(event) => {
                         customFieldNameDrafts = {
@@ -1899,46 +2279,15 @@
                           [field.id]: event.currentTarget.value,
                         };
                       }}
-                      onkeydown={(event) => {
-                        if (event.key === "Enter") {
-                          event.preventDefault();
-                          void saveCustomField(field);
-                        }
-                      }}
                     />
-                    <span class="px-2 text-[0.766667rem] font-medium text-muted-foreground">
-                      {projectCustomFieldTypeLabel(field.fieldType, t)}
-                    </span>
-                    <button
-                      type="button"
-                      class={iconButtonClass()}
-                      disabled={!customFieldDraftDirty(field)}
-                      aria-label={t("projects.customFields.saveField")}
-                      title={t("projects.customFields.saveField")}
-                      onclick={() => { void saveCustomField(field); }}
+                    <div
+                      class="flex h-7 w-32 shrink-0 cursor-not-allowed items-center justify-between gap-2 rounded-md border border-border bg-card px-2.5 text-[0.8rem] font-medium text-foreground transition-colors dark:bg-transparent"
+                      aria-label={t("projects.customFields.fieldType")}
+                      data-app-tooltip={t("projects.customFields.typeLockedTooltip")}
                     >
-                      <Save size={13} strokeWidth={1.75} />
-                    </button>
-                    <button
-                      type="button"
-                      class={iconButtonClass()}
-                      disabled={!previousField}
-                      aria-label={t("projects.actions.moveCustomFieldUp", field.name)}
-                      title={t("projects.actions.moveCustomFieldUp", field.name)}
-                      onclick={() => { void moveProjectCustomField(field, -1); }}
-                    >
-                      <ArrowUp size={13} strokeWidth={1.75} />
-                    </button>
-                    <button
-                      type="button"
-                      class={iconButtonClass()}
-                      disabled={!nextField}
-                      aria-label={t("projects.actions.moveCustomFieldDown", field.name)}
-                      title={t("projects.actions.moveCustomFieldDown", field.name)}
-                      onclick={() => { void moveProjectCustomField(field, 1); }}
-                    >
-                      <ArrowDown size={13} strokeWidth={1.75} />
-                    </button>
+                      <span class="min-w-0 flex-1 truncate">{projectCustomFieldTypeLabel(field.fieldType, t)}</span>
+                      <ChevronDown size={13} strokeWidth={2} class="shrink-0 text-muted-foreground" />
+                    </div>
                     <button
                       type="button"
                       class={iconButtonClass("danger")}
@@ -1951,17 +2300,48 @@
                   </div>
 
                   {#if customFieldAcceptsOptions(field)}
-                    <div class="flex flex-col gap-1 pl-3">
-                      <div class="px-2 py-0.5 text-[0.733333rem] font-medium text-muted-foreground">
-                        {t("projects.customFields.options")}
-                      </div>
-                      {#each customFieldOptions(field) as option (option.id)}
-                        {@const previousOption = adjacentCustomFieldOption(option, -1)}
-                        {@const nextOption = adjacentCustomFieldOption(option, 1)}
-                        <div class="grid min-h-8 grid-cols-[minmax(0,1fr)_auto_auto_auto_auto] items-center gap-1">
+                    <div class="flex flex-col gap-2 pl-9 pr-1">
+                      {#each fieldOptions as option (option.id)}
+                        <div
+                          class={cn(
+                            "relative grid min-h-7 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-1.5 py-0.5",
+                            draggedCustomFieldOptionId === option.id && "opacity-50",
+                          )}
+                          role="group"
+                          aria-label={option.name}
+                          ondragover={(event) => handleCustomFieldOptionDragOver(event, option, event.currentTarget)}
+                          ondrop={(event) => { void dropCustomFieldOption(event, option); }}
+                        >
+                          {#if customFieldOptionDropMarkerVisible(option.id, "before")}
+                            <div class="pointer-events-none absolute left-0 right-0 top-0 h-0.5 rounded-full bg-primary"></div>
+                          {/if}
+                          {#if customFieldOptionDropMarkerVisible(option.id, "after")}
+                            <div class="pointer-events-none absolute bottom-0 left-0 right-0 h-0.5 rounded-full bg-primary"></div>
+                          {/if}
+                          <button
+                            type="button"
+                            class="flex h-7 w-7 shrink-0 cursor-grab items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-40"
+                            draggable={fieldOptions.length > 1 && !customFieldOptionReorderPending}
+                            disabled={fieldOptions.length <= 1 || customFieldOptionReorderPending}
+                            aria-label={t("projects.actions.dragCustomFieldOption", option.name)}
+                            ondragstart={(event) => handleCustomFieldOptionDragStart(event, option)}
+                            ondragend={clearCustomFieldOptionDrag}
+                            onkeydown={(event) => {
+                              if (event.key === "ArrowUp") {
+                                event.preventDefault();
+                                void moveProjectCustomFieldOption(option, -1);
+                              }
+                              if (event.key === "ArrowDown") {
+                                event.preventDefault();
+                                void moveProjectCustomFieldOption(option, 1);
+                              }
+                            }}
+                          >
+                            <GripVertical size={13} strokeWidth={1.75} />
+                          </button>
                           <input
                             value={customFieldOptionNameDraftValue(option)}
-                            class="h-7 min-w-0 rounded-md bg-transparent px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:bg-card"
+                            class="h-7 min-w-0 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:border-ring placeholder:text-muted-foreground"
                             aria-label={t("projects.customFields.optionName")}
                             oninput={(event) => {
                               customFieldOptionNameDrafts = {
@@ -1969,43 +2349,7 @@
                                 [option.id]: event.currentTarget.value,
                               };
                             }}
-                            onkeydown={(event) => {
-                              if (event.key === "Enter") {
-                                event.preventDefault();
-                                void saveCustomFieldOption(option);
-                              }
-                            }}
                           />
-                          <button
-                            type="button"
-                            class={iconButtonClass()}
-                            disabled={!customFieldOptionDraftDirty(option)}
-                            aria-label={t("projects.actions.saveCustomFieldOption", option.name)}
-                            title={t("projects.actions.saveCustomFieldOption", option.name)}
-                            onclick={() => { void saveCustomFieldOption(option); }}
-                          >
-                            <Save size={13} strokeWidth={1.75} />
-                          </button>
-                          <button
-                            type="button"
-                            class={iconButtonClass()}
-                            disabled={!previousOption}
-                            aria-label={t("projects.actions.moveCustomFieldOptionUp", option.name)}
-                            title={t("projects.actions.moveCustomFieldOptionUp", option.name)}
-                            onclick={() => { void moveProjectCustomFieldOption(option, -1); }}
-                          >
-                            <ArrowUp size={13} strokeWidth={1.75} />
-                          </button>
-                          <button
-                            type="button"
-                            class={iconButtonClass()}
-                            disabled={!nextOption}
-                            aria-label={t("projects.actions.moveCustomFieldOptionDown", option.name)}
-                            title={t("projects.actions.moveCustomFieldOptionDown", option.name)}
-                            onclick={() => { void moveProjectCustomFieldOption(option, 1); }}
-                          >
-                            <ArrowDown size={13} strokeWidth={1.75} />
-                          </button>
                           <button
                             type="button"
                             class={iconButtonClass("danger")}
@@ -2016,15 +2360,12 @@
                             <Trash2 size={13} strokeWidth={1.75} />
                           </button>
                         </div>
-                      {:else}
-                        <div class="px-2 py-1.5 text-[0.8rem] text-muted-foreground">
-                          {t("projects.customFields.noOptions")}
-                        </div>
                       {/each}
-                      <div class="grid min-h-8 grid-cols-[minmax(0,1fr)_auto] items-center gap-1">
+                      <div class="grid min-h-7 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-1.5 py-0.5">
+                        {@render newRowDragHandle(fieldOptions.length === 0)}
                         <input
                           value={newCustomFieldOptionDrafts[field.id] ?? ""}
-                          class="h-7 min-w-0 rounded-md bg-transparent px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:bg-card"
+                          class="h-7 min-w-0 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:border-ring placeholder:text-muted-foreground"
                           placeholder={t("projects.customFields.newOptionPlaceholder")}
                           oninput={(event) => {
                             newCustomFieldOptionDrafts = {
@@ -2053,36 +2394,96 @@
                   {/if}
                 </div>
               {/each}
-            </div>
 
-            <div class="grid min-h-8 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-1 px-1 py-1">
-              <input
-                bind:value={newCustomFieldName}
-                class="h-7 min-w-0 rounded-md bg-transparent px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:bg-card"
-                placeholder={t("projects.customFields.newFieldPlaceholder")}
-                onkeydown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    void submitCustomField();
-                  }
-                }}
-              />
-              <CustomSelect
-                value={newCustomFieldType}
-                options={customFieldTypeOptions}
-                onChange={setNewCustomFieldType}
-                ariaLabel={t("projects.customFields.fieldType")}
-                class="w-32"
-              />
-              <button
-                type="button"
-                class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
-                aria-label={t("projects.customFields.addField")}
-                title={t("projects.customFields.addField")}
-                onclick={() => { void submitCustomField(); }}
-              >
-                <Plus size={13} strokeWidth={1.75} />
-              </button>
+              <div class="flex flex-col gap-2">
+                <div
+                  bind:this={newCustomFieldRowElement}
+                  class="grid min-h-7 grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-1.5 px-1 py-0.5"
+                >
+                  {@render newRowDragHandle(projectCustomFields.length === 0)}
+                  <input
+                    bind:value={newCustomFieldName}
+                    class="h-7 min-w-0 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:border-ring placeholder:text-muted-foreground"
+                    placeholder={t("projects.customFields.newFieldPlaceholder")}
+                    onkeydown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        void submitCustomField();
+                      }
+                    }}
+                  />
+                  <CustomSelect
+                    inline
+                    value={newCustomFieldType}
+                    options={customFieldTypeOptions}
+                    onChange={setNewCustomFieldType}
+                    ariaLabel={t("projects.customFields.fieldType")}
+                    class="w-32"
+                  />
+                  <button
+                    type="button"
+                    class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                    aria-label={t("projects.customFields.addField")}
+                    title={t("projects.customFields.addField")}
+                    onclick={() => { void submitCustomField(); }}
+                  >
+                    <Plus size={13} strokeWidth={1.75} />
+                  </button>
+                </div>
+
+              {#if newCustomFieldAcceptsOptions()}
+                <div class="flex flex-col gap-2 pl-9 pr-1">
+                  {#each newCustomFieldOptionRows as option (option.id)}
+                    <div class="grid min-h-7 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-1.5 py-0.5">
+                      <div
+                        class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-40"
+                        aria-hidden="true"
+                      >
+                        <GripVertical size={13} strokeWidth={1.75} />
+                      </div>
+                      <input
+                        value={option.name}
+                        class="h-7 min-w-0 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:border-ring placeholder:text-muted-foreground"
+                        aria-label={t("projects.customFields.optionName")}
+                        oninput={(event) => setNewCustomFieldOptionDraftName(option.id, event.currentTarget.value)}
+                      />
+                      <button
+                        type="button"
+                        class={iconButtonClass("danger")}
+                        aria-label={t("projects.actions.deleteCustomFieldOption", option.name)}
+                        title={t("projects.actions.deleteCustomFieldOption", option.name)}
+                        onclick={() => removeNewCustomFieldOptionDraft(option.id)}
+                      >
+                        <Trash2 size={13} strokeWidth={1.75} />
+                      </button>
+                    </div>
+                  {/each}
+                  <div class="grid min-h-7 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-1.5 py-0.5">
+                    {@render newRowDragHandle(newCustomFieldOptionRows.length === 0)}
+                    <input
+                      bind:value={newCustomFieldOptionName}
+                      class="h-7 min-w-0 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:border-ring placeholder:text-muted-foreground"
+                      placeholder={t("projects.customFields.newOptionPlaceholder")}
+                      onkeydown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          submitNewCustomFieldOptionDraft();
+                        }
+                      }}
+                    />
+                    <button
+                      type="button"
+                      class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                      aria-label={t("projects.customFields.addOption")}
+                      title={t("projects.customFields.addOption")}
+                      onclick={submitNewCustomFieldOptionDraft}
+                    >
+                      <Plus size={13} strokeWidth={1.75} />
+                    </button>
+                  </div>
+                </div>
+              {/if}
+              </div>
             </div>
           </section>
 
