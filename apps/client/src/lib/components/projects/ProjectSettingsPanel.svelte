@@ -1624,6 +1624,19 @@
   </div>
 {/snippet}
 
+{#snippet newRowDragHandle(showIcon: boolean)}
+  {#if showIcon}
+    <div
+      class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-40"
+      aria-hidden="true"
+    >
+      <GripVertical size={13} strokeWidth={1.75} />
+    </div>
+  {:else}
+    <div class="h-7 w-7 shrink-0" aria-hidden="true"></div>
+  {/if}
+{/snippet}
+
 {#if selectedProject}
 <aside
   class={cn(
@@ -1832,7 +1845,7 @@
                 bind:this={newTagRowElement}
                 class="grid min-h-7 grid-cols-[auto_auto_minmax(0,1fr)_auto] items-center gap-1.5 px-1 py-0.5"
               >
-                <div class="h-7 w-7 shrink-0" aria-hidden="true"></div>
+                {@render newRowDragHandle(projectTags.length === 0)}
                 <ColorPicker
                   color={newTagColor}
                   theme={theme.current}
@@ -2162,7 +2175,7 @@
               bind:this={newStatusRowElement}
               class="grid min-h-7 grid-cols-[auto_auto_minmax(0,1fr)_auto_auto] items-center gap-1 px-1 py-0.5"
             >
-              <div class="h-7 w-7 shrink-0" aria-hidden="true"></div>
+              {@render newRowDragHandle(statuses.length === 0)}
               <ColorPicker
                 color={newStatusColor}
                 theme={theme.current}
@@ -2283,7 +2296,7 @@
                 bind:this={newPriorityRowElement}
                 class="grid min-h-7 grid-cols-[auto_auto_minmax(0,1fr)_auto] items-center gap-1.5 px-1 py-0.5"
               >
-                <div class="h-7 w-7 shrink-0" aria-hidden="true"></div>
+                {@render newRowDragHandle(priorities.length === 0)}
                 <ColorPicker
                   color={newPriorityColor}
                   theme={theme.current}
