@@ -1986,8 +1986,8 @@
                     theme={theme.current}
                     title={t("projects.settings.statusColor")}
                     ariaLabel={t("projects.settings.selectStatusColor", status.name)}
-                    class="h-7 w-7 justify-center"
-                    buttonClass="size-6.5 rounded-md"
+                    class="h-7 w-7 justify-center self-center"
+                    buttonClass="size-6 rounded-md"
                     onselect={(color) => setStatusColor(status.id, color)}
                   />
                   <input
@@ -2032,8 +2032,8 @@
                 theme={theme.current}
                 title={t("projects.settings.statusColor")}
                 ariaLabel={t("projects.settings.selectNewStatusColor")}
-                class="h-7 w-7 justify-center"
-                buttonClass="size-6.5 rounded-md"
+                class="h-7 w-7 justify-center self-center"
+                buttonClass="size-6 rounded-md"
                 onselect={setNewStatusColor}
               />
               <input
@@ -2070,12 +2070,12 @@
 
           <section class="flex flex-col gap-0.5">
             {@render sectionHeading(t("projects.settings.taskPriorities"))}
-            <div class="flex flex-col gap-0.5">
+            <div class="flex flex-col gap-2">
               {#each priorities as priority (priority.id)}
                 {@const deletePriorityTitle = priorityDeleteTitle(priority)}
                 <div
                   class={cn(
-                    "relative grid min-h-7 grid-cols-[auto_auto_minmax(0,1fr)_auto] items-center gap-1 px-1 py-0.5",
+                    "relative grid min-h-7 grid-cols-[auto_auto_minmax(0,1fr)_auto] items-center gap-1.5 px-1 py-0.5",
                     draggedPriorityId === priority.id && "opacity-50",
                   )}
                   role="group"
@@ -2115,8 +2115,8 @@
                     theme={theme.current}
                     title={t("projects.settings.priorityColor")}
                     ariaLabel={t("projects.settings.selectPriorityColor", priority.name)}
-                    class="h-7 w-7 justify-center"
-                    buttonClass="size-6.5 rounded-md"
+                    class="h-7 w-7 justify-center self-center"
+                    buttonClass="size-6 rounded-md"
                     onselect={(color) => setPriorityColor(priority.id, color)}
                   />
                   <input
@@ -2142,42 +2142,42 @@
                   </button>
                 </div>
               {/each}
-            </div>
 
-            <div
-              bind:this={newPriorityRowElement}
-              class="grid min-h-7 grid-cols-[auto_auto_minmax(0,1fr)_auto] items-center gap-1 px-1 py-0.5"
-            >
-              <div class="h-7 w-7 shrink-0" aria-hidden="true"></div>
-              <ColorPicker
-                color={newPriorityColor}
-                theme={theme.current}
-                title={t("projects.settings.priorityColor")}
-                ariaLabel={t("projects.settings.selectNewPriorityColor")}
-                class="h-7 w-7 justify-center"
-                buttonClass="size-6.5 rounded-md"
-                onselect={setNewPriorityColor}
-              />
-              <input
-                bind:value={newPriorityName}
-                class="h-7 min-w-0 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:border-ring placeholder:text-muted-foreground"
-                placeholder={t("projects.settings.newPriorityPlaceholder")}
-                onkeydown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    void submitPriority();
-                  }
-                }}
-              />
-              <button
-                type="button"
-                class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
-                aria-label={t("projects.settings.addPriority")}
-                title={t("projects.settings.addPriority")}
-                onclick={() => { void submitPriority(); }}
+              <div
+                bind:this={newPriorityRowElement}
+                class="grid min-h-7 grid-cols-[auto_auto_minmax(0,1fr)_auto] items-center gap-1.5 px-1 py-0.5"
               >
-                <Plus size={13} strokeWidth={1.75} />
-              </button>
+                <div class="h-7 w-7 shrink-0" aria-hidden="true"></div>
+                <ColorPicker
+                  color={newPriorityColor}
+                  theme={theme.current}
+                  title={t("projects.settings.priorityColor")}
+                  ariaLabel={t("projects.settings.selectNewPriorityColor")}
+                  class="h-7 w-7 justify-center self-center"
+                  buttonClass="size-6 rounded-md"
+                  onselect={setNewPriorityColor}
+                />
+                <input
+                  bind:value={newPriorityName}
+                  class="h-7 min-w-0 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:border-ring placeholder:text-muted-foreground"
+                  placeholder={t("projects.settings.newPriorityPlaceholder")}
+                  onkeydown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      void submitPriority();
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                  aria-label={t("projects.settings.addPriority")}
+                  title={t("projects.settings.addPriority")}
+                  onclick={() => { void submitPriority(); }}
+                >
+                  <Plus size={13} strokeWidth={1.75} />
+                </button>
+              </div>
             </div>
           </section>
         </div>
