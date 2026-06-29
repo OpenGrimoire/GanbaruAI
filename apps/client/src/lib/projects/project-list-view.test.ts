@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Translate } from "$lib/i18n/translator.svelte";
-import type { ProjectStatus, ProjectTask } from "./types";
+import type { ProjectCustomField, ProjectStatus, ProjectTask } from "./types";
 import {
   PROJECT_TASK_FILTER_DEFAULTS,
   projectTaskActiveFilterChips,
@@ -50,6 +50,18 @@ function status(name: string): ProjectStatus {
   };
 }
 
+function customField(id: string, name: string): ProjectCustomField {
+  return {
+    id,
+    projectId: "project-a",
+    name,
+    fieldType: "text",
+    sortOrder: 1000,
+    createdAt: "2026-06-21T00:00:00.000Z",
+    updatedAt: "2026-06-21T00:00:00.000Z",
+  };
+}
+
 const t = ((key: string, ...args: unknown[]) => [key, ...args].join("|")) as Translate;
 
 describe("project list view helpers", () => {
@@ -58,9 +70,9 @@ describe("project list view helpers", () => {
     expect(projectTaskListColumnTrack("start")).toBe("8.07rem");
     expect(projectTaskListColumnTrack("assignee")).toBe("5.2rem");
     expect(projectTaskListColumnTrack("status")).toBe("7.5rem");
-    expect(projectTaskListColumnTrack("custom:field-a")).toBe("7.23rem");
+    expect(projectTaskListColumnTrack("custom:field-a")).toBe("7.63rem");
     expect(projectTaskListGridTemplate(["status", "custom:field-a"])).toBe(
-      "1.5rem 1.75rem 24rem 7.5rem 7.23rem 2.25rem",
+      "1.5rem 1.75rem 24rem 7.5rem 7.63rem 2.25rem",
     );
   });
 
@@ -84,6 +96,19 @@ describe("project list view helpers", () => {
       nameLabel: "Name",
       columnLabel: (column) => column === "start" ? "Start date" : "Status",
     })).toBe("1.5rem 1.75rem 24rem 7.52rem 8.07rem 2.25rem");
+  });
+
+  it("lets custom column headers set the first automatic width up to a cap", () => {
+    expect(projectTaskListColumnWidthRem("custom:field-a", {
+      columns: ["custom:field-a"],
+      customFields: [customField("field-a", "Customer confirmation status")],
+      columnLabel: () => "Customer confirmation status",
+    })).toBe(13.51);
+    expect(projectTaskListColumnWidthRem("custom:field-b", {
+      columns: ["custom:field-b"],
+      customFields: [customField("field-b", "Extremely long custom field header that should still have a limit")],
+      columnLabel: () => "Extremely long custom field header that should still have a limit",
+    })).toBe(16);
   });
 
   it("keeps the list width to the content tracks instead of the viewport", () => {

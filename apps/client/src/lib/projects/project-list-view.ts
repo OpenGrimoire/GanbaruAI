@@ -67,6 +67,7 @@ interface ProjectTaskListColumnWidthBounds {
   min: number;
   autoMin?: number;
   max: number;
+  headerMax?: number;
   manualMax?: number;
 }
 
@@ -91,6 +92,7 @@ const PROJECT_LIST_OPEN_TRACK_REM = 1.75;
 const PROJECT_LIST_ADD_COLUMN_TRACK_REM = 2.25;
 const PROJECT_LIST_TEXT_PADDING_REM = 1.35;
 const PROJECT_LIST_TEXT_CHARACTER_REM = 0.42;
+const PROJECT_LIST_HEADER_EXTRA_REM = 0.4;
 const PROJECT_LIST_STATUS_BADGE_EXTRA_REM = 1.55;
 const PROJECT_LIST_DATE_TIME_TEXT = "0000-00-00 00:00";
 const PROJECT_LIST_NAME_WIDTH: ProjectTaskListColumnWidthBounds = { min: 12, autoMin: 24, max: 32 };
@@ -104,7 +106,7 @@ const PROJECT_LIST_COLUMN_WIDTHS = {
   estimate: { min: 5.2, max: 6.8 },
   scheduled: { min: 6.8, max: 11.2 },
   dependencies: { min: 6.8, max: 8.8 },
-  custom: { min: 5.6, max: 11.2 },
+  custom: { min: 5.6, max: 11.2, headerMax: 16 },
 } satisfies Record<string, ProjectTaskListColumnWidthBounds>;
 
 function normalizeProjectTaskListGridInput(
@@ -139,6 +141,13 @@ function projectTaskListTextWidthRem(text: string): number {
   const normalized = text.trim();
   if (!normalized) return 0;
   return PROJECT_LIST_TEXT_PADDING_REM + Array.from(normalized).length * PROJECT_LIST_TEXT_CHARACTER_REM;
+}
+
+function projectTaskListHeaderWidthRem(text: string, bounds: ProjectTaskListColumnWidthBounds): number {
+  const normalized = text.trim();
+  if (!normalized) return bounds.autoMin ?? bounds.min;
+  const width = projectTaskListTextWidthRem(normalized) + PROJECT_LIST_HEADER_EXTRA_REM;
+  return Math.min(bounds.headerMax ?? bounds.max, Math.max(bounds.autoMin ?? bounds.min, width));
 }
 
 function projectTaskListStatusWidthRem(text: string): number {
@@ -285,12 +294,15 @@ export function projectTaskListColumnWidthRem(
 ): number {
   const manualWidth = projectTaskListManualWidth(input, column);
   if (allowManualWidth && manualWidth !== undefined) return manualWidth;
+  const bounds = projectTaskListColumnBounds(column);
+  const headerWidth = projectTaskListHeaderWidthRem(projectTaskListColumnLabel(input, column), bounds);
   const textWidth = column === "status" ? projectTaskListStatusWidthRem : projectTaskListTextWidthRem;
-  return projectTaskListWidthFromTexts(
+  const contentWidth = projectTaskListWidthFromTexts(
     projectTaskListColumnTexts(input, column),
-    projectTaskListColumnBounds(column),
+    bounds,
     textWidth,
   );
+  return Math.max(headerWidth, contentWidth);
 }
 
 export function projectTaskListResizableColumnWidthRem(
