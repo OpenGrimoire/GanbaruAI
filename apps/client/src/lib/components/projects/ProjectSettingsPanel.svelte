@@ -139,9 +139,18 @@
     field: ProjectCustomField;
     name: string;
   };
-  type CustomFieldOptionSaveDraft = {
+  type CustomFieldOptionUpdateDraft = {
     option: ProjectCustomFieldOption;
     name: string;
+  };
+  type CustomFieldOptionCreateDraft = {
+    field: ProjectCustomField;
+    name: string;
+    draftId: string | null;
+  };
+  type CustomFieldOptionSaveDraft = {
+    updates: CustomFieldOptionUpdateDraft[];
+    creates: CustomFieldOptionCreateDraft[];
   };
   type TagSaveDraft = {
     tag: ProjectTag;
@@ -195,6 +204,7 @@
   let pendingDeleteTagId = $state<string | null>(null);
   let customFieldNameDrafts = $state<Record<string, string>>({});
   let customFieldOptionNameDrafts = $state<Record<string, string>>({});
+  let customFieldOptionDraftRowsByField = $state<Record<string, NewCustomFieldOptionDraft[]>>({});
   let newCustomFieldName = $state("");
   let newCustomFieldType = $state<ProjectCustomFieldType>("text");
   let newCustomFieldOptionDrafts = $state<Record<string, string>>({});
@@ -306,6 +316,7 @@
   const customFieldSettingsDirty = $derived.by(() =>
     projectCustomFields.some(customFieldDraftDirty)
       || projectCustomFields.some((field) => customFieldOptions(field).some(customFieldOptionDraftDirty))
+      || projectCustomFields.some(customFieldOptionCreateDraftDirty)
   );
   const projectSettingsDirty = $derived(
     projectFieldSettingsDirty
@@ -368,6 +379,7 @@
         projects.customFieldOptionsForField(field.id).map((option) => [option.id, option.name]),
       ),
     );
+    customFieldOptionDraftRowsByField = {};
     newStatusName = "";
     newStatusCategory = "active";
     newStatusColor = nextUnusedStatusColor(NEW_STATUS_FIRST_COLOR);
@@ -707,6 +719,48 @@
 
   function customFieldOptionDraftDirty(option: ProjectCustomFieldOption): boolean {
     return customFieldOptionNameDraftValue(option) !== option.name;
+  }
+
+  function customFieldOptionCreateDraftRows(fieldId: string): NewCustomFieldOptionDraft[] {
+    return customFieldOptionDraftRowsByField[fieldId] ?? [];
+  }
+
+  function customFieldOptionCreateDraftDirty(field: ProjectCustomField): boolean {
+    return customFieldOptionCreateDraftRows(field.id).length > 0
+      || Boolean((newCustomFieldOptionDrafts[field.id] ?? "").trim());
+  }
+
+  function customFieldOptionCreateDraftNameExists(
+    fieldId: string,
+    name: string,
+    ignoredDraftId?: string,
+  ): boolean {
+    const normalized = name.trim().toLowerCase();
+    if (!normalized) return false;
+    if (customFieldOptionNameExists(fieldId, name)) return true;
+    return customFieldOptionCreateDraftRows(fieldId).some((option) =>
+      option.id !== ignoredDraftId && option.name.trim().toLowerCase() === normalized
+    );
+  }
+
+  function setCustomFieldOptionCreateDraftName(fieldId: string, optionId: string, name: string): void {
+    customFieldOptionDraftRowsByField = {
+      ...customFieldOptionDraftRowsByField,
+      [fieldId]: customFieldOptionCreateDraftRows(fieldId).map((option) =>
+        option.id === optionId ? { ...option, name } : option
+      ),
+    };
+  }
+
+  function removeCustomFieldOptionCreateDraft(fieldId: string, optionId: string): void {
+    const remainingRows = customFieldOptionCreateDraftRows(fieldId).filter((option) => option.id !== optionId);
+    const nextRowsByField = { ...customFieldOptionDraftRowsByField };
+    if (remainingRows.length > 0) {
+      nextRowsByField[fieldId] = remainingRows;
+    } else {
+      delete nextRowsByField[fieldId];
+    }
+    customFieldOptionDraftRowsByField = nextRowsByField;
   }
 
   function fieldForCustomFieldOption(option: ProjectCustomFieldOption | undefined): ProjectCustomField | undefined {
@@ -1771,8 +1825,9 @@
     return drafts;
   }
 
-  function customFieldOptionSaveDrafts(): CustomFieldOptionSaveDraft[] | null {
-    const drafts: CustomFieldOptionSaveDraft[] = [];
+  function customFieldOptionSaveDrafts(): CustomFieldOptionSaveDraft | null {
+    const updates: CustomFieldOptionUpdateDraft[] = [];
+    const creates: CustomFieldOptionCreateDraft[] = [];
     for (const field of projectCustomFields) {
       if (!customFieldAcceptsOptions(field)) continue;
       const seenNames = new Set<string>();
@@ -1789,10 +1844,34 @@
         }
         seenNames.add(normalizedName);
         if (!customFieldOptionDraftDirty(option)) continue;
-        drafts.push({ option, name });
+        updates.push({ option, name });
+      }
+      for (const option of customFieldOptionCreateDraftRows(field.id)) {
+        const name = option.name.trim();
+        if (!name) {
+          projectSettingsError = t("projects.customFields.optionNameRequired");
+          return null;
+        }
+        const normalizedName = name.toLowerCase();
+        if (seenNames.has(normalizedName)) {
+          projectSettingsError = t("projects.customFields.optionNameExists");
+          return null;
+        }
+        seenNames.add(normalizedName);
+        creates.push({ field, name, draftId: option.id });
+      }
+      const pendingName = (newCustomFieldOptionDrafts[field.id] ?? "").trim();
+      if (pendingName) {
+        const normalizedName = pendingName.toLowerCase();
+        if (seenNames.has(normalizedName)) {
+          projectSettingsError = t("projects.customFields.optionNameExists");
+          return null;
+        }
+        seenNames.add(normalizedName);
+        creates.push({ field, name: pendingName, draftId: null });
       }
     }
-    return drafts;
+    return { updates, creates };
   }
 
   function newCustomFieldOptionNamesForCreate(): string[] | null {
@@ -1915,6 +1994,12 @@
       const remainingNames = { ...customFieldNameDrafts };
       delete remainingNames[field.id];
       customFieldNameDrafts = remainingNames;
+      const remainingOptionInputs = { ...newCustomFieldOptionDrafts };
+      delete remainingOptionInputs[field.id];
+      newCustomFieldOptionDrafts = remainingOptionInputs;
+      const remainingOptionRows = { ...customFieldOptionDraftRowsByField };
+      delete remainingOptionRows[field.id];
+      customFieldOptionDraftRowsByField = remainingOptionRows;
     } catch (error) {
       projectSettingsError = t(
         "projects.customFields.deleteFailed",
@@ -1923,26 +2008,22 @@
     }
   }
 
-  async function submitCustomFieldOption(field: ProjectCustomField): Promise<void> {
+  function submitCustomFieldOption(field: ProjectCustomField): void {
     const name = (newCustomFieldOptionDrafts[field.id] ?? "").trim();
     if (!name) {
       projectSettingsError = t("projects.customFields.optionNameRequired");
       return;
     }
-    if (customFieldOptionNameExists(field.id, name)) {
+    if (customFieldOptionCreateDraftNameExists(field.id, name)) {
       projectSettingsError = t("projects.customFields.optionNameExists");
       return;
     }
     projectSettingsError = null;
-    try {
-      await projects.addCustomFieldOption(field.id, name);
-      newCustomFieldOptionDrafts = { ...newCustomFieldOptionDrafts, [field.id]: "" };
-    } catch (error) {
-      projectSettingsError = t(
-        "projects.customFields.optionSaveFailed",
-        error instanceof Error ? error.message : String(error),
-      );
-    }
+    customFieldOptionDraftRowsByField = {
+      ...customFieldOptionDraftRowsByField,
+      [field.id]: [...customFieldOptionCreateDraftRows(field.id), { id: crypto.randomUUID(), name }],
+    };
+    newCustomFieldOptionDrafts = { ...newCustomFieldOptionDrafts, [field.id]: "" };
   }
 
   async function moveProjectCustomFieldOption(option: ProjectCustomFieldOption, direction: -1 | 1): Promise<void> {
@@ -2109,11 +2190,28 @@
         });
         customFieldNameDrafts = { ...customFieldNameDrafts, [draft.field.id]: draft.name };
       }
-      for (const draft of customFieldOptionDrafts) {
+      for (const draft of customFieldOptionDrafts.updates) {
         await projects.updateCustomFieldOption(draft.option, {
           name: draft.name,
         });
         customFieldOptionNameDrafts = { ...customFieldOptionNameDrafts, [draft.option.id]: draft.name };
+      }
+      for (const draft of customFieldOptionDrafts.creates) {
+        const createdOption = await projects.addCustomFieldOption(draft.field.id, draft.name);
+        if (createdOption) {
+          customFieldOptionNameDrafts = {
+            ...customFieldOptionNameDrafts,
+            [createdOption.id]: createdOption.name,
+          };
+        }
+        if (draft.draftId) {
+          removeCustomFieldOptionCreateDraft(draft.field.id, draft.draftId);
+        } else {
+          newCustomFieldOptionDrafts = {
+            ...newCustomFieldOptionDrafts,
+            [draft.field.id]: "",
+          };
+        }
       }
       if (shouldRevealInactive) {
         onRevealInactive();
@@ -2478,6 +2576,8 @@
             <div class="flex flex-col gap-2">
               {#each projectCustomFields as field (field.id)}
                 {@const fieldOptions = customFieldOptions(field)}
+                {@const fieldOptionDraftRows = customFieldOptionCreateDraftRows(field.id)}
+                {@const displayedFieldOptionCount = fieldOptions.length + fieldOptionDraftRows.length}
                 <div class="custom-field-config flex flex-col gap-2">
                   <div
                     class={cn(
@@ -2548,15 +2648,15 @@
 
                   {#if customFieldAcceptsOptions(field)}
                     <div class="flex flex-col gap-2 pl-9 pr-1">
-                      {#if fieldOptions.length > 0}
+                      {#if displayedFieldOptionCount > 0}
                         <div class="custom-field-option-branch flex flex-col gap-2">
                           <svg
                             class="custom-field-option-connector"
                             aria-hidden="true"
-                            viewBox={customFieldOptionConnectorViewBox(fieldOptions.length)}
-                            style={customFieldOptionConnectorStyle(fieldOptions.length)}
+                            viewBox={customFieldOptionConnectorViewBox(displayedFieldOptionCount)}
+                            style={customFieldOptionConnectorStyle(displayedFieldOptionCount)}
                           >
-                            <path d={customFieldOptionConnectorPath(fieldOptions.length)} />
+                            <path d={customFieldOptionConnectorPath(displayedFieldOptionCount)} />
                           </svg>
                           {#each fieldOptions as option (option.id)}
                             <div
@@ -2618,10 +2718,41 @@
                               </button>
                             </div>
                           {/each}
+                          {#each fieldOptionDraftRows as option (option.id)}
+                            <div
+                              class="relative grid min-h-7 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-1.5 py-0.5"
+                              role="group"
+                              aria-label={option.name || t("projects.customFields.optionName")}
+                            >
+                              <div
+                                class="flex h-7 w-7 shrink-0 cursor-not-allowed items-center justify-center rounded-md text-muted-foreground opacity-40"
+                                aria-hidden="true"
+                              >
+                                <GripVertical size={13} strokeWidth={1.75} />
+                              </div>
+                              <input
+                                value={option.name}
+                                class="h-7 min-w-0 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:border-ring placeholder:text-muted-foreground"
+                                aria-label={t("projects.customFields.optionName")}
+                                oninput={(event) => {
+                                  setCustomFieldOptionCreateDraftName(field.id, option.id, event.currentTarget.value);
+                                }}
+                              />
+                              <button
+                                type="button"
+                                class={iconButtonClass("danger")}
+                                aria-label={t("projects.actions.deleteCustomFieldOption", option.name)}
+                                title={t("projects.actions.deleteCustomFieldOption", option.name)}
+                                onclick={() => removeCustomFieldOptionCreateDraft(field.id, option.id)}
+                              >
+                                <Trash2 size={13} strokeWidth={1.75} />
+                              </button>
+                            </div>
+                          {/each}
                         </div>
                       {/if}
                       <div class="grid min-h-7 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-1.5 py-0.5">
-                        {@render newRowDragHandle(fieldOptions.length === 0)}
+                        {@render newRowDragHandle(displayedFieldOptionCount === 0)}
                         <input
                           value={newCustomFieldOptionDrafts[field.id] ?? ""}
                           class="h-7 min-w-0 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:border-ring placeholder:text-muted-foreground"
