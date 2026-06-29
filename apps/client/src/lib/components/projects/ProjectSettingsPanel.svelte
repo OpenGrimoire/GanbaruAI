@@ -2093,7 +2093,7 @@
     </button>
   </header>
 
-  <form class="flex min-h-0 flex-1 flex-col" onsubmit={(event) => { event.preventDefault(); void saveProjectSettings(); }}>
+  <form class="flex min-h-0 flex-1 flex-col" onsubmit={(event) => { event.preventDefault(); }}>
     {#if projectSettingsDraftReady}
     <div class="relative min-h-0 flex-1">
       <div
@@ -2838,9 +2838,10 @@
         <div class="min-w-0 flex-1"></div>
       {/if}
       <button
-        type="submit"
+        type="button"
         class="flex min-h-8 shrink-0 items-center gap-1.5 rounded-md bg-primary px-2 text-[0.8rem] font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-60"
         disabled={projectSettingsSaving || !projectSettingsDirty}
+        onclick={() => { void saveProjectSettings(); }}
       >
         <Save size={14} strokeWidth={1.75} />
         <span>{projectSettingsSaving ? t("common.loading") : t("projects.settings.save")}</span>
