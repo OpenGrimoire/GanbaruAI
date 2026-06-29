@@ -64,8 +64,10 @@ pub(in crate::projects) async fn ensure_custom_field_accepts_options_in_pool(
     .await
     .map_err(|e| format!("load project custom field: {e}"))?
     .ok_or_else(|| "project custom field not found".to_string())?;
-    if field_type != "select" && field_type != "multi_select" {
-        return Err("custom field options require select or multi-select field".to_string());
+    if field_type != "select" && field_type != "multi_select" && field_type != "status" {
+        return Err(
+            "custom field options require select, multi-select, or status field".to_string(),
+        );
     }
     Ok(())
 }
@@ -111,7 +113,7 @@ async fn custom_field_value_label(
     field: &ProjectCustomFieldRow,
 ) -> Result<Option<String>, String> {
     match field.field_type.as_str() {
-        "text" | "url" => sqlx::query_scalar::<_, String>(
+        "text" | "url" | "phone" | "email" | "person" | "files" => sqlx::query_scalar::<_, String>(
             "SELECT text_value
              FROM project_custom_field_values
              WHERE task_id = ? AND field_id = ?",
@@ -163,7 +165,7 @@ async fn custom_field_value_label(
             .map_err(|e| format!("load custom field checkbox value: {e}"))?;
             Ok(value.map(|checked| bool_to_string(checked != 0)))
         }
-        "select" | "multi_select" => {
+        "select" | "multi_select" | "status" => {
             let option_names = sqlx::query_scalar::<_, String>(
                 "SELECT opt.name
                  FROM project_custom_field_option_values val
@@ -199,13 +201,13 @@ fn ensure_custom_field_value_payload_matches_type(
         .as_ref()
         .is_some_and(|date| !date.trim().is_empty());
     match field_type {
-        "text" | "url" => {
+        "text" | "url" | "phone" | "email" | "person" | "files" => {
             if value.number_value.is_some()
                 || value.date_value.is_some()
                 || value.checkbox_value.is_some()
                 || !value.option_ids.is_empty()
             {
-                return Err("text custom fields only accept text values".to_string());
+                return Err("text-backed custom fields only accept text values".to_string());
             }
         }
         "number" => {
@@ -235,14 +237,14 @@ fn ensure_custom_field_value_payload_matches_type(
                 return Err("checkbox custom fields only accept checkbox values".to_string());
             }
         }
-        "select" => {
+        "select" | "status" => {
             if value.text_value.is_some()
                 || value.number_value.is_some()
                 || value.date_value.is_some()
                 || value.checkbox_value.is_some()
                 || value.option_ids.len() > 1
             {
-                return Err("select custom fields accept one option".to_string());
+                return Err("select and status custom fields accept one option".to_string());
             }
         }
         "multi_select" => {
@@ -256,7 +258,11 @@ fn ensure_custom_field_value_payload_matches_type(
         }
         _ => return Err("unsupported custom field type".to_string()),
     }
-    if field_type != "text" && field_type != "url" && has_text {
+    if !matches!(
+        field_type,
+        "text" | "url" | "phone" | "email" | "person" | "files"
+    ) && has_text
+    {
         return Err("text_value is not valid for this custom field".to_string());
     }
     if field_type != "date" && has_date {
@@ -321,7 +327,7 @@ pub(in crate::projects) async fn update_custom_field_value_with_history(
     .map_err(|e| format!("clear custom field option values: {e}"))?;
 
     match field.field_type.as_str() {
-        "text" | "url" => {
+        "text" | "url" | "phone" | "email" | "person" | "files" => {
             if let Some(text) = value.text_value.as_ref().map(|text| text.trim()) {
                 if !text.is_empty() {
                     upsert_scalar_custom_field_value(
@@ -382,7 +388,7 @@ pub(in crate::projects) async fn update_custom_field_value_with_history(
                 .await?;
             }
         }
-        "select" | "multi_select" => {
+        "select" | "multi_select" | "status" => {
             let option_ids =
                 ensure_options_belong_to_field(tx, &field.id, &value.option_ids).await?;
             for option_id in option_ids {

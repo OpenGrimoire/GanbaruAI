@@ -358,11 +358,16 @@ pub(super) fn validate_custom_field_type(field_type: &str) -> Result<(), String>
         &[
             "text",
             "number",
-            "date",
             "select",
             "multi_select",
+            "status",
+            "date",
+            "person",
+            "files",
             "checkbox",
             "url",
+            "phone",
+            "email",
         ],
     )
 }

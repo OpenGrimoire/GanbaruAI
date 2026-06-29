@@ -1,12 +1,29 @@
 <script lang="ts">
+  import { Temporal } from "@js-temporal/polyfill";
+  import CalendarDays from "@lucide/svelte/icons/calendar-days";
   import Check from "@lucide/svelte/icons/check";
+  import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import Clock from "@lucide/svelte/icons/clock";
   import Eraser from "@lucide/svelte/icons/eraser";
+  import Link2 from "@lucide/svelte/icons/link-2";
+  import Mail from "@lucide/svelte/icons/mail";
+  import Paperclip from "@lucide/svelte/icons/paperclip";
+  import Phone from "@lucide/svelte/icons/phone";
   import Trash2 from "@lucide/svelte/icons/trash-2";
+  import UserRound from "@lucide/svelte/icons/user-round";
+  import X from "@lucide/svelte/icons/x";
   import MiniDatePicker from "$lib/components/calendar/MiniDatePicker.svelte";
   import TimePicker from "$lib/components/calendar/TimePicker.svelte";
   import { formatTimeLabel } from "$lib/components/calendar/utils";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import {
+    projectCustomFieldAllowsMultipleOptions,
+    projectCustomFieldInputType,
+    projectCustomFieldTextInputMode,
+    projectCustomFieldTextValue,
+    projectCustomFieldUsesOptions,
+    projectCustomFieldUsesTextValue,
+  } from "$lib/projects/custom-fields";
   import {
     projectPersonInitials,
     projectPriorityDisplayColor,
@@ -15,6 +32,9 @@
   import { customFieldIdFromTaskListColumn } from "$lib/projects/task-list-columns";
   import {
     type ProjectCustomField,
+    type ProjectCustomFieldOption,
+    type ProjectCustomFieldValue,
+    type ProjectCustomFieldValueUpdate,
     type ProjectPriority,
     type ProjectPriorityConfig,
     type ProjectStatus,
@@ -43,6 +63,10 @@
     blocksCount,
     estimateLabel,
     customFieldDisplayValue,
+    customFieldOptions,
+    customFieldValue,
+    customFieldOptionValues,
+    onSaveCustomFieldValue,
     onToggleStatusMenu,
     onSetStatus,
     onTogglePriorityMenu,
@@ -75,6 +99,14 @@
     blocksCount: number;
     estimateLabel: (minutes: number) => string;
     customFieldDisplayValue: (task: ProjectTask, field: ProjectCustomField) => string | undefined;
+    customFieldOptions: (field: ProjectCustomField) => ProjectCustomFieldOption[];
+    customFieldValue: (task: ProjectTask, field: ProjectCustomField) => ProjectCustomFieldValue | undefined;
+    customFieldOptionValues: (task: ProjectTask, field: ProjectCustomField) => ProjectCustomFieldOption[];
+    onSaveCustomFieldValue: (
+      task: ProjectTask,
+      field: ProjectCustomField,
+      value: Omit<ProjectCustomFieldValueUpdate, "taskId" | "fieldId">,
+    ) => Promise<void>;
     onToggleStatusMenu: () => void;
     onSetStatus: (status: ProjectStatus) => void;
     onTogglePriorityMenu: () => void;
@@ -108,6 +140,9 @@
   let timePickerOpen = $state(false);
   let dateTriggerEl: HTMLButtonElement | undefined = $state();
   let timeTriggerEl: HTMLButtonElement | undefined = $state();
+  let customFieldPanelOpen = $state(false);
+  let customFieldRootEl: HTMLDivElement | undefined = $state();
+  let customFieldTriggerEl: HTMLButtonElement | undefined = $state();
 
   const todayDate = $derived.by(() => {
     const now = new Date();
@@ -121,10 +156,147 @@
     }
   });
 
+  $effect(() => {
+    if (!customFieldPanelOpen) return;
+    const handlePointerDown = (event: PointerEvent): void => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (!customFieldRootEl?.contains(target)) {
+        customFieldPanelOpen = false;
+      }
+    };
+    window.addEventListener("pointerdown", handlePointerDown, true);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown, true);
+    };
+  });
+
   function dateButtonText(dateValue: string | undefined, timeValue: string | undefined, emptyDateLabel: string): string {
     if (!dateValue) return emptyDateLabel;
     if (!timeValue) return dateValue;
     return `${dateValue} ${formatTimeLabel(timeValue, preferences.calendarTimeFormat)}`;
+  }
+
+  function emptyCustomFieldPayload(): Omit<ProjectCustomFieldValueUpdate, "taskId" | "fieldId"> {
+    return {
+      textValue: null,
+      numberValue: null,
+      dateValue: null,
+      checkboxValue: null,
+      optionIds: [],
+    };
+  }
+
+  function customFieldInputValue(field: ProjectCustomField, value: ProjectCustomFieldValue | undefined): string {
+    if (projectCustomFieldUsesTextValue(field.fieldType)) return projectCustomFieldTextValue(value);
+    if (field.fieldType === "number") return value?.numberValue === undefined ? "" : String(value.numberValue);
+    if (field.fieldType === "date") return value?.dateValue ?? "";
+    return "";
+  }
+
+  async function saveCustomFieldText(
+    field: ProjectCustomField,
+    nextValue: string,
+    input?: HTMLInputElement,
+  ): Promise<void> {
+    const value = customFieldValue(task, field);
+    const previousValue = projectCustomFieldTextValue(value);
+    const text = nextValue.trim();
+    if (text === previousValue) return;
+    input?.setCustomValidity("");
+    await onSaveCustomFieldValue(task, field, {
+      ...emptyCustomFieldPayload(),
+      textValue: text || null,
+    });
+  }
+
+  async function saveCustomFieldNumber(
+    field: ProjectCustomField,
+    nextValue: string,
+    input?: HTMLInputElement,
+  ): Promise<void> {
+    const value = customFieldValue(task, field);
+    const current = value?.numberValue;
+    const text = nextValue.trim();
+    const nextNumber = text ? Number(text) : null;
+    if (text && !Number.isFinite(nextNumber)) {
+      input?.setCustomValidity(t("projects.customFields.invalidNumber"));
+      input?.reportValidity();
+      return;
+    }
+    input?.setCustomValidity("");
+    if ((current === undefined && nextNumber === null) || current === nextNumber) return;
+    await onSaveCustomFieldValue(task, field, {
+      ...emptyCustomFieldPayload(),
+      numberValue: nextNumber,
+    });
+  }
+
+  async function saveCustomFieldDate(field: ProjectCustomField, nextValue: string | null): Promise<void> {
+    const value = customFieldValue(task, field);
+    const current = value?.dateValue ?? "";
+    let dateValue: string | null = null;
+    if (nextValue?.trim()) {
+      dateValue = Temporal.PlainDate.from(nextValue.trim()).toString();
+    }
+    if (current === (dateValue ?? "")) return;
+    await onSaveCustomFieldValue(task, field, {
+      ...emptyCustomFieldPayload(),
+      dateValue,
+    });
+  }
+
+  async function saveCustomFieldCheckbox(field: ProjectCustomField, checked: boolean): Promise<void> {
+    if (customFieldValue(task, field)?.checkboxValue === checked) return;
+    await onSaveCustomFieldValue(task, field, {
+      ...emptyCustomFieldPayload(),
+      checkboxValue: checked,
+    });
+  }
+
+  async function saveCustomFieldOptions(
+    field: ProjectCustomField,
+    optionIds: string[],
+  ): Promise<void> {
+    await onSaveCustomFieldValue(task, field, {
+      ...emptyCustomFieldPayload(),
+      optionIds,
+    });
+  }
+
+  function handleCustomFieldInputKeydown(
+    event: KeyboardEvent & { currentTarget: HTMLInputElement },
+    field: ProjectCustomField,
+    value: ProjectCustomFieldValue | undefined,
+  ): void {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      event.currentTarget.blur();
+      return;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.currentTarget.value = customFieldInputValue(field, value);
+      event.currentTarget.blur();
+    }
+  }
+
+  function selectedCustomFieldOptionIds(field: ProjectCustomField): string[] {
+    return customFieldOptionValues(task, field).map((option) => option.id);
+  }
+
+  function customFieldOptionLabel(field: ProjectCustomField): string {
+    const labels = customFieldOptionValues(task, field).map((option) => option.name);
+    return labels.length > 0 ? labels.join(", ") : t("projects.customFields.emptyValue");
+  }
+
+  function customFieldIcon(field: ProjectCustomField) {
+    if (field.fieldType === "url") return Link2;
+    if (field.fieldType === "phone") return Phone;
+    if (field.fieldType === "email") return Mail;
+    if (field.fieldType === "person") return UserRound;
+    if (field.fieldType === "files") return Paperclip;
+    return undefined;
   }
 
   function positionPanel(
@@ -230,6 +402,30 @@
     return {
       destroy() {
         cancelAnimationFrame(frame);
+        window.removeEventListener("resize", updatePosition);
+        window.removeEventListener("scroll", updatePosition, true);
+      },
+    };
+  }
+
+  function positionCustomFieldPanel(node: HTMLElement) {
+    function updatePosition(): void {
+      positionPanel(node, customFieldTriggerEl, {
+        fallbackWidth: Math.max(180, customFieldTriggerEl?.offsetWidth ?? 0),
+        minHeight: 48,
+      });
+    }
+
+    const frame = requestAnimationFrame(updatePosition);
+    const resizeObserver = new ResizeObserver(updatePosition);
+    resizeObserver.observe(node);
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+
+    return {
+      destroy() {
+        cancelAnimationFrame(frame);
+        resizeObserver.disconnect();
         window.removeEventListener("resize", updatePosition);
         window.removeEventListener("scroll", updatePosition, true);
       },
@@ -491,11 +687,175 @@
     {@const customFieldId = customFieldIdFromTaskListColumn(column)}
     {@const customField = customFieldId ? projectCustomFields.find((field) => field.id === customFieldId) : undefined}
     {#if customField}
-      {@const customValue = customFieldDisplayValue(task, customField)}
-      {#if customValue}
-        <span class="min-w-0 truncate text-[0.8rem] text-muted-foreground">
-          {customValue}
-        </span>
+      {@const customValue = customFieldValue(task, customField)}
+      {@const customDisplayValue = customFieldDisplayValue(task, customField)}
+      {#if projectCustomFieldUsesTextValue(customField.fieldType)}
+        {@const FieldIcon = customFieldIcon(customField)}
+        <div class="relative z-10 flex min-w-0 flex-1 items-center gap-1.5">
+          {#if FieldIcon}
+            <FieldIcon size={13} strokeWidth={1.75} class="shrink-0 text-muted-foreground" />
+          {/if}
+          <input
+            type={projectCustomFieldInputType(customField.fieldType)}
+            inputmode={projectCustomFieldTextInputMode(customField.fieldType)}
+            value={customFieldInputValue(customField, customValue)}
+            class="h-7 min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-1 text-[0.8rem] text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-border hover:bg-background focus:border-ring focus:bg-background disabled:cursor-not-allowed disabled:opacity-60"
+            placeholder={t("projects.customFields.emptyValue")}
+            title={customDisplayValue}
+            disabled={Boolean(task.archivedAt)}
+            onblur={(event) => { void saveCustomFieldText(customField, event.currentTarget.value, event.currentTarget); }}
+            onkeydown={(event) => handleCustomFieldInputKeydown(event, customField, customValue)}
+          />
+        </div>
+      {:else if customField.fieldType === "number"}
+        <input
+          type="text"
+          inputmode="decimal"
+          value={customFieldInputValue(customField, customValue)}
+          class="relative z-10 h-7 min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-1 text-[0.8rem] text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-border hover:bg-background focus:border-ring focus:bg-background disabled:cursor-not-allowed disabled:opacity-60"
+          placeholder={t("projects.customFields.emptyValue")}
+          title={customDisplayValue}
+          disabled={Boolean(task.archivedAt)}
+          onblur={(event) => { void saveCustomFieldNumber(customField, event.currentTarget.value, event.currentTarget); }}
+          onkeydown={(event) => handleCustomFieldInputKeydown(event, customField, customValue)}
+        />
+      {:else if customField.fieldType === "checkbox"}
+        {@const checked = customValue?.checkboxValue ?? false}
+        <button
+          type="button"
+          class="relative z-10 flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md border border-border bg-background text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+          role="checkbox"
+          aria-checked={checked}
+          aria-label={customField.name}
+          disabled={Boolean(task.archivedAt)}
+          onclick={() => { void saveCustomFieldCheckbox(customField, !checked); }}
+        >
+          {#if checked}
+            <Check size={14} strokeWidth={2} />
+          {/if}
+        </button>
+      {:else if customField.fieldType === "date"}
+        <div bind:this={customFieldRootEl} class="relative z-10 flex min-w-0 flex-1 items-center gap-1">
+          <button
+            bind:this={customFieldTriggerEl}
+            type="button"
+            class={cn(
+              "flex h-7 min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-md px-1 text-left text-[0.8rem] hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60",
+              customValue?.dateValue ? "text-foreground" : "text-muted-foreground",
+            )}
+            aria-haspopup="dialog"
+            aria-expanded={customFieldPanelOpen}
+            disabled={Boolean(task.archivedAt)}
+            onclick={() => { customFieldPanelOpen = !customFieldPanelOpen; }}
+          >
+            <CalendarDays size={13} strokeWidth={1.75} class="shrink-0" />
+            <span class="min-w-0 truncate">{customValue?.dateValue ?? t("projects.customFields.emptyValue")}</span>
+          </button>
+          {#if customValue?.dateValue}
+            <button
+              type="button"
+              class="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+              aria-label={t("projects.detail.clearDate", customField.name)}
+              disabled={Boolean(task.archivedAt)}
+              onclick={() => { void saveCustomFieldDate(customField, null); }}
+            >
+              <X size={13} strokeWidth={1.75} />
+            </button>
+          {/if}
+          {#if customFieldPanelOpen}
+            <div
+              class="fixed z-40 w-60 rounded-lg border border-border bg-popover p-2 text-popover-foreground shadow-sm"
+              role="dialog"
+              aria-label={customField.name}
+              use:positionCustomFieldPanel
+            >
+              <MiniDatePicker
+                selectedDate={customValue?.dateValue ?? todayDate}
+                small
+                highlightMode="none"
+                activeHighlight="primary"
+                onselect={(dateStr) => {
+                  void saveCustomFieldDate(customField, dateStr);
+                  customFieldPanelOpen = false;
+                }}
+                oncancel={() => { customFieldPanelOpen = false; }}
+              />
+            </div>
+          {/if}
+        </div>
+      {:else if projectCustomFieldUsesOptions(customField.fieldType)}
+        {@const selectedOptionIds = selectedCustomFieldOptionIds(customField)}
+        {@const multiple = projectCustomFieldAllowsMultipleOptions(customField.fieldType)}
+        <div bind:this={customFieldRootEl} class="relative z-10 min-w-0 flex-1">
+          <button
+            bind:this={customFieldTriggerEl}
+            type="button"
+            class={cn(
+              "flex h-7 min-w-0 max-w-full cursor-pointer items-center justify-between gap-2 rounded-md px-1.5 text-left text-[0.8rem] hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60",
+              selectedOptionIds.length > 0 ? "text-foreground" : "text-muted-foreground",
+            )}
+            aria-haspopup="menu"
+            aria-expanded={customFieldPanelOpen}
+            disabled={Boolean(task.archivedAt)}
+            title={customDisplayValue}
+            onclick={() => { customFieldPanelOpen = !customFieldPanelOpen; }}
+          >
+            <span class="min-w-0 truncate">{customFieldOptionLabel(customField)}</span>
+            <ChevronDown size={13} strokeWidth={1.75} class="shrink-0" />
+          </button>
+          {#if customFieldPanelOpen}
+            <div
+              class="fixed z-40 min-w-44 rounded-lg border border-border bg-popover p-1 text-[0.8rem] text-popover-foreground shadow-sm"
+              role="menu"
+              aria-label={customField.name}
+              use:positionCustomFieldPanel
+            >
+              {#if selectedOptionIds.length > 0}
+                <button
+                  type="button"
+                  class="flex min-h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-left text-muted-foreground hover:bg-accent hover:text-foreground"
+                  role="menuitem"
+                  onclick={() => {
+                    void saveCustomFieldOptions(customField, []);
+                    if (!multiple) customFieldPanelOpen = false;
+                  }}
+                >
+                  <Eraser size={13} strokeWidth={1.75} class="shrink-0" />
+                  <span class="truncate">{t("projects.customFields.clearValue")}</span>
+                </button>
+              {/if}
+              {#each customFieldOptions(customField) as option (option.id)}
+                {@const optionSelected = selectedOptionIds.includes(option.id)}
+                <button
+                  type="button"
+                  class="flex min-h-8 w-full cursor-pointer items-center justify-between gap-2 rounded-md px-2 text-left hover:bg-accent hover:text-foreground"
+                  role={multiple ? "menuitemcheckbox" : "menuitemradio"}
+                  aria-checked={optionSelected}
+                  onclick={() => {
+                    if (multiple) {
+                      void saveCustomFieldOptions(
+                        customField,
+                        optionSelected
+                          ? selectedOptionIds.filter((optionId) => optionId !== option.id)
+                          : [...selectedOptionIds, option.id],
+                      );
+                    } else {
+                      void saveCustomFieldOptions(customField, [option.id]);
+                      customFieldPanelOpen = false;
+                    }
+                  }}
+                >
+                  <span class="min-w-0 truncate">{option.name}</span>
+                  {#if optionSelected}
+                    <Check size={13} strokeWidth={2} class="shrink-0 text-muted-foreground" />
+                  {/if}
+                </button>
+              {:else}
+                <div class="px-2 py-2 text-muted-foreground">{t("projects.customFields.noOptions")}</div>
+              {/each}
+            </div>
+          {/if}
+        </div>
       {/if}
     {/if}
   {/if}

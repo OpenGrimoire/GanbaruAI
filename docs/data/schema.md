@@ -550,10 +550,10 @@ Project management stores structured work data in SQLite. The user-facing hierar
 - `project_task_change_events`: append-only task activity and requirement change events.
 - `project_view_preferences`: per-project view settings for Dashboard, List, Kanban, Calendar, and Gantt.
 - `project_custom_emojis`: vault-level reusable custom emoji for project and group icons. Rows store a display name, sort order, and an asset path under `assets/project-icons/`; names are required but not globally unique. Image assets support PNG, JPEG, and WebP files.
-- `project_custom_fields`: project-local typed field definitions. Supported field types are text, number, date, select, multi-select, checkbox, and URL.
-- `project_custom_field_options`: ordered option rows for select and multi-select fields.
-- `project_custom_field_values`: typed scalar task values for text, number, date, checkbox, and URL fields. Values are queryable columns, not JSON blobs.
-- `project_custom_field_option_values`: many-to-many task option values for select and multi-select fields.
+- `project_custom_fields`: project-local typed field definitions. Supported field types are text, number, select, multi-select, status, date, person, files, checkbox, URL, phone, and email.
+- `project_custom_field_options`: ordered option rows for select, multi-select, and status fields.
+- `project_custom_field_values`: typed scalar task values for text-backed fields, number, date, and checkbox fields. Text-backed fields include text, person, files, URL, phone, and email. Values are queryable columns, not JSON blobs.
+- `project_custom_field_option_values`: many-to-many task option values for select, multi-select, and status fields.
 
 Fresh databases seed the Routine group and its default routine projects. Routine is stored as a normal group.
 

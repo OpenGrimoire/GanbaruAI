@@ -30,6 +30,7 @@
     PROJECT_MAX_DURATION_MINUTES,
     type ProjectDefaultEventTimeMode,
   } from "$lib/projects/project-settings-duration";
+  import { projectCustomFieldUsesOptions } from "$lib/projects/custom-fields";
   import {
     PROJECT_CUSTOM_FIELD_TYPES,
     PROJECT_LIFECYCLE_STATUSES,
@@ -553,11 +554,11 @@
   }
 
   function customFieldAcceptsOptions(field: ProjectCustomField): boolean {
-    return field.fieldType === "select" || field.fieldType === "multi_select";
+    return projectCustomFieldUsesOptions(field.fieldType);
   }
 
   function newCustomFieldAcceptsOptions(): boolean {
-    return newCustomFieldType === "select" || newCustomFieldType === "multi_select";
+    return projectCustomFieldUsesOptions(newCustomFieldType);
   }
 
   function customFieldNameDraftValue(field: ProjectCustomField): string {

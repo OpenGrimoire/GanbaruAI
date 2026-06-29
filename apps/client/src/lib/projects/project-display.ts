@@ -172,11 +172,16 @@ export function projectTaskTypeLabel(taskType: ProjectTaskType, t: Translate): s
 
 export function projectCustomFieldTypeLabel(fieldType: ProjectCustomFieldType, t: Translate): string {
   if (fieldType === "number") return t("projects.customFields.typeNumber");
-  if (fieldType === "date") return t("projects.customFields.typeDate");
   if (fieldType === "select") return t("projects.customFields.typeSelect");
   if (fieldType === "multi_select") return t("projects.customFields.typeMultiSelect");
+  if (fieldType === "status") return t("projects.customFields.typeStatus");
+  if (fieldType === "date") return t("projects.customFields.typeDate");
+  if (fieldType === "person") return t("projects.customFields.typePerson");
+  if (fieldType === "files") return t("projects.customFields.typeFiles");
   if (fieldType === "checkbox") return t("projects.customFields.typeCheckbox");
   if (fieldType === "url") return t("projects.customFields.typeUrl");
+  if (fieldType === "phone") return t("projects.customFields.typePhone");
+  if (fieldType === "email") return t("projects.customFields.typeEmail");
   return t("projects.customFields.typeText");
 }
 

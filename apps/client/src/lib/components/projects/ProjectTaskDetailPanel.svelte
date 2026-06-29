@@ -28,6 +28,12 @@
     projectTaskArchivedBadgeClass,
     projectTaskTypeLabel,
   } from "$lib/projects/project-display";
+  import {
+    projectCustomFieldInputType,
+    projectCustomFieldTextInputMode,
+    projectCustomFieldUsesOptions,
+    projectCustomFieldUsesTextValue,
+  } from "$lib/projects/custom-fields";
   import { PROJECT_TASK_TYPES } from "$lib/projects/types";
   import type {
     ProjectChecklistItem,
@@ -312,7 +318,7 @@
   function customFieldValueDirty(task: ProjectTask, field: ProjectCustomField): boolean {
     const value = projects.customFieldValueForTask(task.id, field.id);
     const optionValues = projects.customFieldOptionValuesForTask(task.id, field.id);
-    if (field.fieldType === "text" || field.fieldType === "url") {
+    if (projectCustomFieldUsesTextValue(field.fieldType)) {
       return (customFieldTextDrafts[field.id] ?? "") !== (value?.textValue ?? "");
     }
     if (field.fieldType === "number") {
@@ -324,7 +330,7 @@
     if (field.fieldType === "checkbox") {
       return (customFieldCheckboxDrafts[field.id] ?? false) !== (value?.checkboxValue ?? false);
     }
-    if (field.fieldType === "select") {
+    if (field.fieldType === "select" || field.fieldType === "status") {
       return (customFieldSelectDrafts[field.id] ?? "none") !== (optionValues[0]?.id ?? "none");
     }
     const currentIds = optionValues.map((option) => option.id).sort();
@@ -613,7 +619,7 @@
       let dateValue: string | null = null;
       let checkboxValue: boolean | null = null;
       let optionIds: string[] = [];
-      if (field.fieldType === "text" || field.fieldType === "url") {
+      if (projectCustomFieldUsesTextValue(field.fieldType)) {
         const text = (customFieldTextDrafts[field.id] ?? "").trim();
         textValue = text || null;
       } else if (field.fieldType === "number") {
@@ -638,7 +644,7 @@
         }
       } else if (field.fieldType === "checkbox") {
         checkboxValue = customFieldCheckboxDrafts[field.id] ?? false;
-      } else if (field.fieldType === "select") {
+      } else if (field.fieldType === "select" || field.fieldType === "status") {
         const optionId = customFieldSelectDrafts[field.id] ?? "none";
         optionIds = optionId === "none" ? [] : [optionId];
       } else {
@@ -1321,10 +1327,11 @@
                         </button>
                       </div>
 
-                      {#if field.fieldType === "text" || field.fieldType === "url"}
+                      {#if projectCustomFieldUsesTextValue(field.fieldType)}
                         <input
+                          type={projectCustomFieldInputType(field.fieldType)}
                           value={customFieldTextDrafts[field.id] ?? ""}
-                          inputmode={field.fieldType === "url" ? "url" : "text"}
+                          inputmode={projectCustomFieldTextInputMode(field.fieldType)}
                           class="min-h-8 rounded-md border border-border bg-card px-2 text-[0.8rem] text-foreground"
                           placeholder={t("projects.customFields.emptyValue")}
                           oninput={(event) => {
@@ -1415,7 +1422,7 @@
                           />
                           <span>{field.name}</span>
                         </label>
-                      {:else if field.fieldType === "select"}
+                      {:else if field.fieldType === "select" || field.fieldType === "status"}
                         <div class="flex flex-wrap gap-1">
                           <button
                             type="button"
@@ -1458,7 +1465,7 @@
                             </div>
                           {/each}
                         </div>
-                      {:else}
+                      {:else if projectCustomFieldUsesOptions(field.fieldType)}
                         <div class="flex flex-wrap gap-1">
                           {#each customFieldOptions(field) as option (option.id)}
                             {@const optionSelected = (customFieldMultiDrafts[field.id] ?? []).includes(option.id)}

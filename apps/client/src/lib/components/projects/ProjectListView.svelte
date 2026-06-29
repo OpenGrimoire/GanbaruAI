@@ -20,6 +20,10 @@
   import { cn } from "$lib/utils";
   import { projectPriorityDisplayLabel } from "$lib/projects/project-display";
   import {
+    projectCustomFieldDisplayText,
+    projectCustomFieldUsesOptions,
+  } from "$lib/projects/custom-fields";
+  import {
     clampProjectTaskListManualColumnWidth,
     projectTaskListDoubleClickColumnWidthRem,
     projectTaskListResizableColumnWidthRem,
@@ -36,6 +40,8 @@
   import {
     type ProjectCustomField,
     type ProjectCustomFieldOption,
+    type ProjectCustomFieldValue,
+    type ProjectCustomFieldValueUpdate,
     type ProjectTag,
     type ProjectPriority,
     type ProjectPriorityConfig,
@@ -996,27 +1002,39 @@
 
   function customFieldDisplayValue(task: ProjectTask, field: ProjectCustomField): string | undefined {
     const value = projects.customFieldValueForTask(task.id, field.id);
-    if (field.fieldType === "text" || field.fieldType === "url") {
-      const text = value?.textValue?.trim();
-      return text || undefined;
-    }
-    if (field.fieldType === "number") {
-      const number = value?.numberValue;
-      if (number === undefined) return undefined;
-      return Number.isInteger(number) ? number.toFixed(0) : number.toString();
-    }
-    if (field.fieldType === "date") {
-      return value?.dateValue || undefined;
-    }
+    const displayText = projectCustomFieldDisplayText(value, field);
+    if (displayText !== undefined && field.fieldType !== "checkbox") return displayText;
     if (field.fieldType === "checkbox") {
       if (value?.checkboxValue === undefined) return undefined;
       return value.checkboxValue
         ? t("projects.customFields.checked")
         : t("projects.customFields.unchecked");
     }
+    if (!projectCustomFieldUsesOptions(field.fieldType)) return undefined;
     const optionNames = projects.customFieldOptionValuesForTask(task.id, field.id)
       .map((option) => option.name);
     return optionNames.length > 0 ? optionNames.join(", ") : undefined;
+  }
+
+  function customFieldValue(task: ProjectTask, field: ProjectCustomField): ProjectCustomFieldValue | undefined {
+    return projects.customFieldValueForTask(task.id, field.id);
+  }
+
+  function customFieldOptionValues(task: ProjectTask, field: ProjectCustomField): ProjectCustomFieldOption[] {
+    return projects.customFieldOptionValuesForTask(task.id, field.id);
+  }
+
+  async function saveTaskCustomFieldValueFromList(
+    task: ProjectTask,
+    field: ProjectCustomField,
+    value: Omit<ProjectCustomFieldValueUpdate, "taskId" | "fieldId">,
+  ): Promise<void> {
+    if (task.archivedAt) return;
+    await projects.saveCustomFieldValue({
+      taskId: task.id,
+      fieldId: field.id,
+      ...value,
+    });
   }
 
   function sectionForTask(task: ProjectTask): ProjectSection | undefined {
@@ -1581,7 +1599,11 @@
                   theme={theme.current}
                   {estimateLabel}
                   {customFieldDisplayValue}
+                  {customFieldOptions}
+                  {customFieldValue}
+                  {customFieldOptionValues}
                   {statusForTask}
+                  onSaveCustomFieldValue={saveTaskCustomFieldValueFromList}
                   onToggleTaskSelection={toggleTaskSelection}
                   onOpenTask={openTaskDetail}
                   onPointerDown={(event) => handleListRowPointerDown(event, task)}
@@ -1869,7 +1891,11 @@
                 theme={theme.current}
                 {estimateLabel}
                 {customFieldDisplayValue}
+                {customFieldOptions}
+                {customFieldValue}
+                {customFieldOptionValues}
                 {statusForTask}
+                onSaveCustomFieldValue={saveTaskCustomFieldValueFromList}
                 onToggleTaskSelection={toggleTaskSelection}
                 onOpenTask={openTaskDetail}
                 onToggleStatusMenu={() => {

@@ -9,6 +9,9 @@
   } from "$lib/projects/project-display";
   import type {
     ProjectCustomField,
+    ProjectCustomFieldOption,
+    ProjectCustomFieldValue,
+    ProjectCustomFieldValueUpdate,
     ProjectTag,
     ProjectPriority,
     ProjectPriorityConfig,
@@ -49,7 +52,11 @@
     theme,
     estimateLabel,
     customFieldDisplayValue,
+    customFieldOptions,
+    customFieldValue,
+    customFieldOptionValues,
     statusForTask,
+    onSaveCustomFieldValue,
     onToggleTaskSelection,
     onOpenTask,
     onPointerDown,
@@ -104,7 +111,15 @@
     theme: Theme;
     estimateLabel: (minutes: number) => string;
     customFieldDisplayValue: (task: ProjectTask, field: ProjectCustomField) => string | undefined;
+    customFieldOptions: (field: ProjectCustomField) => ProjectCustomFieldOption[];
+    customFieldValue: (task: ProjectTask, field: ProjectCustomField) => ProjectCustomFieldValue | undefined;
+    customFieldOptionValues: (task: ProjectTask, field: ProjectCustomField) => ProjectCustomFieldOption[];
     statusForTask: (task: ProjectTask) => ProjectStatus | undefined;
+    onSaveCustomFieldValue: (
+      task: ProjectTask,
+      field: ProjectCustomField,
+      value: Omit<ProjectCustomFieldValueUpdate, "taskId" | "fieldId">,
+    ) => Promise<void>;
     onToggleTaskSelection: (task: ProjectTask) => void;
     onOpenTask: (task: ProjectTask) => void;
     onPointerDown?: (event: PointerEvent) => void;
@@ -249,6 +264,10 @@
         {blocksCount}
         {estimateLabel}
         {customFieldDisplayValue}
+        {customFieldOptions}
+        {customFieldValue}
+        {customFieldOptionValues}
+        onSaveCustomFieldValue={onSaveCustomFieldValue}
         onToggleStatusMenu={onToggleStatusMenu}
         onSetStatus={onSetStatus}
         onTogglePriorityMenu={onTogglePriorityMenu}

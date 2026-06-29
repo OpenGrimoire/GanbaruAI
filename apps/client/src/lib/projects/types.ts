@@ -63,11 +63,16 @@ export type ProjectTaskType = (typeof PROJECT_TASK_TYPES)[number];
 export const PROJECT_CUSTOM_FIELD_TYPES = [
   "text",
   "number",
-  "date",
   "select",
   "multi_select",
+  "status",
+  "date",
+  "person",
+  "files",
   "checkbox",
   "url",
+  "phone",
+  "email",
 ] as const;
 export type ProjectCustomFieldType = (typeof PROJECT_CUSTOM_FIELD_TYPES)[number];
 

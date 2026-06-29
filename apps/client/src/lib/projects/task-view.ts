@@ -238,7 +238,7 @@ function taskCustomFieldHasValue(
   task: ProjectTask,
   field: ProjectCustomField,
 ): boolean {
-  if (field.fieldType === "select" || field.fieldType === "multi_select") {
+  if (field.fieldType === "select" || field.fieldType === "multi_select" || field.fieldType === "status") {
     return taskCustomFieldOptionIds(input, task.id, field.id).size > 0;
   }
   const value = taskCustomFieldValue(input, task.id, field.id);
@@ -263,7 +263,7 @@ function taskCustomFieldMatches(
     return taskCustomFieldValue(input, task.id, field.id)?.checkboxValue === filter.checked;
   }
   if (filter.mode !== "option") return true;
-  if (field.fieldType !== "select" && field.fieldType !== "multi_select") return true;
+  if (field.fieldType !== "select" && field.fieldType !== "multi_select" && field.fieldType !== "status") return true;
   return taskCustomFieldOptionIds(input, task.id, field.id).has(filter.optionId);
 }
 
@@ -338,7 +338,7 @@ function customFieldSortText(
   field: ProjectCustomField,
   input: ProjectTaskViewInput,
 ): string | undefined {
-  if (field.fieldType === "select" || field.fieldType === "multi_select") {
+  if (field.fieldType === "select" || field.fieldType === "multi_select" || field.fieldType === "status") {
     return customFieldOptionNamesForTask(task, field, input);
   }
   const value = taskCustomFieldValue(input, task.id, field.id);

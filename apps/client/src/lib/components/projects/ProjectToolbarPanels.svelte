@@ -35,6 +35,7 @@
     customFieldIdFromCustomFieldReference,
     customFieldReference,
   } from "$lib/projects/task-list-columns";
+  import { projectCustomFieldUsesOptions } from "$lib/projects/custom-fields";
   import {
     PROJECT_TASK_GROUP_MODES,
     PROJECT_TASK_SORT_MODES,
@@ -919,7 +920,7 @@
           {#if field}
             {@const currentCustomFieldFilter = customFieldFilterFor(field.id)}
             {@render optionRow(t("projects.filters.allValues"), currentCustomFieldFilter === undefined, () => clearTaskCustomFieldFilter(field.id))}
-            {#if field.fieldType === "select" || field.fieldType === "multi_select"}
+            {#if projectCustomFieldUsesOptions(field.fieldType)}
               {@render optionRow(t("projects.filters.empty"), currentCustomFieldFilter?.mode === "empty", () => setTaskCustomFieldFilter({ fieldId: field.id, mode: "empty" }))}
               {#each projects.customFieldOptionsForField(field.id) as option (option.id)}
                 {@render optionRow(option.name, currentCustomFieldFilter?.mode === "option" && currentCustomFieldFilter.optionId === option.id, () => setTaskCustomFieldFilter({ fieldId: field.id, mode: "option", optionId: option.id }))}
