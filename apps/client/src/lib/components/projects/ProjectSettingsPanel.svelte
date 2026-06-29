@@ -82,6 +82,12 @@
   const PROJECT_TAG_DRAG_DATA_TYPE = "application/x-ganbaru-project-tag";
   const PROJECT_CUSTOM_FIELD_DRAG_DATA_TYPE = "application/x-ganbaru-project-custom-field";
   const PROJECT_CUSTOM_FIELD_OPTION_DRAG_DATA_TYPE = "application/x-ganbaru-project-custom-field-option";
+  const CUSTOM_FIELD_OPTION_CONNECTOR_SPINE_OFFSET_REM = 1.125;
+  const CUSTOM_FIELD_OPTION_CONNECTOR_START_Y_REM = -0.625;
+  const CUSTOM_FIELD_OPTION_CONNECTOR_FIRST_CENTER_Y_REM = 1;
+  const CUSTOM_FIELD_OPTION_CONNECTOR_ROW_STEP_REM = 2.5;
+  const CUSTOM_FIELD_OPTION_CONNECTOR_RADIUS_REM = 0.45;
+  const CUSTOM_FIELD_OPTION_CONNECTOR_PADDING_REM = 0.15;
   type SelectOption = { value: string; label: string };
   type StatusDropPosition = "before" | "after";
   type PriorityDropPosition = "before" | "after";
@@ -473,6 +479,77 @@
       longBreakMinutes: projectPomodoroLongBreakDraft,
       longBreakAfterFocusCount: projectPomodoroLongBreakAfterFocusDraft,
     };
+  }
+
+  function svgNumber(value: number): string {
+    return Number(value.toFixed(3)).toString();
+  }
+
+  function customFieldOptionConnectorCenterY(index: number): number {
+    return CUSTOM_FIELD_OPTION_CONNECTOR_FIRST_CENTER_Y_REM
+      + index * CUSTOM_FIELD_OPTION_CONNECTOR_ROW_STEP_REM;
+  }
+
+  function customFieldOptionConnectorBottom(optionCount: number): number {
+    return customFieldOptionConnectorCenterY(optionCount - 1)
+      + CUSTOM_FIELD_OPTION_CONNECTOR_PADDING_REM;
+  }
+
+  function customFieldOptionConnectorTop(): number {
+    return CUSTOM_FIELD_OPTION_CONNECTOR_START_Y_REM
+      - CUSTOM_FIELD_OPTION_CONNECTOR_PADDING_REM;
+  }
+
+  function customFieldOptionConnectorHeight(optionCount: number): number {
+    return customFieldOptionConnectorBottom(optionCount) - customFieldOptionConnectorTop();
+  }
+
+  function customFieldOptionConnectorStyle(optionCount: number): string {
+    const width = CUSTOM_FIELD_OPTION_CONNECTOR_SPINE_OFFSET_REM
+      + CUSTOM_FIELD_OPTION_CONNECTOR_PADDING_REM * 2;
+    const left = -(CUSTOM_FIELD_OPTION_CONNECTOR_SPINE_OFFSET_REM + CUSTOM_FIELD_OPTION_CONNECTOR_PADDING_REM);
+    return [
+      `left: ${svgNumber(left)}rem`,
+      `top: ${svgNumber(customFieldOptionConnectorTop())}rem`,
+      `width: ${svgNumber(width)}rem`,
+      `height: ${svgNumber(customFieldOptionConnectorHeight(optionCount))}rem`,
+    ].join("; ");
+  }
+
+  function customFieldOptionConnectorViewBox(optionCount: number): string {
+    const left = -CUSTOM_FIELD_OPTION_CONNECTOR_PADDING_REM;
+    const top = customFieldOptionConnectorTop();
+    const width = CUSTOM_FIELD_OPTION_CONNECTOR_SPINE_OFFSET_REM
+      + CUSTOM_FIELD_OPTION_CONNECTOR_PADDING_REM * 2;
+    const height = customFieldOptionConnectorHeight(optionCount);
+    return [
+      svgNumber(left),
+      svgNumber(top),
+      svgNumber(width),
+      svgNumber(height),
+    ].join(" ");
+  }
+
+  function customFieldOptionConnectorPath(optionCount: number): string {
+    if (optionCount <= 0) return "";
+    const branchRadius = CUSTOM_FIELD_OPTION_CONNECTOR_RADIUS_REM;
+    const spineEndY = customFieldOptionConnectorCenterY(optionCount - 1) - branchRadius;
+    const parts = [
+      `M 0 ${svgNumber(CUSTOM_FIELD_OPTION_CONNECTOR_START_Y_REM)}`,
+      `L 0 ${svgNumber(spineEndY)}`,
+    ];
+    for (let index = 0; index < optionCount; index += 1) {
+      const centerY = customFieldOptionConnectorCenterY(index);
+      const curveStartY = centerY - branchRadius;
+      const curveMidX = branchRadius * 0.32;
+      const curveMidY = centerY - branchRadius * 0.22;
+      parts.push(
+        `M 0 ${svgNumber(curveStartY)}`,
+        `C 0 ${svgNumber(curveMidY)} ${svgNumber(curveMidX)} ${svgNumber(centerY)} ${svgNumber(branchRadius)} ${svgNumber(centerY)}`,
+        `L ${svgNumber(CUSTOM_FIELD_OPTION_CONNECTOR_SPINE_OFFSET_REM)} ${svgNumber(centerY)}`,
+      );
+    }
+    return parts.join(" ");
   }
 
   function customFieldAcceptsOptions(field: ProjectCustomField): boolean {
@@ -2231,7 +2308,7 @@
             <div class="flex flex-col gap-2">
               {#each projectCustomFields as field (field.id)}
                 {@const fieldOptions = customFieldOptions(field)}
-                <div class="flex flex-col gap-2">
+                <div class="custom-field-config flex flex-col gap-2">
                   <div
                     class={cn(
                       "relative grid min-h-7 grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-1.5 px-1 py-0.5",
@@ -2301,66 +2378,78 @@
 
                   {#if customFieldAcceptsOptions(field)}
                     <div class="flex flex-col gap-2 pl-9 pr-1">
-                      {#each fieldOptions as option (option.id)}
-                        <div
-                          class={cn(
-                            "relative grid min-h-7 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-1.5 py-0.5",
-                            draggedCustomFieldOptionId === option.id && "opacity-50",
-                          )}
-                          role="group"
-                          aria-label={option.name}
-                          ondragover={(event) => handleCustomFieldOptionDragOver(event, option, event.currentTarget)}
-                          ondrop={(event) => { void dropCustomFieldOption(event, option); }}
-                        >
-                          {#if customFieldOptionDropMarkerVisible(option.id, "before")}
-                            <div class="pointer-events-none absolute left-0 right-0 top-0 h-0.5 rounded-full bg-primary"></div>
-                          {/if}
-                          {#if customFieldOptionDropMarkerVisible(option.id, "after")}
-                            <div class="pointer-events-none absolute bottom-0 left-0 right-0 h-0.5 rounded-full bg-primary"></div>
-                          {/if}
-                          <button
-                            type="button"
-                            class="flex h-7 w-7 shrink-0 cursor-grab items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-40"
-                            draggable={fieldOptions.length > 1 && !customFieldOptionReorderPending}
-                            disabled={fieldOptions.length <= 1 || customFieldOptionReorderPending}
-                            aria-label={t("projects.actions.dragCustomFieldOption", option.name)}
-                            ondragstart={(event) => handleCustomFieldOptionDragStart(event, option)}
-                            ondragend={clearCustomFieldOptionDrag}
-                            onkeydown={(event) => {
-                              if (event.key === "ArrowUp") {
-                                event.preventDefault();
-                                void moveProjectCustomFieldOption(option, -1);
-                              }
-                              if (event.key === "ArrowDown") {
-                                event.preventDefault();
-                                void moveProjectCustomFieldOption(option, 1);
-                              }
-                            }}
+                      {#if fieldOptions.length > 0}
+                        <div class="custom-field-option-branch flex flex-col gap-2">
+                          <svg
+                            class="custom-field-option-connector"
+                            aria-hidden="true"
+                            viewBox={customFieldOptionConnectorViewBox(fieldOptions.length)}
+                            style={customFieldOptionConnectorStyle(fieldOptions.length)}
                           >
-                            <GripVertical size={13} strokeWidth={1.75} />
-                          </button>
-                          <input
-                            value={customFieldOptionNameDraftValue(option)}
-                            class="h-7 min-w-0 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:border-ring placeholder:text-muted-foreground"
-                            aria-label={t("projects.customFields.optionName")}
-                            oninput={(event) => {
-                              customFieldOptionNameDrafts = {
-                                ...customFieldOptionNameDrafts,
-                                [option.id]: event.currentTarget.value,
-                              };
-                            }}
-                          />
-                          <button
-                            type="button"
-                            class={iconButtonClass("danger")}
-                            aria-label={t("projects.actions.deleteCustomFieldOption", option.name)}
-                            title={t("projects.actions.deleteCustomFieldOption", option.name)}
-                            onclick={() => requestDeleteCustomFieldOption(option)}
-                          >
-                            <Trash2 size={13} strokeWidth={1.75} />
-                          </button>
+                            <path d={customFieldOptionConnectorPath(fieldOptions.length)} />
+                          </svg>
+                          {#each fieldOptions as option (option.id)}
+                            <div
+                              class={cn(
+                                "relative grid min-h-7 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-1.5 py-0.5",
+                                draggedCustomFieldOptionId === option.id && "opacity-50",
+                              )}
+                              role="group"
+                              aria-label={option.name}
+                              ondragover={(event) => handleCustomFieldOptionDragOver(event, option, event.currentTarget)}
+                              ondrop={(event) => { void dropCustomFieldOption(event, option); }}
+                            >
+                              {#if customFieldOptionDropMarkerVisible(option.id, "before")}
+                                <div class="pointer-events-none absolute left-0 right-0 top-0 h-0.5 rounded-full bg-primary"></div>
+                              {/if}
+                              {#if customFieldOptionDropMarkerVisible(option.id, "after")}
+                                <div class="pointer-events-none absolute bottom-0 left-0 right-0 h-0.5 rounded-full bg-primary"></div>
+                              {/if}
+                              <button
+                                type="button"
+                                class="flex h-7 w-7 shrink-0 cursor-grab items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-40"
+                                draggable={fieldOptions.length > 1 && !customFieldOptionReorderPending}
+                                disabled={fieldOptions.length <= 1 || customFieldOptionReorderPending}
+                                aria-label={t("projects.actions.dragCustomFieldOption", option.name)}
+                                ondragstart={(event) => handleCustomFieldOptionDragStart(event, option)}
+                                ondragend={clearCustomFieldOptionDrag}
+                                onkeydown={(event) => {
+                                  if (event.key === "ArrowUp") {
+                                    event.preventDefault();
+                                    void moveProjectCustomFieldOption(option, -1);
+                                  }
+                                  if (event.key === "ArrowDown") {
+                                    event.preventDefault();
+                                    void moveProjectCustomFieldOption(option, 1);
+                                  }
+                                }}
+                              >
+                                <GripVertical size={13} strokeWidth={1.75} />
+                              </button>
+                              <input
+                                value={customFieldOptionNameDraftValue(option)}
+                                class="h-7 min-w-0 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:border-ring placeholder:text-muted-foreground"
+                                aria-label={t("projects.customFields.optionName")}
+                                oninput={(event) => {
+                                  customFieldOptionNameDrafts = {
+                                    ...customFieldOptionNameDrafts,
+                                    [option.id]: event.currentTarget.value,
+                                  };
+                                }}
+                              />
+                              <button
+                                type="button"
+                                class={iconButtonClass("danger")}
+                                aria-label={t("projects.actions.deleteCustomFieldOption", option.name)}
+                                title={t("projects.actions.deleteCustomFieldOption", option.name)}
+                                onclick={() => requestDeleteCustomFieldOption(option)}
+                              >
+                                <Trash2 size={13} strokeWidth={1.75} />
+                              </button>
+                            </div>
+                          {/each}
                         </div>
-                      {/each}
+                      {/if}
                       <div class="grid min-h-7 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-1.5 py-0.5">
                         {@render newRowDragHandle(fieldOptions.length === 0)}
                         <input
@@ -2858,5 +2947,31 @@
       black calc(100% - var(--project-settings-scroll-fade-size)),
       transparent
     );
+  }
+
+  .custom-field-config {
+    --custom-field-option-branch-color: color-mix(
+      in srgb,
+      var(--muted-foreground) 54%,
+      var(--card)
+    );
+  }
+
+  .custom-field-option-branch {
+    position: relative;
+  }
+
+  .custom-field-option-connector {
+    position: absolute;
+    pointer-events: none;
+    overflow: visible;
+  }
+
+  .custom-field-option-connector path {
+    fill: none;
+    stroke: var(--custom-field-option-branch-color);
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 0.125;
   }
 </style>
