@@ -4,10 +4,27 @@ import {
   cleanupProjectIconRecentValues,
   filterProjectEmojiEntries,
   filterProjectLucideIcons,
+  projectIconEmojiRecentValues,
+  projectIconLucideRecentValues,
+  projectIconPickerAnchoredPanelPlacement,
+  projectIconPickerGroupVirtualWindow,
+  projectIconPickerIsPrimaryLucideCategory,
+  projectIconPickerLucideCategoryIcon,
+  projectIconPickerLucideCategoryOptions,
+  projectIconPickerLucideGroups,
+  projectIconPickerLucideRecentPreviewValue,
+  projectIconPickerMenuPlacement,
+  projectIconPickerPanelPlacement,
+  projectIconPickerPointPlacement,
+  projectIconPickerPrimaryLucideCategoryOptions,
+  projectIconPickerRandomEmojiIcon,
+  projectIconPickerRandomLucideIcon,
+  projectIconPickerVisibleEmojiCategories,
+  projectIconPickerVisibleCustomEmojis,
+  projectIconVirtualWindow,
   prependProjectIconRecentValue,
   projectEmojiSkinToneFromEmoji,
-  projectIconPickerPanelPlacement,
-  projectIconVirtualWindow,
+  readProjectIconRecentValues,
   stripProjectEmojiSkinTone,
   type ProjectIconPickerRect,
 } from "./project-icon-picker";
@@ -18,6 +35,7 @@ import {
   type ProjectEmojiEntry,
 } from "./project-emoji-catalog";
 import type { ProjectLucideIconEntry } from "./project-lucide-catalog.generated";
+import type { ProjectCustomEmoji } from "./types";
 
 const emojiEntries: readonly ProjectEmojiEntry[] = [
   { emoji: "🚀", name: "rocket", category: "travel", terms: "🚀 rocket" },
@@ -30,6 +48,25 @@ const lucideEntries: readonly ProjectLucideIconEntry[] = [
   { slug: "rocket", label: "Rocket", category: "Travel", terms: "rocket travel", iconNode: [] },
   { slug: "folder", label: "Folder", category: "File icons", terms: "folder file", iconNode: [] },
   { slug: "check", label: "Check", category: "Mathematics", terms: "check done", iconNode: [] },
+];
+
+const customEmojis: readonly ProjectCustomEmoji[] = [
+  {
+    id: "launch",
+    name: "Launch badge",
+    assetPath: "project-icons/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+    sortOrder: 0,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  },
+  {
+    id: "focus",
+    name: "Focus mark",
+    assetPath: "project-icons/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.png",
+    sortOrder: 1,
+    createdAt: "2026-01-02T00:00:00.000Z",
+    updatedAt: "2026-01-02T00:00:00.000Z",
+  },
 ];
 
 const pickerBoundary: ProjectIconPickerRect = {
@@ -64,6 +101,61 @@ describe("project icon picker helpers", () => {
     expect(filterProjectLucideIcons(lucideEntries, "", "Travel").map((entry) => entry.slug)).toEqual(["rocket"]);
   });
 
+  it("builds the visible emoji category tabs with the localized symbols label", () => {
+    expect(projectIconPickerVisibleEmojiCategories("Symbols plus flags")).toEqual([
+      { id: "smileys", label: "Smileys" },
+      { id: "people", label: "People" },
+      { id: "nature", label: "Nature" },
+      { id: "food", label: "Food" },
+      { id: "activity", label: "Activity" },
+      { id: "travel", label: "Travel" },
+      { id: "objects", label: "Objects" },
+      { id: "symbols", label: "Symbols plus flags" },
+    ]);
+  });
+
+  it("builds Lucide category options with preferred icons and primary ordering", () => {
+    const categoryIconEntries: readonly ProjectLucideIconEntry[] = [
+      { slug: "rocket", label: "Rocket", category: "Travel", terms: "rocket travel", iconNode: [] },
+      { slug: "luggage", label: "Luggage", category: "Travel", terms: "luggage travel", iconNode: [] },
+      { slug: "wrench", label: "Wrench", category: "Tools", terms: "wrench tools", iconNode: [] },
+      { slug: "folder", label: "Folder", category: "File icons", terms: "folder file", iconNode: [] },
+    ];
+    const options = projectIconPickerLucideCategoryOptions([
+      "Travel",
+      "Tools",
+      "File icons",
+    ], categoryIconEntries);
+
+    expect(projectIconPickerLucideCategoryIcon("Travel", categoryIconEntries)?.slug).toBe("luggage");
+    expect(options.map((option) => [option.category, option.icon?.slug])).toEqual([
+      ["Travel", "luggage"],
+      ["Tools", "wrench"],
+      ["File icons", "folder"],
+    ]);
+    expect(projectIconPickerPrimaryLucideCategoryOptions(options).map((option) => option.category)).toEqual([
+      "File icons",
+      "Tools",
+    ]);
+    expect(projectIconPickerIsPrimaryLucideCategory("Tools")).toBe(true);
+    expect(projectIconPickerIsPrimaryLucideCategory("Travel")).toBe(false);
+  });
+
+  it("reads recent values from unknown config data", () => {
+    expect(readProjectIconRecentValues(["emoji:🚀", 4, "lucide:folder", null])).toEqual([
+      "emoji:🚀",
+      "lucide:folder",
+    ]);
+    expect(readProjectIconRecentValues("emoji:🚀")).toEqual([]);
+  });
+
+  it("splits recent values by picker tab", () => {
+    const values = ["emoji:🚀", "custom-emoji:launch", "lucide:folder", "none"];
+
+    expect(projectIconEmojiRecentValues(values)).toEqual(["emoji:🚀", "custom-emoji:launch"]);
+    expect(projectIconLucideRecentValues(values)).toEqual(["lucide:folder"]);
+  });
+
   it("cleans recent values by deduplicating and dropping missing custom emoji", () => {
     expect(cleanupProjectIconRecentValues([
       "emoji:🚀",
@@ -80,6 +172,73 @@ describe("project icon picker helpers", () => {
       { kind: "emoji", emoji: "🚀" },
       new Set(),
     )).toEqual(["emoji:🚀", "lucide:folder"]);
+  });
+
+  it("filters custom emoji by name without changing the empty-query order", () => {
+    expect(projectIconPickerVisibleCustomEmojis(customEmojis, "").map((emoji) => emoji.id)).toEqual([
+      "launch",
+      "focus",
+    ]);
+    expect(projectIconPickerVisibleCustomEmojis(customEmojis, "FOCUS").map((emoji) => emoji.id)).toEqual([
+      "focus",
+    ]);
+  });
+
+  it("groups Lucide icons in category order and drops empty categories", () => {
+    expect(projectIconPickerLucideGroups(lucideEntries, [
+      "Mathematics",
+      "Animals",
+      "Travel",
+    ])).toEqual([
+      { category: "Mathematics", entries: [lucideEntries[2]] },
+      { category: "Travel", entries: [lucideEntries[0]] },
+    ]);
+  });
+
+  it("previews recent Lucide icons with the active color policy", () => {
+    expect(projectIconPickerLucideRecentPreviewValue({
+      rawValue: "lucide:folder",
+      allowIconColors: true,
+      iconColor: 3,
+    })).toBe("lucide:folder:3");
+    expect(projectIconPickerLucideRecentPreviewValue({
+      rawValue: "lucide:folder:9",
+      allowIconColors: false,
+      iconColor: 3,
+    })).toBe("lucide:folder");
+    expect(projectIconPickerLucideRecentPreviewValue({
+      rawValue: "emoji:🚀",
+      allowIconColors: true,
+      iconColor: 3,
+    })).toBe("emoji:🚀");
+  });
+
+  it("selects random emoji and Lucide values from injected randomness", () => {
+    const thumbs = [{ emoji: "👍", name: "thumbs up", category: "people", terms: "👍 thumbs up" }] as const;
+
+    expect(projectIconPickerRandomEmojiIcon(thumbs, "medium", () => 0)).toEqual({
+      kind: "emoji",
+      emoji: "👍🏽",
+    });
+    expect(projectIconPickerRandomLucideIcon(lucideEntries, {
+      allowIconColors: true,
+      iconColor: 5,
+      random: () => 0.9,
+    })).toEqual({
+      kind: "lucide",
+      slug: "check",
+      color: 5,
+    });
+    expect(projectIconPickerRandomLucideIcon(lucideEntries, {
+      allowIconColors: false,
+      iconColor: 5,
+      random: () => 0.9,
+    })).toEqual({
+      kind: "lucide",
+      slug: "check",
+      color: "default",
+    });
+    expect(projectIconPickerRandomEmojiIcon([], "default", () => 0)).toBeNull();
   });
 
   it("computes a bounded virtual grid window", () => {
@@ -127,6 +286,84 @@ describe("project icon picker helpers", () => {
 
     expect(placement.left + placement.width).toBeLessThanOrEqual(pickerBoundary.right - 8);
     expect(placement.left).toBe(532);
+  });
+
+  it("places anchored custom panels above when there is more useful space above", () => {
+    expect(projectIconPickerAnchoredPanelPlacement({
+      anchorRect: pickerTrigger({ top: 500, bottom: 532 }),
+      viewportRect: pickerBoundary,
+      panelWidth: 330,
+      preferredHeight: 360,
+    })).toEqual({
+      left: 310,
+      top: 136,
+      maxHeight: 360,
+    });
+  });
+
+  it("places anchored custom panels below when there is enough space below", () => {
+    expect(projectIconPickerAnchoredPanelPlacement({
+      anchorRect: pickerTrigger(),
+      viewportRect: pickerBoundary,
+      panelWidth: 330,
+      preferredHeight: 360,
+    })).toEqual({
+      left: 310,
+      top: 156,
+      maxHeight: 360,
+    });
+  });
+
+  it("places category menus on the side with more available space", () => {
+    expect(projectIconPickerMenuPlacement({
+      anchorRect: pickerTrigger({ top: 520, bottom: 552 }),
+      viewportRect: pickerBoundary,
+      menuWidth: 240,
+      menuMaxHeight: 280,
+    })).toEqual({
+      left: 400,
+      top: 236,
+      maxHeight: 280,
+    });
+  });
+
+  it("centers point panels on their anchor while staying in the viewport", () => {
+    expect(projectIconPickerPointPlacement({
+      anchorRect: pickerTrigger({ left: 0, right: 32, width: 32 }),
+      viewportRect: pickerBoundary,
+      panelWidth: 260,
+      panelHeight: 144,
+    })).toEqual({
+      left: 8,
+      top: 156,
+    });
+  });
+
+  it("virtualizes grouped icon rows without dropping group spacing", () => {
+    const groups = [
+      { category: "A", entries: Array.from({ length: 12 }, (_, index) => `a-${index}`) },
+      { category: "B", entries: Array.from({ length: 8 }, (_, index) => `b-${index}`) },
+      { category: "C", entries: Array.from({ length: 4 }, (_, index) => `c-${index}`) },
+    ];
+
+    const result = projectIconPickerGroupVirtualWindow({
+      groups,
+      columnCount: 4,
+      viewportHeight: 72,
+      scrollTop: 160,
+      rowHeight: 36,
+      groupHeaderHeight: 24,
+      groupGapHeight: 12,
+      overscanRows: 1,
+    });
+
+    expect(result.beforeHeight).toBe(0);
+    expect(result.afterHeight).toBe(0);
+    expect(result.groups.map((group) => group.category)).toEqual(["A", "B", "C"]);
+    expect(result.groups[0]?.entries).toEqual(groups[0]?.entries.slice(8, 12));
+    expect(result.groups[0]?.beforeRowsHeight).toBe(72);
+    expect(result.groups[1]?.entries).toEqual(groups[1]?.entries);
+    expect(result.groups[2]?.entries).toEqual(groups[2]?.entries);
   });
 
   it("applies skin tone only to supported emoji", () => {

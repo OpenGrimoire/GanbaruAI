@@ -12,9 +12,9 @@
   const { t } = getLocalization();
 </script>
 
-<section class="task-detail-section">
+<section class="grid gap-3 border-t border-border pt-4">
   <div class="flex items-center justify-between gap-2">
-    <h2 class="task-detail-section-title">{t("projects.detail.history")}</h2>
+    <h2 class="text-[0.8rem] font-semibold tracking-normal">{t("projects.detail.history")}</h2>
     <span class="text-[0.733333rem] text-muted-foreground">{events.length}</span>
   </div>
   <div class="grid gap-1">

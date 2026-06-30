@@ -3,6 +3,7 @@ import {
   customTaskListColumn,
   DEFAULT_TASK_LIST_COLUMNS,
   parseTaskListColumns,
+  taskListColumnsMatch,
   taskListColumnsForProject,
   taskListColumnsPreferenceValue,
   TASK_LIST_COLUMNS_PREFERENCE_KEY,
@@ -28,6 +29,11 @@ describe("task list columns", () => {
     const columns = ["status", "due", "scheduled"] as const;
 
     expect(parseTaskListColumns(taskListColumnsPreferenceValue(columns))).toEqual(columns);
+  });
+
+  it("matches task list columns by order and value", () => {
+    expect(taskListColumnsMatch(["status", "due"], ["status", "due"])).toBe(true);
+    expect(taskListColumnsMatch(["status", "due"], ["due", "status"])).toBe(false);
   });
 
   it("deduplicates columns and drops unknown values", () => {

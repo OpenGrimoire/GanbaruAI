@@ -8,17 +8,12 @@
   import { getProjects } from "$lib/stores/projects.svelte";
   import { getViewport } from "$lib/stores/viewport.svelte";
   import { formatCalendarDate } from "$lib/components/calendar/utils";
-  import {
-    projectDefaultIdleTimeoutMinutes,
-    projectDefaultPomodoroConfig,
-  } from "$lib/projects/project-default-pomodoro";
   import { cn, isAppShortcutBlockedTarget, isEditableKeyboardTarget } from "$lib/utils";
   import type {
     CalendarEvent,
     CalendarViewMode,
   } from "$lib/components/calendar/types";
   import type {
-    Project,
     ProjectCustomField,
     ProjectCustomFieldFilter,
     ProjectCustomFieldValue,
@@ -39,19 +34,20 @@
     ProjectViewId,
   } from "$lib/projects/types";
   import {
-    projectEventDurationMinutes,
-    projectScheduleWindowFor,
+    projectCalendarCreateDefaults as buildProjectCalendarCreateDefaults,
+    projectCalendarEventRootId,
+    projectEventDurationMinutesInDateRange,
   } from "$lib/projects/project-scheduling";
   import {
+    PROJECT_TASK_FILTER_DEFAULTS,
+    projectTaskDataFiltersActive,
     selectedProjectTaskIdsInView,
     taskListColumnWidthsForProject,
     type ProjectTaskListColumnWidths,
+    type ProjectTaskFilterState,
   } from "$lib/projects/project-list-view";
   import {
-    PROJECT_CUSTOM_FIELD_TYPES,
-    PROJECT_LIFECYCLE_STATUSES,
     PROJECT_TASK_LIST_COLUMNS,
-    PROJECT_TASK_TYPES,
     PROJECT_VIEW_IDS,
   } from "$lib/projects/types";
   import {
@@ -59,8 +55,14 @@
     customFieldIdFromTaskListColumn,
     customTaskListColumn,
     DEFAULT_TASK_LIST_COLUMNS,
+    taskListColumnsMatch,
     taskListColumnsForProject,
   } from "$lib/projects/task-list-columns";
+  import {
+    createProjectSavedTaskViewSnapshot,
+    projectCustomFieldFilterStillExists,
+    projectTaskFilterStateFromSavedTaskView,
+  } from "$lib/projects/saved-task-views";
   import {
     buildProjectTaskListGroups,
     buildProjectTaskView,
@@ -121,14 +123,6 @@
   let selectedTaskIds = $state<string[]>([]);
   let projectToolbarPanel = $state<ProjectToolbarPanel | null>(null);
   let projectsRootElement = $state<HTMLDivElement | null>(null);
-
-  function taskListColumnsMatch(
-    firstColumns: readonly ProjectTaskListColumn[],
-    secondColumns: readonly ProjectTaskListColumn[],
-  ): boolean {
-    return firstColumns.length === secondColumns.length
-      && firstColumns.every((column, index) => column === secondColumns[index]);
-  }
 
   const selectedProject = $derived(projects.selectedProject);
   const selectedGroup = $derived(projects.selectedGroup);
@@ -196,6 +190,22 @@
   const taskFilterWeekEnd = $derived(Temporal.PlainDate.from(todayDate).add({ days: 7 }).toString());
   const normalizedTaskDueRangeStart = $derived(normalizeFilterDate(taskDueRangeStart));
   const normalizedTaskDueRangeEnd = $derived(normalizeFilterDate(taskDueRangeEnd));
+  const taskFilterState = $derived.by((): ProjectTaskFilterState => ({
+    search: taskSearch,
+    statusFilter: taskStatusFilter,
+    sectionFilter: taskSectionFilter,
+    priorityFilter: taskPriorityFilter,
+    dueFilter: taskDueFilter,
+    dueRangeStart: normalizedTaskDueRangeStart ?? "",
+    dueRangeEnd: normalizedTaskDueRangeEnd ?? "",
+    scheduleFilter: taskScheduleFilter,
+    dependencyFilter: taskDependencyFilter,
+    tagFilter: taskTagFilter,
+    customFieldFilters: taskCustomFieldFilters,
+    groupBy: taskGroupBy,
+    sortMode: taskSortMode,
+    sortDirection: taskSortDirection,
+  }));
   const scheduledTaskIds = $derived.by(() => new Set(
     projects.eventLinks
       .filter((link) => link.linkKind === "scheduled")
@@ -209,14 +219,10 @@
       .sort((a, b) => a.start.localeCompare(b.start));
   });
   const allProjectEventsById = $derived.by(() => new Map(allProjectEvents.map((event) => [event.id, event])));
-  function calendarEventRootId(event: CalendarEvent): string {
-    return event.recurringParentId ?? event.id.split("::")[0] ?? event.id;
-  }
-
   function projectCalendarEventFilter(event: CalendarEvent): boolean {
     if (!selectedProjectId || event.projectId !== selectedProjectId) return false;
     if (!taskDataFiltersActive) return true;
-    return eventIdsForMatchedTasks.has(event.id) || eventIdsForMatchedTasks.has(calendarEventRootId(event));
+    return eventIdsForMatchedTasks.has(event.id) || eventIdsForMatchedTasks.has(projectCalendarEventRootId(event));
   }
 
   function projectCalendarCreateDefaults(input: {
@@ -224,47 +230,13 @@
     end: string;
     allDay?: boolean;
   }): Partial<CalendarEvent> {
-    const project = selectedProject;
-    if (!project) return {};
-    const usesProjectAllDayDefault = !input.allDay && project.defaultEventTimeMode === "all_day";
-    const allDay = input.allDay || usesProjectAllDayDefault;
-    let start = input.start;
-    let end = input.end;
-    if (usesProjectAllDayDefault) {
-      const startDate = input.start.split(" ")[0] ?? "";
-      if (startDate) {
-        start = `${startDate} 00:00`;
-        end = `${startDate} 00:00`;
-      }
-    } else if (!allDay && project.defaultEventDurationMinutes !== null) {
-      const startDate = start.split(" ")[0] ?? "";
-      const startTime = input.start.split(" ")[1] ?? "";
-      const nextWindow = projectScheduleWindowFor(
-        startDate,
-        startTime,
-        project.defaultEventDurationMinutes,
-      );
-      if (nextWindow) end = nextWindow.end;
-    }
-    return {
-      title: project.defaultEventName ?? "",
-      start,
-      end,
-      allDay: allDay || undefined,
-      projectId: project.id,
-      color: project.color,
-      environmentId: project.workEnvironmentId,
-      playlistId: project.focusPlaylistId,
-      pomodoroConfig: allDay
-        ? undefined
-        : projectDefaultPomodoroConfig(project, projectIdleTimeoutMinutes(project)),
-    };
-  }
-
-  function projectIdleTimeoutMinutes(project: Project): number | null {
-    return projectDefaultIdleTimeoutMinutes(project, {
-      idlePauseEnabled: preferences.focusIdlePauseOnEventCreate,
-      idleThresholdMinutes: preferences.focusIdleThresholdMinutes,
+    return buildProjectCalendarCreateDefaults({
+      project: selectedProject,
+      ...input,
+      globalIdleDefaults: {
+        idlePauseEnabled: preferences.focusIdlePauseOnEventCreate,
+        idleThresholdMinutes: preferences.focusIdleThresholdMinutes,
+      },
     });
   }
   const nextScheduledStartByTaskId = $derived.by(() => {
@@ -305,24 +277,11 @@
     dependencyBlockingTaskIds,
     today: todayDate,
     weekEnd: taskFilterWeekEnd,
-    search: taskSearch,
-    statusFilter: taskStatusFilter,
-    sectionFilter: taskSectionFilter,
-    priorityFilter: taskPriorityFilter,
-    dueFilter: taskDueFilter,
-    dueRangeStart: normalizedTaskDueRangeStart,
-    dueRangeEnd: normalizedTaskDueRangeEnd,
-    scheduleFilter: taskScheduleFilter,
-    dependencyFilter: taskDependencyFilter,
-    tagFilter: taskTagFilter,
+    ...taskFilterState,
     customFields: projectCustomFields,
     customFieldOptions: projects.customFieldOptions,
     customFieldValuesByTaskField,
     customFieldOptionIdsByTaskField,
-    customFieldFilters: taskCustomFieldFilters,
-    groupBy: taskGroupBy,
-    sortMode: taskSortMode,
-    sortDirection: taskSortDirection,
   }));
   const tasks = $derived.by(() => {
     return taskView.tasks;
@@ -350,17 +309,7 @@
   const taskFilterControlsActive = $derived(taskFiltersActive || showArchivedTasks || showInactiveSections);
   const taskGroupingActive = $derived(taskGroupBy !== "section");
   const taskCustomizeActive = $derived(!taskListColumnsMatch(taskListColumns, DEFAULT_TASK_LIST_COLUMNS));
-  const taskDataFiltersActive = $derived.by(() =>
-    taskSearch.trim().length > 0
-    || taskStatusFilter !== "all"
-    || taskSectionFilter !== "all"
-    || taskPriorityFilter !== "all"
-    || taskDueFilter !== "all"
-    || taskScheduleFilter !== "all"
-    || taskDependencyFilter !== "all"
-    || taskTagFilter !== "all"
-    || taskCustomFieldFilters.length > 0
-  );
+  const taskDataFiltersActive = $derived(projectTaskDataFiltersActive(taskFilterState));
   const savedTaskViews = $derived.by(() => projects.savedTaskViewsForProject(selectedProjectId));
   const eventIdsForMatchedTasks = $derived.by(() => new Set(
     projects.eventLinks
@@ -436,7 +385,7 @@
       projectCustomFields.flatMap((field) => projects.customFieldOptionsForField(field.id).map((option) => option.id)),
     );
     const nextCustomFieldFilters = taskCustomFieldFilters.filter((filter) =>
-      customFieldFilterStillExists(filter, fieldIds, optionIds)
+      projectCustomFieldFilterStillExists(filter, fieldIds, optionIds)
     );
     if (nextCustomFieldFilters.length !== taskCustomFieldFilters.length) {
       taskCustomFieldFilters = nextCustomFieldFilters;
@@ -593,59 +542,45 @@
     taskCustomFieldFilters = taskCustomFieldFilters.filter((filter) => filter.fieldId !== fieldId);
   }
 
-  function customFieldFilterStillExists(
-    filter: ProjectCustomFieldFilter,
-    fieldIds: ReadonlySet<string>,
-    optionIds: ReadonlySet<string>,
-  ): boolean {
-    if (!fieldIds.has(filter.fieldId)) return false;
-    return filter.mode !== "option" || optionIds.has(filter.optionId);
+  function applyTaskFilterState(state: ProjectTaskFilterState): void {
+    taskSearch = state.search;
+    taskStatusFilter = state.statusFilter;
+    taskSectionFilter = state.sectionFilter;
+    taskPriorityFilter = state.priorityFilter;
+    taskDueFilter = state.dueFilter;
+    taskDueRangeStart = state.dueRangeStart;
+    taskDueRangeEnd = state.dueRangeEnd;
+    taskScheduleFilter = state.scheduleFilter;
+    taskDependencyFilter = state.dependencyFilter;
+    taskTagFilter = state.tagFilter;
+    taskCustomFieldFilters = [...state.customFieldFilters];
+    taskGroupBy = state.groupBy;
+    taskSortMode = state.sortMode;
+    taskSortDirection = state.sortDirection;
+  }
+
+  function resetTaskFilterState(): void {
+    applyTaskFilterState(PROJECT_TASK_FILTER_DEFAULTS);
   }
 
   function clearTaskFilters(): void {
-    taskSearch = "";
-    taskStatusFilter = "all";
-    taskSectionFilter = "all";
-    taskPriorityFilter = "all";
-    taskDueFilter = "all";
-    taskDueRangeStart = "";
-    taskDueRangeEnd = "";
-    taskScheduleFilter = "all";
-    taskDependencyFilter = "all";
-    taskTagFilter = "all";
-    taskCustomFieldFilters = [];
-    taskSortMode = "manual";
-    taskSortDirection = "asc";
+    resetTaskFilterState();
   }
 
   function taskViewSnapshot(name: string, viewId: string): ProjectSavedTaskView | undefined {
     if (!selectedProjectId) return undefined;
-    return {
-      id: viewId,
+    return createProjectSavedTaskViewSnapshot({
+      ...taskFilterState,
       projectId: selectedProjectId,
+      id: viewId,
       name,
       viewId: projects.activeView,
-      search: taskSearch,
-      statusFilter: taskStatusFilter,
-      sectionFilter: taskSectionFilter,
-      priorityFilter: taskPriorityFilter,
-      dueFilter: taskDueFilter,
-      dueRangeStart: normalizedTaskDueRangeStart ?? "",
-      dueRangeEnd: normalizedTaskDueRangeEnd ?? "",
-      scheduleFilter: taskScheduleFilter,
-      dependencyFilter: taskDependencyFilter,
-      tagFilter: taskTagFilter,
-      customFieldFilters: taskCustomFieldFilters,
-      sortMode: taskSortMode,
-      sortDirection: taskSortDirection,
-      groupBy: taskGroupBy,
       collapsedSectionIds: sections
         .filter((section) => section.collapsed)
         .map((section) => section.id),
       showArchivedTasks,
       visibleColumns: taskListColumns,
-      updatedAt: new Date().toISOString(),
-    };
+    });
   }
 
   async function saveCurrentTaskView(): Promise<void> {
@@ -674,20 +609,7 @@
 
   async function applyTaskView(view: ProjectSavedTaskView): Promise<void> {
     projects.activeView = view.viewId;
-    taskSearch = view.search;
-    taskStatusFilter = view.statusFilter;
-    taskSectionFilter = view.sectionFilter;
-    taskPriorityFilter = view.priorityFilter;
-    taskDueFilter = view.dueFilter;
-    taskDueRangeStart = view.dueRangeStart;
-    taskDueRangeEnd = view.dueRangeEnd;
-    taskScheduleFilter = view.scheduleFilter;
-    taskDependencyFilter = view.dependencyFilter;
-    taskTagFilter = view.tagFilter;
-    taskCustomFieldFilters = view.customFieldFilters;
-    taskGroupBy = view.groupBy;
-    taskSortMode = view.sortMode;
-    taskSortDirection = view.sortDirection;
+    applyTaskFilterState(projectTaskFilterStateFromSavedTaskView(view));
     showArchivedTasks = view.showArchivedTasks;
     taskListColumns = view.visibleColumns;
     if (selectedProjectId) {
@@ -735,17 +657,7 @@
   function revealCreatedTask(task: ProjectTask | undefined): void {
     if (!task) return;
     projects.activeView = "list";
-    taskSearch = "";
-    taskStatusFilter = "all";
-    taskSectionFilter = "all";
-    taskPriorityFilter = "all";
-    taskDueFilter = "all";
-    taskDueRangeStart = "";
-    taskDueRangeEnd = "";
-    taskScheduleFilter = "all";
-    taskDependencyFilter = "all";
-    taskTagFilter = "all";
-    taskCustomFieldFilters = [];
+    resetTaskFilterState();
     selectedTaskId = task.id;
     selectedTaskIds = [];
     showArchivedTasks = false;
@@ -775,12 +687,7 @@
 
   function thisWeekScheduledMinutes(): number {
     const weekEnd = Temporal.PlainDate.from(todayDate).add({ days: 7 }).toString();
-    return allProjectEvents
-      .filter((event) => {
-        const eventDate = event.start.slice(0, 10);
-        return eventDate >= todayDate && eventDate <= weekEnd;
-      })
-      .reduce((total, event) => total + projectEventDurationMinutes(event), 0);
+    return projectEventDurationMinutesInDateRange(allProjectEvents, todayDate, weekEnd);
   }
 
 </script>

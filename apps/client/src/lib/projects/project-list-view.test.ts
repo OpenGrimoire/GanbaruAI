@@ -3,6 +3,9 @@ import type { Translate } from "$lib/i18n/translator.svelte";
 import type { ProjectCustomField, ProjectStatus, ProjectTask } from "./types";
 import {
   PROJECT_TASK_FILTER_DEFAULTS,
+  doubleClickProjectTaskListColumnResizeWidths,
+  keyboardProjectTaskListColumnResizeWidths,
+  moveProjectTaskListColumnResize,
   projectTaskActiveFilterChips,
   projectTaskDataFiltersActive,
   projectTaskFiltersActive,
@@ -13,6 +16,7 @@ import {
   projectTaskListGridMinWidth,
   projectTaskListGridTemplate,
   selectedProjectTaskIdsInView,
+  startProjectTaskListColumnResize,
   taskListColumnWidthsForProject,
   taskListColumnWidthsPreferenceValue,
   TASK_LIST_COLUMN_WIDTHS_PREFERENCE_KEY,
@@ -137,6 +141,90 @@ describe("project list view helpers", () => {
       columns: ["status"],
       statuses: [status("Needs outside review before release")],
     })).toBeCloseTo(17.6);
+  });
+
+  it("starts column resize gestures from the measured width", () => {
+    const widthsAtStart = { name: 18, status: 9 };
+
+    expect(startProjectTaskListColumnResize({
+      column: "name",
+      pointerId: 2,
+      startClientX: 100,
+      startWidthRem: 11.234,
+      rootFontSizePx: 0,
+      widthsAtStart,
+    })).toEqual({
+      column: "name",
+      pointerId: 2,
+      startClientX: 100,
+      startWidthRem: 11.234,
+      rootFontSizePx: 16,
+      widthsAtStart,
+      draftWidths: { name: 12, status: 9 },
+      moved: false,
+    });
+  });
+
+  it("moves column resize gestures from pointer deltas", () => {
+    const gesture = startProjectTaskListColumnResize({
+      column: "status",
+      pointerId: 3,
+      startClientX: 100,
+      startWidthRem: 8,
+      rootFontSizePx: 16,
+      widthsAtStart: { name: 18 },
+    });
+
+    const smallMove = moveProjectTaskListColumnResize(gesture, 100.5);
+    expect(smallMove.draftWidths).toEqual({ name: 18, status: 8.03 });
+    expect(smallMove.moved).toBe(false);
+
+    const committedMove = moveProjectTaskListColumnResize(smallMove, 108);
+    expect(committedMove.draftWidths).toEqual({ name: 18, status: 8.5 });
+    expect(committedMove.moved).toBe(true);
+  });
+
+  it("updates column widths from keyboard resize steps", () => {
+    expect(keyboardProjectTaskListColumnResizeWidths({
+      column: "priority",
+      direction: 1,
+      widths: { name: 18, priority: 6 },
+      gridInput: {
+        columns: ["priority"],
+        columnWidths: { priority: 6 },
+      },
+    })).toEqual({ name: 18, priority: 6.5 });
+
+    expect(keyboardProjectTaskListColumnResizeWidths({
+      column: "priority",
+      direction: -1,
+      wideStep: true,
+      widths: { name: 18, priority: 6 },
+      gridInput: {
+        columns: ["priority"],
+        columnWidths: { priority: 6 },
+      },
+    })).toEqual({ name: 18, priority: 5.2 });
+  });
+
+  it("updates column widths from double-click resize", () => {
+    expect(doubleClickProjectTaskListColumnResizeWidths({
+      column: "priority",
+      widths: { name: 18, priority: 6 },
+      gridInput: {
+        columns: ["priority"],
+        columnWidths: { priority: 6 },
+      },
+    })).toEqual({ name: 18 });
+
+    expect(doubleClickProjectTaskListColumnResizeWidths({
+      column: "status",
+      widths: { name: 18, status: 9 },
+      gridInput: {
+        columns: ["status"],
+        statuses: [status("Needs outside review before release")],
+      },
+    })).toEqual({ name: 18, status: 17.6 });
   });
 
   it("round-trips list column width preferences with validation", () => {

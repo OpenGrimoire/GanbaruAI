@@ -1,40 +1,12 @@
 <script lang="ts">
   import { Temporal } from "@js-temporal/polyfill";
-  import Archive from "@lucide/svelte/icons/archive";
-  import ArchiveRestore from "@lucide/svelte/icons/archive-restore";
-  import ArrowDown from "@lucide/svelte/icons/arrow-down";
-  import ArrowLeft from "@lucide/svelte/icons/arrow-left";
-  import ArrowRight from "@lucide/svelte/icons/arrow-right";
-  import ArrowUp from "@lucide/svelte/icons/arrow-up";
-  import CalendarDays from "@lucide/svelte/icons/calendar-days";
-  import Check from "@lucide/svelte/icons/check";
-  import Plus from "@lucide/svelte/icons/plus";
-  import Save from "@lucide/svelte/icons/save";
-  import Trash2 from "@lucide/svelte/icons/trash-2";
-  import X from "@lucide/svelte/icons/x";
   import CalendarScrollbar from "$lib/components/calendar/CalendarScrollbar.svelte";
-  import MiniDatePicker from "$lib/components/calendar/MiniDatePicker.svelte";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
-  import type { CalendarEvent } from "$lib/components/calendar/types";
   import {
     selectDateRangeEnd,
     selectDateRangeStart,
   } from "$lib/calendar/date-range-selection";
   import { getLocalization } from "$lib/i18n/translator.svelte";
-  import {
-    projectCustomFieldTypeLabel,
-    projectTagColorDotStyle,
-    projectTagColorSwatchClass,
-    projectTaskArchivedBadgeClass,
-    projectTaskTypeLabel,
-  } from "$lib/projects/project-display";
-  import {
-    projectCustomFieldInputType,
-    projectCustomFieldTextInputMode,
-    projectCustomFieldUsesOptions,
-    projectCustomFieldUsesTextValue,
-  } from "$lib/projects/custom-fields";
-  import { PROJECT_TASK_TYPES } from "$lib/projects/types";
   import type {
     ProjectChecklistItem,
     ProjectCustomField,
@@ -51,9 +23,33 @@
   import { getTheme } from "$lib/stores/theme.svelte";
   import { cn } from "$lib/utils";
   import type { ProjectTaskModalLayout } from "$lib/projects/project-toolbar";
-  import PriorityFlagIcon from "./PriorityFlagIcon.svelte";
-  import ProjectStatusBadge from "./ProjectStatusBadge.svelte";
+  import {
+    canCreateTag as canCreateTaskTag,
+    dependencyCandidateTasks as buildDependencyCandidateTasks,
+    parentTaskCandidateTasks as buildParentTaskCandidateTasks,
+    projectTaskDetailCustomFieldDirty,
+    projectTaskDetailCustomFieldDrafts,
+    projectTaskDetailCustomFieldSaveDraft,
+    projectTaskDetailDraftDirty,
+    projectTaskDetailDraftFromTask,
+    projectTaskDetailDraftPatch,
+    tagCandidateTags as buildTagCandidateTags,
+    type ProjectTaskDetailDraft,
+    type ProjectTaskDetailCustomFieldDrafts,
+  } from "$lib/projects/project-task-detail";
+  import ProjectTaskDetailChecklistSection from "./ProjectTaskDetailChecklistSection.svelte";
+  import ProjectTaskDetailCustomFieldsSection from "./ProjectTaskDetailCustomFieldsSection.svelte";
+  import ProjectTaskDetailDescriptionSection from "./ProjectTaskDetailDescriptionSection.svelte";
+  import ProjectTaskDetailDependenciesSection from "./ProjectTaskDetailDependenciesSection.svelte";
+  import ProjectTaskDetailFooter from "./ProjectTaskDetailFooter.svelte";
+  import ProjectTaskDetailHeader from "./ProjectTaskDetailHeader.svelte";
   import ProjectTaskDetailHistorySection from "./ProjectTaskDetailHistorySection.svelte";
+  import ProjectTaskDetailParentSection from "./ProjectTaskDetailParentSection.svelte";
+  import ProjectTaskDetailPlanningSection from "./ProjectTaskDetailPlanningSection.svelte";
+  import ProjectTaskDetailPropertiesSection from "./ProjectTaskDetailPropertiesSection.svelte";
+  import ProjectTaskDetailScheduledBlocksController from "./ProjectTaskDetailScheduledBlocksController.svelte";
+  import ProjectTaskDetailSubtasksSection from "./ProjectTaskDetailSubtasksSection.svelte";
+  import ProjectTaskDetailTagsSection from "./ProjectTaskDetailTagsSection.svelte";
 
   let {
     taskId,
@@ -112,15 +108,8 @@
   let customFieldMultiDrafts = $state<Record<string, string[]>>({});
   let dependencySearch = $state("");
   let parentTaskSearch = $state("");
-  let eventLinkSearch = $state("");
-  let eventLinkStartDate = $state("");
-  let eventLinkEndDate = $state("");
-  let eventLinkResults = $state<ProjectLinkableEvent[]>([]);
-  let eventLinkSearchPending = $state(false);
-  let eventLinkSearchError = $state<string | null>(null);
-  let eventLinkSearchRunId = 0;
 
-  type DetailDateTarget = "start" | "due" | "target" | "eventStart" | "eventEnd";
+  type DetailDateTarget = "start" | "due" | "target";
 
   const selectedTask = $derived(projects.taskById(taskId));
   const selectedProjectId = $derived(selectedTask?.projectId ?? null);
@@ -148,24 +137,15 @@
   });
   const detailDirty = $derived.by(() => {
     if (!selectedTask) return false;
-    return detailTitle !== selectedTask.title
-      || detailDescription !== selectedTask.description
-      || detailSectionId !== selectedTask.sectionId
-      || detailStatusId !== selectedTask.statusId
-      || detailPriority !== selectedTask.priority
-      || detailTaskType !== selectedTask.taskType
-      || detailEstimateMinutes !== String(selectedTask.estimateMinutes ?? "")
-      || detailStartDate !== (selectedTask.startDate ?? "")
-      || detailDueDate !== (selectedTask.dueDate ?? "")
-      || detailTargetEndDate !== (selectedTask.targetEndDate ?? "")
-      || detailBlockerReason !== (selectedTask.blockerReason ?? "")
-      || detailMilestone !== selectedTask.milestone;
+    return projectTaskDetailDraftDirty(selectedTask, currentDetailDraft());
   });
   const detailHasUnsavedEdits = $derived.by(() => {
     if (!selectedTask) return false;
     return detailDirty
       || projectCustomFields.some((field) => customFieldValueDirty(selectedTask, field))
-      || projects.checklistItemsForTask(selectedTask.id).some((item) => checklistItemDirty(item));
+      || projects.checklistItemsForTask(selectedTask.id).some(
+        (item) => (checklistTitleDrafts[item.id] ?? item.title) !== item.title,
+      );
   });
   const todayDate = $derived(Temporal.Now.plainDateISO().toString());
 
@@ -177,64 +157,6 @@
     ) {
       loadTaskDetailDraft(selectedTask);
     }
-  });
-
-  $effect(() => {
-    const task = selectedTask;
-    const projectId = selectedProjectId;
-    const query = eventLinkSearch;
-    const startDateDraft = eventLinkStartDate;
-    const endDateDraft = eventLinkEndDate;
-    if (!task || !projectId) {
-      eventLinkResults = [];
-      eventLinkSearchPending = false;
-      eventLinkSearchError = null;
-      return;
-    }
-
-    let startDate: string | undefined;
-    let endDate: string | undefined;
-    try {
-      startDate = normalizeOptionalDate(startDateDraft);
-      endDate = normalizeOptionalDate(endDateDraft);
-      if (startDate && endDate && startDate > endDate) {
-        throw new Error(t("projects.detail.eventLinkInvalidDateRange"));
-      }
-    } catch (error) {
-      eventLinkSearchRunId++;
-      eventLinkSearchPending = false;
-      eventLinkSearchError = error instanceof Error ? error.message : String(error);
-      eventLinkResults = [];
-      return;
-    }
-
-    const runId = ++eventLinkSearchRunId;
-    eventLinkSearchPending = true;
-    eventLinkSearchError = null;
-    const timeoutId = setTimeout(() => {
-      void projects.searchLinkableEvents(projectId, task.id, query, startDate, endDate, 12)
-        .then((results) => {
-          if (runId !== eventLinkSearchRunId) return;
-          eventLinkResults = results;
-        })
-        .catch((error) => {
-          if (runId !== eventLinkSearchRunId) return;
-          eventLinkSearchError = t(
-            "projects.detail.eventLinkSearchFailed",
-            error instanceof Error ? error.message : String(error),
-          );
-          eventLinkResults = [];
-        })
-        .finally(() => {
-          if (runId === eventLinkSearchRunId) {
-            eventLinkSearchPending = false;
-          }
-        });
-    }, query.trim() ? 150 : 0);
-
-    return () => {
-      clearTimeout(timeoutId);
-    };
   });
 
   function statusForTask(task: ProjectTask): ProjectStatus | undefined {
@@ -254,19 +176,12 @@
   }
 
   function dependencyCandidateTasks(task: ProjectTask): ProjectTask[] {
-    const existingBlockingTaskIds = new Set(
-      blockedByDependencies(task).map((dependency) => dependency.blockingTaskId),
-    );
-    const query = dependencySearch.trim().toLowerCase();
-    return allProjectTasks
-      .filter((candidate) =>
-        candidate.id !== task.id
-        && !existingBlockingTaskIds.has(candidate.id)
-        && (!query
-          || candidate.title.toLowerCase().includes(query)
-          || candidate.description.toLowerCase().includes(query))
-      )
-      .slice(0, 8);
+    return buildDependencyCandidateTasks({
+      task,
+      allProjectTasks,
+      blockedByDependencies: blockedByDependencies(task),
+      dependencySearch,
+    });
   }
 
   function taskHasAnySubtasks(task: ProjectTask): boolean {
@@ -274,23 +189,11 @@
   }
 
   function parentTaskCandidateTasks(task: ProjectTask): ProjectTask[] {
-    const query = parentTaskSearch.trim().toLowerCase();
-    return activeProjectTasks
-      .filter((candidate) =>
-        candidate.projectId === task.projectId
-        && !candidate.parentTaskId
-        && candidate.id !== task.id
-        && (!query || candidate.title.toLowerCase().includes(query))
-      )
-      .sort((a, b) => a.sectionSortOrder - b.sectionSortOrder || a.title.localeCompare(b.title))
-      .slice(0, 8);
-  }
-
-  function eventLinkCandidateEvents(task: ProjectTask): ProjectLinkableEvent[] {
-    const linkedEventIds = new Set(projects.eventLinksForTask(task.id).map((link) => link.eventId));
-    return eventLinkResults
-      .filter((event) => !linkedEventIds.has(event.id))
-      .slice(0, 8);
+    return buildParentTaskCandidateTasks({
+      task,
+      activeProjectTasks,
+      parentTaskSearch,
+    });
   }
 
   function tagsForTask(task: ProjectTask): ProjectTag[] {
@@ -298,95 +201,59 @@
   }
 
   function tagCandidateTags(task: ProjectTask): ProjectTag[] {
-    const query = tagDraft.trim().toLowerCase();
-    return projects.unlinkedTagsForTask(task)
-      .filter((tag) => !query || tag.name.toLowerCase().includes(query))
-      .slice(0, 8);
+    return buildTagCandidateTags({
+      tags: projects.unlinkedTagsForTask(task),
+      tagDraft,
+    });
   }
 
   function canCreateTag(task: ProjectTask): boolean {
-    const name = tagDraft.trim();
-    if (!name) return false;
-    return !projects.tagsForProject(task.projectId)
-      .some((tag) => tag.name.trim().toLowerCase() === name.toLowerCase());
+    return canCreateTaskTag({
+      projectTags: projects.tagsForProject(task.projectId),
+      tagDraft,
+    });
   }
 
   function customFieldOptions(field: ProjectCustomField): ProjectCustomFieldOption[] {
     return projects.customFieldOptionsForField(field.id);
   }
 
-  function customFieldValueDirty(task: ProjectTask, field: ProjectCustomField): boolean {
-    const value = projects.customFieldValueForTask(task.id, field.id);
-    const optionValues = projects.customFieldOptionValuesForTask(task.id, field.id);
-    if (projectCustomFieldUsesTextValue(field.fieldType)) {
-      return (customFieldTextDrafts[field.id] ?? "") !== (value?.textValue ?? "");
-    }
-    if (field.fieldType === "number") {
-      return (customFieldNumberDrafts[field.id] ?? "") !== String(value?.numberValue ?? "");
-    }
-    if (field.fieldType === "date") {
-      return (customFieldDateDrafts[field.id] ?? "") !== (value?.dateValue ?? "");
-    }
-    if (field.fieldType === "checkbox") {
-      return (customFieldCheckboxDrafts[field.id] ?? false) !== (value?.checkboxValue ?? false);
-    }
-    if (field.fieldType === "select" || field.fieldType === "status") {
-      return (customFieldSelectDrafts[field.id] ?? "none") !== (optionValues[0]?.id ?? "none");
-    }
-    const currentIds = optionValues.map((option) => option.id).sort();
-    const draftIds = [...(customFieldMultiDrafts[field.id] ?? [])].sort();
-    return currentIds.join("\u0000") !== draftIds.join("\u0000");
-  }
-
-  function linkedEventRowsForTask(task: ProjectTask): ProjectLinkableEvent[] {
-    const linkedEventIds = new Set(projects.eventLinksForTask(task.id).map((link) => link.eventId));
-    const rowsById = new Map(eventLinkResults.map((event) => [event.id, event]));
-    for (const event of allProjectEvents) {
-      if (linkedEventIds.has(event.id) && !rowsById.has(event.id)) {
-        rowsById.set(event.id, calendarEventToLinkableEvent(event));
-      }
-    }
-    return Array.from(rowsById.values())
-      .filter((event) => linkedEventIds.has(event.id))
-      .sort((a, b) => a.start.localeCompare(b.start));
-  }
-
-  function calendarEventToLinkableEvent(event: CalendarEvent): ProjectLinkableEvent {
+  function currentDetailDraft(): ProjectTaskDetailDraft {
     return {
-      id: event.id,
-      projectId: event.projectId ?? "",
-      title: event.title,
-      start: event.start,
-      end: event.end,
-      timezone: event.timezone,
-      calendarId: event.calendarId,
-      color: event.color,
-      allDay: event.allDay === true,
-      status: event.status ?? "confirmed",
-      linkedTasks: [],
+      title: detailTitle,
+      description: detailDescription,
+      sectionId: detailSectionId,
+      statusId: detailStatusId,
+      priority: detailPriority,
+      taskType: detailTaskType,
+      estimateMinutes: detailEstimateMinutes,
+      startDate: detailStartDate,
+      dueDate: detailDueDate,
+      targetEndDate: detailTargetEndDate,
+      blockerReason: detailBlockerReason,
+      changeReason: detailChangeReason,
+      milestone: detailMilestone,
     };
   }
 
-  function otherLinkedTaskText(event: ProjectLinkableEvent, task: ProjectTask): string {
-    return event.linkedTasks
-      .filter((linkedTask) => linkedTask.taskId !== task.id)
-      .map((linkedTask) => linkedTask.title)
-      .join(", ");
+  function currentCustomFieldDrafts(): ProjectTaskDetailCustomFieldDrafts {
+    return {
+      textDrafts: customFieldTextDrafts,
+      numberDrafts: customFieldNumberDrafts,
+      dateDrafts: customFieldDateDrafts,
+      checkboxDrafts: customFieldCheckboxDrafts,
+      selectDrafts: customFieldSelectDrafts,
+      multiDrafts: customFieldMultiDrafts,
+    };
   }
 
-  function checklistItemDraftTitle(item: ProjectChecklistItem): string {
-    return checklistTitleDrafts[item.id] ?? item.title;
-  }
-
-  function checklistItemDirty(item: ProjectChecklistItem): boolean {
-    return checklistItemDraftTitle(item) !== item.title;
-  }
-
-  function adjacentChecklistItem(item: ProjectChecklistItem, direction: -1 | 1): ProjectChecklistItem | undefined {
-    const ordered = projects.checklistItemsForTask(item.taskId);
-    const index = ordered.findIndex((entry) => entry.id === item.id);
-    if (index < 0) return undefined;
-    return ordered[index + direction];
+  function customFieldValueDirty(task: ProjectTask, field: ProjectCustomField): boolean {
+    return projectTaskDetailCustomFieldDirty({
+      field,
+      drafts: currentCustomFieldDrafts(),
+      value: projects.customFieldValueForTask(task.id, field.id),
+      optionValues: projects.customFieldOptionValuesForTask(task.id, field.id),
+    });
   }
 
   function subtasksForTask(parent: ProjectTask): ProjectTask[] {
@@ -395,30 +262,23 @@
       : projects.subtasksForTask(parent.id);
   }
 
-  function adjacentSubtask(task: ProjectTask, direction: -1 | 1): ProjectTask | undefined {
-    if (!task.parentTaskId) return undefined;
-    const ordered = projects.subtasksForTask(task.parentTaskId);
-    const index = ordered.findIndex((entry) => entry.id === task.id);
-    if (index < 0) return undefined;
-    return ordered[index + direction];
-  }
-
   function loadTaskDetailDraft(task: ProjectTask): void {
     detailDraftTaskId = task.id;
     detailDraftUpdatedAt = task.updatedAt;
-    detailTitle = task.title;
-    detailDescription = task.description;
-    detailSectionId = task.sectionId;
-    detailStatusId = task.statusId;
-    detailPriority = task.priority;
-    detailTaskType = task.taskType;
-    detailEstimateMinutes = String(task.estimateMinutes ?? "");
-    detailStartDate = task.startDate ?? "";
-    detailDueDate = task.dueDate ?? "";
-    detailTargetEndDate = task.targetEndDate ?? "";
-    detailBlockerReason = task.blockerReason ?? "";
-    detailChangeReason = "";
-    detailMilestone = task.milestone;
+    const detailDraft = projectTaskDetailDraftFromTask(task);
+    detailTitle = detailDraft.title;
+    detailDescription = detailDraft.description;
+    detailSectionId = detailDraft.sectionId;
+    detailStatusId = detailDraft.statusId;
+    detailPriority = detailDraft.priority;
+    detailTaskType = detailDraft.taskType;
+    detailEstimateMinutes = detailDraft.estimateMinutes;
+    detailStartDate = detailDraft.startDate;
+    detailDueDate = detailDraft.dueDate;
+    detailTargetEndDate = detailDraft.targetEndDate;
+    detailBlockerReason = detailDraft.blockerReason;
+    detailChangeReason = detailDraft.changeReason;
+    detailMilestone = detailDraft.milestone;
     detailError = null;
     subtaskDraft = "";
     checklistDraft = "";
@@ -426,35 +286,19 @@
     checklistTitleDrafts = Object.fromEntries(
       projects.checklistItemsForTask(task.id).map((item) => [item.id, item.title]),
     );
-    const textDrafts: Record<string, string> = {};
-    const numberDrafts: Record<string, string> = {};
-    const dateDrafts: Record<string, string> = {};
-    const checkboxDrafts: Record<string, boolean> = {};
-    const selectDrafts: Record<string, string> = {};
-    const multiDrafts: Record<string, string[]> = {};
-    for (const field of projects.customFieldsForProject(task.projectId)) {
-      const value = projects.customFieldValueForTask(task.id, field.id);
-      const optionValues = projects.customFieldOptionValuesForTask(task.id, field.id);
-      textDrafts[field.id] = value?.textValue ?? "";
-      numberDrafts[field.id] = String(value?.numberValue ?? "");
-      dateDrafts[field.id] = value?.dateValue ?? "";
-      checkboxDrafts[field.id] = value?.checkboxValue ?? false;
-      selectDrafts[field.id] = optionValues[0]?.id ?? "none";
-      multiDrafts[field.id] = optionValues.map((option) => option.id);
-    }
-    customFieldTextDrafts = textDrafts;
-    customFieldNumberDrafts = numberDrafts;
-    customFieldDateDrafts = dateDrafts;
-    customFieldCheckboxDrafts = checkboxDrafts;
-    customFieldSelectDrafts = selectDrafts;
-    customFieldMultiDrafts = multiDrafts;
+    const customFieldDrafts = projectTaskDetailCustomFieldDrafts({
+      fields: projects.customFieldsForProject(task.projectId),
+      valueForField: (field) => projects.customFieldValueForTask(task.id, field.id),
+      optionValuesForField: (field) => projects.customFieldOptionValuesForTask(task.id, field.id),
+    });
+    customFieldTextDrafts = customFieldDrafts.textDrafts;
+    customFieldNumberDrafts = customFieldDrafts.numberDrafts;
+    customFieldDateDrafts = customFieldDrafts.dateDrafts;
+    customFieldCheckboxDrafts = customFieldDrafts.checkboxDrafts;
+    customFieldSelectDrafts = customFieldDrafts.selectDrafts;
+    customFieldMultiDrafts = customFieldDrafts.multiDrafts;
     dependencySearch = "";
     parentTaskSearch = "";
-    eventLinkSearch = "";
-    eventLinkStartDate = "";
-    eventLinkEndDate = "";
-    eventLinkResults = [];
-    eventLinkSearchError = null;
     datePickerTarget = null;
     customFieldDatePickerTarget = null;
   }
@@ -506,26 +350,6 @@
     requestTaskDetailClose();
   }
 
-  function normalizeOptionalDate(value: string): string | undefined {
-    const trimmed = value.trim();
-    if (!trimmed) return undefined;
-    try {
-      return Temporal.PlainDate.from(trimmed).toString();
-    } catch {
-      throw new Error(t("projects.detail.invalidDate"));
-    }
-  }
-
-  function normalizeOptionalPositiveInteger(value: string): number | undefined {
-    const trimmed = value.trim();
-    if (!trimmed) return undefined;
-    const parsed = Number(trimmed);
-    if (!Number.isInteger(parsed) || parsed <= 0) {
-      throw new Error(t("projects.detail.invalidEstimate"));
-    }
-    return parsed;
-  }
-
   function setDetailDateValue(target: DetailDateTarget, value: string): void {
     if (target === "start") {
       detailStartDate = value;
@@ -539,11 +363,6 @@
       detailTargetEndDate = value;
       return;
     }
-    if (target === "eventStart") {
-      eventLinkStartDate = value;
-      return;
-    }
-    eventLinkEndDate = value;
   }
 
   function toggleDetailDatePicker(target: DetailDateTarget): void {
@@ -614,50 +433,20 @@
   async function saveTaskCustomField(task: ProjectTask, field: ProjectCustomField): Promise<void> {
     detailError = null;
     try {
-      let textValue: string | null = null;
-      let numberValue: number | null = null;
-      let dateValue: string | null = null;
-      let checkboxValue: boolean | null = null;
-      let optionIds: string[] = [];
-      if (projectCustomFieldUsesTextValue(field.fieldType)) {
-        const text = (customFieldTextDrafts[field.id] ?? "").trim();
-        textValue = text || null;
-      } else if (field.fieldType === "number") {
-        const numberText = (customFieldNumberDrafts[field.id] ?? "").trim();
-        if (numberText) {
-          const parsed = Number(numberText);
-          if (!Number.isFinite(parsed)) {
-            detailError = t("projects.customFields.invalidNumber");
-            return;
-          }
-          numberValue = parsed;
-        }
-      } else if (field.fieldType === "date") {
-        const dateText = (customFieldDateDrafts[field.id] ?? "").trim();
-        if (dateText) {
-          try {
-            dateValue = Temporal.PlainDate.from(dateText).toString();
-          } catch {
-            detailError = t("projects.detail.invalidDate");
-            return;
-          }
-        }
-      } else if (field.fieldType === "checkbox") {
-        checkboxValue = customFieldCheckboxDrafts[field.id] ?? false;
-      } else if (field.fieldType === "select" || field.fieldType === "status") {
-        const optionId = customFieldSelectDrafts[field.id] ?? "none";
-        optionIds = optionId === "none" ? [] : [optionId];
-      } else {
-        optionIds = customFieldMultiDrafts[field.id] ?? [];
+      const draft = projectTaskDetailCustomFieldSaveDraft({
+        field,
+        drafts: currentCustomFieldDrafts(),
+      });
+      if (!draft.ok) {
+        detailError = draft.reason === "invalid-number"
+          ? t("projects.customFields.invalidNumber")
+          : t("projects.detail.invalidDate");
+        return;
       }
       await projects.saveCustomFieldValue({
         taskId: task.id,
         fieldId: field.id,
-        textValue,
-        numberValue,
-        dateValue,
-        checkboxValue,
-        optionIds,
+        ...draft.value,
       });
       loadTaskDetailDraft(task);
     } catch (error) {
@@ -680,7 +469,7 @@
   }
 
   async function saveChecklistItem(item: ProjectChecklistItem): Promise<void> {
-    const title = checklistItemDraftTitle(item).trim();
+    const title = (checklistTitleDrafts[item.id] ?? item.title).trim();
     if (!title) {
       detailError = t("projects.detail.checklistItemTitleRequired");
       return;
@@ -793,16 +582,17 @@
     }
   }
 
-  async function linkExistingEvent(task: ProjectTask, event: ProjectLinkableEvent): Promise<void> {
+  async function linkExistingEvent(task: ProjectTask, event: ProjectLinkableEvent): Promise<boolean> {
     detailError = null;
     try {
       await projects.linkTaskEvent(task.id, event.id, "scheduled");
-      eventLinkSearch = "";
+      return true;
     } catch (error) {
       detailError = t(
         "projects.detail.eventLinkSaveFailed",
         error instanceof Error ? error.message : String(error),
       );
+      return false;
     }
   }
 
@@ -845,34 +635,21 @@
 
   async function saveTaskDetail(): Promise<void> {
     if (!selectedTask) return;
-    const title = detailTitle.trim();
-    if (!title) {
-      detailError = t("projects.detail.titleRequired");
+    const patch = projectTaskDetailDraftPatch(currentDetailDraft());
+    if (!patch.ok) {
+      if (patch.reason === "title-required") {
+        detailError = t("projects.detail.titleRequired");
+      } else if (patch.reason === "invalid-estimate") {
+        detailError = t("projects.detail.invalidEstimate");
+      } else if (patch.reason === "invalid-date") {
+        detailError = t("projects.detail.invalidDate");
+      }
       return;
     }
-    if (!detailSectionId || !detailStatusId) return;
     detailSaving = true;
     detailError = null;
     try {
-      const estimateMinutes = normalizeOptionalPositiveInteger(detailEstimateMinutes);
-      const startDate = normalizeOptionalDate(detailStartDate);
-      const dueDate = normalizeOptionalDate(detailDueDate);
-      const targetEndDate = normalizeOptionalDate(detailTargetEndDate);
-      await projects.updateTask(selectedTask, {
-        title,
-        description: detailDescription.trim(),
-        sectionId: detailSectionId,
-        statusId: detailStatusId,
-        priority: detailPriority,
-        taskType: detailTaskType,
-        estimateMinutes,
-        startDate,
-        dueDate,
-        targetEndDate,
-        blockerReason: detailBlockerReason.trim() || undefined,
-        milestone: detailMilestone,
-        changeReason: detailChangeReason.trim() || null,
-      });
+      await projects.updateTask(selectedTask, patch.patch);
       detailChangeReason = "";
       detailDraftUpdatedAt = selectedTask.updatedAt;
     } catch (error) {
@@ -890,7 +667,6 @@
 <svelte:window onkeydown={handleTaskDetailKeydown} />
 
 {#if selectedTask}
-    {@const selectedTaskEvents = linkedEventRowsForTask(selectedTask)}
     {@const selectedTaskHistory = projects.taskChangeEventsForTask(selectedTask.id).slice(0, 8)}
     {@const selectedTaskChecklist = projects.checklistItemsForTask(selectedTask.id)}
     {@const selectedTaskTags = tagsForTask(selectedTask)}
@@ -900,7 +676,7 @@
     {@const selectedTaskBlocks = blocksDependencies(selectedTask)}
     {@const selectedTaskParent = selectedTask.parentTaskId ? taskById(selectedTask.parentTaskId) : undefined}
     {@const selectedTaskDependencyCandidates = dependencyCandidateTasks(selectedTask)}
-    {@const selectedTaskEventCandidates = eventLinkCandidateEvents(selectedTask)}
+    {@const selectedTaskEventIds = projects.eventLinksForTask(selectedTask.id).map((link) => link.eventId)}
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
@@ -920,1081 +696,210 @@
       tabindex="-1"
       onclick={(event) => event.stopPropagation()}
     >
-      <header class="flex shrink-0 items-center gap-2 border-b border-border bg-card px-4 py-3">
-        <div class="min-w-0 flex-1">
-          <div class="flex min-w-0 items-center gap-2">
-            <input
-              bind:value={detailTitle}
-              aria-label={t("projects.detail.titleLabel")}
-              class="min-h-8 min-w-0 flex-1 rounded-md bg-transparent px-1 text-[1.1rem] font-semibold text-foreground outline-none focus:bg-background focus:ring-2 focus:ring-ring/30"
-            />
-            {#if selectedTask.archivedAt}
-              <span class={cn("shrink-0 rounded border px-1.5 py-0.5 text-[0.666667rem]", projectTaskArchivedBadgeClass(selectedTask))}>
-                {t("projects.taskLifecycle.archived")}
-              </span>
-            {/if}
-          </div>
-        </div>
-        <button
-          type="button"
-          class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-          aria-label={t("projects.detail.close")}
-          title={t("projects.detail.close")}
-          onclick={requestTaskDetailClose}
-        >
-          <X size={15} strokeWidth={1.75} />
-        </button>
-      </header>
+      <ProjectTaskDetailHeader
+        task={selectedTask}
+        title={detailTitle}
+        onTitleChange={(value) => { detailTitle = value; }}
+        onClose={requestTaskDetailClose}
+      />
 
       <form class="flex min-h-0 flex-1 flex-col" onsubmit={(event) => { event.preventDefault(); void saveTaskDetail(); }}>
         <div class="relative min-h-0 flex-1 bg-background/50">
           <div bind:this={detailScrollContainer} class="hide-scrollbar h-full overflow-y-auto px-4 py-4">
           <div class="mx-auto grid max-w-5xl gap-5">
             <section class="task-detail-section task-detail-section-first">
-              <label class="grid gap-1 text-[0.733333rem] font-medium text-muted-foreground">
-              <span>{t("projects.detail.description")}</span>
-              <textarea
-                bind:value={detailDescription}
-                rows="5"
-                class="min-h-28 resize-none rounded-md border border-border bg-card px-3 py-2 text-[0.833333rem] text-foreground outline-none focus:ring-2 focus:ring-ring/30"
-              ></textarea>
-              </label>
+              <ProjectTaskDetailDescriptionSection
+                value={detailDescription}
+                onChange={(value) => { detailDescription = value; }}
+              />
             </section>
 
             <section class="task-detail-section">
-              <h2 class="task-detail-section-title">{t("projects.detail.properties")}</h2>
-
-              <div class="grid gap-1">
-                <div class="text-[0.733333rem] font-medium text-muted-foreground">{t("projects.detail.status")}</div>
-                <div class="flex flex-wrap gap-1">
-                  {#each statuses as status (status.id)}
-                    <button
-                      type="button"
-                      class={cn(
-                        "rounded-full outline-none transition-shadow hover:ring-1 hover:ring-ring/50 focus:ring-1 focus:ring-ring",
-                        detailStatusId === status.id && "ring-1 ring-ring",
-                      )}
-                      onclick={() => {
-                        detailStatusId = status.id;
-                      }}
-                    >
-                      <ProjectStatusBadge
-                        {status}
-                        theme={theme.current}
-                        label={status.name}
-                        class="text-[0.766667rem]"
-                      />
-                    </button>
-                  {/each}
-                </div>
-              </div>
-
-              <div class="grid gap-1">
-                <div class="text-[0.733333rem] font-medium text-muted-foreground">{t("projects.detail.section")}</div>
-                <div class="flex flex-wrap gap-1">
-                  {#each sections as section (section.id)}
-                    <button
-                      type="button"
-                      class={cn(
-                        "rounded-md border px-2 py-1 text-[0.766667rem]",
-                        detailSectionId === section.id
-                          ? "border-primary/50 bg-primary/10 text-primary"
-                          : "border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground",
-                      )}
-                      onclick={() => {
-                        detailSectionId = section.id;
-                      }}
-                    >
-                      {section.name}
-                    </button>
-                  {/each}
-                </div>
-              </div>
-
-              <div class="grid gap-1">
-                <div class="text-[0.733333rem] font-medium text-muted-foreground">{t("projects.detail.priority")}</div>
-                <div class="flex flex-wrap gap-1">
-                  {#each priorities as priority (priority.id)}
-                    <button
-                      type="button"
-                      class={cn(
-                        "flex min-h-7 items-center gap-1.5 rounded-md px-2 text-[0.766667rem] text-foreground hover:bg-accent",
-                        detailPriority === priority.id && "bg-accent",
-                      )}
-                      onclick={() => {
-                        detailPriority = priority.id;
-                      }}
-                    >
-                      <PriorityFlagIcon color={priority.color} theme={theme.current} size={13} class="shrink-0" />
-                      <span>{priority.name}</span>
-                    </button>
-                  {/each}
-                </div>
-              </div>
-
-              <div class="grid gap-1">
-                <div class="text-[0.733333rem] font-medium text-muted-foreground">{t("projects.detail.type")}</div>
-                <div class="flex flex-wrap gap-1">
-                  {#each PROJECT_TASK_TYPES as taskType}
-                    <button
-                      type="button"
-                      class={cn(
-                        "rounded-md border px-2 py-1 text-[0.766667rem]",
-                        detailTaskType === taskType
-                          ? "border-primary/50 bg-primary/10 text-primary"
-                          : "border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground",
-                      )}
-                      onclick={() => {
-                        detailTaskType = taskType;
-                      }}
-                    >
-                      {projectTaskTypeLabel(taskType, t)}
-                    </button>
-                  {/each}
-                </div>
-              </div>
-
-              <label class="flex min-h-8 items-center gap-2 rounded-md border border-border bg-background px-2 text-[0.8rem]">
-                <input type="checkbox" bind:checked={detailMilestone} class="h-4 w-4 accent-primary" />
-                <span>{t("projects.detail.milestone")}</span>
-              </label>
+              <ProjectTaskDetailPropertiesSection
+                {statuses}
+                {sections}
+                {priorities}
+                theme={theme.current}
+                statusId={detailStatusId}
+                sectionId={detailSectionId}
+                priority={detailPriority}
+                taskType={detailTaskType}
+                milestone={detailMilestone}
+                onStatusChange={(value) => { detailStatusId = value; }}
+                onSectionChange={(value) => { detailSectionId = value; }}
+                onPriorityChange={(value) => { detailPriority = value; }}
+                onTaskTypeChange={(value) => { detailTaskType = value; }}
+                onMilestoneChange={(value) => { detailMilestone = value; }}
+              />
             </section>
 
             <section class="task-detail-section">
-              <h2 class="task-detail-section-title">{t("projects.detail.dates")}</h2>
-              <div class="grid gap-3 min-[760px]:grid-cols-2">
-                <label class="grid gap-1 text-[0.733333rem] font-medium text-muted-foreground">
-                  <span>{t("projects.detail.estimateMinutes")}</span>
-                  <input
-                    bind:value={detailEstimateMinutes}
-                    inputmode="numeric"
-                    class="min-h-8 rounded-md border border-border bg-card px-2 text-[0.8rem] text-foreground outline-none focus:ring-2 focus:ring-ring/30"
-                  />
-                </label>
-
-                <div class="grid gap-1 text-[0.733333rem] font-medium text-muted-foreground">
-                  <span>{t("projects.detail.startDate")}</span>
-                  <div class="flex gap-1">
-                    <button
-                      type="button"
-                      class={cn(
-                        "flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-md border border-border bg-card px-2 text-left text-[0.8rem] text-foreground hover:bg-accent",
-                        !detailStartDate && "text-muted-foreground",
-                      )}
-                      onclick={() => toggleDetailDatePicker("start")}
-                    >
-                      <CalendarDays size={14} strokeWidth={1.75} class="shrink-0" />
-                      <span class="truncate">{detailStartDate || t("projects.detail.noDate")}</span>
-                    </button>
-                    {#if detailStartDate}
-                      <button
-                        type="button"
-                        class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground"
-                        aria-label={t("projects.detail.clearDate", t("projects.detail.startDate"))}
-                        onclick={() => clearDetailDate("start")}
-                      >
-                        <X size={13} strokeWidth={1.75} />
-                      </button>
-                    {/if}
-                  </div>
-                  {#if datePickerTarget === "start"}
-                    <div class="w-fit rounded-lg border border-border bg-card p-2">
-                      <MiniDatePicker
-                        selectedDate={detailStartDate || todayDate}
-                        rangeStartDate={detailStartDate || undefined}
-                        rangeEndDate={detailDueDate || undefined}
-                        small
-                        highlightToday={false}
-                        activeHighlight="primary"
-                        onselect={selectDetailDate}
-                        oncancel={() => { datePickerTarget = null; }}
-                      />
-                    </div>
-                  {/if}
-                </div>
-
-                <div class="grid gap-1 text-[0.733333rem] font-medium text-muted-foreground">
-                  <span>{t("projects.detail.dueDate")}</span>
-                  <div class="flex gap-1">
-                    <button
-                      type="button"
-                      class={cn(
-                        "flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-md border border-border bg-card px-2 text-left text-[0.8rem] text-foreground hover:bg-accent",
-                        !detailDueDate && "text-muted-foreground",
-                      )}
-                      onclick={() => toggleDetailDatePicker("due")}
-                    >
-                      <CalendarDays size={14} strokeWidth={1.75} class="shrink-0" />
-                      <span class="truncate">{detailDueDate || t("projects.detail.noDate")}</span>
-                    </button>
-                    {#if detailDueDate}
-                      <button
-                        type="button"
-                        class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground"
-                        aria-label={t("projects.detail.clearDate", t("projects.detail.dueDate"))}
-                        onclick={() => clearDetailDate("due")}
-                      >
-                        <X size={13} strokeWidth={1.75} />
-                      </button>
-                    {/if}
-                  </div>
-                  {#if datePickerTarget === "due"}
-                    <div class="w-fit rounded-lg border border-border bg-card p-2">
-                      <MiniDatePicker
-                        selectedDate={detailDueDate || todayDate}
-                        rangeStartDate={detailStartDate || undefined}
-                        rangeEndDate={detailDueDate || undefined}
-                        small
-                        highlightToday={false}
-                        activeHighlight="primary"
-                        onselect={selectDetailDate}
-                        oncancel={() => { datePickerTarget = null; }}
-                      />
-                    </div>
-                  {/if}
-                </div>
-
-                <div class="grid gap-1 text-[0.733333rem] font-medium text-muted-foreground">
-                  <span>{t("projects.detail.targetEndDate")}</span>
-                  <div class="flex gap-1">
-                    <button
-                      type="button"
-                      class={cn(
-                        "flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-md border border-border bg-card px-2 text-left text-[0.8rem] text-foreground hover:bg-accent",
-                        !detailTargetEndDate && "text-muted-foreground",
-                      )}
-                      onclick={() => toggleDetailDatePicker("target")}
-                    >
-                      <CalendarDays size={14} strokeWidth={1.75} class="shrink-0" />
-                      <span class="truncate">{detailTargetEndDate || t("projects.detail.noDate")}</span>
-                    </button>
-                    {#if detailTargetEndDate}
-                      <button
-                        type="button"
-                        class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground"
-                        aria-label={t("projects.detail.clearDate", t("projects.detail.targetEndDate"))}
-                        onclick={() => clearDetailDate("target")}
-                      >
-                        <X size={13} strokeWidth={1.75} />
-                      </button>
-                    {/if}
-                  </div>
-                  {#if datePickerTarget === "target"}
-                    <div class="w-fit rounded-lg border border-border bg-card p-2">
-                      <MiniDatePicker
-                        selectedDate={detailTargetEndDate || todayDate}
-                        small
-                        highlightMode="none"
-                        activeHighlight="primary"
-                        onselect={selectDetailDate}
-                        oncancel={() => { datePickerTarget = null; }}
-                      />
-                    </div>
-                  {/if}
-                </div>
-              </div>
-              <label class="grid gap-1 text-[0.733333rem] font-medium text-muted-foreground">
-                <span>{t("projects.detail.blockerReason")}</span>
-                <input
-                  bind:value={detailBlockerReason}
-                  class="min-h-8 rounded-md border border-border bg-card px-2 text-[0.8rem] text-foreground outline-none focus:ring-2 focus:ring-ring/30"
-                />
-              </label>
-              <label class="grid gap-1 text-[0.733333rem] font-medium text-muted-foreground">
-                <span>{t("projects.detail.changeReason")}</span>
-                <input
-                  bind:value={detailChangeReason}
-                  maxlength="1000"
-                  placeholder={t("projects.detail.changeReasonPlaceholder")}
-                  class="min-h-8 rounded-md border border-border bg-card px-2 text-[0.8rem] text-foreground outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring/30"
-                />
-              </label>
+              <ProjectTaskDetailPlanningSection
+                estimateMinutes={detailEstimateMinutes}
+                startDate={detailStartDate}
+                dueDate={detailDueDate}
+                targetEndDate={detailTargetEndDate}
+                blockerReason={detailBlockerReason}
+                changeReason={detailChangeReason}
+                {todayDate}
+                startPickerOpen={datePickerTarget === "start"}
+                duePickerOpen={datePickerTarget === "due"}
+                targetPickerOpen={datePickerTarget === "target"}
+                onEstimateMinutesChange={(value) => { detailEstimateMinutes = value; }}
+                onBlockerReasonChange={(value) => { detailBlockerReason = value; }}
+                onChangeReasonChange={(value) => { detailChangeReason = value; }}
+                onToggleStartPicker={() => toggleDetailDatePicker("start")}
+                onToggleDuePicker={() => toggleDetailDatePicker("due")}
+                onToggleTargetPicker={() => toggleDetailDatePicker("target")}
+                onClearStartDate={() => clearDetailDate("start")}
+                onClearDueDate={() => clearDetailDate("due")}
+                onClearTargetEndDate={() => clearDetailDate("target")}
+                onSelectDate={selectDetailDate}
+                onCancelDatePicker={() => { datePickerTarget = null; }}
+              />
             </section>
 
             <section class="task-detail-section">
-              <div class="flex items-center justify-between gap-2">
-                <h2 class="task-detail-section-title">{t("projects.detail.tags")}</h2>
-                <span class="text-[0.733333rem] text-muted-foreground">{selectedTaskTags.length}</span>
-              </div>
-              {#if selectedTaskTags.length > 0}
-                <div class="flex flex-wrap gap-1">
-                  {#each selectedTaskTags as tag (tag.id)}
-                    <span class="inline-flex min-h-7 max-w-full items-center gap-1 rounded-md border border-border bg-background px-2 text-[0.766667rem]">
-                      <span
-                        class={cn("h-2 w-2 shrink-0 rounded-full border", projectTagColorSwatchClass(tag.color))}
-                        style={projectTagColorDotStyle(tag.color, theme.current)}
-                      ></span>
-                      <span class="truncate">{tag.name}</span>
-                      <button
-                        type="button"
-                        class="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                        aria-label={t("projects.actions.removeTag", tag.name)}
-                        title={t("projects.actions.removeTag", tag.name)}
-                        onclick={() => { void detachTaskTag(selectedTask, tag); }}
-                      >
-                        <X size={12} strokeWidth={1.75} />
-                      </button>
-                    </span>
-                  {/each}
-                </div>
-              {:else}
-                <div class="rounded-md border border-dashed border-border px-2 py-2 text-[0.8rem] text-muted-foreground">
-                  {t("projects.detail.noTags")}
-                </div>
-              {/if}
-              <div class="grid gap-1">
-                <div class="flex gap-1">
-                  <input
-                    bind:value={tagDraft}
-                    placeholder={t("projects.detail.addTagPlaceholder")}
-                    class="min-h-8 min-w-0 flex-1 rounded-md border border-border bg-background px-2 text-[0.8rem]"
-                    onkeydown={(event) => {
-                      if (event.key === "Enter") {
-                        event.preventDefault();
-                        void submitTaskTag(selectedTask);
-                      }
-                    }}
-                  />
-                  <button
-                    type="button"
-                    class="flex min-h-8 items-center justify-center rounded-md border border-border bg-background px-2 text-[0.8rem] hover:bg-accent"
-                    aria-label={t("projects.detail.addTag")}
-                    onclick={() => { void submitTaskTag(selectedTask); }}
-                  >
-                    <Plus size={14} strokeWidth={1.75} />
-                  </button>
-                </div>
-                <div class="grid gap-1">
-                  {#each selectedTaskTagCandidates as tag (tag.id)}
-                    <button
-                      type="button"
-                      class="grid min-h-8 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md border border-border bg-background px-2 text-left hover:bg-accent"
-                      onclick={() => { void attachExistingTag(selectedTask, tag); }}
-                    >
-                      <span class="flex min-w-0 items-center gap-2">
-                        <span
-                          class={cn("h-2 w-2 shrink-0 rounded-full border", projectTagColorSwatchClass(tag.color))}
-                          style={projectTagColorDotStyle(tag.color, theme.current)}
-                        ></span>
-                        <span class="truncate text-[0.8rem]">{tag.name}</span>
-                      </span>
-                      <Plus size={13} strokeWidth={1.75} class="text-muted-foreground" />
-                    </button>
-                  {:else}
-                    {#if canCreateTag(selectedTask)}
-                      <button
-                        type="button"
-                        class="grid min-h-8 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md border border-border bg-background px-2 text-left hover:bg-accent"
-                        onclick={() => { void submitTaskTag(selectedTask); }}
-                      >
-                        <span class="truncate text-[0.8rem]">{t("projects.detail.createTag", tagDraft.trim())}</span>
-                        <Plus size={13} strokeWidth={1.75} class="text-muted-foreground" />
-                      </button>
-                    {:else}
-                      <div class="rounded-md border border-dashed border-border px-2 py-2 text-[0.8rem] text-muted-foreground">
-                        {t("projects.detail.noTagCandidates")}
-                      </div>
-                    {/if}
-                  {/each}
-                </div>
-              </div>
+              <ProjectTaskDetailTagsSection
+                task={selectedTask}
+                tags={selectedTaskTags}
+                candidates={selectedTaskTagCandidates}
+                draft={tagDraft}
+                canCreate={canCreateTag(selectedTask)}
+                theme={theme.current}
+                onDraftChange={(value) => { tagDraft = value; }}
+                onAttachTag={attachExistingTag}
+                onSubmitTag={submitTaskTag}
+                onDetachTag={detachTaskTag}
+              />
             </section>
 
             {#if projectCustomFields.length > 0}
               <section class="task-detail-section">
-                <div class="flex items-center justify-between gap-2">
-                  <h2 class="task-detail-section-title">{t("projects.customFields.taskValues")}</h2>
-                  <span class="text-[0.733333rem] text-muted-foreground">{projectCustomFields.length}</span>
-                </div>
-                <div class="grid gap-2">
-                  {#each projectCustomFields as field (field.id)}
-                    <div class="grid gap-1 rounded-md border border-border bg-background p-2">
-                      <div class="flex min-w-0 items-center justify-between gap-2">
-                        <div class="min-w-0">
-                          <div class="truncate text-[0.8rem] font-medium">{field.name}</div>
-                          <div class="truncate text-[0.733333rem] text-muted-foreground">
-                            {projectCustomFieldTypeLabel(field.fieldType, t)}
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          class="flex min-h-7 shrink-0 items-center gap-1 rounded-md border border-border bg-card px-2 text-[0.733333rem] hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-                          disabled={!customFieldValueDirty(selectedTask, field)}
-                          onclick={() => { void saveTaskCustomField(selectedTask, field); }}
-                        >
-                          <Save size={13} strokeWidth={1.75} />
-                          <span>{t("projects.customFields.saveValue")}</span>
-                        </button>
-                      </div>
-
-                      {#if projectCustomFieldUsesTextValue(field.fieldType)}
-                        <input
-                          type={projectCustomFieldInputType(field.fieldType)}
-                          value={customFieldTextDrafts[field.id] ?? ""}
-                          inputmode={projectCustomFieldTextInputMode(field.fieldType)}
-                          class="min-h-8 rounded-md border border-border bg-card px-2 text-[0.8rem] text-foreground"
-                          placeholder={t("projects.customFields.emptyValue")}
-                          oninput={(event) => {
-                            customFieldTextDrafts = {
-                              ...customFieldTextDrafts,
-                              [field.id]: event.currentTarget.value,
-                            };
-                          }}
-                          onkeydown={(event) => {
-                            if (event.key === "Enter") {
-                              event.preventDefault();
-                              void saveTaskCustomField(selectedTask, field);
-                            }
-                          }}
-                        />
-                      {:else if field.fieldType === "number"}
-                        <input
-                          value={customFieldNumberDrafts[field.id] ?? ""}
-                          inputmode="decimal"
-                          class="min-h-8 rounded-md border border-border bg-card px-2 text-[0.8rem] text-foreground"
-                          placeholder={t("projects.customFields.emptyValue")}
-                          oninput={(event) => {
-                            customFieldNumberDrafts = {
-                              ...customFieldNumberDrafts,
-                              [field.id]: event.currentTarget.value,
-                            };
-                          }}
-                          onkeydown={(event) => {
-                            if (event.key === "Enter") {
-                              event.preventDefault();
-                              void saveTaskCustomField(selectedTask, field);
-                            }
-                          }}
-                        />
-                      {:else if field.fieldType === "date"}
-                        <div class="grid gap-1">
-                          <div class="flex gap-1">
-                            <button
-                              type="button"
-                              class={cn(
-                                "flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-md border border-border bg-card px-2 text-left text-[0.8rem] text-foreground hover:bg-accent",
-                                !(customFieldDateDrafts[field.id] ?? "") && "text-muted-foreground",
-                              )}
-                              onclick={() => {
-                                customFieldDatePickerTarget = customFieldDatePickerTarget === field.id ? null : field.id;
-                                datePickerTarget = null;
-                              }}
-                            >
-                              <CalendarDays size={14} strokeWidth={1.75} class="shrink-0" />
-                              <span class="truncate">{customFieldDateDrafts[field.id] || t("projects.detail.noDate")}</span>
-                            </button>
-                            {#if customFieldDateDrafts[field.id]}
-                              <button
-                                type="button"
-                                class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground"
-                                aria-label={t("projects.detail.clearDate", field.name)}
-                                onclick={() => clearCustomFieldDate(field.id)}
-                              >
-                                <X size={13} strokeWidth={1.75} />
-                              </button>
-                            {/if}
-                          </div>
-                          {#if customFieldDatePickerTarget === field.id}
-                            <div class="w-fit rounded-lg border border-border bg-card p-2">
-                              <MiniDatePicker
-                                selectedDate={customFieldDateDrafts[field.id] || todayDate}
-                                small
-                                highlightMode="none"
-                                activeHighlight="primary"
-                                onselect={selectCustomFieldDate}
-                                oncancel={() => { customFieldDatePickerTarget = null; }}
-                              />
-                            </div>
-                          {/if}
-                        </div>
-                      {:else if field.fieldType === "checkbox"}
-                        <label class="flex min-h-8 items-center gap-2 rounded-md border border-border bg-card px-2 text-[0.8rem]">
-                          <input
-                            type="checkbox"
-                            checked={customFieldCheckboxDrafts[field.id] ?? false}
-                            class="h-4 w-4 accent-primary"
-                            onchange={(event) => {
-                              customFieldCheckboxDrafts = {
-                                ...customFieldCheckboxDrafts,
-                                [field.id]: event.currentTarget.checked,
-                              };
-                            }}
-                          />
-                          <span>{field.name}</span>
-                        </label>
-                      {:else if field.fieldType === "select" || field.fieldType === "status"}
-                        <div class="flex flex-wrap gap-1">
-                          <button
-                            type="button"
-                            class={cn(
-                              "rounded-md border px-2 py-1 text-[0.733333rem]",
-                              (customFieldSelectDrafts[field.id] ?? "none") === "none"
-                                ? "border-primary/50 bg-primary/10 text-primary"
-                                : "border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground",
-                            )}
-                            onclick={() => {
-                              customFieldSelectDrafts = {
-                                ...customFieldSelectDrafts,
-                                [field.id]: "none",
-                              };
-                            }}
-                          >
-                            {t("projects.customFields.selectNone")}
-                          </button>
-                          {#each customFieldOptions(field) as option (option.id)}
-                            <button
-                              type="button"
-                              class={cn(
-                                "rounded-md border px-2 py-1 text-[0.733333rem]",
-                                customFieldSelectDrafts[field.id] === option.id
-                                  ? "border-primary/50 bg-primary/10 text-primary"
-                                  : "border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground",
-                              )}
-                              onclick={() => {
-                                customFieldSelectDrafts = {
-                                  ...customFieldSelectDrafts,
-                                  [field.id]: option.id,
-                                };
-                              }}
-                            >
-                              {option.name}
-                            </button>
-                          {:else}
-                            <div class="rounded-md border border-dashed border-border px-2 py-2 text-[0.8rem] text-muted-foreground">
-                              {t("projects.customFields.noOptions")}
-                            </div>
-                          {/each}
-                        </div>
-                      {:else if projectCustomFieldUsesOptions(field.fieldType)}
-                        <div class="flex flex-wrap gap-1">
-                          {#each customFieldOptions(field) as option (option.id)}
-                            {@const optionSelected = (customFieldMultiDrafts[field.id] ?? []).includes(option.id)}
-                            <button
-                              type="button"
-                              class={cn(
-                                "flex min-h-7 items-center gap-1 rounded-md border px-2 text-[0.733333rem]",
-                                optionSelected
-                                  ? "border-primary/50 bg-primary/10 text-primary"
-                                  : "border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground",
-                              )}
-                              onclick={() => toggleCustomFieldMultiOption(field, option)}
-                            >
-                              {#if optionSelected}
-                                <Check size={12} strokeWidth={1.75} />
-                              {/if}
-                              <span>{option.name}</span>
-                            </button>
-                          {:else}
-                            <div class="rounded-md border border-dashed border-border px-2 py-2 text-[0.8rem] text-muted-foreground">
-                              {t("projects.customFields.noOptions")}
-                            </div>
-                          {/each}
-                        </div>
-                      {/if}
-                    </div>
-                  {/each}
-                </div>
+                <ProjectTaskDetailCustomFieldsSection
+                  task={selectedTask}
+                  fields={projectCustomFields}
+                  textDrafts={customFieldTextDrafts}
+                  numberDrafts={customFieldNumberDrafts}
+                  dateDrafts={customFieldDateDrafts}
+                  checkboxDrafts={customFieldCheckboxDrafts}
+                  selectDrafts={customFieldSelectDrafts}
+                  multiDrafts={customFieldMultiDrafts}
+                  datePickerTarget={customFieldDatePickerTarget}
+                  {todayDate}
+                  {customFieldOptions}
+                  {customFieldValueDirty}
+                  onTextDraftChange={(fieldId, value) => {
+                    customFieldTextDrafts = {
+                      ...customFieldTextDrafts,
+                      [fieldId]: value,
+                    };
+                  }}
+                  onNumberDraftChange={(fieldId, value) => {
+                    customFieldNumberDrafts = {
+                      ...customFieldNumberDrafts,
+                      [fieldId]: value,
+                    };
+                  }}
+                  onCheckboxDraftChange={(fieldId, value) => {
+                    customFieldCheckboxDrafts = {
+                      ...customFieldCheckboxDrafts,
+                      [fieldId]: value,
+                    };
+                  }}
+                  onSelectDraftChange={(fieldId, value) => {
+                    customFieldSelectDrafts = {
+                      ...customFieldSelectDrafts,
+                      [fieldId]: value,
+                    };
+                  }}
+                  onToggleMultiOption={toggleCustomFieldMultiOption}
+                  onSaveField={saveTaskCustomField}
+                  onToggleDatePicker={(fieldId) => {
+                    customFieldDatePickerTarget = customFieldDatePickerTarget === fieldId ? null : fieldId;
+                    datePickerTarget = null;
+                  }}
+                  onClearDate={clearCustomFieldDate}
+                  onSelectDate={selectCustomFieldDate}
+                  onCancelDatePicker={() => { customFieldDatePickerTarget = null; }}
+                />
               </section>
             {/if}
 
             <section class="task-detail-section">
-              <div class="flex items-center justify-between gap-2">
-                <h2 class="task-detail-section-title">{t("projects.detail.parentTask")}</h2>
-                {#if selectedTask.parentTaskId}
-                  <button
-                    type="button"
-                    class="flex min-h-7 items-center gap-1 rounded-md border border-border bg-background px-2 text-[0.733333rem] text-muted-foreground hover:bg-accent hover:text-foreground"
-                    onclick={() => { void promoteSubtaskFromDetail(selectedTask); }}
-                  >
-                    <ArrowLeft size={13} strokeWidth={1.75} />
-                    <span>{t("projects.detail.promoteSubtask")}</span>
-                  </button>
-                {/if}
-              </div>
-              {#if selectedTask.parentTaskId}
-                <div class="rounded-md border border-border bg-background px-2 py-1.5 text-[0.8rem]">
-                  {selectedTaskParent?.title ?? t("projects.detail.missingDependencyTask")}
-                </div>
-              {:else if taskHasAnySubtasks(selectedTask)}
-                <div class="rounded-md border border-dashed border-border px-2 py-2 text-[0.8rem] text-muted-foreground">
-                  {t("projects.detail.demoteBlockedBySubtasks")}
-                </div>
-              {:else}
-                <label class="grid gap-1 text-[0.733333rem] font-medium text-muted-foreground">
-                  <span>{t("projects.detail.demoteToParent")}</span>
-                  <input
-                    bind:value={parentTaskSearch}
-                    placeholder={t("projects.detail.demoteToParentPlaceholder")}
-                    class="min-h-8 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground placeholder:text-muted-foreground"
-                  />
-                </label>
-                <div class="grid gap-1">
-                  {#each parentTaskCandidateTasks(selectedTask) as candidate (candidate.id)}
-                    <button
-                      type="button"
-                      class="grid min-h-8 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md border border-border bg-background px-2 text-left text-muted-foreground hover:bg-accent hover:text-foreground"
-                      onclick={() => { void demoteTaskFromDetail(selectedTask, candidate); }}
-                    >
-                      <span class="truncate text-[0.8rem] text-foreground">{candidate.title}</span>
-                      <ArrowRight size={13} strokeWidth={1.75} />
-                    </button>
-                  {:else}
-                    <div class="rounded-md border border-dashed border-border px-2 py-2 text-[0.8rem] text-muted-foreground">
-                      {t("projects.detail.noParentCandidates")}
-                    </div>
-                  {/each}
-                </div>
-              {/if}
+              <ProjectTaskDetailParentSection
+                task={selectedTask}
+                parentTask={selectedTaskParent}
+                parentCandidates={parentTaskCandidateTasks(selectedTask)}
+                parentSearch={parentTaskSearch}
+                hasSubtasks={taskHasAnySubtasks(selectedTask)}
+                onParentSearchChange={(value) => { parentTaskSearch = value; }}
+                onPromoteSubtask={promoteSubtaskFromDetail}
+                onDemoteTask={demoteTaskFromDetail}
+              />
             </section>
 
             <section class="task-detail-section">
-              <div class="flex items-center justify-between gap-2">
-                <h2 class="task-detail-section-title">{t("projects.detail.dependencies")}</h2>
-                <span class="text-[0.733333rem] text-muted-foreground">
-                  {selectedTaskBlockedBy.length + selectedTaskBlocks.length}
-                </span>
-              </div>
-
-              <div class="grid gap-1">
-                <div class="text-[0.733333rem] font-medium text-muted-foreground">{t("projects.detail.blockedBy")}</div>
-                {#each selectedTaskBlockedBy as dependency (dependency.id)}
-                  {@const blockingTask = taskById(dependency.blockingTaskId)}
-                  <div class="grid min-h-8 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md border border-border bg-background px-2">
-                    <span class="truncate text-[0.8rem]">
-                      {blockingTask?.title ?? t("projects.detail.missingDependencyTask")}
-                    </span>
-                    <button
-                      type="button"
-                      class="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                      aria-label={t("projects.actions.deleteDependency")}
-                      title={t("projects.actions.deleteDependency")}
-                      onclick={() => { void removeDependency(dependency.id); }}
-                    >
-                      <Trash2 size={13} strokeWidth={1.75} />
-                    </button>
-                  </div>
-                {:else}
-                  <div class="rounded-md border border-dashed border-border px-2 py-2 text-[0.8rem] text-muted-foreground">
-                    {t("projects.detail.noBlockedBy")}
-                  </div>
-                {/each}
-              </div>
-
-              <div class="grid gap-1">
-                <div class="text-[0.733333rem] font-medium text-muted-foreground">{t("projects.detail.blocks")}</div>
-                {#each selectedTaskBlocks as dependency (dependency.id)}
-                  {@const blockedTask = taskById(dependency.blockedTaskId)}
-                  <div class="grid min-h-8 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md border border-border bg-background px-2">
-                    <span class="truncate text-[0.8rem]">
-                      {blockedTask?.title ?? t("projects.detail.missingDependencyTask")}
-                    </span>
-                    <button
-                      type="button"
-                      class="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                      aria-label={t("projects.actions.deleteDependency")}
-                      title={t("projects.actions.deleteDependency")}
-                      onclick={() => { void removeDependency(dependency.id); }}
-                    >
-                      <Trash2 size={13} strokeWidth={1.75} />
-                    </button>
-                  </div>
-                {:else}
-                  <div class="rounded-md border border-dashed border-border px-2 py-2 text-[0.8rem] text-muted-foreground">
-                    {t("projects.detail.noBlocks")}
-                  </div>
-                {/each}
-              </div>
-
-              <div class="grid gap-1">
-                <label class="grid gap-1 text-[0.733333rem] font-medium text-muted-foreground">
-                  <span>{t("projects.detail.addBlockedBy")}</span>
-                  <input
-                    bind:value={dependencySearch}
-                    placeholder={t("projects.detail.addBlockedByPlaceholder")}
-                    class="min-h-8 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground"
-                  />
-                </label>
-                <div class="grid gap-1">
-                  {#each selectedTaskDependencyCandidates as candidate (candidate.id)}
-                    <button
-                      type="button"
-                      class="grid min-h-8 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md border border-border bg-background px-2 text-left hover:bg-accent"
-                      onclick={() => { void addBlockingDependency(candidate, selectedTask); }}
-                    >
-                      <span class="truncate text-[0.8rem]">{candidate.title}</span>
-                      <Plus size={13} strokeWidth={1.75} class="text-muted-foreground" />
-                    </button>
-                  {:else}
-                    <div class="rounded-md border border-dashed border-border px-2 py-2 text-[0.8rem] text-muted-foreground">
-                      {t("projects.detail.noDependencyCandidates")}
-                    </div>
-                  {/each}
-                </div>
-              </div>
+              <ProjectTaskDetailDependenciesSection
+                task={selectedTask}
+                blockedByDependencies={selectedTaskBlockedBy}
+                blocksDependencies={selectedTaskBlocks}
+                dependencyCandidates={selectedTaskDependencyCandidates}
+                dependencySearch={dependencySearch}
+                {taskById}
+                onDependencySearchChange={(value) => { dependencySearch = value; }}
+                onAddBlockingDependency={addBlockingDependency}
+                onRemoveDependency={removeDependency}
+              />
             </section>
 
             <section class="task-detail-section">
-              <div class="flex items-center justify-between gap-2">
-                <h2 class="task-detail-section-title">{t("projects.detail.checklist")}</h2>
-                <span class="text-[0.733333rem] text-muted-foreground">{selectedTaskChecklist.length}</span>
-              </div>
-              <div class="grid gap-1">
-                {#each selectedTaskChecklist as item (item.id)}
-                  {@const previousChecklistItem = adjacentChecklistItem(item, -1)}
-                  {@const nextChecklistItem = adjacentChecklistItem(item, 1)}
-                  <div class="grid min-h-8 grid-cols-[auto_minmax(0,1fr)_auto_auto_auto_auto] items-center gap-1 rounded-md border border-border bg-background px-2">
-                    <button
-                      type="button"
-                      class={cn(
-                        "flex h-5 w-5 shrink-0 items-center justify-center rounded border",
-                        item.completedAt ? "border-emerald-500 bg-emerald-500 text-white" : "border-border hover:bg-accent",
-                      )}
-                      aria-label={t("projects.actions.toggleChecklistItem")}
-                      onclick={() => { void projects.setChecklistItemCompleted(item, !item.completedAt); }}
-                    >
-                      {#if item.completedAt}
-                        <Check size={13} strokeWidth={2} />
-                      {/if}
-                    </button>
-                    <input
-                      value={checklistItemDraftTitle(item)}
-                      class={cn(
-                        "min-h-7 min-w-0 bg-transparent px-1 text-[0.8rem]",
-                        item.completedAt ? "text-muted-foreground line-through" : "text-foreground",
-                      )}
-                      aria-label={t("projects.detail.checklistItemTitle")}
-                      oninput={(event) => {
-                        checklistTitleDrafts = {
-                          ...checklistTitleDrafts,
-                          [item.id]: event.currentTarget.value,
-                        };
-                      }}
-                      onkeydown={(event) => {
-                        if (event.key === "Enter") {
-                          event.preventDefault();
-                          void saveChecklistItem(item);
-                        }
-                      }}
-                    />
-                    <button
-                      type="button"
-                      class="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-                      disabled={!previousChecklistItem}
-                      aria-label={previousChecklistItem ? t("projects.actions.moveChecklistItemUp", item.title) : t("projects.actions.noPreviousChecklistItem")}
-                      title={previousChecklistItem ? t("projects.actions.moveChecklistItemUp", item.title) : t("projects.actions.noPreviousChecklistItem")}
-                      onclick={() => { void moveChecklistItemInDetail(item, -1); }}
-                    >
-                      <ArrowUp size={13} strokeWidth={1.75} />
-                    </button>
-                    <button
-                      type="button"
-                      class="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-                      disabled={!nextChecklistItem}
-                      aria-label={nextChecklistItem ? t("projects.actions.moveChecklistItemDown", item.title) : t("projects.actions.noNextChecklistItem")}
-                      title={nextChecklistItem ? t("projects.actions.moveChecklistItemDown", item.title) : t("projects.actions.noNextChecklistItem")}
-                      onclick={() => { void moveChecklistItemInDetail(item, 1); }}
-                    >
-                      <ArrowDown size={13} strokeWidth={1.75} />
-                    </button>
-                    <button
-                      type="button"
-                      class="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-                      disabled={!checklistItemDirty(item)}
-                      aria-label={t("projects.actions.saveChecklistItem", item.title)}
-                      title={t("projects.actions.saveChecklistItem", item.title)}
-                      onclick={() => { void saveChecklistItem(item); }}
-                    >
-                      <Save size={13} strokeWidth={1.75} />
-                    </button>
-                    <button
-                      type="button"
-                      class="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                      aria-label={t("projects.actions.deleteChecklistItem", item.title)}
-                      onclick={() => { void projects.removeChecklistItem(item.id); }}
-                    >
-                      <Trash2 size={13} strokeWidth={1.75} />
-                    </button>
-                  </div>
-                {:else}
-                  <div class="rounded-md border border-dashed border-border px-2 py-2 text-[0.8rem] text-muted-foreground">
-                    {t("projects.detail.noChecklistItems")}
-                  </div>
-                {/each}
-              </div>
-              <div class="flex gap-1">
-                <input
-                  bind:value={checklistDraft}
-                  placeholder={t("projects.detail.addChecklistItemPlaceholder")}
-                  class="min-h-8 min-w-0 flex-1 rounded-md border border-border bg-background px-2 text-[0.8rem]"
-                  onkeydown={(event) => {
-                    if (event.key === "Enter") {
-                      event.preventDefault();
-                      void submitChecklistItem(selectedTask);
-                    }
-                  }}
-                />
-                <button
-                  type="button"
-                  class="flex min-h-8 items-center justify-center rounded-md border border-border bg-background px-2 text-[0.8rem] hover:bg-accent"
-                  aria-label={t("projects.detail.addChecklistItem")}
-                  onclick={() => { void submitChecklistItem(selectedTask); }}
-                >
-                  <Plus size={14} strokeWidth={1.75} />
-                </button>
-              </div>
+              <ProjectTaskDetailChecklistSection
+                task={selectedTask}
+                items={selectedTaskChecklist}
+                titleDrafts={checklistTitleDrafts}
+                draft={checklistDraft}
+                onTitleDraftChange={(itemId, value) => {
+                  checklistTitleDrafts = {
+                    ...checklistTitleDrafts,
+                    [itemId]: value,
+                  };
+                }}
+                onDraftChange={(value) => { checklistDraft = value; }}
+                onToggleCompleted={(item, completed) => projects.setChecklistItemCompleted(item, completed)}
+                onSaveItem={saveChecklistItem}
+                onMoveItem={moveChecklistItemInDetail}
+                onDeleteItem={(item) => projects.removeChecklistItem(item.id)}
+                onSubmitItem={submitChecklistItem}
+              />
             </section>
 
             <section class="task-detail-section">
-              <div class="flex items-center justify-between gap-2">
-                <h2 class="task-detail-section-title">{t("projects.detail.subtasks")}</h2>
-                <span class="text-[0.733333rem] text-muted-foreground">{selectedTaskSubtasks.length}</span>
-              </div>
-              <div class="grid gap-1">
-                {#each selectedTaskSubtasks as subtask (subtask.id)}
-                  {@const subtaskStatus = statusForTask(subtask)}
-                  {@const previousSubtask = adjacentSubtask(subtask, -1)}
-                  {@const nextSubtask = adjacentSubtask(subtask, 1)}
-                  <div class="grid min-h-8 grid-cols-[auto_minmax(0,1fr)_auto_auto_auto_auto] items-center gap-1 rounded-md border border-border bg-background px-2">
-                    <button
-                      type="button"
-                      class={cn(
-                        "flex h-5 w-5 shrink-0 items-center justify-center rounded border",
-                        subtaskStatus?.terminal ? "border-emerald-500 bg-emerald-500 text-white" : "border-border hover:bg-accent",
-                      )}
-                      aria-label={t("projects.actions.toggleComplete")}
-                      onclick={() => { void projects.toggleTaskDone(subtask); }}
-                    >
-                      {#if subtaskStatus?.terminal}
-                        <Check size={13} strokeWidth={2} />
-                      {/if}
-                    </button>
-                    <button
-                      type="button"
-                      class="min-w-0 text-left"
-                      aria-label={t("projects.actions.openTaskDetails", subtask.title)}
-                      onclick={() => openTaskDetail(subtask)}
-                    >
-                      <span class="block truncate text-[0.8rem]">{subtask.title}</span>
-                    </button>
-                    <ProjectStatusBadge
-                      status={subtaskStatus}
-                      theme={theme.current}
-                      label={subtaskStatus?.name ?? t("projects.list.status")}
-                      class="text-[0.733333rem]"
-                    />
-                    <button
-                      type="button"
-                      class="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-                      disabled={Boolean(subtask.archivedAt)}
-                      aria-label={t("projects.actions.promoteSubtask", subtask.title)}
-                      title={t("projects.actions.promoteSubtask", subtask.title)}
-                      onclick={() => { void promoteSubtaskFromDetail(subtask); }}
-                    >
-                      <ArrowLeft size={13} strokeWidth={1.75} />
-                    </button>
-                    <button
-                      type="button"
-                      class="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-                      disabled={!previousSubtask}
-                      aria-label={previousSubtask ? t("projects.actions.moveSubtaskUp", subtask.title) : t("projects.actions.noPreviousSubtask")}
-                      title={previousSubtask ? t("projects.actions.moveSubtaskUp", subtask.title) : t("projects.actions.noPreviousSubtask")}
-                      onclick={() => { void moveSubtaskInDetail(subtask, -1); }}
-                    >
-                      <ArrowUp size={13} strokeWidth={1.75} />
-                    </button>
-                    <button
-                      type="button"
-                      class="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-                      disabled={!nextSubtask}
-                      aria-label={nextSubtask ? t("projects.actions.moveSubtaskDown", subtask.title) : t("projects.actions.noNextSubtask")}
-                      title={nextSubtask ? t("projects.actions.moveSubtaskDown", subtask.title) : t("projects.actions.noNextSubtask")}
-                      onclick={() => { void moveSubtaskInDetail(subtask, 1); }}
-                    >
-                      <ArrowDown size={13} strokeWidth={1.75} />
-                    </button>
-                  </div>
-                {:else}
-                  <div class="rounded-md border border-dashed border-border px-2 py-2 text-[0.8rem] text-muted-foreground">
-                    {t("projects.detail.noSubtasks")}
-                  </div>
-                {/each}
-              </div>
-              <div class="flex gap-1">
-                <input
-                  bind:value={subtaskDraft}
-                  placeholder={t("projects.detail.addSubtaskPlaceholder")}
-                  class="min-h-8 min-w-0 flex-1 rounded-md border border-border bg-background px-2 text-[0.8rem]"
-                  onkeydown={(event) => {
-                    if (event.key === "Enter") {
-                      event.preventDefault();
-                      void submitSubtask(selectedTask);
-                    }
-                  }}
-                />
-                <button
-                  type="button"
-                  class="flex min-h-8 items-center justify-center rounded-md border border-border bg-background px-2 text-[0.8rem] hover:bg-accent"
-                  aria-label={t("projects.detail.addSubtask")}
-                  onclick={() => { void submitSubtask(selectedTask); }}
-                >
-                  <Plus size={14} strokeWidth={1.75} />
-                </button>
-              </div>
+              <ProjectTaskDetailSubtasksSection
+                task={selectedTask}
+                subtasks={selectedTaskSubtasks}
+                theme={theme.current}
+                draft={subtaskDraft}
+                {statusForTask}
+                onDraftChange={(value) => { subtaskDraft = value; }}
+                onSubmitSubtask={submitSubtask}
+                onToggleComplete={(subtask) => projects.toggleTaskDone(subtask)}
+                onOpenTask={openTaskDetail}
+                onPromoteSubtask={promoteSubtaskFromDetail}
+                onMoveSubtask={moveSubtaskInDetail}
+              />
             </section>
 
             <section class="task-detail-section">
-              <div class="flex items-center justify-between gap-2">
-                <h2 class="task-detail-section-title">{t("projects.detail.scheduledBlocks")}</h2>
-                <span class="text-[0.733333rem] text-muted-foreground">{selectedTaskEvents.length}</span>
-              </div>
-              <div class="grid gap-1">
-                {#each selectedTaskEvents as event (event.id)}
-                  <div class="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 rounded-md border border-border bg-background px-2 py-1.5">
-                    <div class="min-w-0">
-                      <span class="block truncate text-[0.8rem]">{event.title || t("calendar.event.noTitle")}</span>
-                      <span class="block truncate text-[0.733333rem] text-muted-foreground">{event.start}</span>
-                    </div>
-                    <span class="text-[0.733333rem] text-muted-foreground">{event.end}</span>
-                    <button
-                      type="button"
-                      class="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                      aria-label={t("projects.actions.unlinkScheduledBlock")}
-                      title={t("projects.actions.unlinkScheduledBlock")}
-                      onclick={() => { void unlinkExistingEvent(selectedTask, event); }}
-                    >
-                      <Trash2 size={13} strokeWidth={1.75} />
-                    </button>
-                  </div>
-                {:else}
-                  <div class="rounded-md border border-dashed border-border px-2 py-2 text-[0.8rem] text-muted-foreground">
-                    {t("projects.detail.noScheduledBlocks")}
-                  </div>
-                {/each}
-              </div>
-              {#if eventLinkSearchError}
-                <div class="rounded-md border border-destructive/30 bg-destructive/10 px-2 py-2 text-[0.8rem] text-destructive">
-                  {eventLinkSearchError}
-                </div>
-              {/if}
-              <div class="grid gap-1">
-                <label class="grid gap-1 text-[0.733333rem] font-medium text-muted-foreground">
-                  <span>{t("projects.detail.linkExistingBlock")}</span>
-                  <input
-                    bind:value={eventLinkSearch}
-                    placeholder={t("projects.detail.linkExistingBlockPlaceholder")}
-                    class="min-h-8 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground"
-                  />
-                </label>
-                <div class="grid gap-2 min-[760px]:grid-cols-2">
-                  <div class="grid gap-1 text-[0.733333rem] font-medium text-muted-foreground">
-                    <span>{t("projects.detail.eventLinkStartDate")}</span>
-                    <div class="flex gap-1">
-                      <button
-                        type="button"
-                        class={cn(
-                          "flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-md border border-border bg-card px-2 text-left text-[0.8rem] text-foreground hover:bg-accent",
-                          !eventLinkStartDate && "text-muted-foreground",
-                        )}
-                        onclick={() => toggleDetailDatePicker("eventStart")}
-                      >
-                        <CalendarDays size={14} strokeWidth={1.75} class="shrink-0" />
-                        <span class="truncate">{eventLinkStartDate || t("projects.detail.noDate")}</span>
-                      </button>
-                      {#if eventLinkStartDate}
-                        <button
-                          type="button"
-                          class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground"
-                          aria-label={t("projects.detail.clearDate", t("projects.detail.eventLinkStartDate"))}
-                          onclick={() => clearDetailDate("eventStart")}
-                        >
-                          <X size={13} strokeWidth={1.75} />
-                        </button>
-                      {/if}
-                    </div>
-                    {#if datePickerTarget === "eventStart"}
-                      <div class="w-fit rounded-lg border border-border bg-card p-2">
-                        <MiniDatePicker
-                          selectedDate={eventLinkStartDate || todayDate}
-                          small
-                          highlightMode="none"
-                          activeHighlight="primary"
-                          onselect={selectDetailDate}
-                          oncancel={() => { datePickerTarget = null; }}
-                        />
-                      </div>
-                    {/if}
-                  </div>
-                  <div class="grid gap-1 text-[0.733333rem] font-medium text-muted-foreground">
-                    <span>{t("projects.detail.eventLinkEndDate")}</span>
-                    <div class="flex gap-1">
-                      <button
-                        type="button"
-                        class={cn(
-                          "flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-md border border-border bg-card px-2 text-left text-[0.8rem] text-foreground hover:bg-accent",
-                          !eventLinkEndDate && "text-muted-foreground",
-                        )}
-                        onclick={() => toggleDetailDatePicker("eventEnd")}
-                      >
-                        <CalendarDays size={14} strokeWidth={1.75} class="shrink-0" />
-                        <span class="truncate">{eventLinkEndDate || t("projects.detail.noDate")}</span>
-                      </button>
-                      {#if eventLinkEndDate}
-                        <button
-                          type="button"
-                          class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground"
-                          aria-label={t("projects.detail.clearDate", t("projects.detail.eventLinkEndDate"))}
-                          onclick={() => clearDetailDate("eventEnd")}
-                        >
-                          <X size={13} strokeWidth={1.75} />
-                        </button>
-                      {/if}
-                    </div>
-                    {#if datePickerTarget === "eventEnd"}
-                      <div class="w-fit rounded-lg border border-border bg-card p-2">
-                        <MiniDatePicker
-                          selectedDate={eventLinkEndDate || todayDate}
-                          small
-                          highlightMode="none"
-                          activeHighlight="primary"
-                          onselect={selectDetailDate}
-                          oncancel={() => { datePickerTarget = null; }}
-                        />
-                      </div>
-                    {/if}
-                  </div>
-                </div>
-                <div class="grid gap-1">
-                  {#if eventLinkSearchPending}
-                    <div class="rounded-md border border-dashed border-border px-2 py-2 text-[0.8rem] text-muted-foreground">
-                      {t("projects.detail.searchingBlocks")}
-                    </div>
-                  {:else}
-                    {#each selectedTaskEventCandidates as event (event.id)}
-                      {@const otherLinkedTasks = otherLinkedTaskText(event, selectedTask)}
-                      <button
-                        type="button"
-                        class="grid min-h-8 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md border border-border bg-background px-2 text-left hover:bg-accent"
-                        onclick={() => { void linkExistingEvent(selectedTask, event); }}
-                      >
-                        <span class="min-w-0">
-                          <span class="block truncate text-[0.8rem]">{event.title || t("calendar.event.noTitle")}</span>
-                          <span class="block truncate text-[0.733333rem] text-muted-foreground">{event.start}</span>
-                          {#if otherLinkedTasks}
-                            <span class="block truncate text-[0.7rem] text-muted-foreground">
-                              {t("projects.detail.linkedToTasks", otherLinkedTasks)}
-                            </span>
-                          {/if}
-                        </span>
-                        <Plus size={13} strokeWidth={1.75} class="text-muted-foreground" />
-                      </button>
-                    {:else}
-                      <div class="rounded-md border border-dashed border-border px-2 py-2 text-[0.8rem] text-muted-foreground">
-                        {t("projects.detail.noLinkableBlocks")}
-                      </div>
-                    {/each}
-                  {/if}
-                </div>
-              </div>
+              <ProjectTaskDetailScheduledBlocksController
+                task={selectedTask}
+                taskEventIds={selectedTaskEventIds}
+                {allProjectEvents}
+                {todayDate}
+                searchLinkableEvents={projects.searchLinkableEvents}
+                onLinkEvent={linkExistingEvent}
+                onUnlinkEvent={unlinkExistingEvent}
+              />
             </section>
 
             <ProjectTaskDetailHistorySection events={selectedTaskHistory} />
@@ -2014,37 +919,13 @@
         />
         </div>
 
-        <footer class="flex shrink-0 items-center justify-end gap-2 border-t border-border px-3 py-2">
-          {#if selectedTask.archivedAt}
-            <button
-              type="button"
-              class="mr-auto flex min-h-8 items-center gap-1.5 rounded-md border border-border bg-card px-2 text-[0.8rem] hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-              disabled={detailSaving}
-              onclick={() => { void restoreTaskFromDetail(selectedTask); }}
-            >
-              <ArchiveRestore size={14} strokeWidth={1.75} />
-              <span>{t("projects.detail.restore")}</span>
-            </button>
-          {:else}
-            <button
-              type="button"
-              class="mr-auto flex min-h-8 items-center gap-1.5 rounded-md border border-destructive/30 bg-destructive/10 px-2 text-[0.8rem] text-destructive hover:bg-destructive/15 disabled:cursor-not-allowed disabled:opacity-50"
-              disabled={detailSaving}
-              onclick={() => { void archiveTaskFromDetail(selectedTask); }}
-            >
-              <Archive size={14} strokeWidth={1.75} />
-              <span>{t("projects.detail.archive")}</span>
-            </button>
-          {/if}
-          <button
-            type="submit"
-            class="flex min-h-8 items-center gap-1.5 rounded-md bg-primary px-2 text-[0.8rem] font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={detailSaving || !detailDirty}
-          >
-            <Save size={14} strokeWidth={1.75} />
-            <span>{detailSaving ? t("common.loading") : t("projects.detail.save")}</span>
-          </button>
-        </footer>
+        <ProjectTaskDetailFooter
+          task={selectedTask}
+          saving={detailSaving}
+          dirty={detailDirty}
+          onArchive={archiveTaskFromDetail}
+          onRestore={restoreTaskFromDetail}
+        />
       </form>
     </div>
     </div>
@@ -2073,11 +954,5 @@
 
   .task-detail-section-first {
     padding-top: 0;
-  }
-
-  .task-detail-section-title {
-    font-size: 0.8rem;
-    font-weight: 600;
-    letter-spacing: 0;
   }
 </style>

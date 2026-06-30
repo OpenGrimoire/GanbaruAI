@@ -2,10 +2,39 @@ import { Temporal } from "@js-temporal/polyfill";
 import { describe, expect, it } from "vitest";
 import {
   formatProjectScheduleWindowStart,
+  projectCalendarCreateDefaults,
+  projectCalendarEventRootId,
   projectDefaultScheduleStart,
   projectEventDurationMinutes,
+  projectEventDurationMinutesInDateRange,
   projectScheduleWindowFor,
 } from "./project-scheduling";
+import type { Project } from "./types";
+
+function project(overrides: Partial<Project> = {}): Project {
+  return {
+    id: "project-a",
+    groupId: "group-a",
+    name: "Launch",
+    icon: "folder",
+    color: 2,
+    sortOrder: 1000,
+    status: "active",
+    defaultEventName: "Deep work",
+    defaultEventTimeMode: "timed",
+    defaultEventDurationMinutes: 60,
+    defaultPomodoroMode: "preset",
+    defaultPomodoroPresetKey: "creative",
+    defaultIdleSettingsSource: "global",
+    defaultIdlePauseEnabled: true,
+    defaultIdleThresholdMinutes: 15,
+    focusPlaylistId: "playlist-a",
+    workEnvironmentId: "environment-a",
+    createdAt: "2026-06-21T00:00:00.000Z",
+    updatedAt: "2026-06-21T00:00:00.000Z",
+    ...overrides,
+  };
+}
 
 describe("project scheduling helpers", () => {
   it("rounds the default start to the next quarter hour", () => {
@@ -55,5 +84,71 @@ describe("project scheduling helpers", () => {
       start: "bad",
       end: "2026-06-21 10:45",
     })).toBe(0);
+  });
+
+  it("builds timed calendar defaults from project settings", () => {
+    expect(projectCalendarCreateDefaults({
+      project: project(),
+      start: "2026-06-21 09:00",
+      end: "2026-06-21 09:30",
+      globalIdleDefaults: {
+        idlePauseEnabled: true,
+        idleThresholdMinutes: 5,
+      },
+    })).toEqual({
+      title: "Deep work",
+      start: "2026-06-21 09:00",
+      end: "2026-06-21 10:00",
+      allDay: undefined,
+      projectId: "project-a",
+      color: 2,
+      environmentId: "environment-a",
+      playlistId: "playlist-a",
+      pomodoroConfig: {
+        rhythm: {
+          kind: "count",
+          focusDurationMinutes: 25,
+          shortBreakMinutes: 5,
+          longBreakMinutes: 15,
+          longBreakAfterFocusCount: 4,
+        },
+        rhythmSource: "preset",
+        presetKey: "creative",
+        idleTimeoutMinutes: 5,
+      },
+    });
+  });
+
+  it("builds all-day calendar defaults without Pomodoro config", () => {
+    expect(projectCalendarCreateDefaults({
+      project: project({
+        defaultEventTimeMode: "all_day",
+      }),
+      start: "2026-06-21 09:00",
+      end: "2026-06-21 09:30",
+      globalIdleDefaults: {
+        idlePauseEnabled: true,
+        idleThresholdMinutes: 5,
+      },
+    })).toMatchObject({
+      start: "2026-06-21 00:00",
+      end: "2026-06-21 00:00",
+      allDay: true,
+      pomodoroConfig: undefined,
+    });
+  });
+
+  it("derives recurrence root ids for project event filtering", () => {
+    expect(projectCalendarEventRootId({ id: "event-a::2026-06-21", recurringParentId: undefined })).toBe("event-a");
+    expect(projectCalendarEventRootId({ id: "override-a", recurringParentId: "event-a" })).toBe("event-a");
+  });
+
+  it("sums scheduled event durations inside a date range", () => {
+    expect(projectEventDurationMinutesInDateRange([
+      { start: "2026-06-20 09:00", end: "2026-06-20 10:00" },
+      { start: "2026-06-21 09:00", end: "2026-06-21 10:30" },
+      { start: "2026-06-22 09:00", end: "2026-06-22 09:45" },
+      { start: "2026-06-23 09:00", end: "2026-06-23 10:00" },
+    ], "2026-06-21", "2026-06-22")).toBe(135);
   });
 });

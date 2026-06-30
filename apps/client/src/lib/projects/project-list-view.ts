@@ -62,6 +62,16 @@ export const PROJECT_TASK_FILTER_DEFAULTS = Object.freeze({
 export const TASK_LIST_COLUMN_WIDTHS_PREFERENCE_KEY = "list-column-widths";
 export type ProjectTaskListResizableColumn = "name" | ProjectTaskListColumn;
 export type ProjectTaskListColumnWidths = Partial<Record<ProjectTaskListResizableColumn, number>>;
+export interface ProjectTaskListColumnResizeGesture {
+  column: ProjectTaskListResizableColumn;
+  pointerId: number;
+  startClientX: number;
+  startWidthRem: number;
+  rootFontSizePx: number;
+  widthsAtStart: ProjectTaskListColumnWidths;
+  draftWidths: ProjectTaskListColumnWidths;
+  moved: boolean;
+}
 
 interface ProjectTaskListColumnWidthBounds {
   min: number;
@@ -171,6 +181,10 @@ export function clampProjectTaskListManualColumnWidth(
 function formatProjectTaskListRem(value: number): string {
   const rounded = Math.round(value * 100) / 100;
   return `${rounded}rem`;
+}
+
+export function roundProjectTaskListColumnWidthRem(width: number): number {
+  return Math.round(width * 100) / 100;
 }
 
 function projectTaskListWidthFromTexts(
@@ -330,6 +344,89 @@ export function projectTaskListDoubleClickColumnWidthRem(
   const defaultWidth = projectTaskListResizableColumnWidthRem(column, input, false);
   const contentFitWidth = projectTaskListContentFitColumnWidthRem(column, input);
   return contentFitWidth > defaultWidth ? contentFitWidth : undefined;
+}
+
+function projectTaskListColumnResizeDraftWidths(
+  widthsAtStart: ProjectTaskListColumnWidths,
+  column: ProjectTaskListResizableColumn,
+  widthRem: number,
+): ProjectTaskListColumnWidths {
+  return {
+    ...widthsAtStart,
+    [column]: roundProjectTaskListColumnWidthRem(clampProjectTaskListManualColumnWidth(column, widthRem)),
+  };
+}
+
+export function startProjectTaskListColumnResize(input: {
+  column: ProjectTaskListResizableColumn;
+  pointerId: number;
+  startClientX: number;
+  startWidthRem: number;
+  rootFontSizePx: number;
+  widthsAtStart: ProjectTaskListColumnWidths;
+}): ProjectTaskListColumnResizeGesture {
+  const rootFontSizePx = Number.isFinite(input.rootFontSizePx) && input.rootFontSizePx > 0
+    ? input.rootFontSizePx
+    : 16;
+  return {
+    column: input.column,
+    pointerId: input.pointerId,
+    startClientX: input.startClientX,
+    startWidthRem: input.startWidthRem,
+    rootFontSizePx,
+    widthsAtStart: input.widthsAtStart,
+    draftWidths: projectTaskListColumnResizeDraftWidths(input.widthsAtStart, input.column, input.startWidthRem),
+    moved: false,
+  };
+}
+
+export function moveProjectTaskListColumnResize(
+  gesture: ProjectTaskListColumnResizeGesture,
+  clientX: number,
+): ProjectTaskListColumnResizeGesture {
+  const deltaPx = clientX - gesture.startClientX;
+  const deltaRem = deltaPx / gesture.rootFontSizePx;
+  return {
+    ...gesture,
+    draftWidths: projectTaskListColumnResizeDraftWidths(
+      gesture.widthsAtStart,
+      gesture.column,
+      gesture.startWidthRem + deltaRem,
+    ),
+    moved: gesture.moved || Math.abs(deltaPx) >= 1,
+  };
+}
+
+export function doubleClickProjectTaskListColumnResizeWidths(input: {
+  column: ProjectTaskListResizableColumn;
+  widths: ProjectTaskListColumnWidths;
+  gridInput: ProjectTaskListGridInput;
+}): ProjectTaskListColumnWidths {
+  const nextWidths = { ...input.widths };
+  const nextWidth = projectTaskListDoubleClickColumnWidthRem(input.column, input.gridInput);
+  if (nextWidth === undefined) {
+    delete nextWidths[input.column];
+  } else {
+    nextWidths[input.column] = roundProjectTaskListColumnWidthRem(nextWidth);
+  }
+  return nextWidths;
+}
+
+export function keyboardProjectTaskListColumnResizeWidths(input: {
+  column: ProjectTaskListResizableColumn;
+  direction: -1 | 1;
+  wideStep?: boolean;
+  widths: ProjectTaskListColumnWidths;
+  gridInput: ProjectTaskListGridInput;
+}): ProjectTaskListColumnWidths {
+  const step = input.wideStep ? 2 : 0.5;
+  const currentWidth = projectTaskListResizableColumnWidthRem(input.column, input.gridInput);
+  return {
+    ...input.widths,
+    [input.column]: roundProjectTaskListColumnWidthRem(
+      clampProjectTaskListManualColumnWidth(input.column, currentWidth + input.direction * step),
+    ),
+  };
 }
 
 export function projectTaskListColumnTrack(

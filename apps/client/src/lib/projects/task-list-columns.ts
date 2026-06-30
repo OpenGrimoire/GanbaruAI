@@ -79,7 +79,7 @@ function uniqueTaskListColumns(
   return columns;
 }
 
-function taskListColumnSetsMatch(
+export function taskListColumnsMatch(
   first: readonly ProjectTaskListColumn[],
   second: readonly ProjectTaskListColumn[],
 ): boolean {
@@ -87,7 +87,7 @@ function taskListColumnSetsMatch(
 }
 
 function normalizeDefaultTaskListColumns(columns: ProjectTaskListColumn[]): ProjectTaskListColumn[] {
-  return LEGACY_DEFAULT_TASK_LIST_COLUMNS.some((legacyColumns) => taskListColumnSetsMatch(columns, legacyColumns))
+  return LEGACY_DEFAULT_TASK_LIST_COLUMNS.some((legacyColumns) => taskListColumnsMatch(columns, legacyColumns))
     ? [...DEFAULT_TASK_LIST_COLUMNS]
     : columns;
 }

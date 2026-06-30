@@ -1,23 +1,6 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import Check from "@lucide/svelte/icons/check";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
-  import CircleEllipsis from "@lucide/svelte/icons/circle-ellipsis";
-  import ImageIcon from "@lucide/svelte/icons/image";
-  import LayoutGrid from "@lucide/svelte/icons/layout-grid";
-  import Leaf from "@lucide/svelte/icons/leaf";
-  import Package from "@lucide/svelte/icons/package";
-  import Plane from "@lucide/svelte/icons/plane";
-  import Plus from "@lucide/svelte/icons/plus";
-  import Search from "@lucide/svelte/icons/search";
-  import Shapes from "@lucide/svelte/icons/shapes";
-  import Shuffle from "@lucide/svelte/icons/shuffle";
-  import Smile from "@lucide/svelte/icons/smile";
-  import Trophy from "@lucide/svelte/icons/trophy";
-  import Utensils from "@lucide/svelte/icons/utensils";
-  import Upload from "@lucide/svelte/icons/upload";
-  import UserRound from "@lucide/svelte/icons/user-round";
-  import X from "@lucide/svelte/icons/x";
   import {
     deleteProjectIconAssetsIfUnreferenced,
     downloadProjectIconImageUrl,
@@ -29,24 +12,40 @@
     FALLBACK_COLOR_INDEX,
     type EventColor,
   } from "$lib/components/calendar/types";
-  import { EVENT_COLOR_OPTIONS, getEventColor } from "$lib/components/calendar/utils";
+  import { getEventColor } from "$lib/components/calendar/utils";
   import { contrastRatio } from "$lib/components/ui/colorMath";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import {
-    PROJECT_EMOJI_CATEGORIES,
     PROJECT_EMOJI_ENTRIES,
     type ProjectEmojiCategoryId,
   } from "$lib/projects/project-emoji-catalog";
   import {
-    applyProjectEmojiSkinTone,
     cleanupProjectIconRecentValues,
     filterProjectEmojiEntries,
     filterProjectLucideIcons,
+    projectIconEmojiRecentValues,
+    projectIconLucideRecentValues,
     prependProjectIconRecentValue,
     projectEmojiSkinToneFromEmoji,
+    projectIconPickerAnchoredPanelPlacement,
+    projectIconPickerGroupVirtualWindow,
+    projectIconPickerIsPrimaryLucideCategory,
+    projectIconPickerLucideCategoryOptions,
+    projectIconPickerLucideGroups,
+    projectIconPickerLucideRecentPreviewValue,
+    projectIconPickerMenuPlacement,
     projectIconPickerPanelPlacement,
+    projectIconPickerPointPlacement,
+    projectIconPickerPrimaryLucideCategoryOptions,
+    projectIconPickerRandomEmojiIcon,
+    projectIconPickerRandomLucideIcon,
+    projectIconPickerVisibleEmojiCategories,
+    projectIconPickerVisibleCustomEmojis,
+    readProjectIconRecentValues,
     stripProjectEmojiSkinTone,
     type ProjectEmojiSkinTone,
+    type ProjectIconPickerAnchoredPanelPlacement,
+    type ProjectIconPickerPointPlacement,
     type ProjectIconPickerRect,
   } from "$lib/projects/project-icon-picker";
   import {
@@ -71,34 +70,21 @@
     getConfigKey,
     setConfigKey,
   } from "$lib/vault/config";
-  import LucideNodeIcon from "./LucideNodeIcon.svelte";
   import ProjectIcon from "./ProjectIcon.svelte";
+  import ProjectIconPickerCategoryMenu from "./ProjectIconPickerCategoryMenu.svelte";
+  import ProjectIconPickerColorChoicePanel from "./ProjectIconPickerColorChoicePanel.svelte";
+  import ProjectIconPickerCustomEmojiPanel from "./ProjectIconPickerCustomEmojiPanel.svelte";
+  import ProjectIconPickerEmojiTab from "./ProjectIconPickerEmojiTab.svelte";
+  import ProjectIconPickerIconsTab from "./ProjectIconPickerIconsTab.svelte";
+  import ProjectIconPickerUploadPanel from "./ProjectIconPickerUploadPanel.svelte";
 
   type ProjectIconPickerTab = "emoji" | "icons" | "upload";
-  type IconColorChoicePlacement = { left: number; top: number };
-  type LucideIconGroup = {
-    category: ProjectLucideCategory;
-    entries: readonly ProjectLucideIconEntry[];
-  };
-  type LucideVirtualGroup = LucideIconGroup & {
-    beforeRowsHeight: number;
-    afterRowsHeight: number;
-  };
-  type LucideGroupVirtualWindow = {
-    groups: readonly LucideVirtualGroup[];
-    beforeHeight: number;
-    afterHeight: number;
-  };
   type IconColorChoice = {
     slug: string;
     label: string;
     iconNode: readonly ProjectLucideIconNode[] | null;
     anchor: HTMLElement;
-    placement: IconColorChoicePlacement;
-  };
-  type VisibleEmojiCategory = {
-    id: ProjectEmojiCategoryId;
-    label: string;
+    placement: ProjectIconPickerPointPlacement;
   };
 
   let {
@@ -134,80 +120,6 @@
   const gridGroupHeaderHeight = 24;
   const gridGroupGapHeight = 12;
 
-  const skinToneOptions: readonly { value: ProjectEmojiSkinTone }[] = [
-    { value: "default" },
-    { value: "light" },
-    { value: "medium-light" },
-    { value: "medium" },
-    { value: "medium-dark" },
-    { value: "dark" },
-  ];
-  const lucideCategoryIconSlugs: Partial<Record<ProjectLucideCategory, string>> = {
-    Accessibility: "accessibility",
-    "Accounts and access": "user-round",
-    Animals: "paw-print",
-    Arrows: "arrow-up-right",
-    Buildings: "building-2",
-    Charts: "chart-no-axes-column-increasing",
-    Communication: "message-circle",
-    Connectivity: "wifi",
-    Cursors: "mouse-pointer-2",
-    Design: "paintbrush",
-    "Coding and development": "code-xml",
-    Devices: "monitor",
-    Emoji: "laugh",
-    "File icons": "file",
-    Finance: "badge-dollar-sign",
-    "Food and beverage": "utensils",
-    Gaming: "gamepad-2",
-    Home: "house",
-    Layout: "layout-grid",
-    Mail: "mail",
-    Mathematics: "sigma",
-    Medical: "cross",
-    Multimedia: "video",
-    Nature: "leaf",
-    "Navigation and places": "plane",
-    Notification: "bell",
-    People: "users",
-    Photography: "camera",
-    Science: "flask-conical",
-    Seasons: "snowflake",
-    Security: "shield",
-    Shapes: "shapes",
-    Shopping: "shopping-cart",
-    Social: "share-2",
-    Sports: "dumbbell",
-    Sustainability: "recycle",
-    "Text formatting": "type",
-    "Time and calendar": "calendar",
-    Tools: "wrench",
-    Transportation: "car",
-    Travel: "luggage",
-    Weather: "cloud-sun",
-  };
-  const primaryLucideCategories: readonly ProjectLucideCategory[] = [
-    "File icons",
-    "Tools",
-    "Coding and development",
-    "Design",
-    "Charts",
-    "Communication",
-    "Time and calendar",
-    "Navigation and places",
-  ];
-  const primaryLucideCategorySet = new Set<ProjectLucideCategory>(primaryLucideCategories);
-  const visibleEmojiCategoryIds = new Set<ProjectEmojiCategoryId>([
-    "smileys",
-    "people",
-    "nature",
-    "food",
-    "activity",
-    "travel",
-    "objects",
-    "symbols",
-  ]);
-
   let open = $state(false);
   let activeTab = $state<ProjectIconPickerTab>("icons");
   let triggerElement = $state<HTMLButtonElement | undefined>();
@@ -219,8 +131,12 @@
   let iconCategoryMenuTriggerElement = $state<HTMLButtonElement | undefined>();
   let gridScrollElement = $state<HTMLElement | undefined>();
   let panelPlacement = $state({ left: 0, top: 0, width: panelWidth, height: panelPreferredHeight });
-  let customPanelPlacement = $state({ left: 0, top: 0, maxHeight: 360 });
-  let iconCategoryMenuPlacement = $state({ left: 0, top: 0, maxHeight: iconCategoryMenuMaxHeight });
+  let customPanelPlacement = $state<ProjectIconPickerAnchoredPanelPlacement>({ left: 0, top: 0, maxHeight: 360 });
+  let iconCategoryMenuPlacement = $state<ProjectIconPickerAnchoredPanelPlacement>({
+    left: 0,
+    top: 0,
+    maxHeight: iconCategoryMenuMaxHeight,
+  });
   let emojiQuery = $state("");
   let iconQuery = $state("");
   let uploadUrl = $state("");
@@ -268,26 +184,12 @@
     return projectIconDisplayLabel(parsedValue);
   });
   const emojiRecentValues = $derived(
-    recentValues.filter((rawValue) => {
-      const icon = parseProjectIcon(rawValue);
-      return icon.kind === "emoji" || icon.kind === "custom-emoji";
-    }),
+    projectIconEmojiRecentValues(recentValues),
   );
-  const lucideRecentValues = $derived(
-    recentValues.filter((rawValue) => parseProjectIcon(rawValue).kind === "lucide"),
-  );
-  const visibleCustomEmojis = $derived.by(() => {
-    const query = emojiQuery.trim().toLowerCase();
-    if (!query) return projects.customEmojis;
-    return projects.customEmojis.filter((emoji) => emoji.name.toLowerCase().includes(query));
-  });
-  const visibleEmojiCategories = $derived.by((): readonly VisibleEmojiCategory[] =>
-    PROJECT_EMOJI_CATEGORIES
-      .filter((category) => visibleEmojiCategoryIds.has(category.id))
-      .map((category) => ({
-        id: category.id,
-        label: category.id === "symbols" ? t("projects.iconPicker.symbolsAndFlags") : category.label,
-      }))
+  const lucideRecentValues = $derived(projectIconLucideRecentValues(recentValues));
+  const visibleCustomEmojis = $derived(projectIconPickerVisibleCustomEmojis(projects.customEmojis, emojiQuery));
+  const visibleEmojiCategories = $derived(
+    projectIconPickerVisibleEmojiCategories(t("projects.iconPicker.symbolsAndFlags")),
   );
   const emojiGroups = $derived.by(() =>
     visibleEmojiCategories
@@ -304,35 +206,15 @@
   const filteredLucideEntries = $derived(
     filterProjectLucideIcons(lucideIcons, iconQuery, iconCategory),
   );
-  const lucideGroups = $derived.by(() => {
-    const groups = new Map<ProjectLucideCategory, ProjectLucideIconEntry[]>();
-    for (const category of lucideCategories) {
-      groups.set(category, []);
-    }
-    for (const entry of filteredLucideEntries) {
-      const group = groups.get(entry.category);
-      if (group) group.push(entry);
-    }
-    return lucideCategories
-      .map((category) => ({
-        category,
-        entries: groups.get(category) ?? [],
-      }))
-      .filter((group) => group.entries.length > 0);
-  });
+  const lucideGroups = $derived(projectIconPickerLucideGroups(filteredLucideEntries, lucideCategories));
   const lucideCategoryOptions = $derived(
-    lucideCategories.map((category) => ({
-      category,
-      icon: lucideCategoryIcon(category),
-    })),
+    projectIconPickerLucideCategoryOptions(lucideCategories, lucideIcons),
   );
-  const primaryLucideCategoryOptions = $derived.by(() =>
-    primaryLucideCategories
-      .map((category) => lucideCategoryOptions.find((option) => option.category === category))
-      .filter((option): option is { category: ProjectLucideCategory; icon: ProjectLucideIconEntry | undefined } => option !== undefined),
+  const primaryLucideCategoryOptions = $derived(
+    projectIconPickerPrimaryLucideCategoryOptions(lucideCategoryOptions),
   );
   const iconCategoryOverflowActive = $derived(
-    iconCategory !== "all" && !primaryLucideCategorySet.has(iconCategory),
+    iconCategory !== "all" && !projectIconPickerIsPrimaryLucideCategory(iconCategory),
   );
   const lucideRecentHeight = $derived.by(() => {
     if (lucideRecentValues.length === 0) return 0;
@@ -340,12 +222,15 @@
       + (Math.ceil(lucideRecentValues.length / Math.max(1, gridColumnCount)) * gridRowHeight)
       + gridGroupGapHeight;
   });
-  const lucideGroupVirtual = $derived(virtualizeLucideGroups(
-    lucideGroups,
-    gridColumnCount,
-    gridViewportHeight,
-    Math.max(0, gridScrollTop - lucideRecentHeight),
-  ));
+  const lucideGroupVirtual = $derived(projectIconPickerGroupVirtualWindow({
+    groups: lucideGroups,
+    columnCount: gridColumnCount,
+    viewportHeight: gridViewportHeight,
+    scrollTop: Math.max(0, gridScrollTop - lucideRecentHeight),
+    rowHeight: gridRowHeight,
+    groupHeaderHeight: gridGroupHeaderHeight,
+    groupGapHeight: gridGroupGapHeight,
+  }));
   const panelStyle = $derived.by(() => {
     const baseStyle = `left: ${panelPlacement.left}px; top: ${panelPlacement.top}px; width: ${panelPlacement.width}px;`;
     if (activeTab === "upload") return `${baseStyle} max-height: ${panelPlacement.height}px;`;
@@ -364,11 +249,6 @@
   const iconCategoryMenuStyle = $derived(
     `left: ${iconCategoryMenuPlacement.left}px; top: ${iconCategoryMenuPlacement.top}px; width: ${iconCategoryMenuWidth}px; max-height: ${iconCategoryMenuPlacement.maxHeight}px;`,
   );
-
-  function readRecentValues(value: unknown): string[] {
-    if (!Array.isArray(value)) return [];
-    return value.filter((entry): entry is string => typeof entry === "string");
-  }
 
   function tabLabel(tab: ProjectIconPickerTab): string {
     if (tab === "icons") return t("projects.iconPicker.icons");
@@ -389,31 +269,11 @@
   }
 
   function lucideRecentPreviewValue(rawValue: string): string {
-    const icon = parseProjectIcon(rawValue);
-    return icon.kind === "lucide"
-      ? serializeProjectIcon({ ...icon, color: allowIconColors ? iconColor : "default" })
-      : rawValue;
+    return projectIconPickerLucideRecentPreviewValue({ rawValue, allowIconColors, iconColor });
   }
 
   function iconColorChoiceStyle(choice: IconColorChoice): string {
     return `left: ${choice.placement.left}px; top: ${choice.placement.top}px; width: ${iconColorChoicePanelWidth}px;`;
-  }
-
-  function skinToneLabel(skinTone: ProjectEmojiSkinTone): string {
-    if (skinTone === "light") return t("projects.iconPicker.skinToneLight");
-    if (skinTone === "medium-light") return t("projects.iconPicker.skinToneMediumLight");
-    if (skinTone === "medium") return t("projects.iconPicker.skinToneMedium");
-    if (skinTone === "medium-dark") return t("projects.iconPicker.skinToneMediumDark");
-    if (skinTone === "dark") return t("projects.iconPicker.skinToneDark");
-    return t("projects.iconPicker.skinToneDefault");
-  }
-
-  function skinTonePreview(skinTone: ProjectEmojiSkinTone): string {
-    return applyProjectEmojiSkinTone("✋", skinTone);
-  }
-
-  function displayEmoji(emoji: string): string {
-    return applyProjectEmojiSkinTone(emoji, emojiSkinTone);
   }
 
   function resetGridScroll(): void {
@@ -440,16 +300,10 @@
     closeInlinePanels();
   }
 
-  function lucideCategoryIcon(category: ProjectLucideCategory): ProjectLucideIconEntry | undefined {
-    const preferredSlug = lucideCategoryIconSlugs[category];
-    return lucideIcons.find((entry) => entry.slug === preferredSlug)
-      ?? lucideIcons.find((entry) => entry.category === category);
-  }
-
   async function loadRecentValues(): Promise<void> {
     await ensureConfigLoaded();
     recentValues = cleanupProjectIconRecentValues(
-      readRecentValues(getConfigKey<unknown>(recentConfigKey, [])),
+      readProjectIconRecentValues(getConfigKey<unknown>(recentConfigKey, [])),
       customEmojiIds,
     );
   }
@@ -465,62 +319,6 @@
     gridViewportHeight = element.clientHeight;
     gridColumnCount = Math.max(1, Math.floor(element.clientWidth / gridCellSize));
     requestGridScrollStateRefresh();
-  }
-
-  function virtualizeLucideGroups(
-    groups: readonly LucideIconGroup[],
-    columnCount: number,
-    viewportHeight: number,
-    scrollTop: number,
-  ): LucideGroupVirtualWindow {
-    const safeColumnCount = Math.max(1, Math.floor(columnCount));
-    const viewportStart = Math.max(0, scrollTop - gridRowHeight * 2);
-    const viewportEnd = Math.max(0, scrollTop) + Math.max(0, viewportHeight) + gridRowHeight * 2;
-    const visibleGroups: LucideVirtualGroup[] = [];
-    let offset = 0;
-    let beforeHeight = 0;
-    let afterHeight = 0;
-
-    for (const group of groups) {
-      const rowCount = Math.ceil(group.entries.length / safeColumnCount);
-      const rowsHeight = rowCount * gridRowHeight;
-      const groupHeight = gridGroupHeaderHeight + rowsHeight + gridGroupGapHeight;
-      const groupStart = offset;
-      const groupEnd = groupStart + groupHeight;
-      offset = groupEnd;
-
-      if (groupEnd < viewportStart) {
-        beforeHeight += groupHeight;
-        continue;
-      }
-
-      if (groupStart > viewportEnd) {
-        afterHeight += groupHeight;
-        continue;
-      }
-
-      const localStart = Math.max(0, viewportStart - groupStart - gridGroupHeaderHeight);
-      const localEnd = Math.min(rowsHeight, viewportEnd - groupStart - gridGroupHeaderHeight);
-      const startRow = Math.max(0, Math.floor(localStart / gridRowHeight));
-      const endRow = Math.min(
-        rowCount,
-        Math.max(startRow + 1, Math.ceil(Math.max(0, localEnd) / gridRowHeight)),
-      );
-      const startIndex = Math.min(group.entries.length, startRow * safeColumnCount);
-      const endIndex = Math.min(group.entries.length, endRow * safeColumnCount);
-      visibleGroups.push({
-        category: group.category,
-        entries: group.entries.slice(startIndex, endIndex),
-        beforeRowsHeight: startRow * gridRowHeight,
-        afterRowsHeight: Math.max(0, (rowCount - endRow) * gridRowHeight),
-      });
-    }
-
-    return {
-      groups: visibleGroups,
-      beforeHeight,
-      afterHeight,
-    };
   }
 
   function refreshGridScrollState(): void {
@@ -541,10 +339,6 @@
   function requestGridScrollStateRefresh(): void {
     if (gridScrollStateFrame !== null) cancelAnimationFrame(gridScrollStateFrame);
     gridScrollStateFrame = requestAnimationFrame(refreshGridScrollState);
-  }
-
-  function clamp(value: number, min: number, max: number): number {
-    return Math.max(min, Math.min(max, value));
   }
 
   function preferredPanelHeight(): number {
@@ -611,58 +405,23 @@
   function placeCustomPanel(): void {
     const trigger = customEmojiTriggerElement;
     if (!trigger) return;
-    const rect = trigger.getBoundingClientRect();
-    const viewportWidth = window.innerWidth;
-    const viewportHeight = window.innerHeight;
-    const margin = 8;
-    const gap = 4;
-    const availableAbove = Math.max(0, rect.top - margin - gap);
-    const availableBelow = Math.max(0, viewportHeight - rect.bottom - margin - gap);
-    const preferredHeight = 360;
-    const minimumUsefulHeight = 180;
-    const maxViewportHeight = Math.max(1, viewportHeight - margin * 2);
-    const openAbove = availableAbove >= Math.min(preferredHeight, minimumUsefulHeight)
-      || availableAbove >= availableBelow;
-    const height = Math.min(
-      preferredHeight,
-      maxViewportHeight,
-      Math.max(minimumUsefulHeight, openAbove ? availableAbove : availableBelow),
-    );
-    customPanelPlacement = {
-      left: clamp(
-        rect.right - customPanelWidth,
-        margin,
-        Math.max(margin, viewportWidth - customPanelWidth - margin),
-      ),
-      top: openAbove
-        ? Math.max(margin, rect.top - height - gap)
-        : clamp(rect.bottom + gap, margin, Math.max(margin, viewportHeight - height - margin)),
-      maxHeight: height,
-    };
+    customPanelPlacement = projectIconPickerAnchoredPanelPlacement({
+      anchorRect: toPickerRect(trigger.getBoundingClientRect()),
+      viewportRect: viewportBoundaryRect(),
+      panelWidth: customPanelWidth,
+      preferredHeight: 360,
+    });
   }
 
   function placeIconCategoryMenu(): void {
     const trigger = iconCategoryMenuTriggerElement;
     if (!trigger) return;
-    const rect = trigger.getBoundingClientRect();
-    const viewportWidth = window.innerWidth;
-    const viewportHeight = window.innerHeight;
-    const margin = 8;
-    const gap = 4;
-    const maxHeight = Math.min(iconCategoryMenuMaxHeight, viewportHeight - margin * 2);
-    const below = viewportHeight - rect.bottom - margin;
-    const above = rect.top - margin;
-    iconCategoryMenuPlacement = {
-      left: clamp(
-        rect.right - iconCategoryMenuWidth,
-        margin,
-        Math.max(margin, viewportWidth - iconCategoryMenuWidth - margin),
-      ),
-      top: below >= Math.min(maxHeight, 180) || below >= above
-        ? rect.bottom + gap
-        : Math.max(margin, rect.top - maxHeight - gap),
-      maxHeight,
-    };
+    iconCategoryMenuPlacement = projectIconPickerMenuPlacement({
+      anchorRect: toPickerRect(trigger.getBoundingClientRect()),
+      viewportRect: viewportBoundaryRect(),
+      menuWidth: iconCategoryMenuWidth,
+      menuMaxHeight: iconCategoryMenuMaxHeight,
+    });
   }
 
   function toggleIconCategoryMenu(): void {
@@ -681,24 +440,13 @@
     resetGridScroll();
   }
 
-  function placeIconColorChoice(anchor: HTMLElement): IconColorChoicePlacement {
-    const rect = anchor.getBoundingClientRect();
-    const viewportWidth = window.innerWidth;
-    const viewportHeight = window.innerHeight;
-    const margin = 8;
-    const gap = 4;
-    const below = viewportHeight - rect.bottom - margin;
-    const above = rect.top - margin;
-    return {
-      left: clamp(
-        rect.left + rect.width / 2 - iconColorChoicePanelWidth / 2,
-        margin,
-        Math.max(margin, viewportWidth - iconColorChoicePanelWidth - margin),
-      ),
-      top: below >= iconColorChoicePanelHeight || below >= above
-        ? Math.min(rect.bottom + gap, viewportHeight - iconColorChoicePanelHeight - margin)
-        : Math.max(margin, rect.top - iconColorChoicePanelHeight - gap),
-    };
+  function placeIconColorChoice(anchor: HTMLElement): ProjectIconPickerPointPlacement {
+    return projectIconPickerPointPlacement({
+      anchorRect: toPickerRect(anchor.getBoundingClientRect()),
+      viewportRect: viewportBoundaryRect(),
+      panelWidth: iconColorChoicePanelWidth,
+      panelHeight: iconColorChoicePanelHeight,
+    });
   }
 
   function updateIconColorChoicePlacement(): void {
@@ -829,15 +577,13 @@
   }
 
   function chooseRandomEmoji(): void {
-    if (filteredEmojiEntries.length === 0) return;
-    const entry = filteredEmojiEntries[Math.floor(Math.random() * filteredEmojiEntries.length)];
-    chooseIcon({ kind: "emoji", emoji: displayEmoji(entry.emoji) });
+    const icon = projectIconPickerRandomEmojiIcon(filteredEmojiEntries, emojiSkinTone);
+    if (icon) chooseIcon(icon);
   }
 
   function chooseRandomIcon(): void {
-    if (filteredLucideEntries.length === 0) return;
-    const entry = filteredLucideEntries[Math.floor(Math.random() * filteredLucideEntries.length)];
-    chooseIcon({ kind: "lucide", slug: entry.slug, color: allowIconColors ? iconColor : "default" });
+    const icon = projectIconPickerRandomLucideIcon(filteredLucideEntries, { allowIconColors, iconColor });
+    if (icon) chooseIcon(icon);
   }
 
   function handleGridScroll(): void {
@@ -1128,663 +874,119 @@
     </div>
 
     {#if activeTab === "emoji"}
-      <div class="flex shrink-0 items-center gap-2 px-3 pt-3">
-        <div class="flex min-w-0 flex-1 items-center gap-2 rounded-md border border-border bg-background px-2">
-          <Search size={14} strokeWidth={1.75} class="shrink-0 text-muted-foreground" />
-          <input
-            bind:value={emojiQuery}
-            class="h-8 min-w-0 flex-1 bg-transparent text-[0.866667rem] outline-none placeholder:text-muted-foreground"
-            placeholder={t("projects.iconPicker.filter")}
-          />
-        </div>
-        <button
-          type="button"
-          class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-accent hover:text-foreground"
-          aria-label={t("projects.iconPicker.random")}
-          onclick={chooseRandomEmoji}
-        >
-          <Shuffle size={14} strokeWidth={1.75} />
-        </button>
-        <div class="relative shrink-0" data-icon-picker-inline-panel>
-          <button
-            type="button"
-            class={cn(
-              "flex h-8 w-8 items-center justify-center rounded-md border border-border text-[1rem] text-muted-foreground hover:bg-accent hover:text-foreground",
-              skinTonePanelOpen && "bg-accent text-foreground",
-            )}
-            aria-label={t("projects.iconPicker.skinTone")}
-            title={skinToneLabel(emojiSkinTone)}
-            onclick={(event) => {
-              event.stopPropagation();
-              skinTonePanelOpen = !skinTonePanelOpen;
-              iconColorPanelOpen = false;
-            }}
-          >
-            {skinTonePreview(emojiSkinTone)}
-          </button>
-          {#if skinTonePanelOpen}
-            <div
-              class="absolute right-0 top-9 z-10 grid gap-1 rounded-lg border border-border bg-popover p-2 shadow-lg"
-              style="grid-template-columns: repeat(3, 2rem); width: 7rem;"
-            >
-              {#each skinToneOptions as tone}
-                <button
-                  type="button"
-                  class={cn(
-                    "flex h-8 w-8 items-center justify-center rounded-md text-[1rem]",
-                    emojiSkinTone === tone.value ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                  )}
-                  aria-label={skinToneLabel(tone.value)}
-                  title={skinToneLabel(tone.value)}
-                  onclick={(event) => {
-                    event.stopPropagation();
-                    emojiSkinTone = tone.value;
-                    skinTonePanelOpen = false;
-                  }}
-                >
-                  {skinTonePreview(tone.value)}
-                </button>
-              {/each}
-            </div>
-          {/if}
-        </div>
-      </div>
-
-      <div
-        bind:this={gridScrollElement}
-        class={cn(
-          "project-icon-picker-scroll-area min-h-0 flex-1 overflow-y-auto px-3 py-3",
-          gridScrollable
-            && gridCanScrollUp
-            && gridCanScrollDown
-            && "project-icon-picker-scroll-both",
-          gridScrollable
-            && gridCanScrollUp
-            && !gridCanScrollDown
-            && "project-icon-picker-scroll-top",
-          gridScrollable
-            && !gridCanScrollUp
-            && gridCanScrollDown
-            && "project-icon-picker-scroll-bottom",
-        )}
-        onscroll={handleGridScroll}
-      >
-        {#if emojiRecentValues.length > 0}
-          <section class="mb-3">
-            <div class="mb-1 flex items-center gap-2 text-[0.733333rem] text-muted-foreground">
-              <span>{t("projects.iconPicker.recent")}</span>
-              <span class="h-px flex-1 bg-border/70"></span>
-            </div>
-            <div class="grid gap-0" style={`grid-template-columns: repeat(${gridColumnCount}, minmax(0, 1fr));`}>
-              {#each emojiRecentValues as recentValue}
-                <button
-                  type="button"
-                  class="flex h-9 items-center justify-center rounded-md hover:bg-accent"
-                  aria-label={t("projects.iconPicker.selectRecent")}
-                  onclick={() => chooseRecent(recentValue)}
-                >
-                  <ProjectIcon name={recentValue} size={18} />
-                </button>
-              {/each}
-            </div>
-          </section>
-        {/if}
-
-        {#if visibleCustomEmojis.length > 0}
-          <section class="mb-3">
-            <div class="mb-1 flex items-center gap-2 text-[0.733333rem] text-muted-foreground">
-              <span>{t("projects.iconPicker.custom")}</span>
-              <span class="h-px flex-1 bg-border/70"></span>
-            </div>
-            <div class="grid gap-0" style={`grid-template-columns: repeat(${gridColumnCount}, minmax(0, 1fr));`}>
-              {#each visibleCustomEmojis as emoji}
-                <button
-                  type="button"
-                  class="flex h-9 items-center justify-center rounded-md hover:bg-accent"
-                  title={emoji.name}
-                  onclick={() => chooseIcon({ kind: "custom-emoji", id: emoji.id })}
-                >
-                  <ProjectIcon name={`custom-emoji:${emoji.id}`} size={20} />
-                </button>
-              {/each}
-            </div>
-          </section>
-        {/if}
-
-        {#each emojiGroups as group (group.category.id)}
-          <section class="mb-3">
-            <div class="mb-1 flex items-center gap-2 text-[0.733333rem] text-muted-foreground">
-              <span>{group.category.label}</span>
-              <span class="h-px flex-1 bg-border/70"></span>
-            </div>
-            <div class="grid gap-0" style={`grid-template-columns: repeat(${gridColumnCount}, minmax(0, 1fr));`}>
-              {#each group.entries as entry (entry.emoji)}
-                <button
-                  type="button"
-                  class="flex h-9 items-center justify-center rounded-md text-[1.2rem] hover:bg-accent"
-                  title={entry.name}
-                  onclick={() => chooseIcon({ kind: "emoji", emoji: displayEmoji(entry.emoji) })}
-                >
-                  {displayEmoji(entry.emoji)}
-                </button>
-              {/each}
-            </div>
-          </section>
-        {/each}
-      </div>
-
-      <div class="flex shrink-0 items-center gap-1 overflow-x-auto border-t border-border/70 px-3 py-2">
-        <button
-          type="button"
-          class={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-md", emojiCategory === "all" ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground")}
-          aria-label={t("projects.iconPicker.all")}
-          title={t("projects.iconPicker.all")}
-          onclick={() => {
-            emojiCategory = "all";
-            resetGridScroll();
-          }}
-        >
-          <LayoutGrid size={16} strokeWidth={1.75} />
-        </button>
-        {#each visibleEmojiCategories as category}
-          <button
-            type="button"
-            class={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-md", emojiCategory === category.id ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground")}
-            aria-label={category.label}
-            title={category.label}
-            onclick={() => {
-              emojiCategory = category.id;
-              resetGridScroll();
-            }}
-          >
-            {#if category.id === "smileys"}
-              <Smile size={16} strokeWidth={1.75} />
-            {:else if category.id === "people"}
-              <UserRound size={16} strokeWidth={1.75} />
-            {:else if category.id === "nature"}
-              <Leaf size={16} strokeWidth={1.75} />
-            {:else if category.id === "food"}
-              <Utensils size={16} strokeWidth={1.75} />
-            {:else if category.id === "activity"}
-              <Trophy size={16} strokeWidth={1.75} />
-            {:else if category.id === "travel"}
-              <Plane size={16} strokeWidth={1.75} />
-            {:else if category.id === "objects"}
-              <Package size={16} strokeWidth={1.75} />
-            {:else if category.id === "symbols"}
-              <Shapes size={16} strokeWidth={1.75} />
-            {/if}
-          </button>
-        {/each}
-        <button
-          bind:this={customEmojiTriggerElement}
-          type="button"
-          class={cn(
-            "ml-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground",
-            customEmojiPanelOpen && "bg-accent text-foreground",
-          )}
-          aria-label={t("projects.iconPicker.addCustomEmoji")}
-          title={t("projects.iconPicker.addCustomEmoji")}
-          onclick={() => {
-            customEmojiPanelOpen = !customEmojiPanelOpen;
-            skinTonePanelOpen = false;
-            iconColorPanelOpen = false;
-          }}
-        >
-          <Plus size={16} strokeWidth={1.75} />
-        </button>
-      </div>
+      <ProjectIconPickerEmojiTab
+        bind:scrollElement={gridScrollElement}
+        bind:customEmojiTriggerElement={customEmojiTriggerElement}
+        bind:emojiQuery
+        bind:emojiCategory
+        bind:emojiSkinTone
+        bind:skinTonePanelOpen
+        bind:iconColorPanelOpen
+        bind:customEmojiPanelOpen
+        {gridScrollable}
+        {gridCanScrollUp}
+        {gridCanScrollDown}
+        {gridColumnCount}
+        {emojiRecentValues}
+        {visibleCustomEmojis}
+        {emojiGroups}
+        {visibleEmojiCategories}
+        onScroll={handleGridScroll}
+        onChooseRandom={chooseRandomEmoji}
+        onChooseRecent={chooseRecent}
+        onChooseIcon={chooseIcon}
+        onResetGridScroll={resetGridScroll}
+      />
     {:else if activeTab === "icons"}
-      <div class="flex shrink-0 items-center gap-2 px-3 pt-3">
-        <div class="flex min-w-0 flex-1 items-center gap-2 rounded-md border border-border bg-background px-2">
-          <Search size={14} strokeWidth={1.75} class="shrink-0 text-muted-foreground" />
-          <input
-            bind:value={iconQuery}
-            class="h-8 min-w-0 flex-1 bg-transparent text-[0.866667rem] outline-none placeholder:text-muted-foreground"
-            placeholder={t("projects.iconPicker.filter")}
-          />
-        </div>
-        <button
-          type="button"
-          class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-accent hover:text-foreground"
-          aria-label={t("projects.iconPicker.random")}
-          onclick={chooseRandomIcon}
-        >
-          <Shuffle size={14} strokeWidth={1.75} />
-        </button>
-        {#if allowIconColors}
-          <div class="relative shrink-0" data-icon-picker-inline-panel>
-            <button
-              type="button"
-              class={cn(
-                "flex h-8 w-8 items-center justify-center rounded-md border border-border hover:bg-accent",
-                iconColorPanelOpen && "bg-accent text-foreground",
-              )}
-              aria-label={t("projects.iconPicker.iconColor")}
-              title={iconColorLabel(iconColor)}
-              onclick={(event) => {
-                event.stopPropagation();
-                iconColorPanelOpen = !iconColorPanelOpen;
-                skinTonePanelOpen = false;
-              }}
-            >
-              <span
-                class="h-4 w-4 rounded-full border border-border"
-                style={`background: ${iconColorSwatch(iconColor)};`}
-              ></span>
-            </button>
-            {#if iconColorPanelOpen}
-              <div
-                class="absolute right-0 top-9 z-10 w-40 rounded-lg border border-border bg-popover px-2.5 py-2 shadow-lg"
-                style={`--project-icon-color-selection-border: ${colorSelectionBorder};`}
-              >
-                <div class="grid justify-center gap-2" style="grid-template-columns: repeat(4, 1.375rem);">
-                  {#each EVENT_COLOR_OPTIONS as color}
-                    <button
-                      type="button"
-                      class={cn(
-                        "project-icon-color-swatch relative size-5.5 rounded-full",
-                        iconColor === color && "swatch-selected",
-                      )}
-                      style={`background-color: ${iconColorSwatch(color)};`}
-                      aria-label={iconColorLabel(color)}
-                      title={iconColorLabel(color)}
-                      onclick={(event) => {
-                        event.stopPropagation();
-                        selectIconColor(color);
-                        iconColorPanelOpen = false;
-                      }}
-                    ></button>
-                  {/each}
-                </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={askIconColorEveryTime}
-                  class="mt-1 flex h-8 w-full items-center justify-between rounded-md px-1.5 text-left text-[0.8rem] text-foreground hover:bg-accent"
-                  onclick={(event) => {
-                    event.stopPropagation();
-                    askIconColorEveryTime = !askIconColorEveryTime;
-                    if (!askIconColorEveryTime) iconColorChoice = null;
-                  }}
-                >
-                  <span>{t("projects.iconPicker.askEveryTime")}</span>
-                  <span
-                    class={cn(
-                      "flex h-4 w-7 shrink-0 items-center rounded-full p-0.5",
-                      askIconColorEveryTime ? "justify-end bg-primary" : "justify-start bg-muted-foreground/30",
-                    )}
-                  >
-                    <span class="h-3 w-3 rounded-full bg-background shadow-sm"></span>
-                  </span>
-                </button>
-              </div>
-            {/if}
-          </div>
-        {/if}
-      </div>
-
-      <div
-        bind:this={gridScrollElement}
-        class={cn(
-          "project-icon-picker-scroll-area min-h-0 flex-1 overflow-y-auto px-3 py-3",
-          gridScrollable
-            && gridCanScrollUp
-            && gridCanScrollDown
-            && "project-icon-picker-scroll-both",
-          gridScrollable
-            && gridCanScrollUp
-            && !gridCanScrollDown
-            && "project-icon-picker-scroll-top",
-          gridScrollable
-            && !gridCanScrollUp
-            && gridCanScrollDown
-            && "project-icon-picker-scroll-bottom",
-        )}
-        onscroll={handleGridScroll}
-      >
-        {#if lucideRecentValues.length > 0}
-          <section class="mb-3">
-            <div class="mb-1 flex h-5 items-center gap-2 text-[0.733333rem] text-muted-foreground">
-              <span>{t("projects.iconPicker.recent")}</span>
-              <span class="h-px flex-1 bg-border/70"></span>
-            </div>
-            <div class="grid gap-0" style={`grid-template-columns: repeat(${gridColumnCount}, minmax(0, 1fr));`}>
-              {#each lucideRecentValues as recentValue}
-                <button
-                  type="button"
-                  class={cn(
-                    "flex h-9 items-center justify-center rounded-md hover:bg-accent hover:text-foreground",
-                    allowIconColors ? "text-muted-foreground" : "text-foreground",
-                  )}
-                  aria-label={t("projects.iconPicker.selectRecent")}
-                  onclick={(event) => chooseRecent(recentValue, event.currentTarget)}
-                >
-                  <ProjectIcon name={lucideRecentPreviewValue(recentValue)} size={18} ignoreColor={!allowIconColors} />
-                </button>
-              {/each}
-            </div>
-          </section>
-        {/if}
-
-        {#if lucideLoading}
-          <div class="py-6 text-center text-[0.8rem] text-muted-foreground">{t("common.loading")}</div>
-        {:else}
-          <div style={`height: ${lucideGroupVirtual.beforeHeight}px;`} aria-hidden="true"></div>
-          {#each lucideGroupVirtual.groups as group (group.category)}
-            <section class="mb-3">
-              <div class="mb-1 flex h-5 items-center gap-2 text-[0.733333rem] text-muted-foreground">
-                <span>{group.category}</span>
-                <span class="h-px flex-1 bg-border/70"></span>
-              </div>
-              <div style={`height: ${group.beforeRowsHeight}px;`} aria-hidden="true"></div>
-              <div class="grid gap-0" style={`grid-template-columns: repeat(${gridColumnCount}, minmax(0, 1fr));`}>
-                {#each group.entries as entry (entry.slug)}
-                  <button
-                    type="button"
-                    class={cn(
-                      "flex h-9 items-center justify-center rounded-md hover:bg-accent hover:text-foreground",
-                      allowIconColors ? "text-muted-foreground" : "text-foreground",
-                    )}
-                    title={entry.label}
-                    onclick={(event) => chooseLucideIcon(entry.slug, entry.label, entry.iconNode, event.currentTarget)}
-                  >
-                    <LucideNodeIcon
-                      iconNode={entry.iconNode}
-                      size={18}
-                      strokeWidth={1.75}
-                      style={allowIconColors ? iconColorStyle(iconColor) : undefined}
-                    />
-                  </button>
-                {/each}
-              </div>
-              <div style={`height: ${group.afterRowsHeight}px;`} aria-hidden="true"></div>
-            </section>
-            {/each}
-          <div style={`height: ${lucideGroupVirtual.afterHeight}px;`} aria-hidden="true"></div>
-        {/if}
-      </div>
-
-      <div class="flex shrink-0 items-center gap-1 border-t border-border/70 px-3 py-2">
-        <button
-          type="button"
-          class={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-md", iconCategory === "all" ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground")}
-          aria-label={t("projects.iconPicker.all")}
-          title={t("projects.iconPicker.all")}
-          onclick={() => selectIconCategory("all")}
-        >
-          <LayoutGrid size={16} strokeWidth={1.75} />
-        </button>
-        {#each primaryLucideCategoryOptions as option (option.category)}
-          <button
-            type="button"
-            class={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-md", iconCategory === option.category ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground")}
-            aria-label={option.category}
-            title={option.category}
-            onclick={() => selectIconCategory(option.category)}
-          >
-            {#if option.icon}
-              <LucideNodeIcon iconNode={option.icon.iconNode} size={16} strokeWidth={1.75} />
-            {:else}
-              <Shapes size={16} strokeWidth={1.75} />
-            {/if}
-          </button>
-        {/each}
-        <div class="h-5 w-px shrink-0 bg-border/80"></div>
-        <button
-          bind:this={iconCategoryMenuTriggerElement}
-          type="button"
-          class={cn(
-            "flex h-8 w-8 shrink-0 items-center justify-center rounded-md",
-            iconCategoryMenuOpen || iconCategoryOverflowActive
-              ? "bg-accent text-foreground"
-              : "text-muted-foreground hover:bg-accent hover:text-foreground",
-          )}
-          aria-label={t("projects.iconPicker.moreCategories")}
-          title={t("projects.iconPicker.moreCategories")}
-          onclick={toggleIconCategoryMenu}
-        >
-          <CircleEllipsis size={16} strokeWidth={1.75} />
-        </button>
-      </div>
+      <ProjectIconPickerIconsTab
+        bind:scrollElement={gridScrollElement}
+        bind:iconCategoryMenuTriggerElement={iconCategoryMenuTriggerElement}
+        bind:iconQuery
+        bind:iconColor
+        bind:iconColorPanelOpen
+        bind:skinTonePanelOpen
+        bind:askIconColorEveryTime
+        {iconCategory}
+        {iconCategoryMenuOpen}
+        {iconCategoryOverflowActive}
+        {allowIconColors}
+        {colorSelectionBorder}
+        {gridScrollable}
+        {gridCanScrollUp}
+        {gridCanScrollDown}
+        {gridColumnCount}
+        {lucideRecentValues}
+        {lucideGroupVirtual}
+        {lucideLoading}
+        {primaryLucideCategoryOptions}
+        {iconColorLabel}
+        {iconColorSwatch}
+        {iconColorStyle}
+        {lucideRecentPreviewValue}
+        onScroll={handleGridScroll}
+        onChooseRandom={chooseRandomIcon}
+        onChooseRecent={chooseRecent}
+        onChooseLucideIcon={chooseLucideIcon}
+        onSelectIconColor={selectIconColor}
+        onSelectIconCategory={selectIconCategory}
+        onToggleIconCategoryMenu={toggleIconCategoryMenu}
+        onClearIconColorChoice={() => {
+          iconColorChoice = null;
+        }}
+      />
     {:else}
-      <div class="min-h-0 space-y-3 overflow-y-auto p-3" style={uploadBodyStyle}>
-        {#if uploadDraft}
-          <div class="grid gap-3">
-            <div class="flex h-36 items-center justify-center rounded-lg bg-muted/45">
-              <ProjectIcon name={`asset:${uploadDraft.relativePath}`} size={112} class="shadow-sm" />
-            </div>
-            <div class="flex items-center justify-between gap-2">
-              <button
-                type="button"
-                class="h-8 rounded-md px-2 text-[0.866667rem] text-muted-foreground hover:bg-accent hover:text-foreground"
-                onclick={() => void discardUploadDraft()}
-              >
-                {t("common.cancel")}
-              </button>
-              <button
-                type="button"
-                class="h-8 rounded-md bg-primary px-3 text-[0.866667rem] font-medium text-primary-foreground"
-                onclick={() => void selectUploadDraft()}
-              >
-                {t("common.save")}
-              </button>
-            </div>
-          </div>
-        {:else}
-          <button
-            type="button"
-            class="flex min-h-16 w-full items-center justify-center gap-2 rounded-md bg-muted/50 text-[0.866667rem] text-muted-foreground hover:bg-accent hover:text-foreground"
-            disabled={uploading}
-            onclick={chooseUploadFile}
-          >
-            <ImageIcon size={17} strokeWidth={1.75} />
-            {t("projects.iconPicker.uploadImage")}
-          </button>
-          <div class="text-center text-[0.733333rem] text-muted-foreground">{t("projects.iconPicker.pasteHint")}</div>
-          <div class="flex gap-2">
-            <input
-              bind:value={uploadUrl}
-              class="h-8 min-w-0 flex-1 rounded-md border border-border bg-background px-2 text-[0.8rem] outline-none placeholder:text-muted-foreground focus:border-ring"
-              placeholder={t("projects.iconPicker.imageUrl")}
-            />
-            <button
-              type="button"
-              class="h-8 rounded-md bg-primary px-2 text-[0.8rem] font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
-              disabled={uploading || !uploadUrl.trim()}
-              onclick={downloadUploadUrl}
-            >
-              {t("projects.iconPicker.fetch")}
-            </button>
-          </div>
-        {/if}
-        {#if uploadError}
-          <div class="rounded-md bg-destructive/10 px-2 py-1 text-[0.8rem] text-destructive">{uploadError}</div>
-        {/if}
-      </div>
+      <ProjectIconPickerUploadPanel
+        {uploadDraft}
+        {uploadError}
+        {uploading}
+        {uploadBodyStyle}
+        bind:uploadUrl
+        onChooseFile={chooseUploadFile}
+        onDiscardDraft={discardUploadDraft}
+        onSelectDraft={selectUploadDraft}
+        onDownloadUrl={downloadUploadUrl}
+      />
     {/if}
   </div>
 
   {#if iconCategoryMenuOpen}
-    <div
-      bind:this={iconCategoryMenuElement}
-      use:portal
-      class="fixed z-100 min-h-0 overflow-y-auto rounded-xl border border-border bg-popover p-1.5 text-popover-foreground shadow-xl"
+    <ProjectIconPickerCategoryMenu
+      bind:rootElement={iconCategoryMenuElement}
       style={iconCategoryMenuStyle}
-      role="dialog"
-      data-app-floating-surface
-      aria-label={t("projects.iconPicker.moreCategories")}
-    >
-      {#each lucideCategoryOptions as option (option.category)}
-        <button
-          type="button"
-          class={cn(
-            "flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[0.8rem]",
-            iconCategory === option.category
-              ? "bg-accent/70 text-foreground"
-              : "text-foreground hover:bg-accent/40",
-          )}
-          aria-checked={iconCategory === option.category}
-          role="menuitemradio"
-          onclick={() => selectIconCategory(option.category)}
-        >
-          <span class="flex h-5 w-5 shrink-0 items-center justify-center">
-            {#if option.icon}
-              <LucideNodeIcon iconNode={option.icon.iconNode} size={15} strokeWidth={1.75} class="block" />
-            {:else}
-              <Shapes size={15} strokeWidth={1.75} class="block" />
-            {/if}
-          </span>
-          <span class="min-w-0 flex-1 truncate">{option.category}</span>
-          <span class="flex h-4 w-4 shrink-0 items-center justify-center">
-          {#if iconCategory === option.category}
-            <Check size={14} strokeWidth={1.75} />
-          {/if}
-          </span>
-        </button>
-      {/each}
-    </div>
+      options={lucideCategoryOptions}
+      selectedCategory={iconCategory}
+      ariaLabel={t("projects.iconPicker.moreCategories")}
+      onSelect={selectIconCategory}
+    />
   {/if}
 
   {#if iconColorChoice && allowIconColors}
-    <div
-      bind:this={iconColorChoicePanelElement}
-      use:portal
-      class="fixed z-100 rounded-xl border border-border bg-popover p-2.5 text-popover-foreground shadow-xl"
+    <ProjectIconPickerColorChoicePanel
+      bind:rootElement={iconColorChoicePanelElement}
       style={iconColorChoiceStyle(iconColorChoice)}
-      role="dialog"
-      data-app-floating-surface
-      aria-label={iconColorChoice.label}
-    >
-      <div class="grid gap-2" style="grid-template-columns: repeat(8, 1.375rem);">
-        {#each EVENT_COLOR_OPTIONS as color}
-          <button
-            type="button"
-            class="flex size-5.5 items-center justify-center rounded-md hover:bg-accent"
-            aria-label={iconColorLabel(color)}
-            title={iconColorLabel(color)}
-            onclick={(event) => {
-              event.stopPropagation();
-              selectColorChoice(color);
-            }}
-          >
-            {#if iconColorChoice.iconNode}
-              <LucideNodeIcon
-                iconNode={iconColorChoice.iconNode}
-                size={16}
-                strokeWidth={1.75}
-                style={iconColorStyle(color)}
-              />
-            {:else}
-              <ProjectIcon
-                name={serializeProjectIcon({ kind: "lucide", slug: iconColorChoice.slug, color })}
-                size={16}
-                strokeWidth={1.75}
-              />
-            {/if}
-          </button>
-        {/each}
-      </div>
-    </div>
+      label={iconColorChoice.label}
+      slug={iconColorChoice.slug}
+      iconNode={iconColorChoice.iconNode}
+      {iconColorLabel}
+      {iconColorStyle}
+      onSelect={selectColorChoice}
+    />
   {/if}
 
   {#if customEmojiPanelOpen}
-    <section
-      bind:this={customPanelElement}
-      use:portal
-      class="fixed z-90 flex min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-popover p-4 text-popover-foreground shadow-xl"
+    <ProjectIconPickerCustomEmojiPanel
+      bind:rootElement={customPanelElement}
       style={customPanelStyle}
-      data-app-floating-surface
-      onpaste={handleCustomEmojiPaste}
-    >
-      <div class="mb-1 text-[0.933333rem] font-semibold text-foreground">{t("projects.iconPicker.addCustomEmoji")}</div>
-      <div class="mb-5 text-[0.8rem] text-muted-foreground">{t("projects.iconPicker.customEmojiDescription")}</div>
-      <button
-        type="button"
-        class="mb-4 flex min-h-16 w-full items-center justify-center gap-2 rounded-md bg-muted/50 text-[0.866667rem] text-muted-foreground hover:bg-accent hover:text-foreground"
-        onclick={chooseCustomEmojiFile}
-      >
-        {#if customEmojiDraft}
-          <ProjectIcon name={`asset:${customEmojiDraft.relativePath}`} size={28} />
-        {:else}
-          <Upload size={17} strokeWidth={1.75} />
-        {/if}
-        {t("projects.iconPicker.uploadImage")}
-      </button>
-      <label class="grid gap-1 text-[0.733333rem] text-muted-foreground">
-        {t("projects.iconPicker.emojiName")}
-        <input
-          bind:value={customEmojiName}
-          class="h-9 rounded-md border border-border bg-background px-2 text-left text-[0.866667rem] text-foreground outline-none placeholder:text-muted-foreground focus:border-ring"
-          placeholder={t("projects.iconPicker.emojiNamePlaceholder")}
-        />
-      </label>
-      {#if customEmojiError}
-        <div class="mt-2 rounded-md bg-destructive/10 px-2 py-1 text-[0.8rem] text-destructive">{customEmojiError}</div>
-      {/if}
-      <div class="mt-5 flex justify-between gap-2">
-        <button
-          type="button"
-          class="h-8 rounded-md px-2 text-[0.866667rem] text-muted-foreground hover:bg-accent hover:text-foreground"
-          onclick={() => {
-            customEmojiPanelOpen = false;
-          }}
-        >
-          {t("common.cancel")}
-        </button>
-        <button
-          type="button"
-          class="h-8 rounded-md bg-primary px-3 text-[0.866667rem] font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
-          disabled={!customEmojiDraft || !customEmojiName.trim() || customEmojiSaving}
-          onclick={() => void saveCustomEmoji()}
-        >
-          {t("common.save")}
-        </button>
-      </div>
-      <button
-        type="button"
-        class="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-        aria-label={t("common.close")}
-        onclick={() => {
-          customEmojiPanelOpen = false;
-        }}
-      >
-        <X size={14} strokeWidth={1.75} />
-      </button>
-    </section>
+      {customEmojiDraft}
+      bind:customEmojiName
+      {customEmojiError}
+      {customEmojiSaving}
+      onChooseFile={chooseCustomEmojiFile}
+      onPaste={handleCustomEmojiPaste}
+      onSave={saveCustomEmoji}
+      onClose={() => {
+        customEmojiPanelOpen = false;
+      }}
+    />
   {/if}
 {/if}
-
-<style>
-  .project-icon-picker-scroll-area {
-    transition: -webkit-mask-image 120ms ease, mask-image 120ms ease;
-  }
-
-  .project-icon-picker-scroll-top {
-    -webkit-mask-image: linear-gradient(to bottom, transparent, black 20px, black);
-    mask-image: linear-gradient(to bottom, transparent, black 20px, black);
-  }
-
-  .project-icon-picker-scroll-bottom {
-    -webkit-mask-image: linear-gradient(to bottom, black, black calc(100% - 20px), transparent);
-    mask-image: linear-gradient(to bottom, black, black calc(100% - 20px), transparent);
-  }
-
-  .project-icon-picker-scroll-both {
-    -webkit-mask-image: linear-gradient(to bottom, transparent, black 20px, black calc(100% - 20px), transparent);
-    mask-image: linear-gradient(to bottom, transparent, black 20px, black calc(100% - 20px), transparent);
-  }
-
-  .project-icon-color-swatch {
-    overflow: hidden;
-  }
-
-  .project-icon-color-swatch.swatch-selected::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    border: 2px solid var(--project-icon-color-selection-border);
-    border-radius: inherit;
-    pointer-events: none;
-  }
-</style>

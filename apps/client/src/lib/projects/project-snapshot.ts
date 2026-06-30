@@ -518,6 +518,10 @@ export function nextCustomFieldOptionSortOrder(source: ProjectsSnapshot, fieldId
   return Math.max(0, ...customFieldOptionsForField(source, fieldId).map((option) => option.sortOrder)) + 1000;
 }
 
+export function nextCustomEmojiSortOrder(source: ProjectsSnapshot): number {
+  return Math.max(0, ...source.customEmojis.map((emoji) => emoji.sortOrder)) + 1000;
+}
+
 export function nextTaskStatusSortOrder(
   source: ProjectsSnapshot,
   projectId: string,

@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import type { ProjectSavedTaskView, ProjectViewPreference } from "./types";
 import { customFieldReference, customTaskListColumn } from "./task-list-columns";
 import {
+  createProjectSavedTaskViewSnapshot,
   parseSavedTaskViewPreference,
+  projectCustomFieldFilterStillExists,
+  projectTaskFilterStateFromSavedTaskView,
   savedTaskViewPreferenceKey,
   savedTaskViewPreferenceValue,
 } from "./saved-task-views";
@@ -55,6 +58,97 @@ describe("saved task views", () => {
     }));
 
     expect(result).toEqual(view);
+  });
+
+  it("builds saved task view snapshots from current filter state", () => {
+    expect(createProjectSavedTaskViewSnapshot({
+      id: "view-a",
+      projectId: "project-a",
+      name: "Urgent work",
+      viewId: "list",
+      search: "launch",
+      statusFilter: "open",
+      sectionFilter: "section-a",
+      priorityFilter: "urgent",
+      dueFilter: "range",
+      dueRangeStart: "2026-06-21",
+      dueRangeEnd: "2026-06-30",
+      scheduleFilter: "scheduled",
+      dependencyFilter: "linked",
+      tagFilter: "tag-a",
+      customFieldFilters: [{ fieldId: "field-a", mode: "filled" }],
+      groupBy: "status",
+      sortMode: "due",
+      sortDirection: "desc",
+      collapsedSectionIds: ["section-a"],
+      showArchivedTasks: true,
+      visibleColumns: ["status", "due"],
+      updatedAt: "2026-06-21T00:00:00.000Z",
+    })).toEqual({
+      id: "view-a",
+      projectId: "project-a",
+      name: "Urgent work",
+      viewId: "list",
+      search: "launch",
+      statusFilter: "open",
+      sectionFilter: "section-a",
+      priorityFilter: "urgent",
+      dueFilter: "range",
+      dueRangeStart: "2026-06-21",
+      dueRangeEnd: "2026-06-30",
+      scheduleFilter: "scheduled",
+      dependencyFilter: "linked",
+      tagFilter: "tag-a",
+      customFieldFilters: [{ fieldId: "field-a", mode: "filled" }],
+      sortMode: "due",
+      sortDirection: "desc",
+      groupBy: "status",
+      collapsedSectionIds: ["section-a"],
+      showArchivedTasks: true,
+      visibleColumns: ["status", "due"],
+      updatedAt: "2026-06-21T00:00:00.000Z",
+    });
+  });
+
+  it("derives task filter state from a saved view", () => {
+    expect(projectTaskFilterStateFromSavedTaskView(savedView({
+      customFieldFilters: [{ fieldId: "field-risk", mode: "filled" }],
+      groupBy: "priority",
+    }))).toEqual({
+      search: "api",
+      statusFilter: "blocked",
+      sectionFilter: "section-a",
+      priorityFilter: "urgent",
+      dueFilter: "week",
+      dueRangeStart: "",
+      dueRangeEnd: "",
+      scheduleFilter: "unscheduled",
+      dependencyFilter: "blocked_by",
+      tagFilter: "tag-backend",
+      customFieldFilters: [{ fieldId: "field-risk", mode: "filled" }],
+      groupBy: "priority",
+      sortMode: "priority",
+      sortDirection: "desc",
+    });
+  });
+
+  it("checks whether saved custom field filters still reference live values", () => {
+    const fieldIds = new Set(["field-risk"]);
+    const optionIds = new Set(["option-high"]);
+
+    expect(projectCustomFieldFilterStillExists({ fieldId: "field-risk", mode: "filled" }, fieldIds, optionIds)).toBe(
+      true,
+    );
+    expect(projectCustomFieldFilterStillExists({
+      fieldId: "field-risk",
+      mode: "option",
+      optionId: "option-high",
+    }, fieldIds, optionIds)).toBe(true);
+    expect(projectCustomFieldFilterStillExists({
+      fieldId: "field-risk",
+      mode: "option",
+      optionId: "option-deleted",
+    }, fieldIds, optionIds)).toBe(false);
   });
 
   it("maps legacy saved view ids to their current view ids", () => {

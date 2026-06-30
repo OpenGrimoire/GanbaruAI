@@ -1,11 +1,8 @@
 <script lang="ts">
   import { Temporal } from "@js-temporal/polyfill";
   import {
-    projectDefaultIdleTimeoutMinutes,
-    projectDefaultPomodoroConfig,
-  } from "$lib/projects/project-default-pomodoro";
-  import {
     formatProjectScheduleWindowStart,
+    projectCalendarCreateDefaults,
     projectDefaultScheduleStart,
     type ProjectScheduleWindow,
   } from "$lib/projects/project-scheduling";
@@ -131,23 +128,29 @@
     scheduledWindow: ProjectScheduleWindow,
   ): Promise<CalendarEvent> {
     let createdEventId: string | null = null;
-    const allDay = project.defaultEventTimeMode === "all_day";
-    const scheduledDate = scheduledWindow.start.slice(0, 10);
-    const start = allDay ? `${scheduledDate} 00:00` : scheduledWindow.start;
-    const end = allDay ? `${scheduledDate} 00:00` : scheduledWindow.end;
+    const defaults = projectCalendarCreateDefaults({
+      project,
+      start: scheduledWindow.start,
+      end: scheduledWindow.end,
+      globalIdleDefaults: {
+        idlePauseEnabled: preferences.focusIdlePauseOnEventCreate,
+        idleThresholdMinutes: preferences.focusIdleThresholdMinutes,
+      },
+    });
+    const start = defaults.start ?? scheduledWindow.start;
+    const end = defaults.end ?? scheduledWindow.end;
+    const scheduledDate = start.slice(0, 10);
     try {
       const event = await calendar.addBlock({
         title: task.title,
         start,
         end,
-        projectId: project.id,
-        color: project.color,
-        environmentId: project.workEnvironmentId,
-        playlistId: project.focusPlaylistId,
-        allDay: allDay || undefined,
-        pomodoroConfig: allDay
-          ? undefined
-          : projectDefaultPomodoroConfig(project, projectIdleTimeoutMinutes(project)),
+        projectId: defaults.projectId,
+        color: defaults.color,
+        environmentId: defaults.environmentId,
+        playlistId: defaults.playlistId,
+        allDay: defaults.allDay,
+        pomodoroConfig: defaults.pomodoroConfig,
       });
       createdEventId = event.id;
       await projects.linkTaskEvent(task.id, event.id, "scheduled");
@@ -165,13 +168,6 @@
       }
       throw error;
     }
-  }
-
-  function projectIdleTimeoutMinutes(project: Project): number | null {
-    return projectDefaultIdleTimeoutMinutes(project, {
-      idlePauseEnabled: preferences.focusIdlePauseOnEventCreate,
-      idleThresholdMinutes: preferences.focusIdleThresholdMinutes,
-    });
   }
 
   async function bulkScheduleSelectedTasks(): Promise<void> {

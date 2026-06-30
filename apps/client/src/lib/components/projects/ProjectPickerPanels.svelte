@@ -15,9 +15,20 @@
   import {
     isPointerAimingAtSubmenu,
     type MenuAimPoint,
-    type MenuAimRect,
-    type MenuAimSide,
   } from "$lib/projects/menu-aim";
+  import {
+    projectPickerBridgeFrameStyle,
+    projectPickerMenuAimRect,
+    projectPickerPanelEstimatedListHeight,
+    projectPickerPanelFrameStyle,
+    projectPickerPanelHeight,
+    projectPickerPointerPoint,
+    projectPickerScrollState,
+    projectPickerSubpanelAimOrigin,
+    projectPickerSubpanelGeometry,
+    projectPickerSubpanelSide,
+    type ProjectPickerPanelBounds,
+  } from "$lib/projects/project-picker-panels";
   import {
     PROJECT_TEMPLATE_IDS,
     type Project,
@@ -30,13 +41,6 @@
   import ProjectIcon from "./ProjectIcon.svelte";
 
   type MaybePromise<T> = T | Promise<T>;
-
-  interface PanelBounds {
-    left: number;
-    right: number;
-    top: number;
-    bottom: number;
-  }
 
   interface ProjectSearchResultGroup {
     group: ProjectGroup;
@@ -72,7 +76,7 @@
     panelHeight?: number;
     mainVisibleRows?: number | null;
     subpanelVisibleRows?: number | null;
-    pickerBounds?: PanelBounds | null;
+    pickerBounds?: ProjectPickerPanelBounds | null;
     boundsSelector?: string | null;
     zIndexClass?: string;
     showInactiveProjects?: boolean;
@@ -188,33 +192,18 @@
     return cssPixelValue(style.paddingTop) + cssPixelValue(style.paddingBottom);
   }
 
-  function boundedNumber(value: number | null): number | null {
-    if (value === null || !Number.isFinite(value)) return null;
-    return Math.max(0, value);
-  }
-
   function mainListEstimatedHeight(): number {
     const itemCount = searchActive
       ? searchResultGroups.reduce((count, entry) => count + entry.projects.length, 0)
       : mode === "projects" && directProjectGroup
         ? projectsInGroup(directProjectGroup).length
         : visibleGroups.length;
-    const visibleRows = mainVisibleRows === null
-      ? itemCount
-      : Math.min(itemCount, mainVisibleRows);
-    return panelListPadding + rowHeight() * visibleRows;
-  }
-
-  function mainPanelCap(headerHeight: number, footerHeight: number): number {
-    const availableMaxHeight = boundedNumber(panelMaxHeight);
-    const rowCapHeight = mainVisibleRows === null
-      ? null
-      : headerHeight + footerHeight + panelListPadding + rowHeight() * mainVisibleRows;
-
-    if (availableMaxHeight === null && rowCapHeight === null) return Number.POSITIVE_INFINITY;
-    if (availableMaxHeight === null) return rowCapHeight ?? Number.POSITIVE_INFINITY;
-    if (rowCapHeight === null) return availableMaxHeight;
-    return Math.min(availableMaxHeight, rowCapHeight);
+    return projectPickerPanelEstimatedListHeight({
+      itemCount,
+      visibleRows: mainVisibleRows,
+      listPadding: panelListPadding,
+      rowHeight: rowHeight(),
+    });
   }
 
   function updatePanelStyle(): void {
@@ -229,18 +218,22 @@
       )
       : undefined;
     const listHeight = measuredListHeight ?? mainListEstimatedHeight();
-    const naturalHeight = Math.ceil(headerHeight + listHeight + footerHeight);
-    const maxHeight = mainPanelCap(headerHeight, footerHeight);
-    const height = Math.min(maxHeight, naturalHeight);
-
-    panelHeight = Number.isFinite(height) ? Math.round(height) : naturalHeight;
+    panelHeight = projectPickerPanelHeight({
+      headerHeight,
+      footerHeight,
+      listHeight,
+      maxHeight: panelMaxHeight,
+      visibleRows: mainVisibleRows,
+      listPadding: panelListPadding,
+      rowHeight: rowHeight(),
+    });
     panelStyle = [
       `height: ${panelHeight}px`,
       `max-height: ${panelHeight}px`,
     ].join("; ");
   }
 
-  function currentPanelBounds(): PanelBounds {
+  function currentPanelBounds(): ProjectPickerPanelBounds {
     if (pickerBounds) return pickerBounds;
     const margin = 8;
     const viewportBounds = {
@@ -262,41 +255,15 @@
     };
   }
 
-  function rectToMenuAimRect(rect: DOMRect): MenuAimRect {
-    return {
-      left: rect.left,
-      right: rect.right,
-      top: rect.top,
-      bottom: rect.bottom,
-    };
-  }
-
-  function pointerEventPoint(event: PointerEvent): MenuAimPoint {
-    return { x: event.clientX, y: event.clientY };
-  }
-
-  function projectSubpanelSide(anchorRect: DOMRect, subpanelRect: DOMRect): MenuAimSide {
-    if (subpanelRect.right <= anchorRect.left) return "left";
-    if (subpanelRect.left >= anchorRect.right) return "right";
-    return subpanelRect.left < anchorRect.left ? "left" : "right";
-  }
-
-  function projectSubpanelAimOrigin(anchorRect: DOMRect): MenuAimPoint {
-    return {
-      x: anchorRect.left + anchorRect.width / 2,
-      y: anchorRect.top + anchorRect.height / 2,
-    };
-  }
-
   function pointerAimingAtProjectSubpanel(point: MenuAimPoint): boolean {
     if (!activeGroupAnchorElement || !projectSubpanelElement) return false;
     const anchorRect = activeGroupAnchorElement.getBoundingClientRect();
     const subpanelRect = projectSubpanelElement.getBoundingClientRect();
-    const side = projectSubpanelSide(anchorRect, subpanelRect);
+    const side = projectPickerSubpanelSide(anchorRect, subpanelRect);
     return isPointerAimingAtSubmenu({
-      origin: projectSubpanelAimOrigin(anchorRect),
+      origin: projectPickerSubpanelAimOrigin(anchorRect),
       point,
-      submenu: rectToMenuAimRect(subpanelRect),
+      submenu: projectPickerMenuAimRect(subpanelRect),
       side,
       tolerance: 12,
       topTolerance: 8,
@@ -310,69 +277,29 @@
     const anchorRect = activeGroupAnchorElement.getBoundingClientRect();
     const panelRect = panelRootElement.getBoundingClientRect();
     const bounds = currentPanelBounds();
-    const gap = subpanelGap;
-    const minLeft = bounds.left;
-    const maxRight = Math.max(minLeft, bounds.right);
-    const minTop = bounds.top;
-    const maxBottom = Math.max(minTop, bounds.bottom);
-    const usableWidth = Math.max(0, maxRight - minLeft);
-    const width = Math.min(
-      Math.max(panelRect.width, 0),
-      usableWidth,
-    );
-    const rightOrigin = Math.min(Math.max(anchorRect.right, panelRect.left), panelRect.right);
-    const leftOrigin = Math.min(Math.max(anchorRect.left, panelRect.left), panelRect.right);
-    const spaceRight = maxRight - rightOrigin - gap;
-    const spaceLeft = leftOrigin - minLeft - gap;
-    const openRight = spaceRight >= width || spaceRight >= spaceLeft;
-    const left = openRight
-      ? Math.min(rightOrigin + gap, maxRight - width)
-      : Math.max(minLeft, leftOrigin - gap - width);
     const footerHeight = projectSubpanelFooterElement?.offsetHeight ?? subpanelFallbackFooterHeight;
     const projectCount = activeGroup ? projectsInGroup(activeGroup).length : 0;
-    const fallbackVisibleRows = subpanelVisibleRows === null
-      ? projectCount
-      : Math.max(1, Math.min(subpanelVisibleRows, projectCount));
-    const fallbackListHeight = subpanelListPadding + subpanelRowHeight * fallbackVisibleRows;
     const measuredListHeight = projectScrollContentElement
       ? projectScrollContentElement.scrollHeight + scrollAreaVerticalPadding(
         projectScrollElement,
         subpanelListPadding,
       )
       : undefined;
-    const listHeight = measuredListHeight ?? fallbackListHeight;
-    const naturalHeight = Math.ceil(listHeight + footerHeight);
-    const rowCapHeight = subpanelVisibleRows === null
-      ? null
-      : subpanelListPadding + subpanelRowHeight * subpanelVisibleRows + footerHeight;
-    const boundsMaxHeight = Math.max(0, maxBottom - minTop);
-    const maxHeight = rowCapHeight === null
-      ? boundsMaxHeight
-      : Math.min(rowCapHeight, boundsMaxHeight);
-    const height = Math.min(maxHeight, naturalHeight);
-    const top = Math.min(
-      Math.max(minTop, anchorRect.top),
-      Math.max(minTop, maxBottom - height),
-    );
-    const panelRight = left + width;
-    const bridgeLeft = openRight ? rightOrigin : panelRight;
-    const bridgeRight = openRight ? left : leftOrigin;
-    const bridgeTop = Math.max(minTop, Math.min(anchorRect.top, top));
-    const bridgeBottom = Math.min(maxBottom, Math.max(anchorRect.bottom, top + height));
+    const geometry = projectPickerSubpanelGeometry({
+      anchorRect,
+      panelRect,
+      bounds,
+      gap: subpanelGap,
+      footerHeight,
+      projectCount,
+      visibleRows: subpanelVisibleRows,
+      listHeight: measuredListHeight,
+      listPadding: subpanelListPadding,
+      rowHeight: subpanelRowHeight,
+    });
 
-    projectSubpanelStyle = [
-      `left: ${Math.round(left)}px`,
-      `top: ${Math.round(top)}px`,
-      `width: ${Math.round(width)}px`,
-      `height: ${Math.round(height)}px`,
-      `max-height: ${Math.round(maxHeight)}px`,
-    ].join("; ");
-    projectSubpanelBridgeStyle = [
-      `left: ${Math.round(bridgeLeft)}px`,
-      `top: ${Math.round(bridgeTop)}px`,
-      `width: ${Math.max(0, Math.round(bridgeRight - bridgeLeft))}px`,
-      `height: ${Math.max(0, Math.round(bridgeBottom - bridgeTop))}px`,
-    ].join("; ");
+    projectSubpanelStyle = projectPickerPanelFrameStyle(geometry.panel);
+    projectSubpanelBridgeStyle = projectPickerBridgeFrameStyle(geometry.bridge);
   }
 
   function refreshGroupScrollState(): void {
@@ -384,10 +311,10 @@
       groupCanScrollDown = false;
       return;
     }
-    const maxScrollTop = element.scrollHeight - element.clientHeight;
-    groupScrollable = maxScrollTop > 1;
-    groupCanScrollUp = element.scrollTop > 1;
-    groupCanScrollDown = element.scrollTop < maxScrollTop - 1;
+    const state = projectPickerScrollState(element);
+    groupScrollable = state.scrollable;
+    groupCanScrollUp = state.canScrollUp;
+    groupCanScrollDown = state.canScrollDown;
   }
 
   function requestGroupScrollStateRefresh(): void {
@@ -404,10 +331,10 @@
       projectCanScrollDown = false;
       return;
     }
-    const maxScrollTop = element.scrollHeight - element.clientHeight;
-    projectScrollable = maxScrollTop > 1;
-    projectCanScrollUp = element.scrollTop > 1;
-    projectCanScrollDown = element.scrollTop < maxScrollTop - 1;
+    const state = projectPickerScrollState(element);
+    projectScrollable = state.scrollable;
+    projectCanScrollUp = state.canScrollUp;
+    projectCanScrollDown = state.canScrollDown;
   }
 
   function requestProjectScrollStateRefresh(): void {
@@ -446,7 +373,7 @@
   }
 
   function handleGroupPointerEnter(group: ProjectGroup, event: PointerEvent): void {
-    const point = pointerEventPoint(event);
+    const point = projectPickerPointerPoint(event);
     if (activeGroupId && activeGroupId !== group.id && pointerAimingAtProjectSubpanel(point)) {
       return;
     }
@@ -454,7 +381,7 @@
   }
 
   function handleGroupPointerMove(group: ProjectGroup, event: PointerEvent): void {
-    const point = pointerEventPoint(event);
+    const point = projectPickerPointerPoint(event);
     if (activeGroupId === group.id) {
       return;
     }
@@ -475,7 +402,7 @@
 
   function handleProjectSubpanelBoundaryLeave(event: PointerEvent): void {
     if (isProjectSubpanelBoundaryTarget(event.relatedTarget)) return;
-    if (pointerAimingAtProjectSubpanel(pointerEventPoint(event))) return;
+    if (pointerAimingAtProjectSubpanel(projectPickerPointerPoint(event))) return;
     closeProjectSubpanel();
   }
 

@@ -20,6 +20,7 @@ import {
   DEFAULT_TASK_LIST_COLUMNS,
   parseTaskListColumns,
 } from "./task-list-columns";
+import type { ProjectTaskFilterState } from "./project-list-view";
 
 export const SAVED_TASK_VIEW_PREFIX = "saved-task-view:";
 
@@ -30,6 +31,17 @@ const TASK_DEPENDENCY_FILTERS: ProjectTaskDependencyFilter[] = ["all", "linked",
 const TASK_SORT_MODES: ProjectCoreTaskSortMode[] = [...PROJECT_TASK_SORT_MODES];
 const TASK_SORT_DIRECTIONS: ProjectTaskSortDirection[] = ["asc", "desc"];
 const TASK_GROUP_MODES: ProjectTaskGroupMode[] = [...PROJECT_TASK_GROUP_MODES];
+
+export interface ProjectSavedTaskViewSnapshotInput extends ProjectTaskFilterState {
+  id: string;
+  projectId: string;
+  name: string;
+  viewId: ProjectSavedTaskView["viewId"];
+  collapsedSectionIds: readonly string[];
+  showArchivedTasks: boolean;
+  visibleColumns: readonly ProjectTaskListColumn[];
+  updatedAt?: string;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -205,6 +217,63 @@ function parseCustomFieldFilter(
     return { fieldId, mode: "option", optionId };
   }
   return undefined;
+}
+
+export function projectCustomFieldFilterStillExists(
+  filter: ProjectCustomFieldFilter,
+  fieldIds: ReadonlySet<string>,
+  optionIds: ReadonlySet<string>,
+): boolean {
+  if (!fieldIds.has(filter.fieldId)) return false;
+  return filter.mode !== "option" || optionIds.has(filter.optionId);
+}
+
+export function projectTaskFilterStateFromSavedTaskView(view: ProjectSavedTaskView): ProjectTaskFilterState {
+  return {
+    search: view.search,
+    statusFilter: view.statusFilter,
+    sectionFilter: view.sectionFilter,
+    priorityFilter: view.priorityFilter,
+    dueFilter: view.dueFilter,
+    dueRangeStart: view.dueRangeStart,
+    dueRangeEnd: view.dueRangeEnd,
+    scheduleFilter: view.scheduleFilter,
+    dependencyFilter: view.dependencyFilter,
+    tagFilter: view.tagFilter,
+    customFieldFilters: view.customFieldFilters,
+    groupBy: view.groupBy,
+    sortMode: view.sortMode,
+    sortDirection: view.sortDirection,
+  };
+}
+
+export function createProjectSavedTaskViewSnapshot(
+  input: ProjectSavedTaskViewSnapshotInput,
+): ProjectSavedTaskView {
+  return {
+    id: input.id,
+    projectId: input.projectId,
+    name: input.name,
+    viewId: input.viewId,
+    search: input.search,
+    statusFilter: input.statusFilter,
+    sectionFilter: input.sectionFilter,
+    priorityFilter: input.priorityFilter,
+    dueFilter: input.dueFilter,
+    dueRangeStart: input.dueRangeStart,
+    dueRangeEnd: input.dueRangeEnd,
+    scheduleFilter: input.scheduleFilter,
+    dependencyFilter: input.dependencyFilter,
+    tagFilter: input.tagFilter,
+    customFieldFilters: [...input.customFieldFilters],
+    sortMode: input.sortMode,
+    sortDirection: input.sortDirection,
+    groupBy: input.groupBy,
+    collapsedSectionIds: [...input.collapsedSectionIds],
+    showArchivedTasks: input.showArchivedTasks,
+    visibleColumns: [...input.visibleColumns],
+    updatedAt: input.updatedAt ?? new Date().toISOString(),
+  };
 }
 
 export function savedTaskViewPreferenceValue(view: ProjectSavedTaskView): string {
