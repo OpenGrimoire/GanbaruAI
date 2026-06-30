@@ -14,6 +14,9 @@
     isEnd = false,
     startMinutes = 0,
     focusOnOpen = false,
+    activeTime = undefined,
+    scrollTime = undefined,
+    emphasizedTime = undefined,
     inputNavigation = null,
     onselect,
     oncancel,
@@ -23,6 +26,9 @@
     isEnd?: boolean;
     startMinutes?: number;
     focusOnOpen?: boolean;
+    activeTime?: string | undefined;
+    scrollTime?: string | undefined;
+    emphasizedTime?: string | null | undefined;
     inputNavigation?: TimePickerInputNavigation | null;
     onselect: (time: string, source?: "keyboard" | "pointer") => void;
     oncancel?: (source?: "keyboard" | "pointer") => void;
@@ -39,7 +45,7 @@
 
   let scrollEl: HTMLDivElement | undefined = $state();
   let activeIndex = $state(0);
-  let previousCurrentTime = $state("");
+  let previousActiveTime = $state("");
   let centeredScrollEl: HTMLDivElement | undefined;
   let centeredTime = "";
   let lastInputNavigationSequence = 0;
@@ -51,14 +57,17 @@
     return Math.min(Math.max(Math.round(minutes / 30), 0), TIME_SLOTS.length - 1);
   }
 
-  const nearestSlot = $derived.by(() => {
-    return TIME_SLOTS[slotIndexFor(currentTime)];
+  const activeTimeValue = $derived(activeTime ?? currentTime);
+  const scrollTimeValue = $derived(scrollTime ?? activeTimeValue);
+  const emphasizedSlot = $derived.by(() => {
+    if (emphasizedTime === null) return null;
+    return TIME_SLOTS[slotIndexFor(emphasizedTime ?? currentTime)];
   });
 
   $effect(() => {
-    if (currentTime !== previousCurrentTime) {
-      previousCurrentTime = currentTime;
-      activeIndex = slotIndexFor(currentTime);
+    if (activeTimeValue !== previousActiveTime) {
+      previousActiveTime = activeTimeValue;
+      activeIndex = slotIndexFor(activeTimeValue);
     }
   });
 
@@ -108,7 +117,7 @@
   $effect(() => {
     if (!scrollEl) return;
     const el = scrollEl;
-    const time = currentTime;
+    const time = scrollTimeValue;
     if (centeredScrollEl === el && centeredTime === time) return;
     centeredScrollEl = el;
     centeredTime = time;
@@ -174,7 +183,7 @@
 <div bind:this={scrollEl} onwheel={onWheel} class="time-picker-scroll max-h-50 overflow-y-auto">
   {#each TIME_SLOTS as slot, index}
     {@const selected = currentTime === slot}
-    {@const isNow = slot === nearestSlot}
+    {@const emphasized = slot === emphasizedSlot}
     {@const active = activeIndex === index}
     {@const durLabel = getDurationLabel(slot)}
     <button onclick={() => onselect(slot, "pointer")}
@@ -185,7 +194,7 @@
       onkeydown={(e) => handleSlotKeydown(e, index, slot)}
       class="flex w-full items-center px-2.5 py-1 text-left text-[0.866667rem] outline-none hover:bg-black/5 focus-visible:bg-black/5 dark:hover:bg-black/15 dark:focus-visible:bg-black/15
         {selected ? 'bg-accent' : active ? 'bg-black/5 dark:bg-black/15' : ''}"
-      style="font-weight: {active || isNow ? 600 : selected ? 500 : 400}; color: {active || isNow || selected ? 'var(--foreground)' : 'var(--muted-foreground)'};">
+      style="font-weight: {active || emphasized ? 600 : selected ? 500 : 400}; color: {active || emphasized || selected ? 'var(--foreground)' : 'var(--muted-foreground)'};">
       <span>{formatTimeLabel(slot, preferences.calendarTimeFormat)}</span>
       {#if durLabel}
         <span class="ml-2 text-[0.733333rem]" style="color: var(--muted-foreground); font-weight: 400;">({durLabel})</span>

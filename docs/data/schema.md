@@ -105,6 +105,7 @@ The active calendar. One row per event (or per recurring template, with instance
 | `recurrence_rule` | text or null | RFC 5545 RRULE string. Null for non-recurring events. |
 | `recurrence_exceptions` | child rows | Stored in `calendar_event_exdates`, one occurrence date per row. Timed `.ics` EXDATE values import as the occurrence's local date in the event home zone, then export again at the event's original start time with UTC or `TZID` to match the master event. |
 | `calendar_id` | UUID | FK to `calendars`. Deleting a calendar archives or hard deletes its events first, then removes the calendar row. |
+| `project_id` | UUID or null | FK to `projects`. Null when the event is not linked to a project. Selecting a project in the event panel can copy project defaults into this row. |
 | `pomodoro_config` | child row or null | Per-event pomodoro settings in `pomodoro_configs`. Null means pomodoro is disabled for this event. All-day events cannot have this child row. |
 | `notification_config` | child rows | Notification offsets in `calendar_event_notifications`, one row per offset. |
 | `attendees` | child rows | Participants in `calendar_event_attendees`. |
@@ -115,11 +116,12 @@ The active calendar. One row per event (or per recurring template, with instance
 | `organizer` | child row or null | Organizer name and email in `calendar_event_organizers`. |
 | `local_rsvp_status` | text or null | App-local RSVP state for the "You (Local, no email provided)" meeting row. It drives local event surface patterns before an email identity exists and is not exported as iCalendar `ATTENDEE` data. |
 | `timezone` | text | IANA home zone (`America/Los_Angeles`). Required and non-empty. Used as the anchor for recurrence math (so "9 AM daily" stays 9 AM through DST, walked via `Temporal.PlainDate` arithmetic), and as the `TZID` on `.ics` re-export. The render zone (what the UI shows) is independent: it tracks the device's current zone by default, with an opt-in preference (`preferences.eventTimezoneDisplay`) to pin display to this home zone instead. |
-| `environment_id` | UUID or null | FK to `work_environments` (planned). Null when no environment is attached. |
+| `environment_id` | UUID or null | FK to `work_environments` (planned). Null when no environment is attached. Project selection can copy the project's work environment default into this field for new events. |
+| `playlist_id` | UUID or null | FK to a future music playlist table. Null when no focus playlist is attached. Project selection can copy the project's focus playlist default into this field for new events. |
 | `created_at` | ISO datetime | Row creation time as UTC ISO with `Z`. |
 | `updated_at` | ISO datetime | Last modification as UTC ISO with `Z`. Bumped on any column change. |
 
-Indexes: `(start_time)`, `(end_time)`, `(calendar_id)`, and `(calendar_id, source_uid)` for window queries, archival sweeps, and import identity.
+Indexes: `(start_time)`, `(end_time)`, `(calendar_id)`, `(project_id, start_time)`, and `(calendar_id, source_uid)` for window queries, project event lists, archival sweeps, and import identity.
 
 Why `recurrence_rule` is plain text (the RRULE string) instead of decomposed columns: the RRULE format is the lingua franca for calendar interop. Storing it intact means import/export from iCalendar, Google Calendar, or other RFC 5545 sources is trivial. Decomposed columns would force a translation layer at every boundary.
 
@@ -533,14 +535,34 @@ Indexes: `(run_id, occurred_at)` for session analysis and `(source_type, source_
 
 The adaptive algorithm treats missing block events differently from zero block pressure. If the browser extension or desktop tracker was unavailable, the context snapshot must carry a data quality flag so confidence is reduced instead of assuming the user had no relapse pressure.
 
+## Project tables
+
+Project management stores structured work data in SQLite. The user-facing hierarchy is group, project, section, task.
+
+- `project_groups`: top-level containers such as a company name or Routine. The `icon` column stores a legacy Lucide slug or a prefixed icon source value.
+- `projects`: scheduleable units under a group. Calendar events can reference a project through `calendar_events.project_id`. Projects store an optional default event duration, event color, explicit Default Pomodoro mode, optional preset key, optional custom count rhythm fields, idle-pause minutes, focus playlist id, break playlist id, work environment id, blocker ruleset id, and an `icon` value. A missing default event duration uses the app default when creating scheduled blocks. Default Pomodoro mode is `none`, `preset`, or `custom`; `none` creates project events without Pomodoro, `preset` copies the selected preset, and `custom` copies the stored focus, short break, long break, and cycle count values. Focus playlist and work environment defaults can be copied into new calendar events now. Break playlist and blocker ruleset defaults are stored for the future runtime surfaces that will consume them.
+- `project_sections`: project-local task organization with editable names and sort order.
+- `project_statuses`: project-local status columns or list statuses with editable names, categories, and sort order. Done-category statuses are terminal, and terminal statuses use the Done category.
+- `project_tasks`: actionable work items with priority, task type, section order, status order, optional parent task, dates, optional start and due hours, estimate, completion, archive state, and blocker reason.
+- `project_checklist_items`: checklist rows under a task.
+- `project_task_dependencies`: task-to-task blocking relationships. Dependency writes require both tasks to belong to the same project and reject cycles.
+- `project_task_event_links`: explicit task-to-calendar-event links. Scheduled links must connect a task and event that belong to the same project.
+- `project_task_change_events`: append-only task activity and requirement change events.
+- `project_view_preferences`: per-project view settings for Dashboard, List, Kanban, Calendar, and Gantt.
+- `project_custom_emojis`: vault-level reusable custom emoji for project and group icons. Rows store a display name, sort order, and an asset path under `assets/project-icons/`; names are required but not globally unique. Image assets support PNG, JPEG, and WebP files.
+- `project_custom_fields`: project-local typed field definitions. Supported field types are text, number, select, multi-select, status, date, person, files, checkbox, URL, phone, and email.
+- `project_custom_field_options`: ordered option rows for select, multi-select, and status fields.
+- `project_custom_field_values`: typed scalar task values for text-backed fields, number, date, and checkbox fields. Text-backed fields include text, person, files, URL, phone, and email. Values are queryable columns, not JSON blobs.
+- `project_custom_field_option_values`: many-to-many task option values for select, multi-select, and status fields.
+
+Fresh databases seed the Routine group and its default routine projects. Routine is stored as a normal group.
+
 ## Other features (stub)
 
 These tables are designed but their detailed shape is filled in when the feature ships. Each feature doc owns the deeper definition.
 
-- **Project task tables:** deferred until the future task design is settled.
 - **`work_environments`:** planned normalized environment header. Apps, browser tabs, and blocker rules are child rows, not embedded blobs.
 - **`notes_index`:** path, title, modified_at, tags, backlinks. Source of truth is the markdown file under `Ganbaru AI/notes/`.
 - **`diary_index`:** date, type (morning/evening), mood, energy, sleep_hours, path. Source of truth is the markdown file under `Ganbaru AI/diary/`.
-- **`projects`:** id, name, status, lifecycle_phase, created_at.
 
 When designing one of these, follow the pomodoro pattern: snapshot any value that the user could change later but that an audit query needs to know about at the moment of the action.

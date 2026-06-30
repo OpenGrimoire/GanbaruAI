@@ -42,6 +42,7 @@
   import CompletionOverlay from "$lib/components/pomodoro/CompletionOverlay.svelte";
   import MusicPlaybackHost from "$lib/components/music/MusicPlaybackHost.svelte";
   import MusicView from "$lib/components/music/MusicView.svelte";
+  import ProjectsView from "$lib/components/projects/ProjectsView.svelte";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
   import TooltipHost from "$lib/components/ui/TooltipHost.svelte";
   import UpdateNotificationToast from "$lib/components/updates/UpdateNotificationToast.svelte";
@@ -810,7 +811,7 @@
       {#if nav.current === "calendar"}
         <CalendarView />
       {:else if nav.current === "projects"}
-        <div class="h-full"></div>
+        <ProjectsView />
       {:else if nav.current === "notes"}
         <div class="h-full"></div>
       {:else if nav.current === "music"}

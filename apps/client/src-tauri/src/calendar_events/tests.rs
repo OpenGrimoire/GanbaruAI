@@ -21,6 +21,9 @@ fn event_create() -> CalendarEventCreate {
         end_time: "2026-05-09T11:00:00Z".to_string(),
         timezone: "America/Monterrey".to_string(),
         calendar_id: "local".to_string(),
+        project_id: None,
+        environment_id: None,
+        playlist_id: None,
         color: None,
         description: String::new(),
         rrule: None,
@@ -135,13 +138,15 @@ fn all_day_event_create_rejects_pomodoro_config() {
 fn calendar_event_create_row_matches_current_schema() {
     tauri::async_runtime::block_on(async {
         let pool = in_memory_pool().await;
-        let event = event_create();
+        let mut event = event_create();
+        event.environment_id = Some("environment-a".to_string());
+        event.playlist_id = Some("playlist-a".to_string());
         let mut tx = pool.begin().await.unwrap();
         insert_calendar_event_row(&mut tx, &event).await.unwrap();
         tx.commit().await.unwrap();
 
-        let saved: (String, i64, Option<String>) = sqlx::query_as(
-            "SELECT title, meeting_enabled, local_rsvp_status
+        let saved: (String, Option<String>, Option<String>, i64, Option<String>) = sqlx::query_as(
+            "SELECT title, environment_id, playlist_id, meeting_enabled, local_rsvp_status
              FROM calendar_events
              WHERE id = 'event-1'",
         )
@@ -150,8 +155,10 @@ fn calendar_event_create_row_matches_current_schema() {
         .unwrap();
 
         assert_eq!(saved.0, "Focus");
-        assert_eq!(saved.1, 0);
-        assert_eq!(saved.2, None);
+        assert_eq!(saved.1, Some("environment-a".to_string()));
+        assert_eq!(saved.2, Some("playlist-a".to_string()));
+        assert_eq!(saved.3, 0);
+        assert_eq!(saved.4, None);
     });
 }
 
@@ -845,6 +852,9 @@ fn all_day_split_does_not_copy_parent_pomodoro_config() {
                 end_time: "2999-05-10T00:00:00Z".to_string(),
                 timezone: "America/Monterrey".to_string(),
                 calendar_id: "local".to_string(),
+                project_id: None,
+                environment_id: None,
+                playlist_id: None,
                 color: None,
                 notifications: None,
                 exceptions: None,
@@ -1456,6 +1466,9 @@ fn recurrence_commit_batch_rolls_back_when_later_operation_fails() {
                         end_time: "2026-05-10T11:00:00Z".to_string(),
                         timezone: "America/Monterrey".to_string(),
                         calendar_id: "local".to_string(),
+                        project_id: None,
+                        environment_id: None,
+                        playlist_id: None,
                         color: None,
                         notifications: None,
                         all_day: false,

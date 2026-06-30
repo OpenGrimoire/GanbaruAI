@@ -12,26 +12,39 @@
   import PomodoroSection from "./PomodoroSection.svelte";
   import NotificationsSection from "./NotificationsSection.svelte";
   import RecurrenceSection from "./RecurrenceSection.svelte";
+  import ProjectSelector from "$lib/components/projects/ProjectSelector.svelte";
   import { onMount, tick, untrack } from "svelte";
   import { slide } from "svelte/transition";
   import { cubicOut } from "svelte/easing";
   import { getTheme } from "$lib/stores/theme.svelte";
+  import { getProjects } from "$lib/stores/projects.svelte";
   import { deleteActionForCalendarEvent } from "./occurrence-protection";
   import { getPreferences } from "$lib/stores/preferences.svelte";
   import { getViewport } from "$lib/stores/viewport.svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import {
+    projectDefaultIdleTimeoutMinutes,
+    projectDefaultPomodoroConfig,
+  } from "$lib/projects/project-default-pomodoro";
   import { cn } from "$lib/utils";
   import { formatShortcut, hasOnlyShortcutModifier, hasShortcutModifier } from "$lib/keyboard-shortcuts";
   import {
     commitTimeDraft,
     displayTimeDraft,
+    projectAllDayDefaultForSelection,
+    projectDefaultEventTitleForSelection,
     moveRovingIndex,
+    projectDurationDefaultForSelection,
     restoreTimeDraft,
     sanitizeTimeDraftInput,
   } from "./event-panel-utils";
   import { buildEventPanelInitKey } from "./event-panel-init-key";
   import { isPanelArrowKey, panelArrowKeyTarget } from "./event-panel-arrow-nav";
   import { formatCalendarDate, formatTimeLabel } from "./utils";
+  import {
+    selectDateRangeEnd,
+    selectDateRangeStart,
+  } from "$lib/calendar/date-range-selection";
   import {
     EVENT_PANEL_EDGE_MARGIN,
     EVENT_PANEL_MAX_WIDTH,
@@ -77,6 +90,7 @@
 
 
   const theme = getTheme();
+  const projects = getProjects();
   const preferences = getPreferences();
   const viewport = getViewport();
   const localization = getLocalization();
@@ -95,6 +109,7 @@
     start,
     end,
     event,
+    initialCreateData,
     anchor,
     initialAllDay = false,
     externalDirty = false,
@@ -124,6 +139,7 @@
     start?: string;
     end?: string;
     event?: CalendarEvent;
+    initialCreateData?: Partial<CalendarEvent>;
     anchor: { x: number; y: number; width: number; height: number };
     initialAllDay?: boolean;
     externalDirty?: boolean;
@@ -171,6 +187,9 @@
   let startDate = $state("");
   let endDate = $state("");
   let color: EventColor | undefined = $state(undefined);
+  let projectId: string | undefined = $state(undefined);
+  let environmentId: string | undefined = $state(undefined);
+  let playlistId: string | undefined = $state(undefined);
   let description = $state("");
   let scope: RecurringScope = $state("this");
 
@@ -209,6 +228,7 @@
   let customRhythmMode: "simple" | "sequence" = $state("simple");
   let sequenceSteps: SequencePomodoroRhythmStep[] = $state([]);
   let idleTimeoutEnabled = $state(true);
+  let idleTimeoutMinutesDraft = $state(preferences.focusIdleThresholdMinutes);
   const timedSectionsVisible = $derived(!allDay);
   const pomodoroControlsDisabled = $derived(
     parked || !timedSectionsVisible || (readOnly && !allowPomodoroWhenReadOnly),
@@ -219,10 +239,18 @@
 
   function applyDefaultIdleTimeoutPreference(): void {
     idleTimeoutEnabled = preferences.focusIdlePauseOnEventCreate;
+    idleTimeoutMinutesDraft = preferences.focusIdleThresholdMinutes;
   }
 
   function idleTimeoutMinutesForPayload(): number | null {
-    return idleTimeoutEnabled ? preferences.focusIdleThresholdMinutes : null;
+    return idleTimeoutEnabled ? idleTimeoutMinutesDraft : null;
+  }
+
+  function globalFocusIdleDefaults() {
+    return {
+      idlePauseEnabled: preferences.focusIdlePauseOnEventCreate,
+      idleThresholdMinutes: preferences.focusIdleThresholdMinutes,
+    };
   }
 
   // ─── Notifications ──────────────────────────────────────────────
@@ -271,26 +299,29 @@
 
   function selectDpDay(dateStr: string, source?: "keyboard" | "pointer") {
     if (startControlsDisabled) return;
-    if (startDate && endDate) {
-      const [oy, om, od] = startDate.split("-").map(Number);
-      const [ey, em, ed] = endDate.split("-").map(Number);
-      const oldStart = new Date(oy, om - 1, od);
-      const oldEnd = new Date(ey, em - 1, ed);
-      const daySpan = Math.round((oldEnd.getTime() - oldStart.getTime()) / 86400000);
-      const [ny, nm, nd] = dateStr.split("-").map(Number);
-      const newEnd = new Date(ny, nm - 1, nd + daySpan);
-      endDate = `${newEnd.getFullYear()}-${String(newEnd.getMonth() + 1).padStart(2, "0")}-${String(newEnd.getDate()).padStart(2, "0")}`;
-    } else {
-      endDate = dateStr;
-    }
-    startDate = dateStr;
+    const nextRange = selectDateRangeStart({
+      selectedDate: dateStr,
+      startDate,
+      endDate,
+      fillMissingEndDate: true,
+    });
+    startDate = nextRange.startDate ?? dateStr;
+    endDate = nextRange.endDate ?? dateStr;
     datepickerOpen = false;
     emitChange();
     if (source === "keyboard") void focusDateButton("start");
   }
 
   function selectEdpDay(dateStr: string, source?: "keyboard" | "pointer") {
-    endDate = dateStr;
+    if (controlsDisabled) return;
+    const nextRange = selectDateRangeEnd({
+      selectedDate: dateStr,
+      startDate,
+      endDate,
+      fillMissingStartDate: true,
+    });
+    startDate = nextRange.startDate ?? dateStr;
+    endDate = nextRange.endDate ?? dateStr;
     endDatepickerOpen = false;
     emitChange();
     if (source === "keyboard") void focusDateButton("end");
@@ -629,6 +660,136 @@
     }
   }
 
+  function addMinutesToLocalDateTime(date: string, time: string, minutes: number): { date: string; time: string } | null {
+    if (!date || !time || minutes <= 0) return null;
+    const [year, month, day] = date.split("-").map(Number);
+    const [hour, minute] = time.split(":").map(Number);
+    if (
+      !Number.isInteger(year)
+      || !Number.isInteger(month)
+      || !Number.isInteger(day)
+      || !Number.isInteger(hour)
+      || !Number.isInteger(minute)
+    ) {
+      return null;
+    }
+    const next = new Date(year, month - 1, day, hour, minute + minutes);
+    return {
+      date: `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-${String(next.getDate()).padStart(2, "0")}`,
+      time: `${String(next.getHours()).padStart(2, "0")}:${String(next.getMinutes()).padStart(2, "0")}`,
+    };
+  }
+
+  function applyPomodoroConfigDraft(
+    config: CalendarEvent["pomodoroConfig"],
+    fallbackEnabled: boolean,
+  ): void {
+    pomodoroEnabled = !!config || fallbackEnabled;
+    if (!config) {
+      focusDuration = 40;
+      shortBreak = 5;
+      longBreak = 10;
+      longBreakAfterFocusCount = 4;
+      customRhythmMode = "simple";
+      sequenceSteps = [{ focusDurationMinutes: 40, breakPhase: "short_break", breakDurationMinutes: 5 }];
+      pomodoroPreset = "adaptive";
+      applyDefaultIdleTimeoutPreference();
+      return;
+    }
+
+    pomodoroPreset = config.rhythmSource === "preset" && config.presetKey
+      ? config.presetKey
+      : "custom";
+    if (config.rhythm.kind === "count") {
+      focusDuration = config.rhythm.focusDurationMinutes;
+      shortBreak = config.rhythm.shortBreakMinutes;
+      longBreak = config.rhythm.longBreakMinutes;
+      longBreakAfterFocusCount = config.rhythm.longBreakAfterFocusCount;
+      customRhythmMode = "simple";
+      sequenceSteps = [{
+        focusDurationMinutes: config.rhythm.focusDurationMinutes,
+        breakPhase: "short_break",
+        breakDurationMinutes: config.rhythm.shortBreakMinutes,
+      }];
+    } else {
+      const firstStep = config.rhythm.steps[0] ?? {
+        focusDurationMinutes: COUNT_PRESET_RHYTHMS.adaptive.focusDurationMinutes,
+        breakPhase: "short_break" as const,
+        breakDurationMinutes: COUNT_PRESET_RHYTHMS.adaptive.shortBreakMinutes,
+      };
+      focusDuration = firstStep.focusDurationMinutes;
+      shortBreak = firstStep.breakPhase === "short_break"
+        ? firstStep.breakDurationMinutes
+        : COUNT_PRESET_RHYTHMS.adaptive.shortBreakMinutes;
+      longBreak = firstStep.breakPhase === "long_break"
+        ? firstStep.breakDurationMinutes
+        : COUNT_PRESET_RHYTHMS.adaptive.longBreakMinutes;
+      longBreakAfterFocusCount = config.rhythm.steps.length;
+      customRhythmMode = "sequence";
+      sequenceSteps = config.rhythm.steps.map((step: SequencePomodoroRhythmStep) => ({ ...step }));
+    }
+    idleTimeoutEnabled = config.idleTimeoutMinutes !== null;
+    if (config.idleTimeoutMinutes !== null) {
+      idleTimeoutMinutesDraft = config.idleTimeoutMinutes;
+    } else {
+      idleTimeoutMinutesDraft = preferences.focusIdleThresholdMinutes;
+    }
+  }
+
+  function handleProjectSelect(nextProjectId: string | undefined): void {
+    projectId = nextProjectId;
+    const selectedProject = projects.projectById(nextProjectId);
+    environmentId = selectedProject?.workEnvironmentId;
+    playlistId = selectedProject?.focusPlaylistId;
+    if (selectedProject) {
+      title = projectDefaultEventTitleForSelection({
+        currentTitle: title,
+        defaultEventName: selectedProject.defaultEventName,
+      });
+      color = selectedProject.color;
+      if (projectAllDayDefaultForSelection({
+        mode,
+        allDay,
+        activeEdit: mode === "edit" && lockStartControls,
+        defaultEventTimeMode: selectedProject.defaultEventTimeMode,
+        defaultEventDurationMinutes: selectedProject.defaultEventDurationMinutes,
+      })) {
+        allDay = true;
+        stashedStartTime = startTime;
+        stashedEndTime = endTime;
+        endDate = startDate;
+        startTime = "00:00";
+        endTime = "00:00";
+        syncTimeDrafts();
+      }
+      if (!allDay) {
+        const durationMinutes = projectDurationDefaultForSelection({
+          mode,
+          allDay,
+          activeEdit: mode === "edit" && lockStartControls,
+          defaultEventTimeMode: selectedProject.defaultEventTimeMode,
+          defaultEventDurationMinutes: selectedProject.defaultEventDurationMinutes,
+        });
+        if (durationMinutes !== null) {
+          const nextEnd = addMinutesToLocalDateTime(startDate, startTime, durationMinutes);
+          if (nextEnd) {
+            endDate = nextEnd.date;
+            endTime = nextEnd.time;
+            syncTimeDrafts();
+          }
+        }
+        applyPomodoroConfigDraft(
+          projectDefaultPomodoroConfig(
+            selectedProject,
+            projectDefaultIdleTimeoutMinutes(selectedProject, globalFocusIdleDefaults()),
+          ),
+          false,
+        );
+      }
+    }
+    emitChange();
+  }
+
   // ─── Tab system ─────────────────────────────────────────────────
   type Section = "meeting" | "pomodoro" | "notifications" | "repeat" | "music";
   let openSection: Section | null = $state(null);
@@ -839,6 +1000,9 @@
       endTime = event.end.split(" ")[1] ?? "";
       syncTimeDrafts();
       color = event.color;
+      projectId = event.projectId;
+      environmentId = event.environmentId;
+      playlistId = event.playlistId;
       recurrence = event.recurrence ? { ...event.recurrence } : undefined;
       allDay = event.allDay ?? false;
       stashedStartTime = "";
@@ -859,49 +1023,7 @@
       geo = event.geo;
       meetingEnabled = hasMeetingState(event);
 
-      const pc = event.pomodoroConfig;
-      pomodoroEnabled = !!pc;
-      if (pc) {
-        pomodoroPreset = pc.rhythmSource === "preset" && pc.presetKey
-          ? pc.presetKey
-          : "custom";
-        if (pc.rhythm.kind === "count") {
-          focusDuration = pc.rhythm.focusDurationMinutes;
-          shortBreak = pc.rhythm.shortBreakMinutes;
-          longBreak = pc.rhythm.longBreakMinutes;
-          longBreakAfterFocusCount = pc.rhythm.longBreakAfterFocusCount;
-          customRhythmMode = "simple";
-          sequenceSteps = [{
-            focusDurationMinutes: pc.rhythm.focusDurationMinutes,
-            breakPhase: "short_break",
-            breakDurationMinutes: pc.rhythm.shortBreakMinutes,
-          }];
-        } else {
-          const firstStep = pc.rhythm.steps[0] ?? {
-            focusDurationMinutes: COUNT_PRESET_RHYTHMS.adaptive.focusDurationMinutes,
-            breakPhase: "short_break" as const,
-            breakDurationMinutes: COUNT_PRESET_RHYTHMS.adaptive.shortBreakMinutes,
-          };
-          focusDuration = firstStep.focusDurationMinutes;
-          shortBreak = firstStep.breakPhase === "short_break"
-            ? firstStep.breakDurationMinutes
-            : COUNT_PRESET_RHYTHMS.adaptive.shortBreakMinutes;
-          longBreak = firstStep.breakPhase === "long_break"
-            ? firstStep.breakDurationMinutes
-            : COUNT_PRESET_RHYTHMS.adaptive.longBreakMinutes;
-          longBreakAfterFocusCount = pc.rhythm.steps.length;
-          customRhythmMode = "sequence";
-          sequenceSteps = pc.rhythm.steps.map((step: SequencePomodoroRhythmStep) => ({ ...step }));
-        }
-        idleTimeoutEnabled = pc.idleTimeoutMinutes !== null;
-      } else {
-        focusDuration = 40; shortBreak = 5; longBreak = 10;
-        longBreakAfterFocusCount = 4;
-        customRhythmMode = "simple";
-        sequenceSteps = [{ focusDurationMinutes: 40, breakPhase: "short_break", breakDurationMinutes: 5 }];
-        pomodoroPreset = "adaptive";
-        applyDefaultIdleTimeoutPreference();
-      }
+      applyPomodoroConfigDraft(event.pomodoroConfig, false);
 
       const notifs = event.notifications;
       notifEnabled = !!notifs && notifs.length > 0;
@@ -927,36 +1049,36 @@
       }
 
     } else if (mode === "create") {
-      title = "";
-      startDate = (start ?? "").split(" ")[0] ?? "";
-      startTime = (start ?? "").split(" ")[1] ?? "";
-      endDate = (end ?? "").split(" ")[0] ?? "";
-      endTime = (end ?? "").split(" ")[1] ?? "";
+      const createData = initialCreateData ?? {};
+      const initialStart = createData.start ?? start ?? "";
+      const initialEnd = createData.end ?? end ?? "";
+      title = createData.title ?? "";
+      startDate = initialStart.split(" ")[0] ?? "";
+      startTime = initialStart.split(" ")[1] ?? "";
+      endDate = initialEnd.split(" ")[0] ?? "";
+      endTime = initialEnd.split(" ")[1] ?? "";
       syncTimeDrafts();
-      color = undefined;
-      description = "";
-      recurrence = undefined;
-      pomodoroEnabled = true;
-      pomodoroPreset = "adaptive";
-      focusDuration = 40; shortBreak = 5; longBreak = 10;
-      longBreakAfterFocusCount = 4;
-      customRhythmMode = "simple";
-      sequenceSteps = [{ focusDurationMinutes: 40, breakPhase: "short_break", breakDurationMinutes: 5 }];
-      applyDefaultIdleTimeoutPreference();
-      notifEnabled = true;
-      notifSelected = new Set([0]);
+      color = createData.color;
+      projectId = createData.projectId;
+      environmentId = createData.environmentId;
+      playlistId = createData.playlistId;
+      description = createData.description ?? "";
+      recurrence = createData.recurrence ? { ...createData.recurrence } : undefined;
+      applyPomodoroConfigDraft(createData.pomodoroConfig, true);
+      notifEnabled = createData.notifications !== undefined ? createData.notifications.length > 0 : true;
+      notifSelected = new Set(createData.notifications ?? [0]);
       customNotifs = [];
-      allDay = initialAllDay;
+      allDay = createData.allDay ?? initialAllDay;
       stashedStartTime = "";
       stashedEndTime = "";
-      location = "";
-      eventUrl = "";
-      transparency = "opaque";
-      eventStatus = "confirmed";
-      visibility = "private";
+      location = createData.location ?? "";
+      eventUrl = createData.url ?? "";
+      transparency = createData.transparency ?? "opaque";
+      eventStatus = createData.status ?? "confirmed";
+      visibility = createData.visibility ?? "private";
       organizer = undefined;
-      attendees = [];
-      localParticipationStatus = undefined;
+      attendees = createData.attendees ? [...createData.attendees] : [];
+      localParticipationStatus = createData.localParticipationStatus;
       guestCanModify = false;
       guestCanInviteOthers = true;
       guestCanSeeOtherGuests = true;
@@ -1017,6 +1139,9 @@
     lastHeavyAppliedKey = fullEvent.id;
 
     description = fullEvent.description ?? "";
+    projectId = fullEvent.projectId;
+    environmentId = fullEvent.environmentId;
+    playlistId = fullEvent.playlistId;
     eventUrl = fullEvent.url ?? "";
     visibility = fullEvent.visibility ?? "public";
     organizer = fullEvent.organizer;
@@ -1232,6 +1357,10 @@
       endDate,
       endTime,
       color,
+      projectId,
+      linkedTaskIds: [],
+      environmentId,
+      playlistId,
       description,
       recurrence,
       notifications: collectEventPanelNotifications({
@@ -1522,6 +1651,10 @@
   // (ConfirmDialog) is open, its capture-phase window listener swallows the
   // event before it reaches this handler.
   onMount(() => {
+    void projects.ensureLoaded().catch((error) => {
+      console.error("load projects failed", error);
+    });
+
     function handleKeydown(e: KeyboardEvent) {
       if (parked) return;
       if (
@@ -1649,6 +1782,11 @@
           onkeydown={inputKeydown}
         />
       </div>
+      <ProjectSelector
+        selectedProjectId={projectId}
+        disabled={controlsDisabled}
+        onSelect={handleProjectSelect}
+      />
       {#if !controlsDisabled}
         <ColorPicker {color} theme={theme.current} onselect={(c) => { color = c; emitChange(); }} />
       {/if}
@@ -1689,6 +1827,8 @@
           <div class="absolute left-0 top-full z-20 mt-1 w-60 rounded-lg bg-popover p-2 shadow-lg ring-1 ring-border/60">
             <MiniDatePicker
               selectedDate={startDate}
+              rangeStartDate={startDate}
+              rangeEndDate={endDate}
               highlightToday={false}
               activeHighlight="primary"
               onselect={selectDpDay}
@@ -1790,7 +1930,8 @@
           <div class="absolute right-0 top-full z-20 mt-1 w-60 rounded-lg bg-popover p-2 shadow-lg ring-1 ring-border/60">
             <MiniDatePicker
               selectedDate={endDate}
-              minDate={startDate}
+              rangeStartDate={startDate}
+              rangeEndDate={endDate}
               highlightToday={false}
               activeHighlight="primary"
               onselect={selectEdpDay}
@@ -1802,6 +1943,7 @@
       </div>
 
     </div>
+
   </div>
 
   <!-- Metadata strip -->

@@ -39,6 +39,7 @@ Ganbaru AI/
   projects/{project-id}/            # per-project file attachments (PDFs, references)
   reports/                          # generated project status reports (markdown, PDF)
   assets/                           # user assets (images embedded in notes, attachments)
+    project-icons/                  # copied project and group icon images
   templates/                        # phase templates, methodology templates (SWOT, BMC)
   .yjs/                             # Yjs document state cache (binary)
 ```

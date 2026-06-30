@@ -15,14 +15,14 @@ pub(super) async fn insert_calendar_event_row(
     sqlx::query(
         "INSERT INTO calendar_events
            (id, title, start_time, end_time, timezone, calendar_id,
-            color, description, rrule, repeat_until,
+            project_id, environment_id, playlist_id, color, description, rrule, repeat_until,
             all_day, location, url, transparency, status,
             source_uid, visibility, priority, geo_lat, geo_lng,
             sequence,
             meeting_enabled, local_rsvp_status,
             guest_can_modify, guest_can_invite_others, guest_can_see_other_guests,
             created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&event.id)
     .bind(&event.title)
@@ -30,6 +30,9 @@ pub(super) async fn insert_calendar_event_row(
     .bind(&event.end_time)
     .bind(&event.timezone)
     .bind(&event.calendar_id)
+    .bind(&event.project_id)
+    .bind(&event.environment_id)
+    .bind(&event.playlist_id)
     .bind(event.color)
     .bind(&description)
     .bind(&event.rrule)
@@ -260,6 +263,15 @@ pub(super) async fn apply_update_field(
         CalendarEventUpdateField::Timezone(value) => update_text(tx, id, "timezone", value).await,
         CalendarEventUpdateField::CalendarId(value) => {
             update_text(tx, id, "calendar_id", value).await
+        }
+        CalendarEventUpdateField::ProjectId(value) => {
+            update_optional_text(tx, id, "project_id", value.as_deref()).await
+        }
+        CalendarEventUpdateField::EnvironmentId(value) => {
+            update_optional_text(tx, id, "environment_id", value.as_deref()).await
+        }
+        CalendarEventUpdateField::PlaylistId(value) => {
+            update_optional_text(tx, id, "playlist_id", value.as_deref()).await
         }
         CalendarEventUpdateField::Color(value) => {
             update_optional_i64(tx, id, "color", *value).await

@@ -21,6 +21,9 @@ function makeDbRow(overrides: Partial<DbCalendarEvent> = {}): DbCalendarEvent {
     end_time: "2026-03-15 10:00:00",
     timezone: "America/New_York",
     calendar_id: "local",
+    project_id: null,
+    environment_id: null,
+    playlist_id: null,
     color: null,
     rrule: null,
     notifications: null,
@@ -74,6 +77,17 @@ describe("mapRow", () => {
     expect(result.timezone).toBe("America/New_York");
     expect(result.calendarId).toBe("local");
     expect(result.createdAt).toBe("2026-03-15T08:00:00Z");
+  });
+
+  it("maps project automation identifiers", () => {
+    const result = mapRow(makeDbRow({
+      project_id: "project-a",
+      environment_id: "environment-a",
+      playlist_id: "playlist-a",
+    }));
+    expect(result.projectId).toBe("project-a");
+    expect(result.environmentId).toBe("environment-a");
+    expect(result.playlistId).toBe("playlist-a");
   });
 
   it("preserves non-zero seconds from canonical UTC event times", () => {

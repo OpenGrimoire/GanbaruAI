@@ -269,6 +269,34 @@ describe("panel initial changes", () => {
     expect(result.pomodoroConfig).toEqual(createPresetPomodoroConfig("adaptive", null));
   });
 
+  it("merges project-scoped defaults into create baselines", () => {
+    const pomodoroConfig = createPresetPomodoroConfig("deep", 5);
+    const result = buildCreatePanelInitialChanges(
+      "2026-04-16 09:00",
+      "2026-04-16 09:30",
+      false,
+      undefined,
+      {
+        title: "Ganbaru AI",
+        end: "2026-04-16 10:00",
+        color: 14,
+        projectId: "project-a",
+        environmentId: "environment-a",
+        playlistId: "playlist-a",
+        pomodoroConfig,
+      },
+    );
+
+    expect(result.title).toBe("Ganbaru AI");
+    expect(result.start).toBe("2026-04-16 09:00");
+    expect(result.end).toBe("2026-04-16 10:00");
+    expect(result.color).toBe(14);
+    expect(result.projectId).toBe("project-a");
+    expect(result.environmentId).toBe("environment-a");
+    expect(result.playlistId).toBe("playlist-a");
+    expect(result.pomodoroConfig).toEqual(pomodoroConfig);
+  });
+
   it("normalizes enabled edit baselines to the focus idle threshold", () => {
     const result = buildEditPanelInitialChanges(
       makeEvent({

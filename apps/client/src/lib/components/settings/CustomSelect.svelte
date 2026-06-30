@@ -10,12 +10,14 @@
   import {
     pickSelectPopoverGeometry,
     type SelectPopoverGeometry,
+    type SelectPopoverHorizontalAlign,
     type SelectPopoverRect,
   } from "./customSelectPosition";
 
   interface Option {
     value: string;
     label: string;
+    summary?: string;
     /** Optional inline style applied to the option label (e.g. for font previews). */
     style?: string;
   }
@@ -30,6 +32,11 @@
     ariaLabel,
     canReset = false,
     onReset,
+    inline = false,
+    showSelectedSummary = true,
+    showActiveCheck = true,
+    alignOptionSummaryEnd = false,
+    popoverAlign = "start",
     class: className = "",
   }: {
     value: string;
@@ -41,6 +48,11 @@
     ariaLabel?: string;
     canReset?: boolean;
     onReset?: () => void;
+    inline?: boolean;
+    showSelectedSummary?: boolean;
+    showActiveCheck?: boolean;
+    alignOptionSummaryEnd?: boolean;
+    popoverAlign?: SelectPopoverHorizontalAlign;
     class?: string;
   } = $props();
 
@@ -50,6 +62,7 @@
   const DEFAULT_POPOVER_GEOMETRY: SelectPopoverGeometry = {
     top: 0,
     left: 0,
+    width: null,
     minWidth: 0,
     maxWidth: 0,
     maxHeight: 0,
@@ -119,8 +132,18 @@
       triggerRect: toRect(triggerEl.getBoundingClientRect()),
       boundaryRect: getBoundaryRect(),
       contentHeight: popoverEl?.scrollHeight ?? ESTIMATED_DROPDOWN_HEIGHT,
+      contentWidth: popoverEl?.scrollWidth,
+      horizontalAlign: popoverAlign,
     });
     popoverReady = true;
+  }
+
+  function popoverStyle(): string {
+    if (!popoverReady) {
+      return "top: 0px; left: 0px; min-width: max-content; max-width: max-content; max-height: none; visibility: hidden;";
+    }
+    const width = popoverGeometry.width === null ? "" : ` width: ${popoverGeometry.width}px;`;
+    return `top: ${popoverGeometry.top}px; left: ${popoverGeometry.left}px;${width} min-width: ${popoverGeometry.minWidth}px; max-width: ${popoverGeometry.maxWidth}px; max-height: ${popoverGeometry.maxHeight}px; visibility: visible;`;
   }
 
   async function toggle() {
@@ -176,81 +199,107 @@
 
 <svelte:window onkeydown={handleKeydown} />
 
-<div class="flex items-center justify-between gap-4 px-1 py-1 max-[480px]:flex-col max-[480px]:items-stretch max-[480px]:gap-2">
-  {#if label}
-    <div class="min-w-0 flex-1">
-      <div class="text-[0.866667rem] text-foreground">{label}</div>
-      {#if descriptionShortcuts.length > 0}
-        <ShortcutDescription shortcuts={descriptionShortcuts} />
-      {:else if description}
-        <div class="mt-0.5 text-[0.8rem] text-muted-foreground">{description}</div>
-      {/if}
-    </div>
-  {/if}
-  <div class="flex items-center justify-end gap-1.5 max-[480px]:justify-between">
-    <div class={cn("relative min-w-0 w-44 max-[480px]:flex-1", className)}>
-      <button
-        bind:this={triggerEl}
-        type="button"
-        onclick={toggle}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        aria-label={ariaLabel ?? label}
-        class="flex h-7 w-full max-w-full items-center justify-between gap-2 rounded-md border border-border bg-card px-2.5 text-[0.8rem] font-medium text-foreground transition-colors hover:bg-accent max-[480px]:w-full dark:bg-transparent"
-      >
+{#snippet selectControl()}
+  <div class={cn("relative min-w-0 w-44 max-[480px]:flex-1", className)}>
+    <button
+      bind:this={triggerEl}
+      type="button"
+      onclick={toggle}
+      aria-haspopup="listbox"
+      aria-expanded={open}
+      aria-label={ariaLabel ?? label}
+      class="flex h-7 w-full max-w-full items-center justify-between gap-2 rounded-md border border-border bg-card px-2.5 text-[0.8rem] font-medium text-foreground transition-colors hover:bg-accent max-[480px]:w-full dark:bg-transparent"
+    >
+      <span class="flex min-w-0 flex-1 items-center gap-1.5">
         <span class="truncate" style={current?.style}>{current?.label ?? value}</span>
-        <ChevronDown
-          size={13}
-          strokeWidth={2}
-          class={cn("shrink-0 transition-transform", open && "rotate-180")}
-        />
-      </button>
-      {#if open}
-        <div
-          bind:this={popoverEl}
-          use:portal
-          role="listbox"
-          class="fixed z-80 overflow-y-auto rounded-md border border-border bg-popover py-1 shadow-lg"
-          style="top: {popoverGeometry.top}px; left: {popoverGeometry.left}px; min-width: {popoverGeometry.minWidth}px; max-width: {popoverGeometry.maxWidth}px; max-height: {popoverGeometry.maxHeight}px; visibility: {popoverReady ? 'visible' : 'hidden'};"
-        >
-          {#each options as option}
-            {@const isActive = option.value === value}
-            <button
-              type="button"
-              role="option"
-              aria-selected={isActive}
-              onclick={() => select(option.value)}
+        {#if showSelectedSummary && current?.summary}
+          <span class="shrink-0 text-[0.733333rem] text-muted-foreground">{current.summary}</span>
+        {/if}
+      </span>
+      <ChevronDown
+        size={13}
+        strokeWidth={2}
+        class={cn("shrink-0 text-muted-foreground transition-transform", open && "rotate-180")}
+      />
+    </button>
+    {#if open}
+      <div
+        bind:this={popoverEl}
+        use:portal
+        role="listbox"
+        data-app-floating-surface
+        class="fixed z-80 overflow-x-hidden overflow-y-auto rounded-md border border-border bg-popover py-1 shadow-lg"
+        style={popoverStyle()}
+      >
+        {#each options as option}
+          {@const isActive = option.value === value}
+          <button
+            type="button"
+            role="option"
+            aria-selected={isActive}
+            onclick={() => select(option.value)}
+            class={cn(
+              "flex w-full items-center justify-between gap-3 px-2.5 py-1.5 text-left text-[0.8rem] transition-colors",
+              isActive
+                ? "bg-accent/60 text-foreground"
+                : "text-foreground hover:bg-accent/40",
+            )}
+          >
+            <span
               class={cn(
-                "flex w-full items-center justify-between gap-3 px-2.5 py-1.5 text-left text-[0.8rem] transition-colors",
-                isActive
-                  ? "bg-accent/60 text-foreground"
-                  : "text-foreground hover:bg-accent/40",
+                "min-w-0 flex-1",
+                alignOptionSummaryEnd
+                  ? "grid grid-cols-[minmax(max-content,1fr)_max-content] items-center gap-4"
+                  : "flex items-center gap-1.5",
               )}
             >
               <span class="truncate" style={option.style}>{option.label}</span>
-              {#if isActive}
-                <Check size={12} strokeWidth={2.5} class="shrink-0" />
+              {#if option.summary}
+                <span class="shrink-0 justify-self-end text-[0.733333rem] text-muted-foreground">{option.summary}</span>
               {/if}
-            </button>
-          {/each}
-        </div>
-      {/if}
-    </div>
-    {#if onReset}
-      <button
-        onclick={onReset}
-        disabled={!canReset}
-        aria-label={t("common.reset")}
-        data-app-tooltip-disabled="true"
-        class={cn(
-          "flex h-7 w-7 items-center justify-center rounded-md border border-border bg-secondary text-secondary-foreground transition-colors",
-          canReset
-            ? "hover:bg-accent hover:text-accent-foreground"
-            : "cursor-not-allowed opacity-40",
-        )}
-      >
-        <RotateCcw size={12} strokeWidth={2.25} />
-      </button>
+            </span>
+            {#if showActiveCheck && isActive}
+              <Check size={12} strokeWidth={2.5} class="shrink-0" />
+            {/if}
+          </button>
+        {/each}
+      </div>
     {/if}
   </div>
-</div>
+{/snippet}
+
+{#if inline}
+  {@render selectControl()}
+{:else}
+  <div class="flex items-center justify-between gap-4 px-1 py-1 max-[480px]:flex-col max-[480px]:items-stretch max-[480px]:gap-2">
+    {#if label}
+      <div class="min-w-0 flex-1">
+        <div class="text-[0.866667rem] text-foreground">{label}</div>
+        {#if descriptionShortcuts.length > 0}
+          <ShortcutDescription shortcuts={descriptionShortcuts} />
+        {:else if description}
+          <div class="mt-0.5 text-[0.8rem] text-muted-foreground">{description}</div>
+        {/if}
+      </div>
+    {/if}
+    <div class="flex items-center justify-end gap-1.5 max-[480px]:justify-between">
+      {@render selectControl()}
+      {#if onReset}
+        <button
+          onclick={onReset}
+          disabled={!canReset}
+          aria-label={t("common.reset")}
+          data-app-tooltip-disabled="true"
+          class={cn(
+            "flex h-7 w-7 items-center justify-center rounded-md border border-border bg-secondary text-secondary-foreground transition-colors",
+            canReset
+              ? "hover:bg-accent hover:text-accent-foreground"
+              : "cursor-not-allowed opacity-40",
+          )}
+        >
+          <RotateCcw size={12} strokeWidth={2.25} />
+        </button>
+      {/if}
+    </div>
+  </div>
+{/if}

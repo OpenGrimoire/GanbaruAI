@@ -12,7 +12,7 @@ Idle detection keeps the green honest. When the user is away, the timer pauses, 
 
 ## Idle threshold
 
-The idle threshold is stored as `idleTimeoutMinutes` on the pomodoro config. `null` disables idle detection for that event. New Pomodoro events start with idle detection enabled by default and use the Focus settings threshold, which defaults to 3 minutes and supports 1, 2, 3, 4, 5, 10, or 15 minutes.
+The idle threshold is stored as `idleTimeoutMinutes` on the pomodoro config. `null` disables idle detection for that event. New Pomodoro events start with idle detection enabled by default and use the Focus settings threshold, which defaults to 3 minutes and supports 1, 2, 3, 4, 5, 10, or 15 minutes. Events created from a project use the global Focus idle defaults unless the project has custom idle settings, in which case the project's Pause on inactivity default and threshold are copied into the event.
 
 A reasonable value is 1-5 minutes:
 

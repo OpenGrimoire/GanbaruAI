@@ -13,8 +13,8 @@ pub(super) fn validate_run_write(run: &PomodoroRunWrite) -> Result<(), String> {
     validate_rhythm_source(&run.rhythm_source, run.preset_key.as_deref())?;
     validate_run_rhythm(&run.rhythm)?;
     if let Some(idle_timeout) = run.idle_timeout_minutes {
-        if idle_timeout < 0 {
-            return Err("idle_timeout_minutes cannot be negative".to_string());
+        if idle_timeout <= 0 {
+            return Err("idle_timeout_minutes must be positive".to_string());
         }
     }
     if run.inherited_focus_minutes < 0 {

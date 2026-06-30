@@ -3,7 +3,10 @@ import {
   commitTimeDraft,
   displayTimeDraft,
   moveRovingIndex,
+  projectAllDayDefaultForSelection,
+  projectDefaultEventTitleForSelection,
   normalizeTimeDraft,
+  projectDurationDefaultForSelection,
   restoreTimeDraft,
   sanitizeTimeDraftInput,
 } from "./event-panel-utils";
@@ -133,5 +136,121 @@ describe("moveRovingIndex", () => {
     expect(moveRovingIndex({ currentIndex: 5, itemCount: 8, key: "ArrowUp", orientation: "grid", columns: 4 })).toBe(1);
     expect(moveRovingIndex({ currentIndex: 7, itemCount: 8, key: "ArrowDown", orientation: "grid", columns: 4 })).toBe(7);
     expect(moveRovingIndex({ currentIndex: 0, itemCount: 8, key: "End", orientation: "grid", columns: 4 })).toBe(7);
+  });
+});
+
+describe("projectDefaultEventTitleForSelection", () => {
+  it("uses the project default event name when the current title is blank", () => {
+    expect(projectDefaultEventTitleForSelection({
+      currentTitle: "",
+      defaultEventName: "Reading",
+    })).toBe("Reading");
+    expect(projectDefaultEventTitleForSelection({
+      currentTitle: "   ",
+      defaultEventName: "Exercise",
+    })).toBe("Exercise");
+  });
+
+  it("keeps the current title when it already has text", () => {
+    expect(projectDefaultEventTitleForSelection({
+      currentTitle: "Existing title",
+      defaultEventName: "Reading",
+    })).toBe("Existing title");
+  });
+
+  it("does not fall back to the project name when no default event name is stored", () => {
+    expect(projectDefaultEventTitleForSelection({
+      currentTitle: "",
+      defaultEventName: null,
+    })).toBe("");
+    expect(projectDefaultEventTitleForSelection({
+      currentTitle: "   ",
+      defaultEventName: null,
+    })).toBe("");
+  });
+});
+
+describe("projectDurationDefaultForSelection", () => {
+  it("applies project duration defaults to create and inactive edit selections", () => {
+    expect(projectDurationDefaultForSelection({
+      mode: "create",
+      allDay: false,
+      activeEdit: false,
+      defaultEventTimeMode: "timed",
+      defaultEventDurationMinutes: 90,
+    })).toBe(90);
+    expect(projectDurationDefaultForSelection({
+      mode: "edit",
+      allDay: false,
+      activeEdit: false,
+      defaultEventTimeMode: "timed",
+      defaultEventDurationMinutes: 45,
+    })).toBe(45);
+  });
+
+  it("skips duration defaults for all-day and active edit selections", () => {
+    expect(projectDurationDefaultForSelection({
+      mode: "create",
+      allDay: true,
+      activeEdit: false,
+      defaultEventTimeMode: "timed",
+      defaultEventDurationMinutes: 90,
+    })).toBeNull();
+    expect(projectDurationDefaultForSelection({
+      mode: "edit",
+      allDay: false,
+      activeEdit: true,
+      defaultEventTimeMode: "timed",
+      defaultEventDurationMinutes: 90,
+    })).toBeNull();
+  });
+
+  it("skips duration defaults for all-day project defaults", () => {
+    expect(projectDurationDefaultForSelection({
+      mode: "create",
+      allDay: false,
+      activeEdit: false,
+      defaultEventTimeMode: "all_day",
+      defaultEventDurationMinutes: null,
+    })).toBeNull();
+  });
+
+  it("keeps the current duration when the project has no duration default", () => {
+    expect(projectDurationDefaultForSelection({
+      mode: "edit",
+      allDay: false,
+      activeEdit: false,
+      defaultEventTimeMode: "timed",
+      defaultEventDurationMinutes: null,
+    })).toBeNull();
+  });
+});
+
+describe("projectAllDayDefaultForSelection", () => {
+  it("applies all-day project defaults to timed create selections", () => {
+    expect(projectAllDayDefaultForSelection({
+      mode: "create",
+      allDay: false,
+      activeEdit: false,
+      defaultEventTimeMode: "all_day",
+      defaultEventDurationMinutes: null,
+    })).toBe(true);
+  });
+
+  it("does not apply all-day defaults to all-day or active edit selections", () => {
+    expect(projectAllDayDefaultForSelection({
+      mode: "create",
+      allDay: true,
+      activeEdit: false,
+      defaultEventTimeMode: "all_day",
+      defaultEventDurationMinutes: null,
+    })).toBe(false);
+    expect(projectAllDayDefaultForSelection({
+      mode: "edit",
+      allDay: false,
+      activeEdit: true,
+      defaultEventTimeMode: "all_day",
+      defaultEventDurationMinutes: null,
+    })).toBe(false);
   });
 });

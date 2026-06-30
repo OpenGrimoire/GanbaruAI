@@ -159,5 +159,9 @@ describe("pomodoro rhythm engine", () => {
     expect(isValidPomodoroConfig(createCustomSequencePomodoroConfig([
       { focusDurationMinutes: 25, breakPhase: "short_break", breakDurationMinutes: 31 },
     ]))).toBe(false);
+    expect(isValidPomodoroConfig({
+      ...createPresetPomodoroConfig("adaptive"),
+      idleTimeoutMinutes: 0,
+    })).toBe(false);
   });
 });

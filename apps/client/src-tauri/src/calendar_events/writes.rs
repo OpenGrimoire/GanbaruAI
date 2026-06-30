@@ -458,7 +458,7 @@ pub(super) async fn detach_calendar_instance_tx(
     sqlx::query(
         "INSERT INTO calendar_events (
            id, title, start_time, end_time, timezone, calendar_id,
-           color, rrule, repeat_until,
+           project_id, environment_id, playlist_id, color, rrule, repeat_until,
            all_day, location, transparency, status,
            source_uid,
            description, url, visibility, priority, geo_lat, geo_lng,
@@ -468,7 +468,7 @@ pub(super) async fn detach_calendar_instance_tx(
            created_at, updated_at
          )
          SELECT ?, ?, ?, ?, ?, ?,
-                ?, NULL, NULL,
+                ?, ?, ?, ?, NULL, NULL,
                 ?, ?, ?, ?,
                 NULL,
                 description, url, visibility, priority, geo_lat, geo_lng,
@@ -484,6 +484,9 @@ pub(super) async fn detach_calendar_instance_tx(
     .bind(&input.end_time)
     .bind(&input.timezone)
     .bind(&input.calendar_id)
+    .bind(&input.project_id)
+    .bind(&input.environment_id)
+    .bind(&input.playlist_id)
     .bind(input.color)
     .bind(if input.all_day { 1_i64 } else { 0_i64 })
     .bind(&input.location)
@@ -562,7 +565,7 @@ pub(super) async fn split_calendar_series_tx(
     sqlx::query(
         "INSERT INTO calendar_events (
            id, title, start_time, end_time, timezone, calendar_id,
-           color, rrule, repeat_until,
+           project_id, environment_id, playlist_id, color, rrule, repeat_until,
            all_day, location, transparency, status,
            source_uid,
            description, url, visibility, priority, geo_lat, geo_lng,
@@ -572,7 +575,7 @@ pub(super) async fn split_calendar_series_tx(
            created_at, updated_at
          )
          SELECT ?, ?, ?, ?, ?, ?,
-                ?, ?, NULL,
+                ?, ?, ?, ?, ?, NULL,
                 ?, ?, ?, ?,
                 NULL,
                 COALESCE(?, description),
@@ -591,6 +594,9 @@ pub(super) async fn split_calendar_series_tx(
     .bind(&input.end_time)
     .bind(&input.timezone)
     .bind(&input.calendar_id)
+    .bind(&input.project_id)
+    .bind(&input.environment_id)
+    .bind(&input.playlist_id)
     .bind(input.color)
     .bind(&input.rrule)
     .bind(if input.all_day { 1_i64 } else { 0_i64 })

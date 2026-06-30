@@ -23,6 +23,10 @@ export type PanelSaveData = {
   start: string;
   end: string;
   color?: EventColor;
+  projectId?: string;
+  linkedTaskIds?: string[];
+  environmentId?: string;
+  playlistId?: string;
   description: string;
   recurrence?: RecurrenceConfig;
   notifications?: number[];
@@ -65,6 +69,10 @@ export interface EventPanelPayloadInput {
   endDate: string;
   endTime: string;
   color: EventColor | undefined;
+  projectId: string | undefined;
+  linkedTaskIds: readonly string[];
+  environmentId: string | undefined;
+  playlistId: string | undefined;
   description: string;
   recurrence: RecurrenceConfig | undefined;
   notifications: number[] | undefined;
@@ -169,6 +177,10 @@ function buildPayload(input: EventPanelPayloadInput): PanelSaveData {
     start: `${input.startDate} ${input.startTime}`,
     end: `${input.endDate} ${input.endTime}`,
     color: input.color,
+    projectId: input.projectId,
+    linkedTaskIds: [...input.linkedTaskIds],
+    environmentId: input.environmentId,
+    playlistId: input.playlistId,
     description: input.description,
     recurrence: input.recurrence,
     notifications: input.notifications,

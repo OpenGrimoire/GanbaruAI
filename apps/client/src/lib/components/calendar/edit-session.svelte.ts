@@ -119,6 +119,7 @@ export function buildEditPanelInitialChanges(
     start: event.start,
     end: event.end,
     color: event.color,
+    linkedTaskIds: event.linkedTaskIds ? [...event.linkedTaskIds] : [],
     description: event.description ?? "",
     recurrence: event.recurrence,
     notifications: normalizeNotifications(event.notifications),
@@ -147,13 +148,15 @@ export function buildCreatePanelInitialChanges(
   end: string,
   allDay?: boolean,
   focusIdleDefaults?: Partial<FocusIdleEventDefaults>,
+  initialChanges?: Partial<CalendarEvent>,
 ): Partial<CalendarEvent> {
   const { pauseWhenIdle, thresholdMinutes } = normalizeFocusIdleDefaults(focusIdleDefaults);
-  return {
+  const base: Partial<CalendarEvent> = {
     title: "",
     start,
     end,
     color: undefined,
+    linkedTaskIds: [],
     description: "",
     recurrence: undefined,
     notifications: [0],
@@ -168,6 +171,13 @@ export function buildCreatePanelInitialChanges(
     status: undefined,
     visibility: "private",
     attendees: undefined,
+  };
+  return {
+    ...base,
+    ...initialChanges,
+    start: initialChanges?.start ?? start,
+    end: initialChanges?.end ?? end,
+    allDay: initialChanges?.allDay ?? (allDay || undefined),
   };
 }
 
@@ -280,30 +290,47 @@ export function createEditSession(
       createPreview = null;
     },
 
-    openCreate(start: string, end: string, anchor: PanelAnchor, allDay?: boolean) {
-      state = { mode: "create", sessionKey: ++nextSessionKey, start, end, anchor };
+    openCreate(
+      start: string,
+      end: string,
+      anchor: PanelAnchor,
+      allDay?: boolean,
+      initialChanges?: Partial<CalendarEvent>,
+    ) {
+      const normalizedStart = initialChanges?.start ?? start;
+      const normalizedEnd = initialChanges?.end ?? end;
+      state = {
+        mode: "create",
+        sessionKey: ++nextSessionKey,
+        start: normalizedStart,
+        end: normalizedEnd,
+        anchor,
+      };
       scope = "this";
 
       // Seed the full panel baseline before mount. This keeps create preview
       // data available on the first frame and avoids a parent callback from
       // EventPanel during the opening flush.
       const initial = buildCreatePanelInitialChanges(
-        start,
-        end,
-        allDay,
+        normalizedStart,
+        normalizedEnd,
+        initialChanges?.allDay ?? allDay,
         getFocusIdleDefaults(),
+        initialChanges,
       );
       changes = { ...initial };
       baseline = { ...initial };
 
-      const dateStr = start.split(" ")[0];
-      const endDateStr = end.split(" ")[0];
+      const dateStr = normalizedStart.split(" ")[0];
+      const endDateStr = normalizedEnd.split(" ")[0];
       createPreview = {
         dateStr,
-        startMinute: minuteOffsetFromDateStart(dateStr, start),
-        endMinute: minuteOffsetFromDateStart(dateStr, end),
-        allDay,
-        endDateStr: allDay ? endDateStr : undefined,
+        startMinute: minuteOffsetFromDateStart(dateStr, normalizedStart),
+        endMinute: minuteOffsetFromDateStart(dateStr, normalizedEnd),
+        title: typeof initial.title === "string" ? initial.title : undefined,
+        color: initial.color,
+        allDay: initial.allDay,
+        endDateStr: initial.allDay ? endDateStr : undefined,
       };
     },
 

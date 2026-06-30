@@ -35,6 +35,9 @@ export interface CalendarAddBlockOptions {
   id?: string;
   timezone?: string;
   calendarId?: string;
+  projectId?: string;
+  environmentId?: string;
+  playlistId?: string;
   color?: EventColor;
   description?: string;
   recurrence?: RecurrenceConfig;
@@ -147,6 +150,9 @@ export async function addCalendarBlock(opts: CalendarAddBlockOptions): Promise<C
       endTime: toDbTime(sanitizedEnd, timezone, opts.allDay),
       timezone,
       calendarId,
+      projectId: opts.projectId ?? null,
+      environmentId: opts.environmentId ?? null,
+      playlistId: opts.playlistId ?? null,
       color: opts.color ?? null,
       description,
       rrule,
@@ -194,6 +200,9 @@ export async function addCalendarBlock(opts: CalendarAddBlockOptions): Promise<C
     end: sanitizedEnd,
     timezone,
     calendarId,
+    projectId: opts.projectId,
+    environmentId: opts.environmentId,
+    playlistId: opts.playlistId,
     color: opts.color,
     recurrence: opts.recurrence,
     notifications: opts.notifications,
@@ -233,6 +242,9 @@ export async function detachCalendarInstance(
       endTime: toDbTime(instanceEvent.end, timezone, parent.allDay),
       timezone,
       calendarId: parent.calendarId,
+      projectId: parent.projectId ?? null,
+      environmentId: parent.environmentId ?? null,
+      playlistId: parent.playlistId ?? null,
       color: instanceEvent.color ?? null,
       notifications: notifJson,
       allDay: parent.allDay ?? false,
@@ -250,6 +262,9 @@ export async function detachCalendarInstance(
     end: instanceEvent.end,
     timezone,
     calendarId: parent.calendarId,
+    projectId: parent.projectId,
+    environmentId: parent.environmentId,
+    playlistId: parent.playlistId,
     color: instanceEvent.color,
     allDay: parent.allDay,
     location: parent.location,
@@ -324,6 +339,9 @@ export async function splitCalendarSeries(
       endTime: toDbTime(newEnd, homeZone, merged.allDay),
       timezone: homeZone,
       calendarId: parent.calendarId,
+      projectId: merged.projectId ?? null,
+      environmentId: merged.environmentId ?? null,
+      playlistId: merged.playlistId ?? null,
       color: merged.color ?? null,
       notifications: splitNotifJson,
       exceptions: splitExceptionsJson,

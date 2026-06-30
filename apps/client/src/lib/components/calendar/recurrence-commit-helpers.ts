@@ -52,6 +52,9 @@ export function patchForTemplateAnchor(
     end: `${newEndDate} ${endTime}`,
     timezone: patch.timezone ?? template.timezone,
     calendarId: patch.calendarId ?? template.calendarId,
+    projectId: "projectId" in patch ? patch.projectId : template.projectId,
+    environmentId: "environmentId" in patch ? patch.environmentId : template.environmentId,
+    playlistId: "playlistId" in patch ? patch.playlistId : template.playlistId,
     recurringParentId: undefined,
   };
 }

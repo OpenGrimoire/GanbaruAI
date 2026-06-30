@@ -55,6 +55,16 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = Object.freeze([
     ],
   },
   {
+    title: "Projects",
+    items: [
+      { keys: ["1"], action: "Dashboard view" },
+      { keys: ["2"], action: "List view" },
+      { keys: ["3"], action: "Kanban view" },
+      { keys: ["4"], action: "Project calendar view" },
+      { keys: ["5"], action: "Gantt view" },
+    ],
+  },
+  {
     title: "Music",
     items: [
       { keys: ["Spacebar"], action: "Play or pause" },
@@ -80,6 +90,7 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = Object.freeze([
 function localizedGroupTitle(title: string, t: Translate): string {
   if (title === "General") return t("settings.shortcuts.group.general");
   if (title === "Calendar") return t("settings.shortcuts.group.calendar");
+  if (title === "Projects") return t("settings.shortcuts.group.projects");
   if (title === "Music") return t("settings.shortcuts.group.music");
   return title;
 }
@@ -142,6 +153,16 @@ function localizedAction(action: string, t: Translate): string {
       return t("settings.shortcuts.action.saveEvent");
     case "Delete event":
       return t("settings.shortcuts.action.deleteEvent");
+    case "Dashboard view":
+      return t("settings.shortcuts.action.dashboardView");
+    case "List view":
+      return t("settings.shortcuts.action.projectListView");
+    case "Kanban view":
+      return t("settings.shortcuts.action.kanbanView");
+    case "Project calendar view":
+      return t("settings.shortcuts.action.projectCalendarView");
+    case "Gantt view":
+      return t("settings.shortcuts.action.ganttView");
     case "Play or pause":
       return t("settings.shortcuts.action.playPause");
     case "Show or hide playlist":

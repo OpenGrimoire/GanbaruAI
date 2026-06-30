@@ -17,6 +17,17 @@ export function isAppShortcutBlockedTarget(target: EventTarget | null): boolean 
 	return target.closest("[data-app-shortcuts='ignore']") !== null;
 }
 
+export const APP_FLOATING_SURFACE_SELECTOR = "[data-app-floating-surface]";
+
+/**
+ * Returns whether the event target belongs to a portaled app surface.
+ */
+export function isAppFloatingSurfaceTarget(target: EventTarget | null): boolean {
+	if (!(target instanceof Node)) return false;
+	const element = target instanceof Element ? target : target.parentElement;
+	return element?.closest(APP_FLOATING_SURFACE_SELECTOR) !== null;
+}
+
 export type FocusIntentKeydown = Pick<KeyboardEvent, "altKey" | "ctrlKey" | "key" | "metaKey" | "shiftKey">;
 
 export function shouldUseKeyboardFocusIntent(event: FocusIntentKeydown): boolean {

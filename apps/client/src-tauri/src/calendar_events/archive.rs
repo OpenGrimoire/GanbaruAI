@@ -347,7 +347,7 @@ pub(super) async fn archive_event_snapshot(
     sqlx::query(
         "INSERT OR REPLACE INTO calendar_events_archive (
             id, source_event_id, archived_at, title, start_time, end_time, timezone,
-            calendar_id, color, description, rrule, repeat_until, environment_id,
+            calendar_id, project_id, color, description, rrule, repeat_until, environment_id,
             playlist_id, all_day, location, url, transparency, status, source_uid,
             visibility, priority, geo_lat, geo_lng, sequence, guest_can_modify,
             guest_can_invite_others, guest_can_see_other_guests, created_at, updated_at,
@@ -355,7 +355,7 @@ pub(super) async fn archive_event_snapshot(
          )
          SELECT
             ?, ?, ?, title, ?, ?, timezone,
-            calendar_id, color, description,
+            calendar_id, project_id, color, description,
             CASE WHEN ? = 1 THEN NULL ELSE rrule END,
             CASE WHEN ? = 1 THEN NULL ELSE repeat_until END,
             environment_id, playlist_id, all_day, location, url, transparency, status,

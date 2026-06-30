@@ -94,6 +94,7 @@ apps/
         vault.rs, db_path.rs, sqlite_row.rs: data folder, database path, and row helpers
         calendar_*.rs, calendars.rs, recurrence.rs: calendar persistence, import, reads, and recurrence logic
         pomodoro.rs, pomodoro/: timer commands, DTOs, persistence, validation, reads, and tests
+        projects.rs, projects/: project commands, DTOs, persistence, validation, history, custom fields, and templates
         pomodoro_enforcement.rs, notification.rs, tray.rs, window_shape.rs: timer overlays, notifications, tray, and window integration
         doomscrolling.rs, doomscrolling/: browser and desktop blocking commands, runtime helpers, and tests
         media_player.rs, media_controls.rs, music.rs: local playback, media controls, and music commands
@@ -135,6 +136,7 @@ Ganbaru AI/
   projects/{project-id}/: per-project file attachments (reference docs, research PDFs)
   reports/: generated project status reports (markdown, PDF)
   assets/: user assets (images embedded in notes, attachments)
+    project-icons/: copied project and group icon images, including reusable custom emoji
   templates/: project management phase templates, methodology templates (SWOT, BMC, etc.)
   .yjs/: Yjs document state cache (binary)
 ```
