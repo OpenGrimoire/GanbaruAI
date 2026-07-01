@@ -3,6 +3,12 @@ export interface NotesFocusRequest {
   requestId: number;
 }
 
+export interface NotesDeleteFocusInput {
+  visibleBlockIds: readonly string[];
+  removedBlockIds: readonly string[];
+  firstRemovedBlockId: string;
+}
+
 /**
  * Return the next focus request token for a Notes block.
  */
@@ -14,4 +20,64 @@ export function nextNotesFocusRequest(
     blockId,
     requestId: current.requestId + 1,
   };
+}
+
+/**
+ * Pick the block to focus after a page load or link navigation.
+ */
+export function planNotesPageLoadFocus(
+  visibleBlockIds: readonly string[],
+  requestedBlockId: string | null = null,
+): string | null {
+  if (requestedBlockId && visibleBlockIds.includes(requestedBlockId)) {
+    return requestedBlockId;
+  }
+  return visibleBlockIds[0] ?? null;
+}
+
+/**
+ * Pick the first inserted block when available, otherwise keep the trigger focused.
+ */
+export function planNotesInsertedBlockFocus(
+  insertedBlockIds: readonly (string | null | undefined)[],
+  fallbackBlockId: string | null = null,
+): string | null {
+  return (
+    insertedBlockIds.find(
+      (blockId): blockId is string => typeof blockId === "string" && blockId.length > 0,
+    ) ?? fallbackBlockId
+  );
+}
+
+/**
+ * Pick the nearest surviving block after blocks leave the current rendered page.
+ */
+export function planNotesDeletedBlockFocus(input: NotesDeleteFocusInput): string | null {
+  const removedIds = new Set(input.removedBlockIds);
+  const firstRemovedIndex = input.visibleBlockIds.findIndex(
+    (blockId) => blockId === input.firstRemovedBlockId || removedIds.has(blockId),
+  );
+  if (firstRemovedIndex < 0) {
+    return planNotesPageLoadFocus(input.visibleBlockIds);
+  }
+
+  let lastRemovedIndex = firstRemovedIndex;
+  for (let index = firstRemovedIndex; index < input.visibleBlockIds.length; index += 1) {
+    const blockId = input.visibleBlockIds[index];
+    if (blockId && removedIds.has(blockId)) {
+      lastRemovedIndex = index;
+      continue;
+    }
+    break;
+  }
+
+  for (let index = firstRemovedIndex - 1; index >= 0; index -= 1) {
+    const blockId = input.visibleBlockIds[index];
+    if (blockId && !removedIds.has(blockId)) return blockId;
+  }
+  for (let index = lastRemovedIndex + 1; index < input.visibleBlockIds.length; index += 1) {
+    const blockId = input.visibleBlockIds[index];
+    if (blockId && !removedIds.has(blockId)) return blockId;
+  }
+  return null;
 }

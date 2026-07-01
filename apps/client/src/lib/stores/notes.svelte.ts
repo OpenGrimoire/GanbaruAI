@@ -33,7 +33,12 @@ import {
   recordRecentNotesPageId,
   setNotesPageFavoriteId,
 } from "$lib/notes/page-navigation";
-import { nextNotesFocusRequest, type NotesFocusRequest } from "$lib/notes/editor-focus";
+import {
+  nextNotesFocusRequest,
+  planNotesInsertedBlockFocus,
+  planNotesPageLoadFocus,
+  type NotesFocusRequest,
+} from "$lib/notes/editor-focus";
 import { createNotesBlockActions } from "./notes-store-block-actions";
 import { createNotesUndoController } from "./notes-store-undo";
 import {
@@ -414,6 +419,7 @@ async function load(): Promise<void> {
     if (nextSelected) {
       await loadPageTree(nextSelected);
       await undoController.hydrate(nextSelected);
+      requestPageLoadFocus();
     } else {
       loadedPage = null;
       backlinks = [];
@@ -461,6 +467,7 @@ async function selectPage(pageId: string | null): Promise<void> {
     await loadPageTree(pageId);
     recordRecentPage(pageId);
     await undoController.hydrate(pageId);
+    requestPageLoadFocus();
   } catch (error) {
     loadError = error instanceof Error ? error.message : String(error);
     throw error;
@@ -499,7 +506,7 @@ async function createPageWithParent(title: string, parent: NotesParent): Promise
   await reloadBacklinks(loaded.page.id);
   await reloadComments(loaded.page.id);
   await undoController.hydrate(loaded.page.id);
-  requestBlockFocus(firstBlockId);
+  requestBlockFocus(planNotesInsertedBlockFocus([firstBlockId]));
 }
 
 function setSidebarPageCollapsed(pageId: string, collapsed: boolean): void {
@@ -536,7 +543,7 @@ async function createChildPageFromBlock(blockId: string): Promise<void> {
   await reloadBacklinks(loaded.page.id);
   await reloadComments(loaded.page.id);
   await undoController.hydrate(loaded.page.id);
-  requestBlockFocus(loaded.blocks.results[0]?.id ?? firstBlockId);
+  requestBlockFocus(planNotesInsertedBlockFocus([loaded.blocks.results[0]?.id, firstBlockId]));
 }
 
 async function createChildPageAfterBlock(blockId: string): Promise<void> {
@@ -566,7 +573,7 @@ async function createChildPageAfterBlock(blockId: string): Promise<void> {
   await reloadBacklinks(loaded.page.id);
   await reloadComments(loaded.page.id);
   await undoController.hydrate(loaded.page.id);
-  requestBlockFocus(loaded.blocks.results[0]?.id ?? firstBlockId);
+  requestBlockFocus(planNotesInsertedBlockFocus([loaded.blocks.results[0]?.id, firstBlockId]));
 }
 
 async function renamePage(pageId: string, title: string): Promise<void> {
@@ -593,7 +600,7 @@ async function duplicatePage(pageId: string, title: string): Promise<void> {
   await reloadBacklinks(loaded.page.id);
   await reloadComments(loaded.page.id);
   await undoController.hydrate(loaded.page.id);
-  requestBlockFocus(loaded.blocks.results[0]?.id ?? null);
+  requestBlockFocus(planNotesPageLoadFocus(loaded.blocks.results.map((block) => block.id)));
 }
 
 async function movePage(pageId: string, parent: NotesParent): Promise<void> {
@@ -614,7 +621,7 @@ async function movePage(pageId: string, parent: NotesParent): Promise<void> {
   await reloadBacklinks(loaded.page.id);
   await reloadComments(loaded.page.id);
   await undoController.hydrate(loaded.page.id);
-  requestBlockFocus(loaded.blocks.results[0]?.id ?? null);
+  requestPageLoadFocus();
 }
 
 async function updatePageIcon(pageId: string, icon: NotesPageIcon | null): Promise<void> {
@@ -664,7 +671,7 @@ async function unarchivePage(pageId: string): Promise<void> {
   await loadPageTree(restoredPage.id);
   recordRecentPage(restoredPage.id);
   await undoController.hydrate(restoredPage.id);
-  requestBlockFocus(null);
+  requestPageLoadFocus();
 }
 
 async function restorePage(pageId: string): Promise<void> {
@@ -679,7 +686,7 @@ async function restorePage(pageId: string): Promise<void> {
   await loadPageTree(restoredPage.id);
   recordRecentPage(restoredPage.id);
   await undoController.hydrate(restoredPage.id);
-  requestBlockFocus(null);
+  requestPageLoadFocus();
 }
 
 async function permanentlyDeletePage(pageId: string): Promise<void> {
@@ -752,6 +759,14 @@ function tabItemsForBlock(blockId: string): NotesTabBlockItems[] {
 
 function previousBlockType(blockId: string): NotesBlockType | null {
   return previousNotesBlockType(blockTreeSnapshot(), blockId);
+}
+
+function visibleBlockIds(): string[] {
+  return flatBlockItems().map((item) => item.block.id);
+}
+
+function requestPageLoadFocus(requestedBlockId: string | null = null): void {
+  requestBlockFocus(planNotesPageLoadFocus(visibleBlockIds(), requestedBlockId));
 }
 
 const {
@@ -889,9 +904,12 @@ async function openNotesLink(target: NotesPageLinkTarget): Promise<boolean> {
   if (loadedPage?.id !== target.pageId) {
     await selectPage(target.pageId);
   }
-  if (!target.blockId) return true;
-  if (!blocksById[target.blockId]) return false;
-  requestBlockFocus(target.blockId);
+  if (!target.blockId) {
+    requestPageLoadFocus();
+    return true;
+  }
+  if (!blocksById[target.blockId] || !visibleBlockIds().includes(target.blockId)) return false;
+  requestBlockFocus(planNotesPageLoadFocus(visibleBlockIds(), target.blockId));
   return true;
 }
 
