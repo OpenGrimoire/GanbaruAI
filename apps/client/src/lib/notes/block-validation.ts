@@ -58,6 +58,10 @@ import {
 } from "./types";
 import { externalMediaUrlIsSupported, type NotesMediaBlockType } from "./media";
 import {
+  isNotesPageCoverAssetPath,
+  isSupportedExternalPageCoverUrl,
+} from "./page-cover";
+import {
   isNotesPageIconAssetPath,
   isProjectIconAssetPath,
   isSupportedExternalPageIconUrl,
@@ -474,13 +478,13 @@ function parseNotesIcon(value: unknown, label: string): NotesPageIcon {
       `${label}.custom_emoji.ganbaru_asset_path`,
     );
     if (assetPath !== undefined && !isProjectIconAssetPath(assetPath)) {
-      throw new Error(`${label}.custom_emoji.ganbaru_asset_path must stay under a managed icon asset directory`);
+      throw new Error(`${label}.custom_emoji.ganbaru_asset_path must stay under a managed image asset directory`);
     }
     if (url !== undefined) {
       if (url.startsWith("ganbaru-asset:")) {
         const urlAssetPath = url.slice("ganbaru-asset:".length);
         if (!isProjectIconAssetPath(urlAssetPath)) {
-          throw new Error(`${label}.custom_emoji.url must stay under a managed icon asset directory`);
+          throw new Error(`${label}.custom_emoji.url must stay under a managed image asset directory`);
         }
         if (assetPath !== urlAssetPath) {
           throw new Error(`${label}.custom_emoji.url must reference the managed icon asset path`);
@@ -530,7 +534,7 @@ function parseNotesIcon(value: unknown, label: string): NotesPageIcon {
     const byteSize = file.byte_size === undefined ? undefined : readInteger(file.byte_size, `${label}.file.byte_size`);
     if (assetPath !== undefined) {
       if (!isNotesPageIconAssetPath(assetPath)) {
-        throw new Error(`${label}.file.ganbaru_asset_path must stay under a managed icon asset directory`);
+        throw new Error(`${label}.file.ganbaru_asset_path must stay under a managed image asset directory`);
       }
       if (url !== `ganbaru-asset:${assetPath}`) {
         throw new Error(`${label}.file.url must reference the managed icon asset path`);
@@ -700,7 +704,77 @@ function parseFileObject(
 
 function parseNullablePageCover(value: unknown, label: string): NotesPageCover | null {
   if (value === null) return null;
-  return parseFileObject(value, label, "image");
+  return parsePageCoverFileObject(value, label);
+}
+
+function parsePageCoverFileObject(value: unknown, label: string): NotesPageCover {
+  const record = readRecord(value, label);
+  const type = readString(record.type, `${label}.type`);
+  if (type === "external") {
+    const external = readRecord(record.external, `${label}.external`);
+    const url = readDisplayString(external.url, `${label}.external.url`);
+    if (!isSupportedExternalPageCoverUrl(url)) {
+      throw new Error(`${label}.external.url must be a supported HTTPS image URL`);
+    }
+    return { type, external: { url } };
+  }
+  if (type === "file") {
+    const file = readRecord(record.file, `${label}.file`);
+    const url = readDisplayString(file.url, `${label}.file.url`);
+    const expiryTime = readOptionalDisplayString(file.expiry_time, `${label}.file.expiry_time`);
+    const name = readOptionalDisplayString(file.name, `${label}.file.name`);
+    const assetPath = readOptionalDisplayString(file.ganbaru_asset_path, `${label}.file.ganbaru_asset_path`);
+    const contentType = readOptionalDisplayString(file.content_type, `${label}.file.content_type`);
+    const sha256 = readOptionalDisplayString(file.sha256, `${label}.file.sha256`);
+    const byteSize = file.byte_size === undefined ? undefined : readInteger(file.byte_size, `${label}.file.byte_size`);
+    if (assetPath !== undefined) {
+      if (!isNotesPageCoverAssetPath(assetPath)) {
+        throw new Error(`${label}.file.ganbaru_asset_path must stay under a managed image asset directory`);
+      }
+      if (url !== `ganbaru-asset:${assetPath}`) {
+        throw new Error(`${label}.file.url must reference the managed cover asset path`);
+      }
+      if (contentType !== "image/png" && contentType !== "image/jpeg" && contentType !== "image/webp") {
+        throw new Error(`${label}.file.content_type must be a supported local image type`);
+      }
+      if (byteSize === undefined || byteSize <= 0) {
+        throw new Error(`${label}.file.byte_size must be positive`);
+      }
+      if (sha256 === undefined || !/^[a-f0-9]{64}$/.test(sha256)) {
+        throw new Error(`${label}.file.sha256 must be a lowercase SHA-256 hex digest`);
+      }
+    } else if (url.startsWith("ganbaru-asset:")) {
+      throw new Error(`${label}.file.url must include managed asset metadata`);
+    } else {
+      if (!isSupportedExternalPageCoverUrl(url)) {
+        throw new Error(`${label}.file.url must be a supported HTTPS image URL`);
+      }
+      if (expiryTime === undefined) {
+        throw new Error(`${label}.file.expiry_time must be a string`);
+      }
+    }
+    return {
+      type,
+      file: {
+        url,
+        ...(expiryTime === undefined ? {} : { expiry_time: expiryTime }),
+        ...(name === undefined ? {} : { name }),
+        ...(contentType === undefined ? {} : { content_type: contentType as "image/png" | "image/jpeg" | "image/webp" }),
+        ...(byteSize === undefined ? {} : { byte_size: byteSize }),
+        ...(sha256 === undefined ? {} : { sha256 }),
+        ...(assetPath === undefined ? {} : { ganbaru_asset_path: assetPath }),
+      },
+    };
+  }
+  if (type === "file_upload") {
+    const fileUpload = readRecord(record.file_upload, `${label}.file_upload`);
+    const id = readString(fileUpload.id, `${label}.file_upload.id`);
+    if (!UUID_PATTERN.test(id)) {
+      throw new Error(`${label}.file_upload.id must be a UUID`);
+    }
+    return { type, file_upload: { id } };
+  }
+  throw new Error(`${label}.type must be file, external, or file_upload`);
 }
 
 function parseBookmarkPayload(value: unknown, label: string): NotesBookmarkBlockPayload {

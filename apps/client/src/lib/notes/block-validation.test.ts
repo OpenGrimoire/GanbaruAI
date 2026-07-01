@@ -162,7 +162,7 @@ describe("notes boundary validation", () => {
           },
         },
       }),
-    ).toThrow("page.icon.custom_emoji.url must stay under a managed icon asset directory");
+    ).toThrow("page.icon.custom_emoji.url must stay under a managed image asset directory");
 
     expect(() =>
       parseNotesPage({
@@ -191,7 +191,7 @@ describe("notes boundary validation", () => {
           },
         },
       }),
-    ).toThrow("page.icon.file.ganbaru_asset_path must stay under a managed icon asset directory");
+    ).toThrow("page.icon.file.ganbaru_asset_path must stay under a managed image asset directory");
 
     expect(() =>
       parseNotesPage({
@@ -650,19 +650,78 @@ describe("notes boundary validation", () => {
   });
 
   it("parses page covers as image file objects", () => {
-    const page = parseNotesPage({
+    const externalPage = parseNotesPage({
       ...basePage,
       icon: null,
       cover: { type: "external", external: { url: "https://example.com/cover.jpg" } },
     });
 
-    expect(page.cover).toEqual({
+    expect(externalPage.cover).toEqual({
       type: "external",
       external: { url: "https://example.com/cover.jpg" },
     });
+
+    const importedFilePage = parseNotesPage({
+      ...basePage,
+      icon: null,
+      cover: {
+        type: "file",
+        file: {
+          url: "https://example.com/imported-cover.webp",
+          expiry_time: "2026-07-01T12:00:00.000Z",
+        },
+      },
+    });
+    expect(importedFilePage.cover).toEqual({
+      type: "file",
+      file: {
+        url: "https://example.com/imported-cover.webp",
+        expiry_time: "2026-07-01T12:00:00.000Z",
+      },
+    });
+
+    const localFilePage = parseNotesPage({
+      ...basePage,
+      icon: null,
+      cover: {
+        type: "file",
+        file: {
+          url: "ganbaru-asset:notes/page-covers/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+          name: "Cover",
+          content_type: "image/png",
+          byte_size: 42,
+          sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          ganbaru_asset_path: "notes/page-covers/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+        },
+      },
+    });
+    expect(localFilePage.cover).toEqual({
+      type: "file",
+      file: {
+        url: "ganbaru-asset:notes/page-covers/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+        name: "Cover",
+        content_type: "image/png",
+        byte_size: 42,
+        sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        ganbaru_asset_path: "notes/page-covers/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+      },
+    });
+
+    const fileUploadPage = parseNotesPage({
+      ...basePage,
+      icon: null,
+      cover: {
+        type: "file_upload",
+        file_upload: { id: "55555555-5555-4555-8555-555555555555" },
+      },
+    });
+    expect(fileUploadPage.cover).toEqual({
+      type: "file_upload",
+      file_upload: { id: "55555555-5555-4555-8555-555555555555" },
+    });
   });
 
-  it("rejects page covers with non-image external URLs", () => {
+  it("rejects unsafe page cover file objects", () => {
     expect(() =>
       parseNotesPage({
         ...basePage,
@@ -670,6 +729,67 @@ describe("notes boundary validation", () => {
         cover: { type: "external", external: { url: "https://example.com/file.pdf" } },
       }),
     ).toThrow("page.cover.external.url must be a supported HTTPS image URL");
+
+    expect(() =>
+      parseNotesPage({
+        ...basePage,
+        icon: null,
+        cover: {
+          type: "file",
+          file: {
+            url: "https://example.com/file.pdf",
+            expiry_time: "2026-07-01T12:00:00.000Z",
+          },
+        },
+      }),
+    ).toThrow("page.cover.file.url must be a supported HTTPS image URL");
+
+    expect(() =>
+      parseNotesPage({
+        ...basePage,
+        icon: null,
+        cover: {
+          type: "file",
+          file: {
+            url: "ganbaru-asset:notes/page-covers/bad.svg",
+            content_type: "image/svg+xml",
+            byte_size: 42,
+            sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            ganbaru_asset_path: "notes/page-covers/bad.svg",
+          },
+        },
+      }),
+    ).toThrow("page.cover.file.ganbaru_asset_path must stay under a managed image asset directory");
+
+    expect(() =>
+      parseNotesPage({
+        ...basePage,
+        icon: null,
+        cover: {
+          type: "file",
+          file: {
+            url: "ganbaru-asset:notes/page-covers/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.png",
+            content_type: "image/png",
+            byte_size: 42,
+            sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            ganbaru_asset_path: "notes/page-covers/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+          },
+        },
+      }),
+    ).toThrow("page.cover.file.url must reference the managed cover asset path");
+
+    expect(() =>
+      parseNotesPage({
+        ...basePage,
+        icon: null,
+        cover: {
+          type: "file",
+          file: {
+            url: "ganbaru-asset:notes/page-covers/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+          },
+        },
+      }),
+    ).toThrow("page.cover.file.url must include managed asset metadata");
   });
 
   it("parses page mention rich text", () => {

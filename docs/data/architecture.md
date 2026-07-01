@@ -39,6 +39,7 @@ Ganbaru AI/
   reports/                          # generated project status reports (markdown, PDF)
   assets/                           # user assets (images embedded in notes, attachments)
     notes/page-icons/               # copied local Notes page icon images
+    notes/page-covers/              # copied local Notes page cover images
     project-icons/                  # copied project and group icon images
   templates/                        # phase templates, methodology templates (SWOT, BMC)
   .yjs/                             # Yjs document state cache (binary)
@@ -100,7 +101,7 @@ Notes sidebar navigation metadata is UI state stored in `config.json`. Expanded 
 
 Notes page icons are document metadata stored in the `notes_pages.icon` JSON column, not in navigation config. The editable slice supports emoji icon objects, Notion-style native icon names and colors, reusable custom emoji, external HTTPS image icons, managed local image file icons, and null removal through the page update command. Local page icon image bytes are copied under `assets/notes/page-icons/` using content-hash file names, while `notes_page_icon_assets` stores the managed asset metadata in SQLite. The page icon JSON keeps only the validated document reference and display metadata.
 
-Notes page covers are document metadata stored in the `notes_pages.cover` JSON column. The editable slice supports external HTTPS image file objects and null removal through the page update command. Imported file and file upload cover objects are validated and preserved, while future local file covers must store assets under the Ganbaru AI assets model and keep the cover column as the validated file object reference.
+Notes page covers are document metadata stored in the `notes_pages.cover` JSON column. The editable slice supports external HTTPS image file objects, imported Notion-hosted file objects, imported file upload references, managed local image file objects, generated local cover images, and null removal through the page update command. Local and generated page cover image bytes are copied under `assets/notes/page-covers/` using content-hash file names, while `notes_page_cover_assets` stores the managed asset metadata in SQLite. The cover JSON keeps only the validated file object reference and display metadata.
 
 Notes external references that belong to the document, such as bookmark URLs, bookmark captions, link preview URLs, and embed URLs, are persisted as validated block payload data in SQLite. The editor may open a user-saved HTTP or HTTPS bookmark, link preview, or embed on explicit click, but it must not fetch remote preview metadata automatically because Notes must remain private and fully offline.
 

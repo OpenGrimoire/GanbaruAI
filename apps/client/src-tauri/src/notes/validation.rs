@@ -87,11 +87,11 @@ const NOTE_ICON_COLORS: &[&str] = &[
     "pink",
     "red",
 ];
-const NOTE_ICON_IMAGE_EXTENSIONS: &[&str] = &[".gif", ".jpeg", ".jpg", ".png", ".webp"];
-const NOTE_LOCAL_ICON_CONTENT_TYPES: &[&str] = &["image/png", "image/jpeg", "image/webp"];
+const NOTE_MANAGED_IMAGE_EXTENSIONS: &[&str] = &[".gif", ".jpeg", ".jpg", ".png", ".webp"];
+const NOTE_LOCAL_IMAGE_CONTENT_TYPES: &[&str] = &["image/png", "image/jpeg", "image/webp"];
 
 const IMAGE_EXTENSIONS: &[&str] = &[
-    ".bmp", ".gif", ".heic", ".jpeg", ".jpg", ".png", ".svg", ".tif", ".tiff",
+    ".bmp", ".gif", ".heic", ".jpeg", ".jpg", ".png", ".svg", ".tif", ".tiff", ".webp",
 ];
 const AUDIO_EXTENSIONS: &[&str] = &[".mp3", ".wav", ".ogg", ".oga", ".m4a"];
 const VIDEO_EXTENSIONS: &[&str] = &[
@@ -374,16 +374,7 @@ fn validate_page_cover_value(value: &Value) -> Result<(), String> {
             let Some(Value::String(url)) = file.get("url") else {
                 return Err("cover.file.url must be a string".to_string());
             };
-            validate_media_url("image", url, false, "cover.file.url")?;
-            match file.get("expiry_time") {
-                Some(Value::String(expiry_time)) if !contains_control_characters(expiry_time) => {
-                    Ok(())
-                }
-                Some(Value::String(_)) => {
-                    Err("cover.file.expiry_time must not contain control characters".to_string())
-                }
-                _ => Err("cover.file.expiry_time must be a string".to_string()),
-            }
+            validate_cover_file_object(file, url.trim())
         }
         "file_upload" => {
             let file_upload = value
@@ -396,6 +387,43 @@ fn validate_page_cover_value(value: &Value) -> Result<(), String> {
             require_uuid(id, "cover.file_upload.id")
         }
         _ => Err("cover.type must be file, external, or file_upload".to_string()),
+    }
+}
+
+fn validate_cover_file_object(
+    file: &serde_json::Map<String, Value>,
+    file_url: &str,
+) -> Result<(), String> {
+    if file_url.is_empty() {
+        return Err("cover.file.url must be a non-empty string".to_string());
+    }
+    validate_optional_non_empty_string(file.get("name"), "cover.file.name")?;
+    let local_asset_path = file
+        .get("ganbaru_asset_path")
+        .and_then(Value::as_str)
+        .map(str::trim);
+    validate_optional_asset_path(
+        file.get("ganbaru_asset_path"),
+        "cover.file.ganbaru_asset_path",
+        &["notes/page-covers/"],
+    )?;
+    if let Some(asset_path) = local_asset_path {
+        if file_url != format!("ganbaru-asset:{asset_path}") {
+            return Err("cover.file.url must reference the managed cover asset path".to_string());
+        }
+        validate_local_image_metadata(file, "cover.file")?;
+        return Ok(());
+    }
+    if file_url.starts_with("ganbaru-asset:") {
+        return Err("cover.file.url must include managed asset metadata".to_string());
+    }
+    validate_media_url("image", file_url, false, "cover.file.url")?;
+    match file.get("expiry_time") {
+        Some(Value::String(expiry_time)) if !contains_control_characters(expiry_time) => Ok(()),
+        Some(Value::String(_)) => {
+            Err("cover.file.expiry_time must not contain control characters".to_string())
+        }
+        _ => Err("cover.file.expiry_time must be a string".to_string()),
     }
 }
 
@@ -912,7 +940,7 @@ fn validate_external_icon_url(url: &str, field: &str) -> Result<(), String> {
     }
     let parsed = Url::parse(trimmed)
         .map_err(|_| format!("{field}.external.url must be a supported HTTPS image URL"))?;
-    if parsed.scheme() != "https" || !has_supported_icon_extension(parsed.path()) {
+    if parsed.scheme() != "https" || !has_supported_image_extension(parsed.path()) {
         return Err(format!(
             "{field}.external.url must be a supported HTTPS image URL"
         ));
@@ -945,27 +973,7 @@ fn validate_file_icon(file: &serde_json::Map<String, Value>, field: &str) -> Res
                 "{field}.file.url must reference the managed icon asset path"
             ));
         }
-        match file.get("content_type") {
-            Some(Value::String(content_type))
-                if NOTE_LOCAL_ICON_CONTENT_TYPES.contains(&content_type.as_str()) => {}
-            _ => {
-                return Err(format!(
-                    "{field}.file.content_type must be a supported local image type"
-                ))
-            }
-        }
-        match file.get("byte_size").and_then(Value::as_i64) {
-            Some(size) if size > 0 => {}
-            _ => return Err(format!("{field}.file.byte_size must be positive")),
-        }
-        match file.get("sha256") {
-            Some(Value::String(hash)) if is_sha256_hex(hash) => {}
-            _ => {
-                return Err(format!(
-                    "{field}.file.sha256 must be a lowercase SHA-256 hex digest"
-                ))
-            }
-        }
+        validate_local_image_metadata(file, &format!("{field}.file"))?;
     } else if file_url.starts_with("ganbaru-asset:") {
         return Err(format!(
             "{field}.file.url must include managed asset metadata"
@@ -995,6 +1003,34 @@ fn validate_native_icon(icon: &serde_json::Map<String, Value>, field: &str) -> R
     }
 }
 
+fn validate_local_image_metadata(
+    file: &serde_json::Map<String, Value>,
+    field: &str,
+) -> Result<(), String> {
+    match file.get("content_type") {
+        Some(Value::String(content_type))
+            if NOTE_LOCAL_IMAGE_CONTENT_TYPES.contains(&content_type.as_str()) => {}
+        _ => {
+            return Err(format!(
+                "{field}.content_type must be a supported local image type"
+            ))
+        }
+    }
+    match file.get("byte_size").and_then(Value::as_i64) {
+        Some(size) if size > 0 => {}
+        _ => return Err(format!("{field}.byte_size must be positive")),
+    }
+    match file.get("sha256") {
+        Some(Value::String(hash)) if is_sha256_hex(hash) => {}
+        _ => {
+            return Err(format!(
+                "{field}.sha256 must be a lowercase SHA-256 hex digest"
+            ))
+        }
+    }
+    Ok(())
+}
+
 fn validate_optional_non_empty_string(value: Option<&Value>, field: &str) -> Result<(), String> {
     match value {
         None => Ok(()),
@@ -1020,11 +1056,11 @@ fn validate_optional_icon_url(
         return Err(format!("{field} must be a non-empty string"));
     }
     if let Some(relative_path) = trimmed.strip_prefix("ganbaru-asset:") {
-        return validate_managed_icon_asset_path(relative_path, field, asset_prefixes);
+        return validate_managed_image_asset_path(relative_path, field, asset_prefixes);
     }
     let parsed =
         Url::parse(trimmed).map_err(|_| format!("{field} must be a supported HTTPS image URL"))?;
-    if parsed.scheme() != "https" || !has_supported_icon_extension(parsed.path()) {
+    if parsed.scheme() != "https" || !has_supported_image_extension(parsed.path()) {
         return Err(format!("{field} must be a supported HTTPS image URL"));
     }
     Ok(())
@@ -1045,10 +1081,10 @@ fn validate_optional_asset_path(
     if trimmed.is_empty() {
         return Err(format!("{field} must be a non-empty string"));
     }
-    validate_managed_icon_asset_path(trimmed, field, prefixes)
+    validate_managed_image_asset_path(trimmed, field, prefixes)
 }
 
-fn validate_managed_icon_asset_path(
+fn validate_managed_image_asset_path(
     path: &str,
     field: &str,
     prefixes: &[&str],
@@ -1057,10 +1093,10 @@ fn validate_managed_icon_asset_path(
     if !valid_prefix
         || path.contains("..")
         || path.contains('\\')
-        || !has_supported_icon_extension(path)
+        || !has_supported_image_extension(path)
     {
         return Err(format!(
-            "{field} must stay under a managed icon asset directory"
+            "{field} must stay under a managed image asset directory"
         ));
     }
     let remainder = prefixes
@@ -1069,7 +1105,7 @@ fn validate_managed_icon_asset_path(
         .unwrap_or_default();
     if remainder.is_empty() || remainder.contains('/') {
         return Err(format!(
-            "{field} must stay under a managed icon asset directory"
+            "{field} must stay under a managed image asset directory"
         ));
     }
     Ok(())
@@ -1078,15 +1114,15 @@ fn validate_managed_icon_asset_path(
 fn validate_remote_icon_file_url(url: &str, field: &str) -> Result<(), String> {
     let parsed =
         Url::parse(url).map_err(|_| format!("{field} must be a supported HTTPS image URL"))?;
-    if parsed.scheme() != "https" || !has_supported_icon_extension(parsed.path()) {
+    if parsed.scheme() != "https" || !has_supported_image_extension(parsed.path()) {
         return Err(format!("{field} must be a supported HTTPS image URL"));
     }
     Ok(())
 }
 
-fn has_supported_icon_extension(path: &str) -> bool {
+fn has_supported_image_extension(path: &str) -> bool {
     let lower = path.to_ascii_lowercase();
-    NOTE_ICON_IMAGE_EXTENSIONS
+    NOTE_MANAGED_IMAGE_EXTENSIONS
         .iter()
         .any(|extension| lower.ends_with(extension))
 }

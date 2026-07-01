@@ -2745,7 +2745,7 @@ fn page_icon_validation_rejects_unsafe_external_and_local_files() {
                         "url": "ganbaru-asset:notes/page-icons/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png"
                     }
                 }),
-                "icon.custom_emoji.url must stay under a managed icon asset directory",
+                "icon.custom_emoji.url must stay under a managed image asset directory",
             ),
             (
                 json!({
@@ -2768,7 +2768,7 @@ fn page_icon_validation_rejects_unsafe_external_and_local_files() {
                         "ganbaru_asset_path": "notes/page-icons/bad.svg"
                     }
                 }),
-                "icon.file.ganbaru_asset_path must stay under a managed icon asset directory",
+                "icon.file.ganbaru_asset_path must stay under a managed image asset directory",
             ),
             (
                 json!({
@@ -2873,33 +2873,134 @@ fn page_cover_set_and_remove_round_trip() {
 }
 
 #[test]
-fn page_cover_validation_rejects_non_image_urls() {
+fn page_cover_variants_round_trip() {
     tauri::async_runtime::block_on(async {
         let pool = migrated_memory_pool().await;
         create_page(&pool, PAGE_A, BLOCK_A).await;
 
-        let result = writes::update_page(
-            &pool,
-            PAGE_A,
-            super::models::NotePageUpdate {
-                title: None,
-                parent: None,
-                properties: None,
-                icon: OptionalJsonValue::Unset,
-                cover: OptionalJsonValue::Value(json!({
+        let variants = [
+            json!({
+                "type": "file",
+                "file": {
+                    "url": "https://example.com/imported-cover.webp",
+                    "expiry_time": "2026-07-01T12:00:00.000Z"
+                }
+            }),
+            json!({
+                "type": "file_upload",
+                "file_upload": {
+                    "id": "55555555-5555-4555-8555-555555555555"
+                }
+            }),
+            json!({
+                "type": "file",
+                "file": {
+                    "url": "ganbaru-asset:notes/page-covers/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+                    "name": "cover.png",
+                    "content_type": "image/png",
+                    "byte_size": 42,
+                    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "ganbaru_asset_path": "notes/page-covers/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png"
+                }
+            }),
+        ];
+
+        for cover in variants {
+            let page = writes::update_page(
+                &pool,
+                PAGE_A,
+                super::models::NotePageUpdate {
+                    title: None,
+                    parent: None,
+                    properties: None,
+                    icon: OptionalJsonValue::Unset,
+                    cover: OptionalJsonValue::Value(cover.clone()),
+                },
+            )
+            .await
+            .unwrap();
+            let page_json = serde_json::to_value(page).unwrap();
+            assert_eq!(page_json["cover"], cover);
+        }
+    });
+}
+
+#[test]
+fn page_cover_validation_rejects_unsafe_file_objects() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        create_page(&pool, PAGE_A, BLOCK_A).await;
+
+        for (cover, expected_error) in [
+            (
+                json!({
                     "type": "external",
                     "external": {
                         "url": "https://example.com/document.pdf"
                     }
-                })),
-            },
-        )
-        .await;
-
-        assert_eq!(
-            result.err(),
-            Some("cover.external.url must be a supported HTTPS image URL".to_string())
-        );
+                }),
+                "cover.external.url must be a supported HTTPS image URL",
+            ),
+            (
+                json!({
+                    "type": "file",
+                    "file": {
+                        "url": "https://example.com/document.pdf",
+                        "expiry_time": "2026-07-01T12:00:00.000Z"
+                    }
+                }),
+                "cover.file.url must be a supported HTTPS image URL",
+            ),
+            (
+                json!({
+                    "type": "file",
+                    "file": {
+                        "url": "ganbaru-asset:notes/page-covers/bad.svg",
+                        "content_type": "image/svg+xml",
+                        "byte_size": 42,
+                        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        "ganbaru_asset_path": "notes/page-covers/bad.svg"
+                    }
+                }),
+                "cover.file.ganbaru_asset_path must stay under a managed image asset directory",
+            ),
+            (
+                json!({
+                    "type": "file",
+                    "file": {
+                        "url": "ganbaru-asset:notes/page-covers/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.png",
+                        "content_type": "image/png",
+                        "byte_size": 42,
+                        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        "ganbaru_asset_path": "notes/page-covers/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png"
+                    }
+                }),
+                "cover.file.url must reference the managed cover asset path",
+            ),
+            (
+                json!({
+                    "type": "file",
+                    "file": {
+                        "url": "ganbaru-asset:notes/page-covers/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png"
+                    }
+                }),
+                "cover.file.url must include managed asset metadata",
+            ),
+        ] {
+            let result = writes::update_page(
+                &pool,
+                PAGE_A,
+                super::models::NotePageUpdate {
+                    title: None,
+                    parent: None,
+                    properties: None,
+                    icon: OptionalJsonValue::Unset,
+                    cover: OptionalJsonValue::Value(cover),
+                },
+            )
+            .await;
+            assert_eq!(result.err(), Some(expected_error.to_string()));
+        }
     });
 }
 

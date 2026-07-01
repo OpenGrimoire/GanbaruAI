@@ -250,7 +250,18 @@ export interface NotesTableRowBlockPayload {
 export type NotesTabBlockPayload = Record<string, unknown>;
 export type NotesFileObject =
   | { type: "external"; external: { url: string } }
-  | { type: "file"; file: { url: string; expiry_time: string } }
+  | {
+      type: "file";
+      file: {
+        url: string;
+        expiry_time?: string;
+        name?: string;
+        content_type?: "image/png" | "image/jpeg" | "image/webp";
+        byte_size?: number;
+        sha256?: string;
+        ganbaru_asset_path?: string;
+      };
+    }
   | { type: "file_upload"; file_upload: { id: string } };
 export type NotesPageCover = NotesFileObject;
 export type NotesMediaBlockPayload = NotesFileObject & {

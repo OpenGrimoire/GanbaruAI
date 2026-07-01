@@ -3,7 +3,6 @@
   import { notesBlockAnchorId } from "$lib/notes/block-link";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { buildNotesPageBreadcrumb } from "$lib/notes/page-breadcrumb";
-  import { notesPageCoverUrl } from "$lib/notes/page-cover";
   import { notesPageTitle } from "$lib/notes/page-title";
   import { buildNotesTableOfContents } from "$lib/notes/table-of-contents";
   import type { NotesPageIcon as NotesPageIconValue } from "$lib/notes/types";
@@ -14,6 +13,7 @@
   import NotesBacklinks from "./NotesBacklinks.svelte";
   import NotesBlockList from "./NotesBlockList.svelte";
   import NotesComments from "./NotesComments.svelte";
+  import NotesPageCover from "./NotesPageCover.svelte";
   import NotesPageCoverMenu from "./NotesPageCoverMenu.svelte";
   import NotesPageHistory from "./NotesPageHistory.svelte";
   import NotesPageIcon from "./NotesPageIcon.svelte";
@@ -29,7 +29,6 @@
   let lastTitlePageId = "";
   const page = $derived(notes.loadedPage);
   const pageTitle = $derived(page ? notesPageTitle(page, t("notes.untitled")) : "");
-  const pageCoverUrl = $derived(page ? notesPageCoverUrl(page.cover) : null);
   const pageIconLabel = $derived(pageIconScreenReaderText(page?.icon ?? null));
   const breadcrumbItems = $derived(
     buildNotesPageBreadcrumb(page, notes.pages, t("notes.workspace"), t("notes.untitled")),
@@ -84,12 +83,12 @@
 
 {#if page}
   <section class="flex min-w-0 flex-1 flex-col overflow-hidden">
-    {#if pageCoverUrl}
+    {#if page.cover}
       <div class="group relative h-24 shrink-0 overflow-hidden bg-muted sm:h-36">
-        <img class="size-full object-cover" src={pageCoverUrl} alt="" />
+        <NotesPageCover cover={page.cover} unavailableLabel={t("notes.pageCoverUnavailable")} />
         <div class="absolute right-3 top-3">
           <button
-            class="flex items-center gap-1.5 rounded-md bg-background/90 px-2 py-1.5 text-[0.8rem] text-foreground shadow-sm hover:bg-background"
+            class="flex max-w-[calc(100vw-2rem)] items-center gap-1.5 rounded-md bg-background/90 px-2 py-1.5 text-[0.8rem] text-foreground shadow-sm hover:bg-background"
             type="button"
             aria-label={t("notes.changePageCover")}
             onclick={() => {
@@ -97,7 +96,7 @@
             }}
           >
             <ImagePlus class="size-3.5" />
-            <span>{t("notes.changePageCover")}</span>
+            <span class="truncate">{t("notes.changePageCover")}</span>
           </button>
           {#if coverMenuOpen}
             <NotesPageCoverMenu
@@ -112,10 +111,10 @@
       </div>
     {/if}
     <div class="shrink-0 border-b border-border px-4 py-3 sm:px-6">
-      {#if !pageCoverUrl}
+      {#if !page.cover}
         <div class="relative mb-2">
           <button
-            class="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[0.8rem] text-muted-foreground hover:bg-accent hover:text-foreground"
+            class="flex max-w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-[0.8rem] text-muted-foreground hover:bg-accent hover:text-foreground"
             type="button"
             aria-label={t("notes.addPageCover")}
             onclick={() => {
@@ -123,7 +122,7 @@
             }}
           >
             <ImagePlus class="size-3.5" />
-            <span>{t("notes.addPageCover")}</span>
+            <span class="truncate">{t("notes.addPageCover")}</span>
           </button>
           {#if coverMenuOpen}
             <NotesPageCoverMenu

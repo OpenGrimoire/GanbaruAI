@@ -11,6 +11,7 @@ export const NOTES_IMAGE_EXTENSIONS = [
   ".svg",
   ".tif",
   ".tiff",
+  ".webp",
 ] as const;
 
 export const NOTES_AUDIO_EXTENSIONS = [".mp3", ".wav", ".ogg", ".oga", ".m4a"] as const;

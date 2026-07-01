@@ -4,6 +4,7 @@ use tauri::{AppHandle, Runtime};
 mod comments;
 mod history;
 mod models;
+mod page_cover_assets;
 mod page_icon_assets;
 mod reads;
 mod templates;
@@ -12,6 +13,7 @@ mod validation;
 mod writes;
 
 pub use models::*;
+pub use page_cover_assets::*;
 pub use page_icon_assets::*;
 
 #[tauri::command]
