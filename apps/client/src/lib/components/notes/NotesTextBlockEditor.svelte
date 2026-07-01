@@ -26,10 +26,15 @@
     type NotesKeyboardAction,
   } from "$lib/notes/block-keyboard";
   import {
+    notesEditableSelectionViewportRect,
     notesPlainTextFromEditableRoot,
     notesTextSelectionFromEditableRoot,
     restoreNotesEditableSelection,
   } from "$lib/notes/editor-selection";
+  import {
+    planNotesInlineToolbarPlacement,
+    type NotesInlineToolbarPlacement,
+  } from "$lib/notes/inline-toolbar";
   import {
     buildDateMentionTargets,
     detectPageMentionQuery,
@@ -155,6 +160,8 @@
   const { t } = localization;
   const locale = $derived(localization.locale);
   let editor: HTMLDivElement | null = $state(null);
+  let inlineToolbarElement: HTMLDivElement | null = $state(null);
+  let inlineToolbarPlacement: NotesInlineToolbarPlacement | null = $state(null);
   let slashOpen = $state(false);
   let mentionQuery: NotesMentionQuery | null = $state(null);
   let mentionActiveIndex = $state(0);
@@ -236,11 +243,80 @@
     if (mentionActiveIndex >= mentionMatches.length) mentionActiveIndex = 0;
   });
 
+  function refreshInlineToolbarPlacement(): void {
+    if (!canOpenInlineToolbar || !editor) {
+      inlineToolbarPlacement = null;
+      return;
+    }
+    const selectionRect = notesEditableSelectionViewportRect(editor);
+    if (!selectionRect) return;
+    inlineToolbarPlacement = planNotesInlineToolbarPlacement({
+      selectionRect,
+      toolbarWidth: inlineToolbarElement?.offsetWidth ?? 320,
+      toolbarHeight: inlineToolbarElement?.offsetHeight ?? 40,
+      viewport: {
+        width: window.innerWidth,
+        height: window.innerHeight,
+      },
+    });
+  }
+
+  function scheduleInlineToolbarPlacementRefresh(): void {
+    void tick().then(() => refreshInlineToolbarPlacement());
+  }
+
+  function syncEditorSelectionFromDocument(): void {
+    if (!editor) return;
+    const selection = notesTextSelectionFromEditableRoot(editor);
+    if (!selection) return;
+    textSelection = selection;
+    scheduleInlineToolbarPlacementRefresh();
+  }
+
+  $effect(() => {
+    const _selectionStart = textSelection.start;
+    const _selectionEnd = textSelection.end;
+    const _blockId = block.id;
+    if (!canOpenInlineToolbar) {
+      inlineToolbarPlacement = null;
+      return;
+    }
+    scheduleInlineToolbarPlacementRefresh();
+  });
+
+  $effect(() => {
+    if (!canOpenInlineToolbar) return;
+    const refresh = () => refreshInlineToolbarPlacement();
+    const syncSelection = () => syncEditorSelectionFromDocument();
+    document.addEventListener("selectionchange", syncSelection);
+    window.addEventListener("resize", refresh);
+    window.addEventListener("scroll", refresh, true);
+    return () => {
+      document.removeEventListener("selectionchange", syncSelection);
+      window.removeEventListener("resize", refresh);
+      window.removeEventListener("scroll", refresh, true);
+    };
+  });
+
+  function inlineToolbarWrapperClass(placement: NotesInlineToolbarPlacement | null): string {
+    return placement?.mode === "floating"
+      ? "fixed z-40 flex justify-center"
+      : "mb-1 flex justify-end";
+  }
+
+  function inlineToolbarWrapperStyle(placement: NotesInlineToolbarPlacement | null): string {
+    if (!placement) return "";
+    const maxWidth = `max-width: ${placement.maxWidth}px;`;
+    if (placement.mode === "docked") return maxWidth;
+    return `${maxWidth} left: ${placement.left}px; top: ${placement.top}px;`;
+  }
+
   async function focusEditorWithSelection(start: number, end: number): Promise<void> {
     await tick();
     editor?.focus();
     if (editor) restoreNotesEditableSelection(editor, { start, end });
     textSelection = { start, end };
+    refreshInlineToolbarPlacement();
   }
 
   async function applyTextAnnotationsToRange(
@@ -436,7 +512,10 @@
   function syncTextSelection(target: EventTarget | null): void {
     if (!(target instanceof HTMLElement)) return;
     const selection = notesTextSelectionFromEditableRoot(target);
-    if (selection) textSelection = selection;
+    if (selection) {
+      textSelection = selection;
+      scheduleInlineToolbarPlacementRefresh();
+    }
   }
 
   function openLinkEditorFromEditor(target: EventTarget | null): boolean {
@@ -653,7 +732,12 @@
   </div>
 {/if}
 {#if canOpenInlineToolbar}
-  <div class="mb-1 flex justify-end">
+  <div
+    bind:this={inlineToolbarElement}
+    class={inlineToolbarWrapperClass(inlineToolbarPlacement)}
+    style={inlineToolbarWrapperStyle(inlineToolbarPlacement)}
+    data-placement={inlineToolbarPlacement?.mode ?? "docked"}
+  >
     <NotesInlineToolbar
       annotations={currentTextAnnotationRange.annotations}
       onToggleAnnotation={toggleTextAnnotation}
@@ -692,6 +776,7 @@
   onpaste={handlePaste}
   onkeyup={(event) => syncTextSelection(event.currentTarget)}
   onclick={(event) => syncTextSelection(event.currentTarget)}
+  onpointerup={(event) => syncTextSelection(event.currentTarget)}
   onmouseup={(event) => syncTextSelection(event.currentTarget)}
   onblur={handleEditorBlur}
 >

@@ -5,6 +5,7 @@
     NOTES_TEXT_COLORS,
     notesBlockColorSwatchStyle,
   } from "$lib/notes/block-color";
+  import { shouldPreventInlineToolbarPointerDefault } from "$lib/notes/inline-toolbar";
   import type {
     NotesRichTextAnnotationName,
   } from "$lib/notes/rich-text";
@@ -97,10 +98,18 @@
       ? "bg-accent text-accent-foreground"
       : "text-muted-foreground hover:bg-accent hover:text-accent-foreground";
   }
+
+  function preserveMouseSelection(event: MouseEvent): void {
+    event.preventDefault();
+  }
+
+  function preserveTouchSelection(event: PointerEvent): void {
+    if (shouldPreventInlineToolbarPointerDefault(event.pointerType)) event.preventDefault();
+  }
 </script>
 
 <div
-  class="flex flex-wrap items-center justify-end gap-1 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-sm"
+  class="flex max-w-full flex-wrap items-center justify-end gap-1 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-sm"
   role="toolbar"
   aria-label={t("notes.inlineToolbar")}
 >
@@ -110,7 +119,8 @@
     aria-label={t("notes.bold")}
     title={t("notes.bold")}
     aria-pressed={annotations.bold}
-    onmousedown={(event) => event.preventDefault()}
+    onmousedown={preserveMouseSelection}
+    onpointerdown={preserveTouchSelection}
     onclick={() => onToggleAnnotation("bold")}
   >
     <Bold class="size-3.5" aria-hidden="true" />
@@ -121,7 +131,8 @@
     aria-label={t("notes.italic")}
     title={t("notes.italic")}
     aria-pressed={annotations.italic}
-    onmousedown={(event) => event.preventDefault()}
+    onmousedown={preserveMouseSelection}
+    onpointerdown={preserveTouchSelection}
     onclick={() => onToggleAnnotation("italic")}
   >
     <Italic class="size-3.5" aria-hidden="true" />
@@ -132,7 +143,8 @@
     aria-label={t("notes.underline")}
     title={t("notes.underline")}
     aria-pressed={annotations.underline}
-    onmousedown={(event) => event.preventDefault()}
+    onmousedown={preserveMouseSelection}
+    onpointerdown={preserveTouchSelection}
     onclick={() => onToggleAnnotation("underline")}
   >
     <Underline class="size-3.5" aria-hidden="true" />
@@ -143,7 +155,8 @@
     aria-label={t("notes.strikethrough")}
     title={t("notes.strikethrough")}
     aria-pressed={annotations.strikethrough}
-    onmousedown={(event) => event.preventDefault()}
+    onmousedown={preserveMouseSelection}
+    onpointerdown={preserveTouchSelection}
     onclick={() => onToggleAnnotation("strikethrough")}
   >
     <Strikethrough class="size-3.5" aria-hidden="true" />
@@ -154,7 +167,8 @@
     aria-label={t("notes.inlineCode")}
     title={t("notes.inlineCode")}
     aria-pressed={annotations.code}
-    onmousedown={(event) => event.preventDefault()}
+    onmousedown={preserveMouseSelection}
+    onpointerdown={preserveTouchSelection}
     onclick={() => onToggleAnnotation("code")}
   >
     <Code class="size-3.5" aria-hidden="true" />
@@ -164,7 +178,8 @@
     class="flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground"
     aria-label={t("notes.inlineEquation")}
     title={t("notes.inlineEquation")}
-    onmousedown={(event) => event.preventDefault()}
+    onmousedown={preserveMouseSelection}
+    onpointerdown={preserveTouchSelection}
     onclick={onCreateEquation}
   >
     <Sigma class="size-3.5" aria-hidden="true" />
@@ -174,7 +189,8 @@
     class="flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground"
     aria-label={t("notes.openLinkEditor")}
     title={t("notes.openLinkEditor")}
-    onmousedown={(event) => event.preventDefault()}
+    onmousedown={preserveMouseSelection}
+    onpointerdown={preserveTouchSelection}
     onclick={onOpenLink}
   >
     <LinkIcon class="size-3.5" aria-hidden="true" />

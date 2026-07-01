@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 import {
   clampNotesTextSelection,
+  notesEditableSelectionViewportRect,
   notesPlainTextFromEditableRoot,
   notesTextSelectionFromEditableRoot,
   notesTextSelectionFromControl,
@@ -74,6 +75,41 @@ describe("notes editor selection helpers", () => {
 
     expect(restoreNotesEditableSelection(root, { start: 6, end: 11 })).toBe(true);
     expect(notesTextSelectionFromEditableRoot(root)).toEqual({ start: 6, end: 11 });
+    root.remove();
+  });
+
+  it("reads a viewport rectangle from a non-collapsed editable selection", () => {
+    const root = document.createElement("div");
+    root.textContent = "Selected text";
+    document.body.append(root);
+    const textNode = root.firstChild;
+    expect(textNode).toBeInstanceOf(Text);
+    if (!(textNode instanceof Text)) return;
+
+    const range = document.createRange();
+    range.setStart(textNode, 0);
+    range.setEnd(textNode, 8);
+    const rect = {
+      top: 10,
+      right: 90,
+      bottom: 30,
+      left: 20,
+      width: 70,
+      height: 20,
+    } as DOMRect;
+    Object.defineProperty(range, "getBoundingClientRect", { value: () => rect });
+    const selection = document.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+
+    expect(notesEditableSelectionViewportRect(root)).toEqual({
+      top: 10,
+      right: 90,
+      bottom: 30,
+      left: 20,
+      width: 70,
+      height: 20,
+    });
     root.remove();
   });
 });

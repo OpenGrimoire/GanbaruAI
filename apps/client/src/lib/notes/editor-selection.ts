@@ -3,6 +3,15 @@ export interface NotesTextSelection {
   end: number;
 }
 
+export interface NotesSelectionViewportRect {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+  width: number;
+  height: number;
+}
+
 const TEXT_NODE = 3;
 const ELEMENT_NODE = 1;
 const DOCUMENT_FRAGMENT_NODE = 11;
@@ -108,6 +117,38 @@ export function notesTextSelectionFromEditableRoot(root: HTMLElement): NotesText
     start: Math.min(anchor, focus),
     end: Math.max(anchor, focus),
   };
+}
+
+function rectFromDomRect(rect: DOMRect): NotesSelectionViewportRect | null {
+  if (rect.width <= 0 && rect.height <= 0) return null;
+  return {
+    top: rect.top,
+    right: rect.right,
+    bottom: rect.bottom,
+    left: rect.left,
+    width: rect.width,
+    height: rect.height,
+  };
+}
+
+export function notesEditableSelectionViewportRect(
+  root: HTMLElement,
+): NotesSelectionViewportRect | null {
+  const selection = root.ownerDocument.getSelection();
+  const anchorNode = selection?.anchorNode ?? null;
+  const focusNode = selection?.focusNode ?? null;
+  if (!selection || selection.rangeCount === 0 || !anchorNode || !focusNode) return null;
+  if (selection.isCollapsed || !root.contains(anchorNode) || !root.contains(focusNode)) {
+    return null;
+  }
+  const range = selection.getRangeAt(0);
+  const boundingRect = rectFromDomRect(range.getBoundingClientRect());
+  if (boundingRect) return boundingRect;
+  for (const rect of Array.from(range.getClientRects())) {
+    const usableRect = rectFromDomRect(rect);
+    if (usableRect) return usableRect;
+  }
+  return null;
 }
 
 interface EditableDomPoint {
