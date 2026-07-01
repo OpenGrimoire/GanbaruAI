@@ -18,6 +18,7 @@
   import Star from "@lucide/svelte/icons/star";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
+  import NotesDestinationPickerList from "./NotesDestinationPickerList.svelte";
 
   let {
     page,
@@ -90,10 +91,12 @@
     });
   });
 
-  function moveTargetKey(target: NotesPageMoveTarget): string {
-    if (target.parent.type === "workspace") return "workspace";
-    if (target.parent.type === "page_id") return target.parent.page_id;
-    return target.parent.block_id;
+  function moveToTarget(targetKey: string): void {
+    const target = moveTargets.find((candidate) => candidate.key === targetKey);
+    if (!target) return;
+    menuOpen = false;
+    moveMenuOpen = false;
+    onMove(target.parent);
   }
 
   function saveRename(): void {
@@ -266,26 +269,19 @@
           class="notes-page-move-menu border-y border-border bg-muted/25 py-1"
           aria-label={t("notes.movePageTo")}
         >
-          {#if moveTargets.length === 0}
-            <div class="px-2.5 py-1.5 text-[0.733333rem] text-muted-foreground">
-              {t("notes.noPageMoveTargets")}
-            </div>
-          {:else}
-            {#each moveTargets as target (moveTargetKey(target))}
-              <button
-                class="flex w-full items-center gap-2 py-1.5 pr-2.5 text-left text-[0.8rem] hover:bg-accent"
-                style={`padding-left: ${0.625 + Math.min(target.depth, 6) * 0.75}rem`}
-                type="button"
-                onclick={() => {
-                  menuOpen = false;
-                  moveMenuOpen = false;
-                  onMove(target.parent);
-                }}
-              >
-                <span class="min-w-0 truncate">{target.title}</span>
-              </button>
-            {/each}
-          {/if}
+          <NotesDestinationPickerList
+            targets={moveTargets}
+            searchLabel={t("notes.moveDestinationSearch")}
+            searchPlaceholder={t("notes.moveDestinationSearchPlaceholder")}
+            recentLabel={t("notes.recentDestinations")}
+            pagesLabel={t("notes.allPages")}
+            emptyLabel={t("notes.noPageMoveTargets")}
+            optionLabel={(target) => t("notes.movePageToTarget", target.title)}
+            onSelect={moveToTarget}
+            onClose={() => {
+              moveMenuOpen = false;
+            }}
+          />
         </div>
       {/if}
       <button

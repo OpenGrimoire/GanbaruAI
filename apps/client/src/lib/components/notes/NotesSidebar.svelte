@@ -84,8 +84,12 @@
   }
 
   function moveTargets(page: NotesPage) {
-    return notesPageMoveTargets(notes.pages, page.id, t("notes.workspace"), (candidate) =>
-      notesPageTitle(candidate, t("notes.untitled"))
+    return notesPageMoveTargets(
+      notes.pages,
+      page.id,
+      t("notes.workspace"),
+      (candidate) => notesPageTitle(candidate, t("notes.untitled")),
+      notes.recentPageIds,
     );
   }
 

@@ -1,11 +1,11 @@
 import { buildNotesPageTree } from "./page-tree";
 import { notesPageTitle } from "./page-title";
 import type { NotesPage, NotesParent } from "./types";
+import type { NotesDestinationPickerTarget } from "./destination-picker";
 
-export interface NotesPageMoveTarget {
+export interface NotesPageMoveTarget extends NotesDestinationPickerTarget {
   parent: NotesParent;
-  title: string;
-  depth: number;
+  pageId: string | null;
 }
 
 /** Return valid page move destinations for the source page. */
@@ -14,16 +14,22 @@ export function notesPageMoveTargets(
   sourcePageId: string,
   workspaceTitle: string,
   titleForPage: (page: NotesPage) => string = notesPageTitle,
+  recentPageIds: readonly string[] = [],
 ): NotesPageMoveTarget[] {
   const sourcePage = pages.find((page) => page.id === sourcePageId);
   if (!sourcePage) return [];
   const descendantIds = descendantPageIds(pages, sourcePageId);
+  const recentPageIdSet = new Set(recentPageIds);
   const targets: NotesPageMoveTarget[] = [];
   if (sourcePage.parent.type !== "workspace") {
     targets.push({
+      key: "workspace",
       parent: { type: "workspace", workspace: true },
+      pageId: null,
       title: workspaceTitle,
+      path: [],
       depth: 0,
+      recent: false,
     });
   }
   const tree = buildNotesPageTree(
@@ -35,9 +41,13 @@ export function notesPageMoveTargets(
       continue;
     }
     targets.push({
+      key: item.page.id,
       parent: { type: "page_id", page_id: item.page.id },
+      pageId: item.page.id,
       title: titleForPage(item.page),
+      path: pagePathTitles(pages, item.page, titleForPage),
       depth: item.depth,
+      recent: recentPageIdSet.has(item.page.id),
     });
   }
   return targets;
@@ -60,4 +70,23 @@ function descendantPageIds(pages: readonly NotesPage[], sourcePageId: string): S
     queue.push(...(childrenByParentId.get(page.id) ?? []));
   }
   return descendants;
+}
+
+function pagePathTitles(
+  pages: readonly NotesPage[],
+  page: NotesPage,
+  titleForPage: (page: NotesPage) => string,
+): string[] {
+  const pageById = new Map(pages.map((candidate) => [candidate.id, candidate]));
+  const path: string[] = [];
+  const seen = new Set([page.id]);
+  let cursor = page;
+  while (cursor.parent.type === "page_id") {
+    const parent = pageById.get(cursor.parent.page_id);
+    if (!parent || seen.has(parent.id)) return path.reverse();
+    path.push(titleForPage(parent));
+    seen.add(parent.id);
+    cursor = parent;
+  }
+  return path.reverse();
 }

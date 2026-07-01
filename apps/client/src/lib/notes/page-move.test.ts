@@ -58,4 +58,37 @@ describe("notes page move targets", () => {
       { type: "page_id", page_id: "root-b" },
     ]);
   });
+
+  it("keeps nested page context and recent destination state", () => {
+    const pages = [
+      page("root-a", "Root A", { type: "workspace", workspace: true }),
+      page("child-a", "Child A", { type: "page_id", page_id: "root-a" }),
+      page("root-b", "Root B", { type: "workspace", workspace: true }),
+    ];
+
+    const targets = notesPageMoveTargets(
+      pages,
+      "root-b",
+      "Workspace",
+      undefined,
+      ["child-a"],
+    );
+
+    expect(targets).toMatchObject([
+      {
+        pageId: "root-a",
+        title: "Root A",
+        path: [],
+        depth: 0,
+        recent: false,
+      },
+      {
+        pageId: "child-a",
+        title: "Child A",
+        path: ["Root A"],
+        depth: 1,
+        recent: true,
+      },
+    ]);
+  });
 });

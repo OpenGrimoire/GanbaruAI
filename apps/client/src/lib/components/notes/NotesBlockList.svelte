@@ -503,12 +503,30 @@
   }
 
   function moveTargetsForBlock(block: NotesBlock): NotesMoveToPageTarget[] {
-    return notesMoveToPageTargets(notes.pages, block, pageId, t("notes.untitled"));
+    return notesMoveToPageTargets(notes.pages, block, pageId, t("notes.untitled"), {
+      recentPageIds: notes.recentPageIds,
+      excludedPageIds: loadedChildPageIdsInSubtree(block.id),
+    });
   }
 
   function moveTargetsForBlockId(blockId: string): NotesMoveToPageTarget[] {
     const block = notes.blockById(blockId);
     return block ? moveTargetsForBlock(block) : [];
+  }
+
+  function loadedChildPageIdsInSubtree(blockId: string): string[] {
+    const result: string[] = [];
+    const seen = new Set<string>();
+    const queue = [blockId];
+    while (queue.length > 0) {
+      const currentBlockId = queue.shift();
+      if (!currentBlockId || seen.has(currentBlockId)) continue;
+      seen.add(currentBlockId);
+      const block = notes.blockById(currentBlockId);
+      if (block?.type === "child_page") result.push(block.id);
+      queue.push(...(notes.childIdsByParentId[currentBlockId] ?? []));
+    }
+    return result;
   }
 
   async function copyBlockLink(blockId: string): Promise<void> {

@@ -28,13 +28,18 @@ function richText(text: string): NotesRichText {
   };
 }
 
-function page(id: string, title: string, inTrash = false): NotesPage {
+function page(
+  id: string,
+  title: string,
+  inTrash = false,
+  parent: NotesParent = { type: "workspace", workspace: true },
+): NotesPage {
   return {
     object: "page",
     id,
     created_time: now,
     last_edited_time: now,
-    parent: { type: "workspace", workspace: true },
+    parent,
     in_trash: inTrash,
     archived: false,
     icon: null,
@@ -92,7 +97,7 @@ describe("notes block move targets", () => {
         "current",
         "Untitled",
       ),
-    ).toEqual([{ id: "target", title: "Target" }]);
+    ).toMatchObject([{ id: "target", title: "Target", path: [], depth: 0 }]);
   });
 
   it("excludes a child page block's own page", () => {
@@ -111,7 +116,50 @@ describe("notes block move targets", () => {
         "current",
         "Untitled",
       ),
-    ).toEqual([{ id: "target", title: "Target" }]);
+    ).toMatchObject([{ id: "target", title: "Target" }]);
+  });
+
+  it("excludes pages from the moved loaded subtree", () => {
+    const block = blockFromWrite(
+      createBlockWrite("block", "paragraph", "Move me"),
+      { type: "page_id", page_id: "current" },
+    );
+
+    expect(
+      notesMoveToPageTargets(
+        [
+          page("descendant-page", "Descendant"),
+          page("target", "Target"),
+        ],
+        block,
+        "current",
+        "Untitled",
+        { excludedPageIds: ["descendant-page"] },
+      ).map((target) => target.id),
+    ).toEqual(["target"]);
+  });
+
+  it("keeps nested page context and recent destination state", () => {
+    const block = blockFromWrite(
+      createBlockWrite("block", "paragraph", "Move me"),
+      { type: "page_id", page_id: "current" },
+    );
+
+    const targets = notesMoveToPageTargets(
+      [
+        page("root", "Root"),
+        page("child", "Child", false, { type: "page_id", page_id: "root" }),
+      ],
+      block,
+      "current",
+      "Untitled",
+      { recentPageIds: ["child"] },
+    );
+
+    expect(targets).toMatchObject([
+      { id: "root", title: "Root", path: [], depth: 0, recent: false },
+      { id: "child", title: "Child", path: ["Root"], depth: 1, recent: true },
+    ]);
   });
 
   it("uses the untitled label for blank page titles", () => {
@@ -122,6 +170,6 @@ describe("notes block move targets", () => {
 
     expect(
       notesMoveToPageTargets([page("target", "")], block, "current", "Untitled"),
-    ).toEqual([{ id: "target", title: "Untitled" }]);
+    ).toMatchObject([{ id: "target", title: "Untitled" }]);
   });
 });

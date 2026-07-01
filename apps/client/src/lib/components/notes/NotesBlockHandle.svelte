@@ -34,6 +34,7 @@
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import { onDestroy } from "svelte";
   import NotesBlockInsertMenu from "./NotesBlockInsertMenu.svelte";
+  import NotesDestinationPickerList from "./NotesDestinationPickerList.svelte";
 
   let {
     onAddBelow,
@@ -185,6 +186,12 @@
 
   function moveToPage(pageId: string): void {
     runAction("move_to_page", () => onMoveToPage(pageId));
+  }
+
+  function moveToPageTarget(targetKey: string): void {
+    const target = moveTargets.find((candidate) => candidate.key === targetKey);
+    if (!target) return;
+    moveToPage(target.id);
   }
 
   function selectColor(color: NotesColor): void {
@@ -439,22 +446,19 @@
       </button>
       {#if moveMenuOpen}
         <div class="border-y border-border bg-muted/25 py-1" role="group" aria-label={t("notes.moveBlockToPage")}>
-          {#if moveTargets.length === 0}
-            <div class="px-2.5 py-1.5 text-[0.733333rem] text-muted-foreground">
-              {t("notes.noMoveTargets")}
-            </div>
-          {:else}
-            {#each moveTargets as target (target.id)}
-              <button
-                class="flex w-full items-center gap-2 px-4 py-1.5 text-left text-[0.8rem] hover:bg-accent hover:text-accent-foreground"
-                type="button"
-                role="menuitem"
-                onclick={() => moveToPage(target.id)}
-              >
-                <span class="min-w-0 truncate">{target.title}</span>
-              </button>
-            {/each}
-          {/if}
+          <NotesDestinationPickerList
+            targets={moveTargets}
+            searchLabel={t("notes.moveDestinationSearch")}
+            searchPlaceholder={t("notes.moveDestinationSearchPlaceholder")}
+            recentLabel={t("notes.recentDestinations")}
+            pagesLabel={t("notes.allPages")}
+            emptyLabel={t("notes.noMoveTargets")}
+            optionLabel={(target) => t("notes.moveBlockToPageTarget", target.title)}
+            onSelect={moveToPageTarget}
+            onClose={() => {
+              moveMenuOpen = false;
+            }}
+          />
         </div>
       {/if}
       <button

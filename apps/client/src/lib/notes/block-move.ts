@@ -1,8 +1,14 @@
+import { buildNotesPageTree } from "./page-tree";
+import type { NotesDestinationPickerTarget } from "./destination-picker";
 import type { NotesBlock, NotesPage } from "./types";
 
-export interface NotesMoveToPageTarget {
+export interface NotesMoveToPageTarget extends NotesDestinationPickerTarget {
   id: string;
-  title: string;
+}
+
+export interface NotesMoveToPageTargetOptions {
+  recentPageIds?: readonly string[];
+  excludedPageIds?: readonly string[];
 }
 
 /** Return pages that can receive this block through the handle move menu. */
@@ -11,16 +17,25 @@ export function notesMoveToPageTargets(
   block: NotesBlock,
   currentPageId: string,
   untitledLabel: string,
+  options: NotesMoveToPageTargetOptions = {},
 ): NotesMoveToPageTarget[] {
-  return pages
+  const excludedPageIds = new Set(options.excludedPageIds ?? []);
+  if (block.type === "child_page") excludedPageIds.add(block.id);
+  const recentPageIds = new Set(options.recentPageIds ?? []);
+  const allowedPages = pages
     .filter((page) => !page.in_trash)
     .filter((page) => page.id !== currentPageId)
-    .filter((page) => !(block.type === "child_page" && page.id === block.id))
-    .map((page) => ({
-      id: page.id,
-      title: pageTitleForMoveTarget(page, untitledLabel),
-    }))
-    .sort((left, right) => left.title.localeCompare(right.title, undefined, { sensitivity: "base" }));
+    .filter((page) => !excludedPageIds.has(page.id));
+  return buildNotesPageTree(allowedPages, {
+    titleForPage: (page) => pageTitleForMoveTarget(page, untitledLabel),
+  }).map((item) => ({
+    key: item.page.id,
+    id: item.page.id,
+    title: pageTitleForMoveTarget(item.page, untitledLabel),
+    path: pagePathTitles(pages, item.page, untitledLabel),
+    depth: item.depth,
+    recent: recentPageIds.has(item.page.id),
+  }));
 }
 
 function pageTitleForMoveTarget(page: NotesPage, untitledLabel: string): string {
@@ -48,4 +63,23 @@ function isTitleProperty(value: unknown): value is { title: { plain_text: string
         && "plain_text" in item
         && typeof (item as { plain_text: unknown }).plain_text === "string",
     );
+}
+
+function pagePathTitles(
+  pages: readonly NotesPage[],
+  page: NotesPage,
+  untitledLabel: string,
+): string[] {
+  const pageById = new Map(pages.map((candidate) => [candidate.id, candidate]));
+  const path: string[] = [];
+  const seen = new Set([page.id]);
+  let cursor = page;
+  while (cursor.parent.type === "page_id") {
+    const parent = pageById.get(cursor.parent.page_id);
+    if (!parent || seen.has(parent.id)) return path.reverse();
+    path.push(pageTitleForMoveTarget(parent, untitledLabel));
+    seen.add(parent.id);
+    cursor = parent;
+  }
+  return path.reverse();
 }
