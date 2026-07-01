@@ -24,11 +24,16 @@
     shouldDeferNotesCompositionInput,
     shouldLetNativeCompositionHandleKeydown,
   } from "$lib/notes/composition";
-  import { notesRichTextEditorClass } from "$lib/notes/block-editor-ui";
   import {
-    planNotesKeyboardAction,
-    type NotesKeyboardAction,
-  } from "$lib/notes/block-keyboard";
+    notesMentionMenuDomId,
+    notesRichTextEditorActiveDescendant,
+    notesRichTextEditorControls,
+    notesRichTextEditorDomId,
+    notesRichTextEditorStatusDomId,
+    notesSlashMenuDomId,
+  } from "$lib/notes/editor-accessibility";
+  import { notesRichTextEditorClass } from "$lib/notes/block-editor-ui";
+  import { planNotesKeyboardAction, type NotesKeyboardAction } from "$lib/notes/block-keyboard";
   import {
     clampNotesTextSelection,
     notesEditableSelectionViewportRect,
@@ -75,6 +80,7 @@
     NotesRichText,
   } from "$lib/notes/types";
   import NotesInlineToolbar from "./NotesInlineToolbar.svelte";
+  import NotesLinkEditor from "./NotesLinkEditor.svelte";
   import NotesMentionMenu from "./NotesMentionMenu.svelte";
   import NotesRichTextInline from "./NotesRichTextInline.svelte";
   import NotesSlashMenu from "./NotesSlashMenu.svelte";
@@ -889,10 +895,22 @@
 {/if}
 <div
   bind:this={editor}
+  id={notesRichTextEditorDomId(block.id)}
   class={notesRichTextEditorClass(block.type)}
   role="textbox"
   aria-multiline="true"
-  aria-label={text || t("notes.blockPlaceholder")}
+  aria-label={t("notes.richTextEditorLabel")}
+  aria-placeholder={t("notes.blockPlaceholder")}
+  aria-describedby={mentionOpen || slashOpen
+    ? notesRichTextEditorStatusDomId(block.id)
+    : undefined}
+  aria-controls={notesRichTextEditorControls(block.id, mentionOpen, slashOpen)}
+  aria-activedescendant={notesRichTextEditorActiveDescendant(
+    block.id,
+    mentionOpen,
+    mentionActiveIndex,
+    mentionMatches.length,
+  )}
   contenteditable="true"
   spellcheck={block.type !== "code"}
   tabindex="0"
@@ -915,63 +933,43 @@
 >
   <NotesRichTextInline richText={editableRichText} />
 </div>
+{#if mentionOpen || slashOpen}
+  <p id={notesRichTextEditorStatusDomId(block.id)} class="sr-only" role="status">
+    {mentionOpen
+      ? t("notes.richTextMentionMenuStatus", mentionMatches.length)
+      : t("notes.richTextSlashMenuStatus")}
+  </p>
+{/if}
 {#if inlineEquationErrorReason}
   <p class="mt-1 text-[0.733333rem] text-destructive" aria-live="polite">
     {inlineEquationErrorMessage(inlineEquationErrorReason)}
   </p>
 {/if}
 {#if linkEditorOpen}
-  <div class="mt-1 rounded-md border border-border bg-popover p-2 text-popover-foreground shadow-sm">
-    <div class="flex min-w-0 items-center gap-1.5">
-      <input
-        class="min-w-0 flex-1 rounded border border-input bg-background px-2 py-1 text-[0.8rem] outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        value={linkUrlInput}
-        aria-label={t("notes.linkUrl")}
-        placeholder={t("notes.linkUrlPlaceholder")}
-        oninput={(event) => {
-          linkUrlInput = event.currentTarget.value;
-          linkError = null;
-        }}
-        onkeydown={(event) => {
-          if (event.key === "Enter") {
-            event.preventDefault();
-            void applyLinkFromEditor();
-          }
-          if (event.key === "Escape") {
-            event.preventDefault();
-            linkEditorOpen = false;
-          }
-        }}
-      />
-      <button
-        type="button"
-        class="rounded bg-primary px-2 py-1 text-[0.8rem] font-medium text-primary-foreground hover:bg-primary/90"
-        onclick={() => {
-          void applyLinkFromEditor();
-        }}
-      >
-        {t("notes.applyLink")}
-      </button>
-      {#if linkRange.url}
-        <button
-          type="button"
-          class="rounded border border-border px-2 py-1 text-[0.8rem] text-muted-foreground hover:bg-accent hover:text-foreground"
-          onclick={() => {
-            void removeLinkFromEditor();
-          }}
-        >
-          {t("notes.removeLink")}
-        </button>
-      {/if}
-    </div>
-    {#if linkError}
-      <p class="mt-1 text-[0.733333rem] text-destructive">{linkError}</p>
-    {/if}
-  </div>
+  <NotesLinkEditor
+    value={linkUrlInput}
+    error={linkError}
+    canRemove={linkRange.url !== null}
+    onInput={(value) => {
+      linkUrlInput = value;
+      linkError = null;
+    }}
+    onApply={() => {
+      void applyLinkFromEditor();
+    }}
+    onRemove={() => {
+      void removeLinkFromEditor();
+    }}
+    onCancel={() => {
+      linkEditorOpen = false;
+    }}
+  />
 {/if}
 
 {#if mentionOpen}
   <NotesMentionMenu
+    menuId={notesMentionMenuDomId(block.id)}
+    blockId={block.id}
     targets={mentionMatches}
     activeIndex={mentionActiveIndex}
     onSelect={(target) => {
@@ -980,6 +978,7 @@
   />
 {:else if slashOpen}
   <NotesSlashMenu
+    menuId={notesSlashMenuDomId(block.id)}
     query={text.startsWith("/") ? text.slice(1) : ""}
     canSetColor={blockSupportsColor}
     currentColor={currentColor}

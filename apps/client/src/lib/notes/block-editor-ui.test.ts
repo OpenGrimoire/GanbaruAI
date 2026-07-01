@@ -20,6 +20,7 @@ describe("notes block editor UI helpers", () => {
   it("adds rich editor affordances on top of text block classes", () => {
     expect(notesRichTextEditorClass("paragraph")).toContain("notes-rich-text-editor");
     expect(notesRichTextEditorClass("paragraph")).toContain("break-words");
+    expect(notesRichTextEditorClass("paragraph")).toContain("focus-visible:ring-2");
     expect(notesRichTextEditorClass("code")).toContain("font-mono");
   });
 

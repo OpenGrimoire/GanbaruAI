@@ -57,12 +57,14 @@
     query = "",
     canSetColor = true,
     currentColor = "default",
+    menuId = undefined,
     menuClass = "absolute left-[calc(var(--notes-depth)*1.25rem+1.75rem)] top-full mt-1",
     onSelect,
   }: {
     query?: string;
     canSetColor?: boolean;
     currentColor?: NotesColor;
+    menuId?: string;
     menuClass?: string;
     onSelect: (command: NotesSlashCommand) => void;
   } = $props();
@@ -355,8 +357,11 @@
 </script>
 
 <div
+  id={menuId}
   class={`${menuClass} z-30 max-h-[min(28rem,70vh)] w-64 overflow-auto rounded-md border border-border bg-popover py-1 text-popover-foreground shadow-lg`}
   role="menu"
+  aria-label={t("notes.slashMenu")}
+  aria-live="polite"
   data-app-floating-surface
   tabindex="-1"
   onmousedown={(event) => event.preventDefault()}
@@ -371,7 +376,7 @@
         {#each items as item (item.key)}
           {@const Icon = commandIcon(item.command)}
           <button
-            class="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[0.8rem] hover:bg-accent hover:text-accent-foreground"
+            class="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[0.8rem] outline-none hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring"
             type="button"
             role={item.command.kind === "color" ? "menuitemradio" : "menuitem"}
             aria-checked={item.command.kind === "color"
@@ -389,18 +394,18 @@
                 A
               </span>
             {:else if Icon}
-              <Icon class="size-4 shrink-0" />
+              <Icon class="size-4 shrink-0" aria-hidden="true" />
             {/if}
             <span class="min-w-0 flex-1 truncate">{commandLabel(item.command)}</span>
             {#if item.command.kind === "color" && currentColor === item.command.color}
-              <Check class="size-3.5 shrink-0" />
+              <Check class="size-3.5 shrink-0" aria-hidden="true" />
             {/if}
           </button>
         {/each}
       {/if}
     {/each}
   {:else}
-    <div class="px-2.5 py-2 text-[0.8rem] text-muted-foreground">
+    <div class="px-2.5 py-2 text-[0.8rem] text-muted-foreground" role="status">
       {t("notes.slashNoResults")}
     </div>
   {/if}

@@ -20,7 +20,7 @@ export function notesTextareaClass(type: NotesBlockType): string {
  * Return the classes used by editable rich text Notes blocks.
  */
 export function notesRichTextEditorClass(type: NotesBlockType): string {
-  return `${notesTextareaClass(type)} notes-rich-text-editor block cursor-text whitespace-pre-wrap break-words`;
+  return `${notesTextareaClass(type)} notes-rich-text-editor block cursor-text whitespace-pre-wrap break-words focus-visible:ring-2 focus-visible:ring-ring`;
 }
 
 /**

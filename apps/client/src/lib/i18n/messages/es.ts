@@ -1563,6 +1563,11 @@ export const es = {
     pageCoverUrlPlaceholder: "Pega una URL HTTPS de imagen...",
     pageCoverUrlInvalid: "Ingresa una URL HTTPS de imagen compatible.",
     blockPlaceholder: "Escribe / para bloques",
+    richTextEditorLabel: "Editor de bloque con texto enriquecido",
+    richTextMentionMenuStatus: (count: number) =>
+      `Menú de menciones abierto, ${count} ${count === 1 ? "resultado" : "resultados"}.`,
+    richTextSlashMenuStatus: "Menú de comandos de barra abierto.",
+    slashMenu: "Menú de comandos de barra",
     slashRecent: "Recientes",
     slashBlocks: "Bloques",
     slashActions: "Acciones",

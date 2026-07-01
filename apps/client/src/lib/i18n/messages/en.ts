@@ -1544,6 +1544,11 @@ export const en = {
     pageCoverUrlPlaceholder: "Paste an HTTPS image URL...",
     pageCoverUrlInvalid: "Enter a supported HTTPS image URL.",
     blockPlaceholder: "Type / for blocks",
+    richTextEditorLabel: "Rich text block editor",
+    richTextMentionMenuStatus: (count: number) =>
+      `Mention menu open, ${count} ${count === 1 ? "result" : "results"}.`,
+    richTextSlashMenuStatus: "Slash command menu open.",
+    slashMenu: "Slash command menu",
     slashRecent: "Recent",
     slashBlocks: "Blocks",
     slashActions: "Actions",

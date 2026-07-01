@@ -34,6 +34,8 @@
   } = $props();
 
   const { t } = getLocalization();
+  const toolbarButtonBase =
+    "flex size-7 items-center justify-center rounded outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
   function annotationActive(name: NotesRichTextAnnotationName): boolean {
     switch (name) {
@@ -95,8 +97,12 @@
 
   function buttonClass(name: NotesRichTextAnnotationName): string {
     return annotationActive(name)
-      ? "bg-accent text-accent-foreground"
-      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground";
+      ? `${toolbarButtonBase} bg-accent text-accent-foreground`
+      : `${toolbarButtonBase} text-muted-foreground hover:bg-accent hover:text-accent-foreground`;
+  }
+
+  function plainButtonClass(): string {
+    return `${toolbarButtonBase} text-muted-foreground hover:bg-accent hover:text-accent-foreground`;
   }
 
   function preserveMouseSelection(event: MouseEvent): void {
@@ -112,13 +118,15 @@
   class="flex max-w-full flex-wrap items-center justify-end gap-1 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-sm"
   role="toolbar"
   aria-label={t("notes.inlineToolbar")}
+  aria-orientation="horizontal"
 >
   <button
     type="button"
-    class={`flex size-7 items-center justify-center rounded ${buttonClass("bold")}`}
+    class={buttonClass("bold")}
     aria-label={t("notes.bold")}
     title={t("notes.bold")}
     aria-pressed={annotations.bold}
+    aria-keyshortcuts="Control+B Meta+B"
     onmousedown={preserveMouseSelection}
     onpointerdown={preserveTouchSelection}
     onclick={() => onToggleAnnotation("bold")}
@@ -127,10 +135,11 @@
   </button>
   <button
     type="button"
-    class={`flex size-7 items-center justify-center rounded ${buttonClass("italic")}`}
+    class={buttonClass("italic")}
     aria-label={t("notes.italic")}
     title={t("notes.italic")}
     aria-pressed={annotations.italic}
+    aria-keyshortcuts="Control+I Meta+I"
     onmousedown={preserveMouseSelection}
     onpointerdown={preserveTouchSelection}
     onclick={() => onToggleAnnotation("italic")}
@@ -139,10 +148,11 @@
   </button>
   <button
     type="button"
-    class={`flex size-7 items-center justify-center rounded ${buttonClass("underline")}`}
+    class={buttonClass("underline")}
     aria-label={t("notes.underline")}
     title={t("notes.underline")}
     aria-pressed={annotations.underline}
+    aria-keyshortcuts="Control+U Meta+U"
     onmousedown={preserveMouseSelection}
     onpointerdown={preserveTouchSelection}
     onclick={() => onToggleAnnotation("underline")}
@@ -151,10 +161,11 @@
   </button>
   <button
     type="button"
-    class={`flex size-7 items-center justify-center rounded ${buttonClass("strikethrough")}`}
+    class={buttonClass("strikethrough")}
     aria-label={t("notes.strikethrough")}
     title={t("notes.strikethrough")}
     aria-pressed={annotations.strikethrough}
+    aria-keyshortcuts="Control+Shift+S Meta+Shift+S"
     onmousedown={preserveMouseSelection}
     onpointerdown={preserveTouchSelection}
     onclick={() => onToggleAnnotation("strikethrough")}
@@ -163,10 +174,11 @@
   </button>
   <button
     type="button"
-    class={`flex size-7 items-center justify-center rounded ${buttonClass("code")}`}
+    class={buttonClass("code")}
     aria-label={t("notes.inlineCode")}
     title={t("notes.inlineCode")}
     aria-pressed={annotations.code}
+    aria-keyshortcuts="Control+E Meta+E"
     onmousedown={preserveMouseSelection}
     onpointerdown={preserveTouchSelection}
     onclick={() => onToggleAnnotation("code")}
@@ -175,7 +187,7 @@
   </button>
   <button
     type="button"
-    class="flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+    class={plainButtonClass()}
     aria-label={t("notes.inlineEquation")}
     title={t("notes.inlineEquation")}
     onmousedown={preserveMouseSelection}
@@ -186,7 +198,7 @@
   </button>
   <button
     type="button"
-    class="flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+    class={plainButtonClass()}
     aria-label={t("notes.openLinkEditor")}
     title={t("notes.openLinkEditor")}
     onmousedown={preserveMouseSelection}
@@ -201,7 +213,7 @@
     <Palette class="size-3.5 shrink-0" aria-hidden="true" />
     <span class="sr-only">{t("notes.textColor")}</span>
     <select
-      class="max-w-36 bg-transparent text-[0.75rem] outline-none"
+      class="max-w-36 rounded bg-transparent text-[0.75rem] outline-none focus-visible:ring-2 focus-visible:ring-ring"
       aria-label={t("notes.textColor")}
       value={annotations.color}
       onchange={(event) => onColorSelect(event.currentTarget.value as NotesColor)}
