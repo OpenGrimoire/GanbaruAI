@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   blockConvertedToType,
   blockWithHeadingToggleable,
+  blockWithMedia,
+  createRichText,
 } from "./block-factory";
 import type {
   NotesBlock,
+  NotesPdfBlock,
   NotesRichText,
   NotesRichTextAnnotations,
 } from "./types";
@@ -69,6 +72,33 @@ function paragraphBlock(richText: NotesRichText[]): NotesBlock {
   };
 }
 
+function fileUploadPdfBlock(): NotesPdfBlock {
+  return {
+    object: "block",
+    id: "block-2",
+    parent: {
+      type: "page_id",
+      page_id: "page-1",
+    },
+    created_time: "2026-01-01T00:00:00.000Z",
+    last_edited_time: "2026-01-01T00:00:00.000Z",
+    has_children: false,
+    in_trash: false,
+    type: "pdf",
+    source_provider: null,
+    source_object_id: null,
+    source_last_edited_time: null,
+    pdf: {
+      type: "file_upload",
+      file_upload: {
+        id: "11111111-1111-4111-8111-111111111111",
+      },
+      caption: [createRichText("Old caption")],
+      name: "Old name",
+    },
+  };
+}
+
 describe("notes block factory conversions", () => {
   it("preserves rich text objects when converting to another text block", () => {
     const richText = richTextFixture();
@@ -90,5 +120,37 @@ describe("notes block factory conversions", () => {
     expect(converted.heading_3.color).toBe("blue");
     expect(converted.heading_3.is_toggleable).toBe(true);
     expect(converted.heading_3.ganbaru_open).toBe(true);
+  });
+
+  it("preserves imported media sources when editing caption without a new URL", () => {
+    const update = blockWithMedia(fileUploadPdfBlock(), "", "New caption", "");
+
+    expect(update.type).toBe("pdf");
+    if (update.type !== "pdf") throw new Error("Expected PDF update");
+    expect(update.pdf).toEqual({
+      type: "file_upload",
+      file_upload: {
+        id: "11111111-1111-4111-8111-111111111111",
+      },
+      caption: [createRichText("New caption")],
+    });
+  });
+
+  it("replaces imported media sources when the user provides an external URL", () => {
+    const update = blockWithMedia(
+      fileUploadPdfBlock(),
+      "https://example.com/replacement.pdf",
+      "Replacement",
+    );
+
+    expect(update.type).toBe("pdf");
+    if (update.type !== "pdf") throw new Error("Expected PDF update");
+    expect(update.pdf).toEqual({
+      type: "external",
+      external: {
+        url: "https://example.com/replacement.pdf",
+      },
+      caption: [createRichText("Replacement")],
+    });
   });
 });

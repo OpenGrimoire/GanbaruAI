@@ -37,6 +37,8 @@ export const NOTES_VIDEO_EXTENSIONS = [
 const MEDIA_BLOCK_TYPES = ["image", "video", "audio", "file", "pdf"] as const;
 
 export type NotesMediaBlockType = (typeof MEDIA_BLOCK_TYPES)[number];
+export type NotesMediaUrlIssue = "invalid_url" | "requires_https" | "unsupported_type";
+export type NotesMediaPreviewKind = "image" | "video" | "audio" | "pdf" | "link" | "none";
 
 export function isMediaBlockType(type: NotesBlockType): type is NotesMediaBlockType {
   return MEDIA_BLOCK_TYPES.includes(type as NotesMediaBlockType);
@@ -58,15 +60,19 @@ export function mediaSourceId(media: NotesMediaBlockPayload): string {
 }
 
 export function mediaDisplayName(media: NotesMediaBlockPayload): string {
-  if (media.name?.trim()) return media.name.trim();
-  const source = mediaSourceId(media).trim();
-  if (!source) return "";
+  return mediaDisplayNameFromSource(mediaSourceId(media), media.name);
+}
+
+export function mediaDisplayNameFromSource(source: string, name?: string): string {
+  if (name?.trim()) return name.trim();
+  const trimmedSource = source.trim();
+  if (!trimmedSource) return "";
   try {
-    const parsed = new URL(source);
+    const parsed = new URL(trimmedSource);
     const segments = parsed.pathname.split("/").filter(Boolean);
     return decodeURIComponent(segments.at(-1) ?? parsed.hostname);
   } catch {
-    return source;
+    return trimmedSource;
   }
 }
 
@@ -88,26 +94,63 @@ export function canOpenMediaUrl(media: NotesMediaBlockPayload): boolean {
   }
 }
 
-export function externalMediaUrlIsSupported(type: NotesMediaBlockType, url: string): boolean {
+export function mediaUrlIssue(
+  type: NotesMediaBlockType,
+  url: string,
+): NotesMediaUrlIssue | null {
   const trimmed = url.trim();
-  if (!trimmed) return true;
+  if (!trimmed) return null;
   let parsed: URL;
   try {
     parsed = new URL(trimmed);
   } catch {
-    return false;
+    return "invalid_url";
   }
-  if (parsed.protocol !== "https:") return false;
-  if (type === "file") return true;
-  if (type === "pdf") return hasSupportedExtension(parsed, [".pdf"]);
-  if (type === "image") return hasSupportedExtension(parsed, NOTES_IMAGE_EXTENSIONS);
-  if (type === "audio") return hasSupportedExtension(parsed, NOTES_AUDIO_EXTENSIONS);
-  return hasSupportedExtension(parsed, NOTES_VIDEO_EXTENSIONS) || isYouTubeVideoUrl(parsed);
+  if (parsed.protocol !== "https:") return "requires_https";
+  if (type === "file") return null;
+  if (type === "pdf") return hasSupportedExtension(parsed, [".pdf"]) ? null : "unsupported_type";
+  if (type === "image") {
+    return hasSupportedExtension(parsed, NOTES_IMAGE_EXTENSIONS) ? null : "unsupported_type";
+  }
+  if (type === "audio") {
+    return hasSupportedExtension(parsed, NOTES_AUDIO_EXTENSIONS) ? null : "unsupported_type";
+  }
+  if (hasSupportedExtension(parsed, NOTES_VIDEO_EXTENSIONS) || isYouTubeVideoUrl(parsed)) return null;
+  return "unsupported_type";
+}
+
+export function externalMediaUrlIsSupported(type: NotesMediaBlockType, url: string): boolean {
+  return mediaUrlIssue(type, url) === null;
+}
+
+export function mediaPreviewKind(
+  type: NotesMediaBlockType,
+  media: NotesMediaBlockPayload,
+): NotesMediaPreviewKind {
+  const url = mediaSourceUrl(media).trim();
+  return mediaPreviewKindForUrl(type, url);
+}
+
+export function mediaPreviewKindForUrl(
+  type: NotesMediaBlockType,
+  url: string,
+): NotesMediaPreviewKind {
+  const trimmed = url.trim();
+  if (!trimmed || mediaUrlIssue(type, trimmed)) return "none";
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return "none";
+  }
+  if (type === "file") return "link";
+  if (type === "video" && isYouTubeVideoUrl(parsed)) return "link";
+  return type;
 }
 
 export function canPreviewMedia(type: NotesMediaBlockType, media: NotesMediaBlockPayload): boolean {
-  if (!canOpenMediaUrl(media)) return false;
-  return type !== "file" && externalMediaUrlIsSupported(type, mediaSourceUrl(media));
+  const kind = mediaPreviewKind(type, media);
+  return kind === "image" || kind === "video" || kind === "audio" || kind === "pdf";
 }
 
 function hasSupportedExtension(url: URL, extensions: readonly string[]): boolean {

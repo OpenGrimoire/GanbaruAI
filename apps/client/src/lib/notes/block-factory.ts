@@ -245,6 +245,34 @@ export function createMediaPayload(
   };
 }
 
+function createMediaPayloadFromExistingSource(
+  existing: NotesMediaBlockPayload,
+  url: string,
+  caption: string,
+  name?: string,
+): NotesMediaBlockPayload {
+  const trimmedUrl = url.trim();
+  if (trimmedUrl || existing.type === "external") return createMediaPayload(url, caption, name);
+  const trimmedCaption = caption.trim();
+  const trimmedName = name?.trim();
+  const editableFields = {
+    caption: trimmedCaption ? [createRichText(trimmedCaption)] : [],
+    ...(trimmedName ? { name: trimmedName } : {}),
+  };
+  if (existing.type === "file_upload") {
+    return {
+      type: "file_upload",
+      file_upload: existing.file_upload,
+      ...editableFields,
+    };
+  }
+  return {
+    type: "file",
+    file: existing.file,
+    ...editableFields,
+  };
+}
+
 export function createUnsupportedPayload(blockType = "unsupported"): NotesUnsupportedBlockPayload {
   return { block_type: blockType.trim() || "unsupported" };
 }
@@ -906,11 +934,21 @@ export function blockWithMedia(
   caption: string,
   name?: string,
 ): NotesBlockUpdate {
-  if (block.type === "image") return { type: "image", image: createMediaPayload(url, caption, name) };
-  if (block.type === "video") return { type: "video", video: createMediaPayload(url, caption, name) };
-  if (block.type === "audio") return { type: "audio", audio: createMediaPayload(url, caption, name) };
-  if (block.type === "file") return { type: "file", file: createMediaPayload(url, caption, name) };
-  if (block.type === "pdf") return { type: "pdf", pdf: createMediaPayload(url, caption, name) };
+  if (block.type === "image") {
+    return { type: "image", image: createMediaPayloadFromExistingSource(block.image, url, caption, name) };
+  }
+  if (block.type === "video") {
+    return { type: "video", video: createMediaPayloadFromExistingSource(block.video, url, caption, name) };
+  }
+  if (block.type === "audio") {
+    return { type: "audio", audio: createMediaPayloadFromExistingSource(block.audio, url, caption, name) };
+  }
+  if (block.type === "file") {
+    return { type: "file", file: createMediaPayloadFromExistingSource(block.file, url, caption, name) };
+  }
+  if (block.type === "pdf") {
+    return { type: "pdf", pdf: createMediaPayloadFromExistingSource(block.pdf, url, caption, name) };
+  }
   return blockWithText(block, blockPlainText(block));
 }
 
