@@ -7,6 +7,7 @@ import {
   mapNotesCommentThreadDto,
   mapNotesLoadedPageDto,
   mapNotesPageDto,
+  mapNotesPageTemplateDto,
   mapNotesSearchResultDto,
   mapNotesSidebarPageListDto,
 } from "$lib/notes/notion-mappers";
@@ -28,6 +29,11 @@ import type {
   NotesMoveBlocksRequest,
   NotesPage,
   NotesPageCreate,
+  NotesPageTemplate,
+  NotesPageTemplateApplyRequest,
+  NotesPageTemplateCreateFromPageRequest,
+  NotesPageTemplateDuplicateRequest,
+  NotesPageTemplateUpdateRequest,
   NotesPageUpdate,
   NotesPaginatedBlockList,
   NotesSearchResult,
@@ -85,6 +91,63 @@ export async function searchNotes(
   const rows = await invoke<unknown>("notes_search", { dbUrl, query, pageSize });
   if (!Array.isArray(rows)) throw new Error("notes_search returned a non-array payload");
   return rows.map(mapNotesSearchResultDto);
+}
+
+export async function listNotesPageTemplates(): Promise<NotesPageTemplate[]> {
+  const dbUrl = await ensureDbUrl();
+  const rows = await invoke<unknown>("notes_list_page_templates", { dbUrl });
+  if (!Array.isArray(rows)) {
+    throw new Error("notes_list_page_templates returned a non-array payload");
+  }
+  return rows.map(mapNotesPageTemplateDto);
+}
+
+export async function createNotesPageTemplateFromPage(
+  request: NotesPageTemplateCreateFromPageRequest,
+): Promise<NotesPageTemplate> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesPageTemplateDto(
+    await invoke<unknown>("notes_create_page_template_from_page", { dbUrl, request }),
+  );
+}
+
+export async function applyNotesPageTemplate(
+  templateId: string,
+  request: NotesPageTemplateApplyRequest,
+): Promise<NotesLoadedPage> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesLoadedPageDto(
+    await invoke<unknown>("notes_apply_page_template", { dbUrl, templateId, request }),
+  );
+}
+
+export async function updateNotesPageTemplate(
+  templateId: string,
+  update: NotesPageTemplateUpdateRequest,
+): Promise<NotesPageTemplate> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesPageTemplateDto(
+    await invoke<unknown>("notes_update_page_template", { dbUrl, templateId, update }),
+  );
+}
+
+export async function duplicateNotesPageTemplate(
+  templateId: string,
+  request: NotesPageTemplateDuplicateRequest,
+): Promise<NotesPageTemplate> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesPageTemplateDto(
+    await invoke<unknown>("notes_duplicate_page_template", { dbUrl, templateId, request }),
+  );
+}
+
+export async function deleteNotesPageTemplate(templateId: string): Promise<string> {
+  const dbUrl = await ensureDbUrl();
+  const deletedTemplateId = await invoke<unknown>("notes_delete_page_template", { dbUrl, templateId });
+  if (typeof deletedTemplateId !== "string") {
+    throw new Error("notes_delete_page_template returned an invalid template id");
+  }
+  return deletedTemplateId;
 }
 
 export async function listNotesComments(

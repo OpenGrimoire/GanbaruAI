@@ -4,6 +4,7 @@ import {
   parseNotesCommentThread,
   parseNotesLoadedPage,
   parseNotesPage,
+  parseNotesPageTemplate,
   parseNotesPaginatedBlockList,
   parseNotesSearchResult,
   parseNotesSidebarPageList,
@@ -14,6 +15,7 @@ import type {
   NotesCommentThread,
   NotesLoadedPage,
   NotesPage,
+  NotesPageTemplate,
   NotesPaginatedBlockList,
   NotesSearchResult,
   NotesSidebarPageList,
@@ -42,6 +44,11 @@ export function mapNotesLoadedPageDto(value: unknown): NotesLoadedPage {
 /** Validate and map an unknown sidebar page-list DTO from the Tauri boundary. */
 export function mapNotesSidebarPageListDto(value: unknown): NotesSidebarPageList {
   return parseNotesSidebarPageList(value);
+}
+
+/** Validate and map an unknown page template DTO from the Tauri boundary. */
+export function mapNotesPageTemplateDto(value: unknown): NotesPageTemplate {
+  return parseNotesPageTemplate(value);
 }
 
 /** Validate and map an unknown backlink DTO from the Tauri boundary. */

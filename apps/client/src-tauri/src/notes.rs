@@ -4,6 +4,7 @@ use tauri::{AppHandle, Runtime};
 mod comments;
 mod models;
 mod reads;
+mod templates;
 mod undo_state;
 mod validation;
 mod writes;
@@ -66,6 +67,68 @@ pub async fn notes_search<R: Runtime>(
 ) -> Result<Vec<NoteSearchResultDto>, String> {
     let pool = connect_sqlite(app, db_url).await?;
     reads::search(&pool, &query, page_size).await
+}
+
+#[tauri::command]
+pub async fn notes_list_page_templates<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+) -> Result<Vec<NotePageTemplateDto>, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    templates::list_page_templates(&pool).await
+}
+
+#[tauri::command]
+pub async fn notes_create_page_template_from_page<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    request: NotePageTemplateCreateFromPage,
+) -> Result<NotePageTemplateDto, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    templates::create_page_template_from_page(&pool, request).await
+}
+
+#[tauri::command]
+pub async fn notes_apply_page_template<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    template_id: String,
+    request: NotePageTemplateApply,
+) -> Result<NoteLoadedPage, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    templates::apply_page_template(&pool, &template_id, request).await
+}
+
+#[tauri::command]
+pub async fn notes_update_page_template<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    template_id: String,
+    update: NotePageTemplateUpdate,
+) -> Result<NotePageTemplateDto, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    templates::update_page_template(&pool, &template_id, update).await
+}
+
+#[tauri::command]
+pub async fn notes_duplicate_page_template<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    template_id: String,
+    request: NotePageTemplateDuplicate,
+) -> Result<NotePageTemplateDto, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    templates::duplicate_page_template(&pool, &template_id, request).await
+}
+
+#[tauri::command]
+pub async fn notes_delete_page_template<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    template_id: String,
+) -> Result<String, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    templates::delete_page_template(&pool, &template_id).await
 }
 
 #[tauri::command]

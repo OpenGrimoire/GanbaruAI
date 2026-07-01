@@ -1,13 +1,18 @@
 import {
+  applyNotesPageTemplate,
   archiveNotesPage,
   createNotesChildPageFromBlock,
   createNotesComment,
   createNotesPage,
+  createNotesPageTemplateFromPage,
   deleteNotesComment,
+  deleteNotesPageTemplate,
   duplicateNotesPage,
+  duplicateNotesPageTemplate,
   getNotesBlockChildren,
   listNotesBacklinks,
   listNotesComments,
+  listNotesPageTemplates,
   listNotesSidebarPages,
   listArchivedNotesPages,
   listTrashedNotesPages,
@@ -19,6 +24,7 @@ import {
   trashNotesPage,
   updateNotesComment,
   updateNotesPage,
+  updateNotesPageTemplate,
 } from "$lib/api/notes";
 import { blockPlainText, createRichText } from "$lib/notes/block-factory";
 import { notesCommentParentKey } from "$lib/notes/comments";
@@ -75,6 +81,7 @@ import type {
   NotesPage,
   NotesPageCover,
   NotesPageIcon,
+  NotesPageTemplate,
   NotesParent,
   NotesSearchResult,
   NotesTabBlockItems,
@@ -89,6 +96,7 @@ const CHILDREN_PAGE_SIZE = 100;
 let pages = $state<NotesPage[]>([]);
 let archivedPages = $state<NotesPage[]>([]);
 let trashedPages = $state<NotesPage[]>([]);
+let pageTemplates = $state<NotesPageTemplate[]>([]);
 let selectedPageId = $state<string | null>(initialNotesSelectedPageId());
 let favoritePageIds = $state<string[]>(initialNotesFavoritePageIds());
 let recentPageIds = $state<string[]>(initialNotesRecentPageIds());
@@ -112,10 +120,13 @@ let archiveError = $state<string | null>(null);
 let trashLoaded = $state(false);
 let trashLoading = $state(false);
 let trashError = $state<string | null>(null);
+let pageTemplatesLoading = $state(false);
+let pageTemplatesError = $state<string | null>(null);
 let focusRequest = $state<NotesFocusRequest>({ blockId: null, requestId: 0 });
 let loadRequestId = 0;
 let archiveRequestId = 0;
 let trashRequestId = 0;
+let pageTemplatesRequestId = 0;
 let backlinksRequestId = 0;
 let commentsRequestId = 0;
 let searchRequestId = 0;
@@ -247,6 +258,23 @@ async function reloadTrashedPages(): Promise<void> {
     throw error;
   } finally {
     if (requestId === trashRequestId) trashLoading = false;
+  }
+}
+
+async function reloadPageTemplates(): Promise<void> {
+  const requestId = ++pageTemplatesRequestId;
+  pageTemplatesLoading = true;
+  pageTemplatesError = null;
+  try {
+    const nextTemplates = await listNotesPageTemplates();
+    if (requestId !== pageTemplatesRequestId) return;
+    pageTemplates = [...nextTemplates];
+  } catch (error) {
+    if (requestId !== pageTemplatesRequestId) return;
+    pageTemplatesError = error instanceof Error ? error.message : String(error);
+    throw error;
+  } finally {
+    if (requestId === pageTemplatesRequestId) pageTemplatesLoading = false;
   }
 }
 
@@ -427,6 +455,7 @@ async function load(): Promise<void> {
   loadError = null;
   try {
     await reloadPages();
+    await reloadPageTemplates();
     if (requestId !== loadRequestId) return;
     const nextSelected = selectedPageId && pages.some((page) => page.id === selectedPageId)
       ? selectedPageId
@@ -524,6 +553,64 @@ async function createPageWithParent(title: string, parent: NotesParent): Promise
   await reloadComments(loaded.page.id);
   await undoController.hydrate(loaded.page.id);
   requestBlockFocus(planNotesInsertedBlockFocus([firstBlockId]));
+}
+
+async function applyPageTemplate(templateId: string, title?: string): Promise<void> {
+  const loaded = await applyNotesPageTemplate(templateId, {
+    parent: { type: "workspace", workspace: true },
+    title: title?.trim() || null,
+  });
+  viewMode = "pages";
+  saveSelectedPageId(loaded.page.id);
+  recordRecentPage(loaded.page.id);
+  await reloadPages(loaded.page.id);
+  if (!pages.some((page) => page.id === loaded.page.id)) {
+    pages = [loaded.page, ...pages];
+  }
+  setLoadedPageFromLoaded(loaded);
+  await loadAllChildrenForVisibleTree();
+  await reloadBacklinks(loaded.page.id);
+  await reloadComments(loaded.page.id);
+  await undoController.hydrate(loaded.page.id);
+  requestPageLoadFocus();
+}
+
+async function createPageTemplateFromCurrentPage(name: string): Promise<void> {
+  if (!loadedPage) return;
+  await flushPendingBlockSaves();
+  const template = await createNotesPageTemplateFromPage({
+    id: crypto.randomUUID(),
+    source_page_id: loadedPage.id,
+    name,
+  });
+  pageTemplates = [template, ...pageTemplates.filter((item) => item.id !== template.id)];
+}
+
+async function updatePageTemplateFromCurrentPage(templateId: string): Promise<void> {
+  if (!loadedPage) return;
+  await flushPendingBlockSaves();
+  const template = await updateNotesPageTemplate(templateId, {
+    source_page_id: loadedPage.id,
+  });
+  pageTemplates = pageTemplates.map((item) => (item.id === template.id ? template : item));
+}
+
+async function renamePageTemplate(templateId: string, name: string): Promise<void> {
+  const template = await updateNotesPageTemplate(templateId, { name });
+  pageTemplates = pageTemplates.map((item) => (item.id === template.id ? template : item));
+}
+
+async function duplicatePageTemplate(templateId: string, name: string): Promise<void> {
+  const template = await duplicateNotesPageTemplate(templateId, {
+    id: crypto.randomUUID(),
+    name,
+  });
+  pageTemplates = [template, ...pageTemplates];
+}
+
+async function deletePageTemplate(templateId: string): Promise<void> {
+  const deletedTemplateId = await deleteNotesPageTemplate(templateId);
+  pageTemplates = pageTemplates.filter((template) => template.id !== deletedTemplateId);
 }
 
 function setSidebarPageCollapsed(pageId: string, collapsed: boolean): void {
@@ -947,6 +1034,9 @@ export function getNotes() {
     get archivedPages(): NotesPage[] {
       return archivedPages;
     },
+    get pageTemplates(): NotesPageTemplate[] {
+      return pageTemplates;
+    },
     get workspacePages(): NotesPage[] {
       return pages.filter((page) => page.parent.type === "workspace");
     },
@@ -1049,6 +1139,12 @@ export function getNotes() {
     get trashError(): string | null {
       return trashError;
     },
+    get pageTemplatesLoading(): boolean {
+      return pageTemplatesLoading;
+    },
+    get pageTemplatesError(): string | null {
+      return pageTemplatesError;
+    },
     get focusBlockId(): string | null {
       return focusRequest.blockId;
     },
@@ -1067,6 +1163,13 @@ export function getNotes() {
     createPage,
     createSubpage,
     createChildPageFromBlock,
+    applyPageTemplate,
+    createPageTemplateFromCurrentPage,
+    updatePageTemplateFromCurrentPage,
+    renamePageTemplate,
+    duplicatePageTemplate,
+    deletePageTemplate,
+    reloadPageTemplates,
     renamePage,
     duplicatePage,
     movePage,

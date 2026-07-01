@@ -320,6 +320,19 @@ export interface NotesSidebarPageList {
   trashed_parent_page_ids: string[];
 }
 
+export interface NotesPageTemplate {
+  object: "page_template";
+  id: string;
+  name: string;
+  source_page_id: string | null;
+  properties: Record<string, unknown>;
+  icon: NotesPageIcon | null;
+  cover: NotesPageCover | null;
+  block_count: number;
+  created_time: string;
+  last_edited_time: string;
+}
+
 interface NotesBlockBase<Type extends NotesBlockType> {
   object: "block";
   id: string;
@@ -544,6 +557,27 @@ export interface NotesDuplicatePageRequest {
 
 export interface NotesMovePageRequest {
   parent: NotesParent;
+}
+
+export interface NotesPageTemplateCreateFromPageRequest {
+  id: string;
+  source_page_id: string;
+  name: string;
+}
+
+export interface NotesPageTemplateApplyRequest {
+  parent: NotesParent;
+  title?: string | null;
+}
+
+export interface NotesPageTemplateUpdateRequest {
+  name?: string;
+  source_page_id?: string;
+}
+
+export interface NotesPageTemplateDuplicateRequest {
+  id: string;
+  name: string;
 }
 
 export interface NotesPageUpdate {

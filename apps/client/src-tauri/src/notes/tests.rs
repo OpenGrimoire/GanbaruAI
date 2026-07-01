@@ -2,9 +2,11 @@ use super::models::{
     NoteAppendBlockChildren, NoteBlockUpdate, NoteBlockWrite, NoteChildPageFromBlockCreate,
     NoteCommentCreate, NoteCommentUpdate, NoteDuplicateBlock, NoteDuplicateBlocks,
     NoteDuplicatePage, NoteDuplicatedBlockId, NoteMoveBlock, NoteMoveBlocks, NoteMovePage,
-    NotePageCreate, NoteParent, NoteSidebarPagesRequest, NoteTrashBlocks, OptionalJsonValue,
+    NotePageCreate, NotePageTemplateApply, NotePageTemplateCreateFromPage,
+    NotePageTemplateDuplicate, NotePageTemplateUpdate, NoteParent, NoteSidebarPagesRequest,
+    NoteTrashBlocks, OptionalJsonValue,
 };
-use super::{comments, reads, undo_state, validation, writes};
+use super::{comments, reads, templates, undo_state, validation, writes};
 use crate::db::run_migrations;
 use serde_json::json;
 use sqlx::{Row, SqlitePool};
@@ -21,6 +23,8 @@ const BLOCK_F: &str = "ffffffff-ffff-4fff-8fff-ffffffffffff";
 const COMMENT_A: &str = "10101010-1010-4010-8010-101010101010";
 const COMMENT_B: &str = "20202020-2020-4020-8020-202020202020";
 const COMMENT_C: &str = "30303030-3030-4030-8030-303030303030";
+const TEMPLATE_A: &str = "90909090-9090-4090-8090-909090909090";
+const TEMPLATE_B: &str = "91919191-9191-4191-8191-919191919191";
 
 async fn migrated_memory_pool() -> SqlitePool {
     let pool = sqlx::sqlite::SqlitePoolOptions::new()
@@ -986,6 +990,158 @@ fn create_nested_page_appends_child_page_block_to_parent_page() {
         let child_json = serde_json::to_value(child_blocks).unwrap();
         assert_eq!(child_json["results"][0]["id"], BLOCK_B);
         assert_eq!(child_json["results"][0]["type"], "paragraph");
+    });
+}
+
+#[test]
+fn page_templates_create_apply_update_duplicate_and_delete() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        create_page(&pool, PAGE_A, BLOCK_A).await;
+        writes::update_page(
+            &pool,
+            PAGE_A,
+            super::models::NotePageUpdate {
+                title: Some("Weekly review".to_string()),
+                parent: None,
+                properties: None,
+                icon: OptionalJsonValue::Unset,
+                cover: OptionalJsonValue::Unset,
+            },
+        )
+        .await
+        .unwrap();
+        writes::update_block(
+            &pool,
+            BLOCK_A,
+            block_update("paragraph", paragraph_payload("Reflect on the week")),
+        )
+        .await
+        .unwrap();
+        writes::append_block_children(
+            &pool,
+            NoteAppendBlockChildren {
+                parent: page_parent(PAGE_A),
+                after: Some(BLOCK_A.to_string()),
+                children: vec![block(
+                    BLOCK_B,
+                    "to_do",
+                    todo_payload("Choose next focus", false),
+                )],
+            },
+        )
+        .await
+        .unwrap();
+
+        let template = templates::create_page_template_from_page(
+            &pool,
+            NotePageTemplateCreateFromPage {
+                id: TEMPLATE_A.to_string(),
+                source_page_id: PAGE_A.to_string(),
+                name: "Weekly review".to_string(),
+            },
+        )
+        .await
+        .unwrap();
+        let template_json = serde_json::to_value(template).unwrap();
+        assert_eq!(template_json["name"], "Weekly review");
+        assert_eq!(template_json["block_count"], 2);
+        assert!(template_json["properties"].get("title").is_some());
+
+        let loaded = templates::apply_page_template(
+            &pool,
+            TEMPLATE_A,
+            NotePageTemplateApply {
+                parent: workspace_parent(),
+                title: Some("Friday review".to_string()),
+            },
+        )
+        .await
+        .unwrap();
+        let loaded_json = serde_json::to_value(loaded).unwrap();
+        let applied_page_id = loaded_json["page"]["id"].as_str().unwrap().to_string();
+        assert_eq!(
+            loaded_json["page"]["properties"]["title"]["title"][0]["plain_text"],
+            "Friday review"
+        );
+        assert_eq!(
+            loaded_json["blocks"]["results"].as_array().unwrap().len(),
+            2
+        );
+        assert_eq!(loaded_json["blocks"]["results"][0]["type"], "paragraph");
+        assert_eq!(
+            loaded_json["blocks"]["results"][0]["paragraph"]["rich_text"][0]["plain_text"],
+            "Reflect on the week"
+        );
+        assert_eq!(loaded_json["blocks"]["results"][1]["type"], "to_do");
+
+        create_page(&pool, PAGE_C, BLOCK_C).await;
+        writes::update_page(
+            &pool,
+            PAGE_C,
+            super::models::NotePageUpdate {
+                title: Some("Daily plan".to_string()),
+                parent: None,
+                properties: None,
+                icon: OptionalJsonValue::Unset,
+                cover: OptionalJsonValue::Unset,
+            },
+        )
+        .await
+        .unwrap();
+        writes::update_block(
+            &pool,
+            BLOCK_C,
+            block_update("paragraph", paragraph_payload("Plan the day")),
+        )
+        .await
+        .unwrap();
+        let updated = templates::update_page_template(
+            &pool,
+            TEMPLATE_A,
+            NotePageTemplateUpdate {
+                name: Some("Daily plan".to_string()),
+                source_page_id: Some(PAGE_C.to_string()),
+            },
+        )
+        .await
+        .unwrap();
+        let updated_json = serde_json::to_value(updated).unwrap();
+        assert_eq!(updated_json["name"], "Daily plan");
+        assert_eq!(updated_json["block_count"], 1);
+
+        let duplicate = templates::duplicate_page_template(
+            &pool,
+            TEMPLATE_A,
+            NotePageTemplateDuplicate {
+                id: TEMPLATE_B.to_string(),
+                name: "Daily plan copy".to_string(),
+            },
+        )
+        .await
+        .unwrap();
+        let duplicate_json = serde_json::to_value(duplicate).unwrap();
+        assert_eq!(duplicate_json["name"], "Daily plan copy");
+        assert_eq!(duplicate_json["block_count"], 1);
+
+        assert_eq!(
+            templates::delete_page_template(&pool, TEMPLATE_A)
+                .await
+                .unwrap(),
+            TEMPLATE_A
+        );
+        let templates = templates::list_page_templates(&pool).await.unwrap();
+        let templates_json = serde_json::to_value(templates).unwrap();
+        assert_eq!(templates_json.as_array().unwrap().len(), 1);
+        assert_eq!(templates_json[0]["id"], TEMPLATE_B);
+
+        let applied_page_exists: Option<i64> =
+            sqlx::query_scalar("SELECT 1 FROM notes_pages WHERE id = ?")
+                .bind(applied_page_id)
+                .fetch_optional(&pool)
+                .await
+                .unwrap();
+        assert_eq!(applied_page_exists, Some(1));
     });
 }
 

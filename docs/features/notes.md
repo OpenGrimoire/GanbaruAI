@@ -10,6 +10,7 @@ Notes are stored in `ganbaru-ai.sqlite`:
 
 - `notes_pages` stores page metadata, parent identity, title cache, properties, icon, cover, trash state, archive state, optional external source identity, and timestamps.
 - `notes_blocks` stores the canonical block tree. Each row has a page id, parent identity, block type, type payload, rich text, plain text cache, child state, trash state, sort order, optional external source identity, and timestamps.
+- `notes_page_templates` stores reusable page template metadata, page properties, icon, cover, source page identity, and timestamps. `notes_page_template_blocks` stores the canonical template block tree. Templates are SQLite data, not markdown or rendered HTML.
 - `notes_undo_state` stores a bounded page-local undo and redo stack for editor recovery. It is local operation state derived from canonical rows, not a second source of note content.
 
 Markdown exports can be regenerated from SQLite. Markdown imports must be parsed into page and block rows before editing. If an exported markdown file changes outside the app, the app treats that as import input, not as authoritative state.
@@ -73,6 +74,7 @@ Nested blocks are represented by parent rows, not by embedding children inside J
 The first serious Notes tab includes:
 
 - Page sidebar with favorites, recents, a nested page tree, create, create subpage, select, rename, move, duplicate, archive, collapse, workspace search, and trash actions.
+- Page templates section in the sidebar for saving the current page as a template, applying a template as a new page, renaming, updating from the current page, duplicating, and deleting templates.
 - Archive view with archived-page search and unarchive.
 - Trash view with trashed-page search, restore, and permanent delete.
 - Backlinks disclosure under the page title for visible pages that reference the current page.
@@ -176,6 +178,8 @@ Favorites and recents are local navigation metadata stored outside the canonical
 Sidebar search queries canonical SQLite data through the `notes_search` command. Results include active page title matches, active block plain-text matches, and non-deleted comment text matches, with snippets and result type labels. Page results open the page, block results open the page and focus the matching block, and block-comment results focus the commented block when the thread target still exists. The first search slice uses bounded SQLite text matching over canonical columns; a future FTS cache can replace the query internals without changing the result contract.
 
 Duplicating a page copies the source page row, page icon, cover, visible block tree, and nested child pages through one Rust transaction. The duplicate gets fresh page and block ids, does not inherit import provenance, and keeps child-page block ids paired with their duplicated page rows. Workspace pages duplicate as new top-level pages. Nested pages duplicate beside the source child-page block in the same parent.
+
+Page templates are global Notes templates modeled after reusable Notion page templates, not database-scoped or repeating templates. Creating or updating a template snapshots the current page's properties, icon, cover, and root block tree into `notes_page_templates` and `notes_page_template_blocks`. Applying a template creates normal `notes_pages` and `notes_blocks` rows through a Rust transaction, sets the applied page title when the user supplies one, and leaves the template rows unchanged. Renaming, duplicating, and deleting templates affect only the template records. Child-page template blocks create paired local child pages with default empty bodies in this first slice; full subpage body snapshots remain future work.
 
 Moving a page changes the page parent through a Rust transaction and keeps the paired child-page block synchronized with the destination. Moving under another page creates or restores the paired child-page block at the bottom of that destination page. Moving back to the workspace hides the paired child-page block so the page becomes a top-level sidebar item. The command rejects block parents for the sidebar move action, missing or inactive destination pages, moving a page under itself, and moving a page under a descendant reachable through page parents or child-page blocks.
 

@@ -8,7 +8,7 @@
     NOTES_BLOCK_DRAG_MIME,
     planNotesBlockPageDrop,
   } from "$lib/notes/block-drag";
-  import type { NotesPage, NotesSearchResult } from "$lib/notes/types";
+  import type { NotesPage, NotesPageTemplate, NotesSearchResult } from "$lib/notes/types";
   import { getNotes } from "$lib/stores/notes.svelte";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
   import Archive from "@lucide/svelte/icons/archive";
@@ -18,11 +18,13 @@
   import Search from "@lucide/svelte/icons/search";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import NotesPageRow from "./NotesPageRow.svelte";
+  import NotesPageTemplateRow from "./NotesPageTemplateRow.svelte";
 
   const notes = getNotes();
   const { t } = getLocalization();
   let search = $state("");
   let pendingTrashPage = $state<NotesPage | null>(null);
+  let pendingDeleteTemplate = $state<NotesPageTemplate | null>(null);
   let blockDropTargetPageId = $state<string | null>(null);
   const sidebarPlan = $derived.by(() =>
     planNotesSidebarNavigation({
@@ -58,6 +60,24 @@
     void notes.createSubpage(parentPageId, t("notes.defaultPageTitle"));
   }
 
+  function createTemplateFromCurrentPage(): void {
+    const page = notes.loadedPage;
+    if (!page) return;
+    const title = notesPageTitle(page, t("notes.untitled"));
+    void notes.createPageTemplateFromCurrentPage(t("notes.pageTemplateName", title));
+  }
+
+  function applyTemplate(template: NotesPageTemplate): void {
+    void notes.applyPageTemplate(template.id, template.name);
+  }
+
+  function duplicateTemplate(template: NotesPageTemplate): void {
+    void notes.duplicatePageTemplate(
+      template.id,
+      t("notes.duplicatePageTemplateName", template.name),
+    );
+  }
+
   function duplicatePage(page: NotesPage): void {
     const title = notesPageTitle(page, t("notes.untitled"));
     void notes.duplicatePage(page.id, t("notes.duplicatePageTitle", title));
@@ -77,6 +97,12 @@
     const page = pendingTrashPage;
     pendingTrashPage = null;
     if (page) void notes.trashPage(page.id);
+  }
+
+  function confirmDeleteTemplate(): void {
+    const template = pendingDeleteTemplate;
+    pendingDeleteTemplate = null;
+    if (template) void notes.deletePageTemplate(template.id);
   }
 
   function searchResultTypeLabel(result: NotesSearchResult): string {
@@ -384,6 +410,60 @@
         {/each}
       </div>
     {/if}
+    {#if !searchQuery && !notes.loadError}
+      <div class="mt-3 border-t border-border pt-2">
+        <div class="flex items-center justify-between gap-2 px-2 pb-1 text-[0.7rem] font-medium text-muted-foreground">
+          <span class="min-w-0 truncate">{t("notes.pageTemplates")}</span>
+          <button
+            class="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-45"
+            type="button"
+            aria-label={t("notes.createPageTemplate")}
+            data-app-tooltip={notes.loadedPage ? t("notes.createPageTemplate") : t("notes.createPageTemplateUnavailable")}
+            disabled={!notes.loadedPage}
+            onclick={createTemplateFromCurrentPage}
+          >
+            <Plus class="size-3.5" />
+          </button>
+        </div>
+        {#if notes.pageTemplatesError}
+          <div class="px-2 py-2 text-[0.8rem] text-destructive">
+            {t("notes.loadPageTemplatesFailed", notes.pageTemplatesError)}
+          </div>
+        {:else if notes.pageTemplatesLoading && notes.pageTemplates.length === 0}
+          <div class="px-2 py-2 text-[0.8rem] text-muted-foreground">
+            {t("notes.loadingPageTemplates")}
+          </div>
+        {:else if notes.pageTemplates.length === 0}
+          <div class="px-2 py-2 text-[0.8rem] text-muted-foreground">
+            {t("notes.noPageTemplates")}
+          </div>
+        {:else}
+          <div class="flex flex-col gap-1">
+            {#each notes.pageTemplates as template (template.id)}
+              <NotesPageTemplateRow
+                {template}
+                canUpdateFromCurrentPage={Boolean(notes.loadedPage)}
+                onApply={() => {
+                  applyTemplate(template);
+                }}
+                onRename={(name) => {
+                  void notes.renamePageTemplate(template.id, name);
+                }}
+                onUpdateFromCurrentPage={() => {
+                  void notes.updatePageTemplateFromCurrentPage(template.id);
+                }}
+                onDuplicate={() => {
+                  duplicateTemplate(template);
+                }}
+                onDelete={() => {
+                  pendingDeleteTemplate = template;
+                }}
+              />
+            {/each}
+          </div>
+        {/if}
+      </div>
+    {/if}
   </div>
 
   <div class="shrink-0 border-t border-border p-2">
@@ -437,6 +517,19 @@
     onConfirm={confirmTrashPage}
     onCancel={() => {
       pendingTrashPage = null;
+    }}
+  />
+{/if}
+
+{#if pendingDeleteTemplate}
+  <ConfirmDialog
+    title={t("notes.deletePageTemplateConfirmTitle", pendingDeleteTemplate.name)}
+    message={t("notes.deletePageTemplateConfirmMessage")}
+    confirmLabel={t("notes.deletePageTemplateConfirm")}
+    cancelLabel={t("common.cancelShortcut")}
+    onConfirm={confirmDeleteTemplate}
+    onCancel={() => {
+      pendingDeleteTemplate = null;
     }}
   />
 {/if}

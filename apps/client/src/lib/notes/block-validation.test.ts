@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   parseNotesBlock,
   parseNotesPage,
+  parseNotesPageTemplate,
   parseNotesRichTextArray,
   parseNotesSearchResult,
 } from "./block-validation";
@@ -73,6 +74,48 @@ describe("notes boundary validation", () => {
         icon: { type: "emoji", emoji: "" },
       }),
     ).toThrow("page.icon.emoji must not be empty");
+  });
+
+  it("parses page template DTOs", () => {
+    const template = parseNotesPageTemplate({
+      object: "page_template",
+      id: "99999999-9999-4999-8999-999999999999",
+      name: "Weekly review",
+      source_page_id: basePage.id,
+      properties: {
+        title: {
+          id: "title",
+          type: "title",
+          title: [baseRichText],
+        },
+      },
+      icon: { type: "emoji", emoji: "📄" },
+      cover: null,
+      block_count: 3,
+      created_time: "2026-07-01T12:00:00.000Z",
+      last_edited_time: "2026-07-01T12:00:00.000Z",
+    });
+
+    expect(template.name).toBe("Weekly review");
+    expect(template.source_page_id).toBe(basePage.id);
+    expect(template.block_count).toBe(3);
+  });
+
+  it("rejects negative page template block counts", () => {
+    expect(() =>
+      parseNotesPageTemplate({
+        object: "page_template",
+        id: "99999999-9999-4999-8999-999999999999",
+        name: "Weekly review",
+        source_page_id: null,
+        properties: {},
+        icon: null,
+        cover: null,
+        block_count: -1,
+        created_time: "2026-07-01T12:00:00.000Z",
+        last_edited_time: "2026-07-01T12:00:00.000Z",
+      }),
+    ).toThrow("page template.block_count must not be negative");
   });
 
   it("parses toggleable heading payload state", () => {

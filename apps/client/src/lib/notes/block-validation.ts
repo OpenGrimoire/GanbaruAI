@@ -34,6 +34,7 @@ import {
   type NotesPage,
   type NotesPageCover,
   type NotesPageIcon,
+  type NotesPageTemplate,
   type NotesPaginatedBlockList,
   type NotesParent,
   type NotesPartialUser,
@@ -909,6 +910,27 @@ export function parseNotesSidebarPageList(value: unknown): NotesSidebarPageList 
       record.trashed_parent_page_ids,
       "sidebar page list.trashed_parent_page_ids",
     ),
+  };
+}
+
+export function parseNotesPageTemplate(value: unknown): NotesPageTemplate {
+  const record = readRecord(value, "page template");
+  if (record.object !== "page_template") {
+    throw new Error("page template.object must be page_template");
+  }
+  const blockCount = readInteger(record.block_count, "page template.block_count");
+  if (blockCount < 0) throw new Error("page template.block_count must not be negative");
+  return {
+    object: "page_template",
+    id: readString(record.id, "page template.id"),
+    name: readDisplayString(record.name, "page template.name"),
+    source_page_id: readNullableString(record.source_page_id, "page template.source_page_id"),
+    properties: readRecord(record.properties, "page template.properties"),
+    icon: parseNullableNotesIcon(record.icon, "page template.icon"),
+    cover: parseNullablePageCover(record.cover, "page template.cover"),
+    block_count: blockCount,
+    created_time: readString(record.created_time, "page template.created_time"),
+    last_edited_time: readString(record.last_edited_time, "page template.last_edited_time"),
   };
 }
 
