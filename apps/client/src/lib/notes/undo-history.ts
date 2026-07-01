@@ -5,6 +5,7 @@ import {
   parentIdForBlock,
   type NotesTreeState,
 } from "./block-tree";
+import { cloneNotesJson } from "./json-clone";
 import type { NotesBlock } from "./types";
 
 export type NotesUndoKind =
@@ -128,7 +129,7 @@ function parseSnapshotBlock(value: unknown, label: string): NotesBlock {
 }
 
 function cloneBlock(block: NotesBlock): NotesBlock {
-  return structuredClone(block);
+  return parseNotesBlock(cloneNotesJson(block));
 }
 
 function cloneSnapshot(snapshot: NotesUndoSnapshot): NotesUndoSnapshot {

@@ -11,6 +11,7 @@ import {
   collectLoadedBlockSubtreeIds,
   createDuplicateBlockRequest,
 } from "$lib/notes/block-duplicate";
+import { cloneNotesJson } from "$lib/notes/json-clone";
 import { planNotesPlainTextPaste } from "$lib/notes/block-clipboard";
 import { planNotesRichHtmlPaste } from "$lib/notes/rich-text-paste";
 import {
@@ -140,6 +141,7 @@ export interface NotesBlockActionsContext {
   reloadPages: () => Promise<void>;
   reloadBacklinks: () => Promise<void>;
   localApplyBlockUpdate: (blockId: string, update: NotesBlockUpdate) => void;
+  localInsertBlockAfter: (block: NotesBlock, afterBlockId: string | null) => void;
   saveBlockNow: (blockId: string, update: NotesBlockUpdate) => Promise<void>;
   scheduleBlockSave: (blockId: string, update: NotesBlockUpdate) => void;
   flushBlockSave: (blockId: string) => Promise<void>;
@@ -283,6 +285,25 @@ export interface NotesBlockActions extends NotesColumnActions, NotesTabActions {
 export function createNotesBlockActions(context: NotesBlockActionsContext): NotesBlockActions {
   const blocksById = context.readBlocksById;
   const childIdsByParentId = context.readChildIdsByParentId;
+  const pendingOptimisticBlockCreates = new Map<string, Promise<void>>();
+
+  function optimisticBlockFromWrite(write: NotesBlockWrite, parent: NotesParent): NotesBlock {
+    const now = new Date().toISOString();
+    const plainWrite = cloneNotesJson(write);
+    const plainParent = cloneNotesJson(parent);
+    return {
+      object: "block",
+      parent: plainParent,
+      created_time: now,
+      last_edited_time: now,
+      has_children: false,
+      in_trash: false,
+      source_provider: null,
+      source_object_id: null,
+      source_last_edited_time: null,
+      ...plainWrite,
+    } as NotesBlock;
+  }
 
   function undoSnapshot(
     focusBlockId: string | null,
@@ -325,6 +346,10 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     const before = undoSnapshot(blockId);
     const update = blockWithText(block, text);
     context.localApplyBlockUpdate(blockId, update);
+    if (pendingOptimisticBlockCreates.has(blockId)) {
+      recordUndoAfter("typing", before, blockId, `typing:${blockId}`);
+      return;
+    }
     context.scheduleBlockSave(blockId, update);
     recordUndoAfter("typing", before, blockId, `typing:${blockId}`);
   }
@@ -338,6 +363,10 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     const before = undoSnapshot(blockId);
     const update = blockWithRichText(block, richText);
     context.localApplyBlockUpdate(blockId, update);
+    if (pendingOptimisticBlockCreates.has(blockId)) {
+      recordUndoAfter("typing", before, blockId, `typing:${blockId}`);
+      return;
+    }
     context.scheduleBlockSave(blockId, update);
     recordUndoAfter("typing", before, blockId, `typing:${blockId}`);
   }
@@ -943,7 +972,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
       return;
     }
     await context.loadPageTree(selectedPageId);
-    const focusBlockId = planNotesInsertedBlockFocus([newBlockId], blockId);
+    const focusBlockId = planNotesInsertedBlockFocus([newBlockId], blockId) ?? newBlockId;
     context.requestBlockFocus(focusBlockId);
     recordUndoAfter("create", before, focusBlockId);
   }
@@ -953,28 +982,81 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     selectionStart: number,
     selectionEnd: number,
   ): Promise<void> {
+    await pendingOptimisticBlockCreates.get(blockId)?.catch(() => undefined);
     const block = context.blockById(blockId);
     const selectedPageId = context.readSelectedPageId();
     if (!block || !selectedPageId || !notesEnterSplitsRichTextBlock(block.type)) return;
     await context.flushBlockSave(blockId);
+    const currentBlock = context.blockById(blockId);
+    if (!currentBlock || !notesEnterSplitsRichTextBlock(currentBlock.type)) return;
     const before = undoSnapshot(blockId);
-    const split = splitRichTextForBlock(blockEditableRichText(block), selectionStart, selectionEnd);
-    const siblingType = notesEnterSiblingBlockType(block.type);
+    const split = splitRichTextForBlock(
+      blockEditableRichText(currentBlock),
+      selectionStart,
+      selectionEnd,
+    );
+    const siblingType = notesEnterSiblingBlockType(currentBlock.type);
     const newBlockId = crypto.randomUUID();
-    const currentUpdate = blockWithRichText(block, split.before);
+    const currentUpdate = cloneNotesJson(blockWithRichText(currentBlock, split.before));
+    const nextBlockWrite = cloneNotesJson(
+      createBlockWriteFromRichText(
+        newBlockId,
+        siblingType,
+        split.after,
+        blockColor(currentBlock),
+      ),
+    );
+    const parent = cloneNotesJson(currentBlock.parent);
+    const nextBlock = optimisticBlockFromWrite(nextBlockWrite, parent);
+    const focusBlockId = planNotesInsertedBlockFocus([newBlockId], blockId) ?? newBlockId;
+
     context.localApplyBlockUpdate(blockId, currentUpdate);
-    await context.saveBlockNow(blockId, currentUpdate);
-    await appendNotesBlockChildren({
-      parent: block.parent,
-      after: blockId,
-      children: [
-        createBlockWriteFromRichText(newBlockId, siblingType, split.after, blockColor(block)),
-      ],
-    });
-    await context.loadPageTree(selectedPageId);
-    const focusBlockId = planNotesInsertedBlockFocus([newBlockId], blockId);
+    context.localInsertBlockAfter(nextBlock, blockId);
     context.requestBlockFocus(focusBlockId);
     recordUndoAfter("create", before, focusBlockId);
+    const createPromise = persistSplitTextBlock(
+      selectedPageId,
+      blockId,
+      currentUpdate,
+      parent,
+      nextBlockWrite,
+      focusBlockId,
+    ).finally(() => {
+      pendingOptimisticBlockCreates.delete(newBlockId);
+    });
+    pendingOptimisticBlockCreates.set(newBlockId, createPromise);
+    void createPromise;
+  }
+
+  async function persistSplitTextBlock(
+    selectedPageId: string,
+    blockId: string,
+    currentUpdate: NotesBlockUpdate,
+    parent: NotesParent,
+    nextBlockWrite: NotesBlockWrite,
+    focusBlockId: string,
+  ): Promise<void> {
+    try {
+      await context.saveBlockNow(blockId, cloneNotesJson(currentUpdate));
+      await appendNotesBlockChildren({
+        parent: cloneNotesJson(parent),
+        after: blockId,
+        children: [cloneNotesJson(nextBlockWrite)],
+      });
+      pendingOptimisticBlockCreates.delete(nextBlockWrite.id);
+      const nextBlock = context.blockById(nextBlockWrite.id);
+      if (nextBlock) {
+        await context.saveBlockNow(
+          nextBlockWrite.id,
+          cloneNotesJson(blockWithRichText(nextBlock, blockEditableRichText(nextBlock))),
+        );
+      }
+      await context.loadPageTree(selectedPageId);
+      context.requestBlockFocus(focusBlockId);
+    } catch (error) {
+      console.warn("notes split block persistence failed", error);
+      await context.loadPageTree(selectedPageId);
+    }
   }
 
   async function pastePlainTextIntoBlock(

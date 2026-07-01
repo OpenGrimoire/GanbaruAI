@@ -10,6 +10,7 @@ import type {
   NotesRichTextLink,
   NotesTextRichText,
 } from "./types";
+import { cloneNotesJson } from "./json-clone";
 
 const DEFAULT_RICH_TEXT_ANNOTATIONS: NotesRichTextAnnotations = {
   bold: false,
@@ -258,7 +259,7 @@ export function isDateMentionRichText(item: NotesRichText): item is NotesDateMen
 }
 
 function cloneRichText(item: NotesRichText): NotesRichText {
-  return structuredClone(item);
+  return cloneNotesJson(item);
 }
 
 function richTextLinksEqual(
@@ -288,11 +289,11 @@ function cloneTextRichTextWithContent(
   item: NotesTextRichText,
   content: string,
 ): NotesTextRichText {
-  const clone: NotesTextRichText = structuredClone(item);
+  const clone = cloneNotesJson(item);
   return {
     ...clone,
     text: {
-      ...item.text,
+      ...clone.text,
       content,
     },
     plain_text: content,

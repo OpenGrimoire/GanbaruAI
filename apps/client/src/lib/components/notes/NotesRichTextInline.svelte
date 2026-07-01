@@ -9,6 +9,13 @@
     richText: readonly NotesRichText[];
   } = $props();
 
+  const visibleRichText = $derived(richText.filter(richTextItemIsVisible));
+
+  function richTextItemIsVisible(item: NotesRichText): boolean {
+    if (item.type === "equation") return equationPreviewText(item.equation.expression).length > 0;
+    return item.plain_text.length > 0;
+  }
+
   function textClass(item: NotesRichText): string {
     const classes = ["notes-rich-text-segment"];
     if (item.annotations.bold) classes.push("font-semibold");
@@ -29,7 +36,7 @@
   }
 </script>
 
-{#each richText as item}
+{#each visibleRichText as item}
   {#if item.type === "mention"}
     <span
       class="notes-rich-text-segment inline-flex max-w-full items-center rounded bg-accent px-1 text-accent-foreground"

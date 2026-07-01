@@ -1171,6 +1171,16 @@ fn page_history_snapshots_restore_copy_and_retention_settings() {
         assert_eq!(snapshots_json[0]["block_count"], 1);
         let initial_snapshot_id = snapshots_json[0]["id"].as_str().unwrap().to_string();
 
+        sqlx::query(
+            "UPDATE notes_page_history_snapshots
+             SET created_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-10 minutes')
+             WHERE id = ?",
+        )
+        .bind(&initial_snapshot_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
         writes::append_block_children(
             &pool,
             NoteAppendBlockChildren {
@@ -1263,6 +1273,47 @@ fn page_history_snapshots_restore_copy_and_retention_settings() {
         .unwrap();
         let retained_json = serde_json::to_value(retained).unwrap();
         assert_eq!(retained_json["retention_days"], 90);
+    });
+}
+
+#[test]
+fn page_history_coalesces_rapid_editor_snapshots() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        create_page(&pool, PAGE_A, BLOCK_A).await;
+
+        writes::update_block(
+            &pool,
+            BLOCK_A,
+            block_update("paragraph", paragraph_payload("First edit")),
+        )
+        .await
+        .unwrap();
+        writes::append_block_children(
+            &pool,
+            NoteAppendBlockChildren {
+                parent: page_parent(PAGE_A),
+                after: Some(BLOCK_A.to_string()),
+                children: vec![block(BLOCK_B, "paragraph", paragraph_payload("Second row"))],
+            },
+        )
+        .await
+        .unwrap();
+        writes::update_block(
+            &pool,
+            BLOCK_B,
+            block_update("paragraph", paragraph_payload("Second row edited")),
+        )
+        .await
+        .unwrap();
+
+        let snapshots = history::list_page_history_snapshots(&pool, PAGE_A)
+            .await
+            .unwrap();
+        let snapshots_json = serde_json::to_value(snapshots).unwrap();
+        assert_eq!(snapshots_json.as_array().unwrap().len(), 1);
+        assert_eq!(snapshots_json[0]["reason"], "update_block");
+        assert_eq!(snapshots_json[0]["block_count"], 1);
     });
 }
 

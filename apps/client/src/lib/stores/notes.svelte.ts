@@ -180,6 +180,22 @@ function replaceBlock(block: NotesBlock): void {
   blocksById = { ...blocksById, [block.id]: block };
 }
 
+function insertBlockAfter(block: NotesBlock, afterBlockId: string | null): void {
+  const parentId = parentIdForBlock(block);
+  const currentChildIds = (childIdsByParentId[parentId] ?? []).filter((id) => id !== block.id);
+  const afterIndex = afterBlockId ? currentChildIds.indexOf(afterBlockId) : -1;
+  const insertIndex = afterIndex >= 0 ? afterIndex + 1 : currentChildIds.length;
+  childIdsByParentId = {
+    ...childIdsByParentId,
+    [parentId]: [
+      ...currentChildIds.slice(0, insertIndex),
+      block.id,
+      ...currentChildIds.slice(insertIndex),
+    ],
+  };
+  replaceBlock(block);
+}
+
 function setLoadedPageFromLoaded(loaded: NotesLoadedPage): void {
   loadedPage = loaded.page;
   const blocks = loaded.blocks.results;
@@ -984,6 +1000,7 @@ const blockActions = createNotesBlockActions({
   reloadPages,
   reloadBacklinks,
   localApplyBlockUpdate,
+  localInsertBlockAfter: insertBlockAfter,
   saveBlockNow,
   scheduleBlockSave,
   flushBlockSave,

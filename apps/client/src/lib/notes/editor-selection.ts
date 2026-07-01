@@ -77,6 +77,13 @@ function isElementNode(node: Node): node is Element {
   return node.nodeType === ELEMENT_NODE;
 }
 
+function nodeHasEditablePlainText(node: Node): boolean {
+  if (node.nodeType === TEXT_NODE) return (node.textContent ?? "").length > 0;
+  if (!isElementNode(node) && node.nodeType !== DOCUMENT_FRAGMENT_NODE) return false;
+  if (isElementNode(node) && node.tagName === "BR") return false;
+  return Array.from(node.childNodes).some(nodeHasEditablePlainText);
+}
+
 function appendEditablePlainText(node: Node, output: string[], root: Node): void {
   if (node.nodeType === TEXT_NODE) {
     output.push(node.textContent ?? "");
@@ -103,6 +110,7 @@ function appendEditablePlainText(node: Node, output: string[], root: Node): void
  * Read only the plain text represented by the rich editable Notes surface.
  */
 export function notesPlainTextFromEditableRoot(root: HTMLElement | DocumentFragment): string {
+  if (!nodeHasEditablePlainText(root)) return "";
   const output: string[] = [];
   root.childNodes.forEach((child) => appendEditablePlainText(child, output, root));
   return output.join("").replace(/\u00a0/gu, " ");

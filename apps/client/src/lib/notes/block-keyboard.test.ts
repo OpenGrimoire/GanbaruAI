@@ -28,6 +28,7 @@ describe("notes keyboard planning", () => {
       type: "split_text_block",
       selectionStart: 0,
       selectionEnd: 0,
+      text: "Hello",
       preventDefault: true,
     });
     expect(
@@ -42,6 +43,7 @@ describe("notes keyboard planning", () => {
       type: "split_text_block",
       selectionStart: 2,
       selectionEnd: 4,
+      text: "Hello",
       preventDefault: true,
     });
   });

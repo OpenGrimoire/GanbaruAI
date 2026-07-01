@@ -8,6 +8,7 @@ import {
 } from "$lib/api/notes";
 import { blockUpdateFromBlock } from "$lib/notes/block-factory";
 import { parentIdForBlock, type NotesTreeState } from "$lib/notes/block-tree";
+import { cloneNotesJson } from "$lib/notes/json-clone";
 import {
   createNotesUndoSnapshot,
   parentIdsByDepth,
@@ -46,7 +47,7 @@ export interface NotesUndoController {
 }
 
 function cloneEntry(entry: NotesUndoEntry): NotesUndoEntry {
-  return structuredClone(entry);
+  return cloneNotesJson(entry);
 }
 
 function entryIdsByPresence(

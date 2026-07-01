@@ -23,6 +23,7 @@
     shouldDeferNotesCompositionInput,
     shouldLetNativeCompositionHandleKeydown,
   } from "$lib/notes/composition";
+  import { planNotesControlledTextEdit } from "$lib/notes/controlled-text-input";
   import {
     notesMentionMenuDomId,
     notesRichTextEditorActiveDescendant,
@@ -625,7 +626,8 @@
     const selection = target instanceof HTMLElement
       ? notesTextSelectionFromEditableRoot(target)
       : null;
-    const selectionStart = selection?.start ?? 0;
+    const currentText = target instanceof HTMLElement ? notesPlainTextFromEditableRoot(target) : text;
+    const selectionStart = selection?.start ?? currentText.length;
     const selectionEnd = selection?.end ?? selectionStart;
     const action = planNotesKeyboardAction({
       key: event.key,
@@ -633,7 +635,7 @@
       ctrlKey: event.ctrlKey,
       metaKey: event.metaKey,
       altKey: event.altKey,
-      text,
+      text: currentText,
       selectionStart,
       selectionEnd,
       blockType: block.type,
@@ -652,13 +654,74 @@
     onKeyboardAction(block.id, action);
   }
 
-  function updateMentionQueryFromEditor(target: HTMLElement, plainText: string): void {
+  function handleBeforeInput(event: InputEvent): void {
+    if (event.isComposing || compositionActive) return;
+    const target = event.currentTarget;
+    if (!(target instanceof HTMLElement)) return;
+
+    const currentText = notesPlainTextFromEditableRoot(target);
+    const selection = notesTextSelectionFromEditableRoot(target);
+    const selectionStart = selection?.start ?? currentText.length;
+    const selectionEnd = selection?.end ?? selectionStart;
+    if (event.inputType !== "insertParagraph") {
+      const edit = planNotesControlledTextEdit({
+        inputType: event.inputType,
+        data: event.data,
+        text: currentText,
+        selectionStart,
+        selectionEnd,
+      });
+      if (!edit) return;
+      event.preventDefault();
+      commitPlainTextValue(edit.text, edit.selection);
+      return;
+    }
+
+    if (mentionOpen || slashOpen) return;
+    const action = planNotesKeyboardAction({
+      key: "Enter",
+      shiftKey: false,
+      ctrlKey: false,
+      metaKey: false,
+      altKey: false,
+      text: currentText,
+      selectionStart,
+      selectionEnd,
+      blockType: block.type,
+      previousBlockType,
+      isOnlyBlock,
+    });
+    if (action.type === "insert_newline") {
+      const edit = planNotesControlledTextEdit({
+        inputType: event.inputType,
+        data: event.data,
+        text: currentText,
+        selectionStart,
+        selectionEnd,
+      });
+      if (!edit) return;
+      event.preventDefault();
+      commitPlainTextValue(edit.text, edit.selection);
+      return;
+    }
+    if (action.type === "none" || action.type === "open_slash_menu") {
+      return;
+    }
+    event.preventDefault();
+    slashOpen = false;
+    mentionQuery = null;
+    onKeyboardAction(block.id, action);
+  }
+
+  function updateMentionQueryFromText(
+    plainText: string,
+    selection: NotesTextSelection | null,
+  ): void {
     if (!canUseMentions) {
       mentionQuery = null;
       mentionActiveIndex = 0;
       return;
     }
-    const selection = notesTextSelectionFromEditableRoot(target);
     if (!selection) {
       mentionQuery = null;
       mentionActiveIndex = 0;
@@ -666,6 +729,10 @@
     }
     mentionQuery = detectPageMentionQuery(plainText, selection.start, selection.end);
     mentionActiveIndex = 0;
+  }
+
+  function updateMentionQueryFromEditor(target: HTMLElement, plainText: string): void {
+    updateMentionQueryFromText(plainText, notesTextSelectionFromEditableRoot(target));
   }
 
   function syncTextSelection(target: EventTarget | null): void {
@@ -720,11 +787,12 @@
     await focusEditorWithSelection(selection.start, selection.end);
   }
 
-  function commitRichTextInput(target: HTMLElement): void {
+  function commitPlainTextValue(
+    value: string,
+    selection: NotesTextSelection | null,
+  ): void {
     inlineEquationErrorReason = null;
-    syncTextSelection(target);
-    const value = notesPlainTextFromEditableRoot(target);
-    const selection = notesTextSelectionFromEditableRoot(target);
+    if (selection) setTrackedSelection(selection);
     if (canUseInlineFormatting && selection) {
       const nextRichText = replacePlainTextPreservingRichText(editableRichText, value);
       const shortcutPlan = planNotesMarkdownInlineShortcutConversion(
@@ -747,10 +815,18 @@
     if (slashSession.open) {
       mentionQuery = null;
     } else {
-      updateMentionQueryFromEditor(target, value);
+      updateMentionQueryFromText(value, selection);
     }
     onTextInput(block.id, value);
     if (selection) void focusEditorWithSelection(selection.start, selection.end);
+  }
+
+  function commitRichTextInput(target: HTMLElement): void {
+    syncTextSelection(target);
+    commitPlainTextValue(
+      notesPlainTextFromEditableRoot(target),
+      notesTextSelectionFromEditableRoot(target),
+    );
   }
 
   function handleInput(event: Event): void {
@@ -986,9 +1062,9 @@
   tabindex="0"
   data-notes-block-id={block.id}
   data-placeholder={t("notes.blockPlaceholder")}
-  data-empty={text.length === 0 ? "true" : undefined}
   oninput={handleInput}
   onkeydown={handleKeydown}
+  onbeforeinput={handleBeforeInput}
   oncompositionstart={() => {
     compositionActive = true;
     closeCompositionSensitiveMenus();
@@ -1070,7 +1146,7 @@
     caret-color: var(--foreground);
   }
 
-  .notes-rich-text-editor[data-empty="true"]::before {
+  .notes-rich-text-editor:empty::before {
     content: attr(data-placeholder);
     color: var(--muted-foreground);
     pointer-events: none;

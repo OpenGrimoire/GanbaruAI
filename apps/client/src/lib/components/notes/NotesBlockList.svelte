@@ -22,8 +22,15 @@
   import { notesPageIconText } from "$lib/notes/page-icon";
   import { notesPageTitle } from "$lib/notes/page-title";
   import { notesTemplateBlockStatus } from "$lib/notes/template-block";
-  import type { NotesHeadingBlockType } from "$lib/notes/block-factory";
+  import {
+    isTextEditableBlock,
+    type NotesHeadingBlockType,
+  } from "$lib/notes/block-factory";
   import type { NotesBlockInsertRequest } from "$lib/notes/block-insertion";
+  import {
+    notesPlainTextFromEditableRoot,
+    restoreNotesEditableSelection,
+  } from "$lib/notes/editor-selection";
   import type {
     NotesDateMentionTarget,
     NotesPageMentionTarget,
@@ -230,12 +237,28 @@
 
   function focusSelectedBlockRow(blockId: string, preventScroll = true): void {
     void tick().then(() => {
-      const row = blockListElement
-        ? Array.from(blockListElement.querySelectorAll<HTMLElement>("[data-notes-selectable-block-id]"))
-          .find((element) => element.dataset.notesSelectableBlockId === blockId) ?? null
-        : null;
-      row?.focus({ preventScroll });
+      selectableBlockRowFromBlockId(blockId)?.focus({ preventScroll });
     });
+  }
+
+  function selectableBlockRowFromBlockId(blockId: string): HTMLElement | null {
+    if (!blockListElement) return null;
+    return Array.from(blockListElement.querySelectorAll<HTMLElement>("[data-notes-selectable-block-id]"))
+      .find((element) => element.dataset.notesSelectableBlockId === blockId) ?? null;
+  }
+
+  function focusTextEditorForBlock(blockId: string): boolean {
+    const block = notes.blockById(blockId);
+    if (!block || !isTextEditableBlock(block.type)) return false;
+
+    const editor = selectableBlockRowFromBlockId(blockId)
+      ?.querySelector<HTMLElement>("[contenteditable='true'][role='textbox']") ?? null;
+    if (!editor) return false;
+
+    editor.focus({ preventScroll: true });
+    const textLength = notesPlainTextFromEditableRoot(editor).length;
+    restoreNotesEditableSelection(editor, { start: textLength, end: textLength });
+    return true;
   }
 
   function clearNativeSelection(): void {
@@ -273,6 +296,11 @@
       return;
     }
     if (eventTargetIsEditable(event.target)) return;
+    if (focusTextEditorForBlock(blockId)) {
+      event.preventDefault();
+      setBlockSelection(null);
+      return;
+    }
     event.preventDefault();
     clearNativeSelection();
     selectionDragAnchorBlockId = blockId;
@@ -457,7 +485,7 @@
       return;
     }
     if (action.type === "split_text_block") {
-      void notes.splitTextBlockAtSelection(blockId, action.selectionStart, action.selectionEnd);
+      void splitTextBlockFromKeyboardAction(blockId, action);
       return;
     }
     if (action.type === "convert_to_paragraph") {
@@ -498,6 +526,14 @@
     if (action.type === "move_down") {
       void notes.moveBlockDown(blockId);
     }
+  }
+
+  async function splitTextBlockFromKeyboardAction(
+    blockId: string,
+    action: Extract<NotesKeyboardAction, { type: "split_text_block" }>,
+  ): Promise<void> {
+    await notes.updateBlockText(blockId, action.text);
+    await notes.splitTextBlockAtSelection(blockId, action.selectionStart, action.selectionEnd);
   }
 
   function handleConvert(blockId: string, type: NotesBlockType, clearText = false): void {

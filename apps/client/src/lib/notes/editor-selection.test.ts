@@ -82,6 +82,19 @@ describe("notes editor selection helpers", () => {
     expect(notesPlainTextFromEditableRoot(root)).toBe("Hello\nworld");
   });
 
+  it("treats browser filler markup in an empty editable surface as empty text", () => {
+    const root = document.createElement("div");
+
+    root.innerHTML = "<br>";
+    expect(notesPlainTextFromEditableRoot(root)).toBe("");
+
+    root.innerHTML = "<span></span>";
+    expect(notesPlainTextFromEditableRoot(root)).toBe("");
+
+    root.innerHTML = "<div><br></div>";
+    expect(notesPlainTextFromEditableRoot(root)).toBe("");
+  });
+
   it("normalizes editable block wrappers as line breaks", () => {
     const root = document.createElement("div");
     root.innerHTML = "<div>First</div><div><span>Second</span></div>";

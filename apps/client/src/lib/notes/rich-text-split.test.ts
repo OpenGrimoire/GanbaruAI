@@ -11,6 +11,14 @@ import { splitRichTextForBlock } from "./rich-text-split";
 const pageId = "11111111-1111-4111-8111-111111111111";
 
 describe("notes rich text block splitting", () => {
+  it("splits proxy-wrapped rich text from reactive state", () => {
+    const item = new Proxy(createTextRichText("Hello world"), {});
+    const split = splitRichTextForBlock([item], 5, 5);
+
+    expect(richTextPlainText(split.before)).toBe("Hello");
+    expect(richTextPlainText(split.after)).toBe(" world");
+  });
+
   it("preserves formatting and rich objects around the split", () => {
     const [bold] = applyRichTextAnnotations(
       [createTextRichText("Important")],

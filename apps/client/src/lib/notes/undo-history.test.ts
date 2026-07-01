@@ -76,6 +76,18 @@ function entry(
 }
 
 describe("notes undo history", () => {
+  it("snapshots proxy-wrapped blocks from reactive state", () => {
+    const block = new Proxy(
+      paragraph(blockA, { type: "page_id", page_id: pageId }, "Reactive"),
+      {},
+    );
+    const snapshot = createNotesUndoSnapshot(pageId, state([block]), blockA);
+
+    expect(snapshot?.blocks).toHaveLength(1);
+    expect(snapshot?.blocks[0]).not.toBe(block);
+    expect(blockPlainText(snapshot?.blocks[0] ?? block)).toBe("Reactive");
+  });
+
   it("groups typing by block within the typing window", () => {
     const initial: NotesUndoState = { undo: [], redo: [] };
     const first = recordNotesUndoEntry(initial, {

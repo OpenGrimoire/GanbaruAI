@@ -18,6 +18,7 @@ export type NotesKeyboardAction =
     type: "split_text_block";
     selectionStart: number;
     selectionEnd: number;
+    text: string;
     preventDefault: true;
   }
   | { type: "convert_to_paragraph"; preventDefault: true }
@@ -106,6 +107,7 @@ export function planNotesKeyboardAction(input: NotesKeyboardPlanInput): NotesKey
         type: "split_text_block",
         selectionStart: input.selectionStart,
         selectionEnd: input.selectionEnd,
+        text: input.text,
         preventDefault: true,
       };
     }

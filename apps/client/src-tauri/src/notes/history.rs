@@ -11,6 +11,7 @@ use sqlx::{Sqlite, SqlitePool, Transaction};
 use std::collections::{HashMap, HashSet};
 
 const DEFAULT_BLOCK_SORT_STEP: f64 = 1000.0;
+const EDIT_SESSION_SNAPSHOT_WINDOW_MINUTES: i64 = 5;
 
 enum SnapshotInsertMode {
     PreserveAvailableIds,
@@ -157,6 +158,9 @@ pub(in crate::notes) async fn record_page_snapshot_tx(
     let blocks = load_page_block_subtree_rows(tx, &page_id).await?;
     let blocks_payload = serialize_snapshot_blocks(&blocks)?;
     if latest_snapshot_matches(tx, &page, &blocks_payload).await? {
+        return Ok(None);
+    }
+    if recent_edit_session_snapshot_exists(tx, &page.id, &reason).await? {
         return Ok(None);
     }
     let snapshot_id = new_note_id(tx, &mut HashSet::new()).await?;
@@ -626,6 +630,38 @@ async fn latest_snapshot_matches(
                 && blocks == blocks_payload
         },
     ))
+}
+
+fn is_edit_session_snapshot_reason(reason: &str) -> bool {
+    matches!(
+        reason,
+        "append_block_children" | "update_block" | "trash_block" | "trash_blocks"
+    )
+}
+
+async fn recent_edit_session_snapshot_exists(
+    tx: &mut Transaction<'_, Sqlite>,
+    page_id: &str,
+    reason: &str,
+) -> Result<bool, String> {
+    if !is_edit_session_snapshot_reason(reason) {
+        return Ok(false);
+    }
+    let modifier = format!("-{EDIT_SESSION_SNAPSHOT_WINDOW_MINUTES} minutes");
+    let latest_reason: Option<String> = sqlx::query_scalar(
+        "SELECT reason
+         FROM notes_page_history_snapshots
+         WHERE page_id = ?
+           AND created_time >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?)
+         ORDER BY created_time DESC, id DESC
+         LIMIT 1",
+    )
+    .bind(page_id)
+    .bind(modifier)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|e| format!("load recent notes edit history snapshot: {e}"))?;
+    Ok(latest_reason.is_some_and(|latest| is_edit_session_snapshot_reason(&latest)))
 }
 
 fn loaded_page_from_snapshot(
