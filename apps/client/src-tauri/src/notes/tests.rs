@@ -3641,6 +3641,20 @@ fn append_and_update_table_blocks_round_trip() {
 
         writes::update_block(
             &pool,
+            BLOCK_B,
+            block_update(
+                "table",
+                json!({
+                    "table_width": 3,
+                    "has_column_header": true,
+                    "has_row_header": true
+                }),
+            ),
+        )
+        .await
+        .unwrap();
+        writes::update_block(
+            &pool,
             BLOCK_D,
             block_update("table_row", table_row_payload(&["Ganbaru AI", "Offline"])),
         )
@@ -3653,6 +3667,11 @@ fn append_and_update_table_blocks_round_trip() {
         let table_children_json = serde_json::to_value(table_children).unwrap();
         assert_eq!(table_children_json["results"].as_array().unwrap().len(), 2);
         assert_eq!(table_children_json["results"][1]["type"], "table_row");
+        let stored_table = reads::get_block(&pool, BLOCK_B, false).await.unwrap();
+        let stored_table_json = serde_json::to_value(stored_table).unwrap();
+        assert_eq!(stored_table_json["table"]["table_width"], 3);
+        assert_eq!(stored_table_json["table"]["has_column_header"], true);
+        assert_eq!(stored_table_json["table"]["has_row_header"], true);
         assert_eq!(
             table_children_json["results"][1]["table_row"]["cells"][0][0]["plain_text"],
             "Ganbaru AI"

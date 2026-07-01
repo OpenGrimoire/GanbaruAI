@@ -88,7 +88,11 @@
     onEmbedUrlChange,
     onEquationExpressionChange,
     onMediaChange,
-    onTableCellChange,
+    onTableCellRichTextChange,
+    onAddTableRow,
+    onRemoveTableRow,
+    onAddTableColumn,
+    onRemoveTableColumn,
     onSelectPage,
     onFocusBlock,
   }: {
@@ -190,7 +194,15 @@
     onEmbedUrlChange: (blockId: string, url: string) => void;
     onEquationExpressionChange: (blockId: string, expression: string) => void;
     onMediaChange: (blockId: string, url: string, caption: string, name?: string) => void;
-    onTableCellChange: (rowBlockId: string, columnIndex: number, text: string) => void;
+    onTableCellRichTextChange: (
+      rowBlockId: string,
+      columnIndex: number,
+      richText: readonly NotesRichText[],
+    ) => Promise<void> | void;
+    onAddTableRow: (tableBlockId: string, afterRowIndex: number) => Promise<void> | void;
+    onRemoveTableRow: (tableBlockId: string, rowBlockId: string) => Promise<void> | void;
+    onAddTableColumn: (tableBlockId: string, afterColumnIndex: number) => Promise<void> | void;
+    onRemoveTableColumn: (tableBlockId: string, columnIndex: number) => Promise<void> | void;
     onSelectPage: (pageId: string) => void;
     onFocusBlock: (blockId: string) => void;
   } = $props();
@@ -411,7 +423,11 @@
                         {onEmbedUrlChange}
                         {onEquationExpressionChange}
                         {onMediaChange}
-                        {onTableCellChange}
+                        {onTableCellRichTextChange}
+                        {onAddTableRow}
+                        {onRemoveTableRow}
+                        {onAddTableColumn}
+                        {onRemoveTableColumn}
                         {onSelectPage}
                         {onFocusBlock}
                       />

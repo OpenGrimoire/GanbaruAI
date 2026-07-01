@@ -611,6 +611,30 @@
     void notes.updateBlockRichText(blockId, richText);
   }
 
+  function replaceTableCellRichText(
+    rowBlockId: string,
+    columnIndex: number,
+    richText: readonly NotesRichText[],
+  ): void {
+    void notes.updateTableCellRichText(rowBlockId, columnIndex, richText);
+  }
+
+  function addTableRow(tableBlockId: string, afterRowIndex: number): Promise<void> {
+    return notes.addTableRow(tableBlockId, afterRowIndex);
+  }
+
+  function removeTableRow(tableBlockId: string, rowBlockId: string): Promise<void> {
+    return notes.removeTableRow(tableBlockId, rowBlockId);
+  }
+
+  function addTableColumn(tableBlockId: string, afterColumnIndex: number): Promise<void> {
+    return notes.addTableColumn(tableBlockId, afterColumnIndex);
+  }
+
+  function removeTableColumn(tableBlockId: string, columnIndex: number): Promise<void> {
+    return notes.removeTableColumn(tableBlockId, columnIndex);
+  }
+
   function undoNotesEdit(): void {
     void notes.undoNotesEdit();
   }
@@ -921,9 +945,11 @@
         onMediaChange={(blockId, url, caption, name) => {
           void notes.updateMedia(blockId, url, caption, name);
         }}
-        onTableCellChange={(rowBlockId, columnIndex, text) => {
-          void notes.updateTableCell(rowBlockId, columnIndex, text);
-        }}
+        onTableCellRichTextChange={replaceTableCellRichText}
+        onAddTableRow={addTableRow}
+        onRemoveTableRow={removeTableRow}
+        onAddTableColumn={addTableColumn}
+        onRemoveTableColumn={removeTableColumn}
         {onSelectPage}
         {onFocusBlock}
       />
@@ -1023,9 +1049,11 @@
         onMediaChange={(blockId, url, caption, name) => {
           void notes.updateMedia(blockId, url, caption, name);
         }}
-        onTableCellChange={(rowBlockId, columnIndex, text) => {
-          void notes.updateTableCell(rowBlockId, columnIndex, text);
-        }}
+        onTableCellRichTextChange={replaceTableCellRichText}
+        onAddTableRow={addTableRow}
+        onRemoveTableRow={removeTableRow}
+        onAddTableColumn={addTableColumn}
+        onRemoveTableColumn={removeTableColumn}
         {onSelectPage}
         {onFocusBlock}
       />
@@ -1119,9 +1147,11 @@
         onMediaChange={(blockId, url, caption, name) => {
           void notes.updateMedia(blockId, url, caption, name);
         }}
-        onTableCellChange={(rowBlockId, columnIndex, text) => {
-          void notes.updateTableCell(rowBlockId, columnIndex, text);
-        }}
+        onTableCellRichTextChange={replaceTableCellRichText}
+        onAddTableRow={addTableRow}
+        onRemoveTableRow={removeTableRow}
+        onAddTableColumn={addTableColumn}
+        onRemoveTableColumn={removeTableColumn}
         {onSelectPage}
         {onFocusBlock}
       />

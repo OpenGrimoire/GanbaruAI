@@ -1005,6 +1005,11 @@ const {
   updateEquationExpression,
   updateMedia,
   updateTableCell,
+  updateTableCellRichText,
+  addTableRow,
+  removeTableRow,
+  addTableColumn,
+  removeTableColumn,
   convertBlock,
   toggleTodo,
   updateCodeLanguage,
@@ -1350,5 +1355,10 @@ export function getNotes() {
     updateEquationExpression,
     updateMedia,
     updateTableCell,
+    updateTableCellRichText,
+    addTableRow,
+    removeTableRow,
+    addTableColumn,
+    removeTableColumn,
   };
 }

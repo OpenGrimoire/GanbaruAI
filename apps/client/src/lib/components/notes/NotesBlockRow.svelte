@@ -11,7 +11,6 @@
     headingToggleOpen,
     isHeadingBlockType,
     isTextEditableBlock,
-    tableCellPlainText,
     type NotesHeadingBlockType,
   } from "$lib/notes/block-factory";
   import { notesBlockAnchorId } from "$lib/notes/block-link";
@@ -55,6 +54,7 @@
   import NotesBlockHandle from "./NotesBlockHandle.svelte";
   import NotesCardBlock from "./NotesCardBlock.svelte";
   import NotesSlashMenu from "./NotesSlashMenu.svelte";
+  import NotesTableBlock from "./NotesTableBlock.svelte";
   import NotesTextBlockEditor from "./NotesTextBlockEditor.svelte";
 
   let {
@@ -108,7 +108,11 @@
     onEmbedUrlChange,
     onEquationExpressionChange,
     onMediaChange,
-    onTableCellChange,
+    onTableCellRichTextChange,
+    onAddTableRow,
+    onRemoveTableRow,
+    onAddTableColumn,
+    onRemoveTableColumn,
     onSelectPage,
     onFocusBlock,
   }: {
@@ -204,7 +208,15 @@
     onEmbedUrlChange: (blockId: string, url: string) => void;
     onEquationExpressionChange: (blockId: string, expression: string) => void;
     onMediaChange: (blockId: string, url: string, caption: string, name?: string) => void;
-    onTableCellChange: (rowBlockId: string, columnIndex: number, text: string) => void;
+    onTableCellRichTextChange: (
+      rowBlockId: string,
+      columnIndex: number,
+      richText: readonly NotesRichText[],
+    ) => Promise<void> | void;
+    onAddTableRow: (tableBlockId: string, afterRowIndex: number) => Promise<void> | void;
+    onRemoveTableRow: (tableBlockId: string, rowBlockId: string) => Promise<void> | void;
+    onAddTableColumn: (tableBlockId: string, afterColumnIndex: number) => Promise<void> | void;
+    onRemoveTableColumn: (tableBlockId: string, columnIndex: number) => Promise<void> | void;
     onSelectPage: (pageId: string) => void;
     onFocusBlock: (blockId: string) => void;
   } = $props();
@@ -233,7 +245,6 @@
   let dividerButton: HTMLButtonElement | null = $state(null);
   let breadcrumbButton: HTMLButtonElement | null = $state(null);
   let tableOfContentsButton: HTMLButtonElement | null = $state(null);
-  let firstTableCellInput: HTMLInputElement | null = $state(null);
   let childDatabaseButton: HTMLButtonElement | null = $state(null);
   let syncedBlockButton: HTMLButtonElement | null = $state(null);
   let unsupportedButton: HTMLButtonElement | null = $state(null);
@@ -265,18 +276,12 @@
   const syncedBlockSourceId = $derived(
     block.type === "synced_block" ? block.synced_block.synced_from?.block_id ?? null : null,
   );
-  const tableColumnIndexes = $derived(
-    block.type === "table"
-      ? Array.from({ length: Math.max(1, block.table.table_width) }, (_, index) => index)
-      : [],
-  );
 
   $effect(() => {
     const _focusRequestId = focusRequestId;
     if (focusBlockId !== block.id) return;
     if (showTextEditor) return;
     void tick().then(() => {
-      focusControl(firstTableCellInput);
       focusControl(childDatabaseButton);
       focusControl(syncedBlockButton);
       focusControl(dividerButton);
@@ -341,19 +346,6 @@
   function handleChildPageKeydown(event: KeyboardEvent): void {
     if (event.key === "Enter" || event.key === " ") return;
     handleKeydown(event);
-  }
-
-  function firstTableCell(node: HTMLInputElement): { destroy: () => void } {
-    firstTableCellInput = node;
-    return {
-      destroy() {
-        if (firstTableCellInput === node) firstTableCellInput = null;
-      },
-    };
-  }
-
-  function tableCellValue(row: NotesTableRowBlock, columnIndex: number): string {
-    return tableCellPlainText(row.table_row.cells[columnIndex] ?? []);
   }
 
   function clearSlashText(): void {
@@ -646,63 +638,22 @@
           {/if}
         </nav>
       {:else if block.type === "table"}
-        <section class="my-1 min-w-0" aria-label={t("notes.blockType.table")}>
-          {#if tableRows.length === 0}
-            <button
-              bind:this={tableOfContentsButton}
-              type="button"
-              class="min-h-8 w-full rounded px-1 text-left text-[0.8rem] text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              onkeydown={handleKeydown}
-            >
-              {t("notes.emptyTable")}
-            </button>
-          {:else}
-            <div class="notes-table-scroll overflow-x-auto rounded-md border border-border bg-background/70">
-              <table
-                class="notes-table w-max min-w-full table-fixed border-collapse text-[0.866667rem]"
-                style={`--notes-table-width: ${tableColumnIndexes.length}`}
-              >
-                <tbody>
-                  {#each tableRows as row, rowIndex (row.id)}
-                    <tr>
-                      {#each tableColumnIndexes as columnIndex}
-                        <td
-                          class:notes-table-column-header={block.table.has_column_header && rowIndex === 0}
-                          class:notes-table-row-header={block.table.has_row_header && columnIndex === 0}
-                        >
-                          {#if rowIndex === 0 && columnIndex === 0}
-                            <input
-                              use:firstTableCell
-                              class="notes-table-cell-input"
-                              type="text"
-                              value={tableCellValue(row, columnIndex)}
-                              aria-label={t("notes.tableCell", rowIndex + 1, columnIndex + 1)}
-                              oninput={(event) => {
-                                onTableCellChange(row.id, columnIndex, event.currentTarget.value);
-                              }}
-                              onkeydown={handleUndoRedoKeydown}
-                            />
-                          {:else}
-                            <input
-                              class="notes-table-cell-input"
-                              type="text"
-                              value={tableCellValue(row, columnIndex)}
-                              aria-label={t("notes.tableCell", rowIndex + 1, columnIndex + 1)}
-                              oninput={(event) => {
-                                onTableCellChange(row.id, columnIndex, event.currentTarget.value);
-                              }}
-                              onkeydown={handleUndoRedoKeydown}
-                            />
-                          {/if}
-                        </td>
-                      {/each}
-                    </tr>
-                  {/each}
-                </tbody>
-              </table>
-            </div>
-          {/if}
-        </section>
+        <NotesTableBlock
+          {block}
+          {tableRows}
+          {previousBlockType}
+          {isOnlyBlock}
+          {focusBlockId}
+          {focusRequestId}
+          {onKeyboardAction}
+          {onUndo}
+          {onRedo}
+          {onTableCellRichTextChange}
+          {onAddTableRow}
+          {onRemoveTableRow}
+          {onAddTableColumn}
+          {onRemoveTableColumn}
+        />
       {:else if block.type === "image" || block.type === "video" || block.type === "audio" || block.type === "file" || block.type === "pdf"}
         <NotesMediaBlock
           {block}
@@ -886,41 +837,4 @@
     padding-left: calc((var(--notes-toc-level) - 1) * 1rem);
   }
 
-  .notes-table {
-    min-width: calc(var(--notes-table-width) * 9rem);
-  }
-
-  .notes-table td {
-    width: 9rem;
-    min-width: 9rem;
-    border-right: 1px solid hsl(var(--border));
-    border-bottom: 1px solid hsl(var(--border));
-  }
-
-  .notes-table tr:last-child td {
-    border-bottom: 0;
-  }
-
-  .notes-table td:last-child {
-    border-right: 0;
-  }
-
-  .notes-table-cell-input {
-    min-height: 2rem;
-    width: 100%;
-    min-width: 0;
-    background: transparent;
-    padding: 0.35rem 0.5rem;
-    outline: none;
-  }
-
-  .notes-table-cell-input:focus {
-    box-shadow: inset 0 0 0 2px hsl(var(--ring));
-  }
-
-  .notes-table-column-header,
-  .notes-table-row-header {
-    background: hsl(var(--muted) / 0.45);
-    font-weight: 600;
-  }
 </style>

@@ -41,7 +41,6 @@ import {
   blockWithMedia,
   blockWithPageMention,
   blockWithRichText,
-  blockWithTableCell,
   blockWithText,
   blockWithTextAnnotations,
   blockWithTextLink,
@@ -81,6 +80,19 @@ import {
 } from "$lib/notes/block-tree";
 import type { NotesRichTextAnnotationPatch } from "$lib/notes/rich-text";
 import { splitRichTextForBlock } from "$lib/notes/rich-text-split";
+import {
+  createNotesTableRowWrite,
+  notesTableCanAddColumn,
+  notesTableCanAddRow,
+  notesTableCanRemoveColumn,
+  notesTableCanRemoveRow,
+  notesTableRowWithCellRichText,
+  notesTableRowWithCellText,
+  notesTableRowWithInsertedColumn,
+  notesTableRowWithRemovedColumn,
+  notesTableVisibleWidth,
+  notesTableWithWidth,
+} from "$lib/notes/table";
 import type {
   NotesUndoKind,
   NotesUndoRecordOptions,
@@ -185,6 +197,15 @@ export interface NotesBlockActions {
     columnIndex: number,
     text: string,
   ) => Promise<void>;
+  updateTableCellRichText: (
+    rowBlockId: string,
+    columnIndex: number,
+    richText: readonly NotesRichText[],
+  ) => Promise<void>;
+  addTableRow: (tableBlockId: string, afterRowIndex: number) => Promise<void>;
+  removeTableRow: (tableBlockId: string, rowBlockId: string) => Promise<void>;
+  addTableColumn: (tableBlockId: string, afterColumnIndex: number) => Promise<void>;
+  removeTableColumn: (tableBlockId: string, columnIndex: number) => Promise<void>;
   convertBlock: (blockId: string, type: NotesBlockType, clearText?: boolean) => Promise<void>;
   toggleTodo: (blockId: string, checked: boolean) => Promise<void>;
   updateCodeLanguage: (blockId: string, language: string) => Promise<void>;
@@ -462,10 +483,123 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     const block = context.blockById(rowBlockId);
     if (!block || block.type !== "table_row") return;
     const before = undoSnapshot(rowBlockId);
-    const update = blockWithTableCell(block, columnIndex, text);
+    const update = notesTableRowWithCellText(block, columnIndex, text);
     context.localApplyBlockUpdate(rowBlockId, update);
     context.scheduleBlockSave(rowBlockId, update);
     recordUndoAfter("typing", before, rowBlockId, `typing:${rowBlockId}:${columnIndex}`);
+  }
+
+  async function updateTableCellRichText(
+    rowBlockId: string,
+    columnIndex: number,
+    richText: readonly NotesRichText[],
+  ): Promise<void> {
+    const block = context.blockById(rowBlockId);
+    if (!block || block.type !== "table_row") return;
+    const before = undoSnapshot(rowBlockId);
+    const update = notesTableRowWithCellRichText(block, columnIndex, richText);
+    context.localApplyBlockUpdate(rowBlockId, update);
+    context.scheduleBlockSave(rowBlockId, update);
+    recordUndoAfter("typing", before, rowBlockId, `typing:${rowBlockId}:${columnIndex}`);
+  }
+
+  function tableInsertIndex(index: number, width: number): number {
+    if (!Number.isFinite(index)) return width;
+    return Math.max(0, Math.min(width, Math.trunc(index)));
+  }
+
+  function tableRemoveIndex(index: number, width: number): number {
+    if (!Number.isFinite(index)) return Math.max(0, width - 1);
+    return Math.max(0, Math.min(Math.max(0, width - 1), Math.trunc(index)));
+  }
+
+  async function addTableRow(tableBlockId: string, afterRowIndex: number): Promise<void> {
+    const selectedPageId = context.readSelectedPageId();
+    const table = context.blockById(tableBlockId);
+    if (!selectedPageId || !table || table.type !== "table") return;
+    const rows = context.tableRowsForBlock(tableBlockId);
+    if (!notesTableCanAddRow(rows.length)) return;
+    await context.flushPendingBlockSaves();
+    const before = undoSnapshot(tableBlockId);
+    const rowIndex = tableRemoveIndex(afterRowIndex, Math.max(1, rows.length));
+    const after = rows[rowIndex]?.id ?? rows.at(-1)?.id ?? null;
+    await appendNotesBlockChildren({
+      parent: { type: "block_id", block_id: tableBlockId },
+      after,
+      children: [
+        createNotesTableRowWrite(
+          crypto.randomUUID(),
+          notesTableVisibleWidth(table, rows),
+        ),
+      ],
+    });
+    await context.loadPageTree(selectedPageId);
+    context.requestBlockFocus(tableBlockId);
+    recordUndoAfter("create", before, tableBlockId);
+  }
+
+  async function removeTableRow(tableBlockId: string, rowBlockId: string): Promise<void> {
+    const selectedPageId = context.readSelectedPageId();
+    const table = context.blockById(tableBlockId);
+    if (!selectedPageId || !table || table.type !== "table") return;
+    const rows = context.tableRowsForBlock(tableBlockId);
+    if (!notesTableCanRemoveRow(rows.length)) return;
+    if (!rows.some((row) => row.id === rowBlockId)) return;
+    await context.flushPendingBlockSaves();
+    const before = undoSnapshot(tableBlockId);
+    await trashNotesBlock(rowBlockId, true);
+    await context.loadPageTree(selectedPageId);
+    context.requestBlockFocus(tableBlockId);
+    recordUndoAfter("delete", before, tableBlockId);
+  }
+
+  async function addTableColumn(tableBlockId: string, afterColumnIndex: number): Promise<void> {
+    const selectedPageId = context.readSelectedPageId();
+    const table = context.blockById(tableBlockId);
+    if (!selectedPageId || !table || table.type !== "table") return;
+    const rows = context.tableRowsForBlock(tableBlockId);
+    const width = notesTableVisibleWidth(table, rows);
+    if (!notesTableCanAddColumn(width)) return;
+    const insertIndex = tableInsertIndex(afterColumnIndex + 1, width);
+    await context.flushPendingBlockSaves();
+    const before = undoSnapshot(tableBlockId);
+    await replaceBlockWithUpdate(tableBlockId, notesTableWithWidth(table, width + 1));
+    for (const row of rows) {
+      const update = notesTableRowWithInsertedColumn(row, insertIndex, width);
+      context.localApplyBlockUpdate(row.id, update);
+      await context.saveBlockNow(row.id, update);
+    }
+    if (rows.length === 0) {
+      await appendNotesBlockChildren({
+        parent: { type: "block_id", block_id: tableBlockId },
+        after: null,
+        children: [createNotesTableRowWrite(crypto.randomUUID(), width + 1)],
+      });
+    }
+    await context.loadPageTree(selectedPageId);
+    context.requestBlockFocus(tableBlockId);
+    recordUndoAfter("update", before, tableBlockId);
+  }
+
+  async function removeTableColumn(tableBlockId: string, columnIndex: number): Promise<void> {
+    const selectedPageId = context.readSelectedPageId();
+    const table = context.blockById(tableBlockId);
+    if (!selectedPageId || !table || table.type !== "table") return;
+    const rows = context.tableRowsForBlock(tableBlockId);
+    const width = notesTableVisibleWidth(table, rows);
+    if (!notesTableCanRemoveColumn(width)) return;
+    const removeIndex = tableRemoveIndex(columnIndex, width);
+    await context.flushPendingBlockSaves();
+    const before = undoSnapshot(tableBlockId);
+    await replaceBlockWithUpdate(tableBlockId, notesTableWithWidth(table, width - 1));
+    for (const row of rows) {
+      const update = notesTableRowWithRemovedColumn(row, removeIndex, width);
+      context.localApplyBlockUpdate(row.id, update);
+      await context.saveBlockNow(row.id, update);
+    }
+    await context.loadPageTree(selectedPageId);
+    context.requestBlockFocus(tableBlockId);
+    recordUndoAfter("update", before, tableBlockId);
   }
 
   async function convertBlock(blockId: string, type: NotesBlockType, clearText = false): Promise<void> {
@@ -1387,6 +1521,11 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     updateEquationExpression,
     updateMedia,
     updateTableCell,
+    updateTableCellRichText,
+    addTableRow,
+    removeTableRow,
+    addTableColumn,
+    removeTableColumn,
     convertBlock,
     toggleTodo,
     updateCodeLanguage,
