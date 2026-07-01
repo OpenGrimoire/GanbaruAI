@@ -1789,7 +1789,13 @@ export const es = {
     openLinkPreviewFailed: (message: string) => `No se pudo abrir la vista previa: ${message}`,
     childDatabasePreserved: "Base de datos preservada",
     syncedBlockOriginal: "Bloque sincronizado original",
+    syncedBlockDuplicate: "Bloque sincronizado duplicado",
     syncedBlockReference: (blockId: string) => `Sincronizado desde ${blockId}`,
+    syncedBlockOriginalDetail: "Los bloques hijos de este original siguen editables localmente.",
+    syncedBlockOriginalPreserved: "Datos originales importados preservados.",
+    syncedBlockDuplicatePreserved: "Referencia duplicada importada preservada.",
+    syncedBlockFanoutUnavailable:
+      "Las ediciones en cadena entre copias sincronizadas aún no son compatibles.",
     useTemplateButton: "Usar plantilla",
     useTemplate: (title: string) => `Usar plantilla: ${title}`,
     useButtonButton: "Ejecutar botón",

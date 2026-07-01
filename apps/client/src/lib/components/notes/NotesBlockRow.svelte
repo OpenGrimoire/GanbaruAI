@@ -14,6 +14,7 @@
     type NotesHeadingBlockType,
   } from "$lib/notes/block-factory";
   import { notesBlockAnchorId } from "$lib/notes/block-link";
+  import { notesSyncedBlockStatus } from "$lib/notes/synced-block";
   import {
     type NotesDateMentionTarget,
     type NotesRichTextAnnotationPatch,
@@ -275,6 +276,9 @@
   );
   const syncedBlockSourceId = $derived(
     block.type === "synced_block" ? block.synced_block.synced_from?.block_id ?? null : null,
+  );
+  const syncedBlockStatus = $derived(
+    block.type === "synced_block" ? notesSyncedBlockStatus(block.synced_block) : null,
   );
 
   $effect(() => {
@@ -666,6 +670,50 @@
           {onRedo}
           {onMediaChange}
         />
+      {:else if block.type === "synced_block" && syncedBlockStatus}
+        <section
+          class="my-1 flex min-w-0 items-start gap-2 rounded-md border border-dashed border-border bg-muted/30 p-2"
+          aria-label={t("notes.blockType.syncedBlock")}
+        >
+          <div
+            class="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground"
+            aria-hidden="true"
+          >
+            <RefreshCw class="size-4" />
+          </div>
+          <button
+            bind:this={syncedBlockButton}
+            type="button"
+            class="flex min-h-8 min-w-0 flex-1 flex-col gap-0.5 rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onkeydown={handleKeydown}
+            onclick={() => onFocusBlock(block.id)}
+          >
+            <span class="text-[0.866667rem] font-medium text-foreground">
+              {#if syncedBlockStatus.role === "original"}
+                {t("notes.syncedBlockOriginal")}
+              {:else}
+                {t("notes.syncedBlockDuplicate")}
+              {/if}
+            </span>
+            <span class="min-w-0 break-all text-[0.8rem] text-muted-foreground">
+              {#if syncedBlockSourceId}
+                {t("notes.syncedBlockReference", syncedBlockSourceId)}
+              {:else}
+                {t("notes.syncedBlockOriginalDetail")}
+              {/if}
+            </span>
+            <span class="min-w-0 text-[0.733333rem] text-muted-foreground">
+              {#if syncedBlockStatus.role === "original"}
+                {t("notes.syncedBlockOriginalPreserved")}
+              {:else}
+                {t("notes.syncedBlockDuplicatePreserved")}
+              {/if}
+            </span>
+            <span class="min-w-0 text-[0.733333rem] text-muted-foreground">
+              {t("notes.syncedBlockFanoutUnavailable")}
+            </span>
+          </button>
+        </section>
       {:else if block.type === "unsupported"}
         <section
           class="my-1 flex min-w-0 items-start gap-2 rounded-md border border-dashed border-border bg-muted/30 p-2"

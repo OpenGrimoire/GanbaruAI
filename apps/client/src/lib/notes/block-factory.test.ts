@@ -1,15 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
+  blockUpdateFromBlock,
   blockConvertedToType,
   blockWithHeadingToggleable,
   blockWithMedia,
   createRichText,
+  createSyncedBlockPayload,
 } from "./block-factory";
 import type {
   NotesBlock,
   NotesPdfBlock,
   NotesRichText,
   NotesRichTextAnnotations,
+  NotesSyncedBlock,
 } from "./types";
 
 const baseAnnotations: NotesRichTextAnnotations = {
@@ -99,6 +102,26 @@ function fileUploadPdfBlock(): NotesPdfBlock {
   };
 }
 
+function duplicateSyncedBlock(): NotesSyncedBlock {
+  return {
+    object: "block",
+    id: "block-3",
+    parent: {
+      type: "page_id",
+      page_id: "page-1",
+    },
+    created_time: "2026-01-01T00:00:00.000Z",
+    last_edited_time: "2026-01-01T00:00:00.000Z",
+    has_children: false,
+    in_trash: false,
+    type: "synced_block",
+    source_provider: "notion",
+    source_object_id: "source-synced-block",
+    source_last_edited_time: "2026-01-01T00:00:00.000Z",
+    synced_block: createSyncedBlockPayload("11111111-1111-4111-8111-111111111111"),
+  };
+}
+
 describe("notes block factory conversions", () => {
   it("preserves rich text objects when converting to another text block", () => {
     const richText = richTextFixture();
@@ -151,6 +174,15 @@ describe("notes block factory conversions", () => {
         url: "https://example.com/replacement.pdf",
       },
       caption: [createRichText("Replacement")],
+    });
+  });
+
+  it("preserves imported duplicate synced block references in full update payloads", () => {
+    const update = blockUpdateFromBlock(duplicateSyncedBlock());
+
+    expect(update).toEqual({
+      type: "synced_block",
+      synced_block: createSyncedBlockPayload("11111111-1111-4111-8111-111111111111"),
     });
   });
 });
