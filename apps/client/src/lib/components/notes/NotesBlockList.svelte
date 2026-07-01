@@ -22,6 +22,7 @@
   import { notesPageIconText } from "$lib/notes/page-icon";
   import { notesPageTitle } from "$lib/notes/page-title";
   import { notesTemplateBlockStatus } from "$lib/notes/template-block";
+  import { notesButtonBlockStatus } from "$lib/notes/button-block";
   import {
     isTextEditableBlock,
     type NotesHeadingBlockType,
@@ -52,6 +53,7 @@
     NotesBlock,
     NotesBlockTreeItem,
     NotesBlockType,
+    NotesButtonInsertPosition,
     NotesIcon,
     NotesPageBreadcrumbItem,
     NotesRichText,
@@ -174,6 +176,10 @@
 
   function templateStatusForBlock(blockId: string) {
     return notesTemplateBlockStatus(currentTreeState(), blockId);
+  }
+
+  function buttonStatusForBlock(blockId: string) {
+    return notesButtonBlockStatus(currentTreeState(), blockId);
   }
 
   function selectableBlockRowFromEvent(event: Event): HTMLElement | null {
@@ -962,6 +968,7 @@
         focusRequestId={notes.focusRequestId}
         {mentionTargets}
         {templateStatusForBlock}
+        {buttonStatusForBlock}
         onTextInput={(blockId, text) => {
           void notes.updateBlockText(blockId, text);
         }}
@@ -996,6 +1003,15 @@
         }}
         onUseButton={(blockId) => {
           void notes.useButtonBlock(blockId);
+        }}
+        onAddButtonChild={(blockId) => {
+          void notes.addButtonChild(blockId);
+        }}
+        onButtonIconChange={(blockId, icon: NotesIcon | null) => {
+          void notes.updateButtonIcon(blockId, icon);
+        }}
+        onButtonInsertPositionChange={(blockId, position: NotesButtonInsertPosition) => {
+          void notes.updateButtonInsertPosition(blockId, position);
         }}
         onComment={(blockId) => {
           void notes.startBlockComment(blockId);
@@ -1075,6 +1091,7 @@
         focusRequestId={notes.focusRequestId}
         {mentionTargets}
         {templateStatusForBlock}
+        {buttonStatusForBlock}
         onTextInput={(blockId, text) => {
           void notes.updateBlockText(blockId, text);
         }}
@@ -1109,6 +1126,15 @@
         }}
         onUseButton={(blockId) => {
           void notes.useButtonBlock(blockId);
+        }}
+        onAddButtonChild={(blockId) => {
+          void notes.addButtonChild(blockId);
+        }}
+        onButtonIconChange={(blockId, icon: NotesIcon | null) => {
+          void notes.updateButtonIcon(blockId, icon);
+        }}
+        onButtonInsertPositionChange={(blockId, position: NotesButtonInsertPosition) => {
+          void notes.updateButtonInsertPosition(blockId, position);
         }}
         onComment={(blockId) => {
           void notes.startBlockComment(blockId);
@@ -1186,6 +1212,7 @@
         focusRequestId={notes.focusRequestId}
         {mentionTargets}
         templateStatus={templateStatusForBlock(item.block.id)}
+        buttonStatus={buttonStatusForBlock(item.block.id)}
         onTextInput={(blockId, text) => {
           void notes.updateBlockText(blockId, text);
         }}
@@ -1220,6 +1247,15 @@
         }}
         onUseButton={(blockId) => {
           void notes.useButtonBlock(blockId);
+        }}
+        onAddButtonChild={(blockId) => {
+          void notes.addButtonChild(blockId);
+        }}
+        onButtonIconChange={(blockId, icon: NotesIcon | null) => {
+          void notes.updateButtonIcon(blockId, icon);
+        }}
+        onButtonInsertPositionChange={(blockId, position: NotesButtonInsertPosition) => {
+          void notes.updateButtonInsertPosition(blockId, position);
         }}
         onComment={(blockId) => {
           void notes.startBlockComment(blockId);

@@ -679,6 +679,26 @@ fn notes_validation_rejects_bad_ids_and_payloads() {
         Err("template.children must be stored as child blocks".to_string())
     );
     assert!(validation::validate_block_payload("button", &button_payload("Add agenda")).is_ok());
+    for position in [
+        "below_button",
+        "above_button",
+        "top_of_page",
+        "bottom_of_page",
+    ] {
+        assert!(validation::validate_block_payload(
+            "button",
+            &json!({
+                "rich_text": [rich_text("Add agenda")],
+                "icon": null,
+                "actions": [{
+                    "type": "insert_blocks",
+                    "source": "children",
+                    "position": position
+                }]
+            }),
+        )
+        .is_ok());
+    }
     assert_eq!(
         validation::validate_block_payload(
             "button",
@@ -704,6 +724,35 @@ fn notes_validation_rejects_bad_ids_and_payloads() {
             }),
         ),
         Err("button.actions[0].type must be insert_blocks".to_string())
+    );
+    assert_eq!(
+        validation::validate_block_payload(
+            "button",
+            &json!({
+                "rich_text": [rich_text("Add agenda")],
+                "icon": null,
+                "actions": [{
+                    "type": "insert_blocks",
+                    "source": "children",
+                    "position": "nearby_database"
+                }]
+            }),
+        ),
+        Err("button.actions[0].position must be a supported button insert position".to_string())
+    );
+    assert_eq!(
+        validation::validate_block_payload(
+            "button",
+            &json!({
+                "rich_text": [rich_text("Add agenda")],
+                "actions": [{
+                    "type": "insert_blocks",
+                    "source": "children",
+                    "position": "below_button"
+                }]
+            }),
+        ),
+        Err("button.icon is required".to_string())
     );
     assert_eq!(
         validation::validate_block_payload(

@@ -1064,6 +1064,9 @@ const {
   duplicateBlockSelection,
   addTemplateChild,
   useTemplateBlock,
+  addButtonChild,
+  updateButtonIcon,
+  updateButtonInsertPosition,
   useButtonBlock,
 } = blockActions;
 
@@ -1377,6 +1380,9 @@ export function getNotes() {
     duplicateBlockSelection,
     addTemplateChild,
     useTemplateBlock,
+    addButtonChild,
+    updateButtonIcon,
+    updateButtonInsertPosition,
     useButtonBlock,
     blockPlainText,
     updateBookmark,

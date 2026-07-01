@@ -19,6 +19,7 @@
   } from "$lib/notes/column";
   import { notesUndoShortcutAction } from "$lib/notes/undo-history";
   import type { NotesTemplateBlockStatus } from "$lib/notes/template-block";
+  import type { NotesButtonBlockStatus } from "$lib/notes/button-block";
   import type { NotesHeadingBlockType } from "$lib/notes/block-factory";
   import type { NotesSlashAction, NotesSlashCommand } from "$lib/notes/slash-commands";
   import type {
@@ -30,8 +31,10 @@
   import type {
     NotesBlockTreeItem,
     NotesBlockType,
+    NotesButtonInsertPosition,
     NotesColor,
     NotesColumnBlockItems,
+    NotesIcon,
     NotesPageBreadcrumbItem,
     NotesRichText,
     NotesTableOfContentsItem,
@@ -59,6 +62,7 @@
     focusRequestId,
     mentionTargets,
     templateStatusForBlock,
+    buttonStatusForBlock,
     onTextInput,
     onReplaceRichText,
     onInsertPageMention,
@@ -80,6 +84,9 @@
     onUseTemplate,
     onAddTemplateChild,
     onUseButton,
+    onAddButtonChild,
+    onButtonIconChange,
+    onButtonInsertPositionChange,
     onComment,
     onMoveUp,
     onMoveDown,
@@ -130,6 +137,7 @@
     focusRequestId: number;
     mentionTargets: NotesPageMentionTarget[];
     templateStatusForBlock: (blockId: string) => NotesTemplateBlockStatus;
+    buttonStatusForBlock: (blockId: string) => NotesButtonBlockStatus;
     onTextInput: (blockId: string, text: string) => void;
     onReplaceRichText: (
       blockId: string,
@@ -193,6 +201,12 @@
     onUseTemplate: (blockId: string) => void;
     onAddTemplateChild: (blockId: string) => void;
     onUseButton: (blockId: string) => void;
+    onAddButtonChild: (blockId: string) => void;
+    onButtonIconChange: (blockId: string, icon: NotesIcon | null) => void;
+    onButtonInsertPositionChange: (
+      blockId: string,
+      position: NotesButtonInsertPosition,
+    ) => void;
     onComment: (blockId: string) => void;
     onMoveUp: (blockId: string) => void;
     onMoveDown: (blockId: string) => void;
@@ -548,6 +562,7 @@
                         {focusRequestId}
                         {mentionTargets}
                         templateStatus={templateStatusForBlock(columnBlockItem.block.id)}
+                        buttonStatus={buttonStatusForBlock(columnBlockItem.block.id)}
                         {onTextInput}
                         {onReplaceRichText}
                         {onInsertPageMention}
@@ -569,6 +584,9 @@
                         {onUseTemplate}
                         {onAddTemplateChild}
                         {onUseButton}
+                        {onAddButtonChild}
+                        {onButtonIconChange}
+                        {onButtonInsertPositionChange}
                         {onComment}
                         {onMoveUp}
                         {onMoveDown}

@@ -2,7 +2,6 @@
   import { Temporal } from "@js-temporal/polyfill";
   import { tick, untrack } from "svelte";
   import LinkIcon from "@lucide/svelte/icons/link";
-  import MousePointerClick from "@lucide/svelte/icons/mouse-pointer-click";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import {
     blockEditableRichText,
@@ -84,10 +83,14 @@
   import type {
     NotesBlock,
     NotesBlockType,
+    NotesButtonInsertPosition,
     NotesColor,
+    NotesIcon,
     NotesRichText,
   } from "$lib/notes/types";
   import type { NotesTemplateBlockStatus } from "$lib/notes/template-block";
+  import type { NotesButtonBlockStatus } from "$lib/notes/button-block";
+  import NotesButtonBlockControls from "./NotesButtonBlockControls.svelte";
   import NotesInlineToolbar from "./NotesInlineToolbar.svelte";
   import NotesLinkEditor from "./NotesLinkEditor.svelte";
   import NotesMentionMenu from "./NotesMentionMenu.svelte";
@@ -103,6 +106,7 @@
     focusRequestId,
     mentionTargets,
     templateStatus,
+    buttonStatus,
     onTextInput,
     onReplaceRichText,
     onInsertPageMention,
@@ -123,6 +127,9 @@
     onUseTemplate,
     onAddTemplateChild,
     onUseButton,
+    onAddButtonChild,
+    onButtonIconChange,
+    onButtonInsertPositionChange,
     onMoveUp,
     onMoveDown,
     onDelete,
@@ -137,6 +144,7 @@
     focusRequestId: number;
     mentionTargets: NotesPageMentionTarget[];
     templateStatus: NotesTemplateBlockStatus;
+    buttonStatus: NotesButtonBlockStatus;
     onTextInput: (blockId: string, text: string) => void;
     onReplaceRichText: (
       blockId: string,
@@ -199,6 +207,12 @@
     onUseTemplate: (blockId: string) => void;
     onAddTemplateChild: (blockId: string) => void;
     onUseButton: (blockId: string) => void;
+    onAddButtonChild: (blockId: string) => void;
+    onButtonIconChange: (blockId: string, icon: NotesIcon | null) => void;
+    onButtonInsertPositionChange: (
+      blockId: string,
+      position: NotesButtonInsertPosition,
+    ) => void;
     onMoveUp: (blockId: string) => void;
     onMoveDown: (blockId: string) => void;
     onDelete: (blockId: string) => void;
@@ -996,18 +1010,16 @@
     {onAddTemplateChild}
   />
 {:else if block.type === "button"}
-  <div class="mb-1 flex justify-end">
-    <button
-      type="button"
-      class="inline-flex min-h-7 items-center gap-1.5 rounded border border-border bg-background px-2 text-[0.8rem] font-medium text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-45"
-      aria-label={t("notes.useButton", text || t("notes.blockType.button"))}
-      disabled={!block.has_children}
-      onclick={() => onUseButton(block.id)}
-    >
-      <MousePointerClick class="size-3.5" aria-hidden="true" />
-      <span>{t("notes.useButtonButton")}</span>
-    </button>
-  </div>
+  <NotesButtonBlockControls
+    blockId={block.id}
+    title={text || t("notes.blockType.button")}
+    button={block.button}
+    status={buttonStatus}
+    {onUseButton}
+    {onAddButtonChild}
+    {onButtonIconChange}
+    {onButtonInsertPositionChange}
+  />
 {/if}
 {#if canOpenInlineToolbar}
   <div

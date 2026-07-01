@@ -16,6 +16,7 @@
   import { notesBlockAnchorId } from "$lib/notes/block-link";
   import { notesSyncedBlockStatus } from "$lib/notes/synced-block";
   import type { NotesTemplateBlockStatus } from "$lib/notes/template-block";
+  import type { NotesButtonBlockStatus } from "$lib/notes/button-block";
   import {
     type NotesDateMentionTarget,
     type NotesRichTextAnnotationPatch,
@@ -39,7 +40,9 @@
   import type {
     NotesBlockTreeItem,
     NotesBlockType,
+    NotesButtonInsertPosition,
     NotesColor,
+    NotesIcon,
     NotesPageBreadcrumbItem,
     NotesRichText,
     NotesTableRowBlock,
@@ -70,6 +73,7 @@
     focusRequestId,
     mentionTargets,
     templateStatus,
+    buttonStatus,
     onTextInput,
     onReplaceRichText,
     onInsertPageMention,
@@ -91,6 +95,9 @@
     onUseTemplate,
     onAddTemplateChild,
     onUseButton,
+    onAddButtonChild,
+    onButtonIconChange,
+    onButtonInsertPositionChange,
     onComment,
     onMoveUp,
     onMoveDown,
@@ -130,6 +137,7 @@
     focusRequestId: number;
     mentionTargets: NotesPageMentionTarget[];
     templateStatus: NotesTemplateBlockStatus;
+    buttonStatus: NotesButtonBlockStatus;
     onTextInput: (blockId: string, text: string) => void;
     onReplaceRichText: (
       blockId: string,
@@ -193,6 +201,12 @@
     onUseTemplate: (blockId: string) => void;
     onAddTemplateChild: (blockId: string) => void;
     onUseButton: (blockId: string) => void;
+    onAddButtonChild: (blockId: string) => void;
+    onButtonIconChange: (blockId: string, icon: NotesIcon | null) => void;
+    onButtonInsertPositionChange: (
+      blockId: string,
+      position: NotesButtonInsertPosition,
+    ) => void;
     onComment: (blockId: string) => void;
     onMoveUp: (blockId: string) => void;
     onMoveDown: (blockId: string) => void;
@@ -783,6 +797,7 @@
           {focusRequestId}
           {mentionTargets}
           {templateStatus}
+          {buttonStatus}
           {onTextInput}
           {onReplaceRichText}
           {onInsertPageMention}
@@ -803,6 +818,9 @@
           {onUseTemplate}
           {onAddTemplateChild}
           {onUseButton}
+          {onAddButtonChild}
+          {onButtonIconChange}
+          {onButtonInsertPositionChange}
           {onMoveUp}
           {onMoveDown}
           {onDelete}

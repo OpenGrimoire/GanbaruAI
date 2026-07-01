@@ -12,6 +12,10 @@ import {
   createDuplicateBlockRequest,
 } from "$lib/notes/block-duplicate";
 import { cloneNotesJson } from "$lib/notes/json-clone";
+import {
+  notesButtonWithIcon,
+  notesButtonWithPrimaryInsertPosition,
+} from "$lib/notes/button-block";
 import { planNotesPlainTextPaste } from "$lib/notes/block-clipboard";
 import { planNotesRichHtmlPaste } from "$lib/notes/rich-text-paste";
 import {
@@ -107,6 +111,7 @@ import type {
   NotesBlockWrite,
   NotesButtonInsertPosition,
   NotesColor,
+  NotesIcon,
   NotesColumnBlockItems,
   NotesDateMentionValue,
   NotesParent,
@@ -276,6 +281,12 @@ export interface NotesBlockActions extends NotesColumnActions, NotesTabActions {
   duplicateBlockSelection: (blockIds: readonly string[]) => Promise<string | null>;
   addTemplateChild: (blockId: string) => Promise<void>;
   useTemplateBlock: (blockId: string) => Promise<void>;
+  addButtonChild: (blockId: string) => Promise<void>;
+  updateButtonIcon: (blockId: string, icon: NotesIcon | null) => Promise<void>;
+  updateButtonInsertPosition: (
+    blockId: string,
+    position: NotesButtonInsertPosition,
+  ) => Promise<void>;
   useButtonBlock: (blockId: string) => Promise<void>;
 }
 
@@ -1525,6 +1536,25 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     recordUndoAfter("create", before, newBlockId);
   }
 
+  async function addButtonChild(blockId: string): Promise<void> {
+    const selectedPageId = context.readSelectedPageId();
+    if (!selectedPageId) return;
+    const button = context.blockById(blockId);
+    if (!button || button.type !== "button") return;
+    await context.flushPendingBlockSaves();
+    const before = undoSnapshot(blockId);
+    const childIds = activeChildIdsForBlock(blockId);
+    const newBlockId = crypto.randomUUID();
+    await appendNotesBlockChildren({
+      parent: { type: "block_id", block_id: blockId },
+      after: childIds.at(-1) ?? null,
+      children: [createBlockWrite(newBlockId, "paragraph", "")],
+    });
+    await context.loadPageTree(selectedPageId);
+    context.requestBlockFocus(newBlockId);
+    recordUndoAfter("create", before, newBlockId);
+  }
+
   function activeChildIdsForBlock(blockId: string): string[] {
     return (childIdsByParentId()[blockId] ?? []).filter((childId) => {
       const child = blocksById()[childId];
@@ -1620,6 +1650,32 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     recordUndoAfter("button", before, focusBlockId);
   }
 
+  async function updateButtonIcon(blockId: string, icon: NotesIcon | null): Promise<void> {
+    const block = context.blockById(blockId);
+    if (!block || block.type !== "button") return;
+    const before = undoSnapshot(blockId);
+    const update = { type: "button" as const, button: notesButtonWithIcon(block.button, icon) };
+    context.localApplyBlockUpdate(blockId, update);
+    context.scheduleBlockSave(blockId, update);
+    recordUndoAfter("update", before, blockId, `update:${blockId}`);
+  }
+
+  async function updateButtonInsertPosition(
+    blockId: string,
+    position: NotesButtonInsertPosition,
+  ): Promise<void> {
+    const block = context.blockById(blockId);
+    if (!block || block.type !== "button") return;
+    const before = undoSnapshot(blockId);
+    const update = {
+      type: "button" as const,
+      button: notesButtonWithPrimaryInsertPosition(block.button, position),
+    };
+    context.localApplyBlockUpdate(blockId, update);
+    context.scheduleBlockSave(blockId, update);
+    recordUndoAfter("update", before, blockId, `update:${blockId}`);
+  }
+
   return {
     updateBlockText,
     updateBlockRichText,
@@ -1667,6 +1723,9 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     duplicateBlockSelection,
     addTemplateChild,
     useTemplateBlock,
+    addButtonChild,
+    updateButtonIcon,
+    updateButtonInsertPosition,
     useButtonBlock,
   };
 }
