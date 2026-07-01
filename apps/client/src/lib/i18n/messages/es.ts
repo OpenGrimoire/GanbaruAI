@@ -1585,6 +1585,8 @@ export const es = {
     strikethrough: "Tachado",
     inlineCode: "Código en línea",
     inlineEquation: "Ecuación en línea",
+    inlineEquationSelectionRequired: "Selecciona texto para convertirlo en una ecuación en línea.",
+    inlineEquationInvalid: "Selecciona una expresión de ecuación no vacía y sin caracteres de control.",
     textColor: "Color de texto",
     textColors: "Colores de texto",
     backgroundColors: "Colores de fondo",

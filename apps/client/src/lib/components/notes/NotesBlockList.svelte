@@ -177,13 +177,13 @@
     await notes.updateBlockTextLink(blockId, start, end, url);
   }
 
-  function insertInlineEquation(
+  async function insertInlineEquation(
     blockId: string,
     start: number,
     end: number,
     expression: string,
-  ): void {
-    void notes.insertInlineEquation(blockId, start, end, expression);
+  ): Promise<void> {
+    await notes.insertInlineEquation(blockId, start, end, expression);
   }
 
   function pastePlainText(

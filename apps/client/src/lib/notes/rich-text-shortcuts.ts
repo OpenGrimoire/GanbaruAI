@@ -35,3 +35,15 @@ export function notesRichTextLinkShortcutRequested(
     && !input.shiftKey
     && input.key.toLowerCase() === "k";
 }
+
+/**
+ * Return whether the input asks to convert selected text into an inline equation.
+ */
+export function notesRichTextEquationShortcutRequested(
+  input: NotesRichTextFormattingShortcutInput,
+): boolean {
+  return (input.ctrlKey || input.metaKey)
+    && input.shiftKey
+    && !input.altKey
+    && input.key.toLowerCase() === "e";
+}

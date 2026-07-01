@@ -34,10 +34,12 @@
     buildDateMentionTargets,
     detectPageMentionQuery,
     filterPageMentionTargets,
-    normalizeRichTextEquationExpression,
     normalizeRichTextLinkUrl,
+    planRichTextEquationConversion,
     richTextAnnotationTogglePatch,
     richTextColorPatch,
+    type NotesInlineEquationConversionError,
+    type NotesInlineEquationConversionPlan,
     type NotesDateMentionTarget,
     type NotesMentionQuery,
     type NotesMentionTarget,
@@ -46,6 +48,7 @@
     type NotesRichTextAnnotationPatch,
   } from "$lib/notes/rich-text";
   import {
+    notesRichTextEquationShortcutRequested,
     notesRichTextFormattingShortcutAnnotationName,
     notesRichTextLinkShortcutRequested,
   } from "$lib/notes/rich-text-shortcuts";
@@ -160,6 +163,7 @@
   let linkRange = $state({ start: 0, end: 0, url: null as string | null });
   let linkUrlInput = $state("");
   let linkError = $state<string | null>(null);
+  let inlineEquationErrorReason = $state<NotesInlineEquationConversionError | null>(null);
   const dateMentionLabels = $derived({
     today: t("notes.dateMentionToday"),
     tomorrow: t("notes.dateMentionTomorrow"),
@@ -245,28 +249,43 @@
     patch: NotesRichTextAnnotationPatch,
   ): Promise<void> {
     if (start === end) return;
+    inlineEquationErrorReason = null;
     await Promise.resolve(onApplyTextAnnotations(block.id, start, end, patch));
     await focusEditorWithSelection(start, end);
   }
 
-  async function insertInlineEquationFromRange(
-    start: number,
-    end: number,
-    expression: string,
-  ): Promise<boolean> {
-    const normalizedExpression = normalizeRichTextEquationExpression(expression);
-    if (start === end || !normalizedExpression) return false;
-    await Promise.resolve(onInsertInlineEquation(block.id, start, end, normalizedExpression));
-    const cursor = start + normalizedExpression.length;
-    await focusEditorWithSelection(cursor, cursor);
-    return true;
+  function inlineEquationErrorMessage(reason: NotesInlineEquationConversionError): string {
+    switch (reason) {
+      case "selection_required":
+        return t("notes.inlineEquationSelectionRequired");
+      case "invalid_expression":
+        return t("notes.inlineEquationInvalid");
+    }
+  }
+
+  async function applyInlineEquationConversion(
+    plan: NotesInlineEquationConversionPlan,
+  ): Promise<void> {
+    if (plan.type === "error") {
+      inlineEquationErrorReason = plan.reason;
+      linkEditorOpen = false;
+      slashOpen = false;
+      mentionQuery = null;
+      await focusEditorWithSelection(plan.start, plan.end);
+      return;
+    }
+    inlineEquationErrorReason = null;
+    await Promise.resolve(onInsertInlineEquation(block.id, plan.start, plan.end, plan.expression));
+    await focusEditorWithSelection(plan.cursor, plan.cursor);
   }
 
   function insertInlineEquationFromSelection(): void {
-    void insertInlineEquationFromRange(
-      currentTextAnnotationRange.start,
-      currentTextAnnotationRange.end,
-      text.slice(currentTextAnnotationRange.start, currentTextAnnotationRange.end),
+    void applyInlineEquationConversion(
+      planRichTextEquationConversion(
+        text,
+        currentTextAnnotationRange.start,
+        currentTextAnnotationRange.end,
+      ),
     );
   }
 
@@ -274,12 +293,10 @@
     if (!canUseInlineFormatting || !(target instanceof HTMLElement)) return false;
     const selection = notesTextSelectionFromEditableRoot(target);
     if (!selection) return false;
-    const { start, end } = selection;
-    if (start === end) return false;
-    const expression = text.slice(start, end);
-    if (!normalizeRichTextEquationExpression(expression)) return false;
-    void insertInlineEquationFromRange(start, end, expression);
     syncTextSelection(target);
+    void applyInlineEquationConversion(
+      planRichTextEquationConversion(text, selection.start, selection.end),
+    );
     return true;
   }
 
@@ -327,12 +344,7 @@
       }
       return;
     }
-    if (
-      (event.ctrlKey || event.metaKey)
-      && event.shiftKey
-      && !event.altKey
-      && event.key.toLowerCase() === "e"
-    ) {
+    if (notesRichTextEquationShortcutRequested(event)) {
       if (insertInlineEquationFromEditor(event.currentTarget)) {
         event.preventDefault();
       }
@@ -437,6 +449,7 @@
     linkRange = range;
     linkUrlInput = range.url ?? "";
     linkError = null;
+    inlineEquationErrorReason = null;
     linkEditorOpen = true;
     slashOpen = false;
     mentionQuery = null;
@@ -470,6 +483,7 @@
   function handleInput(event: Event): void {
     const target = event.currentTarget;
     if (!(target instanceof HTMLElement)) return;
+    inlineEquationErrorReason = null;
     syncTextSelection(target);
     const value = notesPlainTextFromEditableRoot(target);
     slashOpen = value.startsWith("/") && !value.includes("\n");
@@ -683,6 +697,11 @@
 >
   <NotesRichTextInline richText={editableRichText} />
 </div>
+{#if inlineEquationErrorReason}
+  <p class="mt-1 text-[0.733333rem] text-destructive" aria-live="polite">
+    {inlineEquationErrorMessage(inlineEquationErrorReason)}
+  </p>
+{/if}
 {#if linkEditorOpen}
   <div class="mt-1 rounded-md border border-border bg-popover p-2 text-popover-foreground shadow-sm">
     <div class="flex min-w-0 items-center gap-1.5">

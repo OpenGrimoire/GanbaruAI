@@ -82,6 +82,25 @@ export interface NotesRichTextAnnotationRange {
   annotations: NotesRichTextAnnotations;
 }
 
+export type NotesInlineEquationConversionError =
+  | "selection_required"
+  | "invalid_expression";
+
+export type NotesInlineEquationConversionPlan =
+  | {
+    type: "convert";
+    start: number;
+    end: number;
+    expression: string;
+    cursor: number;
+  }
+  | {
+    type: "error";
+    reason: NotesInlineEquationConversionError;
+    start: number;
+    end: number;
+  };
+
 interface DateMentionCandidate {
   id: string;
   aliases: readonly string[];
@@ -186,6 +205,31 @@ export function normalizeRichTextEquationExpression(expression: string): string 
   if (!trimmed) return null;
   if (trimmed.length > 2048 || /[\u0000-\u001f]/u.test(trimmed)) return null;
   return trimmed;
+}
+
+export function planRichTextEquationConversion(
+  text: string,
+  selectionStart: number,
+  selectionEnd: number,
+): NotesInlineEquationConversionPlan {
+  const rawStart = Math.min(selectionStart, selectionEnd);
+  const rawEnd = Math.max(selectionStart, selectionEnd);
+  const start = Math.max(0, Math.min(rawStart, text.length));
+  const end = Math.max(start, Math.min(rawEnd, text.length));
+  if (start === end) {
+    return { type: "error", reason: "selection_required", start, end };
+  }
+  const expression = normalizeRichTextEquationExpression(text.slice(start, end));
+  if (!expression) {
+    return { type: "error", reason: "invalid_expression", start, end };
+  }
+  return {
+    type: "convert",
+    start,
+    end,
+    expression,
+    cursor: start + expression.length,
+  };
 }
 
 export function createEquationRichText(expression: string): NotesEquationRichText {

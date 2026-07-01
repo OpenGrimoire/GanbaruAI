@@ -3925,6 +3925,51 @@ fn update_block_round_trips_inline_formatting_annotations() {
 }
 
 #[test]
+fn update_block_round_trips_inline_equations() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        create_page(&pool, PAGE_A, BLOCK_A).await;
+
+        writes::update_block(
+            &pool,
+            BLOCK_A,
+            block_update(
+                "paragraph",
+                json!({
+                    "rich_text": [
+                        rich_text("Use "),
+                        inline_equation_rich_text("\\frac{a}{b}"),
+                        rich_text(" here")
+                    ],
+                    "color": "default"
+                }),
+            ),
+        )
+        .await
+        .unwrap();
+
+        let children = reads::get_block_children(&pool, PAGE_A, None, Some(10))
+            .await
+            .unwrap();
+        let children_json = serde_json::to_value(children).unwrap();
+        let rich_text = &children_json["results"][0]["paragraph"]["rich_text"];
+        assert_eq!(rich_text[0]["plain_text"], "Use ");
+        assert_eq!(rich_text[1]["type"], "equation");
+        assert_eq!(rich_text[1]["equation"]["expression"], "\\frac{a}{b}");
+        assert_eq!(rich_text[1]["plain_text"], "\\frac{a}{b}");
+        assert_eq!(rich_text[1]["href"], serde_json::Value::Null);
+        assert_eq!(rich_text[2]["plain_text"], " here");
+        let plain_text: String =
+            sqlx::query_scalar("SELECT plain_text FROM notes_blocks WHERE id = ?")
+                .bind(BLOCK_A)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(plain_text, "Use \\frac{a}{b} here");
+    });
+}
+
+#[test]
 fn append_and_update_toggle_blocks_round_trip() {
     tauri::async_runtime::block_on(async {
         let pool = migrated_memory_pool().await;

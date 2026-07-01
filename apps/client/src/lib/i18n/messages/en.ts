@@ -1566,6 +1566,8 @@ export const en = {
     strikethrough: "Strikethrough",
     inlineCode: "Inline code",
     inlineEquation: "Inline equation",
+    inlineEquationSelectionRequired: "Select text to convert into an inline equation.",
+    inlineEquationInvalid: "Select a non-empty equation expression without control characters.",
     textColor: "Text color",
     textColors: "Text colors",
     backgroundColors: "Background colors",

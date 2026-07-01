@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   applyRichTextAnnotations,
   createTextRichText,
+  planRichTextEquationConversion,
   richTextAnnotationTogglePatch,
   richTextAnnotationsForSelection,
   type NotesRichTextAnnotationName,
 } from "./rich-text";
 import {
+  notesRichTextEquationShortcutRequested,
   notesRichTextFormattingShortcutAnnotationName,
   notesRichTextLinkShortcutRequested,
   type NotesRichTextFormattingShortcutInput,
@@ -169,5 +171,77 @@ describe("notes rich text link shortcuts", () => {
         altKey: false,
       }),
     ).toBe(false);
+  });
+});
+
+describe("notes rich text equation shortcuts", () => {
+  it("maps Ctrl+Shift+E and Cmd+Shift+E to inline equation conversion", () => {
+    expect(
+      notesRichTextEquationShortcutRequested({
+        key: "e",
+        ctrlKey: true,
+        metaKey: false,
+        shiftKey: true,
+        altKey: false,
+      }),
+    ).toBe(true);
+    expect(
+      notesRichTextEquationShortcutRequested({
+        key: "e",
+        ctrlKey: false,
+        metaKey: true,
+        shiftKey: true,
+        altKey: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("ignores unmodified, Alt-modified, or unrelated equation shortcuts", () => {
+    expect(
+      notesRichTextEquationShortcutRequested({
+        key: "e",
+        ctrlKey: true,
+        metaKey: false,
+        shiftKey: false,
+        altKey: false,
+      }),
+    ).toBe(false);
+    expect(
+      notesRichTextEquationShortcutRequested({
+        key: "e",
+        ctrlKey: true,
+        metaKey: false,
+        shiftKey: true,
+        altKey: true,
+      }),
+    ).toBe(false);
+    expect(
+      notesRichTextEquationShortcutRequested({
+        key: "k",
+        ctrlKey: true,
+        metaKey: false,
+        shiftKey: true,
+        altKey: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("plans the Ctrl+Shift+E conversion flow for selected text", () => {
+    const input: NotesRichTextFormattingShortcutInput = {
+      key: "e",
+      ctrlKey: true,
+      metaKey: false,
+      shiftKey: true,
+      altKey: false,
+    };
+
+    expect(notesRichTextEquationShortcutRequested(input)).toBe(true);
+    expect(planRichTextEquationConversion("Use  e=mc^2  here", 4, 12)).toEqual({
+      type: "convert",
+      start: 4,
+      end: 12,
+      expression: "e=mc^2",
+      cursor: 10,
+    });
   });
 });

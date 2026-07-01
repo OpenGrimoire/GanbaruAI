@@ -17,6 +17,7 @@ import {
   insertPageMentionRichText,
   normalizeRichTextEquationExpression,
   normalizeRichTextLinkUrl,
+  planRichTextEquationConversion,
   replacePlainTextPreservingRichText,
   richTextAnnotationTogglePatch,
   richTextAnnotationsForSelection,
@@ -142,6 +143,31 @@ describe("notes rich text helpers", () => {
 
     expect(richTextPlainText(richText)).toBe("Use e=mc^2 here");
     expect(richText[1]).toEqual(createEquationRichText("e=mc^2"));
+  });
+
+  it("plans inline equation conversion with normalized expression and cursor", () => {
+    expect(planRichTextEquationConversion("Use  e=mc^2  here", 4, 12)).toEqual({
+      type: "convert",
+      start: 4,
+      end: 12,
+      expression: "e=mc^2",
+      cursor: 10,
+    });
+  });
+
+  it("plans inline equation feedback for empty or invalid selections", () => {
+    expect(planRichTextEquationConversion("Use e=mc^2 here", 4, 4)).toEqual({
+      type: "error",
+      reason: "selection_required",
+      start: 4,
+      end: 4,
+    });
+    expect(planRichTextEquationConversion("Use bad\u0008 here", 4, 8)).toEqual({
+      type: "error",
+      reason: "invalid_expression",
+      start: 4,
+      end: 8,
+    });
   });
 
   it("normalizes inline equation expressions", () => {
