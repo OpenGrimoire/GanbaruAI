@@ -53,6 +53,9 @@ import {
   planMoveBlockWithinSiblings,
   planNestBlock,
   planOutdentBlock,
+  planReparentChildrenAfterMerge,
+  planReparentChildrenBeforeDelete,
+  type NotesChildReparentPlan,
   type NotesTreeState,
 } from "$lib/notes/block-tree";
 import type { NotesRichTextAnnotationPatch } from "$lib/notes/rich-text";
@@ -796,6 +799,8 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
       return;
     }
     if (plan.deleteBlockId) {
+      const childPlan = planReparentChildrenBeforeDelete(context.treeState(), plan.deleteBlockId);
+      if (!childPlan || !(await moveReparentedChildren(childPlan))) return;
       await trashNotesBlock(plan.deleteBlockId, true);
       await context.loadPageTree(selectedPageId);
     }
@@ -807,12 +812,22 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     const selectedPageId = context.readSelectedPageId();
     if (!selectedPageId) return;
     await context.flushBlockSave(blockId);
-    const plan = planMergeWithPrevious(context.flatBlockItemsForBlockContext(blockId), blockId);
+    let plan = planMergeWithPrevious(context.flatBlockItemsForBlockContext(blockId), blockId);
+    if (!plan) return;
+    await context.flushBlockSave(plan.targetBlockId);
+    plan = planMergeWithPrevious(context.flatBlockItemsForBlockContext(blockId), blockId);
     if (!plan) return;
     const target = context.blockById(plan.targetBlockId);
     if (!target) return;
+    const childPlan = planReparentChildrenAfterMerge(
+      context.treeState(),
+      plan.sourceBlockId,
+      plan.targetBlockId,
+    );
+    if (!childPlan) return;
     const before = undoSnapshot(blockId);
-    await replaceBlockWithUpdate(target.id, blockWithText(target, plan.mergedText));
+    await replaceBlockWithUpdate(target.id, blockWithRichText(target, plan.mergedRichText));
+    if (!(await moveReparentedChildren(childPlan))) return;
     await trashNotesBlock(plan.sourceBlockId, true);
     await context.loadPageTree(selectedPageId);
     context.requestBlockFocus(target.id);
@@ -857,6 +872,19 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     return parentId === selectedPageId
       ? { type: "page_id", page_id: selectedPageId }
       : { type: "block_id", block_id: parentId };
+  }
+
+  async function moveReparentedChildren(plan: NotesChildReparentPlan): Promise<boolean> {
+    if (plan.childIds.length === 0) return true;
+    const parent = parentFromMoveParentId(plan.parentId);
+    if (!parent) return false;
+    let after = plan.after;
+    for (const childId of plan.childIds) {
+      await context.flushBlockSave(childId);
+      await moveNotesBlock(childId, { parent, after, before: null });
+      after = childId;
+    }
+    return true;
   }
 
   async function moveBlockWithinSiblings(

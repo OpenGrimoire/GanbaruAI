@@ -1,11 +1,17 @@
 import {
-  blockPlainText,
+  blockEditableRichText,
   canBlockHaveChildren,
   headingIsToggleable,
   headingToggleOpen,
   isHeadingBlockType,
 } from "./block-factory";
-import type { NotesBlock, NotesBlockTreeItem } from "./types";
+import {
+  mergeRichTextForBackspace,
+  notesBackspaceCanMergeBlockTypes,
+  notesParentCanAcceptBlockType,
+} from "./block-backspace";
+import { richTextPlainText } from "./rich-text";
+import type { NotesBlock, NotesBlockTreeItem, NotesRichText } from "./types";
 
 export type NotesBlocksById = Readonly<Record<string, NotesBlock>>;
 export type NotesChildIdsByParent = Readonly<Record<string, readonly string[]>>;
@@ -47,7 +53,14 @@ export interface NotesDeletePlan {
 export interface NotesMergePlan {
   sourceBlockId: string;
   targetBlockId: string;
-  mergedText: string;
+  targetCursorOffset: number;
+  mergedRichText: NotesRichText[];
+}
+
+export interface NotesChildReparentPlan {
+  childIds: string[];
+  parentId: string;
+  after: string | null;
 }
 
 export function parentIdForBlock(block: NotesBlock): string {
@@ -268,11 +281,69 @@ export function planMergeWithPrevious(
   const source = flatItems[index]?.block;
   const target = flatItems[index - 1]?.block;
   if (!source || !target) return null;
+  if (!notesBackspaceCanMergeBlockTypes(source.type, target.type)) return null;
+  const targetRichText = blockEditableRichText(target);
   return {
     sourceBlockId: source.id,
     targetBlockId: target.id,
-    mergedText: `${blockPlainText(target)}${blockPlainText(source)}`,
+    targetCursorOffset: richTextPlainText(targetRichText).length,
+    mergedRichText: mergeRichTextForBackspace(targetRichText, blockEditableRichText(source)),
   };
+}
+
+export function planReparentChildrenBeforeDelete(
+  state: NotesTreeState,
+  blockId: string,
+): NotesChildReparentPlan | null {
+  const block = state.blocksById[blockId];
+  if (!block) return null;
+  const childIds = activeChildIdsForParent(state, blockId);
+  const parentId = parentIdForBlock(block);
+  if (!childrenCanMoveToParent(state, parentId, childIds)) return null;
+  return {
+    childIds,
+    parentId,
+    after: childIds.length > 0 ? blockId : null,
+  };
+}
+
+export function planReparentChildrenAfterMerge(
+  state: NotesTreeState,
+  sourceBlockId: string,
+  targetBlockId: string,
+): NotesChildReparentPlan | null {
+  const source = state.blocksById[sourceBlockId];
+  const target = state.blocksById[targetBlockId];
+  if (!source || !target) return null;
+  const childIds = activeChildIdsForParent(state, sourceBlockId);
+  const parentId = canBlockHaveChildren(target) ? targetBlockId : parentIdForBlock(source);
+  if (!childrenCanMoveToParent(state, parentId, childIds)) return null;
+  return {
+    childIds,
+    parentId,
+    after: parentId === targetBlockId
+      ? activeChildIdsForParent(state, targetBlockId).at(-1) ?? null
+      : sourceBlockId,
+  };
+}
+
+function activeChildIdsForParent(state: NotesTreeState, parentId: string): string[] {
+  return childIdsForParent(state, parentId).filter((childId) => {
+    const child = state.blocksById[childId];
+    return child !== undefined && !child.in_trash;
+  });
+}
+
+function childrenCanMoveToParent(
+  state: NotesTreeState,
+  parentId: string,
+  childIds: readonly string[],
+): boolean {
+  const parentBlock = state.blocksById[parentId] ?? null;
+  return childIds.every((childId) => {
+    const child = state.blocksById[childId];
+    return child !== undefined && notesParentCanAcceptBlockType(parentBlock, child.type);
+  });
 }
 
 function previousVisibleSiblingId(

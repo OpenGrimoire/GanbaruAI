@@ -3,6 +3,7 @@ import {
   planNotesKeyboardAction,
   type NotesKeyboardPlanInput,
 } from "./block-keyboard";
+import type { NotesBlockType } from "./types";
 
 function plan(input: Partial<NotesKeyboardPlanInput>) {
   return planNotesKeyboardAction({
@@ -95,6 +96,45 @@ describe("notes keyboard planning", () => {
       type: "merge_with_previous",
       preventDefault: true,
     });
+  });
+
+  it("plans Backspace delete and merge for all text-editable block types", () => {
+    const textEditableTypes: readonly NotesBlockType[] = [
+      "paragraph",
+      "heading_1",
+      "heading_2",
+      "heading_3",
+      "heading_4",
+      "bulleted_list_item",
+      "numbered_list_item",
+      "to_do",
+      "toggle",
+      "callout",
+      "quote",
+      "template",
+      "button",
+      "code",
+    ];
+
+    for (const blockType of textEditableTypes) {
+      expect(plan({ key: "Backspace", blockType, text: "" })).toEqual({
+        type: "delete_block",
+        preventDefault: true,
+      });
+      expect(
+        plan({
+          key: "Backspace",
+          blockType,
+          text: "Text",
+          selectionStart: 0,
+          selectionEnd: 0,
+          previousBlockType: "paragraph",
+        }),
+      ).toEqual({
+        type: "merge_with_previous",
+        preventDefault: true,
+      });
+    }
   });
 
   it("plans Tab nesting and Shift+Tab outdent", () => {

@@ -6,7 +6,7 @@ import {
   notesEmptyEnterReturnsParagraph,
   notesEnterSplitsRichTextBlock,
 } from "./block-enter";
-import { isMergeableTextBlock } from "./block-factory";
+import { notesBackspaceCanMergeBlockTypes } from "./block-backspace";
 import type { NotesBlockType } from "./types";
 
 export type NotesKeyboardAction =
@@ -138,8 +138,7 @@ export function planNotesKeyboardAction(input: NotesKeyboardPlanInput): NotesKey
       input.selectionStart === 0
       && input.selectionEnd === 0
       && input.previousBlockType
-      && isMergeableTextBlock(input.blockType)
-      && isMergeableTextBlock(input.previousBlockType)
+      && notesBackspaceCanMergeBlockTypes(input.blockType, input.previousBlockType)
     ) {
       return { type: "merge_with_previous", preventDefault: true };
     }

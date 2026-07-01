@@ -10,9 +10,12 @@ import {
   planMoveBlockWithinSiblings,
   planNestBlock,
   planOutdentBlock,
+  planReparentChildrenAfterMerge,
+  planReparentChildrenBeforeDelete,
   type NotesTreeState,
 } from "./block-tree";
-import type { NotesBlock, NotesBlockWrite, NotesParent } from "./types";
+import { richTextPlainText } from "./rich-text";
+import type { NotesBlock, NotesBlockType, NotesBlockWrite, NotesParent } from "./types";
 
 const now = "2026-06-30T09:00:00.000Z";
 
@@ -104,8 +107,13 @@ function blockFromWrite(write: NotesBlockWrite, parent: NotesParent): NotesBlock
   }
 }
 
-function block(id: string, parent: NotesParent, text: string): NotesBlock {
-  return blockFromWrite(createBlockWrite(id, "paragraph", text), parent);
+function block(
+  id: string,
+  parent: NotesParent,
+  text: string,
+  type: NotesBlockType = "paragraph",
+): NotesBlock {
+  return blockFromWrite(createBlockWrite(id, type, text), parent);
 }
 
 function state(blocks: NotesBlock[]): NotesTreeState {
@@ -650,18 +658,63 @@ describe("notes block tree", () => {
     });
   });
 
-  it("plans deletion focus and merge text", () => {
+  it("plans deletion focus and rich text merge", () => {
     const tree = state([
       block("a", { type: "page_id", page_id: "page" }, "A"),
       block("b", { type: "page_id", page_id: "page" }, "B"),
     ]);
     const flat = flattenNotesBlockTree(tree, "page");
+    const merge = planMergeWithPrevious(flat, "b");
 
     expect(planDeleteBlock(flat, "b")?.focusBlockId).toBe("a");
-    expect(planMergeWithPrevious(flat, "b")).toEqual({
+    expect(merge).toMatchObject({
       sourceBlockId: "b",
       targetBlockId: "a",
-      mergedText: "AB",
+      targetCursorOffset: 1,
+    });
+    expect(merge ? richTextPlainText(merge.mergedRichText) : "").toBe("AB");
+  });
+
+  it("plans child reparenting before deleting a block", () => {
+    const tree = state([
+      block("a", { type: "page_id", page_id: "page" }, ""),
+      block("child-a", { type: "block_id", block_id: "a" }, "A"),
+      block("child-b", { type: "block_id", block_id: "a" }, "B"),
+    ]);
+
+    expect(planReparentChildrenBeforeDelete(tree, "a")).toEqual({
+      childIds: ["child-a", "child-b"],
+      parentId: "page",
+      after: "a",
+    });
+  });
+
+  it("moves merged block children under a child-capable target", () => {
+    const tree = state([
+      block("target", { type: "page_id", page_id: "page" }, "A"),
+      block("target-child", { type: "block_id", block_id: "target" }, "Target child"),
+      block("source", { type: "page_id", page_id: "page" }, "B"),
+      block("source-child", { type: "block_id", block_id: "source" }, "Source child"),
+    ]);
+
+    expect(planReparentChildrenAfterMerge(tree, "source", "target")).toEqual({
+      childIds: ["source-child"],
+      parentId: "target",
+      after: "target-child",
+    });
+  });
+
+  it("keeps merged block children near the source when the target cannot own children", () => {
+    const tree = state([
+      block("target", { type: "page_id", page_id: "page" }, "Heading", "heading_1"),
+      block("source", { type: "page_id", page_id: "page" }, "B"),
+      block("source-child", { type: "block_id", block_id: "source" }, "Source child"),
+    ]);
+
+    expect(planReparentChildrenAfterMerge(tree, "source", "target")).toEqual({
+      childIds: ["source-child"],
+      parentId: "page",
+      after: "source",
     });
   });
 });
