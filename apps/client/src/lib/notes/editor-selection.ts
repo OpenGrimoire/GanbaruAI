@@ -3,6 +3,15 @@ export interface NotesTextSelection {
   end: number;
 }
 
+export type NotesSelectionFallback = "start" | "end";
+
+export interface NotesFocusSelectionInput {
+  requestedSelection: NotesTextSelection | null;
+  currentSelection: NotesTextSelection | null;
+  textLength: number;
+  fallback: NotesSelectionFallback;
+}
+
 export interface NotesSelectionViewportRect {
   top: number;
   right: number;
@@ -47,6 +56,21 @@ export function clampNotesTextSelection(
     start: Math.min(start, end),
     end: Math.max(start, end),
   };
+}
+
+/**
+ * Choose the selection to restore when a rich text editor regains focus.
+ */
+export function notesSelectionForFocus(
+  input: NotesFocusSelectionInput,
+): NotesTextSelection {
+  const fallbackOffset = input.fallback === "start" ? 0 : input.textLength;
+  return clampNotesTextSelection(
+    input.requestedSelection
+      ?? input.currentSelection
+      ?? { start: fallbackOffset, end: fallbackOffset },
+    input.textLength,
+  );
 }
 
 function isElementNode(node: Node): node is Element {

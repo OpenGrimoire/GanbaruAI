@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Temporal } from "@js-temporal/polyfill";
-  import { tick } from "svelte";
+  import { tick, untrack } from "svelte";
   import Copy from "@lucide/svelte/icons/copy";
   import LinkIcon from "@lucide/svelte/icons/link";
   import MousePointerClick from "@lucide/svelte/icons/mouse-pointer-click";
@@ -26,10 +26,13 @@
     type NotesKeyboardAction,
   } from "$lib/notes/block-keyboard";
   import {
+    clampNotesTextSelection,
     notesEditableSelectionViewportRect,
     notesPlainTextFromEditableRoot,
+    notesSelectionForFocus,
     notesTextSelectionFromEditableRoot,
     restoreNotesEditableSelection,
+    type NotesTextSelection,
   } from "$lib/notes/editor-selection";
   import {
     planNotesInlineToolbarPlacement,
@@ -186,6 +189,7 @@
   let mentionQuery: NotesMentionQuery | null = $state(null);
   let mentionActiveIndex = $state(0);
   let textSelection = $state({ start: 0, end: 0 });
+  let hasTextSelection = $state(false);
   let linkEditorOpen = $state(false);
   let linkRange = $state({ start: 0, end: 0, url: null as string | null });
   let linkUrlInput = $state("");
@@ -254,8 +258,13 @@
       if (!editor) return;
       editor.focus();
       const length = notesPlainTextFromEditableRoot(editor).length;
-      restoreNotesEditableSelection(editor, { start: length, end: length });
-      textSelection = { start: length, end: length };
+      const selection = notesSelectionForFocus({
+        requestedSelection: null,
+        currentSelection: hasTextSelection ? textSelection : null,
+        textLength: length,
+        fallback: "end",
+      });
+      restoreTrackedSelection(selection);
     });
   });
 
@@ -285,13 +294,44 @@
     void tick().then(() => refreshInlineToolbarPlacement());
   }
 
+  function setTrackedSelection(selection: NotesTextSelection): void {
+    textSelection = selection;
+    hasTextSelection = true;
+  }
+
+  function restoreTrackedSelection(selection: NotesTextSelection): void {
+    if (!editor) return;
+    const safeSelection = clampNotesTextSelection(
+      selection,
+      notesPlainTextFromEditableRoot(editor).length,
+    );
+    restoreNotesEditableSelection(editor, safeSelection);
+    setTrackedSelection(safeSelection);
+    refreshInlineToolbarPlacement();
+  }
+
   function syncEditorSelectionFromDocument(): void {
     if (!editor) return;
     const selection = notesTextSelectionFromEditableRoot(editor);
     if (!selection) return;
-    textSelection = selection;
+    setTrackedSelection(selection);
     scheduleInlineToolbarPlacementRefresh();
   }
+
+  $effect(() => {
+    const _blockText = text;
+    const _blockType = block.type;
+    const _lastEditedTime = block.last_edited_time;
+    const _richText = editableRichText;
+    const { selection, selectionIsKnown } = untrack(() => ({
+      selection: textSelection,
+      selectionIsKnown: hasTextSelection,
+    }));
+    void tick().then(() => {
+      if (!editor || !selectionIsKnown || document.activeElement !== editor) return;
+      restoreTrackedSelection(selection);
+    });
+  });
 
   $effect(() => {
     const _selectionStart = textSelection.start;
@@ -334,9 +374,11 @@
   async function focusEditorWithSelection(start: number, end: number): Promise<void> {
     await tick();
     editor?.focus();
-    if (editor) restoreNotesEditableSelection(editor, { start, end });
-    textSelection = { start, end };
-    refreshInlineToolbarPlacement();
+    if (!editor) {
+      setTrackedSelection({ start, end });
+      return;
+    }
+    restoreTrackedSelection({ start, end });
   }
 
   async function applyTextAnnotationsToRange(
@@ -539,7 +581,7 @@
     if (!(target instanceof HTMLElement)) return;
     const selection = notesTextSelectionFromEditableRoot(target);
     if (selection) {
-      textSelection = selection;
+      setTrackedSelection(selection);
       scheduleInlineToolbarPlacementRefresh();
     }
   }
@@ -573,16 +615,18 @@
       return;
     }
     linkError = null;
+    const selection = { start: linkRange.start, end: linkRange.end };
     await Promise.resolve(onApplyTextLink(block.id, linkRange.start, linkRange.end, normalizedUrl));
     linkEditorOpen = false;
-    await focusEditorWithSelection(linkRange.end, linkRange.end);
+    await focusEditorWithSelection(selection.start, selection.end);
   }
 
   async function removeLinkFromEditor(): Promise<void> {
     linkError = null;
+    const selection = { start: linkRange.start, end: linkRange.end };
     await Promise.resolve(onApplyTextLink(block.id, linkRange.start, linkRange.end, null));
     linkEditorOpen = false;
-    await focusEditorWithSelection(linkRange.end, linkRange.end);
+    await focusEditorWithSelection(selection.start, selection.end);
   }
 
   function handleInput(event: Event): void {
@@ -619,8 +663,8 @@
       updateMentionQueryFromEditor(target, value);
     }
     onTextInput(block.id, value);
-    if (!isComposing) {
-      void focusEditorWithSelection(textSelection.start, textSelection.end);
+    if (!isComposing && selection) {
+      void focusEditorWithSelection(selection.start, selection.end);
     }
   }
 

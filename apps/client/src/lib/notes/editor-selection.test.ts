@@ -5,6 +5,7 @@ import {
   clampNotesTextSelection,
   notesEditableSelectionViewportRect,
   notesPlainTextFromEditableRoot,
+  notesSelectionForFocus,
   notesTextSelectionFromEditableRoot,
   notesTextSelectionFromControl,
   restoreNotesEditableSelection,
@@ -30,6 +31,48 @@ describe("notes editor selection helpers", () => {
       start: 0,
       end: 5,
     });
+  });
+
+  it("prefers requested focus selections over remembered editor selections", () => {
+    expect(notesSelectionForFocus({
+      requestedSelection: { start: 2, end: 5 },
+      currentSelection: { start: 8, end: 8 },
+      textLength: 10,
+      fallback: "end",
+    })).toEqual({ start: 2, end: 5 });
+  });
+
+  it("restores remembered selections instead of falling back to the text end", () => {
+    expect(notesSelectionForFocus({
+      requestedSelection: null,
+      currentSelection: { start: 3, end: 7 },
+      textLength: 12,
+      fallback: "end",
+    })).toEqual({ start: 3, end: 7 });
+  });
+
+  it("uses explicit start or end fallbacks only when no selection is known", () => {
+    expect(notesSelectionForFocus({
+      requestedSelection: null,
+      currentSelection: null,
+      textLength: 12,
+      fallback: "start",
+    })).toEqual({ start: 0, end: 0 });
+    expect(notesSelectionForFocus({
+      requestedSelection: null,
+      currentSelection: null,
+      textLength: 12,
+      fallback: "end",
+    })).toEqual({ start: 12, end: 12 });
+  });
+
+  it("clamps remembered focus selections to reloaded text bounds", () => {
+    expect(notesSelectionForFocus({
+      requestedSelection: null,
+      currentSelection: { start: 4, end: 20 },
+      textLength: 9,
+      fallback: "end",
+    })).toEqual({ start: 4, end: 9 });
   });
 
   it("reads plain text from a rich editable surface without keeping markup", () => {
@@ -75,6 +118,19 @@ describe("notes editor selection helpers", () => {
 
     expect(restoreNotesEditableSelection(root, { start: 6, end: 11 })).toBe(true);
     expect(notesTextSelectionFromEditableRoot(root)).toEqual({ start: 6, end: 11 });
+    root.remove();
+  });
+
+  it("restores remembered selections after rich editable markup is replaced", () => {
+    const root = document.createElement("div");
+    root.innerHTML = "<span>Alpha </span><span><strong>beta</strong></span>";
+    document.body.append(root);
+
+    const rememberedSelection = { start: 2, end: 10 };
+    root.innerHTML = "<span>Alpha </span><span class=\"mention\">beta</span>";
+
+    expect(restoreNotesEditableSelection(root, rememberedSelection)).toBe(true);
+    expect(notesTextSelectionFromEditableRoot(root)).toEqual(rememberedSelection);
     root.remove();
   });
 
