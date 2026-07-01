@@ -2,6 +2,9 @@ import { notesPageTitle } from "./page-title";
 import type { NotesPage } from "./types";
 
 const SIDEBAR_COLLAPSED_PAGE_IDS_CONFIG_KEY = "notes.sidebarCollapsedPageIds";
+const SIDEBAR_EXPANDED_PAGE_IDS_CONFIG_KEY = "notes.sidebarExpandedPageIds";
+
+export type NotesPageParentStatus = "missing" | "trashed";
 
 export interface NotesPageTreeItem {
   page: NotesPage;
@@ -10,10 +13,15 @@ export interface NotesPageTreeItem {
   collapsed: boolean;
   matchesQuery: boolean;
   descendantMatchesQuery: boolean;
+  parentStatus: NotesPageParentStatus | null;
 }
 
 export interface NotesPageTreeOptions {
   collapsedPageIds?: readonly string[];
+  expandedPageIds?: readonly string[];
+  pageIdsWithChildren?: readonly string[];
+  missingParentPageIds?: readonly string[];
+  trashedParentPageIds?: readonly string[];
   activePageId?: string | null;
   query?: string;
   untitledTitle?: string;
@@ -25,8 +33,19 @@ export function notesSidebarCollapsedPageIdsConfigKey(): string {
   return SIDEBAR_COLLAPSED_PAGE_IDS_CONFIG_KEY;
 }
 
+/** Return the config key that stores expanded sidebar page ids. */
+export function notesSidebarExpandedPageIdsConfigKey(): string {
+  return SIDEBAR_EXPANDED_PAGE_IDS_CONFIG_KEY;
+}
+
 /** Parse persisted collapsed sidebar page ids from config defensively. */
 export function parseStoredNotesSidebarCollapsedPageIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.filter((item): item is string => typeof item === "string"))];
+}
+
+/** Parse persisted expanded sidebar page ids from config defensively. */
+export function parseStoredNotesSidebarExpandedPageIds(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return [...new Set(value.filter((item): item is string => typeof item === "string"))];
 }
@@ -41,14 +60,25 @@ export function buildNotesPageTree(
   const normalizedQuery = normalizeSearchText(options.query ?? "");
   const pageById = new Map(pages.map((page) => [page.id, page]));
   const childrenByParentId = new Map<string | null, NotesPage[]>();
+  const missingParentPageIds = new Set(options.missingParentPageIds ?? []);
+  const trashedParentPageIds = new Set(options.trashedParentPageIds ?? []);
   for (const page of pages) {
-    const parentId = sidebarParentPageId(page, pageById);
+    const parentId = sidebarParentPageId(
+      page,
+      pageById,
+      missingParentPageIds,
+      trashedParentPageIds,
+    );
     const siblings = childrenByParentId.get(parentId) ?? [];
     siblings.push(page);
     childrenByParentId.set(parentId, siblings);
   }
 
   const collapsedPageIds = new Set(options.collapsedPageIds ?? []);
+  const expandedPageIds = options.expandedPageIds
+    ? new Set(options.expandedPageIds)
+    : null;
+  const pageIdsWithChildren = new Set(options.pageIdsWithChildren ?? []);
   const activeAncestorIds = activePageAncestorIds(pageById, options.activePageId ?? null);
   const result: NotesPageTreeItem[] = [];
   appendTreeItems({
@@ -56,7 +86,11 @@ export function buildNotesPageTree(
     depth: 0,
     childrenByParentId,
     collapsedPageIds,
+    expandedPageIds,
+    pageIdsWithChildren,
     activeAncestorIds,
+    missingParentPageIds,
+    trashedParentPageIds,
     normalizedQuery,
     titleForPage,
     result,
@@ -69,7 +103,11 @@ interface AppendTreeItemsOptions {
   depth: number;
   childrenByParentId: ReadonlyMap<string | null, readonly NotesPage[]>;
   collapsedPageIds: ReadonlySet<string>;
+  expandedPageIds: ReadonlySet<string> | null;
+  pageIdsWithChildren: ReadonlySet<string>;
   activeAncestorIds: ReadonlySet<string>;
+  missingParentPageIds: ReadonlySet<string>;
+  trashedParentPageIds: ReadonlySet<string>;
   normalizedQuery: string;
   titleForPage: (page: NotesPage) => string;
   result: NotesPageTreeItem[];
@@ -79,7 +117,7 @@ function appendTreeItems(options: AppendTreeItemsOptions): void {
   const children = options.childrenByParentId.get(options.parentId) ?? [];
   for (const page of children) {
     const childPages = options.childrenByParentId.get(page.id) ?? [];
-    const hasChildren = childPages.length > 0;
+    const hasChildren = childPages.length > 0 || options.pageIdsWithChildren.has(page.id);
     const matchesQuery = pageMatchesQuery(page, options.normalizedQuery, options.titleForPage);
     const descendantMatchesQuery = hasChildren
       && childPages.some((child) =>
@@ -91,10 +129,20 @@ function appendTreeItems(options: AppendTreeItemsOptions): void {
         )
       );
     if (options.normalizedQuery && !matchesQuery && !descendantMatchesQuery) continue;
-    const collapsed = hasChildren
-      && options.collapsedPageIds.has(page.id)
-      && !options.normalizedQuery
-      && !options.activeAncestorIds.has(page.id);
+    const parentStatus = pageParentStatus(
+      page,
+      options.childrenByParentId,
+      options.missingParentPageIds,
+      options.trashedParentPageIds,
+    );
+    const collapsed = pageIsCollapsed({
+      pageId: page.id,
+      hasChildren,
+      normalizedQuery: options.normalizedQuery,
+      collapsedPageIds: options.collapsedPageIds,
+      expandedPageIds: options.expandedPageIds,
+      activeAncestorIds: options.activeAncestorIds,
+    });
     options.result.push({
       page,
       depth: options.depth,
@@ -102,6 +150,7 @@ function appendTreeItems(options: AppendTreeItemsOptions): void {
       collapsed,
       matchesQuery,
       descendantMatchesQuery,
+      parentStatus,
     });
     if (hasChildren && !collapsed) {
       appendTreeItems({
@@ -111,6 +160,25 @@ function appendTreeItems(options: AppendTreeItemsOptions): void {
       });
     }
   }
+}
+
+interface PageIsCollapsedOptions {
+  pageId: string;
+  hasChildren: boolean;
+  normalizedQuery: string;
+  collapsedPageIds: ReadonlySet<string>;
+  expandedPageIds: ReadonlySet<string> | null;
+  activeAncestorIds: ReadonlySet<string>;
+}
+
+function pageIsCollapsed(options: PageIsCollapsedOptions): boolean {
+  if (!options.hasChildren || options.normalizedQuery || options.activeAncestorIds.has(options.pageId)) {
+    return false;
+  }
+  if (options.expandedPageIds) {
+    return !options.expandedPageIds.has(options.pageId);
+  }
+  return options.collapsedPageIds.has(options.pageId);
 }
 
 function pageOrDescendantMatchesQuery(
@@ -138,12 +206,30 @@ function pageMatchesQuery(
 function sidebarParentPageId(
   page: NotesPage,
   pageById: ReadonlyMap<string, NotesPage>,
+  missingParentPageIds: ReadonlySet<string>,
+  trashedParentPageIds: ReadonlySet<string>,
 ): string | null {
   if (page.parent.type !== "page_id") return null;
   const parentId = page.parent.page_id;
+  if (missingParentPageIds.has(parentId) || trashedParentPageIds.has(parentId)) return null;
   if (!pageById.has(parentId) || parentId === page.id) return null;
   if (pageHasParentCycle(page, pageById)) return null;
   return parentId;
+}
+
+function pageParentStatus(
+  page: NotesPage,
+  childrenByParentId: ReadonlyMap<string | null, readonly NotesPage[]>,
+  missingParentPageIds: ReadonlySet<string>,
+  trashedParentPageIds: ReadonlySet<string>,
+): NotesPageParentStatus | null {
+  if (page.parent.type !== "page_id") return null;
+  const parentId = page.parent.page_id;
+  if (trashedParentPageIds.has(parentId)) return "trashed";
+  if (missingParentPageIds.has(parentId)) return "missing";
+  const parentChildren = childrenByParentId.get(parentId) ?? [];
+  if (!parentChildren.includes(page) && !childrenByParentId.has(parentId)) return "missing";
+  return null;
 }
 
 function pageHasParentCycle(

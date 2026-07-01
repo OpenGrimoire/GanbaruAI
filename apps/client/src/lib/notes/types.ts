@@ -307,6 +307,19 @@ export interface NotesPage {
   source_last_edited_time: string | null;
 }
 
+export interface NotesSidebarPagesRequest {
+  expanded_page_ids: string[];
+  seed_page_ids: string[];
+  selected_page_id: string | null;
+}
+
+export interface NotesSidebarPageList {
+  pages: NotesPage[];
+  page_ids_with_children: string[];
+  missing_parent_page_ids: string[];
+  trashed_parent_page_ids: string[];
+}
+
 interface NotesBlockBase<Type extends NotesBlockType> {
   object: "block";
   id: string;

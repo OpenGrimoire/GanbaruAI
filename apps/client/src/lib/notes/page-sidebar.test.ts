@@ -46,7 +46,10 @@ function plan(
     pages,
     favoritePageIds: ["missing", "root"],
     recentPageIds: ["child", "root", "later", "other"],
-    collapsedPageIds: [],
+    expandedPageIds: ["root"],
+    pageIdsWithChildren: ["root"],
+    missingParentPageIds: [],
+    trashedParentPageIds: [],
     activePageId: null,
     search: "",
     titleForPage: (candidate) => notesPageTitle(candidate, "Untitled"),
@@ -74,10 +77,10 @@ describe("notes sidebar navigation plan", () => {
     expect(result.showPagesHeading).toBe(true);
   });
 
-  it("reveals the active page through collapsed ancestors", () => {
+  it("reveals the active page through closed ancestors", () => {
     const result = plan({
       activePageId: "child",
-      collapsedPageIds: ["root"],
+      expandedPageIds: [],
     });
 
     expect(result.treeItems.map((item) => item.page.id)).toEqual([
@@ -107,5 +110,31 @@ describe("notes sidebar navigation plan", () => {
     });
 
     expect(result.recentPages.map((candidate) => candidate.id)).toEqual(["child", "root"]);
+  });
+
+  it("reports unavailable parent states for loaded section pages", () => {
+    const orphan = page("orphan", "Orphan", { type: "page_id", page_id: "missing" });
+    const trashedChild = page("trashed-child", "Trashed child", {
+      type: "page_id",
+      page_id: "trashed-parent",
+    });
+    const result = plan({
+      pages: [orphan, trashedChild],
+      favoritePageIds: ["orphan"],
+      recentPageIds: ["trashed-child"],
+      expandedPageIds: [],
+      pageIdsWithChildren: [],
+      missingParentPageIds: ["missing"],
+      trashedParentPageIds: ["trashed-parent"],
+    });
+
+    expect(result.parentStatusByPageId).toEqual({
+      orphan: "missing",
+      "trashed-child": "trashed",
+    });
+    expect(result.treeItems.map((item) => [item.page.id, item.parentStatus])).toEqual([
+      ["orphan", "missing"],
+      ["trashed-child", "trashed"],
+    ]);
   });
 });

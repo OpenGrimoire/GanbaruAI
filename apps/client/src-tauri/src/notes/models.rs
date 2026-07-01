@@ -279,6 +279,43 @@ impl NoteLoadedPage {
     }
 }
 
+#[derive(Deserialize)]
+pub struct NoteSidebarPagesRequest {
+    #[serde(default)]
+    pub(in crate::notes) expanded_page_ids: Vec<String>,
+    #[serde(default)]
+    pub(in crate::notes) seed_page_ids: Vec<String>,
+    #[serde(default)]
+    pub(in crate::notes) selected_page_id: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct NoteSidebarPageList {
+    pages: Vec<NotePageDto>,
+    page_ids_with_children: Vec<String>,
+    missing_parent_page_ids: Vec<String>,
+    trashed_parent_page_ids: Vec<String>,
+}
+
+impl NoteSidebarPageList {
+    pub(in crate::notes) fn new(
+        pages: Vec<NotePageRow>,
+        page_ids_with_children: Vec<String>,
+        missing_parent_page_ids: Vec<String>,
+        trashed_parent_page_ids: Vec<String>,
+    ) -> Result<Self, String> {
+        Ok(Self {
+            pages: pages
+                .into_iter()
+                .map(NotePageDto::new)
+                .collect::<Result<Vec<_>, _>>()?,
+            page_ids_with_children,
+            missing_parent_page_ids,
+            trashed_parent_page_ids,
+        })
+    }
+}
+
 #[derive(Serialize)]
 pub struct NoteBacklinkDto {
     object: &'static str,
@@ -713,7 +750,7 @@ pub struct NoteCommentUpdate {
     pub(in crate::notes) rich_text: Vec<Value>,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 pub(in crate::notes) struct NotePageRow {
     pub(in crate::notes) id: String,
     pub(in crate::notes) parent_type: String,

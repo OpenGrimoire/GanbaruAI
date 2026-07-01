@@ -3,6 +3,7 @@ import { createRichText } from "./block-factory";
 import {
   buildNotesPageTree,
   parseStoredNotesSidebarCollapsedPageIds,
+  parseStoredNotesSidebarExpandedPageIds,
 } from "./page-tree";
 import type { NotesPage, NotesParent } from "./types";
 
@@ -60,6 +61,28 @@ describe("notes page tree", () => {
     ).toEqual([["root", true]]);
   });
 
+  it("uses expanded ids and child markers for lazy sidebar trees", () => {
+    const root = page("root", "Root", { type: "workspace", workspace: true });
+    const child = page("child", "Child", { type: "page_id", page_id: root.id });
+
+    expect(
+      buildNotesPageTree([root], {
+        expandedPageIds: [],
+        pageIdsWithChildren: [root.id],
+      }).map((item) => [item.page.id, item.hasChildren, item.collapsed]),
+    ).toEqual([["root", true, true]]);
+
+    expect(
+      buildNotesPageTree([root, child], {
+        expandedPageIds: [root.id],
+        pageIdsWithChildren: [root.id],
+      }).map((item) => [item.page.id, item.depth, item.collapsed]),
+    ).toEqual([
+      ["root", 0, false],
+      ["child", 1, false],
+    ]);
+  });
+
   it("reveals the selected page through collapsed ancestors", () => {
     const root = page("root", "Root", { type: "workspace", workspace: true });
     const child = page("child", "Child", { type: "page_id", page_id: root.id });
@@ -101,8 +124,34 @@ describe("notes page tree", () => {
     ]);
   });
 
+  it("marks missing and trashed parent states", () => {
+    const missingChild = page("missing-child", "Missing child", {
+      type: "page_id",
+      page_id: "missing",
+    });
+    const trashedChild = page("trashed-child", "Trashed child", {
+      type: "page_id",
+      page_id: "trashed",
+    });
+
+    expect(
+      buildNotesPageTree([missingChild, trashedChild], {
+        missingParentPageIds: ["missing"],
+        trashedParentPageIds: ["trashed"],
+      }).map((item) => [item.page.id, item.parentStatus]),
+    ).toEqual([
+      ["missing-child", "missing"],
+      ["trashed-child", "trashed"],
+    ]);
+  });
+
   it("parses stored collapsed ids defensively", () => {
     expect(parseStoredNotesSidebarCollapsedPageIds(["a", "b", "a", 1])).toEqual(["a", "b"]);
     expect(parseStoredNotesSidebarCollapsedPageIds("a")).toEqual([]);
+  });
+
+  it("parses stored expanded ids defensively", () => {
+    expect(parseStoredNotesSidebarExpandedPageIds(["a", "b", "a", 1])).toEqual(["a", "b"]);
+    expect(parseStoredNotesSidebarExpandedPageIds("a")).toEqual([]);
   });
 });

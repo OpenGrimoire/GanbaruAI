@@ -1523,6 +1523,8 @@ export const en = {
     reopenCommentThread: "Reopen",
     expandPage: "Expand page",
     collapsePage: "Collapse page",
+    parentMissing: "Parent page is unavailable",
+    parentInTrash: "Parent page is in Trash",
     newSubpage: "New subpage",
     favorites: "Favorites",
     recents: "Recents",

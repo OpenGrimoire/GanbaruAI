@@ -2,7 +2,7 @@ use super::models::{
     NoteAppendBlockChildren, NoteBlockUpdate, NoteBlockWrite, NoteChildPageFromBlockCreate,
     NoteCommentCreate, NoteCommentUpdate, NoteDuplicateBlock, NoteDuplicateBlocks,
     NoteDuplicatePage, NoteDuplicatedBlockId, NoteMoveBlock, NoteMoveBlocks, NoteMovePage,
-    NotePageCreate, NoteParent, NoteTrashBlocks, OptionalJsonValue,
+    NotePageCreate, NoteParent, NoteSidebarPagesRequest, NoteTrashBlocks, OptionalJsonValue,
 };
 use super::{comments, reads, undo_state, validation, writes};
 use crate::db::run_migrations;
@@ -986,6 +986,139 @@ fn create_nested_page_appends_child_page_block_to_parent_page() {
         let child_json = serde_json::to_value(child_blocks).unwrap();
         assert_eq!(child_json["results"][0]["id"], BLOCK_B);
         assert_eq!(child_json["results"][0]["type"], "paragraph");
+    });
+}
+
+#[test]
+fn sidebar_pages_load_roots_expanded_children_and_selected_ancestors() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        create_page(&pool, PAGE_A, BLOCK_A).await;
+        writes::create_page(
+            &pool,
+            NotePageCreate {
+                id: PAGE_B.to_string(),
+                title: "Nested".to_string(),
+                parent: page_parent(PAGE_A),
+                first_block_id: BLOCK_B.to_string(),
+                after_block_id: None,
+            },
+        )
+        .await
+        .unwrap();
+        writes::create_page(
+            &pool,
+            NotePageCreate {
+                id: PAGE_C.to_string(),
+                title: "Leaf".to_string(),
+                parent: page_parent(PAGE_B),
+                first_block_id: BLOCK_C.to_string(),
+                after_block_id: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        let roots = reads::list_sidebar_pages(
+            &pool,
+            NoteSidebarPagesRequest {
+                expanded_page_ids: vec![],
+                seed_page_ids: vec![],
+                selected_page_id: None,
+            },
+        )
+        .await
+        .unwrap();
+        let roots_json = serde_json::to_value(roots).unwrap();
+        assert_eq!(roots_json["pages"].as_array().unwrap().len(), 1);
+        assert_eq!(roots_json["pages"][0]["id"], PAGE_A);
+        assert!(roots_json["pages"][0]["blocks"].is_null());
+        assert_eq!(roots_json["page_ids_with_children"], json!([PAGE_A]));
+
+        let expanded = reads::list_sidebar_pages(
+            &pool,
+            NoteSidebarPagesRequest {
+                expanded_page_ids: vec![PAGE_A.to_string()],
+                seed_page_ids: vec![],
+                selected_page_id: None,
+            },
+        )
+        .await
+        .unwrap();
+        let expanded_json = serde_json::to_value(expanded).unwrap();
+        let expanded_ids = expanded_json["pages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|page| page["id"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(expanded_ids, vec![PAGE_B, PAGE_A]);
+        assert_eq!(
+            expanded_json["page_ids_with_children"],
+            json!([PAGE_A, PAGE_B])
+        );
+
+        let selected = reads::list_sidebar_pages(
+            &pool,
+            NoteSidebarPagesRequest {
+                expanded_page_ids: vec![],
+                seed_page_ids: vec![],
+                selected_page_id: Some(PAGE_C.to_string()),
+            },
+        )
+        .await
+        .unwrap();
+        let selected_json = serde_json::to_value(selected).unwrap();
+        let selected_ids = selected_json["pages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|page| page["id"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(selected_ids.len(), 3);
+        assert!(selected_ids.contains(&PAGE_A));
+        assert!(selected_ids.contains(&PAGE_B));
+        assert!(selected_ids.contains(&PAGE_C));
+    });
+}
+
+#[test]
+fn sidebar_pages_report_trashed_parents_for_seed_pages() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        create_page(&pool, PAGE_A, BLOCK_A).await;
+        writes::create_page(
+            &pool,
+            NotePageCreate {
+                id: PAGE_B.to_string(),
+                title: "Nested".to_string(),
+                parent: page_parent(PAGE_A),
+                first_block_id: BLOCK_B.to_string(),
+                after_block_id: None,
+            },
+        )
+        .await
+        .unwrap();
+        sqlx::query("UPDATE notes_pages SET in_trash = 1 WHERE id = ?")
+            .bind(PAGE_A)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let sidebar_pages = reads::list_sidebar_pages(
+            &pool,
+            NoteSidebarPagesRequest {
+                expanded_page_ids: vec![],
+                seed_page_ids: vec![PAGE_B.to_string()],
+                selected_page_id: None,
+            },
+        )
+        .await
+        .unwrap();
+        let sidebar_json = serde_json::to_value(sidebar_pages).unwrap();
+        assert_eq!(sidebar_json["pages"].as_array().unwrap().len(), 1);
+        assert_eq!(sidebar_json["pages"][0]["id"], PAGE_B);
+        assert_eq!(sidebar_json["trashed_parent_page_ids"], json!([PAGE_A]));
     });
 }
 

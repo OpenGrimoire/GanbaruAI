@@ -29,7 +29,10 @@
       pages: notes.pages,
       favoritePageIds: notes.favoritePageIds,
       recentPageIds: notes.recentPageIds,
-      collapsedPageIds: notes.sidebarCollapsedPageIds,
+      expandedPageIds: notes.sidebarExpandedPageIds,
+      pageIdsWithChildren: notes.sidebarPageIdsWithChildren,
+      missingParentPageIds: notes.sidebarMissingParentPageIds,
+      trashedParentPageIds: notes.sidebarTrashedParentPageIds,
       activePageId: notes.selectedPageId,
       search,
       titleForPage: (page) => notesPageTitle(page, t("notes.untitled")),
@@ -249,6 +252,7 @@
               depth={0}
               hasChildren={false}
               collapsed={false}
+              parentStatus={sidebarPlan.parentStatusByPageId[page.id] ?? null}
               favorited={notes.favoritePageIds.includes(page.id)}
               selected={page.id === notes.selectedPageId}
               onSelect={() => {
@@ -294,6 +298,7 @@
               depth={0}
               hasChildren={false}
               collapsed={false}
+              parentStatus={sidebarPlan.parentStatusByPageId[page.id] ?? null}
               favorited={notes.favoritePageIds.includes(page.id)}
               selected={page.id === notes.selectedPageId}
               onSelect={() => {
@@ -340,6 +345,7 @@
             depth={item.depth}
             hasChildren={item.hasChildren}
             collapsed={item.collapsed}
+            parentStatus={item.parentStatus}
             favorited={notes.favoritePageIds.includes(item.page.id)}
             selected={item.page.id === notes.selectedPageId}
             onSelect={() => {

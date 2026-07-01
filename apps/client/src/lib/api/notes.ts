@@ -8,6 +8,7 @@ import {
   mapNotesLoadedPageDto,
   mapNotesPageDto,
   mapNotesSearchResultDto,
+  mapNotesSidebarPageListDto,
 } from "$lib/notes/notion-mappers";
 import type {
   NotesAppendBlockChildrenRequest,
@@ -30,6 +31,8 @@ import type {
   NotesPageUpdate,
   NotesPaginatedBlockList,
   NotesSearchResult,
+  NotesSidebarPageList,
+  NotesSidebarPagesRequest,
   NotesTrashBlocksRequest,
 } from "$lib/notes/types";
 
@@ -56,6 +59,15 @@ export async function listArchivedNotesPages(): Promise<NotesPage[]> {
     throw new Error("notes_list_archived_pages returned a non-array payload");
   }
   return rows.map(mapNotesPageDto);
+}
+
+export async function listNotesSidebarPages(
+  request: NotesSidebarPagesRequest,
+): Promise<NotesSidebarPageList> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesSidebarPageListDto(
+    await invoke<unknown>("notes_list_sidebar_pages", { dbUrl, request }),
+  );
 }
 
 export async function listNotesBacklinks(pageId: string): Promise<NotesBacklink[]> {

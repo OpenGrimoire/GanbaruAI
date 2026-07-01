@@ -8,7 +8,7 @@ import {
   getNotesBlockChildren,
   listNotesBacklinks,
   listNotesComments,
-  listNotesPages,
+  listNotesSidebarPages,
   listArchivedNotesPages,
   listTrashedNotesPages,
   loadNotesPage,
@@ -56,11 +56,11 @@ import {
   initialNotesFavoritePageIds,
   initialNotesRecentPageIds,
   initialNotesSelectedPageId,
-  initialNotesSidebarCollapsedPageIds,
+  initialNotesSidebarExpandedPageIds,
   saveNotesFavoritePageIds,
   saveNotesRecentPageIds,
   saveNotesSelectedPageId,
-  saveNotesSidebarCollapsedPageIds,
+  saveNotesSidebarExpandedPageIds,
 } from "./notes-store-page-state";
 import { createNotesBlockPersistence } from "./notes-store-persistence";
 import type {
@@ -92,7 +92,10 @@ let trashedPages = $state<NotesPage[]>([]);
 let selectedPageId = $state<string | null>(initialNotesSelectedPageId());
 let favoritePageIds = $state<string[]>(initialNotesFavoritePageIds());
 let recentPageIds = $state<string[]>(initialNotesRecentPageIds());
-let sidebarCollapsedPageIds = $state<string[]>(initialNotesSidebarCollapsedPageIds());
+let sidebarExpandedPageIds = $state<string[]>(initialNotesSidebarExpandedPageIds());
+let sidebarPageIdsWithChildren = $state<string[]>([]);
+let sidebarMissingParentPageIds = $state<string[]>([]);
+let sidebarTrashedParentPageIds = $state<string[]>([]);
 let loadedPage = $state<NotesPage | null>(null);
 let backlinks = $state<NotesBacklink[]>([]);
 let commentThreads = $state<NotesCommentThread[]>([]);
@@ -152,6 +155,10 @@ function replacePages(nextPages: NotesPage[]): void {
   pages = [...nextPages];
 }
 
+function sidebarSeedPageIds(): string[] {
+  return [...new Set([...favoritePageIds, ...recentPageIds])];
+}
+
 function replaceBlock(block: NotesBlock): void {
   blocksById = { ...blocksById, [block.id]: block };
 }
@@ -195,8 +202,16 @@ async function loadAllChildrenForVisibleTree(): Promise<void> {
   }
 }
 
-async function reloadPages(): Promise<void> {
-  replacePages(await listNotesPages());
+async function reloadPages(selectedPageIdOverride: string | null = selectedPageId): Promise<void> {
+  const sidebarPages = await listNotesSidebarPages({
+    expanded_page_ids: [...sidebarExpandedPageIds],
+    seed_page_ids: sidebarSeedPageIds(),
+    selected_page_id: selectedPageIdOverride,
+  });
+  replacePages(sidebarPages.pages);
+  sidebarPageIdsWithChildren = [...sidebarPages.page_ids_with_children];
+  sidebarMissingParentPageIds = [...sidebarPages.missing_parent_page_ids];
+  sidebarTrashedParentPageIds = [...sidebarPages.trashed_parent_page_ids];
 }
 
 async function reloadArchivedPages(): Promise<void> {
@@ -246,6 +261,7 @@ async function loadPageTree(pageId: string): Promise<void> {
 async function loadPageTreeForUndo(pageId: string): Promise<void> {
   viewMode = "pages";
   saveSelectedPageId(pageId);
+  await reloadPages();
   await loadPageTree(pageId);
   recordRecentPage(pageId);
 }
@@ -464,6 +480,7 @@ async function selectPage(pageId: string | null): Promise<void> {
   loading = true;
   loadError = null;
   try {
+    await reloadPages();
     await loadPageTree(pageId);
     recordRecentPage(pageId);
     await undoController.hydrate(pageId);
@@ -495,13 +512,13 @@ async function createPageWithParent(title: string, parent: NotesParent): Promise
     first_block_id: firstBlockId,
     after_block_id: null,
   });
+  viewMode = "pages";
+  saveSelectedPageId(loaded.page.id);
+  recordRecentPage(loaded.page.id);
   await reloadPages();
   if (!pages.some((page) => page.id === loaded.page.id)) {
     pages = [loaded.page, ...pages];
   }
-  viewMode = "pages";
-  saveSelectedPageId(loaded.page.id);
-  recordRecentPage(loaded.page.id);
   setLoadedPageFromLoaded(loaded);
   await reloadBacklinks(loaded.page.id);
   await reloadComments(loaded.page.id);
@@ -510,11 +527,17 @@ async function createPageWithParent(title: string, parent: NotesParent): Promise
 }
 
 function setSidebarPageCollapsed(pageId: string, collapsed: boolean): void {
+  const normalizedPageId = pageId.trim();
+  if (!normalizedPageId) return;
   const next = collapsed
-    ? [...new Set([...sidebarCollapsedPageIds, pageId])]
-    : sidebarCollapsedPageIds.filter((candidate) => candidate !== pageId);
-  sidebarCollapsedPageIds = next;
-  saveNotesSidebarCollapsedPageIds(next);
+    ? sidebarExpandedPageIds.filter((candidate) => candidate !== normalizedPageId)
+    : [
+        normalizedPageId,
+        ...sidebarExpandedPageIds.filter((candidate) => candidate !== normalizedPageId),
+      ];
+  sidebarExpandedPageIds = next;
+  saveNotesSidebarExpandedPageIds(next);
+  if (!collapsed) void reloadPages();
 }
 
 function setPageFavorited(pageId: string, favorited: boolean): void {
@@ -532,13 +555,13 @@ async function createChildPageFromBlock(blockId: string): Promise<void> {
     first_block_id: firstBlockId,
     title: blockPlainText(block).trim(),
   });
+  viewMode = "pages";
+  saveSelectedPageId(loaded.page.id);
+  recordRecentPage(loaded.page.id);
   await reloadPages();
   if (!pages.some((page) => page.id === loaded.page.id)) {
     pages = [loaded.page, ...pages];
   }
-  viewMode = "pages";
-  saveSelectedPageId(loaded.page.id);
-  recordRecentPage(loaded.page.id);
   setLoadedPageFromLoaded(loaded);
   await reloadBacklinks(loaded.page.id);
   await reloadComments(loaded.page.id);
@@ -559,16 +582,16 @@ async function createChildPageAfterBlock(blockId: string): Promise<void> {
     first_block_id: firstBlockId,
     after_block_id: blockId,
   });
-  await reloadPages();
-  if (!pages.some((page) => page.id === loaded.page.id)) {
-    pages = [loaded.page, ...pages];
-  }
   if (block.parent.type === "page_id") {
     setSidebarPageCollapsed(block.parent.page_id, false);
   }
   viewMode = "pages";
   saveSelectedPageId(loaded.page.id);
   recordRecentPage(loaded.page.id);
+  await reloadPages();
+  if (!pages.some((page) => page.id === loaded.page.id)) {
+    pages = [loaded.page, ...pages];
+  }
   setLoadedPageFromLoaded(loaded);
   await reloadBacklinks(loaded.page.id);
   await reloadComments(loaded.page.id);
@@ -586,16 +609,16 @@ async function renamePage(pageId: string, title: string): Promise<void> {
 async function duplicatePage(pageId: string, title: string): Promise<void> {
   await flushPendingBlockSaves();
   const loaded = await duplicateNotesPage(pageId, { title });
-  await reloadPages();
-  if (!pages.some((page) => page.id === loaded.page.id)) {
-    pages = [loaded.page, ...pages];
-  }
   if (loaded.page.parent.type === "page_id") {
     setSidebarPageCollapsed(loaded.page.parent.page_id, false);
   }
   viewMode = "pages";
   saveSelectedPageId(loaded.page.id);
   recordRecentPage(loaded.page.id);
+  await reloadPages();
+  if (!pages.some((page) => page.id === loaded.page.id)) {
+    pages = [loaded.page, ...pages];
+  }
   setLoadedPageFromLoaded(loaded);
   await reloadBacklinks(loaded.page.id);
   await reloadComments(loaded.page.id);
@@ -606,16 +629,16 @@ async function duplicatePage(pageId: string, title: string): Promise<void> {
 async function movePage(pageId: string, parent: NotesParent): Promise<void> {
   await flushPendingBlockSaves();
   const loaded = await moveNotesPage(pageId, { parent });
-  await reloadPages();
-  if (!pages.some((page) => page.id === loaded.page.id)) {
-    pages = [loaded.page, ...pages];
-  }
   if (loaded.page.parent.type === "page_id") {
     setSidebarPageCollapsed(loaded.page.parent.page_id, false);
   }
   viewMode = "pages";
   saveSelectedPageId(loaded.page.id);
   recordRecentPage(loaded.page.id);
+  await reloadPages();
+  if (!pages.some((page) => page.id === loaded.page.id)) {
+    pages = [loaded.page, ...pages];
+  }
   setLoadedPageFromLoaded(loaded);
   await loadAllChildrenForVisibleTree();
   await reloadBacklinks(loaded.page.id);
@@ -662,12 +685,12 @@ async function archivePage(pageId: string): Promise<void> {
 async function unarchivePage(pageId: string): Promise<void> {
   const restoredPage = await archiveNotesPage(pageId, false);
   archivedPages = archivedPages.filter((page) => page.id !== pageId);
+  viewMode = "pages";
+  saveSelectedPageId(restoredPage.id);
   await reloadPages();
   if (!pages.some((page) => page.id === restoredPage.id)) {
     pages = [restoredPage, ...pages];
   }
-  viewMode = "pages";
-  saveSelectedPageId(restoredPage.id);
   await loadPageTree(restoredPage.id);
   recordRecentPage(restoredPage.id);
   await undoController.hydrate(restoredPage.id);
@@ -677,12 +700,12 @@ async function unarchivePage(pageId: string): Promise<void> {
 async function restorePage(pageId: string): Promise<void> {
   const restoredPage = await trashNotesPage(pageId, false);
   trashedPages = trashedPages.filter((page) => page.id !== pageId);
+  viewMode = "pages";
+  saveSelectedPageId(restoredPage.id);
   await reloadPages();
   if (!pages.some((page) => page.id === restoredPage.id)) {
     pages = [restoredPage, ...pages];
   }
-  viewMode = "pages";
-  saveSelectedPageId(restoredPage.id);
   await loadPageTree(restoredPage.id);
   recordRecentPage(restoredPage.id);
   await undoController.hydrate(restoredPage.id);
@@ -698,10 +721,13 @@ async function permanentlyDeletePage(pageId: string): Promise<void> {
   trashedPages = trashedPages.filter((page) => !deletedPageIdSet.has(page.id));
   const nextFavoritePageIds = favoritePageIds.filter((id) => !deletedPageIdSet.has(id));
   const nextRecentPageIds = recentPageIds.filter((id) => !deletedPageIdSet.has(id));
+  const nextExpandedPageIds = sidebarExpandedPageIds.filter((id) => !deletedPageIdSet.has(id));
   favoritePageIds = nextFavoritePageIds;
   recentPageIds = nextRecentPageIds;
+  sidebarExpandedPageIds = nextExpandedPageIds;
   saveNotesFavoritePageIds(nextFavoritePageIds);
   saveNotesRecentPageIds(nextRecentPageIds);
+  saveNotesSidebarExpandedPageIds(nextExpandedPageIds);
   if (trashLoaded) {
     await reloadTrashedPages();
   }
@@ -898,7 +924,7 @@ async function openNotesLink(target: NotesPageLinkTarget): Promise<boolean> {
   viewMode = "pages";
   await ensureLoaded();
   if (!pages.some((page) => page.id === target.pageId)) {
-    await reloadPages();
+    await reloadPages(target.pageId);
   }
   if (!pages.some((page) => page.id === target.pageId)) return false;
   if (loadedPage?.id !== target.pageId) {
@@ -930,8 +956,17 @@ export function getNotes() {
     get recentPageIds(): readonly string[] {
       return recentPageIds;
     },
-    get sidebarCollapsedPageIds(): readonly string[] {
-      return sidebarCollapsedPageIds;
+    get sidebarExpandedPageIds(): readonly string[] {
+      return sidebarExpandedPageIds;
+    },
+    get sidebarPageIdsWithChildren(): readonly string[] {
+      return sidebarPageIdsWithChildren;
+    },
+    get sidebarMissingParentPageIds(): readonly string[] {
+      return sidebarMissingParentPageIds;
+    },
+    get sidebarTrashedParentPageIds(): readonly string[] {
+      return sidebarTrashedParentPageIds;
     },
     get trashedPages(): NotesPage[] {
       return trashedPages;

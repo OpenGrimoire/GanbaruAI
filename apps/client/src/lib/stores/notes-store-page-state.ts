@@ -9,7 +9,9 @@ import {
 } from "$lib/notes/page-navigation";
 import {
   notesSidebarCollapsedPageIdsConfigKey,
+  notesSidebarExpandedPageIdsConfigKey,
   parseStoredNotesSidebarCollapsedPageIds,
+  parseStoredNotesSidebarExpandedPageIds,
 } from "$lib/notes/page-tree";
 import { getConfigKey, setConfigKey } from "$lib/vault/config";
 
@@ -17,6 +19,7 @@ export const notesSelectedPageKey = notesSelectedPageConfigKey();
 export const notesFavoritePageIdsKey = notesFavoritePageIdsConfigKey();
 export const notesRecentPageIdsKey = notesRecentPageIdsConfigKey();
 export const notesSidebarCollapsedPageIdsKey = notesSidebarCollapsedPageIdsConfigKey();
+export const notesSidebarExpandedPageIdsKey = notesSidebarExpandedPageIdsConfigKey();
 
 /**
  * Load the persisted Notes page selection id.
@@ -49,6 +52,15 @@ export function initialNotesSidebarCollapsedPageIds(): string[] {
 }
 
 /**
+ * Load the persisted expanded Notes sidebar page ids.
+ */
+export function initialNotesSidebarExpandedPageIds(): string[] {
+  return parseStoredNotesSidebarExpandedPageIds(
+    getConfigKey<unknown>(notesSidebarExpandedPageIdsKey, undefined),
+  );
+}
+
+/**
  * Persist the selected Notes page id.
  */
 export function saveNotesSelectedPageId(pageId: string | null): void {
@@ -74,4 +86,12 @@ export function saveNotesRecentPageIds(pageIds: readonly string[]): void {
  */
 export function saveNotesSidebarCollapsedPageIds(pageIds: readonly string[]): void {
   setConfigKey(notesSidebarCollapsedPageIdsKey, pageIds.length > 0 ? [...pageIds] : undefined);
+}
+
+/**
+ * Persist the expanded Notes sidebar page ids.
+ */
+export function saveNotesSidebarExpandedPageIds(pageIds: readonly string[]): void {
+  setConfigKey(notesSidebarExpandedPageIdsKey, pageIds.length > 0 ? [...pageIds] : undefined);
+  setConfigKey(notesSidebarCollapsedPageIdsKey, undefined);
 }

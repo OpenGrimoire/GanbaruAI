@@ -6,6 +6,7 @@ import {
   parseNotesPage,
   parseNotesPaginatedBlockList,
   parseNotesSearchResult,
+  parseNotesSidebarPageList,
 } from "./block-validation";
 import type {
   NotesBacklink,
@@ -15,6 +16,7 @@ import type {
   NotesPage,
   NotesPaginatedBlockList,
   NotesSearchResult,
+  NotesSidebarPageList,
 } from "./types";
 
 /** Validate and map an unknown page DTO from the Tauri boundary. */
@@ -35,6 +37,11 @@ export function mapNotesBlockListDto(value: unknown): NotesPaginatedBlockList {
 /** Validate and map an unknown loaded page DTO from the Tauri boundary. */
 export function mapNotesLoadedPageDto(value: unknown): NotesLoadedPage {
   return parseNotesLoadedPage(value);
+}
+
+/** Validate and map an unknown sidebar page-list DTO from the Tauri boundary. */
+export function mapNotesSidebarPageListDto(value: unknown): NotesSidebarPageList {
+  return parseNotesSidebarPageList(value);
 }
 
 /** Validate and map an unknown backlink DTO from the Tauri boundary. */

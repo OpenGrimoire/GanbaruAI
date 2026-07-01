@@ -865,6 +865,7 @@ pub fn run() {
             notes::notes_list_pages,
             notes::notes_list_trashed_pages,
             notes::notes_list_archived_pages,
+            notes::notes_list_sidebar_pages,
             notes::notes_list_backlinks,
             notes::notes_search,
             notes::notes_list_comments,

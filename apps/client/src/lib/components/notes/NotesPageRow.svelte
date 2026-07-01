@@ -2,6 +2,7 @@
   import { tick } from "svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import type { NotesPageMoveTarget } from "$lib/notes/page-move";
+  import type { NotesPageParentStatus } from "$lib/notes/page-tree";
   import { notesPageIconText } from "$lib/notes/page-icon";
   import { notesPageTitle } from "$lib/notes/page-title";
   import type { NotesPage, NotesParent } from "$lib/notes/types";
@@ -16,12 +17,14 @@
   import Plus from "@lucide/svelte/icons/plus";
   import Star from "@lucide/svelte/icons/star";
   import Trash2 from "@lucide/svelte/icons/trash-2";
+  import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
 
   let {
     page,
     depth,
     hasChildren,
     collapsed,
+    parentStatus,
     favorited,
     selected,
     onSelect,
@@ -43,6 +46,7 @@
     depth: number;
     hasChildren: boolean;
     collapsed: boolean;
+    parentStatus: NotesPageParentStatus | null;
     favorited: boolean;
     selected: boolean;
     onSelect: () => void;
@@ -110,6 +114,10 @@
       titleDraft = title;
     }
   }
+
+  function parentStatusLabel(status: NotesPageParentStatus): string {
+    return status === "trashed" ? t("notes.parentInTrash") : t("notes.parentMissing");
+  }
 </script>
 
 <div
@@ -167,6 +175,13 @@
           <FileText class="size-3.5 shrink-0 text-muted-foreground" />
         {/if}
         <span class="min-w-0 flex-1 truncate">{title}</span>
+        {#if parentStatus}
+          <TriangleAlert
+            class="size-3.5 shrink-0 text-destructive"
+            aria-label={parentStatusLabel(parentStatus)}
+            data-app-tooltip={parentStatusLabel(parentStatus)}
+          />
+        {/if}
         {#if favorited}
           <Star class="size-3.5 shrink-0 fill-current text-primary" aria-hidden="true" />
         {/if}

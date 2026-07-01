@@ -1542,6 +1542,8 @@ export const es = {
     reopenCommentThread: "Reabrir",
     expandPage: "Expandir página",
     collapsePage: "Contraer página",
+    parentMissing: "La página principal no está disponible",
+    parentInTrash: "La página principal está en la papelera",
     newSubpage: "Nueva subpágina",
     favorites: "Favoritos",
     recents: "Recientes",

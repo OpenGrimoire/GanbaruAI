@@ -41,6 +41,7 @@ import {
   type NotesRichTextAnnotations,
   type NotesSearchResult,
   type NotesSearchResultType,
+  type NotesSidebarPageList,
   type NotesSyncedBlockPayload,
   type NotesTabBlockPayload,
   type NotesTableBlockPayload,
@@ -80,6 +81,11 @@ function readString(value: unknown, label: string): string {
 function readNullableString(value: unknown, label: string): string | null {
   if (value === null) return null;
   return readString(value, label);
+}
+
+function readStringArray(value: unknown, label: string): string[] {
+  if (!Array.isArray(value)) throw new Error(`${label} must be an array`);
+  return value.map((item, index) => readString(item, `${label}[${index}]`));
 }
 
 function readBoolean(value: unknown, label: string): boolean {
@@ -883,6 +889,26 @@ export function parseNotesLoadedPage(value: unknown): NotesLoadedPage {
   return {
     page: parseNotesPage(record.page),
     blocks: parseNotesPaginatedBlockList(record.blocks),
+  };
+}
+
+export function parseNotesSidebarPageList(value: unknown): NotesSidebarPageList {
+  const record = readRecord(value, "sidebar page list");
+  if (!Array.isArray(record.pages)) throw new Error("sidebar page list.pages must be an array");
+  return {
+    pages: record.pages.map(parseNotesPage),
+    page_ids_with_children: readStringArray(
+      record.page_ids_with_children,
+      "sidebar page list.page_ids_with_children",
+    ),
+    missing_parent_page_ids: readStringArray(
+      record.missing_parent_page_ids,
+      "sidebar page list.missing_parent_page_ids",
+    ),
+    trashed_parent_page_ids: readStringArray(
+      record.trashed_parent_page_ids,
+      "sidebar page list.trashed_parent_page_ids",
+    ),
   };
 }
 

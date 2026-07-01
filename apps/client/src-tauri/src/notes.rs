@@ -38,6 +38,16 @@ pub async fn notes_list_archived_pages<R: Runtime>(
 }
 
 #[tauri::command]
+pub async fn notes_list_sidebar_pages<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    request: NoteSidebarPagesRequest,
+) -> Result<NoteSidebarPageList, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    reads::list_sidebar_pages(&pool, request).await
+}
+
+#[tauri::command]
 pub async fn notes_list_backlinks<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,

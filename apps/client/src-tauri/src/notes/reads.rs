@@ -1,10 +1,12 @@
 use super::models::{
     NoteBacklinkDto, NoteBlockDto, NoteBlockRow, NoteCommentRow, NoteLoadedPage, NotePageDto,
-    NotePageRow, NotePaginatedBlockList, NoteSearchResultDto,
+    NotePageRow, NotePaginatedBlockList, NoteSearchResultDto, NoteSidebarPageList,
+    NoteSidebarPagesRequest,
 };
 use super::validation::{require_uuid, validate_page_size};
 use serde_json::Value;
-use sqlx::SqlitePool;
+use sqlx::{QueryBuilder, Sqlite, SqlitePool};
+use std::collections::{HashMap, HashSet};
 
 const DEFAULT_PAGE_SIZE: i64 = 50;
 
@@ -22,6 +24,54 @@ pub(in crate::notes) async fn list_archived_pages(
     pool: &SqlitePool,
 ) -> Result<Vec<NotePageDto>, String> {
     list_pages_by_state(pool, false, Some(true)).await
+}
+
+pub(in crate::notes) async fn list_sidebar_pages(
+    pool: &SqlitePool,
+    request: NoteSidebarPagesRequest,
+) -> Result<NoteSidebarPageList, String> {
+    let expanded_page_ids = normalize_request_page_ids(request.expanded_page_ids);
+    let mut seed_page_ids = normalize_request_page_ids(request.seed_page_ids);
+    if let Some(selected_page_id) = request
+        .selected_page_id
+        .as_deref()
+        .and_then(normalize_request_page_id)
+        .filter(|page_id| !seed_page_ids.contains(page_id))
+    {
+        seed_page_ids.push(selected_page_id);
+    }
+
+    let mut rows_by_id = HashMap::<String, NotePageRow>::new();
+    push_unique_page_rows(&mut rows_by_id, fetch_sidebar_root_page_rows(pool).await?);
+    push_unique_page_rows(
+        &mut rows_by_id,
+        fetch_active_page_rows_by_ids(pool, &seed_page_ids).await?,
+    );
+    for page_id in &seed_page_ids {
+        push_unique_page_rows(
+            &mut rows_by_id,
+            fetch_active_ancestor_page_rows(pool, page_id).await?,
+        );
+    }
+    push_unique_page_rows(
+        &mut rows_by_id,
+        fetch_active_child_page_rows(pool, &expanded_page_ids).await?,
+    );
+
+    let mut rows = rows_by_id.into_values().collect::<Vec<_>>();
+    sort_page_rows(&mut rows);
+    let loaded_page_ids = rows.iter().map(|row| row.id.clone()).collect::<Vec<_>>();
+    let page_ids_with_children =
+        fetch_active_parent_page_ids_with_children(pool, &loaded_page_ids).await?;
+    let (missing_parent_page_ids, trashed_parent_page_ids) =
+        fetch_unavailable_parent_page_ids(pool, &rows, &loaded_page_ids).await?;
+
+    NoteSidebarPageList::new(
+        rows,
+        page_ids_with_children,
+        missing_parent_page_ids,
+        trashed_parent_page_ids,
+    )
 }
 
 async fn list_pages_by_state(
@@ -53,6 +103,212 @@ async fn list_pages_by_state(
     }
     .map_err(|e| format!("list notes pages: {e}"))?;
     rows.into_iter().map(NotePageDto::new).collect()
+}
+
+fn normalize_request_page_ids(page_ids: Vec<String>) -> Vec<String> {
+    let mut seen = HashSet::new();
+    page_ids
+        .into_iter()
+        .filter_map(|page_id| normalize_request_page_id(&page_id))
+        .filter(|page_id| seen.insert(page_id.clone()))
+        .collect()
+}
+
+fn normalize_request_page_id(page_id: &str) -> Option<String> {
+    let trimmed = page_id.trim();
+    require_uuid(trimmed, "page_id").ok()?;
+    Some(trimmed.to_string())
+}
+
+fn push_unique_page_rows(rows_by_id: &mut HashMap<String, NotePageRow>, rows: Vec<NotePageRow>) {
+    for row in rows {
+        rows_by_id.entry(row.id.clone()).or_insert(row);
+    }
+}
+
+fn sort_page_rows(rows: &mut [NotePageRow]) {
+    rows.sort_by(|left, right| {
+        right
+            .last_edited_time
+            .cmp(&left.last_edited_time)
+            .then_with(|| left.title.to_lowercase().cmp(&right.title.to_lowercase()))
+            .then_with(|| left.id.cmp(&right.id))
+    });
+}
+
+async fn fetch_sidebar_root_page_rows(pool: &SqlitePool) -> Result<Vec<NotePageRow>, String> {
+    sqlx::query_as::<_, NotePageRow>(
+        "SELECT *
+         FROM notes_pages
+         WHERE in_trash = 0
+           AND archived = 0
+           AND parent_type <> 'page_id'
+         ORDER BY last_edited_time DESC, title COLLATE NOCASE ASC, id ASC",
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("list notes sidebar root pages: {e}"))
+}
+
+async fn fetch_active_page_rows_by_ids(
+    pool: &SqlitePool,
+    page_ids: &[String],
+) -> Result<Vec<NotePageRow>, String> {
+    if page_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut query = QueryBuilder::<Sqlite>::new(
+        "SELECT * FROM notes_pages WHERE in_trash = 0 AND archived = 0 AND id IN (",
+    );
+    let mut separated = query.separated(", ");
+    for page_id in page_ids {
+        separated.push_bind(page_id);
+    }
+    query.push(") ORDER BY last_edited_time DESC, title COLLATE NOCASE ASC, id ASC");
+    query
+        .build_query_as::<NotePageRow>()
+        .fetch_all(pool)
+        .await
+        .map_err(|e| format!("list notes sidebar pages by id: {e}"))
+}
+
+async fn fetch_active_child_page_rows(
+    pool: &SqlitePool,
+    parent_page_ids: &[String],
+) -> Result<Vec<NotePageRow>, String> {
+    if parent_page_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut query = QueryBuilder::<Sqlite>::new(
+        "SELECT * FROM notes_pages
+         WHERE in_trash = 0
+           AND archived = 0
+           AND parent_type = 'page_id'
+           AND parent_page_id IN (",
+    );
+    let mut separated = query.separated(", ");
+    for page_id in parent_page_ids {
+        separated.push_bind(page_id);
+    }
+    query.push(") ORDER BY last_edited_time DESC, title COLLATE NOCASE ASC, id ASC");
+    query
+        .build_query_as::<NotePageRow>()
+        .fetch_all(pool)
+        .await
+        .map_err(|e| format!("list notes sidebar child pages: {e}"))
+}
+
+async fn fetch_active_ancestor_page_rows(
+    pool: &SqlitePool,
+    page_id: &str,
+) -> Result<Vec<NotePageRow>, String> {
+    let mut rows = Vec::new();
+    let mut seen = HashSet::new();
+    let mut cursor = Some(page_id.to_string());
+    while let Some(current_page_id) = cursor {
+        let Some(row) = fetch_page_row_any_state(pool, &current_page_id).await? else {
+            break;
+        };
+        if !seen.insert(row.id.clone()) {
+            break;
+        }
+        let parent_page_id = if row.parent_type == "page_id" {
+            row.parent_page_id.clone()
+        } else {
+            None
+        };
+        if row.id != page_id && row.in_trash == 0 && row.archived == 0 {
+            rows.push(row);
+        } else if row.in_trash != 0 || row.archived != 0 {
+            break;
+        }
+        cursor = parent_page_id;
+    }
+    Ok(rows)
+}
+
+async fn fetch_page_row_any_state(
+    pool: &SqlitePool,
+    page_id: &str,
+) -> Result<Option<NotePageRow>, String> {
+    sqlx::query_as::<_, NotePageRow>(
+        "SELECT *
+         FROM notes_pages
+         WHERE id = ?
+         LIMIT 1",
+    )
+    .bind(page_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| format!("load notes page metadata: {e}"))
+}
+
+async fn fetch_active_parent_page_ids_with_children(
+    pool: &SqlitePool,
+    page_ids: &[String],
+) -> Result<Vec<String>, String> {
+    if page_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut query = QueryBuilder::<Sqlite>::new(
+        "SELECT DISTINCT parent_page_id
+         FROM notes_pages
+         WHERE in_trash = 0
+           AND archived = 0
+           AND parent_type = 'page_id'
+           AND parent_page_id IN (",
+    );
+    let mut separated = query.separated(", ");
+    for page_id in page_ids {
+        separated.push_bind(page_id);
+    }
+    query.push(") ORDER BY parent_page_id ASC");
+    let rows = query
+        .build_query_scalar::<String>()
+        .fetch_all(pool)
+        .await
+        .map_err(|e| format!("list notes sidebar child page markers: {e}"))?;
+    Ok(rows)
+}
+
+async fn fetch_unavailable_parent_page_ids(
+    pool: &SqlitePool,
+    rows: &[NotePageRow],
+    loaded_page_ids: &[String],
+) -> Result<(Vec<String>, Vec<String>), String> {
+    let loaded_page_id_set = loaded_page_ids
+        .iter()
+        .map(String::as_str)
+        .collect::<HashSet<_>>();
+    let mut checked_parent_ids = HashSet::new();
+    let mut missing_parent_page_ids = Vec::new();
+    let mut trashed_parent_page_ids = Vec::new();
+    for row in rows {
+        if row.parent_type != "page_id" {
+            continue;
+        }
+        let Some(parent_page_id) = row.parent_page_id.as_deref() else {
+            continue;
+        };
+        if loaded_page_id_set.contains(parent_page_id)
+            || !checked_parent_ids.insert(parent_page_id.to_string())
+        {
+            continue;
+        }
+        match fetch_page_row_any_state(pool, parent_page_id).await? {
+            None => missing_parent_page_ids.push(parent_page_id.to_string()),
+            Some(parent) if parent.in_trash != 0 => {
+                trashed_parent_page_ids.push(parent_page_id.to_string());
+            }
+            Some(parent) if parent.archived != 0 => {
+                missing_parent_page_ids.push(parent_page_id.to_string());
+            }
+            Some(_) => {}
+        }
+    }
+    missing_parent_page_ids.sort();
+    trashed_parent_page_ids.sort();
+    Ok((missing_parent_page_ids, trashed_parent_page_ids))
 }
 
 pub(in crate::notes) async fn load_page(
