@@ -8,6 +8,7 @@ import {
 } from "./rich-text";
 import {
   notesRichTextFormattingShortcutAnnotationName,
+  notesRichTextLinkShortcutRequested,
   type NotesRichTextFormattingShortcutInput,
 } from "./rich-text-shortcuts";
 
@@ -115,5 +116,58 @@ describe("notes rich text formatting shortcuts", () => {
         altKey: true,
       }),
     ).toBeNull();
+  });
+});
+
+describe("notes rich text link shortcuts", () => {
+  it("maps Ctrl+K and Cmd+K to link editing", () => {
+    expect(
+      notesRichTextLinkShortcutRequested({
+        key: "k",
+        ctrlKey: true,
+        metaKey: false,
+        shiftKey: false,
+        altKey: false,
+      }),
+    ).toBe(true);
+    expect(
+      notesRichTextLinkShortcutRequested({
+        key: "k",
+        ctrlKey: false,
+        metaKey: true,
+        shiftKey: false,
+        altKey: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("ignores modified or unrelated link shortcuts", () => {
+    expect(
+      notesRichTextLinkShortcutRequested({
+        key: "k",
+        ctrlKey: true,
+        metaKey: false,
+        shiftKey: true,
+        altKey: false,
+      }),
+    ).toBe(false);
+    expect(
+      notesRichTextLinkShortcutRequested({
+        key: "k",
+        ctrlKey: true,
+        metaKey: false,
+        shiftKey: false,
+        altKey: true,
+      }),
+    ).toBe(false);
+    expect(
+      notesRichTextLinkShortcutRequested({
+        key: "b",
+        ctrlKey: true,
+        metaKey: false,
+        shiftKey: false,
+        altKey: false,
+      }),
+    ).toBe(false);
   });
 });

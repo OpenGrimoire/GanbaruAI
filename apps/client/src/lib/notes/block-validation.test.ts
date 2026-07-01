@@ -480,6 +480,37 @@ describe("notes boundary validation", () => {
     });
   });
 
+  it("parses email linked text rich text", () => {
+    const richText = parseNotesRichTextArray(
+      [
+        {
+          type: "text",
+          text: {
+            content: "email",
+            link: { url: "mailto:team@example.com" },
+          },
+          annotations: {
+            bold: false,
+            italic: false,
+            strikethrough: false,
+            underline: false,
+            code: false,
+            color: "default",
+          },
+          plain_text: "email",
+          href: "mailto:team@example.com",
+        },
+      ],
+      "rich_text",
+    );
+
+    expect(richText[0]).toMatchObject({
+      type: "text",
+      text: { link: { url: "mailto:team@example.com" } },
+      href: "mailto:team@example.com",
+    });
+  });
+
   it("parses annotated text rich text", () => {
     const richText = parseNotesRichTextArray(
       [

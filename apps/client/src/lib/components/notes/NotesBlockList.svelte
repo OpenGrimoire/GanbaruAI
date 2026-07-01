@@ -168,6 +168,15 @@
     await notes.updateBlockTextAnnotations(blockId, start, end, patch);
   }
 
+  async function applyTextLink(
+    blockId: string,
+    start: number,
+    end: number,
+    url: string | null,
+  ): Promise<void> {
+    await notes.updateBlockTextLink(blockId, start, end, url);
+  }
+
   function insertInlineEquation(
     blockId: string,
     start: number,
@@ -290,9 +299,7 @@
         }}
         onInsertPageMention={insertPageMention}
         onInsertDateMention={insertDateMention}
-        onApplyTextLink={(blockId, start, end, url) => {
-          void notes.updateBlockTextLink(blockId, start, end, url);
-        }}
+        onApplyTextLink={applyTextLink}
         onInsertInlineEquation={insertInlineEquation}
         onPastePlainText={pastePlainText}
         onApplyTextAnnotations={applyTextAnnotations}
@@ -390,9 +397,7 @@
         }}
         onInsertPageMention={insertPageMention}
         onInsertDateMention={insertDateMention}
-        onApplyTextLink={(blockId, start, end, url) => {
-          void notes.updateBlockTextLink(blockId, start, end, url);
-        }}
+        onApplyTextLink={applyTextLink}
         onInsertInlineEquation={insertInlineEquation}
         onPastePlainText={pastePlainText}
         onApplyTextAnnotations={applyTextAnnotations}
@@ -487,9 +492,7 @@
         }}
         onInsertPageMention={insertPageMention}
         onInsertDateMention={insertDateMention}
-        onApplyTextLink={(blockId, start, end, url) => {
-          void notes.updateBlockTextLink(blockId, start, end, url);
-        }}
+        onApplyTextLink={applyTextLink}
         onInsertInlineEquation={insertInlineEquation}
         onPastePlainText={pastePlainText}
         onApplyTextAnnotations={applyTextAnnotations}

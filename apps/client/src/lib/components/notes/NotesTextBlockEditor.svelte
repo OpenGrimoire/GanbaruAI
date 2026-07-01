@@ -45,7 +45,10 @@
     type NotesRichTextAnnotationName,
     type NotesRichTextAnnotationPatch,
   } from "$lib/notes/rich-text";
-  import { notesRichTextFormattingShortcutAnnotationName } from "$lib/notes/rich-text-shortcuts";
+  import {
+    notesRichTextFormattingShortcutAnnotationName,
+    notesRichTextLinkShortcutRequested,
+  } from "$lib/notes/rich-text-shortcuts";
   import type { NotesSlashAction, NotesSlashCommand } from "$lib/notes/slash-commands";
   import type {
     NotesBlock,
@@ -318,7 +321,7 @@
   }
 
   function handleKeydown(event: KeyboardEvent): void {
-    if ((event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "k") {
+    if (notesRichTextLinkShortcutRequested(event)) {
       if (openLinkEditorFromEditor(event.currentTarget)) {
         event.preventDefault();
       }

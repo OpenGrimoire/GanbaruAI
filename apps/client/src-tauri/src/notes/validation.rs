@@ -1115,13 +1115,28 @@ fn validate_rich_text_url(value: &str, field: &str) -> Result<(), String> {
     if value.len() > 2048 {
         return Err(format!("{field} is too long"));
     }
-    let lower = value.to_ascii_lowercase();
-    if lower.starts_with("http://") || lower.starts_with("https://") || lower.starts_with("mailto:")
-    {
-        Ok(())
-    } else {
-        Err(format!("{field} must be a valid HTTP, HTTPS, or email URL"))
+    let parsed = reqwest::Url::parse(value)
+        .map_err(|_| format!("{field} must be a valid HTTP, HTTPS, or email URL"))?;
+    match parsed.scheme() {
+        "http" | "https" if parsed.host_str().is_some() => Ok(()),
+        "mailto" if is_email_address_like(parsed.path()) => Ok(()),
+        _ => Err(format!("{field} must be a valid HTTP, HTTPS, or email URL")),
     }
+}
+
+fn is_email_address_like(value: &str) -> bool {
+    let trimmed = value.trim();
+    if trimmed.is_empty() || trimmed != value || trimmed.chars().any(char::is_whitespace) {
+        return false;
+    }
+    let Some((local, domain)) = trimmed.split_once('@') else {
+        return false;
+    };
+    !local.is_empty()
+        && !domain.is_empty()
+        && domain.contains('.')
+        && domain.split('.').all(|segment| !segment.is_empty())
+        && !domain.contains('@')
 }
 
 fn validate_optional_color(payload: &Value, field: &str) -> Result<(), String> {

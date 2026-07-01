@@ -21,6 +21,8 @@ const DEFAULT_RICH_TEXT_ANNOTATIONS: NotesRichTextAnnotations = {
 };
 
 const MENTION_QUERY_LIMIT = 80;
+const LINK_SCHEME_PATTERN = /^[a-z][a-z0-9+.-]*:/iu;
+const EMAIL_ADDRESS_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
 
 export interface NotesPageMentionTarget {
   kind: "page";
@@ -373,12 +375,18 @@ export function normalizeRichTextLinkUrl(rawUrl: string): string | null {
   const trimmed = rawUrl.trim();
   if (!trimmed) return null;
   if (trimmed.length > 2048 || /[\u0000-\u001f]/u.test(trimmed)) return null;
-  const candidate = /^[a-z][a-z0-9+.-]*:/iu.test(trimmed)
-    ? trimmed
-    : `https://${trimmed}`;
+  const hasScheme = LINK_SCHEME_PATTERN.test(trimmed);
+  if (!hasScheme && EMAIL_ADDRESS_PATTERN.test(trimmed)) return `mailto:${trimmed}`;
+  if (!hasScheme && trimmed.includes("@")) return null;
+  const candidate = hasScheme ? trimmed : `https://${trimmed}`;
   try {
     const parsed = new URL(candidate);
-    if (!["http:", "https:", "mailto:"].includes(parsed.protocol)) return null;
+    if (parsed.protocol === "mailto:") {
+      const address = parsed.pathname.trim();
+      if (!EMAIL_ADDRESS_PATTERN.test(address)) return null;
+      return parsed.toString();
+    }
+    if (!["http:", "https:"].includes(parsed.protocol)) return null;
     return parsed.toString();
   } catch {
     return null;

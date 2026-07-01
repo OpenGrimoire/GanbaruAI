@@ -23,3 +23,15 @@ export function notesRichTextFormattingShortcutAnnotationName(
   if (!input.shiftKey && key === "e") return "code";
   return null;
 }
+
+/**
+ * Return whether the input asks to open the selected-text link editor.
+ */
+export function notesRichTextLinkShortcutRequested(
+  input: NotesRichTextFormattingShortcutInput,
+): boolean {
+  return (input.ctrlKey || input.metaKey)
+    && !input.altKey
+    && !input.shiftKey
+    && input.key.toLowerCase() === "k";
+}

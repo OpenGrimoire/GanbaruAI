@@ -90,6 +90,29 @@ describe("notes rich text helpers", () => {
     expect(unlinked).toEqual([createTextRichText("Read the docs")]);
   });
 
+  it("edits existing links without changing selected text", () => {
+    const linked = applyRichTextLink(
+      [createTextRichText("Read the docs")],
+      5,
+      13,
+      "https://example.com/docs",
+    );
+    const edited = applyRichTextLink(linked, 5, 13, "https://docs.example.org");
+
+    expect(richTextPlainText(edited)).toBe("Read the docs");
+    expect(edited[1]).toMatchObject({
+      type: "text",
+      text: { content: "the docs", link: { url: "https://docs.example.org/" } },
+      href: "https://docs.example.org/",
+    });
+  });
+
+  it("rejects unsafe links before changing rich text", () => {
+    const source = [createTextRichText("Read the docs")];
+
+    expect(applyRichTextLink(source, 5, 13, "javascript:alert(1)")).toEqual(source);
+  });
+
   it("applies annotations over text ranges and merges compatible spans", () => {
     const richText = applyRichTextAnnotations(
       [createTextRichText("Make this bold")],
@@ -247,8 +270,27 @@ describe("notes rich text helpers", () => {
     });
   });
 
+  it("finds an existing link range from a selected link", () => {
+    const linked = [
+      createTextRichText("Read "),
+      createLinkedTextRichText("the docs", "https://example.com/docs"),
+      createTextRichText(" today"),
+    ];
+
+    expect(richTextLinkRangeForSelection(linked, 5, 13)).toEqual({
+      start: 5,
+      end: 13,
+      url: "https://example.com/docs",
+    });
+  });
+
   it("normalizes supported links and rejects unsafe schemes", () => {
+    expect(normalizeRichTextLinkUrl("http://example.com")).toBe("http://example.com/");
     expect(normalizeRichTextLinkUrl("example.com")).toBe("https://example.com/");
+    expect(normalizeRichTextLinkUrl("team@example.com")).toBe("mailto:team@example.com");
+    expect(normalizeRichTextLinkUrl("mailto:team@example.com")).toBe("mailto:team@example.com");
+    expect(normalizeRichTextLinkUrl("team@example")).toBeNull();
+    expect(normalizeRichTextLinkUrl("mailto:team%40example.com")).toBeNull();
     expect(normalizeRichTextLinkUrl("javascript:alert(1)")).toBeNull();
   });
 

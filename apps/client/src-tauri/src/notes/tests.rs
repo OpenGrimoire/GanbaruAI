@@ -499,6 +499,11 @@ fn notes_validation_rejects_bad_ids_and_payloads() {
     .is_ok());
     assert!(validation::validate_block_payload(
         "paragraph",
+        &json!({ "rich_text": [linked_rich_text("Email", "mailto:team@example.com")], "color": "default" }),
+    )
+    .is_ok());
+    assert!(validation::validate_block_payload(
+        "paragraph",
         &json!({ "rich_text": [annotated_rich_text("Important", "blue_background")], "color": "default" }),
     )
     .is_ok());
@@ -549,6 +554,20 @@ fn notes_validation_rejects_bad_ids_and_payloads() {
         validation::validate_block_payload(
             "paragraph",
             &json!({ "rich_text": [linked_rich_text("Bad", "javascript:alert(1)")], "color": "default" }),
+        ),
+        Err("rich text text.link.url must be a valid HTTP, HTTPS, or email URL".to_string())
+    );
+    assert_eq!(
+        validation::validate_block_payload(
+            "paragraph",
+            &json!({ "rich_text": [linked_rich_text("Bad", "mailto:team@example")], "color": "default" }),
+        ),
+        Err("rich text text.link.url must be a valid HTTP, HTTPS, or email URL".to_string())
+    );
+    assert_eq!(
+        validation::validate_block_payload(
+            "paragraph",
+            &json!({ "rich_text": [linked_rich_text("Bad", "mailto:team%40example.com")], "color": "default" }),
         ),
         Err("rich text text.link.url must be a valid HTTP, HTTPS, or email URL".to_string())
     );
@@ -1523,6 +1542,69 @@ fn backlinks_include_local_notes_rich_text_links() {
         assert_eq!(backlinks_json[0]["source_block_id"], BLOCK_C);
         assert_eq!(backlinks_json[0]["reference_type"], "link");
         assert_eq!(backlinks_json[0]["snippet"], "See target");
+    });
+}
+
+#[test]
+fn backlinks_refresh_when_local_notes_rich_text_links_are_edited() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        create_page(&pool, PAGE_A, BLOCK_A).await;
+        create_page(&pool, PAGE_B, BLOCK_B).await;
+        writes::append_block_children(
+            &pool,
+            NoteAppendBlockChildren {
+                parent: page_parent(PAGE_A),
+                after: Some(BLOCK_A.to_string()),
+                children: vec![block(BLOCK_C, "paragraph", paragraph_payload("See target"))],
+            },
+        )
+        .await
+        .unwrap();
+        assert!(reads::list_backlinks(&pool, PAGE_B)
+            .await
+            .unwrap()
+            .is_empty());
+
+        let target_url =
+            format!("http://localhost:1420/?view=notes#notes?page={PAGE_B}&block={BLOCK_B}");
+        writes::update_block(
+            &pool,
+            BLOCK_C,
+            block_update(
+                "paragraph",
+                json!({
+                    "rich_text": [linked_rich_text("See target", &target_url)],
+                    "color": "default"
+                }),
+            ),
+        )
+        .await
+        .unwrap();
+        let backlinks = reads::list_backlinks(&pool, PAGE_B).await.unwrap();
+        let backlinks_json = serde_json::to_value(backlinks).unwrap();
+        assert_eq!(backlinks_json.as_array().unwrap().len(), 1);
+        assert_eq!(backlinks_json[0]["source_page"]["id"], PAGE_A);
+        assert_eq!(backlinks_json[0]["source_block_id"], BLOCK_C);
+        assert_eq!(backlinks_json[0]["reference_type"], "link");
+
+        writes::update_block(
+            &pool,
+            BLOCK_C,
+            block_update(
+                "paragraph",
+                json!({
+                    "rich_text": [linked_rich_text("Email", "mailto:team@example.com")],
+                    "color": "default"
+                }),
+            ),
+        )
+        .await
+        .unwrap();
+        assert!(reads::list_backlinks(&pool, PAGE_B)
+            .await
+            .unwrap()
+            .is_empty());
     });
 }
 
