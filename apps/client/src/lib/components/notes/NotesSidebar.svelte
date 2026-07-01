@@ -1,8 +1,7 @@
 <script lang="ts">
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { notesPageMoveTargets } from "$lib/notes/page-move";
-  import { orderedNotesPagesById } from "$lib/notes/page-navigation";
-  import { buildNotesPageTree } from "$lib/notes/page-tree";
+  import { planNotesSidebarNavigation } from "$lib/notes/page-sidebar";
   import { notesPageTitle } from "$lib/notes/page-title";
   import {
     getActiveNotesBlockDragId,
@@ -25,22 +24,18 @@
   let search = $state("");
   let pendingTrashPage = $state<NotesPage | null>(null);
   let blockDropTargetPageId = $state<string | null>(null);
-  const favoritePages = $derived(orderedNotesPagesById(notes.pages, notes.favoritePageIds));
-  const recentPages = $derived(
-    orderedNotesPagesById(notes.pages, notes.recentPageIds)
-      .filter((page) => !notes.favoritePageIds.includes(page.id))
-      .slice(0, 5),
-  );
-  const showNavigationSections = $derived(!search.trim());
-  const searchQuery = $derived(search.trim());
-  const treeItems = $derived(
-    buildNotesPageTree(notes.pages, {
-      activePageId: notes.selectedPageId,
+  const sidebarPlan = $derived.by(() =>
+    planNotesSidebarNavigation({
+      pages: notes.pages,
+      favoritePageIds: notes.favoritePageIds,
+      recentPageIds: notes.recentPageIds,
       collapsedPageIds: notes.sidebarCollapsedPageIds,
-      query: showNavigationSections ? "" : search,
+      activePageId: notes.selectedPageId,
+      search,
       titleForPage: (page) => notesPageTitle(page, t("notes.untitled")),
-    }),
+    })
   );
+  const searchQuery = $derived(sidebarPlan.searchQuery);
 
   $effect(() => {
     const query = searchQuery;
@@ -238,17 +233,17 @@
           {/each}
         {/if}
       </div>
-    {:else if treeItems.length === 0}
+    {:else if sidebarPlan.treeItems.length === 0}
       <div class="px-2 py-2 text-[0.8rem] text-muted-foreground">
         {t("notes.noPages")}
       </div>
     {:else}
       <div class="flex flex-col gap-1">
-        {#if showNavigationSections && favoritePages.length > 0}
+        {#if sidebarPlan.showNavigationSections && sidebarPlan.favoritePages.length > 0}
           <div class="px-2 pb-1 pt-2 text-[0.7rem] font-medium text-muted-foreground">
             {t("notes.favorites")}
           </div>
-          {#each favoritePages as page (page.id)}
+          {#each sidebarPlan.favoritePages as page (page.id)}
             <NotesPageRow
               {page}
               depth={0}
@@ -289,11 +284,11 @@
             />
           {/each}
         {/if}
-        {#if showNavigationSections && recentPages.length > 0}
+        {#if sidebarPlan.showNavigationSections && sidebarPlan.recentPages.length > 0}
           <div class="px-2 pb-1 pt-3 text-[0.7rem] font-medium text-muted-foreground">
             {t("notes.recents")}
           </div>
-          {#each recentPages as page (page.id)}
+          {#each sidebarPlan.recentPages as page (page.id)}
             <NotesPageRow
               {page}
               depth={0}
@@ -334,12 +329,12 @@
             />
           {/each}
         {/if}
-        {#if showNavigationSections && (favoritePages.length > 0 || recentPages.length > 0)}
+        {#if sidebarPlan.showPagesHeading}
           <div class="px-2 pb-1 pt-3 text-[0.7rem] font-medium text-muted-foreground">
             {t("notes.pages")}
           </div>
         {/if}
-        {#each treeItems as item (item.page.id)}
+        {#each sidebarPlan.treeItems as item (item.page.id)}
           <NotesPageRow
             page={item.page}
             depth={item.depth}

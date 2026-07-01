@@ -97,8 +97,8 @@
     {:else}
       <div class="flex max-w-3xl flex-col gap-1">
         {#each filteredPages as page (page.id)}
-          <div class="flex min-w-0 items-center gap-3 rounded-md px-2 py-2 hover:bg-accent/70">
-            <div class="min-w-0 flex-1">
+          <div class="flex min-w-0 flex-wrap items-start gap-3 rounded-md px-2 py-2 hover:bg-accent/70">
+            <div class="min-w-32 flex-1">
               <div class="truncate text-[0.933333rem] font-medium text-foreground">
                 {notesPageTitle(page, t("notes.untitled"))}
               </div>

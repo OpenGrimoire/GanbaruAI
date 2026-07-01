@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from "svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import type { NotesPageMoveTarget } from "$lib/notes/page-move";
   import { notesPageIconText } from "$lib/notes/page-icon";
@@ -65,6 +66,7 @@
   let menuOpen = $state(false);
   let moveMenuOpen = $state(false);
   let titleDraft = $state("");
+  let renameInput = $state<HTMLInputElement | null>(null);
   const title = $derived(notesPageTitle(page, t("notes.untitled")));
   const pageIconText = $derived(notesPageIconText(page.icon));
 
@@ -74,6 +76,14 @@
 
   $effect(() => {
     if (!menuOpen) moveMenuOpen = false;
+  });
+
+  $effect(() => {
+    if (!editing) return;
+    void tick().then(() => {
+      renameInput?.focus();
+      renameInput?.select();
+    });
   });
 
   function moveTargetKey(target: NotesPageMoveTarget): string {
@@ -115,6 +125,7 @@
 >
   {#if editing}
     <input
+      bind:this={renameInput}
       class="notes-page-row-content w-full rounded-md border border-border bg-background px-2 py-1.5 text-[0.866667rem] text-foreground outline-none"
       aria-label={t("notes.renamePage")}
       bind:value={titleDraft}
@@ -188,7 +199,7 @@
 
   {#if menuOpen}
     <div
-      class="absolute right-1 top-8 z-20 min-w-36 rounded-md border border-border bg-popover py-1 text-popover-foreground shadow-lg"
+      class="notes-page-action-menu absolute right-1 top-8 z-20 min-w-36 rounded-md border border-border bg-popover py-1 text-popover-foreground shadow-lg"
       data-app-floating-surface
     >
       <button
@@ -236,7 +247,10 @@
         <span>{t("notes.movePageTo")}</span>
       </button>
       {#if moveMenuOpen}
-        <div class="border-y border-border bg-muted/25 py-1" aria-label={t("notes.movePageTo")}>
+        <div
+          class="notes-page-move-menu border-y border-border bg-muted/25 py-1"
+          aria-label={t("notes.movePageTo")}
+        >
           {#if moveTargets.length === 0}
             <div class="px-2.5 py-1.5 text-[0.733333rem] text-muted-foreground">
               {t("notes.noPageMoveTargets")}
@@ -293,5 +307,16 @@
   .notes-page-block-drop-target .notes-page-row-content {
     background: hsl(var(--primary) / 0.12);
     box-shadow: inset 0 0 0 1px hsl(var(--primary) / 0.55);
+  }
+
+  .notes-page-action-menu {
+    width: min(16rem, calc(100vw - 1rem));
+    max-height: min(22rem, calc(100vh - 4rem));
+    overflow-y: auto;
+  }
+
+  .notes-page-move-menu {
+    max-height: 12rem;
+    overflow-y: auto;
   }
 </style>
