@@ -5,6 +5,16 @@
     NOTES_TEXT_COLORS,
     notesBlockColorSwatchStyle,
   } from "$lib/notes/block-color";
+  import {
+    CLOSED_NOTES_BLOCK_HANDLE_MENUS,
+    notesBlockHandleActionMenuStyle,
+    notesBlockHandleMenuStateAfterAction,
+    notesBlockHandleMenuStateAfterToggle,
+  } from "$lib/notes/block-handle";
+  import type {
+    NotesBlockHandleAction,
+    NotesBlockHandleMenuState,
+  } from "$lib/notes/block-handle";
   import type {
     NotesBlockInsertCommand,
     NotesBlockInsertMenuRect,
@@ -64,9 +74,20 @@
   let insertMenuOpen = $state(false);
   let moveMenuOpen = $state(false);
   let addButton: HTMLButtonElement | null = $state(null);
+  let actionButton: HTMLButtonElement | null = $state(null);
   let insertMenuTriggerRect = $state<NotesBlockInsertMenuRect | null>(null);
+  let actionMenuTriggerRect = $state<NotesBlockInsertMenuRect | null>(null);
   let copyLinkStatus = $state<"idle" | "copied" | "failed">("idle");
   let copyLinkTimer: ReturnType<typeof setTimeout> | null = null;
+  const actionMenuStyle = $derived(
+    actionMenuTriggerRect && typeof window !== "undefined"
+      ? notesBlockHandleActionMenuStyle({
+        triggerRect: actionMenuTriggerRect,
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+      })
+      : "",
+  );
 
   onDestroy(() => {
     if (copyLinkTimer) clearTimeout(copyLinkTimer);
@@ -85,17 +106,40 @@
     };
   });
 
-  function runAction(action: () => void): void {
-    menuOpen = false;
-    insertMenuOpen = false;
-    moveMenuOpen = false;
+  $effect(() => {
+    if (!menuOpen || typeof window === "undefined") return;
+    const update = () => {
+      updateActionMenuTriggerRect();
+    };
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
+  });
+
+  function currentMenuState(): NotesBlockHandleMenuState {
+    return {
+      menuOpen,
+      insertMenuOpen,
+      moveMenuOpen,
+    };
+  }
+
+  function applyMenuState(state: NotesBlockHandleMenuState): void {
+    menuOpen = state.menuOpen;
+    insertMenuOpen = state.insertMenuOpen;
+    moveMenuOpen = state.moveMenuOpen;
+  }
+
+  function runAction(actionType: NotesBlockHandleAction, action: () => void): void {
+    applyMenuState(notesBlockHandleMenuStateAfterAction(currentMenuState(), actionType));
     action();
   }
 
   function insertBlock(command: NotesBlockInsertCommand): void {
-    insertMenuOpen = false;
-    menuOpen = false;
-    moveMenuOpen = false;
+    applyMenuState(CLOSED_NOTES_BLOCK_HANDLE_MENUS);
     onAddBelow(command);
   }
 
@@ -111,24 +155,40 @@
       : null;
   }
 
+  function updateActionMenuTriggerRect(): void {
+    const rect = actionButton?.getBoundingClientRect();
+    actionMenuTriggerRect = rect
+      ? {
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+        left: rect.left,
+      }
+      : null;
+  }
+
   function toggleInsertMenu(): void {
-    insertMenuOpen = !insertMenuOpen;
-    if (insertMenuOpen) {
-      menuOpen = false;
-      moveMenuOpen = false;
-      updateInsertMenuTriggerRect();
-    }
+    const state = notesBlockHandleMenuStateAfterToggle(currentMenuState(), "insert");
+    applyMenuState(state);
+    if (state.insertMenuOpen) updateInsertMenuTriggerRect();
+  }
+
+  function toggleActionMenu(): void {
+    const state = notesBlockHandleMenuStateAfterToggle(currentMenuState(), "actions");
+    applyMenuState(state);
+    if (state.menuOpen) updateActionMenuTriggerRect();
   }
 
   function toggleMoveMenu(): void {
-    moveMenuOpen = !moveMenuOpen;
+    applyMenuState(notesBlockHandleMenuStateAfterToggle(currentMenuState(), "move"));
   }
 
   function moveToPage(pageId: string): void {
-    runAction(() => onMoveToPage(pageId));
+    runAction("move_to_page", () => onMoveToPage(pageId));
   }
 
   function selectColor(color: NotesColor): void {
+    applyMenuState(notesBlockHandleMenuStateAfterAction(currentMenuState(), "color"));
     onColorSelect(color);
   }
 
@@ -141,6 +201,7 @@
   }
 
   async function copyLinkToBlock(): Promise<void> {
+    applyMenuState(notesBlockHandleMenuStateAfterAction(currentMenuState(), "copy_link"));
     try {
       await onCopyLink();
       copyLinkStatus = "copied";
@@ -195,10 +256,14 @@
   }
 </script>
 
-<div class="relative mt-1 flex w-10 shrink-0 items-center justify-end gap-0.5">
+<div
+  class="notes-block-handle relative mt-1 flex shrink-0 items-center justify-end gap-0.5"
+  role="toolbar"
+  aria-label={t("notes.blockActions")}
+>
   <button
     bind:this={addButton}
-    class="flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+    class="notes-block-handle-button flex items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
     type="button"
     aria-label={t("notes.addBlockBelow")}
     data-app-tooltip={t("notes.addBlockBelow")}
@@ -208,22 +273,19 @@
     <Plus class="size-3.5" />
   </button>
   <button
-    class="flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+    bind:this={actionButton}
+    class="notes-block-handle-button flex items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
     type="button"
     aria-label={t("notes.blockActions")}
     data-app-tooltip={t("notes.blockActions")}
     draggable="true"
     ondragstart={(event) => {
-      menuOpen = false;
-      insertMenuOpen = false;
+      applyMenuState(CLOSED_NOTES_BLOCK_HANDLE_MENUS);
       onDragStart(event);
     }}
     ondragend={onDragEnd}
-    onclick={() => {
-      menuOpen = !menuOpen;
-      if (menuOpen) insertMenuOpen = false;
-      if (!menuOpen) moveMenuOpen = false;
-    }}
+    aria-expanded={menuOpen}
+    onclick={toggleActionMenu}
   >
     <GripVertical class="size-3.5" />
   </button>
@@ -234,7 +296,8 @@
 
   {#if menuOpen}
     <div
-      class="absolute left-0 top-7 z-30 max-h-[min(28rem,70vh)] min-w-52 overflow-auto rounded-md border border-border bg-popover py-1 text-popover-foreground shadow-lg"
+      class="z-30 overflow-auto rounded-md border border-border bg-popover py-1 text-popover-foreground shadow-lg"
+      style={actionMenuStyle}
       role="menu"
       tabindex="-1"
       data-app-floating-surface
@@ -247,7 +310,7 @@
         class="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[0.8rem] hover:bg-accent hover:text-accent-foreground"
         type="button"
         role="menuitem"
-        onclick={() => runAction(onTurnInto)}
+        onclick={() => runAction("turn_into", onTurnInto)}
       >
         <Pilcrow class="size-4 shrink-0" />
         <span class="min-w-0 truncate">{t("notes.turnInto")}</span>
@@ -331,7 +394,7 @@
         class="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[0.8rem] hover:bg-accent hover:text-accent-foreground"
         type="button"
         role="menuitem"
-        onclick={() => runAction(onDuplicate)}
+        onclick={() => runAction("duplicate", onDuplicate)}
       >
         <Copy class="size-4 shrink-0" />
         <span class="min-w-0 truncate">{t("notes.duplicateBlock")}</span>
@@ -340,7 +403,7 @@
         class="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[0.8rem] hover:bg-accent hover:text-accent-foreground"
         type="button"
         role="menuitem"
-        onclick={() => runAction(onComment)}
+        onclick={() => runAction("comment", onComment)}
       >
         <MessageSquare class="size-4 shrink-0" />
         <span class="min-w-0 truncate">{t("notes.commentBlock")}</span>
@@ -349,7 +412,7 @@
         class="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[0.8rem] hover:bg-accent hover:text-accent-foreground"
         type="button"
         role="menuitem"
-        onclick={() => runAction(onMoveUp)}
+        onclick={() => runAction("move_up", onMoveUp)}
       >
         <ArrowUp class="size-4 shrink-0" />
         <span class="min-w-0 truncate">{t("notes.moveBlockUp")}</span>
@@ -358,7 +421,7 @@
         class="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[0.8rem] hover:bg-accent hover:text-accent-foreground"
         type="button"
         role="menuitem"
-        onclick={() => runAction(onMoveDown)}
+        onclick={() => runAction("move_down", onMoveDown)}
       >
         <ArrowDown class="size-4 shrink-0" />
         <span class="min-w-0 truncate">{t("notes.moveBlockDown")}</span>
@@ -397,7 +460,7 @@
         class="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[0.8rem] text-destructive hover:bg-accent"
         type="button"
         role="menuitem"
-        onclick={() => runAction(onDelete)}
+        onclick={() => runAction("delete", onDelete)}
       >
         <Trash2 class="size-4 shrink-0" />
         <span class="min-w-0 truncate">{t("notes.deleteBlock")}</span>
@@ -407,6 +470,15 @@
 </div>
 
 <style>
+  .notes-block-handle {
+    inline-size: 2.5rem;
+  }
+
+  .notes-block-handle-button {
+    block-size: 1.25rem;
+    inline-size: 1.25rem;
+  }
+
   .notes-color-swatch {
     display: inline-flex;
     width: 1rem;
@@ -421,5 +493,16 @@
     font-size: 0.65rem;
     font-weight: 600;
     line-height: 1;
+  }
+
+  @media (any-pointer: coarse), (max-width: 420px) {
+    .notes-block-handle {
+      inline-size: 3.25rem;
+    }
+
+    .notes-block-handle-button {
+      block-size: 1.5rem;
+      inline-size: 1.5rem;
+    }
   }
 </style>
