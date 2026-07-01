@@ -618,6 +618,20 @@ fn notes_validation_rejects_bad_ids_and_payloads() {
         validation::validate_block_payload("nope", &json!({})),
         Err("unsupported block type: nope".to_string())
     );
+    for block_type in ["meeting_notes", "transcription"] {
+        assert_eq!(
+            validation::validate_block_type(block_type),
+            Err(format!(
+                "{block_type} is blocked by the Notes block catalog gate until rich editor P0 completion, current block quality completion, honest docs, usable editing UI, persistence, focused tests, pnpm -w run validate are complete"
+            ))
+        );
+        assert_eq!(
+            validation::validate_block_payload(block_type, &json!({})),
+            Err(format!(
+                "{block_type} is blocked by the Notes block catalog gate until rich editor P0 completion, current block quality completion, honest docs, usable editing UI, persistence, focused tests, pnpm -w run validate are complete"
+            ))
+        );
+    }
     assert_eq!(
         validation::validate_block_payload(
             "paragraph",

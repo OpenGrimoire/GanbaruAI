@@ -40,6 +40,17 @@ pub(in crate::notes) const NOTE_BLOCK_TYPES: &[&str] = &[
     "unsupported",
 ];
 
+const NOTE_BLOCK_CATALOG_BLOCKED_FUTURE_TYPES: &[&str] = &["meeting_notes", "transcription"];
+const NOTE_BLOCK_CATALOG_GATE_REQUIREMENTS: &[&str] = &[
+    "rich editor P0 completion",
+    "current block quality completion",
+    "honest docs",
+    "usable editing UI",
+    "persistence",
+    "focused tests",
+    "pnpm -w run validate",
+];
+
 const TEXT_BLOCK_TYPES: &[&str] = &[
     "paragraph",
     "heading_1",
@@ -192,7 +203,7 @@ pub(in crate::notes) fn validate_block_type(block_type: &str) -> Result<(), Stri
     if NOTE_BLOCK_TYPES.contains(&block_type) {
         Ok(())
     } else {
-        Err(format!("unsupported block type: {block_type}"))
+        Err(block_catalog_gate_error(block_type))
     }
 }
 
@@ -327,8 +338,18 @@ pub(in crate::notes) fn validate_block_payload(
         "equation" => validate_equation_payload(payload),
         "breadcrumb" | "divider" => Ok(()),
         "unsupported" => validate_unsupported_payload(payload),
-        _ => Err(format!("unsupported block type: {block_type}")),
+        _ => Err(block_catalog_gate_error(block_type)),
     }
+}
+
+fn block_catalog_gate_error(block_type: &str) -> String {
+    if NOTE_BLOCK_CATALOG_BLOCKED_FUTURE_TYPES.contains(&block_type) {
+        return format!(
+            "{block_type} is blocked by the Notes block catalog gate until {} are complete",
+            NOTE_BLOCK_CATALOG_GATE_REQUIREMENTS.join(", ")
+        );
+    }
+    format!("unsupported block type: {block_type}")
 }
 
 fn validate_json_object(value: &Value, field: &str) -> Result<(), String> {

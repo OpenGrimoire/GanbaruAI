@@ -1,6 +1,5 @@
 import {
   NOTES_COLORS,
-  NOTES_BLOCK_TYPES,
   NOTES_BUTTON_INSERT_POSITIONS,
   NOTES_ICON_COLORS,
   type NotesBacklink,
@@ -58,6 +57,7 @@ import {
   type NotesTodoBlockPayload,
   type NotesUnsupportedBlockPayload,
 } from "./types";
+import { isNotesCatalogRegisteredBlockType } from "./block-catalog";
 import { externalMediaUrlIsSupported, type NotesMediaBlockType } from "./media";
 import {
   isNotesPageCoverAssetPath,
@@ -134,7 +134,7 @@ function readOptionalDisplayString(value: unknown, label: string): string | unde
 }
 
 export function isNotesBlockType(value: unknown): value is NotesBlockType {
-  return typeof value === "string" && NOTES_BLOCK_TYPES.includes(value as NotesBlockType);
+  return isNotesCatalogRegisteredBlockType(value);
 }
 
 export function isNotesColor(value: unknown): value is NotesColor {
