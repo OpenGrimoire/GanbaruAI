@@ -1796,6 +1796,13 @@ export const es = {
     syncedBlockDuplicatePreserved: "Referencia duplicada importada preservada.",
     syncedBlockFanoutUnavailable:
       "Las ediciones en cadena entre copias sincronizadas aún no son compatibles.",
+    templateReusableContent: "Contenido reutilizable",
+    templateEmpty: "Sin contenido reutilizable",
+    templateChildCount: (count: number) =>
+      count === 1 ? "1 bloque reutilizable" : `${count} bloques reutilizables`,
+    templateChildPageUnsupported:
+      "Las páginas hijas aún no se pueden insertar desde esta plantilla.",
+    addTemplateContent: "Agregar contenido",
     useTemplateButton: "Usar plantilla",
     useTemplate: (title: string) => `Usar plantilla: ${title}`,
     useButtonButton: "Ejecutar botón",

@@ -10,6 +10,7 @@
     type NotesKeyboardAction,
   } from "$lib/notes/block-keyboard";
   import { notesUndoShortcutAction } from "$lib/notes/undo-history";
+  import type { NotesTemplateBlockStatus } from "$lib/notes/template-block";
   import {
     notesTabCanAdd,
     notesTabCanMove,
@@ -57,6 +58,7 @@
     focusBlockId,
     focusRequestId,
     mentionTargets,
+    templateStatusForBlock,
     onTextInput,
     onReplaceRichText,
     onInsertPageMention,
@@ -76,6 +78,7 @@
     onCopyLink,
     onDuplicate,
     onUseTemplate,
+    onAddTemplateChild,
     onUseButton,
     onComment,
     onMoveUp,
@@ -127,6 +130,7 @@
     focusBlockId: string | null;
     focusRequestId: number;
     mentionTargets: NotesPageMentionTarget[];
+    templateStatusForBlock: (blockId: string) => NotesTemplateBlockStatus;
     onTextInput: (blockId: string, text: string) => void;
     onReplaceRichText: (
       blockId: string,
@@ -188,6 +192,7 @@
     onCopyLink: (blockId: string) => Promise<void> | void;
     onDuplicate: (blockId: string) => void;
     onUseTemplate: (blockId: string) => void;
+    onAddTemplateChild: (blockId: string) => void;
     onUseButton: (blockId: string) => void;
     onComment: (blockId: string) => void;
     onMoveUp: (blockId: string) => void;
@@ -589,6 +594,7 @@
                       {focusBlockId}
                       {focusRequestId}
                       {mentionTargets}
+                      templateStatus={templateStatusForBlock(tabBlockItem.block.id)}
                       {onTextInput}
                       {onReplaceRichText}
                       {onInsertPageMention}
@@ -608,6 +614,7 @@
                       {onCopyLink}
                       {onDuplicate}
                       {onUseTemplate}
+                      {onAddTemplateChild}
                       {onUseButton}
                       {onComment}
                       {onMoveUp}

@@ -15,6 +15,7 @@
   } from "$lib/notes/block-factory";
   import { notesBlockAnchorId } from "$lib/notes/block-link";
   import { notesSyncedBlockStatus } from "$lib/notes/synced-block";
+  import type { NotesTemplateBlockStatus } from "$lib/notes/template-block";
   import {
     type NotesDateMentionTarget,
     type NotesRichTextAnnotationPatch,
@@ -68,6 +69,7 @@
     focusBlockId,
     focusRequestId,
     mentionTargets,
+    templateStatus,
     onTextInput,
     onReplaceRichText,
     onInsertPageMention,
@@ -87,6 +89,7 @@
     onCopyLink,
     onDuplicate,
     onUseTemplate,
+    onAddTemplateChild,
     onUseButton,
     onComment,
     onMoveUp,
@@ -126,6 +129,7 @@
     focusBlockId: string | null;
     focusRequestId: number;
     mentionTargets: NotesPageMentionTarget[];
+    templateStatus: NotesTemplateBlockStatus;
     onTextInput: (blockId: string, text: string) => void;
     onReplaceRichText: (
       blockId: string,
@@ -187,6 +191,7 @@
     onCopyLink: (blockId: string) => Promise<void> | void;
     onDuplicate: (blockId: string) => void;
     onUseTemplate: (blockId: string) => void;
+    onAddTemplateChild: (blockId: string) => void;
     onUseButton: (blockId: string) => void;
     onComment: (blockId: string) => void;
     onMoveUp: (blockId: string) => void;
@@ -777,6 +782,7 @@
           {focusBlockId}
           {focusRequestId}
           {mentionTargets}
+          {templateStatus}
           {onTextInput}
           {onReplaceRichText}
           {onInsertPageMention}
@@ -795,6 +801,7 @@
           {onCopyLink}
           {onDuplicate}
           {onUseTemplate}
+          {onAddTemplateChild}
           {onUseButton}
           {onMoveUp}
           {onMoveDown}

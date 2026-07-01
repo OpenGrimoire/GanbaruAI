@@ -272,6 +272,7 @@ export interface NotesBlockActions extends NotesColumnActions, NotesTabActions {
   moveBlockToPage: (blockId: string, pageId: string) => Promise<void>;
   duplicateBlock: (blockId: string) => Promise<void>;
   duplicateBlockSelection: (blockIds: readonly string[]) => Promise<string | null>;
+  addTemplateChild: (blockId: string) => Promise<void>;
   useTemplateBlock: (blockId: string) => Promise<void>;
   useButtonBlock: (blockId: string) => Promise<void>;
 }
@@ -1423,6 +1424,25 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     recordUndoAfter("template", before, focusBlockId);
   }
 
+  async function addTemplateChild(blockId: string): Promise<void> {
+    const selectedPageId = context.readSelectedPageId();
+    if (!selectedPageId) return;
+    const template = context.blockById(blockId);
+    if (!template || template.type !== "template") return;
+    await context.flushPendingBlockSaves();
+    const before = undoSnapshot(blockId);
+    const childIds = activeChildIdsForBlock(blockId);
+    const newBlockId = crypto.randomUUID();
+    await appendNotesBlockChildren({
+      parent: { type: "block_id", block_id: blockId },
+      after: childIds.at(-1) ?? null,
+      children: [createBlockWrite(newBlockId, "paragraph", "")],
+    });
+    await context.loadPageTree(selectedPageId);
+    context.requestBlockFocus(newBlockId);
+    recordUndoAfter("create", before, newBlockId);
+  }
+
   function activeChildIdsForBlock(blockId: string): string[] {
     return (childIdsByParentId()[blockId] ?? []).filter((childId) => {
       const child = blocksById()[childId];
@@ -1563,6 +1583,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     moveBlockToPage,
     duplicateBlock,
     duplicateBlockSelection,
+    addTemplateChild,
     useTemplateBlock,
     useButtonBlock,
   };

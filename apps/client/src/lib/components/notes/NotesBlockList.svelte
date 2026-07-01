@@ -21,6 +21,7 @@
   } from "$lib/notes/block-selection-operations";
   import { notesPageIconText } from "$lib/notes/page-icon";
   import { notesPageTitle } from "$lib/notes/page-title";
+  import { notesTemplateBlockStatus } from "$lib/notes/template-block";
   import type { NotesHeadingBlockType } from "$lib/notes/block-factory";
   import type { NotesBlockInsertRequest } from "$lib/notes/block-insertion";
   import type {
@@ -162,6 +163,10 @@
       blocksById: notes.blocksById,
       childIdsByParentId: notes.childIdsByParentId,
     };
+  }
+
+  function templateStatusForBlock(blockId: string) {
+    return notesTemplateBlockStatus(currentTreeState(), blockId);
   }
 
   function selectableBlockRowFromEvent(event: Event): HTMLElement | null {
@@ -920,6 +925,7 @@
         focusBlockId={notes.focusBlockId}
         focusRequestId={notes.focusRequestId}
         {mentionTargets}
+        {templateStatusForBlock}
         onTextInput={(blockId, text) => {
           void notes.updateBlockText(blockId, text);
         }}
@@ -948,6 +954,9 @@
         }}
         onUseTemplate={(blockId) => {
           void notes.useTemplateBlock(blockId);
+        }}
+        onAddTemplateChild={(blockId) => {
+          void notes.addTemplateChild(blockId);
         }}
         onUseButton={(blockId) => {
           void notes.useButtonBlock(blockId);
@@ -1029,6 +1038,7 @@
         focusBlockId={notes.focusBlockId}
         focusRequestId={notes.focusRequestId}
         {mentionTargets}
+        {templateStatusForBlock}
         onTextInput={(blockId, text) => {
           void notes.updateBlockText(blockId, text);
         }}
@@ -1057,6 +1067,9 @@
         }}
         onUseTemplate={(blockId) => {
           void notes.useTemplateBlock(blockId);
+        }}
+        onAddTemplateChild={(blockId) => {
+          void notes.addTemplateChild(blockId);
         }}
         onUseButton={(blockId) => {
           void notes.useButtonBlock(blockId);
@@ -1136,6 +1149,7 @@
         focusBlockId={notes.focusBlockId}
         focusRequestId={notes.focusRequestId}
         {mentionTargets}
+        templateStatus={templateStatusForBlock(item.block.id)}
         onTextInput={(blockId, text) => {
           void notes.updateBlockText(blockId, text);
         }}
@@ -1164,6 +1178,9 @@
         }}
         onUseTemplate={(blockId) => {
           void notes.useTemplateBlock(blockId);
+        }}
+        onAddTemplateChild={(blockId) => {
+          void notes.addTemplateChild(blockId);
         }}
         onUseButton={(blockId) => {
           void notes.useButtonBlock(blockId);

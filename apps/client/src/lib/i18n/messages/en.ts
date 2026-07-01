@@ -1775,6 +1775,12 @@ export const en = {
     syncedBlockOriginalPreserved: "Imported original data preserved.",
     syncedBlockDuplicatePreserved: "Imported duplicate reference preserved.",
     syncedBlockFanoutUnavailable: "Fanout edits across synced copies are not supported yet.",
+    templateReusableContent: "Reusable content",
+    templateEmpty: "No reusable content",
+    templateChildCount: (count: number) =>
+      count === 1 ? "1 reusable block" : `${count} reusable blocks`,
+    templateChildPageUnsupported: "Child pages cannot be inserted from this template yet.",
+    addTemplateContent: "Add content",
     useTemplateButton: "Use template",
     useTemplate: (title: string) => `Use template: ${title}`,
     useButtonButton: "Run button",

@@ -18,6 +18,7 @@
     type NotesColumnMoveDirection,
   } from "$lib/notes/column";
   import { notesUndoShortcutAction } from "$lib/notes/undo-history";
+  import type { NotesTemplateBlockStatus } from "$lib/notes/template-block";
   import type { NotesHeadingBlockType } from "$lib/notes/block-factory";
   import type { NotesSlashAction, NotesSlashCommand } from "$lib/notes/slash-commands";
   import type {
@@ -57,6 +58,7 @@
     focusBlockId,
     focusRequestId,
     mentionTargets,
+    templateStatusForBlock,
     onTextInput,
     onReplaceRichText,
     onInsertPageMention,
@@ -76,6 +78,7 @@
     onCopyLink,
     onDuplicate,
     onUseTemplate,
+    onAddTemplateChild,
     onUseButton,
     onComment,
     onMoveUp,
@@ -126,6 +129,7 @@
     focusBlockId: string | null;
     focusRequestId: number;
     mentionTargets: NotesPageMentionTarget[];
+    templateStatusForBlock: (blockId: string) => NotesTemplateBlockStatus;
     onTextInput: (blockId: string, text: string) => void;
     onReplaceRichText: (
       blockId: string,
@@ -187,6 +191,7 @@
     onCopyLink: (blockId: string) => Promise<void> | void;
     onDuplicate: (blockId: string) => void;
     onUseTemplate: (blockId: string) => void;
+    onAddTemplateChild: (blockId: string) => void;
     onUseButton: (blockId: string) => void;
     onComment: (blockId: string) => void;
     onMoveUp: (blockId: string) => void;
@@ -542,6 +547,7 @@
                         {focusBlockId}
                         {focusRequestId}
                         {mentionTargets}
+                        templateStatus={templateStatusForBlock(columnBlockItem.block.id)}
                         {onTextInput}
                         {onReplaceRichText}
                         {onInsertPageMention}
@@ -561,6 +567,7 @@
                         {onCopyLink}
                         {onDuplicate}
                         {onUseTemplate}
+                        {onAddTemplateChild}
                         {onUseButton}
                         {onComment}
                         {onMoveUp}

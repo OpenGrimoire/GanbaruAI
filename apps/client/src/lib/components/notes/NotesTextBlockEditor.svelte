@@ -1,7 +1,6 @@
 <script lang="ts">
   import { Temporal } from "@js-temporal/polyfill";
   import { tick, untrack } from "svelte";
-  import Copy from "@lucide/svelte/icons/copy";
   import LinkIcon from "@lucide/svelte/icons/link";
   import MousePointerClick from "@lucide/svelte/icons/mouse-pointer-click";
   import { getLocalization } from "$lib/i18n/translator.svelte";
@@ -87,11 +86,13 @@
     NotesColor,
     NotesRichText,
   } from "$lib/notes/types";
+  import type { NotesTemplateBlockStatus } from "$lib/notes/template-block";
   import NotesInlineToolbar from "./NotesInlineToolbar.svelte";
   import NotesLinkEditor from "./NotesLinkEditor.svelte";
   import NotesMentionMenu from "./NotesMentionMenu.svelte";
   import NotesRichTextInline from "./NotesRichTextInline.svelte";
   import NotesSlashMenu from "./NotesSlashMenu.svelte";
+  import NotesTemplateBlockControls from "./NotesTemplateBlockControls.svelte";
 
   let {
     block,
@@ -100,6 +101,7 @@
     focusBlockId,
     focusRequestId,
     mentionTargets,
+    templateStatus,
     onTextInput,
     onReplaceRichText,
     onInsertPageMention,
@@ -118,6 +120,7 @@
     onCopyLink,
     onDuplicate,
     onUseTemplate,
+    onAddTemplateChild,
     onUseButton,
     onMoveUp,
     onMoveDown,
@@ -132,6 +135,7 @@
     focusBlockId: string | null;
     focusRequestId: number;
     mentionTargets: NotesPageMentionTarget[];
+    templateStatus: NotesTemplateBlockStatus;
     onTextInput: (blockId: string, text: string) => void;
     onReplaceRichText: (
       blockId: string,
@@ -192,6 +196,7 @@
     onCopyLink: (blockId: string) => Promise<void> | void;
     onDuplicate: (blockId: string) => void;
     onUseTemplate: (blockId: string) => void;
+    onAddTemplateChild: (blockId: string) => void;
     onUseButton: (blockId: string) => void;
     onMoveUp: (blockId: string) => void;
     onMoveDown: (blockId: string) => void;
@@ -907,18 +912,13 @@
     </select>
   </div>
 {:else if block.type === "template"}
-  <div class="mb-1 flex justify-end">
-    <button
-      type="button"
-      class="inline-flex min-h-7 items-center gap-1.5 rounded border border-border bg-background px-2 text-[0.8rem] font-medium text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-45"
-      aria-label={t("notes.useTemplate", text || t("notes.blockType.template"))}
-      disabled={!block.has_children}
-      onclick={() => onUseTemplate(block.id)}
-    >
-      <Copy class="size-3.5" aria-hidden="true" />
-      <span>{t("notes.useTemplateButton")}</span>
-    </button>
-  </div>
+  <NotesTemplateBlockControls
+    blockId={block.id}
+    title={text || t("notes.blockType.template")}
+    status={templateStatus}
+    {onUseTemplate}
+    {onAddTemplateChild}
+  />
 {:else if block.type === "button"}
   <div class="mb-1 flex justify-end">
     <button

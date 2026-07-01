@@ -1045,6 +1045,7 @@ const {
   moveBlockToPage,
   duplicateBlock,
   duplicateBlockSelection,
+  addTemplateChild,
   useTemplateBlock,
   useButtonBlock,
 } = blockActions;
@@ -1357,6 +1358,7 @@ export function getNotes() {
     moveBlockToPage,
     duplicateBlock,
     duplicateBlockSelection,
+    addTemplateChild,
     useTemplateBlock,
     useButtonBlock,
     blockPlainText,
