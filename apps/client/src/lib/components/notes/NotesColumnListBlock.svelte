@@ -21,6 +21,7 @@
     NotesColor,
     NotesColumnBlockItems,
     NotesPageBreadcrumbItem,
+    NotesRichText,
     NotesTableOfContentsItem,
     NotesTableRowBlock,
   } from "$lib/notes/types";
@@ -42,6 +43,7 @@
     focusRequestId,
     mentionTargets,
     onTextInput,
+    onReplaceRichText,
     onInsertPageMention,
     onInsertDateMention,
     onApplyTextLink,
@@ -99,6 +101,10 @@
     focusRequestId: number;
     mentionTargets: NotesPageMentionTarget[];
     onTextInput: (blockId: string, text: string) => void;
+    onReplaceRichText: (
+      blockId: string,
+      richText: readonly NotesRichText[],
+    ) => Promise<void> | void;
     onInsertPageMention: (
       blockId: string,
       start: number,
@@ -344,6 +350,7 @@
                         {focusRequestId}
                         {mentionTargets}
                         {onTextInput}
+                        {onReplaceRichText}
                         {onInsertPageMention}
                         {onInsertDateMention}
                         {onApplyTextLink}

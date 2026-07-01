@@ -21,6 +21,7 @@
     NotesBlockTreeItem,
     NotesBlockType,
     NotesPageBreadcrumbItem,
+    NotesRichText,
     NotesTableOfContentsItem,
   } from "$lib/notes/types";
   import NotesBlockRow from "./NotesBlockRow.svelte";
@@ -204,6 +205,13 @@
     return notes.pasteRichHtmlIntoBlock(blockId, start, end, html);
   }
 
+  function replaceBlockRichText(
+    blockId: string,
+    richText: readonly NotesRichText[],
+  ): void {
+    void notes.updateBlockRichText(blockId, richText);
+  }
+
   function blockParentId(blockId: string): string | null {
     const block = notes.blockById(blockId);
     return block ? notes.parentIdForBlock(block) : null;
@@ -306,6 +314,7 @@
         onTextInput={(blockId, text) => {
           void notes.updateBlockText(blockId, text);
         }}
+        onReplaceRichText={replaceBlockRichText}
         onInsertPageMention={insertPageMention}
         onInsertDateMention={insertDateMention}
         onApplyTextLink={applyTextLink}
@@ -405,6 +414,7 @@
         onTextInput={(blockId, text) => {
           void notes.updateBlockText(blockId, text);
         }}
+        onReplaceRichText={replaceBlockRichText}
         onInsertPageMention={insertPageMention}
         onInsertDateMention={insertDateMention}
         onApplyTextLink={applyTextLink}
@@ -501,6 +511,7 @@
         onTextInput={(blockId, text) => {
           void notes.updateBlockText(blockId, text);
         }}
+        onReplaceRichText={replaceBlockRichText}
         onInsertPageMention={insertPageMention}
         onInsertDateMention={insertDateMention}
         onApplyTextLink={applyTextLink}

@@ -41,6 +41,7 @@
     filterPageMentionTargets,
     normalizeRichTextLinkUrl,
     planRichTextEquationConversion,
+    replacePlainTextPreservingRichText,
     richTextAnnotationTogglePatch,
     richTextColorPatch,
     type NotesInlineEquationConversionError,
@@ -52,6 +53,7 @@
     type NotesRichTextAnnotationName,
     type NotesRichTextAnnotationPatch,
   } from "$lib/notes/rich-text";
+  import { planNotesMarkdownInlineShortcutConversion } from "$lib/notes/rich-text-markdown";
   import {
     notesRichTextEquationShortcutRequested,
     notesRichTextFormattingShortcutAnnotationName,
@@ -62,6 +64,7 @@
     NotesBlock,
     NotesBlockType,
     NotesColor,
+    NotesRichText,
   } from "$lib/notes/types";
   import NotesInlineToolbar from "./NotesInlineToolbar.svelte";
   import NotesMentionMenu from "./NotesMentionMenu.svelte";
@@ -76,6 +79,7 @@
     focusRequestId,
     mentionTargets,
     onTextInput,
+    onReplaceRichText,
     onInsertPageMention,
     onInsertDateMention,
     onApplyTextLink,
@@ -105,6 +109,10 @@
     focusRequestId: number;
     mentionTargets: NotesPageMentionTarget[];
     onTextInput: (blockId: string, text: string) => void;
+    onReplaceRichText: (
+      blockId: string,
+      richText: readonly NotesRichText[],
+    ) => Promise<void> | void;
     onInsertPageMention: (
       blockId: string,
       start: number,
@@ -572,6 +580,27 @@
     inlineEquationErrorReason = null;
     syncTextSelection(target);
     const value = notesPlainTextFromEditableRoot(target);
+    const selection = notesTextSelectionFromEditableRoot(target);
+    const isComposing = event instanceof InputEvent && event.isComposing;
+    if (canUseInlineFormatting && !isComposing && selection) {
+      const nextRichText = replacePlainTextPreservingRichText(editableRichText, value);
+      const shortcutPlan = planNotesMarkdownInlineShortcutConversion(
+        nextRichText,
+        selection.start,
+        selection.end,
+      );
+      if (shortcutPlan) {
+        slashOpen = false;
+        mentionQuery = null;
+        mentionActiveIndex = 0;
+        void Promise.resolve(onReplaceRichText(block.id, shortcutPlan.richText))
+          .then(() => focusEditorWithSelection(shortcutPlan.cursor, shortcutPlan.cursor))
+          .catch((error) => {
+            console.warn("notes inline markdown shortcut failed", error);
+          });
+        return;
+      }
+    }
     slashOpen = value.startsWith("/") && !value.includes("\n");
     if (slashOpen) {
       mentionQuery = null;
@@ -579,7 +608,7 @@
       updateMentionQueryFromEditor(target, value);
     }
     onTextInput(block.id, value);
-    if (!(event instanceof InputEvent) || !event.isComposing) {
+    if (!isComposing) {
       void focusEditorWithSelection(textSelection.start, textSelection.end);
     }
   }

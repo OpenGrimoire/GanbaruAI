@@ -747,7 +747,7 @@ const blockActions = createNotesBlockActions({
 });
 
 const {
-  updateBlockText,
+  updateBlockText, updateBlockRichText,
   insertPageMention,
   insertDateMention,
   insertInlineEquation,
@@ -962,7 +962,7 @@ export function getNotes() {
     updatePageCover,
     openBlockLink,
     openNotesLink,
-    updateBlockText,
+    updateBlockText, updateBlockRichText,
     insertPageMention,
     insertDateMention,
     insertInlineEquation,

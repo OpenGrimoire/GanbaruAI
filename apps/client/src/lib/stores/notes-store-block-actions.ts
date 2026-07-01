@@ -25,6 +25,7 @@ import {
   blockWithLinkPreviewUrl,
   blockWithMedia,
   blockWithPageMention,
+  blockWithRichText,
   blockWithTableCell,
   blockWithText,
   blockWithTextAnnotations,
@@ -60,6 +61,7 @@ import type {
   NotesColumnBlockItems,
   NotesDateMentionValue,
   NotesParent,
+  NotesRichText,
   NotesTabBlockItems,
   NotesTableRowBlock,
 } from "$lib/notes/types";
@@ -89,6 +91,10 @@ export interface NotesBlockActionsContext {
 
 export interface NotesBlockActions {
   updateBlockText: (blockId: string, text: string) => Promise<void>;
+  updateBlockRichText: (
+    blockId: string,
+    richText: readonly NotesRichText[],
+  ) => Promise<void>;
   insertPageMention: (
     blockId: string,
     start: number,
@@ -193,6 +199,17 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     const block = context.blockById(blockId);
     if (!block) return;
     const update = blockWithText(block, text);
+    context.localApplyBlockUpdate(blockId, update);
+    context.scheduleBlockSave(blockId, update);
+  }
+
+  async function updateBlockRichText(
+    blockId: string,
+    richText: readonly NotesRichText[],
+  ): Promise<void> {
+    const block = context.blockById(blockId);
+    if (!block) return;
+    const update = blockWithRichText(block, richText);
     context.localApplyBlockUpdate(blockId, update);
     context.scheduleBlockSave(blockId, update);
   }
@@ -902,6 +919,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
 
   return {
     updateBlockText,
+    updateBlockRichText,
     insertPageMention,
     insertDateMention,
     insertInlineEquation,
