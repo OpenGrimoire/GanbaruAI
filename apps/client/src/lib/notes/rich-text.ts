@@ -320,6 +320,97 @@ function appendText(items: NotesRichText[], content: string): void {
   appendTextItem(items, createTextRichText(content));
 }
 
+function appendRichTextItem(items: NotesRichText[], item: NotesRichText): void {
+  if (item.type === "text") {
+    appendTextItem(items, item);
+    return;
+  }
+  if (!item.plain_text) return;
+  items.push(cloneRichText(item));
+}
+
+function isRichTextLabelWordCharacter(character: string | undefined): boolean {
+  return character ? /[\p{Letter}\p{Number}_]/u.test(character) : false;
+}
+
+function hasRichTextLabelBoundary(
+  text: string,
+  label: string,
+  start: number,
+): boolean {
+  const previous = text.at(start - 1);
+  const next = text.at(start + label.length);
+  return !(
+    isRichTextLabelWordCharacter(label.at(0))
+    && isRichTextLabelWordCharacter(previous)
+  ) && !(
+    isRichTextLabelWordCharacter(label.at(-1))
+    && isRichTextLabelWordCharacter(next)
+  );
+}
+
+function commonPrefixLength(left: string, right: string): number {
+  const maxLength = Math.min(left.length, right.length);
+  let length = 0;
+  while (length < maxLength && left.at(length) === right.at(length)) {
+    length += 1;
+  }
+  return length;
+}
+
+function commonSuffixLength(left: string, right: string): number {
+  const maxLength = Math.min(left.length, right.length);
+  let length = 0;
+  while (
+    length < maxLength
+    && left.at(left.length - 1 - length) === right.at(right.length - 1 - length)
+  ) {
+    length += 1;
+  }
+  return length;
+}
+
+function fallbackPreservedRichTextStart(
+  sourcePlainText: string,
+  nextPlainText: string,
+  sourceStart: number,
+  sourceEnd: number,
+  nextCursor: number,
+  label: string,
+): number | null {
+  let bestStart: number | null = null;
+  let bestScore = -1;
+  let searchStart = nextCursor;
+  while (searchStart <= nextPlainText.length) {
+    const candidateStart = nextPlainText.indexOf(label, searchStart);
+    if (candidateStart === -1) break;
+    searchStart = candidateStart + 1;
+    if (!hasRichTextLabelBoundary(nextPlainText, label, candidateStart)) continue;
+    const candidateEnd = candidateStart + label.length;
+    const beforeScore = commonSuffixLength(
+      sourcePlainText.slice(0, sourceStart),
+      nextPlainText.slice(0, candidateStart),
+    );
+    const afterScore = commonPrefixLength(
+      sourcePlainText.slice(sourceEnd),
+      nextPlainText.slice(candidateEnd),
+    );
+    const score = beforeScore + afterScore;
+    if (
+      score > bestScore
+      || (
+        score === bestScore
+        && bestStart !== null
+        && Math.abs(candidateStart - sourceStart) < Math.abs(bestStart - sourceStart)
+      )
+    ) {
+      bestStart = candidateStart;
+      bestScore = score;
+    }
+  }
+  return bestStart;
+}
+
 function appendRichTextSlice(
   output: NotesRichText[],
   item: NotesRichText,
@@ -718,21 +809,77 @@ export function replacePlainTextPreservingRichText(
   richText: readonly NotesRichText[],
   nextPlainText: string,
 ): NotesRichText[] {
-  const anchors = richText.filter((item) => item.type !== "text");
-  if (anchors.length === 0) return [createTextRichText(nextPlainText)];
+  const preservableItems: {
+    item: NotesRichText;
+    start: number;
+    end: number;
+  }[] = [];
+  let sourceCursor = 0;
+  for (const item of richText) {
+    const start = sourceCursor;
+    const end = start + item.plain_text.length;
+    sourceCursor = end;
+    const preservesRichObject = item.type !== "text"
+      || item.text.link !== null
+      || item.href !== null
+      || !annotationsEqual(item.annotations, DEFAULT_RICH_TEXT_ANNOTATIONS);
+    if (preservesRichObject && item.plain_text) {
+      preservableItems.push({ item, start, end });
+    }
+  }
+  if (preservableItems.length === 0) return [createTextRichText(nextPlainText)];
+
+  const sourcePlainText = richTextPlainText(richText);
+  const sharedPrefixLength = commonPrefixLength(sourcePlainText, nextPlainText);
+  let sharedSuffixLength = 0;
+  const maxSharedSuffixLength = Math.min(
+    sourcePlainText.length - sharedPrefixLength,
+    nextPlainText.length - sharedPrefixLength,
+  );
+  while (
+    sharedSuffixLength < maxSharedSuffixLength
+    && sourcePlainText.at(sourcePlainText.length - 1 - sharedSuffixLength)
+      === nextPlainText.at(nextPlainText.length - 1 - sharedSuffixLength)
+  ) {
+    sharedSuffixLength += 1;
+  }
+
+  const sourceChangedStart = sharedPrefixLength;
+  const sourceChangedEnd = sourcePlainText.length - sharedSuffixLength;
+  const nextChangedEnd = nextPlainText.length - sharedSuffixLength;
 
   const output: NotesRichText[] = [];
-  let cursor = 0;
-  for (const anchor of anchors) {
-    const anchorText = anchor.plain_text;
-    if (!anchorText) return [createTextRichText(nextPlainText)];
-    const anchorIndex = nextPlainText.indexOf(anchorText, cursor);
-    if (anchorIndex === -1) return [createTextRichText(nextPlainText)];
-    appendText(output, nextPlainText.slice(cursor, anchorIndex));
-    output.push(cloneRichText(anchor));
-    cursor = anchorIndex + anchorText.length;
+  let nextCursor = 0;
+  for (const preservableItem of preservableItems) {
+    const { item, start, end } = preservableItem;
+    let nextStart: number | null = null;
+    if (end <= sourceChangedStart) {
+      nextStart = start;
+    } else if (start >= sourceChangedEnd) {
+      nextStart = nextChangedEnd + (start - sourceChangedEnd);
+    }
+    if (
+      nextStart === null
+      || nextStart < nextCursor
+      || nextPlainText.slice(nextStart, nextStart + item.plain_text.length) !== item.plain_text
+    ) {
+      nextStart = fallbackPreservedRichTextStart(
+        sourcePlainText,
+        nextPlainText,
+        start,
+        end,
+        nextCursor,
+        item.plain_text,
+      );
+    }
+    if (nextStart === null || nextStart < nextCursor) continue;
+    const nextEnd = nextStart + item.plain_text.length;
+    if (nextPlainText.slice(nextStart, nextEnd) !== item.plain_text) continue;
+    appendText(output, nextPlainText.slice(nextCursor, nextStart));
+    appendRichTextItem(output, item);
+    nextCursor = nextEnd;
   }
-  appendText(output, nextPlainText.slice(cursor));
+  appendText(output, nextPlainText.slice(nextCursor));
   return output.length > 0 ? output : [createTextRichText("")];
 }
 

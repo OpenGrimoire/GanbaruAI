@@ -358,6 +358,96 @@ describe("notes rich text helpers", () => {
     expect(richText.some((item) => item.type === "mention")).toBe(true);
   });
 
+  it("preserves links and formatted spans when surrounding text changes", () => {
+    const [boldText] = applyRichTextAnnotations(
+      [createTextRichText("important")],
+      0,
+      "important".length,
+      { bold: true, color: "yellow_background" },
+    );
+    if (!boldText) throw new Error("expected annotated rich text");
+    const richText = replacePlainTextPreservingRichText(
+      [
+        createTextRichText("Read "),
+        createLinkedTextRichText("docs", "https://example.com/docs"),
+        createTextRichText(" before "),
+        boldText,
+      ],
+      "Please read docs before important today",
+    );
+
+    expect(richTextPlainText(richText)).toBe("Please read docs before important today");
+    expect(
+      richText.some((item) =>
+        item.type === "text"
+        && item.plain_text === "docs"
+        && item.text.link?.url === "https://example.com/docs"
+        && item.href === "https://example.com/docs"
+      ),
+    ).toBe(true);
+    expect(
+      richText.some((item) =>
+        item.type === "text"
+        && item.plain_text === "important"
+        && item.annotations.bold
+        && item.annotations.color === "yellow_background"
+      ),
+    ).toBe(true);
+  });
+
+  it("preserves page mentions, date mentions, and equations around typed text", () => {
+    const dateMention = createDateMentionRichText(
+      createDateMentionValue("2026-06-30", true),
+      "Today",
+    );
+    const equation = createEquationRichText("x=1");
+    const richText = replacePlainTextPreservingRichText(
+      [
+        createTextRichText("Plan "),
+        createPageMentionRichText(pageId, "Project", null),
+        createTextRichText(" for "),
+        dateMention,
+        createTextRichText(" with "),
+        equation,
+      ],
+      "Plan Project for Today with x=1 soon",
+    );
+
+    expect(richTextPlainText(richText)).toBe("Plan Project for Today with x=1 soon");
+    expect(richText.some((item) => item.type === "mention" && item.mention.type === "page"))
+      .toBe(true);
+    expect(richText.some((item) => item.type === "mention" && item.mention.type === "date"))
+      .toBe(true);
+    expect(richText.some((item) => item.type === "equation" && item.equation.expression === "x=1"))
+      .toBe(true);
+  });
+
+  it("degrades only the edited rich text object to plain text", () => {
+    const richText = replacePlainTextPreservingRichText(
+      [
+        createTextRichText("See "),
+        createPageMentionRichText(pageId, "Project", null),
+        createTextRichText(" in "),
+        createLinkedTextRichText("docs", "https://example.com/docs"),
+        createTextRichText(" with "),
+        createEquationRichText("x=1"),
+      ],
+      "See Project in documentation with x=1",
+    );
+
+    expect(richTextPlainText(richText)).toBe("See Project in documentation with x=1");
+    expect(richText.some((item) => item.type === "mention" && item.mention.type === "page"))
+      .toBe(true);
+    expect(richText.some((item) => item.type === "equation" && item.equation.expression === "x=1"))
+      .toBe(true);
+    expect(
+      richText.some((item) =>
+        item.type === "text"
+        && item.text.link?.url === "https://example.com/docs"
+      ),
+    ).toBe(false);
+  });
+
   it("collapses mentions back to text when the visible label is removed", () => {
     const richText = replacePlainTextPreservingRichText(
       [createTextRichText("See "), createPageMentionRichText(pageId, "Target page", null)],
@@ -366,6 +456,44 @@ describe("notes rich text helpers", () => {
 
     expect(richText).toHaveLength(1);
     expect(richText[0]?.type).toBe("text");
+  });
+
+  it("degrades formatted spans when the visible label is partially deleted", () => {
+    const [boldText] = applyRichTextAnnotations(
+      [createTextRichText("important")],
+      0,
+      "important".length,
+      { bold: true },
+    );
+    if (!boldText) throw new Error("expected annotated rich text");
+    const richText = replacePlainTextPreservingRichText(
+      [
+        createTextRichText("Keep "),
+        boldText,
+        createTextRichText(" note"),
+      ],
+      "Keep import note",
+    );
+
+    expect(richTextPlainText(richText)).toBe("Keep import note");
+    expect(richText.some((item) => item.type === "text" && item.annotations.bold)).toBe(false);
+  });
+
+  it("preserves later objects when an earlier object label is removed", () => {
+    const richText = replacePlainTextPreservingRichText(
+      [
+        createTextRichText("See "),
+        createPageMentionRichText(pageId, "Project", null),
+        createTextRichText(" and "),
+        createEquationRichText("x=1"),
+      ],
+      "See and x=1",
+    );
+
+    expect(richTextPlainText(richText)).toBe("See and x=1");
+    expect(richText.some((item) => item.type === "mention")).toBe(false);
+    expect(richText.some((item) => item.type === "equation" && item.equation.expression === "x=1"))
+      .toBe(true);
   });
 
   it("detects page mention queries at the cursor", () => {
