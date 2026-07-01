@@ -6,6 +6,7 @@ import {
   mapNotesBlockListDto,
   mapNotesCommentThreadDto,
   mapNotesLoadedPageDto,
+  mapNotesPageBreadcrumbItemDto,
   mapNotesPageHistorySettingsDto,
   mapNotesPageHistorySnapshotDto,
   mapNotesPageDto,
@@ -30,6 +31,7 @@ import type {
   NotesMoveBlockRequest,
   NotesMoveBlocksRequest,
   NotesPage,
+  NotesPageBreadcrumbItem,
   NotesPageCreate,
   NotesPageHistoryCopyBlocksRequest,
   NotesPageHistorySettings,
@@ -87,6 +89,15 @@ export async function listNotesBacklinks(pageId: string): Promise<NotesBacklink[
   const rows = await invoke<unknown>("notes_list_backlinks", { dbUrl, pageId });
   if (!Array.isArray(rows)) throw new Error("notes_list_backlinks returned a non-array payload");
   return rows.map(mapNotesBacklinkDto);
+}
+
+export async function getNotesPageBreadcrumb(pageId: string): Promise<NotesPageBreadcrumbItem[]> {
+  const dbUrl = await ensureDbUrl();
+  const rows = await invoke<unknown>("notes_get_page_breadcrumb", { dbUrl, pageId });
+  if (!Array.isArray(rows)) {
+    throw new Error("notes_get_page_breadcrumb returned a non-array payload");
+  }
+  return rows.map(mapNotesPageBreadcrumbItemDto);
 }
 
 export async function searchNotes(

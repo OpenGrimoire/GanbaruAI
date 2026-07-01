@@ -10,6 +10,7 @@ import {
   duplicateNotesPage,
   duplicateNotesPageTemplate,
   getNotesBlockChildren,
+  getNotesPageBreadcrumb,
   listNotesBacklinks,
   listNotesComments,
   listNotesPageTemplates,
@@ -80,6 +81,7 @@ import type {
   NotesCommentThread,
   NotesLoadedPage,
   NotesPage,
+  NotesPageBreadcrumbItem,
   NotesPageCover,
   NotesPageHistorySettings,
   NotesPageHistorySnapshot,
@@ -108,6 +110,7 @@ let sidebarPageIdsWithChildren = $state<string[]>([]);
 let sidebarMissingParentPageIds = $state<string[]>([]);
 let sidebarTrashedParentPageIds = $state<string[]>([]);
 let loadedPage = $state<NotesPage | null>(null);
+let pageBreadcrumbItems = $state<NotesPageBreadcrumbItem[]>([]);
 let backlinks = $state<NotesBacklink[]>([]);
 let commentThreads = $state<NotesCommentThread[]>([]);
 let activeCommentParent = $state<NotesCommentParent | null>(null);
@@ -285,6 +288,7 @@ async function loadPageTree(pageId: string): Promise<void> {
   const loaded = await loadNotesPage(pageId);
   setLoadedPageFromLoaded(loaded);
   await loadAllChildrenForVisibleTree();
+  await reloadPageBreadcrumb(pageId);
   await reloadBacklinks(pageId);
   await reloadComments(pageId);
   await pageHistoryController.reloadSnapshots(pageId);
@@ -319,6 +323,14 @@ async function reloadBacklinks(pageId: string | null = selectedPageId): Promise<
   } finally {
     if (requestId === backlinksRequestId) backlinksLoading = false;
   }
+}
+
+async function reloadPageBreadcrumb(pageId: string | null = selectedPageId): Promise<void> {
+  if (!pageId) {
+    pageBreadcrumbItems = [];
+    return;
+  }
+  pageBreadcrumbItems = [...await getNotesPageBreadcrumb(pageId)];
 }
 
 async function reloadComments(pageId: string | null = selectedPageId): Promise<void> {
@@ -472,6 +484,7 @@ async function load(): Promise<void> {
       requestPageLoadFocus();
     } else {
       loadedPage = null;
+      pageBreadcrumbItems = [];
       backlinks = [];
       backlinksError = null;
       commentThreads = [];
@@ -502,6 +515,7 @@ async function selectPage(pageId: string | null): Promise<void> {
   saveSelectedPageId(pageId);
   if (!pageId) {
     loadedPage = null;
+    pageBreadcrumbItems = [];
     backlinks = [];
     backlinksError = null;
     commentThreads = [];
@@ -556,6 +570,7 @@ async function createPageWithParent(title: string, parent: NotesParent): Promise
     pages = [loaded.page, ...pages];
   }
   setLoadedPageFromLoaded(loaded);
+  await reloadPageBreadcrumb(loaded.page.id);
   await reloadBacklinks(loaded.page.id);
   await reloadComments(loaded.page.id);
   await pageHistoryController.reloadSnapshots(loaded.page.id);
@@ -577,6 +592,7 @@ async function applyPageTemplate(templateId: string, title?: string): Promise<vo
   }
   setLoadedPageFromLoaded(loaded);
   await loadAllChildrenForVisibleTree();
+  await reloadPageBreadcrumb(loaded.page.id);
   await reloadBacklinks(loaded.page.id);
   await reloadComments(loaded.page.id);
   await pageHistoryController.reloadSnapshots(loaded.page.id);
@@ -659,6 +675,7 @@ async function createChildPageFromBlock(blockId: string): Promise<void> {
     pages = [loaded.page, ...pages];
   }
   setLoadedPageFromLoaded(loaded);
+  await reloadPageBreadcrumb(loaded.page.id);
   await reloadBacklinks(loaded.page.id);
   await reloadComments(loaded.page.id);
   await pageHistoryController.reloadSnapshots(loaded.page.id);
@@ -690,6 +707,7 @@ async function createChildPageAfterBlock(blockId: string): Promise<void> {
     pages = [loaded.page, ...pages];
   }
   setLoadedPageFromLoaded(loaded);
+  await reloadPageBreadcrumb(loaded.page.id);
   await reloadBacklinks(loaded.page.id);
   await reloadComments(loaded.page.id);
   await pageHistoryController.reloadSnapshots(loaded.page.id);
@@ -702,6 +720,7 @@ async function renamePage(pageId: string, title: string): Promise<void> {
   const page = await updateNotesPage(pageId, { title: trimmedTitle });
   pages = pages.map((item) => (item.id === page.id ? page : item));
   if (loadedPage?.id === page.id) loadedPage = page;
+  if (selectedPageId === page.id) await reloadPageBreadcrumb(page.id);
   await pageHistoryController.reloadSnapshots(pageId);
 }
 
@@ -719,6 +738,7 @@ async function duplicatePage(pageId: string, title: string): Promise<void> {
     pages = [loaded.page, ...pages];
   }
   setLoadedPageFromLoaded(loaded);
+  await reloadPageBreadcrumb(loaded.page.id);
   await reloadBacklinks(loaded.page.id);
   await reloadComments(loaded.page.id);
   await pageHistoryController.reloadSnapshots(loaded.page.id);
@@ -741,6 +761,7 @@ async function movePage(pageId: string, parent: NotesParent): Promise<void> {
   }
   setLoadedPageFromLoaded(loaded);
   await loadAllChildrenForVisibleTree();
+  await reloadPageBreadcrumb(loaded.page.id);
   await reloadBacklinks(loaded.page.id);
   await reloadComments(loaded.page.id);
   await pageHistoryController.reloadSnapshots(loaded.page.id);
@@ -1094,6 +1115,9 @@ export function getNotes() {
     },
     get loadedPage(): NotesPage | null {
       return loadedPage;
+    },
+    get pageBreadcrumbItems(): NotesPageBreadcrumbItem[] {
+      return pageBreadcrumbItems;
     },
     get backlinks(): NotesBacklink[] {
       return backlinks;

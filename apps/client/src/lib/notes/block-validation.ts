@@ -32,6 +32,8 @@ import {
   type NotesIconColor,
   type NotesLoadedPage,
   type NotesPage,
+  type NotesPageBreadcrumbItem,
+  type NotesPageBreadcrumbStatus,
   type NotesPageCover,
   type NotesPageHistorySettings,
   type NotesPageHistorySnapshot,
@@ -1146,12 +1148,37 @@ function parseBacklinkReferenceType(value: unknown): NotesBacklinkReferenceType 
   throw new Error("backlink.reference_type must be child_page, page_mention, or link");
 }
 
+function parsePageBreadcrumbStatus(value: unknown): NotesPageBreadcrumbStatus {
+  const status = readString(value, "page breadcrumb.status");
+  if (
+    status === "workspace"
+    || status === "active"
+    || status === "archived"
+    || status === "trashed"
+    || status === "missing"
+  ) {
+    return status;
+  }
+  throw new Error("page breadcrumb.status must be workspace, active, archived, trashed, or missing");
+}
+
 function parseSearchResultType(value: unknown): NotesSearchResultType {
   const resultType = readString(value, "search_result.type");
   if (resultType === "page" || resultType === "block" || resultType === "comment") {
     return resultType;
   }
   throw new Error("search_result.type must be page, block, or comment");
+}
+
+export function parseNotesPageBreadcrumbItem(value: unknown): NotesPageBreadcrumbItem {
+  const record = readRecord(value, "page breadcrumb");
+  const id = record.id === null ? null : readString(record.id, "page breadcrumb.id");
+  return {
+    id,
+    title: readString(record.title, "page breadcrumb.title"),
+    current: readBoolean(record.current, "page breadcrumb.current"),
+    status: parsePageBreadcrumbStatus(record.status),
+  };
 }
 
 export function parseNotesBacklink(value: unknown): NotesBacklink {

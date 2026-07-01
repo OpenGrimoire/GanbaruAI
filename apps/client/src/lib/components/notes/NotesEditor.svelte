@@ -2,7 +2,7 @@
   import { tick } from "svelte";
   import { notesBlockAnchorId } from "$lib/notes/block-link";
   import { getLocalization } from "$lib/i18n/translator.svelte";
-  import { buildNotesPageBreadcrumb } from "$lib/notes/page-breadcrumb";
+  import { addNotesWorkspaceBreadcrumb, buildNotesPageBreadcrumb } from "$lib/notes/page-breadcrumb";
   import { notesPageTitle } from "$lib/notes/page-title";
   import { buildNotesTableOfContents } from "$lib/notes/table-of-contents";
   import type { NotesPageIcon as NotesPageIconValue } from "$lib/notes/types";
@@ -31,7 +31,14 @@
   const pageTitle = $derived(page ? notesPageTitle(page, t("notes.untitled")) : "");
   const pageIconLabel = $derived(pageIconScreenReaderText(page?.icon ?? null));
   const breadcrumbItems = $derived(
-    buildNotesPageBreadcrumb(page, notes.pages, t("notes.workspace"), t("notes.untitled")),
+    notes.pageBreadcrumbItems.length > 0
+      ? addNotesWorkspaceBreadcrumb(
+          notes.pageBreadcrumbItems,
+          t("notes.workspace"),
+          t("notes.untitled"),
+          t("notes.breadcrumbMissingPage"),
+        )
+      : buildNotesPageBreadcrumb(page, notes.pages, t("notes.workspace"), t("notes.untitled")),
   );
   const tableOfContentsItems = $derived(buildNotesTableOfContents(notes.flatBlocks));
   const pageFavorited = $derived(page ? notes.favoritePageIds.includes(page.id) : false);

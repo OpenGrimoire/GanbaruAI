@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createRichText } from "./block-factory";
-import { buildNotesPageBreadcrumb } from "./page-breadcrumb";
+import { parseNotesPageBreadcrumbItem } from "./block-validation";
+import { addNotesWorkspaceBreadcrumb, buildNotesPageBreadcrumb } from "./page-breadcrumb";
 import type { NotesPage, NotesParent } from "./types";
 
 const now = "2026-06-30T12:00:00.000Z";
@@ -43,12 +44,13 @@ describe("notes page breadcrumb", () => {
         item.id,
         item.title,
         item.current,
+        item.status,
       ]),
     ).toEqual([
-      [null, "Workspace", false],
-      ["root", "Root", false],
-      ["child", "Child", false],
-      ["leaf", "Leaf", true],
+      [null, "Workspace", false, "workspace"],
+      ["root", "Root", false, "active"],
+      ["child", "Child", false, "active"],
+      ["leaf", "Leaf", true, "active"],
     ]);
   });
 
@@ -67,5 +69,59 @@ describe("notes page breadcrumb", () => {
     expect(
       buildNotesPageBreadcrumb(first, [second], "Workspace", "Untitled").map((item) => item.id),
     ).toEqual([null, "second", "first"]);
+  });
+
+  it("prepends the workspace to backend-resolved breadcrumb rows", () => {
+    expect(
+      addNotesWorkspaceBreadcrumb(
+        [
+          { id: "archived", title: "Old", current: false, status: "archived" },
+          { id: "leaf", title: "Leaf", current: true, status: "active" },
+        ],
+        "Workspace",
+        "Untitled",
+        "Missing page",
+      ),
+    ).toEqual([
+      { id: null, title: "Workspace", current: false, status: "workspace" },
+      { id: "archived", title: "Old", current: false, status: "archived" },
+      { id: "leaf", title: "Leaf", current: true, status: "active" },
+    ]);
+  });
+
+  it("labels backend-resolved missing and untitled breadcrumb rows", () => {
+    expect(
+      addNotesWorkspaceBreadcrumb(
+        [
+          { id: "missing", title: "", current: false, status: "missing" },
+          { id: "leaf", title: "", current: true, status: "active" },
+        ],
+        "Workspace",
+        "Untitled",
+        "Missing page",
+      ).map((item) => item.title),
+    ).toEqual(["Workspace", "Missing page", "Untitled"]);
+  });
+
+  it("parses breadcrumb DTOs from the Tauri boundary", () => {
+    expect(
+      parseNotesPageBreadcrumbItem({
+        id: "root",
+        title: "Root",
+        current: false,
+        status: "archived",
+      }).status,
+    ).toBe("archived");
+  });
+
+  it("rejects unsupported breadcrumb statuses", () => {
+    expect(() =>
+      parseNotesPageBreadcrumbItem({
+        id: "root",
+        title: "Root",
+        current: false,
+        status: "deleted",
+      }),
+    ).toThrow("page breadcrumb.status must be workspace, active, archived, trashed, or missing");
   });
 });

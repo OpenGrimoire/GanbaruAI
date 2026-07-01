@@ -1512,6 +1512,11 @@ export const es = {
     titleInput: "Título de página",
     titlePlaceholder: "Sin título",
     metadataEdited: (time: string) => `Editado ${time}`,
+    breadcrumbMissingPage: "Página faltante",
+    breadcrumbArchived: "Archivada",
+    breadcrumbTrashed: "En papelera",
+    breadcrumbMissing: "Faltante",
+    breadcrumbUnavailable: (title: string, status: string) => `${title}, ${status}`,
     backlinksCount: (count: number) =>
       `${count} ${count === 1 ? "enlace entrante" : "enlaces entrantes"}`,
     loadingBacklinks: "Cargando enlaces entrantes",

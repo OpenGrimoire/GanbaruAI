@@ -574,7 +574,7 @@ Fresh databases seed the Routine group and its default routine projects. Routine
 These tables are designed but their detailed shape is filled in when the feature ships. Each feature doc owns the deeper definition.
 
 - **`work_environments`:** planned normalized environment header. Apps, browser tabs, and blocker rules are child rows, not embedded blobs.
-- **`notes_index`:** path, title, modified_at, tags, backlinks. Source of truth is the markdown file under `Ganbaru AI/notes/`.
+- **Future Notes indexes:** search and backlink caches may be added for page titles, block text, comments, tags, and link facts. They must remain rebuildable from canonical `notes_pages`, `notes_blocks`, and Notes comment rows, not markdown exports.
 - **`diary_index`:** date, type (morning/evening), mood, energy, sleep_hours, path. Source of truth is the markdown file under `Ganbaru AI/diary/`.
 
 When designing one of these, follow the pomodoro pattern: snapshot any value that the user could change later but that an audit query needs to know about at the moment of the action.

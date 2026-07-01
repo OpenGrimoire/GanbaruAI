@@ -1,7 +1,7 @@
 use super::models::{
-    NoteBacklinkDto, NoteBlockDto, NoteBlockRow, NoteCommentRow, NoteLoadedPage, NotePageDto,
-    NotePageRow, NotePaginatedBlockList, NoteSearchResultDto, NoteSidebarPageList,
-    NoteSidebarPagesRequest,
+    NoteBacklinkDto, NoteBlockDto, NoteBlockRow, NoteCommentRow, NoteLoadedPage,
+    NotePageBreadcrumbItemDto, NotePageDto, NotePageRow, NotePaginatedBlockList,
+    NoteSearchResultDto, NoteSidebarPageList, NoteSidebarPagesRequest,
 };
 use super::validation::{require_uuid, validate_page_size};
 use serde_json::Value;
@@ -72,6 +72,46 @@ pub(in crate::notes) async fn list_sidebar_pages(
         missing_parent_page_ids,
         trashed_parent_page_ids,
     )
+}
+
+pub(in crate::notes) async fn get_page_breadcrumb(
+    pool: &SqlitePool,
+    page_id: &str,
+) -> Result<Vec<NotePageBreadcrumbItemDto>, String> {
+    let page_id = page_id.trim();
+    require_uuid(page_id, "page_id")?;
+    let mut crumbs = Vec::new();
+    let mut seen = HashSet::new();
+    let mut cursor = Some(page_id.to_string());
+    while let Some(current_page_id) = cursor {
+        if !seen.insert(current_page_id.clone()) {
+            break;
+        }
+        let Some(row) = fetch_page_row_any_state(pool, &current_page_id).await? else {
+            crumbs.push(NotePageBreadcrumbItemDto::missing(current_page_id));
+            break;
+        };
+        let current = row.id == page_id;
+        if current && (row.in_trash != 0 || row.archived != 0) {
+            return Err("notes page not found".to_string());
+        }
+        let parent_page_id = if row.parent_type == "page_id" {
+            row.parent_page_id.clone()
+        } else {
+            None
+        };
+        let crumb = if row.in_trash != 0 {
+            NotePageBreadcrumbItemDto::unavailable(row, "trashed")
+        } else if row.archived != 0 {
+            NotePageBreadcrumbItemDto::unavailable(row, "archived")
+        } else {
+            NotePageBreadcrumbItemDto::active(row, current)
+        };
+        crumbs.push(crumb);
+        cursor = parent_page_id;
+    }
+    crumbs.reverse();
+    Ok(crumbs)
 }
 
 async fn list_pages_by_state(

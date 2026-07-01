@@ -64,6 +64,16 @@ pub async fn notes_list_backlinks<R: Runtime>(
 }
 
 #[tauri::command]
+pub async fn notes_get_page_breadcrumb<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    page_id: String,
+) -> Result<Vec<NotePageBreadcrumbItemDto>, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    reads::get_page_breadcrumb(&pool, &page_id).await
+}
+
+#[tauri::command]
 pub async fn notes_search<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,

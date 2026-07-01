@@ -317,6 +317,43 @@ impl NoteSidebarPageList {
 }
 
 #[derive(Serialize)]
+pub struct NotePageBreadcrumbItemDto {
+    id: Option<String>,
+    title: String,
+    current: bool,
+    status: &'static str,
+}
+
+impl NotePageBreadcrumbItemDto {
+    pub(in crate::notes) fn active(row: NotePageRow, current: bool) -> Self {
+        Self {
+            id: Some(row.id),
+            title: row.title,
+            current,
+            status: "active",
+        }
+    }
+
+    pub(in crate::notes) fn unavailable(row: NotePageRow, status: &'static str) -> Self {
+        Self {
+            id: Some(row.id),
+            title: row.title,
+            current: false,
+            status,
+        }
+    }
+
+    pub(in crate::notes) fn missing(page_id: String) -> Self {
+        Self {
+            id: Some(page_id),
+            title: String::new(),
+            current: false,
+            status: "missing",
+        }
+    }
+}
+
+#[derive(Serialize)]
 pub struct NotePageTemplateDto {
     object: &'static str,
     id: String,

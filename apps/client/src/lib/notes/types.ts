@@ -801,10 +801,13 @@ export interface NotesTabBlockItems {
   items: NotesBlockTreeItem[];
 }
 
+export type NotesPageBreadcrumbStatus = "workspace" | "active" | "archived" | "trashed" | "missing";
+
 export interface NotesPageBreadcrumbItem {
   id: string | null;
   title: string;
   current: boolean;
+  status: NotesPageBreadcrumbStatus;
 }
 
 export interface NotesTableOfContentsItem {

@@ -211,6 +211,25 @@
 
   const localization = getLocalization();
   const { t } = localization;
+
+  function breadcrumbStatusLabel(crumb: NotesPageBreadcrumbItem): string | null {
+    switch (crumb.status) {
+      case "archived":
+        return t("notes.breadcrumbArchived");
+      case "trashed":
+        return t("notes.breadcrumbTrashed");
+      case "missing":
+        return t("notes.breadcrumbMissing");
+      case "workspace":
+      case "active":
+        return null;
+    }
+  }
+
+  function breadcrumbCanNavigate(crumb: NotesPageBreadcrumbItem): boolean {
+    return !!crumb.id && !crumb.current && crumb.status === "active";
+  }
+
   let dividerButton: HTMLButtonElement | null = $state(null);
   let breadcrumbButton: HTMLButtonElement | null = $state(null);
   let tableOfContentsButton: HTMLButtonElement | null = $state(null);
@@ -540,10 +559,11 @@
           aria-label={t("notes.blockType.breadcrumb")}
         >
           {#each breadcrumbItems as crumb, index}
+            {@const statusLabel = breadcrumbStatusLabel(crumb)}
             {#if index > 0}
               <ChevronRight class="size-3.5 shrink-0" aria-hidden="true" />
             {/if}
-            {#if crumb.id && !crumb.current}
+            {#if breadcrumbCanNavigate(crumb)}
               <button
                 type="button"
                 class="min-w-0 truncate rounded px-1 py-0.5 text-left hover:bg-accent hover:text-foreground"
@@ -565,8 +585,16 @@
                 {crumb.title}
               </button>
             {:else}
-              <span class="min-w-0 truncate px-1 py-0.5">
-                {crumb.title}
+              <span
+                class="inline-flex min-w-0 items-center gap-1 truncate px-1 py-0.5"
+                aria-label={statusLabel ? t("notes.breadcrumbUnavailable", crumb.title, statusLabel) : undefined}
+              >
+                <span class="min-w-0 truncate">{crumb.title}</span>
+                {#if statusLabel}
+                  <span class="shrink-0 text-[0.7rem] text-muted-foreground">
+                    {statusLabel}
+                  </span>
+                {/if}
               </span>
             {/if}
           {/each}

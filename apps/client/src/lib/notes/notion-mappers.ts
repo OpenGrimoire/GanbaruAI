@@ -4,6 +4,7 @@ import {
   parseNotesCommentThread,
   parseNotesLoadedPage,
   parseNotesPage,
+  parseNotesPageBreadcrumbItem,
   parseNotesPageHistorySettings,
   parseNotesPageHistorySnapshot,
   parseNotesPageTemplate,
@@ -17,6 +18,7 @@ import type {
   NotesCommentThread,
   NotesLoadedPage,
   NotesPage,
+  NotesPageBreadcrumbItem,
   NotesPageHistorySettings,
   NotesPageHistorySnapshot,
   NotesPageTemplate,
@@ -48,6 +50,11 @@ export function mapNotesLoadedPageDto(value: unknown): NotesLoadedPage {
 /** Validate and map an unknown sidebar page-list DTO from the Tauri boundary. */
 export function mapNotesSidebarPageListDto(value: unknown): NotesSidebarPageList {
   return parseNotesSidebarPageList(value);
+}
+
+/** Validate and map an unknown page breadcrumb item DTO from the Tauri boundary. */
+export function mapNotesPageBreadcrumbItemDto(value: unknown): NotesPageBreadcrumbItem {
+  return parseNotesPageBreadcrumbItem(value);
 }
 
 /** Validate and map an unknown page template DTO from the Tauri boundary. */
