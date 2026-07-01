@@ -15,6 +15,7 @@
     planNotesKeyboardAction,
     type NotesKeyboardAction,
   } from "$lib/notes/block-keyboard";
+  import { notesUndoShortcutAction } from "$lib/notes/undo-history";
   import type {
     NotesAudioBlock,
     NotesBlockType,
@@ -44,6 +45,8 @@
     focusBlockId,
     focusRequestId,
     onKeyboardAction,
+    onUndo,
+    onRedo,
     onMediaChange,
   }: {
     block: NotesMediaBlock;
@@ -52,6 +55,8 @@
     focusBlockId: string | null;
     focusRequestId: number;
     onKeyboardAction: (blockId: string, action: NotesKeyboardAction) => void;
+    onUndo: () => Promise<void> | void;
+    onRedo: () => Promise<void> | void;
     onMediaChange: (blockId: string, url: string, caption: string, name?: string) => void;
   } = $props();
 
@@ -101,6 +106,12 @@
   }
 
   function handleKeydown(event: KeyboardEvent): void {
+    const undoAction = notesUndoShortcutAction(event);
+    if (undoAction) {
+      event.preventDefault();
+      void Promise.resolve(undoAction === "undo" ? onUndo() : onRedo());
+      return;
+    }
     const target = event.currentTarget;
     const input = target instanceof HTMLInputElement ? target : null;
     const action = planNotesKeyboardAction({

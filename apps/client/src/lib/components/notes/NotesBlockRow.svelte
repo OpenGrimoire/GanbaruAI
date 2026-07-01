@@ -31,6 +31,7 @@
     planNotesKeyboardAction,
     type NotesKeyboardAction,
   } from "$lib/notes/block-keyboard";
+  import { notesUndoShortcutAction } from "$lib/notes/undo-history";
   import type { NotesSlashAction, NotesSlashCommand } from "$lib/notes/slash-commands";
   import type { NotesSiblingDropPosition } from "$lib/notes/block-tree";
   import type {
@@ -75,6 +76,8 @@
     onPasteRichHtml,
     onApplyTextAnnotations,
     onKeyboardAction,
+    onUndo,
+    onRedo,
     onAddBelow,
     onConvert,
     onConvertToToggleHeading,
@@ -165,6 +168,8 @@
       patch: NotesRichTextAnnotationPatch,
     ) => Promise<void> | void;
     onKeyboardAction: (blockId: string, action: NotesKeyboardAction) => void;
+    onUndo: () => Promise<void> | void;
+    onRedo: () => Promise<void> | void;
     onAddBelow: (blockId: string, type?: NotesBlockType) => void;
     onConvert: (blockId: string, type: NotesBlockType, clearText?: boolean) => void;
     onConvertToToggleHeading: (blockId: string, type: NotesHeadingBlockType) => void;
@@ -268,6 +273,7 @@
   }
 
   function handleKeydown(event: KeyboardEvent): void {
+    if (handleUndoRedoKeydown(event)) return;
     if ((event.ctrlKey || event.metaKey) && event.key === "Enter" && headingToggleable) {
       event.preventDefault();
       onToggleOpen(block.id, !headingOpen);
@@ -298,6 +304,14 @@
     if (action.preventDefault) event.preventDefault();
     slashOpen = false;
     onKeyboardAction(block.id, action);
+  }
+
+  function handleUndoRedoKeydown(event: KeyboardEvent): boolean {
+    const undoAction = notesUndoShortcutAction(event);
+    if (!undoAction) return false;
+    event.preventDefault();
+    void Promise.resolve(undoAction === "undo" ? onUndo() : onRedo());
+    return true;
   }
 
   function handleChildPageKeydown(event: KeyboardEvent): void {
@@ -628,6 +642,7 @@
                               oninput={(event) => {
                                 onTableCellChange(row.id, columnIndex, event.currentTarget.value);
                               }}
+                              onkeydown={handleUndoRedoKeydown}
                             />
                           {:else}
                             <input
@@ -638,6 +653,7 @@
                               oninput={(event) => {
                                 onTableCellChange(row.id, columnIndex, event.currentTarget.value);
                               }}
+                              onkeydown={handleUndoRedoKeydown}
                             />
                           {/if}
                         </td>
@@ -657,6 +673,8 @@
           {focusBlockId}
           {focusRequestId}
           {onKeyboardAction}
+          {onUndo}
+          {onRedo}
           {onMediaChange}
         />
       {:else if block.type === "unsupported"}
@@ -707,6 +725,8 @@
           {focusBlockId}
           {focusRequestId}
           {onKeyboardAction}
+          {onUndo}
+          {onRedo}
           {onBookmarkChange}
           {onLinkPreviewUrlChange}
           {onEmbedUrlChange}
@@ -730,6 +750,8 @@
           {onPasteRichHtml}
           {onApplyTextAnnotations}
           {onKeyboardAction}
+          {onUndo}
+          {onRedo}
           {onConvert}
           {onConvertToToggleHeading}
           {onColorChange}

@@ -10,6 +10,7 @@ Notes are stored in `ganbaru-ai.sqlite`:
 
 - `notes_pages` stores page metadata, parent identity, title cache, properties, icon, cover, trash state, archive state, optional external source identity, and timestamps.
 - `notes_blocks` stores the canonical block tree. Each row has a page id, parent identity, block type, type payload, rich text, plain text cache, child state, trash state, sort order, optional external source identity, and timestamps.
+- `notes_undo_state` stores a bounded page-local undo and redo stack for editor recovery. It is local operation state derived from canonical rows, not a second source of note content.
 
 Markdown exports can be regenerated from SQLite. Markdown imports must be parsed into page and block rows before editing. If an exported markdown file changes outside the app, the app treats that as import input, not as authoritative state.
 
@@ -95,8 +96,9 @@ The first serious Notes tab includes:
 - Multi-line plain-text paste that creates sibling blocks instead of storing several paragraphs inside one block.
 - Safe rich HTML paste that preserves supported inline formatting and links while creating sibling blocks for multiple paragraphs.
 - Markdown-like paste prefixes for headings, lists, to-dos, toggles, quotes, dividers, and fenced code blocks.
+- Ctrl or Cmd+Z, Ctrl or Cmd+Shift+Z, and Ctrl or Cmd+Y for page-local undo and redo across inline edits, block creation, conversion, movement, duplication, deletion, template insertion, button insertion, and block payload edits.
 
-These behaviors are implemented as pure TypeScript planning helpers where possible. Svelte components adapt keyboard and focus events to those helpers, then persist changes through Tauri commands. The editor surface is split between the page shell, block list, block row chrome, text editor controls, card-like block editors, and media or layout-specific child components. The Notes store keeps its public API stable while delegating page preference persistence, focus request tokens, block tree selectors, debounced block persistence, and block actions to focused helper modules.
+These behaviors are implemented as pure TypeScript planning helpers where possible. Svelte components adapt keyboard and focus events to those helpers, then persist changes through Tauri commands. Undo and redo record snapshot pairs at the same mutation boundaries as normal block commands. Typing and text-like repeated updates are grouped by block within a short time window, while formatting, links, mentions, equations, paste, structural block edits, template use, and button use remain discrete entries. The bounded stack is persisted per active page for practical crash recovery, and applying an entry reuses existing block rows through update, trash, restore, and move commands. The editor surface is split between the page shell, block list, block row chrome, text editor controls, card-like block editors, and media or layout-specific child components. The Notes store keeps its public API stable while delegating page preference persistence, focus request tokens, block tree selectors, debounced block persistence, undo state, and block actions to focused helper modules.
 
 Duplicating a block clones the selected block subtree through a Rust transaction. The frontend generates the duplicate IDs for the loaded subtree, and the backend validates that the ID map exactly matches the source subtree before inserting rows.
 

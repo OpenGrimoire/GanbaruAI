@@ -212,6 +212,14 @@
     void notes.updateBlockRichText(blockId, richText);
   }
 
+  function undoNotesEdit(): void {
+    void notes.undoNotesEdit();
+  }
+
+  function redoNotesEdit(): void {
+    void notes.redoNotesEdit();
+  }
+
   function blockParentId(blockId: string): string | null {
     const block = notes.blockById(blockId);
     return block ? notes.parentIdForBlock(block) : null;
@@ -323,6 +331,8 @@
         onPasteRichHtml={pasteRichHtml}
         onApplyTextAnnotations={applyTextAnnotations}
         onKeyboardAction={handleKeyboardAction}
+        onUndo={undoNotesEdit}
+        onRedo={redoNotesEdit}
         onAddBelow={(blockId, type) => {
           void notes.createSiblingAfter(blockId, type);
         }}
@@ -423,6 +433,8 @@
         onPasteRichHtml={pasteRichHtml}
         onApplyTextAnnotations={applyTextAnnotations}
         onKeyboardAction={handleKeyboardAction}
+        onUndo={undoNotesEdit}
+        onRedo={redoNotesEdit}
         onAddBelow={(blockId, type) => {
           void notes.createSiblingAfter(blockId, type);
         }}
@@ -520,6 +532,8 @@
         onPasteRichHtml={pasteRichHtml}
         onApplyTextAnnotations={applyTextAnnotations}
         onKeyboardAction={handleKeyboardAction}
+        onUndo={undoNotesEdit}
+        onRedo={redoNotesEdit}
         onAddBelow={(blockId, type) => {
           void notes.createSiblingAfter(blockId, type);
         }}

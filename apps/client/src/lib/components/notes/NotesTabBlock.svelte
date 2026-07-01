@@ -8,6 +8,7 @@
     planNotesKeyboardAction,
     type NotesKeyboardAction,
   } from "$lib/notes/block-keyboard";
+  import { notesUndoShortcutAction } from "$lib/notes/undo-history";
   import type { NotesSlashAction, NotesSlashCommand } from "$lib/notes/slash-commands";
   import type {
     NotesDateMentionTarget,
@@ -52,6 +53,8 @@
     onPasteRichHtml,
     onApplyTextAnnotations,
     onKeyboardAction,
+    onUndo,
+    onRedo,
     onAddBelow,
     onConvert,
     onConvertToToggleHeading,
@@ -148,6 +151,8 @@
       patch: NotesRichTextAnnotationPatch,
     ) => Promise<void> | void;
     onKeyboardAction: (blockId: string, action: NotesKeyboardAction) => void;
+    onUndo: () => Promise<void> | void;
+    onRedo: () => Promise<void> | void;
     onAddBelow: (blockId: string, type?: NotesBlockType) => void;
     onConvert: (blockId: string, type: NotesBlockType, clearText?: boolean) => void;
     onConvertToToggleHeading: (blockId: string, type: NotesHeadingBlockType) => void;
@@ -217,6 +222,12 @@
   }
 
   function handleKeydown(event: KeyboardEvent): void {
+    const undoAction = notesUndoShortcutAction(event);
+    if (undoAction) {
+      event.preventDefault();
+      void Promise.resolve(undoAction === "undo" ? onUndo() : onRedo());
+      return;
+    }
     const action = planNotesKeyboardAction({
       key: event.key,
       shiftKey: event.shiftKey,
@@ -389,6 +400,8 @@
                       {onPasteRichHtml}
                       {onApplyTextAnnotations}
                       {onKeyboardAction}
+                      {onUndo}
+                      {onRedo}
                       {onAddBelow}
                       {onConvert}
                       {onConvertToToggleHeading}

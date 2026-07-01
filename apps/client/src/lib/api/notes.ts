@@ -242,3 +242,24 @@ export async function duplicateNotesBlock(
   const dbUrl = await ensureDbUrl();
   return mapNotesBlockDto(await invoke<unknown>("notes_duplicate_block", { dbUrl, blockId, request }));
 }
+
+export async function loadNotesUndoState(pageId: string): Promise<string | null> {
+  const dbUrl = await ensureDbUrl();
+  const state = await invoke<unknown>("notes_load_undo_state", { dbUrl, pageId });
+  if (state === null) return null;
+  if (typeof state !== "string") throw new Error("notes_load_undo_state returned invalid state");
+  return state;
+}
+
+export async function saveNotesUndoState(
+  pageId: string,
+  stateJson: string,
+): Promise<void> {
+  const dbUrl = await ensureDbUrl();
+  await invoke("notes_save_undo_state", { dbUrl, pageId, stateJson });
+}
+
+export async function clearNotesUndoState(pageId: string): Promise<void> {
+  const dbUrl = await ensureDbUrl();
+  await invoke("notes_clear_undo_state", { dbUrl, pageId });
+}

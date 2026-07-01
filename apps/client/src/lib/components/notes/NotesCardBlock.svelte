@@ -12,6 +12,7 @@
     planNotesKeyboardAction,
     type NotesKeyboardAction,
   } from "$lib/notes/block-keyboard";
+  import { notesUndoShortcutAction } from "$lib/notes/undo-history";
   import { canOpenEmbedUrl, embedDisplayTitle, embedUrlPlainText } from "$lib/notes/embed";
   import { equationExpressionPlainText, equationPreviewText } from "$lib/notes/equation";
   import {
@@ -29,6 +30,8 @@
     focusBlockId,
     focusRequestId,
     onKeyboardAction,
+    onUndo,
+    onRedo,
     onBookmarkChange,
     onLinkPreviewUrlChange,
     onEmbedUrlChange,
@@ -40,6 +43,8 @@
     focusBlockId: string | null;
     focusRequestId: number;
     onKeyboardAction: (blockId: string, action: NotesKeyboardAction) => void;
+    onUndo: () => Promise<void> | void;
+    onRedo: () => Promise<void> | void;
     onBookmarkChange: (blockId: string, url: string, caption: string) => void;
     onLinkPreviewUrlChange: (blockId: string, url: string) => void;
     onEmbedUrlChange: (blockId: string, url: string) => void;
@@ -104,6 +109,12 @@
   }
 
   function handleInputKeydown(event: KeyboardEvent, actionText: string): void {
+    const undoAction = notesUndoShortcutAction(event);
+    if (undoAction) {
+      event.preventDefault();
+      void Promise.resolve(undoAction === "undo" ? onUndo() : onRedo());
+      return;
+    }
     const target = event.currentTarget;
     const input = target instanceof HTMLInputElement ? target : null;
     const action = planNotesKeyboardAction({

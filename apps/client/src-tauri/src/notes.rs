@@ -4,6 +4,7 @@ use tauri::{AppHandle, Runtime};
 mod comments;
 mod models;
 mod reads;
+mod undo_state;
 mod validation;
 mod writes;
 
@@ -270,6 +271,37 @@ pub async fn notes_duplicate_block<R: Runtime>(
 ) -> Result<NoteBlockDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
     writes::duplicate_block(&pool, &block_id, request).await
+}
+
+#[tauri::command]
+pub async fn notes_load_undo_state<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    page_id: String,
+) -> Result<Option<String>, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    undo_state::load_undo_state(&pool, &page_id).await
+}
+
+#[tauri::command]
+pub async fn notes_save_undo_state<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    page_id: String,
+    state_json: String,
+) -> Result<(), String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    undo_state::save_undo_state(&pool, &page_id, &state_json).await
+}
+
+#[tauri::command]
+pub async fn notes_clear_undo_state<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    page_id: String,
+) -> Result<(), String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    undo_state::clear_undo_state(&pool, &page_id).await
 }
 
 #[cfg(test)]

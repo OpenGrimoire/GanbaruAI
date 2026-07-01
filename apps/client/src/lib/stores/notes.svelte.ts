@@ -35,6 +35,7 @@ import {
 } from "$lib/notes/page-navigation";
 import { nextNotesFocusRequest, type NotesFocusRequest } from "$lib/notes/editor-focus";
 import { createNotesBlockActions } from "./notes-store-block-actions";
+import { createNotesUndoController } from "./notes-store-undo";
 import {
   flatNotesBlockItems,
   flatNotesBlockItemsForContext,
@@ -237,6 +238,13 @@ async function loadPageTree(pageId: string): Promise<void> {
   await reloadComments(pageId);
 }
 
+async function loadPageTreeForUndo(pageId: string): Promise<void> {
+  viewMode = "pages";
+  saveSelectedPageId(pageId);
+  await loadPageTree(pageId);
+  recordRecentPage(pageId);
+}
+
 async function reloadBacklinks(pageId: string | null = selectedPageId): Promise<void> {
   const requestId = ++backlinksRequestId;
   if (!pageId) {
@@ -405,6 +413,7 @@ async function load(): Promise<void> {
     saveSelectedPageId(nextSelected);
     if (nextSelected) {
       await loadPageTree(nextSelected);
+      await undoController.hydrate(nextSelected);
     } else {
       loadedPage = null;
       backlinks = [];
@@ -414,6 +423,7 @@ async function load(): Promise<void> {
       commentsError = null;
       blocksById = {};
       childIdsByParentId = {};
+      await undoController.hydrate(null);
     }
     loaded = true;
   } catch (error) {
@@ -442,6 +452,7 @@ async function selectPage(pageId: string | null): Promise<void> {
     commentsError = null;
     blocksById = {};
     childIdsByParentId = {};
+    await undoController.hydrate(null);
     return;
   }
   loading = true;
@@ -449,6 +460,7 @@ async function selectPage(pageId: string | null): Promise<void> {
   try {
     await loadPageTree(pageId);
     recordRecentPage(pageId);
+    await undoController.hydrate(pageId);
   } catch (error) {
     loadError = error instanceof Error ? error.message : String(error);
     throw error;
@@ -486,6 +498,7 @@ async function createPageWithParent(title: string, parent: NotesParent): Promise
   setLoadedPageFromLoaded(loaded);
   await reloadBacklinks(loaded.page.id);
   await reloadComments(loaded.page.id);
+  await undoController.hydrate(loaded.page.id);
   requestBlockFocus(firstBlockId);
 }
 
@@ -522,6 +535,7 @@ async function createChildPageFromBlock(blockId: string): Promise<void> {
   setLoadedPageFromLoaded(loaded);
   await reloadBacklinks(loaded.page.id);
   await reloadComments(loaded.page.id);
+  await undoController.hydrate(loaded.page.id);
   requestBlockFocus(loaded.blocks.results[0]?.id ?? firstBlockId);
 }
 
@@ -548,6 +562,7 @@ async function duplicatePage(pageId: string, title: string): Promise<void> {
   setLoadedPageFromLoaded(loaded);
   await reloadBacklinks(loaded.page.id);
   await reloadComments(loaded.page.id);
+  await undoController.hydrate(loaded.page.id);
   requestBlockFocus(loaded.blocks.results[0]?.id ?? null);
 }
 
@@ -568,6 +583,7 @@ async function movePage(pageId: string, parent: NotesParent): Promise<void> {
   await loadAllChildrenForVisibleTree();
   await reloadBacklinks(loaded.page.id);
   await reloadComments(loaded.page.id);
+  await undoController.hydrate(loaded.page.id);
   requestBlockFocus(loaded.blocks.results[0]?.id ?? null);
 }
 
@@ -617,6 +633,7 @@ async function unarchivePage(pageId: string): Promise<void> {
   saveSelectedPageId(restoredPage.id);
   await loadPageTree(restoredPage.id);
   recordRecentPage(restoredPage.id);
+  await undoController.hydrate(restoredPage.id);
   requestBlockFocus(null);
 }
 
@@ -631,6 +648,7 @@ async function restorePage(pageId: string): Promise<void> {
   saveSelectedPageId(restoredPage.id);
   await loadPageTree(restoredPage.id);
   recordRecentPage(restoredPage.id);
+  await undoController.hydrate(restoredPage.id);
   requestBlockFocus(null);
 }
 
@@ -723,6 +741,17 @@ const {
   debounceMs: BLOCK_SAVE_DEBOUNCE_MS,
 });
 
+const undoController = createNotesUndoController({
+  readSelectedPageId: () => selectedPageId,
+  readTreeState: treeState,
+  loadPageTreeForUndo,
+  requestBlockFocus,
+  flushPendingBlockSaves,
+  setLoadError: (message) => {
+    loadError = message;
+  },
+});
+
 const blockActions = createNotesBlockActions({
   readSelectedPageId: () => selectedPageId,
   readBlocksById: () => blocksById,
@@ -744,6 +773,8 @@ const blockActions = createNotesBlockActions({
   scheduleBlockSave,
   flushBlockSave,
   flushPendingBlockSaves,
+  createUndoSnapshot: undoController.snapshot,
+  recordUndo: undoController.record,
 });
 
 const {
@@ -787,6 +818,24 @@ function isOnlyBlock(blockId: string): boolean {
 
 function focusBlock(blockId: string): void {
   requestBlockFocus(blockId);
+}
+
+async function undoNotesEdit(): Promise<boolean> {
+  try {
+    return await undoController.undo();
+  } catch (error) {
+    loadError = error instanceof Error ? error.message : String(error);
+    throw error;
+  }
+}
+
+async function redoNotesEdit(): Promise<boolean> {
+  try {
+    return await undoController.redo();
+  } catch (error) {
+    loadError = error instanceof Error ? error.message : String(error);
+    throw error;
+  }
 }
 
 async function openBlockLink(target: NotesBlockLinkTarget): Promise<boolean> {
@@ -916,6 +965,12 @@ export function getNotes() {
     get focusRequestId(): number {
       return focusRequest.requestId;
     },
+    get canUndoNotesEdit(): boolean {
+      return undoController.canUndo();
+    },
+    get canRedoNotesEdit(): boolean {
+      return undoController.canRedo();
+    },
     load,
     ensureLoaded,
     selectPage,
@@ -962,6 +1017,8 @@ export function getNotes() {
     updatePageCover,
     openBlockLink,
     openNotesLink,
+    undoNotesEdit,
+    redoNotesEdit,
     updateBlockText, updateBlockRichText,
     insertPageMention,
     insertDateMention,

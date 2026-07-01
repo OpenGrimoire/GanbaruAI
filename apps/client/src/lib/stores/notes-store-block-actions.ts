@@ -51,6 +51,11 @@ import {
 } from "$lib/notes/block-tree";
 import type { NotesRichTextAnnotationPatch } from "$lib/notes/rich-text";
 import type {
+  NotesUndoKind,
+  NotesUndoRecordOptions,
+  NotesUndoSnapshot,
+} from "$lib/notes/undo-history";
+import type {
   NotesBlock,
   NotesBlockTreeItem,
   NotesBlockType,
@@ -87,6 +92,11 @@ export interface NotesBlockActionsContext {
   scheduleBlockSave: (blockId: string, update: NotesBlockUpdate) => void;
   flushBlockSave: (blockId: string) => Promise<void>;
   flushPendingBlockSaves: () => Promise<void>;
+  createUndoSnapshot: (
+    focusBlockId: string | null,
+    extraBlocks?: readonly NotesBlock[],
+  ) => NotesUndoSnapshot | null;
+  recordUndo: (options: Omit<NotesUndoRecordOptions, "id">) => void;
 }
 
 export interface NotesBlockActions {
@@ -189,6 +199,32 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
   const blocksById = context.readBlocksById;
   const childIdsByParentId = context.readChildIdsByParentId;
 
+  function undoSnapshot(
+    focusBlockId: string | null,
+    extraBlocks: readonly NotesBlock[] = [],
+  ): NotesUndoSnapshot | null {
+    return context.createUndoSnapshot(focusBlockId, extraBlocks);
+  }
+
+  function recordUndo(
+    kind: NotesUndoKind,
+    before: NotesUndoSnapshot | null,
+    after: NotesUndoSnapshot | null,
+    groupKey: string | null = null,
+  ): void {
+    context.recordUndo({ kind, before, after, groupKey });
+  }
+
+  function recordUndoAfter(
+    kind: NotesUndoKind,
+    before: NotesUndoSnapshot | null,
+    focusBlockId: string | null,
+    groupKey: string | null = null,
+    extraBlocks: readonly NotesBlock[] = [],
+  ): void {
+    recordUndo(kind, before, undoSnapshot(focusBlockId, extraBlocks), groupKey);
+  }
+
   async function replaceBlockWithUpdate(blockId: string, update: NotesBlockUpdate): Promise<void> {
     await context.flushBlockSave(blockId);
     context.localApplyBlockUpdate(blockId, update);
@@ -198,9 +234,11 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
   async function updateBlockText(blockId: string, text: string): Promise<void> {
     const block = context.blockById(blockId);
     if (!block) return;
+    const before = undoSnapshot(blockId);
     const update = blockWithText(block, text);
     context.localApplyBlockUpdate(blockId, update);
     context.scheduleBlockSave(blockId, update);
+    recordUndoAfter("typing", before, blockId, `typing:${blockId}`);
   }
 
   async function updateBlockRichText(
@@ -209,9 +247,11 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
   ): Promise<void> {
     const block = context.blockById(blockId);
     if (!block) return;
+    const before = undoSnapshot(blockId);
     const update = blockWithRichText(block, richText);
     context.localApplyBlockUpdate(blockId, update);
     context.scheduleBlockSave(blockId, update);
+    recordUndoAfter("typing", before, blockId, `typing:${blockId}`);
   }
 
   async function insertPageMention(
@@ -225,10 +265,12 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     const block = context.blockById(blockId);
     if (!block) return;
     await context.flushBlockSave(blockId);
+    const before = undoSnapshot(blockId);
     const update = blockWithPageMention(block, start, end, pageId, title, href);
     context.localApplyBlockUpdate(blockId, update);
     await context.saveBlockNow(blockId, update);
     await context.reloadBacklinks();
+    recordUndoAfter("mention", before, blockId);
   }
 
   async function insertDateMention(
@@ -241,9 +283,11 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     const block = context.blockById(blockId);
     if (!block) return;
     await context.flushBlockSave(blockId);
+    const before = undoSnapshot(blockId);
     const update = blockWithDateMention(block, start, end, date, title);
     context.localApplyBlockUpdate(blockId, update);
     await context.saveBlockNow(blockId, update);
+    recordUndoAfter("mention", before, blockId);
   }
 
   async function insertInlineEquation(
@@ -255,9 +299,11 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     const block = context.blockById(blockId);
     if (!block) return;
     await context.flushBlockSave(blockId);
+    const before = undoSnapshot(blockId);
     const update = blockWithInlineEquation(block, start, end, expression);
     context.localApplyBlockUpdate(blockId, update);
     await context.saveBlockNow(blockId, update);
+    recordUndoAfter("equation", before, blockId);
   }
 
   async function updateBlockTextLink(
@@ -269,10 +315,12 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     await context.flushBlockSave(blockId);
     const block = context.blockById(blockId);
     if (!block) return;
+    const before = undoSnapshot(blockId);
     const update = blockWithTextLink(block, start, end, url);
     context.localApplyBlockUpdate(blockId, update);
     await context.saveBlockNow(blockId, update);
     await context.reloadBacklinks();
+    recordUndoAfter("link", before, blockId);
   }
 
   async function updateBlockTextAnnotations(
@@ -284,41 +332,51 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     await context.flushBlockSave(blockId);
     const block = context.blockById(blockId);
     if (!block) return;
+    const before = undoSnapshot(blockId);
     const update = blockWithTextAnnotations(block, start, end, patch);
     context.localApplyBlockUpdate(blockId, update);
     await context.saveBlockNow(blockId, update);
+    recordUndoAfter("formatting", before, blockId);
   }
 
   async function updateBookmark(blockId: string, url: string, caption: string): Promise<void> {
     const block = context.blockById(blockId);
     if (!block || block.type !== "bookmark") return;
+    const before = undoSnapshot(blockId);
     const update = blockWithBookmark(block, url, caption);
     context.localApplyBlockUpdate(blockId, update);
     context.scheduleBlockSave(blockId, update);
+    recordUndoAfter("update", before, blockId, `update:${blockId}`);
   }
 
   async function updateEmbedUrl(blockId: string, url: string): Promise<void> {
     const block = context.blockById(blockId);
     if (!block || block.type !== "embed") return;
+    const before = undoSnapshot(blockId);
     const update = blockWithEmbedUrl(block, url);
     context.localApplyBlockUpdate(blockId, update);
     context.scheduleBlockSave(blockId, update);
+    recordUndoAfter("update", before, blockId, `update:${blockId}`);
   }
 
   async function updateLinkPreviewUrl(blockId: string, url: string): Promise<void> {
     const block = context.blockById(blockId);
     if (!block || block.type !== "link_preview") return;
+    const before = undoSnapshot(blockId);
     const update = blockWithLinkPreviewUrl(block, url);
     context.localApplyBlockUpdate(blockId, update);
     context.scheduleBlockSave(blockId, update);
+    recordUndoAfter("update", before, blockId, `update:${blockId}`);
   }
 
   async function updateEquationExpression(blockId: string, expression: string): Promise<void> {
     const block = context.blockById(blockId);
     if (!block || block.type !== "equation") return;
+    const before = undoSnapshot(blockId);
     const update = blockWithEquationExpression(block, expression);
     context.localApplyBlockUpdate(blockId, update);
     context.scheduleBlockSave(blockId, update);
+    recordUndoAfter("update", before, blockId, `update:${blockId}`);
   }
 
   async function updateMedia(
@@ -334,9 +392,11 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     ) {
       return;
     }
+    const before = undoSnapshot(blockId);
     const update = blockWithMedia(block, url, caption, name);
     context.localApplyBlockUpdate(blockId, update);
     context.scheduleBlockSave(blockId, update);
+    recordUndoAfter("update", before, blockId, `update:${blockId}`);
   }
 
   async function updateTableCell(
@@ -346,9 +406,11 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
   ): Promise<void> {
     const block = context.blockById(rowBlockId);
     if (!block || block.type !== "table_row") return;
+    const before = undoSnapshot(rowBlockId);
     const update = blockWithTableCell(block, columnIndex, text);
     context.localApplyBlockUpdate(rowBlockId, update);
     context.scheduleBlockSave(rowBlockId, update);
+    recordUndoAfter("typing", before, rowBlockId, `typing:${rowBlockId}:${columnIndex}`);
   }
 
   async function convertBlock(blockId: string, type: NotesBlockType, clearText = false): Promise<void> {
@@ -358,16 +420,20 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
       await context.createChildPageFromBlock(blockId);
       return;
     }
+    const before = undoSnapshot(blockId);
     if (type === "table") {
       await createTableFromBlock(blockId);
+      recordUndoAfter("convert", before, blockId);
       return;
     }
     if (type === "column_list") {
       await createColumnListFromBlock(blockId);
+      recordUndoAfter("convert", before, blockId);
       return;
     }
     if (type === "tab") {
       await createTabFromBlock(blockId);
+      recordUndoAfter("convert", before, blockId);
       return;
     }
     if (block.type === "child_page") return;
@@ -377,6 +443,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     const update = clearText ? createBlockUpdate(type, "") : blockConvertedToType(block, type);
     await replaceBlockWithUpdate(blockId, update);
     context.requestBlockFocus(type === "divider" ? null : blockId);
+    recordUndoAfter("convert", before, type === "divider" ? null : blockId);
   }
 
   async function createTableFromBlock(blockId: string): Promise<void> {
@@ -504,26 +571,34 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
   async function toggleTodo(blockId: string, checked: boolean): Promise<void> {
     const block = context.blockById(blockId);
     if (!block) return;
+    const before = undoSnapshot(blockId);
     await replaceBlockWithUpdate(blockId, blockWithTodoChecked(block, checked));
+    recordUndoAfter("update", before, blockId);
   }
 
   async function updateCodeLanguage(blockId: string, language: string): Promise<void> {
     const block = context.blockById(blockId);
     if (!block) return;
+    const before = undoSnapshot(blockId);
     await replaceBlockWithUpdate(blockId, blockWithCodeLanguage(block, language));
+    recordUndoAfter("update", before, blockId);
   }
 
   async function updateBlockColor(blockId: string, color: NotesColor): Promise<void> {
     const block = context.blockById(blockId);
     if (!block) return;
+    const before = undoSnapshot(blockId);
     await replaceBlockWithUpdate(blockId, blockWithColor(block, color));
+    recordUndoAfter("formatting", before, blockId);
   }
 
   async function updateToggleOpen(blockId: string, open: boolean): Promise<void> {
     const block = context.blockById(blockId);
     if (!block) return;
+    const before = undoSnapshot(blockId);
     if (block.type === "toggle") {
       await replaceBlockWithUpdate(blockId, blockWithToggleOpen(block, open));
+      recordUndoAfter("update", before, blockId);
       return;
     }
     if (
@@ -533,6 +608,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
       || (block.type === "heading_4" && block.heading_4.is_toggleable === true)
     ) {
       await replaceBlockWithUpdate(blockId, blockWithHeadingToggleOpen(block, open));
+      recordUndoAfter("update", before, blockId);
     }
   }
 
@@ -545,8 +621,10 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     if (block.type === "child_page") return;
     if (block.type === "table" || block.type === "table_row") return;
     if (block.type === "column_list" || block.type === "column") return;
+    const before = undoSnapshot(blockId);
     await replaceBlockWithUpdate(blockId, blockWithHeadingToggleable(block, headingType, true));
     context.requestBlockFocus(blockId);
+    recordUndoAfter("convert", before, blockId);
   }
 
   async function createSiblingAfter(blockId: string, type: NotesBlockType = "paragraph"): Promise<void> {
@@ -554,6 +632,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     const selectedPageId = context.readSelectedPageId();
     if (!block || !selectedPageId) return;
     await context.flushBlockSave(blockId);
+    const before = undoSnapshot(blockId);
     const newBlockId = crypto.randomUUID();
     await appendNotesBlockChildren({
       parent: block.parent,
@@ -585,10 +664,12 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
       });
       await context.loadPageTree(selectedPageId);
       context.requestBlockFocus(firstContentId);
+      recordUndoAfter("create", before, firstContentId);
       return;
     }
     await context.loadPageTree(selectedPageId);
     context.requestBlockFocus(type === "divider" ? null : newBlockId);
+    recordUndoAfter("create", before, type === "divider" ? null : newBlockId);
   }
 
   async function pastePlainTextIntoBlock(
@@ -611,6 +692,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     });
     if (!plan) return false;
     await context.flushBlockSave(blockId);
+    const before = undoSnapshot(blockId);
     context.localApplyBlockUpdate(blockId, plan.currentUpdate);
     await context.saveBlockNow(blockId, plan.currentUpdate);
     if (plan.appendedBlocks.length > 0) {
@@ -622,6 +704,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     }
     await context.loadPageTree(selectedPageId);
     context.requestBlockFocus(plan.focusBlockId);
+    recordUndoAfter("paste", before, plan.focusBlockId);
     return true;
   }
 
@@ -643,6 +726,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     });
     if (!plan) return false;
     await context.flushBlockSave(blockId);
+    const before = undoSnapshot(blockId);
     context.localApplyBlockUpdate(blockId, plan.currentUpdate);
     await context.saveBlockNow(blockId, plan.currentUpdate);
     if (plan.appendedBlocks.length > 0) {
@@ -654,6 +738,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     }
     await context.loadPageTree(selectedPageId);
     context.requestBlockFocus(plan.focusBlockId);
+    recordUndoAfter("paste", before, plan.focusBlockId);
     return true;
   }
 
@@ -663,9 +748,11 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     await context.flushBlockSave(blockId);
     const plan = planDeleteBlock(context.flatBlockItemsForBlockContext(blockId), blockId);
     if (!plan) return;
+    const before = undoSnapshot(blockId);
     if (plan.keepOnlyBlockAsParagraph) {
       await replaceBlockWithUpdate(blockId, createBlockUpdate("paragraph", ""));
       context.requestBlockFocus(blockId);
+      recordUndoAfter("delete", before, blockId);
       return;
     }
     if (plan.deleteBlockId) {
@@ -673,6 +760,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
       await context.loadPageTree(selectedPageId);
     }
     context.requestBlockFocus(plan.focusBlockId);
+    recordUndoAfter("delete", before, plan.focusBlockId);
   }
 
   async function mergeBlockWithPrevious(blockId: string): Promise<void> {
@@ -683,10 +771,12 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     if (!plan) return;
     const target = context.blockById(plan.targetBlockId);
     if (!target) return;
+    const before = undoSnapshot(blockId);
     await replaceBlockWithUpdate(target.id, blockWithText(target, plan.mergedText));
     await trashNotesBlock(plan.sourceBlockId, true);
     await context.loadPageTree(selectedPageId);
     context.requestBlockFocus(target.id);
+    recordUndoAfter("delete", before, target.id);
   }
 
   async function nestBlock(blockId: string): Promise<void> {
@@ -695,12 +785,14 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     await context.flushBlockSave(blockId);
     const plan = planNestBlock(context.treeState(), blockId);
     if (!plan) return;
+    const before = undoSnapshot(blockId);
     await moveNotesBlock(blockId, {
       parent: { type: "block_id", block_id: plan.parentId },
       after: plan.after,
     });
     await context.loadPageTree(selectedPageId);
     context.requestBlockFocus(blockId);
+    recordUndoAfter("move", before, blockId);
   }
 
   async function outdentBlock(blockId: string): Promise<void> {
@@ -712,9 +804,11 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     const parent: NotesParent = plan.parentId === selectedPageId
       ? { type: "page_id", page_id: selectedPageId }
       : { type: "block_id", block_id: plan.parentId };
+    const before = undoSnapshot(blockId);
     await moveNotesBlock(blockId, { parent, after: plan.after });
     await context.loadPageTree(selectedPageId);
     context.requestBlockFocus(blockId);
+    recordUndoAfter("move", before, blockId);
   }
 
   function parentFromMoveParentId(parentId: string): NotesParent | null {
@@ -736,9 +830,11 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     if (!plan) return;
     const parent = parentFromMoveParentId(plan.parentId);
     if (!parent) return;
+    const before = undoSnapshot(blockId);
     await moveNotesBlock(blockId, { parent, after: plan.after, before: plan.before });
     await context.loadPageTree(selectedPageId);
     context.requestBlockFocus(blockId);
+    recordUndoAfter("move", before, blockId);
   }
 
   async function dropBlockWithinSiblings(
@@ -753,9 +849,11 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     if (!plan) return;
     const parent = parentFromMoveParentId(plan.parentId);
     if (!parent) return;
+    const before = undoSnapshot(sourceBlockId);
     await moveNotesBlock(sourceBlockId, { parent, after: plan.after, before: plan.before });
     await context.loadPageTree(selectedPageId);
     context.requestBlockFocus(sourceBlockId);
+    recordUndoAfter("move", before, sourceBlockId);
   }
 
   async function moveBlockToPage(blockId: string, pageId: string): Promise<void> {
@@ -764,7 +862,12 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     const block = context.blockById(blockId);
     if (!block || (block.type === "child_page" && block.id === pageId)) return;
     await context.flushBlockSave(blockId);
-    await moveNotesBlock(blockId, {
+    const before = undoSnapshot(blockId);
+    const state = context.treeState();
+    const movedSubtree = collectLoadedBlockSubtreeIds(state, blockId)
+      .map((subtreeId) => context.blockById(subtreeId))
+      .filter((candidate): candidate is NotesBlock => candidate !== undefined);
+    const moved = await moveNotesBlock(blockId, {
       parent: { type: "page_id", page_id: pageId },
       after: null,
       before: null,
@@ -772,6 +875,10 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     await context.reloadPages();
     await context.loadPageTree(selectedPageId);
     context.requestBlockFocus(null);
+    const afterSubtree = movedSubtree.map((subtreeBlock) =>
+      subtreeBlock.id === moved.id ? moved : subtreeBlock
+    );
+    recordUndoAfter("move", before, null, null, afterSubtree);
   }
 
   async function duplicateBlock(blockId: string): Promise<void> {
@@ -779,11 +886,13 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     if (!selectedPageId) return;
     if (context.blockById(blockId)?.type === "child_page") return;
     await context.flushBlockSave(blockId);
+    const before = undoSnapshot(blockId);
     const request = createDuplicateBlockRequest(context.treeState(), blockId, () => crypto.randomUUID());
     if (request.duplicated_block_ids.length === 0) return;
     const duplicate = await duplicateNotesBlock(blockId, request);
     await context.loadPageTree(selectedPageId);
     context.requestBlockFocus(duplicate.id);
+    recordUndoAfter("duplicate", before, duplicate.id);
   }
 
   async function useTemplateBlock(blockId: string): Promise<void> {
@@ -806,6 +915,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     if (templateContainsChildPage) return;
 
     await context.flushPendingBlockSaves();
+    const before = undoSnapshot(blockId);
     let after = blockId;
     let firstDuplicateId: string | null = null;
     for (const childId of childIds) {
@@ -823,6 +933,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
 
     await context.loadPageTree(selectedPageId);
     context.requestBlockFocus(firstDuplicateId);
+    recordUndoAfter("template", before, firstDuplicateId);
   }
 
   function activeChildIdsForBlock(blockId: string): string[] {
@@ -912,9 +1023,11 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     if (!target) return;
 
     await context.flushPendingBlockSaves();
+    const before = undoSnapshot(blockId);
     const firstDuplicateId = await insertLoadedChildSubtrees(childIds, target);
     await context.loadPageTree(selectedPageId);
     context.requestBlockFocus(firstDuplicateId);
+    recordUndoAfter("button", before, firstDuplicateId);
   }
 
   return {
