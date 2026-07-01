@@ -73,6 +73,10 @@
       void notes.createSiblingAfter(blockId);
       return;
     }
+    if (action.type === "split_text_block") {
+      void notes.splitTextBlockAtSelection(blockId, action.selectionStart, action.selectionEnd);
+      return;
+    }
     if (action.type === "convert_to_paragraph") {
       void notes.convertBlock(blockId, "paragraph", true);
       return;

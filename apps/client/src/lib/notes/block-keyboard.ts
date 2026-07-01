@@ -2,6 +2,10 @@ import {
   blockTypeForTextShortcut,
   isTextShortcutTriggerKey,
 } from "./block-shortcuts";
+import {
+  notesEmptyEnterReturnsParagraph,
+  notesEnterSplitsRichTextBlock,
+} from "./block-enter";
 import { isMergeableTextBlock } from "./block-factory";
 import type { NotesBlockType } from "./types";
 
@@ -10,6 +14,12 @@ export type NotesKeyboardAction =
   | { type: "open_slash_menu"; preventDefault: false }
   | { type: "insert_newline"; preventDefault: false }
   | { type: "create_sibling"; preventDefault: true }
+  | {
+    type: "split_text_block";
+    selectionStart: number;
+    selectionEnd: number;
+    preventDefault: true;
+  }
   | { type: "convert_to_paragraph"; preventDefault: true }
   | { type: "apply_text_shortcut"; blockType: NotesBlockType; preventDefault: true }
   | { type: "toggle_block_open"; preventDefault: true }
@@ -88,18 +98,16 @@ export function planNotesKeyboardAction(input: NotesKeyboardPlanInput): NotesKey
         };
       }
     }
-    if (
-      input.text.trim().length === 0
-      && [
-        "bulleted_list_item",
-        "numbered_list_item",
-        "to_do",
-        "toggle",
-        "callout",
-        "quote",
-      ].includes(input.blockType)
-    ) {
+    if (input.text.trim().length === 0 && notesEmptyEnterReturnsParagraph(input.blockType)) {
       return { type: "convert_to_paragraph", preventDefault: true };
+    }
+    if (notesEnterSplitsRichTextBlock(input.blockType)) {
+      return {
+        type: "split_text_block",
+        selectionStart: input.selectionStart,
+        selectionEnd: input.selectionEnd,
+        preventDefault: true,
+      };
     }
     return { type: "create_sibling", preventDefault: true };
   }

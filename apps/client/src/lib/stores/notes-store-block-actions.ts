@@ -10,8 +10,9 @@ import {
 } from "$lib/notes/block-duplicate";
 import { planNotesPlainTextPaste } from "$lib/notes/block-clipboard";
 import { planNotesRichHtmlPaste } from "$lib/notes/rich-text-paste";
-import { blockWithColor } from "$lib/notes/block-color";
+import { blockColor, blockWithColor } from "$lib/notes/block-color";
 import {
+  blockEditableRichText,
   blockConvertedToType,
   blockPlainText,
   blockWithBookmark,
@@ -40,6 +41,11 @@ import {
   DEFAULT_TABLE_WIDTH,
   type NotesHeadingBlockType,
 } from "$lib/notes/block-factory";
+import { createBlockWriteFromRichText } from "$lib/notes/block-rich-text-write";
+import {
+  notesEnterSiblingBlockType,
+  notesEnterSplitsRichTextBlock,
+} from "$lib/notes/block-enter";
 import {
   planDeleteBlock,
   planDropBlockWithinSiblings,
@@ -50,6 +56,7 @@ import {
   type NotesTreeState,
 } from "$lib/notes/block-tree";
 import type { NotesRichTextAnnotationPatch } from "$lib/notes/rich-text";
+import { splitRichTextForBlock } from "$lib/notes/rich-text-split";
 import type {
   NotesUndoKind,
   NotesUndoRecordOptions,
@@ -163,6 +170,11 @@ export interface NotesBlockActions {
     headingType: NotesHeadingBlockType,
   ) => Promise<void>;
   createSiblingAfter: (blockId: string, type?: NotesBlockType) => Promise<void>;
+  splitTextBlockAtSelection: (
+    blockId: string,
+    selectionStart: number,
+    selectionEnd: number,
+  ) => Promise<void>;
   pastePlainTextIntoBlock: (
     blockId: string,
     selectionStart: number,
@@ -672,6 +684,34 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     recordUndoAfter("create", before, type === "divider" ? null : newBlockId);
   }
 
+  async function splitTextBlockAtSelection(
+    blockId: string,
+    selectionStart: number,
+    selectionEnd: number,
+  ): Promise<void> {
+    const block = context.blockById(blockId);
+    const selectedPageId = context.readSelectedPageId();
+    if (!block || !selectedPageId || !notesEnterSplitsRichTextBlock(block.type)) return;
+    await context.flushBlockSave(blockId);
+    const before = undoSnapshot(blockId);
+    const split = splitRichTextForBlock(blockEditableRichText(block), selectionStart, selectionEnd);
+    const siblingType = notesEnterSiblingBlockType(block.type);
+    const newBlockId = crypto.randomUUID();
+    const currentUpdate = blockWithRichText(block, split.before);
+    context.localApplyBlockUpdate(blockId, currentUpdate);
+    await context.saveBlockNow(blockId, currentUpdate);
+    await appendNotesBlockChildren({
+      parent: block.parent,
+      after: blockId,
+      children: [
+        createBlockWriteFromRichText(newBlockId, siblingType, split.after, blockColor(block)),
+      ],
+    });
+    await context.loadPageTree(selectedPageId);
+    context.requestBlockFocus(newBlockId);
+    recordUndoAfter("create", before, newBlockId);
+  }
+
   async function pastePlainTextIntoBlock(
     blockId: string,
     selectionStart: number,
@@ -1051,6 +1091,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     updateToggleOpen,
     convertBlockToToggleHeading,
     createSiblingAfter,
+    splitTextBlockAtSelection,
     pastePlainTextIntoBlock,
     pasteRichHtmlIntoBlock,
     deleteBlock,

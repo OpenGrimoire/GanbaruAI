@@ -22,9 +22,25 @@ function plan(input: Partial<NotesKeyboardPlanInput>) {
 }
 
 describe("notes keyboard planning", () => {
-  it("creates a sibling on Enter in text blocks", () => {
+  it("splits rich text blocks on Enter", () => {
     expect(plan({ key: "Enter", text: "Hello" })).toEqual({
-      type: "create_sibling",
+      type: "split_text_block",
+      selectionStart: 0,
+      selectionEnd: 0,
+      preventDefault: true,
+    });
+    expect(
+      plan({
+        key: "Enter",
+        text: "Hello",
+        selectionStart: 2,
+        selectionEnd: 4,
+        blockType: "heading_2",
+      }),
+    ).toEqual({
+      type: "split_text_block",
+      selectionStart: 2,
+      selectionEnd: 4,
       preventDefault: true,
     });
   });
