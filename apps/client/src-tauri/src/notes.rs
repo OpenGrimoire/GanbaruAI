@@ -2,6 +2,7 @@ use crate::db_path::connect_sqlite;
 use tauri::{AppHandle, Runtime};
 
 mod comments;
+mod history;
 mod models;
 mod reads;
 mod templates;
@@ -129,6 +130,69 @@ pub async fn notes_delete_page_template<R: Runtime>(
 ) -> Result<String, String> {
     let pool = connect_sqlite(app, db_url).await?;
     templates::delete_page_template(&pool, &template_id).await
+}
+
+#[tauri::command]
+pub async fn notes_get_page_history_settings<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+) -> Result<NotePageHistorySettingsDto, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    history::get_page_history_settings(&pool).await
+}
+
+#[tauri::command]
+pub async fn notes_update_page_history_settings<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    update: NotePageHistorySettingsUpdate,
+) -> Result<NotePageHistorySettingsDto, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    history::update_page_history_settings(&pool, update).await
+}
+
+#[tauri::command]
+pub async fn notes_list_page_history_snapshots<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    page_id: String,
+) -> Result<Vec<NotePageHistorySnapshotDto>, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    history::list_page_history_snapshots(&pool, &page_id).await
+}
+
+#[tauri::command]
+pub async fn notes_load_page_history_snapshot<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    page_id: String,
+    snapshot_id: String,
+) -> Result<NoteLoadedPage, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    history::load_page_history_snapshot(&pool, &page_id, &snapshot_id).await
+}
+
+#[tauri::command]
+pub async fn notes_restore_page_history_snapshot<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    page_id: String,
+    snapshot_id: String,
+) -> Result<NoteLoadedPage, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    history::restore_page_history_snapshot(&pool, &page_id, &snapshot_id).await
+}
+
+#[tauri::command]
+pub async fn notes_copy_page_history_blocks<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    page_id: String,
+    snapshot_id: String,
+    request: NotePageHistoryCopyBlocks,
+) -> Result<NotePaginatedBlockList, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    history::copy_page_history_blocks(&pool, &page_id, &snapshot_id, request).await
 }
 
 #[tauri::command]

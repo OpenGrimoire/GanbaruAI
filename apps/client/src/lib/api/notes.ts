@@ -6,6 +6,8 @@ import {
   mapNotesBlockListDto,
   mapNotesCommentThreadDto,
   mapNotesLoadedPageDto,
+  mapNotesPageHistorySettingsDto,
+  mapNotesPageHistorySnapshotDto,
   mapNotesPageDto,
   mapNotesPageTemplateDto,
   mapNotesSearchResultDto,
@@ -29,6 +31,10 @@ import type {
   NotesMoveBlocksRequest,
   NotesPage,
   NotesPageCreate,
+  NotesPageHistoryCopyBlocksRequest,
+  NotesPageHistorySettings,
+  NotesPageHistorySettingsUpdate,
+  NotesPageHistorySnapshot,
   NotesPageTemplate,
   NotesPageTemplateApplyRequest,
   NotesPageTemplateCreateFromPageRequest,
@@ -148,6 +154,64 @@ export async function deleteNotesPageTemplate(templateId: string): Promise<strin
     throw new Error("notes_delete_page_template returned an invalid template id");
   }
   return deletedTemplateId;
+}
+
+export async function getNotesPageHistorySettings(): Promise<NotesPageHistorySettings> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesPageHistorySettingsDto(
+    await invoke<unknown>("notes_get_page_history_settings", { dbUrl }),
+  );
+}
+
+export async function updateNotesPageHistorySettings(
+  update: NotesPageHistorySettingsUpdate,
+): Promise<NotesPageHistorySettings> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesPageHistorySettingsDto(
+    await invoke<unknown>("notes_update_page_history_settings", { dbUrl, update }),
+  );
+}
+
+export async function listNotesPageHistorySnapshots(
+  pageId: string,
+): Promise<NotesPageHistorySnapshot[]> {
+  const dbUrl = await ensureDbUrl();
+  const rows = await invoke<unknown>("notes_list_page_history_snapshots", { dbUrl, pageId });
+  if (!Array.isArray(rows)) {
+    throw new Error("notes_list_page_history_snapshots returned a non-array payload");
+  }
+  return rows.map(mapNotesPageHistorySnapshotDto);
+}
+
+export async function loadNotesPageHistorySnapshot(
+  pageId: string,
+  snapshotId: string,
+): Promise<NotesLoadedPage> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesLoadedPageDto(
+    await invoke<unknown>("notes_load_page_history_snapshot", { dbUrl, pageId, snapshotId }),
+  );
+}
+
+export async function restoreNotesPageHistorySnapshot(
+  pageId: string,
+  snapshotId: string,
+): Promise<NotesLoadedPage> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesLoadedPageDto(
+    await invoke<unknown>("notes_restore_page_history_snapshot", { dbUrl, pageId, snapshotId }),
+  );
+}
+
+export async function copyNotesPageHistoryBlocks(
+  pageId: string,
+  snapshotId: string,
+  request: NotesPageHistoryCopyBlocksRequest,
+): Promise<NotesPaginatedBlockList> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesBlockListDto(
+    await invoke<unknown>("notes_copy_page_history_blocks", { dbUrl, pageId, snapshotId, request }),
+  );
 }
 
 export async function listNotesComments(

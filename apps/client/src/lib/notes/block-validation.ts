@@ -33,6 +33,8 @@ import {
   type NotesLoadedPage,
   type NotesPage,
   type NotesPageCover,
+  type NotesPageHistorySettings,
+  type NotesPageHistorySnapshot,
   type NotesPageIcon,
   type NotesPageTemplate,
   type NotesPaginatedBlockList,
@@ -931,6 +933,48 @@ export function parseNotesPageTemplate(value: unknown): NotesPageTemplate {
     block_count: blockCount,
     created_time: readString(record.created_time, "page template.created_time"),
     last_edited_time: readString(record.last_edited_time, "page template.last_edited_time"),
+  };
+}
+
+export function parseNotesPageHistorySnapshot(value: unknown): NotesPageHistorySnapshot {
+  const record = readRecord(value, "page history snapshot");
+  if (record.object !== "page_history_snapshot") {
+    throw new Error("page history snapshot.object must be page_history_snapshot");
+  }
+  const blockCount = readInteger(record.block_count, "page history snapshot.block_count");
+  if (blockCount < 0) throw new Error("page history snapshot.block_count must not be negative");
+  return {
+    object: "page_history_snapshot",
+    id: readString(record.id, "page history snapshot.id"),
+    page_id: readString(record.page_id, "page history snapshot.page_id"),
+    title: readString(record.title, "page history snapshot.title"),
+    icon: parseNullableNotesIcon(record.icon, "page history snapshot.icon"),
+    cover: parseNullablePageCover(record.cover, "page history snapshot.cover"),
+    block_count: blockCount,
+    reason: readDisplayString(record.reason, "page history snapshot.reason"),
+    created_time: readString(record.created_time, "page history snapshot.created_time"),
+    page_last_edited_time: readString(
+      record.page_last_edited_time,
+      "page history snapshot.page_last_edited_time",
+    ),
+  };
+}
+
+export function parseNotesPageHistorySettings(value: unknown): NotesPageHistorySettings {
+  const record = readRecord(value, "page history settings");
+  if (record.object !== "page_history_settings") {
+    throw new Error("page history settings.object must be page_history_settings");
+  }
+  const retentionDays = record.retention_days === null
+    ? null
+    : readInteger(record.retention_days, "page history settings.retention_days");
+  if (retentionDays !== null && (retentionDays < 1 || retentionDays > 3650)) {
+    throw new Error("page history settings.retention_days must be between 1 and 3650");
+  }
+  return {
+    object: "page_history_settings",
+    retention_days: retentionDays,
+    updated_at: readString(record.updated_at, "page history settings.updated_at"),
   };
 }
 

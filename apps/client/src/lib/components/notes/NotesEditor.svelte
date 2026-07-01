@@ -15,6 +15,7 @@
   import NotesBlockList from "./NotesBlockList.svelte";
   import NotesComments from "./NotesComments.svelte";
   import NotesPageCoverMenu from "./NotesPageCoverMenu.svelte";
+  import NotesPageHistory from "./NotesPageHistory.svelte";
   import NotesPageIconMenu from "./NotesPageIconMenu.svelte";
 
   const notes = getNotes();
@@ -182,6 +183,7 @@
       </div>
       <NotesBacklinks />
       <NotesComments />
+      <NotesPageHistory />
     </div>
     <div bind:this={blockScrollViewport} class="min-h-0 flex-1 overflow-auto px-3 py-4 sm:px-5">
       <NotesBlockList

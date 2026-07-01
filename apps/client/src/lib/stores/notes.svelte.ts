@@ -46,6 +46,7 @@ import {
   type NotesFocusRequest,
 } from "$lib/notes/editor-focus";
 import { createNotesBlockActions } from "./notes-store-block-actions";
+import { createNotesPageHistoryController } from "./notes-store-page-history.svelte";
 import { createNotesUndoController } from "./notes-store-undo";
 import {
   flatNotesBlockItems,
@@ -80,6 +81,8 @@ import type {
   NotesLoadedPage,
   NotesPage,
   NotesPageCover,
+  NotesPageHistorySettings,
+  NotesPageHistorySnapshot,
   NotesPageIcon,
   NotesPageTemplate,
   NotesParent,
@@ -284,6 +287,7 @@ async function loadPageTree(pageId: string): Promise<void> {
   await loadAllChildrenForVisibleTree();
   await reloadBacklinks(pageId);
   await reloadComments(pageId);
+  await pageHistoryController.reloadSnapshots(pageId);
 }
 
 async function loadPageTreeForUndo(pageId: string): Promise<void> {
@@ -456,6 +460,7 @@ async function load(): Promise<void> {
   try {
     await reloadPages();
     await reloadPageTemplates();
+    await pageHistoryController.loadSettings();
     if (requestId !== loadRequestId) return;
     const nextSelected = selectedPageId && pages.some((page) => page.id === selectedPageId)
       ? selectedPageId
@@ -472,6 +477,7 @@ async function load(): Promise<void> {
       commentThreads = [];
       activeCommentParent = null;
       commentsError = null;
+      pageHistoryController.resetPageState();
       blocksById = {};
       childIdsByParentId = {};
       await undoController.hydrate(null);
@@ -501,6 +507,7 @@ async function selectPage(pageId: string | null): Promise<void> {
     commentThreads = [];
     activeCommentParent = null;
     commentsError = null;
+    pageHistoryController.resetPageState();
     blocksById = {};
     childIdsByParentId = {};
     await undoController.hydrate(null);
@@ -551,6 +558,7 @@ async function createPageWithParent(title: string, parent: NotesParent): Promise
   setLoadedPageFromLoaded(loaded);
   await reloadBacklinks(loaded.page.id);
   await reloadComments(loaded.page.id);
+  await pageHistoryController.reloadSnapshots(loaded.page.id);
   await undoController.hydrate(loaded.page.id);
   requestBlockFocus(planNotesInsertedBlockFocus([firstBlockId]));
 }
@@ -571,6 +579,7 @@ async function applyPageTemplate(templateId: string, title?: string): Promise<vo
   await loadAllChildrenForVisibleTree();
   await reloadBacklinks(loaded.page.id);
   await reloadComments(loaded.page.id);
+  await pageHistoryController.reloadSnapshots(loaded.page.id);
   await undoController.hydrate(loaded.page.id);
   requestPageLoadFocus();
 }
@@ -652,6 +661,7 @@ async function createChildPageFromBlock(blockId: string): Promise<void> {
   setLoadedPageFromLoaded(loaded);
   await reloadBacklinks(loaded.page.id);
   await reloadComments(loaded.page.id);
+  await pageHistoryController.reloadSnapshots(loaded.page.id);
   await undoController.hydrate(loaded.page.id);
   requestBlockFocus(planNotesInsertedBlockFocus([loaded.blocks.results[0]?.id, firstBlockId]));
 }
@@ -682,6 +692,7 @@ async function createChildPageAfterBlock(blockId: string): Promise<void> {
   setLoadedPageFromLoaded(loaded);
   await reloadBacklinks(loaded.page.id);
   await reloadComments(loaded.page.id);
+  await pageHistoryController.reloadSnapshots(loaded.page.id);
   await undoController.hydrate(loaded.page.id);
   requestBlockFocus(planNotesInsertedBlockFocus([loaded.blocks.results[0]?.id, firstBlockId]));
 }
@@ -691,6 +702,7 @@ async function renamePage(pageId: string, title: string): Promise<void> {
   const page = await updateNotesPage(pageId, { title: trimmedTitle });
   pages = pages.map((item) => (item.id === page.id ? page : item));
   if (loadedPage?.id === page.id) loadedPage = page;
+  await pageHistoryController.reloadSnapshots(pageId);
 }
 
 async function duplicatePage(pageId: string, title: string): Promise<void> {
@@ -709,6 +721,7 @@ async function duplicatePage(pageId: string, title: string): Promise<void> {
   setLoadedPageFromLoaded(loaded);
   await reloadBacklinks(loaded.page.id);
   await reloadComments(loaded.page.id);
+  await pageHistoryController.reloadSnapshots(loaded.page.id);
   await undoController.hydrate(loaded.page.id);
   requestBlockFocus(planNotesPageLoadFocus(loaded.blocks.results.map((block) => block.id)));
 }
@@ -730,6 +743,7 @@ async function movePage(pageId: string, parent: NotesParent): Promise<void> {
   await loadAllChildrenForVisibleTree();
   await reloadBacklinks(loaded.page.id);
   await reloadComments(loaded.page.id);
+  await pageHistoryController.reloadSnapshots(loaded.page.id);
   await undoController.hydrate(loaded.page.id);
   requestPageLoadFocus();
 }
@@ -738,12 +752,14 @@ async function updatePageIcon(pageId: string, icon: NotesPageIcon | null): Promi
   const page = await updateNotesPage(pageId, { icon });
   pages = pages.map((item) => (item.id === page.id ? page : item));
   if (loadedPage?.id === page.id) loadedPage = page;
+  await pageHistoryController.reloadSnapshots(pageId);
 }
 
 async function updatePageCover(pageId: string, cover: NotesPageCover | null): Promise<void> {
   const page = await updateNotesPage(pageId, { cover });
   pages = pages.map((item) => (item.id === page.id ? page : item));
   if (loadedPage?.id === page.id) loadedPage = page;
+  await pageHistoryController.reloadSnapshots(pageId);
 }
 
 async function trashPage(pageId: string): Promise<void> {
@@ -904,6 +920,18 @@ const undoController = createNotesUndoController({
   readTreeState: treeState,
   loadPageTreeForUndo,
   requestBlockFocus,
+  flushPendingBlockSaves,
+  setLoadError: (message) => {
+    loadError = message;
+  },
+});
+
+const pageHistoryController = createNotesPageHistoryController({
+  readSelectedPageId: () => selectedPageId,
+  loadPageTree,
+  reloadPages,
+  hydrateUndo: undoController.hydrate,
+  requestPageLoadFocus,
   flushPendingBlockSaves,
   setLoadError: (message) => {
     loadError = message;
@@ -1145,6 +1173,39 @@ export function getNotes() {
     get pageTemplatesError(): string | null {
       return pageTemplatesError;
     },
+    get pageHistorySnapshots(): NotesPageHistorySnapshot[] {
+      return pageHistoryController.snapshots;
+    },
+    get pageHistorySnapshotsLoading(): boolean {
+      return pageHistoryController.snapshotsLoading;
+    },
+    get pageHistorySnapshotsError(): string | null {
+      return pageHistoryController.snapshotsError;
+    },
+    get pageHistoryVersion(): NotesLoadedPage | null {
+      return pageHistoryController.version;
+    },
+    get pageHistoryVersionLoading(): boolean {
+      return pageHistoryController.versionLoading;
+    },
+    get pageHistoryVersionError(): string | null {
+      return pageHistoryController.versionError;
+    },
+    get pageHistorySettings(): NotesPageHistorySettings | null {
+      return pageHistoryController.settings;
+    },
+    get pageHistorySettingsLoading(): boolean {
+      return pageHistoryController.settingsLoading;
+    },
+    get pageHistorySettingsError(): string | null {
+      return pageHistoryController.settingsError;
+    },
+    get pageHistoryActionLoading(): boolean {
+      return pageHistoryController.actionLoading;
+    },
+    get pageHistoryActionError(): string | null {
+      return pageHistoryController.actionError;
+    },
     get focusBlockId(): string | null {
       return focusRequest.blockId;
     },
@@ -1170,6 +1231,12 @@ export function getNotes() {
     duplicatePageTemplate,
     deletePageTemplate,
     reloadPageTemplates,
+    loadPageHistorySettings: pageHistoryController.loadSettings,
+    updatePageHistoryRetention: pageHistoryController.updateRetention,
+    reloadPageHistory: pageHistoryController.reloadSnapshots,
+    loadPageHistoryVersion: pageHistoryController.loadVersion,
+    restorePageHistoryVersion: pageHistoryController.restoreVersion,
+    copyPageHistoryBlocks: pageHistoryController.copyBlocks,
     renamePage,
     duplicatePage,
     movePage,

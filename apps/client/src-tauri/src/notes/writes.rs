@@ -5,12 +5,12 @@ use super::models::{
     NoteMovePage, NotePageCreate, NotePageDto, NotePageRow, NotePageUpdate, NotePaginatedBlockList,
     NoteParent, NoteTrashBlocks, OptionalJsonValue,
 };
-use super::reads;
 use super::validation::{
     block_payload_supports_children, plain_text_from_payload, require_uuid, validate_block_update,
     validate_block_write, validate_children_count, validate_duplicate_block_count,
     validate_page_create, validate_page_update, validate_parent, validate_sort_order,
 };
+use super::{history, reads};
 use serde_json::{json, Value};
 use sqlx::SqlitePool;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -58,6 +58,9 @@ pub(in crate::notes) async fn create_page(
     } else {
         None
     };
+    if let Some(parent) = &child_page_parent {
+        history::record_page_snapshot_tx(&mut tx, &parent.page_id, "create_child_page").await?;
+    }
     sqlx::query(
         "INSERT INTO notes_pages (
             id,
@@ -180,6 +183,8 @@ pub(in crate::notes) async fn create_child_page_from_block(
     if existing_page.is_some() {
         return Err("notes page already exists for block".to_string());
     }
+    history::record_page_snapshot_tx(&mut tx, &current.page_id, "create_child_page_from_block")
+        .await?;
     sqlx::query(
         "INSERT INTO notes_pages (
             id,
@@ -300,6 +305,10 @@ pub(in crate::notes) async fn duplicate_page(
         .await
         .map_err(|e| format!("begin duplicate notes page: {e}"))?;
     let root_page = load_page_row(&mut tx, page_id).await?;
+    if root_page.parent_type != "workspace" {
+        let source_block = load_child_page_block_row(&mut tx, page_id).await?;
+        history::record_page_snapshot_tx(&mut tx, &source_block.page_id, "duplicate_page").await?;
+    }
     let root_duplicate_title = request
         .title
         .as_deref()
@@ -405,6 +414,16 @@ pub(in crate::notes) async fn move_page(
         .map(parent_target_from_block_row);
     let new_parent = resolve_page_move_parent(&mut tx, page_id, &request.parent).await?;
     let (parent_type, parent_page_id, parent_block_id) = parent_columns(&request.parent);
+    let mut history_page_ids = HashSet::from([page_id.to_string()]);
+    if let Some(parent) = &old_parent {
+        history_page_ids.insert(parent.page_id.clone());
+    }
+    if let Some(parent) = &new_parent {
+        history_page_ids.insert(parent.page_id.clone());
+    }
+    for history_page_id in history_page_ids {
+        history::record_page_snapshot_tx(&mut tx, &history_page_id, "move_page").await?;
+    }
     sqlx::query(
         "UPDATE notes_pages
          SET parent_type = ?,
@@ -474,6 +493,7 @@ pub(in crate::notes) async fn update_page(
         .begin()
         .await
         .map_err(|e| format!("begin notes page update: {e}"))?;
+    history::record_page_snapshot_tx(&mut tx, page_id, "update_page").await?;
     if let Some(parent) = &update.parent {
         validate_page_parent_exists(&mut tx, parent).await?;
         let (parent_type, parent_page_id, parent_block_id) = parent_columns(parent);
@@ -812,6 +832,7 @@ pub(in crate::notes) async fn trash_page(
     if page_exists.is_none() {
         return Err("notes page not found".to_string());
     }
+    history::record_page_snapshot_tx(&mut tx, page_id, "trash_page").await?;
     let child_parents = load_external_child_page_block_parents(&mut tx, page_id).await?;
     let result = sqlx::query(
         "WITH RECURSIVE page_subtree(id) AS (
@@ -1058,6 +1079,7 @@ pub(in crate::notes) async fn archive_page(
         .as_ref()
         .filter(|block| block.in_trash == 0)
         .map(parent_target_from_block_row);
+    history::record_page_snapshot_tx(&mut tx, page_id, "archive_page").await?;
     let result = sqlx::query(
         "UPDATE notes_pages
          SET archived = ?,
@@ -1115,6 +1137,7 @@ pub(in crate::notes) async fn append_block_children(
         request.children.len(),
     )
     .await?;
+    history::record_page_snapshot_tx(&mut tx, &parent.page_id, "append_block_children").await?;
     let mut inserted_ids = Vec::with_capacity(request.children.len());
     for (child, sort_order) in request.children.iter().zip(sort_orders) {
         insert_block(&mut tx, &parent, child, sort_order).await?;
@@ -1141,6 +1164,11 @@ pub(in crate::notes) async fn update_block(
     validate_block_update_children(pool, block_id, &current.block_type, &block_type, &payload)
         .await?;
     let plain_text = plain_text_from_payload(&block_type, &payload);
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|e| format!("begin update notes block: {e}"))?;
+    history::record_page_snapshot_tx(&mut tx, &current.page_id, "update_block").await?;
     let result = sqlx::query(
         "UPDATE notes_blocks
          SET type = ?,
@@ -1153,7 +1181,7 @@ pub(in crate::notes) async fn update_block(
     .bind(payload.to_string())
     .bind(plain_text)
     .bind(block_id)
-    .execute(pool)
+    .execute(&mut *tx)
     .await
     .map_err(|e| format!("update notes block: {e}"))?;
     if result.rows_affected() == 0 {
@@ -1174,11 +1202,14 @@ pub(in crate::notes) async fn update_block(
         .bind(title)
         .bind(page_title_properties(title).to_string())
         .bind(block_id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| format!("update child page title from block: {e}"))?;
     }
-    touch_page_pool(pool, &current.page_id).await?;
+    touch_page(&mut tx, &current.page_id).await?;
+    tx.commit()
+        .await
+        .map_err(|e| format!("commit update notes block: {e}"))?;
     reads::get_block(pool, block_id, false).await
 }
 
@@ -1194,6 +1225,7 @@ pub(in crate::notes) async fn trash_block(
         .begin()
         .await
         .map_err(|e| format!("begin trash notes block: {e}"))?;
+    history::record_page_snapshot_tx(&mut tx, &current.page_id, "trash_block").await?;
     set_block_subtree_trash(&mut tx, block_id, in_trash).await?;
     let parent = ParentTarget {
         parent_type: if current.parent_type == "page_id" {
@@ -1232,6 +1264,9 @@ pub(in crate::notes) async fn trash_blocks(
         parents.push(parent_target_from_block_row(&row));
         touched_pages.insert(row.page_id.clone());
         root_rows.push(row);
+    }
+    for page_id in &touched_pages {
+        history::record_page_snapshot_tx(&mut tx, page_id, "trash_blocks").await?;
     }
     for block_id in &root_ids {
         set_block_subtree_trash(&mut tx, block_id, in_trash).await?;
@@ -1292,6 +1327,10 @@ pub(in crate::notes) async fn move_block(
         next_sort_orders(&mut tx, &new_parent, request.after.as_deref(), 1).await?[0]
     };
     validate_sort_order(sort_order)?;
+    history::record_page_snapshot_tx(&mut tx, &current.page_id, "move_block").await?;
+    if current.page_id != new_parent.page_id {
+        history::record_page_snapshot_tx(&mut tx, &new_parent.page_id, "move_block").await?;
+    }
     sqlx::query(
         "UPDATE notes_blocks
          SET page_id = ?,
@@ -1403,6 +1442,13 @@ pub(in crate::notes) async fn move_blocks(
         )
         .await?
     };
+    let mut history_page_ids = HashSet::from([new_parent.page_id.clone()]);
+    for row in &root_rows {
+        history_page_ids.insert(row.page_id.clone());
+    }
+    for page_id in history_page_ids {
+        history::record_page_snapshot_tx(&mut tx, &page_id, "move_blocks").await?;
+    }
     for (row, sort_order) in root_rows.iter().zip(sort_orders) {
         validate_sort_order(sort_order)?;
         sqlx::query(
@@ -1548,6 +1594,7 @@ pub(in crate::notes) async fn duplicate_block(
     };
     let root_sort_order =
         next_sort_orders(&mut tx, &root_parent, Some(source_root.id.as_str()), 1).await?[0];
+    history::record_page_snapshot_tx(&mut tx, &source_root.page_id, "duplicate_block").await?;
     for row in &source_rows {
         let duplicate_id = duplicate_ids.get(&row.id).ok_or_else(|| {
             "duplicated_block_ids must match the source block subtree".to_string()
@@ -1684,6 +1731,8 @@ pub(in crate::notes) async fn duplicate_blocks(
         .zip(root_sort_orders)
         .map(|(row, sort_order)| (row.id.as_str(), sort_order))
         .collect::<HashMap<_, _>>();
+    history::record_page_snapshot_tx(&mut tx, &destination_parent.page_id, "duplicate_blocks")
+        .await?;
     for row in &source_rows {
         let duplicate_id = duplicate_ids.get(&row.id).ok_or_else(|| {
             "duplicated_block_ids must match the source block subtrees".to_string()
@@ -2956,19 +3005,6 @@ async fn touch_page(
     )
     .bind(page_id)
     .execute(&mut **tx)
-    .await
-    .map_err(|e| format!("touch notes page: {e}"))?;
-    Ok(())
-}
-
-async fn touch_page_pool(pool: &SqlitePool, page_id: &str) -> Result<(), String> {
-    sqlx::query(
-        "UPDATE notes_pages
-         SET last_edited_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-         WHERE id = ?",
-    )
-    .bind(page_id)
-    .execute(pool)
     .await
     .map_err(|e| format!("touch notes page: {e}"))?;
     Ok(())

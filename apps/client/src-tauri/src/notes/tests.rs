@@ -2,11 +2,12 @@ use super::models::{
     NoteAppendBlockChildren, NoteBlockUpdate, NoteBlockWrite, NoteChildPageFromBlockCreate,
     NoteCommentCreate, NoteCommentUpdate, NoteDuplicateBlock, NoteDuplicateBlocks,
     NoteDuplicatePage, NoteDuplicatedBlockId, NoteMoveBlock, NoteMoveBlocks, NoteMovePage,
-    NotePageCreate, NotePageTemplateApply, NotePageTemplateCreateFromPage,
-    NotePageTemplateDuplicate, NotePageTemplateUpdate, NoteParent, NoteSidebarPagesRequest,
-    NoteTrashBlocks, OptionalJsonValue,
+    NotePageCreate, NotePageHistoryCopyBlocks, NotePageHistorySettingsUpdate,
+    NotePageTemplateApply, NotePageTemplateCreateFromPage, NotePageTemplateDuplicate,
+    NotePageTemplateUpdate, NoteParent, NoteSidebarPagesRequest, NoteTrashBlocks,
+    OptionalJsonValue,
 };
-use super::{comments, reads, templates, undo_state, validation, writes};
+use super::{comments, history, reads, templates, undo_state, validation, writes};
 use crate::db::run_migrations;
 use serde_json::json;
 use sqlx::{Row, SqlitePool};
@@ -1142,6 +1143,126 @@ fn page_templates_create_apply_update_duplicate_and_delete() {
                 .await
                 .unwrap();
         assert_eq!(applied_page_exists, Some(1));
+    });
+}
+
+#[test]
+fn page_history_snapshots_restore_copy_and_retention_settings() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        create_page(&pool, PAGE_A, BLOCK_A).await;
+
+        let settings = history::get_page_history_settings(&pool).await.unwrap();
+        let settings_json = serde_json::to_value(settings).unwrap();
+        assert_eq!(settings_json["retention_days"], 30);
+
+        writes::update_block(
+            &pool,
+            BLOCK_A,
+            block_update("paragraph", paragraph_payload("Draft one")),
+        )
+        .await
+        .unwrap();
+        let snapshots = history::list_page_history_snapshots(&pool, PAGE_A)
+            .await
+            .unwrap();
+        let snapshots_json = serde_json::to_value(&snapshots).unwrap();
+        assert_eq!(snapshots_json.as_array().unwrap().len(), 1);
+        assert_eq!(snapshots_json[0]["block_count"], 1);
+        let initial_snapshot_id = snapshots_json[0]["id"].as_str().unwrap().to_string();
+
+        writes::append_block_children(
+            &pool,
+            NoteAppendBlockChildren {
+                parent: page_parent(PAGE_A),
+                after: Some(BLOCK_A.to_string()),
+                children: vec![block(
+                    BLOCK_B,
+                    "to_do",
+                    todo_payload("Review the draft", false),
+                )],
+            },
+        )
+        .await
+        .unwrap();
+
+        let snapshots = history::list_page_history_snapshots(&pool, PAGE_A)
+            .await
+            .unwrap();
+        let snapshots_json = serde_json::to_value(&snapshots).unwrap();
+        assert_eq!(snapshots_json.as_array().unwrap().len(), 2);
+        let draft_snapshot_id = snapshots_json[0]["id"].as_str().unwrap().to_string();
+
+        let initial_version =
+            history::load_page_history_snapshot(&pool, PAGE_A, &initial_snapshot_id)
+                .await
+                .unwrap();
+        let initial_json = serde_json::to_value(initial_version).unwrap();
+        assert_eq!(
+            initial_json["blocks"]["results"][0]["paragraph"]["rich_text"][0]["plain_text"],
+            ""
+        );
+
+        let draft_version = history::load_page_history_snapshot(&pool, PAGE_A, &draft_snapshot_id)
+            .await
+            .unwrap();
+        let draft_json = serde_json::to_value(draft_version).unwrap();
+        assert_eq!(
+            draft_json["blocks"]["results"][0]["paragraph"]["rich_text"][0]["plain_text"],
+            "Draft one"
+        );
+
+        let copied = history::copy_page_history_blocks(
+            &pool,
+            PAGE_A,
+            &draft_snapshot_id,
+            NotePageHistoryCopyBlocks {
+                after_block_id: None,
+            },
+        )
+        .await
+        .unwrap();
+        let copied_json = serde_json::to_value(copied).unwrap();
+        assert_eq!(copied_json["results"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            copied_json["results"][0]["paragraph"]["rich_text"][0]["plain_text"],
+            "Draft one"
+        );
+
+        let restored = history::restore_page_history_snapshot(&pool, PAGE_A, &initial_snapshot_id)
+            .await
+            .unwrap();
+        let restored_json = serde_json::to_value(restored).unwrap();
+        assert_eq!(
+            restored_json["blocks"]["results"].as_array().unwrap().len(),
+            1
+        );
+        assert_eq!(
+            restored_json["blocks"]["results"][0]["paragraph"]["rich_text"][0]["plain_text"],
+            ""
+        );
+
+        let forever = history::update_page_history_settings(
+            &pool,
+            NotePageHistorySettingsUpdate {
+                retention_days: None,
+            },
+        )
+        .await
+        .unwrap();
+        let forever_json = serde_json::to_value(forever).unwrap();
+        assert_eq!(forever_json["retention_days"], serde_json::Value::Null);
+
+        let retained = history::update_page_history_settings(
+            &pool,
+            NotePageHistorySettingsUpdate {
+                retention_days: Some(90),
+            },
+        )
+        .await
+        .unwrap();
+        let retained_json = serde_json::to_value(retained).unwrap();
+        assert_eq!(retained_json["retention_days"], 90);
     });
 }
 

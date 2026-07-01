@@ -348,6 +348,54 @@ impl NotePageTemplateDto {
 }
 
 #[derive(Serialize)]
+pub struct NotePageHistorySnapshotDto {
+    object: &'static str,
+    id: String,
+    page_id: String,
+    title: String,
+    icon: Option<Value>,
+    cover: Option<Value>,
+    block_count: i64,
+    reason: String,
+    created_time: String,
+    page_last_edited_time: String,
+}
+
+impl NotePageHistorySnapshotDto {
+    pub(in crate::notes) fn new(row: NotePageHistorySnapshotRow) -> Result<Self, String> {
+        Ok(Self {
+            object: "page_history_snapshot",
+            id: row.id,
+            page_id: row.page_id,
+            title: row.title,
+            icon: parse_optional_json(row.icon, "page history icon")?,
+            cover: parse_optional_json(row.cover, "page history cover")?,
+            block_count: row.block_count,
+            reason: row.reason,
+            created_time: row.created_time,
+            page_last_edited_time: row.page_last_edited_time,
+        })
+    }
+}
+
+#[derive(Serialize)]
+pub struct NotePageHistorySettingsDto {
+    object: &'static str,
+    retention_days: Option<i64>,
+    updated_at: String,
+}
+
+impl NotePageHistorySettingsDto {
+    pub(in crate::notes) fn new(row: NotePageHistorySettingsRow) -> Self {
+        Self {
+            object: "page_history_settings",
+            retention_days: row.retention_days,
+            updated_at: row.updated_at,
+        }
+    }
+}
+
+#[derive(Serialize)]
 pub struct NoteBacklinkDto {
     object: &'static str,
     id: String,
@@ -594,6 +642,16 @@ pub struct NotePageTemplateUpdate {
 pub struct NotePageTemplateDuplicate {
     pub(in crate::notes) id: String,
     pub(in crate::notes) name: String,
+}
+
+#[derive(Deserialize)]
+pub struct NotePageHistorySettingsUpdate {
+    pub(in crate::notes) retention_days: Option<i64>,
+}
+
+#[derive(Deserialize)]
+pub struct NotePageHistoryCopyBlocks {
+    pub(in crate::notes) after_block_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -873,6 +931,56 @@ impl_sqlite_from_row!(NotePageTemplateRow {
 });
 
 #[derive(Clone, Serialize)]
+pub(in crate::notes) struct NotePageHistorySnapshotRow {
+    pub(in crate::notes) id: String,
+    pub(in crate::notes) page_id: String,
+    pub(in crate::notes) parent_type: String,
+    pub(in crate::notes) parent_page_id: Option<String>,
+    pub(in crate::notes) parent_block_id: Option<String>,
+    pub(in crate::notes) title: String,
+    pub(in crate::notes) properties: String,
+    pub(in crate::notes) icon: Option<String>,
+    pub(in crate::notes) cover: Option<String>,
+    pub(in crate::notes) in_trash: i64,
+    pub(in crate::notes) archived: i64,
+    pub(in crate::notes) blocks: String,
+    pub(in crate::notes) block_count: i64,
+    pub(in crate::notes) reason: String,
+    pub(in crate::notes) created_time: String,
+    pub(in crate::notes) page_created_time: String,
+    pub(in crate::notes) page_last_edited_time: String,
+}
+impl_sqlite_from_row!(NotePageHistorySnapshotRow {
+    id,
+    page_id,
+    parent_type,
+    parent_page_id,
+    parent_block_id,
+    title,
+    properties,
+    icon,
+    cover,
+    in_trash,
+    archived,
+    blocks,
+    block_count,
+    reason,
+    created_time,
+    page_created_time,
+    page_last_edited_time,
+});
+
+#[derive(Serialize)]
+pub(in crate::notes) struct NotePageHistorySettingsRow {
+    pub(in crate::notes) retention_days: Option<i64>,
+    pub(in crate::notes) updated_at: String,
+}
+impl_sqlite_from_row!(NotePageHistorySettingsRow {
+    retention_days,
+    updated_at,
+});
+
+#[derive(Clone, Deserialize, Serialize)]
 pub(in crate::notes) struct NoteBlockRow {
     pub(in crate::notes) id: String,
     pub(in crate::notes) page_id: String,

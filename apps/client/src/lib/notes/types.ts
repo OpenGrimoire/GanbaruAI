@@ -333,6 +333,25 @@ export interface NotesPageTemplate {
   last_edited_time: string;
 }
 
+export interface NotesPageHistorySnapshot {
+  object: "page_history_snapshot";
+  id: string;
+  page_id: string;
+  title: string;
+  icon: NotesPageIcon | null;
+  cover: NotesPageCover | null;
+  block_count: number;
+  reason: string;
+  created_time: string;
+  page_last_edited_time: string;
+}
+
+export interface NotesPageHistorySettings {
+  object: "page_history_settings";
+  retention_days: number | null;
+  updated_at: string;
+}
+
 interface NotesBlockBase<Type extends NotesBlockType> {
   object: "block";
   id: string;
@@ -578,6 +597,14 @@ export interface NotesPageTemplateUpdateRequest {
 export interface NotesPageTemplateDuplicateRequest {
   id: string;
   name: string;
+}
+
+export interface NotesPageHistorySettingsUpdate {
+  retention_days: number | null;
+}
+
+export interface NotesPageHistoryCopyBlocksRequest {
+  after_block_id?: string | null;
 }
 
 export interface NotesPageUpdate {

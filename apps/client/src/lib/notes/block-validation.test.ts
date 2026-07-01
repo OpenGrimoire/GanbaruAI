@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   parseNotesBlock,
   parseNotesPage,
+  parseNotesPageHistorySettings,
+  parseNotesPageHistorySnapshot,
   parseNotesPageTemplate,
   parseNotesRichTextArray,
   parseNotesSearchResult,
@@ -116,6 +118,70 @@ describe("notes boundary validation", () => {
         last_edited_time: "2026-07-01T12:00:00.000Z",
       }),
     ).toThrow("page template.block_count must not be negative");
+  });
+
+  it("parses page history snapshot DTOs", () => {
+    const snapshot = parseNotesPageHistorySnapshot({
+      object: "page_history_snapshot",
+      id: "88888888-8888-4888-8888-888888888888",
+      page_id: basePage.id,
+      title: "Draft",
+      icon: { type: "emoji", emoji: "🕘" },
+      cover: null,
+      block_count: 4,
+      reason: "update_block",
+      created_time: "2026-07-01T12:00:00.000Z",
+      page_last_edited_time: "2026-07-01T11:59:00.000Z",
+    });
+
+    expect(snapshot.page_id).toBe(basePage.id);
+    expect(snapshot.block_count).toBe(4);
+    expect(snapshot.reason).toBe("update_block");
+  });
+
+  it("rejects invalid page history snapshot block counts", () => {
+    expect(() =>
+      parseNotesPageHistorySnapshot({
+        object: "page_history_snapshot",
+        id: "88888888-8888-4888-8888-888888888888",
+        page_id: basePage.id,
+        title: "Draft",
+        icon: null,
+        cover: null,
+        block_count: -1,
+        reason: "update_block",
+        created_time: "2026-07-01T12:00:00.000Z",
+        page_last_edited_time: "2026-07-01T11:59:00.000Z",
+      }),
+    ).toThrow("page history snapshot.block_count must not be negative");
+  });
+
+  it("parses page history settings DTOs", () => {
+    expect(
+      parseNotesPageHistorySettings({
+        object: "page_history_settings",
+        retention_days: 90,
+        updated_at: "2026-07-01T12:00:00.000Z",
+      }),
+    ).toMatchObject({ retention_days: 90 });
+
+    expect(
+      parseNotesPageHistorySettings({
+        object: "page_history_settings",
+        retention_days: null,
+        updated_at: "2026-07-01T12:00:00.000Z",
+      }),
+    ).toMatchObject({ retention_days: null });
+  });
+
+  it("rejects invalid page history retention windows", () => {
+    expect(() =>
+      parseNotesPageHistorySettings({
+        object: "page_history_settings",
+        retention_days: 0,
+        updated_at: "2026-07-01T12:00:00.000Z",
+      }),
+    ).toThrow("page history settings.retention_days must be between 1 and 3650");
   });
 
   it("parses toggleable heading payload state", () => {

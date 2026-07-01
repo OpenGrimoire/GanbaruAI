@@ -3,11 +3,11 @@ use super::models::{
     NotePageTemplateCreateFromPage, NotePageTemplateDto, NotePageTemplateDuplicate,
     NotePageTemplateRow, NotePageTemplateUpdate, NoteParent,
 };
-use super::reads;
 use super::validation::{
     plain_text_from_payload, require_uuid, validate_block_payload, validate_parent,
     validate_sort_order,
 };
+use super::{history, reads};
 use serde_json::{json, Value};
 use sqlx::SqlitePool;
 use std::collections::{HashMap, HashSet};
@@ -104,6 +104,12 @@ pub(in crate::notes) async fn apply_page_template(
     let template = load_template_row(&mut tx, &template_id).await?;
     let blocks = load_template_block_rows(&mut tx, &template_id).await?;
     let parent = resolve_page_template_parent(&mut tx, &request.parent).await?;
+    if let Some(parent) = &parent {
+        if let Some(parent_page_id) = &parent.parent_page_id {
+            history::record_page_snapshot_tx(&mut tx, parent_page_id, "apply_page_template")
+                .await?;
+        }
+    }
     let mut reserved_ids = HashSet::new();
     let page_id = new_note_id(&mut tx, &mut reserved_ids).await?;
     let title = title_override.unwrap_or_else(|| template.name.clone());
