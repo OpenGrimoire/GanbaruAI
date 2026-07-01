@@ -4,6 +4,11 @@
   import { orderedNotesPagesById } from "$lib/notes/page-navigation";
   import { buildNotesPageTree } from "$lib/notes/page-tree";
   import { notesPageTitle } from "$lib/notes/page-title";
+  import {
+    getActiveNotesBlockDragId,
+    NOTES_BLOCK_DRAG_MIME,
+    planNotesBlockPageDrop,
+  } from "$lib/notes/block-drag";
   import type { NotesPage, NotesSearchResult } from "$lib/notes/types";
   import { getNotes } from "$lib/stores/notes.svelte";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
@@ -19,6 +24,7 @@
   const { t } = getLocalization();
   let search = $state("");
   let pendingTrashPage = $state<NotesPage | null>(null);
+  let blockDropTargetPageId = $state<string | null>(null);
   const favoritePages = $derived(orderedNotesPagesById(notes.pages, notes.favoritePageIds));
   const recentPages = $derived(
     orderedNotesPagesById(notes.pages, notes.recentPageIds)
@@ -87,6 +93,61 @@
       return;
     }
     void notes.selectPage(result.page.id);
+  }
+
+  function currentTreeState() {
+    return {
+      blocksById: notes.blocksById,
+      childIdsByParentId: notes.childIdsByParentId,
+    };
+  }
+
+  function draggedBlockIdFromEvent(event: DragEvent): string | null {
+    const transferred = event.dataTransfer?.getData(NOTES_BLOCK_DRAG_MIME) ?? "";
+    return transferred || getActiveNotesBlockDragId();
+  }
+
+  function pageBlockDropPlan(pageId: string, event: DragEvent) {
+    const sourceBlockId = draggedBlockIdFromEvent(event);
+    if (!sourceBlockId) return null;
+    return planNotesBlockPageDrop(
+      currentTreeState(),
+      sourceBlockId,
+      pageId,
+      notes.selectedPageId,
+    );
+  }
+
+  function handlePageBlockDragOver(pageId: string, event: DragEvent): void {
+    const plan = pageBlockDropPlan(pageId, event);
+    if (!plan) {
+      if (blockDropTargetPageId === pageId) blockDropTargetPageId = null;
+      return;
+    }
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+    blockDropTargetPageId = pageId;
+  }
+
+  function handlePageBlockDragLeave(pageId: string, event: DragEvent): void {
+    const target = event.currentTarget;
+    const related = event.relatedTarget;
+    if (
+      target instanceof HTMLElement
+      && related instanceof Node
+      && target.contains(related)
+    ) {
+      return;
+    }
+    if (blockDropTargetPageId === pageId) blockDropTargetPageId = null;
+  }
+
+  function handlePageBlockDrop(pageId: string, event: DragEvent): void {
+    const plan = pageBlockDropPlan(pageId, event);
+    blockDropTargetPageId = null;
+    if (!plan) return;
+    event.preventDefault();
+    void notes.moveBlockToPage(plan.blockId, plan.pageId);
   }
 </script>
 
@@ -221,6 +282,10 @@
               onTrash={() => {
                 pendingTrashPage = page;
               }}
+              blockDropActive={blockDropTargetPageId === page.id}
+              onBlockDragOver={handlePageBlockDragOver}
+              onBlockDragLeave={handlePageBlockDragLeave}
+              onBlockDrop={handlePageBlockDrop}
             />
           {/each}
         {/if}
@@ -262,6 +327,10 @@
               onTrash={() => {
                 pendingTrashPage = page;
               }}
+              blockDropActive={blockDropTargetPageId === page.id}
+              onBlockDragOver={handlePageBlockDragOver}
+              onBlockDragLeave={handlePageBlockDragLeave}
+              onBlockDrop={handlePageBlockDrop}
             />
           {/each}
         {/if}
@@ -306,6 +375,10 @@
             onTrash={() => {
               pendingTrashPage = item.page;
             }}
+            blockDropActive={blockDropTargetPageId === item.page.id}
+            onBlockDragOver={handlePageBlockDragOver}
+            onBlockDragLeave={handlePageBlockDragLeave}
+            onBlockDrop={handlePageBlockDrop}
           />
         {/each}
       </div>

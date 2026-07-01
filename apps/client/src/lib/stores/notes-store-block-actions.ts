@@ -61,8 +61,11 @@ import {
   notesEnterSplitsRichTextBlock,
 } from "$lib/notes/block-enter";
 import {
+  planNotesBlockDrop,
+  type NotesBlockDropIntent,
+} from "$lib/notes/block-drag";
+import {
   planDeleteBlock,
-  planDropBlockWithinSiblings,
   planMergeWithPrevious,
   planMoveBlockWithinSiblings,
   planNestBlock,
@@ -227,6 +230,11 @@ export interface NotesBlockActions {
     sourceBlockId: string,
     targetBlockId: string,
     position: "before" | "after",
+  ) => Promise<void>;
+  dropBlockOnBlock: (
+    sourceBlockId: string,
+    targetBlockId: string,
+    intent: NotesBlockDropIntent,
   ) => Promise<void>;
   moveBlockToPage: (blockId: string, pageId: string) => Promise<void>;
   duplicateBlock: (blockId: string) => Promise<void>;
@@ -1117,10 +1125,18 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     targetBlockId: string,
     position: "before" | "after",
   ): Promise<void> {
+    await dropBlockOnBlock(sourceBlockId, targetBlockId, position);
+  }
+
+  async function dropBlockOnBlock(
+    sourceBlockId: string,
+    targetBlockId: string,
+    intent: NotesBlockDropIntent,
+  ): Promise<void> {
     const selectedPageId = context.readSelectedPageId();
     if (!selectedPageId) return;
-    await context.flushBlockSave(sourceBlockId);
-    const plan = planDropBlockWithinSiblings(context.treeState(), sourceBlockId, targetBlockId, position);
+    await context.flushPendingBlockSaves();
+    const plan = planNotesBlockDrop(context.treeState(), sourceBlockId, targetBlockId, intent);
     if (!plan) return;
     const parent = parentFromMoveParentId(plan.parentId);
     if (!parent) return;
@@ -1136,7 +1152,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     if (!selectedPageId || pageId === selectedPageId) return;
     const block = context.blockById(blockId);
     if (!block || (block.type === "child_page" && block.id === pageId)) return;
-    await context.flushBlockSave(blockId);
+    await context.flushPendingBlockSaves();
     const before = undoSnapshot(blockId);
     const state = context.treeState();
     const movedSubtree = collectLoadedBlockSubtreeIds(state, blockId)
@@ -1374,6 +1390,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     moveBlockDown: (blockId: string) => moveBlockWithinSiblings(blockId, "down"),
     moveBlockSelection,
     dropBlockWithinSiblings,
+    dropBlockOnBlock,
     moveBlockToPage,
     duplicateBlock,
     duplicateBlockSelection,

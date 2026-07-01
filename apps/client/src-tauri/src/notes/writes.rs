@@ -2645,17 +2645,37 @@ async fn next_sort_orders(
     }
     if let Some(after_id) = after.map(str::trim).filter(|value| !value.is_empty()) {
         require_uuid(after_id, "after")?;
-        let after_row: Option<(f64,)> = sqlx::query_as(
-            "SELECT sort_order
-             FROM notes_blocks
-             WHERE id = ?
-               AND page_id = ?
-               AND in_trash = 0",
-        )
-        .bind(after_id)
-        .bind(&parent.page_id)
-        .fetch_optional(&mut **tx)
-        .await
+        let after_row: Option<(f64,)> = if parent.parent_type == "page_id" {
+            sqlx::query_as(
+                "SELECT sort_order
+                 FROM notes_blocks
+                 WHERE id = ?
+                   AND parent_type = 'page_id'
+                   AND parent_page_id = ?
+                   AND page_id = ?
+                   AND in_trash = 0",
+            )
+            .bind(after_id)
+            .bind(&parent.parent_page_id)
+            .bind(&parent.page_id)
+            .fetch_optional(&mut **tx)
+            .await
+        } else {
+            sqlx::query_as(
+                "SELECT sort_order
+                 FROM notes_blocks
+                 WHERE id = ?
+                   AND parent_type = 'block_id'
+                   AND parent_block_id = ?
+                   AND page_id = ?
+                   AND in_trash = 0",
+            )
+            .bind(after_id)
+            .bind(&parent.parent_block_id)
+            .bind(&parent.page_id)
+            .fetch_optional(&mut **tx)
+            .await
+        }
         .map_err(|e| format!("load notes after block: {e}"))?;
         let after_order = after_row
             .map(|row| row.0)

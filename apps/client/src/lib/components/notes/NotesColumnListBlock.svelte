@@ -16,7 +16,7 @@
     NotesPageMentionTarget,
     NotesRichTextAnnotationPatch,
   } from "$lib/notes/rich-text";
-  import type { NotesSiblingDropPosition } from "$lib/notes/block-tree";
+  import type { NotesBlockDropIndicator } from "$lib/notes/block-drag";
   import type {
     NotesBlockTreeItem,
     NotesBlockType,
@@ -174,9 +174,9 @@
     onMoveToPage: (blockId: string, pageId: string) => void;
     onDelete: (blockId: string) => void;
     isDragging: boolean;
-    dropPosition: NotesSiblingDropPosition | null;
+    dropPosition: NotesBlockDropIndicator | null;
     draggingBlockId: string | null;
-    dropPositionForBlock: (blockId: string) => NotesSiblingDropPosition | null;
+    dropPositionForBlock: (blockId: string) => NotesBlockDropIndicator | null;
     onDragStart: (blockId: string, event: DragEvent) => void;
     onDragEnd: () => void;
     onDragOver: (blockId: string, event: DragEvent) => void;
@@ -299,6 +299,8 @@
   class:notes-block-dragging={isDragging}
   class:notes-block-drop-before={dropPosition === "before"}
   class:notes-block-drop-after={dropPosition === "after"}
+  class:notes-block-drop-inside={dropPosition === "inside"}
+  class:notes-block-drop-outdent={dropPosition === "outdent"}
   style={`--notes-depth: ${Math.min(item.depth, 8)}`}
   ondragover={(event) => onDragOver(block.id, event)}
   ondragleave={(event) => onDragLeave(block.id, event)}
@@ -465,6 +467,23 @@
 
   .notes-block-drop-after::after {
     bottom: -1px;
+  }
+
+  .notes-block-drop-outdent::after {
+    position: absolute;
+    left: max(0.5rem, calc((var(--notes-depth) - 1) * 1.25rem + 2.75rem));
+    right: 0.5rem;
+    bottom: -1px;
+    z-index: 5;
+    height: 2px;
+    border-radius: 999px;
+    background: hsl(var(--primary));
+    content: "";
+  }
+
+  .notes-block-drop-inside > .notes-block-surface {
+    background: hsl(var(--primary) / 0.1);
+    box-shadow: inset 0 0 0 2px hsl(var(--primary) / 0.65);
   }
 
   .notes-column-grid {

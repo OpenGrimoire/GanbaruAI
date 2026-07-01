@@ -33,7 +33,13 @@
     notesMoveToPageTargets,
     type NotesMoveToPageTarget,
   } from "$lib/notes/block-move";
-  import type { NotesSiblingDropPosition } from "$lib/notes/block-tree";
+  import {
+    NOTES_BLOCK_DRAG_MIME,
+    planNotesBlockDrop,
+    setActiveNotesBlockDragId,
+    type NotesBlockDropIndicator,
+    type NotesBlockDropIntent,
+  } from "$lib/notes/block-drag";
   import type {
     NotesBlock,
     NotesBlockTreeItem,
@@ -79,10 +85,9 @@
 
   const notes = getNotes();
   const { t } = getLocalization();
-  const notesBlockDragMime = "application/x-ganbaru-notes-block";
   let blockListElement: HTMLDivElement | null = $state(null);
   let draggingBlockId = $state<string | null>(null);
-  let dropTarget = $state<{ blockId: string; position: NotesSiblingDropPosition } | null>(null);
+  let dropTarget = $state<{ blockId: string; intent: NotesBlockDropIndicator } | null>(null);
   let blockSelection = $state<NotesBlockSelectionState | null>(null);
   let selectionDragAnchorBlockId = $state<string | null>(null);
   let selectionDragPointerId = $state<number | null>(null);
@@ -596,54 +601,60 @@
     void notes.redoNotesEdit();
   }
 
-  function blockParentId(blockId: string): string | null {
-    const block = notes.blockById(blockId);
-    return block ? notes.parentIdForBlock(block) : null;
-  }
-
   function draggedBlockIdFromEvent(event: DragEvent): string | null {
-    const transferred = event.dataTransfer?.getData(notesBlockDragMime) ?? "";
+    const transferred = event.dataTransfer?.getData(NOTES_BLOCK_DRAG_MIME) ?? "";
     return transferred || draggingBlockId;
   }
 
-  function canDropOnBlock(sourceBlockId: string | null, targetBlockId: string): boolean {
-    if (!sourceBlockId || sourceBlockId === targetBlockId) return false;
-    const sourceParentId = blockParentId(sourceBlockId);
-    const targetParentId = blockParentId(targetBlockId);
-    return !!sourceParentId && sourceParentId === targetParentId;
-  }
-
-  function dropPositionFromEvent(event: DragEvent): NotesSiblingDropPosition {
+  function blockDropIntentFromEvent(event: DragEvent): NotesBlockDropIntent {
     const target = event.currentTarget;
     if (!(target instanceof HTMLElement)) return "after";
     const rect = target.getBoundingClientRect();
-    return event.clientY < rect.top + rect.height / 2 ? "before" : "after";
+    const depth = Number.parseInt(
+      getComputedStyle(target).getPropertyValue("--notes-depth").trim(),
+      10,
+    );
+    const safeDepth = Number.isFinite(depth) ? Math.max(depth, 0) : 0;
+    const yRatio = rect.height > 0 ? (event.clientY - rect.top) / rect.height : 0.5;
+    if (yRatio < 0.25) return "before";
+    const outdentBoundary = rect.left + safeDepth * 20 + 28;
+    if (safeDepth > 0 && event.clientX < outdentBoundary) return "outdent";
+    if (yRatio > 0.75) return "after";
+    return "inside";
   }
 
   function handleBlockDragStart(blockId: string, event: DragEvent): void {
     draggingBlockId = blockId;
+    setActiveNotesBlockDragId(blockId);
     dropTarget = null;
     if (event.dataTransfer) {
       event.dataTransfer.effectAllowed = "move";
-      event.dataTransfer.setData(notesBlockDragMime, blockId);
+      event.dataTransfer.setData(NOTES_BLOCK_DRAG_MIME, blockId);
       event.dataTransfer.setData("text/plain", blockId);
     }
   }
 
   function handleBlockDragEnd(): void {
     draggingBlockId = null;
+    setActiveNotesBlockDragId(null);
     dropTarget = null;
   }
 
   function handleBlockDragOver(targetBlockId: string, event: DragEvent): void {
     const sourceBlockId = draggedBlockIdFromEvent(event);
-    if (!canDropOnBlock(sourceBlockId, targetBlockId)) {
+    if (!sourceBlockId) {
+      if (dropTarget?.blockId === targetBlockId) dropTarget = null;
+      return;
+    }
+    const intent = blockDropIntentFromEvent(event);
+    const plan = planNotesBlockDrop(currentTreeState(), sourceBlockId, targetBlockId, intent);
+    if (!plan) {
       if (dropTarget?.blockId === targetBlockId) dropTarget = null;
       return;
     }
     event.preventDefault();
     if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
-    dropTarget = { blockId: targetBlockId, position: dropPositionFromEvent(event) };
+    dropTarget = { blockId: targetBlockId, intent: plan.indicator };
   }
 
   function handleBlockDragLeave(targetBlockId: string, event: DragEvent): void {
@@ -661,21 +672,25 @@
 
   function handleBlockDrop(targetBlockId: string, event: DragEvent): void {
     const sourceBlockId = draggedBlockIdFromEvent(event);
-    if (!canDropOnBlock(sourceBlockId, targetBlockId)) {
+    if (!sourceBlockId) {
+      handleBlockDragEnd();
+      return;
+    }
+    const intent = dropTarget?.blockId === targetBlockId
+      ? dropTarget.intent
+      : blockDropIntentFromEvent(event);
+    const plan = planNotesBlockDrop(currentTreeState(), sourceBlockId, targetBlockId, intent);
+    if (!plan) {
       handleBlockDragEnd();
       return;
     }
     event.preventDefault();
-    const position = dropTarget?.blockId === targetBlockId
-      ? dropTarget.position
-      : dropPositionFromEvent(event);
     handleBlockDragEnd();
-    if (!sourceBlockId) return;
-    void notes.dropBlockWithinSiblings(sourceBlockId, targetBlockId, position);
+    void notes.dropBlockOnBlock(sourceBlockId, targetBlockId, plan.indicator);
   }
 
-  function dropPositionForBlock(blockId: string): NotesSiblingDropPosition | null {
-    return dropTarget?.blockId === blockId ? dropTarget.position : null;
+  function dropPositionForBlock(blockId: string): NotesBlockDropIndicator | null {
+    return dropTarget?.blockId === blockId ? dropTarget.intent : null;
   }
 </script>
 

@@ -4647,6 +4647,50 @@ fn move_block_rejects_ambiguous_after_and_before() {
 }
 
 #[test]
+fn move_block_rejects_after_anchor_outside_destination_parent() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        create_page(&pool, PAGE_A, BLOCK_A).await;
+        writes::append_block_children(
+            &pool,
+            NoteAppendBlockChildren {
+                parent: page_parent(PAGE_A),
+                after: Some(BLOCK_A.to_string()),
+                children: vec![
+                    block(BLOCK_B, "paragraph", paragraph_payload("Parent")),
+                    block(BLOCK_C, "paragraph", paragraph_payload("Nested")),
+                ],
+            },
+        )
+        .await
+        .unwrap();
+        writes::move_block(
+            &pool,
+            BLOCK_C,
+            NoteMoveBlock {
+                parent: block_parent(BLOCK_B),
+                after: None,
+                before: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        let result = writes::move_block(
+            &pool,
+            BLOCK_A,
+            NoteMoveBlock {
+                parent: page_parent(PAGE_A),
+                after: Some(BLOCK_C.to_string()),
+                before: None,
+            },
+        )
+        .await;
+        assert_eq!(result.err(), Some("after block not found".to_string()));
+    });
+}
+
+#[test]
 fn move_block_rejects_invalid_structural_parent_shapes() {
     tauri::async_runtime::block_on(async {
         let pool = migrated_memory_pool().await;

@@ -33,6 +33,10 @@
     onMove,
     onArchive,
     onTrash,
+    blockDropActive = false,
+    onBlockDragOver,
+    onBlockDragLeave,
+    onBlockDrop,
   }: {
     page: NotesPage;
     depth: number;
@@ -50,6 +54,10 @@
     onMove: (parent: NotesParent) => void;
     onArchive: () => void;
     onTrash: () => void;
+    blockDropActive?: boolean;
+    onBlockDragOver?: (pageId: string, event: DragEvent) => void;
+    onBlockDragLeave?: (pageId: string, event: DragEvent) => void;
+    onBlockDrop?: (pageId: string, event: DragEvent) => void;
   } = $props();
 
   const { t } = getLocalization();
@@ -94,7 +102,17 @@
   }
 </script>
 
-<div class="notes-page-row group relative" style={`--notes-page-depth: ${Math.min(depth, 10)}`}>
+<div
+  class="notes-page-row group relative"
+  class:notes-page-block-drop-target={blockDropActive}
+  role="group"
+  aria-label={title}
+  style={`--notes-page-depth: ${Math.min(depth, 10)}`}
+  data-app-tooltip={blockDropActive ? t("notes.dropBlockOnPage", title) : undefined}
+  ondragover={(event) => onBlockDragOver?.(page.id, event)}
+  ondragleave={(event) => onBlockDragLeave?.(page.id, event)}
+  ondrop={(event) => onBlockDrop?.(page.id, event)}
+>
   {#if editing}
     <input
       class="notes-page-row-content w-full rounded-md border border-border bg-background px-2 py-1.5 text-[0.866667rem] text-foreground outline-none"
@@ -270,5 +288,10 @@
 <style>
   .notes-page-row-content {
     margin-left: calc(var(--notes-page-depth) * 0.875rem);
+  }
+
+  .notes-page-block-drop-target .notes-page-row-content {
+    background: hsl(var(--primary) / 0.12);
+    box-shadow: inset 0 0 0 1px hsl(var(--primary) / 0.55);
   }
 </style>

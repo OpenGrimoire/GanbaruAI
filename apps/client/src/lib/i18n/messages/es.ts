@@ -1624,6 +1624,7 @@ export const es = {
     moveBlockUp: "Mover arriba",
     moveBlockDown: "Mover abajo",
     moveBlockToPage: "Mover a página",
+    dropBlockOnPage: (title: string) => `Mover bloque a ${title}`,
     noMoveTargets: "No hay otras páginas",
     deleteBlock: "Eliminar",
     toggleBlock: "Bloque desplegable",
