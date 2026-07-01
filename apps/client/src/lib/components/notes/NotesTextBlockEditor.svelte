@@ -20,6 +20,10 @@
     normalizeNotesClipboardPlainText,
     shouldHandleNotesPlainTextPaste,
   } from "$lib/notes/block-clipboard";
+  import {
+    shouldDeferNotesCompositionInput,
+    shouldLetNativeCompositionHandleKeydown,
+  } from "$lib/notes/composition";
   import { notesRichTextEditorClass } from "$lib/notes/block-editor-ui";
   import {
     planNotesKeyboardAction,
@@ -190,6 +194,7 @@
   let mentionActiveIndex = $state(0);
   let textSelection = $state({ start: 0, end: 0 });
   let hasTextSelection = $state(false);
+  let compositionActive = $state(false);
   let linkEditorOpen = $state(false);
   let linkRange = $state({ start: 0, end: 0, url: null as string | null });
   let linkUrlInput = $state("");
@@ -292,6 +297,12 @@
 
   function scheduleInlineToolbarPlacementRefresh(): void {
     void tick().then(() => refreshInlineToolbarPlacement());
+  }
+
+  function closeCompositionSensitiveMenus(): void {
+    slashOpen = false;
+    mentionQuery = null;
+    mentionActiveIndex = 0;
   }
 
   function setTrackedSelection(selection: NotesTextSelection): void {
@@ -476,6 +487,11 @@
   }
 
   function handleKeydown(event: KeyboardEvent): void {
+    if (shouldLetNativeCompositionHandleKeydown({
+      active: compositionActive,
+      eventIsComposing: event.isComposing,
+      key: event.key,
+    })) return;
     const undoAction = notesUndoShortcutAction(event);
     if (undoAction) {
       event.preventDefault();
@@ -629,15 +645,12 @@
     await focusEditorWithSelection(selection.start, selection.end);
   }
 
-  function handleInput(event: Event): void {
-    const target = event.currentTarget;
-    if (!(target instanceof HTMLElement)) return;
+  function commitRichTextInput(target: HTMLElement): void {
     inlineEquationErrorReason = null;
     syncTextSelection(target);
     const value = notesPlainTextFromEditableRoot(target);
     const selection = notesTextSelectionFromEditableRoot(target);
-    const isComposing = event instanceof InputEvent && event.isComposing;
-    if (canUseInlineFormatting && !isComposing && selection) {
+    if (canUseInlineFormatting && selection) {
       const nextRichText = replacePlainTextPreservingRichText(editableRichText, value);
       const shortcutPlan = planNotesMarkdownInlineShortcutConversion(
         nextRichText,
@@ -645,9 +658,7 @@
         selection.end,
       );
       if (shortcutPlan) {
-        slashOpen = false;
-        mentionQuery = null;
-        mentionActiveIndex = 0;
+        closeCompositionSensitiveMenus();
         void Promise.resolve(onReplaceRichText(block.id, shortcutPlan.richText))
           .then(() => focusEditorWithSelection(shortcutPlan.cursor, shortcutPlan.cursor))
           .catch((error) => {
@@ -663,9 +674,24 @@
       updateMentionQueryFromEditor(target, value);
     }
     onTextInput(block.id, value);
-    if (!isComposing && selection) {
-      void focusEditorWithSelection(selection.start, selection.end);
+    if (selection) void focusEditorWithSelection(selection.start, selection.end);
+  }
+
+  function handleInput(event: Event): void {
+    const target = event.currentTarget;
+    if (!(target instanceof HTMLElement)) return;
+    const eventIsComposing = event instanceof InputEvent && event.isComposing;
+    if (shouldDeferNotesCompositionInput({ active: compositionActive, eventIsComposing })) {
+      closeCompositionSensitiveMenus();
+      return;
     }
+    commitRichTextInput(target);
+  }
+
+  function handleCompositionEnd(event: CompositionEvent): void {
+    compositionActive = false;
+    const target = event.currentTarget;
+    if (target instanceof HTMLElement) commitRichTextInput(target);
   }
 
   async function handlePaste(event: ClipboardEvent): Promise<void> {
@@ -719,6 +745,7 @@
   }
 
   function handleEditorBlur(): void {
+    compositionActive = false;
     slashOpen = false;
     window.setTimeout(() => {
       mentionQuery = null;
@@ -874,6 +901,11 @@
   data-empty={text.length === 0 ? "true" : undefined}
   oninput={handleInput}
   onkeydown={handleKeydown}
+  oncompositionstart={() => {
+    compositionActive = true;
+    closeCompositionSensitiveMenus();
+  }}
+  oncompositionend={handleCompositionEnd}
   onpaste={handlePaste}
   onkeyup={(event) => syncTextSelection(event.currentTarget)}
   onclick={(event) => syncTextSelection(event.currentTarget)}
