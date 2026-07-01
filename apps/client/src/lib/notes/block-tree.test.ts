@@ -496,6 +496,18 @@ describe("notes block tree", () => {
     expect(planNestBlock(tree, "b")).toBeNull();
   });
 
+  it("does not plan nesting internal structural blocks under normal blocks", () => {
+    const tree = state([
+      block("a", { type: "block_id", block_id: "columns" }, "A"),
+      blockFromWrite(
+        createBlockWrite("column", "column"),
+        { type: "block_id", block_id: "columns" },
+      ),
+    ]);
+
+    expect(planNestBlock(tree, "column")).toBeNull();
+  });
+
   it("plans outdent after the parent block", () => {
     const tree = state([
       block("a", { type: "page_id", page_id: "page" }, "A"),
@@ -520,6 +532,43 @@ describe("notes block tree", () => {
     ]);
 
     expect(planOutdentBlock(tree, "content")).toBeNull();
+  });
+
+  it("does not outdent column content directly into the column list layer", () => {
+    const tree = state([
+      blockFromWrite(
+        createBlockWrite("columns", "column_list"),
+        { type: "page_id", page_id: "page" },
+      ),
+      blockFromWrite(
+        createBlockWrite("column", "column"),
+        { type: "block_id", block_id: "columns" },
+      ),
+      block("content", { type: "block_id", block_id: "column" }, "Column content"),
+    ]);
+
+    expect(planOutdentBlock(tree, "content")).toBeNull();
+  });
+
+  it("outdents nested column content to its owning column when valid", () => {
+    const tree = state([
+      blockFromWrite(
+        createBlockWrite("columns", "column_list"),
+        { type: "page_id", page_id: "page" },
+      ),
+      blockFromWrite(
+        createBlockWrite("column", "column"),
+        { type: "block_id", block_id: "columns" },
+      ),
+      block("parent", { type: "block_id", block_id: "column" }, "Parent"),
+      block("child", { type: "block_id", block_id: "parent" }, "Child"),
+    ]);
+
+    expect(planOutdentBlock(tree, "child")).toEqual({
+      blockId: "child",
+      parentId: "column",
+      after: "parent",
+    });
   });
 
   it("plans moving a block up within the current sibling group", () => {

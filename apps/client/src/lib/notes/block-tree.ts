@@ -152,9 +152,8 @@ export function planNestBlock(
   if (index <= 0) return null;
   const previousSiblingId = siblings[index - 1];
   const previousSibling = state.blocksById[previousSiblingId];
-  if (!previousSibling || !canBlockHaveChildren(previousSibling)) return null;
-  if (previousSibling.type === "table" || previousSibling.type === "column_list") return null;
-  if (previousSibling.type === "tab") return null;
+  if (previousSibling?.type === "tab") return null;
+  if (!previousSibling || !notesParentCanAcceptBlockType(previousSibling, block.type)) return null;
   const children = childIdsForParent(state, previousSiblingId);
   return {
     blockId,
@@ -175,9 +174,12 @@ export function planOutdentBlock(
     const grandparentBlock = state.blocksById[parentBlock.parent.block_id];
     if (grandparentBlock?.type === "tab") return null;
   }
+  const targetParentId = parentIdForBlock(parentBlock);
+  const targetParentBlock = state.blocksById[targetParentId] ?? null;
+  if (!notesParentCanAcceptBlockType(targetParentBlock, block.type)) return null;
   return {
     blockId,
-    parentId: parentIdForBlock(parentBlock),
+    parentId: targetParentId,
     after: parentBlock.id,
   };
 }

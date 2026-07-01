@@ -4371,6 +4371,83 @@ fn move_block_rejects_ambiguous_after_and_before() {
 }
 
 #[test]
+fn move_block_rejects_invalid_structural_parent_shapes() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        create_page(&pool, PAGE_A, BLOCK_A).await;
+        writes::append_block_children(
+            &pool,
+            NoteAppendBlockChildren {
+                parent: page_parent(PAGE_A),
+                after: Some(BLOCK_A.to_string()),
+                children: vec![
+                    block(BLOCK_B, "column_list", json!({})),
+                    block(BLOCK_C, "table", table_payload(2)),
+                    block(BLOCK_D, "paragraph", paragraph_payload("Paragraph")),
+                ],
+            },
+        )
+        .await
+        .unwrap();
+        writes::append_block_children(
+            &pool,
+            NoteAppendBlockChildren {
+                parent: block_parent(BLOCK_B),
+                after: None,
+                children: vec![block(BLOCK_E, "column", column_payload(Some(1.0)))],
+            },
+        )
+        .await
+        .unwrap();
+
+        let paragraph_under_columns = writes::move_block(
+            &pool,
+            BLOCK_D,
+            NoteMoveBlock {
+                parent: block_parent(BLOCK_B),
+                after: None,
+                before: None,
+            },
+        )
+        .await;
+        assert_eq!(
+            paragraph_under_columns.err(),
+            Some("paragraph blocks cannot be children of column_list blocks".to_string())
+        );
+
+        let paragraph_under_table = writes::move_block(
+            &pool,
+            BLOCK_D,
+            NoteMoveBlock {
+                parent: block_parent(BLOCK_C),
+                after: None,
+                before: None,
+            },
+        )
+        .await;
+        assert_eq!(
+            paragraph_under_table.err(),
+            Some("paragraph blocks cannot be children of table blocks".to_string())
+        );
+
+        let column_under_page = writes::move_block(
+            &pool,
+            BLOCK_E,
+            NoteMoveBlock {
+                parent: page_parent(PAGE_A),
+                after: Some(BLOCK_D.to_string()),
+                before: None,
+            },
+        )
+        .await;
+        assert_eq!(
+            column_under_page.err(),
+            Some("column blocks must be children of column_list blocks".to_string())
+        );
+    });
+}
+
+#[test]
 fn move_block_to_another_page_updates_descendant_page_ids() {
     tauri::async_runtime::block_on(async {
         let pool = migrated_memory_pool().await;
