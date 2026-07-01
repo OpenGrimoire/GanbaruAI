@@ -4,9 +4,9 @@
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { buildNotesPageBreadcrumb } from "$lib/notes/page-breadcrumb";
   import { notesPageCoverUrl } from "$lib/notes/page-cover";
-  import { notesPageIconText } from "$lib/notes/page-icon";
   import { notesPageTitle } from "$lib/notes/page-title";
   import { buildNotesTableOfContents } from "$lib/notes/table-of-contents";
+  import type { NotesPageIcon as NotesPageIconValue } from "$lib/notes/types";
   import { getNotes } from "$lib/stores/notes.svelte";
   import ImagePlus from "@lucide/svelte/icons/image-plus";
   import SmilePlus from "@lucide/svelte/icons/smile-plus";
@@ -16,6 +16,7 @@
   import NotesComments from "./NotesComments.svelte";
   import NotesPageCoverMenu from "./NotesPageCoverMenu.svelte";
   import NotesPageHistory from "./NotesPageHistory.svelte";
+  import NotesPageIcon from "./NotesPageIcon.svelte";
   import NotesPageIconMenu from "./NotesPageIconMenu.svelte";
 
   const notes = getNotes();
@@ -29,7 +30,7 @@
   const page = $derived(notes.loadedPage);
   const pageTitle = $derived(page ? notesPageTitle(page, t("notes.untitled")) : "");
   const pageCoverUrl = $derived(page ? notesPageCoverUrl(page.cover) : null);
-  const pageIconText = $derived(page ? notesPageIconText(page.icon) : null);
+  const pageIconLabel = $derived(pageIconScreenReaderText(page?.icon ?? null));
   const breadcrumbItems = $derived(
     buildNotesPageBreadcrumb(page, notes.pages, t("notes.workspace"), t("notes.untitled")),
   );
@@ -70,6 +71,14 @@
       event.preventDefault();
       event.currentTarget instanceof HTMLInputElement && event.currentTarget.blur();
     }
+  }
+
+  function pageIconScreenReaderText(icon: NotesPageIconValue | null): string {
+    if (!icon) return t("notes.noPageIcon");
+    if (icon.type === "emoji") return icon.emoji;
+    if (icon.type === "icon") return icon.icon.name;
+    if (icon.type === "custom_emoji") return icon.custom_emoji.name ?? t("notes.pageIconCustomEmoji");
+    return icon.type === "external" ? t("notes.pageIconImage") : icon.file.name ?? t("notes.pageIconImage");
   }
 </script>
 
@@ -132,17 +141,18 @@
           <button
             class="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
             type="button"
-            aria-label={pageIconText ? t("notes.changePageIcon") : t("notes.addPageIcon")}
-            data-app-tooltip={pageIconText ? t("notes.changePageIcon") : t("notes.addPageIcon")}
+            aria-label={page?.icon ? t("notes.changePageIcon") : t("notes.addPageIcon")}
+            data-app-tooltip={page?.icon ? t("notes.changePageIcon") : t("notes.addPageIcon")}
             onclick={() => {
               iconMenuOpen = !iconMenuOpen;
             }}
           >
-            {#if pageIconText}
-              <span class="text-[1.15rem] leading-none" aria-hidden="true">{pageIconText}</span>
+            {#if page.icon}
+              <NotesPageIcon icon={page.icon} size={20} class="shrink-0" />
             {:else}
               <SmilePlus class="size-4" />
             {/if}
+            <span class="sr-only">{pageIconLabel}</span>
           </button>
           {#if iconMenuOpen}
             <NotesPageIconMenu

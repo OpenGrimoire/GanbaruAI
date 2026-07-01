@@ -12,13 +12,14 @@ Notes are stored in `ganbaru-ai.sqlite`:
 - `notes_blocks` stores the canonical block tree. Each row has a page id, parent identity, block type, type payload, rich text, plain text cache, child state, trash state, sort order, optional external source identity, and timestamps.
 - `notes_page_templates` stores reusable page template metadata, page properties, icon, cover, source page identity, and timestamps. `notes_page_template_blocks` stores the canonical template block tree. Templates are SQLite data, not markdown or rendered HTML.
 - `notes_page_history_settings` stores the local retention window for recoverable page versions. `notes_page_history_snapshots` stores compact SQLite snapshots of page metadata plus canonical block rows before recoverable page and block mutations. History snapshots are recovery data, not markdown or rendered HTML.
+- `notes_page_icon_assets` stores metadata for local page icon images copied under the Ganbaru AI managed assets folder. Page rows reference those assets through the validated icon JSON payload.
 - `notes_undo_state` stores a bounded page-local undo and redo stack for editor recovery. It is local operation state derived from canonical rows, not a second source of note content.
 
 Markdown exports can be regenerated from SQLite. Markdown imports must be parsed into page and block rows before editing. If an exported markdown file changes outside the app, the app treats that as import input, not as authoritative state.
 
 ## Page model
 
-A page has an object type, id, created and edited timestamps, parent, trash state, archive state, properties, icon, and cover. The first local page slice uses a title property named `title`, shaped as a Notion title rich text array, and also keeps a normalized title cache for fast sidebar reads. Page icons use the public Notion icon object shape, with emoji icons and null removal currently editable from the page header. Page covers use the public Notion file object shape, with external HTTPS image covers and null removal currently editable from the top of the page.
+A page has an object type, id, created and edited timestamps, parent, trash state, archive state, properties, icon, and cover. The first local page slice uses a title property named `title`, shaped as a Notion title rich text array, and also keeps a normalized title cache for fast sidebar reads. Page icons use the public Notion icon object shape, with editable emoji icons, native icon names and colors, reusable custom emoji, external HTTPS image icons, managed local image file icons, and null removal from the page header. Page covers use the public Notion file object shape, with external HTTPS image covers and null removal currently editable from the top of the page.
 
 Parents are explicit objects:
 
@@ -81,7 +82,7 @@ The first serious Notes tab includes:
 - Backlinks disclosure under the page title for visible pages that reference the current page.
 - Comments disclosure under the page title for page discussions and block comments.
 - Page history disclosure under the page title for browsing prior page versions, previewing their blocks, copying blocks from them, restoring a version, and changing the local retention window.
-- Page header icon picker for setting or removing emoji page icons, mirrored in sidebar rows.
+- Page header icon picker for setting or removing emoji, native, custom emoji, external image, and managed local image page icons, mirrored in sidebar rows.
 - Page cover banner for setting or removing external HTTPS image covers.
 - Block editor with the supported core block types.
 - Block handles with add block below, insert block type, turn into, color, copy link, duplicate, move to page, move within page, and delete actions.

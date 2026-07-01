@@ -58,6 +58,11 @@ import {
 } from "./types";
 import { externalMediaUrlIsSupported, type NotesMediaBlockType } from "./media";
 import {
+  isNotesPageIconAssetPath,
+  isProjectIconAssetPath,
+  isSupportedExternalPageIconUrl,
+} from "./page-icon";
+import {
   normalizeRichTextEquationExpression,
   normalizeRichTextLinkUrl,
 } from "./rich-text";
@@ -115,6 +120,11 @@ function readDisplayString(value: unknown, label: string): string {
   if (!text.trim()) throw new Error(`${label} must not be empty`);
   if (containsControlCharacters(text)) throw new Error(`${label} must not contain control characters`);
   return text;
+}
+
+function readOptionalDisplayString(value: unknown, label: string): string | undefined {
+  if (value === undefined) return undefined;
+  return readDisplayString(value, label);
 }
 
 export function isNotesBlockType(value: unknown): value is NotesBlockType {
@@ -455,7 +465,39 @@ function parseNotesIcon(value: unknown, label: string): NotesPageIcon {
     return { type, emoji: readDisplayString(record.emoji, `${label}.emoji`) };
   }
   if (type === "custom_emoji") {
-    return { type, custom_emoji: readRecord(record.custom_emoji, `${label}.custom_emoji`) };
+    const customEmoji = readRecord(record.custom_emoji, `${label}.custom_emoji`);
+    const id = readDisplayString(customEmoji.id, `${label}.custom_emoji.id`);
+    const name = readOptionalDisplayString(customEmoji.name, `${label}.custom_emoji.name`);
+    const url = readOptionalDisplayString(customEmoji.url, `${label}.custom_emoji.url`);
+    const assetPath = readOptionalDisplayString(
+      customEmoji.ganbaru_asset_path,
+      `${label}.custom_emoji.ganbaru_asset_path`,
+    );
+    if (assetPath !== undefined && !isProjectIconAssetPath(assetPath)) {
+      throw new Error(`${label}.custom_emoji.ganbaru_asset_path must stay under a managed icon asset directory`);
+    }
+    if (url !== undefined) {
+      if (url.startsWith("ganbaru-asset:")) {
+        const urlAssetPath = url.slice("ganbaru-asset:".length);
+        if (!isProjectIconAssetPath(urlAssetPath)) {
+          throw new Error(`${label}.custom_emoji.url must stay under a managed icon asset directory`);
+        }
+        if (assetPath !== urlAssetPath) {
+          throw new Error(`${label}.custom_emoji.url must reference the managed icon asset path`);
+        }
+      } else if (!isSupportedExternalPageIconUrl(url)) {
+        throw new Error(`${label}.custom_emoji.url must be a supported HTTPS image URL`);
+      }
+    }
+    return {
+      type,
+      custom_emoji: {
+        id,
+        ...(name === undefined ? {} : { name }),
+        ...(url === undefined ? {} : { url }),
+        ...(assetPath === undefined ? {} : { ganbaru_asset_path: assetPath }),
+      },
+    };
   }
   if (type === "icon") {
     const icon = readRecord(record.icon, `${label}.icon`);
@@ -471,10 +513,54 @@ function parseNotesIcon(value: unknown, label: string): NotesPageIcon {
   }
   if (type === "external") {
     const external = readRecord(record.external, `${label}.external`);
-    return { type, external: { url: readDisplayString(external.url, `${label}.external.url`) } };
+    const url = readDisplayString(external.url, `${label}.external.url`);
+    if (!isSupportedExternalPageIconUrl(url)) {
+      throw new Error(`${label}.external.url must be a supported HTTPS image URL`);
+    }
+    return { type, external: { url } };
   }
   if (type === "file") {
-    return { type, file: readRecord(record.file, `${label}.file`) };
+    const file = readRecord(record.file, `${label}.file`);
+    const url = readDisplayString(file.url, `${label}.file.url`);
+    const expiryTime = readOptionalDisplayString(file.expiry_time, `${label}.file.expiry_time`);
+    const name = readOptionalDisplayString(file.name, `${label}.file.name`);
+    const assetPath = readOptionalDisplayString(file.ganbaru_asset_path, `${label}.file.ganbaru_asset_path`);
+    const contentType = readOptionalDisplayString(file.content_type, `${label}.file.content_type`);
+    const sha256 = readOptionalDisplayString(file.sha256, `${label}.file.sha256`);
+    const byteSize = file.byte_size === undefined ? undefined : readInteger(file.byte_size, `${label}.file.byte_size`);
+    if (assetPath !== undefined) {
+      if (!isNotesPageIconAssetPath(assetPath)) {
+        throw new Error(`${label}.file.ganbaru_asset_path must stay under a managed icon asset directory`);
+      }
+      if (url !== `ganbaru-asset:${assetPath}`) {
+        throw new Error(`${label}.file.url must reference the managed icon asset path`);
+      }
+      if (contentType !== "image/png" && contentType !== "image/jpeg" && contentType !== "image/webp") {
+        throw new Error(`${label}.file.content_type must be a supported local image type`);
+      }
+      if (byteSize === undefined || byteSize <= 0) {
+        throw new Error(`${label}.file.byte_size must be positive`);
+      }
+      if (sha256 === undefined || !/^[a-f0-9]{64}$/.test(sha256)) {
+        throw new Error(`${label}.file.sha256 must be a lowercase SHA-256 hex digest`);
+      }
+    } else if (url.startsWith("ganbaru-asset:")) {
+      throw new Error(`${label}.file.url must include managed asset metadata`);
+    } else if (!isSupportedExternalPageIconUrl(url)) {
+      throw new Error(`${label}.file.url must be a supported HTTPS image URL`);
+    }
+    return {
+      type,
+      file: {
+        url,
+        ...(expiryTime === undefined ? {} : { expiry_time: expiryTime }),
+        ...(name === undefined ? {} : { name }),
+        ...(contentType === undefined ? {} : { content_type: contentType as "image/png" | "image/jpeg" | "image/webp" }),
+        ...(byteSize === undefined ? {} : { byte_size: byteSize }),
+        ...(sha256 === undefined ? {} : { sha256 }),
+        ...(assetPath === undefined ? {} : { ganbaru_asset_path: assetPath }),
+      },
+    };
   }
   throw new Error(`${label}.type must be a supported Notion icon type`);
 }

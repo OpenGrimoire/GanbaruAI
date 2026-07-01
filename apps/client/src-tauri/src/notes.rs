@@ -4,6 +4,7 @@ use tauri::{AppHandle, Runtime};
 mod comments;
 mod history;
 mod models;
+mod page_icon_assets;
 mod reads;
 mod templates;
 mod undo_state;
@@ -11,6 +12,7 @@ mod validation;
 mod writes;
 
 pub use models::*;
+pub use page_icon_assets::*;
 
 #[tauri::command]
 pub async fn notes_list_pages<R: Runtime>(

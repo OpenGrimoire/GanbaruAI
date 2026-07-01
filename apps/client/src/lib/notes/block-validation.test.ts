@@ -78,6 +78,150 @@ describe("notes boundary validation", () => {
     ).toThrow("page.icon.emoji must not be empty");
   });
 
+  it("parses expanded page icon payloads", () => {
+    expect(parseNotesPage({
+      ...basePage,
+      icon: { type: "icon", icon: { name: "home", color: "blue" } },
+    }).icon).toEqual({ type: "icon", icon: { name: "home", color: "blue" } });
+
+    expect(parseNotesPage({
+      ...basePage,
+      icon: {
+        type: "custom_emoji",
+        custom_emoji: {
+          id: "emoji-a",
+          name: "Focus",
+          url: "ganbaru-asset:project-icons/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+          ganbaru_asset_path: "project-icons/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+        },
+      },
+    }).icon).toEqual({
+      type: "custom_emoji",
+      custom_emoji: {
+        id: "emoji-a",
+        name: "Focus",
+        url: "ganbaru-asset:project-icons/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+        ganbaru_asset_path: "project-icons/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+      },
+    });
+
+    expect(parseNotesPage({
+      ...basePage,
+      icon: { type: "external", external: { url: "https://example.com/icon.png" } },
+    }).icon).toEqual({ type: "external", external: { url: "https://example.com/icon.png" } });
+
+    expect(parseNotesPage({
+      ...basePage,
+      icon: {
+        type: "file",
+        file: {
+          url: "ganbaru-asset:notes/page-icons/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.webp",
+          name: "Focus",
+          content_type: "image/webp",
+          byte_size: 42,
+          sha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          ganbaru_asset_path: "notes/page-icons/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.webp",
+        },
+      },
+    }).icon).toEqual({
+      type: "file",
+      file: {
+        url: "ganbaru-asset:notes/page-icons/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.webp",
+        name: "Focus",
+        content_type: "image/webp",
+        byte_size: 42,
+        sha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        ganbaru_asset_path: "notes/page-icons/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.webp",
+      },
+    });
+  });
+
+  it("rejects unsafe expanded page icon payloads", () => {
+    expect(() =>
+      parseNotesPage({
+        ...basePage,
+        icon: { type: "external", external: { url: "http://example.com/icon.png" } },
+      }),
+    ).toThrow("page.icon.external.url must be a supported HTTPS image URL");
+
+    expect(() =>
+      parseNotesPage({
+        ...basePage,
+        icon: { type: "custom_emoji", custom_emoji: { id: "", name: "Missing id" } },
+      }),
+    ).toThrow("page.icon.custom_emoji.id must not be empty");
+
+    expect(() =>
+      parseNotesPage({
+        ...basePage,
+        icon: {
+          type: "custom_emoji",
+          custom_emoji: {
+            id: "wrong-directory",
+            url: "ganbaru-asset:notes/page-icons/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+          },
+        },
+      }),
+    ).toThrow("page.icon.custom_emoji.url must stay under a managed icon asset directory");
+
+    expect(() =>
+      parseNotesPage({
+        ...basePage,
+        icon: {
+          type: "custom_emoji",
+          custom_emoji: {
+            id: "missing-asset-path",
+            url: "ganbaru-asset:project-icons/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+          },
+        },
+      }),
+    ).toThrow("page.icon.custom_emoji.url must reference the managed icon asset path");
+
+    expect(() =>
+      parseNotesPage({
+        ...basePage,
+        icon: {
+          type: "file",
+          file: {
+            url: "ganbaru-asset:notes/page-icons/bad.svg",
+            content_type: "image/svg+xml",
+            byte_size: 42,
+            sha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            ganbaru_asset_path: "notes/page-icons/bad.svg",
+          },
+        },
+      }),
+    ).toThrow("page.icon.file.ganbaru_asset_path must stay under a managed icon asset directory");
+
+    expect(() =>
+      parseNotesPage({
+        ...basePage,
+        icon: {
+          type: "file",
+          file: {
+            url: "ganbaru-asset:notes/page-icons/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc.webp",
+            content_type: "image/webp",
+            byte_size: 42,
+            sha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            ganbaru_asset_path: "notes/page-icons/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.webp",
+          },
+        },
+      }),
+    ).toThrow("page.icon.file.url must reference the managed icon asset path");
+
+    expect(() =>
+      parseNotesPage({
+        ...basePage,
+        icon: {
+          type: "file",
+          file: {
+            url: "ganbaru-asset:notes/page-icons/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.webp",
+          },
+        },
+      }),
+    ).toThrow("page.icon.file.url must include managed asset metadata");
+  });
+
   it("parses page template DTOs", () => {
     const template = parseNotesPageTemplate({
       object: "page_template",

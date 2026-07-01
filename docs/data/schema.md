@@ -535,6 +535,17 @@ Indexes: `(run_id, occurred_at)` for session analysis and `(source_type, source_
 
 The adaptive algorithm treats missing block events differently from zero block pressure. If the browser extension or desktop tracker was unavailable, the context snapshot must carry a data quality flag so confidence is reduced instead of assuming the user had no relapse pressure.
 
+## Notes tables
+
+Notes stores page and block documents in SQLite. Markdown exports and imports are derivative views, not the source of truth.
+
+- `notes_pages`: page metadata, parent identity, title cache, Notion-shaped page properties, icon JSON, cover JSON, trash state, archive state, source identity, URLs, and timestamps. Page icons stay in the `icon` JSON column as validated document metadata.
+- `notes_blocks`: normalized block rows for page content. Rows store page id, parent identity, type, payload JSON, plain-text cache, child state, trash state, sort order, source identity, and timestamps.
+- `notes_page_icon_assets`: managed local image assets for Notes page icons. Rows store a content-hash id, a relative path under `assets/notes/page-icons/`, optional original file name, MIME type, byte size, SHA-256 digest, and timestamps. The table accepts PNG, JPEG, and WebP only; SVG is intentionally blocked for local icon uploads.
+- `notes_page_templates` and `notes_page_template_blocks`: reusable page templates and their canonical block snapshots. Templates store page metadata in SQLite, not markdown.
+- `notes_page_history_settings` and `notes_page_history_snapshots`: local page recovery settings and compact snapshots of page metadata plus canonical block rows.
+- `notes_undo_state`: bounded page-local undo and redo state derived from canonical page and block rows.
+
 ## Project tables
 
 Project management stores structured work data in SQLite. The user-facing hierarchy is group, project, section, task.

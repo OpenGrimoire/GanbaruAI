@@ -902,3 +902,89 @@ fn schema_creates_project_custom_emojis() {
         }
     });
 }
+
+#[test]
+fn schema_creates_notes_page_icon_assets() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+
+        sqlx::query(
+            "INSERT INTO notes_page_icon_assets
+                (id, asset_path, original_name, content_type, byte_size, sha256)
+             VALUES (
+                'asset-1',
+                'notes/page-icons/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png',
+                'focus.png',
+                'image/png',
+                42,
+                'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+             )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let asset_path: String = sqlx::query_scalar(
+            "SELECT asset_path FROM notes_page_icon_assets WHERE id = 'asset-1'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            asset_path,
+            "notes/page-icons/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+        );
+
+        for (id, asset_path, content_type, byte_size, sha256) in [
+            (
+                "bad-prefix",
+                "project-icons/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.png",
+                "image/png",
+                1,
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            ),
+            (
+                "bad-nested",
+                "notes/page-icons/nested/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.png",
+                "image/png",
+                1,
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            ),
+            (
+                "bad-type",
+                "notes/page-icons/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.gif",
+                "image/gif",
+                1,
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            ),
+            (
+                "bad-size",
+                "notes/page-icons/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.png",
+                "image/png",
+                0,
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            ),
+            (
+                "bad-hash",
+                "notes/page-icons/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.png",
+                "image/png",
+                1,
+                "short",
+            ),
+        ] {
+            let inserted = sqlx::query(
+                "INSERT INTO notes_page_icon_assets
+                    (id, asset_path, content_type, byte_size, sha256)
+                 VALUES (?, ?, ?, ?, ?)",
+            )
+            .bind(id)
+            .bind(asset_path)
+            .bind(content_type)
+            .bind(byte_size)
+            .bind(sha256)
+            .execute(&pool)
+            .await;
+            assert!(inserted.is_err());
+        }
+    });
+}

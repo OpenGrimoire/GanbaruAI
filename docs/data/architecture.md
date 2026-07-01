@@ -38,6 +38,7 @@ Ganbaru AI/
   projects/{project-id}/            # per-project file attachments (PDFs, references)
   reports/                          # generated project status reports (markdown, PDF)
   assets/                           # user assets (images embedded in notes, attachments)
+    notes/page-icons/               # copied local Notes page icon images
     project-icons/                  # copied project and group icon images
   templates/                        # phase templates, methodology templates (SWOT, BMC)
   .yjs/                             # Yjs document state cache (binary)
@@ -97,7 +98,7 @@ Notes permanent page deletion is a subtree delete, not a single-row delete. The 
 
 Notes sidebar navigation metadata is UI state stored in `config.json`. Expanded page state lives under `notes.sidebarExpandedPageIds`, favorites under `notes.favoritePageIds`, and recently opened pages under `notes.recentPageIds`. The older `notes.sidebarCollapsedPageIds` key is cleared when expanded state is saved. These values never change page parent rows or block order. Sidebar page reads load page metadata only: roots, expanded direct children, favorites, recents, and selected-page ancestors. They do not load page block bodies. Selected pages can still reveal their ancestor path in the sidebar without mutating the stored expanded list.
 
-Notes page icons are document metadata stored in the `notes_pages.icon` JSON column, not in navigation config. The editable slice supports emoji icon objects and null removal through the page update command. External, local-file, custom emoji, and native icon payloads share the same validated Notion-style shape and remain planned for full editing.
+Notes page icons are document metadata stored in the `notes_pages.icon` JSON column, not in navigation config. The editable slice supports emoji icon objects, Notion-style native icon names and colors, reusable custom emoji, external HTTPS image icons, managed local image file icons, and null removal through the page update command. Local page icon image bytes are copied under `assets/notes/page-icons/` using content-hash file names, while `notes_page_icon_assets` stores the managed asset metadata in SQLite. The page icon JSON keeps only the validated document reference and display metadata.
 
 Notes page covers are document metadata stored in the `notes_pages.cover` JSON column. The editable slice supports external HTTPS image file objects and null removal through the page update command. Imported file and file upload cover objects are validated and preserved, while future local file covers must store assets under the Ganbaru AI assets model and keep the cover column as the validated file object reference.
 

@@ -3,7 +3,6 @@
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import type { NotesPageMoveTarget } from "$lib/notes/page-move";
   import type { NotesPageParentStatus } from "$lib/notes/page-tree";
-  import { notesPageIconText } from "$lib/notes/page-icon";
   import { notesPageTitle } from "$lib/notes/page-title";
   import type { NotesPage, NotesParent } from "$lib/notes/types";
   import Archive from "@lucide/svelte/icons/archive";
@@ -19,6 +18,7 @@
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
   import NotesDestinationPickerList from "./NotesDestinationPickerList.svelte";
+  import NotesPageIcon from "./NotesPageIcon.svelte";
 
   let {
     page,
@@ -73,7 +73,6 @@
   let titleDraft = $state("");
   let renameInput = $state<HTMLInputElement | null>(null);
   const title = $derived(notesPageTitle(page, t("notes.untitled")));
-  const pageIconText = $derived(notesPageIconText(page.icon));
 
   $effect(() => {
     if (!editing) titleDraft = title;
@@ -170,10 +169,8 @@
         type="button"
         onclick={onSelect}
       >
-        {#if pageIconText}
-          <span class="flex size-3.5 shrink-0 items-center justify-center text-[0.866667rem] leading-none" aria-hidden="true">
-            {pageIconText}
-          </span>
+        {#if page.icon}
+          <NotesPageIcon icon={page.icon} size={14} class="shrink-0 text-muted-foreground" />
         {:else}
           <FileText class="size-3.5 shrink-0 text-muted-foreground" />
         {/if}
