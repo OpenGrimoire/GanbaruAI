@@ -3790,6 +3790,59 @@ fn update_block_persists_supported_block_color() {
 }
 
 #[test]
+fn update_block_round_trips_inline_formatting_annotations() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        create_page(&pool, PAGE_A, BLOCK_A).await;
+
+        writes::update_block(
+            &pool,
+            BLOCK_A,
+            block_update(
+                "paragraph",
+                json!({
+                    "rich_text": [{
+                        "type": "text",
+                        "text": {
+                            "content": "Shortcut text",
+                            "link": null
+                        },
+                        "annotations": {
+                            "bold": true,
+                            "italic": true,
+                            "strikethrough": true,
+                            "underline": true,
+                            "code": true,
+                            "color": "default"
+                        },
+                        "plain_text": "Shortcut text",
+                        "href": null
+                    }],
+                    "color": "default"
+                }),
+            ),
+        )
+        .await
+        .unwrap();
+
+        let children = reads::get_block_children(&pool, PAGE_A, None, Some(10))
+            .await
+            .unwrap();
+        let children_json = serde_json::to_value(children).unwrap();
+        let annotations = &children_json["results"][0]["paragraph"]["rich_text"][0]["annotations"];
+        assert_eq!(annotations["bold"], true);
+        assert_eq!(annotations["italic"], true);
+        assert_eq!(annotations["strikethrough"], true);
+        assert_eq!(annotations["underline"], true);
+        assert_eq!(annotations["code"], true);
+        assert_eq!(
+            children_json["results"][0]["paragraph"]["rich_text"][0]["plain_text"],
+            "Shortcut text"
+        );
+    });
+}
+
+#[test]
 fn append_and_update_toggle_blocks_round_trip() {
     tauri::async_runtime::block_on(async {
         let pool = migrated_memory_pool().await;

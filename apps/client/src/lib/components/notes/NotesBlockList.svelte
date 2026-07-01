@@ -159,13 +159,13 @@
     await notes.insertDateMention(blockId, start, end, target.date, target.title);
   }
 
-  function applyTextAnnotations(
+  async function applyTextAnnotations(
     blockId: string,
     start: number,
     end: number,
     patch: NotesRichTextAnnotationPatch,
-  ): void {
-    void notes.updateBlockTextAnnotations(blockId, start, end, patch);
+  ): Promise<void> {
+    await notes.updateBlockTextAnnotations(blockId, start, end, patch);
   }
 
   function insertInlineEquation(

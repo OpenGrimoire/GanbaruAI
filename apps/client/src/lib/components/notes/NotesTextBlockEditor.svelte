@@ -45,6 +45,7 @@
     type NotesRichTextAnnotationName,
     type NotesRichTextAnnotationPatch,
   } from "$lib/notes/rich-text";
+  import { notesRichTextFormattingShortcutAnnotationName } from "$lib/notes/rich-text-shortcuts";
   import type { NotesSlashAction, NotesSlashCommand } from "$lib/notes/slash-commands";
   import type {
     NotesBlock,
@@ -296,19 +297,8 @@
     );
   }
 
-  function annotationShortcutName(event: KeyboardEvent): NotesRichTextAnnotationName | null {
-    if (!(event.ctrlKey || event.metaKey) || event.altKey) return null;
-    const key = event.key.toLowerCase();
-    if (!event.shiftKey && key === "b") return "bold";
-    if (!event.shiftKey && key === "i") return "italic";
-    if (!event.shiftKey && key === "u") return "underline";
-    if (event.shiftKey && key === "s") return "strikethrough";
-    if (!event.shiftKey && key === "e") return "code";
-    return null;
-  }
-
   function applyAnnotationShortcut(event: KeyboardEvent): boolean {
-    const name = annotationShortcutName(event);
+    const name = notesRichTextFormattingShortcutAnnotationName(event);
     if (!name || !canUseInlineFormatting) return false;
     const target = event.currentTarget;
     if (!(target instanceof HTMLElement)) return false;
