@@ -12,6 +12,7 @@
   import { notesUndoShortcutAction } from "$lib/notes/undo-history";
   import type { NotesTemplateBlockStatus } from "$lib/notes/template-block";
   import type { NotesButtonBlockStatus } from "$lib/notes/button-block";
+  import type { NotesUnsupportedConversionTarget } from "$lib/notes/unsupported";
   import {
     notesTabCanAdd,
     notesTabCanMove,
@@ -86,6 +87,7 @@
     onAddButtonChild,
     onButtonIconChange,
     onButtonInsertPositionChange,
+    onConvertUnsupported,
     onComment,
     onMoveUp,
     onMoveDown,
@@ -207,6 +209,10 @@
       blockId: string,
       position: NotesButtonInsertPosition,
     ) => void;
+    onConvertUnsupported: (
+      blockId: string,
+      target: NotesUnsupportedConversionTarget,
+    ) => Promise<void> | void;
     onComment: (blockId: string) => void;
     onMoveUp: (blockId: string) => void;
     onMoveDown: (blockId: string) => void;
@@ -633,6 +639,7 @@
                       {onAddButtonChild}
                       {onButtonIconChange}
                       {onButtonInsertPositionChange}
+                      {onConvertUnsupported}
                       {onComment}
                       {onMoveUp}
                       {onMoveDown}

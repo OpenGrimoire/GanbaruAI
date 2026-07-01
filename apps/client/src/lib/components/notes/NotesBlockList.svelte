@@ -23,6 +23,7 @@
   import { notesPageTitle } from "$lib/notes/page-title";
   import { notesTemplateBlockStatus } from "$lib/notes/template-block";
   import { notesButtonBlockStatus } from "$lib/notes/button-block";
+  import type { NotesUnsupportedConversionTarget } from "$lib/notes/unsupported";
   import {
     isTextEditableBlock,
     type NotesHeadingBlockType,
@@ -1013,6 +1014,9 @@
         onButtonInsertPositionChange={(blockId, position: NotesButtonInsertPosition) => {
           void notes.updateButtonInsertPosition(blockId, position);
         }}
+        onConvertUnsupported={(blockId, target: NotesUnsupportedConversionTarget) => {
+          void notes.convertUnsupportedBlock(blockId, target);
+        }}
         onComment={(blockId) => {
           void notes.startBlockComment(blockId);
         }}
@@ -1136,6 +1140,9 @@
         onButtonInsertPositionChange={(blockId, position: NotesButtonInsertPosition) => {
           void notes.updateButtonInsertPosition(blockId, position);
         }}
+        onConvertUnsupported={(blockId, target: NotesUnsupportedConversionTarget) => {
+          void notes.convertUnsupportedBlock(blockId, target);
+        }}
         onComment={(blockId) => {
           void notes.startBlockComment(blockId);
         }}
@@ -1256,6 +1263,9 @@
         }}
         onButtonInsertPositionChange={(blockId, position: NotesButtonInsertPosition) => {
           void notes.updateButtonInsertPosition(blockId, position);
+        }}
+        onConvertUnsupported={(blockId, target: NotesUnsupportedConversionTarget) => {
+          void notes.convertUnsupportedBlock(blockId, target);
         }}
         onComment={(blockId) => {
           void notes.startBlockComment(blockId);

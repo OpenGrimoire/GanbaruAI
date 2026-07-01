@@ -1068,6 +1068,7 @@ const {
   updateButtonIcon,
   updateButtonInsertPosition,
   useButtonBlock,
+  convertUnsupportedBlock,
 } = blockActions;
 
 function isOnlyBlock(blockId: string): boolean {
@@ -1384,6 +1385,7 @@ export function getNotes() {
     updateButtonIcon,
     updateButtonInsertPosition,
     useButtonBlock,
+    convertUnsupportedBlock,
     blockPlainText,
     updateBookmark,
     updateLinkPreviewUrl,

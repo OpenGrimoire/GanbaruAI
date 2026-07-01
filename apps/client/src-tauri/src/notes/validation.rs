@@ -1512,7 +1512,10 @@ fn unsupported_plain_text(payload: &Value) -> String {
     let block_type = payload
         .get("block_type")
         .and_then(Value::as_str)
-        .or_else(|| payload.get("source_type").and_then(Value::as_str))
+        .unwrap_or_default();
+    let source_type = payload
+        .get("source_type")
+        .and_then(Value::as_str)
         .unwrap_or_default();
     let warnings = payload
         .get("warnings")
@@ -1527,12 +1530,21 @@ fn unsupported_plain_text(payload: &Value) -> String {
                 .join(" ")
         })
         .unwrap_or_default();
-    [block_type.trim(), warnings.trim()]
-        .iter()
-        .filter(|part| !part.is_empty())
-        .copied()
-        .collect::<Vec<_>>()
-        .join(" ")
+    let raw_status = match payload.get("raw") {
+        Some(Value::Object(_)) => "raw payload preserved",
+        _ => "",
+    };
+    [
+        block_type.trim(),
+        source_type.trim(),
+        warnings.trim(),
+        raw_status,
+    ]
+    .iter()
+    .filter(|part| !part.is_empty())
+    .copied()
+    .collect::<Vec<_>>()
+    .join(" ")
 }
 
 fn synced_block_plain_text(payload: &Value) -> String {

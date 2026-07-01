@@ -5378,7 +5378,10 @@ fn append_and_update_unsupported_blocks_round_trip() {
                 .fetch_one(&pool)
                 .await
                 .unwrap();
-        assert_eq!(plain_text, "button Action content is not exposed");
+        assert_eq!(
+            plain_text,
+            "button notion Action content is not exposed raw payload preserved"
+        );
     });
 }
 

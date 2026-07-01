@@ -1,10 +1,7 @@
 <script lang="ts">
   import { tick } from "svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
-  import {
-    unsupportedBlockTypeName,
-    unsupportedBlockWarnings,
-  } from "$lib/notes/unsupported";
+  import type { NotesUnsupportedConversionTarget } from "$lib/notes/unsupported";
   import {
     blockPlainText,
     headingIsToggleable,
@@ -52,7 +49,6 @@
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import FileText from "@lucide/svelte/icons/file-text";
   import Info from "@lucide/svelte/icons/info";
-  import CircleHelp from "@lucide/svelte/icons/circle-help";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Database from "@lucide/svelte/icons/database";
   import NotesMediaBlock from "./NotesMediaBlock.svelte";
@@ -61,6 +57,7 @@
   import NotesSlashMenu from "./NotesSlashMenu.svelte";
   import NotesTableBlock from "./NotesTableBlock.svelte";
   import NotesTextBlockEditor from "./NotesTextBlockEditor.svelte";
+  import NotesUnsupportedBlock from "./NotesUnsupportedBlock.svelte";
 
   let {
     item,
@@ -98,6 +95,7 @@
     onAddButtonChild,
     onButtonIconChange,
     onButtonInsertPositionChange,
+    onConvertUnsupported,
     onComment,
     onMoveUp,
     onMoveDown,
@@ -207,6 +205,10 @@
       blockId: string,
       position: NotesButtonInsertPosition,
     ) => void;
+    onConvertUnsupported: (
+      blockId: string,
+      target: NotesUnsupportedConversionTarget,
+    ) => Promise<void> | void;
     onComment: (blockId: string) => void;
     onMoveUp: (blockId: string) => void;
     onMoveDown: (blockId: string) => void;
@@ -267,7 +269,6 @@
   let tableOfContentsButton: HTMLButtonElement | null = $state(null);
   let childDatabaseButton: HTMLButtonElement | null = $state(null);
   let syncedBlockButton: HTMLButtonElement | null = $state(null);
-  let unsupportedButton: HTMLButtonElement | null = $state(null);
   let slashOpen = $state(false);
   const block = $derived(item.block);
   const text = $derived(blockPlainText(block));
@@ -283,15 +284,6 @@
   );
   const childDatabaseTitle = $derived(
     block.type === "child_database" ? block.child_database.title.trim() : "",
-  );
-  const unsupportedTypeName = $derived(
-    block.type === "unsupported" ? unsupportedBlockTypeName(block.unsupported) : "",
-  );
-  const unsupportedWarnings = $derived(
-    block.type === "unsupported" ? unsupportedBlockWarnings(block.unsupported) : [],
-  );
-  const unsupportedHasRawPayload = $derived(
-    block.type === "unsupported" && block.unsupported.raw !== undefined,
   );
   const syncedBlockSourceId = $derived(
     block.type === "synced_block" ? block.synced_block.synced_from?.block_id ?? null : null,
@@ -310,7 +302,6 @@
       focusControl(dividerButton);
       focusControl(breadcrumbButton);
       focusControl(tableOfContentsButton);
-      focusControl(unsupportedButton);
     });
   });
 
@@ -734,45 +725,14 @@
           </button>
         </section>
       {:else if block.type === "unsupported"}
-        <section
-          class="my-1 flex min-w-0 items-start gap-2 rounded-md border border-dashed border-border bg-muted/30 p-2"
-          aria-label={t("notes.blockType.unsupported")}
-        >
-          <div
-            class="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground"
-            aria-hidden="true"
-          >
-            <CircleHelp class="size-4" />
-          </div>
-          <button
-            bind:this={unsupportedButton}
-            type="button"
-            class="flex min-h-8 min-w-0 flex-1 flex-col gap-0.5 rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            onkeydown={handleKeydown}
-            onclick={() => onFocusBlock(block.id)}
-          >
-            <span class="text-[0.866667rem] font-medium text-foreground">
-              {t("notes.unsupportedBlockTitle")}
-            </span>
-            <span class="min-w-0 truncate text-[0.8rem] text-muted-foreground">
-              {#if unsupportedTypeName}
-                {t("notes.unsupportedBlockType", unsupportedTypeName)}
-              {:else}
-                {t("notes.unsupportedBlockUnknownType")}
-              {/if}
-            </span>
-            {#if unsupportedHasRawPayload}
-              <span class="min-w-0 truncate text-[0.733333rem] text-muted-foreground">
-                {t("notes.unsupportedBlockPayloadPreserved")}
-              </span>
-            {/if}
-            {#if unsupportedWarnings[0]}
-              <span class="min-w-0 truncate text-[0.733333rem] text-muted-foreground">
-                {unsupportedWarnings[0]}
-              </span>
-            {/if}
-          </button>
-        </section>
+        <NotesUnsupportedBlock
+          {block}
+          {focusBlockId}
+          {focusRequestId}
+          onSurfaceKeydown={handleKeydown}
+          {onFocusBlock}
+          {onConvertUnsupported}
+        />
       {:else if block.type === "bookmark" || block.type === "link_preview" || block.type === "embed" || block.type === "equation"}
         <NotesCardBlock
           {block}

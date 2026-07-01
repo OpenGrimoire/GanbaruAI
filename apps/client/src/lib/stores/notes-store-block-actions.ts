@@ -16,6 +16,11 @@ import {
   notesButtonWithIcon,
   notesButtonWithPrimaryInsertPosition,
 } from "$lib/notes/button-block";
+import {
+  unsupportedBlockJsonText,
+  unsupportedBlockSummaryText,
+  type NotesUnsupportedConversionTarget,
+} from "$lib/notes/unsupported";
 import { planNotesPlainTextPaste } from "$lib/notes/block-clipboard";
 import { planNotesRichHtmlPaste } from "$lib/notes/rich-text-paste";
 import {
@@ -288,6 +293,10 @@ export interface NotesBlockActions extends NotesColumnActions, NotesTabActions {
     position: NotesButtonInsertPosition,
   ) => Promise<void>;
   useButtonBlock: (blockId: string) => Promise<void>;
+  convertUnsupportedBlock: (
+    blockId: string,
+    target: NotesUnsupportedConversionTarget,
+  ) => Promise<void>;
 }
 
 /**
@@ -682,6 +691,23 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     if (block.type === "column_list" || block.type === "column") return;
     if (block.type === "tab") return;
     const update = clearText ? createBlockUpdate(type, "") : blockConvertedToType(block, type);
+    await replaceBlockWithUpdate(blockId, update);
+    context.requestBlockFocus(blockId);
+    recordUndoAfter("convert", before, blockId);
+  }
+
+  async function convertUnsupportedBlock(
+    blockId: string,
+    target: NotesUnsupportedConversionTarget,
+  ): Promise<void> {
+    const block = context.blockById(blockId);
+    if (!block || block.type !== "unsupported") return;
+    await context.flushBlockSave(blockId);
+    const before = undoSnapshot(blockId);
+    const text = target === "code"
+      ? unsupportedBlockJsonText(block.unsupported)
+      : unsupportedBlockSummaryText(block.unsupported);
+    const update = createBlockUpdate(target === "code" ? "code" : "paragraph", text);
     await replaceBlockWithUpdate(blockId, update);
     context.requestBlockFocus(blockId);
     recordUndoAfter("convert", before, blockId);
@@ -1727,5 +1753,6 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     updateButtonIcon,
     updateButtonInsertPosition,
     useButtonBlock,
+    convertUnsupportedBlock,
   };
 }
