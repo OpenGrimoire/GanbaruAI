@@ -518,7 +518,7 @@ export function isMergeableTextBlock(type: NotesBlockType): boolean {
   return isTextEditableBlock(type);
 }
 
-function textPayloadFromRichText(
+export function createTextPayloadFromRichText(
   richText: readonly NotesRichText[],
   color: NotesColor = DEFAULT_COLOR,
   options: Pick<NotesTextPayloadOptions, "isToggleable" | "open"> & {
@@ -628,7 +628,8 @@ export function canBlockHaveChildren(blockOrType: NotesBlock | NotesBlockType): 
   ].includes(type);
 }
 
-function blockWithRichText(
+/** Convert a loaded block to a Notion-shaped update payload while replacing its rich text. */
+export function blockWithRichText(
   block: NotesBlock,
   richText: readonly NotesRichText[],
 ): NotesBlockUpdate {
@@ -636,14 +637,14 @@ function blockWithRichText(
     case "paragraph":
       return {
         type: block.type,
-        paragraph: textPayloadFromRichText(richText, blockColor(block), {
+        paragraph: createTextPayloadFromRichText(richText, blockColor(block), {
           icon: block.paragraph.icon,
         }),
       };
     case "heading_1":
       return {
         type: block.type,
-        heading_1: textPayloadFromRichText(richText, blockColor(block), {
+        heading_1: createTextPayloadFromRichText(richText, blockColor(block), {
           isToggleable: block.heading_1.is_toggleable,
           open: block.heading_1.ganbaru_open,
         }),
@@ -651,7 +652,7 @@ function blockWithRichText(
     case "heading_2":
       return {
         type: block.type,
-        heading_2: textPayloadFromRichText(richText, blockColor(block), {
+        heading_2: createTextPayloadFromRichText(richText, blockColor(block), {
           isToggleable: block.heading_2.is_toggleable,
           open: block.heading_2.ganbaru_open,
         }),
@@ -659,7 +660,7 @@ function blockWithRichText(
     case "heading_3":
       return {
         type: block.type,
-        heading_3: textPayloadFromRichText(richText, blockColor(block), {
+        heading_3: createTextPayloadFromRichText(richText, blockColor(block), {
           isToggleable: block.heading_3.is_toggleable,
           open: block.heading_3.ganbaru_open,
         }),
@@ -667,7 +668,7 @@ function blockWithRichText(
     case "heading_4":
       return {
         type: block.type,
-        heading_4: textPayloadFromRichText(richText, blockColor(block), {
+        heading_4: createTextPayloadFromRichText(richText, blockColor(block), {
           isToggleable: block.heading_4.is_toggleable,
           open: block.heading_4.ganbaru_open,
         }),
@@ -675,18 +676,18 @@ function blockWithRichText(
     case "bulleted_list_item":
       return {
         type: block.type,
-        bulleted_list_item: textPayloadFromRichText(richText, blockColor(block)),
+        bulleted_list_item: createTextPayloadFromRichText(richText, blockColor(block)),
       };
     case "numbered_list_item":
       return {
         type: block.type,
-        numbered_list_item: textPayloadFromRichText(richText, blockColor(block)),
+        numbered_list_item: createTextPayloadFromRichText(richText, blockColor(block)),
       };
     case "to_do":
       return {
         type: block.type,
         to_do: {
-          ...textPayloadFromRichText(richText, blockColor(block)),
+          ...createTextPayloadFromRichText(richText, blockColor(block)),
           checked: block.to_do.checked,
         },
       };
@@ -694,7 +695,7 @@ function blockWithRichText(
       return {
         type: block.type,
         toggle: {
-          ...textPayloadFromRichText(richText, blockColor(block)),
+          ...createTextPayloadFromRichText(richText, blockColor(block)),
           ganbaru_open: block.toggle.ganbaru_open ?? true,
         },
       };
@@ -702,12 +703,12 @@ function blockWithRichText(
       return {
         type: block.type,
         callout: {
-          ...textPayloadFromRichText(richText, blockColor(block)),
+          ...createTextPayloadFromRichText(richText, blockColor(block)),
           icon: block.callout.icon,
         },
       };
     case "quote":
-      return { type: block.type, quote: textPayloadFromRichText(richText, blockColor(block)) };
+      return { type: block.type, quote: createTextPayloadFromRichText(richText, blockColor(block)) };
     case "child_page":
       return { type: block.type, child_page: block.child_page };
     case "child_database":

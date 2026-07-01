@@ -23,6 +23,10 @@
     }
     return classes.join(" ");
   }
+
+  function linkUrl(item: NotesRichText): string | null {
+    return item.type === "text" ? item.text.link?.url ?? item.href : item.href;
+  }
 </script>
 
 {#each richText as item}
@@ -30,6 +34,13 @@
     <span
       class="notes-rich-text-segment inline-flex max-w-full items-center rounded bg-accent px-1 text-accent-foreground"
       style={notesRichTextColorStyle(item.annotations.color)}
+      data-notes-bold={item.annotations.bold ? "true" : undefined}
+      data-notes-italic={item.annotations.italic ? "true" : undefined}
+      data-notes-underline={item.annotations.underline ? "true" : undefined}
+      data-notes-strikethrough={item.annotations.strikethrough ? "true" : undefined}
+      data-notes-code={item.annotations.code ? "true" : undefined}
+      data-notes-rich-text-color={item.annotations.color === "default" ? undefined : item.annotations.color}
+      data-notes-link-url={linkUrl(item) ?? undefined}
     >
       {item.plain_text}
     </span>
@@ -38,6 +49,13 @@
       class={`${textClass(item)} inline-flex max-w-full items-center rounded bg-muted/70 px-1 py-0.5 font-serif text-[1.02em]`}
       style={notesRichTextColorStyle(item.annotations.color)}
       title={item.equation.expression}
+      data-notes-bold={item.annotations.bold ? "true" : undefined}
+      data-notes-italic={item.annotations.italic ? "true" : undefined}
+      data-notes-underline={item.annotations.underline ? "true" : undefined}
+      data-notes-strikethrough={item.annotations.strikethrough ? "true" : undefined}
+      data-notes-code={item.annotations.code ? "true" : undefined}
+      data-notes-rich-text-color={item.annotations.color === "default" ? undefined : item.annotations.color}
+      data-notes-link-url={linkUrl(item) ?? undefined}
     >
       {equationPreviewText(item.equation.expression)}
     </span>
@@ -46,6 +64,13 @@
       class={textClass(item)}
       style={notesRichTextColorStyle(item.annotations.color)}
       title={item.href ?? item.text.link?.url ?? undefined}
+      data-notes-bold={item.annotations.bold ? "true" : undefined}
+      data-notes-italic={item.annotations.italic ? "true" : undefined}
+      data-notes-underline={item.annotations.underline ? "true" : undefined}
+      data-notes-strikethrough={item.annotations.strikethrough ? "true" : undefined}
+      data-notes-code={item.annotations.code ? "true" : undefined}
+      data-notes-rich-text-color={item.annotations.color === "default" ? undefined : item.annotations.color}
+      data-notes-link-url={linkUrl(item) ?? undefined}
     >
       {item.plain_text}
     </span>

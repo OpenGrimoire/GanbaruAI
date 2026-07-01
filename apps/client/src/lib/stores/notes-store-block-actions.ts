@@ -9,6 +9,7 @@ import {
   createDuplicateBlockRequest,
 } from "$lib/notes/block-duplicate";
 import { planNotesPlainTextPaste } from "$lib/notes/block-clipboard";
+import { planNotesRichHtmlPaste } from "$lib/notes/rich-text-paste";
 import { blockWithColor } from "$lib/notes/block-color";
 import {
   blockConvertedToType,
@@ -151,6 +152,12 @@ export interface NotesBlockActions {
     selectionStart: number,
     selectionEnd: number,
     plainText: string,
+  ) => Promise<boolean>;
+  pasteRichHtmlIntoBlock: (
+    blockId: string,
+    selectionStart: number,
+    selectionEnd: number,
+    html: string,
   ) => Promise<boolean>;
   deleteBlock: (blockId: string) => Promise<void>;
   mergeBlockWithPrevious: (blockId: string) => Promise<void>;
@@ -601,6 +608,38 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     return true;
   }
 
+  async function pasteRichHtmlIntoBlock(
+    blockId: string,
+    selectionStart: number,
+    selectionEnd: number,
+    html: string,
+  ): Promise<boolean> {
+    const block = context.blockById(blockId);
+    const selectedPageId = context.readSelectedPageId();
+    if (!block || !selectedPageId) return false;
+    const plan = planNotesRichHtmlPaste({
+      currentBlock: block,
+      selectionStart,
+      selectionEnd,
+      html,
+      createId: () => crypto.randomUUID(),
+    });
+    if (!plan) return false;
+    await context.flushBlockSave(blockId);
+    context.localApplyBlockUpdate(blockId, plan.currentUpdate);
+    await context.saveBlockNow(blockId, plan.currentUpdate);
+    if (plan.appendedBlocks.length > 0) {
+      await appendNotesBlockChildren({
+        parent: block.parent,
+        after: blockId,
+        children: plan.appendedBlocks,
+      });
+    }
+    await context.loadPageTree(selectedPageId);
+    context.requestBlockFocus(plan.focusBlockId);
+    return true;
+  }
+
   async function deleteBlock(blockId: string): Promise<void> {
     const selectedPageId = context.readSelectedPageId();
     if (!selectedPageId) return;
@@ -882,6 +921,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     convertBlockToToggleHeading,
     createSiblingAfter,
     pastePlainTextIntoBlock,
+    pasteRichHtmlIntoBlock,
     deleteBlock,
     mergeBlockWithPrevious,
     nestBlock,

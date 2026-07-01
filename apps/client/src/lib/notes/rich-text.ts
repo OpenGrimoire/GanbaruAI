@@ -452,6 +452,39 @@ function richTextSlice(
   return output;
 }
 
+export function richTextRangeSlice(
+  richText: readonly NotesRichText[],
+  start: number,
+  end: number,
+): NotesRichText[] {
+  const plainText = richTextPlainText(richText);
+  const safeStart = Math.max(0, Math.min(start, end, plainText.length));
+  const safeEnd = Math.max(safeStart, Math.min(Math.max(start, end), plainText.length));
+  return richTextSlice(richText, safeStart, safeEnd);
+}
+
+export function replaceRichTextRange(
+  richText: readonly NotesRichText[],
+  start: number,
+  end: number,
+  replacement: readonly NotesRichText[],
+): NotesRichText[] {
+  const plainText = richTextPlainText(richText);
+  const safeStart = Math.max(0, Math.min(start, end, plainText.length));
+  const safeEnd = Math.max(safeStart, Math.min(Math.max(start, end), plainText.length));
+  const output: NotesRichText[] = [];
+  for (const item of richTextSlice(richText, 0, safeStart)) {
+    appendRichTextItem(output, item);
+  }
+  for (const item of replacement) {
+    appendRichTextItem(output, item);
+  }
+  for (const item of richTextSlice(richText, safeEnd, plainText.length)) {
+    appendRichTextItem(output, item);
+  }
+  return output.length > 0 ? output : [createTextRichText("")];
+}
+
 export function insertPageMentionRichText(
   richText: readonly NotesRichText[],
   start: number,

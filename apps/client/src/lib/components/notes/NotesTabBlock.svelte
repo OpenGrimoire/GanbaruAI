@@ -47,6 +47,7 @@
     onApplyTextLink,
     onInsertInlineEquation,
     onPastePlainText,
+    onPasteRichHtml,
     onApplyTextAnnotations,
     onKeyboardAction,
     onAddBelow,
@@ -127,6 +128,12 @@
       start: number,
       end: number,
       plainText: string,
+    ) => Promise<boolean> | boolean;
+    onPasteRichHtml: (
+      blockId: string,
+      start: number,
+      end: number,
+      html: string,
     ) => Promise<boolean> | boolean;
     onApplyTextAnnotations: (
       blockId: string,
@@ -372,6 +379,7 @@
                       {onApplyTextLink}
                       {onInsertInlineEquation}
                       {onPastePlainText}
+                      {onPasteRichHtml}
                       {onApplyTextAnnotations}
                       {onKeyboardAction}
                       {onAddBelow}

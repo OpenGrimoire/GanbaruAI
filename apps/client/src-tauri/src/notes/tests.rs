@@ -3925,6 +3925,94 @@ fn update_block_round_trips_inline_formatting_annotations() {
 }
 
 #[test]
+fn rich_text_paste_payloads_round_trip_current_and_appended_blocks() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        create_page(&pool, PAGE_A, BLOCK_A).await;
+
+        writes::update_block(
+            &pool,
+            BLOCK_A,
+            block_update(
+                "paragraph",
+                json!({
+                    "rich_text": [
+                        rich_text("Before "),
+                        annotated_rich_text("styled", "blue_background"),
+                        linked_rich_text(" docs", "https://example.com/docs")
+                    ],
+                    "color": "default"
+                }),
+            ),
+        )
+        .await
+        .unwrap();
+
+        writes::append_block_children(
+            &pool,
+            NoteAppendBlockChildren {
+                parent: page_parent(PAGE_A),
+                after: Some(BLOCK_A.to_string()),
+                children: vec![block(
+                    BLOCK_B,
+                    "paragraph",
+                    json!({
+                        "rich_text": [
+                            rich_text("Next "),
+                            linked_rich_text("reference", "mailto:team@example.com")
+                        ],
+                        "color": "default"
+                    }),
+                )],
+            },
+        )
+        .await
+        .unwrap();
+
+        let children = reads::get_block_children(&pool, PAGE_A, None, Some(10))
+            .await
+            .unwrap();
+        let children_json = serde_json::to_value(children).unwrap();
+        let first_rich_text = &children_json["results"][0]["paragraph"]["rich_text"];
+        assert_eq!(first_rich_text[0]["plain_text"], "Before ");
+        assert_eq!(first_rich_text[1]["annotations"]["bold"], true);
+        assert_eq!(
+            first_rich_text[1]["annotations"]["color"],
+            "blue_background"
+        );
+        assert_eq!(
+            first_rich_text[2]["text"]["link"]["url"],
+            "https://example.com/docs"
+        );
+        assert_eq!(first_rich_text[2]["href"], "https://example.com/docs");
+
+        let second_rich_text = &children_json["results"][1]["paragraph"]["rich_text"];
+        assert_eq!(second_rich_text[0]["plain_text"], "Next ");
+        assert_eq!(
+            second_rich_text[1]["text"]["link"]["url"],
+            "mailto:team@example.com"
+        );
+        assert_eq!(second_rich_text[1]["href"], "mailto:team@example.com");
+
+        let stored_plain_text: Vec<String> = sqlx::query_scalar(
+            "SELECT plain_text FROM notes_blocks WHERE id IN (?, ?) ORDER BY sort_order",
+        )
+        .bind(BLOCK_A)
+        .bind(BLOCK_B)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            stored_plain_text,
+            vec![
+                "Before styled docs".to_string(),
+                "Next reference".to_string()
+            ]
+        );
+    });
+}
+
+#[test]
 fn update_block_round_trips_inline_equations() {
     tauri::async_runtime::block_on(async {
         let pool = migrated_memory_pool().await;

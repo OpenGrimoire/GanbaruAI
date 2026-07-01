@@ -195,6 +195,15 @@
     return notes.pastePlainTextIntoBlock(blockId, start, end, plainText);
   }
 
+  function pasteRichHtml(
+    blockId: string,
+    start: number,
+    end: number,
+    html: string,
+  ): Promise<boolean> {
+    return notes.pasteRichHtmlIntoBlock(blockId, start, end, html);
+  }
+
   function blockParentId(blockId: string): string | null {
     const block = notes.blockById(blockId);
     return block ? notes.parentIdForBlock(block) : null;
@@ -302,6 +311,7 @@
         onApplyTextLink={applyTextLink}
         onInsertInlineEquation={insertInlineEquation}
         onPastePlainText={pastePlainText}
+        onPasteRichHtml={pasteRichHtml}
         onApplyTextAnnotations={applyTextAnnotations}
         onKeyboardAction={handleKeyboardAction}
         onAddBelow={(blockId, type) => {
@@ -400,6 +410,7 @@
         onApplyTextLink={applyTextLink}
         onInsertInlineEquation={insertInlineEquation}
         onPastePlainText={pastePlainText}
+        onPasteRichHtml={pasteRichHtml}
         onApplyTextAnnotations={applyTextAnnotations}
         onKeyboardAction={handleKeyboardAction}
         onAddBelow={(blockId, type) => {
@@ -495,6 +506,7 @@
         onApplyTextLink={applyTextLink}
         onInsertInlineEquation={insertInlineEquation}
         onPastePlainText={pastePlainText}
+        onPasteRichHtml={pasteRichHtml}
         onApplyTextAnnotations={applyTextAnnotations}
         onKeyboardAction={handleKeyboardAction}
         onAddBelow={(blockId, type) => {

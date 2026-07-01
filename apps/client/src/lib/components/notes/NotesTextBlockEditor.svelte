@@ -81,6 +81,7 @@
     onApplyTextLink,
     onInsertInlineEquation,
     onPastePlainText,
+    onPasteRichHtml,
     onApplyTextAnnotations,
     onKeyboardAction,
     onConvert,
@@ -133,6 +134,12 @@
       start: number,
       end: number,
       plainText: string,
+    ) => Promise<boolean> | boolean;
+    onPasteRichHtml: (
+      blockId: string,
+      start: number,
+      end: number,
+      html: string,
     ) => Promise<boolean> | boolean;
     onApplyTextAnnotations: (
       blockId: string,
@@ -580,6 +587,18 @@
   async function handlePaste(event: ClipboardEvent): Promise<void> {
     const target = event.currentTarget;
     if (!(target instanceof HTMLElement)) return;
+    const html = event.clipboardData?.getData("text/html") ?? "";
+    const selection = notesTextSelectionFromEditableRoot(target);
+    if (!selection) return;
+    if (html.trim() && block.type !== "code") {
+      event.preventDefault();
+      const handled = await Promise.resolve(
+        onPasteRichHtml(block.id, selection.start, selection.end, html),
+      );
+      if (handled) return;
+      await focusEditorWithSelection(selection.start, selection.start);
+      return;
+    }
     const plainText = normalizeNotesClipboardPlainText(
       event.clipboardData?.getData("text/plain") ?? "",
     );
@@ -587,8 +606,6 @@
       event.preventDefault();
       return;
     }
-    const selection = notesTextSelectionFromEditableRoot(target);
-    if (!selection) return;
     if (
       !shouldHandleNotesPlainTextPaste({
         currentBlockType: block.type,
