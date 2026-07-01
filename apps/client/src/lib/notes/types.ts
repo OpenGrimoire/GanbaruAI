@@ -553,6 +553,13 @@ export interface NotesMoveBlockRequest {
   before?: string | null;
 }
 
+export interface NotesMoveBlocksRequest {
+  block_ids: string[];
+  parent: NotesParent;
+  after: string | null;
+  before?: string | null;
+}
+
 export interface NotesDuplicateBlockIdPair {
   source_id: string;
   duplicate_id: string;
@@ -560,6 +567,20 @@ export interface NotesDuplicateBlockIdPair {
 
 export interface NotesDuplicateBlockRequest {
   duplicated_block_ids: NotesDuplicateBlockIdPair[];
+}
+
+export interface NotesDuplicateBlocksRequest {
+  block_ids: string[];
+  duplicated_block_ids: NotesDuplicateBlockIdPair[];
+  parent: NotesParent;
+  after: string | null;
+  before?: string | null;
+  include_trashed_sources?: boolean;
+}
+
+export interface NotesTrashBlocksRequest {
+  block_ids: string[];
+  in_trash?: boolean;
 }
 
 export interface NotesPaginatedBlockList {

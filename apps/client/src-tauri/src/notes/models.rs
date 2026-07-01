@@ -666,6 +666,14 @@ pub struct NoteMoveBlock {
 }
 
 #[derive(Deserialize)]
+pub struct NoteMoveBlocks {
+    pub(in crate::notes) block_ids: Vec<String>,
+    pub(in crate::notes) parent: NoteParent,
+    pub(in crate::notes) after: Option<String>,
+    pub(in crate::notes) before: Option<String>,
+}
+
+#[derive(Deserialize)]
 pub struct NoteDuplicatedBlockId {
     pub(in crate::notes) source_id: String,
     pub(in crate::notes) duplicate_id: String,
@@ -674,6 +682,22 @@ pub struct NoteDuplicatedBlockId {
 #[derive(Deserialize)]
 pub struct NoteDuplicateBlock {
     pub(in crate::notes) duplicated_block_ids: Vec<NoteDuplicatedBlockId>,
+}
+
+#[derive(Deserialize)]
+pub struct NoteDuplicateBlocks {
+    pub(in crate::notes) block_ids: Vec<String>,
+    pub(in crate::notes) duplicated_block_ids: Vec<NoteDuplicatedBlockId>,
+    pub(in crate::notes) parent: NoteParent,
+    pub(in crate::notes) after: Option<String>,
+    pub(in crate::notes) before: Option<String>,
+    pub(in crate::notes) include_trashed_sources: Option<bool>,
+}
+
+#[derive(Deserialize)]
+pub struct NoteTrashBlocks {
+    pub(in crate::notes) block_ids: Vec<String>,
+    pub(in crate::notes) in_trash: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -731,7 +755,7 @@ impl_sqlite_from_row!(NotePageRow {
     last_edited_time,
 });
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 pub(in crate::notes) struct NoteBlockRow {
     pub(in crate::notes) id: String,
     pub(in crate::notes) page_id: String,

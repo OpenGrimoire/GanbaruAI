@@ -1,8 +1,11 @@
 import {
   appendNotesBlockChildren,
   duplicateNotesBlock,
+  duplicateNotesBlocks,
   moveNotesBlock,
+  moveNotesBlocks,
   trashNotesBlock,
+  trashNotesBlocks,
 } from "$lib/api/notes";
 import {
   collectLoadedBlockSubtreeIds,
@@ -10,6 +13,12 @@ import {
 } from "$lib/notes/block-duplicate";
 import { planNotesPlainTextPaste } from "$lib/notes/block-clipboard";
 import { planNotesRichHtmlPaste } from "$lib/notes/rich-text-paste";
+import {
+  notesSelectionRootBlockIds,
+  notesSelectionSubtreeIds,
+  planNotesSelectionMoveWithinSiblings,
+  type NotesSelectionMoveDirection,
+} from "$lib/notes/block-selection-operations";
 import { blockColor, blockWithColor, canBlockHaveColor } from "$lib/notes/block-color";
 import {
   createBlockWriteFromInsertCommand,
@@ -197,12 +206,23 @@ export interface NotesBlockActions {
     selectionEnd: number,
     html: string,
   ) => Promise<boolean>;
+  pasteBlockSelection: (
+    sourceRootBlockIds: readonly string[],
+    sourceSubtreeBlockIds: readonly string[],
+    targetBlockId: string,
+    includeTrashedSources?: boolean,
+  ) => Promise<string | null>;
   deleteBlock: (blockId: string) => Promise<void>;
+  deleteBlockSelection: (blockIds: readonly string[]) => Promise<void>;
   mergeBlockWithPrevious: (blockId: string) => Promise<void>;
   nestBlock: (blockId: string) => Promise<void>;
   outdentBlock: (blockId: string) => Promise<void>;
   moveBlockUp: (blockId: string) => Promise<void>;
   moveBlockDown: (blockId: string) => Promise<void>;
+  moveBlockSelection: (
+    blockIds: readonly string[],
+    direction: NotesSelectionMoveDirection,
+  ) => Promise<void>;
   dropBlockWithinSiblings: (
     sourceBlockId: string,
     targetBlockId: string,
@@ -210,6 +230,7 @@ export interface NotesBlockActions {
   ) => Promise<void>;
   moveBlockToPage: (blockId: string, pageId: string) => Promise<void>;
   duplicateBlock: (blockId: string) => Promise<void>;
+  duplicateBlockSelection: (blockIds: readonly string[]) => Promise<string | null>;
   useTemplateBlock: (blockId: string) => Promise<void>;
   useButtonBlock: (blockId: string) => Promise<void>;
 }
@@ -863,6 +884,36 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     return true;
   }
 
+  async function pasteBlockSelection(
+    sourceRootBlockIds: readonly string[],
+    sourceSubtreeBlockIds: readonly string[],
+    targetBlockId: string,
+    includeTrashedSources = false,
+  ): Promise<string | null> {
+    const selectedPageId = context.readSelectedPageId();
+    const target = context.blockById(targetBlockId);
+    if (!selectedPageId || !target || sourceRootBlockIds.length === 0) return null;
+    if (sourceSubtreeBlockIds.length === 0) return null;
+    await context.flushPendingBlockSaves();
+    const before = undoSnapshot(targetBlockId);
+    const duplicates = await duplicateNotesBlocks({
+      block_ids: [...sourceRootBlockIds],
+      duplicated_block_ids: sourceSubtreeBlockIds.map((sourceId) => ({
+        source_id: sourceId,
+        duplicate_id: crypto.randomUUID(),
+      })),
+      parent: target.parent,
+      after: targetBlockId,
+      before: null,
+      include_trashed_sources: includeTrashedSources,
+    });
+    const focusBlockId = duplicates.results[0]?.id ?? null;
+    await context.loadPageTree(selectedPageId);
+    context.requestBlockFocus(focusBlockId);
+    recordUndoAfter("paste", before, focusBlockId);
+    return focusBlockId;
+  }
+
   async function deleteBlock(blockId: string): Promise<void> {
     const selectedPageId = context.readSelectedPageId();
     if (!selectedPageId) return;
@@ -884,6 +935,20 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     }
     context.requestBlockFocus(plan.focusBlockId);
     recordUndoAfter("delete", before, plan.focusBlockId);
+  }
+
+  async function deleteBlockSelection(blockIds: readonly string[]): Promise<void> {
+    const selectedPageId = context.readSelectedPageId();
+    if (!selectedPageId) return;
+    const rootBlockIds = notesSelectionRootBlockIds(context.treeState(), blockIds);
+    if (rootBlockIds.length === 0) return;
+    await context.flushPendingBlockSaves();
+    const before = undoSnapshot(rootBlockIds[0] ?? null);
+    const focusBlockId = focusAfterDeletingSelection(rootBlockIds);
+    await trashNotesBlocks({ block_ids: rootBlockIds, in_trash: true });
+    await context.loadPageTree(selectedPageId);
+    context.requestBlockFocus(focusBlockId);
+    recordUndoAfter("delete", before, focusBlockId);
   }
 
   async function mergeBlockWithPrevious(blockId: string): Promise<void> {
@@ -952,6 +1017,46 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
       : { type: "block_id", block_id: parentId };
   }
 
+  function rootSelectionParent(rootBlockIds: readonly string[]): NotesParent | null {
+    const first = rootBlockIds[0] ? context.blockById(rootBlockIds[0]) : undefined;
+    if (!first) return null;
+    const parentKey = notesParentStorageKey(first.parent);
+    const sameParent = rootBlockIds.every((blockId) => {
+      const block = context.blockById(blockId);
+      return block !== undefined && notesParentStorageKey(block.parent) === parentKey;
+    });
+    return sameParent ? first.parent : null;
+  }
+
+  function notesParentStorageKey(parent: NotesParent): string {
+    if (parent.type === "page_id") return `page:${parent.page_id}`;
+    if (parent.type === "block_id") return `block:${parent.block_id}`;
+    return "workspace";
+  }
+
+  function focusAfterDeletingSelection(rootBlockIds: readonly string[]): string | null {
+    const firstRoot = rootBlockIds[0];
+    if (!firstRoot) return null;
+    const state = context.treeState();
+    const deletedIds = new Set(notesSelectionSubtreeIds(state, rootBlockIds));
+    const flatItems = context.flatBlockItemsForBlockContext(firstRoot);
+    const firstIndex = flatItems.findIndex((item) => item.block.id === firstRoot);
+    if (firstIndex < 0) return null;
+    let lastIndex = firstIndex;
+    for (let index = firstIndex; index < flatItems.length; index += 1) {
+      if (deletedIds.has(flatItems[index]?.block.id ?? "")) lastIndex = index;
+    }
+    for (let index = firstIndex - 1; index >= 0; index -= 1) {
+      const blockId = flatItems[index]?.block.id;
+      if (blockId && !deletedIds.has(blockId)) return blockId;
+    }
+    for (let index = lastIndex + 1; index < flatItems.length; index += 1) {
+      const blockId = flatItems[index]?.block.id;
+      if (blockId && !deletedIds.has(blockId)) return blockId;
+    }
+    return null;
+  }
+
   async function moveReparentedChildren(plan: NotesChildReparentPlan): Promise<boolean> {
     if (plan.childIds.length === 0) return true;
     const parent = parentFromMoveParentId(plan.parentId);
@@ -981,6 +1086,30 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     await context.loadPageTree(selectedPageId);
     context.requestBlockFocus(blockId);
     recordUndoAfter("move", before, blockId);
+  }
+
+  async function moveBlockSelection(
+    blockIds: readonly string[],
+    direction: NotesSelectionMoveDirection,
+  ): Promise<void> {
+    const selectedPageId = context.readSelectedPageId();
+    if (!selectedPageId) return;
+    const rootBlockIds = notesSelectionRootBlockIds(context.treeState(), blockIds);
+    const plan = planNotesSelectionMoveWithinSiblings(context.treeState(), rootBlockIds, direction);
+    if (!plan) return;
+    const parent = parentFromMoveParentId(plan.parentId);
+    if (!parent) return;
+    await context.flushPendingBlockSaves();
+    const before = undoSnapshot(plan.focusBlockId);
+    await moveNotesBlocks({
+      block_ids: plan.blockIds,
+      parent,
+      after: plan.after,
+      before: plan.before,
+    });
+    await context.loadPageTree(selectedPageId);
+    context.requestBlockFocus(plan.focusBlockId);
+    recordUndoAfter("move", before, plan.focusBlockId);
   }
 
   async function dropBlockWithinSiblings(
@@ -1039,6 +1168,41 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     await context.loadPageTree(selectedPageId);
     context.requestBlockFocus(duplicate.id);
     recordUndoAfter("duplicate", before, duplicate.id);
+  }
+
+  async function duplicateBlockSelection(blockIds: readonly string[]): Promise<string | null> {
+    const selectedPageId = context.readSelectedPageId();
+    if (!selectedPageId) return null;
+    const state = context.treeState();
+    const rootBlockIds = notesSelectionRootBlockIds(state, blockIds);
+    if (rootBlockIds.length === 0) return null;
+    if (rootBlockIds.some((blockId) => context.blockById(blockId)?.type === "child_page")) {
+      return null;
+    }
+    const parent = rootSelectionParent(rootBlockIds);
+    if (!parent) return null;
+    const lastRootId = rootBlockIds[rootBlockIds.length - 1];
+    if (!lastRootId) return null;
+    const sourceSubtreeBlockIds = notesSelectionSubtreeIds(state, rootBlockIds);
+    if (sourceSubtreeBlockIds.length === 0) return null;
+    await context.flushPendingBlockSaves();
+    const before = undoSnapshot(rootBlockIds[0] ?? null);
+    const duplicates = await duplicateNotesBlocks({
+      block_ids: rootBlockIds,
+      duplicated_block_ids: sourceSubtreeBlockIds.map((sourceId) => ({
+        source_id: sourceId,
+        duplicate_id: crypto.randomUUID(),
+      })),
+      parent,
+      after: lastRootId,
+      before: null,
+      include_trashed_sources: false,
+    });
+    const focusBlockId = duplicates.results[0]?.id ?? null;
+    await context.loadPageTree(selectedPageId);
+    context.requestBlockFocus(focusBlockId);
+    recordUndoAfter("duplicate", before, focusBlockId);
+    return focusBlockId;
   }
 
   async function useTemplateBlock(blockId: string): Promise<void> {
@@ -1200,15 +1364,19 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     splitTextBlockAtSelection,
     pastePlainTextIntoBlock,
     pasteRichHtmlIntoBlock,
+    pasteBlockSelection,
     deleteBlock,
+    deleteBlockSelection,
     mergeBlockWithPrevious,
     nestBlock,
     outdentBlock,
     moveBlockUp: (blockId: string) => moveBlockWithinSiblings(blockId, "up"),
     moveBlockDown: (blockId: string) => moveBlockWithinSiblings(blockId, "down"),
+    moveBlockSelection,
     dropBlockWithinSiblings,
     moveBlockToPage,
     duplicateBlock,
+    duplicateBlockSelection,
     useTemplateBlock,
     useButtonBlock,
   };

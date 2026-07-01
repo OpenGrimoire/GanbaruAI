@@ -252,6 +252,16 @@ pub async fn notes_trash_block<R: Runtime>(
 }
 
 #[tauri::command]
+pub async fn notes_trash_blocks<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    request: NoteTrashBlocks,
+) -> Result<NotePaginatedBlockList, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    writes::trash_blocks(&pool, request).await
+}
+
+#[tauri::command]
 pub async fn notes_move_block<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
@@ -263,6 +273,16 @@ pub async fn notes_move_block<R: Runtime>(
 }
 
 #[tauri::command]
+pub async fn notes_move_blocks<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    request: NoteMoveBlocks,
+) -> Result<NotePaginatedBlockList, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    writes::move_blocks(&pool, request).await
+}
+
+#[tauri::command]
 pub async fn notes_duplicate_block<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
@@ -271,6 +291,16 @@ pub async fn notes_duplicate_block<R: Runtime>(
 ) -> Result<NoteBlockDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
     writes::duplicate_block(&pool, &block_id, request).await
+}
+
+#[tauri::command]
+pub async fn notes_duplicate_blocks<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    request: NoteDuplicateBlocks,
+) -> Result<NotePaginatedBlockList, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    writes::duplicate_blocks(&pool, request).await
 }
 
 #[tauri::command]

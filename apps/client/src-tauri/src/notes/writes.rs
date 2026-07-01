@@ -1,8 +1,9 @@
 use super::models::{
     parent_columns, NoteAppendBlockChildren, NoteBlockDto, NoteBlockRow, NoteBlockUpdate,
-    NoteBlockWrite, NoteChildPageFromBlockCreate, NoteDuplicateBlock, NoteDuplicatePage,
-    NoteLoadedPage, NoteMoveBlock, NoteMovePage, NotePageCreate, NotePageDto, NotePageRow,
-    NotePageUpdate, NotePaginatedBlockList, NoteParent, OptionalJsonValue,
+    NoteBlockWrite, NoteChildPageFromBlockCreate, NoteDuplicateBlock, NoteDuplicateBlocks,
+    NoteDuplicatePage, NoteDuplicatedBlockId, NoteLoadedPage, NoteMoveBlock, NoteMoveBlocks,
+    NoteMovePage, NotePageCreate, NotePageDto, NotePageRow, NotePageUpdate, NotePaginatedBlockList,
+    NoteParent, NoteTrashBlocks, OptionalJsonValue,
 };
 use super::reads;
 use super::validation::{
@@ -1193,37 +1194,7 @@ pub(in crate::notes) async fn trash_block(
         .begin()
         .await
         .map_err(|e| format!("begin trash notes block: {e}"))?;
-    sqlx::query(
-        "WITH RECURSIVE subtree(id) AS (
-            SELECT id FROM notes_blocks WHERE id = ?
-            UNION ALL
-            SELECT notes_blocks.id
-            FROM notes_blocks
-            JOIN subtree ON notes_blocks.parent_block_id = subtree.id
-         )
-         UPDATE notes_blocks
-         SET in_trash = ?,
-             last_edited_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-         WHERE id IN (SELECT id FROM subtree)",
-    )
-    .bind(block_id)
-    .bind(if in_trash { 1_i64 } else { 0_i64 })
-    .execute(&mut *tx)
-    .await
-    .map_err(|e| format!("trash notes block subtree: {e}"))?;
-    if current.block_type == "child_page" {
-        sqlx::query(
-            "UPDATE notes_pages
-             SET in_trash = ?,
-                 last_edited_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-             WHERE id = ?",
-        )
-        .bind(if in_trash { 1_i64 } else { 0_i64 })
-        .bind(block_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| format!("trash notes child page: {e}"))?;
-    }
+    set_block_subtree_trash(&mut tx, block_id, in_trash).await?;
     let parent = ParentTarget {
         parent_type: if current.parent_type == "page_id" {
             "page_id"
@@ -1241,6 +1212,45 @@ pub(in crate::notes) async fn trash_block(
         .await
         .map_err(|e| format!("commit trash notes block: {e}"))?;
     reads::get_block(pool, block_id, true).await
+}
+
+pub(in crate::notes) async fn trash_blocks(
+    pool: &SqlitePool,
+    request: NoteTrashBlocks,
+) -> Result<NotePaginatedBlockList, String> {
+    let in_trash = request.in_trash.unwrap_or(true);
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|e| format!("begin trash notes blocks: {e}"))?;
+    let root_ids = normalize_selection_root_ids(&mut tx, &request.block_ids, true).await?;
+    let mut root_rows = Vec::with_capacity(root_ids.len());
+    let mut parents = Vec::with_capacity(root_ids.len());
+    let mut touched_pages = HashSet::new();
+    for block_id in &root_ids {
+        let row = load_block_row_in_tx(&mut tx, block_id, true).await?;
+        parents.push(parent_target_from_block_row(&row));
+        touched_pages.insert(row.page_id.clone());
+        root_rows.push(row);
+    }
+    for block_id in &root_ids {
+        set_block_subtree_trash(&mut tx, block_id, in_trash).await?;
+    }
+    for parent in &parents {
+        refresh_parent_has_children(&mut tx, parent).await?;
+    }
+    for page_id in &touched_pages {
+        touch_page(&mut tx, page_id).await?;
+    }
+    tx.commit()
+        .await
+        .map_err(|e| format!("commit trash notes blocks: {e}"))?;
+    load_blocks_by_ids_with_trash(
+        pool,
+        root_rows.into_iter().map(|row| row.id).collect(),
+        true,
+    )
+    .await
 }
 
 pub(in crate::notes) async fn move_block(
@@ -1318,6 +1328,7 @@ pub(in crate::notes) async fn move_block(
     .execute(&mut *tx)
     .await
     .map_err(|e| format!("move notes block descendants: {e}"))?;
+    update_block_comment_thread_pages(&mut tx, block_id, &new_parent.page_id).await?;
     if current.block_type == "child_page" {
         sqlx::query(
             "UPDATE notes_pages
@@ -1345,6 +1356,122 @@ pub(in crate::notes) async fn move_block(
         .await
         .map_err(|e| format!("commit move notes block: {e}"))?;
     reads::get_block(pool, block_id, false).await
+}
+
+pub(in crate::notes) async fn move_blocks(
+    pool: &SqlitePool,
+    request: NoteMoveBlocks,
+) -> Result<NotePaginatedBlockList, String> {
+    validate_parent(&request.parent)?;
+    if request.after.is_some() && request.before.is_some() {
+        return Err("move request cannot include both after and before".to_string());
+    }
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|e| format!("begin move notes blocks: {e}"))?;
+    let root_ids = normalize_selection_root_ids(&mut tx, &request.block_ids, false).await?;
+    let mut root_rows = Vec::with_capacity(root_ids.len());
+    let mut old_parents = Vec::with_capacity(root_ids.len());
+    for block_id in &root_ids {
+        let row = load_block_row_in_tx(&mut tx, block_id, false).await?;
+        old_parents.push(parent_target_from_block_row(&row));
+        root_rows.push(row);
+    }
+    let new_parent = resolve_block_parent(&mut tx, &request.parent).await?;
+    ensure_insert_anchor_outside_selection(
+        &mut tx,
+        request.after.as_deref().or(request.before.as_deref()),
+        &root_ids,
+    )
+    .await?;
+    for row in &root_rows {
+        let payload: Value = serde_json::from_str(&row.payload)
+            .map_err(|e| format!("parse moved block payload: {e}"))?;
+        validate_block_for_parent(&new_parent, &row.block_type, &payload)?;
+        ensure_not_moving_into_self(&mut tx, &row.id, &new_parent).await?;
+        ensure_not_moving_into_subtree_page(&mut tx, &row.id, &new_parent.page_id).await?;
+    }
+    let sort_orders = if let Some(before) = request.before.as_deref() {
+        sort_orders_before(&mut tx, &new_parent, before, root_rows.len()).await?
+    } else {
+        next_sort_orders(
+            &mut tx,
+            &new_parent,
+            request.after.as_deref(),
+            root_rows.len(),
+        )
+        .await?
+    };
+    for (row, sort_order) in root_rows.iter().zip(sort_orders) {
+        validate_sort_order(sort_order)?;
+        sqlx::query(
+            "UPDATE notes_blocks
+             SET page_id = ?,
+                 parent_type = ?,
+                 parent_page_id = ?,
+                 parent_block_id = ?,
+                 sort_order = ?,
+                 last_edited_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+             WHERE id = ? AND in_trash = 0",
+        )
+        .bind(&new_parent.page_id)
+        .bind(new_parent.parent_type)
+        .bind(&new_parent.parent_page_id)
+        .bind(&new_parent.parent_block_id)
+        .bind(sort_order)
+        .bind(&row.id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| format!("move notes block: {e}"))?;
+        sqlx::query(
+            "WITH RECURSIVE subtree(id) AS (
+                SELECT id FROM notes_blocks WHERE parent_block_id = ?
+                UNION ALL
+                SELECT notes_blocks.id
+                FROM notes_blocks
+                JOIN subtree ON notes_blocks.parent_block_id = subtree.id
+             )
+             UPDATE notes_blocks
+             SET page_id = ?
+             WHERE id IN (SELECT id FROM subtree)",
+        )
+        .bind(&row.id)
+        .bind(&new_parent.page_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| format!("move notes block descendants: {e}"))?;
+        update_block_comment_thread_pages(&mut tx, &row.id, &new_parent.page_id).await?;
+        if row.block_type == "child_page" {
+            sqlx::query(
+                "UPDATE notes_pages
+                 SET parent_type = ?,
+                     parent_page_id = ?,
+                     parent_block_id = ?,
+                     last_edited_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                 WHERE id = ?",
+            )
+            .bind(new_parent.parent_type)
+            .bind(&new_parent.parent_page_id)
+            .bind(&new_parent.parent_block_id)
+            .bind(&row.id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| format!("move notes child page parent: {e}"))?;
+        }
+    }
+    for parent in &old_parents {
+        refresh_parent_has_children(&mut tx, parent).await?;
+        if parent.page_id != new_parent.page_id {
+            touch_page(&mut tx, &parent.page_id).await?;
+        }
+    }
+    refresh_parent_has_children(&mut tx, &new_parent).await?;
+    touch_page(&mut tx, &new_parent.page_id).await?;
+    tx.commit()
+        .await
+        .map_err(|e| format!("commit move notes blocks: {e}"))?;
+    load_blocks_by_ids(pool, root_ids).await
 }
 
 pub(in crate::notes) async fn duplicate_block(
@@ -1478,6 +1605,7 @@ pub(in crate::notes) async fn duplicate_block(
         .map_err(|e| format!("duplicate notes block: {e}"))?;
     }
     refresh_duplicated_has_children(&mut tx, &seen_duplicate_ids).await?;
+    duplicate_block_comment_threads(&mut tx, &duplicate_ids, &source_root.page_id).await?;
     touch_page(&mut tx, &source_root.page_id).await?;
     tx.commit()
         .await
@@ -1485,20 +1613,334 @@ pub(in crate::notes) async fn duplicate_block(
     reads::get_block(pool, &duplicate_root_id, false).await
 }
 
+pub(in crate::notes) async fn duplicate_blocks(
+    pool: &SqlitePool,
+    request: NoteDuplicateBlocks,
+) -> Result<NotePaginatedBlockList, String> {
+    validate_parent(&request.parent)?;
+    if request.after.is_some() && request.before.is_some() {
+        return Err("duplicate request cannot include both after and before".to_string());
+    }
+    validate_duplicate_block_count(request.duplicated_block_ids.len())?;
+    let (duplicate_ids, seen_duplicate_ids) = duplicate_block_id_map(request.duplicated_block_ids)?;
+    let include_trashed_sources = request.include_trashed_sources.unwrap_or(false);
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|e| format!("begin duplicate notes blocks: {e}"))?;
+    let root_ids =
+        normalize_selection_root_ids(&mut tx, &request.block_ids, include_trashed_sources).await?;
+    let destination_parent = resolve_block_parent(&mut tx, &request.parent).await?;
+    let mut source_rows = Vec::new();
+    let mut root_rows = Vec::with_capacity(root_ids.len());
+    for block_id in &root_ids {
+        let subtree_rows =
+            load_block_subtree_rows_with_trash(&mut tx, block_id, include_trashed_sources).await?;
+        let source_root = subtree_rows
+            .first()
+            .ok_or_else(|| "notes block not found".to_string())?;
+        if source_root.block_type == "child_page" {
+            return Err(
+                "child_page blocks must be duplicated through page duplication".to_string(),
+            );
+        }
+        let payload: Value = serde_json::from_str(&source_root.payload)
+            .map_err(|e| format!("parse duplicated block payload: {e}"))?;
+        validate_block_for_parent(&destination_parent, &source_root.block_type, &payload)?;
+        root_rows.push(source_root.clone());
+        source_rows.extend(subtree_rows);
+    }
+    if source_rows.len() != duplicate_ids.len() {
+        return Err("duplicated_block_ids must match the source block subtrees".to_string());
+    }
+    let source_id_set = source_rows
+        .iter()
+        .map(|row| row.id.as_str())
+        .collect::<HashSet<_>>();
+    for source_id in duplicate_ids.keys() {
+        if !source_id_set.contains(source_id.as_str()) {
+            return Err("duplicated_block_ids must match the source block subtrees".to_string());
+        }
+    }
+    for duplicate_id in &seen_duplicate_ids {
+        if source_id_set.contains(duplicate_id.as_str()) {
+            return Err("duplicate_id values must not match source_id values".to_string());
+        }
+    }
+    let root_id_set = root_ids.iter().map(String::as_str).collect::<HashSet<_>>();
+    let root_sort_orders = if let Some(before) = request.before.as_deref() {
+        sort_orders_before(&mut tx, &destination_parent, before, root_rows.len()).await?
+    } else {
+        next_sort_orders(
+            &mut tx,
+            &destination_parent,
+            request.after.as_deref(),
+            root_rows.len(),
+        )
+        .await?
+    };
+    let root_sort_order_by_source = root_rows
+        .iter()
+        .zip(root_sort_orders)
+        .map(|(row, sort_order)| (row.id.as_str(), sort_order))
+        .collect::<HashMap<_, _>>();
+    for row in &source_rows {
+        let duplicate_id = duplicate_ids.get(&row.id).ok_or_else(|| {
+            "duplicated_block_ids must match the source block subtrees".to_string()
+        })?;
+        let (parent_type, parent_page_id, parent_block_id, sort_order) =
+            if root_id_set.contains(row.id.as_str()) {
+                (
+                    destination_parent.parent_type,
+                    destination_parent.parent_page_id.clone(),
+                    destination_parent.parent_block_id.clone(),
+                    *root_sort_order_by_source
+                        .get(row.id.as_str())
+                        .ok_or_else(|| "duplicated root sort order is missing".to_string())?,
+                )
+            } else {
+                let source_parent_id = row.parent_block_id.as_ref().ok_or_else(|| {
+                    "duplicated descendant block is missing its parent".to_string()
+                })?;
+                let duplicate_parent_id = duplicate_ids.get(source_parent_id).ok_or_else(|| {
+                    "duplicated_block_ids must include every descendant parent".to_string()
+                })?;
+                (
+                    "block_id",
+                    None,
+                    Some(duplicate_parent_id.clone()),
+                    row.sort_order,
+                )
+            };
+        validate_sort_order(sort_order)?;
+        sqlx::query(
+            "INSERT INTO notes_blocks (
+                id,
+                page_id,
+                parent_type,
+                parent_page_id,
+                parent_block_id,
+                has_children,
+                type,
+                payload,
+                plain_text,
+                sort_order
+             )
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(duplicate_id)
+        .bind(&destination_parent.page_id)
+        .bind(parent_type)
+        .bind(parent_page_id)
+        .bind(parent_block_id)
+        .bind(row.has_children)
+        .bind(&row.block_type)
+        .bind(&row.payload)
+        .bind(&row.plain_text)
+        .bind(sort_order)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| format!("duplicate notes block: {e}"))?;
+    }
+    refresh_duplicated_has_children(&mut tx, &seen_duplicate_ids).await?;
+    duplicate_block_comment_threads(&mut tx, &duplicate_ids, &destination_parent.page_id).await?;
+    refresh_parent_has_children(&mut tx, &destination_parent).await?;
+    touch_page(&mut tx, &destination_parent.page_id).await?;
+    tx.commit()
+        .await
+        .map_err(|e| format!("commit duplicate notes blocks: {e}"))?;
+    let duplicate_root_ids = root_ids
+        .iter()
+        .map(|source_id| {
+            duplicate_ids
+                .get(source_id)
+                .cloned()
+                .ok_or_else(|| "duplicated root block id is missing".to_string())
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    load_blocks_by_ids(pool, duplicate_root_ids).await
+}
+
+fn duplicate_block_id_map(
+    pairs: Vec<NoteDuplicatedBlockId>,
+) -> Result<(HashMap<String, String>, HashSet<String>), String> {
+    let mut duplicate_ids = HashMap::with_capacity(pairs.len());
+    let mut seen_duplicate_ids = HashSet::with_capacity(pairs.len());
+    for pair in pairs {
+        let source_id = pair.source_id.trim().to_string();
+        let duplicate_id = pair.duplicate_id.trim().to_string();
+        require_uuid(&source_id, "source_id")?;
+        require_uuid(&duplicate_id, "duplicate_id")?;
+        if !seen_duplicate_ids.insert(duplicate_id.clone()) {
+            return Err("duplicate_id values must be unique".to_string());
+        }
+        if duplicate_ids.insert(source_id, duplicate_id).is_some() {
+            return Err("source_id values must be unique".to_string());
+        }
+    }
+    Ok((duplicate_ids, seen_duplicate_ids))
+}
+
+async fn normalize_selection_root_ids(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    block_ids: &[String],
+    include_trashed: bool,
+) -> Result<Vec<String>, String> {
+    validate_children_count(block_ids.len())?;
+    let mut seen = HashSet::with_capacity(block_ids.len());
+    let mut normalized = Vec::with_capacity(block_ids.len());
+    for raw_id in block_ids {
+        let block_id = raw_id.trim().to_string();
+        require_uuid(&block_id, "block_id")?;
+        if !seen.insert(block_id.clone()) {
+            return Err("block_ids must be unique".to_string());
+        }
+        normalized.push(block_id);
+    }
+    let selected = normalized.iter().cloned().collect::<HashSet<_>>();
+    let mut roots = Vec::with_capacity(normalized.len());
+    for block_id in normalized {
+        let row = load_block_row_in_tx(tx, &block_id, include_trashed).await?;
+        if selected_ancestor_exists(tx, row.parent_block_id.as_deref(), &selected).await? {
+            continue;
+        }
+        roots.push(block_id);
+    }
+    if roots.is_empty() {
+        return Err("block_ids must include at least one root block".to_string());
+    }
+    Ok(roots)
+}
+
+async fn selected_ancestor_exists(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    parent_block_id: Option<&str>,
+    selected: &HashSet<String>,
+) -> Result<bool, String> {
+    let mut current = parent_block_id.map(str::to_string);
+    while let Some(block_id) = current {
+        if selected.contains(&block_id) {
+            return Ok(true);
+        }
+        current = sqlx::query_scalar::<_, Option<String>>(
+            "SELECT parent_block_id
+             FROM notes_blocks
+             WHERE id = ?",
+        )
+        .bind(&block_id)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(|e| format!("load selected notes block ancestor: {e}"))?
+        .flatten();
+    }
+    Ok(false)
+}
+
+async fn load_block_row_in_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    block_id: &str,
+    include_trashed: bool,
+) -> Result<NoteBlockRow, String> {
+    sqlx::query_as::<_, NoteBlockRow>(
+        "SELECT
+            id,
+            page_id,
+            parent_type,
+            parent_page_id,
+            parent_block_id,
+            has_children,
+            in_trash,
+            type AS block_type,
+            payload,
+            plain_text,
+            sort_order,
+            source_provider,
+            source_object_id,
+            source_last_edited_time,
+            created_time,
+            last_edited_time
+         FROM notes_blocks
+         WHERE id = ? AND (? = 1 OR in_trash = 0)",
+    )
+    .bind(block_id)
+    .bind(if include_trashed { 1_i64 } else { 0_i64 })
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|e| format!("load notes block row: {e}"))?
+    .ok_or_else(|| "notes block not found".to_string())
+}
+
+async fn set_block_subtree_trash(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    block_id: &str,
+    in_trash: bool,
+) -> Result<(), String> {
+    sqlx::query(
+        "WITH RECURSIVE subtree(id) AS (
+            SELECT id FROM notes_blocks WHERE id = ?
+            UNION ALL
+            SELECT notes_blocks.id
+            FROM notes_blocks
+            JOIN subtree ON notes_blocks.parent_block_id = subtree.id
+         )
+         UPDATE notes_blocks
+         SET in_trash = ?,
+             last_edited_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+         WHERE id IN (SELECT id FROM subtree)",
+    )
+    .bind(block_id)
+    .bind(if in_trash { 1_i64 } else { 0_i64 })
+    .execute(&mut **tx)
+    .await
+    .map_err(|e| format!("trash notes block subtree: {e}"))?;
+    sqlx::query(
+        "WITH RECURSIVE subtree(id) AS (
+            SELECT id FROM notes_blocks WHERE id = ?
+            UNION ALL
+            SELECT notes_blocks.id
+            FROM notes_blocks
+            JOIN subtree ON notes_blocks.parent_block_id = subtree.id
+         )
+         UPDATE notes_pages
+         SET in_trash = ?,
+             last_edited_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+         WHERE id IN (
+             SELECT notes_blocks.id
+             FROM notes_blocks
+             JOIN subtree ON subtree.id = notes_blocks.id
+             WHERE notes_blocks.type = 'child_page'
+         )",
+    )
+    .bind(block_id)
+    .bind(if in_trash { 1_i64 } else { 0_i64 })
+    .execute(&mut **tx)
+    .await
+    .map_err(|e| format!("trash notes child pages: {e}"))?;
+    Ok(())
+}
+
 async fn load_block_subtree_rows(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     block_id: &str,
+) -> Result<Vec<NoteBlockRow>, String> {
+    load_block_subtree_rows_with_trash(tx, block_id, false).await
+}
+
+async fn load_block_subtree_rows_with_trash(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    block_id: &str,
+    include_trashed: bool,
 ) -> Result<Vec<NoteBlockRow>, String> {
     sqlx::query_as::<_, NoteBlockRow>(
         "WITH RECURSIVE subtree(id, path) AS (
             SELECT id, printf('%020.6f:%s', sort_order, id)
             FROM notes_blocks
-            WHERE id = ? AND in_trash = 0
+            WHERE id = ? AND (? = 1 OR in_trash = 0)
             UNION ALL
             SELECT child.id, subtree.path || '/' || printf('%020.6f:%s', child.sort_order, child.id)
             FROM notes_blocks AS child
             JOIN subtree ON child.parent_block_id = subtree.id
-            WHERE child.in_trash = 0
+            WHERE ? = 1 OR child.in_trash = 0
          )
          SELECT
             notes_blocks.id,
@@ -1522,6 +1964,8 @@ async fn load_block_subtree_rows(
          ORDER BY subtree.path ASC",
     )
     .bind(block_id)
+    .bind(if include_trashed { 1_i64 } else { 0_i64 })
+    .bind(if include_trashed { 1_i64 } else { 0_i64 })
     .fetch_all(&mut **tx)
     .await
     .map_err(|e| format!("load notes block subtree: {e}"))
@@ -1797,8 +2241,12 @@ async fn new_note_id(
         let exists: Option<i64> = sqlx::query_scalar(
             "SELECT 1
              WHERE EXISTS (SELECT 1 FROM notes_pages WHERE id = ?)
-                OR EXISTS (SELECT 1 FROM notes_blocks WHERE id = ?)",
+                OR EXISTS (SELECT 1 FROM notes_blocks WHERE id = ?)
+                OR EXISTS (SELECT 1 FROM notes_comment_threads WHERE id = ?)
+                OR EXISTS (SELECT 1 FROM notes_comments WHERE id = ?)",
         )
+        .bind(&id)
+        .bind(&id)
         .bind(&id)
         .bind(&id)
         .fetch_optional(&mut **tx)
@@ -2348,6 +2796,64 @@ async fn sort_order_before(
     })
 }
 
+async fn sort_orders_before(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    parent: &ParentTarget,
+    before_id: &str,
+    count: usize,
+) -> Result<Vec<f64>, String> {
+    if count == 0 {
+        return Ok(Vec::new());
+    }
+    let before_id = before_id.trim();
+    require_uuid(before_id, "before")?;
+    let before_order: f64 = if parent.parent_type == "page_id" {
+        sqlx::query_scalar(
+            "SELECT sort_order
+             FROM notes_blocks
+             WHERE id = ?
+               AND parent_type = 'page_id'
+               AND parent_page_id = ?
+               AND page_id = ?
+               AND in_trash = 0",
+        )
+        .bind(before_id)
+        .bind(&parent.parent_page_id)
+        .bind(&parent.page_id)
+        .fetch_optional(&mut **tx)
+        .await
+    } else {
+        sqlx::query_scalar(
+            "SELECT sort_order
+             FROM notes_blocks
+             WHERE id = ?
+               AND parent_type = 'block_id'
+               AND parent_block_id = ?
+               AND page_id = ?
+               AND in_trash = 0",
+        )
+        .bind(before_id)
+        .bind(&parent.parent_block_id)
+        .bind(&parent.page_id)
+        .fetch_optional(&mut **tx)
+        .await
+    }
+    .map_err(|e| format!("load notes before block: {e}"))?
+    .ok_or_else(|| "before block not found".to_string())?;
+    let previous_order = previous_sibling_order_before(tx, parent, before_order, before_id).await?;
+    let (base, step) = match previous_order {
+        Some(previous_order) if previous_order < before_order => (
+            previous_order,
+            (before_order - previous_order) / (count as f64 + 1.0),
+        ),
+        _ if before_order > 0.0 => (0.0, before_order / (count as f64 + 1.0)),
+        _ => (0.0, 0.0),
+    };
+    Ok((1..=count)
+        .map(|index| base + step * index as f64)
+        .collect())
+}
+
 async fn previous_sibling_order_before(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     parent: &ParentTarget,
@@ -2452,15 +2958,179 @@ async fn load_blocks_by_ids(
     pool: &SqlitePool,
     ids: Vec<String>,
 ) -> Result<NotePaginatedBlockList, String> {
+    load_blocks_by_ids_with_trash(pool, ids, false).await
+}
+
+async fn load_blocks_by_ids_with_trash(
+    pool: &SqlitePool,
+    ids: Vec<String>,
+    include_trashed: bool,
+) -> Result<NotePaginatedBlockList, String> {
     let mut rows = Vec::with_capacity(ids.len());
     for id in ids {
-        rows.push(reads::get_block_row(pool, &id, false).await?);
+        rows.push(reads::get_block_row(pool, &id, include_trashed).await?);
     }
     let results = rows
         .into_iter()
         .map(NoteBlockDto::new)
         .collect::<Result<Vec<_>, _>>()?;
     Ok(NotePaginatedBlockList::new(results, None, false))
+}
+
+async fn update_block_comment_thread_pages(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    block_id: &str,
+    page_id: &str,
+) -> Result<(), String> {
+    sqlx::query(
+        "WITH RECURSIVE subtree(id) AS (
+            SELECT id FROM notes_blocks WHERE id = ?
+            UNION ALL
+            SELECT notes_blocks.id
+            FROM notes_blocks
+            JOIN subtree ON notes_blocks.parent_block_id = subtree.id
+         )
+         UPDATE notes_comment_threads
+         SET page_id = ?
+         WHERE parent_type = 'block_id'
+           AND parent_block_id IN (SELECT id FROM subtree)",
+    )
+    .bind(block_id)
+    .bind(page_id)
+    .execute(&mut **tx)
+    .await
+    .map_err(|e| format!("move notes block comment threads: {e}"))?;
+    Ok(())
+}
+
+async fn duplicate_block_comment_threads(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    duplicate_ids: &HashMap<String, String>,
+    page_id: &str,
+) -> Result<(), String> {
+    let mut reserved_ids = HashSet::new();
+    for (source_id, duplicate_id) in duplicate_ids {
+        let threads = sqlx::query_as::<
+            _,
+            (
+                String,
+                String,
+                Option<String>,
+                Option<String>,
+                String,
+                String,
+            ),
+        >(
+            "SELECT id, status, resolved_at, resolved_by, created_time, last_edited_time
+             FROM notes_comment_threads
+             WHERE parent_type = 'block_id' AND parent_block_id = ?",
+        )
+        .bind(source_id)
+        .fetch_all(&mut **tx)
+        .await
+        .map_err(|e| format!("load notes block comment threads: {e}"))?;
+        for (thread_id, status, resolved_at, resolved_by, created_time, last_edited_time) in threads
+        {
+            let duplicate_thread_id = new_note_id(tx, &mut reserved_ids).await?;
+            sqlx::query(
+                "INSERT INTO notes_comment_threads (
+                    id,
+                    page_id,
+                    parent_type,
+                    parent_page_id,
+                    parent_block_id,
+                    status,
+                    resolved_at,
+                    resolved_by,
+                    created_time,
+                    last_edited_time
+                 )
+                 VALUES (?, ?, 'block_id', NULL, ?, ?, ?, ?, ?, ?)",
+            )
+            .bind(&duplicate_thread_id)
+            .bind(page_id)
+            .bind(duplicate_id)
+            .bind(&status)
+            .bind(&resolved_at)
+            .bind(&resolved_by)
+            .bind(&created_time)
+            .bind(&last_edited_time)
+            .execute(&mut **tx)
+            .await
+            .map_err(|e| format!("duplicate notes block comment thread: {e}"))?;
+            let comments = sqlx::query_as::<
+                _,
+                (
+                    String,
+                    String,
+                    String,
+                    String,
+                    String,
+                    Option<String>,
+                    String,
+                    String,
+                ),
+            >(
+                "SELECT rich_text,
+                        plain_text,
+                        created_by,
+                        display_name,
+                        attachments,
+                        deleted_at,
+                        created_time,
+                        last_edited_time
+                 FROM notes_comments
+                 WHERE thread_id = ?
+                 ORDER BY created_time ASC, id ASC",
+            )
+            .bind(&thread_id)
+            .fetch_all(&mut **tx)
+            .await
+            .map_err(|e| format!("load notes block comments: {e}"))?;
+            for (
+                rich_text,
+                plain_text,
+                created_by,
+                display_name,
+                attachments,
+                deleted_at,
+                comment_created_time,
+                comment_last_edited_time,
+            ) in comments
+            {
+                let duplicate_comment_id = new_note_id(tx, &mut reserved_ids).await?;
+                sqlx::query(
+                    "INSERT INTO notes_comments (
+                        id,
+                        thread_id,
+                        rich_text,
+                        plain_text,
+                        created_by,
+                        display_name,
+                        attachments,
+                        deleted_at,
+                        created_time,
+                        last_edited_time
+                     )
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                )
+                .bind(&duplicate_comment_id)
+                .bind(&duplicate_thread_id)
+                .bind(&rich_text)
+                .bind(&plain_text)
+                .bind(&created_by)
+                .bind(&display_name)
+                .bind(&attachments)
+                .bind(&deleted_at)
+                .bind(&comment_created_time)
+                .bind(&comment_last_edited_time)
+                .execute(&mut **tx)
+                .await
+                .map_err(|e| format!("duplicate notes block comment: {e}"))?;
+            }
+        }
+    }
+    Ok(())
 }
 
 async fn ensure_not_moving_into_self(
@@ -2491,6 +3161,38 @@ async fn ensure_not_moving_into_self(
     .map_err(|e| format!("check notes move cycle: {e}"))?;
     if descendant.is_some() {
         return Err("block cannot be moved under its descendant".to_string());
+    }
+    Ok(())
+}
+
+async fn ensure_insert_anchor_outside_selection(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    anchor_id: Option<&str>,
+    root_ids: &[String],
+) -> Result<(), String> {
+    let Some(anchor_id) = anchor_id.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(());
+    };
+    require_uuid(anchor_id, "anchor")?;
+    for root_id in root_ids {
+        let inside_subtree: Option<i64> = sqlx::query_scalar(
+            "WITH RECURSIVE subtree(id) AS (
+                SELECT id FROM notes_blocks WHERE id = ?
+                UNION ALL
+                SELECT notes_blocks.id
+                FROM notes_blocks
+                JOIN subtree ON notes_blocks.parent_block_id = subtree.id
+             )
+             SELECT 1 FROM subtree WHERE id = ? LIMIT 1",
+        )
+        .bind(root_id)
+        .bind(anchor_id)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(|e| format!("check notes selection anchor: {e}"))?;
+        if inside_subtree.is_some() {
+            return Err("insert anchor cannot be inside the selected block subtree".to_string());
+        }
     }
     Ok(())
 }

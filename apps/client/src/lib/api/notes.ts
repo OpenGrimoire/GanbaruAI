@@ -19,15 +19,18 @@ import type {
   NotesCommentUpdate,
   NotesDuplicatePageRequest,
   NotesDuplicateBlockRequest,
+  NotesDuplicateBlocksRequest,
   NotesBlockUpdate,
   NotesLoadedPage,
   NotesMovePageRequest,
   NotesMoveBlockRequest,
+  NotesMoveBlocksRequest,
   NotesPage,
   NotesPageCreate,
   NotesPageUpdate,
   NotesPaginatedBlockList,
   NotesSearchResult,
+  NotesTrashBlocksRequest,
 } from "$lib/notes/types";
 
 export async function listNotesPages(): Promise<NotesPage[]> {
@@ -227,6 +230,13 @@ export async function trashNotesBlock(
   return mapNotesBlockDto(await invoke<unknown>("notes_trash_block", { dbUrl, blockId, inTrash }));
 }
 
+export async function trashNotesBlocks(
+  request: NotesTrashBlocksRequest,
+): Promise<NotesPaginatedBlockList> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesBlockListDto(await invoke<unknown>("notes_trash_blocks", { dbUrl, request }));
+}
+
 export async function moveNotesBlock(
   blockId: string,
   request: NotesMoveBlockRequest,
@@ -235,12 +245,26 @@ export async function moveNotesBlock(
   return mapNotesBlockDto(await invoke<unknown>("notes_move_block", { dbUrl, blockId, request }));
 }
 
+export async function moveNotesBlocks(
+  request: NotesMoveBlocksRequest,
+): Promise<NotesPaginatedBlockList> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesBlockListDto(await invoke<unknown>("notes_move_blocks", { dbUrl, request }));
+}
+
 export async function duplicateNotesBlock(
   blockId: string,
   request: NotesDuplicateBlockRequest,
 ): Promise<NotesBlock> {
   const dbUrl = await ensureDbUrl();
   return mapNotesBlockDto(await invoke<unknown>("notes_duplicate_block", { dbUrl, blockId, request }));
+}
+
+export async function duplicateNotesBlocks(
+  request: NotesDuplicateBlocksRequest,
+): Promise<NotesPaginatedBlockList> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesBlockListDto(await invoke<unknown>("notes_duplicate_blocks", { dbUrl, request }));
 }
 
 export async function loadNotesUndoState(pageId: string): Promise<string | null> {

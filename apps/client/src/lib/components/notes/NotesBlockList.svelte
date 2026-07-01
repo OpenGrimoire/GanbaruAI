@@ -13,6 +13,12 @@
     normalizeNotesSelectableBlockIds,
   } from "$lib/notes/block-selection";
   import type { NotesBlockSelectionState } from "$lib/notes/block-selection";
+  import {
+    notesSelectionPlainText,
+    notesSelectionRootBlockIds,
+    notesSelectionSubtreeIds,
+    planNotesSelectionMoveWithinSiblings,
+  } from "$lib/notes/block-selection-operations";
   import { notesPageIconText } from "$lib/notes/page-icon";
   import { notesPageTitle } from "$lib/notes/page-title";
   import type { NotesHeadingBlockType } from "$lib/notes/block-factory";
@@ -39,6 +45,21 @@
   import NotesBlockRow from "./NotesBlockRow.svelte";
   import NotesColumnListBlock from "./NotesColumnListBlock.svelte";
   import NotesTabBlock from "./NotesTabBlock.svelte";
+  import ArrowDown from "@lucide/svelte/icons/arrow-down";
+  import ArrowUp from "@lucide/svelte/icons/arrow-up";
+  import ClipboardPaste from "@lucide/svelte/icons/clipboard-paste";
+  import Copy from "@lucide/svelte/icons/copy";
+  import CopyPlus from "@lucide/svelte/icons/copy-plus";
+  import Scissors from "@lucide/svelte/icons/scissors";
+  import Trash2 from "@lucide/svelte/icons/trash-2";
+
+  type NotesBlockSelectionClipboard = {
+    mode: "copy" | "cut";
+    pageId: string;
+    rootBlockIds: string[];
+    subtreeBlockIds: string[];
+    plainText: string;
+  };
 
   let {
     items,
@@ -65,6 +86,21 @@
   let blockSelection = $state<NotesBlockSelectionState | null>(null);
   let selectionDragAnchorBlockId = $state<string | null>(null);
   let selectionDragPointerId = $state<number | null>(null);
+  let selectionClipboard = $state<NotesBlockSelectionClipboard | null>(null);
+  let selectionBusy = $state(false);
+  let selectionActionError = $state<string | null>(null);
+  const selectedBlockCount = $derived(blockSelection?.selectedBlockIds.length ?? 0);
+  const selectedRootBlockIds = $derived(
+    blockSelection
+      ? notesSelectionRootBlockIds(currentTreeState(), blockSelection.selectedBlockIds)
+      : [],
+  );
+  const canMoveSelectionUp = $derived(
+    !!planNotesSelectionMoveWithinSiblings(currentTreeState(), selectedRootBlockIds, "up"),
+  );
+  const canMoveSelectionDown = $derived(
+    !!planNotesSelectionMoveWithinSiblings(currentTreeState(), selectedRootBlockIds, "down"),
+  );
   const mentionTargets: NotesPageMentionTarget[] = $derived(
     notes.pages.map((page) => {
       const parentPageId = page.parent.type === "page_id" ? page.parent.page_id : null;
@@ -113,6 +149,13 @@
       Array.from(blockListElement.querySelectorAll<HTMLElement>("[data-notes-selectable-block-id]"))
         .map((element) => element.dataset.notesSelectableBlockId ?? ""),
     );
+  }
+
+  function currentTreeState() {
+    return {
+      blocksById: notes.blocksById,
+      childIdsByParentId: notes.childIdsByParentId,
+    };
   }
 
   function selectableBlockRowFromEvent(event: Event): HTMLElement | null {
@@ -240,6 +283,7 @@
     if (event.defaultPrevented) return;
     const blockId = selectableBlockIdFromEvent(event);
     if (!blockId) return;
+    if (handleBlockSelectionShortcut(event, blockId)) return;
     if (event.key === "Escape" && !event.ctrlKey && !event.metaKey && !event.altKey) {
       event.preventDefault();
       clearNativeSelection();
@@ -266,6 +310,121 @@
       setBlockSelection(selection);
       if (selection) focusSelectedBlockRow(selection.focusBlockId, false);
     }
+  }
+
+  function handleBlockSelectionShortcut(event: KeyboardEvent, blockId: string): boolean {
+    const hasModifier = event.ctrlKey || event.metaKey;
+    const key = event.key.toLowerCase();
+    if (
+      selectionClipboard
+      && hasModifier
+      && !event.shiftKey
+      && !event.altKey
+      && key === "v"
+      && !eventTargetIsEditable(event.target)
+    ) {
+      event.preventDefault();
+      void runSelectionAction(() => pasteSelectionClipboard(blockSelection?.focusBlockId ?? blockId));
+      return true;
+    }
+    if (!blockSelection) return false;
+    if (!event.altKey && (event.key === "Backspace" || event.key === "Delete")) {
+      event.preventDefault();
+      void runSelectionAction(deleteCurrentBlockSelection);
+      return true;
+    }
+    if (hasModifier && event.shiftKey && !event.altKey && event.key === "ArrowUp") {
+      event.preventDefault();
+      void runSelectionAction(() => moveCurrentBlockSelection("up"));
+      return true;
+    }
+    if (hasModifier && event.shiftKey && !event.altKey && event.key === "ArrowDown") {
+      event.preventDefault();
+      void runSelectionAction(() => moveCurrentBlockSelection("down"));
+      return true;
+    }
+    if (!hasModifier || event.shiftKey || event.altKey) return false;
+    if (key === "c") {
+      event.preventDefault();
+      void runSelectionAction(() => copyCurrentBlockSelection("copy"));
+      return true;
+    }
+    if (key === "x") {
+      event.preventDefault();
+      void runSelectionAction(() => copyCurrentBlockSelection("cut"));
+      return true;
+    }
+    if (key === "d") {
+      event.preventDefault();
+      void runSelectionAction(duplicateCurrentBlockSelection);
+      return true;
+    }
+    return false;
+  }
+
+  async function runSelectionAction(action: () => Promise<void> | void): Promise<void> {
+    if (selectionBusy) return;
+    selectionBusy = true;
+    selectionActionError = null;
+    try {
+      await action();
+    } catch (error) {
+      selectionActionError = error instanceof Error ? error.message : String(error);
+    } finally {
+      selectionBusy = false;
+    }
+  }
+
+  async function copyCurrentBlockSelection(mode: "copy" | "cut"): Promise<void> {
+    const selection = blockSelection;
+    if (!selection) return;
+    const state = currentTreeState();
+    const rootBlockIds = notesSelectionRootBlockIds(state, selection.selectedBlockIds);
+    const subtreeBlockIds = notesSelectionSubtreeIds(state, rootBlockIds);
+    if (rootBlockIds.length === 0 || subtreeBlockIds.length === 0) return;
+    const plainText = notesSelectionPlainText(state, rootBlockIds);
+    selectionClipboard = { mode, pageId, rootBlockIds, subtreeBlockIds, plainText };
+    if (plainText && typeof navigator !== "undefined" && navigator.clipboard) {
+      await navigator.clipboard.writeText(plainText).catch(() => undefined);
+    }
+    if (mode === "cut") {
+      await notes.deleteBlockSelection(selection.selectedBlockIds);
+      setBlockSelection(null);
+    }
+  }
+
+  async function pasteSelectionClipboard(targetBlockId: string | null): Promise<void> {
+    const clipboard = selectionClipboard;
+    if (!clipboard || !targetBlockId) return;
+    const focusBlockId = await notes.pasteBlockSelection(
+      clipboard.rootBlockIds,
+      clipboard.subtreeBlockIds,
+      targetBlockId,
+      clipboard.mode === "cut",
+    );
+    if (clipboard.mode === "cut") selectionClipboard = null;
+    setBlockSelection(null);
+    if (focusBlockId) focusSelectedBlockRow(focusBlockId, false);
+  }
+
+  async function duplicateCurrentBlockSelection(): Promise<void> {
+    const selection = blockSelection;
+    if (!selection) return;
+    await notes.duplicateBlockSelection(selection.selectedBlockIds);
+    setBlockSelection(null);
+  }
+
+  async function moveCurrentBlockSelection(direction: "up" | "down"): Promise<void> {
+    const selection = blockSelection;
+    if (!selection) return;
+    await notes.moveBlockSelection(selection.selectedBlockIds, direction);
+  }
+
+  async function deleteCurrentBlockSelection(): Promise<void> {
+    const selection = blockSelection;
+    if (!selection) return;
+    await notes.deleteBlockSelection(selection.selectedBlockIds);
+    setBlockSelection(null);
   }
 
   function blockSelectionDelegation(node: HTMLDivElement): { destroy: () => void } {
@@ -527,6 +686,111 @@
   role="group"
   aria-label={t("notes.blockList")}
 >
+  {#if blockSelection}
+    <div
+      class="sticky top-2 z-20 mb-2 flex min-w-0 flex-wrap items-center gap-1 rounded-md border border-border bg-popover/95 px-2 py-1.5 text-xs text-popover-foreground shadow-sm backdrop-blur"
+      role="toolbar"
+      aria-label={t("notes.selectionActions")}
+    >
+      <span class="mr-1 shrink-0 font-medium text-muted-foreground">
+        {t("notes.selectedBlocks", selectedBlockCount)}
+      </span>
+      <button
+        type="button"
+        class="inline-flex h-8 items-center gap-1 rounded-md px-2 text-xs hover:bg-accent disabled:pointer-events-none disabled:opacity-50"
+        disabled={selectionBusy || selectedRootBlockIds.length === 0}
+        aria-label={t("notes.copySelection")}
+        title={t("notes.copySelection")}
+        onclick={() => {
+          void runSelectionAction(() => copyCurrentBlockSelection("copy"));
+        }}
+      >
+        <Copy size={14} aria-hidden="true" />
+        <span>{t("notes.copySelection")}</span>
+      </button>
+      <button
+        type="button"
+        class="inline-flex h-8 items-center gap-1 rounded-md px-2 text-xs hover:bg-accent disabled:pointer-events-none disabled:opacity-50"
+        disabled={selectionBusy || selectedRootBlockIds.length === 0}
+        aria-label={t("notes.cutSelection")}
+        title={t("notes.cutSelection")}
+        onclick={() => {
+          void runSelectionAction(() => copyCurrentBlockSelection("cut"));
+        }}
+      >
+        <Scissors size={14} aria-hidden="true" />
+        <span>{t("notes.cutSelection")}</span>
+      </button>
+      <button
+        type="button"
+        class="inline-flex h-8 items-center gap-1 rounded-md px-2 text-xs hover:bg-accent disabled:pointer-events-none disabled:opacity-50"
+        disabled={selectionBusy || !selectionClipboard}
+        aria-label={t("notes.pasteSelection")}
+        title={t("notes.pasteSelection")}
+        onclick={() => {
+          void runSelectionAction(() => pasteSelectionClipboard(blockSelection?.focusBlockId ?? notes.focusBlockId));
+        }}
+      >
+        <ClipboardPaste size={14} aria-hidden="true" />
+        <span>{t("notes.pasteSelection")}</span>
+      </button>
+      <button
+        type="button"
+        class="inline-flex h-8 items-center gap-1 rounded-md px-2 text-xs hover:bg-accent disabled:pointer-events-none disabled:opacity-50"
+        disabled={selectionBusy || selectedRootBlockIds.length === 0}
+        aria-label={t("notes.duplicateSelection")}
+        title={t("notes.duplicateSelection")}
+        onclick={() => {
+          void runSelectionAction(duplicateCurrentBlockSelection);
+        }}
+      >
+        <CopyPlus size={14} aria-hidden="true" />
+        <span>{t("notes.duplicateSelection")}</span>
+      </button>
+      <button
+        type="button"
+        class="inline-flex h-8 items-center justify-center rounded-md px-2 hover:bg-accent disabled:pointer-events-none disabled:opacity-50"
+        disabled={selectionBusy || !canMoveSelectionUp}
+        aria-label={t("notes.moveSelectionUp")}
+        title={t("notes.moveSelectionUp")}
+        onclick={() => {
+          void runSelectionAction(() => moveCurrentBlockSelection("up"));
+        }}
+      >
+        <ArrowUp size={15} aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        class="inline-flex h-8 items-center justify-center rounded-md px-2 hover:bg-accent disabled:pointer-events-none disabled:opacity-50"
+        disabled={selectionBusy || !canMoveSelectionDown}
+        aria-label={t("notes.moveSelectionDown")}
+        title={t("notes.moveSelectionDown")}
+        onclick={() => {
+          void runSelectionAction(() => moveCurrentBlockSelection("down"));
+        }}
+      >
+        <ArrowDown size={15} aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        class="inline-flex h-8 items-center gap-1 rounded-md px-2 text-xs text-destructive hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50"
+        disabled={selectionBusy || selectedRootBlockIds.length === 0}
+        aria-label={t("notes.deleteSelection")}
+        title={t("notes.deleteSelection")}
+        onclick={() => {
+          void runSelectionAction(deleteCurrentBlockSelection);
+        }}
+      >
+        <Trash2 size={14} aria-hidden="true" />
+        <span>{t("notes.deleteSelection")}</span>
+      </button>
+      {#if selectionActionError}
+        <span class="min-w-0 flex-1 truncate text-destructive" role="status">
+          {t("notes.selectionActionFailed")} {selectionActionError}
+        </span>
+      {/if}
+    </div>
+  {/if}
   {#each items as item (item.block.id)}
     {#if item.block.type === "column_list"}
       <NotesColumnListBlock

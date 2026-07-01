@@ -1,8 +1,8 @@
 use super::models::{
     NoteAppendBlockChildren, NoteBlockUpdate, NoteBlockWrite, NoteChildPageFromBlockCreate,
-    NoteCommentCreate, NoteCommentUpdate, NoteDuplicateBlock, NoteDuplicatePage,
-    NoteDuplicatedBlockId, NoteMoveBlock, NoteMovePage, NotePageCreate, NoteParent,
-    OptionalJsonValue,
+    NoteCommentCreate, NoteCommentUpdate, NoteDuplicateBlock, NoteDuplicateBlocks,
+    NoteDuplicatePage, NoteDuplicatedBlockId, NoteMoveBlock, NoteMoveBlocks, NoteMovePage,
+    NotePageCreate, NoteParent, NoteTrashBlocks, OptionalJsonValue,
 };
 use super::{comments, reads, undo_state, validation, writes};
 use crate::db::run_migrations;
@@ -1174,6 +1174,235 @@ fn duplicate_block_rejects_child_page_blocks_until_page_duplication_exists() {
             result.err(),
             Some("child_page blocks must be duplicated through page duplication".to_string())
         );
+    });
+}
+
+#[test]
+fn duplicate_blocks_copies_loaded_subtrees_and_block_comments() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        create_page(&pool, PAGE_A, BLOCK_A).await;
+        writes::append_block_children(
+            &pool,
+            NoteAppendBlockChildren {
+                parent: page_parent(PAGE_A),
+                after: Some(BLOCK_A.to_string()),
+                children: vec![block(BLOCK_B, "paragraph", paragraph_payload("Parent"))],
+            },
+        )
+        .await
+        .unwrap();
+        writes::append_block_children(
+            &pool,
+            NoteAppendBlockChildren {
+                parent: block_parent(BLOCK_B),
+                after: None,
+                children: vec![block(BLOCK_C, "paragraph", paragraph_payload("Nested"))],
+            },
+        )
+        .await
+        .unwrap();
+        comments::create_comment(
+            &pool,
+            NoteCommentCreate {
+                id: COMMENT_A.to_string(),
+                parent: Some(block_parent(BLOCK_C)),
+                discussion_id: None,
+                rich_text: vec![rich_text("Nested comment")],
+            },
+        )
+        .await
+        .unwrap();
+
+        let duplicated = writes::duplicate_blocks(
+            &pool,
+            NoteDuplicateBlocks {
+                block_ids: vec![BLOCK_B.to_string()],
+                duplicated_block_ids: vec![
+                    NoteDuplicatedBlockId {
+                        source_id: BLOCK_B.to_string(),
+                        duplicate_id: BLOCK_D.to_string(),
+                    },
+                    NoteDuplicatedBlockId {
+                        source_id: BLOCK_C.to_string(),
+                        duplicate_id: BLOCK_E.to_string(),
+                    },
+                ],
+                parent: page_parent(PAGE_A),
+                after: Some(BLOCK_B.to_string()),
+                before: None,
+                include_trashed_sources: None,
+            },
+        )
+        .await
+        .unwrap();
+        let duplicated_json = serde_json::to_value(duplicated).unwrap();
+        assert_eq!(duplicated_json["results"][0]["id"], BLOCK_D);
+
+        let duplicated_children = reads::get_block_children(&pool, BLOCK_D, None, Some(10))
+            .await
+            .unwrap();
+        let duplicated_children_json = serde_json::to_value(duplicated_children).unwrap();
+        assert_eq!(duplicated_children_json["results"][0]["id"], BLOCK_E);
+        assert_eq!(
+            duplicated_children_json["results"][0]["paragraph"]["rich_text"][0]["plain_text"],
+            "Nested"
+        );
+
+        let threads = comments::list_comments(&pool, PAGE_A, false).await.unwrap();
+        let threads_json = serde_json::to_value(threads).unwrap();
+        assert!(threads_json.as_array().unwrap().iter().any(|thread| {
+            thread["parent"]["block_id"] == BLOCK_E
+                && thread["comments"][0]["rich_text"][0]["plain_text"] == "Nested comment"
+        }));
+    });
+}
+
+#[test]
+fn move_blocks_moves_subtrees_updates_comment_pages_and_rejects_cycles() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        create_page(&pool, PAGE_A, BLOCK_A).await;
+        writes::create_page(
+            &pool,
+            NotePageCreate {
+                id: PAGE_B.to_string(),
+                title: "Destination".to_string(),
+                parent: workspace_parent(),
+                first_block_id: BLOCK_F.to_string(),
+                after_block_id: None,
+            },
+        )
+        .await
+        .unwrap();
+        writes::append_block_children(
+            &pool,
+            NoteAppendBlockChildren {
+                parent: page_parent(PAGE_A),
+                after: Some(BLOCK_A.to_string()),
+                children: vec![block(BLOCK_B, "paragraph", paragraph_payload("Parent"))],
+            },
+        )
+        .await
+        .unwrap();
+        writes::append_block_children(
+            &pool,
+            NoteAppendBlockChildren {
+                parent: block_parent(BLOCK_B),
+                after: None,
+                children: vec![block(BLOCK_C, "paragraph", paragraph_payload("Nested"))],
+            },
+        )
+        .await
+        .unwrap();
+        comments::create_comment(
+            &pool,
+            NoteCommentCreate {
+                id: COMMENT_A.to_string(),
+                parent: Some(block_parent(BLOCK_C)),
+                discussion_id: None,
+                rich_text: vec![rich_text("Move with block")],
+            },
+        )
+        .await
+        .unwrap();
+
+        let cycle = writes::move_blocks(
+            &pool,
+            NoteMoveBlocks {
+                block_ids: vec![BLOCK_B.to_string()],
+                parent: block_parent(BLOCK_C),
+                after: None,
+                before: None,
+            },
+        )
+        .await;
+        assert_eq!(
+            cycle.err(),
+            Some("block cannot be moved under its descendant".to_string())
+        );
+
+        writes::move_blocks(
+            &pool,
+            NoteMoveBlocks {
+                block_ids: vec![BLOCK_B.to_string()],
+                parent: page_parent(PAGE_B),
+                after: Some(BLOCK_F.to_string()),
+                before: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        let destination_children = reads::get_block_children(&pool, PAGE_B, None, Some(10))
+            .await
+            .unwrap();
+        let destination_children_json = serde_json::to_value(destination_children).unwrap();
+        assert_eq!(destination_children_json["results"][1]["id"], BLOCK_B);
+        let moved_nested = reads::get_block(&pool, BLOCK_C, false).await.unwrap();
+        let moved_nested_json = serde_json::to_value(moved_nested).unwrap();
+        assert_eq!(moved_nested_json["parent"]["block_id"], BLOCK_B);
+
+        let source_threads = comments::list_comments(&pool, PAGE_A, false).await.unwrap();
+        assert!(serde_json::to_value(source_threads)
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .is_empty());
+        let destination_threads = comments::list_comments(&pool, PAGE_B, false).await.unwrap();
+        let destination_threads_json = serde_json::to_value(destination_threads).unwrap();
+        assert_eq!(destination_threads_json[0]["parent"]["block_id"], BLOCK_C);
+        assert_eq!(
+            destination_threads_json[0]["comments"][0]["rich_text"][0]["plain_text"],
+            "Move with block"
+        );
+    });
+}
+
+#[test]
+fn trash_blocks_trashes_selected_roots_and_loaded_descendants_once() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        create_page(&pool, PAGE_A, BLOCK_A).await;
+        writes::append_block_children(
+            &pool,
+            NoteAppendBlockChildren {
+                parent: page_parent(PAGE_A),
+                after: Some(BLOCK_A.to_string()),
+                children: vec![block(BLOCK_B, "paragraph", paragraph_payload("Parent"))],
+            },
+        )
+        .await
+        .unwrap();
+        writes::append_block_children(
+            &pool,
+            NoteAppendBlockChildren {
+                parent: block_parent(BLOCK_B),
+                after: None,
+                children: vec![block(BLOCK_C, "paragraph", paragraph_payload("Nested"))],
+            },
+        )
+        .await
+        .unwrap();
+
+        writes::trash_blocks(
+            &pool,
+            NoteTrashBlocks {
+                block_ids: vec![BLOCK_B.to_string(), BLOCK_C.to_string()],
+                in_trash: Some(true),
+            },
+        )
+        .await
+        .unwrap();
+
+        assert!(reads::get_block(&pool, BLOCK_B, false).await.is_err());
+        assert!(reads::get_block(&pool, BLOCK_C, false).await.is_err());
+        let trashed_parent =
+            serde_json::to_value(reads::get_block(&pool, BLOCK_B, true).await.unwrap()).unwrap();
+        let trashed_child =
+            serde_json::to_value(reads::get_block(&pool, BLOCK_C, true).await.unwrap()).unwrap();
+        assert_eq!(trashed_parent["in_trash"], true);
+        assert_eq!(trashed_child["in_trash"], true);
     });
 }
 
