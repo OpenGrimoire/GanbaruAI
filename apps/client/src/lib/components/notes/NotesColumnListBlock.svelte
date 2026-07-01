@@ -8,6 +8,15 @@
     planNotesKeyboardAction,
     type NotesKeyboardAction,
   } from "$lib/notes/block-keyboard";
+  import {
+    NOTES_COLUMN_MIN_WIDTH_RATIO,
+    notesColumnCanAdd,
+    notesColumnCanMove,
+    notesColumnCanRemove,
+    notesColumnGridTemplate,
+    notesColumnWidths,
+    type NotesColumnMoveDirection,
+  } from "$lib/notes/column";
   import { notesUndoShortcutAction } from "$lib/notes/undo-history";
   import type { NotesHeadingBlockType } from "$lib/notes/block-factory";
   import type { NotesSlashAction, NotesSlashCommand } from "$lib/notes/slash-commands";
@@ -27,6 +36,10 @@
     NotesTableOfContentsItem,
     NotesTableRowBlock,
   } from "$lib/notes/types";
+  import ArrowLeft from "@lucide/svelte/icons/arrow-left";
+  import ArrowRight from "@lucide/svelte/icons/arrow-right";
+  import Plus from "@lucide/svelte/icons/plus";
+  import Trash2 from "@lucide/svelte/icons/trash-2";
   import NotesBlockHandle from "./NotesBlockHandle.svelte";
   import NotesBlockRow from "./NotesBlockRow.svelte";
   import NotesSlashMenu from "./NotesSlashMenu.svelte";
@@ -93,6 +106,11 @@
     onRemoveTableRow,
     onAddTableColumn,
     onRemoveTableColumn,
+    onAddColumn,
+    onRemoveColumn,
+    onMoveColumn,
+    onResizeColumn,
+    onMoveBlockToColumn,
     onSelectPage,
     onFocusBlock,
   }: {
@@ -203,6 +221,19 @@
     onRemoveTableRow: (tableBlockId: string, rowBlockId: string) => Promise<void> | void;
     onAddTableColumn: (tableBlockId: string, afterColumnIndex: number) => Promise<void> | void;
     onRemoveTableColumn: (tableBlockId: string, columnIndex: number) => Promise<void> | void;
+    onAddColumn: (columnListBlockId: string, afterColumnIndex: number) => Promise<void> | void;
+    onRemoveColumn: (columnListBlockId: string, columnBlockId: string) => Promise<void> | void;
+    onMoveColumn: (
+      columnListBlockId: string,
+      columnBlockId: string,
+      direction: NotesColumnMoveDirection,
+    ) => Promise<void> | void;
+    onResizeColumn: (
+      columnListBlockId: string,
+      columnBlockId: string,
+      widthRatio: number,
+    ) => Promise<void> | void;
+    onMoveBlockToColumn: (blockId: string, columnBlockId: string) => Promise<void> | void;
     onSelectPage: (pageId: string) => void;
     onFocusBlock: (blockId: string) => void;
   } = $props();
@@ -210,13 +241,16 @@
   const { t } = getLocalization();
   let focusButton: HTMLButtonElement | null = $state(null);
   let slashOpen = $state(false);
+  let columnDropTargetId = $state<string | null>(null);
   const block = $derived(item.block);
-  const columnTemplate = $derived(
-    columnItems.length > 0
-      ? columnItems
-        .map(({ column }) => `${column.column.width_ratio ?? 1}fr`)
-        .join(" ")
-      : "1fr",
+  const columns = $derived(columnItems.map((columnItem) => columnItem.column));
+  const columnTemplate = $derived(notesColumnGridTemplate(columns));
+  const columnWidths = $derived(notesColumnWidths(columns));
+  const canAddColumn = $derived(notesColumnCanAdd(columnItems.length));
+  const canRemoveColumn = $derived(notesColumnCanRemove(columnItems.length));
+  const minColumnWidthPercent = Math.round(NOTES_COLUMN_MIN_WIDTH_RATIO * 100);
+  const maxColumnWidthPercent = $derived(
+    Math.round((1 - NOTES_COLUMN_MIN_WIDTH_RATIO * Math.max(0, columnItems.length - 1)) * 100),
   );
 
   $effect(() => {
@@ -299,6 +333,41 @@
   function openTurnIntoMenu(): void {
     slashOpen = true;
   }
+
+  function columnWidthPercent(columnIndex: number): number {
+    return Math.round((columnWidths[columnIndex] ?? 1) * 100);
+  }
+
+  function handleColumnDropZoneDragOver(event: DragEvent, columnBlockId: string): void {
+    if (!draggingBlockId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    columnDropTargetId = columnBlockId;
+  }
+
+  function handleColumnDropZoneDragLeave(event: DragEvent, columnBlockId: string): void {
+    const target = event.currentTarget;
+    const related = event.relatedTarget;
+    if (
+      target instanceof HTMLElement
+      && related instanceof Node
+      && target.contains(related)
+    ) {
+      return;
+    }
+    if (columnDropTargetId === columnBlockId) columnDropTargetId = null;
+  }
+
+  function handleColumnDropZoneDrop(event: DragEvent, columnBlockId: string): void {
+    if (!draggingBlockId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const blockId = draggingBlockId;
+    columnDropTargetId = null;
+    void Promise.resolve(onMoveBlockToColumn(blockId, columnBlockId)).catch((error) => {
+      console.warn("move notes block to column failed", error);
+    });
+  }
 </script>
 
 <div
@@ -344,12 +413,30 @@
 
     <div class="relative min-w-0 flex-1">
       <section class="notes-column-layout my-1 min-w-0" aria-label={t("notes.blockType.columns")}>
+        <div class="notes-column-toolbar" role="toolbar" aria-label={t("notes.columnLayoutActions")}>
+          <button
+            type="button"
+            class="notes-column-tool-button"
+            aria-label={t("notes.addColumn")}
+            title={t("notes.addColumn")}
+            disabled={!canAddColumn}
+            onclick={() => {
+              void Promise.resolve(onAddColumn(block.id, Math.max(0, columnItems.length - 1)));
+            }}
+          >
+            <Plus class="size-3.5" aria-hidden="true" />
+            <span class="sr-only">{t("notes.addColumn")}</span>
+          </button>
+        </div>
         {#if columnItems.length === 0}
           <button
             bind:this={focusButton}
             type="button"
             class="min-h-8 w-full rounded px-1 text-left text-[0.8rem] text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
             onkeydown={handleKeydown}
+            onclick={() => {
+              void Promise.resolve(onAddColumn(block.id, 0));
+            }}
           >
             {t("notes.emptyColumns")}
           </button>
@@ -360,6 +447,79 @@
                 class="notes-column min-w-0"
                 aria-label={t("notes.column", columnIndex + 1)}
               >
+                <div
+                  class="notes-column-header"
+                  role="toolbar"
+                  aria-label={t("notes.columnActions", columnIndex + 1)}
+                >
+                  <button
+                    type="button"
+                    class="notes-column-tool-button"
+                    aria-label={t("notes.moveColumnLeft", columnIndex + 1)}
+                    title={t("notes.moveColumnLeft", columnIndex + 1)}
+                    disabled={!notesColumnCanMove(columns, columnItem.column.id, "left")}
+                    onclick={() => {
+                      void Promise.resolve(onMoveColumn(block.id, columnItem.column.id, "left"));
+                    }}
+                  >
+                    <ArrowLeft class="size-3.5" aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
+                    class="notes-column-tool-button"
+                    aria-label={t("notes.moveColumnRight", columnIndex + 1)}
+                    title={t("notes.moveColumnRight", columnIndex + 1)}
+                    disabled={!notesColumnCanMove(columns, columnItem.column.id, "right")}
+                    onclick={() => {
+                      void Promise.resolve(onMoveColumn(block.id, columnItem.column.id, "right"));
+                    }}
+                  >
+                    <ArrowRight class="size-3.5" aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
+                    class="notes-column-tool-button"
+                    aria-label={t("notes.addColumnAfter", columnIndex + 1)}
+                    title={t("notes.addColumnAfter", columnIndex + 1)}
+                    disabled={!canAddColumn}
+                    onclick={() => {
+                      void Promise.resolve(onAddColumn(block.id, columnIndex));
+                    }}
+                  >
+                    <Plus class="size-3.5" aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
+                    class="notes-column-tool-button notes-column-danger-button"
+                    aria-label={t("notes.removeColumn", columnIndex + 1)}
+                    title={t("notes.removeColumn", columnIndex + 1)}
+                    disabled={!canRemoveColumn}
+                    onclick={() => {
+                      void Promise.resolve(onRemoveColumn(block.id, columnItem.column.id));
+                    }}
+                  >
+                    <Trash2 class="size-3.5" aria-hidden="true" />
+                  </button>
+                  <input
+                    class="notes-column-width-slider"
+                    type="range"
+                    min={minColumnWidthPercent}
+                    max={maxColumnWidthPercent}
+                    step="1"
+                    value={columnWidthPercent(columnIndex)}
+                    aria-label={t("notes.columnWidth", columnIndex + 1, columnWidthPercent(columnIndex))}
+                    onchange={(event) => {
+                      onResizeColumn(
+                        block.id,
+                        columnItem.column.id,
+                        event.currentTarget.valueAsNumber / 100,
+                      );
+                    }}
+                  />
+                  <span class="notes-column-width-value" aria-hidden="true">
+                    {columnWidthPercent(columnIndex)}%
+                  </span>
+                </div>
                 {#if columnItem.items.length === 0}
                   <button
                     bind:this={focusButton}
@@ -434,6 +594,20 @@
                     {/each}
                   </div>
                 {/if}
+                {#if draggingBlockId}
+                  <div
+                    class="notes-column-drop-zone"
+                    class:notes-column-drop-zone-active={columnDropTargetId === columnItem.column.id}
+                    role="button"
+                    tabindex="-1"
+                    aria-label={t("notes.dropBlockInColumn", columnIndex + 1)}
+                    ondragover={(event) => handleColumnDropZoneDragOver(event, columnItem.column.id)}
+                    ondragleave={(event) => handleColumnDropZoneDragLeave(event, columnItem.column.id)}
+                    ondrop={(event) => handleColumnDropZoneDrop(event, columnItem.column.id)}
+                  >
+                    <span class="sr-only">{t("notes.dropBlockInColumn", columnIndex + 1)}</span>
+                  </div>
+                {/if}
               </section>
             {/each}
           </div>
@@ -454,6 +628,59 @@
 
   .notes-column-layout {
     container-type: inline-size;
+  }
+
+  .notes-column-toolbar {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.25rem;
+    padding-bottom: 0.25rem;
+  }
+
+  .notes-column-header {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(1.65rem, auto)) minmax(4.5rem, 1fr) auto;
+    align-items: center;
+    gap: 0.15rem;
+    padding-bottom: 0.25rem;
+  }
+
+  .notes-column-tool-button {
+    display: inline-flex;
+    min-height: 1.65rem;
+    min-width: 1.65rem;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.25rem;
+    color: hsl(var(--muted-foreground));
+    outline: none;
+  }
+
+  .notes-column-tool-button:hover,
+  .notes-column-tool-button:focus-visible {
+    background: hsl(var(--accent));
+    color: hsl(var(--accent-foreground));
+  }
+
+  .notes-column-tool-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.38;
+  }
+
+  .notes-column-danger-button {
+    color: hsl(var(--destructive));
+  }
+
+  .notes-column-width-slider {
+    min-width: 0;
+    accent-color: hsl(var(--primary));
+  }
+
+  .notes-column-width-value {
+    min-width: 2.25rem;
+    color: hsl(var(--muted-foreground));
+    font-size: 0.733333rem;
+    text-align: right;
   }
 
   .notes-block-focused > .notes-block-surface {
@@ -513,9 +740,27 @@
     padding-left: 0.5rem;
   }
 
+  .notes-column-drop-zone {
+    min-height: 1.75rem;
+    border: 1px dashed hsl(var(--border));
+    border-radius: 0.375rem;
+    background: hsl(var(--muted) / 0.16);
+    outline: none;
+  }
+
+  .notes-column-drop-zone-active {
+    border-color: hsl(var(--primary));
+    background: hsl(var(--primary) / 0.1);
+    box-shadow: inset 0 0 0 1px hsl(var(--primary) / 0.45);
+  }
+
   @container (max-width: 30rem) {
     .notes-column-grid {
       grid-template-columns: 1fr;
+    }
+
+    .notes-column-header {
+      grid-template-columns: repeat(4, minmax(1.65rem, auto)) minmax(3rem, 1fr) auto;
     }
   }
 </style>

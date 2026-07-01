@@ -635,6 +635,34 @@
     return notes.removeTableColumn(tableBlockId, columnIndex);
   }
 
+  function addColumn(columnListBlockId: string, afterColumnIndex: number): Promise<void> {
+    return notes.addColumn(columnListBlockId, afterColumnIndex);
+  }
+
+  function removeColumn(columnListBlockId: string, columnBlockId: string): Promise<void> {
+    return notes.removeColumn(columnListBlockId, columnBlockId);
+  }
+
+  function moveColumn(
+    columnListBlockId: string,
+    columnBlockId: string,
+    direction: "left" | "right",
+  ): Promise<void> {
+    return notes.moveColumn(columnListBlockId, columnBlockId, direction);
+  }
+
+  function resizeColumn(
+    columnListBlockId: string,
+    columnBlockId: string,
+    widthRatio: number,
+  ): Promise<void> {
+    return notes.resizeColumn(columnListBlockId, columnBlockId, widthRatio);
+  }
+
+  function moveBlockToColumn(blockId: string, columnBlockId: string): Promise<void> {
+    return notes.moveBlockToColumn(blockId, columnBlockId);
+  }
+
   function undoNotesEdit(): void {
     void notes.undoNotesEdit();
   }
@@ -950,6 +978,11 @@
         onRemoveTableRow={removeTableRow}
         onAddTableColumn={addTableColumn}
         onRemoveTableColumn={removeTableColumn}
+        onAddColumn={addColumn}
+        onRemoveColumn={removeColumn}
+        onMoveColumn={moveColumn}
+        onResizeColumn={resizeColumn}
+        onMoveBlockToColumn={moveBlockToColumn}
         {onSelectPage}
         {onFocusBlock}
       />

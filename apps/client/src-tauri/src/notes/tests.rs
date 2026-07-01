@@ -4092,6 +4092,32 @@ fn append_and_read_column_blocks_round_trip() {
         .await
         .unwrap();
 
+        writes::update_block(
+            &pool,
+            BLOCK_C,
+            block_update("column", column_payload(Some(0.7))),
+        )
+        .await
+        .unwrap();
+        writes::update_block(
+            &pool,
+            BLOCK_D,
+            block_update("column", column_payload(Some(0.3))),
+        )
+        .await
+        .unwrap();
+        writes::move_block(
+            &pool,
+            BLOCK_F,
+            NoteMoveBlock {
+                parent: block_parent(BLOCK_C),
+                after: Some(BLOCK_E.to_string()),
+                before: None,
+            },
+        )
+        .await
+        .unwrap();
+
         let column_list_children = reads::get_block_children(&pool, BLOCK_B, None, Some(10))
             .await
             .unwrap();
@@ -4106,7 +4132,11 @@ fn append_and_read_column_blocks_round_trip() {
         assert_eq!(column_list_children_json["results"][0]["type"], "column");
         assert_eq!(
             column_list_children_json["results"][0]["column"]["width_ratio"],
-            0.5
+            0.7
+        );
+        assert_eq!(
+            column_list_children_json["results"][1]["column"]["width_ratio"],
+            0.3
         );
 
         let left_column_children = reads::get_block_children(&pool, BLOCK_C, None, Some(10))
@@ -4117,6 +4147,10 @@ fn append_and_read_column_blocks_round_trip() {
         assert_eq!(
             left_column_children_json["results"][0]["paragraph"]["rich_text"][0]["plain_text"],
             "Left"
+        );
+        assert_eq!(
+            left_column_children_json["results"][1]["paragraph"]["rich_text"][0]["plain_text"],
+            "Right"
         );
     });
 }

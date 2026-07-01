@@ -1010,6 +1010,11 @@ const {
   removeTableRow,
   addTableColumn,
   removeTableColumn,
+  addColumn,
+  removeColumn,
+  moveColumn,
+  resizeColumn,
+  moveBlockToColumn,
   convertBlock,
   toggleTodo,
   updateCodeLanguage,
@@ -1360,5 +1365,10 @@ export function getNotes() {
     removeTableRow,
     addTableColumn,
     removeTableColumn,
+    addColumn,
+    removeColumn,
+    moveColumn,
+    resizeColumn,
+    moveBlockToColumn,
   };
 }
