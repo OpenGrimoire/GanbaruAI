@@ -5,7 +5,10 @@
     NOTES_TEXT_COLORS,
     notesBlockColorSwatchStyle,
   } from "$lib/notes/block-color";
-  import type { NotesInsertableBlockType } from "$lib/notes/block-insertion";
+  import type {
+    NotesBlockInsertCommand,
+    NotesBlockInsertMenuRect,
+  } from "$lib/notes/block-insertion";
   import type { NotesMoveToPageTarget } from "$lib/notes/block-move";
   import type { NotesColor } from "$lib/notes/types";
   import ArrowDown from "@lucide/svelte/icons/arrow-down";
@@ -39,7 +42,7 @@
     onDragStart,
     onDragEnd,
   }: {
-    onAddBelow: (type?: NotesInsertableBlockType) => void;
+    onAddBelow: (command?: NotesBlockInsertCommand) => void;
     onTurnInto: () => void;
     canSetColor: boolean;
     currentColor: NotesColor;
@@ -60,11 +63,26 @@
   let menuOpen = $state(false);
   let insertMenuOpen = $state(false);
   let moveMenuOpen = $state(false);
+  let addButton: HTMLButtonElement | null = $state(null);
+  let insertMenuTriggerRect = $state<NotesBlockInsertMenuRect | null>(null);
   let copyLinkStatus = $state<"idle" | "copied" | "failed">("idle");
   let copyLinkTimer: ReturnType<typeof setTimeout> | null = null;
 
   onDestroy(() => {
     if (copyLinkTimer) clearTimeout(copyLinkTimer);
+  });
+
+  $effect(() => {
+    if (!insertMenuOpen || typeof window === "undefined") return;
+    const update = () => {
+      updateInsertMenuTriggerRect();
+    };
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
   });
 
   function runAction(action: () => void): void {
@@ -74,11 +92,32 @@
     action();
   }
 
-  function insertBlock(type: NotesInsertableBlockType): void {
+  function insertBlock(command: NotesBlockInsertCommand): void {
     insertMenuOpen = false;
     menuOpen = false;
     moveMenuOpen = false;
-    onAddBelow(type);
+    onAddBelow(command);
+  }
+
+  function updateInsertMenuTriggerRect(): void {
+    const rect = addButton?.getBoundingClientRect();
+    insertMenuTriggerRect = rect
+      ? {
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+        left: rect.left,
+      }
+      : null;
+  }
+
+  function toggleInsertMenu(): void {
+    insertMenuOpen = !insertMenuOpen;
+    if (insertMenuOpen) {
+      menuOpen = false;
+      moveMenuOpen = false;
+      updateInsertMenuTriggerRect();
+    }
   }
 
   function toggleMoveMenu(): void {
@@ -158,15 +197,13 @@
 
 <div class="relative mt-1 flex w-10 shrink-0 items-center justify-end gap-0.5">
   <button
+    bind:this={addButton}
     class="flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
     type="button"
     aria-label={t("notes.addBlockBelow")}
     data-app-tooltip={t("notes.addBlockBelow")}
     aria-expanded={insertMenuOpen}
-    onclick={() => {
-      insertMenuOpen = !insertMenuOpen;
-      if (insertMenuOpen) menuOpen = false;
-    }}
+    onclick={toggleInsertMenu}
   >
     <Plus class="size-3.5" />
   </button>
@@ -192,7 +229,7 @@
   </button>
 
   {#if insertMenuOpen}
-    <NotesBlockInsertMenu menuClass="absolute left-0 top-7" onSelect={insertBlock} />
+    <NotesBlockInsertMenu triggerRect={insertMenuTriggerRect} onSelect={insertBlock} />
   {/if}
 
   {#if menuOpen}

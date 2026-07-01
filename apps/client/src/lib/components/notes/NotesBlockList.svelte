@@ -5,6 +5,7 @@
   import { notesPageIconText } from "$lib/notes/page-icon";
   import { notesPageTitle } from "$lib/notes/page-title";
   import type { NotesHeadingBlockType } from "$lib/notes/block-factory";
+  import type { NotesBlockInsertRequest } from "$lib/notes/block-insertion";
   import type {
     NotesDateMentionTarget,
     NotesPageMentionTarget,
@@ -337,8 +338,8 @@
         onKeyboardAction={handleKeyboardAction}
         onUndo={undoNotesEdit}
         onRedo={redoNotesEdit}
-        onAddBelow={(blockId, type) => {
-          void notes.createSiblingAfter(blockId, type);
+        onAddBelow={(blockId, request?: NotesBlockInsertRequest) => {
+          void notes.createSiblingAfter(blockId, request);
         }}
         onConvert={handleConvert}
         onConvertToToggleHeading={convertToToggleHeading}
@@ -439,8 +440,8 @@
         onKeyboardAction={handleKeyboardAction}
         onUndo={undoNotesEdit}
         onRedo={redoNotesEdit}
-        onAddBelow={(blockId, type) => {
-          void notes.createSiblingAfter(blockId, type);
+        onAddBelow={(blockId, request?: NotesBlockInsertRequest) => {
+          void notes.createSiblingAfter(blockId, request);
         }}
         onConvert={handleConvert}
         onConvertToToggleHeading={convertToToggleHeading}
@@ -538,8 +539,8 @@
         onKeyboardAction={handleKeyboardAction}
         onUndo={undoNotesEdit}
         onRedo={redoNotesEdit}
-        onAddBelow={(blockId, type) => {
-          void notes.createSiblingAfter(blockId, type);
+        onAddBelow={(blockId, request?: NotesBlockInsertRequest) => {
+          void notes.createSiblingAfter(blockId, request);
         }}
         onConvert={handleConvert}
         onConvertToToggleHeading={convertToToggleHeading}

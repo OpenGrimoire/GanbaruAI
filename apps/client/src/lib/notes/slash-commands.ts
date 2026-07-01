@@ -3,7 +3,9 @@ import {
   NOTES_TEXT_COLORS,
 } from "./block-color";
 import {
-  notesInsertableBlockTypes,
+  notesBlockInsertCommandKey,
+  notesBlockInsertCommands,
+  type NotesBlockInsertCommand,
   type NotesInsertableBlockType,
 } from "./block-insertion";
 import type { NotesHeadingBlockType } from "./block-factory";
@@ -17,10 +19,10 @@ export type NotesSlashAction =
   | "delete";
 
 export type NotesSlashCommand =
-  | { kind: "block"; blockType: NotesInsertableBlockType }
-  | { kind: "toggle_heading"; headingType: NotesHeadingBlockType }
+  | NotesBlockInsertCommand
   | { kind: "action"; action: NotesSlashAction }
   | { kind: "color"; color: NotesColor };
+export type NotesSlashBlockCommand = NotesBlockInsertCommand;
 
 export type NotesSlashCommandSection = "blocks" | "actions" | "colors";
 export type NotesSlashCommandPanelSection = "recent" | NotesSlashCommandSection;
@@ -58,13 +60,6 @@ const ACTIONS = [
   "delete",
 ] as const satisfies readonly NotesSlashAction[];
 
-const TOGGLE_HEADING_TYPES = [
-  "heading_1",
-  "heading_2",
-  "heading_3",
-  "heading_4",
-] as const satisfies readonly NotesHeadingBlockType[];
-
 let recentNotesSlashCommandKeys: NotesSlashCommandKey[] = [];
 
 export function notesRecentSlashCommandKeys(): readonly NotesSlashCommandKey[] {
@@ -82,8 +77,7 @@ export function notesSlashCommandItems(
   options: NotesSlashCommandOptions,
 ): readonly NotesSlashCommandItem[] {
   return [
-    ...notesInsertableBlockTypes().map(blockCommandItem),
-    ...TOGGLE_HEADING_TYPES.map(toggleHeadingCommandItem),
+    ...notesBlockInsertCommands().map(blockCommandItem),
     ...ACTIONS.map(actionCommandItem),
     ...(options.canSetColor
       ? [...NOTES_TEXT_COLORS, ...NOTES_BACKGROUND_COLORS].map(colorCommandItem)
@@ -94,9 +88,8 @@ export function notesSlashCommandItems(
 export function notesSlashCommandKey(command: NotesSlashCommand): NotesSlashCommandKey {
   switch (command.kind) {
     case "block":
-      return `block:${command.blockType}`;
     case "toggle_heading":
-      return `toggle-heading:${command.headingType}`;
+      return notesBlockInsertCommandKey(command);
     case "action":
       return `action:${command.action}`;
     case "color":
@@ -188,23 +181,14 @@ function recentNotesSlashCommandItems(
   });
 }
 
-function blockCommandItem(blockType: NotesInsertableBlockType): NotesSlashCommandItem {
-  const command = { kind: "block", blockType } as const;
+function blockCommandItem(command: NotesSlashBlockCommand): NotesSlashCommandItem {
   return slashCommandItemWithSearchText({
     key: notesSlashCommandKey(command),
     section: "blocks",
     command,
-    keywords: blockKeywords(blockType),
-  });
-}
-
-function toggleHeadingCommandItem(headingType: NotesHeadingBlockType): NotesSlashCommandItem {
-  const command = { kind: "toggle_heading", headingType } as const;
-  return slashCommandItemWithSearchText({
-    key: notesSlashCommandKey(command),
-    section: "blocks",
-    command,
-    keywords: toggleHeadingKeywords(headingType),
+    keywords: command.kind === "block"
+      ? blockKeywords(command.blockType)
+      : toggleHeadingKeywords(command.headingType),
   });
 }
 

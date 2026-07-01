@@ -3,6 +3,7 @@
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { notesBlockAnchorId } from "$lib/notes/block-link";
   import { blockPlainText, type NotesHeadingBlockType } from "$lib/notes/block-factory";
+  import type { NotesBlockInsertRequest } from "$lib/notes/block-insertion";
   import type { NotesMoveToPageTarget } from "$lib/notes/block-move";
   import {
     planNotesKeyboardAction,
@@ -153,7 +154,7 @@
     onKeyboardAction: (blockId: string, action: NotesKeyboardAction) => void;
     onUndo: () => Promise<void> | void;
     onRedo: () => Promise<void> | void;
-    onAddBelow: (blockId: string, type?: NotesBlockType) => void;
+    onAddBelow: (blockId: string, request?: NotesBlockInsertRequest) => void;
     onConvert: (blockId: string, type: NotesBlockType, clearText?: boolean) => void;
     onConvertToToggleHeading: (
       blockId: string,

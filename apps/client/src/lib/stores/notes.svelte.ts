@@ -539,6 +539,36 @@ async function createChildPageFromBlock(blockId: string): Promise<void> {
   requestBlockFocus(loaded.blocks.results[0]?.id ?? firstBlockId);
 }
 
+async function createChildPageAfterBlock(blockId: string): Promise<void> {
+  const block = blocksById[blockId];
+  if (!block) return;
+  await flushBlockSave(blockId);
+  const pageId = crypto.randomUUID();
+  const firstBlockId = crypto.randomUUID();
+  const loaded = await createNotesPage({
+    id: pageId,
+    title: "",
+    parent: block.parent,
+    first_block_id: firstBlockId,
+    after_block_id: blockId,
+  });
+  await reloadPages();
+  if (!pages.some((page) => page.id === loaded.page.id)) {
+    pages = [loaded.page, ...pages];
+  }
+  if (block.parent.type === "page_id") {
+    setSidebarPageCollapsed(block.parent.page_id, false);
+  }
+  viewMode = "pages";
+  saveSelectedPageId(loaded.page.id);
+  recordRecentPage(loaded.page.id);
+  setLoadedPageFromLoaded(loaded);
+  await reloadBacklinks(loaded.page.id);
+  await reloadComments(loaded.page.id);
+  await undoController.hydrate(loaded.page.id);
+  requestBlockFocus(loaded.blocks.results[0]?.id ?? firstBlockId);
+}
+
 async function renamePage(pageId: string, title: string): Promise<void> {
   const trimmedTitle = title.trim();
   const page = await updateNotesPage(pageId, { title: trimmedTitle });
@@ -765,6 +795,7 @@ const blockActions = createNotesBlockActions({
   setSidebarPageCollapsed,
   requestBlockFocus,
   createChildPageFromBlock,
+  createChildPageAfterBlock,
   loadPageTree,
   reloadPages,
   reloadBacklinks,

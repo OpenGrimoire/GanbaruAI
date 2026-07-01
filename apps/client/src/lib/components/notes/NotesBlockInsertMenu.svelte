@@ -1,9 +1,13 @@
 <script lang="ts">
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import {
-    notesInsertableBlockTypes,
+    notesBlockInsertCommands,
+    notesBlockInsertMenuStyle,
+    type NotesBlockInsertCommand,
+    type NotesBlockInsertMenuRect,
     type NotesInsertableBlockType,
   } from "$lib/notes/block-insertion";
+  import type { NotesHeadingBlockType } from "$lib/notes/block-factory";
   import type { Component } from "svelte";
   import Pilcrow from "@lucide/svelte/icons/pilcrow";
   import Heading1 from "@lucide/svelte/icons/heading-1";
@@ -34,15 +38,42 @@
   import Code from "@lucide/svelte/icons/code";
 
   let {
-    menuClass,
+    triggerRect,
     onSelect,
   }: {
-    menuClass: string;
-    onSelect: (type: NotesInsertableBlockType) => void;
+    triggerRect: NotesBlockInsertMenuRect | null;
+    onSelect: (command: NotesBlockInsertCommand) => void;
   } = $props();
 
   const { t } = getLocalization();
-  const commands = notesInsertableBlockTypes();
+  const commands = notesBlockInsertCommands();
+  const menuStyle = $derived(
+    triggerRect && typeof window !== "undefined"
+      ? notesBlockInsertMenuStyle({
+        triggerRect,
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+      })
+      : "",
+  );
+
+  function commandLabel(command: NotesBlockInsertCommand): string {
+    switch (command.kind) {
+      case "block":
+        return blockLabel(command.blockType);
+      case "toggle_heading":
+        return toggleHeadingLabel(command.headingType);
+    }
+  }
+
+  function commandIcon(command: NotesBlockInsertCommand): Component {
+    switch (command.kind) {
+      case "block":
+        return blockIcon(command.blockType);
+      case "toggle_heading":
+        return toggleHeadingIcon(command.headingType);
+    }
+  }
 
   function blockLabel(type: NotesInsertableBlockType): string {
     switch (type) {
@@ -173,17 +204,45 @@
         return Code;
     }
   }
+
+  function toggleHeadingLabel(type: NotesHeadingBlockType): string {
+    switch (type) {
+      case "heading_1":
+        return t("notes.blockType.toggleHeading1");
+      case "heading_2":
+        return t("notes.blockType.toggleHeading2");
+      case "heading_3":
+        return t("notes.blockType.toggleHeading3");
+      case "heading_4":
+        return t("notes.blockType.toggleHeading4");
+    }
+  }
+
+  function toggleHeadingIcon(type: NotesHeadingBlockType): Component {
+    switch (type) {
+      case "heading_1":
+        return Heading1;
+      case "heading_2":
+        return Heading2;
+      case "heading_3":
+        return Heading3;
+      case "heading_4":
+        return Heading4;
+    }
+  }
 </script>
 
 <div
-  class={`${menuClass} z-30 max-h-[min(28rem,70vh)] w-56 overflow-auto rounded-md border border-border bg-popover py-1 text-popover-foreground shadow-lg`}
+  class="z-30 overflow-auto rounded-md border border-border bg-popover py-1 text-popover-foreground shadow-lg"
+  style={menuStyle}
   role="menu"
+  aria-label={t("notes.addBlockBelow")}
   data-app-floating-surface
   tabindex="-1"
   onmousedown={(event) => event.preventDefault()}
 >
   {#each commands as command}
-    {@const Icon = blockIcon(command)}
+    {@const Icon = commandIcon(command)}
     <button
       class="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[0.8rem] hover:bg-accent hover:text-accent-foreground"
       type="button"
@@ -191,8 +250,8 @@
       onmousedown={(event) => event.preventDefault()}
       onclick={() => onSelect(command)}
     >
-      <Icon class="size-4 shrink-0" />
-      <span class="min-w-0 truncate">{blockLabel(command)}</span>
+      <Icon class="size-4 shrink-0" aria-hidden="true" />
+      <span class="min-w-0 truncate">{commandLabel(command)}</span>
     </button>
   {/each}
 </div>

@@ -10,6 +10,10 @@ import {
   recordNotesSlashCommandKey,
   sectionNotesSlashCommandItems,
 } from "./slash-commands";
+import {
+  notesBlockInsertCommandKey,
+  notesBlockInsertCommands,
+} from "./block-insertion";
 
 describe("notes slash commands", () => {
   it("builds block action and color commands for color-capable blocks", () => {
@@ -61,6 +65,15 @@ describe("notes slash commands", () => {
     expect(notesSlashCommandKey({ kind: "toggle_heading", headingType: "heading_2" })).toBe(
       "toggle-heading:heading_2",
     );
+  });
+
+  it("uses the shared block insertion catalog for block commands", () => {
+    const commands = notesSlashCommandItems({ canSetColor: false });
+    const blockKeys = commands
+      .filter((command) => command.section === "blocks")
+      .map((command) => command.key);
+
+    expect(blockKeys).toEqual(notesBlockInsertCommands().map(notesBlockInsertCommandKey));
   });
 
   it("filters by command aliases", () => {

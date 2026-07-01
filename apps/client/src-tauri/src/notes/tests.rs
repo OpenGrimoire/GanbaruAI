@@ -990,6 +990,53 @@ fn create_nested_page_appends_child_page_block_to_parent_page() {
 }
 
 #[test]
+fn create_nested_page_can_insert_after_block_parent_sibling() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        create_page(&pool, PAGE_A, BLOCK_A).await;
+        writes::append_block_children(
+            &pool,
+            NoteAppendBlockChildren {
+                parent: block_parent(BLOCK_A),
+                after: None,
+                children: vec![block(BLOCK_B, "paragraph", paragraph_payload("Nested"))],
+            },
+        )
+        .await
+        .unwrap();
+
+        writes::create_page(
+            &pool,
+            NotePageCreate {
+                id: PAGE_B.to_string(),
+                title: "Nested under block".to_string(),
+                parent: block_parent(BLOCK_A),
+                first_block_id: BLOCK_D.to_string(),
+                after_block_id: Some(BLOCK_B.to_string()),
+            },
+        )
+        .await
+        .unwrap();
+
+        let children = reads::get_block_children(&pool, BLOCK_A, None, Some(10))
+            .await
+            .unwrap();
+        let children_json = serde_json::to_value(children).unwrap();
+        assert_eq!(children_json["results"][0]["id"], BLOCK_B);
+        assert_eq!(children_json["results"][1]["id"], PAGE_B);
+        assert_eq!(children_json["results"][1]["type"], "child_page");
+        assert_eq!(
+            children_json["results"][1]["child_page"]["title"],
+            "Nested under block"
+        );
+
+        let child_page = reads::get_page(&pool, PAGE_B, false).await.unwrap();
+        let child_page_json = serde_json::to_value(child_page).unwrap();
+        assert_eq!(child_page_json["parent"]["block_id"], BLOCK_A);
+    });
+}
+
+#[test]
 fn create_child_page_from_block_moves_nested_children_and_syncs_page_state() {
     tauri::async_runtime::block_on(async {
         let pool = migrated_memory_pool().await;

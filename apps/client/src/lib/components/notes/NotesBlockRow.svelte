@@ -26,6 +26,7 @@
     canBlockHaveColor,
     notesBlockColorStyle,
   } from "$lib/notes/block-color";
+  import type { NotesBlockInsertRequest } from "$lib/notes/block-insertion";
   import { notesBlockMarker } from "$lib/notes/block-editor-ui";
   import {
     planNotesKeyboardAction,
@@ -170,7 +171,7 @@
     onKeyboardAction: (blockId: string, action: NotesKeyboardAction) => void;
     onUndo: () => Promise<void> | void;
     onRedo: () => Promise<void> | void;
-    onAddBelow: (blockId: string, type?: NotesBlockType) => void;
+    onAddBelow: (blockId: string, request?: NotesBlockInsertRequest) => void;
     onConvert: (blockId: string, type: NotesBlockType, clearText?: boolean) => void;
     onConvertToToggleHeading: (
       blockId: string,

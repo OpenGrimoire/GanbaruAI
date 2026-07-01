@@ -12,6 +12,11 @@ import { planNotesPlainTextPaste } from "$lib/notes/block-clipboard";
 import { planNotesRichHtmlPaste } from "$lib/notes/rich-text-paste";
 import { blockColor, blockWithColor, canBlockHaveColor } from "$lib/notes/block-color";
 import {
+  createBlockWriteFromInsertCommand,
+  normalizeNotesBlockInsertCommand,
+  type NotesBlockInsertRequest,
+} from "$lib/notes/block-insertion";
+import {
   blockEditableRichText,
   blockConvertedToType,
   blockPlainText,
@@ -94,6 +99,7 @@ export interface NotesBlockActionsContext {
   setSidebarPageCollapsed: (pageId: string, collapsed: boolean) => void;
   requestBlockFocus: (blockId: string | null) => void;
   createChildPageFromBlock: (blockId: string) => Promise<void>;
+  createChildPageAfterBlock: (blockId: string) => Promise<void>;
   loadPageTree: (pageId: string) => Promise<void>;
   reloadPages: () => Promise<void>;
   reloadBacklinks: () => Promise<void>;
@@ -173,7 +179,7 @@ export interface NotesBlockActions {
     headingType: NotesHeadingBlockType,
     clearText?: boolean,
   ) => Promise<void>;
-  createSiblingAfter: (blockId: string, type?: NotesBlockType) => Promise<void>;
+  createSiblingAfter: (blockId: string, request?: NotesBlockInsertRequest) => Promise<void>;
   splitTextBlockAtSelection: (
     blockId: string,
     selectionStart: number,
@@ -655,19 +661,78 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     recordUndoAfter("convert", before, blockId);
   }
 
-  async function createSiblingAfter(blockId: string, type: NotesBlockType = "paragraph"): Promise<void> {
+  async function createSiblingAfter(
+    blockId: string,
+    request?: NotesBlockInsertRequest,
+  ): Promise<void> {
     const block = context.blockById(blockId);
     const selectedPageId = context.readSelectedPageId();
     if (!block || !selectedPageId) return;
+    const command = normalizeNotesBlockInsertCommand(request);
+    if (command.kind === "block" && command.blockType === "child_page") {
+      await context.createChildPageAfterBlock(blockId);
+      return;
+    }
     await context.flushBlockSave(blockId);
     const before = undoSnapshot(blockId);
     const newBlockId = crypto.randomUUID();
     await appendNotesBlockChildren({
       parent: block.parent,
       after: blockId,
-      children: [createBlockWrite(newBlockId, type)],
+      children: [createBlockWriteFromInsertCommand(newBlockId, command)],
     });
-    if (type === "tab") {
+    if (command.kind === "block" && command.blockType === "table") {
+      await appendNotesBlockChildren({
+        parent: { type: "block_id", block_id: newBlockId },
+        after: null,
+        children: Array.from({ length: DEFAULT_TABLE_ROW_COUNT }, () => ({
+          id: crypto.randomUUID(),
+          type: "table_row" as const,
+          table_row: createEmptyTableRowPayload(DEFAULT_TABLE_WIDTH),
+        })),
+      });
+      await context.loadPageTree(selectedPageId);
+      context.requestBlockFocus(newBlockId);
+      recordUndoAfter("create", before, newBlockId);
+      return;
+    }
+    if (command.kind === "block" && command.blockType === "column_list") {
+      const leftColumnId = crypto.randomUUID();
+      const rightColumnId = crypto.randomUUID();
+      const leftBlockId = crypto.randomUUID();
+      const rightBlockId = crypto.randomUUID();
+      await appendNotesBlockChildren({
+        parent: { type: "block_id", block_id: newBlockId },
+        after: null,
+        children: [
+          {
+            id: leftColumnId,
+            type: "column",
+            column: createColumnPayload(0.5),
+          },
+          {
+            id: rightColumnId,
+            type: "column",
+            column: createColumnPayload(0.5),
+          },
+        ],
+      });
+      await appendNotesBlockChildren({
+        parent: { type: "block_id", block_id: leftColumnId },
+        after: null,
+        children: [createBlockWrite(leftBlockId, "paragraph")],
+      });
+      await appendNotesBlockChildren({
+        parent: { type: "block_id", block_id: rightColumnId },
+        after: null,
+        children: [createBlockWrite(rightBlockId, "paragraph")],
+      });
+      await context.loadPageTree(selectedPageId);
+      context.requestBlockFocus(leftBlockId);
+      recordUndoAfter("create", before, leftBlockId);
+      return;
+    }
+    if (command.kind === "block" && command.blockType === "tab") {
       const firstLabelId = crypto.randomUUID();
       const secondLabelId = crypto.randomUUID();
       const firstContentId = crypto.randomUUID();
@@ -696,8 +761,8 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
       return;
     }
     await context.loadPageTree(selectedPageId);
-    context.requestBlockFocus(type === "divider" ? null : newBlockId);
-    recordUndoAfter("create", before, type === "divider" ? null : newBlockId);
+    context.requestBlockFocus(newBlockId);
+    recordUndoAfter("create", before, newBlockId);
   }
 
   async function splitTextBlockAtSelection(
