@@ -30,7 +30,7 @@ function plan(input: {
 }
 
 describe("notes clipboard paste planning", () => {
-  it("leaves normal single-line paste to native textarea behavior", () => {
+  it("leaves normal single-line paste to the editor input handler", () => {
     expect(plan({ currentText: "Hello ", plainText: "world" })).toBeNull();
   });
 

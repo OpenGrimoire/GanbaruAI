@@ -1,7 +1,7 @@
 import type { NotesBlockType } from "./types";
 
 /**
- * Return the textarea classes used by editable Notes text blocks.
+ * Return the base classes used by editable Notes text blocks.
  */
 export function notesTextareaClass(type: NotesBlockType): string {
   const base =
@@ -17,10 +17,17 @@ export function notesTextareaClass(type: NotesBlockType): string {
 }
 
 /**
- * Return the preview classes used when saved rich text is visible.
+ * Return the classes used by editable rich text Notes blocks.
+ */
+export function notesRichTextEditorClass(type: NotesBlockType): string {
+  return `${notesTextareaClass(type)} notes-rich-text-editor block cursor-text whitespace-pre-wrap break-words`;
+}
+
+/**
+ * Return the preview classes used when saved rich text is visible outside editing.
  */
 export function notesRichTextPreviewClass(type: NotesBlockType): string {
-  return `${notesTextareaClass(type)} block cursor-text whitespace-pre-wrap text-left`;
+  return `${notesRichTextEditorClass(type)} text-left`;
 }
 
 /**

@@ -7,7 +7,6 @@
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import {
     blockEditableRichText,
-    blockHasVisibleRichTextFormatting,
     blockPlainText,
     blockTextAnnotationsForSelection,
     blockTextLinkRangeForSelection,
@@ -17,16 +16,20 @@
     type NotesHeadingBlockType,
   } from "$lib/notes/block-factory";
   import { blockColor, canBlockHaveColor } from "$lib/notes/block-color";
-  import { shouldHandleNotesPlainTextPaste } from "$lib/notes/block-clipboard";
   import {
-    notesRichTextPreviewClass,
-    notesTextareaClass,
-  } from "$lib/notes/block-editor-ui";
+    normalizeNotesClipboardPlainText,
+    shouldHandleNotesPlainTextPaste,
+  } from "$lib/notes/block-clipboard";
+  import { notesRichTextEditorClass } from "$lib/notes/block-editor-ui";
   import {
     planNotesKeyboardAction,
     type NotesKeyboardAction,
   } from "$lib/notes/block-keyboard";
-  import { notesTextSelectionFromControl } from "$lib/notes/editor-selection";
+  import {
+    notesPlainTextFromEditableRoot,
+    notesTextSelectionFromEditableRoot,
+    restoreNotesEditableSelection,
+  } from "$lib/notes/editor-selection";
   import {
     buildDateMentionTargets,
     detectPageMentionQuery,
@@ -144,7 +147,7 @@
   const localization = getLocalization();
   const { t } = localization;
   const locale = $derived(localization.locale);
-  let textarea: HTMLTextAreaElement | null = $state(null);
+  let editor: HTMLDivElement | null = $state(null);
   let slashOpen = $state(false);
   let mentionQuery: NotesMentionQuery | null = $state(null);
   let mentionActiveIndex = $state(0);
@@ -163,16 +166,10 @@
     remindTitle: (dateLabel: string) => t("notes.remindOnDate", dateLabel),
   });
   const text = $derived(blockPlainText(block));
-  const textRows = $derived(Math.max(1, text.split("\n").length));
-  const isBlockFocused = $derived(focusBlockId === block.id);
   const canUseMentions = $derived(block.type !== "code");
   const canUseLinks = $derived(canUseMentions);
   const canUseInlineFormatting = $derived(canUseMentions);
   const editableRichText = $derived(blockEditableRichText(block));
-  const hasVisibleRichTextFormatting = $derived(blockHasVisibleRichTextFormatting(block));
-  const showRichTextPreview = $derived(
-    canUseInlineFormatting && hasVisibleRichTextFormatting && !isBlockFocused,
-  );
   const currentTextAnnotationRange = $derived(
     blockTextAnnotationsForSelection(block, textSelection.start, textSelection.end),
   );
@@ -180,7 +177,7 @@
     blockTextLinkRangeForSelection(block, textSelection.start, textSelection.end),
   );
   const canOpenInlineToolbar = $derived(
-    canUseInlineFormatting && textSelection.start !== textSelection.end && !showRichTextPreview,
+    canUseInlineFormatting && textSelection.start !== textSelection.end,
   );
   const canOpenLinkEditor = $derived(
     canUseLinks
@@ -219,16 +216,24 @@
     const _focusRequestId = focusRequestId;
     if (focusBlockId !== block.id) return;
     void tick().then(() => {
-      if (!textarea) return;
-      textarea.focus();
-      const length = textarea.value.length;
-      textarea.setSelectionRange(length, length);
+      if (!editor) return;
+      editor.focus();
+      const length = notesPlainTextFromEditableRoot(editor).length;
+      restoreNotesEditableSelection(editor, { start: length, end: length });
+      textSelection = { start: length, end: length };
     });
   });
 
   $effect(() => {
     if (mentionActiveIndex >= mentionMatches.length) mentionActiveIndex = 0;
   });
+
+  async function focusEditorWithSelection(start: number, end: number): Promise<void> {
+    await tick();
+    editor?.focus();
+    if (editor) restoreNotesEditableSelection(editor, { start, end });
+    textSelection = { start, end };
+  }
 
   async function applyTextAnnotationsToRange(
     start: number,
@@ -237,10 +242,7 @@
   ): Promise<void> {
     if (start === end) return;
     await Promise.resolve(onApplyTextAnnotations(block.id, start, end, patch));
-    await tick();
-    textarea?.focus();
-    textarea?.setSelectionRange(start, end);
-    textSelection = { start, end };
+    await focusEditorWithSelection(start, end);
   }
 
   async function insertInlineEquationFromRange(
@@ -252,10 +254,7 @@
     if (start === end || !normalizedExpression) return false;
     await Promise.resolve(onInsertInlineEquation(block.id, start, end, normalizedExpression));
     const cursor = start + normalizedExpression.length;
-    await tick();
-    textarea?.focus();
-    textarea?.setSelectionRange(cursor, cursor);
-    textSelection = { start: cursor, end: cursor };
+    await focusEditorWithSelection(cursor, cursor);
     return true;
   }
 
@@ -267,12 +266,13 @@
     );
   }
 
-  function insertInlineEquationFromTextarea(target: EventTarget | null): boolean {
-    if (!canUseInlineFormatting || !(target instanceof HTMLTextAreaElement)) return false;
-    const start = target.selectionStart;
-    const end = target.selectionEnd;
+  function insertInlineEquationFromEditor(target: EventTarget | null): boolean {
+    if (!canUseInlineFormatting || !(target instanceof HTMLElement)) return false;
+    const selection = notesTextSelectionFromEditableRoot(target);
+    if (!selection) return false;
+    const { start, end } = selection;
     if (start === end) return false;
-    const expression = target.value.slice(start, end);
+    const expression = text.slice(start, end);
     if (!normalizeRichTextEquationExpression(expression)) return false;
     void insertInlineEquationFromRange(start, end, expression);
     syncTextSelection(target);
@@ -311,9 +311,10 @@
     const name = annotationShortcutName(event);
     if (!name || !canUseInlineFormatting) return false;
     const target = event.currentTarget;
-    if (!(target instanceof HTMLTextAreaElement)) return false;
-    const start = target.selectionStart;
-    const end = target.selectionEnd;
+    if (!(target instanceof HTMLElement)) return false;
+    const selection = notesTextSelectionFromEditableRoot(target);
+    if (!selection) return false;
+    const { start, end } = selection;
     if (start === end) return false;
     const range = blockTextAnnotationsForSelection(block, start, end);
     void applyTextAnnotationsToRange(
@@ -328,7 +329,7 @@
 
   function handleKeydown(event: KeyboardEvent): void {
     if ((event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "k") {
-      if (openLinkEditorFromTextarea(event.currentTarget)) {
+      if (openLinkEditorFromEditor(event.currentTarget)) {
         event.preventDefault();
       }
       return;
@@ -339,7 +340,7 @@
       && !event.altKey
       && event.key.toLowerCase() === "e"
     ) {
-      if (insertInlineEquationFromTextarea(event.currentTarget)) {
+      if (insertInlineEquationFromEditor(event.currentTarget)) {
         event.preventDefault();
       }
       return;
@@ -381,8 +382,11 @@
       }
     }
     const target = event.currentTarget;
-    const selectionStart = target instanceof HTMLTextAreaElement ? target.selectionStart : 0;
-    const selectionEnd = target instanceof HTMLTextAreaElement ? target.selectionEnd : 0;
+    const selection = target instanceof HTMLElement
+      ? notesTextSelectionFromEditableRoot(target)
+      : null;
+    const selectionStart = selection?.start ?? 0;
+    const selectionEnd = selection?.end ?? selectionStart;
     const action = planNotesKeyboardAction({
       key: event.key,
       shiftKey: event.shiftKey,
@@ -408,25 +412,34 @@
     onKeyboardAction(block.id, action);
   }
 
-  function updateMentionQueryFromTextarea(target: HTMLTextAreaElement): void {
+  function updateMentionQueryFromEditor(target: HTMLElement, plainText: string): void {
     if (!canUseMentions) {
       mentionQuery = null;
       mentionActiveIndex = 0;
       return;
     }
-    mentionQuery = detectPageMentionQuery(target.value, target.selectionStart, target.selectionEnd);
+    const selection = notesTextSelectionFromEditableRoot(target);
+    if (!selection) {
+      mentionQuery = null;
+      mentionActiveIndex = 0;
+      return;
+    }
+    mentionQuery = detectPageMentionQuery(plainText, selection.start, selection.end);
     mentionActiveIndex = 0;
   }
 
   function syncTextSelection(target: EventTarget | null): void {
-    if (!(target instanceof HTMLTextAreaElement)) return;
-    textSelection = notesTextSelectionFromControl(target);
+    if (!(target instanceof HTMLElement)) return;
+    const selection = notesTextSelectionFromEditableRoot(target);
+    if (selection) textSelection = selection;
   }
 
-  function openLinkEditorFromTextarea(target: EventTarget | null): boolean {
-    if (!canUseLinks || !(target instanceof HTMLTextAreaElement)) return false;
+  function openLinkEditorFromEditor(target: EventTarget | null): boolean {
+    if (!canUseLinks || !(target instanceof HTMLElement)) return false;
     syncTextSelection(target);
-    const range = blockTextLinkRangeForSelection(block, target.selectionStart, target.selectionEnd);
+    const selection = notesTextSelectionFromEditableRoot(target);
+    if (!selection) return false;
+    const range = blockTextLinkRangeForSelection(block, selection.start, selection.end);
     if (range.start === range.end && !range.url) return false;
     linkRange = range;
     linkUrlInput = range.url ?? "";
@@ -438,8 +451,8 @@
   }
 
   function openLinkEditorFromButton(): void {
-    if (!textarea) return;
-    openLinkEditorFromTextarea(textarea);
+    if (!editor) return;
+    openLinkEditorFromEditor(editor);
   }
 
   async function applyLinkFromEditor(): Promise<void> {
@@ -451,62 +464,74 @@
     linkError = null;
     await Promise.resolve(onApplyTextLink(block.id, linkRange.start, linkRange.end, normalizedUrl));
     linkEditorOpen = false;
-    await tick();
-    textarea?.focus();
-    textarea?.setSelectionRange(linkRange.end, linkRange.end);
+    await focusEditorWithSelection(linkRange.end, linkRange.end);
   }
 
   async function removeLinkFromEditor(): Promise<void> {
     linkError = null;
     await Promise.resolve(onApplyTextLink(block.id, linkRange.start, linkRange.end, null));
     linkEditorOpen = false;
-    await tick();
-    textarea?.focus();
-    textarea?.setSelectionRange(linkRange.end, linkRange.end);
+    await focusEditorWithSelection(linkRange.end, linkRange.end);
   }
 
   function handleInput(event: Event): void {
     const target = event.currentTarget;
-    if (!(target instanceof HTMLTextAreaElement)) return;
+    if (!(target instanceof HTMLElement)) return;
     syncTextSelection(target);
-    const value = target.value;
+    const value = notesPlainTextFromEditableRoot(target);
     slashOpen = value.startsWith("/") && !value.includes("\n");
     if (slashOpen) {
       mentionQuery = null;
     } else {
-      updateMentionQueryFromTextarea(target);
+      updateMentionQueryFromEditor(target, value);
     }
     onTextInput(block.id, value);
+    if (!(event instanceof InputEvent) || !event.isComposing) {
+      void focusEditorWithSelection(textSelection.start, textSelection.end);
+    }
   }
 
   async function handlePaste(event: ClipboardEvent): Promise<void> {
     const target = event.currentTarget;
-    if (!(target instanceof HTMLTextAreaElement)) return;
-    const plainText = event.clipboardData?.getData("text/plain") ?? "";
+    if (!(target instanceof HTMLElement)) return;
+    const plainText = normalizeNotesClipboardPlainText(
+      event.clipboardData?.getData("text/plain") ?? "",
+    );
+    if (!plainText) {
+      event.preventDefault();
+      return;
+    }
+    const selection = notesTextSelectionFromEditableRoot(target);
+    if (!selection) return;
     if (
       !shouldHandleNotesPlainTextPaste({
         currentBlockType: block.type,
-        currentText: target.value,
-        selectionStart: target.selectionStart,
+        currentText: text,
+        selectionStart: selection.start,
         plainText,
       })
     ) {
+      event.preventDefault();
+      const nextText = `${text.slice(0, selection.start)}${plainText}${text.slice(selection.end)}`;
+      onTextInput(block.id, nextText);
+      await focusEditorWithSelection(
+        selection.start + plainText.length,
+        selection.start + plainText.length,
+      );
       return;
     }
-    const start = target.selectionStart;
-    const end = target.selectionEnd;
+    const start = selection.start;
+    const end = selection.end;
     event.preventDefault();
     const handled = await Promise.resolve(onPastePlainText(block.id, start, end, plainText));
     if (handled) return;
-    const nextText = `${target.value.slice(0, start)}${plainText}${target.value.slice(end)}`;
+    const nextText = `${text.slice(0, start)}${plainText}${text.slice(end)}`;
     onTextInput(block.id, nextText);
-    await tick();
     const cursor = start + plainText.length;
-    textarea?.focus();
-    textarea?.setSelectionRange(cursor, cursor);
+    await focusEditorWithSelection(cursor, cursor);
   }
 
-  function handleTextareaBlur(): void {
+  function handleEditorBlur(): void {
     slashOpen = false;
     window.setTimeout(() => {
       mentionQuery = null;
@@ -525,9 +550,7 @@
     } else {
       await Promise.resolve(onInsertDateMention(block.id, range.start, range.end, target));
     }
-    await tick();
-    textarea?.focus();
-    textarea?.setSelectionRange(cursor, cursor);
+    await focusEditorWithSelection(cursor, cursor);
   }
 
   function clearSlashText(): void {
@@ -645,33 +668,28 @@
     </button>
   </div>
 {/if}
-{#if showRichTextPreview}
-  <button
-    type="button"
-    class={notesRichTextPreviewClass(block.type)}
-    aria-label={text || t("notes.blockPlaceholder")}
-    onclick={() => onFocusBlock(block.id)}
-  >
-    <NotesRichTextInline richText={editableRichText} />
-  </button>
-{:else}
-  <textarea
-    bind:this={textarea}
-    class={notesTextareaClass(block.type)}
-    rows={textRows}
-    value={text}
-    placeholder={t("notes.blockPlaceholder")}
-    spellcheck={block.type !== "code"}
-    data-notes-block-id={block.id}
-    oninput={handleInput}
-    onkeydown={handleKeydown}
-    onpaste={handlePaste}
-    onkeyup={(event) => syncTextSelection(event.currentTarget)}
-    onclick={(event) => syncTextSelection(event.currentTarget)}
-    onselect={(event) => syncTextSelection(event.currentTarget)}
-    onblur={handleTextareaBlur}
-  ></textarea>
-{/if}
+<div
+  bind:this={editor}
+  class={notesRichTextEditorClass(block.type)}
+  role="textbox"
+  aria-multiline="true"
+  aria-label={text || t("notes.blockPlaceholder")}
+  contenteditable="true"
+  spellcheck={block.type !== "code"}
+  tabindex="0"
+  data-notes-block-id={block.id}
+  data-placeholder={t("notes.blockPlaceholder")}
+  data-empty={text.length === 0 ? "true" : undefined}
+  oninput={handleInput}
+  onkeydown={handleKeydown}
+  onpaste={handlePaste}
+  onkeyup={(event) => syncTextSelection(event.currentTarget)}
+  onclick={(event) => syncTextSelection(event.currentTarget)}
+  onmouseup={(event) => syncTextSelection(event.currentTarget)}
+  onblur={handleEditorBlur}
+>
+  <NotesRichTextInline richText={editableRichText} />
+</div>
 {#if linkEditorOpen}
   <div class="mt-1 rounded-md border border-border bg-popover p-2 text-popover-foreground shadow-sm">
     <div class="flex min-w-0 items-center gap-1.5">
@@ -738,3 +756,15 @@
     onSelect={selectSlashCommand}
   />
 {/if}
+
+<style>
+  .notes-rich-text-editor {
+    caret-color: var(--foreground);
+  }
+
+  .notes-rich-text-editor[data-empty="true"]::before {
+    content: attr(data-placeholder);
+    color: var(--muted-foreground);
+    pointer-events: none;
+  }
+</style>

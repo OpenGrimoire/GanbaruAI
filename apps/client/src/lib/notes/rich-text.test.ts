@@ -7,6 +7,7 @@ import {
   createEquationRichText,
   createLinkedTextRichText,
   createDateMentionValue,
+  createDateMentionRichText,
   createPageMentionRichText,
   createTextRichText,
   detectPageMentionQuery,
@@ -182,6 +183,53 @@ describe("notes rich text helpers", () => {
       ),
     ).toBe(true);
     expect(richTextHasVisibleFormatting([createPageMentionRichText(pageId, "Page", null)])).toBe(true);
+    expect(richTextHasVisibleFormatting([createEquationRichText("e=mc^2")])).toBe(true);
+  });
+
+  it("detects every rich text shape rendered by the focused editor", () => {
+    expect(
+      richTextHasVisibleFormatting(
+        applyRichTextAnnotations([createTextRichText("Bold")], 0, 4, { bold: true }),
+      ),
+    ).toBe(true);
+    expect(
+      richTextHasVisibleFormatting(
+        applyRichTextAnnotations([createTextRichText("Italic")], 0, 6, { italic: true }),
+      ),
+    ).toBe(true);
+    expect(
+      richTextHasVisibleFormatting(
+        applyRichTextAnnotations([createTextRichText("Strike")], 0, 6, {
+          strikethrough: true,
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      richTextHasVisibleFormatting(
+        applyRichTextAnnotations([createTextRichText("Code")], 0, 4, { code: true }),
+      ),
+    ).toBe(true);
+    expect(
+      richTextHasVisibleFormatting(
+        applyRichTextAnnotations([createTextRichText("Blue")], 0, 4, { color: "blue" }),
+      ),
+    ).toBe(true);
+    expect(
+      richTextHasVisibleFormatting(
+        applyRichTextAnnotations([createTextRichText("Highlight")], 0, 9, {
+          color: "yellow_background",
+        }),
+      ),
+    ).toBe(true);
+    expect(richTextHasVisibleFormatting([createLinkedTextRichText("Link", "https://example.com")]))
+      .toBe(true);
+    expect(richTextHasVisibleFormatting([createPageMentionRichText(pageId, "Page", null)]))
+      .toBe(true);
+    expect(
+      richTextHasVisibleFormatting([
+        createDateMentionRichText(createDateMentionValue("2026-06-30"), "Today"),
+      ]),
+    ).toBe(true);
     expect(richTextHasVisibleFormatting([createEquationRichText("e=mc^2")])).toBe(true);
   });
 
