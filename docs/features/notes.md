@@ -94,7 +94,7 @@ The first serious Notes tab includes:
 - Multi-line plain-text paste that creates sibling blocks instead of storing several paragraphs inside one block.
 - Markdown-like paste prefixes for headings, lists, to-dos, toggles, quotes, dividers, and fenced code blocks.
 
-These behaviors are implemented as pure TypeScript planning helpers where possible. Svelte components adapt keyboard and focus events to those helpers, then persist changes through Tauri commands.
+These behaviors are implemented as pure TypeScript planning helpers where possible. Svelte components adapt keyboard and focus events to those helpers, then persist changes through Tauri commands. The editor surface is split between the page shell, block list, block row chrome, text editor controls, card-like block editors, and media or layout-specific child components. The Notes store keeps its public API stable while delegating page preference persistence, focus request tokens, block tree selectors, debounced block persistence, and block actions to focused helper modules.
 
 Duplicating a block clones the selected block subtree through a Rust transaction. The frontend generates the duplicate IDs for the loaded subtree, and the backend validates that the ID map exactly matches the source subtree before inserting rows.
 

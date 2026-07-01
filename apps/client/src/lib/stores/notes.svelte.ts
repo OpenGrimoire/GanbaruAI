@@ -1,12 +1,10 @@
 import {
-  appendNotesBlockChildren,
   archiveNotesPage,
   createNotesChildPageFromBlock,
   createNotesComment,
   createNotesPage,
   deleteNotesComment,
   duplicateNotesPage,
-  duplicateNotesBlock,
   getNotesBlockChildren,
   listNotesBacklinks,
   listNotesComments,
@@ -15,96 +13,56 @@ import {
   listTrashedNotesPages,
   loadNotesPage,
   moveNotesPage,
-  moveNotesBlock,
   permanentlyDeleteNotesPage,
   resolveNotesCommentThread,
   searchNotes,
-  trashNotesBlock,
   trashNotesPage,
   updateNotesComment,
-  updateNotesBlock,
   updateNotesPage,
 } from "$lib/api/notes";
-import {
-  collectLoadedBlockSubtreeIds,
-  createDuplicateBlockRequest,
-} from "$lib/notes/block-duplicate";
-import { planNotesPlainTextPaste } from "$lib/notes/block-clipboard";
-import {
-  applyBlockUpdate,
-  blockConvertedToType,
-  blockPlainText,
-  blockWithBookmark,
-  blockWithCodeLanguage,
-  blockWithDateMention,
-  blockWithEmbedUrl,
-  blockWithEquationExpression,
-  blockWithHeadingToggleable,
-  blockWithHeadingToggleOpen,
-  blockWithInlineEquation,
-  blockWithLinkPreviewUrl,
-  blockWithMedia,
-  blockWithPageMention,
-  blockWithTextAnnotations,
-  blockWithTableCell,
-  blockWithTextLink,
-  blockWithText,
-  blockWithToggleOpen,
-  blockWithTodoChecked,
-  createBlockUpdate,
-  createBlockWrite,
-  createColumnPayload,
-  createEmptyTableRowPayload,
-  createRichText,
-  DEFAULT_TABLE_ROW_COUNT,
-  DEFAULT_TABLE_WIDTH,
-  type NotesHeadingBlockType,
-} from "$lib/notes/block-factory";
-import type { NotesRichTextAnnotationPatch } from "$lib/notes/rich-text";
+import { blockPlainText, createRichText } from "$lib/notes/block-factory";
 import { notesCommentParentKey } from "$lib/notes/comments";
-import { blockWithColor } from "$lib/notes/block-color";
 import type { NotesBlockLinkTarget, NotesPageLinkTarget } from "$lib/notes/block-link";
 import {
   buildNotesChildIdsByParent,
-  flattenNotesBlockChildren,
-  flattenNotesBlockTree,
   parentIdForBlock,
-  planDeleteBlock,
-  planDropBlockWithinSiblings,
-  planMergeWithPrevious,
-  planMoveBlockWithinSiblings,
-  planNestBlock,
-  planOutdentBlock,
   type NotesTreeState,
 } from "$lib/notes/block-tree";
+import { nextSelectedNotesPageId } from "$lib/notes/page-selection";
 import {
-  nextSelectedNotesPageId,
-  notesSelectedPageConfigKey,
-  parseStoredNotesPageId,
-} from "$lib/notes/page-selection";
-import {
-  notesFavoritePageIdsConfigKey,
-  notesRecentPageIdsConfigKey,
-  parseStoredNotesPageIdList,
   recordRecentNotesPageId,
   setNotesPageFavoriteId,
 } from "$lib/notes/page-navigation";
+import { nextNotesFocusRequest, type NotesFocusRequest } from "$lib/notes/editor-focus";
+import { createNotesBlockActions } from "./notes-store-block-actions";
 import {
-  notesSidebarCollapsedPageIdsConfigKey,
-  parseStoredNotesSidebarCollapsedPageIds,
-} from "$lib/notes/page-tree";
+  flatNotesBlockItems,
+  flatNotesBlockItemsForContext,
+  isOnlyNotesBlockInContext,
+  notesColumnItemsForBlock,
+  notesTabItemsForBlock,
+  notesTableRowsForBlock,
+  notesTreeState,
+  previousNotesBlockType,
+  type NotesBlockTreeSnapshot,
+} from "./notes-store-block-tree";
+import {
+  initialNotesFavoritePageIds,
+  initialNotesRecentPageIds,
+  initialNotesSelectedPageId,
+  initialNotesSidebarCollapsedPageIds,
+  saveNotesFavoritePageIds,
+  saveNotesRecentPageIds,
+  saveNotesSelectedPageId,
+  saveNotesSidebarCollapsedPageIds,
+} from "./notes-store-page-state";
+import { createNotesBlockPersistence } from "./notes-store-persistence";
 import type {
   NotesBlock,
   NotesBacklink,
-  NotesBlockWrite,
   NotesColumnBlockItems,
   NotesBlockTreeItem,
   NotesBlockType,
-  NotesBlockUpdate,
-  NotesButtonInsertPosition,
-  NotesColor,
-  NotesParagraphBlock,
-  NotesDateMentionValue,
   NotesCommentParent,
   NotesCommentThread,
   NotesLoadedPage,
@@ -116,39 +74,19 @@ import type {
   NotesTabBlockItems,
   NotesTableRowBlock,
 } from "$lib/notes/types";
-import { getConfigKey, setConfigKey } from "$lib/vault/config";
-
-interface PendingBlockSave {
-  timer: ReturnType<typeof setTimeout>;
-  update: NotesBlockUpdate;
-}
 
 type NotesViewMode = "pages" | "archive" | "trash";
 
 const BLOCK_SAVE_DEBOUNCE_MS = 350;
 const CHILDREN_PAGE_SIZE = 100;
-const selectedPageConfigKey = notesSelectedPageConfigKey();
-const favoritePageIdsConfigKey = notesFavoritePageIdsConfigKey();
-const recentPageIdsConfigKey = notesRecentPageIdsConfigKey();
-const sidebarCollapsedPageIdsConfigKey = notesSidebarCollapsedPageIdsConfigKey();
 
 let pages = $state<NotesPage[]>([]);
 let archivedPages = $state<NotesPage[]>([]);
 let trashedPages = $state<NotesPage[]>([]);
-let selectedPageId = $state<string | null>(
-  parseStoredNotesPageId(getConfigKey<unknown>(selectedPageConfigKey, undefined)),
-);
-let favoritePageIds = $state<string[]>(
-  parseStoredNotesPageIdList(getConfigKey<unknown>(favoritePageIdsConfigKey, undefined)),
-);
-let recentPageIds = $state<string[]>(
-  parseStoredNotesPageIdList(getConfigKey<unknown>(recentPageIdsConfigKey, undefined)),
-);
-let sidebarCollapsedPageIds = $state<string[]>(
-  parseStoredNotesSidebarCollapsedPageIds(
-    getConfigKey<unknown>(sidebarCollapsedPageIdsConfigKey, undefined),
-  ),
-);
+let selectedPageId = $state<string | null>(initialNotesSelectedPageId());
+let favoritePageIds = $state<string[]>(initialNotesFavoritePageIds());
+let recentPageIds = $state<string[]>(initialNotesRecentPageIds());
+let sidebarCollapsedPageIds = $state<string[]>(initialNotesSidebarCollapsedPageIds());
 let loadedPage = $state<NotesPage | null>(null);
 let backlinks = $state<NotesBacklink[]>([]);
 let commentThreads = $state<NotesCommentThread[]>([]);
@@ -165,8 +103,7 @@ let archiveError = $state<string | null>(null);
 let trashLoaded = $state(false);
 let trashLoading = $state(false);
 let trashError = $state<string | null>(null);
-let focusBlockId = $state<string | null>(null);
-let focusRequestId = $state(0);
+let focusRequest = $state<NotesFocusRequest>({ blockId: null, requestId: 0 });
 let loadRequestId = 0;
 let archiveRequestId = 0;
 let trashRequestId = 0;
@@ -181,26 +118,28 @@ let commentsIncludeResolved = $state(false);
 let searchResults = $state<NotesSearchResult[]>([]);
 let searchLoading = $state(false);
 let searchError = $state<string | null>(null);
-const pendingBlockSaves = new Map<string, PendingBlockSave>();
+
+function blockTreeSnapshot(): NotesBlockTreeSnapshot {
+  return { selectedPageId, blocksById, childIdsByParentId };
+}
 
 function treeState(): NotesTreeState {
-  return { blocksById, childIdsByParentId };
+  return notesTreeState(blockTreeSnapshot());
 }
 
 function saveSelectedPageId(pageId: string | null): void {
   selectedPageId = pageId;
-  setConfigKey(selectedPageConfigKey, pageId ?? undefined);
+  saveNotesSelectedPageId(pageId);
 }
 
 function recordRecentPage(pageId: string): void {
   const next = recordRecentNotesPageId(recentPageIds, pageId);
   recentPageIds = next;
-  setConfigKey(recentPageIdsConfigKey, next.length > 0 ? next : undefined);
+  saveNotesRecentPageIds(next);
 }
 
 function requestBlockFocus(blockId: string | null): void {
-  focusBlockId = blockId;
-  focusRequestId += 1;
+  focusRequest = nextNotesFocusRequest(focusRequest, blockId);
 }
 
 function replacePages(nextPages: NotesPage[]): void {
@@ -555,13 +494,13 @@ function setSidebarPageCollapsed(pageId: string, collapsed: boolean): void {
     ? [...new Set([...sidebarCollapsedPageIds, pageId])]
     : sidebarCollapsedPageIds.filter((candidate) => candidate !== pageId);
   sidebarCollapsedPageIds = next;
-  setConfigKey(sidebarCollapsedPageIdsConfigKey, next.length > 0 ? next : undefined);
+  saveNotesSidebarCollapsedPageIds(next);
 }
 
 function setPageFavorited(pageId: string, favorited: boolean): void {
   const next = setNotesPageFavoriteId(favoritePageIds, pageId, favorited);
   favoritePageIds = next;
-  setConfigKey(favoritePageIdsConfigKey, next.length > 0 ? next : undefined);
+  saveNotesFavoritePageIds(next);
 }
 
 async function createChildPageFromBlock(blockId: string): Promise<void> {
@@ -706,8 +645,8 @@ async function permanentlyDeletePage(pageId: string): Promise<void> {
   const nextRecentPageIds = recentPageIds.filter((id) => !deletedPageIdSet.has(id));
   favoritePageIds = nextFavoritePageIds;
   recentPageIds = nextRecentPageIds;
-  setConfigKey(favoritePageIdsConfigKey, nextFavoritePageIds.length > 0 ? nextFavoritePageIds : undefined);
-  setConfigKey(recentPageIdsConfigKey, nextRecentPageIds.length > 0 ? nextRecentPageIds : undefined);
+  saveNotesFavoritePageIds(nextFavoritePageIds);
+  saveNotesRecentPageIds(nextRecentPageIds);
   if (trashLoaded) {
     await reloadTrashedPages();
   }
@@ -740,43 +679,11 @@ function closeTrash(): void {
 }
 
 function flatBlockItems(): NotesBlockTreeItem[] {
-  return selectedPageId ? flattenNotesBlockTree(treeState(), selectedPageId) : [];
-}
-
-function closestAncestorBlockOfType(blockId: string, type: NotesBlockType): NotesBlock | null {
-  let parent = blocksById[blockId]?.parent;
-  while (parent?.type === "block_id") {
-    const parentBlock = blocksById[parent.block_id];
-    if (!parentBlock) return null;
-    if (parentBlock.type === type) return parentBlock;
-    parent = parentBlock.parent;
-  }
-  return null;
-}
-
-function tabLabelAncestorForBlock(blockId: string): NotesParagraphBlock | null {
-  let parent = blocksById[blockId]?.parent;
-  while (parent?.type === "block_id") {
-    const parentBlock = blocksById[parent.block_id];
-    if (!parentBlock) return null;
-    if (
-      parentBlock.type === "paragraph"
-      && parentBlock.parent.type === "block_id"
-      && blocksById[parentBlock.parent.block_id]?.type === "tab"
-    ) {
-      return parentBlock;
-    }
-    parent = parentBlock.parent;
-  }
-  return null;
+  return flatNotesBlockItems(blockTreeSnapshot());
 }
 
 function flatBlockItemsForBlockContext(blockId: string): NotesBlockTreeItem[] {
-  const column = closestAncestorBlockOfType(blockId, "column");
-  if (column) return flattenNotesBlockChildren(treeState(), column.id, 0);
-  const tabLabel = tabLabelAncestorForBlock(blockId);
-  if (tabLabel) return flattenNotesBlockChildren(treeState(), tabLabel.id, 0);
-  return flatBlockItems();
+  return flatNotesBlockItemsForContext(blockTreeSnapshot(), blockId);
 }
 
 function blockById(blockId: string): NotesBlock | undefined {
@@ -784,747 +691,97 @@ function blockById(blockId: string): NotesBlock | undefined {
 }
 
 function tableRowsForBlock(blockId: string): NotesTableRowBlock[] {
-  return (childIdsByParentId[blockId] ?? [])
-    .map((childId) => blocksById[childId])
-    .filter((block): block is NotesTableRowBlock => block?.type === "table_row");
+  return notesTableRowsForBlock(blockTreeSnapshot(), blockId);
 }
 
 function columnItemsForBlock(blockId: string): NotesColumnBlockItems[] {
-  return (childIdsByParentId[blockId] ?? [])
-    .map((childId) => blocksById[childId])
-    .filter((block): block is NotesColumnBlockItems["column"] => block?.type === "column")
-    .map((column) => ({
-      column,
-      items: flattenNotesBlockChildren(treeState(), column.id, 0),
-    }));
+  return notesColumnItemsForBlock(blockTreeSnapshot(), blockId);
 }
 
 function tabItemsForBlock(blockId: string): NotesTabBlockItems[] {
-  return (childIdsByParentId[blockId] ?? [])
-    .map((childId) => blocksById[childId])
-    .filter((block): block is NotesParagraphBlock => block?.type === "paragraph")
-    .map((label) => ({
-      label,
-      items: flattenNotesBlockChildren(treeState(), label.id, 0),
-    }));
+  return notesTabItemsForBlock(blockTreeSnapshot(), blockId);
 }
 
 function previousBlockType(blockId: string): NotesBlockType | null {
-  const items = flatBlockItemsForBlockContext(blockId);
-  const item = items.find((candidate) => candidate.block.id === blockId);
-  if (!item?.previousVisibleId) return null;
-  return blocksById[item.previousVisibleId]?.type ?? null;
+  return previousNotesBlockType(blockTreeSnapshot(), blockId);
 }
 
-function localApplyBlockUpdate(blockId: string, update: NotesBlockUpdate): void {
-  const block = blocksById[blockId];
-  if (!block) return;
-  replaceBlock(applyBlockUpdate(block, update));
-}
+const {
+  localApplyBlockUpdate,
+  saveBlockNow,
+  scheduleBlockSave,
+  flushBlockSave,
+  flushPendingBlockSaves,
+} = createNotesBlockPersistence({
+  readBlock: (blockId) => blocksById[blockId],
+  replaceBlock,
+  readSelectedPageId: () => selectedPageId,
+  loadPageTree,
+  setLoadError: (message) => {
+    loadError = message;
+  },
+  debounceMs: BLOCK_SAVE_DEBOUNCE_MS,
+});
 
-async function saveBlockNow(blockId: string, update: NotesBlockUpdate): Promise<void> {
-  const saved = await updateNotesBlock(blockId, update);
-  replaceBlock(saved);
-}
+const blockActions = createNotesBlockActions({
+  readSelectedPageId: () => selectedPageId,
+  readBlocksById: () => blocksById,
+  readChildIdsByParentId: () => childIdsByParentId,
+  treeState,
+  blockById,
+  flatBlockItemsForBlockContext,
+  tableRowsForBlock,
+  columnItemsForBlock,
+  tabItemsForBlock,
+  setSidebarPageCollapsed,
+  requestBlockFocus,
+  createChildPageFromBlock,
+  loadPageTree,
+  reloadPages,
+  reloadBacklinks,
+  localApplyBlockUpdate,
+  saveBlockNow,
+  scheduleBlockSave,
+  flushBlockSave,
+  flushPendingBlockSaves,
+});
 
-function scheduleBlockSave(blockId: string, update: NotesBlockUpdate): void {
-  const pending = pendingBlockSaves.get(blockId);
-  if (pending) clearTimeout(pending.timer);
-  const timer = setTimeout(() => {
-    pendingBlockSaves.delete(blockId);
-    saveBlockNow(blockId, update).catch((error) => {
-      loadError = error instanceof Error ? error.message : String(error);
-      if (selectedPageId) void loadPageTree(selectedPageId);
-    });
-  }, BLOCK_SAVE_DEBOUNCE_MS);
-  pendingBlockSaves.set(blockId, { timer, update });
-}
-
-async function flushBlockSave(blockId: string): Promise<void> {
-  const pending = pendingBlockSaves.get(blockId);
-  if (!pending) return;
-  clearTimeout(pending.timer);
-  pendingBlockSaves.delete(blockId);
-  await saveBlockNow(blockId, pending.update);
-}
-
-async function flushPendingBlockSaves(): Promise<void> {
-  const blockIds = [...pendingBlockSaves.keys()];
-  await Promise.all(blockIds.map((blockId) => flushBlockSave(blockId)));
-}
-
-async function updateBlockText(blockId: string, text: string): Promise<void> {
-  const block = blocksById[blockId];
-  if (!block) return;
-  const update = blockWithText(block, text);
-  localApplyBlockUpdate(blockId, update);
-  scheduleBlockSave(blockId, update);
-}
-
-async function insertPageMention(
-  blockId: string,
-  start: number,
-  end: number,
-  pageId: string,
-  title: string,
-  href: string | null,
-): Promise<void> {
-  const block = blocksById[blockId];
-  if (!block) return;
-  await flushBlockSave(blockId);
-  const update = blockWithPageMention(block, start, end, pageId, title, href);
-  localApplyBlockUpdate(blockId, update);
-  await saveBlockNow(blockId, update);
-  await reloadBacklinks();
-}
-
-async function insertDateMention(
-  blockId: string,
-  start: number,
-  end: number,
-  date: NotesDateMentionValue,
-  title: string,
-): Promise<void> {
-  const block = blocksById[blockId];
-  if (!block) return;
-  await flushBlockSave(blockId);
-  const update = blockWithDateMention(block, start, end, date, title);
-  localApplyBlockUpdate(blockId, update);
-  await saveBlockNow(blockId, update);
-}
-
-async function insertInlineEquation(
-  blockId: string,
-  start: number,
-  end: number,
-  expression: string,
-): Promise<void> {
-  const block = blocksById[blockId];
-  if (!block) return;
-  await flushBlockSave(blockId);
-  const update = blockWithInlineEquation(block, start, end, expression);
-  localApplyBlockUpdate(blockId, update);
-  await saveBlockNow(blockId, update);
-}
-
-async function updateBlockTextLink(
-  blockId: string,
-  start: number,
-  end: number,
-  url: string | null,
-): Promise<void> {
-  await flushBlockSave(blockId);
-  const block = blocksById[blockId];
-  if (!block) return;
-  const update = blockWithTextLink(block, start, end, url);
-  localApplyBlockUpdate(blockId, update);
-  await saveBlockNow(blockId, update);
-  await reloadBacklinks();
-}
-
-async function updateBlockTextAnnotations(
-  blockId: string,
-  start: number,
-  end: number,
-  patch: NotesRichTextAnnotationPatch,
-): Promise<void> {
-  await flushBlockSave(blockId);
-  const block = blocksById[blockId];
-  if (!block) return;
-  const update = blockWithTextAnnotations(block, start, end, patch);
-  localApplyBlockUpdate(blockId, update);
-  await saveBlockNow(blockId, update);
-}
-
-async function updateBookmark(blockId: string, url: string, caption: string): Promise<void> {
-  const block = blocksById[blockId];
-  if (!block || block.type !== "bookmark") return;
-  const update = blockWithBookmark(block, url, caption);
-  localApplyBlockUpdate(blockId, update);
-  scheduleBlockSave(blockId, update);
-}
-
-async function updateEmbedUrl(blockId: string, url: string): Promise<void> {
-  const block = blocksById[blockId];
-  if (!block || block.type !== "embed") return;
-  const update = blockWithEmbedUrl(block, url);
-  localApplyBlockUpdate(blockId, update);
-  scheduleBlockSave(blockId, update);
-}
-
-async function updateLinkPreviewUrl(blockId: string, url: string): Promise<void> {
-  const block = blocksById[blockId];
-  if (!block || block.type !== "link_preview") return;
-  const update = blockWithLinkPreviewUrl(block, url);
-  localApplyBlockUpdate(blockId, update);
-  scheduleBlockSave(blockId, update);
-}
-
-async function updateEquationExpression(blockId: string, expression: string): Promise<void> {
-  const block = blocksById[blockId];
-  if (!block || block.type !== "equation") return;
-  const update = blockWithEquationExpression(block, expression);
-  localApplyBlockUpdate(blockId, update);
-  scheduleBlockSave(blockId, update);
-}
-
-async function updateMedia(
-  blockId: string,
-  url: string,
-  caption: string,
-  name?: string,
-): Promise<void> {
-  const block = blocksById[blockId];
-  if (
-    !block
-    || !["image", "video", "audio", "file", "pdf"].includes(block.type)
-  ) {
-    return;
-  }
-  const update = blockWithMedia(block, url, caption, name);
-  localApplyBlockUpdate(blockId, update);
-  scheduleBlockSave(blockId, update);
-}
-
-async function updateTableCell(
-  rowBlockId: string,
-  columnIndex: number,
-  text: string,
-): Promise<void> {
-  const block = blocksById[rowBlockId];
-  if (!block || block.type !== "table_row") return;
-  const update = blockWithTableCell(block, columnIndex, text);
-  localApplyBlockUpdate(rowBlockId, update);
-  scheduleBlockSave(rowBlockId, update);
-}
-
-async function replaceBlockWithUpdate(blockId: string, update: NotesBlockUpdate): Promise<void> {
-  await flushBlockSave(blockId);
-  localApplyBlockUpdate(blockId, update);
-  const saved = await updateNotesBlock(blockId, update);
-  replaceBlock(saved);
-}
-
-async function convertBlock(blockId: string, type: NotesBlockType, clearText = false): Promise<void> {
-  const block = blocksById[blockId];
-  if (!block) return;
-  if (type === "child_page") {
-    await createChildPageFromBlock(blockId);
-    return;
-  }
-  if (type === "table") {
-    await createTableFromBlock(blockId);
-    return;
-  }
-  if (type === "column_list") {
-    await createColumnListFromBlock(blockId);
-    return;
-  }
-  if (type === "tab") {
-    await createTabFromBlock(blockId);
-    return;
-  }
-  if (block.type === "child_page") return;
-  if (block.type === "table" || block.type === "table_row") return;
-  if (block.type === "column_list" || block.type === "column") return;
-  if (block.type === "tab") return;
-  const update = clearText ? createBlockUpdate(type, "") : blockConvertedToType(block, type);
-  await replaceBlockWithUpdate(blockId, update);
-  requestBlockFocus(type === "divider" ? null : blockId);
-}
-
-async function createTableFromBlock(blockId: string): Promise<void> {
-  if (!selectedPageId) return;
-  const block = blocksById[blockId];
-  if (!block || block.type === "child_page" || block.type === "table_row") return;
-  if ((childIdsByParentId[blockId] ?? []).length > 0 && block.type !== "table") return;
-  await replaceBlockWithUpdate(blockId, createBlockUpdate("table", ""));
-  if (tableRowsForBlock(blockId).length === 0) {
-    await appendNotesBlockChildren({
-      parent: { type: "block_id", block_id: blockId },
-      after: null,
-      children: Array.from({ length: DEFAULT_TABLE_ROW_COUNT }, () => ({
-        id: crypto.randomUUID(),
-        type: "table_row" as const,
-        table_row: createEmptyTableRowPayload(DEFAULT_TABLE_WIDTH),
-      })),
-    });
-  }
-  await loadPageTree(selectedPageId);
-  requestBlockFocus(blockId);
-}
-
-async function createColumnListFromBlock(blockId: string): Promise<void> {
-  if (!selectedPageId) return;
-  const block = blocksById[blockId];
-  if (
-    !block
-    || block.type === "child_page"
-    || block.type === "table_row"
-    || block.type === "column"
-  ) {
-    return;
-  }
-  if ((childIdsByParentId[blockId] ?? []).length > 0 && block.type !== "column_list") return;
-  await replaceBlockWithUpdate(blockId, createBlockUpdate("column_list", ""));
-  if (columnItemsForBlock(blockId).length === 0) {
-    const leftColumnId = crypto.randomUUID();
-    const rightColumnId = crypto.randomUUID();
-    const leftBlockId = crypto.randomUUID();
-    const rightBlockId = crypto.randomUUID();
-    const columns: NotesBlockWrite[] = [
-      {
-        id: leftColumnId,
-        type: "column",
-        column: createColumnPayload(0.5),
-      },
-      {
-        id: rightColumnId,
-        type: "column",
-        column: createColumnPayload(0.5),
-      },
-    ];
-    await appendNotesBlockChildren({
-      parent: { type: "block_id", block_id: blockId },
-      after: null,
-      children: columns,
-    });
-    await appendNotesBlockChildren({
-      parent: { type: "block_id", block_id: leftColumnId },
-      after: null,
-      children: [createBlockWrite(leftBlockId, "paragraph")],
-    });
-    await appendNotesBlockChildren({
-      parent: { type: "block_id", block_id: rightColumnId },
-      after: null,
-      children: [createBlockWrite(rightBlockId, "paragraph")],
-    });
-    await loadPageTree(selectedPageId);
-    requestBlockFocus(leftBlockId);
-    return;
-  }
-  await loadPageTree(selectedPageId);
-  requestBlockFocus(blockId);
-}
-
-async function createTabFromBlock(blockId: string): Promise<void> {
-  if (!selectedPageId) return;
-  const block = blocksById[blockId];
-  if (
-    !block
-    || block.type === "child_page"
-    || block.type === "table_row"
-    || block.type === "column"
-  ) {
-    return;
-  }
-  if ((childIdsByParentId[blockId] ?? []).length > 0 && block.type !== "tab") return;
-  const firstLabel = blockPlainText(block).trim() || "Tab 1";
-  await replaceBlockWithUpdate(blockId, createBlockUpdate("tab", ""));
-  if (tabItemsForBlock(blockId).length === 0) {
-    const firstLabelId = crypto.randomUUID();
-    const secondLabelId = crypto.randomUUID();
-    const firstContentId = crypto.randomUUID();
-    const secondContentId = crypto.randomUUID();
-    await appendNotesBlockChildren({
-      parent: { type: "block_id", block_id: blockId },
-      after: null,
-      children: [
-        createBlockWrite(firstLabelId, "paragraph", firstLabel),
-        createBlockWrite(secondLabelId, "paragraph", "Tab 2"),
-      ],
-    });
-    await appendNotesBlockChildren({
-      parent: { type: "block_id", block_id: firstLabelId },
-      after: null,
-      children: [createBlockWrite(firstContentId, "paragraph")],
-    });
-    await appendNotesBlockChildren({
-      parent: { type: "block_id", block_id: secondLabelId },
-      after: null,
-      children: [createBlockWrite(secondContentId, "paragraph")],
-    });
-    await loadPageTree(selectedPageId);
-    requestBlockFocus(firstContentId);
-    return;
-  }
-  await loadPageTree(selectedPageId);
-  requestBlockFocus(blockId);
-}
-
-async function toggleTodo(blockId: string, checked: boolean): Promise<void> {
-  const block = blocksById[blockId];
-  if (!block) return;
-  await replaceBlockWithUpdate(blockId, blockWithTodoChecked(block, checked));
-}
-
-async function updateCodeLanguage(blockId: string, language: string): Promise<void> {
-  const block = blocksById[blockId];
-  if (!block) return;
-  await replaceBlockWithUpdate(blockId, blockWithCodeLanguage(block, language));
-}
-
-async function updateBlockColor(blockId: string, color: NotesColor): Promise<void> {
-  const block = blocksById[blockId];
-  if (!block) return;
-  await replaceBlockWithUpdate(blockId, blockWithColor(block, color));
-}
-
-async function updateToggleOpen(blockId: string, open: boolean): Promise<void> {
-  const block = blocksById[blockId];
-  if (!block) return;
-  if (block.type === "toggle") {
-    await replaceBlockWithUpdate(blockId, blockWithToggleOpen(block, open));
-    return;
-  }
-  if (
-    (block.type === "heading_1" && block.heading_1.is_toggleable === true)
-    || (block.type === "heading_2" && block.heading_2.is_toggleable === true)
-    || (block.type === "heading_3" && block.heading_3.is_toggleable === true)
-    || (block.type === "heading_4" && block.heading_4.is_toggleable === true)
-  ) {
-    await replaceBlockWithUpdate(blockId, blockWithHeadingToggleOpen(block, open));
-  }
-}
-
-async function convertBlockToToggleHeading(
-  blockId: string,
-  headingType: NotesHeadingBlockType,
-): Promise<void> {
-  const block = blocksById[blockId];
-  if (!block) return;
-  if (block.type === "child_page") return;
-  if (block.type === "table" || block.type === "table_row") return;
-  if (block.type === "column_list" || block.type === "column") return;
-  await replaceBlockWithUpdate(blockId, blockWithHeadingToggleable(block, headingType, true));
-  requestBlockFocus(blockId);
-}
-
-async function createSiblingAfter(blockId: string, type: NotesBlockType = "paragraph"): Promise<void> {
-  const block = blocksById[blockId];
-  if (!block || !selectedPageId) return;
-  await flushBlockSave(blockId);
-  const newBlockId = crypto.randomUUID();
-  await appendNotesBlockChildren({
-    parent: block.parent,
-    after: blockId,
-    children: [createBlockWrite(newBlockId, type)],
-  });
-  if (type === "tab") {
-    const firstLabelId = crypto.randomUUID();
-    const secondLabelId = crypto.randomUUID();
-    const firstContentId = crypto.randomUUID();
-    const secondContentId = crypto.randomUUID();
-    await appendNotesBlockChildren({
-      parent: { type: "block_id", block_id: newBlockId },
-      after: null,
-      children: [
-        createBlockWrite(firstLabelId, "paragraph", "Tab 1"),
-        createBlockWrite(secondLabelId, "paragraph", "Tab 2"),
-      ],
-    });
-    await appendNotesBlockChildren({
-      parent: { type: "block_id", block_id: firstLabelId },
-      after: null,
-      children: [createBlockWrite(firstContentId, "paragraph")],
-    });
-    await appendNotesBlockChildren({
-      parent: { type: "block_id", block_id: secondLabelId },
-      after: null,
-      children: [createBlockWrite(secondContentId, "paragraph")],
-    });
-    await loadPageTree(selectedPageId);
-    requestBlockFocus(firstContentId);
-    return;
-  }
-  await loadPageTree(selectedPageId);
-  requestBlockFocus(type === "divider" ? null : newBlockId);
-}
-
-async function pastePlainTextIntoBlock(
-  blockId: string,
-  selectionStart: number,
-  selectionEnd: number,
-  plainText: string,
-): Promise<boolean> {
-  const block = blocksById[blockId];
-  if (!block || !selectedPageId) return false;
-  const plan = planNotesPlainTextPaste({
-    currentBlockId: blockId,
-    currentBlockType: block.type,
-    currentText: blockPlainText(block),
-    selectionStart,
-    selectionEnd,
-    plainText,
-    createId: () => crypto.randomUUID(),
-  });
-  if (!plan) return false;
-  await flushBlockSave(blockId);
-  localApplyBlockUpdate(blockId, plan.currentUpdate);
-  await saveBlockNow(blockId, plan.currentUpdate);
-  if (plan.appendedBlocks.length > 0) {
-    await appendNotesBlockChildren({
-      parent: block.parent,
-      after: blockId,
-      children: plan.appendedBlocks,
-    });
-  }
-  await loadPageTree(selectedPageId);
-  requestBlockFocus(plan.focusBlockId);
-  return true;
-}
-
-async function deleteBlock(blockId: string): Promise<void> {
-  if (!selectedPageId) return;
-  await flushBlockSave(blockId);
-  const plan = planDeleteBlock(flatBlockItemsForBlockContext(blockId), blockId);
-  if (!plan) return;
-  if (plan.keepOnlyBlockAsParagraph) {
-    await replaceBlockWithUpdate(blockId, createBlockUpdate("paragraph", ""));
-    requestBlockFocus(blockId);
-    return;
-  }
-  if (plan.deleteBlockId) {
-    await trashNotesBlock(plan.deleteBlockId, true);
-    await loadPageTree(selectedPageId);
-  }
-  requestBlockFocus(plan.focusBlockId);
-}
-
-async function mergeBlockWithPrevious(blockId: string): Promise<void> {
-  if (!selectedPageId) return;
-  await flushBlockSave(blockId);
-  const plan = planMergeWithPrevious(flatBlockItemsForBlockContext(blockId), blockId);
-  if (!plan) return;
-  const target = blocksById[plan.targetBlockId];
-  if (!target) return;
-  await replaceBlockWithUpdate(target.id, blockWithText(target, plan.mergedText));
-  await trashNotesBlock(plan.sourceBlockId, true);
-  await loadPageTree(selectedPageId);
-  requestBlockFocus(target.id);
-}
-
-async function nestBlock(blockId: string): Promise<void> {
-  if (!selectedPageId) return;
-  await flushBlockSave(blockId);
-  const plan = planNestBlock(treeState(), blockId);
-  if (!plan) return;
-  await moveNotesBlock(blockId, {
-    parent: { type: "block_id", block_id: plan.parentId },
-    after: plan.after,
-  });
-  await loadPageTree(selectedPageId);
-  requestBlockFocus(blockId);
-}
-
-async function outdentBlock(blockId: string): Promise<void> {
-  if (!selectedPageId) return;
-  await flushBlockSave(blockId);
-  const plan = planOutdentBlock(treeState(), blockId);
-  if (!plan) return;
-  const parent: NotesParent = plan.parentId === selectedPageId
-    ? { type: "page_id", page_id: selectedPageId }
-    : { type: "block_id", block_id: plan.parentId };
-  await moveNotesBlock(blockId, { parent, after: plan.after });
-  await loadPageTree(selectedPageId);
-  requestBlockFocus(blockId);
-}
-
-function parentFromMoveParentId(parentId: string): NotesParent | null {
-  if (!selectedPageId) return null;
-  return parentId === selectedPageId
-    ? { type: "page_id", page_id: selectedPageId }
-    : { type: "block_id", block_id: parentId };
-}
-
-async function moveBlockWithinSiblings(
-  blockId: string,
-  direction: "up" | "down",
-): Promise<void> {
-  if (!selectedPageId) return;
-  await flushBlockSave(blockId);
-  const plan = planMoveBlockWithinSiblings(treeState(), blockId, direction);
-  if (!plan) return;
-  const parent = parentFromMoveParentId(plan.parentId);
-  if (!parent) return;
-  await moveNotesBlock(blockId, { parent, after: plan.after, before: plan.before });
-  await loadPageTree(selectedPageId);
-  requestBlockFocus(blockId);
-}
-
-async function dropBlockWithinSiblings(
-  sourceBlockId: string,
-  targetBlockId: string,
-  position: "before" | "after",
-): Promise<void> {
-  if (!selectedPageId) return;
-  await flushBlockSave(sourceBlockId);
-  const plan = planDropBlockWithinSiblings(treeState(), sourceBlockId, targetBlockId, position);
-  if (!plan) return;
-  const parent = parentFromMoveParentId(plan.parentId);
-  if (!parent) return;
-  await moveNotesBlock(sourceBlockId, { parent, after: plan.after, before: plan.before });
-  await loadPageTree(selectedPageId);
-  requestBlockFocus(sourceBlockId);
-}
-
-async function moveBlockToPage(blockId: string, pageId: string): Promise<void> {
-  if (!selectedPageId || pageId === selectedPageId) return;
-  const block = blocksById[blockId];
-  if (!block || (block.type === "child_page" && block.id === pageId)) return;
-  await flushBlockSave(blockId);
-  await moveNotesBlock(blockId, {
-    parent: { type: "page_id", page_id: pageId },
-    after: null,
-    before: null,
-  });
-  await reloadPages();
-  await loadPageTree(selectedPageId);
-  requestBlockFocus(null);
-}
-
-async function duplicateBlock(blockId: string): Promise<void> {
-  if (!selectedPageId) return;
-  if (blocksById[blockId]?.type === "child_page") return;
-  await flushBlockSave(blockId);
-  const request = createDuplicateBlockRequest(treeState(), blockId, () => crypto.randomUUID());
-  if (request.duplicated_block_ids.length === 0) return;
-  const duplicate = await duplicateNotesBlock(blockId, request);
-  await loadPageTree(selectedPageId);
-  requestBlockFocus(duplicate.id);
-}
-
-async function useTemplateBlock(blockId: string): Promise<void> {
-  if (!selectedPageId) return;
-  const template = blocksById[blockId];
-  if (!template || template.type !== "template") return;
-  const childIds = (childIdsByParentId[blockId] ?? [])
-    .filter((childId) => {
-      const child = blocksById[childId];
-      return child !== undefined && !child.in_trash;
-    });
-  if (childIds.length === 0) return;
-  const state = treeState();
-  const templateContainsChildPage = childIds.some((childId) =>
-    collectLoadedBlockSubtreeIds(state, childId).some((subtreeId) =>
-      blocksById[subtreeId]?.type === "child_page"
-    )
-  );
-  if (templateContainsChildPage) return;
-
-  await flushPendingBlockSaves();
-  let after = blockId;
-  let firstDuplicateId: string | null = null;
-  for (const childId of childIds) {
-    const request = createDuplicateBlockRequest(state, childId, () => crypto.randomUUID());
-    if (request.duplicated_block_ids.length === 0) continue;
-    const duplicate = await duplicateNotesBlock(childId, request);
-    await moveNotesBlock(duplicate.id, {
-      parent: template.parent,
-      after,
-      before: null,
-    });
-    after = duplicate.id;
-    firstDuplicateId ??= duplicate.id;
-  }
-
-  await loadPageTree(selectedPageId);
-  requestBlockFocus(firstDuplicateId);
-}
-
-function activeChildIdsForBlock(blockId: string): string[] {
-  return (childIdsByParentId[blockId] ?? []).filter((childId) => {
-    const child = blocksById[childId];
-    return child !== undefined && !child.in_trash;
-  });
-}
-
-function loadedSubtreesContainChildPage(state: NotesTreeState, childIds: readonly string[]): boolean {
-  return childIds.some((childId) =>
-    collectLoadedBlockSubtreeIds(state, childId).some(
-      (subtreeId) => blocksById[subtreeId]?.type === "child_page",
-    ),
-  );
-}
-
-function firstActiveSiblingId(parentId: string): string | null {
-  return (
-    (childIdsByParentId[parentId] ?? []).find((childId) => {
-      const child = blocksById[childId];
-      return child !== undefined && !child.in_trash;
-    }) ?? null
-  );
-}
-
-function buttonInsertTarget(
-  blockId: string,
-  position: NotesButtonInsertPosition,
-): { parent: NotesParent; after: string | null; before: string | null } | null {
-  const button = blocksById[blockId];
-  if (!selectedPageId || !button || button.type !== "button") return null;
-  if (position === "below_button") {
-    return { parent: button.parent, after: blockId, before: null };
-  }
-  if (position === "above_button") {
-    return { parent: button.parent, after: null, before: blockId };
-  }
-  const pageParent = { type: "page_id", page_id: selectedPageId } as const satisfies NotesParent;
-  if (position === "bottom_of_page") {
-    return { parent: pageParent, after: null, before: null };
-  }
-  return {
-    parent: pageParent,
-    after: null,
-    before: firstActiveSiblingId(selectedPageId),
-  };
-}
-
-async function insertLoadedChildSubtrees(
-  childIds: readonly string[],
-  target: { parent: NotesParent; after: string | null; before: string | null },
-): Promise<string | null> {
-  const state = treeState();
-  let after = target.after;
-  let before = target.before;
-  let firstDuplicateId: string | null = null;
-  for (const childId of childIds) {
-    const request = createDuplicateBlockRequest(state, childId, () => crypto.randomUUID());
-    if (request.duplicated_block_ids.length === 0) continue;
-    const duplicate = await duplicateNotesBlock(childId, request);
-    await moveNotesBlock(duplicate.id, {
-      parent: target.parent,
-      after,
-      before,
-    });
-    after = duplicate.id;
-    before = null;
-    firstDuplicateId ??= duplicate.id;
-  }
-  return firstDuplicateId;
-}
-
-async function useButtonBlock(blockId: string): Promise<void> {
-  if (!selectedPageId) return;
-  const button = blocksById[blockId];
-  if (!button || button.type !== "button") return;
-  const action = button.button.actions.find((candidate) => candidate.type === "insert_blocks");
-  if (!action) return;
-  const childIds = activeChildIdsForBlock(blockId);
-  if (childIds.length === 0) return;
-  const state = treeState();
-  if (loadedSubtreesContainChildPage(state, childIds)) return;
-  const target = buttonInsertTarget(blockId, action.position);
-  if (!target) return;
-
-  await flushPendingBlockSaves();
-  const firstDuplicateId = await insertLoadedChildSubtrees(childIds, target);
-  await loadPageTree(selectedPageId);
-  requestBlockFocus(firstDuplicateId);
-}
+const {
+  updateBlockText,
+  insertPageMention,
+  insertDateMention,
+  insertInlineEquation,
+  updateBlockTextLink,
+  updateBlockTextAnnotations,
+  updateBookmark,
+  updateEmbedUrl,
+  updateLinkPreviewUrl,
+  updateEquationExpression,
+  updateMedia,
+  updateTableCell,
+  convertBlock,
+  toggleTodo,
+  updateCodeLanguage,
+  updateBlockColor,
+  updateToggleOpen,
+  convertBlockToToggleHeading,
+  createSiblingAfter,
+  pastePlainTextIntoBlock,
+  deleteBlock,
+  mergeBlockWithPrevious,
+  nestBlock,
+  outdentBlock,
+  moveBlockUp,
+  moveBlockDown,
+  dropBlockWithinSiblings,
+  moveBlockToPage,
+  duplicateBlock,
+  useTemplateBlock,
+  useButtonBlock,
+} = blockActions;
 
 function isOnlyBlock(blockId: string): boolean {
-  const items = flatBlockItemsForBlockContext(blockId);
-  return items.length === 1 && items[0]?.block.id === blockId;
+  return isOnlyNotesBlockInContext(blockTreeSnapshot(), blockId);
 }
 
 function focusBlock(blockId: string): void {
@@ -1653,10 +910,10 @@ export function getNotes() {
       return trashError;
     },
     get focusBlockId(): string | null {
-      return focusBlockId;
+      return focusRequest.blockId;
     },
     get focusRequestId(): number {
-      return focusRequestId;
+      return focusRequest.requestId;
     },
     load,
     ensureLoaded,
@@ -1723,8 +980,8 @@ export function getNotes() {
     mergeBlockWithPrevious,
     nestBlock,
     outdentBlock,
-    moveBlockUp: (blockId: string) => moveBlockWithinSiblings(blockId, "up"),
-    moveBlockDown: (blockId: string) => moveBlockWithinSiblings(blockId, "down"),
+    moveBlockUp,
+    moveBlockDown,
     dropBlockWithinSiblings,
     moveBlockToPage,
     duplicateBlock,
