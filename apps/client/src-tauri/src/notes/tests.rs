@@ -3772,10 +3772,59 @@ fn append_and_update_tab_blocks_round_trip() {
         )
         .await
         .unwrap();
+        writes::append_block_children(
+            &pool,
+            NoteAppendBlockChildren {
+                parent: block_parent(BLOCK_D),
+                after: None,
+                children: vec![block(BLOCK_F, "paragraph", paragraph_payload("Draft"))],
+            },
+        )
+        .await
+        .unwrap();
 
         writes::update_block(&pool, BLOCK_B, block_update("tab", tab_payload()))
             .await
             .unwrap();
+        writes::update_block(
+            &pool,
+            BLOCK_C,
+            block_update(
+                "paragraph",
+                json!({
+                    "rich_text": [rich_text("Plan")],
+                    "color": "default",
+                    "icon": {
+                        "type": "emoji",
+                        "emoji": "✅"
+                    }
+                }),
+            ),
+        )
+        .await
+        .unwrap();
+        writes::move_block(
+            &pool,
+            BLOCK_E,
+            NoteMoveBlock {
+                parent: block_parent(BLOCK_D),
+                after: Some(BLOCK_F.to_string()),
+                before: None,
+            },
+        )
+        .await
+        .unwrap();
+        writes::move_block(
+            &pool,
+            BLOCK_D,
+            NoteMoveBlock {
+                parent: block_parent(BLOCK_B),
+                after: None,
+                before: Some(BLOCK_C.to_string()),
+            },
+        )
+        .await
+        .unwrap();
 
         let tab_children = reads::get_block_children(&pool, BLOCK_B, None, Some(10))
             .await
@@ -3785,20 +3834,29 @@ fn append_and_update_tab_blocks_round_trip() {
         assert_eq!(tab_children_json["results"][0]["type"], "paragraph");
         assert_eq!(
             tab_children_json["results"][0]["paragraph"]["rich_text"][0]["plain_text"],
-            "Overview"
+            "Details"
         );
         assert_eq!(
-            tab_children_json["results"][0]["paragraph"]["icon"]["icon"]["name"],
-            "star"
+            tab_children_json["results"][1]["paragraph"]["rich_text"][0]["plain_text"],
+            "Plan"
+        );
+        assert_eq!(
+            tab_children_json["results"][1]["paragraph"]["icon"]["emoji"],
+            "✅"
         );
 
-        let first_tab_panel = reads::get_block_children(&pool, BLOCK_C, None, Some(10))
+        let first_tab_panel = reads::get_block_children(&pool, BLOCK_D, None, Some(10))
             .await
             .unwrap();
         let first_tab_panel_json = serde_json::to_value(first_tab_panel).unwrap();
-        assert_eq!(first_tab_panel_json["results"][0]["type"], "to_do");
+        assert_eq!(first_tab_panel_json["results"][0]["type"], "paragraph");
         assert_eq!(
-            first_tab_panel_json["results"][0]["to_do"]["rich_text"][0]["plain_text"],
+            first_tab_panel_json["results"][0]["paragraph"]["rich_text"][0]["plain_text"],
+            "Draft"
+        );
+        assert_eq!(first_tab_panel_json["results"][1]["type"], "to_do");
+        assert_eq!(
+            first_tab_panel_json["results"][1]["to_do"]["rich_text"][0]["plain_text"],
             "Read notes"
         );
 

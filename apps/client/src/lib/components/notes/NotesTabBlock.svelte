@@ -10,6 +10,13 @@
     type NotesKeyboardAction,
   } from "$lib/notes/block-keyboard";
   import { notesUndoShortcutAction } from "$lib/notes/undo-history";
+  import {
+    notesTabCanAdd,
+    notesTabCanMove,
+    notesTabCanRemove,
+    notesTabIconOptions,
+    type NotesTabMoveDirection,
+  } from "$lib/notes/tab";
   import type { NotesSlashAction, NotesSlashCommand } from "$lib/notes/slash-commands";
   import type {
     NotesDateMentionTarget,
@@ -17,10 +24,12 @@
     NotesRichTextAnnotationPatch,
   } from "$lib/notes/rich-text";
   import type { NotesBlockDropIndicator } from "$lib/notes/block-drag";
+  import NotesPageIcon from "$lib/components/notes/NotesPageIcon.svelte";
   import type {
     NotesBlockTreeItem,
     NotesBlockType,
     NotesColor,
+    NotesIcon,
     NotesPageBreadcrumbItem,
     NotesRichText,
     NotesTabBlockItems,
@@ -30,6 +39,10 @@
   import NotesBlockHandle from "./NotesBlockHandle.svelte";
   import NotesBlockRow from "./NotesBlockRow.svelte";
   import NotesSlashMenu from "./NotesSlashMenu.svelte";
+  import ArrowLeft from "@lucide/svelte/icons/arrow-left";
+  import ArrowRight from "@lucide/svelte/icons/arrow-right";
+  import Plus from "@lucide/svelte/icons/plus";
+  import Trash2 from "@lucide/svelte/icons/trash-2";
 
   let {
     item,
@@ -93,6 +106,12 @@
     onRemoveTableRow,
     onAddTableColumn,
     onRemoveTableColumn,
+    onUpdateTabLabel,
+    onUpdateTabIcon,
+    onAddTab,
+    onRemoveTab,
+    onMoveTab,
+    onMoveBlockToTab,
     onSelectPage,
     onFocusBlock,
   }: {
@@ -203,6 +222,16 @@
     onRemoveTableRow: (tableBlockId: string, rowBlockId: string) => Promise<void> | void;
     onAddTableColumn: (tableBlockId: string, afterColumnIndex: number) => Promise<void> | void;
     onRemoveTableColumn: (tableBlockId: string, columnIndex: number) => Promise<void> | void;
+    onUpdateTabLabel: (labelBlockId: string, label: string) => Promise<void> | void;
+    onUpdateTabIcon: (labelBlockId: string, icon: NotesIcon | null) => Promise<void> | void;
+    onAddTab: (tabBlockId: string, afterTabIndex: number) => Promise<void> | void;
+    onRemoveTab: (tabBlockId: string, labelBlockId: string) => Promise<void> | void;
+    onMoveTab: (
+      tabBlockId: string,
+      labelBlockId: string,
+      direction: NotesTabMoveDirection,
+    ) => Promise<void> | void;
+    onMoveBlockToTab: (blockId: string, labelBlockId: string) => Promise<void> | void;
     onSelectPage: (pageId: string) => void;
     onFocusBlock: (blockId: string) => void;
   } = $props();
@@ -211,10 +240,17 @@
   let focusButton: HTMLButtonElement | null = $state(null);
   let slashOpen = $state(false);
   let activeTabId = $state<string | null>(null);
+  let activeLabelDraft = $state("");
   const block = $derived(item.block);
+  const tabIconChoices = notesTabIconOptions();
   const activeTab = $derived(
     tabItems.find((tab) => tab.label.id === activeTabId) ?? tabItems[0] ?? null,
   );
+  const activeTabIndex = $derived(
+    activeTab ? tabItems.findIndex((tab) => tab.label.id === activeTab.label.id) : -1,
+  );
+  const canAddTab = $derived(notesTabCanAdd(tabItems.length));
+  const canRemoveTab = $derived(notesTabCanRemove(tabItems.length));
 
   $effect(() => {
     if (tabItems.length === 0) {
@@ -227,6 +263,12 @@
   });
 
   $effect(() => {
+    activeLabelDraft = activeTab
+      ? tabLabel(activeTab, activeTabIndex < 0 ? 0 : activeTabIndex)
+      : "";
+  });
+
+  $effect(() => {
     const _focusRequestId = focusRequestId;
     if (focusBlockId !== block.id) return;
     void tick().then(() => {
@@ -236,6 +278,72 @@
 
   function tabLabel(tab: NotesTabBlockItems, index: number): string {
     return blockPlainText(tab.label).trim() || t("notes.tab", index + 1);
+  }
+
+  function activeIconOptionId(): string {
+    const icon = activeTab?.label.paragraph.icon ?? null;
+    if (!icon) return "none";
+    if (icon.type === "emoji") return `emoji:${icon.emoji}`;
+    if (icon.type === "icon") return `icon:${icon.icon.name}`;
+    return "none";
+  }
+
+  function commitActiveLabel(): void {
+    if (!activeTab) return;
+    const nextLabel = activeLabelDraft.trim();
+    if (!nextLabel || nextLabel === tabLabel(activeTab, activeTabIndex)) return;
+    void Promise.resolve(onUpdateTabLabel(activeTab.label.id, nextLabel));
+  }
+
+  function handleLabelKeydown(event: KeyboardEvent): void {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      commitActiveLabel();
+      return;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      activeLabelDraft = activeTab
+        ? tabLabel(activeTab, activeTabIndex < 0 ? 0 : activeTabIndex)
+        : "";
+    }
+  }
+
+  function selectActiveIcon(optionId: string): void {
+    if (!activeTab) return;
+    const option = tabIconChoices.find((candidate) => candidate.id === optionId);
+    if (!option) return;
+    void Promise.resolve(onUpdateTabIcon(activeTab.label.id, option.icon));
+  }
+
+  function addTabAfterActive(): void {
+    if (!canAddTab) return;
+    void Promise.resolve(onAddTab(block.id, Math.max(0, activeTabIndex)));
+  }
+
+  function removeActiveTab(): void {
+    if (!activeTab || !canRemoveTab) return;
+    void Promise.resolve(onRemoveTab(block.id, activeTab.label.id));
+  }
+
+  function moveActiveTab(direction: NotesTabMoveDirection): void {
+    if (!activeTab || !notesTabCanMove(tabItems, activeTab.label.id, direction)) return;
+    void Promise.resolve(onMoveTab(block.id, activeTab.label.id, direction));
+  }
+
+  function handleTabTriggerDragOver(event: DragEvent): void {
+    if (!draggingBlockId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+  }
+
+  function handleTabTriggerDrop(event: DragEvent, labelBlockId: string): void {
+    if (!draggingBlockId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    activeTabId = labelBlockId;
+    void Promise.resolve(onMoveBlockToTab(draggingBlockId, labelBlockId));
   }
 
   function handleKeydown(event: KeyboardEvent): void {
@@ -360,6 +468,9 @@
             bind:this={focusButton}
             type="button"
             class="min-h-8 w-full rounded px-1 text-left text-[0.8rem] text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onclick={() => {
+              void Promise.resolve(onAddTab(block.id, 0));
+            }}
             onkeydown={handleKeydown}
           >
             {t("notes.emptyTabs")}
@@ -368,23 +479,89 @@
           <div class="notes-tab-list" role="tablist" aria-label={t("notes.blockType.tab")}>
             {#each tabItems as tab, tabIndex (tab.label.id)}
               {@const selected = activeTab?.label.id === tab.label.id}
+              {@const tabIcon = tab.label.paragraph.icon ?? null}
               <button
                 type="button"
                 role="tab"
                 aria-selected={selected}
                 class="notes-tab-trigger"
                 class:notes-tab-trigger-active={selected}
+                aria-label={t("notes.openTabPanel", tabLabel(tab, tabIndex))}
                 onclick={() => {
                   activeTabId = tab.label.id;
                   onFocusBlock(tab.label.id);
                 }}
+                ondragover={handleTabTriggerDragOver}
+                ondrop={(event) => handleTabTriggerDrop(event, tab.label.id)}
               >
+                {#if tabIcon}
+                  <NotesPageIcon icon={tabIcon} size={15} strokeWidth={1.8} class="notes-tab-icon" />
+                {/if}
                 <span class="min-w-0 truncate">{tabLabel(tab, tabIndex)}</span>
               </button>
             {/each}
           </div>
 
           {#if activeTab}
+            <div class="notes-tab-tools" aria-label={t("notes.tabActions", activeTabIndex + 1)}>
+              <input
+                class="notes-tab-label-input"
+                type="text"
+                value={activeLabelDraft}
+                aria-label={t("notes.renameTab", activeTabIndex + 1)}
+                oninput={(event) => {
+                  activeLabelDraft = event.currentTarget.value;
+                }}
+                onblur={commitActiveLabel}
+                onkeydown={handleLabelKeydown}
+              />
+              <select
+                class="notes-tab-icon-select"
+                value={activeIconOptionId()}
+                aria-label={t("notes.tabIcon", activeTabIndex + 1)}
+                onchange={(event) => selectActiveIcon(event.currentTarget.value)}
+              >
+                {#each tabIconChoices as option (option.id)}
+                  <option value={option.id}>{option.id === "none" ? t("notes.noTabIcon") : option.label}</option>
+                {/each}
+              </select>
+              <button
+                type="button"
+                class="notes-tab-tool-button"
+                aria-label={t("notes.moveTabLeft", activeTabIndex + 1)}
+                disabled={!notesTabCanMove(tabItems, activeTab.label.id, "left")}
+                onclick={() => moveActiveTab("left")}
+              >
+                <ArrowLeft size={14} strokeWidth={2} aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                class="notes-tab-tool-button"
+                aria-label={t("notes.moveTabRight", activeTabIndex + 1)}
+                disabled={!notesTabCanMove(tabItems, activeTab.label.id, "right")}
+                onclick={() => moveActiveTab("right")}
+              >
+                <ArrowRight size={14} strokeWidth={2} aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                class="notes-tab-tool-button"
+                aria-label={t("notes.addTabAfter", activeTabIndex + 1)}
+                disabled={!canAddTab}
+                onclick={addTabAfterActive}
+              >
+                <Plus size={14} strokeWidth={2} aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                class="notes-tab-tool-button"
+                aria-label={t("notes.removeTab", activeTabIndex + 1)}
+                disabled={!canRemoveTab}
+                onclick={removeActiveTab}
+              >
+                <Trash2 size={14} strokeWidth={2} aria-hidden="true" />
+              </button>
+            </div>
             <div
               class="notes-tab-panel"
               role="tabpanel"
@@ -546,6 +723,7 @@
     min-width: 0;
     flex-shrink: 0;
     align-items: center;
+    gap: 0.25rem;
     border-bottom: 2px solid transparent;
     padding: 0 0.55rem;
     color: hsl(var(--muted-foreground));
@@ -565,15 +743,103 @@
     color: hsl(var(--foreground));
   }
 
+  .notes-tab-trigger :global(.notes-tab-icon) {
+    max-width: 3rem;
+    flex-shrink: 0;
+    overflow: hidden;
+    color: inherit;
+    font-size: 0.75rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .notes-tab-tools {
+    display: grid;
+    grid-template-columns: minmax(8rem, 1fr) minmax(6rem, auto) repeat(4, 1.9rem);
+    align-items: center;
+    gap: 0.35rem;
+    min-width: 0;
+    padding: 0.4rem 0 0.2rem;
+  }
+
+  .notes-tab-label-input,
+  .notes-tab-icon-select {
+    min-width: 0;
+    height: 1.9rem;
+    border: 1px solid var(--border);
+    border-radius: 0.375rem;
+    background: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-size: 0.78rem;
+    outline: none;
+  }
+
+  .notes-tab-label-input {
+    padding: 0 0.5rem;
+  }
+
+  .notes-tab-icon-select {
+    padding: 0 1.5rem 0 0.45rem;
+  }
+
+  .notes-tab-label-input:focus-visible,
+  .notes-tab-icon-select:focus-visible,
+  .notes-tab-tool-button:focus-visible {
+    box-shadow: 0 0 0 2px hsl(var(--ring) / 0.65);
+  }
+
+  .notes-tab-tool-button {
+    display: inline-flex;
+    width: 1.9rem;
+    height: 1.9rem;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border);
+    border-radius: 0.375rem;
+    color: hsl(var(--muted-foreground));
+    outline: none;
+  }
+
+  .notes-tab-tool-button:hover:not(:disabled) {
+    background: hsl(var(--accent));
+    color: hsl(var(--accent-foreground));
+  }
+
+  .notes-tab-tool-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+  }
+
   .notes-tab-panel {
     min-width: 0;
     padding-top: 0.45rem;
   }
 
   @container (max-width: 28rem) {
+    .notes-tab-tools {
+      grid-template-columns: minmax(0, 1fr) minmax(5.5rem, auto) repeat(4, 1.75rem);
+      gap: 0.25rem;
+    }
+
     .notes-tab-trigger {
       max-width: 9rem;
       padding: 0 0.45rem;
+    }
+
+    .notes-tab-tool-button {
+      width: 1.75rem;
+      height: 1.75rem;
+    }
+  }
+
+  @container (max-width: 22rem) {
+    .notes-tab-tools {
+      grid-template-columns: minmax(0, 1fr) repeat(4, 1.75rem);
+    }
+
+    .notes-tab-icon-select {
+      grid-column: 1 / -1;
+      width: 100%;
     }
   }
 </style>

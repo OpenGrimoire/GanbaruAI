@@ -117,6 +117,10 @@ import {
   createNotesColumnActions,
   type NotesColumnActions,
 } from "$lib/stores/notes-store-column-actions";
+import {
+  createNotesTabActions,
+  type NotesTabActions,
+} from "$lib/stores/notes-store-tab-actions";
 
 export interface NotesBlockActionsContext {
   readSelectedPageId: () => string | null;
@@ -147,7 +151,7 @@ export interface NotesBlockActionsContext {
   recordUndo: (options: Omit<NotesUndoRecordOptions, "id">) => void;
 }
 
-export interface NotesBlockActions extends NotesColumnActions {
+export interface NotesBlockActions extends NotesColumnActions, NotesTabActions {
   updateBlockText: (blockId: string, text: string) => Promise<void>;
   updateBlockRichText: (
     blockId: string,
@@ -306,6 +310,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
   }
 
   const columnActions = createNotesColumnActions(context);
+  const tabActions = createNotesTabActions(context);
 
   async function replaceBlockWithUpdate(blockId: string, update: NotesBlockUpdate): Promise<void> {
     await context.flushBlockSave(blockId);
@@ -1533,6 +1538,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     addTableColumn,
     removeTableColumn,
     ...columnActions,
+    ...tabActions,
     convertBlock,
     toggleTodo,
     updateCodeLanguage,

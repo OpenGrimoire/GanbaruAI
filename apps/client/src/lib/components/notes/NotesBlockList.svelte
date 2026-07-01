@@ -44,6 +44,7 @@
     NotesBlock,
     NotesBlockTreeItem,
     NotesBlockType,
+    NotesIcon,
     NotesPageBreadcrumbItem,
     NotesRichText,
     NotesTableOfContentsItem,
@@ -663,6 +664,34 @@
     return notes.moveBlockToColumn(blockId, columnBlockId);
   }
 
+  function updateTabLabel(labelBlockId: string, label: string): Promise<void> {
+    return notes.updateTabLabel(labelBlockId, label);
+  }
+
+  function updateTabIcon(labelBlockId: string, icon: NotesIcon | null): Promise<void> {
+    return notes.updateTabIcon(labelBlockId, icon);
+  }
+
+  function addTab(tabBlockId: string, afterTabIndex: number): Promise<void> {
+    return notes.addTab(tabBlockId, afterTabIndex);
+  }
+
+  function removeTab(tabBlockId: string, labelBlockId: string): Promise<void> {
+    return notes.removeTab(tabBlockId, labelBlockId);
+  }
+
+  function moveTab(
+    tabBlockId: string,
+    labelBlockId: string,
+    direction: "left" | "right",
+  ): Promise<void> {
+    return notes.moveTab(tabBlockId, labelBlockId, direction);
+  }
+
+  function moveBlockToTab(blockId: string, labelBlockId: string): Promise<void> {
+    return notes.moveBlockToTab(blockId, labelBlockId);
+  }
+
   function undoNotesEdit(): void {
     void notes.undoNotesEdit();
   }
@@ -1087,6 +1116,12 @@
         onRemoveTableRow={removeTableRow}
         onAddTableColumn={addTableColumn}
         onRemoveTableColumn={removeTableColumn}
+        onUpdateTabLabel={updateTabLabel}
+        onUpdateTabIcon={updateTabIcon}
+        onAddTab={addTab}
+        onRemoveTab={removeTab}
+        onMoveTab={moveTab}
+        onMoveBlockToTab={moveBlockToTab}
         {onSelectPage}
         {onFocusBlock}
       />
