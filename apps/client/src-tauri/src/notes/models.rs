@@ -1,0 +1,1019 @@
+use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::Value;
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(tag = "type")]
+pub enum NoteParent {
+    #[serde(rename = "workspace")]
+    Workspace { workspace: bool },
+    #[serde(rename = "page_id")]
+    PageId { page_id: String },
+    #[serde(rename = "block_id")]
+    BlockId { block_id: String },
+}
+
+#[derive(Serialize)]
+pub struct NotePageDto {
+    object: &'static str,
+    id: String,
+    created_time: String,
+    last_edited_time: String,
+    parent: NoteParent,
+    in_trash: bool,
+    archived: bool,
+    icon: Option<Value>,
+    cover: Option<Value>,
+    properties: Value,
+    url: Option<String>,
+    public_url: Option<String>,
+    source_provider: Option<String>,
+    source_object_id: Option<String>,
+    source_workspace_id: Option<String>,
+    source_last_edited_time: Option<String>,
+}
+
+impl NotePageDto {
+    pub(in crate::notes) fn new(row: NotePageRow) -> Result<Self, String> {
+        let in_trash = row.in_trash != 0;
+        let archived = row.archived != 0;
+        Ok(Self {
+            object: "page",
+            id: row.id,
+            created_time: row.created_time,
+            last_edited_time: row.last_edited_time,
+            parent: parent_from_row(&row.parent_type, row.parent_page_id, row.parent_block_id)?,
+            in_trash,
+            archived,
+            icon: parse_optional_json(row.icon, "page icon")?,
+            cover: parse_optional_json(row.cover, "page cover")?,
+            properties: parse_json(row.properties, "page properties")?,
+            url: row.url,
+            public_url: row.public_url,
+            source_provider: row.source_provider,
+            source_object_id: row.source_object_id,
+            source_workspace_id: row.source_workspace_id,
+            source_last_edited_time: row.source_last_edited_time,
+        })
+    }
+}
+
+#[derive(Serialize)]
+pub struct NoteBlockDto {
+    object: &'static str,
+    id: String,
+    parent: NoteParent,
+    created_time: String,
+    last_edited_time: String,
+    has_children: bool,
+    in_trash: bool,
+    archived: bool,
+    #[serde(rename = "type")]
+    block_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    paragraph: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    heading_1: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    heading_2: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    heading_3: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    heading_4: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    bulleted_list_item: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    numbered_list_item: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    to_do: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    toggle: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    callout: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    quote: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    child_page: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    child_database: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    breadcrumb: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    table_of_contents: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    column_list: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    column: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    table: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    table_row: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tab: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    image: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    video: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    audio: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    file: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pdf: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    bookmark: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    link_preview: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    synced_block: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    template: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    button: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    embed: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    equation: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    divider: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    code: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    unsupported: Option<Value>,
+    source_provider: Option<String>,
+    source_object_id: Option<String>,
+    source_last_edited_time: Option<String>,
+}
+
+impl NoteBlockDto {
+    pub(in crate::notes) fn new(row: NoteBlockRow) -> Result<Self, String> {
+        let payload = parse_json(row.payload, "block payload")?;
+        let in_trash = row.in_trash != 0;
+        let mut block = Self {
+            object: "block",
+            id: row.id,
+            parent: parent_from_row(&row.parent_type, row.parent_page_id, row.parent_block_id)?,
+            created_time: row.created_time,
+            last_edited_time: row.last_edited_time,
+            has_children: row.has_children != 0,
+            in_trash,
+            archived: in_trash,
+            block_type: row.block_type.clone(),
+            paragraph: None,
+            heading_1: None,
+            heading_2: None,
+            heading_3: None,
+            heading_4: None,
+            bulleted_list_item: None,
+            numbered_list_item: None,
+            to_do: None,
+            toggle: None,
+            callout: None,
+            quote: None,
+            child_page: None,
+            child_database: None,
+            breadcrumb: None,
+            table_of_contents: None,
+            column_list: None,
+            column: None,
+            table: None,
+            table_row: None,
+            tab: None,
+            image: None,
+            video: None,
+            audio: None,
+            file: None,
+            pdf: None,
+            bookmark: None,
+            link_preview: None,
+            synced_block: None,
+            template: None,
+            button: None,
+            embed: None,
+            equation: None,
+            divider: None,
+            code: None,
+            unsupported: None,
+            source_provider: row.source_provider,
+            source_object_id: row.source_object_id,
+            source_last_edited_time: row.source_last_edited_time,
+        };
+        match row.block_type.as_str() {
+            "paragraph" => block.paragraph = Some(payload),
+            "heading_1" => block.heading_1 = Some(payload),
+            "heading_2" => block.heading_2 = Some(payload),
+            "heading_3" => block.heading_3 = Some(payload),
+            "heading_4" => block.heading_4 = Some(payload),
+            "bulleted_list_item" => block.bulleted_list_item = Some(payload),
+            "numbered_list_item" => block.numbered_list_item = Some(payload),
+            "to_do" => block.to_do = Some(payload),
+            "toggle" => block.toggle = Some(payload),
+            "callout" => block.callout = Some(payload),
+            "quote" => block.quote = Some(payload),
+            "child_page" => block.child_page = Some(payload),
+            "child_database" => block.child_database = Some(payload),
+            "breadcrumb" => block.breadcrumb = Some(payload),
+            "table_of_contents" => block.table_of_contents = Some(payload),
+            "column_list" => block.column_list = Some(payload),
+            "column" => block.column = Some(payload),
+            "table" => block.table = Some(payload),
+            "table_row" => block.table_row = Some(payload),
+            "tab" => block.tab = Some(payload),
+            "image" => block.image = Some(payload),
+            "video" => block.video = Some(payload),
+            "audio" => block.audio = Some(payload),
+            "file" => block.file = Some(payload),
+            "pdf" => block.pdf = Some(payload),
+            "bookmark" => block.bookmark = Some(payload),
+            "link_preview" => block.link_preview = Some(payload),
+            "synced_block" => block.synced_block = Some(payload),
+            "template" => block.template = Some(payload),
+            "button" => block.button = Some(payload),
+            "embed" => block.embed = Some(payload),
+            "equation" => block.equation = Some(payload),
+            "divider" => block.divider = Some(payload),
+            "code" => block.code = Some(payload),
+            "unsupported" => block.unsupported = Some(payload),
+            other => return Err(format!("unsupported block type in storage: {other}")),
+        }
+        Ok(block)
+    }
+}
+
+#[derive(Serialize)]
+pub struct NotePaginatedBlockList {
+    object: &'static str,
+    #[serde(rename = "type")]
+    list_type: &'static str,
+    block: Value,
+    results: Vec<NoteBlockDto>,
+    next_cursor: Option<String>,
+    has_more: bool,
+}
+
+impl NotePaginatedBlockList {
+    pub(in crate::notes) fn new(
+        results: Vec<NoteBlockDto>,
+        next_cursor: Option<String>,
+        has_more: bool,
+    ) -> Self {
+        Self {
+            object: "list",
+            list_type: "block",
+            block: Value::Object(serde_json::Map::new()),
+            results,
+            next_cursor,
+            has_more,
+        }
+    }
+}
+
+#[derive(Serialize)]
+pub struct NoteLoadedPage {
+    page: NotePageDto,
+    blocks: NotePaginatedBlockList,
+}
+
+impl NoteLoadedPage {
+    pub(in crate::notes) fn new(page: NotePageDto, blocks: NotePaginatedBlockList) -> Self {
+        Self { page, blocks }
+    }
+}
+
+#[derive(Serialize)]
+pub struct NoteBacklinkDto {
+    object: &'static str,
+    id: String,
+    source_page: NotePageDto,
+    source_block_id: String,
+    source_block_type: String,
+    reference_type: String,
+    snippet: String,
+    created_time: String,
+    last_edited_time: String,
+}
+
+impl NoteBacklinkDto {
+    pub(in crate::notes) fn new(
+        source_page: NotePageDto,
+        source_block: NoteBlockRow,
+        reference_type: String,
+        snippet: String,
+    ) -> Self {
+        Self {
+            object: "backlink",
+            id: format!("{}:{}", source_block.id, reference_type),
+            source_page,
+            source_block_id: source_block.id,
+            source_block_type: source_block.block_type,
+            reference_type,
+            snippet,
+            created_time: source_block.created_time,
+            last_edited_time: source_block.last_edited_time,
+        }
+    }
+}
+
+#[derive(Serialize)]
+pub struct NoteSearchResultDto {
+    object: &'static str,
+    id: String,
+    #[serde(rename = "type")]
+    result_type: String,
+    page: NotePageDto,
+    block_id: Option<String>,
+    block_type: Option<String>,
+    comment_id: Option<String>,
+    discussion_id: Option<String>,
+    snippet: String,
+    last_edited_time: String,
+}
+
+impl NoteSearchResultDto {
+    pub(in crate::notes) fn page(
+        page: NotePageDto,
+        snippet: String,
+        last_edited_time: String,
+    ) -> Self {
+        let id = format!("page:{}", page.id);
+        Self {
+            object: "search_result",
+            id,
+            result_type: "page".to_string(),
+            page,
+            block_id: None,
+            block_type: None,
+            comment_id: None,
+            discussion_id: None,
+            snippet,
+            last_edited_time,
+        }
+    }
+
+    pub(in crate::notes) fn block(page: NotePageDto, block: NoteBlockRow, snippet: String) -> Self {
+        Self {
+            object: "search_result",
+            id: format!("block:{}", block.id),
+            result_type: "block".to_string(),
+            page,
+            block_id: Some(block.id),
+            block_type: Some(block.block_type),
+            comment_id: None,
+            discussion_id: None,
+            snippet,
+            last_edited_time: block.last_edited_time,
+        }
+    }
+
+    pub(in crate::notes) fn comment(
+        page: NotePageDto,
+        comment: NoteCommentRow,
+        block_id: Option<String>,
+        snippet: String,
+    ) -> Self {
+        Self {
+            object: "search_result",
+            id: format!("comment:{}", comment.id),
+            result_type: "comment".to_string(),
+            page,
+            block_id,
+            block_type: None,
+            comment_id: Some(comment.id),
+            discussion_id: Some(comment.thread_id),
+            snippet,
+            last_edited_time: comment.last_edited_time,
+        }
+    }
+}
+
+#[derive(Serialize)]
+pub struct NotePartialUserDto {
+    object: &'static str,
+    id: String,
+}
+
+impl NotePartialUserDto {
+    pub(in crate::notes) fn new(id: String) -> Self {
+        Self { object: "user", id }
+    }
+}
+
+#[derive(Serialize)]
+pub struct NoteCommentDto {
+    object: &'static str,
+    id: String,
+    parent: NoteParent,
+    discussion_id: String,
+    created_time: String,
+    last_edited_time: String,
+    created_by: NotePartialUserDto,
+    rich_text: Value,
+    attachments: Value,
+    display_name: Value,
+    deleted_at: Option<String>,
+}
+
+impl NoteCommentDto {
+    pub(in crate::notes) fn new(
+        thread: &NoteCommentThreadRow,
+        row: NoteCommentRow,
+    ) -> Result<Self, String> {
+        Ok(Self {
+            object: "comment",
+            id: row.id,
+            parent: parent_from_row(
+                &thread.parent_type,
+                thread.parent_page_id.clone(),
+                thread.parent_block_id.clone(),
+            )?,
+            discussion_id: row.thread_id,
+            created_time: row.created_time,
+            last_edited_time: row.last_edited_time,
+            created_by: NotePartialUserDto::new(row.created_by),
+            rich_text: parse_json(row.rich_text, "comment rich_text")?,
+            attachments: parse_json(row.attachments, "comment attachments")?,
+            display_name: parse_json(row.display_name, "comment display name")?,
+            deleted_at: row.deleted_at,
+        })
+    }
+}
+
+#[derive(Serialize)]
+pub struct NoteCommentThreadDto {
+    object: &'static str,
+    id: String,
+    parent: NoteParent,
+    page_id: String,
+    block_id: Option<String>,
+    status: String,
+    resolved_at: Option<String>,
+    resolved_by: Option<NotePartialUserDto>,
+    created_time: String,
+    last_edited_time: String,
+    comments: Vec<NoteCommentDto>,
+}
+
+impl NoteCommentThreadDto {
+    pub(in crate::notes) fn new(
+        row: NoteCommentThreadRow,
+        comments: Vec<NoteCommentDto>,
+    ) -> Result<Self, String> {
+        let resolved_by = row.resolved_by.clone().map(NotePartialUserDto::new);
+        Ok(Self {
+            object: "comment_thread",
+            id: row.id,
+            parent: parent_from_row(
+                &row.parent_type,
+                row.parent_page_id.clone(),
+                row.parent_block_id.clone(),
+            )?,
+            page_id: row.page_id,
+            block_id: row.parent_block_id,
+            status: row.status,
+            resolved_at: row.resolved_at,
+            resolved_by,
+            created_time: row.created_time,
+            last_edited_time: row.last_edited_time,
+            comments,
+        })
+    }
+}
+
+#[derive(Deserialize)]
+pub struct NotePageCreate {
+    pub(in crate::notes) id: String,
+    pub(in crate::notes) title: String,
+    pub(in crate::notes) parent: NoteParent,
+    pub(in crate::notes) first_block_id: String,
+    pub(in crate::notes) after_block_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct NoteChildPageFromBlockCreate {
+    pub(in crate::notes) first_block_id: String,
+    pub(in crate::notes) title: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct NoteDuplicatePage {
+    pub(in crate::notes) title: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct NoteMovePage {
+    pub(in crate::notes) parent: NoteParent,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(in crate::notes) enum OptionalJsonValue {
+    #[default]
+    Unset,
+    Null,
+    Value(Value),
+}
+
+impl OptionalJsonValue {
+    pub(in crate::notes) fn is_set(&self) -> bool {
+        !matches!(self, Self::Unset)
+    }
+
+    pub(in crate::notes) fn value(&self) -> Option<&Value> {
+        match self {
+            Self::Value(value) => Some(value),
+            Self::Unset | Self::Null => None,
+        }
+    }
+
+    pub(in crate::notes) fn storage_value(&self) -> Option<String> {
+        match self {
+            Self::Value(value) => Some(value.to_string()),
+            Self::Unset | Self::Null => None,
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for OptionalJsonValue {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = Value::deserialize(deserializer)?;
+        if value.is_null() {
+            Ok(Self::Null)
+        } else {
+            Ok(Self::Value(value))
+        }
+    }
+}
+
+#[derive(Deserialize)]
+pub struct NotePageUpdate {
+    pub(in crate::notes) title: Option<String>,
+    pub(in crate::notes) parent: Option<NoteParent>,
+    pub(in crate::notes) properties: Option<Value>,
+    #[serde(default)]
+    pub(in crate::notes) icon: OptionalJsonValue,
+    #[serde(default)]
+    pub(in crate::notes) cover: OptionalJsonValue,
+}
+
+#[derive(Deserialize)]
+pub struct NoteBlockWrite {
+    pub(in crate::notes) id: String,
+    #[serde(rename = "type")]
+    pub(in crate::notes) block_type: String,
+    pub(in crate::notes) paragraph: Option<Value>,
+    pub(in crate::notes) heading_1: Option<Value>,
+    pub(in crate::notes) heading_2: Option<Value>,
+    pub(in crate::notes) heading_3: Option<Value>,
+    pub(in crate::notes) heading_4: Option<Value>,
+    pub(in crate::notes) bulleted_list_item: Option<Value>,
+    pub(in crate::notes) numbered_list_item: Option<Value>,
+    pub(in crate::notes) to_do: Option<Value>,
+    pub(in crate::notes) toggle: Option<Value>,
+    pub(in crate::notes) callout: Option<Value>,
+    pub(in crate::notes) quote: Option<Value>,
+    pub(in crate::notes) child_page: Option<Value>,
+    pub(in crate::notes) child_database: Option<Value>,
+    pub(in crate::notes) breadcrumb: Option<Value>,
+    pub(in crate::notes) table_of_contents: Option<Value>,
+    pub(in crate::notes) column_list: Option<Value>,
+    pub(in crate::notes) column: Option<Value>,
+    pub(in crate::notes) table: Option<Value>,
+    pub(in crate::notes) table_row: Option<Value>,
+    pub(in crate::notes) tab: Option<Value>,
+    pub(in crate::notes) image: Option<Value>,
+    pub(in crate::notes) video: Option<Value>,
+    pub(in crate::notes) audio: Option<Value>,
+    pub(in crate::notes) file: Option<Value>,
+    pub(in crate::notes) pdf: Option<Value>,
+    pub(in crate::notes) bookmark: Option<Value>,
+    pub(in crate::notes) link_preview: Option<Value>,
+    pub(in crate::notes) synced_block: Option<Value>,
+    pub(in crate::notes) template: Option<Value>,
+    pub(in crate::notes) button: Option<Value>,
+    pub(in crate::notes) embed: Option<Value>,
+    pub(in crate::notes) equation: Option<Value>,
+    pub(in crate::notes) divider: Option<Value>,
+    pub(in crate::notes) code: Option<Value>,
+    pub(in crate::notes) unsupported: Option<Value>,
+}
+
+impl NoteBlockWrite {
+    pub(in crate::notes) fn payload(&self) -> Option<&Value> {
+        NoteBlockPayloadRefs::from_write(self).get(&self.block_type)
+    }
+}
+
+#[derive(Deserialize)]
+pub struct NoteBlockUpdate {
+    #[serde(rename = "type")]
+    pub(in crate::notes) block_type: Option<String>,
+    pub(in crate::notes) paragraph: Option<Value>,
+    pub(in crate::notes) heading_1: Option<Value>,
+    pub(in crate::notes) heading_2: Option<Value>,
+    pub(in crate::notes) heading_3: Option<Value>,
+    pub(in crate::notes) heading_4: Option<Value>,
+    pub(in crate::notes) bulleted_list_item: Option<Value>,
+    pub(in crate::notes) numbered_list_item: Option<Value>,
+    pub(in crate::notes) to_do: Option<Value>,
+    pub(in crate::notes) toggle: Option<Value>,
+    pub(in crate::notes) callout: Option<Value>,
+    pub(in crate::notes) quote: Option<Value>,
+    pub(in crate::notes) child_page: Option<Value>,
+    pub(in crate::notes) child_database: Option<Value>,
+    pub(in crate::notes) breadcrumb: Option<Value>,
+    pub(in crate::notes) table_of_contents: Option<Value>,
+    pub(in crate::notes) column_list: Option<Value>,
+    pub(in crate::notes) column: Option<Value>,
+    pub(in crate::notes) table: Option<Value>,
+    pub(in crate::notes) table_row: Option<Value>,
+    pub(in crate::notes) tab: Option<Value>,
+    pub(in crate::notes) image: Option<Value>,
+    pub(in crate::notes) video: Option<Value>,
+    pub(in crate::notes) audio: Option<Value>,
+    pub(in crate::notes) file: Option<Value>,
+    pub(in crate::notes) pdf: Option<Value>,
+    pub(in crate::notes) bookmark: Option<Value>,
+    pub(in crate::notes) link_preview: Option<Value>,
+    pub(in crate::notes) synced_block: Option<Value>,
+    pub(in crate::notes) template: Option<Value>,
+    pub(in crate::notes) button: Option<Value>,
+    pub(in crate::notes) embed: Option<Value>,
+    pub(in crate::notes) equation: Option<Value>,
+    pub(in crate::notes) divider: Option<Value>,
+    pub(in crate::notes) code: Option<Value>,
+    pub(in crate::notes) unsupported: Option<Value>,
+}
+
+impl NoteBlockUpdate {
+    pub(in crate::notes) fn payload_for(&self, block_type: &str) -> Option<&Value> {
+        NoteBlockPayloadRefs::from_update(self).get(block_type)
+    }
+}
+
+#[derive(Deserialize)]
+pub struct NoteAppendBlockChildren {
+    pub(in crate::notes) parent: NoteParent,
+    pub(in crate::notes) after: Option<String>,
+    pub(in crate::notes) children: Vec<NoteBlockWrite>,
+}
+
+#[derive(Deserialize)]
+pub struct NoteMoveBlock {
+    pub(in crate::notes) parent: NoteParent,
+    pub(in crate::notes) after: Option<String>,
+    pub(in crate::notes) before: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct NoteDuplicatedBlockId {
+    pub(in crate::notes) source_id: String,
+    pub(in crate::notes) duplicate_id: String,
+}
+
+#[derive(Deserialize)]
+pub struct NoteDuplicateBlock {
+    pub(in crate::notes) duplicated_block_ids: Vec<NoteDuplicatedBlockId>,
+}
+
+#[derive(Deserialize)]
+pub struct NoteCommentCreate {
+    pub(in crate::notes) id: String,
+    pub(in crate::notes) parent: Option<NoteParent>,
+    pub(in crate::notes) discussion_id: Option<String>,
+    pub(in crate::notes) rich_text: Vec<Value>,
+}
+
+#[derive(Deserialize)]
+pub struct NoteCommentUpdate {
+    pub(in crate::notes) rich_text: Vec<Value>,
+}
+
+#[derive(Serialize)]
+pub(in crate::notes) struct NotePageRow {
+    pub(in crate::notes) id: String,
+    pub(in crate::notes) parent_type: String,
+    pub(in crate::notes) parent_page_id: Option<String>,
+    pub(in crate::notes) parent_block_id: Option<String>,
+    pub(in crate::notes) title: String,
+    pub(in crate::notes) properties: String,
+    pub(in crate::notes) icon: Option<String>,
+    pub(in crate::notes) cover: Option<String>,
+    pub(in crate::notes) in_trash: i64,
+    pub(in crate::notes) archived: i64,
+    pub(in crate::notes) source_provider: Option<String>,
+    pub(in crate::notes) source_object_id: Option<String>,
+    pub(in crate::notes) source_workspace_id: Option<String>,
+    pub(in crate::notes) source_last_edited_time: Option<String>,
+    pub(in crate::notes) url: Option<String>,
+    pub(in crate::notes) public_url: Option<String>,
+    pub(in crate::notes) created_time: String,
+    pub(in crate::notes) last_edited_time: String,
+}
+impl_sqlite_from_row!(NotePageRow {
+    id,
+    parent_type,
+    parent_page_id,
+    parent_block_id,
+    title,
+    properties,
+    icon,
+    cover,
+    in_trash,
+    archived,
+    source_provider,
+    source_object_id,
+    source_workspace_id,
+    source_last_edited_time,
+    url,
+    public_url,
+    created_time,
+    last_edited_time,
+});
+
+#[derive(Serialize)]
+pub(in crate::notes) struct NoteBlockRow {
+    pub(in crate::notes) id: String,
+    pub(in crate::notes) page_id: String,
+    pub(in crate::notes) parent_type: String,
+    pub(in crate::notes) parent_page_id: Option<String>,
+    pub(in crate::notes) parent_block_id: Option<String>,
+    pub(in crate::notes) has_children: i64,
+    pub(in crate::notes) in_trash: i64,
+    #[serde(rename = "type")]
+    pub(in crate::notes) block_type: String,
+    pub(in crate::notes) payload: String,
+    pub(in crate::notes) plain_text: String,
+    pub(in crate::notes) sort_order: f64,
+    pub(in crate::notes) source_provider: Option<String>,
+    pub(in crate::notes) source_object_id: Option<String>,
+    pub(in crate::notes) source_last_edited_time: Option<String>,
+    pub(in crate::notes) created_time: String,
+    pub(in crate::notes) last_edited_time: String,
+}
+impl_sqlite_from_row!(NoteBlockRow {
+    id,
+    page_id,
+    parent_type,
+    parent_page_id,
+    parent_block_id,
+    has_children,
+    in_trash,
+    block_type,
+    payload,
+    plain_text,
+    sort_order,
+    source_provider,
+    source_object_id,
+    source_last_edited_time,
+    created_time,
+    last_edited_time,
+});
+
+#[derive(Serialize)]
+pub(in crate::notes) struct NoteCommentThreadRow {
+    pub(in crate::notes) id: String,
+    pub(in crate::notes) page_id: String,
+    pub(in crate::notes) parent_type: String,
+    pub(in crate::notes) parent_page_id: Option<String>,
+    pub(in crate::notes) parent_block_id: Option<String>,
+    pub(in crate::notes) status: String,
+    pub(in crate::notes) resolved_at: Option<String>,
+    pub(in crate::notes) resolved_by: Option<String>,
+    pub(in crate::notes) created_time: String,
+    pub(in crate::notes) last_edited_time: String,
+}
+impl_sqlite_from_row!(NoteCommentThreadRow {
+    id,
+    page_id,
+    parent_type,
+    parent_page_id,
+    parent_block_id,
+    status,
+    resolved_at,
+    resolved_by,
+    created_time,
+    last_edited_time,
+});
+
+#[derive(Serialize)]
+pub(in crate::notes) struct NoteCommentRow {
+    pub(in crate::notes) id: String,
+    pub(in crate::notes) thread_id: String,
+    pub(in crate::notes) rich_text: String,
+    pub(in crate::notes) plain_text: String,
+    pub(in crate::notes) created_by: String,
+    pub(in crate::notes) display_name: String,
+    pub(in crate::notes) attachments: String,
+    pub(in crate::notes) deleted_at: Option<String>,
+    pub(in crate::notes) created_time: String,
+    pub(in crate::notes) last_edited_time: String,
+}
+impl_sqlite_from_row!(NoteCommentRow {
+    id,
+    thread_id,
+    rich_text,
+    plain_text,
+    created_by,
+    display_name,
+    attachments,
+    deleted_at,
+    created_time,
+    last_edited_time,
+});
+
+struct NoteBlockPayloadRefs<'a> {
+    paragraph: Option<&'a Value>,
+    heading_1: Option<&'a Value>,
+    heading_2: Option<&'a Value>,
+    heading_3: Option<&'a Value>,
+    heading_4: Option<&'a Value>,
+    bulleted_list_item: Option<&'a Value>,
+    numbered_list_item: Option<&'a Value>,
+    to_do: Option<&'a Value>,
+    toggle: Option<&'a Value>,
+    callout: Option<&'a Value>,
+    quote: Option<&'a Value>,
+    child_page: Option<&'a Value>,
+    child_database: Option<&'a Value>,
+    breadcrumb: Option<&'a Value>,
+    table_of_contents: Option<&'a Value>,
+    column_list: Option<&'a Value>,
+    column: Option<&'a Value>,
+    table: Option<&'a Value>,
+    table_row: Option<&'a Value>,
+    tab: Option<&'a Value>,
+    image: Option<&'a Value>,
+    video: Option<&'a Value>,
+    audio: Option<&'a Value>,
+    file: Option<&'a Value>,
+    pdf: Option<&'a Value>,
+    bookmark: Option<&'a Value>,
+    link_preview: Option<&'a Value>,
+    synced_block: Option<&'a Value>,
+    template: Option<&'a Value>,
+    button: Option<&'a Value>,
+    embed: Option<&'a Value>,
+    equation: Option<&'a Value>,
+    divider: Option<&'a Value>,
+    code: Option<&'a Value>,
+    unsupported: Option<&'a Value>,
+}
+
+impl<'a> NoteBlockPayloadRefs<'a> {
+    fn from_write(block: &'a NoteBlockWrite) -> Self {
+        Self {
+            paragraph: block.paragraph.as_ref(),
+            heading_1: block.heading_1.as_ref(),
+            heading_2: block.heading_2.as_ref(),
+            heading_3: block.heading_3.as_ref(),
+            heading_4: block.heading_4.as_ref(),
+            bulleted_list_item: block.bulleted_list_item.as_ref(),
+            numbered_list_item: block.numbered_list_item.as_ref(),
+            to_do: block.to_do.as_ref(),
+            toggle: block.toggle.as_ref(),
+            callout: block.callout.as_ref(),
+            quote: block.quote.as_ref(),
+            child_page: block.child_page.as_ref(),
+            child_database: block.child_database.as_ref(),
+            breadcrumb: block.breadcrumb.as_ref(),
+            table_of_contents: block.table_of_contents.as_ref(),
+            column_list: block.column_list.as_ref(),
+            column: block.column.as_ref(),
+            table: block.table.as_ref(),
+            table_row: block.table_row.as_ref(),
+            tab: block.tab.as_ref(),
+            image: block.image.as_ref(),
+            video: block.video.as_ref(),
+            audio: block.audio.as_ref(),
+            file: block.file.as_ref(),
+            pdf: block.pdf.as_ref(),
+            bookmark: block.bookmark.as_ref(),
+            link_preview: block.link_preview.as_ref(),
+            synced_block: block.synced_block.as_ref(),
+            template: block.template.as_ref(),
+            button: block.button.as_ref(),
+            embed: block.embed.as_ref(),
+            equation: block.equation.as_ref(),
+            divider: block.divider.as_ref(),
+            code: block.code.as_ref(),
+            unsupported: block.unsupported.as_ref(),
+        }
+    }
+
+    fn from_update(update: &'a NoteBlockUpdate) -> Self {
+        Self {
+            paragraph: update.paragraph.as_ref(),
+            heading_1: update.heading_1.as_ref(),
+            heading_2: update.heading_2.as_ref(),
+            heading_3: update.heading_3.as_ref(),
+            heading_4: update.heading_4.as_ref(),
+            bulleted_list_item: update.bulleted_list_item.as_ref(),
+            numbered_list_item: update.numbered_list_item.as_ref(),
+            to_do: update.to_do.as_ref(),
+            toggle: update.toggle.as_ref(),
+            callout: update.callout.as_ref(),
+            quote: update.quote.as_ref(),
+            child_page: update.child_page.as_ref(),
+            child_database: update.child_database.as_ref(),
+            breadcrumb: update.breadcrumb.as_ref(),
+            table_of_contents: update.table_of_contents.as_ref(),
+            column_list: update.column_list.as_ref(),
+            column: update.column.as_ref(),
+            table: update.table.as_ref(),
+            table_row: update.table_row.as_ref(),
+            tab: update.tab.as_ref(),
+            image: update.image.as_ref(),
+            video: update.video.as_ref(),
+            audio: update.audio.as_ref(),
+            file: update.file.as_ref(),
+            pdf: update.pdf.as_ref(),
+            bookmark: update.bookmark.as_ref(),
+            link_preview: update.link_preview.as_ref(),
+            synced_block: update.synced_block.as_ref(),
+            template: update.template.as_ref(),
+            button: update.button.as_ref(),
+            embed: update.embed.as_ref(),
+            equation: update.equation.as_ref(),
+            divider: update.divider.as_ref(),
+            code: update.code.as_ref(),
+            unsupported: update.unsupported.as_ref(),
+        }
+    }
+
+    fn get(&self, block_type: &str) -> Option<&'a Value> {
+        match block_type {
+            "paragraph" => self.paragraph,
+            "heading_1" => self.heading_1,
+            "heading_2" => self.heading_2,
+            "heading_3" => self.heading_3,
+            "heading_4" => self.heading_4,
+            "bulleted_list_item" => self.bulleted_list_item,
+            "numbered_list_item" => self.numbered_list_item,
+            "to_do" => self.to_do,
+            "toggle" => self.toggle,
+            "callout" => self.callout,
+            "quote" => self.quote,
+            "child_page" => self.child_page,
+            "child_database" => self.child_database,
+            "breadcrumb" => self.breadcrumb,
+            "table_of_contents" => self.table_of_contents,
+            "column_list" => self.column_list,
+            "column" => self.column,
+            "table" => self.table,
+            "table_row" => self.table_row,
+            "tab" => self.tab,
+            "image" => self.image,
+            "video" => self.video,
+            "audio" => self.audio,
+            "file" => self.file,
+            "pdf" => self.pdf,
+            "bookmark" => self.bookmark,
+            "link_preview" => self.link_preview,
+            "synced_block" => self.synced_block,
+            "template" => self.template,
+            "button" => self.button,
+            "embed" => self.embed,
+            "equation" => self.equation,
+            "divider" => self.divider,
+            "code" => self.code,
+            "unsupported" => self.unsupported,
+            _ => None,
+        }
+    }
+}
+
+pub(in crate::notes) fn parent_columns(
+    parent: &NoteParent,
+) -> (&'static str, Option<&str>, Option<&str>) {
+    match parent {
+        NoteParent::Workspace { .. } => ("workspace", None, None),
+        NoteParent::PageId { page_id } => ("page_id", Some(page_id.as_str()), None),
+        NoteParent::BlockId { block_id } => ("block_id", None, Some(block_id.as_str())),
+    }
+}
+
+fn parent_from_row(
+    parent_type: &str,
+    parent_page_id: Option<String>,
+    parent_block_id: Option<String>,
+) -> Result<NoteParent, String> {
+    match parent_type {
+        "workspace" => Ok(NoteParent::Workspace { workspace: true }),
+        "page_id" => parent_page_id
+            .map(|page_id| NoteParent::PageId { page_id })
+            .ok_or_else(|| "stored page parent is missing page_id".to_string()),
+        "block_id" => parent_block_id
+            .map(|block_id| NoteParent::BlockId { block_id })
+            .ok_or_else(|| "stored block parent is missing block_id".to_string()),
+        _ => Err(format!("unsupported parent type in storage: {parent_type}")),
+    }
+}
+
+fn parse_json(value: String, label: &str) -> Result<Value, String> {
+    serde_json::from_str(&value).map_err(|e| format!("parse {label}: {e}"))
+}
+
+fn parse_optional_json(value: Option<String>, label: &str) -> Result<Option<Value>, String> {
+    value.map(|json| parse_json(json, label)).transpose()
+}

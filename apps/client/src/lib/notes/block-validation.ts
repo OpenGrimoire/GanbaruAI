@@ -1,0 +1,998 @@
+import {
+  NOTES_COLORS,
+  NOTES_BLOCK_TYPES,
+  NOTES_BUTTON_INSERT_POSITIONS,
+  NOTES_ICON_COLORS,
+  type NotesBacklink,
+  type NotesBacklinkReferenceType,
+  type NotesBlock,
+  type NotesBlockType,
+  type NotesBookmarkBlockPayload,
+  type NotesButtonAction,
+  type NotesButtonBlockPayload,
+  type NotesButtonInsertPosition,
+  type NotesCalloutBlockPayload,
+  type NotesCalloutIcon,
+  type NotesChildDatabaseBlockPayload,
+  type NotesChildPageBlockPayload,
+  type NotesCodeBlockPayload,
+  type NotesComment,
+  type NotesCommentDisplayName,
+  type NotesCommentParent,
+  type NotesCommentThread,
+  type NotesCommentThreadStatus,
+  type NotesColumnBlockPayload,
+  type NotesColor,
+  type NotesDateMentionReminder,
+  type NotesDateMentionValue,
+  type NotesEmbedBlockPayload,
+  type NotesEquationBlockPayload,
+  type NotesLinkPreviewBlockPayload,
+  type NotesMediaBlockPayload,
+  type NotesIconColor,
+  type NotesLoadedPage,
+  type NotesPage,
+  type NotesPageCover,
+  type NotesPageIcon,
+  type NotesPaginatedBlockList,
+  type NotesParent,
+  type NotesPartialUser,
+  type NotesRichText,
+  type NotesRichTextAnnotations,
+  type NotesSearchResult,
+  type NotesSearchResultType,
+  type NotesSyncedBlockPayload,
+  type NotesTabBlockPayload,
+  type NotesTableBlockPayload,
+  type NotesTableRowBlockPayload,
+  type NotesTableOfContentsBlockPayload,
+  type NotesTemplateBlockPayload,
+  type NotesTextBlockPayload,
+  type NotesToggleBlockPayload,
+  type NotesTodoBlockPayload,
+  type NotesUnsupportedBlockPayload,
+} from "./types";
+import { externalMediaUrlIsSupported, type NotesMediaBlockType } from "./media";
+import {
+  normalizeRichTextEquationExpression,
+  normalizeRichTextLinkUrl,
+} from "./rich-text";
+
+type UnknownRecord = Record<string, unknown>;
+
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+
+function isRecord(value: unknown): value is UnknownRecord {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readRecord(value: unknown, label: string): UnknownRecord {
+  if (!isRecord(value)) throw new Error(`${label} must be an object`);
+  return value;
+}
+
+function readString(value: unknown, label: string): string {
+  if (typeof value !== "string") throw new Error(`${label} must be a string`);
+  return value;
+}
+
+function readNullableString(value: unknown, label: string): string | null {
+  if (value === null) return null;
+  return readString(value, label);
+}
+
+function readBoolean(value: unknown, label: string): boolean {
+  if (typeof value !== "boolean") throw new Error(`${label} must be a boolean`);
+  return value;
+}
+
+function readInteger(value: unknown, label: string): number {
+  if (typeof value !== "number" || !Number.isInteger(value)) {
+    throw new Error(`${label} must be an integer`);
+  }
+  return value;
+}
+
+function containsControlCharacters(value: string): boolean {
+  return [...value].some((character) => {
+    const codePoint = character.codePointAt(0);
+    return codePoint !== undefined && codePoint < 32 && character !== "\n" && character !== "\t";
+  });
+}
+
+function readDisplayString(value: unknown, label: string): string {
+  const text = readString(value, label);
+  if (!text.trim()) throw new Error(`${label} must not be empty`);
+  if (containsControlCharacters(text)) throw new Error(`${label} must not contain control characters`);
+  return text;
+}
+
+export function isNotesBlockType(value: unknown): value is NotesBlockType {
+  return typeof value === "string" && NOTES_BLOCK_TYPES.includes(value as NotesBlockType);
+}
+
+export function isNotesColor(value: unknown): value is NotesColor {
+  return typeof value === "string" && NOTES_COLORS.includes(value as NotesColor);
+}
+
+function isNotesIconColor(value: unknown): value is NotesIconColor {
+  return typeof value === "string" && NOTES_ICON_COLORS.includes(value as NotesIconColor);
+}
+
+function readNotesColor(value: unknown, label: string): NotesColor {
+  const color = readString(value, label);
+  if (!isNotesColor(color)) throw new Error(`${label} must be a supported Notion color`);
+  return color;
+}
+
+function readNotesIconColor(value: unknown, label: string): NotesIconColor {
+  const color = readString(value, label);
+  if (!isNotesIconColor(color)) throw new Error(`${label} must be a supported Notion icon color`);
+  return color;
+}
+
+export function parseNotesParent(value: unknown): NotesParent {
+  const record = readRecord(value, "parent");
+  const type = readString(record.type, "parent.type");
+  if (type === "workspace") {
+    if (record.workspace !== true) throw new Error("parent.workspace must be true");
+    return { type: "workspace", workspace: true };
+  }
+  if (type === "page_id") {
+    return { type, page_id: readString(record.page_id, "parent.page_id") };
+  }
+  if (type === "block_id") {
+    return { type, block_id: readString(record.block_id, "parent.block_id") };
+  }
+  throw new Error(`unsupported parent type: ${type}`);
+}
+
+export function parseNotesRichTextArray(value: unknown, label: string): NotesRichText[] {
+  if (!Array.isArray(value)) throw new Error(`${label} must be an array`);
+  return value.map((item, index) => parseNotesRichText(item, `${label}[${index}]`));
+}
+
+function parseNotesRichText(value: unknown, label: string): NotesRichText {
+  const record = readRecord(value, label);
+  const type = readString(record.type, `${label}.type`);
+  const annotations = parseAnnotations(record.annotations, `${label}.annotations`);
+  const plainText = readString(record.plain_text, `${label}.plain_text`);
+  const href = readNullableString(record.href, `${label}.href`);
+  if (type === "text") {
+    const text = readRecord(record.text, `${label}.text`);
+    return {
+      type: "text",
+      text: {
+        content: readString(text.content, `${label}.text.content`),
+        link: parseRichTextLink(text.link, `${label}.text.link`),
+      },
+      annotations,
+      plain_text: plainText,
+      href,
+    };
+  }
+  if (type === "mention") {
+    const mention = readRecord(record.mention, `${label}.mention`);
+    const mentionType = readString(mention.type, `${label}.mention.type`);
+    if (mentionType === "page") {
+      const page = readRecord(mention.page, `${label}.mention.page`);
+      return {
+        type: "mention",
+        mention: {
+          type: "page",
+          page: {
+            id: readString(page.id, `${label}.mention.page.id`),
+          },
+        },
+        annotations,
+        plain_text: plainText,
+        href,
+      };
+    }
+    if (mentionType === "date") {
+      return {
+        type: "mention",
+        mention: {
+          type: "date",
+          date: parseDateMentionValue(mention.date, `${label}.mention.date`),
+        },
+        annotations,
+        plain_text: plainText,
+        href,
+      };
+    }
+    throw new Error(`${label}.mention.type must be page or date`);
+  }
+  if (type === "equation") {
+    const equation = readRecord(record.equation, `${label}.equation`);
+    const expression = readString(equation.expression, `${label}.equation.expression`);
+    if (!normalizeRichTextEquationExpression(expression)) {
+      throw new Error(
+        `${label}.equation.expression must not be empty, too long, or contain control characters`,
+      );
+    }
+    return {
+      type: "equation",
+      equation: { expression },
+      annotations,
+      plain_text: plainText,
+      href,
+    };
+  }
+  throw new Error(`${label}.type must be text, mention, or equation`);
+}
+
+function parseDateMentionValue(value: unknown, label: string): NotesDateMentionValue {
+  const record = readRecord(value, label);
+  return {
+    start: readDateMentionBoundary(record.start, `${label}.start`),
+    ...(record.end === undefined
+      ? {}
+      : { end: readNullableDateMentionBoundary(record.end, `${label}.end`) }),
+    ...(record.time_zone === undefined
+      ? {}
+      : { time_zone: readNullableDisplayString(record.time_zone, `${label}.time_zone`) }),
+    ...(record.ganbaru_reminder === undefined
+      ? {}
+      : {
+          ganbaru_reminder: parseNullableDateMentionReminder(
+            record.ganbaru_reminder,
+            `${label}.ganbaru_reminder`,
+          ),
+        }),
+  };
+}
+
+function parseNullableDateMentionReminder(
+  value: unknown,
+  label: string,
+): NotesDateMentionReminder | null {
+  if (value === null) return null;
+  const record = readRecord(value, label);
+  return {
+    enabled: readBoolean(record.enabled, `${label}.enabled`),
+  };
+}
+
+function readNullableDisplayString(value: unknown, label: string): string | null {
+  if (value === null) return null;
+  return readDisplayString(value, label);
+}
+
+function readDateMentionBoundary(value: unknown, label: string): string {
+  const text = readDisplayString(value, label);
+  if (!dateMentionBoundaryLooksIso(text)) {
+    throw new Error(`${label} must be an ISO date or date-time`);
+  }
+  return text;
+}
+
+function readNullableDateMentionBoundary(value: unknown, label: string): string | null {
+  if (value === null) return null;
+  return readDateMentionBoundary(value, label);
+}
+
+function dateMentionBoundaryLooksIso(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}/u.test(value)) return false;
+  const month = Number.parseInt(value.slice(5, 7), 10);
+  const day = Number.parseInt(value.slice(8, 10), 10);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return false;
+  if (value.length === 10) return true;
+  return value.at(10) === "T" && value.length <= 80;
+}
+
+function parseNotesCommentParent(value: unknown, label: string): NotesCommentParent {
+  const parent = parseNotesParent(value);
+  if (parent.type === "page_id" || parent.type === "block_id") return parent;
+  throw new Error(`${label}.type must be page_id or block_id`);
+}
+
+function parseNotesPartialUser(value: unknown, label: string): NotesPartialUser {
+  const record = readRecord(value, label);
+  if (record.object !== "user") throw new Error(`${label}.object must be user`);
+  return {
+    object: "user" as const,
+    id: readString(record.id, `${label}.id`),
+  };
+}
+
+function parseNotesCommentDisplayName(value: unknown, label: string): NotesCommentDisplayName {
+  const record = readRecord(value, label);
+  const type = readString(record.type, `${label}.type`);
+  const resolvedName = readDisplayString(record.resolved_name, `${label}.resolved_name`);
+  if (type === "user" || type === "integration" || type === "custom") {
+    return { type, resolved_name: resolvedName };
+  }
+  throw new Error(`${label}.type must be user, integration, or custom`);
+}
+
+function parseCommentAttachments(value: unknown, label: string): Record<string, unknown>[] {
+  if (!Array.isArray(value)) throw new Error(`${label} must be an array`);
+  return value.map((attachment, index) => readRecord(attachment, `${label}[${index}]`));
+}
+
+function parseRichTextLink(value: unknown, label: string): { url: string } | null {
+  if (value === null) return null;
+  const record = readRecord(value, label);
+  const url = readString(record.url, `${label}.url`);
+  if (!normalizeRichTextLinkUrl(url)) {
+    throw new Error(`${label}.url must be a valid HTTP, HTTPS, or email URL`);
+  }
+  return {
+    url,
+  };
+}
+
+function parseAnnotations(value: unknown, label: string): NotesRichTextAnnotations {
+  const record = readRecord(value, label);
+  return {
+    bold: readBoolean(record.bold, `${label}.bold`),
+    italic: readBoolean(record.italic, `${label}.italic`),
+    strikethrough: readBoolean(record.strikethrough, `${label}.strikethrough`),
+    underline: readBoolean(record.underline, `${label}.underline`),
+    code: readBoolean(record.code, `${label}.code`),
+    color: readNotesColor(record.color, `${label}.color`),
+  };
+}
+
+function parseTextPayload(value: unknown, label: string): NotesTextBlockPayload {
+  const record = readRecord(value, label);
+  return {
+    rich_text: parseNotesRichTextArray(record.rich_text, `${label}.rich_text`),
+    ...(record.color === undefined ? {} : { color: readNotesColor(record.color, `${label}.color`) }),
+    ...(record.is_toggleable === undefined
+      ? {}
+      : { is_toggleable: readBoolean(record.is_toggleable, `${label}.is_toggleable`) }),
+    ...(record.ganbaru_open === undefined
+      ? {}
+      : { ganbaru_open: readBoolean(record.ganbaru_open, `${label}.ganbaru_open`) }),
+    ...(record.icon === undefined ? {} : { icon: parseNullableNotesIcon(record.icon, `${label}.icon`) }),
+  };
+}
+
+function parseEmptyObjectPayload(value: unknown, label: string): Record<string, never> {
+  const record = readRecord(value, label);
+  if (Object.keys(record).length > 0) throw new Error(`${label} must be an empty object`);
+  return {};
+}
+
+function parseTemplatePayload(value: unknown, label: string): NotesTemplateBlockPayload {
+  const record = readRecord(value, label);
+  if (record.color !== undefined) throw new Error(`${label}.color is not supported`);
+  if (record.children !== undefined) {
+    throw new Error(`${label}.children must be stored as child blocks`);
+  }
+  return {
+    rich_text: parseNotesRichTextArray(record.rich_text, `${label}.rich_text`),
+  };
+}
+
+function isNotesButtonInsertPosition(value: unknown): value is NotesButtonInsertPosition {
+  return (
+    typeof value === "string"
+    && NOTES_BUTTON_INSERT_POSITIONS.includes(value as NotesButtonInsertPosition)
+  );
+}
+
+function parseButtonAction(value: unknown, label: string): NotesButtonAction {
+  const record = readRecord(value, label);
+  const type = readString(record.type, `${label}.type`);
+  if (type !== "insert_blocks") throw new Error(`${label}.type must be insert_blocks`);
+  const source = readString(record.source, `${label}.source`);
+  if (source !== "children") throw new Error(`${label}.source must be children`);
+  const position = readString(record.position, `${label}.position`);
+  if (!isNotesButtonInsertPosition(position)) {
+    throw new Error(`${label}.position must be a supported button insert position`);
+  }
+  return { type, source, position };
+}
+
+function parseButtonActions(value: unknown, label: string): NotesButtonAction[] {
+  if (!Array.isArray(value)) throw new Error(`${label} must be an array`);
+  if (value.length < 1 || value.length > 10) {
+    throw new Error(`${label} must include between 1 and 10 actions`);
+  }
+  return value.map((item, index) => parseButtonAction(item, `${label}[${index}]`));
+}
+
+function parseButtonPayload(value: unknown, label: string): NotesButtonBlockPayload {
+  const record = readRecord(value, label);
+  if (record.children !== undefined) {
+    throw new Error(`${label}.children must be stored as child blocks`);
+  }
+  return {
+    rich_text: parseNotesRichTextArray(record.rich_text, `${label}.rich_text`),
+    icon: parseNullableNotesIcon(record.icon, `${label}.icon`),
+    actions: parseButtonActions(record.actions, `${label}.actions`),
+  };
+}
+
+function parseTodoPayload(value: unknown, label: string): NotesTodoBlockPayload {
+  const record = readRecord(value, label);
+  return {
+    ...parseTextPayload(record, label),
+    checked: readBoolean(record.checked, `${label}.checked`),
+  };
+}
+
+function parseTogglePayload(value: unknown, label: string): NotesToggleBlockPayload {
+  const record = readRecord(value, label);
+  return {
+    ...parseTextPayload(record, label),
+    ...(record.ganbaru_open === undefined
+      ? {}
+      : { ganbaru_open: readBoolean(record.ganbaru_open, `${label}.ganbaru_open`) }),
+  };
+}
+
+function parseCalloutPayload(value: unknown, label: string): NotesCalloutBlockPayload {
+  const record = readRecord(value, label);
+  return {
+    ...parseTextPayload(record, label),
+    icon: parseNullableNotesIcon(record.icon, `${label}.icon`),
+  };
+}
+
+function parseNullableNotesIcon(value: unknown, label: string): NotesCalloutIcon {
+  if (value === null) return null;
+  return parseNotesIcon(value, label);
+}
+
+function parseNotesIcon(value: unknown, label: string): NotesPageIcon {
+  const record = readRecord(value, label);
+  const type = readString(record.type, `${label}.type`);
+  if (type === "emoji") {
+    return { type, emoji: readDisplayString(record.emoji, `${label}.emoji`) };
+  }
+  if (type === "custom_emoji") {
+    return { type, custom_emoji: readRecord(record.custom_emoji, `${label}.custom_emoji`) };
+  }
+  if (type === "icon") {
+    const icon = readRecord(record.icon, `${label}.icon`);
+    const name = readString(icon.name, `${label}.icon.name`);
+    if (!name.trim()) throw new Error(`${label}.icon.name must not be empty`);
+    return {
+      type,
+      icon: {
+        name,
+        ...(icon.color === undefined ? {} : { color: readNotesIconColor(icon.color, `${label}.icon.color`) }),
+      },
+    };
+  }
+  if (type === "external") {
+    const external = readRecord(record.external, `${label}.external`);
+    return { type, external: { url: readDisplayString(external.url, `${label}.external.url`) } };
+  }
+  if (type === "file") {
+    return { type, file: readRecord(record.file, `${label}.file`) };
+  }
+  throw new Error(`${label}.type must be a supported Notion icon type`);
+}
+
+function parseTableOfContentsPayload(
+  value: unknown,
+  label: string,
+): NotesTableOfContentsBlockPayload {
+  const record = readRecord(value, label);
+  return {
+    ...(record.color === undefined ? {} : { color: readNotesColor(record.color, `${label}.color`) }),
+  };
+}
+
+function parseChildPagePayload(value: unknown, label: string): NotesChildPageBlockPayload {
+  const record = readRecord(value, label);
+  return {
+    title: readString(record.title, `${label}.title`),
+  };
+}
+
+function parseChildDatabasePayload(
+  value: unknown,
+  label: string,
+): NotesChildDatabaseBlockPayload {
+  const record = readRecord(value, label);
+  const title = readString(record.title, `${label}.title`);
+  if (containsControlCharacters(title)) {
+    throw new Error(`${label}.title must not contain control characters`);
+  }
+  return { title };
+}
+
+function parseColumnPayload(value: unknown, label: string): NotesColumnBlockPayload {
+  const record = readRecord(value, label);
+  if (record.width_ratio === undefined) return {};
+  if (typeof record.width_ratio !== "number") {
+    throw new Error(`${label}.width_ratio must be a number`);
+  }
+  if (record.width_ratio <= 0 || record.width_ratio > 1) {
+    throw new Error(`${label}.width_ratio must be greater than 0 and no more than 1`);
+  }
+  return { width_ratio: record.width_ratio };
+}
+
+function parseTablePayload(value: unknown, label: string): NotesTableBlockPayload {
+  const record = readRecord(value, label);
+  const tableWidth = readInteger(record.table_width, `${label}.table_width`);
+  if (tableWidth < 1 || tableWidth > 100) {
+    throw new Error(`${label}.table_width must be between 1 and 100`);
+  }
+  return {
+    table_width: tableWidth,
+    has_column_header: readBoolean(record.has_column_header, `${label}.has_column_header`),
+    has_row_header: readBoolean(record.has_row_header, `${label}.has_row_header`),
+  };
+}
+
+function parseTableRowPayload(value: unknown, label: string): NotesTableRowBlockPayload {
+  const record = readRecord(value, label);
+  if (!Array.isArray(record.cells)) throw new Error(`${label}.cells must be an array`);
+  if (record.cells.length < 1 || record.cells.length > 100) {
+    throw new Error(`${label}.cells must include between 1 and 100 cells`);
+  }
+  return {
+    cells: record.cells.map((cell, index) =>
+      parseNotesRichTextArray(cell, `${label}.cells[${index}]`)
+    ),
+  };
+}
+
+function parseTabPayload(value: unknown, label: string): NotesTabBlockPayload {
+  return parseEmptyObjectPayload(value, label);
+}
+
+function parseMediaPayload(
+  value: unknown,
+  label: string,
+  blockType: NotesMediaBlockType,
+): NotesMediaBlockPayload {
+  const record = readRecord(value, label);
+  const caption = record.caption === undefined
+    ? []
+    : parseNotesRichTextArray(record.caption, `${label}.caption`);
+  if (blockType === "file" && record.caption === undefined) {
+    throw new Error(`${label}.caption must be a rich text array`);
+  }
+  const name = record.name === undefined ? undefined : readString(record.name, `${label}.name`);
+  if (name !== undefined && containsControlCharacters(name)) {
+    throw new Error(`${label}.name must not contain control characters`);
+  }
+  return {
+    caption,
+    ...(name === undefined ? {} : { name }),
+    ...parseFileObject(record, label, blockType, blockType === "file"),
+  };
+}
+
+function parseFileObject(
+  value: unknown,
+  label: string,
+  mediaType: NotesMediaBlockType,
+  allowBlankExternalUrl = false,
+): NotesPageCover {
+  const record = readRecord(value, label);
+  const fileType = readString(record.type, `${label}.type`);
+  if (fileType === "external") {
+    const external = readRecord(record.external, `${label}.external`);
+    const url = readString(external.url, `${label}.external.url`);
+    if ((!allowBlankExternalUrl || url.trim()) && !externalMediaUrlIsSupported(mediaType, url)) {
+      throw new Error(`${label}.external.url must be a supported HTTPS ${mediaType} URL`);
+    }
+    return { type: "external", external: { url } };
+  }
+  if (fileType === "file") {
+    const file = readRecord(record.file, `${label}.file`);
+    const url = readString(file.url, `${label}.file.url`);
+    const expiryTime = readString(file.expiry_time, `${label}.file.expiry_time`);
+    if (!externalMediaUrlIsSupported(mediaType, url)) {
+      throw new Error(`${label}.file.url must be a supported HTTPS ${mediaType} URL`);
+    }
+    if (containsControlCharacters(expiryTime)) {
+      throw new Error(`${label}.file.expiry_time must not contain control characters`);
+    }
+    return { type: "file", file: { url, expiry_time: expiryTime } };
+  }
+  if (fileType === "file_upload") {
+    const fileUpload = readRecord(record.file_upload, `${label}.file_upload`);
+    const id = readString(fileUpload.id, `${label}.file_upload.id`);
+    if (!UUID_PATTERN.test(id)) {
+      throw new Error(`${label}.file_upload.id must be a UUID`);
+    }
+    return { type: "file_upload", file_upload: { id } };
+  }
+  throw new Error(`${label}.type must be file, external, or file_upload`);
+}
+
+function parseNullablePageCover(value: unknown, label: string): NotesPageCover | null {
+  if (value === null) return null;
+  return parseFileObject(value, label, "image");
+}
+
+function parseBookmarkPayload(value: unknown, label: string): NotesBookmarkBlockPayload {
+  const record = readRecord(value, label);
+  return {
+    caption: parseNotesRichTextArray(record.caption, `${label}.caption`),
+    url: readString(record.url, `${label}.url`),
+  };
+}
+
+function parseEmbedPayload(value: unknown, label: string): NotesEmbedBlockPayload {
+  const record = readRecord(value, label);
+  return {
+    url: readString(record.url, `${label}.url`),
+  };
+}
+
+function parseLinkPreviewPayload(value: unknown, label: string): NotesLinkPreviewBlockPayload {
+  const record = readRecord(value, label);
+  const url = readString(record.url, `${label}.url`);
+  if (containsControlCharacters(url)) {
+    throw new Error(`${label}.url must not contain control characters`);
+  }
+  return { url };
+}
+
+function parseSyncedBlockPayload(value: unknown, label: string): NotesSyncedBlockPayload {
+  const record = readRecord(value, label);
+  if (!("synced_from" in record)) {
+    throw new Error(`${label}.synced_from is required`);
+  }
+  if (record.synced_from === null) return { synced_from: null };
+  const syncedFrom = readRecord(record.synced_from, `${label}.synced_from`);
+  const type = readString(syncedFrom.type, `${label}.synced_from.type`);
+  if (type !== "block_id") {
+    throw new Error(`${label}.synced_from.type must be block_id`);
+  }
+  const blockId = readString(syncedFrom.block_id, `${label}.synced_from.block_id`);
+  if (!UUID_PATTERN.test(blockId)) {
+    throw new Error(`${label}.synced_from.block_id must be a UUID`);
+  }
+  return {
+    synced_from: {
+      type,
+      block_id: blockId,
+    },
+  };
+}
+
+function parseEquationPayload(value: unknown, label: string): NotesEquationBlockPayload {
+  const record = readRecord(value, label);
+  return {
+    expression: readString(record.expression, `${label}.expression`),
+  };
+}
+
+function parseUnsupportedPayload(value: unknown, label: string): NotesUnsupportedBlockPayload {
+  const record = readRecord(value, label);
+  const payload: NotesUnsupportedBlockPayload = { ...record };
+  if (record.block_type !== undefined) {
+    payload.block_type = readDisplayString(record.block_type, `${label}.block_type`);
+  }
+  if (record.source_type !== undefined) {
+    payload.source_type = readDisplayString(record.source_type, `${label}.source_type`);
+  }
+  if (record.raw !== undefined) {
+    payload.raw = readRecord(record.raw, `${label}.raw`);
+  }
+  if (record.warnings !== undefined) {
+    if (!Array.isArray(record.warnings)) {
+      throw new Error(`${label}.warnings must be an array`);
+    }
+    payload.warnings = record.warnings.map((warning, index) =>
+      readDisplayString(warning, `${label}.warnings[${index}]`)
+    );
+  }
+  return payload;
+}
+
+function parseCodePayload(value: unknown, label: string): NotesCodeBlockPayload {
+  const record = readRecord(value, label);
+  return {
+    rich_text: parseNotesRichTextArray(record.rich_text, `${label}.rich_text`),
+    caption: parseNotesRichTextArray(record.caption, `${label}.caption`),
+    language: readString(record.language, `${label}.language`),
+  };
+}
+
+export function parseNotesPage(value: unknown): NotesPage {
+  const record = readRecord(value, "page");
+  if (record.object !== "page") throw new Error("page.object must be page");
+  return {
+    object: "page",
+    id: readString(record.id, "page.id"),
+    created_time: readString(record.created_time, "page.created_time"),
+    last_edited_time: readString(record.last_edited_time, "page.last_edited_time"),
+    parent: parseNotesParent(record.parent),
+    in_trash: readBoolean(record.in_trash, "page.in_trash"),
+    archived: typeof record.archived === "boolean" ? record.archived : undefined,
+    icon: parseNullableNotesIcon(record.icon, "page.icon"),
+    cover: parseNullablePageCover(record.cover, "page.cover"),
+    properties: readRecord(record.properties, "page.properties"),
+    url: readNullableString(record.url, "page.url"),
+    public_url: readNullableString(record.public_url, "page.public_url"),
+    source_provider: readNullableString(record.source_provider, "page.source_provider"),
+    source_object_id: readNullableString(record.source_object_id, "page.source_object_id"),
+    source_workspace_id: readNullableString(record.source_workspace_id, "page.source_workspace_id"),
+    source_last_edited_time: readNullableString(
+      record.source_last_edited_time,
+      "page.source_last_edited_time",
+    ),
+  };
+}
+
+export function parseNotesBlock(value: unknown): NotesBlock {
+  const record = readRecord(value, "block");
+  if (record.object !== "block") throw new Error("block.object must be block");
+  const type = readString(record.type, "block.type");
+  if (!isNotesBlockType(type)) throw new Error(`unsupported block type: ${type}`);
+  const base = {
+    object: "block" as const,
+    id: readString(record.id, "block.id"),
+    parent: parseNotesParent(record.parent),
+    created_time: readString(record.created_time, "block.created_time"),
+    last_edited_time: readString(record.last_edited_time, "block.last_edited_time"),
+    has_children: readBoolean(record.has_children, "block.has_children"),
+    in_trash: readBoolean(record.in_trash, "block.in_trash"),
+    archived: typeof record.archived === "boolean" ? record.archived : undefined,
+    source_provider: readNullableString(record.source_provider, "block.source_provider"),
+    source_object_id: readNullableString(record.source_object_id, "block.source_object_id"),
+    source_last_edited_time: readNullableString(
+      record.source_last_edited_time,
+      "block.source_last_edited_time",
+    ),
+  };
+  switch (type) {
+    case "paragraph":
+      return { ...base, type, paragraph: parseTextPayload(record.paragraph, "block.paragraph") };
+    case "heading_1":
+      return { ...base, type, heading_1: parseTextPayload(record.heading_1, "block.heading_1") };
+    case "heading_2":
+      return { ...base, type, heading_2: parseTextPayload(record.heading_2, "block.heading_2") };
+    case "heading_3":
+      return { ...base, type, heading_3: parseTextPayload(record.heading_3, "block.heading_3") };
+    case "heading_4":
+      return { ...base, type, heading_4: parseTextPayload(record.heading_4, "block.heading_4") };
+    case "bulleted_list_item":
+      return {
+        ...base,
+        type,
+        bulleted_list_item: parseTextPayload(
+          record.bulleted_list_item,
+          "block.bulleted_list_item",
+        ),
+      };
+    case "numbered_list_item":
+      return {
+        ...base,
+        type,
+        numbered_list_item: parseTextPayload(
+          record.numbered_list_item,
+          "block.numbered_list_item",
+        ),
+      };
+    case "to_do":
+      return { ...base, type, to_do: parseTodoPayload(record.to_do, "block.to_do") };
+    case "toggle":
+      return { ...base, type, toggle: parseTogglePayload(record.toggle, "block.toggle") };
+    case "callout":
+      return { ...base, type, callout: parseCalloutPayload(record.callout, "block.callout") };
+    case "quote":
+      return { ...base, type, quote: parseTextPayload(record.quote, "block.quote") };
+    case "child_page":
+      return {
+        ...base,
+        type,
+        child_page: parseChildPagePayload(record.child_page, "block.child_page"),
+      };
+    case "child_database":
+      return {
+        ...base,
+        type,
+        child_database: parseChildDatabasePayload(
+          record.child_database,
+          "block.child_database",
+        ),
+      };
+    case "breadcrumb":
+      return { ...base, type, breadcrumb: readRecord(record.breadcrumb, "block.breadcrumb") };
+    case "table_of_contents":
+      return {
+        ...base,
+        type,
+        table_of_contents: parseTableOfContentsPayload(
+          record.table_of_contents,
+          "block.table_of_contents",
+        ),
+      };
+    case "column_list":
+      return { ...base, type, column_list: readRecord(record.column_list, "block.column_list") };
+    case "column":
+      return { ...base, type, column: parseColumnPayload(record.column, "block.column") };
+    case "table":
+      return { ...base, type, table: parseTablePayload(record.table, "block.table") };
+    case "table_row":
+      return {
+        ...base,
+        type,
+        table_row: parseTableRowPayload(record.table_row, "block.table_row"),
+      };
+    case "tab":
+      return { ...base, type, tab: parseTabPayload(record.tab, "block.tab") };
+    case "image":
+      return { ...base, type, image: parseMediaPayload(record.image, "block.image", type) };
+    case "video":
+      return { ...base, type, video: parseMediaPayload(record.video, "block.video", type) };
+    case "audio":
+      return { ...base, type, audio: parseMediaPayload(record.audio, "block.audio", type) };
+    case "file":
+      return { ...base, type, file: parseMediaPayload(record.file, "block.file", type) };
+    case "pdf":
+      return { ...base, type, pdf: parseMediaPayload(record.pdf, "block.pdf", type) };
+    case "bookmark":
+      return { ...base, type, bookmark: parseBookmarkPayload(record.bookmark, "block.bookmark") };
+    case "link_preview":
+      return {
+        ...base,
+        type,
+        link_preview: parseLinkPreviewPayload(record.link_preview, "block.link_preview"),
+      };
+    case "synced_block":
+      return {
+        ...base,
+        type,
+        synced_block: parseSyncedBlockPayload(record.synced_block, "block.synced_block"),
+      };
+    case "template":
+      return { ...base, type, template: parseTemplatePayload(record.template, "block.template") };
+    case "button":
+      return { ...base, type, button: parseButtonPayload(record.button, "block.button") };
+    case "embed":
+      return { ...base, type, embed: parseEmbedPayload(record.embed, "block.embed") };
+    case "equation":
+      return { ...base, type, equation: parseEquationPayload(record.equation, "block.equation") };
+    case "divider":
+      return { ...base, type, divider: readRecord(record.divider, "block.divider") };
+    case "code":
+      return { ...base, type, code: parseCodePayload(record.code, "block.code") };
+    case "unsupported":
+      return {
+        ...base,
+        type,
+        unsupported: parseUnsupportedPayload(record.unsupported, "block.unsupported"),
+      };
+  }
+}
+
+export function parseNotesPaginatedBlockList(value: unknown): NotesPaginatedBlockList {
+  const record = readRecord(value, "block list");
+  if (record.object !== "list") throw new Error("block list.object must be list");
+  if (record.type !== "block") throw new Error("block list.type must be block");
+  if (!Array.isArray(record.results)) throw new Error("block list.results must be an array");
+  return {
+    object: "list",
+    type: "block",
+    block: readRecord(record.block, "block list.block"),
+    results: record.results.map(parseNotesBlock),
+    next_cursor: readNullableString(record.next_cursor, "block list.next_cursor"),
+    has_more: readBoolean(record.has_more, "block list.has_more"),
+  };
+}
+
+export function parseNotesLoadedPage(value: unknown): NotesLoadedPage {
+  const record = readRecord(value, "loaded page");
+  return {
+    page: parseNotesPage(record.page),
+    blocks: parseNotesPaginatedBlockList(record.blocks),
+  };
+}
+
+function parseBacklinkReferenceType(value: unknown): NotesBacklinkReferenceType {
+  const referenceType = readString(value, "backlink.reference_type");
+  if (referenceType === "child_page" || referenceType === "page_mention" || referenceType === "link") {
+    return referenceType;
+  }
+  throw new Error("backlink.reference_type must be child_page, page_mention, or link");
+}
+
+function parseSearchResultType(value: unknown): NotesSearchResultType {
+  const resultType = readString(value, "search_result.type");
+  if (resultType === "page" || resultType === "block" || resultType === "comment") {
+    return resultType;
+  }
+  throw new Error("search_result.type must be page, block, or comment");
+}
+
+export function parseNotesBacklink(value: unknown): NotesBacklink {
+  const record = readRecord(value, "backlink");
+  if (record.object !== "backlink") throw new Error("backlink.object must be backlink");
+  const sourceBlockType = readString(record.source_block_type, "backlink.source_block_type");
+  if (!isNotesBlockType(sourceBlockType)) {
+    throw new Error("backlink.source_block_type must be a supported block type");
+  }
+  return {
+    object: "backlink",
+    id: readString(record.id, "backlink.id"),
+    source_page: parseNotesPage(record.source_page),
+    source_block_id: readString(record.source_block_id, "backlink.source_block_id"),
+    source_block_type: sourceBlockType,
+    reference_type: parseBacklinkReferenceType(record.reference_type),
+    snippet: readString(record.snippet, "backlink.snippet"),
+    created_time: readString(record.created_time, "backlink.created_time"),
+    last_edited_time: readString(record.last_edited_time, "backlink.last_edited_time"),
+  };
+}
+
+function parseCommentThreadStatus(value: unknown): NotesCommentThreadStatus {
+  const status = readString(value, "comment thread.status");
+  if (status === "open" || status === "resolved") return status;
+  throw new Error("comment thread.status must be open or resolved");
+}
+
+export function parseNotesSearchResult(value: unknown): NotesSearchResult {
+  const record = readRecord(value, "search_result");
+  if (record.object !== "search_result") {
+    throw new Error("search_result.object must be search_result");
+  }
+  const resultType = parseSearchResultType(record.type);
+  const blockType = record.block_type === null
+    ? null
+    : readString(record.block_type, "search_result.block_type");
+  if (blockType !== null && !isNotesBlockType(blockType)) {
+    throw new Error("search_result.block_type must be a supported block type");
+  }
+  return {
+    object: "search_result",
+    id: readString(record.id, "search_result.id"),
+    type: resultType,
+    page: parseNotesPage(record.page),
+    block_id: readNullableString(record.block_id, "search_result.block_id"),
+    block_type: blockType,
+    comment_id: readNullableString(record.comment_id, "search_result.comment_id"),
+    discussion_id: readNullableString(record.discussion_id, "search_result.discussion_id"),
+    snippet: readString(record.snippet, "search_result.snippet"),
+    last_edited_time: readString(record.last_edited_time, "search_result.last_edited_time"),
+  };
+}
+
+export function parseNotesComment(value: unknown): NotesComment {
+  const record = readRecord(value, "comment");
+  if (record.object !== "comment") throw new Error("comment.object must be comment");
+  return {
+    object: "comment",
+    id: readString(record.id, "comment.id"),
+    parent: parseNotesCommentParent(record.parent, "comment.parent"),
+    discussion_id: readString(record.discussion_id, "comment.discussion_id"),
+    created_time: readString(record.created_time, "comment.created_time"),
+    last_edited_time: readString(record.last_edited_time, "comment.last_edited_time"),
+    created_by: parseNotesPartialUser(record.created_by, "comment.created_by"),
+    rich_text: parseNotesRichTextArray(record.rich_text, "comment.rich_text"),
+    attachments: parseCommentAttachments(record.attachments, "comment.attachments"),
+    display_name: parseNotesCommentDisplayName(record.display_name, "comment.display_name"),
+    deleted_at: readNullableString(record.deleted_at, "comment.deleted_at"),
+  };
+}
+
+export function parseNotesCommentThread(value: unknown): NotesCommentThread {
+  const record = readRecord(value, "comment thread");
+  if (record.object !== "comment_thread") {
+    throw new Error("comment thread.object must be comment_thread");
+  }
+  if (!Array.isArray(record.comments)) {
+    throw new Error("comment thread.comments must be an array");
+  }
+  return {
+    object: "comment_thread",
+    id: readString(record.id, "comment thread.id"),
+    parent: parseNotesCommentParent(record.parent, "comment thread.parent"),
+    page_id: readString(record.page_id, "comment thread.page_id"),
+    block_id: readNullableString(record.block_id, "comment thread.block_id"),
+    status: parseCommentThreadStatus(record.status),
+    resolved_at: readNullableString(record.resolved_at, "comment thread.resolved_at"),
+    resolved_by: record.resolved_by === null
+      ? null
+      : parseNotesPartialUser(record.resolved_by, "comment thread.resolved_by"),
+    created_time: readString(record.created_time, "comment thread.created_time"),
+    last_edited_time: readString(record.last_edited_time, "comment thread.last_edited_time"),
+    comments: record.comments.map(parseNotesComment),
+  };
+}

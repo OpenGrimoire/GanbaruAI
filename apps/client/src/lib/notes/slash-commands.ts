@@ -1,0 +1,283 @@
+import {
+  NOTES_BACKGROUND_COLORS,
+  NOTES_TEXT_COLORS,
+} from "./block-color";
+import {
+  notesInsertableBlockTypes,
+  type NotesInsertableBlockType,
+} from "./block-insertion";
+import type { NotesHeadingBlockType } from "./block-factory";
+import type { NotesColor } from "./types";
+
+export type NotesSlashAction =
+  | "copy_link"
+  | "duplicate"
+  | "move_up"
+  | "move_down"
+  | "delete";
+
+export type NotesSlashCommand =
+  | { kind: "block"; blockType: NotesInsertableBlockType }
+  | { kind: "toggle_heading"; headingType: NotesHeadingBlockType }
+  | { kind: "action"; action: NotesSlashAction }
+  | { kind: "color"; color: NotesColor };
+
+export type NotesSlashCommandSection = "blocks" | "actions" | "colors";
+export type NotesSlashCommandPanelSection = "recent" | NotesSlashCommandSection;
+export type NotesSlashCommandKey = string;
+
+export interface NotesSlashCommandItem {
+  key: NotesSlashCommandKey;
+  section: NotesSlashCommandSection;
+  command: NotesSlashCommand;
+  keywords: readonly string[];
+}
+
+export interface NotesSlashCommandOptions {
+  canSetColor: boolean;
+}
+
+export interface NotesSlashCommandSections {
+  recent: readonly NotesSlashCommandItem[];
+  blocks: readonly NotesSlashCommandItem[];
+  actions: readonly NotesSlashCommandItem[];
+  colors: readonly NotesSlashCommandItem[];
+}
+
+const ACTIONS = [
+  "copy_link",
+  "duplicate",
+  "move_up",
+  "move_down",
+  "delete",
+] as const satisfies readonly NotesSlashAction[];
+
+const TOGGLE_HEADING_TYPES = [
+  "heading_1",
+  "heading_2",
+  "heading_3",
+  "heading_4",
+] as const satisfies readonly NotesHeadingBlockType[];
+
+export function notesSlashCommandItems(
+  options: NotesSlashCommandOptions,
+): readonly NotesSlashCommandItem[] {
+  return [
+    ...notesInsertableBlockTypes().map(blockCommandItem),
+    ...TOGGLE_HEADING_TYPES.map(toggleHeadingCommandItem),
+    ...ACTIONS.map(actionCommandItem),
+    ...(options.canSetColor
+      ? [...NOTES_TEXT_COLORS, ...NOTES_BACKGROUND_COLORS].map(colorCommandItem)
+      : []),
+  ];
+}
+
+export function notesSlashCommandKey(command: NotesSlashCommand): NotesSlashCommandKey {
+  switch (command.kind) {
+    case "block":
+      return `block:${command.blockType}`;
+    case "toggle_heading":
+      return `toggle-heading:${command.headingType}`;
+    case "action":
+      return `action:${command.action}`;
+    case "color":
+      return `color:${command.color}`;
+  }
+}
+
+export function filterNotesSlashCommandItems(
+  items: readonly NotesSlashCommandItem[],
+  query: string,
+): readonly NotesSlashCommandItem[] {
+  const terms = normalizeSearchText(query).split(" ").filter(Boolean);
+  if (terms.length === 0) return items;
+  return items.filter((item) => {
+    const haystack = normalizeSearchText([item.key, ...item.keywords].join(" "));
+    return terms.every((term) => haystack.includes(term));
+  });
+}
+
+export function sectionNotesSlashCommandItems(
+  items: readonly NotesSlashCommandItem[],
+  query: string,
+  recentKeys: readonly NotesSlashCommandKey[] = [],
+): NotesSlashCommandSections {
+  const filteredItems = filterNotesSlashCommandItems(items, query);
+  const recent = query.trim()
+    ? []
+    : recentNotesSlashCommandItems(filteredItems, recentKeys);
+  const recentKeySet = new Set(recent.map((item) => item.key));
+  const groupedItems = filteredItems.filter((item) => !recentKeySet.has(item.key));
+  return {
+    recent,
+    blocks: groupedItems.filter((item) => item.section === "blocks"),
+    actions: groupedItems.filter((item) => item.section === "actions"),
+    colors: groupedItems.filter((item) => item.section === "colors"),
+  };
+}
+
+export function recordNotesSlashCommandKey(
+  keys: readonly NotesSlashCommandKey[],
+  key: NotesSlashCommandKey,
+  limit = 5,
+): NotesSlashCommandKey[] {
+  return [key, ...keys.filter((candidate) => candidate !== key)].slice(0, limit);
+}
+
+function recentNotesSlashCommandItems(
+  items: readonly NotesSlashCommandItem[],
+  recentKeys: readonly NotesSlashCommandKey[],
+): readonly NotesSlashCommandItem[] {
+  const itemByKey = new Map(items.map((item) => [item.key, item]));
+  return recentKeys.flatMap((key) => {
+    const item = itemByKey.get(key);
+    return item ? [item] : [];
+  });
+}
+
+function blockCommandItem(blockType: NotesInsertableBlockType): NotesSlashCommandItem {
+  const command = { kind: "block", blockType } as const;
+  return {
+    key: notesSlashCommandKey(command),
+    section: "blocks",
+    command,
+    keywords: blockKeywords(blockType),
+  };
+}
+
+function toggleHeadingCommandItem(headingType: NotesHeadingBlockType): NotesSlashCommandItem {
+  const command = { kind: "toggle_heading", headingType } as const;
+  return {
+    key: notesSlashCommandKey(command),
+    section: "blocks",
+    command,
+    keywords: toggleHeadingKeywords(headingType),
+  };
+}
+
+function actionCommandItem(action: NotesSlashAction): NotesSlashCommandItem {
+  const command = { kind: "action", action } as const;
+  return {
+    key: notesSlashCommandKey(command),
+    section: "actions",
+    command,
+    keywords: actionKeywords(action),
+  };
+}
+
+function colorCommandItem(color: NotesColor): NotesSlashCommandItem {
+  const command = { kind: "color", color } as const;
+  return {
+    key: notesSlashCommandKey(command),
+    section: "colors",
+    command,
+    keywords: colorKeywords(color),
+  };
+}
+
+function blockKeywords(type: NotesInsertableBlockType): readonly string[] {
+  switch (type) {
+    case "paragraph":
+      return ["paragraph", "text"];
+    case "heading_1":
+      return ["heading 1", "h1", "title"];
+    case "heading_2":
+      return ["heading 2", "h2", "subtitle"];
+    case "heading_3":
+      return ["heading 3", "h3"];
+    case "heading_4":
+      return ["heading 4", "h4"];
+    case "bulleted_list_item":
+      return ["bullet", "bulleted list", "list"];
+    case "numbered_list_item":
+      return ["numbered", "numbered list", "ordered list"];
+    case "to_do":
+      return ["to do", "todo", "task", "checkbox"];
+    case "toggle":
+      return ["toggle", "toggle list", "collapse"];
+    case "callout":
+      return ["callout", "notice"];
+    case "quote":
+      return ["quote"];
+    case "child_page":
+      return ["page", "child page", "subpage"];
+    case "breadcrumb":
+      return ["breadcrumb", "path"];
+    case "table_of_contents":
+      return ["table of contents", "toc", "outline"];
+    case "column_list":
+      return ["columns", "column list", "layout"];
+    case "table":
+      return ["table", "grid"];
+    case "tab":
+      return ["tab", "tabs", "tabbed container"];
+    case "image":
+      return ["image", "picture", "photo"];
+    case "video":
+      return ["video"];
+    case "audio":
+      return ["audio", "music", "sound"];
+    case "file":
+      return ["file", "attachment"];
+    case "pdf":
+      return ["pdf", "document"];
+    case "bookmark":
+      return ["bookmark", "saved link"];
+    case "link_preview":
+      return ["link preview", "preview", "pasted link"];
+    case "template":
+      return ["template", "template button", "duplicate content"];
+    case "button":
+      return ["button", "automation", "insert blocks"];
+    case "embed":
+      return ["embed", "external"];
+    case "equation":
+      return ["equation", "math", "formula"];
+    case "divider":
+      return ["divider", "line", "separator"];
+    case "code":
+      return ["code", "snippet"];
+  }
+}
+
+function toggleHeadingKeywords(type: NotesHeadingBlockType): readonly string[] {
+  switch (type) {
+    case "heading_1":
+      return ["toggle heading 1", "toggle h1", "collapsible heading 1"];
+    case "heading_2":
+      return ["toggle heading 2", "toggle h2", "collapsible heading 2"];
+    case "heading_3":
+      return ["toggle heading 3", "toggle h3", "collapsible heading 3"];
+    case "heading_4":
+      return ["toggle heading 4", "toggle h4", "collapsible heading 4"];
+  }
+}
+
+function actionKeywords(action: NotesSlashAction): readonly string[] {
+  switch (action) {
+    case "copy_link":
+      return ["copy link", "block link", "link"];
+    case "duplicate":
+      return ["duplicate", "copy block", "clone"];
+    case "move_up":
+      return ["move up", "up"];
+    case "move_down":
+      return ["move down", "down"];
+    case "delete":
+      return ["delete", "remove"];
+  }
+}
+
+function colorKeywords(color: NotesColor): readonly string[] {
+  const normalizedColor = color.replace("_", " ");
+  if (color === "default") return ["default", "default color", "color"];
+  if (color.endsWith("_background")) {
+    const base = color.replace("_background", "");
+    return [normalizedColor, `${base} background`, `${base} bg`, "background", "color"];
+  }
+  return [normalizedColor, `${normalizedColor} text`, "text color", "color"];
+}
+
+function normalizeSearchText(value: string): string {
+  return value.toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+}

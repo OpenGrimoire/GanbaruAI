@@ -1,0 +1,388 @@
+<script lang="ts">
+  import { getLocalization } from "$lib/i18n/translator.svelte";
+  import {
+    NOTES_BACKGROUND_COLORS,
+    NOTES_TEXT_COLORS,
+    notesBlockColorSwatchStyle,
+  } from "$lib/notes/block-color";
+  import type { NotesInsertableBlockType } from "$lib/notes/block-insertion";
+  import type { NotesMoveToPageTarget } from "$lib/notes/block-move";
+  import type { NotesColor } from "$lib/notes/types";
+  import ArrowDown from "@lucide/svelte/icons/arrow-down";
+  import ArrowUp from "@lucide/svelte/icons/arrow-up";
+  import Check from "@lucide/svelte/icons/check";
+  import Copy from "@lucide/svelte/icons/copy";
+  import FolderInput from "@lucide/svelte/icons/folder-input";
+  import GripVertical from "@lucide/svelte/icons/grip-vertical";
+  import LinkIcon from "@lucide/svelte/icons/link";
+  import MessageSquare from "@lucide/svelte/icons/message-square";
+  import Pilcrow from "@lucide/svelte/icons/pilcrow";
+  import Plus from "@lucide/svelte/icons/plus";
+  import Trash2 from "@lucide/svelte/icons/trash-2";
+  import { onDestroy } from "svelte";
+  import NotesBlockInsertMenu from "./NotesBlockInsertMenu.svelte";
+
+  let {
+    onAddBelow,
+    onTurnInto,
+    canSetColor,
+    currentColor,
+    onColorSelect,
+    onCopyLink,
+    onDuplicate,
+    onComment,
+    onMoveUp,
+    onMoveDown,
+    moveTargets,
+    onMoveToPage,
+    onDelete,
+    onDragStart,
+    onDragEnd,
+  }: {
+    onAddBelow: (type?: NotesInsertableBlockType) => void;
+    onTurnInto: () => void;
+    canSetColor: boolean;
+    currentColor: NotesColor;
+    onColorSelect: (color: NotesColor) => void;
+    onCopyLink: () => Promise<void> | void;
+    onDuplicate: () => void;
+    onComment: () => void;
+    onMoveUp: () => void;
+    onMoveDown: () => void;
+    moveTargets: NotesMoveToPageTarget[];
+    onMoveToPage: (pageId: string) => void;
+    onDelete: () => void;
+    onDragStart: (event: DragEvent) => void;
+    onDragEnd: () => void;
+  } = $props();
+
+  const { t } = getLocalization();
+  let menuOpen = $state(false);
+  let insertMenuOpen = $state(false);
+  let moveMenuOpen = $state(false);
+  let copyLinkStatus = $state<"idle" | "copied" | "failed">("idle");
+  let copyLinkTimer: ReturnType<typeof setTimeout> | null = null;
+
+  onDestroy(() => {
+    if (copyLinkTimer) clearTimeout(copyLinkTimer);
+  });
+
+  function runAction(action: () => void): void {
+    menuOpen = false;
+    insertMenuOpen = false;
+    moveMenuOpen = false;
+    action();
+  }
+
+  function insertBlock(type: NotesInsertableBlockType): void {
+    insertMenuOpen = false;
+    menuOpen = false;
+    moveMenuOpen = false;
+    onAddBelow(type);
+  }
+
+  function toggleMoveMenu(): void {
+    moveMenuOpen = !moveMenuOpen;
+  }
+
+  function moveToPage(pageId: string): void {
+    runAction(() => onMoveToPage(pageId));
+  }
+
+  function selectColor(color: NotesColor): void {
+    onColorSelect(color);
+  }
+
+  function resetCopyLinkStatusLater(): void {
+    if (copyLinkTimer) clearTimeout(copyLinkTimer);
+    copyLinkTimer = setTimeout(() => {
+      copyLinkStatus = "idle";
+      copyLinkTimer = null;
+    }, 2_000);
+  }
+
+  async function copyLinkToBlock(): Promise<void> {
+    try {
+      await onCopyLink();
+      copyLinkStatus = "copied";
+    } catch (error) {
+      console.warn("copy notes block link failed", error);
+      copyLinkStatus = "failed";
+    }
+    resetCopyLinkStatusLater();
+  }
+
+  function colorLabel(color: NotesColor): string {
+    switch (color) {
+      case "default":
+        return t("notes.blockColor.default");
+      case "gray":
+        return t("notes.blockColor.gray");
+      case "brown":
+        return t("notes.blockColor.brown");
+      case "orange":
+        return t("notes.blockColor.orange");
+      case "yellow":
+        return t("notes.blockColor.yellow");
+      case "green":
+        return t("notes.blockColor.green");
+      case "blue":
+        return t("notes.blockColor.blue");
+      case "purple":
+        return t("notes.blockColor.purple");
+      case "pink":
+        return t("notes.blockColor.pink");
+      case "red":
+        return t("notes.blockColor.red");
+      case "gray_background":
+        return t("notes.blockColor.grayBackground");
+      case "brown_background":
+        return t("notes.blockColor.brownBackground");
+      case "orange_background":
+        return t("notes.blockColor.orangeBackground");
+      case "yellow_background":
+        return t("notes.blockColor.yellowBackground");
+      case "green_background":
+        return t("notes.blockColor.greenBackground");
+      case "blue_background":
+        return t("notes.blockColor.blueBackground");
+      case "purple_background":
+        return t("notes.blockColor.purpleBackground");
+      case "pink_background":
+        return t("notes.blockColor.pinkBackground");
+      case "red_background":
+        return t("notes.blockColor.redBackground");
+    }
+  }
+</script>
+
+<div class="relative mt-1 flex w-10 shrink-0 items-center justify-end gap-0.5">
+  <button
+    class="flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+    type="button"
+    aria-label={t("notes.addBlockBelow")}
+    data-app-tooltip={t("notes.addBlockBelow")}
+    aria-expanded={insertMenuOpen}
+    onclick={() => {
+      insertMenuOpen = !insertMenuOpen;
+      if (insertMenuOpen) menuOpen = false;
+    }}
+  >
+    <Plus class="size-3.5" />
+  </button>
+  <button
+    class="flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+    type="button"
+    aria-label={t("notes.blockActions")}
+    data-app-tooltip={t("notes.blockActions")}
+    draggable="true"
+    ondragstart={(event) => {
+      menuOpen = false;
+      insertMenuOpen = false;
+      onDragStart(event);
+    }}
+    ondragend={onDragEnd}
+    onclick={() => {
+      menuOpen = !menuOpen;
+      if (menuOpen) insertMenuOpen = false;
+      if (!menuOpen) moveMenuOpen = false;
+    }}
+  >
+    <GripVertical class="size-3.5" />
+  </button>
+
+  {#if insertMenuOpen}
+    <NotesBlockInsertMenu menuClass="absolute left-0 top-7" onSelect={insertBlock} />
+  {/if}
+
+  {#if menuOpen}
+    <div
+      class="absolute left-0 top-7 z-30 max-h-[min(28rem,70vh)] min-w-52 overflow-auto rounded-md border border-border bg-popover py-1 text-popover-foreground shadow-lg"
+      role="menu"
+      tabindex="-1"
+      data-app-floating-surface
+      onmousedown={(event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLInputElement)) event.preventDefault();
+      }}
+    >
+      <button
+        class="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[0.8rem] hover:bg-accent hover:text-accent-foreground"
+        type="button"
+        role="menuitem"
+        onclick={() => runAction(onTurnInto)}
+      >
+        <Pilcrow class="size-4 shrink-0" />
+        <span class="min-w-0 truncate">{t("notes.turnInto")}</span>
+      </button>
+      {#if canSetColor}
+        <div class="my-1 border-t border-border"></div>
+        <div class="px-2.5 pb-1 pt-1 text-[0.7rem] font-medium text-muted-foreground">
+          {t("notes.color")}
+        </div>
+        {#each NOTES_TEXT_COLORS as color}
+          <button
+            class="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[0.8rem] hover:bg-accent hover:text-accent-foreground"
+            type="button"
+            role="menuitemradio"
+            aria-checked={currentColor === color}
+            onclick={() => selectColor(color)}
+          >
+            <span
+              class="notes-color-swatch"
+              style={notesBlockColorSwatchStyle(color)}
+              aria-hidden="true"
+            >
+              A
+            </span>
+            <span class="min-w-0 flex-1 truncate">{colorLabel(color)}</span>
+            {#if currentColor === color}
+              <Check class="size-3.5 shrink-0" />
+            {/if}
+          </button>
+        {/each}
+        <div class="px-2.5 pb-1 pt-2 text-[0.7rem] font-medium text-muted-foreground">
+          {t("notes.backgroundColor")}
+        </div>
+        {#each NOTES_BACKGROUND_COLORS as color}
+          <button
+            class="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[0.8rem] hover:bg-accent hover:text-accent-foreground"
+            type="button"
+            role="menuitemradio"
+            aria-checked={currentColor === color}
+            onclick={() => selectColor(color)}
+          >
+            <span
+              class="notes-color-swatch"
+              style={notesBlockColorSwatchStyle(color)}
+              aria-hidden="true"
+            >
+              A
+            </span>
+            <span class="min-w-0 flex-1 truncate">{colorLabel(color)}</span>
+            {#if currentColor === color}
+              <Check class="size-3.5 shrink-0" />
+            {/if}
+          </button>
+        {/each}
+        <div class="my-1 border-t border-border"></div>
+      {/if}
+      <button
+        class="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[0.8rem] hover:bg-accent hover:text-accent-foreground"
+        type="button"
+        role="menuitem"
+        onclick={() => {
+          void copyLinkToBlock();
+        }}
+      >
+        {#if copyLinkStatus === "copied"}
+          <Check class="size-4 shrink-0" />
+        {:else}
+          <LinkIcon class="size-4 shrink-0" />
+        {/if}
+        <span class="min-w-0 truncate">
+          {#if copyLinkStatus === "copied"}
+            {t("notes.blockLinkCopied")}
+          {:else if copyLinkStatus === "failed"}
+            {t("notes.copyBlockLinkFailed")}
+          {:else}
+            {t("notes.copyBlockLink")}
+          {/if}
+        </span>
+      </button>
+      <button
+        class="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[0.8rem] hover:bg-accent hover:text-accent-foreground"
+        type="button"
+        role="menuitem"
+        onclick={() => runAction(onDuplicate)}
+      >
+        <Copy class="size-4 shrink-0" />
+        <span class="min-w-0 truncate">{t("notes.duplicateBlock")}</span>
+      </button>
+      <button
+        class="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[0.8rem] hover:bg-accent hover:text-accent-foreground"
+        type="button"
+        role="menuitem"
+        onclick={() => runAction(onComment)}
+      >
+        <MessageSquare class="size-4 shrink-0" />
+        <span class="min-w-0 truncate">{t("notes.commentBlock")}</span>
+      </button>
+      <button
+        class="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[0.8rem] hover:bg-accent hover:text-accent-foreground"
+        type="button"
+        role="menuitem"
+        onclick={() => runAction(onMoveUp)}
+      >
+        <ArrowUp class="size-4 shrink-0" />
+        <span class="min-w-0 truncate">{t("notes.moveBlockUp")}</span>
+      </button>
+      <button
+        class="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[0.8rem] hover:bg-accent hover:text-accent-foreground"
+        type="button"
+        role="menuitem"
+        onclick={() => runAction(onMoveDown)}
+      >
+        <ArrowDown class="size-4 shrink-0" />
+        <span class="min-w-0 truncate">{t("notes.moveBlockDown")}</span>
+      </button>
+      <button
+        class="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[0.8rem] hover:bg-accent hover:text-accent-foreground"
+        type="button"
+        role="menuitem"
+        aria-expanded={moveMenuOpen}
+        onclick={toggleMoveMenu}
+      >
+        <FolderInput class="size-4 shrink-0" />
+        <span class="min-w-0 truncate">{t("notes.moveBlockToPage")}</span>
+      </button>
+      {#if moveMenuOpen}
+        <div class="border-y border-border bg-muted/25 py-1" role="group" aria-label={t("notes.moveBlockToPage")}>
+          {#if moveTargets.length === 0}
+            <div class="px-2.5 py-1.5 text-[0.733333rem] text-muted-foreground">
+              {t("notes.noMoveTargets")}
+            </div>
+          {:else}
+            {#each moveTargets as target (target.id)}
+              <button
+                class="flex w-full items-center gap-2 px-4 py-1.5 text-left text-[0.8rem] hover:bg-accent hover:text-accent-foreground"
+                type="button"
+                role="menuitem"
+                onclick={() => moveToPage(target.id)}
+              >
+                <span class="min-w-0 truncate">{target.title}</span>
+              </button>
+            {/each}
+          {/if}
+        </div>
+      {/if}
+      <button
+        class="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[0.8rem] text-destructive hover:bg-accent"
+        type="button"
+        role="menuitem"
+        onclick={() => runAction(onDelete)}
+      >
+        <Trash2 class="size-4 shrink-0" />
+        <span class="min-w-0 truncate">{t("notes.deleteBlock")}</span>
+      </button>
+    </div>
+  {/if}
+</div>
+
+<style>
+  .notes-color-swatch {
+    display: inline-flex;
+    width: 1rem;
+    height: 1rem;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--notes-color-swatch-border);
+    border-radius: 0.25rem;
+    background: var(--notes-color-swatch-bg);
+    color: var(--notes-color-swatch-fg);
+    font-size: 0.65rem;
+    font-weight: 600;
+    line-height: 1;
+  }
+</style>

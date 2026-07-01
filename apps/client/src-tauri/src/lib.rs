@@ -16,6 +16,7 @@ mod doomscrolling;
 mod media_controls;
 mod media_player;
 mod music;
+mod notes;
 mod notification;
 mod pomodoro;
 mod pomodoro_enforcement;
@@ -861,6 +862,31 @@ pub fn run() {
             projects::projects_delete_view_preference,
             projects::projects_create_custom_emoji,
             projects::projects_delete_custom_emoji,
+            notes::notes_list_pages,
+            notes::notes_list_trashed_pages,
+            notes::notes_list_archived_pages,
+            notes::notes_list_backlinks,
+            notes::notes_search,
+            notes::notes_list_comments,
+            notes::notes_create_comment,
+            notes::notes_update_comment,
+            notes::notes_delete_comment,
+            notes::notes_resolve_comment_thread,
+            notes::notes_create_page,
+            notes::notes_create_child_page_from_block,
+            notes::notes_duplicate_page,
+            notes::notes_move_page,
+            notes::notes_update_page,
+            notes::notes_trash_page,
+            notes::notes_archive_page,
+            notes::notes_permanently_delete_page,
+            notes::notes_load_page,
+            notes::notes_get_block_children,
+            notes::notes_append_block_children,
+            notes::notes_update_block,
+            notes::notes_trash_block,
+            notes::notes_move_block,
+            notes::notes_duplicate_block,
             project_icons::project_icon_pick_image_file,
             project_icons::project_icon_save_image_data_url,
             project_icons::project_icon_download_image_url,

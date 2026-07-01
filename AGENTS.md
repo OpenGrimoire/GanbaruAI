@@ -9,7 +9,7 @@ Features are highly interconnected. Current status:
 - Music player (work in progress; local playback, source parsing, controls, and tray/titlebar integration exist)
 - Localization (work in progress; English and Spanish catalogs with language preferences exist)
 - Projects (pending)
-- Note-taking (pending)
+- Note-taking (work in progress; first SQLite-backed page and block editor slice exists)
 - Sleep alarm (pending)
 - Daily diary (pending)
 - Gamification (pending)
@@ -60,7 +60,7 @@ apps/
           vault/: data folder setup and active-folder UI
           ui/: shadcn-svelte generated components
           projects/: (planned) project and task planning surfaces
-          notes/: (planned) Tiptap editor wrapper, slash commands
+          notes/: SQLite-backed page sidebar and block editor surfaces
           diary/: (planned) morning/evening entry forms
           ai-panel/: (planned) integrated terminal (xterm.js) and BYOK chat
           visual-novel/: (planned) NPC dialogue, conversation state machine
@@ -76,6 +76,7 @@ apps/
         hooks/: reusable Svelte hooks
         i18n/: typed localization catalogs, locale resolution, formatters
         music/: frontend music source and playback helpers
+        notes/: Notion-shaped DTOs, validation, keyboard, and tree helpers
         stores/: Svelte runes ($state), global app state
         types/: frontend-specific TypeScript types
         utils/: shared helpers, formatters
@@ -95,6 +96,7 @@ apps/
         calendar_*.rs, calendars.rs, recurrence.rs: calendar persistence, import, reads, and recurrence logic
         pomodoro.rs, pomodoro/: timer commands, DTOs, persistence, validation, reads, and tests
         projects.rs, projects/: project commands, DTOs, persistence, validation, history, custom fields, and templates
+        notes.rs, notes/: Notes page and block commands, DTOs, reads, writes, validation, and tests
         pomodoro_enforcement.rs, notification.rs, tray.rs, window_shape.rs: timer overlays, notifications, tray, and window integration
         doomscrolling.rs, doomscrolling/: browser and desktop blocking commands, runtime helpers, and tests
         media_player.rs, media_controls.rs, music.rs: local playback, media controls, and music commands
@@ -129,9 +131,8 @@ package.json: root scripts, shared dev dependencies
 Ganbaru AI/
   vault.json: internal Ganbaru AI folder marker, id, display name, and schema version
   config.json: user settings, work environment definitions, blocker rulesets
-  ganbaru-ai.sqlite: SQLite source of truth for structured data and indexes
-  notes/daily/: daily notes (markdown)
-  notes/projects/: per-project notes and working documents (markdown)
+  ganbaru-ai.sqlite: SQLite source of truth for structured data, Notes, and indexes
+  notes/exports/: (planned) derivative markdown exports for Notes, not authoritative
   diary/morning/, diary/evening/: dated diary entries (markdown, indexed fields in SQLite)
   projects/{project-id}/: per-project file attachments (reference docs, research PDFs)
   reports/: generated project status reports (markdown, PDF)
@@ -152,7 +153,7 @@ Tauri's platform app config directory stores device-local bootstrap and runtime 
 - **Frontend:** plain Svelte 5 with runes (not SvelteKit)
 - **Desktop/mobile shell:** Tauri v2
 - **License:** AGPL 3.0
-- **Data architecture:** two categories of data with different storage. Documents (notes, diary, project docs) are markdown files on disk; SQLite indexes them for fast queries but the file is the source of truth. Structured data (calendar events, future project tasks, workspace configs, pomodoro configs, runs, segments, pauses, and run events) lives in SQLite as the source of truth. Never store structured data as markdown or document content in SQLite.
+- **Data architecture:** two categories of data with different storage. Documents (diary entries, project docs, reports, and attachments) are files on disk; SQLite can index them for fast queries but the file is the source of truth where the document format is canonical. Structured data and document graphs (Notes pages and blocks, calendar events, future project tasks, workspace configs, pomodoro configs, runs, segments, pauses, and run events) live in SQLite as the source of truth. Markdown for Notes is derivative import, export, or bridge output only.
 - **AI integration:** three paths. (1) Integrated terminal (xterm.js) running Codex or another CLI coding agent, with calendar-driven session switching, per-project conversation threads, and task context passed through the agent prompt or standard input. (2) BYOK chat widget for non-developer users (OpenAI API, OpenAI-compatible API, Ollama for local models, and other user-configured providers). (3) MCP for external AI clients only (ChatGPT, teammate agents, etc.), not for internal agent interaction.
 - **Agent data bridge:** a `ganbaru-ai` CLI (Rust, reads the same SQLite) is the primary bridge between AI agents and Ganbaru AI's data. Agents call it via Bash. The CLI exports project state as markdown to git repos for collaborators and agents without the CLI. These exports are views of the database, not the source of truth.
 - **State management:** Svelte 5 runes ($state, $derived, $effect), no external state manager

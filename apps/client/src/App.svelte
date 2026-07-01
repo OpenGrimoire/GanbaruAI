@@ -25,6 +25,7 @@
     classifyPomodoroCompletion,
     type PomodoroCompletionKind,
   } from "$lib/stores/pomodoro-completion";
+  import { parseNotesLinkHash } from "$lib/notes/block-link";
   import { detachableTabViewFromWindowLabel } from "$lib/windows/detached";
   import { ensureDbUrl } from "$lib/api/db";
   import { APP_SOUND_IDS, playAppSound, type AppSoundId } from "$lib/app-sounds";
@@ -42,6 +43,7 @@
   import CompletionOverlay from "$lib/components/pomodoro/CompletionOverlay.svelte";
   import MusicPlaybackHost from "$lib/components/music/MusicPlaybackHost.svelte";
   import MusicView from "$lib/components/music/MusicView.svelte";
+  import NotesView from "$lib/components/notes/NotesView.svelte";
   import ProjectsView from "$lib/components/projects/ProjectsView.svelte";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
   import TooltipHost from "$lib/components/ui/TooltipHost.svelte";
@@ -254,6 +256,9 @@
     document.addEventListener("contextmenu", blockNativeContextMenu, { capture: true });
 
     const root = document.documentElement;
+    const navigateToNotesHash = () => {
+      if (parseNotesLinkHash(window.location.hash)) nav.navigate("notes");
+    };
     const markPointerFocus = () => {
       root.dataset.focusIntent = "pointer";
     };
@@ -263,8 +268,10 @@
       }
     };
     markPointerFocus();
+    navigateToNotesHash();
     document.addEventListener("pointerdown", markPointerFocus, { capture: true });
     document.addEventListener("keydown", markKeyboardFocus, { capture: true });
+    window.addEventListener("hashchange", navigateToNotesHash);
 
     // Track device timezone changes (travel, OS-level update). On change,
     // reload calendar events so wall-clock strings reflect the new zone.
@@ -300,6 +307,7 @@
       document.removeEventListener("contextmenu", blockNativeContextMenu, { capture: true });
       document.removeEventListener("pointerdown", markPointerFocus, { capture: true });
       document.removeEventListener("keydown", markKeyboardFocus, { capture: true });
+      window.removeEventListener("hashchange", navigateToNotesHash);
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("focus", checkZone);
       if (automaticUpdateCheckTimerId) clearTimeout(automaticUpdateCheckTimerId);
@@ -813,7 +821,7 @@
       {:else if nav.current === "projects"}
         <ProjectsView />
       {:else if nav.current === "notes"}
-        <div class="h-full"></div>
+        <NotesView />
       {:else if nav.current === "music"}
         <MusicView />
       {/if}
