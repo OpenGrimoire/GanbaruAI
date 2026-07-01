@@ -260,6 +260,7 @@
   class="notes-block-handle relative mt-1 flex shrink-0 items-center justify-end gap-0.5"
   role="toolbar"
   aria-label={t("notes.blockActions")}
+  data-notes-block-selection-zone
 >
   <button
     bind:this={addButton}

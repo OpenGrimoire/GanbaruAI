@@ -1562,6 +1562,7 @@ export const es = {
     pageCoverUrl: "URL de imagen",
     pageCoverUrlPlaceholder: "Pega una URL HTTPS de imagen...",
     pageCoverUrlInvalid: "Ingresa una URL HTTPS de imagen compatible.",
+    blockList: "Bloques de la página",
     blockPlaceholder: "Escribe / para bloques",
     richTextEditorLabel: "Editor de bloque con texto enriquecido",
     richTextMentionMenuStatus: (count: number) =>

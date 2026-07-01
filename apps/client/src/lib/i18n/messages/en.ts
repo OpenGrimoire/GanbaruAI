@@ -1543,6 +1543,7 @@ export const en = {
     pageCoverUrl: "Image URL",
     pageCoverUrlPlaceholder: "Paste an HTTPS image URL...",
     pageCoverUrlInvalid: "Enter a supported HTTPS image URL.",
+    blockList: "Page blocks",
     blockPlaceholder: "Type / for blocks",
     richTextEditorLabel: "Rich text block editor",
     richTextMentionMenuStatus: (count: number) =>

@@ -1,7 +1,18 @@
 <script lang="ts">
+  import { tick } from "svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getNotes } from "$lib/stores/notes.svelte";
   import { buildNotesBlockLink, buildNotesPageLink } from "$lib/notes/block-link";
+  import {
+    notesBlockSelectionAfterClick,
+    notesBlockSelectionAfterKeyboard,
+    notesBlockSelectionContains,
+    notesBlockSelectionForBlock,
+    notesBlockSelectionPrunedToVisible,
+    notesBlockSelectionRange,
+    normalizeNotesSelectableBlockIds,
+  } from "$lib/notes/block-selection";
+  import type { NotesBlockSelectionState } from "$lib/notes/block-selection";
   import { notesPageIconText } from "$lib/notes/page-icon";
   import { notesPageTitle } from "$lib/notes/page-title";
   import type { NotesHeadingBlockType } from "$lib/notes/block-factory";
@@ -48,8 +59,12 @@
   const notes = getNotes();
   const { t } = getLocalization();
   const notesBlockDragMime = "application/x-ganbaru-notes-block";
+  let blockListElement: HTMLDivElement | null = $state(null);
   let draggingBlockId = $state<string | null>(null);
   let dropTarget = $state<{ blockId: string; position: NotesSiblingDropPosition } | null>(null);
+  let blockSelection = $state<NotesBlockSelectionState | null>(null);
+  let selectionDragAnchorBlockId = $state<string | null>(null);
+  let selectionDragPointerId = $state<number | null>(null);
   const mentionTargets: NotesPageMentionTarget[] = $derived(
     notes.pages.map((page) => {
       const parentPageId = page.parent.type === "page_id" ? page.parent.page_id : null;
@@ -68,6 +83,203 @@
       };
     }),
   );
+
+  $effect(() => {
+    if (typeof window === "undefined" || selectionDragPointerId === null) return;
+    const stopSelectionDrag = () => {
+      selectionDragAnchorBlockId = null;
+      selectionDragPointerId = null;
+    };
+    window.addEventListener("pointerup", stopSelectionDrag);
+    window.addEventListener("pointercancel", stopSelectionDrag);
+    return () => {
+      window.removeEventListener("pointerup", stopSelectionDrag);
+      window.removeEventListener("pointercancel", stopSelectionDrag);
+    };
+  });
+
+  $effect(() => {
+    const _pageId = pageId;
+    const _itemCount = items.length;
+    const _selection = blockSelection;
+    void tick().then(() => {
+      pruneAndSyncBlockSelection();
+    });
+  });
+
+  function renderedSelectableBlockIds(): string[] {
+    if (!blockListElement) return items.map((item) => item.block.id);
+    return normalizeNotesSelectableBlockIds(
+      Array.from(blockListElement.querySelectorAll<HTMLElement>("[data-notes-selectable-block-id]"))
+        .map((element) => element.dataset.notesSelectableBlockId ?? ""),
+    );
+  }
+
+  function selectableBlockRowFromEvent(event: Event): HTMLElement | null {
+    const target = event.target;
+    if (!(target instanceof Element) || !blockListElement) return null;
+    const row = target.closest<HTMLElement>("[data-notes-selectable-block-id]");
+    if (!row || !blockListElement.contains(row)) return null;
+    return row;
+  }
+
+  function selectableBlockIdFromEvent(event: Event): string | null {
+    return selectableBlockRowFromEvent(event)?.dataset.notesSelectableBlockId ?? null;
+  }
+
+  function eventTargetIsEditable(target: EventTarget | null): boolean {
+    if (!(target instanceof Element)) return false;
+    return target.closest("input, textarea, select, button, a, [contenteditable='true'], [role='textbox']")
+      !== null;
+  }
+
+  function eventTargetIsSelectionZone(target: EventTarget | null): boolean {
+    return target instanceof Element && target.closest("[data-notes-block-selection-zone]") !== null;
+  }
+
+  function syncBlockSelectionAttributes(): void {
+    if (!blockListElement) return;
+    for (const row of blockListElement.querySelectorAll<HTMLElement>("[data-notes-selectable-block-id]")) {
+      const blockId = row.dataset.notesSelectableBlockId ?? "";
+      const selected = notesBlockSelectionContains(blockSelection, blockId);
+      row.toggleAttribute("data-notes-block-selected", selected);
+    }
+  }
+
+  function pruneAndSyncBlockSelection(): void {
+    const pruned = notesBlockSelectionPrunedToVisible(renderedSelectableBlockIds(), blockSelection);
+    if (!sameBlockSelection(blockSelection, pruned)) {
+      blockSelection = pruned;
+      return;
+    }
+    syncBlockSelectionAttributes();
+  }
+
+  function sameBlockSelection(
+    left: NotesBlockSelectionState | null,
+    right: NotesBlockSelectionState | null,
+  ): boolean {
+    if (left === right) return true;
+    if (!left || !right) return false;
+    return (
+      left.anchorBlockId === right.anchorBlockId
+      && left.focusBlockId === right.focusBlockId
+      && left.selectedBlockIds.length === right.selectedBlockIds.length
+      && left.selectedBlockIds.every((blockId, index) => right.selectedBlockIds[index] === blockId)
+    );
+  }
+
+  function setBlockSelection(selection: NotesBlockSelectionState | null): void {
+    blockSelection = selection;
+    void tick().then(syncBlockSelectionAttributes);
+  }
+
+  function focusSelectedBlockRow(blockId: string, preventScroll = true): void {
+    void tick().then(() => {
+      const row = blockListElement
+        ? Array.from(blockListElement.querySelectorAll<HTMLElement>("[data-notes-selectable-block-id]"))
+          .find((element) => element.dataset.notesSelectableBlockId === blockId) ?? null
+        : null;
+      row?.focus({ preventScroll });
+    });
+  }
+
+  function clearNativeSelection(): void {
+    if (typeof window === "undefined") return;
+    window.getSelection()?.removeAllRanges();
+  }
+
+  function selectBlockFromPointer(blockId: string, extend: boolean): void {
+    const selection = notesBlockSelectionAfterClick({
+      blockIds: renderedSelectableBlockIds(),
+      current: blockSelection,
+      blockId,
+      extend,
+    });
+    setBlockSelection(selection);
+    if (selection) focusSelectedBlockRow(selection.focusBlockId);
+  }
+
+  function handleBlockSelectionPointerDown(event: PointerEvent): void {
+    if (event.button !== 0) return;
+    const blockId = selectableBlockIdFromEvent(event);
+    if (!blockId) {
+      if (blockSelection) setBlockSelection(null);
+      return;
+    }
+    const shouldExtend = event.shiftKey && blockSelection !== null;
+    if (shouldExtend) {
+      event.preventDefault();
+      clearNativeSelection();
+      selectBlockFromPointer(blockId, true);
+      return;
+    }
+    if (!eventTargetIsSelectionZone(event.target)) {
+      if (blockSelection) setBlockSelection(null);
+      return;
+    }
+    if (eventTargetIsEditable(event.target)) return;
+    event.preventDefault();
+    clearNativeSelection();
+    selectionDragAnchorBlockId = blockId;
+    selectionDragPointerId = event.pointerId;
+    setBlockSelection(notesBlockSelectionForBlock(renderedSelectableBlockIds(), blockId));
+    focusSelectedBlockRow(blockId);
+  }
+
+  function handleBlockSelectionPointerOver(event: PointerEvent): void {
+    if (selectionDragPointerId === null || event.pointerId !== selectionDragPointerId) return;
+    const anchorBlockId = selectionDragAnchorBlockId;
+    const blockId = selectableBlockIdFromEvent(event);
+    if (!anchorBlockId || !blockId) return;
+    const selection = notesBlockSelectionRange(renderedSelectableBlockIds(), anchorBlockId, blockId);
+    setBlockSelection(selection);
+  }
+
+  function handleBlockListKeydown(event: KeyboardEvent): void {
+    if (event.defaultPrevented) return;
+    const blockId = selectableBlockIdFromEvent(event);
+    if (!blockId) return;
+    if (event.key === "Escape" && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      event.preventDefault();
+      clearNativeSelection();
+      setBlockSelection(notesBlockSelectionForBlock(renderedSelectableBlockIds(), blockId));
+      focusSelectedBlockRow(blockId);
+      return;
+    }
+    if (
+      event.shiftKey
+      && !event.ctrlKey
+      && !event.metaKey
+      && !event.altKey
+      && (event.key === "ArrowDown" || event.key === "ArrowUp")
+    ) {
+      if (!blockSelection && eventTargetIsEditable(event.target)) return;
+      event.preventDefault();
+      clearNativeSelection();
+      const selection = notesBlockSelectionAfterKeyboard({
+        blockIds: renderedSelectableBlockIds(),
+        current: blockSelection,
+        focusedBlockId: blockId,
+        direction: event.key === "ArrowDown" ? "next" : "previous",
+      });
+      setBlockSelection(selection);
+      if (selection) focusSelectedBlockRow(selection.focusBlockId, false);
+    }
+  }
+
+  function blockSelectionDelegation(node: HTMLDivElement): { destroy: () => void } {
+    node.addEventListener("pointerdown", handleBlockSelectionPointerDown);
+    node.addEventListener("pointerover", handleBlockSelectionPointerOver);
+    node.addEventListener("keydown", handleBlockListKeydown);
+    return {
+      destroy() {
+        node.removeEventListener("pointerdown", handleBlockSelectionPointerDown);
+        node.removeEventListener("pointerover", handleBlockSelectionPointerOver);
+        node.removeEventListener("keydown", handleBlockListKeydown);
+      },
+    };
+  }
 
   function handleKeyboardAction(blockId: string, action: NotesKeyboardAction): void {
     if (action.type === "create_sibling") {
@@ -308,7 +520,13 @@
   }
 </script>
 
-<div class="flex min-w-0 flex-col gap-0.5 pb-8">
+<div
+  use:blockSelectionDelegation
+  bind:this={blockListElement}
+  class="flex min-w-0 flex-col gap-0.5 pb-8"
+  role="group"
+  aria-label={t("notes.blockList")}
+>
   {#each items as item (item.block.id)}
     {#if item.block.type === "column_list"}
       <NotesColumnListBlock
@@ -613,3 +831,15 @@
     {/if}
   {/each}
 </div>
+
+<style>
+  :global(.notes-block-row[data-notes-block-selected="true"] > .notes-block-surface) {
+    background: hsl(var(--primary) / 0.12);
+    box-shadow: inset 0 0 0 1px hsl(var(--primary) / 0.42);
+  }
+
+  :global(.notes-block-row[data-notes-block-selected="true"]:focus-visible > .notes-block-surface) {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 1px;
+  }
+</style>

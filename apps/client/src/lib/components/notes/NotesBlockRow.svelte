@@ -393,6 +393,8 @@
   id={notesBlockAnchorId(block.id)}
   class="notes-block-row group relative"
   role="group"
+  tabindex="-1"
+  data-notes-selectable-block-id={block.id}
   class:notes-block-focused={focusBlockId === block.id}
   class:notes-block-dragging={isDragging}
   class:notes-block-drop-before={dropPosition === "before"}
@@ -405,6 +407,7 @@
   <div
     class="notes-block-surface flex min-w-0 items-start gap-1 rounded-md py-0.5 pr-2 hover:bg-accent/50"
     class:notes-callout-surface={block.type === "callout"}
+    data-notes-block-selection-zone
     style={blockSurfaceStyle}
   >
     <div class="notes-block-indent shrink-0"></div>
