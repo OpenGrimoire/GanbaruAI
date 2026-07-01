@@ -31,6 +31,7 @@ export interface NotesSlashCommandItem {
   section: NotesSlashCommandSection;
   command: NotesSlashCommand;
   keywords: readonly string[];
+  searchText: string;
 }
 
 export interface NotesSlashCommandOptions {
@@ -42,6 +43,11 @@ export interface NotesSlashCommandSections {
   blocks: readonly NotesSlashCommandItem[];
   actions: readonly NotesSlashCommandItem[];
   colors: readonly NotesSlashCommandItem[];
+}
+
+export interface NotesSlashInputSession {
+  open: boolean;
+  query: string;
 }
 
 const ACTIONS = [
@@ -58,6 +64,19 @@ const TOGGLE_HEADING_TYPES = [
   "heading_3",
   "heading_4",
 ] as const satisfies readonly NotesHeadingBlockType[];
+
+let recentNotesSlashCommandKeys: NotesSlashCommandKey[] = [];
+
+export function notesRecentSlashCommandKeys(): readonly NotesSlashCommandKey[] {
+  return recentNotesSlashCommandKeys;
+}
+
+export function recordRecentNotesSlashCommandKey(
+  key: NotesSlashCommandKey,
+): readonly NotesSlashCommandKey[] {
+  recentNotesSlashCommandKeys = recordNotesSlashCommandKey(recentNotesSlashCommandKeys, key);
+  return recentNotesSlashCommandKeys;
+}
 
 export function notesSlashCommandItems(
   options: NotesSlashCommandOptions,
@@ -92,8 +111,7 @@ export function filterNotesSlashCommandItems(
   const terms = normalizeSearchText(query).split(" ").filter(Boolean);
   if (terms.length === 0) return items;
   return items.filter((item) => {
-    const haystack = normalizeSearchText([item.key, ...item.keywords].join(" "));
-    return terms.every((term) => haystack.includes(term));
+    return terms.every((term) => item.searchText.includes(term));
   });
 }
 
@@ -124,6 +142,41 @@ export function recordNotesSlashCommandKey(
   return [key, ...keys.filter((candidate) => candidate !== key)].slice(0, limit);
 }
 
+export function flatNotesSlashCommandSectionItems(
+  sections: NotesSlashCommandSections,
+  sectionOrder: readonly NotesSlashCommandPanelSection[],
+): readonly NotesSlashCommandItem[] {
+  return sectionOrder.flatMap((section) => sections[section]);
+}
+
+export function clampNotesSlashActiveIndex(index: number, itemCount: number): number {
+  if (itemCount <= 0) return 0;
+  if (!Number.isFinite(index)) return 0;
+  return Math.max(0, Math.min(Math.trunc(index), itemCount - 1));
+}
+
+export function nextNotesSlashActiveIndex(
+  currentIndex: number,
+  itemCount: number,
+  direction: "next" | "previous",
+): number {
+  if (itemCount <= 0) return 0;
+  const current = clampNotesSlashActiveIndex(currentIndex, itemCount);
+  return direction === "next"
+    ? (current + 1) % itemCount
+    : (current + itemCount - 1) % itemCount;
+}
+
+export function notesSlashInputSessionFromText(
+  text: string,
+  wasOpen: boolean,
+): NotesSlashInputSession {
+  if (!wasOpen || !text.startsWith("/") || text.includes("\n")) {
+    return { open: false, query: "" };
+  }
+  return { open: true, query: text.slice(1) };
+}
+
 function recentNotesSlashCommandItems(
   items: readonly NotesSlashCommandItem[],
   recentKeys: readonly NotesSlashCommandKey[],
@@ -137,41 +190,50 @@ function recentNotesSlashCommandItems(
 
 function blockCommandItem(blockType: NotesInsertableBlockType): NotesSlashCommandItem {
   const command = { kind: "block", blockType } as const;
-  return {
+  return slashCommandItemWithSearchText({
     key: notesSlashCommandKey(command),
     section: "blocks",
     command,
     keywords: blockKeywords(blockType),
-  };
+  });
 }
 
 function toggleHeadingCommandItem(headingType: NotesHeadingBlockType): NotesSlashCommandItem {
   const command = { kind: "toggle_heading", headingType } as const;
-  return {
+  return slashCommandItemWithSearchText({
     key: notesSlashCommandKey(command),
     section: "blocks",
     command,
     keywords: toggleHeadingKeywords(headingType),
-  };
+  });
 }
 
 function actionCommandItem(action: NotesSlashAction): NotesSlashCommandItem {
   const command = { kind: "action", action } as const;
-  return {
+  return slashCommandItemWithSearchText({
     key: notesSlashCommandKey(command),
     section: "actions",
     command,
     keywords: actionKeywords(action),
-  };
+  });
 }
 
 function colorCommandItem(color: NotesColor): NotesSlashCommandItem {
   const command = { kind: "color", color } as const;
-  return {
+  return slashCommandItemWithSearchText({
     key: notesSlashCommandKey(command),
     section: "colors",
     command,
     keywords: colorKeywords(color),
+  });
+}
+
+function slashCommandItemWithSearchText(
+  item: Omit<NotesSlashCommandItem, "searchText">,
+): NotesSlashCommandItem {
+  return {
+    ...item,
+    searchText: normalizeSearchText([item.key, ...item.keywords].join(" ")),
   };
 }
 

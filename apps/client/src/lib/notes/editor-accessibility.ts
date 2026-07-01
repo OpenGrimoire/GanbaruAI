@@ -18,6 +18,10 @@ export function notesSlashMenuDomId(blockId: string): string {
   return `notes-slash-menu-${blockId}`;
 }
 
+export function notesSlashMenuItemDomId(blockId: string, index: number): string {
+  return `notes-slash-menu-${blockId}-item-${Math.max(0, Math.trunc(index))}`;
+}
+
 export function notesRichTextEditorControls(
   blockId: string,
   mentionOpen: boolean,

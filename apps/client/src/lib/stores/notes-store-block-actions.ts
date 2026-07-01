@@ -10,7 +10,7 @@ import {
 } from "$lib/notes/block-duplicate";
 import { planNotesPlainTextPaste } from "$lib/notes/block-clipboard";
 import { planNotesRichHtmlPaste } from "$lib/notes/rich-text-paste";
-import { blockColor, blockWithColor } from "$lib/notes/block-color";
+import { blockColor, blockWithColor, canBlockHaveColor } from "$lib/notes/block-color";
 import {
   blockEditableRichText,
   blockConvertedToType,
@@ -171,6 +171,7 @@ export interface NotesBlockActions {
   convertBlockToToggleHeading: (
     blockId: string,
     headingType: NotesHeadingBlockType,
+    clearText?: boolean,
   ) => Promise<void>;
   createSiblingAfter: (blockId: string, type?: NotesBlockType) => Promise<void>;
   splitTextBlockAtSelection: (
@@ -630,6 +631,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
   async function convertBlockToToggleHeading(
     blockId: string,
     headingType: NotesHeadingBlockType,
+    clearText = false,
   ): Promise<void> {
     const block = context.blockById(blockId);
     if (!block) return;
@@ -637,7 +639,18 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     if (block.type === "table" || block.type === "table_row") return;
     if (block.type === "column_list" || block.type === "column") return;
     const before = undoSnapshot(blockId);
-    await replaceBlockWithUpdate(blockId, blockWithHeadingToggleable(block, headingType, true));
+    const update = clearText
+      ? createBlockUpdate(
+        headingType,
+        "",
+        canBlockHaveColor(block.type) ? blockColor(block) : "default",
+        {
+          isToggleable: true,
+          open: true,
+        },
+      )
+      : blockWithHeadingToggleable(block, headingType, true);
+    await replaceBlockWithUpdate(blockId, update);
     context.requestBlockFocus(blockId);
     recordUndoAfter("convert", before, blockId);
   }

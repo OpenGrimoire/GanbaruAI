@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  clampNotesSlashActiveIndex,
   filterNotesSlashCommandItems,
+  flatNotesSlashCommandSectionItems,
+  nextNotesSlashActiveIndex,
+  notesSlashInputSessionFromText,
   notesSlashCommandKey,
   notesSlashCommandItems,
   recordNotesSlashCommandKey,
@@ -62,6 +66,7 @@ describe("notes slash commands", () => {
   it("filters by command aliases", () => {
     const commands = notesSlashCommandItems({ canSetColor: true });
 
+    expect(commands.every((command) => command.searchText.length > 0)).toBe(true);
     expect(filterNotesSlashCommandItems(commands, "dup")).toContainEqual(
       expect.objectContaining({ command: { kind: "action", action: "duplicate" } }),
     );
@@ -116,5 +121,42 @@ describe("notes slash commands", () => {
     expect(sections.actions).toContainEqual(
       expect.objectContaining({ command: { kind: "action", action: "duplicate" } }),
     );
+  });
+
+  it("flattens sections and wraps keyboard active index movement", () => {
+    const commands = notesSlashCommandItems({ canSetColor: false });
+    const sections = sectionNotesSlashCommandItems(commands, "dup", []);
+    const items = flatNotesSlashCommandSectionItems(sections, [
+      "recent",
+      "blocks",
+      "actions",
+      "colors",
+    ]);
+
+    expect(items).toContainEqual(
+      expect.objectContaining({ command: { kind: "action", action: "duplicate" } }),
+    );
+    expect(clampNotesSlashActiveIndex(10, items.length)).toBe(items.length - 1);
+    expect(nextNotesSlashActiveIndex(items.length - 1, items.length, "next")).toBe(0);
+    expect(nextNotesSlashActiveIndex(0, items.length, "previous")).toBe(items.length - 1);
+  });
+
+  it("keeps typed slash sessions open only after an intentional slash trigger", () => {
+    expect(notesSlashInputSessionFromText("/hea", true)).toEqual({
+      open: true,
+      query: "hea",
+    });
+    expect(notesSlashInputSessionFromText("/hea", false)).toEqual({
+      open: false,
+      query: "",
+    });
+    expect(notesSlashInputSessionFromText("/one\ntwo", true)).toEqual({
+      open: false,
+      query: "",
+    });
+    expect(notesSlashInputSessionFromText("plain", true)).toEqual({
+      open: false,
+      query: "",
+    });
   });
 });

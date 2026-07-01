@@ -121,8 +121,8 @@
     void notes.convertBlock(blockId, type, clearText);
   }
 
-  function convertToToggleHeading(blockId: string, type: NotesHeadingBlockType): void {
-    void notes.convertBlockToToggleHeading(blockId, type);
+  function convertToToggleHeading(blockId: string, type: NotesHeadingBlockType, clearText = false): void {
+    void notes.convertBlockToToggleHeading(blockId, type, clearText);
   }
 
   function moveTargetsForBlock(block: NotesBlock): NotesMoveToPageTarget[] {

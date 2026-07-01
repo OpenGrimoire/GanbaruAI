@@ -30,6 +30,7 @@
     notesRichTextEditorControls,
     notesRichTextEditorDomId,
     notesRichTextEditorStatusDomId,
+    notesSlashMenuItemDomId,
     notesSlashMenuDomId,
   } from "$lib/notes/editor-accessibility";
   import { notesRichTextEditorClass } from "$lib/notes/block-editor-ui";
@@ -72,7 +73,14 @@
     notesRichTextLinkShortcutRequested,
   } from "$lib/notes/rich-text-shortcuts";
   import { notesUndoShortcutAction } from "$lib/notes/undo-history";
-  import type { NotesSlashAction, NotesSlashCommand } from "$lib/notes/slash-commands";
+  import {
+    nextNotesSlashActiveIndex,
+    notesSlashCommandKey,
+    notesSlashInputSessionFromText,
+    recordRecentNotesSlashCommandKey,
+    type NotesSlashAction,
+    type NotesSlashCommand,
+  } from "$lib/notes/slash-commands";
   import type {
     NotesBlock,
     NotesBlockType,
@@ -175,7 +183,11 @@
     onUndo: () => Promise<void> | void;
     onRedo: () => Promise<void> | void;
     onConvert: (blockId: string, type: NotesBlockType, clearText?: boolean) => void;
-    onConvertToToggleHeading: (blockId: string, type: NotesHeadingBlockType) => void;
+    onConvertToToggleHeading: (
+      blockId: string,
+      type: NotesHeadingBlockType,
+      clearText?: boolean,
+    ) => void;
     onColorChange: (blockId: string, color: NotesColor) => void;
     onCopyLink: (blockId: string) => Promise<void> | void;
     onDuplicate: (blockId: string) => void;
@@ -196,6 +208,9 @@
   let inlineToolbarElement: HTMLDivElement | null = $state(null);
   let inlineToolbarPlacement: NotesInlineToolbarPlacement | null = $state(null);
   let slashOpen = $state(false);
+  let slashActiveIndex = $state(0);
+  let slashActiveCommand = $state<NotesSlashCommand | null>(null);
+  let slashItemCount = $state(0);
   let mentionQuery: NotesMentionQuery | null = $state(null);
   let mentionActiveIndex = $state(0);
   let textSelection = $state({ start: 0, end: 0 });
@@ -241,6 +256,13 @@
   const blockSupportsColor = $derived(canBlockHaveColor(block.type));
   const headingToggleable = $derived(isHeadingBlockType(block.type) && headingIsToggleable(block));
   const headingOpen = $derived(!isHeadingBlockType(block.type) || headingToggleOpen(block));
+  const slashInputSession = $derived(notesSlashInputSessionFromText(text, slashOpen));
+  const slashQuery = $derived(slashInputSession.query);
+  const slashActiveDescendant = $derived(
+    slashOpen && slashItemCount > 0
+      ? notesSlashMenuItemDomId(block.id, slashActiveIndex)
+      : undefined,
+  );
 
   function mentionTargetsForQuery(
     query: NotesMentionQuery | null,
@@ -307,8 +329,18 @@
 
   function closeCompositionSensitiveMenus(): void {
     slashOpen = false;
+    slashActiveIndex = 0;
+    slashActiveCommand = null;
+    slashItemCount = 0;
     mentionQuery = null;
     mentionActiveIndex = 0;
+  }
+
+  function closeSlashMenu(): void {
+    slashOpen = false;
+    slashActiveIndex = 0;
+    slashActiveCommand = null;
+    slashItemCount = 0;
   }
 
   function setTrackedSelection(selection: NotesTextSelection): void {
@@ -348,6 +380,12 @@
       if (!editor || !selectionIsKnown || document.activeElement !== editor) return;
       restoreTrackedSelection(selection);
     });
+  });
+
+  $effect(() => {
+    const _query = slashQuery;
+    const _open = slashOpen;
+    slashActiveIndex = 0;
   });
 
   $effect(() => {
@@ -552,6 +590,32 @@
         return;
       }
     }
+    if (slashOpen) {
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        slashActiveIndex = nextNotesSlashActiveIndex(slashActiveIndex, slashItemCount, "next");
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        slashActiveIndex = nextNotesSlashActiveIndex(
+          slashActiveIndex,
+          slashItemCount,
+          "previous",
+        );
+        return;
+      }
+      if (event.key === "Enter" || event.key === "Tab") {
+        event.preventDefault();
+        if (slashActiveCommand) selectSlashCommand(slashActiveCommand);
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeSlashMenu();
+        return;
+      }
+    }
     const target = event.currentTarget;
     const selection = target instanceof HTMLElement
       ? notesTextSelectionFromEditableRoot(target)
@@ -673,8 +737,9 @@
         return;
       }
     }
-    slashOpen = value.startsWith("/") && !value.includes("\n");
-    if (slashOpen) {
+    const slashSession = notesSlashInputSessionFromText(value, slashOpen);
+    slashOpen = slashSession.open;
+    if (slashSession.open) {
       mentionQuery = null;
     } else {
       updateMentionQueryFromEditor(target, value);
@@ -778,21 +843,24 @@
   }
 
   function selectSlashCommand(command: NotesSlashCommand): void {
-    slashOpen = false;
+    const clearTypedSlashText = slashInputSession.open;
+    closeSlashMenu();
+    recordRecentNotesSlashCommandKey(notesSlashCommandKey(command));
     switch (command.kind) {
       case "block":
-        onConvert(block.id, command.blockType, true);
+        if (command.blockType === "child_page" && clearTypedSlashText) clearSlashText();
+        onConvert(block.id, command.blockType, clearTypedSlashText);
         return;
       case "toggle_heading":
-        onConvertToToggleHeading(block.id, command.headingType);
+        onConvertToToggleHeading(block.id, command.headingType, clearTypedSlashText);
         return;
       case "action":
-        if (command.action !== "delete") clearSlashText();
+        if (command.action !== "delete" && clearTypedSlashText) clearSlashText();
         runSlashAction(command.action);
         return;
       case "color":
         if (!blockSupportsColor) return;
-        clearSlashText();
+        if (clearTypedSlashText) clearSlashText();
         onColorChange(block.id, command.color);
         return;
     }
@@ -905,12 +973,14 @@
     ? notesRichTextEditorStatusDomId(block.id)
     : undefined}
   aria-controls={notesRichTextEditorControls(block.id, mentionOpen, slashOpen)}
-  aria-activedescendant={notesRichTextEditorActiveDescendant(
-    block.id,
-    mentionOpen,
-    mentionActiveIndex,
-    mentionMatches.length,
-  )}
+  aria-activedescendant={mentionOpen
+    ? notesRichTextEditorActiveDescendant(
+      block.id,
+      mentionOpen,
+      mentionActiveIndex,
+      mentionMatches.length,
+    )
+    : slashActiveDescendant}
   contenteditable="true"
   spellcheck={block.type !== "code"}
   tabindex="0"
@@ -979,9 +1049,18 @@
 {:else if slashOpen}
   <NotesSlashMenu
     menuId={notesSlashMenuDomId(block.id)}
-    query={text.startsWith("/") ? text.slice(1) : ""}
+    blockId={block.id}
+    query={slashQuery}
+    activeIndex={slashActiveIndex}
     canSetColor={blockSupportsColor}
     currentColor={currentColor}
+    onActiveIndexChange={(index) => {
+      slashActiveIndex = index;
+    }}
+    onActiveCommandChange={(command, itemCount) => {
+      slashActiveCommand = command;
+      slashItemCount = itemCount;
+    }}
     onSelect={selectSlashCommand}
   />
 {/if}

@@ -6,6 +6,7 @@ import {
   notesRichTextEditorControls,
   notesRichTextEditorDomId,
   notesRichTextEditorStatusDomId,
+  notesSlashMenuItemDomId,
   notesSlashMenuDomId,
 } from "./editor-accessibility";
 
@@ -18,6 +19,7 @@ describe("notes rich editor accessibility helpers", () => {
     expect(notesMentionMenuDomId("block-1")).toBe("notes-mention-menu-block-1");
     expect(notesMentionOptionDomId("block-1", 2)).toBe("notes-mention-option-block-1-2");
     expect(notesSlashMenuDomId("block-1")).toBe("notes-slash-menu-block-1");
+    expect(notesSlashMenuItemDomId("block-1", 2)).toBe("notes-slash-menu-block-1-item-2");
   });
 
   it("points the editor at the open menu only", () => {

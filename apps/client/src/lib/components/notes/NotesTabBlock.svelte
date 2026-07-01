@@ -155,7 +155,11 @@
     onRedo: () => Promise<void> | void;
     onAddBelow: (blockId: string, type?: NotesBlockType) => void;
     onConvert: (blockId: string, type: NotesBlockType, clearText?: boolean) => void;
-    onConvertToToggleHeading: (blockId: string, type: NotesHeadingBlockType) => void;
+    onConvertToToggleHeading: (
+      blockId: string,
+      type: NotesHeadingBlockType,
+      clearText?: boolean,
+    ) => void;
     onColorChange: (blockId: string, color: NotesColor) => void;
     onCopyLink: (blockId: string) => Promise<void> | void;
     onDuplicate: (blockId: string) => void;

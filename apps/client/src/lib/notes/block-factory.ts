@@ -962,9 +962,8 @@ export function blockWithHeadingToggleable(
   headingType: NotesHeadingBlockType,
   isToggleable = true,
 ): NotesBlockUpdate {
-  const text = blockPlainText(block);
   const color = canBlockHaveColor(block.type) ? blockColor(block) : DEFAULT_COLOR;
-  return createBlockUpdate(headingType, text, color, {
+  return createBlockUpdateFromRichText(headingType, blockRichText(block), color, {
     isToggleable,
     open: isToggleable ? true : undefined,
   });
@@ -1014,9 +1013,100 @@ export function blockWithHeadingToggleOpen(
 }
 
 export function blockConvertedToType(block: NotesBlock, type: NotesBlockType): NotesBlockUpdate {
-  const text = type === "divider" ? "" : blockPlainText(block);
   const color = canBlockHaveColor(type) ? blockColor(block) : DEFAULT_COLOR;
-  return createBlockUpdate(type, text, color);
+  if (type === "divider") return createBlockUpdate(type, "", color);
+  return createBlockUpdateFromRichText(type, blockRichText(block), color);
+}
+
+function createBlockUpdateFromRichText(
+  type: NotesBlockType,
+  richText: readonly NotesRichText[],
+  color: NotesColor = DEFAULT_COLOR,
+  options: NotesTextPayloadOptions = {},
+): NotesBlockUpdate {
+  switch (type) {
+    case "paragraph":
+      return { type, paragraph: createTextPayloadFromRichText(richText, color) };
+    case "heading_1":
+      return {
+        type,
+        heading_1: createTextPayloadFromRichText(richText, color, options),
+      };
+    case "heading_2":
+      return {
+        type,
+        heading_2: createTextPayloadFromRichText(richText, color, options),
+      };
+    case "heading_3":
+      return {
+        type,
+        heading_3: createTextPayloadFromRichText(richText, color, options),
+      };
+    case "heading_4":
+      return {
+        type,
+        heading_4: createTextPayloadFromRichText(richText, color, options),
+      };
+    case "bulleted_list_item":
+      return { type, bulleted_list_item: createTextPayloadFromRichText(richText, color) };
+    case "numbered_list_item":
+      return { type, numbered_list_item: createTextPayloadFromRichText(richText, color) };
+    case "to_do":
+      return {
+        type,
+        to_do: {
+          ...createTextPayloadFromRichText(richText, color),
+          checked: false,
+        },
+      };
+    case "toggle":
+      return {
+        type,
+        toggle: {
+          ...createTextPayloadFromRichText(richText, color),
+          ganbaru_open: true,
+        },
+      };
+    case "callout":
+      return {
+        type,
+        callout: {
+          ...createTextPayloadFromRichText(richText, color),
+          icon: createCalloutPayload("").icon,
+        },
+      };
+    case "quote":
+      return { type, quote: createTextPayloadFromRichText(richText, color) };
+    case "code":
+      return {
+        type,
+        code: {
+          rich_text: richText.length > 0 ? [...richText] : [createRichText("")],
+          caption: [],
+          language: DEFAULT_CODE_LANGUAGE,
+        },
+      };
+    case "template":
+      return {
+        type,
+        template: {
+          rich_text: richText.length > 0 ? [...richText] : [createRichText("")],
+        },
+      };
+    case "button": {
+      const plainText = richTextPlainText(richText);
+      const payload = createButtonPayload(plainText);
+      return {
+        type,
+        button: {
+          ...payload,
+          rich_text: plainText.trim() ? [...richText] : payload.rich_text,
+        },
+      };
+    }
+    default:
+      return createBlockUpdate(type, richTextPlainText(richText), color, options);
+  }
 }
 
 /** Convert a loaded block into a full update payload preserving its current typed payload. */

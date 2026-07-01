@@ -1,17 +1,15 @@
-<script module lang="ts">
-  import type { NotesSlashCommandKey } from "$lib/notes/slash-commands";
-
-  let recentSlashCommandKeys: NotesSlashCommandKey[] = [];
-</script>
-
 <script lang="ts">
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { notesBlockColorSwatchStyle } from "$lib/notes/block-color";
   import type { NotesHeadingBlockType } from "$lib/notes/block-factory";
   import type { NotesInsertableBlockType } from "$lib/notes/block-insertion";
+  import { notesSlashMenuItemDomId } from "$lib/notes/editor-accessibility";
   import {
+    clampNotesSlashActiveIndex,
+    flatNotesSlashCommandSectionItems,
     notesSlashCommandItems,
-    recordNotesSlashCommandKey,
+    notesRecentSlashCommandKeys,
+    recordRecentNotesSlashCommandKey,
     sectionNotesSlashCommandItems,
     type NotesSlashAction,
     type NotesSlashCommand,
@@ -59,14 +57,22 @@
     currentColor = "default",
     menuId = undefined,
     menuClass = "absolute left-[calc(var(--notes-depth)*1.25rem+1.75rem)] top-full mt-1",
+    blockId = undefined,
+    activeIndex = 0,
     onSelect,
+    onActiveIndexChange = undefined,
+    onActiveCommandChange = undefined,
   }: {
     query?: string;
     canSetColor?: boolean;
     currentColor?: NotesColor;
     menuId?: string;
     menuClass?: string;
+    blockId?: string;
+    activeIndex?: number;
     onSelect: (command: NotesSlashCommand) => void;
+    onActiveIndexChange?: (index: number) => void;
+    onActiveCommandChange?: (command: NotesSlashCommand | null, itemCount: number) => void;
   } = $props();
 
   const { t } = getLocalization();
@@ -76,15 +82,30 @@
     "actions",
     "colors",
   ] as const satisfies readonly NotesSlashCommandPanelSection[];
-  let recentKeys = $state<readonly NotesSlashCommandKey[]>(recentSlashCommandKeys);
+  let recentKeys = $state<readonly string[]>(notesRecentSlashCommandKeys());
   const catalog = $derived(notesSlashCommandItems({ canSetColor }));
   const sections = $derived(sectionNotesSlashCommandItems(catalog, query, recentKeys));
   const hasResults = $derived(sectionOrder.some((section) => sections[section].length > 0));
+  const flatItems = $derived(flatNotesSlashCommandSectionItems(sections, sectionOrder));
+  const flatIndexByKey = $derived(new Map(flatItems.map((item, index) => [item.key, index])));
+  const safeActiveIndex = $derived(clampNotesSlashActiveIndex(activeIndex, flatItems.length));
+
+  $effect(() => {
+    if (safeActiveIndex !== activeIndex) onActiveIndexChange?.(safeActiveIndex);
+    onActiveCommandChange?.(flatItems[safeActiveIndex]?.command ?? null, flatItems.length);
+  });
 
   function selectCommand(item: NotesSlashCommandItem): void {
-    recentSlashCommandKeys = recordNotesSlashCommandKey(recentSlashCommandKeys, item.key);
-    recentKeys = recentSlashCommandKeys;
+    recentKeys = recordRecentNotesSlashCommandKey(item.key);
     onSelect(item.command);
+  }
+
+  function itemIndex(item: NotesSlashCommandItem): number {
+    return flatIndexByKey.get(item.key) ?? 0;
+  }
+
+  function itemId(item: NotesSlashCommandItem): string | undefined {
+    return blockId ? notesSlashMenuItemDomId(blockId, itemIndex(item)) : undefined;
   }
 
   function sectionLabel(section: NotesSlashCommandPanelSection): string {
@@ -375,14 +396,21 @@
         </div>
         {#each items as item (item.key)}
           {@const Icon = commandIcon(item.command)}
+          {@const index = itemIndex(item)}
+          {@const active = index === safeActiveIndex}
           <button
+            id={itemId(item)}
             class="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[0.8rem] outline-none hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            class:bg-accent={active}
+            class:text-accent-foreground={active}
             type="button"
             role={item.command.kind === "color" ? "menuitemradio" : "menuitem"}
             aria-checked={item.command.kind === "color"
               ? currentColor === item.command.color
               : undefined}
+            data-active={active ? "true" : undefined}
             onmousedown={(event) => event.preventDefault()}
+            onpointermove={() => onActiveIndexChange?.(index)}
             onclick={() => selectCommand(item)}
           >
             {#if item.command.kind === "color"}
