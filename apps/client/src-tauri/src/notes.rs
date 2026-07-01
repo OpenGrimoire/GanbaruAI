@@ -2,6 +2,7 @@ use crate::db_path::connect_sqlite;
 use tauri::{AppHandle, Runtime};
 
 mod comments;
+mod data_source_schema;
 mod databases;
 mod history;
 mod models;
@@ -292,6 +293,27 @@ pub async fn notes_create_database<R: Runtime>(
 ) -> Result<NoteCreatedDatabaseDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
     databases::create_database(&pool, request).await
+}
+
+#[tauri::command]
+pub async fn notes_get_data_source_schema<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    data_source_id: String,
+) -> Result<NoteDataSourceSchemaDto, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    data_source_schema::get_data_source_schema(&pool, &data_source_id).await
+}
+
+#[tauri::command]
+pub async fn notes_update_data_source_schema<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    data_source_id: String,
+    update: NoteDataSourceSchemaUpdate,
+) -> Result<NoteDataSourceSchemaDto, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    data_source_schema::update_data_source_schema(&pool, &data_source_id, update).await
 }
 
 #[tauri::command]

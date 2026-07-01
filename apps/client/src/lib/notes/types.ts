@@ -697,6 +697,85 @@ export interface NotesDataSource {
   last_edited_time: string;
 }
 
+export const NOTES_DATA_SOURCE_PROPERTY_TYPES = [
+  "title",
+  "rich_text",
+  "number",
+  "select",
+  "multi_select",
+  "status",
+  "date",
+  "checkbox",
+  "url",
+  "email",
+  "phone_number",
+  "files",
+  "people",
+  "created_time",
+  "created_by",
+  "last_edited_time",
+  "last_edited_by",
+  "unique_id",
+  "place",
+] as const;
+
+export type NotesDataSourcePropertyType = (typeof NOTES_DATA_SOURCE_PROPERTY_TYPES)[number];
+
+export const NOTES_DATA_SOURCE_SELECT_COLORS = [
+  "default",
+  "gray",
+  "brown",
+  "orange",
+  "yellow",
+  "green",
+  "blue",
+  "purple",
+  "pink",
+  "red",
+] as const;
+
+export type NotesDataSourceSelectColor = (typeof NOTES_DATA_SOURCE_SELECT_COLORS)[number];
+
+export const NOTES_DATA_SOURCE_NUMBER_FORMATS = [
+  "number",
+  "number_with_commas",
+  "percent",
+  "dollar",
+  "euro",
+  "pound",
+  "yen",
+  "yuan",
+  "won",
+  "ruble",
+  "rupee",
+  "franc",
+  "real",
+  "lira",
+  "krona",
+  "ringgit",
+] as const;
+
+export type NotesDataSourceNumberFormat = (typeof NOTES_DATA_SOURCE_NUMBER_FORMATS)[number];
+
+export const NOTES_DATA_SOURCE_STATUS_GROUPS = [
+  "To-do",
+  "In progress",
+  "Complete",
+] as const;
+
+export type NotesDataSourceStatusGroup = (typeof NOTES_DATA_SOURCE_STATUS_GROUPS)[number];
+
+export interface NotesDataSourceSchema {
+  data_source: NotesDataSource;
+  view: NotesDatabaseView;
+}
+
+export interface NotesDataSourceSchemaUpdate {
+  properties: Record<string, unknown>;
+  property_order: string[];
+  hidden_property_ids: string[];
+}
+
 export const NOTES_DATABASE_VIEW_TYPES = [
   "table",
   "board",

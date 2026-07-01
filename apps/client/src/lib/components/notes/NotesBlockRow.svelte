@@ -50,10 +50,10 @@
   import FileText from "@lucide/svelte/icons/file-text";
   import Info from "@lucide/svelte/icons/info";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
-  import Database from "@lucide/svelte/icons/database";
   import NotesMediaBlock from "./NotesMediaBlock.svelte";
   import NotesBlockHandle from "./NotesBlockHandle.svelte";
   import NotesCardBlock from "./NotesCardBlock.svelte";
+  import NotesChildDatabaseBlock from "./NotesChildDatabaseBlock.svelte";
   import NotesSlashMenu from "./NotesSlashMenu.svelte";
   import NotesTableBlock from "./NotesTableBlock.svelte";
   import NotesTextBlockEditor from "./NotesTextBlockEditor.svelte";
@@ -267,7 +267,6 @@
   let dividerButton: HTMLButtonElement | null = $state(null);
   let breadcrumbButton: HTMLButtonElement | null = $state(null);
   let tableOfContentsButton: HTMLButtonElement | null = $state(null);
-  let childDatabaseButton: HTMLButtonElement | null = $state(null);
   let syncedBlockButton: HTMLButtonElement | null = $state(null);
   let slashOpen = $state(false);
   const block = $derived(item.block);
@@ -282,15 +281,6 @@
   const childPageTitle = $derived(
     block.type === "child_page" ? block.child_page.title.trim() : "",
   );
-  const childDatabaseTitle = $derived(
-    block.type === "child_database" ? block.child_database.title.trim() : "",
-  );
-  const childDatabaseIsLocal = $derived(
-    block.type === "child_database"
-      && block.child_database.database_id !== undefined
-      && block.child_database.data_source_id !== undefined
-      && block.child_database.view_id !== undefined,
-  );
   const syncedBlockSourceId = $derived(
     block.type === "synced_block" ? block.synced_block.synced_from?.block_id ?? null : null,
   );
@@ -303,7 +293,6 @@
     if (focusBlockId !== block.id) return;
     if (showTextEditor) return;
     void tick().then(() => {
-      focusControl(childDatabaseButton);
       focusControl(syncedBlockButton);
       focusControl(dividerButton);
       focusControl(breadcrumbButton);
@@ -540,31 +529,13 @@
           <span class="min-w-0 truncate">{childPageTitle || t("notes.untitled")}</span>
         </button>
       {:else if block.type === "child_database"}
-        <section
-          class="my-1 flex min-w-0 items-start gap-2 rounded-md border border-border bg-background/70 p-2"
-          aria-label={t("notes.blockType.childDatabase")}
-        >
-          <div
-            class="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground"
-            aria-hidden="true"
-          >
-            <Database class="size-4" />
-          </div>
-          <button
-            bind:this={childDatabaseButton}
-            type="button"
-            class="flex min-h-8 min-w-0 flex-1 flex-col gap-0.5 rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            onkeydown={handleKeydown}
-            onclick={() => onFocusBlock(block.id)}
-          >
-            <span class="min-w-0 truncate text-[0.866667rem] font-medium text-foreground">
-              {childDatabaseTitle || t("notes.untitled")}
-            </span>
-            <span class="min-w-0 truncate text-[0.8rem] text-muted-foreground">
-              {childDatabaseIsLocal ? t("notes.childDatabaseLocal") : t("notes.childDatabasePreserved")}
-            </span>
-          </button>
-        </section>
+        <NotesChildDatabaseBlock
+          {block}
+          {focusBlockId}
+          {focusRequestId}
+          onFocusBlock={onFocusBlock}
+          onKeydown={handleKeydown}
+        />
       {:else if block.type === "breadcrumb"}
         <nav
           class="my-1 flex min-h-8 min-w-0 items-center gap-1 rounded-md px-1 text-[0.8rem] text-muted-foreground"

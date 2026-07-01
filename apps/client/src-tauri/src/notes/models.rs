@@ -914,6 +914,13 @@ pub struct NoteDatabaseCreate {
     pub(in crate::notes) cover: Option<Value>,
 }
 
+#[derive(Deserialize)]
+pub struct NoteDataSourceSchemaUpdate {
+    pub(in crate::notes) properties: Value,
+    pub(in crate::notes) property_order: Vec<String>,
+    pub(in crate::notes) hidden_property_ids: Vec<String>,
+}
+
 #[derive(Serialize)]
 pub struct NoteCreatedDatabaseDto {
     database: NoteDatabaseDto,
@@ -935,6 +942,28 @@ impl NoteCreatedDatabaseDto {
             data_source: NoteDataSourceDto::new(data_source, database_parent)?,
             view: NoteDatabaseViewDto::new(view)?,
             block: NoteBlockDto::new(block)?,
+        })
+    }
+}
+
+#[derive(Serialize)]
+pub struct NoteDataSourceSchemaDto {
+    data_source: NoteDataSourceDto,
+    view: NoteDatabaseViewDto,
+}
+
+impl NoteDataSourceSchemaDto {
+    pub(in crate::notes) fn new(
+        data_source: NoteDataSourceRow,
+        database: NoteDatabaseRow,
+        view: NoteDatabaseViewRow,
+    ) -> Result<Self, String> {
+        Ok(Self {
+            data_source: NoteDataSourceDto::new(
+                data_source,
+                block_parent_from_database_row(&database)?,
+            )?,
+            view: NoteDatabaseViewDto::new(view)?,
         })
     }
 }

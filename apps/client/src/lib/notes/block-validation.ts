@@ -31,6 +31,7 @@ import {
   type NotesDatabaseView,
   type NotesDatabaseViewType,
   type NotesDataSource,
+  type NotesDataSourceSchema,
   type NotesEmbedBlockPayload,
   type NotesEquationBlockPayload,
   type NotesLinkPreviewBlockPayload,
@@ -1081,6 +1082,14 @@ export function parseNotesCreatedDatabase(value: unknown): NotesCreatedDatabase 
     data_source: parseNotesDataSource(record.data_source),
     view: parseNotesDatabaseView(record.view),
     block,
+  };
+}
+
+export function parseNotesDataSourceSchema(value: unknown): NotesDataSourceSchema {
+  const record = readRecord(value, "data source schema");
+  return {
+    data_source: parseNotesDataSource(record.data_source),
+    view: parseNotesDatabaseView(record.view),
   };
 }
 

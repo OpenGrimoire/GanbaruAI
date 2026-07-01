@@ -6,6 +6,7 @@ import {
   mapNotesBlockListDto,
   mapNotesCommentThreadDto,
   mapNotesCreatedDatabaseDto,
+  mapNotesDataSourceSchemaDto,
   mapNotesLoadedPageDto,
   mapNotesPageBreadcrumbItemDto,
   mapNotesPageHistorySettingsDto,
@@ -25,6 +26,8 @@ import type {
   NotesCommentUpdate,
   NotesCreatedDatabase,
   NotesDatabaseCreateRequest,
+  NotesDataSourceSchema,
+  NotesDataSourceSchemaUpdate,
   NotesDuplicatePageRequest,
   NotesDuplicateBlockRequest,
   NotesDuplicateBlocksRequest,
@@ -293,6 +296,25 @@ export async function createNotesDatabase(
   const dbUrl = await ensureDbUrl();
   return mapNotesCreatedDatabaseDto(
     await invoke<unknown>("notes_create_database", { dbUrl, request }),
+  );
+}
+
+export async function getNotesDataSourceSchema(
+  dataSourceId: string,
+): Promise<NotesDataSourceSchema> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesDataSourceSchemaDto(
+    await invoke<unknown>("notes_get_data_source_schema", { dbUrl, dataSourceId }),
+  );
+}
+
+export async function updateNotesDataSourceSchema(
+  dataSourceId: string,
+  update: NotesDataSourceSchemaUpdate,
+): Promise<NotesDataSourceSchema> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesDataSourceSchemaDto(
+    await invoke<unknown>("notes_update_data_source_schema", { dbUrl, dataSourceId, update }),
   );
 }
 
