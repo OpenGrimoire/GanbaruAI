@@ -1775,6 +1775,10 @@ export const en = {
     noPageMoveTargets: "No destinations",
     movePageToTarget: (title: string) => `Move page to ${title}`,
     archivePage: "Archive",
+    archiveConfirmTitle: (title: string) => `Archive ${title}?`,
+    archiveConfirmMessage:
+      "This removes the page from the normal Notes list without deleting it. You can restore it from Archive.",
+    archiveConfirm: "Archive (Enter)",
     unarchive: "Unarchive",
     unarchivePage: (title: string) => `Unarchive ${title}`,
     moveToTrash: "Move to trash",
@@ -1783,6 +1787,7 @@ export const en = {
       "This removes the page from the normal Notes list. You can restore it from Trash.",
     trashConfirm: "Move to trash (Enter)",
     restorePage: (title: string) => `Restore ${title}`,
+    restoreMovesToWorkspace: "Restores to Workspace because its parent is in Trash.",
     deleteForever: "Delete forever",
     permanentlyDeletePage: (title: string) => `Delete ${title} forever`,
     permanentDeleteConfirmTitle: (title: string) => `Delete ${title} forever?`,

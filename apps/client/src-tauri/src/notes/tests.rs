@@ -2068,6 +2068,33 @@ fn page_archive_and_unarchive_round_trip() {
 }
 
 #[test]
+fn unarchiving_nested_page_with_archived_parent_promotes_to_workspace() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        create_page(&pool, PAGE_A, BLOCK_A).await;
+        writes::create_page(
+            &pool,
+            NotePageCreate {
+                id: PAGE_B.to_string(),
+                title: "Nested".to_string(),
+                parent: page_parent(PAGE_A),
+                first_block_id: BLOCK_B.to_string(),
+                after_block_id: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        writes::archive_page(&pool, PAGE_A, true).await.unwrap();
+        writes::archive_page(&pool, PAGE_B, true).await.unwrap();
+        let restored = writes::archive_page(&pool, PAGE_B, false).await.unwrap();
+        let restored_json = serde_json::to_value(restored).unwrap();
+        assert_eq!(restored_json["parent"]["type"], "workspace");
+        assert!(reads::get_block(&pool, PAGE_B, false).await.is_err());
+    });
+}
+
+#[test]
 fn trashing_archived_page_clears_archive_state() {
     tauri::async_runtime::block_on(async {
         let pool = migrated_memory_pool().await;
@@ -2122,6 +2149,97 @@ fn trashing_parent_page_updates_descendant_pages() {
         assert_eq!(reads::list_pages(&pool).await.unwrap().len(), 3);
         assert!(reads::list_trashed_pages(&pool).await.unwrap().is_empty());
         assert!(reads::get_block(&pool, PAGE_B, false).await.is_ok());
+    });
+}
+
+#[test]
+fn trashing_nested_page_hides_and_restores_child_page_block() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        create_page(&pool, PAGE_A, BLOCK_A).await;
+        writes::create_page(
+            &pool,
+            NotePageCreate {
+                id: PAGE_B.to_string(),
+                title: "Nested".to_string(),
+                parent: page_parent(PAGE_A),
+                first_block_id: BLOCK_B.to_string(),
+                after_block_id: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        writes::trash_page(&pool, PAGE_B, true).await.unwrap();
+        assert!(reads::get_block(&pool, PAGE_B, false).await.is_err());
+        let trashed_block = reads::get_block(&pool, PAGE_B, true).await.unwrap();
+        let trashed_block_json = serde_json::to_value(trashed_block).unwrap();
+        assert_eq!(trashed_block_json["in_trash"], true);
+
+        writes::trash_page(&pool, PAGE_B, false).await.unwrap();
+        assert!(reads::get_block(&pool, PAGE_B, false).await.is_ok());
+    });
+}
+
+#[test]
+fn restoring_nested_page_with_trashed_parent_promotes_to_workspace() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        create_page(&pool, PAGE_A, BLOCK_A).await;
+        writes::create_page(
+            &pool,
+            NotePageCreate {
+                id: PAGE_B.to_string(),
+                title: "Nested".to_string(),
+                parent: page_parent(PAGE_A),
+                first_block_id: BLOCK_B.to_string(),
+                after_block_id: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        writes::trash_page(&pool, PAGE_A, true).await.unwrap();
+        let restored = writes::trash_page(&pool, PAGE_B, false).await.unwrap();
+        let restored_json = serde_json::to_value(restored).unwrap();
+        assert_eq!(restored_json["parent"]["type"], "workspace");
+        assert_eq!(reads::list_pages(&pool).await.unwrap().len(), 1);
+        assert_eq!(reads::list_trashed_pages(&pool).await.unwrap().len(), 1);
+        assert!(reads::get_block(&pool, PAGE_B, false).await.is_err());
+    });
+}
+
+#[test]
+fn restoring_page_with_missing_parent_promotes_to_workspace() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        create_page(&pool, PAGE_A, BLOCK_A).await;
+        writes::trash_page(&pool, PAGE_A, true).await.unwrap();
+        sqlx::raw_sql("PRAGMA foreign_keys=OFF")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "UPDATE notes_pages
+             SET parent_type = 'page_id',
+                 parent_page_id = ?,
+                 parent_block_id = NULL
+             WHERE id = ?",
+        )
+        .bind(PAGE_B)
+        .bind(PAGE_A)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::raw_sql("PRAGMA foreign_keys=ON")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let restored = writes::trash_page(&pool, PAGE_A, false).await.unwrap();
+        let restored_json = serde_json::to_value(restored).unwrap();
+        assert_eq!(restored_json["parent"]["type"], "workspace");
+        assert!(reads::get_page(&pool, PAGE_A, false).await.is_ok());
     });
 }
 

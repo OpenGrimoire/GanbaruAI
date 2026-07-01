@@ -23,6 +23,7 @@
   const notes = getNotes();
   const { t } = getLocalization();
   let search = $state("");
+  let pendingArchivePage = $state<NotesPage | null>(null);
   let pendingTrashPage = $state<NotesPage | null>(null);
   let pendingDeleteTemplate = $state<NotesPageTemplate | null>(null);
   let blockDropTargetPageId = $state<string | null>(null);
@@ -93,8 +94,14 @@
     );
   }
 
-  function archivePage(page: NotesPage): void {
-    void notes.archivePage(page.id);
+  function requestArchivePage(page: NotesPage): void {
+    pendingArchivePage = page;
+  }
+
+  function confirmArchivePage(): void {
+    const page = pendingArchivePage;
+    pendingArchivePage = null;
+    if (page) void notes.archivePage(page.id);
   }
 
   function confirmTrashPage(): void {
@@ -306,7 +313,7 @@
                 void notes.movePage(page.id, parent);
               }}
               onArchive={() => {
-                archivePage(page);
+                requestArchivePage(page);
               }}
               onTrash={() => {
                 pendingTrashPage = page;
@@ -352,7 +359,7 @@
                 void notes.movePage(page.id, parent);
               }}
               onArchive={() => {
-                archivePage(page);
+                requestArchivePage(page);
               }}
               onTrash={() => {
                 pendingTrashPage = page;
@@ -401,7 +408,7 @@
               void notes.movePage(item.page.id, parent);
             }}
             onArchive={() => {
-              archivePage(item.page);
+              requestArchivePage(item.page);
             }}
             onTrash={() => {
               pendingTrashPage = item.page;
@@ -511,6 +518,19 @@
     </button>
   </div>
 </aside>
+
+{#if pendingArchivePage}
+  <ConfirmDialog
+    title={t("notes.archiveConfirmTitle", notesPageTitle(pendingArchivePage, t("notes.untitled")))}
+    message={t("notes.archiveConfirmMessage")}
+    confirmLabel={t("notes.archiveConfirm")}
+    cancelLabel={t("common.cancelShortcut")}
+    onConfirm={confirmArchivePage}
+    onCancel={() => {
+      pendingArchivePage = null;
+    }}
+  />
+{/if}
 
 {#if pendingTrashPage}
   <ConfirmDialog

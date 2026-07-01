@@ -834,6 +834,11 @@ pub(in crate::notes) async fn trash_page(
     }
     history::record_page_snapshot_tx(&mut tx, page_id, "trash_page").await?;
     let child_parents = load_external_child_page_block_parents(&mut tx, page_id).await?;
+    let root_child_page_block_visible = if in_trash {
+        false
+    } else {
+        repair_page_parent_for_active_restore(&mut tx, page_id).await?
+    };
     let result = sqlx::query(
         "WITH RECURSIVE page_subtree(id) AS (
             SELECT id FROM notes_pages WHERE id = ?
@@ -891,6 +896,7 @@ pub(in crate::notes) async fn trash_page(
     .execute(&mut *tx)
     .await
     .map_err(|e| format!("trash notes child page blocks: {e}"))?;
+    set_root_child_page_block_visibility(&mut tx, page_id, root_child_page_block_visible).await?;
     for parent in child_parents {
         refresh_parent_has_children(&mut tx, &parent).await?;
         touch_page(&mut tx, &parent.page_id).await?;
@@ -1010,6 +1016,121 @@ pub(in crate::notes) async fn permanently_delete_page(
     Ok(deleted_page_ids)
 }
 
+async fn repair_page_parent_for_active_restore(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    page_id: &str,
+) -> Result<bool, String> {
+    let row: Option<(String, Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT parent_type, parent_page_id, parent_block_id
+         FROM notes_pages
+         WHERE id = ?",
+    )
+    .bind(page_id)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|e| format!("load restored notes page parent: {e}"))?;
+    let Some((parent_type, parent_page_id, parent_block_id)) = row else {
+        return Err("notes page not found".to_string());
+    };
+    let parent_is_active = match parent_type.as_str() {
+        "workspace" => return Ok(false),
+        "page_id" => {
+            let Some(parent_page_id) = parent_page_id else {
+                move_page_to_workspace_parent(tx, page_id).await?;
+                return Ok(false);
+            };
+            active_page_parent_exists(tx, &parent_page_id).await?
+        }
+        "block_id" => {
+            let Some(parent_block_id) = parent_block_id else {
+                move_page_to_workspace_parent(tx, page_id).await?;
+                return Ok(false);
+            };
+            active_block_parent_exists(tx, &parent_block_id).await?
+        }
+        _ => false,
+    };
+    if parent_is_active {
+        return Ok(true);
+    }
+    move_page_to_workspace_parent(tx, page_id).await?;
+    Ok(false)
+}
+
+async fn active_page_parent_exists(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    parent_page_id: &str,
+) -> Result<bool, String> {
+    let exists: Option<i64> = sqlx::query_scalar(
+        "SELECT 1
+         FROM notes_pages
+         WHERE id = ? AND in_trash = 0 AND archived = 0",
+    )
+    .bind(parent_page_id)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|e| format!("check restored notes page parent: {e}"))?;
+    Ok(exists.is_some())
+}
+
+async fn active_block_parent_exists(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    parent_block_id: &str,
+) -> Result<bool, String> {
+    let exists: Option<i64> = sqlx::query_scalar(
+        "SELECT 1
+         FROM notes_blocks AS block
+         JOIN notes_pages AS page ON page.id = block.page_id
+         WHERE block.id = ?
+           AND block.in_trash = 0
+           AND page.in_trash = 0
+           AND page.archived = 0",
+    )
+    .bind(parent_block_id)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|e| format!("check restored notes block parent: {e}"))?;
+    Ok(exists.is_some())
+}
+
+async fn move_page_to_workspace_parent(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    page_id: &str,
+) -> Result<(), String> {
+    sqlx::query(
+        "UPDATE notes_pages
+         SET parent_type = 'workspace',
+             parent_page_id = NULL,
+             parent_block_id = NULL,
+             last_edited_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+         WHERE id = ?",
+    )
+    .bind(page_id)
+    .execute(&mut **tx)
+    .await
+    .map_err(|e| format!("move restored notes page to workspace: {e}"))?;
+    Ok(())
+}
+
+async fn set_root_child_page_block_visibility(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    page_id: &str,
+    visible: bool,
+) -> Result<(), String> {
+    sqlx::query(
+        "UPDATE notes_blocks
+         SET in_trash = ?,
+             last_edited_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+         WHERE id = ? AND type = 'child_page'",
+    )
+    .bind(if visible { 0_i64 } else { 1_i64 })
+    .bind(page_id)
+    .execute(&mut **tx)
+    .await
+    .map_err(|e| format!("sync restored notes child page block: {e}"))?;
+    Ok(())
+}
+
 async fn load_external_child_page_block_parents(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     page_id: &str,
@@ -1075,11 +1196,13 @@ pub(in crate::notes) async fn archive_page(
         .await
         .map_err(|e| format!("begin archive notes page: {e}"))?;
     let child_block = load_child_page_block_row_any(&mut tx, page_id).await?;
-    let child_parent = child_block
-        .as_ref()
-        .filter(|block| block.in_trash == 0)
-        .map(parent_target_from_block_row);
+    let child_parent = child_block.as_ref().map(parent_target_from_block_row);
     history::record_page_snapshot_tx(&mut tx, page_id, "archive_page").await?;
+    let root_child_page_block_visible = if archived {
+        false
+    } else {
+        repair_page_parent_for_active_restore(&mut tx, page_id).await?
+    };
     let result = sqlx::query(
         "UPDATE notes_pages
          SET archived = ?,
@@ -1100,7 +1223,11 @@ pub(in crate::notes) async fn archive_page(
              last_edited_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
          WHERE id = ? AND type = 'child_page'",
     )
-    .bind(if archived { 1_i64 } else { 0_i64 })
+    .bind(if root_child_page_block_visible {
+        0_i64
+    } else {
+        1_i64
+    })
     .bind(page_id)
     .execute(&mut *tx)
     .await

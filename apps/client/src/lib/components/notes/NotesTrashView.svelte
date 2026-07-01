@@ -2,6 +2,7 @@
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { filterNotesPagesByTitle } from "$lib/notes/page-selection";
+  import { notesPageRestoresToWorkspace } from "$lib/notes/page-recovery";
   import { notesPageTitle } from "$lib/notes/page-title";
   import type { NotesPage } from "$lib/notes/types";
   import { getNotes } from "$lib/stores/notes.svelte";
@@ -105,6 +106,11 @@
               <div class="mt-0.5 truncate text-[0.733333rem] text-muted-foreground">
                 {editedLabel(page)}
               </div>
+              {#if notesPageRestoresToWorkspace(page, notes.trashedPages)}
+                <div class="mt-1 text-[0.733333rem] leading-snug text-muted-foreground">
+                  {t("notes.restoreMovesToWorkspace")}
+                </div>
+              {/if}
             </div>
             <div class="flex shrink-0 flex-wrap justify-end gap-2">
               <button

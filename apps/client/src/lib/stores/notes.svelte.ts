@@ -784,15 +784,18 @@ async function updatePageCover(pageId: string, cover: NotesPageCover | null): Pr
 }
 
 async function trashPage(pageId: string): Promise<void> {
-  const trashedPage = await trashNotesPage(pageId, true);
+  await trashNotesPage(pageId, true);
+  const preferredNextSelected = nextSelectedNotesPageId(pages, pageId);
   if (trashLoaded) {
-    trashedPages = [trashedPage, ...trashedPages.filter((page) => page.id !== pageId)];
+    await reloadTrashedPages();
   }
   if (archiveLoaded) {
-    archivedPages = archivedPages.filter((page) => page.id !== pageId);
+    await reloadArchivedPages();
   }
-  const nextSelected = nextSelectedNotesPageId(pages, pageId);
-  pages = pages.filter((page) => page.id !== pageId);
+  await reloadPages(preferredNextSelected);
+  const nextSelected = preferredNextSelected && pages.some((page) => page.id === preferredNextSelected)
+    ? preferredNextSelected
+    : pages[0]?.id ?? null;
   await selectPage(nextSelected);
 }
 
@@ -823,7 +826,11 @@ async function unarchivePage(pageId: string): Promise<void> {
 
 async function restorePage(pageId: string): Promise<void> {
   const restoredPage = await trashNotesPage(pageId, false);
-  trashedPages = trashedPages.filter((page) => page.id !== pageId);
+  if (trashLoaded) {
+    await reloadTrashedPages();
+  } else {
+    trashedPages = trashedPages.filter((page) => page.id !== pageId);
+  }
   viewMode = "pages";
   saveSelectedPageId(restoredPage.id);
   await reloadPages();

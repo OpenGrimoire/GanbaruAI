@@ -1795,6 +1795,10 @@ export const es = {
     noPageMoveTargets: "No hay destinos",
     movePageToTarget: (title: string) => `Mover página a ${title}`,
     archivePage: "Archivar",
+    archiveConfirmTitle: (title: string) => `¿Archivar ${title}?`,
+    archiveConfirmMessage:
+      "Esto quita la página de la lista normal de notas sin eliminarla. Puedes restaurarla desde el archivo.",
+    archiveConfirm: "Archivar (Enter)",
     unarchive: "Desarchivar",
     unarchivePage: (title: string) => `Desarchivar ${title}`,
     moveToTrash: "Mover a la papelera",
@@ -1803,6 +1807,8 @@ export const es = {
       "Esto quita la página de la lista normal de notas. Puedes restaurarla desde la papelera.",
     trashConfirm: "Mover a la papelera (Enter)",
     restorePage: (title: string) => `Restaurar ${title}`,
+    restoreMovesToWorkspace:
+      "Se restaurará en el espacio porque su página principal está en la papelera.",
     deleteForever: "Eliminar para siempre",
     permanentlyDeletePage: (title: string) => `Eliminar ${title} para siempre`,
     permanentDeleteConfirmTitle: (title: string) => `¿Eliminar ${title} para siempre?`,
