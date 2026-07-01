@@ -3,6 +3,7 @@ import { createBlockWrite, createRichText } from "./block-factory";
 import {
   mapNotesBlockDto,
   mapNotesBlockListDto,
+  mapNotesCreatedDatabaseDto,
   mapNotesLoadedPageDto,
   mapNotesPageDto,
 } from "./notion-mappers";
@@ -182,18 +183,108 @@ describe("Notion notes DTO mappers", () => {
   it("maps child database blocks with title payloads", () => {
     const block = mapNotesBlockDto({
       ...blockDto(),
-      id: "database-child",
+      id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
       type: "child_database",
       paragraph: undefined,
       child_database: {
         title: "Tasks",
+        database_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        data_source_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        view_id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
       },
     });
 
     expect(block.type).toBe("child_database");
     if (block.type === "child_database") {
       expect(block.child_database.title).toBe("Tasks");
+      expect(block.child_database.database_id).toBe("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
     }
+  });
+
+  it("maps local database creation DTOs", () => {
+    const created = mapNotesCreatedDatabaseDto({
+      database: {
+        object: "database",
+        id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        parent: { type: "page_id", page_id: "page-a" },
+        title: "Tasks",
+        title_rich_text: [createRichText("Tasks")],
+        description: [],
+        icon: null,
+        cover: null,
+        in_trash: false,
+        is_inline: true,
+        data_sources: [{ id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", name: "Tasks" }],
+        url: null,
+        public_url: null,
+        source_provider: null,
+        source_object_id: null,
+        source_workspace_id: null,
+        source_last_edited_time: null,
+        created_time: now,
+        last_edited_time: now,
+      },
+      data_source: {
+        object: "data_source",
+        id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        parent: {
+          type: "database_id",
+          database_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        },
+        database_parent: { type: "page_id", page_id: "page-a" },
+        title: "Tasks",
+        title_rich_text: [createRichText("Tasks")],
+        description: [],
+        icon: null,
+        properties: {
+          Name: { id: "title", name: "Name", type: "title", title: {} },
+        },
+        in_trash: false,
+        source_provider: null,
+        source_object_id: null,
+        source_workspace_id: null,
+        source_last_edited_time: null,
+        created_time: now,
+        last_edited_time: now,
+      },
+      view: {
+        object: "view",
+        id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+        parent: {
+          type: "database_id",
+          database_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        },
+        data_source_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        name: "Table",
+        type: "table",
+        filter: null,
+        sorts: [],
+        configuration: { type: "table" },
+        url: null,
+        source_provider: null,
+        source_object_id: null,
+        source_workspace_id: null,
+        source_last_edited_time: null,
+        created_time: now,
+        last_edited_time: now,
+      },
+      block: {
+        ...blockDto(),
+        id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        type: "child_database",
+        paragraph: undefined,
+        child_database: {
+          title: "Tasks",
+          database_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          data_source_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+          view_id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+        },
+      },
+    });
+
+    expect(created.database.object).toBe("database");
+    expect(created.data_source.parent.database_id).toBe(created.database.id);
+    expect(created.block.type).toBe("child_database");
   });
 
   it("maps column list and column blocks with Notion-shaped layout payloads", () => {

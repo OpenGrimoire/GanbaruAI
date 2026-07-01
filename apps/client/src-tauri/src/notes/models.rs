@@ -901,6 +901,336 @@ pub struct NoteCommentUpdate {
     pub(in crate::notes) rich_text: Vec<Value>,
 }
 
+#[derive(Deserialize)]
+pub struct NoteDatabaseCreate {
+    pub(in crate::notes) id: String,
+    pub(in crate::notes) data_source_id: String,
+    pub(in crate::notes) view_id: String,
+    pub(in crate::notes) title: String,
+    pub(in crate::notes) parent: Option<NoteParent>,
+    pub(in crate::notes) after_block_id: Option<String>,
+    pub(in crate::notes) replace_block_id: Option<String>,
+    pub(in crate::notes) icon: Option<Value>,
+    pub(in crate::notes) cover: Option<Value>,
+}
+
+#[derive(Serialize)]
+pub struct NoteCreatedDatabaseDto {
+    database: NoteDatabaseDto,
+    data_source: NoteDataSourceDto,
+    view: NoteDatabaseViewDto,
+    block: NoteBlockDto,
+}
+
+impl NoteCreatedDatabaseDto {
+    pub(in crate::notes) fn new(
+        database: NoteDatabaseRow,
+        data_source: NoteDataSourceRow,
+        view: NoteDatabaseViewRow,
+        block: NoteBlockRow,
+    ) -> Result<Self, String> {
+        let database_parent = block_parent_from_database_row(&database)?;
+        Ok(Self {
+            database: NoteDatabaseDto::new(database, vec![data_source.summary()])?,
+            data_source: NoteDataSourceDto::new(data_source, database_parent)?,
+            view: NoteDatabaseViewDto::new(view)?,
+            block: NoteBlockDto::new(block)?,
+        })
+    }
+}
+
+#[derive(Serialize)]
+pub struct NoteDatabaseDataSourceSummaryDto {
+    id: String,
+    name: String,
+}
+
+#[derive(Serialize)]
+pub struct NoteDatabaseDto {
+    object: &'static str,
+    id: String,
+    parent: NoteParent,
+    title: String,
+    title_rich_text: Value,
+    description: Value,
+    icon: Option<Value>,
+    cover: Option<Value>,
+    in_trash: bool,
+    is_inline: bool,
+    data_sources: Vec<NoteDatabaseDataSourceSummaryDto>,
+    url: Option<String>,
+    public_url: Option<String>,
+    source_provider: Option<String>,
+    source_object_id: Option<String>,
+    source_workspace_id: Option<String>,
+    source_last_edited_time: Option<String>,
+    created_time: String,
+    last_edited_time: String,
+}
+
+impl NoteDatabaseDto {
+    pub(in crate::notes) fn new(
+        row: NoteDatabaseRow,
+        data_sources: Vec<NoteDatabaseDataSourceSummaryDto>,
+    ) -> Result<Self, String> {
+        let parent = block_parent_from_database_row(&row)?;
+        Ok(Self {
+            object: "database",
+            id: row.id,
+            parent,
+            title: row.title,
+            title_rich_text: parse_json(row.title_rich_text, "database title rich text")?,
+            description: parse_json(row.description, "database description")?,
+            icon: parse_optional_json(row.icon, "database icon")?,
+            cover: parse_optional_json(row.cover, "database cover")?,
+            in_trash: row.in_trash != 0,
+            is_inline: row.is_inline != 0,
+            data_sources,
+            url: row.url,
+            public_url: row.public_url,
+            source_provider: row.source_provider,
+            source_object_id: row.source_object_id,
+            source_workspace_id: row.source_workspace_id,
+            source_last_edited_time: row.source_last_edited_time,
+            created_time: row.created_time,
+            last_edited_time: row.last_edited_time,
+        })
+    }
+}
+
+#[derive(Serialize)]
+pub struct NoteDataSourceParentDto {
+    #[serde(rename = "type")]
+    parent_type: &'static str,
+    database_id: String,
+}
+
+#[derive(Serialize)]
+pub struct NoteDataSourceDto {
+    object: &'static str,
+    id: String,
+    parent: NoteDataSourceParentDto,
+    database_parent: NoteParent,
+    title: String,
+    title_rich_text: Value,
+    description: Value,
+    icon: Option<Value>,
+    properties: Value,
+    in_trash: bool,
+    source_provider: Option<String>,
+    source_object_id: Option<String>,
+    source_workspace_id: Option<String>,
+    source_last_edited_time: Option<String>,
+    created_time: String,
+    last_edited_time: String,
+}
+
+impl NoteDataSourceDto {
+    pub(in crate::notes) fn new(
+        row: NoteDataSourceRow,
+        database_parent: NoteParent,
+    ) -> Result<Self, String> {
+        Ok(Self {
+            object: "data_source",
+            id: row.id,
+            parent: NoteDataSourceParentDto {
+                parent_type: "database_id",
+                database_id: row.database_id,
+            },
+            database_parent,
+            title: row.title,
+            title_rich_text: parse_json(row.title_rich_text, "data source title rich text")?,
+            description: parse_json(row.description, "data source description")?,
+            icon: parse_optional_json(row.icon, "data source icon")?,
+            properties: parse_json(row.properties, "data source properties")?,
+            in_trash: row.in_trash != 0,
+            source_provider: row.source_provider,
+            source_object_id: row.source_object_id,
+            source_workspace_id: row.source_workspace_id,
+            source_last_edited_time: row.source_last_edited_time,
+            created_time: row.created_time,
+            last_edited_time: row.last_edited_time,
+        })
+    }
+}
+
+#[derive(Serialize)]
+pub struct NoteDatabaseViewParentDto {
+    #[serde(rename = "type")]
+    parent_type: &'static str,
+    database_id: String,
+}
+
+#[derive(Serialize)]
+pub struct NoteDatabaseViewDto {
+    object: &'static str,
+    id: String,
+    parent: NoteDatabaseViewParentDto,
+    data_source_id: String,
+    name: String,
+    #[serde(rename = "type")]
+    view_type: String,
+    filter: Option<Value>,
+    sorts: Value,
+    configuration: Option<Value>,
+    url: Option<String>,
+    source_provider: Option<String>,
+    source_object_id: Option<String>,
+    source_workspace_id: Option<String>,
+    source_last_edited_time: Option<String>,
+    created_time: String,
+    last_edited_time: String,
+}
+
+impl NoteDatabaseViewDto {
+    pub(in crate::notes) fn new(row: NoteDatabaseViewRow) -> Result<Self, String> {
+        Ok(Self {
+            object: "view",
+            id: row.id,
+            parent: NoteDatabaseViewParentDto {
+                parent_type: "database_id",
+                database_id: row.database_id,
+            },
+            data_source_id: row.data_source_id,
+            name: row.name,
+            view_type: row.view_type,
+            filter: parse_optional_json(row.filter, "database view filter")?,
+            sorts: parse_json(row.sorts, "database view sorts")?,
+            configuration: parse_optional_json(row.configuration, "database view configuration")?,
+            url: row.url,
+            source_provider: row.source_provider,
+            source_object_id: row.source_object_id,
+            source_workspace_id: row.source_workspace_id,
+            source_last_edited_time: row.source_last_edited_time,
+            created_time: row.created_time,
+            last_edited_time: row.last_edited_time,
+        })
+    }
+}
+
+#[derive(Clone, Serialize)]
+pub(in crate::notes) struct NoteDatabaseRow {
+    pub(in crate::notes) id: String,
+    pub(in crate::notes) parent_type: String,
+    pub(in crate::notes) parent_page_id: Option<String>,
+    pub(in crate::notes) parent_block_id: Option<String>,
+    pub(in crate::notes) title: String,
+    pub(in crate::notes) title_rich_text: String,
+    pub(in crate::notes) description: String,
+    pub(in crate::notes) icon: Option<String>,
+    pub(in crate::notes) cover: Option<String>,
+    pub(in crate::notes) is_inline: i64,
+    pub(in crate::notes) in_trash: i64,
+    pub(in crate::notes) source_provider: Option<String>,
+    pub(in crate::notes) source_object_id: Option<String>,
+    pub(in crate::notes) source_workspace_id: Option<String>,
+    pub(in crate::notes) source_last_edited_time: Option<String>,
+    pub(in crate::notes) url: Option<String>,
+    pub(in crate::notes) public_url: Option<String>,
+    pub(in crate::notes) created_time: String,
+    pub(in crate::notes) last_edited_time: String,
+}
+impl_sqlite_from_row!(NoteDatabaseRow {
+    id,
+    parent_type,
+    parent_page_id,
+    parent_block_id,
+    title,
+    title_rich_text,
+    description,
+    icon,
+    cover,
+    is_inline,
+    in_trash,
+    source_provider,
+    source_object_id,
+    source_workspace_id,
+    source_last_edited_time,
+    url,
+    public_url,
+    created_time,
+    last_edited_time,
+});
+
+#[derive(Clone, Serialize)]
+pub(in crate::notes) struct NoteDataSourceRow {
+    pub(in crate::notes) id: String,
+    pub(in crate::notes) database_id: String,
+    pub(in crate::notes) title: String,
+    pub(in crate::notes) title_rich_text: String,
+    pub(in crate::notes) description: String,
+    pub(in crate::notes) icon: Option<String>,
+    pub(in crate::notes) properties: String,
+    pub(in crate::notes) in_trash: i64,
+    pub(in crate::notes) source_provider: Option<String>,
+    pub(in crate::notes) source_object_id: Option<String>,
+    pub(in crate::notes) source_workspace_id: Option<String>,
+    pub(in crate::notes) source_last_edited_time: Option<String>,
+    pub(in crate::notes) created_time: String,
+    pub(in crate::notes) last_edited_time: String,
+}
+impl_sqlite_from_row!(NoteDataSourceRow {
+    id,
+    database_id,
+    title,
+    title_rich_text,
+    description,
+    icon,
+    properties,
+    in_trash,
+    source_provider,
+    source_object_id,
+    source_workspace_id,
+    source_last_edited_time,
+    created_time,
+    last_edited_time,
+});
+
+impl NoteDataSourceRow {
+    pub(in crate::notes) fn summary(&self) -> NoteDatabaseDataSourceSummaryDto {
+        NoteDatabaseDataSourceSummaryDto {
+            id: self.id.clone(),
+            name: self.title.clone(),
+        }
+    }
+}
+
+#[derive(Clone, Serialize)]
+pub(in crate::notes) struct NoteDatabaseViewRow {
+    pub(in crate::notes) id: String,
+    pub(in crate::notes) database_id: String,
+    pub(in crate::notes) data_source_id: String,
+    pub(in crate::notes) name: String,
+    pub(in crate::notes) view_type: String,
+    pub(in crate::notes) filter: Option<String>,
+    pub(in crate::notes) sorts: String,
+    pub(in crate::notes) configuration: Option<String>,
+    pub(in crate::notes) source_provider: Option<String>,
+    pub(in crate::notes) source_object_id: Option<String>,
+    pub(in crate::notes) source_workspace_id: Option<String>,
+    pub(in crate::notes) source_last_edited_time: Option<String>,
+    pub(in crate::notes) url: Option<String>,
+    pub(in crate::notes) created_time: String,
+    pub(in crate::notes) last_edited_time: String,
+}
+impl_sqlite_from_row!(NoteDatabaseViewRow {
+    id,
+    database_id,
+    data_source_id,
+    name,
+    view_type,
+    filter,
+    sorts,
+    configuration,
+    source_provider,
+    source_object_id,
+    source_workspace_id,
+    source_last_edited_time,
+    url,
+    created_time,
+    last_edited_time,
+});
+
 #[derive(Clone, Serialize)]
 pub(in crate::notes) struct NotePageRow {
     pub(in crate::notes) id: String,
@@ -1322,6 +1652,14 @@ fn parent_from_row(
             .ok_or_else(|| "stored block parent is missing block_id".to_string()),
         _ => Err(format!("unsupported parent type in storage: {parent_type}")),
     }
+}
+
+fn block_parent_from_database_row(row: &NoteDatabaseRow) -> Result<NoteParent, String> {
+    parent_from_row(
+        &row.parent_type,
+        row.parent_page_id.clone(),
+        row.parent_block_id.clone(),
+    )
 }
 
 fn parse_json(value: String, label: &str) -> Result<Value, String> {

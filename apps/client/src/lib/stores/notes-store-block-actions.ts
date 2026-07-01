@@ -1,5 +1,6 @@
 import {
   appendNotesBlockChildren,
+  createNotesDatabase,
   duplicateNotesBlock,
   duplicateNotesBlocks,
   moveNotesBlock,
@@ -132,6 +133,8 @@ import {
   createNotesTabActions,
   type NotesTabActions,
 } from "$lib/stores/notes-store-tab-actions";
+
+const DEFAULT_DATABASE_TITLE = "Untitled database";
 
 export interface NotesBlockActionsContext {
   readSelectedPageId: () => string | null;
@@ -670,6 +673,10 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
       await context.createChildPageFromBlock(blockId);
       return;
     }
+    if (type === "child_database") {
+      await createDatabaseFromBlock(blockId);
+      return;
+    }
     const before = undoSnapshot(blockId);
     if (type === "table") {
       await createTableFromBlock(blockId);
@@ -711,6 +718,41 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     await replaceBlockWithUpdate(blockId, update);
     context.requestBlockFocus(blockId);
     recordUndoAfter("convert", before, blockId);
+  }
+
+  async function createDatabaseFromBlock(blockId: string): Promise<void> {
+    const selectedPageId = context.readSelectedPageId();
+    const block = context.blockById(blockId);
+    if (!selectedPageId || !block || !canConvertBlockToDatabase(block)) return;
+    await context.flushBlockSave(blockId);
+    const currentBlock = context.blockById(blockId) ?? block;
+    if (!canConvertBlockToDatabase(currentBlock)) return;
+    const before = undoSnapshot(blockId);
+    const title = blockPlainText(currentBlock).trim() || DEFAULT_DATABASE_TITLE;
+    const created = await createNotesDatabase({
+      id: blockId,
+      data_source_id: crypto.randomUUID(),
+      view_id: crypto.randomUUID(),
+      title,
+      replace_block_id: blockId,
+    });
+    await context.loadPageTree(selectedPageId);
+    context.requestBlockFocus(created.block.id);
+    recordUndoAfter("convert", before, created.block.id);
+  }
+
+  function canConvertBlockToDatabase(block: NotesBlock): boolean {
+    if (
+      block.type === "child_page"
+      || block.type === "table"
+      || block.type === "table_row"
+      || block.type === "column_list"
+      || block.type === "column"
+      || block.type === "tab"
+    ) {
+      return false;
+    }
+    return block.type !== "child_database" || block.child_database.database_id === undefined;
   }
 
   async function createTableFromBlock(blockId: string): Promise<void> {
@@ -918,6 +960,10 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
       await context.createChildPageAfterBlock(blockId);
       return;
     }
+    if (command.kind === "block" && command.blockType === "child_database") {
+      await createDatabaseAfterBlock(blockId);
+      return;
+    }
     await context.flushBlockSave(blockId);
     const before = undoSnapshot(blockId);
     const newBlockId = crypto.randomUUID();
@@ -1012,6 +1058,26 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     const focusBlockId = planNotesInsertedBlockFocus([newBlockId], blockId) ?? newBlockId;
     context.requestBlockFocus(focusBlockId);
     recordUndoAfter("create", before, focusBlockId);
+  }
+
+  async function createDatabaseAfterBlock(blockId: string): Promise<void> {
+    const block = context.blockById(blockId);
+    const selectedPageId = context.readSelectedPageId();
+    if (!block || !selectedPageId) return;
+    await context.flushBlockSave(blockId);
+    const currentBlock = context.blockById(blockId) ?? block;
+    const before = undoSnapshot(blockId);
+    const created = await createNotesDatabase({
+      id: crypto.randomUUID(),
+      data_source_id: crypto.randomUUID(),
+      view_id: crypto.randomUUID(),
+      title: DEFAULT_DATABASE_TITLE,
+      parent: currentBlock.parent,
+      after_block_id: blockId,
+    });
+    await context.loadPageTree(selectedPageId);
+    context.requestBlockFocus(created.block.id);
+    recordUndoAfter("create", before, created.block.id);
   }
 
   async function splitTextBlockAtSelection(

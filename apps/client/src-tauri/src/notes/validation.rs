@@ -1,4 +1,6 @@
-use super::models::{NoteBlockUpdate, NoteBlockWrite, NotePageCreate, NotePageUpdate, NoteParent};
+use super::models::{
+    NoteBlockUpdate, NoteBlockWrite, NoteDatabaseCreate, NotePageCreate, NotePageUpdate, NoteParent,
+};
 use reqwest::Url;
 use serde_json::Value;
 
@@ -152,6 +154,59 @@ pub(in crate::notes) fn validate_page_update(update: &NotePageUpdate) -> Result<
         validate_icon_value(icon, "icon")?;
     }
     if let Some(cover) = update.cover.value() {
+        validate_page_cover_value(cover)?;
+    }
+    Ok(())
+}
+
+pub(in crate::notes) fn validate_database_create(
+    request: &NoteDatabaseCreate,
+) -> Result<(), String> {
+    require_uuid(&request.id, "id")?;
+    require_uuid(&request.data_source_id, "data_source_id")?;
+    require_uuid(&request.view_id, "view_id")?;
+    if request.id == request.data_source_id || request.id == request.view_id {
+        return Err("database ids must be unique".to_string());
+    }
+    if request.data_source_id == request.view_id {
+        return Err("data_source_id and view_id must be unique".to_string());
+    }
+    if contains_control_characters(&request.title) {
+        return Err("title must not contain control characters".to_string());
+    }
+    match &request.replace_block_id {
+        Some(block_id) => {
+            require_uuid(block_id, "replace_block_id")?;
+            if block_id.trim() != request.id.trim() {
+                return Err("replace_block_id must match id".to_string());
+            }
+            if request.parent.is_some() {
+                return Err("parent must not be set when replace_block_id is set".to_string());
+            }
+            if request.after_block_id.is_some() {
+                return Err(
+                    "after_block_id must not be set when replace_block_id is set".to_string(),
+                );
+            }
+        }
+        None => {
+            let parent = request
+                .parent
+                .as_ref()
+                .ok_or_else(|| "parent is required".to_string())?;
+            validate_parent(parent)?;
+            if matches!(parent, NoteParent::Workspace { .. }) {
+                return Err("database blocks cannot be parented by workspace".to_string());
+            }
+            if let Some(after_block_id) = &request.after_block_id {
+                require_uuid(after_block_id, "after_block_id")?;
+            }
+        }
+    }
+    if let Some(icon) = &request.icon {
+        validate_icon_value(icon, "icon")?;
+    }
+    if let Some(cover) = &request.cover {
         validate_page_cover_value(cover)?;
     }
     Ok(())
@@ -371,7 +426,7 @@ fn validate_empty_object_payload(value: &Value, field: &str) -> Result<(), Strin
     }
 }
 
-fn validate_page_cover_value(value: &Value) -> Result<(), String> {
+pub(in crate::notes) fn validate_page_cover_value(value: &Value) -> Result<(), String> {
     validate_json_object(value, "cover")?;
     let Some(Value::String(source_type)) = value.get("type") else {
         return Err("cover.type must be a string".to_string());
@@ -464,11 +519,22 @@ fn validate_child_page_payload(payload: &Value) -> Result<(), String> {
 
 fn validate_child_database_payload(payload: &Value) -> Result<(), String> {
     match payload.get("title") {
-        Some(Value::String(title)) if !contains_control_characters(title) => Ok(()),
+        Some(Value::String(title)) if !contains_control_characters(title) => {}
         Some(Value::String(_)) => {
-            Err("child_database.title must not contain control characters".to_string())
+            return Err("child_database.title must not contain control characters".to_string())
         }
-        _ => Err("child_database.title must be a string".to_string()),
+        _ => return Err("child_database.title must be a string".to_string()),
+    }
+    validate_optional_payload_uuid(payload, "database_id", "child_database.database_id")?;
+    validate_optional_payload_uuid(payload, "data_source_id", "child_database.data_source_id")?;
+    validate_optional_payload_uuid(payload, "view_id", "child_database.view_id")
+}
+
+fn validate_optional_payload_uuid(payload: &Value, key: &str, field: &str) -> Result<(), String> {
+    match payload.get(key) {
+        None => Ok(()),
+        Some(Value::String(id)) => require_uuid(id, field),
+        _ => Err(format!("{field} must be a string")),
     }
 }
 
@@ -876,7 +942,7 @@ fn validate_callout_icon(payload: &Value, field: &str) -> Result<(), String> {
     }
 }
 
-fn validate_icon_value(value: &Value, field: &str) -> Result<(), String> {
+pub(in crate::notes) fn validate_icon_value(value: &Value, field: &str) -> Result<(), String> {
     match value {
         Value::Object(icon) => validate_icon_object(icon, field),
         _ => Err(format!("{field} must be an icon object")),

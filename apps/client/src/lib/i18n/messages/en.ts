@@ -1767,6 +1767,7 @@ export const en = {
     linkPreviewPreview: "Link preview",
     openLinkPreview: (url: string) => (url ? `Open ${url}` : "Open link preview"),
     openLinkPreviewFailed: (message: string) => `Could not open link preview: ${message}`,
+    childDatabaseLocal: "Local database",
     childDatabasePreserved: "Database preserved",
     syncedBlockOriginal: "Original synced block",
     syncedBlockDuplicate: "Duplicate synced block",

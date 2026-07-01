@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   parseNotesBlock,
+  parseNotesCreatedDatabase,
   parseNotesPage,
   parseNotesPageHistorySettings,
   parseNotesPageHistorySnapshot,
@@ -436,13 +437,109 @@ describe("notes boundary validation", () => {
       type: "child_database",
       child_database: {
         title: "Tasks",
+        database_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        data_source_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        view_id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
       },
     });
 
     expect(block.type).toBe("child_database");
     if (block.type === "child_database") {
       expect(block.child_database.title).toBe("Tasks");
+      expect(block.child_database.database_id).toBe("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
+      expect(block.child_database.data_source_id).toBe("cccccccc-cccc-4ccc-8ccc-cccccccccccc");
+      expect(block.child_database.view_id).toBe("dddddddd-dddd-4ddd-8ddd-dddddddddddd");
     }
+  });
+
+  it("parses created local database responses", () => {
+    const created = parseNotesCreatedDatabase({
+      database: {
+        object: "database",
+        id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        parent: baseBlock.parent,
+        title: "Tasks",
+        title_rich_text: [baseRichText],
+        description: [],
+        icon: null,
+        cover: null,
+        in_trash: false,
+        is_inline: true,
+        data_sources: [{ id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", name: "Tasks" }],
+        url: null,
+        public_url: null,
+        source_provider: null,
+        source_object_id: null,
+        source_workspace_id: null,
+        source_last_edited_time: null,
+        created_time: baseBlock.created_time,
+        last_edited_time: baseBlock.last_edited_time,
+      },
+      data_source: {
+        object: "data_source",
+        id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        parent: {
+          type: "database_id",
+          database_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        },
+        database_parent: baseBlock.parent,
+        title: "Tasks",
+        title_rich_text: [baseRichText],
+        description: [],
+        icon: null,
+        properties: {
+          Name: { id: "title", name: "Name", type: "title", title: {} },
+        },
+        in_trash: false,
+        source_provider: null,
+        source_object_id: null,
+        source_workspace_id: null,
+        source_last_edited_time: null,
+        created_time: baseBlock.created_time,
+        last_edited_time: baseBlock.last_edited_time,
+      },
+      view: {
+        object: "view",
+        id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+        parent: {
+          type: "database_id",
+          database_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        },
+        data_source_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        name: "Table",
+        type: "table",
+        filter: null,
+        sorts: [],
+        configuration: {
+          type: "table",
+          table: {
+            property_order: ["title"],
+            hidden_property_ids: [],
+          },
+        },
+        url: null,
+        source_provider: null,
+        source_object_id: null,
+        source_workspace_id: null,
+        source_last_edited_time: null,
+        created_time: baseBlock.created_time,
+        last_edited_time: baseBlock.last_edited_time,
+      },
+      block: {
+        ...baseBlock,
+        type: "child_database",
+        child_database: {
+          title: "Tasks",
+          database_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          data_source_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+          view_id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+        },
+      },
+    });
+
+    expect(created.database.data_sources[0]?.id).toBe("cccccccc-cccc-4ccc-8ccc-cccccccccccc");
+    expect(created.view.type).toBe("table");
+    expect(created.block.child_database.database_id).toBe("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
   });
 
   it("rejects child database titles with control characters", () => {

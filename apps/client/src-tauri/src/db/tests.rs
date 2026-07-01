@@ -118,6 +118,116 @@ fn schema_creates_normalized_calendar_archive_tables() {
 }
 
 #[test]
+fn schema_creates_normalized_notes_database_tables() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        for table in [
+            "notes_databases",
+            "notes_data_sources",
+            "notes_database_views",
+        ] {
+            let exists: Option<i64> =
+                sqlx::query_scalar("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?")
+                    .bind(table)
+                    .fetch_optional(&pool)
+                    .await
+                    .unwrap();
+            assert_eq!(exists, Some(1), "{table} should exist");
+        }
+
+        sqlx::query(
+            "INSERT INTO notes_pages (id, parent_type, title, properties)
+             VALUES ('page-a', 'workspace', 'Inbox', '{}')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO notes_blocks (
+                id,
+                page_id,
+                parent_type,
+                parent_page_id,
+                type,
+                payload,
+                plain_text,
+                sort_order
+             )
+             VALUES (
+                'database-a',
+                'page-a',
+                'page_id',
+                'page-a',
+                'child_database',
+                '{\"title\":\"Tasks\"}',
+                'Tasks',
+                1000
+             )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO notes_databases (
+                id,
+                parent_type,
+                parent_page_id,
+                title,
+                title_rich_text,
+                description
+             )
+             VALUES ('database-a', 'page_id', 'page-a', 'Tasks', '[]', '[]')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO notes_data_sources (
+                id,
+                database_id,
+                title,
+                title_rich_text,
+                description,
+                properties
+             )
+             VALUES ('source-a', 'database-a', 'Tasks', '[]', '[]', '{}')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO notes_database_views (
+                id,
+                database_id,
+                data_source_id,
+                name,
+                type,
+                sorts
+             )
+             VALUES ('view-a', 'database-a', 'source-a', 'Table', 'table', '[]')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        assert!(sqlx::query(
+            "INSERT INTO notes_database_views (
+                id,
+                database_id,
+                data_source_id,
+                name,
+                type,
+                sorts
+             )
+             VALUES ('view-b', 'database-a', 'source-a', 'Bad', 'kanbanish', '[]')",
+        )
+        .execute(&pool)
+        .await
+        .is_err());
+    });
+}
+
+#[test]
 fn schema_rejects_invalid_calendar_values() {
     tauri::async_runtime::block_on(async {
         let pool = migrated_memory_pool().await;

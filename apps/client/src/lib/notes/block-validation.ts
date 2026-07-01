@@ -1,6 +1,7 @@
 import {
   NOTES_COLORS,
   NOTES_BUTTON_INSERT_POSITIONS,
+  NOTES_DATABASE_VIEW_TYPES,
   NOTES_ICON_COLORS,
   type NotesBacklink,
   type NotesBacklinkReferenceType,
@@ -24,6 +25,12 @@ import {
   type NotesColor,
   type NotesDateMentionReminder,
   type NotesDateMentionValue,
+  type NotesCreatedDatabase,
+  type NotesDatabase,
+  type NotesDatabaseDataSourceSummary,
+  type NotesDatabaseView,
+  type NotesDatabaseViewType,
+  type NotesDataSource,
   type NotesEmbedBlockPayload,
   type NotesEquationBlockPayload,
   type NotesLinkPreviewBlockPayload,
@@ -92,6 +99,17 @@ function readString(value: unknown, label: string): string {
   return value;
 }
 
+function readUuidString(value: unknown, label: string): string {
+  const id = readString(value, label);
+  if (!UUID_PATTERN.test(id)) throw new Error(`${label} must be a UUID`);
+  return id;
+}
+
+function readOptionalUuidString(value: unknown, label: string): string | undefined {
+  if (value === undefined) return undefined;
+  return readUuidString(value, label);
+}
+
 function readNullableString(value: unknown, label: string): string | null {
   if (value === null) return null;
   return readString(value, label);
@@ -100,6 +118,11 @@ function readNullableString(value: unknown, label: string): string | null {
 function readStringArray(value: unknown, label: string): string[] {
   if (!Array.isArray(value)) throw new Error(`${label} must be an array`);
   return value.map((item, index) => readString(item, `${label}[${index}]`));
+}
+
+function readRecordArray(value: unknown, label: string): Record<string, unknown>[] {
+  if (!Array.isArray(value)) throw new Error(`${label} must be an array`);
+  return value.map((item, index) => readRecord(item, `${label}[${index}]`));
 }
 
 function readBoolean(value: unknown, label: string): boolean {
@@ -597,7 +620,15 @@ function parseChildDatabasePayload(
   if (containsControlCharacters(title)) {
     throw new Error(`${label}.title must not contain control characters`);
   }
-  return { title };
+  const databaseId = readOptionalUuidString(record.database_id, `${label}.database_id`);
+  const dataSourceId = readOptionalUuidString(record.data_source_id, `${label}.data_source_id`);
+  const viewId = readOptionalUuidString(record.view_id, `${label}.view_id`);
+  return {
+    title,
+    ...(databaseId === undefined ? {} : { database_id: databaseId }),
+    ...(dataSourceId === undefined ? {} : { data_source_id: dataSourceId }),
+    ...(viewId === undefined ? {} : { view_id: viewId }),
+  };
 }
 
 function parseColumnPayload(value: unknown, label: string): NotesColumnBlockPayload {
@@ -888,6 +919,168 @@ export function parseNotesPage(value: unknown): NotesPage {
       record.source_last_edited_time,
       "page.source_last_edited_time",
     ),
+  };
+}
+
+function parseNotesDatabaseDataSourceSummary(
+  value: unknown,
+  label: string,
+): NotesDatabaseDataSourceSummary {
+  const record = readRecord(value, label);
+  return {
+    id: readString(record.id, `${label}.id`),
+    name: readString(record.name, `${label}.name`),
+  };
+}
+
+function parseNotesDatabaseDataSources(
+  value: unknown,
+  label: string,
+): NotesDatabaseDataSourceSummary[] {
+  if (!Array.isArray(value)) throw new Error(`${label} must be an array`);
+  return value.map((item, index) => parseNotesDatabaseDataSourceSummary(item, `${label}[${index}]`));
+}
+
+export function parseNotesDatabase(value: unknown): NotesDatabase {
+  const record = readRecord(value, "database");
+  if (record.object !== "database") throw new Error("database.object must be database");
+  return {
+    object: "database",
+    id: readString(record.id, "database.id"),
+    parent: parseNotesParent(record.parent),
+    title: readString(record.title, "database.title"),
+    title_rich_text: parseNotesRichTextArray(record.title_rich_text, "database.title_rich_text"),
+    description: parseNotesRichTextArray(record.description, "database.description"),
+    icon: parseNullableNotesIcon(record.icon, "database.icon"),
+    cover: parseNullablePageCover(record.cover, "database.cover"),
+    in_trash: readBoolean(record.in_trash, "database.in_trash"),
+    is_inline: readBoolean(record.is_inline, "database.is_inline"),
+    data_sources: parseNotesDatabaseDataSources(record.data_sources, "database.data_sources"),
+    url: readNullableString(record.url, "database.url"),
+    public_url: readNullableString(record.public_url, "database.public_url"),
+    source_provider: readNullableString(record.source_provider, "database.source_provider"),
+    source_object_id: readNullableString(record.source_object_id, "database.source_object_id"),
+    source_workspace_id: readNullableString(
+      record.source_workspace_id,
+      "database.source_workspace_id",
+    ),
+    source_last_edited_time: readNullableString(
+      record.source_last_edited_time,
+      "database.source_last_edited_time",
+    ),
+    created_time: readString(record.created_time, "database.created_time"),
+    last_edited_time: readString(record.last_edited_time, "database.last_edited_time"),
+  };
+}
+
+export function parseNotesDataSource(value: unknown): NotesDataSource {
+  const record = readRecord(value, "data source");
+  if (record.object !== "data_source") {
+    throw new Error("data source.object must be data_source");
+  }
+  const parent = readRecord(record.parent, "data source.parent");
+  if (parent.type !== "database_id") {
+    throw new Error("data source.parent.type must be database_id");
+  }
+  return {
+    object: "data_source",
+    id: readString(record.id, "data source.id"),
+    parent: {
+      type: "database_id",
+      database_id: readString(parent.database_id, "data source.parent.database_id"),
+    },
+    database_parent: parseNotesParent(record.database_parent),
+    title: readString(record.title, "data source.title"),
+    title_rich_text: parseNotesRichTextArray(
+      record.title_rich_text,
+      "data source.title_rich_text",
+    ),
+    description: parseNotesRichTextArray(record.description, "data source.description"),
+    icon: parseNullableNotesIcon(record.icon, "data source.icon"),
+    properties: readRecord(record.properties, "data source.properties"),
+    in_trash: readBoolean(record.in_trash, "data source.in_trash"),
+    source_provider: readNullableString(record.source_provider, "data source.source_provider"),
+    source_object_id: readNullableString(record.source_object_id, "data source.source_object_id"),
+    source_workspace_id: readNullableString(
+      record.source_workspace_id,
+      "data source.source_workspace_id",
+    ),
+    source_last_edited_time: readNullableString(
+      record.source_last_edited_time,
+      "data source.source_last_edited_time",
+    ),
+    created_time: readString(record.created_time, "data source.created_time"),
+    last_edited_time: readString(record.last_edited_time, "data source.last_edited_time"),
+  };
+}
+
+function isNotesDatabaseViewType(value: unknown): value is NotesDatabaseViewType {
+  return (
+    typeof value === "string"
+    && NOTES_DATABASE_VIEW_TYPES.includes(value as NotesDatabaseViewType)
+  );
+}
+
+function readNotesDatabaseViewType(value: unknown, label: string): NotesDatabaseViewType {
+  const viewType = readString(value, label);
+  if (!isNotesDatabaseViewType(viewType)) {
+    throw new Error(`${label} must be a supported database view type`);
+  }
+  return viewType;
+}
+
+function readNullableRecord(value: unknown, label: string): Record<string, unknown> | null {
+  if (value === null) return null;
+  return readRecord(value, label);
+}
+
+export function parseNotesDatabaseView(value: unknown): NotesDatabaseView {
+  const record = readRecord(value, "database view");
+  if (record.object !== "view") throw new Error("database view.object must be view");
+  const parent = readRecord(record.parent, "database view.parent");
+  if (parent.type !== "database_id") {
+    throw new Error("database view.parent.type must be database_id");
+  }
+  return {
+    object: "view",
+    id: readString(record.id, "database view.id"),
+    parent: {
+      type: "database_id",
+      database_id: readString(parent.database_id, "database view.parent.database_id"),
+    },
+    data_source_id: readString(record.data_source_id, "database view.data_source_id"),
+    name: readString(record.name, "database view.name"),
+    type: readNotesDatabaseViewType(record.type, "database view.type"),
+    filter: readNullableRecord(record.filter, "database view.filter"),
+    sorts: readRecordArray(record.sorts, "database view.sorts"),
+    configuration: readNullableRecord(record.configuration, "database view.configuration"),
+    url: readNullableString(record.url, "database view.url"),
+    source_provider: readNullableString(record.source_provider, "database view.source_provider"),
+    source_object_id: readNullableString(record.source_object_id, "database view.source_object_id"),
+    source_workspace_id: readNullableString(
+      record.source_workspace_id,
+      "database view.source_workspace_id",
+    ),
+    source_last_edited_time: readNullableString(
+      record.source_last_edited_time,
+      "database view.source_last_edited_time",
+    ),
+    created_time: readString(record.created_time, "database view.created_time"),
+    last_edited_time: readString(record.last_edited_time, "database view.last_edited_time"),
+  };
+}
+
+export function parseNotesCreatedDatabase(value: unknown): NotesCreatedDatabase {
+  const record = readRecord(value, "created database");
+  const block = parseNotesBlock(record.block);
+  if (block.type !== "child_database") {
+    throw new Error("created database.block must be a child_database block");
+  }
+  return {
+    database: parseNotesDatabase(record.database),
+    data_source: parseNotesDataSource(record.data_source),
+    view: parseNotesDatabaseView(record.view),
+    block,
   };
 }
 

@@ -25,6 +25,7 @@
   import Code from "@lucide/svelte/icons/code";
   import Columns2 from "@lucide/svelte/icons/columns-2";
   import Copy from "@lucide/svelte/icons/copy";
+  import Database from "@lucide/svelte/icons/database";
   import ExternalLink from "@lucide/svelte/icons/external-link";
   import FileIcon from "@lucide/svelte/icons/file";
   import FileText from "@lucide/svelte/icons/file-text";
@@ -160,6 +161,8 @@
         return t("notes.blockType.quote");
       case "child_page":
         return t("notes.blockType.childPage");
+      case "child_database":
+        return t("notes.blockType.childDatabase");
       case "breadcrumb":
         return t("notes.blockType.breadcrumb");
       case "table_of_contents":
@@ -309,6 +312,8 @@
         return Quote;
       case "child_page":
         return FileText;
+      case "child_database":
+        return Database;
       case "breadcrumb":
         return Route;
       case "table_of_contents":

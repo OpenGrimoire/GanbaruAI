@@ -1787,6 +1787,7 @@ export const es = {
     linkPreviewPreview: "Vista previa de enlace",
     openLinkPreview: (url: string) => (url ? `Abrir ${url}` : "Abrir vista previa"),
     openLinkPreviewFailed: (message: string) => `No se pudo abrir la vista previa: ${message}`,
+    childDatabaseLocal: "Base de datos local",
     childDatabasePreserved: "Base de datos preservada",
     syncedBlockOriginal: "Bloque sincronizado original",
     syncedBlockDuplicate: "Bloque sincronizado duplicado",

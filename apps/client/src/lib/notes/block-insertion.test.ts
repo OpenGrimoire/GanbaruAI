@@ -16,16 +16,16 @@ describe("notes block insertion catalog", () => {
     expect(notesInsertableBlockTypes()).toContain("to_do");
     expect(notesInsertableBlockTypes()).toContain("column_list");
     expect(notesInsertableBlockTypes()).toContain("tab");
+    expect(notesInsertableBlockTypes()).toContain("child_database");
     expect(notesInsertableBlockTypes()).toContain("pdf");
     expect(notesInsertableBlockTypes()).toContain("link_preview");
     expect(notesInsertableBlockTypes()).toContain("template");
     expect(notesInsertableBlockTypes()).toContain("button");
   });
 
-  it("excludes internal structural and preservation block types", () => {
+  it("excludes internal structural and preservation-only block types", () => {
     expect(notesInsertableBlockTypes()).not.toContain("column");
     expect(notesInsertableBlockTypes()).not.toContain("table_row");
-    expect(notesInsertableBlockTypes()).not.toContain("child_database");
     expect(notesInsertableBlockTypes()).not.toContain("synced_block");
     expect(notesInsertableBlockTypes()).not.toContain("unsupported");
   });
@@ -33,7 +33,7 @@ describe("notes block insertion catalog", () => {
   it("validates insertable block types", () => {
     expect(isNotesInsertableBlockType("bookmark")).toBe(true);
     expect(isNotesInsertableBlockType("link_preview")).toBe(true);
-    expect(isNotesInsertableBlockType("child_database")).toBe(false);
+    expect(isNotesInsertableBlockType("child_database")).toBe(true);
     expect(isNotesInsertableBlockType("synced_block")).toBe(false);
     expect(isNotesInsertableBlockType("table_row")).toBe(false);
     expect(isNotesInsertableBlockType("unknown")).toBe(false);
@@ -43,6 +43,7 @@ describe("notes block insertion catalog", () => {
     const commands = notesBlockInsertCommands();
     expect(commands).toContainEqual({ kind: "block", blockType: "paragraph" });
     expect(commands).toContainEqual({ kind: "block", blockType: "table" });
+    expect(commands).toContainEqual({ kind: "block", blockType: "child_database" });
     expect(commands).toContainEqual({ kind: "toggle_heading", headingType: "heading_2" });
     expect(commands).not.toContainEqual({ kind: "block", blockType: "table_row" });
     expect(commands).not.toContainEqual({ kind: "block", blockType: "column" });

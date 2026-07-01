@@ -1,13 +1,13 @@
 use super::models::{
     NoteAppendBlockChildren, NoteBlockUpdate, NoteBlockWrite, NoteChildPageFromBlockCreate,
-    NoteCommentCreate, NoteCommentUpdate, NoteDuplicateBlock, NoteDuplicateBlocks,
-    NoteDuplicatePage, NoteDuplicatedBlockId, NoteMoveBlock, NoteMoveBlocks, NoteMovePage,
-    NotePageCreate, NotePageHistoryCopyBlocks, NotePageHistorySettingsUpdate,
+    NoteCommentCreate, NoteCommentUpdate, NoteDatabaseCreate, NoteDuplicateBlock,
+    NoteDuplicateBlocks, NoteDuplicatePage, NoteDuplicatedBlockId, NoteMoveBlock, NoteMoveBlocks,
+    NoteMovePage, NotePageCreate, NotePageHistoryCopyBlocks, NotePageHistorySettingsUpdate,
     NotePageTemplateApply, NotePageTemplateCreateFromPage, NotePageTemplateDuplicate,
     NotePageTemplateUpdate, NoteParent, NoteSidebarPagesRequest, NoteTrashBlocks,
     OptionalJsonValue,
 };
-use super::{comments, history, reads, templates, undo_state, validation, writes};
+use super::{comments, databases, history, reads, templates, undo_state, validation, writes};
 use crate::db::run_migrations;
 use serde_json::json;
 use sqlx::{Row, SqlitePool};
@@ -26,6 +26,9 @@ const COMMENT_B: &str = "20202020-2020-4020-8020-202020202020";
 const COMMENT_C: &str = "30303030-3030-4030-8030-303030303030";
 const TEMPLATE_A: &str = "90909090-9090-4090-8090-909090909090";
 const TEMPLATE_B: &str = "91919191-9191-4191-8191-919191919191";
+const DATABASE_A: &str = "80808080-8080-4080-8080-808080808080";
+const DATA_SOURCE_A: &str = "81818181-8181-4181-8181-818181818181";
+const DATABASE_VIEW_A: &str = "82828282-8282-4282-8282-828282828282";
 
 async fn migrated_memory_pool() -> SqlitePool {
     let pool = sqlx::sqlite::SqlitePoolOptions::new()
@@ -669,9 +672,22 @@ fn notes_validation_rejects_bad_ids_and_payloads() {
         validation::validate_block_payload("child_page", &json!({ "title": "bad\u{0008}" })),
         Err("child_page.title must not contain control characters".to_string())
     );
-    assert!(
-        validation::validate_block_payload("child_database", &child_database_payload("Tasks"),)
-            .is_ok()
+    assert!(validation::validate_block_payload(
+        "child_database",
+        &json!({
+            "title": "Tasks",
+            "database_id": DATABASE_A,
+            "data_source_id": DATA_SOURCE_A,
+            "view_id": DATABASE_VIEW_A
+        }),
+    )
+    .is_ok());
+    assert_eq!(
+        validation::validate_block_payload(
+            "child_database",
+            &json!({ "title": "Tasks", "database_id": "not-a-uuid" }),
+        ),
+        Err("child_database.database_id must be a UUID".to_string())
     );
     assert!(validation::validate_block_payload("template", &template_payload("Add task")).is_ok());
     assert_eq!(
@@ -1557,6 +1573,72 @@ fn create_nested_page_can_insert_after_block_parent_sibling() {
         let child_page = reads::get_page(&pool, PAGE_B, false).await.unwrap();
         let child_page_json = serde_json::to_value(child_page).unwrap();
         assert_eq!(child_page_json["parent"]["block_id"], BLOCK_A);
+    });
+}
+
+#[test]
+fn create_local_database_inside_notes_page() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        create_page(&pool, PAGE_A, BLOCK_A).await;
+
+        let created = databases::create_database(
+            &pool,
+            NoteDatabaseCreate {
+                id: DATABASE_A.to_string(),
+                data_source_id: DATA_SOURCE_A.to_string(),
+                view_id: DATABASE_VIEW_A.to_string(),
+                title: "Tasks".to_string(),
+                parent: Some(page_parent(PAGE_A)),
+                after_block_id: Some(BLOCK_A.to_string()),
+                replace_block_id: None,
+                icon: Some(json!({
+                    "type": "icon",
+                    "icon": {
+                        "name": "table",
+                        "color": "blue"
+                    }
+                })),
+                cover: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        let created_json = serde_json::to_value(created).unwrap();
+        assert_eq!(created_json["database"]["id"], DATABASE_A);
+        assert_eq!(created_json["database"]["parent"]["page_id"], PAGE_A);
+        assert_eq!(
+            created_json["database"]["data_sources"][0]["id"],
+            DATA_SOURCE_A
+        );
+        assert_eq!(
+            created_json["data_source"]["parent"]["database_id"],
+            DATABASE_A
+        );
+        assert_eq!(created_json["view"]["type"], "table");
+        assert_eq!(created_json["block"]["type"], "child_database");
+        assert_eq!(
+            created_json["block"]["child_database"]["database_id"],
+            DATABASE_A
+        );
+
+        let properties: String =
+            sqlx::query_scalar("SELECT properties FROM notes_data_sources WHERE id = ?")
+                .bind(DATA_SOURCE_A)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        let properties_json: serde_json::Value = serde_json::from_str(&properties).unwrap();
+        assert_eq!(properties_json["Name"]["type"], "title");
+
+        let children = reads::get_block_children(&pool, PAGE_A, None, Some(10))
+            .await
+            .unwrap();
+        let children_json = serde_json::to_value(children).unwrap();
+        assert_eq!(children_json["results"][0]["id"], BLOCK_A);
+        assert_eq!(children_json["results"][1]["id"], DATABASE_A);
+        assert_eq!(children_json["results"][1]["type"], "child_database");
     });
 }
 

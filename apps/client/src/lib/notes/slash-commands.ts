@@ -247,6 +247,8 @@ function blockKeywords(type: NotesInsertableBlockType): readonly string[] {
       return ["quote"];
     case "child_page":
       return ["page", "child page", "subpage"];
+    case "child_database":
+      return ["database", "table database", "data source"];
     case "breadcrumb":
       return ["breadcrumb", "path"];
     case "table_of_contents":

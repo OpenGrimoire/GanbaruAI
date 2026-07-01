@@ -5,6 +5,7 @@ import {
   mapNotesBlockDto,
   mapNotesBlockListDto,
   mapNotesCommentThreadDto,
+  mapNotesCreatedDatabaseDto,
   mapNotesLoadedPageDto,
   mapNotesPageBreadcrumbItemDto,
   mapNotesPageHistorySettingsDto,
@@ -22,6 +23,8 @@ import type {
   NotesCommentCreate,
   NotesCommentThread,
   NotesCommentUpdate,
+  NotesCreatedDatabase,
+  NotesDatabaseCreateRequest,
   NotesDuplicatePageRequest,
   NotesDuplicateBlockRequest,
   NotesDuplicateBlocksRequest,
@@ -281,6 +284,15 @@ export async function createNotesChildPageFromBlock(
   const dbUrl = await ensureDbUrl();
   return mapNotesLoadedPageDto(
     await invoke<unknown>("notes_create_child_page_from_block", { dbUrl, blockId, request }),
+  );
+}
+
+export async function createNotesDatabase(
+  request: NotesDatabaseCreateRequest,
+): Promise<NotesCreatedDatabase> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesCreatedDatabaseDto(
+    await invoke<unknown>("notes_create_database", { dbUrl, request }),
   );
 }
 

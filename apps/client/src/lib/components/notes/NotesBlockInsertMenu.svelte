@@ -21,6 +21,7 @@
   import MessageSquareWarning from "@lucide/svelte/icons/message-square-warning";
   import Quote from "@lucide/svelte/icons/quote";
   import FileText from "@lucide/svelte/icons/file-text";
+  import Database from "@lucide/svelte/icons/database";
   import Route from "@lucide/svelte/icons/route";
   import ListTree from "@lucide/svelte/icons/list-tree";
   import Table2 from "@lucide/svelte/icons/table-2";
@@ -101,6 +102,8 @@
         return t("notes.blockType.quote");
       case "child_page":
         return t("notes.blockType.childPage");
+      case "child_database":
+        return t("notes.blockType.childDatabase");
       case "breadcrumb":
         return t("notes.blockType.breadcrumb");
       case "table_of_contents":
@@ -166,6 +169,8 @@
         return Quote;
       case "child_page":
         return FileText;
+      case "child_database":
+        return Database;
       case "breadcrumb":
         return Route;
       case "table_of_contents":

@@ -228,6 +228,9 @@ export interface NotesChildPageBlockPayload {
 }
 export interface NotesChildDatabaseBlockPayload {
   title: string;
+  database_id?: string;
+  data_source_id?: string;
+  view_id?: string;
 }
 export type NotesDividerBlockPayload = Record<string, unknown>;
 export type NotesBreadcrumbBlockPayload = Record<string, unknown>;
@@ -641,6 +644,115 @@ export interface NotesPageUpdate {
   properties?: Record<string, unknown>;
   icon?: NotesPageIcon | null;
   cover?: NotesPageCover | null;
+}
+
+export interface NotesDatabaseDataSourceSummary {
+  id: string;
+  name: string;
+}
+
+export interface NotesDatabase {
+  object: "database";
+  id: string;
+  parent: NotesParent;
+  title: string;
+  title_rich_text: NotesRichText[];
+  description: NotesRichText[];
+  icon: NotesPageIcon | null;
+  cover: NotesPageCover | null;
+  in_trash: boolean;
+  is_inline: boolean;
+  data_sources: NotesDatabaseDataSourceSummary[];
+  url: string | null;
+  public_url: string | null;
+  source_provider: string | null;
+  source_object_id: string | null;
+  source_workspace_id: string | null;
+  source_last_edited_time: string | null;
+  created_time: string;
+  last_edited_time: string;
+}
+
+export interface NotesDataSourceParent {
+  type: "database_id";
+  database_id: string;
+}
+
+export interface NotesDataSource {
+  object: "data_source";
+  id: string;
+  parent: NotesDataSourceParent;
+  database_parent: NotesParent;
+  title: string;
+  title_rich_text: NotesRichText[];
+  description: NotesRichText[];
+  icon: NotesPageIcon | null;
+  properties: Record<string, unknown>;
+  in_trash: boolean;
+  source_provider: string | null;
+  source_object_id: string | null;
+  source_workspace_id: string | null;
+  source_last_edited_time: string | null;
+  created_time: string;
+  last_edited_time: string;
+}
+
+export const NOTES_DATABASE_VIEW_TYPES = [
+  "table",
+  "board",
+  "list",
+  "calendar",
+  "timeline",
+  "gallery",
+  "form",
+  "chart",
+  "map",
+  "dashboard",
+] as const;
+
+export type NotesDatabaseViewType = (typeof NOTES_DATABASE_VIEW_TYPES)[number];
+
+export interface NotesDatabaseViewParent {
+  type: "database_id";
+  database_id: string;
+}
+
+export interface NotesDatabaseView {
+  object: "view";
+  id: string;
+  parent: NotesDatabaseViewParent;
+  data_source_id: string;
+  name: string;
+  type: NotesDatabaseViewType;
+  filter: Record<string, unknown> | null;
+  sorts: Record<string, unknown>[];
+  configuration: Record<string, unknown> | null;
+  url: string | null;
+  source_provider: string | null;
+  source_object_id: string | null;
+  source_workspace_id: string | null;
+  source_last_edited_time: string | null;
+  created_time: string;
+  last_edited_time: string;
+}
+
+export interface NotesDatabaseCreateRequest {
+  id: string;
+  data_source_id: string;
+  view_id: string;
+  title: string;
+  parent?: NotesParent | null;
+  after_block_id?: string | null;
+  replace_block_id?: string | null;
+  icon?: NotesPageIcon | null;
+  cover?: NotesPageCover | null;
+}
+
+export interface NotesCreatedDatabase {
+  database: NotesDatabase;
+  data_source: NotesDataSource;
+  view: NotesDatabaseView;
+  block: NotesChildDatabaseBlock;
 }
 
 export interface NotesAppendBlockChildrenRequest {

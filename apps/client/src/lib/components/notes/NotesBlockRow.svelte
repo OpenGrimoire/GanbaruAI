@@ -285,6 +285,12 @@
   const childDatabaseTitle = $derived(
     block.type === "child_database" ? block.child_database.title.trim() : "",
   );
+  const childDatabaseIsLocal = $derived(
+    block.type === "child_database"
+      && block.child_database.database_id !== undefined
+      && block.child_database.data_source_id !== undefined
+      && block.child_database.view_id !== undefined,
+  );
   const syncedBlockSourceId = $derived(
     block.type === "synced_block" ? block.synced_block.synced_from?.block_id ?? null : null,
   );
@@ -555,7 +561,7 @@
               {childDatabaseTitle || t("notes.untitled")}
             </span>
             <span class="min-w-0 truncate text-[0.8rem] text-muted-foreground">
-              {t("notes.childDatabasePreserved")}
+              {childDatabaseIsLocal ? t("notes.childDatabaseLocal") : t("notes.childDatabasePreserved")}
             </span>
           </button>
         </section>

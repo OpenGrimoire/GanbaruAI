@@ -130,8 +130,22 @@ export function createChildPagePayload(title: string): NotesChildPageBlockPayloa
   return { title };
 }
 
-export function createChildDatabasePayload(title: string): NotesChildDatabaseBlockPayload {
-  return { title };
+export interface NotesChildDatabasePayloadOptions {
+  databaseId?: string;
+  dataSourceId?: string;
+  viewId?: string;
+}
+
+export function createChildDatabasePayload(
+  title: string,
+  options: NotesChildDatabasePayloadOptions = {},
+): NotesChildDatabaseBlockPayload {
+  return {
+    title,
+    ...(options.databaseId === undefined ? {} : { database_id: options.databaseId }),
+    ...(options.dataSourceId === undefined ? {} : { data_source_id: options.dataSourceId }),
+    ...(options.viewId === undefined ? {} : { view_id: options.viewId }),
+  };
 }
 
 export function createColumnPayload(widthRatio?: number): NotesColumnBlockPayload {

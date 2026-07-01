@@ -2,6 +2,7 @@ use crate::db_path::connect_sqlite;
 use tauri::{AppHandle, Runtime};
 
 mod comments;
+mod databases;
 mod history;
 mod models;
 mod page_cover_assets;
@@ -281,6 +282,16 @@ pub async fn notes_create_child_page_from_block<R: Runtime>(
 ) -> Result<NoteLoadedPage, String> {
     let pool = connect_sqlite(app, db_url).await?;
     writes::create_child_page_from_block(&pool, &block_id, request).await
+}
+
+#[tauri::command]
+pub async fn notes_create_database<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    request: NoteDatabaseCreate,
+) -> Result<NoteCreatedDatabaseDto, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    databases::create_database(&pool, request).await
 }
 
 #[tauri::command]

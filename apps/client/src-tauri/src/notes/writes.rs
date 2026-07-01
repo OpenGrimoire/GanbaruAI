@@ -17,12 +17,12 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 const DEFAULT_BLOCK_SORT_STEP: f64 = 1000.0;
 
-struct ParentTarget {
-    parent_type: &'static str,
-    parent_page_id: Option<String>,
-    parent_block_id: Option<String>,
-    parent_block_type: Option<String>,
-    page_id: String,
+pub(in crate::notes) struct ParentTarget {
+    pub(in crate::notes) parent_type: &'static str,
+    pub(in crate::notes) parent_page_id: Option<String>,
+    pub(in crate::notes) parent_block_id: Option<String>,
+    pub(in crate::notes) parent_block_type: Option<String>,
+    pub(in crate::notes) page_id: String,
 }
 
 struct DuplicatePagePlan {
@@ -799,7 +799,7 @@ async fn insert_duplicated_page_blocks(
     Ok(())
 }
 
-fn parent_target_from_block_row(row: &NoteBlockRow) -> ParentTarget {
+pub(in crate::notes) fn parent_target_from_block_row(row: &NoteBlockRow) -> ParentTarget {
     ParentTarget {
         parent_type: if row.parent_type == "page_id" {
             "page_id"
@@ -2492,7 +2492,7 @@ async fn validate_page_parent_exists(
     }
 }
 
-async fn resolve_block_parent(
+pub(in crate::notes) async fn resolve_block_parent(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     parent: &NoteParent,
 ) -> Result<ParentTarget, String> {
@@ -2810,7 +2810,7 @@ async fn insert_block(
     Ok(())
 }
 
-async fn next_sort_orders(
+pub(in crate::notes) async fn next_sort_orders(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     parent: &ParentTarget,
     after: Option<&str>,
@@ -3095,7 +3095,7 @@ async fn previous_sibling_order_before(
     Ok(previous_order)
 }
 
-async fn refresh_parent_has_children(
+pub(in crate::notes) async fn refresh_parent_has_children(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     parent: &ParentTarget,
 ) -> Result<(), String> {
@@ -3121,7 +3121,7 @@ async fn refresh_parent_has_children(
     Ok(())
 }
 
-async fn touch_page(
+pub(in crate::notes) async fn touch_page(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     page_id: &str,
 ) -> Result<(), String> {

@@ -19,6 +19,7 @@ export const NOTES_INSERTABLE_BLOCK_TYPES = [
   "callout",
   "quote",
   "child_page",
+  "child_database",
   "breadcrumb",
   "table_of_contents",
   "column_list",
