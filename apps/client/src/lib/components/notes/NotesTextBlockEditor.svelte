@@ -74,6 +74,7 @@
     notesRichTextLinkShortcutRequested,
   } from "$lib/notes/rich-text-shortcuts";
   import type { NotesResolvedCommentAnchor } from "$lib/notes/comments";
+  import type { NotesResolvedSuggestionAnchor } from "$lib/notes/suggestions";
   import { notesUndoShortcutAction } from "$lib/notes/undo-history";
   import {
     nextNotesSlashActiveIndex,
@@ -109,6 +110,7 @@
     focusRequestId,
     mentionTargets,
     commentAnchors,
+    suggestionAnchors,
     templateStatus,
     buttonStatus,
     onTextInput,
@@ -122,6 +124,7 @@
     onPasteRichHtml,
     onApplyTextAnnotations,
     onCreateInlineComment,
+    onCreateInlineSuggestion,
     onKeyboardAction,
     onUndo,
     onRedo,
@@ -150,6 +153,7 @@
     focusRequestId: number;
     mentionTargets: NotesNamedMentionTarget[];
     commentAnchors: readonly NotesResolvedCommentAnchor[];
+    suggestionAnchors: readonly NotesResolvedSuggestionAnchor[];
     templateStatus: NotesTemplateBlockStatus;
     buttonStatus: NotesButtonBlockStatus;
     onTextInput: (blockId: string, text: string) => void;
@@ -206,6 +210,11 @@
       patch: NotesRichTextAnnotationPatch,
     ) => Promise<void> | void;
     onCreateInlineComment: (
+      blockId: string,
+      start: number,
+      end: number,
+    ) => Promise<void> | void;
+    onCreateInlineSuggestion: (
       blockId: string,
       start: number,
       end: number,
@@ -538,6 +547,16 @@
     slashOpen = false;
     mentionQuery = null;
     void Promise.resolve(onCreateInlineComment(block.id, start, end))
+      .then(() => focusEditorWithSelection(start, end));
+  }
+
+  function createInlineSuggestionFromSelection(): void {
+    if (!canUseInlineFormatting || textSelection.start === textSelection.end) return;
+    const start = textSelection.start;
+    const end = textSelection.end;
+    slashOpen = false;
+    mentionQuery = null;
+    void Promise.resolve(onCreateInlineSuggestion(block.id, start, end))
       .then(() => focusEditorWithSelection(start, end));
   }
 
@@ -1064,6 +1083,7 @@
       onColorSelect={applyTextColor}
       onCreateEquation={insertInlineEquationFromSelection}
       onCreateComment={createInlineCommentFromSelection}
+      onCreateSuggestion={createInlineSuggestionFromSelection}
       onOpenLink={openLinkEditorFromButton}
     />
   </div>
@@ -1120,7 +1140,7 @@
   onmouseup={(event) => syncTextSelection(event.currentTarget)}
   onblur={handleEditorBlur}
 >
-  <NotesRichTextInline richText={editableRichText} {commentAnchors} />
+  <NotesRichTextInline richText={editableRichText} {commentAnchors} {suggestionAnchors} />
 </div>
 {#if mentionOpen || slashOpen}
   <p id={notesRichTextEditorStatusDomId(block.id)} class="sr-only" role="status">

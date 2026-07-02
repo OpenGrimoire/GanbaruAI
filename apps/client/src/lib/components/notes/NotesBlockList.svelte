@@ -1196,6 +1196,9 @@
         onCreateInlineComment={(blockId, start, end) => {
           void notes.startInlineComment(blockId, start, end);
         }}
+        onCreateInlineSuggestion={(blockId, start, end) => {
+          void notes.startInlineSuggestion(blockId, start, end);
+        }}
         onKeyboardAction={handleKeyboardAction}
         onUndo={undoNotesEdit}
         onRedo={redoNotesEdit}
@@ -1329,6 +1332,9 @@
         onCreateInlineComment={(blockId, start, end) => {
           void notes.startInlineComment(blockId, start, end);
         }}
+        onCreateInlineSuggestion={(blockId, start, end) => {
+          void notes.startInlineSuggestion(blockId, start, end);
+        }}
         onKeyboardAction={handleKeyboardAction}
         onUndo={undoNotesEdit}
         onRedo={redoNotesEdit}
@@ -1457,10 +1463,13 @@
         onPastePlainText={pastePlainText}
         onPasteRichHtml={pasteRichHtml}
         onApplyTextAnnotations={applyTextAnnotations}
-        onCreateInlineComment={(blockId, start, end) => {
-          void notes.startInlineComment(blockId, start, end);
-        }}
-        onKeyboardAction={handleKeyboardAction}
+      onCreateInlineComment={(blockId, start, end) => {
+        void notes.startInlineComment(blockId, start, end);
+      }}
+      onCreateInlineSuggestion={(blockId, start, end) => {
+        void notes.startInlineSuggestion(blockId, start, end);
+      }}
+      onKeyboardAction={handleKeyboardAction}
         onUndo={undoNotesEdit}
         onRedo={redoNotesEdit}
         onAddBelow={(blockId, request?: NotesBlockInsertRequest) => {

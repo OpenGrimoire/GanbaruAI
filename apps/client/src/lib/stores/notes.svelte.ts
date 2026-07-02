@@ -1,10 +1,12 @@
 import {
+  acceptNotesSuggestion,
   applyNotesPageTemplate,
   archiveNotesPage,
   createNotesChildPageFromBlock,
   createNotesComment,
   createNotesPage,
   createNotesPageTemplateFromPage,
+  createNotesSuggestion,
   deleteNotesComment,
   deleteNotesPageTemplate,
   duplicateNotesPage,
@@ -15,6 +17,7 @@ import {
   listNotesBacklinks,
   listNotesComments,
   listNotesPageTemplates,
+  listNotesSuggestions,
   listNotesSidebarPages,
   listArchivedNotesPages,
   listTrashedNotesPages,
@@ -23,6 +26,7 @@ import {
   moveNotesPage,
   permanentlyDeleteNotesPage,
   resolveNotesCommentThread,
+  rejectNotesSuggestion,
   searchNotes,
   trashNotesPage,
   updateNotesComment,
@@ -36,6 +40,12 @@ import {
   notesCommentParentKey,
   notesCommentParentMatches,
 } from "$lib/notes/comments";
+import {
+  notesApplySuggestionToBlock,
+  notesSuggestionCreateRequest,
+  notesSuggestionDraft,
+  type NotesSuggestionDraft,
+} from "$lib/notes/suggestions";
 import type { NotesBlockLinkTarget, NotesPageLinkTarget } from "$lib/notes/block-link";
 import {
   buildNotesChildIdsByParent,
@@ -98,6 +108,7 @@ import type {
   NotesPageTemplate,
   NotesParent,
   NotesSearchResult,
+  NotesSuggestion,
   NotesTabBlockItems,
   NotesTableRowBlock,
 } from "$lib/notes/types";
@@ -124,6 +135,8 @@ let backlinks = $state<NotesBacklink[]>([]);
 let commentThreads = $state<NotesCommentThread[]>([]);
 let activeCommentParent = $state<NotesCommentParent | null>(null);
 let activeCommentAnchor = $state<NotesCommentAnchorCreate | null>(null);
+let suggestions = $state<NotesSuggestion[]>([]);
+let activeSuggestionDraft = $state<NotesSuggestionDraft | null>(null);
 let blocksById = $state<Record<string, NotesBlock>>({});
 let childIdsByParentId = $state<Record<string, string[]>>({});
 let loaded = $state(false);
@@ -145,6 +158,7 @@ let trashRequestId = 0;
 let pageTemplatesRequestId = 0;
 let backlinksRequestId = 0;
 let commentsRequestId = 0;
+let suggestionsRequestId = 0;
 let localUserRequestId = 0;
 let searchRequestId = 0;
 let backlinksLoading = $state(false);
@@ -152,6 +166,9 @@ let backlinksError = $state<string | null>(null);
 let commentsLoading = $state(false);
 let commentsError = $state<string | null>(null);
 let commentsIncludeResolved = $state(false);
+let suggestionsLoading = $state(false);
+let suggestionsError = $state<string | null>(null);
+let suggestionsIncludeDecided = $state(false);
 let localUser = $state<NotesLocalUser | null>(null);
 let localUserLoading = $state(false);
 let localUserError = $state<string | null>(null);
@@ -321,6 +338,7 @@ async function loadPageTree(pageId: string): Promise<void> {
   await reloadPageBreadcrumb(pageId);
   await reloadBacklinks(pageId);
   await reloadComments(pageId);
+  await reloadSuggestions(pageId);
   await pageHistoryController.reloadSnapshots(pageId);
 }
 
@@ -388,6 +406,30 @@ async function reloadComments(pageId: string | null = selectedPageId): Promise<v
   }
 }
 
+async function reloadSuggestions(pageId: string | null = selectedPageId): Promise<void> {
+  const requestId = ++suggestionsRequestId;
+  if (!pageId) {
+    suggestions = [];
+    activeSuggestionDraft = null;
+    suggestionsError = null;
+    suggestionsLoading = false;
+    return;
+  }
+  suggestionsLoading = true;
+  suggestionsError = null;
+  try {
+    const nextSuggestions = await listNotesSuggestions(pageId, suggestionsIncludeDecided);
+    if (requestId !== suggestionsRequestId) return;
+    suggestions = [...nextSuggestions];
+  } catch (error) {
+    if (requestId !== suggestionsRequestId) return;
+    suggestions = [];
+    suggestionsError = error instanceof Error ? error.message : String(error);
+  } finally {
+    if (requestId === suggestionsRequestId) suggestionsLoading = false;
+  }
+}
+
 async function loadLocalUser(): Promise<NotesLocalUser | null> {
   const requestId = ++localUserRequestId;
   localUserLoading = true;
@@ -415,6 +457,7 @@ async function updateLocalUserDisplayName(displayName: string): Promise<NotesLoc
     if (requestId !== localUserRequestId) return localUser;
     localUser = nextLocalUser;
     await reloadComments();
+    await reloadSuggestions();
     return nextLocalUser;
   } catch (error) {
     if (requestId !== localUserRequestId) return localUser;
@@ -436,6 +479,21 @@ function updateCommentThread(thread: NotesCommentThread): void {
     return;
   }
   commentThreads = commentThreads.map((candidate) => (candidate.id === thread.id ? thread : candidate));
+}
+
+function updateSuggestion(suggestion: NotesSuggestion): void {
+  if (suggestion.status !== "open" && !suggestionsIncludeDecided) {
+    suggestions = suggestions.filter((candidate) => candidate.id !== suggestion.id);
+    return;
+  }
+  const existingIndex = suggestions.findIndex((candidate) => candidate.id === suggestion.id);
+  if (existingIndex === -1) {
+    suggestions = [...suggestions, suggestion];
+    return;
+  }
+  suggestions = suggestions.map((candidate) => (
+    candidate.id === suggestion.id ? suggestion : candidate
+  ));
 }
 
 function commentParentForSelectedPage(): NotesCommentParent | null {
@@ -464,6 +522,64 @@ async function startInlineComment(blockId: string, start: number, end: number): 
   activeCommentParent = { type: "block_id", block_id: blockId };
   activeCommentAnchor = anchor;
   requestBlockFocus(blockId);
+}
+
+async function startInlineSuggestion(blockId: string, start: number, end: number): Promise<void> {
+  const block = blocksById[blockId];
+  if (!block) return;
+  const draft = notesSuggestionDraft(block.id, blockPlainText(block), start, end);
+  if (!draft) return;
+  await flushBlockSave(blockId);
+  activeSuggestionDraft = draft;
+  requestBlockFocus(blockId);
+}
+
+function cancelSuggestionDraft(): void {
+  activeSuggestionDraft = null;
+}
+
+async function createSuggestion(proposedText: string): Promise<void> {
+  const draft = activeSuggestionDraft;
+  if (!draft || proposedText === draft.original_text) return;
+  await flushBlockSave(draft.block_id);
+  const suggestion = await createNotesSuggestion(
+    notesSuggestionCreateRequest(crypto.randomUUID(), draft, proposedText),
+  );
+  updateSuggestion(suggestion);
+  activeSuggestionDraft = null;
+  requestBlockFocus(draft.block_id);
+}
+
+async function acceptSuggestion(suggestionId: string): Promise<void> {
+  const suggestion = suggestions.find((candidate) => candidate.id === suggestionId);
+  if (!suggestion || suggestion.status !== "open") return;
+  const block = blocksById[suggestion.block_id];
+  if (!block) return;
+  await flushBlockSave(suggestion.block_id);
+  const plan = notesApplySuggestionToBlock(block, suggestion);
+  if (!plan) {
+    suggestionsError = "target_missing";
+    return;
+  }
+  await blockActions.updateBlockRichText(suggestion.block_id, plan.richText);
+  await flushBlockSave(suggestion.block_id);
+  const updated = await acceptNotesSuggestion(suggestion.id);
+  updateSuggestion(updated);
+  requestBlockFocus(suggestion.block_id);
+}
+
+async function rejectSuggestion(suggestionId: string): Promise<void> {
+  const suggestion = suggestions.find((candidate) => candidate.id === suggestionId);
+  if (!suggestion || suggestion.status !== "open") return;
+  await flushBlockSave(suggestion.block_id);
+  const updated = await rejectNotesSuggestion(suggestion.id);
+  updateSuggestion(updated);
+  requestBlockFocus(suggestion.block_id);
+}
+
+async function setSuggestionsIncludeDecided(includeDecided: boolean): Promise<void> {
+  suggestionsIncludeDecided = includeDecided;
+  await reloadSuggestions();
 }
 
 async function createComment(
@@ -603,6 +719,9 @@ async function load(): Promise<void> {
       activeCommentParent = null;
       activeCommentAnchor = null;
       commentsError = null;
+      suggestions = [];
+      activeSuggestionDraft = null;
+      suggestionsError = null;
       pageHistoryController.resetPageState();
       blocksById = {};
       childIdsByParentId = {};
@@ -635,6 +754,9 @@ async function selectPage(pageId: string | null): Promise<void> {
     activeCommentParent = null;
     activeCommentAnchor = null;
     commentsError = null;
+    suggestions = [];
+    activeSuggestionDraft = null;
+    suggestionsError = null;
     pageHistoryController.resetPageState();
     blocksById = {};
     childIdsByParentId = {};
@@ -687,6 +809,7 @@ async function createPageWithParent(title: string, parent: NotesParent): Promise
   await reloadPageBreadcrumb(loaded.page.id);
   await reloadBacklinks(loaded.page.id);
   await reloadComments(loaded.page.id);
+  await reloadSuggestions(loaded.page.id);
   await pageHistoryController.reloadSnapshots(loaded.page.id);
   await undoController.hydrate(loaded.page.id);
   requestBlockFocus(planNotesInsertedBlockFocus([firstBlockId]));
@@ -709,6 +832,7 @@ async function applyPageTemplate(templateId: string, title?: string): Promise<vo
   await reloadPageBreadcrumb(loaded.page.id);
   await reloadBacklinks(loaded.page.id);
   await reloadComments(loaded.page.id);
+  await reloadSuggestions(loaded.page.id);
   await pageHistoryController.reloadSnapshots(loaded.page.id);
   await undoController.hydrate(loaded.page.id);
   requestPageLoadFocus();
@@ -792,6 +916,7 @@ async function createChildPageFromBlock(blockId: string): Promise<void> {
   await reloadPageBreadcrumb(loaded.page.id);
   await reloadBacklinks(loaded.page.id);
   await reloadComments(loaded.page.id);
+  await reloadSuggestions(loaded.page.id);
   await pageHistoryController.reloadSnapshots(loaded.page.id);
   await undoController.hydrate(loaded.page.id);
   requestBlockFocus(planNotesInsertedBlockFocus([loaded.blocks.results[0]?.id, firstBlockId]));
@@ -824,6 +949,7 @@ async function createChildPageAfterBlock(blockId: string): Promise<void> {
   await reloadPageBreadcrumb(loaded.page.id);
   await reloadBacklinks(loaded.page.id);
   await reloadComments(loaded.page.id);
+  await reloadSuggestions(loaded.page.id);
   await pageHistoryController.reloadSnapshots(loaded.page.id);
   await undoController.hydrate(loaded.page.id);
   requestBlockFocus(planNotesInsertedBlockFocus([loaded.blocks.results[0]?.id, firstBlockId]));
@@ -855,6 +981,7 @@ async function duplicatePage(pageId: string, title: string): Promise<void> {
   await reloadPageBreadcrumb(loaded.page.id);
   await reloadBacklinks(loaded.page.id);
   await reloadComments(loaded.page.id);
+  await reloadSuggestions(loaded.page.id);
   await pageHistoryController.reloadSnapshots(loaded.page.id);
   await undoController.hydrate(loaded.page.id);
   requestBlockFocus(planNotesPageLoadFocus(loaded.blocks.results.map((block) => block.id)));
@@ -878,6 +1005,7 @@ async function movePage(pageId: string, parent: NotesParent): Promise<void> {
   await reloadPageBreadcrumb(loaded.page.id);
   await reloadBacklinks(loaded.page.id);
   await reloadComments(loaded.page.id);
+  await reloadSuggestions(loaded.page.id);
   await pageHistoryController.reloadSnapshots(loaded.page.id);
   await undoController.hydrate(loaded.page.id);
   requestPageLoadFocus();
@@ -1291,6 +1419,21 @@ export function getNotes() {
     get activeCommentAnchor(): NotesCommentAnchorCreate | null {
       return activeCommentAnchor;
     },
+    get suggestions(): NotesSuggestion[] {
+      return suggestions;
+    },
+    get suggestionsLoading(): boolean {
+      return suggestionsLoading;
+    },
+    get suggestionsError(): string | null {
+      return suggestionsError;
+    },
+    get suggestionsIncludeDecided(): boolean {
+      return suggestionsIncludeDecided;
+    },
+    get activeSuggestionDraft(): NotesSuggestionDraft | null {
+      return activeSuggestionDraft;
+    },
     get localUser(): NotesLocalUser | null {
       return localUser;
     },
@@ -1436,10 +1579,17 @@ export function getNotes() {
     reloadTrashedPages,
     reloadBacklinks,
     reloadComments,
+    reloadSuggestions,
     setCommentsIncludeResolved,
+    setSuggestionsIncludeDecided,
     setActiveCommentParent,
     startBlockComment,
     startInlineComment,
+    startInlineSuggestion,
+    cancelSuggestionDraft,
+    createSuggestion,
+    acceptSuggestion,
+    rejectSuggestion,
     createComment,
     replyToCommentThread,
     updateComment,

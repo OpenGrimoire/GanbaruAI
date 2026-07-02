@@ -23,6 +23,7 @@ import {
   parseNotesPaginatedBlockList,
   parseNotesSearchResult,
   parseNotesSidebarPageList,
+  parseNotesSuggestion,
 } from "./block-validation";
 import type {
   NotesBacklink,
@@ -49,6 +50,7 @@ import type {
   NotesPaginatedBlockList,
   NotesSearchResult,
   NotesSidebarPageList,
+  NotesSuggestion,
 } from "./types";
 
 /** Validate and map an unknown page DTO from the Tauri boundary. */
@@ -119,6 +121,11 @@ export function mapNotesMentionNotificationDto(value: unknown): NotesMentionNoti
 /** Validate and map an unknown comment thread DTO from the Tauri boundary. */
 export function mapNotesCommentThreadDto(value: unknown): NotesCommentThread {
   return parseNotesCommentThread(value);
+}
+
+/** Validate and map an unknown suggestion DTO from the Tauri boundary. */
+export function mapNotesSuggestionDto(value: unknown): NotesSuggestion {
+  return parseNotesSuggestion(value);
 }
 
 /** Validate and map an unknown local database create DTO from the Tauri boundary. */

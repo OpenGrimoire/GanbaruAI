@@ -54,6 +54,18 @@ pub(in crate::notes) async fn update_local_user(
     .await
     .map_err(|e| format!("update notes local comment display names: {e}"))?;
 
+    sqlx::query(
+        "UPDATE notes_suggestions
+         SET display_name = ?
+         WHERE created_by = ?
+           AND json_extract(display_name, '$.type') = 'user'",
+    )
+    .bind(comment_display_name_json(&display_name))
+    .bind(&existing.id)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| format!("update notes local suggestion display names: {e}"))?;
+
     let row = load_local_user_tx(&mut tx, &existing.id).await?;
     tx.commit()
         .await

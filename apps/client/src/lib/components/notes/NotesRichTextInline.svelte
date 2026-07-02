@@ -2,14 +2,17 @@
   import { notesRichTextColorStyle } from "$lib/notes/block-color";
   import type { NotesResolvedCommentAnchor } from "$lib/notes/comments";
   import { equationPreviewText } from "$lib/notes/equation";
+  import type { NotesResolvedSuggestionAnchor } from "$lib/notes/suggestions";
   import type { NotesRichText } from "$lib/notes/types";
 
   let {
     richText,
     commentAnchors = [],
+    suggestionAnchors = [],
   }: {
     richText: readonly NotesRichText[];
     commentAnchors?: readonly NotesResolvedCommentAnchor[];
+    suggestionAnchors?: readonly NotesResolvedSuggestionAnchor[];
   } = $props();
 
   const visibleRichText = $derived(richText.filter(richTextItemIsVisible));
@@ -72,6 +75,14 @@
         boundaries.add(end);
       }
     }
+    for (const anchor of suggestionAnchors) {
+      const start = Math.max(run.start, anchor.start);
+      const end = Math.min(run.end, anchor.end);
+      if (start < end) {
+        boundaries.add(start);
+        boundaries.add(end);
+      }
+    }
     const sorted = [...boundaries].sort((left, right) => left - right);
     const segments: VisibleRichTextSegment[] = [];
     for (let index = 0; index < sorted.length - 1; index += 1) {
@@ -104,6 +115,25 @@
       : " notes-rich-text-comment-anchor notes-rich-text-comment-anchor-resolved";
   }
 
+  function suggestionAnchorsForRange(start: number, end: number): NotesResolvedSuggestionAnchor[] {
+    return suggestionAnchors.filter((anchor) => anchor.start < end && anchor.end > start);
+  }
+
+  function suggestionAnchorIdsForRange(start: number, end: number): string | undefined {
+    const ids = suggestionAnchorsForRange(start, end).map((anchor) => anchor.suggestionId);
+    return ids.length > 0 ? ids.join(" ") : undefined;
+  }
+
+  function suggestionAnchorClass(start: number, end: number): string {
+    const anchors = suggestionAnchorsForRange(start, end);
+    if (anchors.length === 0) return "";
+    if (anchors.some((anchor) => anchor.status === "open")) return " notes-rich-text-suggestion-anchor";
+    if (anchors.some((anchor) => anchor.status === "accepted")) {
+      return " notes-rich-text-suggestion-anchor notes-rich-text-suggestion-anchor-accepted";
+    }
+    return " notes-rich-text-suggestion-anchor notes-rich-text-suggestion-anchor-rejected";
+  }
+
   function linkUrl(item: NotesRichText): string | null {
     return item.type === "text" ? item.text.link?.url ?? item.href : item.href;
   }
@@ -112,7 +142,7 @@
 {#each visibleRuns as run}
   {#if run.item.type === "mention"}
     <span
-      class={`notes-rich-text-segment inline-flex max-w-full items-center rounded bg-accent px-1 text-accent-foreground${commentAnchorClass(run.start, run.end)}`}
+      class={`notes-rich-text-segment inline-flex max-w-full items-center rounded bg-accent px-1 text-accent-foreground${commentAnchorClass(run.start, run.end)}${suggestionAnchorClass(run.start, run.end)}`}
       style={notesRichTextColorStyle(run.item.annotations.color)}
       data-notes-bold={run.item.annotations.bold ? "true" : undefined}
       data-notes-italic={run.item.annotations.italic ? "true" : undefined}
@@ -122,12 +152,13 @@
       data-notes-rich-text-color={run.item.annotations.color === "default" ? undefined : run.item.annotations.color}
       data-notes-link-url={linkUrl(run.item) ?? undefined}
       data-notes-comment-anchor={anchorIdsForRange(run.start, run.end)}
+      data-notes-suggestion-anchor={suggestionAnchorIdsForRange(run.start, run.end)}
     >
       {run.text}
     </span>
   {:else if run.item.type === "equation"}
     <span
-      class={`${textClass(run.item)} inline-flex max-w-full items-center rounded bg-muted/70 px-1 py-0.5 font-serif text-[1.02em]${commentAnchorClass(run.start, run.end)}`}
+      class={`${textClass(run.item)} inline-flex max-w-full items-center rounded bg-muted/70 px-1 py-0.5 font-serif text-[1.02em]${commentAnchorClass(run.start, run.end)}${suggestionAnchorClass(run.start, run.end)}`}
       style={notesRichTextColorStyle(run.item.annotations.color)}
       title={run.item.equation.expression}
       data-notes-bold={run.item.annotations.bold ? "true" : undefined}
@@ -138,13 +169,14 @@
       data-notes-rich-text-color={run.item.annotations.color === "default" ? undefined : run.item.annotations.color}
       data-notes-link-url={linkUrl(run.item) ?? undefined}
       data-notes-comment-anchor={anchorIdsForRange(run.start, run.end)}
+      data-notes-suggestion-anchor={suggestionAnchorIdsForRange(run.start, run.end)}
     >
       {run.text}
     </span>
   {:else}
     {#each splitRunByAnchors(run) as segment}
       <span
-        class={`${textClass(run.item)}${commentAnchorClass(segment.start, segment.end)}`}
+        class={`${textClass(run.item)}${commentAnchorClass(segment.start, segment.end)}${suggestionAnchorClass(segment.start, segment.end)}`}
         style={notesRichTextColorStyle(run.item.annotations.color)}
         title={run.item.href ?? run.item.text.link?.url ?? undefined}
         data-notes-bold={run.item.annotations.bold ? "true" : undefined}
@@ -155,6 +187,7 @@
         data-notes-rich-text-color={run.item.annotations.color === "default" ? undefined : run.item.annotations.color}
         data-notes-link-url={linkUrl(run.item) ?? undefined}
         data-notes-comment-anchor={anchorIdsForRange(segment.start, segment.end)}
+        data-notes-suggestion-anchor={suggestionAnchorIdsForRange(segment.start, segment.end)}
       >
         {segment.text}
       </span>
@@ -178,5 +211,21 @@
   .notes-rich-text-comment-anchor-resolved {
     background: hsl(var(--muted-foreground) / 0.12);
     box-shadow: inset 0 -0.12rem 0 hsl(var(--muted-foreground) / 0.35);
+  }
+
+  .notes-rich-text-suggestion-anchor {
+    border-radius: 0.2rem;
+    background: hsl(var(--secondary) / 0.38);
+    box-shadow: inset 0 -0.12rem 0 hsl(var(--primary) / 0.7);
+  }
+
+  .notes-rich-text-suggestion-anchor-accepted {
+    background: hsl(var(--primary) / 0.12);
+    box-shadow: inset 0 -0.12rem 0 hsl(var(--primary) / 0.45);
+  }
+
+  .notes-rich-text-suggestion-anchor-rejected {
+    background: hsl(var(--destructive) / 0.1);
+    box-shadow: inset 0 -0.12rem 0 hsl(var(--destructive) / 0.35);
   }
 </style>

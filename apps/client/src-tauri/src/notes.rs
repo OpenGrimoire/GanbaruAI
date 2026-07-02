@@ -25,6 +25,7 @@ mod models;
 mod page_cover_assets;
 mod page_icon_assets;
 mod reads;
+mod suggestions;
 mod templates;
 mod undo_state;
 mod validation;
@@ -307,6 +308,47 @@ pub async fn notes_resolve_comment_thread<R: Runtime>(
 ) -> Result<NoteCommentThreadDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
     comments::resolve_comment_thread(&pool, &discussion_id, resolved.unwrap_or(true)).await
+}
+
+#[tauri::command]
+pub async fn notes_list_suggestions<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    page_id: String,
+    include_decided: Option<bool>,
+) -> Result<Vec<NoteSuggestionDto>, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    suggestions::list_suggestions(&pool, &page_id, include_decided.unwrap_or(false)).await
+}
+
+#[tauri::command]
+pub async fn notes_create_suggestion<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    request: NoteSuggestionCreate,
+) -> Result<NoteSuggestionDto, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    suggestions::create_suggestion(&pool, request).await
+}
+
+#[tauri::command]
+pub async fn notes_accept_suggestion<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    suggestion_id: String,
+) -> Result<NoteSuggestionDto, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    suggestions::accept_suggestion(&pool, &suggestion_id).await
+}
+
+#[tauri::command]
+pub async fn notes_reject_suggestion<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    suggestion_id: String,
+) -> Result<NoteSuggestionDto, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    suggestions::reject_suggestion(&pool, &suggestion_id).await
 }
 
 #[tauri::command]

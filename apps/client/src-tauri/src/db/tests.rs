@@ -347,6 +347,110 @@ fn schema_creates_notes_mention_notifications() {
 }
 
 #[test]
+fn schema_creates_notes_suggestions() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        let exists: Option<i64> =
+            sqlx::query_scalar("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?")
+                .bind("notes_suggestions")
+                .fetch_optional(&pool)
+                .await
+                .unwrap();
+        assert_eq!(exists, Some(1));
+
+        for column in ["created_by", "accepted_by", "rejected_by"] {
+            let user_fk: Option<i64> = sqlx::query_scalar(
+                "SELECT 1
+                 FROM pragma_foreign_key_list('notes_suggestions')
+                 WHERE \"table\" = 'notes_local_users'
+                   AND \"from\" = ?",
+            )
+            .bind(column)
+            .fetch_optional(&pool)
+            .await
+            .unwrap();
+            assert_eq!(
+                user_fk,
+                Some(1),
+                "{column} should reference notes_local_users"
+            );
+        }
+
+        sqlx::query(
+            "INSERT INTO notes_pages (id, parent_type, title, properties)
+             VALUES ('page-a', 'workspace', 'Inbox', '{}')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO notes_blocks (
+                id,
+                page_id,
+                parent_type,
+                parent_page_id,
+                type,
+                payload,
+                plain_text,
+                sort_order
+             )
+             VALUES (
+                'block-a',
+                'page-a',
+                'page_id',
+                'page-a',
+                'paragraph',
+                json_object('rich_text', json_array()),
+                'Original',
+                1
+             )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let user_id: String = sqlx::query_scalar(
+            "SELECT id FROM notes_local_users ORDER BY created_time ASC, id ASC LIMIT 1",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(sqlx::query(
+            "INSERT INTO notes_suggestions (
+                id,
+                page_id,
+                block_id,
+                created_by,
+                display_name,
+                range_start,
+                range_end,
+                original_text,
+                proposed_text,
+                accepted_at,
+                accepted_by
+             )
+             VALUES (
+                'suggestion-a',
+                'page-a',
+                'block-a',
+                ?,
+                json_object('type', 'user', 'resolved_name', 'You'),
+                0,
+                8,
+                'Original',
+                'Changed',
+                strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+                ?
+             )",
+        )
+        .bind(&user_id)
+        .bind(&user_id)
+        .execute(&pool)
+        .await
+        .is_err());
+    });
+}
+
+#[test]
 fn schema_rejects_invalid_calendar_values() {
     tauri::async_runtime::block_on(async {
         let pool = migrated_memory_pool().await;

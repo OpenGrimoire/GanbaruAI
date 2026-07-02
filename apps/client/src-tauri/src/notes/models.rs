@@ -811,6 +811,67 @@ impl NoteCommentThreadDto {
     }
 }
 
+#[derive(Serialize)]
+pub struct NoteSuggestionDto {
+    object: &'static str,
+    id: String,
+    page_id: String,
+    block_id: String,
+    created_by: NotePartialUserDto,
+    display_name: Value,
+    status: String,
+    range_start: i64,
+    range_end: i64,
+    original_text: String,
+    proposed_text: String,
+    prefix: String,
+    suffix: String,
+    accepted_at: Option<String>,
+    accepted_by: Option<NotePartialUserDto>,
+    rejected_at: Option<String>,
+    rejected_by: Option<NotePartialUserDto>,
+    created_time: String,
+    last_edited_time: String,
+}
+
+impl NoteSuggestionDto {
+    pub(in crate::notes) fn new(row: NoteSuggestionRow) -> Result<Self, String> {
+        Ok(Self {
+            object: "suggestion",
+            id: row.id,
+            page_id: row.page_id,
+            block_id: row.block_id,
+            created_by: NotePartialUserDto::new(row.created_by),
+            display_name: parse_json(row.display_name, "suggestion display name")?,
+            status: row.status,
+            range_start: row.range_start,
+            range_end: row.range_end,
+            original_text: row.original_text,
+            proposed_text: row.proposed_text,
+            prefix: row.prefix_text,
+            suffix: row.suffix_text,
+            accepted_at: row.accepted_at,
+            accepted_by: row.accepted_by.map(NotePartialUserDto::new),
+            rejected_at: row.rejected_at,
+            rejected_by: row.rejected_by.map(NotePartialUserDto::new),
+            created_time: row.created_time,
+            last_edited_time: row.last_edited_time,
+        })
+    }
+}
+
+#[derive(Deserialize)]
+pub struct NoteSuggestionCreate {
+    pub(in crate::notes) id: String,
+    pub(in crate::notes) block_id: String,
+    pub(in crate::notes) range_start: i64,
+    pub(in crate::notes) range_end: i64,
+    pub(in crate::notes) original_text: String,
+    pub(in crate::notes) proposed_text: String,
+    pub(in crate::notes) prefix: String,
+    pub(in crate::notes) suffix: String,
+}
+
 #[derive(Deserialize)]
 pub struct NotePageCreate {
     pub(in crate::notes) id: String,
@@ -2204,6 +2265,48 @@ impl_sqlite_from_row!(NoteCommentRow {
     display_name,
     attachments,
     deleted_at,
+    created_time,
+    last_edited_time,
+});
+
+#[derive(Serialize)]
+pub(in crate::notes) struct NoteSuggestionRow {
+    pub(in crate::notes) id: String,
+    pub(in crate::notes) page_id: String,
+    pub(in crate::notes) block_id: String,
+    pub(in crate::notes) created_by: String,
+    pub(in crate::notes) display_name: String,
+    pub(in crate::notes) status: String,
+    pub(in crate::notes) range_start: i64,
+    pub(in crate::notes) range_end: i64,
+    pub(in crate::notes) original_text: String,
+    pub(in crate::notes) proposed_text: String,
+    pub(in crate::notes) prefix_text: String,
+    pub(in crate::notes) suffix_text: String,
+    pub(in crate::notes) accepted_at: Option<String>,
+    pub(in crate::notes) accepted_by: Option<String>,
+    pub(in crate::notes) rejected_at: Option<String>,
+    pub(in crate::notes) rejected_by: Option<String>,
+    pub(in crate::notes) created_time: String,
+    pub(in crate::notes) last_edited_time: String,
+}
+impl_sqlite_from_row!(NoteSuggestionRow {
+    id,
+    page_id,
+    block_id,
+    created_by,
+    display_name,
+    status,
+    range_start,
+    range_end,
+    original_text,
+    proposed_text,
+    prefix_text,
+    suffix_text,
+    accepted_at,
+    accepted_by,
+    rejected_at,
+    rejected_by,
     created_time,
     last_edited_time,
 });

@@ -1420,6 +1420,41 @@ export interface NotesCommentThreadReadUpdate {
   include_resolved?: boolean;
 }
 
+export type NotesSuggestionStatus = "open" | "accepted" | "rejected";
+
+export interface NotesSuggestion {
+  object: "suggestion";
+  id: string;
+  page_id: string;
+  block_id: string;
+  created_by: NotesPartialUser;
+  display_name: NotesCommentDisplayName;
+  status: NotesSuggestionStatus;
+  range_start: number;
+  range_end: number;
+  original_text: string;
+  proposed_text: string;
+  prefix: string;
+  suffix: string;
+  accepted_at: string | null;
+  accepted_by: NotesPartialUser | null;
+  rejected_at: string | null;
+  rejected_by: NotesPartialUser | null;
+  created_time: string;
+  last_edited_time: string;
+}
+
+export interface NotesSuggestionCreate {
+  id: string;
+  block_id: string;
+  range_start: number;
+  range_end: number;
+  original_text: string;
+  proposed_text: string;
+  prefix: string;
+  suffix: string;
+}
+
 export interface NotesBlockTreeItem {
   block: NotesBlock;
   depth: number;

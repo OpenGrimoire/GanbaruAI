@@ -14,6 +14,7 @@ Notes are stored in `ganbaru-ai.sqlite`:
 - `notes_page_templates` stores reusable page template metadata, page properties, icon, cover, source page identity, and timestamps. `notes_page_template_blocks` stores the canonical template block tree. Templates are SQLite data, not markdown or rendered HTML.
 - `notes_page_history_settings` stores the local retention window for recoverable page versions. `notes_page_history_snapshots` stores compact SQLite snapshots of page metadata plus canonical block rows before recoverable page and block mutations. History snapshots are recovery data, not markdown or rendered HTML.
 - `notes_comment_threads`, `notes_comments`, and `notes_comment_thread_anchors` store page discussions, block comments, inline text-range anchors, status, author metadata, and soft-delete state. `notes_comment_thread_reads` stores per-local-user read timestamps for unread counts. Read state is local collaboration metadata, not markdown content.
+- `notes_suggestions` stores local suggested edits for text block ranges, including original text, proposed replacement text, author snapshot, timestamps, range offsets, context anchors, and accepted or rejected state. Suggestions are collaboration metadata, not markdown content.
 - `notes_mention_notifications` stores pending, delivered, and dismissed local notification rows derived from reminder mentions, user mentions, and project task mentions in canonical rich text. Delivery is performed by the local app process and never by hosted infrastructure.
 - `notes_page_icon_assets` stores metadata for local page icon images copied under the Ganbaru AI managed assets folder. Page rows reference those assets through the validated icon JSON payload.
 - `notes_page_cover_assets` stores metadata for local and generated page cover images copied under the Ganbaru AI managed assets folder. Page rows reference those assets through the validated cover JSON payload.
@@ -102,6 +103,7 @@ The first serious Notes tab includes:
 - Trash view with trashed-page search, restore, and permanent delete.
 - Backlinks disclosure under the page title for visible pages that reference the current page.
 - Comments disclosure under the page title for page discussions and block comments.
+- Suggested edits disclosure under the page title for reviewing local text replacement suggestions, including open and decided suggestions.
 - Page history disclosure under the page title for browsing prior page versions, previewing their blocks, copying blocks from them, restoring a version, and changing the local retention window.
 - Page header icon picker for setting or removing emoji, native, custom emoji, external image, and managed local image page icons, mirrored in sidebar rows.
 - Page cover banner for setting or removing generated, uploaded local, and external HTTPS image covers while preserving imported file and file upload cover references.
@@ -114,6 +116,7 @@ The first serious Notes tab includes:
 - Backspace behavior for merging with the previous block or deleting empty blocks.
 - Slash menu for block conversion, block actions, block colors, filtering, and recent commands.
 - Viewport-aware inline formatting toolbar from selected text in editable text blocks, including inline equation conversion.
+- Suggested edit creation from selected text in editable text blocks. The draft keeps the original text and target range while the user writes the proposed replacement.
 - Link editor from selected text, toolbar action, or Ctrl+K in editable text blocks.
 - Page, data source row, date, reminder, user, database, project, project task, calendar event, active Pomodoro run, and loaded music item mention menu from `@` in editable text blocks where backing data exists.
 - Plus menu for inserting a chosen block type without typing a slash command.

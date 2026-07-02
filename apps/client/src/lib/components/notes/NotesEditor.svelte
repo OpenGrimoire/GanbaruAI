@@ -18,6 +18,7 @@
   import NotesPageHistory from "./NotesPageHistory.svelte";
   import NotesPageIcon from "./NotesPageIcon.svelte";
   import NotesPageIconMenu from "./NotesPageIconMenu.svelte";
+  import NotesSuggestions from "./NotesSuggestions.svelte";
 
   const notes = getNotes();
   const localization = getLocalization();
@@ -199,6 +200,7 @@
       </div>
       <NotesBacklinks />
       <NotesComments />
+      <NotesSuggestions />
       <NotesPageHistory />
     </div>
     <div bind:this={blockScrollViewport} class="min-h-0 flex-1 overflow-auto px-3 py-4 sm:px-5">

@@ -6,6 +6,9 @@
     notesCommentAnchorsForBlock,
     unreadNotesCommentThreadCount,
   } from "$lib/notes/comments";
+  import {
+    notesSuggestionAnchorsForBlock,
+  } from "$lib/notes/suggestions";
   import type { NotesUnsupportedConversionTarget } from "$lib/notes/unsupported";
   import {
     blockPlainText,
@@ -89,6 +92,7 @@
     onPasteRichHtml,
     onApplyTextAnnotations,
     onCreateInlineComment,
+    onCreateInlineSuggestion,
     onKeyboardAction,
     onUndo,
     onRedo,
@@ -204,6 +208,11 @@
       start: number,
       end: number,
     ) => Promise<void> | void;
+    onCreateInlineSuggestion: (
+      blockId: string,
+      start: number,
+      end: number,
+    ) => Promise<void> | void;
     onKeyboardAction: (blockId: string, action: NotesKeyboardAction) => void;
     onUndo: () => Promise<void> | void;
     onRedo: () => Promise<void> | void;
@@ -302,6 +311,7 @@
   const blockCommentCount = $derived(blockCommentThreads.length);
   const blockUnreadCommentCount = $derived(unreadNotesCommentThreadCount(blockCommentThreads));
   const commentAnchors = $derived(notesCommentAnchorsForBlock(notes.commentThreads, block.id, text));
+  const suggestionAnchors = $derived(notesSuggestionAnchorsForBlock(notes.suggestions, block.id, text));
   const showTextEditor = $derived(isTextEditableBlock(block.type));
   const currentColor = $derived(blockColor(block));
   const blockSupportsColor = $derived(canBlockHaveColor(block.type));
@@ -769,6 +779,7 @@
           {focusRequestId}
           {mentionTargets}
           {commentAnchors}
+          {suggestionAnchors}
           {templateStatus}
           {buttonStatus}
           {onTextInput}
@@ -782,6 +793,7 @@
           {onPasteRichHtml}
           {onApplyTextAnnotations}
           {onCreateInlineComment}
+          {onCreateInlineSuggestion}
           {onKeyboardAction}
           {onUndo}
           {onRedo}

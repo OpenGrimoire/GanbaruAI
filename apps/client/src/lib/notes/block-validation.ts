@@ -83,6 +83,8 @@ import {
   type NotesSearchResult,
   type NotesSearchResultType,
   type NotesSidebarPageList,
+  type NotesSuggestion,
+  type NotesSuggestionStatus,
   type NotesSyncedBlockPayload,
   type NotesTabBlockPayload,
   type NotesTableBlockPayload,
@@ -2026,6 +2028,12 @@ function parseCommentThreadStatus(value: unknown): NotesCommentThreadStatus {
   throw new Error("comment thread.status must be open or resolved");
 }
 
+function parseSuggestionStatus(value: unknown): NotesSuggestionStatus {
+  const status = readString(value, "suggestion.status");
+  if (status === "open" || status === "accepted" || status === "rejected") return status;
+  throw new Error("suggestion.status must be open, accepted, or rejected");
+}
+
 function parseNotesCommentAnchor(value: unknown): NotesCommentAnchor {
   const record = readRecord(value, "comment anchor");
   if (record.object !== "comment_anchor") {
@@ -2127,5 +2135,42 @@ export function parseNotesCommentThread(value: unknown): NotesCommentThread {
     last_edited_time: readString(record.last_edited_time, "comment thread.last_edited_time"),
     unread: readBoolean(record.unread, "comment thread.unread"),
     comments: record.comments.map(parseNotesComment),
+  };
+}
+
+export function parseNotesSuggestion(value: unknown): NotesSuggestion {
+  const record = readRecord(value, "suggestion");
+  if (record.object !== "suggestion") throw new Error("suggestion.object must be suggestion");
+  const rangeStart = readInteger(record.range_start, "suggestion.range_start");
+  const rangeEnd = readInteger(record.range_end, "suggestion.range_end");
+  if (rangeStart < 0 || rangeEnd <= rangeStart) {
+    throw new Error("suggestion range must be non-empty");
+  }
+  const originalText = readString(record.original_text, "suggestion.original_text");
+  if (!originalText.trim()) throw new Error("suggestion.original_text must not be empty");
+  return {
+    object: "suggestion",
+    id: readString(record.id, "suggestion.id"),
+    page_id: readString(record.page_id, "suggestion.page_id"),
+    block_id: readString(record.block_id, "suggestion.block_id"),
+    created_by: parseNotesPartialUser(record.created_by, "suggestion.created_by"),
+    display_name: parseNotesCommentDisplayName(record.display_name, "suggestion.display_name"),
+    status: parseSuggestionStatus(record.status),
+    range_start: rangeStart,
+    range_end: rangeEnd,
+    original_text: originalText,
+    proposed_text: readString(record.proposed_text, "suggestion.proposed_text"),
+    prefix: readString(record.prefix, "suggestion.prefix"),
+    suffix: readString(record.suffix, "suggestion.suffix"),
+    accepted_at: readNullableString(record.accepted_at, "suggestion.accepted_at"),
+    accepted_by: record.accepted_by === null
+      ? null
+      : parseNotesPartialUser(record.accepted_by, "suggestion.accepted_by"),
+    rejected_at: readNullableString(record.rejected_at, "suggestion.rejected_at"),
+    rejected_by: record.rejected_by === null
+      ? null
+      : parseNotesPartialUser(record.rejected_by, "suggestion.rejected_by"),
+    created_time: readString(record.created_time, "suggestion.created_time"),
+    last_edited_time: readString(record.last_edited_time, "suggestion.last_edited_time"),
   };
 }

@@ -25,6 +25,7 @@ import {
   mapNotesPageTemplateDto,
   mapNotesSearchResultDto,
   mapNotesSidebarPageListDto,
+  mapNotesSuggestionDto,
 } from "$lib/notes/notion-mappers";
 import type {
   NotesAppendBlockChildrenRequest,
@@ -92,6 +93,8 @@ import type {
   NotesSearchResult,
   NotesSidebarPageList,
   NotesSidebarPagesRequest,
+  NotesSuggestion,
+  NotesSuggestionCreate,
   NotesTrashBlocksRequest,
 } from "$lib/notes/types";
 
@@ -383,6 +386,39 @@ export async function resolveNotesCommentThread(
   const dbUrl = await ensureDbUrl();
   return mapNotesCommentThreadDto(
     await invoke<unknown>("notes_resolve_comment_thread", { dbUrl, discussionId, resolved }),
+  );
+}
+
+export async function listNotesSuggestions(
+  pageId: string,
+  includeDecided = false,
+): Promise<NotesSuggestion[]> {
+  const dbUrl = await ensureDbUrl();
+  const rows = await invoke<unknown>("notes_list_suggestions", { dbUrl, pageId, includeDecided });
+  if (!Array.isArray(rows)) throw new Error("notes_list_suggestions returned a non-array payload");
+  return rows.map(mapNotesSuggestionDto);
+}
+
+export async function createNotesSuggestion(
+  request: NotesSuggestionCreate,
+): Promise<NotesSuggestion> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesSuggestionDto(
+    await invoke<unknown>("notes_create_suggestion", { dbUrl, request }),
+  );
+}
+
+export async function acceptNotesSuggestion(suggestionId: string): Promise<NotesSuggestion> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesSuggestionDto(
+    await invoke<unknown>("notes_accept_suggestion", { dbUrl, suggestionId }),
+  );
+}
+
+export async function rejectNotesSuggestion(suggestionId: string): Promise<NotesSuggestion> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesSuggestionDto(
+    await invoke<unknown>("notes_reject_suggestion", { dbUrl, suggestionId }),
   );
 }
 
