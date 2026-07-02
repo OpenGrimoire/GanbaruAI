@@ -503,6 +503,7 @@ pub(in crate::notes) async fn update_page(
         .await
         .map_err(|e| format!("begin notes page update: {e}"))?;
     history::record_page_snapshot_tx(&mut tx, page_id, "update_page").await?;
+    let page_properties_changed = update.properties.is_some();
     if let Some(parent) = &update.parent {
         validate_page_parent_exists(&mut tx, parent).await?;
         let (parent_type, parent_page_id, parent_block_id, parent_data_source_id) =
@@ -601,6 +602,18 @@ pub(in crate::notes) async fn update_page(
             cover_reference_value.as_ref(),
         )
         .await?;
+    }
+    if page_properties_changed {
+        let updated_page = load_page_row(&mut tx, page_id).await?;
+        if updated_page.parent_type == "data_source_id" {
+            if let Some(data_source_id) = updated_page.parent_data_source_id.as_deref() {
+                assets::sync_current_data_source_property_asset_references_tx(
+                    &mut tx,
+                    data_source_id,
+                )
+                .await?;
+            }
+        }
     }
     tx.commit()
         .await
@@ -3432,6 +3445,17 @@ async fn duplicate_block_comment_threads(
                 .execute(&mut **tx)
                 .await
                 .map_err(|e| format!("duplicate notes block comment: {e}"))?;
+                if deleted_at.is_none() {
+                    let attachment_values: Vec<Value> = serde_json::from_str(&attachments)
+                        .map_err(|e| format!("parse duplicated notes comment attachments: {e}"))?;
+                    assets::sync_comment_asset_references_tx(
+                        tx,
+                        page_id,
+                        &duplicate_comment_id,
+                        &attachment_values,
+                    )
+                    .await?;
+                }
             }
         }
     }

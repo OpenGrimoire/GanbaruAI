@@ -3,7 +3,7 @@ use super::models::{
     NoteDataSourceSchemaUpdate, NoteDatabaseRow, NoteDatabaseViewRow,
 };
 use super::{
-    data_source_buttons, data_source_formulas, data_source_relations, data_source_rollups,
+    assets, data_source_buttons, data_source_formulas, data_source_relations, data_source_rollups,
     data_source_views,
 };
 use serde_json::{json, Map, Value};
@@ -197,6 +197,12 @@ pub(in crate::notes) async fn update_data_source_schema(
     .await
     .map_err(|e| format!("update notes table view schema configuration: {e}"))?;
     data_source_relations::rebuild_data_source_relation_links_tx(
+        &mut tx,
+        data_source_id.trim(),
+        &prepared.properties,
+    )
+    .await?;
+    assets::sync_data_source_property_asset_references_tx(
         &mut tx,
         data_source_id.trim(),
         &prepared.properties,

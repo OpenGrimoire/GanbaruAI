@@ -1301,6 +1301,8 @@ pub struct NoteCommentCreate {
     pub(in crate::notes) discussion_id: Option<String>,
     pub(in crate::notes) anchor: Option<NoteCommentAnchorCreate>,
     pub(in crate::notes) rich_text: Vec<Value>,
+    #[serde(default)]
+    pub(in crate::notes) attachments: Option<Vec<Value>>,
 }
 
 #[derive(Deserialize)]
@@ -1315,6 +1317,8 @@ pub struct NoteCommentAnchorCreate {
 #[derive(Deserialize)]
 pub struct NoteCommentUpdate {
     pub(in crate::notes) rich_text: Vec<Value>,
+    #[serde(default)]
+    pub(in crate::notes) attachments: Option<Vec<Value>>,
 }
 
 #[derive(Deserialize)]

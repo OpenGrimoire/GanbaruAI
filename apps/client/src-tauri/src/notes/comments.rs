@@ -4,13 +4,15 @@ use super::models::{
     NoteCommentThreadRow, NoteCommentUpdate, NoteLocalUserRow, NoteParent,
 };
 use super::validation::{require_uuid, rich_text_items_plain_text, validate_comment_rich_text};
-use super::{collaboration_operations, local_user, mention_notifications};
+use super::{assets, collaboration_operations, local_user, mention_notifications};
 use serde_json::{json, Value};
 use sqlx::{Sqlite, SqlitePool, Transaction};
 use std::collections::HashSet;
 
 const COMMENT_ANCHOR_MAX_TEXT_LENGTH: usize = 2000;
 const COMMENT_ANCHOR_MAX_CONTEXT_LENGTH: usize = 120;
+const COMMENT_ATTACHMENTS_MAX_COUNT: usize = 100;
+const COMMENT_ATTACHMENTS_MAX_BYTES: usize = 50 * 1024;
 const COMMENT_THREAD_READ_MAX_BATCH: usize = 200;
 
 struct CommentParentTarget {
@@ -133,6 +135,8 @@ pub(in crate::notes) async fn create_comment(
 ) -> Result<NoteCommentThreadDto, String> {
     require_uuid(request.id.trim(), "id")?;
     validate_comment_rich_text(&request.rich_text)?;
+    let attachments = request.attachments.clone().unwrap_or_default();
+    validate_comment_attachments(&attachments)?;
     match (&request.parent, &request.discussion_id) {
         (Some(_), Some(_)) => {
             return Err("provide either parent or discussion_id, not both".to_string())
@@ -210,6 +214,7 @@ pub(in crate::notes) async fn create_comment(
         request.id.trim(),
         &thread_id,
         &request.rich_text,
+        &attachments,
         &local_user,
         &actor_display_name,
     )
@@ -232,6 +237,8 @@ pub(in crate::notes) async fn create_comment(
         },
     )
     .await?;
+    assets::sync_comment_asset_references_tx(&mut tx, &thread.page_id, &comment.id, &attachments)
+        .await?;
     let plain_text = rich_text_items_plain_text(&request.rich_text);
     mention_notifications::sync_comment_tx(
         &mut tx,
@@ -258,6 +265,9 @@ pub(in crate::notes) async fn update_comment(
     let comment_id = comment_id.trim();
     require_uuid(comment_id, "comment_id")?;
     validate_comment_rich_text(&update.rich_text)?;
+    if let Some(attachments) = update.attachments.as_ref() {
+        validate_comment_attachments(attachments)?;
+    }
     let plain_text = rich_text_items_plain_text(&update.rich_text);
     let mut tx = pool
         .begin()
@@ -267,21 +277,44 @@ pub(in crate::notes) async fn update_comment(
     let actor_display_name = local_user::comment_display_name_json(&local_user.display_name);
     let row = load_comment_row(&mut tx, comment_id).await?;
     let thread = load_thread_row(&mut tx, &row.thread_id).await?;
-    sqlx::query(
-        "UPDATE notes_comments
-         SET rich_text = ?,
-             plain_text = ?,
-             sync_version = sync_version + 1,
-             last_edited_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-         WHERE id = ?",
-    )
-    .bind(Value::Array(update.rich_text.clone()).to_string())
-    .bind(&plain_text)
-    .bind(comment_id)
-    .execute(&mut *tx)
-    .await
-    .map_err(|e| format!("update notes comment: {e}"))?;
+    if let Some(attachments) = update.attachments.as_ref() {
+        sqlx::query(
+            "UPDATE notes_comments
+             SET rich_text = ?,
+                 plain_text = ?,
+                 attachments = ?,
+                 sync_version = sync_version + 1,
+                 last_edited_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+             WHERE id = ?",
+        )
+        .bind(Value::Array(update.rich_text.clone()).to_string())
+        .bind(&plain_text)
+        .bind(Value::Array(attachments.clone()).to_string())
+        .bind(comment_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| format!("update notes comment: {e}"))?;
+    } else {
+        sqlx::query(
+            "UPDATE notes_comments
+             SET rich_text = ?,
+                 plain_text = ?,
+                 sync_version = sync_version + 1,
+                 last_edited_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+             WHERE id = ?",
+        )
+        .bind(Value::Array(update.rich_text.clone()).to_string())
+        .bind(&plain_text)
+        .bind(comment_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| format!("update notes comment: {e}"))?;
+    }
     let updated = load_comment_row(&mut tx, comment_id).await?;
+    if let Some(attachments) = update.attachments.as_ref() {
+        assets::sync_comment_asset_references_tx(&mut tx, &thread.page_id, comment_id, attachments)
+            .await?;
+    }
     collaboration_operations::record_tx(
         &mut tx,
         collaboration_operations::NotesCollaborationOperation {
@@ -342,6 +375,7 @@ pub(in crate::notes) async fn delete_comment(
     .execute(&mut *tx)
     .await
     .map_err(|e| format!("delete notes comment: {e}"))?;
+    assets::sync_comment_asset_references_tx(&mut tx, &thread.page_id, comment_id, &[]).await?;
     let deleted = load_comment_row_any(&mut tx, comment_id).await?;
     collaboration_operations::record_tx(
         &mut tx,
@@ -602,6 +636,7 @@ async fn insert_comment_row(
     comment_id: &str,
     thread_id: &str,
     rich_text: &[Value],
+    attachments: &[Value],
     local_user: &NoteLocalUserRow,
     display_name_json: &str,
 ) -> Result<NoteCommentRow, String> {
@@ -613,9 +648,10 @@ async fn insert_comment_row(
             rich_text,
             plain_text,
             created_by,
-            display_name
+            display_name,
+            attachments
          )
-         VALUES (?, ?, ?, ?, ?, ?)",
+         VALUES (?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(comment_id)
     .bind(thread_id)
@@ -623,6 +659,7 @@ async fn insert_comment_row(
     .bind(plain_text)
     .bind(&local_user.id)
     .bind(display_name_json)
+    .bind(Value::Array(attachments.to_vec()).to_string())
     .execute(&mut **tx)
     .await
     .map_err(|e| format!("create notes comment: {e}"))?;
@@ -695,6 +732,22 @@ fn validate_comment_anchor(anchor: &NoteCommentAnchorCreate) -> Result<(), Strin
         || anchor.suffix.chars().count() > COMMENT_ANCHOR_MAX_CONTEXT_LENGTH
     {
         return Err("inline comment anchor context is too long".to_string());
+    }
+    Ok(())
+}
+
+fn validate_comment_attachments(attachments: &[Value]) -> Result<(), String> {
+    if attachments.len() > COMMENT_ATTACHMENTS_MAX_COUNT {
+        return Err("comment attachments are limited to 100 items".to_string());
+    }
+    let stored = Value::Array(attachments.to_vec()).to_string();
+    if stored.len() > COMMENT_ATTACHMENTS_MAX_BYTES {
+        return Err("comment attachments must not exceed 50KB".to_string());
+    }
+    for attachment in attachments {
+        if !attachment.is_object() {
+            return Err("comment attachments must be objects".to_string());
+        }
     }
     Ok(())
 }

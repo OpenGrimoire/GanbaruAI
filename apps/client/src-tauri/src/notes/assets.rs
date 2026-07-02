@@ -1,5 +1,6 @@
-use serde_json::Value;
+use serde_json::{Map, Value};
 use sqlx::{Sqlite, SqlitePool, Transaction};
+use std::collections::HashSet;
 use std::path::{Component, Path};
 
 pub(in crate::notes) const NOTES_ASSET_SOURCE_LOCAL_UPLOAD: &str = "local_upload";
@@ -194,6 +195,141 @@ pub(in crate::notes) async fn sync_block_asset_reference_tx(
     Ok(())
 }
 
+pub(in crate::notes) async fn sync_current_data_source_property_asset_references_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    data_source_id: &str,
+) -> Result<(), String> {
+    let properties: String = sqlx::query_scalar(
+        "SELECT properties
+         FROM notes_data_sources
+         WHERE id = ? AND in_trash = 0",
+    )
+    .bind(data_source_id.trim())
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|e| format!("load notes data source properties for asset references: {e}"))?
+    .ok_or_else(|| "data source not found".to_string())?;
+    let schema_properties: Value = serde_json::from_str(&properties)
+        .map_err(|e| format!("parse data source properties for asset references: {e}"))?;
+    sync_data_source_property_asset_references_tx(tx, data_source_id, &schema_properties).await
+}
+
+pub(in crate::notes) async fn sync_data_source_property_asset_references_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    data_source_id: &str,
+    schema_properties: &Value,
+) -> Result<(), String> {
+    let data_source_id = data_source_id.trim();
+    if data_source_id.is_empty() {
+        return Err("data_source_id is required".to_string());
+    }
+    let property_ids = file_property_ids(schema_properties)?;
+    sqlx::query(
+        "DELETE FROM notes_asset_references
+         WHERE owner_type = 'data_source_property'
+           AND owner_id = ?
+           AND role = 'property_file'",
+    )
+    .bind(data_source_id)
+    .execute(&mut **tx)
+    .await
+    .map_err(|e| format!("clear notes data source property asset references: {e}"))?;
+
+    if property_ids.is_empty() {
+        return Ok(());
+    }
+    let rows = sqlx::query_as::<_, (String,)>(
+        "SELECT properties
+         FROM notes_pages
+         WHERE parent_type = 'data_source_id'
+           AND parent_data_source_id = ?",
+    )
+    .bind(data_source_id)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(|e| format!("load notes row properties for asset references: {e}"))?;
+    let mut seen_asset_paths = HashSet::new();
+    for (row_properties,) in rows {
+        let properties: Value = serde_json::from_str(&row_properties)
+            .map_err(|e| format!("parse row properties for asset references: {e}"))?;
+        for property_id in &property_ids {
+            for asset in data_source_property_local_file_assets(&properties, property_id)? {
+                let asset_path = asset.relative_path.trim().to_string();
+                if !seen_asset_paths.insert(asset_path.clone()) {
+                    continue;
+                }
+                upsert_managed_asset_tx(tx, asset).await?;
+                sqlx::query(
+                    "INSERT INTO notes_asset_references (
+                        asset_id,
+                        owner_type,
+                        owner_id,
+                        data_source_id,
+                        property_id,
+                        role
+                     )
+                     VALUES (?, 'data_source_property', ?, ?, ?, 'property_file')",
+                )
+                .bind(asset_path)
+                .bind(data_source_id)
+                .bind(data_source_id)
+                .bind(property_id)
+                .execute(&mut **tx)
+                .await
+                .map_err(|e| format!("record notes data source property asset reference: {e}"))?;
+            }
+        }
+    }
+    Ok(())
+}
+
+pub(in crate::notes) async fn sync_comment_asset_references_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    page_id: &str,
+    comment_id: &str,
+    attachments: &[Value],
+) -> Result<(), String> {
+    sqlx::query(
+        "DELETE FROM notes_asset_references
+         WHERE owner_type = 'comment' AND owner_id = ? AND role = 'comment_attachment'",
+    )
+    .bind(comment_id.trim())
+    .execute(&mut **tx)
+    .await
+    .map_err(|e| format!("clear notes comment asset references: {e}"))?;
+
+    let mut seen_asset_paths = HashSet::new();
+    for (index, attachment) in attachments.iter().enumerate() {
+        let Some(asset) = comment_attachment_local_file_asset(attachment, index)? else {
+            continue;
+        };
+        let asset_path = asset.relative_path.trim().to_string();
+        if !seen_asset_paths.insert(asset_path.clone()) {
+            continue;
+        }
+        upsert_managed_asset_tx(tx, asset).await?;
+        sqlx::query(
+            "INSERT INTO notes_asset_references (
+                asset_id,
+                owner_type,
+                owner_id,
+                page_id,
+                comment_id,
+                role
+             )
+             VALUES (?, 'comment', ?, ?, ?, 'comment_attachment')",
+        )
+        .bind(asset_path)
+        .bind(comment_id.trim())
+        .bind(page_id.trim())
+        .bind(comment_id.trim())
+        .execute(&mut **tx)
+        .await
+        .map_err(|e| format!("record notes comment asset reference: {e}"))?;
+    }
+    Ok(())
+}
+
 async fn replace_page_asset_reference_tx(
     tx: &mut Transaction<'_, Sqlite>,
     page_id: &str,
@@ -254,36 +390,12 @@ fn page_local_file_asset<'a>(
     let Some(file) = object.get("file").and_then(Value::as_object) else {
         return Ok(None);
     };
-    let Some(relative_path) = file.get("ganbaru_asset_path").and_then(Value::as_str) else {
-        return Ok(None);
-    };
-    if !relative_path.trim().starts_with(expected_prefix) {
-        return Err(format!(
-            "{field}.file.ganbaru_asset_path must stay under the expected managed asset directory"
-        ));
-    }
-    let content_type = file
-        .get("content_type")
-        .and_then(Value::as_str)
-        .ok_or_else(|| format!("{field}.file.content_type must be a string"))?;
-    let byte_size = file
-        .get("byte_size")
-        .and_then(Value::as_i64)
-        .ok_or_else(|| format!("{field}.file.byte_size must be an integer"))?;
-    let sha256 = file
-        .get("sha256")
-        .and_then(Value::as_str)
-        .ok_or_else(|| format!("{field}.file.sha256 must be a string"))?;
-    Ok(Some(NotesManagedAssetWrite {
-        relative_path,
-        original_name: file.get("name").and_then(Value::as_str),
-        content_type,
-        byte_size,
-        sha256,
-        source_type: NOTES_ASSET_SOURCE_LOCAL_UPLOAD,
-        storage_state: NOTES_ASSET_STATE_AVAILABLE,
-        missing_at: None,
-    }))
+    managed_file_asset_from_file_object(
+        file,
+        &format!("{field}.file"),
+        expected_prefix,
+        file.get("name").and_then(Value::as_str),
+    )
 }
 
 fn media_local_file_asset<'a>(
@@ -299,29 +411,158 @@ fn media_local_file_asset<'a>(
     let Some(file) = object.get("file").and_then(Value::as_object) else {
         return Ok(None);
     };
-    let Some(relative_path) = file.get("ganbaru_asset_path").and_then(Value::as_str) else {
+    managed_file_asset_from_file_object(
+        file,
+        &format!("{block_type}.file"),
+        NOTES_ASSET_FILE_PREFIX,
+        file.get("name").and_then(Value::as_str),
+    )
+}
+
+fn file_property_ids(schema_properties: &Value) -> Result<Vec<String>, String> {
+    let object = schema_properties
+        .as_object()
+        .ok_or_else(|| "data source properties must be an object".to_string())?;
+    let mut property_ids = Vec::new();
+    for property in object.values() {
+        let property = property
+            .as_object()
+            .ok_or_else(|| "data source property must be an object".to_string())?;
+        if property.get("type").and_then(Value::as_str) != Some("files") {
+            continue;
+        }
+        let property_id = property
+            .get("id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "data source files property id must be a string".to_string())?
+            .trim();
+        if property_id.is_empty() {
+            return Err("data source files property id is required".to_string());
+        }
+        property_ids.push(property_id.to_string());
+    }
+    Ok(property_ids)
+}
+
+fn data_source_property_local_file_assets<'a>(
+    properties: &'a Value,
+    property_id: &str,
+) -> Result<Vec<NotesManagedAssetWrite<'a>>, String> {
+    let object = properties
+        .as_object()
+        .ok_or_else(|| "row properties must be an object".to_string())?;
+    let Some(property) = object.values().find(|value| {
+        value.get("id").and_then(Value::as_str) == Some(property_id)
+            && value.get("type").and_then(Value::as_str) == Some("files")
+    }) else {
+        return Ok(Vec::new());
+    };
+    let files = property
+        .get("files")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "row files property value must be an array".to_string())?;
+    let mut assets = Vec::new();
+    for (index, file) in files.iter().enumerate() {
+        if let Some(asset) = property_file_local_asset(file, property_id, index)? {
+            assets.push(asset);
+        }
+    }
+    Ok(assets)
+}
+
+fn property_file_local_asset<'a>(
+    value: &'a Value,
+    property_id: &str,
+    index: usize,
+) -> Result<Option<NotesManagedAssetWrite<'a>>, String> {
+    let Some(object) = value.as_object() else {
+        return Err("row files property items must be objects".to_string());
+    };
+    if object.get("type").and_then(Value::as_str) != Some("file") {
+        return Ok(None);
+    }
+    let Some(file) = object.get("file").and_then(Value::as_object) else {
         return Ok(None);
     };
-    if !relative_path.trim().starts_with(NOTES_ASSET_FILE_PREFIX) {
+    let fallback_name = object.get("name").and_then(Value::as_str);
+    managed_file_asset_from_file_object(
+        file,
+        &format!("row property {property_id}.files[{index}].file"),
+        NOTES_ASSET_FILE_PREFIX,
+        file.get("name").and_then(Value::as_str).or(fallback_name),
+    )
+}
+
+fn comment_attachment_local_file_asset<'a>(
+    value: &'a Value,
+    index: usize,
+) -> Result<Option<NotesManagedAssetWrite<'a>>, String> {
+    let Some(object) = value.as_object() else {
+        return Err("comment attachments must be objects".to_string());
+    };
+    if object
+        .get("type")
+        .and_then(Value::as_str)
+        .is_some_and(|attachment_type| attachment_type != "file")
+    {
+        return Ok(None);
+    }
+    let Some(file) = object.get("file").and_then(Value::as_object) else {
+        return Ok(None);
+    };
+    let fallback_name = object.get("name").and_then(Value::as_str);
+    managed_file_asset_from_file_object(
+        file,
+        &format!("comment.attachments[{index}].file"),
+        NOTES_ASSET_FILE_PREFIX,
+        file.get("name").and_then(Value::as_str).or(fallback_name),
+    )
+}
+
+fn managed_file_asset_from_file_object<'a>(
+    file: &'a Map<String, Value>,
+    field: &str,
+    expected_prefix: &str,
+    original_name: Option<&'a str>,
+) -> Result<Option<NotesManagedAssetWrite<'a>>, String> {
+    let Some(relative_path) = file.get("ganbaru_asset_path").and_then(Value::as_str) else {
+        if file
+            .get("url")
+            .and_then(Value::as_str)
+            .is_some_and(|url| url.trim().starts_with("ganbaru-asset:"))
+        {
+            return Err(format!("{field}.ganbaru_asset_path must be a string"));
+        }
+        return Ok(None);
+    };
+    let relative_path = relative_path.trim();
+    if !relative_path.starts_with(expected_prefix) {
         return Err(format!(
-            "{block_type}.file.ganbaru_asset_path must stay under the managed Notes file directory"
+            "{field}.ganbaru_asset_path must stay under the expected managed asset directory"
         ));
+    }
+    let url = file
+        .get("url")
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("{field}.url must be a string"))?;
+    if url.trim() != format!("ganbaru-asset:{relative_path}") {
+        return Err(format!("{field}.url must reference the managed asset path"));
     }
     let content_type = file
         .get("content_type")
         .and_then(Value::as_str)
-        .ok_or_else(|| format!("{block_type}.file.content_type must be a string"))?;
+        .ok_or_else(|| format!("{field}.content_type must be a string"))?;
     let byte_size = file
         .get("byte_size")
         .and_then(Value::as_i64)
-        .ok_or_else(|| format!("{block_type}.file.byte_size must be an integer"))?;
+        .ok_or_else(|| format!("{field}.byte_size must be an integer"))?;
     let sha256 = file
         .get("sha256")
         .and_then(Value::as_str)
-        .ok_or_else(|| format!("{block_type}.file.sha256 must be a string"))?;
+        .ok_or_else(|| format!("{field}.sha256 must be a string"))?;
     Ok(Some(NotesManagedAssetWrite {
         relative_path,
-        original_name: file.get("name").and_then(Value::as_str),
+        original_name,
         content_type,
         byte_size,
         sha256,

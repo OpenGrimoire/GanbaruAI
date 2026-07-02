@@ -1,6 +1,6 @@
 use super::models::{NoteDataSourceRowPageCreate, NoteLoadedPage, NotePageDto, NotePageRow};
 use super::validation::{plain_text_from_payload, require_uuid};
-use super::{data_source_relations, data_source_rollups, reads, writes};
+use super::{assets, data_source_relations, data_source_rollups, reads, writes};
 use serde_json::{json, Map, Value};
 use sqlx::{Sqlite, SqlitePool, Transaction};
 
@@ -102,6 +102,12 @@ pub(in crate::notes) async fn create_data_source_row_page(
         &schema_properties,
         &properties,
         true,
+    )
+    .await?;
+    assets::sync_data_source_property_asset_references_tx(
+        &mut tx,
+        data_source_id,
+        &schema_properties,
     )
     .await?;
     data_source_rollups::invalidate_rollup_cache_for_data_source_tx(&mut tx, data_source_id)

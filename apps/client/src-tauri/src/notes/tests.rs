@@ -445,6 +445,48 @@ fn local_media_payload(
     payload
 }
 
+fn local_property_file(
+    asset_path: &str,
+    content_type: &str,
+    byte_size: i64,
+    sha256: &str,
+    name: &str,
+) -> serde_json::Value {
+    json!({
+        "name": name,
+        "type": "file",
+        "file": {
+            "url": format!("ganbaru-asset:{asset_path}"),
+            "name": name,
+            "content_type": content_type,
+            "byte_size": byte_size,
+            "sha256": sha256,
+            "ganbaru_asset_path": asset_path
+        }
+    })
+}
+
+fn local_comment_attachment(
+    asset_path: &str,
+    content_type: &str,
+    byte_size: i64,
+    sha256: &str,
+    name: &str,
+) -> serde_json::Value {
+    json!({
+        "category": "file",
+        "name": name,
+        "file": {
+            "url": format!("ganbaru-asset:{asset_path}"),
+            "name": name,
+            "content_type": content_type,
+            "byte_size": byte_size,
+            "sha256": sha256,
+            "ganbaru_asset_path": asset_path
+        }
+    })
+}
+
 fn table_payload(width: i64) -> serde_json::Value {
     json!({
         "table_width": width,
@@ -5495,6 +5537,7 @@ fn duplicate_blocks_copies_loaded_subtrees_and_block_comments() {
                 discussion_id: None,
                 anchor: None,
                 rich_text: vec![rich_text("Nested comment")],
+                attachments: None,
             },
         )
         .await
@@ -5589,6 +5632,7 @@ fn move_blocks_moves_subtrees_updates_comment_pages_and_rejects_cycles() {
                 discussion_id: None,
                 anchor: None,
                 rich_text: vec![rich_text("Move with block")],
+                attachments: None,
             },
         )
         .await
@@ -6670,6 +6714,7 @@ fn search_returns_page_block_and_comment_matches() {
                 discussion_id: None,
                 anchor: None,
                 rich_text: vec![rich_text("Target comment")],
+                attachments: None,
             },
         )
         .await
@@ -9329,6 +9374,130 @@ fn block_media_asset_references_follow_local_file_payloads() {
 }
 
 #[test]
+fn database_file_property_asset_references_follow_local_file_values() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        create_page(&pool, PAGE_A, BLOCK_A).await;
+        create_database(
+            &pool,
+            DATABASE_A,
+            DATA_SOURCE_A,
+            DATABASE_VIEW_A,
+            "File references",
+            BLOCK_A,
+        )
+        .await;
+        data_source_schema::update_data_source_schema(
+            &pool,
+            DATA_SOURCE_A,
+            None,
+            NoteDataSourceSchemaUpdate {
+                properties: json!({
+                    "Name": {
+                        "id": "title",
+                        "name": "Name",
+                        "type": "title",
+                        "title": {}
+                    },
+                    "Files": {
+                        "id": "files",
+                        "name": "Files",
+                        "type": "files",
+                        "files": {}
+                    }
+                }),
+                property_order: vec!["title".to_string(), "files".to_string()],
+                hidden_property_ids: vec![],
+            },
+        )
+        .await
+        .unwrap();
+        let asset_path =
+            "notes/files/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee.pdf";
+        let file_value = local_property_file(
+            asset_path,
+            "application/pdf",
+            84,
+            "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "brief.pdf",
+        );
+
+        data_source_rows::create_data_source_row_page(
+            &pool,
+            DATA_SOURCE_A,
+            NoteDataSourceRowPageCreate {
+                id: PAGE_B.to_string(),
+                title: "With file".to_string(),
+                first_block_id: BLOCK_B.to_string(),
+                properties: Some(json!({
+                    "Files": {
+                        "id": "files",
+                        "type": "files",
+                        "files": [file_value.clone(), file_value]
+                    }
+                })),
+            },
+        )
+        .await
+        .unwrap();
+
+        let reference_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)
+             FROM notes_asset_references
+             WHERE asset_id = ?
+               AND owner_type = 'data_source_property'
+               AND owner_id = ?
+               AND data_source_id = ?
+               AND property_id = 'files'
+               AND role = 'property_file'",
+        )
+        .bind(asset_path)
+        .bind(DATA_SOURCE_A)
+        .bind(DATA_SOURCE_A)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(reference_count, 1);
+
+        data_source_schema::update_data_source_schema(
+            &pool,
+            DATA_SOURCE_A,
+            None,
+            NoteDataSourceSchemaUpdate {
+                properties: json!({
+                    "Name": {
+                        "id": "title",
+                        "name": "Name",
+                        "type": "title",
+                        "title": {}
+                    }
+                }),
+                property_order: vec!["title".to_string()],
+                hidden_property_ids: vec![],
+            },
+        )
+        .await
+        .unwrap();
+
+        let remaining_references: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM notes_asset_references WHERE asset_id = ?")
+                .bind(asset_path)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(remaining_references, 0);
+
+        let retained_assets: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM notes_assets WHERE asset_path = ?")
+                .bind(asset_path)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(retained_assets, 1);
+    });
+}
+
+#[test]
 fn append_children_rejects_equation_parent_blocks() {
     tauri::async_runtime::block_on(async {
         let pool = migrated_memory_pool().await;
@@ -10459,6 +10628,7 @@ fn local_user_identity_drives_notes_comments() {
                 discussion_id: None,
                 anchor: None,
                 rich_text: vec![rich_text("Page note")],
+                attachments: None,
             },
         )
         .await
@@ -10501,6 +10671,7 @@ fn local_user_identity_drives_notes_comments() {
                 discussion_id: Some(thread_id.clone()),
                 anchor: None,
                 rich_text: vec![rich_text("Reply")],
+                attachments: None,
             },
         )
         .await
@@ -10570,6 +10741,7 @@ fn mention_notifications_sync_blocks_comments_and_delivery_state() {
                 discussion_id: None,
                 anchor: None,
                 rich_text: vec![rich_text("Ping "), user_mention(&local_user_id, "Victor")],
+                attachments: None,
             },
         )
         .await
@@ -10638,6 +10810,127 @@ fn mention_notifications_sync_blocks_comments_and_delivery_state() {
 }
 
 #[test]
+fn comment_attachment_asset_references_follow_local_file_payloads() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        create_page(&pool, PAGE_A, BLOCK_A).await;
+        let first_asset =
+            "notes/files/f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1.pdf";
+        let second_asset =
+            "notes/files/f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2.png";
+        let first_attachment = local_comment_attachment(
+            first_asset,
+            "application/pdf",
+            84,
+            "f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1",
+            "brief.pdf",
+        );
+        let second_attachment = local_comment_attachment(
+            second_asset,
+            "image/png",
+            42,
+            "f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2",
+            "diagram.png",
+        );
+
+        comments::create_comment(
+            &pool,
+            NoteCommentCreate {
+                id: COMMENT_A.to_string(),
+                parent: Some(page_parent(PAGE_A)),
+                discussion_id: None,
+                anchor: None,
+                rich_text: vec![rich_text("See attachment")],
+                attachments: Some(vec![first_attachment.clone(), first_attachment]),
+            },
+        )
+        .await
+        .unwrap();
+
+        let first_reference_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)
+             FROM notes_asset_references
+             WHERE asset_id = ?
+               AND owner_type = 'comment'
+               AND owner_id = ?
+               AND page_id = ?
+               AND comment_id = ?
+               AND role = 'comment_attachment'",
+        )
+        .bind(first_asset)
+        .bind(COMMENT_A)
+        .bind(PAGE_A)
+        .bind(COMMENT_A)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(first_reference_count, 1);
+
+        comments::update_comment(
+            &pool,
+            COMMENT_A,
+            NoteCommentUpdate {
+                rich_text: vec![rich_text("Updated attachment")],
+                attachments: Some(vec![second_attachment]),
+            },
+        )
+        .await
+        .unwrap();
+        let old_reference_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM notes_asset_references WHERE asset_id = ?")
+                .bind(first_asset)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(old_reference_count, 0);
+
+        let replacement_reference_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM notes_asset_references WHERE asset_id = ?")
+                .bind(second_asset)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(replacement_reference_count, 1);
+
+        comments::update_comment(
+            &pool,
+            COMMENT_A,
+            NoteCommentUpdate {
+                rich_text: vec![rich_text("Text only edit")],
+                attachments: None,
+            },
+        )
+        .await
+        .unwrap();
+        let preserved_reference_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM notes_asset_references WHERE asset_id = ?")
+                .bind(second_asset)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(preserved_reference_count, 1);
+
+        comments::delete_comment(&pool, COMMENT_A).await.unwrap();
+        let remaining_references: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)
+             FROM notes_asset_references
+             WHERE owner_type = 'comment' AND owner_id = ?",
+        )
+        .bind(COMMENT_A)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(remaining_references, 0);
+
+        let retained_assets: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM notes_assets")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(retained_assets, 2);
+    });
+}
+
+#[test]
 fn comments_create_reply_resolve_reopen_and_delete() {
     tauri::async_runtime::block_on(async {
         let pool = migrated_memory_pool().await;
@@ -10651,6 +10944,7 @@ fn comments_create_reply_resolve_reopen_and_delete() {
                 discussion_id: None,
                 anchor: None,
                 rich_text: vec![rich_text("Page note")],
+                attachments: None,
             },
         )
         .await
@@ -10671,6 +10965,7 @@ fn comments_create_reply_resolve_reopen_and_delete() {
                 discussion_id: Some(thread_id.clone()),
                 anchor: None,
                 rich_text: vec![rich_text("Reply")],
+                attachments: None,
             },
         )
         .await
@@ -10683,6 +10978,7 @@ fn comments_create_reply_resolve_reopen_and_delete() {
             COMMENT_B,
             NoteCommentUpdate {
                 rich_text: vec![rich_text("Edited reply")],
+                attachments: None,
             },
         )
         .await
@@ -10746,6 +11042,7 @@ fn comment_unread_state_tracks_local_identity() {
                 discussion_id: None,
                 anchor: None,
                 rich_text: vec![rich_text("Remote note")],
+                attachments: None,
             },
         )
         .await
@@ -10800,6 +11097,7 @@ fn comment_unread_state_tracks_local_identity() {
                 discussion_id: Some(thread_id.clone()),
                 anchor: None,
                 rich_text: vec![rich_text("Local follow-up")],
+                attachments: None,
             },
         )
         .await
@@ -10856,6 +11154,7 @@ fn block_comments_attach_to_visible_blocks() {
                 discussion_id: None,
                 anchor: None,
                 rich_text: vec![rich_text("Block note")],
+                attachments: None,
             },
         )
         .await
@@ -10909,6 +11208,7 @@ fn inline_comment_anchors_persist_on_block_threads() {
                     suffix: " gamma".to_string(),
                 }),
                 rich_text: vec![rich_text("Inline note")],
+                attachments: None,
             },
         )
         .await
@@ -10940,6 +11240,7 @@ fn inline_comment_anchors_persist_on_block_threads() {
                     suffix: String::new(),
                 }),
                 rich_text: vec![rich_text("Reply")],
+                attachments: None,
             },
         )
         .await;
@@ -11100,6 +11401,7 @@ fn collaboration_operations_track_comments_and_suggestions_for_future_sync() {
                     suffix: " gamma".to_string(),
                 }),
                 rich_text: vec![rich_text("First note")],
+                attachments: None,
             },
         )
         .await
@@ -11112,6 +11414,7 @@ fn collaboration_operations_track_comments_and_suggestions_for_future_sync() {
             COMMENT_A,
             NoteCommentUpdate {
                 rich_text: vec![rich_text("Edited note")],
+                attachments: None,
             },
         )
         .await

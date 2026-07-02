@@ -1408,10 +1408,12 @@ export interface NotesCommentCreate {
   discussion_id?: string;
   anchor?: NotesCommentAnchorCreate;
   rich_text: NotesRichText[];
+  attachments?: Record<string, unknown>[];
 }
 
 export interface NotesCommentUpdate {
   rich_text: NotesRichText[];
+  attachments?: Record<string, unknown>[];
 }
 
 export interface NotesCommentThreadReadUpdate {
