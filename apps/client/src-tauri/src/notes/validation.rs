@@ -198,6 +198,9 @@ pub(in crate::notes) fn validate_database_create(
             if matches!(parent, NoteParent::Workspace { .. }) {
                 return Err("database blocks cannot be parented by workspace".to_string());
             }
+            if matches!(parent, NoteParent::DataSourceId { .. }) {
+                return Err("database blocks cannot be parented by data sources".to_string());
+            }
             if let Some(after_block_id) = &request.after_block_id {
                 require_uuid(after_block_id, "after_block_id")?;
             }
@@ -223,6 +226,9 @@ pub(in crate::notes) fn validate_parent(parent: &NoteParent) -> Result<(), Strin
         }
         NoteParent::PageId { page_id } => require_uuid(page_id, "page_id"),
         NoteParent::BlockId { block_id } => require_uuid(block_id, "block_id"),
+        NoteParent::DataSourceId { data_source_id } => {
+            require_uuid(data_source_id, "data_source_id")
+        }
     }
 }
 

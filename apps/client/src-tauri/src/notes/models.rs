@@ -10,6 +10,8 @@ pub enum NoteParent {
     PageId { page_id: String },
     #[serde(rename = "block_id")]
     BlockId { block_id: String },
+    #[serde(rename = "data_source_id")]
+    DataSourceId { data_source_id: String },
 }
 
 #[derive(Serialize)]
@@ -41,7 +43,12 @@ impl NotePageDto {
             id: row.id,
             created_time: row.created_time,
             last_edited_time: row.last_edited_time,
-            parent: parent_from_row(&row.parent_type, row.parent_page_id, row.parent_block_id)?,
+            parent: parent_from_row(
+                &row.parent_type,
+                row.parent_page_id,
+                row.parent_block_id,
+                row.parent_data_source_id,
+            )?,
             in_trash,
             archived,
             icon: parse_optional_json(row.icon, "page icon")?,
@@ -151,7 +158,12 @@ impl NoteBlockDto {
         let mut block = Self {
             object: "block",
             id: row.id,
-            parent: parent_from_row(&row.parent_type, row.parent_page_id, row.parent_block_id)?,
+            parent: parent_from_row(
+                &row.parent_type,
+                row.parent_page_id,
+                row.parent_block_id,
+                None,
+            )?,
             created_time: row.created_time,
             last_edited_time: row.last_edited_time,
             has_children: row.has_children != 0,
@@ -577,6 +589,7 @@ impl NoteCommentDto {
                 &thread.parent_type,
                 thread.parent_page_id.clone(),
                 thread.parent_block_id.clone(),
+                None,
             )?,
             discussion_id: row.thread_id,
             created_time: row.created_time,
@@ -618,6 +631,7 @@ impl NoteCommentThreadDto {
                 &row.parent_type,
                 row.parent_page_id.clone(),
                 row.parent_block_id.clone(),
+                None,
             )?,
             page_id: row.page_id,
             block_id: row.parent_block_id,
@@ -649,6 +663,14 @@ pub struct NoteChildPageFromBlockCreate {
 #[derive(Deserialize)]
 pub struct NoteDuplicatePage {
     pub(in crate::notes) title: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct NoteDataSourceRowPageCreate {
+    pub(in crate::notes) id: String,
+    pub(in crate::notes) title: String,
+    pub(in crate::notes) first_block_id: String,
+    pub(in crate::notes) properties: Option<Value>,
 }
 
 #[derive(Deserialize)]
@@ -1266,6 +1288,7 @@ pub(in crate::notes) struct NotePageRow {
     pub(in crate::notes) parent_type: String,
     pub(in crate::notes) parent_page_id: Option<String>,
     pub(in crate::notes) parent_block_id: Option<String>,
+    pub(in crate::notes) parent_data_source_id: Option<String>,
     pub(in crate::notes) title: String,
     pub(in crate::notes) properties: String,
     pub(in crate::notes) icon: Option<String>,
@@ -1286,6 +1309,7 @@ impl_sqlite_from_row!(NotePageRow {
     parent_type,
     parent_page_id,
     parent_block_id,
+    parent_data_source_id,
     title,
     properties,
     icon,
@@ -1333,6 +1357,7 @@ pub(in crate::notes) struct NotePageHistorySnapshotRow {
     pub(in crate::notes) parent_type: String,
     pub(in crate::notes) parent_page_id: Option<String>,
     pub(in crate::notes) parent_block_id: Option<String>,
+    pub(in crate::notes) parent_data_source_id: Option<String>,
     pub(in crate::notes) title: String,
     pub(in crate::notes) properties: String,
     pub(in crate::notes) icon: Option<String>,
@@ -1352,6 +1377,7 @@ impl_sqlite_from_row!(NotePageHistorySnapshotRow {
     parent_type,
     parent_page_id,
     parent_block_id,
+    parent_data_source_id,
     title,
     properties,
     icon,
@@ -1663,6 +1689,20 @@ pub(in crate::notes) fn parent_columns(
         NoteParent::Workspace { .. } => ("workspace", None, None),
         NoteParent::PageId { page_id } => ("page_id", Some(page_id.as_str()), None),
         NoteParent::BlockId { block_id } => ("block_id", None, Some(block_id.as_str())),
+        NoteParent::DataSourceId { .. } => ("data_source_id", None, None),
+    }
+}
+
+pub(in crate::notes) fn page_parent_columns(
+    parent: &NoteParent,
+) -> (&'static str, Option<&str>, Option<&str>, Option<&str>) {
+    match parent {
+        NoteParent::Workspace { .. } => ("workspace", None, None, None),
+        NoteParent::PageId { page_id } => ("page_id", Some(page_id.as_str()), None, None),
+        NoteParent::BlockId { block_id } => ("block_id", None, Some(block_id.as_str()), None),
+        NoteParent::DataSourceId { data_source_id } => {
+            ("data_source_id", None, None, Some(data_source_id.as_str()))
+        }
     }
 }
 
@@ -1670,6 +1710,7 @@ fn parent_from_row(
     parent_type: &str,
     parent_page_id: Option<String>,
     parent_block_id: Option<String>,
+    parent_data_source_id: Option<String>,
 ) -> Result<NoteParent, String> {
     match parent_type {
         "workspace" => Ok(NoteParent::Workspace { workspace: true }),
@@ -1679,6 +1720,9 @@ fn parent_from_row(
         "block_id" => parent_block_id
             .map(|block_id| NoteParent::BlockId { block_id })
             .ok_or_else(|| "stored block parent is missing block_id".to_string()),
+        "data_source_id" => parent_data_source_id
+            .map(|data_source_id| NoteParent::DataSourceId { data_source_id })
+            .ok_or_else(|| "stored page parent is missing data_source_id".to_string()),
         _ => Err(format!("unsupported parent type in storage: {parent_type}")),
     }
 }
@@ -1688,6 +1732,7 @@ fn block_parent_from_database_row(row: &NoteDatabaseRow) -> Result<NoteParent, S
         &row.parent_type,
         row.parent_page_id.clone(),
         row.parent_block_id.clone(),
+        None,
     )
 }
 

@@ -2,6 +2,7 @@ use crate::db_path::connect_sqlite;
 use tauri::{AppHandle, Runtime};
 
 mod comments;
+mod data_source_rows;
 mod data_source_schema;
 mod databases;
 mod history;
@@ -314,6 +315,27 @@ pub async fn notes_update_data_source_schema<R: Runtime>(
 ) -> Result<NoteDataSourceSchemaDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
     data_source_schema::update_data_source_schema(&pool, &data_source_id, update).await
+}
+
+#[tauri::command]
+pub async fn notes_list_data_source_row_pages<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    data_source_id: String,
+) -> Result<Vec<NotePageDto>, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    data_source_rows::list_data_source_row_pages(&pool, &data_source_id).await
+}
+
+#[tauri::command]
+pub async fn notes_create_data_source_row_page<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    data_source_id: String,
+    request: NoteDataSourceRowPageCreate,
+) -> Result<NoteLoadedPage, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    data_source_rows::create_data_source_row_page(&pool, &data_source_id, request).await
 }
 
 #[tauri::command]

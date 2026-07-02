@@ -5,6 +5,7 @@
     getNotesDataSourceSchema,
     updateNotesDataSourceSchema,
   } from "$lib/api/notes";
+  import NotesDataSourceRows from "./NotesDataSourceRows.svelte";
   import {
     createNotesDataSourcePropertyDraft,
     defaultNotesDataSourcePropertyName,
@@ -41,12 +42,14 @@
     focusRequestId,
     onFocusBlock,
     onKeydown,
+    onSelectPage,
   }: {
     block: NotesChildDatabaseBlock;
     focusBlockId: string | null;
     focusRequestId: number;
     onFocusBlock: (blockId: string) => void;
     onKeydown: (event: KeyboardEvent) => void;
+    onSelectPage: (pageId: string) => void;
   } = $props();
 
   const localization = getLocalization();
@@ -562,6 +565,10 @@
           <span>{t("notes.databaseSchemaAddProperty")}</span>
         </button>
       </div>
+
+      {#if dataSourceId}
+        <NotesDataSourceRows {dataSourceId} {onSelectPage} />
+      {/if}
     </div>
   {/if}
 </section>

@@ -77,7 +77,8 @@ export type NotesTextBlockType =
 export type NotesParent =
   | { type: "workspace"; workspace: true }
   | { type: "page_id"; page_id: string }
-  | { type: "block_id"; block_id: string };
+  | { type: "block_id"; block_id: string }
+  | { type: "data_source_id"; data_source_id: string };
 
 export interface NotesRichTextLink {
   url: string;
@@ -774,6 +775,13 @@ export interface NotesDataSourceSchemaUpdate {
   properties: Record<string, unknown>;
   property_order: string[];
   hidden_property_ids: string[];
+}
+
+export interface NotesDataSourceRowPageCreateRequest {
+  id: string;
+  title: string;
+  first_block_id: string;
+  properties?: Record<string, unknown> | null;
 }
 
 export const NOTES_DATABASE_VIEW_TYPES = [

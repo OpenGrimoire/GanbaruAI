@@ -303,6 +303,9 @@ async fn resolve_comment_parent(
         NoteParent::Workspace { .. } => {
             Err("comments can only be parented by pages or blocks".to_string())
         }
+        NoteParent::DataSourceId { .. } => {
+            Err("comments can only be parented by pages or blocks".to_string())
+        }
         NoteParent::PageId { page_id } => {
             require_uuid(page_id, "parent.page_id")?;
             ensure_active_page_tx(tx, page_id).await?;

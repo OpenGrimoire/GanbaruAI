@@ -1802,6 +1802,17 @@ export const en = {
     databaseSchemaReadOnlyTitle: "Title property is required",
     databaseSchemaReadonlyPlaceholder:
       "Values for this property type are configured when row pages exist.",
+    databaseRowsTitle: "Rows",
+    databaseRowsLoading: "Loading rows...",
+    databaseRowsFailed: (message: string) => `Could not load rows: ${message}`,
+    databaseRowsCount: (count: number) => (count === 1 ? "1 row" : `${count} rows`),
+    databaseRowsReload: "Reload rows",
+    databaseRowsNewPlaceholder: "New row title",
+    databaseRowsAdd: "Add row",
+    databaseRowsOpen: (title: string) => `Open ${title}`,
+    databaseRowsDuplicate: (title: string) => `Duplicate ${title}`,
+    databaseRowsTrash: (title: string) => `Move ${title} to trash`,
+    databaseRowsEmpty: "No rows yet",
     databaseSchemaPropertyType: {
       title: "Title",
       richText: "Rich text",

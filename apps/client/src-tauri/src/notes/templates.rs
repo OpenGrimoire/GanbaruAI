@@ -89,7 +89,10 @@ pub(in crate::notes) async fn apply_page_template(
 ) -> Result<NoteLoadedPage, String> {
     let template_id = normalize_uuid(template_id, "template_id")?;
     validate_parent(&request.parent)?;
-    if matches!(request.parent, NoteParent::BlockId { .. }) {
+    if matches!(
+        &request.parent,
+        NoteParent::BlockId { .. } | NoteParent::DataSourceId { .. }
+    ) {
         return Err("page templates can only create workspace pages or subpages".to_string());
     }
     let title_override = request
@@ -674,6 +677,9 @@ async fn resolve_page_template_parent(
             }))
         }
         NoteParent::BlockId { .. } => {
+            Err("page templates can only create workspace pages or subpages".to_string())
+        }
+        NoteParent::DataSourceId { .. } => {
             Err("page templates can only create workspace pages or subpages".to_string())
         }
     }

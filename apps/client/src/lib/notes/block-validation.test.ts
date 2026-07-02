@@ -18,6 +18,7 @@ const basePage = {
   parent: { type: "workspace", workspace: true },
   in_trash: false,
   archived: false,
+  icon: null,
   cover: null,
   properties: {},
   url: null,
@@ -68,6 +69,21 @@ describe("notes boundary validation", () => {
     });
 
     expect(page.icon).toEqual({ type: "emoji", emoji: "📌" });
+  });
+
+  it("parses data source row page parents", () => {
+    const page = parseNotesPage({
+      ...basePage,
+      parent: {
+        type: "data_source_id",
+        data_source_id: "81818181-8181-4181-8181-818181818181",
+      },
+    });
+
+    expect(page.parent).toEqual({
+      type: "data_source_id",
+      data_source_id: "81818181-8181-4181-8181-818181818181",
+    });
   });
 
   it("rejects empty page emoji icons", () => {

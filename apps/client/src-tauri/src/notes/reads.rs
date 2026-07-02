@@ -183,6 +183,7 @@ async fn fetch_sidebar_root_page_rows(pool: &SqlitePool) -> Result<Vec<NotePageR
          WHERE in_trash = 0
            AND archived = 0
            AND parent_type <> 'page_id'
+           AND parent_type <> 'data_source_id'
          ORDER BY last_edited_time DESC, title COLLATE NOCASE ASC, id ASC",
     )
     .fetch_all(pool)
@@ -435,12 +436,23 @@ pub(in crate::notes) async fn search(
     let page_size = normalized_page_size(page_size)? as usize;
     let pattern = format!("%{}%", escape_like_query(query));
     let page_rows = sqlx::query_as::<_, NotePageRow>(
-        "SELECT *
-         FROM notes_pages
-         WHERE in_trash = 0
-           AND archived = 0
-           AND title LIKE ? ESCAPE '\\'
-         ORDER BY last_edited_time DESC, title COLLATE NOCASE ASC, id ASC
+        "SELECT page.*
+         FROM notes_pages AS page
+         WHERE page.in_trash = 0
+           AND page.archived = 0
+           AND page.title LIKE ? ESCAPE '\\'
+           AND (
+               page.parent_type != 'data_source_id'
+               OR EXISTS (
+                   SELECT 1
+                   FROM notes_data_sources AS data_source
+                   JOIN notes_databases AS database ON database.id = data_source.database_id
+                   WHERE data_source.id = page.parent_data_source_id
+                     AND data_source.in_trash = 0
+                     AND database.in_trash = 0
+               )
+           )
+         ORDER BY page.last_edited_time DESC, page.title COLLATE NOCASE ASC, page.id ASC
          LIMIT ?",
     )
     .bind(&pattern)
@@ -472,6 +484,17 @@ pub(in crate::notes) async fn search(
          WHERE block.in_trash = 0
            AND page.in_trash = 0
            AND page.archived = 0
+           AND (
+               page.parent_type != 'data_source_id'
+               OR EXISTS (
+                   SELECT 1
+                   FROM notes_data_sources AS data_source
+                   JOIN notes_databases AS database ON database.id = data_source.database_id
+                   WHERE data_source.id = page.parent_data_source_id
+                     AND data_source.in_trash = 0
+                     AND database.in_trash = 0
+               )
+           )
            AND block.plain_text LIKE ? ESCAPE '\\'
          ORDER BY block.last_edited_time DESC, block.sort_order ASC, block.id ASC
          LIMIT ?",
@@ -501,6 +524,17 @@ pub(in crate::notes) async fn search(
          WHERE comment.deleted_at IS NULL
            AND page.in_trash = 0
            AND page.archived = 0
+           AND (
+               page.parent_type != 'data_source_id'
+               OR EXISTS (
+                   SELECT 1
+                   FROM notes_data_sources AS data_source
+                   JOIN notes_databases AS database ON database.id = data_source.database_id
+                   WHERE data_source.id = page.parent_data_source_id
+                     AND data_source.in_trash = 0
+                     AND database.in_trash = 0
+               )
+           )
            AND (thread.parent_block_id IS NULL OR target_block.in_trash = 0)
            AND comment.plain_text LIKE ? ESCAPE '\\'
          ORDER BY comment.last_edited_time DESC, comment.id ASC

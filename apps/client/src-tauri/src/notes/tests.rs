@@ -1,15 +1,15 @@
 use super::models::{
     NoteAppendBlockChildren, NoteBlockUpdate, NoteBlockWrite, NoteChildPageFromBlockCreate,
-    NoteCommentCreate, NoteCommentUpdate, NoteDataSourceSchemaUpdate, NoteDatabaseCreate,
-    NoteDuplicateBlock, NoteDuplicateBlocks, NoteDuplicatePage, NoteDuplicatedBlockId,
-    NoteMoveBlock, NoteMoveBlocks, NoteMovePage, NotePageCreate, NotePageHistoryCopyBlocks,
-    NotePageHistorySettingsUpdate, NotePageTemplateApply, NotePageTemplateCreateFromPage,
-    NotePageTemplateDuplicate, NotePageTemplateUpdate, NoteParent, NoteSidebarPagesRequest,
-    NoteTrashBlocks, OptionalJsonValue,
+    NoteCommentCreate, NoteCommentUpdate, NoteDataSourceRowPageCreate, NoteDataSourceSchemaUpdate,
+    NoteDatabaseCreate, NoteDuplicateBlock, NoteDuplicateBlocks, NoteDuplicatePage,
+    NoteDuplicatedBlockId, NoteMoveBlock, NoteMoveBlocks, NoteMovePage, NotePageCreate,
+    NotePageHistoryCopyBlocks, NotePageHistorySettingsUpdate, NotePageTemplateApply,
+    NotePageTemplateCreateFromPage, NotePageTemplateDuplicate, NotePageTemplateUpdate, NoteParent,
+    NoteSidebarPagesRequest, NoteTrashBlocks, OptionalJsonValue,
 };
 use super::{
-    comments, data_source_schema, databases, history, reads, templates, undo_state, validation,
-    writes,
+    comments, data_source_rows, data_source_schema, databases, history, reads, templates,
+    undo_state, validation, writes,
 };
 use crate::db::run_migrations;
 use serde_json::json;
@@ -1642,6 +1642,172 @@ fn create_local_database_inside_notes_page() {
         assert_eq!(children_json["results"][0]["id"], BLOCK_A);
         assert_eq!(children_json["results"][1]["id"], DATABASE_A);
         assert_eq!(children_json["results"][1]["type"], "child_database");
+    });
+}
+
+#[test]
+fn database_row_pages_are_real_pages_with_page_lifecycle() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        create_page(&pool, PAGE_A, BLOCK_A).await;
+        databases::create_database(
+            &pool,
+            NoteDatabaseCreate {
+                id: DATABASE_A.to_string(),
+                data_source_id: DATA_SOURCE_A.to_string(),
+                view_id: DATABASE_VIEW_A.to_string(),
+                title: "Tasks".to_string(),
+                parent: Some(page_parent(PAGE_A)),
+                after_block_id: Some(BLOCK_A.to_string()),
+                replace_block_id: None,
+                icon: None,
+                cover: None,
+            },
+        )
+        .await
+        .unwrap();
+        data_source_schema::update_data_source_schema(
+            &pool,
+            DATA_SOURCE_A,
+            NoteDataSourceSchemaUpdate {
+                properties: json!({
+                    "Name": {
+                        "id": "title",
+                        "name": "Name",
+                        "type": "title",
+                        "title": {}
+                    },
+                    "Details": {
+                        "id": "details",
+                        "name": "Details",
+                        "type": "rich_text",
+                        "rich_text": {}
+                    },
+                    "Done": {
+                        "id": "done_checkbox",
+                        "name": "Done",
+                        "type": "checkbox",
+                        "checkbox": {}
+                    }
+                }),
+                property_order: vec![
+                    "title".to_string(),
+                    "details".to_string(),
+                    "done_checkbox".to_string(),
+                ],
+                hidden_property_ids: vec![],
+            },
+        )
+        .await
+        .unwrap();
+
+        let loaded = data_source_rows::create_data_source_row_page(
+            &pool,
+            DATA_SOURCE_A,
+            NoteDataSourceRowPageCreate {
+                id: PAGE_B.to_string(),
+                title: "Write spec".to_string(),
+                first_block_id: BLOCK_B.to_string(),
+                properties: None,
+            },
+        )
+        .await
+        .unwrap();
+        let loaded_json = serde_json::to_value(&loaded).unwrap();
+        assert_eq!(loaded_json["page"]["parent"]["type"], "data_source_id");
+        assert_eq!(
+            loaded_json["page"]["parent"]["data_source_id"],
+            DATA_SOURCE_A
+        );
+        assert_eq!(
+            loaded_json["page"]["properties"]["Name"]["title"][0]["plain_text"],
+            "Write spec"
+        );
+        assert_eq!(loaded_json["page"]["properties"]["Done"]["checkbox"], false);
+        assert_eq!(loaded_json["blocks"]["results"][0]["type"], "paragraph");
+
+        let sidebar_pages = reads::list_sidebar_pages(
+            &pool,
+            NoteSidebarPagesRequest {
+                expanded_page_ids: vec![],
+                seed_page_ids: vec![],
+                selected_page_id: None,
+            },
+        )
+        .await
+        .unwrap();
+        let sidebar_json = serde_json::to_value(sidebar_pages).unwrap();
+        assert!(!sidebar_json["pages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|page| page["id"] == PAGE_B));
+
+        let rows = data_source_rows::list_data_source_row_pages(&pool, DATA_SOURCE_A)
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 1);
+
+        let search_results = reads::search(&pool, "Write", Some(10)).await.unwrap();
+        let search_json = serde_json::to_value(search_results).unwrap();
+        assert!(search_json
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|result| result["page"]["id"] == PAGE_B));
+
+        let duplicated = writes::duplicate_page(&pool, PAGE_B, NoteDuplicatePage { title: None })
+            .await
+            .unwrap();
+        let duplicated_json = serde_json::to_value(&duplicated).unwrap();
+        let duplicate_id = duplicated_json["page"]["id"].as_str().unwrap().to_string();
+        assert_ne!(duplicate_id, PAGE_B);
+        assert_eq!(
+            duplicated_json["page"]["parent"]["data_source_id"],
+            DATA_SOURCE_A
+        );
+        assert_eq!(
+            duplicated_json["page"]["properties"]["Name"]["title"][0]["plain_text"],
+            "Write spec"
+        );
+
+        writes::trash_page(&pool, PAGE_B, true).await.unwrap();
+        let rows_after_trash = data_source_rows::list_data_source_row_pages(&pool, DATA_SOURCE_A)
+            .await
+            .unwrap();
+        assert_eq!(rows_after_trash.len(), 1);
+        let trashed = reads::list_trashed_pages(&pool).await.unwrap();
+        let trashed_json = serde_json::to_value(trashed).unwrap();
+        assert!(trashed_json
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|page| page["id"] == PAGE_B));
+
+        let restored = writes::trash_page(&pool, PAGE_B, false).await.unwrap();
+        let restored_json = serde_json::to_value(restored).unwrap();
+        assert_eq!(restored_json["parent"]["data_source_id"], DATA_SOURCE_A);
+        let rows_after_restore = data_source_rows::list_data_source_row_pages(&pool, DATA_SOURCE_A)
+            .await
+            .unwrap();
+        assert_eq!(rows_after_restore.len(), 2);
+
+        sqlx::query("UPDATE notes_data_sources SET in_trash = 1 WHERE id = ?")
+            .bind(DATA_SOURCE_A)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let hidden_rows = data_source_rows::list_data_source_row_pages(&pool, DATA_SOURCE_A)
+            .await
+            .unwrap();
+        assert!(hidden_rows.is_empty());
+        let hidden_search = reads::search(&pool, "Write", Some(10)).await.unwrap();
+        let hidden_search_json = serde_json::to_value(hidden_search).unwrap();
+        assert!(!hidden_search_json
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|result| result["page"]["parent"]["type"] == "data_source_id"));
     });
 }
 

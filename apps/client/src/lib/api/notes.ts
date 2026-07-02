@@ -26,6 +26,7 @@ import type {
   NotesCommentUpdate,
   NotesCreatedDatabase,
   NotesDatabaseCreateRequest,
+  NotesDataSourceRowPageCreateRequest,
   NotesDataSourceSchema,
   NotesDataSourceSchemaUpdate,
   NotesDuplicatePageRequest,
@@ -315,6 +316,31 @@ export async function updateNotesDataSourceSchema(
   const dbUrl = await ensureDbUrl();
   return mapNotesDataSourceSchemaDto(
     await invoke<unknown>("notes_update_data_source_schema", { dbUrl, dataSourceId, update }),
+  );
+}
+
+export async function listNotesDataSourceRowPages(
+  dataSourceId: string,
+): Promise<NotesPage[]> {
+  const dbUrl = await ensureDbUrl();
+  const rows = await invoke<unknown>("notes_list_data_source_row_pages", { dbUrl, dataSourceId });
+  if (!Array.isArray(rows)) {
+    throw new Error("notes_list_data_source_row_pages returned a non-array payload");
+  }
+  return rows.map(mapNotesPageDto);
+}
+
+export async function createNotesDataSourceRowPage(
+  dataSourceId: string,
+  request: NotesDataSourceRowPageCreateRequest,
+): Promise<NotesLoadedPage> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesLoadedPageDto(
+    await invoke<unknown>("notes_create_data_source_row_page", {
+      dbUrl,
+      dataSourceId,
+      request,
+    }),
   );
 }
 

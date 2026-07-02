@@ -1,9 +1,9 @@
 use super::models::{
-    parent_columns, NoteAppendBlockChildren, NoteBlockDto, NoteBlockRow, NoteBlockUpdate,
-    NoteBlockWrite, NoteChildPageFromBlockCreate, NoteDuplicateBlock, NoteDuplicateBlocks,
-    NoteDuplicatePage, NoteDuplicatedBlockId, NoteLoadedPage, NoteMoveBlock, NoteMoveBlocks,
-    NoteMovePage, NotePageCreate, NotePageDto, NotePageRow, NotePageUpdate, NotePaginatedBlockList,
-    NoteParent, NoteTrashBlocks, OptionalJsonValue,
+    page_parent_columns, parent_columns, NoteAppendBlockChildren, NoteBlockDto, NoteBlockRow,
+    NoteBlockUpdate, NoteBlockWrite, NoteChildPageFromBlockCreate, NoteDuplicateBlock,
+    NoteDuplicateBlocks, NoteDuplicatePage, NoteDuplicatedBlockId, NoteLoadedPage, NoteMoveBlock,
+    NoteMoveBlocks, NoteMovePage, NotePageCreate, NotePageDto, NotePageRow, NotePageUpdate,
+    NotePaginatedBlockList, NoteParent, NoteTrashBlocks, OptionalJsonValue,
 };
 use super::validation::{
     block_payload_supports_children, plain_text_from_payload, require_uuid, validate_block_update,
@@ -34,11 +34,16 @@ struct DuplicatePagePlan {
     is_root: bool,
 }
 
+type PageParentColumns = (String, Option<String>, Option<String>, Option<String>);
+
 pub(in crate::notes) async fn create_page(
     pool: &SqlitePool,
     page: NotePageCreate,
 ) -> Result<NoteLoadedPage, String> {
     validate_page_create(&page)?;
+    if matches!(&page.parent, NoteParent::DataSourceId { .. }) {
+        return Err("data source pages must be created with the row page command".to_string());
+    }
     let title = page.title.trim().to_string();
     let properties = page_title_properties(&title);
     let (parent_type, parent_page_id, parent_block_id) = parent_columns(&page.parent);
@@ -305,7 +310,7 @@ pub(in crate::notes) async fn duplicate_page(
         .await
         .map_err(|e| format!("begin duplicate notes page: {e}"))?;
     let root_page = load_page_row(&mut tx, page_id).await?;
-    if root_page.parent_type != "workspace" {
+    if matches!(root_page.parent_type.as_str(), "page_id" | "block_id") {
         let source_block = load_child_page_block_row(&mut tx, page_id).await?;
         history::record_page_snapshot_tx(&mut tx, &source_block.page_id, "duplicate_page").await?;
     }
@@ -357,6 +362,7 @@ pub(in crate::notes) async fn duplicate_page(
                 &source_page.parent_type,
                 source_page.parent_page_id.clone(),
                 source_page.parent_block_id.clone(),
+                source_page.parent_data_source_id.clone(),
             )?,
         };
         plans.push(DuplicatePagePlan {
@@ -413,7 +419,8 @@ pub(in crate::notes) async fn move_page(
         .filter(|block| block.in_trash == 0)
         .map(parent_target_from_block_row);
     let new_parent = resolve_page_move_parent(&mut tx, page_id, &request.parent).await?;
-    let (parent_type, parent_page_id, parent_block_id) = parent_columns(&request.parent);
+    let (parent_type, parent_page_id, parent_block_id, parent_data_source_id) =
+        page_parent_columns(&request.parent);
     let mut history_page_ids = HashSet::from([page_id.to_string()]);
     if let Some(parent) = &old_parent {
         history_page_ids.insert(parent.page_id.clone());
@@ -429,12 +436,14 @@ pub(in crate::notes) async fn move_page(
          SET parent_type = ?,
              parent_page_id = ?,
              parent_block_id = ?,
+             parent_data_source_id = ?,
              last_edited_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
          WHERE id = ? AND in_trash = 0 AND archived = 0",
     )
     .bind(parent_type)
     .bind(parent_page_id)
     .bind(parent_block_id)
+    .bind(parent_data_source_id)
     .bind(page_id)
     .execute(&mut *tx)
     .await
@@ -496,18 +505,21 @@ pub(in crate::notes) async fn update_page(
     history::record_page_snapshot_tx(&mut tx, page_id, "update_page").await?;
     if let Some(parent) = &update.parent {
         validate_page_parent_exists(&mut tx, parent).await?;
-        let (parent_type, parent_page_id, parent_block_id) = parent_columns(parent);
+        let (parent_type, parent_page_id, parent_block_id, parent_data_source_id) =
+            page_parent_columns(parent);
         sqlx::query(
             "UPDATE notes_pages
              SET parent_type = ?,
                  parent_page_id = ?,
                  parent_block_id = ?,
+                 parent_data_source_id = ?,
                  last_edited_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
              WHERE id = ? AND in_trash = 0 AND archived = 0",
         )
         .bind(parent_type)
         .bind(parent_page_id)
         .bind(parent_block_id)
+        .bind(parent_data_source_id)
         .bind(page_id)
         .execute(&mut *tx)
         .await
@@ -515,10 +527,11 @@ pub(in crate::notes) async fn update_page(
     }
     if let Some(title) = update.title {
         let title = title.trim().to_string();
-        let properties = update
-            .properties
-            .clone()
-            .unwrap_or_else(|| page_title_properties(&title));
+        let current_page = load_page_row(&mut tx, page_id).await?;
+        let properties = match update.properties.clone() {
+            Some(properties) => properties.to_string(),
+            None => page_row_properties_for_title(&current_page, &title)?,
+        };
         sqlx::query(
             "UPDATE notes_pages
              SET title = ?,
@@ -527,7 +540,7 @@ pub(in crate::notes) async fn update_page(
              WHERE id = ? AND in_trash = 0 AND archived = 0",
         )
         .bind(&title)
-        .bind(properties.to_string())
+        .bind(properties)
         .bind(page_id)
         .execute(&mut *tx)
         .await
@@ -610,6 +623,7 @@ fn page_parent_from_columns(
     parent_type: &str,
     parent_page_id: Option<String>,
     parent_block_id: Option<String>,
+    parent_data_source_id: Option<String>,
 ) -> Result<NoteParent, String> {
     match parent_type {
         "workspace" => Ok(NoteParent::Workspace { workspace: true }),
@@ -619,6 +633,9 @@ fn page_parent_from_columns(
         "block_id" => parent_block_id
             .map(|block_id| NoteParent::BlockId { block_id })
             .ok_or_else(|| "page parent row is missing parent_block_id".to_string()),
+        "data_source_id" => parent_data_source_id
+            .map(|data_source_id| NoteParent::DataSourceId { data_source_id })
+            .ok_or_else(|| "page parent row is missing parent_data_source_id".to_string()),
         _ => Err("page parent row has unsupported parent_type".to_string()),
     }
 }
@@ -654,11 +671,12 @@ async fn insert_duplicated_page(
     plan: &DuplicatePagePlan,
 ) -> Result<(), String> {
     validate_parent(&plan.parent)?;
-    let (parent_type, parent_page_id, parent_block_id) = parent_columns(&plan.parent);
+    let (parent_type, parent_page_id, parent_block_id, parent_data_source_id) =
+        page_parent_columns(&plan.parent);
     let properties = if plan.duplicate_title == plan.source_page.title {
         plan.source_page.properties.clone()
     } else {
-        page_title_properties(&plan.duplicate_title).to_string()
+        page_row_properties_for_title(&plan.source_page, &plan.duplicate_title)?
     };
     sqlx::query(
         "INSERT INTO notes_pages (
@@ -666,17 +684,19 @@ async fn insert_duplicated_page(
             parent_type,
             parent_page_id,
             parent_block_id,
+            parent_data_source_id,
             title,
             properties,
             icon,
             cover
          )
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&plan.duplicate_id)
     .bind(parent_type)
     .bind(parent_page_id)
     .bind(parent_block_id)
+    .bind(parent_data_source_id)
     .bind(&plan.duplicate_title)
     .bind(properties)
     .bind(&plan.source_page.icon)
@@ -691,7 +711,9 @@ async fn insert_root_duplicate_child_page_block(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     plan: &DuplicatePagePlan,
 ) -> Result<(), String> {
-    if plan.source_page.parent_type == "workspace" {
+    if plan.source_page.parent_type == "workspace"
+        || plan.source_page.parent_type == "data_source_id"
+    {
         return Ok(());
     }
     let source_block = load_child_page_block_row(tx, &plan.source_page.id).await?;
@@ -1020,8 +1042,8 @@ async fn repair_page_parent_for_active_restore(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     page_id: &str,
 ) -> Result<bool, String> {
-    let row: Option<(String, Option<String>, Option<String>)> = sqlx::query_as(
-        "SELECT parent_type, parent_page_id, parent_block_id
+    let row: Option<PageParentColumns> = sqlx::query_as(
+        "SELECT parent_type, parent_page_id, parent_block_id, parent_data_source_id
          FROM notes_pages
          WHERE id = ?",
     )
@@ -1029,7 +1051,7 @@ async fn repair_page_parent_for_active_restore(
     .fetch_optional(&mut **tx)
     .await
     .map_err(|e| format!("load restored notes page parent: {e}"))?;
-    let Some((parent_type, parent_page_id, parent_block_id)) = row else {
+    let Some((parent_type, parent_page_id, parent_block_id, parent_data_source_id)) = row else {
         return Err("notes page not found".to_string());
     };
     let parent_is_active = match parent_type.as_str() {
@@ -1047,6 +1069,13 @@ async fn repair_page_parent_for_active_restore(
                 return Ok(false);
             };
             active_block_parent_exists(tx, &parent_block_id).await?
+        }
+        "data_source_id" => {
+            let Some(parent_data_source_id) = parent_data_source_id else {
+                move_page_to_workspace_parent(tx, page_id).await?;
+                return Ok(false);
+            };
+            active_data_source_parent_exists(tx, &parent_data_source_id).await?
         }
         _ => false,
     };
@@ -1093,6 +1122,25 @@ async fn active_block_parent_exists(
     Ok(exists.is_some())
 }
 
+async fn active_data_source_parent_exists(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    parent_data_source_id: &str,
+) -> Result<bool, String> {
+    let exists: Option<i64> = sqlx::query_scalar(
+        "SELECT 1
+         FROM notes_data_sources AS data_source
+         JOIN notes_databases AS database ON database.id = data_source.database_id
+         WHERE data_source.id = ?
+           AND data_source.in_trash = 0
+           AND database.in_trash = 0",
+    )
+    .bind(parent_data_source_id)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|e| format!("check restored notes data source parent: {e}"))?;
+    Ok(exists.is_some())
+}
+
 async fn move_page_to_workspace_parent(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     page_id: &str,
@@ -1102,6 +1150,7 @@ async fn move_page_to_workspace_parent(
          SET parent_type = 'workspace',
              parent_page_id = NULL,
              parent_block_id = NULL,
+             parent_data_source_id = NULL,
              last_edited_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
          WHERE id = ?",
     )
@@ -1501,6 +1550,7 @@ pub(in crate::notes) async fn move_block(
              SET parent_type = ?,
                  parent_page_id = ?,
                  parent_block_id = ?,
+                 parent_data_source_id = NULL,
                  last_edited_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
              WHERE id = ?",
         )
@@ -1621,6 +1671,7 @@ pub(in crate::notes) async fn move_blocks(
                  SET parent_type = ?,
                      parent_page_id = ?,
                      parent_block_id = ?,
+                     parent_data_source_id = NULL,
                      last_edited_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
                  WHERE id = ?",
             )
@@ -2289,6 +2340,9 @@ async fn resolve_page_move_parent(
         NoteParent::BlockId { .. } => {
             Err("pages can only be moved to workspace or another page".to_string())
         }
+        NoteParent::DataSourceId { .. } => {
+            Err("pages can only be moved to workspace or another page".to_string())
+        }
     }
 }
 
@@ -2489,6 +2543,23 @@ async fn validate_page_parent_exists(
                 .map(|_| ())
                 .ok_or_else(|| "parent block not found".to_string())
         }
+        NoteParent::DataSourceId { data_source_id } => {
+            let exists: Option<i64> = sqlx::query_scalar(
+                "SELECT 1
+                 FROM notes_data_sources AS data_source
+                 JOIN notes_databases AS database ON database.id = data_source.database_id
+                 WHERE data_source.id = ?
+                   AND data_source.in_trash = 0
+                   AND database.in_trash = 0",
+            )
+            .bind(data_source_id)
+            .fetch_optional(&mut **tx)
+            .await
+            .map_err(|e| format!("load parent data source: {e}"))?;
+            exists
+                .map(|_| ())
+                .ok_or_else(|| "parent data source not found".to_string())
+        }
     }
 }
 
@@ -2543,6 +2614,9 @@ pub(in crate::notes) async fn resolve_block_parent(
                 parent_block_type: Some(block_type),
                 page_id,
             })
+        }
+        NoteParent::DataSourceId { .. } => {
+            Err("blocks cannot be parented by data sources".to_string())
         }
     }
 }
@@ -3416,20 +3490,46 @@ fn page_title_properties(title: &str) -> Value {
     })
 }
 
+fn page_row_properties_for_title(page: &NotePageRow, title: &str) -> Result<String, String> {
+    if page.parent_type == "data_source_id" {
+        data_source_page_properties_with_title(&page.properties, title)
+    } else {
+        Ok(page_title_properties(title).to_string())
+    }
+}
+
+fn data_source_page_properties_with_title(properties: &str, title: &str) -> Result<String, String> {
+    let mut value: Value =
+        serde_json::from_str(properties).map_err(|e| format!("parse row page properties: {e}"))?;
+    let object = value
+        .as_object_mut()
+        .ok_or_else(|| "row page properties must be an object".to_string())?;
+    for property in object.values_mut() {
+        let Some(property_object) = property.as_object_mut() else {
+            continue;
+        };
+        if property_object.get("type").and_then(Value::as_str) == Some("title") {
+            property_object.insert("title".to_string(), Value::Array(vec![rich_text(title)]));
+            return Ok(value.to_string());
+        }
+    }
+    Err("row page properties are missing a title property".to_string())
+}
+
 fn child_page_payload(title: &str) -> Value {
     json!({
         "title": title
     })
 }
 
-fn default_text_payload(text: &str) -> Value {
+pub(in crate::notes) fn default_text_payload(text: &str) -> Value {
     json!({
         "rich_text": [rich_text(text)],
         "color": "default"
     })
 }
 
-fn rich_text(text: &str) -> Value {
+pub(in crate::notes) fn rich_text(text: &str) -> Value {
     json!({
         "type": "text",
         "text": {

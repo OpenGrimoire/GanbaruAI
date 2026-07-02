@@ -194,6 +194,12 @@ export function parseNotesParent(value: unknown): NotesParent {
   if (type === "block_id") {
     return { type, block_id: readString(record.block_id, "parent.block_id") };
   }
+  if (type === "data_source_id") {
+    return {
+      type,
+      data_source_id: readString(record.data_source_id, "parent.data_source_id"),
+    };
+  }
   throw new Error(`unsupported parent type: ${type}`);
 }
 

@@ -535,6 +535,7 @@
           {focusRequestId}
           onFocusBlock={onFocusBlock}
           onKeydown={handleKeydown}
+          {onSelectPage}
         />
       {:else if block.type === "breadcrumb"}
         <nav

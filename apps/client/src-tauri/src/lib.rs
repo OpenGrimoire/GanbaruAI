@@ -891,6 +891,8 @@ pub fn run() {
             notes::notes_create_database,
             notes::notes_get_data_source_schema,
             notes::notes_update_data_source_schema,
+            notes::notes_list_data_source_row_pages,
+            notes::notes_create_data_source_row_page,
             notes::notes_duplicate_page,
             notes::notes_move_page,
             notes::notes_update_page,

@@ -1822,6 +1822,17 @@ export const es = {
     databaseSchemaReadOnlyTitle: "La propiedad de título es obligatoria",
     databaseSchemaReadonlyPlaceholder:
       "Los valores de este tipo de propiedad se configuran cuando existan páginas de fila.",
+    databaseRowsTitle: "Filas",
+    databaseRowsLoading: "Cargando filas...",
+    databaseRowsFailed: (message: string) => `No se pudieron cargar las filas: ${message}`,
+    databaseRowsCount: (count: number) => (count === 1 ? "1 fila" : `${count} filas`),
+    databaseRowsReload: "Recargar filas",
+    databaseRowsNewPlaceholder: "Título de la nueva fila",
+    databaseRowsAdd: "Agregar fila",
+    databaseRowsOpen: (title: string) => `Abrir ${title}`,
+    databaseRowsDuplicate: (title: string) => `Duplicar ${title}`,
+    databaseRowsTrash: (title: string) => `Mover ${title} a la papelera`,
+    databaseRowsEmpty: "Todavía no hay filas",
     databaseSchemaPropertyType: {
       title: "Título",
       richText: "Texto enriquecido",

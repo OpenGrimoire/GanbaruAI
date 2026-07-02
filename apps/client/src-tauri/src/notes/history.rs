@@ -171,6 +171,7 @@ pub(in crate::notes) async fn record_page_snapshot_tx(
             parent_type,
             parent_page_id,
             parent_block_id,
+            parent_data_source_id,
             title,
             properties,
             icon,
@@ -183,13 +184,14 @@ pub(in crate::notes) async fn record_page_snapshot_tx(
             page_created_time,
             page_last_edited_time
          )
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&snapshot_id)
     .bind(&page.id)
     .bind(&page.parent_type)
     .bind(&page.parent_page_id)
     .bind(&page.parent_block_id)
+    .bind(&page.parent_data_source_id)
     .bind(&page.title)
     .bind(&page.properties)
     .bind(&page.icon)
@@ -413,6 +415,7 @@ async fn upsert_snapshot_child_page(
              SET parent_type = ?,
                  parent_page_id = ?,
                  parent_block_id = ?,
+                 parent_data_source_id = NULL,
                  title = ?,
                  properties = ?,
                  in_trash = 0,
@@ -601,6 +604,10 @@ async fn latest_snapshot_matches(
         _,
         (
             String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            String,
             String,
             Option<String>,
             Option<String>,
@@ -609,7 +616,17 @@ async fn latest_snapshot_matches(
             String,
         ),
     >(
-        "SELECT title, properties, icon, cover, in_trash, archived, blocks
+        "SELECT parent_type,
+                parent_page_id,
+                parent_block_id,
+                parent_data_source_id,
+                title,
+                properties,
+                icon,
+                cover,
+                in_trash,
+                archived,
+                blocks
          FROM notes_page_history_snapshots
          WHERE page_id = ?
          ORDER BY created_time DESC, id DESC
@@ -620,8 +637,24 @@ async fn latest_snapshot_matches(
     .await
     .map_err(|e| format!("load latest notes page history snapshot: {e}"))?;
     Ok(latest.is_some_and(
-        |(title, properties, icon, cover, in_trash, archived, blocks)| {
-            title == page.title
+        |(
+            parent_type,
+            parent_page_id,
+            parent_block_id,
+            parent_data_source_id,
+            title,
+            properties,
+            icon,
+            cover,
+            in_trash,
+            archived,
+            blocks,
+        )| {
+            parent_type == page.parent_type
+                && parent_page_id == page.parent_page_id
+                && parent_block_id == page.parent_block_id
+                && parent_data_source_id == page.parent_data_source_id
+                && title == page.title
                 && properties == page.properties
                 && icon == page.icon
                 && cover == page.cover
@@ -673,6 +706,7 @@ fn loaded_page_from_snapshot(
         parent_type: snapshot.parent_type,
         parent_page_id: snapshot.parent_page_id,
         parent_block_id: snapshot.parent_block_id,
+        parent_data_source_id: snapshot.parent_data_source_id,
         title: snapshot.title,
         properties: snapshot.properties,
         icon: snapshot.icon,
