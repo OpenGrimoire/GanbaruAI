@@ -414,6 +414,37 @@ fn media_payload(url: &str, caption: &str, name: Option<&str>) -> serde_json::Va
     payload
 }
 
+fn local_media_payload(
+    asset_path: &str,
+    content_type: &str,
+    byte_size: i64,
+    sha256: &str,
+    caption: &str,
+    name: Option<&str>,
+) -> serde_json::Value {
+    let caption_items = if caption.is_empty() {
+        Vec::<serde_json::Value>::new()
+    } else {
+        vec![rich_text(caption)]
+    };
+    let mut payload = json!({
+        "caption": caption_items,
+        "type": "file",
+        "file": {
+            "url": format!("ganbaru-asset:{asset_path}"),
+            "content_type": content_type,
+            "byte_size": byte_size,
+            "sha256": sha256,
+            "ganbaru_asset_path": asset_path
+        }
+    });
+    if let Some(name) = name {
+        payload["name"] = json!(name);
+        payload["file"]["name"] = json!(name);
+    }
+    payload
+}
+
 fn table_payload(width: i64) -> serde_json::Value {
     json!({
         "table_width": width,
@@ -1082,6 +1113,47 @@ fn notes_validation_rejects_bad_ids_and_payloads() {
             }),
         ),
         Err("file.file_upload.id must be a UUID".to_string())
+    );
+    assert!(validation::validate_block_payload(
+        "image",
+        &local_media_payload(
+            "notes/files/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+            "image/png",
+            42,
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "",
+            Some("image.png"),
+        ),
+    )
+    .is_ok());
+    assert_eq!(
+        validation::validate_block_payload(
+            "image",
+            &local_media_payload(
+                "notes/page-icons/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+                "image/png",
+                42,
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "",
+                Some("image.png"),
+            ),
+        ),
+        Err("image.file.ganbaru_asset_path must stay under the managed Notes file directory"
+            .to_string())
+    );
+    assert_eq!(
+        validation::validate_block_payload(
+            "pdf",
+            &local_media_payload(
+                "notes/files/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.pdf",
+                "text/plain",
+                42,
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "",
+                Some("report.pdf"),
+            ),
+        ),
+        Err("pdf.file.content_type must match the local media block type".to_string())
     );
     assert_eq!(
         validation::validate_block_payload("equation", &json!({ "expression": "bad\u{0008}" })),
@@ -9113,6 +9185,121 @@ fn append_and_update_media_blocks_round_trip() {
                 .await
                 .unwrap();
         assert_eq!(file_plain_text, "Spec doc.txt https://example.com/doc.txt");
+    });
+}
+
+#[test]
+fn block_media_asset_references_follow_local_file_payloads() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        create_page(&pool, PAGE_A, BLOCK_A).await;
+        let first_asset =
+            "notes/files/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc.png";
+        let second_asset =
+            "notes/files/dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd.png";
+
+        writes::append_block_children(
+            &pool,
+            NoteAppendBlockChildren {
+                parent: page_parent(PAGE_A),
+                after: Some(BLOCK_A.to_string()),
+                children: vec![block(
+                    BLOCK_B,
+                    "image",
+                    local_media_payload(
+                        first_asset,
+                        "image/png",
+                        42,
+                        "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                        "Local cover",
+                        Some("cover.png"),
+                    ),
+                )],
+            },
+        )
+        .await
+        .unwrap();
+
+        let first_reference_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)
+             FROM notes_asset_references
+             WHERE asset_id = ? AND owner_type = 'block' AND owner_id = ?
+                AND page_id = ? AND block_id = ? AND role = 'block_file'",
+        )
+        .bind(first_asset)
+        .bind(BLOCK_B)
+        .bind(PAGE_A)
+        .bind(BLOCK_B)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(first_reference_count, 1);
+
+        writes::update_block(
+            &pool,
+            BLOCK_B,
+            block_update(
+                "image",
+                local_media_payload(
+                    second_asset,
+                    "image/png",
+                    84,
+                    "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                    "Replacement",
+                    Some("replacement.png"),
+                ),
+            ),
+        )
+        .await
+        .unwrap();
+
+        let old_reference_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM notes_asset_references WHERE asset_id = ?")
+                .bind(first_asset)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(old_reference_count, 0);
+
+        let replacement_reference_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)
+             FROM notes_asset_references
+             WHERE asset_id = ? AND owner_type = 'block' AND owner_id = ?
+                AND page_id = ? AND block_id = ? AND role = 'block_file'",
+        )
+        .bind(second_asset)
+        .bind(BLOCK_B)
+        .bind(PAGE_A)
+        .bind(BLOCK_B)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(replacement_reference_count, 1);
+
+        writes::update_block(
+            &pool,
+            BLOCK_B,
+            block_update(
+                "image",
+                media_payload("https://example.com/replacement.png", "External", None),
+            ),
+        )
+        .await
+        .unwrap();
+
+        let remaining_references: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM notes_asset_references WHERE owner_id = ?")
+                .bind(BLOCK_B)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(remaining_references, 0);
+
+        let retained_assets: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM notes_assets")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(retained_assets, 2);
     });
 }
 

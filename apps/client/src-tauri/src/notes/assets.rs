@@ -113,6 +113,56 @@ pub(in crate::notes) async fn sync_page_asset_references_tx(
     Ok(())
 }
 
+pub(in crate::notes) async fn sync_block_asset_reference_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    block_id: &str,
+    page_id: &str,
+    block_type: &str,
+    payload: &Value,
+) -> Result<(), String> {
+    if !matches!(block_type, "image" | "video" | "audio" | "file" | "pdf") {
+        return Ok(());
+    }
+    sqlx::query(
+        "DELETE FROM notes_asset_references
+         WHERE owner_type = 'block' AND owner_id = ? AND role = 'block_file'",
+    )
+    .bind(block_id)
+    .execute(&mut **tx)
+    .await
+    .map_err(|e| format!("clear notes block asset reference: {e}"))?;
+
+    let Some(asset) = media_local_file_asset(payload, block_type)? else {
+        return Ok(());
+    };
+    let asset_path = asset.relative_path.trim().to_string();
+    upsert_managed_asset_tx(tx, asset).await?;
+    sqlx::query(
+        "INSERT INTO notes_asset_references (
+            asset_id,
+            owner_type,
+            owner_id,
+            page_id,
+            block_id,
+            role
+         )
+         VALUES (?, 'block', ?, ?, ?, 'block_file')
+         ON CONFLICT(asset_id, owner_type, owner_id, role)
+         DO UPDATE SET
+            page_id = excluded.page_id,
+            block_id = excluded.block_id,
+            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+    )
+    .bind(asset_path)
+    .bind(block_id)
+    .bind(page_id)
+    .bind(block_id)
+    .execute(&mut **tx)
+    .await
+    .map_err(|e| format!("record notes block asset reference: {e}"))?;
+    Ok(())
+}
+
 async fn replace_page_asset_reference_tx(
     tx: &mut Transaction<'_, Sqlite>,
     page_id: &str,
@@ -193,6 +243,51 @@ fn page_local_file_asset<'a>(
         .get("sha256")
         .and_then(Value::as_str)
         .ok_or_else(|| format!("{field}.file.sha256 must be a string"))?;
+    Ok(Some(NotesManagedAssetWrite {
+        relative_path,
+        original_name: file.get("name").and_then(Value::as_str),
+        content_type,
+        byte_size,
+        sha256,
+        source_type: NOTES_ASSET_SOURCE_LOCAL_UPLOAD,
+        storage_state: NOTES_ASSET_STATE_AVAILABLE,
+        missing_at: None,
+    }))
+}
+
+fn media_local_file_asset<'a>(
+    payload: &'a Value,
+    block_type: &str,
+) -> Result<Option<NotesManagedAssetWrite<'a>>, String> {
+    let Value::Object(object) = payload else {
+        return Ok(None);
+    };
+    if object.get("type").and_then(Value::as_str) != Some("file") {
+        return Ok(None);
+    }
+    let Some(file) = object.get("file").and_then(Value::as_object) else {
+        return Ok(None);
+    };
+    let Some(relative_path) = file.get("ganbaru_asset_path").and_then(Value::as_str) else {
+        return Ok(None);
+    };
+    if !relative_path.trim().starts_with(NOTES_ASSET_FILE_PREFIX) {
+        return Err(format!(
+            "{block_type}.file.ganbaru_asset_path must stay under the managed Notes file directory"
+        ));
+    }
+    let content_type = file
+        .get("content_type")
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("{block_type}.file.content_type must be a string"))?;
+    let byte_size = file
+        .get("byte_size")
+        .and_then(Value::as_i64)
+        .ok_or_else(|| format!("{block_type}.file.byte_size must be an integer"))?;
+    let sha256 = file
+        .get("sha256")
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("{block_type}.file.sha256 must be a string"))?;
     Ok(Some(NotesManagedAssetWrite {
         relative_path,
         original_name: file.get("name").and_then(Value::as_str),

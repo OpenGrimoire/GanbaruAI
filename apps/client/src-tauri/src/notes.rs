@@ -20,6 +20,7 @@ mod data_source_templates;
 mod data_source_timeline;
 mod data_source_views;
 mod databases;
+mod file_assets;
 mod history;
 mod local_user;
 mod mention_notifications;
@@ -33,6 +34,7 @@ mod undo_state;
 mod validation;
 mod writes;
 
+pub use file_assets::*;
 pub use models::*;
 pub use page_cover_assets::*;
 pub use page_icon_assets::*;

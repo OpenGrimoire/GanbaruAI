@@ -1405,6 +1405,14 @@ pub(in crate::notes) async fn update_block(
         &plain_text,
     )
     .await?;
+    assets::sync_block_asset_reference_tx(
+        &mut tx,
+        block_id,
+        &current.page_id,
+        &block_type,
+        &payload,
+    )
+    .await?;
     touch_page(&mut tx, &current.page_id).await?;
     tx.commit()
         .await
@@ -2911,6 +2919,14 @@ async fn insert_block(
         block.block_type.trim(),
         payload,
         &plain_text,
+    )
+    .await?;
+    assets::sync_block_asset_reference_tx(
+        tx,
+        block.id.trim(),
+        &parent.page_id,
+        block.block_type.trim(),
+        payload,
     )
     .await?;
     Ok(())

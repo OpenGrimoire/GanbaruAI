@@ -48,6 +48,10 @@ import {
   type NotesObjectMentionTarget,
 } from "./rich-text";
 import { unsupportedBlockPlainText } from "./unsupported";
+import {
+  createManagedMediaPayload,
+  type NotesFileAssetMetadata,
+} from "./media";
 
 export { richTextPlainText } from "./rich-text";
 
@@ -284,9 +288,33 @@ function createMediaPayloadFromExistingSource(
   }
   return {
     type: "file",
-    file: existing.file,
+    file: trimmedName ? { ...existing.file, name: trimmedName } : existing.file,
     ...editableFields,
   };
+}
+
+export type NotesMediaAssetChange =
+  | { type: "attach"; asset: NotesFileAssetMetadata }
+  | { type: "preserve" }
+  | { type: "clear" };
+
+function createMediaPayloadFromChange(
+  existing: NotesMediaBlockPayload,
+  url: string,
+  caption: string,
+  name: string | undefined,
+  assetChange?: NotesMediaAssetChange,
+): NotesMediaBlockPayload {
+  if (assetChange?.type === "attach") {
+    return createManagedMediaPayload(assetChange.asset, caption, name);
+  }
+  if (assetChange?.type === "clear") {
+    return createMediaPayload("", caption, name);
+  }
+  if (assetChange?.type === "preserve") {
+    return createMediaPayloadFromExistingSource(existing, "", caption, name);
+  }
+  return createMediaPayloadFromExistingSource(existing, url, caption, name);
 }
 
 export function createUnsupportedPayload(blockType = "unsupported"): NotesUnsupportedBlockPayload {
@@ -961,21 +989,37 @@ export function blockWithMedia(
   url: string,
   caption: string,
   name?: string,
+  assetChange?: NotesMediaAssetChange,
 ): NotesBlockUpdate {
   if (block.type === "image") {
-    return { type: "image", image: createMediaPayloadFromExistingSource(block.image, url, caption, name) };
+    return {
+      type: "image",
+      image: createMediaPayloadFromChange(block.image, url, caption, name, assetChange),
+    };
   }
   if (block.type === "video") {
-    return { type: "video", video: createMediaPayloadFromExistingSource(block.video, url, caption, name) };
+    return {
+      type: "video",
+      video: createMediaPayloadFromChange(block.video, url, caption, name, assetChange),
+    };
   }
   if (block.type === "audio") {
-    return { type: "audio", audio: createMediaPayloadFromExistingSource(block.audio, url, caption, name) };
+    return {
+      type: "audio",
+      audio: createMediaPayloadFromChange(block.audio, url, caption, name, assetChange),
+    };
   }
   if (block.type === "file") {
-    return { type: "file", file: createMediaPayloadFromExistingSource(block.file, url, caption, name) };
+    return {
+      type: "file",
+      file: createMediaPayloadFromChange(block.file, url, caption, name, assetChange),
+    };
   }
   if (block.type === "pdf") {
-    return { type: "pdf", pdf: createMediaPayloadFromExistingSource(block.pdf, url, caption, name) };
+    return {
+      type: "pdf",
+      pdf: createMediaPayloadFromChange(block.pdf, url, caption, name, assetChange),
+    };
   }
   return blockWithText(block, blockPlainText(block));
 }

@@ -3,12 +3,17 @@ import { createMediaPayload } from "./block-factory";
 import {
   canOpenMediaUrl,
   canPreviewMedia,
+  createManagedMediaPayload,
   externalMediaUrlIsSupported,
   mediaDisplayName,
+  mediaManagedAssetMetadata,
   mediaPlainText,
   mediaPreviewKindForUrl,
   mediaUrlIssue,
 } from "./media";
+
+const localPngSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const localPngPath = `notes/files/${localPngSha}.png`;
 
 describe("notes media helpers", () => {
   it("derives display text from captions, names, and source URLs", () => {
@@ -64,5 +69,45 @@ describe("notes media helpers", () => {
     expect(canPreviewMedia("file", file)).toBe(false);
     expect(canOpenMediaUrl(youtube)).toBe(true);
     expect(canPreviewMedia("video", youtube)).toBe(false);
+  });
+
+  it("creates and reads managed local media metadata without treating it as an external URL", () => {
+    const payload = createManagedMediaPayload(
+      {
+        relativePath: localPngPath,
+        originalName: "local.png",
+        contentType: "image/png",
+        byteSize: 42,
+        sha256: localPngSha,
+        kind: "image",
+      },
+      "Local cover",
+    );
+
+    expect(payload).toEqual({
+      type: "file",
+      file: {
+        url: `ganbaru-asset:${localPngPath}`,
+        name: "local.png",
+        content_type: "image/png",
+        byte_size: 42,
+        sha256: localPngSha,
+        ganbaru_asset_path: localPngPath,
+      },
+      caption: expect.arrayContaining([expect.objectContaining({ plain_text: "Local cover" })]),
+      name: "local.png",
+    });
+    expect(mediaManagedAssetMetadata(payload)).toEqual({
+      relativePath: localPngPath,
+      originalName: "local.png",
+      contentType: "image/png",
+      byteSize: 42,
+      sha256: localPngSha,
+      kind: "image",
+    });
+    expect(mediaPreviewKindForUrl("image", `ganbaru-asset:${localPngPath}`)).toBe("image");
+    expect(mediaUrlIssue("image", `ganbaru-asset:${localPngPath}`)).toBe("requires_https");
+    expect(canOpenMediaUrl(payload)).toBe(false);
+    expect(canPreviewMedia("image", payload)).toBe(true);
   });
 });

@@ -820,7 +820,7 @@ function parseMediaPayload(
   return {
     caption,
     ...(name === undefined ? {} : { name }),
-    ...parseFileObject(record, label, blockType, blockType === "file"),
+    ...parseFileObject(record, label, blockType, true),
   };
 }
 
@@ -843,6 +843,42 @@ function parseFileObject(
   if (fileType === "file") {
     const file = readRecord(record.file, `${label}.file`);
     const url = readString(file.url, `${label}.file.url`);
+    const assetPath = readOptionalDisplayString(file.ganbaru_asset_path, `${label}.file.ganbaru_asset_path`);
+    const fileName = readOptionalDisplayString(file.name, `${label}.file.name`);
+    const contentType = readOptionalDisplayString(file.content_type, `${label}.file.content_type`);
+    const byteSize = file.byte_size === undefined ? undefined : readInteger(file.byte_size, `${label}.file.byte_size`);
+    const sha256 = readOptionalDisplayString(file.sha256, `${label}.file.sha256`);
+    if (assetPath !== undefined) {
+      if (!isNotesFileAssetPath(assetPath)) {
+        throw new Error(`${label}.file.ganbaru_asset_path must stay under the managed Notes file directory`);
+      }
+      if (url !== `ganbaru-asset:${assetPath}`) {
+        throw new Error(`${label}.file.url must reference the managed file asset path`);
+      }
+      if (contentType === undefined || !localMediaContentTypeMatchesBlock(mediaType, contentType)) {
+        throw new Error(`${label}.file.content_type must match the local media block type`);
+      }
+      if (byteSize === undefined || byteSize <= 0) {
+        throw new Error(`${label}.file.byte_size must be positive`);
+      }
+      if (sha256 === undefined || !/^[a-f0-9]{64}$/.test(sha256)) {
+        throw new Error(`${label}.file.sha256 must be a lowercase SHA-256 hex digest`);
+      }
+      return {
+        type: "file",
+        file: {
+          url,
+          ...(fileName === undefined ? {} : { name: fileName }),
+          content_type: contentType,
+          byte_size: byteSize,
+          sha256,
+          ganbaru_asset_path: assetPath,
+        },
+      };
+    }
+    if (url.startsWith("ganbaru-asset:")) {
+      throw new Error(`${label}.file.url must include managed asset metadata`);
+    }
     const expiryTime = readString(file.expiry_time, `${label}.file.expiry_time`);
     if (!externalMediaUrlIsSupported(mediaType, url)) {
       throw new Error(`${label}.file.url must be a supported HTTPS ${mediaType} URL`);
@@ -861,6 +897,34 @@ function parseFileObject(
     return { type: "file_upload", file_upload: { id } };
   }
   throw new Error(`${label}.type must be file, external, or file_upload`);
+}
+
+function isNotesFileAssetPath(path: string): boolean {
+  const remainder = path.trim().startsWith("notes/files/")
+    ? path.trim().slice("notes/files/".length)
+    : "";
+  return Boolean(remainder)
+    && !remainder.includes("/")
+    && !path.includes("..")
+    && !path.includes("\\");
+}
+
+function localMediaContentTypeMatchesBlock(
+  mediaType: NotesMediaBlockType,
+  contentType: string,
+): boolean {
+  if (mediaType === "image") {
+    return contentType === "image/png"
+      || contentType === "image/jpeg"
+      || contentType === "image/webp";
+  }
+  if (mediaType === "video") return contentType.startsWith("video/");
+  if (mediaType === "audio") return contentType.startsWith("audio/");
+  if (mediaType === "pdf") return contentType === "application/pdf";
+  return contentType.includes("/")
+    && !contentType.includes(" ")
+    && !contentType.includes(";")
+    && contentType !== "image/svg+xml";
 }
 
 function parseNullablePageCover(value: unknown, label: string): NotesPageCover | null {

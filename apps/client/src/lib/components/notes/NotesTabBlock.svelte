@@ -9,6 +9,7 @@
     planNotesKeyboardAction,
     type NotesKeyboardAction,
   } from "$lib/notes/block-keyboard";
+  import type { NotesMediaAssetChange } from "$lib/notes/block-factory";
   import { notesUndoShortcutAction } from "$lib/notes/undo-history";
   import type { NotesTemplateBlockStatus } from "$lib/notes/template-block";
   import type { NotesButtonBlockStatus } from "$lib/notes/button-block";
@@ -259,7 +260,13 @@
     onLinkPreviewUrlChange: (blockId: string, url: string) => void;
     onEmbedUrlChange: (blockId: string, url: string) => void;
     onEquationExpressionChange: (blockId: string, expression: string) => void;
-    onMediaChange: (blockId: string, url: string, caption: string, name?: string) => void;
+    onMediaChange: (
+      blockId: string,
+      url: string,
+      caption: string,
+      name?: string,
+      assetChange?: NotesMediaAssetChange,
+    ) => void;
     onTableCellRichTextChange: (
       rowBlockId: string,
       columnIndex: number,

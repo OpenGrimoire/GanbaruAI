@@ -41,6 +41,7 @@
     planNotesKeyboardAction,
     type NotesKeyboardAction,
   } from "$lib/notes/block-keyboard";
+  import type { NotesMediaAssetChange } from "$lib/notes/block-factory";
   import { notesUndoShortcutAction } from "$lib/notes/undo-history";
   import type { NotesSlashAction, NotesSlashCommand } from "$lib/notes/slash-commands";
   import type { NotesBlockDropIndicator } from "$lib/notes/block-drag";
@@ -260,7 +261,13 @@
     onLinkPreviewUrlChange: (blockId: string, url: string) => void;
     onEmbedUrlChange: (blockId: string, url: string) => void;
     onEquationExpressionChange: (blockId: string, expression: string) => void;
-    onMediaChange: (blockId: string, url: string, caption: string, name?: string) => void;
+    onMediaChange: (
+      blockId: string,
+      url: string,
+      caption: string,
+      name?: string,
+      assetChange?: NotesMediaAssetChange,
+    ) => void;
     onTableCellRichTextChange: (
       rowBlockId: string,
       columnIndex: number,

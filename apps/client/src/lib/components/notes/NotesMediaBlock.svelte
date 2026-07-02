@@ -1,18 +1,23 @@
 <script lang="ts">
   import { tick } from "svelte";
   import { openUrl } from "@tauri-apps/plugin-opener";
+  import { pickNotesFileAsset, notesFileAssetUrl } from "$lib/api/notes-file-assets";
+  import { formatNumber } from "$lib/i18n/formatters";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import {
     mediaCaptionPlainText,
     mediaDisplayNameFromSource,
     mediaDisplayName,
+    mediaManagedAssetMetadata,
     mediaPlainText,
     mediaPreviewKindForUrl,
     mediaSourceUrl,
     mediaUrlIssue,
+    type NotesFileAssetMetadata,
     type NotesMediaUrlIssue,
     type NotesMediaBlockType,
   } from "$lib/notes/media";
+  import type { NotesMediaAssetChange } from "$lib/notes/block-factory";
   import {
     planNotesKeyboardAction,
     type NotesKeyboardAction,
@@ -31,6 +36,8 @@
   import FileText from "@lucide/svelte/icons/file-text";
   import ImageIcon from "@lucide/svelte/icons/image";
   import Music from "@lucide/svelte/icons/music";
+  import Trash2 from "@lucide/svelte/icons/trash-2";
+  import Upload from "@lucide/svelte/icons/upload";
   import Video from "@lucide/svelte/icons/video";
 
   type NotesMediaBlock =
@@ -59,12 +66,24 @@
     onKeyboardAction: (blockId: string, action: NotesKeyboardAction) => void;
     onUndo: () => Promise<void> | void;
     onRedo: () => Promise<void> | void;
-    onMediaChange: (blockId: string, url: string, caption: string, name?: string) => void;
+    onMediaChange: (
+      blockId: string,
+      url: string,
+      caption: string,
+      name?: string,
+      assetChange?: NotesMediaAssetChange,
+    ) => void;
   } = $props();
 
-  const { t } = getLocalization();
+  const localization = getLocalization();
+  const { t } = localization;
+  const locale = $derived(localization.locale);
   let urlInput: HTMLInputElement | null = $state(null);
   let openError = $state<string | null>(null);
+  let localFileError = $state<string | null>(null);
+  let localPreviewUrl = $state<string | null>(null);
+  let localPreviewError = $state<string | null>(null);
+  let isPickingLocalFile = $state(false);
   let urlDraft = $state("");
   let captionDraft = $state("");
   let nameDraft = $state("");
@@ -81,6 +100,8 @@
             ? block.pdf
             : block.file,
   );
+  const localAsset = $derived(mediaManagedAssetMetadata(media));
+  const localAssetPath = $derived(localAsset?.relativePath ?? null);
   const url = $derived(mediaSourceUrl(media));
   const caption = $derived(mediaCaptionPlainText(media));
   const name = $derived(media.name ?? "");
@@ -89,9 +110,15 @@
       || mediaDisplayName(media)
       || t(`notes.blockType.${mediaType}`),
   );
-  const draftIssue = $derived(mediaUrlIssue(mediaType, urlDraft));
-  const canOpen = $derived(!draftIssue && canOpenDraftUrl(urlDraft));
-  const previewKind = $derived(mediaPreviewKindForUrl(mediaType, urlDraft));
+  const draftIssue = $derived(localAssetPath ? null : mediaUrlIssue(mediaType, urlDraft));
+  const canOpen = $derived(!localAssetPath && !draftIssue && canOpenDraftUrl(urlDraft));
+  const previewKind = $derived(
+    localAssetPath
+      ? (localPreviewUrl && mediaType !== "file" ? mediaType : "none")
+      : mediaPreviewKindForUrl(mediaType, urlDraft),
+  );
+  const previewUrl = $derived(localPreviewUrl ?? urlDraft);
+  const localMetadata = $derived(localAsset ? formatLocalAssetMetadata(localAsset) : null);
   const currentText = $derived(
     [captionDraft, displayName, urlDraft || mediaPlainText(media)]
       .map((part) => part.trim())
@@ -106,7 +133,33 @@
     urlDraft = url;
     captionDraft = caption;
     nameDraft = name;
+    localFileError = null;
     draftSourceKey = sourceKey;
+  });
+
+  $effect(() => {
+    const assetPath = localAssetPath;
+    const type = mediaType;
+    if (!assetPath || type === "file") {
+      localPreviewUrl = null;
+      localPreviewError = null;
+      return;
+    }
+    let cancelled = false;
+    localPreviewUrl = null;
+    localPreviewError = null;
+    void notesFileAssetUrl(assetPath)
+      .then((assetUrl) => {
+        if (cancelled) return;
+        localPreviewUrl = assetUrl;
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        localPreviewError = error instanceof Error ? error.message : String(error);
+      });
+    return () => {
+      cancelled = true;
+    };
   });
 
   $effect(() => {
@@ -148,14 +201,67 @@
     return null;
   }
 
+  function formatLocalAssetMetadata(asset: NotesFileAssetMetadata): string {
+    return t("notes.mediaLocalFileMetadata", asset.contentType, formatFileSize(asset.byteSize));
+  }
+
+  function formatFileSize(byteSize: number): string {
+    if (byteSize < 1024) return t("notes.mediaBytes", formatNumber(locale, byteSize));
+    const kib = byteSize / 1024;
+    if (kib < 1024) {
+      return t("notes.mediaKiB", formatNumber(locale, kib, { maximumFractionDigits: 1 }));
+    }
+    return t("notes.mediaMiB", formatNumber(locale, kib / 1024, { maximumFractionDigits: 1 }));
+  }
+
   function commitDrafts(): void {
     if (draftIssue) return;
     openError = null;
+    if (localAssetPath) {
+      onMediaChange(
+        block.id,
+        "",
+        captionDraft,
+        mediaType === "file" ? nameDraft : undefined,
+        { type: "preserve" },
+      );
+      return;
+    }
     onMediaChange(
       block.id,
       urlDraft,
       captionDraft,
       mediaType === "file" ? nameDraft : undefined,
+    );
+  }
+
+  async function chooseLocalFile(): Promise<void> {
+    try {
+      localFileError = null;
+      isPickingLocalFile = true;
+      const asset = await pickNotesFileAsset(mediaType);
+      if (!asset) return;
+      const assetName = mediaType === "file"
+        ? (nameDraft.trim() || asset.originalName || undefined)
+        : (asset.originalName ?? undefined);
+      onMediaChange(block.id, "", captionDraft, assetName, { type: "attach", asset });
+    } catch (error) {
+      localFileError = error instanceof Error ? error.message : String(error);
+    } finally {
+      isPickingLocalFile = false;
+    }
+  }
+
+  function removeLocalFile(): void {
+    localFileError = null;
+    localPreviewUrl = null;
+    localPreviewError = null;
+    onMediaChange(
+      block.id,
+      "",
+      captionDraft,
+      mediaType === "file" ? nameDraft : undefined,
+      { type: "clear" },
     );
   }
 
@@ -231,21 +337,32 @@
           onkeydown={handleKeydown}
         />
       {/if}
-      <input
-        bind:this={urlInput}
-        class="min-h-7 w-full min-w-0 bg-transparent text-[0.866667rem] font-medium outline-none placeholder:text-muted-foreground"
-        type="url"
-        inputmode="url"
-        aria-label={t("notes.mediaUrl")}
-        value={urlDraft}
-        placeholder={t("notes.mediaUrlPlaceholder")}
-        oninput={(event) => {
-          urlDraft = event.currentTarget.value;
-          openError = null;
-        }}
-        onblur={commitDrafts}
-        onkeydown={handleKeydown}
-      />
+      {#if localAssetPath}
+        <div class="flex min-h-7 min-w-0 items-center gap-2 text-[0.866667rem] font-medium">
+          <span class="min-w-0 truncate">{t("notes.mediaLocalFile")}</span>
+        </div>
+        {#if localMetadata}
+          <p class="min-w-0 text-[0.733333rem] text-muted-foreground">
+            {localMetadata}
+          </p>
+        {/if}
+      {:else}
+        <input
+          bind:this={urlInput}
+          class="min-h-7 w-full min-w-0 bg-transparent text-[0.866667rem] font-medium outline-none placeholder:text-muted-foreground"
+          type="url"
+          inputmode="url"
+          aria-label={t("notes.mediaUrl")}
+          value={urlDraft}
+          placeholder={t("notes.mediaUrlPlaceholder")}
+          oninput={(event) => {
+            urlDraft = event.currentTarget.value;
+            openError = null;
+          }}
+          onblur={commitDrafts}
+          onkeydown={handleKeydown}
+        />
+      {/if}
       <input
         class="min-h-7 w-full min-w-0 bg-transparent text-[0.8rem] text-muted-foreground outline-none placeholder:text-muted-foreground"
         type="text"
@@ -263,9 +380,18 @@
         <p class="text-[0.733333rem] text-destructive">
           {validationMessage(draftIssue)}
         </p>
+      {:else if localPreviewError}
+        <p class="text-[0.733333rem] text-muted-foreground">
+          {t("notes.mediaLocalPreviewUnavailable", localPreviewError)}
+        </p>
       {:else if previewMessage()}
         <p class="text-[0.733333rem] text-muted-foreground">
           {previewMessage()}
+        </p>
+      {/if}
+      {#if localFileError}
+        <p class="text-[0.733333rem] text-destructive">
+          {t("notes.mediaLocalAttachFailed", localFileError)}
         </p>
       {/if}
       {#if openError}
@@ -274,6 +400,29 @@
         </p>
       {/if}
     </div>
+    <button
+      type="button"
+      class="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-wait disabled:opacity-40"
+      aria-label={localAssetPath
+        ? t("notes.replaceLocalMedia", t(`notes.blockType.${mediaType}`))
+        : t("notes.chooseLocalMedia", t(`notes.blockType.${mediaType}`))}
+      disabled={isPickingLocalFile}
+      onclick={() => {
+        void chooseLocalFile();
+      }}
+    >
+      <Upload class="size-4" />
+    </button>
+    {#if localAssetPath}
+      <button
+        type="button"
+        class="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+        aria-label={t("notes.removeLocalMedia", t(`notes.blockType.${mediaType}`))}
+        onclick={removeLocalFile}
+      >
+        <Trash2 class="size-4" />
+      </button>
+    {/if}
     <button
       type="button"
       class="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
@@ -291,23 +440,23 @@
     {#if previewKind === "image"}
       <img
         class="notes-media-preview notes-media-preview-image"
-        src={urlDraft}
+        src={previewUrl}
         alt={captionDraft || displayName}
         loading="lazy"
       />
     {:else if previewKind === "video"}
-      <video class="notes-media-preview" src={urlDraft} controls>
+      <video class="notes-media-preview" src={previewUrl} controls>
         <track kind="captions" />
         {displayName}
       </video>
     {:else if previewKind === "audio"}
-      <audio class="w-full" src={urlDraft} controls>
+      <audio class="w-full" src={previewUrl} controls>
         {displayName}
       </audio>
     {:else if previewKind === "pdf"}
       <object
         class="notes-media-preview notes-media-preview-pdf"
-        data={urlDraft}
+        data={previewUrl}
         type="application/pdf"
         aria-label={t("notes.mediaPreview")}
       >

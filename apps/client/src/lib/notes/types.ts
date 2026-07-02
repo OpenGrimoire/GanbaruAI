@@ -315,7 +315,7 @@ export type NotesFileObject =
         url: string;
         expiry_time?: string;
         name?: string;
-        content_type?: "image/png" | "image/jpeg" | "image/webp";
+        content_type?: string;
         byte_size?: number;
         sha256?: string;
         ganbaru_asset_path?: string;

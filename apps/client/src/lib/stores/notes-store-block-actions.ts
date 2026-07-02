@@ -67,6 +67,7 @@ import {
   DEFAULT_TABLE_ROW_COUNT,
   DEFAULT_TABLE_WIDTH,
   type NotesHeadingBlockType,
+  type NotesMediaAssetChange,
 } from "$lib/notes/block-factory";
 import { createBlockWriteFromRichText } from "$lib/notes/block-rich-text-write";
 import {
@@ -226,6 +227,7 @@ export interface NotesBlockActions extends NotesColumnActions, NotesTabActions {
     url: string,
     caption: string,
     name?: string,
+    assetChange?: NotesMediaAssetChange,
   ) => Promise<void>;
   updateTableCell: (
     rowBlockId: string,
@@ -553,6 +555,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     url: string,
     caption: string,
     name?: string,
+    assetChange?: NotesMediaAssetChange,
   ): Promise<void> {
     const block = context.blockById(blockId);
     if (
@@ -562,7 +565,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
       return;
     }
     const before = undoSnapshot(blockId);
-    const update = blockWithMedia(block, url, caption, name);
+    const update = blockWithMedia(block, url, caption, name, assetChange);
     context.localApplyBlockUpdate(blockId, update);
     context.scheduleBlockSave(blockId, update);
     recordUndoAfter("update", before, blockId, `update:${blockId}`);

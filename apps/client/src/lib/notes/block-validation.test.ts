@@ -451,6 +451,95 @@ describe("notes boundary validation", () => {
     }
   });
 
+  it("parses local managed media file objects", () => {
+    const assetPath = "notes/files/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png";
+    const block = parseNotesBlock({
+      ...baseBlock,
+      type: "image",
+      image: {
+        type: "file",
+        file: {
+          url: `ganbaru-asset:${assetPath}`,
+          name: "local.png",
+          content_type: "image/png",
+          byte_size: 42,
+          sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          ganbaru_asset_path: assetPath,
+        },
+        caption: [baseRichText],
+        name: "local.png",
+      },
+    });
+
+    expect(block.type).toBe("image");
+    if (block.type !== "image" || block.image.type !== "file") {
+      throw new Error("Expected local image file block");
+    }
+    expect(block.image.file).toEqual({
+      url: `ganbaru-asset:${assetPath}`,
+      name: "local.png",
+      content_type: "image/png",
+      byte_size: 42,
+      sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      ganbaru_asset_path: assetPath,
+    });
+  });
+
+  it("rejects unsafe local managed media file objects", () => {
+    expect(() =>
+      parseNotesBlock({
+        ...baseBlock,
+        type: "pdf",
+        pdf: {
+          type: "file",
+          file: {
+            url: "ganbaru-asset:notes/files/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.pdf",
+            name: "brief.pdf",
+            content_type: "text/plain",
+            byte_size: 42,
+            sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            ganbaru_asset_path:
+              "notes/files/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.pdf",
+          },
+          caption: [],
+        },
+      }),
+    ).toThrow("block.pdf.file.content_type must match the local media block type");
+
+    expect(() =>
+      parseNotesBlock({
+        ...baseBlock,
+        type: "image",
+        image: {
+          type: "file",
+          file: {
+            url: "ganbaru-asset:notes/page-covers/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+            content_type: "image/png",
+            byte_size: 42,
+            sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            ganbaru_asset_path:
+              "notes/page-covers/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+          },
+          caption: [],
+        },
+      }),
+    ).toThrow("block.image.file.ganbaru_asset_path must stay under the managed Notes file directory");
+
+    expect(() =>
+      parseNotesBlock({
+        ...baseBlock,
+        type: "image",
+        image: {
+          type: "file",
+          file: {
+            url: "ganbaru-asset:notes/files/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+          },
+          caption: [],
+        },
+      }),
+    ).toThrow("block.image.file.url must include managed asset metadata");
+  });
+
   it("rejects invalid toggleable heading flags", () => {
     expect(() =>
       parseNotesBlock({

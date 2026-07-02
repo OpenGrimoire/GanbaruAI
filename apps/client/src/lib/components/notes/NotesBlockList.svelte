@@ -1285,8 +1285,8 @@
         onEquationExpressionChange={(blockId, expression) => {
           void notes.updateEquationExpression(blockId, expression);
         }}
-        onMediaChange={(blockId, url, caption, name) => {
-          void notes.updateMedia(blockId, url, caption, name);
+        onMediaChange={(blockId, url, caption, name, assetChange) => {
+          void notes.updateMedia(blockId, url, caption, name, assetChange);
         }}
         onTableCellRichTextChange={replaceTableCellRichText}
         onAddTableRow={addTableRow}
@@ -1421,8 +1421,8 @@
         onEquationExpressionChange={(blockId, expression) => {
           void notes.updateEquationExpression(blockId, expression);
         }}
-        onMediaChange={(blockId, url, caption, name) => {
-          void notes.updateMedia(blockId, url, caption, name);
+        onMediaChange={(blockId, url, caption, name, assetChange) => {
+          void notes.updateMedia(blockId, url, caption, name, assetChange);
         }}
         onTableCellRichTextChange={replaceTableCellRichText}
         onAddTableRow={addTableRow}
@@ -1552,8 +1552,8 @@
         onEquationExpressionChange={(blockId, expression) => {
           void notes.updateEquationExpression(blockId, expression);
         }}
-        onMediaChange={(blockId, url, caption, name) => {
-          void notes.updateMedia(blockId, url, caption, name);
+        onMediaChange={(blockId, url, caption, name, assetChange) => {
+          void notes.updateMedia(blockId, url, caption, name, assetChange);
         }}
         onTableCellRichTextChange={replaceTableCellRichText}
         onAddTableRow={addTableRow}

@@ -635,15 +635,39 @@ fn validate_media_payload(block_type: &str, payload: &Value) -> Result<(), Strin
             let Some(Value::String(url)) = file.get("url") else {
                 return Err(format!("{block_type}.file.url must be a string"));
             };
-            validate_media_url(block_type, url, false, &format!("{block_type}.file.url"))?;
-            match file.get("expiry_time") {
-                Some(Value::String(expiry_time)) if !contains_control_characters(expiry_time) => {
-                    Ok(())
+            let local_asset_path = file
+                .get("ganbaru_asset_path")
+                .and_then(Value::as_str)
+                .map(str::trim);
+            validate_optional_non_empty_string(
+                file.get("name"),
+                &format!("{block_type}.file.name"),
+            )?;
+            if let Some(asset_path) = local_asset_path {
+                if url.trim() != format!("ganbaru-asset:{asset_path}") {
+                    return Err(format!(
+                        "{block_type}.file.url must reference the managed file asset path"
+                    ));
                 }
-                Some(Value::String(_)) => Err(format!(
-                    "{block_type}.file.expiry_time must not contain control characters"
-                )),
-                _ => Err(format!("{block_type}.file.expiry_time must be a string")),
+                validate_local_media_metadata(file, block_type)?;
+                Ok(())
+            } else if url.trim().starts_with("ganbaru-asset:") {
+                Err(format!(
+                    "{block_type}.file.url must include managed asset metadata"
+                ))
+            } else {
+                validate_media_url(block_type, url, false, &format!("{block_type}.file.url"))?;
+                match file.get("expiry_time") {
+                    Some(Value::String(expiry_time))
+                        if !contains_control_characters(expiry_time) =>
+                    {
+                        Ok(())
+                    }
+                    Some(Value::String(_)) => Err(format!(
+                        "{block_type}.file.expiry_time must not contain control characters"
+                    )),
+                    _ => Err(format!("{block_type}.file.expiry_time must be a string")),
+                }
             }
         }
         "file_upload" => {
@@ -659,6 +683,80 @@ fn validate_media_payload(block_type: &str, payload: &Value) -> Result<(), Strin
         _ => Err(format!(
             "{block_type}.type must be file, external, or file_upload"
         )),
+    }
+}
+
+fn validate_local_media_metadata(
+    file: &serde_json::Map<String, Value>,
+    block_type: &str,
+) -> Result<(), String> {
+    let Some(Value::String(asset_path)) = file.get("ganbaru_asset_path") else {
+        return Err(format!(
+            "{block_type}.file.ganbaru_asset_path must be a string"
+        ));
+    };
+    validate_managed_file_asset_path(
+        asset_path.trim(),
+        &format!("{block_type}.file.ganbaru_asset_path"),
+    )?;
+    let content_type = match file.get("content_type") {
+        Some(Value::String(content_type)) if !contains_control_characters(content_type) => {
+            content_type.trim()
+        }
+        _ => {
+            return Err(format!(
+                "{block_type}.file.content_type must be a MIME type"
+            ))
+        }
+    };
+    if !local_media_content_type_matches_block(block_type, content_type) {
+        return Err(format!(
+            "{block_type}.file.content_type must match the local media block type"
+        ));
+    }
+    match file.get("byte_size").and_then(Value::as_i64) {
+        Some(size) if size > 0 => {}
+        _ => return Err(format!("{block_type}.file.byte_size must be positive")),
+    }
+    match file.get("sha256") {
+        Some(Value::String(hash)) if is_sha256_hex(hash) => {}
+        _ => {
+            return Err(format!(
+                "{block_type}.file.sha256 must be a lowercase SHA-256 hex digest"
+            ))
+        }
+    }
+    Ok(())
+}
+
+fn validate_managed_file_asset_path(path: &str, field: &str) -> Result<(), String> {
+    let Some(remainder) = path.strip_prefix("notes/files/") else {
+        return Err(format!(
+            "{field} must stay under the managed Notes file directory"
+        ));
+    };
+    if remainder.is_empty() || remainder.contains('/') || path.contains("..") || path.contains('\\')
+    {
+        return Err(format!(
+            "{field} must stay under the managed Notes file directory"
+        ));
+    }
+    Ok(())
+}
+
+fn local_media_content_type_matches_block(block_type: &str, content_type: &str) -> bool {
+    match block_type {
+        "image" => matches!(content_type, "image/png" | "image/jpeg" | "image/webp"),
+        "video" => content_type.starts_with("video/"),
+        "audio" => content_type.starts_with("audio/"),
+        "pdf" => content_type == "application/pdf",
+        "file" => {
+            content_type.contains('/')
+                && !content_type.contains(' ')
+                && !content_type.contains(';')
+                && content_type != "image/svg+xml"
+        }
+        _ => false,
     }
 }
 

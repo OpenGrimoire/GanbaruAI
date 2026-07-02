@@ -1,4 +1,4 @@
-import { richTextPlainText } from "./block-factory";
+import { createTextRichText, richTextPlainText } from "./rich-text";
 import type { NotesBlockType, NotesMediaBlockPayload } from "./types";
 
 export const NOTES_IMAGE_EXTENSIONS = [
@@ -40,6 +40,15 @@ export type NotesMediaBlockType = (typeof MEDIA_BLOCK_TYPES)[number];
 export type NotesMediaUrlIssue = "invalid_url" | "requires_https" | "unsupported_type";
 export type NotesMediaPreviewKind = "image" | "video" | "audio" | "pdf" | "link" | "none";
 
+export interface NotesFileAssetMetadata {
+  relativePath: string;
+  originalName: string | null;
+  contentType: string;
+  byteSize: number;
+  sha256: string;
+  kind: NotesMediaBlockType;
+}
+
 export function isMediaBlockType(type: NotesBlockType): type is NotesMediaBlockType {
   return MEDIA_BLOCK_TYPES.includes(type as NotesMediaBlockType);
 }
@@ -54,12 +63,48 @@ export function mediaSourceUrl(media: NotesMediaBlockPayload): string {
   return "";
 }
 
+export function mediaManagedAssetPath(media: NotesMediaBlockPayload): string | null {
+  if (media.type !== "file") return null;
+  const assetPath = media.file.ganbaru_asset_path?.trim();
+  if (!assetPath?.startsWith("notes/files/")) return null;
+  return assetPath;
+}
+
+export function mediaManagedAssetMetadata(
+  media: NotesMediaBlockPayload,
+): NotesFileAssetMetadata | null {
+  if (media.type !== "file") return null;
+  const assetPath = mediaManagedAssetPath(media);
+  const contentType = media.file.content_type?.trim();
+  const byteSize = media.file.byte_size;
+  const sha256 = media.file.sha256?.trim();
+  if (
+    !assetPath
+    || !contentType
+    || typeof byteSize !== "number"
+    || !Number.isInteger(byteSize)
+    || byteSize <= 0
+    || !sha256
+  ) {
+    return null;
+  }
+  return {
+    relativePath: assetPath,
+    originalName: media.file.name ?? null,
+    contentType,
+    byteSize,
+    sha256,
+    kind: mediaAssetKindForContentType(contentType),
+  };
+}
+
 export function mediaSourceId(media: NotesMediaBlockPayload): string {
   if (media.type === "file_upload") return media.file_upload.id;
   return mediaSourceUrl(media);
 }
 
 export function mediaDisplayName(media: NotesMediaBlockPayload): string {
+  if (media.type === "file" && media.file.name?.trim()) return media.file.name.trim();
   return mediaDisplayNameFromSource(mediaSourceId(media), media.name);
 }
 
@@ -84,6 +129,7 @@ export function mediaPlainText(media: NotesMediaBlockPayload): string {
 }
 
 export function canOpenMediaUrl(media: NotesMediaBlockPayload): boolean {
+  if (mediaManagedAssetPath(media)) return false;
   const url = mediaSourceUrl(media).trim();
   if (!url) return false;
   try {
@@ -136,7 +182,12 @@ export function mediaPreviewKindForUrl(
   url: string,
 ): NotesMediaPreviewKind {
   const trimmed = url.trim();
-  if (!trimmed || mediaUrlIssue(type, trimmed)) return "none";
+  if (!trimmed) return "none";
+  if (trimmed.startsWith("ganbaru-asset:notes/files/")) {
+    if (type === "file") return "link";
+    return type;
+  }
+  if (mediaUrlIssue(type, trimmed)) return "none";
   let parsed: URL;
   try {
     parsed = new URL(trimmed);
@@ -163,4 +214,34 @@ function isYouTubeVideoUrl(url: URL): boolean {
   if (host !== "www.youtube.com" && host !== "youtube.com") return false;
   if (url.pathname === "/watch") return Boolean(url.searchParams.get("v"));
   return url.pathname.startsWith("/embed/");
+}
+
+export function createManagedMediaPayload(
+  asset: NotesFileAssetMetadata,
+  caption = "",
+  name?: string,
+): NotesMediaBlockPayload {
+  const displayName = name?.trim() || asset.originalName?.trim() || "";
+  const trimmedCaption = caption.trim();
+  return {
+    type: "file",
+    file: {
+      url: `ganbaru-asset:${asset.relativePath}`,
+      ...(displayName ? { name: displayName } : {}),
+      content_type: asset.contentType,
+      byte_size: asset.byteSize,
+      sha256: asset.sha256,
+      ganbaru_asset_path: asset.relativePath,
+    },
+    caption: trimmedCaption ? [createTextRichText(trimmedCaption)] : [],
+    ...(displayName ? { name: displayName } : {}),
+  };
+}
+
+function mediaAssetKindForContentType(contentType: string): NotesMediaBlockType {
+  if (contentType === "application/pdf") return "pdf";
+  if (contentType.startsWith("image/")) return "image";
+  if (contentType.startsWith("video/")) return "video";
+  if (contentType.startsWith("audio/")) return "audio";
+  return "file";
 }

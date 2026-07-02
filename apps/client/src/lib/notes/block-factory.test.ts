@@ -7,8 +7,10 @@ import {
   createRichText,
   createSyncedBlockPayload,
 } from "./block-factory";
+import { createManagedMediaPayload, type NotesFileAssetMetadata } from "./media";
 import type {
   NotesBlock,
+  NotesImageBlock,
   NotesPdfBlock,
   NotesRichText,
   NotesRichTextAnnotations,
@@ -102,6 +104,37 @@ function fileUploadPdfBlock(): NotesPdfBlock {
   };
 }
 
+function localImageAsset(): NotesFileAssetMetadata {
+  return {
+    relativePath: "notes/files/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+    originalName: "local.png",
+    contentType: "image/png",
+    byteSize: 42,
+    sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    kind: "image",
+  };
+}
+
+function localImageBlock(): NotesImageBlock {
+  return {
+    object: "block",
+    id: "block-4",
+    parent: {
+      type: "page_id",
+      page_id: "page-1",
+    },
+    created_time: "2026-01-01T00:00:00.000Z",
+    last_edited_time: "2026-01-01T00:00:00.000Z",
+    has_children: false,
+    in_trash: false,
+    type: "image",
+    source_provider: null,
+    source_object_id: null,
+    source_last_edited_time: null,
+    image: createManagedMediaPayload(localImageAsset(), "Old caption"),
+  };
+}
+
 function duplicateSyncedBlock(): NotesSyncedBlock {
   return {
     object: "block",
@@ -174,6 +207,70 @@ describe("notes block factory conversions", () => {
         url: "https://example.com/replacement.pdf",
       },
       caption: [createRichText("Replacement")],
+    });
+  });
+
+  it("attaches managed local media assets", () => {
+    const update = blockWithMedia(
+      fileUploadPdfBlock(),
+      "",
+      "Local PDF",
+      "brief.pdf",
+      {
+        type: "attach",
+        asset: {
+          relativePath: "notes/files/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.pdf",
+          originalName: "brief.pdf",
+          contentType: "application/pdf",
+          byteSize: 64,
+          sha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          kind: "pdf",
+        },
+      },
+    );
+
+    expect(update.type).toBe("pdf");
+    if (update.type !== "pdf") throw new Error("Expected PDF update");
+    expect(update.pdf).toEqual({
+      type: "file",
+      file: {
+        url: "ganbaru-asset:notes/files/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.pdf",
+        name: "brief.pdf",
+        content_type: "application/pdf",
+        byte_size: 64,
+        sha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        ganbaru_asset_path: "notes/files/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.pdf",
+      },
+      caption: [createRichText("Local PDF")],
+      name: "brief.pdf",
+    });
+  });
+
+  it("preserves managed local media sources while editing caption and name", () => {
+    const update = blockWithMedia(
+      localImageBlock(),
+      "",
+      "New caption",
+      "renamed.png",
+      { type: "preserve" },
+    );
+
+    expect(update.type).toBe("image");
+    if (update.type !== "image") throw new Error("Expected image update");
+    expect(update.image).toEqual(
+      createManagedMediaPayload(localImageAsset(), "New caption", "renamed.png"),
+    );
+  });
+
+  it("clears managed local media sources", () => {
+    const update = blockWithMedia(localImageBlock(), "", "", undefined, { type: "clear" });
+
+    expect(update.type).toBe("image");
+    if (update.type !== "image") throw new Error("Expected image update");
+    expect(update.image).toEqual({
+      type: "external",
+      external: { url: "" },
+      caption: [],
     });
   });
 

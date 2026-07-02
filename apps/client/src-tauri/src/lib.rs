@@ -933,6 +933,8 @@ pub fn run() {
             notes::notes_pick_page_cover_file,
             notes::notes_save_page_cover_data_url,
             notes::notes_page_cover_asset_data_url,
+            notes::notes_pick_file_asset,
+            notes::notes_file_asset_data_url,
             notes::notes_pick_page_icon_file,
             notes::notes_save_page_icon_data_url,
             notes::notes_page_icon_asset_data_url,
