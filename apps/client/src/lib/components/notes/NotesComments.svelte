@@ -7,6 +7,7 @@
     notesResolveCommentAnchor,
     notesCommentThreadSnippet,
     openNotesCommentThreadCount,
+    unreadNotesCommentThreadCount,
   } from "$lib/notes/comments";
   import type { NotesComment, NotesCommentParent, NotesCommentThread } from "$lib/notes/types";
   import { getNotes } from "$lib/stores/notes.svelte";
@@ -25,11 +26,28 @@
   let replyDrafts = $state<Record<string, string>>({});
   let editingCommentId = $state<string | null>(null);
   let editingDraft = $state("");
+  let lastMarkedReadKey = $state("");
   const activeParent = $derived(notes.activeCommentParent ?? pageCommentParent());
   const openThreadCount = $derived(openNotesCommentThreadCount(notes.commentThreads));
+  const unreadThreadCount = $derived(unreadNotesCommentThreadCount(notes.commentThreads));
+  const unreadThreadKey = $derived(
+    notes.commentThreads
+      .filter((thread) => thread.unread)
+      .map((thread) => `${thread.id}:${thread.last_edited_time}`)
+      .join("|"),
+  );
 
   $effect(() => {
     if (notes.activeCommentParent) open = true;
+  });
+
+  $effect(() => {
+    if (!open || notes.commentsLoading || !unreadThreadKey || unreadThreadKey === lastMarkedReadKey) return;
+    lastMarkedReadKey = unreadThreadKey;
+    void notes.markVisibleCommentThreadsRead().catch((error) => {
+      lastMarkedReadKey = "";
+      console.warn("mark notes comments read failed", error);
+    });
   });
 
   function pageCommentParent(): NotesCommentParent | null {
@@ -119,6 +137,8 @@
     <span>
       {#if notes.commentsLoading}
         {t("notes.loadingComments")}
+      {:else if unreadThreadCount > 0}
+        {t("notes.commentsCountWithUnread", openThreadCount, unreadThreadCount)}
       {:else}
         {t("notes.commentsCount", openThreadCount)}
       {/if}
@@ -188,11 +208,24 @@
           <div class="text-[0.8rem] text-muted-foreground">{t("notes.noComments")}</div>
         {:else}
           {#each notes.commentThreads as thread (thread.id)}
-            <article class="rounded-md border border-border bg-background p-2">
+            <article
+              class={`rounded-md border p-2 ${
+                thread.unread
+                  ? "border-primary/50 bg-primary/5"
+                  : "border-border bg-background"
+              }`}
+            >
               <div class="flex flex-wrap items-start justify-between gap-2">
                 <div class="min-w-0">
-                  <div class="truncate text-[0.8rem] font-medium text-foreground">
-                    {threadLabel(thread)}
+                  <div class="flex min-w-0 flex-wrap items-center gap-1.5">
+                    <div class="truncate text-[0.8rem] font-medium text-foreground">
+                      {threadLabel(thread)}
+                    </div>
+                    {#if thread.unread}
+                      <span class="rounded bg-primary/10 px-1.5 py-0.5 text-[0.7rem] font-medium text-primary">
+                        {t("notes.unreadCommentThread")}
+                      </span>
+                    {/if}
                   </div>
                   {#if notesCommentThreadSnippet(thread)}
                     <div class="mt-0.5 line-clamp-2 text-[0.733333rem] text-muted-foreground">

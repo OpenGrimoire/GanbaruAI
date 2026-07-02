@@ -45,6 +45,8 @@
     onCopyLink,
     onDuplicate,
     onComment,
+    commentCount = 0,
+    unreadCommentCount = 0,
     onMoveUp,
     onMoveDown,
     moveTargets,
@@ -61,6 +63,8 @@
     onCopyLink: () => Promise<void> | void;
     onDuplicate: () => void;
     onComment: () => void;
+    commentCount?: number;
+    unreadCommentCount?: number;
     onMoveUp: () => void;
     onMoveDown: () => void;
     moveTargets: NotesMoveToPageTarget[];
@@ -80,6 +84,12 @@
   let actionMenuTriggerRect = $state<NotesBlockInsertMenuRect | null>(null);
   let copyLinkStatus = $state<"idle" | "copied" | "failed">("idle");
   let copyLinkTimer: ReturnType<typeof setTimeout> | null = null;
+  const visibleCommentCount = $derived(unreadCommentCount > 0 ? unreadCommentCount : commentCount);
+  const visibleCommentLabel = $derived(
+    unreadCommentCount > 0
+      ? t("notes.blockUnreadCommentsCount", unreadCommentCount, commentCount)
+      : t("notes.blockCommentsCount", commentCount),
+  );
   const actionMenuStyle = $derived(
     actionMenuTriggerRect && typeof window !== "undefined"
       ? notesBlockHandleActionMenuStyle({
@@ -265,6 +275,7 @@
 
 <div
   class="notes-block-handle relative mt-1 flex shrink-0 items-center justify-end gap-0.5"
+  class:notes-block-handle-has-comments={commentCount > 0}
   role="toolbar"
   aria-label={t("notes.blockActions")}
   data-notes-block-selection-zone
@@ -297,6 +308,20 @@
   >
     <GripVertical class="size-3.5" />
   </button>
+  {#if commentCount > 0}
+    <button
+      class={`notes-block-handle-comment-button flex items-center justify-center gap-0.5 rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
+        unreadCommentCount > 0 ? "bg-primary/10 text-primary" : ""
+      }`}
+      type="button"
+      aria-label={visibleCommentLabel}
+      data-app-tooltip={visibleCommentLabel}
+      onclick={() => runAction("comment", onComment)}
+    >
+      <MessageSquare class="size-3.5 shrink-0" />
+      <span class="min-w-0 text-[0.65rem] font-medium leading-none">{visibleCommentCount}</span>
+    </button>
+  {/if}
 
   {#if insertMenuOpen}
     <NotesBlockInsertMenu triggerRect={insertMenuTriggerRect} onSelect={insertBlock} />
@@ -414,7 +439,16 @@
         onclick={() => runAction("comment", onComment)}
       >
         <MessageSquare class="size-4 shrink-0" />
-        <span class="min-w-0 truncate">{t("notes.commentBlock")}</span>
+        <span class="min-w-0 flex-1 truncate">{t("notes.commentBlock")}</span>
+        {#if commentCount > 0}
+          <span class="shrink-0 text-[0.733333rem] text-muted-foreground">
+            {#if unreadCommentCount > 0}
+              {t("notes.unreadCommentShortCount", unreadCommentCount)}
+            {:else}
+              {commentCount}
+            {/if}
+          </span>
+        {/if}
       </button>
       <button
         class="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[0.8rem] hover:bg-accent hover:text-accent-foreground"
@@ -479,9 +513,19 @@
     inline-size: 2.5rem;
   }
 
+  .notes-block-handle-has-comments {
+    inline-size: 4.5rem;
+  }
+
   .notes-block-handle-button {
     block-size: 1.25rem;
     inline-size: 1.25rem;
+  }
+
+  .notes-block-handle-comment-button {
+    block-size: 1.25rem;
+    min-inline-size: 1.75rem;
+    padding-inline: 0.2rem;
   }
 
   .notes-color-swatch {
@@ -505,9 +549,18 @@
       inline-size: 3.25rem;
     }
 
+    .notes-block-handle-has-comments {
+      inline-size: 5.25rem;
+    }
+
     .notes-block-handle-button {
       block-size: 1.5rem;
       inline-size: 1.5rem;
+    }
+
+    .notes-block-handle-comment-button {
+      block-size: 1.5rem;
+      min-inline-size: 2rem;
     }
   }
 </style>

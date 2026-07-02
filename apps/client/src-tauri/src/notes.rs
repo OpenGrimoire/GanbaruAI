@@ -257,6 +257,16 @@ pub async fn notes_list_comments<R: Runtime>(
 }
 
 #[tauri::command]
+pub async fn notes_mark_comment_threads_read<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    request: NoteCommentThreadReadUpdate,
+) -> Result<Vec<NoteCommentThreadDto>, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    comments::mark_comment_threads_read(&pool, request).await
+}
+
+#[tauri::command]
 pub async fn notes_create_comment<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,

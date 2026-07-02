@@ -8,6 +8,7 @@ import {
   notesResolveCommentAnchor,
   notesCommentThreadSnippet,
   openNotesCommentThreadCount,
+  unreadNotesCommentThreadCount,
 } from "./comments";
 import { createRichText } from "./block-factory";
 
@@ -39,6 +40,7 @@ describe("notes comments", () => {
       anchor: null,
       created_time: "2026-06-30T00:00:00.000Z",
       last_edited_time: "2026-06-30T00:00:00.000Z",
+      unread: false,
       comments: [comment],
     });
 
@@ -60,6 +62,7 @@ describe("notes comments", () => {
         anchor: null,
         created_time: "2026-06-30T00:00:00.000Z",
         last_edited_time: "2026-06-30T00:00:00.000Z",
+        unread: false,
         comments: [],
       }),
     ).toThrow("comment thread.parent.type must be page_id or block_id");
@@ -78,11 +81,13 @@ describe("notes comments", () => {
       anchor: null,
       created_time: "2026-06-30T00:00:00.000Z",
       last_edited_time: "2026-06-30T00:00:00.000Z",
+      unread: true,
       comments: [comment],
     });
     const resolvedThread = { ...openThread, id: "80808080-8080-4080-8080-808080808080", status: "resolved" as const };
 
     expect(openNotesCommentThreadCount([openThread, resolvedThread])).toBe(1);
+    expect(unreadNotesCommentThreadCount([openThread, resolvedThread])).toBe(2);
     expect(notesCommentThreadSnippet(openThread)).toBe("Review this");
     expect(notesCommentParentKey(openThread.parent)).toBe("block:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
   });
@@ -111,6 +116,7 @@ describe("notes comments", () => {
       },
       created_time: "2026-06-30T00:00:00.000Z",
       last_edited_time: "2026-06-30T00:00:00.000Z",
+      unread: false,
       comments: [comment],
     });
 

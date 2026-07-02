@@ -2,7 +2,10 @@
   import { tick } from "svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getNotes } from "$lib/stores/notes.svelte";
-  import { notesCommentAnchorsForBlock } from "$lib/notes/comments";
+  import {
+    notesCommentAnchorsForBlock,
+    unreadNotesCommentThreadCount,
+  } from "$lib/notes/comments";
   import type { NotesUnsupportedConversionTarget } from "$lib/notes/unsupported";
   import {
     blockPlainText,
@@ -282,6 +285,13 @@
   let slashOpen = $state(false);
   const block = $derived(item.block);
   const text = $derived(blockPlainText(block));
+  const blockCommentThreads = $derived(
+    notes.commentThreads.filter(
+      (thread) => thread.parent.type === "block_id" && thread.parent.block_id === block.id,
+    ),
+  );
+  const blockCommentCount = $derived(blockCommentThreads.length);
+  const blockUnreadCommentCount = $derived(unreadNotesCommentThreadCount(blockCommentThreads));
   const commentAnchors = $derived(notesCommentAnchorsForBlock(notes.commentThreads, block.id, text));
   const showTextEditor = $derived(isTextEditableBlock(block.type));
   const currentColor = $derived(blockColor(block));
@@ -454,6 +464,8 @@
       onCopyLink={() => onCopyLink(block.id)}
       onDuplicate={() => onDuplicate(block.id)}
       onComment={() => onComment(block.id)}
+      commentCount={blockCommentCount}
+      unreadCommentCount={blockUnreadCommentCount}
       onMoveUp={() => onMoveUp(block.id)}
       onMoveDown={() => onMoveDown(block.id)}
       {moveTargets}

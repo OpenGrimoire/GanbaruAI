@@ -1,15 +1,17 @@
 use super::local_user;
 use super::models::{
     NoteCommentAnchorCreate, NoteCommentAnchorDto, NoteCommentAnchorRow, NoteCommentCreate,
-    NoteCommentDto, NoteCommentRow, NoteCommentThreadDto, NoteCommentThreadRow, NoteCommentUpdate,
-    NoteParent,
+    NoteCommentDto, NoteCommentRow, NoteCommentThreadDto, NoteCommentThreadReadUpdate,
+    NoteCommentThreadRow, NoteCommentUpdate, NoteParent,
 };
 use super::validation::{require_uuid, rich_text_items_plain_text, validate_comment_rich_text};
 use serde_json::Value;
 use sqlx::{Sqlite, SqlitePool, Transaction};
+use std::collections::HashSet;
 
 const COMMENT_ANCHOR_MAX_TEXT_LENGTH: usize = 2000;
 const COMMENT_ANCHOR_MAX_CONTEXT_LENGTH: usize = 120;
+const COMMENT_THREAD_READ_MAX_BATCH: usize = 200;
 
 struct CommentParentTarget {
     page_id: String,
@@ -82,6 +84,49 @@ pub(in crate::notes) async fn list_comments(
     thread_dtos(pool, thread_rows).await
 }
 
+pub(in crate::notes) async fn mark_comment_threads_read(
+    pool: &SqlitePool,
+    request: NoteCommentThreadReadUpdate,
+) -> Result<Vec<NoteCommentThreadDto>, String> {
+    let page_id = request.page_id.trim().to_string();
+    require_uuid(&page_id, "page_id")?;
+    if request.discussion_ids.len() > COMMENT_THREAD_READ_MAX_BATCH {
+        return Err("too many comment threads to mark read at once".to_string());
+    }
+    let mut seen = HashSet::new();
+    let mut discussion_ids = Vec::with_capacity(request.discussion_ids.len());
+    for discussion_id in request.discussion_ids {
+        let discussion_id = discussion_id.trim().to_string();
+        require_uuid(&discussion_id, "discussion_id")?;
+        if seen.insert(discussion_id.clone()) {
+            discussion_ids.push(discussion_id);
+        }
+    }
+    if discussion_ids.is_empty() {
+        return list_comments(pool, &page_id, request.include_resolved.unwrap_or(false)).await;
+    }
+
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|e| format!("begin notes comment read update: {e}"))?;
+    ensure_active_page_tx(&mut tx, &page_id).await?;
+    let local_user = local_user::current_local_user_tx(&mut tx).await?;
+    for discussion_id in discussion_ids {
+        let thread = load_thread_row(&mut tx, &discussion_id).await?;
+        if thread.page_id != page_id {
+            return Err("comment thread does not belong to the requested page".to_string());
+        }
+        ensure_thread_target_active(&mut tx, &thread).await?;
+        mark_thread_read_for_user_tx(&mut tx, &thread.id, &local_user.id).await?;
+    }
+    tx.commit()
+        .await
+        .map_err(|e| format!("commit notes comment read update: {e}"))?;
+
+    list_comments(pool, &page_id, request.include_resolved.unwrap_or(false)).await
+}
+
 pub(in crate::notes) async fn create_comment(
     pool: &SqlitePool,
     request: NoteCommentCreate,
@@ -142,6 +187,7 @@ pub(in crate::notes) async fn create_comment(
     };
     insert_comment_row(&mut tx, request.id.trim(), &thread_id, &request.rich_text).await?;
     touch_thread(&mut tx, &thread_id).await?;
+    mark_thread_read_for_current_user_tx(&mut tx, &thread_id).await?;
     tx.commit()
         .await
         .map_err(|e| format!("commit notes comment create: {e}"))?;
@@ -178,6 +224,7 @@ pub(in crate::notes) async fn update_comment(
     .await
     .map_err(|e| format!("update notes comment: {e}"))?;
     touch_thread(&mut tx, &row.thread_id).await?;
+    mark_thread_read_for_current_user_tx(&mut tx, &row.thread_id).await?;
     tx.commit()
         .await
         .map_err(|e| format!("commit notes comment update: {e}"))?;
@@ -206,6 +253,7 @@ pub(in crate::notes) async fn delete_comment(
     .await
     .map_err(|e| format!("delete notes comment: {e}"))?;
     touch_thread(&mut tx, &row.thread_id).await?;
+    mark_thread_read_for_current_user_tx(&mut tx, &row.thread_id).await?;
     tx.commit()
         .await
         .map_err(|e| format!("commit notes comment delete: {e}"))?;
@@ -254,6 +302,7 @@ pub(in crate::notes) async fn resolve_comment_thread(
         .await
         .map_err(|e| format!("reopen notes comment thread: {e}"))?;
     }
+    mark_thread_read_for_current_user_tx(&mut tx, discussion_id).await?;
     tx.commit()
         .await
         .map_err(|e| format!("commit notes comment thread resolve: {e}"))?;
@@ -269,22 +318,67 @@ async fn load_thread(pool: &SqlitePool, thread_id: &str) -> Result<NoteCommentTh
     .await
     .map_err(|e| format!("load notes comment thread: {e}"))?
     .ok_or_else(|| "notes comment thread not found".to_string())?;
+    let local_user_id = current_local_user_id(pool).await?;
     let comments = load_comment_dtos(pool, &thread).await?;
     let anchor = load_comment_anchor_dto(pool, thread_id).await?;
-    NoteCommentThreadDto::new(thread, comments, anchor)
+    let unread = thread_is_unread(pool, thread_id, &local_user_id).await?;
+    NoteCommentThreadDto::new(thread, comments, anchor, unread)
 }
 
 async fn thread_dtos(
     pool: &SqlitePool,
     threads: Vec<NoteCommentThreadRow>,
 ) -> Result<Vec<NoteCommentThreadDto>, String> {
+    if threads.is_empty() {
+        return Ok(Vec::new());
+    }
+    let local_user_id = current_local_user_id(pool).await?;
     let mut dtos = Vec::with_capacity(threads.len());
     for thread in threads {
         let comments = load_comment_dtos(pool, &thread).await?;
         let anchor = load_comment_anchor_dto(pool, &thread.id).await?;
-        dtos.push(NoteCommentThreadDto::new(thread, comments, anchor)?);
+        let unread = thread_is_unread(pool, &thread.id, &local_user_id).await?;
+        dtos.push(NoteCommentThreadDto::new(thread, comments, anchor, unread)?);
     }
     Ok(dtos)
+}
+
+async fn current_local_user_id(pool: &SqlitePool) -> Result<String, String> {
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|e| format!("begin notes local user read for comments: {e}"))?;
+    let local_user = local_user::current_local_user_tx(&mut tx).await?;
+    tx.commit()
+        .await
+        .map_err(|e| format!("commit notes local user read for comments: {e}"))?;
+    Ok(local_user.id)
+}
+
+async fn thread_is_unread(
+    pool: &SqlitePool,
+    thread_id: &str,
+    local_user_id: &str,
+) -> Result<bool, String> {
+    let unread: Option<i64> = sqlx::query_scalar(
+        "SELECT 1
+         FROM notes_comments AS comment
+         LEFT JOIN notes_comment_thread_reads AS read_state
+           ON read_state.thread_id = comment.thread_id
+          AND read_state.user_id = ?
+         WHERE comment.thread_id = ?
+           AND comment.deleted_at IS NULL
+           AND comment.created_by <> ?
+           AND comment.last_edited_time > COALESCE(read_state.read_at, '')
+         LIMIT 1",
+    )
+    .bind(local_user_id)
+    .bind(thread_id)
+    .bind(local_user_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| format!("load notes comment unread state: {e}"))?;
+    Ok(unread.is_some())
 }
 
 async fn load_comment_anchor_dto(
@@ -508,6 +602,33 @@ async fn touch_thread(tx: &mut Transaction<'_, Sqlite>, thread_id: &str) -> Resu
     .execute(&mut **tx)
     .await
     .map_err(|e| format!("touch notes comment thread: {e}"))?;
+    Ok(())
+}
+
+async fn mark_thread_read_for_current_user_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    thread_id: &str,
+) -> Result<(), String> {
+    let local_user = local_user::current_local_user_tx(tx).await?;
+    mark_thread_read_for_user_tx(tx, thread_id, &local_user.id).await
+}
+
+async fn mark_thread_read_for_user_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    thread_id: &str,
+    user_id: &str,
+) -> Result<(), String> {
+    sqlx::query(
+        "INSERT INTO notes_comment_thread_reads (thread_id, user_id, read_at)
+         VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+         ON CONFLICT(thread_id, user_id) DO UPDATE
+         SET read_at = excluded.read_at",
+    )
+    .bind(thread_id)
+    .bind(user_id)
+    .execute(&mut **tx)
+    .await
+    .map_err(|e| format!("mark notes comment thread read: {e}"))?;
     Ok(())
 }
 

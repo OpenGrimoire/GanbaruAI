@@ -19,6 +19,7 @@ import {
   listArchivedNotesPages,
   listTrashedNotesPages,
   loadNotesPage,
+  markNotesCommentThreadsRead,
   moveNotesPage,
   permanentlyDeleteNotesPage,
   resolveNotesCommentThread,
@@ -30,7 +31,11 @@ import {
   updateNotesPageTemplate,
 } from "$lib/api/notes";
 import { blockPlainText, createRichText } from "$lib/notes/block-factory";
-import { notesCommentAnchorDraft, notesCommentParentKey } from "$lib/notes/comments";
+import {
+  notesCommentAnchorDraft,
+  notesCommentParentKey,
+  notesCommentParentMatches,
+} from "$lib/notes/comments";
 import type { NotesBlockLinkTarget, NotesPageLinkTarget } from "$lib/notes/block-link";
 import {
   buildNotesChildIdsByParent,
@@ -516,6 +521,30 @@ async function setCommentThreadResolved(
 ): Promise<void> {
   const thread = await resolveNotesCommentThread(discussionId, resolved);
   updateCommentThread(thread);
+}
+
+async function markCommentThreadsRead(discussionIds: readonly string[]): Promise<void> {
+  if (!selectedPageId) return;
+  const normalizedIds = [
+    ...new Set(discussionIds.map((discussionId) => discussionId.trim()).filter(Boolean)),
+  ];
+  if (normalizedIds.length === 0) return;
+  const nextThreads = await markNotesCommentThreadsRead({
+    page_id: selectedPageId,
+    discussion_ids: normalizedIds,
+    include_resolved: commentsIncludeResolved,
+  });
+  commentThreads = [...nextThreads];
+  commentsError = null;
+}
+
+async function markVisibleCommentThreadsRead(parent: NotesCommentParent | null = null): Promise<void> {
+  const visibleThreads = parent
+    ? commentThreads.filter((thread) => notesCommentParentMatches(thread.parent, parent))
+    : commentThreads;
+  await markCommentThreadsRead(
+    visibleThreads.filter((thread) => thread.unread).map((thread) => thread.id),
+  );
 }
 
 async function setCommentsIncludeResolved(includeResolved: boolean): Promise<void> {
@@ -1415,6 +1444,8 @@ export function getNotes() {
     updateComment,
     deleteComment,
     setCommentThreadResolved,
+    markCommentThreadsRead,
+    markVisibleCommentThreadsRead,
     search,
     notesCommentParentKey,
     blockById,

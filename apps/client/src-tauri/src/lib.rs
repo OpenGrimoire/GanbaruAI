@@ -884,6 +884,7 @@ pub fn run() {
             notes::notes_restore_page_history_snapshot,
             notes::notes_copy_page_history_blocks,
             notes::notes_list_comments,
+            notes::notes_mark_comment_threads_read,
             notes::notes_create_comment,
             notes::notes_update_comment,
             notes::notes_delete_comment,

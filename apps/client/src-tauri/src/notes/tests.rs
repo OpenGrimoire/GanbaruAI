@@ -1,6 +1,6 @@
 use super::models::{
     NoteAppendBlockChildren, NoteBlockUpdate, NoteBlockWrite, NoteChildPageFromBlockCreate,
-    NoteCommentAnchorCreate, NoteCommentCreate, NoteCommentUpdate,
+    NoteCommentAnchorCreate, NoteCommentCreate, NoteCommentThreadReadUpdate, NoteCommentUpdate,
     NoteDataSourceBoardConfigurationUpdate, NoteDataSourceBoardRowMove,
     NoteDataSourceBoardViewUpdate, NoteDataSourceButtonClick,
     NoteDataSourceCalendarConfigurationUpdate, NoteDataSourceCalendarViewUpdate,
@@ -10147,6 +10147,109 @@ fn comments_create_reply_resolve_reopen_and_delete() {
             after_delete_value["comments"][0]["rich_text"][0]["plain_text"],
             "Edited reply"
         );
+    });
+}
+
+#[test]
+fn comment_unread_state_tracks_local_identity() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        create_page(&pool, PAGE_A, BLOCK_A).await;
+
+        let local_user_json =
+            serde_json::to_value(local_user::get_local_user(&pool).await.unwrap()).unwrap();
+        let local_user_id = local_user_json["id"].as_str().unwrap().to_string();
+        let thread = comments::create_comment(
+            &pool,
+            NoteCommentCreate {
+                id: COMMENT_A.to_string(),
+                parent: Some(page_parent(PAGE_A)),
+                discussion_id: None,
+                anchor: None,
+                rich_text: vec![rich_text("Remote note")],
+            },
+        )
+        .await
+        .unwrap();
+        let thread_value = serde_json::to_value(thread).unwrap();
+        let thread_id = thread_value["id"].as_str().unwrap().to_string();
+        assert_eq!(thread_value["unread"], false);
+
+        sqlx::query("DELETE FROM notes_comment_thread_reads WHERE thread_id = ? AND user_id = ?")
+            .bind(&thread_id)
+            .bind(&local_user_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "UPDATE notes_comments
+             SET created_by = ?,
+                 display_name = ?,
+                 created_time = '2000-01-01T00:00:00.000Z',
+                 last_edited_time = '2000-01-01T00:00:00.000Z'
+             WHERE id = ?",
+        )
+        .bind("99999999-9999-4999-8999-999999999999")
+        .bind(json!({"type": "user", "resolved_name": "Reviewer"}).to_string())
+        .bind(COMMENT_A)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let unread = comments::list_comments(&pool, PAGE_A, false).await.unwrap();
+        let unread_value = serde_json::to_value(unread).unwrap();
+        assert_eq!(unread_value[0]["unread"], true);
+
+        let marked = comments::mark_comment_threads_read(
+            &pool,
+            NoteCommentThreadReadUpdate {
+                page_id: PAGE_A.to_string(),
+                discussion_ids: vec![thread_id.clone()],
+                include_resolved: Some(false),
+            },
+        )
+        .await
+        .unwrap();
+        let marked_value = serde_json::to_value(marked).unwrap();
+        assert_eq!(marked_value[0]["unread"], false);
+
+        let replied = comments::create_comment(
+            &pool,
+            NoteCommentCreate {
+                id: COMMENT_B.to_string(),
+                parent: None,
+                discussion_id: Some(thread_id.clone()),
+                anchor: None,
+                rich_text: vec![rich_text("Local follow-up")],
+            },
+        )
+        .await
+        .unwrap();
+        let replied_value = serde_json::to_value(replied).unwrap();
+        assert_eq!(replied_value["unread"], false);
+
+        sqlx::query(
+            "UPDATE notes_comments
+             SET last_edited_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+1 second')
+             WHERE id = ?",
+        )
+        .bind(COMMENT_A)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "UPDATE notes_comment_threads
+             SET last_edited_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+1 second')
+             WHERE id = ?",
+        )
+        .bind(&thread_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let edited = comments::list_comments(&pool, PAGE_A, false).await.unwrap();
+        let edited_value = serde_json::to_value(edited).unwrap();
+        assert_eq!(edited_value[0]["unread"], true);
     });
 }
 

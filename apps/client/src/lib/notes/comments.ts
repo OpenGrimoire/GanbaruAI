@@ -35,9 +35,29 @@ export function openNotesCommentThreadCount(
   return threads.filter((thread) => thread.status === "open").length;
 }
 
+export function unreadNotesCommentThreadCount(
+  threads: readonly NotesCommentThread[],
+): number {
+  return threads.filter((thread) => thread.unread).length;
+}
+
 export function notesCommentParentKey(parent: NotesCommentParent): string {
   if (parent.type === "page_id") return `page:${parent.page_id}`;
   return `block:${parent.block_id}`;
+}
+
+export function notesCommentParentMatches(
+  left: NotesCommentParent,
+  right: NotesCommentParent,
+): boolean {
+  return notesCommentParentKey(left) === notesCommentParentKey(right);
+}
+
+export function notesCommentThreadsForParent(
+  threads: readonly NotesCommentThread[],
+  parent: NotesCommentParent,
+): NotesCommentThread[] {
+  return threads.filter((thread) => notesCommentParentMatches(thread.parent, parent));
 }
 
 export function notesCommentAnchorDraft(

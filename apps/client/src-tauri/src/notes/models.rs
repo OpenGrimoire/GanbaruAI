@@ -729,6 +729,7 @@ pub struct NoteCommentThreadDto {
     anchor: Option<NoteCommentAnchorDto>,
     created_time: String,
     last_edited_time: String,
+    unread: bool,
     comments: Vec<NoteCommentDto>,
 }
 
@@ -737,6 +738,7 @@ impl NoteCommentThreadDto {
         row: NoteCommentThreadRow,
         comments: Vec<NoteCommentDto>,
         anchor: Option<NoteCommentAnchorDto>,
+        unread: bool,
     ) -> Result<Self, String> {
         let resolved_by = row.resolved_by.clone().map(NotePartialUserDto::new);
         Ok(Self {
@@ -756,6 +758,7 @@ impl NoteCommentThreadDto {
             anchor,
             created_time: row.created_time,
             last_edited_time: row.last_edited_time,
+            unread,
             comments,
         })
     }
@@ -1204,6 +1207,13 @@ pub struct NoteCommentAnchorCreate {
 #[derive(Deserialize)]
 pub struct NoteCommentUpdate {
     pub(in crate::notes) rich_text: Vec<Value>,
+}
+
+#[derive(Deserialize)]
+pub struct NoteCommentThreadReadUpdate {
+    pub(in crate::notes) page_id: String,
+    pub(in crate::notes) discussion_ids: Vec<String>,
+    pub(in crate::notes) include_resolved: Option<bool>,
 }
 
 #[derive(Deserialize)]

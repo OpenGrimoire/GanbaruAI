@@ -262,6 +262,33 @@ fn schema_creates_notes_local_user_identity() {
 }
 
 #[test]
+fn schema_creates_notes_comment_thread_read_state() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        for table in ["notes_comment_thread_reads", "notes_local_users"] {
+            let exists: Option<i64> =
+                sqlx::query_scalar("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?")
+                    .bind(table)
+                    .fetch_optional(&pool)
+                    .await
+                    .unwrap();
+            assert_eq!(exists, Some(1), "{table} should exist");
+        }
+
+        let user_id_fk: Option<i64> = sqlx::query_scalar(
+            "SELECT 1
+             FROM pragma_foreign_key_list('notes_comment_thread_reads')
+             WHERE \"table\" = 'notes_local_users'
+               AND \"from\" = 'user_id'",
+        )
+        .fetch_optional(&pool)
+        .await
+        .unwrap();
+        assert_eq!(user_id_fk, Some(1));
+    });
+}
+
+#[test]
 fn schema_rejects_invalid_calendar_values() {
     tauri::async_runtime::block_on(async {
         let pool = migrated_memory_pool().await;

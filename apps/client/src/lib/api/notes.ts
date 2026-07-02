@@ -32,6 +32,7 @@ import type {
   NotesChildPageFromBlockCreate,
   NotesCommentCreate,
   NotesCommentThread,
+  NotesCommentThreadReadUpdate,
   NotesCommentUpdate,
   NotesCreatedDatabase,
   NotesDatabaseCreateRequest,
@@ -301,6 +302,17 @@ export async function listNotesComments(
   const dbUrl = await ensureDbUrl();
   const rows = await invoke<unknown>("notes_list_comments", { dbUrl, pageId, includeResolved });
   if (!Array.isArray(rows)) throw new Error("notes_list_comments returned a non-array payload");
+  return rows.map(mapNotesCommentThreadDto);
+}
+
+export async function markNotesCommentThreadsRead(
+  request: NotesCommentThreadReadUpdate,
+): Promise<NotesCommentThread[]> {
+  const dbUrl = await ensureDbUrl();
+  const rows = await invoke<unknown>("notes_mark_comment_threads_read", { dbUrl, request });
+  if (!Array.isArray(rows)) {
+    throw new Error("notes_mark_comment_threads_read returned a non-array payload");
+  }
   return rows.map(mapNotesCommentThreadDto);
 }
 

@@ -1543,6 +1543,8 @@ export const es = {
     backlinkTypeLink: "Enlace",
     backlinkTypeDatabaseRelation: "Relación",
     commentsCount: (count: number) => `${count} ${count === 1 ? "comentario" : "comentarios"}`,
+    commentsCountWithUnread: (count: number, unread: number) =>
+      `${count} ${count === 1 ? "comentario" : "comentarios"}, ${unread} sin leer`,
     loadingComments: "Cargando comentarios",
     loadCommentsFailed: (message: string) => `No se pudieron cargar los comentarios: ${message}`,
     noComments: "No hay comentarios",
@@ -1560,6 +1562,14 @@ export const es = {
     addComment: "Agregar comentario",
     reply: "Responder",
     commentBlock: "Comentar",
+    unreadCommentThread: "Sin leer",
+    unreadCommentShortCount: (count: number) => `${count} sin leer`,
+    blockCommentsCount: (count: number) =>
+      `${count} ${count === 1 ? "comentario de bloque" : "comentarios de bloque"}`,
+    blockUnreadCommentsCount: (unread: number, count: number) =>
+      `${unread} sin leer de ${count} ${
+        count === 1 ? "comentario de bloque" : "comentarios de bloque"
+      }`,
     resolveCommentThread: "Resolver",
     reopenCommentThread: "Reabrir",
     expandPage: "Expandir página",

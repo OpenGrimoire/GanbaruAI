@@ -1281,6 +1281,7 @@ export interface NotesCommentThread {
   anchor: NotesCommentAnchor | null;
   created_time: string;
   last_edited_time: string;
+  unread: boolean;
   comments: NotesComment[];
 }
 
@@ -1302,6 +1303,12 @@ export interface NotesCommentCreate {
 
 export interface NotesCommentUpdate {
   rich_text: NotesRichText[];
+}
+
+export interface NotesCommentThreadReadUpdate {
+  page_id: string;
+  discussion_ids: string[];
+  include_resolved?: boolean;
 }
 
 export interface NotesBlockTreeItem {

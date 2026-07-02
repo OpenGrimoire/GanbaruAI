@@ -1975,6 +1975,7 @@ export function parseNotesCommentThread(value: unknown): NotesCommentThread {
       : parseNotesCommentAnchor(record.anchor),
     created_time: readString(record.created_time, "comment thread.created_time"),
     last_edited_time: readString(record.last_edited_time, "comment thread.last_edited_time"),
+    unread: readBoolean(record.unread, "comment thread.unread"),
     comments: record.comments.map(parseNotesComment),
   };
 }
