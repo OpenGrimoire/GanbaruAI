@@ -62,6 +62,9 @@ import {
   type NotesLocalObjectMentionType,
   type NotesMediaBlockPayload,
   type NotesIconColor,
+  type NotesHtmlImportDiagnostic,
+  type NotesHtmlImportDiagnosticSeverity,
+  type NotesHtmlImportResult,
   type NotesLoadedPage,
   type NotesMarkdownExportDiagnostic,
   type NotesMarkdownExportDiagnosticSeverity,
@@ -1901,6 +1904,57 @@ function parseNotesMarkdownImportDiagnostic(
 function isMarkdownImportDiagnosticSeverity(
   value: string,
 ): value is NotesMarkdownImportDiagnosticSeverity {
+  return value === "info" || value === "warning" || value === "error";
+}
+
+export function parseNotesHtmlImportResult(value: unknown): NotesHtmlImportResult {
+  const record = readRecord(value, "HTML import result");
+  if (!Array.isArray(record.diagnostics)) {
+    throw new Error("HTML import result.diagnostics must be an array");
+  }
+  const importedBlockCount = readInteger(
+    record.imported_block_count,
+    "HTML import result.imported_block_count",
+  );
+  if (importedBlockCount < 0) {
+    throw new Error("HTML import result.imported_block_count must not be negative");
+  }
+  return {
+    page: parseNotesLoadedPage(record.page),
+    diagnostics: record.diagnostics.map(parseNotesHtmlImportDiagnostic),
+    imported_block_count: importedBlockCount,
+  };
+}
+
+function parseNotesHtmlImportDiagnostic(
+  value: unknown,
+  index: number,
+): NotesHtmlImportDiagnostic {
+  const record = readRecord(value, `HTML import result.diagnostics[${index}]`);
+  const severity = readString(
+    record.severity,
+    `HTML import result.diagnostics[${index}].severity`,
+  );
+  if (!isHtmlImportDiagnosticSeverity(severity)) {
+    throw new Error(`HTML import result.diagnostics[${index}].severity is unsupported`);
+  }
+  const line = record.line === null
+    ? null
+    : readInteger(record.line, `HTML import result.diagnostics[${index}].line`);
+  if (line !== null && line < 1) {
+    throw new Error(`HTML import result.diagnostics[${index}].line must be positive`);
+  }
+  return {
+    code: readString(record.code, `HTML import result.diagnostics[${index}].code`),
+    severity,
+    line,
+    message: readString(record.message, `HTML import result.diagnostics[${index}].message`),
+  };
+}
+
+function isHtmlImportDiagnosticSeverity(
+  value: string,
+): value is NotesHtmlImportDiagnosticSeverity {
   return value === "info" || value === "warning" || value === "error";
 }
 

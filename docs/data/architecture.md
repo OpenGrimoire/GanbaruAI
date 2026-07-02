@@ -81,6 +81,8 @@ Notes are the named exception to the openable-file heuristic. Their editable mod
 
 Markdown import is an explicit conversion command, not a file watcher. The importer parses supported markdown into fresh `notes_pages` and `notes_blocks` rows, records source provenance, returns diagnostics for unsafe or unsupported syntax, and leaves the imported markdown file as external input. Later edits happen against SQLite rows, and any future markdown output is regenerated from those rows.
 
+HTML import follows the same conversion rule. The importer sanitizes markup, converts the supported subset into canonical page and block rows, records `html` source provenance, and returns diagnostics for stripped, skipped, approximated, or unsupported content. Media references are written only when the user explicitly chooses to keep supported HTTPS references; local files must go through the shared import preparation command before any importer can copy them into managed Notes assets.
+
 Markdown export is the reverse read-only projection. It walks active canonical page and block rows, optionally includes comment rows, and returns markdown plus diagnostics for approximated or unsupported content. It does not create a second source file, sync target, or persistent export table.
 
 Notes block presentation data that belongs to the document, such as a callout icon and Notion-style block color, is persisted as validated block payload data in SQLite. If a later callout icon points at a local file, the asset file belongs in the Ganbaru AI assets folder while the block payload stores only the validated file object reference.

@@ -346,6 +346,61 @@ impl NoteMarkdownImportDto {
 }
 
 #[derive(Deserialize)]
+pub struct NoteHtmlImportRequest {
+    pub(in crate::notes) parent: NoteParent,
+    pub(in crate::notes) html: String,
+    pub(in crate::notes) title: Option<String>,
+    pub(in crate::notes) source_name: Option<String>,
+    pub(in crate::notes) after_block_id: Option<String>,
+    pub(in crate::notes) keep_external_file_references: Option<bool>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+pub struct NoteHtmlImportDiagnosticDto {
+    code: String,
+    severity: String,
+    line: Option<i64>,
+    message: String,
+}
+
+impl NoteHtmlImportDiagnosticDto {
+    pub(in crate::notes) fn new(
+        code: impl Into<String>,
+        severity: impl Into<String>,
+        line: Option<i64>,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            code: code.into(),
+            severity: severity.into(),
+            line,
+            message: message.into(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+pub struct NoteHtmlImportDto {
+    page: NoteLoadedPage,
+    diagnostics: Vec<NoteHtmlImportDiagnosticDto>,
+    imported_block_count: i64,
+}
+
+impl NoteHtmlImportDto {
+    pub(in crate::notes) fn new(
+        page: NoteLoadedPage,
+        diagnostics: Vec<NoteHtmlImportDiagnosticDto>,
+        imported_block_count: i64,
+    ) -> Self {
+        Self {
+            page,
+            diagnostics,
+            imported_block_count,
+        }
+    }
+}
+
+#[derive(Deserialize)]
 pub struct NoteMarkdownExportRequest {
     pub(in crate::notes) page_id: String,
     pub(in crate::notes) include_page_title: Option<bool>,

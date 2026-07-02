@@ -15,6 +15,7 @@ import {
   mapNotesDataSourceTableViewDto,
   mapNotesDataSourceTemplateDto,
   mapNotesDataSourceTimelineViewDto,
+  mapNotesHtmlImportDto,
   mapNotesLocalUserDto,
   mapNotesLoadedPageDto,
   mapNotesMarkdownExportDto,
@@ -75,6 +76,8 @@ import type {
   NotesLocalUser,
   NotesLocalUserUpdate,
   NotesLoadedPage,
+  NotesHtmlImportRequest,
+  NotesHtmlImportResult,
   NotesMarkdownExportRequest,
   NotesMarkdownExportResult,
   NotesMarkdownImportRequest,
@@ -536,6 +539,15 @@ export async function importNotesMarkdownPage(
   const dbUrl = await ensureDbUrl();
   return mapNotesMarkdownImportDto(
     await invoke<unknown>("notes_import_markdown_page", { dbUrl, request }),
+  );
+}
+
+export async function importNotesHtmlPage(
+  request: NotesHtmlImportRequest,
+): Promise<NotesHtmlImportResult> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesHtmlImportDto(
+    await invoke<unknown>("notes_import_html_page", { dbUrl, request }),
   );
 }
 

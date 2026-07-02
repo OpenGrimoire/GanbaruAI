@@ -23,6 +23,9 @@ mod data_source_views;
 mod databases;
 mod file_assets;
 mod history;
+mod html_import;
+mod html_import_syntax;
+mod import_writer;
 mod link_facts;
 mod links;
 mod local_user;
@@ -211,6 +214,16 @@ pub async fn notes_import_markdown_page<R: Runtime>(
 ) -> Result<NoteMarkdownImportDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
     markdown_import::import_page(&pool, request).await
+}
+
+#[tauri::command]
+pub async fn notes_import_html_page<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    request: NoteHtmlImportRequest,
+) -> Result<NoteHtmlImportDto, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    html_import::import_page(&pool, request).await
 }
 
 #[tauri::command]

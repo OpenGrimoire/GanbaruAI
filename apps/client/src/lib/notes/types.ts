@@ -1317,6 +1317,30 @@ export interface NotesMarkdownImportResult {
   imported_block_count: number;
 }
 
+export interface NotesHtmlImportRequest {
+  parent: NotesParent;
+  html: string;
+  title?: string | null;
+  source_name?: string | null;
+  after_block_id?: string | null;
+  keep_external_file_references?: boolean | null;
+}
+
+export type NotesHtmlImportDiagnosticSeverity = "info" | "warning" | "error";
+
+export interface NotesHtmlImportDiagnostic {
+  code: string;
+  severity: NotesHtmlImportDiagnosticSeverity;
+  line: number | null;
+  message: string;
+}
+
+export interface NotesHtmlImportResult {
+  page: NotesLoadedPage;
+  diagnostics: NotesHtmlImportDiagnostic[];
+  imported_block_count: number;
+}
+
 export interface NotesMarkdownExportRequest {
   page_id: string;
   include_page_title?: boolean | null;

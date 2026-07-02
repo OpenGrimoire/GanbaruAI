@@ -18,6 +18,8 @@
   import Plus from "@lucide/svelte/icons/plus";
   import Search from "@lucide/svelte/icons/search";
   import Trash2 from "@lucide/svelte/icons/trash-2";
+  import Upload from "@lucide/svelte/icons/upload";
+  import NotesHtmlImportDialog from "./NotesHtmlImportDialog.svelte";
   import NotesPageRow from "./NotesPageRow.svelte";
   import NotesPageTemplateRow from "./NotesPageTemplateRow.svelte";
 
@@ -27,6 +29,7 @@
   let pendingArchivePage = $state<NotesPage | null>(null);
   let pendingTrashPage = $state<NotesPage | null>(null);
   let pendingDeleteTemplate = $state<NotesPageTemplate | null>(null);
+  let htmlImportOpen = $state(false);
   let blockDropTargetPageId = $state<string | null>(null);
   const sidebarPlan = $derived.by(() =>
     planNotesSidebarNavigation({
@@ -57,6 +60,20 @@
 
   function createPage(): void {
     void notes.createPage(t("notes.defaultPageTitle"));
+  }
+
+  function importHtmlPage(input: {
+    html: string;
+    title: string | null;
+    sourceName: string | null;
+    keepExternalFileReferences: boolean;
+  }) {
+    return notes.importHtmlPage({
+      html: input.html,
+      title: input.title,
+      source_name: input.sourceName,
+      keep_external_file_references: input.keepExternalFileReferences,
+    });
   }
 
   function createSubpage(parentPageId: string): void {
@@ -216,13 +233,25 @@
     <div class="min-w-0 truncate text-[0.933333rem] font-semibold text-foreground">
       {t("notes.title")}
     </div>
-    <button
-      class="rounded-md bg-primary p-1.5 text-primary-foreground hover:bg-primary/90"
-      aria-label={t("notes.newPage")}
-      onclick={createPage}
-    >
-      <Plus class="size-4" />
-    </button>
+    <div class="flex shrink-0 items-center gap-1">
+      <button
+        class="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+        aria-label={t("notes.htmlImportOpen")}
+        data-app-tooltip={t("notes.htmlImportOpen")}
+        onclick={() => {
+          htmlImportOpen = true;
+        }}
+      >
+        <Upload class="size-4" />
+      </button>
+      <button
+        class="rounded-md bg-primary p-1.5 text-primary-foreground hover:bg-primary/90"
+        aria-label={t("notes.newPage")}
+        onclick={createPage}
+      >
+        <Plus class="size-4" />
+      </button>
+    </div>
   </div>
 
   <div class="shrink-0 px-3 py-2">
@@ -561,6 +590,15 @@
     </button>
   </div>
 </aside>
+
+{#if htmlImportOpen}
+  <NotesHtmlImportDialog
+    onImport={importHtmlPage}
+    onCancel={() => {
+      htmlImportOpen = false;
+    }}
+  />
+{/if}
 
 {#if pendingArchivePage}
   <ConfirmDialog

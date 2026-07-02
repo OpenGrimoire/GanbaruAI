@@ -16,6 +16,7 @@ import {
   getNotesLocalUser,
   getNotesBlockChildren,
   getNotesPageBreadcrumb,
+  importNotesHtmlPage,
   listNotesBacklinks,
   listNotesComments,
   listNotesPageAliases,
@@ -105,6 +106,8 @@ import type {
   NotesCommentThread,
   NotesLocalUser,
   NotesLoadedPage,
+  NotesHtmlImportRequest,
+  NotesHtmlImportResult,
   NotesPage,
   NotesPageAlias,
   NotesPageBreadcrumbItem,
@@ -951,6 +954,35 @@ async function createPageWithParent(title: string, parent: NotesParent): Promise
   requestBlockFocus(planNotesInsertedBlockFocus([firstBlockId]));
 }
 
+async function importHtmlPage(
+  input: Omit<NotesHtmlImportRequest, "parent"> & { parent?: NotesParent },
+): Promise<NotesHtmlImportResult> {
+  const result = await importNotesHtmlPage({
+    ...input,
+    parent: input.parent ?? { type: "workspace", workspace: true },
+  });
+  viewMode = "pages";
+  saveSelectedPageId(result.page.page.id);
+  recordRecentPage(result.page.page.id);
+  await reloadPages(result.page.page.id);
+  if (!pages.some((page) => page.id === result.page.page.id)) {
+    pages = [result.page.page, ...pages];
+  }
+  setLoadedPageFromLoaded(result.page);
+  await loadAllChildrenForVisibleTree();
+  await reloadPageBreadcrumb(result.page.page.id);
+  await reloadBacklinks(result.page.page.id);
+  await reloadPageAliases(result.page.page.id);
+  await reloadUnresolvedLinks(result.page.page.id);
+  await reloadLinkResolutionPages();
+  await reloadComments(result.page.page.id);
+  await reloadSuggestions(result.page.page.id);
+  await pageHistoryController.reloadSnapshots(result.page.page.id);
+  await undoController.hydrate(result.page.page.id);
+  requestPageLoadFocus();
+  return result;
+}
+
 async function applyPageTemplate(templateId: string, title?: string): Promise<void> {
   const loaded = await applyNotesPageTemplate(templateId, {
     parent: { type: "workspace", workspace: true },
@@ -1722,6 +1754,7 @@ export function getNotes() {
     selectPage,
     createPage,
     createSubpage,
+    importHtmlPage,
     createChildPageFromBlock,
     applyPageTemplate,
     createPageTemplateFromCurrentPage,

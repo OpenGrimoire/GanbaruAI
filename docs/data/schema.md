@@ -537,7 +537,7 @@ The adaptive algorithm treats missing block events differently from zero block p
 
 ## Notes tables
 
-Notes stores page and block documents in SQLite. Markdown exports and imports are derivative views, not the source of truth. Markdown import writes normal `notes_pages` and `notes_blocks` rows with source provenance and returns diagnostics for unsupported or unsafe syntax; it does not add a separate markdown table. Markdown export reads the same canonical rows, optionally reads comments, and returns markdown plus diagnostics without adding persistent export state.
+Notes stores page and block documents in SQLite. Markdown and HTML imports and markdown exports are derivative views, not the source of truth. Markdown import and HTML import write normal `notes_pages` and `notes_blocks` rows with source provenance and return diagnostics for unsupported or unsafe syntax; they do not add separate markdown or HTML tables. Markdown export reads the same canonical rows, optionally reads comments, and returns markdown plus diagnostics without adding persistent export state.
 
 - `notes_pages`: page metadata, parent identity, title cache, Notion-shaped page properties, icon JSON, cover JSON, trash state, archive state, source identity, URLs, and timestamps. Page icons stay in the `icon` JSON column as validated document metadata.
 - `notes_blocks`: normalized block rows for page content. Rows store page id, parent identity, type, payload JSON, plain-text cache, child state, trash state, sort order, source identity, and timestamps.

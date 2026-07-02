@@ -4,6 +4,7 @@ import {
   parseNotesCreatedDatabase,
   parseNotesLocalUser,
   parseNotesMentionNotification,
+  parseNotesHtmlImportResult,
   parseNotesMarkdownExportResult,
   parseNotesPage,
   parseNotesPageHistorySettings,
@@ -1587,6 +1588,44 @@ describe("notes boundary validation", () => {
         last_edited_time: "2026-06-30T12:00:00.000Z",
       }),
     ).toThrow("search_result.type must be page, block, or comment");
+  });
+
+  it("parses HTML import result DTOs", () => {
+    const result = parseNotesHtmlImportResult({
+      page: {
+        page: { ...basePage, source_provider: "html", source_object_id: "import.html" },
+        blocks: {
+          object: "list",
+          type: "block",
+          block: {},
+          results: [
+            {
+              ...baseBlock,
+              type: "paragraph",
+              paragraph: {
+                rich_text: [baseRichText],
+                color: "default",
+              },
+            },
+          ],
+          next_cursor: null,
+          has_more: false,
+        },
+      },
+      diagnostics: [
+        {
+          code: "html_markup_sanitized",
+          severity: "info",
+          line: null,
+          message: "Unsafe or unsupported HTML markup was removed before import.",
+        },
+      ],
+      imported_block_count: 1,
+    });
+
+    expect(result.page.page.source_provider).toBe("html");
+    expect(result.diagnostics[0]?.code).toBe("html_markup_sanitized");
+    expect(result.imported_block_count).toBe(1);
   });
 
   it("parses markdown export result DTOs", () => {

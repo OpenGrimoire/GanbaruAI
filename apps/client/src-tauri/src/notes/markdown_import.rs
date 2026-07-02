@@ -1,19 +1,18 @@
+use super::import_writer::{
+    count_import_blocks, create_imported_page, ImportBlock, ImportedPageCreate,
+};
 use super::markdown_import_syntax::{
     is_divider, is_https_url, is_reference_definition, is_rich_text_url, is_table_delimiter,
     normalize_table_cells, ordered_list_marker, parse_image, parse_table_cells,
     starts_with_list_marker, todo_marker, unordered_list_marker, unquote_frontmatter_value,
 };
 use super::models::{
-    parent_columns, NoteMarkdownImportDiagnosticDto, NoteMarkdownImportDto,
-    NoteMarkdownImportRequest, NoteParent,
+    NoteMarkdownImportDiagnosticDto, NoteMarkdownImportDto, NoteMarkdownImportRequest, NoteParent,
 };
-use super::validation::{
-    plain_text_from_payload, validate_block_payload, validate_parent, validate_sort_order,
-};
-use super::{reads, writes};
+use super::validation::{validate_block_payload, validate_parent};
 use serde_json::{json, Value};
-use sqlx::{Sqlite, SqlitePool, Transaction};
-use std::{collections::HashSet, path::Path};
+use sqlx::SqlitePool;
+use std::path::Path;
 
 const MAX_MARKDOWN_IMPORT_CHARS: usize = 1_000_000;
 const MAX_MARKDOWN_IMPORT_BLOCKS: usize = 1_000;
@@ -42,235 +41,33 @@ pub(in crate::notes) async fn import_page(
         source_name.as_deref(),
     );
     if plan.blocks.is_empty() {
-        plan.blocks.push(ImportBlock::new(
-            "paragraph",
-            text_payload(""),
-            1,
-            Vec::new(),
-        ));
+        plan.blocks
+            .push(markdown_block("paragraph", text_payload(""), 1, Vec::new()));
     }
-    let imported_block_count = count_blocks(&plan.blocks);
+    let imported_block_count = count_import_blocks(&plan.blocks);
     if imported_block_count > MAX_MARKDOWN_IMPORT_BLOCKS {
         return Err(format!(
             "markdown import supports up to {MAX_MARKDOWN_IMPORT_BLOCKS} blocks"
         ));
     }
 
-    let mut tx = pool
-        .begin()
-        .await
-        .map_err(|e| format!("begin markdown import: {e}"))?;
-    writes::validate_page_parent_exists(&mut tx, &request.parent).await?;
-    let mut reserved_ids = HashSet::new();
-    let page_id = writes::new_note_id(&mut tx, &mut reserved_ids).await?;
-    let block_ids = new_note_ids(&mut tx, &mut reserved_ids, imported_block_count).await?;
-    let mut block_ids = block_ids.into_iter();
-    assign_block_ids(&mut plan.blocks, &mut block_ids);
-    let (parent_type, parent_page_id, parent_block_id) = parent_columns(&request.parent);
-    sqlx::query(
-        "INSERT INTO notes_pages (
-            id,
-            parent_type,
-            parent_page_id,
-            parent_block_id,
-            title,
-            properties,
-            source_provider,
-            source_object_id
-         )
-         VALUES (?, ?, ?, ?, ?, ?, 'markdown', ?)",
+    let page = create_imported_page(
+        pool,
+        ImportedPageCreate {
+            parent: &request.parent,
+            after_block_id: request.after_block_id.as_deref(),
+            title: &title,
+            source_provider: "markdown",
+            source_object_id: source_name.as_deref(),
+            blocks: plan.blocks,
+        },
     )
-    .bind(&page_id)
-    .bind(parent_type)
-    .bind(parent_page_id)
-    .bind(parent_block_id)
-    .bind(&title)
-    .bind(writes::page_title_properties(&title).to_string())
-    .bind(&source_name)
-    .execute(&mut *tx)
-    .await
-    .map_err(|e| format!("create markdown import page: {e}"))?;
-
-    if !matches!(&request.parent, NoteParent::Workspace { .. }) {
-        let parent = writes::resolve_block_parent(&mut tx, &request.parent).await?;
-        let sort_order =
-            writes::next_sort_orders(&mut tx, &parent, request.after_block_id.as_deref(), 1)
-                .await?[0];
-        insert_raw_block_with_id(
-            &mut tx,
-            RawBlockInsert {
-                id: &page_id,
-                page_id: &page_id,
-                parent: RawBlockParent {
-                    parent_type: parent.parent_type,
-                    parent_page_id: parent.parent_page_id.as_deref(),
-                    parent_block_id: parent.parent_block_id.as_deref(),
-                },
-                block_type: "child_page",
-                payload: &json!({ "title": title }),
-                sort_order,
-                has_children: false,
-                source_line: None,
-            },
-        )
-        .await?;
-        writes::refresh_parent_has_children(&mut tx, &parent).await?;
-        writes::touch_page(&mut tx, &parent.page_id).await?;
-    }
-
-    for (index, block) in plan.blocks.iter().enumerate() {
-        insert_import_block(
-            &mut tx,
-            &page_id,
-            RawBlockParent {
-                parent_type: "page_id",
-                parent_page_id: Some(&page_id),
-                parent_block_id: None,
-            },
-            block,
-            1000.0 + index as f64 * 1000.0,
-        )
-        .await?;
-    }
-    tx.commit()
-        .await
-        .map_err(|e| format!("commit markdown import: {e}"))?;
-    let page = reads::load_page(pool, &page_id).await?;
+    .await?;
     Ok(NoteMarkdownImportDto::new(
         page,
         plan.diagnostics,
         imported_block_count as i64,
     ))
-}
-
-async fn new_note_ids(
-    tx: &mut Transaction<'_, Sqlite>,
-    reserved_ids: &mut HashSet<String>,
-    count: usize,
-) -> Result<Vec<String>, String> {
-    let mut ids = Vec::with_capacity(count);
-    for _ in 0..count {
-        ids.push(writes::new_note_id(tx, reserved_ids).await?);
-    }
-    Ok(ids)
-}
-
-fn assign_block_ids(blocks: &mut [ImportBlock], ids: &mut impl Iterator<Item = String>) {
-    for block in blocks {
-        block.id = ids
-            .next()
-            .expect("generated markdown block ids must cover every parsed block");
-        assign_block_ids(&mut block.children, ids);
-    }
-}
-
-async fn insert_import_block(
-    tx: &mut Transaction<'_, Sqlite>,
-    page_id: &str,
-    parent: RawBlockParent<'_>,
-    block: &ImportBlock,
-    sort_order: f64,
-) -> Result<(), String> {
-    insert_raw_block_with_id(
-        tx,
-        RawBlockInsert {
-            id: &block.id,
-            page_id,
-            parent,
-            block_type: block.block_type,
-            payload: &block.payload,
-            sort_order,
-            has_children: !block.children.is_empty(),
-            source_line: Some(block.source_line),
-        },
-    )
-    .await?;
-    for (index, child) in block.children.iter().enumerate() {
-        if !child.children.is_empty() {
-            return Err(
-                "markdown import only supports one level of generated table children".to_string(),
-            );
-        }
-        insert_raw_block_with_id(
-            tx,
-            RawBlockInsert {
-                id: &child.id,
-                page_id,
-                parent: RawBlockParent {
-                    parent_type: "block_id",
-                    parent_page_id: None,
-                    parent_block_id: Some(&block.id),
-                },
-                block_type: child.block_type,
-                payload: &child.payload,
-                sort_order: 1000.0 + index as f64 * 1000.0,
-                has_children: false,
-                source_line: Some(child.source_line),
-            },
-        )
-        .await?;
-    }
-    Ok(())
-}
-
-async fn insert_raw_block_with_id(
-    tx: &mut Transaction<'_, Sqlite>,
-    block: RawBlockInsert<'_>,
-) -> Result<(), String> {
-    validate_sort_order(block.sort_order)?;
-    validate_block_payload(block.block_type, block.payload)?;
-    let plain_text = plain_text_from_payload(block.block_type, block.payload);
-    let source_object_id = block.source_line.map(|line| format!("line:{line}"));
-    sqlx::query(
-        "INSERT INTO notes_blocks (
-            id,
-            page_id,
-            parent_type,
-            parent_page_id,
-            parent_block_id,
-            has_children,
-            type,
-            payload,
-            plain_text,
-            sort_order,
-            source_provider,
-            source_object_id
-         )
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'markdown', ?)",
-    )
-    .bind(block.id)
-    .bind(block.page_id)
-    .bind(block.parent.parent_type)
-    .bind(block.parent.parent_page_id)
-    .bind(block.parent.parent_block_id)
-    .bind(if block.has_children { 1 } else { 0 })
-    .bind(block.block_type)
-    .bind(block.payload.to_string())
-    .bind(plain_text)
-    .bind(block.sort_order)
-    .bind(source_object_id)
-    .execute(&mut **tx)
-    .await
-    .map_err(|e| format!("insert markdown import block: {e}"))?;
-    Ok(())
-}
-
-struct RawBlockInsert<'a> {
-    id: &'a str,
-    page_id: &'a str,
-    parent: RawBlockParent<'a>,
-    block_type: &'a str,
-    payload: &'a Value,
-    sort_order: f64,
-    has_children: bool,
-    source_line: Option<i64>,
-}
-
-#[derive(Clone, Copy)]
-struct RawBlockParent<'a> {
-    parent_type: &'static str,
-    parent_page_id: Option<&'a str>,
-    parent_block_id: Option<&'a str>,
 }
 
 struct MarkdownPlan {
@@ -279,29 +76,18 @@ struct MarkdownPlan {
     diagnostics: Vec<NoteMarkdownImportDiagnosticDto>,
 }
 
-struct ImportBlock {
-    id: String,
+fn markdown_block(
     block_type: &'static str,
     payload: Value,
     source_line: i64,
     children: Vec<ImportBlock>,
-}
-
-impl ImportBlock {
-    fn new(
-        block_type: &'static str,
-        payload: Value,
-        source_line: i64,
-        children: Vec<ImportBlock>,
-    ) -> Self {
-        Self {
-            id: String::new(),
-            block_type,
-            payload,
-            source_line,
-            children,
-        }
-    }
+) -> ImportBlock {
+    ImportBlock::new(
+        block_type,
+        payload,
+        Some(format!("line:{source_line}")),
+        children,
+    )
 }
 
 fn parse_markdown(markdown: &str) -> MarkdownPlan {
@@ -374,7 +160,7 @@ impl MarkdownParser<'_> {
             }
             if is_divider(trimmed) {
                 self.flush_paragraph();
-                self.blocks.push(ImportBlock::new(
+                self.blocks.push(markdown_block(
                     "divider",
                     json!({}),
                     line.number,
@@ -463,7 +249,7 @@ impl MarkdownParser<'_> {
             let current = &self.lines[self.index];
             if current.text.trim_start().starts_with(fence) {
                 self.index += 1;
-                return Some(ImportBlock::new(
+                return Some(markdown_block(
                     "code",
                     json!({
                         "rich_text": [rich_text(&code_lines.join("\n"), None)],
@@ -483,7 +269,7 @@ impl MarkdownParser<'_> {
             Some(start_line),
             "A fenced code block was imported through the end of the document because it was not closed.",
         );
-        Some(ImportBlock::new(
+        Some(markdown_block(
             "code",
             json!({
                 "rich_text": [rich_text(&code_lines.join("\n"), None)],
@@ -527,7 +313,7 @@ impl MarkdownParser<'_> {
                     .into_iter()
                     .map(|cell| inline_rich_text(&cell, start_line, &mut self.diagnostics))
                     .collect::<Vec<_>>();
-                ImportBlock::new(
+                markdown_block(
                     "table_row",
                     json!({ "cells": rich_cells }),
                     start_line,
@@ -535,7 +321,7 @@ impl MarkdownParser<'_> {
                 )
             })
             .collect::<Vec<_>>();
-        ImportBlock::new(
+        markdown_block(
             "table",
             json!({
                 "table_width": width,
@@ -564,7 +350,7 @@ impl MarkdownParser<'_> {
             self.index += 1;
         }
         let text = quote_lines.join("\n");
-        Some(ImportBlock::new(
+        Some(markdown_block(
             "quote",
             text_payload_with_line(&text, start_line, &mut self.diagnostics),
             start_line,
@@ -603,7 +389,7 @@ impl MarkdownParser<'_> {
             }
         };
         self.index += 1;
-        Some(ImportBlock::new(
+        Some(markdown_block(
             block_type,
             text_payload_with_line(text, line.number, &mut self.diagnostics),
             line.number,
@@ -627,7 +413,7 @@ impl MarkdownParser<'_> {
         let trimmed = line.text.trim_start();
         if let Some((checked, text)) = todo_marker(trimmed) {
             self.index += 1;
-            return Some(ImportBlock::new(
+            return Some(markdown_block(
                 "to_do",
                 json!({
                     "rich_text": inline_rich_text(text, line.number, &mut self.diagnostics),
@@ -640,7 +426,7 @@ impl MarkdownParser<'_> {
         }
         if let Some(text) = unordered_list_marker(trimmed) {
             self.index += 1;
-            return Some(ImportBlock::new(
+            return Some(markdown_block(
                 "bulleted_list_item",
                 text_payload_with_line(text, line.number, &mut self.diagnostics),
                 line.number,
@@ -649,7 +435,7 @@ impl MarkdownParser<'_> {
         }
         if let Some(text) = ordered_list_marker(trimmed) {
             self.index += 1;
-            return Some(ImportBlock::new(
+            return Some(markdown_block(
                 "numbered_list_item",
                 text_payload_with_line(text, line.number, &mut self.diagnostics),
                 line.number,
@@ -700,7 +486,7 @@ impl MarkdownParser<'_> {
                 "Image reference was not supported by the Notes image block.",
             ));
         }
-        Some(ImportBlock::new("image", payload, line.number, Vec::new()))
+        Some(markdown_block("image", payload, line.number, Vec::new()))
     }
 
     fn flush_paragraph(&mut self) {
@@ -723,12 +509,8 @@ impl MarkdownParser<'_> {
             );
         }
         let payload = text_payload_with_line(&text, start_line, &mut self.diagnostics);
-        self.blocks.push(ImportBlock::new(
-            "paragraph",
-            payload,
-            start_line,
-            Vec::new(),
-        ));
+        self.blocks
+            .push(markdown_block("paragraph", payload, start_line, Vec::new()));
         self.paragraph.clear();
     }
 
@@ -837,13 +619,6 @@ fn source_name_title(value: &str) -> Option<String> {
     (!file_name.is_empty()).then(|| file_name.to_string())
 }
 
-fn count_blocks(blocks: &[ImportBlock]) -> usize {
-    blocks
-        .iter()
-        .map(|block| 1 + count_blocks(&block.children))
-        .sum()
-}
-
 fn text_payload(text: &str) -> Value {
     json!({
         "rich_text": [rich_text(text, None)],
@@ -936,7 +711,7 @@ fn rich_text(text: &str, url: Option<&str>) -> Value {
 }
 
 fn unsupported_block(line: i64, raw: &str, warning: &str) -> ImportBlock {
-    ImportBlock::new(
+    markdown_block(
         "unsupported",
         json!({
             "block_type": "markdown",

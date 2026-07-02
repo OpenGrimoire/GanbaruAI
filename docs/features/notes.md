@@ -36,6 +36,12 @@ Markdown import creates a new canonical Notes page and normal `notes_blocks` row
 
 Imported markdown records source provenance as `markdown`, but the markdown text is not stored as an editable authority. Local file references are skipped until the shared import-file policy copies or deliberately references them. Unsupported syntax becomes visible preservation blocks where practical so users can review and convert it after import.
 
+## HTML import
+
+HTML import creates a new canonical Notes page and block tree from sanitized HTML. The Notes sidebar exposes an import action that accepts pasted HTML, an optional page title, an optional source name, and an explicit choice for keeping HTTPS media references. The importer strips unsafe markup and event attributes before conversion, extracts `<title>` or the first heading for the page title when no title is provided, and records page and block provenance as `html`.
+
+The supported first slice converts headings, paragraphs, inline bold, italic, underline, strikethrough, inline code, HTTP, HTTPS, and mail links, flat ordered and unordered lists, checkbox list items, quotes, fenced-looking preformatted code, dividers, callouts from `aside`, toggles from `details`, simple tables, and image, video, or audio blocks when the user chooses to keep supported HTTPS media URLs. Local, relative, non-HTTPS, or unsupported media references are skipped and reported so they can later pass through the shared import-file policy instead of becoming raw paths. Unsupported elements become visible preservation blocks where practical, while scripts, styles, SVG, math, iframes, unsafe URL schemes, and event attributes return diagnostics and are not stored as editable content.
+
 ## Markdown export
 
 Markdown export reads canonical `notes_pages`, `notes_blocks`, and optionally `notes_comments` to produce deterministic derivative markdown. The export includes the page title by default, walks active blocks in stored order, renders rich text annotations, safe links, mentions, inline and block equations, headings, paragraphs, lists, to-dos, toggles, callouts, quotes, code, dividers, simple tables, and media references. Comments are included only when requested, append as a comments section, and omit local read state.
