@@ -28,6 +28,7 @@ mod models;
 mod page_cover_assets;
 mod page_icon_assets;
 mod reads;
+mod search;
 mod suggestions;
 mod templates;
 mod undo_state;
@@ -104,7 +105,16 @@ pub async fn notes_search<R: Runtime>(
     page_size: Option<i64>,
 ) -> Result<Vec<NoteSearchResultDto>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    reads::search(&pool, &query, page_size).await
+    search::search(&pool, &query, page_size).await
+}
+
+#[tauri::command]
+pub async fn notes_rebuild_search_index<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+) -> Result<i64, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    search::rebuild_index(&pool).await
 }
 
 #[tauri::command]

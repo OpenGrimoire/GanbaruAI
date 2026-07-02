@@ -172,6 +172,15 @@ export async function searchNotes(
   return rows.map(mapNotesSearchResultDto);
 }
 
+export async function rebuildNotesSearchIndex(): Promise<number> {
+  const dbUrl = await ensureDbUrl();
+  const count = await invoke<unknown>("notes_rebuild_search_index", { dbUrl });
+  if (typeof count !== "number") {
+    throw new Error("notes_rebuild_search_index returned a non-number payload");
+  }
+  return count;
+}
+
 export async function getNotesLocalUser(): Promise<NotesLocalUser> {
   const dbUrl = await ensureDbUrl();
   return mapNotesLocalUserDto(await invoke<unknown>("notes_get_local_user", { dbUrl }));

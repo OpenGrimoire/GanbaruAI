@@ -870,6 +870,7 @@ pub fn run() {
             notes::notes_list_backlinks,
             notes::notes_get_page_breadcrumb,
             notes::notes_search,
+            notes::notes_rebuild_search_index,
             notes::notes_get_local_user,
             notes::notes_update_local_user,
             notes::notes_list_page_templates,

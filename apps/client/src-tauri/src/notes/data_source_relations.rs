@@ -587,43 +587,6 @@ pub(in crate::notes) async fn relation_backlinks(
     .map_err(|e| format!("list notes relation backlinks: {e}"))
 }
 
-pub(in crate::notes) async fn relation_search_rows(
-    pool: &sqlx::SqlitePool,
-    pattern: &str,
-    limit: i64,
-) -> Result<Vec<NotePageRow>, String> {
-    sqlx::query_as::<_, NotePageRow>(
-        "SELECT DISTINCT source_page.*
-         FROM notes_data_source_relation_links AS link
-         JOIN notes_pages AS source_page ON source_page.id = link.source_page_id
-         JOIN notes_pages AS target_page ON target_page.id = link.target_page_id
-         JOIN notes_data_sources AS source_data_source
-              ON source_data_source.id = link.source_data_source_id
-         JOIN notes_databases AS source_database
-              ON source_database.id = source_data_source.database_id
-         JOIN notes_data_sources AS target_data_source
-              ON target_data_source.id = link.target_data_source_id
-         JOIN notes_databases AS target_database
-              ON target_database.id = target_data_source.database_id
-         WHERE target_page.title LIKE ? ESCAPE '\\'
-           AND source_page.in_trash = 0
-           AND source_page.archived = 0
-           AND target_page.in_trash = 0
-           AND target_page.archived = 0
-           AND source_data_source.in_trash = 0
-           AND target_data_source.in_trash = 0
-           AND source_database.in_trash = 0
-           AND target_database.in_trash = 0
-         ORDER BY source_page.last_edited_time DESC, source_page.title COLLATE NOCASE ASC
-         LIMIT ?",
-    )
-    .bind(pattern)
-    .bind(limit)
-    .fetch_all(pool)
-    .await
-    .map_err(|e| format!("search notes relation rows: {e}"))
-}
-
 fn relation_properties(properties: &Value) -> Result<Vec<RelationProperty>, String> {
     let object = properties
         .as_object()

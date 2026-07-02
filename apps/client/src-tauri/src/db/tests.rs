@@ -1796,3 +1796,73 @@ fn schema_creates_notes_assets_and_references() {
         assert!(invalid_reference.is_err());
     });
 }
+
+#[test]
+fn schema_creates_notes_search_fts_projection() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+
+        sqlx::query(
+            "INSERT INTO notes_pages (id, parent_type, title)
+             VALUES ('page-1', 'workspace', 'Searchable')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO notes_search_index (
+                id,
+                source_type,
+                page_id,
+                title,
+                body,
+                metadata,
+                source_last_edited_time
+             )
+             VALUES (
+                'page:page-1',
+                'page',
+                'page-1',
+                'Searchable',
+                'Alpha project',
+                'local metadata',
+                '2026-07-02T12:00:00.000Z'
+             )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO notes_search_fts (index_id, title, body, metadata)
+             VALUES ('page:page-1', 'Searchable', 'Alpha project', 'local metadata')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO notes_search_index_state (key, value)
+             VALUES ('source_fingerprint', 'test')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let matched: String = sqlx::query_scalar(
+            "SELECT index_id
+             FROM notes_search_fts
+             WHERE notes_search_fts MATCH 'alpha'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(matched, "page:page-1");
+
+        let state: String =
+            sqlx::query_scalar("SELECT value FROM notes_search_index_state WHERE key = ?")
+                .bind("source_fingerprint")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(state, "test");
+    });
+}

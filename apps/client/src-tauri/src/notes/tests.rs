@@ -22,7 +22,7 @@ use super::{
     assets, comments, data_source_board, data_source_buttons, data_source_calendar,
     data_source_gallery, data_source_list, data_source_rows, data_source_schema, data_source_table,
     data_source_templates, data_source_timeline, databases, history, local_user,
-    mention_notifications, reads, suggestions, templates, undo_state, validation, writes,
+    mention_notifications, reads, search, suggestions, templates, undo_state, validation, writes,
 };
 use crate::db::run_migrations;
 use serde_json::json;
@@ -2268,7 +2268,7 @@ fn database_row_pages_are_real_pages_with_page_lifecycle() {
             .unwrap();
         assert_eq!(rows.len(), 1);
 
-        let search_results = reads::search(&pool, "Write", Some(10)).await.unwrap();
+        let search_results = search::search(&pool, "Write", Some(10)).await.unwrap();
         let search_json = serde_json::to_value(search_results).unwrap();
         assert!(search_json
             .as_array()
@@ -2321,7 +2321,7 @@ fn database_row_pages_are_real_pages_with_page_lifecycle() {
             .await
             .unwrap();
         assert!(hidden_rows.is_empty());
-        let hidden_search = reads::search(&pool, "Write", Some(10)).await.unwrap();
+        let hidden_search = search::search(&pool, "Write", Some(10)).await.unwrap();
         let hidden_search_json = serde_json::to_value(hidden_search).unwrap();
         assert!(!hidden_search_json
             .as_array()
@@ -2738,7 +2738,7 @@ fn database_relations_persist_links_backlinks_and_search() {
                 && backlink["source_page"]["id"] == PAGE_B
         }));
 
-        let search_results = reads::search(&pool, "Project Alpha", Some(10))
+        let search_results = search::search(&pool, "Project Alpha", Some(10))
             .await
             .unwrap();
         let search_json = serde_json::to_value(search_results).unwrap();
@@ -6720,7 +6720,7 @@ fn search_returns_page_block_and_comment_matches() {
         .await
         .unwrap();
 
-        let results = reads::search(&pool, "target", Some(10)).await.unwrap();
+        let results = search::search(&pool, "target", Some(10)).await.unwrap();
         let results_json = serde_json::to_value(results).unwrap();
         assert_eq!(results_json.as_array().unwrap().len(), 3);
         assert_eq!(results_json[0]["type"], "page");
@@ -6733,11 +6733,208 @@ fn search_returns_page_block_and_comment_matches() {
 }
 
 #[test]
+fn search_fts_rebuilds_and_indexes_properties_files_and_metadata() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        create_page(&pool, PAGE_A, BLOCK_A).await;
+
+        sqlx::query(
+            "UPDATE notes_pages
+             SET properties = ?,
+                 last_edited_time = '2035-07-02T10:00:00.000Z'
+             WHERE id = ?",
+        )
+        .bind(
+            json!({
+                "Name": {
+                    "id": "title",
+                    "name": "Name",
+                    "type": "title",
+                    "title": [rich_text("Search Host")]
+                },
+                "Status": {
+                    "id": "status",
+                    "name": "Status",
+                    "type": "status",
+                    "status": {
+                        "id": "status-review",
+                        "name": "Deep Review",
+                        "color": "green"
+                    }
+                },
+                "Due": {
+                    "id": "due",
+                    "name": "Due",
+                    "type": "date",
+                    "date": {
+                        "start": "2035-07-02",
+                        "end": null
+                    }
+                }
+            })
+            .to_string(),
+        )
+        .bind(PAGE_A)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        writes::append_block_children(
+            &pool,
+            NoteAppendBlockChildren {
+                parent: page_parent(PAGE_A),
+                after: Some(BLOCK_A.to_string()),
+                children: vec![block(
+                    BLOCK_C,
+                    "image",
+                    local_media_payload(
+                        "notes/files/c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3.png",
+                        "image/png",
+                        128,
+                        "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+                        "Quarterly diagram caption",
+                        Some("roadmap-sketch.png"),
+                    ),
+                )],
+            },
+        )
+        .await
+        .unwrap();
+
+        comments::create_comment(
+            &pool,
+            NoteCommentCreate {
+                id: COMMENT_A.to_string(),
+                parent: Some(page_parent(PAGE_A)),
+                discussion_id: None,
+                anchor: None,
+                rich_text: vec![rich_text("Comment body")],
+                attachments: Some(vec![local_comment_attachment(
+                    "notes/files/d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4.pdf",
+                    "application/pdf",
+                    256,
+                    "d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4",
+                    "meeting-notes.pdf",
+                )]),
+            },
+        )
+        .await
+        .unwrap();
+
+        let property_results = search::search(&pool, "Deep Review", Some(10))
+            .await
+            .unwrap();
+        let property_json = serde_json::to_value(property_results).unwrap();
+        assert!(property_json
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|result| { result["type"] == "page" && result["page"]["id"] == PAGE_A }));
+
+        let caption_results = search::search(&pool, "Quarterly", Some(10)).await.unwrap();
+        let caption_json = serde_json::to_value(caption_results).unwrap();
+        assert!(caption_json
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|result| { result["type"] == "block" && result["block_id"] == BLOCK_C }));
+
+        let file_results = search::search(&pool, "roadmap", Some(10)).await.unwrap();
+        let file_json = serde_json::to_value(file_results).unwrap();
+        assert!(file_json
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|result| { result["type"] == "block" && result["block_id"] == BLOCK_C }));
+
+        let comment_file_results = search::search(&pool, "meeting notes", Some(10))
+            .await
+            .unwrap();
+        let comment_file_json = serde_json::to_value(comment_file_results).unwrap();
+        assert!(comment_file_json
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|result| { result["type"] == "comment" && result["comment_id"] == COMMENT_A }));
+
+        sqlx::query("DELETE FROM notes_search_fts")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM notes_search_index")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let rebuilt_results = search::search(&pool, "roadmap", Some(10)).await.unwrap();
+        let rebuilt_json = serde_json::to_value(rebuilt_results).unwrap();
+        assert!(rebuilt_json
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|result| { result["type"] == "block" && result["block_id"] == BLOCK_C }));
+
+        sqlx::query(
+            "UPDATE notes_pages
+             SET properties = ?,
+                 last_edited_time = '2035-07-02T10:01:00.000Z'
+             WHERE id = ?",
+        )
+        .bind(
+            json!({
+                "Name": {
+                    "id": "title",
+                    "name": "Name",
+                    "type": "title",
+                    "title": [rich_text("Search Host")]
+                },
+                "Status": {
+                    "id": "status",
+                    "name": "Status",
+                    "type": "status",
+                    "status": {
+                        "id": "status-fresh",
+                        "name": "Fresh Signal",
+                        "color": "blue"
+                    }
+                }
+            })
+            .to_string(),
+        )
+        .bind(PAGE_A)
+        .execute(&pool)
+        .await
+        .unwrap();
+        let stale_guard_results = search::search(&pool, "Fresh Signal", Some(10))
+            .await
+            .unwrap();
+        let stale_guard_json = serde_json::to_value(stale_guard_results).unwrap();
+        assert!(stale_guard_json
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|result| { result["type"] == "page" && result["page"]["id"] == PAGE_A }));
+
+        let rebuilt_count = search::rebuild_index(&pool).await.unwrap();
+        let index_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM notes_search_index")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let fts_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM notes_search_fts")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(rebuilt_count, index_count);
+        assert_eq!(index_count, fts_count);
+        assert!(rebuilt_count >= 4);
+    });
+}
+
+#[test]
 fn search_rejects_empty_queries() {
     tauri::async_runtime::block_on(async {
         let pool = migrated_memory_pool().await;
         assert_eq!(
-            reads::search(&pool, "  ", Some(10)).await.err(),
+            search::search(&pool, "  ", Some(10)).await.err(),
             Some("search query must not be empty".to_string())
         );
     });
