@@ -1,3 +1,4 @@
+use super::data_source_relations;
 use super::models::{
     NoteBacklinkDto, NoteBlockDto, NoteBlockRow, NoteCommentRow, NoteLoadedPage,
     NotePageBreadcrumbItemDto, NotePageDto, NotePageRow, NotePaginatedBlockList,
@@ -423,6 +424,18 @@ pub(in crate::notes) async fn list_backlinks(
             snippet,
         ));
     }
+    for relation in data_source_relations::relation_backlinks(pool, page_id).await? {
+        let source_page = get_page(pool, &relation.source_page_id, false).await?;
+        backlinks.push(NoteBacklinkDto::database_relation(
+            source_page,
+            relation.source_page_id,
+            relation.source_property_id,
+            relation.source_property_name,
+            relation.target_page_id,
+            relation.created_time,
+            relation.last_edited_time,
+        ));
+    }
     Ok(backlinks)
 }
 
@@ -460,6 +473,8 @@ pub(in crate::notes) async fn search(
     .fetch_all(pool)
     .await
     .map_err(|e| format!("search notes pages: {e}"))?;
+    let relation_page_rows =
+        data_source_relations::relation_search_rows(pool, &pattern, (page_size * 2) as i64).await?;
 
     let block_rows = sqlx::query_as::<_, NoteBlockRow>(
         "SELECT
@@ -552,6 +567,18 @@ pub(in crate::notes) async fn search(
         let score = search_score("page", &row.title, &normalized_query);
         let sort_time = row.last_edited_time.clone();
         let id = format!("page:{}", row.id);
+        let snippet = search_snippet(&row.title, query);
+        candidates.push(SearchCandidate {
+            score,
+            sort_time: sort_time.clone(),
+            id,
+            result: NoteSearchResultDto::page(NotePageDto::new(row)?, snippet, sort_time),
+        });
+    }
+    for row in relation_page_rows {
+        let score = search_score("page", &row.title, &normalized_query) + 2;
+        let sort_time = row.last_edited_time.clone();
+        let id = format!("relation-page:{}", row.id);
         let snippet = search_snippet(&row.title, query);
         candidates.push(SearchCandidate {
             score,

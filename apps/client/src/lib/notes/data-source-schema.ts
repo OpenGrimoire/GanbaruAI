@@ -29,6 +29,9 @@ export interface NotesDataSourceSchemaPropertyDraft {
   hidden: boolean;
   numberFormat: NotesDataSourceNumberFormat;
   uniquePrefix: string;
+  relationDataSourceId: string;
+  relationSyncedPropertyId: string;
+  relationSyncedPropertyName: string;
   options: NotesDataSourceSchemaOptionDraft[];
 }
 
@@ -174,6 +177,15 @@ function propertyDraftFromRecord(
   const numberConfig = isRecord(config) ? config : {};
   const numberFormat = readString(numberConfig.format, "number");
   const uniquePrefix = readString(isRecord(config) ? config.prefix : "", "");
+  const relationDataSourceId = readString(
+    isRecord(config) ? config.data_source_id : "",
+    "",
+  );
+  const dualProperty = isRecord(config) && isRecord(config.dual_property)
+    ? config.dual_property
+    : {};
+  const relationSyncedPropertyId = readString(dualProperty.synced_property_id, "");
+  const relationSyncedPropertyName = readString(dualProperty.synced_property_name, "");
   const options = type === "status"
     ? statusOptionDrafts(config)
     : type === "select" || type === "multi_select"
@@ -187,6 +199,9 @@ function propertyDraftFromRecord(
     hidden: type === "title" ? false : hiddenIds.has(id),
     numberFormat: isNumberFormat(numberFormat) ? numberFormat : "number",
     uniquePrefix,
+    relationDataSourceId,
+    relationSyncedPropertyId,
+    relationSyncedPropertyName,
     options,
   };
 }
@@ -267,6 +282,8 @@ function defaultNameForType(type: NotesDataSourcePropertyType): string {
       return "Unique ID";
     case "place":
       return "Place";
+    case "relation":
+      return "Relation";
   }
 }
 
@@ -284,6 +301,9 @@ export function createNotesDataSourcePropertyDraft(
     hidden: false,
     numberFormat: "number",
     uniquePrefix: "",
+    relationDataSourceId: "",
+    relationSyncedPropertyId: "",
+    relationSyncedPropertyName: "",
     options: type === "status" ? defaultStatusOptions() : [],
   };
 }
@@ -316,6 +336,21 @@ function propertyConfig(property: NotesDataSourceSchemaPropertyDraft): UnknownRe
       };
     case "unique_id":
       return { prefix: property.uniquePrefix.trim() || null };
+    case "relation": {
+      const dataSourceId = property.relationDataSourceId.trim();
+      if (!dataSourceId) throw new Error("relation target data source is required");
+      const syncedPropertyId = property.relationSyncedPropertyId.trim();
+      const syncedPropertyName = property.relationSyncedPropertyName.trim();
+      return {
+        data_source_id: dataSourceId,
+        dual_property: syncedPropertyId && syncedPropertyName
+          ? {
+              synced_property_id: syncedPropertyId,
+              synced_property_name: syncedPropertyName,
+            }
+          : null,
+      };
+    }
     default:
       return emptyPropertyConfig(property.type);
   }

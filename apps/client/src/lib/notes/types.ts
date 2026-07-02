@@ -718,6 +718,7 @@ export const NOTES_DATA_SOURCE_PROPERTY_TYPES = [
   "last_edited_by",
   "unique_id",
   "place",
+  "relation",
 ] as const;
 
 export type NotesDataSourcePropertyType = (typeof NOTES_DATA_SOURCE_PROPERTY_TYPES)[number];
@@ -1108,14 +1109,18 @@ export interface NotesLoadedPage {
   blocks: NotesPaginatedBlockList;
 }
 
-export type NotesBacklinkReferenceType = "child_page" | "page_mention" | "link";
+export type NotesBacklinkReferenceType =
+  | "child_page"
+  | "page_mention"
+  | "link"
+  | "database_relation";
 
 export interface NotesBacklink {
   object: "backlink";
   id: string;
   source_page: NotesPage;
   source_block_id: string;
-  source_block_type: NotesBlockType;
+  source_block_type: NotesBlockType | "database_relation";
   reference_type: NotesBacklinkReferenceType;
   snippet: string;
   created_time: string;

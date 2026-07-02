@@ -476,6 +476,33 @@ impl NoteBacklinkDto {
             last_edited_time: source_block.last_edited_time,
         }
     }
+
+    pub(in crate::notes) fn database_relation(
+        source_page: NotePageDto,
+        source_page_id: String,
+        source_property_id: String,
+        source_property_name: String,
+        target_page_id: String,
+        created_time: String,
+        last_edited_time: String,
+    ) -> Self {
+        let snippet = if source_property_name.trim().is_empty() {
+            "Database relation".to_string()
+        } else {
+            source_property_name.clone()
+        };
+        Self {
+            object: "backlink",
+            id: format!("relation:{source_page_id}:{source_property_id}:{target_page_id}"),
+            source_page,
+            source_block_id: source_page_id,
+            source_block_type: "database_relation".to_string(),
+            reference_type: "database_relation".to_string(),
+            snippet,
+            created_time,
+            last_edited_time,
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -2054,7 +2081,9 @@ fn parent_from_row(
     }
 }
 
-fn block_parent_from_database_row(row: &NoteDatabaseRow) -> Result<NoteParent, String> {
+pub(in crate::notes) fn block_parent_from_database_row(
+    row: &NoteDatabaseRow,
+) -> Result<NoteParent, String> {
     parent_from_row(
         &row.parent_type,
         row.parent_page_id.clone(),

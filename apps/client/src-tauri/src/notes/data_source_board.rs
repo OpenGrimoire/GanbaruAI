@@ -5,7 +5,7 @@ use super::models::{
     NoteDataSourceTableSort, NoteDatabaseRow, NoteDatabaseViewRow, NotePageRow,
 };
 use super::validation::require_uuid;
-use super::{data_source_table, data_source_views, writes};
+use super::{data_source_relations, data_source_table, data_source_views, writes};
 use serde_json::{json, Map, Value};
 use sqlx::{Sqlite, SqlitePool, Transaction};
 use std::cmp::Ordering;
@@ -177,6 +177,7 @@ async fn load_board_view_tx(
         .into_iter()
         .map(|row| normalized_row_for_schema(row, &schema))
         .collect::<Result<Vec<_>, _>>()?;
+    data_source_relations::hydrate_relation_titles_tx(tx, &mut rows).await?;
     rows.retain(|row| row_matches_filters(row, &schema, &filters));
     sort_rows(&mut rows, &schema, &sorts);
     let groups = board_groups(&schema, &configuration, rows)?;
@@ -906,10 +907,17 @@ fn canonical_stored_property_value(
     let payload = object
         .get(&property.property_type)
         .ok_or_else(|| "row property is missing its typed value".to_string())?;
+    let payload = canonical_property_payload(&property.property_type, payload)?;
+    if property.property_type == "relation" {
+        return Ok(data_source_relations::relation_property_value(
+            &property.id,
+            payload,
+        ));
+    }
     Ok(json!({
         "id": property.id,
         "type": property.property_type,
-        property.property_type.clone(): canonical_property_payload(&property.property_type, payload)?
+        property.property_type.clone(): payload
     }))
 }
 
@@ -933,6 +941,9 @@ fn default_property_value(property: &BoardProperty, title: &str) -> Value {
         }),
         _ => Value::Null,
     };
+    if property.property_type == "relation" {
+        return data_source_relations::relation_property_value(&property.id, payload);
+    }
     json!({
         "id": property.id,
         "type": property.property_type,
@@ -942,13 +953,14 @@ fn default_property_value(property: &BoardProperty, title: &str) -> Value {
 
 fn canonical_property_payload(property_type: &str, value: &Value) -> Result<Value, String> {
     match property_type {
-        "title" | "rich_text" | "multi_select" | "files" | "people" | "relation" => {
+        "title" | "rich_text" | "multi_select" | "files" | "people" => {
             if value.is_array() {
                 Ok(value.clone())
             } else {
                 Err(format!("{property_type} property must be an array"))
             }
         }
+        "relation" => data_source_relations::canonical_relation_payload(value),
         "number" => {
             if value.is_null() || value.is_number() {
                 Ok(value.clone())
@@ -1123,7 +1135,8 @@ fn row_property_plain_text(row: &NotePageRow, property: &BoardProperty) -> Strin
                 items
                     .iter()
                     .filter_map(|item| {
-                        item.get("name")
+                        item.get("title")
+                            .or_else(|| item.get("name"))
                             .or_else(|| item.get("id"))
                             .and_then(Value::as_str)
                     })

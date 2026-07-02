@@ -3,11 +3,11 @@ use super::data_source_board::{
     load_active_data_source_and_database_tx, load_active_row_pages_tx, normalized_row_for_schema,
     parse_json, row_matches_filters, sort_rows, stored_filters, stored_sorts, BoardProperty,
 };
-use super::data_source_views;
 use super::models::{
     NoteDataSourceListConfigurationUpdate, NoteDataSourceListViewDto, NoteDataSourceListViewUpdate,
     NoteDataSourceRow, NoteDatabaseViewRow,
 };
+use super::{data_source_relations, data_source_views};
 use serde_json::{json, Value};
 use sqlx::{Sqlite, SqlitePool, Transaction};
 use std::collections::HashSet;
@@ -110,6 +110,7 @@ async fn load_list_view_tx(
         .into_iter()
         .map(|row| normalized_row_for_schema(row, &schema))
         .collect::<Result<Vec<_>, _>>()?;
+    data_source_relations::hydrate_relation_titles_tx(tx, &mut rows).await?;
     rows.retain(|row| row_matches_filters(row, &schema, &filters));
     sort_rows(&mut rows, &schema, &sorts);
     NoteDataSourceListViewDto::new(data_source, database, view, rows)

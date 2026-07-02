@@ -1759,7 +1759,10 @@ function parseBacklinkReferenceType(value: unknown): NotesBacklinkReferenceType 
   if (referenceType === "child_page" || referenceType === "page_mention" || referenceType === "link") {
     return referenceType;
   }
-  throw new Error("backlink.reference_type must be child_page, page_mention, or link");
+  if (referenceType === "database_relation") return referenceType;
+  throw new Error(
+    "backlink.reference_type must be child_page, page_mention, link, or database_relation",
+  );
 }
 
 function parsePageBreadcrumbStatus(value: unknown): NotesPageBreadcrumbStatus {
@@ -1798,8 +1801,12 @@ export function parseNotesPageBreadcrumbItem(value: unknown): NotesPageBreadcrum
 export function parseNotesBacklink(value: unknown): NotesBacklink {
   const record = readRecord(value, "backlink");
   if (record.object !== "backlink") throw new Error("backlink.object must be backlink");
+  const referenceType = parseBacklinkReferenceType(record.reference_type);
   const sourceBlockType = readString(record.source_block_type, "backlink.source_block_type");
-  if (!isNotesBlockType(sourceBlockType)) {
+  if (
+    !isNotesBlockType(sourceBlockType)
+    && !(referenceType === "database_relation" && sourceBlockType === "database_relation")
+  ) {
     throw new Error("backlink.source_block_type must be a supported block type");
   }
   return {
@@ -1808,7 +1815,7 @@ export function parseNotesBacklink(value: unknown): NotesBacklink {
     source_page: parseNotesPage(record.source_page),
     source_block_id: readString(record.source_block_id, "backlink.source_block_id"),
     source_block_type: sourceBlockType,
-    reference_type: parseBacklinkReferenceType(record.reference_type),
+    reference_type: referenceType,
     snippet: readString(record.snippet, "backlink.snippet"),
     created_time: readString(record.created_time, "backlink.created_time"),
     last_edited_time: readString(record.last_edited_time, "backlink.last_edited_time"),

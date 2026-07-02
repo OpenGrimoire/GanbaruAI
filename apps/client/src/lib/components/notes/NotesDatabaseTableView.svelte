@@ -10,6 +10,7 @@
   } from "$lib/api/notes";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import {
+    notesDatabaseTableEditValuesEqual,
     notesDatabaseTableCellEditValue,
     notesDatabaseTableCellText,
     notesDatabaseTableColumnCanEdit,
@@ -20,8 +21,10 @@
     notesDatabaseTableSortsFromView,
     notesDatabaseTableUpdate,
     notesDatabaseTableVisibleColumns,
+    type NotesDatabaseTableEditValue,
     type NotesDatabaseTableColumn,
   } from "$lib/notes/database-table";
+  import NotesDatabaseRelationCell from "./NotesDatabaseRelationCell.svelte";
   import type {
     NotesDatabaseTableFilter,
     NotesDatabaseTableFilterCondition,
@@ -200,10 +203,10 @@
   async function saveCell(
     row: NotesPage,
     column: NotesDatabaseTableColumn,
-    value: string | boolean | null,
+    value: NotesDatabaseTableEditValue,
   ): Promise<void> {
     const current = notesDatabaseTableCellEditValue(row, column);
-    if (current === value) return;
+    if (notesDatabaseTableEditValuesEqual(current, value)) return;
     mutating = true;
     error = null;
     try {
@@ -702,7 +705,17 @@
                         {#each column.options as option (option.id)}
                           <option value={option.name}>{option.name}</option>
                         {/each}
-                      </select>
+                        </select>
+                    {:else if column.type === "relation"}
+                      <NotesDatabaseRelationCell
+                        {row}
+                        {column}
+                        {rowIndex}
+                        {columnIndex}
+                        {mutating}
+                        onSave={(value) => saveCell(row, column, value)}
+                        onNavigate={handleCellKeydown}
+                      />
                     {:else if notesDatabaseTableColumnCanEdit(column)}
                       <input
                         data-table-cell="true"

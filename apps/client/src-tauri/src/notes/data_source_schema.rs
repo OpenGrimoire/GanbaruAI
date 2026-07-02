@@ -1,8 +1,8 @@
-use super::data_source_views;
 use super::models::{
-    NoteDataSourceRow, NoteDataSourceSchemaDto, NoteDataSourceSchemaUpdate, NoteDatabaseRow,
-    NoteDatabaseViewRow,
+    block_parent_from_database_row, NoteDataSourceDto, NoteDataSourceRow, NoteDataSourceSchemaDto,
+    NoteDataSourceSchemaUpdate, NoteDatabaseRow, NoteDatabaseViewRow,
 };
+use super::{data_source_relations, data_source_views};
 use serde_json::{json, Map, Value};
 use sqlx::{Sqlite, SqlitePool, Transaction};
 use std::collections::{HashMap, HashSet};
@@ -36,6 +36,7 @@ const SUPPORTED_PROPERTY_TYPES: &[&str] = &[
     "last_edited_by",
     "unique_id",
     "place",
+    "relation",
 ];
 
 const EMPTY_CONFIG_TYPES: &[&str] = &[
@@ -86,6 +87,35 @@ struct PreparedSchemaUpdate {
     hidden_property_ids: Vec<String>,
 }
 
+pub(in crate::notes) async fn list_data_sources(
+    pool: &SqlitePool,
+) -> Result<Vec<NoteDataSourceDto>, String> {
+    let rows = sqlx::query_as::<_, NoteDataSourceRow>(
+        "SELECT data_source.*
+         FROM notes_data_sources AS data_source
+         JOIN notes_databases AS database ON database.id = data_source.database_id
+         WHERE data_source.in_trash = 0
+           AND database.in_trash = 0
+         ORDER BY data_source.title COLLATE NOCASE ASC, data_source.id ASC",
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("list notes data sources: {e}"))?;
+    let mut result = Vec::with_capacity(rows.len());
+    for row in rows {
+        let database = sqlx::query_as::<_, NoteDatabaseRow>(
+            "SELECT * FROM notes_databases WHERE id = ? AND in_trash = 0",
+        )
+        .bind(&row.database_id)
+        .fetch_one(pool)
+        .await
+        .map_err(|e| format!("load notes data source database: {e}"))?;
+        let database_parent = block_parent_from_database_row(&database)?;
+        result.push(NoteDataSourceDto::new(row, database_parent)?);
+    }
+    Ok(result)
+}
+
 pub(in crate::notes) async fn get_data_source_schema(
     pool: &SqlitePool,
     data_source_id: &str,
@@ -118,6 +148,12 @@ pub(in crate::notes) async fn update_data_source_schema(
     let current = load_data_source_row_tx(&mut tx, data_source_id).await?;
     let current_properties = parse_json(&current.properties, "data source properties")?;
     ensure_title_property_preserved(&current_properties, &prepared.properties)?;
+    data_source_relations::ensure_relation_schema_targets_tx(
+        &mut tx,
+        data_source_id.trim(),
+        &prepared.properties,
+    )
+    .await?;
     let target_view = load_table_view_for_schema_tx(&mut tx, data_source_id, view_id).await?;
     let configuration = table_view_configuration(
         &prepared.property_order,
@@ -146,6 +182,12 @@ pub(in crate::notes) async fn update_data_source_schema(
     .execute(&mut *tx)
     .await
     .map_err(|e| format!("update notes table view schema configuration: {e}"))?;
+    data_source_relations::rebuild_data_source_relation_links_tx(
+        &mut tx,
+        data_source_id.trim(),
+        &prepared.properties,
+    )
+    .await?;
     let dto = load_data_source_schema_tx(&mut tx, data_source_id, Some(&target_view.id)).await?;
     tx.commit()
         .await
@@ -273,6 +315,7 @@ fn canonical_type_config(property_type: &str, value: Option<&Value>) -> Result<V
         "select" | "multi_select" => canonical_options_config(value),
         "status" => canonical_status_config(value),
         "unique_id" => canonical_unique_id_config(value),
+        "relation" => data_source_relations::canonical_relation_config(value),
         _ => Err(format!(
             "unsupported data source property type: {property_type}"
         )),

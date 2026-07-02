@@ -37,6 +37,22 @@ describe("notes backlinks", () => {
     ).toBe("link");
   });
 
+  it("parses database relation backlinks", () => {
+    expect(
+      parseNotesBacklink({
+        object: "backlink",
+        id: "relation:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        source_page: page,
+        source_block_id: "11111111-1111-4111-8111-111111111111",
+        source_block_type: "database_relation",
+        reference_type: "database_relation",
+        snippet: "Project",
+        created_time: "2026-06-30T00:00:00.000Z",
+        last_edited_time: "2026-06-30T00:00:00.000Z",
+      }).reference_type,
+    ).toBe("database_relation");
+  });
+
   it("rejects unsupported backlink reference types", () => {
     expect(() =>
       parseNotesBacklink({
@@ -45,11 +61,13 @@ describe("notes backlinks", () => {
         source_page: page,
         source_block_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
         source_block_type: "paragraph",
-        reference_type: "database_relation",
+        reference_type: "external_tool",
         snippet: "See target",
         created_time: "2026-06-30T00:00:00.000Z",
         last_edited_time: "2026-06-30T00:00:00.000Z",
       }),
-    ).toThrow("backlink.reference_type must be child_page, page_mention, or link");
+    ).toThrow(
+      "backlink.reference_type must be child_page, page_mention, link, or database_relation",
+    );
   });
 });

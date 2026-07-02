@@ -20,6 +20,7 @@ export interface NotesDatabaseTableColumn {
   hidden: boolean;
   width: number;
   options: NotesDatabaseTableOption[];
+  relationDataSourceId: string | null;
 }
 
 export interface NotesDatabaseTableOption {
@@ -27,6 +28,13 @@ export interface NotesDatabaseTableOption {
   name: string;
   color: string;
 }
+
+export interface NotesDatabaseTableRelationItem {
+  id: string;
+  title: string;
+}
+
+export type NotesDatabaseTableEditValue = string | boolean | string[] | null;
 
 const DEFAULT_COLUMN_WIDTH = 180;
 const TITLE_COLUMN_WIDTH = 220;
@@ -102,6 +110,7 @@ export function notesDatabaseTableColumns(
       hidden: type === "title" ? false : hidden.has(id),
       width: configuration.column_widths[id] ?? (type === "title" ? TITLE_COLUMN_WIDTH : DEFAULT_COLUMN_WIDTH),
       options: propertyOptions(rawProperty, type),
+      relationDataSourceId: relationDataSourceId(rawProperty, type),
     });
   }
   const columns: NotesDatabaseTableColumn[] = [];
@@ -211,6 +220,10 @@ export function notesDatabaseTableCellText(
       return Array.isArray(payload)
         ? payload.filter(isRecord).map((item) => readString(item.name)).filter(Boolean).join(", ")
         : "";
+    case "relation":
+      return notesDatabaseTableRelationItems(page, column)
+        .map((item) => item.title || item.id)
+        .join(", ");
     case "date":
       return isRecord(payload) ? readString(payload.start) : "";
     case "url":
@@ -235,9 +248,12 @@ export function notesDatabaseTableCellText(
 export function notesDatabaseTableCellEditValue(
   page: NotesPage,
   column: NotesDatabaseTableColumn,
-): string | boolean {
+): NotesDatabaseTableEditValue {
   if (column.type === "checkbox") {
     return notesDatabaseTableCellText(page, column) === "true";
+  }
+  if (column.type === "relation") {
+    return notesDatabaseTableRelationItems(page, column).map((item) => item.id);
   }
   return notesDatabaseTableCellText(page, column);
 }
@@ -261,6 +277,36 @@ export function notesDatabaseTableColumnWidth(
   return clampColumnWidth(column.width + delta);
 }
 
+export function notesDatabaseTableRelationItems(
+  page: NotesPage,
+  column: NotesDatabaseTableColumn,
+): NotesDatabaseTableRelationItem[] {
+  const property = Object.values(page.properties).find((value) =>
+    propertyMatchesColumn(value, column)
+  );
+  if (!isRecord(property) || !Array.isArray(property.relation)) return [];
+  return property.relation.filter(isRecord).flatMap((item) => {
+    const id = readString(item.id);
+    if (!id) return [];
+    return [{
+      id,
+      title: readString(item.title, id),
+    }];
+  });
+}
+
+export function notesDatabaseTableEditValuesEqual(
+  left: NotesDatabaseTableEditValue,
+  right: NotesDatabaseTableEditValue,
+): boolean {
+  if (Array.isArray(left) || Array.isArray(right)) {
+    if (!Array.isArray(left) || !Array.isArray(right)) return false;
+    if (left.length !== right.length) return false;
+    return left.every((item, index) => item === right[index]);
+  }
+  return left === right;
+}
+
 function clampColumnWidth(width: number): number {
   return Math.min(MAX_COLUMN_WIDTH, Math.max(MIN_COLUMN_WIDTH, Math.round(width)));
 }
@@ -277,6 +323,17 @@ function propertyOptions(
     name: readString(option.name),
     color: readString(option.color, "default"),
   })).filter((option) => option.id && option.name);
+}
+
+function relationDataSourceId(
+  property: UnknownRecord,
+  type: NotesDataSourcePropertyType,
+): string | null {
+  if (type !== "relation") return null;
+  const config = property.relation;
+  if (!isRecord(config)) return null;
+  const dataSourceId = readString(config.data_source_id);
+  return dataSourceId || null;
 }
 
 function propertyMatchesColumn(value: unknown, column: NotesDatabaseTableColumn): boolean {

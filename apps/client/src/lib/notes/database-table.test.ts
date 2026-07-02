@@ -68,6 +68,15 @@ const dataSource: NotesDataSource = {
       type: "created_time",
       created_time: {},
     },
+    Project: {
+      id: "project_relation",
+      name: "Project",
+      description: "",
+      type: "relation",
+      relation: {
+        data_source_id: "66666666-6666-4666-8666-666666666666",
+      },
+    },
   },
   in_trash: false,
   source_provider: null,
@@ -99,7 +108,7 @@ const view: NotesDatabaseView = {
   configuration: {
     type: "table",
     table: {
-      property_order: ["title", "estimate", "priority", "done", "created"],
+      property_order: ["title", "estimate", "priority", "done", "created", "project_relation"],
       hidden_property_ids: ["priority"],
       column_widths: {
         title: 320,
@@ -172,6 +181,17 @@ const page: NotesPage = {
       type: "created_time",
       created_time: "2026-07-01T00:00:00.000Z",
     },
+    Project: {
+      id: "project_relation",
+      type: "relation",
+      relation: [
+        {
+          id: "66666666-6666-4666-8666-666666666666",
+          title: "Project Alpha",
+        },
+      ],
+      has_more: false,
+    },
   },
   url: null,
   public_url: null,
@@ -193,6 +213,7 @@ describe("database table helpers", () => {
       "priority",
       "done",
       "created",
+      "project_relation",
     ]);
     expect(columns[0]?.width).toBe(320);
     expect(columns[1]?.width).toBe(144);
@@ -202,6 +223,7 @@ describe("database table helpers", () => {
       "estimate",
       "done",
       "created",
+      "project_relation",
     ]);
   });
 
@@ -232,10 +254,15 @@ describe("database table helpers", () => {
     const priority = columns.find((column) => column.id === "priority");
     const done = columns.find((column) => column.id === "done");
     const created = columns.find((column) => column.id === "created");
+    const project = columns.find((column) => column.id === "project_relation");
 
     expect(title && notesDatabaseTableCellText(page, title)).toBe("Write docs");
     expect(priority && notesDatabaseTableCellText(page, priority)).toBe("High");
     expect(done && notesDatabaseTableCellEditValue(page, done)).toBe(true);
     expect(created && notesDatabaseTableColumnCanEdit(created)).toBe(false);
+    expect(project && notesDatabaseTableCellText(page, project)).toBe("Project Alpha");
+    expect(project && notesDatabaseTableCellEditValue(page, project)).toEqual([
+      "66666666-6666-4666-8666-666666666666",
+    ]);
   });
 });

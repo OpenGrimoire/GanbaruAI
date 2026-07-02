@@ -53,6 +53,19 @@ const dataSource: NotesDataSource = {
       type: "number",
       number: { format: "percent" },
     },
+    Project: {
+      id: "project_relation",
+      name: "Project",
+      description: "",
+      type: "relation",
+      relation: {
+        data_source_id: "66666666-6666-4666-8666-666666666666",
+        dual_property: {
+          synced_property_id: "tasks_relation",
+          synced_property_name: "Tasks",
+        },
+      },
+    },
   },
   in_trash: false,
   source_provider: null,
@@ -78,7 +91,7 @@ const view: NotesDatabaseView = {
   configuration: {
     type: "table",
     table: {
-      property_order: ["title", "estimate", "priority"],
+      property_order: ["title", "estimate", "priority", "project_relation"],
       hidden_property_ids: ["priority"],
     },
   },
@@ -99,10 +112,13 @@ describe("data source schema helpers", () => {
       "title",
       "estimate",
       "priority",
+      "project_relation",
     ]);
     expect(draft[1]?.numberFormat).toBe("percent");
     expect(draft[2]?.hidden).toBe(true);
     expect(draft[2]?.options[1]?.name).toBe("High");
+    expect(draft[3]?.relationDataSourceId).toBe("66666666-6666-4666-8666-666666666666");
+    expect(draft[3]?.relationSyncedPropertyId).toBe("tasks_relation");
   });
 
   it("serializes renamed, hidden, and configured properties for Tauri", () => {
@@ -128,6 +144,7 @@ describe("data source schema helpers", () => {
       "title",
       "estimate",
       "priority",
+      "project_relation",
       "status",
       "task_id",
     ]);
@@ -156,6 +173,17 @@ describe("data source schema helpers", () => {
     });
     expect(update.properties["Task ID"]).toMatchObject({
       unique_id: { prefix: "TASK" },
+    });
+    expect(update.properties.Project).toMatchObject({
+      id: "project_relation",
+      type: "relation",
+      relation: {
+        data_source_id: "66666666-6666-4666-8666-666666666666",
+        dual_property: {
+          synced_property_id: "tasks_relation",
+          synced_property_name: "Tasks",
+        },
+      },
     });
   });
 

@@ -6,6 +6,7 @@ mod data_source_board;
 mod data_source_calendar;
 mod data_source_gallery;
 mod data_source_list;
+mod data_source_relations;
 mod data_source_rows;
 mod data_source_schema;
 mod data_source_table;
@@ -311,6 +312,15 @@ pub async fn notes_create_linked_database_view<R: Runtime>(
 ) -> Result<NoteCreatedDatabaseDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
     databases::create_linked_database_view(&pool, request).await
+}
+
+#[tauri::command]
+pub async fn notes_list_data_sources<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+) -> Result<Vec<NoteDataSourceDto>, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    data_source_schema::list_data_sources(&pool).await
 }
 
 #[tauri::command]

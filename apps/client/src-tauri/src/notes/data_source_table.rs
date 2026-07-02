@@ -4,7 +4,7 @@ use super::models::{
     NoteDataSourceTableViewUpdate, NoteDatabaseRow, NoteDatabaseViewRow, NotePageDto, NotePageRow,
 };
 use super::validation::require_uuid;
-use super::{data_source_views, history, writes};
+use super::{data_source_relations, data_source_views, history, writes};
 use serde_json::{json, Map, Value};
 use sqlx::{Sqlite, SqlitePool, Transaction};
 use std::cmp::Ordering;
@@ -122,6 +122,16 @@ pub(in crate::notes) async fn update_data_source_row_property(
         title = title_from_property_value(&next_value).unwrap_or_default();
     }
     properties[property.key.as_str()] = next_value;
+    let relation_value = if property.property_type == "relation" {
+        Some(
+            properties
+                .get(&property.key)
+                .cloned()
+                .ok_or_else(|| "relation property value was not stored".to_string())?,
+        )
+    } else {
+        None
+    };
     sqlx::query(
         "UPDATE notes_pages
          SET title = ?,
@@ -136,6 +146,17 @@ pub(in crate::notes) async fn update_data_source_row_property(
     .execute(&mut *tx)
     .await
     .map_err(|e| format!("update notes data source row property: {e}"))?;
+    if let Some(relation_value) = relation_value {
+        data_source_relations::replace_relation_property_links_tx(
+            &mut tx,
+            data_source_id.trim(),
+            page_id.trim(),
+            &property.schema,
+            &relation_value,
+            true,
+        )
+        .await?;
+    }
     touch_data_source_and_database_tx(&mut tx, data_source_id, &database.id).await?;
     let updated = load_active_row_page_tx(&mut tx, data_source_id, page_id).await?;
     tx.commit()
@@ -164,6 +185,7 @@ async fn load_table_view_tx(
         .into_iter()
         .map(|row| normalized_row_for_schema(row, &schema))
         .collect::<Result<Vec<_>, _>>()?;
+    data_source_relations::hydrate_relation_titles_tx(tx, &mut rows).await?;
     rows.retain(|row| row_matches_filters(row, &schema, &filters));
     sort_rows(&mut rows, &schema, &sorts);
     NoteDataSourceTableViewDto::new(data_source, database, view, rows)
@@ -643,17 +665,24 @@ fn canonical_stored_property_value(
     let payload = object
         .get(&property.property_type)
         .ok_or_else(|| "row property is missing its typed value".to_string())?;
+    let payload = canonical_property_payload(&property.property_type, payload)?;
+    if property.property_type == "relation" {
+        return Ok(data_source_relations::relation_property_value(
+            &property.id,
+            payload,
+        ));
+    }
     Ok(json!({
         "id": property.id,
         "type": property.property_type,
-        property.property_type.clone(): canonical_property_payload(&property.property_type, payload)?
+        property.property_type.clone(): payload
     }))
 }
 
 fn default_property_value(property: &TableProperty, title: &str) -> Value {
     let payload = match property.property_type.as_str() {
         "title" => Value::Array(vec![writes::rich_text(title)]),
-        "rich_text" | "multi_select" | "files" | "people" => Value::Array(Vec::new()),
+        "rich_text" | "multi_select" | "files" | "people" | "relation" => Value::Array(Vec::new()),
         "number" | "select" | "status" | "date" | "url" | "email" | "phone_number"
         | "created_time" | "created_by" | "last_edited_time" | "last_edited_by" | "place" => {
             Value::Null
@@ -670,6 +699,9 @@ fn default_property_value(property: &TableProperty, title: &str) -> Value {
         }),
         _ => Value::Null,
     };
+    if property.property_type == "relation" {
+        return data_source_relations::relation_property_value(&property.id, payload);
+    }
     json!({
         "id": property.id,
         "type": property.property_type,
@@ -691,6 +723,7 @@ fn property_value_from_edit(property: &TableProperty, value: &Value) -> Result<V
         ),
         "select" | "status" => edit_single_option_payload(property, value)?,
         "multi_select" => edit_multi_option_payload(property, value)?,
+        "relation" => data_source_relations::canonical_relation_payload(value)?,
         "date" => edit_date_payload(value)?,
         "url" | "email" | "phone_number" => edit_nullable_text_payload(value, &property.name)?,
         "place" => edit_place_payload(value)?,
@@ -700,6 +733,12 @@ fn property_value_from_edit(property: &TableProperty, value: &Value) -> Result<V
         }
         other => return Err(format!("unsupported row property type: {other}")),
     };
+    if property.property_type == "relation" {
+        return Ok(data_source_relations::relation_property_value(
+            &property.id,
+            payload,
+        ));
+    }
     Ok(json!({
         "id": property.id,
         "type": property.property_type,
@@ -739,6 +778,7 @@ fn canonical_property_payload(property_type: &str, value: &Value) -> Result<Valu
                 Err(format!("{property_type} property must be an array"))
             }
         }
+        "relation" => data_source_relations::canonical_relation_payload(value),
         "checkbox" => value
             .as_bool()
             .map(Value::Bool)
@@ -1059,6 +1099,20 @@ fn row_property_plain_text(row: &NotePageRow, property: &TableProperty) -> Strin
                 items
                     .iter()
                     .filter_map(|item| item.get("name").and_then(Value::as_str))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            })
+            .unwrap_or_default(),
+        "relation" => row_property_payload(row, property)
+            .and_then(|payload| payload.as_array().cloned())
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| {
+                        item.get("title")
+                            .and_then(Value::as_str)
+                            .or_else(|| item.get("id").and_then(Value::as_str))
+                    })
                     .collect::<Vec<_>>()
                     .join(", ")
             })

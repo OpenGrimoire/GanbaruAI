@@ -18,6 +18,8 @@
         return t("notes.backlinkTypePageMention");
       case "link":
         return t("notes.backlinkTypeLink");
+      case "database_relation":
+        return t("notes.backlinkTypeDatabaseRelation");
     }
   }
 

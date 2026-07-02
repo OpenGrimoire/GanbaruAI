@@ -6,6 +6,7 @@ import {
   mapNotesBlockListDto,
   mapNotesCommentThreadDto,
   mapNotesCreatedDatabaseDto,
+  mapNotesDataSourceDto,
   mapNotesDataSourceBoardViewDto,
   mapNotesDataSourceCalendarViewDto,
   mapNotesDataSourceGalleryViewDto,
@@ -42,6 +43,7 @@ import type {
   NotesDataSourceListView,
   NotesDataSourceListViewUpdate,
   NotesDatabaseViewScope,
+  NotesDataSource,
   NotesDataSourceRowPageCreateRequest,
   NotesDataSourceRowPropertyUpdate,
   NotesDataSourceSchema,
@@ -373,6 +375,15 @@ export async function updateNotesDataSourceSchema(
       ...schemaViewScopeArgs(scope),
     }),
   );
+}
+
+export async function listNotesDataSources(): Promise<NotesDataSource[]> {
+  const dbUrl = await ensureDbUrl();
+  const rows = await invoke<unknown>("notes_list_data_sources", { dbUrl });
+  if (!Array.isArray(rows)) {
+    throw new Error("notes_list_data_sources returned a non-array payload");
+  }
+  return rows.map(mapNotesDataSourceDto);
 }
 
 export async function listNotesDataSourceRowPages(

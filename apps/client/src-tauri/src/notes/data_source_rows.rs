@@ -1,6 +1,6 @@
 use super::models::{NoteDataSourceRowPageCreate, NoteLoadedPage, NotePageDto, NotePageRow};
 use super::validation::{plain_text_from_payload, require_uuid};
-use super::{reads, writes};
+use super::{data_source_relations, reads, writes};
 use serde_json::{json, Map, Value};
 use sqlx::{Sqlite, SqlitePool, Transaction};
 
@@ -95,6 +95,15 @@ pub(in crate::notes) async fn create_data_source_row_page(
     .execute(&mut *tx)
     .await
     .map_err(|e| format!("create initial notes data source row block: {e}"))?;
+    data_source_relations::replace_row_relation_links_tx(
+        &mut tx,
+        data_source_id,
+        request.id.trim(),
+        &schema_properties,
+        &properties,
+        true,
+    )
+    .await?;
     touch_data_source_tx(&mut tx, data_source_id, &data_source.database_id).await?;
     tx.commit()
         .await
@@ -245,10 +254,17 @@ fn canonical_row_property_value(
     let raw_property_value = object
         .get(property_type)
         .ok_or_else(|| "row property value is missing its typed payload".to_string())?;
+    let payload = canonical_property_payload(property_type, raw_property_value)?;
+    if property_type == "relation" {
+        return Ok(data_source_relations::relation_property_value(
+            property_id,
+            payload,
+        ));
+    }
     Ok(json!({
         "id": property_id,
         "type": property_type,
-        property_type: canonical_property_payload(property_type, raw_property_value)?
+        property_type: payload
     }))
 }
 
@@ -260,7 +276,7 @@ fn default_row_property_value(
     let property_type = read_string_field(schema_object, "type", "property.type")?;
     let value = match property_type {
         "title" => Value::Array(vec![writes::rich_text(title)]),
-        "rich_text" | "multi_select" | "files" | "people" => Value::Array(Vec::new()),
+        "rich_text" | "multi_select" | "files" | "people" | "relation" => Value::Array(Vec::new()),
         "number" | "select" | "status" | "date" | "url" | "email" | "phone_number"
         | "created_time" | "created_by" | "last_edited_time" | "last_edited_by" | "place" => {
             Value::Null
@@ -276,6 +292,12 @@ fn default_row_property_value(
         }),
         other => return Err(format!("unsupported row property type: {other}")),
     };
+    if property_type == "relation" {
+        return Ok(data_source_relations::relation_property_value(
+            property_id,
+            value,
+        ));
+    }
     Ok(json!({
         "id": property_id,
         "type": property_type,
@@ -314,6 +336,7 @@ fn canonical_property_payload(property_type: &str, value: &Value) -> Result<Valu
                 Err(format!("row {property_type} property must be an array"))
             }
         }
+        "relation" => data_source_relations::canonical_relation_payload(value),
         "checkbox" => {
             if let Some(checked) = value.as_bool() {
                 Ok(Value::Bool(checked))

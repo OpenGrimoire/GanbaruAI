@@ -3,6 +3,7 @@
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import {
     getNotesDataSourceSchema,
+    listNotesDataSources,
     updateNotesDataSourceSchema,
   } from "$lib/api/notes";
   import { notesChildDatabaseViewScope } from "$lib/notes/database-linked";
@@ -26,6 +27,7 @@
     NOTES_DATA_SOURCE_SELECT_COLORS,
     NOTES_DATA_SOURCE_STATUS_GROUPS,
     type NotesChildDatabaseBlock,
+    type NotesDataSource,
     type NotesDataSourceNumberFormat,
     type NotesDataSourcePropertyType,
     type NotesDataSourceSchema,
@@ -74,6 +76,7 @@
   let saved = $state(false);
   let dirty = $state(false);
   let schema = $state<NotesDataSourceSchema | null>(null);
+  let availableDataSources = $state<NotesDataSource[]>([]);
   let properties = $state<NotesDataSourceSchemaPropertyDraft[]>([]);
   let newPropertyType = $state<NotesDataSourcePropertyType>("rich_text");
   let activeView = $state<"table" | "board" | "gallery" | "list" | "calendar" | "timeline">("table");
@@ -111,8 +114,12 @@
     loading = true;
     error = null;
     try {
-      const loaded = await getNotesDataSourceSchema(dataSourceId, viewScope);
+      const [loaded, dataSources] = await Promise.all([
+        getNotesDataSourceSchema(dataSourceId, viewScope),
+        listNotesDataSources(),
+      ]);
       schema = loaded;
+      availableDataSources = dataSources;
       properties = notesDataSourceSchemaDraftFromDto(loaded.data_source, loaded.view);
       dirty = false;
       saved = false;
@@ -190,6 +197,14 @@
       if (nextType !== "select" && nextType !== "multi_select" && nextType !== "status") {
         next.options = [];
       }
+      if (nextType === "relation" && !next.relationDataSourceId) {
+        next.relationDataSourceId = dataSourceId ?? "";
+      }
+      if (nextType !== "relation") {
+        next.relationDataSourceId = "";
+        next.relationSyncedPropertyId = "";
+        next.relationSyncedPropertyName = "";
+      }
       if (nextType === "title") next.hidden = false;
       return next;
     }));
@@ -198,6 +213,9 @@
   function addProperty(): void {
     const name = defaultNotesDataSourcePropertyName(newPropertyType, properties);
     const property = createNotesDataSourcePropertyDraft(newPropertyType, name);
+    if (newPropertyType === "relation") {
+      property.relationDataSourceId = dataSourceId ?? "";
+    }
     markDirty([...properties, property]);
   }
 
@@ -291,7 +309,13 @@
         return t("notes.databaseSchemaPropertyType.uniqueId");
       case "place":
         return t("notes.databaseSchemaPropertyType.place");
+      case "relation":
+        return t("notes.databaseSchemaPropertyType.relation");
     }
+  }
+
+  function dataSourceTitle(source: NotesDataSource): string {
+    return source.title.trim() || t("notes.untitled");
   }
 
   function statusMessage(): string {
@@ -523,6 +547,54 @@
                   }}
                 />
               </label>
+            {:else if property.type === "relation"}
+              <div class="grid min-w-0 gap-2 @lg:grid-cols-3">
+                <label class="min-w-0 text-[0.733333rem] text-muted-foreground">
+                  <span class="mb-1 block">{t("notes.databaseSchemaRelationTarget")}</span>
+                  <select
+                    class="h-8 w-full min-w-0 rounded-md border border-input bg-background px-2 text-[0.866667rem] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    value={property.relationDataSourceId}
+                    onchange={(event) => {
+                      updateProperty(property.id, {
+                        relationDataSourceId: event.currentTarget.value,
+                      });
+                    }}
+                  >
+                    {#if property.relationDataSourceId && !availableDataSources.some((source) => source.id === property.relationDataSourceId)}
+                      <option value={property.relationDataSourceId}>{property.relationDataSourceId}</option>
+                    {/if}
+                    {#each availableDataSources as source (source.id)}
+                      <option value={source.id}>{dataSourceTitle(source)}</option>
+                    {/each}
+                  </select>
+                </label>
+                <label class="min-w-0 text-[0.733333rem] text-muted-foreground">
+                  <span class="mb-1 block">{t("notes.databaseSchemaRelationSyncedPropertyId")}</span>
+                  <input
+                    class="h-8 w-full min-w-0 rounded-md border border-input bg-background px-2 text-[0.866667rem] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    value={property.relationSyncedPropertyId}
+                    placeholder={t("notes.databaseSchemaRelationSyncedPropertyIdPlaceholder")}
+                    oninput={(event) => {
+                      updateProperty(property.id, {
+                        relationSyncedPropertyId: event.currentTarget.value,
+                      });
+                    }}
+                  />
+                </label>
+                <label class="min-w-0 text-[0.733333rem] text-muted-foreground">
+                  <span class="mb-1 block">{t("notes.databaseSchemaRelationSyncedPropertyName")}</span>
+                  <input
+                    class="h-8 w-full min-w-0 rounded-md border border-input bg-background px-2 text-[0.866667rem] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    value={property.relationSyncedPropertyName}
+                    placeholder={t("notes.databaseSchemaRelationSyncedPropertyNamePlaceholder")}
+                    oninput={(event) => {
+                      updateProperty(property.id, {
+                        relationSyncedPropertyName: event.currentTarget.value,
+                      });
+                    }}
+                  />
+                </label>
+              </div>
             {:else if property.type === "select" || property.type === "multi_select" || property.type === "status"}
               <div class="space-y-2">
                 {#each property.options as option (option.id)}
