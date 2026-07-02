@@ -720,6 +720,7 @@ export const NOTES_DATA_SOURCE_PROPERTY_TYPES = [
   "place",
   "relation",
   "rollup",
+  "formula",
 ] as const;
 
 export type NotesDataSourcePropertyType = (typeof NOTES_DATA_SOURCE_PROPERTY_TYPES)[number];

@@ -4,7 +4,10 @@ use super::models::{
     NoteDataSourceTableViewUpdate, NoteDatabaseRow, NoteDatabaseViewRow, NotePageDto, NotePageRow,
 };
 use super::validation::require_uuid;
-use super::{data_source_relations, data_source_rollups, data_source_views, history, writes};
+use super::{
+    data_source_formulas, data_source_relations, data_source_rollups, data_source_views, history,
+    writes,
+};
 use serde_json::{json, Map, Value};
 use sqlx::{Sqlite, SqlitePool, Transaction};
 use std::cmp::Ordering;
@@ -188,6 +191,7 @@ async fn load_table_view_tx(
     data_source_relations::hydrate_relation_titles_tx(tx, &mut rows).await?;
     data_source_rollups::hydrate_rollups_tx(tx, data_source_id, &schema_properties, &mut rows)
         .await?;
+    data_source_formulas::hydrate_formulas(&schema_properties, &mut rows)?;
     rows.retain(|row| row_matches_filters(row, &schema, &filters));
     sort_rows(&mut rows, &schema, &sorts);
     NoteDataSourceTableViewDto::new(data_source, database, view, rows)
@@ -618,7 +622,7 @@ fn normalized_row_properties(
     let mut title = fallback_title.to_string();
     let mut next = Map::new();
     for property in schema {
-        if property.property_type == "rollup" {
+        if matches!(property.property_type.as_str(), "rollup" | "formula") {
             continue;
         }
         let value = existing_property_value(current_object, property)
@@ -712,6 +716,10 @@ fn default_property_value(property: &TableProperty, title: &str) -> Value {
                 .and_then(Value::as_str)
                 .unwrap_or("count")
         }),
+        "formula" => json!({
+            "type": "string",
+            "string": ""
+        }),
         _ => Value::Null,
     };
     if property.property_type == "relation" {
@@ -719,6 +727,9 @@ fn default_property_value(property: &TableProperty, title: &str) -> Value {
     }
     if property.property_type == "rollup" {
         return data_source_rollups::rollup_property_value(&property.id, payload);
+    }
+    if property.property_type == "formula" {
+        return data_source_formulas::formula_property_value(&property.id, payload);
     }
     json!({
         "id": property.id,
@@ -746,7 +757,7 @@ fn property_value_from_edit(property: &TableProperty, value: &Value) -> Result<V
         "url" | "email" | "phone_number" => edit_nullable_text_payload(value, &property.name)?,
         "place" => edit_place_payload(value)?,
         "files" | "people" | "created_time" | "created_by" | "last_edited_time"
-        | "last_edited_by" | "unique_id" | "rollup" => {
+        | "last_edited_by" | "unique_id" | "rollup" | "formula" => {
             return Err("this property is read-only in the table view".to_string())
         }
         other => return Err(format!("unsupported row property type: {other}")),
@@ -802,6 +813,13 @@ fn canonical_property_payload(property_type: &str, value: &Value) -> Result<Valu
                 Ok(value.clone())
             } else {
                 Err("rollup property must be an object".to_string())
+            }
+        }
+        "formula" => {
+            if value.is_object() {
+                Ok(value.clone())
+            } else {
+                Err("formula property must be an object".to_string())
             }
         }
         "checkbox" => value
@@ -1059,7 +1077,7 @@ fn compare_row_property(
             row_property_number(left, property),
             row_property_number(right, property),
         ),
-        "rollup" => match (
+        "rollup" | "formula" => match (
             row_property_number(left, property),
             row_property_number(right, property),
         ) {
@@ -1156,6 +1174,9 @@ fn row_property_plain_text(row: &NotePageRow, property: &TableProperty) -> Strin
         "rollup" => row_property_payload(row, property)
             .map(|payload| data_source_rollups::rollup_plain_text(&payload))
             .unwrap_or_default(),
+        "formula" => row_property_payload(row, property)
+            .map(|payload| data_source_formulas::formula_plain_text(&payload))
+            .unwrap_or_default(),
         "date" => row_property_payload(row, property)
             .and_then(|payload| {
                 payload
@@ -1197,11 +1218,18 @@ fn row_property_number(row: &NotePageRow, property: &TableProperty) -> Option<f6
     if property.property_type == "rollup" {
         return data_source_rollups::rollup_number(&payload);
     }
+    if property.property_type == "formula" {
+        return data_source_formulas::formula_number(&payload);
+    }
     payload.as_f64()
 }
 
 fn row_property_checked(row: &NotePageRow, property: &TableProperty) -> Option<bool> {
-    row_property_payload(row, property)?.as_bool()
+    let payload = row_property_payload(row, property)?;
+    if property.property_type == "formula" {
+        return data_source_formulas::formula_checked(&payload);
+    }
+    payload.as_bool()
 }
 
 fn rich_text_plain_text(items: &[Value]) -> String {

@@ -1810,6 +1810,8 @@ export const en = {
     databaseSchemaRollupTargetProperty: "Target property",
     databaseSchemaRollupFunction: "Calculation",
     databaseSchemaRollupNoRelations: "Add a relation property before configuring a rollup.",
+    databaseSchemaFormulaExpression: "Expression",
+    databaseSchemaFormulaExpressionPlaceholder: 'prop("Name")',
     databaseSchemaRollupFunctionLabel: (name: string) => {
       const labels: Record<string, string> = {
         average: "Average",
@@ -2011,6 +2013,7 @@ export const en = {
       place: "Place",
       relation: "Relation",
       rollup: "Rollup",
+      formula: "Formula",
     },
     syncedBlockOriginal: "Original synced block",
     syncedBlockDuplicate: "Duplicate synced block",

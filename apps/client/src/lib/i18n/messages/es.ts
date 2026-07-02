@@ -1830,6 +1830,8 @@ export const es = {
     databaseSchemaRollupTargetProperty: "Propiedad destino",
     databaseSchemaRollupFunction: "Cálculo",
     databaseSchemaRollupNoRelations: "Agrega una propiedad de relación antes de configurar un rollup.",
+    databaseSchemaFormulaExpression: "Expresión",
+    databaseSchemaFormulaExpressionPlaceholder: 'prop("Nombre")',
     databaseSchemaRollupFunctionLabel: (name: string) => {
       const labels: Record<string, string> = {
         average: "Promedio",
@@ -2034,6 +2036,7 @@ export const es = {
       place: "Lugar",
       relation: "Relación",
       rollup: "Rollup",
+      formula: "Fórmula",
     },
     syncedBlockOriginal: "Bloque sincronizado original",
     syncedBlockDuplicate: "Bloque sincronizado duplicado",

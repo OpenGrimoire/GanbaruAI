@@ -39,6 +39,7 @@ export interface NotesDataSourceSchemaPropertyDraft {
   rollupPropertyId: string;
   rollupPropertyName: string;
   rollupFunction: NotesDataSourceRollupFunction;
+  formulaExpression: string;
   options: NotesDataSourceSchemaOptionDraft[];
 }
 
@@ -127,7 +128,7 @@ function dataSourceRollupTargetOptions(
     const rawType = readString(value.type, "rich_text");
     if (!isPropertyType(rawType)) return [];
     const id = rawType === "title" ? "title" : readString(value.id, key);
-    if (!id || rawType === "rollup") return [];
+    if (!id || rawType === "rollup" || rawType === "formula") return [];
     return [{
       id,
       name: readString(value.name, key),
@@ -139,11 +140,13 @@ function dataSourceRollupTargetOptions(
 function draftRollupTargetOptions(
   drafts: readonly NotesDataSourceSchemaPropertyDraft[],
 ): NotesDataSourceRollupTargetOption[] {
-  return drafts.filter((property) => property.type !== "rollup").map((property) => ({
-    id: property.id,
-    name: property.name,
-    type: property.type,
-  }));
+  return drafts
+    .filter((property) => property.type !== "rollup" && property.type !== "formula")
+    .map((property) => ({
+      id: property.id,
+      name: property.name,
+      type: property.type,
+    }));
 }
 
 export function notesDataSourceRollupRelationOptions(
@@ -338,6 +341,7 @@ function propertyDraftFromRecord(
   const relationSyncedPropertyName = readString(dualProperty.synced_property_name, "");
   const rollupConfig = type === "rollup" && isRecord(config) ? config : {};
   const rollupFunction = readString(rollupConfig.function, "count");
+  const formulaConfig = type === "formula" && isRecord(config) ? config : {};
   const options = type === "status"
     ? statusOptionDrafts(config)
     : type === "select" || type === "multi_select"
@@ -359,6 +363,7 @@ function propertyDraftFromRecord(
     rollupPropertyId: readString(rollupConfig.rollup_property_id, ""),
     rollupPropertyName: readString(rollupConfig.rollup_property_name, ""),
     rollupFunction: isRollupFunction(rollupFunction) ? rollupFunction : "count",
+    formulaExpression: readString(formulaConfig.expression, ""),
     options,
   };
 }
@@ -443,6 +448,8 @@ function defaultNameForType(type: NotesDataSourcePropertyType): string {
       return "Relation";
     case "rollup":
       return "Rollup";
+    case "formula":
+      return "Formula";
   }
 }
 
@@ -468,6 +475,7 @@ export function createNotesDataSourcePropertyDraft(
     rollupPropertyId: "",
     rollupPropertyName: "",
     rollupFunction: "count",
+    formulaExpression: "",
     options: type === "status" ? defaultStatusOptions() : [],
   };
 }
@@ -533,6 +541,11 @@ function propertyConfig(property: NotesDataSourceSchemaPropertyDraft): UnknownRe
         rollup_property_name: rollupPropertyName,
         function: property.rollupFunction,
       };
+    }
+    case "formula": {
+      const expression = property.formulaExpression.trim();
+      if (!expression) throw new Error("formula expression is required");
+      return { expression };
     }
     default:
       return emptyPropertyConfig(property.type);

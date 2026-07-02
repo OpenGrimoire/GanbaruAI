@@ -7,7 +7,7 @@ use super::models::{
     NoteDataSourceCalendarConfigurationUpdate, NoteDataSourceCalendarViewDto,
     NoteDataSourceCalendarViewUpdate, NoteDataSourceRow, NoteDatabaseViewRow, NotePageRow,
 };
-use super::{data_source_relations, data_source_rollups, data_source_views};
+use super::{data_source_formulas, data_source_relations, data_source_rollups, data_source_views};
 use chrono::NaiveDate;
 use serde_json::{json, Value};
 use sqlx::{Sqlite, SqlitePool, Transaction};
@@ -103,6 +103,7 @@ async fn load_calendar_view_tx(
     data_source_relations::hydrate_relation_titles_tx(tx, &mut rows).await?;
     data_source_rollups::hydrate_rollups_tx(tx, data_source_id, &schema_properties, &mut rows)
         .await?;
+    data_source_formulas::hydrate_formulas(&schema_properties, &mut rows)?;
     rows.retain(|row| row_matches_filters(row, &schema, &filters));
     if let Some(date_property_id) = configuration.date_property_id.as_deref() {
         rows.retain(|row| row_overlaps_range(row, date_property_id, &configuration.range));

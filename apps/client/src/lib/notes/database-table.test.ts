@@ -90,6 +90,15 @@ const dataSource: NotesDataSource = {
         function: "sum",
       },
     },
+    Score: {
+      id: "score_formula",
+      name: "Score",
+      description: "",
+      type: "formula",
+      formula: {
+        expression: 'prop("Estimate") * 2',
+      },
+    },
   },
   in_trash: false,
   source_provider: null,
@@ -129,6 +138,7 @@ const view: NotesDatabaseView = {
         "created",
         "project_relation",
         "project_budget",
+        "score_formula",
       ],
       hidden_property_ids: ["priority"],
       column_widths: {
@@ -222,6 +232,14 @@ const page: NotesPage = {
         function: "sum",
       },
     },
+    Score: {
+      id: "score_formula",
+      type: "formula",
+      formula: {
+        type: "number",
+        number: 6,
+      },
+    },
   },
   url: null,
   public_url: null,
@@ -245,6 +263,7 @@ describe("database table helpers", () => {
       "created",
       "project_relation",
       "project_budget",
+      "score_formula",
     ]);
     expect(columns[0]?.width).toBe(320);
     expect(columns[1]?.width).toBe(144);
@@ -256,6 +275,7 @@ describe("database table helpers", () => {
       "created",
       "project_relation",
       "project_budget",
+      "score_formula",
     ]);
   });
 
@@ -288,6 +308,7 @@ describe("database table helpers", () => {
     const created = columns.find((column) => column.id === "created");
     const project = columns.find((column) => column.id === "project_relation");
     const projectBudget = columns.find((column) => column.id === "project_budget");
+    const score = columns.find((column) => column.id === "score_formula");
 
     expect(title && notesDatabaseTableCellText(page, title)).toBe("Write docs");
     expect(priority && notesDatabaseTableCellText(page, priority)).toBe("High");
@@ -299,5 +320,7 @@ describe("database table helpers", () => {
     ]);
     expect(projectBudget && notesDatabaseTableCellText(page, projectBudget)).toBe("7");
     expect(projectBudget && notesDatabaseTableColumnCanEdit(projectBudget)).toBe(false);
+    expect(score && notesDatabaseTableCellText(page, score)).toBe("6");
+    expect(score && notesDatabaseTableColumnCanEdit(score)).toBe(false);
   });
 });

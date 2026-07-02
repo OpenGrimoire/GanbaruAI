@@ -219,12 +219,18 @@
           rollupDataSources(),
         ));
       }
+      if (nextType === "formula" && !next.formulaExpression.trim()) {
+        next.formulaExpression = defaultFormulaExpression(property.id);
+      }
       if (nextType !== "rollup") {
         next.rollupRelationPropertyId = "";
         next.rollupRelationPropertyName = "";
         next.rollupPropertyId = "";
         next.rollupPropertyName = "";
         next.rollupFunction = "count";
+      }
+      if (nextType !== "formula") {
+        next.formulaExpression = "";
       }
       if (nextType === "title") next.hidden = false;
       return next;
@@ -245,6 +251,9 @@
         dataSourceId,
         rollupDataSources(),
       ));
+    }
+    if (newPropertyType === "formula") {
+      property.formulaExpression = defaultFormulaExpression(property.id);
     }
     markDirty([...properties, property]);
   }
@@ -343,7 +352,22 @@
         return t("notes.databaseSchemaPropertyType.relation");
       case "rollup":
         return t("notes.databaseSchemaPropertyType.rollup");
+      case "formula":
+        return t("notes.databaseSchemaPropertyType.formula");
     }
+  }
+
+  function defaultFormulaExpression(excludePropertyId: string): string {
+    const target = properties.find((property) =>
+      property.id !== excludePropertyId
+      && property.type !== "formula"
+      && property.type !== "rollup"
+    );
+    return target ? `prop("${escapeFormulaPropertyName(target.name)}")` : "\"\"";
+  }
+
+  function escapeFormulaPropertyName(name: string): string {
+    return name.replace(/\\/g, "\\\\").replace(/"/g, "\\\"");
   }
 
   function dataSourceTitle(source: NotesDataSource): string {
@@ -684,6 +708,21 @@
                 onTargetChange={(targetId) => updateRollupTarget(property, targetId)}
                 onFunctionChange={(rollupFunction) => updateProperty(property.id, { rollupFunction })}
               />
+            {:else if property.type === "formula"}
+              <label class="min-w-0 text-[0.733333rem] text-muted-foreground">
+                <span class="mb-1 block">{t("notes.databaseSchemaFormulaExpression")}</span>
+                <textarea
+                  class="min-h-20 w-full min-w-0 resize-y rounded-md border border-input bg-background px-2 py-1.5 font-mono text-[0.8rem] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  value={property.formulaExpression}
+                  placeholder={t("notes.databaseSchemaFormulaExpressionPlaceholder")}
+                  disabled={saving}
+                  oninput={(event) => {
+                    updateProperty(property.id, {
+                      formulaExpression: event.currentTarget.value,
+                    });
+                  }}
+                ></textarea>
+              </label>
             {:else if property.type === "select" || property.type === "multi_select" || property.type === "status"}
               <div class="space-y-2">
                 {#each property.options as option (option.id)}

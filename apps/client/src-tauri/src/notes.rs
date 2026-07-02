@@ -4,6 +4,8 @@ use tauri::{AppHandle, Runtime};
 mod comments;
 mod data_source_board;
 mod data_source_calendar;
+mod data_source_formula_parser;
+mod data_source_formulas;
 mod data_source_gallery;
 mod data_source_list;
 mod data_source_relations;

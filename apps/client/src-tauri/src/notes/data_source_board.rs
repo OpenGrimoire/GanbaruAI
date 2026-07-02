@@ -6,7 +6,8 @@ use super::models::{
 };
 use super::validation::require_uuid;
 use super::{
-    data_source_relations, data_source_rollups, data_source_table, data_source_views, writes,
+    data_source_formulas, data_source_relations, data_source_rollups, data_source_table,
+    data_source_views, writes,
 };
 use serde_json::{json, Map, Value};
 use sqlx::{Sqlite, SqlitePool, Transaction};
@@ -180,6 +181,7 @@ async fn load_board_view_tx(
     data_source_relations::hydrate_relation_titles_tx(tx, &mut rows).await?;
     data_source_rollups::hydrate_rollups_tx(tx, data_source_id, &schema_properties, &mut rows)
         .await?;
+    data_source_formulas::hydrate_formulas(&schema_properties, &mut rows)?;
     rows.retain(|row| row_matches_filters(row, &schema, &filters));
     sort_rows(&mut rows, &schema, &sorts);
     let groups = board_groups(&schema, &configuration, rows)?;
@@ -860,6 +862,9 @@ fn normalized_row_properties(
     let mut title = fallback_title.to_string();
     let mut next = Map::new();
     for property in schema {
+        if matches!(property.property_type.as_str(), "rollup" | "formula") {
+            continue;
+        }
         let value = existing_property_value(current_object, property)
             .and_then(|value| canonical_stored_property_value(property, value).ok())
             .unwrap_or_else(|| default_property_value(property, fallback_title));
@@ -941,10 +946,17 @@ fn default_property_value(property: &BoardProperty, title: &str) -> Value {
                 .cloned()
                 .unwrap_or(Value::Null)
         }),
+        "formula" => json!({
+            "type": "string",
+            "string": ""
+        }),
         _ => Value::Null,
     };
     if property.property_type == "relation" {
         return data_source_relations::relation_property_value(&property.id, payload);
+    }
+    if property.property_type == "formula" {
+        return data_source_formulas::formula_property_value(&property.id, payload);
     }
     json!({
         "id": property.id,
@@ -994,6 +1006,13 @@ fn canonical_property_payload(property_type: &str, value: &Value) -> Result<Valu
                 property_type,
                 MAX_FILTER_TEXT_CHARS,
             )?))
+        }
+        "formula" => {
+            if value.is_object() {
+                Ok(value.clone())
+            } else {
+                Err("formula property must be an object".to_string())
+            }
         }
         other => Err(format!("unsupported row property type: {other}")),
     }
@@ -1072,7 +1091,7 @@ fn compare_row_property(
             row_property_number(left, property),
             row_property_number(right, property),
         ),
-        "rollup" => match (
+        "rollup" | "formula" => match (
             row_property_number(left, property),
             row_property_number(right, property),
         ) {
@@ -1168,6 +1187,9 @@ fn row_property_plain_text(row: &NotePageRow, property: &BoardProperty) -> Strin
         "rollup" => row_property_payload(row, property)
             .map(|payload| data_source_rollups::rollup_plain_text(&payload))
             .unwrap_or_default(),
+        "formula" => row_property_payload(row, property)
+            .map(|payload| data_source_formulas::formula_plain_text(&payload))
+            .unwrap_or_default(),
         "url" | "email" | "phone_number" => row_property_payload(row, property)
             .and_then(|payload| payload.as_str().map(str::to_string))
             .unwrap_or_default(),
@@ -1190,11 +1212,18 @@ fn row_property_number(row: &NotePageRow, property: &BoardProperty) -> Option<f6
     if property.property_type == "rollup" {
         return data_source_rollups::rollup_number(&payload);
     }
+    if property.property_type == "formula" {
+        return data_source_formulas::formula_number(&payload);
+    }
     payload.as_f64()
 }
 
 fn row_property_checked(row: &NotePageRow, property: &BoardProperty) -> Option<bool> {
-    row_property_payload(row, property)?.as_bool()
+    let payload = row_property_payload(row, property)?;
+    if property.property_type == "formula" {
+        return data_source_formulas::formula_checked(&payload);
+    }
+    payload.as_bool()
 }
 
 fn rich_text_plain_text(items: &[Value]) -> String {

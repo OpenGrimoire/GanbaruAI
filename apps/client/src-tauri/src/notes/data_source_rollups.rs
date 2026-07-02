@@ -295,8 +295,8 @@ async fn rollup_properties_tx(
         if target_property.name != config.rollup_property_name {
             return Err("rollup target property name must match".to_string());
         }
-        if target_property.property_type == "rollup" {
-            return Err("rollups cannot target another rollup".to_string());
+        if matches!(target_property.property_type.as_str(), "rollup" | "formula") {
+            return Err("rollups cannot target computed properties".to_string());
         }
         validate_rollup_function(&config.function, &target_property.property_type)?;
         rollups.push(RollupProperty {

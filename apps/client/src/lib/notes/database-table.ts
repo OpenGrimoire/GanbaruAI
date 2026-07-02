@@ -226,6 +226,8 @@ export function notesDatabaseTableCellText(
         .join(", ");
     case "rollup":
       return rollupPlainText(payload);
+    case "formula":
+      return formulaPlainText(payload);
     case "date":
       return isRecord(payload) ? readString(payload.start) : "";
     case "url":
@@ -270,6 +272,7 @@ export function notesDatabaseTableColumnCanEdit(column: NotesDatabaseTableColumn
     "last_edited_by",
     "unique_id",
     "rollup",
+    "formula",
   ].includes(column.type);
 }
 
@@ -367,6 +370,23 @@ function rollupPlainText(value: unknown): string {
       return Array.isArray(value.array)
         ? value.array.map(propertyPlainText).filter(Boolean).join(", ")
         : "";
+    default:
+      return "";
+  }
+}
+
+function formulaPlainText(value: unknown): string {
+  if (!isRecord(value)) return "";
+  const type = readString(value.type);
+  switch (type) {
+    case "number":
+      return typeof value.number === "number" ? String(value.number) : "";
+    case "boolean":
+      return typeof value.boolean === "boolean" ? String(value.boolean) : "";
+    case "date":
+      return datePlainText(value.date);
+    case "string":
+      return readString(value.string);
     default:
       return "";
   }

@@ -207,7 +207,7 @@ fn row_page_properties(
             .ok_or_else(|| "data source property must be an object".to_string())?;
         let property_id = read_string_field(schema_object, "id", "property.id")?;
         let property_type = read_string_field(schema_object, "type", "property.type")?;
-        if property_type == "rollup" {
+        if matches!(property_type, "rollup" | "formula") {
             continue;
         }
         let value = match provided_properties.and_then(|properties| properties.get(name)) {

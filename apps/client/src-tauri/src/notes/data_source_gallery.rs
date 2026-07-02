@@ -7,7 +7,7 @@ use super::models::{
     NoteDataSourceGalleryConfigurationUpdate, NoteDataSourceGalleryViewDto,
     NoteDataSourceGalleryViewUpdate, NoteDataSourceRow, NoteDatabaseViewRow,
 };
-use super::{data_source_relations, data_source_rollups, data_source_views};
+use super::{data_source_formulas, data_source_relations, data_source_rollups, data_source_views};
 use serde_json::{json, Value};
 use sqlx::{Sqlite, SqlitePool, Transaction};
 use std::collections::HashSet;
@@ -104,6 +104,7 @@ async fn load_gallery_view_tx(
     data_source_relations::hydrate_relation_titles_tx(tx, &mut rows).await?;
     data_source_rollups::hydrate_rollups_tx(tx, data_source_id, &schema_properties, &mut rows)
         .await?;
+    data_source_formulas::hydrate_formulas(&schema_properties, &mut rows)?;
     rows.retain(|row| row_matches_filters(row, &schema, &filters));
     sort_rows(&mut rows, &schema, &sorts);
     NoteDataSourceGalleryViewDto::new(data_source, database, view, rows)
