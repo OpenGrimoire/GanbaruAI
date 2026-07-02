@@ -289,6 +289,64 @@ fn schema_creates_notes_comment_thread_read_state() {
 }
 
 #[test]
+fn schema_creates_notes_mention_notifications() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        let exists: Option<i64> =
+            sqlx::query_scalar("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?")
+                .bind("notes_mention_notifications")
+                .fetch_optional(&pool)
+                .await
+                .unwrap();
+        assert_eq!(exists, Some(1));
+
+        let page_fk: Option<i64> = sqlx::query_scalar(
+            "SELECT 1
+             FROM pragma_foreign_key_list('notes_mention_notifications')
+             WHERE \"table\" = 'notes_pages'
+               AND \"from\" = 'page_id'",
+        )
+        .fetch_optional(&pool)
+        .await
+        .unwrap();
+        assert_eq!(page_fk, Some(1));
+
+        sqlx::query(
+            "INSERT INTO notes_pages (id, parent_type, title, properties)
+             VALUES ('page-a', 'workspace', 'Inbox', '{}')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert!(sqlx::query(
+            "INSERT INTO notes_mention_notifications (
+                id,
+                source_type,
+                source_id,
+                page_id,
+                kind,
+                target_type,
+                status,
+                fingerprint
+             )
+             VALUES (
+                'notification-a',
+                'block',
+                'block-a',
+                'page-a',
+                'reminder',
+                'date',
+                'stale',
+                'fingerprint-a'
+             )",
+        )
+        .execute(&pool)
+        .await
+        .is_err());
+    });
+}
+
+#[test]
 fn schema_rejects_invalid_calendar_values() {
     tauri::async_runtime::block_on(async {
         let pool = migrated_memory_pool().await;

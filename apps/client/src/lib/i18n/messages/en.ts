@@ -445,6 +445,21 @@ export const en = {
       saveFailed: (message: string) => `Could not save Notes identity: ${message}`,
       emptyName: "Display name is required.",
     },
+    notesNotifications: {
+      heading: "Local Notes notifications",
+      enable: "Enable mention notifications",
+      enableDescription:
+        "Deliver reminder, user mention, and task mention notifications from this device only.",
+      reminders: "Reminder mentions",
+      remindersDescription: "Notify when a date mention has a reminder enabled.",
+      userMentions: "User mentions",
+      userMentionsDescription: "Notify when Notes rich text mentions a local user.",
+      taskMentions: "Task mentions",
+      taskMentionsDescription: "Notify when Notes rich text mentions a project task.",
+      includeContent: "Show note text in notifications",
+      includeContentDescription:
+        "Off by default for privacy. When off, notifications only show the page name.",
+    },
     calendars: {
       heading: "Calendars",
       importWarnings: "Import warnings",
@@ -1490,6 +1505,12 @@ export const en = {
     openSearchResult: (title: string) => `Open search result from ${title}`,
     loading: "Loading notes",
     loadFailed: (message: string) => `Could not load notes: ${message}`,
+    notification: {
+      reminderTitle: "Note reminder",
+      userMentionTitle: "Note mention",
+      taskMentionTitle: "Task mention",
+      privateBody: (pageTitle: string) => `Open ${pageTitle}`,
+    },
     archive: "Archive",
     trash: "Trash",
     backToPages: "Back to pages",

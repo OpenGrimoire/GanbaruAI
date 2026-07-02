@@ -14,6 +14,7 @@
   import { getMusicPlayer } from "$lib/stores/music-player.svelte";
   import { getPomodoro } from "$lib/stores/pomodoro.svelte";
   import { getZoom } from "$lib/stores/zoom.svelte";
+  import { getPreferences } from "$lib/stores/preferences.svelte";
   import { getSettingsLauncher } from "$lib/stores/settingsLauncher.svelte";
   import { getUpdateManager } from "$lib/stores/updates.svelte";
   import { UPDATE_AUTO_CHECK_INTERVAL_MS } from "$lib/stores/updates";
@@ -26,6 +27,15 @@
     type PomodoroCompletionKind,
   } from "$lib/stores/pomodoro-completion";
   import { parseNotesLinkHash } from "$lib/notes/block-link";
+  import {
+    listPendingNotesMentionNotifications,
+    markNotesMentionNotificationsDelivered,
+  } from "$lib/api/notes";
+  import { notesMentionNotificationIsDue } from "$lib/notes/mention-notifications";
+  import type {
+    NotesMentionNotification,
+    NotesMentionNotificationKind,
+  } from "$lib/notes/types";
   import { detachableTabViewFromWindowLabel } from "$lib/windows/detached";
   import { ensureDbUrl } from "$lib/api/db";
   import { APP_SOUND_IDS, playAppSound, type AppSoundId } from "$lib/app-sounds";
@@ -73,6 +83,7 @@
   const music = getMusicPlayer();
   const pomodoro = getPomodoro();
   const zoom = getZoom();
+  const preferences = getPreferences();
   const settingsLauncher = getSettingsLauncher();
   const updates = getUpdateManager();
   const viewport = getViewport();
@@ -81,10 +92,13 @@
   const locale = $derived(localization.locale);
   const detachedWindows = getDetachedWindows();
   let unlistenCalendarNotificationOpen: UnlistenFn | null = null;
+  let unlistenNotesNotificationOpen: UnlistenFn | null = null;
   let unlistenDoomscrollingDesktopSettingsOpen: UnlistenFn | null = null;
   let unlistenDoomscrollingLimitsSettingsOpen: UnlistenFn | null = null;
   const ACTIVE_BLOCK_CHECK_INTERVAL_MS = 1000;
   const EVENT_NOTIFICATION_CHECK_INTERVAL_MS = 1000;
+  const NOTES_MENTION_NOTIFICATION_CHECK_INTERVAL_MS = 10_000;
+  const NOTES_NOTIFICATION_BODY_MAX_CHARS = 180;
   const DESKTOP_BLOCKING_CHECK_INTERVAL_MS = 5_000;
   const AUTOMATIC_UPDATE_CHECK_DELAY_MS = 3_000;
   const COMPLETION_MUSIC_FADE_OUT_MS = 1_200;
@@ -97,6 +111,11 @@
     day: 12_000,
     workweek: 11_455,
   };
+
+  interface NotesNotificationOpenPayload {
+    page_id: string;
+    block_id?: string | null;
+  }
 
   let isMaximized = $state(true);
   let completionOverlay = $state<{ kind: PomodoroCompletionKind } | null>(null);
@@ -177,6 +196,36 @@
     return loadingIdleOverlay;
   }
 
+  function parseNotesNotificationOpenPayload(
+    payload: unknown,
+  ): NotesNotificationOpenPayload | null {
+    if (!payload || typeof payload !== "object") return null;
+    const record = payload as Record<string, unknown>;
+    if (typeof record.page_id !== "string") return null;
+    const blockId = record.block_id;
+    if (blockId !== null && blockId !== undefined && typeof blockId !== "string") return null;
+    return {
+      page_id: record.page_id,
+      block_id: blockId,
+    };
+  }
+
+  function notesHashForNotification(payload: NotesNotificationOpenPayload): string {
+    const params = new URLSearchParams({ page: payload.page_id });
+    if (payload.block_id) params.set("block", payload.block_id);
+    return `#notes?${params.toString()}`;
+  }
+
+  function openNotesNotification(payload: NotesNotificationOpenPayload): void {
+    const nextHash = notesHashForNotification(payload);
+    nav.navigate("notes");
+    if (window.location.hash === nextHash) {
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+      return;
+    }
+    window.location.hash = nextHash;
+  }
+
   /**
    * Time spent before App.svelte could emit `boot.script-start`. The Rust
    * command is process-spawn anchored, while performance.now is anchored to
@@ -206,6 +255,15 @@
           unlistenCalendarNotificationOpen = unlisten;
         })
         .catch((e) => console.error("Failed to listen for calendar notification opens:", e));
+      listen<unknown>("notes-notification-open", (event) => {
+        const payload = parseNotesNotificationOpenPayload(event.payload);
+        if (!payload) return;
+        openNotesNotification(payload);
+      })
+        .then((unlisten) => {
+          unlistenNotesNotificationOpen = unlisten;
+        })
+        .catch((e) => console.error("Failed to listen for Notes notification opens:", e));
       listen("doomscrolling-open-desktop-settings", () => {
         settingsLauncher.open("doomscrolling", { doomscrollingTab: "desktop" });
       })
@@ -299,6 +357,8 @@
     return () => {
       unlistenCalendarNotificationOpen?.();
       unlistenCalendarNotificationOpen = null;
+      unlistenNotesNotificationOpen?.();
+      unlistenNotesNotificationOpen = null;
       unlistenDoomscrollingDesktopSettingsOpen?.();
       unlistenDoomscrollingDesktopSettingsOpen = null;
       unlistenDoomscrollingLimitsSettingsOpen?.();
@@ -756,6 +816,119 @@
     const id = setInterval(() => {
       void checkActiveBlock();
     }, ACTIVE_BLOCK_CHECK_INTERVAL_MS);
+    return () => clearInterval(id);
+  });
+
+  // Notes mention notifications
+  const notesMentionNotificationInFlight = new Set<string>();
+  let notesMentionNotificationCheckRunning = false;
+  let notesMentionNotificationCheckQueued = false;
+
+  function notesMentionNotificationSchedulerEnabled(): boolean {
+    return preferences.notesMentionNotificationsEnabled
+      && (
+        preferences.notesReminderNotificationsEnabled
+        || preferences.notesUserMentionNotificationsEnabled
+        || preferences.notesTaskMentionNotificationsEnabled
+      );
+  }
+
+  function notesMentionNotificationTitle(kind: NotesMentionNotificationKind): string {
+    if (kind === "reminder") return t("notes.notification.reminderTitle");
+    if (kind === "task_mention") return t("notes.notification.taskMentionTitle");
+    return t("notes.notification.userMentionTitle");
+  }
+
+  function compactNotificationText(value: string): string {
+    return value.replace(/\s+/gu, " ").trim();
+  }
+
+  function truncateNotificationText(value: string): string {
+    const compact = compactNotificationText(value);
+    if (compact.length <= NOTES_NOTIFICATION_BODY_MAX_CHARS) return compact;
+    return `${compact.slice(0, NOTES_NOTIFICATION_BODY_MAX_CHARS - 3).trimEnd()}...`;
+  }
+
+  function notesMentionNotificationBody(notification: NotesMentionNotification): string {
+    const pageTitle = notification.page_title.trim() || t("notes.untitled");
+    if (preferences.notesNotificationIncludeContent) {
+      const sourceText = truncateNotificationText(
+        notification.source_plain_text || notification.plain_text,
+      );
+      if (sourceText) return sourceText;
+    }
+    return t("notes.notification.privateBody", pageTitle);
+  }
+
+  async function deliverNotesMentionNotification(
+    notification: NotesMentionNotification,
+  ): Promise<void> {
+    if (notesMentionNotificationInFlight.has(notification.id)) return;
+    notesMentionNotificationInFlight.add(notification.id);
+    try {
+      await invoke("show_notes_notification", {
+        title: notesMentionNotificationTitle(notification.kind),
+        body: notesMentionNotificationBody(notification),
+        pageId: notification.page_id,
+        blockId: notification.block_id,
+        playSound: true,
+      });
+      await markNotesMentionNotificationsDelivered({ ids: [notification.id] });
+    } catch (error) {
+      console.error("[notes notifications] failed:", error);
+    } finally {
+      notesMentionNotificationInFlight.delete(notification.id);
+    }
+  }
+
+  async function runNotesMentionNotificationCheck(): Promise<void> {
+    if (!isMainWindow || !notesMentionNotificationSchedulerEnabled()) return;
+    const pending = await listPendingNotesMentionNotifications();
+    const nowMs = Date.now();
+    const preferenceSnapshot = {
+      mentionNotificationsEnabled: preferences.notesMentionNotificationsEnabled,
+      reminderNotificationsEnabled: preferences.notesReminderNotificationsEnabled,
+      userMentionNotificationsEnabled: preferences.notesUserMentionNotificationsEnabled,
+      taskMentionNotificationsEnabled: preferences.notesTaskMentionNotificationsEnabled,
+    };
+    for (const notification of pending) {
+      if (notesMentionNotificationInFlight.has(notification.id)) continue;
+      if (!notesMentionNotificationIsDue(notification, preferenceSnapshot, { nowMs })) continue;
+      await deliverNotesMentionNotification(notification);
+    }
+  }
+
+  async function checkNotesMentionNotifications(): Promise<void> {
+    if (notesMentionNotificationCheckRunning) {
+      notesMentionNotificationCheckQueued = true;
+      return;
+    }
+
+    notesMentionNotificationCheckRunning = true;
+    try {
+      do {
+        notesMentionNotificationCheckQueued = false;
+        await runNotesMentionNotificationCheck();
+      } while (notesMentionNotificationCheckQueued);
+    } catch (error) {
+      console.error("[notes notifications] check failed:", error);
+    } finally {
+      notesMentionNotificationCheckRunning = false;
+    }
+  }
+
+  $effect(() => {
+    const _enabled = preferences.notesMentionNotificationsEnabled;
+    const _reminders = preferences.notesReminderNotificationsEnabled;
+    const _users = preferences.notesUserMentionNotificationsEnabled;
+    const _tasks = preferences.notesTaskMentionNotificationsEnabled;
+    if (isMainWindow) void checkNotesMentionNotifications();
+  });
+
+  $effect(() => {
+    const id = setInterval(() => {
+      void checkNotesMentionNotifications();
+    }, NOTES_MENTION_NOTIFICATION_CHECK_INTERVAL_MS);
     return () => clearInterval(id);
   });
 

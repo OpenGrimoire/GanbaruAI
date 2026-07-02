@@ -12,16 +12,17 @@ use super::models::{
     NoteDataSourceTemplateCreateFromRow, NoteDataSourceTimelineConfigurationUpdate,
     NoteDataSourceTimelineViewUpdate, NoteDatabaseCreate, NoteDuplicateBlock, NoteDuplicateBlocks,
     NoteDuplicatePage, NoteDuplicatedBlockId, NoteLinkedDatabaseCreate, NoteLocalUserUpdate,
-    NoteMoveBlock, NoteMoveBlocks, NoteMovePage, NotePageCreate, NotePageHistoryCopyBlocks,
-    NotePageHistorySettingsUpdate, NotePageTemplateApply, NotePageTemplateCreateFromPage,
-    NotePageTemplateDuplicate, NotePageTemplateUpdate, NoteParent, NoteSidebarPagesRequest,
-    NoteTrashBlocks, OptionalJsonValue,
+    NoteMentionNotificationDeliveryUpdate, NoteMoveBlock, NoteMoveBlocks, NoteMovePage,
+    NotePageCreate, NotePageHistoryCopyBlocks, NotePageHistorySettingsUpdate,
+    NotePageTemplateApply, NotePageTemplateCreateFromPage, NotePageTemplateDuplicate,
+    NotePageTemplateUpdate, NoteParent, NoteSidebarPagesRequest, NoteTrashBlocks,
+    OptionalJsonValue,
 };
 use super::{
     comments, data_source_board, data_source_buttons, data_source_calendar, data_source_gallery,
     data_source_list, data_source_rows, data_source_schema, data_source_table,
-    data_source_templates, data_source_timeline, databases, history, local_user, reads, templates,
-    undo_state, validation, writes,
+    data_source_templates, data_source_timeline, databases, history, local_user,
+    mention_notifications, reads, templates, undo_state, validation, writes,
 };
 use crate::db::run_migrations;
 use serde_json::json;
@@ -197,6 +198,52 @@ fn date_mention(start: &str, title: &str, reminder: bool) -> serde_json::Value {
         "mention": {
             "type": "date",
             "date": date
+        },
+        "annotations": {
+            "bold": false,
+            "italic": false,
+            "strikethrough": false,
+            "underline": false,
+            "code": false,
+            "color": "default"
+        },
+        "plain_text": title,
+        "href": null
+    })
+}
+
+fn user_mention(user_id: &str, title: &str) -> serde_json::Value {
+    json!({
+        "type": "mention",
+        "mention": {
+            "type": "user",
+            "user": {
+                "object": "user",
+                "id": user_id
+            }
+        },
+        "annotations": {
+            "bold": false,
+            "italic": false,
+            "strikethrough": false,
+            "underline": false,
+            "code": false,
+            "color": "default"
+        },
+        "plain_text": title,
+        "href": null
+    })
+}
+
+fn project_task_mention(task_id: &str, title: &str) -> serde_json::Value {
+    json!({
+        "type": "mention",
+        "mention": {
+            "type": "ganbaru_object",
+            "ganbaru_object": {
+                "type": "project_task",
+                "id": task_id
+            }
         },
         "annotations": {
             "bold": false,
@@ -10166,6 +10213,111 @@ fn local_user_identity_drives_notes_comments() {
             .as_deref(),
             Some("display_name is required")
         );
+    });
+}
+
+#[test]
+fn mention_notifications_sync_blocks_comments_and_delivery_state() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        create_page(&pool, PAGE_A, BLOCK_A).await;
+
+        let local_user_json =
+            serde_json::to_value(local_user::get_local_user(&pool).await.unwrap()).unwrap();
+        let local_user_id = local_user_json["id"].as_str().unwrap().to_string();
+
+        writes::update_block(
+            &pool,
+            BLOCK_A,
+            block_update(
+                "paragraph",
+                json!({
+                    "rich_text": [
+                        rich_text("Plan "),
+                        date_mention("2026-07-05", "Sunday", true),
+                        rich_text(" with "),
+                        user_mention(&local_user_id, "Victor"),
+                        rich_text(" on "),
+                        project_task_mention(BLOCK_B, "Task")
+                    ],
+                    "color": "default"
+                }),
+            ),
+        )
+        .await
+        .unwrap();
+        comments::create_comment(
+            &pool,
+            NoteCommentCreate {
+                id: COMMENT_A.to_string(),
+                parent: Some(page_parent(PAGE_A)),
+                discussion_id: None,
+                anchor: None,
+                rich_text: vec![rich_text("Ping "), user_mention(&local_user_id, "Victor")],
+            },
+        )
+        .await
+        .unwrap();
+
+        let pending = mention_notifications::list_pending(&pool).await.unwrap();
+        let pending_json = serde_json::to_value(&pending).unwrap();
+        let mut kinds = pending_json
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|notification| notification["kind"].as_str().unwrap().to_string())
+            .collect::<Vec<_>>();
+        kinds.sort();
+        assert_eq!(
+            kinds,
+            vec![
+                "reminder".to_string(),
+                "task_mention".to_string(),
+                "user_mention".to_string(),
+                "user_mention".to_string(),
+            ]
+        );
+        assert!(pending_json.as_array().unwrap().iter().any(|notification| {
+            notification["source_type"] == "comment"
+                && notification["comment_id"] == COMMENT_A
+                && notification["page_title"] == "First page"
+        }));
+
+        let reminder_id = pending_json
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|notification| notification["kind"] == "reminder")
+            .and_then(|notification| notification["id"].as_str())
+            .unwrap()
+            .to_string();
+        let after_delivery = mention_notifications::mark_delivered(
+            &pool,
+            NoteMentionNotificationDeliveryUpdate {
+                ids: vec![reminder_id.clone()],
+            },
+        )
+        .await
+        .unwrap();
+        let after_delivery_json = serde_json::to_value(&after_delivery).unwrap();
+        assert!(!after_delivery_json
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|notification| notification["id"] == reminder_id));
+
+        writes::update_block(
+            &pool,
+            BLOCK_A,
+            block_update("paragraph", paragraph_payload("No mentions")),
+        )
+        .await
+        .unwrap();
+        let after_block_clear =
+            serde_json::to_value(mention_notifications::list_pending(&pool).await.unwrap())
+                .unwrap();
+        assert_eq!(after_block_clear.as_array().unwrap().len(), 1);
+        assert_eq!(after_block_clear[0]["source_type"], "comment");
     });
 }
 

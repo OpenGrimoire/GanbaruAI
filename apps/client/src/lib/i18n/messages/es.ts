@@ -442,6 +442,21 @@ export const es = {
       saveFailed: (message: string) => `No se pudo guardar la identidad de Notas: ${message}`,
       emptyName: "El nombre visible es obligatorio.",
     },
+    notesNotifications: {
+      heading: "Notificaciones locales de Notas",
+      enable: "Activar notificaciones de menciones",
+      enableDescription:
+        "Envía notificaciones de recordatorios, menciones de usuario y menciones de tareas solo desde este dispositivo.",
+      reminders: "Menciones con recordatorio",
+      remindersDescription: "Notifica cuando una mención de fecha tiene un recordatorio activo.",
+      userMentions: "Menciones de usuario",
+      userMentionsDescription: "Notifica cuando el texto de Notas menciona a un usuario local.",
+      taskMentions: "Menciones de tareas",
+      taskMentionsDescription: "Notifica cuando el texto de Notas menciona una tarea de proyecto.",
+      includeContent: "Mostrar texto de la nota en notificaciones",
+      includeContentDescription:
+        "Desactivado por privacidad. Al estar apagado, solo se muestra el nombre de la página.",
+    },
     calendars: {
       heading: "Calendarios",
       importWarnings: "Advertencias de importación",
@@ -1507,6 +1522,12 @@ export const es = {
     openSearchResult: (title: string) => `Abrir resultado de búsqueda de ${title}`,
     loading: "Cargando notas",
     loadFailed: (message: string) => `No se pudieron cargar las notas: ${message}`,
+    notification: {
+      reminderTitle: "Recordatorio de nota",
+      userMentionTitle: "Mención en nota",
+      taskMentionTitle: "Mención de tarea",
+      privateBody: (pageTitle: string) => `Abrir ${pageTitle}`,
+    },
     archive: "Archivo",
     trash: "Papelera",
     backToPages: "Volver a páginas",

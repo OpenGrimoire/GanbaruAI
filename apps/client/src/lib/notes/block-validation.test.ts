@@ -3,6 +3,7 @@ import {
   parseNotesBlock,
   parseNotesCreatedDatabase,
   parseNotesLocalUser,
+  parseNotesMentionNotification,
   parseNotesPage,
   parseNotesPageHistorySettings,
   parseNotesPageHistorySnapshot,
@@ -151,6 +152,34 @@ describe("notes boundary validation", () => {
         sha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         ganbaru_asset_path: "notes/page-icons/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.webp",
       },
+    });
+  });
+
+  it("parses mention notification DTOs", () => {
+    expect(parseNotesMentionNotification({
+      object: "mention_notification",
+      id: "notification-a",
+      source_type: "comment",
+      source_id: "10101010-1010-4010-8010-101010101010",
+      page_id: basePage.id,
+      page_title: "Inbox",
+      block_id: baseBlock.id,
+      comment_id: "10101010-1010-4010-8010-101010101010",
+      kind: "user_mention",
+      target_type: "user",
+      target_id: "12121212-1212-4212-8212-121212121212",
+      trigger_at: null,
+      plain_text: "Victor",
+      source_plain_text: "Hi Victor",
+      status: "pending",
+      delivered_at: null,
+      created_time: "2026-07-01T12:00:00.000Z",
+      last_edited_time: "2026-07-01T12:00:00.000Z",
+    })).toMatchObject({
+      source_type: "comment",
+      kind: "user_mention",
+      target_type: "user",
+      status: "pending",
     });
   });
 
