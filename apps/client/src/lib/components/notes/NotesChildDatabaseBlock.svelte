@@ -11,13 +11,19 @@
   import NotesDatabaseCalendarView from "./NotesDatabaseCalendarView.svelte";
   import NotesDatabaseGalleryView from "./NotesDatabaseGalleryView.svelte";
   import NotesDatabaseListView from "./NotesDatabaseListView.svelte";
+  import NotesDatabaseRollupSchemaControls from "./NotesDatabaseRollupSchemaControls.svelte";
   import NotesDatabaseTableView from "./NotesDatabaseTableView.svelte";
   import NotesDatabaseTimelineView from "./NotesDatabaseTimelineView.svelte";
   import {
     createNotesDataSourcePropertyDraft,
     defaultNotesDataSourcePropertyName,
+    notesDataSourceDefaultRollupPatch,
+    notesDataSourceRollupRelationOptions,
+    notesDataSourceRollupTargetOptions,
+    notesDataSourceRollupTargetOptionsForRelation,
     notesDataSourceSchemaDraftFromDto,
     notesDataSourceSchemaUpdateFromDraft,
+    notesDataSourceSyncRollupReferences,
     type NotesDataSourceSchemaOptionDraft,
     type NotesDataSourceSchemaPropertyDraft,
   } from "$lib/notes/data-source-schema";
@@ -183,7 +189,7 @@
     propertyId: string,
     patch: Partial<NotesDataSourceSchemaPropertyDraft>,
   ): void {
-    markDirty(properties.map((property) => {
+    const nextProperties = properties.map((property) => {
       if (property.id !== propertyId) return property;
       const nextType = patch.type ?? property.type;
       const next: NotesDataSourceSchemaPropertyDraft = {
@@ -205,9 +211,25 @@
         next.relationSyncedPropertyId = "";
         next.relationSyncedPropertyName = "";
       }
+      if (nextType === "rollup" && !next.rollupRelationPropertyId) {
+        Object.assign(next, notesDataSourceDefaultRollupPatch(
+          properties,
+          property.id,
+          dataSourceId,
+          rollupDataSources(),
+        ));
+      }
+      if (nextType !== "rollup") {
+        next.rollupRelationPropertyId = "";
+        next.rollupRelationPropertyName = "";
+        next.rollupPropertyId = "";
+        next.rollupPropertyName = "";
+        next.rollupFunction = "count";
+      }
       if (nextType === "title") next.hidden = false;
       return next;
-    }));
+    });
+    markDirty(notesDataSourceSyncRollupReferences(nextProperties, dataSourceId, rollupDataSources()));
   }
 
   function addProperty(): void {
@@ -215,6 +237,14 @@
     const property = createNotesDataSourcePropertyDraft(newPropertyType, name);
     if (newPropertyType === "relation") {
       property.relationDataSourceId = dataSourceId ?? "";
+    }
+    if (newPropertyType === "rollup") {
+      Object.assign(property, notesDataSourceDefaultRollupPatch(
+        properties,
+        property.id,
+        dataSourceId,
+        rollupDataSources(),
+      ));
     }
     markDirty([...properties, property]);
   }
@@ -311,11 +341,55 @@
         return t("notes.databaseSchemaPropertyType.place");
       case "relation":
         return t("notes.databaseSchemaPropertyType.relation");
+      case "rollup":
+        return t("notes.databaseSchemaPropertyType.rollup");
     }
   }
 
   function dataSourceTitle(source: NotesDataSource): string {
     return source.title.trim() || t("notes.untitled");
+  }
+
+  function rollupDataSources(): NotesDataSource[] {
+    const currentSchema = schema;
+    if (!currentSchema) return availableDataSources;
+    return [
+      currentSchema.data_source,
+      ...availableDataSources.filter((source) => source.id !== currentSchema.data_source.id),
+    ];
+  }
+
+  function updateRollupRelation(property: NotesDataSourceSchemaPropertyDraft, relationId: string): void {
+    const relation = properties.find((candidate) =>
+      candidate.id === relationId && candidate.type === "relation"
+    ) ?? null;
+    const target = relation
+      ? notesDataSourceRollupTargetOptionsForRelation(
+          relation,
+          properties,
+          dataSourceId,
+          rollupDataSources(),
+        )[0] ?? null
+      : null;
+    updateProperty(property.id, {
+      rollupRelationPropertyId: relation?.id ?? "",
+      rollupRelationPropertyName: relation?.name ?? "",
+      rollupPropertyId: target?.id ?? "",
+      rollupPropertyName: target?.name ?? "",
+    });
+  }
+
+  function updateRollupTarget(property: NotesDataSourceSchemaPropertyDraft, targetId: string): void {
+    const target = notesDataSourceRollupTargetOptions(
+      property,
+      properties,
+      dataSourceId,
+      rollupDataSources(),
+    ).find((option) => option.id === targetId) ?? null;
+    updateProperty(property.id, {
+      rollupPropertyId: target?.id ?? "",
+      rollupPropertyName: target?.name ?? "",
+    });
   }
 
   function statusMessage(): string {
@@ -595,6 +669,21 @@
                   />
                 </label>
               </div>
+            {:else if property.type === "rollup"}
+              <NotesDatabaseRollupSchemaControls
+                {property}
+                relations={notesDataSourceRollupRelationOptions(properties, property.id)}
+                targets={notesDataSourceRollupTargetOptions(
+                  property,
+                  properties,
+                  dataSourceId,
+                  rollupDataSources(),
+                )}
+                {saving}
+                onRelationChange={(relationId) => updateRollupRelation(property, relationId)}
+                onTargetChange={(targetId) => updateRollupTarget(property, targetId)}
+                onFunctionChange={(rollupFunction) => updateProperty(property.id, { rollupFunction })}
+              />
             {:else if property.type === "select" || property.type === "multi_select" || property.type === "status"}
               <div class="space-y-2">
                 {#each property.options as option (option.id)}

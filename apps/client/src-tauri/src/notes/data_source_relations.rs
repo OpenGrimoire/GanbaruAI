@@ -1,3 +1,4 @@
+use super::data_source_rollups;
 use super::models::NotePageRow;
 use super::validation::require_uuid;
 use serde_json::{json, Map, Value};
@@ -336,6 +337,13 @@ async fn replace_relation_property_links_inner_tx(
         )
         .await?;
     }
+    data_source_rollups::invalidate_rollup_cache_for_data_source_tx(tx, source_data_source_id)
+        .await?;
+    data_source_rollups::invalidate_rollup_cache_for_data_source_tx(
+        tx,
+        &property.config.target_data_source_id,
+    )
+    .await?;
     Ok(())
 }
 
@@ -467,6 +475,8 @@ async fn update_inverse_relation_value_tx(
         .await
         .map_err(|e| format!("delete inverse notes relation link: {e}"))?;
     }
+    data_source_rollups::invalidate_rollup_cache_for_data_source_tx(tx, inverse_data_source_id)
+        .await?;
     Ok(())
 }
 

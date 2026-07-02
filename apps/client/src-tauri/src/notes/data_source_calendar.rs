@@ -7,7 +7,7 @@ use super::models::{
     NoteDataSourceCalendarConfigurationUpdate, NoteDataSourceCalendarViewDto,
     NoteDataSourceCalendarViewUpdate, NoteDataSourceRow, NoteDatabaseViewRow, NotePageRow,
 };
-use super::{data_source_relations, data_source_views};
+use super::{data_source_relations, data_source_rollups, data_source_views};
 use chrono::NaiveDate;
 use serde_json::{json, Value};
 use sqlx::{Sqlite, SqlitePool, Transaction};
@@ -89,10 +89,8 @@ async fn load_calendar_view_tx(
 ) -> Result<NoteDataSourceCalendarViewDto, String> {
     let (data_source, database) =
         load_active_data_source_and_database_tx(tx, data_source_id).await?;
-    let schema = board_schema(&parse_json(
-        &data_source.properties,
-        "data source properties",
-    )?)?;
+    let schema_properties = parse_json(&data_source.properties, "data source properties")?;
+    let schema = board_schema(&schema_properties)?;
     let view = ensure_calendar_view_row_tx(tx, &data_source, database_id, view_id, &schema).await?;
     let configuration = calendar_configuration(view.configuration.as_deref(), &schema)?;
     let filters = stored_filters(view.filter.as_deref())?;
@@ -103,6 +101,8 @@ async fn load_calendar_view_tx(
         .map(|row| normalized_row_for_schema(row, &schema))
         .collect::<Result<Vec<_>, _>>()?;
     data_source_relations::hydrate_relation_titles_tx(tx, &mut rows).await?;
+    data_source_rollups::hydrate_rollups_tx(tx, data_source_id, &schema_properties, &mut rows)
+        .await?;
     rows.retain(|row| row_matches_filters(row, &schema, &filters));
     if let Some(date_property_id) = configuration.date_property_id.as_deref() {
         rows.retain(|row| row_overlaps_range(row, date_property_id, &configuration.range));

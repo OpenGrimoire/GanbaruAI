@@ -4,7 +4,7 @@ use super::models::{
     NoteDataSourceTableViewUpdate, NoteDatabaseRow, NoteDatabaseViewRow, NotePageDto, NotePageRow,
 };
 use super::validation::require_uuid;
-use super::{data_source_relations, data_source_views, history, writes};
+use super::{data_source_relations, data_source_rollups, data_source_views, history, writes};
 use serde_json::{json, Map, Value};
 use sqlx::{Sqlite, SqlitePool, Transaction};
 use std::cmp::Ordering;
@@ -157,6 +157,8 @@ pub(in crate::notes) async fn update_data_source_row_property(
         )
         .await?;
     }
+    data_source_rollups::invalidate_rollup_cache_for_data_source_tx(&mut tx, data_source_id.trim())
+        .await?;
     touch_data_source_and_database_tx(&mut tx, data_source_id, &database.id).await?;
     let updated = load_active_row_page_tx(&mut tx, data_source_id, page_id).await?;
     tx.commit()
@@ -174,10 +176,8 @@ async fn load_table_view_tx(
     let (data_source, database) =
         load_active_data_source_and_database_tx(tx, data_source_id).await?;
     let view = ensure_table_view_row_tx(tx, &data_source, database_id, view_id).await?;
-    let schema = table_schema(&parse_json(
-        &data_source.properties,
-        "data source properties",
-    )?)?;
+    let schema_properties = parse_json(&data_source.properties, "data source properties")?;
+    let schema = table_schema(&schema_properties)?;
     let filters = stored_filters(view.filter.as_deref())?;
     let sorts = stored_sorts(&view.sorts)?;
     let mut rows = load_active_row_pages_tx(tx, data_source_id).await?;
@@ -186,6 +186,8 @@ async fn load_table_view_tx(
         .map(|row| normalized_row_for_schema(row, &schema))
         .collect::<Result<Vec<_>, _>>()?;
     data_source_relations::hydrate_relation_titles_tx(tx, &mut rows).await?;
+    data_source_rollups::hydrate_rollups_tx(tx, data_source_id, &schema_properties, &mut rows)
+        .await?;
     rows.retain(|row| row_matches_filters(row, &schema, &filters));
     sort_rows(&mut rows, &schema, &sorts);
     NoteDataSourceTableViewDto::new(data_source, database, view, rows)
@@ -616,6 +618,9 @@ fn normalized_row_properties(
     let mut title = fallback_title.to_string();
     let mut next = Map::new();
     for property in schema {
+        if property.property_type == "rollup" {
+            continue;
+        }
         let value = existing_property_value(current_object, property)
             .and_then(|value| canonical_stored_property_value(property, value).ok())
             .unwrap_or_else(|| default_property_value(property, fallback_title));
@@ -697,10 +702,23 @@ fn default_property_value(property: &TableProperty, title: &str) -> Value {
                 .cloned()
                 .unwrap_or(Value::Null)
         }),
+        "rollup" => json!({
+            "type": "incomplete",
+            "incomplete": null,
+            "function": property
+                .schema
+                .get("rollup")
+                .and_then(|config| config.get("function"))
+                .and_then(Value::as_str)
+                .unwrap_or("count")
+        }),
         _ => Value::Null,
     };
     if property.property_type == "relation" {
         return data_source_relations::relation_property_value(&property.id, payload);
+    }
+    if property.property_type == "rollup" {
+        return data_source_rollups::rollup_property_value(&property.id, payload);
     }
     json!({
         "id": property.id,
@@ -728,7 +746,7 @@ fn property_value_from_edit(property: &TableProperty, value: &Value) -> Result<V
         "url" | "email" | "phone_number" => edit_nullable_text_payload(value, &property.name)?,
         "place" => edit_place_payload(value)?,
         "files" | "people" | "created_time" | "created_by" | "last_edited_time"
-        | "last_edited_by" | "unique_id" => {
+        | "last_edited_by" | "unique_id" | "rollup" => {
             return Err("this property is read-only in the table view".to_string())
         }
         other => return Err(format!("unsupported row property type: {other}")),
@@ -779,6 +797,13 @@ fn canonical_property_payload(property_type: &str, value: &Value) -> Result<Valu
             }
         }
         "relation" => data_source_relations::canonical_relation_payload(value),
+        "rollup" => {
+            if value.is_object() {
+                Ok(value.clone())
+            } else {
+                Err("rollup property must be an object".to_string())
+            }
+        }
         "checkbox" => value
             .as_bool()
             .map(Value::Bool)
@@ -1034,6 +1059,17 @@ fn compare_row_property(
             row_property_number(left, property),
             row_property_number(right, property),
         ),
+        "rollup" => match (
+            row_property_number(left, property),
+            row_property_number(right, property),
+        ) {
+            (Some(left_number), Some(right_number)) => {
+                compare_optional_f64(Some(left_number), Some(right_number))
+            }
+            _ => row_property_plain_text(left, property)
+                .to_lowercase()
+                .cmp(&row_property_plain_text(right, property).to_lowercase()),
+        },
         "checkbox" => compare_optional_bool(
             row_property_checked(left, property),
             row_property_checked(right, property),
@@ -1117,6 +1153,9 @@ fn row_property_plain_text(row: &NotePageRow, property: &TableProperty) -> Strin
                     .join(", ")
             })
             .unwrap_or_default(),
+        "rollup" => row_property_payload(row, property)
+            .map(|payload| data_source_rollups::rollup_plain_text(&payload))
+            .unwrap_or_default(),
         "date" => row_property_payload(row, property)
             .and_then(|payload| {
                 payload
@@ -1154,7 +1193,11 @@ fn row_property_plain_text(row: &NotePageRow, property: &TableProperty) -> Strin
 }
 
 fn row_property_number(row: &NotePageRow, property: &TableProperty) -> Option<f64> {
-    row_property_payload(row, property)?.as_f64()
+    let payload = row_property_payload(row, property)?;
+    if property.property_type == "rollup" {
+        return data_source_rollups::rollup_number(&payload);
+    }
+    payload.as_f64()
 }
 
 fn row_property_checked(row: &NotePageRow, property: &TableProperty) -> Option<bool> {

@@ -7,7 +7,7 @@ use super::models::{
     NoteDataSourceGalleryConfigurationUpdate, NoteDataSourceGalleryViewDto,
     NoteDataSourceGalleryViewUpdate, NoteDataSourceRow, NoteDatabaseViewRow,
 };
-use super::{data_source_relations, data_source_views};
+use super::{data_source_relations, data_source_rollups, data_source_views};
 use serde_json::{json, Value};
 use sqlx::{Sqlite, SqlitePool, Transaction};
 use std::collections::HashSet;
@@ -90,10 +90,8 @@ async fn load_gallery_view_tx(
 ) -> Result<NoteDataSourceGalleryViewDto, String> {
     let (data_source, database) =
         load_active_data_source_and_database_tx(tx, data_source_id).await?;
-    let schema = board_schema(&parse_json(
-        &data_source.properties,
-        "data source properties",
-    )?)?;
+    let schema_properties = parse_json(&data_source.properties, "data source properties")?;
+    let schema = board_schema(&schema_properties)?;
     let view = ensure_gallery_view_row_tx(tx, &data_source, database_id, view_id, &schema).await?;
     validate_gallery_configuration(view.configuration.as_deref(), &schema)?;
     let filters = stored_filters(view.filter.as_deref())?;
@@ -104,6 +102,8 @@ async fn load_gallery_view_tx(
         .map(|row| normalized_row_for_schema(row, &schema))
         .collect::<Result<Vec<_>, _>>()?;
     data_source_relations::hydrate_relation_titles_tx(tx, &mut rows).await?;
+    data_source_rollups::hydrate_rollups_tx(tx, data_source_id, &schema_properties, &mut rows)
+        .await?;
     rows.retain(|row| row_matches_filters(row, &schema, &filters));
     sort_rows(&mut rows, &schema, &sorts);
     NoteDataSourceGalleryViewDto::new(data_source, database, view, rows)

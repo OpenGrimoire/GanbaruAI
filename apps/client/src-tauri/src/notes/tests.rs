@@ -2697,6 +2697,270 @@ fn database_relations_sync_two_way_when_inverse_property_is_configured() {
 }
 
 #[test]
+fn database_rollups_compute_from_relations_and_invalidate_cache() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        create_page(&pool, PAGE_A, BLOCK_A).await;
+        create_database(
+            &pool,
+            DATABASE_A,
+            DATA_SOURCE_A,
+            DATABASE_VIEW_A,
+            "Tasks",
+            BLOCK_A,
+        )
+        .await;
+        create_database(
+            &pool,
+            DATABASE_B,
+            DATA_SOURCE_B,
+            DATABASE_VIEW_B,
+            "Projects",
+            DATABASE_A,
+        )
+        .await;
+        data_source_schema::update_data_source_schema(
+            &pool,
+            DATA_SOURCE_B,
+            None,
+            NoteDataSourceSchemaUpdate {
+                properties: json!({
+                    "Name": {
+                        "id": "title",
+                        "name": "Name",
+                        "type": "title",
+                        "title": {}
+                    },
+                    "Budget": {
+                        "id": "budget",
+                        "name": "Budget",
+                        "type": "number",
+                        "number": {
+                            "format": "number"
+                        }
+                    }
+                }),
+                property_order: vec!["title".to_string(), "budget".to_string()],
+                hidden_property_ids: vec![],
+            },
+        )
+        .await
+        .unwrap();
+        data_source_schema::update_data_source_schema(
+            &pool,
+            DATA_SOURCE_A,
+            None,
+            NoteDataSourceSchemaUpdate {
+                properties: json!({
+                    "Name": {
+                        "id": "title",
+                        "name": "Name",
+                        "type": "title",
+                        "title": {}
+                    },
+                    "Project": {
+                        "id": "project_relation",
+                        "name": "Project",
+                        "type": "relation",
+                        "relation": {
+                            "data_source_id": DATA_SOURCE_B
+                        }
+                    },
+                    "Project budget": {
+                        "id": "project_budget",
+                        "name": "Project budget",
+                        "type": "rollup",
+                        "rollup": {
+                            "relation_property_id": "project_relation",
+                            "relation_property_name": "Project",
+                            "rollup_property_id": "budget",
+                            "rollup_property_name": "Budget",
+                            "function": "sum"
+                        }
+                    }
+                }),
+                property_order: vec![
+                    "title".to_string(),
+                    "project_relation".to_string(),
+                    "project_budget".to_string(),
+                ],
+                hidden_property_ids: vec![],
+            },
+        )
+        .await
+        .unwrap();
+        data_source_rows::create_data_source_row_page(
+            &pool,
+            DATA_SOURCE_B,
+            NoteDataSourceRowPageCreate {
+                id: PAGE_C.to_string(),
+                title: "Project Alpha".to_string(),
+                first_block_id: BLOCK_C.to_string(),
+                properties: None,
+            },
+        )
+        .await
+        .unwrap();
+        data_source_table::update_data_source_row_property(
+            &pool,
+            DATA_SOURCE_B,
+            PAGE_C,
+            NoteDataSourceRowPropertyUpdate {
+                property_id: "budget".to_string(),
+                value: json!(7),
+            },
+        )
+        .await
+        .unwrap();
+        data_source_rows::create_data_source_row_page(
+            &pool,
+            DATA_SOURCE_A,
+            NoteDataSourceRowPageCreate {
+                id: PAGE_B.to_string(),
+                title: "Write rollup tests".to_string(),
+                first_block_id: BLOCK_B.to_string(),
+                properties: None,
+            },
+        )
+        .await
+        .unwrap();
+        data_source_table::update_data_source_row_property(
+            &pool,
+            DATA_SOURCE_A,
+            PAGE_B,
+            NoteDataSourceRowPropertyUpdate {
+                property_id: "project_relation".to_string(),
+                value: json!([PAGE_C]),
+            },
+        )
+        .await
+        .unwrap();
+
+        let table = data_source_table::get_data_source_table_view(&pool, DATA_SOURCE_A, None, None)
+            .await
+            .unwrap();
+        let table_json = serde_json::to_value(table).unwrap();
+        assert_eq!(
+            table_json["rows"][0]["properties"]["Project budget"]["rollup"]["number"].as_f64(),
+            Some(7.0)
+        );
+        let stored_properties: String =
+            sqlx::query_scalar("SELECT properties FROM notes_pages WHERE id = ?")
+                .bind(PAGE_B)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        let stored_json: serde_json::Value = serde_json::from_str(&stored_properties).unwrap();
+        assert!(stored_json.get("Project budget").is_none());
+        let cache_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM notes_data_source_rollup_cache")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(cache_count, 1);
+
+        data_source_table::update_data_source_row_property(
+            &pool,
+            DATA_SOURCE_B,
+            PAGE_C,
+            NoteDataSourceRowPropertyUpdate {
+                property_id: "budget".to_string(),
+                value: json!(11),
+            },
+        )
+        .await
+        .unwrap();
+        let cache_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM notes_data_source_rollup_cache")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(cache_count, 0);
+
+        let table = data_source_table::get_data_source_table_view(&pool, DATA_SOURCE_A, None, None)
+            .await
+            .unwrap();
+        let table_json = serde_json::to_value(table).unwrap();
+        assert_eq!(
+            table_json["rows"][0]["properties"]["Project budget"]["rollup"]["number"].as_f64(),
+            Some(11.0)
+        );
+    });
+}
+
+#[test]
+fn database_rollups_reject_incompatible_schema_configuration() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        create_page(&pool, PAGE_A, BLOCK_A).await;
+        create_database(
+            &pool,
+            DATABASE_A,
+            DATA_SOURCE_A,
+            DATABASE_VIEW_A,
+            "Tasks",
+            BLOCK_A,
+        )
+        .await;
+        create_database(
+            &pool,
+            DATABASE_B,
+            DATA_SOURCE_B,
+            DATABASE_VIEW_B,
+            "Projects",
+            DATABASE_A,
+        )
+        .await;
+        let invalid = data_source_schema::update_data_source_schema(
+            &pool,
+            DATA_SOURCE_A,
+            None,
+            NoteDataSourceSchemaUpdate {
+                properties: json!({
+                    "Name": {
+                        "id": "title",
+                        "name": "Name",
+                        "type": "title",
+                        "title": {}
+                    },
+                    "Project": {
+                        "id": "project_relation",
+                        "name": "Project",
+                        "type": "relation",
+                        "relation": {
+                            "data_source_id": DATA_SOURCE_B
+                        }
+                    },
+                    "Bad rollup": {
+                        "id": "bad_rollup",
+                        "name": "Bad rollup",
+                        "type": "rollup",
+                        "rollup": {
+                            "relation_property_id": "project_relation",
+                            "relation_property_name": "Project",
+                            "rollup_property_id": "title",
+                            "rollup_property_name": "Name",
+                            "function": "sum"
+                        }
+                    }
+                }),
+                property_order: vec![
+                    "title".to_string(),
+                    "project_relation".to_string(),
+                    "bad_rollup".to_string(),
+                ],
+                hidden_property_ids: vec![],
+            },
+        )
+        .await;
+        assert_eq!(
+            invalid.err().unwrap(),
+            "rollup.function is not compatible with the target property"
+        );
+    });
+}
+
+#[test]
 fn board_database_view_groups_filters_sorts_and_moves_rows() {
     tauri::async_runtime::block_on(async {
         let pool = migrated_memory_pool().await;

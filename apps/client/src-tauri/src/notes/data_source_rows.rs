@@ -1,6 +1,6 @@
 use super::models::{NoteDataSourceRowPageCreate, NoteLoadedPage, NotePageDto, NotePageRow};
 use super::validation::{plain_text_from_payload, require_uuid};
-use super::{data_source_relations, reads, writes};
+use super::{data_source_relations, data_source_rollups, reads, writes};
 use serde_json::{json, Map, Value};
 use sqlx::{Sqlite, SqlitePool, Transaction};
 
@@ -104,6 +104,8 @@ pub(in crate::notes) async fn create_data_source_row_page(
         true,
     )
     .await?;
+    data_source_rollups::invalidate_rollup_cache_for_data_source_tx(&mut tx, data_source_id)
+        .await?;
     touch_data_source_tx(&mut tx, data_source_id, &data_source.database_id).await?;
     tx.commit()
         .await
@@ -205,6 +207,9 @@ fn row_page_properties(
             .ok_or_else(|| "data source property must be an object".to_string())?;
         let property_id = read_string_field(schema_object, "id", "property.id")?;
         let property_type = read_string_field(schema_object, "type", "property.type")?;
+        if property_type == "rollup" {
+            continue;
+        }
         let value = match provided_properties.and_then(|properties| properties.get(name)) {
             Some(property_value) => {
                 canonical_row_property_value(property_id, property_type, property_value)?

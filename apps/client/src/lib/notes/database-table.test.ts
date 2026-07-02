@@ -77,6 +77,19 @@ const dataSource: NotesDataSource = {
         data_source_id: "66666666-6666-4666-8666-666666666666",
       },
     },
+    "Project budget": {
+      id: "project_budget",
+      name: "Project budget",
+      description: "",
+      type: "rollup",
+      rollup: {
+        relation_property_id: "project_relation",
+        relation_property_name: "Project",
+        rollup_property_id: "budget",
+        rollup_property_name: "Budget",
+        function: "sum",
+      },
+    },
   },
   in_trash: false,
   source_provider: null,
@@ -108,7 +121,15 @@ const view: NotesDatabaseView = {
   configuration: {
     type: "table",
     table: {
-      property_order: ["title", "estimate", "priority", "done", "created", "project_relation"],
+      property_order: [
+        "title",
+        "estimate",
+        "priority",
+        "done",
+        "created",
+        "project_relation",
+        "project_budget",
+      ],
       hidden_property_ids: ["priority"],
       column_widths: {
         title: 320,
@@ -192,6 +213,15 @@ const page: NotesPage = {
       ],
       has_more: false,
     },
+    "Project budget": {
+      id: "project_budget",
+      type: "rollup",
+      rollup: {
+        type: "number",
+        number: 7,
+        function: "sum",
+      },
+    },
   },
   url: null,
   public_url: null,
@@ -214,6 +244,7 @@ describe("database table helpers", () => {
       "done",
       "created",
       "project_relation",
+      "project_budget",
     ]);
     expect(columns[0]?.width).toBe(320);
     expect(columns[1]?.width).toBe(144);
@@ -224,6 +255,7 @@ describe("database table helpers", () => {
       "done",
       "created",
       "project_relation",
+      "project_budget",
     ]);
   });
 
@@ -255,6 +287,7 @@ describe("database table helpers", () => {
     const done = columns.find((column) => column.id === "done");
     const created = columns.find((column) => column.id === "created");
     const project = columns.find((column) => column.id === "project_relation");
+    const projectBudget = columns.find((column) => column.id === "project_budget");
 
     expect(title && notesDatabaseTableCellText(page, title)).toBe("Write docs");
     expect(priority && notesDatabaseTableCellText(page, priority)).toBe("High");
@@ -264,5 +297,7 @@ describe("database table helpers", () => {
     expect(project && notesDatabaseTableCellEditValue(page, project)).toEqual([
       "66666666-6666-4666-8666-666666666666",
     ]);
+    expect(projectBudget && notesDatabaseTableCellText(page, projectBudget)).toBe("7");
+    expect(projectBudget && notesDatabaseTableColumnCanEdit(projectBudget)).toBe(false);
   });
 });

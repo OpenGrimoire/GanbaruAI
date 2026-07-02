@@ -719,9 +719,37 @@ export const NOTES_DATA_SOURCE_PROPERTY_TYPES = [
   "unique_id",
   "place",
   "relation",
+  "rollup",
 ] as const;
 
 export type NotesDataSourcePropertyType = (typeof NOTES_DATA_SOURCE_PROPERTY_TYPES)[number];
+
+export const NOTES_DATA_SOURCE_ROLLUP_FUNCTIONS = [
+  "average",
+  "checked",
+  "count",
+  "count_values",
+  "date_range",
+  "earliest_date",
+  "empty",
+  "latest_date",
+  "max",
+  "median",
+  "min",
+  "not_empty",
+  "percent_checked",
+  "percent_empty",
+  "percent_not_empty",
+  "percent_unchecked",
+  "range",
+  "show_original",
+  "show_unique",
+  "sum",
+  "unchecked",
+  "unique",
+] as const;
+
+export type NotesDataSourceRollupFunction = (typeof NOTES_DATA_SOURCE_ROLLUP_FUNCTIONS)[number];
 
 export const NOTES_DATA_SOURCE_SELECT_COLORS = [
   "default",

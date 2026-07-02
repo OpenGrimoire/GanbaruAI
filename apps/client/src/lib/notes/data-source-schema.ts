@@ -1,11 +1,13 @@
 import {
   NOTES_DATA_SOURCE_NUMBER_FORMATS,
   NOTES_DATA_SOURCE_PROPERTY_TYPES,
+  NOTES_DATA_SOURCE_ROLLUP_FUNCTIONS,
   NOTES_DATA_SOURCE_SELECT_COLORS,
   NOTES_DATA_SOURCE_STATUS_GROUPS,
   type NotesDataSource,
   type NotesDataSourceNumberFormat,
   type NotesDataSourcePropertyType,
+  type NotesDataSourceRollupFunction,
   type NotesDataSourceSchemaUpdate,
   type NotesDataSourceSelectColor,
   type NotesDataSourceStatusGroup,
@@ -32,7 +34,18 @@ export interface NotesDataSourceSchemaPropertyDraft {
   relationDataSourceId: string;
   relationSyncedPropertyId: string;
   relationSyncedPropertyName: string;
+  rollupRelationPropertyId: string;
+  rollupRelationPropertyName: string;
+  rollupPropertyId: string;
+  rollupPropertyName: string;
+  rollupFunction: NotesDataSourceRollupFunction;
   options: NotesDataSourceSchemaOptionDraft[];
+}
+
+export interface NotesDataSourceRollupTargetOption {
+  id: string;
+  name: string;
+  type: NotesDataSourcePropertyType;
 }
 
 const DEFAULT_OPTION_COLORS: NotesDataSourceSelectColor[] = [
@@ -85,6 +98,10 @@ function isNumberFormat(value: string): value is NotesDataSourceNumberFormat {
   return NOTES_DATA_SOURCE_NUMBER_FORMATS.includes(value as NotesDataSourceNumberFormat);
 }
 
+function isRollupFunction(value: string): value is NotesDataSourceRollupFunction {
+  return NOTES_DATA_SOURCE_ROLLUP_FUNCTIONS.includes(value as NotesDataSourceRollupFunction);
+}
+
 function isStatusGroup(value: string): value is NotesDataSourceStatusGroup {
   return NOTES_DATA_SOURCE_STATUS_GROUPS.includes(value as NotesDataSourceStatusGroup);
 }
@@ -92,6 +109,139 @@ function isStatusGroup(value: string): value is NotesDataSourceStatusGroup {
 function readStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.filter((item): item is string => typeof item === "string");
+}
+
+function dataSourceById(
+  dataSources: readonly NotesDataSource[],
+  id: string,
+): NotesDataSource | null {
+  return dataSources.find((source) => source.id === id) ?? null;
+}
+
+function dataSourceRollupTargetOptions(
+  source: NotesDataSource | null,
+): NotesDataSourceRollupTargetOption[] {
+  if (!source) return [];
+  return Object.entries(source.properties).flatMap(([key, value]) => {
+    if (!isRecord(value)) return [];
+    const rawType = readString(value.type, "rich_text");
+    if (!isPropertyType(rawType)) return [];
+    const id = rawType === "title" ? "title" : readString(value.id, key);
+    if (!id || rawType === "rollup") return [];
+    return [{
+      id,
+      name: readString(value.name, key),
+      type: rawType,
+    }];
+  });
+}
+
+function draftRollupTargetOptions(
+  drafts: readonly NotesDataSourceSchemaPropertyDraft[],
+): NotesDataSourceRollupTargetOption[] {
+  return drafts.filter((property) => property.type !== "rollup").map((property) => ({
+    id: property.id,
+    name: property.name,
+    type: property.type,
+  }));
+}
+
+export function notesDataSourceRollupRelationOptions(
+  properties: readonly NotesDataSourceSchemaPropertyDraft[],
+  excludePropertyId: string,
+): NotesDataSourceSchemaPropertyDraft[] {
+  return properties.filter((property) =>
+    property.id !== excludePropertyId
+    && property.type === "relation"
+    && property.relationDataSourceId.trim().length > 0
+  );
+}
+
+export function notesDataSourceRollupTargetOptions(
+  property: NotesDataSourceSchemaPropertyDraft,
+  drafts: readonly NotesDataSourceSchemaPropertyDraft[],
+  currentDataSourceId: string | null,
+  dataSources: readonly NotesDataSource[],
+): NotesDataSourceRollupTargetOption[] {
+  const relation = drafts.find((candidate) =>
+    candidate.id === property.rollupRelationPropertyId
+    && candidate.type === "relation"
+  ) ?? null;
+  if (!relation) return [];
+  return notesDataSourceRollupTargetOptionsForRelation(
+    relation,
+    drafts,
+    currentDataSourceId,
+    dataSources,
+  );
+}
+
+export function notesDataSourceRollupTargetOptionsForRelation(
+  relation: NotesDataSourceSchemaPropertyDraft,
+  drafts: readonly NotesDataSourceSchemaPropertyDraft[],
+  currentDataSourceId: string | null,
+  dataSources: readonly NotesDataSource[],
+): NotesDataSourceRollupTargetOption[] {
+  if (relation.relationDataSourceId === currentDataSourceId) {
+    return draftRollupTargetOptions(drafts);
+  }
+  return dataSourceRollupTargetOptions(dataSourceById(dataSources, relation.relationDataSourceId));
+}
+
+export function notesDataSourceSyncRollupReferences(
+  drafts: NotesDataSourceSchemaPropertyDraft[],
+  currentDataSourceId: string | null,
+  dataSources: readonly NotesDataSource[],
+): NotesDataSourceSchemaPropertyDraft[] {
+  return drafts.map((property) => {
+    if (property.type !== "rollup") return property;
+    const relation = drafts.find((candidate) =>
+      candidate.id === property.rollupRelationPropertyId
+      && candidate.type === "relation"
+    ) ?? null;
+    const target = notesDataSourceRollupTargetOptions(
+      property,
+      drafts,
+      currentDataSourceId,
+      dataSources,
+    ).find((option) => option.id === property.rollupPropertyId) ?? null;
+    return {
+      ...property,
+      rollupRelationPropertyName: relation?.name ?? property.rollupRelationPropertyName,
+      rollupPropertyName: target?.name ?? property.rollupPropertyName,
+    };
+  });
+}
+
+export function notesDataSourceDefaultRollupPatch(
+  properties: readonly NotesDataSourceSchemaPropertyDraft[],
+  excludePropertyId: string,
+  currentDataSourceId: string | null,
+  dataSources: readonly NotesDataSource[],
+): Partial<NotesDataSourceSchemaPropertyDraft> {
+  const relation = notesDataSourceRollupRelationOptions(properties, excludePropertyId)[0] ?? null;
+  if (!relation) {
+    return {
+      rollupRelationPropertyId: "",
+      rollupRelationPropertyName: "",
+      rollupPropertyId: "",
+      rollupPropertyName: "",
+      rollupFunction: "count",
+    };
+  }
+  const target = notesDataSourceRollupTargetOptionsForRelation(
+    relation,
+    properties,
+    currentDataSourceId,
+    dataSources,
+  )[0] ?? null;
+  return {
+    rollupRelationPropertyId: relation.id,
+    rollupRelationPropertyName: relation.name,
+    rollupPropertyId: target?.id ?? "",
+    rollupPropertyName: target?.name ?? "",
+    rollupFunction: "count",
+  };
 }
 
 function tableConfiguration(view: NotesDatabaseView): UnknownRecord {
@@ -186,6 +336,8 @@ function propertyDraftFromRecord(
     : {};
   const relationSyncedPropertyId = readString(dualProperty.synced_property_id, "");
   const relationSyncedPropertyName = readString(dualProperty.synced_property_name, "");
+  const rollupConfig = type === "rollup" && isRecord(config) ? config : {};
+  const rollupFunction = readString(rollupConfig.function, "count");
   const options = type === "status"
     ? statusOptionDrafts(config)
     : type === "select" || type === "multi_select"
@@ -202,6 +354,11 @@ function propertyDraftFromRecord(
     relationDataSourceId,
     relationSyncedPropertyId,
     relationSyncedPropertyName,
+    rollupRelationPropertyId: readString(rollupConfig.relation_property_id, ""),
+    rollupRelationPropertyName: readString(rollupConfig.relation_property_name, ""),
+    rollupPropertyId: readString(rollupConfig.rollup_property_id, ""),
+    rollupPropertyName: readString(rollupConfig.rollup_property_name, ""),
+    rollupFunction: isRollupFunction(rollupFunction) ? rollupFunction : "count",
     options,
   };
 }
@@ -284,6 +441,8 @@ function defaultNameForType(type: NotesDataSourcePropertyType): string {
       return "Place";
     case "relation":
       return "Relation";
+    case "rollup":
+      return "Rollup";
   }
 }
 
@@ -304,6 +463,11 @@ export function createNotesDataSourcePropertyDraft(
     relationDataSourceId: "",
     relationSyncedPropertyId: "",
     relationSyncedPropertyName: "",
+    rollupRelationPropertyId: "",
+    rollupRelationPropertyName: "",
+    rollupPropertyId: "",
+    rollupPropertyName: "",
+    rollupFunction: "count",
     options: type === "status" ? defaultStatusOptions() : [],
   };
 }
@@ -349,6 +513,25 @@ function propertyConfig(property: NotesDataSourceSchemaPropertyDraft): UnknownRe
               synced_property_name: syncedPropertyName,
             }
           : null,
+      };
+    }
+    case "rollup": {
+      const relationPropertyId = property.rollupRelationPropertyId.trim();
+      const relationPropertyName = property.rollupRelationPropertyName.trim();
+      const rollupPropertyId = property.rollupPropertyId.trim();
+      const rollupPropertyName = property.rollupPropertyName.trim();
+      if (!relationPropertyId || !relationPropertyName) {
+        throw new Error("rollup relation property is required");
+      }
+      if (!rollupPropertyId || !rollupPropertyName) {
+        throw new Error("rollup target property is required");
+      }
+      return {
+        relation_property_id: relationPropertyId,
+        relation_property_name: relationPropertyName,
+        rollup_property_id: rollupPropertyId,
+        rollup_property_name: rollupPropertyName,
+        function: property.rollupFunction,
       };
     }
     default:

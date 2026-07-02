@@ -66,6 +66,19 @@ const dataSource: NotesDataSource = {
         },
       },
     },
+    "Project budget": {
+      id: "project_budget",
+      name: "Project budget",
+      description: "",
+      type: "rollup",
+      rollup: {
+        relation_property_id: "project_relation",
+        relation_property_name: "Project",
+        rollup_property_id: "budget",
+        rollup_property_name: "Budget",
+        function: "sum",
+      },
+    },
   },
   in_trash: false,
   source_provider: null,
@@ -91,7 +104,7 @@ const view: NotesDatabaseView = {
   configuration: {
     type: "table",
     table: {
-      property_order: ["title", "estimate", "priority", "project_relation"],
+      property_order: ["title", "estimate", "priority", "project_relation", "project_budget"],
       hidden_property_ids: ["priority"],
     },
   },
@@ -113,12 +126,16 @@ describe("data source schema helpers", () => {
       "estimate",
       "priority",
       "project_relation",
+      "project_budget",
     ]);
     expect(draft[1]?.numberFormat).toBe("percent");
     expect(draft[2]?.hidden).toBe(true);
     expect(draft[2]?.options[1]?.name).toBe("High");
     expect(draft[3]?.relationDataSourceId).toBe("66666666-6666-4666-8666-666666666666");
     expect(draft[3]?.relationSyncedPropertyId).toBe("tasks_relation");
+    expect(draft[4]?.rollupRelationPropertyId).toBe("project_relation");
+    expect(draft[4]?.rollupPropertyId).toBe("budget");
+    expect(draft[4]?.rollupFunction).toBe("sum");
   });
 
   it("serializes renamed, hidden, and configured properties for Tauri", () => {
@@ -145,6 +162,7 @@ describe("data source schema helpers", () => {
       "estimate",
       "priority",
       "project_relation",
+      "project_budget",
       "status",
       "task_id",
     ]);
@@ -183,6 +201,17 @@ describe("data source schema helpers", () => {
           synced_property_id: "tasks_relation",
           synced_property_name: "Tasks",
         },
+      },
+    });
+    expect(update.properties["Project budget"]).toMatchObject({
+      id: "project_budget",
+      type: "rollup",
+      rollup: {
+        relation_property_id: "project_relation",
+        relation_property_name: "Project",
+        rollup_property_id: "budget",
+        rollup_property_name: "Budget",
+        function: "sum",
       },
     });
   });

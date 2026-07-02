@@ -224,6 +224,8 @@ export function notesDatabaseTableCellText(
       return notesDatabaseTableRelationItems(page, column)
         .map((item) => item.title || item.id)
         .join(", ");
+    case "rollup":
+      return rollupPlainText(payload);
     case "date":
       return isRecord(payload) ? readString(payload.start) : "";
     case "url":
@@ -267,6 +269,7 @@ export function notesDatabaseTableColumnCanEdit(column: NotesDatabaseTableColumn
     "last_edited_time",
     "last_edited_by",
     "unique_id",
+    "rollup",
   ].includes(column.type);
 }
 
@@ -350,6 +353,74 @@ function richTextPlainText(items: unknown[]): string {
     const text = item.text;
     return isRecord(text) ? readString(text.content) : "";
   }).join("");
+}
+
+function rollupPlainText(value: unknown): string {
+  if (!isRecord(value)) return "";
+  const type = readString(value.type);
+  switch (type) {
+    case "number":
+      return typeof value.number === "number" ? String(value.number) : "";
+    case "date":
+      return datePlainText(value.date);
+    case "array":
+      return Array.isArray(value.array)
+        ? value.array.map(propertyPlainText).filter(Boolean).join(", ")
+        : "";
+    default:
+      return "";
+  }
+}
+
+function propertyPlainText(value: unknown): string {
+  if (!isRecord(value)) return "";
+  const type = readString(value.type);
+  const payload = value[type];
+  switch (type) {
+    case "title":
+    case "rich_text":
+      return Array.isArray(payload) ? richTextPlainText(payload) : "";
+    case "number":
+      return typeof payload === "number" ? String(payload) : "";
+    case "checkbox":
+      return payload === true ? "true" : payload === false ? "false" : "";
+    case "select":
+    case "status":
+    case "place":
+      return isRecord(payload) ? readString(payload.name) : "";
+    case "multi_select":
+    case "files":
+    case "people":
+    case "relation":
+      return Array.isArray(payload)
+        ? payload
+            .filter(isRecord)
+            .map((item) => readString(item.title) || readString(item.name) || readString(item.id))
+            .filter(Boolean)
+            .join(", ")
+        : "";
+    case "date":
+      return datePlainText(payload);
+    case "url":
+    case "email":
+    case "phone_number":
+    case "created_time":
+    case "last_edited_time":
+      return typeof payload === "string" ? payload : "";
+    case "unique_id":
+      return isRecord(payload)
+        ? `${readString(payload.prefix)}${typeof payload.number === "number" ? payload.number : ""}`
+        : "";
+    default:
+      return "";
+  }
+}
+
+function datePlainText(value: unknown): string {
+  if (!isRecord(value)) return "";
+  const start = readString(value.start);
+  const end = readString(value.end);
+  return end && end !== start ? `${start} to ${end}` : start;
 }
 
 function isScalarFilterValue(value: unknown): value is string | number | boolean | null {

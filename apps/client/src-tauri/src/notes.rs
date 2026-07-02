@@ -7,6 +7,7 @@ mod data_source_calendar;
 mod data_source_gallery;
 mod data_source_list;
 mod data_source_relations;
+mod data_source_rollups;
 mod data_source_rows;
 mod data_source_schema;
 mod data_source_table;

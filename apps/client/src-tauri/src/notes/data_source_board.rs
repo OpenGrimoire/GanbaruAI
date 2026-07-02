@@ -5,7 +5,9 @@ use super::models::{
     NoteDataSourceTableSort, NoteDatabaseRow, NoteDatabaseViewRow, NotePageRow,
 };
 use super::validation::require_uuid;
-use super::{data_source_relations, data_source_table, data_source_views, writes};
+use super::{
+    data_source_relations, data_source_rollups, data_source_table, data_source_views, writes,
+};
 use serde_json::{json, Map, Value};
 use sqlx::{Sqlite, SqlitePool, Transaction};
 use std::cmp::Ordering;
@@ -164,10 +166,8 @@ async fn load_board_view_tx(
 ) -> Result<NoteDataSourceBoardViewDto, String> {
     let (data_source, database) =
         load_active_data_source_and_database_tx(tx, data_source_id).await?;
-    let schema = board_schema(&parse_json(
-        &data_source.properties,
-        "data source properties",
-    )?)?;
+    let schema_properties = parse_json(&data_source.properties, "data source properties")?;
+    let schema = board_schema(&schema_properties)?;
     let view = ensure_board_view_row_tx(tx, &data_source, database_id, view_id, &schema).await?;
     let configuration = board_configuration(view.configuration.as_deref(), &schema)?;
     let filters = stored_filters(view.filter.as_deref())?;
@@ -178,6 +178,8 @@ async fn load_board_view_tx(
         .map(|row| normalized_row_for_schema(row, &schema))
         .collect::<Result<Vec<_>, _>>()?;
     data_source_relations::hydrate_relation_titles_tx(tx, &mut rows).await?;
+    data_source_rollups::hydrate_rollups_tx(tx, data_source_id, &schema_properties, &mut rows)
+        .await?;
     rows.retain(|row| row_matches_filters(row, &schema, &filters));
     sort_rows(&mut rows, &schema, &sorts);
     let groups = board_groups(&schema, &configuration, rows)?;
@@ -1070,6 +1072,17 @@ fn compare_row_property(
             row_property_number(left, property),
             row_property_number(right, property),
         ),
+        "rollup" => match (
+            row_property_number(left, property),
+            row_property_number(right, property),
+        ) {
+            (Some(left_number), Some(right_number)) => {
+                compare_optional_f64(Some(left_number), Some(right_number))
+            }
+            _ => row_property_plain_text(left, property)
+                .to_lowercase()
+                .cmp(&row_property_plain_text(right, property).to_lowercase()),
+        },
         "checkbox" => compare_optional_bool(
             row_property_checked(left, property),
             row_property_checked(right, property),
@@ -1152,6 +1165,9 @@ fn row_property_plain_text(row: &NotePageRow, property: &BoardProperty) -> Strin
                     .map(str::to_string)
             })
             .unwrap_or_default(),
+        "rollup" => row_property_payload(row, property)
+            .map(|payload| data_source_rollups::rollup_plain_text(&payload))
+            .unwrap_or_default(),
         "url" | "email" | "phone_number" => row_property_payload(row, property)
             .and_then(|payload| payload.as_str().map(str::to_string))
             .unwrap_or_default(),
@@ -1170,7 +1186,11 @@ fn row_property_plain_text(row: &NotePageRow, property: &BoardProperty) -> Strin
 }
 
 fn row_property_number(row: &NotePageRow, property: &BoardProperty) -> Option<f64> {
-    row_property_payload(row, property)?.as_f64()
+    let payload = row_property_payload(row, property)?;
+    if property.property_type == "rollup" {
+        return data_source_rollups::rollup_number(&payload);
+    }
+    payload.as_f64()
 }
 
 fn row_property_checked(row: &NotePageRow, property: &BoardProperty) -> Option<bool> {

@@ -2,7 +2,7 @@ use super::models::{
     block_parent_from_database_row, NoteDataSourceDto, NoteDataSourceRow, NoteDataSourceSchemaDto,
     NoteDataSourceSchemaUpdate, NoteDatabaseRow, NoteDatabaseViewRow,
 };
-use super::{data_source_relations, data_source_views};
+use super::{data_source_relations, data_source_rollups, data_source_views};
 use serde_json::{json, Map, Value};
 use sqlx::{Sqlite, SqlitePool, Transaction};
 use std::collections::{HashMap, HashSet};
@@ -37,6 +37,7 @@ const SUPPORTED_PROPERTY_TYPES: &[&str] = &[
     "unique_id",
     "place",
     "relation",
+    "rollup",
 ];
 
 const EMPTY_CONFIG_TYPES: &[&str] = &[
@@ -154,6 +155,12 @@ pub(in crate::notes) async fn update_data_source_schema(
         &prepared.properties,
     )
     .await?;
+    data_source_rollups::ensure_rollup_schema_targets_tx(
+        &mut tx,
+        data_source_id.trim(),
+        &prepared.properties,
+    )
+    .await?;
     let target_view = load_table_view_for_schema_tx(&mut tx, data_source_id, view_id).await?;
     let configuration = table_view_configuration(
         &prepared.property_order,
@@ -188,6 +195,8 @@ pub(in crate::notes) async fn update_data_source_schema(
         &prepared.properties,
     )
     .await?;
+    data_source_rollups::invalidate_rollup_cache_for_data_source_tx(&mut tx, data_source_id.trim())
+        .await?;
     let dto = load_data_source_schema_tx(&mut tx, data_source_id, Some(&target_view.id)).await?;
     tx.commit()
         .await
@@ -316,6 +325,7 @@ fn canonical_type_config(property_type: &str, value: Option<&Value>) -> Result<V
         "status" => canonical_status_config(value),
         "unique_id" => canonical_unique_id_config(value),
         "relation" => data_source_relations::canonical_relation_config(value),
+        "rollup" => data_source_rollups::canonical_rollup_config(value),
         _ => Err(format!(
             "unsupported data source property type: {property_type}"
         )),

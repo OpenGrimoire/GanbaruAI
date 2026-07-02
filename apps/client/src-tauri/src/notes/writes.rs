@@ -10,7 +10,7 @@ use super::validation::{
     validate_block_write, validate_children_count, validate_duplicate_block_count,
     validate_page_create, validate_page_update, validate_parent, validate_sort_order,
 };
-use super::{history, reads};
+use super::{data_source_rollups, history, reads};
 use serde_json::{json, Value};
 use sqlx::SqlitePool;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -923,6 +923,7 @@ pub(in crate::notes) async fn trash_page(
         refresh_parent_has_children(&mut tx, &parent).await?;
         touch_page(&mut tx, &parent.page_id).await?;
     }
+    data_source_rollups::invalidate_rollup_cache_for_page_tx(&mut tx, page_id).await?;
     tx.commit()
         .await
         .map_err(|e| format!("commit trash notes page: {e}"))?;
@@ -978,6 +979,7 @@ pub(in crate::notes) async fn permanently_delete_page(
     .await
     .map_err(|e| format!("load permanent notes page delete subtree: {e}"))?;
     let child_parents = load_external_child_page_block_parents(&mut tx, page_id).await?;
+    data_source_rollups::invalidate_rollup_cache_for_page_tx(&mut tx, page_id).await?;
     sqlx::query(
         "WITH RECURSIVE page_subtree(id) AS (
             SELECT id FROM notes_pages WHERE id = ?
@@ -1285,6 +1287,7 @@ pub(in crate::notes) async fn archive_page(
         refresh_parent_has_children(&mut tx, &parent).await?;
         touch_page(&mut tx, &parent.page_id).await?;
     }
+    data_source_rollups::invalidate_rollup_cache_for_page_tx(&mut tx, page_id).await?;
     tx.commit()
         .await
         .map_err(|e| format!("commit archive notes page: {e}"))?;
