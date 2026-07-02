@@ -68,6 +68,7 @@ import {
   type NotesMentionNotificationStatus,
   type NotesMentionNotificationTargetType,
   type NotesPage,
+  type NotesPageAlias,
   type NotesPageBreadcrumbItem,
   type NotesPageBreadcrumbStatus,
   type NotesPageCover,
@@ -85,6 +86,8 @@ import {
   type NotesSidebarPageList,
   type NotesSuggestion,
   type NotesSuggestionStatus,
+  type NotesUnresolvedLink,
+  type NotesUnresolvedLinkSourceType,
   type NotesSyncedBlockPayload,
   type NotesTabBlockPayload,
   type NotesTableBlockPayload,
@@ -2057,6 +2060,12 @@ function parseSearchResultType(value: unknown): NotesSearchResultType {
   throw new Error("search_result.type must be page, block, or comment");
 }
 
+function parseUnresolvedLinkSourceType(value: unknown): NotesUnresolvedLinkSourceType {
+  const sourceType = readString(value, "unresolved_link.source_type");
+  if (sourceType === "block" || sourceType === "comment") return sourceType;
+  throw new Error("unresolved_link.source_type must be block or comment");
+}
+
 export function parseNotesPageBreadcrumbItem(value: unknown): NotesPageBreadcrumbItem {
   const record = readRecord(value, "page breadcrumb");
   const id = record.id === null ? null : readString(record.id, "page breadcrumb.id");
@@ -2093,6 +2102,48 @@ export function parseNotesBacklink(value: unknown): NotesBacklink {
     snippet: readString(record.snippet, "backlink.snippet"),
     created_time: readString(record.created_time, "backlink.created_time"),
     last_edited_time: readString(record.last_edited_time, "backlink.last_edited_time"),
+  };
+}
+
+export function parseNotesPageAlias(value: unknown): NotesPageAlias {
+  const record = readRecord(value, "page alias");
+  if (record.object !== "page_alias") throw new Error("page alias.object must be page_alias");
+  return {
+    object: "page_alias",
+    id: readString(record.id, "page alias.id"),
+    page_id: readString(record.page_id, "page alias.page_id"),
+    alias: readDisplayString(record.alias, "page alias.alias"),
+    normalized_alias: readDisplayString(record.normalized_alias, "page alias.normalized_alias"),
+    created_time: readString(record.created_time, "page alias.created_time"),
+    last_edited_time: readString(record.last_edited_time, "page alias.last_edited_time"),
+  };
+}
+
+export function parseNotesUnresolvedLink(value: unknown): NotesUnresolvedLink {
+  const record = readRecord(value, "unresolved_link");
+  if (record.object !== "unresolved_link") {
+    throw new Error("unresolved_link.object must be unresolved_link");
+  }
+  return {
+    object: "unresolved_link",
+    id: readString(record.id, "unresolved_link.id"),
+    source_type: parseUnresolvedLinkSourceType(record.source_type),
+    source_page_id: readString(record.source_page_id, "unresolved_link.source_page_id"),
+    source_block_id: readNullableString(record.source_block_id, "unresolved_link.source_block_id"),
+    source_comment_id: readNullableString(
+      record.source_comment_id,
+      "unresolved_link.source_comment_id",
+    ),
+    raw_url: readString(record.raw_url, "unresolved_link.raw_url"),
+    raw_target: readDisplayString(record.raw_target, "unresolved_link.raw_target"),
+    normalized_target: readDisplayString(
+      record.normalized_target,
+      "unresolved_link.normalized_target",
+    ),
+    link_text: readString(record.link_text, "unresolved_link.link_text"),
+    snippet: readString(record.snippet, "unresolved_link.snippet"),
+    created_time: readString(record.created_time, "unresolved_link.created_time"),
+    last_edited_time: readString(record.last_edited_time, "unresolved_link.last_edited_time"),
   };
 }
 

@@ -1,5 +1,6 @@
 import {
   acceptNotesSuggestion,
+  addNotesPageAlias,
   applyNotesPageTemplate,
   archiveNotesPage,
   createNotesChildPageFromBlock,
@@ -8,6 +9,7 @@ import {
   createNotesPageTemplateFromPage,
   createNotesSuggestion,
   deleteNotesComment,
+  deleteNotesPageAlias,
   deleteNotesPageTemplate,
   duplicateNotesPage,
   duplicateNotesPageTemplate,
@@ -16,8 +18,11 @@ import {
   getNotesPageBreadcrumb,
   listNotesBacklinks,
   listNotesComments,
+  listNotesPageAliases,
+  listNotesPages,
   listNotesPageTemplates,
   listNotesSuggestions,
+  listNotesUnresolvedLinks,
   listNotesSidebarPages,
   listArchivedNotesPages,
   listTrashedNotesPages,
@@ -26,6 +31,7 @@ import {
   moveNotesPage,
   permanentlyDeleteNotesPage,
   resolveNotesCommentThread,
+  resolveNotesUnresolvedLink,
   rejectNotesSuggestion,
   searchNotes,
   trashNotesPage,
@@ -100,6 +106,7 @@ import type {
   NotesLocalUser,
   NotesLoadedPage,
   NotesPage,
+  NotesPageAlias,
   NotesPageBreadcrumbItem,
   NotesPageCover,
   NotesPageHistorySettings,
@@ -111,6 +118,7 @@ import type {
   NotesSuggestion,
   NotesTabBlockItems,
   NotesTableRowBlock,
+  NotesUnresolvedLink,
 } from "$lib/notes/types";
 
 type NotesViewMode = "pages" | "archive" | "trash";
@@ -132,6 +140,9 @@ let sidebarTrashedParentPageIds = $state<string[]>([]);
 let loadedPage = $state<NotesPage | null>(null);
 let pageBreadcrumbItems = $state<NotesPageBreadcrumbItem[]>([]);
 let backlinks = $state<NotesBacklink[]>([]);
+let pageAliases = $state<NotesPageAlias[]>([]);
+let unresolvedLinks = $state<NotesUnresolvedLink[]>([]);
+let linkResolutionPages = $state<NotesPage[]>([]);
 let commentThreads = $state<NotesCommentThread[]>([]);
 let activeCommentParent = $state<NotesCommentParent | null>(null);
 let activeCommentAnchor = $state<NotesCommentAnchorCreate | null>(null);
@@ -157,12 +168,19 @@ let archiveRequestId = 0;
 let trashRequestId = 0;
 let pageTemplatesRequestId = 0;
 let backlinksRequestId = 0;
+let pageAliasesRequestId = 0;
+let unresolvedLinksRequestId = 0;
+let linkResolutionPagesRequestId = 0;
 let commentsRequestId = 0;
 let suggestionsRequestId = 0;
 let localUserRequestId = 0;
 let searchRequestId = 0;
 let backlinksLoading = $state(false);
 let backlinksError = $state<string | null>(null);
+let pageAliasesLoading = $state(false);
+let pageAliasesError = $state<string | null>(null);
+let unresolvedLinksLoading = $state(false);
+let unresolvedLinksError = $state<string | null>(null);
 let commentsLoading = $state(false);
 let commentsError = $state<string | null>(null);
 let commentsIncludeResolved = $state(false);
@@ -279,6 +297,18 @@ async function reloadPages(selectedPageIdOverride: string | null = selectedPageI
   sidebarTrashedParentPageIds = [...sidebarPages.trashed_parent_page_ids];
 }
 
+async function reloadLinkResolutionPages(): Promise<void> {
+  const requestId = ++linkResolutionPagesRequestId;
+  try {
+    const nextPages = await listNotesPages();
+    if (requestId !== linkResolutionPagesRequestId) return;
+    linkResolutionPages = [...nextPages];
+  } catch {
+    if (requestId !== linkResolutionPagesRequestId) return;
+    linkResolutionPages = [...pages];
+  }
+}
+
 async function reloadArchivedPages(): Promise<void> {
   const requestId = ++archiveRequestId;
   archiveLoading = true;
@@ -338,6 +368,9 @@ async function loadPageTree(pageId: string): Promise<void> {
   await loadAllChildrenForVisibleTree();
   await reloadPageBreadcrumb(pageId);
   await reloadBacklinks(pageId);
+  await reloadPageAliases(pageId);
+  await reloadUnresolvedLinks(pageId);
+  await reloadLinkResolutionPages();
   await reloadComments(pageId);
   await reloadSuggestions(pageId);
   await pageHistoryController.reloadSnapshots(pageId);
@@ -371,6 +404,52 @@ async function reloadBacklinks(pageId: string | null = selectedPageId): Promise<
     backlinksError = error instanceof Error ? error.message : String(error);
   } finally {
     if (requestId === backlinksRequestId) backlinksLoading = false;
+  }
+}
+
+async function reloadPageAliases(pageId: string | null = selectedPageId): Promise<void> {
+  const requestId = ++pageAliasesRequestId;
+  if (!pageId) {
+    pageAliases = [];
+    pageAliasesError = null;
+    pageAliasesLoading = false;
+    return;
+  }
+  pageAliasesLoading = true;
+  pageAliasesError = null;
+  try {
+    const nextAliases = await listNotesPageAliases(pageId);
+    if (requestId !== pageAliasesRequestId) return;
+    pageAliases = [...nextAliases];
+  } catch (error) {
+    if (requestId !== pageAliasesRequestId) return;
+    pageAliases = [];
+    pageAliasesError = error instanceof Error ? error.message : String(error);
+  } finally {
+    if (requestId === pageAliasesRequestId) pageAliasesLoading = false;
+  }
+}
+
+async function reloadUnresolvedLinks(pageId: string | null = selectedPageId): Promise<void> {
+  const requestId = ++unresolvedLinksRequestId;
+  if (!pageId) {
+    unresolvedLinks = [];
+    unresolvedLinksError = null;
+    unresolvedLinksLoading = false;
+    return;
+  }
+  unresolvedLinksLoading = true;
+  unresolvedLinksError = null;
+  try {
+    const nextLinks = await listNotesUnresolvedLinks(pageId);
+    if (requestId !== unresolvedLinksRequestId) return;
+    unresolvedLinks = [...nextLinks];
+  } catch (error) {
+    if (requestId !== unresolvedLinksRequestId) return;
+    unresolvedLinks = [];
+    unresolvedLinksError = error instanceof Error ? error.message : String(error);
+  } finally {
+    if (requestId === unresolvedLinksRequestId) unresolvedLinksLoading = false;
   }
 }
 
@@ -583,6 +662,41 @@ async function setSuggestionsIncludeDecided(includeDecided: boolean): Promise<vo
   await reloadSuggestions();
 }
 
+async function addPageAlias(alias: string): Promise<void> {
+  if (!selectedPageId) return;
+  const content = alias.trim();
+  if (!content) return;
+  pageAliases = await addNotesPageAlias(selectedPageId, {
+    id: crypto.randomUUID(),
+    alias: content,
+  });
+  pageAliasesError = null;
+  await reloadUnresolvedLinks(selectedPageId);
+  await reloadBacklinks(selectedPageId);
+}
+
+async function deletePageAlias(aliasId: string): Promise<void> {
+  if (!selectedPageId) return;
+  pageAliases = await deleteNotesPageAlias(selectedPageId, aliasId);
+  pageAliasesError = null;
+  await reloadUnresolvedLinks(selectedPageId);
+  await reloadBacklinks(selectedPageId);
+}
+
+async function resolveUnresolvedLink(linkId: string, targetPageId: string): Promise<void> {
+  const targetId = targetPageId.trim();
+  if (!targetId) return;
+  unresolvedLinks = await resolveNotesUnresolvedLink(linkId, {
+    target_page_id: targetId,
+  });
+  unresolvedLinksError = null;
+  await reloadPages(targetId);
+  await reloadLinkResolutionPages();
+  if (selectedPageId) {
+    await loadPageTree(selectedPageId);
+  }
+}
+
 async function createComment(
   text: string,
   parent: NotesCommentParent | null = activeCommentParent ?? commentParentForSelectedPage(),
@@ -724,6 +838,11 @@ async function load(): Promise<void> {
       pageBreadcrumbItems = [];
       backlinks = [];
       backlinksError = null;
+      pageAliases = [];
+      pageAliasesError = null;
+      unresolvedLinks = [];
+      unresolvedLinksError = null;
+      linkResolutionPages = [];
       commentThreads = [];
       activeCommentParent = null;
       activeCommentAnchor = null;
@@ -759,6 +878,11 @@ async function selectPage(pageId: string | null): Promise<void> {
     pageBreadcrumbItems = [];
     backlinks = [];
     backlinksError = null;
+    pageAliases = [];
+    pageAliasesError = null;
+    unresolvedLinks = [];
+    unresolvedLinksError = null;
+    linkResolutionPages = [];
     commentThreads = [];
     activeCommentParent = null;
     activeCommentAnchor = null;
@@ -817,6 +941,9 @@ async function createPageWithParent(title: string, parent: NotesParent): Promise
   setLoadedPageFromLoaded(loaded);
   await reloadPageBreadcrumb(loaded.page.id);
   await reloadBacklinks(loaded.page.id);
+  await reloadPageAliases(loaded.page.id);
+  await reloadUnresolvedLinks(loaded.page.id);
+  await reloadLinkResolutionPages();
   await reloadComments(loaded.page.id);
   await reloadSuggestions(loaded.page.id);
   await pageHistoryController.reloadSnapshots(loaded.page.id);
@@ -840,6 +967,9 @@ async function applyPageTemplate(templateId: string, title?: string): Promise<vo
   await loadAllChildrenForVisibleTree();
   await reloadPageBreadcrumb(loaded.page.id);
   await reloadBacklinks(loaded.page.id);
+  await reloadPageAliases(loaded.page.id);
+  await reloadUnresolvedLinks(loaded.page.id);
+  await reloadLinkResolutionPages();
   await reloadComments(loaded.page.id);
   await reloadSuggestions(loaded.page.id);
   await pageHistoryController.reloadSnapshots(loaded.page.id);
@@ -924,6 +1054,9 @@ async function createChildPageFromBlock(blockId: string): Promise<void> {
   setLoadedPageFromLoaded(loaded);
   await reloadPageBreadcrumb(loaded.page.id);
   await reloadBacklinks(loaded.page.id);
+  await reloadPageAliases(loaded.page.id);
+  await reloadUnresolvedLinks(loaded.page.id);
+  await reloadLinkResolutionPages();
   await reloadComments(loaded.page.id);
   await reloadSuggestions(loaded.page.id);
   await pageHistoryController.reloadSnapshots(loaded.page.id);
@@ -957,6 +1090,9 @@ async function createChildPageAfterBlock(blockId: string): Promise<void> {
   setLoadedPageFromLoaded(loaded);
   await reloadPageBreadcrumb(loaded.page.id);
   await reloadBacklinks(loaded.page.id);
+  await reloadPageAliases(loaded.page.id);
+  await reloadUnresolvedLinks(loaded.page.id);
+  await reloadLinkResolutionPages();
   await reloadComments(loaded.page.id);
   await reloadSuggestions(loaded.page.id);
   await pageHistoryController.reloadSnapshots(loaded.page.id);
@@ -989,6 +1125,9 @@ async function duplicatePage(pageId: string, title: string): Promise<void> {
   setLoadedPageFromLoaded(loaded);
   await reloadPageBreadcrumb(loaded.page.id);
   await reloadBacklinks(loaded.page.id);
+  await reloadPageAliases(loaded.page.id);
+  await reloadUnresolvedLinks(loaded.page.id);
+  await reloadLinkResolutionPages();
   await reloadComments(loaded.page.id);
   await reloadSuggestions(loaded.page.id);
   await pageHistoryController.reloadSnapshots(loaded.page.id);
@@ -1013,6 +1152,9 @@ async function movePage(pageId: string, parent: NotesParent): Promise<void> {
   await loadAllChildrenForVisibleTree();
   await reloadPageBreadcrumb(loaded.page.id);
   await reloadBacklinks(loaded.page.id);
+  await reloadPageAliases(loaded.page.id);
+  await reloadUnresolvedLinks(loaded.page.id);
+  await reloadLinkResolutionPages();
   await reloadComments(loaded.page.id);
   await reloadSuggestions(loaded.page.id);
   await pageHistoryController.reloadSnapshots(loaded.page.id);
@@ -1410,6 +1552,27 @@ export function getNotes() {
     get backlinksError(): string | null {
       return backlinksError;
     },
+    get pageAliases(): NotesPageAlias[] {
+      return pageAliases;
+    },
+    get pageAliasesLoading(): boolean {
+      return pageAliasesLoading;
+    },
+    get pageAliasesError(): string | null {
+      return pageAliasesError;
+    },
+    get unresolvedLinks(): NotesUnresolvedLink[] {
+      return unresolvedLinks;
+    },
+    get unresolvedLinksLoading(): boolean {
+      return unresolvedLinksLoading;
+    },
+    get unresolvedLinksError(): string | null {
+      return unresolvedLinksError;
+    },
+    get linkResolutionPages(): NotesPage[] {
+      return linkResolutionPages.length > 0 ? linkResolutionPages : pages;
+    },
     get commentThreads(): NotesCommentThread[] {
       return commentThreads;
     },
@@ -1590,6 +1753,11 @@ export function getNotes() {
     closeTrash,
     reloadTrashedPages,
     reloadBacklinks,
+    reloadPageAliases,
+    reloadUnresolvedLinks,
+    addPageAlias,
+    deletePageAlias,
+    resolveUnresolvedLink,
     reloadComments,
     reloadSuggestions,
     setCommentsIncludeResolved,

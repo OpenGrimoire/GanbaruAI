@@ -564,6 +564,79 @@ impl NoteBacklinkDto {
     }
 }
 
+#[derive(Deserialize)]
+pub struct NotePageAliasCreate {
+    pub(in crate::notes) id: String,
+    pub(in crate::notes) alias: String,
+}
+
+#[derive(Serialize)]
+pub struct NotePageAliasDto {
+    object: &'static str,
+    id: String,
+    page_id: String,
+    alias: String,
+    normalized_alias: String,
+    created_time: String,
+    last_edited_time: String,
+}
+
+impl NotePageAliasDto {
+    pub(in crate::notes) fn new(row: NotePageAliasRow) -> Self {
+        Self {
+            object: "page_alias",
+            id: row.id,
+            page_id: row.page_id,
+            alias: row.alias,
+            normalized_alias: row.normalized_alias,
+            created_time: row.created_time,
+            last_edited_time: row.last_edited_time,
+        }
+    }
+}
+
+#[derive(Serialize)]
+pub struct NoteUnresolvedLinkDto {
+    object: &'static str,
+    id: String,
+    source_type: String,
+    source_page_id: String,
+    source_block_id: Option<String>,
+    source_comment_id: Option<String>,
+    raw_url: String,
+    raw_target: String,
+    normalized_target: String,
+    link_text: String,
+    snippet: String,
+    created_time: String,
+    last_edited_time: String,
+}
+
+impl NoteUnresolvedLinkDto {
+    pub(in crate::notes) fn new(row: NoteUnresolvedLinkRow) -> Self {
+        Self {
+            object: "unresolved_link",
+            id: row.id,
+            source_type: row.source_type,
+            source_page_id: row.source_page_id,
+            source_block_id: row.source_block_id,
+            source_comment_id: row.source_comment_id,
+            raw_url: row.raw_url,
+            raw_target: row.raw_target,
+            normalized_target: row.normalized_target,
+            link_text: row.link_text,
+            snippet: row.snippet,
+            created_time: row.created_time,
+            last_edited_time: row.last_edited_time,
+        }
+    }
+}
+
+#[derive(Deserialize)]
+pub struct NoteUnresolvedLinkResolve {
+    pub(in crate::notes) target_page_id: String,
+}
+
 #[derive(Serialize)]
 pub struct NoteSearchResultDto {
     object: &'static str,
@@ -2090,6 +2163,54 @@ impl_sqlite_from_row!(NoteMentionNotificationRow {
     source_plain_text,
     status,
     delivered_at,
+    created_time,
+    last_edited_time,
+});
+
+#[derive(Clone, Serialize)]
+pub(in crate::notes) struct NotePageAliasRow {
+    pub(in crate::notes) id: String,
+    pub(in crate::notes) page_id: String,
+    pub(in crate::notes) alias: String,
+    pub(in crate::notes) normalized_alias: String,
+    pub(in crate::notes) created_time: String,
+    pub(in crate::notes) last_edited_time: String,
+}
+impl_sqlite_from_row!(NotePageAliasRow {
+    id,
+    page_id,
+    alias,
+    normalized_alias,
+    created_time,
+    last_edited_time,
+});
+
+#[derive(Clone, Serialize)]
+pub(in crate::notes) struct NoteUnresolvedLinkRow {
+    pub(in crate::notes) id: String,
+    pub(in crate::notes) source_type: String,
+    pub(in crate::notes) source_page_id: String,
+    pub(in crate::notes) source_block_id: Option<String>,
+    pub(in crate::notes) source_comment_id: Option<String>,
+    pub(in crate::notes) raw_url: String,
+    pub(in crate::notes) raw_target: String,
+    pub(in crate::notes) normalized_target: String,
+    pub(in crate::notes) link_text: String,
+    pub(in crate::notes) snippet: String,
+    pub(in crate::notes) created_time: String,
+    pub(in crate::notes) last_edited_time: String,
+}
+impl_sqlite_from_row!(NoteUnresolvedLinkRow {
+    id,
+    source_type,
+    source_page_id,
+    source_block_id,
+    source_comment_id,
+    raw_url,
+    raw_target,
+    normalized_target,
+    link_text,
+    snippet,
     created_time,
     last_edited_time,
 });

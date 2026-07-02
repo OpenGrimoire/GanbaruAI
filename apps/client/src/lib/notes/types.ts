@@ -1314,6 +1314,43 @@ export interface NotesBacklink {
   last_edited_time: string;
 }
 
+export interface NotesPageAlias {
+  object: "page_alias";
+  id: string;
+  page_id: string;
+  alias: string;
+  normalized_alias: string;
+  created_time: string;
+  last_edited_time: string;
+}
+
+export interface NotesPageAliasCreate {
+  id: string;
+  alias: string;
+}
+
+export type NotesUnresolvedLinkSourceType = "block" | "comment";
+
+export interface NotesUnresolvedLink {
+  object: "unresolved_link";
+  id: string;
+  source_type: NotesUnresolvedLinkSourceType;
+  source_page_id: string;
+  source_block_id: string | null;
+  source_comment_id: string | null;
+  raw_url: string;
+  raw_target: string;
+  normalized_target: string;
+  link_text: string;
+  snippet: string;
+  created_time: string;
+  last_edited_time: string;
+}
+
+export interface NotesUnresolvedLinkResolve {
+  target_page_id: string;
+}
+
 export type NotesSearchResultType = "page" | "block" | "comment";
 
 export interface NotesSearchResult {

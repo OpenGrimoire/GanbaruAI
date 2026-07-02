@@ -23,6 +23,7 @@ mod data_source_views;
 mod databases;
 mod file_assets;
 mod history;
+mod links;
 mod local_user;
 mod mention_notifications;
 mod models;
@@ -133,6 +134,59 @@ pub async fn notes_rebuild_backlink_index<R: Runtime>(
 ) -> Result<i64, String> {
     let pool = connect_sqlite(app, db_url).await?;
     backlinks::rebuild_index(&pool).await
+}
+
+#[tauri::command]
+pub async fn notes_list_page_aliases<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    page_id: String,
+) -> Result<Vec<NotePageAliasDto>, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    links::list_page_aliases(&pool, &page_id).await
+}
+
+#[tauri::command]
+pub async fn notes_add_page_alias<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    page_id: String,
+    request: NotePageAliasCreate,
+) -> Result<Vec<NotePageAliasDto>, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    links::add_page_alias(&pool, &page_id, request).await
+}
+
+#[tauri::command]
+pub async fn notes_delete_page_alias<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    page_id: String,
+    alias_id: String,
+) -> Result<Vec<NotePageAliasDto>, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    links::delete_page_alias(&pool, &page_id, &alias_id).await
+}
+
+#[tauri::command]
+pub async fn notes_list_unresolved_links<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    page_id: String,
+) -> Result<Vec<NoteUnresolvedLinkDto>, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    links::list_unresolved_links(&pool, &page_id).await
+}
+
+#[tauri::command]
+pub async fn notes_resolve_unresolved_link<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    link_id: String,
+    request: NoteUnresolvedLinkResolve,
+) -> Result<Vec<NoteUnresolvedLinkDto>, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    links::resolve_unresolved_link(&pool, &link_id, request).await
 }
 
 #[tauri::command]

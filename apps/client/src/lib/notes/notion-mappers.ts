@@ -16,6 +16,7 @@ import {
   parseNotesLoadedPage,
   parseNotesMentionNotification,
   parseNotesPage,
+  parseNotesPageAlias,
   parseNotesPageBreadcrumbItem,
   parseNotesPageHistorySettings,
   parseNotesPageHistorySnapshot,
@@ -24,6 +25,7 @@ import {
   parseNotesSearchResult,
   parseNotesSidebarPageList,
   parseNotesSuggestion,
+  parseNotesUnresolvedLink,
 } from "./block-validation";
 import type {
   NotesBacklink,
@@ -43,6 +45,7 @@ import type {
   NotesLoadedPage,
   NotesMentionNotification,
   NotesPage,
+  NotesPageAlias,
   NotesPageBreadcrumbItem,
   NotesPageHistorySettings,
   NotesPageHistorySnapshot,
@@ -51,6 +54,7 @@ import type {
   NotesSearchResult,
   NotesSidebarPageList,
   NotesSuggestion,
+  NotesUnresolvedLink,
 } from "./types";
 
 /** Validate and map an unknown page DTO from the Tauri boundary. */
@@ -101,6 +105,16 @@ export function mapNotesPageHistorySettingsDto(value: unknown): NotesPageHistory
 /** Validate and map an unknown backlink DTO from the Tauri boundary. */
 export function mapNotesBacklinkDto(value: unknown): NotesBacklink {
   return parseNotesBacklink(value);
+}
+
+/** Validate and map an unknown page alias DTO from the Tauri boundary. */
+export function mapNotesPageAliasDto(value: unknown): NotesPageAlias {
+  return parseNotesPageAlias(value);
+}
+
+/** Validate and map an unknown unresolved link DTO from the Tauri boundary. */
+export function mapNotesUnresolvedLinkDto(value: unknown): NotesUnresolvedLink {
+  return parseNotesUnresolvedLink(value);
 }
 
 /** Validate and map an unknown Notes search result DTO from the Tauri boundary. */

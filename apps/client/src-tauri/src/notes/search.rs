@@ -1,5 +1,6 @@
 use super::models::{
-    NoteBlockRow, NoteCommentAnchorRow, NoteCommentRow, NotePageRow, NoteSearchResultDto,
+    NoteBlockRow, NoteCommentAnchorRow, NoteCommentRow, NotePageAliasRow, NotePageRow,
+    NoteSearchResultDto,
 };
 use super::reads;
 use serde_json::Value;
@@ -226,6 +227,7 @@ async fn ensure_index_current(pool: &SqlitePool) -> Result<(), String> {
 async fn build_index_entries(pool: &SqlitePool) -> Result<Vec<SearchIndexEntry>, String> {
     let mut entries = Vec::new();
     append_page_entries(pool, &mut entries).await?;
+    append_alias_entries(pool, &mut entries).await?;
     append_property_value_entries(pool, &mut entries).await?;
     append_block_entries(pool, &mut entries).await?;
     append_comment_entries(pool, &mut entries).await?;
@@ -278,6 +280,49 @@ async fn append_page_entries(
             title: row.title,
             body: property_text,
             metadata,
+            source_last_edited_time: row.last_edited_time,
+        });
+    }
+    Ok(())
+}
+
+async fn append_alias_entries(
+    pool: &SqlitePool,
+    entries: &mut Vec<SearchIndexEntry>,
+) -> Result<(), String> {
+    let rows = sqlx::query_as::<_, NotePageAliasRow>(
+        "SELECT alias.*
+         FROM notes_page_aliases AS alias
+         JOIN notes_pages AS page ON page.id = alias.page_id
+         WHERE page.in_trash = 0
+           AND page.archived = 0
+           AND (
+               page.parent_type != 'data_source_id'
+               OR EXISTS (
+                   SELECT 1
+                   FROM notes_data_sources AS data_source
+                   JOIN notes_databases AS database ON database.id = data_source.database_id
+                   WHERE data_source.id = page.parent_data_source_id
+                     AND data_source.in_trash = 0
+                     AND database.in_trash = 0
+               )
+           )",
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("load notes page aliases for search index: {e}"))?;
+    for row in rows {
+        entries.push(SearchIndexEntry {
+            id: format!("alias:{}", row.id),
+            source_type: "alias".to_string(),
+            page_id: row.page_id,
+            block_id: None,
+            comment_id: None,
+            property_id: None,
+            block_type: None,
+            title: row.alias,
+            body: String::new(),
+            metadata: "page alias".to_string(),
             source_last_edited_time: row.last_edited_time,
         });
     }
@@ -617,6 +662,9 @@ async fn search_source_fingerprint(pool: &SqlitePool) -> Result<SearchSourceFing
         "SELECT 'pages' AS source, COUNT(*) AS source_count,
             COALESCE(MAX(last_edited_time), '') AS source_marker
          FROM notes_pages
+         UNION ALL
+         SELECT 'page_aliases', COUNT(*), COALESCE(MAX(last_edited_time), '')
+         FROM notes_page_aliases
          UNION ALL
          SELECT 'blocks', COUNT(*), COALESCE(MAX(last_edited_time), '')
          FROM notes_blocks

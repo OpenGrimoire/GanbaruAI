@@ -19,6 +19,7 @@ import {
   mapNotesLoadedPageDto,
   mapNotesMentionNotificationDto,
   mapNotesPageBreadcrumbItemDto,
+  mapNotesPageAliasDto,
   mapNotesPageHistorySettingsDto,
   mapNotesPageHistorySnapshotDto,
   mapNotesPageDto,
@@ -26,6 +27,7 @@ import {
   mapNotesSearchResultDto,
   mapNotesSidebarPageListDto,
   mapNotesSuggestionDto,
+  mapNotesUnresolvedLinkDto,
 } from "$lib/notes/notion-mappers";
 import type {
   NotesAppendBlockChildrenRequest,
@@ -77,6 +79,8 @@ import type {
   NotesMoveBlockRequest,
   NotesMoveBlocksRequest,
   NotesPage,
+  NotesPageAlias,
+  NotesPageAliasCreate,
   NotesPageBreadcrumbItem,
   NotesPageCreate,
   NotesPageHistoryCopyBlocksRequest,
@@ -96,6 +100,8 @@ import type {
   NotesSuggestion,
   NotesSuggestionCreate,
   NotesTrashBlocksRequest,
+  NotesUnresolvedLink,
+  NotesUnresolvedLinkResolve,
 } from "$lib/notes/types";
 
 function databaseViewScopeArgs(scope?: NotesDatabaseViewScope | null): {
@@ -160,6 +166,64 @@ export async function rebuildNotesBacklinkIndex(): Promise<number> {
     throw new Error("notes_rebuild_backlink_index returned a non-number payload");
   }
   return count;
+}
+
+export async function listNotesPageAliases(pageId: string): Promise<NotesPageAlias[]> {
+  const dbUrl = await ensureDbUrl();
+  const rows = await invoke<unknown>("notes_list_page_aliases", { dbUrl, pageId });
+  if (!Array.isArray(rows)) {
+    throw new Error("notes_list_page_aliases returned a non-array payload");
+  }
+  return rows.map(mapNotesPageAliasDto);
+}
+
+export async function addNotesPageAlias(
+  pageId: string,
+  request: NotesPageAliasCreate,
+): Promise<NotesPageAlias[]> {
+  const dbUrl = await ensureDbUrl();
+  const rows = await invoke<unknown>("notes_add_page_alias", { dbUrl, pageId, request });
+  if (!Array.isArray(rows)) {
+    throw new Error("notes_add_page_alias returned a non-array payload");
+  }
+  return rows.map(mapNotesPageAliasDto);
+}
+
+export async function deleteNotesPageAlias(
+  pageId: string,
+  aliasId: string,
+): Promise<NotesPageAlias[]> {
+  const dbUrl = await ensureDbUrl();
+  const rows = await invoke<unknown>("notes_delete_page_alias", { dbUrl, pageId, aliasId });
+  if (!Array.isArray(rows)) {
+    throw new Error("notes_delete_page_alias returned a non-array payload");
+  }
+  return rows.map(mapNotesPageAliasDto);
+}
+
+export async function listNotesUnresolvedLinks(pageId: string): Promise<NotesUnresolvedLink[]> {
+  const dbUrl = await ensureDbUrl();
+  const rows = await invoke<unknown>("notes_list_unresolved_links", { dbUrl, pageId });
+  if (!Array.isArray(rows)) {
+    throw new Error("notes_list_unresolved_links returned a non-array payload");
+  }
+  return rows.map(mapNotesUnresolvedLinkDto);
+}
+
+export async function resolveNotesUnresolvedLink(
+  linkId: string,
+  request: NotesUnresolvedLinkResolve,
+): Promise<NotesUnresolvedLink[]> {
+  const dbUrl = await ensureDbUrl();
+  const rows = await invoke<unknown>("notes_resolve_unresolved_link", {
+    dbUrl,
+    linkId,
+    request,
+  });
+  if (!Array.isArray(rows)) {
+    throw new Error("notes_resolve_unresolved_link returned a non-array payload");
+  }
+  return rows.map(mapNotesUnresolvedLinkDto);
 }
 
 export async function getNotesPageBreadcrumb(pageId: string): Promise<NotesPageBreadcrumbItem[]> {

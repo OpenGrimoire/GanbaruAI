@@ -10,6 +10,8 @@ import {
   parseNotesPageTemplate,
   parseNotesRichTextArray,
   parseNotesSearchResult,
+  parseNotesPageAlias,
+  parseNotesUnresolvedLink,
 } from "./block-validation";
 
 const basePage = {
@@ -1458,6 +1460,57 @@ describe("notes boundary validation", () => {
 
     expect(result.type).toBe("block");
     expect(result.block_type).toBe("paragraph");
+  });
+
+  it("parses page alias and unresolved link DTOs", () => {
+    const alias = parseNotesPageAlias({
+      object: "page_alias",
+      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      page_id: basePage.id,
+      alias: "Legacy Target",
+      normalized_alias: "legacy target",
+      created_time: "2026-06-30T12:00:00.000Z",
+      last_edited_time: "2026-06-30T12:00:00.000Z",
+    });
+    const unresolvedLink = parseNotesUnresolvedLink({
+      object: "unresolved_link",
+      id: "unresolved:block:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa:abc",
+      source_type: "block",
+      source_page_id: basePage.id,
+      source_block_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      source_comment_id: null,
+      raw_url: "http://localhost:1420/?view=notes#notes?alias=Legacy%20Target",
+      raw_target: "Legacy Target",
+      normalized_target: "legacy target",
+      link_text: "Legacy Target",
+      snippet: "Legacy Target",
+      created_time: "2026-06-30T12:00:00.000Z",
+      last_edited_time: "2026-06-30T12:00:00.000Z",
+    });
+
+    expect(alias.alias).toBe("Legacy Target");
+    expect(unresolvedLink.source_type).toBe("block");
+    expect(unresolvedLink.raw_target).toBe("Legacy Target");
+  });
+
+  it("rejects unsupported unresolved link source types", () => {
+    expect(() =>
+      parseNotesUnresolvedLink({
+        object: "unresolved_link",
+        id: "bad",
+        source_type: "page",
+        source_page_id: basePage.id,
+        source_block_id: null,
+        source_comment_id: null,
+        raw_url: "http://localhost:1420/?view=notes#notes?alias=Legacy%20Target",
+        raw_target: "Legacy Target",
+        normalized_target: "legacy target",
+        link_text: "",
+        snippet: "",
+        created_time: "2026-06-30T12:00:00.000Z",
+        last_edited_time: "2026-06-30T12:00:00.000Z",
+      }),
+    ).toThrow("unresolved_link.source_type must be block or comment");
   });
 
   it("parses comment search metadata", () => {

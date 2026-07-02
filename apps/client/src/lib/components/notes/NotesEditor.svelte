@@ -18,6 +18,7 @@
   import NotesPageHistory from "./NotesPageHistory.svelte";
   import NotesPageIcon from "./NotesPageIcon.svelte";
   import NotesPageIconMenu from "./NotesPageIconMenu.svelte";
+  import NotesPageLinks from "./NotesPageLinks.svelte";
   import NotesSuggestions from "./NotesSuggestions.svelte";
 
   const notes = getNotes();
@@ -199,6 +200,7 @@
         {t("notes.metadataEdited", editedDateLabel)}
       </div>
       <NotesBacklinks />
+      <NotesPageLinks />
       <NotesComments />
       <NotesSuggestions />
       <NotesPageHistory />

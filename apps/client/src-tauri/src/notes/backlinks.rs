@@ -1,3 +1,4 @@
+use super::links::{canonical_notes_id, LocalLinkResolver};
 use super::models::{NoteBacklinkDto, NoteBacklinkIndexedInput, NoteBlockRow};
 use super::reads;
 use super::validation::require_uuid;
@@ -204,14 +205,16 @@ async fn ensure_index_current(pool: &SqlitePool) -> Result<(), String> {
 
 async fn build_index_entries(pool: &SqlitePool) -> Result<Vec<BacklinkIndexEntry>, String> {
     let mut entries = Vec::new();
-    append_block_entries(pool, &mut entries).await?;
-    append_comment_entries(pool, &mut entries).await?;
+    let link_resolver = super::links::local_link_resolver(pool).await?;
+    append_block_entries(pool, &link_resolver, &mut entries).await?;
+    append_comment_entries(pool, &link_resolver, &mut entries).await?;
     append_relation_entries(pool, &mut entries).await?;
     Ok(entries)
 }
 
 async fn append_block_entries(
     pool: &SqlitePool,
+    link_resolver: &LocalLinkResolver,
     entries: &mut Vec<BacklinkIndexEntry>,
 ) -> Result<(), String> {
     let rows = sqlx::query_as::<_, NoteBlockRow>(
@@ -258,7 +261,7 @@ async fn append_block_entries(
 
         let payload: Value = serde_json::from_str(&row.payload)
             .map_err(|e| format!("parse notes backlink block payload: {e}"))?;
-        let references = extract_references(&payload, ReferenceSourceKind::Block);
+        let references = extract_references(&payload, ReferenceSourceKind::Block, link_resolver);
         push_source_references(
             entries,
             SourceBacklinkEntry {
@@ -280,6 +283,7 @@ async fn append_block_entries(
 
 async fn append_comment_entries(
     pool: &SqlitePool,
+    link_resolver: &LocalLinkResolver,
     entries: &mut Vec<BacklinkIndexEntry>,
 ) -> Result<(), String> {
     let rows = sqlx::query_as::<_, CommentBacklinkSourceRow>(
@@ -301,7 +305,8 @@ async fn append_comment_entries(
     for row in rows {
         let rich_text: Value = serde_json::from_str(&row.rich_text)
             .map_err(|e| format!("parse notes backlink comment rich_text: {e}"))?;
-        let references = extract_references(&rich_text, ReferenceSourceKind::Comment);
+        let references =
+            extract_references(&rich_text, ReferenceSourceKind::Comment, link_resolver);
         push_source_references(
             entries,
             SourceBacklinkEntry {
@@ -390,15 +395,20 @@ fn push_source_references(
     }
 }
 
-fn extract_references(value: &Value, source: ReferenceSourceKind) -> Vec<ExtractedReference> {
+fn extract_references(
+    value: &Value,
+    source: ReferenceSourceKind,
+    link_resolver: &LocalLinkResolver,
+) -> Vec<ExtractedReference> {
     let mut references = Vec::new();
-    collect_references(value, source, &mut references);
+    collect_references(value, source, link_resolver, &mut references);
     references
 }
 
 fn collect_references(
     value: &Value,
     source: ReferenceSourceKind,
+    link_resolver: &LocalLinkResolver,
     references: &mut Vec<ExtractedReference>,
 ) {
     match value {
@@ -409,7 +419,7 @@ fn collect_references(
             }
             for field in ["href", "url"] {
                 if let Some(url) = object.get(field).and_then(Value::as_str) {
-                    push_notes_link_references(references, url, source);
+                    push_notes_link_references(references, url, source, link_resolver);
                 }
             }
             if let Some(url) = object
@@ -417,15 +427,15 @@ fn collect_references(
                 .and_then(|link| link.get("url"))
                 .and_then(Value::as_str)
             {
-                push_notes_link_references(references, url, source);
+                push_notes_link_references(references, url, source, link_resolver);
             }
             for nested in object.values() {
-                collect_references(nested, source, references);
+                collect_references(nested, source, link_resolver, references);
             }
         }
         Value::Array(items) => {
             for nested in items {
-                collect_references(nested, source, references);
+                collect_references(nested, source, link_resolver, references);
             }
         }
         _ => {}
@@ -488,8 +498,9 @@ fn push_notes_link_references(
     references: &mut Vec<ExtractedReference>,
     url: &str,
     source: ReferenceSourceKind,
+    link_resolver: &LocalLinkResolver,
 ) {
-    for page_id in notes_page_ids_from_url(url) {
+    for page_id in super::links::page_ids_from_local_notes_url(url, link_resolver) {
         references.push(ExtractedReference::page(
             &page_id,
             match source {
@@ -498,69 +509,6 @@ fn push_notes_link_references(
             },
         ));
     }
-}
-
-fn notes_page_ids_from_url(url: &str) -> Vec<String> {
-    if !url.contains("#notes?") {
-        return Vec::new();
-    }
-    let mut page_ids = Vec::new();
-    if let Some(raw_page_id) = query_value(url, "page") {
-        if let Some(page_id) = canonical_notes_id(raw_page_id) {
-            page_ids.push(page_id);
-        }
-    }
-    if page_ids.is_empty() {
-        for token in
-            url.split(|character: char| !(character.is_ascii_hexdigit() || character == '-'))
-        {
-            if let Some(page_id) = canonical_notes_id(token) {
-                page_ids.push(page_id);
-            }
-        }
-    }
-    page_ids.sort();
-    page_ids.dedup();
-    page_ids
-}
-
-fn query_value<'a>(url: &'a str, key: &str) -> Option<&'a str> {
-    let query = url.split_once("#notes?")?.1;
-    for pair in query.split(['&', '#']) {
-        let (pair_key, value) = pair.split_once('=')?;
-        if pair_key == key {
-            return Some(value);
-        }
-    }
-    None
-}
-
-fn canonical_notes_id(value: &str) -> Option<String> {
-    let trimmed = value
-        .trim()
-        .trim_matches(|character: char| matches!(character, '"' | '\'' | ')' | '(' | ',' | '.'));
-    if trimmed.len() == 36 && is_notes_uuid(trimmed) {
-        return Some(trimmed.to_ascii_lowercase());
-    }
-    if trimmed.len() == 32
-        && trimmed
-            .chars()
-            .all(|character| character.is_ascii_hexdigit())
-    {
-        let lower = trimmed.to_ascii_lowercase();
-        let candidate = format!(
-            "{}-{}-{}-{}-{}",
-            &lower[0..8],
-            &lower[8..12],
-            &lower[12..16],
-            &lower[16..20],
-            &lower[20..32]
-        );
-        if is_notes_uuid(&candidate) {
-            return Some(candidate);
-        }
-    }
-    None
 }
 
 fn is_notes_uuid(value: &str) -> bool {
@@ -607,6 +555,9 @@ async fn backlink_source_fingerprint(
          UNION ALL
          SELECT 'comments', COUNT(*), COALESCE(MAX(last_edited_time), '')
          FROM notes_comments
+         UNION ALL
+         SELECT 'page_aliases', COUNT(*), COALESCE(MAX(last_edited_time), '')
+         FROM notes_page_aliases
          UNION ALL
          SELECT 'relation_links', COUNT(*), COALESCE(MAX(created_time), '')
          FROM notes_data_source_relation_links
