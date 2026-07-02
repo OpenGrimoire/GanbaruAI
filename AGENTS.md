@@ -98,6 +98,7 @@ apps/
         pomodoro.rs, pomodoro/: timer commands, DTOs, persistence, validation, reads, and tests
         projects.rs, projects/: project commands, DTOs, persistence, validation, history, custom fields, and templates
         notes.rs, notes/: Notes page and block commands, DTOs, reads, writes, validation, and tests
+          writes/: split Notes write command modules and shared write helpers
           tests/: split Notes backend test modules and shared helpers
         pomodoro_enforcement.rs, notification.rs, tray.rs, window_shape.rs: timer overlays, notifications, tray, and window integration
         doomscrolling.rs, doomscrolling/: browser and desktop blocking commands, runtime helpers, and tests
