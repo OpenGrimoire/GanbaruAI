@@ -23,6 +23,7 @@ mod data_source_views;
 mod databases;
 mod file_assets;
 mod history;
+mod link_facts;
 mod links;
 mod local_user;
 mod mention_notifications;
@@ -134,6 +135,15 @@ pub async fn notes_rebuild_backlink_index<R: Runtime>(
 ) -> Result<i64, String> {
     let pool = connect_sqlite(app, db_url).await?;
     backlinks::rebuild_index(&pool).await
+}
+
+#[tauri::command]
+pub async fn notes_rebuild_link_facts<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+) -> Result<i64, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    link_facts::rebuild_index(&pool).await
 }
 
 #[tauri::command]

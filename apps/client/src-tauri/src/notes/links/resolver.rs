@@ -80,6 +80,10 @@ pub(in crate::notes) fn page_ids_from_local_notes_url(
         .collect::<Vec<_>>()
 }
 
+pub(in crate::notes) fn block_id_from_local_notes_url(url: &str) -> Option<String> {
+    query_value(url, "block").and_then(|value| canonical_notes_id(&value))
+}
+
 pub(super) fn unresolved_candidates(
     value: &Value,
     resolver: &LocalLinkResolver,

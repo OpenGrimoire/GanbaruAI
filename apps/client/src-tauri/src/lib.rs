@@ -872,6 +872,7 @@ pub fn run() {
             notes::notes_search,
             notes::notes_rebuild_search_index,
             notes::notes_rebuild_backlink_index,
+            notes::notes_rebuild_link_facts,
             notes::notes_list_page_aliases,
             notes::notes_add_page_alias,
             notes::notes_delete_page_alias,

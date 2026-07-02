@@ -2011,3 +2011,182 @@ fn schema_creates_notes_backlink_index() {
         assert!(invalid_local_object.is_err());
     });
 }
+
+#[test]
+fn schema_creates_notes_link_facts() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+
+        sqlx::query(
+            "INSERT INTO notes_pages (id, parent_type, title)
+             VALUES ('page-1', 'workspace', 'Source')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO notes_blocks (
+                id,
+                page_id,
+                parent_type,
+                parent_page_id,
+                type,
+                payload,
+                plain_text,
+                sort_order
+             )
+             VALUES (
+                'block-1',
+                'page-1',
+                'page_id',
+                'page-1',
+                'paragraph',
+                '{\"paragraph\":{\"rich_text\":[]}}',
+                'Task mention',
+                1000
+             )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO notes_assets (
+                id,
+                asset_path,
+                kind,
+                source_type,
+                original_name,
+                content_type,
+                byte_size,
+                sha256
+             )
+             VALUES (
+                'asset-1',
+                'notes/files/asset-1.png',
+                'image',
+                'local_upload',
+                'asset-1.png',
+                'image/png',
+                42,
+                'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+             )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO notes_link_facts (
+                id,
+                source_object_type,
+                source_object_id,
+                source_page_id,
+                source_block_id,
+                target_object_type,
+                target_object_id,
+                link_type,
+                snippet,
+                created_time,
+                last_edited_time
+             )
+             VALUES (
+                'fact-local-object',
+                'block',
+                'block-1',
+                'page-1',
+                'block-1',
+                'project_task',
+                'task-1',
+                'local_object_mention',
+                'Task mention',
+                '2026-07-02T12:00:00.000Z',
+                '2026-07-02T12:00:00.000Z'
+             )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO notes_link_facts (
+                id,
+                source_object_type,
+                source_object_id,
+                source_page_id,
+                source_block_id,
+                target_object_type,
+                target_object_id,
+                target_asset_id,
+                link_type,
+                snippet,
+                created_time,
+                last_edited_time
+             )
+             VALUES (
+                'fact-file',
+                'block',
+                'block-1',
+                'page-1',
+                'block-1',
+                'file',
+                'asset-1',
+                'asset-1',
+                'block_file',
+                'diagram.png',
+                '2026-07-02T12:00:00.000Z',
+                '2026-07-02T12:00:00.000Z'
+             )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO notes_link_facts_state (key, value)
+             VALUES ('source_fingerprint', 'test')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let task_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)
+             FROM notes_link_facts
+             WHERE target_object_type = 'project_task'
+               AND target_object_id = 'task-1'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(task_count, 1);
+
+        let invalid_file = sqlx::query(
+            "INSERT INTO notes_link_facts (
+                id,
+                source_object_type,
+                source_object_id,
+                source_page_id,
+                source_block_id,
+                target_object_type,
+                target_object_id,
+                link_type,
+                snippet,
+                created_time,
+                last_edited_time
+             )
+             VALUES (
+                'invalid-file',
+                'block',
+                'block-1',
+                'page-1',
+                'block-1',
+                'file',
+                'asset-1',
+                'block_file',
+                'diagram.png',
+                '2026-07-02T12:00:00.000Z',
+                '2026-07-02T12:00:00.000Z'
+             )",
+        )
+        .execute(&pool)
+        .await;
+        assert!(invalid_file.is_err());
+    });
+}

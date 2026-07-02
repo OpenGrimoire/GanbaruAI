@@ -21,7 +21,7 @@ pub(super) use super::super::models::{
 pub(super) use super::super::{
     assets, backlinks, comments, data_source_board, data_source_buttons, data_source_calendar,
     data_source_gallery, data_source_list, data_source_rows, data_source_schema, data_source_table,
-    data_source_templates, data_source_timeline, databases, history, links, local_user,
+    data_source_templates, data_source_timeline, databases, history, link_facts, links, local_user,
     mention_notifications, reads, search, suggestions, templates, undo_state, validation, writes,
 };
 pub(super) use crate::db::run_migrations;

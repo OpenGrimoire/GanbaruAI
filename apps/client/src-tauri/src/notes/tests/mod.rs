@@ -22,6 +22,7 @@ mod database_rows_table;
 mod database_schema;
 mod database_templates_buttons;
 mod database_timeline;
+mod link_facts;
 mod links;
 mod local_user_mentions;
 mod page_assets;
