@@ -4,6 +4,7 @@
   import {
     notesCommentParentKey,
     notesCommentPlainText,
+    notesResolveCommentAnchor,
     notesCommentThreadSnippet,
     openNotesCommentThreadCount,
   } from "$lib/notes/comments";
@@ -27,12 +28,19 @@
   const activeParent = $derived(notes.activeCommentParent ?? pageCommentParent());
   const openThreadCount = $derived(openNotesCommentThreadCount(notes.commentThreads));
 
+  $effect(() => {
+    if (notes.activeCommentParent) open = true;
+  });
+
   function pageCommentParent(): NotesCommentParent | null {
     return notes.selectedPageId ? { type: "page_id", page_id: notes.selectedPageId } : null;
   }
 
   function parentLabel(parent: NotesCommentParent | null): string {
     if (!parent || parent.type === "page_id") return t("notes.pageDiscussion");
+    if (notes.activeCommentAnchor && notes.activeCommentParent) {
+      return t("notes.inlineCommentOn", notes.activeCommentAnchor.text);
+    }
     const block = notes.blockById(parent.block_id);
     const text = block ? blockPlainText(block).trim() : "";
     return text ? t("notes.blockCommentOn", text) : t("notes.blockComment");
@@ -40,10 +48,17 @@
 
   function threadLabel(thread: NotesCommentThread): string {
     if (thread.parent.type === "page_id") return t("notes.pageDiscussion");
+    if (thread.anchor) return t("notes.inlineCommentOn", thread.anchor.text);
     const blockId = thread.block_id ?? thread.parent.block_id;
     const block = notes.blockById(blockId);
     const text = block ? blockPlainText(block).trim() : "";
     return text ? t("notes.blockCommentOn", text) : t("notes.blockComment");
+  }
+
+  function threadAnchorMissing(thread: NotesCommentThread): boolean {
+    if (!thread.anchor || !thread.block_id) return false;
+    const block = notes.blockById(thread.block_id);
+    return !block || !notesResolveCommentAnchor(thread, blockPlainText(block));
   }
 
   function commentTime(comment: NotesComment): string {
@@ -182,6 +197,11 @@
                   {#if notesCommentThreadSnippet(thread)}
                     <div class="mt-0.5 line-clamp-2 text-[0.733333rem] text-muted-foreground">
                       {notesCommentThreadSnippet(thread)}
+                    </div>
+                  {/if}
+                  {#if threadAnchorMissing(thread)}
+                    <div class="mt-0.5 text-[0.733333rem] text-muted-foreground">
+                      {t("notes.inlineCommentAnchorMissing")}
                     </div>
                   {/if}
                 </div>

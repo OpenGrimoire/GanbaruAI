@@ -17,6 +17,7 @@ import {
   type NotesChildPageBlockPayload,
   type NotesCodeBlockPayload,
   type NotesComment,
+  type NotesCommentAnchor,
   type NotesCommentDisplayName,
   type NotesCommentParent,
   type NotesCommentThread,
@@ -1858,6 +1859,37 @@ function parseCommentThreadStatus(value: unknown): NotesCommentThreadStatus {
   throw new Error("comment thread.status must be open or resolved");
 }
 
+function parseNotesCommentAnchor(value: unknown): NotesCommentAnchor {
+  const record = readRecord(value, "comment anchor");
+  if (record.object !== "comment_anchor") {
+    throw new Error("comment anchor.object must be comment_anchor");
+  }
+  if (record.type !== "text_range") {
+    throw new Error("comment anchor.type must be text_range");
+  }
+  const start = readInteger(record.start, "comment anchor.start");
+  const end = readInteger(record.end, "comment anchor.end");
+  if (start < 0 || end <= start) {
+    throw new Error("comment anchor range must be non-empty");
+  }
+  const text = readString(record.text, "comment anchor.text");
+  if (!text.trim()) {
+    throw new Error("comment anchor.text must not be empty");
+  }
+  return {
+    object: "comment_anchor",
+    type: "text_range",
+    block_id: readString(record.block_id, "comment anchor.block_id"),
+    start,
+    end,
+    text,
+    prefix: readString(record.prefix, "comment anchor.prefix"),
+    suffix: readString(record.suffix, "comment anchor.suffix"),
+    created_time: readString(record.created_time, "comment anchor.created_time"),
+    last_edited_time: readString(record.last_edited_time, "comment anchor.last_edited_time"),
+  };
+}
+
 export function parseNotesSearchResult(value: unknown): NotesSearchResult {
   const record = readRecord(value, "search_result");
   if (record.object !== "search_result") {
@@ -1921,6 +1953,9 @@ export function parseNotesCommentThread(value: unknown): NotesCommentThread {
     resolved_by: record.resolved_by === null
       ? null
       : parseNotesPartialUser(record.resolved_by, "comment thread.resolved_by"),
+    anchor: record.anchor === null
+      ? null
+      : parseNotesCommentAnchor(record.anchor),
     created_time: readString(record.created_time, "comment thread.created_time"),
     last_edited_time: readString(record.last_edited_time, "comment thread.last_edited_time"),
     comments: record.comments.map(parseNotesComment),

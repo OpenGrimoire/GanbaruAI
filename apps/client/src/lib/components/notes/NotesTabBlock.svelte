@@ -72,6 +72,7 @@
     onPastePlainText,
     onPasteRichHtml,
     onApplyTextAnnotations,
+    onCreateInlineComment,
     onKeyboardAction,
     onUndo,
     onRedo,
@@ -187,6 +188,11 @@
       start: number,
       end: number,
       patch: NotesRichTextAnnotationPatch,
+    ) => Promise<void> | void;
+    onCreateInlineComment: (
+      blockId: string,
+      start: number,
+      end: number,
     ) => Promise<void> | void;
     onKeyboardAction: (blockId: string, action: NotesKeyboardAction) => void;
     onUndo: () => Promise<void> | void;
@@ -626,6 +632,7 @@
                       {onPastePlainText}
                       {onPasteRichHtml}
                       {onApplyTextAnnotations}
+                      {onCreateInlineComment}
                       {onKeyboardAction}
                       {onUndo}
                       {onRedo}

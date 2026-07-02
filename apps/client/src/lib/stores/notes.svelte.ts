@@ -28,7 +28,7 @@ import {
   updateNotesPageTemplate,
 } from "$lib/api/notes";
 import { blockPlainText, createRichText } from "$lib/notes/block-factory";
-import { notesCommentParentKey } from "$lib/notes/comments";
+import { notesCommentAnchorDraft, notesCommentParentKey } from "$lib/notes/comments";
 import type { NotesBlockLinkTarget, NotesPageLinkTarget } from "$lib/notes/block-link";
 import {
   buildNotesChildIdsByParent,
@@ -74,6 +74,7 @@ import { createNotesBlockPersistence } from "./notes-store-persistence";
 import type {
   NotesBlock,
   NotesBacklink,
+  NotesCommentAnchorCreate,
   NotesColumnBlockItems,
   NotesBlockTreeItem,
   NotesBlockType,
@@ -114,6 +115,7 @@ let pageBreadcrumbItems = $state<NotesPageBreadcrumbItem[]>([]);
 let backlinks = $state<NotesBacklink[]>([]);
 let commentThreads = $state<NotesCommentThread[]>([]);
 let activeCommentParent = $state<NotesCommentParent | null>(null);
+let activeCommentAnchor = $state<NotesCommentAnchorCreate | null>(null);
 let blocksById = $state<Record<string, NotesBlock>>({});
 let childIdsByParentId = $state<Record<string, string[]>>({});
 let loaded = $state(false);
@@ -354,6 +356,7 @@ async function reloadComments(pageId: string | null = selectedPageId): Promise<v
   if (!pageId) {
     commentThreads = [];
     activeCommentParent = null;
+    activeCommentAnchor = null;
     commentsError = null;
     commentsLoading = false;
     return;
@@ -392,12 +395,25 @@ function commentParentForSelectedPage(): NotesCommentParent | null {
 
 function setActiveCommentParent(parent: NotesCommentParent | null): void {
   activeCommentParent = parent;
+  activeCommentAnchor = null;
 }
 
 async function startBlockComment(blockId: string): Promise<void> {
   if (!blocksById[blockId]) return;
   await flushBlockSave(blockId);
   activeCommentParent = { type: "block_id", block_id: blockId };
+  activeCommentAnchor = null;
+  requestBlockFocus(blockId);
+}
+
+async function startInlineComment(blockId: string, start: number, end: number): Promise<void> {
+  const block = blocksById[blockId];
+  if (!block) return;
+  const anchor = notesCommentAnchorDraft(blockPlainText(block), start, end);
+  if (!anchor) return;
+  await flushBlockSave(blockId);
+  activeCommentParent = { type: "block_id", block_id: blockId };
+  activeCommentAnchor = anchor;
   requestBlockFocus(blockId);
 }
 
@@ -410,13 +426,19 @@ async function createComment(
   if (parent.type === "block_id") {
     await flushBlockSave(parent.block_id);
   }
+  const anchor = activeCommentParent
+    && notesCommentParentKey(activeCommentParent) === notesCommentParentKey(parent)
+    ? activeCommentAnchor
+    : null;
   const thread = await createNotesComment({
     id: crypto.randomUUID(),
     parent,
+    anchor: anchor ?? undefined,
     rich_text: [createRichText(content)],
   });
   updateCommentThread(thread);
   activeCommentParent = null;
+  activeCommentAnchor = null;
 }
 
 async function replyToCommentThread(discussionId: string, text: string): Promise<void> {
@@ -505,6 +527,7 @@ async function load(): Promise<void> {
       backlinksError = null;
       commentThreads = [];
       activeCommentParent = null;
+      activeCommentAnchor = null;
       commentsError = null;
       pageHistoryController.resetPageState();
       blocksById = {};
@@ -536,6 +559,7 @@ async function selectPage(pageId: string | null): Promise<void> {
     backlinksError = null;
     commentThreads = [];
     activeCommentParent = null;
+    activeCommentAnchor = null;
     commentsError = null;
     pageHistoryController.resetPageState();
     blocksById = {};
@@ -1189,6 +1213,9 @@ export function getNotes() {
     get activeCommentParent(): NotesCommentParent | null {
       return activeCommentParent;
     },
+    get activeCommentAnchor(): NotesCommentAnchorCreate | null {
+      return activeCommentAnchor;
+    },
     get searchResults(): NotesSearchResult[] {
       return searchResults;
     },
@@ -1326,6 +1353,7 @@ export function getNotes() {
     setCommentsIncludeResolved,
     setActiveCommentParent,
     startBlockComment,
+    startInlineComment,
     createComment,
     replyToCommentThread,
     updateComment,

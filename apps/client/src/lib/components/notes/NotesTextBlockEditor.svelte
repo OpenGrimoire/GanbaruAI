@@ -71,6 +71,7 @@
     notesRichTextFormattingShortcutAnnotationName,
     notesRichTextLinkShortcutRequested,
   } from "$lib/notes/rich-text-shortcuts";
+  import type { NotesResolvedCommentAnchor } from "$lib/notes/comments";
   import { notesUndoShortcutAction } from "$lib/notes/undo-history";
   import {
     nextNotesSlashActiveIndex,
@@ -105,6 +106,7 @@
     focusBlockId,
     focusRequestId,
     mentionTargets,
+    commentAnchors,
     templateStatus,
     buttonStatus,
     onTextInput,
@@ -116,6 +118,7 @@
     onPastePlainText,
     onPasteRichHtml,
     onApplyTextAnnotations,
+    onCreateInlineComment,
     onKeyboardAction,
     onUndo,
     onRedo,
@@ -143,6 +146,7 @@
     focusBlockId: string | null;
     focusRequestId: number;
     mentionTargets: NotesPageMentionTarget[];
+    commentAnchors: readonly NotesResolvedCommentAnchor[];
     templateStatus: NotesTemplateBlockStatus;
     buttonStatus: NotesButtonBlockStatus;
     onTextInput: (blockId: string, text: string) => void;
@@ -191,6 +195,11 @@
       start: number,
       end: number,
       patch: NotesRichTextAnnotationPatch,
+    ) => Promise<void> | void;
+    onCreateInlineComment: (
+      blockId: string,
+      start: number,
+      end: number,
     ) => Promise<void> | void;
     onKeyboardAction: (blockId: string, action: NotesKeyboardAction) => void;
     onUndo: () => Promise<void> | void;
@@ -511,6 +520,16 @@
       planRichTextEquationConversion(text, selection.start, selection.end),
     );
     return true;
+  }
+
+  function createInlineCommentFromSelection(): void {
+    if (!canUseInlineFormatting || textSelection.start === textSelection.end) return;
+    const start = textSelection.start;
+    const end = textSelection.end;
+    slashOpen = false;
+    mentionQuery = null;
+    void Promise.resolve(onCreateInlineComment(block.id, start, end))
+      .then(() => focusEditorWithSelection(start, end));
   }
 
   function toggleTextAnnotation(name: NotesRichTextAnnotationName): void {
@@ -1033,6 +1052,7 @@
       onToggleAnnotation={toggleTextAnnotation}
       onColorSelect={applyTextColor}
       onCreateEquation={insertInlineEquationFromSelection}
+      onCreateComment={createInlineCommentFromSelection}
       onOpenLink={openLinkEditorFromButton}
     />
   </div>
@@ -1089,7 +1109,7 @@
   onmouseup={(event) => syncTextSelection(event.currentTarget)}
   onblur={handleEditorBlur}
 >
-  <NotesRichTextInline richText={editableRichText} />
+  <NotesRichTextInline richText={editableRichText} {commentAnchors} />
 </div>
 {#if mentionOpen || slashOpen}
   <p id={notesRichTextEditorStatusDomId(block.id)} class="sr-only" role="status">

@@ -14,6 +14,7 @@
   import Code from "@lucide/svelte/icons/code";
   import Italic from "@lucide/svelte/icons/italic";
   import LinkIcon from "@lucide/svelte/icons/link";
+  import MessageSquare from "@lucide/svelte/icons/message-square";
   import Palette from "@lucide/svelte/icons/palette";
   import Sigma from "@lucide/svelte/icons/sigma";
   import Strikethrough from "@lucide/svelte/icons/strikethrough";
@@ -24,12 +25,14 @@
     onToggleAnnotation,
     onColorSelect,
     onCreateEquation,
+    onCreateComment,
     onOpenLink,
   }: {
     annotations: NotesRichTextAnnotations;
     onToggleAnnotation: (name: NotesRichTextAnnotationName) => void;
     onColorSelect: (color: NotesColor) => void;
     onCreateEquation: () => void;
+    onCreateComment: () => void;
     onOpenLink: () => void;
   } = $props();
 
@@ -195,6 +198,17 @@
     onclick={onCreateEquation}
   >
     <Sigma class="size-3.5" aria-hidden="true" />
+  </button>
+  <button
+    type="button"
+    class={plainButtonClass()}
+    aria-label={t("notes.inlineComment")}
+    title={t("notes.inlineComment")}
+    onmousedown={preserveMouseSelection}
+    onpointerdown={preserveTouchSelection}
+    onclick={onCreateComment}
+  >
+    <MessageSquare class="size-3.5" aria-hidden="true" />
   </button>
   <button
     type="button"

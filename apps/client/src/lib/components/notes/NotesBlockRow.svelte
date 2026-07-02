@@ -1,6 +1,8 @@
 <script lang="ts">
   import { tick } from "svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { getNotes } from "$lib/stores/notes.svelte";
+  import { notesCommentAnchorsForBlock } from "$lib/notes/comments";
   import type { NotesUnsupportedConversionTarget } from "$lib/notes/unsupported";
   import {
     blockPlainText,
@@ -80,6 +82,7 @@
     onPastePlainText,
     onPasteRichHtml,
     onApplyTextAnnotations,
+    onCreateInlineComment,
     onKeyboardAction,
     onUndo,
     onRedo,
@@ -184,6 +187,11 @@
       end: number,
       patch: NotesRichTextAnnotationPatch,
     ) => Promise<void> | void;
+    onCreateInlineComment: (
+      blockId: string,
+      start: number,
+      end: number,
+    ) => Promise<void> | void;
     onKeyboardAction: (blockId: string, action: NotesKeyboardAction) => void;
     onUndo: () => Promise<void> | void;
     onRedo: () => Promise<void> | void;
@@ -247,6 +255,7 @@
 
   const localization = getLocalization();
   const { t } = localization;
+  const notes = getNotes();
 
   function breadcrumbStatusLabel(crumb: NotesPageBreadcrumbItem): string | null {
     switch (crumb.status) {
@@ -273,6 +282,7 @@
   let slashOpen = $state(false);
   const block = $derived(item.block);
   const text = $derived(blockPlainText(block));
+  const commentAnchors = $derived(notesCommentAnchorsForBlock(notes.commentThreads, block.id, text));
   const showTextEditor = $derived(isTextEditableBlock(block.type));
   const currentColor = $derived(blockColor(block));
   const blockSupportsColor = $derived(canBlockHaveColor(block.type));
@@ -737,6 +747,7 @@
           {focusBlockId}
           {focusRequestId}
           {mentionTargets}
+          {commentAnchors}
           {templateStatus}
           {buttonStatus}
           {onTextInput}
@@ -748,6 +759,7 @@
           {onPastePlainText}
           {onPasteRichHtml}
           {onApplyTextAnnotations}
+          {onCreateInlineComment}
           {onKeyboardAction}
           {onUndo}
           {onRedo}

@@ -1,6 +1,7 @@
 use super::models::{
-    NoteCommentCreate, NoteCommentDto, NoteCommentRow, NoteCommentThreadDto, NoteCommentThreadRow,
-    NoteCommentUpdate, NoteParent,
+    NoteCommentAnchorCreate, NoteCommentAnchorDto, NoteCommentAnchorRow, NoteCommentCreate,
+    NoteCommentDto, NoteCommentRow, NoteCommentThreadDto, NoteCommentThreadRow, NoteCommentUpdate,
+    NoteParent,
 };
 use super::validation::{require_uuid, rich_text_items_plain_text, validate_comment_rich_text};
 use serde_json::Value;
@@ -8,6 +9,8 @@ use sqlx::{Sqlite, SqlitePool, Transaction};
 
 const LOCAL_USER_ID: &str = "local-user";
 const LOCAL_USER_DISPLAY_NAME: &str = r#"{"type":"user","resolved_name":"You"}"#;
+const COMMENT_ANCHOR_MAX_TEXT_LENGTH: usize = 2000;
+const COMMENT_ANCHOR_MAX_CONTEXT_LENGTH: usize = 120;
 
 struct CommentParentTarget {
     page_id: String,
@@ -93,6 +96,9 @@ pub(in crate::notes) async fn create_comment(
         (None, None) => return Err("parent or discussion_id is required".to_string()),
         _ => {}
     }
+    if request.anchor.is_some() && request.discussion_id.is_some() {
+        return Err("inline comment anchors can only start new block comment threads".to_string());
+    }
     let mut tx = pool
         .begin()
         .await
@@ -113,11 +119,14 @@ pub(in crate::notes) async fn create_comment(
         .bind(&thread_id)
         .bind(&parent.page_id)
         .bind(parent.parent_type)
-        .bind(parent.parent_page_id)
-        .bind(parent.parent_block_id)
+        .bind(parent.parent_page_id.as_deref())
+        .bind(parent.parent_block_id.as_deref())
         .execute(&mut *tx)
         .await
         .map_err(|e| format!("create notes comment thread: {e}"))?;
+        if let Some(anchor) = request.anchor.as_ref() {
+            insert_comment_anchor_row(&mut tx, &thread_id, &parent, anchor).await?;
+        }
         thread_id
     } else {
         let thread_id = request
@@ -261,7 +270,8 @@ async fn load_thread(pool: &SqlitePool, thread_id: &str) -> Result<NoteCommentTh
     .map_err(|e| format!("load notes comment thread: {e}"))?
     .ok_or_else(|| "notes comment thread not found".to_string())?;
     let comments = load_comment_dtos(pool, &thread).await?;
-    NoteCommentThreadDto::new(thread, comments)
+    let anchor = load_comment_anchor_dto(pool, thread_id).await?;
+    NoteCommentThreadDto::new(thread, comments, anchor)
 }
 
 async fn thread_dtos(
@@ -271,9 +281,26 @@ async fn thread_dtos(
     let mut dtos = Vec::with_capacity(threads.len());
     for thread in threads {
         let comments = load_comment_dtos(pool, &thread).await?;
-        dtos.push(NoteCommentThreadDto::new(thread, comments)?);
+        let anchor = load_comment_anchor_dto(pool, &thread.id).await?;
+        dtos.push(NoteCommentThreadDto::new(thread, comments, anchor)?);
     }
     Ok(dtos)
+}
+
+async fn load_comment_anchor_dto(
+    pool: &SqlitePool,
+    thread_id: &str,
+) -> Result<Option<NoteCommentAnchorDto>, String> {
+    let row = sqlx::query_as::<_, NoteCommentAnchorRow>(
+        "SELECT *
+         FROM notes_comment_thread_anchors
+         WHERE thread_id = ?",
+    )
+    .bind(thread_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| format!("load notes inline comment anchor: {e}"))?;
+    Ok(row.map(NoteCommentAnchorDto::new))
 }
 
 async fn load_comment_dtos(
@@ -369,6 +396,76 @@ async fn insert_comment_row(
     .execute(&mut **tx)
     .await
     .map_err(|e| format!("create notes comment: {e}"))?;
+    Ok(())
+}
+
+async fn insert_comment_anchor_row(
+    tx: &mut Transaction<'_, Sqlite>,
+    thread_id: &str,
+    parent: &CommentParentTarget,
+    anchor: &NoteCommentAnchorCreate,
+) -> Result<(), String> {
+    let block_id = parent
+        .parent_block_id
+        .as_deref()
+        .ok_or_else(|| "inline comment anchors require a block parent".to_string())?;
+    validate_comment_anchor(anchor)?;
+    let plain_text: String = sqlx::query_scalar(
+        "SELECT plain_text
+         FROM notes_blocks
+         WHERE id = ? AND page_id = ? AND in_trash = 0",
+    )
+    .bind(block_id)
+    .bind(&parent.page_id)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|e| format!("load notes inline comment anchor block: {e}"))?
+    .ok_or_else(|| "notes block not found".to_string())?;
+    if !plain_text.contains(anchor.text.as_str()) {
+        return Err("inline comment anchor text must exist in the block".to_string());
+    }
+    sqlx::query(
+        "INSERT INTO notes_comment_thread_anchors (
+            thread_id,
+            page_id,
+            block_id,
+            start_offset,
+            end_offset,
+            anchor_text,
+            prefix_text,
+            suffix_text
+         )
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(thread_id)
+    .bind(&parent.page_id)
+    .bind(block_id)
+    .bind(anchor.start)
+    .bind(anchor.end)
+    .bind(anchor.text.as_str())
+    .bind(anchor.prefix.as_str())
+    .bind(anchor.suffix.as_str())
+    .execute(&mut **tx)
+    .await
+    .map_err(|e| format!("create notes inline comment anchor: {e}"))?;
+    Ok(())
+}
+
+fn validate_comment_anchor(anchor: &NoteCommentAnchorCreate) -> Result<(), String> {
+    if anchor.start < 0 || anchor.end <= anchor.start {
+        return Err("inline comment anchor range is invalid".to_string());
+    }
+    if anchor.text.trim().is_empty() {
+        return Err("inline comment anchor text is required".to_string());
+    }
+    if anchor.text.chars().count() > COMMENT_ANCHOR_MAX_TEXT_LENGTH {
+        return Err("inline comment anchor text is too long".to_string());
+    }
+    if anchor.prefix.chars().count() > COMMENT_ANCHOR_MAX_CONTEXT_LENGTH
+        || anchor.suffix.chars().count() > COMMENT_ANCHOR_MAX_CONTEXT_LENGTH
+    {
+        return Err("inline comment anchor context is too long".to_string());
+    }
     Ok(())
 }
 

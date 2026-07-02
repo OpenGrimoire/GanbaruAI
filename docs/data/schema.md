@@ -552,6 +552,7 @@ Notes stores page and block documents in SQLite. Markdown exports and imports ar
 - `notes_page_templates` and `notes_page_template_blocks`: reusable page templates and their canonical block snapshots. Templates store page metadata in SQLite, not markdown.
 - `notes_page_history_settings` and `notes_page_history_snapshots`: local page recovery settings and compact snapshots of page metadata plus canonical block rows.
 - `notes_undo_state`: bounded page-local undo and redo state derived from canonical page and block rows.
+- `notes_comment_threads`, `notes_comments`, and `notes_comment_thread_anchors`: canonical Notes discussions, comment rows, and optional inline rich text anchors. Threads target pages or blocks, comments store validated rich text and local author display metadata, and anchors store selected block text plus offsets and short context for practical relocation after nearby edits.
 
 ## Project tables
 

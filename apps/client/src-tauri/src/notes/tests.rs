@@ -1,7 +1,8 @@
 use super::models::{
     NoteAppendBlockChildren, NoteBlockUpdate, NoteBlockWrite, NoteChildPageFromBlockCreate,
-    NoteCommentCreate, NoteCommentUpdate, NoteDataSourceBoardConfigurationUpdate,
-    NoteDataSourceBoardRowMove, NoteDataSourceBoardViewUpdate, NoteDataSourceButtonClick,
+    NoteCommentAnchorCreate, NoteCommentCreate, NoteCommentUpdate,
+    NoteDataSourceBoardConfigurationUpdate, NoteDataSourceBoardRowMove,
+    NoteDataSourceBoardViewUpdate, NoteDataSourceButtonClick,
     NoteDataSourceCalendarConfigurationUpdate, NoteDataSourceCalendarViewUpdate,
     NoteDataSourceGalleryConfigurationUpdate, NoteDataSourceGalleryViewUpdate,
     NoteDataSourceListConfigurationUpdate, NoteDataSourceListViewUpdate,
@@ -5313,6 +5314,7 @@ fn duplicate_blocks_copies_loaded_subtrees_and_block_comments() {
                 id: COMMENT_A.to_string(),
                 parent: Some(block_parent(BLOCK_C)),
                 discussion_id: None,
+                anchor: None,
                 rich_text: vec![rich_text("Nested comment")],
             },
         )
@@ -5406,6 +5408,7 @@ fn move_blocks_moves_subtrees_updates_comment_pages_and_rejects_cycles() {
                 id: COMMENT_A.to_string(),
                 parent: Some(block_parent(BLOCK_C)),
                 discussion_id: None,
+                anchor: None,
                 rich_text: vec![rich_text("Move with block")],
             },
         )
@@ -6430,6 +6433,7 @@ fn search_returns_page_block_and_comment_matches() {
                 id: COMMENT_A.to_string(),
                 parent: Some(page_parent(PAGE_B)),
                 discussion_id: None,
+                anchor: None,
                 rich_text: vec![rich_text("Target comment")],
             },
         )
@@ -9970,6 +9974,7 @@ fn comments_create_reply_resolve_reopen_and_delete() {
                 id: COMMENT_A.to_string(),
                 parent: Some(page_parent(PAGE_A)),
                 discussion_id: None,
+                anchor: None,
                 rich_text: vec![rich_text("Page note")],
             },
         )
@@ -9989,6 +9994,7 @@ fn comments_create_reply_resolve_reopen_and_delete() {
                 id: COMMENT_B.to_string(),
                 parent: None,
                 discussion_id: Some(thread_id.clone()),
+                anchor: None,
                 rich_text: vec![rich_text("Reply")],
             },
         )
@@ -10070,6 +10076,7 @@ fn block_comments_attach_to_visible_blocks() {
                 id: COMMENT_C.to_string(),
                 parent: Some(block_parent(BLOCK_B)),
                 discussion_id: None,
+                anchor: None,
                 rich_text: vec![rich_text("Block note")],
             },
         )
@@ -10087,5 +10094,80 @@ fn block_comments_attach_to_visible_blocks() {
             .await
             .unwrap()
             .is_empty());
+    });
+}
+
+#[test]
+fn inline_comment_anchors_persist_on_block_threads() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        create_page(&pool, PAGE_A, BLOCK_A).await;
+        writes::append_block_children(
+            &pool,
+            NoteAppendBlockChildren {
+                parent: page_parent(PAGE_A),
+                after: Some(BLOCK_A.to_string()),
+                children: vec![block(
+                    BLOCK_B,
+                    "paragraph",
+                    paragraph_payload("Alpha beta gamma"),
+                )],
+            },
+        )
+        .await
+        .unwrap();
+
+        let thread = comments::create_comment(
+            &pool,
+            NoteCommentCreate {
+                id: COMMENT_A.to_string(),
+                parent: Some(block_parent(BLOCK_B)),
+                discussion_id: None,
+                anchor: Some(NoteCommentAnchorCreate {
+                    start: 6,
+                    end: 10,
+                    text: "beta".to_string(),
+                    prefix: "Alpha ".to_string(),
+                    suffix: " gamma".to_string(),
+                }),
+                rich_text: vec![rich_text("Inline note")],
+            },
+        )
+        .await
+        .unwrap();
+        let thread_value = serde_json::to_value(thread).unwrap();
+        let thread_id = thread_value["id"].as_str().unwrap();
+        assert_eq!(thread_value["parent"]["type"], "block_id");
+        assert_eq!(thread_value["anchor"]["type"], "text_range");
+        assert_eq!(thread_value["anchor"]["block_id"], BLOCK_B);
+        assert_eq!(thread_value["anchor"]["start"], 6);
+        assert_eq!(thread_value["anchor"]["end"], 10);
+        assert_eq!(thread_value["anchor"]["text"], "beta");
+
+        let listed = comments::list_comments(&pool, PAGE_A, false).await.unwrap();
+        let listed_value = serde_json::to_value(listed).unwrap();
+        assert_eq!(listed_value[0]["anchor"]["text"], "beta");
+
+        let reply_with_anchor = comments::create_comment(
+            &pool,
+            NoteCommentCreate {
+                id: COMMENT_B.to_string(),
+                parent: None,
+                discussion_id: Some(thread_id.to_string()),
+                anchor: Some(NoteCommentAnchorCreate {
+                    start: 0,
+                    end: 4,
+                    text: "beta".to_string(),
+                    prefix: String::new(),
+                    suffix: String::new(),
+                }),
+                rich_text: vec![rich_text("Reply")],
+            },
+        )
+        .await;
+        assert_eq!(
+            reply_with_anchor.err().as_deref(),
+            Some("inline comment anchors can only start new block comment threads")
+        );
     });
 }

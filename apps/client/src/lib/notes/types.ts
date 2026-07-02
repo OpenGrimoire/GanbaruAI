@@ -1243,6 +1243,19 @@ export interface NotesComment {
   deleted_at: string | null;
 }
 
+export interface NotesCommentAnchor {
+  object: "comment_anchor";
+  type: "text_range";
+  block_id: string;
+  start: number;
+  end: number;
+  text: string;
+  prefix: string;
+  suffix: string;
+  created_time: string;
+  last_edited_time: string;
+}
+
 export interface NotesCommentThread {
   object: "comment_thread";
   id: string;
@@ -1252,15 +1265,25 @@ export interface NotesCommentThread {
   status: NotesCommentThreadStatus;
   resolved_at: string | null;
   resolved_by: NotesPartialUser | null;
+  anchor: NotesCommentAnchor | null;
   created_time: string;
   last_edited_time: string;
   comments: NotesComment[];
+}
+
+export interface NotesCommentAnchorCreate {
+  start: number;
+  end: number;
+  text: string;
+  prefix: string;
+  suffix: string;
 }
 
 export interface NotesCommentCreate {
   id: string;
   parent?: NotesCommentParent;
   discussion_id?: string;
+  anchor?: NotesCommentAnchorCreate;
   rich_text: NotesRichText[];
 }
 

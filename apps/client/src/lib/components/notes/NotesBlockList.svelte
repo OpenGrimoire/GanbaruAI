@@ -981,6 +981,9 @@
         onPastePlainText={pastePlainText}
         onPasteRichHtml={pasteRichHtml}
         onApplyTextAnnotations={applyTextAnnotations}
+        onCreateInlineComment={(blockId, start, end) => {
+          void notes.startInlineComment(blockId, start, end);
+        }}
         onKeyboardAction={handleKeyboardAction}
         onUndo={undoNotesEdit}
         onRedo={redoNotesEdit}
@@ -1110,6 +1113,9 @@
         onPastePlainText={pastePlainText}
         onPasteRichHtml={pasteRichHtml}
         onApplyTextAnnotations={applyTextAnnotations}
+        onCreateInlineComment={(blockId, start, end) => {
+          void notes.startInlineComment(blockId, start, end);
+        }}
         onKeyboardAction={handleKeyboardAction}
         onUndo={undoNotesEdit}
         onRedo={redoNotesEdit}
@@ -1237,6 +1243,9 @@
         onPastePlainText={pastePlainText}
         onPasteRichHtml={pasteRichHtml}
         onApplyTextAnnotations={applyTextAnnotations}
+        onCreateInlineComment={(blockId, start, end) => {
+          void notes.startInlineComment(blockId, start, end);
+        }}
         onKeyboardAction={handleKeyboardAction}
         onUndo={undoNotesEdit}
         onRedo={redoNotesEdit}

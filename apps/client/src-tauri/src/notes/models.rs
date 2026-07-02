@@ -662,6 +662,38 @@ impl NoteCommentDto {
 }
 
 #[derive(Serialize)]
+pub struct NoteCommentAnchorDto {
+    object: &'static str,
+    #[serde(rename = "type")]
+    anchor_type: &'static str,
+    block_id: String,
+    start: i64,
+    end: i64,
+    text: String,
+    prefix: String,
+    suffix: String,
+    created_time: String,
+    last_edited_time: String,
+}
+
+impl NoteCommentAnchorDto {
+    pub(in crate::notes) fn new(row: NoteCommentAnchorRow) -> Self {
+        Self {
+            object: "comment_anchor",
+            anchor_type: "text_range",
+            block_id: row.block_id,
+            start: row.start_offset,
+            end: row.end_offset,
+            text: row.anchor_text,
+            prefix: row.prefix_text,
+            suffix: row.suffix_text,
+            created_time: row.created_time,
+            last_edited_time: row.last_edited_time,
+        }
+    }
+}
+
+#[derive(Serialize)]
 pub struct NoteCommentThreadDto {
     object: &'static str,
     id: String,
@@ -671,6 +703,7 @@ pub struct NoteCommentThreadDto {
     status: String,
     resolved_at: Option<String>,
     resolved_by: Option<NotePartialUserDto>,
+    anchor: Option<NoteCommentAnchorDto>,
     created_time: String,
     last_edited_time: String,
     comments: Vec<NoteCommentDto>,
@@ -680,6 +713,7 @@ impl NoteCommentThreadDto {
     pub(in crate::notes) fn new(
         row: NoteCommentThreadRow,
         comments: Vec<NoteCommentDto>,
+        anchor: Option<NoteCommentAnchorDto>,
     ) -> Result<Self, String> {
         let resolved_by = row.resolved_by.clone().map(NotePartialUserDto::new);
         Ok(Self {
@@ -696,6 +730,7 @@ impl NoteCommentThreadDto {
             status: row.status,
             resolved_at: row.resolved_at,
             resolved_by,
+            anchor,
             created_time: row.created_time,
             last_edited_time: row.last_edited_time,
             comments,
@@ -1130,7 +1165,17 @@ pub struct NoteCommentCreate {
     pub(in crate::notes) id: String,
     pub(in crate::notes) parent: Option<NoteParent>,
     pub(in crate::notes) discussion_id: Option<String>,
+    pub(in crate::notes) anchor: Option<NoteCommentAnchorCreate>,
     pub(in crate::notes) rich_text: Vec<Value>,
+}
+
+#[derive(Deserialize)]
+pub struct NoteCommentAnchorCreate {
+    pub(in crate::notes) start: i64,
+    pub(in crate::notes) end: i64,
+    pub(in crate::notes) text: String,
+    pub(in crate::notes) prefix: String,
+    pub(in crate::notes) suffix: String,
 }
 
 #[derive(Deserialize)]
@@ -1961,6 +2006,32 @@ impl_sqlite_from_row!(NoteCommentThreadRow {
     status,
     resolved_at,
     resolved_by,
+    created_time,
+    last_edited_time,
+});
+
+#[derive(Serialize)]
+pub(in crate::notes) struct NoteCommentAnchorRow {
+    pub(in crate::notes) thread_id: String,
+    pub(in crate::notes) page_id: String,
+    pub(in crate::notes) block_id: String,
+    pub(in crate::notes) start_offset: i64,
+    pub(in crate::notes) end_offset: i64,
+    pub(in crate::notes) anchor_text: String,
+    pub(in crate::notes) prefix_text: String,
+    pub(in crate::notes) suffix_text: String,
+    pub(in crate::notes) created_time: String,
+    pub(in crate::notes) last_edited_time: String,
+}
+impl_sqlite_from_row!(NoteCommentAnchorRow {
+    thread_id,
+    page_id,
+    block_id,
+    start_offset,
+    end_offset,
+    anchor_text,
+    prefix_text,
+    suffix_text,
     created_time,
     last_edited_time,
 });

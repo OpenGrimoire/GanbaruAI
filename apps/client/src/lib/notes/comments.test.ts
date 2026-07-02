@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { parseNotesCommentThread } from "./block-validation";
 import {
+  notesCommentAnchorDraft,
+  notesCommentAnchorsForBlock,
   notesCommentParentKey,
   notesCommentPlainText,
+  notesResolveCommentAnchor,
   notesCommentThreadSnippet,
   openNotesCommentThreadCount,
 } from "./comments";
@@ -33,6 +36,7 @@ describe("notes comments", () => {
       status: "open",
       resolved_at: null,
       resolved_by: null,
+      anchor: null,
       created_time: "2026-06-30T00:00:00.000Z",
       last_edited_time: "2026-06-30T00:00:00.000Z",
       comments: [comment],
@@ -53,6 +57,7 @@ describe("notes comments", () => {
         status: "open",
         resolved_at: null,
         resolved_by: null,
+        anchor: null,
         created_time: "2026-06-30T00:00:00.000Z",
         last_edited_time: "2026-06-30T00:00:00.000Z",
         comments: [],
@@ -70,6 +75,7 @@ describe("notes comments", () => {
       status: "open",
       resolved_at: null,
       resolved_by: null,
+      anchor: null,
       created_time: "2026-06-30T00:00:00.000Z",
       last_edited_time: "2026-06-30T00:00:00.000Z",
       comments: [comment],
@@ -79,5 +85,61 @@ describe("notes comments", () => {
     expect(openNotesCommentThreadCount([openThread, resolvedThread])).toBe(1);
     expect(notesCommentThreadSnippet(openThread)).toBe("Review this");
     expect(notesCommentParentKey(openThread.parent)).toBe("block:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+  });
+
+  it("parses and resolves inline text anchors", () => {
+    const thread = parseNotesCommentThread({
+      object: "comment_thread",
+      id: "90909090-9090-4090-8090-909090909090",
+      parent: { type: "block_id", block_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" },
+      page_id: "11111111-1111-4111-8111-111111111111",
+      block_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      status: "open",
+      resolved_at: null,
+      resolved_by: null,
+      anchor: {
+        object: "comment_anchor",
+        type: "text_range",
+        block_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        start: 6,
+        end: 10,
+        text: "beta",
+        prefix: "Alpha ",
+        suffix: " gamma",
+        created_time: "2026-06-30T00:00:00.000Z",
+        last_edited_time: "2026-06-30T00:00:00.000Z",
+      },
+      created_time: "2026-06-30T00:00:00.000Z",
+      last_edited_time: "2026-06-30T00:00:00.000Z",
+      comments: [comment],
+    });
+
+    expect(notesResolveCommentAnchor(thread, "Alpha beta gamma")).toMatchObject({
+      start: 6,
+      end: 10,
+      text: "beta",
+    });
+    expect(notesResolveCommentAnchor(thread, "Intro Alpha beta gamma")).toMatchObject({
+      start: 12,
+      end: 16,
+    });
+    expect(notesCommentAnchorsForBlock(
+      [thread],
+      "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "Intro Alpha beta gamma",
+    )).toHaveLength(1);
+    expect(notesResolveCommentAnchor(thread, "Alpha gamma")).toBeNull();
+  });
+
+  it("creates inline anchor drafts from selections", () => {
+    expect(notesCommentAnchorDraft("Alpha beta gamma", 6, 10)).toEqual({
+      start: 6,
+      end: 10,
+      text: "beta",
+      prefix: "Alpha ",
+      suffix: " gamma",
+    });
+    expect(notesCommentAnchorDraft("Alpha beta gamma", 0, 0)).toBeNull();
+    expect(notesCommentAnchorDraft("Alpha beta gamma", 5, 6)).toBeNull();
   });
 });
