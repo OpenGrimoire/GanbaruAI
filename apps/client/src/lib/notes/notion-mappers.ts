@@ -6,6 +6,7 @@ import {
   parseNotesDataSource,
   parseNotesDataSourceBoardView,
   parseNotesDataSourceCalendarView,
+  parseNotesDataSourceCsvImportResult,
   parseNotesDataSourceGalleryView,
   parseNotesDataSourceListView,
   parseNotesDataSourceSchema,
@@ -40,6 +41,7 @@ import type {
   NotesDataSource,
   NotesDataSourceBoardView,
   NotesDataSourceCalendarView,
+  NotesDataSourceCsvImportResult,
   NotesDataSourceGalleryView,
   NotesDataSourceListView,
   NotesDataSourceSchema,
@@ -195,6 +197,11 @@ export function mapNotesDataSourceSchemaDto(value: unknown): NotesDataSourceSche
 /** Validate and map an unknown local data source table view DTO from the Tauri boundary. */
 export function mapNotesDataSourceTableViewDto(value: unknown): NotesDataSourceTableView {
   return parseNotesDataSourceTableView(value);
+}
+
+/** Validate and map an unknown local data source CSV import DTO from the Tauri boundary. */
+export function mapNotesDataSourceCsvImportDto(value: unknown): NotesDataSourceCsvImportResult {
+  return parseNotesDataSourceCsvImportResult(value);
 }
 
 /** Validate and map an unknown local data source template DTO from the Tauri boundary. */

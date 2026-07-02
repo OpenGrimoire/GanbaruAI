@@ -9,6 +9,7 @@ import {
   mapNotesDataSourceDto,
   mapNotesDataSourceBoardViewDto,
   mapNotesDataSourceCalendarViewDto,
+  mapNotesDataSourceCsvImportDto,
   mapNotesDataSourceGalleryViewDto,
   mapNotesDataSourceListViewDto,
   mapNotesDataSourceSchemaDto,
@@ -51,6 +52,8 @@ import type {
   NotesDataSourceButtonClickRequest,
   NotesDataSourceCalendarView,
   NotesDataSourceCalendarViewUpdate,
+  NotesDataSourceCsvImportRequest,
+  NotesDataSourceCsvImportResult,
   NotesDataSourceGalleryView,
   NotesDataSourceGalleryViewUpdate,
   NotesDataSourceListView,
@@ -666,6 +669,20 @@ export async function createNotesDataSourceRowPage(
   const dbUrl = await ensureDbUrl();
   return mapNotesLoadedPageDto(
     await invoke<unknown>("notes_create_data_source_row_page", {
+      dbUrl,
+      dataSourceId,
+      request,
+    }),
+  );
+}
+
+export async function importNotesDataSourceCsv(
+  dataSourceId: string,
+  request: NotesDataSourceCsvImportRequest,
+): Promise<NotesDataSourceCsvImportResult> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesDataSourceCsvImportDto(
+    await invoke<unknown>("notes_import_data_source_csv", {
       dbUrl,
       dataSourceId,
       request,

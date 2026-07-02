@@ -919,6 +919,7 @@ pub fn run() {
             notes::notes_update_data_source_schema,
             notes::notes_list_data_source_row_pages,
             notes::notes_create_data_source_row_page,
+            notes::notes_import_data_source_csv,
             notes::notes_list_data_source_templates,
             notes::notes_create_data_source_template_from_row,
             notes::notes_apply_data_source_template,

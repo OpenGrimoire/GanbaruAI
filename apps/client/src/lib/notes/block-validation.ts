@@ -50,6 +50,11 @@ import {
   type NotesDataSourceBoardGroup,
   type NotesDataSourceBoardView,
   type NotesDataSourceCalendarView,
+  type NotesDataSourceCsvImportColumn,
+  type NotesDataSourceCsvImportDiagnostic,
+  type NotesDataSourceCsvImportDiagnosticSeverity,
+  type NotesDataSourceCsvImportResult,
+  type NotesDataSourceCsvImportRow,
   type NotesDataSourceGalleryView,
   type NotesDataSourceListView,
   type NotesDataSourceSchema,
@@ -2166,6 +2171,158 @@ function parseNotesHtmlExportDiagnostic(
 function isHtmlExportDiagnosticSeverity(
   value: string,
 ): value is NotesHtmlExportDiagnosticSeverity {
+  return value === "info" || value === "warning" || value === "error";
+}
+
+export function parseNotesDataSourceCsvImportResult(
+  value: unknown,
+): NotesDataSourceCsvImportResult {
+  const record = readRecord(value, "CSV import result");
+  if (record.object !== "notes_data_source_csv_import") {
+    throw new Error("CSV import result.object must be notes_data_source_csv_import");
+  }
+  if (!Array.isArray(record.imported_page_ids)) {
+    throw new Error("CSV import result.imported_page_ids must be an array");
+  }
+  if (!Array.isArray(record.columns)) {
+    throw new Error("CSV import result.columns must be an array");
+  }
+  if (!Array.isArray(record.rows)) {
+    throw new Error("CSV import result.rows must be an array");
+  }
+  if (!Array.isArray(record.diagnostics)) {
+    throw new Error("CSV import result.diagnostics must be an array");
+  }
+  return {
+    object: "notes_data_source_csv_import",
+    data_source_id: readUuidString(record.data_source_id, "CSV import result.data_source_id"),
+    dry_run: readBoolean(record.dry_run, "CSV import result.dry_run"),
+    total_row_count: readNonNegativeInteger(
+      record.total_row_count,
+      "CSV import result.total_row_count",
+    ),
+    valid_row_count: readNonNegativeInteger(
+      record.valid_row_count,
+      "CSV import result.valid_row_count",
+    ),
+    skipped_row_count: readNonNegativeInteger(
+      record.skipped_row_count,
+      "CSV import result.skipped_row_count",
+    ),
+    imported_row_count: readNonNegativeInteger(
+      record.imported_row_count,
+      "CSV import result.imported_row_count",
+    ),
+    imported_page_ids: record.imported_page_ids.map((pageId, index) =>
+      readUuidString(pageId, `CSV import result.imported_page_ids[${index}]`)
+    ),
+    columns: record.columns.map(parseNotesDataSourceCsvImportColumn),
+    rows: record.rows.map(parseNotesDataSourceCsvImportRow),
+    diagnostics: record.diagnostics.map(parseNotesDataSourceCsvImportDiagnostic),
+  };
+}
+
+function parseNotesDataSourceCsvImportColumn(
+  value: unknown,
+  index: number,
+): NotesDataSourceCsvImportColumn {
+  const record = readRecord(value, `CSV import result.columns[${index}]`);
+  const sourceIndex = readInteger(
+    record.source_index,
+    `CSV import result.columns[${index}].source_index`,
+  );
+  if (sourceIndex < 1) {
+    throw new Error(`CSV import result.columns[${index}].source_index must be positive`);
+  }
+  return {
+    source_index: sourceIndex,
+    source_name: readString(record.source_name, `CSV import result.columns[${index}].source_name`),
+    property_id: readNullableString(
+      record.property_id,
+      `CSV import result.columns[${index}].property_id`,
+    ),
+    property_name: readNullableString(
+      record.property_name,
+      `CSV import result.columns[${index}].property_name`,
+    ),
+    property_type: readNullableString(
+      record.property_type,
+      `CSV import result.columns[${index}].property_type`,
+    ),
+    mapped: readBoolean(record.mapped, `CSV import result.columns[${index}].mapped`),
+    read_only: readBoolean(record.read_only, `CSV import result.columns[${index}].read_only`),
+    warning: readNullableString(record.warning, `CSV import result.columns[${index}].warning`),
+  };
+}
+
+function parseNotesDataSourceCsvImportRow(
+  value: unknown,
+  index: number,
+): NotesDataSourceCsvImportRow {
+  const record = readRecord(value, `CSV import result.rows[${index}]`);
+  const rowNumber = readInteger(record.row_number, `CSV import result.rows[${index}].row_number`);
+  if (rowNumber < 1) {
+    throw new Error(`CSV import result.rows[${index}].row_number must be positive`);
+  }
+  return {
+    row_number: rowNumber,
+    title: readString(record.title, `CSV import result.rows[${index}].title`),
+    valid: readBoolean(record.valid, `CSV import result.rows[${index}].valid`),
+    mapped_cell_count: readNonNegativeInteger(
+      record.mapped_cell_count,
+      `CSV import result.rows[${index}].mapped_cell_count`,
+    ),
+    error_count: readNonNegativeInteger(
+      record.error_count,
+      `CSV import result.rows[${index}].error_count`,
+    ),
+  };
+}
+
+function parseNotesDataSourceCsvImportDiagnostic(
+  value: unknown,
+  index: number,
+): NotesDataSourceCsvImportDiagnostic {
+  const record = readRecord(value, `CSV import result.diagnostics[${index}]`);
+  const severity = readString(
+    record.severity,
+    `CSV import result.diagnostics[${index}].severity`,
+  );
+  if (!isDataSourceCsvImportDiagnosticSeverity(severity)) {
+    throw new Error(`CSV import result.diagnostics[${index}].severity is unsupported`);
+  }
+  const rowNumber = record.row_number === null
+    ? null
+    : readInteger(record.row_number, `CSV import result.diagnostics[${index}].row_number`);
+  const columnIndex = record.column_index === null
+    ? null
+    : readInteger(record.column_index, `CSV import result.diagnostics[${index}].column_index`);
+  if (rowNumber !== null && rowNumber < 1) {
+    throw new Error(`CSV import result.diagnostics[${index}].row_number must be positive`);
+  }
+  if (columnIndex !== null && columnIndex < 1) {
+    throw new Error(`CSV import result.diagnostics[${index}].column_index must be positive`);
+  }
+  return {
+    code: readString(record.code, `CSV import result.diagnostics[${index}].code`),
+    severity,
+    row_number: rowNumber,
+    column_index: columnIndex,
+    column_name: readNullableString(
+      record.column_name,
+      `CSV import result.diagnostics[${index}].column_name`,
+    ),
+    property_id: readNullableString(
+      record.property_id,
+      `CSV import result.diagnostics[${index}].property_id`,
+    ),
+    message: readString(record.message, `CSV import result.diagnostics[${index}].message`),
+  };
+}
+
+function isDataSourceCsvImportDiagnosticSeverity(
+  value: string,
+): value is NotesDataSourceCsvImportDiagnosticSeverity {
   return value === "info" || value === "warning" || value === "error";
 }
 

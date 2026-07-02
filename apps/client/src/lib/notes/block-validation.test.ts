@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   parseNotesBlock,
   parseNotesCreatedDatabase,
+  parseNotesDataSourceCsvImportResult,
   parseNotesHtmlArchiveSaveResult,
   parseNotesHtmlExportResult,
   parseNotesLocalUser,
@@ -1712,5 +1713,73 @@ describe("notes boundary validation", () => {
 
     expect(result.saved).toBe(false);
     expect(result.export).toBeNull();
+  });
+
+  it("parses data source CSV import result DTOs", () => {
+    const result = parseNotesDataSourceCsvImportResult({
+      object: "notes_data_source_csv_import",
+      data_source_id: "81818181-8181-4181-8181-818181818181",
+      dry_run: true,
+      total_row_count: 2,
+      valid_row_count: 1,
+      skipped_row_count: 1,
+      imported_row_count: 0,
+      imported_page_ids: [],
+      columns: [
+        {
+          source_index: 1,
+          source_name: "Name",
+          property_id: "title",
+          property_name: "Name",
+          property_type: "title",
+          mapped: true,
+          read_only: false,
+          warning: null,
+        },
+        {
+          source_index: 2,
+          source_name: "Ticket",
+          property_id: "ticket",
+          property_name: "Ticket",
+          property_type: "unique_id",
+          mapped: true,
+          read_only: true,
+          warning: "CSV column maps to a read-only property and will be skipped.",
+        },
+      ],
+      rows: [
+        {
+          row_number: 2,
+          title: "Alpha",
+          valid: true,
+          mapped_cell_count: 1,
+          error_count: 0,
+        },
+        {
+          row_number: 3,
+          title: "Broken",
+          valid: false,
+          mapped_cell_count: 1,
+          error_count: 1,
+        },
+      ],
+      diagnostics: [
+        {
+          code: "invalid_cell",
+          severity: "error",
+          row_number: 3,
+          column_index: 3,
+          column_name: "Estimate",
+          property_id: "estimate",
+          message: "number value must be a valid number",
+        },
+      ],
+    });
+
+    expect(result.object).toBe("notes_data_source_csv_import");
+    expect(result.valid_row_count).toBe(1);
+    expect(result.columns[1]?.read_only).toBe(true);
+    expect(result.rows[1]?.valid).toBe(false);
+    expect(result.diagnostics[0]?.property_id).toBe("estimate");
   });
 });

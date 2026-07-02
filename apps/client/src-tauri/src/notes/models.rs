@@ -1260,6 +1260,60 @@ pub struct NoteDataSourceRowPageCreate {
 }
 
 #[derive(Deserialize)]
+pub struct NoteDataSourceCsvImportRequest {
+    pub(in crate::notes) csv: String,
+    pub(in crate::notes) has_header: Option<bool>,
+    pub(in crate::notes) dry_run: Option<bool>,
+}
+
+#[derive(Serialize)]
+pub struct NoteDataSourceCsvImportColumnDto {
+    pub(in crate::notes) source_index: i64,
+    pub(in crate::notes) source_name: String,
+    pub(in crate::notes) property_id: Option<String>,
+    pub(in crate::notes) property_name: Option<String>,
+    pub(in crate::notes) property_type: Option<String>,
+    pub(in crate::notes) mapped: bool,
+    pub(in crate::notes) read_only: bool,
+    pub(in crate::notes) warning: Option<String>,
+}
+
+#[derive(Clone, Serialize)]
+pub struct NoteDataSourceCsvImportDiagnosticDto {
+    pub(in crate::notes) code: String,
+    pub(in crate::notes) severity: String,
+    pub(in crate::notes) row_number: Option<i64>,
+    pub(in crate::notes) column_index: Option<i64>,
+    pub(in crate::notes) column_name: Option<String>,
+    pub(in crate::notes) property_id: Option<String>,
+    pub(in crate::notes) message: String,
+}
+
+#[derive(Serialize)]
+pub struct NoteDataSourceCsvImportRowDto {
+    pub(in crate::notes) row_number: i64,
+    pub(in crate::notes) title: String,
+    pub(in crate::notes) valid: bool,
+    pub(in crate::notes) mapped_cell_count: i64,
+    pub(in crate::notes) error_count: i64,
+}
+
+#[derive(Serialize)]
+pub struct NoteDataSourceCsvImportDto {
+    pub(in crate::notes) object: &'static str,
+    pub(in crate::notes) data_source_id: String,
+    pub(in crate::notes) dry_run: bool,
+    pub(in crate::notes) total_row_count: i64,
+    pub(in crate::notes) valid_row_count: i64,
+    pub(in crate::notes) skipped_row_count: i64,
+    pub(in crate::notes) imported_row_count: i64,
+    pub(in crate::notes) imported_page_ids: Vec<String>,
+    pub(in crate::notes) columns: Vec<NoteDataSourceCsvImportColumnDto>,
+    pub(in crate::notes) rows: Vec<NoteDataSourceCsvImportRowDto>,
+    pub(in crate::notes) diagnostics: Vec<NoteDataSourceCsvImportDiagnosticDto>,
+}
+
+#[derive(Deserialize)]
 pub struct NoteDataSourceTemplateCreateFromRow {
     pub(in crate::notes) id: String,
     pub(in crate::notes) source_page_id: String,
