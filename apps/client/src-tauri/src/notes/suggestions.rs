@@ -1,6 +1,7 @@
-use super::local_user;
 use super::models::{NoteBlockRow, NoteSuggestionCreate, NoteSuggestionDto, NoteSuggestionRow};
 use super::validation::require_uuid;
+use super::{collaboration_operations, local_user};
+use serde_json::{json, Value};
 use sqlx::{Sqlite, SqlitePool, Transaction};
 
 const SUGGESTION_MAX_TEXT_LENGTH: usize = 2000;
@@ -61,6 +62,7 @@ pub(in crate::notes) async fn create_suggestion(
         return Err("suggestion original text must exist in the block".to_string());
     }
     let local_user = local_user::current_local_user_tx(&mut tx).await?;
+    let actor_display_name = local_user::comment_display_name_json(&local_user.display_name);
     sqlx::query(
         "INSERT INTO notes_suggestions (
             id,
@@ -81,9 +83,7 @@ pub(in crate::notes) async fn create_suggestion(
     .bind(&block.page_id)
     .bind(&block.id)
     .bind(&local_user.id)
-    .bind(local_user::comment_display_name_json(
-        &local_user.display_name,
-    ))
+    .bind(&actor_display_name)
     .bind(request.range_start)
     .bind(request.range_end)
     .bind(request.original_text.as_str())
@@ -94,6 +94,23 @@ pub(in crate::notes) async fn create_suggestion(
     .await
     .map_err(|e| format!("create notes suggestion: {e}"))?;
     let row = load_suggestion_row_tx(&mut tx, request.id.trim()).await?;
+    collaboration_operations::record_tx(
+        &mut tx,
+        collaboration_operations::NotesCollaborationOperation {
+            entity_type: "suggestion",
+            entity_id: &row.id,
+            operation_type: "suggestion_create",
+            page_id: &row.page_id,
+            block_id: Some(&row.block_id),
+            actor_id: &local_user.id,
+            actor_display_name: &actor_display_name,
+            base_version: 0,
+            entity_version: row.sync_version,
+            conflict_policy: "append_only",
+            payload: suggestion_payload(&row)?,
+        },
+    )
+    .await?;
     tx.commit()
         .await
         .map_err(|e| format!("commit notes suggestion create: {e}"))?;
@@ -131,12 +148,14 @@ async fn decide_suggestion(
     }
     load_active_block_tx(&mut tx, &suggestion.block_id).await?;
     let local_user = local_user::current_local_user_tx(&mut tx).await?;
+    let actor_display_name = local_user::comment_display_name_json(&local_user.display_name);
     if status == "accepted" {
         sqlx::query(
             "UPDATE notes_suggestions
              SET status = 'accepted',
                  accepted_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
                  accepted_by = ?,
+                 sync_version = sync_version + 1,
                  last_edited_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
              WHERE id = ?",
         )
@@ -151,6 +170,7 @@ async fn decide_suggestion(
              SET status = 'rejected',
                  rejected_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
                  rejected_by = ?,
+                 sync_version = sync_version + 1,
                  last_edited_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
              WHERE id = ?",
         )
@@ -161,6 +181,27 @@ async fn decide_suggestion(
         .map_err(|e| format!("reject notes suggestion: {e}"))?;
     }
     let row = load_suggestion_row_tx(&mut tx, suggestion_id).await?;
+    collaboration_operations::record_tx(
+        &mut tx,
+        collaboration_operations::NotesCollaborationOperation {
+            entity_type: "suggestion",
+            entity_id: &row.id,
+            operation_type: if status == "accepted" {
+                "suggestion_accept"
+            } else {
+                "suggestion_reject"
+            },
+            page_id: &row.page_id,
+            block_id: Some(&row.block_id),
+            actor_id: &local_user.id,
+            actor_display_name: &actor_display_name,
+            base_version: suggestion.sync_version,
+            entity_version: row.sync_version,
+            conflict_policy: "state_transition",
+            payload: suggestion_payload(&row)?,
+        },
+    )
+    .await?;
     tx.commit()
         .await
         .map_err(|e| format!("commit notes suggestion decision: {e}"))?;
@@ -188,6 +229,34 @@ fn validate_suggestion_create(request: &NoteSuggestionCreate) -> Result<(), Stri
         return Err("suggestion context is too long".to_string());
     }
     Ok(())
+}
+
+fn suggestion_payload(row: &NoteSuggestionRow) -> Result<Value, String> {
+    Ok(json!({
+        "schema_version": 1,
+        "suggestion_id": &row.id,
+        "page_id": &row.page_id,
+        "block_id": &row.block_id,
+        "status": &row.status,
+        "range_start": row.range_start,
+        "range_end": row.range_end,
+        "original_text": &row.original_text,
+        "proposed_text": &row.proposed_text,
+        "prefix": &row.prefix_text,
+        "suffix": &row.suffix_text,
+        "created_by": &row.created_by,
+        "display_name": parse_stored_json(&row.display_name)?,
+        "accepted_at": row.accepted_at.as_deref(),
+        "accepted_by": row.accepted_by.as_deref(),
+        "rejected_at": row.rejected_at.as_deref(),
+        "rejected_by": row.rejected_by.as_deref(),
+        "created_time": &row.created_time,
+        "last_edited_time": &row.last_edited_time,
+    }))
+}
+
+fn parse_stored_json(value: &str) -> Result<Value, String> {
+    serde_json::from_str(value).map_err(|e| format!("parse suggestion display name: {e}"))
 }
 
 async fn load_suggestion_row_tx(

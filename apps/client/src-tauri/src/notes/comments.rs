@@ -1,11 +1,11 @@
 use super::models::{
     NoteCommentAnchorCreate, NoteCommentAnchorDto, NoteCommentAnchorRow, NoteCommentCreate,
     NoteCommentDto, NoteCommentRow, NoteCommentThreadDto, NoteCommentThreadReadUpdate,
-    NoteCommentThreadRow, NoteCommentUpdate, NoteParent,
+    NoteCommentThreadRow, NoteCommentUpdate, NoteLocalUserRow, NoteParent,
 };
 use super::validation::{require_uuid, rich_text_items_plain_text, validate_comment_rich_text};
-use super::{local_user, mention_notifications};
-use serde_json::Value;
+use super::{collaboration_operations, local_user, mention_notifications};
+use serde_json::{json, Value};
 use sqlx::{Sqlite, SqlitePool, Transaction};
 use std::collections::HashSet;
 
@@ -147,6 +147,8 @@ pub(in crate::notes) async fn create_comment(
         .begin()
         .await
         .map_err(|e| format!("begin notes comment create: {e}"))?;
+    let local_user = local_user::current_local_user_tx(&mut tx).await?;
+    let actor_display_name = local_user::comment_display_name_json(&local_user.display_name);
     let thread_id = if let Some(parent) = request.parent {
         let parent = resolve_comment_parent(&mut tx, &parent).await?;
         let thread_id = new_comment_thread_id(&mut tx).await?;
@@ -171,6 +173,24 @@ pub(in crate::notes) async fn create_comment(
         if let Some(anchor) = request.anchor.as_ref() {
             insert_comment_anchor_row(&mut tx, &thread_id, &parent, anchor).await?;
         }
+        let thread = load_thread_row(&mut tx, &thread_id).await?;
+        collaboration_operations::record_tx(
+            &mut tx,
+            collaboration_operations::NotesCollaborationOperation {
+                entity_type: "comment_thread",
+                entity_id: &thread.id,
+                operation_type: "comment_thread_create",
+                page_id: &thread.page_id,
+                block_id: thread.parent_block_id.as_deref(),
+                actor_id: &local_user.id,
+                actor_display_name: &actor_display_name,
+                base_version: 0,
+                entity_version: thread.sync_version,
+                conflict_policy: "append_only",
+                payload: comment_thread_create_payload(&thread, request.anchor.as_ref()),
+            },
+        )
+        .await?;
         thread_id
     } else {
         let thread_id = request
@@ -185,8 +205,33 @@ pub(in crate::notes) async fn create_comment(
         }
         thread_id.to_string()
     };
-    insert_comment_row(&mut tx, request.id.trim(), &thread_id, &request.rich_text).await?;
+    let comment = insert_comment_row(
+        &mut tx,
+        request.id.trim(),
+        &thread_id,
+        &request.rich_text,
+        &local_user,
+        &actor_display_name,
+    )
+    .await?;
     let thread = load_thread_row(&mut tx, &thread_id).await?;
+    collaboration_operations::record_tx(
+        &mut tx,
+        collaboration_operations::NotesCollaborationOperation {
+            entity_type: "comment",
+            entity_id: &comment.id,
+            operation_type: "comment_create",
+            page_id: &thread.page_id,
+            block_id: thread.parent_block_id.as_deref(),
+            actor_id: &local_user.id,
+            actor_display_name: &actor_display_name,
+            base_version: 0,
+            entity_version: comment.sync_version,
+            conflict_policy: "append_only",
+            payload: comment_payload(&comment)?,
+        },
+    )
+    .await?;
     let plain_text = rich_text_items_plain_text(&request.rich_text);
     mention_notifications::sync_comment_tx(
         &mut tx,
@@ -218,13 +263,15 @@ pub(in crate::notes) async fn update_comment(
         .begin()
         .await
         .map_err(|e| format!("begin notes comment update: {e}"))?;
+    let local_user = local_user::current_local_user_tx(&mut tx).await?;
+    let actor_display_name = local_user::comment_display_name_json(&local_user.display_name);
     let row = load_comment_row(&mut tx, comment_id).await?;
     let thread = load_thread_row(&mut tx, &row.thread_id).await?;
-    ensure_thread_target_active(&mut tx, &thread).await?;
     sqlx::query(
         "UPDATE notes_comments
          SET rich_text = ?,
              plain_text = ?,
+             sync_version = sync_version + 1,
              last_edited_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
          WHERE id = ?",
     )
@@ -234,6 +281,24 @@ pub(in crate::notes) async fn update_comment(
     .execute(&mut *tx)
     .await
     .map_err(|e| format!("update notes comment: {e}"))?;
+    let updated = load_comment_row(&mut tx, comment_id).await?;
+    collaboration_operations::record_tx(
+        &mut tx,
+        collaboration_operations::NotesCollaborationOperation {
+            entity_type: "comment",
+            entity_id: &updated.id,
+            operation_type: "comment_update",
+            page_id: &thread.page_id,
+            block_id: thread.parent_block_id.as_deref(),
+            actor_id: &local_user.id,
+            actor_display_name: &actor_display_name,
+            base_version: row.sync_version,
+            entity_version: updated.sync_version,
+            conflict_policy: "last_writer_wins",
+            payload: comment_payload(&updated)?,
+        },
+    )
+    .await?;
     mention_notifications::sync_comment_tx(
         &mut tx,
         comment_id,
@@ -261,10 +326,15 @@ pub(in crate::notes) async fn delete_comment(
         .begin()
         .await
         .map_err(|e| format!("begin notes comment delete: {e}"))?;
+    let local_user = local_user::current_local_user_tx(&mut tx).await?;
+    let actor_display_name = local_user::comment_display_name_json(&local_user.display_name);
     let row = load_comment_row(&mut tx, comment_id).await?;
+    let thread = load_thread_row(&mut tx, &row.thread_id).await?;
+    ensure_thread_target_active(&mut tx, &thread).await?;
     sqlx::query(
         "UPDATE notes_comments
          SET deleted_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+             sync_version = sync_version + 1,
              last_edited_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
          WHERE id = ?",
     )
@@ -272,6 +342,24 @@ pub(in crate::notes) async fn delete_comment(
     .execute(&mut *tx)
     .await
     .map_err(|e| format!("delete notes comment: {e}"))?;
+    let deleted = load_comment_row_any(&mut tx, comment_id).await?;
+    collaboration_operations::record_tx(
+        &mut tx,
+        collaboration_operations::NotesCollaborationOperation {
+            entity_type: "comment",
+            entity_id: &deleted.id,
+            operation_type: "comment_delete",
+            page_id: &thread.page_id,
+            block_id: thread.parent_block_id.as_deref(),
+            actor_id: &local_user.id,
+            actor_display_name: &actor_display_name,
+            base_version: row.sync_version,
+            entity_version: deleted.sync_version,
+            conflict_policy: "state_transition",
+            payload: comment_payload(&deleted)?,
+        },
+    )
+    .await?;
     mention_notifications::clear_source_tx(&mut tx, "comment", comment_id).await?;
     touch_thread(&mut tx, &row.thread_id).await?;
     mark_thread_read_for_current_user_tx(&mut tx, &row.thread_id).await?;
@@ -294,13 +382,15 @@ pub(in crate::notes) async fn resolve_comment_thread(
         .map_err(|e| format!("begin notes comment thread resolve: {e}"))?;
     let thread = load_thread_row(&mut tx, discussion_id).await?;
     ensure_thread_target_active(&mut tx, &thread).await?;
+    let local_user = local_user::current_local_user_tx(&mut tx).await?;
+    let actor_display_name = local_user::comment_display_name_json(&local_user.display_name);
     if resolved {
-        let local_user = local_user::current_local_user_tx(&mut tx).await?;
         sqlx::query(
             "UPDATE notes_comment_threads
              SET status = 'resolved',
                  resolved_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
                  resolved_by = ?,
+                 sync_version = sync_version + 1,
                  last_edited_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
              WHERE id = ?",
         )
@@ -315,6 +405,7 @@ pub(in crate::notes) async fn resolve_comment_thread(
              SET status = 'open',
                  resolved_at = NULL,
                  resolved_by = NULL,
+                 sync_version = sync_version + 1,
                  last_edited_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
              WHERE id = ?",
         )
@@ -323,6 +414,28 @@ pub(in crate::notes) async fn resolve_comment_thread(
         .await
         .map_err(|e| format!("reopen notes comment thread: {e}"))?;
     }
+    let updated_thread = load_thread_row(&mut tx, discussion_id).await?;
+    collaboration_operations::record_tx(
+        &mut tx,
+        collaboration_operations::NotesCollaborationOperation {
+            entity_type: "comment_thread",
+            entity_id: &updated_thread.id,
+            operation_type: if resolved {
+                "comment_thread_resolve"
+            } else {
+                "comment_thread_reopen"
+            },
+            page_id: &updated_thread.page_id,
+            block_id: updated_thread.parent_block_id.as_deref(),
+            actor_id: &local_user.id,
+            actor_display_name: &actor_display_name,
+            base_version: thread.sync_version,
+            entity_version: updated_thread.sync_version,
+            conflict_policy: "state_transition",
+            payload: comment_thread_state_payload(&updated_thread),
+        },
+    )
+    .await?;
     mark_thread_read_for_current_user_tx(&mut tx, discussion_id).await?;
     tx.commit()
         .await
@@ -489,9 +602,10 @@ async fn insert_comment_row(
     comment_id: &str,
     thread_id: &str,
     rich_text: &[Value],
-) -> Result<(), String> {
+    local_user: &NoteLocalUserRow,
+    display_name_json: &str,
+) -> Result<NoteCommentRow, String> {
     let plain_text = rich_text_items_plain_text(rich_text);
-    let local_user = local_user::current_local_user_tx(tx).await?;
     sqlx::query(
         "INSERT INTO notes_comments (
             id,
@@ -508,13 +622,11 @@ async fn insert_comment_row(
     .bind(Value::Array(rich_text.to_vec()).to_string())
     .bind(plain_text)
     .bind(&local_user.id)
-    .bind(local_user::comment_display_name_json(
-        &local_user.display_name,
-    ))
+    .bind(display_name_json)
     .execute(&mut **tx)
     .await
     .map_err(|e| format!("create notes comment: {e}"))?;
-    Ok(())
+    load_comment_row(tx, comment_id).await
 }
 
 async fn insert_comment_anchor_row(
@@ -611,6 +723,94 @@ async fn load_comment_row(
     .await
     .map_err(|e| format!("load notes comment: {e}"))?
     .ok_or_else(|| "notes comment not found".to_string())
+}
+
+async fn load_comment_row_any(
+    tx: &mut Transaction<'_, Sqlite>,
+    comment_id: &str,
+) -> Result<NoteCommentRow, String> {
+    sqlx::query_as::<_, NoteCommentRow>("SELECT * FROM notes_comments WHERE id = ?")
+        .bind(comment_id)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(|e| format!("load notes comment: {e}"))?
+        .ok_or_else(|| "notes comment not found".to_string())
+}
+
+fn comment_thread_create_payload(
+    thread: &NoteCommentThreadRow,
+    anchor: Option<&NoteCommentAnchorCreate>,
+) -> Value {
+    json!({
+        "schema_version": 1,
+        "thread_id": &thread.id,
+        "page_id": &thread.page_id,
+        "parent": comment_thread_parent_payload(thread),
+        "status": &thread.status,
+        "anchor": anchor.map(comment_anchor_create_payload),
+        "created_time": &thread.created_time,
+        "last_edited_time": &thread.last_edited_time,
+    })
+}
+
+fn comment_thread_state_payload(thread: &NoteCommentThreadRow) -> Value {
+    json!({
+        "schema_version": 1,
+        "thread_id": &thread.id,
+        "page_id": &thread.page_id,
+        "parent": comment_thread_parent_payload(thread),
+        "status": &thread.status,
+        "resolved_at": thread.resolved_at.as_deref(),
+        "resolved_by": thread.resolved_by.as_deref(),
+        "last_edited_time": &thread.last_edited_time,
+    })
+}
+
+fn comment_thread_parent_payload(thread: &NoteCommentThreadRow) -> Value {
+    match thread.parent_type.as_str() {
+        "page_id" => json!({
+            "type": "page_id",
+            "page_id": thread.parent_page_id.as_deref(),
+        }),
+        "block_id" => json!({
+            "type": "block_id",
+            "block_id": thread.parent_block_id.as_deref(),
+        }),
+        _ => json!({
+            "type": &thread.parent_type,
+        }),
+    }
+}
+
+fn comment_anchor_create_payload(anchor: &NoteCommentAnchorCreate) -> Value {
+    json!({
+        "type": "text_range",
+        "start": anchor.start,
+        "end": anchor.end,
+        "text": &anchor.text,
+        "prefix": &anchor.prefix,
+        "suffix": &anchor.suffix,
+    })
+}
+
+fn comment_payload(comment: &NoteCommentRow) -> Result<Value, String> {
+    Ok(json!({
+        "schema_version": 1,
+        "comment_id": &comment.id,
+        "discussion_id": &comment.thread_id,
+        "rich_text": parse_stored_json(&comment.rich_text, "comment rich_text")?,
+        "plain_text": &comment.plain_text,
+        "created_by": &comment.created_by,
+        "display_name": parse_stored_json(&comment.display_name, "comment display name")?,
+        "attachments": parse_stored_json(&comment.attachments, "comment attachments")?,
+        "deleted_at": comment.deleted_at.as_deref(),
+        "created_time": &comment.created_time,
+        "last_edited_time": &comment.last_edited_time,
+    }))
+}
+
+fn parse_stored_json(value: &str, label: &str) -> Result<Value, String> {
+    serde_json::from_str(value).map_err(|e| format!("parse {label}: {e}"))
 }
 
 async fn touch_thread(tx: &mut Transaction<'_, Sqlite>, thread_id: &str) -> Result<(), String> {

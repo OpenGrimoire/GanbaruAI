@@ -1,6 +1,7 @@
 use crate::db_path::connect_sqlite;
 use tauri::{AppHandle, Runtime};
 
+mod collaboration_operations;
 mod comments;
 mod data_source_board;
 mod data_source_buttons;

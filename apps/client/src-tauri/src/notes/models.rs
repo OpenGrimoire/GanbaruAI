@@ -2201,6 +2201,7 @@ pub(in crate::notes) struct NoteCommentThreadRow {
     pub(in crate::notes) status: String,
     pub(in crate::notes) resolved_at: Option<String>,
     pub(in crate::notes) resolved_by: Option<String>,
+    pub(in crate::notes) sync_version: i64,
     pub(in crate::notes) created_time: String,
     pub(in crate::notes) last_edited_time: String,
 }
@@ -2213,6 +2214,7 @@ impl_sqlite_from_row!(NoteCommentThreadRow {
     status,
     resolved_at,
     resolved_by,
+    sync_version,
     created_time,
     last_edited_time,
 });
@@ -2253,6 +2255,7 @@ pub(in crate::notes) struct NoteCommentRow {
     pub(in crate::notes) display_name: String,
     pub(in crate::notes) attachments: String,
     pub(in crate::notes) deleted_at: Option<String>,
+    pub(in crate::notes) sync_version: i64,
     pub(in crate::notes) created_time: String,
     pub(in crate::notes) last_edited_time: String,
 }
@@ -2265,6 +2268,7 @@ impl_sqlite_from_row!(NoteCommentRow {
     display_name,
     attachments,
     deleted_at,
+    sync_version,
     created_time,
     last_edited_time,
 });
@@ -2287,6 +2291,7 @@ pub(in crate::notes) struct NoteSuggestionRow {
     pub(in crate::notes) accepted_by: Option<String>,
     pub(in crate::notes) rejected_at: Option<String>,
     pub(in crate::notes) rejected_by: Option<String>,
+    pub(in crate::notes) sync_version: i64,
     pub(in crate::notes) created_time: String,
     pub(in crate::notes) last_edited_time: String,
 }
@@ -2307,6 +2312,7 @@ impl_sqlite_from_row!(NoteSuggestionRow {
     accepted_by,
     rejected_at,
     rejected_by,
+    sync_version,
     created_time,
     last_edited_time,
 });

@@ -530,6 +530,7 @@ pub(in crate::notes) async fn search(
             comment.display_name,
             comment.attachments,
             comment.deleted_at,
+            comment.sync_version,
             comment.created_time,
             comment.last_edited_time
          FROM notes_comments AS comment

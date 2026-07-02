@@ -451,6 +451,139 @@ fn schema_creates_notes_suggestions() {
 }
 
 #[test]
+fn schema_creates_notes_collaboration_operations() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        let exists: Option<i64> =
+            sqlx::query_scalar("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?")
+                .bind("notes_collaboration_operations")
+                .fetch_optional(&pool)
+                .await
+                .unwrap();
+        assert_eq!(exists, Some(1));
+
+        for table in ["notes_pages", "notes_blocks", "notes_local_users"] {
+            let fk: Option<i64> = sqlx::query_scalar(
+                "SELECT 1
+                 FROM pragma_foreign_key_list('notes_collaboration_operations')
+                 WHERE \"table\" = ?",
+            )
+            .bind(table)
+            .fetch_optional(&pool)
+            .await
+            .unwrap();
+            assert_eq!(fk, Some(1), "{table} should be referenced");
+        }
+
+        sqlx::query(
+            "INSERT INTO notes_pages (id, parent_type, title, properties)
+             VALUES ('page-a', 'workspace', 'Inbox', '{}')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO notes_blocks (
+                id,
+                page_id,
+                parent_type,
+                parent_page_id,
+                type,
+                payload,
+                plain_text,
+                sort_order
+             )
+             VALUES (
+                'block-a',
+                'page-a',
+                'page_id',
+                'page-a',
+                'paragraph',
+                json_object('rich_text', json_array()),
+                'Original',
+                1
+             )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let user_id: String = sqlx::query_scalar(
+            "SELECT id FROM notes_local_users ORDER BY created_time ASC, id ASC LIMIT 1",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO notes_collaboration_operations (
+                id,
+                entity_type,
+                entity_id,
+                operation_type,
+                page_id,
+                block_id,
+                actor_id,
+                actor_display_name,
+                base_version,
+                entity_version,
+                conflict_policy,
+                payload
+             )
+             VALUES (
+                'operation-a',
+                'suggestion',
+                'suggestion-a',
+                'suggestion_create',
+                'page-a',
+                'block-a',
+                ?,
+                json_object('type', 'user', 'resolved_name', 'You'),
+                0,
+                1,
+                'append_only',
+                json_object('schema_version', 1)
+             )",
+        )
+        .bind(&user_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        assert!(sqlx::query(
+            "INSERT INTO notes_collaboration_operations (
+                id,
+                entity_type,
+                entity_id,
+                operation_type,
+                page_id,
+                actor_id,
+                actor_display_name,
+                base_version,
+                entity_version,
+                conflict_policy,
+                payload
+             )
+             VALUES (
+                'operation-b',
+                'suggestion',
+                'suggestion-b',
+                'suggestion_accept',
+                'page-a',
+                ?,
+                json_object('type', 'user', 'resolved_name', 'You'),
+                0,
+                1,
+                'append_only',
+                json_object('schema_version', 1)
+             )",
+        )
+        .bind(&user_id)
+        .execute(&pool)
+        .await
+        .is_err());
+    });
+}
+
+#[test]
 fn schema_rejects_invalid_calendar_values() {
     tauri::async_runtime::block_on(async {
         let pool = migrated_memory_pool().await;
