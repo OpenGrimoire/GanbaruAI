@@ -14,6 +14,7 @@ const MAX_PROPERTY_DESCRIPTION_LEN: usize = 2000;
 const MAX_OPTIONS: usize = 100;
 const MAX_OPTION_NAME_LEN: usize = 120;
 const MAX_UNIQUE_ID_PREFIX_LEN: usize = 32;
+const TABLE_ROW_OPEN_MODES: &[&str] = &["full_page", "side_panel"];
 
 const SUPPORTED_PROPERTY_TYPES: &[&str] = &[
     "title",
@@ -115,8 +116,22 @@ pub(in crate::notes) async fn update_data_source_schema(
     let current = load_data_source_row_tx(&mut tx, data_source_id).await?;
     let current_properties = parse_json(&current.properties, "data source properties")?;
     ensure_title_property_preserved(&current_properties, &prepared.properties)?;
-    let configuration =
-        table_view_configuration(&prepared.property_order, &prepared.hidden_property_ids);
+    let current_configuration: Option<String> = sqlx::query_scalar(
+        "SELECT configuration
+         FROM notes_database_views
+         WHERE data_source_id = ? AND type = 'table'
+         ORDER BY sort_order ASC, created_time ASC, id ASC
+         LIMIT 1",
+    )
+    .bind(data_source_id.trim())
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(|e| format!("load current notes table view configuration: {e}"))?;
+    let configuration = table_view_configuration(
+        &prepared.property_order,
+        &prepared.hidden_property_ids,
+        current_configuration.as_deref(),
+    )?;
     sqlx::query(
         "UPDATE notes_data_sources
          SET properties = ?,
@@ -606,14 +621,45 @@ fn title_property_name(properties: &Value) -> Result<Option<String>, String> {
     Ok(None)
 }
 
-fn table_view_configuration(property_order: &[String], hidden_property_ids: &[String]) -> Value {
-    json!({
+fn table_view_configuration(
+    property_order: &[String],
+    hidden_property_ids: &[String],
+    current_configuration: Option<&str>,
+) -> Result<Value, String> {
+    let current_table = current_configuration
+        .map(|configuration| parse_json(configuration, "table view configuration"))
+        .transpose()?
+        .and_then(|configuration| configuration.get("table").cloned())
+        .and_then(|table| table.as_object().cloned())
+        .unwrap_or_default();
+    let property_ids: HashSet<String> = property_order.iter().cloned().collect();
+    let column_widths = current_table
+        .get("column_widths")
+        .and_then(Value::as_object)
+        .map(|widths| {
+            let mut kept = Map::new();
+            for (property_id, width) in widths {
+                if property_ids.contains(property_id) && width.as_i64().is_some() {
+                    kept.insert(property_id.clone(), width.clone());
+                }
+            }
+            Value::Object(kept)
+        })
+        .unwrap_or_else(|| json!({}));
+    let row_open_mode = current_table
+        .get("row_open_mode")
+        .and_then(Value::as_str)
+        .filter(|mode| TABLE_ROW_OPEN_MODES.contains(mode))
+        .unwrap_or("full_page");
+    Ok(json!({
         "type": "table",
         "table": {
             "property_order": property_order,
-            "hidden_property_ids": hidden_property_ids
+            "hidden_property_ids": hidden_property_ids,
+            "column_widths": column_widths,
+            "row_open_mode": row_open_mode
         }
-    })
+    }))
 }
 
 async fn load_data_source_schema_tx(

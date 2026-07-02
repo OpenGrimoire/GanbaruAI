@@ -4,6 +4,7 @@ use tauri::{AppHandle, Runtime};
 mod comments;
 mod data_source_rows;
 mod data_source_schema;
+mod data_source_table;
 mod databases;
 mod history;
 mod models;
@@ -336,6 +337,40 @@ pub async fn notes_create_data_source_row_page<R: Runtime>(
 ) -> Result<NoteLoadedPage, String> {
     let pool = connect_sqlite(app, db_url).await?;
     data_source_rows::create_data_source_row_page(&pool, &data_source_id, request).await
+}
+
+#[tauri::command]
+pub async fn notes_get_data_source_table_view<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    data_source_id: String,
+) -> Result<NoteDataSourceTableViewDto, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    data_source_table::get_data_source_table_view(&pool, &data_source_id).await
+}
+
+#[tauri::command]
+pub async fn notes_update_data_source_table_view<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    data_source_id: String,
+    update: NoteDataSourceTableViewUpdate,
+) -> Result<NoteDataSourceTableViewDto, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    data_source_table::update_data_source_table_view(&pool, &data_source_id, update).await
+}
+
+#[tauri::command]
+pub async fn notes_update_data_source_row_property<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    data_source_id: String,
+    page_id: String,
+    update: NoteDataSourceRowPropertyUpdate,
+) -> Result<NotePageDto, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    data_source_table::update_data_source_row_property(&pool, &data_source_id, &page_id, update)
+        .await
 }
 
 #[tauri::command]

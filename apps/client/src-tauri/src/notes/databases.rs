@@ -342,7 +342,9 @@ fn default_table_view_configuration() -> Value {
         "type": "table",
         "table": {
             "property_order": ["title"],
-            "hidden_property_ids": []
+            "hidden_property_ids": [],
+            "column_widths": {},
+            "row_open_mode": "full_page"
         }
     })
 }

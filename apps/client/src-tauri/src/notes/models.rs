@@ -673,6 +673,40 @@ pub struct NoteDataSourceRowPageCreate {
     pub(in crate::notes) properties: Option<Value>,
 }
 
+#[derive(Clone, Deserialize, Serialize)]
+pub struct NoteDataSourceTableFilter {
+    pub(in crate::notes) property_id: String,
+    pub(in crate::notes) condition: String,
+    pub(in crate::notes) value: Option<Value>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+pub struct NoteDataSourceTableSort {
+    pub(in crate::notes) property_id: String,
+    pub(in crate::notes) direction: String,
+}
+
+#[derive(Clone, Deserialize)]
+pub struct NoteDataSourceTableConfigurationUpdate {
+    pub(in crate::notes) property_order: Vec<String>,
+    pub(in crate::notes) hidden_property_ids: Vec<String>,
+    pub(in crate::notes) column_widths: Value,
+    pub(in crate::notes) row_open_mode: String,
+}
+
+#[derive(Deserialize)]
+pub struct NoteDataSourceTableViewUpdate {
+    pub(in crate::notes) filter: Vec<NoteDataSourceTableFilter>,
+    pub(in crate::notes) sorts: Vec<NoteDataSourceTableSort>,
+    pub(in crate::notes) configuration: NoteDataSourceTableConfigurationUpdate,
+}
+
+#[derive(Deserialize)]
+pub struct NoteDataSourceRowPropertyUpdate {
+    pub(in crate::notes) property_id: String,
+    pub(in crate::notes) value: Value,
+}
+
 #[derive(Deserialize)]
 pub struct NoteMovePage {
     pub(in crate::notes) parent: NoteParent,
@@ -986,6 +1020,34 @@ impl NoteDataSourceSchemaDto {
                 block_parent_from_database_row(&database)?,
             )?,
             view: NoteDatabaseViewDto::new(view)?,
+        })
+    }
+}
+
+#[derive(Serialize)]
+pub struct NoteDataSourceTableViewDto {
+    data_source: NoteDataSourceDto,
+    view: NoteDatabaseViewDto,
+    rows: Vec<NotePageDto>,
+}
+
+impl NoteDataSourceTableViewDto {
+    pub(in crate::notes) fn new(
+        data_source: NoteDataSourceRow,
+        database: NoteDatabaseRow,
+        view: NoteDatabaseViewRow,
+        rows: Vec<NotePageRow>,
+    ) -> Result<Self, String> {
+        Ok(Self {
+            data_source: NoteDataSourceDto::new(
+                data_source,
+                block_parent_from_database_row(&database)?,
+            )?,
+            view: NoteDatabaseViewDto::new(view)?,
+            rows: rows
+                .into_iter()
+                .map(NotePageDto::new)
+                .collect::<Result<Vec<_>, _>>()?,
         })
     }
 }

@@ -7,6 +7,7 @@ import {
   mapNotesCommentThreadDto,
   mapNotesCreatedDatabaseDto,
   mapNotesDataSourceSchemaDto,
+  mapNotesDataSourceTableViewDto,
   mapNotesLoadedPageDto,
   mapNotesPageBreadcrumbItemDto,
   mapNotesPageHistorySettingsDto,
@@ -27,8 +28,11 @@ import type {
   NotesCreatedDatabase,
   NotesDatabaseCreateRequest,
   NotesDataSourceRowPageCreateRequest,
+  NotesDataSourceRowPropertyUpdate,
   NotesDataSourceSchema,
   NotesDataSourceSchemaUpdate,
+  NotesDataSourceTableView,
+  NotesDataSourceTableViewUpdate,
   NotesDuplicatePageRequest,
   NotesDuplicateBlockRequest,
   NotesDuplicateBlocksRequest,
@@ -340,6 +344,45 @@ export async function createNotesDataSourceRowPage(
       dbUrl,
       dataSourceId,
       request,
+    }),
+  );
+}
+
+export async function getNotesDataSourceTableView(
+  dataSourceId: string,
+): Promise<NotesDataSourceTableView> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesDataSourceTableViewDto(
+    await invoke<unknown>("notes_get_data_source_table_view", { dbUrl, dataSourceId }),
+  );
+}
+
+export async function updateNotesDataSourceTableView(
+  dataSourceId: string,
+  update: NotesDataSourceTableViewUpdate,
+): Promise<NotesDataSourceTableView> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesDataSourceTableViewDto(
+    await invoke<unknown>("notes_update_data_source_table_view", {
+      dbUrl,
+      dataSourceId,
+      update,
+    }),
+  );
+}
+
+export async function updateNotesDataSourceRowProperty(
+  dataSourceId: string,
+  pageId: string,
+  update: NotesDataSourceRowPropertyUpdate,
+): Promise<NotesPage> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesPageDto(
+    await invoke<unknown>("notes_update_data_source_row_property", {
+      dbUrl,
+      dataSourceId,
+      pageId,
+      update,
     }),
   );
 }

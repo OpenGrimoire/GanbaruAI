@@ -5,7 +5,7 @@
     getNotesDataSourceSchema,
     updateNotesDataSourceSchema,
   } from "$lib/api/notes";
-  import NotesDataSourceRows from "./NotesDataSourceRows.svelte";
+  import NotesDatabaseTableView from "./NotesDatabaseTableView.svelte";
   import {
     createNotesDataSourcePropertyDraft,
     defaultNotesDataSourcePropertyName,
@@ -65,6 +65,7 @@
   let schema = $state<NotesDataSourceSchema | null>(null);
   let properties = $state<NotesDataSourceSchemaPropertyDraft[]>([]);
   let newPropertyType = $state<NotesDataSourcePropertyType>("rich_text");
+  let tableReloadKey = $state(0);
 
   const title = $derived(block.child_database.title.trim());
   const dataSourceId = $derived(block.child_database.data_source_id ?? null);
@@ -95,6 +96,7 @@
       properties = notesDataSourceSchemaDraftFromDto(loaded.data_source, loaded.view);
       dirty = false;
       saved = false;
+      tableReloadKey += 1;
     } catch (caught) {
       error = caught instanceof Error ? caught.message : String(caught);
     } finally {
@@ -113,6 +115,7 @@
       properties = notesDataSourceSchemaDraftFromDto(updated.data_source, updated.view);
       dirty = false;
       saved = true;
+      tableReloadKey += 1;
     } catch (caught) {
       error = caught instanceof Error ? caught.message : String(caught);
     } finally {
@@ -567,7 +570,7 @@
       </div>
 
       {#if dataSourceId}
-        <NotesDataSourceRows {dataSourceId} {onSelectPage} />
+        <NotesDatabaseTableView {dataSourceId} {onSelectPage} reloadKey={tableReloadKey} />
       {/if}
     </div>
   {/if}
