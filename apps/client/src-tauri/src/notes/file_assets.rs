@@ -424,33 +424,6 @@ async fn save_notes_file_bytes<R: Runtime>(
     })
 }
 
-async fn mark_notes_file_asset_state(
-    app: &AppHandle<impl Runtime>,
-    db_url: String,
-    relative_path: &str,
-    missing: bool,
-) -> Result<(), String> {
-    let pool = connect_sqlite(app.clone(), db_url).await?;
-    let state = if missing { "missing" } else { "available" };
-    sqlx::query(
-        "UPDATE notes_assets
-         SET storage_state = ?,
-             missing_at = CASE
-                WHEN ? = 1 THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-                ELSE NULL
-             END,
-             updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-         WHERE asset_path = ?",
-    )
-    .bind(state)
-    .bind(if missing { 1_i64 } else { 0_i64 })
-    .bind(relative_path.trim())
-    .execute(&pool)
-    .await
-    .map_err(|e| format!("update notes file asset state: {e}"))?;
-    Ok(())
-}
-
 #[tauri::command]
 pub async fn notes_pick_file_asset<R: Runtime>(
     app: AppHandle<R>,
@@ -501,11 +474,13 @@ pub async fn notes_file_asset_data_url<R: Runtime>(
     let bytes = match read_preview_file_capped(&path, byte_size) {
         Ok(bytes) => bytes,
         Err(error) => {
-            let _ = mark_notes_file_asset_state(&app, db_url, &relative_path, true).await;
+            let _ =
+                assets::mark_managed_asset_storage_state(&pool, &relative_path, true, "notes file")
+                    .await;
             return Err(error);
         }
     };
-    mark_notes_file_asset_state(&app, db_url, &relative_path, false).await?;
+    assets::mark_managed_asset_storage_state(&pool, &relative_path, false, "notes file").await?;
     Ok(format!(
         "data:{content_type};base64,{}",
         general_purpose::STANDARD.encode(bytes)

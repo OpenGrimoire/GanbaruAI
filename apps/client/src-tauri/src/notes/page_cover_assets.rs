@@ -313,12 +313,23 @@ pub async fn notes_save_page_cover_data_url<R: Runtime>(
 }
 
 #[tauri::command]
-pub fn notes_page_cover_asset_data_url<R: Runtime>(
+pub async fn notes_page_cover_asset_data_url<R: Runtime>(
     app: AppHandle<R>,
+    db_url: String,
     relative_path: String,
 ) -> Result<String, String> {
     let path = asset_path_for_relative(&app, &relative_path)?;
-    let bytes = read_file_capped(&path)?;
+    let pool = connect_sqlite(app.clone(), db_url).await?;
+    let bytes = match read_file_capped(&path) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            let _ =
+                assets::mark_managed_asset_storage_state(&pool, &relative_path, true, "page cover")
+                    .await;
+            return Err(error);
+        }
+    };
+    assets::mark_managed_asset_storage_state(&pool, &relative_path, false, "page cover").await?;
     page_cover_data_url(&bytes)
 }
 

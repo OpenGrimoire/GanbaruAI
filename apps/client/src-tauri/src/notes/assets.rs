@@ -1,9 +1,10 @@
 use serde_json::Value;
-use sqlx::{Sqlite, Transaction};
+use sqlx::{Sqlite, SqlitePool, Transaction};
 use std::path::{Component, Path};
 
 pub(in crate::notes) const NOTES_ASSET_SOURCE_LOCAL_UPLOAD: &str = "local_upload";
 pub(in crate::notes) const NOTES_ASSET_STATE_AVAILABLE: &str = "available";
+pub(in crate::notes) const NOTES_ASSET_STATE_MISSING: &str = "missing";
 
 const NOTES_ASSET_PAGE_ICON_PREFIX: &str = "notes/page-icons/";
 const NOTES_ASSET_PAGE_COVER_PREFIX: &str = "notes/page-covers/";
@@ -77,6 +78,36 @@ pub(in crate::notes) async fn upsert_managed_asset_tx(
     .execute(&mut **tx)
     .await
     .map_err(|e| format!("record notes asset: {e}"))?;
+    Ok(())
+}
+
+pub(in crate::notes) async fn mark_managed_asset_storage_state(
+    pool: &SqlitePool,
+    relative_path: &str,
+    missing: bool,
+    context: &str,
+) -> Result<(), String> {
+    let storage_state = if missing {
+        NOTES_ASSET_STATE_MISSING
+    } else {
+        NOTES_ASSET_STATE_AVAILABLE
+    };
+    sqlx::query(
+        "UPDATE notes_assets
+         SET storage_state = ?,
+             missing_at = CASE
+                WHEN ? = 1 THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                ELSE NULL
+             END,
+             updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+         WHERE asset_path = ?",
+    )
+    .bind(storage_state)
+    .bind(if missing { 1_i64 } else { 0_i64 })
+    .bind(relative_path.trim())
+    .execute(pool)
+    .await
+    .map_err(|e| format!("update {context} asset storage state: {e}"))?;
     Ok(())
 }
 

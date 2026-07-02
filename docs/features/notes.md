@@ -26,7 +26,7 @@ Markdown exports can be regenerated from SQLite. Markdown imports must be parsed
 
 ## Page model
 
-A page has an object type, id, created and edited timestamps, parent, trash state, archive state, properties, icon, and cover. The first local page slice uses a title property named `title`, shaped as a Notion title rich text array, and also keeps a normalized title cache for fast sidebar reads. Page icons use the public Notion icon object shape, with editable emoji icons, native icon names and colors, reusable custom emoji, external HTTPS image icons, managed local image file icons, and null removal from the page header. Page covers use the public Notion file object shape, with editable external HTTPS image covers, imported Notion-hosted file objects, imported file upload references, managed local image file covers, generated local cover images, and null removal from the top of the page.
+A page has an object type, id, created and edited timestamps, parent, trash state, archive state, properties, icon, and cover. The first local page slice uses a title property named `title`, shaped as a Notion title rich text array, and also keeps a normalized title cache for fast sidebar reads. Page icons use the public Notion icon object shape, with editable emoji icons, native icon names and colors, reusable custom emoji, external HTTPS image icons, managed local image file icons, and null removal from the page header. Missing local icon files fall back to the page icon placeholder and mark the managed asset row missing until the file reads successfully again. Page covers use the public Notion file object shape, with editable external HTTPS image covers, imported Notion-hosted file objects, imported file upload references, managed local image file covers, generated local cover images, and null removal from the top of the page. Missing local cover files show the unavailable cover placeholder and mark the managed asset row missing until the file reads successfully again.
 
 Parents are explicit objects:
 
@@ -107,8 +107,8 @@ The first serious Notes tab includes:
 - Comments disclosure under the page title for page discussions and block comments.
 - Suggested edits disclosure under the page title for reviewing local text replacement suggestions, including open and decided suggestions.
 - Page history disclosure under the page title for browsing prior page versions, previewing their blocks, copying blocks from them, restoring a version, and changing the local retention window.
-- Page header icon picker for setting or removing emoji, native, custom emoji, external image, and managed local image page icons, mirrored in sidebar rows.
-- Page cover banner for setting or removing generated, uploaded local, and external HTTPS image covers while preserving imported file and file upload cover references.
+- Page header icon picker for setting or removing emoji, native, custom emoji, external image, and managed local image page icons, mirrored in sidebar rows with missing local files falling back to the page placeholder.
+- Page cover banner for setting or removing generated, uploaded local, and external HTTPS image covers while preserving imported file and file upload cover references, with missing local files shown as unavailable.
 - Block editor with implemented text and navigation blocks plus the first-slice or preservation block surfaces listed in the block quality audit.
 - Block handles with add block below, insert block type, turn into, color, copy link, duplicate, move to page, move within page, and delete actions.
 - Nested block support through Tab and Shift+Tab.

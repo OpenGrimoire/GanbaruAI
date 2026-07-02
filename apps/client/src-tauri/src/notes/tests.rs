@@ -19,8 +19,8 @@ use super::models::{
     NoteTrashBlocks, OptionalJsonValue,
 };
 use super::{
-    comments, data_source_board, data_source_buttons, data_source_calendar, data_source_gallery,
-    data_source_list, data_source_rows, data_source_schema, data_source_table,
+    assets, comments, data_source_board, data_source_buttons, data_source_calendar,
+    data_source_gallery, data_source_list, data_source_rows, data_source_schema, data_source_table,
     data_source_templates, data_source_timeline, databases, history, local_user,
     mention_notifications, reads, suggestions, templates, undo_state, validation, writes,
 };
@@ -7235,6 +7235,31 @@ fn page_media_asset_references_follow_local_file_payloads() {
             .unwrap();
             assert_eq!(reference_count, 1);
         }
+
+        assets::mark_managed_asset_storage_state(&pool, icon_path, true, "page icon")
+            .await
+            .unwrap();
+        let missing_icon: (String, Option<String>) = sqlx::query_as(
+            "SELECT storage_state, missing_at FROM notes_assets WHERE asset_path = ?",
+        )
+        .bind(icon_path)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(missing_icon.0, "missing");
+        assert!(missing_icon.1.is_some());
+
+        assets::mark_managed_asset_storage_state(&pool, icon_path, false, "page icon")
+            .await
+            .unwrap();
+        let recovered_icon: (String, Option<String>) = sqlx::query_as(
+            "SELECT storage_state, missing_at FROM notes_assets WHERE asset_path = ?",
+        )
+        .bind(icon_path)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(recovered_icon, ("available".to_string(), None));
 
         writes::update_page(
             &pool,

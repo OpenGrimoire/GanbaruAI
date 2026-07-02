@@ -48,7 +48,8 @@ export async function saveNotesPageCoverImageDataUrl(
 export async function notesPageCoverAssetUrl(relativePath: string): Promise<string> {
   const cached = notesPageCoverAssetUrls.get(relativePath);
   if (cached) return cached;
-  const assetUrl = await invoke<string>("notes_page_cover_asset_data_url", { relativePath });
+  const dbUrl = await ensureDbUrl();
+  const assetUrl = await invoke<string>("notes_page_cover_asset_data_url", { dbUrl, relativePath });
   notesPageCoverAssetUrls.set(relativePath, assetUrl);
   return assetUrl;
 }

@@ -48,7 +48,8 @@ export async function saveNotesPageIconImageDataUrl(
 export async function notesPageIconAssetUrl(relativePath: string): Promise<string> {
   const cached = notesPageIconAssetUrls.get(relativePath);
   if (cached) return cached;
-  const assetUrl = await invoke<string>("notes_page_icon_asset_data_url", { relativePath });
+  const dbUrl = await ensureDbUrl();
+  const assetUrl = await invoke<string>("notes_page_icon_asset_data_url", { dbUrl, relativePath });
   notesPageIconAssetUrls.set(relativePath, assetUrl);
   return assetUrl;
 }
