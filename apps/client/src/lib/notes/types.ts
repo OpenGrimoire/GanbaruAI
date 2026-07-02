@@ -1298,14 +1298,16 @@ export type NotesBacklinkReferenceType =
   | "child_page"
   | "page_mention"
   | "link"
-  | "database_relation";
+  | "database_relation"
+  | "comment_mention"
+  | "comment_link";
 
 export interface NotesBacklink {
   object: "backlink";
   id: string;
   source_page: NotesPage;
   source_block_id: string;
-  source_block_type: NotesBlockType | "database_relation";
+  source_block_type: NotesBlockType | "database_relation" | "comment";
   reference_type: NotesBacklinkReferenceType;
   snippet: string;
   created_time: string;

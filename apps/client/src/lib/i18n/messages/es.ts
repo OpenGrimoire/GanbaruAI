@@ -1563,6 +1563,8 @@ export const es = {
     backlinkTypePageMention: "Mención",
     backlinkTypeLink: "Enlace",
     backlinkTypeDatabaseRelation: "Relación",
+    backlinkTypeCommentMention: "Mención en comentario",
+    backlinkTypeCommentLink: "Enlace en comentario",
     commentsCount: (count: number) => `${count} ${count === 1 ? "comentario" : "comentarios"}`,
     commentsCountWithUnread: (count: number, unread: number) =>
       `${count} ${count === 1 ? "comentario" : "comentarios"}, ${unread} sin leer`,

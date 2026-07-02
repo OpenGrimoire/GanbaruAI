@@ -20,13 +20,22 @@
         return t("notes.backlinkTypeLink");
       case "database_relation":
         return t("notes.backlinkTypeDatabaseRelation");
+      case "comment_mention":
+        return t("notes.backlinkTypeCommentMention");
+      case "comment_link":
+        return t("notes.backlinkTypeCommentLink");
     }
   }
 
   function openBacklink(backlink: NotesBacklink): void {
-    void notes.openBlockLink({
+    void notes.openNotesLink({
       pageId: backlink.source_page.id,
-      blockId: backlink.source_block_id,
+      blockId:
+        backlink.source_block_type === "database_relation" ||
+        (backlink.source_block_type === "comment" &&
+          backlink.source_block_id === backlink.source_page.id)
+          ? undefined
+          : backlink.source_block_id,
     });
   }
 </script>

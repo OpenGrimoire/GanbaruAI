@@ -153,6 +153,15 @@ export async function listNotesBacklinks(pageId: string): Promise<NotesBacklink[
   return rows.map(mapNotesBacklinkDto);
 }
 
+export async function rebuildNotesBacklinkIndex(): Promise<number> {
+  const dbUrl = await ensureDbUrl();
+  const count = await invoke<unknown>("notes_rebuild_backlink_index", { dbUrl });
+  if (typeof count !== "number") {
+    throw new Error("notes_rebuild_backlink_index returned a non-number payload");
+  }
+  return count;
+}
+
 export async function getNotesPageBreadcrumb(pageId: string): Promise<NotesPageBreadcrumbItem[]> {
   const dbUrl = await ensureDbUrl();
   const rows = await invoke<unknown>("notes_get_page_breadcrumb", { dbUrl, pageId });

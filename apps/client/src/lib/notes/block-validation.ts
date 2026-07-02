@@ -2020,12 +2020,18 @@ export function parseNotesMentionNotification(value: unknown): NotesMentionNotif
 
 function parseBacklinkReferenceType(value: unknown): NotesBacklinkReferenceType {
   const referenceType = readString(value, "backlink.reference_type");
-  if (referenceType === "child_page" || referenceType === "page_mention" || referenceType === "link") {
+  if (
+    referenceType === "child_page"
+    || referenceType === "page_mention"
+    || referenceType === "link"
+    || referenceType === "comment_mention"
+    || referenceType === "comment_link"
+  ) {
     return referenceType;
   }
   if (referenceType === "database_relation") return referenceType;
   throw new Error(
-    "backlink.reference_type must be child_page, page_mention, link, or database_relation",
+    "backlink.reference_type must be child_page, page_mention, link, database_relation, comment_mention, or comment_link",
   );
 }
 
@@ -2070,6 +2076,10 @@ export function parseNotesBacklink(value: unknown): NotesBacklink {
   if (
     !isNotesBlockType(sourceBlockType)
     && !(referenceType === "database_relation" && sourceBlockType === "database_relation")
+    && !(
+      (referenceType === "comment_mention" || referenceType === "comment_link")
+      && sourceBlockType === "comment"
+    )
   ) {
     throw new Error("backlink.source_block_type must be a supported block type");
   }

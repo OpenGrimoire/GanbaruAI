@@ -2,6 +2,7 @@ use crate::db_path::connect_sqlite;
 use tauri::{AppHandle, Runtime};
 
 mod assets;
+mod backlinks;
 mod collaboration_operations;
 mod comments;
 mod data_source_board;
@@ -84,7 +85,7 @@ pub async fn notes_list_backlinks<R: Runtime>(
     page_id: String,
 ) -> Result<Vec<NoteBacklinkDto>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    reads::list_backlinks(&pool, &page_id).await
+    backlinks::list_backlinks(&pool, &page_id).await
 }
 
 #[tauri::command]
@@ -115,6 +116,15 @@ pub async fn notes_rebuild_search_index<R: Runtime>(
 ) -> Result<i64, String> {
     let pool = connect_sqlite(app, db_url).await?;
     search::rebuild_index(&pool).await
+}
+
+#[tauri::command]
+pub async fn notes_rebuild_backlink_index<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+) -> Result<i64, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    backlinks::rebuild_index(&pool).await
 }
 
 #[tauri::command]

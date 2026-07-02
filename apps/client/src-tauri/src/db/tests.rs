@@ -1866,3 +1866,148 @@ fn schema_creates_notes_search_fts_projection() {
         assert_eq!(state, "test");
     });
 }
+
+#[test]
+fn schema_creates_notes_backlink_index() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+
+        sqlx::query(
+            "INSERT INTO notes_pages (id, parent_type, title)
+             VALUES ('page-1', 'workspace', 'Source')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO notes_blocks (
+                id,
+                page_id,
+                parent_type,
+                parent_page_id,
+                type,
+                payload,
+                plain_text,
+                sort_order
+             )
+             VALUES (
+                'block-1',
+                'page-1',
+                'page_id',
+                'page-1',
+                'paragraph',
+                '{\"paragraph\":{\"rich_text\":[]}}',
+                'Mention target',
+                1000
+             )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO notes_backlink_index (
+                id,
+                target_type,
+                target_id,
+                source_type,
+                source_page_id,
+                source_block_id,
+                reference_type,
+                snippet,
+                created_time,
+                last_edited_time
+             )
+             VALUES (
+                'block:block-1:page:target-page:page_mention',
+                'page',
+                'target-page',
+                'block',
+                'page-1',
+                'block-1',
+                'page_mention',
+                'Mention target',
+                '2026-07-02T12:00:00.000Z',
+                '2026-07-02T12:00:00.000Z'
+             )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO notes_backlink_index (
+                id,
+                target_type,
+                target_id,
+                target_object_type,
+                source_type,
+                source_page_id,
+                source_block_id,
+                reference_type,
+                snippet,
+                created_time,
+                last_edited_time
+             )
+             VALUES (
+                'block:block-1:local_object:task-1:local_object_mention',
+                'local_object',
+                'task-1',
+                'project_task',
+                'block',
+                'page-1',
+                'block-1',
+                'local_object_mention',
+                'Mention target',
+                '2026-07-02T12:00:00.000Z',
+                '2026-07-02T12:00:00.000Z'
+             )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO notes_backlink_index_state (key, value)
+             VALUES ('source_fingerprint', 'test')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let target_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)
+             FROM notes_backlink_index
+             WHERE target_type = 'page' AND target_id = 'target-page'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(target_count, 1);
+
+        let invalid_local_object = sqlx::query(
+            "INSERT INTO notes_backlink_index (
+                id,
+                target_type,
+                target_id,
+                source_type,
+                source_page_id,
+                source_block_id,
+                reference_type,
+                created_time,
+                last_edited_time
+             )
+             VALUES (
+                'invalid-local-object',
+                'local_object',
+                'task-2',
+                'block',
+                'page-1',
+                'block-1',
+                'local_object_mention',
+                '2026-07-02T12:00:00.000Z',
+                '2026-07-02T12:00:00.000Z'
+             )",
+        )
+        .execute(&pool)
+        .await;
+        assert!(invalid_local_object.is_err());
+    });
+}

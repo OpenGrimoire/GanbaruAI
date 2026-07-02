@@ -33,16 +33,6 @@ struct ActiveRelationTarget {
     id: String,
 }
 
-#[derive(sqlx::FromRow)]
-pub(in crate::notes) struct RelationBacklinkRow {
-    pub(in crate::notes) source_page_id: String,
-    pub(in crate::notes) source_property_id: String,
-    pub(in crate::notes) source_property_name: String,
-    pub(in crate::notes) target_page_id: String,
-    pub(in crate::notes) created_time: String,
-    pub(in crate::notes) last_edited_time: String,
-}
-
 pub(in crate::notes) fn canonical_relation_config(value: Option<&Value>) -> Result<Value, String> {
     let object = value
         .and_then(Value::as_object)
@@ -545,46 +535,6 @@ pub(in crate::notes) async fn hydrate_relation_titles_tx(
         row.properties = properties.to_string();
     }
     Ok(())
-}
-
-pub(in crate::notes) async fn relation_backlinks(
-    pool: &sqlx::SqlitePool,
-    page_id: &str,
-) -> Result<Vec<RelationBacklinkRow>, String> {
-    sqlx::query_as::<_, RelationBacklinkRow>(
-        "SELECT
-            link.source_page_id,
-            link.source_property_id,
-            link.source_property_name,
-            link.target_page_id,
-            link.created_time,
-            source_page.last_edited_time
-         FROM notes_data_source_relation_links AS link
-         JOIN notes_pages AS source_page ON source_page.id = link.source_page_id
-         JOIN notes_pages AS target_page ON target_page.id = link.target_page_id
-         JOIN notes_data_sources AS source_data_source
-              ON source_data_source.id = link.source_data_source_id
-         JOIN notes_databases AS source_database
-              ON source_database.id = source_data_source.database_id
-         JOIN notes_data_sources AS target_data_source
-              ON target_data_source.id = link.target_data_source_id
-         JOIN notes_databases AS target_database
-              ON target_database.id = target_data_source.database_id
-         WHERE link.target_page_id = ?
-           AND source_page.in_trash = 0
-           AND source_page.archived = 0
-           AND target_page.in_trash = 0
-           AND target_page.archived = 0
-           AND source_data_source.in_trash = 0
-           AND target_data_source.in_trash = 0
-           AND source_database.in_trash = 0
-           AND target_database.in_trash = 0
-         ORDER BY source_page.last_edited_time DESC, link.source_property_name COLLATE NOCASE ASC",
-    )
-    .bind(page_id)
-    .fetch_all(pool)
-    .await
-    .map_err(|e| format!("list notes relation backlinks: {e}"))
 }
 
 fn relation_properties(properties: &Value) -> Result<Vec<RelationProperty>, String> {

@@ -1544,6 +1544,8 @@ export const en = {
     backlinkTypePageMention: "Mention",
     backlinkTypeLink: "Link",
     backlinkTypeDatabaseRelation: "Relation",
+    backlinkTypeCommentMention: "Comment mention",
+    backlinkTypeCommentLink: "Comment link",
     commentsCount: (count: number) => `${count} ${count === 1 ? "comment" : "comments"}`,
     commentsCountWithUnread: (count: number, unread: number) =>
       `${count} ${count === 1 ? "comment" : "comments"}, ${unread} unread`,

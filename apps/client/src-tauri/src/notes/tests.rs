@@ -19,7 +19,7 @@ use super::models::{
     NoteTrashBlocks, OptionalJsonValue,
 };
 use super::{
-    assets, comments, data_source_board, data_source_buttons, data_source_calendar,
+    assets, backlinks, comments, data_source_board, data_source_buttons, data_source_calendar,
     data_source_gallery, data_source_list, data_source_rows, data_source_schema, data_source_table,
     data_source_templates, data_source_timeline, databases, history, local_user,
     mention_notifications, reads, search, suggestions, templates, undo_state, validation, writes,
@@ -2731,7 +2731,7 @@ fn database_relations_persist_links_backlinks_and_search() {
             "Project Alpha"
         );
 
-        let backlinks = reads::list_backlinks(&pool, PAGE_C).await.unwrap();
+        let backlinks = backlinks::list_backlinks(&pool, PAGE_C).await.unwrap();
         let backlinks_json = serde_json::to_value(backlinks).unwrap();
         assert!(backlinks_json.as_array().unwrap().iter().any(|backlink| {
             backlink["reference_type"] == "database_relation"
@@ -6406,7 +6406,7 @@ fn backlinks_include_visible_child_page_blocks() {
         .await
         .unwrap();
 
-        let backlinks = reads::list_backlinks(&pool, PAGE_B).await.unwrap();
+        let backlinks = backlinks::list_backlinks(&pool, PAGE_B).await.unwrap();
         let backlinks_json = serde_json::to_value(backlinks).unwrap();
         assert_eq!(backlinks_json.as_array().unwrap().len(), 1);
         assert_eq!(backlinks_json[0]["object"], "backlink");
@@ -6415,7 +6415,7 @@ fn backlinks_include_visible_child_page_blocks() {
         assert_eq!(backlinks_json[0]["reference_type"], "child_page");
 
         writes::archive_page(&pool, PAGE_A, true).await.unwrap();
-        assert!(reads::list_backlinks(&pool, PAGE_B)
+        assert!(backlinks::list_backlinks(&pool, PAGE_B)
             .await
             .unwrap()
             .is_empty());
@@ -6465,7 +6465,7 @@ fn backlinks_include_local_notes_rich_text_links() {
         .await
         .unwrap();
 
-        let backlinks = reads::list_backlinks(&pool, PAGE_B).await.unwrap();
+        let backlinks = backlinks::list_backlinks(&pool, PAGE_B).await.unwrap();
         let backlinks_json = serde_json::to_value(backlinks).unwrap();
         assert_eq!(backlinks_json.as_array().unwrap().len(), 1);
         assert_eq!(backlinks_json[0]["source_page"]["id"], PAGE_A);
@@ -6491,7 +6491,7 @@ fn backlinks_refresh_when_local_notes_rich_text_links_are_edited() {
         )
         .await
         .unwrap();
-        assert!(reads::list_backlinks(&pool, PAGE_B)
+        assert!(backlinks::list_backlinks(&pool, PAGE_B)
             .await
             .unwrap()
             .is_empty());
@@ -6511,7 +6511,7 @@ fn backlinks_refresh_when_local_notes_rich_text_links_are_edited() {
         )
         .await
         .unwrap();
-        let backlinks = reads::list_backlinks(&pool, PAGE_B).await.unwrap();
+        let backlinks = backlinks::list_backlinks(&pool, PAGE_B).await.unwrap();
         let backlinks_json = serde_json::to_value(backlinks).unwrap();
         assert_eq!(backlinks_json.as_array().unwrap().len(), 1);
         assert_eq!(backlinks_json[0]["source_page"]["id"], PAGE_A);
@@ -6531,7 +6531,7 @@ fn backlinks_refresh_when_local_notes_rich_text_links_are_edited() {
         )
         .await
         .unwrap();
-        assert!(reads::list_backlinks(&pool, PAGE_B)
+        assert!(backlinks::list_backlinks(&pool, PAGE_B)
             .await
             .unwrap()
             .is_empty());
@@ -6565,13 +6565,121 @@ fn backlinks_include_page_mentions() {
         .await
         .unwrap();
 
-        let backlinks = reads::list_backlinks(&pool, PAGE_B).await.unwrap();
+        let backlinks = backlinks::list_backlinks(&pool, PAGE_B).await.unwrap();
         let backlinks_json = serde_json::to_value(backlinks).unwrap();
         assert_eq!(backlinks_json.as_array().unwrap().len(), 1);
         assert_eq!(backlinks_json[0]["source_page"]["id"], PAGE_A);
         assert_eq!(backlinks_json[0]["source_block_id"], BLOCK_C);
         assert_eq!(backlinks_json[0]["reference_type"], "page_mention");
         assert_eq!(backlinks_json[0]["snippet"], "See Target page");
+    });
+}
+
+#[test]
+fn backlinks_index_rebuilds_comments_and_local_object_mentions() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        create_page(&pool, PAGE_A, BLOCK_A).await;
+        create_page(&pool, PAGE_B, BLOCK_B).await;
+        let target_url =
+            format!("http://localhost:1420/?view=notes#notes?page={PAGE_B}&block={BLOCK_B}");
+
+        comments::create_comment(
+            &pool,
+            NoteCommentCreate {
+                id: COMMENT_A.to_string(),
+                parent: Some(page_parent(PAGE_A)),
+                discussion_id: None,
+                anchor: None,
+                rich_text: vec![rich_text("Comment says "), page_mention(PAGE_B, "Target")],
+                attachments: None,
+            },
+        )
+        .await
+        .unwrap();
+        comments::create_comment(
+            &pool,
+            NoteCommentCreate {
+                id: COMMENT_B.to_string(),
+                parent: Some(block_parent(BLOCK_A)),
+                discussion_id: None,
+                anchor: None,
+                rich_text: vec![linked_rich_text("Linked comment", &target_url)],
+                attachments: None,
+            },
+        )
+        .await
+        .unwrap();
+        writes::append_block_children(
+            &pool,
+            NoteAppendBlockChildren {
+                parent: page_parent(PAGE_A),
+                after: Some(BLOCK_A.to_string()),
+                children: vec![block(
+                    BLOCK_C,
+                    "paragraph",
+                    json!({
+                        "rich_text": [
+                            rich_text("Assigned "),
+                            project_task_mention(PAGE_C, "Task")
+                        ],
+                        "color": "default"
+                    }),
+                )],
+            },
+        )
+        .await
+        .unwrap();
+
+        let backlinks = backlinks::list_backlinks(&pool, PAGE_B).await.unwrap();
+        let backlinks_json = serde_json::to_value(backlinks).unwrap();
+        assert!(backlinks_json.as_array().unwrap().iter().any(|backlink| {
+            backlink["source_block_type"] == "comment"
+                && backlink["source_block_id"] == PAGE_A
+                && backlink["reference_type"] == "comment_mention"
+        }));
+        assert!(backlinks_json.as_array().unwrap().iter().any(|backlink| {
+            backlink["source_block_type"] == "comment"
+                && backlink["source_block_id"] == BLOCK_A
+                && backlink["reference_type"] == "comment_link"
+        }));
+
+        let local_object_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)
+             FROM notes_backlink_index
+             WHERE target_type = 'local_object'
+               AND target_object_type = 'project_task'
+               AND target_id = ?
+               AND reference_type = 'local_object_mention'",
+        )
+        .bind(PAGE_C)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(local_object_count, 1);
+
+        sqlx::query("DELETE FROM notes_backlink_index")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let rebuilt = backlinks::list_backlinks(&pool, PAGE_B).await.unwrap();
+        let rebuilt_json = serde_json::to_value(rebuilt).unwrap();
+        assert!(rebuilt_json.as_array().unwrap().iter().any(|backlink| {
+            backlink["source_block_type"] == "comment"
+                && backlink["reference_type"] == "comment_mention"
+        }));
+
+        comments::delete_comment(&pool, COMMENT_A).await.unwrap();
+        let after_delete = backlinks::list_backlinks(&pool, PAGE_B).await.unwrap();
+        let after_delete_json = serde_json::to_value(after_delete).unwrap();
+        assert!(!after_delete_json
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|backlink| {
+                backlink["source_block_type"] == "comment"
+                    && backlink["reference_type"] == "comment_mention"
+            }));
     });
 }
 
@@ -6622,7 +6730,7 @@ fn backlinks_include_data_source_row_page_mentions() {
         .await
         .unwrap();
 
-        let backlinks = reads::list_backlinks(&pool, PAGE_B).await.unwrap();
+        let backlinks = backlinks::list_backlinks(&pool, PAGE_B).await.unwrap();
         let backlinks_json = serde_json::to_value(backlinks).unwrap();
         assert_eq!(backlinks_json.as_array().unwrap().len(), 1);
         assert_eq!(backlinks_json[0]["source_page"]["id"], PAGE_A);
@@ -6656,19 +6764,31 @@ fn backlinks_hide_trashed_blocks_and_source_pages() {
         )
         .await
         .unwrap();
-        assert_eq!(reads::list_backlinks(&pool, PAGE_B).await.unwrap().len(), 1);
+        assert_eq!(
+            backlinks::list_backlinks(&pool, PAGE_B)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
 
         writes::trash_block(&pool, BLOCK_C, true).await.unwrap();
-        assert!(reads::list_backlinks(&pool, PAGE_B)
+        assert!(backlinks::list_backlinks(&pool, PAGE_B)
             .await
             .unwrap()
             .is_empty());
 
         writes::trash_block(&pool, BLOCK_C, false).await.unwrap();
-        assert_eq!(reads::list_backlinks(&pool, PAGE_B).await.unwrap().len(), 1);
+        assert_eq!(
+            backlinks::list_backlinks(&pool, PAGE_B)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
 
         writes::trash_page(&pool, PAGE_A, true).await.unwrap();
-        assert!(reads::list_backlinks(&pool, PAGE_B)
+        assert!(backlinks::list_backlinks(&pool, PAGE_B)
             .await
             .unwrap()
             .is_empty());

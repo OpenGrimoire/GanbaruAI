@@ -537,50 +537,29 @@ pub struct NoteBacklinkDto {
     last_edited_time: String,
 }
 
-impl NoteBacklinkDto {
-    pub(in crate::notes) fn new(
-        source_page: NotePageDto,
-        source_block: NoteBlockRow,
-        reference_type: String,
-        snippet: String,
-    ) -> Self {
-        Self {
-            object: "backlink",
-            id: format!("{}:{}", source_block.id, reference_type),
-            source_page,
-            source_block_id: source_block.id,
-            source_block_type: source_block.block_type,
-            reference_type,
-            snippet,
-            created_time: source_block.created_time,
-            last_edited_time: source_block.last_edited_time,
-        }
-    }
+pub(in crate::notes) struct NoteBacklinkIndexedInput {
+    pub(in crate::notes) source_page: NotePageDto,
+    pub(in crate::notes) id: String,
+    pub(in crate::notes) source_block_id: String,
+    pub(in crate::notes) source_block_type: String,
+    pub(in crate::notes) reference_type: String,
+    pub(in crate::notes) snippet: String,
+    pub(in crate::notes) created_time: String,
+    pub(in crate::notes) last_edited_time: String,
+}
 
-    pub(in crate::notes) fn database_relation(
-        source_page: NotePageDto,
-        source_page_id: String,
-        source_property_id: String,
-        source_property_name: String,
-        target_page_id: String,
-        created_time: String,
-        last_edited_time: String,
-    ) -> Self {
-        let snippet = if source_property_name.trim().is_empty() {
-            "Database relation".to_string()
-        } else {
-            source_property_name.clone()
-        };
+impl NoteBacklinkDto {
+    pub(in crate::notes) fn indexed(input: NoteBacklinkIndexedInput) -> Self {
         Self {
             object: "backlink",
-            id: format!("relation:{source_page_id}:{source_property_id}:{target_page_id}"),
-            source_page,
-            source_block_id: source_page_id,
-            source_block_type: "database_relation".to_string(),
-            reference_type: "database_relation".to_string(),
-            snippet,
-            created_time,
-            last_edited_time,
+            id: input.id,
+            source_page: input.source_page,
+            source_block_id: input.source_block_id,
+            source_block_type: input.source_block_type,
+            reference_type: input.reference_type,
+            snippet: input.snippet,
+            created_time: input.created_time,
+            last_edited_time: input.last_edited_time,
         }
     }
 }
