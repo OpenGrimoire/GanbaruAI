@@ -35,6 +35,7 @@
     NotesDatabaseTableSort,
     NotesDatabaseTimelineConfiguration,
     NotesDatabaseTimelineRowOpenMode,
+    NotesDatabaseViewScope,
     NotesDataSourceTimelineGroup,
     NotesDataSourceTimelineView,
     NotesPage,
@@ -53,10 +54,14 @@
 
   let {
     dataSourceId,
+    databaseId = null,
+    viewId = null,
     onSelectPage,
     reloadKey = 0,
   }: {
     dataSourceId: string;
+    databaseId?: string | null;
+    viewId?: string | null;
     onSelectPage: (pageId: string) => void;
     reloadKey?: number;
   } = $props();
@@ -107,17 +112,21 @@
   const timelineGridStyle = $derived(`grid-template-columns: repeat(${dates.length}, minmax(5.5rem, 5.5rem));`);
 
   $effect(() => {
-    const signature = `${dataSourceId}:${reloadKey}`;
+    const signature = `${dataSourceId}:${databaseId ?? ""}:${viewId ?? ""}:${reloadKey}`;
     if (signature === lastLoadSignature) return;
     lastLoadSignature = signature;
     void loadTimeline();
   });
 
+  function viewScope(): NotesDatabaseViewScope {
+    return { databaseId, viewId };
+  }
+
   async function loadTimeline(): Promise<NotesDataSourceTimelineView | null> {
     loading = true;
     error = null;
     try {
-      const loaded = await getNotesDataSourceTimelineView(dataSourceId);
+      const loaded = await getNotesDataSourceTimelineView(dataSourceId, viewScope());
       timeline = loaded;
       if (selectedPanelRowId && !loaded.rows.some((row) => row.id === selectedPanelRowId)) {
         selectedPanelRowId = null;
@@ -144,6 +153,7 @@
       timeline = await updateNotesDataSourceTimelineView(
         dataSourceId,
         notesDatabaseTimelineUpdate(nextConfiguration, nextVisibleColumns, nextFilters, nextSorts),
+        viewScope(),
       );
     } catch (caught) {
       error = caught instanceof Error ? caught.message : String(caught);

@@ -26,6 +26,7 @@
     NotesDatabaseTableFilter,
     NotesDatabaseTableFilterCondition,
     NotesDatabaseTableSort,
+    NotesDatabaseViewScope,
     NotesDataSourceListGroup,
     NotesDataSourceListView,
     NotesPage,
@@ -42,10 +43,14 @@
 
   let {
     dataSourceId,
+    databaseId = null,
+    viewId = null,
     onSelectPage,
     reloadKey = 0,
   }: {
     dataSourceId: string;
+    databaseId?: string | null;
+    viewId?: string | null;
     onSelectPage: (pageId: string) => void;
     reloadKey?: number;
   } = $props();
@@ -87,17 +92,21 @@
   const selectedPanelRow = $derived(list?.rows.find((row) => row.id === selectedPanelRowId) ?? null);
 
   $effect(() => {
-    const signature = `${dataSourceId}:${reloadKey}`;
+    const signature = `${dataSourceId}:${databaseId ?? ""}:${viewId ?? ""}:${reloadKey}`;
     if (signature === lastLoadSignature) return;
     lastLoadSignature = signature;
     void loadList();
   });
 
+  function viewScope(): NotesDatabaseViewScope {
+    return { databaseId, viewId };
+  }
+
   async function loadList(): Promise<NotesDataSourceListView | null> {
     loading = true;
     error = null;
     try {
-      const loaded = await getNotesDataSourceListView(dataSourceId);
+      const loaded = await getNotesDataSourceListView(dataSourceId, viewScope());
       list = loaded;
       if (selectedPanelRowId && !loaded.rows.some((row) => row.id === selectedPanelRowId)) {
         selectedPanelRowId = null;
@@ -124,6 +133,7 @@
       list = await updateNotesDataSourceListView(
         dataSourceId,
         notesDatabaseListUpdate(nextConfiguration, nextVisibleColumns, nextFilters, nextSorts),
+        viewScope(),
       );
     } catch (caught) {
       error = caught instanceof Error ? caught.message : String(caught);

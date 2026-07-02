@@ -88,6 +88,7 @@
     onAddButtonChild,
     onButtonIconChange,
     onButtonInsertPositionChange,
+    onCreateLinkedDatabaseView,
     onConvertUnsupported,
     onComment,
     onMoveUp,
@@ -209,6 +210,7 @@
       blockId: string,
       position: NotesButtonInsertPosition,
     ) => void;
+    onCreateLinkedDatabaseView: (blockId: string) => Promise<void> | void;
     onConvertUnsupported: (
       blockId: string,
       target: NotesUnsupportedConversionTarget,
@@ -593,6 +595,7 @@
                         {onAddButtonChild}
                         {onButtonIconChange}
                         {onButtonInsertPositionChange}
+                        {onCreateLinkedDatabaseView}
                         {onConvertUnsupported}
                         {onComment}
                         {onMoveUp}

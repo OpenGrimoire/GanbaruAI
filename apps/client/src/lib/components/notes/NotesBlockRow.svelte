@@ -95,6 +95,7 @@
     onAddButtonChild,
     onButtonIconChange,
     onButtonInsertPositionChange,
+    onCreateLinkedDatabaseView,
     onConvertUnsupported,
     onComment,
     onMoveUp,
@@ -205,6 +206,7 @@
       blockId: string,
       position: NotesButtonInsertPosition,
     ) => void;
+    onCreateLinkedDatabaseView: (blockId: string) => Promise<void> | void;
     onConvertUnsupported: (
       blockId: string,
       target: NotesUnsupportedConversionTarget,
@@ -536,6 +538,7 @@
           onFocusBlock={onFocusBlock}
           onKeydown={handleKeydown}
           {onSelectPage}
+          {onCreateLinkedDatabaseView}
         />
       {:else if block.type === "breadcrumb"}
         <nav

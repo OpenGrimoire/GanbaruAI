@@ -10,6 +10,7 @@ mod data_source_rows;
 mod data_source_schema;
 mod data_source_table;
 mod data_source_timeline;
+mod data_source_views;
 mod databases;
 mod history;
 mod models;
@@ -303,13 +304,24 @@ pub async fn notes_create_database<R: Runtime>(
 }
 
 #[tauri::command]
+pub async fn notes_create_linked_database_view<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    request: NoteLinkedDatabaseCreate,
+) -> Result<NoteCreatedDatabaseDto, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    databases::create_linked_database_view(&pool, request).await
+}
+
+#[tauri::command]
 pub async fn notes_get_data_source_schema<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     data_source_id: String,
+    view_id: Option<String>,
 ) -> Result<NoteDataSourceSchemaDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    data_source_schema::get_data_source_schema(&pool, &data_source_id).await
+    data_source_schema::get_data_source_schema(&pool, &data_source_id, view_id.as_deref()).await
 }
 
 #[tauri::command]
@@ -317,10 +329,17 @@ pub async fn notes_update_data_source_schema<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     data_source_id: String,
+    view_id: Option<String>,
     update: NoteDataSourceSchemaUpdate,
 ) -> Result<NoteDataSourceSchemaDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    data_source_schema::update_data_source_schema(&pool, &data_source_id, update).await
+    data_source_schema::update_data_source_schema(
+        &pool,
+        &data_source_id,
+        view_id.as_deref(),
+        update,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -349,9 +368,17 @@ pub async fn notes_get_data_source_table_view<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     data_source_id: String,
+    database_id: Option<String>,
+    view_id: Option<String>,
 ) -> Result<NoteDataSourceTableViewDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    data_source_table::get_data_source_table_view(&pool, &data_source_id).await
+    data_source_table::get_data_source_table_view(
+        &pool,
+        &data_source_id,
+        database_id.as_deref(),
+        view_id.as_deref(),
+    )
+    .await
 }
 
 #[tauri::command]
@@ -359,10 +386,19 @@ pub async fn notes_update_data_source_table_view<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     data_source_id: String,
+    database_id: Option<String>,
+    view_id: Option<String>,
     update: NoteDataSourceTableViewUpdate,
 ) -> Result<NoteDataSourceTableViewDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    data_source_table::update_data_source_table_view(&pool, &data_source_id, update).await
+    data_source_table::update_data_source_table_view(
+        &pool,
+        &data_source_id,
+        database_id.as_deref(),
+        view_id.as_deref(),
+        update,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -383,9 +419,17 @@ pub async fn notes_get_data_source_board_view<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     data_source_id: String,
+    database_id: Option<String>,
+    view_id: Option<String>,
 ) -> Result<NoteDataSourceBoardViewDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    data_source_board::get_data_source_board_view(&pool, &data_source_id).await
+    data_source_board::get_data_source_board_view(
+        &pool,
+        &data_source_id,
+        database_id.as_deref(),
+        view_id.as_deref(),
+    )
+    .await
 }
 
 #[tauri::command]
@@ -393,10 +437,19 @@ pub async fn notes_update_data_source_board_view<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     data_source_id: String,
+    database_id: Option<String>,
+    view_id: Option<String>,
     update: NoteDataSourceBoardViewUpdate,
 ) -> Result<NoteDataSourceBoardViewDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    data_source_board::update_data_source_board_view(&pool, &data_source_id, update).await
+    data_source_board::update_data_source_board_view(
+        &pool,
+        &data_source_id,
+        database_id.as_deref(),
+        view_id.as_deref(),
+        update,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -404,10 +457,19 @@ pub async fn notes_move_data_source_board_row<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     data_source_id: String,
+    database_id: Option<String>,
+    view_id: Option<String>,
     request: NoteDataSourceBoardRowMove,
 ) -> Result<NoteDataSourceBoardViewDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    data_source_board::move_data_source_board_row(&pool, &data_source_id, request).await
+    data_source_board::move_data_source_board_row(
+        &pool,
+        &data_source_id,
+        database_id.as_deref(),
+        view_id.as_deref(),
+        request,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -415,9 +477,17 @@ pub async fn notes_get_data_source_gallery_view<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     data_source_id: String,
+    database_id: Option<String>,
+    view_id: Option<String>,
 ) -> Result<NoteDataSourceGalleryViewDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    data_source_gallery::get_data_source_gallery_view(&pool, &data_source_id).await
+    data_source_gallery::get_data_source_gallery_view(
+        &pool,
+        &data_source_id,
+        database_id.as_deref(),
+        view_id.as_deref(),
+    )
+    .await
 }
 
 #[tauri::command]
@@ -425,10 +495,19 @@ pub async fn notes_update_data_source_gallery_view<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     data_source_id: String,
+    database_id: Option<String>,
+    view_id: Option<String>,
     update: NoteDataSourceGalleryViewUpdate,
 ) -> Result<NoteDataSourceGalleryViewDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    data_source_gallery::update_data_source_gallery_view(&pool, &data_source_id, update).await
+    data_source_gallery::update_data_source_gallery_view(
+        &pool,
+        &data_source_id,
+        database_id.as_deref(),
+        view_id.as_deref(),
+        update,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -436,9 +515,17 @@ pub async fn notes_get_data_source_list_view<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     data_source_id: String,
+    database_id: Option<String>,
+    view_id: Option<String>,
 ) -> Result<NoteDataSourceListViewDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    data_source_list::get_data_source_list_view(&pool, &data_source_id).await
+    data_source_list::get_data_source_list_view(
+        &pool,
+        &data_source_id,
+        database_id.as_deref(),
+        view_id.as_deref(),
+    )
+    .await
 }
 
 #[tauri::command]
@@ -446,10 +533,19 @@ pub async fn notes_update_data_source_list_view<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     data_source_id: String,
+    database_id: Option<String>,
+    view_id: Option<String>,
     update: NoteDataSourceListViewUpdate,
 ) -> Result<NoteDataSourceListViewDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    data_source_list::update_data_source_list_view(&pool, &data_source_id, update).await
+    data_source_list::update_data_source_list_view(
+        &pool,
+        &data_source_id,
+        database_id.as_deref(),
+        view_id.as_deref(),
+        update,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -457,9 +553,17 @@ pub async fn notes_get_data_source_calendar_view<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     data_source_id: String,
+    database_id: Option<String>,
+    view_id: Option<String>,
 ) -> Result<NoteDataSourceCalendarViewDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    data_source_calendar::get_data_source_calendar_view(&pool, &data_source_id).await
+    data_source_calendar::get_data_source_calendar_view(
+        &pool,
+        &data_source_id,
+        database_id.as_deref(),
+        view_id.as_deref(),
+    )
+    .await
 }
 
 #[tauri::command]
@@ -467,10 +571,19 @@ pub async fn notes_update_data_source_calendar_view<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     data_source_id: String,
+    database_id: Option<String>,
+    view_id: Option<String>,
     update: NoteDataSourceCalendarViewUpdate,
 ) -> Result<NoteDataSourceCalendarViewDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    data_source_calendar::update_data_source_calendar_view(&pool, &data_source_id, update).await
+    data_source_calendar::update_data_source_calendar_view(
+        &pool,
+        &data_source_id,
+        database_id.as_deref(),
+        view_id.as_deref(),
+        update,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -478,9 +591,17 @@ pub async fn notes_get_data_source_timeline_view<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     data_source_id: String,
+    database_id: Option<String>,
+    view_id: Option<String>,
 ) -> Result<NoteDataSourceTimelineViewDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    data_source_timeline::get_data_source_timeline_view(&pool, &data_source_id).await
+    data_source_timeline::get_data_source_timeline_view(
+        &pool,
+        &data_source_id,
+        database_id.as_deref(),
+        view_id.as_deref(),
+    )
+    .await
 }
 
 #[tauri::command]
@@ -488,10 +609,19 @@ pub async fn notes_update_data_source_timeline_view<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     data_source_id: String,
+    database_id: Option<String>,
+    view_id: Option<String>,
     update: NoteDataSourceTimelineViewUpdate,
 ) -> Result<NoteDataSourceTimelineViewDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    data_source_timeline::update_data_source_timeline_view(&pool, &data_source_id, update).await
+    data_source_timeline::update_data_source_timeline_view(
+        &pool,
+        &data_source_id,
+        database_id.as_deref(),
+        view_id.as_deref(),
+        update,
+    )
+    .await
 }
 
 #[tauri::command]

@@ -41,6 +41,7 @@ import type {
   NotesDataSourceGalleryViewUpdate,
   NotesDataSourceListView,
   NotesDataSourceListViewUpdate,
+  NotesDatabaseViewScope,
   NotesDataSourceRowPageCreateRequest,
   NotesDataSourceRowPropertyUpdate,
   NotesDataSourceSchema,
@@ -53,6 +54,7 @@ import type {
   NotesDuplicateBlockRequest,
   NotesDuplicateBlocksRequest,
   NotesBlockUpdate,
+  NotesLinkedDatabaseCreateRequest,
   NotesLoadedPage,
   NotesMovePageRequest,
   NotesMoveBlockRequest,
@@ -76,6 +78,20 @@ import type {
   NotesSidebarPagesRequest,
   NotesTrashBlocksRequest,
 } from "$lib/notes/types";
+
+function databaseViewScopeArgs(scope?: NotesDatabaseViewScope | null): {
+  databaseId: string | null;
+  viewId: string | null;
+} {
+  return {
+    databaseId: scope?.databaseId ?? null,
+    viewId: scope?.viewId ?? null,
+  };
+}
+
+function schemaViewScopeArgs(scope?: NotesDatabaseViewScope | null): { viewId: string | null } {
+  return { viewId: scope?.viewId ?? null };
+}
 
 export async function listNotesPages(): Promise<NotesPage[]> {
   const dbUrl = await ensureDbUrl();
@@ -320,22 +336,42 @@ export async function createNotesDatabase(
   );
 }
 
+export async function createNotesLinkedDatabaseView(
+  request: NotesLinkedDatabaseCreateRequest,
+): Promise<NotesCreatedDatabase> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesCreatedDatabaseDto(
+    await invoke<unknown>("notes_create_linked_database_view", { dbUrl, request }),
+  );
+}
+
 export async function getNotesDataSourceSchema(
   dataSourceId: string,
+  scope?: NotesDatabaseViewScope | null,
 ): Promise<NotesDataSourceSchema> {
   const dbUrl = await ensureDbUrl();
   return mapNotesDataSourceSchemaDto(
-    await invoke<unknown>("notes_get_data_source_schema", { dbUrl, dataSourceId }),
+    await invoke<unknown>("notes_get_data_source_schema", {
+      dbUrl,
+      dataSourceId,
+      ...schemaViewScopeArgs(scope),
+    }),
   );
 }
 
 export async function updateNotesDataSourceSchema(
   dataSourceId: string,
   update: NotesDataSourceSchemaUpdate,
+  scope?: NotesDatabaseViewScope | null,
 ): Promise<NotesDataSourceSchema> {
   const dbUrl = await ensureDbUrl();
   return mapNotesDataSourceSchemaDto(
-    await invoke<unknown>("notes_update_data_source_schema", { dbUrl, dataSourceId, update }),
+    await invoke<unknown>("notes_update_data_source_schema", {
+      dbUrl,
+      dataSourceId,
+      update,
+      ...schemaViewScopeArgs(scope),
+    }),
   );
 }
 
@@ -366,16 +402,22 @@ export async function createNotesDataSourceRowPage(
 
 export async function getNotesDataSourceTableView(
   dataSourceId: string,
+  scope?: NotesDatabaseViewScope | null,
 ): Promise<NotesDataSourceTableView> {
   const dbUrl = await ensureDbUrl();
   return mapNotesDataSourceTableViewDto(
-    await invoke<unknown>("notes_get_data_source_table_view", { dbUrl, dataSourceId }),
+    await invoke<unknown>("notes_get_data_source_table_view", {
+      dbUrl,
+      dataSourceId,
+      ...databaseViewScopeArgs(scope),
+    }),
   );
 }
 
 export async function updateNotesDataSourceTableView(
   dataSourceId: string,
   update: NotesDataSourceTableViewUpdate,
+  scope?: NotesDatabaseViewScope | null,
 ): Promise<NotesDataSourceTableView> {
   const dbUrl = await ensureDbUrl();
   return mapNotesDataSourceTableViewDto(
@@ -383,22 +425,29 @@ export async function updateNotesDataSourceTableView(
       dbUrl,
       dataSourceId,
       update,
+      ...databaseViewScopeArgs(scope),
     }),
   );
 }
 
 export async function getNotesDataSourceBoardView(
   dataSourceId: string,
+  scope?: NotesDatabaseViewScope | null,
 ): Promise<NotesDataSourceBoardView> {
   const dbUrl = await ensureDbUrl();
   return mapNotesDataSourceBoardViewDto(
-    await invoke<unknown>("notes_get_data_source_board_view", { dbUrl, dataSourceId }),
+    await invoke<unknown>("notes_get_data_source_board_view", {
+      dbUrl,
+      dataSourceId,
+      ...databaseViewScopeArgs(scope),
+    }),
   );
 }
 
 export async function updateNotesDataSourceBoardView(
   dataSourceId: string,
   update: NotesDataSourceBoardViewUpdate,
+  scope?: NotesDatabaseViewScope | null,
 ): Promise<NotesDataSourceBoardView> {
   const dbUrl = await ensureDbUrl();
   return mapNotesDataSourceBoardViewDto(
@@ -406,6 +455,7 @@ export async function updateNotesDataSourceBoardView(
       dbUrl,
       dataSourceId,
       update,
+      ...databaseViewScopeArgs(scope),
     }),
   );
 }
@@ -413,6 +463,7 @@ export async function updateNotesDataSourceBoardView(
 export async function moveNotesDataSourceBoardRow(
   dataSourceId: string,
   request: NotesDataSourceBoardRowMove,
+  scope?: NotesDatabaseViewScope | null,
 ): Promise<NotesDataSourceBoardView> {
   const dbUrl = await ensureDbUrl();
   return mapNotesDataSourceBoardViewDto(
@@ -420,22 +471,29 @@ export async function moveNotesDataSourceBoardRow(
       dbUrl,
       dataSourceId,
       request,
+      ...databaseViewScopeArgs(scope),
     }),
   );
 }
 
 export async function getNotesDataSourceGalleryView(
   dataSourceId: string,
+  scope?: NotesDatabaseViewScope | null,
 ): Promise<NotesDataSourceGalleryView> {
   const dbUrl = await ensureDbUrl();
   return mapNotesDataSourceGalleryViewDto(
-    await invoke<unknown>("notes_get_data_source_gallery_view", { dbUrl, dataSourceId }),
+    await invoke<unknown>("notes_get_data_source_gallery_view", {
+      dbUrl,
+      dataSourceId,
+      ...databaseViewScopeArgs(scope),
+    }),
   );
 }
 
 export async function updateNotesDataSourceGalleryView(
   dataSourceId: string,
   update: NotesDataSourceGalleryViewUpdate,
+  scope?: NotesDatabaseViewScope | null,
 ): Promise<NotesDataSourceGalleryView> {
   const dbUrl = await ensureDbUrl();
   return mapNotesDataSourceGalleryViewDto(
@@ -443,6 +501,7 @@ export async function updateNotesDataSourceGalleryView(
       dbUrl,
       dataSourceId,
       update,
+      ...databaseViewScopeArgs(scope),
     }),
   );
 }
@@ -465,16 +524,22 @@ export async function updateNotesDataSourceRowProperty(
 
 export async function getNotesDataSourceListView(
   dataSourceId: string,
+  scope?: NotesDatabaseViewScope | null,
 ): Promise<NotesDataSourceListView> {
   const dbUrl = await ensureDbUrl();
   return mapNotesDataSourceListViewDto(
-    await invoke<unknown>("notes_get_data_source_list_view", { dbUrl, dataSourceId }),
+    await invoke<unknown>("notes_get_data_source_list_view", {
+      dbUrl,
+      dataSourceId,
+      ...databaseViewScopeArgs(scope),
+    }),
   );
 }
 
 export async function updateNotesDataSourceListView(
   dataSourceId: string,
   update: NotesDataSourceListViewUpdate,
+  scope?: NotesDatabaseViewScope | null,
 ): Promise<NotesDataSourceListView> {
   const dbUrl = await ensureDbUrl();
   return mapNotesDataSourceListViewDto(
@@ -482,22 +547,29 @@ export async function updateNotesDataSourceListView(
       dbUrl,
       dataSourceId,
       update,
+      ...databaseViewScopeArgs(scope),
     }),
   );
 }
 
 export async function getNotesDataSourceCalendarView(
   dataSourceId: string,
+  scope?: NotesDatabaseViewScope | null,
 ): Promise<NotesDataSourceCalendarView> {
   const dbUrl = await ensureDbUrl();
   return mapNotesDataSourceCalendarViewDto(
-    await invoke<unknown>("notes_get_data_source_calendar_view", { dbUrl, dataSourceId }),
+    await invoke<unknown>("notes_get_data_source_calendar_view", {
+      dbUrl,
+      dataSourceId,
+      ...databaseViewScopeArgs(scope),
+    }),
   );
 }
 
 export async function updateNotesDataSourceCalendarView(
   dataSourceId: string,
   update: NotesDataSourceCalendarViewUpdate,
+  scope?: NotesDatabaseViewScope | null,
 ): Promise<NotesDataSourceCalendarView> {
   const dbUrl = await ensureDbUrl();
   return mapNotesDataSourceCalendarViewDto(
@@ -505,22 +577,29 @@ export async function updateNotesDataSourceCalendarView(
       dbUrl,
       dataSourceId,
       update,
+      ...databaseViewScopeArgs(scope),
     }),
   );
 }
 
 export async function getNotesDataSourceTimelineView(
   dataSourceId: string,
+  scope?: NotesDatabaseViewScope | null,
 ): Promise<NotesDataSourceTimelineView> {
   const dbUrl = await ensureDbUrl();
   return mapNotesDataSourceTimelineViewDto(
-    await invoke<unknown>("notes_get_data_source_timeline_view", { dbUrl, dataSourceId }),
+    await invoke<unknown>("notes_get_data_source_timeline_view", {
+      dbUrl,
+      dataSourceId,
+      ...databaseViewScopeArgs(scope),
+    }),
   );
 }
 
 export async function updateNotesDataSourceTimelineView(
   dataSourceId: string,
   update: NotesDataSourceTimelineViewUpdate,
+  scope?: NotesDatabaseViewScope | null,
 ): Promise<NotesDataSourceTimelineView> {
   const dbUrl = await ensureDbUrl();
   return mapNotesDataSourceTimelineViewDto(
@@ -528,6 +607,7 @@ export async function updateNotesDataSourceTimelineView(
       dbUrl,
       dataSourceId,
       update,
+      ...databaseViewScopeArgs(scope),
     }),
   );
 }

@@ -9,11 +9,11 @@ use super::models::{
     NoteDataSourceTableConfigurationUpdate, NoteDataSourceTableFilter, NoteDataSourceTableSort,
     NoteDataSourceTableViewUpdate, NoteDataSourceTimelineConfigurationUpdate,
     NoteDataSourceTimelineViewUpdate, NoteDatabaseCreate, NoteDuplicateBlock, NoteDuplicateBlocks,
-    NoteDuplicatePage, NoteDuplicatedBlockId, NoteMoveBlock, NoteMoveBlocks, NoteMovePage,
-    NotePageCreate, NotePageHistoryCopyBlocks, NotePageHistorySettingsUpdate,
-    NotePageTemplateApply, NotePageTemplateCreateFromPage, NotePageTemplateDuplicate,
-    NotePageTemplateUpdate, NoteParent, NoteSidebarPagesRequest, NoteTrashBlocks,
-    OptionalJsonValue,
+    NoteDuplicatePage, NoteDuplicatedBlockId, NoteLinkedDatabaseCreate, NoteMoveBlock,
+    NoteMoveBlocks, NoteMovePage, NotePageCreate, NotePageHistoryCopyBlocks,
+    NotePageHistorySettingsUpdate, NotePageTemplateApply, NotePageTemplateCreateFromPage,
+    NotePageTemplateDuplicate, NotePageTemplateUpdate, NoteParent, NoteSidebarPagesRequest,
+    NoteTrashBlocks, OptionalJsonValue,
 };
 use super::{
     comments, data_source_board, data_source_calendar, data_source_gallery, data_source_list,
@@ -41,6 +41,8 @@ const TEMPLATE_B: &str = "91919191-9191-4191-8191-919191919191";
 const DATABASE_A: &str = "80808080-8080-4080-8080-808080808080";
 const DATA_SOURCE_A: &str = "81818181-8181-4181-8181-818181818181";
 const DATABASE_VIEW_A: &str = "82828282-8282-4282-8282-828282828282";
+const LINKED_DATABASE_A: &str = "83838383-8383-4383-8383-838383838383";
+const LINKED_DATABASE_VIEW_A: &str = "84848484-8484-4484-8484-848484848484";
 
 async fn migrated_memory_pool() -> SqlitePool {
     let pool = sqlx::sqlite::SqlitePoolOptions::new()
@@ -1655,6 +1657,261 @@ fn create_local_database_inside_notes_page() {
 }
 
 #[test]
+fn linked_database_view_shares_source_and_keeps_view_settings_independent() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        create_page(&pool, PAGE_A, BLOCK_A).await;
+        databases::create_database(
+            &pool,
+            NoteDatabaseCreate {
+                id: DATABASE_A.to_string(),
+                data_source_id: DATA_SOURCE_A.to_string(),
+                view_id: DATABASE_VIEW_A.to_string(),
+                title: "Tasks".to_string(),
+                parent: Some(page_parent(PAGE_A)),
+                after_block_id: Some(BLOCK_A.to_string()),
+                replace_block_id: None,
+                icon: None,
+                cover: None,
+            },
+        )
+        .await
+        .unwrap();
+        data_source_schema::update_data_source_schema(
+            &pool,
+            DATA_SOURCE_A,
+            None,
+            NoteDataSourceSchemaUpdate {
+                properties: json!({
+                    "Name": {
+                        "id": "title",
+                        "name": "Name",
+                        "type": "title",
+                        "title": {}
+                    },
+                    "Details": {
+                        "id": "details",
+                        "name": "Details",
+                        "type": "rich_text",
+                        "rich_text": {}
+                    },
+                    "Estimate": {
+                        "id": "estimate",
+                        "name": "Estimate",
+                        "type": "number",
+                        "number": { "format": "number" }
+                    }
+                }),
+                property_order: vec![
+                    "title".to_string(),
+                    "details".to_string(),
+                    "estimate".to_string(),
+                ],
+                hidden_property_ids: vec!["details".to_string()],
+            },
+        )
+        .await
+        .unwrap();
+        data_source_table::update_data_source_table_view(
+            &pool,
+            DATA_SOURCE_A,
+            Some(DATABASE_A),
+            Some(DATABASE_VIEW_A),
+            NoteDataSourceTableViewUpdate {
+                filter: vec![],
+                sorts: vec![NoteDataSourceTableSort {
+                    property_id: "estimate".to_string(),
+                    direction: "descending".to_string(),
+                }],
+                configuration: NoteDataSourceTableConfigurationUpdate {
+                    property_order: vec![
+                        "title".to_string(),
+                        "details".to_string(),
+                        "estimate".to_string(),
+                    ],
+                    hidden_property_ids: vec!["details".to_string()],
+                    column_widths: json!({ "title": 260, "details": 180, "estimate": 120 }),
+                    row_open_mode: "side_panel".to_string(),
+                },
+            },
+        )
+        .await
+        .unwrap();
+
+        let linked = databases::create_linked_database_view(
+            &pool,
+            NoteLinkedDatabaseCreate {
+                id: LINKED_DATABASE_A.to_string(),
+                view_id: LINKED_DATABASE_VIEW_A.to_string(),
+                source_block_id: DATABASE_A.to_string(),
+                title: Some("Task mirror".to_string()),
+            },
+        )
+        .await
+        .unwrap();
+        let linked_json = serde_json::to_value(linked).unwrap();
+        assert_eq!(linked_json["database"]["id"], LINKED_DATABASE_A);
+        assert_eq!(
+            linked_json["data_source"]["parent"]["database_id"],
+            DATABASE_A
+        );
+        assert_eq!(
+            linked_json["view"]["parent"]["database_id"],
+            LINKED_DATABASE_A
+        );
+        assert_eq!(linked_json["view"]["data_source_id"], DATA_SOURCE_A);
+        assert_eq!(
+            linked_json["block"]["child_database"]["database_id"],
+            LINKED_DATABASE_A
+        );
+        assert_eq!(
+            linked_json["block"]["child_database"]["data_source_id"],
+            DATA_SOURCE_A
+        );
+
+        let linked_data_source_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM notes_data_sources WHERE database_id = ?")
+                .bind(LINKED_DATABASE_A)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(linked_data_source_count, 0);
+
+        data_source_table::update_data_source_table_view(
+            &pool,
+            DATA_SOURCE_A,
+            Some(LINKED_DATABASE_A),
+            Some(LINKED_DATABASE_VIEW_A),
+            NoteDataSourceTableViewUpdate {
+                filter: vec![],
+                sorts: vec![NoteDataSourceTableSort {
+                    property_id: "title".to_string(),
+                    direction: "ascending".to_string(),
+                }],
+                configuration: NoteDataSourceTableConfigurationUpdate {
+                    property_order: vec![
+                        "title".to_string(),
+                        "estimate".to_string(),
+                        "details".to_string(),
+                    ],
+                    hidden_property_ids: vec!["estimate".to_string()],
+                    column_widths: json!({ "title": 320, "details": 180, "estimate": 120 }),
+                    row_open_mode: "full_page".to_string(),
+                },
+            },
+        )
+        .await
+        .unwrap();
+
+        let source_table = data_source_table::get_data_source_table_view(
+            &pool,
+            DATA_SOURCE_A,
+            Some(DATABASE_A),
+            Some(DATABASE_VIEW_A),
+        )
+        .await
+        .unwrap();
+        let source_json = serde_json::to_value(source_table).unwrap();
+        assert_eq!(
+            source_json["view"]["configuration"]["table"]["hidden_property_ids"],
+            json!(["details"])
+        );
+        assert_eq!(
+            source_json["view"]["configuration"]["table"]["row_open_mode"],
+            "side_panel"
+        );
+        assert_eq!(source_json["view"]["sorts"][0]["property_id"], "estimate");
+
+        let linked_table = data_source_table::get_data_source_table_view(
+            &pool,
+            DATA_SOURCE_A,
+            Some(LINKED_DATABASE_A),
+            Some(LINKED_DATABASE_VIEW_A),
+        )
+        .await
+        .unwrap();
+        let linked_table_json = serde_json::to_value(linked_table).unwrap();
+        assert_eq!(
+            linked_table_json["view"]["configuration"]["table"]["hidden_property_ids"],
+            json!(["estimate"])
+        );
+        assert_eq!(
+            linked_table_json["view"]["configuration"]["table"]["row_open_mode"],
+            "full_page"
+        );
+        assert_eq!(
+            linked_table_json["view"]["sorts"][0]["property_id"],
+            "title"
+        );
+
+        data_source_schema::update_data_source_schema(
+            &pool,
+            DATA_SOURCE_A,
+            Some(LINKED_DATABASE_VIEW_A),
+            NoteDataSourceSchemaUpdate {
+                properties: json!({
+                    "Name": {
+                        "id": "title",
+                        "name": "Name",
+                        "type": "title",
+                        "title": {}
+                    },
+                    "Details": {
+                        "id": "details",
+                        "name": "Details",
+                        "type": "rich_text",
+                        "rich_text": {}
+                    },
+                    "Estimate": {
+                        "id": "estimate",
+                        "name": "Estimate",
+                        "type": "number",
+                        "number": { "format": "number" }
+                    },
+                    "Due": {
+                        "id": "due",
+                        "name": "Due",
+                        "type": "date",
+                        "date": {}
+                    }
+                }),
+                property_order: vec![
+                    "title".to_string(),
+                    "estimate".to_string(),
+                    "details".to_string(),
+                    "due".to_string(),
+                ],
+                hidden_property_ids: vec!["estimate".to_string()],
+            },
+        )
+        .await
+        .unwrap();
+
+        let reloaded_linked = data_source_table::get_data_source_table_view(
+            &pool,
+            DATA_SOURCE_A,
+            Some(LINKED_DATABASE_A),
+            Some(LINKED_DATABASE_VIEW_A),
+        )
+        .await
+        .unwrap();
+        let reloaded_linked_json = serde_json::to_value(reloaded_linked).unwrap();
+        assert_eq!(
+            reloaded_linked_json["data_source"]["properties"]["Due"]["type"],
+            "date"
+        );
+        assert_eq!(
+            reloaded_linked_json["view"]["parent"]["database_id"],
+            LINKED_DATABASE_A
+        );
+        assert_eq!(
+            reloaded_linked_json["view"]["configuration"]["table"]["hidden_property_ids"],
+            json!(["estimate"])
+        );
+    });
+}
+
+#[test]
 fn database_row_pages_are_real_pages_with_page_lifecycle() {
     tauri::async_runtime::block_on(async {
         let pool = migrated_memory_pool().await;
@@ -1678,6 +1935,7 @@ fn database_row_pages_are_real_pages_with_page_lifecycle() {
         data_source_schema::update_data_source_schema(
             &pool,
             DATA_SOURCE_A,
+            None,
             NoteDataSourceSchemaUpdate {
                 properties: json!({
                     "Name": {
@@ -1844,6 +2102,7 @@ fn editable_database_table_view_persists_cells_configuration_filters_and_sorts()
         data_source_schema::update_data_source_schema(
             &pool,
             DATA_SOURCE_A,
+            None,
             NoteDataSourceSchemaUpdate {
                 properties: json!({
                     "Name": {
@@ -2001,6 +2260,8 @@ fn editable_database_table_view_persists_cells_configuration_filters_and_sorts()
         let table = data_source_table::update_data_source_table_view(
             &pool,
             DATA_SOURCE_A,
+            None,
+            None,
             NoteDataSourceTableViewUpdate {
                 filter: vec![NoteDataSourceTableFilter {
                     property_id: "title".to_string(),
@@ -2067,6 +2328,8 @@ fn editable_database_table_view_persists_cells_configuration_filters_and_sorts()
         let filtered = data_source_table::update_data_source_table_view(
             &pool,
             DATA_SOURCE_A,
+            None,
+            None,
             NoteDataSourceTableViewUpdate {
                 filter: vec![NoteDataSourceTableFilter {
                     property_id: "done_checkbox".to_string(),
@@ -2126,6 +2389,7 @@ fn board_database_view_groups_filters_sorts_and_moves_rows() {
         data_source_schema::update_data_source_schema(
             &pool,
             DATA_SOURCE_A,
+            None,
             NoteDataSourceSchemaUpdate {
                 properties: json!({
                     "Name": {
@@ -2271,9 +2535,10 @@ fn board_database_view_groups_filters_sorts_and_moves_rows() {
         .await
         .unwrap();
 
-        let default_board = data_source_board::get_data_source_board_view(&pool, DATA_SOURCE_A)
-            .await
-            .unwrap();
+        let default_board =
+            data_source_board::get_data_source_board_view(&pool, DATA_SOURCE_A, None, None)
+                .await
+                .unwrap();
         let default_json = serde_json::to_value(default_board).unwrap();
         assert_eq!(default_json["view"]["type"], "board");
         assert_eq!(
@@ -2299,6 +2564,8 @@ fn board_database_view_groups_filters_sorts_and_moves_rows() {
         let priority_board = data_source_board::update_data_source_board_view(
             &pool,
             DATA_SOURCE_A,
+            None,
+            None,
             NoteDataSourceBoardViewUpdate {
                 filter: vec![NoteDataSourceTableFilter {
                     property_id: "title".to_string(),
@@ -2351,6 +2618,8 @@ fn board_database_view_groups_filters_sorts_and_moves_rows() {
         let moved = data_source_board::move_data_source_board_row(
             &pool,
             DATA_SOURCE_A,
+            None,
+            None,
             NoteDataSourceBoardRowMove {
                 page_id: PAGE_C.to_string(),
                 group_id: "high".to_string(),
@@ -2404,6 +2673,7 @@ fn gallery_database_view_persists_card_preview_filters_and_sorts() {
         data_source_schema::update_data_source_schema(
             &pool,
             DATA_SOURCE_A,
+            None,
             NoteDataSourceSchemaUpdate {
                 properties: json!({
                     "Name": {
@@ -2514,7 +2784,7 @@ fn gallery_database_view_persists_card_preview_filters_and_sorts() {
         .unwrap();
 
         let default_gallery =
-            data_source_gallery::get_data_source_gallery_view(&pool, DATA_SOURCE_A)
+            data_source_gallery::get_data_source_gallery_view(&pool, DATA_SOURCE_A, None, None)
                 .await
                 .unwrap();
         let default_json = serde_json::to_value(default_gallery).unwrap();
@@ -2540,6 +2810,8 @@ fn gallery_database_view_persists_card_preview_filters_and_sorts() {
         let invalid_cover = data_source_gallery::update_data_source_gallery_view(
             &pool,
             DATA_SOURCE_A,
+            None,
+            None,
             NoteDataSourceGalleryViewUpdate {
                 filter: vec![],
                 sorts: vec![],
@@ -2562,6 +2834,8 @@ fn gallery_database_view_persists_card_preview_filters_and_sorts() {
         let updated = data_source_gallery::update_data_source_gallery_view(
             &pool,
             DATA_SOURCE_A,
+            None,
+            None,
             NoteDataSourceGalleryViewUpdate {
                 filter: vec![NoteDataSourceTableFilter {
                     property_id: "title".to_string(),
@@ -2646,6 +2920,7 @@ fn list_database_view_persists_visible_properties_grouping_filters_and_sorts() {
         data_source_schema::update_data_source_schema(
             &pool,
             DATA_SOURCE_A,
+            None,
             NoteDataSourceSchemaUpdate {
                 properties: json!({
                     "Name": {
@@ -2759,9 +3034,10 @@ fn list_database_view_persists_visible_properties_grouping_filters_and_sorts() {
         .await
         .unwrap();
 
-        let default_list = data_source_list::get_data_source_list_view(&pool, DATA_SOURCE_A)
-            .await
-            .unwrap();
+        let default_list =
+            data_source_list::get_data_source_list_view(&pool, DATA_SOURCE_A, None, None)
+                .await
+                .unwrap();
         let default_json = serde_json::to_value(default_list).unwrap();
         assert_eq!(default_json["view"]["type"], "list");
         assert_eq!(
@@ -2777,6 +3053,8 @@ fn list_database_view_persists_visible_properties_grouping_filters_and_sorts() {
         let invalid_group = data_source_list::update_data_source_list_view(
             &pool,
             DATA_SOURCE_A,
+            None,
+            None,
             NoteDataSourceListViewUpdate {
                 filter: vec![],
                 sorts: vec![],
@@ -2798,6 +3076,8 @@ fn list_database_view_persists_visible_properties_grouping_filters_and_sorts() {
         let updated = data_source_list::update_data_source_list_view(
             &pool,
             DATA_SOURCE_A,
+            None,
+            None,
             NoteDataSourceListViewUpdate {
                 filter: vec![NoteDataSourceTableFilter {
                     property_id: "title".to_string(),
@@ -2871,6 +3151,7 @@ fn calendar_database_view_uses_date_ranges_filters_sorts_and_configuration() {
         data_source_schema::update_data_source_schema(
             &pool,
             DATA_SOURCE_A,
+            None,
             NoteDataSourceSchemaUpdate {
                 properties: json!({
                     "Name": {
@@ -2989,7 +3270,7 @@ fn calendar_database_view_uses_date_ranges_filters_sorts_and_configuration() {
         .unwrap();
 
         let default_calendar =
-            data_source_calendar::get_data_source_calendar_view(&pool, DATA_SOURCE_A)
+            data_source_calendar::get_data_source_calendar_view(&pool, DATA_SOURCE_A, None, None)
                 .await
                 .unwrap();
         let default_json = serde_json::to_value(default_calendar).unwrap();
@@ -3006,6 +3287,8 @@ fn calendar_database_view_uses_date_ranges_filters_sorts_and_configuration() {
         let invalid_date_property = data_source_calendar::update_data_source_calendar_view(
             &pool,
             DATA_SOURCE_A,
+            None,
+            None,
             NoteDataSourceCalendarViewUpdate {
                 filter: vec![],
                 sorts: vec![],
@@ -3027,6 +3310,8 @@ fn calendar_database_view_uses_date_ranges_filters_sorts_and_configuration() {
         let updated = data_source_calendar::update_data_source_calendar_view(
             &pool,
             DATA_SOURCE_A,
+            None,
+            None,
             NoteDataSourceCalendarViewUpdate {
                 filter: vec![NoteDataSourceTableFilter {
                     property_id: "title".to_string(),
@@ -3077,6 +3362,8 @@ fn calendar_database_view_uses_date_ranges_filters_sorts_and_configuration() {
         let august = data_source_calendar::update_data_source_calendar_view(
             &pool,
             DATA_SOURCE_A,
+            None,
+            None,
             NoteDataSourceCalendarViewUpdate {
                 filter: vec![],
                 sorts: vec![],
@@ -3121,6 +3408,7 @@ fn timeline_database_view_uses_date_ranges_grouping_filters_sorts_and_configurat
         data_source_schema::update_data_source_schema(
             &pool,
             DATA_SOURCE_A,
+            None,
             NoteDataSourceSchemaUpdate {
                 properties: json!({
                     "Name": {
@@ -3254,7 +3542,7 @@ fn timeline_database_view_uses_date_ranges_grouping_filters_sorts_and_configurat
         .unwrap();
 
         let default_timeline =
-            data_source_timeline::get_data_source_timeline_view(&pool, DATA_SOURCE_A)
+            data_source_timeline::get_data_source_timeline_view(&pool, DATA_SOURCE_A, None, None)
                 .await
                 .unwrap();
         let default_json = serde_json::to_value(default_timeline).unwrap();
@@ -3271,6 +3559,8 @@ fn timeline_database_view_uses_date_ranges_grouping_filters_sorts_and_configurat
         let invalid_group = data_source_timeline::update_data_source_timeline_view(
             &pool,
             DATA_SOURCE_A,
+            None,
+            None,
             NoteDataSourceTimelineViewUpdate {
                 filter: vec![],
                 sorts: vec![],
@@ -3295,6 +3585,8 @@ fn timeline_database_view_uses_date_ranges_grouping_filters_sorts_and_configurat
         let updated = data_source_timeline::update_data_source_timeline_view(
             &pool,
             DATA_SOURCE_A,
+            None,
+            None,
             NoteDataSourceTimelineViewUpdate {
                 filter: vec![NoteDataSourceTableFilter {
                     property_id: "title".to_string(),
@@ -3348,6 +3640,8 @@ fn timeline_database_view_uses_date_ranges_grouping_filters_sorts_and_configurat
         let august = data_source_timeline::update_data_source_timeline_view(
             &pool,
             DATA_SOURCE_A,
+            None,
+            None,
             NoteDataSourceTimelineViewUpdate {
                 filter: vec![],
                 sorts: vec![],
@@ -3396,6 +3690,7 @@ fn update_local_data_source_schema() {
         let updated = data_source_schema::update_data_source_schema(
             &pool,
             DATA_SOURCE_A,
+            None,
             NoteDataSourceSchemaUpdate {
                 properties: json!({
                     "Name": {
@@ -3622,6 +3917,7 @@ fn update_local_data_source_schema_rejects_title_removal() {
         let result = data_source_schema::update_data_source_schema(
             &pool,
             DATA_SOURCE_A,
+            None,
             NoteDataSourceSchemaUpdate {
                 properties: json!({
                     "Details": {

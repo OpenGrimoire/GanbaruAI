@@ -5,6 +5,7 @@
     getNotesDataSourceSchema,
     updateNotesDataSourceSchema,
   } from "$lib/api/notes";
+  import { notesChildDatabaseViewScope } from "$lib/notes/database-linked";
   import NotesDatabaseBoardView from "./NotesDatabaseBoardView.svelte";
   import NotesDatabaseCalendarView from "./NotesDatabaseCalendarView.svelte";
   import NotesDatabaseGalleryView from "./NotesDatabaseGalleryView.svelte";
@@ -36,6 +37,7 @@
   import Database from "@lucide/svelte/icons/database";
   import Eye from "@lucide/svelte/icons/eye";
   import EyeOff from "@lucide/svelte/icons/eye-off";
+  import Link2 from "@lucide/svelte/icons/link-2";
   import Plus from "@lucide/svelte/icons/plus";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Save from "@lucide/svelte/icons/save";
@@ -48,6 +50,7 @@
     onFocusBlock,
     onKeydown,
     onSelectPage,
+    onCreateLinkedDatabaseView,
   }: {
     block: NotesChildDatabaseBlock;
     focusBlockId: string | null;
@@ -55,6 +58,7 @@
     onFocusBlock: (blockId: string) => void;
     onKeydown: (event: KeyboardEvent) => void;
     onSelectPage: (pageId: string) => void;
+    onCreateLinkedDatabaseView: (blockId: string) => Promise<void> | void;
   } = $props();
 
   const localization = getLocalization();
@@ -64,7 +68,9 @@
   let expanded = $state(false);
   let loading = $state(false);
   let saving = $state(false);
+  let linking = $state(false);
   let error = $state<string | null>(null);
+  let linkedViewError = $state<string | null>(null);
   let saved = $state(false);
   let dirty = $state(false);
   let schema = $state<NotesDataSourceSchema | null>(null);
@@ -80,11 +86,14 @@
 
   const title = $derived(block.child_database.title.trim());
   const dataSourceId = $derived(block.child_database.data_source_id ?? null);
+  const databaseId = $derived(block.child_database.database_id ?? null);
+  const viewId = $derived(block.child_database.view_id ?? null);
   const localDatabase = $derived(
     block.child_database.database_id !== undefined
       && block.child_database.data_source_id !== undefined
       && block.child_database.view_id !== undefined,
   );
+  const viewScope = $derived(notesChildDatabaseViewScope(block));
   const propertyCount = $derived(properties.length);
 
   onMount(() => {
@@ -102,7 +111,7 @@
     loading = true;
     error = null;
     try {
-      const loaded = await getNotesDataSourceSchema(dataSourceId);
+      const loaded = await getNotesDataSourceSchema(dataSourceId, viewScope);
       schema = loaded;
       properties = notesDataSourceSchemaDraftFromDto(loaded.data_source, loaded.view);
       dirty = false;
@@ -126,7 +135,7 @@
     error = null;
     try {
       const update = notesDataSourceSchemaUpdateFromDraft(properties);
-      const updated = await updateNotesDataSourceSchema(dataSourceId, update);
+      const updated = await updateNotesDataSourceSchema(dataSourceId, update, viewScope);
       schema = updated;
       properties = notesDataSourceSchemaDraftFromDto(updated.data_source, updated.view);
       dirty = false;
@@ -141,6 +150,19 @@
       error = caught instanceof Error ? caught.message : String(caught);
     } finally {
       saving = false;
+    }
+  }
+
+  async function createLinkedView(): Promise<void> {
+    linking = true;
+    linkedViewError = null;
+    try {
+      await onCreateLinkedDatabaseView(block.id);
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : String(caught);
+      linkedViewError = t("notes.databaseLinkedViewCreateFailed", message);
+    } finally {
+      linking = false;
     }
   }
 
@@ -309,6 +331,19 @@
     {#if localDatabase}
       <button
         type="button"
+        class="inline-flex h-8 shrink-0 items-center gap-1 rounded-md px-2 text-[0.8rem] text-muted-foreground hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+        disabled={linking}
+        aria-label={t("notes.databaseLinkedViewCreate")}
+        title={t("notes.databaseLinkedViewCreate")}
+        onclick={() => {
+          void createLinkedView();
+        }}
+      >
+        <Link2 class="size-3.5" aria-hidden="true" />
+        <span>{linking ? t("notes.databaseLinkedViewCreating") : t("notes.databaseLinkedViewCreate")}</span>
+      </button>
+      <button
+        type="button"
         class="inline-flex h-8 shrink-0 items-center gap-1 rounded-md px-2 text-[0.8rem] text-muted-foreground hover:bg-accent hover:text-foreground"
         aria-expanded={expanded}
         onclick={() => {
@@ -319,6 +354,9 @@
       </button>
     {/if}
   </div>
+  {#if linkedViewError}
+    <p class="mt-2 text-[0.8rem] text-destructive">{linkedViewError}</p>
+  {/if}
 
   {#if localDatabase && expanded}
     <div class="mt-3 min-w-0 space-y-3 border-t border-border pt-3">
@@ -678,17 +716,53 @@
           </button>
         </div>
         {#if activeView === "table"}
-          <NotesDatabaseTableView {dataSourceId} {onSelectPage} reloadKey={tableReloadKey} />
+          <NotesDatabaseTableView
+            {dataSourceId}
+            {databaseId}
+            {viewId}
+            {onSelectPage}
+            reloadKey={tableReloadKey}
+          />
         {:else if activeView === "board"}
-          <NotesDatabaseBoardView {dataSourceId} {onSelectPage} reloadKey={boardReloadKey} />
+          <NotesDatabaseBoardView
+            {dataSourceId}
+            {databaseId}
+            {viewId}
+            {onSelectPage}
+            reloadKey={boardReloadKey}
+          />
         {:else if activeView === "gallery"}
-          <NotesDatabaseGalleryView {dataSourceId} {onSelectPage} reloadKey={galleryReloadKey} />
+          <NotesDatabaseGalleryView
+            {dataSourceId}
+            {databaseId}
+            {viewId}
+            {onSelectPage}
+            reloadKey={galleryReloadKey}
+          />
         {:else if activeView === "list"}
-          <NotesDatabaseListView {dataSourceId} {onSelectPage} reloadKey={listReloadKey} />
+          <NotesDatabaseListView
+            {dataSourceId}
+            {databaseId}
+            {viewId}
+            {onSelectPage}
+            reloadKey={listReloadKey}
+          />
         {:else if activeView === "calendar"}
-          <NotesDatabaseCalendarView {dataSourceId} {onSelectPage} reloadKey={calendarReloadKey} />
+          <NotesDatabaseCalendarView
+            {dataSourceId}
+            {databaseId}
+            {viewId}
+            {onSelectPage}
+            reloadKey={calendarReloadKey}
+          />
         {:else}
-          <NotesDatabaseTimelineView {dataSourceId} {onSelectPage} reloadKey={timelineReloadKey} />
+          <NotesDatabaseTimelineView
+            {dataSourceId}
+            {databaseId}
+            {viewId}
+            {onSelectPage}
+            reloadKey={timelineReloadKey}
+          />
         {/if}
       {/if}
     </div>

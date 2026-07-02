@@ -1,6 +1,7 @@
 import {
   appendNotesBlockChildren,
   createNotesDatabase,
+  createNotesLinkedDatabaseView,
   duplicateNotesBlock,
   duplicateNotesBlocks,
   moveNotesBlock,
@@ -36,6 +37,7 @@ import {
   normalizeNotesBlockInsertCommand,
   type NotesBlockInsertRequest,
 } from "$lib/notes/block-insertion";
+import { createNotesLinkedDatabaseViewRequest } from "$lib/notes/database-linked";
 import {
   blockEditableRichText,
   blockConvertedToType,
@@ -296,6 +298,7 @@ export interface NotesBlockActions extends NotesColumnActions, NotesTabActions {
     position: NotesButtonInsertPosition,
   ) => Promise<void>;
   useButtonBlock: (blockId: string) => Promise<void>;
+  createLinkedDatabaseViewAfter: (blockId: string) => Promise<void>;
   convertUnsupportedBlock: (
     blockId: string,
     target: NotesUnsupportedConversionTarget,
@@ -1080,6 +1083,29 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     recordUndoAfter("create", before, created.block.id);
   }
 
+  async function createLinkedDatabaseViewAfter(blockId: string): Promise<void> {
+    const block = context.blockById(blockId);
+    const selectedPageId = context.readSelectedPageId();
+    if (!block || block.type !== "child_database" || !selectedPageId) return;
+    await context.flushBlockSave(blockId);
+    const currentBlock = context.blockById(blockId) ?? block;
+    if (currentBlock.type !== "child_database") return;
+    const before = undoSnapshot(blockId);
+    const created = await createNotesLinkedDatabaseView(
+      createNotesLinkedDatabaseViewRequest(
+        currentBlock,
+        {
+          databaseId: crypto.randomUUID(),
+          viewId: crypto.randomUUID(),
+        },
+        currentBlock.child_database.title || DEFAULT_DATABASE_TITLE,
+      ),
+    );
+    await context.loadPageTree(selectedPageId);
+    context.requestBlockFocus(created.block.id);
+    recordUndoAfter("create", before, created.block.id);
+  }
+
   async function splitTextBlockAtSelection(
     blockId: string,
     selectionStart: number,
@@ -1819,6 +1845,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     updateButtonIcon,
     updateButtonInsertPosition,
     useButtonBlock,
+    createLinkedDatabaseViewAfter,
     convertUnsupportedBlock,
   };
 }

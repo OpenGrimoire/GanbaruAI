@@ -1,8 +1,8 @@
+use super::data_source_views;
 use super::models::{
     NoteDataSourceRow, NoteDataSourceSchemaDto, NoteDataSourceSchemaUpdate, NoteDatabaseRow,
     NoteDatabaseViewRow,
 };
-use super::validation::require_uuid;
 use serde_json::{json, Map, Value};
 use sqlx::{Sqlite, SqlitePool, Transaction};
 use std::collections::{HashMap, HashSet};
@@ -89,13 +89,14 @@ struct PreparedSchemaUpdate {
 pub(in crate::notes) async fn get_data_source_schema(
     pool: &SqlitePool,
     data_source_id: &str,
+    view_id: Option<&str>,
 ) -> Result<NoteDataSourceSchemaDto, String> {
-    require_uuid(data_source_id, "data_source_id")?;
+    data_source_views::validate_view_scope(data_source_id, None, view_id)?;
     let mut tx = pool
         .begin()
         .await
         .map_err(|e| format!("begin notes data source schema read: {e}"))?;
-    let dto = load_data_source_schema_tx(&mut tx, data_source_id).await?;
+    let dto = load_data_source_schema_tx(&mut tx, data_source_id, view_id).await?;
     tx.commit()
         .await
         .map_err(|e| format!("commit notes data source schema read: {e}"))?;
@@ -105,9 +106,10 @@ pub(in crate::notes) async fn get_data_source_schema(
 pub(in crate::notes) async fn update_data_source_schema(
     pool: &SqlitePool,
     data_source_id: &str,
+    view_id: Option<&str>,
     update: NoteDataSourceSchemaUpdate,
 ) -> Result<NoteDataSourceSchemaDto, String> {
-    require_uuid(data_source_id, "data_source_id")?;
+    data_source_views::validate_view_scope(data_source_id, None, view_id)?;
     let prepared = prepare_schema_update(&update)?;
     let mut tx = pool
         .begin()
@@ -116,21 +118,11 @@ pub(in crate::notes) async fn update_data_source_schema(
     let current = load_data_source_row_tx(&mut tx, data_source_id).await?;
     let current_properties = parse_json(&current.properties, "data source properties")?;
     ensure_title_property_preserved(&current_properties, &prepared.properties)?;
-    let current_configuration: Option<String> = sqlx::query_scalar(
-        "SELECT configuration
-         FROM notes_database_views
-         WHERE data_source_id = ? AND type = 'table'
-         ORDER BY sort_order ASC, created_time ASC, id ASC
-         LIMIT 1",
-    )
-    .bind(data_source_id.trim())
-    .fetch_optional(&mut *tx)
-    .await
-    .map_err(|e| format!("load current notes table view configuration: {e}"))?;
+    let target_view = load_table_view_for_schema_tx(&mut tx, data_source_id, view_id).await?;
     let configuration = table_view_configuration(
         &prepared.property_order,
         &prepared.hidden_property_ids,
-        current_configuration.as_deref(),
+        target_view.configuration.as_deref(),
     )?;
     sqlx::query(
         "UPDATE notes_data_sources
@@ -147,14 +139,14 @@ pub(in crate::notes) async fn update_data_source_schema(
         "UPDATE notes_database_views
          SET configuration = ?,
              last_edited_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-         WHERE data_source_id = ? AND type = 'table'",
+         WHERE id = ?",
     )
     .bind(configuration.to_string())
-    .bind(data_source_id.trim())
+    .bind(&target_view.id)
     .execute(&mut *tx)
     .await
     .map_err(|e| format!("update notes table view schema configuration: {e}"))?;
-    let dto = load_data_source_schema_tx(&mut tx, data_source_id).await?;
+    let dto = load_data_source_schema_tx(&mut tx, data_source_id, Some(&target_view.id)).await?;
     tx.commit()
         .await
         .map_err(|e| format!("commit notes data source schema update: {e}"))?;
@@ -665,6 +657,7 @@ fn table_view_configuration(
 async fn load_data_source_schema_tx(
     tx: &mut Transaction<'_, Sqlite>,
     data_source_id: &str,
+    view_id: Option<&str>,
 ) -> Result<NoteDataSourceSchemaDto, String> {
     let data_source = load_data_source_row_tx(tx, data_source_id).await?;
     let database =
@@ -673,32 +666,22 @@ async fn load_data_source_schema_tx(
             .fetch_one(&mut **tx)
             .await
             .map_err(|e| format!("load notes data source database: {e}"))?;
-    let view = sqlx::query_as::<_, NoteDatabaseViewRow>(
-        "SELECT id,
-                database_id,
-                data_source_id,
-                name,
-                type AS view_type,
-                filter,
-                sorts,
-                configuration,
-                source_provider,
-                source_object_id,
-                source_workspace_id,
-                source_last_edited_time,
-                url,
-                created_time,
-                last_edited_time
-         FROM notes_database_views
-         WHERE data_source_id = ? AND type = 'table'
-         ORDER BY sort_order ASC, created_time ASC, id ASC
-         LIMIT 1",
-    )
-    .bind(data_source_id)
-    .fetch_one(&mut **tx)
-    .await
-    .map_err(|e| format!("load notes data source table view: {e}"))?;
+    let view = load_table_view_for_schema_tx(tx, data_source_id, view_id).await?;
     NoteDataSourceSchemaDto::new(data_source, database, view)
+}
+
+async fn load_table_view_for_schema_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    data_source_id: &str,
+    view_id: Option<&str>,
+) -> Result<NoteDatabaseViewRow, String> {
+    let view = if let Some(view_id) = view_id {
+        data_source_views::load_scoped_view_row_tx(tx, data_source_id, "table", None, Some(view_id))
+            .await?
+    } else {
+        data_source_views::load_scoped_view_row_tx(tx, data_source_id, "table", None, None).await?
+    };
+    view.ok_or_else(|| "data source table view not found".to_string())
 }
 
 async fn load_data_source_row_tx(

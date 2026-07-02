@@ -889,6 +889,7 @@ pub fn run() {
             notes::notes_create_page,
             notes::notes_create_child_page_from_block,
             notes::notes_create_database,
+            notes::notes_create_linked_database_view,
             notes::notes_get_data_source_schema,
             notes::notes_update_data_source_schema,
             notes::notes_list_data_source_row_pages,

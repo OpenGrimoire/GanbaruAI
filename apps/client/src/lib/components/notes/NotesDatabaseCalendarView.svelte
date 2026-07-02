@@ -30,6 +30,7 @@
     NotesDatabaseTableFilter,
     NotesDatabaseTableFilterCondition,
     NotesDatabaseTableSort,
+    NotesDatabaseViewScope,
     NotesDataSourceCalendarView,
     NotesPage,
   } from "$lib/notes/types";
@@ -45,10 +46,14 @@
 
   let {
     dataSourceId,
+    databaseId = null,
+    viewId = null,
     onSelectPage,
     reloadKey = 0,
   }: {
     dataSourceId: string;
+    databaseId?: string | null;
+    viewId?: string | null;
     onSelectPage: (pageId: string) => void;
     reloadKey?: number;
   } = $props();
@@ -89,17 +94,21 @@
   const selectedPanelRow = $derived(calendar?.rows.find((row) => row.id === selectedPanelRowId) ?? null);
 
   $effect(() => {
-    const signature = `${dataSourceId}:${reloadKey}`;
+    const signature = `${dataSourceId}:${databaseId ?? ""}:${viewId ?? ""}:${reloadKey}`;
     if (signature === lastLoadSignature) return;
     lastLoadSignature = signature;
     void loadCalendar();
   });
 
+  function viewScope(): NotesDatabaseViewScope {
+    return { databaseId, viewId };
+  }
+
   async function loadCalendar(): Promise<NotesDataSourceCalendarView | null> {
     loading = true;
     error = null;
     try {
-      const loaded = await getNotesDataSourceCalendarView(dataSourceId);
+      const loaded = await getNotesDataSourceCalendarView(dataSourceId, viewScope());
       calendar = loaded;
       if (selectedPanelRowId && !loaded.rows.some((row) => row.id === selectedPanelRowId)) {
         selectedPanelRowId = null;
@@ -126,6 +135,7 @@
       calendar = await updateNotesDataSourceCalendarView(
         dataSourceId,
         notesDatabaseCalendarUpdate(nextConfiguration, nextVisibleColumns, nextFilters, nextSorts),
+        viewScope(),
       );
     } catch (caught) {
       error = caught instanceof Error ? caught.message : String(caught);

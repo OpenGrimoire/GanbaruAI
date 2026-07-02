@@ -4,7 +4,7 @@ use super::models::{
     NoteDataSourceTableViewUpdate, NoteDatabaseRow, NoteDatabaseViewRow, NotePageDto, NotePageRow,
 };
 use super::validation::require_uuid;
-use super::{history, writes};
+use super::{data_source_views, history, writes};
 use serde_json::{json, Map, Value};
 use sqlx::{Sqlite, SqlitePool, Transaction};
 use std::cmp::Ordering;
@@ -30,13 +30,15 @@ const FILTER_CONDITIONS: &[&str] = &[
 pub(in crate::notes) async fn get_data_source_table_view(
     pool: &SqlitePool,
     data_source_id: &str,
+    database_id: Option<&str>,
+    view_id: Option<&str>,
 ) -> Result<NoteDataSourceTableViewDto, String> {
-    require_uuid(data_source_id, "data_source_id")?;
+    data_source_views::validate_view_scope(data_source_id, database_id, view_id)?;
     let mut tx = pool
         .begin()
         .await
         .map_err(|e| format!("begin notes data source table read: {e}"))?;
-    let dto = load_table_view_tx(&mut tx, data_source_id).await?;
+    let dto = load_table_view_tx(&mut tx, data_source_id, database_id, view_id).await?;
     tx.commit()
         .await
         .map_err(|e| format!("commit notes data source table read: {e}"))?;
@@ -46,9 +48,11 @@ pub(in crate::notes) async fn get_data_source_table_view(
 pub(in crate::notes) async fn update_data_source_table_view(
     pool: &SqlitePool,
     data_source_id: &str,
+    database_id: Option<&str>,
+    view_id: Option<&str>,
     update: NoteDataSourceTableViewUpdate,
 ) -> Result<NoteDataSourceTableViewDto, String> {
-    require_uuid(data_source_id, "data_source_id")?;
+    data_source_views::validate_view_scope(data_source_id, database_id, view_id)?;
     let mut tx = pool
         .begin()
         .await
@@ -63,22 +67,23 @@ pub(in crate::notes) async fn update_data_source_table_view(
     let filter = canonical_filter(&update.filter, &property_ids)?;
     let sorts = canonical_sorts(&update.sorts, &property_ids)?;
     let configuration = canonical_table_configuration(&update.configuration, &property_ids)?;
+    let view = ensure_table_view_row_tx(&mut tx, &data_source, database_id, view_id).await?;
     sqlx::query(
         "UPDATE notes_database_views
          SET filter = ?,
              sorts = ?,
              configuration = ?,
              last_edited_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-         WHERE data_source_id = ? AND type = 'table'",
+         WHERE id = ?",
     )
     .bind(filter.map(|value| value.to_string()))
     .bind(sorts.to_string())
     .bind(configuration.to_string())
-    .bind(data_source_id.trim())
+    .bind(&view.id)
     .execute(&mut *tx)
     .await
     .map_err(|e| format!("update notes data source table view: {e}"))?;
-    let dto = load_table_view_tx(&mut tx, data_source_id).await?;
+    let dto = load_table_view_tx(&mut tx, data_source_id, database_id, Some(&view.id)).await?;
     tx.commit()
         .await
         .map_err(|e| format!("commit notes data source table view update: {e}"))?;
@@ -142,10 +147,12 @@ pub(in crate::notes) async fn update_data_source_row_property(
 async fn load_table_view_tx(
     tx: &mut Transaction<'_, Sqlite>,
     data_source_id: &str,
+    database_id: Option<&str>,
+    view_id: Option<&str>,
 ) -> Result<NoteDataSourceTableViewDto, String> {
     let (data_source, database) =
         load_active_data_source_and_database_tx(tx, data_source_id).await?;
-    let view = load_table_view_row_tx(tx, data_source_id).await?;
+    let view = ensure_table_view_row_tx(tx, &data_source, database_id, view_id).await?;
     let schema = table_schema(&parse_json(
         &data_source.properties,
         "data source properties",
@@ -160,6 +167,61 @@ async fn load_table_view_tx(
     rows.retain(|row| row_matches_filters(row, &schema, &filters));
     sort_rows(&mut rows, &schema, &sorts);
     NoteDataSourceTableViewDto::new(data_source, database, view, rows)
+}
+
+async fn ensure_table_view_row_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    data_source: &NoteDataSourceRow,
+    database_id: Option<&str>,
+    view_id: Option<&str>,
+) -> Result<NoteDatabaseViewRow, String> {
+    if let Some(view) = data_source_views::load_scoped_view_row_tx(
+        tx,
+        &data_source.id,
+        "table",
+        database_id,
+        view_id,
+    )
+    .await?
+    {
+        return Ok(view);
+    }
+    let database_id = data_source_views::scoped_database_id(data_source, database_id);
+    let id = data_source_views::generated_uuid_tx(tx).await?;
+    let sort_order = data_source_views::next_view_sort_order_tx(tx, database_id).await?;
+    sqlx::query(
+        "INSERT INTO notes_database_views (
+            id,
+            database_id,
+            data_source_id,
+            name,
+            type,
+            sorts,
+            configuration,
+            sort_order
+         )
+         VALUES (?, ?, ?, 'Table', 'table', '[]', ?, ?)",
+    )
+    .bind(&id)
+    .bind(database_id)
+    .bind(&data_source.id)
+    .bind(default_table_configuration(&parse_json(
+        &data_source.properties,
+        "data source properties",
+    )?)?)
+    .bind(sort_order)
+    .execute(&mut **tx)
+    .await
+    .map_err(|e| format!("insert notes table view: {e}"))?;
+    data_source_views::load_scoped_view_row_tx(
+        tx,
+        &data_source.id,
+        "table",
+        Some(database_id),
+        Some(&id),
+    )
+    .await?
+    .ok_or_else(|| "inserted table view was not found".to_string())
 }
 
 async fn load_active_data_source_and_database_tx(
@@ -187,37 +249,6 @@ async fn load_active_data_source_and_database_tx(
     .await
     .map_err(|e| format!("load notes database for table: {e}"))?;
     Ok((data_source, database))
-}
-
-async fn load_table_view_row_tx(
-    tx: &mut Transaction<'_, Sqlite>,
-    data_source_id: &str,
-) -> Result<NoteDatabaseViewRow, String> {
-    sqlx::query_as::<_, NoteDatabaseViewRow>(
-        "SELECT id,
-                database_id,
-                data_source_id,
-                name,
-                type AS view_type,
-                filter,
-                sorts,
-                configuration,
-                source_provider,
-                source_object_id,
-                source_workspace_id,
-                source_last_edited_time,
-                url,
-                created_time,
-                last_edited_time
-         FROM notes_database_views
-         WHERE data_source_id = ? AND type = 'table'
-         ORDER BY sort_order ASC, created_time ASC, id ASC
-         LIMIT 1",
-    )
-    .bind(data_source_id.trim())
-    .fetch_one(&mut **tx)
-    .await
-    .map_err(|e| format!("load notes table view: {e}"))
 }
 
 async fn load_active_row_pages_tx(
@@ -431,6 +462,21 @@ fn canonical_table_configuration(
         return Err("table configuration must not exceed 50KB".to_string());
     }
     Ok(value)
+}
+
+fn default_table_configuration(properties: &Value) -> Result<Value, String> {
+    let schema = table_schema(properties)?;
+    let property_ids: HashSet<String> = schema.iter().map(|property| property.id.clone()).collect();
+    let property_order = canonical_property_order(&[], &property_ids)?;
+    Ok(json!({
+        "type": "table",
+        "table": {
+            "property_order": property_order,
+            "hidden_property_ids": [],
+            "column_widths": {},
+            "row_open_mode": "full_page"
+        }
+    }))
 }
 
 fn canonical_property_order(

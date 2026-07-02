@@ -1061,6 +1061,14 @@ pub struct NoteDatabaseCreate {
 }
 
 #[derive(Deserialize)]
+pub struct NoteLinkedDatabaseCreate {
+    pub(in crate::notes) id: String,
+    pub(in crate::notes) view_id: String,
+    pub(in crate::notes) source_block_id: String,
+    pub(in crate::notes) title: Option<String>,
+}
+
+#[derive(Deserialize)]
 pub struct NoteDataSourceSchemaUpdate {
     pub(in crate::notes) properties: Value,
     pub(in crate::notes) property_order: Vec<String>,

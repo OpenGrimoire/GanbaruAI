@@ -771,6 +771,11 @@ export interface NotesDataSourceSchema {
   view: NotesDatabaseView;
 }
 
+export interface NotesDatabaseViewScope {
+  databaseId?: string | null;
+  viewId?: string | null;
+}
+
 export interface NotesDataSourceSchemaUpdate {
   properties: Record<string, unknown>;
   property_order: string[];
@@ -1031,6 +1036,13 @@ export interface NotesDatabaseCreateRequest {
   replace_block_id?: string | null;
   icon?: NotesPageIcon | null;
   cover?: NotesPageCover | null;
+}
+
+export interface NotesLinkedDatabaseCreateRequest {
+  id: string;
+  view_id: string;
+  source_block_id: string;
+  title?: string | null;
 }
 
 export interface NotesCreatedDatabase {

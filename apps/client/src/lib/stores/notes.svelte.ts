@@ -1068,6 +1068,7 @@ const {
   updateButtonIcon,
   updateButtonInsertPosition,
   useButtonBlock,
+  createLinkedDatabaseViewAfter,
   convertUnsupportedBlock,
 } = blockActions;
 
@@ -1385,6 +1386,7 @@ export function getNotes() {
     updateButtonIcon,
     updateButtonInsertPosition,
     useButtonBlock,
+    createLinkedDatabaseViewAfter,
     convertUnsupportedBlock,
     blockPlainText,
     updateBookmark,

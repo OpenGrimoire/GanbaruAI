@@ -3,11 +3,11 @@ use super::data_source_board::{
     load_active_data_source_and_database_tx, load_active_row_pages_tx, normalized_row_for_schema,
     parse_json, row_matches_filters, sort_rows, stored_filters, stored_sorts, BoardProperty,
 };
+use super::data_source_views;
 use super::models::{
     NoteDataSourceListConfigurationUpdate, NoteDataSourceListViewDto, NoteDataSourceListViewUpdate,
     NoteDataSourceRow, NoteDatabaseViewRow,
 };
-use super::validation::require_uuid;
 use serde_json::{json, Value};
 use sqlx::{Sqlite, SqlitePool, Transaction};
 use std::collections::HashSet;
@@ -28,13 +28,15 @@ const LIST_GROUP_PROPERTY_TYPES: &[&str] = &[
 pub(in crate::notes) async fn get_data_source_list_view(
     pool: &SqlitePool,
     data_source_id: &str,
+    database_id: Option<&str>,
+    view_id: Option<&str>,
 ) -> Result<NoteDataSourceListViewDto, String> {
-    require_uuid(data_source_id, "data_source_id")?;
+    data_source_views::validate_view_scope(data_source_id, database_id, view_id)?;
     let mut tx = pool
         .begin()
         .await
         .map_err(|e| format!("begin notes data source list read: {e}"))?;
-    let dto = load_list_view_tx(&mut tx, data_source_id).await?;
+    let dto = load_list_view_tx(&mut tx, data_source_id, database_id, view_id).await?;
     tx.commit()
         .await
         .map_err(|e| format!("commit notes data source list read: {e}"))?;
@@ -44,9 +46,11 @@ pub(in crate::notes) async fn get_data_source_list_view(
 pub(in crate::notes) async fn update_data_source_list_view(
     pool: &SqlitePool,
     data_source_id: &str,
+    database_id: Option<&str>,
+    view_id: Option<&str>,
     update: NoteDataSourceListViewUpdate,
 ) -> Result<NoteDataSourceListViewDto, String> {
-    require_uuid(data_source_id, "data_source_id")?;
+    data_source_views::validate_view_scope(data_source_id, database_id, view_id)?;
     let mut tx = pool
         .begin()
         .await
@@ -61,23 +65,24 @@ pub(in crate::notes) async fn update_data_source_list_view(
     let filter = canonical_filter(&update.filter, &property_ids)?;
     let sorts = canonical_sorts(&update.sorts, &property_ids)?;
     let configuration = canonical_list_configuration(&update.configuration, &schema)?;
-    ensure_list_view_row_tx(&mut tx, &data_source, &schema).await?;
+    let view =
+        ensure_list_view_row_tx(&mut tx, &data_source, database_id, view_id, &schema).await?;
     sqlx::query(
         "UPDATE notes_database_views
          SET filter = ?,
              sorts = ?,
              configuration = ?,
              last_edited_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-         WHERE data_source_id = ? AND type = 'list'",
+         WHERE id = ?",
     )
     .bind(filter.map(|value| value.to_string()))
     .bind(sorts.to_string())
     .bind(configuration.to_string())
-    .bind(data_source_id.trim())
+    .bind(&view.id)
     .execute(&mut *tx)
     .await
     .map_err(|e| format!("update notes data source list view: {e}"))?;
-    let dto = load_list_view_tx(&mut tx, data_source_id).await?;
+    let dto = load_list_view_tx(&mut tx, data_source_id, database_id, Some(&view.id)).await?;
     tx.commit()
         .await
         .map_err(|e| format!("commit notes data source list view update: {e}"))?;
@@ -87,6 +92,8 @@ pub(in crate::notes) async fn update_data_source_list_view(
 async fn load_list_view_tx(
     tx: &mut Transaction<'_, Sqlite>,
     data_source_id: &str,
+    database_id: Option<&str>,
+    view_id: Option<&str>,
 ) -> Result<NoteDataSourceListViewDto, String> {
     let (data_source, database) =
         load_active_data_source_and_database_tx(tx, data_source_id).await?;
@@ -94,7 +101,7 @@ async fn load_list_view_tx(
         &data_source.properties,
         "data source properties",
     )?)?;
-    let view = ensure_list_view_row_tx(tx, &data_source, &schema).await?;
+    let view = ensure_list_view_row_tx(tx, &data_source, database_id, view_id, &schema).await?;
     validate_list_configuration(view.configuration.as_deref(), &schema)?;
     let filters = stored_filters(view.filter.as_deref())?;
     let sorts = stored_sorts(&view.sorts)?;
@@ -111,21 +118,16 @@ async fn load_list_view_tx(
 async fn ensure_list_view_row_tx(
     tx: &mut Transaction<'_, Sqlite>,
     data_source: &NoteDataSourceRow,
+    database_id: Option<&str>,
+    view_id: Option<&str>,
     schema: &[BoardProperty],
 ) -> Result<NoteDatabaseViewRow, String> {
-    if let Some(view) = load_list_view_row_tx(tx, &data_source.id).await? {
+    if let Some(view) = load_list_view_row_tx(tx, &data_source.id, database_id, view_id).await? {
         return Ok(view);
     }
+    let database_id = data_source_views::scoped_database_id(data_source, database_id);
     let id = generated_uuid_tx(tx).await?;
-    let sort_order: f64 = sqlx::query_scalar(
-        "SELECT COALESCE(MAX(sort_order) + 1, 1)
-         FROM notes_database_views
-         WHERE database_id = ?",
-    )
-    .bind(&data_source.database_id)
-    .fetch_one(&mut **tx)
-    .await
-    .map_err(|e| format!("prepare notes list view order: {e}"))?;
+    let sort_order = data_source_views::next_view_sort_order_tx(tx, database_id).await?;
     sqlx::query(
         "INSERT INTO notes_database_views (
             id,
@@ -140,7 +142,7 @@ async fn ensure_list_view_row_tx(
          VALUES (?, ?, ?, ?, 'list', '[]', ?, ?)",
     )
     .bind(&id)
-    .bind(&data_source.database_id)
+    .bind(database_id)
     .bind(&data_source.id)
     .bind(DEFAULT_LIST_VIEW_NAME)
     .bind(default_list_configuration(schema).to_string())
@@ -148,7 +150,7 @@ async fn ensure_list_view_row_tx(
     .execute(&mut **tx)
     .await
     .map_err(|e| format!("insert notes list view: {e}"))?;
-    load_list_view_row_tx(tx, &data_source.id)
+    load_list_view_row_tx(tx, &data_source.id, Some(database_id), Some(&id))
         .await?
         .ok_or_else(|| "inserted list view was not found".to_string())
 }
@@ -156,32 +158,11 @@ async fn ensure_list_view_row_tx(
 async fn load_list_view_row_tx(
     tx: &mut Transaction<'_, Sqlite>,
     data_source_id: &str,
+    database_id: Option<&str>,
+    view_id: Option<&str>,
 ) -> Result<Option<NoteDatabaseViewRow>, String> {
-    sqlx::query_as::<_, NoteDatabaseViewRow>(
-        "SELECT id,
-                database_id,
-                data_source_id,
-                name,
-                type AS view_type,
-                filter,
-                sorts,
-                configuration,
-                source_provider,
-                source_object_id,
-                source_workspace_id,
-                source_last_edited_time,
-                url,
-                created_time,
-                last_edited_time
-         FROM notes_database_views
-         WHERE data_source_id = ? AND type = 'list'
-         ORDER BY sort_order ASC, created_time ASC, id ASC
-         LIMIT 1",
-    )
-    .bind(data_source_id.trim())
-    .fetch_optional(&mut **tx)
-    .await
-    .map_err(|e| format!("load notes list view: {e}"))
+    data_source_views::load_scoped_view_row_tx(tx, data_source_id, "list", database_id, view_id)
+        .await
 }
 
 fn default_list_configuration(schema: &[BoardProperty]) -> Value {

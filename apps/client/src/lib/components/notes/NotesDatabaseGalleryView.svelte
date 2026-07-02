@@ -28,6 +28,7 @@
     NotesDatabaseTableFilter,
     NotesDatabaseTableFilterCondition,
     NotesDatabaseTableSort,
+    NotesDatabaseViewScope,
     NotesDataSourceGalleryView,
     NotesPage,
   } from "$lib/notes/types";
@@ -42,10 +43,14 @@
 
   let {
     dataSourceId,
+    databaseId = null,
+    viewId = null,
     onSelectPage,
     reloadKey = 0,
   }: {
     dataSourceId: string;
+    databaseId?: string | null;
+    viewId?: string | null;
     onSelectPage: (pageId: string) => void;
     reloadKey?: number;
   } = $props();
@@ -83,17 +88,21 @@
   const previewStyle = $derived(`height: ${previewHeight()}px;`);
 
   $effect(() => {
-    const signature = `${dataSourceId}:${reloadKey}`;
+    const signature = `${dataSourceId}:${databaseId ?? ""}:${viewId ?? ""}:${reloadKey}`;
     if (signature === lastLoadSignature) return;
     lastLoadSignature = signature;
     void loadGallery();
   });
 
+  function viewScope(): NotesDatabaseViewScope {
+    return { databaseId, viewId };
+  }
+
   async function loadGallery(): Promise<NotesDataSourceGalleryView | null> {
     loading = true;
     error = null;
     try {
-      const loaded = await getNotesDataSourceGalleryView(dataSourceId);
+      const loaded = await getNotesDataSourceGalleryView(dataSourceId, viewScope());
       gallery = loaded;
       if (selectedPanelRowId && !loaded.rows.some((row) => row.id === selectedPanelRowId)) {
         selectedPanelRowId = null;
@@ -120,6 +129,7 @@
       gallery = await updateNotesDataSourceGalleryView(
         dataSourceId,
         notesDatabaseGalleryUpdate(nextConfiguration, nextVisibleColumns, nextFilters, nextSorts),
+        viewScope(),
       );
     } catch (caught) {
       error = caught instanceof Error ? caught.message : String(caught);

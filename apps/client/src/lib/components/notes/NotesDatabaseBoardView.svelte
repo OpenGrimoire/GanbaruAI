@@ -27,6 +27,7 @@
     NotesDatabaseTableFilter,
     NotesDatabaseTableFilterCondition,
     NotesDatabaseTableSort,
+    NotesDatabaseViewScope,
     NotesDataSourceBoardGroup,
     NotesDataSourceBoardView,
     NotesPage,
@@ -44,10 +45,14 @@
 
   let {
     dataSourceId,
+    databaseId = null,
+    viewId = null,
     onSelectPage,
     reloadKey = 0,
   }: {
     dataSourceId: string;
+    databaseId?: string | null;
+    viewId?: string | null;
     onSelectPage: (pageId: string) => void;
     reloadKey?: number;
   } = $props();
@@ -91,17 +96,21 @@
   const canMoveCards = $derived(notesDatabaseBoardCanMoveCards(groupColumn));
 
   $effect(() => {
-    const signature = `${dataSourceId}:${reloadKey}`;
+    const signature = `${dataSourceId}:${databaseId ?? ""}:${viewId ?? ""}:${reloadKey}`;
     if (signature === lastLoadSignature) return;
     lastLoadSignature = signature;
     void loadBoard();
   });
 
+  function viewScope(): NotesDatabaseViewScope {
+    return { databaseId, viewId };
+  }
+
   async function loadBoard(): Promise<NotesDataSourceBoardView | null> {
     loading = true;
     error = null;
     try {
-      const loaded = await getNotesDataSourceBoardView(dataSourceId);
+      const loaded = await getNotesDataSourceBoardView(dataSourceId, viewScope());
       board = loaded;
       if (selectedPanelRowId && !hasBoardRow(selectedPanelRowId, loaded.groups)) {
         selectedPanelRowId = null;
@@ -134,6 +143,7 @@
           nextFilters,
           nextSorts,
         ),
+        viewScope(),
       );
     } catch (caught) {
       error = caught instanceof Error ? caught.message : String(caught);
@@ -157,7 +167,7 @@
         await moveNotesDataSourceBoardRow(dataSourceId, {
           page_id: loaded.page.id,
           group_id: group.id,
-        });
+        }, viewScope());
       }
       selectedPanelRowId = loaded.page.id;
       await loadBoard();
@@ -178,7 +188,7 @@
       board = await moveNotesDataSourceBoardRow(dataSourceId, {
         page_id: pageId,
         group_id: group.id,
-      });
+      }, viewScope());
     } catch (caught) {
       error = caught instanceof Error ? caught.message : String(caught);
     } finally {

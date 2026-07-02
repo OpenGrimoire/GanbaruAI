@@ -1014,6 +1014,9 @@
         onButtonInsertPositionChange={(blockId, position: NotesButtonInsertPosition) => {
           void notes.updateButtonInsertPosition(blockId, position);
         }}
+        onCreateLinkedDatabaseView={(blockId) => {
+          void notes.createLinkedDatabaseViewAfter(blockId);
+        }}
         onConvertUnsupported={(blockId, target: NotesUnsupportedConversionTarget) => {
           void notes.convertUnsupportedBlock(blockId, target);
         }}
@@ -1140,6 +1143,9 @@
         onButtonInsertPositionChange={(blockId, position: NotesButtonInsertPosition) => {
           void notes.updateButtonInsertPosition(blockId, position);
         }}
+        onCreateLinkedDatabaseView={(blockId) => {
+          void notes.createLinkedDatabaseViewAfter(blockId);
+        }}
         onConvertUnsupported={(blockId, target: NotesUnsupportedConversionTarget) => {
           void notes.convertUnsupportedBlock(blockId, target);
         }}
@@ -1263,6 +1269,9 @@
         }}
         onButtonInsertPositionChange={(blockId, position: NotesButtonInsertPosition) => {
           void notes.updateButtonInsertPosition(blockId, position);
+        }}
+        onCreateLinkedDatabaseView={(blockId) => {
+          void notes.createLinkedDatabaseViewAfter(blockId);
         }}
         onConvertUnsupported={(blockId, target: NotesUnsupportedConversionTarget) => {
           void notes.convertUnsupportedBlock(blockId, target);
