@@ -2,6 +2,7 @@ use crate::db_path::connect_sqlite;
 use tauri::{AppHandle, Runtime};
 
 mod comments;
+mod data_source_board;
 mod data_source_rows;
 mod data_source_schema;
 mod data_source_table;
@@ -371,6 +372,38 @@ pub async fn notes_update_data_source_row_property<R: Runtime>(
     let pool = connect_sqlite(app, db_url).await?;
     data_source_table::update_data_source_row_property(&pool, &data_source_id, &page_id, update)
         .await
+}
+
+#[tauri::command]
+pub async fn notes_get_data_source_board_view<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    data_source_id: String,
+) -> Result<NoteDataSourceBoardViewDto, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    data_source_board::get_data_source_board_view(&pool, &data_source_id).await
+}
+
+#[tauri::command]
+pub async fn notes_update_data_source_board_view<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    data_source_id: String,
+    update: NoteDataSourceBoardViewUpdate,
+) -> Result<NoteDataSourceBoardViewDto, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    data_source_board::update_data_source_board_view(&pool, &data_source_id, update).await
+}
+
+#[tauri::command]
+pub async fn notes_move_data_source_board_row<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    data_source_id: String,
+    request: NoteDataSourceBoardRowMove,
+) -> Result<NoteDataSourceBoardViewDto, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    data_source_board::move_data_source_board_row(&pool, &data_source_id, request).await
 }
 
 #[tauri::command]

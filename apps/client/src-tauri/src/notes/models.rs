@@ -707,6 +707,28 @@ pub struct NoteDataSourceRowPropertyUpdate {
     pub(in crate::notes) value: Value,
 }
 
+#[derive(Clone, Deserialize)]
+pub struct NoteDataSourceBoardConfigurationUpdate {
+    pub(in crate::notes) group_property_id: Option<String>,
+    pub(in crate::notes) group_order: Vec<String>,
+    pub(in crate::notes) hidden_group_ids: Vec<String>,
+    pub(in crate::notes) visible_property_ids: Vec<String>,
+    pub(in crate::notes) row_open_mode: String,
+}
+
+#[derive(Deserialize)]
+pub struct NoteDataSourceBoardViewUpdate {
+    pub(in crate::notes) filter: Vec<NoteDataSourceTableFilter>,
+    pub(in crate::notes) sorts: Vec<NoteDataSourceTableSort>,
+    pub(in crate::notes) configuration: NoteDataSourceBoardConfigurationUpdate,
+}
+
+#[derive(Deserialize)]
+pub struct NoteDataSourceBoardRowMove {
+    pub(in crate::notes) page_id: String,
+    pub(in crate::notes) group_id: String,
+}
+
 #[derive(Deserialize)]
 pub struct NoteMovePage {
     pub(in crate::notes) parent: NoteParent,
@@ -1048,6 +1070,61 @@ impl NoteDataSourceTableViewDto {
                 .into_iter()
                 .map(NotePageDto::new)
                 .collect::<Result<Vec<_>, _>>()?,
+        })
+    }
+}
+
+#[derive(Serialize)]
+pub struct NoteDataSourceBoardGroupDto {
+    id: String,
+    name: String,
+    color: String,
+    hidden: bool,
+    rows: Vec<NotePageDto>,
+}
+
+impl NoteDataSourceBoardGroupDto {
+    pub(in crate::notes) fn new(
+        id: String,
+        name: String,
+        color: String,
+        hidden: bool,
+        rows: Vec<NotePageRow>,
+    ) -> Result<Self, String> {
+        Ok(Self {
+            id,
+            name,
+            color,
+            hidden,
+            rows: rows
+                .into_iter()
+                .map(NotePageDto::new)
+                .collect::<Result<Vec<_>, _>>()?,
+        })
+    }
+}
+
+#[derive(Serialize)]
+pub struct NoteDataSourceBoardViewDto {
+    data_source: NoteDataSourceDto,
+    view: NoteDatabaseViewDto,
+    groups: Vec<NoteDataSourceBoardGroupDto>,
+}
+
+impl NoteDataSourceBoardViewDto {
+    pub(in crate::notes) fn new(
+        data_source: NoteDataSourceRow,
+        database: NoteDatabaseRow,
+        view: NoteDatabaseViewRow,
+        groups: Vec<NoteDataSourceBoardGroupDto>,
+    ) -> Result<Self, String> {
+        Ok(Self {
+            data_source: NoteDataSourceDto::new(
+                data_source,
+                block_parent_from_database_row(&database)?,
+            )?,
+            view: NoteDatabaseViewDto::new(view)?,
+            groups,
         })
     }
 }

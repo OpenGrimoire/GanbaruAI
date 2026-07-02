@@ -6,6 +6,7 @@ import {
   mapNotesBlockListDto,
   mapNotesCommentThreadDto,
   mapNotesCreatedDatabaseDto,
+  mapNotesDataSourceBoardViewDto,
   mapNotesDataSourceSchemaDto,
   mapNotesDataSourceTableViewDto,
   mapNotesLoadedPageDto,
@@ -27,6 +28,9 @@ import type {
   NotesCommentUpdate,
   NotesCreatedDatabase,
   NotesDatabaseCreateRequest,
+  NotesDataSourceBoardRowMove,
+  NotesDataSourceBoardView,
+  NotesDataSourceBoardViewUpdate,
   NotesDataSourceRowPageCreateRequest,
   NotesDataSourceRowPropertyUpdate,
   NotesDataSourceSchema,
@@ -367,6 +371,43 @@ export async function updateNotesDataSourceTableView(
       dbUrl,
       dataSourceId,
       update,
+    }),
+  );
+}
+
+export async function getNotesDataSourceBoardView(
+  dataSourceId: string,
+): Promise<NotesDataSourceBoardView> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesDataSourceBoardViewDto(
+    await invoke<unknown>("notes_get_data_source_board_view", { dbUrl, dataSourceId }),
+  );
+}
+
+export async function updateNotesDataSourceBoardView(
+  dataSourceId: string,
+  update: NotesDataSourceBoardViewUpdate,
+): Promise<NotesDataSourceBoardView> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesDataSourceBoardViewDto(
+    await invoke<unknown>("notes_update_data_source_board_view", {
+      dbUrl,
+      dataSourceId,
+      update,
+    }),
+  );
+}
+
+export async function moveNotesDataSourceBoardRow(
+  dataSourceId: string,
+  request: NotesDataSourceBoardRowMove,
+): Promise<NotesDataSourceBoardView> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesDataSourceBoardViewDto(
+    await invoke<unknown>("notes_move_data_source_board_row", {
+      dbUrl,
+      dataSourceId,
+      request,
     }),
   );
 }

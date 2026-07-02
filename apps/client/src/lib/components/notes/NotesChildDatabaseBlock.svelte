@@ -5,6 +5,7 @@
     getNotesDataSourceSchema,
     updateNotesDataSourceSchema,
   } from "$lib/api/notes";
+  import NotesDatabaseBoardView from "./NotesDatabaseBoardView.svelte";
   import NotesDatabaseTableView from "./NotesDatabaseTableView.svelte";
   import {
     createNotesDataSourcePropertyDraft,
@@ -65,7 +66,9 @@
   let schema = $state<NotesDataSourceSchema | null>(null);
   let properties = $state<NotesDataSourceSchemaPropertyDraft[]>([]);
   let newPropertyType = $state<NotesDataSourcePropertyType>("rich_text");
+  let activeView = $state<"table" | "board">("table");
   let tableReloadKey = $state(0);
+  let boardReloadKey = $state(0);
 
   const title = $derived(block.child_database.title.trim());
   const dataSourceId = $derived(block.child_database.data_source_id ?? null);
@@ -97,6 +100,7 @@
       dirty = false;
       saved = false;
       tableReloadKey += 1;
+      boardReloadKey += 1;
     } catch (caught) {
       error = caught instanceof Error ? caught.message : String(caught);
     } finally {
@@ -116,6 +120,7 @@
       dirty = false;
       saved = true;
       tableReloadKey += 1;
+      boardReloadKey += 1;
     } catch (caught) {
       error = caught instanceof Error ? caught.message : String(caught);
     } finally {
@@ -570,7 +575,41 @@
       </div>
 
       {#if dataSourceId}
-        <NotesDatabaseTableView {dataSourceId} {onSelectPage} reloadKey={tableReloadKey} />
+        <div class="flex min-w-0 flex-wrap items-center gap-1 border-t border-border pt-3">
+          <button
+            type="button"
+            class={`inline-flex h-8 items-center rounded-md px-2 text-[0.8rem] ${
+              activeView === "table"
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:bg-accent hover:text-foreground"
+            }`}
+            aria-pressed={activeView === "table"}
+            onclick={() => {
+              activeView = "table";
+            }}
+          >
+            {t("notes.databaseViewTable")}
+          </button>
+          <button
+            type="button"
+            class={`inline-flex h-8 items-center rounded-md px-2 text-[0.8rem] ${
+              activeView === "board"
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:bg-accent hover:text-foreground"
+            }`}
+            aria-pressed={activeView === "board"}
+            onclick={() => {
+              activeView = "board";
+            }}
+          >
+            {t("notes.databaseViewBoard")}
+          </button>
+        </div>
+        {#if activeView === "table"}
+          <NotesDatabaseTableView {dataSourceId} {onSelectPage} reloadKey={tableReloadKey} />
+        {:else}
+          <NotesDatabaseBoardView {dataSourceId} {onSelectPage} reloadKey={boardReloadKey} />
+        {/if}
       {/if}
     </div>
   {/if}
