@@ -1,10 +1,10 @@
-use super::local_user;
 use super::models::{
     NoteCommentAnchorCreate, NoteCommentAnchorDto, NoteCommentAnchorRow, NoteCommentCreate,
     NoteCommentDto, NoteCommentRow, NoteCommentThreadDto, NoteCommentThreadReadUpdate,
     NoteCommentThreadRow, NoteCommentUpdate, NoteParent,
 };
 use super::validation::{require_uuid, rich_text_items_plain_text, validate_comment_rich_text};
+use super::{local_user, mention_notifications};
 use serde_json::Value;
 use sqlx::{Sqlite, SqlitePool, Transaction};
 use std::collections::HashSet;
@@ -186,6 +186,17 @@ pub(in crate::notes) async fn create_comment(
         thread_id.to_string()
     };
     insert_comment_row(&mut tx, request.id.trim(), &thread_id, &request.rich_text).await?;
+    let thread = load_thread_row(&mut tx, &thread_id).await?;
+    let plain_text = rich_text_items_plain_text(&request.rich_text);
+    mention_notifications::sync_comment_tx(
+        &mut tx,
+        request.id.trim(),
+        &thread.page_id,
+        thread.parent_block_id.as_deref(),
+        &request.rich_text,
+        &plain_text,
+    )
+    .await?;
     touch_thread(&mut tx, &thread_id).await?;
     mark_thread_read_for_current_user_tx(&mut tx, &thread_id).await?;
     tx.commit()
@@ -217,12 +228,21 @@ pub(in crate::notes) async fn update_comment(
              last_edited_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
          WHERE id = ?",
     )
-    .bind(Value::Array(update.rich_text).to_string())
-    .bind(plain_text)
+    .bind(Value::Array(update.rich_text.clone()).to_string())
+    .bind(&plain_text)
     .bind(comment_id)
     .execute(&mut *tx)
     .await
     .map_err(|e| format!("update notes comment: {e}"))?;
+    mention_notifications::sync_comment_tx(
+        &mut tx,
+        comment_id,
+        &thread.page_id,
+        thread.parent_block_id.as_deref(),
+        &update.rich_text,
+        &plain_text,
+    )
+    .await?;
     touch_thread(&mut tx, &row.thread_id).await?;
     mark_thread_read_for_current_user_tx(&mut tx, &row.thread_id).await?;
     tx.commit()
@@ -252,6 +272,7 @@ pub(in crate::notes) async fn delete_comment(
     .execute(&mut *tx)
     .await
     .map_err(|e| format!("delete notes comment: {e}"))?;
+    mention_notifications::clear_source_tx(&mut tx, "comment", comment_id).await?;
     touch_thread(&mut tx, &row.thread_id).await?;
     mark_thread_read_for_current_user_tx(&mut tx, &row.thread_id).await?;
     tx.commit()

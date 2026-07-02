@@ -10,7 +10,7 @@ use super::validation::{
     validate_block_write, validate_children_count, validate_duplicate_block_count,
     validate_page_create, validate_page_update, validate_parent, validate_sort_order,
 };
-use super::{data_source_rollups, history, reads};
+use super::{data_source_rollups, history, mention_notifications, reads};
 use serde_json::{json, Value};
 use sqlx::SqlitePool;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -1358,7 +1358,7 @@ pub(in crate::notes) async fn update_block(
     )
     .bind(&block_type)
     .bind(payload.to_string())
-    .bind(plain_text)
+    .bind(&plain_text)
     .bind(block_id)
     .execute(&mut *tx)
     .await
@@ -1385,6 +1385,15 @@ pub(in crate::notes) async fn update_block(
         .await
         .map_err(|e| format!("update child page title from block: {e}"))?;
     }
+    mention_notifications::sync_block_tx(
+        &mut tx,
+        block_id,
+        &current.page_id,
+        &block_type,
+        &payload,
+        &plain_text,
+    )
+    .await?;
     touch_page(&mut tx, &current.page_id).await?;
     tx.commit()
         .await
@@ -2879,11 +2888,20 @@ async fn insert_block(
     .bind(&parent.parent_block_id)
     .bind(block.block_type.trim())
     .bind(payload.to_string())
-    .bind(plain_text)
+    .bind(&plain_text)
     .bind(sort_order)
     .execute(&mut **tx)
     .await
     .map_err(|e| format!("insert notes block: {e}"))?;
+    mention_notifications::sync_block_tx(
+        tx,
+        block.id.trim(),
+        &parent.page_id,
+        block.block_type.trim(),
+        payload,
+        &plain_text,
+    )
+    .await?;
     Ok(())
 }
 

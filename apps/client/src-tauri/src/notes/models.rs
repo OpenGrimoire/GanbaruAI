@@ -478,6 +478,53 @@ impl NotePageHistorySettingsDto {
 }
 
 #[derive(Serialize)]
+pub struct NoteMentionNotificationDto {
+    object: &'static str,
+    id: String,
+    source_type: String,
+    source_id: String,
+    page_id: String,
+    page_title: String,
+    block_id: Option<String>,
+    comment_id: Option<String>,
+    kind: String,
+    target_type: String,
+    target_id: Option<String>,
+    trigger_at: Option<String>,
+    plain_text: String,
+    source_plain_text: String,
+    status: String,
+    delivered_at: Option<String>,
+    created_time: String,
+    last_edited_time: String,
+}
+
+impl NoteMentionNotificationDto {
+    pub(in crate::notes) fn new(row: NoteMentionNotificationRow) -> Self {
+        Self {
+            object: "mention_notification",
+            id: row.id,
+            source_type: row.source_type,
+            source_id: row.source_id,
+            page_id: row.page_id,
+            page_title: row.page_title,
+            block_id: row.block_id,
+            comment_id: row.comment_id,
+            kind: row.kind,
+            target_type: row.target_type,
+            target_id: row.target_id,
+            trigger_at: row.trigger_at,
+            plain_text: row.plain_text,
+            source_plain_text: row.source_plain_text,
+            status: row.status,
+            delivered_at: row.delivered_at,
+            created_time: row.created_time,
+            last_edited_time: row.last_edited_time,
+        }
+    }
+}
+
+#[derive(Serialize)]
 pub struct NoteBacklinkDto {
     object: &'static str,
     id: String,
@@ -1217,6 +1264,11 @@ pub struct NoteCommentThreadReadUpdate {
 }
 
 #[derive(Deserialize)]
+pub struct NoteMentionNotificationDeliveryUpdate {
+    pub(in crate::notes) ids: Vec<String>,
+}
+
+#[derive(Deserialize)]
 pub struct NoteLocalUserUpdate {
     pub(in crate::notes) display_name: String,
 }
@@ -1941,6 +1993,46 @@ pub(in crate::notes) struct NotePageHistorySettingsRow {
 impl_sqlite_from_row!(NotePageHistorySettingsRow {
     retention_days,
     updated_at,
+});
+
+#[derive(Serialize)]
+pub(in crate::notes) struct NoteMentionNotificationRow {
+    pub(in crate::notes) id: String,
+    pub(in crate::notes) source_type: String,
+    pub(in crate::notes) source_id: String,
+    pub(in crate::notes) page_id: String,
+    pub(in crate::notes) page_title: String,
+    pub(in crate::notes) block_id: Option<String>,
+    pub(in crate::notes) comment_id: Option<String>,
+    pub(in crate::notes) kind: String,
+    pub(in crate::notes) target_type: String,
+    pub(in crate::notes) target_id: Option<String>,
+    pub(in crate::notes) trigger_at: Option<String>,
+    pub(in crate::notes) plain_text: String,
+    pub(in crate::notes) source_plain_text: String,
+    pub(in crate::notes) status: String,
+    pub(in crate::notes) delivered_at: Option<String>,
+    pub(in crate::notes) created_time: String,
+    pub(in crate::notes) last_edited_time: String,
+}
+impl_sqlite_from_row!(NoteMentionNotificationRow {
+    id,
+    source_type,
+    source_id,
+    page_id,
+    page_title,
+    block_id,
+    comment_id,
+    kind,
+    target_type,
+    target_id,
+    trigger_at,
+    plain_text,
+    source_plain_text,
+    status,
+    delivered_at,
+    created_time,
+    last_edited_time,
 });
 
 #[derive(Clone, Deserialize, Serialize)]

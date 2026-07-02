@@ -11,6 +11,12 @@ struct AddTimePayload {
     seconds: u32,
 }
 
+#[derive(Clone, Serialize)]
+struct NotesNotificationOpenPayload {
+    page_id: String,
+    block_id: Option<String>,
+}
+
 fn apply_linux_notification_hints(
     notification: &mut Notification,
     category: Option<&str>,
@@ -167,6 +173,49 @@ pub fn show_event_notification(
                     if opens_calendar {
                         let _ = app.emit("calendar-notification-open", ());
                     }
+                    focus_main_window(app.clone());
+                }
+            },
+        );
+    });
+}
+
+#[tauri::command]
+pub fn show_notes_notification(
+    app: tauri::AppHandle,
+    title: String,
+    body: String,
+    page_id: String,
+    block_id: Option<String>,
+    play_sound: Option<bool>,
+    app_sounds: State<'_, AppSoundState>,
+) {
+    if play_sound.unwrap_or(true) {
+        app_sounds.play(AppSound::EventNotification);
+    }
+    std::thread::spawn(move || {
+        let summary = notification_summary(&title);
+        let body = escape_notification_markup(&body);
+        let mut notification = Notification::new();
+        notification
+            .appname("Ganbaru AI")
+            .summary(&summary)
+            .body(&body)
+            .action("open", "Open note")
+            .timeout(15_000);
+        apply_linux_notification_hints(&mut notification, Some("reminder"), true, true);
+        show_notification_with_linux_action(
+            &notification,
+            "Failed to show notes notification",
+            |action| {
+                if action == "open" || action == "default" {
+                    let _ = app.emit(
+                        "notes-notification-open",
+                        NotesNotificationOpenPayload {
+                            page_id: page_id.clone(),
+                            block_id: block_id.clone(),
+                        },
+                    );
                     focus_main_window(app.clone());
                 }
             },

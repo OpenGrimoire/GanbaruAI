@@ -17,6 +17,7 @@ import {
   mapNotesDataSourceTimelineViewDto,
   mapNotesLocalUserDto,
   mapNotesLoadedPageDto,
+  mapNotesMentionNotificationDto,
   mapNotesPageBreadcrumbItemDto,
   mapNotesPageHistorySettingsDto,
   mapNotesPageHistorySnapshotDto,
@@ -69,6 +70,8 @@ import type {
   NotesLocalUser,
   NotesLocalUserUpdate,
   NotesLoadedPage,
+  NotesMentionNotification,
+  NotesMentionNotificationDeliveryUpdate,
   NotesMovePageRequest,
   NotesMoveBlockRequest,
   NotesMoveBlocksRequest,
@@ -178,6 +181,39 @@ export async function updateNotesLocalUser(
   return mapNotesLocalUserDto(
     await invoke<unknown>("notes_update_local_user", { dbUrl, update }),
   );
+}
+
+export async function refreshNotesMentionNotifications(): Promise<number> {
+  const dbUrl = await ensureDbUrl();
+  const refreshed = await invoke<unknown>("notes_refresh_mention_notifications", { dbUrl });
+  if (typeof refreshed !== "number" || !Number.isInteger(refreshed)) {
+    throw new Error("notes_refresh_mention_notifications returned an invalid count");
+  }
+  return refreshed;
+}
+
+export async function listPendingNotesMentionNotifications():
+  Promise<NotesMentionNotification[]> {
+  const dbUrl = await ensureDbUrl();
+  const rows = await invoke<unknown>("notes_list_pending_mention_notifications", { dbUrl });
+  if (!Array.isArray(rows)) {
+    throw new Error("notes_list_pending_mention_notifications returned a non-array payload");
+  }
+  return rows.map(mapNotesMentionNotificationDto);
+}
+
+export async function markNotesMentionNotificationsDelivered(
+  request: NotesMentionNotificationDeliveryUpdate,
+): Promise<NotesMentionNotification[]> {
+  const dbUrl = await ensureDbUrl();
+  const rows = await invoke<unknown>("notes_mark_mention_notifications_delivered", {
+    dbUrl,
+    request,
+  });
+  if (!Array.isArray(rows)) {
+    throw new Error("notes_mark_mention_notifications_delivered returned a non-array payload");
+  }
+  return rows.map(mapNotesMentionNotificationDto);
 }
 
 export async function listNotesPageTemplates(): Promise<NotesPageTemplate[]> {

@@ -13,6 +13,11 @@ import {
   DEFAULT_FOCUS_BREAK_EXTENSION_LIMIT,
   DEFAULT_FOCUS_BREAK_FINISHED_REPEAT_SECONDS,
   DEFAULT_FOCUS_PAUSE_NOTIFICATION_INTERVAL_MINUTES,
+  DEFAULT_NOTES_MENTION_NOTIFICATIONS_ENABLED,
+  DEFAULT_NOTES_NOTIFICATION_INCLUDE_CONTENT,
+  DEFAULT_NOTES_REMINDER_NOTIFICATIONS_ENABLED,
+  DEFAULT_NOTES_TASK_MENTION_NOTIFICATIONS_ENABLED,
+  DEFAULT_NOTES_USER_MENTION_NOTIFICATIONS_ENABLED,
   DEFAULT_TITLE_BAR_VISIBILITY,
   DEFAULT_CALENDAR_VIEW_MODE,
   LANGUAGE_PREFERENCES,
@@ -61,6 +66,16 @@ const FOCUS_BREAK_EXTENSION_LIMIT_CONFIG_KEY =
 const FOCUS_PAUSE_NOTIFICATION_INTERVAL_MINUTES_CONFIG_KEY =
   "preferences.focusPauseNotificationIntervalMinutes";
 const MUSIC_PAUSE_ON_POMODORO_PAUSE_CONFIG_KEY = "preferences.musicPauseOnPomodoroPause";
+const NOTES_MENTION_NOTIFICATIONS_ENABLED_CONFIG_KEY =
+  "preferences.notesMentionNotificationsEnabled";
+const NOTES_REMINDER_NOTIFICATIONS_ENABLED_CONFIG_KEY =
+  "preferences.notesReminderNotificationsEnabled";
+const NOTES_USER_MENTION_NOTIFICATIONS_ENABLED_CONFIG_KEY =
+  "preferences.notesUserMentionNotificationsEnabled";
+const NOTES_TASK_MENTION_NOTIFICATIONS_ENABLED_CONFIG_KEY =
+  "preferences.notesTaskMentionNotificationsEnabled";
+const NOTES_NOTIFICATION_INCLUDE_CONTENT_CONFIG_KEY =
+  "preferences.notesNotificationIncludeContent";
 const TITLE_BAR_VISIBILITY_CONFIG_KEY = "preferences.titleBarVisibility";
 
 export type EventTimezoneDisplay = "device" | "homeZone";
@@ -158,6 +173,12 @@ function loadSavedMusicPauseOnPomodoroPause(): boolean {
   return DEFAULT_MUSIC_PAUSE_ON_POMODORO_PAUSE;
 }
 
+function loadSavedBooleanPreference(key: string, fallback: boolean): boolean {
+  const saved = getConfigKey<unknown>(key, undefined);
+  if (typeof saved === "boolean") return saved;
+  return fallback;
+}
+
 function loadSavedTitleBarVisibility(): TitleBarVisibility {
   const saved = getConfigKey<unknown>(TITLE_BAR_VISIBILITY_CONFIG_KEY, undefined);
   const parsed = parseTitleBarVisibility(saved);
@@ -191,6 +212,36 @@ let focusPauseNotificationIntervalMinutes = $state<FocusPauseNotificationInterva
   loadSavedFocusPauseNotificationIntervalMinutes(),
 );
 let musicPauseOnPomodoroPause = $state<boolean>(loadSavedMusicPauseOnPomodoroPause());
+let notesMentionNotificationsEnabled = $state<boolean>(
+  loadSavedBooleanPreference(
+    NOTES_MENTION_NOTIFICATIONS_ENABLED_CONFIG_KEY,
+    DEFAULT_NOTES_MENTION_NOTIFICATIONS_ENABLED,
+  ),
+);
+let notesReminderNotificationsEnabled = $state<boolean>(
+  loadSavedBooleanPreference(
+    NOTES_REMINDER_NOTIFICATIONS_ENABLED_CONFIG_KEY,
+    DEFAULT_NOTES_REMINDER_NOTIFICATIONS_ENABLED,
+  ),
+);
+let notesUserMentionNotificationsEnabled = $state<boolean>(
+  loadSavedBooleanPreference(
+    NOTES_USER_MENTION_NOTIFICATIONS_ENABLED_CONFIG_KEY,
+    DEFAULT_NOTES_USER_MENTION_NOTIFICATIONS_ENABLED,
+  ),
+);
+let notesTaskMentionNotificationsEnabled = $state<boolean>(
+  loadSavedBooleanPreference(
+    NOTES_TASK_MENTION_NOTIFICATIONS_ENABLED_CONFIG_KEY,
+    DEFAULT_NOTES_TASK_MENTION_NOTIFICATIONS_ENABLED,
+  ),
+);
+let notesNotificationIncludeContent = $state<boolean>(
+  loadSavedBooleanPreference(
+    NOTES_NOTIFICATION_INCLUDE_CONTENT_CONFIG_KEY,
+    DEFAULT_NOTES_NOTIFICATION_INCLUDE_CONTENT,
+  ),
+);
 let titleBarVisibility = $state<TitleBarVisibility>(loadSavedTitleBarVisibility());
 const localization = getLocalization();
 
@@ -305,6 +356,31 @@ function setMusicPauseOnPomodoroPause(value: boolean): void {
   setConfigKey(MUSIC_PAUSE_ON_POMODORO_PAUSE_CONFIG_KEY, value);
 }
 
+function setNotesMentionNotificationsEnabled(value: boolean): void {
+  notesMentionNotificationsEnabled = value;
+  setConfigKey(NOTES_MENTION_NOTIFICATIONS_ENABLED_CONFIG_KEY, value);
+}
+
+function setNotesReminderNotificationsEnabled(value: boolean): void {
+  notesReminderNotificationsEnabled = value;
+  setConfigKey(NOTES_REMINDER_NOTIFICATIONS_ENABLED_CONFIG_KEY, value);
+}
+
+function setNotesUserMentionNotificationsEnabled(value: boolean): void {
+  notesUserMentionNotificationsEnabled = value;
+  setConfigKey(NOTES_USER_MENTION_NOTIFICATIONS_ENABLED_CONFIG_KEY, value);
+}
+
+function setNotesTaskMentionNotificationsEnabled(value: boolean): void {
+  notesTaskMentionNotificationsEnabled = value;
+  setConfigKey(NOTES_TASK_MENTION_NOTIFICATIONS_ENABLED_CONFIG_KEY, value);
+}
+
+function setNotesNotificationIncludeContent(value: boolean): void {
+  notesNotificationIncludeContent = value;
+  setConfigKey(NOTES_NOTIFICATION_INCLUDE_CONTENT_CONFIG_KEY, value);
+}
+
 function setTitleBarControlVisible(id: TitleBarControlId, visible: boolean): void {
   if (!isTitleBarControlId(id)) return;
   titleBarVisibility = { ...titleBarVisibility, [id]: visible };
@@ -378,6 +454,21 @@ export function getPreferences() {
     get musicPauseOnPomodoroPause(): boolean {
       return musicPauseOnPomodoroPause;
     },
+    get notesMentionNotificationsEnabled(): boolean {
+      return notesMentionNotificationsEnabled;
+    },
+    get notesReminderNotificationsEnabled(): boolean {
+      return notesReminderNotificationsEnabled;
+    },
+    get notesUserMentionNotificationsEnabled(): boolean {
+      return notesUserMentionNotificationsEnabled;
+    },
+    get notesTaskMentionNotificationsEnabled(): boolean {
+      return notesTaskMentionNotificationsEnabled;
+    },
+    get notesNotificationIncludeContent(): boolean {
+      return notesNotificationIncludeContent;
+    },
     get titleBarVisibility(): TitleBarVisibility {
       return titleBarVisibility;
     },
@@ -396,6 +487,11 @@ export function getPreferences() {
     setFocusBreakExtensionLimit,
     setFocusPauseNotificationIntervalMinutes,
     setMusicPauseOnPomodoroPause,
+    setNotesMentionNotificationsEnabled,
+    setNotesReminderNotificationsEnabled,
+    setNotesUserMentionNotificationsEnabled,
+    setNotesTaskMentionNotificationsEnabled,
+    setNotesNotificationIncludeContent,
     setTitleBarControlVisible,
     toggleTitleBarControl,
     resetFontFamily() {
@@ -441,6 +537,21 @@ export function getPreferences() {
     },
     resetMusicPauseOnPomodoroPause() {
       setMusicPauseOnPomodoroPause(DEFAULT_MUSIC_PAUSE_ON_POMODORO_PAUSE);
+    },
+    resetNotesMentionNotificationsEnabled() {
+      setNotesMentionNotificationsEnabled(DEFAULT_NOTES_MENTION_NOTIFICATIONS_ENABLED);
+    },
+    resetNotesReminderNotificationsEnabled() {
+      setNotesReminderNotificationsEnabled(DEFAULT_NOTES_REMINDER_NOTIFICATIONS_ENABLED);
+    },
+    resetNotesUserMentionNotificationsEnabled() {
+      setNotesUserMentionNotificationsEnabled(DEFAULT_NOTES_USER_MENTION_NOTIFICATIONS_ENABLED);
+    },
+    resetNotesTaskMentionNotificationsEnabled() {
+      setNotesTaskMentionNotificationsEnabled(DEFAULT_NOTES_TASK_MENTION_NOTIFICATIONS_ENABLED);
+    },
+    resetNotesNotificationIncludeContent() {
+      setNotesNotificationIncludeContent(DEFAULT_NOTES_NOTIFICATION_INCLUDE_CONTENT);
     },
     resetTitleBarVisibility,
   };

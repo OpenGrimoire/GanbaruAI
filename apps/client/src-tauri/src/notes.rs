@@ -20,6 +20,7 @@ mod data_source_views;
 mod databases;
 mod history;
 mod local_user;
+mod mention_notifications;
 mod models;
 mod page_cover_assets;
 mod page_icon_assets;
@@ -306,6 +307,34 @@ pub async fn notes_resolve_comment_thread<R: Runtime>(
 ) -> Result<NoteCommentThreadDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
     comments::resolve_comment_thread(&pool, &discussion_id, resolved.unwrap_or(true)).await
+}
+
+#[tauri::command]
+pub async fn notes_refresh_mention_notifications<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+) -> Result<i64, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    mention_notifications::refresh_all(&pool).await
+}
+
+#[tauri::command]
+pub async fn notes_list_pending_mention_notifications<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+) -> Result<Vec<NoteMentionNotificationDto>, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    mention_notifications::list_pending(&pool).await
+}
+
+#[tauri::command]
+pub async fn notes_mark_mention_notifications_delivered<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    request: NoteMentionNotificationDeliveryUpdate,
+) -> Result<Vec<NoteMentionNotificationDto>, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    mention_notifications::mark_delivered(&pool, request).await
 }
 
 #[tauri::command]

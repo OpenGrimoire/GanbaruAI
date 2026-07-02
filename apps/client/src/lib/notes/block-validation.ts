@@ -4,6 +4,9 @@ import {
   NOTES_DATABASE_VIEW_TYPES,
   NOTES_ICON_COLORS,
   NOTES_LOCAL_OBJECT_MENTION_TYPES,
+  NOTES_MENTION_NOTIFICATION_KINDS,
+  NOTES_MENTION_NOTIFICATION_STATUSES,
+  NOTES_MENTION_NOTIFICATION_TARGET_TYPES,
   type NotesBacklink,
   type NotesBacklinkReferenceType,
   type NotesBlock,
@@ -60,6 +63,10 @@ import {
   type NotesMediaBlockPayload,
   type NotesIconColor,
   type NotesLoadedPage,
+  type NotesMentionNotification,
+  type NotesMentionNotificationKind,
+  type NotesMentionNotificationStatus,
+  type NotesMentionNotificationTargetType,
   type NotesPage,
   type NotesPageBreadcrumbItem,
   type NotesPageBreadcrumbStatus,
@@ -1879,6 +1886,69 @@ export function parseNotesPageHistorySettings(value: unknown): NotesPageHistoryS
     object: "page_history_settings",
     retention_days: retentionDays,
     updated_at: readString(record.updated_at, "page history settings.updated_at"),
+  };
+}
+
+function parseNotesMentionNotificationKind(value: unknown): NotesMentionNotificationKind {
+  const kind = readString(value, "mention notification.kind");
+  if ((NOTES_MENTION_NOTIFICATION_KINDS as readonly string[]).includes(kind)) {
+    return kind as NotesMentionNotificationKind;
+  }
+  throw new Error("mention notification.kind is unsupported");
+}
+
+function parseNotesMentionNotificationTargetType(
+  value: unknown,
+): NotesMentionNotificationTargetType {
+  const targetType = readString(value, "mention notification.target_type");
+  if ((NOTES_MENTION_NOTIFICATION_TARGET_TYPES as readonly string[]).includes(targetType)) {
+    return targetType as NotesMentionNotificationTargetType;
+  }
+  throw new Error("mention notification.target_type is unsupported");
+}
+
+function parseNotesMentionNotificationStatus(value: unknown): NotesMentionNotificationStatus {
+  const status = readString(value, "mention notification.status");
+  if ((NOTES_MENTION_NOTIFICATION_STATUSES as readonly string[]).includes(status)) {
+    return status as NotesMentionNotificationStatus;
+  }
+  throw new Error("mention notification.status is unsupported");
+}
+
+export function parseNotesMentionNotification(value: unknown): NotesMentionNotification {
+  const record = readRecord(value, "mention notification");
+  if (record.object !== "mention_notification") {
+    throw new Error("mention notification.object must be mention_notification");
+  }
+  const sourceType = readString(record.source_type, "mention notification.source_type");
+  if (sourceType !== "block" && sourceType !== "comment") {
+    throw new Error("mention notification.source_type is unsupported");
+  }
+  return {
+    object: "mention_notification",
+    id: readString(record.id, "mention notification.id"),
+    source_type: sourceType,
+    source_id: readString(record.source_id, "mention notification.source_id"),
+    page_id: readString(record.page_id, "mention notification.page_id"),
+    page_title: readString(record.page_title, "mention notification.page_title"),
+    block_id: readNullableString(record.block_id, "mention notification.block_id"),
+    comment_id: readNullableString(record.comment_id, "mention notification.comment_id"),
+    kind: parseNotesMentionNotificationKind(record.kind),
+    target_type: parseNotesMentionNotificationTargetType(record.target_type),
+    target_id: readNullableString(record.target_id, "mention notification.target_id"),
+    trigger_at: readNullableString(record.trigger_at, "mention notification.trigger_at"),
+    plain_text: readString(record.plain_text, "mention notification.plain_text"),
+    source_plain_text: readString(
+      record.source_plain_text,
+      "mention notification.source_plain_text",
+    ),
+    status: parseNotesMentionNotificationStatus(record.status),
+    delivered_at: readNullableString(record.delivered_at, "mention notification.delivered_at"),
+    created_time: readString(record.created_time, "mention notification.created_time"),
+    last_edited_time: readString(
+      record.last_edited_time,
+      "mention notification.last_edited_time",
+    ),
   };
 }
 

@@ -708,6 +708,60 @@ export interface NotesLocalUserUpdate {
   display_name: string;
 }
 
+export const NOTES_MENTION_NOTIFICATION_KINDS = [
+  "reminder",
+  "user_mention",
+  "task_mention",
+] as const;
+
+export type NotesMentionNotificationKind =
+  (typeof NOTES_MENTION_NOTIFICATION_KINDS)[number];
+
+export const NOTES_MENTION_NOTIFICATION_TARGET_TYPES = [
+  "date",
+  "user",
+  "project_task",
+] as const;
+
+export type NotesMentionNotificationTargetType =
+  (typeof NOTES_MENTION_NOTIFICATION_TARGET_TYPES)[number];
+
+export const NOTES_MENTION_NOTIFICATION_STATUSES = [
+  "pending",
+  "delivered",
+  "dismissed",
+] as const;
+
+export type NotesMentionNotificationStatus =
+  (typeof NOTES_MENTION_NOTIFICATION_STATUSES)[number];
+
+export type NotesMentionNotificationSourceType = "block" | "comment";
+
+export interface NotesMentionNotification {
+  object: "mention_notification";
+  id: string;
+  source_type: NotesMentionNotificationSourceType;
+  source_id: string;
+  page_id: string;
+  page_title: string;
+  block_id: string | null;
+  comment_id: string | null;
+  kind: NotesMentionNotificationKind;
+  target_type: NotesMentionNotificationTargetType;
+  target_id: string | null;
+  trigger_at: string | null;
+  plain_text: string;
+  source_plain_text: string;
+  status: NotesMentionNotificationStatus;
+  delivered_at: string | null;
+  created_time: string;
+  last_edited_time: string;
+}
+
+export interface NotesMentionNotificationDeliveryUpdate {
+  ids: string[];
+}
+
 export interface NotesPageHistoryCopyBlocksRequest {
   after_block_id?: string | null;
 }

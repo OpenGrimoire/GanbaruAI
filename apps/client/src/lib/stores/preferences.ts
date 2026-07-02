@@ -98,6 +98,11 @@ export type CalendarTimeFormat = "24h" | "12h";
 export const DEFAULT_CALENDAR_TIME_FORMAT: CalendarTimeFormat = "24h";
 export const DEFAULT_CALENDAR_DIM_PAST_EVENTS = true;
 export const DEFAULT_MUSIC_PAUSE_ON_POMODORO_PAUSE = true;
+export const DEFAULT_NOTES_MENTION_NOTIFICATIONS_ENABLED = true;
+export const DEFAULT_NOTES_REMINDER_NOTIFICATIONS_ENABLED = true;
+export const DEFAULT_NOTES_USER_MENTION_NOTIFICATIONS_ENABLED = true;
+export const DEFAULT_NOTES_TASK_MENTION_NOTIFICATIONS_ENABLED = true;
+export const DEFAULT_NOTES_NOTIFICATION_INCLUDE_CONTENT = false;
 export const FOCUS_IDLE_THRESHOLD_MINUTES_OPTIONS = Object.freeze(
   [1, 2, 3, 4, 5, 10, 15] as const,
 );

@@ -14,6 +14,7 @@ import {
   parseNotesDataSourceTimelineView,
   parseNotesLocalUser,
   parseNotesLoadedPage,
+  parseNotesMentionNotification,
   parseNotesPage,
   parseNotesPageBreadcrumbItem,
   parseNotesPageHistorySettings,
@@ -39,6 +40,7 @@ import type {
   NotesDataSourceTimelineView,
   NotesLocalUser,
   NotesLoadedPage,
+  NotesMentionNotification,
   NotesPage,
   NotesPageBreadcrumbItem,
   NotesPageHistorySettings,
@@ -107,6 +109,11 @@ export function mapNotesSearchResultDto(value: unknown): NotesSearchResult {
 /** Validate and map an unknown local Notes user DTO from the Tauri boundary. */
 export function mapNotesLocalUserDto(value: unknown): NotesLocalUser {
   return parseNotesLocalUser(value);
+}
+
+/** Validate and map an unknown mention notification DTO from the Tauri boundary. */
+export function mapNotesMentionNotificationDto(value: unknown): NotesMentionNotification {
+  return parseNotesMentionNotification(value);
 }
 
 /** Validate and map an unknown comment thread DTO from the Tauri boundary. */
