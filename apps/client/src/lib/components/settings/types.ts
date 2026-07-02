@@ -5,6 +5,7 @@
  */
 export type SectionId =
   | "appearance"
+  | "notes"
   | "calendars"
   | "focus"
   | "music"

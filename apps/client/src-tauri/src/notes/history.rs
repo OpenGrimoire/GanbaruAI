@@ -1,3 +1,4 @@
+use super::local_user;
 use super::models::{
     NoteBlockDto, NoteBlockRow, NoteLoadedPage, NotePageDto, NotePageHistoryCopyBlocks,
     NotePageHistorySettingsDto, NotePageHistorySettingsRow, NotePageHistorySettingsUpdate,
@@ -163,6 +164,7 @@ pub(in crate::notes) async fn record_page_snapshot_tx(
     if recent_edit_session_snapshot_exists(tx, &page.id, &reason).await? {
         return Ok(None);
     }
+    let local_user = local_user::current_local_user_tx(tx).await?;
     let snapshot_id = new_note_id(tx, &mut HashSet::new()).await?;
     sqlx::query(
         "INSERT INTO notes_page_history_snapshots (
@@ -181,10 +183,11 @@ pub(in crate::notes) async fn record_page_snapshot_tx(
             blocks,
             block_count,
             reason,
+            created_by,
             page_created_time,
             page_last_edited_time
          )
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&snapshot_id)
     .bind(&page.id)
@@ -201,6 +204,7 @@ pub(in crate::notes) async fn record_page_snapshot_tx(
     .bind(&blocks_payload)
     .bind(blocks.len() as i64)
     .bind(&reason)
+    .bind(&local_user.id)
     .bind(&page.created_time)
     .bind(&page.last_edited_time)
     .execute(&mut **tx)

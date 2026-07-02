@@ -401,6 +401,7 @@ export const en = {
     close: "Close settings",
     section: {
       appearance: "Appearance",
+      notes: "Notes",
       calendars: "Calendar",
       focus: "Focus",
       music: "Music",
@@ -430,6 +431,19 @@ export const en = {
       dimPastEventColorsDescription: "Use faded event colors for past events",
       calendarZoomOption: (percent: number, gridMinutes: number) =>
         `${percent}% (${gridMinutes}min)`,
+    },
+    notesIdentity: {
+      heading: "Local Notes identity",
+      displayName: "Display name",
+      description:
+        "Used for local Notes comments, page history, and future user mentions. It stays in your Ganbaru AI folder.",
+      loading: "Loading identity...",
+      save: "Save identity",
+      saving: "Saving...",
+      saved: "Saved",
+      loadFailed: (message: string) => `Could not load Notes identity: ${message}`,
+      saveFailed: (message: string) => `Could not save Notes identity: ${message}`,
+      emptyName: "Display name is required.",
     },
     calendars: {
       heading: "Calendars",
@@ -1572,6 +1586,7 @@ export const en = {
       `Could not update history retention: ${message}`,
     loadingPageHistoryVersion: "Loading version",
     pageHistoryVersionLabel: (time: string) => `Version from ${time}`,
+    pageHistoryAuthor: (name: string) => `Edited by ${name}`,
     loadPageHistoryVersionFailed: (message: string) => `Could not load version: ${message}`,
     pageHistoryActionFailed: (message: string) => `Could not update page history: ${message}`,
     copyPageHistoryBlocks: "Copy blocks",

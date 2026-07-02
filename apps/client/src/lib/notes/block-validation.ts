@@ -54,6 +54,7 @@ import {
   type NotesEmbedBlockPayload,
   type NotesEquationBlockPayload,
   type NotesLinkPreviewBlockPayload,
+  type NotesLocalUser,
   type NotesMediaBlockPayload,
   type NotesIconColor,
   type NotesLoadedPage,
@@ -368,6 +369,18 @@ function parseNotesPartialUser(value: unknown, label: string): NotesPartialUser 
   return {
     object: "user" as const,
     id: readString(record.id, `${label}.id`),
+  };
+}
+
+export function parseNotesLocalUser(value: unknown): NotesLocalUser {
+  const record = readRecord(value, "local user");
+  if (record.object !== "user") throw new Error("local user.object must be user");
+  return {
+    object: "user",
+    id: readString(record.id, "local user.id"),
+    display_name: readDisplayString(record.display_name, "local user.display_name"),
+    created_time: readString(record.created_time, "local user.created_time"),
+    last_edited_time: readString(record.last_edited_time, "local user.last_edited_time"),
   };
 }
 
@@ -1759,6 +1772,10 @@ export function parseNotesPageHistorySnapshot(value: unknown): NotesPageHistoryS
     cover: parseNullablePageCover(record.cover, "page history snapshot.cover"),
     block_count: blockCount,
     reason: readDisplayString(record.reason, "page history snapshot.reason"),
+    created_by: parseNotesPartialUser(
+      record.created_by,
+      "page history snapshot.created_by",
+    ),
     created_time: readString(record.created_time, "page history snapshot.created_time"),
     page_last_edited_time: readString(
       record.page_last_edited_time,

@@ -1,3 +1,4 @@
+use super::local_user;
 use super::models::{
     NoteCommentAnchorCreate, NoteCommentAnchorDto, NoteCommentAnchorRow, NoteCommentCreate,
     NoteCommentDto, NoteCommentRow, NoteCommentThreadDto, NoteCommentThreadRow, NoteCommentUpdate,
@@ -7,8 +8,6 @@ use super::validation::{require_uuid, rich_text_items_plain_text, validate_comme
 use serde_json::Value;
 use sqlx::{Sqlite, SqlitePool, Transaction};
 
-const LOCAL_USER_ID: &str = "local-user";
-const LOCAL_USER_DISPLAY_NAME: &str = r#"{"type":"user","resolved_name":"You"}"#;
 const COMMENT_ANCHOR_MAX_TEXT_LENGTH: usize = 2000;
 const COMMENT_ANCHOR_MAX_CONTEXT_LENGTH: usize = 120;
 
@@ -227,6 +226,7 @@ pub(in crate::notes) async fn resolve_comment_thread(
     let thread = load_thread_row(&mut tx, discussion_id).await?;
     ensure_thread_target_active(&mut tx, &thread).await?;
     if resolved {
+        let local_user = local_user::current_local_user_tx(&mut tx).await?;
         sqlx::query(
             "UPDATE notes_comment_threads
              SET status = 'resolved',
@@ -235,7 +235,7 @@ pub(in crate::notes) async fn resolve_comment_thread(
                  last_edited_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
              WHERE id = ?",
         )
-        .bind(LOCAL_USER_ID)
+        .bind(&local_user.id)
         .bind(discussion_id)
         .execute(&mut *tx)
         .await
@@ -376,6 +376,7 @@ async fn insert_comment_row(
     rich_text: &[Value],
 ) -> Result<(), String> {
     let plain_text = rich_text_items_plain_text(rich_text);
+    let local_user = local_user::current_local_user_tx(tx).await?;
     sqlx::query(
         "INSERT INTO notes_comments (
             id,
@@ -391,8 +392,10 @@ async fn insert_comment_row(
     .bind(thread_id)
     .bind(Value::Array(rich_text.to_vec()).to_string())
     .bind(plain_text)
-    .bind(LOCAL_USER_ID)
-    .bind(LOCAL_USER_DISPLAY_NAME)
+    .bind(&local_user.id)
+    .bind(local_user::comment_display_name_json(
+        &local_user.display_name,
+    ))
     .execute(&mut **tx)
     .await
     .map_err(|e| format!("create notes comment: {e}"))?;

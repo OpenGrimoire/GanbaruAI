@@ -9,6 +9,7 @@
   import Music from "@lucide/svelte/icons/music";
   import SettingsIcon from "@lucide/svelte/icons/settings";
   import Timer from "@lucide/svelte/icons/timer";
+  import UserRound from "@lucide/svelte/icons/user-round";
   import DownloadCloud from "@lucide/svelte/icons/download-cloud";
   import HardDrive from "@lucide/svelte/icons/hard-drive";
   import X from "@lucide/svelte/icons/x";
@@ -18,6 +19,7 @@
   import CalendarScrollbar from "../calendar/CalendarScrollbar.svelte";
   import FocusSection from "./FocusSection.svelte";
   import MusicSection from "./MusicSection.svelte";
+  import NotesIdentitySection from "./NotesIdentitySection.svelte";
   import DoomscrollingSection from "./DoomscrollingSection.svelte";
   import DoomscrollingLimitEditor from "./DoomscrollingLimitEditor.svelte";
   import ShortcutsSection from "./ShortcutsSection.svelte";
@@ -62,6 +64,7 @@
   // branch in the content switch below.
   const SECTIONS: SectionMeta[] = [
     { id: "appearance", label: () => t("settings.section.appearance"), icon: Palette },
+    { id: "notes", label: () => t("settings.section.notes"), icon: UserRound },
     { id: "calendars", label: () => t("settings.section.calendars"), icon: CalendarDays },
     { id: "focus", label: () => t("settings.section.focus"), icon: Timer },
     { id: "music", label: () => t("settings.section.music"), icon: Music },
@@ -332,6 +335,8 @@
           />
         {:else if activeSection === "appearance"}
           <AppearanceSection />
+        {:else if activeSection === "notes"}
+          <NotesIdentitySection />
         {:else if activeSection === "calendars"}
           {#if CalendarsSection}
             {@const Section = CalendarsSection}

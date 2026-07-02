@@ -9,6 +9,7 @@ import {
   deleteNotesPageTemplate,
   duplicateNotesPage,
   duplicateNotesPageTemplate,
+  getNotesLocalUser,
   getNotesBlockChildren,
   getNotesPageBreadcrumb,
   listNotesBacklinks,
@@ -24,6 +25,7 @@ import {
   searchNotes,
   trashNotesPage,
   updateNotesComment,
+  updateNotesLocalUser,
   updateNotesPage,
   updateNotesPageTemplate,
 } from "$lib/api/notes";
@@ -80,6 +82,7 @@ import type {
   NotesBlockType,
   NotesCommentParent,
   NotesCommentThread,
+  NotesLocalUser,
   NotesLoadedPage,
   NotesPage,
   NotesPageBreadcrumbItem,
@@ -137,12 +140,16 @@ let trashRequestId = 0;
 let pageTemplatesRequestId = 0;
 let backlinksRequestId = 0;
 let commentsRequestId = 0;
+let localUserRequestId = 0;
 let searchRequestId = 0;
 let backlinksLoading = $state(false);
 let backlinksError = $state<string | null>(null);
 let commentsLoading = $state(false);
 let commentsError = $state<string | null>(null);
 let commentsIncludeResolved = $state(false);
+let localUser = $state<NotesLocalUser | null>(null);
+let localUserLoading = $state(false);
+let localUserError = $state<string | null>(null);
 let searchResults = $state<NotesSearchResult[]>([]);
 let searchLoading = $state(false);
 let searchError = $state<string | null>(null);
@@ -376,6 +383,43 @@ async function reloadComments(pageId: string | null = selectedPageId): Promise<v
   }
 }
 
+async function loadLocalUser(): Promise<NotesLocalUser | null> {
+  const requestId = ++localUserRequestId;
+  localUserLoading = true;
+  localUserError = null;
+  try {
+    const nextLocalUser = await getNotesLocalUser();
+    if (requestId !== localUserRequestId) return localUser;
+    localUser = nextLocalUser;
+    return nextLocalUser;
+  } catch (error) {
+    if (requestId !== localUserRequestId) return localUser;
+    localUserError = error instanceof Error ? error.message : String(error);
+    return null;
+  } finally {
+    if (requestId === localUserRequestId) localUserLoading = false;
+  }
+}
+
+async function updateLocalUserDisplayName(displayName: string): Promise<NotesLocalUser | null> {
+  const requestId = ++localUserRequestId;
+  localUserLoading = true;
+  localUserError = null;
+  try {
+    const nextLocalUser = await updateNotesLocalUser({ display_name: displayName });
+    if (requestId !== localUserRequestId) return localUser;
+    localUser = nextLocalUser;
+    await reloadComments();
+    return nextLocalUser;
+  } catch (error) {
+    if (requestId !== localUserRequestId) return localUser;
+    localUserError = error instanceof Error ? error.message : String(error);
+    return null;
+  } finally {
+    if (requestId === localUserRequestId) localUserLoading = false;
+  }
+}
+
 function updateCommentThread(thread: NotesCommentThread): void {
   if (thread.comments.length === 0 || (thread.status === "resolved" && !commentsIncludeResolved)) {
     commentThreads = commentThreads.filter((candidate) => candidate.id !== thread.id);
@@ -510,6 +554,7 @@ async function load(): Promise<void> {
   try {
     await reloadPages();
     await reloadPageTemplates();
+    await loadLocalUser();
     await pageHistoryController.loadSettings();
     if (requestId !== loadRequestId) return;
     const nextSelected = selectedPageId && pages.some((page) => page.id === selectedPageId)
@@ -1216,6 +1261,15 @@ export function getNotes() {
     get activeCommentAnchor(): NotesCommentAnchorCreate | null {
       return activeCommentAnchor;
     },
+    get localUser(): NotesLocalUser | null {
+      return localUser;
+    },
+    get localUserLoading(): boolean {
+      return localUserLoading;
+    },
+    get localUserError(): string | null {
+      return localUserError;
+    },
     get searchResults(): NotesSearchResult[] {
       return searchResults;
     },
@@ -1328,6 +1382,8 @@ export function getNotes() {
     duplicatePageTemplate,
     deletePageTemplate,
     reloadPageTemplates,
+    loadLocalUser,
+    updateLocalUserDisplayName,
     loadPageHistorySettings: pageHistoryController.loadSettings,
     updatePageHistoryRetention: pageHistoryController.updateRetention,
     reloadPageHistory: pageHistoryController.reloadSnapshots,

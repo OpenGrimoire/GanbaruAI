@@ -232,6 +232,36 @@ fn schema_creates_normalized_notes_database_tables() {
 }
 
 #[test]
+fn schema_creates_notes_local_user_identity() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        let row = sqlx::query(
+            "SELECT id, display_name
+             FROM notes_local_users
+             ORDER BY created_time ASC, id ASC
+             LIMIT 1",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let id: String = row.try_get("id").unwrap();
+        let display_name: String = row.try_get("display_name").unwrap();
+        assert_ne!(id, "local-user");
+        assert_eq!(display_name, "You");
+
+        let created_by_column: Option<i64> = sqlx::query_scalar(
+            "SELECT 1
+             FROM pragma_table_info('notes_page_history_snapshots')
+             WHERE name = 'created_by'",
+        )
+        .fetch_optional(&pool)
+        .await
+        .unwrap();
+        assert_eq!(created_by_column, Some(1));
+    });
+}
+
+#[test]
 fn schema_rejects_invalid_calendar_values() {
     tauri::async_runtime::block_on(async {
         let pool = migrated_memory_pool().await;

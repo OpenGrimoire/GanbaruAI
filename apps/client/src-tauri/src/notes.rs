@@ -19,6 +19,7 @@ mod data_source_timeline;
 mod data_source_views;
 mod databases;
 mod history;
+mod local_user;
 mod models;
 mod page_cover_assets;
 mod page_icon_assets;
@@ -98,6 +99,25 @@ pub async fn notes_search<R: Runtime>(
 ) -> Result<Vec<NoteSearchResultDto>, String> {
     let pool = connect_sqlite(app, db_url).await?;
     reads::search(&pool, &query, page_size).await
+}
+
+#[tauri::command]
+pub async fn notes_get_local_user<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+) -> Result<NoteLocalUserDto, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    local_user::get_local_user(&pool).await
+}
+
+#[tauri::command]
+pub async fn notes_update_local_user<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    update: NoteLocalUserUpdate,
+) -> Result<NoteLocalUserDto, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    local_user::update_local_user(&pool, update).await
 }
 
 #[tauri::command]

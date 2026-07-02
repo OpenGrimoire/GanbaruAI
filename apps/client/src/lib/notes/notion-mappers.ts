@@ -12,6 +12,7 @@ import {
   parseNotesDataSourceTableView,
   parseNotesDataSourceTemplate,
   parseNotesDataSourceTimelineView,
+  parseNotesLocalUser,
   parseNotesLoadedPage,
   parseNotesPage,
   parseNotesPageBreadcrumbItem,
@@ -36,6 +37,7 @@ import type {
   NotesDataSourceTableView,
   NotesDataSourceTemplate,
   NotesDataSourceTimelineView,
+  NotesLocalUser,
   NotesLoadedPage,
   NotesPage,
   NotesPageBreadcrumbItem,
@@ -100,6 +102,11 @@ export function mapNotesBacklinkDto(value: unknown): NotesBacklink {
 /** Validate and map an unknown Notes search result DTO from the Tauri boundary. */
 export function mapNotesSearchResultDto(value: unknown): NotesSearchResult {
   return parseNotesSearchResult(value);
+}
+
+/** Validate and map an unknown local Notes user DTO from the Tauri boundary. */
+export function mapNotesLocalUserDto(value: unknown): NotesLocalUser {
+  return parseNotesLocalUser(value);
 }
 
 /** Validate and map an unknown comment thread DTO from the Tauri boundary. */

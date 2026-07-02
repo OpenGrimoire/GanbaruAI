@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   parseNotesBlock,
   parseNotesCreatedDatabase,
+  parseNotesLocalUser,
   parseNotesPage,
   parseNotesPageHistorySettings,
   parseNotesPageHistorySnapshot,
@@ -291,6 +292,7 @@ describe("notes boundary validation", () => {
       cover: null,
       block_count: 4,
       reason: "update_block",
+      created_by: { object: "user", id: "70707070-7070-4070-8070-707070707070" },
       created_time: "2026-07-01T12:00:00.000Z",
       page_last_edited_time: "2026-07-01T11:59:00.000Z",
     });
@@ -298,6 +300,7 @@ describe("notes boundary validation", () => {
     expect(snapshot.page_id).toBe(basePage.id);
     expect(snapshot.block_count).toBe(4);
     expect(snapshot.reason).toBe("update_block");
+    expect(snapshot.created_by.id).toBe("70707070-7070-4070-8070-707070707070");
   });
 
   it("rejects invalid page history snapshot block counts", () => {
@@ -311,10 +314,23 @@ describe("notes boundary validation", () => {
         cover: null,
         block_count: -1,
         reason: "update_block",
+        created_by: { object: "user", id: "70707070-7070-4070-8070-707070707070" },
         created_time: "2026-07-01T12:00:00.000Z",
         page_last_edited_time: "2026-07-01T11:59:00.000Z",
       }),
     ).toThrow("page history snapshot.block_count must not be negative");
+  });
+
+  it("parses local Notes user DTOs", () => {
+    const user = parseNotesLocalUser({
+      object: "user",
+      id: "70707070-7070-4070-8070-707070707070",
+      display_name: "Victor",
+      created_time: "2026-07-01T12:00:00.000Z",
+      last_edited_time: "2026-07-01T12:01:00.000Z",
+    });
+
+    expect(user.display_name).toBe("Victor");
   });
 
   it("parses page history settings DTOs", () => {

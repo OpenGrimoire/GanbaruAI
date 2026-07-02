@@ -11,8 +11,8 @@ use super::models::{
     NoteDataSourceTableViewUpdate, NoteDataSourceTemplateApply,
     NoteDataSourceTemplateCreateFromRow, NoteDataSourceTimelineConfigurationUpdate,
     NoteDataSourceTimelineViewUpdate, NoteDatabaseCreate, NoteDuplicateBlock, NoteDuplicateBlocks,
-    NoteDuplicatePage, NoteDuplicatedBlockId, NoteLinkedDatabaseCreate, NoteMoveBlock,
-    NoteMoveBlocks, NoteMovePage, NotePageCreate, NotePageHistoryCopyBlocks,
+    NoteDuplicatePage, NoteDuplicatedBlockId, NoteLinkedDatabaseCreate, NoteLocalUserUpdate,
+    NoteMoveBlock, NoteMoveBlocks, NoteMovePage, NotePageCreate, NotePageHistoryCopyBlocks,
     NotePageHistorySettingsUpdate, NotePageTemplateApply, NotePageTemplateCreateFromPage,
     NotePageTemplateDuplicate, NotePageTemplateUpdate, NoteParent, NoteSidebarPagesRequest,
     NoteTrashBlocks, OptionalJsonValue,
@@ -20,8 +20,8 @@ use super::models::{
 use super::{
     comments, data_source_board, data_source_buttons, data_source_calendar, data_source_gallery,
     data_source_list, data_source_rows, data_source_schema, data_source_table,
-    data_source_templates, data_source_timeline, databases, history, reads, templates, undo_state,
-    validation, writes,
+    data_source_templates, data_source_timeline, databases, history, local_user, reads, templates,
+    undo_state, validation, writes,
 };
 use crate::db::run_migrations;
 use serde_json::json;
@@ -1292,8 +1292,11 @@ fn page_history_snapshots_restore_copy_and_retention_settings() {
             .await
             .unwrap();
         let snapshots_json = serde_json::to_value(&snapshots).unwrap();
+        let local_user_json =
+            serde_json::to_value(local_user::get_local_user(&pool).await.unwrap()).unwrap();
         assert_eq!(snapshots_json.as_array().unwrap().len(), 1);
         assert_eq!(snapshots_json[0]["block_count"], 1);
+        assert_eq!(snapshots_json[0]["created_by"]["id"], local_user_json["id"]);
         let initial_snapshot_id = snapshots_json[0]["id"].as_str().unwrap().to_string();
 
         sqlx::query(
@@ -9959,6 +9962,99 @@ fn schema_rejects_invalid_notes_rows() {
         .execute(&pool)
         .await
         .is_err());
+    });
+}
+
+#[test]
+fn local_user_identity_drives_notes_comments() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        create_page(&pool, PAGE_A, BLOCK_A).await;
+
+        let local_user_json =
+            serde_json::to_value(local_user::get_local_user(&pool).await.unwrap()).unwrap();
+        let local_user_id = local_user_json["id"].as_str().unwrap().to_string();
+        assert_ne!(local_user_id, "local-user");
+        assert_eq!(local_user_json["display_name"], "You");
+
+        let thread = comments::create_comment(
+            &pool,
+            NoteCommentCreate {
+                id: COMMENT_A.to_string(),
+                parent: Some(page_parent(PAGE_A)),
+                discussion_id: None,
+                anchor: None,
+                rich_text: vec![rich_text("Page note")],
+            },
+        )
+        .await
+        .unwrap();
+        let thread_value = serde_json::to_value(thread).unwrap();
+        let thread_id = thread_value["id"].as_str().unwrap().to_string();
+        assert_eq!(
+            thread_value["comments"][0]["created_by"]["id"],
+            local_user_id
+        );
+        assert_eq!(
+            thread_value["comments"][0]["display_name"]["resolved_name"],
+            "You"
+        );
+
+        let updated_user = local_user::update_local_user(
+            &pool,
+            NoteLocalUserUpdate {
+                display_name: "Victor".to_string(),
+            },
+        )
+        .await
+        .unwrap();
+        let updated_user_json = serde_json::to_value(updated_user).unwrap();
+        assert_eq!(updated_user_json["id"], local_user_id);
+        assert_eq!(updated_user_json["display_name"], "Victor");
+
+        let listed = comments::list_comments(&pool, PAGE_A, false).await.unwrap();
+        let listed_json = serde_json::to_value(listed).unwrap();
+        assert_eq!(
+            listed_json[0]["comments"][0]["display_name"]["resolved_name"],
+            "Victor"
+        );
+
+        let replied = comments::create_comment(
+            &pool,
+            NoteCommentCreate {
+                id: COMMENT_B.to_string(),
+                parent: None,
+                discussion_id: Some(thread_id.clone()),
+                anchor: None,
+                rich_text: vec![rich_text("Reply")],
+            },
+        )
+        .await
+        .unwrap();
+        let replied_value = serde_json::to_value(replied).unwrap();
+        assert_eq!(
+            replied_value["comments"][1]["display_name"]["resolved_name"],
+            "Victor"
+        );
+
+        let resolved = comments::resolve_comment_thread(&pool, &thread_id, true)
+            .await
+            .unwrap();
+        let resolved_value = serde_json::to_value(resolved).unwrap();
+        assert_eq!(resolved_value["resolved_by"]["id"], local_user_id);
+
+        assert_eq!(
+            local_user::update_local_user(
+                &pool,
+                NoteLocalUserUpdate {
+                    display_name: " ".to_string(),
+                },
+            )
+            .await
+            .err()
+            .as_deref(),
+            Some("display_name is required")
+        );
     });
 }
 

@@ -398,6 +398,7 @@ export const es = {
     close: "Cerrar ajustes",
     section: {
       appearance: "Apariencia",
+      notes: "Notas",
       calendars: "Calendario",
       focus: "Enfoque",
       music: "Música",
@@ -427,6 +428,19 @@ export const es = {
       dimPastEventColorsDescription: "Usa colores atenuados para eventos pasados",
       calendarZoomOption: (percent: number, gridMinutes: number) =>
         `${percent}% (${gridMinutes}min)`,
+    },
+    notesIdentity: {
+      heading: "Identidad local de Notas",
+      displayName: "Nombre visible",
+      description:
+        "Se usa en comentarios locales de Notas, historial de páginas y futuras menciones de usuario. Se queda en tu carpeta de Ganbaru AI.",
+      loading: "Cargando identidad...",
+      save: "Guardar identidad",
+      saving: "Guardando...",
+      saved: "Guardado",
+      loadFailed: (message: string) => `No se pudo cargar la identidad de Notas: ${message}`,
+      saveFailed: (message: string) => `No se pudo guardar la identidad de Notas: ${message}`,
+      emptyName: "El nombre visible es obligatorio.",
     },
     calendars: {
       heading: "Calendarios",
@@ -1591,6 +1605,7 @@ export const es = {
       `No se pudo actualizar la retención del historial: ${message}`,
     loadingPageHistoryVersion: "Cargando versión",
     pageHistoryVersionLabel: (time: string) => `Versión de ${time}`,
+    pageHistoryAuthor: (name: string) => `Editado por ${name}`,
     loadPageHistoryVersionFailed: (message: string) => `No se pudo cargar la versión: ${message}`,
     pageHistoryActionFailed: (message: string) =>
       `No se pudo actualizar el historial de página: ${message}`,

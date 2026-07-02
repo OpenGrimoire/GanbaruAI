@@ -387,6 +387,7 @@ export interface NotesPageHistorySnapshot {
   cover: NotesPageCover | null;
   block_count: number;
   reason: string;
+  created_by: NotesPartialUser;
   created_time: string;
   page_last_edited_time: string;
 }
@@ -646,6 +647,10 @@ export interface NotesPageTemplateDuplicateRequest {
 
 export interface NotesPageHistorySettingsUpdate {
   retention_days: number | null;
+}
+
+export interface NotesLocalUserUpdate {
+  display_name: string;
 }
 
 export interface NotesPageHistoryCopyBlocksRequest {
@@ -1222,6 +1227,14 @@ export type NotesCommentThreadStatus = "open" | "resolved";
 export interface NotesPartialUser {
   object: "user";
   id: string;
+}
+
+export interface NotesLocalUser {
+  object: "user";
+  id: string;
+  display_name: string;
+  created_time: string;
+  last_edited_time: string;
 }
 
 export type NotesCommentDisplayName =

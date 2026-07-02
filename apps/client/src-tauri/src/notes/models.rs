@@ -437,6 +437,7 @@ pub struct NotePageHistorySnapshotDto {
     cover: Option<Value>,
     block_count: i64,
     reason: String,
+    created_by: NotePartialUserDto,
     created_time: String,
     page_last_edited_time: String,
 }
@@ -452,6 +453,7 @@ impl NotePageHistorySnapshotDto {
             cover: parse_optional_json(row.cover, "page history cover")?,
             block_count: row.block_count,
             reason: row.reason,
+            created_by: NotePartialUserDto::new(row.created_by),
             created_time: row.created_time,
             page_last_edited_time: row.page_last_edited_time,
         })
@@ -617,6 +619,27 @@ pub struct NotePartialUserDto {
 impl NotePartialUserDto {
     pub(in crate::notes) fn new(id: String) -> Self {
         Self { object: "user", id }
+    }
+}
+
+#[derive(Serialize)]
+pub struct NoteLocalUserDto {
+    object: &'static str,
+    id: String,
+    display_name: String,
+    created_time: String,
+    last_edited_time: String,
+}
+
+impl NoteLocalUserDto {
+    pub(in crate::notes) fn new(row: NoteLocalUserRow) -> Self {
+        Self {
+            object: "user",
+            id: row.id,
+            display_name: row.display_name,
+            created_time: row.created_time,
+            last_edited_time: row.last_edited_time,
+        }
     }
 }
 
@@ -1181,6 +1204,11 @@ pub struct NoteCommentAnchorCreate {
 #[derive(Deserialize)]
 pub struct NoteCommentUpdate {
     pub(in crate::notes) rich_text: Vec<Value>,
+}
+
+#[derive(Deserialize)]
+pub struct NoteLocalUserUpdate {
+    pub(in crate::notes) display_name: String,
 }
 
 #[derive(Deserialize)]
@@ -1854,6 +1882,7 @@ pub(in crate::notes) struct NotePageHistorySnapshotRow {
     pub(in crate::notes) blocks: String,
     pub(in crate::notes) block_count: i64,
     pub(in crate::notes) reason: String,
+    pub(in crate::notes) created_by: String,
     pub(in crate::notes) created_time: String,
     pub(in crate::notes) page_created_time: String,
     pub(in crate::notes) page_last_edited_time: String,
@@ -1874,9 +1903,24 @@ impl_sqlite_from_row!(NotePageHistorySnapshotRow {
     blocks,
     block_count,
     reason,
+    created_by,
     created_time,
     page_created_time,
     page_last_edited_time,
+});
+
+#[derive(Clone, Serialize)]
+pub(in crate::notes) struct NoteLocalUserRow {
+    pub(in crate::notes) id: String,
+    pub(in crate::notes) display_name: String,
+    pub(in crate::notes) created_time: String,
+    pub(in crate::notes) last_edited_time: String,
+}
+impl_sqlite_from_row!(NoteLocalUserRow {
+    id,
+    display_name,
+    created_time,
+    last_edited_time,
 });
 
 #[derive(Serialize)]

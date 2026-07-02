@@ -869,6 +869,8 @@ pub fn run() {
             notes::notes_list_backlinks,
             notes::notes_get_page_breadcrumb,
             notes::notes_search,
+            notes::notes_get_local_user,
+            notes::notes_update_local_user,
             notes::notes_list_page_templates,
             notes::notes_create_page_template_from_page,
             notes::notes_apply_page_template,

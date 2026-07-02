@@ -15,6 +15,7 @@ import {
   mapNotesDataSourceTableViewDto,
   mapNotesDataSourceTemplateDto,
   mapNotesDataSourceTimelineViewDto,
+  mapNotesLocalUserDto,
   mapNotesLoadedPageDto,
   mapNotesPageBreadcrumbItemDto,
   mapNotesPageHistorySettingsDto,
@@ -64,6 +65,8 @@ import type {
   NotesDuplicateBlocksRequest,
   NotesBlockUpdate,
   NotesLinkedDatabaseCreateRequest,
+  NotesLocalUser,
+  NotesLocalUserUpdate,
   NotesLoadedPage,
   NotesMovePageRequest,
   NotesMoveBlockRequest,
@@ -160,6 +163,20 @@ export async function searchNotes(
   const rows = await invoke<unknown>("notes_search", { dbUrl, query, pageSize });
   if (!Array.isArray(rows)) throw new Error("notes_search returned a non-array payload");
   return rows.map(mapNotesSearchResultDto);
+}
+
+export async function getNotesLocalUser(): Promise<NotesLocalUser> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesLocalUserDto(await invoke<unknown>("notes_get_local_user", { dbUrl }));
+}
+
+export async function updateNotesLocalUser(
+  update: NotesLocalUserUpdate,
+): Promise<NotesLocalUser> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesLocalUserDto(
+    await invoke<unknown>("notes_update_local_user", { dbUrl, update }),
+  );
 }
 
 export async function listNotesPageTemplates(): Promise<NotesPageTemplate[]> {

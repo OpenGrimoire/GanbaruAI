@@ -4,7 +4,13 @@
   import { blockPlainText } from "$lib/notes/block-factory";
   import { buildNotesChildIdsByParent, flattenNotesBlockTree } from "$lib/notes/block-tree";
   import { notesPageTitle } from "$lib/notes/page-title";
-  import type { NotesBlock, NotesBlockTreeItem, NotesBlockType, NotesLoadedPage } from "$lib/notes/types";
+  import type {
+    NotesBlock,
+    NotesBlockTreeItem,
+    NotesBlockType,
+    NotesLoadedPage,
+    NotesPageHistorySnapshot,
+  } from "$lib/notes/types";
   import { getNotes } from "$lib/stores/notes.svelte";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import Copy from "@lucide/svelte/icons/copy";
@@ -47,6 +53,11 @@
   });
 
   $effect(() => {
+    if (!open || notes.localUser || notes.localUserLoading) return;
+    void notes.loadLocalUser();
+  });
+
+  $effect(() => {
     if (!open || selectedSnapshotId || notes.pageHistorySnapshotsLoading) return;
     const firstSnapshot = notes.pageHistorySnapshots[0];
     if (!firstSnapshot) return;
@@ -81,6 +92,11 @@
 
   function formatTime(value: string): string {
     return new Date(value).toLocaleString(localization.locale);
+  }
+
+  function snapshotAuthorName(snapshot: NotesPageHistorySnapshot): string {
+    if (notes.localUser?.id === snapshot.created_by.id) return notes.localUser.display_name;
+    return snapshot.created_by.id;
   }
 
   function blockTypeLabel(type: NotesBlockType): string {
@@ -296,6 +312,9 @@
                 <span class="block truncate text-[0.7rem] text-muted-foreground">
                   {reasonLabel(snapshot.reason)}, {t("notes.pageHistoryBlockCount", snapshot.block_count)}
                 </span>
+                <span class="block truncate text-[0.7rem] text-muted-foreground">
+                  {t("notes.pageHistoryAuthor", snapshotAuthorName(snapshot))}
+                </span>
               </button>
             {/each}
           {/if}
@@ -316,6 +335,9 @@
                 </div>
                 <div class="text-[0.733333rem] text-muted-foreground">
                   {t("notes.pageHistoryVersionLabel", formatTime(selectedSnapshot.created_time))}
+                </div>
+                <div class="text-[0.733333rem] text-muted-foreground">
+                  {t("notes.pageHistoryAuthor", snapshotAuthorName(selectedSnapshot))}
                 </div>
               </div>
               <div class="flex flex-wrap items-center gap-1.5">
