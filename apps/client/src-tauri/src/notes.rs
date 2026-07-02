@@ -4,6 +4,7 @@ use tauri::{AppHandle, Runtime};
 mod comments;
 mod data_source_board;
 mod data_source_gallery;
+mod data_source_list;
 mod data_source_rows;
 mod data_source_schema;
 mod data_source_table;
@@ -426,6 +427,27 @@ pub async fn notes_update_data_source_gallery_view<R: Runtime>(
 ) -> Result<NoteDataSourceGalleryViewDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
     data_source_gallery::update_data_source_gallery_view(&pool, &data_source_id, update).await
+}
+
+#[tauri::command]
+pub async fn notes_get_data_source_list_view<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    data_source_id: String,
+) -> Result<NoteDataSourceListViewDto, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    data_source_list::get_data_source_list_view(&pool, &data_source_id).await
+}
+
+#[tauri::command]
+pub async fn notes_update_data_source_list_view<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    data_source_id: String,
+    update: NoteDataSourceListViewUpdate,
+) -> Result<NoteDataSourceListViewDto, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    data_source_list::update_data_source_list_view(&pool, &data_source_id, update).await
 }
 
 #[tauri::command]

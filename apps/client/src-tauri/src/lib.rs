@@ -901,6 +901,8 @@ pub fn run() {
             notes::notes_move_data_source_board_row,
             notes::notes_get_data_source_gallery_view,
             notes::notes_update_data_source_gallery_view,
+            notes::notes_get_data_source_list_view,
+            notes::notes_update_data_source_list_view,
             notes::notes_duplicate_page,
             notes::notes_move_page,
             notes::notes_update_page,

@@ -8,6 +8,7 @@ import {
   mapNotesCreatedDatabaseDto,
   mapNotesDataSourceBoardViewDto,
   mapNotesDataSourceGalleryViewDto,
+  mapNotesDataSourceListViewDto,
   mapNotesDataSourceSchemaDto,
   mapNotesDataSourceTableViewDto,
   mapNotesLoadedPageDto,
@@ -34,6 +35,8 @@ import type {
   NotesDataSourceBoardViewUpdate,
   NotesDataSourceGalleryView,
   NotesDataSourceGalleryViewUpdate,
+  NotesDataSourceListView,
+  NotesDataSourceListViewUpdate,
   NotesDataSourceRowPageCreateRequest,
   NotesDataSourceRowPropertyUpdate,
   NotesDataSourceSchema,
@@ -449,6 +452,29 @@ export async function updateNotesDataSourceRowProperty(
       dbUrl,
       dataSourceId,
       pageId,
+      update,
+    }),
+  );
+}
+
+export async function getNotesDataSourceListView(
+  dataSourceId: string,
+): Promise<NotesDataSourceListView> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesDataSourceListViewDto(
+    await invoke<unknown>("notes_get_data_source_list_view", { dbUrl, dataSourceId }),
+  );
+}
+
+export async function updateNotesDataSourceListView(
+  dataSourceId: string,
+  update: NotesDataSourceListViewUpdate,
+): Promise<NotesDataSourceListView> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesDataSourceListViewDto(
+    await invoke<unknown>("notes_update_data_source_list_view", {
+      dbUrl,
+      dataSourceId,
       update,
     }),
   );

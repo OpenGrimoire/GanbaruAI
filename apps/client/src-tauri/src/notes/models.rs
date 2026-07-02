@@ -746,6 +746,22 @@ pub struct NoteDataSourceGalleryViewUpdate {
     pub(in crate::notes) configuration: NoteDataSourceGalleryConfigurationUpdate,
 }
 
+#[derive(Clone, Deserialize)]
+pub struct NoteDataSourceListConfigurationUpdate {
+    pub(in crate::notes) group_property_id: Option<String>,
+    pub(in crate::notes) group_order: Vec<String>,
+    pub(in crate::notes) hidden_group_ids: Vec<String>,
+    pub(in crate::notes) visible_property_ids: Vec<String>,
+    pub(in crate::notes) row_open_mode: String,
+}
+
+#[derive(Deserialize)]
+pub struct NoteDataSourceListViewUpdate {
+    pub(in crate::notes) filter: Vec<NoteDataSourceTableFilter>,
+    pub(in crate::notes) sorts: Vec<NoteDataSourceTableSort>,
+    pub(in crate::notes) configuration: NoteDataSourceListConfigurationUpdate,
+}
+
 #[derive(Deserialize)]
 pub struct NoteMovePage {
     pub(in crate::notes) parent: NoteParent,
@@ -1154,6 +1170,34 @@ pub struct NoteDataSourceGalleryViewDto {
 }
 
 impl NoteDataSourceGalleryViewDto {
+    pub(in crate::notes) fn new(
+        data_source: NoteDataSourceRow,
+        database: NoteDatabaseRow,
+        view: NoteDatabaseViewRow,
+        rows: Vec<NotePageRow>,
+    ) -> Result<Self, String> {
+        Ok(Self {
+            data_source: NoteDataSourceDto::new(
+                data_source,
+                block_parent_from_database_row(&database)?,
+            )?,
+            view: NoteDatabaseViewDto::new(view)?,
+            rows: rows
+                .into_iter()
+                .map(NotePageDto::new)
+                .collect::<Result<Vec<_>, _>>()?,
+        })
+    }
+}
+
+#[derive(Serialize)]
+pub struct NoteDataSourceListViewDto {
+    data_source: NoteDataSourceDto,
+    view: NoteDatabaseViewDto,
+    rows: Vec<NotePageDto>,
+}
+
+impl NoteDataSourceListViewDto {
     pub(in crate::notes) fn new(
         data_source: NoteDataSourceRow,
         database: NoteDatabaseRow,
