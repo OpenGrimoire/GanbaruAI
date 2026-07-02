@@ -9,6 +9,7 @@ import {
   parseNotesDataSourceListView,
   parseNotesDataSourceSchema,
   parseNotesDataSourceTableView,
+  parseNotesDataSourceTimelineView,
   parseNotesLoadedPage,
   parseNotesPage,
   parseNotesPageBreadcrumbItem,
@@ -30,6 +31,7 @@ import type {
   NotesDataSourceListView,
   NotesDataSourceSchema,
   NotesDataSourceTableView,
+  NotesDataSourceTimelineView,
   NotesLoadedPage,
   NotesPage,
   NotesPageBreadcrumbItem,
@@ -134,4 +136,9 @@ export function mapNotesDataSourceListViewDto(value: unknown): NotesDataSourceLi
 /** Validate and map an unknown local data source calendar view DTO from the Tauri boundary. */
 export function mapNotesDataSourceCalendarViewDto(value: unknown): NotesDataSourceCalendarView {
   return parseNotesDataSourceCalendarView(value);
+}
+
+/** Validate and map an unknown local data source timeline view DTO from the Tauri boundary. */
+export function mapNotesDataSourceTimelineViewDto(value: unknown): NotesDataSourceTimelineView {
+  return parseNotesDataSourceTimelineView(value);
 }

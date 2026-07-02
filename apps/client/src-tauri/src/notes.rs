@@ -9,6 +9,7 @@ mod data_source_list;
 mod data_source_rows;
 mod data_source_schema;
 mod data_source_table;
+mod data_source_timeline;
 mod databases;
 mod history;
 mod models;
@@ -470,6 +471,27 @@ pub async fn notes_update_data_source_calendar_view<R: Runtime>(
 ) -> Result<NoteDataSourceCalendarViewDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
     data_source_calendar::update_data_source_calendar_view(&pool, &data_source_id, update).await
+}
+
+#[tauri::command]
+pub async fn notes_get_data_source_timeline_view<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    data_source_id: String,
+) -> Result<NoteDataSourceTimelineViewDto, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    data_source_timeline::get_data_source_timeline_view(&pool, &data_source_id).await
+}
+
+#[tauri::command]
+pub async fn notes_update_data_source_timeline_view<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    data_source_id: String,
+    update: NoteDataSourceTimelineViewUpdate,
+) -> Result<NoteDataSourceTimelineViewDto, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    data_source_timeline::update_data_source_timeline_view(&pool, &data_source_id, update).await
 }
 
 #[tauri::command]

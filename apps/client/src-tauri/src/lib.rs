@@ -905,6 +905,8 @@ pub fn run() {
             notes::notes_update_data_source_list_view,
             notes::notes_get_data_source_calendar_view,
             notes::notes_update_data_source_calendar_view,
+            notes::notes_get_data_source_timeline_view,
+            notes::notes_update_data_source_timeline_view,
             notes::notes_duplicate_page,
             notes::notes_move_page,
             notes::notes_update_page,

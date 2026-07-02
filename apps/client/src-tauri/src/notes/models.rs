@@ -778,6 +778,25 @@ pub struct NoteDataSourceCalendarViewUpdate {
     pub(in crate::notes) configuration: NoteDataSourceCalendarConfigurationUpdate,
 }
 
+#[derive(Clone, Deserialize)]
+pub struct NoteDataSourceTimelineConfigurationUpdate {
+    pub(in crate::notes) date_property_id: Option<String>,
+    pub(in crate::notes) group_property_id: Option<String>,
+    pub(in crate::notes) group_order: Vec<String>,
+    pub(in crate::notes) hidden_group_ids: Vec<String>,
+    pub(in crate::notes) range_start: String,
+    pub(in crate::notes) range_end: String,
+    pub(in crate::notes) visible_property_ids: Vec<String>,
+    pub(in crate::notes) row_open_mode: String,
+}
+
+#[derive(Deserialize)]
+pub struct NoteDataSourceTimelineViewUpdate {
+    pub(in crate::notes) filter: Vec<NoteDataSourceTableFilter>,
+    pub(in crate::notes) sorts: Vec<NoteDataSourceTableSort>,
+    pub(in crate::notes) configuration: NoteDataSourceTimelineConfigurationUpdate,
+}
+
 #[derive(Deserialize)]
 pub struct NoteMovePage {
     pub(in crate::notes) parent: NoteParent,
@@ -1242,6 +1261,34 @@ pub struct NoteDataSourceCalendarViewDto {
 }
 
 impl NoteDataSourceCalendarViewDto {
+    pub(in crate::notes) fn new(
+        data_source: NoteDataSourceRow,
+        database: NoteDatabaseRow,
+        view: NoteDatabaseViewRow,
+        rows: Vec<NotePageRow>,
+    ) -> Result<Self, String> {
+        Ok(Self {
+            data_source: NoteDataSourceDto::new(
+                data_source,
+                block_parent_from_database_row(&database)?,
+            )?,
+            view: NoteDatabaseViewDto::new(view)?,
+            rows: rows
+                .into_iter()
+                .map(NotePageDto::new)
+                .collect::<Result<Vec<_>, _>>()?,
+        })
+    }
+}
+
+#[derive(Serialize)]
+pub struct NoteDataSourceTimelineViewDto {
+    data_source: NoteDataSourceDto,
+    view: NoteDatabaseViewDto,
+    rows: Vec<NotePageDto>,
+}
+
+impl NoteDataSourceTimelineViewDto {
     pub(in crate::notes) fn new(
         data_source: NoteDataSourceRow,
         database: NoteDatabaseRow,

@@ -12,6 +12,7 @@ import {
   mapNotesDataSourceListViewDto,
   mapNotesDataSourceSchemaDto,
   mapNotesDataSourceTableViewDto,
+  mapNotesDataSourceTimelineViewDto,
   mapNotesLoadedPageDto,
   mapNotesPageBreadcrumbItemDto,
   mapNotesPageHistorySettingsDto,
@@ -46,6 +47,8 @@ import type {
   NotesDataSourceSchemaUpdate,
   NotesDataSourceTableView,
   NotesDataSourceTableViewUpdate,
+  NotesDataSourceTimelineView,
+  NotesDataSourceTimelineViewUpdate,
   NotesDuplicatePageRequest,
   NotesDuplicateBlockRequest,
   NotesDuplicateBlocksRequest,
@@ -499,6 +502,29 @@ export async function updateNotesDataSourceCalendarView(
   const dbUrl = await ensureDbUrl();
   return mapNotesDataSourceCalendarViewDto(
     await invoke<unknown>("notes_update_data_source_calendar_view", {
+      dbUrl,
+      dataSourceId,
+      update,
+    }),
+  );
+}
+
+export async function getNotesDataSourceTimelineView(
+  dataSourceId: string,
+): Promise<NotesDataSourceTimelineView> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesDataSourceTimelineViewDto(
+    await invoke<unknown>("notes_get_data_source_timeline_view", { dbUrl, dataSourceId }),
+  );
+}
+
+export async function updateNotesDataSourceTimelineView(
+  dataSourceId: string,
+  update: NotesDataSourceTimelineViewUpdate,
+): Promise<NotesDataSourceTimelineView> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesDataSourceTimelineViewDto(
+    await invoke<unknown>("notes_update_data_source_timeline_view", {
       dbUrl,
       dataSourceId,
       update,

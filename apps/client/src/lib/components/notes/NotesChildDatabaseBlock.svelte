@@ -10,6 +10,7 @@
   import NotesDatabaseGalleryView from "./NotesDatabaseGalleryView.svelte";
   import NotesDatabaseListView from "./NotesDatabaseListView.svelte";
   import NotesDatabaseTableView from "./NotesDatabaseTableView.svelte";
+  import NotesDatabaseTimelineView from "./NotesDatabaseTimelineView.svelte";
   import {
     createNotesDataSourcePropertyDraft,
     defaultNotesDataSourcePropertyName,
@@ -69,12 +70,13 @@
   let schema = $state<NotesDataSourceSchema | null>(null);
   let properties = $state<NotesDataSourceSchemaPropertyDraft[]>([]);
   let newPropertyType = $state<NotesDataSourcePropertyType>("rich_text");
-  let activeView = $state<"table" | "board" | "gallery" | "list" | "calendar">("table");
+  let activeView = $state<"table" | "board" | "gallery" | "list" | "calendar" | "timeline">("table");
   let tableReloadKey = $state(0);
   let boardReloadKey = $state(0);
   let galleryReloadKey = $state(0);
   let listReloadKey = $state(0);
   let calendarReloadKey = $state(0);
+  let timelineReloadKey = $state(0);
 
   const title = $derived(block.child_database.title.trim());
   const dataSourceId = $derived(block.child_database.data_source_id ?? null);
@@ -110,6 +112,7 @@
       galleryReloadKey += 1;
       listReloadKey += 1;
       calendarReloadKey += 1;
+      timelineReloadKey += 1;
     } catch (caught) {
       error = caught instanceof Error ? caught.message : String(caught);
     } finally {
@@ -133,6 +136,7 @@
       galleryReloadKey += 1;
       listReloadKey += 1;
       calendarReloadKey += 1;
+      timelineReloadKey += 1;
     } catch (caught) {
       error = caught instanceof Error ? caught.message : String(caught);
     } finally {
@@ -658,6 +662,20 @@
           >
             {t("notes.databaseViewCalendar")}
           </button>
+          <button
+            type="button"
+            class={`inline-flex h-8 items-center rounded-md px-2 text-[0.8rem] ${
+              activeView === "timeline"
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:bg-accent hover:text-foreground"
+            }`}
+            aria-pressed={activeView === "timeline"}
+            onclick={() => {
+              activeView = "timeline";
+            }}
+          >
+            {t("notes.databaseViewTimeline")}
+          </button>
         </div>
         {#if activeView === "table"}
           <NotesDatabaseTableView {dataSourceId} {onSelectPage} reloadKey={tableReloadKey} />
@@ -667,8 +685,10 @@
           <NotesDatabaseGalleryView {dataSourceId} {onSelectPage} reloadKey={galleryReloadKey} />
         {:else if activeView === "list"}
           <NotesDatabaseListView {dataSourceId} {onSelectPage} reloadKey={listReloadKey} />
-        {:else}
+        {:else if activeView === "calendar"}
           <NotesDatabaseCalendarView {dataSourceId} {onSelectPage} reloadKey={calendarReloadKey} />
+        {:else}
+          <NotesDatabaseTimelineView {dataSourceId} {onSelectPage} reloadKey={timelineReloadKey} />
         {/if}
       {/if}
     </div>
