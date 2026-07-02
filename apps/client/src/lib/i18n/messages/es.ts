@@ -2203,6 +2203,12 @@ export const es = {
     mediaPreview: "Vista previa de medio",
     mediaLocalFile: "Archivo local gestionado",
     mediaLocalFileMetadata: (contentType: string, size: string) => `${contentType}, ${size}`,
+    mediaStoredOffline: "Guardado en Ganbaru AI y disponible sin conexión.",
+    mediaExternalReference: "Referencia HTTPS externa. Se abre solo cuando lo eliges.",
+    mediaImportedRemoteReference:
+      "Referencia remota importada. Copia un archivo local para conservarla sin conexión.",
+    mediaImportedUploadReference:
+      "Referencia de carga importada. Copia un archivo local para conservarla sin conexión.",
     mediaBytes: (bytes: string) => `${bytes} B`,
     mediaKiB: (kib: string) => `${kib} KiB`,
     mediaMiB: (mib: string) => `${mib} MiB`,

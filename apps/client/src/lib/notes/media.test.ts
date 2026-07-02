@@ -6,11 +6,15 @@ import {
   createManagedMediaPayload,
   externalMediaUrlIsSupported,
   mediaDisplayName,
+  mediaIsOfflineAvailable,
   mediaManagedAssetMetadata,
+  mediaNeedsNetwork,
   mediaPlainText,
   mediaPreviewKindForUrl,
+  mediaSourceKind,
   mediaUrlIssue,
 } from "./media";
+import type { NotesMediaBlockPayload } from "./types";
 
 const localPngSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const localPngPath = `notes/files/${localPngSha}.png`;
@@ -27,7 +31,7 @@ describe("notes media helpers", () => {
     expect(mediaPlainText(payload)).toBe("Reference brief.pdf https://example.com/assets/brief.pdf");
   });
 
-  it("allows only supported HTTPS media URLs for previews", () => {
+  it("allows only supported HTTPS media URLs for explicit external references", () => {
     expect(externalMediaUrlIsSupported("image", "https://example.com/image.png")).toBe(true);
     expect(externalMediaUrlIsSupported("image", "https://example.com/image.txt")).toBe(false);
     expect(externalMediaUrlIsSupported("audio", "https://example.com/audio.mp3")).toBe(true);
@@ -46,11 +50,11 @@ describe("notes media helpers", () => {
     expect(mediaUrlIssue("file", "https://example.com/download")).toBeNull();
   });
 
-  it("separates native previews from explicit open links", () => {
-    expect(mediaPreviewKindForUrl("image", "https://example.com/image.png")).toBe("image");
-    expect(mediaPreviewKindForUrl("audio", "https://example.com/audio.mp3")).toBe("audio");
-    expect(mediaPreviewKindForUrl("video", "https://example.com/video.mp4")).toBe("video");
-    expect(mediaPreviewKindForUrl("pdf", "https://example.com/file.pdf")).toBe("pdf");
+  it("keeps network media as explicit links instead of automatic previews", () => {
+    expect(mediaPreviewKindForUrl("image", "https://example.com/image.png")).toBe("link");
+    expect(mediaPreviewKindForUrl("audio", "https://example.com/audio.mp3")).toBe("link");
+    expect(mediaPreviewKindForUrl("video", "https://example.com/video.mp4")).toBe("link");
+    expect(mediaPreviewKindForUrl("pdf", "https://example.com/file.pdf")).toBe("link");
     expect(mediaPreviewKindForUrl("file", "https://example.com/file.txt")).toBe("link");
     expect(mediaPreviewKindForUrl("video", "https://www.youtube.com/watch?v=abc123")).toBe(
       "link",
@@ -58,13 +62,14 @@ describe("notes media helpers", () => {
     expect(mediaPreviewKindForUrl("image", "https://example.com/file.txt")).toBe("none");
   });
 
-  it("opens non-empty HTTPS media URLs and previews renderable media only", () => {
+  it("opens non-empty HTTPS media URLs without treating them as offline previews", () => {
     const image = createMediaPayload("https://example.com/image.png");
     const file = createMediaPayload("https://example.com/file.txt");
     const youtube = createMediaPayload("https://www.youtube.com/watch?v=abc123");
 
     expect(canOpenMediaUrl(image)).toBe(true);
-    expect(canPreviewMedia("image", image)).toBe(true);
+    expect(canPreviewMedia("image", image)).toBe(false);
+    expect(mediaNeedsNetwork(image)).toBe(true);
     expect(canOpenMediaUrl(file)).toBe(true);
     expect(canPreviewMedia("file", file)).toBe(false);
     expect(canOpenMediaUrl(youtube)).toBe(true);
@@ -109,5 +114,29 @@ describe("notes media helpers", () => {
     expect(mediaUrlIssue("image", `ganbaru-asset:${localPngPath}`)).toBe("requires_https");
     expect(canOpenMediaUrl(payload)).toBe(false);
     expect(canPreviewMedia("image", payload)).toBe(true);
+    expect(mediaSourceKind(payload)).toBe("offline_asset");
+    expect(mediaIsOfflineAvailable(payload)).toBe(true);
+    expect(mediaNeedsNetwork(payload)).toBe(false);
+  });
+
+  it("classifies imported file references as preserved network or reference-only sources", () => {
+    const importedRemote: NotesMediaBlockPayload = {
+      type: "file",
+      file: { url: "https://s3.us-west-2.amazonaws.com/secure.notion-static.com/file.png" },
+      caption: [],
+    };
+    const uploadReference: NotesMediaBlockPayload = {
+      type: "file_upload",
+      file_upload: { id: "file-upload-1" },
+      caption: [],
+    };
+
+    expect(mediaSourceKind(importedRemote)).toBe("imported_file_reference");
+    expect(mediaNeedsNetwork(importedRemote)).toBe(true);
+    expect(mediaIsOfflineAvailable(importedRemote)).toBe(false);
+    expect(canPreviewMedia("image", importedRemote)).toBe(false);
+    expect(mediaSourceKind(uploadReference)).toBe("file_upload_reference");
+    expect(mediaNeedsNetwork(uploadReference)).toBe(false);
+    expect(mediaIsOfflineAvailable(uploadReference)).toBe(false);
   });
 });

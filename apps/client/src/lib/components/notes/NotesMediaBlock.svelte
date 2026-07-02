@@ -12,8 +12,10 @@
     mediaPlainText,
     mediaPreviewKindForUrl,
     mediaSourceUrl,
+    mediaSourceKind,
     mediaUrlIssue,
     type NotesFileAssetMetadata,
+    type NotesMediaSourceKind,
     type NotesMediaUrlIssue,
     type NotesMediaBlockType,
   } from "$lib/notes/media";
@@ -102,6 +104,7 @@
   );
   const localAsset = $derived(mediaManagedAssetMetadata(media));
   const localAssetPath = $derived(localAsset?.relativePath ?? null);
+  const sourceKind = $derived(mediaSourceKind(media));
   const url = $derived(mediaSourceUrl(media));
   const caption = $derived(mediaCaptionPlainText(media));
   const name = $derived(media.name ?? "");
@@ -117,7 +120,8 @@
       ? (localPreviewUrl && mediaType !== "file" ? mediaType : "none")
       : mediaPreviewKindForUrl(mediaType, urlDraft),
   );
-  const previewUrl = $derived(localPreviewUrl ?? urlDraft);
+  const previewUrl = $derived(localPreviewUrl ?? "");
+  const sourceStatusMessage = $derived(mediaSourceStatusMessage(sourceKind));
   const localMetadata = $derived(localAsset ? formatLocalAssetMetadata(localAsset) : null);
   const currentText = $derived(
     [captionDraft, displayName, urlDraft || mediaPlainText(media)]
@@ -195,9 +199,16 @@
     return t("notes.mediaUrlUnsupported", t(`notes.blockType.${mediaType}`));
   }
 
-  function previewMessage(): string | null {
-    if (draftIssue || !urlDraft.trim()) return null;
-    if (previewKind === "link") return t("notes.mediaExternalPreviewOnly");
+  function mediaSourceStatusMessage(kind: NotesMediaSourceKind): string | null {
+    if (localAssetPath) return localPreviewError ? null : t("notes.mediaStoredOffline");
+    const trimmedDraft = urlDraft.trim();
+    const draftReplacesSource = Boolean(trimmedDraft) && trimmedDraft !== url.trim();
+    if (!draftIssue && trimmedDraft && (kind === "external_reference" || draftReplacesSource)) {
+      return t("notes.mediaExternalReference");
+    }
+    if (kind === "file_upload_reference") return t("notes.mediaImportedUploadReference");
+    if (kind === "imported_file_reference") return t("notes.mediaImportedRemoteReference");
+    if (!draftIssue && trimmedDraft) return t("notes.mediaExternalReference");
     return null;
   }
 
@@ -384,9 +395,10 @@
         <p class="text-[0.733333rem] text-muted-foreground">
           {t("notes.mediaLocalPreviewUnavailable", localPreviewError)}
         </p>
-      {:else if previewMessage()}
+      {/if}
+      {#if sourceStatusMessage}
         <p class="text-[0.733333rem] text-muted-foreground">
-          {previewMessage()}
+          {sourceStatusMessage}
         </p>
       {/if}
       {#if localFileError}

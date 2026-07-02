@@ -39,6 +39,12 @@ const MEDIA_BLOCK_TYPES = ["image", "video", "audio", "file", "pdf"] as const;
 export type NotesMediaBlockType = (typeof MEDIA_BLOCK_TYPES)[number];
 export type NotesMediaUrlIssue = "invalid_url" | "requires_https" | "unsupported_type";
 export type NotesMediaPreviewKind = "image" | "video" | "audio" | "pdf" | "link" | "none";
+export type NotesMediaSourceKind =
+  | "offline_asset"
+  | "external_reference"
+  | "imported_file_reference"
+  | "file_upload_reference"
+  | "empty";
 
 export interface NotesFileAssetMetadata {
   relativePath: string;
@@ -101,6 +107,24 @@ export function mediaManagedAssetMetadata(
 export function mediaSourceId(media: NotesMediaBlockPayload): string {
   if (media.type === "file_upload") return media.file_upload.id;
   return mediaSourceUrl(media);
+}
+
+export function mediaSourceKind(media: NotesMediaBlockPayload): NotesMediaSourceKind {
+  if (mediaManagedAssetPath(media)) return "offline_asset";
+  if (media.type === "file_upload") return "file_upload_reference";
+  const source = mediaSourceUrl(media).trim();
+  if (!source) return "empty";
+  if (media.type === "file") return "imported_file_reference";
+  return "external_reference";
+}
+
+export function mediaIsOfflineAvailable(media: NotesMediaBlockPayload): boolean {
+  return mediaSourceKind(media) === "offline_asset";
+}
+
+export function mediaNeedsNetwork(media: NotesMediaBlockPayload): boolean {
+  const sourceKind = mediaSourceKind(media);
+  return sourceKind === "external_reference" || sourceKind === "imported_file_reference";
 }
 
 export function mediaDisplayName(media: NotesMediaBlockPayload): string {
@@ -188,15 +212,7 @@ export function mediaPreviewKindForUrl(
     return type;
   }
   if (mediaUrlIssue(type, trimmed)) return "none";
-  let parsed: URL;
-  try {
-    parsed = new URL(trimmed);
-  } catch {
-    return "none";
-  }
-  if (type === "file") return "link";
-  if (type === "video" && isYouTubeVideoUrl(parsed)) return "link";
-  return type;
+  return "link";
 }
 
 export function canPreviewMedia(type: NotesMediaBlockType, media: NotesMediaBlockPayload): boolean {
