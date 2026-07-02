@@ -7,6 +7,7 @@ import {
   mapNotesCommentThreadDto,
   mapNotesCreatedDatabaseDto,
   mapNotesDataSourceBoardViewDto,
+  mapNotesDataSourceCalendarViewDto,
   mapNotesDataSourceGalleryViewDto,
   mapNotesDataSourceListViewDto,
   mapNotesDataSourceSchemaDto,
@@ -33,6 +34,8 @@ import type {
   NotesDataSourceBoardRowMove,
   NotesDataSourceBoardView,
   NotesDataSourceBoardViewUpdate,
+  NotesDataSourceCalendarView,
+  NotesDataSourceCalendarViewUpdate,
   NotesDataSourceGalleryView,
   NotesDataSourceGalleryViewUpdate,
   NotesDataSourceListView,
@@ -473,6 +476,29 @@ export async function updateNotesDataSourceListView(
   const dbUrl = await ensureDbUrl();
   return mapNotesDataSourceListViewDto(
     await invoke<unknown>("notes_update_data_source_list_view", {
+      dbUrl,
+      dataSourceId,
+      update,
+    }),
+  );
+}
+
+export async function getNotesDataSourceCalendarView(
+  dataSourceId: string,
+): Promise<NotesDataSourceCalendarView> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesDataSourceCalendarViewDto(
+    await invoke<unknown>("notes_get_data_source_calendar_view", { dbUrl, dataSourceId }),
+  );
+}
+
+export async function updateNotesDataSourceCalendarView(
+  dataSourceId: string,
+  update: NotesDataSourceCalendarViewUpdate,
+): Promise<NotesDataSourceCalendarView> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesDataSourceCalendarViewDto(
+    await invoke<unknown>("notes_update_data_source_calendar_view", {
       dbUrl,
       dataSourceId,
       update,

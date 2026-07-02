@@ -6,6 +6,7 @@
     updateNotesDataSourceSchema,
   } from "$lib/api/notes";
   import NotesDatabaseBoardView from "./NotesDatabaseBoardView.svelte";
+  import NotesDatabaseCalendarView from "./NotesDatabaseCalendarView.svelte";
   import NotesDatabaseGalleryView from "./NotesDatabaseGalleryView.svelte";
   import NotesDatabaseListView from "./NotesDatabaseListView.svelte";
   import NotesDatabaseTableView from "./NotesDatabaseTableView.svelte";
@@ -68,11 +69,12 @@
   let schema = $state<NotesDataSourceSchema | null>(null);
   let properties = $state<NotesDataSourceSchemaPropertyDraft[]>([]);
   let newPropertyType = $state<NotesDataSourcePropertyType>("rich_text");
-  let activeView = $state<"table" | "board" | "gallery" | "list">("table");
+  let activeView = $state<"table" | "board" | "gallery" | "list" | "calendar">("table");
   let tableReloadKey = $state(0);
   let boardReloadKey = $state(0);
   let galleryReloadKey = $state(0);
   let listReloadKey = $state(0);
+  let calendarReloadKey = $state(0);
 
   const title = $derived(block.child_database.title.trim());
   const dataSourceId = $derived(block.child_database.data_source_id ?? null);
@@ -107,6 +109,7 @@
       boardReloadKey += 1;
       galleryReloadKey += 1;
       listReloadKey += 1;
+      calendarReloadKey += 1;
     } catch (caught) {
       error = caught instanceof Error ? caught.message : String(caught);
     } finally {
@@ -129,6 +132,7 @@
       boardReloadKey += 1;
       galleryReloadKey += 1;
       listReloadKey += 1;
+      calendarReloadKey += 1;
     } catch (caught) {
       error = caught instanceof Error ? caught.message : String(caught);
     } finally {
@@ -640,6 +644,20 @@
           >
             {t("notes.databaseViewList")}
           </button>
+          <button
+            type="button"
+            class={`inline-flex h-8 items-center rounded-md px-2 text-[0.8rem] ${
+              activeView === "calendar"
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:bg-accent hover:text-foreground"
+            }`}
+            aria-pressed={activeView === "calendar"}
+            onclick={() => {
+              activeView = "calendar";
+            }}
+          >
+            {t("notes.databaseViewCalendar")}
+          </button>
         </div>
         {#if activeView === "table"}
           <NotesDatabaseTableView {dataSourceId} {onSelectPage} reloadKey={tableReloadKey} />
@@ -647,8 +665,10 @@
           <NotesDatabaseBoardView {dataSourceId} {onSelectPage} reloadKey={boardReloadKey} />
         {:else if activeView === "gallery"}
           <NotesDatabaseGalleryView {dataSourceId} {onSelectPage} reloadKey={galleryReloadKey} />
-        {:else}
+        {:else if activeView === "list"}
           <NotesDatabaseListView {dataSourceId} {onSelectPage} reloadKey={listReloadKey} />
+        {:else}
+          <NotesDatabaseCalendarView {dataSourceId} {onSelectPage} reloadKey={calendarReloadKey} />
         {/if}
       {/if}
     </div>

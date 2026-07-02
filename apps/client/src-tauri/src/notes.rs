@@ -3,6 +3,7 @@ use tauri::{AppHandle, Runtime};
 
 mod comments;
 mod data_source_board;
+mod data_source_calendar;
 mod data_source_gallery;
 mod data_source_list;
 mod data_source_rows;
@@ -448,6 +449,27 @@ pub async fn notes_update_data_source_list_view<R: Runtime>(
 ) -> Result<NoteDataSourceListViewDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
     data_source_list::update_data_source_list_view(&pool, &data_source_id, update).await
+}
+
+#[tauri::command]
+pub async fn notes_get_data_source_calendar_view<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    data_source_id: String,
+) -> Result<NoteDataSourceCalendarViewDto, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    data_source_calendar::get_data_source_calendar_view(&pool, &data_source_id).await
+}
+
+#[tauri::command]
+pub async fn notes_update_data_source_calendar_view<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    data_source_id: String,
+    update: NoteDataSourceCalendarViewUpdate,
+) -> Result<NoteDataSourceCalendarViewDto, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    data_source_calendar::update_data_source_calendar_view(&pool, &data_source_id, update).await
 }
 
 #[tauri::command]

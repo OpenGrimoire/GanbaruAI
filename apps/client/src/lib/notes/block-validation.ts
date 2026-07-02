@@ -27,6 +27,7 @@ import {
   type NotesDateMentionValue,
   type NotesCreatedDatabase,
   type NotesDatabase,
+  type NotesDatabaseCalendarRowOpenMode,
   type NotesDatabaseGalleryCardSize,
   type NotesDatabaseGalleryCoverSource,
   type NotesDatabaseGalleryRowOpenMode,
@@ -41,6 +42,7 @@ import {
   type NotesDataSource,
   type NotesDataSourceBoardGroup,
   type NotesDataSourceBoardView,
+  type NotesDataSourceCalendarView,
   type NotesDataSourceGalleryView,
   type NotesDataSourceListView,
   type NotesDataSourceSchema,
@@ -1136,6 +1138,10 @@ function isNotesListRowOpenMode(value: unknown): value is NotesDatabaseListRowOp
   return value === "full_page" || value === "side_panel";
 }
 
+function isNotesCalendarRowOpenMode(value: unknown): value is NotesDatabaseCalendarRowOpenMode {
+  return value === "full_page" || value === "side_panel";
+}
+
 function isNotesTableFilterCondition(value: unknown): value is NotesDatabaseTableFilterCondition {
   return (
     value === "contains"
@@ -1272,6 +1278,36 @@ function validateNotesListConfiguration(value: Record<string, unknown> | null): 
   }
 }
 
+function validateNotesCalendarConfiguration(value: Record<string, unknown> | null): void {
+  if (value === null) return;
+  if (value.type !== undefined && value.type !== "calendar") {
+    throw new Error("database calendar configuration.type must be calendar");
+  }
+  const calendar = readRecord(value.calendar, "database calendar configuration.calendar");
+  if (calendar.date_property_id !== null && calendar.date_property_id !== undefined) {
+    readString(calendar.date_property_id, "database calendar configuration.date_property_id");
+  }
+  const rangeStart = readString(calendar.range_start, "database calendar configuration.range_start");
+  const rangeEnd = readString(calendar.range_end, "database calendar configuration.range_end");
+  if (!dateMentionBoundaryLooksIso(rangeStart) || rangeStart.length !== 10) {
+    throw new Error("database calendar configuration.range_start must be an ISO date");
+  }
+  if (!dateMentionBoundaryLooksIso(rangeEnd) || rangeEnd.length !== 10) {
+    throw new Error("database calendar configuration.range_end must be an ISO date");
+  }
+  if (rangeEnd < rangeStart) {
+    throw new Error("database calendar configuration.range_end must be on or after range_start");
+  }
+  readStringArray(
+    calendar.visible_property_ids,
+    "database calendar configuration.visible_property_ids",
+  );
+  const rowOpenMode = calendar.row_open_mode ?? "side_panel";
+  if (!isNotesCalendarRowOpenMode(rowOpenMode)) {
+    throw new Error("database calendar configuration.row_open_mode must be supported");
+  }
+}
+
 function parseNotesDataSourceBoardGroup(
   value: unknown,
   label: string,
@@ -1374,6 +1410,29 @@ export function parseNotesDataSourceListView(value: unknown): NotesDataSourceLis
   validateNotesTableSorts(view.sorts);
   if (!Array.isArray(record.rows)) {
     throw new Error("data source list view.rows must be an array");
+  }
+  return {
+    data_source: dataSource,
+    view,
+    rows: record.rows.map(parseNotesPage),
+  };
+}
+
+export function parseNotesDataSourceCalendarView(value: unknown): NotesDataSourceCalendarView {
+  const record = readRecord(value, "data source calendar view");
+  const dataSource = parseNotesDataSource(record.data_source);
+  const view = parseNotesDatabaseView(record.view);
+  if (view.type !== "calendar") {
+    throw new Error("data source calendar view.view.type must be calendar");
+  }
+  if (view.data_source_id !== dataSource.id) {
+    throw new Error("data source calendar view ids must match");
+  }
+  validateNotesCalendarConfiguration(view.configuration);
+  validateNotesTableFilter(view.filter);
+  validateNotesTableSorts(view.sorts);
+  if (!Array.isArray(record.rows)) {
+    throw new Error("data source calendar view.rows must be an array");
   }
   return {
     data_source: dataSource,
