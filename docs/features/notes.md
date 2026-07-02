@@ -36,6 +36,12 @@ Markdown import creates a new canonical Notes page and normal `notes_blocks` row
 
 Imported markdown records source provenance as `markdown`, but the markdown text is not stored as an editable authority. Local file references are skipped until the shared import-file policy copies or deliberately references them. Unsupported syntax becomes visible preservation blocks where practical so users can review and convert it after import.
 
+## Markdown export
+
+Markdown export reads canonical `notes_pages`, `notes_blocks`, and optionally `notes_comments` to produce deterministic derivative markdown. The export includes the page title by default, walks active blocks in stored order, renders rich text annotations, safe links, mentions, inline and block equations, headings, paragraphs, lists, to-dos, toggles, callouts, quotes, code, dividers, simple tables, and media references. Comments are included only when requested, append as a comments section, and omit local read state.
+
+Markdown cannot represent every local or Notion-shaped block losslessly. Unsupported blocks, child pages, child databases, generated navigation blocks, layout containers, local asset references, file upload references, colors, and other approximations return diagnostics instead of pretending the export is complete. The output is a view over SQLite and can be regenerated at any time.
+
 ## Page model
 
 A page has an object type, id, created and edited timestamps, parent, trash state, archive state, properties, icon, and cover. The first local page slice uses a title property named `title`, shaped as a Notion title rich text array, and also keeps a normalized title cache for fast sidebar reads. Page icons use the public Notion icon object shape, with editable emoji icons, native icon names and colors, reusable custom emoji, external HTTPS image icons, managed local image file icons, and null removal from the page header. Missing local icon files fall back to the page icon placeholder and mark the managed asset row missing until the file reads successfully again. Page covers use the public Notion file object shape, with editable external HTTPS image covers, imported Notion-hosted file objects, imported file upload references, managed local image file covers, generated local cover images, and null removal from the top of the page. Missing local cover files show the unavailable cover placeholder and mark the managed asset row missing until the file reads successfully again.

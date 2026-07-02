@@ -25,6 +25,7 @@ mod database_timeline;
 mod link_facts;
 mod links;
 mod local_user_mentions;
+mod markdown_export;
 mod markdown_import;
 mod page_assets;
 mod page_block_operations;

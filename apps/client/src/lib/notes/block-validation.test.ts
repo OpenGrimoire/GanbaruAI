@@ -4,6 +4,7 @@ import {
   parseNotesCreatedDatabase,
   parseNotesLocalUser,
   parseNotesMentionNotification,
+  parseNotesMarkdownExportResult,
   parseNotesPage,
   parseNotesPageHistorySettings,
   parseNotesPageHistorySnapshot,
@@ -1586,5 +1587,28 @@ describe("notes boundary validation", () => {
         last_edited_time: "2026-06-30T12:00:00.000Z",
       }),
     ).toThrow("search_result.type must be page, block, or comment");
+  });
+
+  it("parses markdown export result DTOs", () => {
+    const result = parseNotesMarkdownExportResult({
+      object: "notes_markdown_export",
+      page_id: "11111111-1111-4111-8111-111111111111",
+      markdown: "# Export\n",
+      diagnostics: [
+        {
+          code: "markdown_export_unsupported_block",
+          severity: "warning",
+          block_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          comment_id: null,
+          message: "Unsupported block content was preserved",
+        },
+      ],
+      exported_block_count: 2,
+      exported_comment_count: 1,
+    });
+
+    expect(result.object).toBe("notes_markdown_export");
+    expect(result.diagnostics[0]?.block_id).toBe("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+    expect(result.exported_comment_count).toBe(1);
   });
 });

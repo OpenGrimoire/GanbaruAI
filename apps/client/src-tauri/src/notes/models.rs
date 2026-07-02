@@ -346,6 +346,70 @@ impl NoteMarkdownImportDto {
 }
 
 #[derive(Deserialize)]
+pub struct NoteMarkdownExportRequest {
+    pub(in crate::notes) page_id: String,
+    pub(in crate::notes) include_page_title: Option<bool>,
+    pub(in crate::notes) include_comments: Option<bool>,
+    pub(in crate::notes) include_resolved_comments: Option<bool>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+pub struct NoteMarkdownExportDiagnosticDto {
+    code: String,
+    severity: String,
+    block_id: Option<String>,
+    comment_id: Option<String>,
+    message: String,
+}
+
+impl NoteMarkdownExportDiagnosticDto {
+    pub(in crate::notes) fn new(
+        code: impl Into<String>,
+        severity: impl Into<String>,
+        block_id: Option<impl Into<String>>,
+        comment_id: Option<impl Into<String>>,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            code: code.into(),
+            severity: severity.into(),
+            block_id: block_id.map(Into::into),
+            comment_id: comment_id.map(Into::into),
+            message: message.into(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+pub struct NoteMarkdownExportDto {
+    object: &'static str,
+    page_id: String,
+    markdown: String,
+    diagnostics: Vec<NoteMarkdownExportDiagnosticDto>,
+    exported_block_count: i64,
+    exported_comment_count: i64,
+}
+
+impl NoteMarkdownExportDto {
+    pub(in crate::notes) fn new(
+        page_id: String,
+        markdown: String,
+        diagnostics: Vec<NoteMarkdownExportDiagnosticDto>,
+        exported_block_count: i64,
+        exported_comment_count: i64,
+    ) -> Self {
+        Self {
+            object: "notes_markdown_export",
+            page_id,
+            markdown,
+            diagnostics,
+            exported_block_count,
+            exported_comment_count,
+        }
+    }
+}
+
+#[derive(Deserialize)]
 pub struct NoteSidebarPagesRequest {
     #[serde(default)]
     pub(in crate::notes) expanded_page_ids: Vec<String>,

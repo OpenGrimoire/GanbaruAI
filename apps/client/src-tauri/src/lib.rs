@@ -879,6 +879,7 @@ pub fn run() {
             notes::notes_list_unresolved_links,
             notes::notes_resolve_unresolved_link,
             notes::notes_import_markdown_page,
+            notes::notes_export_markdown_page,
             notes::notes_get_local_user,
             notes::notes_update_local_user,
             notes::notes_list_page_templates,

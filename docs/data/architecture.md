@@ -81,6 +81,8 @@ Notes are the named exception to the openable-file heuristic. Their editable mod
 
 Markdown import is an explicit conversion command, not a file watcher. The importer parses supported markdown into fresh `notes_pages` and `notes_blocks` rows, records source provenance, returns diagnostics for unsafe or unsupported syntax, and leaves the imported markdown file as external input. Later edits happen against SQLite rows, and any future markdown output is regenerated from those rows.
 
+Markdown export is the reverse read-only projection. It walks active canonical page and block rows, optionally includes comment rows, and returns markdown plus diagnostics for approximated or unsupported content. It does not create a second source file, sync target, or persistent export table.
+
 Notes block presentation data that belongs to the document, such as a callout icon and Notion-style block color, is persisted as validated block payload data in SQLite. If a later callout icon points at a local file, the asset file belongs in the Ganbaru AI assets folder while the block payload stores only the validated file object reference.
 
 Notes child pages are represented twice because they have two roles. The page row in `notes_pages` owns the child document and its root blocks, while the paired `child_page` block row in the parent document owns the visible page link and block order. The paired page and block share an id so rename, trash, restore, and navigation can stay synchronized without a separate join table.

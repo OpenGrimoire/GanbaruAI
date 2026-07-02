@@ -26,6 +26,8 @@ mod history;
 mod link_facts;
 mod links;
 mod local_user;
+mod markdown_export;
+mod markdown_export_format;
 mod markdown_import;
 mod markdown_import_syntax;
 mod mention_notifications;
@@ -209,6 +211,16 @@ pub async fn notes_import_markdown_page<R: Runtime>(
 ) -> Result<NoteMarkdownImportDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
     markdown_import::import_page(&pool, request).await
+}
+
+#[tauri::command]
+pub async fn notes_export_markdown_page<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    request: NoteMarkdownExportRequest,
+) -> Result<NoteMarkdownExportDto, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    markdown_export::export_page(&pool, request).await
 }
 
 #[tauri::command]

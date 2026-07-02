@@ -1317,6 +1317,32 @@ export interface NotesMarkdownImportResult {
   imported_block_count: number;
 }
 
+export interface NotesMarkdownExportRequest {
+  page_id: string;
+  include_page_title?: boolean | null;
+  include_comments?: boolean | null;
+  include_resolved_comments?: boolean | null;
+}
+
+export type NotesMarkdownExportDiagnosticSeverity = "info" | "warning" | "error";
+
+export interface NotesMarkdownExportDiagnostic {
+  code: string;
+  severity: NotesMarkdownExportDiagnosticSeverity;
+  block_id: string | null;
+  comment_id: string | null;
+  message: string;
+}
+
+export interface NotesMarkdownExportResult {
+  object: "notes_markdown_export";
+  page_id: string;
+  markdown: string;
+  diagnostics: NotesMarkdownExportDiagnostic[];
+  exported_block_count: number;
+  exported_comment_count: number;
+}
+
 export type NotesBacklinkReferenceType =
   | "child_page"
   | "page_mention"

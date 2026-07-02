@@ -63,6 +63,9 @@ import {
   type NotesMediaBlockPayload,
   type NotesIconColor,
   type NotesLoadedPage,
+  type NotesMarkdownExportDiagnostic,
+  type NotesMarkdownExportDiagnosticSeverity,
+  type NotesMarkdownExportResult,
   type NotesMarkdownImportDiagnostic,
   type NotesMarkdownImportDiagnosticSeverity,
   type NotesMarkdownImportResult,
@@ -151,6 +154,11 @@ function readOptionalUuidString(value: unknown, label: string): string | undefin
 function readNullableString(value: unknown, label: string): string | null {
   if (value === null) return null;
   return readString(value, label);
+}
+
+function readNullableUuidString(value: unknown, label: string): string | null {
+  if (value === null) return null;
+  return readUuidString(value, label);
 }
 
 function readStringArray(value: unknown, label: string): string[] {
@@ -1893,6 +1901,71 @@ function parseNotesMarkdownImportDiagnostic(
 function isMarkdownImportDiagnosticSeverity(
   value: string,
 ): value is NotesMarkdownImportDiagnosticSeverity {
+  return value === "info" || value === "warning" || value === "error";
+}
+
+export function parseNotesMarkdownExportResult(value: unknown): NotesMarkdownExportResult {
+  const record = readRecord(value, "markdown export result");
+  if (record.object !== "notes_markdown_export") {
+    throw new Error("markdown export result.object must be notes_markdown_export");
+  }
+  if (!Array.isArray(record.diagnostics)) {
+    throw new Error("markdown export result.diagnostics must be an array");
+  }
+  const exportedBlockCount = readInteger(
+    record.exported_block_count,
+    "markdown export result.exported_block_count",
+  );
+  if (exportedBlockCount < 0) {
+    throw new Error("markdown export result.exported_block_count must not be negative");
+  }
+  const exportedCommentCount = readInteger(
+    record.exported_comment_count,
+    "markdown export result.exported_comment_count",
+  );
+  if (exportedCommentCount < 0) {
+    throw new Error("markdown export result.exported_comment_count must not be negative");
+  }
+  return {
+    object: "notes_markdown_export",
+    page_id: readUuidString(record.page_id, "markdown export result.page_id"),
+    markdown: readString(record.markdown, "markdown export result.markdown"),
+    diagnostics: record.diagnostics.map(parseNotesMarkdownExportDiagnostic),
+    exported_block_count: exportedBlockCount,
+    exported_comment_count: exportedCommentCount,
+  };
+}
+
+function parseNotesMarkdownExportDiagnostic(
+  value: unknown,
+  index: number,
+): NotesMarkdownExportDiagnostic {
+  const record = readRecord(value, `markdown export result.diagnostics[${index}]`);
+  const severity = readString(
+    record.severity,
+    `markdown export result.diagnostics[${index}].severity`,
+  );
+  if (!isMarkdownExportDiagnosticSeverity(severity)) {
+    throw new Error(`markdown export result.diagnostics[${index}].severity is unsupported`);
+  }
+  return {
+    code: readString(record.code, `markdown export result.diagnostics[${index}].code`),
+    severity,
+    block_id: readNullableUuidString(
+      record.block_id,
+      `markdown export result.diagnostics[${index}].block_id`,
+    ),
+    comment_id: readNullableUuidString(
+      record.comment_id,
+      `markdown export result.diagnostics[${index}].comment_id`,
+    ),
+    message: readString(record.message, `markdown export result.diagnostics[${index}].message`),
+  };
+}
+
+function isMarkdownExportDiagnosticSeverity(
+  value: string,
+): value is NotesMarkdownExportDiagnosticSeverity {
   return value === "info" || value === "warning" || value === "error";
 }
 
