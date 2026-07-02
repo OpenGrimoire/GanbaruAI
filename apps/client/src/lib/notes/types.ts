@@ -117,6 +117,58 @@ export interface NotesPageMentionRichText {
   href: string | null;
 }
 
+export interface NotesUserMentionRichText {
+  type: "mention";
+  mention: {
+    type: "user";
+    user: {
+      object: "user";
+      id: string;
+    };
+  };
+  annotations: NotesRichTextAnnotations;
+  plain_text: string;
+  href: string | null;
+}
+
+export interface NotesDatabaseMentionRichText {
+  type: "mention";
+  mention: {
+    type: "database";
+    database: {
+      id: string;
+    };
+  };
+  annotations: NotesRichTextAnnotations;
+  plain_text: string;
+  href: string | null;
+}
+
+export const NOTES_LOCAL_OBJECT_MENTION_TYPES = [
+  "project",
+  "project_task",
+  "calendar_event",
+  "pomodoro_run",
+  "music_item",
+] as const;
+
+export type NotesLocalObjectMentionType =
+  (typeof NOTES_LOCAL_OBJECT_MENTION_TYPES)[number];
+
+export interface NotesLocalObjectMentionRichText {
+  type: "mention";
+  mention: {
+    type: "ganbaru_object";
+    ganbaru_object: {
+      type: NotesLocalObjectMentionType;
+      id: string;
+    };
+  };
+  annotations: NotesRichTextAnnotations;
+  plain_text: string;
+  href: string | null;
+}
+
 export interface NotesDateMentionReminder {
   enabled: boolean;
 }
@@ -152,6 +204,9 @@ export interface NotesEquationRichText {
 export type NotesRichText =
   | NotesTextRichText
   | NotesPageMentionRichText
+  | NotesUserMentionRichText
+  | NotesDatabaseMentionRichText
+  | NotesLocalObjectMentionRichText
   | NotesDateMentionRichText
   | NotesEquationRichText;
 

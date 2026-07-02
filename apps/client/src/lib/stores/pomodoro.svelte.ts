@@ -2073,6 +2073,9 @@ export function getPomodoro() {
     get activeBlockId() {
       return activeBlockId;
     },
+    get activeRunId() {
+      return activeRunId;
+    },
     get dismissedBlockId() {
       return dismissedBlockId;
     },

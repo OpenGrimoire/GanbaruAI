@@ -3,6 +3,7 @@ import {
   NOTES_BUTTON_INSERT_POSITIONS,
   NOTES_DATABASE_VIEW_TYPES,
   NOTES_ICON_COLORS,
+  NOTES_LOCAL_OBJECT_MENTION_TYPES,
   type NotesBacklink,
   type NotesBacklinkReferenceType,
   type NotesBlock,
@@ -55,6 +56,7 @@ import {
   type NotesEquationBlockPayload,
   type NotesLinkPreviewBlockPayload,
   type NotesLocalUser,
+  type NotesLocalObjectMentionType,
   type NotesMediaBlockPayload,
   type NotesIconColor,
   type NotesLoadedPage,
@@ -172,6 +174,30 @@ function readDisplayString(value: unknown, label: string): string {
   return text;
 }
 
+function readMentionObjectId(value: unknown, label: string): string {
+  const text = readString(value, label);
+  if (!text.trim()) throw new Error(`${label} must not be empty`);
+  if (text.length > 2048) throw new Error(`${label} is too long`);
+  for (const character of text) {
+    const codePoint = character.codePointAt(0);
+    if (codePoint !== undefined && codePoint < 32) {
+      throw new Error(`${label} must not contain control characters`);
+    }
+  }
+  return text;
+}
+
+function readLocalObjectMentionType(
+  value: unknown,
+  label: string,
+): NotesLocalObjectMentionType {
+  const objectType = readString(value, label);
+  if (!(NOTES_LOCAL_OBJECT_MENTION_TYPES as readonly string[]).includes(objectType)) {
+    throw new Error(`${label} is unsupported`);
+  }
+  return objectType as NotesLocalObjectMentionType;
+}
+
 function readOptionalDisplayString(value: unknown, label: string): string | undefined {
   if (value === undefined) return undefined;
   return readDisplayString(value, label);
@@ -265,6 +291,60 @@ function parseNotesRichText(value: unknown, label: string): NotesRichText {
         href,
       };
     }
+    if (mentionType === "user") {
+      const user = readRecord(mention.user, `${label}.mention.user`);
+      return {
+        type: "mention",
+        mention: {
+          type: "user",
+          user: {
+            object: "user",
+            id: readUuidString(user.id, `${label}.mention.user.id`),
+          },
+        },
+        annotations,
+        plain_text: plainText,
+        href,
+      };
+    }
+    if (mentionType === "database") {
+      const database = readRecord(mention.database, `${label}.mention.database`);
+      return {
+        type: "mention",
+        mention: {
+          type: "database",
+          database: {
+            id: readUuidString(database.id, `${label}.mention.database.id`),
+          },
+        },
+        annotations,
+        plain_text: plainText,
+        href,
+      };
+    }
+    if (mentionType === "ganbaru_object") {
+      const object = readRecord(mention.ganbaru_object, `${label}.mention.ganbaru_object`);
+      const objectType = readLocalObjectMentionType(
+        object.type,
+        `${label}.mention.ganbaru_object.type`,
+      );
+      const objectId = objectType === "music_item"
+        ? readMentionObjectId(object.id, `${label}.mention.ganbaru_object.id`)
+        : readUuidString(object.id, `${label}.mention.ganbaru_object.id`);
+      return {
+        type: "mention",
+        mention: {
+          type: "ganbaru_object",
+          ganbaru_object: {
+            type: objectType,
+            id: objectId,
+          },
+        },
+        annotations,
+        plain_text: plainText,
+        href,
+      };
+    }
     if (mentionType === "date") {
       return {
         type: "mention",
@@ -277,7 +357,7 @@ function parseNotesRichText(value: unknown, label: string): NotesRichText {
         href,
       };
     }
-    throw new Error(`${label}.mention.type must be page or date`);
+    throw new Error(`${label}.mention.type is unsupported`);
   }
   if (type === "equation") {
     const equation = readRecord(record.equation, `${label}.equation`);

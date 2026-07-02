@@ -35,6 +35,7 @@ import {
   createTextRichText,
   insertDateMentionRichText,
   insertEquationRichText,
+  insertObjectMentionRichText,
   insertPageMentionRichText,
   richTextAnnotationsForSelection,
   richTextHasVisibleFormatting,
@@ -44,6 +45,7 @@ import {
   type NotesRichTextAnnotationPatch,
   type NotesRichTextAnnotationRange,
   type NotesRichTextLinkRange,
+  type NotesObjectMentionTarget,
 } from "./rich-text";
 import { unsupportedBlockPlainText } from "./unsupported";
 
@@ -848,6 +850,18 @@ export function blockWithDateMention(
   return blockWithRichText(
     block,
     insertDateMentionRichText(blockRichText(block), start, end, date, title),
+  );
+}
+
+export function blockWithObjectMention(
+  block: NotesBlock,
+  start: number,
+  end: number,
+  target: NotesObjectMentionTarget,
+): NotesBlockUpdate {
+  return blockWithRichText(
+    block,
+    insertObjectMentionRichText(blockRichText(block), start, end, target),
   );
 }
 

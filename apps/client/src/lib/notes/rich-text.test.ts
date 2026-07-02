@@ -11,9 +11,11 @@ import {
   createPageMentionRichText,
   createTextRichText,
   detectPageMentionQuery,
+  filterNotesMentionTargets,
   filterPageMentionTargets,
   insertDateMentionRichText,
   insertEquationRichText,
+  insertObjectMentionRichText,
   insertPageMentionRichText,
   normalizeRichTextEquationExpression,
   normalizeRichTextLinkUrl,
@@ -69,6 +71,33 @@ describe("notes rich text helpers", () => {
         },
       },
       plain_text: "Today",
+    });
+  });
+
+  it("inserts local object mentions into a plain text range", () => {
+    const richText = insertObjectMentionRichText(
+      [createTextRichText("Work on @task now")],
+      8,
+      13,
+      {
+        kind: "project_task",
+        id: "22222222-2222-4222-8222-222222222222",
+        title: "Ship editor",
+        subtitle: "Project task",
+      },
+    );
+
+    expect(richTextPlainText(richText)).toBe("Work on Ship editor now");
+    expect(richText[1]).toMatchObject({
+      type: "mention",
+      mention: {
+        type: "ganbaru_object",
+        ganbaru_object: {
+          type: "project_task",
+          id: "22222222-2222-4222-8222-222222222222",
+        },
+      },
+      plain_text: "Ship editor",
     });
   });
 
@@ -516,5 +545,18 @@ describe("notes rich text helpers", () => {
         "road",
       ).map((target) => target.id),
     ).toEqual(["b", "a"]);
+  });
+
+  it("filters expanded mention targets by title and subtitle", () => {
+    expect(
+      filterNotesMentionTargets(
+        [
+          { id: "user", kind: "user", title: "Victor", subtitle: "Local user" },
+          { id: "project", kind: "project", title: "Roadmap", subtitle: "Project" },
+          { id: "task", kind: "project_task", title: "Bug", subtitle: "Roadmap" },
+        ],
+        "road",
+      ).map((target) => target.id),
+    ).toEqual(["project", "task"]);
   });
 });

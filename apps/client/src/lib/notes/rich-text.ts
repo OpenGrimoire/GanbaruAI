@@ -1,14 +1,18 @@
 import { Temporal } from "@js-temporal/polyfill";
 import type {
+  NotesDatabaseMentionRichText,
   NotesDateMentionRichText,
   NotesDateMentionValue,
   NotesEquationRichText,
+  NotesLocalObjectMentionRichText,
+  NotesLocalObjectMentionType,
   NotesPageMentionRichText,
   NotesColor,
   NotesRichText,
   NotesRichTextAnnotations,
   NotesRichTextLink,
   NotesTextRichText,
+  NotesUserMentionRichText,
 } from "./types";
 import { cloneNotesJson } from "./json-clone";
 
@@ -33,6 +37,30 @@ export interface NotesPageMentionTarget {
   iconText?: string | null;
 }
 
+export interface NotesUserMentionTarget {
+  kind: "user";
+  id: string;
+  title: string;
+  subtitle?: string;
+  iconText?: string | null;
+}
+
+export interface NotesDatabaseMentionTarget {
+  kind: "database";
+  id: string;
+  title: string;
+  subtitle?: string;
+  iconText?: string | null;
+}
+
+export interface NotesLocalObjectMentionTarget {
+  kind: NotesLocalObjectMentionType;
+  id: string;
+  title: string;
+  subtitle?: string;
+  iconText?: string | null;
+}
+
 export interface NotesDateMentionTarget {
   kind: "date";
   id: string;
@@ -43,7 +71,19 @@ export interface NotesDateMentionTarget {
   reminder: boolean;
 }
 
-export type NotesMentionTarget = NotesPageMentionTarget | NotesDateMentionTarget;
+export type NotesObjectMentionTarget =
+  | NotesUserMentionTarget
+  | NotesDatabaseMentionTarget
+  | NotesLocalObjectMentionTarget;
+
+export type NotesNamedMentionTarget = NotesPageMentionTarget | NotesObjectMentionTarget;
+
+export type NotesMentionTarget = NotesNamedMentionTarget | NotesDateMentionTarget;
+
+export type NotesObjectMentionRichText =
+  | NotesUserMentionRichText
+  | NotesDatabaseMentionRichText
+  | NotesLocalObjectMentionRichText;
 
 export interface NotesDateMentionLabels {
   today: string;
@@ -173,6 +213,74 @@ export function createPageMentionRichText(
   };
 }
 
+export function createUserMentionRichText(
+  userId: string,
+  title: string,
+): NotesUserMentionRichText {
+  const plainText = title.trim() || userId;
+  return {
+    type: "mention",
+    mention: {
+      type: "user",
+      user: {
+        object: "user",
+        id: userId,
+      },
+    },
+    annotations: { ...DEFAULT_RICH_TEXT_ANNOTATIONS },
+    plain_text: plainText,
+    href: null,
+  };
+}
+
+export function createDatabaseMentionRichText(
+  databaseId: string,
+  title: string,
+): NotesDatabaseMentionRichText {
+  const plainText = title.trim() || databaseId;
+  return {
+    type: "mention",
+    mention: {
+      type: "database",
+      database: {
+        id: databaseId,
+      },
+    },
+    annotations: { ...DEFAULT_RICH_TEXT_ANNOTATIONS },
+    plain_text: plainText,
+    href: null,
+  };
+}
+
+export function createLocalObjectMentionRichText(
+  objectType: NotesLocalObjectMentionType,
+  objectId: string,
+  title: string,
+): NotesLocalObjectMentionRichText {
+  const plainText = title.trim() || objectId;
+  return {
+    type: "mention",
+    mention: {
+      type: "ganbaru_object",
+      ganbaru_object: {
+        type: objectType,
+        id: objectId,
+      },
+    },
+    annotations: { ...DEFAULT_RICH_TEXT_ANNOTATIONS },
+    plain_text: plainText,
+    href: null,
+  };
+}
+
+export function createObjectMentionRichText(
+  target: NotesObjectMentionTarget,
+): NotesObjectMentionRichText {
+  if (target.kind === "user") return createUserMentionRichText(target.id, target.title);
+  if (target.kind === "database") return createDatabaseMentionRichText(target.id, target.title);
+  return createLocalObjectMentionRichText(target.kind, target.id, target.title);
+}
+
 export function createDateMentionValue(
   start: string,
   reminder = false,
@@ -256,6 +364,17 @@ export function isPageMentionRichText(item: NotesRichText): item is NotesPageMen
 
 export function isDateMentionRichText(item: NotesRichText): item is NotesDateMentionRichText {
   return item.type === "mention" && item.mention.type === "date";
+}
+
+export function isObjectMentionRichText(
+  item: NotesRichText,
+): item is NotesObjectMentionRichText {
+  return item.type === "mention"
+    && (
+      item.mention.type === "user"
+      || item.mention.type === "database"
+      || item.mention.type === "ganbaru_object"
+    );
 }
 
 function cloneRichText(item: NotesRichText): NotesRichText {
@@ -517,6 +636,22 @@ export function insertDateMentionRichText(
   return [
     ...richTextSlice(richText, 0, safeStart),
     createDateMentionRichText(date, title),
+    ...richTextSlice(richText, safeEnd, plainText.length),
+  ];
+}
+
+export function insertObjectMentionRichText(
+  richText: readonly NotesRichText[],
+  start: number,
+  end: number,
+  target: NotesObjectMentionTarget,
+): NotesRichText[] {
+  const plainText = richTextPlainText(richText);
+  const safeStart = Math.max(0, Math.min(start, plainText.length));
+  const safeEnd = Math.max(safeStart, Math.min(end, plainText.length));
+  return [
+    ...richTextSlice(richText, 0, safeStart),
+    createObjectMentionRichText(target),
     ...richTextSlice(richText, safeEnd, plainText.length),
   ];
 }
@@ -950,6 +1085,34 @@ export function filterPageMentionTargets(
       const leftStarts = normalizedQuery && leftTitle.startsWith(normalizedQuery);
       const rightStarts = normalizedQuery && rightTitle.startsWith(normalizedQuery);
       if (leftStarts !== rightStarts) return leftStarts ? -1 : 1;
+      return left.title.localeCompare(right.title);
+    })
+    .slice(0, limit);
+}
+
+export function notesMentionTargetKey(target: NotesMentionTarget): string {
+  return `${target.kind}:${target.id}`;
+}
+
+export function filterNotesMentionTargets(
+  targets: readonly NotesNamedMentionTarget[],
+  query: string,
+  limit = 8,
+): NotesNamedMentionTarget[] {
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const matches = normalizedQuery
+    ? targets.filter((target) =>
+      `${target.title} ${target.subtitle ?? ""}`.toLocaleLowerCase().includes(normalizedQuery)
+    )
+    : [...targets];
+  return matches
+    .sort((left, right) => {
+      const leftTitle = left.title.toLocaleLowerCase();
+      const rightTitle = right.title.toLocaleLowerCase();
+      const leftStarts = normalizedQuery && leftTitle.startsWith(normalizedQuery);
+      const rightStarts = normalizedQuery && rightTitle.startsWith(normalizedQuery);
+      if (leftStarts !== rightStarts) return leftStarts ? -1 : 1;
+      if (left.kind !== right.kind) return left.kind.localeCompare(right.kind);
       return left.title.localeCompare(right.title);
     })
     .slice(0, limit);

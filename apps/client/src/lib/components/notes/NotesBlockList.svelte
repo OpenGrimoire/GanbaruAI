@@ -1,7 +1,17 @@
 <script lang="ts">
   import { tick } from "svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import {
+    listNotesDataSources,
+    listNotesDataSourceRowPages,
+  } from "$lib/api/notes";
+  import { getCalendar } from "$lib/stores/calendar.svelte";
+  import { getMusicPlayer } from "$lib/stores/music-player.svelte";
   import { getNotes } from "$lib/stores/notes.svelte";
+  import { getPomodoro } from "$lib/stores/pomodoro.svelte";
+  import { getProjects } from "$lib/stores/projects.svelte";
+  import type { CalendarEvent } from "$lib/components/calendar/types";
+  import { sourceDisplayLabel, type MusicSource } from "$lib/music/sources";
   import { buildNotesBlockLink, buildNotesPageLink } from "$lib/notes/block-link";
   import {
     notesBlockSelectionAfterClick,
@@ -35,6 +45,8 @@
   } from "$lib/notes/editor-selection";
   import type {
     NotesDateMentionTarget,
+    NotesNamedMentionTarget,
+    NotesObjectMentionTarget,
     NotesPageMentionTarget,
     NotesRichTextAnnotationPatch,
   } from "$lib/notes/rich-text";
@@ -55,7 +67,9 @@
     NotesBlockTreeItem,
     NotesBlockType,
     NotesButtonInsertPosition,
+    NotesDataSource,
     NotesIcon,
+    NotesPage,
     NotesPageBreadcrumbItem,
     NotesRichText,
     NotesTableOfContentsItem,
@@ -96,6 +110,10 @@
   } = $props();
 
   const notes = getNotes();
+  const calendar = getCalendar();
+  const musicPlayer = getMusicPlayer();
+  const pomodoro = getPomodoro();
+  const projects = getProjects();
   const { t } = getLocalization();
   let blockListElement: HTMLDivElement | null = $state(null);
   let draggingBlockId = $state<string | null>(null);
@@ -106,6 +124,9 @@
   let selectionClipboard = $state<NotesBlockSelectionClipboard | null>(null);
   let selectionBusy = $state(false);
   let selectionActionError = $state<string | null>(null);
+  let mentionDataSources = $state<NotesDataSource[]>([]);
+  let mentionDataSourceRowPages = $state<NotesPage[]>([]);
+  let mentionDataSourceRequestId = 0;
   const selectedBlockCount = $derived(blockSelection?.selectedBlockIds.length ?? 0);
   const selectedRootBlockIds = $derived(
     blockSelection
@@ -118,24 +139,205 @@
   const canMoveSelectionDown = $derived(
     !!planNotesSelectionMoveWithinSiblings(currentTreeState(), selectedRootBlockIds, "down"),
   );
-  const mentionTargets: NotesPageMentionTarget[] = $derived(
-    notes.pages.map((page) => {
-      const parentPageId = page.parent.type === "page_id" ? page.parent.page_id : null;
-      const parentPage = parentPageId
-        ? notes.pages.find((candidate) => candidate.id === parentPageId)
-        : null;
-      const parentTitle = parentPage
-        ? notesPageTitle(parentPage, t("notes.untitled"))
-        : t("notes.workspace");
-      return {
+  const mentionTargets: NotesNamedMentionTarget[] = $derived(buildMentionTargets());
+
+  $effect(() => {
+    void loadMentionDataSources();
+  });
+
+  $effect(() => {
+    if (!projects.loaded && !projects.loading) {
+      void projects.ensureLoaded()
+        .then(() => {
+          if (projects.selectedProjectId) {
+            return projects.ensureProjectData(projects.selectedProjectId);
+          }
+          return undefined;
+        })
+        .catch((error) => console.warn("notes mention project targets failed", error));
+    }
+  });
+
+  $effect(() => {
+    if (!calendar.loaded && !calendar.windowLoadBusy) {
+      void calendar.load()
+        .catch((error) => console.warn("notes mention calendar targets failed", error));
+    }
+  });
+
+  async function loadMentionDataSources(): Promise<void> {
+    const requestId = ++mentionDataSourceRequestId;
+    try {
+      const dataSources = await listNotesDataSources();
+      if (requestId !== mentionDataSourceRequestId) return;
+      mentionDataSources = dataSources;
+      const rowPageGroups = await Promise.all(
+        dataSources.map(async (dataSource) => {
+          try {
+            return await listNotesDataSourceRowPages(dataSource.id);
+          } catch (error) {
+            console.warn("notes mention data source row targets failed", error);
+            return [];
+          }
+        }),
+      );
+      if (requestId !== mentionDataSourceRequestId) return;
+      mentionDataSourceRowPages = rowPageGroups.flat();
+    } catch (error) {
+      if (requestId !== mentionDataSourceRequestId) return;
+      console.warn("notes mention data source targets failed", error);
+      mentionDataSources = [];
+      mentionDataSourceRowPages = [];
+    }
+  }
+
+  function dataSourceById(dataSourceId: string | null): NotesDataSource | undefined {
+    if (!dataSourceId) return undefined;
+    return mentionDataSources.find((dataSource) => dataSource.id === dataSourceId);
+  }
+
+  function pageMentionSubtitle(page: NotesPage): string {
+    if (page.parent.type === "data_source_id") {
+      const dataSource = dataSourceById(page.parent.data_source_id);
+      return dataSource
+        ? t("notes.mentionTargetDataSourceRowIn", dataSource.title || t("notes.untitled"))
+        : t("notes.mentionTargetDataSourceRow");
+    }
+    const parentPageId = page.parent.type === "page_id" ? page.parent.page_id : null;
+    const parentPage = parentPageId
+      ? notes.pages.find((candidate) => candidate.id === parentPageId)
+      : null;
+    return parentPage
+      ? notesPageTitle(parentPage, t("notes.untitled"))
+      : t("notes.workspace");
+  }
+
+  function pageMentionTargets(): NotesPageMentionTarget[] {
+    const seen = new Set<string>();
+    const targets: NotesPageMentionTarget[] = [];
+    for (const page of [...notes.pages, ...mentionDataSourceRowPages]) {
+      if (seen.has(page.id)) continue;
+      seen.add(page.id);
+      targets.push({
         kind: "page",
         id: page.id,
         title: notesPageTitle(page, t("notes.untitled")),
-        subtitle: parentTitle,
+        subtitle: pageMentionSubtitle(page),
         iconText: notesPageIconText(page.icon),
-      };
-    }),
-  );
+      });
+    }
+    return targets;
+  }
+
+  function localUserMentionTargets(): NotesObjectMentionTarget[] {
+    if (!notes.localUser) return [];
+    return [{
+      kind: "user",
+      id: notes.localUser.id,
+      title: notes.localUser.display_name || t("notes.untitled"),
+      subtitle: t("notes.mentionTargetLocalUser"),
+    }];
+  }
+
+  function databaseMentionTargets(): NotesObjectMentionTarget[] {
+    const seen = new Set<string>();
+    const targets: NotesObjectMentionTarget[] = [];
+    for (const dataSource of mentionDataSources) {
+      const databaseId = dataSource.parent.database_id;
+      if (seen.has(databaseId)) continue;
+      seen.add(databaseId);
+      targets.push({
+        kind: "database",
+        id: databaseId,
+        title: dataSource.title || t("notes.untitled"),
+        subtitle: t("notes.mentionTargetDatabase"),
+        iconText: notesPageIconText(dataSource.icon),
+      });
+    }
+    return targets;
+  }
+
+  function projectMentionTargets(): NotesObjectMentionTarget[] {
+    return projects.projects
+      .filter((project) => project.status === "active")
+      .map((project) => ({
+        kind: "project",
+        id: project.id,
+        title: project.name,
+        subtitle: t("notes.mentionTargetProject"),
+      }));
+  }
+
+  function projectTaskMentionTargets(): NotesObjectMentionTarget[] {
+    return projects.tasks
+      .filter((task) => !task.archivedAt)
+      .map((task) => {
+        const project = projects.projectById(task.projectId);
+        return {
+          kind: "project_task",
+          id: task.id,
+          title: task.title || t("notes.untitled"),
+          subtitle: project
+            ? t("notes.mentionTargetProjectTaskIn", project.name)
+            : t("notes.mentionTargetProjectTask"),
+        };
+      });
+  }
+
+  function calendarEventMentionTargets(
+    events: readonly CalendarEvent[],
+  ): NotesObjectMentionTarget[] {
+    return events
+      .filter((event) => event.status !== "cancelled")
+      .map((event) => ({
+        kind: "calendar_event",
+        id: event.recurringParentId ?? event.id,
+        title: event.title || t("notes.untitled"),
+        subtitle: t("notes.mentionTargetCalendarEvent"),
+      }));
+  }
+
+  function pomodoroMentionTargets(): NotesObjectMentionTarget[] {
+    if (!pomodoro.activeRunId) return [];
+    return [{
+      kind: "pomodoro_run",
+      id: pomodoro.activeRunId,
+      title: t("notes.mentionTargetPomodoroRun"),
+      subtitle: pomodoro.formattedTime,
+    }];
+  }
+
+  function musicMentionTargets(): NotesObjectMentionTarget[] {
+    const sources: MusicSource[] = musicPlayer.currentSource
+      ? [musicPlayer.currentSource, ...musicPlayer.queue]
+      : [...musicPlayer.queue];
+    const seen = new Set<string>();
+    const targets: NotesObjectMentionTarget[] = [];
+    for (const source of sources) {
+      if (seen.has(source.identity)) continue;
+      seen.add(source.identity);
+      targets.push({
+        kind: "music_item",
+        id: source.identity,
+        title: sourceDisplayLabel(source),
+        subtitle: t("notes.mentionTargetMusicItem"),
+      });
+    }
+    return targets;
+  }
+
+  function buildMentionTargets(): NotesNamedMentionTarget[] {
+    return [
+      ...localUserMentionTargets(),
+      ...pageMentionTargets(),
+      ...databaseMentionTargets(),
+      ...projectMentionTargets(),
+      ...projectTaskMentionTargets(),
+      ...calendarEventMentionTargets(calendar.rawBlocks),
+      ...pomodoroMentionTargets(),
+      ...musicMentionTargets(),
+    ];
+  }
 
   $effect(() => {
     if (typeof window === "undefined" || selectionDragPointerId === null) return;
@@ -608,6 +810,15 @@
     await notes.insertDateMention(blockId, start, end, target.date, target.title);
   }
 
+  async function insertObjectMention(
+    blockId: string,
+    start: number,
+    end: number,
+    target: NotesObjectMentionTarget,
+  ): Promise<void> {
+    await notes.insertObjectMention(blockId, start, end, target);
+  }
+
   async function applyTextAnnotations(
     blockId: string,
     start: number,
@@ -976,6 +1187,7 @@
         onReplaceRichText={replaceBlockRichText}
         onInsertPageMention={insertPageMention}
         onInsertDateMention={insertDateMention}
+        onInsertObjectMention={insertObjectMention}
         onApplyTextLink={applyTextLink}
         onInsertInlineEquation={insertInlineEquation}
         onPastePlainText={pastePlainText}
@@ -1108,6 +1320,7 @@
         onReplaceRichText={replaceBlockRichText}
         onInsertPageMention={insertPageMention}
         onInsertDateMention={insertDateMention}
+        onInsertObjectMention={insertObjectMention}
         onApplyTextLink={applyTextLink}
         onInsertInlineEquation={insertInlineEquation}
         onPastePlainText={pastePlainText}
@@ -1238,6 +1451,7 @@
         onReplaceRichText={replaceBlockRichText}
         onInsertPageMention={insertPageMention}
         onInsertDateMention={insertDateMention}
+        onInsertObjectMention={insertObjectMention}
         onApplyTextLink={applyTextLink}
         onInsertInlineEquation={insertInlineEquation}
         onPastePlainText={pastePlainText}

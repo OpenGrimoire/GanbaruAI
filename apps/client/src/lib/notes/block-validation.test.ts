@@ -1226,10 +1226,29 @@ describe("notes boundary validation", () => {
     ).toThrow("rich_text[0].mention.date.start must be an ISO date or date-time");
   });
 
-  it("rejects unsupported mention rich text targets", () => {
-    expect(() =>
-      parseNotesRichTextArray(
+  it("parses expanded mention rich text targets", () => {
+    const richText = parseNotesRichTextArray(
         [
+          {
+            type: "mention",
+            mention: {
+              type: "user",
+              user: {
+                object: "user",
+                id: "11111111-1111-4111-8111-111111111111",
+              },
+            },
+            annotations: {
+              bold: false,
+              italic: false,
+              strikethrough: false,
+              underline: false,
+              code: false,
+              color: "default",
+            },
+            plain_text: "Victor",
+            href: null,
+          },
           {
             type: "mention",
             mention: {
@@ -1247,10 +1266,59 @@ describe("notes boundary validation", () => {
             plain_text: "Database",
             href: null,
           },
+          {
+            type: "mention",
+            mention: {
+              type: "ganbaru_object",
+              ganbaru_object: {
+                type: "music_item",
+                id: "local:/home/victor/Music/focus.mp3",
+              },
+            },
+            annotations: {
+              bold: false,
+              italic: false,
+              strikethrough: false,
+              underline: false,
+              code: false,
+              color: "default",
+            },
+            plain_text: "Focus",
+            href: null,
+          },
+        ],
+        "rich_text",
+    );
+
+    expect(richText.map((item) => item.type === "mention" ? item.mention.type : item.type))
+      .toEqual(["user", "database", "ganbaru_object"]);
+  });
+
+  it("rejects unsupported mention rich text targets", () => {
+    expect(() =>
+      parseNotesRichTextArray(
+        [
+          {
+            type: "mention",
+            mention: {
+              type: "link_preview",
+              link_preview: { url: "https://example.com" },
+            },
+            annotations: {
+              bold: false,
+              italic: false,
+              strikethrough: false,
+              underline: false,
+              code: false,
+              color: "default",
+            },
+            plain_text: "Example",
+            href: null,
+          },
         ],
         "rich_text",
       ),
-    ).toThrow("rich_text[0].mention.type must be page or date");
+    ).toThrow("rich_text[0].mention.type is unsupported");
   });
 
   it("parses search result DTOs", () => {

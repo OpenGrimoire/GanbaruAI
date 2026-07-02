@@ -50,7 +50,7 @@
   import {
     buildDateMentionTargets,
     detectPageMentionQuery,
-    filterPageMentionTargets,
+    filterNotesMentionTargets,
     normalizeRichTextLinkUrl,
     planRichTextEquationConversion,
     replacePlainTextPreservingRichText,
@@ -61,6 +61,8 @@
     type NotesDateMentionTarget,
     type NotesMentionQuery,
     type NotesMentionTarget,
+    type NotesNamedMentionTarget,
+    type NotesObjectMentionTarget,
     type NotesPageMentionTarget,
     type NotesRichTextAnnotationName,
     type NotesRichTextAnnotationPatch,
@@ -113,6 +115,7 @@
     onReplaceRichText,
     onInsertPageMention,
     onInsertDateMention,
+    onInsertObjectMention,
     onApplyTextLink,
     onInsertInlineEquation,
     onPastePlainText,
@@ -145,7 +148,7 @@
     isOnlyBlock: boolean;
     focusBlockId: string | null;
     focusRequestId: number;
-    mentionTargets: NotesPageMentionTarget[];
+    mentionTargets: NotesNamedMentionTarget[];
     commentAnchors: readonly NotesResolvedCommentAnchor[];
     templateStatus: NotesTemplateBlockStatus;
     buttonStatus: NotesButtonBlockStatus;
@@ -165,6 +168,12 @@
       start: number,
       end: number,
       target: NotesDateMentionTarget,
+    ) => Promise<void> | void;
+    onInsertObjectMention: (
+      blockId: string,
+      start: number,
+      end: number,
+      target: NotesObjectMentionTarget,
     ) => Promise<void> | void;
     onApplyTextLink: (
       blockId: string,
@@ -306,7 +315,7 @@
     });
     return [
       ...dateTargets,
-      ...filterPageMentionTargets(mentionTargets, query.query),
+      ...filterNotesMentionTargets(mentionTargets, query.query),
     ].slice(0, 8);
   }
 
@@ -946,8 +955,10 @@
     mentionActiveIndex = 0;
     if (target.kind === "page") {
       await Promise.resolve(onInsertPageMention(block.id, range.start, range.end, target));
-    } else {
+    } else if (target.kind === "date") {
       await Promise.resolve(onInsertDateMention(block.id, range.start, range.end, target));
+    } else {
+      await Promise.resolve(onInsertObjectMention(block.id, range.start, range.end, target));
     }
     await focusEditorWithSelection(cursor, cursor);
   }

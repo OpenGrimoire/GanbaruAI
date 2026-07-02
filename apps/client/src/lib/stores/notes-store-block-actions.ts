@@ -52,6 +52,7 @@ import {
   blockWithInlineEquation,
   blockWithLinkPreviewUrl,
   blockWithMedia,
+  blockWithObjectMention,
   blockWithPageMention,
   blockWithRichText,
   blockWithText,
@@ -91,7 +92,10 @@ import {
   type NotesChildReparentPlan,
   type NotesTreeState,
 } from "$lib/notes/block-tree";
-import type { NotesRichTextAnnotationPatch } from "$lib/notes/rich-text";
+import type {
+  NotesObjectMentionTarget,
+  NotesRichTextAnnotationPatch,
+} from "$lib/notes/rich-text";
 import { splitRichTextForBlock } from "$lib/notes/rich-text-split";
 import {
   createNotesTableRowWrite,
@@ -188,6 +192,12 @@ export interface NotesBlockActions extends NotesColumnActions, NotesTabActions {
     end: number,
     date: NotesDateMentionValue,
     title: string,
+  ) => Promise<void>;
+  insertObjectMention: (
+    blockId: string,
+    start: number,
+    end: number,
+    target: NotesObjectMentionTarget,
   ) => Promise<void>;
   insertInlineEquation: (
     blockId: string,
@@ -428,6 +438,22 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     await context.flushBlockSave(blockId);
     const before = undoSnapshot(blockId);
     const update = blockWithDateMention(block, start, end, date, title);
+    context.localApplyBlockUpdate(blockId, update);
+    await context.saveBlockNow(blockId, update);
+    recordUndoAfter("mention", before, blockId);
+  }
+
+  async function insertObjectMention(
+    blockId: string,
+    start: number,
+    end: number,
+    target: NotesObjectMentionTarget,
+  ): Promise<void> {
+    const block = context.blockById(blockId);
+    if (!block) return;
+    await context.flushBlockSave(blockId);
+    const before = undoSnapshot(blockId);
+    const update = blockWithObjectMention(block, start, end, target);
     context.localApplyBlockUpdate(blockId, update);
     await context.saveBlockNow(blockId, update);
     recordUndoAfter("mention", before, blockId);
@@ -1799,6 +1825,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     updateBlockRichText,
     insertPageMention,
     insertDateMention,
+    insertObjectMention,
     insertInlineEquation,
     updateBlockTextLink,
     updateBlockTextAnnotations,

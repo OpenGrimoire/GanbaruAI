@@ -1310,7 +1310,12 @@ fn validate_mention_rich_text_item(object: &serde_json::Map<String, Value>) -> R
     match mention.get("type") {
         Some(Value::String(kind)) if kind == "page" => validate_page_mention(mention),
         Some(Value::String(kind)) if kind == "date" => validate_date_mention(mention),
-        Some(Value::String(_)) => Err("rich text mention.type must be page or date".to_string()),
+        Some(Value::String(kind)) if kind == "user" => validate_user_mention(mention),
+        Some(Value::String(kind)) if kind == "database" => validate_database_mention(mention),
+        Some(Value::String(kind)) if kind == "ganbaru_object" => {
+            validate_ganbaru_object_mention(mention)
+        }
+        Some(Value::String(_)) => Err("rich text mention.type is unsupported".to_string()),
         _ => Err("rich text mention.type must be a string".to_string()),
     }
 }
@@ -1322,6 +1327,62 @@ fn validate_page_mention(mention: &serde_json::Map<String, Value>) -> Result<(),
         .and_then(Value::as_str)
         .ok_or_else(|| "rich text mention.page.id must be a string".to_string())?;
     require_uuid(page_id, "rich text mention.page.id")
+}
+
+fn validate_user_mention(mention: &serde_json::Map<String, Value>) -> Result<(), String> {
+    let user_id = mention
+        .get("user")
+        .and_then(|user| user.get("id"))
+        .and_then(Value::as_str)
+        .ok_or_else(|| "rich text mention.user.id must be a string".to_string())?;
+    require_uuid(user_id, "rich text mention.user.id")
+}
+
+fn validate_database_mention(mention: &serde_json::Map<String, Value>) -> Result<(), String> {
+    let database_id = mention
+        .get("database")
+        .and_then(|database| database.get("id"))
+        .and_then(Value::as_str)
+        .ok_or_else(|| "rich text mention.database.id must be a string".to_string())?;
+    require_uuid(database_id, "rich text mention.database.id")
+}
+
+fn validate_ganbaru_object_mention(mention: &serde_json::Map<String, Value>) -> Result<(), String> {
+    let object = mention
+        .get("ganbaru_object")
+        .and_then(Value::as_object)
+        .ok_or_else(|| "rich text mention.ganbaru_object must be an object".to_string())?;
+    let object_type = object
+        .get("type")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "rich text mention.ganbaru_object.type must be a string".to_string())?;
+    if !matches!(
+        object_type,
+        "project" | "project_task" | "calendar_event" | "pomodoro_run" | "music_item"
+    ) {
+        return Err("rich text mention.ganbaru_object.type is unsupported".to_string());
+    }
+    let object_id = object
+        .get("id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "rich text mention.ganbaru_object.id must be a string".to_string())?;
+    if object_type == "music_item" {
+        validate_ganbaru_object_id(object_id, "rich text mention.ganbaru_object.id")
+    } else {
+        require_uuid(object_id, "rich text mention.ganbaru_object.id")
+    }
+}
+
+fn validate_ganbaru_object_id(value: &str, field: &str) -> Result<(), String> {
+    if value.trim().is_empty() || value.chars().any(char::is_control) {
+        return Err(format!(
+            "{field} must not be empty or contain control characters"
+        ));
+    }
+    if value.len() > 2048 {
+        return Err(format!("{field} is too long"));
+    }
+    Ok(())
 }
 
 fn validate_date_mention(mention: &serde_json::Map<String, Value>) -> Result<(), String> {

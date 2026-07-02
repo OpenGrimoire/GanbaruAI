@@ -21,6 +21,8 @@
   import type { NotesButtonBlockStatus } from "$lib/notes/button-block";
   import {
     type NotesDateMentionTarget,
+    type NotesNamedMentionTarget,
+    type NotesObjectMentionTarget,
     type NotesRichTextAnnotationPatch,
     type NotesPageMentionTarget,
   } from "$lib/notes/rich-text";
@@ -80,6 +82,7 @@
     onReplaceRichText,
     onInsertPageMention,
     onInsertDateMention,
+    onInsertObjectMention,
     onApplyTextLink,
     onInsertInlineEquation,
     onPastePlainText,
@@ -140,7 +143,7 @@
     isOnlyBlock: boolean;
     focusBlockId: string | null;
     focusRequestId: number;
-    mentionTargets: NotesPageMentionTarget[];
+    mentionTargets: NotesNamedMentionTarget[];
     templateStatus: NotesTemplateBlockStatus;
     buttonStatus: NotesButtonBlockStatus;
     onTextInput: (blockId: string, text: string) => void;
@@ -159,6 +162,12 @@
       start: number,
       end: number,
       target: NotesDateMentionTarget,
+    ) => Promise<void> | void;
+    onInsertObjectMention: (
+      blockId: string,
+      start: number,
+      end: number,
+      target: NotesObjectMentionTarget,
     ) => Promise<void> | void;
     onApplyTextLink: (
       blockId: string,
@@ -766,6 +775,7 @@
           {onReplaceRichText}
           {onInsertPageMention}
           {onInsertDateMention}
+          {onInsertObjectMention}
           {onApplyTextLink}
           {onInsertInlineEquation}
           {onPastePlainText}

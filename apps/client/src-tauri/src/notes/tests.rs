@@ -661,7 +661,62 @@ fn notes_validation_rejects_bad_ids_and_payloads() {
                 "color": "default"
             }),
         ),
-        Err("rich text mention.type must be page or date".to_string())
+        Ok(())
+    );
+    assert_eq!(
+        validation::validate_block_payload(
+            "paragraph",
+            &json!({
+                "rich_text": [{
+                    "type": "mention",
+                    "mention": {
+                        "type": "ganbaru_object",
+                        "ganbaru_object": {
+                            "type": "project_task",
+                            "id": PAGE_B
+                        }
+                    },
+                    "annotations": {
+                        "bold": false,
+                        "italic": false,
+                        "strikethrough": false,
+                        "underline": false,
+                        "code": false,
+                        "color": "default"
+                    },
+                    "plain_text": "Target task",
+                    "href": null
+                }],
+                "color": "default"
+            }),
+        ),
+        Ok(())
+    );
+    assert_eq!(
+        validation::validate_block_payload(
+            "paragraph",
+            &json!({
+                "rich_text": [{
+                    "type": "mention",
+                    "mention": {
+                        "type": "link_preview",
+                        "link_preview": { "url": "https://example.com" }
+                    },
+                    "annotations": {
+                        "bold": false,
+                        "italic": false,
+                        "strikethrough": false,
+                        "underline": false,
+                        "code": false,
+                        "color": "default"
+                    },
+                    "plain_text": "Example",
+                    "href": null
+                }],
+                "color": "default"
+            }),
+        ),
+        Err("rich text mention.type is unsupported".to_string())
     );
     assert_eq!(
         validation::validate_block_payload("nope", &json!({})),
@@ -6352,6 +6407,62 @@ fn backlinks_include_page_mentions() {
         assert_eq!(backlinks_json[0]["source_block_id"], BLOCK_C);
         assert_eq!(backlinks_json[0]["reference_type"], "page_mention");
         assert_eq!(backlinks_json[0]["snippet"], "See Target page");
+    });
+}
+
+#[test]
+fn backlinks_include_data_source_row_page_mentions() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        create_page(&pool, PAGE_A, BLOCK_A).await;
+        create_database(
+            &pool,
+            DATABASE_A,
+            DATA_SOURCE_A,
+            DATABASE_VIEW_A,
+            "Tasks",
+            BLOCK_A,
+        )
+        .await;
+        data_source_rows::create_data_source_row_page(
+            &pool,
+            DATA_SOURCE_A,
+            NoteDataSourceRowPageCreate {
+                id: PAGE_B.to_string(),
+                title: "Target row".to_string(),
+                first_block_id: BLOCK_B.to_string(),
+                properties: None,
+            },
+        )
+        .await
+        .unwrap();
+        writes::append_block_children(
+            &pool,
+            NoteAppendBlockChildren {
+                parent: page_parent(PAGE_A),
+                after: Some(BLOCK_A.to_string()),
+                children: vec![block(
+                    BLOCK_C,
+                    "paragraph",
+                    json!({
+                        "rich_text": [
+                            rich_text("See "),
+                            page_mention(PAGE_B, "Target row")
+                        ],
+                        "color": "default"
+                    }),
+                )],
+            },
+        )
+        .await
+        .unwrap();
+
+        let backlinks = reads::list_backlinks(&pool, PAGE_B).await.unwrap();
+        let backlinks_json = serde_json::to_value(backlinks).unwrap();
+        assert_eq!(backlinks_json.as_array().unwrap().len(), 1);
+        assert_eq!(backlinks_json[0]["source_page"]["id"], PAGE_A);
+        assert_eq!(backlinks_json[0]["source_block_id"], BLOCK_C);
+        assert_eq!(backlinks_json[0]["reference_type"], "page_mention");
     });
 }
 

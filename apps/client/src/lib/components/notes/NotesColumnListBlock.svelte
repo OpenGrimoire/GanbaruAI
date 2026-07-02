@@ -25,6 +25,8 @@
   import type { NotesSlashAction, NotesSlashCommand } from "$lib/notes/slash-commands";
   import type {
     NotesDateMentionTarget,
+    NotesNamedMentionTarget,
+    NotesObjectMentionTarget,
     NotesPageMentionTarget,
     NotesRichTextAnnotationPatch,
   } from "$lib/notes/rich-text";
@@ -68,6 +70,7 @@
     onReplaceRichText,
     onInsertPageMention,
     onInsertDateMention,
+    onInsertObjectMention,
     onApplyTextLink,
     onInsertInlineEquation,
     onPastePlainText,
@@ -139,7 +142,7 @@
     isOnlyBlockForBlock: (blockId: string) => boolean;
     focusBlockId: string | null;
     focusRequestId: number;
-    mentionTargets: NotesPageMentionTarget[];
+    mentionTargets: NotesNamedMentionTarget[];
     templateStatusForBlock: (blockId: string) => NotesTemplateBlockStatus;
     buttonStatusForBlock: (blockId: string) => NotesButtonBlockStatus;
     onTextInput: (blockId: string, text: string) => void;
@@ -158,6 +161,12 @@
       start: number,
       end: number,
       target: NotesDateMentionTarget,
+    ) => Promise<void> | void;
+    onInsertObjectMention: (
+      blockId: string,
+      start: number,
+      end: number,
+      target: NotesObjectMentionTarget,
     ) => Promise<void> | void;
     onApplyTextLink: (
       blockId: string,
@@ -581,6 +590,7 @@
                         {onReplaceRichText}
                         {onInsertPageMention}
                         {onInsertDateMention}
+                        {onInsertObjectMention}
                         {onApplyTextLink}
                         {onInsertInlineEquation}
                         {onPastePlainText}
