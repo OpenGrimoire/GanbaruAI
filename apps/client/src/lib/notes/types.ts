@@ -1325,6 +1325,9 @@ export interface NotesSearchResult {
   block_type: NotesBlockType | null;
   comment_id: string | null;
   discussion_id: string | null;
+  comment_status: NotesCommentThreadStatus | null;
+  comment_author: NotesCommentDisplayName | null;
+  comment_anchor: NotesCommentAnchor | null;
   snippet: string;
   last_edited_time: string;
 }

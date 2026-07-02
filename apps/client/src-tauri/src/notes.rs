@@ -105,9 +105,16 @@ pub async fn notes_search<R: Runtime>(
     db_url: String,
     query: String,
     page_size: Option<i64>,
+    include_resolved_comments: Option<bool>,
 ) -> Result<Vec<NoteSearchResultDto>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    search::search(&pool, &query, page_size).await
+    search::search(
+        &pool,
+        &query,
+        page_size,
+        include_resolved_comments.unwrap_or(false),
+    )
+    .await
 }
 
 #[tauri::command]

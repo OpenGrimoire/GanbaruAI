@@ -120,7 +120,7 @@ fn database_relations_persist_links_backlinks_and_search() {
                 && backlink["source_page"]["id"] == PAGE_B
         }));
 
-        let search_results = search::search(&pool, "Project Alpha", Some(10))
+        let search_results = search::search(&pool, "Project Alpha", Some(10), false)
             .await
             .unwrap();
         let search_json = serde_json::to_value(search_results).unwrap();

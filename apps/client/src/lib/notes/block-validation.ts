@@ -2160,6 +2160,15 @@ export function parseNotesSearchResult(value: unknown): NotesSearchResult {
     block_type: blockType,
     comment_id: readNullableString(record.comment_id, "search_result.comment_id"),
     discussion_id: readNullableString(record.discussion_id, "search_result.discussion_id"),
+    comment_status: record.comment_status === null
+      ? null
+      : parseCommentThreadStatus(record.comment_status),
+    comment_author: record.comment_author === null
+      ? null
+      : parseNotesCommentDisplayName(record.comment_author, "search_result.comment_author"),
+    comment_anchor: record.comment_anchor === null
+      ? null
+      : parseNotesCommentAnchor(record.comment_anchor),
     snippet: readString(record.snippet, "search_result.snippet"),
     last_edited_time: readString(record.last_edited_time, "search_result.last_edited_time"),
   };

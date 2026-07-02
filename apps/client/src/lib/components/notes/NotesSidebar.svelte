@@ -3,6 +3,7 @@
   import { notesPageMoveTargets } from "$lib/notes/page-move";
   import { planNotesSidebarNavigation } from "$lib/notes/page-sidebar";
   import { notesPageTitle } from "$lib/notes/page-title";
+  import { notesSearchNavigationPlan } from "$lib/notes/search";
   import {
     getActiveNotesBlockDragId,
     NOTES_BLOCK_DRAG_MIME,
@@ -45,8 +46,9 @@
 
   $effect(() => {
     const query = searchQuery;
+    const includeResolvedComments = notes.searchIncludeResolvedComments;
     const timer = window.setTimeout(() => {
-      void notes.search(query);
+      void notes.search(query, 20, includeResolvedComments);
     }, query ? 180 : 0);
     return () => {
       window.clearTimeout(timer);
@@ -122,12 +124,35 @@
     return t("notes.searchResultComment");
   }
 
+  function commentSearchTargetLabel(result: NotesSearchResult): string {
+    if (result.comment_anchor) return t("notes.searchResultInlineComment");
+    if (result.block_id) return t("notes.searchResultBlockComment");
+    return t("notes.searchResultPageDiscussion");
+  }
+
+  function searchResultDetail(result: NotesSearchResult): string {
+    if (result.type !== "comment") return searchResultTypeLabel(result);
+    const target = commentSearchTargetLabel(result);
+    const status = result.comment_status === "resolved"
+      ? t("notes.searchResultResolved")
+      : t("notes.searchResultOpen");
+    if (result.comment_author) {
+      return t("notes.searchResultCommentBy", target, result.comment_author.resolved_name, status);
+    }
+    return t("notes.searchResultCommentStatus", target, status);
+  }
+
   function openSearchResult(result: NotesSearchResult): void {
-    if (result.type === "block" && result.block_id) {
-      void notes.openNotesLink({ pageId: result.page.id, blockId: result.block_id });
+    const plan = notesSearchNavigationPlan(result);
+    if (plan.blockId) {
+      void notes.openNotesLink({ pageId: plan.pageId, blockId: plan.blockId }).then((opened) => {
+        if (opened && plan.commentParent) notes.setActiveCommentParent(plan.commentParent);
+      });
       return;
     }
-    void notes.selectPage(result.page.id);
+    void notes.selectPage(plan.pageId).then(() => {
+      if (plan.commentParent) notes.setActiveCommentParent(plan.commentParent);
+    });
   }
 
   function currentTreeState() {
@@ -221,8 +246,21 @@
       </div>
     {:else if searchQuery}
       <div class="flex flex-col gap-1">
-        <div class="px-2 pb-1 pt-2 text-[0.7rem] font-medium text-muted-foreground">
-          {notes.searchLoading ? t("notes.searching") : t("notes.searchResults")}
+        <div class="flex flex-wrap items-center justify-between gap-2 px-2 pb-1 pt-2">
+          <div class="text-[0.7rem] font-medium text-muted-foreground">
+            {notes.searchLoading ? t("notes.searching") : t("notes.searchResults")}
+          </div>
+          <label class="flex items-center gap-1.5 text-[0.7rem] text-muted-foreground">
+            <input
+              class="size-3 accent-primary"
+              type="checkbox"
+              checked={notes.searchIncludeResolvedComments}
+              onchange={(event) => {
+                notes.setSearchIncludeResolvedComments(event.currentTarget.checked);
+              }}
+            />
+            <span>{t("notes.searchIncludeResolvedComments")}</span>
+          </label>
         </div>
         {#if notes.searchError}
           <div class="px-2 py-2 text-[0.8rem] text-destructive">
@@ -261,8 +299,13 @@
               <span class="min-w-0 flex-1">
                 <span class="block truncate font-medium">{title}</span>
                 <span class="block truncate text-[0.733333rem] text-muted-foreground">
-                  {searchResultTypeLabel(result)}
+                  {searchResultDetail(result)}
                 </span>
+                {#if result.type === "comment" && result.comment_anchor}
+                  <span class="block truncate text-[0.733333rem] text-muted-foreground">
+                    {t("notes.searchResultCommentAnchor", result.comment_anchor.text)}
+                  </span>
+                {/if}
                 {#if result.snippet}
                   <span class="mt-0.5 line-clamp-2 block text-[0.733333rem] leading-snug text-muted-foreground">
                     {result.snippet}

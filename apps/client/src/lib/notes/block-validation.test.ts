@@ -1449,12 +1449,48 @@ describe("notes boundary validation", () => {
       block_type: "paragraph",
       comment_id: null,
       discussion_id: null,
+      comment_status: null,
+      comment_author: null,
+      comment_anchor: null,
       snippet: "Target block",
       last_edited_time: "2026-06-30T12:00:00.000Z",
     });
 
     expect(result.type).toBe("block");
     expect(result.block_type).toBe("paragraph");
+  });
+
+  it("parses comment search metadata", () => {
+    const result = parseNotesSearchResult({
+      object: "search_result",
+      id: "comment:10101010-1010-4010-8010-101010101010",
+      type: "comment",
+      page: { ...basePage, icon: null },
+      block_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      block_type: null,
+      comment_id: "10101010-1010-4010-8010-101010101010",
+      discussion_id: "90909090-9090-4090-8090-909090909090",
+      comment_status: "resolved",
+      comment_author: { type: "user", resolved_name: "Reviewer" },
+      comment_anchor: {
+        object: "comment_anchor",
+        type: "text_range",
+        block_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        start: 6,
+        end: 10,
+        text: "beta",
+        prefix: "Alpha ",
+        suffix: " gamma",
+        created_time: "2026-06-30T12:00:00.000Z",
+        last_edited_time: "2026-06-30T12:00:00.000Z",
+      },
+      snippet: "Reviewer beta comment",
+      last_edited_time: "2026-06-30T12:00:00.000Z",
+    });
+
+    expect(result.comment_status).toBe("resolved");
+    expect(result.comment_author?.resolved_name).toBe("Reviewer");
+    expect(result.comment_anchor?.text).toBe("beta");
   });
 
   it("parses property-backed page search result DTOs", () => {
@@ -1467,6 +1503,9 @@ describe("notes boundary validation", () => {
       block_type: null,
       comment_id: null,
       discussion_id: null,
+      comment_status: null,
+      comment_author: null,
+      comment_anchor: null,
       snippet: "Formula state Ready Searchable",
       last_edited_time: "2026-06-30T12:00:00.000Z",
     });
@@ -1487,6 +1526,9 @@ describe("notes boundary validation", () => {
         block_type: null,
         comment_id: null,
         discussion_id: null,
+        comment_status: null,
+        comment_author: null,
+        comment_anchor: null,
         snippet: "",
         last_edited_time: "2026-06-30T12:00:00.000Z",
       }),

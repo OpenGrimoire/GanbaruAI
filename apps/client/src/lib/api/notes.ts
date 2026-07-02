@@ -174,9 +174,15 @@ export async function getNotesPageBreadcrumb(pageId: string): Promise<NotesPageB
 export async function searchNotes(
   query: string,
   pageSize = 20,
+  includeResolvedComments = false,
 ): Promise<NotesSearchResult[]> {
   const dbUrl = await ensureDbUrl();
-  const rows = await invoke<unknown>("notes_search", { dbUrl, query, pageSize });
+  const rows = await invoke<unknown>("notes_search", {
+    dbUrl,
+    query,
+    pageSize,
+    includeResolvedComments,
+  });
   if (!Array.isArray(rows)) throw new Error("notes_search returned a non-array payload");
   return rows.map(mapNotesSearchResultDto);
 }

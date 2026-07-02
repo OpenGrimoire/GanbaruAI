@@ -175,6 +175,7 @@ let localUserError = $state<string | null>(null);
 let searchResults = $state<NotesSearchResult[]>([]);
 let searchLoading = $state(false);
 let searchError = $state<string | null>(null);
+let searchIncludeResolvedComments = $state(false);
 
 function blockTreeSnapshot(): NotesBlockTreeSnapshot {
   return { selectedPageId, blocksById, childIdsByParentId };
@@ -668,7 +669,11 @@ async function setCommentsIncludeResolved(includeResolved: boolean): Promise<voi
   await reloadComments();
 }
 
-async function search(query: string, pageSize = 20): Promise<void> {
+async function search(
+  query: string,
+  pageSize = 20,
+  includeResolvedComments = searchIncludeResolvedComments,
+): Promise<void> {
   const trimmed = query.trim();
   const requestId = ++searchRequestId;
   if (!trimmed) {
@@ -680,7 +685,7 @@ async function search(query: string, pageSize = 20): Promise<void> {
   searchLoading = true;
   searchError = null;
   try {
-    const results = await searchNotes(trimmed, pageSize);
+    const results = await searchNotes(trimmed, pageSize, includeResolvedComments);
     if (requestId !== searchRequestId) return;
     searchResults = [...results];
   } catch (error) {
@@ -690,6 +695,10 @@ async function search(query: string, pageSize = 20): Promise<void> {
   } finally {
     if (requestId === searchRequestId) searchLoading = false;
   }
+}
+
+function setSearchIncludeResolvedComments(includeResolvedComments: boolean): void {
+  searchIncludeResolvedComments = includeResolvedComments;
 }
 
 async function load(): Promise<void> {
@@ -1452,6 +1461,9 @@ export function getNotes() {
     get searchError(): string | null {
       return searchError;
     },
+    get searchIncludeResolvedComments(): boolean {
+      return searchIncludeResolvedComments;
+    },
     get blocksById(): Record<string, NotesBlock> {
       return blocksById;
     },
@@ -1598,6 +1610,7 @@ export function getNotes() {
     markCommentThreadsRead,
     markVisibleCommentThreadsRead,
     search,
+    setSearchIncludeResolvedComments,
     notesCommentParentKey,
     blockById,
     tableRowsForBlock,

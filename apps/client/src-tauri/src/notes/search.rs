@@ -1,4 +1,6 @@
-use super::models::{NoteBlockRow, NoteCommentRow, NotePageRow, NoteSearchResultDto};
+use super::models::{
+    NoteBlockRow, NoteCommentAnchorRow, NoteCommentRow, NotePageRow, NoteSearchResultDto,
+};
 use super::reads;
 use serde_json::Value;
 use sqlx::{FromRow, Row, SqlitePool};
@@ -13,6 +15,7 @@ pub(in crate::notes) async fn search(
     pool: &SqlitePool,
     query: &str,
     page_size: Option<i64>,
+    include_resolved_comments: bool,
 ) -> Result<Vec<NoteSearchResultDto>, String> {
     let query = query.trim();
     validate_search_query(query)?;
@@ -65,6 +68,7 @@ pub(in crate::notes) async fn search(
                    comment.id IS NOT NULL
                    AND comment.deleted_at IS NULL
                    AND thread.id IS NOT NULL
+                   AND (? OR thread.status = 'open')
                    AND (
                        thread.parent_block_id IS NULL
                        OR (target_block.id IS NOT NULL AND target_block.in_trash = 0)
@@ -75,6 +79,7 @@ pub(in crate::notes) async fn search(
          LIMIT ?",
     )
     .bind(&fts_query)
+    .bind(include_resolved_comments)
     .bind(page_size * 6)
     .fetch_all(pool)
     .await
@@ -507,7 +512,14 @@ async fn search_candidate(
             source_order: source_order(&row),
             rank: row.rank,
             sort_time: row.source_last_edited_time,
-            result: NoteSearchResultDto::comment(source_page, comment, target.block_id, snippet),
+            result: NoteSearchResultDto::comment(
+                source_page,
+                comment,
+                target.block_id,
+                target.status,
+                target.anchor,
+                snippet,
+            )?,
         }));
     }
 
@@ -574,15 +586,29 @@ async fn comment_thread_search_target(
     pool: &SqlitePool,
     thread_id: &str,
 ) -> Result<CommentThreadSearchTarget, String> {
-    let row: (String, Option<String>) =
-        sqlx::query_as("SELECT page_id, parent_block_id FROM notes_comment_threads WHERE id = ?")
-            .bind(thread_id)
-            .fetch_one(pool)
-            .await
-            .map_err(|e| format!("load notes comment thread target: {e}"))?;
+    let row: CommentThreadSearchTargetRow = sqlx::query_as(
+        "SELECT page_id, parent_block_id, status
+         FROM notes_comment_threads
+         WHERE id = ?",
+    )
+    .bind(thread_id)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| format!("load notes comment thread target: {e}"))?;
+    let anchor = sqlx::query_as::<_, NoteCommentAnchorRow>(
+        "SELECT *
+         FROM notes_comment_thread_anchors
+         WHERE thread_id = ?",
+    )
+    .bind(thread_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| format!("load notes comment search anchor: {e}"))?;
     Ok(CommentThreadSearchTarget {
-        page_id: row.0,
-        block_id: row.1,
+        page_id: row.page_id,
+        block_id: row.parent_block_id,
+        status: row.status,
+        anchor,
     })
 }
 
@@ -882,6 +908,15 @@ struct SearchSourceFingerprint {
 struct CommentThreadSearchTarget {
     page_id: String,
     block_id: Option<String>,
+    status: String,
+    anchor: Option<NoteCommentAnchorRow>,
+}
+
+#[derive(FromRow)]
+struct CommentThreadSearchTargetRow {
+    page_id: String,
+    parent_block_id: Option<String>,
+    status: String,
 }
 
 #[derive(FromRow)]

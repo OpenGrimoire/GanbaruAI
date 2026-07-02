@@ -575,6 +575,9 @@ pub struct NoteSearchResultDto {
     block_type: Option<String>,
     comment_id: Option<String>,
     discussion_id: Option<String>,
+    comment_status: Option<String>,
+    comment_author: Option<Value>,
+    comment_anchor: Option<NoteCommentAnchorDto>,
     snippet: String,
     last_edited_time: String,
 }
@@ -595,6 +598,9 @@ impl NoteSearchResultDto {
             block_type: None,
             comment_id: None,
             discussion_id: None,
+            comment_status: None,
+            comment_author: None,
+            comment_anchor: None,
             snippet,
             last_edited_time,
         }
@@ -610,6 +616,9 @@ impl NoteSearchResultDto {
             block_type: Some(block.block_type),
             comment_id: None,
             discussion_id: None,
+            comment_status: None,
+            comment_author: None,
+            comment_anchor: None,
             snippet,
             last_edited_time: block.last_edited_time,
         }
@@ -619,9 +628,12 @@ impl NoteSearchResultDto {
         page: NotePageDto,
         comment: NoteCommentRow,
         block_id: Option<String>,
+        status: String,
+        anchor: Option<NoteCommentAnchorRow>,
         snippet: String,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, String> {
+        let display_name = parse_json(comment.display_name.clone(), "comment display name")?;
+        Ok(Self {
             object: "search_result",
             id: format!("comment:{}", comment.id),
             result_type: "comment".to_string(),
@@ -630,9 +642,12 @@ impl NoteSearchResultDto {
             block_type: None,
             comment_id: Some(comment.id),
             discussion_id: Some(comment.thread_id),
+            comment_status: Some(status),
+            comment_author: Some(display_name),
+            comment_anchor: anchor.map(NoteCommentAnchorDto::new),
             snippet,
             last_edited_time: comment.last_edited_time,
-        }
+        })
     }
 }
 

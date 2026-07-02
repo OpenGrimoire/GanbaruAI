@@ -104,7 +104,9 @@ fn database_row_pages_are_real_pages_with_page_lifecycle() {
             .unwrap();
         assert_eq!(rows.len(), 1);
 
-        let search_results = search::search(&pool, "Write", Some(10)).await.unwrap();
+        let search_results = search::search(&pool, "Write", Some(10), false)
+            .await
+            .unwrap();
         let search_json = serde_json::to_value(search_results).unwrap();
         assert!(search_json
             .as_array()
@@ -157,7 +159,9 @@ fn database_row_pages_are_real_pages_with_page_lifecycle() {
             .await
             .unwrap();
         assert!(hidden_rows.is_empty());
-        let hidden_search = search::search(&pool, "Write", Some(10)).await.unwrap();
+        let hidden_search = search::search(&pool, "Write", Some(10), false)
+            .await
+            .unwrap();
         let hidden_search_json = serde_json::to_value(hidden_search).unwrap();
         assert!(!hidden_search_json
             .as_array()
