@@ -3,6 +3,7 @@ use tauri::{AppHandle, Runtime};
 
 mod comments;
 mod data_source_board;
+mod data_source_buttons;
 mod data_source_calendar;
 mod data_source_formula_parser;
 mod data_source_formulas;
@@ -13,6 +14,7 @@ mod data_source_rollups;
 mod data_source_rows;
 mod data_source_schema;
 mod data_source_table;
+mod data_source_templates;
 mod data_source_timeline;
 mod data_source_views;
 mod databases;
@@ -377,6 +379,83 @@ pub async fn notes_create_data_source_row_page<R: Runtime>(
 }
 
 #[tauri::command]
+pub async fn notes_list_data_source_templates<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    data_source_id: String,
+) -> Result<Vec<NoteDataSourceTemplateDto>, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    data_source_templates::list_data_source_templates(&pool, &data_source_id).await
+}
+
+#[tauri::command]
+pub async fn notes_create_data_source_template_from_row<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    data_source_id: String,
+    request: NoteDataSourceTemplateCreateFromRow,
+) -> Result<NoteDataSourceTemplateDto, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    data_source_templates::create_data_source_template_from_row(&pool, &data_source_id, request)
+        .await
+}
+
+#[tauri::command]
+pub async fn notes_apply_data_source_template<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    data_source_id: String,
+    template_id: String,
+    request: NoteDataSourceTemplateApply,
+) -> Result<NoteLoadedPage, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    data_source_templates::apply_data_source_template(&pool, &data_source_id, &template_id, request)
+        .await
+}
+
+#[tauri::command]
+pub async fn notes_update_data_source_template<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    data_source_id: String,
+    template_id: String,
+    update: NoteDataSourceTemplateUpdate,
+) -> Result<NoteDataSourceTemplateDto, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    data_source_templates::update_data_source_template(&pool, &data_source_id, &template_id, update)
+        .await
+}
+
+#[tauri::command]
+pub async fn notes_duplicate_data_source_template<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    data_source_id: String,
+    template_id: String,
+    request: NoteDataSourceTemplateDuplicate,
+) -> Result<NoteDataSourceTemplateDto, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    data_source_templates::duplicate_data_source_template(
+        &pool,
+        &data_source_id,
+        &template_id,
+        request,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn notes_delete_data_source_template<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    data_source_id: String,
+    template_id: String,
+) -> Result<String, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    data_source_templates::delete_data_source_template(&pool, &data_source_id, &template_id).await
+}
+
+#[tauri::command]
 pub async fn notes_get_data_source_table_view<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
@@ -425,6 +504,18 @@ pub async fn notes_update_data_source_row_property<R: Runtime>(
     let pool = connect_sqlite(app, db_url).await?;
     data_source_table::update_data_source_row_property(&pool, &data_source_id, &page_id, update)
         .await
+}
+
+#[tauri::command]
+pub async fn notes_click_data_source_button<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    data_source_id: String,
+    page_id: String,
+    request: NoteDataSourceButtonClick,
+) -> Result<NotePageDto, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    data_source_buttons::click_data_source_button(&pool, &data_source_id, &page_id, request).await
 }
 
 #[tauri::command]

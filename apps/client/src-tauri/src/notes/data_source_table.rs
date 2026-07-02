@@ -5,8 +5,8 @@ use super::models::{
 };
 use super::validation::require_uuid;
 use super::{
-    data_source_formulas, data_source_relations, data_source_rollups, data_source_views, history,
-    writes,
+    data_source_buttons, data_source_formulas, data_source_relations, data_source_rollups,
+    data_source_views, history, writes,
 };
 use serde_json::{json, Map, Value};
 use sqlx::{Sqlite, SqlitePool, Transaction};
@@ -192,6 +192,7 @@ async fn load_table_view_tx(
     data_source_rollups::hydrate_rollups_tx(tx, data_source_id, &schema_properties, &mut rows)
         .await?;
     data_source_formulas::hydrate_formulas(&schema_properties, &mut rows)?;
+    data_source_buttons::hydrate_buttons(&schema_properties, &mut rows)?;
     rows.retain(|row| row_matches_filters(row, &schema, &filters));
     sort_rows(&mut rows, &schema, &sorts);
     NoteDataSourceTableViewDto::new(data_source, database, view, rows)
@@ -622,7 +623,10 @@ fn normalized_row_properties(
     let mut title = fallback_title.to_string();
     let mut next = Map::new();
     for property in schema {
-        if matches!(property.property_type.as_str(), "rollup" | "formula") {
+        if matches!(
+            property.property_type.as_str(),
+            "rollup" | "formula" | "button"
+        ) {
             continue;
         }
         let value = existing_property_value(current_object, property)
@@ -720,6 +724,16 @@ fn default_property_value(property: &TableProperty, title: &str) -> Value {
             "type": "string",
             "string": ""
         }),
+        "button" => property
+            .schema
+            .get("button")
+            .map(|config| {
+                data_source_buttons::button_property_value(
+                    &property.id,
+                    &data_source_buttons::button_plain_text(config),
+                )
+            })
+            .unwrap_or_else(|| data_source_buttons::button_property_value(&property.id, "Run")),
         _ => Value::Null,
     };
     if property.property_type == "relation" {
@@ -730,6 +744,12 @@ fn default_property_value(property: &TableProperty, title: &str) -> Value {
     }
     if property.property_type == "formula" {
         return data_source_formulas::formula_property_value(&property.id, payload);
+    }
+    if property.property_type == "button" {
+        return data_source_buttons::button_property_value(
+            &property.id,
+            &data_source_buttons::button_plain_text(&payload),
+        );
     }
     json!({
         "id": property.id,
@@ -757,7 +777,7 @@ fn property_value_from_edit(property: &TableProperty, value: &Value) -> Result<V
         "url" | "email" | "phone_number" => edit_nullable_text_payload(value, &property.name)?,
         "place" => edit_place_payload(value)?,
         "files" | "people" | "created_time" | "created_by" | "last_edited_time"
-        | "last_edited_by" | "unique_id" | "rollup" | "formula" => {
+        | "last_edited_by" | "unique_id" | "rollup" | "formula" | "button" => {
             return Err("this property is read-only in the table view".to_string())
         }
         other => return Err(format!("unsupported row property type: {other}")),
@@ -820,6 +840,13 @@ fn canonical_property_payload(property_type: &str, value: &Value) -> Result<Valu
                 Ok(value.clone())
             } else {
                 Err("formula property must be an object".to_string())
+            }
+        }
+        "button" => {
+            if value.is_object() {
+                Ok(value.clone())
+            } else {
+                Err("button property must be an object".to_string())
             }
         }
         "checkbox" => value
@@ -1176,6 +1203,9 @@ fn row_property_plain_text(row: &NotePageRow, property: &TableProperty) -> Strin
             .unwrap_or_default(),
         "formula" => row_property_payload(row, property)
             .map(|payload| data_source_formulas::formula_plain_text(&payload))
+            .unwrap_or_default(),
+        "button" => row_property_payload(row, property)
+            .map(|payload| data_source_buttons::button_plain_text(&payload))
             .unwrap_or_default(),
         "date" => row_property_payload(row, property)
             .and_then(|payload| {

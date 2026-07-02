@@ -127,6 +127,8 @@ fn schema_creates_normalized_notes_database_tables() {
             "notes_database_views",
             "notes_data_source_relation_links",
             "notes_data_source_rollup_cache",
+            "notes_data_source_templates",
+            "notes_data_source_template_blocks",
         ] {
             let exists: Option<i64> =
                 sqlx::query_scalar("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?")

@@ -2,7 +2,10 @@ use super::models::{
     block_parent_from_database_row, NoteDataSourceDto, NoteDataSourceRow, NoteDataSourceSchemaDto,
     NoteDataSourceSchemaUpdate, NoteDatabaseRow, NoteDatabaseViewRow,
 };
-use super::{data_source_formulas, data_source_relations, data_source_rollups, data_source_views};
+use super::{
+    data_source_buttons, data_source_formulas, data_source_relations, data_source_rollups,
+    data_source_views,
+};
 use serde_json::{json, Map, Value};
 use sqlx::{Sqlite, SqlitePool, Transaction};
 use std::collections::{HashMap, HashSet};
@@ -39,6 +42,7 @@ const SUPPORTED_PROPERTY_TYPES: &[&str] = &[
     "relation",
     "rollup",
     "formula",
+    "button",
 ];
 
 const EMPTY_CONFIG_TYPES: &[&str] = &[
@@ -163,6 +167,7 @@ pub(in crate::notes) async fn update_data_source_schema(
     )
     .await?;
     data_source_formulas::ensure_formula_schema(&prepared.properties)?;
+    data_source_buttons::ensure_button_schema(&prepared.properties)?;
     let target_view = load_table_view_for_schema_tx(&mut tx, data_source_id, view_id).await?;
     let configuration = table_view_configuration(
         &prepared.property_order,
@@ -329,6 +334,7 @@ fn canonical_type_config(property_type: &str, value: Option<&Value>) -> Result<V
         "relation" => data_source_relations::canonical_relation_config(value),
         "rollup" => data_source_rollups::canonical_rollup_config(value),
         "formula" => data_source_formulas::canonical_formula_config(value),
+        "button" => data_source_buttons::canonical_button_config(value),
         _ => Err(format!(
             "unsupported data source property type: {property_type}"
         )),

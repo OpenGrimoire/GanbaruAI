@@ -1,9 +1,14 @@
 <script lang="ts">
   import { tick } from "svelte";
   import {
+    applyNotesDataSourceTemplate,
+    clickNotesDataSourceButton,
     createNotesDataSourceRowPage,
+    createNotesDataSourceTemplateFromRow,
+    deleteNotesDataSourceTemplate,
     duplicateNotesPage,
     getNotesDataSourceTableView,
+    listNotesDataSourceTemplates,
     trashNotesPage,
     updateNotesDataSourceRowProperty,
     updateNotesDataSourceTableView,
@@ -31,6 +36,7 @@
     NotesDatabaseTableRowOpenMode,
     NotesDatabaseTableSort,
     NotesDatabaseViewScope,
+    NotesDataSourceTemplate,
     NotesDataSourceTableView,
     NotesPage,
   } from "$lib/notes/types";
@@ -72,10 +78,15 @@
 
   let tableRoot: HTMLDivElement | null = $state(null);
   let table = $state<NotesDataSourceTableView | null>(null);
+  let templates = $state<NotesDataSourceTemplate[]>([]);
   let loading = $state(false);
   let mutating = $state(false);
   let error = $state<string | null>(null);
   let draftTitle = $state("");
+  let templateName = $state("");
+  let templateSourceRowId = $state("");
+  let selectedTemplateId = $state("");
+  let createTemplateAsDefault = $state(false);
   let selectedPanelRowId = $state<string | null>(null);
   let lastLoadSignature = $state("");
   let pendingFocusRowId = $state<string | null>(null);
@@ -89,6 +100,9 @@
   );
   const selectedPanelRow = $derived(
     table?.rows.find((row) => row.id === selectedPanelRowId) ?? null,
+  );
+  const selectedTemplate = $derived(
+    templates.find((template) => template.id === selectedTemplateId) ?? null,
   );
 
   $effect(() => {
@@ -106,10 +120,23 @@
     loading = true;
     error = null;
     try {
-      const loaded = await getNotesDataSourceTableView(dataSourceId, viewScope());
+      const [loaded, loadedTemplates] = await Promise.all([
+        getNotesDataSourceTableView(dataSourceId, viewScope()),
+        listNotesDataSourceTemplates(dataSourceId),
+      ]);
       table = loaded;
+      templates = loadedTemplates;
       if (selectedPanelRowId && !loaded.rows.some((row) => row.id === selectedPanelRowId)) {
         selectedPanelRowId = null;
+      }
+      if (templateSourceRowId && !loaded.rows.some((row) => row.id === templateSourceRowId)) {
+        templateSourceRowId = "";
+      }
+      if (selectedTemplateId && !loadedTemplates.some((template) => template.id === selectedTemplateId)) {
+        selectedTemplateId = "";
+      }
+      if (!selectedTemplateId) {
+        selectedTemplateId = loadedTemplates.find((template) => template.is_default)?.id ?? "";
       }
       await focusPendingRow(loaded);
       return loaded;
@@ -157,13 +184,78 @@
     mutating = true;
     error = null;
     try {
-      const loaded = await createNotesDataSourceRowPage(dataSourceId, {
-        id: crypto.randomUUID(),
-        first_block_id: crypto.randomUUID(),
-        title,
-      });
+      const loaded = selectedTemplateId
+        ? await applyNotesDataSourceTemplate(dataSourceId, selectedTemplateId, { title })
+        : await createNotesDataSourceRowPage(dataSourceId, {
+            id: crypto.randomUUID(),
+            first_block_id: crypto.randomUUID(),
+            title,
+          });
       draftTitle = "";
       pendingFocusRowId = loaded.page.id;
+      await loadTable();
+    } catch (caught) {
+      error = caught instanceof Error ? caught.message : String(caught);
+    } finally {
+      mutating = false;
+    }
+  }
+
+  async function createTemplateFromRow(): Promise<void> {
+    const sourceRowId = templateSourceRowId || table?.rows[0]?.id || "";
+    const name = templateName.trim();
+    if (!sourceRowId || !name) return;
+    mutating = true;
+    error = null;
+    try {
+      const template = await createNotesDataSourceTemplateFromRow(dataSourceId, {
+        id: crypto.randomUUID(),
+        source_page_id: sourceRowId,
+        name,
+        is_default: createTemplateAsDefault,
+      });
+      templateName = "";
+      templateSourceRowId = "";
+      createTemplateAsDefault = false;
+      selectedTemplateId = template.id;
+      templates = await listNotesDataSourceTemplates(dataSourceId);
+    } catch (caught) {
+      error = caught instanceof Error ? caught.message : String(caught);
+    } finally {
+      mutating = false;
+    }
+  }
+
+  async function deleteSelectedTemplate(): Promise<void> {
+    const templateId = selectedTemplateId;
+    if (!templateId) return;
+    mutating = true;
+    error = null;
+    try {
+      await deleteNotesDataSourceTemplate(dataSourceId, templateId);
+      selectedTemplateId = "";
+      templates = await listNotesDataSourceTemplates(dataSourceId);
+    } catch (caught) {
+      error = caught instanceof Error ? caught.message : String(caught);
+    } finally {
+      mutating = false;
+    }
+  }
+
+  async function runButton(row: NotesPage, column: NotesDatabaseTableColumn): Promise<void> {
+    const title = rowTitle(row);
+    const confirmed = column.buttonRequiresConfirmation
+      ? window.confirm(t("notes.databaseButtonConfirm", column.name, title))
+      : false;
+    if (column.buttonRequiresConfirmation && !confirmed) return;
+    mutating = true;
+    error = null;
+    try {
+      pendingFocusRowId = row.id;
+      await clickNotesDataSourceButton(dataSourceId, row.id, {
+        property_id: column.id,
+        confirmed,
+      });
       await loadTable();
     } catch (caught) {
       error = caught instanceof Error ? caught.message : String(caught);
@@ -434,12 +526,103 @@
       }}
     >
       <Plus class="size-3.5" aria-hidden="true" />
-      <span>{t("notes.databaseRowsAdd")}</span>
+      <span>{selectedTemplate ? t("notes.databaseRowsAddFromTemplate", selectedTemplate.name) : t("notes.databaseRowsAdd")}</span>
     </button>
   </div>
 
   {#if table}
     <div class="grid gap-2 @container">
+      <details class="rounded-md border border-border p-2 text-[0.8rem]">
+        <summary class="cursor-pointer text-foreground">{t("notes.databaseTemplatesTitle")}</summary>
+        <div class="mt-2 grid min-w-0 gap-2 @lg:grid-cols-[minmax(8rem,1fr)_minmax(8rem,1fr)_auto]">
+          <label class="min-w-0 text-muted-foreground">
+            <span class="mb-1 block">{t("notes.databaseTemplatesUse")}</span>
+            <select
+              class="h-8 w-full min-w-0 rounded-md border border-input bg-background px-2 text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+              value={selectedTemplateId}
+              disabled={mutating}
+              onchange={(event) => {
+                selectedTemplateId = event.currentTarget.value;
+              }}
+              onkeydown={(event) => event.stopPropagation()}
+            >
+              <option value="">{t("notes.databaseTemplatesNone")}</option>
+              {#each templates as template (template.id)}
+                <option value={template.id}>
+                  {template.is_default ? t("notes.databaseTemplatesDefaultOption", template.name) : template.name}
+                </option>
+              {/each}
+            </select>
+          </label>
+          <label class="min-w-0 text-muted-foreground">
+            <span class="mb-1 block">{t("notes.databaseTemplatesName")}</span>
+            <input
+              class="h-8 w-full min-w-0 rounded-md border border-input bg-background px-2 text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+              value={templateName}
+              placeholder={t("notes.databaseTemplatesNamePlaceholder")}
+              disabled={mutating}
+              oninput={(event) => {
+                templateName = event.currentTarget.value;
+              }}
+              onkeydown={(event) => event.stopPropagation()}
+            />
+          </label>
+          <label class="min-w-0 text-muted-foreground">
+            <span class="mb-1 block">{t("notes.databaseTemplatesSourceRow")}</span>
+            <select
+              class="h-8 w-full min-w-0 rounded-md border border-input bg-background px-2 text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+              value={templateSourceRowId}
+              disabled={mutating || table.rows.length === 0}
+              onchange={(event) => {
+                templateSourceRowId = event.currentTarget.value;
+              }}
+              onkeydown={(event) => event.stopPropagation()}
+            >
+              <option value="">{t("notes.databaseTemplatesFirstRow")}</option>
+              {#each table.rows as row (row.id)}
+                <option value={row.id}>{rowTitle(row)}</option>
+              {/each}
+            </select>
+          </label>
+          <label class="flex min-w-0 items-center gap-2 text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={createTemplateAsDefault}
+              disabled={mutating}
+              onchange={(event) => {
+                createTemplateAsDefault = event.currentTarget.checked;
+              }}
+              onkeydown={(event) => event.stopPropagation()}
+            />
+            <span>{t("notes.databaseTemplatesMakeDefault")}</span>
+          </label>
+          <div class="flex min-w-0 flex-wrap items-center gap-1 @lg:col-span-2">
+            <button
+              type="button"
+              class="inline-flex h-8 items-center gap-1 rounded-md px-2 hover:bg-accent disabled:pointer-events-none disabled:opacity-50"
+              disabled={mutating || !templateName.trim() || table.rows.length === 0}
+              onclick={() => {
+                void createTemplateFromRow();
+              }}
+            >
+              <Plus class="size-3.5" aria-hidden="true" />
+              <span>{t("notes.databaseTemplatesCreate")}</span>
+            </button>
+            <button
+              type="button"
+              class="inline-flex h-8 items-center gap-1 rounded-md text-destructive hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50"
+              disabled={mutating || !selectedTemplateId}
+              onclick={() => {
+                void deleteSelectedTemplate();
+              }}
+            >
+              <Trash2 class="size-3.5" aria-hidden="true" />
+              <span>{t("notes.databaseTemplatesDelete")}</span>
+            </button>
+          </div>
+        </div>
+      </details>
+
       <div class="grid gap-2 @lg:grid-cols-3">
         <details class="rounded-md border border-border p-2 text-[0.8rem]">
           <summary class="cursor-pointer text-foreground">{t("notes.databaseTableColumns")}</summary>
@@ -716,6 +899,28 @@
                         onSave={(value) => saveCell(row, column, value)}
                         onNavigate={handleCellKeydown}
                       />
+                    {:else if column.type === "button"}
+                      <button
+                        data-table-cell="true"
+                        data-row-index={rowIndex}
+                        data-column-index={columnIndex}
+                        type="button"
+                        class="inline-flex h-8 w-full min-w-0 items-center justify-center gap-1 rounded-sm border border-input bg-background px-2 text-[0.8rem] text-foreground outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
+                        disabled={mutating}
+                        title={notesDatabaseTableCellText(row, column)}
+                        onclick={() => {
+                          void runButton(row, column);
+                        }}
+                        onkeydown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") return;
+                          handleCellKeydown(event, rowIndex, columnIndex);
+                        }}
+                      >
+                        <Check class="size-3.5 shrink-0" aria-hidden="true" />
+                        <span class="min-w-0 truncate">
+                          {notesDatabaseTableCellText(row, column) || column.buttonLabel || column.name}
+                        </span>
+                      </button>
                     {:else if notesDatabaseTableColumnCanEdit(column)}
                       <input
                         data-table-cell="true"

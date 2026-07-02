@@ -1,8 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   createNotesDataSourcePropertyDraft,
+  notesDataSourceButtonTargetOptions,
+  notesDataSourceDefaultButtonPatch,
   notesDataSourceSchemaDraftFromDto,
   notesDataSourceSchemaUpdateFromDraft,
+  notesDataSourceSyncPropertyReferences,
   type NotesDataSourceSchemaPropertyDraft,
 } from "./data-source-schema";
 import type { NotesDataSource, NotesDatabaseView } from "./types";
@@ -249,5 +252,47 @@ describe("data source schema helpers", () => {
     expect(() => notesDataSourceSchemaUpdateFromDraft(draft)).toThrow(
       "property names must be unique",
     );
+  });
+
+  it("serializes database button actions with synced target references", () => {
+    const title = createNotesDataSourcePropertyDraft("title", "Name", "title");
+    const done = createNotesDataSourcePropertyDraft("checkbox", "Done", "done");
+    const finish = createNotesDataSourcePropertyDraft("button", "Finish", "finish_button");
+    const targetOptions = notesDataSourceButtonTargetOptions([title, done, finish], finish.id);
+    const defaultPatch = notesDataSourceDefaultButtonPatch([title, done, finish], finish.id);
+    const button = {
+      ...finish,
+      ...defaultPatch,
+      buttonLabel: "Mark done",
+      buttonRequiresConfirmation: true,
+    };
+
+    expect(targetOptions.map((property) => property.id)).toEqual(["title", "done"]);
+    expect(button.buttonActionPropertyId).toBe("done");
+
+    const synced = notesDataSourceSyncPropertyReferences(
+      [title, { ...done, name: "Complete" }, { ...button, buttonActionPropertyId: "done" }],
+      dataSource.id,
+      [],
+    );
+    const update = notesDataSourceSchemaUpdateFromDraft(synced);
+
+    expect(update.property_order).toEqual(["title", "done", "finish_button"]);
+    expect(update.properties.Finish).toMatchObject({
+      id: "finish_button",
+      name: "Finish",
+      type: "button",
+      button: {
+        label: "Mark done",
+        requires_confirmation: true,
+        actions: [{
+          type: "update_current_row_property",
+          property_id: "done",
+          property_name: "Complete",
+          property_type: "checkbox",
+          value: true,
+        }],
+      },
+    });
   });
 });

@@ -397,6 +397,37 @@ impl NotePageTemplateDto {
 }
 
 #[derive(Serialize)]
+pub struct NoteDataSourceTemplateDto {
+    object: &'static str,
+    id: String,
+    data_source_id: String,
+    source_page_id: Option<String>,
+    name: String,
+    properties: Value,
+    is_default: bool,
+    block_count: i64,
+    created_time: String,
+    last_edited_time: String,
+}
+
+impl NoteDataSourceTemplateDto {
+    pub(in crate::notes) fn new(row: NoteDataSourceTemplateRow) -> Result<Self, String> {
+        Ok(Self {
+            object: "data_source_template",
+            id: row.id,
+            data_source_id: row.data_source_id,
+            source_page_id: row.source_page_id,
+            name: row.name,
+            properties: parse_json(row.properties, "data source template properties")?,
+            is_default: row.is_default != 0,
+            block_count: row.block_count,
+            created_time: row.created_time,
+            last_edited_time: row.last_edited_time,
+        })
+    }
+}
+
+#[derive(Serialize)]
 pub struct NotePageHistorySnapshotDto {
     object: &'static str,
     id: String,
@@ -698,6 +729,39 @@ pub struct NoteDataSourceRowPageCreate {
     pub(in crate::notes) title: String,
     pub(in crate::notes) first_block_id: String,
     pub(in crate::notes) properties: Option<Value>,
+}
+
+#[derive(Deserialize)]
+pub struct NoteDataSourceTemplateCreateFromRow {
+    pub(in crate::notes) id: String,
+    pub(in crate::notes) source_page_id: String,
+    pub(in crate::notes) name: String,
+    pub(in crate::notes) is_default: Option<bool>,
+}
+
+#[derive(Deserialize)]
+pub struct NoteDataSourceTemplateApply {
+    pub(in crate::notes) title: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct NoteDataSourceTemplateUpdate {
+    pub(in crate::notes) name: Option<String>,
+    pub(in crate::notes) source_page_id: Option<String>,
+    pub(in crate::notes) is_default: Option<bool>,
+}
+
+#[derive(Deserialize)]
+pub struct NoteDataSourceTemplateDuplicate {
+    pub(in crate::notes) id: String,
+    pub(in crate::notes) name: String,
+    pub(in crate::notes) is_default: Option<bool>,
+}
+
+#[derive(Deserialize)]
+pub struct NoteDataSourceButtonClick {
+    pub(in crate::notes) property_id: String,
+    pub(in crate::notes) confirmed: Option<bool>,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -1705,6 +1769,30 @@ impl_sqlite_from_row!(NotePageTemplateRow {
 });
 
 #[derive(Clone, Serialize)]
+pub(in crate::notes) struct NoteDataSourceTemplateRow {
+    pub(in crate::notes) id: String,
+    pub(in crate::notes) data_source_id: String,
+    pub(in crate::notes) source_page_id: Option<String>,
+    pub(in crate::notes) name: String,
+    pub(in crate::notes) properties: String,
+    pub(in crate::notes) is_default: i64,
+    pub(in crate::notes) block_count: i64,
+    pub(in crate::notes) created_time: String,
+    pub(in crate::notes) last_edited_time: String,
+}
+impl_sqlite_from_row!(NoteDataSourceTemplateRow {
+    id,
+    data_source_id,
+    source_page_id,
+    name,
+    properties,
+    is_default,
+    block_count,
+    created_time,
+    last_edited_time,
+});
+
+#[derive(Clone, Serialize)]
 pub(in crate::notes) struct NotePageHistorySnapshotRow {
     pub(in crate::notes) id: String,
     pub(in crate::notes) page_id: String,
@@ -1810,6 +1898,34 @@ pub(in crate::notes) struct NotePageTemplateBlockRow {
     pub(in crate::notes) last_edited_time: String,
 }
 impl_sqlite_from_row!(NotePageTemplateBlockRow {
+    template_id,
+    id,
+    parent_type,
+    parent_block_id,
+    has_children,
+    block_type,
+    payload,
+    plain_text,
+    sort_order,
+    created_time,
+    last_edited_time,
+});
+
+#[derive(Clone, Serialize)]
+pub(in crate::notes) struct NoteDataSourceTemplateBlockRow {
+    pub(in crate::notes) template_id: String,
+    pub(in crate::notes) id: String,
+    pub(in crate::notes) parent_type: String,
+    pub(in crate::notes) parent_block_id: Option<String>,
+    pub(in crate::notes) has_children: i64,
+    pub(in crate::notes) block_type: String,
+    pub(in crate::notes) payload: String,
+    pub(in crate::notes) plain_text: String,
+    pub(in crate::notes) sort_order: f64,
+    pub(in crate::notes) created_time: String,
+    pub(in crate::notes) last_edited_time: String,
+}
+impl_sqlite_from_row!(NoteDataSourceTemplateBlockRow {
     template_id,
     id,
     parent_type,

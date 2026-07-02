@@ -365,6 +365,19 @@ export interface NotesPageTemplate {
   last_edited_time: string;
 }
 
+export interface NotesDataSourceTemplate {
+  object: "data_source_template";
+  id: string;
+  data_source_id: string;
+  source_page_id: string | null;
+  name: string;
+  properties: Record<string, unknown>;
+  is_default: boolean;
+  block_count: number;
+  created_time: string;
+  last_edited_time: string;
+}
+
 export interface NotesPageHistorySnapshot {
   object: "page_history_snapshot";
   id: string;
@@ -721,6 +734,7 @@ export const NOTES_DATA_SOURCE_PROPERTY_TYPES = [
   "relation",
   "rollup",
   "formula",
+  "button",
 ] as const;
 
 export type NotesDataSourcePropertyType = (typeof NOTES_DATA_SOURCE_PROPERTY_TYPES)[number];
@@ -817,6 +831,34 @@ export interface NotesDataSourceRowPageCreateRequest {
   title: string;
   first_block_id: string;
   properties?: Record<string, unknown> | null;
+}
+
+export interface NotesDataSourceTemplateCreateFromRowRequest {
+  id: string;
+  source_page_id: string;
+  name: string;
+  is_default?: boolean | null;
+}
+
+export interface NotesDataSourceTemplateApplyRequest {
+  title?: string | null;
+}
+
+export interface NotesDataSourceTemplateUpdateRequest {
+  name?: string;
+  source_page_id?: string;
+  is_default?: boolean;
+}
+
+export interface NotesDataSourceTemplateDuplicateRequest {
+  id: string;
+  name: string;
+  is_default?: boolean | null;
+}
+
+export interface NotesDataSourceButtonClickRequest {
+  property_id: string;
+  confirmed?: boolean | null;
 }
 
 export type NotesDatabaseTableRowOpenMode = "full_page" | "side_panel";

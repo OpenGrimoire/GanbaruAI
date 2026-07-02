@@ -21,6 +21,8 @@ export interface NotesDatabaseTableColumn {
   width: number;
   options: NotesDatabaseTableOption[];
   relationDataSourceId: string | null;
+  buttonLabel: string;
+  buttonRequiresConfirmation: boolean;
 }
 
 export interface NotesDatabaseTableOption {
@@ -111,6 +113,8 @@ export function notesDatabaseTableColumns(
       width: configuration.column_widths[id] ?? (type === "title" ? TITLE_COLUMN_WIDTH : DEFAULT_COLUMN_WIDTH),
       options: propertyOptions(rawProperty, type),
       relationDataSourceId: relationDataSourceId(rawProperty, type),
+      buttonLabel: buttonLabel(rawProperty, type),
+      buttonRequiresConfirmation: buttonRequiresConfirmation(rawProperty, type),
     });
   }
   const columns: NotesDatabaseTableColumn[] = [];
@@ -228,6 +232,8 @@ export function notesDatabaseTableCellText(
       return rollupPlainText(payload);
     case "formula":
       return formulaPlainText(payload);
+    case "button":
+      return isRecord(payload) ? readString(payload.label, column.buttonLabel || column.name) : column.buttonLabel;
     case "date":
       return isRecord(payload) ? readString(payload.start) : "";
     case "url":
@@ -273,6 +279,7 @@ export function notesDatabaseTableColumnCanEdit(column: NotesDatabaseTableColumn
     "unique_id",
     "rollup",
     "formula",
+    "button",
   ].includes(column.type);
 }
 
@@ -340,6 +347,22 @@ function relationDataSourceId(
   if (!isRecord(config)) return null;
   const dataSourceId = readString(config.data_source_id);
   return dataSourceId || null;
+}
+
+function buttonLabel(property: UnknownRecord, type: NotesDataSourcePropertyType): string {
+  if (type !== "button") return "";
+  const config = property.button;
+  if (!isRecord(config)) return "Run";
+  return readString(config.label, "Run");
+}
+
+function buttonRequiresConfirmation(
+  property: UnknownRecord,
+  type: NotesDataSourcePropertyType,
+): boolean {
+  if (type !== "button") return false;
+  const config = property.button;
+  return isRecord(config) && config.requires_confirmation === true;
 }
 
 function propertyMatchesColumn(value: unknown, column: NotesDatabaseTableColumn): boolean {
@@ -431,6 +454,8 @@ function propertyPlainText(value: unknown): string {
       return isRecord(payload)
         ? `${readString(payload.prefix)}${typeof payload.number === "number" ? payload.number : ""}`
         : "";
+    case "button":
+      return isRecord(payload) ? readString(payload.label) : "";
     default:
       return "";
   }

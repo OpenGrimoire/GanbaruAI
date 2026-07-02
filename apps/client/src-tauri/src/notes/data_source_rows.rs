@@ -174,7 +174,7 @@ async fn touch_data_source_tx(
     Ok(())
 }
 
-fn row_page_properties(
+pub(in crate::notes) fn row_page_properties(
     schema_properties: &Value,
     title: &str,
     provided: Option<&Value>,
@@ -207,7 +207,7 @@ fn row_page_properties(
             .ok_or_else(|| "data source property must be an object".to_string())?;
         let property_id = read_string_field(schema_object, "id", "property.id")?;
         let property_type = read_string_field(schema_object, "type", "property.type")?;
-        if matches!(property_type, "rollup" | "formula") {
+        if matches!(property_type, "rollup" | "formula" | "button") {
             continue;
         }
         let value = match provided_properties.and_then(|properties| properties.get(name)) {

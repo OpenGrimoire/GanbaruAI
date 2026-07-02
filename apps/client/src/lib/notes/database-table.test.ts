@@ -323,4 +323,66 @@ describe("database table helpers", () => {
     expect(score && notesDatabaseTableCellText(page, score)).toBe("6");
     expect(score && notesDatabaseTableColumnCanEdit(score)).toBe(false);
   });
+
+  it("renders database button columns as read-only action cells", () => {
+    const dataSourceWithButton: NotesDataSource = {
+      ...dataSource,
+      properties: {
+        ...dataSource.properties,
+        Finish: {
+          id: "finish_button",
+          name: "Finish",
+          type: "button",
+          button: {
+            label: "Mark done",
+            requires_confirmation: true,
+            actions: [{
+              type: "update_current_row_property",
+              property_id: "done",
+              property_name: "Done",
+              property_type: "checkbox",
+              value: true,
+            }],
+          },
+        },
+      },
+    };
+    const viewWithButton: NotesDatabaseView = {
+      ...view,
+      configuration: {
+        type: "table",
+        table: {
+          property_order: [
+            "title",
+            "done",
+            "finish_button",
+          ],
+          hidden_property_ids: [],
+          column_widths: {},
+          row_open_mode: "full_page",
+        },
+      },
+    };
+    const pageWithButton: NotesPage = {
+      ...page,
+      properties: {
+        ...page.properties,
+        Finish: {
+          id: "finish_button",
+          type: "button",
+          button: {
+            label: "Mark done",
+          },
+        },
+      },
+    };
+
+    const columns = notesDatabaseTableColumns(dataSourceWithButton, viewWithButton);
+    const finish = columns.find((column) => column.id === "finish_button");
+
+    expect(finish?.buttonLabel).toBe("Mark done");
+    expect(finish?.buttonRequiresConfirmation).toBe(true);
+    expect(finish && notesDatabaseTableCellText(pageWithButton, finish)).toBe("Mark done");
+    expect(finish && notesDatabaseTableColumnCanEdit(finish)).toBe(false);
+  });
 });

@@ -40,6 +40,12 @@ export interface NotesDataSourceSchemaPropertyDraft {
   rollupPropertyName: string;
   rollupFunction: NotesDataSourceRollupFunction;
   formulaExpression: string;
+  buttonLabel: string;
+  buttonRequiresConfirmation: boolean;
+  buttonActionPropertyId: string;
+  buttonActionPropertyName: string;
+  buttonActionPropertyType: NotesDataSourcePropertyType;
+  buttonActionValue: unknown;
   options: NotesDataSourceSchemaOptionDraft[];
 }
 
@@ -77,6 +83,22 @@ const EMPTY_OBJECT_TYPES = new Set<NotesDataSourcePropertyType>([
   "last_edited_time",
   "last_edited_by",
   "place",
+]);
+
+const BUTTON_EDITABLE_PROPERTY_TYPES = new Set<NotesDataSourcePropertyType>([
+  "title",
+  "rich_text",
+  "number",
+  "select",
+  "multi_select",
+  "status",
+  "date",
+  "checkbox",
+  "url",
+  "email",
+  "phone_number",
+  "place",
+  "relation",
 ]);
 
 function isRecord(value: unknown): value is UnknownRecord {
@@ -128,7 +150,7 @@ function dataSourceRollupTargetOptions(
     const rawType = readString(value.type, "rich_text");
     if (!isPropertyType(rawType)) return [];
     const id = rawType === "title" ? "title" : readString(value.id, key);
-    if (!id || rawType === "rollup" || rawType === "formula") return [];
+    if (!id || rawType === "rollup" || rawType === "formula" || rawType === "button") return [];
     return [{
       id,
       name: readString(value.name, key),
@@ -141,7 +163,11 @@ function draftRollupTargetOptions(
   drafts: readonly NotesDataSourceSchemaPropertyDraft[],
 ): NotesDataSourceRollupTargetOption[] {
   return drafts
-    .filter((property) => property.type !== "rollup" && property.type !== "formula")
+    .filter((property) =>
+      property.type !== "rollup"
+      && property.type !== "formula"
+      && property.type !== "button"
+    )
     .map((property) => ({
       id: property.id,
       name: property.name,
@@ -212,6 +238,70 @@ export function notesDataSourceSyncRollupReferences(
       ...property,
       rollupRelationPropertyName: relation?.name ?? property.rollupRelationPropertyName,
       rollupPropertyName: target?.name ?? property.rollupPropertyName,
+    };
+  });
+}
+
+export function notesDataSourceButtonTargetOptions(
+  properties: readonly NotesDataSourceSchemaPropertyDraft[],
+  excludePropertyId: string,
+): NotesDataSourceSchemaPropertyDraft[] {
+  return properties.filter((property) =>
+    property.id !== excludePropertyId && BUTTON_EDITABLE_PROPERTY_TYPES.has(property.type)
+  );
+}
+
+export function notesDataSourceDefaultButtonPatch(
+  properties: readonly NotesDataSourceSchemaPropertyDraft[],
+  excludePropertyId: string,
+): Partial<NotesDataSourceSchemaPropertyDraft> {
+  const target = defaultButtonTarget(properties, excludePropertyId);
+  if (!target) {
+    return {
+      buttonActionPropertyId: "",
+      buttonActionPropertyName: "",
+      buttonActionPropertyType: "checkbox",
+      buttonActionValue: true,
+    };
+  }
+  return {
+    buttonActionPropertyId: target.id,
+    buttonActionPropertyName: target.name,
+    buttonActionPropertyType: target.type,
+    buttonActionValue: defaultButtonActionValue(target.type),
+  };
+}
+
+export function notesDataSourceSyncPropertyReferences(
+  drafts: NotesDataSourceSchemaPropertyDraft[],
+  currentDataSourceId: string | null,
+  dataSources: readonly NotesDataSource[],
+): NotesDataSourceSchemaPropertyDraft[] {
+  const rollupSynced = notesDataSourceSyncRollupReferences(
+    drafts,
+    currentDataSourceId,
+    dataSources,
+  );
+  return rollupSynced.map((property) => {
+    if (property.type !== "button" || !property.buttonActionPropertyId) return property;
+    const target = rollupSynced.find((candidate) =>
+      candidate.id === property.buttonActionPropertyId
+      && BUTTON_EDITABLE_PROPERTY_TYPES.has(candidate.type)
+    ) ?? null;
+    if (!target) {
+      return {
+        ...property,
+        buttonActionPropertyId: "",
+        buttonActionPropertyName: "",
+        buttonActionPropertyType: "checkbox",
+        buttonActionValue: true,
+      };
+    }
+    return {
+      ...property,
+      buttonActionPropertyName: target.name,
+      buttonActionPropertyType: target.type,
+      buttonActionValue: buttonActionValueForType(target.type, property.buttonActionValue),
     };
   });
 }
@@ -317,6 +407,78 @@ function defaultStatusOptions(): NotesDataSourceSchemaOptionDraft[] {
   ];
 }
 
+function defaultButtonTarget(
+  properties: readonly NotesDataSourceSchemaPropertyDraft[],
+  excludePropertyId: string,
+): NotesDataSourceSchemaPropertyDraft | null {
+  return properties.find((property) =>
+    property.id !== excludePropertyId
+    && BUTTON_EDITABLE_PROPERTY_TYPES.has(property.type)
+    && property.type === "checkbox"
+  ) ?? null;
+}
+
+function buttonConfigAction(config: unknown): UnknownRecord | null {
+  if (!isRecord(config) || !Array.isArray(config.actions)) return null;
+  return config.actions.filter(isRecord).find((action) =>
+    readString(action.type, "") === "update_current_row_property"
+  ) ?? null;
+}
+
+function readButtonActionType(value: unknown): NotesDataSourcePropertyType {
+  const type = readString(value, "checkbox");
+  return isPropertyType(type) && BUTTON_EDITABLE_PROPERTY_TYPES.has(type) ? type : "checkbox";
+}
+
+function defaultButtonActionValue(type: NotesDataSourcePropertyType): unknown {
+  switch (type) {
+    case "checkbox":
+      return true;
+    case "number":
+      return null;
+    case "multi_select":
+    case "relation":
+      return [];
+    case "select":
+    case "status":
+    case "date":
+    case "url":
+    case "email":
+    case "phone_number":
+    case "place":
+      return null;
+    default:
+      return "";
+  }
+}
+
+function buttonActionValueForType(
+  type: NotesDataSourcePropertyType,
+  value: unknown,
+): unknown {
+  switch (type) {
+    case "checkbox":
+      return typeof value === "boolean" ? value : true;
+    case "number":
+      return typeof value === "number" || value === null || typeof value === "string"
+        ? value
+        : null;
+    case "multi_select":
+    case "relation":
+      return Array.isArray(value) || typeof value === "string" ? value : [];
+    case "select":
+    case "status":
+    case "date":
+    case "url":
+    case "email":
+    case "phone_number":
+    case "place":
+      return value === null || typeof value === "string" || isRecord(value) ? value : null;
+    default:
+      return typeof value === "string" ? value : "";
+  }
+}
+
 function propertyDraftFromRecord(
   key: string,
   value: unknown,
@@ -342,6 +504,9 @@ function propertyDraftFromRecord(
   const rollupConfig = type === "rollup" && isRecord(config) ? config : {};
   const rollupFunction = readString(rollupConfig.function, "count");
   const formulaConfig = type === "formula" && isRecord(config) ? config : {};
+  const buttonConfig = type === "button" && isRecord(config) ? config : {};
+  const buttonAction = buttonConfigAction(buttonConfig);
+  const buttonActionType = readButtonActionType(buttonAction?.property_type);
   const options = type === "status"
     ? statusOptionDrafts(config)
     : type === "select" || type === "multi_select"
@@ -364,6 +529,12 @@ function propertyDraftFromRecord(
     rollupPropertyName: readString(rollupConfig.rollup_property_name, ""),
     rollupFunction: isRollupFunction(rollupFunction) ? rollupFunction : "count",
     formulaExpression: readString(formulaConfig.expression, ""),
+    buttonLabel: readString(buttonConfig.label, readString(value.name, key)),
+    buttonRequiresConfirmation: buttonConfig.requires_confirmation === true,
+    buttonActionPropertyId: readString(buttonAction?.property_id, ""),
+    buttonActionPropertyName: readString(buttonAction?.property_name, ""),
+    buttonActionPropertyType: buttonActionType,
+    buttonActionValue: buttonActionValueForType(buttonActionType, buttonAction?.value),
     options,
   };
 }
@@ -450,6 +621,8 @@ function defaultNameForType(type: NotesDataSourcePropertyType): string {
       return "Rollup";
     case "formula":
       return "Formula";
+    case "button":
+      return "Button";
   }
 }
 
@@ -476,6 +649,12 @@ export function createNotesDataSourcePropertyDraft(
     rollupPropertyName: "",
     rollupFunction: "count",
     formulaExpression: "",
+    buttonLabel: type === "button" ? name : "",
+    buttonRequiresConfirmation: false,
+    buttonActionPropertyId: "",
+    buttonActionPropertyName: "",
+    buttonActionPropertyType: "checkbox",
+    buttonActionValue: true,
     options: type === "status" ? defaultStatusOptions() : [],
   };
 }
@@ -546,6 +725,26 @@ function propertyConfig(property: NotesDataSourceSchemaPropertyDraft): UnknownRe
       const expression = property.formulaExpression.trim();
       if (!expression) throw new Error("formula expression is required");
       return { expression };
+    }
+    case "button": {
+      const label = property.buttonLabel.trim() || property.name.trim() || "Run";
+      const actions = property.buttonActionPropertyId.trim()
+        ? [{
+            type: "update_current_row_property",
+            property_id: property.buttonActionPropertyId.trim(),
+            property_name: property.buttonActionPropertyName.trim(),
+            property_type: property.buttonActionPropertyType,
+            value: buttonActionValueForType(
+              property.buttonActionPropertyType,
+              property.buttonActionValue,
+            ),
+          }]
+        : [];
+      return {
+        label,
+        requires_confirmation: property.buttonRequiresConfirmation,
+        actions,
+      };
     }
     default:
       return emptyPropertyConfig(property.type);

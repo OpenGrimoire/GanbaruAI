@@ -41,6 +41,7 @@ import {
   type NotesDatabaseView,
   type NotesDatabaseViewType,
   type NotesDataSource,
+  type NotesDataSourceTemplate,
   type NotesDataSourceBoardGroup,
   type NotesDataSourceBoardView,
   type NotesDataSourceCalendarView,
@@ -1709,6 +1710,35 @@ export function parseNotesPageTemplate(value: unknown): NotesPageTemplate {
     block_count: blockCount,
     created_time: readString(record.created_time, "page template.created_time"),
     last_edited_time: readString(record.last_edited_time, "page template.last_edited_time"),
+  };
+}
+
+export function parseNotesDataSourceTemplate(value: unknown): NotesDataSourceTemplate {
+  const record = readRecord(value, "data source template");
+  if (record.object !== "data_source_template") {
+    throw new Error("data source template.object must be data_source_template");
+  }
+  const blockCount = readInteger(record.block_count, "data source template.block_count");
+  if (blockCount < 0) {
+    throw new Error("data source template.block_count must not be negative");
+  }
+  return {
+    object: "data_source_template",
+    id: readString(record.id, "data source template.id"),
+    data_source_id: readString(record.data_source_id, "data source template.data_source_id"),
+    source_page_id: readNullableString(
+      record.source_page_id,
+      "data source template.source_page_id",
+    ),
+    name: readDisplayString(record.name, "data source template.name"),
+    properties: readRecord(record.properties, "data source template.properties"),
+    is_default: readBoolean(record.is_default, "data source template.is_default"),
+    block_count: blockCount,
+    created_time: readString(record.created_time, "data source template.created_time"),
+    last_edited_time: readString(
+      record.last_edited_time,
+      "data source template.last_edited_time",
+    ),
   };
 }
 

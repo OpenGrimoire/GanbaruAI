@@ -17,13 +17,15 @@
   import {
     createNotesDataSourcePropertyDraft,
     defaultNotesDataSourcePropertyName,
+    notesDataSourceButtonTargetOptions,
+    notesDataSourceDefaultButtonPatch,
     notesDataSourceDefaultRollupPatch,
     notesDataSourceRollupRelationOptions,
     notesDataSourceRollupTargetOptions,
     notesDataSourceRollupTargetOptionsForRelation,
     notesDataSourceSchemaDraftFromDto,
     notesDataSourceSchemaUpdateFromDraft,
-    notesDataSourceSyncRollupReferences,
+    notesDataSourceSyncPropertyReferences,
     type NotesDataSourceSchemaOptionDraft,
     type NotesDataSourceSchemaPropertyDraft,
   } from "$lib/notes/data-source-schema";
@@ -222,6 +224,12 @@
       if (nextType === "formula" && !next.formulaExpression.trim()) {
         next.formulaExpression = defaultFormulaExpression(property.id);
       }
+      if (nextType === "button") {
+        if (!next.buttonLabel.trim()) next.buttonLabel = next.name || t("notes.databaseSchemaButtonDefaultLabel");
+        if (!next.buttonActionPropertyId) {
+          Object.assign(next, notesDataSourceDefaultButtonPatch(properties, property.id));
+        }
+      }
       if (nextType !== "rollup") {
         next.rollupRelationPropertyId = "";
         next.rollupRelationPropertyName = "";
@@ -232,10 +240,18 @@
       if (nextType !== "formula") {
         next.formulaExpression = "";
       }
+      if (nextType !== "button") {
+        next.buttonLabel = "";
+        next.buttonRequiresConfirmation = false;
+        next.buttonActionPropertyId = "";
+        next.buttonActionPropertyName = "";
+        next.buttonActionPropertyType = "checkbox";
+        next.buttonActionValue = true;
+      }
       if (nextType === "title") next.hidden = false;
       return next;
     });
-    markDirty(notesDataSourceSyncRollupReferences(nextProperties, dataSourceId, rollupDataSources()));
+    markDirty(notesDataSourceSyncPropertyReferences(nextProperties, dataSourceId, rollupDataSources()));
   }
 
   function addProperty(): void {
@@ -254,6 +270,9 @@
     }
     if (newPropertyType === "formula") {
       property.formulaExpression = defaultFormulaExpression(property.id);
+    }
+    if (newPropertyType === "button") {
+      Object.assign(property, notesDataSourceDefaultButtonPatch(properties, property.id));
     }
     markDirty([...properties, property]);
   }
@@ -354,7 +373,38 @@
         return t("notes.databaseSchemaPropertyType.rollup");
       case "formula":
         return t("notes.databaseSchemaPropertyType.formula");
+      case "button":
+        return t("notes.databaseSchemaPropertyType.button");
     }
+  }
+
+  function updateButtonTarget(
+    property: NotesDataSourceSchemaPropertyDraft,
+    targetId: string,
+  ): void {
+    const target = notesDataSourceButtonTargetOptions(properties, property.id)
+      .find((candidate) => candidate.id === targetId) ?? null;
+    updateProperty(property.id, {
+      buttonActionPropertyId: target?.id ?? "",
+      buttonActionPropertyName: target?.name ?? "",
+      buttonActionPropertyType: target?.type ?? "checkbox",
+      buttonActionValue: target ? defaultButtonValue(target.type) : true,
+    });
+  }
+
+  function updateButtonValue(
+    property: NotesDataSourceSchemaPropertyDraft,
+    value: string | boolean,
+  ): void {
+    updateProperty(property.id, { buttonActionValue: value });
+  }
+
+  function defaultButtonValue(type: NotesDataSourcePropertyType): string | boolean {
+    return type === "checkbox" ? true : "";
+  }
+
+  function buttonActionValueText(value: unknown): string {
+    return typeof value === "string" || typeof value === "number" ? String(value) : "";
   }
 
   function defaultFormulaExpression(excludePropertyId: string): string {
@@ -723,6 +773,76 @@
                   }}
                 ></textarea>
               </label>
+            {:else if property.type === "button"}
+              <div class="grid min-w-0 gap-2 @lg:grid-cols-3">
+                <label class="min-w-0 text-[0.733333rem] text-muted-foreground">
+                  <span class="mb-1 block">{t("notes.databaseSchemaButtonLabel")}</span>
+                  <input
+                    class="h-8 w-full min-w-0 rounded-md border border-input bg-background px-2 text-[0.866667rem] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    value={property.buttonLabel}
+                    placeholder={t("notes.databaseSchemaButtonDefaultLabel")}
+                    oninput={(event) => {
+                      updateProperty(property.id, {
+                        buttonLabel: event.currentTarget.value,
+                      });
+                    }}
+                  />
+                </label>
+                <label class="min-w-0 text-[0.733333rem] text-muted-foreground">
+                  <span class="mb-1 block">{t("notes.databaseSchemaButtonTarget")}</span>
+                  <select
+                    class="h-8 w-full min-w-0 rounded-md border border-input bg-background px-2 text-[0.866667rem] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    value={property.buttonActionPropertyId}
+                    onchange={(event) => updateButtonTarget(property, event.currentTarget.value)}
+                  >
+                    <option value="">{t("notes.databaseSchemaButtonNoAction")}</option>
+                    {#each notesDataSourceButtonTargetOptions(properties, property.id) as target (target.id)}
+                      <option value={target.id}>{target.name}</option>
+                    {/each}
+                  </select>
+                </label>
+                <label class="flex min-w-0 items-end gap-2 text-[0.733333rem] text-muted-foreground">
+                  <input
+                    class="mb-2"
+                    type="checkbox"
+                    checked={property.buttonRequiresConfirmation}
+                    onchange={(event) => {
+                      updateProperty(property.id, {
+                        buttonRequiresConfirmation: event.currentTarget.checked,
+                      });
+                    }}
+                  />
+                  <span class="pb-1">{t("notes.databaseSchemaButtonConfirm")}</span>
+                </label>
+                {#if property.buttonActionPropertyId}
+                  {#if property.buttonActionPropertyType === "checkbox"}
+                    <label class="min-w-0 text-[0.733333rem] text-muted-foreground">
+                      <span class="mb-1 block">{t("notes.databaseSchemaButtonValue")}</span>
+                      <select
+                        class="h-8 w-full min-w-0 rounded-md border border-input bg-background px-2 text-[0.866667rem] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        value={property.buttonActionValue === false ? "false" : "true"}
+                        onchange={(event) => updateButtonValue(
+                          property,
+                          event.currentTarget.value === "true",
+                        )}
+                      >
+                        <option value="true">{t("notes.databaseSchemaButtonValueChecked")}</option>
+                        <option value="false">{t("notes.databaseSchemaButtonValueUnchecked")}</option>
+                      </select>
+                    </label>
+                  {:else}
+                    <label class="min-w-0 text-[0.733333rem] text-muted-foreground @lg:col-span-2">
+                      <span class="mb-1 block">{t("notes.databaseSchemaButtonValue")}</span>
+                      <input
+                        class="h-8 w-full min-w-0 rounded-md border border-input bg-background px-2 text-[0.866667rem] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        value={buttonActionValueText(property.buttonActionValue)}
+                        placeholder={t("notes.databaseSchemaButtonValuePlaceholder")}
+                        oninput={(event) => updateButtonValue(property, event.currentTarget.value)}
+                      />
+                    </label>
+                  {/if}
+                {/if}
+              </div>
             {:else if property.type === "select" || property.type === "multi_select" || property.type === "status"}
               <div class="space-y-2">
                 {#each property.options as option (option.id)}

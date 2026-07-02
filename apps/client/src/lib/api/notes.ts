@@ -13,6 +13,7 @@ import {
   mapNotesDataSourceListViewDto,
   mapNotesDataSourceSchemaDto,
   mapNotesDataSourceTableViewDto,
+  mapNotesDataSourceTemplateDto,
   mapNotesDataSourceTimelineViewDto,
   mapNotesLoadedPageDto,
   mapNotesPageBreadcrumbItemDto,
@@ -36,6 +37,7 @@ import type {
   NotesDataSourceBoardRowMove,
   NotesDataSourceBoardView,
   NotesDataSourceBoardViewUpdate,
+  NotesDataSourceButtonClickRequest,
   NotesDataSourceCalendarView,
   NotesDataSourceCalendarViewUpdate,
   NotesDataSourceGalleryView,
@@ -50,6 +52,11 @@ import type {
   NotesDataSourceSchemaUpdate,
   NotesDataSourceTableView,
   NotesDataSourceTableViewUpdate,
+  NotesDataSourceTemplate,
+  NotesDataSourceTemplateApplyRequest,
+  NotesDataSourceTemplateCreateFromRowRequest,
+  NotesDataSourceTemplateDuplicateRequest,
+  NotesDataSourceTemplateUpdateRequest,
   NotesDataSourceTimelineView,
   NotesDataSourceTimelineViewUpdate,
   NotesDuplicatePageRequest,
@@ -411,6 +418,95 @@ export async function createNotesDataSourceRowPage(
   );
 }
 
+export async function listNotesDataSourceTemplates(
+  dataSourceId: string,
+): Promise<NotesDataSourceTemplate[]> {
+  const dbUrl = await ensureDbUrl();
+  const rows = await invoke<unknown>("notes_list_data_source_templates", { dbUrl, dataSourceId });
+  if (!Array.isArray(rows)) {
+    throw new Error("notes_list_data_source_templates returned a non-array payload");
+  }
+  return rows.map(mapNotesDataSourceTemplateDto);
+}
+
+export async function createNotesDataSourceTemplateFromRow(
+  dataSourceId: string,
+  request: NotesDataSourceTemplateCreateFromRowRequest,
+): Promise<NotesDataSourceTemplate> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesDataSourceTemplateDto(
+    await invoke<unknown>("notes_create_data_source_template_from_row", {
+      dbUrl,
+      dataSourceId,
+      request,
+    }),
+  );
+}
+
+export async function applyNotesDataSourceTemplate(
+  dataSourceId: string,
+  templateId: string,
+  request: NotesDataSourceTemplateApplyRequest,
+): Promise<NotesLoadedPage> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesLoadedPageDto(
+    await invoke<unknown>("notes_apply_data_source_template", {
+      dbUrl,
+      dataSourceId,
+      templateId,
+      request,
+    }),
+  );
+}
+
+export async function updateNotesDataSourceTemplate(
+  dataSourceId: string,
+  templateId: string,
+  update: NotesDataSourceTemplateUpdateRequest,
+): Promise<NotesDataSourceTemplate> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesDataSourceTemplateDto(
+    await invoke<unknown>("notes_update_data_source_template", {
+      dbUrl,
+      dataSourceId,
+      templateId,
+      update,
+    }),
+  );
+}
+
+export async function duplicateNotesDataSourceTemplate(
+  dataSourceId: string,
+  templateId: string,
+  request: NotesDataSourceTemplateDuplicateRequest,
+): Promise<NotesDataSourceTemplate> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesDataSourceTemplateDto(
+    await invoke<unknown>("notes_duplicate_data_source_template", {
+      dbUrl,
+      dataSourceId,
+      templateId,
+      request,
+    }),
+  );
+}
+
+export async function deleteNotesDataSourceTemplate(
+  dataSourceId: string,
+  templateId: string,
+): Promise<string> {
+  const dbUrl = await ensureDbUrl();
+  const deletedTemplateId = await invoke<unknown>("notes_delete_data_source_template", {
+    dbUrl,
+    dataSourceId,
+    templateId,
+  });
+  if (typeof deletedTemplateId !== "string") {
+    throw new Error("notes_delete_data_source_template returned an invalid template id");
+  }
+  return deletedTemplateId;
+}
+
 export async function getNotesDataSourceTableView(
   dataSourceId: string,
   scope?: NotesDatabaseViewScope | null,
@@ -529,6 +625,22 @@ export async function updateNotesDataSourceRowProperty(
       dataSourceId,
       pageId,
       update,
+    }),
+  );
+}
+
+export async function clickNotesDataSourceButton(
+  dataSourceId: string,
+  pageId: string,
+  request: NotesDataSourceButtonClickRequest,
+): Promise<NotesPage> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesPageDto(
+    await invoke<unknown>("notes_click_data_source_button", {
+      dbUrl,
+      dataSourceId,
+      pageId,
+      request,
     }),
   );
 }
