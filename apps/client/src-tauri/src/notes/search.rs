@@ -221,11 +221,34 @@ async fn ensure_index_current(pool: &SqlitePool) -> Result<(), String> {
 async fn build_index_entries(pool: &SqlitePool) -> Result<Vec<SearchIndexEntry>, String> {
     let mut entries = Vec::new();
     append_page_entries(pool, &mut entries).await?;
+    append_property_value_entries(pool, &mut entries).await?;
     append_block_entries(pool, &mut entries).await?;
     append_comment_entries(pool, &mut entries).await?;
     append_relation_entries(pool, &mut entries).await?;
     append_file_entries(pool, &mut entries).await?;
     Ok(entries)
+}
+
+async fn append_property_value_entries(
+    pool: &SqlitePool,
+    entries: &mut Vec<SearchIndexEntry>,
+) -> Result<(), String> {
+    for row in super::search_properties::property_search_entries(pool).await? {
+        entries.push(SearchIndexEntry {
+            id: row.id,
+            source_type: "property".to_string(),
+            page_id: row.page_id,
+            block_id: None,
+            comment_id: None,
+            property_id: Some(row.property_id),
+            block_type: None,
+            title: row.title,
+            body: row.body,
+            metadata: row.metadata,
+            source_last_edited_time: row.source_last_edited_time,
+        });
+    }
+    Ok(())
 }
 
 async fn append_page_entries(
@@ -578,8 +601,17 @@ async fn search_source_fingerprint(pool: &SqlitePool) -> Result<SearchSourceFing
          SELECT 'comments', COUNT(*), COALESCE(MAX(last_edited_time), '')
          FROM notes_comments
          UNION ALL
+         SELECT 'data_sources', COUNT(*), COALESCE(MAX(last_edited_time), '')
+         FROM notes_data_sources
+         UNION ALL
+         SELECT 'databases', COUNT(*), COALESCE(MAX(last_edited_time), '')
+         FROM notes_databases
+         UNION ALL
          SELECT 'relation_links', COUNT(*), COALESCE(MAX(created_time), '')
          FROM notes_data_source_relation_links
+         UNION ALL
+         SELECT 'rollup_cache', COUNT(*), COALESCE(MAX(computed_time), '')
+         FROM notes_data_source_rollup_cache
          UNION ALL
          SELECT 'assets', COUNT(DISTINCT asset.id), COALESCE(MAX(asset.updated_at), '')
          FROM notes_assets AS asset

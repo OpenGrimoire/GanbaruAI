@@ -30,6 +30,7 @@ mod page_cover_assets;
 mod page_icon_assets;
 mod reads;
 mod search;
+mod search_properties;
 mod suggestions;
 mod templates;
 mod undo_state;

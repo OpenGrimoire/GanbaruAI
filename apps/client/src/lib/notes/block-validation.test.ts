@@ -1457,6 +1457,25 @@ describe("notes boundary validation", () => {
     expect(result.block_type).toBe("paragraph");
   });
 
+  it("parses property-backed page search result DTOs", () => {
+    const result = parseNotesSearchResult({
+      object: "search_result",
+      id: "page:11111111-1111-4111-8111-111111111111",
+      type: "page",
+      page: { ...basePage, icon: null },
+      block_id: null,
+      block_type: null,
+      comment_id: null,
+      discussion_id: null,
+      snippet: "Formula state Ready Searchable",
+      last_edited_time: "2026-06-30T12:00:00.000Z",
+    });
+
+    expect(result.type).toBe("page");
+    expect(result.block_id).toBeNull();
+    expect(result.snippet).toBe("Formula state Ready Searchable");
+  });
+
   it("rejects unsupported search result types", () => {
     expect(() =>
       parseNotesSearchResult({
