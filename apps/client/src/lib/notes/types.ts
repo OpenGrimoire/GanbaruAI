@@ -1477,6 +1477,42 @@ export interface NotesDataSourceCsvImportResult {
   diagnostics: NotesDataSourceCsvImportDiagnostic[];
 }
 
+export type NotesDataSourceCsvExportScope = "view" | "all";
+
+export interface NotesDataSourceCsvExportRequest {
+  database_id?: string | null;
+  view_id?: string | null;
+  scope?: NotesDataSourceCsvExportScope | null;
+}
+
+export type NotesDataSourceCsvExportDiagnosticSeverity = "info" | "warning" | "error";
+
+export interface NotesDataSourceCsvExportDiagnostic {
+  code: string;
+  severity: NotesDataSourceCsvExportDiagnosticSeverity;
+  property_id: string | null;
+  property_name: string | null;
+  message: string;
+}
+
+export interface NotesDataSourceCsvExportResult {
+  object: "notes_data_source_csv_export";
+  data_source_id: string;
+  database_id: string;
+  view_id: string;
+  scope: NotesDataSourceCsvExportScope;
+  file_name: string;
+  csv: string;
+  exported_row_count: number;
+  exported_property_count: number;
+  diagnostics: NotesDataSourceCsvExportDiagnostic[];
+}
+
+export interface NotesDataSourceCsvExportSaveResult {
+  saved: boolean;
+  export: NotesDataSourceCsvExportResult | null;
+}
+
 export type NotesBacklinkReferenceType =
   | "child_page"
   | "page_mention"

@@ -198,7 +198,7 @@ async fn load_table_view_tx(
     NoteDataSourceTableViewDto::new(data_source, database, view, rows)
 }
 
-async fn ensure_table_view_row_tx(
+pub(super) async fn ensure_table_view_row_tx(
     tx: &mut Transaction<'_, Sqlite>,
     data_source: &NoteDataSourceRow,
     database_id: Option<&str>,
@@ -253,7 +253,7 @@ async fn ensure_table_view_row_tx(
     .ok_or_else(|| "inserted table view was not found".to_string())
 }
 
-async fn load_active_data_source_and_database_tx(
+pub(super) async fn load_active_data_source_and_database_tx(
     tx: &mut Transaction<'_, Sqlite>,
     data_source_id: &str,
 ) -> Result<(NoteDataSourceRow, NoteDatabaseRow), String> {
@@ -280,7 +280,7 @@ async fn load_active_data_source_and_database_tx(
     Ok((data_source, database))
 }
 
-async fn load_active_row_pages_tx(
+pub(super) async fn load_active_row_pages_tx(
     tx: &mut Transaction<'_, Sqlite>,
     data_source_id: &str,
 ) -> Result<Vec<NotePageRow>, String> {
@@ -348,15 +348,15 @@ async fn touch_data_source_and_database_tx(
 }
 
 #[derive(Clone)]
-struct TableProperty {
-    key: String,
-    id: String,
-    name: String,
-    property_type: String,
-    schema: Value,
+pub(super) struct TableProperty {
+    pub(super) key: String,
+    pub(super) id: String,
+    pub(super) name: String,
+    pub(super) property_type: String,
+    pub(super) schema: Value,
 }
 
-fn table_schema(properties: &Value) -> Result<Vec<TableProperty>, String> {
+pub(super) fn table_schema(properties: &Value) -> Result<Vec<TableProperty>, String> {
     let object = properties
         .as_object()
         .ok_or_else(|| "data source properties must be an object".to_string())?;
@@ -584,7 +584,9 @@ fn canonical_column_widths(value: &Value, property_ids: &HashSet<String>) -> Res
     Ok(Value::Object(widths))
 }
 
-fn stored_filters(filter: Option<&str>) -> Result<Vec<NoteDataSourceTableFilter>, String> {
+pub(super) fn stored_filters(
+    filter: Option<&str>,
+) -> Result<Vec<NoteDataSourceTableFilter>, String> {
     let Some(filter) = filter else {
         return Ok(Vec::new());
     };
@@ -596,12 +598,12 @@ fn stored_filters(filter: Option<&str>) -> Result<Vec<NoteDataSourceTableFilter>
     serde_json::from_value(filters).map_err(|e| format!("parse table filters: {e}"))
 }
 
-fn stored_sorts(sorts: &str) -> Result<Vec<NoteDataSourceTableSort>, String> {
+pub(super) fn stored_sorts(sorts: &str) -> Result<Vec<NoteDataSourceTableSort>, String> {
     let value = parse_json(sorts, "database view sorts")?;
     serde_json::from_value(value).map_err(|e| format!("parse table sorts: {e}"))
 }
 
-fn normalized_row_for_schema(
+pub(super) fn normalized_row_for_schema(
     mut row: NotePageRow,
     schema: &[TableProperty],
 ) -> Result<NotePageRow, String> {
@@ -1031,7 +1033,7 @@ fn option_from_schema(
     Err("option value must match an existing option".to_string())
 }
 
-fn row_matches_filters(
+pub(super) fn row_matches_filters(
     row: &NotePageRow,
     schema: &[TableProperty],
     filters: &[NoteDataSourceTableFilter],
@@ -1065,7 +1067,7 @@ fn row_matches_filters(
     })
 }
 
-fn sort_rows(
+pub(super) fn sort_rows(
     rows: &mut [NotePageRow],
     schema: &[TableProperty],
     sorts: &[NoteDataSourceTableSort],

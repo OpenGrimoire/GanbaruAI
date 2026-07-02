@@ -29,6 +29,7 @@
     type NotesDatabaseTableEditValue,
     type NotesDatabaseTableColumn,
   } from "$lib/notes/database-table";
+  import NotesDatabaseCsvExportPanel from "./NotesDatabaseCsvExportPanel.svelte";
   import NotesDatabaseCsvImportPanel from "./NotesDatabaseCsvImportPanel.svelte";
   import NotesDatabaseRelationCell from "./NotesDatabaseRelationCell.svelte";
   import type {
@@ -630,6 +631,12 @@
         onImported={async () => {
           await loadTable();
         }}
+      />
+      <NotesDatabaseCsvExportPanel
+        {dataSourceId}
+        {databaseId}
+        {viewId}
+        disabled={mutating || loading}
       />
 
       <div class="grid gap-2 @lg:grid-cols-3">

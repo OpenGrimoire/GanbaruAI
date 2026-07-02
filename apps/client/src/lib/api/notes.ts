@@ -9,6 +9,8 @@ import {
   mapNotesDataSourceDto,
   mapNotesDataSourceBoardViewDto,
   mapNotesDataSourceCalendarViewDto,
+  mapNotesDataSourceCsvExportDto,
+  mapNotesDataSourceCsvExportSaveDto,
   mapNotesDataSourceCsvImportDto,
   mapNotesDataSourceGalleryViewDto,
   mapNotesDataSourceListViewDto,
@@ -52,6 +54,9 @@ import type {
   NotesDataSourceButtonClickRequest,
   NotesDataSourceCalendarView,
   NotesDataSourceCalendarViewUpdate,
+  NotesDataSourceCsvExportRequest,
+  NotesDataSourceCsvExportResult,
+  NotesDataSourceCsvExportSaveResult,
   NotesDataSourceCsvImportRequest,
   NotesDataSourceCsvImportResult,
   NotesDataSourceGalleryView,
@@ -687,6 +692,26 @@ export async function importNotesDataSourceCsv(
       dataSourceId,
       request,
     }),
+  );
+}
+
+export async function exportNotesDataSourceCsv(
+  dataSourceId: string,
+  request: NotesDataSourceCsvExportRequest,
+): Promise<NotesDataSourceCsvExportResult> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesDataSourceCsvExportDto(
+    await invoke<unknown>("notes_export_data_source_csv", { dbUrl, dataSourceId, request }),
+  );
+}
+
+export async function saveNotesDataSourceCsv(
+  dataSourceId: string,
+  request: NotesDataSourceCsvExportRequest,
+): Promise<NotesDataSourceCsvExportSaveResult> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesDataSourceCsvExportSaveDto(
+    await invoke<unknown>("notes_pick_and_write_data_source_csv", { dbUrl, dataSourceId, request }),
   );
 }
 

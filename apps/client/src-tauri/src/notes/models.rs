@@ -1313,6 +1313,58 @@ pub struct NoteDataSourceCsvImportDto {
     pub(in crate::notes) diagnostics: Vec<NoteDataSourceCsvImportDiagnosticDto>,
 }
 
+#[derive(Clone, Deserialize)]
+pub struct NoteDataSourceCsvExportRequest {
+    pub(in crate::notes) database_id: Option<String>,
+    pub(in crate::notes) view_id: Option<String>,
+    pub(in crate::notes) scope: Option<String>,
+}
+
+#[derive(Clone, Serialize)]
+pub struct NoteDataSourceCsvExportDiagnosticDto {
+    pub(in crate::notes) code: String,
+    pub(in crate::notes) severity: String,
+    pub(in crate::notes) property_id: Option<String>,
+    pub(in crate::notes) property_name: Option<String>,
+    pub(in crate::notes) message: String,
+}
+
+#[derive(Clone, Serialize)]
+pub struct NoteDataSourceCsvExportDto {
+    pub(in crate::notes) object: &'static str,
+    pub(in crate::notes) data_source_id: String,
+    pub(in crate::notes) database_id: String,
+    pub(in crate::notes) view_id: String,
+    pub(in crate::notes) scope: String,
+    pub(in crate::notes) file_name: String,
+    pub(in crate::notes) csv: String,
+    pub(in crate::notes) exported_row_count: i64,
+    pub(in crate::notes) exported_property_count: i64,
+    pub(in crate::notes) diagnostics: Vec<NoteDataSourceCsvExportDiagnosticDto>,
+}
+
+#[derive(Serialize)]
+pub struct NoteDataSourceCsvExportSaveDto {
+    saved: bool,
+    export: Option<NoteDataSourceCsvExportDto>,
+}
+
+impl NoteDataSourceCsvExportSaveDto {
+    pub(in crate::notes) fn saved(export: NoteDataSourceCsvExportDto) -> Self {
+        Self {
+            saved: true,
+            export: Some(export),
+        }
+    }
+
+    pub(in crate::notes) fn canceled() -> Self {
+        Self {
+            saved: false,
+            export: None,
+        }
+    }
+}
+
 #[derive(Deserialize)]
 pub struct NoteDataSourceTemplateCreateFromRow {
     pub(in crate::notes) id: String,

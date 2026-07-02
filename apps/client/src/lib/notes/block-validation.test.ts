@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   parseNotesBlock,
   parseNotesCreatedDatabase,
+  parseNotesDataSourceCsvExportSaveResult,
   parseNotesDataSourceCsvImportResult,
   parseNotesHtmlArchiveSaveResult,
   parseNotesHtmlExportResult,
@@ -1781,5 +1782,36 @@ describe("notes boundary validation", () => {
     expect(result.columns[1]?.read_only).toBe(true);
     expect(result.rows[1]?.valid).toBe(false);
     expect(result.diagnostics[0]?.property_id).toBe("estimate");
+  });
+
+  it("parses data source CSV export save result DTOs", () => {
+    const result = parseNotesDataSourceCsvExportSaveResult({
+      saved: true,
+      export: {
+        object: "notes_data_source_csv_export",
+        data_source_id: "81818181-8181-4181-8181-818181818181",
+        database_id: "82828282-8282-4282-8282-828282828282",
+        view_id: "83838383-8383-4383-8383-838383838383",
+        scope: "view",
+        file_name: "tasks-table.csv",
+        csv: "Name\nAlpha\n",
+        exported_row_count: 1,
+        exported_property_count: 1,
+        diagnostics: [
+          {
+            code: "csv_export_plain_text_property",
+            severity: "warning",
+            property_id: "files",
+            property_name: "Files",
+            message: "Files is exported as plain text.",
+          },
+        ],
+      },
+    });
+
+    expect(result.saved).toBe(true);
+    expect(result.export?.scope).toBe("view");
+    expect(result.export?.csv).toBe("Name\nAlpha\n");
+    expect(result.export?.diagnostics[0]?.property_id).toBe("files");
   });
 });

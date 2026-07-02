@@ -50,6 +50,11 @@ import {
   type NotesDataSourceBoardGroup,
   type NotesDataSourceBoardView,
   type NotesDataSourceCalendarView,
+  type NotesDataSourceCsvExportDiagnostic,
+  type NotesDataSourceCsvExportDiagnosticSeverity,
+  type NotesDataSourceCsvExportResult,
+  type NotesDataSourceCsvExportSaveResult,
+  type NotesDataSourceCsvExportScope,
   type NotesDataSourceCsvImportColumn,
   type NotesDataSourceCsvImportDiagnostic,
   type NotesDataSourceCsvImportDiagnosticSeverity,
@@ -2323,6 +2328,94 @@ function parseNotesDataSourceCsvImportDiagnostic(
 function isDataSourceCsvImportDiagnosticSeverity(
   value: string,
 ): value is NotesDataSourceCsvImportDiagnosticSeverity {
+  return value === "info" || value === "warning" || value === "error";
+}
+
+export function parseNotesDataSourceCsvExportResult(
+  value: unknown,
+): NotesDataSourceCsvExportResult {
+  const record = readRecord(value, "CSV export result");
+  if (record.object !== "notes_data_source_csv_export") {
+    throw new Error("CSV export result.object must be notes_data_source_csv_export");
+  }
+  if (!Array.isArray(record.diagnostics)) {
+    throw new Error("CSV export result.diagnostics must be an array");
+  }
+  const scope = readString(record.scope, "CSV export result.scope");
+  if (!isDataSourceCsvExportScope(scope)) {
+    throw new Error("CSV export result.scope is unsupported");
+  }
+  return {
+    object: "notes_data_source_csv_export",
+    data_source_id: readUuidString(record.data_source_id, "CSV export result.data_source_id"),
+    database_id: readUuidString(record.database_id, "CSV export result.database_id"),
+    view_id: readUuidString(record.view_id, "CSV export result.view_id"),
+    scope,
+    file_name: readString(record.file_name, "CSV export result.file_name"),
+    csv: readString(record.csv, "CSV export result.csv"),
+    exported_row_count: readNonNegativeInteger(
+      record.exported_row_count,
+      "CSV export result.exported_row_count",
+    ),
+    exported_property_count: readNonNegativeInteger(
+      record.exported_property_count,
+      "CSV export result.exported_property_count",
+    ),
+    diagnostics: record.diagnostics.map(parseNotesDataSourceCsvExportDiagnostic),
+  };
+}
+
+export function parseNotesDataSourceCsvExportSaveResult(
+  value: unknown,
+): NotesDataSourceCsvExportSaveResult {
+  const record = readRecord(value, "CSV export save result");
+  const saved = readBoolean(record.saved, "CSV export save result.saved");
+  const exportResult = record.export === null
+    ? null
+    : parseNotesDataSourceCsvExportResult(record.export);
+  if (saved && exportResult === null) {
+    throw new Error("CSV export save result.export is required when saved is true");
+  }
+  return {
+    saved,
+    export: exportResult,
+  };
+}
+
+function parseNotesDataSourceCsvExportDiagnostic(
+  value: unknown,
+  index: number,
+): NotesDataSourceCsvExportDiagnostic {
+  const record = readRecord(value, `CSV export result.diagnostics[${index}]`);
+  const severity = readString(
+    record.severity,
+    `CSV export result.diagnostics[${index}].severity`,
+  );
+  if (!isDataSourceCsvExportDiagnosticSeverity(severity)) {
+    throw new Error(`CSV export result.diagnostics[${index}].severity is unsupported`);
+  }
+  return {
+    code: readString(record.code, `CSV export result.diagnostics[${index}].code`),
+    severity,
+    property_id: readNullableString(
+      record.property_id,
+      `CSV export result.diagnostics[${index}].property_id`,
+    ),
+    property_name: readNullableString(
+      record.property_name,
+      `CSV export result.diagnostics[${index}].property_name`,
+    ),
+    message: readString(record.message, `CSV export result.diagnostics[${index}].message`),
+  };
+}
+
+function isDataSourceCsvExportScope(value: string): value is NotesDataSourceCsvExportScope {
+  return value === "view" || value === "all";
+}
+
+function isDataSourceCsvExportDiagnosticSeverity(
+  value: string,
+): value is NotesDataSourceCsvExportDiagnosticSeverity {
   return value === "info" || value === "warning" || value === "error";
 }
 

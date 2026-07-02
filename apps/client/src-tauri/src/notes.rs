@@ -8,6 +8,7 @@ mod comments;
 mod data_source_board;
 mod data_source_buttons;
 mod data_source_calendar;
+mod data_source_csv_export;
 mod data_source_csv_import;
 mod data_source_formula_parser;
 mod data_source_formulas;
@@ -646,6 +647,28 @@ pub async fn notes_import_data_source_csv<R: Runtime>(
 ) -> Result<NoteDataSourceCsvImportDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
     data_source_csv_import::import_csv(&pool, &data_source_id, request).await
+}
+
+#[tauri::command]
+pub async fn notes_export_data_source_csv<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    data_source_id: String,
+    request: NoteDataSourceCsvExportRequest,
+) -> Result<NoteDataSourceCsvExportDto, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    data_source_csv_export::export_csv(&pool, &data_source_id, request).await
+}
+
+#[tauri::command]
+pub async fn notes_pick_and_write_data_source_csv<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    data_source_id: String,
+    request: NoteDataSourceCsvExportRequest,
+) -> Result<NoteDataSourceCsvExportSaveDto, String> {
+    let pool = connect_sqlite(app.clone(), db_url).await?;
+    data_source_csv_export::pick_and_write_csv(&app, &pool, &data_source_id, request).await
 }
 
 #[tauri::command]
