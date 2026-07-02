@@ -1294,6 +1294,29 @@ export interface NotesLoadedPage {
   blocks: NotesPaginatedBlockList;
 }
 
+export interface NotesMarkdownImportRequest {
+  parent: NotesParent;
+  markdown: string;
+  title?: string | null;
+  source_name?: string | null;
+  after_block_id?: string | null;
+}
+
+export type NotesMarkdownImportDiagnosticSeverity = "info" | "warning" | "error";
+
+export interface NotesMarkdownImportDiagnostic {
+  code: string;
+  severity: NotesMarkdownImportDiagnosticSeverity;
+  line: number | null;
+  message: string;
+}
+
+export interface NotesMarkdownImportResult {
+  page: NotesLoadedPage;
+  diagnostics: NotesMarkdownImportDiagnostic[];
+  imported_block_count: number;
+}
+
 export type NotesBacklinkReferenceType =
   | "child_page"
   | "page_mention"

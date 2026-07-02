@@ -292,6 +292,60 @@ impl NoteLoadedPage {
 }
 
 #[derive(Deserialize)]
+pub struct NoteMarkdownImportRequest {
+    pub(in crate::notes) parent: NoteParent,
+    pub(in crate::notes) markdown: String,
+    pub(in crate::notes) title: Option<String>,
+    pub(in crate::notes) source_name: Option<String>,
+    pub(in crate::notes) after_block_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+pub struct NoteMarkdownImportDiagnosticDto {
+    code: String,
+    severity: String,
+    line: Option<i64>,
+    message: String,
+}
+
+impl NoteMarkdownImportDiagnosticDto {
+    pub(in crate::notes) fn new(
+        code: impl Into<String>,
+        severity: impl Into<String>,
+        line: Option<i64>,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            code: code.into(),
+            severity: severity.into(),
+            line,
+            message: message.into(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+pub struct NoteMarkdownImportDto {
+    page: NoteLoadedPage,
+    diagnostics: Vec<NoteMarkdownImportDiagnosticDto>,
+    imported_block_count: i64,
+}
+
+impl NoteMarkdownImportDto {
+    pub(in crate::notes) fn new(
+        page: NoteLoadedPage,
+        diagnostics: Vec<NoteMarkdownImportDiagnosticDto>,
+        imported_block_count: i64,
+    ) -> Self {
+        Self {
+            page,
+            diagnostics,
+            imported_block_count,
+        }
+    }
+}
+
+#[derive(Deserialize)]
 pub struct NoteSidebarPagesRequest {
     #[serde(default)]
     pub(in crate::notes) expanded_page_ids: Vec<String>,

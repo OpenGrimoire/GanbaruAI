@@ -1,7 +1,7 @@
 use crate::notes::validation::require_uuid;
 use std::collections::HashSet;
 
-pub(super) async fn new_note_id(
+pub(in crate::notes) async fn new_note_id(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     reserved_ids: &mut HashSet<String>,
 ) -> Result<String, String> {

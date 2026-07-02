@@ -79,6 +79,8 @@ When designing a new feature, ask:
 
 Notes are the named exception to the openable-file heuristic. Their editable model is a relational page and block graph, so SQLite is canonical and markdown is import, export, or bridge output. Block UI state that affects the local document graph, such as whether a toggle block or toggle heading is open or closed, is persisted with the block payload in SQLite rather than in markdown exports.
 
+Markdown import is an explicit conversion command, not a file watcher. The importer parses supported markdown into fresh `notes_pages` and `notes_blocks` rows, records source provenance, returns diagnostics for unsafe or unsupported syntax, and leaves the imported markdown file as external input. Later edits happen against SQLite rows, and any future markdown output is regenerated from those rows.
+
 Notes block presentation data that belongs to the document, such as a callout icon and Notion-style block color, is persisted as validated block payload data in SQLite. If a later callout icon points at a local file, the asset file belongs in the Ganbaru AI assets folder while the block payload stores only the validated file object reference.
 
 Notes child pages are represented twice because they have two roles. The page row in `notes_pages` owns the child document and its root blocks, while the paired `child_page` block row in the parent document owns the visible page link and block order. The paired page and block share an id so rename, trash, restore, and navigation can stay synchronized without a separate join table.

@@ -26,6 +26,8 @@ mod history;
 mod link_facts;
 mod links;
 mod local_user;
+mod markdown_import;
+mod markdown_import_syntax;
 mod mention_notifications;
 mod models;
 mod page_cover_assets;
@@ -197,6 +199,16 @@ pub async fn notes_resolve_unresolved_link<R: Runtime>(
 ) -> Result<Vec<NoteUnresolvedLinkDto>, String> {
     let pool = connect_sqlite(app, db_url).await?;
     links::resolve_unresolved_link(&pool, &link_id, request).await
+}
+
+#[tauri::command]
+pub async fn notes_import_markdown_page<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    request: NoteMarkdownImportRequest,
+) -> Result<NoteMarkdownImportDto, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    markdown_import::import_page(&pool, request).await
 }
 
 #[tauri::command]

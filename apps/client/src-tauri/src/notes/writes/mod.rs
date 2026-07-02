@@ -16,6 +16,7 @@ pub(in crate::notes) use block_commands::{
 };
 pub(in crate::notes) use block_duplicates::{duplicate_block, duplicate_blocks};
 pub(in crate::notes) use block_moves::{move_block, move_blocks};
+pub(in crate::notes) use ids::new_note_id;
 pub(in crate::notes) use page_duplicates::duplicate_page;
 pub(in crate::notes) use page_lifecycle::{
     archive_page, move_page, permanently_delete_page, trash_page,
@@ -23,7 +24,7 @@ pub(in crate::notes) use page_lifecycle::{
 pub(in crate::notes) use pages::{create_child_page_from_block, create_page, update_page};
 pub(in crate::notes) use parents::{
     parent_target_from_block_row, refresh_parent_has_children, resolve_block_parent, touch_page,
-    ParentTarget,
+    validate_page_parent_exists, ParentTarget,
 };
-pub(in crate::notes) use payloads::{default_text_payload, rich_text};
+pub(in crate::notes) use payloads::{default_text_payload, page_title_properties, rich_text};
 pub(in crate::notes) use sort::next_sort_orders;

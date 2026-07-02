@@ -28,7 +28,7 @@ pub(in crate::notes) fn parent_target_from_block_row(row: &NoteBlockRow) -> Pare
     }
 }
 
-pub(super) async fn validate_page_parent_exists(
+pub(in crate::notes) async fn validate_page_parent_exists(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     parent: &NoteParent,
 ) -> Result<(), String> {

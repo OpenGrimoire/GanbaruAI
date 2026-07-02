@@ -17,6 +17,7 @@ import {
   mapNotesDataSourceTimelineViewDto,
   mapNotesLocalUserDto,
   mapNotesLoadedPageDto,
+  mapNotesMarkdownImportDto,
   mapNotesMentionNotificationDto,
   mapNotesPageBreadcrumbItemDto,
   mapNotesPageAliasDto,
@@ -73,6 +74,8 @@ import type {
   NotesLocalUser,
   NotesLocalUserUpdate,
   NotesLoadedPage,
+  NotesMarkdownImportRequest,
+  NotesMarkdownImportResult,
   NotesMentionNotification,
   NotesMentionNotificationDeliveryUpdate,
   NotesMovePageRequest,
@@ -522,6 +525,15 @@ export async function rejectNotesSuggestion(suggestionId: string): Promise<Notes
 export async function createNotesPage(page: NotesPageCreate): Promise<NotesLoadedPage> {
   const dbUrl = await ensureDbUrl();
   return mapNotesLoadedPageDto(await invoke<unknown>("notes_create_page", { dbUrl, page }));
+}
+
+export async function importNotesMarkdownPage(
+  request: NotesMarkdownImportRequest,
+): Promise<NotesMarkdownImportResult> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesMarkdownImportDto(
+    await invoke<unknown>("notes_import_markdown_page", { dbUrl, request }),
+  );
 }
 
 export async function createNotesChildPageFromBlock(

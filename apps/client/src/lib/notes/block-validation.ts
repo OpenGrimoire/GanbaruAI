@@ -63,6 +63,9 @@ import {
   type NotesMediaBlockPayload,
   type NotesIconColor,
   type NotesLoadedPage,
+  type NotesMarkdownImportDiagnostic,
+  type NotesMarkdownImportDiagnosticSeverity,
+  type NotesMarkdownImportResult,
   type NotesMentionNotification,
   type NotesMentionNotificationKind,
   type NotesMentionNotificationStatus,
@@ -1840,6 +1843,57 @@ export function parseNotesLoadedPage(value: unknown): NotesLoadedPage {
     page: parseNotesPage(record.page),
     blocks: parseNotesPaginatedBlockList(record.blocks),
   };
+}
+
+export function parseNotesMarkdownImportResult(value: unknown): NotesMarkdownImportResult {
+  const record = readRecord(value, "markdown import result");
+  if (!Array.isArray(record.diagnostics)) {
+    throw new Error("markdown import result.diagnostics must be an array");
+  }
+  const importedBlockCount = readInteger(
+    record.imported_block_count,
+    "markdown import result.imported_block_count",
+  );
+  if (importedBlockCount < 0) {
+    throw new Error("markdown import result.imported_block_count must not be negative");
+  }
+  return {
+    page: parseNotesLoadedPage(record.page),
+    diagnostics: record.diagnostics.map(parseNotesMarkdownImportDiagnostic),
+    imported_block_count: importedBlockCount,
+  };
+}
+
+function parseNotesMarkdownImportDiagnostic(
+  value: unknown,
+  index: number,
+): NotesMarkdownImportDiagnostic {
+  const record = readRecord(value, `markdown import result.diagnostics[${index}]`);
+  const severity = readString(
+    record.severity,
+    `markdown import result.diagnostics[${index}].severity`,
+  );
+  if (!isMarkdownImportDiagnosticSeverity(severity)) {
+    throw new Error(`markdown import result.diagnostics[${index}].severity is unsupported`);
+  }
+  const line = record.line === null
+    ? null
+    : readInteger(record.line, `markdown import result.diagnostics[${index}].line`);
+  if (line !== null && line < 1) {
+    throw new Error(`markdown import result.diagnostics[${index}].line must be positive`);
+  }
+  return {
+    code: readString(record.code, `markdown import result.diagnostics[${index}].code`),
+    severity,
+    line,
+    message: readString(record.message, `markdown import result.diagnostics[${index}].message`),
+  };
+}
+
+function isMarkdownImportDiagnosticSeverity(
+  value: string,
+): value is NotesMarkdownImportDiagnosticSeverity {
+  return value === "info" || value === "warning" || value === "error";
 }
 
 export function parseNotesSidebarPageList(value: unknown): NotesSidebarPageList {

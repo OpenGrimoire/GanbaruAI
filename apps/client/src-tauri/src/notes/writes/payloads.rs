@@ -1,7 +1,7 @@
 use crate::notes::models::NotePageRow;
 use serde_json::{json, Value};
 
-pub(super) fn page_title_properties(title: &str) -> Value {
+pub(in crate::notes) fn page_title_properties(title: &str) -> Value {
     json!({
         "title": {
             "id": "title",

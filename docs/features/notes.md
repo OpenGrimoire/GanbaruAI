@@ -30,6 +30,12 @@ Notes are stored in `ganbaru-ai.sqlite`:
 
 Markdown exports can be regenerated from SQLite. Markdown imports must be parsed into page and block rows before editing. If an exported markdown file changes outside the app, the app treats that as import input, not as authoritative state.
 
+## Markdown import
+
+Markdown import creates a new canonical Notes page and normal `notes_blocks` rows in one SQLite transaction. It supports the practical first slice for headings, paragraphs, inline HTTP, HTTPS, and mail links, flat lists, to-dos, quotes, dividers, fenced code, external HTTPS images, and simple pipe tables. Safe frontmatter can provide the imported title, while unknown frontmatter fields, unsafe file references, inline images that cannot become media blocks, HTML, reference definitions, and deeper heading levels return diagnostics instead of silently disappearing.
+
+Imported markdown records source provenance as `markdown`, but the markdown text is not stored as an editable authority. Local file references are skipped until the shared import-file policy copies or deliberately references them. Unsupported syntax becomes visible preservation blocks where practical so users can review and convert it after import.
+
 ## Page model
 
 A page has an object type, id, created and edited timestamps, parent, trash state, archive state, properties, icon, and cover. The first local page slice uses a title property named `title`, shaped as a Notion title rich text array, and also keeps a normalized title cache for fast sidebar reads. Page icons use the public Notion icon object shape, with editable emoji icons, native icon names and colors, reusable custom emoji, external HTTPS image icons, managed local image file icons, and null removal from the page header. Missing local icon files fall back to the page icon placeholder and mark the managed asset row missing until the file reads successfully again. Page covers use the public Notion file object shape, with editable external HTTPS image covers, imported Notion-hosted file objects, imported file upload references, managed local image file covers, generated local cover images, and null removal from the top of the page. Missing local cover files show the unavailable cover placeholder and mark the managed asset row missing until the file reads successfully again.
