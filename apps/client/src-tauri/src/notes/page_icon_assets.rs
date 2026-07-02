@@ -9,6 +9,9 @@ use std::{
 use tauri::{AppHandle, Manager, Runtime};
 use tauri_plugin_dialog::{DialogExt, FilePath};
 
+use super::assets::{
+    self, NotesManagedAssetWrite, NOTES_ASSET_SOURCE_LOCAL_UPLOAD, NOTES_ASSET_STATE_AVAILABLE,
+};
 use crate::{db_path::connect_sqlite, vault};
 
 const PAGE_ICON_MAX_DISPLAY_MEGABYTES: usize = 3;
@@ -224,6 +227,10 @@ async fn save_page_icon_bytes<R: Runtime>(
         .map(|name| name.trim().to_string())
         .filter(|name| !name.is_empty());
     let pool = connect_sqlite(app.clone(), db_url).await?;
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|e| format!("begin page icon asset record: {e}"))?;
     sqlx::query(
         "INSERT INTO notes_page_icon_assets
             (id, asset_path, original_name, content_type, byte_size, sha256)
@@ -239,9 +246,26 @@ async fn save_page_icon_bytes<R: Runtime>(
     .bind(kind.content_type())
     .bind(bytes.len() as i64)
     .bind(&sha256)
-    .execute(&pool)
+    .execute(&mut *tx)
     .await
     .map_err(|e| format!("record page icon asset: {e}"))?;
+    assets::upsert_managed_asset_tx(
+        &mut tx,
+        NotesManagedAssetWrite {
+            relative_path: &relative_path,
+            original_name: original_name.as_deref(),
+            content_type: kind.content_type(),
+            byte_size: bytes.len() as i64,
+            sha256: &sha256,
+            source_type: NOTES_ASSET_SOURCE_LOCAL_UPLOAD,
+            storage_state: NOTES_ASSET_STATE_AVAILABLE,
+            missing_at: None,
+        },
+    )
+    .await?;
+    tx.commit()
+        .await
+        .map_err(|e| format!("commit page icon asset record: {e}"))?;
     Ok(NotePageIconAssetDto {
         relative_path,
         original_name,

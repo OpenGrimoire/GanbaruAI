@@ -10,7 +10,7 @@ use super::validation::{
     validate_block_write, validate_children_count, validate_duplicate_block_count,
     validate_page_create, validate_page_update, validate_parent, validate_sort_order,
 };
-use super::{data_source_rollups, history, mention_notifications, reads};
+use super::{assets, data_source_rollups, history, mention_notifications, reads};
 use serde_json::{json, Value};
 use sqlx::SqlitePool;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -573,6 +573,8 @@ pub(in crate::notes) async fn update_page(
         .map_err(|e| format!("update notes page properties: {e}"))?;
     }
     if update.icon.is_set() || update.cover.is_set() {
+        let icon_reference_value = update.icon.value().cloned();
+        let cover_reference_value = update.cover.value().cloned();
         let (icon_is_set, icon) = json_field_update(&update.icon);
         let (cover_is_set, cover) = json_field_update(&update.cover);
         sqlx::query(
@@ -590,6 +592,15 @@ pub(in crate::notes) async fn update_page(
         .execute(&mut *tx)
         .await
         .map_err(|e| format!("update notes page media: {e}"))?;
+        assets::sync_page_asset_references_tx(
+            &mut tx,
+            page_id,
+            icon_is_set != 0,
+            icon_reference_value.as_ref(),
+            cover_is_set != 0,
+            cover_reference_value.as_ref(),
+        )
+        .await?;
     }
     tx.commit()
         .await

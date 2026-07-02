@@ -7099,6 +7099,108 @@ fn page_cover_variants_round_trip() {
 }
 
 #[test]
+fn page_media_asset_references_follow_local_file_payloads() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        create_page(&pool, PAGE_A, BLOCK_A).await;
+        let icon_path =
+            "notes/page-icons/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.png";
+        let cover_path =
+            "notes/page-covers/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png";
+
+        writes::update_page(
+            &pool,
+            PAGE_A,
+            super::models::NotePageUpdate {
+                title: None,
+                parent: None,
+                properties: None,
+                icon: OptionalJsonValue::Value(json!({
+                    "type": "file",
+                    "file": {
+                        "url": format!("ganbaru-asset:{icon_path}"),
+                        "name": "focus.png",
+                        "content_type": "image/png",
+                        "byte_size": 42,
+                        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                        "ganbaru_asset_path": icon_path
+                    }
+                })),
+                cover: OptionalJsonValue::Value(json!({
+                    "type": "file",
+                    "file": {
+                        "url": format!("ganbaru-asset:{cover_path}"),
+                        "name": "cover.png",
+                        "content_type": "image/png",
+                        "byte_size": 84,
+                        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        "ganbaru_asset_path": cover_path
+                    }
+                })),
+            },
+        )
+        .await
+        .unwrap();
+
+        let asset_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM notes_assets WHERE kind = 'image'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(asset_count, 2);
+
+        for (asset_path, role) in [(icon_path, "page_icon"), (cover_path, "page_cover")] {
+            let reference_count: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*)
+                 FROM notes_asset_references
+                 WHERE asset_id = ? AND owner_type = 'page' AND owner_id = ? AND role = ?",
+            )
+            .bind(asset_path)
+            .bind(PAGE_A)
+            .bind(role)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert_eq!(reference_count, 1);
+        }
+
+        writes::update_page(
+            &pool,
+            PAGE_A,
+            super::models::NotePageUpdate {
+                title: None,
+                parent: None,
+                properties: None,
+                icon: OptionalJsonValue::Null,
+                cover: OptionalJsonValue::Value(json!({
+                    "type": "external",
+                    "external": {
+                        "url": "https://example.com/cover.webp"
+                    }
+                })),
+            },
+        )
+        .await
+        .unwrap();
+
+        let remaining_references: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM notes_asset_references WHERE owner_type = 'page' AND owner_id = ?",
+        )
+        .bind(PAGE_A)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(remaining_references, 0);
+
+        let retained_assets: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM notes_assets")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(retained_assets, 2);
+    });
+}
+
+#[test]
 fn page_cover_validation_rejects_unsafe_file_objects() {
     tauri::async_runtime::block_on(async {
         let pool = migrated_memory_pool().await;

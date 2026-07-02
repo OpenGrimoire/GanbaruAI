@@ -139,6 +139,7 @@ Ganbaru AI/
   assets/: user assets (images embedded in notes, attachments)
     notes/page-icons/: copied local Notes page icon images
     notes/page-covers/: copied local Notes page cover images
+    notes/files/: managed local Notes block, property, comment, and import files
     project-icons/: copied project and group icon images, including reusable custom emoji
   templates/: project management phase templates, methodology templates (SWOT, BMC, etc.)
   .yjs/: Yjs document state cache (binary)

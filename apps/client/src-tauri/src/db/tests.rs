@@ -1540,3 +1540,259 @@ fn schema_creates_notes_page_cover_assets() {
         }
     });
 }
+
+#[test]
+fn schema_creates_notes_assets_and_references() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+
+        sqlx::query(
+            "INSERT INTO notes_pages (id, parent_type, title)
+             VALUES ('page-1', 'workspace', 'Assets')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO notes_blocks (
+                id,
+                page_id,
+                parent_type,
+                parent_page_id,
+                type,
+                payload,
+                plain_text,
+                sort_order
+             )
+             VALUES (
+                'block-1',
+                'page-1',
+                'page_id',
+                'page-1',
+                'paragraph',
+                '{\"paragraph\":{\"rich_text\":[]}}',
+                '',
+                1000
+             )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO notes_assets (
+                id,
+                asset_path,
+                kind,
+                source_type,
+                original_name,
+                content_type,
+                byte_size,
+                sha256
+             )
+             VALUES (
+                'notes/page-icons/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png',
+                'notes/page-icons/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png',
+                'image',
+                'local_upload',
+                'focus.png',
+                'image/png',
+                42,
+                'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+             )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO notes_assets (
+                id,
+                asset_path,
+                kind,
+                source_type,
+                original_name,
+                content_type,
+                byte_size,
+                sha256,
+                storage_state,
+                missing_at
+             )
+             VALUES (
+                'notes/files/report.pdf',
+                'notes/files/report.pdf',
+                'pdf',
+                'imported',
+                'report.pdf',
+                'application/pdf',
+                128,
+                'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+                'missing',
+                '2026-07-02T12:00:00.000Z'
+             )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO notes_asset_references (asset_id, owner_type, owner_id, page_id, role)
+             VALUES (
+                'notes/page-icons/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png',
+                'page',
+                'page-1',
+                'page-1',
+                'page_icon'
+             )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO notes_asset_references (
+                asset_id,
+                owner_type,
+                owner_id,
+                page_id,
+                block_id,
+                role
+             )
+             VALUES (
+                'notes/files/report.pdf',
+                'block',
+                'block-1',
+                'page-1',
+                'block-1',
+                'block_file'
+             )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let reference_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM notes_asset_references")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(reference_count, 2);
+
+        for (
+            id,
+            asset_path,
+            kind,
+            source_type,
+            content_type,
+            byte_size,
+            sha256,
+            storage_state,
+            missing_at,
+        ) in [
+            (
+                "bad-path",
+                "notes/files/nested/file.pdf",
+                "pdf",
+                "imported",
+                "application/pdf",
+                1,
+                "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                "available",
+                None::<&str>,
+            ),
+            (
+                "bad-icon-type",
+                "notes/page-icons/icon.svg",
+                "image",
+                "local_upload",
+                "image/svg+xml",
+                1,
+                "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                "available",
+                None::<&str>,
+            ),
+            (
+                "bad-content-type",
+                "notes/files/file.bin",
+                "file",
+                "local_upload",
+                "not-a-mime",
+                1,
+                "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                "available",
+                None::<&str>,
+            ),
+            (
+                "bad-size",
+                "notes/files/file.bin",
+                "file",
+                "local_upload",
+                "application/octet-stream",
+                0,
+                "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                "available",
+                None::<&str>,
+            ),
+            (
+                "bad-hash",
+                "notes/files/file.bin",
+                "file",
+                "local_upload",
+                "application/octet-stream",
+                1,
+                "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+                "available",
+                None::<&str>,
+            ),
+            (
+                "bad-missing-state",
+                "notes/files/file.bin",
+                "file",
+                "local_upload",
+                "application/octet-stream",
+                1,
+                "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                "missing",
+                None::<&str>,
+            ),
+        ] {
+            let inserted = sqlx::query(
+                "INSERT INTO notes_assets (
+                    id,
+                    asset_path,
+                    kind,
+                    source_type,
+                    content_type,
+                    byte_size,
+                    sha256,
+                    storage_state,
+                    missing_at
+                 )
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            )
+            .bind(id)
+            .bind(asset_path)
+            .bind(kind)
+            .bind(source_type)
+            .bind(content_type)
+            .bind(byte_size)
+            .bind(sha256)
+            .bind(storage_state)
+            .bind(missing_at)
+            .execute(&pool)
+            .await;
+            assert!(inserted.is_err(), "{id} should fail");
+        }
+
+        let invalid_reference = sqlx::query(
+            "INSERT INTO notes_asset_references (asset_id, owner_type, owner_id, role)
+             VALUES (
+                'notes/page-icons/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png',
+                'page',
+                'page-1',
+                'page_icon'
+             )",
+        )
+        .execute(&pool)
+        .await;
+        assert!(invalid_reference.is_err());
+    });
+}
