@@ -75,6 +75,7 @@ apps/
         doomscrolling/: shared browser and desktop blocking rules
         hooks/: reusable Svelte hooks
         i18n/: typed localization catalogs, locale resolution, formatters
+          messages/: split locale catalog entry points, domain modules, and shape tests
         music/: frontend music source and playback helpers
         notes/: Notion-shaped DTOs, validation, keyboard, and tree helpers
         stores/: Svelte runes ($state), global app state
