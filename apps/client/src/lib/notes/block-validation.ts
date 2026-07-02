@@ -62,6 +62,12 @@ import {
   type NotesLocalObjectMentionType,
   type NotesMediaBlockPayload,
   type NotesIconColor,
+  type NotesHtmlArchiveSaveResult,
+  type NotesHtmlExportAsset,
+  type NotesHtmlExportDiagnostic,
+  type NotesHtmlExportDiagnosticSeverity,
+  type NotesHtmlExportFile,
+  type NotesHtmlExportResult,
   type NotesHtmlImportDiagnostic,
   type NotesHtmlImportDiagnosticSeverity,
   type NotesHtmlImportResult,
@@ -2021,6 +2027,152 @@ function isMarkdownExportDiagnosticSeverity(
   value: string,
 ): value is NotesMarkdownExportDiagnosticSeverity {
   return value === "info" || value === "warning" || value === "error";
+}
+
+export function parseNotesHtmlExportResult(value: unknown): NotesHtmlExportResult {
+  const record = readRecord(value, "HTML export result");
+  if (record.object !== "notes_html_archive_export") {
+    throw new Error("HTML export result.object must be notes_html_archive_export");
+  }
+  if (!Array.isArray(record.files)) throw new Error("HTML export result.files must be an array");
+  if (!Array.isArray(record.assets)) throw new Error("HTML export result.assets must be an array");
+  if (!Array.isArray(record.diagnostics)) {
+    throw new Error("HTML export result.diagnostics must be an array");
+  }
+  return {
+    object: "notes_html_archive_export",
+    root_page_id: readUuidString(record.root_page_id, "HTML export result.root_page_id"),
+    files: record.files.map(parseNotesHtmlExportFile),
+    assets: record.assets.map(parseNotesHtmlExportAsset),
+    diagnostics: record.diagnostics.map(parseNotesHtmlExportDiagnostic),
+    manifest_json: readString(record.manifest_json, "HTML export result.manifest_json"),
+    exported_page_count: readNonNegativeInteger(
+      record.exported_page_count,
+      "HTML export result.exported_page_count",
+    ),
+    exported_block_count: readNonNegativeInteger(
+      record.exported_block_count,
+      "HTML export result.exported_block_count",
+    ),
+    exported_asset_count: readNonNegativeInteger(
+      record.exported_asset_count,
+      "HTML export result.exported_asset_count",
+    ),
+    exported_comment_count: readNonNegativeInteger(
+      record.exported_comment_count,
+      "HTML export result.exported_comment_count",
+    ),
+    exported_database_view_count: readNonNegativeInteger(
+      record.exported_database_view_count,
+      "HTML export result.exported_database_view_count",
+    ),
+  };
+}
+
+export function parseNotesHtmlArchiveSaveResult(value: unknown): NotesHtmlArchiveSaveResult {
+  const record = readRecord(value, "HTML archive save result");
+  if (record.object !== "notes_html_archive_save") {
+    throw new Error("HTML archive save result.object must be notes_html_archive_save");
+  }
+  return {
+    object: "notes_html_archive_save",
+    saved: readBoolean(record.saved, "HTML archive save result.saved"),
+    export: record.export === null
+      ? null
+      : parseNotesHtmlExportResult(record.export),
+  };
+}
+
+function parseNotesHtmlExportFile(value: unknown, index: number): NotesHtmlExportFile {
+  const record = readRecord(value, `HTML export result.files[${index}]`);
+  return {
+    path: readString(record.path, `HTML export result.files[${index}].path`),
+    content_type: readString(
+      record.content_type,
+      `HTML export result.files[${index}].content_type`,
+    ),
+    contents: readString(record.contents, `HTML export result.files[${index}].contents`),
+    byte_size: readNonNegativeInteger(
+      record.byte_size,
+      `HTML export result.files[${index}].byte_size`,
+    ),
+  };
+}
+
+function parseNotesHtmlExportAsset(value: unknown, index: number): NotesHtmlExportAsset {
+  const record = readRecord(value, `HTML export result.assets[${index}]`);
+  return {
+    id: readString(record.id, `HTML export result.assets[${index}].id`),
+    archive_path: readString(
+      record.archive_path,
+      `HTML export result.assets[${index}].archive_path`,
+    ),
+    source_path: readString(
+      record.source_path,
+      `HTML export result.assets[${index}].source_path`,
+    ),
+    content_type: readString(
+      record.content_type,
+      `HTML export result.assets[${index}].content_type`,
+    ),
+    byte_size: readNonNegativeInteger(
+      record.byte_size,
+      `HTML export result.assets[${index}].byte_size`,
+    ),
+    sha256: readString(record.sha256, `HTML export result.assets[${index}].sha256`),
+    storage_state: readString(
+      record.storage_state,
+      `HTML export result.assets[${index}].storage_state`,
+    ),
+    exported: readBoolean(record.exported, `HTML export result.assets[${index}].exported`),
+  };
+}
+
+function parseNotesHtmlExportDiagnostic(
+  value: unknown,
+  index: number,
+): NotesHtmlExportDiagnostic {
+  const record = readRecord(value, `HTML export result.diagnostics[${index}]`);
+  const severity = readString(
+    record.severity,
+    `HTML export result.diagnostics[${index}].severity`,
+  );
+  if (!isHtmlExportDiagnosticSeverity(severity)) {
+    throw new Error(`HTML export result.diagnostics[${index}].severity is unsupported`);
+  }
+  return {
+    code: readString(record.code, `HTML export result.diagnostics[${index}].code`),
+    severity,
+    page_id: readNullableUuidString(
+      record.page_id,
+      `HTML export result.diagnostics[${index}].page_id`,
+    ),
+    block_id: readNullableUuidString(
+      record.block_id,
+      `HTML export result.diagnostics[${index}].block_id`,
+    ),
+    asset_id: readNullableString(
+      record.asset_id,
+      `HTML export result.diagnostics[${index}].asset_id`,
+    ),
+    comment_id: readNullableUuidString(
+      record.comment_id,
+      `HTML export result.diagnostics[${index}].comment_id`,
+    ),
+    message: readString(record.message, `HTML export result.diagnostics[${index}].message`),
+  };
+}
+
+function isHtmlExportDiagnosticSeverity(
+  value: string,
+): value is NotesHtmlExportDiagnosticSeverity {
+  return value === "info" || value === "warning" || value === "error";
+}
+
+function readNonNegativeInteger(value: unknown, label: string): number {
+  const integer = readInteger(value, label);
+  if (integer < 0) throw new Error(`${label} must not be negative`);
+  return integer;
 }
 
 export function parseNotesSidebarPageList(value: unknown): NotesSidebarPageList {

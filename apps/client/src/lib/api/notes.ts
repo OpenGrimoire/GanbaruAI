@@ -15,6 +15,8 @@ import {
   mapNotesDataSourceTableViewDto,
   mapNotesDataSourceTemplateDto,
   mapNotesDataSourceTimelineViewDto,
+  mapNotesHtmlArchiveSaveDto,
+  mapNotesHtmlExportDto,
   mapNotesHtmlImportDto,
   mapNotesLocalUserDto,
   mapNotesLoadedPageDto,
@@ -72,6 +74,9 @@ import type {
   NotesDuplicateBlockRequest,
   NotesDuplicateBlocksRequest,
   NotesBlockUpdate,
+  NotesHtmlArchiveSaveResult,
+  NotesHtmlExportRequest,
+  NotesHtmlExportResult,
   NotesLinkedDatabaseCreateRequest,
   NotesLocalUser,
   NotesLocalUserUpdate,
@@ -557,6 +562,22 @@ export async function exportNotesMarkdownPage(
   const dbUrl = await ensureDbUrl();
   return mapNotesMarkdownExportDto(
     await invoke<unknown>("notes_export_markdown_page", { dbUrl, request }),
+  );
+}
+
+export async function exportNotesHtmlPage(
+  request: NotesHtmlExportRequest,
+): Promise<NotesHtmlExportResult> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesHtmlExportDto(await invoke<unknown>("notes_export_html_page", { dbUrl, request }));
+}
+
+export async function saveNotesHtmlArchive(
+  request: NotesHtmlExportRequest,
+): Promise<NotesHtmlArchiveSaveResult> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesHtmlArchiveSaveDto(
+    await invoke<unknown>("notes_pick_and_write_html_archive", { dbUrl, request }),
   );
 }
 

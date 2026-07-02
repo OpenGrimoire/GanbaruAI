@@ -881,6 +881,8 @@ pub fn run() {
             notes::notes_import_markdown_page,
             notes::notes_import_html_page,
             notes::notes_export_markdown_page,
+            notes::notes_export_html_page,
+            notes::notes_pick_and_write_html_archive,
             notes::notes_get_local_user,
             notes::notes_update_local_user,
             notes::notes_list_page_templates,

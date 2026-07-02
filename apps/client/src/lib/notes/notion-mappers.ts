@@ -12,6 +12,8 @@ import {
   parseNotesDataSourceTableView,
   parseNotesDataSourceTemplate,
   parseNotesDataSourceTimelineView,
+  parseNotesHtmlArchiveSaveResult,
+  parseNotesHtmlExportResult,
   parseNotesHtmlImportResult,
   parseNotesLocalUser,
   parseNotesLoadedPage,
@@ -44,6 +46,8 @@ import type {
   NotesDataSourceTableView,
   NotesDataSourceTemplate,
   NotesDataSourceTimelineView,
+  NotesHtmlArchiveSaveResult,
+  NotesHtmlExportResult,
   NotesHtmlImportResult,
   NotesLocalUser,
   NotesLoadedPage,
@@ -91,6 +95,16 @@ export function mapNotesMarkdownImportDto(value: unknown): NotesMarkdownImportRe
 /** Validate and map an unknown HTML import DTO from the Tauri boundary. */
 export function mapNotesHtmlImportDto(value: unknown): NotesHtmlImportResult {
   return parseNotesHtmlImportResult(value);
+}
+
+/** Validate and map an unknown HTML export DTO from the Tauri boundary. */
+export function mapNotesHtmlExportDto(value: unknown): NotesHtmlExportResult {
+  return parseNotesHtmlExportResult(value);
+}
+
+/** Validate and map an unknown HTML archive save DTO from the Tauri boundary. */
+export function mapNotesHtmlArchiveSaveDto(value: unknown): NotesHtmlArchiveSaveResult {
+  return parseNotesHtmlArchiveSaveResult(value);
 }
 
 /** Validate and map an unknown markdown export DTO from the Tauri boundary. */

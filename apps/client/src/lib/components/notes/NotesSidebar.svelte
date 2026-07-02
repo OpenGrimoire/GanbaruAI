@@ -13,12 +13,14 @@
   import { getNotes } from "$lib/stores/notes.svelte";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
   import Archive from "@lucide/svelte/icons/archive";
+  import Download from "@lucide/svelte/icons/download";
   import FileText from "@lucide/svelte/icons/file-text";
   import MessageSquare from "@lucide/svelte/icons/message-square";
   import Plus from "@lucide/svelte/icons/plus";
   import Search from "@lucide/svelte/icons/search";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import Upload from "@lucide/svelte/icons/upload";
+  import NotesHtmlExportDialog from "./NotesHtmlExportDialog.svelte";
   import NotesHtmlImportDialog from "./NotesHtmlImportDialog.svelte";
   import NotesPageRow from "./NotesPageRow.svelte";
   import NotesPageTemplateRow from "./NotesPageTemplateRow.svelte";
@@ -30,6 +32,7 @@
   let pendingTrashPage = $state<NotesPage | null>(null);
   let pendingDeleteTemplate = $state<NotesPageTemplate | null>(null);
   let htmlImportOpen = $state(false);
+  let htmlExportOpen = $state(false);
   let blockDropTargetPageId = $state<string | null>(null);
   const sidebarPlan = $derived.by(() =>
     planNotesSidebarNavigation({
@@ -73,6 +76,22 @@
       title: input.title,
       source_name: input.sourceName,
       keep_external_file_references: input.keepExternalFileReferences,
+    });
+  }
+
+  function exportHtmlArchive(input: {
+    includePageTree: boolean;
+    includeComments: boolean;
+    includeResolvedComments: boolean;
+    includeAssets: boolean;
+    includeDatabaseViews: boolean;
+  }) {
+    return notes.exportHtmlArchive({
+      include_page_tree: input.includePageTree,
+      include_comments: input.includeComments,
+      include_resolved_comments: input.includeResolvedComments,
+      include_assets: input.includeAssets,
+      include_database_views: input.includeDatabaseViews,
     });
   }
 
@@ -243,6 +262,17 @@
         }}
       >
         <Upload class="size-4" />
+      </button>
+      <button
+        class="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-45"
+        aria-label={t("notes.htmlExportOpen")}
+        data-app-tooltip={notes.loadedPage ? t("notes.htmlExportOpen") : t("notes.htmlExportUnavailable")}
+        disabled={!notes.loadedPage}
+        onclick={() => {
+          htmlExportOpen = true;
+        }}
+      >
+        <Download class="size-4" />
       </button>
       <button
         class="rounded-md bg-primary p-1.5 text-primary-foreground hover:bg-primary/90"
@@ -596,6 +626,16 @@
     onImport={importHtmlPage}
     onCancel={() => {
       htmlImportOpen = false;
+    }}
+  />
+{/if}
+
+{#if htmlExportOpen && notes.loadedPage}
+  <NotesHtmlExportDialog
+    pageTitle={notesPageTitle(notes.loadedPage, t("notes.untitled"))}
+    onExport={exportHtmlArchive}
+    onCancel={() => {
+      htmlExportOpen = false;
     }}
   />
 {/if}

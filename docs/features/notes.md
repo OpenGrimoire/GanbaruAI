@@ -1,6 +1,6 @@
 # Notes
 
-The notes system is a local page and block editor for capturing thoughts, project context, daily logs, and long-form writing. SQLite is the canonical store. Markdown is derivative only: import, export, preview, or agent bridge output.
+The notes system is a local page and block editor for capturing thoughts, project context, daily logs, and long-form writing. SQLite is the canonical store. Markdown and HTML are derivative only: import, export, preview, archive, or agent bridge output.
 
 The model follows public Notion API concepts where they are useful locally: pages, parents, blocks, rich text arrays, child pagination, timestamps, trash state, and archive state. It does not depend on Notion services, private internals, or hosted infrastructure.
 
@@ -28,7 +28,7 @@ Notes are stored in `ganbaru-ai.sqlite`:
 - `notes_page_icon_assets` and `notes_page_cover_assets` keep command-specific metadata for local page icon and cover image picking. The shared `notes_assets` row is the cross-feature file registry, and page rows still keep only the validated Notion-shaped icon or cover JSON payload.
 - `notes_undo_state` stores a bounded page-local undo and redo stack for editor recovery. It is local operation state derived from canonical rows, not a second source of note content.
 
-Markdown exports can be regenerated from SQLite. Markdown imports must be parsed into page and block rows before editing. If an exported markdown file changes outside the app, the app treats that as import input, not as authoritative state.
+Markdown and HTML exports can be regenerated from SQLite. Markdown and HTML imports must be parsed into page and block rows before editing. If an exported file changes outside the app, the app treats that as import input, not as authoritative state.
 
 ## Markdown import
 
@@ -47,6 +47,12 @@ The supported first slice converts headings, paragraphs, inline bold, italic, un
 Markdown export reads canonical `notes_pages`, `notes_blocks`, and optionally `notes_comments` to produce deterministic derivative markdown. The export includes the page title by default, walks active blocks in stored order, renders rich text annotations, safe links, mentions, inline and block equations, headings, paragraphs, lists, to-dos, toggles, callouts, quotes, code, dividers, simple tables, and media references. Comments are included only when requested, append as a comments section, and omit local read state.
 
 Markdown cannot represent every local or Notion-shaped block losslessly. Unsupported blocks, child pages, child databases, generated navigation blocks, layout containers, local asset references, file upload references, colors, and other approximations return diagnostics instead of pretending the export is complete. The output is a view over SQLite and can be regenerated at any time.
+
+## HTML export
+
+HTML export reads canonical pages, blocks, comments, managed asset metadata, and supported database view metadata to produce a readable derivative zip archive. The Notes sidebar exposes an export action for the selected page. The dialog can include subpages, managed local assets, database view manifests, comments, and resolved comments. The backend returns the same deterministic archive model that the native save command writes: page HTML files, a CSS file, database JSON manifests where a local database block has view metadata, `manifest.json`, asset metadata, object counts, and diagnostics.
+
+Page content exports as static HTML. Child pages link to their exported page files when they are included in the page tree. Rich text links keep safe HTTP, HTTPS, and mail links, and local Notes links point to exported pages when their targets are in the archive. Managed asset files are copied into the zip only when requested and available in the Ganbaru AI assets folder. Missing, excluded, unsafe, unsupported, or out-of-archive references produce warnings instead of silent loss. Database views currently export as JSON manifests with view settings and row property snapshots rather than a fully interactive database UI.
 
 ## Page model
 

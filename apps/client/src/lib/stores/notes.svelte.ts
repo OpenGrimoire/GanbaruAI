@@ -34,6 +34,7 @@ import {
   resolveNotesCommentThread,
   resolveNotesUnresolvedLink,
   rejectNotesSuggestion,
+  saveNotesHtmlArchive,
   searchNotes,
   trashNotesPage,
   updateNotesComment,
@@ -106,6 +107,8 @@ import type {
   NotesCommentThread,
   NotesLocalUser,
   NotesLoadedPage,
+  NotesHtmlArchiveSaveResult,
+  NotesHtmlExportRequest,
   NotesHtmlImportRequest,
   NotesHtmlImportResult,
   NotesPage,
@@ -983,6 +986,18 @@ async function importHtmlPage(
   return result;
 }
 
+async function exportHtmlArchive(
+  input: Omit<NotesHtmlExportRequest, "page_id"> = {},
+): Promise<NotesHtmlArchiveSaveResult> {
+  if (!selectedPageId) {
+    throw new Error("No Notes page is selected");
+  }
+  return saveNotesHtmlArchive({
+    ...input,
+    page_id: selectedPageId,
+  });
+}
+
 async function applyPageTemplate(templateId: string, title?: string): Promise<void> {
   const loaded = await applyNotesPageTemplate(templateId, {
     parent: { type: "workspace", workspace: true },
@@ -1755,6 +1770,7 @@ export function getNotes() {
     createPage,
     createSubpage,
     importHtmlPage,
+    exportHtmlArchive,
     createChildPageFromBlock,
     applyPageTemplate,
     createPageTemplateFromCurrentPage,

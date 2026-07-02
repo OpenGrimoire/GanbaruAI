@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   parseNotesBlock,
   parseNotesCreatedDatabase,
+  parseNotesHtmlArchiveSaveResult,
+  parseNotesHtmlExportResult,
   parseNotesLocalUser,
   parseNotesMentionNotification,
   parseNotesHtmlImportResult,
@@ -1649,5 +1651,66 @@ describe("notes boundary validation", () => {
     expect(result.object).toBe("notes_markdown_export");
     expect(result.diagnostics[0]?.block_id).toBe("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
     expect(result.exported_comment_count).toBe(1);
+  });
+
+  it("parses HTML archive export result DTOs", () => {
+    const result = parseNotesHtmlExportResult({
+      object: "notes_html_archive_export",
+      root_page_id: "11111111-1111-4111-8111-111111111111",
+      files: [
+        {
+          path: "index.html",
+          content_type: "text/html; charset=utf-8",
+          contents: "<!doctype html>",
+          byte_size: 15,
+        },
+      ],
+      assets: [
+        {
+          id: "notes/files/local.txt",
+          archive_path: "assets/notes/files/local.txt",
+          source_path: "notes/files/local.txt",
+          content_type: "text/plain",
+          byte_size: 12,
+          sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          storage_state: "available",
+          exported: true,
+        },
+      ],
+      diagnostics: [
+        {
+          code: "html_export_local_asset_not_included",
+          severity: "warning",
+          page_id: "11111111-1111-4111-8111-111111111111",
+          block_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          asset_id: null,
+          comment_id: null,
+          message: "Local managed asset was not included in this archive",
+        },
+      ],
+      manifest_json: "{\"object\":\"notes_html_archive_manifest\"}",
+      exported_page_count: 1,
+      exported_block_count: 2,
+      exported_asset_count: 1,
+      exported_comment_count: 0,
+      exported_database_view_count: 0,
+    });
+
+    expect(result.object).toBe("notes_html_archive_export");
+    expect(result.files[0]?.path).toBe("index.html");
+    expect(result.assets[0]?.exported).toBe(true);
+    expect(result.diagnostics[0]?.block_id).toBe("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+    expect(result.exported_asset_count).toBe(1);
+  });
+
+  it("parses HTML archive save result DTOs", () => {
+    const result = parseNotesHtmlArchiveSaveResult({
+      object: "notes_html_archive_save",
+      saved: false,
+      export: null,
+    });
+
+    expect(result.saved).toBe(false);
+    expect(result.export).toBeNull();
   });
 });

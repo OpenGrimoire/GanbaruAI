@@ -22,6 +22,7 @@ mod database_rows_table;
 mod database_schema;
 mod database_templates_buttons;
 mod database_timeline;
+mod html_export;
 mod html_import;
 mod link_facts;
 mod links;

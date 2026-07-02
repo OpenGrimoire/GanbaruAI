@@ -1367,6 +1367,65 @@ export interface NotesMarkdownExportResult {
   exported_comment_count: number;
 }
 
+export interface NotesHtmlExportRequest {
+  page_id: string;
+  include_page_tree?: boolean | null;
+  include_comments?: boolean | null;
+  include_resolved_comments?: boolean | null;
+  include_assets?: boolean | null;
+  include_database_views?: boolean | null;
+}
+
+export type NotesHtmlExportDiagnosticSeverity = "info" | "warning" | "error";
+
+export interface NotesHtmlExportDiagnostic {
+  code: string;
+  severity: NotesHtmlExportDiagnosticSeverity;
+  page_id: string | null;
+  block_id: string | null;
+  asset_id: string | null;
+  comment_id: string | null;
+  message: string;
+}
+
+export interface NotesHtmlExportFile {
+  path: string;
+  content_type: string;
+  contents: string;
+  byte_size: number;
+}
+
+export interface NotesHtmlExportAsset {
+  id: string;
+  archive_path: string;
+  source_path: string;
+  content_type: string;
+  byte_size: number;
+  sha256: string;
+  storage_state: string;
+  exported: boolean;
+}
+
+export interface NotesHtmlExportResult {
+  object: "notes_html_archive_export";
+  root_page_id: string;
+  files: NotesHtmlExportFile[];
+  assets: NotesHtmlExportAsset[];
+  diagnostics: NotesHtmlExportDiagnostic[];
+  manifest_json: string;
+  exported_page_count: number;
+  exported_block_count: number;
+  exported_asset_count: number;
+  exported_comment_count: number;
+  exported_database_view_count: number;
+}
+
+export interface NotesHtmlArchiveSaveResult {
+  object: "notes_html_archive_save";
+  saved: boolean;
+  export: NotesHtmlExportResult | null;
+}
+
 export type NotesBacklinkReferenceType =
   | "child_page"
   | "page_mention"

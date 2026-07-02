@@ -464,6 +464,125 @@ impl NoteMarkdownExportDto {
     }
 }
 
+#[derive(Deserialize, Clone, Debug)]
+pub struct NoteHtmlExportRequest {
+    pub(in crate::notes) page_id: String,
+    pub(in crate::notes) include_page_tree: Option<bool>,
+    pub(in crate::notes) include_comments: Option<bool>,
+    pub(in crate::notes) include_resolved_comments: Option<bool>,
+    pub(in crate::notes) include_assets: Option<bool>,
+    pub(in crate::notes) include_database_views: Option<bool>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+pub struct NoteHtmlExportDiagnosticDto {
+    pub(in crate::notes) code: String,
+    pub(in crate::notes) severity: String,
+    pub(in crate::notes) page_id: Option<String>,
+    pub(in crate::notes) block_id: Option<String>,
+    pub(in crate::notes) asset_id: Option<String>,
+    pub(in crate::notes) comment_id: Option<String>,
+    pub(in crate::notes) message: String,
+}
+
+impl NoteHtmlExportDiagnosticDto {
+    pub(in crate::notes) fn new(
+        code: impl Into<String>,
+        severity: impl Into<String>,
+        page_id: Option<impl Into<String>>,
+        block_id: Option<impl Into<String>>,
+        asset_id: Option<impl Into<String>>,
+        comment_id: Option<impl Into<String>>,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            code: code.into(),
+            severity: severity.into(),
+            page_id: page_id.map(Into::into),
+            block_id: block_id.map(Into::into),
+            asset_id: asset_id.map(Into::into),
+            comment_id: comment_id.map(Into::into),
+            message: message.into(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+pub struct NoteHtmlExportFileDto {
+    pub(in crate::notes) path: String,
+    pub(in crate::notes) content_type: String,
+    pub(in crate::notes) contents: String,
+    pub(in crate::notes) byte_size: i64,
+}
+
+impl NoteHtmlExportFileDto {
+    pub(in crate::notes) fn new(
+        path: impl Into<String>,
+        content_type: impl Into<String>,
+        contents: impl Into<String>,
+    ) -> Self {
+        let contents = contents.into();
+        Self {
+            path: path.into(),
+            content_type: content_type.into(),
+            byte_size: contents.len() as i64,
+            contents,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+pub struct NoteHtmlExportAssetDto {
+    pub(in crate::notes) id: String,
+    pub(in crate::notes) archive_path: String,
+    pub(in crate::notes) source_path: String,
+    pub(in crate::notes) content_type: String,
+    pub(in crate::notes) byte_size: i64,
+    pub(in crate::notes) sha256: String,
+    pub(in crate::notes) storage_state: String,
+    pub(in crate::notes) exported: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct NoteHtmlExportDto {
+    pub(in crate::notes) object: &'static str,
+    pub(in crate::notes) root_page_id: String,
+    pub(in crate::notes) files: Vec<NoteHtmlExportFileDto>,
+    pub(in crate::notes) assets: Vec<NoteHtmlExportAssetDto>,
+    pub(in crate::notes) diagnostics: Vec<NoteHtmlExportDiagnosticDto>,
+    pub(in crate::notes) manifest_json: String,
+    pub(in crate::notes) exported_page_count: i64,
+    pub(in crate::notes) exported_block_count: i64,
+    pub(in crate::notes) exported_asset_count: i64,
+    pub(in crate::notes) exported_comment_count: i64,
+    pub(in crate::notes) exported_database_view_count: i64,
+}
+
+#[derive(Serialize)]
+pub struct NoteHtmlArchiveSaveDto {
+    object: &'static str,
+    saved: bool,
+    export: Option<NoteHtmlExportDto>,
+}
+
+impl NoteHtmlArchiveSaveDto {
+    pub(in crate::notes) fn canceled() -> Self {
+        Self {
+            object: "notes_html_archive_save",
+            saved: false,
+            export: None,
+        }
+    }
+
+    pub(in crate::notes) fn saved(export: NoteHtmlExportDto) -> Self {
+        Self {
+            object: "notes_html_archive_save",
+            saved: true,
+            export: Some(export),
+        }
+    }
+}
+
 #[derive(Deserialize)]
 pub struct NoteSidebarPagesRequest {
     #[serde(default)]

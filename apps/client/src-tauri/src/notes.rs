@@ -23,6 +23,10 @@ mod data_source_views;
 mod databases;
 mod file_assets;
 mod history;
+mod html_export;
+mod html_export_archive;
+mod html_export_format;
+mod html_export_render;
 mod html_import;
 mod html_import_syntax;
 mod import_writer;
@@ -234,6 +238,26 @@ pub async fn notes_export_markdown_page<R: Runtime>(
 ) -> Result<NoteMarkdownExportDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
     markdown_export::export_page(&pool, request).await
+}
+
+#[tauri::command]
+pub async fn notes_export_html_page<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    request: NoteHtmlExportRequest,
+) -> Result<NoteHtmlExportDto, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    html_export::export_page(&pool, request).await
+}
+
+#[tauri::command]
+pub async fn notes_pick_and_write_html_archive<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    request: NoteHtmlExportRequest,
+) -> Result<NoteHtmlArchiveSaveDto, String> {
+    let pool = connect_sqlite(app.clone(), db_url).await?;
+    html_export::pick_and_write_archive(&app, &pool, request).await
 }
 
 #[tauri::command]
