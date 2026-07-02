@@ -4,6 +4,7 @@ use std::collections::HashSet;
 use std::path::{Component, Path};
 
 pub(in crate::notes) const NOTES_ASSET_SOURCE_LOCAL_UPLOAD: &str = "local_upload";
+pub(in crate::notes) const NOTES_ASSET_SOURCE_IMPORTED: &str = "imported";
 pub(in crate::notes) const NOTES_ASSET_STATE_AVAILABLE: &str = "available";
 pub(in crate::notes) const NOTES_ASSET_STATE_MISSING: &str = "missing";
 

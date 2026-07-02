@@ -2216,6 +2216,22 @@ export const es = {
     mediaUrlInvalid: "Ingresa una URL válida.",
     mediaUrlRequiresHttps: "Usa una URL HTTPS.",
     mediaUrlUnsupported: (type: string) => `Usa una URL compatible para ${type}.`,
+    importFileChoiceCopy: "Copiar en Ganbaru AI",
+    importFileChoiceKeepExternal: "Conservar enlace HTTPS",
+    importFileChoiceSkip: "Omitir archivo",
+    importFileCopied: "El archivo se copió en los assets gestionados de Notas.",
+    importFileExternalKept: "El archivo quedará como una referencia HTTPS explícita.",
+    importFileSkipped: "La referencia de archivo se omitió.",
+    importFileChoosePolicy: "Elige si copiar, conservar u omitir la referencia de archivo.",
+    importFileRequiresHttps: "Las referencias externas de archivo deben usar HTTPS.",
+    importFileUnsupportedType:
+      "La referencia externa de archivo no coincide con el tipo de bloque destino.",
+    importFileExternalNotCopied:
+      "Las referencias externas y de assets gestionados no se copian durante la importación.",
+    importFileRootRequired: "Selecciona una carpeta de importación antes de copiar archivos.",
+    importFilePathEscape:
+      "Los archivos importados deben estar dentro de la carpeta de importación seleccionada.",
+    importFileTooLarge: "El archivo importado supera el límite de tamaño de archivo de Notas.",
     mediaExternalPreviewOnly: "La vista previa está disponible desde la acción de abrir.",
     unsupportedBlockTitle: "Bloque no compatible",
     unsupportedBlockType: (blockType: string) => `Tipo importado: ${blockType}`,
