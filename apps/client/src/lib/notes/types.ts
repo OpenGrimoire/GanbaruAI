@@ -866,6 +866,31 @@ export interface NotesDataSourceBoardView {
   groups: NotesDataSourceBoardGroup[];
 }
 
+export type NotesDatabaseGalleryRowOpenMode = "full_page" | "side_panel";
+export type NotesDatabaseGalleryCoverSource = "page_cover" | "files_property" | "none";
+export type NotesDatabaseGalleryCardSize = "small" | "medium" | "large";
+
+export interface NotesDatabaseGalleryConfiguration {
+  cover_source: NotesDatabaseGalleryCoverSource;
+  cover_property_id: string | null;
+  visible_property_ids: string[];
+  card_size: NotesDatabaseGalleryCardSize;
+  fit_image: boolean;
+  row_open_mode: NotesDatabaseGalleryRowOpenMode;
+}
+
+export interface NotesDataSourceGalleryViewUpdate {
+  filter: NotesDatabaseTableFilter[];
+  sorts: NotesDatabaseTableSort[];
+  configuration: NotesDatabaseGalleryConfiguration;
+}
+
+export interface NotesDataSourceGalleryView {
+  data_source: NotesDataSource;
+  view: NotesDatabaseView;
+  rows: NotesPage[];
+}
+
 export const NOTES_DATABASE_VIEW_TYPES = [
   "table",
   "board",

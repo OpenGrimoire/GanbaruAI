@@ -729,6 +729,23 @@ pub struct NoteDataSourceBoardRowMove {
     pub(in crate::notes) group_id: String,
 }
 
+#[derive(Clone, Deserialize)]
+pub struct NoteDataSourceGalleryConfigurationUpdate {
+    pub(in crate::notes) cover_source: String,
+    pub(in crate::notes) cover_property_id: Option<String>,
+    pub(in crate::notes) visible_property_ids: Vec<String>,
+    pub(in crate::notes) card_size: String,
+    pub(in crate::notes) fit_image: bool,
+    pub(in crate::notes) row_open_mode: String,
+}
+
+#[derive(Deserialize)]
+pub struct NoteDataSourceGalleryViewUpdate {
+    pub(in crate::notes) filter: Vec<NoteDataSourceTableFilter>,
+    pub(in crate::notes) sorts: Vec<NoteDataSourceTableSort>,
+    pub(in crate::notes) configuration: NoteDataSourceGalleryConfigurationUpdate,
+}
+
 #[derive(Deserialize)]
 pub struct NoteMovePage {
     pub(in crate::notes) parent: NoteParent,
@@ -1125,6 +1142,34 @@ impl NoteDataSourceBoardViewDto {
             )?,
             view: NoteDatabaseViewDto::new(view)?,
             groups,
+        })
+    }
+}
+
+#[derive(Serialize)]
+pub struct NoteDataSourceGalleryViewDto {
+    data_source: NoteDataSourceDto,
+    view: NoteDatabaseViewDto,
+    rows: Vec<NotePageDto>,
+}
+
+impl NoteDataSourceGalleryViewDto {
+    pub(in crate::notes) fn new(
+        data_source: NoteDataSourceRow,
+        database: NoteDatabaseRow,
+        view: NoteDatabaseViewRow,
+        rows: Vec<NotePageRow>,
+    ) -> Result<Self, String> {
+        Ok(Self {
+            data_source: NoteDataSourceDto::new(
+                data_source,
+                block_parent_from_database_row(&database)?,
+            )?,
+            view: NoteDatabaseViewDto::new(view)?,
+            rows: rows
+                .into_iter()
+                .map(NotePageDto::new)
+                .collect::<Result<Vec<_>, _>>()?,
         })
     }
 }

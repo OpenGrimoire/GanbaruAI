@@ -7,6 +7,7 @@ import {
   mapNotesCommentThreadDto,
   mapNotesCreatedDatabaseDto,
   mapNotesDataSourceBoardViewDto,
+  mapNotesDataSourceGalleryViewDto,
   mapNotesDataSourceSchemaDto,
   mapNotesDataSourceTableViewDto,
   mapNotesLoadedPageDto,
@@ -31,6 +32,8 @@ import type {
   NotesDataSourceBoardRowMove,
   NotesDataSourceBoardView,
   NotesDataSourceBoardViewUpdate,
+  NotesDataSourceGalleryView,
+  NotesDataSourceGalleryViewUpdate,
   NotesDataSourceRowPageCreateRequest,
   NotesDataSourceRowPropertyUpdate,
   NotesDataSourceSchema,
@@ -408,6 +411,29 @@ export async function moveNotesDataSourceBoardRow(
       dbUrl,
       dataSourceId,
       request,
+    }),
+  );
+}
+
+export async function getNotesDataSourceGalleryView(
+  dataSourceId: string,
+): Promise<NotesDataSourceGalleryView> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesDataSourceGalleryViewDto(
+    await invoke<unknown>("notes_get_data_source_gallery_view", { dbUrl, dataSourceId }),
+  );
+}
+
+export async function updateNotesDataSourceGalleryView(
+  dataSourceId: string,
+  update: NotesDataSourceGalleryViewUpdate,
+): Promise<NotesDataSourceGalleryView> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesDataSourceGalleryViewDto(
+    await invoke<unknown>("notes_update_data_source_gallery_view", {
+      dbUrl,
+      dataSourceId,
+      update,
     }),
   );
 }

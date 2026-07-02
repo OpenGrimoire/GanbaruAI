@@ -11,9 +11,11 @@
   let {
     cover,
     unavailableLabel,
+    objectFit = "cover",
   }: {
     cover: NotesPageCover | null;
     unavailableLabel: string;
+    objectFit?: "cover" | "contain";
   } = $props();
 
   let assetUrl = $state<string | null>(null);
@@ -38,9 +40,9 @@
 </script>
 
 {#if assetUrl}
-  <img class="size-full object-cover" src={assetUrl} alt="" />
+  <img class={`size-full ${objectFit === "contain" ? "object-contain" : "object-cover"}`} src={assetUrl} alt="" />
 {:else if externalUrl}
-  <img class="size-full object-cover" src={externalUrl} alt="" />
+  <img class={`size-full ${objectFit === "contain" ? "object-contain" : "object-cover"}`} src={externalUrl} alt="" />
 {:else}
   <div class="flex size-full items-center justify-center gap-2 bg-muted text-[0.8rem] text-muted-foreground">
     <ImageIcon class="size-4" />

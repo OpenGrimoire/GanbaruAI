@@ -173,7 +173,7 @@ async fn load_board_view_tx(
     NoteDataSourceBoardViewDto::new(data_source, database, view, groups)
 }
 
-async fn load_active_data_source_and_database_tx(
+pub(in crate::notes) async fn load_active_data_source_and_database_tx(
     tx: &mut Transaction<'_, Sqlite>,
     data_source_id: &str,
 ) -> Result<(NoteDataSourceRow, NoteDatabaseRow), String> {
@@ -276,7 +276,7 @@ async fn load_board_view_row_tx(
     .map_err(|e| format!("load notes board view: {e}"))
 }
 
-async fn load_active_row_pages_tx(
+pub(in crate::notes) async fn load_active_row_pages_tx(
     tx: &mut Transaction<'_, Sqlite>,
     data_source_id: &str,
 ) -> Result<Vec<NotePageRow>, String> {
@@ -295,7 +295,9 @@ async fn load_active_row_pages_tx(
     .map_err(|e| format!("load notes data source board rows: {e}"))
 }
 
-async fn generated_uuid_tx(tx: &mut Transaction<'_, Sqlite>) -> Result<String, String> {
+pub(in crate::notes) async fn generated_uuid_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+) -> Result<String, String> {
     let id: String = sqlx::query_scalar(
         "SELECT lower(hex(randomblob(4))) || '-' ||
                 lower(hex(randomblob(2))) || '-' ||
@@ -311,11 +313,11 @@ async fn generated_uuid_tx(tx: &mut Transaction<'_, Sqlite>) -> Result<String, S
 }
 
 #[derive(Clone)]
-struct BoardProperty {
-    key: String,
-    id: String,
-    property_type: String,
-    schema: Value,
+pub(in crate::notes) struct BoardProperty {
+    pub(in crate::notes) key: String,
+    pub(in crate::notes) id: String,
+    pub(in crate::notes) property_type: String,
+    pub(in crate::notes) schema: Value,
 }
 
 #[derive(Clone)]
@@ -333,7 +335,7 @@ struct BoardGroupDraft {
     rows: Vec<NotePageRow>,
 }
 
-fn board_schema(properties: &Value) -> Result<Vec<BoardProperty>, String> {
+pub(in crate::notes) fn board_schema(properties: &Value) -> Result<Vec<BoardProperty>, String> {
     let object = properties
         .as_object()
         .ok_or_else(|| "data source properties must be an object".to_string())?;
@@ -740,7 +742,7 @@ fn option_name_by_id(property: &BoardProperty, group_id: &str) -> Result<String,
         .ok_or_else(|| "board target group option was not found".to_string())
 }
 
-fn canonical_filter(
+pub(in crate::notes) fn canonical_filter(
     filters: &[NoteDataSourceTableFilter],
     property_ids: &HashSet<String>,
 ) -> Result<Option<Value>, String> {
@@ -798,7 +800,7 @@ fn canonical_filter_value(condition: &str, value: Option<&Value>) -> Result<Valu
     }
 }
 
-fn canonical_sorts(
+pub(in crate::notes) fn canonical_sorts(
     sorts: &[NoteDataSourceTableSort],
     property_ids: &HashSet<String>,
 ) -> Result<Value, String> {
@@ -830,7 +832,9 @@ fn canonical_sorts(
     Ok(Value::Array(canonical))
 }
 
-fn stored_filters(filter: Option<&str>) -> Result<Vec<NoteDataSourceTableFilter>, String> {
+pub(in crate::notes) fn stored_filters(
+    filter: Option<&str>,
+) -> Result<Vec<NoteDataSourceTableFilter>, String> {
     let Some(filter) = filter else {
         return Ok(Vec::new());
     };
@@ -842,12 +846,12 @@ fn stored_filters(filter: Option<&str>) -> Result<Vec<NoteDataSourceTableFilter>
     serde_json::from_value(filters).map_err(|e| format!("parse board filters: {e}"))
 }
 
-fn stored_sorts(sorts: &str) -> Result<Vec<NoteDataSourceTableSort>, String> {
+pub(in crate::notes) fn stored_sorts(sorts: &str) -> Result<Vec<NoteDataSourceTableSort>, String> {
     let value = parse_json(sorts, "database board sorts")?;
     serde_json::from_value(value).map_err(|e| format!("parse board sorts: {e}"))
 }
 
-fn normalized_row_for_schema(
+pub(in crate::notes) fn normalized_row_for_schema(
     mut row: NotePageRow,
     schema: &[BoardProperty],
 ) -> Result<NotePageRow, String> {
@@ -997,7 +1001,7 @@ fn canonical_property_payload(property_type: &str, value: &Value) -> Result<Valu
     }
 }
 
-fn row_matches_filters(
+pub(in crate::notes) fn row_matches_filters(
     row: &NotePageRow,
     schema: &[BoardProperty],
     filters: &[NoteDataSourceTableFilter],
@@ -1031,7 +1035,7 @@ fn row_matches_filters(
     })
 }
 
-fn sort_rows(
+pub(in crate::notes) fn sort_rows(
     rows: &mut [NotePageRow],
     schema: &[BoardProperty],
     sorts: &[NoteDataSourceTableSort],
@@ -1250,7 +1254,7 @@ fn validate_text(value: &str, label: &str, max_chars: usize) -> Result<String, S
     Ok(value.to_string())
 }
 
-fn parse_json(value: &str, label: &str) -> Result<Value, String> {
+pub(in crate::notes) fn parse_json(value: &str, label: &str) -> Result<Value, String> {
     serde_json::from_str(value).map_err(|e| format!("parse {label}: {e}"))
 }
 

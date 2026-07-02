@@ -4,6 +4,7 @@ import {
   parseNotesCommentThread,
   parseNotesCreatedDatabase,
   parseNotesDataSourceBoardView,
+  parseNotesDataSourceGalleryView,
   parseNotesDataSourceSchema,
   parseNotesDataSourceTableView,
   parseNotesLoadedPage,
@@ -22,6 +23,7 @@ import type {
   NotesCommentThread,
   NotesCreatedDatabase,
   NotesDataSourceBoardView,
+  NotesDataSourceGalleryView,
   NotesDataSourceSchema,
   NotesDataSourceTableView,
   NotesLoadedPage,
@@ -113,4 +115,9 @@ export function mapNotesDataSourceTableViewDto(value: unknown): NotesDataSourceT
 /** Validate and map an unknown local data source board view DTO from the Tauri boundary. */
 export function mapNotesDataSourceBoardViewDto(value: unknown): NotesDataSourceBoardView {
   return parseNotesDataSourceBoardView(value);
+}
+
+/** Validate and map an unknown local data source gallery view DTO from the Tauri boundary. */
+export function mapNotesDataSourceGalleryViewDto(value: unknown): NotesDataSourceGalleryView {
+  return parseNotesDataSourceGalleryView(value);
 }
