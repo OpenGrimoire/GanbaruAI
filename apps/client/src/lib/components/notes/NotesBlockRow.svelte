@@ -30,6 +30,7 @@
     type NotesPageMentionTarget,
   } from "$lib/notes/rich-text";
   import type { NotesMoveToPageTarget } from "$lib/notes/block-move";
+  import type { NotesTextSelection } from "$lib/notes/editor-selection";
   import {
     blockColor,
     canBlockHaveColor,
@@ -79,6 +80,7 @@
     isOnlyBlock,
     focusBlockId,
     focusRequestId,
+    focusSelection,
     mentionTargets,
     templateStatus,
     buttonStatus,
@@ -148,6 +150,7 @@
     isOnlyBlock: boolean;
     focusBlockId: string | null;
     focusRequestId: number;
+    focusSelection: NotesTextSelection | null;
     mentionTargets: NotesNamedMentionTarget[];
     templateStatus: NotesTemplateBlockStatus;
     buttonStatus: NotesButtonBlockStatus;
@@ -784,6 +787,7 @@
           {isOnlyBlock}
           {focusBlockId}
           {focusRequestId}
+          {focusSelection}
           {mentionTargets}
           {commentAnchors}
           {suggestionAnchors}

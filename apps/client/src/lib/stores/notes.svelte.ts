@@ -75,6 +75,7 @@ import {
   planNotesPageLoadFocus,
   type NotesFocusRequest,
 } from "$lib/notes/editor-focus";
+import type { NotesTextSelection } from "$lib/notes/editor-selection";
 import { createNotesBlockActions } from "./notes-store-block-actions";
 import { createNotesPageHistoryController } from "./notes-store-page-history.svelte";
 import { createNotesUndoController } from "./notes-store-undo";
@@ -180,7 +181,11 @@ let trashLoading = $state(false);
 let trashError = $state<string | null>(null);
 let pageTemplatesLoading = $state(false);
 let pageTemplatesError = $state<string | null>(null);
-let focusRequest = $state<NotesFocusRequest>({ blockId: null, requestId: 0 });
+let focusRequest = $state<NotesFocusRequest>({
+  blockId: null,
+  requestId: 0,
+  selection: null,
+});
 let loadRequestId = 0;
 let archiveRequestId = 0;
 let trashRequestId = 0;
@@ -232,8 +237,11 @@ function recordRecentPage(pageId: string): void {
   saveNotesRecentPageIds(next);
 }
 
-function requestBlockFocus(blockId: string | null): void {
-  focusRequest = nextNotesFocusRequest(focusRequest, blockId);
+function requestBlockFocus(
+  blockId: string | null,
+  selection: NotesTextSelection | null = null,
+): void {
+  focusRequest = nextNotesFocusRequest(focusRequest, blockId, selection);
 }
 
 function replacePages(nextPages: NotesPage[]): void {
@@ -1580,8 +1588,8 @@ function isOnlyBlock(blockId: string): boolean {
   return isOnlyNotesBlockInContext(blockTreeSnapshot(), blockId);
 }
 
-function focusBlock(blockId: string): void {
-  requestBlockFocus(blockId);
+function focusBlock(blockId: string, selection: NotesTextSelection | null = null): void {
+  requestBlockFocus(blockId, selection);
 }
 
 async function undoNotesEdit(): Promise<boolean> {
@@ -1836,6 +1844,9 @@ export function getNotes() {
     },
     get focusRequestId(): number {
       return focusRequest.requestId;
+    },
+    get focusSelection(): NotesTextSelection | null {
+      return focusRequest.selection;
     },
     get canUndoNotesEdit(): boolean {
       return undoController.canUndo();

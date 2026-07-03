@@ -56,13 +56,17 @@
 
   $effect(() => {
     const _focusRequestId = notes.focusRequestId;
+    const focusSelection = notes.focusSelection;
     const blockId = notes.focusBlockId;
     if (!blockId) return;
     void tick().then(() => {
       const anchor = blockScrollViewport?.querySelector<HTMLElement>(
         `#${CSS.escape(notesBlockAnchorId(blockId))}`,
       );
-      anchor?.scrollIntoView({ block: "center", inline: "nearest" });
+      anchor?.scrollIntoView({
+        block: focusSelection ? "nearest" : "center",
+        inline: "nearest",
+      });
     });
   });
 

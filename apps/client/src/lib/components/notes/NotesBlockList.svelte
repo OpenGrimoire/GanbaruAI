@@ -35,13 +35,24 @@
   import { notesButtonBlockStatus } from "$lib/notes/button-block";
   import type { NotesUnsupportedConversionTarget } from "$lib/notes/unsupported";
   import {
+    blockPlainText,
     isTextEditableBlock,
     type NotesHeadingBlockType,
   } from "$lib/notes/block-factory";
+  import {
+    notesAdjacentRenderedBlockId,
+    notesBoundaryRenderedBlockId,
+    notesCollapsedNavigationSelection,
+    notesNavigationSelectionOffset,
+    type NotesBlockNavigationBoundary,
+    type NotesBlockNavigationDirection,
+  } from "$lib/notes/block-navigation";
   import type { NotesBlockInsertRequest } from "$lib/notes/block-insertion";
   import {
     notesPlainTextFromEditableRoot,
+    notesTextSelectionFromEditableRoot,
     restoreNotesEditableSelection,
+    type NotesTextSelection,
   } from "$lib/notes/editor-selection";
   import type {
     NotesDateMentionTarget,
@@ -470,6 +481,144 @@
     return true;
   }
 
+  function notesTextEditorFromEvent(
+    event: Event,
+    blockId: string,
+  ): HTMLElement | null {
+    const target = event.target;
+    if (!(target instanceof Element)) return null;
+    const editor = target.closest<HTMLElement>(
+      "[contenteditable='true'][role='textbox'][data-notes-block-id]",
+    );
+    if (!editor || editor.dataset.notesBlockId !== blockId) return null;
+    return editor;
+  }
+
+  function editableVisualLineTops(editor: HTMLElement): number[] {
+    const range = editor.ownerDocument.createRange();
+    range.selectNodeContents(editor);
+    const lineTops: number[] = [];
+    for (const rect of Array.from(range.getClientRects())) {
+      if (rect.width <= 0 && rect.height <= 0) continue;
+      if (!lineTops.some((top) => Math.abs(top - rect.top) < 2)) {
+        lineTops.push(rect.top);
+      }
+    }
+    return lineTops.sort((left, right) => left - right);
+  }
+
+  function collapsedSelectionRect(editor: HTMLElement): DOMRect | null {
+    const selection = editor.ownerDocument.getSelection();
+    if (!selection || selection.rangeCount === 0 || !selection.isCollapsed) return null;
+    if (!selection.focusNode || !editor.contains(selection.focusNode)) return null;
+    const range = selection.getRangeAt(0).cloneRange();
+    const rect = range.getBoundingClientRect();
+    if (rect.width > 0 || rect.height > 0) return rect;
+    return Array.from(range.getClientRects())
+      .find((candidate) => candidate.width > 0 || candidate.height > 0) ?? null;
+  }
+
+  function caretIsOnBoundaryVisualLine(
+    editor: HTMLElement,
+    direction: NotesBlockNavigationDirection,
+  ): boolean {
+    const lineTops = editableVisualLineTops(editor);
+    if (lineTops.length <= 1) return true;
+    const caretRect = collapsedSelectionRect(editor);
+    if (!caretRect) return false;
+    const boundaryTop = direction === "previous" ? lineTops[0] : lineTops.at(-1);
+    return boundaryTop !== undefined && Math.abs(caretRect.top - boundaryTop) < 2;
+  }
+
+  function nativeLineNavigationStaysInsideEditor(
+    editor: HTMLElement,
+    direction: NotesBlockNavigationDirection,
+  ): boolean {
+    const selection = editor.ownerDocument.getSelection();
+    if (!selection || selection.rangeCount === 0 || !selection.isCollapsed) return true;
+    if (!selection.focusNode || !editor.contains(selection.focusNode)) return true;
+    if (caretIsOnBoundaryVisualLine(editor, direction)) return false;
+    return true;
+  }
+
+  function textSelectionForFocusedBlock(
+    blockId: string,
+    offset: number,
+  ): NotesTextSelection | null {
+    const block = notes.blockById(blockId);
+    if (!block || !isTextEditableBlock(block.type)) return null;
+    const textLength = blockPlainText(block).length;
+    const safeOffset = Math.min(Math.max(0, offset), textLength);
+    return notesCollapsedNavigationSelection(safeOffset);
+  }
+
+  function focusRenderedBlock(blockId: string, offset: number): void {
+    notes.focusBlock(blockId, textSelectionForFocusedBlock(blockId, offset));
+  }
+
+  function focusAdjacentRenderedBlock(
+    currentBlockId: string,
+    direction: NotesBlockNavigationDirection,
+    offset: number,
+  ): boolean {
+    const targetBlockId = notesAdjacentRenderedBlockId(
+      renderedSelectableBlockIds(),
+      currentBlockId,
+      direction,
+    );
+    if (!targetBlockId) return false;
+    focusRenderedBlock(targetBlockId, offset);
+    return true;
+  }
+
+  function boundaryFocusOffset(blockId: string, boundary: NotesBlockNavigationBoundary): number {
+    if (boundary === "first") return 0;
+    const block = notes.blockById(blockId);
+    return block && isTextEditableBlock(block.type) ? blockPlainText(block).length : 0;
+  }
+
+  function focusBoundaryRenderedBlock(boundary: NotesBlockNavigationBoundary): boolean {
+    const targetBlockId = notesBoundaryRenderedBlockId(renderedSelectableBlockIds(), boundary);
+    if (!targetBlockId) return false;
+    focusRenderedBlock(targetBlockId, boundaryFocusOffset(targetBlockId, boundary));
+    return true;
+  }
+
+  function handleDocumentNavigationKeydown(event: KeyboardEvent, blockId: string): boolean {
+    if (event.altKey || event.shiftKey) return false;
+
+    if (event.ctrlKey || event.metaKey) {
+      if (event.key === "Home" || (event.metaKey && event.key === "ArrowUp")) {
+        event.preventDefault();
+        return focusBoundaryRenderedBlock("first");
+      }
+      if (event.key === "End" || (event.metaKey && event.key === "ArrowDown")) {
+        event.preventDefault();
+        return focusBoundaryRenderedBlock("last");
+      }
+      return false;
+    }
+
+    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return false;
+    const direction: NotesBlockNavigationDirection = event.key === "ArrowUp" ? "previous" : "next";
+    const editor = notesTextEditorFromEvent(event, blockId);
+    if (editor) {
+      const selection = notesTextSelectionFromEditableRoot(editor);
+      if (!selection || selection.start !== selection.end) return false;
+      if (nativeLineNavigationStaysInsideEditor(editor, direction)) return false;
+      const offset = notesNavigationSelectionOffset(selection, 0);
+      if (!focusAdjacentRenderedBlock(blockId, direction, offset)) return false;
+      event.preventDefault();
+      return true;
+    }
+
+    if (eventTargetIsEditable(event.target)) return false;
+    const offset = direction === "previous" ? Number.MAX_SAFE_INTEGER : 0;
+    if (!focusAdjacentRenderedBlock(blockId, direction, offset)) return false;
+    event.preventDefault();
+    return true;
+  }
+
   function clearNativeSelection(): void {
     if (typeof window === "undefined") return;
     window.getSelection()?.removeAllRanges();
@@ -531,6 +680,7 @@
     if (event.defaultPrevented) return;
     const blockId = selectableBlockIdFromEvent(event);
     if (!blockId) return;
+    if (handleDocumentNavigationKeydown(event, blockId)) return;
     if (handleBlockSelectionShortcut(event, blockId)) return;
     if (event.key === "Escape" && !event.ctrlKey && !event.metaKey && !event.altKey) {
       event.preventDefault();
@@ -1178,6 +1328,7 @@
         isOnlyBlockForBlock={notes.isOnlyBlock}
         focusBlockId={notes.focusBlockId}
         focusRequestId={notes.focusRequestId}
+        focusSelection={notes.focusSelection}
         {mentionTargets}
         {templateStatusForBlock}
         {buttonStatusForBlock}
@@ -1314,6 +1465,7 @@
         isOnlyBlockForBlock={notes.isOnlyBlock}
         focusBlockId={notes.focusBlockId}
         focusRequestId={notes.focusRequestId}
+        focusSelection={notes.focusSelection}
         {mentionTargets}
         {templateStatusForBlock}
         {buttonStatusForBlock}
@@ -1448,6 +1600,7 @@
         isOnlyBlock={notes.isOnlyBlock(item.block.id)}
         focusBlockId={notes.focusBlockId}
         focusRequestId={notes.focusRequestId}
+        focusSelection={notes.focusSelection}
         {mentionTargets}
         templateStatus={templateStatusForBlock(item.block.id)}
         buttonStatus={buttonStatusForBlock(item.block.id)}

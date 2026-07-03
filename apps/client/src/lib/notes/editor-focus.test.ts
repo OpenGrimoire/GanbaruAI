@@ -8,16 +8,30 @@ import {
 
 describe("notes editor focus helpers", () => {
   it("increments the focus request token for each requested block", () => {
-    expect(nextNotesFocusRequest({ blockId: "a", requestId: 2 }, "b")).toEqual({
+    expect(nextNotesFocusRequest({ blockId: "a", requestId: 2, selection: null }, "b")).toEqual({
       blockId: "b",
       requestId: 3,
+      selection: null,
     });
   });
 
   it("keeps focus clearing observable through the request token", () => {
-    expect(nextNotesFocusRequest({ blockId: "a", requestId: 2 }, null)).toEqual({
+    expect(nextNotesFocusRequest({ blockId: "a", requestId: 2, selection: null }, null)).toEqual({
       blockId: null,
       requestId: 3,
+      selection: null,
+    });
+  });
+
+  it("carries an optional requested text selection", () => {
+    expect(nextNotesFocusRequest(
+      { blockId: "a", requestId: 2, selection: null },
+      "b",
+      { start: 3, end: 3 },
+    )).toEqual({
+      blockId: "b",
+      requestId: 3,
+      selection: { start: 3, end: 3 },
     });
   });
 

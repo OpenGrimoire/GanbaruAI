@@ -1,6 +1,9 @@
+import type { NotesTextSelection } from "./editor-selection";
+
 export interface NotesFocusRequest {
   blockId: string | null;
   requestId: number;
+  selection: NotesTextSelection | null;
 }
 
 export interface NotesDeleteFocusInput {
@@ -15,10 +18,12 @@ export interface NotesDeleteFocusInput {
 export function nextNotesFocusRequest(
   current: NotesFocusRequest,
   blockId: string | null,
+  selection: NotesTextSelection | null = null,
 ): NotesFocusRequest {
   return {
     blockId,
     requestId: current.requestId + 1,
+    selection,
   };
 }
 

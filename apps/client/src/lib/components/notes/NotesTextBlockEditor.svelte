@@ -108,6 +108,7 @@
     isOnlyBlock,
     focusBlockId,
     focusRequestId,
+    focusSelection,
     mentionTargets,
     commentAnchors,
     suggestionAnchors,
@@ -151,6 +152,7 @@
     isOnlyBlock: boolean;
     focusBlockId: string | null;
     focusRequestId: number;
+    focusSelection: NotesTextSelection | null;
     mentionTargets: NotesNamedMentionTarget[];
     commentAnchors: readonly NotesResolvedCommentAnchor[];
     suggestionAnchors: readonly NotesResolvedSuggestionAnchor[];
@@ -339,7 +341,7 @@
       editor.focus();
       const length = notesPlainTextFromEditableRoot(editor).length;
       const selection = notesSelectionForFocus({
-        requestedSelection: null,
+        requestedSelection: focusSelection,
         currentSelection: hasTextSelection ? textSelection : null,
         textLength: length,
         fallback: "end",

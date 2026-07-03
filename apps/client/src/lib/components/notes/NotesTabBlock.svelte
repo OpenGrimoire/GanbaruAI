@@ -29,6 +29,7 @@
     NotesPageMentionTarget,
     NotesRichTextAnnotationPatch,
   } from "$lib/notes/rich-text";
+  import type { NotesTextSelection } from "$lib/notes/editor-selection";
   import type { NotesBlockDropIndicator } from "$lib/notes/block-drag";
   import NotesPageIcon from "$lib/components/notes/NotesPageIcon.svelte";
   import type {
@@ -63,6 +64,7 @@
     isOnlyBlockForBlock,
     focusBlockId,
     focusRequestId,
+    focusSelection,
     mentionTargets,
     templateStatusForBlock,
     buttonStatusForBlock,
@@ -144,6 +146,7 @@
     isOnlyBlockForBlock: (blockId: string) => boolean;
     focusBlockId: string | null;
     focusRequestId: number;
+    focusSelection: NotesTextSelection | null;
     mentionTargets: NotesNamedMentionTarget[];
     templateStatusForBlock: (blockId: string) => NotesTemplateBlockStatus;
     buttonStatusForBlock: (blockId: string) => NotesButtonBlockStatus;
@@ -642,6 +645,7 @@
                       isOnlyBlock={isOnlyBlockForBlock(tabBlockItem.block.id)}
                       {focusBlockId}
                       {focusRequestId}
+                      {focusSelection}
                       {mentionTargets}
                       templateStatus={templateStatusForBlock(tabBlockItem.block.id)}
                       buttonStatus={buttonStatusForBlock(tabBlockItem.block.id)}
