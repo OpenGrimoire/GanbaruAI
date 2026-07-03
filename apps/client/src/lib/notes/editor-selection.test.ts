@@ -83,6 +83,16 @@ describe("notes editor selection helpers", () => {
     expect(notesPlainTextFromEditableRoot(root)).toBe("Hello\nworld");
   });
 
+  it("reads soft line wrappers as plain text newlines", () => {
+    const root = document.createElement("div");
+    root.innerHTML = [
+      "<div data-notes-editor-line=\"true\"><span>Hello</span></div>",
+      "<div data-notes-editor-line=\"true\"><span>world</span></div>",
+    ].join("");
+
+    expect(notesPlainTextFromEditableRoot(root)).toBe("Hello\nworld");
+  });
+
   it("keeps trailing text-node soft line breaks", () => {
     const root = document.createElement("div");
     const span = document.createElement("span");
@@ -102,10 +112,34 @@ describe("notes editor selection helpers", () => {
     expect(notesPlainTextFromEditableRoot(root)).toBe("Hello\n");
   });
 
+  it("keeps sentinel-backed soft line breaks without visible text", () => {
+    const root = document.createElement("div");
+    root.innerHTML = [
+      "<div data-notes-editor-line=\"true\"><span data-notes-editor-sentinel=\"empty-line\">&#8203;</span></div>",
+      "<div data-notes-editor-line=\"true\"><span data-notes-editor-sentinel=\"empty-line\">&#8203;</span></div>",
+    ].join("");
+
+    expect(notesPlainTextFromEditableRoot(root)).toBe("\n");
+  });
+
   it("maps trailing line sentinels to the previous text offset", () => {
     const root = document.createElement("div");
     root.innerHTML = [
       "<span>Hello\n</span>",
+      "<span data-notes-editor-sentinel=\"trailing-line\">&#8203;</span>",
+    ].join("");
+    const sentinel = root.querySelector("[data-notes-editor-sentinel]");
+    expect(sentinel).toBeInstanceOf(HTMLElement);
+    if (!(sentinel instanceof HTMLElement)) return;
+
+    expect(notesEditableOffsetFromDomPoint(root, sentinel.firstChild ?? sentinel, 1)).toBe(6);
+  });
+
+  it("maps explicit trailing line sentinels to the previous text offset", () => {
+    const root = document.createElement("div");
+    root.innerHTML = [
+      "<span>Hello</span>",
+      "<br>",
       "<span data-notes-editor-sentinel=\"trailing-line\">&#8203;</span>",
     ].join("");
     const sentinel = root.querySelector("[data-notes-editor-sentinel]");
@@ -126,6 +160,22 @@ describe("notes editor selection helpers", () => {
 
     expect(notesEditableOffsetFromDomPoint(root, firstText, 5)).toBe(5);
     expect(notesEditableOffsetFromDomPoint(root, root, 2)).toBe(6);
+    expect(notesEditableOffsetFromDomPoint(root, secondText, 0)).toBe(6);
+  });
+
+  it("maps DOM points around line-wrapped soft breaks to plain text offsets", () => {
+    const root = document.createElement("div");
+    root.innerHTML = [
+      "<div data-notes-editor-line=\"true\"><span>Hello</span></div>",
+      "<div data-notes-editor-line=\"true\"><span>world</span></div>",
+    ].join("");
+    const firstText = root.querySelector("span")?.firstChild;
+    const secondText = root.querySelectorAll("span")[1]?.firstChild;
+    expect(firstText).toBeInstanceOf(Text);
+    expect(secondText).toBeInstanceOf(Text);
+    if (!(firstText instanceof Text) || !(secondText instanceof Text)) return;
+
+    expect(notesEditableOffsetFromDomPoint(root, firstText, 5)).toBe(5);
     expect(notesEditableOffsetFromDomPoint(root, secondText, 0)).toBe(6);
   });
 
@@ -197,6 +247,41 @@ describe("notes editor selection helpers", () => {
 
     expect(restoreNotesEditableSelection(root, { start: 6, end: 6 })).toBe(true);
     expect(notesTextSelectionFromEditableRoot(root)).toEqual({ start: 6, end: 6 });
+    root.remove();
+  });
+
+  it("restores selections after line-wrapped soft breaks", () => {
+    const root = document.createElement("div");
+    root.innerHTML = [
+      "<div data-notes-editor-line=\"true\"><span>Hello</span></div>",
+      "<div data-notes-editor-line=\"true\"><span>world</span></div>",
+    ].join("");
+    document.body.append(root);
+
+    expect(restoreNotesEditableSelection(root, { start: 6, end: 6 })).toBe(true);
+    expect(notesTextSelectionFromEditableRoot(root)).toEqual({ start: 6, end: 6 });
+    const selection = document.getSelection();
+    expect(selection?.anchorNode).toBe(root.querySelectorAll("span")[1]?.firstChild);
+    expect(selection?.anchorOffset).toBe(0);
+    root.remove();
+  });
+
+  it("restores selections inside line-wrapped empty soft lines", () => {
+    const root = document.createElement("div");
+    root.innerHTML = [
+      "<div data-notes-editor-line=\"true\"><span>Hello</span></div>",
+      "<div data-notes-editor-line=\"true\"><span data-notes-editor-sentinel=\"empty-line\">&#8203;</span></div>",
+    ].join("");
+    document.body.append(root);
+
+    expect(restoreNotesEditableSelection(root, { start: 6, end: 6 })).toBe(true);
+    expect(notesTextSelectionFromEditableRoot(root)).toEqual({ start: 6, end: 6 });
+    const sentinel = root.querySelector("[data-notes-editor-sentinel=\"empty-line\"]");
+    const selection = document.getSelection();
+    expect(sentinel).toBeInstanceOf(HTMLElement);
+    if (!(sentinel instanceof HTMLElement)) return;
+    expect(selection?.anchorNode).toBe(sentinel.firstChild);
+    expect(selection?.anchorOffset).toBe(0);
     root.remove();
   });
 

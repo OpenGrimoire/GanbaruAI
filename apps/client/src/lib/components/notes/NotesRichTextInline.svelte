@@ -17,9 +17,7 @@
 
   const visibleRichText = $derived(richText.filter(richTextItemIsVisible));
   const visibleRuns = $derived(visibleRichTextRuns(visibleRichText));
-  const needsTrailingLineSentinel = $derived(
-    visibleRuns.at(-1)?.text.endsWith("\n") ?? false,
-  );
+  const visibleLines = $derived(visibleRichTextLines(visibleRuns));
 
   interface VisibleRichTextRun {
     item: NotesRichText;
@@ -29,6 +27,17 @@
   }
 
   interface VisibleRichTextSegment {
+    text: string;
+    start: number;
+    end: number;
+  }
+
+  interface VisibleRichTextLine {
+    parts: VisibleRichTextLinePart[];
+  }
+
+  interface VisibleRichTextLinePart {
+    item: NotesRichText;
     text: string;
     start: number;
     end: number;
@@ -140,68 +149,118 @@
   function linkUrl(item: NotesRichText): string | null {
     return item.type === "text" ? item.text.link?.url ?? item.href : item.href;
   }
-</script>{#each visibleRuns as run}
-  {#if run.item.type === "mention"}
-    <span
-      class={`notes-rich-text-segment inline-flex max-w-full items-center rounded bg-accent px-1 text-accent-foreground${commentAnchorClass(run.start, run.end)}${suggestionAnchorClass(run.start, run.end)}`}
-      style={notesRichTextColorStyle(run.item.annotations.color)}
-      data-notes-bold={run.item.annotations.bold ? "true" : undefined}
-      data-notes-italic={run.item.annotations.italic ? "true" : undefined}
-      data-notes-underline={run.item.annotations.underline ? "true" : undefined}
-      data-notes-strikethrough={run.item.annotations.strikethrough ? "true" : undefined}
-      data-notes-code={run.item.annotations.code ? "true" : undefined}
-      data-notes-rich-text-color={run.item.annotations.color === "default" ? undefined : run.item.annotations.color}
-      data-notes-link-url={linkUrl(run.item) ?? undefined}
-      data-notes-comment-anchor={anchorIdsForRange(run.start, run.end)}
-      data-notes-suggestion-anchor={suggestionAnchorIdsForRange(run.start, run.end)}
-    >
-      {run.text}
-    </span>
-  {:else if run.item.type === "equation"}
-    <span
-      class={`${textClass(run.item)} inline-flex max-w-full items-center rounded bg-muted/70 px-1 py-0.5 font-serif text-[1.02em]${commentAnchorClass(run.start, run.end)}${suggestionAnchorClass(run.start, run.end)}`}
-      style={notesRichTextColorStyle(run.item.annotations.color)}
-      title={run.item.equation.expression}
-      data-notes-bold={run.item.annotations.bold ? "true" : undefined}
-      data-notes-italic={run.item.annotations.italic ? "true" : undefined}
-      data-notes-underline={run.item.annotations.underline ? "true" : undefined}
-      data-notes-strikethrough={run.item.annotations.strikethrough ? "true" : undefined}
-      data-notes-code={run.item.annotations.code ? "true" : undefined}
-      data-notes-rich-text-color={run.item.annotations.color === "default" ? undefined : run.item.annotations.color}
-      data-notes-link-url={linkUrl(run.item) ?? undefined}
-      data-notes-comment-anchor={anchorIdsForRange(run.start, run.end)}
-      data-notes-suggestion-anchor={suggestionAnchorIdsForRange(run.start, run.end)}
-    >
-      {run.text}
-    </span>
-  {:else}
-    {#each splitRunByAnchors(run) as segment}
-      <span
-        class={`${textClass(run.item)}${commentAnchorClass(segment.start, segment.end)}${suggestionAnchorClass(segment.start, segment.end)}`}
-        style={notesRichTextColorStyle(run.item.annotations.color)}
-        title={run.item.href ?? run.item.text.link?.url ?? undefined}
-        data-notes-bold={run.item.annotations.bold ? "true" : undefined}
-        data-notes-italic={run.item.annotations.italic ? "true" : undefined}
-        data-notes-underline={run.item.annotations.underline ? "true" : undefined}
-        data-notes-strikethrough={run.item.annotations.strikethrough ? "true" : undefined}
-        data-notes-code={run.item.annotations.code ? "true" : undefined}
-        data-notes-rich-text-color={run.item.annotations.color === "default" ? undefined : run.item.annotations.color}
-        data-notes-link-url={linkUrl(run.item) ?? undefined}
-        data-notes-comment-anchor={anchorIdsForRange(segment.start, segment.end)}
-        data-notes-suggestion-anchor={suggestionAnchorIdsForRange(segment.start, segment.end)}
-      >
-        {segment.text}
-      </span>
-    {/each}
-  {/if}
-{/each}{#if needsTrailingLineSentinel}
-  <span data-notes-editor-sentinel="trailing-line" aria-hidden="true">{"\u200b"}</span>
-{/if}<style>
+
+  function appendLinePart(
+    line: VisibleRichTextLine,
+    item: NotesRichText,
+    text: string,
+    start: number,
+  ): void {
+    if (text.length === 0) return;
+    line.parts.push({
+      item,
+      text,
+      start,
+      end: start + text.length,
+    });
+  }
+
+  function visibleRichTextLines(runs: readonly VisibleRichTextRun[]): VisibleRichTextLine[] {
+    if (runs.length === 0) return [];
+    const lines: VisibleRichTextLine[] = [{ parts: [] }];
+
+    for (const run of runs) {
+      for (const segment of splitRunByAnchors(run)) {
+        const parts = segment.text.split("\n");
+        let cursor = segment.start;
+        for (let index = 0; index < parts.length; index += 1) {
+          const part = parts[index] ?? "";
+          appendLinePart(lines.at(-1) ?? lines[0], run.item, part, cursor);
+          cursor += part.length;
+          if (index < parts.length - 1) {
+            lines.push({ parts: [] });
+            cursor += 1;
+          }
+        }
+      }
+    }
+
+    return lines;
+  }
+</script>{#each visibleLines as line}
+  <div class="notes-rich-text-line" data-notes-editor-line="true">
+    {#if line.parts.length === 0}
+      <span class="notes-rich-text-empty-line-sentinel" data-notes-editor-sentinel="empty-line">{"\u200b"}</span>
+    {:else}
+      {#each line.parts as part}
+        {#if part.item.type === "mention"}
+          <span
+            class={`notes-rich-text-segment inline-flex max-w-full items-center rounded bg-accent px-1 text-accent-foreground${commentAnchorClass(part.start, part.end)}${suggestionAnchorClass(part.start, part.end)}`}
+            style={notesRichTextColorStyle(part.item.annotations.color)}
+            data-notes-bold={part.item.annotations.bold ? "true" : undefined}
+            data-notes-italic={part.item.annotations.italic ? "true" : undefined}
+            data-notes-underline={part.item.annotations.underline ? "true" : undefined}
+            data-notes-strikethrough={part.item.annotations.strikethrough ? "true" : undefined}
+            data-notes-code={part.item.annotations.code ? "true" : undefined}
+            data-notes-rich-text-color={part.item.annotations.color === "default" ? undefined : part.item.annotations.color}
+            data-notes-link-url={linkUrl(part.item) ?? undefined}
+            data-notes-comment-anchor={anchorIdsForRange(part.start, part.end)}
+            data-notes-suggestion-anchor={suggestionAnchorIdsForRange(part.start, part.end)}
+          >
+            {part.text}
+          </span>
+        {:else if part.item.type === "equation"}
+          <span
+            class={`${textClass(part.item)} inline-flex max-w-full items-center rounded bg-muted/70 px-1 py-0.5 font-serif text-[1.02em]${commentAnchorClass(part.start, part.end)}${suggestionAnchorClass(part.start, part.end)}`}
+            style={notesRichTextColorStyle(part.item.annotations.color)}
+            title={part.item.equation.expression}
+            data-notes-bold={part.item.annotations.bold ? "true" : undefined}
+            data-notes-italic={part.item.annotations.italic ? "true" : undefined}
+            data-notes-underline={part.item.annotations.underline ? "true" : undefined}
+            data-notes-strikethrough={part.item.annotations.strikethrough ? "true" : undefined}
+            data-notes-code={part.item.annotations.code ? "true" : undefined}
+            data-notes-rich-text-color={part.item.annotations.color === "default" ? undefined : part.item.annotations.color}
+            data-notes-link-url={linkUrl(part.item) ?? undefined}
+            data-notes-comment-anchor={anchorIdsForRange(part.start, part.end)}
+            data-notes-suggestion-anchor={suggestionAnchorIdsForRange(part.start, part.end)}
+          >
+            {part.text}
+          </span>
+        {:else}
+          <span
+            class={`${textClass(part.item)}${commentAnchorClass(part.start, part.end)}${suggestionAnchorClass(part.start, part.end)}`}
+            style={notesRichTextColorStyle(part.item.annotations.color)}
+            title={part.item.href ?? part.item.text.link?.url ?? undefined}
+            data-notes-bold={part.item.annotations.bold ? "true" : undefined}
+            data-notes-italic={part.item.annotations.italic ? "true" : undefined}
+            data-notes-underline={part.item.annotations.underline ? "true" : undefined}
+            data-notes-strikethrough={part.item.annotations.strikethrough ? "true" : undefined}
+            data-notes-code={part.item.annotations.code ? "true" : undefined}
+            data-notes-rich-text-color={part.item.annotations.color === "default" ? undefined : part.item.annotations.color}
+            data-notes-link-url={linkUrl(part.item) ?? undefined}
+            data-notes-comment-anchor={anchorIdsForRange(part.start, part.end)}
+            data-notes-suggestion-anchor={suggestionAnchorIdsForRange(part.start, part.end)}
+          >
+            {part.text}
+          </span>
+        {/if}
+      {/each}
+    {/if}
+  </div>
+{/each}<style>
+  .notes-rich-text-line {
+    display: block;
+    line-height: inherit;
+  }
 
   .notes-rich-text-segment {
     color: var(--notes-rich-text-color, inherit);
     background: var(--notes-rich-text-bg, transparent);
     box-shadow: inset 0 0 0 1px var(--notes-rich-text-border, transparent);
+  }
+
+  .notes-rich-text-empty-line-sentinel {
+    color: transparent;
   }
 
   .notes-rich-text-comment-anchor {

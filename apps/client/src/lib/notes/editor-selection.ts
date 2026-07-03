@@ -86,6 +86,22 @@ function isNotesEditorSentinelElement(node: Node): boolean {
     );
 }
 
+function isNotesTrailingLineSentinelElement(node: Node): boolean {
+  return isElementNode(node)
+    && (
+      node.getAttribute("data-notes-editor-sentinel") === "trailing-line"
+      || node.getAttribute("data-notes-trailing-line-sentinel") === "true"
+    );
+}
+
+function isNotesEmptyLineSentinelElement(node: Node): boolean {
+  return isElementNode(node) && node.getAttribute("data-notes-editor-sentinel") === "empty-line";
+}
+
+function isNotesEditorLineElement(node: Node): boolean {
+  return isElementNode(node) && node.getAttribute("data-notes-editor-line") === "true";
+}
+
 function nodeHasEditablePlainText(node: Node): boolean {
   if (node.nodeType === TEXT_NODE) {
     const text = node.textContent ?? "";
@@ -95,6 +111,41 @@ function nodeHasEditablePlainText(node: Node): boolean {
   if (isNotesEditorSentinelElement(node)) return false;
   if (isElementNode(node) && node.tagName === "BR") return false;
   return Array.from(node.childNodes).some(nodeHasEditablePlainText);
+}
+
+function nodeHasTrailingLineSentinel(node: Node): boolean {
+  if (isNotesTrailingLineSentinelElement(node)) return true;
+  if (!isElementNode(node) && node.nodeType !== DOCUMENT_FRAGMENT_NODE) return false;
+  return Array.from(node.childNodes).some(nodeHasTrailingLineSentinel);
+}
+
+function nodeHasLineBreak(node: Node): boolean {
+  if (isElementNode(node) && node.tagName === "BR") return true;
+  if (!isElementNode(node) && node.nodeType !== DOCUMENT_FRAGMENT_NODE) return false;
+  return Array.from(node.childNodes).some(nodeHasLineBreak);
+}
+
+function nodeHasMultipleEditorLines(node: Node): boolean {
+  if (!isElementNode(node) && node.nodeType !== DOCUMENT_FRAGMENT_NODE) return false;
+  let lineCount = 0;
+  for (const child of Array.from(node.childNodes)) {
+    if (isNotesEditorLineElement(child)) lineCount += 1;
+    if (lineCount > 1 || nodeHasMultipleEditorLines(child)) return true;
+  }
+  return false;
+}
+
+function nodeHasSentinelBackedSoftLineBreak(node: Node): boolean {
+  return nodeHasMultipleEditorLines(node) || (nodeHasTrailingLineSentinel(node) && nodeHasLineBreak(node));
+}
+
+function previousSiblingIsEditorLine(children: readonly Node[], index: number): boolean {
+  for (let candidateIndex = index - 1; candidateIndex >= 0; candidateIndex -= 1) {
+    const candidate = children[candidateIndex];
+    if (!candidate) continue;
+    if (isNotesEditorLineElement(candidate)) return true;
+  }
+  return false;
 }
 
 function appendEditablePlainText(node: Node, output: string[], root: Node): void {
@@ -117,16 +168,22 @@ function appendEditablePlainText(node: Node, output: string[], root: Node): void
     }
   }
 
-  node.childNodes.forEach((child) => appendEditablePlainText(child, output, root));
+  const children = Array.from(node.childNodes);
+  children.forEach((child, index) => {
+    if (isNotesEditorLineElement(child) && previousSiblingIsEditorLine(children, index)) {
+      output.push("\n");
+    }
+    appendEditablePlainText(child, output, root);
+  });
 }
 
 /**
  * Read only the plain text represented by the rich editable Notes surface.
  */
 export function notesPlainTextFromEditableRoot(root: HTMLElement | DocumentFragment): string {
-  if (!nodeHasEditablePlainText(root)) return "";
+  if (!nodeHasEditablePlainText(root) && !nodeHasSentinelBackedSoftLineBreak(root)) return "";
   const output: string[] = [];
-  root.childNodes.forEach((child) => appendEditablePlainText(child, output, root));
+  appendEditablePlainText(root, output, root);
   return output.join("").replace(/\u00a0/gu, " ");
 }
 
@@ -220,8 +277,18 @@ function findEditableDomPoint(root: HTMLElement, textOffset: number): EditableDo
         continue;
       }
 
+      if (isNotesEmptyLineSentinelElement(child) && remaining === 0) {
+        return { node: child.firstChild ?? child, offset: 0 };
+      }
+
       if (isNotesEditorSentinelElement(child)) {
         continue;
+      }
+
+      if (isNotesEditorLineElement(child) && previousSiblingIsEditorLine(children, index)) {
+        if (remaining === 0) return { node: child, offset: 0 };
+        remaining -= 1;
+        fallback = { node: child, offset: 0 };
       }
 
       if (isElementNode(child) && child.tagName === "BR") {
