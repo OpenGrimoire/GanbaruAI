@@ -7,13 +7,8 @@
     updateNotesDataSourceSchema,
   } from "$lib/api/notes";
   import { notesChildDatabaseViewScope } from "$lib/notes/database-linked";
-  import NotesDatabaseBoardView from "./NotesDatabaseBoardView.svelte";
-  import NotesDatabaseCalendarView from "./NotesDatabaseCalendarView.svelte";
-  import NotesDatabaseGalleryView from "./NotesDatabaseGalleryView.svelte";
-  import NotesDatabaseListView from "./NotesDatabaseListView.svelte";
   import NotesDatabaseRollupSchemaControls from "./NotesDatabaseRollupSchemaControls.svelte";
-  import NotesDatabaseTableView from "./NotesDatabaseTableView.svelte";
-  import NotesDatabaseTimelineView from "./NotesDatabaseTimelineView.svelte";
+  import NotesDatabaseViewSurface from "./NotesDatabaseViewSurface.svelte";
   import {
     createNotesDataSourcePropertyDraft,
     defaultNotesDataSourcePropertyName,
@@ -29,6 +24,7 @@
     type NotesDataSourceSchemaOptionDraft,
     type NotesDataSourceSchemaPropertyDraft,
   } from "$lib/notes/data-source-schema";
+  import type { NotesDatabaseViewKind } from "$lib/notes/database-view-kind";
   import {
     NOTES_DATA_SOURCE_NUMBER_FORMATS,
     NOTES_DATA_SOURCE_PROPERTY_TYPES,
@@ -87,7 +83,7 @@
   let availableDataSources = $state<NotesDataSource[]>([]);
   let properties = $state<NotesDataSourceSchemaPropertyDraft[]>([]);
   let newPropertyType = $state<NotesDataSourcePropertyType>("rich_text");
-  let activeView = $state<"table" | "board" | "gallery" | "list" | "calendar" | "timeline">("table");
+  let activeView = $state<NotesDatabaseViewKind>("table");
   let tableReloadKey = $state(0);
   let boardReloadKey = $state(0);
   let galleryReloadKey = $state(0);
@@ -949,141 +945,24 @@
       </div>
 
       {#if dataSourceId}
-        <div class="flex min-w-0 flex-wrap items-center gap-1 border-t border-border pt-3">
-          <button
-            type="button"
-            class={`inline-flex h-8 items-center rounded-md px-2 text-[0.8rem] ${
-              activeView === "table"
-                ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:bg-accent hover:text-foreground"
-            }`}
-            aria-pressed={activeView === "table"}
-            onclick={() => {
-              activeView = "table";
-            }}
-          >
-            {t("notes.databaseViewTable")}
-          </button>
-          <button
-            type="button"
-            class={`inline-flex h-8 items-center rounded-md px-2 text-[0.8rem] ${
-              activeView === "board"
-                ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:bg-accent hover:text-foreground"
-            }`}
-            aria-pressed={activeView === "board"}
-            onclick={() => {
-              activeView = "board";
-            }}
-          >
-            {t("notes.databaseViewBoard")}
-          </button>
-          <button
-            type="button"
-            class={`inline-flex h-8 items-center rounded-md px-2 text-[0.8rem] ${
-              activeView === "gallery"
-                ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:bg-accent hover:text-foreground"
-            }`}
-            aria-pressed={activeView === "gallery"}
-            onclick={() => {
-              activeView = "gallery";
-            }}
-          >
-            {t("notes.databaseViewGallery")}
-          </button>
-          <button
-            type="button"
-            class={`inline-flex h-8 items-center rounded-md px-2 text-[0.8rem] ${
-              activeView === "list"
-                ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:bg-accent hover:text-foreground"
-            }`}
-            aria-pressed={activeView === "list"}
-            onclick={() => {
-              activeView = "list";
-            }}
-          >
-            {t("notes.databaseViewList")}
-          </button>
-          <button
-            type="button"
-            class={`inline-flex h-8 items-center rounded-md px-2 text-[0.8rem] ${
-              activeView === "calendar"
-                ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:bg-accent hover:text-foreground"
-            }`}
-            aria-pressed={activeView === "calendar"}
-            onclick={() => {
-              activeView = "calendar";
-            }}
-          >
-            {t("notes.databaseViewCalendar")}
-          </button>
-          <button
-            type="button"
-            class={`inline-flex h-8 items-center rounded-md px-2 text-[0.8rem] ${
-              activeView === "timeline"
-                ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:bg-accent hover:text-foreground"
-            }`}
-            aria-pressed={activeView === "timeline"}
-            onclick={() => {
-              activeView = "timeline";
-            }}
-          >
-            {t("notes.databaseViewTimeline")}
-          </button>
-        </div>
-        {#if activeView === "table"}
-          <NotesDatabaseTableView
-            {dataSourceId}
-            {databaseId}
-            {viewId}
-            {onSelectPage}
-            reloadKey={tableReloadKey}
-          />
-        {:else if activeView === "board"}
-          <NotesDatabaseBoardView
-            {dataSourceId}
-            {databaseId}
-            {viewId}
-            {onSelectPage}
-            reloadKey={boardReloadKey}
-          />
-        {:else if activeView === "gallery"}
-          <NotesDatabaseGalleryView
-            {dataSourceId}
-            {databaseId}
-            {viewId}
-            {onSelectPage}
-            reloadKey={galleryReloadKey}
-          />
-        {:else if activeView === "list"}
-          <NotesDatabaseListView
-            {dataSourceId}
-            {databaseId}
-            {viewId}
-            {onSelectPage}
-            reloadKey={listReloadKey}
-          />
-        {:else if activeView === "calendar"}
-          <NotesDatabaseCalendarView
-            {dataSourceId}
-            {databaseId}
-            {viewId}
-            {onSelectPage}
-            reloadKey={calendarReloadKey}
-          />
-        {:else}
-          <NotesDatabaseTimelineView
-            {dataSourceId}
-            {databaseId}
-            {viewId}
-            {onSelectPage}
-            reloadKey={timelineReloadKey}
-          />
-        {/if}
+        <NotesDatabaseViewSurface
+          {activeView}
+          {dataSourceId}
+          {databaseId}
+          {viewId}
+          {onSelectPage}
+          reloadKeys={{
+            table: tableReloadKey,
+            board: boardReloadKey,
+            gallery: galleryReloadKey,
+            list: listReloadKey,
+            calendar: calendarReloadKey,
+            timeline: timelineReloadKey,
+          }}
+          onActiveViewChange={(view) => {
+            activeView = view;
+          }}
+        />
       {/if}
     </div>
   {/if}
