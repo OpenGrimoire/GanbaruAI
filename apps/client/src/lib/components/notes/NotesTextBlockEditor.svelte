@@ -1209,7 +1209,7 @@
     caret-color: var(--foreground);
   }
 
-  .notes-rich-text-editor:empty::before {
+  .notes-rich-text-editor:empty:focus::before {
     content: attr(data-placeholder);
     color: var(--muted-foreground);
     pointer-events: none;

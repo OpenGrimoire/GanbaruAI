@@ -749,11 +749,6 @@
     text-align: right;
   }
 
-  .notes-block-focused > .notes-block-surface {
-    outline: 1px solid hsl(var(--ring) / 0.55);
-    outline-offset: 1px;
-  }
-
   .notes-block-dragging {
     opacity: 0.45;
   }

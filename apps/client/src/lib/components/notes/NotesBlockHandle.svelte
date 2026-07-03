@@ -276,6 +276,7 @@
 <div
   class="notes-block-handle relative mt-1 flex shrink-0 items-center justify-end gap-0.5"
   class:notes-block-handle-has-comments={commentCount > 0}
+  class:notes-block-handle-menu-open={menuOpen || insertMenuOpen || moveMenuOpen}
   role="toolbar"
   aria-label={t("notes.blockActions")}
   data-notes-block-selection-zone
@@ -520,6 +521,16 @@
   .notes-block-handle-button {
     block-size: 1.25rem;
     inline-size: 1.25rem;
+    opacity: 0;
+    pointer-events: none;
+    visibility: hidden;
+  }
+
+  :global(.notes-block-row:focus-within) .notes-block-handle-button,
+  .notes-block-handle-menu-open .notes-block-handle-button {
+    opacity: 1;
+    pointer-events: auto;
+    visibility: visible;
   }
 
   .notes-block-handle-comment-button {
