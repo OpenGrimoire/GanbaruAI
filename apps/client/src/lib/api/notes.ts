@@ -24,6 +24,7 @@ import {
   mapNotesLocalUserDto,
   mapNotesLoadedPageDto,
   mapNotesNotionApiImportDto,
+  mapNotesNotionExportImportDto,
   mapNotesMarkdownExportDto,
   mapNotesMarkdownImportDto,
   mapNotesMentionNotificationDto,
@@ -94,6 +95,8 @@ import type {
   NotesHtmlImportResult,
   NotesNotionApiImportRequest,
   NotesNotionApiImportResult,
+  NotesNotionExportImportRequest,
+  NotesNotionExportImportResult,
   NotesMarkdownExportRequest,
   NotesMarkdownExportResult,
   NotesMarkdownImportRequest,
@@ -573,6 +576,15 @@ export async function importNotesNotionApi(
   const dbUrl = await ensureDbUrl();
   return mapNotesNotionApiImportDto(
     await invoke<unknown>("notes_import_notion_api", { dbUrl, request }),
+  );
+}
+
+export async function importNotesNotionExportFolder(
+  request: NotesNotionExportImportRequest,
+): Promise<NotesNotionExportImportResult> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesNotionExportImportDto(
+    await invoke<unknown>("notes_import_notion_export_folder", { dbUrl, request }),
   );
 }
 

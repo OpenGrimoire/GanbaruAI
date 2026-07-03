@@ -543,6 +543,85 @@ impl NoteNotionApiImportDto {
 }
 
 #[derive(Deserialize)]
+pub struct NoteNotionExportImportRequest {
+    pub(in crate::notes) parent: NoteParent,
+    pub(in crate::notes) export_root_path: String,
+    pub(in crate::notes) source_workspace_id: Option<String>,
+    pub(in crate::notes) keep_external_file_references: Option<bool>,
+    pub(in crate::notes) copy_local_file_references: Option<bool>,
+    pub(in crate::notes) import_markdown: Option<bool>,
+    pub(in crate::notes) import_html: Option<bool>,
+    pub(in crate::notes) import_csv: Option<bool>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct NoteNotionExportImportDiagnosticDto {
+    code: String,
+    severity: String,
+    source_path: Option<String>,
+    message: String,
+}
+
+impl NoteNotionExportImportDiagnosticDto {
+    pub(in crate::notes) fn new(
+        code: impl Into<String>,
+        severity: impl Into<String>,
+        source_path: Option<impl Into<String>>,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            code: code.into(),
+            severity: severity.into(),
+            source_path: source_path.map(Into::into),
+            message: message.into(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+pub struct NoteNotionExportImportDto {
+    object: &'static str,
+    imported_pages: Vec<NoteLoadedPage>,
+    imported_data_sources: Vec<NoteNotionApiImportedObjectDto>,
+    diagnostics: Vec<NoteNotionExportImportDiagnosticDto>,
+    imported_page_count: i64,
+    imported_block_count: i64,
+    imported_data_source_count: i64,
+    imported_file_count: i64,
+    skipped_file_count: i64,
+    unsupported_block_count: i64,
+}
+
+pub(in crate::notes) struct NoteNotionExportImportSummary {
+    pub(in crate::notes) imported_pages: Vec<NoteLoadedPage>,
+    pub(in crate::notes) imported_data_sources: Vec<NoteNotionApiImportedObjectDto>,
+    pub(in crate::notes) diagnostics: Vec<NoteNotionExportImportDiagnosticDto>,
+    pub(in crate::notes) imported_block_count: i64,
+    pub(in crate::notes) imported_file_count: i64,
+    pub(in crate::notes) skipped_file_count: i64,
+    pub(in crate::notes) unsupported_block_count: i64,
+}
+
+impl NoteNotionExportImportDto {
+    pub(in crate::notes) fn new(summary: NoteNotionExportImportSummary) -> Self {
+        let imported_page_count = summary.imported_pages.len() as i64;
+        let imported_data_source_count = summary.imported_data_sources.len() as i64;
+        Self {
+            object: "notes_notion_export_import",
+            imported_pages: summary.imported_pages,
+            imported_data_sources: summary.imported_data_sources,
+            diagnostics: summary.diagnostics,
+            imported_page_count,
+            imported_block_count: summary.imported_block_count,
+            imported_data_source_count,
+            imported_file_count: summary.imported_file_count,
+            skipped_file_count: summary.skipped_file_count,
+            unsupported_block_count: summary.unsupported_block_count,
+        }
+    }
+}
+
+#[derive(Deserialize)]
 pub struct NoteMarkdownExportRequest {
     pub(in crate::notes) page_id: String,
     pub(in crate::notes) include_page_title: Option<bool>,

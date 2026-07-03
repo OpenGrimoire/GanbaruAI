@@ -31,6 +31,7 @@ mod links;
 mod local_user_mentions;
 mod markdown_export;
 mod markdown_import;
+mod notion_export_import;
 mod page_assets;
 mod page_block_operations;
 mod page_lifecycle;

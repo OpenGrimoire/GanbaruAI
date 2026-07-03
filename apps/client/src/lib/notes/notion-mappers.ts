@@ -21,6 +21,7 @@ import {
   parseNotesLocalUser,
   parseNotesLoadedPage,
   parseNotesNotionApiImportResult,
+  parseNotesNotionExportImportResult,
   parseNotesMarkdownExportResult,
   parseNotesMarkdownImportResult,
   parseNotesMentionNotification,
@@ -59,6 +60,7 @@ import type {
   NotesLocalUser,
   NotesLoadedPage,
   NotesNotionApiImportResult,
+  NotesNotionExportImportResult,
   NotesMarkdownExportResult,
   NotesMarkdownImportResult,
   NotesMentionNotification,
@@ -108,6 +110,11 @@ export function mapNotesHtmlImportDto(value: unknown): NotesHtmlImportResult {
 /** Validate and map an unknown Notion API import DTO from the Tauri boundary. */
 export function mapNotesNotionApiImportDto(value: unknown): NotesNotionApiImportResult {
   return parseNotesNotionApiImportResult(value);
+}
+
+/** Validate and map an unknown Notion export folder import DTO from the Tauri boundary. */
+export function mapNotesNotionExportImportDto(value: unknown): NotesNotionExportImportResult {
+  return parseNotesNotionExportImportResult(value);
 }
 
 /** Validate and map an unknown HTML export DTO from the Tauri boundary. */

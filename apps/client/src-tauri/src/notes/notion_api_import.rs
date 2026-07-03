@@ -134,6 +134,7 @@ pub(in crate::notes) async fn import_from_api(
         let (pages, data_source, block_count) = create_imported_notion_data_source(
             pool,
             &prepared.parent,
+            "notion",
             prepared.source_workspace_id.as_deref(),
             converted_data_source,
             converted_rows,

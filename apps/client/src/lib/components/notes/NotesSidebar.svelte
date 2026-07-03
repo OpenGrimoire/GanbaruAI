@@ -24,6 +24,7 @@
   import NotesHtmlExportDialog from "./NotesHtmlExportDialog.svelte";
   import NotesHtmlImportDialog from "./NotesHtmlImportDialog.svelte";
   import NotesNotionApiImportDialog from "./NotesNotionApiImportDialog.svelte";
+  import NotesNotionExportImportDialog from "./NotesNotionExportImportDialog.svelte";
   import NotesPageRow from "./NotesPageRow.svelte";
   import NotesPageTemplateRow from "./NotesPageTemplateRow.svelte";
 
@@ -35,6 +36,7 @@
   let pendingDeleteTemplate = $state<NotesPageTemplate | null>(null);
   let htmlImportOpen = $state(false);
   let notionApiImportOpen = $state(false);
+  let notionExportImportOpen = $state(false);
   let htmlExportOpen = $state(false);
   let blockDropTargetPageId = $state<string | null>(null);
   const sidebarPlan = $derived.by(() =>
@@ -101,6 +103,26 @@
       include_users: input.includeUsers,
       keep_external_file_references: input.keepExternalFileReferences,
       page_size: input.pageSize,
+    });
+  }
+
+  function importNotionExportFolder(input: {
+    exportRootPath: string;
+    sourceWorkspaceId: string | null;
+    keepExternalFileReferences: boolean;
+    copyLocalFileReferences: boolean;
+    importMarkdown: boolean;
+    importHtml: boolean;
+    importCsv: boolean;
+  }) {
+    return notes.importNotionExportFolder({
+      export_root_path: input.exportRootPath,
+      source_workspace_id: input.sourceWorkspaceId,
+      keep_external_file_references: input.keepExternalFileReferences,
+      copy_local_file_references: input.copyLocalFileReferences,
+      import_markdown: input.importMarkdown,
+      import_html: input.importHtml,
+      import_csv: input.importCsv,
     });
   }
 
@@ -297,6 +319,16 @@
         }}
       >
         <CloudDownload class="size-4" />
+      </button>
+      <button
+        class="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+        aria-label={t("notes.notionExportImportOpen")}
+        data-app-tooltip={t("notes.notionExportImportOpen")}
+        onclick={() => {
+          notionExportImportOpen = true;
+        }}
+      >
+        <FileText class="size-4" />
       </button>
       <button
         class="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-45"
@@ -670,6 +702,15 @@
     onImport={importNotionApi}
     onCancel={() => {
       notionApiImportOpen = false;
+    }}
+  />
+{/if}
+
+{#if notionExportImportOpen}
+  <NotesNotionExportImportDialog
+    onImport={importNotionExportFolder}
+    onCancel={() => {
+      notionExportImportOpen = false;
     }}
   />
 {/if}

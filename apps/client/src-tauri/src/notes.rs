@@ -45,6 +45,7 @@ mod notion_api_import;
 mod notion_api_import_client;
 mod notion_api_import_convert;
 mod notion_api_import_writer;
+mod notion_export_import;
 mod page_cover_assets;
 mod page_icon_assets;
 mod reads;
@@ -244,6 +245,16 @@ pub async fn notes_import_notion_api<R: Runtime>(
 ) -> Result<NoteNotionApiImportDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
     notion_api_import::import_from_api(&pool, request).await
+}
+
+#[tauri::command]
+pub async fn notes_import_notion_export_folder<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    request: NoteNotionExportImportRequest,
+) -> Result<NoteNotionExportImportDto, String> {
+    let pool = connect_sqlite(app.clone(), db_url.clone()).await?;
+    notion_export_import::import_folder(&app, &db_url, &pool, request).await
 }
 
 #[tauri::command]

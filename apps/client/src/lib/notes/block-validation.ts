@@ -87,6 +87,9 @@ import {
   type NotesNotionApiImportDiagnostic,
   type NotesNotionApiImportDiagnosticSeverity,
   type NotesNotionApiImportResult,
+  type NotesNotionExportImportDiagnostic,
+  type NotesNotionExportImportDiagnosticSeverity,
+  type NotesNotionExportImportResult,
   type NotesMarkdownExportDiagnostic,
   type NotesMarkdownExportDiagnosticSeverity,
   type NotesMarkdownExportResult,
@@ -2091,6 +2094,84 @@ function parseNotesNotionApiImportedUser(value: unknown, index: number): NotesNo
 function isNotionApiImportDiagnosticSeverity(
   value: string,
 ): value is NotesNotionApiImportDiagnosticSeverity {
+  return value === "info" || value === "warning" || value === "error";
+}
+
+export function parseNotesNotionExportImportResult(
+  value: unknown,
+): NotesNotionExportImportResult {
+  const record = readRecord(value, "Notion export import result");
+  const object = readString(record.object, "Notion export import result.object");
+  if (object !== "notes_notion_export_import") {
+    throw new Error("Notion export import result.object must be notes_notion_export_import");
+  }
+  if (!Array.isArray(record.imported_pages)) {
+    throw new Error("Notion export import result.imported_pages must be an array");
+  }
+  if (!Array.isArray(record.imported_data_sources)) {
+    throw new Error("Notion export import result.imported_data_sources must be an array");
+  }
+  if (!Array.isArray(record.diagnostics)) {
+    throw new Error("Notion export import result.diagnostics must be an array");
+  }
+  return {
+    object,
+    imported_pages: record.imported_pages.map(parseNotesLoadedPage),
+    imported_data_sources: record.imported_data_sources.map(parseNotesNotionApiImportedObject),
+    diagnostics: record.diagnostics.map(parseNotesNotionExportImportDiagnostic),
+    imported_page_count: readNonNegativeInteger(
+      record.imported_page_count,
+      "Notion export import result.imported_page_count",
+    ),
+    imported_block_count: readNonNegativeInteger(
+      record.imported_block_count,
+      "Notion export import result.imported_block_count",
+    ),
+    imported_data_source_count: readNonNegativeInteger(
+      record.imported_data_source_count,
+      "Notion export import result.imported_data_source_count",
+    ),
+    imported_file_count: readNonNegativeInteger(
+      record.imported_file_count,
+      "Notion export import result.imported_file_count",
+    ),
+    skipped_file_count: readNonNegativeInteger(
+      record.skipped_file_count,
+      "Notion export import result.skipped_file_count",
+    ),
+    unsupported_block_count: readNonNegativeInteger(
+      record.unsupported_block_count,
+      "Notion export import result.unsupported_block_count",
+    ),
+  };
+}
+
+function parseNotesNotionExportImportDiagnostic(
+  value: unknown,
+  index: number,
+): NotesNotionExportImportDiagnostic {
+  const record = readRecord(value, `Notion export import result.diagnostics[${index}]`);
+  const severity = readString(
+    record.severity,
+    `Notion export import result.diagnostics[${index}].severity`,
+  );
+  if (!isNotionExportImportDiagnosticSeverity(severity)) {
+    throw new Error(`Notion export import result.diagnostics[${index}].severity is unsupported`);
+  }
+  return {
+    code: readString(record.code, `Notion export import result.diagnostics[${index}].code`),
+    severity,
+    source_path: readNullableString(
+      record.source_path,
+      `Notion export import result.diagnostics[${index}].source_path`,
+    ),
+    message: readString(record.message, `Notion export import result.diagnostics[${index}].message`),
+  };
+}
+
+function isNotionExportImportDiagnosticSeverity(
+  value: string,
+): value is NotesNotionExportImportDiagnosticSeverity {
   return value === "info" || value === "warning" || value === "error";
 }
 

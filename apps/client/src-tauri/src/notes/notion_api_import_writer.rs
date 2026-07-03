@@ -47,6 +47,7 @@ pub(super) async fn create_imported_notion_page(
 pub(super) async fn create_imported_notion_data_source(
     pool: &SqlitePool,
     parent: &super::models::NoteParent,
+    source_provider: &str,
     source_workspace_id: Option<&str>,
     data_source: ConvertedNotionDataSource,
     rows: Vec<ConvertedNotionRow>,
@@ -64,7 +65,7 @@ pub(super) async fn create_imported_notion_data_source(
             parent,
             after_block_id: None,
             title: &data_source.title,
-            source_provider: NOTION_SOURCE_PROVIDER,
+            source_provider,
             source_object_id: Some(&data_source.source_id),
             source_workspace_id,
             source_last_edited_time: data_source.last_edited_time.as_deref(),
@@ -76,7 +77,8 @@ pub(super) async fn create_imported_notion_data_source(
         },
     )
     .await?;
-    let database_block = load_imported_database_block(pool, &data_source.source_id).await?;
+    let database_block =
+        load_imported_database_block(pool, source_provider, &data_source.source_id).await?;
     let mut tx = pool
         .begin()
         .await
@@ -120,7 +122,7 @@ pub(super) async fn create_imported_notion_data_source(
                 data_source_id: &local_data_source_id,
                 title: &title,
                 properties: &properties,
-                source_provider: NOTION_SOURCE_PROVIDER,
+                source_provider,
                 source_object_id: Some(&row.source_id),
                 source_workspace_id,
                 source_last_edited_time: row.last_edited_time.as_deref(),
@@ -265,18 +267,20 @@ struct ImportedNotionComment<'a> {
 
 async fn load_imported_database_block(
     pool: &SqlitePool,
+    source_provider: &str,
     source_object_id: &str,
 ) -> Result<ImportedDatabaseBlock, String> {
     let row = sqlx::query(
         "SELECT id, parent_type, parent_page_id, parent_block_id
          FROM notes_blocks
-         WHERE source_provider = 'notion'
+         WHERE source_provider = ?
            AND source_object_id = ?
            AND type = 'child_database'
            AND in_trash = 0
          ORDER BY created_time DESC, id DESC
          LIMIT 1",
     )
+    .bind(source_provider)
     .bind(source_object_id)
     .fetch_optional(pool)
     .await

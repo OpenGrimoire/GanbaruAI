@@ -434,6 +434,73 @@ fn prepare_external_import_reference(
     }
 }
 
+pub(in crate::notes) async fn copy_local_import_file_for_block<R: Runtime>(
+    app: &AppHandle<R>,
+    db_url: &str,
+    import_root: &Path,
+    reference: &str,
+    block_type: &str,
+    original_name: Option<String>,
+) -> NotesImportFileReferenceDto {
+    let requested_kind = match block_type_kind(block_type) {
+        Ok(kind) => kind,
+        Err(error) => {
+            return import_blocked("import_reference_block_type_unsupported", error);
+        }
+    };
+    let path = match resolve_import_candidate_path(&import_root.to_string_lossy(), reference) {
+        Ok(path) => path,
+        Err(diagnostic) => {
+            return NotesImportFileReferenceDto {
+                action: "blocked".to_string(),
+                asset: None,
+                external_url: None,
+                diagnostics: vec![diagnostic],
+            };
+        }
+    };
+    let original_name = original_name.or_else(|| {
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .map(ToOwned::to_owned)
+    });
+    let bytes = match read_file_capped(&path) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            return import_blocked(
+                "import_reference_copy_failed",
+                format!("Could not read the import file: {error}"),
+            );
+        }
+    };
+    match save_notes_file_bytes(
+        app,
+        db_url.to_string(),
+        requested_kind,
+        &path,
+        bytes,
+        original_name,
+        NOTES_ASSET_SOURCE_IMPORTED,
+    )
+    .await
+    {
+        Ok(asset) => NotesImportFileReferenceDto {
+            action: "copied_asset".to_string(),
+            asset: Some(asset),
+            external_url: None,
+            diagnostics: vec![import_diagnostic(
+                "import_reference_copied",
+                "info",
+                "The import file was copied into managed local Notes assets.",
+            )],
+        },
+        Err(error) => import_blocked(
+            "import_reference_copy_failed",
+            format!("Could not copy the import file: {error}"),
+        ),
+    }
+}
+
 fn resolve_import_candidate_path(
     import_root: &str,
     reference: &str,

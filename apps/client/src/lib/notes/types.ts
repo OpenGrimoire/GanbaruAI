@@ -1393,6 +1393,39 @@ export interface NotesNotionApiImportResult {
   unsupported_block_count: number;
 }
 
+export interface NotesNotionExportImportRequest {
+  parent: NotesParent;
+  export_root_path: string;
+  source_workspace_id?: string | null;
+  keep_external_file_references?: boolean | null;
+  copy_local_file_references?: boolean | null;
+  import_markdown?: boolean | null;
+  import_html?: boolean | null;
+  import_csv?: boolean | null;
+}
+
+export type NotesNotionExportImportDiagnosticSeverity = "info" | "warning" | "error";
+
+export interface NotesNotionExportImportDiagnostic {
+  code: string;
+  severity: NotesNotionExportImportDiagnosticSeverity;
+  source_path: string | null;
+  message: string;
+}
+
+export interface NotesNotionExportImportResult {
+  object: "notes_notion_export_import";
+  imported_pages: NotesLoadedPage[];
+  imported_data_sources: NotesNotionApiImportedObject[];
+  diagnostics: NotesNotionExportImportDiagnostic[];
+  imported_page_count: number;
+  imported_block_count: number;
+  imported_data_source_count: number;
+  imported_file_count: number;
+  skipped_file_count: number;
+  unsupported_block_count: number;
+}
+
 export interface NotesMarkdownExportRequest {
   page_id: string;
   include_page_title?: boolean | null;

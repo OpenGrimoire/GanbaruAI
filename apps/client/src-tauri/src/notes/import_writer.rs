@@ -2,7 +2,7 @@ use super::models::{parent_columns, NoteLoadedPage, NoteParent};
 use super::validation::{
     plain_text_from_payload, validate_block_payload, validate_parent, validate_sort_order,
 };
-use super::{reads, writes};
+use super::{assets, reads, writes};
 use serde_json::{json, Value};
 use sqlx::{Sqlite, SqlitePool, Transaction};
 use std::collections::HashSet;
@@ -111,6 +111,7 @@ pub(super) async fn create_imported_page(
     for block in flattened_blocks {
         insert_raw_block_with_id(&mut tx, &request, block).await?;
     }
+    sync_import_block_assets(&mut tx, &request.blocks, &page_id).await?;
     tx.commit()
         .await
         .map_err(|e| format!("commit {} import: {e}", request.source_provider))?;
@@ -167,6 +168,7 @@ pub(super) async fn create_imported_row_page(
     for block in flattened_blocks {
         insert_raw_block_with_id(&mut tx, &page_request, block).await?;
     }
+    sync_import_block_assets(&mut tx, &request.blocks, &page_id).await?;
     tx.commit()
         .await
         .map_err(|e| format!("commit {} row import: {e}", request.source_provider))?;
@@ -199,6 +201,26 @@ fn assign_block_ids(blocks: &mut [ImportBlock], ids: &mut impl Iterator<Item = S
             .expect("generated import block ids must cover every parsed block");
         assign_block_ids(&mut block.children, ids);
     }
+}
+
+async fn sync_import_block_assets(
+    tx: &mut Transaction<'_, Sqlite>,
+    blocks: &[ImportBlock],
+    page_id: &str,
+) -> Result<(), String> {
+    let mut stack = blocks.iter().collect::<Vec<_>>();
+    while let Some(block) = stack.pop() {
+        assets::sync_block_asset_reference_tx(
+            tx,
+            &block.id,
+            page_id,
+            block.block_type,
+            &block.payload,
+        )
+        .await?;
+        stack.extend(block.children.iter());
+    }
+    Ok(())
 }
 
 async fn ensure_data_source_exists(

@@ -133,13 +133,13 @@ pub(in crate::notes) async fn import_page(
     ))
 }
 
-struct HtmlPlan {
-    title: Option<String>,
-    blocks: Vec<ImportBlock>,
-    diagnostics: Vec<NoteHtmlImportDiagnosticDto>,
+pub(super) struct HtmlPlan {
+    pub(super) title: Option<String>,
+    pub(super) blocks: Vec<ImportBlock>,
+    pub(super) diagnostics: Vec<NoteHtmlImportDiagnosticDto>,
 }
 
-fn parse_html(html: &str, keep_external_file_references: bool) -> HtmlPlan {
+pub(super) fn parse_html(html: &str, keep_external_file_references: bool) -> HtmlPlan {
     let normalized = html.replace("\r\n", "\n").replace('\r', "\n");
     let mut diagnostics = scan_html_diagnostics(&normalized);
     let title = extract_title(&normalized);

@@ -11,6 +11,7 @@ import {
   parseNotesHtmlImportResult,
   parseNotesMarkdownExportResult,
   parseNotesNotionApiImportResult,
+  parseNotesNotionExportImportResult,
   parseNotesPage,
   parseNotesPageHistorySettings,
   parseNotesPageHistorySnapshot,
@@ -1701,6 +1702,57 @@ describe("notes boundary validation", () => {
     expect(result.imported_users[0]?.name).toBe("Avo Cado");
     expect(result.diagnostics[0]?.code).toBe("temporary_notion_file_url");
     expect(result.rate_limit_count).toBe(1);
+  });
+
+  it("parses Notion export folder import result DTOs", () => {
+    const result = parseNotesNotionExportImportResult({
+      object: "notes_notion_export_import",
+      imported_pages: [
+        {
+          page: {
+            ...basePage,
+            source_provider: "notion_export",
+            source_object_id: "export-page",
+          },
+          blocks: {
+            object: "list",
+            type: "block",
+            block: {},
+            results: [],
+            next_cursor: null,
+            has_more: false,
+          },
+        },
+      ],
+      imported_data_sources: [
+        {
+          object_type: "data_source",
+          source_object_id: "tasks.csv",
+          local_id: "81818181-8181-4181-8181-818181818181",
+          title: "Tasks",
+        },
+      ],
+      diagnostics: [
+        {
+          code: "sitemap_skipped",
+          severity: "info",
+          source_path: "index.html",
+          message: "Sitemap skipped.",
+        },
+      ],
+      imported_page_count: 1,
+      imported_block_count: 2,
+      imported_data_source_count: 1,
+      imported_file_count: 0,
+      skipped_file_count: 1,
+      unsupported_block_count: 0,
+    });
+
+    expect(result.object).toBe("notes_notion_export_import");
+    expect(result.imported_pages[0]?.page.source_provider).toBe("notion_export");
+    expect(result.imported_data_sources[0]?.title).toBe("Tasks");
+    expect(result.diagnostics[0]?.source_path).toBe("index.html");
+    expect(result.skipped_file_count).toBe(1);
   });
 
   it("parses markdown export result DTOs", () => {

@@ -76,10 +76,10 @@ pub(in crate::notes) async fn import_page(
     ))
 }
 
-struct MarkdownPlan {
-    title: Option<String>,
-    blocks: Vec<ImportBlock>,
-    diagnostics: Vec<NoteMarkdownImportDiagnosticDto>,
+pub(super) struct MarkdownPlan {
+    pub(super) title: Option<String>,
+    pub(super) blocks: Vec<ImportBlock>,
+    pub(super) diagnostics: Vec<NoteMarkdownImportDiagnosticDto>,
 }
 
 fn markdown_block(
@@ -96,7 +96,7 @@ fn markdown_block(
     )
 }
 
-fn parse_markdown(markdown: &str) -> MarkdownPlan {
+pub(super) fn parse_markdown(markdown: &str) -> MarkdownPlan {
     let normalized = markdown.replace("\r\n", "\n").replace('\r', "\n");
     let (frontmatter_title, body, mut diagnostics) = strip_frontmatter(&normalized);
     let lines = body

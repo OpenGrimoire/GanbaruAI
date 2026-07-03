@@ -35,6 +35,27 @@ export const navigationAndSearch = {
     `Se importaron ${pages} ${pages === 1 ? "página" : "páginas"}, ${blocks} ${blocks === 1 ? "bloque" : "bloques"} y ${comments} ${comments === 1 ? "comentario" : "comentarios"}`,
   notionApiImportRequests: (requests: number, retries: number, rateLimits: number) =>
     `${requests} ${requests === 1 ? "solicitud" : "solicitudes"}, ${retries} ${retries === 1 ? "reintento" : "reintentos"}, ${rateLimits} ${rateLimits === 1 ? "límite de tasa" : "límites de tasa"}`,
+  notionExportImportOpen: "Importar carpeta exportada de Notion",
+  notionExportImportDialogTitle: "Importación de carpeta exportada de Notion",
+  notionExportImportFolderLabel: "Ruta de la carpeta exportada",
+  notionExportImportWorkspaceLabel: "ID de espacio de trabajo",
+  notionExportImportMarkdown: "Importar páginas Markdown",
+  notionExportImportHtml: "Importar páginas HTML",
+  notionExportImportCsv: "Importar bases de datos CSV",
+  notionExportImportCopyFiles: "Copiar archivos locales",
+  notionExportImportKeepExternalFiles: "Conservar referencias a archivos externos",
+  notionExportImportSubmit: "Importar",
+  notionExportImportImporting: "Importando",
+  notionExportImportFailed: (message: string) =>
+    `No se pudo importar la carpeta exportada de Notion: ${message}`,
+  notionExportImportComplete: (
+    pages: number,
+    dataSources: number,
+    files: number,
+    warnings: number,
+  ) =>
+    `Se importaron ${pages} ${pages === 1 ? "página" : "páginas"}, ${dataSources} ${dataSources === 1 ? "fuente de datos" : "fuentes de datos"} y ${files} ${files === 1 ? "archivo" : "archivos"} con ${warnings} ${warnings === 1 ? "advertencia" : "advertencias"}`,
+  notionExportImportDiagnosticWithPath: (path: string, message: string) => `${path}: ${message}`,
   htmlExportOpen: "Exportar HTML",
   htmlExportUnavailable: "Selecciona una página para exportar",
   htmlExportDialogTitle: "Exportar archivo HTML",

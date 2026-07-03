@@ -18,6 +18,7 @@ import {
   getNotesPageBreadcrumb,
   importNotesHtmlPage,
   importNotesNotionApi,
+  importNotesNotionExportFolder,
   listNotesBacklinks,
   listNotesComments,
   listNotesPageAliases,
@@ -115,6 +116,8 @@ import type {
   NotesPage,
   NotesNotionApiImportRequest,
   NotesNotionApiImportResult,
+  NotesNotionExportImportRequest,
+  NotesNotionExportImportResult,
   NotesPageAlias,
   NotesPageBreadcrumbItem,
   NotesPageCover,
@@ -996,10 +999,26 @@ async function importNotionApi(
     ...input,
     parent: input.parent ?? { type: "workspace", workspace: true },
   });
+  await refreshAfterMultiPageImport(result.imported_pages);
+  return result;
+}
+
+async function importNotionExportFolder(
+  input: Omit<NotesNotionExportImportRequest, "parent"> & { parent?: NotesParent },
+): Promise<NotesNotionExportImportResult> {
+  const result = await importNotesNotionExportFolder({
+    ...input,
+    parent: input.parent ?? { type: "workspace", workspace: true },
+  });
+  await refreshAfterMultiPageImport(result.imported_pages);
+  return result;
+}
+
+async function refreshAfterMultiPageImport(importedPages: NotesLoadedPage[]): Promise<void> {
   viewMode = "pages";
-  const firstPage = result.imported_pages[0] ?? null;
+  const firstPage = importedPages[0] ?? null;
   await reloadPages(firstPage?.page.id);
-  for (const loaded of result.imported_pages) {
+  for (const loaded of importedPages) {
     if (!pages.some((page) => page.id === loaded.page.id)) {
       pages = [loaded.page, ...pages];
     }
@@ -1020,7 +1039,6 @@ async function importNotionApi(
     await undoController.hydrate(firstPage.page.id);
     requestPageLoadFocus();
   }
-  return result;
 }
 
 async function exportHtmlArchive(
@@ -1808,6 +1826,7 @@ export function getNotes() {
     createSubpage,
     importHtmlPage,
     importNotionApi,
+    importNotionExportFolder,
     exportHtmlArchive,
     createChildPageFromBlock,
     applyPageTemplate,
