@@ -51,11 +51,11 @@ describe("notes keyboard planning", () => {
   it("allows newline insertion for Shift+Enter and code Enter", () => {
     expect(plan({ key: "Enter", shiftKey: true })).toEqual({
       type: "insert_newline",
-      preventDefault: false,
+      preventDefault: true,
     });
     expect(plan({ key: "Enter", blockType: "code", text: "let x = 1;" })).toEqual({
       type: "insert_newline",
-      preventDefault: false,
+      preventDefault: true,
     });
   });
 

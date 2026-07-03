@@ -12,7 +12,7 @@ import type { NotesBlockType } from "./types";
 export type NotesKeyboardAction =
   | { type: "none" }
   | { type: "open_slash_menu"; preventDefault: false }
-  | { type: "insert_newline"; preventDefault: false }
+  | { type: "insert_newline"; preventDefault: true }
   | { type: "create_sibling"; preventDefault: true }
   | {
     type: "split_text_block";
@@ -81,13 +81,13 @@ export function planNotesKeyboardAction(input: NotesKeyboardPlanInput): NotesKey
       return { type: "toggle_block_open", preventDefault: true };
     }
     if (input.blockType === "code" && !input.ctrlKey) {
-      return { type: "insert_newline", preventDefault: false };
+      return { type: "insert_newline", preventDefault: true };
     }
     if (input.blockType === "code" && input.ctrlKey) {
       return { type: "create_sibling", preventDefault: true };
     }
     if (input.shiftKey) {
-      return { type: "insert_newline", preventDefault: false };
+      return { type: "insert_newline", preventDefault: true };
     }
     if (input.blockType === "paragraph" && isTextShortcutTriggerKey(input.key)) {
       const shortcutType = blockTypeForTextShortcut(input.text);

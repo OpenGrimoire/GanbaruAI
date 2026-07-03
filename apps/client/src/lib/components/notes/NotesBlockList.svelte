@@ -43,12 +43,12 @@
     notesAdjacentRenderedBlockId,
     notesBoundaryRenderedBlockId,
     notesCollapsedNavigationSelection,
-    notesNavigationSelectionOffset,
     type NotesBlockNavigationBoundary,
     type NotesBlockNavigationDirection,
   } from "$lib/notes/block-navigation";
   import type { NotesBlockInsertRequest } from "$lib/notes/block-insertion";
   import {
+    notesEditableOffsetFromDomPoint,
     notesPlainTextFromEditableRoot,
     notesTextSelectionFromEditableRoot,
     restoreNotesEditableSelection,
@@ -103,6 +103,25 @@
     subtreeBlockIds: string[];
     plainText: string;
   };
+
+  interface NotesEditableVisualLine {
+    top: number;
+    right: number;
+    bottom: number;
+    left: number;
+  }
+
+  interface DocumentWithCaretPositionFromPoint {
+    caretPositionFromPoint?: (
+      x: number,
+      y: number,
+      options?: CaretPositionFromPointOptions,
+    ) => CaretPosition | null;
+  }
+
+  interface DocumentWithCaretRangeFromPoint {
+    caretRangeFromPoint?: (x: number, y: number) => Range | null;
+  }
 
   let {
     items,
@@ -467,12 +486,20 @@
       .find((element) => element.dataset.notesSelectableBlockId === blockId) ?? null;
   }
 
+  function textEditorForBlock(blockId: string): HTMLElement | null {
+    return Array.from(
+      selectableBlockRowFromBlockId(blockId)
+        ?.querySelectorAll<HTMLElement>(
+          "[contenteditable='true'][role='textbox'][data-notes-block-id]",
+        ) ?? [],
+    ).find((editor) => editor.dataset.notesBlockId === blockId) ?? null;
+  }
+
   function focusTextEditorForBlock(blockId: string): boolean {
     const block = notes.blockById(blockId);
     if (!block || !isTextEditableBlock(block.type)) return false;
 
-    const editor = selectableBlockRowFromBlockId(blockId)
-      ?.querySelector<HTMLElement>("[contenteditable='true'][role='textbox']") ?? null;
+    const editor = textEditorForBlock(blockId);
     if (!editor) return false;
 
     editor.focus({ preventScroll: true });
@@ -494,17 +521,32 @@
     return editor;
   }
 
-  function editableVisualLineTops(editor: HTMLElement): number[] {
+  function editableVisualLines(editor: HTMLElement): NotesEditableVisualLine[] {
     const range = editor.ownerDocument.createRange();
     range.selectNodeContents(editor);
-    const lineTops: number[] = [];
+    const lines: NotesEditableVisualLine[] = [];
     for (const rect of Array.from(range.getClientRects())) {
       if (rect.width <= 0 && rect.height <= 0) continue;
-      if (!lineTops.some((top) => Math.abs(top - rect.top) < 2)) {
-        lineTops.push(rect.top);
+      const existing = lines.find((line) => Math.abs(line.top - rect.top) < 2);
+      if (existing) {
+        existing.top = Math.min(existing.top, rect.top);
+        existing.right = Math.max(existing.right, rect.right);
+        existing.bottom = Math.max(existing.bottom, rect.bottom);
+        existing.left = Math.min(existing.left, rect.left);
+      } else {
+        lines.push({
+          top: rect.top,
+          right: rect.right,
+          bottom: rect.bottom,
+          left: rect.left,
+        });
       }
     }
-    return lineTops.sort((left, right) => left - right);
+    return lines.sort((left, right) => left.top - right.top);
+  }
+
+  function editableVisualLineTops(editor: HTMLElement): number[] {
+    return editableVisualLines(editor).map((line) => line.top);
   }
 
   function collapsedSelectionRect(editor: HTMLElement): DOMRect | null {
@@ -522,12 +564,55 @@
     editor: HTMLElement,
     direction: NotesBlockNavigationDirection,
   ): boolean {
+    const selection = notesTextSelectionFromEditableRoot(editor);
+    const textLength = notesPlainTextFromEditableRoot(editor).length;
+    if (selection && selection.start === selection.end) {
+      if (direction === "previous" && selection.start === 0) return true;
+      if (direction === "next" && selection.start === textLength) return true;
+    }
     const lineTops = editableVisualLineTops(editor);
     if (lineTops.length <= 1) return true;
     const caretRect = collapsedSelectionRect(editor);
     if (!caretRect) return false;
     const boundaryTop = direction === "previous" ? lineTops[0] : lineTops.at(-1);
     return boundaryTop !== undefined && Math.abs(caretRect.top - boundaryTop) < 2;
+  }
+
+  function caretOffsetFromViewportPoint(
+    editor: HTMLElement,
+    x: number,
+    y: number,
+  ): number | null {
+    const documentWithCaretPosition = editor.ownerDocument as DocumentWithCaretPositionFromPoint;
+    const position = documentWithCaretPosition.caretPositionFromPoint?.(x, y) ?? null;
+    if (position && editor.contains(position.offsetNode)) {
+      return notesEditableOffsetFromDomPoint(editor, position.offsetNode, position.offset);
+    }
+
+    const documentWithCaretRange = editor.ownerDocument as DocumentWithCaretRangeFromPoint;
+    const range = documentWithCaretRange.caretRangeFromPoint?.(x, y) ?? null;
+    if (!range || !editor.contains(range.startContainer)) return null;
+    return notesEditableOffsetFromDomPoint(editor, range.startContainer, range.startOffset);
+  }
+
+  function clampedNavigationPointX(editor: HTMLElement, x: number): number {
+    const editorRect = editor.getBoundingClientRect();
+    const left = editorRect.left + 1;
+    const right = editorRect.right - 1;
+    if (right <= left) return editorRect.left;
+    return Math.min(Math.max(x, left), right);
+  }
+
+  function targetLineOffsetFromNavigationX(
+    editor: HTMLElement,
+    direction: NotesBlockNavigationDirection,
+    navigationX: number,
+  ): number | null {
+    const lines = editableVisualLines(editor);
+    const line = direction === "previous" ? lines.at(-1) : lines[0];
+    if (!line) return null;
+    const y = line.top + Math.max(1, (line.bottom - line.top) / 2);
+    return caretOffsetFromViewportPoint(editor, clampedNavigationPointX(editor, navigationX), y);
   }
 
   function nativeLineNavigationStaysInsideEditor(
@@ -541,7 +626,7 @@
     return true;
   }
 
-  function textSelectionForFocusedBlock(
+  function textSelectionForFocusedBlockOffset(
     blockId: string,
     offset: number,
   ): NotesTextSelection | null {
@@ -552,14 +637,55 @@
     return notesCollapsedNavigationSelection(safeOffset);
   }
 
-  function focusRenderedBlock(blockId: string, offset: number): void {
-    notes.focusBlock(blockId, textSelectionForFocusedBlock(blockId, offset));
+  function textSelectionForFocusedBlock(
+    blockId: string,
+    selection: NotesTextSelection | null,
+  ): NotesTextSelection | null {
+    const block = notes.blockById(blockId);
+    if (!block || !isTextEditableBlock(block.type) || !selection) return null;
+    const textLength = blockPlainText(block).length;
+    const start = Math.min(Math.max(0, selection.start), textLength);
+    const end = Math.min(Math.max(0, selection.end), textLength);
+    return {
+      start: Math.min(start, end),
+      end: Math.max(start, end),
+    };
+  }
+
+  function adjacentNavigationFallbackOffset(
+    blockId: string,
+    direction: NotesBlockNavigationDirection,
+  ): number {
+    if (direction === "next") return 0;
+    const block = notes.blockById(blockId);
+    return block && isTextEditableBlock(block.type) ? blockPlainText(block).length : 0;
+  }
+
+  function adjacentNavigationSelection(
+    blockId: string,
+    direction: NotesBlockNavigationDirection,
+    navigationX: number | null,
+  ): NotesTextSelection | null {
+    const block = notes.blockById(blockId);
+    if (!block || !isTextEditableBlock(block.type)) return null;
+    const editor = navigationX === null ? null : textEditorForBlock(blockId);
+    const offset = editor && navigationX !== null
+      ? targetLineOffsetFromNavigationX(editor, direction, navigationX)
+      : null;
+    return textSelectionForFocusedBlockOffset(
+      blockId,
+      offset ?? adjacentNavigationFallbackOffset(blockId, direction),
+    );
+  }
+
+  function focusRenderedBlock(blockId: string, selection: NotesTextSelection | null): void {
+    notes.focusBlock(blockId, textSelectionForFocusedBlock(blockId, selection));
   }
 
   function focusAdjacentRenderedBlock(
     currentBlockId: string,
     direction: NotesBlockNavigationDirection,
-    offset: number,
+    navigationX: number | null,
   ): boolean {
     const targetBlockId = notesAdjacentRenderedBlockId(
       renderedSelectableBlockIds(),
@@ -567,7 +693,10 @@
       direction,
     );
     if (!targetBlockId) return false;
-    focusRenderedBlock(targetBlockId, offset);
+    focusRenderedBlock(
+      targetBlockId,
+      adjacentNavigationSelection(targetBlockId, direction, navigationX),
+    );
     return true;
   }
 
@@ -580,7 +709,10 @@
   function focusBoundaryRenderedBlock(boundary: NotesBlockNavigationBoundary): boolean {
     const targetBlockId = notesBoundaryRenderedBlockId(renderedSelectableBlockIds(), boundary);
     if (!targetBlockId) return false;
-    focusRenderedBlock(targetBlockId, boundaryFocusOffset(targetBlockId, boundary));
+    focusRenderedBlock(
+      targetBlockId,
+      textSelectionForFocusedBlockOffset(targetBlockId, boundaryFocusOffset(targetBlockId, boundary)),
+    );
     return true;
   }
 
@@ -606,15 +738,14 @@
       const selection = notesTextSelectionFromEditableRoot(editor);
       if (!selection || selection.start !== selection.end) return false;
       if (nativeLineNavigationStaysInsideEditor(editor, direction)) return false;
-      const offset = notesNavigationSelectionOffset(selection, 0);
-      if (!focusAdjacentRenderedBlock(blockId, direction, offset)) return false;
+      const navigationX = collapsedSelectionRect(editor)?.left ?? null;
+      if (!focusAdjacentRenderedBlock(blockId, direction, navigationX)) return false;
       event.preventDefault();
       return true;
     }
 
     if (eventTargetIsEditable(event.target)) return false;
-    const offset = direction === "previous" ? Number.MAX_SAFE_INTEGER : 0;
-    if (!focusAdjacentRenderedBlock(blockId, direction, offset)) return false;
+    if (!focusAdjacentRenderedBlock(blockId, direction, null)) return false;
     event.preventDefault();
     return true;
   }
@@ -1205,7 +1336,7 @@
 <div
   use:blockSelectionDelegation
   bind:this={blockListElement}
-  class="flex min-w-0 flex-col gap-0.5 pb-8"
+  class="notes-block-list flex min-w-0 flex-col gap-0.5 pb-8"
   role="group"
   aria-label={t("notes.blockList")}
 >
@@ -1730,4 +1861,5 @@
     outline: 2px solid hsl(var(--ring));
     outline-offset: 1px;
   }
+
 </style>

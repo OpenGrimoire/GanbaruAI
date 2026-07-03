@@ -449,7 +449,9 @@
     class="notes-block-surface flex min-w-0 items-start gap-1 rounded-md py-0.5 pr-2 hover:bg-accent/50"
     data-notes-block-selection-zone
   >
-    <div class="notes-block-indent shrink-0"></div>
+    {#if item.depth > 0}
+      <div class="notes-block-indent shrink-0"></div>
+    {/if}
     <NotesBlockHandle
       onAddBelow={(type) => onAddBelow(block.id, type)}
       onTurnInto={openTurnIntoMenu}
@@ -467,7 +469,6 @@
       onDragStart={(event) => onDragStart(block.id, event)}
       onDragEnd={onDragEnd}
     />
-    <div class="w-5 shrink-0"></div>
 
     <div class="relative min-w-0 flex-1">
       <section class="notes-column-layout my-1 min-w-0" aria-label={t("notes.blockType.columns")}>
@@ -760,7 +761,7 @@
   .notes-block-drop-before::before,
   .notes-block-drop-after::after {
     position: absolute;
-    left: calc(var(--notes-depth) * 1.25rem + 2.75rem);
+    left: calc(var(--notes-depth) * 1.25rem + 0.25rem);
     right: 0.5rem;
     z-index: 5;
     height: 2px;
@@ -779,7 +780,7 @@
 
   .notes-block-drop-outdent::after {
     position: absolute;
-    left: max(0.5rem, calc((var(--notes-depth) - 1) * 1.25rem + 2.75rem));
+    left: max(0.5rem, calc((var(--notes-depth) - 1) * 1.25rem + 0.25rem));
     right: 0.5rem;
     bottom: -1px;
     z-index: 5;

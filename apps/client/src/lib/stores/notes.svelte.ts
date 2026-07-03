@@ -186,6 +186,7 @@ let focusRequest = $state<NotesFocusRequest>({
   requestId: 0,
   selection: null,
 });
+const START_OF_NOTES_BLOCK_SELECTION: NotesTextSelection = { start: 0, end: 0 };
 let loadRequestId = 0;
 let archiveRequestId = 0;
 let trashRequestId = 0;
@@ -974,7 +975,8 @@ async function createPageWithParent(title: string, parent: NotesParent): Promise
   await reloadSuggestions(loaded.page.id);
   await pageHistoryController.reloadSnapshots(loaded.page.id);
   await undoController.hydrate(loaded.page.id);
-  requestBlockFocus(planNotesInsertedBlockFocus([firstBlockId]));
+  const focusBlockId = planNotesInsertedBlockFocus([firstBlockId]);
+  requestBlockFocus(focusBlockId, START_OF_NOTES_BLOCK_SELECTION);
 }
 
 async function importHtmlPage(
@@ -1195,7 +1197,10 @@ async function createChildPageFromBlock(blockId: string): Promise<void> {
   await reloadSuggestions(loaded.page.id);
   await pageHistoryController.reloadSnapshots(loaded.page.id);
   await undoController.hydrate(loaded.page.id);
-  requestBlockFocus(planNotesInsertedBlockFocus([loaded.blocks.results[0]?.id, firstBlockId]));
+  requestBlockFocus(
+    planNotesInsertedBlockFocus([loaded.blocks.results[0]?.id, firstBlockId]),
+    START_OF_NOTES_BLOCK_SELECTION,
+  );
 }
 
 async function createChildPageAfterBlock(blockId: string): Promise<void> {
@@ -1231,7 +1236,10 @@ async function createChildPageAfterBlock(blockId: string): Promise<void> {
   await reloadSuggestions(loaded.page.id);
   await pageHistoryController.reloadSnapshots(loaded.page.id);
   await undoController.hydrate(loaded.page.id);
-  requestBlockFocus(planNotesInsertedBlockFocus([loaded.blocks.results[0]?.id, firstBlockId]));
+  requestBlockFocus(
+    planNotesInsertedBlockFocus([loaded.blocks.results[0]?.id, firstBlockId]),
+    START_OF_NOTES_BLOCK_SELECTION,
+  );
 }
 
 async function renamePage(pageId: string, title: string): Promise<void> {

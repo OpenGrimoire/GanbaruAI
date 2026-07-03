@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 import {
   clampNotesTextSelection,
+  notesEditableOffsetFromDomPoint,
   notesEditableSelectionViewportRect,
   notesPlainTextFromEditableRoot,
   notesSelectionForFocus,
@@ -82,6 +83,52 @@ describe("notes editor selection helpers", () => {
     expect(notesPlainTextFromEditableRoot(root)).toBe("Hello\nworld");
   });
 
+  it("keeps trailing text-node soft line breaks", () => {
+    const root = document.createElement("div");
+    const span = document.createElement("span");
+    span.textContent = "Hello\n";
+    root.append(span);
+
+    expect(notesPlainTextFromEditableRoot(root)).toBe("Hello\n");
+  });
+
+  it("ignores trailing line sentinels while preserving the soft line break", () => {
+    const root = document.createElement("div");
+    root.innerHTML = [
+      "<span>Hello\n</span>",
+      "<span data-notes-editor-sentinel=\"trailing-line\">&#8203;</span>",
+    ].join("");
+
+    expect(notesPlainTextFromEditableRoot(root)).toBe("Hello\n");
+  });
+
+  it("maps trailing line sentinels to the previous text offset", () => {
+    const root = document.createElement("div");
+    root.innerHTML = [
+      "<span>Hello\n</span>",
+      "<span data-notes-editor-sentinel=\"trailing-line\">&#8203;</span>",
+    ].join("");
+    const sentinel = root.querySelector("[data-notes-editor-sentinel]");
+    expect(sentinel).toBeInstanceOf(HTMLElement);
+    if (!(sentinel instanceof HTMLElement)) return;
+
+    expect(notesEditableOffsetFromDomPoint(root, sentinel.firstChild ?? sentinel, 1)).toBe(6);
+  });
+
+  it("maps DOM points around soft line breaks to plain text offsets", () => {
+    const root = document.createElement("div");
+    root.innerHTML = "<span>Hello</span><br><span>world</span>";
+    const firstText = root.querySelector("span")?.firstChild;
+    const secondText = root.querySelectorAll("span")[1]?.firstChild;
+    expect(firstText).toBeInstanceOf(Text);
+    expect(secondText).toBeInstanceOf(Text);
+    if (!(firstText instanceof Text) || !(secondText instanceof Text)) return;
+
+    expect(notesEditableOffsetFromDomPoint(root, firstText, 5)).toBe(5);
+    expect(notesEditableOffsetFromDomPoint(root, root, 2)).toBe(6);
+    expect(notesEditableOffsetFromDomPoint(root, secondText, 0)).toBe(6);
+  });
+
   it("treats browser filler markup in an empty editable surface as empty text", () => {
     const root = document.createElement("div");
 
@@ -89,6 +136,12 @@ describe("notes editor selection helpers", () => {
     expect(notesPlainTextFromEditableRoot(root)).toBe("");
 
     root.innerHTML = "<span></span>";
+    expect(notesPlainTextFromEditableRoot(root)).toBe("");
+
+    root.innerHTML = "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;";
+    expect(notesPlainTextFromEditableRoot(root)).toBe("");
+
+    root.innerHTML = "<span data-notes-editor-sentinel=\"empty-line\">&#8203;</span>";
     expect(notesPlainTextFromEditableRoot(root)).toBe("");
 
     root.innerHTML = "<div><br></div>";
@@ -131,6 +184,19 @@ describe("notes editor selection helpers", () => {
 
     expect(restoreNotesEditableSelection(root, { start: 6, end: 11 })).toBe(true);
     expect(notesTextSelectionFromEditableRoot(root)).toEqual({ start: 6, end: 11 });
+    root.remove();
+  });
+
+  it("restores selections after a trailing soft line break", () => {
+    const root = document.createElement("div");
+    root.innerHTML = [
+      "<span>Hello\n</span>",
+      "<span data-notes-editor-sentinel=\"trailing-line\">&#8203;</span>",
+    ].join("");
+    document.body.append(root);
+
+    expect(restoreNotesEditableSelection(root, { start: 6, end: 6 })).toBe(true);
+    expect(notesTextSelectionFromEditableRoot(root)).toEqual({ start: 6, end: 6 });
     root.remove();
   });
 

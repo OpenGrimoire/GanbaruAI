@@ -3,7 +3,6 @@ import {
   notesAdjacentRenderedBlockId,
   notesBoundaryRenderedBlockId,
   notesCollapsedNavigationSelection,
-  notesNavigationSelectionOffset,
 } from "./block-navigation";
 
 describe("notes block navigation", () => {
@@ -18,12 +17,6 @@ describe("notes block navigation", () => {
     expect(notesBoundaryRenderedBlockId(["a", "b"], "first")).toBe("a");
     expect(notesBoundaryRenderedBlockId(["a", "b"], "last")).toBe("b");
     expect(notesBoundaryRenderedBlockId([], "first")).toBeNull();
-  });
-
-  it("uses collapsed selections as navigation offsets", () => {
-    expect(notesNavigationSelectionOffset({ start: 4, end: 4 }, 0)).toBe(4);
-    expect(notesNavigationSelectionOffset({ start: 2, end: 8 }, 0)).toBe(0);
-    expect(notesNavigationSelectionOffset(null, 12)).toBe(12);
   });
 
   it("builds collapsed selections for target blocks", () => {

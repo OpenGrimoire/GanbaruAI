@@ -512,10 +512,16 @@
 <style>
   .notes-block-handle {
     inline-size: 2.5rem;
+    position: absolute;
+    inset-block-start: 0.25rem;
+    inset-inline-start: -2.5rem;
+    margin-block-start: 0;
+    z-index: 10;
   }
 
   .notes-block-handle-has-comments {
     inline-size: 4.5rem;
+    inset-inline-start: -4.5rem;
   }
 
   .notes-block-handle-button {
@@ -558,10 +564,12 @@
   @media (any-pointer: coarse), (max-width: 420px) {
     .notes-block-handle {
       inline-size: 3.25rem;
+      inset-inline-start: -3.25rem;
     }
 
     .notes-block-handle-has-comments {
       inline-size: 5.25rem;
+      inset-inline-start: -5.25rem;
     }
 
     .notes-block-handle-button {

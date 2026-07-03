@@ -24,6 +24,7 @@ export interface NotesSelectionViewportRect {
 const TEXT_NODE = 3;
 const ELEMENT_NODE = 1;
 const DOCUMENT_FRAGMENT_NODE = 11;
+const BROWSER_FILLER_TEXT_PATTERN = /^[\u00a0\u200b\ufeff]*$/u;
 
 interface SelectionControl {
   selectionStart: number | null;
@@ -77,9 +78,21 @@ function isElementNode(node: Node): node is Element {
   return node.nodeType === ELEMENT_NODE;
 }
 
+function isNotesEditorSentinelElement(node: Node): boolean {
+  return isElementNode(node)
+    && (
+      node.hasAttribute("data-notes-editor-sentinel")
+      || node.getAttribute("data-notes-trailing-line-sentinel") === "true"
+    );
+}
+
 function nodeHasEditablePlainText(node: Node): boolean {
-  if (node.nodeType === TEXT_NODE) return (node.textContent ?? "").length > 0;
+  if (node.nodeType === TEXT_NODE) {
+    const text = node.textContent ?? "";
+    return text.length > 0 && !BROWSER_FILLER_TEXT_PATTERN.test(text);
+  }
   if (!isElementNode(node) && node.nodeType !== DOCUMENT_FRAGMENT_NODE) return false;
+  if (isNotesEditorSentinelElement(node)) return false;
   if (isElementNode(node) && node.tagName === "BR") return false;
   return Array.from(node.childNodes).some(nodeHasEditablePlainText);
 }
@@ -93,6 +106,7 @@ function appendEditablePlainText(node: Node, output: string[], root: Node): void
   if (!isElementNode(node) && node.nodeType !== DOCUMENT_FRAGMENT_NODE) return;
 
   if (isElementNode(node)) {
+    if (isNotesEditorSentinelElement(node)) return;
     if (node.tagName === "BR") {
       output.push("\n");
       return;
@@ -116,7 +130,7 @@ export function notesPlainTextFromEditableRoot(root: HTMLElement | DocumentFragm
   return output.join("").replace(/\u00a0/gu, " ");
 }
 
-function editableOffsetFromDomPoint(
+export function notesEditableOffsetFromDomPoint(
   root: HTMLElement,
   node: Node,
   offset: number,
@@ -141,8 +155,8 @@ export function notesTextSelectionFromEditableRoot(root: HTMLElement): NotesText
   if (!selection || selection.rangeCount === 0 || !anchorNode || !focusNode) return null;
   if (!root.contains(anchorNode) || !root.contains(focusNode)) return null;
 
-  const anchor = editableOffsetFromDomPoint(root, anchorNode, selection.anchorOffset);
-  const focus = editableOffsetFromDomPoint(root, focusNode, selection.focusOffset);
+  const anchor = notesEditableOffsetFromDomPoint(root, anchorNode, selection.anchorOffset);
+  const focus = notesEditableOffsetFromDomPoint(root, focusNode, selection.focusOffset);
   if (anchor === null || focus === null) return null;
 
   return {
@@ -203,6 +217,10 @@ function findEditableDomPoint(root: HTMLElement, textOffset: number): EditableDo
         if (remaining <= text.length) return { node: child, offset: remaining };
         remaining -= text.length;
         fallback = { node: child, offset: text.length };
+        continue;
+      }
+
+      if (isNotesEditorSentinelElement(child)) {
         continue;
       }
 

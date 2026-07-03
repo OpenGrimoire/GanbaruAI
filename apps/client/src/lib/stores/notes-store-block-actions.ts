@@ -69,6 +69,7 @@ import {
   type NotesHeadingBlockType,
   type NotesMediaAssetChange,
 } from "$lib/notes/block-factory";
+import type { NotesTextSelection } from "$lib/notes/editor-selection";
 import { createBlockWriteFromRichText } from "$lib/notes/block-rich-text-write";
 import {
   notesEnterSiblingBlockType,
@@ -142,6 +143,7 @@ import {
 } from "$lib/stores/notes-store-tab-actions";
 
 const DEFAULT_DATABASE_TITLE = "Untitled database";
+const START_OF_BLOCK_SELECTION: NotesTextSelection = { start: 0, end: 0 };
 
 export interface NotesBlockActionsContext {
   readSelectedPageId: () => string | null;
@@ -154,7 +156,7 @@ export interface NotesBlockActionsContext {
   columnItemsForBlock: (blockId: string) => NotesColumnBlockItems[];
   tabItemsForBlock: (blockId: string) => NotesTabBlockItems[];
   setSidebarPageCollapsed: (pageId: string, collapsed: boolean) => void;
-  requestBlockFocus: (blockId: string | null) => void;
+  requestBlockFocus: (blockId: string | null, selection?: NotesTextSelection | null) => void;
   createChildPageFromBlock: (blockId: string) => Promise<void>;
   createChildPageAfterBlock: (blockId: string) => Promise<void>;
   loadPageTree: (pageId: string) => Promise<void>;
@@ -1016,7 +1018,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
       });
       await context.loadPageTree(selectedPageId);
       const focusBlockId = planNotesInsertedBlockFocus([newBlockId], blockId);
-      context.requestBlockFocus(focusBlockId);
+      context.requestBlockFocus(focusBlockId, START_OF_BLOCK_SELECTION);
       recordUndoAfter("create", before, focusBlockId);
       return;
     }
@@ -1053,7 +1055,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
       });
       await context.loadPageTree(selectedPageId);
       const focusBlockId = planNotesInsertedBlockFocus([leftBlockId], newBlockId);
-      context.requestBlockFocus(focusBlockId);
+      context.requestBlockFocus(focusBlockId, START_OF_BLOCK_SELECTION);
       recordUndoAfter("create", before, focusBlockId);
       return;
     }
@@ -1082,13 +1084,13 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
       });
       await context.loadPageTree(selectedPageId);
       const focusBlockId = planNotesInsertedBlockFocus([firstContentId], newBlockId);
-      context.requestBlockFocus(focusBlockId);
+      context.requestBlockFocus(focusBlockId, START_OF_BLOCK_SELECTION);
       recordUndoAfter("create", before, focusBlockId);
       return;
     }
     await context.loadPageTree(selectedPageId);
     const focusBlockId = planNotesInsertedBlockFocus([newBlockId], blockId) ?? newBlockId;
-    context.requestBlockFocus(focusBlockId);
+    context.requestBlockFocus(focusBlockId, START_OF_BLOCK_SELECTION);
     recordUndoAfter("create", before, focusBlockId);
   }
 
@@ -1170,7 +1172,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
 
     context.localApplyBlockUpdate(blockId, currentUpdate);
     context.localInsertBlockAfter(nextBlock, blockId);
-    context.requestBlockFocus(focusBlockId);
+    context.requestBlockFocus(focusBlockId, START_OF_BLOCK_SELECTION);
     recordUndoAfter("create", before, focusBlockId);
     const createPromise = persistSplitTextBlock(
       selectedPageId,
@@ -1210,7 +1212,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
         );
       }
       await context.loadPageTree(selectedPageId);
-      context.requestBlockFocus(focusBlockId);
+      context.requestBlockFocus(focusBlockId, START_OF_BLOCK_SELECTION);
     } catch (error) {
       console.warn("notes split block persistence failed", error);
       await context.loadPageTree(selectedPageId);

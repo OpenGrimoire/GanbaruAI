@@ -483,7 +483,9 @@
     data-notes-block-selection-zone
     style={blockSurfaceStyle}
   >
-    <div class="notes-block-indent shrink-0"></div>
+    {#if item.depth > 0}
+      <div class="notes-block-indent shrink-0"></div>
+    {/if}
     <NotesBlockHandle
       onAddBelow={(type) => onAddBelow(block.id, type)}
       onTurnInto={openTurnIntoMenu}
@@ -555,8 +557,6 @@
       <div class="mt-1.5 w-5 shrink-0 text-right text-[0.866667rem] text-muted-foreground">
         {notesBlockMarker(block.type)}
       </div>
-    {:else}
-      <div class="w-5 shrink-0"></div>
     {/if}
 
     <div class="relative min-w-0 flex-1">
@@ -858,7 +858,7 @@
   .notes-block-drop-before::before,
   .notes-block-drop-after::after {
     position: absolute;
-    left: calc(var(--notes-depth) * 1.25rem + 2.75rem);
+    left: calc(var(--notes-depth) * 1.25rem + 0.25rem);
     right: 0.5rem;
     z-index: 5;
     height: 2px;
@@ -877,7 +877,7 @@
 
   .notes-block-drop-outdent::after {
     position: absolute;
-    left: max(0.5rem, calc((var(--notes-depth) - 1) * 1.25rem + 2.75rem));
+    left: max(0.5rem, calc((var(--notes-depth) - 1) * 1.25rem + 0.25rem));
     right: 0.5rem;
     bottom: -1px;
     z-index: 5;

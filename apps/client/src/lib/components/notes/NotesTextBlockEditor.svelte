@@ -705,7 +705,19 @@
       previousBlockType,
       isOnlyBlock,
     });
-    if (action.type === "none" || action.type === "insert_newline") return;
+    if (action.type === "none") return;
+    if (action.type === "insert_newline") {
+      event.preventDefault();
+      const edit = planNotesControlledTextEdit({
+        inputType: "insertLineBreak",
+        data: null,
+        text: currentText,
+        selectionStart,
+        selectionEnd,
+      });
+      if (edit) commitPlainTextValue(edit.text, edit.selection);
+      return;
+    }
     if (action.type === "open_slash_menu") {
       slashOpen = true;
       mentionQuery = null;
@@ -1141,9 +1153,7 @@
   onpointerup={(event) => syncTextSelection(event.currentTarget)}
   onmouseup={(event) => syncTextSelection(event.currentTarget)}
   onblur={handleEditorBlur}
->
-  <NotesRichTextInline richText={editableRichText} {commentAnchors} {suggestionAnchors} />
-</div>
+><NotesRichTextInline richText={editableRichText} {commentAnchors} {suggestionAnchors} /></div>
 {#if mentionOpen || slashOpen}
   <p id={notesRichTextEditorStatusDomId(block.id)} class="sr-only" role="status">
     {mentionOpen

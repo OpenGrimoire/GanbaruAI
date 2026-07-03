@@ -17,6 +17,9 @@
 
   const visibleRichText = $derived(richText.filter(richTextItemIsVisible));
   const visibleRuns = $derived(visibleRichTextRuns(visibleRichText));
+  const needsTrailingLineSentinel = $derived(
+    visibleRuns.at(-1)?.text.endsWith("\n") ?? false,
+  );
 
   interface VisibleRichTextRun {
     item: NotesRichText;
@@ -137,9 +140,7 @@
   function linkUrl(item: NotesRichText): string | null {
     return item.type === "text" ? item.text.link?.url ?? item.href : item.href;
   }
-</script>
-
-{#each visibleRuns as run}
+</script>{#each visibleRuns as run}
   {#if run.item.type === "mention"}
     <span
       class={`notes-rich-text-segment inline-flex max-w-full items-center rounded bg-accent px-1 text-accent-foreground${commentAnchorClass(run.start, run.end)}${suggestionAnchorClass(run.start, run.end)}`}
@@ -193,9 +194,10 @@
       </span>
     {/each}
   {/if}
-{/each}
+{/each}{#if needsTrailingLineSentinel}
+  <span data-notes-editor-sentinel="trailing-line" aria-hidden="true">{"\u200b"}</span>
+{/if}<style>
 
-<style>
   .notes-rich-text-segment {
     color: var(--notes-rich-text-color, inherit);
     background: var(--notes-rich-text-bg, transparent);

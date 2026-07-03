@@ -30,17 +30,6 @@ export function notesBoundaryRenderedBlockId(
 }
 
 /**
- * Return the caret offset to preserve when moving between text blocks.
- */
-export function notesNavigationSelectionOffset(
-  selection: NotesTextSelection | null,
-  fallback: number,
-): number {
-  if (!selection || selection.start !== selection.end) return fallback;
-  return selection.start;
-}
-
-/**
  * Return a collapsed selection at a text offset.
  */
 export function notesCollapsedNavigationSelection(offset: number): NotesTextSelection {
