@@ -8,6 +8,7 @@ import { editor } from "./editor";
 import { database } from "./database";
 import { advancedBlocks } from "./advanced-blocks";
 import { pageActions } from "./page-actions";
+import { diagnostics } from "./diagnostics";
 
 export const notes = {
   ...navigationAndSearch,
@@ -18,4 +19,5 @@ export const notes = {
   ...database,
   ...advancedBlocks,
   ...pageActions,
+  ...diagnostics,
 } as const satisfies MessageShape<typeof enNotes>;

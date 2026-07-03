@@ -1,0 +1,62 @@
+import type { diagnostics as enDiagnostics } from "../../en/notes/diagnostics";
+import type { MessageShape } from "../../types";
+
+export const diagnostics = {
+  roundTripDiagnosticsTitle: "Diagnósticos de ida y vuelta",
+  roundTripObjectCounts: "Conteos de objetos",
+  roundTripIssueCounts: "Diagnósticos",
+  roundTripDiagnosticsEmpty: "Sin diagnósticos.",
+  roundTripCategoryPreserved: (count: number) =>
+    `${count} ${count === 1 ? "elemento preservado" : "elementos preservados"}`,
+  roundTripCategoryApproximated: (count: number) =>
+    `${count} ${count === 1 ? "aproximación" : "aproximaciones"}`,
+  roundTripCategorySkipped: (count: number) =>
+    `${count} ${count === 1 ? "elemento omitido" : "elementos omitidos"}`,
+  roundTripCategoryUnsupported: (count: number) =>
+    `${count} ${count === 1 ? "elemento no compatible" : "elementos no compatibles"}`,
+  roundTripCategoryError: (count: number) =>
+    `${count} ${count === 1 ? "error" : "errores"}`,
+  roundTripCategoryWarning: (count: number) =>
+    `${count} ${count === 1 ? "advertencia" : "advertencias"}`,
+  roundTripCategoryInfo: (count: number) =>
+    `${count} ${count === 1 ? "nota informativa" : "notas informativas"}`,
+  roundTripSeverityInfo: "Info",
+  roundTripSeverityWarning: "Advertencia",
+  roundTripSeverityError: "Error",
+  roundTripCountPages: "Páginas",
+  roundTripCountBlocks: "Bloques",
+  roundTripCountComments: "Comentarios",
+  roundTripCountDataSources: "Fuentes de datos",
+  roundTripCountFiles: "Archivos",
+  roundTripCountSkippedFiles: "Archivos omitidos",
+  roundTripCountUnsupportedBlocks: "Bloques no compatibles",
+  roundTripCountUsers: "Usuarios",
+  roundTripCountRequests: "Solicitudes",
+  roundTripCountRetries: "Reintentos",
+  roundTripCountRateLimits: "Límites de tasa",
+  roundTripCountAssets: "Recursos",
+  roundTripCountDatabaseViews: "Vistas",
+  roundTripCountIndexes: "Índices",
+  roundTripCountTables: "Tablas",
+  roundTripCountRecords: "Registros",
+  roundTripCountRows: "Filas",
+  roundTripCountValidRows: "Filas válidas",
+  roundTripCountSkippedRows: "Filas omitidas",
+  roundTripCountImportedRows: "Filas importadas",
+  roundTripCountProperties: "Propiedades",
+  roundTripCountProjects: "Proyectos",
+  roundTripCountTasks: "Tareas",
+  roundTripCountBacklinks: "Enlaces entrantes",
+  roundTripCountWarnings: "Advertencias",
+  roundTripSourceLine: (line: number) => `Línea ${line}`,
+  roundTripSourceCsvRow: (row: number) => `Fila CSV ${row}`,
+  roundTripSourcePath: (path: string) => `Ruta ${path}`,
+  roundTripSourceObject: (id: string) => `Origen ${id}`,
+  roundTripSourcePage: (id: string) => `Página ${id}`,
+  roundTripSourceBlock: (id: string) => `Bloque ${id}`,
+  roundTripSourceComment: (id: string) => `Comentario ${id}`,
+  roundTripSourceAsset: (id: string) => `Recurso ${id}`,
+  roundTripSourceTableRow: (table: string, row: string) => `Fila ${row} de ${table}`,
+  roundTripSourceProperty: (name: string) => `Propiedad ${name}`,
+  roundTripSourceTyped: (kind: string, id: string) => `${kind} ${id}`,
+} as const satisfies MessageShape<typeof enDiagnostics>;

@@ -1,7 +1,12 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import {
+    roundTripWarningCount,
+    toRoundTripDiagnosticItem,
+  } from "$lib/notes/round-trip-diagnostics";
   import type { NotesHtmlImportResult } from "$lib/notes/types";
+  import NotesRoundTripDiagnostics from "./NotesRoundTripDiagnostics.svelte";
 
   let {
     onImport,
@@ -28,8 +33,32 @@
   let textareaEl = $state<HTMLTextAreaElement | null>(null);
 
   const canImport = $derived(html.trim().length > 0 && !importing);
-  const warningCount = $derived(
-    result?.diagnostics.filter((diagnostic) => diagnostic.severity !== "info").length ?? 0,
+  const roundTripDiagnostics = $derived(
+    result?.diagnostics.map((diagnostic) =>
+      toRoundTripDiagnosticItem({
+        code: diagnostic.code,
+        severity: diagnostic.severity,
+        message: diagnostic.message,
+        sourceLabel: diagnostic.line ? t("notes.roundTripSourceLine", diagnostic.line) : null,
+      }),
+    ) ?? [],
+  );
+  const warningCount = $derived(roundTripWarningCount(roundTripDiagnostics));
+  const roundTripCounts = $derived(
+    result
+      ? [
+          {
+            id: "blocks",
+            label: t("notes.roundTripCountBlocks"),
+            value: result.imported_block_count,
+          },
+          {
+            id: "warnings",
+            label: t("notes.roundTripCountWarnings"),
+            value: warningCount,
+          },
+        ]
+      : [],
   );
 
   onMount(() => {
@@ -157,19 +186,9 @@
             <div class="text-[0.8rem] font-medium text-foreground">
               {t("notes.htmlImportComplete", result.imported_block_count, warningCount)}
             </div>
-            {#if result.diagnostics.length > 0}
-              <ul class="mt-2 grid max-h-32 gap-1 overflow-auto text-[0.733333rem] text-muted-foreground">
-                {#each result.diagnostics as diagnostic, index (`${diagnostic.code}-${index}`)}
-                  <li>
-                    {#if diagnostic.line}
-                      {t("notes.htmlImportDiagnosticWithLine", diagnostic.line, diagnostic.message)}
-                    {:else}
-                      {diagnostic.message}
-                    {/if}
-                  </li>
-                {/each}
-              </ul>
-            {/if}
+            <div class="mt-2">
+              <NotesRoundTripDiagnostics counts={roundTripCounts} diagnostics={roundTripDiagnostics} />
+            </div>
           </div>
         {/if}
       </div>

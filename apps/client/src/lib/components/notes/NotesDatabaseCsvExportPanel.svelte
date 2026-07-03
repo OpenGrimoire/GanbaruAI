@@ -1,11 +1,17 @@
 <script lang="ts">
   import { saveNotesDataSourceCsv } from "$lib/api/notes";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import {
+    roundTripWarningCount,
+    toRoundTripDiagnosticItem,
+  } from "$lib/notes/round-trip-diagnostics";
   import type {
+    NotesDataSourceCsvExportDiagnostic,
     NotesDataSourceCsvExportSaveResult,
     NotesDataSourceCsvExportScope,
   } from "$lib/notes/types";
   import Download from "@lucide/svelte/icons/download";
+  import NotesRoundTripDiagnostics from "./NotesRoundTripDiagnostics.svelte";
 
   let {
     dataSourceId,
@@ -25,9 +31,46 @@
   let error = $state<string | null>(null);
   let result = $state<NotesDataSourceCsvExportSaveResult | null>(null);
 
-  const warningCount = $derived(
-    result?.export?.diagnostics.filter((diagnostic) => diagnostic.severity !== "info").length ?? 0,
+  const roundTripDiagnostics = $derived(
+    result?.export?.diagnostics.map((diagnostic) =>
+      toRoundTripDiagnosticItem({
+        code: diagnostic.code,
+        severity: diagnostic.severity,
+        message: diagnostic.message,
+        sourceLabel: csvExportSourceLabel(diagnostic),
+      }),
+    ) ?? [],
   );
+  const warningCount = $derived(roundTripWarningCount(roundTripDiagnostics));
+  const roundTripCounts = $derived(
+    result?.export
+      ? [
+          {
+            id: "rows",
+            label: t("notes.roundTripCountRows"),
+            value: result.export.exported_row_count,
+          },
+          {
+            id: "properties",
+            label: t("notes.roundTripCountProperties"),
+            value: result.export.exported_property_count,
+          },
+          {
+            id: "warnings",
+            label: t("notes.roundTripCountWarnings"),
+            value: warningCount,
+          },
+        ]
+      : [],
+  );
+
+  function csvExportSourceLabel(diagnostic: NotesDataSourceCsvExportDiagnostic): string | null {
+    if (diagnostic.property_name) {
+      return t("notes.roundTripSourceProperty", diagnostic.property_name);
+    }
+    if (diagnostic.property_id) return t("notes.roundTripSourceProperty", diagnostic.property_id);
+    return null;
+  }
 
   async function runExport(): Promise<void> {
     if (disabled || exporting) return;
@@ -101,12 +144,8 @@
             {t("notes.databaseCsvExportCanceled")}
           {/if}
         </p>
-        {#if result.export && result.export.diagnostics.length > 0}
-          <ul class="grid max-h-32 gap-1 overflow-auto">
-            {#each result.export.diagnostics as diagnostic, index (`${diagnostic.code}-${index}`)}
-              <li>{diagnostic.message}</li>
-            {/each}
-          </ul>
+        {#if result.export}
+          <NotesRoundTripDiagnostics counts={roundTripCounts} diagnostics={roundTripDiagnostics} />
         {/if}
       </div>
     {/if}

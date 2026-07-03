@@ -3,7 +3,15 @@
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import type { Project } from "$lib/projects/types";
   import { getProjects } from "$lib/stores/projects.svelte";
-  import type { NotesAgentBridgeExportSaveResult } from "$lib/notes/types";
+  import {
+    buildRoundTripNotesSourceHref,
+    toRoundTripDiagnosticItem,
+  } from "$lib/notes/round-trip-diagnostics";
+  import type {
+    NotesAgentBridgeExportDiagnostic,
+    NotesAgentBridgeExportSaveResult,
+  } from "$lib/notes/types";
+  import NotesRoundTripDiagnostics from "./NotesRoundTripDiagnostics.svelte";
 
   let {
     pageTitle,
@@ -43,6 +51,53 @@
   );
   const canExport = $derived(!exporting);
   const title = $derived(t("notes.agentBridgeExportDialogTitle", pageTitle));
+  const roundTripDiagnostics = $derived(
+    result?.export?.diagnostics.map((diagnostic) =>
+      toRoundTripDiagnosticItem({
+        code: diagnostic.code,
+        severity: diagnostic.severity,
+        message: diagnostic.message,
+        sourceLabel: agentBridgeSourceLabel(diagnostic),
+        sourceHref: agentBridgeSourceHref(diagnostic),
+      }),
+    ) ?? [],
+  );
+  const roundTripCounts = $derived(
+    result?.export
+      ? [
+          {
+            id: "pages",
+            label: t("notes.roundTripCountPages"),
+            value: result.export.exported_page_count,
+          },
+          {
+            id: "projects",
+            label: t("notes.roundTripCountProjects"),
+            value: result.export.exported_project_count,
+          },
+          {
+            id: "tasks",
+            label: t("notes.roundTripCountTasks"),
+            value: result.export.exported_task_count,
+          },
+          {
+            id: "views",
+            label: t("notes.roundTripCountDatabaseViews"),
+            value: result.export.exported_database_view_count,
+          },
+          {
+            id: "backlinks",
+            label: t("notes.roundTripCountBacklinks"),
+            value: result.export.exported_backlink_count,
+          },
+          {
+            id: "warnings",
+            label: t("notes.roundTripCountWarnings"),
+            value: result.export.warning_count,
+          },
+        ]
+      : [],
+  );
 
   onMount(() => {
     void tick().then(() => {
@@ -101,6 +156,21 @@
       return;
     }
     event.stopPropagation();
+  }
+
+  function agentBridgeSourceLabel(diagnostic: NotesAgentBridgeExportDiagnostic): string | null {
+    if (diagnostic.source_type && diagnostic.source_id) {
+      return t("notes.roundTripSourceTyped", diagnostic.source_type, diagnostic.source_id);
+    }
+    if (diagnostic.source_id) return t("notes.roundTripSourceObject", diagnostic.source_id);
+    return null;
+  }
+
+  function agentBridgeSourceHref(diagnostic: NotesAgentBridgeExportDiagnostic): string | null {
+    if (typeof window === "undefined" || diagnostic.source_type !== "page") return null;
+    return buildRoundTripNotesSourceHref(window.location.href, {
+      pageId: diagnostic.source_id,
+    });
   }
 </script>
 
@@ -203,12 +273,10 @@
                 {t("notes.agentBridgeExportCanceled")}
               {/if}
             </div>
-            {#if result.export && result.export.diagnostics.length > 0}
-              <ul class="mt-2 grid max-h-32 gap-1 overflow-auto text-[0.733333rem] text-muted-foreground">
-                {#each result.export.diagnostics as diagnostic, index (`${diagnostic.code}-${index}`)}
-                  <li>{diagnostic.message}</li>
-                {/each}
-              </ul>
+            {#if result.export}
+              <div class="mt-2">
+                <NotesRoundTripDiagnostics counts={roundTripCounts} diagnostics={roundTripDiagnostics} />
+              </div>
             {/if}
           </div>
         {/if}

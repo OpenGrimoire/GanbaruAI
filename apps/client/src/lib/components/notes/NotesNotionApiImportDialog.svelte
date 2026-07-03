@@ -1,7 +1,9 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { toRoundTripDiagnosticItem } from "$lib/notes/round-trip-diagnostics";
   import type { NotesNotionApiImportResult } from "$lib/notes/types";
+  import NotesRoundTripDiagnostics from "./NotesRoundTripDiagnostics.svelte";
 
   let {
     onImport,
@@ -42,6 +44,74 @@
       && pageSize >= 1
       && pageSize <= 100
       && !importing,
+  );
+  const roundTripDiagnostics = $derived(
+    result?.diagnostics.map((diagnostic) =>
+      toRoundTripDiagnosticItem({
+        code: diagnostic.code,
+        severity: diagnostic.severity,
+        message: diagnostic.message,
+        sourceLabel: diagnostic.source_object_id
+          ? t("notes.roundTripSourceObject", diagnostic.source_object_id)
+          : null,
+      }),
+    ) ?? [],
+  );
+  const roundTripCounts = $derived(
+    result
+      ? [
+          {
+            id: "pages",
+            label: t("notes.roundTripCountPages"),
+            value: result.imported_page_count,
+          },
+          {
+            id: "blocks",
+            label: t("notes.roundTripCountBlocks"),
+            value: result.imported_block_count,
+          },
+          {
+            id: "data-sources",
+            label: t("notes.roundTripCountDataSources"),
+            value: result.imported_data_source_count,
+          },
+          {
+            id: "comments",
+            label: t("notes.roundTripCountComments"),
+            value: result.imported_comment_count,
+          },
+          {
+            id: "files",
+            label: t("notes.roundTripCountFiles"),
+            value: result.imported_file_count,
+          },
+          {
+            id: "users",
+            label: t("notes.roundTripCountUsers"),
+            value: result.imported_user_count,
+          },
+          {
+            id: "unsupported-blocks",
+            label: t("notes.roundTripCountUnsupportedBlocks"),
+            value: result.unsupported_block_count,
+          },
+          {
+            id: "requests",
+            label: t("notes.roundTripCountRequests"),
+            value: result.request_count,
+          },
+          {
+            id: "retries",
+            label: t("notes.roundTripCountRetries"),
+            value: result.retry_count,
+          },
+          {
+            id: "rate-limits",
+            label: t("notes.roundTripCountRateLimits"),
+            value: result.rate_limit_count,
+          },
+        ]
+      : [],
   );
 
   onMount(() => {
@@ -237,19 +307,9 @@
                 result.rate_limit_count,
               )}
             </div>
-            {#if result.diagnostics.length > 0}
-              <ul class="mt-2 grid max-h-36 gap-1 overflow-auto text-[0.733333rem] text-muted-foreground">
-                {#each result.diagnostics as diagnostic, index (`${diagnostic.code}-${index}`)}
-                  <li>
-                    {#if diagnostic.source_object_id}
-                      {diagnostic.source_object_id}: {diagnostic.message}
-                    {:else}
-                      {diagnostic.message}
-                    {/if}
-                  </li>
-                {/each}
-              </ul>
-            {/if}
+            <div class="mt-2">
+              <NotesRoundTripDiagnostics counts={roundTripCounts} diagnostics={roundTripDiagnostics} />
+            </div>
           </div>
         {/if}
       </div>

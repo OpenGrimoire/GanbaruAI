@@ -1,7 +1,12 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
-  import type { NotesJsonGraphExportSaveResult } from "$lib/notes/types";
+  import { toRoundTripDiagnosticItem } from "$lib/notes/round-trip-diagnostics";
+  import type {
+    NotesJsonGraphExportDiagnostic,
+    NotesJsonGraphExportSaveResult,
+  } from "$lib/notes/types";
+  import NotesRoundTripDiagnostics from "./NotesRoundTripDiagnostics.svelte";
 
   let {
     onExport,
@@ -28,6 +33,67 @@
   let result = $state<NotesJsonGraphExportSaveResult | null>(null);
   let dialogEl = $state<HTMLDivElement | null>(null);
   const canExport = $derived(!exporting);
+  const roundTripDiagnostics = $derived(
+    result?.export?.diagnostics.map((diagnostic) =>
+      toRoundTripDiagnosticItem({
+        code: diagnostic.code,
+        severity: diagnostic.severity,
+        message: diagnostic.message,
+        sourceLabel: jsonGraphSourceLabel(diagnostic),
+      }),
+    ) ?? [],
+  );
+  const roundTripCounts = $derived(
+    result?.export
+      ? [
+          {
+            id: "pages",
+            label: t("notes.roundTripCountPages"),
+            value: result.export.exported_page_count,
+          },
+          {
+            id: "blocks",
+            label: t("notes.roundTripCountBlocks"),
+            value: result.export.exported_block_count,
+          },
+          {
+            id: "comments",
+            label: t("notes.roundTripCountComments"),
+            value: result.export.exported_comment_count,
+          },
+          {
+            id: "data-sources",
+            label: t("notes.roundTripCountDataSources"),
+            value: result.export.exported_data_source_count,
+          },
+          {
+            id: "files",
+            label: t("notes.roundTripCountFiles"),
+            value: result.export.exported_file_count,
+          },
+          {
+            id: "indexes",
+            label: t("notes.roundTripCountIndexes"),
+            value: result.export.exported_index_record_count,
+          },
+          {
+            id: "tables",
+            label: t("notes.roundTripCountTables"),
+            value: result.export.exported_table_count,
+          },
+          {
+            id: "records",
+            label: t("notes.roundTripCountRecords"),
+            value: result.export.exported_record_count,
+          },
+          {
+            id: "warnings",
+            label: t("notes.roundTripCountWarnings"),
+            value: result.export.warning_count,
+          },
+        ]
+      : [],
+  );
 
   onMount(() => {
     void tick().then(() => {
@@ -69,6 +135,15 @@
       return;
     }
     event.stopPropagation();
+  }
+
+  function jsonGraphSourceLabel(diagnostic: NotesJsonGraphExportDiagnostic): string | null {
+    if (diagnostic.table_name && diagnostic.row_id) {
+      return t("notes.roundTripSourceTableRow", diagnostic.table_name, diagnostic.row_id);
+    }
+    if (diagnostic.table_name) return diagnostic.table_name;
+    if (diagnostic.row_id) return t("notes.roundTripSourceObject", diagnostic.row_id);
+    return null;
   }
 </script>
 
@@ -139,12 +214,10 @@
                 {t("notes.jsonGraphExportCanceled")}
               {/if}
             </div>
-            {#if result.export && result.export.diagnostics.length > 0}
-              <ul class="mt-2 grid max-h-32 gap-1 overflow-auto text-[0.733333rem] text-muted-foreground">
-                {#each result.export.diagnostics as diagnostic, index (`${diagnostic.code}-${index}`)}
-                  <li>{diagnostic.message}</li>
-                {/each}
-              </ul>
+            {#if result.export}
+              <div class="mt-2">
+                <NotesRoundTripDiagnostics counts={roundTripCounts} diagnostics={roundTripDiagnostics} />
+              </div>
             {/if}
           </div>
         {/if}

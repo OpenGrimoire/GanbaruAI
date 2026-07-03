@@ -1,10 +1,18 @@
 <script lang="ts">
   import { importNotesDataSourceCsv } from "$lib/api/notes";
   import { getLocalization } from "$lib/i18n/translator.svelte";
-  import type { NotesDataSourceCsvImportResult } from "$lib/notes/types";
+  import {
+    roundTripWarningCount,
+    toRoundTripDiagnosticItem,
+  } from "$lib/notes/round-trip-diagnostics";
+  import type {
+    NotesDataSourceCsvImportDiagnostic,
+    NotesDataSourceCsvImportResult,
+  } from "$lib/notes/types";
   import Check from "@lucide/svelte/icons/check";
   import Eye from "@lucide/svelte/icons/eye";
   import Upload from "@lucide/svelte/icons/upload";
+  import NotesRoundTripDiagnostics from "./NotesRoundTripDiagnostics.svelte";
 
   let {
     dataSourceId,
@@ -24,6 +32,55 @@
   let result = $state<NotesDataSourceCsvImportResult | null>(null);
 
   const canRun = $derived(!disabled && !running && csvText.trim().length > 0);
+  const roundTripDiagnostics = $derived(
+    result?.diagnostics.map((diagnostic) =>
+      toRoundTripDiagnosticItem({
+        code: diagnostic.code,
+        severity: diagnostic.severity,
+        message: diagnostic.message,
+        sourceLabel: csvImportSourceLabel(diagnostic),
+      }),
+    ) ?? [],
+  );
+  const warningCount = $derived(roundTripWarningCount(roundTripDiagnostics));
+  const roundTripCounts = $derived(
+    result
+      ? [
+          {
+            id: "rows",
+            label: t("notes.roundTripCountRows"),
+            value: result.total_row_count,
+          },
+          {
+            id: "valid-rows",
+            label: t("notes.roundTripCountValidRows"),
+            value: result.valid_row_count,
+          },
+          {
+            id: "skipped-rows",
+            label: t("notes.roundTripCountSkippedRows"),
+            value: result.skipped_row_count,
+          },
+          {
+            id: "imported-rows",
+            label: t("notes.roundTripCountImportedRows"),
+            value: result.imported_row_count,
+          },
+          {
+            id: "warnings",
+            label: t("notes.roundTripCountWarnings"),
+            value: warningCount,
+          },
+        ]
+      : [],
+  );
+
+  function csvImportSourceLabel(diagnostic: NotesDataSourceCsvImportDiagnostic): string | null {
+    if (diagnostic.row_number) return t("notes.roundTripSourceCsvRow", diagnostic.row_number);
+    if (diagnostic.column_name) return diagnostic.column_name;
+    if (diagnostic.property_id) return t("notes.roundTripSourceProperty", diagnostic.property_id);
+    return null;
+  }
 
   async function loadFile(event: Event): Promise<void> {
     const input = event.currentTarget;
@@ -163,23 +220,7 @@
             {/each}
           </ul>
         </div>
-        <div class="grid gap-1">
-          <h4 class="text-[0.8rem] font-medium text-foreground">{t("notes.databaseCsvImportDiagnostics")}</h4>
-          {#if result.diagnostics.length === 0}
-            <p class="text-muted-foreground">{t("notes.databaseCsvImportNoDiagnostics")}</p>
-          {:else}
-            <ul class="grid max-h-36 gap-1 overflow-auto text-muted-foreground">
-              {#each result.diagnostics as diagnostic, index (`${diagnostic.code}-${index}`)}
-                <li>
-                  {#if diagnostic.row_number}
-                    {t("notes.databaseCsvImportRow", diagnostic.row_number)}:
-                  {/if}
-                  {diagnostic.message}
-                </li>
-              {/each}
-            </ul>
-          {/if}
-        </div>
+        <NotesRoundTripDiagnostics counts={roundTripCounts} diagnostics={roundTripDiagnostics} />
       </div>
     {:else if !csvText.trim()}
       <p class="text-muted-foreground">{t("notes.databaseCsvImportNoCsv")}</p>

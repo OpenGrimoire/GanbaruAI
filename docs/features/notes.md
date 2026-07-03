@@ -82,6 +82,12 @@ Agent bridge export writes deterministic derivative markdown for local agents an
 
 The markdown starts with a visible warning that SQLite remains the source of truth. It includes export metadata, selected Notes page content, child database views rendered as markdown tables from the current local view, active project tasks with sections, statuses, priority, schedules, checklist items, and tags, plus backlinks for the exported pages. It does not include a generated timestamp, does not persist export rows, and does not embed managed asset bytes. Missing pages, projects, unsupported markdown shapes, and database export approximations return diagnostics instead of silently pretending the view is complete.
 
+## Round-trip diagnostics
+
+Import and export surfaces show a shared round-trip diagnostics panel after each completed operation. The panel summarizes object counts, warning counts, and diagnostic categories for preserved, approximated, skipped, unsupported, warning, info, and error outcomes. It keeps the older command summaries visible, but adds a consistent breakdown so users can tell whether a file is a complete projection, a readable approximation, or missing some data.
+
+Diagnostics stay tied to the source that produced them where practical. Markdown and HTML import diagnostics can point to source lines, Notion API diagnostics show source object ids, Notion export folder diagnostics show source paths, CSV import diagnostics show source rows, CSV export diagnostics show affected properties, JSON graph diagnostics show table and row ids, and export diagnostics link to local Notes pages or blocks when the backend returns navigable ids. These links are convenience navigation only. They do not turn derivative files, source folders, CSV files, JSON exports, HTML archives, markdown exports, or agent bridge output into authoritative note storage.
+
 ## CSV database import
 
 CSV import is a derivative import path for local databases. It never makes the CSV file authoritative. The importer reads a CSV file or pasted CSV text from the table view, maps columns to the current data source schema by property name, property id, or property key, validates cell values, and creates normal database row pages in SQLite only for rows that pass validation.
