@@ -14,6 +14,7 @@
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
   import Archive from "@lucide/svelte/icons/archive";
   import CloudDownload from "@lucide/svelte/icons/cloud-download";
+  import DatabaseBackup from "@lucide/svelte/icons/database-backup";
   import Download from "@lucide/svelte/icons/download";
   import FileText from "@lucide/svelte/icons/file-text";
   import MessageSquare from "@lucide/svelte/icons/message-square";
@@ -23,6 +24,7 @@
   import Upload from "@lucide/svelte/icons/upload";
   import NotesHtmlExportDialog from "./NotesHtmlExportDialog.svelte";
   import NotesHtmlImportDialog from "./NotesHtmlImportDialog.svelte";
+  import NotesJsonGraphExportDialog from "./NotesJsonGraphExportDialog.svelte";
   import NotesNotionApiImportDialog from "./NotesNotionApiImportDialog.svelte";
   import NotesNotionExportImportDialog from "./NotesNotionExportImportDialog.svelte";
   import NotesPageRow from "./NotesPageRow.svelte";
@@ -38,6 +40,7 @@
   let notionApiImportOpen = $state(false);
   let notionExportImportOpen = $state(false);
   let htmlExportOpen = $state(false);
+  let jsonGraphExportOpen = $state(false);
   let blockDropTargetPageId = $state<string | null>(null);
   const sidebarPlan = $derived.by(() =>
     planNotesSidebarNavigation({
@@ -139,6 +142,22 @@
       include_resolved_comments: input.includeResolvedComments,
       include_assets: input.includeAssets,
       include_database_views: input.includeDatabaseViews,
+    });
+  }
+
+  function exportJsonGraph(input: {
+    includeIndexes: boolean;
+    includeHistory: boolean;
+    includeTemplates: boolean;
+    includeLocalState: boolean;
+    pretty: boolean;
+  }) {
+    return notes.exportJsonGraph({
+      include_indexes: input.includeIndexes,
+      include_history: input.includeHistory,
+      include_templates: input.includeTemplates,
+      include_local_state: input.includeLocalState,
+      pretty: input.pretty,
     });
   }
 
@@ -340,6 +359,16 @@
         }}
       >
         <Download class="size-4" />
+      </button>
+      <button
+        class="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+        aria-label={t("notes.jsonGraphExportOpen")}
+        data-app-tooltip={t("notes.jsonGraphExportOpen")}
+        onclick={() => {
+          jsonGraphExportOpen = true;
+        }}
+      >
+        <DatabaseBackup class="size-4" />
       </button>
       <button
         class="rounded-md bg-primary p-1.5 text-primary-foreground hover:bg-primary/90"
@@ -721,6 +750,15 @@
     onExport={exportHtmlArchive}
     onCancel={() => {
       htmlExportOpen = false;
+    }}
+  />
+{/if}
+
+{#if jsonGraphExportOpen}
+  <NotesJsonGraphExportDialog
+    onExport={exportJsonGraph}
+    onCancel={() => {
+      jsonGraphExportOpen = false;
     }}
   />
 {/if}

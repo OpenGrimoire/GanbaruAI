@@ -21,6 +21,8 @@ import {
   mapNotesHtmlArchiveSaveDto,
   mapNotesHtmlExportDto,
   mapNotesHtmlImportDto,
+  mapNotesJsonGraphExportDto,
+  mapNotesJsonGraphExportSaveDto,
   mapNotesLocalUserDto,
   mapNotesLoadedPageDto,
   mapNotesNotionApiImportDto,
@@ -87,6 +89,9 @@ import type {
   NotesHtmlArchiveSaveResult,
   NotesHtmlExportRequest,
   NotesHtmlExportResult,
+  NotesJsonGraphExportRequest,
+  NotesJsonGraphExportResult,
+  NotesJsonGraphExportSaveResult,
   NotesLinkedDatabaseCreateRequest,
   NotesLocalUser,
   NotesLocalUserUpdate,
@@ -610,6 +615,24 @@ export async function saveNotesHtmlArchive(
   const dbUrl = await ensureDbUrl();
   return mapNotesHtmlArchiveSaveDto(
     await invoke<unknown>("notes_pick_and_write_html_archive", { dbUrl, request }),
+  );
+}
+
+export async function exportNotesJsonGraph(
+  request: NotesJsonGraphExportRequest,
+): Promise<NotesJsonGraphExportResult> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesJsonGraphExportDto(
+    await invoke<unknown>("notes_export_json_graph", { dbUrl, request }),
+  );
+}
+
+export async function saveNotesJsonGraph(
+  request: NotesJsonGraphExportRequest,
+): Promise<NotesJsonGraphExportSaveResult> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesJsonGraphExportSaveDto(
+    await invoke<unknown>("notes_pick_and_write_json_graph", { dbUrl, request }),
   );
 }
 

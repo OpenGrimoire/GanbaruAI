@@ -81,6 +81,10 @@ import {
   type NotesHtmlImportDiagnostic,
   type NotesHtmlImportDiagnosticSeverity,
   type NotesHtmlImportResult,
+  type NotesJsonGraphExportDiagnostic,
+  type NotesJsonGraphExportDiagnosticSeverity,
+  type NotesJsonGraphExportResult,
+  type NotesJsonGraphExportSaveResult,
   type NotesLoadedPage,
   type NotesNotionApiImportedObject,
   type NotesNotionApiImportedUser,
@@ -2292,6 +2296,120 @@ export function parseNotesHtmlArchiveSaveResult(value: unknown): NotesHtmlArchiv
       ? null
       : parseNotesHtmlExportResult(record.export),
   };
+}
+
+export function parseNotesJsonGraphExportResult(value: unknown): NotesJsonGraphExportResult {
+  const record = readRecord(value, "JSON graph export result");
+  if (record.object !== "notes_json_graph_export") {
+    throw new Error("JSON graph export result.object must be notes_json_graph_export");
+  }
+  if (!Array.isArray(record.diagnostics)) {
+    throw new Error("JSON graph export result.diagnostics must be an array");
+  }
+  return {
+    object: "notes_json_graph_export",
+    export_version: readNonNegativeInteger(
+      record.export_version,
+      "JSON graph export result.export_version",
+    ),
+    schema_version: readString(record.schema_version, "JSON graph export result.schema_version"),
+    generated_at: readString(record.generated_at, "JSON graph export result.generated_at"),
+    file_name: readString(record.file_name, "JSON graph export result.file_name"),
+    content_type: readString(record.content_type, "JSON graph export result.content_type"),
+    json: readString(record.json, "JSON graph export result.json"),
+    byte_size: readNonNegativeInteger(record.byte_size, "JSON graph export result.byte_size"),
+    counts: readRecord(record.counts, "JSON graph export result.counts"),
+    diagnostics: record.diagnostics.map(parseNotesJsonGraphExportDiagnostic),
+    exported_page_count: readNonNegativeInteger(
+      record.exported_page_count,
+      "JSON graph export result.exported_page_count",
+    ),
+    exported_block_count: readNonNegativeInteger(
+      record.exported_block_count,
+      "JSON graph export result.exported_block_count",
+    ),
+    exported_comment_count: readNonNegativeInteger(
+      record.exported_comment_count,
+      "JSON graph export result.exported_comment_count",
+    ),
+    exported_data_source_count: readNonNegativeInteger(
+      record.exported_data_source_count,
+      "JSON graph export result.exported_data_source_count",
+    ),
+    exported_file_count: readNonNegativeInteger(
+      record.exported_file_count,
+      "JSON graph export result.exported_file_count",
+    ),
+    exported_index_record_count: readNonNegativeInteger(
+      record.exported_index_record_count,
+      "JSON graph export result.exported_index_record_count",
+    ),
+    exported_property_schema_count: readNonNegativeInteger(
+      record.exported_property_schema_count,
+      "JSON graph export result.exported_property_schema_count",
+    ),
+    exported_table_count: readNonNegativeInteger(
+      record.exported_table_count,
+      "JSON graph export result.exported_table_count",
+    ),
+    exported_record_count: readNonNegativeInteger(
+      record.exported_record_count,
+      "JSON graph export result.exported_record_count",
+    ),
+    warning_count: readNonNegativeInteger(
+      record.warning_count,
+      "JSON graph export result.warning_count",
+    ),
+  };
+}
+
+export function parseNotesJsonGraphExportSaveResult(
+  value: unknown,
+): NotesJsonGraphExportSaveResult {
+  const record = readRecord(value, "JSON graph export save result");
+  if (record.object !== "notes_json_graph_export_save") {
+    throw new Error("JSON graph export save result.object must be notes_json_graph_export_save");
+  }
+  return {
+    object: "notes_json_graph_export_save",
+    saved: readBoolean(record.saved, "JSON graph export save result.saved"),
+    export: record.export === null
+      ? null
+      : parseNotesJsonGraphExportResult(record.export),
+  };
+}
+
+function parseNotesJsonGraphExportDiagnostic(
+  value: unknown,
+  index: number,
+): NotesJsonGraphExportDiagnostic {
+  const record = readRecord(value, `JSON graph export result.diagnostics[${index}]`);
+  const severity = readString(
+    record.severity,
+    `JSON graph export result.diagnostics[${index}].severity`,
+  );
+  if (!isJsonGraphExportDiagnosticSeverity(severity)) {
+    throw new Error(`JSON graph export result.diagnostics[${index}].severity is unsupported`);
+  }
+  return {
+    code: readString(record.code, `JSON graph export result.diagnostics[${index}].code`),
+    severity,
+    table_name: readNullableString(
+      record.table_name,
+      `JSON graph export result.diagnostics[${index}].table_name`,
+    ),
+    row_id: readNullableString(
+      record.row_id,
+      `JSON graph export result.diagnostics[${index}].row_id`,
+    ),
+    message: readString(record.message, `JSON graph export result.diagnostics[${index}].message`),
+  };
+}
+
+function isJsonGraphExportDiagnosticSeverity(
+  value: string,
+): value is NotesJsonGraphExportDiagnosticSeverity {
+  return value === "info" || value === "warning" || value === "error";
 }
 
 function parseNotesHtmlExportFile(value: unknown, index: number): NotesHtmlExportFile {

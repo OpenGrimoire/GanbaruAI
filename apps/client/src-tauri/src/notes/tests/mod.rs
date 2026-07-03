@@ -26,6 +26,7 @@ mod database_templates_buttons;
 mod database_timeline;
 mod html_export;
 mod html_import;
+mod json_graph_export;
 mod link_facts;
 mod links;
 mod local_user_mentions;

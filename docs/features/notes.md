@@ -70,6 +70,12 @@ HTML export reads canonical pages, blocks, comments, managed asset metadata, and
 
 Page content exports as static HTML. Child pages link to their exported page files when they are included in the page tree. Rich text links keep safe HTTP, HTTPS, and mail links, and local Notes links point to exported pages when their targets are in the archive. Managed asset files are copied into the zip only when requested and available in the Ganbaru AI assets folder. Missing, excluded, unsafe, unsupported, or out-of-archive references produce warnings instead of silent loss. Database views currently export as JSON manifests with view settings and row property snapshots rather than a fully interactive database UI.
 
+## JSON graph export
+
+JSON graph export writes a local diagnostic and backup snapshot of the canonical Notes SQLite graph. The Notes sidebar exposes a workspace-level export action. The dialog can include or exclude rebuildable indexes, page history, templates, and local UI state, and it can write pretty JSON for inspection. The backend returns the export schema version, current applied SQLite migration version, object counts, table counts, warnings, and the exact JSON file content that the native save command writes.
+
+The export groups canonical `notes_*` rows into pages, blocks, comments, data sources, files, templates, history, local state, indexes, and a fallback misc section for future Notes tables. JSON columns such as block payloads, page properties, data source schemas, comments, history snapshots, and template blocks are exported as JSON values instead of stringified blobs. Rebuildable SQLite FTS virtual tables and shadow tables are omitted because `notes_search_index` is included and can rebuild them. Managed asset metadata and references are exported, but binary file bytes stay in the Ganbaru AI assets folder and produce a warning when assets exist.
+
 ## CSV database import
 
 CSV import is a derivative import path for local databases. It never makes the CSV file authoritative. The importer reads a CSV file or pasted CSV text from the table view, maps columns to the current data source schema by property name, property id, or property key, validates cell values, and creates normal database row pages in SQLite only for rows that pass validation.

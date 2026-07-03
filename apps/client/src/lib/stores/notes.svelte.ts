@@ -37,6 +37,7 @@ import {
   resolveNotesUnresolvedLink,
   rejectNotesSuggestion,
   saveNotesHtmlArchive,
+  saveNotesJsonGraph,
   searchNotes,
   trashNotesPage,
   updateNotesComment,
@@ -113,6 +114,8 @@ import type {
   NotesHtmlExportRequest,
   NotesHtmlImportRequest,
   NotesHtmlImportResult,
+  NotesJsonGraphExportRequest,
+  NotesJsonGraphExportSaveResult,
   NotesPage,
   NotesNotionApiImportRequest,
   NotesNotionApiImportResult,
@@ -1053,6 +1056,12 @@ async function exportHtmlArchive(
   });
 }
 
+async function exportJsonGraph(
+  input: NotesJsonGraphExportRequest = {},
+): Promise<NotesJsonGraphExportSaveResult> {
+  return saveNotesJsonGraph(input);
+}
+
 async function applyPageTemplate(templateId: string, title?: string): Promise<void> {
   const loaded = await applyNotesPageTemplate(templateId, {
     parent: { type: "workspace", workspace: true },
@@ -1828,6 +1837,7 @@ export function getNotes() {
     importNotionApi,
     importNotionExportFolder,
     exportHtmlArchive,
+    exportJsonGraph,
     createChildPageFromBlock,
     applyPageTemplate,
     createPageTemplateFromCurrentPage,

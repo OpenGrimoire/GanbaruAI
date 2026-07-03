@@ -6,6 +6,8 @@ import {
   parseNotesDataSourceCsvImportResult,
   parseNotesHtmlArchiveSaveResult,
   parseNotesHtmlExportResult,
+  parseNotesJsonGraphExportResult,
+  parseNotesJsonGraphExportSaveResult,
   parseNotesLocalUser,
   parseNotesMentionNotification,
   parseNotesHtmlImportResult,
@@ -1831,6 +1833,59 @@ describe("notes boundary validation", () => {
   it("parses HTML archive save result DTOs", () => {
     const result = parseNotesHtmlArchiveSaveResult({
       object: "notes_html_archive_save",
+      saved: false,
+      export: null,
+    });
+
+    expect(result.saved).toBe(false);
+    expect(result.export).toBeNull();
+  });
+
+  it("parses JSON graph export result DTOs", () => {
+    const result = parseNotesJsonGraphExportResult({
+      object: "notes_json_graph_export",
+      export_version: 1,
+      schema_version: "notes-json-graph.v1",
+      generated_at: "2026-07-03T12:00:00.000Z",
+      file_name: "ganbaru-notes-json-graph.json",
+      content_type: "application/json; charset=utf-8",
+      json: "{\"object\":\"notes_json_graph\"}",
+      byte_size: 29,
+      counts: {
+        tables: {
+          notes_pages: 1,
+        },
+      },
+      diagnostics: [
+        {
+          code: "json_graph_rebuildable_fts_omitted",
+          severity: "warning",
+          table_name: "notes_search_fts",
+          row_id: null,
+          message: "FTS rows omitted",
+        },
+      ],
+      exported_page_count: 1,
+      exported_block_count: 2,
+      exported_comment_count: 3,
+      exported_data_source_count: 4,
+      exported_file_count: 5,
+      exported_index_record_count: 6,
+      exported_property_schema_count: 7,
+      exported_table_count: 8,
+      exported_record_count: 9,
+      warning_count: 1,
+    });
+
+    expect(result.object).toBe("notes_json_graph_export");
+    expect(result.counts["tables"]).toEqual({ notes_pages: 1 });
+    expect(result.diagnostics[0]?.table_name).toBe("notes_search_fts");
+    expect(result.exported_property_schema_count).toBe(7);
+  });
+
+  it("parses JSON graph export save result DTOs", () => {
+    const result = parseNotesJsonGraphExportSaveResult({
+      object: "notes_json_graph_export_save",
       saved: false,
       export: null,
     });

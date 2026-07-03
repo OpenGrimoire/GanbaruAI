@@ -18,6 +18,8 @@ import {
   parseNotesHtmlArchiveSaveResult,
   parseNotesHtmlExportResult,
   parseNotesHtmlImportResult,
+  parseNotesJsonGraphExportResult,
+  parseNotesJsonGraphExportSaveResult,
   parseNotesLocalUser,
   parseNotesLoadedPage,
   parseNotesNotionApiImportResult,
@@ -57,6 +59,8 @@ import type {
   NotesHtmlArchiveSaveResult,
   NotesHtmlExportResult,
   NotesHtmlImportResult,
+  NotesJsonGraphExportResult,
+  NotesJsonGraphExportSaveResult,
   NotesLocalUser,
   NotesLoadedPage,
   NotesNotionApiImportResult,
@@ -125,6 +129,16 @@ export function mapNotesHtmlExportDto(value: unknown): NotesHtmlExportResult {
 /** Validate and map an unknown HTML archive save DTO from the Tauri boundary. */
 export function mapNotesHtmlArchiveSaveDto(value: unknown): NotesHtmlArchiveSaveResult {
   return parseNotesHtmlArchiveSaveResult(value);
+}
+
+/** Validate and map an unknown JSON graph export DTO from the Tauri boundary. */
+export function mapNotesJsonGraphExportDto(value: unknown): NotesJsonGraphExportResult {
+  return parseNotesJsonGraphExportResult(value);
+}
+
+/** Validate and map an unknown JSON graph export save DTO from the Tauri boundary. */
+export function mapNotesJsonGraphExportSaveDto(value: unknown): NotesJsonGraphExportSaveResult {
+  return parseNotesJsonGraphExportSaveResult(value);
 }
 
 /** Validate and map an unknown markdown export DTO from the Tauri boundary. */

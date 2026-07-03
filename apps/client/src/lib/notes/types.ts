@@ -1511,6 +1511,53 @@ export interface NotesHtmlArchiveSaveResult {
   export: NotesHtmlExportResult | null;
 }
 
+export interface NotesJsonGraphExportRequest {
+  include_indexes?: boolean | null;
+  include_history?: boolean | null;
+  include_templates?: boolean | null;
+  include_local_state?: boolean | null;
+  pretty?: boolean | null;
+}
+
+export type NotesJsonGraphExportDiagnosticSeverity = "info" | "warning" | "error";
+
+export interface NotesJsonGraphExportDiagnostic {
+  code: string;
+  severity: NotesJsonGraphExportDiagnosticSeverity;
+  table_name: string | null;
+  row_id: string | null;
+  message: string;
+}
+
+export interface NotesJsonGraphExportResult {
+  object: "notes_json_graph_export";
+  export_version: number;
+  schema_version: string;
+  generated_at: string;
+  file_name: string;
+  content_type: string;
+  json: string;
+  byte_size: number;
+  counts: Record<string, unknown>;
+  diagnostics: NotesJsonGraphExportDiagnostic[];
+  exported_page_count: number;
+  exported_block_count: number;
+  exported_comment_count: number;
+  exported_data_source_count: number;
+  exported_file_count: number;
+  exported_index_record_count: number;
+  exported_property_schema_count: number;
+  exported_table_count: number;
+  exported_record_count: number;
+  warning_count: number;
+}
+
+export interface NotesJsonGraphExportSaveResult {
+  object: "notes_json_graph_export_save";
+  saved: boolean;
+  export: NotesJsonGraphExportResult | null;
+}
+
 export interface NotesDataSourceCsvImportRequest {
   csv: string;
   has_header?: boolean | null;

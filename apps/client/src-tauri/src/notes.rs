@@ -32,6 +32,7 @@ mod html_export_render;
 mod html_import;
 mod html_import_syntax;
 mod import_writer;
+mod json_graph_export;
 mod link_facts;
 mod links;
 mod local_user;
@@ -285,6 +286,26 @@ pub async fn notes_pick_and_write_html_archive<R: Runtime>(
 ) -> Result<NoteHtmlArchiveSaveDto, String> {
     let pool = connect_sqlite(app.clone(), db_url).await?;
     html_export::pick_and_write_archive(&app, &pool, request).await
+}
+
+#[tauri::command]
+pub async fn notes_export_json_graph<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    request: NoteJsonGraphExportRequest,
+) -> Result<NoteJsonGraphExportDto, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    json_graph_export::export_graph(&pool, request).await
+}
+
+#[tauri::command]
+pub async fn notes_pick_and_write_json_graph<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    request: NoteJsonGraphExportRequest,
+) -> Result<NoteJsonGraphExportSaveDto, String> {
+    let pool = connect_sqlite(app.clone(), db_url).await?;
+    json_graph_export::pick_and_write_graph(&app, &pool, request).await
 }
 
 #[tauri::command]

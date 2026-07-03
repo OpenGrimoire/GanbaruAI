@@ -804,6 +804,91 @@ impl NoteHtmlArchiveSaveDto {
     }
 }
 
+#[derive(Clone, Debug, Deserialize)]
+pub struct NoteJsonGraphExportRequest {
+    pub(in crate::notes) include_indexes: Option<bool>,
+    pub(in crate::notes) include_history: Option<bool>,
+    pub(in crate::notes) include_templates: Option<bool>,
+    pub(in crate::notes) include_local_state: Option<bool>,
+    pub(in crate::notes) pretty: Option<bool>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+pub struct NoteJsonGraphExportDiagnosticDto {
+    pub(in crate::notes) code: String,
+    pub(in crate::notes) severity: String,
+    pub(in crate::notes) table_name: Option<String>,
+    pub(in crate::notes) row_id: Option<String>,
+    pub(in crate::notes) message: String,
+}
+
+impl NoteJsonGraphExportDiagnosticDto {
+    pub(in crate::notes) fn new(
+        code: impl Into<String>,
+        severity: impl Into<String>,
+        table_name: Option<impl Into<String>>,
+        row_id: Option<impl Into<String>>,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            code: code.into(),
+            severity: severity.into(),
+            table_name: table_name.map(Into::into),
+            row_id: row_id.map(Into::into),
+            message: message.into(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct NoteJsonGraphExportDto {
+    pub(in crate::notes) object: &'static str,
+    pub(in crate::notes) export_version: i64,
+    pub(in crate::notes) schema_version: String,
+    pub(in crate::notes) generated_at: String,
+    pub(in crate::notes) file_name: String,
+    pub(in crate::notes) content_type: &'static str,
+    pub(in crate::notes) json: String,
+    pub(in crate::notes) byte_size: i64,
+    pub(in crate::notes) counts: Value,
+    pub(in crate::notes) diagnostics: Vec<NoteJsonGraphExportDiagnosticDto>,
+    pub(in crate::notes) exported_page_count: i64,
+    pub(in crate::notes) exported_block_count: i64,
+    pub(in crate::notes) exported_comment_count: i64,
+    pub(in crate::notes) exported_data_source_count: i64,
+    pub(in crate::notes) exported_file_count: i64,
+    pub(in crate::notes) exported_index_record_count: i64,
+    pub(in crate::notes) exported_property_schema_count: i64,
+    pub(in crate::notes) exported_table_count: i64,
+    pub(in crate::notes) exported_record_count: i64,
+    pub(in crate::notes) warning_count: i64,
+}
+
+#[derive(Serialize)]
+pub struct NoteJsonGraphExportSaveDto {
+    object: &'static str,
+    saved: bool,
+    export: Option<NoteJsonGraphExportDto>,
+}
+
+impl NoteJsonGraphExportSaveDto {
+    pub(in crate::notes) fn canceled() -> Self {
+        Self {
+            object: "notes_json_graph_export_save",
+            saved: false,
+            export: None,
+        }
+    }
+
+    pub(in crate::notes) fn saved(export: NoteJsonGraphExportDto) -> Self {
+        Self {
+            object: "notes_json_graph_export_save",
+            saved: true,
+            export: Some(export),
+        }
+    }
+}
+
 #[derive(Deserialize)]
 pub struct NoteSidebarPagesRequest {
     #[serde(default)]
