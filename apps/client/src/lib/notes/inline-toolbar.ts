@@ -24,6 +24,24 @@ export type NotesInlineToolbarPlacement =
     maxWidth: number;
   };
 
+export function notesInlineToolbarWrapperClass(
+  placement: NotesInlineToolbarPlacement | null,
+): string {
+  if (!placement) return "pointer-events-none fixed z-40 flex justify-center";
+  return placement.mode === "floating"
+    ? "fixed z-40 flex justify-center"
+    : "mb-1 flex justify-end";
+}
+
+export function notesInlineToolbarWrapperStyle(
+  placement: NotesInlineToolbarPlacement | null,
+): string {
+  if (!placement) return "visibility: hidden; left: 0px; top: 0px;";
+  const maxWidth = `max-width: ${placement.maxWidth}px;`;
+  if (placement.mode === "docked") return maxWidth;
+  return `${maxWidth} left: ${placement.left}px; top: ${placement.top}px;`;
+}
+
 interface NotesInlineToolbarPlacementInput {
   selectionRect: NotesInlineToolbarRect;
   toolbarWidth: number;

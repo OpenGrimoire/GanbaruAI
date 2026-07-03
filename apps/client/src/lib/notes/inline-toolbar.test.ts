@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  notesInlineToolbarWrapperClass,
+  notesInlineToolbarWrapperStyle,
   planNotesInlineToolbarPlacement,
   shouldPreventInlineToolbarPointerDefault,
 } from "./inline-toolbar";
@@ -77,5 +79,28 @@ describe("notes inline toolbar placement", () => {
     expect(shouldPreventInlineToolbarPointerDefault("touch")).toBe(true);
     expect(shouldPreventInlineToolbarPointerDefault("pen")).toBe(true);
     expect(shouldPreventInlineToolbarPointerDefault("mouse")).toBe(false);
+  });
+
+  it("hides the toolbar while its first placement is being measured", () => {
+    expect(notesInlineToolbarWrapperClass(null)).toBe(
+      "pointer-events-none fixed z-40 flex justify-center",
+    );
+    expect(notesInlineToolbarWrapperStyle(null)).toBe(
+      "visibility: hidden; left: 0px; top: 0px;",
+    );
+  });
+
+  it("uses fixed coordinates for floating toolbar placement", () => {
+    const placement = planNotesInlineToolbarPlacement({
+      selectionRect,
+      toolbarWidth: 240,
+      toolbarHeight: 40,
+      viewport: { width: 800, height: 600 },
+    });
+
+    expect(notesInlineToolbarWrapperClass(placement)).toBe("fixed z-40 flex justify-center");
+    expect(notesInlineToolbarWrapperStyle(placement)).toBe(
+      "max-width: 784px; left: 100px; top: 74px;",
+    );
   });
 });

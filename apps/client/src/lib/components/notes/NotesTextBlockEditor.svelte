@@ -44,6 +44,8 @@
     type NotesTextSelection,
   } from "$lib/notes/editor-selection";
   import {
+    notesInlineToolbarWrapperClass,
+    notesInlineToolbarWrapperStyle,
     planNotesInlineToolbarPlacement,
     type NotesInlineToolbarPlacement,
   } from "$lib/notes/inline-toolbar";
@@ -461,19 +463,6 @@
       window.removeEventListener("scroll", refresh, true);
     };
   });
-
-  function inlineToolbarWrapperClass(placement: NotesInlineToolbarPlacement | null): string {
-    return placement?.mode === "floating"
-      ? "fixed z-40 flex justify-center"
-      : "mb-1 flex justify-end";
-  }
-
-  function inlineToolbarWrapperStyle(placement: NotesInlineToolbarPlacement | null): string {
-    if (!placement) return "";
-    const maxWidth = `max-width: ${placement.maxWidth}px;`;
-    if (placement.mode === "docked") return maxWidth;
-    return `${maxWidth} left: ${placement.left}px; top: ${placement.top}px;`;
-  }
 
   async function focusEditorWithSelection(start: number, end: number): Promise<void> {
     await tick();
@@ -1087,9 +1076,9 @@
 {#if canOpenInlineToolbar}
   <div
     bind:this={inlineToolbarElement}
-    class={inlineToolbarWrapperClass(inlineToolbarPlacement)}
-    style={inlineToolbarWrapperStyle(inlineToolbarPlacement)}
-    data-placement={inlineToolbarPlacement?.mode ?? "docked"}
+    class={notesInlineToolbarWrapperClass(inlineToolbarPlacement)}
+    style={notesInlineToolbarWrapperStyle(inlineToolbarPlacement)}
+    data-placement={inlineToolbarPlacement?.mode ?? "measuring"}
   >
     <NotesInlineToolbar
       annotations={currentTextAnnotationRange.annotations}
