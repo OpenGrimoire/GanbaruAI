@@ -181,10 +181,16 @@ Tauri's platform app config directory stores device-local bootstrap and runtime 
 
 **For UI/component changes:** `pnpm -w run validate` is the completion gate. Agents cannot manually verify the real Tauri app UI from this environment. Do not start a dev server, launch Tauri, or run HTTP smoke checks as a substitute for manual verification. If a UI behavior needs more confidence than existing checks provide, add or update tests where practical, then run `pnpm -w run validate`.
 
+**Validation policy for agent work:**
+- The root `check`, `test`, and `validate` scripts intentionally cap tool concurrency. Use those scripts for broad local verification instead of direct full-suite `turbo`, `vitest`, or `cargo` commands.
+- While coding, run the narrowest relevant check first. Use affected Vitest files for focused TypeScript tests and filtered Cargo tests for focused Rust tests where practical.
+- After focused checks pass, use `pnpm -w run check` or `pnpm -w run test` for broader feedback when the change touches shared behavior.
+- Run `pnpm -w run validate` once before marking a code task complete. Do not repeat full validation after unrelated clean status checks unless the code or generated output changed again.
+
 **Commands (always use `-w` flag for root scripts):**
-- `pnpm -w run check`: fast feedback (types, format, lint). Use while coding.
+- `pnpm -w run check`: fast feedback (types, format, lint) with capped Turbo and Cargo concurrency. Use while coding.
 - `pnpm -w run editor-check`: editor-style diagnostics, including Tailwind canonical class checks.
-- `pnpm -w run test`: all tests (vitest + cargo test). Use after changes to tested code.
+- `pnpm -w run test`: all tests (vitest + cargo test) with capped Vitest, Cargo build, and Rust test concurrency. Use after changes to tested code.
 - `pnpm -w run audit:deps`: npm advisory audit for workspace dependencies. Run for dependency or lockfile changes, before PRs, before releases, and when investigating security alerts.
 - `pnpm -w run audit:rust`: RustSec audit for cargo dependencies. Run for dependency or lockfile changes, before PRs, before releases, and when investigating security alerts. Reviewed ignores live in `.cargo/audit.toml` and must be documented in `docs/data/security.md`.
 - `pnpm -w run audit`: both dependency audits (`audit:deps` + `audit:rust`).
