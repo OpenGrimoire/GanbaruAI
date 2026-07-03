@@ -1558,6 +1558,50 @@ export interface NotesJsonGraphExportSaveResult {
   export: NotesJsonGraphExportResult | null;
 }
 
+export interface NotesAgentBridgeExportRequest {
+  page_ids?: string[];
+  project_ids?: string[];
+  include_descendants?: boolean | null;
+  include_backlinks?: boolean | null;
+  include_database_views?: boolean | null;
+  include_task_context?: boolean | null;
+  include_page_comments?: boolean | null;
+  include_resolved_comments?: boolean | null;
+}
+
+export type NotesAgentBridgeExportDiagnosticSeverity = "info" | "warning" | "error";
+
+export interface NotesAgentBridgeExportDiagnostic {
+  code: string;
+  severity: NotesAgentBridgeExportDiagnosticSeverity;
+  source_type: string | null;
+  source_id: string | null;
+  message: string;
+}
+
+export interface NotesAgentBridgeExportResult {
+  object: "notes_agent_bridge_export";
+  export_version: number;
+  schema_version: string;
+  file_name: string;
+  content_type: string;
+  markdown: string;
+  byte_size: number;
+  diagnostics: NotesAgentBridgeExportDiagnostic[];
+  exported_page_count: number;
+  exported_project_count: number;
+  exported_task_count: number;
+  exported_database_view_count: number;
+  exported_backlink_count: number;
+  warning_count: number;
+}
+
+export interface NotesAgentBridgeExportSaveResult {
+  object: "notes_agent_bridge_export_save";
+  saved: boolean;
+  export: NotesAgentBridgeExportResult | null;
+}
+
 export interface NotesDataSourceCsvImportRequest {
   csv: string;
   has_header?: boolean | null;

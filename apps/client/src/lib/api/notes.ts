@@ -21,6 +21,8 @@ import {
   mapNotesHtmlArchiveSaveDto,
   mapNotesHtmlExportDto,
   mapNotesHtmlImportDto,
+  mapNotesAgentBridgeExportDto,
+  mapNotesAgentBridgeExportSaveDto,
   mapNotesJsonGraphExportDto,
   mapNotesJsonGraphExportSaveDto,
   mapNotesLocalUserDto,
@@ -89,6 +91,9 @@ import type {
   NotesHtmlArchiveSaveResult,
   NotesHtmlExportRequest,
   NotesHtmlExportResult,
+  NotesAgentBridgeExportRequest,
+  NotesAgentBridgeExportResult,
+  NotesAgentBridgeExportSaveResult,
   NotesJsonGraphExportRequest,
   NotesJsonGraphExportResult,
   NotesJsonGraphExportSaveResult,
@@ -633,6 +638,24 @@ export async function saveNotesJsonGraph(
   const dbUrl = await ensureDbUrl();
   return mapNotesJsonGraphExportSaveDto(
     await invoke<unknown>("notes_pick_and_write_json_graph", { dbUrl, request }),
+  );
+}
+
+export async function exportNotesAgentBridge(
+  request: NotesAgentBridgeExportRequest,
+): Promise<NotesAgentBridgeExportResult> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesAgentBridgeExportDto(
+    await invoke<unknown>("notes_export_agent_bridge", { dbUrl, request }),
+  );
+}
+
+export async function saveNotesAgentBridge(
+  request: NotesAgentBridgeExportRequest,
+): Promise<NotesAgentBridgeExportSaveResult> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesAgentBridgeExportSaveDto(
+    await invoke<unknown>("notes_pick_and_write_agent_bridge", { dbUrl, request }),
   );
 }
 

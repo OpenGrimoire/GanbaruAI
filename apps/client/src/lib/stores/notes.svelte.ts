@@ -36,6 +36,7 @@ import {
   resolveNotesCommentThread,
   resolveNotesUnresolvedLink,
   rejectNotesSuggestion,
+  saveNotesAgentBridge,
   saveNotesHtmlArchive,
   saveNotesJsonGraph,
   searchNotes,
@@ -114,6 +115,8 @@ import type {
   NotesHtmlExportRequest,
   NotesHtmlImportRequest,
   NotesHtmlImportResult,
+  NotesAgentBridgeExportRequest,
+  NotesAgentBridgeExportSaveResult,
   NotesJsonGraphExportRequest,
   NotesJsonGraphExportSaveResult,
   NotesPage,
@@ -1062,6 +1065,18 @@ async function exportJsonGraph(
   return saveNotesJsonGraph(input);
 }
 
+async function exportAgentBridge(
+  input: Omit<NotesAgentBridgeExportRequest, "page_ids"> = {},
+): Promise<NotesAgentBridgeExportSaveResult> {
+  if (!selectedPageId) {
+    throw new Error("No Notes page is selected");
+  }
+  return saveNotesAgentBridge({
+    ...input,
+    page_ids: [selectedPageId],
+  });
+}
+
 async function applyPageTemplate(templateId: string, title?: string): Promise<void> {
   const loaded = await applyNotesPageTemplate(templateId, {
     parent: { type: "workspace", workspace: true },
@@ -1838,6 +1853,7 @@ export function getNotes() {
     importNotionExportFolder,
     exportHtmlArchive,
     exportJsonGraph,
+    exportAgentBridge,
     createChildPageFromBlock,
     applyPageTemplate,
     createPageTemplateFromCurrentPage,

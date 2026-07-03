@@ -17,6 +17,7 @@
   import DatabaseBackup from "@lucide/svelte/icons/database-backup";
   import Download from "@lucide/svelte/icons/download";
   import FileText from "@lucide/svelte/icons/file-text";
+  import GitBranch from "@lucide/svelte/icons/git-branch";
   import MessageSquare from "@lucide/svelte/icons/message-square";
   import Plus from "@lucide/svelte/icons/plus";
   import Search from "@lucide/svelte/icons/search";
@@ -24,6 +25,7 @@
   import Upload from "@lucide/svelte/icons/upload";
   import NotesHtmlExportDialog from "./NotesHtmlExportDialog.svelte";
   import NotesHtmlImportDialog from "./NotesHtmlImportDialog.svelte";
+  import NotesAgentBridgeExportDialog from "./NotesAgentBridgeExportDialog.svelte";
   import NotesJsonGraphExportDialog from "./NotesJsonGraphExportDialog.svelte";
   import NotesNotionApiImportDialog from "./NotesNotionApiImportDialog.svelte";
   import NotesNotionExportImportDialog from "./NotesNotionExportImportDialog.svelte";
@@ -40,6 +42,7 @@
   let notionApiImportOpen = $state(false);
   let notionExportImportOpen = $state(false);
   let htmlExportOpen = $state(false);
+  let agentBridgeExportOpen = $state(false);
   let jsonGraphExportOpen = $state(false);
   let blockDropTargetPageId = $state<string | null>(null);
   const sidebarPlan = $derived.by(() =>
@@ -158,6 +161,26 @@
       include_templates: input.includeTemplates,
       include_local_state: input.includeLocalState,
       pretty: input.pretty,
+    });
+  }
+
+  function exportAgentBridge(input: {
+    includeDescendants: boolean;
+    includeBacklinks: boolean;
+    includeDatabaseViews: boolean;
+    includeTaskContext: boolean;
+    includePageComments: boolean;
+    includeResolvedComments: boolean;
+    projectIds: string[];
+  }) {
+    return notes.exportAgentBridge({
+      include_descendants: input.includeDescendants,
+      include_backlinks: input.includeBacklinks,
+      include_database_views: input.includeDatabaseViews,
+      include_task_context: input.includeTaskContext,
+      include_page_comments: input.includePageComments,
+      include_resolved_comments: input.includeResolvedComments,
+      project_ids: input.projectIds,
     });
   }
 
@@ -359,6 +382,17 @@
         }}
       >
         <Download class="size-4" />
+      </button>
+      <button
+        class="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-45"
+        aria-label={t("notes.agentBridgeExportOpen")}
+        data-app-tooltip={notes.loadedPage ? t("notes.agentBridgeExportOpen") : t("notes.agentBridgeExportUnavailable")}
+        disabled={!notes.loadedPage}
+        onclick={() => {
+          agentBridgeExportOpen = true;
+        }}
+      >
+        <GitBranch class="size-4" />
       </button>
       <button
         class="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -750,6 +784,16 @@
     onExport={exportHtmlArchive}
     onCancel={() => {
       htmlExportOpen = false;
+    }}
+  />
+{/if}
+
+{#if agentBridgeExportOpen && notes.loadedPage}
+  <NotesAgentBridgeExportDialog
+    pageTitle={notesPageTitle(notes.loadedPage, t("notes.untitled"))}
+    onExport={exportAgentBridge}
+    onCancel={() => {
+      agentBridgeExportOpen = false;
     }}
   />
 {/if}

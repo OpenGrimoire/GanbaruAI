@@ -18,6 +18,8 @@ import {
   parseNotesHtmlArchiveSaveResult,
   parseNotesHtmlExportResult,
   parseNotesHtmlImportResult,
+  parseNotesAgentBridgeExportResult,
+  parseNotesAgentBridgeExportSaveResult,
   parseNotesJsonGraphExportResult,
   parseNotesJsonGraphExportSaveResult,
   parseNotesLocalUser,
@@ -59,6 +61,8 @@ import type {
   NotesHtmlArchiveSaveResult,
   NotesHtmlExportResult,
   NotesHtmlImportResult,
+  NotesAgentBridgeExportResult,
+  NotesAgentBridgeExportSaveResult,
   NotesJsonGraphExportResult,
   NotesJsonGraphExportSaveResult,
   NotesLocalUser,
@@ -139,6 +143,18 @@ export function mapNotesJsonGraphExportDto(value: unknown): NotesJsonGraphExport
 /** Validate and map an unknown JSON graph export save DTO from the Tauri boundary. */
 export function mapNotesJsonGraphExportSaveDto(value: unknown): NotesJsonGraphExportSaveResult {
   return parseNotesJsonGraphExportSaveResult(value);
+}
+
+/** Validate and map an unknown agent bridge export DTO from the Tauri boundary. */
+export function mapNotesAgentBridgeExportDto(value: unknown): NotesAgentBridgeExportResult {
+  return parseNotesAgentBridgeExportResult(value);
+}
+
+/** Validate and map an unknown agent bridge export save DTO from the Tauri boundary. */
+export function mapNotesAgentBridgeExportSaveDto(
+  value: unknown,
+): NotesAgentBridgeExportSaveResult {
+  return parseNotesAgentBridgeExportSaveResult(value);
 }
 
 /** Validate and map an unknown markdown export DTO from the Tauri boundary. */

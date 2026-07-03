@@ -6,6 +6,8 @@ import {
   parseNotesDataSourceCsvImportResult,
   parseNotesHtmlArchiveSaveResult,
   parseNotesHtmlExportResult,
+  parseNotesAgentBridgeExportResult,
+  parseNotesAgentBridgeExportSaveResult,
   parseNotesJsonGraphExportResult,
   parseNotesJsonGraphExportSaveResult,
   parseNotesLocalUser,
@@ -1886,6 +1888,48 @@ describe("notes boundary validation", () => {
   it("parses JSON graph export save result DTOs", () => {
     const result = parseNotesJsonGraphExportSaveResult({
       object: "notes_json_graph_export_save",
+      saved: false,
+      export: null,
+    });
+
+    expect(result.saved).toBe(false);
+    expect(result.export).toBeNull();
+  });
+
+  it("parses agent bridge export result DTOs", () => {
+    const result = parseNotesAgentBridgeExportResult({
+      object: "notes_agent_bridge_export",
+      export_version: 1,
+      schema_version: "notes-agent-bridge.v1",
+      file_name: "ganbaru-agent-bridge.md",
+      content_type: "text/markdown; charset=utf-8",
+      markdown: "# Bridge\n",
+      byte_size: 9,
+      diagnostics: [
+        {
+          code: "agent_bridge_project_not_exported",
+          severity: "warning",
+          source_type: "project",
+          source_id: "project-a",
+          message: "Requested project was not found.",
+        },
+      ],
+      exported_page_count: 1,
+      exported_project_count: 2,
+      exported_task_count: 3,
+      exported_database_view_count: 4,
+      exported_backlink_count: 5,
+      warning_count: 1,
+    });
+
+    expect(result.object).toBe("notes_agent_bridge_export");
+    expect(result.diagnostics[0]?.source_type).toBe("project");
+    expect(result.exported_task_count).toBe(3);
+  });
+
+  it("parses agent bridge export save result DTOs", () => {
+    const result = parseNotesAgentBridgeExportSaveResult({
+      object: "notes_agent_bridge_export_save",
       saved: false,
       export: null,
     });

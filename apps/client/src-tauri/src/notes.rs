@@ -1,6 +1,7 @@
 use crate::db_path::connect_sqlite;
 use tauri::{AppHandle, Runtime};
 
+mod agent_bridge_export;
 mod assets;
 mod backlinks;
 mod collaboration_operations;
@@ -306,6 +307,26 @@ pub async fn notes_pick_and_write_json_graph<R: Runtime>(
 ) -> Result<NoteJsonGraphExportSaveDto, String> {
     let pool = connect_sqlite(app.clone(), db_url).await?;
     json_graph_export::pick_and_write_graph(&app, &pool, request).await
+}
+
+#[tauri::command]
+pub async fn notes_export_agent_bridge<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    request: NoteAgentBridgeExportRequest,
+) -> Result<NoteAgentBridgeExportDto, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    agent_bridge_export::export_bridge(&pool, request).await
+}
+
+#[tauri::command]
+pub async fn notes_pick_and_write_agent_bridge<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    request: NoteAgentBridgeExportRequest,
+) -> Result<NoteAgentBridgeExportSaveDto, String> {
+    let pool = connect_sqlite(app.clone(), db_url).await?;
+    agent_bridge_export::pick_and_write_bridge(&app, &pool, request).await
 }
 
 #[tauri::command]

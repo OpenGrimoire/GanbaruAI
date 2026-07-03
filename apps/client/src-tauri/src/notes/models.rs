@@ -631,11 +631,11 @@ pub struct NoteMarkdownExportRequest {
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 pub struct NoteMarkdownExportDiagnosticDto {
-    code: String,
-    severity: String,
-    block_id: Option<String>,
-    comment_id: Option<String>,
-    message: String,
+    pub(in crate::notes) code: String,
+    pub(in crate::notes) severity: String,
+    pub(in crate::notes) block_id: Option<String>,
+    pub(in crate::notes) comment_id: Option<String>,
+    pub(in crate::notes) message: String,
 }
 
 impl NoteMarkdownExportDiagnosticDto {
@@ -658,12 +658,12 @@ impl NoteMarkdownExportDiagnosticDto {
 
 #[derive(Serialize)]
 pub struct NoteMarkdownExportDto {
-    object: &'static str,
-    page_id: String,
-    markdown: String,
-    diagnostics: Vec<NoteMarkdownExportDiagnosticDto>,
-    exported_block_count: i64,
-    exported_comment_count: i64,
+    pub(in crate::notes) object: &'static str,
+    pub(in crate::notes) page_id: String,
+    pub(in crate::notes) markdown: String,
+    pub(in crate::notes) diagnostics: Vec<NoteMarkdownExportDiagnosticDto>,
+    pub(in crate::notes) exported_block_count: i64,
+    pub(in crate::notes) exported_comment_count: i64,
 }
 
 impl NoteMarkdownExportDto {
@@ -883,6 +883,90 @@ impl NoteJsonGraphExportSaveDto {
     pub(in crate::notes) fn saved(export: NoteJsonGraphExportDto) -> Self {
         Self {
             object: "notes_json_graph_export_save",
+            saved: true,
+            export: Some(export),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct NoteAgentBridgeExportRequest {
+    #[serde(default)]
+    pub(in crate::notes) page_ids: Vec<String>,
+    #[serde(default)]
+    pub(in crate::notes) project_ids: Vec<String>,
+    pub(in crate::notes) include_descendants: Option<bool>,
+    pub(in crate::notes) include_backlinks: Option<bool>,
+    pub(in crate::notes) include_database_views: Option<bool>,
+    pub(in crate::notes) include_task_context: Option<bool>,
+    pub(in crate::notes) include_page_comments: Option<bool>,
+    pub(in crate::notes) include_resolved_comments: Option<bool>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+pub struct NoteAgentBridgeExportDiagnosticDto {
+    pub(in crate::notes) code: String,
+    pub(in crate::notes) severity: String,
+    pub(in crate::notes) source_type: Option<String>,
+    pub(in crate::notes) source_id: Option<String>,
+    pub(in crate::notes) message: String,
+}
+
+impl NoteAgentBridgeExportDiagnosticDto {
+    pub(in crate::notes) fn new(
+        code: impl Into<String>,
+        severity: impl Into<String>,
+        source_type: Option<impl Into<String>>,
+        source_id: Option<impl Into<String>>,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            code: code.into(),
+            severity: severity.into(),
+            source_type: source_type.map(Into::into),
+            source_id: source_id.map(Into::into),
+            message: message.into(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct NoteAgentBridgeExportDto {
+    pub(in crate::notes) object: &'static str,
+    pub(in crate::notes) export_version: i64,
+    pub(in crate::notes) schema_version: &'static str,
+    pub(in crate::notes) file_name: String,
+    pub(in crate::notes) content_type: &'static str,
+    pub(in crate::notes) markdown: String,
+    pub(in crate::notes) byte_size: i64,
+    pub(in crate::notes) diagnostics: Vec<NoteAgentBridgeExportDiagnosticDto>,
+    pub(in crate::notes) exported_page_count: i64,
+    pub(in crate::notes) exported_project_count: i64,
+    pub(in crate::notes) exported_task_count: i64,
+    pub(in crate::notes) exported_database_view_count: i64,
+    pub(in crate::notes) exported_backlink_count: i64,
+    pub(in crate::notes) warning_count: i64,
+}
+
+#[derive(Serialize)]
+pub struct NoteAgentBridgeExportSaveDto {
+    object: &'static str,
+    saved: bool,
+    export: Option<NoteAgentBridgeExportDto>,
+}
+
+impl NoteAgentBridgeExportSaveDto {
+    pub(in crate::notes) fn canceled() -> Self {
+        Self {
+            object: "notes_agent_bridge_export_save",
+            saved: false,
+            export: None,
+        }
+    }
+
+    pub(in crate::notes) fn saved(export: NoteAgentBridgeExportDto) -> Self {
+        Self {
+            object: "notes_agent_bridge_export_save",
             saved: true,
             export: Some(export),
         }

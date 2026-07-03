@@ -9,6 +9,10 @@ import {
   NOTES_MENTION_NOTIFICATION_TARGET_TYPES,
   type NotesBacklink,
   type NotesBacklinkReferenceType,
+  type NotesAgentBridgeExportDiagnostic,
+  type NotesAgentBridgeExportDiagnosticSeverity,
+  type NotesAgentBridgeExportResult,
+  type NotesAgentBridgeExportSaveResult,
   type NotesBlock,
   type NotesBlockType,
   type NotesBookmarkBlockPayload,
@@ -2409,6 +2413,104 @@ function parseNotesJsonGraphExportDiagnostic(
 function isJsonGraphExportDiagnosticSeverity(
   value: string,
 ): value is NotesJsonGraphExportDiagnosticSeverity {
+  return value === "info" || value === "warning" || value === "error";
+}
+
+export function parseNotesAgentBridgeExportResult(value: unknown): NotesAgentBridgeExportResult {
+  const record = readRecord(value, "agent bridge export result");
+  if (record.object !== "notes_agent_bridge_export") {
+    throw new Error("agent bridge export result.object must be notes_agent_bridge_export");
+  }
+  if (!Array.isArray(record.diagnostics)) {
+    throw new Error("agent bridge export result.diagnostics must be an array");
+  }
+  return {
+    object: "notes_agent_bridge_export",
+    export_version: readNonNegativeInteger(
+      record.export_version,
+      "agent bridge export result.export_version",
+    ),
+    schema_version: readString(record.schema_version, "agent bridge export result.schema_version"),
+    file_name: readString(record.file_name, "agent bridge export result.file_name"),
+    content_type: readString(record.content_type, "agent bridge export result.content_type"),
+    markdown: readString(record.markdown, "agent bridge export result.markdown"),
+    byte_size: readNonNegativeInteger(record.byte_size, "agent bridge export result.byte_size"),
+    diagnostics: record.diagnostics.map(parseNotesAgentBridgeExportDiagnostic),
+    exported_page_count: readNonNegativeInteger(
+      record.exported_page_count,
+      "agent bridge export result.exported_page_count",
+    ),
+    exported_project_count: readNonNegativeInteger(
+      record.exported_project_count,
+      "agent bridge export result.exported_project_count",
+    ),
+    exported_task_count: readNonNegativeInteger(
+      record.exported_task_count,
+      "agent bridge export result.exported_task_count",
+    ),
+    exported_database_view_count: readNonNegativeInteger(
+      record.exported_database_view_count,
+      "agent bridge export result.exported_database_view_count",
+    ),
+    exported_backlink_count: readNonNegativeInteger(
+      record.exported_backlink_count,
+      "agent bridge export result.exported_backlink_count",
+    ),
+    warning_count: readNonNegativeInteger(
+      record.warning_count,
+      "agent bridge export result.warning_count",
+    ),
+  };
+}
+
+export function parseNotesAgentBridgeExportSaveResult(
+  value: unknown,
+): NotesAgentBridgeExportSaveResult {
+  const record = readRecord(value, "agent bridge export save result");
+  if (record.object !== "notes_agent_bridge_export_save") {
+    throw new Error(
+      "agent bridge export save result.object must be notes_agent_bridge_export_save",
+    );
+  }
+  return {
+    object: "notes_agent_bridge_export_save",
+    saved: readBoolean(record.saved, "agent bridge export save result.saved"),
+    export: record.export === null
+      ? null
+      : parseNotesAgentBridgeExportResult(record.export),
+  };
+}
+
+function parseNotesAgentBridgeExportDiagnostic(
+  value: unknown,
+  index: number,
+): NotesAgentBridgeExportDiagnostic {
+  const record = readRecord(value, `agent bridge export result.diagnostics[${index}]`);
+  const severity = readString(
+    record.severity,
+    `agent bridge export result.diagnostics[${index}].severity`,
+  );
+  if (!isAgentBridgeExportDiagnosticSeverity(severity)) {
+    throw new Error(`agent bridge export result.diagnostics[${index}].severity is unsupported`);
+  }
+  return {
+    code: readString(record.code, `agent bridge export result.diagnostics[${index}].code`),
+    severity,
+    source_type: readNullableString(
+      record.source_type,
+      `agent bridge export result.diagnostics[${index}].source_type`,
+    ),
+    source_id: readNullableString(
+      record.source_id,
+      `agent bridge export result.diagnostics[${index}].source_id`,
+    ),
+    message: readString(record.message, `agent bridge export result.diagnostics[${index}].message`),
+  };
+}
+
+function isAgentBridgeExportDiagnosticSeverity(
+  value: string,
+): value is NotesAgentBridgeExportDiagnosticSeverity {
   return value === "info" || value === "warning" || value === "error";
 }
 

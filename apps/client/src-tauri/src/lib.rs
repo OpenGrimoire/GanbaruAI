@@ -887,6 +887,8 @@ pub fn run() {
             notes::notes_pick_and_write_html_archive,
             notes::notes_export_json_graph,
             notes::notes_pick_and_write_json_graph,
+            notes::notes_export_agent_bridge,
+            notes::notes_pick_and_write_agent_bridge,
             notes::notes_get_local_user,
             notes::notes_update_local_user,
             notes::notes_list_page_templates,

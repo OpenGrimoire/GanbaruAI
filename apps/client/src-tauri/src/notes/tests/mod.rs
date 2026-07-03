@@ -1,5 +1,6 @@
 mod helpers;
 
+mod agent_bridge_export;
 mod backlinks;
 mod block_append;
 mod block_external_and_media;

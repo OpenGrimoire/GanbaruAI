@@ -1,8 +1,8 @@
 pub(super) use super::super::models::{
-    NoteAppendBlockChildren, NoteBlockUpdate, NoteBlockWrite, NoteChildPageFromBlockCreate,
-    NoteCommentAnchorCreate, NoteCommentCreate, NoteCommentThreadReadUpdate, NoteCommentUpdate,
-    NoteDataSourceBoardConfigurationUpdate, NoteDataSourceBoardRowMove,
-    NoteDataSourceBoardViewUpdate, NoteDataSourceButtonClick,
+    NoteAgentBridgeExportRequest, NoteAppendBlockChildren, NoteBlockUpdate, NoteBlockWrite,
+    NoteChildPageFromBlockCreate, NoteCommentAnchorCreate, NoteCommentCreate,
+    NoteCommentThreadReadUpdate, NoteCommentUpdate, NoteDataSourceBoardConfigurationUpdate,
+    NoteDataSourceBoardRowMove, NoteDataSourceBoardViewUpdate, NoteDataSourceButtonClick,
     NoteDataSourceCalendarConfigurationUpdate, NoteDataSourceCalendarViewUpdate,
     NoteDataSourceCsvExportRequest, NoteDataSourceCsvImportRequest,
     NoteDataSourceGalleryConfigurationUpdate, NoteDataSourceGalleryViewUpdate,
@@ -22,12 +22,13 @@ pub(super) use super::super::models::{
     NoteSuggestionCreate, NoteTrashBlocks, NoteUnresolvedLinkResolve, OptionalJsonValue,
 };
 pub(super) use super::super::{
-    assets, backlinks, comments, data_source_board, data_source_buttons, data_source_calendar,
-    data_source_csv_export, data_source_csv_import, data_source_gallery, data_source_list,
-    data_source_rows, data_source_schema, data_source_table, data_source_templates,
-    data_source_timeline, databases, history, html_export, html_import, json_graph_export,
-    link_facts, links, local_user, markdown_export, markdown_import, mention_notifications,
-    notion_export_import, reads, search, suggestions, templates, undo_state, validation, writes,
+    agent_bridge_export, assets, backlinks, comments, data_source_board, data_source_buttons,
+    data_source_calendar, data_source_csv_export, data_source_csv_import, data_source_gallery,
+    data_source_list, data_source_rows, data_source_schema, data_source_table,
+    data_source_templates, data_source_timeline, databases, history, html_export, html_import,
+    json_graph_export, link_facts, links, local_user, markdown_export, markdown_import,
+    mention_notifications, notion_export_import, reads, search, suggestions, templates, undo_state,
+    validation, writes,
 };
 pub(super) use crate::db::run_migrations;
 pub(super) use serde_json::json;
