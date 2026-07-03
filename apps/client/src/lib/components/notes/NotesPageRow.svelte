@@ -74,9 +74,10 @@
   let titleDraft = $state("");
   let renameInput = $state<HTMLInputElement | null>(null);
   const title = $derived(notesPageTitle(page, t("notes.untitled")));
+  const editableTitle = $derived(notesPageTitle(page, ""));
 
   $effect(() => {
-    if (!editing) titleDraft = title;
+    if (!editing) titleDraft = editableTitle;
   });
 
   $effect(() => {
@@ -105,9 +106,11 @@
   }
 
   function saveRename(): void {
-    const title = titleDraft.trim() || t("notes.untitled");
+    const title = titleDraft.trim();
     editing = false;
     menuOpen = false;
+    titleDraft = title;
+    if (title === editableTitle) return;
     onRename(title);
   }
 
@@ -119,7 +122,7 @@
     if (event.key === "Escape") {
       event.preventDefault();
       editing = false;
-      titleDraft = title;
+      titleDraft = editableTitle;
     }
   }
 
@@ -146,6 +149,7 @@
       class="notes-page-row-content w-full rounded-md border border-border bg-background px-2 py-1.5 text-[0.866667rem] text-foreground outline-none"
       aria-label={t("notes.renamePage")}
       bind:value={titleDraft}
+      placeholder={t("notes.titlePlaceholder")}
       onkeydown={handleRenameKeydown}
       onblur={saveRename}
     />

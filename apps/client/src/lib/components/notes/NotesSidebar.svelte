@@ -73,7 +73,7 @@
   });
 
   function createPage(): void {
-    void notes.createPage(t("notes.defaultPageTitle"));
+    void notes.createPage("");
   }
 
   function importHtmlPage(input: {
@@ -185,7 +185,7 @@
   }
 
   function createSubpage(parentPageId: string): void {
-    void notes.createSubpage(parentPageId, t("notes.defaultPageTitle"));
+    void notes.createSubpage(parentPageId, "");
   }
 
   function createTemplateFromCurrentPage(): void {

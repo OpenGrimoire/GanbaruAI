@@ -26,12 +26,14 @@
   const localization = getLocalization();
   const { t } = localization;
   let titleDraft = $state("");
+  let titleInput: HTMLInputElement | null = $state(null);
   let iconMenuOpen = $state(false);
   let coverMenuOpen = $state(false);
   let blockScrollViewport: HTMLDivElement | null = $state(null);
   let lastTitlePageId = "";
+  let lastHandledTitleFocusRequestId = 0;
   const page = $derived(notes.loadedPage);
-  const pageTitle = $derived(page ? notesPageTitle(page, t("notes.untitled")) : "");
+  const editablePageTitle = $derived(page ? notesPageTitle(page, "") : "");
   const pageIconLabel = $derived(pageIconScreenReaderText(page?.icon ?? null));
   const breadcrumbItems = $derived(
     notes.pageBreadcrumbItems.length > 0
@@ -52,7 +54,19 @@
   $effect(() => {
     if (!page || page.id === lastTitlePageId) return;
     lastTitlePageId = page.id;
-    titleDraft = pageTitle;
+    titleDraft = editablePageTitle;
+  });
+
+  $effect(() => {
+    const titleFocusRequestId = notes.titleFocusRequestId;
+    if (titleFocusRequestId === lastHandledTitleFocusRequestId) return;
+    if (!page || notes.titleFocusPageId !== page.id) return;
+    lastHandledTitleFocusRequestId = titleFocusRequestId;
+    void tick().then(() => {
+      titleInput?.focus();
+      const offset = titleInput?.value.length ?? 0;
+      titleInput?.setSelectionRange(offset, offset);
+    });
   });
 
   $effect(() => {
@@ -73,9 +87,9 @@
 
   async function saveTitle(): Promise<void> {
     if (!page) return;
-    const title = titleDraft.trim() || t("notes.untitled");
+    const title = titleDraft.trim();
     titleDraft = title;
-    if (title === pageTitle) return;
+    if (title === editablePageTitle) return;
     await notes.renamePage(page.id, title);
   }
 
@@ -201,6 +215,7 @@
           {/if}
         </div>
         <input
+          bind:this={titleInput}
           class="min-w-0 flex-1 bg-transparent text-[1.45rem] font-semibold leading-tight text-foreground outline-none placeholder:text-muted-foreground"
           aria-label={t("notes.titleInput")}
           bind:value={titleDraft}

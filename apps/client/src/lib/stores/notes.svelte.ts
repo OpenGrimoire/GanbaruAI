@@ -218,6 +218,10 @@ let searchResults = $state<NotesSearchResult[]>([]);
 let searchLoading = $state(false);
 let searchError = $state<string | null>(null);
 let searchIncludeResolvedComments = $state(false);
+let titleFocusRequest = $state<{ pageId: string | null; requestId: number }>({
+  pageId: null,
+  requestId: 0,
+});
 
 function blockTreeSnapshot(): NotesBlockTreeSnapshot {
   return { selectedPageId, blocksById, childIdsByParentId };
@@ -243,6 +247,13 @@ function requestBlockFocus(
   selection: NotesTextSelection | null = null,
 ): void {
   focusRequest = nextNotesFocusRequest(focusRequest, blockId, selection);
+}
+
+function requestTitleFocus(pageId: string): void {
+  titleFocusRequest = {
+    pageId,
+    requestId: titleFocusRequest.requestId + 1,
+  };
 }
 
 function replacePages(nextPages: NotesPage[]): void {
@@ -975,8 +986,8 @@ async function createPageWithParent(title: string, parent: NotesParent): Promise
   await reloadSuggestions(loaded.page.id);
   await pageHistoryController.reloadSnapshots(loaded.page.id);
   await undoController.hydrate(loaded.page.id);
-  const focusBlockId = planNotesInsertedBlockFocus([firstBlockId]);
-  requestBlockFocus(focusBlockId, START_OF_NOTES_BLOCK_SELECTION);
+  requestBlockFocus(null);
+  requestTitleFocus(loaded.page.id);
 }
 
 async function importHtmlPage(
@@ -1855,6 +1866,12 @@ export function getNotes() {
     },
     get focusSelection(): NotesTextSelection | null {
       return focusRequest.selection;
+    },
+    get titleFocusPageId(): string | null {
+      return titleFocusRequest.pageId;
+    },
+    get titleFocusRequestId(): number {
+      return titleFocusRequest.requestId;
     },
     get canUndoNotesEdit(): boolean {
       return undoController.canUndo();

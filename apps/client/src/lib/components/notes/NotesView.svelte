@@ -37,7 +37,7 @@
   });
 
   function createFirstPage(): void {
-    void notes.createPage(t("notes.defaultPageTitle"));
+    void notes.createPage("");
   }
 </script>
 
