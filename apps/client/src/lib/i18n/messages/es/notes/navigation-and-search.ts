@@ -18,6 +18,23 @@ export const navigationAndSearch = {
   htmlImportComplete: (blocks: number, warnings: number) =>
     `Se importaron ${blocks} ${blocks === 1 ? "bloque" : "bloques"} con ${warnings} ${warnings === 1 ? "advertencia" : "advertencias"}`,
   htmlImportDiagnosticWithLine: (line: number, message: string) => `Línea ${line}: ${message}`,
+  notionApiImportOpen: "Importar desde Notion API",
+  notionApiImportDialogTitle: "Importación de Notion API",
+  notionApiImportTokenLabel: "Token de integración",
+  notionApiImportWorkspaceLabel: "ID de espacio de trabajo",
+  notionApiImportPagesLabel: "IDs de páginas",
+  notionApiImportDataSourcesLabel: "IDs de fuentes de datos",
+  notionApiImportPageSizeLabel: "Tamaño de página",
+  notionApiImportIncludeComments: "Importar comentarios",
+  notionApiImportIncludeUsers: "Importar usuarios",
+  notionApiImportKeepExternalFiles: "Conservar referencias a archivos externos",
+  notionApiImportSubmit: "Importar",
+  notionApiImportImporting: "Importando",
+  notionApiImportFailed: (message: string) => `No se pudo importar desde Notion API: ${message}`,
+  notionApiImportComplete: (pages: number, blocks: number, comments: number) =>
+    `Se importaron ${pages} ${pages === 1 ? "página" : "páginas"}, ${blocks} ${blocks === 1 ? "bloque" : "bloques"} y ${comments} ${comments === 1 ? "comentario" : "comentarios"}`,
+  notionApiImportRequests: (requests: number, retries: number, rateLimits: number) =>
+    `${requests} ${requests === 1 ? "solicitud" : "solicitudes"}, ${retries} ${retries === 1 ? "reintento" : "reintentos"}, ${rateLimits} ${rateLimits === 1 ? "límite de tasa" : "límites de tasa"}`,
   htmlExportOpen: "Exportar HTML",
   htmlExportUnavailable: "Selecciona una página para exportar",
   htmlExportDialogTitle: "Exportar archivo HTML",

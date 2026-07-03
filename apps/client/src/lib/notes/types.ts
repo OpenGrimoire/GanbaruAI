@@ -1341,6 +1341,58 @@ export interface NotesHtmlImportResult {
   imported_block_count: number;
 }
 
+export interface NotesNotionApiImportRequest {
+  parent: NotesParent;
+  integration_token: string;
+  source_workspace_id?: string | null;
+  page_ids?: string[];
+  data_source_ids?: string[];
+  include_comments?: boolean | null;
+  include_users?: boolean | null;
+  keep_external_file_references?: boolean | null;
+  page_size?: number | null;
+}
+
+export type NotesNotionApiImportDiagnosticSeverity = "info" | "warning" | "error";
+
+export interface NotesNotionApiImportDiagnostic {
+  code: string;
+  severity: NotesNotionApiImportDiagnosticSeverity;
+  source_object_id: string | null;
+  message: string;
+}
+
+export interface NotesNotionApiImportedObject {
+  object_type: string;
+  source_object_id: string;
+  local_id: string;
+  title: string;
+}
+
+export interface NotesNotionApiImportedUser {
+  source_user_id: string;
+  name: string;
+  user_type: string;
+}
+
+export interface NotesNotionApiImportResult {
+  object: "notes_notion_api_import";
+  imported_pages: NotesLoadedPage[];
+  imported_data_sources: NotesNotionApiImportedObject[];
+  imported_users: NotesNotionApiImportedUser[];
+  diagnostics: NotesNotionApiImportDiagnostic[];
+  request_count: number;
+  retry_count: number;
+  rate_limit_count: number;
+  imported_page_count: number;
+  imported_block_count: number;
+  imported_data_source_count: number;
+  imported_comment_count: number;
+  imported_user_count: number;
+  imported_file_count: number;
+  unsupported_block_count: number;
+}
+
 export interface NotesMarkdownExportRequest {
   page_id: string;
   include_page_title?: boolean | null;

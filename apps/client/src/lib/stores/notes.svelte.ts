@@ -17,6 +17,7 @@ import {
   getNotesBlockChildren,
   getNotesPageBreadcrumb,
   importNotesHtmlPage,
+  importNotesNotionApi,
   listNotesBacklinks,
   listNotesComments,
   listNotesPageAliases,
@@ -112,6 +113,8 @@ import type {
   NotesHtmlImportRequest,
   NotesHtmlImportResult,
   NotesPage,
+  NotesNotionApiImportRequest,
+  NotesNotionApiImportResult,
   NotesPageAlias,
   NotesPageBreadcrumbItem,
   NotesPageCover,
@@ -986,6 +989,40 @@ async function importHtmlPage(
   return result;
 }
 
+async function importNotionApi(
+  input: Omit<NotesNotionApiImportRequest, "parent"> & { parent?: NotesParent },
+): Promise<NotesNotionApiImportResult> {
+  const result = await importNotesNotionApi({
+    ...input,
+    parent: input.parent ?? { type: "workspace", workspace: true },
+  });
+  viewMode = "pages";
+  const firstPage = result.imported_pages[0] ?? null;
+  await reloadPages(firstPage?.page.id);
+  for (const loaded of result.imported_pages) {
+    if (!pages.some((page) => page.id === loaded.page.id)) {
+      pages = [loaded.page, ...pages];
+    }
+  }
+  await loadAllChildrenForVisibleTree();
+  if (firstPage) {
+    saveSelectedPageId(firstPage.page.id);
+    recordRecentPage(firstPage.page.id);
+    setLoadedPageFromLoaded(firstPage);
+    await reloadPageBreadcrumb(firstPage.page.id);
+    await reloadBacklinks(firstPage.page.id);
+    await reloadPageAliases(firstPage.page.id);
+    await reloadUnresolvedLinks(firstPage.page.id);
+    await reloadLinkResolutionPages();
+    await reloadComments(firstPage.page.id);
+    await reloadSuggestions(firstPage.page.id);
+    await pageHistoryController.reloadSnapshots(firstPage.page.id);
+    await undoController.hydrate(firstPage.page.id);
+    requestPageLoadFocus();
+  }
+  return result;
+}
+
 async function exportHtmlArchive(
   input: Omit<NotesHtmlExportRequest, "page_id"> = {},
 ): Promise<NotesHtmlArchiveSaveResult> {
@@ -1770,6 +1807,7 @@ export function getNotes() {
     createPage,
     createSubpage,
     importHtmlPage,
+    importNotionApi,
     exportHtmlArchive,
     createChildPageFromBlock,
     applyPageTemplate,

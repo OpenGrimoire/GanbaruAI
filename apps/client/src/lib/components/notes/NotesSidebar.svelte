@@ -13,6 +13,7 @@
   import { getNotes } from "$lib/stores/notes.svelte";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
   import Archive from "@lucide/svelte/icons/archive";
+  import CloudDownload from "@lucide/svelte/icons/cloud-download";
   import Download from "@lucide/svelte/icons/download";
   import FileText from "@lucide/svelte/icons/file-text";
   import MessageSquare from "@lucide/svelte/icons/message-square";
@@ -22,6 +23,7 @@
   import Upload from "@lucide/svelte/icons/upload";
   import NotesHtmlExportDialog from "./NotesHtmlExportDialog.svelte";
   import NotesHtmlImportDialog from "./NotesHtmlImportDialog.svelte";
+  import NotesNotionApiImportDialog from "./NotesNotionApiImportDialog.svelte";
   import NotesPageRow from "./NotesPageRow.svelte";
   import NotesPageTemplateRow from "./NotesPageTemplateRow.svelte";
 
@@ -32,6 +34,7 @@
   let pendingTrashPage = $state<NotesPage | null>(null);
   let pendingDeleteTemplate = $state<NotesPageTemplate | null>(null);
   let htmlImportOpen = $state(false);
+  let notionApiImportOpen = $state(false);
   let htmlExportOpen = $state(false);
   let blockDropTargetPageId = $state<string | null>(null);
   const sidebarPlan = $derived.by(() =>
@@ -76,6 +79,28 @@
       title: input.title,
       source_name: input.sourceName,
       keep_external_file_references: input.keepExternalFileReferences,
+    });
+  }
+
+  function importNotionApi(input: {
+    integrationToken: string;
+    sourceWorkspaceId: string | null;
+    pageIds: string[];
+    dataSourceIds: string[];
+    includeComments: boolean;
+    includeUsers: boolean;
+    keepExternalFileReferences: boolean;
+    pageSize: number;
+  }) {
+    return notes.importNotionApi({
+      integration_token: input.integrationToken,
+      source_workspace_id: input.sourceWorkspaceId,
+      page_ids: input.pageIds,
+      data_source_ids: input.dataSourceIds,
+      include_comments: input.includeComments,
+      include_users: input.includeUsers,
+      keep_external_file_references: input.keepExternalFileReferences,
+      page_size: input.pageSize,
     });
   }
 
@@ -262,6 +287,16 @@
         }}
       >
         <Upload class="size-4" />
+      </button>
+      <button
+        class="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+        aria-label={t("notes.notionApiImportOpen")}
+        data-app-tooltip={t("notes.notionApiImportOpen")}
+        onclick={() => {
+          notionApiImportOpen = true;
+        }}
+      >
+        <CloudDownload class="size-4" />
       </button>
       <button
         class="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-45"
@@ -626,6 +661,15 @@
     onImport={importHtmlPage}
     onCancel={() => {
       htmlImportOpen = false;
+    }}
+  />
+{/if}
+
+{#if notionApiImportOpen}
+  <NotesNotionApiImportDialog
+    onImport={importNotionApi}
+    onCancel={() => {
+      notionApiImportOpen = false;
     }}
   />
 {/if}

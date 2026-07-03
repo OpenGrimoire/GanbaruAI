@@ -880,6 +880,7 @@ pub fn run() {
             notes::notes_resolve_unresolved_link,
             notes::notes_import_markdown_page,
             notes::notes_import_html_page,
+            notes::notes_import_notion_api,
             notes::notes_export_markdown_page,
             notes::notes_export_html_page,
             notes::notes_pick_and_write_html_archive,

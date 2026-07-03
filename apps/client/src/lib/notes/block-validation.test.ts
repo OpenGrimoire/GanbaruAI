@@ -10,6 +10,7 @@ import {
   parseNotesMentionNotification,
   parseNotesHtmlImportResult,
   parseNotesMarkdownExportResult,
+  parseNotesNotionApiImportResult,
   parseNotesPage,
   parseNotesPageHistorySettings,
   parseNotesPageHistorySnapshot,
@@ -1630,6 +1631,76 @@ describe("notes boundary validation", () => {
     expect(result.page.page.source_provider).toBe("html");
     expect(result.diagnostics[0]?.code).toBe("html_markup_sanitized");
     expect(result.imported_block_count).toBe(1);
+  });
+
+  it("parses Notion API import result DTOs", () => {
+    const result = parseNotesNotionApiImportResult({
+      object: "notes_notion_api_import",
+      imported_pages: [
+        {
+          page: { ...basePage, source_provider: "notion", source_object_id: "source-page" },
+          blocks: {
+            object: "list",
+            type: "block",
+            block: {},
+            results: [
+              {
+                ...baseBlock,
+                type: "paragraph",
+                paragraph: {
+                  rich_text: [baseRichText],
+                  color: "default",
+                },
+                source_provider: "notion",
+                source_object_id: "source-block",
+              },
+            ],
+            next_cursor: null,
+            has_more: false,
+          },
+        },
+      ],
+      imported_data_sources: [
+        {
+          object_type: "data_source",
+          source_object_id: "source-data-source",
+          local_id: "81818181-8181-4181-8181-818181818181",
+          title: "Tasks",
+        },
+      ],
+      imported_users: [
+        {
+          source_user_id: "notion-user",
+          name: "Avo Cado",
+          user_type: "person",
+        },
+      ],
+      diagnostics: [
+        {
+          code: "temporary_notion_file_url",
+          severity: "warning",
+          source_object_id: "source-block",
+          message: "File URL may expire.",
+        },
+      ],
+      request_count: 6,
+      retry_count: 1,
+      rate_limit_count: 1,
+      imported_page_count: 1,
+      imported_block_count: 1,
+      imported_data_source_count: 1,
+      imported_comment_count: 2,
+      imported_user_count: 1,
+      imported_file_count: 1,
+      unsupported_block_count: 0,
+    });
+
+    expect(result.object).toBe("notes_notion_api_import");
+    expect(result.imported_pages[0]?.page.source_provider).toBe("notion");
+    expect(result.imported_data_sources[0]?.local_id).toBe("81818181-8181-4181-8181-818181818181");
+    expect(result.imported_users[0]?.name).toBe("Avo Cado");
+    expect(result.diagnostics[0]?.code).toBe("temporary_notion_file_url");
+    expect(result.rate_limit_count).toBe(1);
   });
 
   it("parses markdown export result DTOs", () => {

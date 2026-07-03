@@ -116,6 +116,12 @@ pub(in crate::notes) async fn import_page(
             title: &title,
             source_provider: "html",
             source_object_id: source_name.as_deref(),
+            source_workspace_id: None,
+            source_last_edited_time: None,
+            icon: None,
+            cover: None,
+            url: None,
+            public_url: None,
             blocks: plan.blocks,
         },
     )

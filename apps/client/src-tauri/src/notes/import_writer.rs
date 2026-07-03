@@ -12,6 +12,7 @@ pub(super) struct ImportBlock {
     pub(super) block_type: &'static str,
     pub(super) payload: Value,
     pub(super) source_object_id: Option<String>,
+    pub(super) source_last_edited_time: Option<String>,
     pub(super) children: Vec<ImportBlock>,
 }
 
@@ -22,11 +23,22 @@ impl ImportBlock {
         source_object_id: Option<String>,
         children: Vec<ImportBlock>,
     ) -> Self {
+        Self::with_source_time(block_type, payload, source_object_id, None, children)
+    }
+
+    pub(super) fn with_source_time(
+        block_type: &'static str,
+        payload: Value,
+        source_object_id: Option<String>,
+        source_last_edited_time: Option<String>,
+        children: Vec<ImportBlock>,
+    ) -> Self {
         Self {
             id: String::new(),
             block_type,
             payload,
             source_object_id,
+            source_last_edited_time,
             children,
         }
     }
@@ -38,6 +50,23 @@ pub(super) struct ImportedPageCreate<'a> {
     pub(super) title: &'a str,
     pub(super) source_provider: &'a str,
     pub(super) source_object_id: Option<&'a str>,
+    pub(super) source_workspace_id: Option<&'a str>,
+    pub(super) source_last_edited_time: Option<&'a str>,
+    pub(super) icon: Option<&'a Value>,
+    pub(super) cover: Option<&'a Value>,
+    pub(super) url: Option<&'a str>,
+    pub(super) public_url: Option<&'a str>,
+    pub(super) blocks: Vec<ImportBlock>,
+}
+
+pub(super) struct ImportedRowPageCreate<'a> {
+    pub(super) data_source_id: &'a str,
+    pub(super) title: &'a str,
+    pub(super) properties: &'a Value,
+    pub(super) source_provider: &'a str,
+    pub(super) source_object_id: Option<&'a str>,
+    pub(super) source_workspace_id: Option<&'a str>,
+    pub(super) source_last_edited_time: Option<&'a str>,
     pub(super) blocks: Vec<ImportBlock>,
 }
 
@@ -88,6 +117,62 @@ pub(super) async fn create_imported_page(
     reads::load_page(pool, &page_id).await
 }
 
+pub(super) async fn create_imported_row_page(
+    pool: &SqlitePool,
+    mut request: ImportedRowPageCreate<'_>,
+) -> Result<NoteLoadedPage, String> {
+    if request.blocks.is_empty() {
+        request.blocks.push(ImportBlock::new(
+            "paragraph",
+            json!({
+                "rich_text": [empty_rich_text()],
+                "color": "default"
+            }),
+            None,
+            Vec::new(),
+        ));
+    }
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|e| format!("begin {} row import: {e}", request.source_provider))?;
+    ensure_data_source_exists(&mut tx, request.data_source_id).await?;
+    let mut reserved_ids = HashSet::new();
+    let page_id = writes::new_note_id(&mut tx, &mut reserved_ids).await?;
+    let block_ids = new_note_ids(
+        &mut tx,
+        &mut reserved_ids,
+        count_import_blocks(&request.blocks),
+    )
+    .await?;
+    let mut block_ids = block_ids.into_iter();
+    assign_block_ids(&mut request.blocks, &mut block_ids);
+    insert_import_row_page(&mut tx, &page_id, &request).await?;
+    let flattened_blocks = flatten_blocks(&page_id, &request.blocks);
+    let workspace_parent = NoteParent::Workspace { workspace: true };
+    let page_request = ImportedPageCreate {
+        parent: &workspace_parent,
+        after_block_id: None,
+        title: request.title,
+        source_provider: request.source_provider,
+        source_object_id: request.source_object_id,
+        source_workspace_id: request.source_workspace_id,
+        source_last_edited_time: request.source_last_edited_time,
+        icon: None,
+        cover: None,
+        url: None,
+        public_url: None,
+        blocks: Vec::new(),
+    };
+    for block in flattened_blocks {
+        insert_raw_block_with_id(&mut tx, &page_request, block).await?;
+    }
+    tx.commit()
+        .await
+        .map_err(|e| format!("commit {} row import: {e}", request.source_provider))?;
+    reads::load_page(pool, &page_id).await
+}
+
 pub(super) fn count_import_blocks(blocks: &[ImportBlock]) -> usize {
     blocks
         .iter()
@@ -116,6 +201,29 @@ fn assign_block_ids(blocks: &mut [ImportBlock], ids: &mut impl Iterator<Item = S
     }
 }
 
+async fn ensure_data_source_exists(
+    tx: &mut Transaction<'_, Sqlite>,
+    data_source_id: &str,
+) -> Result<(), String> {
+    let exists: Option<i64> = sqlx::query_scalar(
+        "SELECT 1
+         FROM notes_data_sources AS data_source
+         JOIN notes_databases AS database ON database.id = data_source.database_id
+         WHERE data_source.id = ?
+           AND data_source.in_trash = 0
+           AND database.in_trash = 0",
+    )
+    .bind(data_source_id)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|e| format!("load row import data source: {e}"))?;
+    if exists.is_some() {
+        Ok(())
+    } else {
+        Err("data source not found".to_string())
+    }
+}
+
 async fn insert_import_page(
     tx: &mut Transaction<'_, Sqlite>,
     page_id: &str,
@@ -131,9 +239,15 @@ async fn insert_import_page(
             title,
             properties,
             source_provider,
-            source_object_id
+            source_object_id,
+            source_workspace_id,
+            source_last_edited_time,
+            icon,
+            cover,
+            url,
+            public_url
          )
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(page_id)
     .bind(parent_type)
@@ -143,9 +257,48 @@ async fn insert_import_page(
     .bind(writes::page_title_properties(request.title).to_string())
     .bind(request.source_provider)
     .bind(request.source_object_id)
+    .bind(request.source_workspace_id)
+    .bind(request.source_last_edited_time)
+    .bind(request.icon.map(Value::to_string))
+    .bind(request.cover.map(Value::to_string))
+    .bind(request.url)
+    .bind(request.public_url)
     .execute(&mut **tx)
     .await
     .map_err(|e| format!("create {} import page: {e}", request.source_provider))?;
+    Ok(())
+}
+
+async fn insert_import_row_page(
+    tx: &mut Transaction<'_, Sqlite>,
+    page_id: &str,
+    request: &ImportedRowPageCreate<'_>,
+) -> Result<(), String> {
+    sqlx::query(
+        "INSERT INTO notes_pages (
+            id,
+            parent_type,
+            parent_data_source_id,
+            title,
+            properties,
+            source_provider,
+            source_object_id,
+            source_workspace_id,
+            source_last_edited_time
+         )
+         VALUES (?, 'data_source_id', ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(page_id)
+    .bind(request.data_source_id)
+    .bind(request.title)
+    .bind(request.properties.to_string())
+    .bind(request.source_provider)
+    .bind(request.source_object_id)
+    .bind(request.source_workspace_id)
+    .bind(request.source_last_edited_time)
+    .execute(&mut **tx)
+    .await
+    .map_err(|e| format!("create {} import row page: {e}", request.source_provider))?;
     Ok(())
 }
 
@@ -175,6 +328,7 @@ async fn insert_import_child_page_block(
             sort_order,
             has_children: false,
             source_object_id: request.source_object_id.map(str::to_string),
+            source_last_edited_time: request.source_last_edited_time.map(str::to_string),
         },
     )
     .await?;
@@ -213,6 +367,7 @@ fn flatten_children(
             sort_order: 1000.0 + index as f64 * 1000.0,
             has_children: !block.children.is_empty(),
             source_object_id: block.source_object_id.clone(),
+            source_last_edited_time: block.source_last_edited_time.clone(),
         });
         flatten_children(
             page_id,
@@ -248,9 +403,10 @@ async fn insert_raw_block_with_id(
             plain_text,
             sort_order,
             source_provider,
-            source_object_id
+            source_object_id,
+            source_last_edited_time
          )
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(block.id)
     .bind(block.page_id)
@@ -264,6 +420,7 @@ async fn insert_raw_block_with_id(
     .bind(block.sort_order)
     .bind(request.source_provider)
     .bind(block.source_object_id)
+    .bind(block.source_last_edited_time)
     .execute(&mut **tx)
     .await
     .map_err(|e| format!("insert {} import block: {e}", request.source_provider))?;
@@ -306,4 +463,5 @@ struct RawBlockInsert {
     sort_order: f64,
     has_children: bool,
     source_object_id: Option<String>,
+    source_last_edited_time: Option<String>,
 }

@@ -41,6 +41,10 @@ mod markdown_import;
 mod markdown_import_syntax;
 mod mention_notifications;
 mod models;
+mod notion_api_import;
+mod notion_api_import_client;
+mod notion_api_import_convert;
+mod notion_api_import_writer;
 mod page_cover_assets;
 mod page_icon_assets;
 mod reads;
@@ -230,6 +234,16 @@ pub async fn notes_import_html_page<R: Runtime>(
 ) -> Result<NoteHtmlImportDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
     html_import::import_page(&pool, request).await
+}
+
+#[tauri::command]
+pub async fn notes_import_notion_api<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    request: NoteNotionApiImportRequest,
+) -> Result<NoteNotionApiImportDto, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    notion_api_import::import_from_api(&pool, request).await
 }
 
 #[tauri::command]
