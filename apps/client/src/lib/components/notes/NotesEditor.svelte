@@ -2,6 +2,7 @@
   import { tick } from "svelte";
   import { notesBlockAnchorId } from "$lib/notes/block-link";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { dismissOnOutside } from "$lib/utils/dismiss-on-outside";
   import { addNotesWorkspaceBreadcrumb, buildNotesPageBreadcrumb } from "$lib/notes/page-breadcrumb";
   import { notesPageTitle } from "$lib/notes/page-title";
   import { buildNotesTableOfContents } from "$lib/notes/table-of-contents";
@@ -85,6 +86,26 @@
     }
   }
 
+  function toggleCoverMenu(): void {
+    const nextOpen = !coverMenuOpen;
+    coverMenuOpen = nextOpen;
+    if (nextOpen) iconMenuOpen = false;
+  }
+
+  function toggleIconMenu(): void {
+    const nextOpen = !iconMenuOpen;
+    iconMenuOpen = nextOpen;
+    if (nextOpen) coverMenuOpen = false;
+  }
+
+  function closeCoverMenu(): void {
+    coverMenuOpen = false;
+  }
+
+  function closeIconMenu(): void {
+    iconMenuOpen = false;
+  }
+
   function pageIconScreenReaderText(icon: NotesPageIconValue | null): string {
     if (!icon) return t("notes.noPageIcon");
     if (icon.type === "emoji") return icon.emoji;
@@ -99,14 +120,15 @@
     {#if page.cover}
       <div class="group relative h-24 shrink-0 overflow-hidden bg-muted sm:h-36">
         <NotesPageCover cover={page.cover} unavailableLabel={t("notes.pageCoverUnavailable")} />
-        <div class="absolute right-3 top-3">
+        <div
+          class="absolute right-3 top-3"
+          use:dismissOnOutside={{ enabled: coverMenuOpen, onDismiss: closeCoverMenu }}
+        >
           <button
             class="flex max-w-[calc(100vw-2rem)] items-center gap-1.5 rounded-md bg-background/90 px-2 py-1.5 text-[0.8rem] text-foreground shadow-sm hover:bg-background"
             type="button"
             aria-label={t("notes.changePageCover")}
-            onclick={() => {
-              coverMenuOpen = !coverMenuOpen;
-            }}
+            onclick={toggleCoverMenu}
           >
             <ImagePlus class="size-3.5" />
             <span class="truncate">{t("notes.changePageCover")}</span>
@@ -125,14 +147,15 @@
     {/if}
     <div class="shrink-0 border-b border-border px-4 py-3 sm:px-6">
       {#if !page.cover}
-        <div class="relative mb-2">
+        <div
+          class="relative mb-2"
+          use:dismissOnOutside={{ enabled: coverMenuOpen, onDismiss: closeCoverMenu }}
+        >
           <button
             class="flex max-w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-[0.8rem] text-muted-foreground hover:bg-accent hover:text-foreground"
             type="button"
             aria-label={t("notes.addPageCover")}
-            onclick={() => {
-              coverMenuOpen = !coverMenuOpen;
-            }}
+            onclick={toggleCoverMenu}
           >
             <ImagePlus class="size-3.5" />
             <span class="truncate">{t("notes.addPageCover")}</span>
@@ -149,15 +172,16 @@
         </div>
       {/if}
       <div class="flex min-w-0 items-center gap-2">
-        <div class="relative shrink-0">
+        <div
+          class="relative shrink-0"
+          use:dismissOnOutside={{ enabled: iconMenuOpen, onDismiss: closeIconMenu }}
+        >
           <button
             class="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
             type="button"
             aria-label={page?.icon ? t("notes.changePageIcon") : t("notes.addPageIcon")}
             data-app-tooltip={page?.icon ? t("notes.changePageIcon") : t("notes.addPageIcon")}
-            onclick={() => {
-              iconMenuOpen = !iconMenuOpen;
-            }}
+            onclick={toggleIconMenu}
           >
             {#if page.icon}
               <NotesPageIcon icon={page.icon} size={20} class="shrink-0" />

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { dismissOnOutside } from "$lib/utils/dismiss-on-outside";
   import {
     NOTES_BACKGROUND_COLORS,
     NOTES_TEXT_COLORS,
@@ -54,6 +55,8 @@
     onDelete,
     onDragStart,
     onDragEnd,
+    visible = false,
+    onMenuOpenChange,
   }: {
     onAddBelow: (command?: NotesBlockInsertCommand) => void;
     onTurnInto: () => void;
@@ -72,6 +75,8 @@
     onDelete: () => void;
     onDragStart: (event: DragEvent) => void;
     onDragEnd: () => void;
+    visible?: boolean;
+    onMenuOpenChange?: (open: boolean) => void;
   } = $props();
 
   const { t } = getLocalization();
@@ -99,9 +104,14 @@
       })
       : "",
   );
+  const anyMenuOpen = $derived(menuOpen || insertMenuOpen || moveMenuOpen);
 
   onDestroy(() => {
     if (copyLinkTimer) clearTimeout(copyLinkTimer);
+  });
+
+  $effect(() => {
+    onMenuOpenChange?.(anyMenuOpen);
   });
 
   $effect(() => {
@@ -142,6 +152,10 @@
     menuOpen = state.menuOpen;
     insertMenuOpen = state.insertMenuOpen;
     moveMenuOpen = state.moveMenuOpen;
+  }
+
+  function closeMenus(): void {
+    applyMenuState(CLOSED_NOTES_BLOCK_HANDLE_MENUS);
   }
 
   function runAction(actionType: NotesBlockHandleAction, action: () => void): void {
@@ -275,11 +289,13 @@
 
 <div
   class="notes-block-handle relative mt-1.5 flex shrink-0 items-center justify-end gap-0.5"
+  class:notes-block-handle-visible={visible}
   class:notes-block-handle-has-comments={commentCount > 0}
-  class:notes-block-handle-menu-open={menuOpen || insertMenuOpen || moveMenuOpen}
+  class:notes-block-handle-menu-open={anyMenuOpen}
   role="toolbar"
   aria-label={t("notes.blockActions")}
   data-notes-block-selection-zone
+  use:dismissOnOutside={{ enabled: anyMenuOpen, onDismiss: closeMenus }}
 >
   <button
     bind:this={addButton}
@@ -330,7 +346,7 @@
 
   {#if menuOpen}
     <div
-      class="z-30 overflow-auto rounded-md border border-border bg-popover py-1 text-popover-foreground shadow-lg"
+      class="z-50 overflow-auto rounded-md border border-border bg-popover py-1 text-popover-foreground shadow-lg"
       style={actionMenuStyle}
       role="menu"
       tabindex="-1"
@@ -515,6 +531,10 @@
     z-index: 10;
   }
 
+  .notes-block-handle-menu-open {
+    z-index: 50;
+  }
+
   .notes-block-handle-has-comments {
     inline-size: 4.5rem;
   }
@@ -527,7 +547,7 @@
     visibility: hidden;
   }
 
-  :global(.notes-block-row:focus-within) .notes-block-handle-button,
+  .notes-block-handle-visible .notes-block-handle-button,
   .notes-block-handle-menu-open .notes-block-handle-button {
     opacity: 1;
     pointer-events: auto;

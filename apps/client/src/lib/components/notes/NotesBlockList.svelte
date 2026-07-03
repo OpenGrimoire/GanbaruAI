@@ -73,6 +73,12 @@
     type NotesBlockDropIndicator,
     type NotesBlockDropIntent,
   } from "$lib/notes/block-drag";
+  import {
+    EMPTY_NOTES_BLOCK_HANDLE_HOVER_STATE,
+    notesBlockHandleHoverStateAfterKeydown,
+    notesBlockHandleHoverStateAfterPointerLeave,
+    notesBlockHandleHoverStateAfterPointerMove,
+  } from "$lib/notes/block-handle-hover";
   import type {
     NotesBlock,
     NotesBlockTreeItem,
@@ -154,6 +160,8 @@
   let selectionClipboard = $state<NotesBlockSelectionClipboard | null>(null);
   let selectionBusy = $state(false);
   let selectionActionError = $state<string | null>(null);
+  let blockHandleHoverState = $state(EMPTY_NOTES_BLOCK_HANDLE_HOVER_STATE);
+  let openBlockHandleMenuId = $state<string | null>(null);
   let mentionDataSources = $state<NotesDataSource[]>([]);
   let mentionDataSourceRowPages = $state<NotesPage[]>([]);
   let mentionDataSourceRequestId = 0;
@@ -807,7 +815,39 @@
     setBlockSelection(selection);
   }
 
+  function showBlockHandleFromPointer(blockId: string): void {
+    if (openBlockHandleMenuId) return;
+    blockHandleHoverState = notesBlockHandleHoverStateAfterPointerMove(
+      blockHandleHoverState,
+      blockId,
+    );
+  }
+
+  function hideBlockHandleAfterPointerLeave(blockId: string): void {
+    blockHandleHoverState = notesBlockHandleHoverStateAfterPointerLeave(
+      blockHandleHoverState,
+      blockId,
+    );
+  }
+
+  function hideBlockHandleAfterKeyboard(event: KeyboardEvent): void {
+    blockHandleHoverState = notesBlockHandleHoverStateAfterKeydown(
+      blockHandleHoverState,
+      event.key,
+    );
+  }
+
+  function updateBlockHandleMenuOpen(blockId: string, open: boolean): void {
+    if (open) {
+      openBlockHandleMenuId = blockId;
+      blockHandleHoverState = EMPTY_NOTES_BLOCK_HANDLE_HOVER_STATE;
+      return;
+    }
+    if (openBlockHandleMenuId === blockId) openBlockHandleMenuId = null;
+  }
+
   function handleBlockListKeydown(event: KeyboardEvent): void {
+    hideBlockHandleAfterKeyboard(event);
     if (event.defaultPrevented) return;
     const blockId = selectableBlockIdFromEvent(event);
     if (!blockId) return;
@@ -1460,6 +1500,7 @@
         focusBlockId={notes.focusBlockId}
         focusRequestId={notes.focusRequestId}
         focusSelection={notes.focusSelection}
+        handleVisibleBlockId={blockHandleHoverState.visibleBlockId}
         {mentionTargets}
         {templateStatusForBlock}
         {buttonStatusForBlock}
@@ -1582,6 +1623,9 @@
         onMoveBlockToColumn={moveBlockToColumn}
         {onSelectPage}
         {onFocusBlock}
+        onHandlePointerMove={showBlockHandleFromPointer}
+        onHandlePointerLeave={hideBlockHandleAfterPointerLeave}
+        onHandleMenuOpenChange={updateBlockHandleMenuOpen}
       />
     {:else if item.block.type === "tab"}
       <NotesTabBlock
@@ -1597,6 +1641,7 @@
         focusBlockId={notes.focusBlockId}
         focusRequestId={notes.focusRequestId}
         focusSelection={notes.focusSelection}
+        handleVisibleBlockId={blockHandleHoverState.visibleBlockId}
         {mentionTargets}
         {templateStatusForBlock}
         {buttonStatusForBlock}
@@ -1720,6 +1765,9 @@
         onMoveBlockToTab={moveBlockToTab}
         {onSelectPage}
         {onFocusBlock}
+        onHandlePointerMove={showBlockHandleFromPointer}
+        onHandlePointerLeave={hideBlockHandleAfterPointerLeave}
+        onHandleMenuOpenChange={updateBlockHandleMenuOpen}
       />
     {:else}
       <NotesBlockRow
@@ -1732,6 +1780,7 @@
         focusBlockId={notes.focusBlockId}
         focusRequestId={notes.focusRequestId}
         focusSelection={notes.focusSelection}
+        handleVisibleBlockId={blockHandleHoverState.visibleBlockId}
         {mentionTargets}
         templateStatus={templateStatusForBlock(item.block.id)}
         buttonStatus={buttonStatusForBlock(item.block.id)}
@@ -1846,6 +1895,9 @@
         onRemoveTableColumn={removeTableColumn}
         {onSelectPage}
         {onFocusBlock}
+        onHandlePointerMove={showBlockHandleFromPointer}
+        onHandlePointerLeave={hideBlockHandleAfterPointerLeave}
+        onHandleMenuOpenChange={updateBlockHandleMenuOpen}
       />
     {/if}
   {/each}

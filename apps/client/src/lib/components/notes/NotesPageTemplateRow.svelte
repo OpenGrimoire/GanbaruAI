@@ -1,6 +1,7 @@
 <script lang="ts">
   import { tick } from "svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { dismissOnOutside } from "$lib/utils/dismiss-on-outside";
   import type { NotesPageTemplate } from "$lib/notes/types";
   import Copy from "@lucide/svelte/icons/copy";
   import FileText from "@lucide/svelte/icons/file-text";
@@ -56,6 +57,10 @@
     onRename(name);
   }
 
+  function closeMenu(): void {
+    menuOpen = false;
+  }
+
   function handleRenameKeydown(event: KeyboardEvent): void {
     if (event.key === "Enter") {
       event.preventDefault();
@@ -69,7 +74,7 @@
   }
 </script>
 
-<div class="notes-page-template-row relative">
+<div class="notes-page-template-row relative" use:dismissOnOutside={{ enabled: menuOpen, onDismiss: closeMenu }}>
   {#if editing}
     <input
       bind:this={renameInput}

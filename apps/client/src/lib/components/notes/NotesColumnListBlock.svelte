@@ -66,6 +66,7 @@
     focusBlockId,
     focusRequestId,
     focusSelection,
+    handleVisibleBlockId,
     mentionTargets,
     templateStatusForBlock,
     buttonStatusForBlock,
@@ -134,6 +135,9 @@
     onMoveBlockToColumn,
     onSelectPage,
     onFocusBlock,
+    onHandlePointerMove,
+    onHandlePointerLeave,
+    onHandleMenuOpenChange,
   }: {
     item: NotesBlockTreeItem;
     columnItems: NotesColumnBlockItems[];
@@ -147,6 +151,7 @@
     focusBlockId: string | null;
     focusRequestId: number;
     focusSelection: NotesTextSelection | null;
+    handleVisibleBlockId: string | null;
     mentionTargets: NotesNamedMentionTarget[];
     templateStatusForBlock: (blockId: string) => NotesTemplateBlockStatus;
     buttonStatusForBlock: (blockId: string) => NotesButtonBlockStatus;
@@ -294,6 +299,9 @@
     onMoveBlockToColumn: (blockId: string, columnBlockId: string) => Promise<void> | void;
     onSelectPage: (pageId: string) => void;
     onFocusBlock: (blockId: string) => void;
+    onHandlePointerMove: (blockId: string) => void;
+    onHandlePointerLeave: (blockId: string) => void;
+    onHandleMenuOpenChange: (blockId: string, open: boolean) => void;
   } = $props();
 
   const { t } = getLocalization();
@@ -426,6 +434,16 @@
       console.warn("move notes block to column failed", error);
     });
   }
+
+  function pointerTargetIsCurrentBlock(target: EventTarget | null): boolean {
+    if (!(target instanceof Element)) return false;
+    const row = target.closest<HTMLElement>("[data-notes-selectable-block-id]");
+    return row?.dataset.notesSelectableBlockId === block.id;
+  }
+
+  function handlePointerMove(event: PointerEvent): void {
+    if (pointerTargetIsCurrentBlock(event.target)) onHandlePointerMove(block.id);
+  }
 </script>
 
 <div
@@ -444,6 +462,8 @@
   ondragover={(event) => onDragOver(block.id, event)}
   ondragleave={(event) => onDragLeave(block.id, event)}
   ondrop={(event) => onDrop(block.id, event)}
+  onpointermove={handlePointerMove}
+  onpointerleave={() => onHandlePointerLeave(block.id)}
 >
   <div
     class="notes-block-surface flex min-w-0 items-start gap-1 rounded-md py-0.5 pr-2 hover:bg-accent/50"
@@ -453,6 +473,7 @@
       <div class="notes-block-indent shrink-0"></div>
     {/if}
     <NotesBlockHandle
+      visible={handleVisibleBlockId === block.id}
       onAddBelow={(type) => onAddBelow(block.id, type)}
       onTurnInto={openTurnIntoMenu}
       canSetColor={false}
@@ -468,6 +489,7 @@
       onDelete={() => onDelete(block.id)}
       onDragStart={(event) => onDragStart(block.id, event)}
       onDragEnd={onDragEnd}
+      onMenuOpenChange={(open) => onHandleMenuOpenChange(block.id, open)}
     />
 
     <div class="relative min-w-0 flex-1">
@@ -601,6 +623,7 @@
                         {focusBlockId}
                         {focusRequestId}
                         {focusSelection}
+                        {handleVisibleBlockId}
                         {mentionTargets}
                         templateStatus={templateStatusForBlock(columnBlockItem.block.id)}
                         buttonStatus={buttonStatusForBlock(columnBlockItem.block.id)}
@@ -661,6 +684,9 @@
                         {onRemoveTableColumn}
                         {onSelectPage}
                         {onFocusBlock}
+                        {onHandlePointerMove}
+                        {onHandlePointerLeave}
+                        {onHandleMenuOpenChange}
                       />
                     {/each}
                   </div>

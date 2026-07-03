@@ -81,6 +81,7 @@
     focusBlockId,
     focusRequestId,
     focusSelection,
+    handleVisibleBlockId,
     mentionTargets,
     templateStatus,
     buttonStatus,
@@ -141,6 +142,9 @@
     onRemoveTableColumn,
     onSelectPage,
     onFocusBlock,
+    onHandlePointerMove,
+    onHandlePointerLeave,
+    onHandleMenuOpenChange,
   }: {
     item: NotesBlockTreeItem;
     breadcrumbItems: NotesPageBreadcrumbItem[];
@@ -151,6 +155,7 @@
     focusBlockId: string | null;
     focusRequestId: number;
     focusSelection: NotesTextSelection | null;
+    handleVisibleBlockId: string | null;
     mentionTargets: NotesNamedMentionTarget[];
     templateStatus: NotesTemplateBlockStatus;
     buttonStatus: NotesButtonBlockStatus;
@@ -282,6 +287,9 @@
     onRemoveTableColumn: (tableBlockId: string, columnIndex: number) => Promise<void> | void;
     onSelectPage: (pageId: string) => void;
     onFocusBlock: (blockId: string) => void;
+    onHandlePointerMove: (blockId: string) => void;
+    onHandlePointerLeave: (blockId: string) => void;
+    onHandleMenuOpenChange: (blockId: string, open: boolean) => void;
   } = $props();
 
   const localization = getLocalization();
@@ -395,6 +403,16 @@
     onKeyboardAction(block.id, action);
   }
 
+  function pointerTargetIsCurrentBlock(target: EventTarget | null): boolean {
+    if (!(target instanceof Element)) return false;
+    const row = target.closest<HTMLElement>("[data-notes-selectable-block-id]");
+    return row?.dataset.notesSelectableBlockId === block.id;
+  }
+
+  function handlePointerMove(event: PointerEvent): void {
+    if (pointerTargetIsCurrentBlock(event.target)) onHandlePointerMove(block.id);
+  }
+
   function handleUndoRedoKeydown(event: KeyboardEvent): boolean {
     const undoAction = notesUndoShortcutAction(event);
     if (!undoAction) return false;
@@ -476,6 +494,8 @@
   ondragover={(event) => onDragOver(block.id, event)}
   ondragleave={(event) => onDragLeave(block.id, event)}
   ondrop={(event) => onDrop(block.id, event)}
+  onpointermove={handlePointerMove}
+  onpointerleave={() => onHandlePointerLeave(block.id)}
 >
   <div
     class="notes-block-surface flex min-w-0 items-start gap-1 rounded-md py-0.5 pr-2 hover:bg-accent/50"
@@ -487,6 +507,7 @@
       <div class="notes-block-indent shrink-0"></div>
     {/if}
     <NotesBlockHandle
+      visible={handleVisibleBlockId === block.id}
       onAddBelow={(type) => onAddBelow(block.id, type)}
       onTurnInto={openTurnIntoMenu}
       canSetColor={blockSupportsColor}
@@ -504,6 +525,7 @@
       onDelete={() => onDelete(block.id)}
       onDragStart={(event) => onDragStart(block.id, event)}
       onDragEnd={onDragEnd}
+      onMenuOpenChange={(open) => onHandleMenuOpenChange(block.id, open)}
     />
     {#if block.type === "to_do"}
       <input
