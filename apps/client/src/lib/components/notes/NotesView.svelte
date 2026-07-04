@@ -50,7 +50,7 @@
   });
 
   function createFirstPage(): void {
-    void notes.createPage("");
+    void notes.createPage("", { projectId: selectedProjectId });
   }
 
   function showProjectHome(): void {
@@ -95,7 +95,7 @@
     {:else if notes.selectedPageId && notes.loadedPage}
       <NotesEditor />
     {:else}
-      <NotesProjectHome {focusSearchRequestId} />
+      <NotesProjectHome {focusSearchRequestId} projectId={selectedProjectId} />
     {/if}
   </div>
 </div>

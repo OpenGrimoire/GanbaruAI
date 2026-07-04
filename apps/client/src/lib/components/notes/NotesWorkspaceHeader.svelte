@@ -35,14 +35,14 @@
   import { getViewport } from "$lib/stores/viewport.svelte";
   import { cn } from "$lib/utils";
   import ProjectIcon from "$lib/components/projects/ProjectIcon.svelte";
-  import ProjectNavigator from "$lib/components/projects/ProjectNavigator.svelte";
   import NotesAgentBridgeExportDialog from "./NotesAgentBridgeExportDialog.svelte";
   import NotesHtmlExportDialog from "./NotesHtmlExportDialog.svelte";
   import NotesHtmlImportDialog from "./NotesHtmlImportDialog.svelte";
   import NotesJsonGraphExportDialog from "./NotesJsonGraphExportDialog.svelte";
   import NotesNotionApiImportDialog from "./NotesNotionApiImportDialog.svelte";
   import NotesNotionExportImportDialog from "./NotesNotionExportImportDialog.svelte";
-  import NotesTopbarPageNavigator from "./NotesTopbarPageNavigator.svelte";
+  import NotesPagePickerPanel from "./NotesPagePickerPanel.svelte";
+  import NotesProjectNavigator from "./NotesProjectNavigator.svelte";
 
   type NotesNavigatorMode = ProjectNavigatorPanelMode | "notes";
 
@@ -151,7 +151,6 @@
       boundsRight: bounds.right,
       boundsTop: bounds.top,
       boundsBottom: bounds.bottom,
-      preferredWidth: navigatorMode === "notes" ? 340 : undefined,
     });
     navigatorPanelStyle = [
       `left: ${Math.round(geometry.left)}px`,
@@ -199,7 +198,7 @@
 
   function createPage(): void {
     navigatorOpen = false;
-    void notes.createPage("");
+    void notes.createPage("", { projectId: selectedProjectId });
   }
 
   function importHtmlPage(input: {
@@ -381,7 +380,9 @@
             class="shrink-0"
           />
           <span class="min-w-0 truncate font-semibold text-foreground">{selectedProject.name}</span>
-          <ChevronDown size={14} strokeWidth={1.75} class="shrink-0 text-muted-foreground" />
+          {#if !selectedPageTitle}
+            <ChevronDown size={14} strokeWidth={1.75} class="shrink-0 text-muted-foreground" />
+          {/if}
           {#if selectedProject.status !== "active"}
             <span class={cn("shrink-0 rounded border px-1.5 py-0.5 text-[0.666667rem]", projectLifecycleBadgeClass(selectedProject.status))}>
               {projectLifecycleLabel(selectedProject.status, t)}
@@ -435,16 +436,17 @@
         aria-label={navigatorMode === "notes" ? t("notes.noteNavigatorLabel") : t("projects.navigator.pickerLabel")}
       >
         {#if navigatorMode === "notes"}
-          <NotesTopbarPageNavigator
+          <NotesPagePickerPanel
             selectedPageId={notes.selectedPageId}
+            projectId={selectedProjectId}
             panelMaxHeight={navigatorPanelMaxHeight}
+            focusSearchRequestId={navigatorOpen ? 1 : 0}
             onPageSelected={() => {
               navigatorOpen = false;
             }}
-            onCreatePage={createPage}
           />
         {:else}
-          <ProjectNavigator
+          <NotesProjectNavigator
             {selectedProjectId}
             selectedGroupId={selectedGroup?.id ?? null}
             {showInactiveProjects}
@@ -454,6 +456,9 @@
             onProjectSelected={() => {
               navigatorOpen = false;
               onProjectSelected();
+            }}
+            onPageSelected={() => {
+              navigatorOpen = false;
             }}
           />
         {/if}

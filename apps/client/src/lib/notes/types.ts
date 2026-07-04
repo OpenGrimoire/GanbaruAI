@@ -664,11 +664,13 @@ export interface NotesPageCreate {
   parent: NotesParent;
   first_block_id: string;
   after_block_id?: string | null;
+  properties?: Record<string, unknown> | null;
 }
 
 export interface NotesChildPageFromBlockCreate {
   first_block_id: string;
   title?: string | null;
+  properties?: Record<string, unknown> | null;
 }
 
 export interface NotesDuplicatePageRequest {

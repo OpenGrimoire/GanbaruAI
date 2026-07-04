@@ -1,0 +1,44 @@
+import type { NotesPage } from "./types";
+
+export const NOTES_PAGE_PROJECT_ID_PROPERTY = "__ganbaru_project_id";
+
+export interface NotesCreatePageOptions {
+  projectId?: string | null;
+}
+
+export function normalizeNotesProjectId(projectId: string | null | undefined): string | null {
+  const trimmed = projectId?.trim() ?? "";
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+export function notesPageProjectId(page: Pick<NotesPage, "properties">): string | null {
+  const value = page.properties[NOTES_PAGE_PROJECT_ID_PROPERTY];
+  return typeof value === "string" ? normalizeNotesProjectId(value) : null;
+}
+
+export function notesPageMatchesProject(
+  page: Pick<NotesPage, "properties">,
+  projectId: string | null | undefined,
+): boolean {
+  const normalizedProjectId = normalizeNotesProjectId(projectId);
+  return !normalizedProjectId || notesPageProjectId(page) === normalizedProjectId;
+}
+
+export function notesPagesForProject(
+  pages: readonly NotesPage[],
+  projectId: string | null | undefined,
+): NotesPage[] {
+  const normalizedProjectId = normalizeNotesProjectId(projectId);
+  if (!normalizedProjectId) return [...pages];
+  return pages.filter((page) => notesPageProjectId(page) === normalizedProjectId);
+}
+
+export function notesPageProjectProperties(
+  projectId: string | null | undefined,
+): Record<string, unknown> | undefined {
+  const normalizedProjectId = normalizeNotesProjectId(projectId);
+  if (!normalizedProjectId) return undefined;
+  return {
+    [NOTES_PAGE_PROJECT_ID_PROPERTY]: normalizedProjectId,
+  };
+}

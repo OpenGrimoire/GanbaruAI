@@ -349,6 +349,7 @@ fn move_block_rejects_destination_page_inside_source_subtree() {
             NoteChildPageFromBlockCreate {
                 first_block_id: BLOCK_D.to_string(),
                 title: Some("Nested".to_string()),
+                properties: None,
             },
         )
         .await

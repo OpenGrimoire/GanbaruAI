@@ -70,6 +70,12 @@ import {
   setNotesPageFavoriteId,
 } from "$lib/notes/page-navigation";
 import {
+  normalizeNotesProjectId,
+  notesPageProjectId,
+  notesPageProjectProperties,
+  type NotesCreatePageOptions,
+} from "$lib/notes/project-membership";
+import {
   nextNotesFocusRequest,
   planNotesInsertedBlockFocus,
   planNotesPageLoadFocus,
@@ -950,24 +956,44 @@ async function selectPage(pageId: string | null): Promise<void> {
   }
 }
 
-async function createPage(title: string): Promise<void> {
-  await createPageWithParent(title, { type: "workspace", workspace: true });
+async function createPage(title: string, options: NotesCreatePageOptions = {}): Promise<void> {
+  await createPageWithParent(title, { type: "workspace", workspace: true }, options);
 }
 
-async function createSubpage(parentPageId: string, title: string): Promise<void> {
+async function createSubpage(
+  parentPageId: string,
+  title: string,
+  options: NotesCreatePageOptions = {},
+): Promise<void> {
   setSidebarPageCollapsed(parentPageId, false);
-  await createPageWithParent(title, { type: "page_id", page_id: parentPageId });
+  await createPageWithParent(title, { type: "page_id", page_id: parentPageId }, options);
 }
 
-async function createPageWithParent(title: string, parent: NotesParent): Promise<void> {
+function pageProjectIdForParent(
+  parent: NotesParent,
+  options: NotesCreatePageOptions,
+): string | null {
+  if ("projectId" in options) return normalizeNotesProjectId(options.projectId);
+  if (parent.type !== "page_id") return null;
+  const parentPage = pages.find((page) => page.id === parent.page_id);
+  return parentPage ? notesPageProjectId(parentPage) : null;
+}
+
+async function createPageWithParent(
+  title: string,
+  parent: NotesParent,
+  options: NotesCreatePageOptions = {},
+): Promise<void> {
   const pageId = crypto.randomUUID();
   const firstBlockId = crypto.randomUUID();
+  const projectProperties = notesPageProjectProperties(pageProjectIdForParent(parent, options));
   const loaded = await createNotesPage({
     id: pageId,
     title,
     parent,
     first_block_id: firstBlockId,
     after_block_id: null,
+    properties: projectProperties,
   });
   viewMode = "pages";
   saveSelectedPageId(loaded.page.id);
@@ -1187,9 +1213,13 @@ async function createChildPageFromBlock(blockId: string): Promise<void> {
   if (!block || block.type === "child_page") return;
   await flushBlockSave(blockId);
   const firstBlockId = crypto.randomUUID();
+  const projectProperties = notesPageProjectProperties(
+    loadedPage ? notesPageProjectId(loadedPage) : null,
+  );
   const loaded = await createNotesChildPageFromBlock(blockId, {
     first_block_id: firstBlockId,
     title: blockPlainText(block).trim(),
+    properties: projectProperties,
   });
   viewMode = "pages";
   saveSelectedPageId(loaded.page.id);
@@ -1220,12 +1250,16 @@ async function createChildPageAfterBlock(blockId: string): Promise<void> {
   await flushBlockSave(blockId);
   const pageId = crypto.randomUUID();
   const firstBlockId = crypto.randomUUID();
+  const projectProperties = notesPageProjectProperties(
+    loadedPage ? notesPageProjectId(loadedPage) : null,
+  );
   const loaded = await createNotesPage({
     id: pageId,
     title: "",
     parent: block.parent,
     first_block_id: firstBlockId,
     after_block_id: blockId,
+    properties: projectProperties,
   });
   if (block.parent.type === "page_id") {
     setSidebarPageCollapsed(block.parent.page_id, false);

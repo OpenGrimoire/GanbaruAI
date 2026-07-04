@@ -34,6 +34,7 @@ fn create_nested_page_appends_child_page_block_to_parent_page() {
                 parent: page_parent(PAGE_A),
                 first_block_id: BLOCK_B.to_string(),
                 after_block_id: Some(BLOCK_A.to_string()),
+                properties: None,
             },
         )
         .await
@@ -398,6 +399,7 @@ fn sidebar_pages_load_roots_expanded_children_and_selected_ancestors() {
                 parent: page_parent(PAGE_A),
                 first_block_id: BLOCK_B.to_string(),
                 after_block_id: None,
+                properties: None,
             },
         )
         .await
@@ -410,6 +412,7 @@ fn sidebar_pages_load_roots_expanded_children_and_selected_ancestors() {
                 parent: page_parent(PAGE_B),
                 first_block_id: BLOCK_C.to_string(),
                 after_block_id: None,
+                properties: None,
             },
         )
         .await
@@ -491,6 +494,7 @@ fn sidebar_pages_report_trashed_parents_for_seed_pages() {
                 parent: page_parent(PAGE_A),
                 first_block_id: BLOCK_B.to_string(),
                 after_block_id: None,
+                properties: None,
             },
         )
         .await
@@ -542,6 +546,7 @@ fn create_nested_page_can_insert_after_block_parent_sibling() {
                 parent: block_parent(BLOCK_A),
                 first_block_id: BLOCK_D.to_string(),
                 after_block_id: Some(BLOCK_B.to_string()),
+                properties: None,
             },
         )
         .await

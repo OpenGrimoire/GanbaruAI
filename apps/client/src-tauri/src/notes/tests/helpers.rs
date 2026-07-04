@@ -623,6 +623,7 @@ pub(super) async fn create_page(pool: &SqlitePool, page_id: &str, block_id: &str
             parent: workspace_parent(),
             first_block_id: block_id.to_string(),
             after_block_id: None,
+            properties: None,
         },
     )
     .await

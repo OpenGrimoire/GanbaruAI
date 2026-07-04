@@ -88,6 +88,7 @@ fn duplicate_page_copies_nested_child_pages() {
                 parent: page_parent(PAGE_A),
                 first_block_id: BLOCK_B.to_string(),
                 after_block_id: Some(BLOCK_A.to_string()),
+                properties: None,
             },
         )
         .await
@@ -100,6 +101,7 @@ fn duplicate_page_copies_nested_child_pages() {
                 parent: page_parent(PAGE_B),
                 first_block_id: BLOCK_C.to_string(),
                 after_block_id: Some(BLOCK_B.to_string()),
+                properties: None,
             },
         )
         .await
@@ -236,6 +238,7 @@ fn page_archive_and_unarchive_round_trip() {
                 parent: page_parent(PAGE_A),
                 first_block_id: BLOCK_B.to_string(),
                 after_block_id: None,
+                properties: None,
             },
         )
         .await;
@@ -264,6 +267,7 @@ fn unarchiving_nested_page_with_archived_parent_promotes_to_workspace() {
                 parent: page_parent(PAGE_A),
                 first_block_id: BLOCK_B.to_string(),
                 after_block_id: None,
+                properties: None,
             },
         )
         .await
@@ -307,6 +311,7 @@ fn trashing_parent_page_updates_descendant_pages() {
                 parent: page_parent(PAGE_A),
                 first_block_id: BLOCK_B.to_string(),
                 after_block_id: None,
+                properties: None,
             },
         )
         .await
@@ -319,6 +324,7 @@ fn trashing_parent_page_updates_descendant_pages() {
                 parent: page_parent(PAGE_B),
                 first_block_id: BLOCK_C.to_string(),
                 after_block_id: None,
+                properties: None,
             },
         )
         .await
@@ -349,6 +355,7 @@ fn trashing_nested_page_hides_and_restores_child_page_block() {
                 parent: page_parent(PAGE_A),
                 first_block_id: BLOCK_B.to_string(),
                 after_block_id: None,
+                properties: None,
             },
         )
         .await
@@ -378,6 +385,7 @@ fn restoring_nested_page_with_trashed_parent_promotes_to_workspace() {
                 parent: page_parent(PAGE_A),
                 first_block_id: BLOCK_B.to_string(),
                 after_block_id: None,
+                properties: None,
             },
         )
         .await
@@ -455,6 +463,7 @@ fn permanent_page_delete_removes_subtree_and_paired_blocks() {
                 parent: page_parent(PAGE_A),
                 first_block_id: BLOCK_B.to_string(),
                 after_block_id: None,
+                properties: None,
             },
         )
         .await
@@ -475,6 +484,7 @@ fn permanent_page_delete_removes_subtree_and_paired_blocks() {
             NoteChildPageFromBlockCreate {
                 first_block_id: BLOCK_D.to_string(),
                 title: None,
+                properties: None,
             },
         )
         .await

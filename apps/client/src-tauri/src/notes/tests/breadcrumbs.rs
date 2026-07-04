@@ -12,6 +12,7 @@ fn page_breadcrumb_resolves_unloaded_ancestor_rows() {
                 parent: workspace_parent(),
                 first_block_id: BLOCK_A.to_string(),
                 after_block_id: None,
+                properties: None,
             },
         )
         .await
@@ -24,6 +25,7 @@ fn page_breadcrumb_resolves_unloaded_ancestor_rows() {
                 parent: page_parent(PAGE_A),
                 first_block_id: BLOCK_B.to_string(),
                 after_block_id: None,
+                properties: None,
             },
         )
         .await
@@ -36,6 +38,7 @@ fn page_breadcrumb_resolves_unloaded_ancestor_rows() {
                 parent: page_parent(PAGE_B),
                 first_block_id: BLOCK_C.to_string(),
                 after_block_id: None,
+                properties: None,
             },
         )
         .await
@@ -65,6 +68,7 @@ fn page_breadcrumb_marks_unavailable_ancestors() {
                 parent: workspace_parent(),
                 first_block_id: BLOCK_A.to_string(),
                 after_block_id: None,
+                properties: None,
             },
         )
         .await
@@ -77,6 +81,7 @@ fn page_breadcrumb_marks_unavailable_ancestors() {
                 parent: page_parent(PAGE_A),
                 first_block_id: BLOCK_B.to_string(),
                 after_block_id: None,
+                properties: None,
             },
         )
         .await
@@ -89,6 +94,7 @@ fn page_breadcrumb_marks_unavailable_ancestors() {
                 parent: page_parent(PAGE_B),
                 first_block_id: BLOCK_C.to_string(),
                 after_block_id: None,
+                properties: None,
             },
         )
         .await

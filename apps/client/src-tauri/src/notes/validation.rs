@@ -140,6 +140,9 @@ pub(in crate::notes) fn validate_page_create(page: &NotePageCreate) -> Result<()
     if let Some(after_block_id) = &page.after_block_id {
         require_uuid(after_block_id, "after_block_id")?;
     }
+    if let Some(properties) = &page.properties {
+        validate_json_object(properties, "properties")?;
+    }
     validate_parent(&page.parent)
 }
 

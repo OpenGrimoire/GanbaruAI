@@ -36,6 +36,7 @@ fn create_child_page_from_block_moves_nested_children_and_syncs_page_state() {
             NoteChildPageFromBlockCreate {
                 first_block_id: BLOCK_D.to_string(),
                 title: None,
+                properties: None,
             },
         )
         .await
@@ -117,6 +118,7 @@ fn duplicate_block_rejects_child_page_blocks_until_page_duplication_exists() {
                 parent: page_parent(PAGE_A),
                 first_block_id: BLOCK_B.to_string(),
                 after_block_id: Some(BLOCK_A.to_string()),
+                properties: None,
             },
         )
         .await
@@ -237,6 +239,7 @@ fn move_blocks_moves_subtrees_updates_comment_pages_and_rejects_cycles() {
                 parent: workspace_parent(),
                 first_block_id: BLOCK_F.to_string(),
                 after_block_id: None,
+                properties: None,
             },
         )
         .await

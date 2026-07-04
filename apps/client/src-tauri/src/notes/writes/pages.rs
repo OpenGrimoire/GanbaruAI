@@ -14,6 +14,7 @@ use crate::notes::validation::{
     validate_sort_order,
 };
 use crate::notes::{assets, history, reads};
+use serde_json::Value;
 use sqlx::SqlitePool;
 
 pub(in crate::notes) async fn create_page(
@@ -25,7 +26,7 @@ pub(in crate::notes) async fn create_page(
         return Err("data source pages must be created with the row page command".to_string());
     }
     let title = page.title.trim().to_string();
-    let properties = page_title_properties(&title);
+    let properties = page_properties_for_create(&title, page.properties.as_ref())?;
     let (parent_type, parent_page_id, parent_block_id) = parent_columns(&page.parent);
     let first_payload = default_text_payload("");
     let first_plain_text = plain_text_from_payload("paragraph", &first_payload);
@@ -149,6 +150,7 @@ pub(in crate::notes) async fn create_child_page_from_block(
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| current.plain_text.trim())
         .to_string();
+    let properties = page_properties_for_create(&title, request.properties.as_ref())?;
     let page_parent_type = if current.parent_type == "page_id" {
         "page_id"
     } else {
@@ -186,7 +188,7 @@ pub(in crate::notes) async fn create_child_page_from_block(
     .bind(&current.parent_page_id)
     .bind(&current.parent_block_id)
     .bind(&title)
-    .bind(page_title_properties(&title).to_string())
+    .bind(properties.to_string())
     .execute(&mut *tx)
     .await
     .map_err(|e| format!("create notes child page: {e}"))?;
@@ -276,6 +278,29 @@ pub(in crate::notes) async fn create_child_page_from_block(
         .await
         .map_err(|e| format!("commit notes child page create: {e}"))?;
     reads::load_page(pool, block_id).await
+}
+
+fn page_properties_for_create(
+    title: &str,
+    extra_properties: Option<&Value>,
+) -> Result<Value, String> {
+    let mut properties = page_title_properties(title);
+    let Some(extra_properties) = extra_properties else {
+        return Ok(properties);
+    };
+    let extra_object = extra_properties
+        .as_object()
+        .ok_or_else(|| "properties must be an object".to_string())?;
+    let properties_object = properties
+        .as_object_mut()
+        .ok_or_else(|| "page properties must be an object".to_string())?;
+    for (key, value) in extra_object {
+        if key == "title" {
+            continue;
+        }
+        properties_object.insert(key.clone(), value.clone());
+    }
+    Ok(properties)
 }
 
 pub(in crate::notes) async fn update_page(

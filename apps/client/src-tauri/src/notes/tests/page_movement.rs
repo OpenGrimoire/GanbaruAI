@@ -59,6 +59,7 @@ fn move_page_rejects_descendant_parent() {
                 parent: page_parent(PAGE_A),
                 first_block_id: BLOCK_B.to_string(),
                 after_block_id: None,
+                properties: None,
             },
         )
         .await
@@ -95,6 +96,7 @@ fn archiving_nested_page_hides_child_page_block() {
                 parent: page_parent(PAGE_A),
                 first_block_id: BLOCK_B.to_string(),
                 after_block_id: None,
+                properties: None,
             },
         )
         .await

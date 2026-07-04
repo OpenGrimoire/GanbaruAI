@@ -1628,12 +1628,14 @@ pub struct NotePageCreate {
     pub(in crate::notes) parent: NoteParent,
     pub(in crate::notes) first_block_id: String,
     pub(in crate::notes) after_block_id: Option<String>,
+    pub(in crate::notes) properties: Option<Value>,
 }
 
 #[derive(Deserialize)]
 pub struct NoteChildPageFromBlockCreate {
     pub(in crate::notes) first_block_id: String,
     pub(in crate::notes) title: Option<String>,
+    pub(in crate::notes) properties: Option<Value>,
 }
 
 #[derive(Deserialize)]
