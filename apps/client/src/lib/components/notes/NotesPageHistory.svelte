@@ -20,6 +20,7 @@
   const notes = getNotes();
   const localization = getLocalization();
   const { t } = localization;
+  let { embedded = false }: { embedded?: boolean } = $props();
   let open = $state(false);
   let selectedSnapshotId = $state<string | null>(null);
   let restoreSnapshotId = $state<string | null>(null);
@@ -38,6 +39,7 @@
   );
   const versionItems = $derived(historyPreviewItems(notes.pageHistoryVersion));
   const retentionValue = $derived(retentionDaysToValue(notes.pageHistorySettings?.retention_days ?? 30));
+  const panelOpen = $derived(embedded || open);
 
   $effect(() => {
     const pageId = notes.selectedPageId;
@@ -48,17 +50,17 @@
   });
 
   $effect(() => {
-    if (!open || notes.pageHistorySettings || notes.pageHistorySettingsLoading) return;
+    if (!panelOpen || notes.pageHistorySettings || notes.pageHistorySettingsLoading) return;
     void notes.loadPageHistorySettings();
   });
 
   $effect(() => {
-    if (!open || notes.localUser || notes.localUserLoading) return;
+    if (!panelOpen || notes.localUser || notes.localUserLoading) return;
     void notes.loadLocalUser();
   });
 
   $effect(() => {
-    if (!open || selectedSnapshotId || notes.pageHistorySnapshotsLoading) return;
+    if (!panelOpen || selectedSnapshotId || notes.pageHistorySnapshotsLoading) return;
     const firstSnapshot = notes.pageHistorySnapshots[0];
     if (!firstSnapshot) return;
     selectedSnapshotId = firstSnapshot.id;
@@ -228,26 +230,28 @@
   }
 </script>
 
-<div class="mt-2">
-  <button
-    class="inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-[0.733333rem] text-muted-foreground hover:bg-accent hover:text-foreground"
-    type="button"
-    aria-expanded={open}
-    onclick={toggleOpen}
-  >
-    <History class="size-3.5" />
-    <span>
-      {#if notes.pageHistorySnapshotsLoading}
-        {t("notes.loadingPageHistory")}
-      {:else}
-        {t("notes.pageHistoryCount", notes.pageHistorySnapshots.length)}
-      {/if}
-    </span>
-    <ChevronDown class={`size-3.5 transition-transform ${open ? "rotate-180" : ""}`} />
-  </button>
+<div class={embedded ? "min-w-0" : "mt-2"}>
+  {#if !embedded}
+    <button
+      class="inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-[0.733333rem] text-muted-foreground hover:bg-accent hover:text-foreground"
+      type="button"
+      aria-expanded={open}
+      onclick={toggleOpen}
+    >
+      <History class="size-3.5" />
+      <span>
+        {#if notes.pageHistorySnapshotsLoading}
+          {t("notes.loadingPageHistory")}
+        {:else}
+          {t("notes.pageHistoryCount", notes.pageHistorySnapshots.length)}
+        {/if}
+      </span>
+      <ChevronDown class={`size-3.5 transition-transform ${open ? "rotate-180" : ""}`} />
+    </button>
+  {/if}
 
-  {#if open}
-    <section class="mt-2 max-w-4xl rounded-md border border-border bg-muted/25 p-2">
+  {#if panelOpen}
+    <section class={embedded ? "rounded-md bg-muted/25 p-2" : "mt-2 max-w-4xl rounded-md border border-border bg-muted/25 p-2"}>
       <div class="flex flex-wrap items-center justify-between gap-2">
         <div class="text-[0.8rem] font-medium text-foreground">{t("notes.pageHistory")}</div>
         <label class="flex items-center gap-1.5 text-[0.733333rem] text-muted-foreground">

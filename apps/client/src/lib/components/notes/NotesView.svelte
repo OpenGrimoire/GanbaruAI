@@ -93,7 +93,7 @@
         <NotesEmptyState onCreate={createFirstPage} />
       </div>
     {:else if notes.selectedPageId && notes.loadedPage}
-      <NotesEditor />
+      <NotesEditor projectId={selectedProjectId} />
     {:else}
       <NotesProjectHome {focusSearchRequestId} projectId={selectedProjectId} />
     {/if}

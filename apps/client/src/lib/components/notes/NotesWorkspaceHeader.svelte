@@ -3,9 +3,7 @@
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import CloudDownload from "@lucide/svelte/icons/cloud-download";
   import DatabaseBackup from "@lucide/svelte/icons/database-backup";
-  import Download from "@lucide/svelte/icons/download";
   import FileText from "@lucide/svelte/icons/file-text";
-  import GitBranch from "@lucide/svelte/icons/git-branch";
   import PanelTopOpen from "@lucide/svelte/icons/panel-top-open";
   import Plus from "@lucide/svelte/icons/plus";
   import Search from "@lucide/svelte/icons/search";
@@ -14,8 +12,6 @@
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { notesPageTitle } from "$lib/notes/page-title";
   import type {
-    NotesAgentBridgeExportRequest,
-    NotesHtmlExportRequest,
     NotesHtmlImportRequest,
     NotesJsonGraphExportRequest,
     NotesNotionApiImportRequest,
@@ -35,8 +31,6 @@
   import { getViewport } from "$lib/stores/viewport.svelte";
   import { cn } from "$lib/utils";
   import ProjectIcon from "$lib/components/projects/ProjectIcon.svelte";
-  import NotesAgentBridgeExportDialog from "./NotesAgentBridgeExportDialog.svelte";
-  import NotesHtmlExportDialog from "./NotesHtmlExportDialog.svelte";
   import NotesHtmlImportDialog from "./NotesHtmlImportDialog.svelte";
   import NotesJsonGraphExportDialog from "./NotesJsonGraphExportDialog.svelte";
   import NotesNotionApiImportDialog from "./NotesNotionApiImportDialog.svelte";
@@ -88,8 +82,6 @@
   let htmlImportOpen = $state(false);
   let notionApiImportOpen = $state(false);
   let notionExportImportOpen = $state(false);
-  let htmlExportOpen = $state(false);
-  let agentBridgeExportOpen = $state(false);
   let jsonGraphExportOpen = $state(false);
 
   interface NavigatorBounds {
@@ -260,23 +252,6 @@
     return notes.importNotionExportFolder(request);
   }
 
-  function exportHtmlArchive(input: {
-    includePageTree: boolean;
-    includeComments: boolean;
-    includeResolvedComments: boolean;
-    includeAssets: boolean;
-    includeDatabaseViews: boolean;
-  }) {
-    const request: Omit<NotesHtmlExportRequest, "page_id"> = {
-      include_page_tree: input.includePageTree,
-      include_comments: input.includeComments,
-      include_resolved_comments: input.includeResolvedComments,
-      include_assets: input.includeAssets,
-      include_database_views: input.includeDatabaseViews,
-    };
-    return notes.exportHtmlArchive(request);
-  }
-
   function exportJsonGraph(input: {
     includeIndexes: boolean;
     includeHistory: boolean;
@@ -292,27 +267,6 @@
       pretty: input.pretty,
     };
     return notes.exportJsonGraph(request);
-  }
-
-  function exportAgentBridge(input: {
-    includeDescendants: boolean;
-    includeBacklinks: boolean;
-    includeDatabaseViews: boolean;
-    includeTaskContext: boolean;
-    includePageComments: boolean;
-    includeResolvedComments: boolean;
-    projectIds: string[];
-  }) {
-    const request: NotesAgentBridgeExportRequest = {
-      include_descendants: input.includeDescendants,
-      include_backlinks: input.includeBacklinks,
-      include_database_views: input.includeDatabaseViews,
-      include_task_context: input.includeTaskContext,
-      include_page_comments: input.includePageComments,
-      include_resolved_comments: input.includeResolvedComments,
-      project_ids: input.projectIds,
-    };
-    return notes.exportAgentBridge(request);
   }
 
   $effect(() => {
@@ -521,30 +475,6 @@
     <button
       type="button"
       class={toolbarIconButtonClass(false)}
-      aria-label={t("notes.htmlExportOpen")}
-      title={notes.loadedPage ? t("notes.htmlExportOpen") : t("notes.htmlExportUnavailable")}
-      disabled={!notes.loadedPage}
-      onclick={() => {
-        htmlExportOpen = true;
-      }}
-    >
-      <Download size={14} strokeWidth={1.75} />
-    </button>
-    <button
-      type="button"
-      class={toolbarIconButtonClass(false)}
-      aria-label={t("notes.agentBridgeExportOpen")}
-      title={notes.loadedPage ? t("notes.agentBridgeExportOpen") : t("notes.agentBridgeExportUnavailable")}
-      disabled={!notes.loadedPage}
-      onclick={() => {
-        agentBridgeExportOpen = true;
-      }}
-    >
-      <GitBranch size={14} strokeWidth={1.75} />
-    </button>
-    <button
-      type="button"
-      class={toolbarIconButtonClass(false)}
       aria-label={t("notes.jsonGraphExportOpen")}
       title={t("notes.jsonGraphExportOpen")}
       onclick={() => {
@@ -610,26 +540,6 @@
     onImport={importNotionExportFolder}
     onCancel={() => {
       notionExportImportOpen = false;
-    }}
-  />
-{/if}
-
-{#if htmlExportOpen && notes.loadedPage}
-  <NotesHtmlExportDialog
-    pageTitle={notesPageTitle(notes.loadedPage, t("notes.untitled"))}
-    onExport={exportHtmlArchive}
-    onCancel={() => {
-      htmlExportOpen = false;
-    }}
-  />
-{/if}
-
-{#if agentBridgeExportOpen && notes.loadedPage}
-  <NotesAgentBridgeExportDialog
-    pageTitle={notesPageTitle(notes.loadedPage, t("notes.untitled"))}
-    onExport={exportAgentBridge}
-    onCancel={() => {
-      agentBridgeExportOpen = false;
     }}
   />
 {/if}

@@ -15,12 +15,14 @@
   const notes = getNotes();
   const localization = getLocalization();
   const { t } = localization;
+  let { embedded = false }: { embedded?: boolean } = $props();
   let open = $state(false);
   let proposedDraft = $state("");
   let lastDraftKey = $state("");
   let actionBusyId = $state<string | null>(null);
   const draft = $derived(notes.activeSuggestionDraft);
   const openSuggestionCount = $derived(openNotesSuggestionCount(notes.suggestions));
+  const panelOpen = $derived(embedded || open);
 
   $effect(() => {
     if (!draft) return;
@@ -93,28 +95,30 @@
   }
 </script>
 
-<div class="mt-2">
-  <button
-    class="inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-[0.733333rem] text-muted-foreground hover:bg-accent hover:text-foreground"
-    type="button"
-    aria-expanded={open}
-    onclick={() => {
-      open = !open;
-    }}
-  >
-    <PencilLine class="size-3.5" />
-    <span>
-      {#if notes.suggestionsLoading}
-        {t("notes.loadingSuggestions")}
-      {:else}
-        {t("notes.suggestionsCount", openSuggestionCount)}
-      {/if}
-    </span>
-    <ChevronDown class={`size-3.5 transition-transform ${open ? "rotate-180" : ""}`} />
-  </button>
+<div class={embedded ? "min-w-0" : "mt-2"}>
+  {#if !embedded}
+    <button
+      class="inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-[0.733333rem] text-muted-foreground hover:bg-accent hover:text-foreground"
+      type="button"
+      aria-expanded={open}
+      onclick={() => {
+        open = !open;
+      }}
+    >
+      <PencilLine class="size-3.5" />
+      <span>
+        {#if notes.suggestionsLoading}
+          {t("notes.loadingSuggestions")}
+        {:else}
+          {t("notes.suggestionsCount", openSuggestionCount)}
+        {/if}
+      </span>
+      <ChevronDown class={`size-3.5 transition-transform ${open ? "rotate-180" : ""}`} />
+    </button>
+  {/if}
 
-  {#if open}
-    <section class="mt-2 max-w-3xl rounded-md border border-border bg-muted/25 p-2">
+  {#if panelOpen}
+    <section class={embedded ? "rounded-md bg-muted/25 p-2" : "mt-2 max-w-3xl rounded-md border border-border bg-muted/25 p-2"}>
       <div class="flex flex-wrap items-center justify-between gap-2">
         <div class="text-[0.8rem] font-medium text-foreground">
           {t("notes.suggestedEdits")}

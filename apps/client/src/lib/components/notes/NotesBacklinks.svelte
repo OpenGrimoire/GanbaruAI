@@ -8,7 +8,9 @@
 
   const notes = getNotes();
   const { t } = getLocalization();
+  let { embedded = false }: { embedded?: boolean } = $props();
   let open = $state(false);
+  const panelOpen = $derived(embedded || open);
 
   function backlinkTypeLabel(backlink: NotesBacklink): string {
     switch (backlink.reference_type) {
@@ -40,28 +42,30 @@
   }
 </script>
 
-<div class="mt-2">
-  <button
-    type="button"
-    class="inline-flex max-w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-[0.733333rem] text-muted-foreground hover:bg-accent hover:text-foreground"
-    aria-expanded={open}
-    onclick={() => {
-      open = !open;
-    }}
-  >
-    <Link2 class="size-3.5 shrink-0" />
-    <span class="min-w-0 truncate">
-      {#if notes.backlinksLoading}
-        {t("notes.loadingBacklinks")}
-      {:else}
-        {t("notes.backlinksCount", notes.backlinks.length)}
-      {/if}
-    </span>
-    <ChevronDown class={`size-3.5 shrink-0 transition-transform ${open ? "rotate-180" : ""}`} />
-  </button>
+<div class={embedded ? "min-w-0" : "mt-2"}>
+  {#if !embedded}
+    <button
+      type="button"
+      class="inline-flex max-w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-[0.733333rem] text-muted-foreground hover:bg-accent hover:text-foreground"
+      aria-expanded={open}
+      onclick={() => {
+        open = !open;
+      }}
+    >
+      <Link2 class="size-3.5 shrink-0" />
+      <span class="min-w-0 truncate">
+        {#if notes.backlinksLoading}
+          {t("notes.loadingBacklinks")}
+        {:else}
+          {t("notes.backlinksCount", notes.backlinks.length)}
+        {/if}
+      </span>
+      <ChevronDown class={`size-3.5 shrink-0 transition-transform ${open ? "rotate-180" : ""}`} />
+    </button>
+  {/if}
 
-  {#if open}
-    <div class="mt-1 max-w-2xl rounded-md border border-border bg-background/70 p-1">
+  {#if panelOpen}
+    <div class={embedded ? "min-w-0 rounded-md bg-background/70 p-1" : "mt-1 max-w-2xl rounded-md border border-border bg-background/70 p-1"}>
       {#if notes.backlinksError}
         <div class="px-2 py-1.5 text-[0.8rem] text-destructive">
           {t("notes.loadBacklinksFailed", notes.backlinksError)}

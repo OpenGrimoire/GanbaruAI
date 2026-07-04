@@ -11,6 +11,7 @@
 
   const notes = getNotes();
   const { t } = getLocalization();
+  let { embedded = false }: { embedded?: boolean } = $props();
   let aliasesOpen = $state(false);
   let unresolvedOpen = $state(false);
   let aliasDraft = $state("");
@@ -43,50 +44,67 @@
       targetKindLabel(page),
     );
   }
+
+  const aliasesPanelOpen = $derived(embedded || aliasesOpen);
+  const unresolvedPanelOpen = $derived(embedded || unresolvedOpen);
 </script>
 
-<div class="mt-2 flex flex-wrap items-center gap-2">
-  <button
-    type="button"
-    class="inline-flex max-w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-[0.733333rem] text-muted-foreground hover:bg-accent hover:text-foreground"
-    aria-expanded={aliasesOpen}
-    onclick={() => {
-      aliasesOpen = !aliasesOpen;
-    }}
-  >
-    <Tags class="size-3.5 shrink-0" />
-    <span class="min-w-0 truncate">
-      {#if notes.pageAliasesLoading}
-        {t("notes.loadingPageAliases")}
-      {:else}
-        {t("notes.pageAliasesCount", notes.pageAliases.length)}
-      {/if}
-    </span>
-    <ChevronDown class={`size-3.5 shrink-0 transition-transform ${aliasesOpen ? "rotate-180" : ""}`} />
-  </button>
+{#if !embedded}
+  <div class="mt-2 flex flex-wrap items-center gap-2">
+    <button
+      type="button"
+      class="inline-flex max-w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-[0.733333rem] text-muted-foreground hover:bg-accent hover:text-foreground"
+      aria-expanded={aliasesOpen}
+      onclick={() => {
+        aliasesOpen = !aliasesOpen;
+      }}
+    >
+      <Tags class="size-3.5 shrink-0" />
+      <span class="min-w-0 truncate">
+        {#if notes.pageAliasesLoading}
+          {t("notes.loadingPageAliases")}
+        {:else}
+          {t("notes.pageAliasesCount", notes.pageAliases.length)}
+        {/if}
+      </span>
+      <ChevronDown class={`size-3.5 shrink-0 transition-transform ${aliasesOpen ? "rotate-180" : ""}`} />
+    </button>
 
-  <button
-    type="button"
-    class="inline-flex max-w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-[0.733333rem] text-muted-foreground hover:bg-accent hover:text-foreground"
-    aria-expanded={unresolvedOpen}
-    onclick={() => {
-      unresolvedOpen = !unresolvedOpen;
-    }}
-  >
-    <Link2Off class="size-3.5 shrink-0" />
-    <span class="min-w-0 truncate">
-      {#if notes.unresolvedLinksLoading}
-        {t("notes.loadingUnresolvedLinks")}
-      {:else}
-        {t("notes.unresolvedLinksCount", notes.unresolvedLinks.length)}
-      {/if}
-    </span>
-    <ChevronDown class={`size-3.5 shrink-0 transition-transform ${unresolvedOpen ? "rotate-180" : ""}`} />
-  </button>
-</div>
+    <button
+      type="button"
+      class="inline-flex max-w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-[0.733333rem] text-muted-foreground hover:bg-accent hover:text-foreground"
+      aria-expanded={unresolvedOpen}
+      onclick={() => {
+        unresolvedOpen = !unresolvedOpen;
+      }}
+    >
+      <Link2Off class="size-3.5 shrink-0" />
+      <span class="min-w-0 truncate">
+        {#if notes.unresolvedLinksLoading}
+          {t("notes.loadingUnresolvedLinks")}
+        {:else}
+          {t("notes.unresolvedLinksCount", notes.unresolvedLinks.length)}
+        {/if}
+      </span>
+      <ChevronDown class={`size-3.5 shrink-0 transition-transform ${unresolvedOpen ? "rotate-180" : ""}`} />
+    </button>
+  </div>
+{/if}
 
-{#if aliasesOpen}
-  <section class="mt-1 max-w-2xl rounded-md border border-border bg-background/70 p-2">
+{#if aliasesPanelOpen}
+  <section class={embedded ? "rounded-md bg-background/70 p-2" : "mt-1 max-w-2xl rounded-md border border-border bg-background/70 p-2"}>
+    {#if embedded}
+      <div class="mb-2 flex min-w-0 items-center gap-1.5 text-[0.8rem] font-medium text-foreground">
+        <Tags class="size-3.5 shrink-0 text-muted-foreground" />
+        <span class="min-w-0 truncate">
+          {#if notes.pageAliasesLoading}
+            {t("notes.loadingPageAliases")}
+          {:else}
+            {t("notes.pageAliasesCount", notes.pageAliases.length)}
+          {/if}
+        </span>
+      </div>
+    {/if}
     {#if notes.pageAliasesError}
       <div class="text-[0.8rem] text-destructive">
         {t("notes.loadPageAliasesFailed", notes.pageAliasesError)}
@@ -141,8 +159,20 @@
   </section>
 {/if}
 
-{#if unresolvedOpen}
-  <section class="mt-1 max-w-2xl rounded-md border border-border bg-background/70 p-2">
+{#if unresolvedPanelOpen}
+  <section class={embedded ? "mt-2 rounded-md bg-background/70 p-2" : "mt-1 max-w-2xl rounded-md border border-border bg-background/70 p-2"}>
+    {#if embedded}
+      <div class="mb-2 flex min-w-0 items-center gap-1.5 text-[0.8rem] font-medium text-foreground">
+        <Link2Off class="size-3.5 shrink-0 text-muted-foreground" />
+        <span class="min-w-0 truncate">
+          {#if notes.unresolvedLinksLoading}
+            {t("notes.loadingUnresolvedLinks")}
+          {:else}
+            {t("notes.unresolvedLinksCount", notes.unresolvedLinks.length)}
+          {/if}
+        </span>
+      </div>
+    {/if}
     {#if notes.unresolvedLinksError}
       <div class="text-[0.8rem] text-destructive">
         {t("notes.loadUnresolvedLinksFailed", notes.unresolvedLinksError)}

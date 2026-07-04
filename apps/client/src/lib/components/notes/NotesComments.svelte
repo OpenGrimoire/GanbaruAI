@@ -20,6 +20,7 @@
   const notes = getNotes();
   const localization = getLocalization();
   const { t } = localization;
+  let { embedded = false }: { embedded?: boolean } = $props();
   let open = $state(false);
   let newCommentDraft = $state("");
   let replyThreadId = $state<string | null>(null);
@@ -36,13 +37,14 @@
       .map((thread) => `${thread.id}:${thread.last_edited_time}`)
       .join("|"),
   );
+  const panelOpen = $derived(embedded || open);
 
   $effect(() => {
     if (notes.activeCommentParent) open = true;
   });
 
   $effect(() => {
-    if (!open || notes.commentsLoading || !unreadThreadKey || unreadThreadKey === lastMarkedReadKey) return;
+    if (!panelOpen || notes.commentsLoading || !unreadThreadKey || unreadThreadKey === lastMarkedReadKey) return;
     lastMarkedReadKey = unreadThreadKey;
     void notes.markVisibleCommentThreadsRead().catch((error) => {
       lastMarkedReadKey = "";
@@ -124,30 +126,32 @@
   }
 </script>
 
-<div class="mt-2">
-  <button
-    class="inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-[0.733333rem] text-muted-foreground hover:bg-accent hover:text-foreground"
-    type="button"
-    aria-expanded={open}
-    onclick={() => {
-      open = !open;
-    }}
-  >
-    <MessageSquare class="size-3.5" />
-    <span>
-      {#if notes.commentsLoading}
-        {t("notes.loadingComments")}
-      {:else if unreadThreadCount > 0}
-        {t("notes.commentsCountWithUnread", openThreadCount, unreadThreadCount)}
-      {:else}
-        {t("notes.commentsCount", openThreadCount)}
-      {/if}
-    </span>
-    <ChevronDown class={`size-3.5 transition-transform ${open ? "rotate-180" : ""}`} />
-  </button>
+<div class={embedded ? "min-w-0" : "mt-2"}>
+  {#if !embedded}
+    <button
+      class="inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-[0.733333rem] text-muted-foreground hover:bg-accent hover:text-foreground"
+      type="button"
+      aria-expanded={open}
+      onclick={() => {
+        open = !open;
+      }}
+    >
+      <MessageSquare class="size-3.5" />
+      <span>
+        {#if notes.commentsLoading}
+          {t("notes.loadingComments")}
+        {:else if unreadThreadCount > 0}
+          {t("notes.commentsCountWithUnread", openThreadCount, unreadThreadCount)}
+        {:else}
+          {t("notes.commentsCount", openThreadCount)}
+        {/if}
+      </span>
+      <ChevronDown class={`size-3.5 transition-transform ${open ? "rotate-180" : ""}`} />
+    </button>
+  {/if}
 
-  {#if open}
-    <section class="mt-2 max-w-3xl rounded-md border border-border bg-muted/25 p-2">
+  {#if panelOpen}
+    <section class={embedded ? "rounded-md bg-muted/25 p-2" : "mt-2 max-w-3xl rounded-md border border-border bg-muted/25 p-2"}>
       <div class="flex flex-wrap items-center justify-between gap-2">
         <div class="text-[0.8rem] font-medium text-foreground">
           {parentLabel(activeParent)}
