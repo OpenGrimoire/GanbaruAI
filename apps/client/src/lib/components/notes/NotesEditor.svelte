@@ -84,7 +84,7 @@
   const currentPageTitle = $derived(page ? notesPageTitle(page, t("notes.untitled")) : t("notes.untitled"));
   const pageIconLabel = $derived(pageIconScreenReaderText(page?.icon ?? null));
   const effectiveProjectId = $derived(page ? notesPageProjectId(page) ?? projectId : projectId);
-  const projectPages = $derived(notesPagesForProject(notes.pages, effectiveProjectId));
+  const projectPages = $derived(notesPagesForProject(notes.allPages, effectiveProjectId));
   const moveTargets = $derived(page
     ? notesPageMoveTargets(
         projectPages,
@@ -102,7 +102,7 @@
           t("notes.untitled"),
           t("notes.breadcrumbMissingPage"),
         )
-      : buildNotesPageBreadcrumb(page, notes.pages, t("notes.workspace"), t("notes.untitled")),
+      : buildNotesPageBreadcrumb(page, notes.allPages, t("notes.workspace"), t("notes.untitled")),
   );
   const tableOfContentsItems = $derived(buildNotesTableOfContents(notes.flatBlocks));
   const pageFavorited = $derived(page ? notes.favoritePageIds.includes(page.id) : false);

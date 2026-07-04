@@ -23,7 +23,6 @@
     async function openHashTarget(): Promise<void> {
       const target = parseNotesLinkHash(window.location.hash);
       if (!target) {
-        await notes.selectPage(null);
         return;
       }
       const opened = await notes.openNotesLink(target);
@@ -88,7 +87,7 @@
       <NotesArchiveView />
     {:else if notes.viewMode === "trash"}
       <NotesTrashView />
-    {:else if notes.loaded && notes.pages.length === 0}
+    {:else if notes.loaded && notes.allPages.length === 0}
       <div class="min-w-0 flex-1">
         <NotesEmptyState onCreate={createFirstPage} />
       </div>

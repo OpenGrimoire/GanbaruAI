@@ -136,7 +136,7 @@
   const activeGroup = $derived.by(() => visibleGroups.find((group) => group.id === activeGroupId));
   const directProjectGroup = $derived.by(() => selectedGroup);
   const directProjects = $derived.by(() => directProjectGroup ? projectsInGroup(directProjectGroup) : []);
-  const activeProjectPages = $derived.by(() => notesPagesForProject(notes.pages, activeProjectId));
+  const activeProjectPages = $derived.by(() => notesPagesForProject(notes.allPages, activeProjectId));
 
   function projectsInGroup(group: ProjectGroup): Project[] {
     const groupProjects = showInactiveProjects

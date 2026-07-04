@@ -28,7 +28,7 @@
   let pendingArchivePage = $state<NotesPage | null>(null);
   let pendingTrashPage = $state<NotesPage | null>(null);
 
-  const projectPages = $derived.by(() => notesPagesForProject(notes.pages, projectId));
+  const projectPages = $derived.by(() => notesPagesForProject(notes.allPages, projectId));
   const treeItems = $derived.by(() =>
     buildNotesPageTree(projectPages, {
       activePageId: notes.selectedPageId,

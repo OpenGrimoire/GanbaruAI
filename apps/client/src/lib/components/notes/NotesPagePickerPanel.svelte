@@ -76,7 +76,7 @@
   let pageScrollStateFrame: number | null = null;
 
   const normalizedSearch = $derived(search.trim());
-  const projectPages = $derived.by(() => notesPagesForProject(notes.pages, projectId));
+  const projectPages = $derived.by(() => notesPagesForProject(notes.allPages, projectId));
   const treeItems = $derived.by(() =>
     buildNotesPageTree(projectPages, {
       activePageId: selectedPageId,

@@ -243,7 +243,7 @@
     }
     const parentPageId = page.parent.type === "page_id" ? page.parent.page_id : null;
     const parentPage = parentPageId
-      ? notes.pages.find((candidate) => candidate.id === parentPageId)
+      ? notes.allPages.find((candidate) => candidate.id === parentPageId)
       : null;
     return parentPage
       ? notesPageTitle(parentPage, t("notes.untitled"))
@@ -253,7 +253,7 @@
   function pageMentionTargets(): NotesPageMentionTarget[] {
     const seen = new Set<string>();
     const targets: NotesPageMentionTarget[] = [];
-    for (const page of [...notes.pages, ...mentionDataSourceRowPages]) {
+    for (const page of [...notes.allPages, ...mentionDataSourceRowPages]) {
       if (seen.has(page.id)) continue;
       seen.add(page.id);
       targets.push({
@@ -1075,7 +1075,7 @@
   }
 
   function moveTargetsForBlock(block: NotesBlock): NotesMoveToPageTarget[] {
-    return notesMoveToPageTargets(notes.pages, block, pageId, t("notes.untitled"), {
+    return notesMoveToPageTargets(notes.allPages, block, pageId, t("notes.untitled"), {
       recentPageIds: notes.recentPageIds,
       excludedPageIds: loadedChildPageIdsInSubtree(block.id),
     });

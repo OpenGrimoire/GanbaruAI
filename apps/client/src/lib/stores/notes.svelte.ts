@@ -152,6 +152,7 @@ const BLOCK_SAVE_DEBOUNCE_MS = 350;
 const CHILDREN_PAGE_SIZE = 100;
 
 let pages = $state<NotesPage[]>([]);
+let allPages = $state<NotesPage[]>([]);
 let archivedPages = $state<NotesPage[]>([]);
 let trashedPages = $state<NotesPage[]>([]);
 let pageTemplates = $state<NotesPageTemplate[]>([]);
@@ -266,6 +267,24 @@ function replacePages(nextPages: NotesPage[]): void {
   pages = [...nextPages];
 }
 
+function replaceAllPages(nextPages: NotesPage[]): void {
+  allPages = [...nextPages];
+}
+
+function upsertPageInActiveCollections(page: NotesPage): void {
+  pages = pages.some((item) => item.id === page.id)
+    ? pages.map((item) => (item.id === page.id ? page : item))
+    : [page, ...pages];
+  allPages = allPages.some((item) => item.id === page.id)
+    ? allPages.map((item) => (item.id === page.id ? page : item))
+    : [page, ...allPages];
+}
+
+function removePagesFromActiveCollections(pageIds: ReadonlySet<string>): void {
+  pages = pages.filter((page) => !pageIds.has(page.id));
+  allPages = allPages.filter((page) => !pageIds.has(page.id));
+}
+
 function sidebarSeedPageIds(): string[] {
   return [...new Set([...favoritePageIds, ...recentPageIds])];
 }
@@ -330,12 +349,16 @@ async function loadAllChildrenForVisibleTree(): Promise<void> {
 }
 
 async function reloadPages(selectedPageIdOverride: string | null = selectedPageId): Promise<void> {
-  const sidebarPages = await listNotesSidebarPages({
-    expanded_page_ids: [...sidebarExpandedPageIds],
-    seed_page_ids: sidebarSeedPageIds(),
-    selected_page_id: selectedPageIdOverride,
-  });
+  const [sidebarPages, nextAllPages] = await Promise.all([
+    listNotesSidebarPages({
+      expanded_page_ids: [...sidebarExpandedPageIds],
+      seed_page_ids: sidebarSeedPageIds(),
+      selected_page_id: selectedPageIdOverride,
+    }),
+    listNotesPages(),
+  ]);
   replacePages(sidebarPages.pages);
+  replaceAllPages(nextAllPages);
   sidebarPageIdsWithChildren = [...sidebarPages.page_ids_with_children];
   sidebarMissingParentPageIds = [...sidebarPages.missing_parent_page_ids];
   sidebarTrashedParentPageIds = [...sidebarPages.trashed_parent_page_ids];
@@ -349,7 +372,7 @@ async function reloadLinkResolutionPages(): Promise<void> {
     linkResolutionPages = [...nextPages];
   } catch {
     if (requestId !== linkResolutionPagesRequestId) return;
-    linkResolutionPages = [...pages];
+    linkResolutionPages = [...allPages];
   }
 }
 
@@ -975,7 +998,8 @@ function pageProjectIdForParent(
 ): string | null {
   if ("projectId" in options) return normalizeNotesProjectId(options.projectId);
   if (parent.type !== "page_id") return null;
-  const parentPage = pages.find((page) => page.id === parent.page_id);
+  const parentPage = allPages.find((page) => page.id === parent.page_id)
+    ?? (loadedPage?.id === parent.page_id ? loadedPage : null);
   return parentPage ? notesPageProjectId(parentPage) : null;
 }
 
@@ -999,9 +1023,7 @@ async function createPageWithParent(
   saveSelectedPageId(loaded.page.id);
   recordRecentPage(loaded.page.id);
   await reloadPages();
-  if (!pages.some((page) => page.id === loaded.page.id)) {
-    pages = [loaded.page, ...pages];
-  }
+  upsertPageInActiveCollections(loaded.page);
   setLoadedPageFromLoaded(loaded);
   await reloadPageBreadcrumb(loaded.page.id);
   await reloadBacklinks(loaded.page.id);
@@ -1027,9 +1049,7 @@ async function importHtmlPage(
   saveSelectedPageId(result.page.page.id);
   recordRecentPage(result.page.page.id);
   await reloadPages(result.page.page.id);
-  if (!pages.some((page) => page.id === result.page.page.id)) {
-    pages = [result.page.page, ...pages];
-  }
+  upsertPageInActiveCollections(result.page.page);
   setLoadedPageFromLoaded(result.page);
   await loadAllChildrenForVisibleTree();
   await reloadPageBreadcrumb(result.page.page.id);
@@ -1072,9 +1092,7 @@ async function refreshAfterMultiPageImport(importedPages: NotesLoadedPage[]): Pr
   const firstPage = importedPages[0] ?? null;
   await reloadPages(firstPage?.page.id);
   for (const loaded of importedPages) {
-    if (!pages.some((page) => page.id === loaded.page.id)) {
-      pages = [loaded.page, ...pages];
-    }
+    upsertPageInActiveCollections(loaded.page);
   }
   await loadAllChildrenForVisibleTree();
   if (firstPage) {
@@ -1133,9 +1151,7 @@ async function applyPageTemplate(templateId: string, title?: string): Promise<vo
   saveSelectedPageId(loaded.page.id);
   recordRecentPage(loaded.page.id);
   await reloadPages(loaded.page.id);
-  if (!pages.some((page) => page.id === loaded.page.id)) {
-    pages = [loaded.page, ...pages];
-  }
+  upsertPageInActiveCollections(loaded.page);
   setLoadedPageFromLoaded(loaded);
   await loadAllChildrenForVisibleTree();
   await reloadPageBreadcrumb(loaded.page.id);
@@ -1225,9 +1241,7 @@ async function createChildPageFromBlock(blockId: string): Promise<void> {
   saveSelectedPageId(loaded.page.id);
   recordRecentPage(loaded.page.id);
   await reloadPages();
-  if (!pages.some((page) => page.id === loaded.page.id)) {
-    pages = [loaded.page, ...pages];
-  }
+  upsertPageInActiveCollections(loaded.page);
   setLoadedPageFromLoaded(loaded);
   await reloadPageBreadcrumb(loaded.page.id);
   await reloadBacklinks(loaded.page.id);
@@ -1268,9 +1282,7 @@ async function createChildPageAfterBlock(blockId: string): Promise<void> {
   saveSelectedPageId(loaded.page.id);
   recordRecentPage(loaded.page.id);
   await reloadPages();
-  if (!pages.some((page) => page.id === loaded.page.id)) {
-    pages = [loaded.page, ...pages];
-  }
+  upsertPageInActiveCollections(loaded.page);
   setLoadedPageFromLoaded(loaded);
   await reloadPageBreadcrumb(loaded.page.id);
   await reloadBacklinks(loaded.page.id);
@@ -1290,7 +1302,7 @@ async function createChildPageAfterBlock(blockId: string): Promise<void> {
 async function renamePage(pageId: string, title: string): Promise<void> {
   const trimmedTitle = title.trim();
   const page = await updateNotesPage(pageId, { title: trimmedTitle });
-  pages = pages.map((item) => (item.id === page.id ? page : item));
+  upsertPageInActiveCollections(page);
   if (loadedPage?.id === page.id) loadedPage = page;
   if (selectedPageId === page.id) await reloadPageBreadcrumb(page.id);
   await pageHistoryController.reloadSnapshots(pageId);
@@ -1306,9 +1318,7 @@ async function duplicatePage(pageId: string, title: string): Promise<void> {
   saveSelectedPageId(loaded.page.id);
   recordRecentPage(loaded.page.id);
   await reloadPages();
-  if (!pages.some((page) => page.id === loaded.page.id)) {
-    pages = [loaded.page, ...pages];
-  }
+  upsertPageInActiveCollections(loaded.page);
   setLoadedPageFromLoaded(loaded);
   await reloadPageBreadcrumb(loaded.page.id);
   await reloadBacklinks(loaded.page.id);
@@ -1332,9 +1342,7 @@ async function movePage(pageId: string, parent: NotesParent): Promise<void> {
   saveSelectedPageId(loaded.page.id);
   recordRecentPage(loaded.page.id);
   await reloadPages();
-  if (!pages.some((page) => page.id === loaded.page.id)) {
-    pages = [loaded.page, ...pages];
-  }
+  upsertPageInActiveCollections(loaded.page);
   setLoadedPageFromLoaded(loaded);
   await loadAllChildrenForVisibleTree();
   await reloadPageBreadcrumb(loaded.page.id);
@@ -1351,14 +1359,14 @@ async function movePage(pageId: string, parent: NotesParent): Promise<void> {
 
 async function updatePageIcon(pageId: string, icon: NotesPageIcon | null): Promise<void> {
   const page = await updateNotesPage(pageId, { icon });
-  pages = pages.map((item) => (item.id === page.id ? page : item));
+  upsertPageInActiveCollections(page);
   if (loadedPage?.id === page.id) loadedPage = page;
   await pageHistoryController.reloadSnapshots(pageId);
 }
 
 async function updatePageCover(pageId: string, cover: NotesPageCover | null): Promise<void> {
   const page = await updateNotesPage(pageId, { cover });
-  pages = pages.map((item) => (item.id === page.id ? page : item));
+  upsertPageInActiveCollections(page);
   if (loadedPage?.id === page.id) loadedPage = page;
   await pageHistoryController.reloadSnapshots(pageId);
 }
@@ -1385,7 +1393,7 @@ async function archivePage(pageId: string): Promise<void> {
     archivedPages = [archivedPage, ...archivedPages.filter((page) => page.id !== pageId)];
   }
   const nextSelected = nextSelectedNotesPageId(pages, pageId);
-  pages = pages.filter((page) => page.id !== pageId);
+  removePagesFromActiveCollections(new Set([pageId]));
   await selectPage(nextSelected);
 }
 
@@ -1395,9 +1403,7 @@ async function unarchivePage(pageId: string): Promise<void> {
   viewMode = "pages";
   saveSelectedPageId(restoredPage.id);
   await reloadPages();
-  if (!pages.some((page) => page.id === restoredPage.id)) {
-    pages = [restoredPage, ...pages];
-  }
+  upsertPageInActiveCollections(restoredPage);
   await loadPageTree(restoredPage.id);
   recordRecentPage(restoredPage.id);
   await undoController.hydrate(restoredPage.id);
@@ -1414,9 +1420,7 @@ async function restorePage(pageId: string): Promise<void> {
   viewMode = "pages";
   saveSelectedPageId(restoredPage.id);
   await reloadPages();
-  if (!pages.some((page) => page.id === restoredPage.id)) {
-    pages = [restoredPage, ...pages];
-  }
+  upsertPageInActiveCollections(restoredPage);
   await loadPageTree(restoredPage.id);
   recordRecentPage(restoredPage.id);
   await undoController.hydrate(restoredPage.id);
@@ -1427,7 +1431,7 @@ async function permanentlyDeletePage(pageId: string): Promise<void> {
   await flushPendingBlockSaves();
   const deletedPageIds = await permanentlyDeleteNotesPage(pageId);
   const deletedPageIdSet = new Set(deletedPageIds);
-  pages = pages.filter((page) => !deletedPageIdSet.has(page.id));
+  removePagesFromActiveCollections(deletedPageIdSet);
   archivedPages = archivedPages.filter((page) => !deletedPageIdSet.has(page.id));
   trashedPages = trashedPages.filter((page) => !deletedPageIdSet.has(page.id));
   const nextFavoritePageIds = favoritePageIds.filter((id) => !deletedPageIdSet.has(id));
@@ -1670,10 +1674,10 @@ async function openBlockLink(target: NotesBlockLinkTarget): Promise<boolean> {
 async function openNotesLink(target: NotesPageLinkTarget): Promise<boolean> {
   viewMode = "pages";
   await ensureLoaded();
-  if (!pages.some((page) => page.id === target.pageId)) {
+  if (!allPages.some((page) => page.id === target.pageId)) {
     await reloadPages(target.pageId);
   }
-  if (!pages.some((page) => page.id === target.pageId)) return false;
+  if (!allPages.some((page) => page.id === target.pageId)) return false;
   if (loadedPage?.id !== target.pageId) {
     await selectPage(target.pageId);
   }
@@ -1691,6 +1695,9 @@ export function getNotes() {
     get pages(): NotesPage[] {
       return pages;
     },
+    get allPages(): NotesPage[] {
+      return allPages;
+    },
     get archivedPages(): NotesPage[] {
       return archivedPages;
     },
@@ -1698,7 +1705,7 @@ export function getNotes() {
       return pageTemplates;
     },
     get workspacePages(): NotesPage[] {
-      return pages.filter((page) => page.parent.type === "workspace");
+      return allPages.filter((page) => page.parent.type === "workspace");
     },
     get favoritePageIds(): readonly string[] {
       return favoritePageIds;
@@ -1758,7 +1765,7 @@ export function getNotes() {
       return unresolvedLinksError;
     },
     get linkResolutionPages(): NotesPage[] {
-      return linkResolutionPages.length > 0 ? linkResolutionPages : pages;
+      return linkResolutionPages.length > 0 ? linkResolutionPages : allPages;
     },
     get commentThreads(): NotesCommentThread[] {
       return commentThreads;
