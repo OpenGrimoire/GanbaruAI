@@ -3,6 +3,9 @@ import type { MessageShape } from "../../types";
 
 export const navigationAndSearch = {
   title: "Notas",
+  openNoteNavigator: "Abrir navegador de notas",
+  noteNavigatorLabel: "Navegador de notas",
+  showProjectHome: "Mostrar notas del proyecto",
   newPage: "Nueva página",
   htmlImportOpen: "Importar HTML",
   htmlImportDialogTitle: "Importar HTML",

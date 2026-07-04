@@ -1,0 +1,639 @@
+<script lang="ts">
+  import Archive from "@lucide/svelte/icons/archive";
+  import ChevronDown from "@lucide/svelte/icons/chevron-down";
+  import CloudDownload from "@lucide/svelte/icons/cloud-download";
+  import DatabaseBackup from "@lucide/svelte/icons/database-backup";
+  import Download from "@lucide/svelte/icons/download";
+  import FileText from "@lucide/svelte/icons/file-text";
+  import GitBranch from "@lucide/svelte/icons/git-branch";
+  import PanelTopOpen from "@lucide/svelte/icons/panel-top-open";
+  import Plus from "@lucide/svelte/icons/plus";
+  import Search from "@lucide/svelte/icons/search";
+  import Trash2 from "@lucide/svelte/icons/trash-2";
+  import Upload from "@lucide/svelte/icons/upload";
+  import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { notesPageTitle } from "$lib/notes/page-title";
+  import type {
+    NotesAgentBridgeExportRequest,
+    NotesHtmlExportRequest,
+    NotesHtmlImportRequest,
+    NotesJsonGraphExportRequest,
+    NotesNotionApiImportRequest,
+    NotesNotionExportImportRequest,
+    NotesPage,
+  } from "$lib/notes/types";
+  import {
+    projectLifecycleBadgeClass,
+    projectLifecycleLabel,
+  } from "$lib/projects/project-display";
+  import {
+    projectNavigatorPanelGeometry,
+    type ProjectNavigatorPanelMode,
+  } from "$lib/projects/project-toolbar";
+  import type { Project, ProjectGroup } from "$lib/projects/types";
+  import { getNotes } from "$lib/stores/notes.svelte";
+  import { getViewport } from "$lib/stores/viewport.svelte";
+  import { cn } from "$lib/utils";
+  import ProjectIcon from "$lib/components/projects/ProjectIcon.svelte";
+  import ProjectNavigator from "$lib/components/projects/ProjectNavigator.svelte";
+  import NotesAgentBridgeExportDialog from "./NotesAgentBridgeExportDialog.svelte";
+  import NotesHtmlExportDialog from "./NotesHtmlExportDialog.svelte";
+  import NotesHtmlImportDialog from "./NotesHtmlImportDialog.svelte";
+  import NotesJsonGraphExportDialog from "./NotesJsonGraphExportDialog.svelte";
+  import NotesNotionApiImportDialog from "./NotesNotionApiImportDialog.svelte";
+  import NotesNotionExportImportDialog from "./NotesNotionExportImportDialog.svelte";
+  import NotesTopbarPageNavigator from "./NotesTopbarPageNavigator.svelte";
+
+  type NotesNavigatorMode = ProjectNavigatorPanelMode | "notes";
+
+  let {
+    selectedProject,
+    selectedGroup,
+    selectedProjectId,
+    selectedPage,
+    showInactiveProjects,
+    onShowInactiveProjectsChange,
+    onProjectSelected,
+    onShowHome,
+    onFocusSearch,
+  }: {
+    selectedProject: Project | undefined;
+    selectedGroup: ProjectGroup | undefined;
+    selectedProjectId: string | null;
+    selectedPage: NotesPage | null;
+    showInactiveProjects: boolean;
+    onShowInactiveProjectsChange: (value: boolean) => void;
+    onProjectSelected: () => void;
+    onShowHome: () => void;
+    onFocusSearch: () => void;
+  } = $props();
+
+  const notes = getNotes();
+  const viewport = getViewport();
+  const { t } = getLocalization();
+  const projectIdentityIconStrokeWidth = 1.5;
+  const projectIdentityEmojiScale = 0.94;
+
+  let navigatorOpen = $state(false);
+  let navigatorMode = $state<NotesNavigatorMode>("groups");
+  let notesHeaderElement = $state<HTMLDivElement | null>(null);
+  let notesIdentityElement = $state<HTMLDivElement | null>(null);
+  let navigatorAnchorElement = $state<HTMLButtonElement | null>(null);
+  let groupTriggerElement = $state<HTMLButtonElement | null>(null);
+  let projectTriggerElement = $state<HTMLButtonElement | null>(null);
+  let noteTriggerElement = $state<HTMLButtonElement | null>(null);
+  let navigatorPanelElement = $state<HTMLDivElement | null>(null);
+  let navigatorPanelStyle = $state("");
+  let navigatorPanelMaxHeight = $state(0);
+  let htmlImportOpen = $state(false);
+  let notionApiImportOpen = $state(false);
+  let notionExportImportOpen = $state(false);
+  let htmlExportOpen = $state(false);
+  let agentBridgeExportOpen = $state(false);
+  let jsonGraphExportOpen = $state(false);
+
+  interface NavigatorBounds {
+    left: number;
+    right: number;
+    top: number;
+    bottom: number;
+  }
+
+  const selectedPageTitle = $derived.by(() => {
+    if (notes.viewMode === "archive") return t("notes.archive");
+    if (notes.viewMode === "trash") return t("notes.trash");
+    if (!selectedPage) return null;
+    return notesPageTitle(selectedPage, t("notes.untitled"));
+  });
+  const selectedPageId = $derived(selectedPage?.id ?? null);
+
+  function toolbarIconButtonClass(active = false, open = false, primary = false): string {
+    return cn(
+      "flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors",
+      primary
+        ? "bg-primary text-primary-foreground hover:bg-primary/90"
+        : "hover:bg-accent",
+      !primary && (active ? "text-foreground" : "text-muted-foreground"),
+      !primary && open && "bg-accent text-accent-foreground",
+    );
+  }
+
+  function navigatorBounds(): NavigatorBounds {
+    const boundsElement = notesHeaderElement?.closest(".notes-view-root");
+    const rect = boundsElement?.getBoundingClientRect();
+    if (rect) {
+      return {
+        left: rect.left,
+        right: rect.right,
+        top: rect.top,
+        bottom: rect.bottom,
+      };
+    }
+
+    return {
+      left: 0,
+      right: viewport.width,
+      top: 0,
+      bottom: viewport.height,
+    };
+  }
+
+  function refreshNavigatorPanelGeometry(): void {
+    if (!navigatorOpen || !navigatorAnchorElement) return;
+    const rect = navigatorAnchorElement.getBoundingClientRect();
+    const bounds = navigatorBounds();
+    const geometry = projectNavigatorPanelGeometry({
+      anchorLeft: rect.left,
+      anchorBottom: rect.bottom,
+      viewportWidth: viewport.width,
+      viewportHeight: viewport.height,
+      boundsLeft: bounds.left,
+      boundsRight: bounds.right,
+      boundsTop: bounds.top,
+      boundsBottom: bounds.bottom,
+      preferredWidth: navigatorMode === "notes" ? 340 : undefined,
+    });
+    navigatorPanelStyle = [
+      `left: ${Math.round(geometry.left)}px`,
+      `top: ${Math.round(geometry.top)}px`,
+      `width: ${Math.round(geometry.width)}px`,
+    ].join("; ");
+    navigatorPanelMaxHeight = geometry.height;
+  }
+
+  function triggerForMode(mode: NotesNavigatorMode): HTMLButtonElement | null {
+    if (mode === "groups") return groupTriggerElement;
+    if (mode === "projects") return projectTriggerElement;
+    return noteTriggerElement ?? projectTriggerElement;
+  }
+
+  function openNavigator(mode: NotesNavigatorMode): void {
+    navigatorMode = mode;
+    navigatorAnchorElement = triggerForMode(mode);
+    navigatorOpen = true;
+    refreshNavigatorPanelGeometry();
+    requestAnimationFrame(refreshNavigatorPanelGeometry);
+  }
+
+  function toggleNavigator(mode: NotesNavigatorMode): void {
+    if (navigatorOpen && navigatorMode === mode) {
+      navigatorOpen = false;
+      return;
+    }
+    openNavigator(mode);
+  }
+
+  function handleWindowPointerDown(event: PointerEvent): void {
+    const target = event.target;
+    if (!(target instanceof Node)) return;
+    if (
+      navigatorOpen
+      && !groupTriggerElement?.contains(target)
+      && !projectTriggerElement?.contains(target)
+      && !noteTriggerElement?.contains(target)
+      && !navigatorPanelElement?.contains(target)
+    ) {
+      navigatorOpen = false;
+    }
+  }
+
+  function createPage(): void {
+    navigatorOpen = false;
+    void notes.createPage("");
+  }
+
+  function importHtmlPage(input: {
+    html: string;
+    title: string | null;
+    sourceName: string | null;
+    keepExternalFileReferences: boolean;
+  }) {
+    const request: Omit<NotesHtmlImportRequest, "parent"> = {
+      html: input.html,
+      title: input.title,
+      source_name: input.sourceName,
+      keep_external_file_references: input.keepExternalFileReferences,
+    };
+    return notes.importHtmlPage(request);
+  }
+
+  function importNotionApi(input: {
+    integrationToken: string;
+    sourceWorkspaceId: string | null;
+    pageIds: string[];
+    dataSourceIds: string[];
+    includeComments: boolean;
+    includeUsers: boolean;
+    keepExternalFileReferences: boolean;
+    pageSize: number;
+  }) {
+    const request: Omit<NotesNotionApiImportRequest, "parent"> = {
+      integration_token: input.integrationToken,
+      source_workspace_id: input.sourceWorkspaceId,
+      page_ids: input.pageIds,
+      data_source_ids: input.dataSourceIds,
+      include_comments: input.includeComments,
+      include_users: input.includeUsers,
+      keep_external_file_references: input.keepExternalFileReferences,
+      page_size: input.pageSize,
+    };
+    return notes.importNotionApi(request);
+  }
+
+  function importNotionExportFolder(input: {
+    exportRootPath: string;
+    sourceWorkspaceId: string | null;
+    keepExternalFileReferences: boolean;
+    copyLocalFileReferences: boolean;
+    importMarkdown: boolean;
+    importHtml: boolean;
+    importCsv: boolean;
+  }) {
+    const request: Omit<NotesNotionExportImportRequest, "parent"> = {
+      export_root_path: input.exportRootPath,
+      source_workspace_id: input.sourceWorkspaceId,
+      keep_external_file_references: input.keepExternalFileReferences,
+      copy_local_file_references: input.copyLocalFileReferences,
+      import_markdown: input.importMarkdown,
+      import_html: input.importHtml,
+      import_csv: input.importCsv,
+    };
+    return notes.importNotionExportFolder(request);
+  }
+
+  function exportHtmlArchive(input: {
+    includePageTree: boolean;
+    includeComments: boolean;
+    includeResolvedComments: boolean;
+    includeAssets: boolean;
+    includeDatabaseViews: boolean;
+  }) {
+    const request: Omit<NotesHtmlExportRequest, "page_id"> = {
+      include_page_tree: input.includePageTree,
+      include_comments: input.includeComments,
+      include_resolved_comments: input.includeResolvedComments,
+      include_assets: input.includeAssets,
+      include_database_views: input.includeDatabaseViews,
+    };
+    return notes.exportHtmlArchive(request);
+  }
+
+  function exportJsonGraph(input: {
+    includeIndexes: boolean;
+    includeHistory: boolean;
+    includeTemplates: boolean;
+    includeLocalState: boolean;
+    pretty: boolean;
+  }) {
+    const request: NotesJsonGraphExportRequest = {
+      include_indexes: input.includeIndexes,
+      include_history: input.includeHistory,
+      include_templates: input.includeTemplates,
+      include_local_state: input.includeLocalState,
+      pretty: input.pretty,
+    };
+    return notes.exportJsonGraph(request);
+  }
+
+  function exportAgentBridge(input: {
+    includeDescendants: boolean;
+    includeBacklinks: boolean;
+    includeDatabaseViews: boolean;
+    includeTaskContext: boolean;
+    includePageComments: boolean;
+    includeResolvedComments: boolean;
+    projectIds: string[];
+  }) {
+    const request: NotesAgentBridgeExportRequest = {
+      include_descendants: input.includeDescendants,
+      include_backlinks: input.includeBacklinks,
+      include_database_views: input.includeDatabaseViews,
+      include_task_context: input.includeTaskContext,
+      include_page_comments: input.includePageComments,
+      include_resolved_comments: input.includeResolvedComments,
+      project_ids: input.projectIds,
+    };
+    return notes.exportAgentBridge(request);
+  }
+
+  $effect(() => {
+    if (!navigatorOpen) return;
+    const viewportWidth = viewport.width;
+    const viewportHeight = viewport.height;
+    void viewportWidth;
+    void viewportHeight;
+    requestAnimationFrame(refreshNavigatorPanelGeometry);
+  });
+</script>
+
+<svelte:window onpointerdown={handleWindowPointerDown} />
+
+<div
+  bind:this={notesHeaderElement}
+  class="flex shrink-0 items-center gap-1 overflow-x-auto px-3"
+  style="height: var(--cal-header-row-h); background-color: var(--cal-header-bg); border-bottom: 1px solid var(--sidebar);"
+  onscroll={refreshNavigatorPanelGeometry}
+>
+  <div bind:this={notesIdentityElement} class="relative min-w-36 shrink-0 min-[760px]:max-w-xl">
+    <div class="flex h-7 min-w-0 max-w-full items-center gap-0.5 text-sm">
+      {#if selectedProject && selectedGroup}
+        <button
+          bind:this={groupTriggerElement}
+          type="button"
+          class={cn(
+            "flex h-7 min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left hover:bg-accent hover:text-accent-foreground",
+            navigatorOpen && navigatorMode === "groups" && "bg-accent text-accent-foreground",
+          )}
+          aria-label={t("projects.navigator.open")}
+          aria-expanded={navigatorOpen && navigatorMode === "groups"}
+          onpointerenter={() => openNavigator("groups")}
+          onclick={() => toggleNavigator("groups")}
+        >
+          <ProjectIcon
+            name={selectedGroup.icon}
+            size={14}
+            strokeWidth={projectIdentityIconStrokeWidth}
+            ignoreColor
+            emojiScale={projectIdentityEmojiScale}
+            class="shrink-0"
+          />
+          <span class="min-w-0 truncate font-semibold text-foreground">{selectedGroup.name}</span>
+        </button>
+        <span class="shrink-0 px-0.5 font-semibold text-muted-foreground">/</span>
+        <button
+          bind:this={projectTriggerElement}
+          type="button"
+          class={cn(
+            "flex h-7 min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left hover:bg-accent hover:text-accent-foreground",
+            navigatorOpen && navigatorMode === "projects" && "bg-accent text-accent-foreground",
+          )}
+          aria-label={t("projects.navigator.open")}
+          aria-expanded={navigatorOpen && navigatorMode === "projects"}
+          onpointerenter={() => openNavigator("projects")}
+          onclick={() => toggleNavigator("projects")}
+        >
+          <ProjectIcon
+            name={selectedProject.icon}
+            size={14}
+            strokeWidth={projectIdentityIconStrokeWidth}
+            ignoreColor
+            emojiScale={projectIdentityEmojiScale}
+            class="shrink-0"
+          />
+          <span class="min-w-0 truncate font-semibold text-foreground">{selectedProject.name}</span>
+          <ChevronDown size={14} strokeWidth={1.75} class="shrink-0 text-muted-foreground" />
+          {#if selectedProject.status !== "active"}
+            <span class={cn("shrink-0 rounded border px-1.5 py-0.5 text-[0.666667rem]", projectLifecycleBadgeClass(selectedProject.status))}>
+              {projectLifecycleLabel(selectedProject.status, t)}
+            </span>
+          {/if}
+        </button>
+        {#if selectedPageTitle}
+          <span class="shrink-0 px-0.5 font-semibold text-muted-foreground">/</span>
+          <button
+            bind:this={noteTriggerElement}
+            type="button"
+            class={cn(
+              "flex h-7 min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left hover:bg-accent hover:text-accent-foreground",
+              navigatorOpen && navigatorMode === "notes" && "bg-accent text-accent-foreground",
+            )}
+            aria-label={t("notes.openNoteNavigator")}
+            aria-expanded={navigatorOpen && navigatorMode === "notes"}
+            onpointerenter={() => openNavigator("notes")}
+            onclick={() => toggleNavigator("notes")}
+          >
+            <FileText size={14} strokeWidth={1.75} class="shrink-0 text-muted-foreground" />
+            <span class="min-w-0 truncate font-semibold text-foreground">{selectedPageTitle}</span>
+            <ChevronDown size={14} strokeWidth={1.75} class="shrink-0 text-muted-foreground" />
+          </button>
+        {/if}
+      {:else}
+        <button
+          bind:this={noteTriggerElement}
+          type="button"
+          class={cn(
+            "flex h-7 min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left hover:bg-accent hover:text-accent-foreground",
+            navigatorOpen && navigatorMode === "notes" && "bg-accent text-accent-foreground",
+          )}
+          aria-label={t("notes.openNoteNavigator")}
+          aria-expanded={navigatorOpen && navigatorMode === "notes"}
+          onclick={() => toggleNavigator("notes")}
+        >
+          <FileText size={14} strokeWidth={1.75} class="shrink-0 text-muted-foreground" />
+          <span class="min-w-0 truncate font-semibold text-foreground">{selectedPageTitle ?? t("notes.title")}</span>
+          <ChevronDown size={14} strokeWidth={1.75} class="shrink-0 text-muted-foreground" />
+        </button>
+      {/if}
+    </div>
+    {#if navigatorOpen}
+      <div
+        bind:this={navigatorPanelElement}
+        class="fixed z-80"
+        style={navigatorPanelStyle}
+        role="dialog"
+        tabindex="-1"
+        aria-label={navigatorMode === "notes" ? t("notes.noteNavigatorLabel") : t("projects.navigator.pickerLabel")}
+      >
+        {#if navigatorMode === "notes"}
+          <NotesTopbarPageNavigator
+            selectedPageId={notes.selectedPageId}
+            panelMaxHeight={navigatorPanelMaxHeight}
+            onPageSelected={() => {
+              navigatorOpen = false;
+            }}
+            onCreatePage={createPage}
+          />
+        {:else}
+          <ProjectNavigator
+            {selectedProjectId}
+            selectedGroupId={selectedGroup?.id ?? null}
+            {showInactiveProjects}
+            panelMode={navigatorMode}
+            panelMaxHeight={navigatorPanelMaxHeight}
+            onShowInactiveProjectsChange={onShowInactiveProjectsChange}
+            onProjectSelected={() => {
+              navigatorOpen = false;
+              onProjectSelected();
+            }}
+          />
+        {/if}
+      </div>
+    {/if}
+  </div>
+  <div class="flex-1"></div>
+  <div class="flex shrink-0 items-center gap-1">
+    <button
+      type="button"
+      class={toolbarIconButtonClass(notes.viewMode === "pages" && !notes.selectedPageId)}
+      aria-label={t("notes.showProjectHome")}
+      title={t("notes.showProjectHome")}
+      onclick={onShowHome}
+    >
+      <PanelTopOpen size={14} strokeWidth={1.75} />
+    </button>
+    <button
+      type="button"
+      class={toolbarIconButtonClass(false)}
+      aria-label={t("notes.searchLabel")}
+      title={t("notes.searchLabel")}
+      onclick={onFocusSearch}
+    >
+      <Search size={14} strokeWidth={1.75} />
+    </button>
+    <button
+      type="button"
+      class={toolbarIconButtonClass(false)}
+      aria-label={t("notes.htmlImportOpen")}
+      title={t("notes.htmlImportOpen")}
+      onclick={() => {
+        htmlImportOpen = true;
+      }}
+    >
+      <Upload size={14} strokeWidth={1.75} />
+    </button>
+    <button
+      type="button"
+      class={toolbarIconButtonClass(false)}
+      aria-label={t("notes.notionApiImportOpen")}
+      title={t("notes.notionApiImportOpen")}
+      onclick={() => {
+        notionApiImportOpen = true;
+      }}
+    >
+      <CloudDownload size={14} strokeWidth={1.75} />
+    </button>
+    <button
+      type="button"
+      class={toolbarIconButtonClass(false)}
+      aria-label={t("notes.notionExportImportOpen")}
+      title={t("notes.notionExportImportOpen")}
+      onclick={() => {
+        notionExportImportOpen = true;
+      }}
+    >
+      <FileText size={14} strokeWidth={1.75} />
+    </button>
+    <button
+      type="button"
+      class={toolbarIconButtonClass(false)}
+      aria-label={t("notes.htmlExportOpen")}
+      title={notes.loadedPage ? t("notes.htmlExportOpen") : t("notes.htmlExportUnavailable")}
+      disabled={!notes.loadedPage}
+      onclick={() => {
+        htmlExportOpen = true;
+      }}
+    >
+      <Download size={14} strokeWidth={1.75} />
+    </button>
+    <button
+      type="button"
+      class={toolbarIconButtonClass(false)}
+      aria-label={t("notes.agentBridgeExportOpen")}
+      title={notes.loadedPage ? t("notes.agentBridgeExportOpen") : t("notes.agentBridgeExportUnavailable")}
+      disabled={!notes.loadedPage}
+      onclick={() => {
+        agentBridgeExportOpen = true;
+      }}
+    >
+      <GitBranch size={14} strokeWidth={1.75} />
+    </button>
+    <button
+      type="button"
+      class={toolbarIconButtonClass(false)}
+      aria-label={t("notes.jsonGraphExportOpen")}
+      title={t("notes.jsonGraphExportOpen")}
+      onclick={() => {
+        jsonGraphExportOpen = true;
+      }}
+    >
+      <DatabaseBackup size={14} strokeWidth={1.75} />
+    </button>
+    <button
+      type="button"
+      class={toolbarIconButtonClass(notes.viewMode === "archive")}
+      aria-label={t("notes.archive")}
+      title={t("notes.archive")}
+      onclick={() => {
+        void notes.openArchive();
+      }}
+    >
+      <Archive size={14} strokeWidth={1.75} />
+    </button>
+    <button
+      type="button"
+      class={toolbarIconButtonClass(notes.viewMode === "trash")}
+      aria-label={t("notes.trash")}
+      title={t("notes.trash")}
+      onclick={() => {
+        void notes.openTrash();
+      }}
+    >
+      <Trash2 size={14} strokeWidth={1.75} />
+    </button>
+    <button
+      type="button"
+      class={toolbarIconButtonClass(false, false, true)}
+      aria-label={t("notes.newPage")}
+      title={t("notes.newPage")}
+      onclick={createPage}
+    >
+      <Plus size={14} strokeWidth={1.75} />
+    </button>
+  </div>
+</div>
+
+{#if htmlImportOpen}
+  <NotesHtmlImportDialog
+    onImport={importHtmlPage}
+    onCancel={() => {
+      htmlImportOpen = false;
+    }}
+  />
+{/if}
+
+{#if notionApiImportOpen}
+  <NotesNotionApiImportDialog
+    onImport={importNotionApi}
+    onCancel={() => {
+      notionApiImportOpen = false;
+    }}
+  />
+{/if}
+
+{#if notionExportImportOpen}
+  <NotesNotionExportImportDialog
+    onImport={importNotionExportFolder}
+    onCancel={() => {
+      notionExportImportOpen = false;
+    }}
+  />
+{/if}
+
+{#if htmlExportOpen && notes.loadedPage}
+  <NotesHtmlExportDialog
+    pageTitle={notesPageTitle(notes.loadedPage, t("notes.untitled"))}
+    onExport={exportHtmlArchive}
+    onCancel={() => {
+      htmlExportOpen = false;
+    }}
+  />
+{/if}
+
+{#if agentBridgeExportOpen && notes.loadedPage}
+  <NotesAgentBridgeExportDialog
+    pageTitle={notesPageTitle(notes.loadedPage, t("notes.untitled"))}
+    onExport={exportAgentBridge}
+    onCancel={() => {
+      agentBridgeExportOpen = false;
+    }}
+  />
+{/if}
+
+{#if jsonGraphExportOpen}
+  <NotesJsonGraphExportDialog
+    onExport={exportJsonGraph}
+    onCancel={() => {
+      jsonGraphExportOpen = false;
+    }}
+  />
+{/if}

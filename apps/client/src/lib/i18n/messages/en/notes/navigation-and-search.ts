@@ -1,5 +1,8 @@
 export const navigationAndSearch = {
   title: "Notes",
+  openNoteNavigator: "Open note navigator",
+  noteNavigatorLabel: "Note navigator",
+  showProjectHome: "Show project notes",
   newPage: "New page",
   htmlImportOpen: "Import HTML",
   htmlImportDialogTitle: "Import HTML",

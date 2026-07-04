@@ -1,21 +1,31 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { parseNotesLinkHash } from "$lib/notes/block-link";
-  import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getNotes } from "$lib/stores/notes.svelte";
+  import { getProjects } from "$lib/stores/projects.svelte";
   import NotesArchiveView from "./NotesArchiveView.svelte";
   import NotesEditor from "./NotesEditor.svelte";
   import NotesEmptyState from "./NotesEmptyState.svelte";
-  import NotesSidebar from "./NotesSidebar.svelte";
+  import NotesProjectHome from "./NotesProjectHome.svelte";
   import NotesTrashView from "./NotesTrashView.svelte";
+  import NotesWorkspaceHeader from "./NotesWorkspaceHeader.svelte";
 
   const notes = getNotes();
-  const { t } = getLocalization();
+  const projects = getProjects();
+
+  let showInactiveProjects = $state(false);
+  let focusSearchRequestId = $state(0);
+  const selectedProject = $derived(projects.selectedProject);
+  const selectedGroup = $derived(projects.selectedGroup);
+  const selectedProjectId = $derived(selectedProject?.id ?? null);
 
   onMount(() => {
     async function openHashTarget(): Promise<void> {
       const target = parseNotesLinkHash(window.location.hash);
-      if (!target) return;
+      if (!target) {
+        await notes.selectPage(null);
+        return;
+      }
       const opened = await notes.openNotesLink(target);
       if (!opened) console.warn("notes link target was not found");
     }
@@ -25,6 +35,9 @@
       .catch((error) => {
         console.error("load notes failed", error);
       });
+    void projects.ensureLoaded().catch((error) => {
+      console.error("load projects failed", error);
+    });
     const onHashChange = () => {
       void openHashTarget().catch((error) => {
         console.error("open notes block link failed", error);
@@ -39,11 +52,38 @@
   function createFirstPage(): void {
     void notes.createPage("");
   }
+
+  function showProjectHome(): void {
+    if (notes.viewMode === "archive") notes.closeArchive();
+    if (notes.viewMode === "trash") notes.closeTrash();
+    void notes.selectPage(null);
+  }
+
+  function focusProjectHomeSearch(): void {
+    showProjectHome();
+    focusSearchRequestId += 1;
+  }
+
+  function handleProjectSelected(): void {
+    showProjectHome();
+  }
 </script>
 
-<div class="notes-view-root h-full min-h-0 overflow-hidden text-foreground" style="background-color: var(--cal-bg);">
-  <div class="notes-view-layout flex h-full min-h-0 overflow-hidden">
-    <NotesSidebar />
+<div class="notes-view-root flex h-full min-h-0 flex-col overflow-hidden text-foreground" style="background-color: var(--cal-bg);">
+  <NotesWorkspaceHeader
+    {selectedProject}
+    {selectedGroup}
+    {selectedProjectId}
+    selectedPage={notes.loadedPage}
+    {showInactiveProjects}
+    onShowInactiveProjectsChange={(value) => {
+      showInactiveProjects = value;
+    }}
+    onProjectSelected={handleProjectSelected}
+    onShowHome={showProjectHome}
+    onFocusSearch={focusProjectHomeSearch}
+  />
+  <div class="notes-view-layout min-h-0 flex-1 overflow-hidden">
     {#if notes.viewMode === "archive"}
       <NotesArchiveView />
     {:else if notes.viewMode === "trash"}
@@ -52,8 +92,10 @@
       <div class="min-w-0 flex-1">
         <NotesEmptyState onCreate={createFirstPage} />
       </div>
-    {:else}
+    {:else if notes.selectedPageId && notes.loadedPage}
       <NotesEditor />
+    {:else}
+      <NotesProjectHome {focusSearchRequestId} />
     {/if}
   </div>
 </div>
@@ -61,11 +103,5 @@
 <style>
   .notes-view-root {
     container: notes-view / inline-size;
-  }
-
-  @container notes-view (max-width: 520px) {
-    .notes-view-layout {
-      flex-direction: column;
-    }
   }
 </style>
