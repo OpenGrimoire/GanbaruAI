@@ -27,7 +27,7 @@ export const dataFolderError = {
   permission:
     "Ganbaru AI cannot access this folder. Check folder permissions or choose another location.",
   database:
-    "The app found this Ganbaru AI folder, but ganbaru-ai.sqlite could not be opened. Restore a backup or choose another folder.",
+    "The app found this Ganbaru AI folder, but its local data file could not be opened. Restore a backup or choose another folder.",
   defaultNotValid:
     "The default Ganbaru AI folder already exists, but it is not a valid Ganbaru AI folder. Move those files somewhere else, choose another folder, or import an existing Ganbaru AI folder.",
   folderNotEmpty:

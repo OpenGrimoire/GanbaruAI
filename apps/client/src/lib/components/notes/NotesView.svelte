@@ -5,7 +5,6 @@
   import { getProjects } from "$lib/stores/projects.svelte";
   import NotesArchiveView from "./NotesArchiveView.svelte";
   import NotesEditor from "./NotesEditor.svelte";
-  import NotesEmptyState from "./NotesEmptyState.svelte";
   import NotesProjectHome from "./NotesProjectHome.svelte";
   import NotesTrashView from "./NotesTrashView.svelte";
   import NotesWorkspaceHeader from "./NotesWorkspaceHeader.svelte";
@@ -52,10 +51,6 @@
     };
   });
 
-  function createFirstPage(): void {
-    void notes.createPage("", { projectId: selectedProjectId });
-  }
-
   function showProjectHome(): void {
     if (notes.viewMode === "archive") notes.closeArchive();
     if (notes.viewMode === "trash") notes.closeTrash();
@@ -93,10 +88,6 @@
       <NotesTrashView />
     {:else if initialNotesLoadPending || (!notes.loaded && notes.loading)}
       <div class="min-w-0 flex-1" aria-busy="true"></div>
-    {:else if notes.loaded && notes.allPages.length === 0}
-      <div class="min-w-0 flex-1">
-        <NotesEmptyState onCreate={createFirstPage} />
-      </div>
     {:else if notes.selectedPageId && notes.loadedPage}
       <NotesEditor projectId={selectedProjectId} />
     {:else}

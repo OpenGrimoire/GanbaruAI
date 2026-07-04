@@ -174,6 +174,15 @@
     openNavigator(mode);
   }
 
+  function handleProjectTriggerClick(): void {
+    if (selectedPageTitle) {
+      navigatorOpen = false;
+      onShowHome();
+      return;
+    }
+    toggleNavigator("projects");
+  }
+
   function handleWindowPointerDown(event: PointerEvent): void {
     const target = event.target;
     if (!(target instanceof Node)) return;
@@ -320,10 +329,10 @@
             "flex h-7 min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left hover:bg-accent hover:text-accent-foreground",
             navigatorOpen && navigatorMode === "projects" && "bg-accent text-accent-foreground",
           )}
-          aria-label={t("projects.navigator.open")}
+          aria-label={selectedPageTitle ? t("notes.showProjectHome") : t("projects.navigator.open")}
           aria-expanded={navigatorOpen && navigatorMode === "projects"}
           onpointerenter={() => openNavigator("projects")}
-          onclick={() => toggleNavigator("projects")}
+          onclick={handleProjectTriggerClick}
         >
           <ProjectIcon
             name={selectedProject.icon}

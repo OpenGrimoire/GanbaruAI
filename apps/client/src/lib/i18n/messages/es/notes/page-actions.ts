@@ -33,10 +33,6 @@ export const pageActions = {
   todoChecked: "Tarea marcada",
   codeLanguage: "Lenguaje de código",
   codeLanguagePlainText: "Texto plano",
-  empty: {
-    title: "Aún no hay notas",
-    body: "Crea una página para empezar a escribir bloques locales respaldados por SQLite.",
-  },
   blockType: {
     paragraph: "Párrafo",
     heading1: "Encabezado 1",

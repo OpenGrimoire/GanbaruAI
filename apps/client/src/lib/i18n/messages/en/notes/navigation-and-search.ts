@@ -115,9 +115,8 @@ export const navigationAndSearch = {
     warnings: number,
   ) =>
     `Exported ${pages} ${pages === 1 ? "page" : "pages"}, ${projects} ${projects === 1 ? "project" : "projects"}, ${tasks} ${tasks === 1 ? "task" : "tasks"}, ${views} ${views === 1 ? "view" : "views"}, and ${backlinks} ${backlinks === 1 ? "backlink" : "backlinks"} with ${warnings} ${warnings === 1 ? "warning" : "warnings"}`,
-  createFirstPage: "Create page",
   untitled: "Untitled",
-  noPages: "No pages yet",
+  noPages: "No notes yet",
   noSearchResults: "No matching results",
   searchPlaceholder: "Search notes...",
   searchLabel: "Search notes",

@@ -86,83 +86,81 @@
   }
 </script>
 
-<div class="h-full min-h-0 overflow-auto">
-  <div class="mx-auto flex w-full max-w-5xl flex-col gap-4 px-4 py-4">
-    <div class="flex flex-wrap items-center gap-2">
-      <label class="flex min-w-64 flex-1 items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1.5">
-        <Search class="size-4 shrink-0 text-muted-foreground" />
-        <input
-          bind:this={searchInput}
-          class="min-w-0 flex-1 bg-transparent text-[0.866667rem] text-foreground outline-none placeholder:text-muted-foreground"
-          bind:value={search}
-          placeholder={t("notes.searchPlaceholder")}
-          aria-label={t("notes.searchLabel")}
-        />
-      </label>
-      <button
-        type="button"
-        class="flex h-8 shrink-0 items-center gap-1.5 rounded-md bg-primary px-2.5 text-[0.8rem] font-medium text-primary-foreground hover:bg-primary/90"
-        onclick={createPage}
-      >
-        <Plus class="size-4" />
-        <span>{t("notes.newPage")}</span>
-      </button>
-    </div>
-
-    {#if notes.loading && projectPages.length === 0}
-      <div class="text-[0.866667rem] text-muted-foreground">{t("notes.loading")}</div>
-    {:else if notes.loadError}
-      <div class="text-[0.866667rem] text-destructive">
-        {t("notes.loadFailed", notes.loadError)}
-      </div>
-    {:else if treeItems.length === 0}
-      <div class="text-[0.866667rem] text-muted-foreground">
-        {search.trim() ? t("notes.noSearchResults") : t("notes.noPages")}
-      </div>
-    {:else}
-      <div class="flex min-w-0 flex-col gap-1">
-        {#each treeItems as item (item.page.id)}
-          <NotesPageRow
-            page={item.page}
-            depth={item.depth}
-            hasChildren={item.hasChildren}
-            collapsed={item.collapsed}
-            parentStatus={item.parentStatus}
-            favorited={notes.favoritePageIds.includes(item.page.id)}
-            selected={item.page.id === notes.selectedPageId}
-            onSelect={() => {
-              void notes.selectPage(item.page.id);
-            }}
-            onRename={(title) => {
-              void notes.renamePage(item.page.id, title);
-            }}
-            onToggleCollapsed={(collapsed) => {
-              notes.setSidebarPageCollapsed(item.page.id, collapsed);
-            }}
-            onToggleFavorite={(favorited) => {
-              notes.setPageFavorited(item.page.id, favorited);
-            }}
-            onCreateChild={() => {
-              createSubpage(item.page.id);
-            }}
-            onDuplicate={() => {
-              duplicatePage(item.page);
-            }}
-            moveTargets={moveTargets(item.page)}
-            onMove={(parent) => {
-              void notes.movePage(item.page.id, parent);
-            }}
-            onArchive={() => {
-              pendingArchivePage = item.page;
-            }}
-            onTrash={() => {
-              pendingTrashPage = item.page;
-            }}
-          />
-        {/each}
-      </div>
-    {/if}
+<div class="flex h-full min-h-0 flex-col overflow-auto px-4 py-4">
+  <div class="mx-auto flex w-full max-w-5xl shrink-0 flex-wrap items-center gap-2">
+    <label class="flex min-w-64 flex-1 items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1.5">
+      <Search class="size-4 shrink-0 text-muted-foreground" />
+      <input
+        bind:this={searchInput}
+        class="min-w-0 flex-1 bg-transparent text-[0.866667rem] text-foreground outline-none placeholder:text-muted-foreground"
+        bind:value={search}
+        placeholder={t("notes.searchPlaceholder")}
+        aria-label={t("notes.searchLabel")}
+      />
+    </label>
+    <button
+      type="button"
+      class="flex h-8 shrink-0 items-center gap-1.5 rounded-md bg-primary px-2.5 text-[0.8rem] font-medium text-primary-foreground hover:bg-primary/90"
+      onclick={createPage}
+    >
+      <Plus class="size-4" />
+      <span>{t("notes.newPage")}</span>
+    </button>
   </div>
+
+  {#if notes.loading && projectPages.length === 0}
+    <div class="mx-auto mt-4 w-full max-w-5xl text-[0.866667rem] text-muted-foreground">{t("notes.loading")}</div>
+  {:else if notes.loadError}
+    <div class="mx-auto mt-4 w-full max-w-5xl text-[0.866667rem] text-destructive">
+      {t("notes.loadFailed", notes.loadError)}
+    </div>
+  {:else if treeItems.length === 0}
+    <div class="mx-auto flex min-h-0 w-full max-w-5xl flex-1 items-center justify-center text-center text-[0.866667rem] text-muted-foreground">
+      {search.trim() ? t("notes.noSearchResults") : t("notes.noPages")}
+    </div>
+  {:else}
+    <div class="mx-auto mt-4 flex w-full max-w-5xl min-w-0 flex-col gap-1">
+      {#each treeItems as item (item.page.id)}
+        <NotesPageRow
+          page={item.page}
+          depth={item.depth}
+          hasChildren={item.hasChildren}
+          collapsed={item.collapsed}
+          parentStatus={item.parentStatus}
+          favorited={notes.favoritePageIds.includes(item.page.id)}
+          selected={item.page.id === notes.selectedPageId}
+          onSelect={() => {
+            void notes.selectPage(item.page.id);
+          }}
+          onRename={(title) => {
+            void notes.renamePage(item.page.id, title);
+          }}
+          onToggleCollapsed={(collapsed) => {
+            notes.setSidebarPageCollapsed(item.page.id, collapsed);
+          }}
+          onToggleFavorite={(favorited) => {
+            notes.setPageFavorited(item.page.id, favorited);
+          }}
+          onCreateChild={() => {
+            createSubpage(item.page.id);
+          }}
+          onDuplicate={() => {
+            duplicatePage(item.page);
+          }}
+          moveTargets={moveTargets(item.page)}
+          onMove={(parent) => {
+            void notes.movePage(item.page.id, parent);
+          }}
+          onArchive={() => {
+            pendingArchivePage = item.page;
+          }}
+          onTrash={() => {
+            pendingTrashPage = item.page;
+          }}
+        />
+      {/each}
+    </div>
+  {/if}
 </div>
 
 {#if pendingArchivePage}

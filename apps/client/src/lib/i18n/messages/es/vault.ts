@@ -30,7 +30,7 @@ export const dataFolderError = {
   permission:
     "Ganbaru AI no puede acceder a esta carpeta. Revisa los permisos o elige otra ubicación.",
   database:
-    "La app encontró esta carpeta de Ganbaru AI, pero ganbaru-ai.sqlite no se pudo abrir. Restaura una copia de seguridad o elige otra carpeta.",
+    "La app encontró esta carpeta de Ganbaru AI, pero no pudo abrir su archivo de datos local. Restaura una copia de seguridad o elige otra carpeta.",
   defaultNotValid:
     "La carpeta predeterminada de Ganbaru AI ya existe, pero no es una carpeta válida de Ganbaru AI. Mueve esos archivos a otro lugar, elige otra carpeta o importa una carpeta de Ganbaru AI existente.",
   folderNotEmpty:

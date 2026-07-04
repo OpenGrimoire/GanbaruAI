@@ -56,12 +56,12 @@ export const titleBar = {
   moveToNewWindow: "Move to new window",
   resetSequenceTitle: "Open reset confirmation?",
   resetSequenceMessage:
-    "You pressed the hidden reset shortcut 10 times. Continue only if you meant to erase the structured database",
+    "You pressed the hidden reset shortcut 10 times. Continue only if you meant to erase your local app data",
   resetSequenceConfirm: "Continue (Enter)",
-  resetDatabaseTitle: "Reset database?",
+  resetDatabaseTitle: "Reset local data?",
   resetDatabaseMessage:
-    "The active Ganbaru AI folder's ganbaru-ai.sqlite file will be permanently deleted",
-  resetDatabaseConfirm: "Reset database (Enter)",
+    "The active Ganbaru AI folder's local data file will be permanently deleted",
+  resetDatabaseConfirm: "Reset local data (Enter)",
   closeAppTitle: "Close the app?",
   closeAppMessage: "All productivity features will stop working",
   closeAnyway: "Close anyway (Enter)",

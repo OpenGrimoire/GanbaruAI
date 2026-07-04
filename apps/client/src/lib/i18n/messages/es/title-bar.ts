@@ -59,12 +59,12 @@ export const titleBar = {
   moveToNewWindow: "Mover a una ventana nueva",
   resetSequenceTitle: "¿Abrir confirmación de reinicio?",
   resetSequenceMessage:
-    "Presionaste el atajo oculto de reinicio 10 veces. Continúa solo si querías borrar la base de datos estructurada",
+    "Presionaste el atajo oculto de reinicio 10 veces. Continúa solo si querías borrar tus datos locales de la app",
   resetSequenceConfirm: "Continuar (Enter)",
-  resetDatabaseTitle: "¿Reiniciar base de datos?",
+  resetDatabaseTitle: "¿Reiniciar datos locales?",
   resetDatabaseMessage:
-    "El archivo ganbaru-ai.sqlite de la carpeta activa de Ganbaru AI se eliminará permanentemente",
-  resetDatabaseConfirm: "Reiniciar base de datos (Enter)",
+    "El archivo de datos local de la carpeta activa de Ganbaru AI se eliminará permanentemente",
+  resetDatabaseConfirm: "Reiniciar datos locales (Enter)",
   closeAppTitle: "¿Cerrar la app?",
   closeAppMessage: "Todas las funciones de productividad dejarán de funcionar",
   closeAnyway: "Cerrar de todos modos (Enter)",

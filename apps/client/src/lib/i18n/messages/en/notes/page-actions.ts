@@ -29,10 +29,6 @@ export const pageActions = {
   todoChecked: "To-do checked",
   codeLanguage: "Code language",
   codeLanguagePlainText: "Plain text",
-  empty: {
-    title: "No notes yet",
-    body: "Create a page to start writing local blocks backed by SQLite.",
-  },
   blockType: {
     paragraph: "Paragraph",
     heading1: "Heading 1",
