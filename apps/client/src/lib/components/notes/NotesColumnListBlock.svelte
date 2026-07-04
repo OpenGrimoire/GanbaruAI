@@ -719,8 +719,16 @@
 </div>
 
 <style>
+  .notes-block-row {
+    --notes-block-handle-offset: 2.75rem;
+  }
+
   .notes-block-indent {
     width: calc(var(--notes-depth) * 1.25rem);
+  }
+
+  .notes-block-surface {
+    margin-inline-start: calc(var(--notes-block-handle-offset) * -1);
   }
 
   .notes-column-layout {
@@ -787,7 +795,7 @@
   .notes-block-drop-before::before,
   .notes-block-drop-after::after {
     position: absolute;
-    left: calc(var(--notes-depth) * 1.25rem + 2.75rem);
+    left: calc(var(--notes-depth) * 1.25rem);
     right: 0.5rem;
     z-index: 5;
     height: 2px;
@@ -806,7 +814,7 @@
 
   .notes-block-drop-outdent::after {
     position: absolute;
-    left: max(0.5rem, calc((var(--notes-depth) - 1) * 1.25rem + 2.75rem));
+    left: max(0rem, calc((var(--notes-depth) - 1) * 1.25rem));
     right: 0.5rem;
     bottom: -1px;
     z-index: 5;
@@ -853,6 +861,12 @@
 
     .notes-column-header {
       grid-template-columns: repeat(4, minmax(1.65rem, auto)) minmax(3rem, 1fr) auto;
+    }
+  }
+
+  @media (any-pointer: coarse), (max-width: 420px) {
+    .notes-block-row {
+      --notes-block-handle-offset: 3.5rem;
     }
   }
 </style>
