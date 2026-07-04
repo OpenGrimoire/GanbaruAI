@@ -8,7 +8,11 @@ import {
 
 describe("notes block editor UI helpers", () => {
   it("keeps heading and code editor classes distinct", () => {
-    expect(notesTextareaClass("heading_1")).toContain("text-[1.45rem]");
+    expect(notesTextareaClass("heading_1")).toContain("text-[1.875rem]");
+    expect(notesTextareaClass("heading_2")).toContain("text-[1.5rem]");
+    expect(notesTextareaClass("heading_3")).toContain("text-[1.25rem]");
+    expect(notesTextareaClass("heading_4")).toContain("text-[1.125rem]");
+    expect(notesTextareaClass("heading_1")).toContain("leading-[1.3]");
     expect(notesTextareaClass("code")).toContain("font-mono");
   });
 
@@ -20,6 +24,8 @@ describe("notes block editor UI helpers", () => {
   it("adds rich editor affordances on top of text block classes", () => {
     expect(notesRichTextEditorClass("paragraph")).toContain("notes-rich-text-editor");
     expect(notesRichTextEditorClass("paragraph")).toContain("break-words");
+    expect(notesRichTextEditorClass("paragraph")).toContain("text-base");
+    expect(notesRichTextEditorClass("paragraph")).toContain("leading-normal");
     expect(notesRichTextEditorClass("paragraph")).not.toContain("focus-visible:ring");
     expect(notesRichTextEditorClass("code")).toContain("font-mono");
   });

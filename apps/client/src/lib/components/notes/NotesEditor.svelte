@@ -533,7 +533,7 @@
 
       <div class="mx-auto flex w-full max-w-5xl flex-col px-4 pb-12 pt-8 sm:px-8">
         <div class="notes-page-title-surface group/title min-w-0 pb-5">
-          <div class="mb-2 flex min-h-8 flex-wrap items-center gap-1.5 opacity-0 transition-opacity group-hover/title:opacity-100 group-focus-within/title:opacity-100">
+          <div class="-ml-1.5 mb-2 flex min-h-8 flex-wrap items-center gap-1.5 opacity-0 transition-opacity group-hover/title:opacity-100 group-focus-within/title:opacity-100">
             <div
               class="relative"
               use:dismissOnOutside={{ enabled: iconMenuAnchor === "title", onDismiss: closeIconMenu }}
@@ -620,7 +620,7 @@
 
           <input
             bind:this={titleInput}
-            class="block w-full min-w-0 bg-transparent text-[2.35rem] font-semibold leading-tight text-foreground outline-none placeholder:text-muted-foreground"
+            class="block w-full min-w-0 bg-transparent text-[2.5rem] font-bold leading-[1.2] text-foreground outline-none placeholder:text-muted-foreground"
             aria-label={t("notes.titleInput")}
             bind:value={titleDraft}
             placeholder={t("notes.titlePlaceholder")}
