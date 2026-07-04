@@ -10,6 +10,16 @@ export function parseStoredNotesPageId(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+/** Return the restored page id only when the page still exists. */
+export function restoredNotesPageSelection(
+  pageId: string | null,
+  pages: readonly { id: string }[],
+): string | null {
+  const normalizedPageId = pageId?.trim();
+  if (!normalizedPageId) return null;
+  return pages.some((page) => page.id === normalizedPageId) ? normalizedPageId : null;
+}
+
 /** Pick the page that should become selected after a page leaves the visible list. */
 export function nextSelectedNotesPageId(
   pages: readonly { id: string }[],

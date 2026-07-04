@@ -3,6 +3,7 @@ import {
   filterNotesPagesByTitle,
   nextSelectedNotesPageId,
   parseStoredNotesPageId,
+  restoredNotesPageSelection,
 } from "./page-selection";
 
 describe("notes page selection", () => {
@@ -17,6 +18,13 @@ describe("notes page selection", () => {
     expect(nextSelectedNotesPageId(pages, "b")).toBe("c");
     expect(nextSelectedNotesPageId(pages, "c")).toBe("b");
     expect(nextSelectedNotesPageId([{ id: "a" }], "a")).toBe(null);
+  });
+
+  it("restores only an explicit existing page selection", () => {
+    const pages = [{ id: "a" }, { id: "b" }];
+    expect(restoredNotesPageSelection(" b ", pages)).toBe("b");
+    expect(restoredNotesPageSelection("missing", pages)).toBe(null);
+    expect(restoredNotesPageSelection(null, pages)).toBe(null);
   });
 
   it("filters pages by normalized title", () => {

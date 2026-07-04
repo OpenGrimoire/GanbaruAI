@@ -64,7 +64,10 @@ import {
   parentIdForBlock,
   type NotesTreeState,
 } from "$lib/notes/block-tree";
-import { nextSelectedNotesPageId } from "$lib/notes/page-selection";
+import {
+  nextSelectedNotesPageId,
+  restoredNotesPageSelection,
+} from "$lib/notes/page-selection";
 import {
   recordRecentNotesPageId,
   setNotesPageFavoriteId,
@@ -892,9 +895,7 @@ async function load(): Promise<void> {
     await loadLocalUser();
     await pageHistoryController.loadSettings();
     if (requestId !== loadRequestId) return;
-    const nextSelected = selectedPageId && pages.some((page) => page.id === selectedPageId)
-      ? selectedPageId
-      : pages[0]?.id ?? null;
+    const nextSelected = restoredNotesPageSelection(selectedPageId, allPages);
     saveSelectedPageId(nextSelected);
     if (nextSelected) {
       await loadPageTree(nextSelected);

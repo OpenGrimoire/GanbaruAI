@@ -15,6 +15,7 @@
 
   let showInactiveProjects = $state(false);
   let focusSearchRequestId = $state(0);
+  let initialNotesLoadPending = $state(!notes.loaded);
   const selectedProject = $derived(projects.selectedProject);
   const selectedGroup = $derived(projects.selectedGroup);
   const selectedProjectId = $derived(selectedProject?.id ?? null);
@@ -33,6 +34,9 @@
       .then(openHashTarget)
       .catch((error) => {
         console.error("load notes failed", error);
+      })
+      .finally(() => {
+        initialNotesLoadPending = false;
       });
     void projects.ensureLoaded().catch((error) => {
       console.error("load projects failed", error);
@@ -87,6 +91,8 @@
       <NotesArchiveView />
     {:else if notes.viewMode === "trash"}
       <NotesTrashView />
+    {:else if initialNotesLoadPending || (!notes.loaded && notes.loading)}
+      <div class="min-w-0 flex-1" aria-busy="true"></div>
     {:else if notes.loaded && notes.allPages.length === 0}
       <div class="min-w-0 flex-1">
         <NotesEmptyState onCreate={createFirstPage} />
