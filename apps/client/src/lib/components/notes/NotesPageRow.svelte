@@ -155,7 +155,7 @@
     />
   {:else}
     <div
-      class={`notes-page-row-content flex min-w-0 items-center rounded-md ${
+      class={`notes-page-row-content flex min-w-0 items-center rounded-md pr-6 ${
         selected ? "bg-accent text-accent-foreground" : "text-foreground hover:bg-accent/70"
       }`}
     >

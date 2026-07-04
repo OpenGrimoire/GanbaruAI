@@ -87,7 +87,7 @@
 </script>
 
 <div class="flex h-full min-h-0 flex-col overflow-auto px-4 py-4">
-  <div class="mx-auto flex w-full max-w-5xl shrink-0 flex-wrap items-center gap-2">
+  <div class="mx-auto flex w-full max-w-208 shrink-0 flex-wrap items-center gap-2">
     <label class="flex min-w-64 flex-1 items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1.5">
       <Search class="size-4 shrink-0 text-muted-foreground" />
       <input
@@ -109,17 +109,17 @@
   </div>
 
   {#if notes.loading && projectPages.length === 0}
-    <div class="mx-auto mt-4 w-full max-w-5xl text-[0.866667rem] text-muted-foreground">{t("notes.loading")}</div>
+    <div class="mx-auto mt-4 w-full max-w-208 text-[0.866667rem] text-muted-foreground">{t("notes.loading")}</div>
   {:else if notes.loadError}
-    <div class="mx-auto mt-4 w-full max-w-5xl text-[0.866667rem] text-destructive">
+    <div class="mx-auto mt-4 w-full max-w-208 text-[0.866667rem] text-destructive">
       {t("notes.loadFailed", notes.loadError)}
     </div>
   {:else if treeItems.length === 0}
-    <div class="mx-auto flex min-h-0 w-full max-w-5xl flex-1 items-center justify-center text-center text-[0.866667rem] text-muted-foreground">
+    <div class="mx-auto flex min-h-0 w-full max-w-208 flex-1 items-center justify-center text-center text-[0.866667rem] text-muted-foreground">
       {search.trim() ? t("notes.noSearchResults") : t("notes.noPages")}
     </div>
   {:else}
-    <div class="mx-auto mt-4 flex w-full max-w-5xl min-w-0 flex-col gap-1">
+    <div class="mx-auto mt-4 flex w-full max-w-208 min-w-0 flex-col">
       {#each treeItems as item (item.page.id)}
         <NotesPageRow
           page={item.page}

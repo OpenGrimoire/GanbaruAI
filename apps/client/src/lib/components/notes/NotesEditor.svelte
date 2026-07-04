@@ -531,7 +531,7 @@
         </div>
       {/if}
 
-      <div class="mx-auto flex w-full max-w-5xl flex-col px-4 pb-12 pt-8 sm:px-8">
+      <div class="mx-auto flex w-full max-w-208 flex-col px-4 pb-12 pt-8 sm:px-8">
         <div class="notes-page-title-surface group/title min-w-0 pb-5">
           <div class="-ml-1.5 mb-2 flex min-h-8 flex-wrap items-center gap-1.5 opacity-0 transition-opacity group-hover/title:opacity-100 group-focus-within/title:opacity-100">
             <div
