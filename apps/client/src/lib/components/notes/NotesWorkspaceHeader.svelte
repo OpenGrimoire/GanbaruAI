@@ -95,6 +95,11 @@
     if (notes.viewMode === "archive") return t("notes.archive");
     if (notes.viewMode === "trash") return t("notes.trash");
     if (!selectedPage) return null;
+    const draftTitle = notes.pageTitleDraftForPage(selectedPage.id);
+    if (draftTitle !== null) {
+      const trimmedDraftTitle = draftTitle.trim();
+      return trimmedDraftTitle.length > 0 ? trimmedDraftTitle : t("notes.untitled");
+    }
     return notesPageTitle(selectedPage, t("notes.untitled"));
   });
   const selectedPageId = $derived(selectedPage?.id ?? null);

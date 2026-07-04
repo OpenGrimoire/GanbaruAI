@@ -232,6 +232,7 @@ let titleFocusRequest = $state<{ pageId: string | null; requestId: number }>({
   pageId: null,
   requestId: 0,
 });
+let pageTitleDraft = $state<{ pageId: string; title: string } | null>(null);
 
 function blockTreeSnapshot(): NotesBlockTreeSnapshot {
   return { selectedPageId, blocksById, childIdsByParentId };
@@ -264,6 +265,18 @@ function requestTitleFocus(pageId: string): void {
     pageId,
     requestId: titleFocusRequest.requestId + 1,
   };
+}
+
+function setPageTitleDraft(pageId: string, title: string): void {
+  pageTitleDraft = { pageId, title };
+}
+
+function clearPageTitleDraft(pageId: string): void {
+  if (pageTitleDraft?.pageId === pageId) pageTitleDraft = null;
+}
+
+function pageTitleDraftForPage(pageId: string): string | null {
+  return pageTitleDraft?.pageId === pageId ? pageTitleDraft.title : null;
 }
 
 function replacePages(nextPages: NotesPage[]): void {
@@ -1915,6 +1928,7 @@ export function getNotes() {
     get titleFocusRequestId(): number {
       return titleFocusRequest.requestId;
     },
+    pageTitleDraftForPage,
     get canUndoNotesEdit(): boolean {
       return undoController.canUndo();
     },
@@ -2006,6 +2020,8 @@ export function getNotes() {
     openNotesLink,
     undoNotesEdit,
     redoNotesEdit,
+    setPageTitleDraft,
+    clearPageTitleDraft,
     updateBlockText, updateBlockRichText,
     insertPageMention,
     insertDateMention,

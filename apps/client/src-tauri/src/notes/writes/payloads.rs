@@ -18,8 +18,22 @@ pub(super) fn page_row_properties_for_title(
     if page.parent_type == "data_source_id" {
         data_source_page_properties_with_title(&page.properties, title)
     } else {
-        Ok(page_title_properties(title).to_string())
+        normal_page_properties_with_title(&page.properties, title)
     }
+}
+
+fn normal_page_properties_with_title(properties: &str, title: &str) -> Result<String, String> {
+    let mut value: Value =
+        serde_json::from_str(properties).map_err(|e| format!("parse page properties: {e}"))?;
+    let object = value
+        .as_object_mut()
+        .ok_or_else(|| "page properties must be an object".to_string())?;
+    let title_value = page_title_properties(title)
+        .get("title")
+        .cloned()
+        .ok_or_else(|| "page title properties are missing the title key".to_string())?;
+    object.insert("title".to_string(), title_value);
+    Ok(value.to_string())
 }
 
 pub(super) fn data_source_page_properties_with_title(

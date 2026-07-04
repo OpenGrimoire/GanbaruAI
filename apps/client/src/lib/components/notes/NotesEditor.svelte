@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick } from "svelte";
+  import { onDestroy, tick } from "svelte";
   import Archive from "@lucide/svelte/icons/archive";
   import Copy from "@lucide/svelte/icons/copy";
   import Download from "@lucide/svelte/icons/download";
@@ -117,7 +117,9 @@
 
   $effect(() => {
     if (!page || page.id === lastTitlePageId) return;
+    if (lastTitlePageId) notes.clearPageTitleDraft(lastTitlePageId);
     lastTitlePageId = page.id;
+    notes.clearPageTitleDraft(page.id);
     titleDraft = editablePageTitle;
     activePanel = null;
     pageMenuOpen = false;
@@ -150,12 +152,27 @@
     });
   });
 
+  onDestroy(() => {
+    if (lastTitlePageId) notes.clearPageTitleDraft(lastTitlePageId);
+  });
+
   async function saveTitle(): Promise<void> {
     if (!page) return;
     const title = titleDraft.trim();
     titleDraft = title;
-    if (title === editablePageTitle) return;
+    if (title === editablePageTitle) {
+      notes.clearPageTitleDraft(page.id);
+      return;
+    }
     await notes.renamePage(page.id, title);
+    notes.clearPageTitleDraft(page.id);
+  }
+
+  function handleTitleInput(event: Event): void {
+    if (!page) return;
+    const target = event.currentTarget;
+    const title = target instanceof HTMLInputElement ? target.value : titleDraft;
+    notes.setPageTitleDraft(page.id, title);
   }
 
   function handleTitleKeydown(event: KeyboardEvent): void {
@@ -624,6 +641,7 @@
             aria-label={t("notes.titleInput")}
             bind:value={titleDraft}
             placeholder={t("notes.titlePlaceholder")}
+            oninput={handleTitleInput}
             onkeydown={handleTitleKeydown}
             onblur={() => {
               void saveTitle();

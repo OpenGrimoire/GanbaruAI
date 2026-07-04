@@ -21,6 +21,54 @@ fn create_page_persists_title_and_initial_paragraph() {
 }
 
 #[test]
+fn page_rename_preserves_project_metadata_properties() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        writes::create_page(
+            &pool,
+            NotePageCreate {
+                id: PAGE_A.to_string(),
+                title: "Untitled".to_string(),
+                parent: workspace_parent(),
+                first_block_id: BLOCK_A.to_string(),
+                after_block_id: None,
+                properties: Some(json!({
+                    "__ganbaru_project_id": "project-a",
+                    "custom": "value"
+                })),
+            },
+        )
+        .await
+        .unwrap();
+
+        let renamed = writes::update_page(
+            &pool,
+            PAGE_A,
+            NotePageUpdate {
+                title: Some("Saved title".to_string()),
+                parent: None,
+                properties: None,
+                icon: OptionalJsonValue::Unset,
+                cover: OptionalJsonValue::Unset,
+            },
+        )
+        .await
+        .unwrap();
+        let renamed_json = serde_json::to_value(renamed).unwrap();
+
+        assert_eq!(
+            renamed_json["properties"]["__ganbaru_project_id"],
+            "project-a"
+        );
+        assert_eq!(renamed_json["properties"]["custom"], "value");
+        assert_eq!(
+            renamed_json["properties"]["title"]["title"][0]["plain_text"],
+            "Saved title"
+        );
+    });
+}
+
+#[test]
 fn create_nested_page_appends_child_page_block_to_parent_page() {
     tauri::async_runtime::block_on(async {
         let pool = migrated_memory_pool().await;
