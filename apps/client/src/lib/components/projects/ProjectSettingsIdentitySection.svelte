@@ -1,6 +1,7 @@
 <script lang="ts">
   import CustomSelect from "$lib/components/settings/CustomSelect.svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { moveCaretToEndWhenSettingsInputTextMissed } from "$lib/components/settings/settingsTextInputCaret";
   import type { ProjectLifecycleStatus } from "$lib/projects/types";
   import ProjectIconPicker from "./ProjectIconPicker.svelte";
   import ProjectSettingsSectionHeading from "./ProjectSettingsSectionHeading.svelte";
@@ -39,6 +40,7 @@
           bind:value={projectNameDraft}
           aria-label={t("projects.settings.name")}
           class="h-7 w-44 min-w-0 rounded-md border border-border bg-card px-2.5 text-left text-[0.8rem] font-medium text-foreground outline-none transition-colors focus:border-ring dark:bg-transparent max-[480px]:w-full"
+          onpointerdown={moveCaretToEndWhenSettingsInputTextMissed}
         />
       </div>
 

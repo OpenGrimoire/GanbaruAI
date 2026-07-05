@@ -3,6 +3,7 @@
   import X from "@lucide/svelte/icons/x";
   import type { ProjectIconAsset } from "$lib/api/project-icons";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { cn } from "$lib/utils";
   import { portal } from "$lib/utils/portal";
   import ProjectIcon from "./ProjectIcon.svelte";
 
@@ -31,6 +32,7 @@
   } = $props();
 
   const { t } = getLocalization();
+  const canSaveCustomEmoji = $derived(Boolean(customEmojiDraft && customEmojiName.trim()));
 </script>
 
 <section
@@ -76,8 +78,11 @@
     </button>
     <button
       type="button"
-      class="h-8 rounded-md bg-primary px-3 text-[0.866667rem] font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
-      disabled={!customEmojiDraft || !customEmojiName.trim() || customEmojiSaving}
+      class={cn(
+        "h-8 rounded-md bg-primary px-3 text-[0.866667rem] font-medium text-primary-foreground disabled:cursor-not-allowed",
+        canSaveCustomEmoji || customEmojiSaving ? "hover:bg-primary/90" : "opacity-50",
+      )}
+      disabled={!canSaveCustomEmoji || customEmojiSaving}
       onclick={() => { void onSave(); }}
     >
       {t("common.save")}

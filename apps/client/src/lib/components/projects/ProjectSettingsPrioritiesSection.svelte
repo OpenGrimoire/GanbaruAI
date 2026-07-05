@@ -4,6 +4,7 @@
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import ColorPicker from "$lib/components/calendar/ColorPicker.svelte";
   import type { EventColor } from "$lib/components/calendar/types";
+  import { moveCaretToEndWhenSettingsInputTextMissed } from "$lib/components/settings/settingsTextInputCaret";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import type { ProjectSettingsDropPosition } from "$lib/projects/project-settings-reorder";
   import { projectSettingsIconButtonClass } from "$lib/projects/project-settings-ui";
@@ -122,6 +123,7 @@
           value={priorityNameDraftValue(priority)}
           class="h-7 min-w-0 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:border-ring placeholder:text-muted-foreground"
           aria-label={t("projects.settings.priorityName")}
+          onpointerdown={moveCaretToEndWhenSettingsInputTextMissed}
           oninput={(event) => setPriorityNameDraft(priority.id, event.currentTarget.value)}
         />
         <button
@@ -155,6 +157,7 @@
         bind:value={newPriorityName}
         class="h-7 min-w-0 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:border-ring placeholder:text-muted-foreground"
         placeholder={t("projects.settings.newPriorityPlaceholder")}
+        onpointerdown={moveCaretToEndWhenSettingsInputTextMissed}
         onkeydown={(event) => {
           if (event.key === "Enter") {
             event.preventDefault();

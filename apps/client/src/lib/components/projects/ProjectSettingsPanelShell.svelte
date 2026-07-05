@@ -152,7 +152,10 @@
         {/if}
         <button
           type="button"
-          class="flex min-h-8 shrink-0 items-center gap-1.5 rounded-md bg-primary px-2 text-[0.8rem] font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-60"
+          class={cn(
+            "flex min-h-8 shrink-0 items-center gap-1.5 rounded-md bg-primary px-2 text-[0.8rem] font-medium text-primary-foreground disabled:cursor-not-allowed",
+            dirty || saving ? "hover:bg-primary/90" : "opacity-60",
+          )}
           disabled={saving || !dirty}
           onclick={onSave}
         >

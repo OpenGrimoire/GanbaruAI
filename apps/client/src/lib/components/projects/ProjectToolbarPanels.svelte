@@ -876,7 +876,7 @@
             />
             <button
               type="submit"
-              class="flex min-h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-[0.8rem] font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+              class="flex min-h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-[0.8rem] font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed"
               disabled={savedViewSaving}
             >
               <Save size={13} strokeWidth={1.75} />
@@ -898,7 +898,7 @@
               </button>
               <button
                 type="button"
-                class="flex min-h-8 items-center justify-center border-l border-border text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                class="flex min-h-8 items-center justify-center border-l border-border text-muted-foreground disabled:cursor-not-allowed"
                 disabled={savedViewSaving}
                 aria-label={t("projects.savedViews.delete", view.name)}
                 title={t("projects.savedViews.delete", view.name)}

@@ -22,6 +22,7 @@
     ProjectCustomFieldOption,
     ProjectCustomFieldType,
   } from "$lib/projects/types";
+  import { moveCaretToEndWhenSettingsInputTextMissed } from "$lib/components/settings/settingsTextInputCaret";
   import ProjectSettingsCustomFieldTypePicker from "./ProjectSettingsCustomFieldTypePicker.svelte";
   import ProjectSettingsNewRowDragHandle from "./ProjectSettingsNewRowDragHandle.svelte";
   import ProjectSettingsSectionHeading from "./ProjectSettingsSectionHeading.svelte";
@@ -222,6 +223,7 @@
             value={customFieldNameDraftValue(field)}
             class="h-7 min-w-0 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:border-ring placeholder:text-muted-foreground"
             aria-label={t("projects.customFields.fieldName")}
+            onpointerdown={moveCaretToEndWhenSettingsInputTextMissed}
             oninput={(event) => setCustomFieldNameDraft(field.id, event.currentTarget.value)}
           />
           <div
@@ -297,6 +299,7 @@
                       value={customFieldOptionNameDraftValue(option)}
                       class="h-7 min-w-0 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:border-ring placeholder:text-muted-foreground"
                       aria-label={t("projects.customFields.optionName")}
+                      onpointerdown={moveCaretToEndWhenSettingsInputTextMissed}
                       oninput={(event) => setCustomFieldOptionNameDraft(option.id, event.currentTarget.value)}
                     />
                     <button
@@ -326,6 +329,7 @@
                       value={option.name}
                       class="h-7 min-w-0 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:border-ring placeholder:text-muted-foreground"
                       aria-label={t("projects.customFields.optionName")}
+                      onpointerdown={moveCaretToEndWhenSettingsInputTextMissed}
                       oninput={(event) => {
                         setCustomFieldOptionCreateDraftName(field.id, option.id, event.currentTarget.value);
                       }}
@@ -349,6 +353,7 @@
                 value={newCustomFieldOptionDrafts[field.id] ?? ""}
                 class="h-7 min-w-0 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:border-ring placeholder:text-muted-foreground"
                 placeholder={t("projects.customFields.newOptionPlaceholder")}
+                onpointerdown={moveCaretToEndWhenSettingsInputTextMissed}
                 oninput={(event) => setNewOptionDraft(field.id, event.currentTarget.value)}
                 onkeydown={(event) => {
                   if (event.key === "Enter") {
@@ -390,6 +395,7 @@
             value={field.name}
             class="h-7 min-w-0 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:border-ring placeholder:text-muted-foreground"
             aria-label={t("projects.customFields.fieldName")}
+            onpointerdown={moveCaretToEndWhenSettingsInputTextMissed}
             oninput={(event) => setCustomFieldCreateDraftName(field.id, event.currentTarget.value)}
           />
           <div
@@ -439,6 +445,7 @@
                       value={option.name}
                       class="h-7 min-w-0 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:border-ring placeholder:text-muted-foreground"
                       aria-label={t("projects.customFields.optionName")}
+                      onpointerdown={moveCaretToEndWhenSettingsInputTextMissed}
                       oninput={(event) =>
                         setCustomFieldCreateDraftOptionName(field.id, option.id, event.currentTarget.value)}
                     />
@@ -461,6 +468,7 @@
                 value={field.optionName}
                 class="h-7 min-w-0 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:border-ring placeholder:text-muted-foreground"
                 placeholder={t("projects.customFields.newOptionPlaceholder")}
+                onpointerdown={moveCaretToEndWhenSettingsInputTextMissed}
                 oninput={(event) =>
                   setCustomFieldCreateDraftPendingOptionName(field.id, event.currentTarget.value)}
                 onkeydown={(event) => {
@@ -497,6 +505,7 @@
           bind:value={newCustomFieldName}
           class="h-7 min-w-0 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:border-ring placeholder:text-muted-foreground"
           placeholder={t("projects.customFields.newFieldPlaceholder")}
+          onpointerdown={moveCaretToEndWhenSettingsInputTextMissed}
           onkeydown={(event) => {
             if (event.key === "Enter") {
               event.preventDefault();
@@ -533,6 +542,7 @@
                 value={option.name}
                 class="h-7 min-w-0 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:border-ring placeholder:text-muted-foreground"
                 aria-label={t("projects.customFields.optionName")}
+                onpointerdown={moveCaretToEndWhenSettingsInputTextMissed}
                 oninput={(event) => setNewCustomFieldOptionDraftName(option.id, event.currentTarget.value)}
               />
               <button
@@ -552,6 +562,7 @@
               bind:value={newCustomFieldOptionName}
               class="h-7 min-w-0 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:border-ring placeholder:text-muted-foreground"
               placeholder={t("projects.customFields.newOptionPlaceholder")}
+              onpointerdown={moveCaretToEndWhenSettingsInputTextMissed}
               onkeydown={(event) => {
                 if (event.key === "Enter") {
                   event.preventDefault();

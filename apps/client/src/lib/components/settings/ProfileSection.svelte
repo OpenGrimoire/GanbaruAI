@@ -10,6 +10,8 @@
   } from "$lib/stores/preferences";
   import { getNotes } from "$lib/stores/notes.svelte";
   import { getPreferences } from "$lib/stores/preferences.svelte";
+  import { cn } from "$lib/utils";
+  import { moveCaretToEndWhenSettingsInputTextMissed } from "./settingsTextInputCaret";
 
   const notes = getNotes();
   const preferences = getPreferences();
@@ -32,7 +34,8 @@
   const unchanged = $derived(
     normalizedDisplayName.ok && normalizedDisplayName.value === preferences.profileDisplayName,
   );
-  const canSave = $derived(normalizedDisplayName.ok && !unchanged && !saving);
+  const hasSaveableChange = $derived(normalizedDisplayName.ok && !unchanged);
+  const canSave = $derived(hasSaveableChange && !saving);
 
   $effect(() => {
     const current = preferences.profileDisplayName;
@@ -52,27 +55,25 @@
       return;
     }
 
-    saving = true;
     const notesDisplayName = normalized.value || PROFILE_DISPLAY_NAME_FALLBACK;
-    let updated: NotesLocalUser | null = null;
+    saving = true;
     try {
-      updated = await notes.updateLocalUserDisplayName(notesDisplayName);
+      const updated: NotesLocalUser | null = await notes.updateLocalUserDisplayName(notesDisplayName);
+      if (!updated) {
+        saveError = notes.localUserError ?? t("settings.profileIdentity.syncFailed");
+        return;
+      }
+      if (!preferences.setProfileDisplayName(normalized.value)) {
+        saveError = t("settings.profileIdentity.invalidName");
+        return;
+      }
+      draftDisplayName = normalized.value;
+      saved = true;
     } catch (error) {
       saveError = error instanceof Error ? error.message : String(error);
-      return;
     } finally {
       saving = false;
     }
-    if (!updated) {
-      saveError = notes.localUserError ?? t("settings.profileIdentity.syncFailed");
-      return;
-    }
-    if (!preferences.setProfileDisplayName(normalized.value)) {
-      saveError = t("settings.profileIdentity.invalidName");
-      return;
-    }
-    draftDisplayName = normalized.value;
-    saved = true;
   }
 
   function handleDisplayNameKeydown(event: KeyboardEvent): void {
@@ -111,6 +112,7 @@
           value={draftDisplayName}
           maxlength={PROFILE_DISPLAY_NAME_MAX_CHARS}
           disabled={saving}
+          onpointerdown={moveCaretToEndWhenSettingsInputTextMissed}
           onkeydown={handleDisplayNameKeydown}
           oninput={(event) => {
             draftDisplayName = event.currentTarget.value;
@@ -138,8 +140,11 @@
       <button
         type="button"
         onclick={() => void saveIdentity()}
-        disabled={!canSave || saving}
-        class="flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-md bg-primary px-3 text-[0.8rem] font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-55"
+        disabled={!hasSaveableChange || saving}
+        class={cn(
+          "flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-md bg-primary px-3 text-[0.8rem] font-medium text-primary-foreground transition-colors disabled:pointer-events-none",
+          hasSaveableChange || saving ? "hover:bg-primary/90" : "opacity-55",
+        )}
       >
         {#if saving}
           <LoaderCircle size={13} strokeWidth={2.25} class="shrink-0 animate-spin" />
