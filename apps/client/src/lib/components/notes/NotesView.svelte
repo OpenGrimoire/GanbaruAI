@@ -1,8 +1,10 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { hasOnlyShortcutModifier } from "$lib/keyboard-shortcuts";
   import { parseNotesLinkHash } from "$lib/notes/block-link";
   import { getNotes } from "$lib/stores/notes.svelte";
   import { getProjects } from "$lib/stores/projects.svelte";
+  import { isAppShortcutBlockedTarget } from "$lib/utils";
   import NotesArchiveView from "./NotesArchiveView.svelte";
   import NotesEditor from "./NotesEditor.svelte";
   import NotesProjectHome from "./NotesProjectHome.svelte";
@@ -14,6 +16,7 @@
 
   let showInactiveProjects = $state(false);
   let initialNotesLoadPending = $state(!notes.loaded);
+  let notesRootElement = $state<HTMLDivElement | null>(null);
   const selectedProject = $derived(projects.selectedProject);
   const selectedGroup = $derived(projects.selectedGroup);
   const selectedProjectId = $derived(selectedProject?.id ?? null);
@@ -59,9 +62,38 @@
   function handleProjectSelected(): void {
     showProjectHome();
   }
+
+  function createPage(): void {
+    void notes.createPage("", { projectId: selectedProjectId });
+  }
+
+  function notesShortcutTargetBlocked(target: EventTarget | Element | null): boolean {
+    if (!(target instanceof Element)) return false;
+    return isAppShortcutBlockedTarget(target) || target.closest("[role='dialog']") !== null;
+  }
+
+  function handleNotesWindowKeydown(event: KeyboardEvent): void {
+    if (event.defaultPrevented) return;
+    if (event.key.toLowerCase() !== "n" || !hasOnlyShortcutModifier(event)) return;
+    if (
+      notesShortcutTargetBlocked(event.target)
+      || notesShortcutTargetBlocked(document.activeElement)
+      || notesRootElement?.querySelector("[role='dialog']") !== null
+    ) {
+      return;
+    }
+    event.preventDefault();
+    createPage();
+  }
 </script>
 
-<div class="notes-view-root flex h-full min-h-0 flex-col overflow-hidden text-foreground" style="background-color: var(--cal-bg);">
+<svelte:window onkeydown={handleNotesWindowKeydown} />
+
+<div
+  bind:this={notesRootElement}
+  class="notes-view-root flex h-full min-h-0 flex-col overflow-hidden text-foreground"
+  style="background-color: var(--cal-bg);"
+>
   <NotesWorkspaceHeader
     {selectedProject}
     {selectedGroup}

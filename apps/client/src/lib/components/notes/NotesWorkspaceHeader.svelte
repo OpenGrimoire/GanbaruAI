@@ -8,6 +8,7 @@
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import Upload from "@lucide/svelte/icons/upload";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { formatShortcut } from "$lib/keyboard-shortcuts";
   import { NOTES_PAGE_CHROME_EMOJI_SCALE } from "$lib/notes/page-icon";
   import { notesPageTitle } from "$lib/notes/page-title";
   import type {
@@ -65,6 +66,8 @@
   const { t } = getLocalization();
   const projectIdentityIconStrokeWidth = 1.5;
   const projectIdentityEmojiScale = 0.94;
+  const newPageShortcut = $derived(formatShortcut("Mod + N"));
+  const newPageTitle = $derived(`${t("notes.newPage")} (${newPageShortcut})`);
 
   let navigatorOpen = $state(false);
   let navigatorMode = $state<NotesNavigatorMode>("groups");
@@ -110,6 +113,13 @@
         : "hover:bg-accent",
       !primary && (active ? "text-foreground" : "text-muted-foreground"),
       !primary && open && "bg-accent text-accent-foreground",
+    );
+  }
+
+  function inlineNewPageButtonClass(): string {
+    return cn(
+      "flex h-7 w-5 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors",
+      "hover:bg-accent hover:text-accent-foreground",
     );
   }
 
@@ -329,7 +339,8 @@
           bind:this={projectTriggerElement}
           type="button"
           class={cn(
-            "flex h-7 min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left hover:bg-accent hover:text-accent-foreground",
+            "flex h-7 min-w-0 items-center gap-1.5 rounded-md pl-1.5 text-left hover:bg-accent hover:text-accent-foreground",
+            selectedPageTitle ? "pr-1.5" : "pr-0.5",
             navigatorOpen && navigatorMode === "projects" && "bg-accent text-accent-foreground",
           )}
           aria-label={selectedPageTitle ? t("notes.showProjectHome") : t("projects.navigator.open")}
@@ -355,13 +366,25 @@
             </span>
           {/if}
         </button>
+        {#if !selectedPageTitle}
+          <button
+            type="button"
+            class={inlineNewPageButtonClass()}
+            aria-label={t("notes.newPage")}
+            aria-keyshortcuts="Control+N Meta+N"
+            title={newPageTitle}
+            onclick={createPage}
+          >
+            <Plus size={14} strokeWidth={1.75} />
+          </button>
+        {/if}
         {#if selectedPageTitle}
           <span class="shrink-0 px-0.5 font-semibold text-muted-foreground">/</span>
           <button
             bind:this={noteTriggerElement}
             type="button"
             class={cn(
-              "flex h-7 min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left hover:bg-accent hover:text-accent-foreground",
+              "flex h-7 min-w-0 items-center gap-1.5 rounded-md pl-1.5 pr-0.5 text-left hover:bg-accent hover:text-accent-foreground",
               navigatorOpen && navigatorMode === "notes" && "bg-accent text-accent-foreground",
             )}
             aria-label={t("notes.openNoteNavigator")}
@@ -379,13 +402,23 @@
             <span class="min-w-0 truncate font-semibold text-foreground">{selectedPageTitle}</span>
             <ChevronDown size={14} strokeWidth={1.75} class="shrink-0 text-muted-foreground" />
           </button>
+          <button
+            type="button"
+            class={inlineNewPageButtonClass()}
+            aria-label={t("notes.newPage")}
+            aria-keyshortcuts="Control+N Meta+N"
+            title={newPageTitle}
+            onclick={createPage}
+          >
+            <Plus size={14} strokeWidth={1.75} />
+          </button>
         {/if}
       {:else}
         <button
           bind:this={noteTriggerElement}
           type="button"
           class={cn(
-            "flex h-7 min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left hover:bg-accent hover:text-accent-foreground",
+            "flex h-7 min-w-0 items-center gap-1.5 rounded-md pl-1.5 pr-0.5 text-left hover:bg-accent hover:text-accent-foreground",
             navigatorOpen && navigatorMode === "notes" && "bg-accent text-accent-foreground",
           )}
           aria-label={t("notes.openNoteNavigator")}
@@ -401,6 +434,16 @@
           />
           <span class="min-w-0 truncate font-semibold text-foreground">{selectedPageTitle ?? t("notes.title")}</span>
           <ChevronDown size={14} strokeWidth={1.75} class="shrink-0 text-muted-foreground" />
+        </button>
+        <button
+          type="button"
+          class={inlineNewPageButtonClass()}
+          aria-label={t("notes.newPage")}
+          aria-keyshortcuts="Control+N Meta+N"
+          title={newPageTitle}
+          onclick={createPage}
+        >
+          <Plus size={14} strokeWidth={1.75} />
         </button>
       {/if}
     </div>
@@ -510,15 +553,6 @@
       }}
     >
       <Trash2 size={14} strokeWidth={1.75} />
-    </button>
-    <button
-      type="button"
-      class={toolbarIconButtonClass(false, false, true)}
-      aria-label={t("notes.newPage")}
-      title={t("notes.newPage")}
-      onclick={createPage}
-    >
-      <Plus size={14} strokeWidth={1.75} />
     </button>
   </div>
 </div>
