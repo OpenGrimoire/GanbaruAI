@@ -90,8 +90,8 @@
   }
 </script>
 
-<div class="flex flex-col gap-6">
-  <section class="flex flex-col gap-4">
+<div class="flex min-h-full flex-col">
+  <section class="flex flex-1 flex-col gap-4 pb-6">
     <h2 class="px-1 text-[0.866667rem] font-semibold text-foreground">{t("settings.profileIdentity.heading")}</h2>
 
     <div class="flex flex-col gap-3">
@@ -105,56 +105,50 @@
           </div>
         </div>
 
-        <div class="relative h-7 w-44 max-[520px]:w-full">
-          <input
-            id="profile-display-name"
-            class="h-7 w-full min-w-0 rounded-md border border-border bg-card px-2.5 pr-8 text-left text-[0.8rem] font-medium text-foreground outline-none transition-colors focus:border-ring disabled:opacity-60 dark:bg-transparent"
-            value={draftDisplayName}
-            maxlength={PROFILE_DISPLAY_NAME_MAX_CHARS}
-            disabled={saving}
-            onkeydown={handleDisplayNameKeydown}
-            oninput={(event) => {
-              draftDisplayName = event.currentTarget.value;
-              saveError = null;
-              saved = false;
-            }}
-          />
-
-          <button
-            type="button"
-            aria-label={t("settings.profileIdentity.save")}
-            class={`absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded text-muted-foreground transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none ${
-              canSave || saving
-                ? "bg-primary text-primary-foreground hover:bg-primary/90"
-                : "hover:bg-accent hover:text-foreground disabled:opacity-45"
-            }`}
-            disabled={!canSave}
-            onclick={() => void saveIdentity()}
-          >
-            {#if saving}
-              <LoaderCircle size={14} strokeWidth={2.1} class="shrink-0 animate-spin" />
-            {:else}
-              <Save size={14} strokeWidth={1.9} class="shrink-0" />
-            {/if}
-          </button>
-        </div>
+        <input
+          id="profile-display-name"
+          class="h-7 w-44 min-w-0 rounded-md border border-border bg-card px-2.5 text-left text-[0.8rem] font-medium text-foreground outline-none transition-colors focus:border-ring disabled:opacity-60 dark:bg-transparent max-[520px]:w-full"
+          value={draftDisplayName}
+          maxlength={PROFILE_DISPLAY_NAME_MAX_CHARS}
+          disabled={saving}
+          onkeydown={handleDisplayNameKeydown}
+          oninput={(event) => {
+            draftDisplayName = event.currentTarget.value;
+            saveError = null;
+            saved = false;
+          }}
+        />
       </div>
-
-      {#if validationMessage}
-        <div role="alert" class="px-1 text-[0.8rem] leading-5 text-destructive">
-          {validationMessage}
-        </div>
-      {/if}
-
-      {#if saveError}
-        <div role="alert" class="px-1 text-[0.8rem] leading-5 text-destructive">
-          {t("settings.profileIdentity.saveFailed", saveError)}
-        </div>
-      {:else if saved}
-        <div class="px-1 text-[0.8rem] leading-5 text-muted-foreground">
-          {t("settings.profileIdentity.saved")}
-        </div>
-      {/if}
     </div>
   </section>
+
+  <footer class="sticky bottom-0 shrink-0 pt-3">
+    <div class="flex flex-wrap items-center justify-between gap-2 border-t border-border/70 pt-3">
+      <div class="min-w-0 flex-1 px-1 text-[0.8rem] leading-5">
+        {#if saveError}
+          <span role="alert" class="text-destructive">
+            {t("settings.profileIdentity.saveFailed", saveError)}
+          </span>
+        {:else if validationMessage}
+          <span role="alert" class="text-destructive">
+            {validationMessage}
+          </span>
+        {/if}
+      </div>
+      <button
+        type="button"
+        onclick={() => void saveIdentity()}
+        disabled={!canSave || saving}
+        class="flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-md bg-primary px-3 text-[0.8rem] font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-55"
+      >
+        {#if saving}
+          <LoaderCircle size={13} strokeWidth={2.25} class="shrink-0 animate-spin" />
+          <span>{t("settings.profileIdentity.saving")}</span>
+        {:else}
+          <Save size={13} strokeWidth={2.25} class="shrink-0" />
+          <span>{t("settings.profileIdentity.save")}</span>
+        {/if}
+      </button>
+    </div>
+  </footer>
 </div>
