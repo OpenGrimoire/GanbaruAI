@@ -5,7 +5,7 @@
   import ColorPicker from "$lib/components/calendar/ColorPicker.svelte";
   import type { EventColor } from "$lib/components/calendar/types";
   import CustomSelect from "$lib/components/settings/CustomSelect.svelte";
-  import { moveCaretToEndWhenSettingsInputTextMissed } from "$lib/components/settings/settingsTextInputCaret";
+  import { moveTextInputCaretToPointer } from "$lib/utils/text-input-caret";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import type { ProjectSettingsDropPosition } from "$lib/projects/project-settings-reorder";
   import { projectSettingsIconButtonClass } from "$lib/projects/project-settings-ui";
@@ -135,7 +135,7 @@
           value={statusNameDraftValue(status)}
           class="h-7 min-w-0 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:border-ring placeholder:text-muted-foreground"
           aria-label={t("projects.settings.statusName")}
-          onpointerdown={moveCaretToEndWhenSettingsInputTextMissed}
+          onpointerdown={moveTextInputCaretToPointer}
           oninput={(event) => setStatusNameDraft(status.id, event.currentTarget.value)}
         />
         <CustomSelect
@@ -177,7 +177,7 @@
       bind:value={newStatusName}
       class="h-7 min-w-0 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:border-ring placeholder:text-muted-foreground"
       placeholder={t("projects.settings.newStatusPlaceholder")}
-      onpointerdown={moveCaretToEndWhenSettingsInputTextMissed}
+      onpointerdown={moveTextInputCaretToPointer}
       onkeydown={(event) => {
         if (event.key === "Enter") {
           event.preventDefault();

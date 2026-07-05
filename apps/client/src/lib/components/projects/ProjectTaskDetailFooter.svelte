@@ -56,6 +56,6 @@
     disabled={saving || !dirty}
   >
     <Save size={14} strokeWidth={1.75} />
-    <span>{saving ? t("common.loading") : t("projects.detail.save")}</span>
+    <span>{t("projects.detail.save")}</span>
   </button>
 </footer>

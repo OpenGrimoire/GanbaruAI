@@ -1769,7 +1769,6 @@
   discardLabel={t("projects.settings.discard")}
   closeLabel={t("projects.settings.close")}
   saveLabel={t("projects.settings.save")}
-  loadingLabel={t("common.loading")}
   onDiscard={discardProjectSettings}
   onClose={closeProjectSettings}
   onSave={() => { void saveProjectSettings(); }}

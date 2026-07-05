@@ -16,7 +16,6 @@
     discardLabel,
     closeLabel,
     saveLabel,
-    loadingLabel,
     onDiscard,
     onClose,
     onSave,
@@ -32,7 +31,6 @@
     discardLabel: string;
     closeLabel: string;
     saveLabel: string;
-    loadingLabel: string;
     onDiscard: () => void;
     onClose: () => void;
     onSave: () => void;
@@ -160,7 +158,7 @@
           onclick={onSave}
         >
           <Save size={14} strokeWidth={1.75} />
-          <span>{saving ? loadingLabel : saveLabel}</span>
+          <span>{saveLabel}</span>
         </button>
       </footer>
     {/if}

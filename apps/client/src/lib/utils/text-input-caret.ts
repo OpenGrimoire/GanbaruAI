@@ -4,11 +4,9 @@ interface TextInputPointerGeometry {
   borderLeftWidth: number;
   paddingLeft: number;
   scrollLeft: number;
-  textWidth: number;
-  tolerancePx?: number;
+  text: string;
+  measureText: (text: string) => number;
 }
-
-const TEXT_HIT_TOLERANCE_PX = 2;
 
 let textMeasureContext: CanvasRenderingContext2D | null = null;
 
@@ -27,42 +25,59 @@ function measuredTextWidth(text: string, font: string): number {
   return textMeasureContext.measureText(text).width;
 }
 
-export function settingsTextInputPointerMissesText(
+function textCaretStops(text: string): number[] {
+  const stops = [0];
+  let index = 0;
+  for (const symbol of Array.from(text)) {
+    index += symbol.length;
+    stops.push(index);
+  }
+  return stops;
+}
+
+export function textInputCaretIndexForPointer(
   geometry: TextInputPointerGeometry,
-): boolean {
-  if (geometry.textWidth <= 0) return true;
-  const tolerance = geometry.tolerancePx ?? TEXT_HIT_TOLERANCE_PX;
+): number {
+  if (geometry.text.length === 0) return 0;
   const textStart = geometry.inputLeft
     + geometry.borderLeftWidth
     + geometry.paddingLeft
     - geometry.scrollLeft;
-  const textEnd = textStart + geometry.textWidth;
-  return geometry.clientX < textStart - tolerance
-    || geometry.clientX > textEnd + tolerance;
+  const textX = geometry.clientX - textStart;
+  if (textX <= 0) return 0;
+
+  const stops = textCaretStops(geometry.text);
+  let previousWidth = 0;
+  for (let stopIndex = 1; stopIndex < stops.length; stopIndex += 1) {
+    const stop = stops[stopIndex] ?? geometry.text.length;
+    const nextWidth = geometry.measureText(geometry.text.slice(0, stop));
+    const midpoint = previousWidth + (nextWidth - previousWidth) / 2;
+    if (textX < midpoint) return stops[stopIndex - 1] ?? 0;
+    previousWidth = nextWidth;
+  }
+  return geometry.text.length;
 }
 
-export function moveCaretToEndWhenSettingsInputTextMissed(
+export function moveTextInputCaretToPointer(
   event: PointerEvent & { currentTarget: HTMLInputElement },
 ): void {
-  if (event.button !== 0 || event.detail > 1) return;
+  if (event.button !== 0 || event.detail > 1 || event.shiftKey) return;
   const input = event.currentTarget;
   if (input.disabled || input.readOnly) return;
+  event.preventDefault();
 
   const style = window.getComputedStyle(input);
   const rect = input.getBoundingClientRect();
-  const missesText = settingsTextInputPointerMissesText({
+  const caretIndex = textInputCaretIndexForPointer({
     clientX: event.clientX,
     inputLeft: rect.left,
     borderLeftWidth: numericCssPixel(style.borderLeftWidth),
     paddingLeft: numericCssPixel(style.paddingLeft),
     scrollLeft: input.scrollLeft,
-    textWidth: measuredTextWidth(input.value, style.font),
+    text: input.value,
+    measureText: (text) => measuredTextWidth(text, style.font),
   });
-  if (!missesText) return;
 
-  window.requestAnimationFrame(() => {
-    input.focus();
-    const end = input.value.length;
-    input.setSelectionRange(end, end);
-  });
+  input.focus({ preventScroll: true });
+  input.setSelectionRange(caretIndex, caretIndex);
 }

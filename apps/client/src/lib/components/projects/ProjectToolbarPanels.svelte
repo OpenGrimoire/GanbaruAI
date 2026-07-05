@@ -880,7 +880,7 @@
               disabled={savedViewSaving}
             >
               <Save size={13} strokeWidth={1.75} />
-              <span>{savedViewSaving ? t("common.loading") : t("projects.savedViews.save")}</span>
+              <span>{t("projects.savedViews.save")}</span>
             </button>
           </form>
           {#each savedTaskViews as view (view.id)}

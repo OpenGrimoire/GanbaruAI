@@ -1,5 +1,4 @@
 <script lang="ts">
-  import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import Save from "@lucide/svelte/icons/save";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import type { NotesLocalUser } from "$lib/notes/types";
@@ -11,7 +10,7 @@
   import { getNotes } from "$lib/stores/notes.svelte";
   import { getPreferences } from "$lib/stores/preferences.svelte";
   import { cn } from "$lib/utils";
-  import { moveCaretToEndWhenSettingsInputTextMissed } from "./settingsTextInputCaret";
+  import { moveTextInputCaretToPointer } from "$lib/utils/text-input-caret";
 
   const notes = getNotes();
   const preferences = getPreferences();
@@ -112,7 +111,7 @@
           value={draftDisplayName}
           maxlength={PROFILE_DISPLAY_NAME_MAX_CHARS}
           disabled={saving}
-          onpointerdown={moveCaretToEndWhenSettingsInputTextMissed}
+          onpointerdown={moveTextInputCaretToPointer}
           onkeydown={handleDisplayNameKeydown}
           oninput={(event) => {
             draftDisplayName = event.currentTarget.value;
@@ -146,13 +145,8 @@
           hasSaveableChange || saving ? "hover:bg-primary/90" : "opacity-55",
         )}
       >
-        {#if saving}
-          <LoaderCircle size={13} strokeWidth={2.25} class="shrink-0 animate-spin" />
-          <span>{t("settings.profileIdentity.saving")}</span>
-        {:else}
-          <Save size={13} strokeWidth={2.25} class="shrink-0" />
-          <span>{t("settings.profileIdentity.save")}</span>
-        {/if}
+        <Save size={13} strokeWidth={2.25} class="shrink-0" />
+        <span>{t("settings.profileIdentity.save")}</span>
       </button>
     </div>
   </footer>
