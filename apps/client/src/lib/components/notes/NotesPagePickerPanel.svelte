@@ -7,6 +7,7 @@
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
   import CalendarScrollbar from "$lib/components/calendar/CalendarScrollbar.svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { NOTES_PAGE_CHROME_EMOJI_SCALE } from "$lib/notes/page-icon";
   import { buildNotesPageTree, type NotesPageParentStatus } from "$lib/notes/page-tree";
   import { notesPageTitle } from "$lib/notes/page-title";
   import { notesPagesForProject } from "$lib/notes/project-membership";
@@ -304,9 +305,14 @@
                 onclick={() => { void selectPage(item.page.id); }}
               >
                 {#if item.page.icon}
-                  <NotesPageIcon icon={item.page.icon} size={iconSize} class="shrink-0 text-popover-foreground/70" />
+                  <NotesPageIcon
+                    icon={item.page.icon}
+                    size={iconSize}
+                    emojiScale={NOTES_PAGE_CHROME_EMOJI_SCALE}
+                    class="shrink-0"
+                  />
                 {:else}
-                  <FileText size={iconSize} strokeWidth={iconStrokeWidth} class="shrink-0 text-popover-foreground/70" />
+                  <FileText size={iconSize} strokeWidth={iconStrokeWidth} class="shrink-0" />
                 {/if}
                 <span class="min-w-0 flex-1 truncate">{title}</span>
                 {#if item.parentStatus}

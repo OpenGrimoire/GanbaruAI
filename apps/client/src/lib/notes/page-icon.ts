@@ -21,6 +21,8 @@ export const NOTES_PAGE_EMOJI_ICON_CHOICES = [
 
 export type NotesPageEmojiIconChoice = (typeof NOTES_PAGE_EMOJI_ICON_CHOICES)[number];
 
+export const NOTES_PAGE_CHROME_EMOJI_SCALE = 0.94;
+
 export const NOTES_PAGE_NATIVE_ICON_CHOICES = [
   "home",
   "star",

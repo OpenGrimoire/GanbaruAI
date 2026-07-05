@@ -17,11 +17,13 @@
     icon,
     size = 18,
     strokeWidth = 1.75,
+    emojiScale = 1,
     class: className = "",
   }: {
     icon: NotesPageIcon | null;
     size?: number;
     strokeWidth?: number;
+    emojiScale?: number;
     class?: string;
   } = $props();
 
@@ -35,6 +37,7 @@
   const nativeName = $derived(icon?.type === "icon" ? icon.icon.name : null);
   const nativeColor = $derived(icon?.type === "icon" ? notesPageNativeIconColor(icon.icon.color) : undefined);
   const nativeStyle = $derived(nativeColor ? `color: ${nativeColor};` : undefined);
+  const emojiFontSize = $derived(Math.max(1, size * emojiScale));
 
   $effect(() => {
     const currentPath = assetPath;
@@ -75,7 +78,7 @@
 {#if icon?.type === "emoji"}
   <span
     class={className}
-    style={`display: inline-flex; width: ${size}px; height: ${size}px; align-items: center; justify-content: center; font-size: ${Math.max(1, size)}px; line-height: 1;`}
+    style={`display: inline-flex; width: ${size}px; height: ${size}px; align-items: center; justify-content: center; overflow: visible; font-size: ${emojiFontSize}px; line-height: 1;`}
     aria-hidden="true"
   >
     {icon.emoji}

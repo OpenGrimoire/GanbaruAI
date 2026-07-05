@@ -10,6 +10,7 @@
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import Upload from "@lucide/svelte/icons/upload";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { NOTES_PAGE_CHROME_EMOJI_SCALE } from "$lib/notes/page-icon";
   import { notesPageTitle } from "$lib/notes/page-title";
   import type {
     NotesHtmlImportRequest,
@@ -35,6 +36,7 @@
   import NotesJsonGraphExportDialog from "./NotesJsonGraphExportDialog.svelte";
   import NotesNotionApiImportDialog from "./NotesNotionApiImportDialog.svelte";
   import NotesNotionExportImportDialog from "./NotesNotionExportImportDialog.svelte";
+  import NotesPageIcon from "./NotesPageIcon.svelte";
   import NotesPagePickerPanel from "./NotesPagePickerPanel.svelte";
   import NotesProjectNavigator from "./NotesProjectNavigator.svelte";
 
@@ -371,7 +373,13 @@
             onpointerenter={() => openNavigator("notes")}
             onclick={() => toggleNavigator("notes")}
           >
-            <FileText size={14} strokeWidth={1.75} class="shrink-0 text-muted-foreground" />
+            <NotesPageIcon
+              icon={selectedPage?.icon ?? null}
+              size={14}
+              strokeWidth={1.75}
+              emojiScale={NOTES_PAGE_CHROME_EMOJI_SCALE}
+              class="shrink-0"
+            />
             <span class="min-w-0 truncate font-semibold text-foreground">{selectedPageTitle}</span>
             <ChevronDown size={14} strokeWidth={1.75} class="shrink-0 text-muted-foreground" />
           </button>
@@ -388,7 +396,13 @@
           aria-expanded={navigatorOpen && navigatorMode === "notes"}
           onclick={() => toggleNavigator("notes")}
         >
-          <FileText size={14} strokeWidth={1.75} class="shrink-0 text-muted-foreground" />
+          <NotesPageIcon
+            icon={selectedPage?.icon ?? null}
+            size={14}
+            strokeWidth={1.75}
+            emojiScale={NOTES_PAGE_CHROME_EMOJI_SCALE}
+            class="shrink-0"
+          />
           <span class="min-w-0 truncate font-semibold text-foreground">{selectedPageTitle ?? t("notes.title")}</span>
           <ChevronDown size={14} strokeWidth={1.75} class="shrink-0 text-muted-foreground" />
         </button>

@@ -2,6 +2,7 @@
   import { tick } from "svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { dismissOnOutside } from "$lib/utils/dismiss-on-outside";
+  import { NOTES_PAGE_CHROME_EMOJI_SCALE } from "$lib/notes/page-icon";
   import type { NotesPageMoveTarget } from "$lib/notes/page-move";
   import type { NotesPageParentStatus } from "$lib/notes/page-tree";
   import { notesPageTitle } from "$lib/notes/page-title";
@@ -181,7 +182,12 @@
         onclick={onSelect}
       >
         {#if page.icon}
-          <NotesPageIcon icon={page.icon} size={14} class="shrink-0 text-muted-foreground" />
+          <NotesPageIcon
+            icon={page.icon}
+            size={14}
+            emojiScale={NOTES_PAGE_CHROME_EMOJI_SCALE}
+            class="shrink-0 text-muted-foreground"
+          />
         {:else}
           <FileText class="size-3.5 shrink-0 text-muted-foreground" />
         {/if}
