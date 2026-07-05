@@ -179,22 +179,30 @@ Tauri's platform app config directory stores device-local bootstrap and runtime 
 - Cover edge cases, not just happy paths. Shallow "it exists" tests are worthless.
 - Test names describe behavior, not implementation.
 
-**For UI/component changes:** `pnpm -w run validate` is the completion gate. Agents cannot manually verify the real Tauri app UI from this environment. Do not start a dev server, launch Tauri, or run HTTP smoke checks as a substitute for manual verification. If a UI behavior needs more confidence than existing checks provide, add or update tests where practical, then run `pnpm -w run validate`.
+**For UI/component changes:** Agents cannot manually verify the real Tauri app UI from this environment. Do not start a dev server, launch Tauri, or run HTTP smoke checks as a substitute for manual verification. During iterative UI work, do not run full `pnpm -w run validate` after every small visual adjustment. Use the narrowest relevant checks while coding, rely on user manual app inspection for visual confirmation, and run the appropriate completion gate when the batch is ready, when requested, or before committing. If a UI behavior needs more confidence than existing checks provide, add or update focused tests where practical.
 
 **Validation policy for agent work:**
 - The root `check`, `test`, and `validate` scripts intentionally cap tool concurrency. Use those scripts for broad local verification instead of direct full-suite `turbo`, `vitest`, or `cargo` commands.
-- While coding, run the narrowest relevant check first. Use affected Vitest files for focused TypeScript tests and filtered Cargo tests for focused Rust tests where practical.
-- After focused checks pass, use `pnpm -w run check` or `pnpm -w run test` for broader feedback when the change touches shared behavior.
-- Run `pnpm -w run validate` once before marking a code task complete. Do not repeat full validation after unrelated clean status checks unless the code or generated output changed again.
+- Start with the narrowest useful command. Use affected Vitest files for focused TypeScript tests and filtered Cargo tests for focused Rust tests where practical.
+- For small UI-only or docs-only edits, do not run `pnpm -w run validate` merely because files changed. Run `pnpm -w run check` or `pnpm -w run editor-check` when the edit affects Svelte compilation, TypeScript, Tailwind classes, or shared UI structure. Run focused tests only when behavior changes.
+- For backend, persistence, SQLite, import/export, migrations, project membership, note saving, or other data-loss-sensitive changes, run focused Rust or Vitest tests immediately, then a broader gate before committing.
+- Run `pnpm -w run validate` before committing code, opening a PR, handing off release-ready work, or when the user explicitly requests full validation. If the user asks to commit a batch that has already passed `validate` and no code or generated output changed afterward, do not rerun full validation just to commit.
+- Run `pnpm -w run validate:full` for dependency, lockfile, security, release, and audit-sensitive work, or when explicitly requested.
+- Do not repeat full validation after unrelated clean status checks unless the code or generated output changed again.
 
 **Commands (always use `-w` flag for root scripts):**
-- `pnpm -w run check`: fast feedback (types, format, lint) with capped Turbo and Cargo concurrency. Use while coding.
+- `pnpm -w run check`: broad static feedback, including Svelte and TypeScript checks through Turbo, Rust formatting, and Rust clippy.
+- `pnpm --dir apps/client run check`: client-only Svelte and TypeScript checks.
 - `pnpm -w run editor-check`: editor-style diagnostics, including Tailwind canonical class checks.
 - `pnpm -w run test`: all tests (vitest + cargo test) with capped Vitest, Cargo build, and Rust test concurrency. Use after changes to tested code.
+- `pnpm --dir apps/client run test -- path/to/file.test.ts`: focused frontend test file.
+- `cargo test -p ganbaru-ai test_name`: focused Rust test by name.
+- `cargo fmt --check`: Rust formatting only.
+- `cargo clippy --workspace -j 2 -- -D warnings`: Rust linting only.
 - `pnpm -w run audit:deps`: npm advisory audit for workspace dependencies. Run for dependency or lockfile changes, before PRs, before releases, and when investigating security alerts.
 - `pnpm -w run audit:rust`: RustSec audit for cargo dependencies. Run for dependency or lockfile changes, before PRs, before releases, and when investigating security alerts. Reviewed ignores live in `.cargo/audit.toml` and must be documented in `docs/data/security.md`.
 - `pnpm -w run audit`: both dependency audits (`audit:deps` + `audit:rust`).
-- `pnpm -w run validate`: normal completion gate (check + test + editor-check). Run before reporting a code task as complete. All errors must be fixed; do not report a task as done if validate fails.
+- `pnpm -w run validate`: full normal gate (check + test + editor-check). Run before commits, PRs, release-ready handoffs, and explicit full-validation requests. All errors must be fixed before treating that gate as passed.
 - `pnpm -w run validate:full`: security and code gate (audit + validate). Run for dependency or lockfile changes, before PRs, before releases, and when explicitly requested.
 - `pnpm test:coverage` (from apps/client): coverage report to see what's tested.
 
@@ -231,7 +239,7 @@ After the relevant gate passes, finish the task without extra dev-server, Tauri 
 
 ### Code style
 
-- Do not use em dash characters or two consecutive hyphens in markdown, code comments, or commit messages. Restructure sentences using periods, commas, colons, semicolons, or parentheses instead.
+- Do not use em dash characters or two consecutive hyphens in markdown, code comments, or commit messages. Restructure sentences using periods, commas, colons, semicolons, or parentheses instead. Literal syntax is allowed when required, including command flags, CLI examples, code, URLs, file contents, diffs, and copied tool output.
 - Avoid unnecessary capitalization. Use sentence case in markdown headings, code comments, documentation, branch names, and commit messages unless capitalization is required by grammar, proper nouns, acronyms, or official names. Correct nearby text that violates this when editing files.
 - Prefer Tailwind canonical utilities over arbitrary-value equivalents. Use arbitrary values only when the value is genuinely custom or not represented by Tailwind theme tokens or project tokens.
 
