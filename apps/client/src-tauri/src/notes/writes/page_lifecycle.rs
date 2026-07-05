@@ -15,6 +15,8 @@ use crate::notes::{data_source_rollups, history, reads};
 use sqlx::SqlitePool;
 use std::collections::HashSet;
 
+const NOTES_TRASH_RETENTION_DAYS: i64 = 7;
+
 pub(super) type PageParentColumns = (String, Option<String>, Option<String>, Option<String>);
 
 pub(in crate::notes) async fn move_page(
@@ -133,6 +135,7 @@ pub(in crate::notes) async fn trash_page(
     } else {
         repair_page_parent_for_active_restore(&mut tx, page_id).await?
     };
+    let trash_value = if in_trash { 1_i64 } else { 0_i64 };
     let result = sqlx::query(
         "WITH RECURSIVE page_subtree(id) AS (
             SELECT id FROM notes_pages WHERE id = ?
@@ -154,11 +157,18 @@ pub(in crate::notes) async fn trash_page(
          UPDATE notes_pages
          SET in_trash = ?,
              archived = 0,
+             trashed_time = CASE
+                 WHEN ? = 1 AND in_trash = 0 THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                 WHEN ? = 1 THEN COALESCE(trashed_time, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                 ELSE NULL
+             END,
              last_edited_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
          WHERE id IN (SELECT id FROM page_subtree)",
     )
     .bind(page_id)
-    .bind(if in_trash { 1_i64 } else { 0_i64 })
+    .bind(trash_value)
+    .bind(trash_value)
+    .bind(trash_value)
     .execute(&mut *tx)
     .await
     .map_err(|e| format!("trash notes page subtree: {e}"))?;
@@ -203,6 +213,40 @@ pub(in crate::notes) async fn trash_page(
         return Err("notes page not found".to_string());
     }
     reads::get_page(pool, page_id, true).await
+}
+
+pub(in crate::notes) async fn purge_expired_trashed_pages(
+    pool: &SqlitePool,
+) -> Result<Vec<String>, String> {
+    let retention_modifier = format!("-{NOTES_TRASH_RETENTION_DAYS} days");
+    let expired_page_ids: Vec<String> = sqlx::query_scalar(
+        "SELECT id
+         FROM notes_pages
+         WHERE in_trash = 1
+           AND trashed_time IS NOT NULL
+           AND trashed_time <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?)
+         ORDER BY trashed_time ASC, id ASC",
+    )
+    .bind(retention_modifier)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("list expired trashed notes pages: {e}"))?;
+    let mut deleted_page_ids = Vec::new();
+    for page_id in expired_page_ids {
+        let still_trashed: Option<i64> =
+            sqlx::query_scalar("SELECT 1 FROM notes_pages WHERE id = ? AND in_trash = 1")
+                .bind(&page_id)
+                .fetch_optional(pool)
+                .await
+                .map_err(|e| format!("check expired trashed notes page: {e}"))?;
+        if still_trashed.is_none() {
+            continue;
+        }
+        deleted_page_ids.extend(permanently_delete_page(pool, &page_id).await?);
+    }
+    deleted_page_ids.sort();
+    deleted_page_ids.dedup();
+    Ok(deleted_page_ids)
 }
 
 pub(in crate::notes) async fn permanently_delete_page(

@@ -233,6 +233,7 @@ async fn replace_page_from_snapshot(
              icon = ?,
              cover = ?,
              in_trash = 0,
+             trashed_time = NULL,
              archived = 0,
              last_edited_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
          WHERE id = ?",
@@ -423,6 +424,7 @@ async fn upsert_snapshot_child_page(
                  title = ?,
                  properties = ?,
                  in_trash = 0,
+                 trashed_time = NULL,
                  archived = 0,
                  last_edited_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
              WHERE id = ?",
@@ -744,6 +746,7 @@ async fn trash_current_child_pages(
         "UPDATE notes_pages
          SET in_trash = 1,
              archived = 0,
+             trashed_time = COALESCE(trashed_time, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
              last_edited_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
          WHERE id IN (
              SELECT id FROM notes_blocks

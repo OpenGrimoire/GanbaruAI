@@ -19,7 +19,7 @@ pub(in crate::notes) use block_moves::{move_block, move_blocks};
 pub(in crate::notes) use ids::new_note_id;
 pub(in crate::notes) use page_duplicates::duplicate_page;
 pub(in crate::notes) use page_lifecycle::{
-    archive_page, move_page, permanently_delete_page, trash_page,
+    archive_page, move_page, permanently_delete_page, purge_expired_trashed_pages, trash_page,
 };
 pub(in crate::notes) use pages::{create_child_page_from_block, create_page, update_page};
 pub(in crate::notes) use parents::{

@@ -9,14 +9,14 @@ export const pageActions = {
   archivePage: "Archive",
   archiveConfirmTitle: (title: string) => `Archive ${title}?`,
   archiveConfirmMessage:
-    "This removes the note from the normal Notes list without deleting it. You can restore it from Archive.",
+    "This removes the note without deleting it. You can restore it from Archive.",
   archiveConfirm: "Archive (Enter)",
   unarchive: "Unarchive",
   unarchivePage: (title: string) => `Unarchive ${title}`,
   moveToTrash: "Move to trash",
   trashConfirmTitle: (title: string) => `Move ${title} to trash?`,
   trashConfirmMessage:
-    "This removes the note from the normal Notes list. You can restore it from Trash.",
+    "This removes the note without deleting it. It will be permanently deleted after 7 days, but you can restore it from Trash before then.",
   trashConfirm: "Move to trash (Enter)",
   restorePage: (title: string) => `Restore ${title}`,
   restoreMovesToWorkspace: "Restores to Workspace because its parent is in Trash.",

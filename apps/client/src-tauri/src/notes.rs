@@ -70,6 +70,7 @@ pub async fn notes_list_pages<R: Runtime>(
     db_url: String,
 ) -> Result<Vec<NotePageDto>, String> {
     let pool = connect_sqlite(app, db_url).await?;
+    writes::purge_expired_trashed_pages(&pool).await?;
     reads::list_pages(&pool).await
 }
 
@@ -79,6 +80,7 @@ pub async fn notes_list_trashed_pages<R: Runtime>(
     db_url: String,
 ) -> Result<Vec<NotePageDto>, String> {
     let pool = connect_sqlite(app, db_url).await?;
+    writes::purge_expired_trashed_pages(&pool).await?;
     reads::list_trashed_pages(&pool).await
 }
 
@@ -88,6 +90,7 @@ pub async fn notes_list_archived_pages<R: Runtime>(
     db_url: String,
 ) -> Result<Vec<NotePageDto>, String> {
     let pool = connect_sqlite(app, db_url).await?;
+    writes::purge_expired_trashed_pages(&pool).await?;
     reads::list_archived_pages(&pool).await
 }
 
@@ -98,6 +101,7 @@ pub async fn notes_list_sidebar_pages<R: Runtime>(
     request: NoteSidebarPagesRequest,
 ) -> Result<NoteSidebarPageList, String> {
     let pool = connect_sqlite(app, db_url).await?;
+    writes::purge_expired_trashed_pages(&pool).await?;
     reads::list_sidebar_pages(&pool, request).await
 }
 
@@ -1129,6 +1133,7 @@ pub async fn notes_trash_page<R: Runtime>(
     in_trash: Option<bool>,
 ) -> Result<NotePageDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
+    writes::purge_expired_trashed_pages(&pool).await?;
     writes::trash_page(&pool, &page_id, in_trash.unwrap_or(true)).await
 }
 
@@ -1150,6 +1155,7 @@ pub async fn notes_permanently_delete_page<R: Runtime>(
     page_id: String,
 ) -> Result<Vec<String>, String> {
     let pool = connect_sqlite(app, db_url).await?;
+    writes::purge_expired_trashed_pages(&pool).await?;
     writes::permanently_delete_page(&pool, &page_id).await
 }
 

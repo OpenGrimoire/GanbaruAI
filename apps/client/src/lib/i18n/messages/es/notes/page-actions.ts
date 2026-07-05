@@ -12,14 +12,14 @@ export const pageActions = {
   archivePage: "Archivar",
   archiveConfirmTitle: (title: string) => `¿Archivar ${title}?`,
   archiveConfirmMessage:
-    "Esto quita la nota de la lista normal de notas sin eliminarla. Puedes restaurarla desde el archivo.",
+    "Esto quita la nota sin eliminarla. Puedes restaurarla desde el archivo.",
   archiveConfirm: "Archivar (Enter)",
   unarchive: "Desarchivar",
   unarchivePage: (title: string) => `Desarchivar ${title}`,
   moveToTrash: "Mover a la papelera",
   trashConfirmTitle: (title: string) => `¿Mover ${title} a la papelera?`,
   trashConfirmMessage:
-    "Esto quita la nota de la lista normal de notas. Puedes restaurarla desde la papelera.",
+    "Esto quita la nota sin eliminarla. Se eliminará permanentemente después de 7 días, pero puedes restaurarla desde la papelera antes de eso.",
   trashConfirm: "Mover a la papelera (Enter)",
   restorePage: (title: string) => `Restaurar ${title}`,
   restoreMovesToWorkspace:

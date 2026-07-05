@@ -205,11 +205,25 @@ fn page_rename_and_trash_round_trip() {
         assert_eq!(stored_title, "Renamed");
 
         writes::trash_page(&pool, PAGE_A, true).await.unwrap();
+        let trashed_time: Option<String> =
+            sqlx::query_scalar("SELECT trashed_time FROM notes_pages WHERE id = ?")
+                .bind(PAGE_A)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert!(trashed_time.is_some());
         assert!(reads::list_pages(&pool).await.unwrap().is_empty());
         let trashed_pages = reads::list_trashed_pages(&pool).await.unwrap();
         assert_eq!(trashed_pages.len(), 1);
 
         writes::trash_page(&pool, PAGE_A, false).await.unwrap();
+        let restored_trashed_time: Option<String> =
+            sqlx::query_scalar("SELECT trashed_time FROM notes_pages WHERE id = ?")
+                .bind(PAGE_A)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert!(restored_trashed_time.is_none());
         assert_eq!(reads::list_pages(&pool).await.unwrap().len(), 1);
         assert!(reads::list_trashed_pages(&pool).await.unwrap().is_empty());
     });
@@ -509,5 +523,56 @@ fn permanent_page_delete_removes_subtree_and_paired_blocks() {
             .unwrap();
         assert_eq!(page_count, 0);
         assert_eq!(block_count, 0);
+    });
+}
+
+#[test]
+fn purge_expired_trashed_pages_deletes_after_retention_window() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        create_page(&pool, PAGE_A, BLOCK_A).await;
+        writes::create_page(
+            &pool,
+            NotePageCreate {
+                id: PAGE_B.to_string(),
+                title: "Nested".to_string(),
+                parent: page_parent(PAGE_A),
+                first_block_id: BLOCK_B.to_string(),
+                after_block_id: None,
+                properties: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        writes::trash_page(&pool, PAGE_A, true).await.unwrap();
+        sqlx::query(
+            "UPDATE notes_pages
+             SET trashed_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-6 days')
+             WHERE id = ?",
+        )
+        .bind(PAGE_A)
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert!(writes::purge_expired_trashed_pages(&pool)
+            .await
+            .unwrap()
+            .is_empty());
+        assert_eq!(reads::list_trashed_pages(&pool).await.unwrap().len(), 2);
+
+        sqlx::query(
+            "UPDATE notes_pages
+             SET trashed_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-8 days')
+             WHERE id = ?",
+        )
+        .bind(PAGE_A)
+        .execute(&pool)
+        .await
+        .unwrap();
+        let deleted_ids = writes::purge_expired_trashed_pages(&pool).await.unwrap();
+        assert!(deleted_ids.contains(&PAGE_A.to_string()));
+        assert!(deleted_ids.contains(&PAGE_B.to_string()));
+        assert!(reads::list_trashed_pages(&pool).await.unwrap().is_empty());
     });
 }
