@@ -4,9 +4,7 @@
   import CloudDownload from "@lucide/svelte/icons/cloud-download";
   import DatabaseBackup from "@lucide/svelte/icons/database-backup";
   import FileText from "@lucide/svelte/icons/file-text";
-  import PanelTopOpen from "@lucide/svelte/icons/panel-top-open";
   import Plus from "@lucide/svelte/icons/plus";
-  import Search from "@lucide/svelte/icons/search";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import Upload from "@lucide/svelte/icons/upload";
   import { getLocalization } from "$lib/i18n/translator.svelte";
@@ -51,7 +49,6 @@
     onShowInactiveProjectsChange,
     onProjectSelected,
     onShowHome,
-    onFocusSearch,
   }: {
     selectedProject: Project | undefined;
     selectedGroup: ProjectGroup | undefined;
@@ -61,7 +58,6 @@
     onShowInactiveProjectsChange: (value: boolean) => void;
     onProjectSelected: () => void;
     onShowHome: () => void;
-    onFocusSearch: () => void;
   } = $props();
 
   const notes = getNotes();
@@ -449,24 +445,6 @@
   </div>
   <div class="flex-1"></div>
   <div class="flex shrink-0 items-center gap-1">
-    <button
-      type="button"
-      class={toolbarIconButtonClass(notes.viewMode === "pages" && !notes.selectedPageId)}
-      aria-label={t("notes.showProjectHome")}
-      title={t("notes.showProjectHome")}
-      onclick={onShowHome}
-    >
-      <PanelTopOpen size={14} strokeWidth={1.75} />
-    </button>
-    <button
-      type="button"
-      class={toolbarIconButtonClass(false)}
-      aria-label={t("notes.searchLabel")}
-      title={t("notes.searchLabel")}
-      onclick={onFocusSearch}
-    >
-      <Search size={14} strokeWidth={1.75} />
-    </button>
     <button
       type="button"
       class={toolbarIconButtonClass(false)}

@@ -13,7 +13,6 @@
   const projects = getProjects();
 
   let showInactiveProjects = $state(false);
-  let focusSearchRequestId = $state(0);
   let initialNotesLoadPending = $state(!notes.loaded);
   const selectedProject = $derived(projects.selectedProject);
   const selectedGroup = $derived(projects.selectedGroup);
@@ -57,11 +56,6 @@
     void notes.selectPage(null);
   }
 
-  function focusProjectHomeSearch(): void {
-    showProjectHome();
-    focusSearchRequestId += 1;
-  }
-
   function handleProjectSelected(): void {
     showProjectHome();
   }
@@ -79,7 +73,6 @@
     }}
     onProjectSelected={handleProjectSelected}
     onShowHome={showProjectHome}
-    onFocusSearch={focusProjectHomeSearch}
   />
   <div class="notes-view-layout min-h-0 flex-1 overflow-hidden">
     {#if notes.viewMode === "archive"}
@@ -91,7 +84,7 @@
     {:else if notes.selectedPageId && notes.loadedPage}
       <NotesEditor projectId={selectedProjectId} />
     {:else}
-      <NotesProjectHome {focusSearchRequestId} projectId={selectedProjectId} />
+      <NotesProjectHome projectId={selectedProjectId} />
     {/if}
   </div>
 </div>

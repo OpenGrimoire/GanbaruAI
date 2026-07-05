@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { tick } from "svelte";
   import Plus from "@lucide/svelte/icons/plus";
   import Search from "@lucide/svelte/icons/search";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
@@ -13,10 +12,8 @@
   import NotesPageRow from "./NotesPageRow.svelte";
 
   let {
-    focusSearchRequestId = 0,
     projectId = null,
   }: {
-    focusSearchRequestId?: number;
     projectId?: string | null;
   } = $props();
 
@@ -24,7 +21,6 @@
   const { t } = getLocalization();
 
   let search = $state("");
-  let searchInput = $state<HTMLInputElement | null>(null);
   let pendingArchivePage = $state<NotesPage | null>(null);
   let pendingTrashPage = $state<NotesPage | null>(null);
 
@@ -40,15 +36,6 @@
       titleForPage: (page) => notesPageTitle(page, t("notes.untitled")),
     })
   );
-
-  $effect(() => {
-    const requestId = focusSearchRequestId;
-    void requestId;
-    if (requestId === 0) return;
-    void tick().then(() => {
-      searchInput?.focus();
-    });
-  });
 
   function createPage(): void {
     void notes.createPage("", { projectId });
@@ -91,7 +78,6 @@
     <label class="flex min-w-64 flex-1 items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1.5">
       <Search class="size-4 shrink-0 text-muted-foreground" />
       <input
-        bind:this={searchInput}
         class="min-w-0 flex-1 bg-transparent text-[0.866667rem] text-foreground outline-none placeholder:text-muted-foreground"
         bind:value={search}
         placeholder={t("notes.searchPlaceholder")}
