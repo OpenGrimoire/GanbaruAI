@@ -29,6 +29,7 @@
     notesSelectionSubtreeIds,
     planNotesSelectionMoveWithinSiblings,
   } from "$lib/notes/block-selection-operations";
+  import { notesLocalUserDisplayName } from "$lib/notes/local-user";
   import { notesPageIconText } from "$lib/notes/page-icon";
   import { notesPageTitle } from "$lib/notes/page-title";
   import { notesTemplateBlockStatus } from "$lib/notes/template-block";
@@ -272,7 +273,7 @@
     return [{
       kind: "user",
       id: notes.localUser.id,
-      title: notes.localUser.display_name || t("notes.untitled"),
+      title: notesLocalUserDisplayName(notes.localUser.display_name),
       subtitle: t("notes.mentionTargetLocalUser"),
     }];
   }

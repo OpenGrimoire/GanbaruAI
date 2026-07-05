@@ -98,6 +98,9 @@ export type CalendarTimeFormat = "24h" | "12h";
 export const DEFAULT_CALENDAR_TIME_FORMAT: CalendarTimeFormat = "24h";
 export const DEFAULT_CALENDAR_DIM_PAST_EVENTS = true;
 export const DEFAULT_MUSIC_PAUSE_ON_POMODORO_PAUSE = true;
+export const DEFAULT_PROFILE_DISPLAY_NAME = "";
+export const PROFILE_DISPLAY_NAME_FALLBACK = "You";
+export const PROFILE_DISPLAY_NAME_MAX_CHARS = 80;
 export const DEFAULT_NOTES_MENTION_NOTIFICATIONS_ENABLED = true;
 export const DEFAULT_NOTES_REMINDER_NOTIFICATIONS_ENABLED = true;
 export const DEFAULT_NOTES_USER_MENTION_NOTIFICATIONS_ENABLED = true;
@@ -186,6 +189,28 @@ export function resolveFontFamilyStack(id: FontFamilyId | undefined | null): str
   // DEFAULT_FONT_FAMILY_ID is guaranteed to be in FONT_FAMILIES, so option is
   // never undefined; the non-null assertion is a type-system formality.
   return option!.cssStack;
+}
+
+export type ProfileDisplayNameValidation =
+  | { ok: true; value: string }
+  | { ok: false; reason: "too_long" | "control_characters" };
+
+/**
+ * Normalize the local profile display name. Empty names are valid because
+ * product surfaces can fall back to a contextual label when needed.
+ */
+export function normalizeProfileDisplayName(value: string): ProfileDisplayNameValidation {
+  const trimmed = value.trim();
+  if ([...trimmed].length > PROFILE_DISPLAY_NAME_MAX_CHARS) {
+    return { ok: false, reason: "too_long" };
+  }
+  if ([...trimmed].some((character) => {
+    const codePoint = character.codePointAt(0);
+    return codePoint !== undefined && codePoint < 32;
+  })) {
+    return { ok: false, reason: "control_characters" };
+  }
+  return { ok: true, value: trimmed };
 }
 
 export function isTitleBarControlId(value: unknown): value is TitleBarControlId {

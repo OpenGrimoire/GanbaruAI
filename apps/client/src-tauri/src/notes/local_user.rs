@@ -80,9 +80,15 @@ pub(in crate::notes) async fn current_local_user_tx(
 }
 
 pub(in crate::notes) fn comment_display_name_json(display_name: &str) -> String {
+    let resolved_name = display_name.trim();
+    let resolved_name = if resolved_name.is_empty() {
+        DEFAULT_LOCAL_USER_DISPLAY_NAME
+    } else {
+        resolved_name
+    };
     json!({
         "type": "user",
-        "resolved_name": display_name,
+        "resolved_name": resolved_name,
     })
     .to_string()
 }

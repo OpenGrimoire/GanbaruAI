@@ -3,6 +3,7 @@
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { blockPlainText } from "$lib/notes/block-factory";
   import { buildNotesChildIdsByParent, flattenNotesBlockTree } from "$lib/notes/block-tree";
+  import { notesLocalUserDisplayName } from "$lib/notes/local-user";
   import { notesPageTitle } from "$lib/notes/page-title";
   import type {
     NotesBlock,
@@ -97,7 +98,9 @@
   }
 
   function snapshotAuthorName(snapshot: NotesPageHistorySnapshot): string {
-    if (notes.localUser?.id === snapshot.created_by.id) return notes.localUser.display_name;
+    if (notes.localUser?.id === snapshot.created_by.id) {
+      return notesLocalUserDisplayName(notes.localUser.display_name);
+    }
     return snapshot.created_by.id;
   }
 

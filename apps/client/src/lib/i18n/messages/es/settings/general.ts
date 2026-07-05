@@ -5,6 +5,7 @@ export const general = {
   title: "Ajustes",
   close: "Cerrar ajustes",
   section: {
+    profile: "Perfil",
     appearance: "Apariencia",
     calendars: "Calendario",
     projects: "Proyectos",
@@ -38,33 +39,32 @@ export const general = {
     calendarZoomOption: (percent: number, gridMinutes: number) =>
       `${percent}% (${gridMinutes}min)`,
   },
-  notesIdentity: {
-    heading: "Identidad local de Notas",
+  profileIdentity: {
+    heading: "Identidad",
     displayName: "Nombre visible",
-    description:
-      "Se usa en comentarios locales de Notas, historial de páginas y futuras menciones de usuario. Se queda en tu carpeta de Ganbaru AI.",
-    loading: "Cargando identidad...",
+    description: "Se usa donde aparece tu nombre de perfil local",
     save: "Guardar identidad",
     saving: "Guardando...",
     saved: "Guardado",
-    loadFailed: (message: string) => `No se pudo cargar la identidad de Notas: ${message}`,
-    saveFailed: (message: string) => `No se pudo guardar la identidad de Notas: ${message}`,
-    emptyName: "El nombre visible es obligatorio.",
+    saveFailed: (message: string) => `No se pudo guardar el perfil: ${message}`,
+    nameTooLong: (max: number) => `El nombre visible debe tener ${max} caracteres o menos.`,
+    invalidName: "El nombre visible no puede contener caracteres de control.",
+    syncFailed: "No se pudo actualizar el nombre de autor de Notas.",
   },
   notesNotifications: {
     heading: "Notificaciones locales de Notas",
     enable: "Activar notificaciones de menciones",
     enableDescription:
-      "Envía notificaciones de recordatorios, menciones de usuario y menciones de tareas solo desde este dispositivo.",
+      "Envía notificaciones de recordatorios, menciones de usuario y menciones de tareas solo desde este dispositivo",
     reminders: "Menciones con recordatorio",
-    remindersDescription: "Notifica cuando una mención de fecha tiene un recordatorio activo.",
+    remindersDescription: "Notifica cuando una mención de fecha tiene un recordatorio activo",
     userMentions: "Menciones de usuario",
-    userMentionsDescription: "Notifica cuando el texto de Notas menciona a un usuario local.",
+    userMentionsDescription: "Notifica cuando el texto de Notas menciona a un usuario local",
     taskMentions: "Menciones de tareas",
-    taskMentionsDescription: "Notifica cuando el texto de Notas menciona una tarea de proyecto.",
+    taskMentionsDescription: "Notifica cuando el texto de Notas menciona una tarea de proyecto",
     includeContent: "Mostrar texto de la nota en notificaciones",
     includeContentDescription:
-      "Desactivado por privacidad. Al estar apagado, solo se muestra el nombre de la página.",
+      "Desactivado por privacidad. Al estar apagado, solo se muestra el nombre de la página",
   },
   calendars: {
     heading: "Calendarios",

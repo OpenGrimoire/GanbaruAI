@@ -2,6 +2,7 @@ export const general = {
   title: "Settings",
   close: "Close settings",
   section: {
+    profile: "Profile",
     appearance: "Appearance",
     calendars: "Calendar",
     projects: "Projects",
@@ -35,33 +36,32 @@ export const general = {
     calendarZoomOption: (percent: number, gridMinutes: number) =>
       `${percent}% (${gridMinutes}min)`,
   },
-  notesIdentity: {
-    heading: "Local Notes identity",
+  profileIdentity: {
+    heading: "Identity",
     displayName: "Display name",
-    description:
-      "Used for local Notes comments, page history, and future user mentions. It stays in your Ganbaru AI folder.",
-    loading: "Loading identity...",
+    description: "Used wherever your local profile name appears",
     save: "Save identity",
     saving: "Saving...",
     saved: "Saved",
-    loadFailed: (message: string) => `Could not load Notes identity: ${message}`,
-    saveFailed: (message: string) => `Could not save Notes identity: ${message}`,
-    emptyName: "Display name is required.",
+    saveFailed: (message: string) => `Could not save profile: ${message}`,
+    nameTooLong: (max: number) => `Display name must be ${max} characters or fewer.`,
+    invalidName: "Display name cannot contain control characters.",
+    syncFailed: "Could not update Notes author name.",
   },
   notesNotifications: {
     heading: "Local Notes notifications",
     enable: "Enable mention notifications",
     enableDescription:
-      "Deliver reminder, user mention, and task mention notifications from this device only.",
+      "Deliver reminder, user mention, and task mention notifications from this device only",
     reminders: "Reminder mentions",
-    remindersDescription: "Notify when a date mention has a reminder enabled.",
+    remindersDescription: "Notify when a date mention has a reminder enabled",
     userMentions: "User mentions",
-    userMentionsDescription: "Notify when Notes rich text mentions a local user.",
+    userMentionsDescription: "Notify when Notes rich text mentions a local user",
     taskMentions: "Task mentions",
-    taskMentionsDescription: "Notify when Notes rich text mentions a project task.",
+    taskMentionsDescription: "Notify when Notes rich text mentions a project task",
     includeContent: "Show note text in notifications",
     includeContentDescription:
-      "Off by default for privacy. When off, notifications only show the page name.",
+      "Off by default for privacy. When off, notifications only show the page name",
   },
   calendars: {
     heading: "Calendars",

@@ -8,6 +8,8 @@ import {
   DEFAULT_CALENDAR_DIM_PAST_EVENTS,
   DEFAULT_CALENDAR_VIEW_MODE,
   DEFAULT_MUSIC_PAUSE_ON_POMODORO_PAUSE,
+  DEFAULT_PROFILE_DISPLAY_NAME,
+  PROFILE_DISPLAY_NAME_MAX_CHARS,
   DEFAULT_CALENDAR_TIME_FORMAT,
   CALENDAR_VIEW_MODES,
   DEFAULT_FOCUS_IDLE_PAUSE_ON_EVENT_CREATE,
@@ -42,6 +44,7 @@ import {
   parseFocusPauseNotificationIntervalMinutes,
   parseLanguagePreference,
   parseTitleBarVisibility,
+  normalizeProfileDisplayName,
   resolveFontFamilyStack,
   shouldNormalizeTitleBarVisibility,
 } from "./preferences";
@@ -195,6 +198,34 @@ describe("language preferences", () => {
 describe("music pomodoro preferences", () => {
   it("pauses music on pomodoro pause by default", () => {
     expect(DEFAULT_MUSIC_PAUSE_ON_POMODORO_PAUSE).toBe(true);
+  });
+});
+
+describe("profile preferences", () => {
+  it("defaults to an empty display name", () => {
+    expect(DEFAULT_PROFILE_DISPLAY_NAME).toBe("");
+  });
+
+  it("trims profile display names while allowing an empty value", () => {
+    expect(normalizeProfileDisplayName("  Victor  ")).toEqual({
+      ok: true,
+      value: "Victor",
+    });
+    expect(normalizeProfileDisplayName("   ")).toEqual({
+      ok: true,
+      value: "",
+    });
+  });
+
+  it("rejects profile display names that are too long or contain control characters", () => {
+    expect(normalizeProfileDisplayName("a".repeat(PROFILE_DISPLAY_NAME_MAX_CHARS + 1))).toEqual({
+      ok: false,
+      reason: "too_long",
+    });
+    expect(normalizeProfileDisplayName("Bad\u0000Name")).toEqual({
+      ok: false,
+      reason: "control_characters",
+    });
   });
 });
 

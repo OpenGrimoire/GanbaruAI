@@ -4,6 +4,7 @@
  * type their requests against the same identifier set.
  */
 export type SectionId =
+  | "profile"
   | "appearance"
   | "calendars"
   | "projects"

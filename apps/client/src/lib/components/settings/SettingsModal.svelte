@@ -2,6 +2,7 @@
   import { onMount, type Component } from "svelte";
   import { cn } from "$lib/utils";
   import Palette from "@lucide/svelte/icons/palette";
+  import UserRound from "@lucide/svelte/icons/user-round";
   import Calendar from "@lucide/svelte/icons/calendar";
   import Folder from "@lucide/svelte/icons/folder";
   import Book from "@lucide/svelte/icons/book";
@@ -20,7 +21,8 @@
   import CalendarScrollbar from "../calendar/CalendarScrollbar.svelte";
   import FocusSection from "./FocusSection.svelte";
   import MusicSection from "./MusicSection.svelte";
-  import NotesIdentitySection from "./NotesIdentitySection.svelte";
+  import NotesSection from "./NotesSection.svelte";
+  import ProfileSection from "./ProfileSection.svelte";
   import DoomscrollingSection from "./DoomscrollingSection.svelte";
   import DoomscrollingLimitEditor from "./DoomscrollingLimitEditor.svelte";
   import ShortcutsSection from "./ShortcutsSection.svelte";
@@ -65,6 +67,7 @@
   // branch in the content switch below.
   const SECTIONS: SectionMeta[] = [
     { id: "appearance", label: () => t("settings.section.appearance"), icon: Palette },
+    { id: "profile", label: () => t("settings.section.profile"), icon: UserRound },
     { id: "calendars", label: () => t("settings.section.calendars"), icon: Calendar },
     { id: "projects", label: () => t("settings.section.projects"), icon: Folder },
     { id: "notes", label: () => t("settings.section.notes"), icon: Book },
@@ -337,8 +340,10 @@
           />
         {:else if activeSection === "appearance"}
           <AppearanceSection />
+        {:else if activeSection === "profile"}
+          <ProfileSection />
         {:else if activeSection === "notes"}
-          <NotesIdentitySection />
+          <NotesSection />
         {:else if activeSection === "calendars"}
           {#if CalendarsSection}
             {@const Section = CalendarsSection}
