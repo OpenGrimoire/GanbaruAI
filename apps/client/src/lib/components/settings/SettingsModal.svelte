@@ -228,7 +228,7 @@
     onclick={(e) => e.stopPropagation()}
   >
     {#if useTopNav}
-      <header class="flex shrink-0 items-center gap-2 border-b border-border bg-background/40 px-2 py-2 dark:bg-black/20">
+      <header class="flex shrink-0 items-center gap-2 border-b border-border/70 bg-background/40 px-2 py-2 dark:bg-black/20">
         <nav class="flex min-w-0 flex-1 gap-1 overflow-x-auto rounded-md bg-card/60 p-0.5 dark:bg-background/60">
           {#each SECTIONS as section}
             {@const Icon = section.icon}

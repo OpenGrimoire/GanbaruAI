@@ -654,7 +654,7 @@
   <!-- Theme chrome sits above the editor scroll viewport so the scrollbar
        starts with the editable sections. -->
   <section
-    class="theme-editor-chrome relative z-20 flex shrink-0 flex-col gap-1.5 border-b border-border bg-sidebar px-3 py-2"
+    class="theme-editor-chrome relative z-20 flex shrink-0 flex-col gap-1.5 border-b border-border/70 bg-sidebar px-3 py-2"
   >
     <div
       class="flex h-9 min-w-0 items-center overflow-hidden rounded-md border border-border bg-card text-[0.733333rem] text-muted-foreground dark:bg-background"
@@ -700,7 +700,7 @@
       >
         <BaseIcon size={12} strokeWidth={1.75} />
       </button>
-      <span class="h-5 border-r border-border" aria-hidden="true"></span>
+      <span class="h-5 border-r border-border/70" aria-hidden="true"></span>
       <input
         type="text"
         value={theme.displayName}
@@ -1122,7 +1122,7 @@
           </div>
         </header>
         {#if showRows}
-          <div class="divide-y divide-border border-t border-border">
+          <div class="divide-y divide-border/70 border-t border-border/70">
             {#if group.sourceKey !== null && group.rows.length === 1 && group.rows[0].kind === "single"}
               {@render groupHeaderStyleRow(group.rows[0])}
             {:else}
@@ -1143,7 +1143,7 @@
   {/snippet}
 
   {#snippet textActionsSection()}
-    <section class="flex flex-col divide-y divide-border">
+    <section class="flex flex-col divide-y divide-border/70">
       {#each textActionGroups as group (group.id)}
         {@render groupSection(group)}
       {/each}
@@ -1208,7 +1208,7 @@
   {/snippet}
 
   {#snippet calendarSection()}
-    <section class="flex flex-col divide-y divide-border">
+    <section class="flex flex-col divide-y divide-border/70">
       {@render calendarDefaultsSection()}
       {#each calendarGroups as group (group.id)}
         {#if group.id === "calendar-details"}
@@ -1231,7 +1231,7 @@
       <h2 class="shrink-0 text-[0.866667rem] font-semibold uppercase text-foreground">
         {localizedThemeSectionLabel(target, t)}
       </h2>
-      <div class="h-px min-w-4 flex-1 bg-border" aria-hidden="true"></div>
+      <div class="h-px min-w-4 flex-1 scale-y-50 bg-border" aria-hidden="true"></div>
       {#if note}
         <span class="shrink-0 text-[0.733333rem] text-muted-foreground">
           {note}

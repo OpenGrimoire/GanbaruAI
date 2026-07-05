@@ -73,7 +73,7 @@
     />
   </section>
 
-  <div class="h-px bg-border/70" aria-hidden="true"></div>
+  <div class="h-px shrink-0 scale-y-50 bg-border" aria-hidden="true"></div>
 
   <section class="flex flex-col gap-4">
     <h2 class="px-1 text-[0.866667rem] font-semibold text-foreground">{t("settings.updates.buildHeading")}</h2>
@@ -161,7 +161,7 @@
   </section>
 
   {#if updates.status === "available"}
-    <div class="h-px bg-border/70" aria-hidden="true"></div>
+    <div class="h-px shrink-0 scale-y-50 bg-border" aria-hidden="true"></div>
 
     <section class="flex flex-col gap-4">
       <h2 class="px-1 text-[0.866667rem] font-semibold text-foreground">{t("settings.updates.availableUpdateHeading")}</h2>
@@ -225,7 +225,7 @@
               </code>
               <button
                 type="button"
-                class="inline-flex h-auto shrink-0 items-center justify-center gap-1.5 border-l border-border px-2.5 text-[0.8rem] font-medium text-foreground transition-colors hover:bg-accent focus:outline-none focus-visible:ring-1 focus-visible:ring-ring max-[480px]:h-8 max-[480px]:border-l-0 max-[480px]:border-t"
+                class="inline-flex h-auto shrink-0 items-center justify-center gap-1.5 border-l border-border/70 px-2.5 text-[0.8rem] font-medium text-foreground transition-colors hover:bg-accent focus:outline-none focus-visible:ring-1 focus-visible:ring-ring max-[480px]:h-8 max-[480px]:border-l-0 max-[480px]:border-t"
                 onclick={() => {
                   void copyUpdateCommand();
                 }}

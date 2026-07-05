@@ -800,7 +800,7 @@
       !doomscrolling.enabled && "opacity-50",
     )}
   >
-    <div class="h-px bg-border/70" aria-hidden="true"></div>
+    <div class="h-px shrink-0 scale-y-50 bg-border" aria-hidden="true"></div>
 
     {#if doomscrolling.mode === "blacklist"}
       {@render blacklistModeSection()}

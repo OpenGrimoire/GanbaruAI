@@ -195,7 +195,7 @@
     </div>
   </section>
 
-  <div class="h-px bg-border/70" aria-hidden="true"></div>
+  <div class="h-px shrink-0 scale-y-50 bg-border" aria-hidden="true"></div>
 
   <section class="flex flex-col gap-4">
     <h2 class="px-1 text-[0.866667rem] font-semibold text-foreground">{t("settings.focus.notificationHeading")}</h2>
@@ -212,7 +212,7 @@
     </div>
   </section>
 
-  <div class="h-px bg-border/70" aria-hidden="true"></div>
+  <div class="h-px shrink-0 scale-y-50 bg-border" aria-hidden="true"></div>
 
   <section class="flex flex-col gap-4">
     <h2 class="px-1 text-[0.866667rem] font-semibold text-foreground">{t("settings.focus.breakScreenHeading")}</h2>

@@ -111,7 +111,7 @@
 <div class="flex flex-col gap-6">
   <ThemeList />
 
-  <div class="h-px bg-border/70" aria-hidden="true"></div>
+  <div class="h-px shrink-0 scale-y-50 bg-border" aria-hidden="true"></div>
 
   <section class="flex flex-col gap-4">
     <h2 class="px-1 text-[0.866667rem] font-semibold text-foreground">{t("settings.appearance.zoomHeading")}</h2>
@@ -128,7 +128,7 @@
     </div>
   </section>
 
-  <div class="h-px bg-border/70" aria-hidden="true"></div>
+  <div class="h-px shrink-0 scale-y-50 bg-border" aria-hidden="true"></div>
 
   <section class="flex flex-col gap-4">
     <h2 class="px-1 text-[0.866667rem] font-semibold text-foreground">{t("settings.appearance.textHeading")}</h2>
@@ -154,7 +154,7 @@
     </div>
   </section>
 
-  <div class="h-px bg-border/70" aria-hidden="true"></div>
+  <div class="h-px shrink-0 scale-y-50 bg-border" aria-hidden="true"></div>
 
   <section class="flex flex-col gap-4">
     <h2 class="px-1 text-[0.866667rem] font-semibold text-foreground">{t("settings.appearance.languageHeading")}</h2>
@@ -173,7 +173,7 @@
     </div>
   </section>
 
-  <div class="h-px bg-border/70" aria-hidden="true"></div>
+  <div class="h-px shrink-0 scale-y-50 bg-border" aria-hidden="true"></div>
 
   <section class="flex flex-col gap-4">
     <h2 class="px-1 text-[0.866667rem] font-semibold text-foreground">{t("settings.appearance.calendarHeading")}</h2>
