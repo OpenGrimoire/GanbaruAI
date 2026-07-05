@@ -5,6 +5,7 @@ import {
   DEFAULT_FONT_SCALE,
   DEFAULT_CALENDAR_DIM_PAST_EVENTS,
   DEFAULT_PROFILE_DISPLAY_NAME,
+  DEFAULT_PROFILE_FULL_NAME,
   DEFAULT_MUSIC_PAUSE_ON_POMODORO_PAUSE,
   DEFAULT_CALENDAR_TIME_FORMAT,
   DEFAULT_FOCUS_IDLE_PAUSE_ON_EVENT_CREATE,
@@ -43,6 +44,7 @@ import {
   parseFocusPauseNotificationIntervalMinutes,
   parseTitleBarVisibility,
   normalizeProfileDisplayName,
+  normalizeProfileFullName,
   resolveFontFamilyStack,
   shouldNormalizeTitleBarVisibility,
 } from "./preferences";
@@ -50,6 +52,7 @@ import { getConfigKey, setConfigKey } from "../vault/config";
 import { getLocalization } from "$lib/i18n/translator.svelte";
 
 const PROFILE_DISPLAY_NAME_CONFIG_KEY = "profile.displayName";
+const PROFILE_FULL_NAME_CONFIG_KEY = "profile.fullName";
 const FONT_FAMILY_CONFIG_KEY = "preferences.fontFamilyId";
 const FONT_SCALE_CONFIG_KEY = "preferences.fontScale";
 const EVENT_TZ_DISPLAY_KEY = "preferences.eventTimezoneDisplay";
@@ -107,6 +110,13 @@ function loadSavedProfileDisplayName(): string {
   if (typeof saved !== "string") return DEFAULT_PROFILE_DISPLAY_NAME;
   const normalized = normalizeProfileDisplayName(saved);
   return normalized.ok ? normalized.value : DEFAULT_PROFILE_DISPLAY_NAME;
+}
+
+function loadSavedProfileFullName(): string {
+  const saved = getConfigKey<unknown>(PROFILE_FULL_NAME_CONFIG_KEY, undefined);
+  if (typeof saved !== "string") return DEFAULT_PROFILE_FULL_NAME;
+  const normalized = normalizeProfileFullName(saved);
+  return normalized.ok ? normalized.value : DEFAULT_PROFILE_FULL_NAME;
 }
 
 function loadSavedCalendarTimeFormat(): CalendarTimeFormat {
@@ -202,6 +212,7 @@ let fontFamilyId = $state<FontFamilyId>(loadSavedFontFamilyId());
 let fontScale = $state<number>(loadSavedFontScale());
 let eventTimezoneDisplay = $state<EventTimezoneDisplay>(loadSavedEventTzDisplay());
 let profileDisplayName = $state<string>(loadSavedProfileDisplayName());
+let profileFullName = $state<string>(loadSavedProfileFullName());
 let calendarTimeFormat = $state<CalendarTimeFormat>(loadSavedCalendarTimeFormat());
 let calendarViewMode = $state<CalendarViewMode>(loadSavedCalendarViewMode());
 let calendarDimPastEvents = $state<boolean>(loadSavedCalendarDimPastEvents());
@@ -294,6 +305,17 @@ function setProfileDisplayName(value: string): boolean {
   profileDisplayName = normalized.value;
   setConfigKey(
     PROFILE_DISPLAY_NAME_CONFIG_KEY,
+    normalized.value ? normalized.value : undefined,
+  );
+  return true;
+}
+
+function setProfileFullName(value: string): boolean {
+  const normalized = normalizeProfileFullName(value);
+  if (!normalized.ok) return false;
+  profileFullName = normalized.value;
+  setConfigKey(
+    PROFILE_FULL_NAME_CONFIG_KEY,
     normalized.value ? normalized.value : undefined,
   );
   return true;
@@ -440,6 +462,9 @@ export function getPreferences() {
     get profileDisplayName(): string {
       return profileDisplayName;
     },
+    get profileFullName(): string {
+      return profileFullName;
+    },
     get languagePreference(): LanguagePreference {
       return localization.languagePreference;
     },
@@ -500,6 +525,7 @@ export function getPreferences() {
     setFontFamily,
     setFontScale,
     setProfileDisplayName,
+    setProfileFullName,
     setLanguagePreference: localization.setLanguagePreference,
     setEventTimezoneDisplay,
     setCalendarTimeFormat,

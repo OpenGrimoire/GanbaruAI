@@ -99,8 +99,10 @@ export const DEFAULT_CALENDAR_TIME_FORMAT: CalendarTimeFormat = "24h";
 export const DEFAULT_CALENDAR_DIM_PAST_EVENTS = true;
 export const DEFAULT_MUSIC_PAUSE_ON_POMODORO_PAUSE = true;
 export const DEFAULT_PROFILE_DISPLAY_NAME = "";
+export const DEFAULT_PROFILE_FULL_NAME = "";
 export const PROFILE_DISPLAY_NAME_FALLBACK = "You";
-export const PROFILE_DISPLAY_NAME_MAX_CHARS = 80;
+export const PROFILE_DISPLAY_NAME_MAX_CHARS = 25;
+export const PROFILE_FULL_NAME_MAX_CHARS = 50;
 export const DEFAULT_NOTES_MENTION_NOTIFICATIONS_ENABLED = true;
 export const DEFAULT_NOTES_REMINDER_NOTIFICATIONS_ENABLED = true;
 export const DEFAULT_NOTES_USER_MENTION_NOTIFICATIONS_ENABLED = true;
@@ -195,13 +197,16 @@ export type ProfileDisplayNameValidation =
   | { ok: true; value: string }
   | { ok: false; reason: "too_long" | "control_characters" };
 
-/**
- * Normalize the local profile display name. Empty names are valid because
- * product surfaces can fall back to a contextual label when needed.
- */
-export function normalizeProfileDisplayName(value: string): ProfileDisplayNameValidation {
+export type ProfileFullNameValidation =
+  | { ok: true; value: string }
+  | { ok: false; reason: "too_long" | "control_characters" };
+
+function normalizeProfileTextField(
+  value: string,
+  maxCharacters: number,
+): ProfileDisplayNameValidation {
   const trimmed = value.trim();
-  if ([...trimmed].length > PROFILE_DISPLAY_NAME_MAX_CHARS) {
+  if ([...trimmed].length > maxCharacters) {
     return { ok: false, reason: "too_long" };
   }
   if ([...trimmed].some((character) => {
@@ -211,6 +216,22 @@ export function normalizeProfileDisplayName(value: string): ProfileDisplayNameVa
     return { ok: false, reason: "control_characters" };
   }
   return { ok: true, value: trimmed };
+}
+
+/**
+ * Normalize the local profile display name. Empty names are valid because
+ * product surfaces can fall back to a contextual label when needed.
+ */
+export function normalizeProfileDisplayName(value: string): ProfileDisplayNameValidation {
+  return normalizeProfileTextField(value, PROFILE_DISPLAY_NAME_MAX_CHARS);
+}
+
+/**
+ * Normalize the local profile full name. Empty names are valid while profile
+ * completion remains optional.
+ */
+export function normalizeProfileFullName(value: string): ProfileFullNameValidation {
+  return normalizeProfileTextField(value, PROFILE_FULL_NAME_MAX_CHARS);
 }
 
 export function isTitleBarControlId(value: unknown): value is TitleBarControlId {

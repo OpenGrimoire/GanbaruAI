@@ -9,7 +9,9 @@ import {
   DEFAULT_CALENDAR_VIEW_MODE,
   DEFAULT_MUSIC_PAUSE_ON_POMODORO_PAUSE,
   DEFAULT_PROFILE_DISPLAY_NAME,
+  DEFAULT_PROFILE_FULL_NAME,
   PROFILE_DISPLAY_NAME_MAX_CHARS,
+  PROFILE_FULL_NAME_MAX_CHARS,
   DEFAULT_CALENDAR_TIME_FORMAT,
   CALENDAR_VIEW_MODES,
   DEFAULT_FOCUS_IDLE_PAUSE_ON_EVENT_CREATE,
@@ -45,6 +47,7 @@ import {
   parseLanguagePreference,
   parseTitleBarVisibility,
   normalizeProfileDisplayName,
+  normalizeProfileFullName,
   resolveFontFamilyStack,
   shouldNormalizeTitleBarVisibility,
 } from "./preferences";
@@ -202,8 +205,11 @@ describe("music pomodoro preferences", () => {
 });
 
 describe("profile preferences", () => {
-  it("defaults to an empty display name", () => {
+  it("defaults to empty profile names", () => {
     expect(DEFAULT_PROFILE_DISPLAY_NAME).toBe("");
+    expect(DEFAULT_PROFILE_FULL_NAME).toBe("");
+    expect(PROFILE_DISPLAY_NAME_MAX_CHARS).toBe(25);
+    expect(PROFILE_FULL_NAME_MAX_CHARS).toBe(50);
   });
 
   it("trims profile display names while allowing an empty value", () => {
@@ -217,12 +223,34 @@ describe("profile preferences", () => {
     });
   });
 
+  it("trims profile full names while allowing an empty value", () => {
+    expect(normalizeProfileFullName("  Victor Example  ")).toEqual({
+      ok: true,
+      value: "Victor Example",
+    });
+    expect(normalizeProfileFullName("   ")).toEqual({
+      ok: true,
+      value: "",
+    });
+  });
+
   it("rejects profile display names that are too long or contain control characters", () => {
     expect(normalizeProfileDisplayName("a".repeat(PROFILE_DISPLAY_NAME_MAX_CHARS + 1))).toEqual({
       ok: false,
       reason: "too_long",
     });
     expect(normalizeProfileDisplayName("Bad\u0000Name")).toEqual({
+      ok: false,
+      reason: "control_characters",
+    });
+  });
+
+  it("rejects profile full names that are too long or contain control characters", () => {
+    expect(normalizeProfileFullName("a".repeat(PROFILE_FULL_NAME_MAX_CHARS + 1))).toEqual({
+      ok: false,
+      reason: "too_long",
+    });
+    expect(normalizeProfileFullName("Bad\u0000Name")).toEqual({
       ok: false,
       reason: "control_characters",
     });

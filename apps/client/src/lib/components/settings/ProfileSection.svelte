@@ -5,7 +5,9 @@
   import {
     PROFILE_DISPLAY_NAME_FALLBACK,
     PROFILE_DISPLAY_NAME_MAX_CHARS,
+    PROFILE_FULL_NAME_MAX_CHARS,
     normalizeProfileDisplayName,
+    normalizeProfileFullName,
   } from "$lib/stores/preferences";
   import { getNotes } from "$lib/stores/notes.svelte";
   import { getPreferences } from "$lib/stores/preferences.svelte";
@@ -17,23 +19,35 @@
   const { t } = getLocalization();
 
   let draftDisplayName = $state(preferences.profileDisplayName);
+  let draftFullName = $state(preferences.profileFullName);
   let initializedDisplayName = $state<string | null>(null);
+  let initializedFullName = $state<string | null>(null);
   let saving = $state(false);
   let saveError = $state<string | null>(null);
   let saved = $state(false);
 
   const normalizedDisplayName = $derived(normalizeProfileDisplayName(draftDisplayName));
+  const normalizedFullName = $derived(normalizeProfileFullName(draftFullName));
   const validationMessage = $derived.by(() => {
-    if (normalizedDisplayName.ok) return null;
-    if (normalizedDisplayName.reason === "too_long") {
+    if (!normalizedDisplayName.ok && normalizedDisplayName.reason === "too_long") {
       return t("settings.profileIdentity.nameTooLong", PROFILE_DISPLAY_NAME_MAX_CHARS);
     }
-    return t("settings.profileIdentity.invalidName");
+    if (!normalizedDisplayName.ok) return t("settings.profileIdentity.invalidName");
+    if (!normalizedFullName.ok && normalizedFullName.reason === "too_long") {
+      return t("settings.profileIdentity.fullNameTooLong", PROFILE_FULL_NAME_MAX_CHARS);
+    }
+    if (!normalizedFullName.ok) return t("settings.profileIdentity.invalidFullName");
+    return null;
   });
   const unchanged = $derived(
-    normalizedDisplayName.ok && normalizedDisplayName.value === preferences.profileDisplayName,
+    normalizedDisplayName.ok
+      && normalizedFullName.ok
+      && normalizedDisplayName.value === preferences.profileDisplayName
+      && normalizedFullName.value === preferences.profileFullName,
   );
-  const hasSaveableChange = $derived(normalizedDisplayName.ok && !unchanged);
+  const hasSaveableChange = $derived(
+    normalizedDisplayName.ok && normalizedFullName.ok && !unchanged,
+  );
   const canSave = $derived(hasSaveableChange && !saving);
 
   $effect(() => {
@@ -43,30 +57,52 @@
     draftDisplayName = current;
   });
 
+  $effect(() => {
+    const current = preferences.profileFullName;
+    if (initializedFullName === current) return;
+    initializedFullName = current;
+    draftFullName = current;
+  });
+
   async function saveIdentity(): Promise<void> {
     saveError = null;
     saved = false;
-    const normalized = normalizeProfileDisplayName(draftDisplayName);
-    if (!normalized.ok) {
-      saveError = normalized.reason === "too_long"
+    const displayName = normalizeProfileDisplayName(draftDisplayName);
+    if (!displayName.ok) {
+      saveError = displayName.reason === "too_long"
         ? t("settings.profileIdentity.nameTooLong", PROFILE_DISPLAY_NAME_MAX_CHARS)
         : t("settings.profileIdentity.invalidName");
       return;
     }
+    const fullName = normalizeProfileFullName(draftFullName);
+    if (!fullName.ok) {
+      saveError = fullName.reason === "too_long"
+        ? t("settings.profileIdentity.fullNameTooLong", PROFILE_FULL_NAME_MAX_CHARS)
+        : t("settings.profileIdentity.invalidFullName");
+      return;
+    }
 
-    const notesDisplayName = normalized.value || PROFILE_DISPLAY_NAME_FALLBACK;
+    const shouldUpdateNotesName = displayName.value !== preferences.profileDisplayName;
+    const notesDisplayName = displayName.value || PROFILE_DISPLAY_NAME_FALLBACK;
     saving = true;
     try {
-      const updated: NotesLocalUser | null = await notes.updateLocalUserDisplayName(notesDisplayName);
-      if (!updated) {
-        saveError = notes.localUserError ?? t("settings.profileIdentity.syncFailed");
-        return;
+      if (shouldUpdateNotesName) {
+        const updated: NotesLocalUser | null = await notes.updateLocalUserDisplayName(notesDisplayName);
+        if (!updated) {
+          saveError = notes.localUserError ?? t("settings.profileIdentity.syncFailed");
+          return;
+        }
       }
-      if (!preferences.setProfileDisplayName(normalized.value)) {
+      if (!preferences.setProfileDisplayName(displayName.value)) {
         saveError = t("settings.profileIdentity.invalidName");
         return;
       }
-      draftDisplayName = normalized.value;
+      if (!preferences.setProfileFullName(fullName.value)) {
+        saveError = t("settings.profileIdentity.invalidFullName");
+        return;
+      }
+      draftDisplayName = displayName.value;
+      draftFullName = fullName.value;
       saved = true;
     } catch (error) {
       saveError = error instanceof Error ? error.message : String(error);
@@ -75,7 +111,7 @@
     }
   }
 
-  function handleDisplayNameKeydown(event: KeyboardEvent): void {
+  function handleIdentityKeydown(event: KeyboardEvent): void {
     if (event.key === "Enter") {
       event.preventDefault();
       if (canSave) void saveIdentity();
@@ -84,6 +120,7 @@
     if (event.key === "Escape") {
       event.preventDefault();
       draftDisplayName = preferences.profileDisplayName;
+      draftFullName = preferences.profileFullName;
       saveError = null;
       saved = false;
     }
@@ -112,9 +149,34 @@
           maxlength={PROFILE_DISPLAY_NAME_MAX_CHARS}
           disabled={saving}
           onpointerdown={moveTextInputCaretToPointer}
-          onkeydown={handleDisplayNameKeydown}
+          onkeydown={handleIdentityKeydown}
           oninput={(event) => {
             draftDisplayName = event.currentTarget.value;
+            saveError = null;
+            saved = false;
+          }}
+        />
+      </div>
+      <div class="flex items-center justify-between gap-4 px-1 py-1 max-[520px]:flex-col max-[520px]:items-stretch max-[520px]:gap-2">
+        <div class="min-w-0 flex-1">
+          <label for="profile-full-name" class="text-[0.866667rem] text-foreground">
+            {t("settings.profileIdentity.fullName")}
+          </label>
+          <div class="mt-0.5 text-[0.8rem] leading-5 text-muted-foreground">
+            {t("settings.profileIdentity.fullNameDescription")}
+          </div>
+        </div>
+
+        <input
+          id="profile-full-name"
+          class="h-7 w-44 min-w-0 rounded-md border border-border bg-card px-2.5 text-left text-[0.8rem] font-medium text-foreground outline-none transition-colors focus:border-ring disabled:opacity-60 dark:bg-transparent max-[520px]:w-full"
+          value={draftFullName}
+          maxlength={PROFILE_FULL_NAME_MAX_CHARS}
+          disabled={saving}
+          onpointerdown={moveTextInputCaretToPointer}
+          onkeydown={handleIdentityKeydown}
+          oninput={(event) => {
+            draftFullName = event.currentTarget.value;
             saveError = null;
             saved = false;
           }}
