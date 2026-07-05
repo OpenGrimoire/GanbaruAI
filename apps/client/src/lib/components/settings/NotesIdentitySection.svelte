@@ -61,10 +61,19 @@
 
     <div class="flex flex-col gap-3">
       <div class="flex items-start justify-between gap-4 px-1 py-1 max-[520px]:flex-col max-[520px]:items-stretch max-[520px]:gap-2">
-        <label class="min-w-0 flex-1">
-          <span class="text-[0.866667rem] text-foreground">{t("settings.notesIdentity.displayName")}</span>
+        <div class="min-w-0 flex-1">
+          <label for="notes-display-name" class="text-[0.866667rem] text-foreground">
+            {t("settings.notesIdentity.displayName")}
+          </label>
+          <div class="mt-0.5 text-[0.8rem] leading-5 text-muted-foreground">
+            {t("settings.notesIdentity.description")}
+          </div>
+        </div>
+
+        <div class="flex w-80 max-w-full shrink-0 items-center gap-2 max-[520px]:w-full">
           <input
-            class="mt-1 h-8 w-full rounded-md border border-input bg-background px-2 text-[0.866667rem] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+            id="notes-display-name"
+            class="h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-[0.866667rem] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
             value={draftDisplayName}
             maxlength="80"
             disabled={notes.localUserLoading && !notes.localUser}
@@ -74,26 +83,22 @@
               saved = false;
             }}
           />
-        </label>
 
-        <button
-          type="button"
-          class={primaryButtonClass}
-          disabled={!canSave}
-          onclick={() => void saveIdentity()}
-        >
-          {#if notes.localUserLoading && notes.localUser}
-            <LoaderCircle size={14} strokeWidth={2.1} class="shrink-0 animate-spin" />
-            <span>{t("settings.notesIdentity.saving")}</span>
-          {:else}
-            <Save size={14} strokeWidth={1.9} class="shrink-0" />
-            <span>{t("settings.notesIdentity.save")}</span>
-          {/if}
-        </button>
-      </div>
-
-      <div class="px-1 text-[0.8rem] leading-5 text-muted-foreground">
-        {t("settings.notesIdentity.description")}
+          <button
+            type="button"
+            class={primaryButtonClass}
+            disabled={!canSave}
+            onclick={() => void saveIdentity()}
+          >
+            {#if notes.localUserLoading && notes.localUser}
+              <LoaderCircle size={14} strokeWidth={2.1} class="shrink-0 animate-spin" />
+              <span>{t("settings.notesIdentity.saving")}</span>
+            {:else}
+              <Save size={14} strokeWidth={1.9} class="shrink-0" />
+              <span>{t("settings.notesIdentity.save")}</span>
+            {/if}
+          </button>
+        </div>
       </div>
 
       {#if notes.localUserLoading && !notes.localUser}
@@ -121,10 +126,12 @@
     </div>
   </section>
 
+  <div class="h-px bg-border/70" aria-hidden="true"></div>
+
   <section class="flex flex-col gap-4">
     <h2 class="px-1 text-[0.866667rem] font-semibold text-foreground">{t("settings.notesNotifications.heading")}</h2>
 
-    <div class="flex flex-col gap-2">
+    <div class="flex flex-col gap-3">
       <ToggleSetting
         label={t("settings.notesNotifications.enable")}
         description={t("settings.notesNotifications.enableDescription")}

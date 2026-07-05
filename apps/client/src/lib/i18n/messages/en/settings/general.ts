@@ -3,8 +3,9 @@ export const general = {
   close: "Close settings",
   section: {
     appearance: "Appearance",
-    notes: "Notes",
     calendars: "Calendar",
+    projects: "Projects",
+    notes: "Notes",
     focus: "Focus",
     music: "Music",
     doomscrolling: "Doomscrolling",

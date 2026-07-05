@@ -2,14 +2,15 @@
   import { onMount, type Component } from "svelte";
   import { cn } from "$lib/utils";
   import Palette from "@lucide/svelte/icons/palette";
-  import CalendarDays from "@lucide/svelte/icons/calendar-days";
+  import Calendar from "@lucide/svelte/icons/calendar";
+  import Folder from "@lucide/svelte/icons/folder";
+  import Book from "@lucide/svelte/icons/book";
   import GlobeOff from "@lucide/svelte/icons/globe-off";
   import Info from "@lucide/svelte/icons/info";
   import Keyboard from "@lucide/svelte/icons/keyboard";
   import Music from "@lucide/svelte/icons/music";
   import SettingsIcon from "@lucide/svelte/icons/settings";
   import Timer from "@lucide/svelte/icons/timer";
-  import UserRound from "@lucide/svelte/icons/user-round";
   import DownloadCloud from "@lucide/svelte/icons/download-cloud";
   import HardDrive from "@lucide/svelte/icons/hard-drive";
   import X from "@lucide/svelte/icons/x";
@@ -64,8 +65,9 @@
   // branch in the content switch below.
   const SECTIONS: SectionMeta[] = [
     { id: "appearance", label: () => t("settings.section.appearance"), icon: Palette },
-    { id: "notes", label: () => t("settings.section.notes"), icon: UserRound },
-    { id: "calendars", label: () => t("settings.section.calendars"), icon: CalendarDays },
+    { id: "calendars", label: () => t("settings.section.calendars"), icon: Calendar },
+    { id: "projects", label: () => t("settings.section.projects"), icon: Folder },
+    { id: "notes", label: () => t("settings.section.notes"), icon: Book },
     { id: "focus", label: () => t("settings.section.focus"), icon: Timer },
     { id: "music", label: () => t("settings.section.music"), icon: Music },
     { id: "doomscrolling", label: () => t("settings.section.doomscrolling"), icon: GlobeOff },
@@ -342,6 +344,8 @@
             {@const Section = CalendarsSection}
             <Section />
           {/if}
+        {:else if activeSection === "projects"}
+          <div class="flex flex-col gap-6"></div>
         {:else if activeSection === "focus"}
           <FocusSection />
         {:else if activeSection === "music"}
