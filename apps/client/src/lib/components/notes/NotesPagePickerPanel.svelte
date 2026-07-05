@@ -7,6 +7,7 @@
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
   import CalendarScrollbar from "$lib/components/calendar/CalendarScrollbar.svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { formatShortcut } from "$lib/keyboard-shortcuts";
   import { NOTES_PAGE_CHROME_EMOJI_SCALE } from "$lib/notes/page-icon";
   import { buildNotesPageTree, type NotesPageParentStatus } from "$lib/notes/page-tree";
   import { notesPageTitle } from "$lib/notes/page-title";
@@ -61,10 +62,10 @@
   const panelFallbackFooterHeight = 44;
   const panelListPadding = 6;
   const panelRowHeight = 32;
+  const newPageShortcut = $derived(formatShortcut("Mod + N"));
+  const newPageTitle = $derived(`${t("notes.newPage")} (${newPageShortcut})`);
 
   let search = $state("");
-  let pageDraft = $state("");
-  let createPageOpen = $state(false);
   let searchInput = $state<HTMLInputElement | undefined>();
   let panelHeaderElement = $state<HTMLDivElement | undefined>();
   let panelFooterElement = $state<HTMLDivElement | undefined>();
@@ -181,11 +182,8 @@
     await onPageSelected?.();
   }
 
-  async function submitPage(): Promise<void> {
-    const title = pageDraft.trim();
-    await notes.createPage(title, { projectId });
-    pageDraft = "";
-    createPageOpen = false;
+  async function createPage(): Promise<void> {
+    await notes.createPage("", { projectId });
     await onPageSelected?.();
   }
 
@@ -201,11 +199,9 @@
   $effect(() => {
     const maxHeight = panelMaxHeight;
     const rowCount = treeItems.length;
-    const creatingPage = createPageOpen;
     const searchVisible = showSearch;
     void maxHeight;
     void rowCount;
-    void creatingPage;
     void searchVisible;
     requestAnimationFrame(() => {
       updatePanelStyle();
@@ -342,32 +338,16 @@
 
   <div bind:this={panelFooterElement} class="relative z-10 shrink-0 bg-popover p-1.5">
     <div class="pointer-events-none absolute left-1.5 right-1.5 top-0 border-t border-border/70"></div>
-    {#if createPageOpen}
-      <form class="flex gap-1" onsubmit={(event) => { event.preventDefault(); void submitPage(); }}>
-        <input
-          bind:value={pageDraft}
-          placeholder={t("notes.titlePlaceholder")}
-          class="min-h-7 min-w-0 flex-1 rounded border border-border bg-muted/40 px-2 text-[0.8rem] text-popover-foreground placeholder:text-popover-foreground/45"
-        />
-        <button type="submit" class="min-h-7 rounded bg-primary px-2 text-[0.733333rem] font-medium text-primary-foreground">
-          {t("common.save")}
-        </button>
-      </form>
-    {:else}
-      <button
-        type="button"
-        class="flex min-h-8 w-full items-center justify-center gap-1.5 rounded-md text-[0.8rem] text-popover-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-        onclick={() => {
-          createPageOpen = true;
-          void tick().then(() => {
-            onLayoutChange?.();
-          });
-        }}
-      >
-        <Plus size={13} strokeWidth={iconStrokeWidth} />
-        <span>{t("notes.newPage")}</span>
-      </button>
-    {/if}
+    <button
+      type="button"
+      class="flex min-h-8 w-full items-center justify-center gap-1.5 rounded-md text-[0.8rem] text-popover-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+      aria-label={newPageTitle}
+      aria-keyshortcuts="Control+N Meta+N"
+      onclick={() => { void createPage(); }}
+    >
+      <Plus size={13} strokeWidth={iconStrokeWidth} />
+      <span>{newPageTitle}</span>
+    </button>
   </div>
 </div>
 

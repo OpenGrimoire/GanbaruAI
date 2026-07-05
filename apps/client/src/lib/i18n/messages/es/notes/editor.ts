@@ -2,7 +2,7 @@ import type { editor as enEditor } from "../../en/notes/editor";
 import type { MessageShape } from "../../types";
 
 export const editor = {
-  blockList: "Bloques de la página",
+  blockList: "Bloques de la nota",
   blockPlaceholder: "Escribe / para bloques",
   richTextEditorLabel: "Editor de bloque con texto enriquecido",
   richTextMentionMenuStatus: (count: number) =>
@@ -15,7 +15,7 @@ export const editor = {
   slashColors: "Colores",
   slashNoResults: "No hay comandos",
   mentionMenu: "Menciones",
-  pageMentionMenu: "Menciones de página",
+  pageMentionMenu: "Menciones de nota",
   noMentionResults: "No hay menciones",
   dateMention: "Fecha",
   reminderMention: "Recordatorio",
@@ -75,13 +75,13 @@ export const editor = {
   duplicateBlock: "Duplicar",
   moveBlockUp: "Mover arriba",
   moveBlockDown: "Mover abajo",
-  moveBlockToPage: "Mover a página",
+  moveBlockToPage: "Mover a nota",
   dropBlockOnPage: (title: string) => `Mover bloque a ${title}`,
-  noMoveTargets: "No hay otras páginas",
+  noMoveTargets: "No hay otras notas",
   moveDestinationSearch: "Buscar destinos",
-  moveDestinationSearchPlaceholder: "Buscar páginas...",
+  moveDestinationSearchPlaceholder: "Buscar notas...",
   recentDestinations: "Recientes",
-  allPages: "Páginas",
+  allPages: "Notas",
   moveBlockToPageTarget: (title: string) => `Mover bloque a ${title}`,
   deleteBlock: "Eliminar",
   toggleBlock: "Bloque desplegable",

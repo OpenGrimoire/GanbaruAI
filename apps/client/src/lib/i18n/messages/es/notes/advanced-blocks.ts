@@ -15,7 +15,7 @@ export const advancedBlocks = {
   templateChildCount: (count: number) =>
     count === 1 ? "1 bloque reutilizable" : `${count} bloques reutilizables`,
   templateChildPageUnsupported:
-    "Las páginas hijas aún no se pueden insertar desde esta plantilla.",
+    "Las notas anidadas aún no se pueden insertar desde esta plantilla.",
   addTemplateContent: "Agregar contenido",
   useTemplateButton: "Usar plantilla",
   useTemplate: (title: string) => `Usar plantilla: ${title}`,
@@ -25,7 +25,7 @@ export const advancedBlocks = {
   buttonEmpty: "Sin contenido fuente",
   buttonChildCount: (count: number) =>
     count === 1 ? "1 bloque fuente" : `${count} bloques fuente`,
-  buttonChildPageUnsupported: "Las páginas hijas aún no se pueden insertar desde este botón.",
+  buttonChildPageUnsupported: "Las notas anidadas aún no se pueden insertar desde este botón.",
   addButtonSourceContent: "Agregar bloque fuente",
   buttonIcon: "Icono del botón",
   noButtonIcon: "Sin icono",
@@ -42,8 +42,8 @@ export const advancedBlocks = {
   buttonActionPosition: "Posición de inserción del botón",
   buttonPositionBelow: "Debajo del botón",
   buttonPositionAbove: "Encima del botón",
-  buttonPositionTop: "Inicio de la página",
-  buttonPositionBottom: "Final de la página",
+  buttonPositionTop: "Inicio de la nota",
+  buttonPositionBottom: "Final de la nota",
   buttonUnsupportedActions: "Acciones no disponibles:",
   buttonUnsupportedDatabaseEdit: "Edición de base de datos",
   buttonUnsupportedWebhook: "Webhook",

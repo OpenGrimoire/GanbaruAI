@@ -10,7 +10,7 @@ export const advancedBlocks = {
   templateEmpty: "No reusable content",
   templateChildCount: (count: number) =>
     count === 1 ? "1 reusable block" : `${count} reusable blocks`,
-  templateChildPageUnsupported: "Child pages cannot be inserted from this template yet.",
+  templateChildPageUnsupported: "Nested notes cannot be inserted from this template yet.",
   addTemplateContent: "Add content",
   useTemplateButton: "Use template",
   useTemplate: (title: string) => `Use template: ${title}`,
@@ -20,7 +20,7 @@ export const advancedBlocks = {
   buttonEmpty: "No source content",
   buttonChildCount: (count: number) =>
     count === 1 ? "1 source block" : `${count} source blocks`,
-  buttonChildPageUnsupported: "Child pages cannot be inserted from this button yet.",
+  buttonChildPageUnsupported: "Nested notes cannot be inserted from this button yet.",
   addButtonSourceContent: "Add source block",
   buttonIcon: "Button icon",
   noButtonIcon: "No icon",
@@ -37,8 +37,8 @@ export const advancedBlocks = {
   buttonActionPosition: "Button insert position",
   buttonPositionBelow: "Below button",
   buttonPositionAbove: "Above button",
-  buttonPositionTop: "Top of page",
-  buttonPositionBottom: "Bottom of page",
+  buttonPositionTop: "Top of note",
+  buttonPositionBottom: "Bottom of note",
   buttonUnsupportedActions: "Unavailable actions:",
   buttonUnsupportedDatabaseEdit: "Database edit",
   buttonUnsupportedWebhook: "Webhook",

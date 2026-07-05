@@ -8,7 +8,7 @@ export const collaboration = {
   loadingComments: "Cargando comentarios",
   loadCommentsFailed: (message: string) => `No se pudieron cargar los comentarios: ${message}`,
   noComments: "No hay comentarios",
-  pageDiscussion: "Discusión de página",
+  pageDiscussion: "Discusión de nota",
   blockComment: "Comentario de bloque",
   blockCommentOn: (text: string) => `Bloque: ${text}`,
   inlineCommentOn: (text: string) => `Texto: ${text}`,

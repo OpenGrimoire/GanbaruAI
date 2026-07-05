@@ -5,7 +5,7 @@ export const collaboration = {
   loadingComments: "Loading comments",
   loadCommentsFailed: (message: string) => `Could not load comments: ${message}`,
   noComments: "No comments",
-  pageDiscussion: "Page discussion",
+  pageDiscussion: "Note discussion",
   blockComment: "Block comment",
   blockCommentOn: (text: string) => `Block: ${text}`,
   inlineCommentOn: (text: string) => `Text: ${text}`,
