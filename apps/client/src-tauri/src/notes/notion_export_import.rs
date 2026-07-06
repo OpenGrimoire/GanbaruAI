@@ -1,7 +1,8 @@
 use super::file_assets::{copy_local_import_file_for_block, NotesFileAssetDto};
 use super::html_import::parse_html;
 use super::import_writer::{
-    count_import_blocks, create_imported_page, ImportBlock, ImportedPageCreate,
+    count_import_blocks, create_imported_page, normalized_import_project_id, ImportBlock,
+    ImportedPageCreate,
 };
 use super::markdown_import::parse_markdown;
 use super::models::{
@@ -103,6 +104,7 @@ async fn import_folder_inner<R: Runtime>(
             &prepared.parent,
             SOURCE_PROVIDER,
             prepared.source_workspace_id.as_deref(),
+            prepared.project_id.as_deref(),
             data_source,
             rows,
         )
@@ -148,6 +150,7 @@ async fn import_folder_inner<R: Runtime>(
                 cover: None,
                 url: None,
                 public_url: None,
+                project_id: prepared.project_id.as_deref(),
                 blocks,
             },
         )
@@ -174,6 +177,7 @@ struct PreparedExportImport {
     parent: NoteParent,
     root: PathBuf,
     source_workspace_id: Option<String>,
+    project_id: Option<String>,
     keep_external_file_references: bool,
     copy_local_file_references: bool,
     import_markdown: bool,
@@ -204,6 +208,7 @@ impl PreparedExportImport {
             source_workspace_id: request
                 .source_workspace_id
                 .and_then(|value| trimmed_non_empty(&value)),
+            project_id: normalized_import_project_id(request.project_id),
             keep_external_file_references: request.keep_external_file_references.unwrap_or(false),
             copy_local_file_references: request.copy_local_file_references.unwrap_or(true),
             import_markdown: request.import_markdown.unwrap_or(true),

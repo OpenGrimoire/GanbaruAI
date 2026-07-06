@@ -3,11 +3,18 @@
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { toRoundTripDiagnosticItem } from "$lib/notes/round-trip-diagnostics";
   import type { NotesNotionApiImportResult } from "$lib/notes/types";
+  import NotesCheckboxField from "./NotesCheckboxField.svelte";
+  import NotesImportDestinationRow from "./NotesImportDestinationRow.svelte";
   import NotesRoundTripDiagnostics from "./NotesRoundTripDiagnostics.svelte";
+  import NotesTransferFieldRow from "./NotesTransferFieldRow.svelte";
+
+  const NOTION_AUTHORIZATION_DOCS_URL = "https://developers.notion.com/guides/get-started/authorization";
 
   let {
     onImport,
     onCancel,
+    embedded = false,
+    description = null,
   }: {
     onImport: (input: {
       integrationToken: string;
@@ -17,9 +24,11 @@
       includeComments: boolean;
       includeUsers: boolean;
       keepExternalFileReferences: boolean;
-      pageSize: number;
+      projectId: string | null;
     }) => Promise<NotesNotionApiImportResult>;
     onCancel: () => void;
+    embedded?: boolean;
+    description?: string | null;
   } = $props();
 
   const { t } = getLocalization();
@@ -27,10 +36,10 @@
   let sourceWorkspaceId = $state("");
   let pageIdsText = $state("");
   let dataSourceIdsText = $state("");
+  let projectId = $state<string | null>(null);
   let includeComments = $state(true);
   let includeUsers = $state(true);
   let keepExternalFileReferences = $state(false);
-  let pageSize = $state(50);
   let importing = $state(false);
   let error = $state<string | null>(null);
   let result = $state<NotesNotionApiImportResult | null>(null);
@@ -41,8 +50,7 @@
   const canImport = $derived(
     integrationToken.trim().length > 0
       && (pageIds.length > 0 || dataSourceIds.length > 0)
-      && pageSize >= 1
-      && pageSize <= 100
+      && projectId !== null
       && !importing,
   );
   const roundTripDiagnostics = $derived(
@@ -134,7 +142,7 @@
         includeComments,
         includeUsers,
         keepExternalFileReferences,
-        pageSize,
+        projectId,
       });
       integrationToken = "";
     } catch (caught) {
@@ -177,110 +185,133 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-  class="fixed inset-0 z-90 flex items-center justify-center p-3"
+  class={embedded
+    ? "flex min-h-0 flex-col"
+    : "fixed inset-0 z-90 flex items-center justify-center p-3"}
   onclick={(event) => {
-    event.stopPropagation();
-    onCancel();
+    if (!embedded) {
+      event.stopPropagation();
+      onCancel();
+    }
   }}
 >
-  <div class="absolute inset-0 bg-black/50"></div>
+  {#if !embedded}
+    <div class="absolute inset-0 bg-black/50"></div>
+  {/if}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
-    class="relative z-10 flex max-h-[min(92vh,46rem)] w-[min(44rem,100%)] flex-col rounded-md border border-border bg-card text-card-foreground shadow-lg outline-none"
-    role="dialog"
-    aria-modal="true"
+    class={embedded
+      ? "flex min-h-0 flex-col text-card-foreground outline-none"
+      : "relative z-10 flex max-h-[min(92vh,46rem)] w-[min(44rem,100%)] flex-col rounded-md border border-border bg-card text-card-foreground shadow-lg outline-none"}
+    role={embedded ? "region" : "dialog"}
+    aria-modal={embedded ? undefined : "true"}
     aria-label={t("notes.notionApiImportDialogTitle")}
     tabindex="-1"
     onclick={(event) => event.stopPropagation()}
-    onkeydown={handleKeydown}
+    onkeydown={embedded ? undefined : handleKeydown}
   >
-    <div class="shrink-0 border-b border-border px-4 py-3">
+    <div class="shrink-0 border-b border-border/70 px-4 py-3">
       <h2 class="text-[1rem] font-semibold text-foreground">
         {t("notes.notionApiImportDialogTitle")}
       </h2>
+      {#if description}
+        <p class="mt-1 max-w-2xl text-[0.866667rem] text-muted-foreground">{description}</p>
+      {/if}
     </div>
 
-    <div class="min-h-0 flex-1 overflow-auto px-4 py-3">
+    <div class={embedded ? "px-4 py-3" : "min-h-0 flex-1 overflow-auto px-4 py-3"}>
       <div class="grid gap-3">
-        <label class="grid gap-1.5">
-          <span class="text-[0.8rem] font-medium text-foreground">
-            {t("notes.notionApiImportTokenLabel")}
-          </span>
+        <NotesImportDestinationRow bind:projectId />
+
+        <NotesTransferFieldRow
+          label={t("notes.notionApiImportTokenLabel")}
+          description={t("notes.notionApiImportTokenDescription")}
+          forId="notes-notion-api-token"
+          labelUrl={NOTION_AUTHORIZATION_DOCS_URL}
+        >
           <input
+            id="notes-notion-api-token"
+            aria-label={t("notes.notionApiImportTokenLabel")}
             bind:this={tokenInputEl}
-            class="min-h-9 rounded-md border border-border bg-background px-2.5 py-1.5 text-[0.866667rem] text-foreground outline-none focus:border-ring"
+            class="h-7 w-72 max-w-full rounded-md border border-border bg-card px-2.5 text-[0.8rem] text-foreground outline-none focus:border-ring dark:bg-transparent max-[560px]:w-full"
             type="password"
             bind:value={integrationToken}
             autocomplete="off"
             spellcheck="false"
           />
-        </label>
+        </NotesTransferFieldRow>
 
-        <label class="grid gap-1.5">
-          <span class="text-[0.8rem] font-medium text-foreground">
-            {t("notes.notionApiImportWorkspaceLabel")}
-          </span>
+        <NotesTransferFieldRow
+          label={t("notes.notionApiImportWorkspaceLabel")}
+          description={t("notes.notionApiImportWorkspaceDescription")}
+          forId="notes-notion-api-workspace"
+        >
           <input
-            class="min-h-9 rounded-md border border-border bg-background px-2.5 py-1.5 text-[0.866667rem] text-foreground outline-none focus:border-ring"
+            id="notes-notion-api-workspace"
+            class="h-7 w-72 max-w-full rounded-md border border-border bg-card px-2.5 text-[0.8rem] text-foreground outline-none focus:border-ring dark:bg-transparent max-[560px]:w-full"
             bind:value={sourceWorkspaceId}
             spellcheck="false"
           />
-        </label>
+        </NotesTransferFieldRow>
 
         <div class="grid gap-3 md:grid-cols-2">
-          <label class="grid gap-1.5">
-            <span class="text-[0.8rem] font-medium text-foreground">
-              {t("notes.notionApiImportPagesLabel")}
-            </span>
+          <NotesTransferFieldRow
+            label={t("notes.notionApiImportPagesLabel")}
+            description={t("notes.notionApiImportPagesDescription")}
+            forId="notes-notion-api-page-ids"
+            wide
+          >
             <textarea
-              class="min-h-28 resize-y rounded-md border border-border bg-background px-2.5 py-2 font-mono text-[0.8rem] leading-relaxed text-foreground outline-none focus:border-ring"
+              id="notes-notion-api-page-ids"
+              class="min-h-28 w-full resize-y rounded-md border border-border bg-card px-2.5 py-2 font-mono text-[0.8rem] leading-relaxed text-foreground outline-none focus:border-ring dark:bg-transparent"
               bind:value={pageIdsText}
               spellcheck="false"
             ></textarea>
-          </label>
+          </NotesTransferFieldRow>
 
-          <label class="grid gap-1.5">
-            <span class="text-[0.8rem] font-medium text-foreground">
-              {t("notes.notionApiImportDataSourcesLabel")}
-            </span>
+          <NotesTransferFieldRow
+            label={t("notes.notionApiImportDataSourcesLabel")}
+            description={t("notes.notionApiImportDataSourcesDescription")}
+            forId="notes-notion-api-data-source-ids"
+            wide
+          >
             <textarea
-              class="min-h-28 resize-y rounded-md border border-border bg-background px-2.5 py-2 font-mono text-[0.8rem] leading-relaxed text-foreground outline-none focus:border-ring"
+              id="notes-notion-api-data-source-ids"
+              class="min-h-28 w-full resize-y rounded-md border border-border bg-card px-2.5 py-2 font-mono text-[0.8rem] leading-relaxed text-foreground outline-none focus:border-ring dark:bg-transparent"
               bind:value={dataSourceIdsText}
               spellcheck="false"
             ></textarea>
-          </label>
+          </NotesTransferFieldRow>
         </div>
 
-        <label class="grid max-w-36 gap-1.5">
-          <span class="text-[0.8rem] font-medium text-foreground">
-            {t("notes.notionApiImportPageSizeLabel")}
-          </span>
-          <input
-            class="min-h-9 rounded-md border border-border bg-background px-2.5 py-1.5 text-[0.866667rem] text-foreground outline-none focus:border-ring"
-            type="number"
-            min="1"
-            max="100"
-            bind:value={pageSize}
-          />
-        </label>
-
         <div class="grid gap-2">
-          <label class="flex items-start gap-2 rounded-md border border-border bg-muted/35 px-3 py-2 text-[0.8rem] text-foreground">
-            <input class="mt-0.5 size-3.5 shrink-0 accent-primary" type="checkbox" bind:checked={includeComments} />
-            <span>{t("notes.notionApiImportIncludeComments")}</span>
-          </label>
-          <label class="flex items-start gap-2 rounded-md border border-border bg-muted/35 px-3 py-2 text-[0.8rem] text-foreground">
-            <input class="mt-0.5 size-3.5 shrink-0 accent-primary" type="checkbox" bind:checked={includeUsers} />
-            <span>{t("notes.notionApiImportIncludeUsers")}</span>
-          </label>
-          <label class="flex items-start gap-2 rounded-md border border-border bg-muted/35 px-3 py-2 text-[0.8rem] text-foreground">
-            <input
-              class="mt-0.5 size-3.5 shrink-0 accent-primary"
-              type="checkbox"
-              bind:checked={keepExternalFileReferences}
+          <NotesTransferFieldRow
+            label={t("notes.notionApiImportIncludeComments")}
+            description={t("notes.notionApiImportIncludeCommentsDescription")}
+          >
+            <NotesCheckboxField
+              bind:checked={includeComments}
+              label={t("notes.notionApiImportIncludeComments")}
             />
-            <span>{t("notes.notionApiImportKeepExternalFiles")}</span>
-          </label>
+          </NotesTransferFieldRow>
+          <NotesTransferFieldRow
+            label={t("notes.notionApiImportIncludeUsers")}
+            description={t("notes.notionApiImportIncludeUsersDescription")}
+          >
+            <NotesCheckboxField
+              bind:checked={includeUsers}
+              label={t("notes.notionApiImportIncludeUsers")}
+            />
+          </NotesTransferFieldRow>
+          <NotesTransferFieldRow
+            label={t("notes.notionApiImportKeepExternalFiles")}
+            description={t("notes.notionApiImportKeepExternalFilesDescription")}
+          >
+            <NotesCheckboxField
+              bind:checked={keepExternalFileReferences}
+              label={t("notes.notionApiImportKeepExternalFiles")}
+            />
+          </NotesTransferFieldRow>
         </div>
 
         {#if error}
@@ -290,7 +321,7 @@
         {/if}
 
         {#if result}
-          <div class="rounded-md border border-border bg-muted/35 px-3 py-2">
+          <div class="rounded-md border border-border/70 px-3 py-2">
             <div class="text-[0.8rem] font-medium text-foreground">
               {t(
                 "notes.notionApiImportComplete",
@@ -315,7 +346,7 @@
       </div>
     </div>
 
-    <div class="flex shrink-0 flex-wrap justify-end gap-2 border-t border-border px-4 py-3">
+    <div class="flex shrink-0 flex-wrap justify-end gap-2 border-t border-border/70 px-4 py-3">
       <button
         class="rounded-md border border-border bg-card px-3 py-1.5 text-[0.866667rem] font-medium text-foreground hover:bg-accent"
         type="button"

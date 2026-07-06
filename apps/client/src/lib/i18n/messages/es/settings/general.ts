@@ -55,7 +55,7 @@ export const general = {
     syncFailed: "No se pudo actualizar el nombre de autor de Notas.",
   },
   notesNotifications: {
-    heading: "Notificaciones locales de Notas",
+    heading: "Notificaciones",
     enable: "Activar notificaciones de menciones",
     enableDescription:
       "Envía notificaciones de recordatorios, menciones de usuario y menciones de tareas solo desde este dispositivo",
@@ -68,6 +68,21 @@ export const general = {
     includeContent: "Mostrar texto de la nota en notificaciones",
     includeContentDescription:
       "Desactivado por privacidad. Al estar apagado, solo se muestra el nombre de la página",
+  },
+  notesTransfers: {
+    importHeading: "Importar",
+    exportHeading: "Exportar",
+    htmlImportSummary: "Pega HTML saneado en una nota nueva",
+    htmlImportDescription: "Importa un documento HTML como nota local",
+    notionApiImportSummary: "Trae páginas o fuentes de datos de Notion",
+    notionApiImportDescription:
+      "Usa un token de integración de Notion para importar páginas o fuentes de datos específicas",
+    notionExportImportSummary: "Convierte una carpeta exportada de Notion en notas",
+    notionExportImportDescription:
+      "Importa Markdown, HTML, bases de datos CSV y archivos locales desde una carpeta exportada de Notion",
+    jsonGraphExportSummary: "Guarda una copia JSON de grafo y diagnóstico",
+    jsonGraphExportDescription:
+      "Exporta tablas canónicas de Notas, índices opcionales, historial, plantillas y estado local como JSON",
   },
   calendars: {
     heading: "Calendarios",

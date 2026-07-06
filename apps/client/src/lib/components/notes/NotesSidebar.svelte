@@ -13,8 +13,6 @@
   import { getNotes } from "$lib/stores/notes.svelte";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
   import Archive from "@lucide/svelte/icons/archive";
-  import CloudDownload from "@lucide/svelte/icons/cloud-download";
-  import DatabaseBackup from "@lucide/svelte/icons/database-backup";
   import Download from "@lucide/svelte/icons/download";
   import FileText from "@lucide/svelte/icons/file-text";
   import GitBranch from "@lucide/svelte/icons/git-branch";
@@ -22,13 +20,8 @@
   import Plus from "@lucide/svelte/icons/plus";
   import Search from "@lucide/svelte/icons/search";
   import Trash2 from "@lucide/svelte/icons/trash-2";
-  import Upload from "@lucide/svelte/icons/upload";
   import NotesHtmlExportDialog from "./NotesHtmlExportDialog.svelte";
-  import NotesHtmlImportDialog from "./NotesHtmlImportDialog.svelte";
   import NotesAgentBridgeExportDialog from "./NotesAgentBridgeExportDialog.svelte";
-  import NotesJsonGraphExportDialog from "./NotesJsonGraphExportDialog.svelte";
-  import NotesNotionApiImportDialog from "./NotesNotionApiImportDialog.svelte";
-  import NotesNotionExportImportDialog from "./NotesNotionExportImportDialog.svelte";
   import NotesPageRow from "./NotesPageRow.svelte";
   import NotesPageTemplateRow from "./NotesPageTemplateRow.svelte";
 
@@ -38,12 +31,8 @@
   let pendingArchivePage = $state<NotesPage | null>(null);
   let pendingTrashPage = $state<NotesPage | null>(null);
   let pendingDeleteTemplate = $state<NotesPageTemplate | null>(null);
-  let htmlImportOpen = $state(false);
-  let notionApiImportOpen = $state(false);
-  let notionExportImportOpen = $state(false);
   let htmlExportOpen = $state(false);
   let agentBridgeExportOpen = $state(false);
-  let jsonGraphExportOpen = $state(false);
   let blockDropTargetPageId = $state<string | null>(null);
   const sidebarPlan = $derived.by(() =>
     planNotesSidebarNavigation({
@@ -76,62 +65,6 @@
     void notes.createPage("");
   }
 
-  function importHtmlPage(input: {
-    html: string;
-    title: string | null;
-    sourceName: string | null;
-    keepExternalFileReferences: boolean;
-  }) {
-    return notes.importHtmlPage({
-      html: input.html,
-      title: input.title,
-      source_name: input.sourceName,
-      keep_external_file_references: input.keepExternalFileReferences,
-    });
-  }
-
-  function importNotionApi(input: {
-    integrationToken: string;
-    sourceWorkspaceId: string | null;
-    pageIds: string[];
-    dataSourceIds: string[];
-    includeComments: boolean;
-    includeUsers: boolean;
-    keepExternalFileReferences: boolean;
-    pageSize: number;
-  }) {
-    return notes.importNotionApi({
-      integration_token: input.integrationToken,
-      source_workspace_id: input.sourceWorkspaceId,
-      page_ids: input.pageIds,
-      data_source_ids: input.dataSourceIds,
-      include_comments: input.includeComments,
-      include_users: input.includeUsers,
-      keep_external_file_references: input.keepExternalFileReferences,
-      page_size: input.pageSize,
-    });
-  }
-
-  function importNotionExportFolder(input: {
-    exportRootPath: string;
-    sourceWorkspaceId: string | null;
-    keepExternalFileReferences: boolean;
-    copyLocalFileReferences: boolean;
-    importMarkdown: boolean;
-    importHtml: boolean;
-    importCsv: boolean;
-  }) {
-    return notes.importNotionExportFolder({
-      export_root_path: input.exportRootPath,
-      source_workspace_id: input.sourceWorkspaceId,
-      keep_external_file_references: input.keepExternalFileReferences,
-      copy_local_file_references: input.copyLocalFileReferences,
-      import_markdown: input.importMarkdown,
-      import_html: input.importHtml,
-      import_csv: input.importCsv,
-    });
-  }
-
   function exportHtmlArchive(input: {
     includePageTree: boolean;
     includeComments: boolean;
@@ -145,22 +78,6 @@
       include_resolved_comments: input.includeResolvedComments,
       include_assets: input.includeAssets,
       include_database_views: input.includeDatabaseViews,
-    });
-  }
-
-  function exportJsonGraph(input: {
-    includeIndexes: boolean;
-    includeHistory: boolean;
-    includeTemplates: boolean;
-    includeLocalState: boolean;
-    pretty: boolean;
-  }) {
-    return notes.exportJsonGraph({
-      include_indexes: input.includeIndexes,
-      include_history: input.includeHistory,
-      include_templates: input.includeTemplates,
-      include_local_state: input.includeLocalState,
-      pretty: input.pretty,
     });
   }
 
@@ -343,36 +260,6 @@
     </div>
     <div class="flex shrink-0 items-center gap-1">
       <button
-        class="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-        aria-label={t("notes.htmlImportOpen")}
-        data-app-tooltip={t("notes.htmlImportOpen")}
-        onclick={() => {
-          htmlImportOpen = true;
-        }}
-      >
-        <Upload class="size-4" />
-      </button>
-      <button
-        class="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-        aria-label={t("notes.notionApiImportOpen")}
-        data-app-tooltip={t("notes.notionApiImportOpen")}
-        onclick={() => {
-          notionApiImportOpen = true;
-        }}
-      >
-        <CloudDownload class="size-4" />
-      </button>
-      <button
-        class="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-        aria-label={t("notes.notionExportImportOpen")}
-        data-app-tooltip={t("notes.notionExportImportOpen")}
-        onclick={() => {
-          notionExportImportOpen = true;
-        }}
-      >
-        <FileText class="size-4" />
-      </button>
-      <button
         class="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-45"
         aria-label={t("notes.htmlExportOpen")}
         data-app-tooltip={notes.loadedPage ? t("notes.htmlExportOpen") : t("notes.htmlExportUnavailable")}
@@ -393,16 +280,6 @@
         }}
       >
         <GitBranch class="size-4" />
-      </button>
-      <button
-        class="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-        aria-label={t("notes.jsonGraphExportOpen")}
-        data-app-tooltip={t("notes.jsonGraphExportOpen")}
-        onclick={() => {
-          jsonGraphExportOpen = true;
-        }}
-      >
-        <DatabaseBackup class="size-4" />
       </button>
       <button
         class="rounded-md bg-primary p-1.5 text-primary-foreground hover:bg-primary/90"
@@ -751,33 +628,6 @@
   </div>
 </aside>
 
-{#if htmlImportOpen}
-  <NotesHtmlImportDialog
-    onImport={importHtmlPage}
-    onCancel={() => {
-      htmlImportOpen = false;
-    }}
-  />
-{/if}
-
-{#if notionApiImportOpen}
-  <NotesNotionApiImportDialog
-    onImport={importNotionApi}
-    onCancel={() => {
-      notionApiImportOpen = false;
-    }}
-  />
-{/if}
-
-{#if notionExportImportOpen}
-  <NotesNotionExportImportDialog
-    onImport={importNotionExportFolder}
-    onCancel={() => {
-      notionExportImportOpen = false;
-    }}
-  />
-{/if}
-
 {#if htmlExportOpen && notes.loadedPage}
   <NotesHtmlExportDialog
     pageTitle={notesPageTitle(notes.loadedPage, t("notes.untitled"))}
@@ -794,15 +644,6 @@
     onExport={exportAgentBridge}
     onCancel={() => {
       agentBridgeExportOpen = false;
-    }}
-  />
-{/if}
-
-{#if jsonGraphExportOpen}
-  <NotesJsonGraphExportDialog
-    onExport={exportJsonGraph}
-    onCancel={() => {
-      jsonGraphExportOpen = false;
     }}
   />
 {/if}

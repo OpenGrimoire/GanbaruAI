@@ -65,6 +65,7 @@ pub(in crate::notes) async fn import_page(
             cover: None,
             url: None,
             public_url: None,
+            project_id: None,
             blocks: plan.blocks,
         },
     )

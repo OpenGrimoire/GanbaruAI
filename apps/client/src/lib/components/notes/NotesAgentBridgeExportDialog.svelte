@@ -11,7 +11,9 @@
     NotesAgentBridgeExportDiagnostic,
     NotesAgentBridgeExportSaveResult,
   } from "$lib/notes/types";
+  import NotesCheckboxField from "./NotesCheckboxField.svelte";
   import NotesRoundTripDiagnostics from "./NotesRoundTripDiagnostics.svelte";
+  import NotesTransferFieldRow from "./NotesTransferFieldRow.svelte";
 
   let {
     pageTitle,
@@ -198,38 +200,70 @@
 
     <div class="min-h-0 flex-1 overflow-auto px-4 py-3">
       <div class="grid gap-2">
-        <label class="flex items-start gap-2 rounded-md border border-border bg-muted/35 px-3 py-2 text-[0.8rem] text-foreground">
-          <input class="mt-0.5 size-3.5 shrink-0 accent-primary" type="checkbox" bind:checked={includeDescendants} />
-          <span>{t("notes.agentBridgeExportIncludeDescendants")}</span>
-        </label>
-        <label class="flex items-start gap-2 rounded-md border border-border bg-muted/35 px-3 py-2 text-[0.8rem] text-foreground">
-          <input class="mt-0.5 size-3.5 shrink-0 accent-primary" type="checkbox" bind:checked={includeBacklinks} />
-          <span>{t("notes.agentBridgeExportIncludeBacklinks")}</span>
-        </label>
-        <label class="flex items-start gap-2 rounded-md border border-border bg-muted/35 px-3 py-2 text-[0.8rem] text-foreground">
-          <input class="mt-0.5 size-3.5 shrink-0 accent-primary" type="checkbox" bind:checked={includeDatabaseViews} />
-          <span>{t("notes.agentBridgeExportIncludeDatabaseViews")}</span>
-        </label>
-        <label class="flex items-start gap-2 rounded-md border border-border bg-muted/35 px-3 py-2 text-[0.8rem] text-foreground">
-          <input class="mt-0.5 size-3.5 shrink-0 accent-primary" type="checkbox" bind:checked={includeTaskContext} />
-          <span>{t("notes.agentBridgeExportIncludeTaskContext")}</span>
-        </label>
-        <label class="flex items-start gap-2 rounded-md border border-border bg-muted/35 px-3 py-2 text-[0.8rem] text-foreground">
-          <input class="mt-0.5 size-3.5 shrink-0 accent-primary" type="checkbox" bind:checked={includePageComments} />
-          <span>{t("notes.agentBridgeExportIncludePageComments")}</span>
-        </label>
-        <label
-          class="flex items-start gap-2 rounded-md border border-border bg-muted/35 px-3 py-2 text-[0.8rem] text-foreground"
-          class:opacity-60={!includePageComments}
+        <NotesTransferFieldRow
+          label={t("notes.agentBridgeExportIncludeDescendants")}
+          description={t("notes.agentBridgeExportIncludeDescendantsDescription")}
         >
-          <input class="mt-0.5 size-3.5 shrink-0 accent-primary" type="checkbox" bind:checked={includeResolvedComments} disabled={!includePageComments} />
-          <span>{t("notes.agentBridgeExportIncludeResolvedComments")}</span>
-        </label>
+          <NotesCheckboxField
+            bind:checked={includeDescendants}
+            label={t("notes.agentBridgeExportIncludeDescendants")}
+          />
+        </NotesTransferFieldRow>
+        <NotesTransferFieldRow
+          label={t("notes.agentBridgeExportIncludeBacklinks")}
+          description={t("notes.agentBridgeExportIncludeBacklinksDescription")}
+        >
+          <NotesCheckboxField
+            bind:checked={includeBacklinks}
+            label={t("notes.agentBridgeExportIncludeBacklinks")}
+          />
+        </NotesTransferFieldRow>
+        <NotesTransferFieldRow
+          label={t("notes.agentBridgeExportIncludeDatabaseViews")}
+          description={t("notes.agentBridgeExportIncludeDatabaseViewsDescription")}
+        >
+          <NotesCheckboxField
+            bind:checked={includeDatabaseViews}
+            label={t("notes.agentBridgeExportIncludeDatabaseViews")}
+          />
+        </NotesTransferFieldRow>
+        <NotesTransferFieldRow
+          label={t("notes.agentBridgeExportIncludeTaskContext")}
+          description={t("notes.agentBridgeExportIncludeTaskContextDescription")}
+        >
+          <NotesCheckboxField
+            bind:checked={includeTaskContext}
+            label={t("notes.agentBridgeExportIncludeTaskContext")}
+          />
+        </NotesTransferFieldRow>
+        <NotesTransferFieldRow
+          label={t("notes.agentBridgeExportIncludePageComments")}
+          description={t("notes.agentBridgeExportIncludePageCommentsDescription")}
+        >
+          <NotesCheckboxField
+            bind:checked={includePageComments}
+            label={t("notes.agentBridgeExportIncludePageComments")}
+          />
+        </NotesTransferFieldRow>
+        <NotesTransferFieldRow
+          label={t("notes.agentBridgeExportIncludeResolvedComments")}
+          description={t("notes.agentBridgeExportIncludeResolvedCommentsDescription")}
+        >
+          <NotesCheckboxField
+            bind:checked={includeResolvedComments}
+            disabled={!includePageComments}
+            label={t("notes.agentBridgeExportIncludeResolvedComments")}
+          />
+        </NotesTransferFieldRow>
 
-        <label class="grid gap-1 text-[0.8rem] text-foreground">
-          <span class="font-medium">{t("notes.agentBridgeExportProjectLabel")}</span>
+        <NotesTransferFieldRow
+          label={t("notes.agentBridgeExportProjectLabel")}
+          description={t("notes.agentBridgeExportProjectDescription")}
+          forId="notes-agent-bridge-project"
+        >
           <select
-            class="h-9 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground disabled:opacity-60"
+            id="notes-agent-bridge-project"
+            class="h-7 w-56 max-w-full rounded-md border border-border bg-card px-2 text-[0.8rem] text-foreground disabled:opacity-60 dark:bg-transparent max-[560px]:w-full"
             bind:value={selectedProjectId}
             disabled={!includeTaskContext || projects.loading}
           >
@@ -238,10 +272,10 @@
               <option value={project.id}>{project.name}</option>
             {/each}
           </select>
-        </label>
+        </NotesTransferFieldRow>
 
         {#if projects.loading}
-          <div class="rounded-md border border-border bg-muted/35 px-3 py-2 text-[0.8rem] text-muted-foreground">
+          <div class="rounded-md border border-border/70 px-3 py-2 text-[0.8rem] text-muted-foreground">
             {t("notes.agentBridgeExportProjectLoading")}
           </div>
         {:else if projects.loadError}
@@ -257,7 +291,7 @@
         {/if}
 
         {#if result}
-          <div class="rounded-md border border-border bg-muted/35 px-3 py-2">
+          <div class="rounded-md border border-border/70 px-3 py-2">
             <div class="text-[0.8rem] font-medium text-foreground">
               {#if result.saved && result.export}
                 {t(

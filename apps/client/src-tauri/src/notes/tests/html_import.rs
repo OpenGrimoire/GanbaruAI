@@ -4,6 +4,20 @@ use super::helpers::*;
 fn html_import_creates_canonical_blocks_rich_text_tables_media_and_toggles() {
     tauri::async_runtime::block_on(async {
         let pool = migrated_memory_pool().await;
+        sqlx::query(
+            "INSERT INTO project_groups (id, name, icon, sort_order)
+             VALUES ('project-group-a', 'Import destinations', 'folder', 0)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO projects (id, group_id, name, icon, sort_order, status)
+             VALUES ('project-a', 'project-group-a', 'Project A', 'folder', 0, 'active')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
         let result = html_import::import_page(
             &pool,
             NoteHtmlImportRequest {
@@ -12,6 +26,7 @@ fn html_import_creates_canonical_blocks_rich_text_tables_media_and_toggles() {
                 source_name: Some("notion-export.html".to_string()),
                 after_block_id: None,
                 keep_external_file_references: Some(true),
+                project_id: Some("project-a".to_string()),
                 html: r#"<!doctype html>
 <html>
 <head><title>Imported workspace</title></head>
@@ -45,6 +60,10 @@ fn html_import_creates_canonical_blocks_rich_text_tables_media_and_toggles() {
         assert_eq!(
             result_json["page"]["page"]["properties"]["title"]["title"][0]["plain_text"],
             "Imported workspace"
+        );
+        assert_eq!(
+            result_json["page"]["page"]["properties"]["__ganbaru_project_id"],
+            "project-a"
         );
         assert_eq!(result_json["imported_block_count"], 15);
 
@@ -133,6 +152,7 @@ fn html_import_sanitizes_unsafe_markup_and_requires_media_policy() {
                 source_name: None,
                 after_block_id: None,
                 keep_external_file_references: Some(false),
+                project_id: None,
                 html: r#"<h6>Too deep</h6>
 <p onclick="alert(1)">Text <a href="javascript:alert(1)">bad</a></p>
 <script>alert("x")</script>

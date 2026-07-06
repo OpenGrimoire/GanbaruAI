@@ -22,3 +22,9 @@ export type DoomscrollingSettingsTab = "limits" | "browser" | "mobile" | "deskto
 export type DoomscrollingLimitEditorTarget =
   | { mode: "create" }
   | { mode: "edit"; limitId: string };
+
+export type NotesTransferOperation =
+  | "html-import"
+  | "notion-api-import"
+  | "notion-export-import"
+  | "json-graph-export";

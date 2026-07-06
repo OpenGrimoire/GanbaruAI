@@ -22,6 +22,7 @@
   import FocusSection from "./FocusSection.svelte";
   import MusicSection from "./MusicSection.svelte";
   import NotesSection from "./NotesSection.svelte";
+  import NotesTransferSettingsPanel from "./NotesTransferSettingsPanel.svelte";
   import ProfileSection from "./ProfileSection.svelte";
   import DoomscrollingSection from "./DoomscrollingSection.svelte";
   import DoomscrollingLimitEditor from "./DoomscrollingLimitEditor.svelte";
@@ -34,8 +35,13 @@
   import type {
     DoomscrollingLimitEditorTarget,
     DoomscrollingSettingsTab,
+    NotesTransferOperation,
     SectionId,
   } from "./types";
+
+  type SettingsDetailView =
+    | { kind: "doomscrolling-limit"; target: DoomscrollingLimitEditorTarget }
+    | { kind: "notes-transfer"; operation: NotesTransferOperation };
 
   let {
     onClose,
@@ -81,7 +87,7 @@
   ];
 
   let activeSection = $state<SectionId>("appearance");
-  let detailView = $state<DoomscrollingLimitEditorTarget | null>(null);
+  let detailView = $state<SettingsDetailView | null>(null);
   let detailScrollEl: HTMLElement | undefined = $state();
   let detailScrollbarInsetTop = $state(0);
   let detailScrollbarInsetBottom = $state(0);
@@ -149,7 +155,16 @@
 
   function openDoomscrollingLimitEditor(target: DoomscrollingLimitEditorTarget): void {
     activeSection = "doomscrolling";
-    detailView = target;
+    detailView = { kind: "doomscrolling-limit", target };
+    detailScrollEl = undefined;
+    detailScrollbarInsetTop = 0;
+    detailScrollbarInsetBottom = 0;
+    scrollSettingsToTop();
+  }
+
+  function openNotesTransferPanel(operation: NotesTransferOperation): void {
+    activeSection = "notes";
+    detailView = { kind: "notes-transfer", operation };
     detailScrollEl = undefined;
     detailScrollbarInsetTop = 0;
     detailScrollbarInsetBottom = 0;
@@ -324,26 +339,42 @@
         )}
       >
         {#if detailView}
-          <DoomscrollingLimitEditor
-            target={detailView}
-            onDone={closeDetailView}
-            onCancel={closeDetailView}
-            compactLayout={useTopNav}
-            iconRailLayout={useIconRail}
-            onScrollContainerChange={(scrollContainer) => {
-              detailScrollEl = scrollContainer;
-            }}
-            onScrollbarInsetsChange={(insets) => {
-              detailScrollbarInsetTop = insets.top;
-              detailScrollbarInsetBottom = insets.bottom;
-            }}
-          />
+          {#if detailView.kind === "doomscrolling-limit"}
+            <DoomscrollingLimitEditor
+              target={detailView.target}
+              onDone={closeDetailView}
+              onCancel={closeDetailView}
+              compactLayout={useTopNav}
+              iconRailLayout={useIconRail}
+              onScrollContainerChange={(scrollContainer) => {
+                detailScrollEl = scrollContainer;
+              }}
+              onScrollbarInsetsChange={(insets) => {
+                detailScrollbarInsetTop = insets.top;
+                detailScrollbarInsetBottom = insets.bottom;
+              }}
+            />
+          {:else}
+            <NotesTransferSettingsPanel
+              operation={detailView.operation}
+              onCancel={closeDetailView}
+              compactLayout={useTopNav}
+              iconRailLayout={useIconRail}
+              onScrollContainerChange={(scrollContainer) => {
+                detailScrollEl = scrollContainer;
+              }}
+              onScrollbarInsetsChange={(insets) => {
+                detailScrollbarInsetTop = insets.top;
+                detailScrollbarInsetBottom = insets.bottom;
+              }}
+            />
+          {/if}
         {:else if activeSection === "appearance"}
           <AppearanceSection />
         {:else if activeSection === "profile"}
           <ProfileSection />
         {:else if activeSection === "notes"}
-          <NotesSection />
+          <NotesSection onOpenTransferPanel={openNotesTransferPanel} />
         {:else if activeSection === "calendars"}
           {#if CalendarsSection}
             {@const Section = CalendarsSection}

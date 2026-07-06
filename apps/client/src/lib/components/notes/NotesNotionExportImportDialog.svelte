@@ -6,11 +6,16 @@
     toRoundTripDiagnosticItem,
   } from "$lib/notes/round-trip-diagnostics";
   import type { NotesNotionExportImportResult } from "$lib/notes/types";
+  import NotesCheckboxField from "./NotesCheckboxField.svelte";
+  import NotesImportDestinationRow from "./NotesImportDestinationRow.svelte";
   import NotesRoundTripDiagnostics from "./NotesRoundTripDiagnostics.svelte";
+  import NotesTransferFieldRow from "./NotesTransferFieldRow.svelte";
 
   let {
     onImport,
     onCancel,
+    embedded = false,
+    description = null,
   }: {
     onImport: (input: {
       exportRootPath: string;
@@ -20,13 +25,17 @@
       importMarkdown: boolean;
       importHtml: boolean;
       importCsv: boolean;
+      projectId: string | null;
     }) => Promise<NotesNotionExportImportResult>;
     onCancel: () => void;
+    embedded?: boolean;
+    description?: string | null;
   } = $props();
 
   const { t } = getLocalization();
   let exportRootPath = $state("");
   let sourceWorkspaceId = $state("");
+  let projectId = $state<string | null>(null);
   let keepExternalFileReferences = $state(false);
   let copyLocalFileReferences = $state(true);
   let importMarkdown = $state(true);
@@ -40,6 +49,7 @@
   const canImport = $derived(
     exportRootPath.trim().length > 0
       && (importMarkdown || importHtml || importCsv)
+      && projectId !== null
       && !importing,
   );
 
@@ -118,6 +128,7 @@
         importMarkdown,
         importHtml,
         importCsv,
+        projectId,
       });
     } catch (caught) {
       error = caught instanceof Error ? caught.message : String(caught);
@@ -146,83 +157,117 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-  class="fixed inset-0 z-90 flex items-center justify-center p-3"
+  class={embedded
+    ? "flex min-h-0 flex-col"
+    : "fixed inset-0 z-90 flex items-center justify-center p-3"}
   onclick={(event) => {
-    event.stopPropagation();
-    onCancel();
+    if (!embedded) {
+      event.stopPropagation();
+      onCancel();
+    }
   }}
 >
-  <div class="absolute inset-0 bg-black/50"></div>
+  {#if !embedded}
+    <div class="absolute inset-0 bg-black/50"></div>
+  {/if}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
-    class="relative z-10 flex max-h-[min(92vh,44rem)] w-[min(42rem,100%)] flex-col rounded-md border border-border bg-card text-card-foreground shadow-lg outline-none"
-    role="dialog"
-    aria-modal="true"
+    class={embedded
+      ? "flex min-h-0 flex-col text-card-foreground outline-none"
+      : "relative z-10 flex max-h-[min(92vh,44rem)] w-[min(42rem,100%)] flex-col rounded-md border border-border bg-card text-card-foreground shadow-lg outline-none"}
+    role={embedded ? "region" : "dialog"}
+    aria-modal={embedded ? undefined : "true"}
     aria-label={t("notes.notionExportImportDialogTitle")}
     tabindex="-1"
     onclick={(event) => event.stopPropagation()}
-    onkeydown={handleKeydown}
+    onkeydown={embedded ? undefined : handleKeydown}
   >
-    <div class="shrink-0 border-b border-border px-4 py-3">
+    <div class="shrink-0 border-b border-border/70 px-4 py-3">
       <h2 class="text-[1rem] font-semibold text-foreground">
         {t("notes.notionExportImportDialogTitle")}
       </h2>
+      {#if description}
+        <p class="mt-1 max-w-2xl text-[0.866667rem] text-muted-foreground">{description}</p>
+      {/if}
     </div>
 
-    <div class="min-h-0 flex-1 overflow-auto px-4 py-3">
+    <div class={embedded ? "px-4 py-3" : "min-h-0 flex-1 overflow-auto px-4 py-3"}>
       <div class="grid gap-3">
-        <label class="grid gap-1.5">
-          <span class="text-[0.8rem] font-medium text-foreground">
-            {t("notes.notionExportImportFolderLabel")}
-          </span>
+        <NotesImportDestinationRow bind:projectId />
+
+        <NotesTransferFieldRow
+          label={t("notes.notionExportImportFolderLabel")}
+          description={t("notes.notionExportImportFolderDescription")}
+          forId="notes-notion-export-folder-path"
+        >
           <input
+            id="notes-notion-export-folder-path"
             bind:this={pathInputEl}
-            class="min-h-9 rounded-md border border-border bg-background px-2.5 py-1.5 text-[0.866667rem] text-foreground outline-none focus:border-ring"
+            class="h-7 w-72 max-w-full rounded-md border border-border bg-card px-2.5 text-[0.8rem] text-foreground outline-none focus:border-ring dark:bg-transparent max-[560px]:w-full"
             bind:value={exportRootPath}
             spellcheck="false"
           />
-        </label>
+        </NotesTransferFieldRow>
 
-        <label class="grid gap-1.5">
-          <span class="text-[0.8rem] font-medium text-foreground">
-            {t("notes.notionExportImportWorkspaceLabel")}
-          </span>
+        <NotesTransferFieldRow
+          label={t("notes.notionExportImportWorkspaceLabel")}
+          description={t("notes.notionExportImportWorkspaceDescription")}
+          forId="notes-notion-export-workspace"
+        >
           <input
-            class="min-h-9 rounded-md border border-border bg-background px-2.5 py-1.5 text-[0.866667rem] text-foreground outline-none focus:border-ring"
+            id="notes-notion-export-workspace"
+            class="h-7 w-72 max-w-full rounded-md border border-border bg-card px-2.5 text-[0.8rem] text-foreground outline-none focus:border-ring dark:bg-transparent max-[560px]:w-full"
             bind:value={sourceWorkspaceId}
             spellcheck="false"
           />
-        </label>
+        </NotesTransferFieldRow>
 
         <div class="grid gap-2">
-          <label class="flex items-start gap-2 rounded-md border border-border bg-muted/35 px-3 py-2 text-[0.8rem] text-foreground">
-            <input class="mt-0.5 size-3.5 shrink-0 accent-primary" type="checkbox" bind:checked={importMarkdown} />
-            <span>{t("notes.notionExportImportMarkdown")}</span>
-          </label>
-          <label class="flex items-start gap-2 rounded-md border border-border bg-muted/35 px-3 py-2 text-[0.8rem] text-foreground">
-            <input class="mt-0.5 size-3.5 shrink-0 accent-primary" type="checkbox" bind:checked={importHtml} />
-            <span>{t("notes.notionExportImportHtml")}</span>
-          </label>
-          <label class="flex items-start gap-2 rounded-md border border-border bg-muted/35 px-3 py-2 text-[0.8rem] text-foreground">
-            <input class="mt-0.5 size-3.5 shrink-0 accent-primary" type="checkbox" bind:checked={importCsv} />
-            <span>{t("notes.notionExportImportCsv")}</span>
-          </label>
-          <label class="flex items-start gap-2 rounded-md border border-border bg-muted/35 px-3 py-2 text-[0.8rem] text-foreground">
-            <input
-              class="mt-0.5 size-3.5 shrink-0 accent-primary"
-              type="checkbox"
+          <NotesTransferFieldRow
+            label={t("notes.notionExportImportMarkdown")}
+            description={t("notes.notionExportImportMarkdownDescription")}
+          >
+            <NotesCheckboxField
+              bind:checked={importMarkdown}
+              label={t("notes.notionExportImportMarkdown")}
+            />
+          </NotesTransferFieldRow>
+          <NotesTransferFieldRow
+            label={t("notes.notionExportImportHtml")}
+            description={t("notes.notionExportImportHtmlDescription")}
+          >
+            <NotesCheckboxField
+              bind:checked={importHtml}
+              label={t("notes.notionExportImportHtml")}
+            />
+          </NotesTransferFieldRow>
+          <NotesTransferFieldRow
+            label={t("notes.notionExportImportCsv")}
+            description={t("notes.notionExportImportCsvDescription")}
+          >
+            <NotesCheckboxField
+              bind:checked={importCsv}
+              label={t("notes.notionExportImportCsv")}
+            />
+          </NotesTransferFieldRow>
+          <NotesTransferFieldRow
+            label={t("notes.notionExportImportCopyFiles")}
+            description={t("notes.notionExportImportCopyFilesDescription")}
+          >
+            <NotesCheckboxField
               bind:checked={copyLocalFileReferences}
+              label={t("notes.notionExportImportCopyFiles")}
             />
-            <span>{t("notes.notionExportImportCopyFiles")}</span>
-          </label>
-          <label class="flex items-start gap-2 rounded-md border border-border bg-muted/35 px-3 py-2 text-[0.8rem] text-foreground">
-            <input
-              class="mt-0.5 size-3.5 shrink-0 accent-primary"
-              type="checkbox"
+          </NotesTransferFieldRow>
+          <NotesTransferFieldRow
+            label={t("notes.notionExportImportKeepExternalFiles")}
+            description={t("notes.notionExportImportKeepExternalFilesDescription")}
+          >
+            <NotesCheckboxField
               bind:checked={keepExternalFileReferences}
+              label={t("notes.notionExportImportKeepExternalFiles")}
             />
-            <span>{t("notes.notionExportImportKeepExternalFiles")}</span>
-          </label>
+          </NotesTransferFieldRow>
         </div>
 
         {#if error}
@@ -232,7 +277,7 @@
         {/if}
 
         {#if result}
-          <div class="rounded-md border border-border bg-muted/35 px-3 py-2">
+          <div class="rounded-md border border-border/70 px-3 py-2">
             <div class="text-[0.8rem] font-medium text-foreground">
               {t(
                 "notes.notionExportImportComplete",
@@ -250,7 +295,7 @@
       </div>
     </div>
 
-    <div class="flex shrink-0 flex-wrap justify-end gap-2 border-t border-border px-4 py-3">
+    <div class="flex shrink-0 flex-wrap justify-end gap-2 border-t border-border/70 px-4 py-3">
       <button
         class="rounded-md border border-border bg-card px-3 py-1.5 text-[0.866667rem] font-medium text-foreground hover:bg-accent"
         type="button"

@@ -10,7 +10,9 @@
     NotesHtmlArchiveSaveResult,
     NotesHtmlExportDiagnostic,
   } from "$lib/notes/types";
+  import NotesCheckboxField from "./NotesCheckboxField.svelte";
   import NotesRoundTripDiagnostics from "./NotesRoundTripDiagnostics.svelte";
+  import NotesTransferFieldRow from "./NotesTransferFieldRow.svelte";
 
   let {
     pageTitle,
@@ -174,31 +176,52 @@
 
     <div class="min-h-0 flex-1 overflow-auto px-4 py-3">
       <div class="grid gap-2">
-        <label class="flex items-start gap-2 rounded-md border border-border bg-muted/35 px-3 py-2 text-[0.8rem] text-foreground">
-          <input class="mt-0.5 size-3.5 shrink-0 accent-primary" type="checkbox" bind:checked={includePageTree} />
-          <span>{t("notes.htmlExportIncludePageTree")}</span>
-        </label>
-        <label class="flex items-start gap-2 rounded-md border border-border bg-muted/35 px-3 py-2 text-[0.8rem] text-foreground">
-          <input class="mt-0.5 size-3.5 shrink-0 accent-primary" type="checkbox" bind:checked={includeAssets} />
-          <span>{t("notes.htmlExportIncludeAssets")}</span>
-        </label>
-        <label class="flex items-start gap-2 rounded-md border border-border bg-muted/35 px-3 py-2 text-[0.8rem] text-foreground">
-          <input class="mt-0.5 size-3.5 shrink-0 accent-primary" type="checkbox" bind:checked={includeDatabaseViews} />
-          <span>{t("notes.htmlExportIncludeDatabaseViews")}</span>
-        </label>
-        <label class="flex items-start gap-2 rounded-md border border-border bg-muted/35 px-3 py-2 text-[0.8rem] text-foreground">
-          <input class="mt-0.5 size-3.5 shrink-0 accent-primary" type="checkbox" bind:checked={includeComments} />
-          <span>{t("notes.htmlExportIncludeComments")}</span>
-        </label>
-        <label class="flex items-start gap-2 rounded-md border border-border bg-muted/35 px-3 py-2 text-[0.8rem] text-foreground">
-          <input
-            class="mt-0.5 size-3.5 shrink-0 accent-primary"
-            type="checkbox"
+        <NotesTransferFieldRow
+          label={t("notes.htmlExportIncludePageTree")}
+          description={t("notes.htmlExportIncludePageTreeDescription")}
+        >
+          <NotesCheckboxField
+            bind:checked={includePageTree}
+            label={t("notes.htmlExportIncludePageTree")}
+          />
+        </NotesTransferFieldRow>
+        <NotesTransferFieldRow
+          label={t("notes.htmlExportIncludeAssets")}
+          description={t("notes.htmlExportIncludeAssetsDescription")}
+        >
+          <NotesCheckboxField
+            bind:checked={includeAssets}
+            label={t("notes.htmlExportIncludeAssets")}
+          />
+        </NotesTransferFieldRow>
+        <NotesTransferFieldRow
+          label={t("notes.htmlExportIncludeDatabaseViews")}
+          description={t("notes.htmlExportIncludeDatabaseViewsDescription")}
+        >
+          <NotesCheckboxField
+            bind:checked={includeDatabaseViews}
+            label={t("notes.htmlExportIncludeDatabaseViews")}
+          />
+        </NotesTransferFieldRow>
+        <NotesTransferFieldRow
+          label={t("notes.htmlExportIncludeComments")}
+          description={t("notes.htmlExportIncludeCommentsDescription")}
+        >
+          <NotesCheckboxField
+            bind:checked={includeComments}
+            label={t("notes.htmlExportIncludeComments")}
+          />
+        </NotesTransferFieldRow>
+        <NotesTransferFieldRow
+          label={t("notes.htmlExportIncludeResolvedComments")}
+          description={t("notes.htmlExportIncludeResolvedCommentsDescription")}
+        >
+          <NotesCheckboxField
             bind:checked={includeResolvedComments}
             disabled={!includeComments}
+            label={t("notes.htmlExportIncludeResolvedComments")}
           />
-          <span>{t("notes.htmlExportIncludeResolvedComments")}</span>
-        </label>
+        </NotesTransferFieldRow>
 
         {#if error}
           <div class="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-[0.8rem] text-destructive">
@@ -207,7 +230,7 @@
         {/if}
 
         {#if result}
-          <div class="rounded-md border border-border bg-muted/35 px-3 py-2">
+          <div class="rounded-md border border-border/70 px-3 py-2">
             <div class="text-[0.8rem] font-medium text-foreground">
               {#if result.saved && result.export}
                 {t(

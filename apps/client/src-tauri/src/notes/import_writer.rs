@@ -7,6 +7,8 @@ use serde_json::{json, Value};
 use sqlx::{Sqlite, SqlitePool, Transaction};
 use std::collections::HashSet;
 
+const NOTES_PAGE_PROJECT_ID_PROPERTY: &str = "__ganbaru_project_id";
+
 pub(super) struct ImportBlock {
     pub(super) id: String,
     pub(super) block_type: &'static str,
@@ -56,6 +58,7 @@ pub(super) struct ImportedPageCreate<'a> {
     pub(super) cover: Option<&'a Value>,
     pub(super) url: Option<&'a str>,
     pub(super) public_url: Option<&'a str>,
+    pub(super) project_id: Option<&'a str>,
     pub(super) blocks: Vec<ImportBlock>,
 }
 
@@ -163,6 +166,7 @@ pub(super) async fn create_imported_row_page(
         cover: None,
         url: None,
         public_url: None,
+        project_id: None,
         blocks: Vec::new(),
     };
     for block in flattened_blocks {
@@ -251,6 +255,9 @@ async fn insert_import_page(
     page_id: &str,
     request: &ImportedPageCreate<'_>,
 ) -> Result<(), String> {
+    if let Some(project_id) = request.project_id {
+        ensure_project_exists(tx, project_id).await?;
+    }
     let (parent_type, parent_page_id, parent_block_id) = parent_columns(request.parent);
     sqlx::query(
         "INSERT INTO notes_pages (
@@ -276,7 +283,7 @@ async fn insert_import_page(
     .bind(parent_page_id)
     .bind(parent_block_id)
     .bind(request.title)
-    .bind(writes::page_title_properties(request.title).to_string())
+    .bind(import_page_properties(request.title, request.project_id)?.to_string())
     .bind(request.source_provider)
     .bind(request.source_object_id)
     .bind(request.source_workspace_id)
@@ -289,6 +296,47 @@ async fn insert_import_page(
     .await
     .map_err(|e| format!("create {} import page: {e}", request.source_provider))?;
     Ok(())
+}
+
+async fn ensure_project_exists(
+    tx: &mut Transaction<'_, Sqlite>,
+    project_id: &str,
+) -> Result<(), String> {
+    let exists: Option<i64> = sqlx::query_scalar(
+        "SELECT 1
+         FROM projects
+         WHERE id = ?",
+    )
+    .bind(project_id)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|e| format!("load import destination project: {e}"))?;
+    if exists.is_some() {
+        Ok(())
+    } else {
+        Err("import destination project not found".to_string())
+    }
+}
+
+pub(super) fn normalized_import_project_id(project_id: Option<String>) -> Option<String> {
+    project_id
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn import_page_properties(title: &str, project_id: Option<&str>) -> Result<Value, String> {
+    let mut properties = writes::page_title_properties(title);
+    let Some(project_id) = project_id else {
+        return Ok(properties);
+    };
+    let object = properties
+        .as_object_mut()
+        .ok_or_else(|| "page properties must be an object".to_string())?;
+    object.insert(
+        NOTES_PAGE_PROJECT_ID_PROPERTY.to_string(),
+        Value::String(project_id.to_string()),
+    );
+    Ok(properties)
 }
 
 async fn insert_import_row_page(

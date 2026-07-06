@@ -22,6 +22,7 @@ pub(super) async fn create_imported_notion_page(
     pool: &SqlitePool,
     parent: &super::models::NoteParent,
     source_workspace_id: Option<&str>,
+    project_id: Option<&str>,
     page: super::notion_api_import_convert::ConvertedNotionPage,
 ) -> Result<NoteLoadedPage, String> {
     create_imported_page(
@@ -38,6 +39,7 @@ pub(super) async fn create_imported_notion_page(
             cover: page.cover.as_ref(),
             url: page.url.as_deref(),
             public_url: page.public_url.as_deref(),
+            project_id,
             blocks: page.blocks,
         },
     )
@@ -49,6 +51,7 @@ pub(super) async fn create_imported_notion_data_source(
     parent: &super::models::NoteParent,
     source_provider: &str,
     source_workspace_id: Option<&str>,
+    project_id: Option<&str>,
     data_source: ConvertedNotionDataSource,
     rows: Vec<ConvertedNotionRow>,
 ) -> Result<(Vec<NoteLoadedPage>, NoteNotionApiImportedObjectDto, i64), String> {
@@ -73,6 +76,7 @@ pub(super) async fn create_imported_notion_data_source(
             cover: None,
             url: data_source.url.as_deref(),
             public_url: None,
+            project_id,
             blocks: vec![block],
         },
     )

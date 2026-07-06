@@ -1,6 +1,7 @@
 use super::html_import_syntax::{decode_html_entities, parse_html_nodes, HtmlElement, HtmlNode};
 use super::import_writer::{
-    count_import_blocks, create_imported_page, ImportBlock, ImportedPageCreate,
+    count_import_blocks, create_imported_page, normalized_import_project_id, ImportBlock,
+    ImportedPageCreate,
 };
 use super::models::{
     NoteHtmlImportDiagnosticDto, NoteHtmlImportDto, NoteHtmlImportRequest, NoteParent,
@@ -91,6 +92,7 @@ pub(in crate::notes) async fn import_page(
         .filter(|value| !value.is_empty())
         .map(str::to_string);
     let keep_external_file_references = request.keep_external_file_references.unwrap_or(false);
+    let project_id = normalized_import_project_id(request.project_id);
     let mut plan = parse_html(&request.html, keep_external_file_references);
     let title = import_title(
         request.title.as_deref(),
@@ -122,6 +124,7 @@ pub(in crate::notes) async fn import_page(
             cover: None,
             url: None,
             public_url: None,
+            project_id: project_id.as_deref(),
             blocks: plan.blocks,
         },
     )

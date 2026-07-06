@@ -353,6 +353,7 @@ pub struct NoteHtmlImportRequest {
     pub(in crate::notes) source_name: Option<String>,
     pub(in crate::notes) after_block_id: Option<String>,
     pub(in crate::notes) keep_external_file_references: Option<bool>,
+    pub(in crate::notes) project_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
@@ -413,6 +414,7 @@ pub struct NoteNotionApiImportRequest {
     pub(in crate::notes) include_users: Option<bool>,
     pub(in crate::notes) keep_external_file_references: Option<bool>,
     pub(in crate::notes) page_size: Option<i64>,
+    pub(in crate::notes) project_id: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -552,6 +554,7 @@ pub struct NoteNotionExportImportRequest {
     pub(in crate::notes) import_markdown: Option<bool>,
     pub(in crate::notes) import_html: Option<bool>,
     pub(in crate::notes) import_csv: Option<bool>,
+    pub(in crate::notes) project_id: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]

@@ -52,7 +52,7 @@ export const general = {
     syncFailed: "Could not update Notes author name.",
   },
   notesNotifications: {
-    heading: "Local Notes notifications",
+    heading: "Notifications",
     enable: "Enable mention notifications",
     enableDescription:
       "Deliver reminder, user mention, and task mention notifications from this device only",
@@ -65,6 +65,21 @@ export const general = {
     includeContent: "Show note text in notifications",
     includeContentDescription:
       "Off by default for privacy. When off, notifications only show the page name",
+  },
+  notesTransfers: {
+    importHeading: "Import",
+    exportHeading: "Export",
+    htmlImportSummary: "Paste sanitized HTML into a new note",
+    htmlImportDescription: "Import one HTML document as a local note",
+    notionApiImportSummary: "Pull selected pages or data sources from Notion",
+    notionApiImportDescription:
+      "Use a Notion integration token to import specific pages or data sources",
+    notionExportImportSummary: "Convert a Notion export folder into notes",
+    notionExportImportDescription:
+      "Import Markdown, HTML, CSV databases, and local asset files from a Notion export folder",
+    jsonGraphExportSummary: "Save a JSON graph backup and diagnostics file",
+    jsonGraphExportDescription:
+      "Export canonical Notes tables, optional indexes, history, templates, and local state as JSON",
   },
   calendars: {
     heading: "Calendars",

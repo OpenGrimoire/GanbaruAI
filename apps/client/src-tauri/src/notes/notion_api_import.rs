@@ -1,4 +1,4 @@
-use super::import_writer::count_import_blocks;
+use super::import_writer::{count_import_blocks, normalized_import_project_id};
 use super::models::{
     NoteNotionApiImportDiagnosticDto, NoteNotionApiImportDto, NoteNotionApiImportRequest,
     NoteNotionApiImportSummary, NoteNotionApiImportedUserDto,
@@ -18,7 +18,7 @@ use sqlx::SqlitePool;
 use std::future::Future;
 use std::pin::Pin;
 
-const DEFAULT_PAGE_SIZE: i64 = 50;
+const DEFAULT_PAGE_SIZE: i64 = 100;
 const MAX_SOURCE_IDS: usize = 50;
 const MAX_IMPORTED_BLOCKS: usize = 5_000;
 
@@ -72,6 +72,7 @@ pub(in crate::notes) async fn import_from_api(
             pool,
             &prepared.parent,
             prepared.source_workspace_id.as_deref(),
+            prepared.project_id.as_deref(),
             converted,
         )
         .await?;
@@ -136,6 +137,7 @@ pub(in crate::notes) async fn import_from_api(
             &prepared.parent,
             "notion",
             prepared.source_workspace_id.as_deref(),
+            prepared.project_id.as_deref(),
             converted_data_source,
             converted_rows,
         )
@@ -179,6 +181,7 @@ struct PreparedNotionImport {
     parent: super::models::NoteParent,
     integration_token: String,
     source_workspace_id: Option<String>,
+    project_id: Option<String>,
     page_ids: Vec<String>,
     data_source_ids: Vec<String>,
     include_comments: bool,
@@ -212,6 +215,7 @@ impl PreparedNotionImport {
             source_workspace_id: request
                 .source_workspace_id
                 .and_then(|value| trimmed_non_empty(&value)),
+            project_id: normalized_import_project_id(request.project_id),
             page_ids,
             data_source_ids,
             include_comments: request.include_comments.unwrap_or(true),

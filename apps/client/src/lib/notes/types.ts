@@ -1326,6 +1326,7 @@ export interface NotesHtmlImportRequest {
   source_name?: string | null;
   after_block_id?: string | null;
   keep_external_file_references?: boolean | null;
+  project_id?: string | null;
 }
 
 export type NotesHtmlImportDiagnosticSeverity = "info" | "warning" | "error";
@@ -1353,6 +1354,7 @@ export interface NotesNotionApiImportRequest {
   include_users?: boolean | null;
   keep_external_file_references?: boolean | null;
   page_size?: number | null;
+  project_id?: string | null;
 }
 
 export type NotesNotionApiImportDiagnosticSeverity = "info" | "warning" | "error";
@@ -1404,6 +1406,7 @@ export interface NotesNotionExportImportRequest {
   import_markdown?: boolean | null;
   import_html?: boolean | null;
   import_csv?: boolean | null;
+  project_id?: string | null;
 }
 
 export type NotesNotionExportImportDiagnosticSeverity = "info" | "warning" | "error";

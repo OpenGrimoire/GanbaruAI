@@ -6,11 +6,15 @@
     NotesJsonGraphExportDiagnostic,
     NotesJsonGraphExportSaveResult,
   } from "$lib/notes/types";
+  import NotesCheckboxField from "./NotesCheckboxField.svelte";
   import NotesRoundTripDiagnostics from "./NotesRoundTripDiagnostics.svelte";
+  import NotesTransferFieldRow from "./NotesTransferFieldRow.svelte";
 
   let {
     onExport,
     onCancel,
+    embedded = false,
+    description = null,
   }: {
     onExport: (input: {
       includeIndexes: boolean;
@@ -20,6 +24,8 @@
       pretty: boolean;
     }) => Promise<NotesJsonGraphExportSaveResult>;
     onCancel: () => void;
+    embedded?: boolean;
+    description?: string | null;
   } = $props();
 
   const { t } = getLocalization();
@@ -147,50 +153,82 @@
   }
 </script>
 
-<div class="fixed inset-0 z-90 flex items-center justify-center p-3">
-  <button
-    class="absolute inset-0 border-0 bg-black/50 p-0"
-    type="button"
-    aria-label={t("common.close")}
-    onclick={onCancel}
-  ></button>
+<div class={embedded ? "flex min-h-0 flex-col" : "fixed inset-0 z-90 flex items-center justify-center p-3"}>
+  {#if !embedded}
+    <button
+      class="absolute inset-0 border-0 bg-black/50 p-0"
+      type="button"
+      aria-label={t("common.close")}
+      onclick={onCancel}
+    ></button>
+  {/if}
   <div
     bind:this={dialogEl}
-    class="relative z-10 flex max-h-[min(92vh,38rem)] w-[min(34rem,100%)] flex-col rounded-md border border-border bg-card text-card-foreground shadow-lg outline-none"
-    role="dialog"
-    aria-modal="true"
+    class={embedded
+      ? "flex min-h-0 flex-col text-card-foreground outline-none"
+      : "relative z-10 flex max-h-[min(92vh,38rem)] w-[min(34rem,100%)] flex-col rounded-md border border-border bg-card text-card-foreground shadow-lg outline-none"}
+    role={embedded ? "region" : "dialog"}
+    aria-modal={embedded ? undefined : "true"}
     aria-label={t("notes.jsonGraphExportDialogTitle")}
     tabindex="-1"
-    onkeydown={handleKeydown}
+    onkeydown={embedded ? undefined : handleKeydown}
   >
-    <div class="shrink-0 border-b border-border px-4 py-3">
+    <div class="shrink-0 border-b border-border/70 px-4 py-3">
       <h2 class="text-[1rem] font-semibold text-foreground">
         {t("notes.jsonGraphExportDialogTitle")}
       </h2>
+      {#if description}
+        <p class="mt-1 max-w-2xl text-[0.866667rem] text-muted-foreground">{description}</p>
+      {/if}
     </div>
 
-    <div class="min-h-0 flex-1 overflow-auto px-4 py-3">
+    <div class={embedded ? "px-4 py-3" : "min-h-0 flex-1 overflow-auto px-4 py-3"}>
       <div class="grid gap-2">
-        <label class="flex items-start gap-2 rounded-md border border-border bg-muted/35 px-3 py-2 text-[0.8rem] text-foreground">
-          <input class="mt-0.5 size-3.5 shrink-0 accent-primary" type="checkbox" bind:checked={includeIndexes} />
-          <span>{t("notes.jsonGraphExportIncludeIndexes")}</span>
-        </label>
-        <label class="flex items-start gap-2 rounded-md border border-border bg-muted/35 px-3 py-2 text-[0.8rem] text-foreground">
-          <input class="mt-0.5 size-3.5 shrink-0 accent-primary" type="checkbox" bind:checked={includeHistory} />
-          <span>{t("notes.jsonGraphExportIncludeHistory")}</span>
-        </label>
-        <label class="flex items-start gap-2 rounded-md border border-border bg-muted/35 px-3 py-2 text-[0.8rem] text-foreground">
-          <input class="mt-0.5 size-3.5 shrink-0 accent-primary" type="checkbox" bind:checked={includeTemplates} />
-          <span>{t("notes.jsonGraphExportIncludeTemplates")}</span>
-        </label>
-        <label class="flex items-start gap-2 rounded-md border border-border bg-muted/35 px-3 py-2 text-[0.8rem] text-foreground">
-          <input class="mt-0.5 size-3.5 shrink-0 accent-primary" type="checkbox" bind:checked={includeLocalState} />
-          <span>{t("notes.jsonGraphExportIncludeLocalState")}</span>
-        </label>
-        <label class="flex items-start gap-2 rounded-md border border-border bg-muted/35 px-3 py-2 text-[0.8rem] text-foreground">
-          <input class="mt-0.5 size-3.5 shrink-0 accent-primary" type="checkbox" bind:checked={pretty} />
-          <span>{t("notes.jsonGraphExportPretty")}</span>
-        </label>
+        <NotesTransferFieldRow
+          label={t("notes.jsonGraphExportIncludeIndexes")}
+          description={t("notes.jsonGraphExportIncludeIndexesDescription")}
+        >
+          <NotesCheckboxField
+            bind:checked={includeIndexes}
+            label={t("notes.jsonGraphExportIncludeIndexes")}
+          />
+        </NotesTransferFieldRow>
+        <NotesTransferFieldRow
+          label={t("notes.jsonGraphExportIncludeHistory")}
+          description={t("notes.jsonGraphExportIncludeHistoryDescription")}
+        >
+          <NotesCheckboxField
+            bind:checked={includeHistory}
+            label={t("notes.jsonGraphExportIncludeHistory")}
+          />
+        </NotesTransferFieldRow>
+        <NotesTransferFieldRow
+          label={t("notes.jsonGraphExportIncludeTemplates")}
+          description={t("notes.jsonGraphExportIncludeTemplatesDescription")}
+        >
+          <NotesCheckboxField
+            bind:checked={includeTemplates}
+            label={t("notes.jsonGraphExportIncludeTemplates")}
+          />
+        </NotesTransferFieldRow>
+        <NotesTransferFieldRow
+          label={t("notes.jsonGraphExportIncludeLocalState")}
+          description={t("notes.jsonGraphExportIncludeLocalStateDescription")}
+        >
+          <NotesCheckboxField
+            bind:checked={includeLocalState}
+            label={t("notes.jsonGraphExportIncludeLocalState")}
+          />
+        </NotesTransferFieldRow>
+        <NotesTransferFieldRow
+          label={t("notes.jsonGraphExportPretty")}
+          description={t("notes.jsonGraphExportPrettyDescription")}
+        >
+          <NotesCheckboxField
+            bind:checked={pretty}
+            label={t("notes.jsonGraphExportPretty")}
+          />
+        </NotesTransferFieldRow>
 
         {#if error}
           <div class="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-[0.8rem] text-destructive">
@@ -199,7 +237,7 @@
         {/if}
 
         {#if result}
-          <div class="rounded-md border border-border bg-muted/35 px-3 py-2">
+          <div class="rounded-md border border-border/70 px-3 py-2">
             <div class="text-[0.8rem] font-medium text-foreground">
               {#if result.saved && result.export}
                 {t(
@@ -224,7 +262,7 @@
       </div>
     </div>
 
-    <div class="flex shrink-0 flex-wrap justify-end gap-2 border-t border-border px-4 py-3">
+    <div class="flex shrink-0 flex-wrap justify-end gap-2 border-t border-border/70 px-4 py-3">
       <button
         class="rounded-md border border-border bg-card px-3 py-1.5 text-[0.866667rem] font-medium text-foreground hover:bg-accent"
         type="button"

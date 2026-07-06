@@ -1,23 +1,13 @@
 <script lang="ts">
   import Archive from "@lucide/svelte/icons/archive";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
-  import CloudDownload from "@lucide/svelte/icons/cloud-download";
-  import DatabaseBackup from "@lucide/svelte/icons/database-backup";
-  import FileText from "@lucide/svelte/icons/file-text";
   import Plus from "@lucide/svelte/icons/plus";
   import Trash2 from "@lucide/svelte/icons/trash-2";
-  import Upload from "@lucide/svelte/icons/upload";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { formatShortcut } from "$lib/keyboard-shortcuts";
   import { NOTES_PAGE_CHROME_EMOJI_SCALE } from "$lib/notes/page-icon";
   import { notesPageTitle } from "$lib/notes/page-title";
-  import type {
-    NotesHtmlImportRequest,
-    NotesJsonGraphExportRequest,
-    NotesNotionApiImportRequest,
-    NotesNotionExportImportRequest,
-    NotesPage,
-  } from "$lib/notes/types";
+  import type { NotesPage } from "$lib/notes/types";
   import {
     projectLifecycleBadgeClass,
     projectLifecycleLabel,
@@ -31,10 +21,6 @@
   import { getViewport } from "$lib/stores/viewport.svelte";
   import { cn } from "$lib/utils";
   import ProjectIcon from "$lib/components/projects/ProjectIcon.svelte";
-  import NotesHtmlImportDialog from "./NotesHtmlImportDialog.svelte";
-  import NotesJsonGraphExportDialog from "./NotesJsonGraphExportDialog.svelte";
-  import NotesNotionApiImportDialog from "./NotesNotionApiImportDialog.svelte";
-  import NotesNotionExportImportDialog from "./NotesNotionExportImportDialog.svelte";
   import NotesPageIcon from "./NotesPageIcon.svelte";
   import NotesPagePickerPanel from "./NotesPagePickerPanel.svelte";
   import NotesProjectNavigator from "./NotesProjectNavigator.svelte";
@@ -80,10 +66,6 @@
   let navigatorPanelElement = $state<HTMLDivElement | null>(null);
   let navigatorPanelStyle = $state("");
   let navigatorPanelMaxHeight = $state(0);
-  let htmlImportOpen = $state(false);
-  let notionApiImportOpen = $state(false);
-  let notionExportImportOpen = $state(false);
-  let jsonGraphExportOpen = $state(false);
 
   interface NavigatorBounds {
     left: number;
@@ -213,82 +195,6 @@
   function createPage(): void {
     navigatorOpen = false;
     void notes.createPage("", { projectId: selectedProjectId });
-  }
-
-  function importHtmlPage(input: {
-    html: string;
-    title: string | null;
-    sourceName: string | null;
-    keepExternalFileReferences: boolean;
-  }) {
-    const request: Omit<NotesHtmlImportRequest, "parent"> = {
-      html: input.html,
-      title: input.title,
-      source_name: input.sourceName,
-      keep_external_file_references: input.keepExternalFileReferences,
-    };
-    return notes.importHtmlPage(request);
-  }
-
-  function importNotionApi(input: {
-    integrationToken: string;
-    sourceWorkspaceId: string | null;
-    pageIds: string[];
-    dataSourceIds: string[];
-    includeComments: boolean;
-    includeUsers: boolean;
-    keepExternalFileReferences: boolean;
-    pageSize: number;
-  }) {
-    const request: Omit<NotesNotionApiImportRequest, "parent"> = {
-      integration_token: input.integrationToken,
-      source_workspace_id: input.sourceWorkspaceId,
-      page_ids: input.pageIds,
-      data_source_ids: input.dataSourceIds,
-      include_comments: input.includeComments,
-      include_users: input.includeUsers,
-      keep_external_file_references: input.keepExternalFileReferences,
-      page_size: input.pageSize,
-    };
-    return notes.importNotionApi(request);
-  }
-
-  function importNotionExportFolder(input: {
-    exportRootPath: string;
-    sourceWorkspaceId: string | null;
-    keepExternalFileReferences: boolean;
-    copyLocalFileReferences: boolean;
-    importMarkdown: boolean;
-    importHtml: boolean;
-    importCsv: boolean;
-  }) {
-    const request: Omit<NotesNotionExportImportRequest, "parent"> = {
-      export_root_path: input.exportRootPath,
-      source_workspace_id: input.sourceWorkspaceId,
-      keep_external_file_references: input.keepExternalFileReferences,
-      copy_local_file_references: input.copyLocalFileReferences,
-      import_markdown: input.importMarkdown,
-      import_html: input.importHtml,
-      import_csv: input.importCsv,
-    };
-    return notes.importNotionExportFolder(request);
-  }
-
-  function exportJsonGraph(input: {
-    includeIndexes: boolean;
-    includeHistory: boolean;
-    includeTemplates: boolean;
-    includeLocalState: boolean;
-    pretty: boolean;
-  }) {
-    const request: NotesJsonGraphExportRequest = {
-      include_indexes: input.includeIndexes,
-      include_history: input.includeHistory,
-      include_templates: input.includeTemplates,
-      include_local_state: input.includeLocalState,
-      pretty: input.pretty,
-    };
-    return notes.exportJsonGraph(request);
   }
 
   $effect(() => {
@@ -490,50 +396,6 @@
   <div class="flex shrink-0 items-center gap-1">
     <button
       type="button"
-      class={toolbarIconButtonClass(false)}
-      aria-label={t("notes.htmlImportOpen")}
-      title={t("notes.htmlImportOpen")}
-      onclick={() => {
-        htmlImportOpen = true;
-      }}
-    >
-      <Upload size={14} strokeWidth={1.75} />
-    </button>
-    <button
-      type="button"
-      class={toolbarIconButtonClass(false)}
-      aria-label={t("notes.notionApiImportOpen")}
-      title={t("notes.notionApiImportOpen")}
-      onclick={() => {
-        notionApiImportOpen = true;
-      }}
-    >
-      <CloudDownload size={14} strokeWidth={1.75} />
-    </button>
-    <button
-      type="button"
-      class={toolbarIconButtonClass(false)}
-      aria-label={t("notes.notionExportImportOpen")}
-      title={t("notes.notionExportImportOpen")}
-      onclick={() => {
-        notionExportImportOpen = true;
-      }}
-    >
-      <FileText size={14} strokeWidth={1.75} />
-    </button>
-    <button
-      type="button"
-      class={toolbarIconButtonClass(false)}
-      aria-label={t("notes.jsonGraphExportOpen")}
-      title={t("notes.jsonGraphExportOpen")}
-      onclick={() => {
-        jsonGraphExportOpen = true;
-      }}
-    >
-      <DatabaseBackup size={14} strokeWidth={1.75} />
-    </button>
-    <button
-      type="button"
       class={toolbarIconButtonClass(notes.viewMode === "archive")}
       aria-label={t("notes.archive")}
       title={t("notes.archive")}
@@ -556,39 +418,3 @@
     </button>
   </div>
 </div>
-
-{#if htmlImportOpen}
-  <NotesHtmlImportDialog
-    onImport={importHtmlPage}
-    onCancel={() => {
-      htmlImportOpen = false;
-    }}
-  />
-{/if}
-
-{#if notionApiImportOpen}
-  <NotesNotionApiImportDialog
-    onImport={importNotionApi}
-    onCancel={() => {
-      notionApiImportOpen = false;
-    }}
-  />
-{/if}
-
-{#if notionExportImportOpen}
-  <NotesNotionExportImportDialog
-    onImport={importNotionExportFolder}
-    onCancel={() => {
-      notionExportImportOpen = false;
-    }}
-  />
-{/if}
-
-{#if jsonGraphExportOpen}
-  <NotesJsonGraphExportDialog
-    onExport={exportJsonGraph}
-    onCancel={() => {
-      jsonGraphExportOpen = false;
-    }}
-  />
-{/if}

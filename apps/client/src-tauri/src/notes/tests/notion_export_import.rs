@@ -59,6 +59,7 @@ fn notion_export_import_reconstructs_pages_database_rows_links_and_provenance() 
                 import_markdown: Some(true),
                 import_html: Some(true),
                 import_csv: Some(true),
+                project_id: None,
             },
         )
         .await
