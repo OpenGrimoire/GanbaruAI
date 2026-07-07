@@ -5,6 +5,7 @@
   import type { NotesPageOpenMode } from "$lib/notes/page-open-mode";
   import { getNotes } from "$lib/stores/notes.svelte";
   import { getProjects } from "$lib/stores/projects.svelte";
+  import { getViewport } from "$lib/stores/viewport.svelte";
   import { isAppShortcutBlockedTarget } from "$lib/utils";
   import NotesArchiveView from "./NotesArchiveView.svelte";
   import NotesEditor from "./NotesEditor.svelte";
@@ -14,6 +15,10 @@
 
   const notes = getNotes();
   const projects = getProjects();
+  const viewport = getViewport();
+
+  const CENTER_PEEK_FULL_PAGE_MIN_WIDTH_PX = 608;
+  const CENTER_PEEK_FULL_PAGE_MIN_HEIGHT_PX = 520;
 
   let showInactiveProjects = $state(false);
   let initialNotesLoadPending = $state(!notes.loaded);
@@ -21,17 +26,24 @@
   const selectedProject = $derived(projects.selectedProject);
   const selectedGroup = $derived(projects.selectedGroup);
   const selectedProjectId = $derived(selectedProject?.id ?? null);
-  const showFullPageEditor = $derived(
+  const hasOpenPage = $derived(
     notes.viewMode === "pages"
       && notes.selectedPageId !== null
-      && notes.loadedPage !== null
-      && notes.pageOpenMode === "full",
+      && notes.loadedPage !== null,
+  );
+  const peekPromotesToFullPage = $derived(
+    hasOpenPage
+      && notes.pageOpenMode !== "full"
+      && (
+        viewport.width < CENTER_PEEK_FULL_PAGE_MIN_WIDTH_PX
+        || viewport.height < CENTER_PEEK_FULL_PAGE_MIN_HEIGHT_PX
+      ),
+  );
+  const showFullPageEditor = $derived(
+    hasOpenPage && (notes.pageOpenMode === "full" || peekPromotesToFullPage),
   );
   const showPagePeek = $derived(
-    notes.viewMode === "pages"
-      && notes.selectedPageId !== null
-      && notes.loadedPage !== null
-      && notes.pageOpenMode !== "full",
+    hasOpenPage && notes.pageOpenMode !== "full" && !peekPromotesToFullPage,
   );
 
   onMount(() => {
@@ -196,14 +208,7 @@
   }
 
   .notes-center-peek-panel {
-    width: min(960px, calc(100vw - 480px));
+    width: clamp(560px, calc(100vw - 214px), 960px);
     height: min(667px, calc(100dvh - 214px));
-  }
-
-  @media (max-width: 760px), (max-height: 520px) {
-    .notes-center-peek-panel {
-      width: calc(100vw - 24px);
-      height: calc(100dvh - 24px);
-    }
   }
 </style>
