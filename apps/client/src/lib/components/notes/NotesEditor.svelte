@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy, tick } from "svelte";
   import Archive from "@lucide/svelte/icons/archive";
+  import Check from "@lucide/svelte/icons/check";
   import Copy from "@lucide/svelte/icons/copy";
   import Download from "@lucide/svelte/icons/download";
   import FolderInput from "@lucide/svelte/icons/folder-input";
@@ -13,11 +14,16 @@
   import Pencil from "@lucide/svelte/icons/pencil";
   import PencilLine from "@lucide/svelte/icons/pencil-line";
   import SmilePlus from "@lucide/svelte/icons/smile-plus";
+  import Square from "@lucide/svelte/icons/square";
+  import SquareArrowLeft from "@lucide/svelte/icons/square-arrow-left";
+  import SquareArrowUpRight from "@lucide/svelte/icons/square-arrow-up-right";
   import Star from "@lucide/svelte/icons/star";
   import Trash2 from "@lucide/svelte/icons/trash-2";
+  import X from "@lucide/svelte/icons/x";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { notesBlockAnchorId } from "$lib/notes/block-link";
+  import type { NotesPageOpenMode } from "$lib/notes/page-open-mode";
   import {
     notesCommentParentKey,
     openNotesCommentThreadCount,
@@ -58,7 +64,17 @@
 
   type NotesEditorPanel = "links" | "comments" | "suggestions" | "history";
 
-  let { projectId = null }: { projectId?: string | null } = $props();
+  let {
+    projectId = null,
+    openMode = "full",
+    onClose,
+    onOpenModeChange,
+  }: {
+    projectId?: string | null;
+    openMode?: NotesPageOpenMode;
+    onClose?: () => void;
+    onOpenModeChange?: (mode: NotesPageOpenMode) => void;
+  } = $props();
 
   const notes = getNotes();
   const localization = getLocalization();
@@ -70,6 +86,7 @@
   let coverMenuOpen = $state(false);
   let pageMenuOpen = $state(false);
   let moveMenuOpen = $state(false);
+  let openModeMenuOpen = $state(false);
   let activePanel = $state<NotesEditorPanel | null>(null);
   let htmlExportOpen = $state(false);
   let agentBridgeExportOpen = $state(false);
@@ -114,6 +131,7 @@
   const openSuggestionCount = $derived(openNotesSuggestionCount(notes.suggestions));
   const linksBadgeCount = $derived(notes.backlinks.length + notes.pageAliases.length + notes.unresolvedLinks.length);
   const commentsBadgeCount = $derived(unreadCommentCount > 0 ? unreadCommentCount : openCommentCount);
+  const peekMode = $derived(openMode !== "full");
 
   $effect(() => {
     if (!page || page.id === lastTitlePageId) return;
@@ -124,6 +142,7 @@
     activePanel = null;
     pageMenuOpen = false;
     moveMenuOpen = false;
+    openModeMenuOpen = false;
     iconMenuAnchor = null;
     coverMenuOpen = false;
   });
@@ -196,6 +215,13 @@
     );
   }
 
+  function openModeMenuItemClass(mode: NotesPageOpenMode): string {
+    return cn(
+      "flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left text-[0.8rem] hover:bg-accent",
+      openMode === mode ? "bg-accent text-accent-foreground" : "text-popover-foreground",
+    );
+  }
+
   function togglePanel(panel: NotesEditorPanel): void {
     activePanel = activePanel === panel ? null : panel;
     pageMenuOpen = false;
@@ -213,6 +239,10 @@
   function closePageMenu(): void {
     pageMenuOpen = false;
     moveMenuOpen = false;
+  }
+
+  function closeOpenModeMenu(): void {
+    openModeMenuOpen = false;
   }
 
   function closeActionPanel(): void {
@@ -245,6 +275,15 @@
 
   function closeIconMenu(): void {
     iconMenuAnchor = null;
+  }
+
+  function selectOpenMode(mode: NotesPageOpenMode): void {
+    openModeMenuOpen = false;
+    onOpenModeChange?.(mode);
+  }
+
+  function openAsFullPage(): void {
+    selectOpenMode("full");
   }
 
   function focusTitleInput(selectTitle = true): void {
@@ -357,13 +396,109 @@
 </script>
 
 {#if page}
-  <section class="flex min-w-0 flex-1 flex-col overflow-hidden">
+  <section class={cn("flex min-w-0 flex-1 flex-col overflow-hidden", peekMode && "h-full w-full bg-background")}>
     <div
-      class="relative z-40 shrink-0"
-      style="background-color: var(--cal-bg);"
+      class={cn("relative z-40 shrink-0", peekMode && "bg-background")}
+      style={peekMode ? "" : "background-color: var(--cal-bg);"}
       use:dismissOnOutside={{ enabled: !!activePanel, onDismiss: closeActionPanel }}
     >
       <div class="flex items-center gap-1 px-3" style="height: var(--cal-header-row-h);">
+        <div class="group/open-mode flex shrink-0 items-center gap-0.5">
+          {#if openMode === "side"}
+            <button
+              type="button"
+              class={actionButtonClass()}
+              aria-label={t("notes.closePeek")}
+              data-app-tooltip={t("notes.closePeek")}
+              onclick={() => onClose?.()}
+            >
+              <X class="size-4" />
+            </button>
+          {/if}
+          {#if peekMode}
+            <button
+              type="button"
+              class={actionButtonClass()}
+              aria-label={t("notes.expandNote")}
+              data-app-tooltip={t("notes.expandNote")}
+              onclick={openAsFullPage}
+            >
+              <SquareArrowUpRight class="size-4" />
+            </button>
+          {/if}
+          <div
+            class={cn(
+              "relative transition-opacity",
+              openModeMenuOpen ? "opacity-100" : "opacity-0 group-hover/open-mode:opacity-100 group-focus-within/open-mode:opacity-100",
+            )}
+            use:dismissOnOutside={{ enabled: openModeMenuOpen, onDismiss: closeOpenModeMenu }}
+          >
+            <button
+              type="button"
+              class={actionButtonClass(openModeMenuOpen)}
+              aria-label={t("notes.noteOpenMode")}
+              data-app-tooltip={t("notes.noteOpenMode")}
+              aria-expanded={openModeMenuOpen}
+              onclick={() => {
+                openModeMenuOpen = !openModeMenuOpen;
+                closePageMenu();
+              }}
+            >
+              {#if openMode === "side"}
+                <SquareArrowLeft class="size-4" />
+              {:else}
+                <Square class="size-4" />
+              {/if}
+            </button>
+            {#if openModeMenuOpen}
+              <div
+                class="absolute left-0 top-8 z-50 w-44 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-lg"
+                role="menu"
+                data-app-floating-surface
+              >
+                <button
+                  class={openModeMenuItemClass("side")}
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={openMode === "side"}
+                  onclick={() => selectOpenMode("side")}
+                >
+                  <SquareArrowLeft class="size-4" />
+                  <span class="min-w-0 flex-1 truncate">{t("notes.sidePeek")}</span>
+                  {#if openMode === "side"}
+                    <Check class="size-4 shrink-0" />
+                  {/if}
+                </button>
+                <button
+                  class={openModeMenuItemClass("center")}
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={openMode === "center"}
+                  onclick={() => selectOpenMode("center")}
+                >
+                  <Square class="size-4" />
+                  <span class="min-w-0 flex-1 truncate">{t("notes.centerPeek")}</span>
+                  {#if openMode === "center"}
+                    <Check class="size-4 shrink-0" />
+                  {/if}
+                </button>
+                <button
+                  class={openModeMenuItemClass("full")}
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={openMode === "full"}
+                  onclick={() => selectOpenMode("full")}
+                >
+                  <SquareArrowUpRight class="size-4" />
+                  <span class="min-w-0 flex-1 truncate">{t("notes.fullPage")}</span>
+                  {#if openMode === "full"}
+                    <Check class="size-4 shrink-0" />
+                  {/if}
+                </button>
+              </div>
+            {/if}
+          </div>
+        </div>
         <div class="min-w-0 flex-1"></div>
         <div class="hidden shrink-0 truncate px-2 text-[0.8rem] text-muted-foreground min-[560px]:block">
           {t("notes.metadataEdited", editedDateLabel)}

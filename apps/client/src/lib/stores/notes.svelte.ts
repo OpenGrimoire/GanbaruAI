@@ -69,6 +69,10 @@ import {
   restoredNotesPageSelection,
 } from "$lib/notes/page-selection";
 import {
+  DEFAULT_NOTES_PAGE_OPEN_MODE,
+  type NotesPageOpenMode,
+} from "$lib/notes/page-open-mode";
+import {
   recordRecentNotesPageId,
   setNotesPageFavoriteId,
 } from "$lib/notes/page-navigation";
@@ -150,6 +154,9 @@ import type {
 } from "$lib/notes/types";
 
 type NotesViewMode = "pages" | "archive" | "trash";
+interface NotesSelectPageOptions {
+  openMode?: NotesPageOpenMode;
+}
 
 const BLOCK_SAVE_DEBOUNCE_MS = 350;
 const CHILDREN_PAGE_SIZE = 100;
@@ -160,6 +167,7 @@ let archivedPages = $state<NotesPage[]>([]);
 let trashedPages = $state<NotesPage[]>([]);
 let pageTemplates = $state<NotesPageTemplate[]>([]);
 let selectedPageId = $state<string | null>(initialNotesSelectedPageId());
+let pageOpenMode = $state<NotesPageOpenMode>("full");
 let favoritePageIds = $state<string[]>(initialNotesFavoritePageIds());
 let recentPageIds = $state<string[]>(initialNotesRecentPageIds());
 let sidebarExpandedPageIds = $state<string[]>(initialNotesSidebarExpandedPageIds());
@@ -245,6 +253,16 @@ function treeState(): NotesTreeState {
 function saveSelectedPageId(pageId: string | null): void {
   selectedPageId = pageId;
   saveNotesSelectedPageId(pageId);
+}
+
+function showSelectedPageAs(openMode: NotesPageOpenMode): void {
+  pageOpenMode = openMode;
+}
+
+function openSelectedPage(pageId: string, openMode: NotesPageOpenMode): void {
+  viewMode = "pages";
+  showSelectedPageAs(openMode);
+  saveSelectedPageId(pageId);
 }
 
 function recordRecentPage(pageId: string): void {
@@ -460,8 +478,7 @@ async function loadPageTree(pageId: string): Promise<void> {
 }
 
 async function loadPageTreeForUndo(pageId: string): Promise<void> {
-  viewMode = "pages";
-  saveSelectedPageId(pageId);
+  openSelectedPage(pageId, pageOpenMode);
   await reloadPages();
   await loadPageTree(pageId);
   recordRecentPage(pageId);
@@ -951,9 +968,18 @@ async function ensureLoaded(): Promise<void> {
   await load();
 }
 
-async function selectPage(pageId: string | null): Promise<void> {
-  if (selectedPageId === pageId && (!pageId || loadedPage?.id === pageId)) return;
-  saveSelectedPageId(pageId);
+async function selectPage(
+  pageId: string | null,
+  options: NotesSelectPageOptions = {},
+): Promise<void> {
+  const alreadyLoaded = selectedPageId === pageId && (!pageId || loadedPage?.id === pageId);
+  const openMode = options.openMode ?? DEFAULT_NOTES_PAGE_OPEN_MODE;
+  if (pageId) {
+    openSelectedPage(pageId, openMode);
+  } else {
+    saveSelectedPageId(null);
+  }
+  if (alreadyLoaded) return;
   if (!pageId) {
     loadedPage = null;
     pageBreadcrumbItems = [];
@@ -1033,8 +1059,7 @@ async function createPageWithParent(
     after_block_id: null,
     properties: projectProperties,
   });
-  viewMode = "pages";
-  saveSelectedPageId(loaded.page.id);
+  openSelectedPage(loaded.page.id, DEFAULT_NOTES_PAGE_OPEN_MODE);
   recordRecentPage(loaded.page.id);
   await reloadPages();
   upsertPageInActiveCollections(loaded.page);
@@ -1059,8 +1084,7 @@ async function importHtmlPage(
     ...input,
     parent: input.parent ?? { type: "workspace", workspace: true },
   });
-  viewMode = "pages";
-  saveSelectedPageId(result.page.page.id);
+  openSelectedPage(result.page.page.id, DEFAULT_NOTES_PAGE_OPEN_MODE);
   recordRecentPage(result.page.page.id);
   await reloadPages(result.page.page.id);
   upsertPageInActiveCollections(result.page.page);
@@ -1110,7 +1134,7 @@ async function refreshAfterMultiPageImport(importedPages: NotesLoadedPage[]): Pr
   }
   await loadAllChildrenForVisibleTree();
   if (firstPage) {
-    saveSelectedPageId(firstPage.page.id);
+    openSelectedPage(firstPage.page.id, DEFAULT_NOTES_PAGE_OPEN_MODE);
     recordRecentPage(firstPage.page.id);
     setLoadedPageFromLoaded(firstPage);
     await reloadPageBreadcrumb(firstPage.page.id);
@@ -1161,8 +1185,7 @@ async function applyPageTemplate(templateId: string, title?: string): Promise<vo
     parent: { type: "workspace", workspace: true },
     title: title?.trim() || null,
   });
-  viewMode = "pages";
-  saveSelectedPageId(loaded.page.id);
+  openSelectedPage(loaded.page.id, DEFAULT_NOTES_PAGE_OPEN_MODE);
   recordRecentPage(loaded.page.id);
   await reloadPages(loaded.page.id);
   upsertPageInActiveCollections(loaded.page);
@@ -1251,8 +1274,7 @@ async function createChildPageFromBlock(blockId: string): Promise<void> {
     title: blockPlainText(block).trim(),
     properties: projectProperties,
   });
-  viewMode = "pages";
-  saveSelectedPageId(loaded.page.id);
+  openSelectedPage(loaded.page.id, DEFAULT_NOTES_PAGE_OPEN_MODE);
   recordRecentPage(loaded.page.id);
   await reloadPages();
   upsertPageInActiveCollections(loaded.page);
@@ -1292,8 +1314,7 @@ async function createChildPageAfterBlock(blockId: string): Promise<void> {
   if (block.parent.type === "page_id") {
     setSidebarPageCollapsed(block.parent.page_id, false);
   }
-  viewMode = "pages";
-  saveSelectedPageId(loaded.page.id);
+  openSelectedPage(loaded.page.id, DEFAULT_NOTES_PAGE_OPEN_MODE);
   recordRecentPage(loaded.page.id);
   await reloadPages();
   upsertPageInActiveCollections(loaded.page);
@@ -1328,8 +1349,7 @@ async function duplicatePage(pageId: string, title: string): Promise<void> {
   if (loaded.page.parent.type === "page_id") {
     setSidebarPageCollapsed(loaded.page.parent.page_id, false);
   }
-  viewMode = "pages";
-  saveSelectedPageId(loaded.page.id);
+  openSelectedPage(loaded.page.id, DEFAULT_NOTES_PAGE_OPEN_MODE);
   recordRecentPage(loaded.page.id);
   await reloadPages();
   upsertPageInActiveCollections(loaded.page);
@@ -1352,8 +1372,7 @@ async function movePage(pageId: string, parent: NotesParent): Promise<void> {
   if (loaded.page.parent.type === "page_id") {
     setSidebarPageCollapsed(loaded.page.parent.page_id, false);
   }
-  viewMode = "pages";
-  saveSelectedPageId(loaded.page.id);
+  openSelectedPage(loaded.page.id, DEFAULT_NOTES_PAGE_OPEN_MODE);
   recordRecentPage(loaded.page.id);
   await reloadPages();
   upsertPageInActiveCollections(loaded.page);
@@ -1414,8 +1433,7 @@ async function archivePage(pageId: string): Promise<void> {
 async function unarchivePage(pageId: string): Promise<void> {
   const restoredPage = await archiveNotesPage(pageId, false);
   archivedPages = archivedPages.filter((page) => page.id !== pageId);
-  viewMode = "pages";
-  saveSelectedPageId(restoredPage.id);
+  openSelectedPage(restoredPage.id, DEFAULT_NOTES_PAGE_OPEN_MODE);
   await reloadPages();
   upsertPageInActiveCollections(restoredPage);
   await loadPageTree(restoredPage.id);
@@ -1431,8 +1449,7 @@ async function restorePage(pageId: string): Promise<void> {
   } else {
     trashedPages = trashedPages.filter((page) => page.id !== pageId);
   }
-  viewMode = "pages";
-  saveSelectedPageId(restoredPage.id);
+  openSelectedPage(restoredPage.id, DEFAULT_NOTES_PAGE_OPEN_MODE);
   await reloadPages();
   upsertPageInActiveCollections(restoredPage);
   await loadPageTree(restoredPage.id);
@@ -1745,6 +1762,9 @@ export function getNotes() {
     get selectedPageId(): string | null {
       return selectedPageId;
     },
+    get pageOpenMode(): NotesPageOpenMode {
+      return pageOpenMode;
+    },
     get loadedPage(): NotesPage | null {
       return loadedPage;
     },
@@ -1938,6 +1958,7 @@ export function getNotes() {
     load,
     ensureLoaded,
     selectPage,
+    showSelectedPageAs,
     createPage,
     createSubpage,
     importHtmlPage,
