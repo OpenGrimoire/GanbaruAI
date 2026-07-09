@@ -51,6 +51,11 @@ export const general = {
     invalidFullName: "Full name cannot contain control characters.",
     syncFailed: "Could not update Notes author name.",
   },
+  notesGeneral: {
+    heading: "General",
+    defaultOpenMode: "Default open mode",
+    defaultOpenModeDescription: "Used when opening a note while none is open",
+  },
   notesNotifications: {
     heading: "Notifications",
     enable: "Enable mention notifications",

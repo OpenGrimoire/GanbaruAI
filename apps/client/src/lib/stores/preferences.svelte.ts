@@ -50,6 +50,11 @@ import {
 } from "./preferences";
 import { getConfigKey, setConfigKey } from "../vault/config";
 import { getLocalization } from "$lib/i18n/translator.svelte";
+import {
+  DEFAULT_NOTES_PAGE_OPEN_MODE,
+  isNotesPageOpenMode,
+  type NotesPageOpenMode,
+} from "$lib/notes/page-open-mode";
 
 const PROFILE_DISPLAY_NAME_CONFIG_KEY = "profile.displayName";
 const PROFILE_FULL_NAME_CONFIG_KEY = "profile.fullName";
@@ -72,6 +77,7 @@ const FOCUS_BREAK_EXTENSION_LIMIT_CONFIG_KEY =
 const FOCUS_PAUSE_NOTIFICATION_INTERVAL_MINUTES_CONFIG_KEY =
   "preferences.focusPauseNotificationIntervalMinutes";
 const MUSIC_PAUSE_ON_POMODORO_PAUSE_CONFIG_KEY = "preferences.musicPauseOnPomodoroPause";
+const NOTES_DEFAULT_OPEN_MODE_CONFIG_KEY = "preferences.notesDefaultOpenMode";
 const NOTES_MENTION_NOTIFICATIONS_ENABLED_CONFIG_KEY =
   "preferences.notesMentionNotificationsEnabled";
 const NOTES_REMINDER_NOTIFICATIONS_ENABLED_CONFIG_KEY =
@@ -199,6 +205,12 @@ function loadSavedBooleanPreference(key: string, fallback: boolean): boolean {
   return fallback;
 }
 
+function loadSavedNotesDefaultOpenMode(): NotesPageOpenMode {
+  const saved = getConfigKey<unknown>(NOTES_DEFAULT_OPEN_MODE_CONFIG_KEY, undefined);
+  if (isNotesPageOpenMode(saved)) return saved;
+  return DEFAULT_NOTES_PAGE_OPEN_MODE;
+}
+
 function loadSavedTitleBarVisibility(): TitleBarVisibility {
   const saved = getConfigKey<unknown>(TITLE_BAR_VISIBILITY_CONFIG_KEY, undefined);
   const parsed = parseTitleBarVisibility(saved);
@@ -234,6 +246,7 @@ let focusPauseNotificationIntervalMinutes = $state<FocusPauseNotificationInterva
   loadSavedFocusPauseNotificationIntervalMinutes(),
 );
 let musicPauseOnPomodoroPause = $state<boolean>(loadSavedMusicPauseOnPomodoroPause());
+let notesDefaultOpenMode = $state<NotesPageOpenMode>(loadSavedNotesDefaultOpenMode());
 let notesMentionNotificationsEnabled = $state<boolean>(
   loadSavedBooleanPreference(
     NOTES_MENTION_NOTIFICATIONS_ENABLED_CONFIG_KEY,
@@ -400,6 +413,12 @@ function setMusicPauseOnPomodoroPause(value: boolean): void {
   setConfigKey(MUSIC_PAUSE_ON_POMODORO_PAUSE_CONFIG_KEY, value);
 }
 
+function setNotesDefaultOpenMode(value: NotesPageOpenMode): void {
+  if (!isNotesPageOpenMode(value)) return;
+  notesDefaultOpenMode = value;
+  setConfigKey(NOTES_DEFAULT_OPEN_MODE_CONFIG_KEY, value);
+}
+
 function setNotesMentionNotificationsEnabled(value: boolean): void {
   notesMentionNotificationsEnabled = value;
   setConfigKey(NOTES_MENTION_NOTIFICATIONS_ENABLED_CONFIG_KEY, value);
@@ -504,6 +523,9 @@ export function getPreferences() {
     get musicPauseOnPomodoroPause(): boolean {
       return musicPauseOnPomodoroPause;
     },
+    get notesDefaultOpenMode(): NotesPageOpenMode {
+      return notesDefaultOpenMode;
+    },
     get notesMentionNotificationsEnabled(): boolean {
       return notesMentionNotificationsEnabled;
     },
@@ -539,6 +561,7 @@ export function getPreferences() {
     setFocusBreakExtensionLimit,
     setFocusPauseNotificationIntervalMinutes,
     setMusicPauseOnPomodoroPause,
+    setNotesDefaultOpenMode,
     setNotesMentionNotificationsEnabled,
     setNotesReminderNotificationsEnabled,
     setNotesUserMentionNotificationsEnabled,
@@ -589,6 +612,9 @@ export function getPreferences() {
     },
     resetMusicPauseOnPomodoroPause() {
       setMusicPauseOnPomodoroPause(DEFAULT_MUSIC_PAUSE_ON_POMODORO_PAUSE);
+    },
+    resetNotesDefaultOpenMode() {
+      setNotesDefaultOpenMode(DEFAULT_NOTES_PAGE_OPEN_MODE);
     },
     resetNotesMentionNotificationsEnabled() {
       setNotesMentionNotificationsEnabled(DEFAULT_NOTES_MENTION_NOTIFICATIONS_ENABLED);

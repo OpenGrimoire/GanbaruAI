@@ -5,7 +5,12 @@
   import FileText from "@lucide/svelte/icons/file-text";
   import Upload from "@lucide/svelte/icons/upload";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import {
+    DEFAULT_NOTES_PAGE_OPEN_MODE,
+    isNotesPageOpenMode,
+  } from "$lib/notes/page-open-mode";
   import { getPreferences } from "$lib/stores/preferences.svelte";
+  import CustomSelect from "./CustomSelect.svelte";
   import ToggleSetting from "./ToggleSetting.svelte";
   import type { NotesTransferOperation } from "./types";
 
@@ -17,6 +22,11 @@
 
   const preferences = getPreferences();
   const { t } = getLocalization();
+  const notesDefaultOpenModeOptions = $derived([
+    { value: "center", label: t("notes.centerPeek") },
+    { value: "side", label: t("notes.sidePeek") },
+    { value: "full", label: t("notes.fullPage") },
+  ]);
 
   interface TransferAction {
     id: NotesTransferOperation;
@@ -59,9 +69,31 @@
       icon: DatabaseBackup,
     },
   ];
+
+  function handleDefaultOpenModeChange(value: string): void {
+    if (isNotesPageOpenMode(value)) preferences.setNotesDefaultOpenMode(value);
+  }
 </script>
 
 <div class="flex flex-col gap-6">
+  <section class="flex flex-col gap-4">
+    <h2 class="px-1 text-[0.866667rem] font-semibold text-foreground">{t("settings.notesGeneral.heading")}</h2>
+
+    <div class="flex flex-col gap-3">
+      <CustomSelect
+        label={t("settings.notesGeneral.defaultOpenMode")}
+        description={t("settings.notesGeneral.defaultOpenModeDescription")}
+        value={preferences.notesDefaultOpenMode}
+        options={notesDefaultOpenModeOptions}
+        onChange={handleDefaultOpenModeChange}
+        canReset={preferences.notesDefaultOpenMode !== DEFAULT_NOTES_PAGE_OPEN_MODE}
+        onReset={() => preferences.resetNotesDefaultOpenMode()}
+      />
+    </div>
+  </section>
+
+  <div class="h-px shrink-0 scale-y-50 bg-border" aria-hidden="true"></div>
+
   <section class="flex flex-col gap-4">
     <h2 class="px-1 text-[0.866667rem] font-semibold text-foreground">{t("settings.notesNotifications.heading")}</h2>
 
