@@ -187,7 +187,8 @@
 
     {#if showCenterPeek}
       <div
-        class="absolute inset-0 z-50 flex items-center justify-center bg-black/45 px-3 py-4 sm:px-6 sm:py-8"
+        class="fixed inset-x-0 bottom-0 z-50 flex items-center justify-center bg-black/45 px-3 py-4 sm:px-6 sm:py-8"
+        style="top: calc(var(--titlebar-h) + var(--cal-header-row-h));"
         role="presentation"
         onclick={handleCenterPeekBackdropClick}
       >
