@@ -98,6 +98,7 @@
   let pendingTrashPage = $state<NotesPage | null>(null);
   let blockScrollViewport: HTMLDivElement | null = $state(null);
   let activityNowMs = $state(Date.now());
+  let activityPanelHideTimer: number | null = null;
   let lastTitlePageId = "";
   let lastHandledTitleFocusRequestId = 0;
 
@@ -206,6 +207,7 @@
   });
 
   onDestroy(() => {
+    clearActivityPanelHideTimer();
     if (lastTitlePageId) notes.clearPageTitleDraft(lastTitlePageId);
   });
 
@@ -273,11 +275,27 @@
   }
 
   function showActivityPanel(): void {
+    clearActivityPanelHideTimer();
     activityPanelOpen = true;
   }
 
   function hideActivityPanel(): void {
+    clearActivityPanelHideTimer();
     activityPanelOpen = false;
+  }
+
+  function clearActivityPanelHideTimer(): void {
+    if (activityPanelHideTimer === null) return;
+    window.clearTimeout(activityPanelHideTimer);
+    activityPanelHideTimer = null;
+  }
+
+  function scheduleHideActivityPanel(): void {
+    clearActivityPanelHideTimer();
+    activityPanelHideTimer = window.setTimeout(() => {
+      activityPanelOpen = false;
+      activityPanelHideTimer = null;
+    }, 180);
   }
 
   function handleActivityFocusOut(event: FocusEvent): void {
@@ -484,7 +502,7 @@
           role="group"
           aria-label={t("notes.activity")}
           onmouseenter={showActivityPanel}
-          onmouseleave={hideActivityPanel}
+          onmouseleave={scheduleHideActivityPanel}
           onfocusin={showActivityPanel}
           onfocusout={handleActivityFocusOut}
         >
@@ -498,9 +516,10 @@
             <span class="truncate">{editedMetadataLabel}</span>
           </button>
           {#if activityPanelOpen}
+            <div class="absolute right-0 top-7 h-1 w-80" aria-hidden="true"></div>
             <div
               id={activityPanelId}
-              class="absolute right-0 top-9 z-50 w-80 overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-lg"
+              class="absolute right-0 top-8 z-50 w-80 overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-md"
               role="dialog"
               aria-label={t("notes.activity")}
               data-app-floating-surface

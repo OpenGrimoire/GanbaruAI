@@ -187,7 +187,7 @@
 
     {#if showCenterPeek}
       <div
-        class="absolute inset-0 z-50 flex items-center justify-center bg-black/40 px-3 py-4 sm:px-6 sm:py-8"
+        class="absolute inset-0 z-50 flex items-center justify-center bg-black/45 px-3 py-4 sm:px-6 sm:py-8"
         role="presentation"
         onclick={handleCenterPeekBackdropClick}
       >
@@ -218,6 +218,5 @@
   .notes-center-peek-panel {
     width: clamp(560px, calc(100vw - 214px), 960px);
     height: min(667px, calc(100dvh - 214px));
-    box-shadow: 0 24px 80px rgb(0 0 0 / 0.42);
   }
 </style>
