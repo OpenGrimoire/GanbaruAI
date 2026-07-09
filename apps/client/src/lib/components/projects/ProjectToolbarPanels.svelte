@@ -118,6 +118,7 @@
     savedViewNameDraft = $bindable<string>(),
     onClose,
     onRevealInactive,
+    onProjectSettingsDirtyChange,
     onClearTaskFilters,
     onSaveCurrentTaskView,
     onApplyTaskView,
@@ -155,6 +156,7 @@
     savedViewNameDraft: string;
     onClose: () => void;
     onRevealInactive: () => void;
+    onProjectSettingsDirtyChange: (dirty: boolean) => void;
     onClearTaskFilters: () => void;
     onSaveCurrentTaskView: () => void | Promise<void>;
     onApplyTaskView: (view: ProjectSavedTaskView) => void | Promise<void>;
@@ -301,6 +303,7 @@
     if (!panel) return;
     const target = event.target;
     if (!(target instanceof Node)) return;
+    if (target instanceof Element && target.closest("[role='dialog'][aria-modal='true']")) return;
     const trigger = panelTriggerElement(panel);
     if (isAppFloatingSurfaceTarget(target)) return;
     if (trigger?.contains(target) || subpanelElement?.contains(target)) return;
@@ -659,6 +662,7 @@
         presentation="popover"
         onClose={onClose}
         onRevealInactive={onRevealInactive}
+        onDirtyChange={onProjectSettingsDirtyChange}
       />
     {:else if panel === "group"}
       <header class="sticky top-0 z-10 flex shrink-0 items-center gap-2 bg-card px-3 pb-1 pt-2">

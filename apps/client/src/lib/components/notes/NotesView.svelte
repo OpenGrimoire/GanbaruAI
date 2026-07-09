@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
+  import { getLocalization } from "$lib/i18n/translator.svelte";
   import { hasOnlyShortcutModifier } from "$lib/keyboard-shortcuts";
   import { parseNotesLinkHash } from "$lib/notes/block-link";
   import type { NotesPageOpenMode } from "$lib/notes/page-open-mode";
@@ -17,6 +19,7 @@
   const notes = getNotes();
   const projects = getProjects();
   const viewport = getViewport();
+  const { t } = getLocalization();
 
   const CENTER_PEEK_FULL_PAGE_MIN_WIDTH_PX = 608;
   const CENTER_PEEK_FULL_PAGE_MIN_HEIGHT_PX = 520;
@@ -25,6 +28,8 @@
   let initialNotesLoadPending = $state(!notes.loaded);
   let notesRootElement = $state<HTMLDivElement | null>(null);
   let projectSettingsOpen = $state(false);
+  let projectSettingsDirty = $state(false);
+  let projectSettingsDiscardConfirmOpen = $state(false);
   const selectedProject = $derived(projects.selectedProject);
   const selectedGroup = $derived(projects.selectedGroup);
   const selectedProjectId = $derived(selectedProject?.id ?? null);
@@ -91,7 +96,31 @@
 
   function handleProjectSelected(): void {
     projectSettingsOpen = false;
+    projectSettingsDirty = false;
+    projectSettingsDiscardConfirmOpen = false;
     showProjectHome();
+  }
+
+  function closeProjectSettingsImmediately(): void {
+    projectSettingsDiscardConfirmOpen = false;
+    projectSettingsOpen = false;
+    projectSettingsDirty = false;
+  }
+
+  function requestProjectSettingsClose(): void {
+    if (projectSettingsDirty) {
+      projectSettingsDiscardConfirmOpen = true;
+      return;
+    }
+    closeProjectSettingsImmediately();
+  }
+
+  function toggleProjectSettings(): void {
+    if (projectSettingsOpen) {
+      requestProjectSettingsClose();
+      return;
+    }
+    projectSettingsOpen = true;
   }
 
   function createPage(): void {
@@ -152,16 +181,27 @@
     onProjectSelected={handleProjectSelected}
     onShowHome={showProjectHome}
     {projectSettingsOpen}
-    onToggleProjectSettings={() => {
-      projectSettingsOpen = !projectSettingsOpen;
-    }}
+    onToggleProjectSettings={toggleProjectSettings}
   />
   {#if projectSettingsOpen && selectedProjectId}
     <NotesProjectSettingsPanel
       projectId={selectedProjectId}
       popoverBoundaryElement={notesRootElement}
-      onClose={() => {
-        projectSettingsOpen = false;
+      onRequestClose={requestProjectSettingsClose}
+      onDirtyChange={(dirty) => {
+        projectSettingsDirty = dirty;
+      }}
+    />
+  {/if}
+  {#if projectSettingsDiscardConfirmOpen}
+    <ConfirmDialog
+      title={t("calendar.view.discardUnsavedTitle")}
+      message={t("calendar.view.changesLost")}
+      confirmLabel={t("calendar.view.discard")}
+      cancelLabel={t("common.cancelShortcut")}
+      onConfirm={closeProjectSettingsImmediately}
+      onCancel={() => {
+        projectSettingsDiscardConfirmOpen = false;
       }}
     />
   {/if}

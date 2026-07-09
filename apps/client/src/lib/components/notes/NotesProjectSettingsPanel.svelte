@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import {
     isNotesPageOpenMode,
@@ -20,11 +21,13 @@
   let {
     projectId,
     popoverBoundaryElement,
-    onClose,
+    onRequestClose,
+    onDirtyChange,
   }: {
     projectId: string;
     popoverBoundaryElement: HTMLElement | null;
-    onClose: () => void;
+    onRequestClose: () => void;
+    onDirtyChange: (dirty: boolean) => void;
   } = $props();
 
   const projects = getProjects();
@@ -96,8 +99,7 @@
   }
 
   function close(): void {
-    loadDraft();
-    onClose();
+    onRequestClose();
   }
 
   function selectDefaultOpenMode(value: string): void {
@@ -124,6 +126,7 @@
   function handleWindowPointerDown(event: PointerEvent): void {
     const target = event.target;
     if (!(target instanceof Node)) return;
+    if (target instanceof Element && target.closest("[role='dialog'][aria-modal='true']")) return;
     const trigger = document.querySelector<HTMLElement>("[data-notes-toolbar-trigger='settings']");
     if (isAppFloatingSurfaceTarget(target) || trigger?.contains(target) || panelElement?.contains(target)) {
       return;
@@ -148,6 +151,14 @@
     ) {
       loadDraft();
     }
+  });
+
+  $effect(() => {
+    onDirtyChange(dirty);
+  });
+
+  onDestroy(() => {
+    onDirtyChange(false);
   });
 
   $effect(() => {

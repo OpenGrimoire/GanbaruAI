@@ -4,6 +4,8 @@
   import Save from "@lucide/svelte/icons/save";
   import X from "@lucide/svelte/icons/x";
   import CalendarScrollbar from "$lib/components/calendar/CalendarScrollbar.svelte";
+  import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
+  import { getLocalization } from "$lib/i18n/translator.svelte";
   import { cn } from "$lib/utils";
 
   let {
@@ -38,7 +40,10 @@
     scrollElement?: HTMLElement;
   } = $props();
 
+  const { t } = getLocalization();
+
   let contentElement = $state<HTMLElement | undefined>();
+  let discardConfirmOpen = $state(false);
   let scrollable = $state(false);
   let canScrollUp = $state(false);
   let canScrollDown = $state(false);
@@ -62,6 +67,11 @@
   function requestScrollStateRefresh(): void {
     if (scrollStateFrame !== null) cancelAnimationFrame(scrollStateFrame);
     scrollStateFrame = requestAnimationFrame(refreshScrollState);
+  }
+
+  function confirmDiscard(): void {
+    discardConfirmOpen = false;
+    onDiscard();
   }
 
   $effect(() => {
@@ -99,7 +109,9 @@
       aria-label={discardLabel}
       title={discardLabel}
       disabled={!draftReady || !dirty}
-      onclick={onDiscard}
+      onclick={() => {
+        if (dirty) discardConfirmOpen = true;
+      }}
     >
       <RotateCcw size={14} strokeWidth={1.75} />
     </button>
@@ -164,6 +176,19 @@
     {/if}
   </form>
 </aside>
+
+{#if discardConfirmOpen}
+  <ConfirmDialog
+    title={t("calendar.view.discardUnsavedTitle")}
+    message={t("calendar.view.changesLost")}
+    confirmLabel={t("calendar.view.discard")}
+    cancelLabel={t("common.cancelShortcut")}
+    onConfirm={confirmDiscard}
+    onCancel={() => {
+      discardConfirmOpen = false;
+    }}
+  />
+{/if}
 
 <style>
   .project-settings-panel {

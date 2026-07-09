@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick } from "svelte";
+  import { onDestroy, tick } from "svelte";
   import { FALLBACK_COLOR_INDEX, type EventColor } from "$lib/components/calendar/types";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import type { PomodoroPresetKey } from "$lib/pomodoro/rhythm";
@@ -109,11 +109,13 @@
     presentation = "side",
     onClose,
     onRevealInactive,
+    onDirtyChange,
   }: {
     projectId: string;
     presentation?: "side" | "popover";
     onClose: () => void;
     onRevealInactive: () => void;
+    onDirtyChange: (dirty: boolean) => void;
   } = $props();
 
   const projects = getProjects();
@@ -276,6 +278,14 @@
     }
   });
 
+  $effect(() => {
+    onDirtyChange(projectSettingsDirty);
+  });
+
+  onDestroy(() => {
+    onDirtyChange(false);
+  });
+
   function loadProjectSettingsDraft(project: Project): void {
     projectDraftId = project.id;
     projectDraftUpdatedAt = project.updatedAt;
@@ -324,7 +334,6 @@
   }
 
   function closeProjectSettings(): void {
-    if (selectedProject) loadProjectSettingsDraft(selectedProject);
     onClose();
   }
 

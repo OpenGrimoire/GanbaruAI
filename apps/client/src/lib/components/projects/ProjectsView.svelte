@@ -2,6 +2,7 @@
   import { Temporal } from "@js-temporal/polyfill";
   import { onMount } from "svelte";
   import CalendarView from "$lib/components/calendar/CalendarView.svelte";
+  import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
   import { getCalendar } from "$lib/stores/calendar.svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getPreferences } from "$lib/stores/preferences.svelte";
@@ -122,6 +123,9 @@
   let selectedTaskId = $state<string | null>(null);
   let selectedTaskIds = $state<string[]>([]);
   let projectToolbarPanel = $state<ProjectToolbarPanel | null>(null);
+  let projectSettingsDirty = $state(false);
+  let projectSettingsDiscardConfirmOpen = $state(false);
+  let pendingProjectSettingsAction: (() => void) | null = null;
   let projectsRootElement = $state<HTMLDivElement | null>(null);
 
   const selectedProject = $derived(projects.selectedProject);
@@ -443,14 +447,58 @@
       ?? statuses.find((status) => !status.terminal);
   }
 
+  function runAfterProjectSettingsClose(action: () => void): void {
+    if (projectToolbarPanel === "settings" && projectSettingsDirty) {
+      pendingProjectSettingsAction = action;
+      projectSettingsDiscardConfirmOpen = true;
+      return;
+    }
+    action();
+  }
+
+  function setProjectToolbarPanel(panel: ProjectToolbarPanel | null): void {
+    projectToolbarPanel = panel;
+    if (panel !== "settings") projectSettingsDirty = false;
+  }
+
   function toggleProjectToolbarPanel(panel: ProjectToolbarPanel): void {
-    projectToolbarPanel = projectToolbarPanel === panel ? null : panel;
+    const nextPanel = projectToolbarPanel === panel ? null : panel;
+    runAfterProjectSettingsClose(() => {
+      setProjectToolbarPanel(nextPanel);
+    });
+  }
+
+  function requestProjectToolbarPanelClose(): void {
+    runAfterProjectSettingsClose(() => {
+      setProjectToolbarPanel(null);
+    });
+  }
+
+  function confirmDiscardProjectSettings(): void {
+    const action = pendingProjectSettingsAction;
+    pendingProjectSettingsAction = null;
+    projectSettingsDiscardConfirmOpen = false;
+    projectSettingsDirty = false;
+    action?.();
+  }
+
+  function cancelDiscardProjectSettings(): void {
+    pendingProjectSettingsAction = null;
+    projectSettingsDiscardConfirmOpen = false;
+  }
+
+  function closeProjectToolbarPanelImmediately(): void {
+    pendingProjectSettingsAction = null;
+    projectSettingsDiscardConfirmOpen = false;
+    setProjectToolbarPanel(null);
   }
 
   function openTaskFinder(): void {
-    taskFinderOpen = true;
-    projectToolbarPanel = null;
-    taskFinderFocusRequestId += 1;
+    runAfterProjectSettingsClose(() => {
+      taskFinderOpen = true;
+      setProjectToolbarPanel(null);
+      taskFinderFocusRequestId += 1;
+    });
   }
 
   function clearAndCloseTaskFinder(): void {
@@ -670,8 +718,10 @@
   }
 
   function openTaskDetail(task: ProjectTask): void {
-    projectToolbarPanel = null;
-    selectedTaskId = task.id;
+    runAfterProjectSettingsClose(() => {
+      setProjectToolbarPanel(null);
+      selectedTaskId = task.id;
+    });
   }
 
   function normalizeFilterDate(value: string): string | undefined {
@@ -717,7 +767,7 @@
           }}
           onProjectSelected={() => {
             selectedTaskId = null;
-            projectToolbarPanel = null;
+            closeProjectToolbarPanelImmediately();
           }}
           onToggleToolbarPanel={toggleProjectToolbarPanel}
         />
@@ -752,7 +802,10 @@
           bind:showInactiveSections
           bind:savedViewNameDraft
           onClose={() => {
-            projectToolbarPanel = null;
+            requestProjectToolbarPanelClose();
+          }}
+          onProjectSettingsDirtyChange={(dirty) => {
+            projectSettingsDirty = dirty;
           }}
           onRevealInactive={() => {
             showInactiveProjects = true;
@@ -857,7 +910,7 @@
         bind:showInactiveProjects
         onProjectSelected={() => {
           selectedTaskId = null;
-          projectToolbarPanel = null;
+          closeProjectToolbarPanelImmediately();
         }}
       />
     {/if}
@@ -892,6 +945,17 @@
       onShowArchivedTasks={() => {
         showArchivedTasks = true;
       }}
+    />
+  {/if}
+
+  {#if projectSettingsDiscardConfirmOpen}
+    <ConfirmDialog
+      title={t("calendar.view.discardUnsavedTitle")}
+      message={t("calendar.view.changesLost")}
+      confirmLabel={t("calendar.view.discard")}
+      cancelLabel={t("common.cancelShortcut")}
+      onConfirm={confirmDiscardProjectSettings}
+      onCancel={cancelDiscardProjectSettings}
     />
   {/if}
 </div>
