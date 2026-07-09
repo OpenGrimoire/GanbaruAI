@@ -232,6 +232,48 @@ fn schema_creates_normalized_notes_database_tables() {
 }
 
 #[test]
+fn schema_validates_project_notes_default_open_mode() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        sqlx::query(
+            "INSERT INTO project_groups (id, name, icon, sort_order)
+             VALUES ('group-notes-mode', 'Notes mode', 'folder', 100)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO projects (id, group_id, name, icon, sort_order)
+             VALUES ('project-notes-mode', 'group-notes-mode', 'Notes mode', 'folder', 100)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let default_mode: Option<String> = sqlx::query_scalar(
+            "SELECT notes_default_open_mode FROM projects WHERE id = 'project-notes-mode'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(default_mode, None);
+
+        sqlx::query(
+            "UPDATE projects SET notes_default_open_mode = 'side' WHERE id = 'project-notes-mode'",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert!(sqlx::query(
+            "UPDATE projects SET notes_default_open_mode = 'invalid' WHERE id = 'project-notes-mode'",
+        )
+        .execute(&pool)
+        .await
+        .is_err());
+    });
+}
+
+#[test]
 fn schema_creates_notes_local_user_identity() {
     tauri::async_runtime::block_on(async {
         let pool = migrated_memory_pool().await;

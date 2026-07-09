@@ -51,6 +51,7 @@ pub struct ProjectRow {
     pub(in crate::projects) break_playlist_id: Option<String>,
     pub(in crate::projects) work_environment_id: Option<String>,
     pub(in crate::projects) blocker_ruleset_id: Option<String>,
+    pub(in crate::projects) notes_default_open_mode: Option<String>,
     pub(in crate::projects) created_at: String,
     pub(in crate::projects) updated_at: String,
 }
@@ -78,6 +79,7 @@ impl_sqlite_from_row!(ProjectRow {
     break_playlist_id,
     work_environment_id,
     blocker_ruleset_id,
+    notes_default_open_mode,
     created_at,
     updated_at,
 });

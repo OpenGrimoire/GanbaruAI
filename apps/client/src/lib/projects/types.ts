@@ -10,6 +10,7 @@ import {
   type FocusIdleThresholdMinutes,
 } from "$lib/stores/preferences";
 import type { ProjectDefaultEventTimeMode } from "$lib/projects/project-settings-duration";
+import type { NotesPageOpenMode } from "$lib/notes/page-open-mode";
 
 export const PROJECT_VIEW_IDS = ["dashboard", "list", "kanban", "calendar", "gantt"] as const;
 export type ProjectViewId = (typeof PROJECT_VIEW_IDS)[number];
@@ -119,6 +120,7 @@ export interface Project {
   breakPlaylistId?: string;
   workEnvironmentId?: string;
   blockerRulesetId?: string;
+  notesDefaultOpenMode?: NotesPageOpenMode;
   createdAt: string;
   updatedAt: string;
 }

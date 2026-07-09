@@ -5,6 +5,10 @@ import { FALLBACK_COLOR_INDEX } from "$lib/components/calendar/types";
 import { localTimezone } from "$lib/stores/calendar-event-payloads";
 import { toCalendarDate } from "$lib/stores/map-row";
 import {
+  isNotesPageOpenMode,
+  type NotesPageOpenMode,
+} from "$lib/notes/page-open-mode";
+import {
   DEFAULT_FOCUS_IDLE_THRESHOLD_MINUTES,
   FOCUS_IDLE_THRESHOLD_MINUTES_OPTIONS,
   type FocusIdleThresholdMinutes,
@@ -95,6 +99,7 @@ interface ProjectRow {
   break_playlist_id: string | null;
   work_environment_id: string | null;
   blocker_ruleset_id: string | null;
+  notes_default_open_mode: NotesPageOpenMode | null;
   created_at: string;
   updated_at: string;
 }
@@ -313,6 +318,10 @@ function optionalNumber(value: number | null): number | undefined {
   return value ?? undefined;
 }
 
+function optionalNotesPageOpenMode(value: unknown): NotesPageOpenMode | undefined {
+  return isNotesPageOpenMode(value) ? value : undefined;
+}
+
 function mapProjectIdleSettingsSource(value: string): Project["defaultIdleSettingsSource"] {
   return value === "custom" ? "custom" : "global";
 }
@@ -365,6 +374,7 @@ function mapProject(row: ProjectRow): Project {
     breakPlaylistId: optionalText(row.break_playlist_id),
     workEnvironmentId: optionalText(row.work_environment_id),
     blockerRulesetId: optionalText(row.blocker_ruleset_id),
+    notesDefaultOpenMode: optionalNotesPageOpenMode(row.notes_default_open_mode),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -650,6 +660,18 @@ export async function createProject(project: ProjectCreate): Promise<void> {
 export async function updateProject(project: ProjectUpdate): Promise<void> {
   const dbUrl = await ensureDbUrl();
   await invoke("projects_update_project", { dbUrl, project });
+}
+
+export async function updateProjectNotesDefaultOpenMode(
+  projectId: string,
+  notesDefaultOpenMode: NotesPageOpenMode | null,
+): Promise<void> {
+  const dbUrl = await ensureDbUrl();
+  await invoke("projects_update_notes_default_open_mode", {
+    dbUrl,
+    projectId,
+    notesDefaultOpenMode,
+  });
 }
 
 export async function createProjectSection(section: ProjectSectionCreate): Promise<void> {

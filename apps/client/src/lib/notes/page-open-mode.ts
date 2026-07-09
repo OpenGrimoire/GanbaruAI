@@ -16,6 +16,13 @@ export function isNotesPageOpenMode(value: unknown): value is NotesPageOpenMode 
     && NOTES_PAGE_OPEN_MODES.includes(value as NotesPageOpenMode);
 }
 
+export function notesDefaultOpenModeForProject(
+  globalDefaultOpenMode: NotesPageOpenMode,
+  projectDefaultOpenMode: NotesPageOpenMode | null | undefined,
+): NotesPageOpenMode {
+  return projectDefaultOpenMode ?? globalDefaultOpenMode;
+}
+
 export function notesPageOpenModeForSelection({
   requestedOpenMode,
   currentOpenMode,

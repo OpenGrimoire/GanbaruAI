@@ -37,6 +37,7 @@
     showActiveCheck = true,
     alignOptionSummaryEnd = false,
     popoverAlign = "start",
+    popoverBoundaryElement = null,
     class: className = "",
   }: {
     value: string;
@@ -53,6 +54,7 @@
     showActiveCheck?: boolean;
     alignOptionSummaryEnd?: boolean;
     popoverAlign?: SelectPopoverHorizontalAlign;
+    popoverBoundaryElement?: HTMLElement | null;
     class?: string;
   } = $props();
 
@@ -99,8 +101,8 @@
         height: window.innerHeight,
       };
     }
-    const boundaryEl =
-      triggerEl.closest<HTMLElement>("[data-settings-content]")
+    const boundaryEl = popoverBoundaryElement
+      ?? triggerEl.closest<HTMLElement>("[data-settings-content]")
       ?? triggerEl.closest<HTMLElement>("[data-settings-modal-panel]");
     const viewportRect: SelectPopoverRect = {
       top: 0,

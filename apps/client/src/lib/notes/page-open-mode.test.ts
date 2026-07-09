@@ -3,10 +3,17 @@ import {
   DEFAULT_NOTES_PAGE_OPEN_MODE,
   isNotesPageOpenMode,
   notesPageOpenModeForSelection,
+  notesDefaultOpenModeForProject,
   type NotesPageOpenMode,
 } from "./page-open-mode";
 
 describe("notes page open mode", () => {
+  it("uses a project override before the global default", () => {
+    expect(notesDefaultOpenModeForProject("center", "side")).toBe("side");
+    expect(notesDefaultOpenModeForProject("full", null)).toBe("full");
+    expect(notesDefaultOpenModeForProject("side", undefined)).toBe("side");
+  });
+
   it("uses center peek for fresh page selections", () => {
     expect(
       notesPageOpenModeForSelection({

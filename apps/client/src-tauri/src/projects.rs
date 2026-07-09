@@ -14,6 +14,7 @@ const MAX_PROJECT_POMODORO_CYCLE_COUNT: i64 = 12;
 const PROJECT_EVENT_TIME_MODES: &[&str] = &["timed", "all_day"];
 const PROJECT_IDLE_SETTINGS_SOURCES: &[&str] = &["global", "custom"];
 const PROJECT_IDLE_THRESHOLD_MINUTES: &[i64] = &[1, 2, 3, 4, 5, 10, 15];
+const NOTES_PAGE_OPEN_MODES: &[&str] = &["center", "side", "full"];
 const MAX_TASK_CHANGE_REASON_LENGTH: usize = 1000;
 
 mod custom_fields;
@@ -475,6 +476,35 @@ pub async fn projects_update_project<R: Runtime>(
     .execute(&pool)
     .await
     .map_err(|e| format!("update project: {e}"))?;
+    if result.rows_affected() == 0 {
+        return Err("project not found".to_string());
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn projects_update_notes_default_open_mode<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    project_id: String,
+    notes_default_open_mode: Option<String>,
+) -> Result<(), String> {
+    require_non_empty(&project_id, "project_id")?;
+    if let Some(value) = notes_default_open_mode.as_deref() {
+        validate_enum(value, "notes_default_open_mode", NOTES_PAGE_OPEN_MODES)?;
+    }
+    let pool = connect_sqlite(app, db_url).await?;
+    let result = sqlx::query(
+        "UPDATE projects
+         SET notes_default_open_mode = ?,
+             updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+         WHERE id = ?",
+    )
+    .bind(notes_default_open_mode)
+    .bind(project_id)
+    .execute(&pool)
+    .await
+    .map_err(|e| format!("update project Notes default open mode: {e}"))?;
     if result.rows_affected() == 0 {
         return Err("project not found".to_string());
     }

@@ -829,6 +829,7 @@ pub fn run() {
             projects::projects_set_group_collapsed,
             projects::projects_create_project,
             projects::projects_update_project,
+            projects::projects_update_notes_default_open_mode,
             projects::projects_create_section,
             projects::projects_update_section,
             projects::projects_create_status,

@@ -28,6 +28,7 @@ import {
   unlinkProjectTaskEvent,
   unlinkProjectTaskTag,
   updateProject as updateProjectBackend,
+  updateProjectNotesDefaultOpenMode,
   updateProjectChecklistItem,
   updateProjectCustomField,
   updateProjectCustomFieldOption,
@@ -41,6 +42,7 @@ import {
   upsertProjectViewPreference,
 } from "$lib/api/projects";
 import type { EventColor } from "$lib/components/calendar/types";
+import type { NotesPageOpenMode } from "$lib/notes/page-open-mode";
 import {
   TASK_LIST_COLUMN_WIDTHS_PREFERENCE_KEY,
   taskListColumnWidthsPreferenceValue,
@@ -205,6 +207,14 @@ export function createProjectStoreActions(context: ProjectStoreActionContext) {
   async function updateProject(project: ProjectUpdate): Promise<void> {
     await updateProjectBackend(project);
     await reload();
+  }
+
+  async function setNotesDefaultOpenMode(
+    projectId: string,
+    openMode: NotesPageOpenMode | null,
+  ): Promise<void> {
+    await updateProjectNotesDefaultOpenMode(projectId, openMode);
+    await reload(projectId);
   }
 
   async function moveProject(project: Project, direction: -1 | 1, includeInactive = false): Promise<void> {
@@ -888,6 +898,7 @@ export function createProjectStoreActions(context: ProjectStoreActionContext) {
     moveGroup,
     addProject,
     updateProject,
+    setNotesDefaultOpenMode,
     moveProject,
     addSection,
     updateSection,

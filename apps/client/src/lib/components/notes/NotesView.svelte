@@ -10,6 +10,7 @@
   import NotesArchiveView from "./NotesArchiveView.svelte";
   import NotesEditor from "./NotesEditor.svelte";
   import NotesProjectHome from "./NotesProjectHome.svelte";
+  import NotesProjectSettingsPanel from "./NotesProjectSettingsPanel.svelte";
   import NotesTrashView from "./NotesTrashView.svelte";
   import NotesWorkspaceHeader from "./NotesWorkspaceHeader.svelte";
 
@@ -23,6 +24,7 @@
   let showInactiveProjects = $state(false);
   let initialNotesLoadPending = $state(!notes.loaded);
   let notesRootElement = $state<HTMLDivElement | null>(null);
+  let projectSettingsOpen = $state(false);
   const selectedProject = $derived(projects.selectedProject);
   const selectedGroup = $derived(projects.selectedGroup);
   const selectedProjectId = $derived(selectedProject?.id ?? null);
@@ -88,6 +90,7 @@
   }
 
   function handleProjectSelected(): void {
+    projectSettingsOpen = false;
     showProjectHome();
   }
 
@@ -148,7 +151,20 @@
     }}
     onProjectSelected={handleProjectSelected}
     onShowHome={showProjectHome}
+    {projectSettingsOpen}
+    onToggleProjectSettings={() => {
+      projectSettingsOpen = !projectSettingsOpen;
+    }}
   />
+  {#if projectSettingsOpen && selectedProjectId}
+    <NotesProjectSettingsPanel
+      projectId={selectedProjectId}
+      popoverBoundaryElement={notesRootElement}
+      onClose={() => {
+        projectSettingsOpen = false;
+      }}
+    />
+  {/if}
   <div class="notes-view-layout relative flex min-h-0 flex-1 overflow-hidden">
     <div class={showSidePeek ? "min-w-0 basis-1/2 overflow-hidden" : "min-w-0 flex-1 overflow-hidden"}>
       {#if notes.viewMode === "archive"}

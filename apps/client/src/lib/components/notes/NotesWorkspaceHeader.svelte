@@ -2,6 +2,7 @@
   import Archive from "@lucide/svelte/icons/archive";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import Plus from "@lucide/svelte/icons/plus";
+  import Settings2 from "@lucide/svelte/icons/settings-2";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { formatShortcut } from "$lib/keyboard-shortcuts";
@@ -36,6 +37,8 @@
     onShowInactiveProjectsChange,
     onProjectSelected,
     onShowHome,
+    projectSettingsOpen,
+    onToggleProjectSettings,
   }: {
     selectedProject: Project | undefined;
     selectedGroup: ProjectGroup | undefined;
@@ -45,6 +48,8 @@
     onShowInactiveProjectsChange: (value: boolean) => void;
     onProjectSelected: () => void;
     onShowHome: () => void;
+    projectSettingsOpen: boolean;
+    onToggleProjectSettings: () => void;
   } = $props();
 
   const notes = getNotes();
@@ -416,5 +421,18 @@
     >
       <Trash2 size={14} strokeWidth={1.75} />
     </button>
+    {#if selectedProject}
+      <button
+        type="button"
+        data-notes-toolbar-trigger="settings"
+        class={toolbarIconButtonClass(false, projectSettingsOpen)}
+        aria-label={t("notes.projectSettingsTitle")}
+        title={t("notes.projectSettingsTitle")}
+        aria-expanded={projectSettingsOpen}
+        onclick={onToggleProjectSettings}
+      >
+        <Settings2 size={14} strokeWidth={1.75} />
+      </button>
+    {/if}
   </div>
 </div>

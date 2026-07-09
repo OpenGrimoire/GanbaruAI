@@ -70,6 +70,7 @@ import {
 } from "$lib/notes/page-selection";
 import {
   notesPageOpenModeForSelection,
+  notesDefaultOpenModeForProject,
   type NotesPageOpenMode,
 } from "$lib/notes/page-open-mode";
 import {
@@ -93,6 +94,7 @@ import { createNotesBlockActions } from "./notes-store-block-actions";
 import { createNotesPageHistoryController } from "./notes-store-page-history.svelte";
 import { createNotesUndoController } from "./notes-store-undo";
 import { getPreferences } from "./preferences.svelte";
+import { getProjects } from "./projects.svelte";
 import {
   flatNotesBlockItems,
   flatNotesBlockItemsForContext,
@@ -249,13 +251,23 @@ let titleFocusRequest = $state<{ pageId: string | null; requestId: number }>({
 });
 let pageTitleDraft = $state<{ pageId: string; title: string } | null>(null);
 const preferences = getPreferences();
+const projects = getProjects();
 
 function blockTreeSnapshot(): NotesBlockTreeSnapshot {
   return { selectedPageId, blocksById, childIdsByParentId };
 }
 
-function defaultNotesPageOpenMode(): NotesPageOpenMode {
-  return preferences.notesDefaultOpenMode;
+function defaultNotesPageOpenMode(projectId: string | null = projects.selectedProjectId): NotesPageOpenMode {
+  return notesDefaultOpenModeForProject(
+    preferences.notesDefaultOpenMode,
+    projects.projectById(projectId)?.notesDefaultOpenMode,
+  );
+}
+
+function projectIdForPage(pageId: string): string | null {
+  const page = allPages.find((candidate) => candidate.id === pageId)
+    ?? (loadedPage?.id === pageId ? loadedPage : null);
+  return page ? notesPageProjectId(page) : projects.selectedProjectId;
 }
 
 function treeState(): NotesTreeState {
@@ -1002,7 +1014,9 @@ async function selectPage(
   const openMode = notesPageOpenModeForSelection({
     requestedOpenMode: options.openMode,
     currentOpenMode: pageOpenMode,
-    defaultOpenMode: defaultNotesPageOpenMode(),
+    defaultOpenMode: pageId
+      ? defaultNotesPageOpenMode(projectIdForPage(pageId))
+      : defaultNotesPageOpenMode(),
     hasOpenPage: selectedPageId !== null,
   });
   if (pageId) {
@@ -1083,7 +1097,8 @@ async function createPageWithParent(
 ): Promise<void> {
   const pageId = crypto.randomUUID();
   const firstBlockId = crypto.randomUUID();
-  const projectProperties = notesPageProjectProperties(pageProjectIdForParent(parent, options));
+  const projectId = pageProjectIdForParent(parent, options);
+  const projectProperties = notesPageProjectProperties(projectId);
   const loaded = await createNotesPage({
     id: pageId,
     title,
@@ -1092,7 +1107,7 @@ async function createPageWithParent(
     after_block_id: null,
     properties: projectProperties,
   });
-  openSelectedPage(loaded.page.id, defaultNotesPageOpenMode());
+  openSelectedPage(loaded.page.id, defaultNotesPageOpenMode(projectId));
   recordRecentPage(loaded.page.id);
   await reloadPages();
   upsertPageInActiveCollections(loaded.page);
@@ -1466,7 +1481,7 @@ async function archivePage(pageId: string): Promise<void> {
 async function unarchivePage(pageId: string): Promise<void> {
   const restoredPage = await archiveNotesPage(pageId, false);
   archivedPages = archivedPages.filter((page) => page.id !== pageId);
-  openSelectedPage(restoredPage.id, defaultNotesPageOpenMode());
+  openSelectedPage(restoredPage.id, defaultNotesPageOpenMode(notesPageProjectId(restoredPage)));
   await reloadPages();
   upsertPageInActiveCollections(restoredPage);
   await loadPageTree(restoredPage.id);
@@ -1482,7 +1497,7 @@ async function restorePage(pageId: string): Promise<void> {
   } else {
     trashedPages = trashedPages.filter((page) => page.id !== pageId);
   }
-  openSelectedPage(restoredPage.id, defaultNotesPageOpenMode());
+  openSelectedPage(restoredPage.id, defaultNotesPageOpenMode(notesPageProjectId(restoredPage)));
   await reloadPages();
   upsertPageInActiveCollections(restoredPage);
   await loadPageTree(restoredPage.id);
