@@ -25,6 +25,7 @@
   --border: rgba(0, 0, 20, 0.10);
   --input: rgba(0, 0, 20, 0.08);
   --ring: #8C8C98;
+  --selection-background: rgba(37, 99, 235, 0.28);
 
   /* Frame / contour (titlebar) */
   --sidebar: #DCDCE2;
@@ -91,6 +92,7 @@
   --border: rgba(255, 255, 255, 0.10);
   --input: rgba(255, 255, 255, 0.08);
   --ring: #606070;
+  --selection-background: rgba(96, 165, 250, 0.38);
 
   /* Frame / contour (titlebar) */
   --sidebar: #1E1E23;
@@ -215,6 +217,14 @@
   }
   body {
     @apply text-foreground;
+  }
+  ::selection {
+    color: inherit;
+    background-color: var(--selection-background);
+  }
+  ::-moz-selection {
+    color: inherit;
+    background-color: var(--selection-background);
   }
   html[data-theme-switching="true"],
   html[data-theme-switching="true"] *,
