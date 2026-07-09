@@ -157,6 +157,12 @@ import type {
 type NotesViewMode = "pages" | "archive" | "trash";
 interface NotesSelectPageOptions {
   openMode?: NotesPageOpenMode;
+  focusBlockId?: string | null;
+}
+
+interface NotesLoadPageTreeOptions {
+  focusOnLoad?: boolean;
+  focusBlockId?: string | null;
 }
 
 const BLOCK_SAVE_DEBOUNCE_MS = 350;
@@ -356,6 +362,18 @@ function setLoadedPageFromLoaded(loaded: NotesLoadedPage): void {
   childIdsByParentId = buildNotesChildIdsByParent(blocks);
 }
 
+function requestLoadedPageFocus(
+  loaded: NotesLoadedPage,
+  focusBlockId: string | null = null,
+): void {
+  requestBlockFocus(
+    planNotesPageLoadFocus(
+      loaded.blocks.results.map((block) => block.id),
+      focusBlockId,
+    ),
+  );
+}
+
 async function loadAllChildrenForVisibleTree(): Promise<void> {
   let queue = Object.values(blocksById).filter(
     (block) => block.has_children && block.type !== "child_page",
@@ -469,8 +487,11 @@ async function reloadPageTemplates(): Promise<void> {
   }
 }
 
-async function loadPageTree(pageId: string): Promise<void> {
+async function loadPageTree(pageId: string, options: NotesLoadPageTreeOptions = {}): Promise<void> {
   const loaded = await loadNotesPage(pageId);
+  if (options.focusOnLoad) {
+    requestLoadedPageFocus(loaded, options.focusBlockId ?? null);
+  }
   setLoadedPageFromLoaded(loaded);
   await loadAllChildrenForVisibleTree();
   await reloadPageBreadcrumb(pageId);
@@ -934,9 +955,8 @@ async function load(): Promise<void> {
     const nextSelected = restoredNotesPageSelection(selectedPageId, allPages);
     saveSelectedPageId(nextSelected);
     if (nextSelected) {
-      await loadPageTree(nextSelected);
+      await loadPageTree(nextSelected, { focusOnLoad: true });
       await undoController.hydrate(nextSelected);
-      requestPageLoadFocus();
     } else {
       loadedPage = null;
       pageBreadcrumbItems = [];
@@ -1018,10 +1038,12 @@ async function selectPage(
   loadError = null;
   try {
     await reloadPages();
-    await loadPageTree(pageId);
+    await loadPageTree(pageId, {
+      focusOnLoad: true,
+      focusBlockId: options.focusBlockId ?? null,
+    });
     recordRecentPage(pageId);
     await undoController.hydrate(pageId);
-    requestPageLoadFocus();
   } catch (error) {
     loadError = error instanceof Error ? error.message : String(error);
     throw error;
@@ -1721,7 +1743,7 @@ async function openNotesLink(target: NotesPageLinkTarget): Promise<boolean> {
   }
   if (!allPages.some((page) => page.id === target.pageId)) return false;
   if (loadedPage?.id !== target.pageId) {
-    await selectPage(target.pageId);
+    await selectPage(target.pageId, { focusBlockId: target.blockId ?? null });
   }
   if (!target.blockId) {
     requestPageLoadFocus();

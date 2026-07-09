@@ -286,6 +286,7 @@
   const canUseLinks = $derived(canUseMentions);
   const canUseInlineFormatting = $derived(canUseMentions);
   const editableRichText = $derived(blockEditableRichText(block));
+  const shouldShowPlaceholder = $derived(focusBlockId === block.id && text.length === 0);
   const currentTextAnnotationRange = $derived(
     blockTextAnnotationsForSelection(block, textSelection.start, textSelection.end),
   );
@@ -1128,6 +1129,7 @@
   tabindex="0"
   data-notes-block-id={block.id}
   data-placeholder={t("notes.blockPlaceholder")}
+  data-show-placeholder={shouldShowPlaceholder ? "true" : undefined}
   oninput={handleInput}
   onkeydown={handleKeydown}
   onbeforeinput={handleBeforeInput}
@@ -1210,7 +1212,8 @@
     caret-color: var(--foreground);
   }
 
-  .notes-rich-text-editor:empty:focus::before {
+  .notes-rich-text-editor:empty:focus::before,
+  .notes-rich-text-editor:empty[data-show-placeholder="true"]::before {
     content: attr(data-placeholder);
     color: var(--muted-foreground);
     pointer-events: none;
