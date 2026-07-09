@@ -26,6 +26,7 @@
   const selectedProject = $derived(projects.selectedProject);
   const selectedGroup = $derived(projects.selectedGroup);
   const selectedProjectId = $derived(selectedProject?.id ?? null);
+  const topBarSelectedPage = $derived(notes.pageOpenMode === "full" ? notes.loadedPage : null);
   const hasOpenPage = $derived(
     notes.viewMode === "pages"
       && notes.selectedPageId !== null
@@ -45,6 +46,8 @@
   const showPagePeek = $derived(
     hasOpenPage && notes.pageOpenMode !== "full" && !peekPromotesToFullPage,
   );
+  const showCenterPeek = $derived(showPagePeek && notes.pageOpenMode === "center");
+  const showSidePeek = $derived(showPagePeek && notes.pageOpenMode === "side");
 
   onMount(() => {
     async function openHashTarget(): Promise<void> {
@@ -138,7 +141,7 @@
     {selectedProject}
     {selectedGroup}
     {selectedProjectId}
-    selectedPage={notes.loadedPage}
+    selectedPage={topBarSelectedPage}
     {showInactiveProjects}
     onShowInactiveProjectsChange={(value) => {
       showInactiveProjects = value;
@@ -146,32 +149,51 @@
     onProjectSelected={handleProjectSelected}
     onShowHome={showProjectHome}
   />
-  <div class="notes-view-layout relative min-h-0 flex-1 overflow-hidden">
-    {#if notes.viewMode === "archive"}
-      <NotesArchiveView />
-    {:else if notes.viewMode === "trash"}
-      <NotesTrashView />
-    {:else if initialNotesLoadPending || (!notes.loaded && notes.loading)}
-      <div class="min-w-0 flex-1" aria-busy="true"></div>
-    {:else if showFullPageEditor}
-      <NotesEditor
-        projectId={selectedProjectId}
-        openMode="full"
-        onClose={closePagePeek}
-        onOpenModeChange={showSelectedPageAs}
-      />
-    {:else}
-      <NotesProjectHome projectId={selectedProjectId} />
+  <div class="notes-view-layout relative flex min-h-0 flex-1 overflow-hidden">
+    <div class={showSidePeek ? "min-w-0 basis-1/2 overflow-hidden" : "min-w-0 flex-1 overflow-hidden"}>
+      {#if notes.viewMode === "archive"}
+        <NotesArchiveView />
+      {:else if notes.viewMode === "trash"}
+        <NotesTrashView />
+      {:else if initialNotesLoadPending || (!notes.loaded && notes.loading)}
+        <div class="min-w-0 flex-1" aria-busy="true"></div>
+      {:else if showFullPageEditor}
+        <NotesEditor
+          projectId={selectedProjectId}
+          openMode="full"
+          onClose={closePagePeek}
+          onOpenModeChange={showSelectedPageAs}
+        />
+      {:else}
+        <NotesProjectHome projectId={selectedProjectId} />
+      {/if}
+    </div>
+
+    {#if showSidePeek}
+      <div
+        class="min-w-0 basis-1/2 overflow-hidden border-l border-border"
+        role="dialog"
+        aria-modal="false"
+        data-notes-page-peek
+      >
+        <NotesEditor
+          projectId={selectedProjectId}
+          openMode="side"
+          onClose={closePagePeek}
+          onOpenModeChange={showSelectedPageAs}
+        />
+      </div>
     {/if}
 
-    {#if showPagePeek && notes.pageOpenMode === "center"}
+    {#if showCenterPeek}
       <div
-        class="absolute inset-0 z-50 flex items-center justify-center bg-foreground/40 px-3 py-4 sm:px-6 sm:py-8"
+        class="absolute inset-0 z-50 flex items-center justify-center bg-black/40 px-3 py-4 sm:px-6 sm:py-8"
         role="presentation"
         onclick={handleCenterPeekBackdropClick}
       >
         <div
-          class="notes-center-peek-panel flex min-w-0 overflow-hidden rounded-lg border border-border bg-background shadow-2xl"
+          class="notes-center-peek-panel flex min-w-0 overflow-hidden rounded-lg border border-border"
+          style="background-color: var(--cal-bg);"
           role="dialog"
           aria-modal="true"
           data-notes-page-peek
@@ -183,20 +205,6 @@
             onOpenModeChange={showSelectedPageAs}
           />
         </div>
-      </div>
-    {:else if showPagePeek && notes.pageOpenMode === "side"}
-      <div
-        class="absolute inset-y-0 right-0 z-40 flex w-[min(46rem,calc(100vw-2rem))] min-w-0 overflow-hidden border-l border-border bg-background shadow-2xl"
-        role="dialog"
-        aria-modal="false"
-        data-notes-page-peek
-      >
-        <NotesEditor
-          projectId={selectedProjectId}
-          openMode="side"
-          onClose={closePagePeek}
-          onOpenModeChange={showSelectedPageAs}
-        />
       </div>
     {/if}
   </div>
@@ -210,5 +218,6 @@
   .notes-center-peek-panel {
     width: clamp(560px, calc(100vw - 214px), 960px);
     height: min(667px, calc(100dvh - 214px));
+    box-shadow: 0 24px 80px rgb(0 0 0 / 0.42);
   }
 </style>
