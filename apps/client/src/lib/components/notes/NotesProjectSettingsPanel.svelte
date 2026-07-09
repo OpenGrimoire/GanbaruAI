@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onDestroy } from "svelte";
+  import Archive from "@lucide/svelte/icons/archive";
+  import Trash2 from "@lucide/svelte/icons/trash-2";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import {
     isNotesPageOpenMode,
@@ -23,11 +25,15 @@
     popoverBoundaryElement,
     onRequestClose,
     onDirtyChange,
+    onOpenArchive,
+    onOpenTrash,
   }: {
     projectId: string;
     popoverBoundaryElement: HTMLElement | null;
     onRequestClose: () => void;
     onDirtyChange: (dirty: boolean) => void;
+    onOpenArchive: () => void;
+    onOpenTrash: () => void;
   } = $props();
 
   const projects = getProjects();
@@ -78,7 +84,7 @@
       viewportWidth: viewport.width,
       viewportHeight: viewport.height,
       preferredWidth: 430,
-      preferredHeight: 260,
+      preferredHeight: 340,
     });
     panelStyle = [
       `left: ${Math.round(geometry.left)}px`,
@@ -215,6 +221,30 @@
             {popoverBoundaryElement}
             class="w-44"
           />
+        </div>
+      </section>
+
+      <div class="h-px bg-border/70" aria-hidden="true"></div>
+
+      <section class="flex flex-col gap-2">
+        <ProjectSettingsSectionHeading label={t("notes.projectSettingsRestore")} />
+        <div class="flex flex-wrap justify-start gap-2 px-1 py-1">
+          <button
+            type="button"
+            class="flex h-7 items-center gap-1.5 rounded-md border border-border bg-card px-2.5 text-[0.8rem] font-medium text-foreground transition-colors hover:bg-accent dark:bg-transparent"
+            onclick={onOpenArchive}
+          >
+            <Archive size={13} strokeWidth={1.75} />
+            <span>{t("notes.projectSettingsArchivedNotes")}</span>
+          </button>
+          <button
+            type="button"
+            class="flex h-7 items-center gap-1.5 rounded-md border border-border bg-card px-2.5 text-[0.8rem] font-medium text-foreground transition-colors hover:bg-accent dark:bg-transparent"
+            onclick={onOpenTrash}
+          >
+            <Trash2 size={13} strokeWidth={1.75} />
+            <span>{t("notes.projectSettingsDeletedNotes")}</span>
+          </button>
         </div>
       </section>
     </ProjectSettingsPanelShell>

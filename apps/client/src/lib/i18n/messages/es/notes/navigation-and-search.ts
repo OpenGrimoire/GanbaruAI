@@ -15,6 +15,9 @@ export const navigationAndSearch = {
   projectSettingsTitle: "Ajustes de Notas del proyecto",
   projectSettingsUseGlobal: "Usar ajuste global",
   projectSettingsDefaultViewMode: "Modo de vista predeterminado",
+  projectSettingsRestore: "Restaurar",
+  projectSettingsArchivedNotes: "Notas archivadas",
+  projectSettingsDeletedNotes: "Notas eliminadas",
   projectSettingsSaveFailed: (message: string) =>
     `No se pudieron guardar los ajustes de Notas del proyecto: ${message}`,
   showProjectHome: "Mostrar notas del proyecto",

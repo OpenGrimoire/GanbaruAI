@@ -1,9 +1,7 @@
 <script lang="ts">
-  import Archive from "@lucide/svelte/icons/archive";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import Plus from "@lucide/svelte/icons/plus";
   import Settings2 from "@lucide/svelte/icons/settings-2";
-  import Trash2 from "@lucide/svelte/icons/trash-2";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { formatShortcut } from "$lib/keyboard-shortcuts";
   import { NOTES_PAGE_CHROME_EMOJI_SCALE } from "$lib/notes/page-icon";
@@ -399,28 +397,6 @@
   </div>
   <div class="flex-1"></div>
   <div class="flex shrink-0 items-center gap-1">
-    <button
-      type="button"
-      class={toolbarIconButtonClass(notes.viewMode === "archive")}
-      aria-label={t("notes.archive")}
-      title={t("notes.archive")}
-      onclick={() => {
-        void notes.openArchive();
-      }}
-    >
-      <Archive size={14} strokeWidth={1.75} />
-    </button>
-    <button
-      type="button"
-      class={toolbarIconButtonClass(notes.viewMode === "trash")}
-      aria-label={t("notes.trash")}
-      title={t("notes.trash")}
-      onclick={() => {
-        void notes.openTrash();
-      }}
-    >
-      <Trash2 size={14} strokeWidth={1.75} />
-    </button>
     {#if selectedProject}
       <button
         type="button"

@@ -30,6 +30,7 @@
   let projectSettingsOpen = $state(false);
   let projectSettingsDirty = $state(false);
   let projectSettingsDiscardConfirmOpen = $state(false);
+  let pendingProjectSettingsAction: (() => void) | null = null;
   const selectedProject = $derived(projects.selectedProject);
   const selectedGroup = $derived(projects.selectedGroup);
   const selectedProjectId = $derived(selectedProject?.id ?? null);
@@ -95,6 +96,7 @@
   }
 
   function handleProjectSelected(): void {
+    pendingProjectSettingsAction = null;
     projectSettingsOpen = false;
     projectSettingsDirty = false;
     projectSettingsDiscardConfirmOpen = false;
@@ -102,17 +104,50 @@
   }
 
   function closeProjectSettingsImmediately(): void {
+    pendingProjectSettingsAction = null;
     projectSettingsDiscardConfirmOpen = false;
     projectSettingsOpen = false;
     projectSettingsDirty = false;
   }
 
-  function requestProjectSettingsClose(): void {
+  function runAfterProjectSettingsClose(action: () => void): void {
     if (projectSettingsDirty) {
+      pendingProjectSettingsAction = action;
       projectSettingsDiscardConfirmOpen = true;
       return;
     }
-    closeProjectSettingsImmediately();
+    action();
+  }
+
+  function requestProjectSettingsClose(): void {
+    runAfterProjectSettingsClose(closeProjectSettingsImmediately);
+  }
+
+  function confirmDiscardProjectSettings(): void {
+    const action = pendingProjectSettingsAction;
+    pendingProjectSettingsAction = null;
+    projectSettingsDiscardConfirmOpen = false;
+    projectSettingsDirty = false;
+    action?.();
+  }
+
+  function cancelDiscardProjectSettings(): void {
+    pendingProjectSettingsAction = null;
+    projectSettingsDiscardConfirmOpen = false;
+  }
+
+  function openArchiveFromProjectSettings(): void {
+    runAfterProjectSettingsClose(() => {
+      closeProjectSettingsImmediately();
+      void notes.openArchive();
+    });
+  }
+
+  function openTrashFromProjectSettings(): void {
+    runAfterProjectSettingsClose(() => {
+      closeProjectSettingsImmediately();
+      void notes.openTrash();
+    });
   }
 
   function toggleProjectSettings(): void {
@@ -191,6 +226,8 @@
       onDirtyChange={(dirty) => {
         projectSettingsDirty = dirty;
       }}
+      onOpenArchive={openArchiveFromProjectSettings}
+      onOpenTrash={openTrashFromProjectSettings}
     />
   {/if}
   {#if projectSettingsDiscardConfirmOpen}
@@ -199,10 +236,8 @@
       message={t("calendar.view.changesLost")}
       confirmLabel={t("calendar.view.discard")}
       cancelLabel={t("common.cancelShortcut")}
-      onConfirm={closeProjectSettingsImmediately}
-      onCancel={() => {
-        projectSettingsDiscardConfirmOpen = false;
-      }}
+      onConfirm={confirmDiscardProjectSettings}
+      onCancel={cancelDiscardProjectSettings}
     />
   {/if}
   <div class="notes-view-layout relative flex min-h-0 flex-1 overflow-hidden">
