@@ -402,8 +402,8 @@
         type="button"
         data-notes-toolbar-trigger="settings"
         class={toolbarIconButtonClass(false, projectSettingsOpen)}
-        aria-label={t("notes.projectSettingsTitle")}
-        title={t("notes.projectSettingsTitle")}
+        aria-label={t("notes.projectSettingsTitle", selectedProject.name)}
+        title={t("notes.projectSettingsTitle", selectedProject.name)}
         aria-expanded={projectSettingsOpen}
         onclick={onToggleProjectSettings}
       >

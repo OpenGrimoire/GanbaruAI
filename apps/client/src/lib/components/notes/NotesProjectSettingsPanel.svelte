@@ -51,6 +51,9 @@
   let error = $state<string | null>(null);
 
   const selectedProject = $derived(projects.projectById(projectId));
+  const projectSettingsTitle = $derived(
+    selectedProject ? t("notes.projectSettingsTitle", selectedProject.name) : "",
+  );
   const draftReady = $derived(Boolean(selectedProject && draftProjectId === selectedProject.id));
   const persistedDefaultOpenMode = $derived<NotesProjectDefaultOpenMode>(
     selectedProject?.notesDefaultOpenMode ?? "default",
@@ -191,7 +194,7 @@
     style={panelStyle}
     role="dialog"
     tabindex="-1"
-    aria-label={t("notes.projectSettingsTitle")}
+    aria-label={projectSettingsTitle}
     data-app-shortcuts="ignore"
   >
     <ProjectSettingsPanelShell
@@ -200,7 +203,7 @@
       {dirty}
       {saving}
       {error}
-      title={t("notes.projectSettingsTitle")}
+      title={projectSettingsTitle}
       discardLabel={t("projects.settings.discard")}
       closeLabel={t("projects.settings.close")}
       saveLabel={t("projects.settings.save")}
