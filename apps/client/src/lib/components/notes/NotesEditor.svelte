@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, tick } from "svelte";
+  import { onDestroy, onMount, tick } from "svelte";
   import Archive from "@lucide/svelte/icons/archive";
   import Copy from "@lucide/svelte/icons/copy";
   import Download from "@lucide/svelte/icons/download";
@@ -19,6 +19,11 @@
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { notesBlockAnchorId } from "$lib/notes/block-link";
+  import {
+    formatNotesActivityDate,
+    formatNotesActivityTime,
+  } from "$lib/notes/page-activity";
+  import { notesLocalUserDisplayName } from "$lib/notes/local-user";
   import type { NotesPageOpenMode } from "$lib/notes/page-open-mode";
   import {
     notesCommentParentKey,
@@ -34,6 +39,7 @@
   } from "$lib/notes/project-membership";
   import { openNotesSuggestionCount } from "$lib/notes/suggestions";
   import { buildNotesTableOfContents } from "$lib/notes/table-of-contents";
+  import { getPreferences } from "$lib/stores/preferences.svelte";
   import type {
     NotesAgentBridgeExportRequest,
     NotesHtmlExportRequest,
@@ -74,6 +80,7 @@
   } = $props();
 
   const notes = getNotes();
+  const preferences = getPreferences();
   const localization = getLocalization();
   const { t } = localization;
 
@@ -83,12 +90,14 @@
   let coverMenuOpen = $state(false);
   let pageMenuOpen = $state(false);
   let moveMenuOpen = $state(false);
+  let activityPanelOpen = $state(false);
   let activePanel = $state<NotesEditorPanel | null>(null);
   let htmlExportOpen = $state(false);
   let agentBridgeExportOpen = $state(false);
   let pendingArchivePage = $state<NotesPage | null>(null);
   let pendingTrashPage = $state<NotesPage | null>(null);
   let blockScrollViewport: HTMLDivElement | null = $state(null);
+  let activityNowMs = $state(Date.now());
   let lastTitlePageId = "";
   let lastHandledTitleFocusRequestId = 0;
 
@@ -119,8 +128,29 @@
   );
   const tableOfContentsItems = $derived(buildNotesTableOfContents(notes.flatBlocks));
   const pageFavorited = $derived(page ? notes.favoritePageIds.includes(page.id) : false);
-  const editedDateLabel = $derived(
-    page ? new Date(page.last_edited_time).toLocaleString(localization.locale) : "",
+  const activityNow = $derived(new Date(activityNowMs));
+  const activityAuthorName = $derived(notesLocalUserDisplayName(preferences.profileDisplayName));
+  const activityTimeLabels = $derived({
+    justNow: t("notes.metadataJustNow"),
+    minutesAgo: (minutes: number) => t("notes.metadataMinutesAgo", minutes),
+    hoursAgo: (hours: number) => t("notes.metadataHoursAgo", hours),
+  });
+  const editedDateLabel = $derived(page
+    ? formatNotesActivityTime(page.last_edited_time, {
+        locale: localization.locale,
+        now: activityNow,
+        labels: activityTimeLabels,
+      })
+    : "");
+  const createdDateLabel = $derived(page
+    ? formatNotesActivityDate(page.created_time, localization.locale, activityNow)
+    : "");
+  const activityPanelId = $derived(page ? `notes-activity-panel-${page.id}` : undefined);
+  const editedMetadataLabel = $derived(t("notes.metadataEdited", editedDateLabel));
+  const activityEditedByLabel = $derived(t("notes.activityEditedBy", activityAuthorName));
+  const activityCreatedByLabel = $derived(t("notes.activityCreatedBy", activityAuthorName));
+  const activityPanelLabel = $derived(
+    page ? `${activityEditedByLabel}, ${editedDateLabel}` : t("notes.activity"),
   );
   const openCommentCount = $derived(openNotesCommentThreadCount(notes.commentThreads));
   const unreadCommentCount = $derived(unreadNotesCommentThreadCount(notes.commentThreads));
@@ -138,8 +168,17 @@
     activePanel = null;
     pageMenuOpen = false;
     moveMenuOpen = false;
+    activityPanelOpen = false;
     iconMenuAnchor = null;
     coverMenuOpen = false;
+  });
+
+  onMount(() => {
+    activityNowMs = Date.now();
+    const intervalId = window.setInterval(() => {
+      activityNowMs = Date.now();
+    }, 30_000);
+    return () => window.clearInterval(intervalId);
   });
 
   $effect(() => {
@@ -231,6 +270,22 @@
 
   function closeActionPanel(): void {
     activePanel = null;
+  }
+
+  function showActivityPanel(): void {
+    activityPanelOpen = true;
+  }
+
+  function hideActivityPanel(): void {
+    activityPanelOpen = false;
+  }
+
+  function handleActivityFocusOut(event: FocusEvent): void {
+    const currentTarget = event.currentTarget;
+    if (!(currentTarget instanceof HTMLElement)) return;
+    const nextTarget = event.relatedTarget;
+    if (nextTarget instanceof Node && currentTarget.contains(nextTarget)) return;
+    hideActivityPanel();
   }
 
   function toggleCoverMenu(): void {
@@ -424,8 +479,47 @@
           {/if}
         </div>
         <div class="min-w-0 flex-1"></div>
-        <div class="hidden shrink-0 truncate px-2 text-[0.8rem] text-muted-foreground min-[560px]:block">
-          {t("notes.metadataEdited", editedDateLabel)}
+        <div
+          class="relative hidden shrink-0 min-[560px]:block"
+          role="group"
+          aria-label={t("notes.activity")}
+          onmouseenter={showActivityPanel}
+          onmouseleave={hideActivityPanel}
+          onfocusin={showActivityPanel}
+          onfocusout={handleActivityFocusOut}
+        >
+          <button
+            type="button"
+            class="flex h-7 max-w-40 items-center rounded-md px-2 text-[0.8rem] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus:bg-accent focus:text-foreground"
+            aria-label={activityPanelLabel}
+            aria-expanded={activityPanelOpen}
+            aria-controls={activityPanelId}
+          >
+            <span class="truncate">{editedMetadataLabel}</span>
+          </button>
+          {#if activityPanelOpen}
+            <div
+              id={activityPanelId}
+              class="absolute right-0 top-9 z-50 w-80 overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-lg"
+              role="dialog"
+              aria-label={t("notes.activity")}
+              data-app-floating-surface
+            >
+              <div class="border-b border-border px-4 py-3 text-[0.8rem] font-medium text-muted-foreground">
+                {t("notes.activity")}
+              </div>
+              <div class="flex flex-col gap-3 px-4 py-3 text-[0.8rem]">
+                <div class="flex min-w-0 items-center justify-between gap-4">
+                  <span class="min-w-0 truncate text-foreground">{activityEditedByLabel}</span>
+                  <span class="shrink-0 text-muted-foreground">{editedDateLabel}</span>
+                </div>
+                <div class="flex min-w-0 items-center justify-between gap-4">
+                  <span class="min-w-0 truncate text-foreground">{activityCreatedByLabel}</span>
+                  <span class="shrink-0 text-muted-foreground">{createdDateLabel}</span>
+                </div>
+              </div>
+            </div>
+          {/if}
         </div>
         <button
           type="button"
