@@ -29,7 +29,7 @@
 <div
   bind:this={rootElement}
   use:portal
-  class="fixed z-100 min-h-0 overflow-y-auto rounded-xl border border-border bg-popover p-1.5 text-popover-foreground shadow-xl"
+  class="fixed z-100 min-h-0 overflow-y-auto rounded-xl border border-border p-1.5 shadow-xl"
   {style}
   role="dialog"
   data-app-floating-surface

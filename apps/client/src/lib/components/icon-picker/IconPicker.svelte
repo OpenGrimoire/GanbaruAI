@@ -68,7 +68,7 @@
   } from "$lib/projects/project-lucide-catalog.generated";
   import { getProjects } from "$lib/stores/projects.svelte";
   import { getTheme } from "$lib/stores/theme.svelte";
-  import { resolveAppTokens } from "$lib/stores/themes";
+  import { resolveCalendarTokens } from "$lib/stores/themes";
   import { cn } from "$lib/utils";
   import { portal } from "$lib/utils/portal";
   import {
@@ -121,8 +121,9 @@
   const uploadDraftPanelPreferredHeight = 276;
   const uploadWarningHeight = 72;
   const customPanelWidth = 330;
-  const iconColorChoicePanelWidth = 260;
-  const iconColorChoicePanelHeight = 144;
+  const iconColorChoicePanelColumns = 4;
+  const iconColorChoicePanelWidthRem = 8.25;
+  const iconColorChoicePanelHeightRem = 15.75;
   const iconCategoryMenuWidth = 240;
   const iconCategoryMenuMaxHeight = 280;
   const gridCellSize = 36;
@@ -243,23 +244,29 @@
     groupHeaderHeight: gridGroupHeaderHeight,
     groupGapHeight: gridGroupGapHeight,
   }));
+  const calendarTokens = $derived(resolveCalendarTokens(theme.current));
+  const pickerBg = $derived(calendarTokens["--cal-bg"]);
+  const pickerText = $derived(calendarTokens["--cal-time-label"]);
+  const pickerRing = $derived(calendarTokens["--cal-gridline"]);
+  const pickerSurfaceStyle = $derived(
+    `background-color: ${pickerBg}; color: ${pickerText}; --icon-picker-bg: ${pickerBg}; --icon-picker-text: ${pickerText}; --icon-picker-ring: ${pickerRing};`,
+  );
   const panelStyle = $derived.by(() => {
-    const baseStyle = `left: ${panelPlacement.left}px; top: ${panelPlacement.top}px; width: ${panelPlacement.width}px;`;
+    const baseStyle = `left: ${panelPlacement.left}px; top: ${panelPlacement.top}px; width: ${panelPlacement.width}px; ${pickerSurfaceStyle}`;
     if (activeTab === "upload") return `${baseStyle} max-height: ${panelPlacement.height}px;`;
     return `${baseStyle} height: ${panelPlacement.height}px;`;
   });
   const uploadBodyStyle = $derived(`max-height: ${Math.max(0, panelPlacement.height - 48)}px;`);
-  const appTokens = $derived(resolveAppTokens(theme.current));
   const colorSelectionBorder = $derived(
-    contrastRatio(appTokens["--popover"], "#000000") >= contrastRatio(appTokens["--popover"], "#ffffff")
+    contrastRatio(pickerBg, "#000000") >= contrastRatio(pickerBg, "#ffffff")
       ? "#000000"
       : "#ffffff",
   );
   const customPanelStyle = $derived(
-    `left: ${customPanelPlacement.left}px; top: ${customPanelPlacement.top}px; width: ${customPanelWidth}px; max-height: ${customPanelPlacement.maxHeight}px;`,
+    `left: ${customPanelPlacement.left}px; top: ${customPanelPlacement.top}px; width: ${customPanelWidth}px; max-height: ${customPanelPlacement.maxHeight}px; ${pickerSurfaceStyle}`,
   );
   const iconCategoryMenuStyle = $derived(
-    `left: ${iconCategoryMenuPlacement.left}px; top: ${iconCategoryMenuPlacement.top}px; width: ${iconCategoryMenuWidth}px; max-height: ${iconCategoryMenuPlacement.maxHeight}px;`,
+    `left: ${iconCategoryMenuPlacement.left}px; top: ${iconCategoryMenuPlacement.top}px; width: ${iconCategoryMenuWidth}px; max-height: ${iconCategoryMenuPlacement.maxHeight}px; ${pickerSurfaceStyle}`,
   );
 
   function tabLabel(tab: ProjectIconPickerTab): string {
@@ -280,12 +287,26 @@
     return `color: ${iconColorSwatch(color)};`;
   }
 
+  function rootRemPx(): number {
+    const fontSize = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
+    return Number.isFinite(fontSize) && fontSize > 0 ? fontSize : 16;
+  }
+
+  function iconColorChoicePanelSize(): { width: number; height: number } {
+    const rem = rootRemPx();
+    return {
+      width: iconColorChoicePanelWidthRem * rem,
+      height: iconColorChoicePanelHeightRem * rem,
+    };
+  }
+
   function lucideRecentPreviewValue(rawValue: string): string {
     return projectIconPickerLucideRecentPreviewValue({ rawValue, allowIconColors, iconColor });
   }
 
   function iconColorChoiceStyle(choice: IconColorChoice): string {
-    return `left: ${choice.placement.left}px; top: ${choice.placement.top}px; width: ${iconColorChoicePanelWidth}px;`;
+    const { width } = iconColorChoicePanelSize();
+    return `left: ${choice.placement.left}px; top: ${choice.placement.top}px; width: ${width}px; max-height: calc(100vh - 1rem); ${pickerSurfaceStyle}`;
   }
 
   function resetGridScroll(): void {
@@ -453,11 +474,12 @@
   }
 
   function placeIconColorChoice(anchor: HTMLElement): ProjectIconPickerPointPlacement {
+    const { width, height } = iconColorChoicePanelSize();
     return projectIconPickerPointPlacement({
       anchorRect: toPickerRect(anchor.getBoundingClientRect()),
       viewportRect: viewportBoundaryRect(),
-      panelWidth: iconColorChoicePanelWidth,
-      panelHeight: iconColorChoicePanelHeight,
+      panelWidth: width,
+      panelHeight: height,
     });
   }
 
@@ -914,7 +936,7 @@
   <div
     bind:this={panelElement}
     use:portal
-    class="fixed z-90 flex min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-xl"
+    class="fixed z-90 flex min-h-0 flex-col overflow-hidden rounded-xl border border-border shadow-xl"
     style={panelStyle}
     role="dialog"
     data-app-floating-surface
@@ -1046,6 +1068,7 @@
       iconNode={iconColorChoice.iconNode}
       {iconColorLabel}
       {iconColorStyle}
+      columns={iconColorChoicePanelColumns}
       onSelect={selectColorChoice}
     />
   {/if}

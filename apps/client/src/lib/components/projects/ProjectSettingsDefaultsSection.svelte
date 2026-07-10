@@ -470,7 +470,6 @@
       <ColorPicker
         color={projectColorDraft}
         {theme}
-        title={t("projects.settings.color")}
         ariaLabel={t("projects.settings.selectColor")}
         displayLabel
         class="w-44 max-[480px]:w-full"

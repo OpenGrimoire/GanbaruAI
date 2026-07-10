@@ -139,8 +139,8 @@
     </button>
     {#if skinTonePanelOpen}
       <div
-        class="absolute right-0 top-9 z-10 grid gap-1 rounded-lg border border-border bg-popover p-2 shadow-lg"
-        style="grid-template-columns: repeat(3, 2rem); width: 7rem;"
+        class="absolute right-0 top-9 z-10 grid gap-1 rounded-lg border border-border p-2 shadow-lg"
+        style="grid-template-columns: repeat(3, 2rem); width: 7rem; background-color: var(--icon-picker-bg); color: var(--icon-picker-text);"
       >
         {#each PROJECT_ICON_PICKER_SKIN_TONE_OPTIONS as tone}
           <button

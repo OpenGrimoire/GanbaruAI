@@ -663,7 +663,6 @@
                   <ColorPicker
                     color={entry.color ?? undefined}
                     theme={theme.current}
-                    title={t("settings.doomscrolling.limits.editor.sourceColor")}
                     ariaLabel={t("settings.doomscrolling.limits.editor.selectSourceColor")}
                     onselect={(color) => updateEntryColor(entry.id, color)}
                   />

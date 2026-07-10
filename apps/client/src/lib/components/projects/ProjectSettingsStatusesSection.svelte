@@ -125,7 +125,6 @@
         <ColorPicker
           color={statusColorDraftValue(status)}
           {theme}
-          title={t("projects.settings.statusColor")}
           ariaLabel={t("projects.settings.selectStatusColor", status.name)}
           class="h-7 w-7 justify-center self-center"
           buttonClass="size-6 rounded-md"
@@ -167,7 +166,6 @@
     <ColorPicker
       color={newStatusColor}
       {theme}
-      title={t("projects.settings.statusColor")}
       ariaLabel={t("projects.settings.selectNewStatusColor")}
       class="h-7 w-7 justify-center self-center"
       buttonClass="size-6 rounded-md"

@@ -21,7 +21,6 @@
     color,
     theme,
     onselect,
-    title,
     ariaLabel,
     displayLabel = false,
     class: className = "",
@@ -30,7 +29,6 @@
     color: EventColor | undefined;
     theme: Theme;
     onselect: (color: EventColor | undefined) => void;
-    title?: string;
     ariaLabel?: string;
     displayLabel?: boolean;
     class?: string;
@@ -46,7 +44,6 @@
   const selectedColor = $derived(color ?? FALLBACK_COLOR_INDEX);
   const colorEntry = $derived(getEventColor(color, theme));
   const buttonLabel = $derived(t("calendar.color.eventColorNumber", selectedColor + 1));
-  const buttonTitle = $derived(title ?? t("calendar.color.eventColor"));
   const calendarTokens = $derived(resolveCalendarTokens(theme));
   const pickerBg = $derived(calendarTokens["--cal-bg"]);
   const pickerText = $derived(calendarTokens["--cal-time-label"]);
@@ -225,8 +222,8 @@
       ? cn("flex h-7 w-full max-w-full items-center justify-between gap-2 rounded-md border border-border bg-card px-2.5 text-left text-[0.8rem] font-medium text-foreground transition-colors hover:bg-accent/60 dark:bg-transparent", buttonClass)
       : cn("size-4.5 shrink-0 rounded-sm", buttonClass)}
     style={displayLabel ? undefined : `background-color: ${colorEntry.bg};`}
-    title={buttonTitle}
-    data-app-tooltip-focus-disabled="true"
+    aria-label={ariaLabel ?? t("calendar.color.eventColor")}
+    data-app-tooltip-disabled="true"
   >
     {#if displayLabel}
       <span class="flex min-w-0 items-center gap-2">

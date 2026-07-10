@@ -122,7 +122,7 @@
           iconColorPanelOpen && "bg-accent text-foreground",
         )}
         aria-label={t("projects.iconPicker.iconColor")}
-        title={iconColorLabel(iconColor)}
+        data-app-tooltip-disabled="true"
         onclick={(event) => {
           event.stopPropagation();
           iconColorPanelOpen = !iconColorPanelOpen;
@@ -136,8 +136,8 @@
       </button>
       {#if iconColorPanelOpen}
         <div
-          class="absolute right-0 top-9 z-10 w-40 rounded-lg border border-border bg-popover px-2.5 py-2 shadow-lg"
-          style={`--project-icon-color-selection-border: ${colorSelectionBorder};`}
+          class="absolute right-0 top-9 z-10 w-40 rounded-lg border border-border px-2.5 py-2 shadow-lg"
+          style={`background-color: var(--icon-picker-bg); color: var(--icon-picker-text); --project-icon-color-selection-border: ${colorSelectionBorder};`}
         >
           <div class="grid justify-center gap-2" style="grid-template-columns: repeat(4, 1.375rem);">
             {#each EVENT_COLOR_OPTIONS as color}
@@ -149,7 +149,7 @@
                 )}
                 style={`background-color: ${iconColorSwatch(color)};`}
                 aria-label={iconColorLabel(color)}
-                title={iconColorLabel(color)}
+                data-app-tooltip-disabled="true"
                 onclick={(event) => {
                   event.stopPropagation();
                   onSelectIconColor(color);

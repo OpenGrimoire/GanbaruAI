@@ -113,7 +113,6 @@
         <ColorPicker
           color={priorityColorDraftValue(priority)}
           {theme}
-          title={t("projects.settings.priorityColor")}
           ariaLabel={t("projects.settings.selectPriorityColor", priority.name)}
           class="h-7 w-7 justify-center self-center"
           buttonClass="size-6 rounded-md"
@@ -147,7 +146,6 @@
       <ColorPicker
         color={newPriorityColor}
         {theme}
-        title={t("projects.settings.priorityColor")}
         ariaLabel={t("projects.settings.selectNewPriorityColor")}
         class="h-7 w-7 justify-center self-center"
         buttonClass="size-6 rounded-md"

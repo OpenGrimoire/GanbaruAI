@@ -38,7 +38,7 @@
 <section
   bind:this={rootElement}
   use:portal
-  class="fixed z-90 flex min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-popover p-4 text-popover-foreground shadow-xl"
+  class="fixed z-90 flex min-h-0 flex-col overflow-hidden rounded-xl border border-border p-4 shadow-xl"
   {style}
   data-app-floating-surface
   onpaste={onPaste}

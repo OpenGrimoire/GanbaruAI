@@ -108,7 +108,6 @@
         <ColorPicker
           color={tagColorDraftValue(tag)}
           {theme}
-          title={t("projects.settings.tagColor")}
           ariaLabel={t("projects.settings.selectTagColor", tag.name)}
           class="h-7 w-7 justify-center self-center"
           buttonClass="size-6 rounded-md"
@@ -141,7 +140,6 @@
       <ColorPicker
         color={newTagColor}
         {theme}
-        title={t("projects.settings.tagColor")}
         ariaLabel={t("projects.settings.selectNewTagColor")}
         class="h-7 w-7 justify-center self-center"
         buttonClass="size-6 rounded-md"
