@@ -829,7 +829,7 @@
 
       <div class="mx-auto flex w-full max-w-208 flex-col px-4 pb-12 pt-8 sm:px-8">
         <div class="notes-page-title-surface group/title min-w-0 pb-5">
-          <div class="-ml-1.5 mb-2 flex min-h-8 flex-wrap items-center gap-1.5 opacity-0 transition-opacity group-hover/title:opacity-100 group-focus-within/title:opacity-100">
+          <div class="notes-page-title-actions -ml-1.5 mb-2 flex min-h-8 flex-wrap items-center gap-1.5 opacity-0 transition-opacity group-hover/title:opacity-100 group-focus-within/title:opacity-100">
             <IconPicker
               value={notesPageIconPickerValue(page.icon)}
               ariaLabel={page.icon ? t("notes.changePageIcon") : t("notes.addPageIcon")}
@@ -842,6 +842,7 @@
                   class={`inline-flex max-w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-[0.8rem] text-muted-foreground hover:bg-accent hover:text-foreground ${open ? "bg-accent text-foreground" : ""}`}
                   type="button"
                   aria-label={page.icon ? t("notes.changePageIcon") : t("notes.addPageIcon")}
+                  data-notes-icon-picker-open={open ? "true" : undefined}
                   onclick={() => prepareIconPicker(toggle)}
                 >
                   <SmilePlus class="size-3.5" />
@@ -997,3 +998,9 @@
     {t("notes.emptyEditor")}
   </div>
 {/if}
+
+<style>
+  .notes-page-title-actions:has([data-notes-icon-picker-open="true"]) {
+    opacity: 1;
+  }
+</style>
