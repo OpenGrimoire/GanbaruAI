@@ -34,7 +34,10 @@ import {
   PROJECT_EMOJI_SKIN_TONE_BASES,
   type ProjectEmojiEntry,
 } from "./project-emoji-catalog";
-import type { ProjectLucideIconEntry } from "./project-lucide-catalog.generated";
+import {
+  PROJECT_LUCIDE_ICONS,
+  type ProjectLucideIconEntry,
+} from "./project-lucide-catalog.generated";
 import type { ProjectCustomEmoji } from "./types";
 
 const emojiEntries: readonly ProjectEmojiEntry[] = [
@@ -99,6 +102,11 @@ describe("project icon picker helpers", () => {
   it("filters Lucide icons by category and search terms", () => {
     expect(filterProjectLucideIcons(lucideEntries, "file", "all").map((entry) => entry.slug)).toEqual(["folder"]);
     expect(filterProjectLucideIcons(lucideEntries, "", "Travel").map((entry) => entry.slug)).toEqual(["rocket"]);
+  });
+
+  it("searches official English Lucide tags", () => {
+    expect(filterProjectLucideIcons(PROJECT_LUCIDE_ICONS, "strong", "all").map((entry) => entry.slug))
+      .toContain("biceps-flexed");
   });
 
   it("builds the visible emoji category tabs with the localized symbols label", () => {

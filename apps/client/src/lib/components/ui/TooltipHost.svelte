@@ -380,7 +380,7 @@
     document.addEventListener("focusout", handleFocusOut, true);
     document.addEventListener("pointerdown", handlePointerDown, true);
     window.addEventListener("resize", refreshPosition);
-    window.addEventListener("scroll", refreshPosition, true);
+    window.addEventListener("scroll", hideTooltip, true);
 
     return () => {
       clearShowTimer();
@@ -392,7 +392,7 @@
       document.removeEventListener("focusout", handleFocusOut, true);
       document.removeEventListener("pointerdown", handlePointerDown, true);
       window.removeEventListener("resize", refreshPosition);
-      window.removeEventListener("scroll", refreshPosition, true);
+      window.removeEventListener("scroll", hideTooltip, true);
     };
   });
 </script>

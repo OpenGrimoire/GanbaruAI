@@ -10,6 +10,7 @@
     "check": "svelte-check --tsconfig ./tsconfig.json && tsc -p tsconfig.node.json",
     "editor-check": "node scripts/check-tailwind-diagnostics.mjs",
     "generate:project-emojis": "node scripts/generate-project-emoji-catalog.mjs",
+    "generate:project-lucide-search-tags": "node scripts/generate-project-lucide-search-tags.mjs",
     "tauri": "node scripts/tauri-cli.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
