@@ -11,6 +11,7 @@ import type {
   NotesPageHistorySettings,
   NotesPageHistorySnapshot,
 } from "$lib/notes/types";
+import type { NotesHistoryRetentionDays } from "$lib/notes/history-retention";
 
 export interface NotesPageHistoryControllerContext {
   readSelectedPageId: () => string | null;
@@ -36,7 +37,7 @@ export interface NotesPageHistoryController {
   readonly actionError: string | null;
   resetPageState: () => void;
   loadSettings: () => Promise<void>;
-  updateRetention: (retentionDays: number | null) => Promise<void>;
+  updateRetention: (retentionDays: NotesHistoryRetentionDays) => Promise<void>;
   reloadSnapshots: (pageId?: string | null) => Promise<void>;
   loadVersion: (snapshotId: string) => Promise<void>;
   restoreVersion: (snapshotId: string) => Promise<void>;
@@ -100,7 +101,7 @@ export function createNotesPageHistoryController(
     }
   }
 
-  async function updateRetention(retentionDays: number | null): Promise<void> {
+  async function updateRetention(retentionDays: NotesHistoryRetentionDays): Promise<void> {
     const requestId = ++settingsRequestId;
     settingsLoading = true;
     settingsError = null;

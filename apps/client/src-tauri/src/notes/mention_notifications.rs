@@ -56,6 +56,7 @@ pub(in crate::notes) async fn mark_delivered(
              delivered_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
              last_edited_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
          WHERE status = 'pending'
+           AND suppressed_by_history_restore = 0
            AND id IN (",
     );
     let mut separated = query.separated(", ");
@@ -79,7 +80,8 @@ pub(in crate::notes) async fn refresh_all(pool: &SqlitePool) -> Result<i64, Stri
         .map_err(|e| format!("begin notes mention notification refresh: {e}"))?;
     let deleted = sqlx::query(
         "DELETE FROM notes_mention_notifications
-         WHERE status = 'pending'",
+         WHERE status = 'pending'
+           AND suppressed_by_history_restore = 0",
     )
     .execute(&mut *tx)
     .await
@@ -216,7 +218,8 @@ pub(in crate::notes) async fn clear_source_tx(
         "DELETE FROM notes_mention_notifications
          WHERE source_type = ?
            AND source_id = ?
-           AND status = 'pending'",
+           AND status = 'pending'
+           AND suppressed_by_history_restore = 0",
     )
     .bind(source_type)
     .bind(source_id)
@@ -301,6 +304,7 @@ async fn active_pending_notification_rows(
          FROM notes_mention_notifications AS notification
          JOIN notes_pages AS page ON page.id = notification.page_id
          WHERE notification.status = 'pending'
+           AND notification.suppressed_by_history_restore = 0
            AND page.in_trash = 0
            AND page.archived = 0
            AND (

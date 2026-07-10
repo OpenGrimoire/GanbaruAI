@@ -19,6 +19,10 @@ use std::collections::HashSet;
 const FINGERPRINT_KEY: &str = "source_fingerprint";
 const MAX_ALIAS_CHARS: usize = 200;
 
+pub(in crate::notes) fn normalized_page_alias(value: &str) -> Option<String> {
+    normalize_alias(value)
+}
+
 pub(in crate::notes) async fn list_page_aliases(
     pool: &SqlitePool,
     page_id: &str,

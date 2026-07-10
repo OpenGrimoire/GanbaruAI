@@ -55,6 +55,15 @@ pub(in crate::notes) async fn update_page_history_settings(
     .await
     .map_err(|e| format!("update notes page history settings: {e}"))?;
     cleanup_history_retention_tx(&mut tx).await?;
+    let inherited_project_ids: Vec<String> = sqlx::query_scalar(
+        "SELECT id FROM projects WHERE notes_history_retention_days IS NULL ORDER BY id",
+    )
+    .fetch_all(&mut *tx)
+    .await
+    .map_err(|e| format!("list projects using global Notes history retention: {e}"))?;
+    for project_id in inherited_project_ids {
+        super::project_history::prune_project_history_tx(&mut tx, &project_id).await?;
+    }
     tx.commit()
         .await
         .map_err(|e| format!("commit notes page history settings update: {e}"))?;
@@ -155,7 +164,20 @@ pub(in crate::notes) async fn record_page_snapshot_tx(
     let page_id = normalize_uuid(page_id, "page_id")?;
     let reason = normalize_reason(reason)?;
     ensure_settings_row_tx(tx).await?;
+    if !super::project_history::page_history_enabled_tx(tx, &page_id).await? {
+        return Ok(None);
+    }
     let page = load_page_row_tx(tx, &page_id).await?;
+    let force_checkpoint = matches!(
+        reason.as_str(),
+        "trash_page"
+            | "move_page"
+            | "restore"
+            | "archive_page"
+            | "apply_page_template"
+            | "copy_history_blocks"
+    );
+    super::project_history::mark_page_dirty_tx(tx, &page_id, &page.title, force_checkpoint).await?;
     let blocks = load_page_block_subtree_rows(tx, &page_id).await?;
     let blocks_payload = serialize_snapshot_blocks(&blocks)?;
     if latest_snapshot_matches(tx, &page, &blocks_payload).await? {
@@ -166,6 +188,8 @@ pub(in crate::notes) async fn record_page_snapshot_tx(
     }
     let local_user = local_user::current_local_user_tx(tx).await?;
     let snapshot_id = new_note_id(tx, &mut HashSet::new()).await?;
+    let block_bundle_hash =
+        super::project_history::store_page_history_blocks_tx(tx, &blocks_payload).await?;
     sqlx::query(
         "INSERT INTO notes_page_history_snapshots (
             id,
@@ -181,13 +205,14 @@ pub(in crate::notes) async fn record_page_snapshot_tx(
             in_trash,
             archived,
             blocks,
+            block_bundle_hash,
             block_count,
             reason,
             created_by,
             page_created_time,
             page_last_edited_time
          )
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&snapshot_id)
     .bind(&page.id)
@@ -201,7 +226,8 @@ pub(in crate::notes) async fn record_page_snapshot_tx(
     .bind(&page.cover)
     .bind(page.in_trash)
     .bind(page.archived)
-    .bind(&blocks_payload)
+    .bind("[]")
+    .bind(&block_bundle_hash)
     .bind(blocks.len() as i64)
     .bind(&reason)
     .bind(&local_user.id)
@@ -476,7 +502,7 @@ async fn load_snapshot_row(
     page_id: &str,
     snapshot_id: &str,
 ) -> Result<NotePageHistorySnapshotRow, String> {
-    sqlx::query_as::<_, NotePageHistorySnapshotRow>(
+    let mut row = sqlx::query_as::<_, NotePageHistorySnapshotRow>(
         "SELECT *
          FROM notes_page_history_snapshots
          WHERE id = ? AND page_id = ?",
@@ -486,7 +512,18 @@ async fn load_snapshot_row(
     .fetch_optional(pool)
     .await
     .map_err(|e| format!("load notes page history snapshot: {e}"))?
-    .ok_or_else(|| "notes page history snapshot not found".to_string())
+    .ok_or_else(|| "notes page history snapshot not found".to_string())?;
+    if let Some(hash) = row.block_bundle_hash.as_deref() {
+        let mut tx = pool
+            .begin()
+            .await
+            .map_err(|e| format!("begin Notes page history bundle load: {e}"))?;
+        row.blocks = super::project_history::load_page_history_blocks_tx(&mut tx, hash).await?;
+        tx.commit()
+            .await
+            .map_err(|e| format!("commit Notes page history bundle load: {e}"))?;
+    }
+    Ok(row)
 }
 
 async fn load_snapshot_row_tx(
@@ -494,7 +531,7 @@ async fn load_snapshot_row_tx(
     page_id: &str,
     snapshot_id: &str,
 ) -> Result<NotePageHistorySnapshotRow, String> {
-    sqlx::query_as::<_, NotePageHistorySnapshotRow>(
+    let mut row = sqlx::query_as::<_, NotePageHistorySnapshotRow>(
         "SELECT *
          FROM notes_page_history_snapshots
          WHERE id = ? AND page_id = ?",
@@ -504,7 +541,11 @@ async fn load_snapshot_row_tx(
     .fetch_optional(&mut **tx)
     .await
     .map_err(|e| format!("load notes page history snapshot: {e}"))?
-    .ok_or_else(|| "notes page history snapshot not found".to_string())
+    .ok_or_else(|| "notes page history snapshot not found".to_string())?;
+    if let Some(hash) = row.block_bundle_hash.as_deref() {
+        row.blocks = super::project_history::load_page_history_blocks_tx(tx, hash).await?;
+    }
+    Ok(row)
 }
 
 async fn load_page_row_tx(
@@ -620,6 +661,7 @@ async fn latest_snapshot_matches(
             i64,
             i64,
             String,
+            Option<String>,
         ),
     >(
         "SELECT parent_type,
@@ -632,7 +674,8 @@ async fn latest_snapshot_matches(
                 cover,
                 in_trash,
                 archived,
-                blocks
+                blocks,
+                block_bundle_hash
          FROM notes_page_history_snapshots
          WHERE page_id = ?
          ORDER BY created_time DESC, id DESC
@@ -655,6 +698,7 @@ async fn latest_snapshot_matches(
             in_trash,
             archived,
             blocks,
+            block_bundle_hash,
         )| {
             parent_type == page.parent_type
                 && parent_page_id == page.parent_page_id
@@ -666,7 +710,10 @@ async fn latest_snapshot_matches(
                 && cover == page.cover
                 && in_trash == page.in_trash
                 && archived == page.archived
-                && blocks == blocks_payload
+                && block_bundle_hash.as_deref().map_or_else(
+                    || blocks == blocks_payload,
+                    |hash| hash == super::project_history::page_history_blocks_hash(blocks_payload),
+                )
         },
     ))
 }
@@ -954,33 +1001,86 @@ async fn ensure_settings_row_tx(tx: &mut Transaction<'_, Sqlite>) -> Result<(), 
     Ok(())
 }
 
-async fn cleanup_history_retention_tx(tx: &mut Transaction<'_, Sqlite>) -> Result<(), String> {
+pub(in crate::notes) async fn cleanup_history_retention_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+) -> Result<(), String> {
     let retention_days: Option<i64> =
         sqlx::query_scalar("SELECT retention_days FROM notes_page_history_settings WHERE id = 1")
             .fetch_one(&mut **tx)
             .await
             .map_err(|e| format!("load notes page history retention: {e}"))?;
-    let Some(retention_days) = retention_days else {
-        return Ok(());
-    };
+    let retention_days = retention_days.unwrap_or(30);
     validate_retention_days(Some(retention_days))?;
-    let modifier = format!("-{retention_days} days");
     sqlx::query(
-        "DELETE FROM notes_page_history_snapshots
-         WHERE created_time < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?)",
+        "WITH RECURSIVE page_ancestors(snapshot_id, page_id, parent_page_id, properties) AS (
+             SELECT snapshot.id,
+                    page.id,
+                    COALESCE(
+                        page.parent_page_id,
+                        (SELECT block.page_id FROM notes_blocks AS block
+                         WHERE block.id = page.parent_block_id),
+                        (SELECT COALESCE(database.parent_page_id, database_block.page_id)
+                         FROM notes_data_sources AS data_source
+                         JOIN notes_databases AS database ON database.id = data_source.database_id
+                         LEFT JOIN notes_blocks AS database_block ON database_block.id = database.id
+                         WHERE data_source.id = page.parent_data_source_id)
+                    ),
+                    page.properties
+             FROM notes_page_history_snapshots AS snapshot
+             JOIN notes_pages AS page ON page.id = snapshot.page_id
+             UNION ALL
+             SELECT child.snapshot_id,
+                    parent.id,
+                    COALESCE(
+                        parent.parent_page_id,
+                        (SELECT block.page_id FROM notes_blocks AS block
+                         WHERE block.id = parent.parent_block_id),
+                        (SELECT COALESCE(database.parent_page_id, database_block.page_id)
+                         FROM notes_data_sources AS data_source
+                         JOIN notes_databases AS database ON database.id = data_source.database_id
+                         LEFT JOIN notes_blocks AS database_block ON database_block.id = database.id
+                         WHERE data_source.id = parent.parent_data_source_id)
+                    ),
+                    parent.properties
+             FROM page_ancestors AS child
+             JOIN notes_pages AS parent ON parent.id = child.parent_page_id
+         ),
+         snapshot_retention(snapshot_id, retention_days) AS (
+             SELECT snapshot.id,
+                    COALESCE(MAX(project.notes_history_retention_days), ?)
+             FROM notes_page_history_snapshots AS snapshot
+             LEFT JOIN page_ancestors AS ancestor ON ancestor.snapshot_id = snapshot.id
+             LEFT JOIN projects AS project
+               ON project.id = trim(json_extract(ancestor.properties, '$.__ganbaru_project_id'))
+             GROUP BY snapshot.id
+         )
+         DELETE FROM notes_page_history_snapshots
+         WHERE id IN (
+             SELECT snapshot.id
+             FROM notes_page_history_snapshots AS snapshot
+             JOIN snapshot_retention AS retention ON retention.snapshot_id = snapshot.id
+             WHERE retention.retention_days = 0
+                OR snapshot.created_time < strftime(
+                    '%Y-%m-%dT%H:%M:%fZ',
+                    'now',
+                    '-' || retention.retention_days || ' days'
+                )
+         )",
     )
-    .bind(modifier)
+    .bind(retention_days)
     .execute(&mut **tx)
     .await
     .map_err(|e| format!("prune notes page history: {e}"))?;
+    super::project_history::garbage_collect_history_storage_tx(tx).await?;
     Ok(())
 }
 
 fn validate_retention_days(retention_days: Option<i64>) -> Result<(), String> {
-    if let Some(days) = retention_days {
-        if !(1..=3650).contains(&days) {
-            return Err("retention_days must be between 1 and 3650 or null".to_string());
-        }
+    let Some(days) = retention_days else {
+        return Err("retention_days must be 0, 7, 30, 90, 180, or 365".to_string());
+    };
+    if ![0, 7, 30, 90, 180, 365].contains(&days) {
+        return Err("retention_days must be 0, 7, 30, 90, 180, or 365".to_string());
     }
     Ok(())
 }

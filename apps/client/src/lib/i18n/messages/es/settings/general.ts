@@ -52,12 +52,26 @@ export const general = {
     fullNameTooLong: (max: number) => `El nombre completo debe tener ${max} caracteres o menos.`,
     invalidName: "El nombre visible no puede contener caracteres de control.",
     invalidFullName: "El nombre completo no puede contener caracteres de control.",
-    syncFailed: "No se pudo actualizar el nombre de autor de Notas.",
+    syncFailed: "No se pudo actualizar el nombre del autor de las notas.",
   },
   notesGeneral: {
     heading: "General",
     defaultOpenMode: "Modo de apertura predeterminado",
     defaultOpenModeDescription: "Se usa al abrir una nota cuando no hay otra abierta",
+    historyRetention: "Retención predeterminada del historial",
+    historyRetentionDescription: "Cuánto tiempo se conservan las versiones restaurables de las notas",
+    historyRetentionOff: "Desactivado",
+    historyRetention7: "7 días",
+    historyRetention30: "30 días",
+    historyRetention90: "90 días",
+    historyRetention180: "180 días",
+    historyRetention365: "365 días",
+    historyRetention365Warning: "Puede usar más almacenamiento local",
+    historyRetentionPruneTitle: "¿Acortar el historial de versiones?",
+    historyRetentionPruneMessage: (versions: number, storage: string) =>
+      `Se eliminarán permanentemente ${versions} ${versions === 1 ? "versión" : "versiones"} que usan ${storage}. Los ajustes específicos de cada proyecto no cambiarán.`,
+    historyRetentionUpdateFailed: (message: string) =>
+      `No se pudo actualizar la retención del historial de versiones: ${message}`,
   },
   notesNotifications: {
     heading: "Notificaciones",
@@ -67,9 +81,9 @@ export const general = {
     reminders: "Menciones con recordatorio",
     remindersDescription: "Notifica cuando una mención de fecha tiene un recordatorio activo",
     userMentions: "Menciones de usuario",
-    userMentionsDescription: "Notifica cuando el texto de Notas menciona a un usuario local",
+    userMentionsDescription: "Notifica cuando el texto de las notas menciona a un usuario local",
     taskMentions: "Menciones de tareas",
-    taskMentionsDescription: "Notifica cuando el texto de Notas menciona una tarea de proyecto",
+    taskMentionsDescription: "Notifica cuando el texto de las notas menciona una tarea de proyecto",
     includeContent: "Mostrar texto de la nota en notificaciones",
     includeContentDescription:
       "Desactivado por privacidad. Al estar apagado, solo se muestra el nombre de la página",
@@ -87,7 +101,7 @@ export const general = {
       "Importa Markdown, HTML, bases de datos CSV y archivos locales desde una carpeta exportada de Notion",
     jsonGraphExportSummary: "Guarda una copia JSON de grafo y diagnóstico",
     jsonGraphExportDescription:
-      "Exporta tablas canónicas de Notas, índices opcionales, historial, plantillas y estado local como JSON",
+      "Exporta tablas canónicas de notas, índices opcionales, historial, plantillas y estado local como JSON",
   },
   calendars: {
     heading: "Calendarios",

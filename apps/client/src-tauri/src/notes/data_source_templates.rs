@@ -334,18 +334,32 @@ pub(in crate::notes) async fn delete_data_source_template(
 ) -> Result<String, String> {
     require_uuid(data_source_id, "data_source_id")?;
     let template_id = normalize_uuid(template_id, "template_id")?;
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|e| format!("begin notes data source template delete: {e}"))?;
+    crate::notes::project_history::mark_data_source_dirty_tx(
+        &mut tx,
+        data_source_id,
+        "Deleted database template",
+        true,
+    )
+    .await?;
     let result = sqlx::query(
         "DELETE FROM notes_data_source_templates
          WHERE id = ? AND data_source_id = ?",
     )
     .bind(&template_id)
     .bind(data_source_id.trim())
-    .execute(pool)
+    .execute(&mut *tx)
     .await
     .map_err(|e| format!("delete notes data source template: {e}"))?;
     if result.rows_affected() == 0 {
         return Err("notes data source template not found".to_string());
     }
+    tx.commit()
+        .await
+        .map_err(|e| format!("commit notes data source template delete: {e}"))?;
     Ok(template_id)
 }
 
@@ -818,6 +832,13 @@ async fn touch_data_source_tx(
     data_source_id: &str,
     database_id: &str,
 ) -> Result<(), String> {
+    crate::notes::project_history::mark_data_source_dirty_tx(
+        tx,
+        data_source_id,
+        "Database template",
+        false,
+    )
+    .await?;
     sqlx::query(
         "UPDATE notes_data_sources
          SET last_edited_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')

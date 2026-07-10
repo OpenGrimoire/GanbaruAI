@@ -164,6 +164,41 @@ pub(super) async fn export_graph(
     })
 }
 
+pub(super) async fn project_history_source_rows(
+    pool: &SqlitePool,
+) -> Result<BTreeMap<String, Vec<Value>>, String> {
+    let excluded = [
+        "notes_backlink_index",
+        "notes_backlink_index_state",
+        "notes_collaboration_operations",
+        "notes_data_source_relation_links",
+        "notes_data_source_rollup_cache",
+        "notes_link_facts",
+        "notes_link_facts_state",
+        "notes_local_users",
+        "notes_page_history_settings",
+        "notes_page_history_snapshots",
+        "notes_page_template_blocks",
+        "notes_page_templates",
+        "notes_search_index",
+        "notes_search_index_state",
+        "notes_undo_state",
+        "notes_unresolved_link_index",
+        "notes_unresolved_link_index_state",
+    ];
+    let mut rows_by_table = BTreeMap::new();
+    for table in discover_notes_tables(pool).await? {
+        if table.family == TableFamily::History
+            || table.family == TableFamily::Index
+            || excluded.contains(&table.name.as_str())
+        {
+            continue;
+        }
+        rows_by_table.insert(table.name.clone(), export_table_rows(pool, &table).await?);
+    }
+    Ok(rows_by_table)
+}
+
 pub(super) async fn pick_and_write_graph<R: Runtime>(
     app: &AppHandle<R>,
     pool: &SqlitePool,
@@ -255,6 +290,8 @@ async fn export_table_rows(pool: &SqlitePool, table: &ExportTable) -> Result<Vec
 
 fn should_skip_table(name: &str) -> bool {
     name.starts_with("notes_search_fts")
+        || name.starts_with("notes_history_")
+        || name.starts_with("notes_project_history_")
         || matches!(
             name,
             "notes_blocks_next" | "notes_pages_next" | "notes_page_history_snapshots_next"

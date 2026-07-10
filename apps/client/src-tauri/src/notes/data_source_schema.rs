@@ -151,6 +151,13 @@ pub(in crate::notes) async fn update_data_source_schema(
         .begin()
         .await
         .map_err(|e| format!("begin notes data source schema update: {e}"))?;
+    crate::notes::project_history::mark_data_source_dirty_tx(
+        &mut tx,
+        data_source_id,
+        "Database schema",
+        false,
+    )
+    .await?;
     let current = load_data_source_row_tx(&mut tx, data_source_id).await?;
     let current_properties = parse_json(&current.properties, "data source properties")?;
     ensure_title_property_preserved(&current_properties, &prepared.properties)?;

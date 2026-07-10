@@ -1,5 +1,9 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import {
+    flushDueNotesProjectHistory,
+    initializeNotesProjectHistory,
+  } from "$lib/api/notes-project-history";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { hasOnlyShortcutModifier } from "$lib/keyboard-shortcuts";
@@ -13,6 +17,7 @@
   import NotesEditor from "./NotesEditor.svelte";
   import NotesProjectHome from "./NotesProjectHome.svelte";
   import NotesProjectSettingsPanel from "./NotesProjectSettingsPanel.svelte";
+  import NotesProjectVersionHistoryModal from "./NotesProjectVersionHistoryModal.svelte";
   import NotesTrashView from "./NotesTrashView.svelte";
   import NotesWorkspaceHeader from "./NotesWorkspaceHeader.svelte";
 
@@ -30,6 +35,7 @@
   let projectSettingsOpen = $state(false);
   let projectSettingsDirty = $state(false);
   let projectSettingsDiscardConfirmOpen = $state(false);
+  let projectVersionHistoryOpen = $state(false);
   let pendingProjectSettingsAction: (() => void) | null = null;
   const selectedProject = $derived(projects.selectedProject);
   const selectedGroup = $derived(projects.selectedGroup);
@@ -78,15 +84,32 @@
     void projects.ensureLoaded().catch((error) => {
       console.error("load projects failed", error);
     });
+    void flushDueNotesProjectHistory().catch((error) => {
+      console.error("flush recovered notes project history failed", error);
+    });
     const onHashChange = () => {
       void openHashTarget().catch((error) => {
         console.error("open notes block link failed", error);
       });
     };
     window.addEventListener("hashchange", onHashChange);
+    const historyFlushTimer = window.setInterval(() => {
+      void flushDueNotesProjectHistory().catch((error) => {
+        console.error("flush notes project history failed", error);
+      });
+    }, 60_000);
     return () => {
       window.removeEventListener("hashchange", onHashChange);
+      window.clearInterval(historyFlushTimer);
     };
+  });
+
+  $effect(() => {
+    const projectId = selectedProjectId;
+    if (!projectId) return;
+    void initializeNotesProjectHistory(projectId).catch((error) => {
+      console.error("initialize notes project history failed", error);
+    });
   });
 
   function showProjectHome(): void {
@@ -100,6 +123,7 @@
     projectSettingsOpen = false;
     projectSettingsDirty = false;
     projectSettingsDiscardConfirmOpen = false;
+    projectVersionHistoryOpen = false;
     showProjectHome();
   }
 
@@ -147,6 +171,13 @@
     runAfterProjectSettingsClose(() => {
       closeProjectSettingsImmediately();
       void notes.openTrash();
+    });
+  }
+
+  function openVersionHistoryFromProjectSettings(): void {
+    runAfterProjectSettingsClose(() => {
+      closeProjectSettingsImmediately();
+      projectVersionHistoryOpen = true;
     });
   }
 
@@ -226,8 +257,22 @@
       onDirtyChange={(dirty) => {
         projectSettingsDirty = dirty;
       }}
+      onOpenVersionHistory={openVersionHistoryFromProjectSettings}
       onOpenArchive={openArchiveFromProjectSettings}
       onOpenTrash={openTrashFromProjectSettings}
+    />
+  {/if}
+  {#if projectVersionHistoryOpen && selectedProject}
+    <NotesProjectVersionHistoryModal
+      projectId={selectedProject.id}
+      onClose={() => {
+        projectVersionHistoryOpen = false;
+      }}
+      onRestored={() => {
+        void notes.load().catch((error) => {
+          console.error("reload notes after project history restore failed", error);
+        });
+      }}
     />
   {/if}
   {#if projectSettingsDiscardConfirmOpen}

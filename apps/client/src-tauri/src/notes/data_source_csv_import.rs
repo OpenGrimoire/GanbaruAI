@@ -253,6 +253,13 @@ async fn write_valid_rows_tx(
         imported_page_ids.push(page_id);
     }
     if !imported_page_ids.is_empty() {
+        crate::notes::project_history::mark_data_source_dirty_tx(
+            tx,
+            data_source_id,
+            "CSV import",
+            true,
+        )
+        .await?;
         assets::sync_data_source_property_asset_references_tx(
             tx,
             data_source_id,

@@ -52,6 +52,7 @@ pub struct ProjectRow {
     pub(in crate::projects) work_environment_id: Option<String>,
     pub(in crate::projects) blocker_ruleset_id: Option<String>,
     pub(in crate::projects) notes_default_open_mode: Option<String>,
+    pub(in crate::projects) notes_history_retention_days: Option<i64>,
     pub(in crate::projects) created_at: String,
     pub(in crate::projects) updated_at: String,
 }
@@ -80,6 +81,7 @@ impl_sqlite_from_row!(ProjectRow {
     work_environment_id,
     blocker_ruleset_id,
     notes_default_open_mode,
+    notes_history_retention_days,
     created_at,
     updated_at,
 });

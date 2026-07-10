@@ -3,13 +3,22 @@
   import CloudDownload from "@lucide/svelte/icons/cloud-download";
   import DatabaseBackup from "@lucide/svelte/icons/database-backup";
   import FileText from "@lucide/svelte/icons/file-text";
+  import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
   import Upload from "@lucide/svelte/icons/upload";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { getNotesHistoryRetentionImpact } from "$lib/api/notes-project-history";
+  import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
+  import {
+    DEFAULT_NOTES_HISTORY_RETENTION_DAYS,
+    isNotesHistoryRetentionDays,
+    type NotesHistoryRetentionDays,
+  } from "$lib/notes/history-retention";
   import {
     DEFAULT_NOTES_PAGE_OPEN_MODE,
     isNotesPageOpenMode,
   } from "$lib/notes/page-open-mode";
   import { getPreferences } from "$lib/stores/preferences.svelte";
+  import { getNotes } from "$lib/stores/notes.svelte";
   import CustomSelect from "./CustomSelect.svelte";
   import ToggleSetting from "./ToggleSetting.svelte";
   import type { NotesTransferOperation } from "./types";
@@ -21,11 +30,28 @@
   } = $props();
 
   const preferences = getPreferences();
-  const { t } = getLocalization();
+  const notes = getNotes();
+  const localization = getLocalization();
+  const { t } = localization;
+  let pendingRetention = $state<NotesHistoryRetentionDays | null>(null);
+  let pendingVersionCount = $state(0);
+  let pendingStoredBytes = $state(0);
+  let retentionError = $state<string | null>(null);
+  const historyRetention = $derived(
+    notes.pageHistorySettings?.retention_days ?? DEFAULT_NOTES_HISTORY_RETENTION_DAYS,
+  );
   const notesDefaultOpenModeOptions = $derived([
     { value: "center", label: t("notes.centerPeek") },
     { value: "side", label: t("notes.sidePeek") },
     { value: "full", label: t("notes.fullPage") },
+  ]);
+  const historyRetentionOptions = $derived([
+    { value: "0", label: t("settings.notesGeneral.historyRetentionOff") },
+    { value: "7", label: t("settings.notesGeneral.historyRetention7") },
+    { value: "30", label: t("settings.notesGeneral.historyRetention30") },
+    { value: "90", label: t("settings.notesGeneral.historyRetention90") },
+    { value: "180", label: t("settings.notesGeneral.historyRetention180") },
+    { value: "365", label: t("settings.notesGeneral.historyRetention365") },
   ]);
 
   interface TransferAction {
@@ -73,6 +99,59 @@
   function handleDefaultOpenModeChange(value: string): void {
     if (isNotesPageOpenMode(value)) preferences.setNotesDefaultOpenMode(value);
   }
+
+  function formatStoredBytes(value: number): string {
+    if (value < 1024) return `${value} B`;
+    const units = ["KB", "MB", "GB", "TB"];
+    let size = value / 1024;
+    let unitIndex = 0;
+    while (size >= 1024 && unitIndex < units.length - 1) {
+      size /= 1024;
+      unitIndex += 1;
+    }
+    return `${new Intl.NumberFormat(localization.locale, { maximumFractionDigits: 1 }).format(size)} ${units[unitIndex]}`;
+  }
+
+  async function applyHistoryRetention(value: NotesHistoryRetentionDays): Promise<void> {
+    retentionError = null;
+    await notes.updatePageHistoryRetention(value);
+    if (notes.pageHistorySettingsError) {
+      retentionError = t(
+        "settings.notesGeneral.historyRetentionUpdateFailed",
+        notes.pageHistorySettingsError,
+      );
+    }
+  }
+
+  async function selectHistoryRetention(value: string): Promise<void> {
+    const parsed = Number.parseInt(value, 10);
+    if (!isNotesHistoryRetentionDays(parsed)) return;
+    const current = notes.pageHistorySettings?.retention_days
+      ?? DEFAULT_NOTES_HISTORY_RETENTION_DAYS;
+    if (parsed >= current) {
+      await applyHistoryRetention(parsed);
+      return;
+    }
+    retentionError = null;
+    try {
+      const impact = await getNotesHistoryRetentionImpact(parsed);
+      if (impact.versionCount === 0) {
+        await applyHistoryRetention(parsed);
+        return;
+      }
+      pendingRetention = parsed;
+      pendingVersionCount = impact.versionCount;
+      pendingStoredBytes = impact.storedBytes;
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      retentionError = t("settings.notesGeneral.historyRetentionUpdateFailed", message);
+    }
+  }
+
+  $effect(() => {
+    if (notes.pageHistorySettings || notes.pageHistorySettingsLoading) return;
+    void notes.loadPageHistorySettings();
+  });
 </script>
 
 <div class="flex flex-col gap-6">
@@ -89,6 +168,24 @@
         canReset={preferences.notesDefaultOpenMode !== DEFAULT_NOTES_PAGE_OPEN_MODE}
         onReset={() => preferences.resetNotesDefaultOpenMode()}
       />
+      <CustomSelect
+        label={t("settings.notesGeneral.historyRetention")}
+        description={t("settings.notesGeneral.historyRetentionDescription")}
+        value={String(historyRetention)}
+        options={historyRetentionOptions}
+        onChange={(value) => { void selectHistoryRetention(value); }}
+        canReset={historyRetention !== DEFAULT_NOTES_HISTORY_RETENTION_DAYS}
+        onReset={() => { void selectHistoryRetention(String(DEFAULT_NOTES_HISTORY_RETENTION_DAYS)); }}
+      />
+      {#if historyRetention === 365}
+        <div class="flex items-center gap-1.5 px-1 text-[0.733333rem] text-warning">
+          <TriangleAlert class="size-3.5 shrink-0" />
+          <span>{t("settings.notesGeneral.historyRetention365Warning")}</span>
+        </div>
+      {/if}
+      {#if retentionError}
+        <div class="px-1 text-[0.8rem] text-destructive">{retentionError}</div>
+      {/if}
     </div>
   </section>
 
@@ -191,3 +288,24 @@
     </div>
   </section>
 </div>
+
+{#if pendingRetention !== null}
+  <ConfirmDialog
+    title={t("settings.notesGeneral.historyRetentionPruneTitle")}
+    message={t(
+      "settings.notesGeneral.historyRetentionPruneMessage",
+      pendingVersionCount,
+      formatStoredBytes(pendingStoredBytes),
+    )}
+    confirmLabel={t("projects.settings.save")}
+    cancelLabel={t("common.cancel")}
+    onConfirm={() => {
+      const value = pendingRetention;
+      pendingRetention = null;
+      if (value !== null) void applyHistoryRetention(value);
+    }}
+    onCancel={() => {
+      pendingRetention = null;
+    }}
+  />
+{/if}

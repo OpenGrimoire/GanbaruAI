@@ -58,14 +58,14 @@
   import NotesHtmlExportDialog from "./NotesHtmlExportDialog.svelte";
   import NotesPageCover from "./NotesPageCover.svelte";
   import NotesPageCoverMenu from "./NotesPageCoverMenu.svelte";
-  import NotesPageHistory from "./NotesPageHistory.svelte";
+  import NotesPageVersionHistoryModal from "./NotesPageVersionHistoryModal.svelte";
   import NotesPageIcon from "./NotesPageIcon.svelte";
   import NotesPageIconMenu from "./NotesPageIconMenu.svelte";
   import NotesPeekModeIcon from "./NotesPeekModeIcon.svelte";
   import NotesPageLinks from "./NotesPageLinks.svelte";
   import NotesSuggestions from "./NotesSuggestions.svelte";
 
-  type NotesEditorPanel = "links" | "comments" | "suggestions" | "history";
+  type NotesEditorPanel = "links" | "comments" | "suggestions";
 
   let {
     projectId = null,
@@ -94,6 +94,7 @@
   let activePanel = $state<NotesEditorPanel | null>(null);
   let htmlExportOpen = $state(false);
   let agentBridgeExportOpen = $state(false);
+  let pageHistoryModalOpen = $state(false);
   let pendingArchivePage = $state<NotesPage | null>(null);
   let pendingTrashPage = $state<NotesPage | null>(null);
   let blockScrollViewport: HTMLDivElement | null = $state(null);
@@ -172,6 +173,7 @@
     activityPanelOpen = false;
     iconMenuAnchor = null;
     coverMenuOpen = false;
+    pageHistoryModalOpen = false;
   });
 
   onMount(() => {
@@ -255,14 +257,13 @@
     activePanel = activePanel === panel ? null : panel;
     pageMenuOpen = false;
     moveMenuOpen = false;
-    if (activePanel === "history") void notes.reloadPageHistory();
   }
 
-  function openPanelFromMenu(panel: NotesEditorPanel): void {
-    activePanel = panel;
+  function openPageHistory(): void {
+    pageHistoryModalOpen = true;
+    activePanel = null;
     pageMenuOpen = false;
     moveMenuOpen = false;
-    if (panel === "history") void notes.reloadPageHistory();
   }
 
   function closePageMenu(): void {
@@ -674,7 +675,7 @@
                 <GitBranch class="size-4" />
                 <span>{t("notes.agentBridgeExportOpen")}</span>
               </button>
-              <button class={menuItemClass()} type="button" role="menuitem" onclick={() => openPanelFromMenu("history")}>
+              <button class={menuItemClass()} type="button" role="menuitem" onclick={openPageHistory}>
                 <History class="size-4" />
                 <span>{t("notes.pageHistory")}</span>
               </button>
@@ -706,8 +707,6 @@
             <NotesComments embedded />
           {:else if activePanel === "suggestions"}
             <NotesSuggestions embedded />
-          {:else if activePanel === "history"}
-            <NotesPageHistory embedded />
           {/if}
         </div>
       {/if}
@@ -853,6 +852,15 @@
       onExport={exportAgentBridge}
       onCancel={() => {
         agentBridgeExportOpen = false;
+      }}
+    />
+  {/if}
+
+  {#if pageHistoryModalOpen}
+    <NotesPageVersionHistoryModal
+      pageId={page.id}
+      onClose={() => {
+        pageHistoryModalOpen = false;
       }}
     />
   {/if}

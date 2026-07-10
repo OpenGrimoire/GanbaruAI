@@ -16,8 +16,42 @@ export const navigationAndSearch = {
   projectSettingsUseGlobal: "Usar ajuste global",
   projectSettingsDefaultViewMode: "Modo de vista predeterminado",
   projectSettingsRestore: "Restaurar",
+  projectSettingsHistoryRetention: "Retención del historial de versiones",
+  projectSettingsHistoryOff: "Desactivado",
+  projectSettingsHistory7: "7 días",
+  projectSettingsHistory30: "30 días",
+  projectSettingsHistory90: "90 días",
+  projectSettingsHistory180: "180 días",
+  projectSettingsHistory365: "365 días",
+  projectSettingsVersionHistory: "Historial de versiones",
   projectSettingsArchivedNotes: "Notas archivadas",
   projectSettingsDeletedNotes: "Notas eliminadas",
+  projectSettingsPruneTitle: "¿Acortar el historial de versiones?",
+  projectSettingsPruneMessage: (versions: number, storage: string) =>
+    `Se eliminarán permanentemente ${versions} ${versions === 1 ? "versión" : "versiones"} que usan ${storage} en este proyecto.`,
+  projectHistoryTitle: "Historial de versiones",
+  projectHistoryClose: "Cerrar historial de versiones",
+  projectHistoryEmpty: "Aún no se han guardado versiones del proyecto.",
+  projectHistoryLoadFailed: (message: string) =>
+    `No se pudo cargar el historial de versiones: ${message}`,
+  projectHistoryLoadMore: "Cargar versiones anteriores",
+  projectHistoryRestore: "Restaurar",
+  projectHistoryRestoring: "Restaurando",
+  projectHistoryBack: "Volver a versiones",
+  projectHistoryBackHome: "Volver a notas del proyecto",
+  projectHistoryDatabaseCount: (count: number) =>
+    `${count} ${count === 1 ? "base de datos" : "bases de datos"}`,
+  projectHistoryEmptyPage: "Esta nota no tenía bloques de texto.",
+  projectHistoryRestoreTitle: "¿Restaurar esta versión del proyecto?",
+  projectHistoryRestoreMessage: (
+    removed: number,
+    recreated: number,
+    changed: number,
+    copied: number,
+  ) =>
+    `Se eliminarán ${removed} notas, se recrearán ${recreated} y se cambiarán ${changed}. ${copied} notas que ahora pertenecen a otros proyectos se restaurarán como copias con IDs nuevos. Primero se creará una versión de seguridad completa del proyecto actual.`,
+  projectHistoryRestoreFailed: (message: string) =>
+    `No se pudo restaurar esta versión: ${message}`,
   projectSettingsSaveFailed: (message: string) =>
     `No se pudieron guardar los ajustes de notas del proyecto: ${message}`,
   showProjectHome: "Mostrar notas del proyecto",

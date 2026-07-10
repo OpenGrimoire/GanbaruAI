@@ -2949,15 +2949,16 @@ export function parseNotesPageHistorySettings(value: unknown): NotesPageHistoryS
   if (record.object !== "page_history_settings") {
     throw new Error("page history settings.object must be page_history_settings");
   }
-  const retentionDays = record.retention_days === null
-    ? null
-    : readInteger(record.retention_days, "page history settings.retention_days");
-  if (retentionDays !== null && (retentionDays < 1 || retentionDays > 3650)) {
-    throw new Error("page history settings.retention_days must be between 1 and 3650");
+  const retentionDays = readInteger(
+    record.retention_days,
+    "page history settings.retention_days",
+  );
+  if (![0, 7, 30, 90, 180, 365].includes(retentionDays)) {
+    throw new Error("page history settings.retention_days is unsupported");
   }
   return {
     object: "page_history_settings",
-    retention_days: retentionDays,
+    retention_days: retentionDays as 0 | 7 | 30 | 90 | 180 | 365,
     updated_at: readString(record.updated_at, "page history settings.updated_at"),
   };
 }

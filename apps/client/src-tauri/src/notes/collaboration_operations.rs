@@ -29,6 +29,13 @@ pub(in crate::notes) async fn record_tx(
     if operation.base_version < 0 || operation.entity_version <= operation.base_version {
         return Err("notes collaboration operation version is invalid".to_string());
     }
+    super::project_history::mark_page_dirty_tx(
+        tx,
+        operation.page_id,
+        operation.operation_type,
+        false,
+    )
+    .await?;
     let operation_id = new_operation_id_tx(tx).await?;
     sqlx::query(
         "INSERT INTO notes_collaboration_operations (

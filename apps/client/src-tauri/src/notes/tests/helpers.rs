@@ -27,8 +27,8 @@ pub(super) use super::super::{
     data_source_list, data_source_rows, data_source_schema, data_source_table,
     data_source_templates, data_source_timeline, databases, history, html_export, html_import,
     json_graph_export, link_facts, links, local_user, markdown_export, markdown_import,
-    mention_notifications, notion_export_import, reads, search, suggestions, templates, undo_state,
-    validation, writes,
+    mention_notifications, notion_export_import, project_history, reads, search, suggestions,
+    templates, undo_state, validation, writes,
 };
 pub(super) use crate::db::run_migrations;
 pub(super) use serde_json::json;

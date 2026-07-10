@@ -159,6 +159,13 @@ async fn touch_data_source_tx(
     data_source_id: &str,
     database_id: &str,
 ) -> Result<(), String> {
+    crate::notes::project_history::mark_data_source_dirty_tx(
+        tx,
+        data_source_id,
+        "Database row",
+        false,
+    )
+    .await?;
     sqlx::query(
         "UPDATE notes_data_sources
          SET last_edited_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')

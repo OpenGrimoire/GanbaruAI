@@ -49,12 +49,26 @@ export const general = {
     fullNameTooLong: (max: number) => `Full name must be ${max} characters or fewer.`,
     invalidName: "Display name cannot contain control characters.",
     invalidFullName: "Full name cannot contain control characters.",
-    syncFailed: "Could not update Notes author name.",
+    syncFailed: "Could not update the notes author name.",
   },
   notesGeneral: {
     heading: "General",
     defaultOpenMode: "Default open mode",
     defaultOpenModeDescription: "Used when opening a note while none is open",
+    historyRetention: "Default history retention",
+    historyRetentionDescription: "How long restorable note versions are kept",
+    historyRetentionOff: "Off",
+    historyRetention7: "7 days",
+    historyRetention30: "30 days",
+    historyRetention90: "90 days",
+    historyRetention180: "180 days",
+    historyRetention365: "365 days",
+    historyRetention365Warning: "May use more local storage",
+    historyRetentionPruneTitle: "Shorten version history?",
+    historyRetentionPruneMessage: (versions: number, storage: string) =>
+      `${versions} ${versions === 1 ? "version" : "versions"} using ${storage} will be permanently removed. Project-specific retention settings are not affected.`,
+    historyRetentionUpdateFailed: (message: string) =>
+      `Could not update version history retention: ${message}`,
   },
   notesNotifications: {
     heading: "Notifications",
@@ -64,9 +78,9 @@ export const general = {
     reminders: "Reminder mentions",
     remindersDescription: "Notify when a date mention has a reminder enabled",
     userMentions: "User mentions",
-    userMentionsDescription: "Notify when Notes rich text mentions a local user",
+    userMentionsDescription: "Notify when rich text in notes mentions a local user",
     taskMentions: "Task mentions",
-    taskMentionsDescription: "Notify when Notes rich text mentions a project task",
+    taskMentionsDescription: "Notify when rich text in notes mentions a project task",
     includeContent: "Show note text in notifications",
     includeContentDescription:
       "Off by default for privacy. When off, notifications only show the page name",
@@ -84,7 +98,7 @@ export const general = {
       "Import Markdown, HTML, CSV databases, and local asset files from a Notion export folder",
     jsonGraphExportSummary: "Save a JSON graph backup and diagnostics file",
     jsonGraphExportDescription:
-      "Export canonical Notes tables, optional indexes, history, templates, and local state as JSON",
+      "Export canonical note tables, optional indexes, history, templates, and local state as JSON",
   },
   calendars: {
     heading: "Calendars",

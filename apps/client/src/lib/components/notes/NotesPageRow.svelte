@@ -44,6 +44,8 @@
     onBlockDragOver,
     onBlockDragLeave,
     onBlockDrop,
+    readOnly = false,
+    displayTitle,
   }: {
     page: NotesPage;
     depth: number;
@@ -66,6 +68,8 @@
     onBlockDragOver?: (pageId: string, event: DragEvent) => void;
     onBlockDragLeave?: (pageId: string, event: DragEvent) => void;
     onBlockDrop?: (pageId: string, event: DragEvent) => void;
+    readOnly?: boolean;
+    displayTitle?: string;
   } = $props();
 
   const { t } = getLocalization();
@@ -74,7 +78,11 @@
   let moveMenuOpen = $state(false);
   let titleDraft = $state("");
   let renameInput = $state<HTMLInputElement | null>(null);
-  const title = $derived(notesPageTitle(page, t("notes.untitled")));
+  const title = $derived(
+    displayTitle === undefined
+      ? notesPageTitle(page, t("notes.untitled"))
+      : displayTitle.trim() || t("notes.untitled"),
+  );
   const editableTitle = $derived(notesPageTitle(page, ""));
 
   $effect(() => {
@@ -156,7 +164,7 @@
     />
   {:else}
     <div
-      class={`notes-page-row-content flex min-w-0 items-center rounded-md pr-6 ${
+      class={`notes-page-row-content flex min-w-0 items-center rounded-md ${readOnly ? "pr-1" : "pr-6"} ${
         selected ? "bg-accent text-accent-foreground" : "text-foreground hover:bg-accent/70"
       }`}
     >
@@ -203,29 +211,31 @@
           <Star class="size-3.5 shrink-0 fill-current text-primary" aria-hidden="true" />
         {/if}
       </button>
-      <button
-        class="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground opacity-100 hover:bg-background/80 hover:text-foreground"
-        type="button"
-        aria-label={t("notes.newSubpage")}
-        data-app-tooltip={t("notes.newSubpage")}
-        onclick={(event) => {
-          event.stopPropagation();
-          onCreateChild();
-        }}
-      >
-        <Plus class="size-3.5" />
-      </button>
-      <button
-        class="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground opacity-100 hover:bg-background/80 hover:text-foreground"
-        type="button"
-        aria-label={t("notes.pageActions")}
-        onclick={(event) => {
-          event.stopPropagation();
-          menuOpen = !menuOpen;
-        }}
-      >
-        <MoreHorizontal class="size-4" />
-      </button>
+      {#if !readOnly}
+        <button
+          class="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground opacity-100 hover:bg-background/80 hover:text-foreground"
+          type="button"
+          aria-label={t("notes.newSubpage")}
+          data-app-tooltip={t("notes.newSubpage")}
+          onclick={(event) => {
+            event.stopPropagation();
+            onCreateChild();
+          }}
+        >
+          <Plus class="size-3.5" />
+        </button>
+        <button
+          class="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground opacity-100 hover:bg-background/80 hover:text-foreground"
+          type="button"
+          aria-label={t("notes.pageActions")}
+          onclick={(event) => {
+            event.stopPropagation();
+            menuOpen = !menuOpen;
+          }}
+        >
+          <MoreHorizontal class="size-4" />
+        </button>
+      {/if}
     </div>
   {/if}
 

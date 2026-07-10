@@ -115,6 +115,7 @@ pub(super) async fn create_imported_page(
         insert_raw_block_with_id(&mut tx, &request, block).await?;
     }
     sync_import_block_assets(&mut tx, &request.blocks, &page_id).await?;
+    super::project_history::mark_page_dirty_tx(&mut tx, &page_id, request.title, true).await?;
     tx.commit()
         .await
         .map_err(|e| format!("commit {} import: {e}", request.source_provider))?;
@@ -173,6 +174,13 @@ pub(super) async fn create_imported_row_page(
         insert_raw_block_with_id(&mut tx, &page_request, block).await?;
     }
     sync_import_block_assets(&mut tx, &request.blocks, &page_id).await?;
+    super::project_history::mark_data_source_dirty_tx(
+        &mut tx,
+        request.data_source_id,
+        request.title,
+        true,
+    )
+    .await?;
     tx.commit()
         .await
         .map_err(|e| format!("commit {} row import: {e}", request.source_provider))?;

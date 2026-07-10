@@ -50,6 +50,7 @@ mod notion_api_import_writer;
 mod notion_export_import;
 mod page_cover_assets;
 mod page_icon_assets;
+mod project_history;
 mod reads;
 mod search;
 mod search_properties;
@@ -63,6 +64,7 @@ pub use file_assets::*;
 pub use models::*;
 pub use page_cover_assets::*;
 pub use page_icon_assets::*;
+pub use project_history::*;
 
 #[tauri::command]
 pub async fn notes_list_pages<R: Runtime>(
@@ -230,7 +232,9 @@ pub async fn notes_import_markdown_page<R: Runtime>(
     request: NoteMarkdownImportRequest,
 ) -> Result<NoteMarkdownImportDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    markdown_import::import_page(&pool, request).await
+    let result = markdown_import::import_page(&pool, request).await?;
+    project_history::flush_due_checkpoints(&pool).await?;
+    Ok(result)
 }
 
 #[tauri::command]
@@ -240,7 +244,9 @@ pub async fn notes_import_html_page<R: Runtime>(
     request: NoteHtmlImportRequest,
 ) -> Result<NoteHtmlImportDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    html_import::import_page(&pool, request).await
+    let result = html_import::import_page(&pool, request).await?;
+    project_history::flush_due_checkpoints(&pool).await?;
+    Ok(result)
 }
 
 #[tauri::command]
@@ -250,7 +256,9 @@ pub async fn notes_import_notion_api<R: Runtime>(
     request: NoteNotionApiImportRequest,
 ) -> Result<NoteNotionApiImportDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    notion_api_import::import_from_api(&pool, request).await
+    let result = notion_api_import::import_from_api(&pool, request).await?;
+    project_history::flush_due_checkpoints(&pool).await?;
+    Ok(result)
 }
 
 #[tauri::command]
@@ -260,7 +268,9 @@ pub async fn notes_import_notion_export_folder<R: Runtime>(
     request: NoteNotionExportImportRequest,
 ) -> Result<NoteNotionExportImportDto, String> {
     let pool = connect_sqlite(app.clone(), db_url.clone()).await?;
-    notion_export_import::import_folder(&app, &db_url, &pool, request).await
+    let result = notion_export_import::import_folder(&app, &db_url, &pool, request).await?;
+    project_history::flush_due_checkpoints(&pool).await?;
+    Ok(result)
 }
 
 #[tauri::command]
@@ -717,7 +727,9 @@ pub async fn notes_import_data_source_csv<R: Runtime>(
     request: NoteDataSourceCsvImportRequest,
 ) -> Result<NoteDataSourceCsvImportDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    data_source_csv_import::import_csv(&pool, &data_source_id, request).await
+    let result = data_source_csv_import::import_csv(&pool, &data_source_id, request).await?;
+    project_history::flush_due_checkpoints(&pool).await?;
+    Ok(result)
 }
 
 #[tauri::command]
@@ -1111,7 +1123,10 @@ pub async fn notes_move_page<R: Runtime>(
     request: NoteMovePage,
 ) -> Result<NoteLoadedPage, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    writes::move_page(&pool, &page_id, request).await
+    project_history::create_safety_checkpoint_for_page(&pool, &page_id, "before_move").await?;
+    let result = writes::move_page(&pool, &page_id, request).await?;
+    project_history::flush_due_checkpoints(&pool).await?;
+    Ok(result)
 }
 
 #[tauri::command]
@@ -1133,8 +1148,11 @@ pub async fn notes_trash_page<R: Runtime>(
     in_trash: Option<bool>,
 ) -> Result<NotePageDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
+    project_history::create_safety_checkpoint_for_page(&pool, &page_id, "before_trash").await?;
     writes::purge_expired_trashed_pages(&pool).await?;
-    writes::trash_page(&pool, &page_id, in_trash.unwrap_or(true)).await
+    let result = writes::trash_page(&pool, &page_id, in_trash.unwrap_or(true)).await?;
+    project_history::flush_due_checkpoints(&pool).await?;
+    Ok(result)
 }
 
 #[tauri::command]
@@ -1145,7 +1163,10 @@ pub async fn notes_archive_page<R: Runtime>(
     archived: Option<bool>,
 ) -> Result<NotePageDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    writes::archive_page(&pool, &page_id, archived.unwrap_or(true)).await
+    project_history::create_safety_checkpoint_for_page(&pool, &page_id, "before_archive").await?;
+    let result = writes::archive_page(&pool, &page_id, archived.unwrap_or(true)).await?;
+    project_history::flush_due_checkpoints(&pool).await?;
+    Ok(result)
 }
 
 #[tauri::command]
@@ -1155,8 +1176,12 @@ pub async fn notes_permanently_delete_page<R: Runtime>(
     page_id: String,
 ) -> Result<Vec<String>, String> {
     let pool = connect_sqlite(app, db_url).await?;
+    project_history::create_safety_checkpoint_for_page(&pool, &page_id, "before_permanent_delete")
+        .await?;
     writes::purge_expired_trashed_pages(&pool).await?;
-    writes::permanently_delete_page(&pool, &page_id).await
+    let result = writes::permanently_delete_page(&pool, &page_id).await?;
+    project_history::flush_due_checkpoints(&pool).await?;
+    Ok(result)
 }
 
 #[tauri::command]

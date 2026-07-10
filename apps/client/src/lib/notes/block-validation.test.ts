@@ -388,20 +388,28 @@ describe("notes boundary validation", () => {
     expect(
       parseNotesPageHistorySettings({
         object: "page_history_settings",
-        retention_days: null,
+        retention_days: 180,
         updated_at: "2026-07-01T12:00:00.000Z",
       }),
-    ).toMatchObject({ retention_days: null });
+    ).toMatchObject({ retention_days: 180 });
   });
 
-  it("rejects invalid page history retention windows", () => {
-    expect(() =>
+  it("accepts disabled history and rejects invalid retention windows", () => {
+    expect(
       parseNotesPageHistorySettings({
         object: "page_history_settings",
         retention_days: 0,
         updated_at: "2026-07-01T12:00:00.000Z",
       }),
-    ).toThrow("page history settings.retention_days must be between 1 and 3650");
+    ).toMatchObject({ retention_days: 0 });
+
+    expect(() =>
+      parseNotesPageHistorySettings({
+        object: "page_history_settings",
+        retention_days: 14,
+        updated_at: "2026-07-01T12:00:00.000Z",
+      }),
+    ).toThrow("page history settings.retention_days is unsupported");
   });
 
   it("parses toggleable heading payload state", () => {

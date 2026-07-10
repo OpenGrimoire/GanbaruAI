@@ -15,6 +15,7 @@ const PROJECT_EVENT_TIME_MODES: &[&str] = &["timed", "all_day"];
 const PROJECT_IDLE_SETTINGS_SOURCES: &[&str] = &["global", "custom"];
 const PROJECT_IDLE_THRESHOLD_MINUTES: &[i64] = &[1, 2, 3, 4, 5, 10, 15];
 const NOTES_PAGE_OPEN_MODES: &[&str] = &["center", "side", "full"];
+const NOTES_HISTORY_RETENTION_DAYS: &[i64] = &[0, 7, 30, 90, 180, 365];
 const MAX_TASK_CHANGE_REASON_LENGTH: usize = 1000;
 
 mod custom_fields;
@@ -483,31 +484,49 @@ pub async fn projects_update_project<R: Runtime>(
 }
 
 #[tauri::command]
-pub async fn projects_update_notes_default_open_mode<R: Runtime>(
+pub async fn projects_update_notes_settings<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     project_id: String,
     notes_default_open_mode: Option<String>,
+    notes_history_retention_days: Option<i64>,
 ) -> Result<(), String> {
-    require_non_empty(&project_id, "project_id")?;
+    let project_id = project_id.trim();
+    require_non_empty(project_id, "project_id")?;
     if let Some(value) = notes_default_open_mode.as_deref() {
         validate_enum(value, "notes_default_open_mode", NOTES_PAGE_OPEN_MODES)?;
     }
+    if let Some(days) = notes_history_retention_days {
+        if !NOTES_HISTORY_RETENTION_DAYS.contains(&days) {
+            return Err(
+                "notes_history_retention_days must be 0, 7, 30, 90, 180, 365, or null".to_string(),
+            );
+        }
+    }
     let pool = connect_sqlite(app, db_url).await?;
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|e| format!("begin project Notes settings update: {e}"))?;
     let result = sqlx::query(
         "UPDATE projects
          SET notes_default_open_mode = ?,
+             notes_history_retention_days = ?,
              updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
          WHERE id = ?",
     )
     .bind(notes_default_open_mode)
+    .bind(notes_history_retention_days)
     .bind(project_id)
-    .execute(&pool)
+    .execute(&mut *tx)
     .await
-    .map_err(|e| format!("update project Notes default open mode: {e}"))?;
+    .map_err(|e| format!("update project Notes settings: {e}"))?;
     if result.rows_affected() == 0 {
         return Err("project not found".to_string());
     }
+    tx.commit()
+        .await
+        .map_err(|e| format!("commit project Notes settings update: {e}"))?;
     Ok(())
 }
 

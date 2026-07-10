@@ -50,6 +50,13 @@ pub(in crate::notes) async fn update_data_source_calendar_view(
         .begin()
         .await
         .map_err(|e| format!("begin notes data source calendar view update: {e}"))?;
+    crate::notes::project_history::mark_data_source_dirty_tx(
+        &mut tx,
+        data_source_id,
+        "Calendar view",
+        false,
+    )
+    .await?;
     let (data_source, _database) =
         load_active_data_source_and_database_tx(&mut tx, data_source_id).await?;
     let schema = board_schema(&parse_json(

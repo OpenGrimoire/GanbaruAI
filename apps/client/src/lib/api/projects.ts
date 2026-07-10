@@ -9,6 +9,10 @@ import {
   type NotesPageOpenMode,
 } from "$lib/notes/page-open-mode";
 import {
+  isNotesHistoryRetentionDays,
+  type NotesHistoryRetentionDays,
+} from "$lib/notes/history-retention";
+import {
   DEFAULT_FOCUS_IDLE_THRESHOLD_MINUTES,
   FOCUS_IDLE_THRESHOLD_MINUTES_OPTIONS,
   type FocusIdleThresholdMinutes,
@@ -100,6 +104,7 @@ interface ProjectRow {
   work_environment_id: string | null;
   blocker_ruleset_id: string | null;
   notes_default_open_mode: NotesPageOpenMode | null;
+  notes_history_retention_days: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -375,6 +380,9 @@ function mapProject(row: ProjectRow): Project {
     workEnvironmentId: optionalText(row.work_environment_id),
     blockerRulesetId: optionalText(row.blocker_ruleset_id),
     notesDefaultOpenMode: optionalNotesPageOpenMode(row.notes_default_open_mode),
+    notesHistoryRetentionDays: isNotesHistoryRetentionDays(row.notes_history_retention_days)
+      ? row.notes_history_retention_days
+      : undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -662,15 +670,17 @@ export async function updateProject(project: ProjectUpdate): Promise<void> {
   await invoke("projects_update_project", { dbUrl, project });
 }
 
-export async function updateProjectNotesDefaultOpenMode(
+export async function updateProjectNotesSettings(
   projectId: string,
   notesDefaultOpenMode: NotesPageOpenMode | null,
+  notesHistoryRetentionDays: NotesHistoryRetentionDays | null,
 ): Promise<void> {
   const dbUrl = await ensureDbUrl();
-  await invoke("projects_update_notes_default_open_mode", {
+  await invoke("projects_update_notes_settings", {
     dbUrl,
     projectId,
     notesDefaultOpenMode,
+    notesHistoryRetentionDays,
   });
 }
 

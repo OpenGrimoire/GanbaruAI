@@ -504,7 +504,7 @@ fn schema_creates_notes_collaboration_operations() {
                 .unwrap();
         assert_eq!(exists, Some(1));
 
-        for table in ["notes_pages", "notes_blocks", "notes_local_users"] {
+        for table in ["notes_local_users"] {
             let fk: Option<i64> = sqlx::query_scalar(
                 "SELECT 1
                  FROM pragma_foreign_key_list('notes_collaboration_operations')
@@ -515,6 +515,18 @@ fn schema_creates_notes_collaboration_operations() {
             .await
             .unwrap();
             assert_eq!(fk, Some(1), "{table} should be referenced");
+        }
+        for table in ["notes_pages", "notes_blocks"] {
+            let fk: Option<i64> = sqlx::query_scalar(
+                "SELECT 1
+                 FROM pragma_foreign_key_list('notes_collaboration_operations')
+                 WHERE \"table\" = ?",
+            )
+            .bind(table)
+            .fetch_optional(&pool)
+            .await
+            .unwrap();
+            assert_eq!(fk, None, "{table} must not delete append-only operations");
         }
 
         sqlx::query(
@@ -622,6 +634,18 @@ fn schema_creates_notes_collaboration_operations() {
         .execute(&pool)
         .await
         .is_err());
+
+        sqlx::query("DELETE FROM notes_pages WHERE id = 'page-a'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let retained_operations: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM notes_collaboration_operations WHERE id = 'operation-a'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(retained_operations, 1);
     });
 }
 
@@ -2230,5 +2254,102 @@ fn schema_creates_notes_link_facts() {
         .execute(&pool)
         .await;
         assert!(invalid_file.is_err());
+    });
+}
+
+#[test]
+fn schema_creates_strict_project_notes_history_storage() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        let default_retention: i64 = sqlx::query_scalar(
+            "SELECT retention_days FROM notes_page_history_settings WHERE id = 1",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(default_retention, 30);
+
+        sqlx::query("INSERT INTO project_groups (id, name) VALUES ('group-1', 'Group')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO projects (id, group_id, name)
+             VALUES ('project-1', 'group-1', 'Learning')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let inherited: Option<i64> = sqlx::query_scalar(
+            "SELECT notes_history_retention_days FROM projects WHERE id = 'project-1'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(inherited, None);
+
+        for days in [0_i64, 7, 30, 90, 180, 365] {
+            sqlx::query(
+                "UPDATE projects SET notes_history_retention_days = ? WHERE id = 'project-1'",
+            )
+            .bind(days)
+            .execute(&pool)
+            .await
+            .unwrap();
+            sqlx::query("UPDATE notes_page_history_settings SET retention_days = ? WHERE id = 1")
+                .bind(days)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        assert!(sqlx::query(
+            "UPDATE projects SET notes_history_retention_days = 14 WHERE id = 'project-1'",
+        )
+        .execute(&pool)
+        .await
+        .is_err());
+        assert!(sqlx::query(
+            "UPDATE notes_page_history_settings SET retention_days = NULL WHERE id = 1",
+        )
+        .execute(&pool)
+        .await
+        .is_err());
+        assert!(sqlx::query(
+            "UPDATE notes_page_history_settings SET retention_days = 366 WHERE id = 1",
+        )
+        .execute(&pool)
+        .await
+        .is_err());
+
+        for table in [
+            "notes_history_bundles",
+            "notes_history_bundle_chunks",
+            "notes_project_history_versions",
+            "notes_project_history_bundle_references",
+            "notes_project_history_asset_pins",
+            "notes_project_history_dirty",
+        ] {
+            let exists: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM sqlite_schema WHERE type = 'table' AND name = ?",
+            )
+            .bind(table)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert_eq!(exists, 1, "missing table {table}");
+        }
+
+        let operation_foreign_keys: Vec<String> = sqlx::query_scalar(
+            "SELECT \"table\" FROM pragma_foreign_key_list('notes_collaboration_operations')",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert!(!operation_foreign_keys
+            .iter()
+            .any(|table| table == "notes_pages"));
+        assert!(!operation_foreign_keys
+            .iter()
+            .any(|table| table == "notes_blocks"));
     });
 }

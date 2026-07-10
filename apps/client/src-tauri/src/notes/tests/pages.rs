@@ -320,6 +320,32 @@ fn page_history_snapshots_restore_copy_and_retention_settings() {
         assert_eq!(snapshots_json.as_array().unwrap().len(), 2);
         let draft_snapshot_id = snapshots_json[0]["id"].as_str().unwrap().to_string();
 
+        let initial_bundle_hash: String = sqlx::query_scalar(
+            "SELECT block_bundle_hash
+             FROM notes_page_history_snapshots
+             WHERE id = ?",
+        )
+        .bind(&initial_snapshot_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let mut tx = pool.begin().await.unwrap();
+        let initial_blocks =
+            project_history::load_page_history_blocks_tx(&mut tx, &initial_bundle_hash)
+                .await
+                .unwrap();
+        tx.commit().await.unwrap();
+        sqlx::query(
+            "UPDATE notes_page_history_snapshots
+             SET blocks = ?, block_bundle_hash = NULL
+             WHERE id = ?",
+        )
+        .bind(&initial_blocks)
+        .bind(&initial_snapshot_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
         let initial_version =
             history::load_page_history_snapshot(&pool, PAGE_A, &initial_snapshot_id)
                 .await
@@ -375,21 +401,70 @@ fn page_history_snapshots_restore_copy_and_retention_settings() {
                 retention_days: None,
             },
         )
-        .await
-        .unwrap();
-        let forever_json = serde_json::to_value(forever).unwrap();
-        assert_eq!(forever_json["retention_days"], serde_json::Value::Null);
+        .await;
+        assert!(forever.is_err());
 
         let retained = history::update_page_history_settings(
             &pool,
             NotePageHistorySettingsUpdate {
-                retention_days: Some(90),
+                retention_days: Some(180),
             },
         )
         .await
         .unwrap();
         let retained_json = serde_json::to_value(retained).unwrap();
-        assert_eq!(retained_json["retention_days"], 90);
+        assert_eq!(retained_json["retention_days"], 180);
+
+        sqlx::query(
+            "UPDATE notes_page_history_snapshots
+             SET created_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-400 days')
+             WHERE page_id = ?",
+        )
+        .bind(PAGE_A)
+        .execute(&pool)
+        .await
+        .unwrap();
+        history::update_page_history_settings(
+            &pool,
+            NotePageHistorySettingsUpdate {
+                retention_days: Some(7),
+            },
+        )
+        .await
+        .unwrap();
+        assert!(history::list_page_history_snapshots(&pool, PAGE_A)
+            .await
+            .unwrap()
+            .is_empty());
+        let retained_block_bundles: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)
+             FROM notes_history_bundles
+             WHERE kind = 'row'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(retained_block_bundles, 0);
+
+        history::update_page_history_settings(
+            &pool,
+            NotePageHistorySettingsUpdate {
+                retention_days: Some(0),
+            },
+        )
+        .await
+        .unwrap();
+        writes::update_block(
+            &pool,
+            BLOCK_A,
+            block_update("paragraph", paragraph_payload("History disabled")),
+        )
+        .await
+        .unwrap();
+        assert!(history::list_page_history_snapshots(&pool, PAGE_A)
+            .await
+            .unwrap()
+            .is_empty());
     });
 }
 

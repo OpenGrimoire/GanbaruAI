@@ -88,6 +88,8 @@ pub(in crate::notes) async fn create_page(
     .execute(&mut *tx)
     .await
     .map_err(|e| format!("create initial notes block: {e}"))?;
+    crate::notes::project_history::mark_page_dirty_tx(&mut tx, page.id.trim(), &title, false)
+        .await?;
     if let Some(parent) = child_page_parent {
         let child_payload = child_page_payload(&title);
         let child_plain_text = plain_text_from_payload("child_page", &child_payload);

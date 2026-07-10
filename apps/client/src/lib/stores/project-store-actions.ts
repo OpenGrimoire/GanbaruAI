@@ -28,7 +28,7 @@ import {
   unlinkProjectTaskEvent,
   unlinkProjectTaskTag,
   updateProject as updateProjectBackend,
-  updateProjectNotesDefaultOpenMode,
+  updateProjectNotesSettings,
   updateProjectChecklistItem,
   updateProjectCustomField,
   updateProjectCustomFieldOption,
@@ -43,6 +43,7 @@ import {
 } from "$lib/api/projects";
 import type { EventColor } from "$lib/components/calendar/types";
 import type { NotesPageOpenMode } from "$lib/notes/page-open-mode";
+import type { NotesHistoryRetentionDays } from "$lib/notes/history-retention";
 import {
   TASK_LIST_COLUMN_WIDTHS_PREFERENCE_KEY,
   taskListColumnWidthsPreferenceValue,
@@ -209,11 +210,12 @@ export function createProjectStoreActions(context: ProjectStoreActionContext) {
     await reload();
   }
 
-  async function setNotesDefaultOpenMode(
+  async function setNotesSettings(
     projectId: string,
     openMode: NotesPageOpenMode | null,
+    historyRetentionDays: NotesHistoryRetentionDays | null,
   ): Promise<void> {
-    await updateProjectNotesDefaultOpenMode(projectId, openMode);
+    await updateProjectNotesSettings(projectId, openMode, historyRetentionDays);
     await reload(projectId);
   }
 
@@ -898,7 +900,7 @@ export function createProjectStoreActions(context: ProjectStoreActionContext) {
     moveGroup,
     addProject,
     updateProject,
-    setNotesDefaultOpenMode,
+    setNotesSettings,
     moveProject,
     addSection,
     updateSection,
