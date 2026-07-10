@@ -120,6 +120,7 @@ const page: NotesPage = {
     type: "data_source_id",
     data_source_id: dataSource.id,
   },
+  folder_id: null,
   in_trash: false,
   archived: false,
   icon: null,

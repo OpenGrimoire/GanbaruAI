@@ -33,6 +33,7 @@
     type ProjectGroup,
     type ProjectTemplateId,
   } from "$lib/projects/types";
+  import { notesFoldersForProject } from "$lib/notes/navigation-tree";
   import { notesPagesForProject } from "$lib/notes/project-membership";
   import type { ProjectNavigatorPanelMode } from "$lib/projects/project-toolbar";
   import { getNotes } from "$lib/stores/notes.svelte";
@@ -137,6 +138,7 @@
   const directProjectGroup = $derived.by(() => selectedGroup);
   const directProjects = $derived.by(() => directProjectGroup ? projectsInGroup(directProjectGroup) : []);
   const activeProjectPages = $derived.by(() => notesPagesForProject(notes.allPages, activeProjectId));
+  const activeProjectFolders = $derived.by(() => notesFoldersForProject(notes.folders, activeProjectId));
 
   function projectsInGroup(group: ProjectGroup): Project[] {
     const groupProjects = showInactiveProjects
@@ -314,7 +316,7 @@
       bounds,
       gap: subpanelGap,
       footerHeight: subpanelFallbackFooterHeight,
-      projectCount: Math.max(1, activeProjectPages.length),
+      projectCount: Math.max(1, activeProjectPages.length + activeProjectFolders.length),
       visibleRows: null,
       listPadding: subpanelListPadding,
       rowHeight: subpanelRowHeight,
@@ -549,7 +551,7 @@
     const groupCount = visibleGroups.length;
     const resultCount = searchResultGroups.reduce((count, entry) => count + entry.projects.length, 0);
     const directProjectCount = directProjectGroup ? projectsInGroup(directProjectGroup).length : 0;
-    const noteCount = activeProjectPages.length;
+    const noteCount = activeProjectPages.length + activeProjectFolders.length;
     const creatingGroup = createGroupOpen;
     const creatingProject = createProjectGroupId;
     void maxHeight;

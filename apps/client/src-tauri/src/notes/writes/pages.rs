@@ -27,6 +27,7 @@ pub(in crate::notes) async fn create_page(
     }
     let title = page.title.trim().to_string();
     let properties = page_properties_for_create(&title, page.properties.as_ref())?;
+    let folder_id = page.folder_id.as_deref().map(str::trim);
     let (parent_type, parent_page_id, parent_block_id) = parent_columns(&page.parent);
     let first_payload = default_text_payload("");
     let first_plain_text = plain_text_from_payload("paragraph", &first_payload);
@@ -53,15 +54,17 @@ pub(in crate::notes) async fn create_page(
             parent_type,
             parent_page_id,
             parent_block_id,
+            folder_id,
             title,
             properties
          )
-         VALUES (?, ?, ?, ?, ?, ?)",
+         VALUES (?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(page.id.trim())
     .bind(parent_type)
     .bind(parent_page_id)
     .bind(parent_block_id)
+    .bind(folder_id)
     .bind(&title)
     .bind(properties.to_string())
     .execute(&mut *tx)
@@ -329,6 +332,7 @@ pub(in crate::notes) async fn update_page(
                  parent_page_id = ?,
                  parent_block_id = ?,
                  parent_data_source_id = ?,
+                 folder_id = NULL,
                  last_edited_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
              WHERE id = ? AND in_trash = 0 AND archived = 0",
         )

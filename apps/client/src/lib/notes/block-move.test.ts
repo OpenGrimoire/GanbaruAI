@@ -40,6 +40,7 @@ function page(
     created_time: now,
     last_edited_time: now,
     parent,
+    folder_id: null,
     in_trash: inTrash,
     archived: false,
     icon: null,

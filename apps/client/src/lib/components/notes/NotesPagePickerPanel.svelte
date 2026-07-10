@@ -2,6 +2,8 @@
   import { tick } from "svelte";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import FileText from "@lucide/svelte/icons/file-text";
+  import Folder from "@lucide/svelte/icons/folder";
+  import FolderOpen from "@lucide/svelte/icons/folder-open";
   import Plus from "@lucide/svelte/icons/plus";
   import Search from "@lucide/svelte/icons/search";
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
@@ -9,7 +11,11 @@
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { formatShortcut } from "$lib/keyboard-shortcuts";
   import { NOTES_PAGE_CHROME_EMOJI_SCALE } from "$lib/notes/page-icon";
-  import { buildNotesPageTree, type NotesPageParentStatus } from "$lib/notes/page-tree";
+  import {
+    buildNotesNavigationTree,
+    notesFoldersForProject,
+  } from "$lib/notes/navigation-tree";
+  import type { NotesPageParentStatus } from "$lib/notes/page-tree";
   import { notesPageTitle } from "$lib/notes/page-title";
   import { notesPagesForProject } from "$lib/notes/project-membership";
   import type { NotesPage } from "$lib/notes/types";
@@ -79,10 +85,12 @@
 
   const normalizedSearch = $derived(search.trim());
   const projectPages = $derived.by(() => notesPagesForProject(notes.allPages, projectId));
+  const projectFolders = $derived.by(() => notesFoldersForProject(notes.folders, projectId));
   const treeItems = $derived.by(() =>
-    buildNotesPageTree(projectPages, {
+    buildNotesNavigationTree(projectPages, projectFolders, {
       activePageId: selectedPageId,
       expandedPageIds: notes.sidebarExpandedPageIds,
+      collapsedFolderIds: notes.collapsedFolderIds,
       pageIdsWithChildren: notes.sidebarPageIdsWithChildren,
       missingParentPageIds: notes.sidebarMissingParentPageIds,
       trashedParentPageIds: notes.sidebarTrashedParentPageIds,
@@ -274,7 +282,7 @@
       onscroll={handlePageScroll}
     >
       <div bind:this={pageScrollContentElement}>
-        {#if notes.loading && projectPages.length === 0}
+        {#if notes.loading && projectPages.length === 0 && projectFolders.length === 0}
           <div class="px-3 py-2 text-[0.8rem] text-popover-foreground/60">
             {t("notes.loading")}
           </div>
@@ -288,41 +296,71 @@
           </div>
         {:else}
           <div class="grid">
-            {#each treeItems as item (item.page.id)}
-              {@const title = rowTitle(item.page)}
-              <button
-                type="button"
-                class={cn(
-                  "flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[0.8rem] transition-colors hover:bg-accent hover:text-accent-foreground",
-                  item.page.id === selectedPageId ? "bg-accent text-accent-foreground" : "text-popover-foreground",
-                )}
-                style={rowPaddingStyle(item.depth)}
-                aria-label={title}
-                onclick={() => { void selectPage(item.page.id); }}
-              >
-                {#if item.page.icon}
-                  <NotesPageIcon
-                    icon={item.page.icon}
-                    size={iconSize}
-                    emojiScale={NOTES_PAGE_CHROME_EMOJI_SCALE}
-                    class="shrink-0"
-                  />
-                {:else}
-                  <FileText size={iconSize} strokeWidth={iconStrokeWidth} class="shrink-0" />
-                {/if}
-                <span class="min-w-0 flex-1 truncate">{title}</span>
-                {#if item.parentStatus}
-                  <TriangleAlert
-                    size={13}
-                    strokeWidth={iconStrokeWidth}
-                    class="shrink-0 text-destructive"
-                    aria-label={parentStatusLabel(item.parentStatus)}
-                    data-app-tooltip={parentStatusLabel(item.parentStatus)}
-                  />
-                {:else if item.hasChildren}
-                  <ChevronRight size={13} strokeWidth={iconStrokeWidth} class="shrink-0 text-popover-foreground/45" />
-                {/if}
-              </button>
+            {#each treeItems as item (item.key)}
+              {#if item.kind === "folder"}
+                <button
+                  type="button"
+                  class="flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[0.8rem] font-medium text-popover-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                  style={rowPaddingStyle(item.depth)}
+                  aria-label={item.folder.name}
+                  aria-expanded={!item.collapsed}
+                  onclick={() => {
+                    notes.setFolderCollapsed(item.folder.id, !item.collapsed);
+                  }}
+                >
+                  {#if item.collapsed}
+                    <Folder size={iconSize} strokeWidth={iconStrokeWidth} class="shrink-0" />
+                  {:else}
+                    <FolderOpen size={iconSize} strokeWidth={iconStrokeWidth} class="shrink-0" />
+                  {/if}
+                  <span class="min-w-0 flex-1 truncate">{item.folder.name}</span>
+                  {#if item.hasChildren}
+                    <ChevronRight
+                      size={13}
+                      strokeWidth={iconStrokeWidth}
+                      class={cn(
+                        "shrink-0 text-popover-foreground/45 transition-transform",
+                        !item.collapsed && "rotate-90",
+                      )}
+                    />
+                  {/if}
+                </button>
+              {:else}
+                {@const title = rowTitle(item.page)}
+                <button
+                  type="button"
+                  class={cn(
+                    "flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[0.8rem] transition-colors hover:bg-accent hover:text-accent-foreground",
+                    item.page.id === selectedPageId ? "bg-accent text-accent-foreground" : "text-popover-foreground",
+                  )}
+                  style={rowPaddingStyle(item.depth)}
+                  aria-label={title}
+                  onclick={() => { void selectPage(item.page.id); }}
+                >
+                  {#if item.page.icon}
+                    <NotesPageIcon
+                      icon={item.page.icon}
+                      size={iconSize}
+                      emojiScale={NOTES_PAGE_CHROME_EMOJI_SCALE}
+                      class="shrink-0"
+                    />
+                  {:else}
+                    <FileText size={iconSize} strokeWidth={iconStrokeWidth} class="shrink-0" />
+                  {/if}
+                  <span class="min-w-0 flex-1 truncate">{title}</span>
+                  {#if item.parentStatus}
+                    <TriangleAlert
+                      size={13}
+                      strokeWidth={iconStrokeWidth}
+                      class="shrink-0 text-destructive"
+                      aria-label={parentStatusLabel(item.parentStatus)}
+                      data-app-tooltip={parentStatusLabel(item.parentStatus)}
+                    />
+                  {:else if item.hasChildren}
+                    <ChevronRight size={13} strokeWidth={iconStrokeWidth} class="shrink-0 text-popover-foreground/45" />
+                  {/if}
+                </button>
+              {/if}
             {/each}
           </div>
         {/if}

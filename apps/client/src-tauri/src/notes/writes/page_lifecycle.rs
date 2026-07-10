@@ -27,6 +27,13 @@ pub(in crate::notes) async fn move_page(
     let page_id = page_id.trim();
     require_uuid(page_id, "page_id")?;
     validate_parent(&request.parent)?;
+    let folder_id = request.folder_id.as_deref().map(str::trim);
+    if let Some(folder_id) = folder_id {
+        require_uuid(folder_id, "folder_id")?;
+        if !matches!(&request.parent, NoteParent::Workspace { workspace: true }) {
+            return Err("folder_id requires a workspace parent".to_string());
+        }
+    }
     let mut tx = pool
         .begin()
         .await
@@ -56,6 +63,7 @@ pub(in crate::notes) async fn move_page(
              parent_page_id = ?,
              parent_block_id = ?,
              parent_data_source_id = ?,
+             folder_id = ?,
              last_edited_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
          WHERE id = ? AND in_trash = 0 AND archived = 0",
     )
@@ -63,6 +71,7 @@ pub(in crate::notes) async fn move_page(
     .bind(parent_page_id)
     .bind(parent_block_id)
     .bind(parent_data_source_id)
+    .bind(folder_id)
     .bind(page_id)
     .execute(&mut *tx)
     .await
@@ -469,6 +478,7 @@ pub(super) async fn move_page_to_workspace_parent(
              parent_page_id = NULL,
              parent_block_id = NULL,
              parent_data_source_id = NULL,
+             folder_id = NULL,
              last_edited_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
          WHERE id = ?",
     )

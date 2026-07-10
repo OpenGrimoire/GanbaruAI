@@ -7,7 +7,7 @@
   } from "$lib/projects/project-lucide-catalog.generated";
   import { cn } from "$lib/utils";
   import { portal } from "$lib/utils/portal";
-  import LucideNodeIcon from "./LucideNodeIcon.svelte";
+  import LucideNodeIcon from "$lib/components/projects/LucideNodeIcon.svelte";
 
   let {
     rootElement = $bindable<HTMLElement | undefined>(),

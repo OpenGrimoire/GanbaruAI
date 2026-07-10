@@ -4,6 +4,7 @@
   import Copy from "@lucide/svelte/icons/copy";
   import Download from "@lucide/svelte/icons/download";
   import FolderInput from "@lucide/svelte/icons/folder-input";
+  import FolderTree from "@lucide/svelte/icons/folder-tree";
   import GitBranch from "@lucide/svelte/icons/git-branch";
   import History from "@lucide/svelte/icons/history";
   import ImagePlus from "@lucide/svelte/icons/image-plus";
@@ -16,6 +17,16 @@
   import Star from "@lucide/svelte/icons/star";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import X from "@lucide/svelte/icons/x";
+  import {
+    notesPageIconAssetUrl,
+    pickNotesPageIconImageFile,
+    saveNotesPageIconImageDataUrl,
+  } from "$lib/api/notes-page-icons";
+  import IconPicker from "$lib/components/icon-picker/IconPicker.svelte";
+  import type {
+    IconPickerAsset,
+    IconPickerUploadAdapter,
+  } from "$lib/components/icon-picker/types";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { notesBlockAnchorId } from "$lib/notes/block-link";
@@ -31,6 +42,19 @@
     unreadNotesCommentThreadCount,
   } from "$lib/notes/comments";
   import { notesPageMoveTargets } from "$lib/notes/page-move";
+  import {
+    notesPageIconFromPickerValue,
+    notesPageIconPickerValue,
+  } from "$lib/notes/page-icon-picker";
+  import {
+    createNotesExternalPageIcon,
+    createNotesLocalFilePageIcon,
+    type NotesPageIconAssetMetadata,
+  } from "$lib/notes/page-icon";
+  import {
+    notesFoldersForProject,
+    notesPageFolderMoveTargets,
+  } from "$lib/notes/navigation-tree";
   import { addNotesWorkspaceBreadcrumb, buildNotesPageBreadcrumb } from "$lib/notes/page-breadcrumb";
   import { notesPageTitle } from "$lib/notes/page-title";
   import {
@@ -40,6 +64,7 @@
   import { openNotesSuggestionCount } from "$lib/notes/suggestions";
   import { buildNotesTableOfContents } from "$lib/notes/table-of-contents";
   import { getPreferences } from "$lib/stores/preferences.svelte";
+  import { getProjects } from "$lib/stores/projects.svelte";
   import type {
     NotesAgentBridgeExportRequest,
     NotesHtmlExportRequest,
@@ -60,7 +85,6 @@
   import NotesPageCoverMenu from "./NotesPageCoverMenu.svelte";
   import NotesPageVersionHistoryModal from "./NotesPageVersionHistoryModal.svelte";
   import NotesPageIcon from "./NotesPageIcon.svelte";
-  import NotesPageIconMenu from "./NotesPageIconMenu.svelte";
   import NotesPeekModeIcon from "./NotesPeekModeIcon.svelte";
   import NotesPageLinks from "./NotesPageLinks.svelte";
   import NotesSuggestions from "./NotesSuggestions.svelte";
@@ -81,15 +105,16 @@
 
   const notes = getNotes();
   const preferences = getPreferences();
+  const projects = getProjects();
   const localization = getLocalization();
   const { t } = localization;
 
   let titleDraft = $state("");
   let titleInput: HTMLInputElement | null = $state(null);
-  let iconMenuAnchor = $state<"title" | "page-icon" | null>(null);
   let coverMenuOpen = $state(false);
   let pageMenuOpen = $state(false);
   let moveMenuOpen = $state(false);
+  let folderMoveMenuOpen = $state(false);
   let activityPanelOpen = $state(false);
   let activePanel = $state<NotesEditorPanel | null>(null);
   let htmlExportOpen = $state(false);
@@ -109,6 +134,7 @@
   const pageIconLabel = $derived(pageIconScreenReaderText(page?.icon ?? null));
   const effectiveProjectId = $derived(page ? notesPageProjectId(page) ?? projectId : projectId);
   const projectPages = $derived(notesPagesForProject(notes.allPages, effectiveProjectId));
+  const projectFolders = $derived(notesFoldersForProject(notes.folders, effectiveProjectId));
   const moveTargets = $derived(page
     ? notesPageMoveTargets(
         projectPages,
@@ -117,6 +143,16 @@
         (candidate) => notesPageTitle(candidate, t("notes.untitled")),
         notes.recentPageIds,
       )
+    : []);
+  const folderMoveTargets = $derived(page
+    ? notesPageFolderMoveTargets(
+        projectPages,
+        projectFolders,
+        page.id,
+        t("notes.projectRoot"),
+        (candidate) => notesPageTitle(candidate, t("notes.untitled")),
+        notes.recentPageIds,
+      ).filter((target) => target.kind !== "page")
     : []);
   const breadcrumbItems = $derived(
     notes.pageBreadcrumbItems.length > 0
@@ -170,8 +206,8 @@
     activePanel = null;
     pageMenuOpen = false;
     moveMenuOpen = false;
+    folderMoveMenuOpen = false;
     activityPanelOpen = false;
-    iconMenuAnchor = null;
     coverMenuOpen = false;
     pageHistoryModalOpen = false;
   });
@@ -257,6 +293,7 @@
     activePanel = activePanel === panel ? null : panel;
     pageMenuOpen = false;
     moveMenuOpen = false;
+    folderMoveMenuOpen = false;
   }
 
   function openPageHistory(): void {
@@ -269,6 +306,7 @@
   function closePageMenu(): void {
     pageMenuOpen = false;
     moveMenuOpen = false;
+    folderMoveMenuOpen = false;
   }
 
   function closeActionPanel(): void {
@@ -311,17 +349,6 @@
     const nextOpen = !coverMenuOpen;
     coverMenuOpen = nextOpen;
     if (nextOpen) {
-      iconMenuAnchor = null;
-      closePageMenu();
-      closeActionPanel();
-    }
-  }
-
-  function toggleIconMenu(anchor: "title" | "page-icon"): void {
-    const nextAnchor = iconMenuAnchor === anchor ? null : anchor;
-    iconMenuAnchor = nextAnchor;
-    if (nextAnchor) {
-      coverMenuOpen = false;
       closePageMenu();
       closeActionPanel();
     }
@@ -331,9 +358,46 @@
     coverMenuOpen = false;
   }
 
-  function closeIconMenu(): void {
-    iconMenuAnchor = null;
+  function prepareIconPicker(toggle: () => void): void {
+    coverMenuOpen = false;
+    closePageMenu();
+    closeActionPanel();
+    toggle();
   }
+
+  function notesIconAssetMetadata(asset: IconPickerAsset): NotesPageIconAssetMetadata {
+    if (!asset.contentType || asset.byteSize === undefined || !asset.sha256) {
+      throw new Error(t("notes.pageIconUploadFailed"));
+    }
+    return {
+      relativePath: asset.relativePath,
+      originalName: asset.originalName,
+      contentType: asset.contentType,
+      byteSize: asset.byteSize,
+      sha256: asset.sha256,
+    };
+  }
+
+  function updatePageIconFromPicker(value: string): void {
+    if (!page) return;
+    const icon = notesPageIconFromPickerValue(value, projects.customEmojis);
+    void notes.updatePageIcon(page.id, icon);
+  }
+
+  const notesIconUploadAdapter: IconPickerUploadAdapter = {
+    pickImageFile: pickNotesPageIconImageFile,
+    saveImageDataUrl: saveNotesPageIconImageDataUrl,
+    assetUrl: (asset) => notesPageIconAssetUrl(asset.relativePath),
+    selectAsset: (asset) => {
+      if (!page) return;
+      return notes.updatePageIcon(page.id, createNotesLocalFilePageIcon(notesIconAssetMetadata(asset)));
+    },
+    selectPickedAssetImmediately: true,
+    selectExternalUrl: (url) => {
+      if (!page) return;
+      return notes.updatePageIcon(page.id, createNotesExternalPageIcon(url));
+    },
+  };
 
   function selectOpenMode(mode: NotesPageOpenMode): void {
     onOpenModeChange?.(mode);
@@ -368,6 +432,14 @@
     if (!target) return;
     closePageMenu();
     void notes.movePage(page.id, target.parent);
+  }
+
+  function moveToFolderTarget(targetKey: string): void {
+    if (!page) return;
+    const target = folderMoveTargets.find((candidate) => candidate.key === targetKey);
+    if (!target) return;
+    closePageMenu();
+    void notes.movePageToFolder(page.id, target.folderId);
   }
 
   function confirmArchivePage(): void {
@@ -603,7 +675,10 @@
             onclick={() => {
               pageMenuOpen = !pageMenuOpen;
               activePanel = null;
-              if (!pageMenuOpen) moveMenuOpen = false;
+              if (!pageMenuOpen) {
+                moveMenuOpen = false;
+                folderMoveMenuOpen = false;
+              }
             }}
           >
             <MoreHorizontal class="size-4" />
@@ -629,6 +704,7 @@
                 aria-expanded={moveMenuOpen}
                 onclick={() => {
                   moveMenuOpen = !moveMenuOpen;
+                  folderMoveMenuOpen = false;
                 }}
               >
                 <FolderInput class="size-4" />
@@ -650,6 +726,38 @@
                     }}
                   />
                 </div>
+              {/if}
+              {#if folderMoveTargets.length > 0}
+                <button
+                  class={menuItemClass()}
+                  type="button"
+                  role="menuitem"
+                  aria-expanded={folderMoveMenuOpen}
+                  onclick={() => {
+                    folderMoveMenuOpen = !folderMoveMenuOpen;
+                    moveMenuOpen = false;
+                  }}
+                >
+                  <FolderTree class="size-4" />
+                  <span>{t("notes.movePageToFolder")}</span>
+                </button>
+                {#if folderMoveMenuOpen}
+                  <div class="my-1 max-h-72 overflow-auto border-y border-border bg-muted/25 py-1">
+                    <NotesDestinationPickerList
+                      targets={folderMoveTargets}
+                      searchLabel={t("notes.moveDestinationSearch")}
+                      searchPlaceholder={t("notes.moveDestinationSearchPlaceholder")}
+                      recentLabel={t("notes.recentDestinations")}
+                      pagesLabel={t("notes.folders")}
+                      emptyLabel={t("notes.noFolderMoveTargets")}
+                      optionLabel={(target) => t("notes.movePageToFolderTarget", target.title)}
+                      onSelect={moveToFolderTarget}
+                      onClose={() => {
+                        folderMoveMenuOpen = false;
+                      }}
+                    />
+                  </div>
+                {/if}
               {/if}
               <button
                 class={menuItemClass()}
@@ -722,29 +830,25 @@
       <div class="mx-auto flex w-full max-w-208 flex-col px-4 pb-12 pt-8 sm:px-8">
         <div class="notes-page-title-surface group/title min-w-0 pb-5">
           <div class="-ml-1.5 mb-2 flex min-h-8 flex-wrap items-center gap-1.5 opacity-0 transition-opacity group-hover/title:opacity-100 group-focus-within/title:opacity-100">
-            <div
-              class="relative"
-              use:dismissOnOutside={{ enabled: iconMenuAnchor === "title", onDismiss: closeIconMenu }}
+            <IconPicker
+              value={notesPageIconPickerValue(page.icon)}
+              ariaLabel={page.icon ? t("notes.changePageIcon") : t("notes.addPageIcon")}
+              allowIconColors
+              uploadAdapter={notesIconUploadAdapter}
+              onChange={updatePageIconFromPicker}
             >
-              <button
-                class="inline-flex max-w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-[0.8rem] text-muted-foreground hover:bg-accent hover:text-foreground"
-                type="button"
-                aria-label={page.icon ? t("notes.changePageIcon") : t("notes.addPageIcon")}
-                onclick={() => toggleIconMenu("title")}
-              >
-                <SmilePlus class="size-3.5" />
-                <span class="truncate">{page.icon ? t("notes.changePageIcon") : t("notes.addPageIcon")}</span>
-              </button>
-              {#if iconMenuAnchor === "title"}
-                <NotesPageIconMenu
-                  icon={page.icon}
-                  onSelect={(icon) => {
-                    iconMenuAnchor = null;
-                    void notes.updatePageIcon(page.id, icon);
-                  }}
-                />
-              {/if}
-            </div>
+              {#snippet trigger({ open, toggle })}
+                <button
+                  class={`inline-flex max-w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-[0.8rem] text-muted-foreground hover:bg-accent hover:text-foreground ${open ? "bg-accent text-foreground" : ""}`}
+                  type="button"
+                  aria-label={page.icon ? t("notes.changePageIcon") : t("notes.addPageIcon")}
+                  onclick={() => prepareIconPicker(toggle)}
+                >
+                  <SmilePlus class="size-3.5" />
+                  <span class="truncate">{page.icon ? t("notes.changePageIcon") : t("notes.addPageIcon")}</span>
+                </button>
+              {/snippet}
+            </IconPicker>
             <div
               class="relative"
               use:dismissOnOutside={{ enabled: coverMenuOpen, onDismiss: closeCoverMenu }}
@@ -780,29 +884,27 @@
           </div>
 
           {#if page.icon}
-            <div
-              class="relative mb-3 inline-flex"
-              use:dismissOnOutside={{ enabled: iconMenuAnchor === "page-icon", onDismiss: closeIconMenu }}
-            >
-              <button
-                class="flex size-16 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-                type="button"
-                aria-label={t("notes.changePageIcon")}
-                data-app-tooltip={t("notes.changePageIcon")}
-                onclick={() => toggleIconMenu("page-icon")}
+            <div class="mb-3 inline-flex">
+              <IconPicker
+                value={notesPageIconPickerValue(page.icon)}
+                ariaLabel={t("notes.changePageIcon")}
+                allowIconColors
+                uploadAdapter={notesIconUploadAdapter}
+                onChange={updatePageIconFromPicker}
               >
-                <NotesPageIcon icon={page.icon} size={48} class="shrink-0" />
-                <span class="sr-only">{pageIconLabel}</span>
-              </button>
-              {#if iconMenuAnchor === "page-icon"}
-                <NotesPageIconMenu
-                  icon={page.icon}
-                  onSelect={(icon) => {
-                    iconMenuAnchor = null;
-                    void notes.updatePageIcon(page.id, icon);
-                  }}
-                />
-              {/if}
+                {#snippet trigger({ open, toggle })}
+                  <button
+                    class={`flex size-16 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground ${open ? "bg-accent text-foreground" : ""}`}
+                    type="button"
+                    aria-label={t("notes.changePageIcon")}
+                    data-app-tooltip={t("notes.changePageIcon")}
+                    onclick={() => prepareIconPicker(toggle)}
+                  >
+                    <NotesPageIcon icon={page.icon} size={48} class="shrink-0" />
+                    <span class="sr-only">{pageIconLabel}</span>
+                  </button>
+                {/snippet}
+              </IconPicker>
             </div>
           {/if}
 

@@ -11,6 +11,7 @@ fn backlinks_include_visible_child_page_blocks() {
                 id: PAGE_B.to_string(),
                 title: "Nested".to_string(),
                 parent: page_parent(PAGE_A),
+                folder_id: None,
                 first_block_id: BLOCK_B.to_string(),
                 after_block_id: None,
                 properties: None,

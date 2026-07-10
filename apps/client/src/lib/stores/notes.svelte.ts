@@ -3,12 +3,14 @@ import {
   addNotesPageAlias,
   applyNotesPageTemplate,
   archiveNotesPage,
+  createNotesFolder,
   createNotesChildPageFromBlock,
   createNotesComment,
   createNotesPage,
   createNotesPageTemplateFromPage,
   createNotesSuggestion,
   deleteNotesComment,
+  deleteNotesFolder,
   deleteNotesPageAlias,
   deleteNotesPageTemplate,
   duplicateNotesPage,
@@ -21,6 +23,7 @@ import {
   importNotesNotionExportFolder,
   listNotesBacklinks,
   listNotesComments,
+  listNotesFolders,
   listNotesPageAliases,
   listNotesPages,
   listNotesPageTemplates,
@@ -42,6 +45,7 @@ import {
   searchNotes,
   trashNotesPage,
   updateNotesComment,
+  updateNotesFolder,
   updateNotesLocalUser,
   updateNotesPage,
   updateNotesPageTemplate,
@@ -110,10 +114,12 @@ import {
   initialNotesFavoritePageIds,
   initialNotesRecentPageIds,
   initialNotesSelectedPageId,
+  initialNotesSidebarCollapsedFolderIds,
   initialNotesSidebarExpandedPageIds,
   saveNotesFavoritePageIds,
   saveNotesRecentPageIds,
   saveNotesSelectedPageId,
+  saveNotesSidebarCollapsedFolderIds,
   saveNotesSidebarExpandedPageIds,
 } from "./notes-store-page-state";
 import { createNotesBlockPersistence } from "./notes-store-persistence";
@@ -122,6 +128,7 @@ import type {
   NotesBacklink,
   NotesCommentAnchorCreate,
   NotesColumnBlockItems,
+  NotesFolder,
   NotesBlockTreeItem,
   NotesBlockType,
   NotesCommentParent,
@@ -172,6 +179,7 @@ const CHILDREN_PAGE_SIZE = 100;
 
 let pages = $state<NotesPage[]>([]);
 let allPages = $state<NotesPage[]>([]);
+let folders = $state<NotesFolder[]>([]);
 let archivedPages = $state<NotesPage[]>([]);
 let trashedPages = $state<NotesPage[]>([]);
 let pageTemplates = $state<NotesPageTemplate[]>([]);
@@ -179,6 +187,7 @@ let selectedPageId = $state<string | null>(initialNotesSelectedPageId());
 let pageOpenMode = $state<NotesPageOpenMode>("full");
 let favoritePageIds = $state<string[]>(initialNotesFavoritePageIds());
 let recentPageIds = $state<string[]>(initialNotesRecentPageIds());
+let collapsedFolderIds = $state<string[]>(initialNotesSidebarCollapsedFolderIds());
 let sidebarExpandedPageIds = $state<string[]>(initialNotesSidebarExpandedPageIds());
 let sidebarPageIdsWithChildren = $state<string[]>([]);
 let sidebarMissingParentPageIds = $state<string[]>([]);
@@ -329,6 +338,16 @@ function replaceAllPages(nextPages: NotesPage[]): void {
   allPages = [...nextPages];
 }
 
+function replaceFolders(nextFolders: NotesFolder[]): void {
+  folders = [...nextFolders];
+}
+
+function upsertFolder(folder: NotesFolder): void {
+  folders = folders.some((item) => item.id === folder.id)
+    ? folders.map((item) => (item.id === folder.id ? folder : item))
+    : [...folders, folder];
+}
+
 function upsertPageInActiveCollections(page: NotesPage): void {
   pages = pages.some((item) => item.id === page.id)
     ? pages.map((item) => (item.id === page.id ? page : item))
@@ -419,16 +438,18 @@ async function loadAllChildrenForVisibleTree(): Promise<void> {
 }
 
 async function reloadPages(selectedPageIdOverride: string | null = selectedPageId): Promise<void> {
-  const [sidebarPages, nextAllPages] = await Promise.all([
+  const [sidebarPages, nextAllPages, nextFolders] = await Promise.all([
     listNotesSidebarPages({
       expanded_page_ids: [...sidebarExpandedPageIds],
       seed_page_ids: sidebarSeedPageIds(),
       selected_page_id: selectedPageIdOverride,
     }),
     listNotesPages(),
+    listNotesFolders(),
   ]);
   replacePages(sidebarPages.pages);
   replaceAllPages(nextAllPages);
+  replaceFolders(nextFolders);
   sidebarPageIdsWithChildren = [...sidebarPages.page_ids_with_children];
   sidebarMissingParentPageIds = [...sidebarPages.missing_parent_page_ids];
   sidebarTrashedParentPageIds = [...sidebarPages.trashed_parent_page_ids];
@@ -1084,6 +1105,12 @@ function pageProjectIdForParent(
   options: NotesCreatePageOptions,
 ): string | null {
   if ("projectId" in options) return normalizeNotesProjectId(options.projectId);
+  const folderId = options.folderId?.trim();
+  if (parent.type === "workspace" && folderId) {
+    return normalizeNotesProjectId(
+      folders.find((folder) => folder.id === folderId)?.project_id,
+    );
+  }
   if (parent.type !== "page_id") return null;
   const parentPage = allPages.find((page) => page.id === parent.page_id)
     ?? (loadedPage?.id === parent.page_id ? loadedPage : null);
@@ -1098,15 +1125,20 @@ async function createPageWithParent(
   const pageId = crypto.randomUUID();
   const firstBlockId = crypto.randomUUID();
   const projectId = pageProjectIdForParent(parent, options);
+  const folderId = parent.type === "workspace"
+    ? options.folderId?.trim() || null
+    : null;
   const projectProperties = notesPageProjectProperties(projectId);
   const loaded = await createNotesPage({
     id: pageId,
     title,
     parent,
+    folder_id: folderId,
     first_block_id: firstBlockId,
     after_block_id: null,
     properties: projectProperties,
   });
+  if (loaded.page.folder_id) setFolderCollapsed(loaded.page.folder_id, false);
   openSelectedPage(loaded.page.id, defaultNotesPageOpenMode(projectId));
   recordRecentPage(loaded.page.id);
   await reloadPages();
@@ -1289,6 +1321,71 @@ async function deletePageTemplate(templateId: string): Promise<void> {
   pageTemplates = pageTemplates.filter((template) => template.id !== deletedTemplateId);
 }
 
+async function createFolder(
+  projectId: string,
+  name: string,
+  parentFolderId: string | null,
+): Promise<NotesFolder> {
+  const normalizedProjectId = normalizeNotesProjectId(projectId);
+  const normalizedName = name.trim();
+  const normalizedParentFolderId = parentFolderId?.trim() || null;
+  if (!normalizedProjectId) throw new Error("folder project id must not be empty");
+  if (!normalizedName) throw new Error("folder name must not be empty");
+  const folder = await createNotesFolder({
+    id: crypto.randomUUID(),
+    project_id: normalizedProjectId,
+    parent_folder_id: normalizedParentFolderId,
+    name: normalizedName,
+  });
+  upsertFolder(folder);
+  if (normalizedParentFolderId) setFolderCollapsed(normalizedParentFolderId, false);
+  return folder;
+}
+
+async function renameFolder(folderId: string, name: string): Promise<void> {
+  const normalizedName = name.trim();
+  if (!normalizedName) throw new Error("folder name must not be empty");
+  const currentFolder = folders.find((folder) => folder.id === folderId);
+  if (!currentFolder) throw new Error("notes folder not found");
+  upsertFolder(await updateNotesFolder(folderId, {
+    name: normalizedName,
+    parent_folder_id: currentFolder.parent_folder_id,
+  }));
+}
+
+async function moveFolder(folderId: string, parentFolderId: string | null): Promise<void> {
+  const normalizedParentFolderId = parentFolderId?.trim() || null;
+  const currentFolder = folders.find((folder) => folder.id === folderId);
+  if (!currentFolder) throw new Error("notes folder not found");
+  upsertFolder(
+    await updateNotesFolder(folderId, {
+      name: currentFolder.name,
+      parent_folder_id: normalizedParentFolderId,
+    }),
+  );
+  if (normalizedParentFolderId) setFolderCollapsed(normalizedParentFolderId, false);
+}
+
+async function deleteFolder(folderId: string): Promise<void> {
+  const deletedFolderId = await deleteNotesFolder(folderId);
+  folders = folders.filter((folder) => folder.id !== deletedFolderId);
+  setFolderCollapsed(deletedFolderId, false);
+  await reloadPages();
+}
+
+function setFolderCollapsed(folderId: string, collapsed: boolean): void {
+  const normalizedFolderId = folderId.trim();
+  if (!normalizedFolderId) return;
+  const next = collapsed
+    ? [
+        normalizedFolderId,
+        ...collapsedFolderIds.filter((candidate) => candidate !== normalizedFolderId),
+      ]
+    : collapsedFolderIds.filter((candidate) => candidate !== normalizedFolderId);
+  collapsedFolderIds = next;
+  saveNotesSidebarCollapsedFolderIds(next);
+}
+
 function setSidebarPageCollapsed(pageId: string, collapsed: boolean): void {
   const normalizedPageId = pageId.trim();
   if (!normalizedPageId) return;
@@ -1355,6 +1452,7 @@ async function createChildPageAfterBlock(blockId: string): Promise<void> {
     id: pageId,
     title: "",
     parent: block.parent,
+    folder_id: null,
     first_block_id: firstBlockId,
     after_block_id: blockId,
     properties: projectProperties,
@@ -1397,6 +1495,7 @@ async function duplicatePage(pageId: string, title: string): Promise<void> {
   if (loaded.page.parent.type === "page_id") {
     setSidebarPageCollapsed(loaded.page.parent.page_id, false);
   }
+  if (loaded.page.folder_id) setFolderCollapsed(loaded.page.folder_id, false);
   openSelectedPage(loaded.page.id, defaultNotesPageOpenMode());
   recordRecentPage(loaded.page.id);
   await reloadPages();
@@ -1415,11 +1514,29 @@ async function duplicatePage(pageId: string, title: string): Promise<void> {
 }
 
 async function movePage(pageId: string, parent: NotesParent): Promise<void> {
+  await movePageWithPlacement(pageId, parent, null);
+}
+
+async function movePageToFolder(pageId: string, folderId: string | null): Promise<void> {
+  const normalizedFolderId = folderId?.trim() || null;
+  await movePageWithPlacement(
+    pageId,
+    { type: "workspace", workspace: true },
+    normalizedFolderId,
+  );
+}
+
+async function movePageWithPlacement(
+  pageId: string,
+  parent: NotesParent,
+  folderId: string | null,
+): Promise<void> {
   await flushPendingBlockSaves();
-  const loaded = await moveNotesPage(pageId, { parent });
+  const loaded = await moveNotesPage(pageId, { parent, folder_id: folderId });
   if (loaded.page.parent.type === "page_id") {
     setSidebarPageCollapsed(loaded.page.parent.page_id, false);
   }
+  if (loaded.page.folder_id) setFolderCollapsed(loaded.page.folder_id, false);
   openSelectedPage(loaded.page.id, defaultNotesPageOpenMode());
   recordRecentPage(loaded.page.id);
   await reloadPages();
@@ -1777,6 +1894,9 @@ export function getNotes() {
     get allPages(): NotesPage[] {
       return allPages;
     },
+    get folders(): NotesFolder[] {
+      return folders;
+    },
     get archivedPages(): NotesPage[] {
       return archivedPages;
     },
@@ -1791,6 +1911,9 @@ export function getNotes() {
     },
     get recentPageIds(): readonly string[] {
       return recentPageIds;
+    },
+    get collapsedFolderIds(): readonly string[] {
+      return collapsedFolderIds;
     },
     get sidebarExpandedPageIds(): readonly string[] {
       return sidebarExpandedPageIds;
@@ -2009,6 +2132,10 @@ export function getNotes() {
     showSelectedPageAs,
     createPage,
     createSubpage,
+    createFolder,
+    renameFolder,
+    moveFolder,
+    deleteFolder,
     importHtmlPage,
     importNotionApi,
     importNotionExportFolder,
@@ -2034,6 +2161,7 @@ export function getNotes() {
     renamePage,
     duplicatePage,
     movePage,
+    movePageToFolder,
     archivePage,
     unarchivePage,
     trashPage,
@@ -2082,6 +2210,7 @@ export function getNotes() {
     isOnlyBlock,
     focusBlock,
     setPageFavorited,
+    setFolderCollapsed,
     setSidebarPageCollapsed,
     updatePageIcon,
     updatePageCover,

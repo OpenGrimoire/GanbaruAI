@@ -198,6 +198,7 @@ pub(in crate::notes) async fn record_page_snapshot_tx(
             parent_page_id,
             parent_block_id,
             parent_data_source_id,
+            folder_id,
             title,
             properties,
             icon,
@@ -212,7 +213,7 @@ pub(in crate::notes) async fn record_page_snapshot_tx(
             page_created_time,
             page_last_edited_time
          )
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&snapshot_id)
     .bind(&page.id)
@@ -220,6 +221,7 @@ pub(in crate::notes) async fn record_page_snapshot_tx(
     .bind(&page.parent_page_id)
     .bind(&page.parent_block_id)
     .bind(&page.parent_data_source_id)
+    .bind(&page.folder_id)
     .bind(&page.title)
     .bind(&page.properties)
     .bind(&page.icon)
@@ -654,6 +656,7 @@ async fn latest_snapshot_matches(
             Option<String>,
             Option<String>,
             Option<String>,
+            Option<String>,
             String,
             String,
             Option<String>,
@@ -668,6 +671,7 @@ async fn latest_snapshot_matches(
                 parent_page_id,
                 parent_block_id,
                 parent_data_source_id,
+                folder_id,
                 title,
                 properties,
                 icon,
@@ -691,6 +695,7 @@ async fn latest_snapshot_matches(
             parent_page_id,
             parent_block_id,
             parent_data_source_id,
+            folder_id,
             title,
             properties,
             icon,
@@ -704,6 +709,7 @@ async fn latest_snapshot_matches(
                 && parent_page_id == page.parent_page_id
                 && parent_block_id == page.parent_block_id
                 && parent_data_source_id == page.parent_data_source_id
+                && folder_id == page.folder_id
                 && title == page.title
                 && properties == page.properties
                 && icon == page.icon
@@ -760,6 +766,7 @@ fn loaded_page_from_snapshot(
         parent_page_id: snapshot.parent_page_id,
         parent_block_id: snapshot.parent_block_id,
         parent_data_source_id: snapshot.parent_data_source_id,
+        folder_id: snapshot.folder_id,
         title: snapshot.title,
         properties: snapshot.properties,
         icon: snapshot.icon,

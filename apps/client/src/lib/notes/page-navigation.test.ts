@@ -17,6 +17,7 @@ function page(id: string, title: string, parent: NotesParent): NotesPage {
     created_time: now,
     last_edited_time: now,
     parent,
+    folder_id: null,
     in_trash: false,
     archived: false,
     icon: null,

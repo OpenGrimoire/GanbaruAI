@@ -4,8 +4,8 @@
   import type { ProjectLucideIconNode } from "$lib/projects/project-lucide-catalog.generated";
   import { serializeProjectIcon } from "$lib/projects/project-icons";
   import { portal } from "$lib/utils/portal";
-  import LucideNodeIcon from "./LucideNodeIcon.svelte";
-  import ProjectIcon from "./ProjectIcon.svelte";
+  import LucideNodeIcon from "$lib/components/projects/LucideNodeIcon.svelte";
+  import ProjectIcon from "$lib/components/projects/ProjectIcon.svelte";
 
   let {
     rootElement = $bindable<HTMLElement | undefined>(),

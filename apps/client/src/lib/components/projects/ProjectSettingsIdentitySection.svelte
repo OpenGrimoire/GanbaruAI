@@ -3,7 +3,7 @@
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { moveTextInputCaretToPointer } from "$lib/utils/text-input-caret";
   import type { ProjectLifecycleStatus } from "$lib/projects/types";
-  import ProjectIconPicker from "./ProjectIconPicker.svelte";
+  import IconPicker from "$lib/components/icon-picker/IconPicker.svelte";
   import ProjectSettingsSectionHeading from "./ProjectSettingsSectionHeading.svelte";
 
   type SelectOption = { value: string; label: string };
@@ -64,7 +64,7 @@
 
       <div class="flex items-center justify-between gap-4 px-1 py-1 max-[480px]:flex-col max-[480px]:items-stretch max-[480px]:gap-2">
         <div class="min-w-0 flex-1 text-[0.866667rem] text-foreground">{t("projects.settings.icon")}</div>
-        <ProjectIconPicker
+        <IconPicker
           value={projectIconDraft}
           ariaLabel={t("projects.settings.selectIcon", projectIconDraft)}
           allowIconColors={false}

@@ -10,6 +10,7 @@ fn search_returns_page_block_and_comment_matches() {
                 id: PAGE_A.to_string(),
                 title: "Target page".to_string(),
                 parent: workspace_parent(),
+                folder_id: None,
                 first_block_id: BLOCK_A.to_string(),
                 after_block_id: None,
                 properties: None,

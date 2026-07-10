@@ -52,6 +52,7 @@ apps/
         components/: reusable Svelte components
           benchmark/: benchmark overlay and diagnostics components
           calendar/: calendar wrappers, session block rendering
+          icon-picker/: shared icon, emoji, custom emoji, and image picker
           music/: player controls, source parsing, playlist management surfaces
           perf/: memory and performance diagnostics components
           pomodoro/: timer display, break screen, idle overlay
@@ -179,7 +180,7 @@ Tauri's platform app config directory stores device-local bootstrap and runtime 
 - Cover edge cases, not just happy paths. Shallow "it exists" tests are worthless.
 - Test names describe behavior, not implementation.
 
-**For UI/component changes:** Agents cannot manually verify the real Tauri app UI from this environment. Do not start a dev server, launch Tauri, or run HTTP smoke checks as a substitute for manual verification. During iterative UI work, do not run full `pnpm -w run validate` after every small visual adjustment. Use the narrowest relevant checks while coding, rely on user manual app inspection for visual confirmation, and run the appropriate completion gate when the batch is ready, when requested, or before committing. If a UI behavior needs more confidence than existing checks provide, add or update focused tests where practical.
+**For UI/component changes:** Agents cannot manually verify the real Tauri app UI from this environment. Do not start a dev server, launch Tauri, or run HTTP smoke checks as a substitute for manual verification. During iterative UI work, do not run full `pnpm -w run validate` after every small visual adjustment. Use the narrowest relevant checks while coding, rely on user manual app inspection for visual confirmation, and run the risk-appropriate completion gate when the batch is ready or when requested. Committing a small UI-only change does not by itself require full validation. If a UI behavior needs more confidence than existing checks provide, add or update focused tests where practical.
 
 **Validation policy for agent work:**
 - The root `check`, `test`, and `validate` scripts intentionally cap tool concurrency. Use those scripts for broad local verification instead of direct full-suite `turbo`, `vitest`, or `cargo` commands.
@@ -189,9 +190,9 @@ Tauri's platform app config directory stores device-local bootstrap and runtime 
 - Confirm that focused Vitest runs report only the requested files. Stop and correct the command if the full suite starts unexpectedly.
 - Start with the narrowest useful command. Use affected Vitest files for focused TypeScript tests and filtered Cargo tests for focused Rust tests where practical.
 - For trivial, mechanically obvious edits with no plausible impact on compilation, types, styling, behavior, generated output, persisted data, or public interfaces, do not run checks unless a relevant workflow requires them. Examples include changing existing copy text, renaming a visible label without changing keys, adjusting punctuation, or replacing one imported icon with another from the same library in an already type-compatible slot.
-- For small UI-only or docs-only edits, do not run `pnpm -w run validate` merely because files changed. Run `pnpm -w run check` or `pnpm -w run editor-check` when the edit affects Svelte compilation, TypeScript, Tailwind classes, or shared UI structure. Run focused tests only when behavior changes.
+- For small UI-only or docs-only edits, do not run `pnpm -w run validate` merely because files changed, the task is complete, or the user asks for a commit. Run `pnpm -w run check` or `pnpm -w run editor-check` when the edit affects Svelte compilation, TypeScript, Tailwind classes, or shared UI structure. Run focused tests only when behavior changes.
 - For backend, persistence, SQLite, import/export, migrations, project membership, note saving, or other data-loss-sensitive changes, run focused Rust or Vitest tests immediately, then a broader gate before committing.
-- Run `pnpm -w run validate` before committing code, opening a PR, handing off release-ready work, or when the user explicitly requests full validation. For trivial no-risk commits that do not touch code, types, styling, build inputs, generated output, persisted data, package metadata, documented commands, or executable workflows, do not run validation only to commit. If the user asks to commit a batch that has already passed `validate` and no code or generated output changed afterward, do not rerun full validation just to commit.
+- Run `pnpm -w run validate` before opening a PR, before a release, when the risk-specific rules above require a broader gate, or when the user explicitly requests full validation. Ordinary completion of an uncommitted task is not a release-ready handoff, and creating a commit does not automatically require full validation. If a batch already passed `validate`, do not rerun it unless later changes materially affect the behavior covered by that gate; use narrow checks for later isolated changes.
 - Run `pnpm -w run validate:full` for dependency, lockfile, security, release, and audit-sensitive work, or when explicitly requested.
 - Do not repeat full validation after unrelated clean status checks unless the code or generated output changed again.
 
@@ -207,7 +208,7 @@ Tauri's platform app config directory stores device-local bootstrap and runtime 
 - `pnpm -w run audit:deps`: npm advisory audit for workspace dependencies. Run for dependency or lockfile changes, before PRs, before releases, and when investigating security alerts.
 - `pnpm -w run audit:rust`: RustSec audit for cargo dependencies. Run for dependency or lockfile changes, before PRs, before releases, and when investigating security alerts. Reviewed ignores live in `.cargo/audit.toml` and must be documented in `docs/data/security.md`.
 - `pnpm -w run audit`: both dependency audits (`audit:deps` + `audit:rust`).
-- `pnpm -w run validate`: full normal gate (check + test + editor-check). Run before commits, PRs, release-ready handoffs, and explicit full-validation requests. All errors must be fixed before treating that gate as passed.
+- `pnpm -w run validate`: full normal gate (check + test + editor-check). Run before PRs, releases, risk-sensitive completion gates, and explicit full-validation requests. Do not treat ordinary task completion or a commit alone as requiring this gate. All errors must be fixed before treating that gate as passed.
 - `pnpm -w run validate:full`: security and code gate (audit + validate). Run for dependency or lockfile changes, before PRs, before releases, and when explicitly requested.
 - `pnpm test:coverage` (from apps/client): coverage report to see what's tested.
 

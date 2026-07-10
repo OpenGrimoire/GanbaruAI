@@ -9,8 +9,9 @@ use serde_json::{json, Value};
 use sqlx::{QueryBuilder, Row, Sqlite, SqlitePool, Transaction};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-const RESTORE_TABLE_ORDER: [&str; 15] = [
+const RESTORE_TABLE_ORDER: [&str; 16] = [
     "notes_assets",
+    "notes_folders",
     "notes_pages",
     "notes_blocks",
     "notes_databases",
@@ -141,6 +142,7 @@ pub(super) async fn restore_version(
     )
     .await?;
     let current = super::scope::load_project_graph(pool, &project_id).await?;
+    let current_folder_ids = ids(&current.rows_by_table, "notes_folders");
     let current_page_ids = ids(&current.rows_by_table, "notes_pages");
     let historical_page_ids = ids(&historical, "notes_pages");
     let mut tx = pool
@@ -160,6 +162,7 @@ pub(super) async fn restore_version(
     suppress_historical_notifications(&mut historical);
     preserve_legacy_page_history_tx(&mut tx, &historical_page_ids).await?;
     delete_current_project_pages_tx(&mut tx, &current_page_ids).await?;
+    delete_current_project_folders_tx(&mut tx, &current_folder_ids).await?;
     insert_historical_rows_tx(&mut tx, &historical).await?;
     restore_preserved_legacy_page_history_tx(&mut tx).await?;
     append_restore_operations_tx(&mut tx, &historical, version_id).await?;
@@ -740,6 +743,27 @@ async fn delete_current_project_pages_tx(
     Ok(())
 }
 
+async fn delete_current_project_folders_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    folder_ids: &HashSet<String>,
+) -> Result<(), String> {
+    if folder_ids.is_empty() {
+        return Ok(());
+    }
+    let mut query = QueryBuilder::<Sqlite>::new("DELETE FROM notes_folders WHERE id IN (");
+    let mut separated = query.separated(", ");
+    for id in folder_ids {
+        separated.push_bind(id);
+    }
+    separated.push_unseparated(")");
+    query
+        .build()
+        .execute(&mut **tx)
+        .await
+        .map_err(|e| format!("remove current project Notes folders before restore: {e}"))?;
+    Ok(())
+}
+
 async fn insert_historical_rows_tx(
     tx: &mut Transaction<'_, Sqlite>,
     rows: &BTreeMap<String, Vec<Value>>,
@@ -748,6 +772,12 @@ async fn insert_historical_rows_tx(
         let Some(table_rows) = rows.get(table) else {
             continue;
         };
+        if table == "notes_folders" {
+            for row in folder_rows_in_restore_order(table_rows)? {
+                insert_json_row_tx(tx, table, row, false).await?;
+            }
+            continue;
+        }
         for row in table_rows {
             insert_json_row_tx(tx, table, row, table == "notes_assets").await?;
         }
@@ -758,6 +788,38 @@ async fn insert_historical_rows_tx(
         }
     }
     Ok(())
+}
+
+fn folder_rows_in_restore_order(rows: &[Value]) -> Result<Vec<&Value>, String> {
+    let mut pending = rows.iter().collect::<Vec<_>>();
+    let mut inserted_ids = HashSet::new();
+    let mut ordered = Vec::with_capacity(rows.len());
+    while !pending.is_empty() {
+        let pending_count = pending.len();
+        let mut deferred = Vec::new();
+        for row in pending {
+            let id = required_row_text(row, "id", "folder")?;
+            let parent_id = json_optional_string(row, "parent_folder_id");
+            if parent_id
+                .as_ref()
+                .is_some_and(|parent_id| !inserted_ids.contains(parent_id))
+            {
+                deferred.push(row);
+                continue;
+            }
+            if !inserted_ids.insert(id) {
+                return Err("restored Notes folder ids must be unique".to_string());
+            }
+            ordered.push(row);
+        }
+        if deferred.len() == pending_count {
+            return Err(
+                "restored Notes folder hierarchy has a cycle or missing parent".to_string(),
+            );
+        }
+        pending = deferred;
+    }
+    Ok(ordered)
 }
 
 async fn insert_json_row_tx(
@@ -800,4 +862,184 @@ async fn insert_json_row_tx(
         .await
         .map_err(|e| format!("restore Notes history row in {table}: {e}"))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{folder_rows_in_restore_order, restore_version};
+    use crate::{db::run_migrations, notes::project_history::create_checkpoint};
+    use serde_json::json;
+    use sqlx::SqlitePool;
+
+    const PROJECT_ID: &str = "10101010-1010-4010-8010-101010101010";
+    const ROOT_FOLDER_ID: &str = "20202020-2020-4020-8020-202020202020";
+    const EMPTY_FOLDER_ID: &str = "30303030-3030-4030-8030-303030303030";
+    const LATER_FOLDER_ID: &str = "40404040-4040-4040-8040-404040404040";
+    const PAGE_ID: &str = "50505050-5050-4050-8050-505050505050";
+
+    async fn migrated_pool() -> SqlitePool {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::raw_sql("PRAGMA foreign_keys=ON")
+            .execute(&pool)
+            .await
+            .unwrap();
+        run_migrations(&pool).await.unwrap();
+        pool
+    }
+
+    #[test]
+    fn folder_restore_order_places_each_parent_before_its_children() {
+        let rows = vec![
+            json!({ "id": "child", "parent_folder_id": "root" }),
+            json!({ "id": "grandchild", "parent_folder_id": "child" }),
+            json!({ "id": "root", "parent_folder_id": null }),
+        ];
+
+        let ordered = folder_rows_in_restore_order(&rows).unwrap();
+        let ids = ordered
+            .iter()
+            .map(|row| row["id"].as_str().unwrap())
+            .collect::<Vec<_>>();
+
+        assert_eq!(ids, vec!["root", "child", "grandchild"]);
+    }
+
+    #[test]
+    fn folder_restore_order_rejects_cycles_and_missing_parents() {
+        let cycle = vec![
+            json!({ "id": "first", "parent_folder_id": "second" }),
+            json!({ "id": "second", "parent_folder_id": "first" }),
+        ];
+        let missing_parent = vec![json!({
+            "id": "child",
+            "parent_folder_id": "missing"
+        })];
+
+        assert!(folder_rows_in_restore_order(&cycle).is_err());
+        assert!(folder_rows_in_restore_order(&missing_parent).is_err());
+    }
+
+    #[test]
+    fn project_restore_preserves_empty_folders_and_page_folder_membership() {
+        tauri::async_runtime::block_on(async {
+            let pool = migrated_pool().await;
+            sqlx::query("INSERT INTO project_groups (id, name) VALUES ('folder-history', 'Notes')")
+                .execute(&pool)
+                .await
+                .unwrap();
+            sqlx::query(
+                "INSERT INTO projects (id, group_id, name)
+                 VALUES (?, 'folder-history', 'Folder history')",
+            )
+            .bind(PROJECT_ID)
+            .execute(&pool)
+            .await
+            .unwrap();
+            sqlx::query(
+                "INSERT INTO notes_folders (id, project_id, name)
+                 VALUES (?, ?, 'Root')",
+            )
+            .bind(ROOT_FOLDER_ID)
+            .bind(PROJECT_ID)
+            .execute(&pool)
+            .await
+            .unwrap();
+            sqlx::query(
+                "INSERT INTO notes_folders (id, project_id, parent_folder_id, name)
+                 VALUES (?, ?, ?, 'Empty')",
+            )
+            .bind(EMPTY_FOLDER_ID)
+            .bind(PROJECT_ID)
+            .bind(ROOT_FOLDER_ID)
+            .execute(&pool)
+            .await
+            .unwrap();
+            sqlx::query(
+                "INSERT INTO notes_pages (id, parent_type, folder_id, title, properties)
+                 VALUES (?, 'workspace', ?, 'Folder note',
+                         json_object('__ganbaru_project_id', ?, 'title', json_object()))",
+            )
+            .bind(PAGE_ID)
+            .bind(ROOT_FOLDER_ID)
+            .bind(PROJECT_ID)
+            .execute(&pool)
+            .await
+            .unwrap();
+            let baseline = create_checkpoint(
+                &pool,
+                PROJECT_ID,
+                "baseline",
+                None,
+                None,
+                "Initial folder version",
+            )
+            .await
+            .unwrap()
+            .unwrap();
+
+            sqlx::query("UPDATE notes_folders SET name = 'Renamed' WHERE id = ?")
+                .bind(ROOT_FOLDER_ID)
+                .execute(&pool)
+                .await
+                .unwrap();
+            sqlx::query("DELETE FROM notes_folders WHERE id = ?")
+                .bind(EMPTY_FOLDER_ID)
+                .execute(&pool)
+                .await
+                .unwrap();
+            sqlx::query(
+                "INSERT INTO notes_folders (id, project_id, name)
+                 VALUES (?, ?, 'Later')",
+            )
+            .bind(LATER_FOLDER_ID)
+            .bind(PROJECT_ID)
+            .execute(&pool)
+            .await
+            .unwrap();
+            sqlx::query("UPDATE notes_pages SET folder_id = ? WHERE id = ?")
+                .bind(LATER_FOLDER_ID)
+                .bind(PAGE_ID)
+                .execute(&pool)
+                .await
+                .unwrap();
+
+            restore_version(&pool, PROJECT_ID, &baseline.id)
+                .await
+                .unwrap();
+
+            let root_name: String =
+                sqlx::query_scalar("SELECT name FROM notes_folders WHERE id = ?")
+                    .bind(ROOT_FOLDER_ID)
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+            let empty_parent_id: Option<String> =
+                sqlx::query_scalar("SELECT parent_folder_id FROM notes_folders WHERE id = ?")
+                    .bind(EMPTY_FOLDER_ID)
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+            let later_folder_count: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM notes_folders WHERE id = ?")
+                    .bind(LATER_FOLDER_ID)
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+            let page_folder_id: Option<String> =
+                sqlx::query_scalar("SELECT folder_id FROM notes_pages WHERE id = ?")
+                    .bind(PAGE_ID)
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+
+            assert_eq!(root_name, "Root");
+            assert_eq!(empty_parent_id.as_deref(), Some(ROOT_FOLDER_ID));
+            assert_eq!(later_folder_count, 0);
+            assert_eq!(page_folder_id.as_deref(), Some(ROOT_FOLDER_ID));
+        });
+    }
 }

@@ -232,6 +232,119 @@ fn schema_creates_normalized_notes_database_tables() {
 }
 
 #[test]
+fn schema_enforces_notes_folder_placement_invariants() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        let folder_table: Option<i64> = sqlx::query_scalar(
+            "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'notes_folders'",
+        )
+        .fetch_optional(&pool)
+        .await
+        .unwrap();
+        assert_eq!(folder_table, Some(1));
+        let folder_column: Option<i64> = sqlx::query_scalar(
+            "SELECT 1 FROM pragma_table_info('notes_pages') WHERE name = 'folder_id'",
+        )
+        .fetch_optional(&pool)
+        .await
+        .unwrap();
+        assert_eq!(folder_column, Some(1));
+
+        sqlx::query("INSERT INTO project_groups (id, name) VALUES ('folder-group', 'Folders')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO projects (id, group_id, name)
+             VALUES ('folder-project-a', 'folder-group', 'A'),
+                    ('folder-project-b', 'folder-group', 'B')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO notes_folders (id, project_id, name)
+             VALUES ('folder-a', 'folder-project-a', 'A'),
+                    ('folder-b', 'folder-project-b', 'B')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert!(sqlx::query(
+            "INSERT INTO notes_folders (id, project_id, parent_folder_id, name)
+             VALUES ('folder-cross', 'folder-project-a', 'folder-b', 'Cross project')",
+        )
+        .execute(&pool)
+        .await
+        .is_err());
+
+        sqlx::query(
+            "INSERT INTO notes_folders (id, project_id, parent_folder_id, name)
+             VALUES ('folder-child', 'folder-project-a', 'folder-a', 'Child')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert!(sqlx::query(
+            "UPDATE notes_folders SET parent_folder_id = 'folder-child' WHERE id = 'folder-a'",
+        )
+        .execute(&pool)
+        .await
+        .is_err());
+
+        sqlx::query(
+            "INSERT INTO notes_pages (id, parent_type, folder_id, title, properties)
+             VALUES (
+                 'folder-page',
+                 'workspace',
+                 'folder-a',
+                 'Folder page',
+                 json_object('__ganbaru_project_id', 'folder-project-a')
+             )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert!(sqlx::query(
+            "INSERT INTO notes_pages (id, parent_type, folder_id, title, properties)
+             VALUES (
+                 'wrong-project-page',
+                 'workspace',
+                 'folder-a',
+                 'Wrong project',
+                 json_object('__ganbaru_project_id', 'folder-project-b')
+             )",
+        )
+        .execute(&pool)
+        .await
+        .is_err());
+        assert!(sqlx::query(
+            "INSERT INTO notes_pages (
+                id, parent_type, parent_page_id, folder_id, title, properties
+             ) VALUES (
+                 'nested-folder-page',
+                 'page_id',
+                 'folder-page',
+                 'folder-a',
+                 'Invalid nested folder page',
+                 json_object('__ganbaru_project_id', 'folder-project-a')
+             )",
+        )
+        .execute(&pool)
+        .await
+        .is_err());
+        assert!(sqlx::query(
+            "UPDATE notes_pages
+             SET properties = json_object('__ganbaru_project_id', 'folder-project-b')
+             WHERE id = 'folder-page'",
+        )
+        .execute(&pool)
+        .await
+        .is_err());
+    });
+}
+
+#[test]
 fn schema_validates_project_notes_default_open_mode() {
     tauri::async_runtime::block_on(async {
         let pool = migrated_memory_pool().await;

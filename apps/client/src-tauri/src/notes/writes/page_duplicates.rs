@@ -181,6 +181,11 @@ pub(super) async fn insert_duplicated_page(
     validate_parent(&plan.parent)?;
     let (parent_type, parent_page_id, parent_block_id, parent_data_source_id) =
         page_parent_columns(&plan.parent);
+    let folder_id = if plan.is_root && parent_type == "workspace" {
+        plan.source_page.folder_id.as_deref()
+    } else {
+        None
+    };
     let properties = if plan.duplicate_title == plan.source_page.title {
         plan.source_page.properties.clone()
     } else {
@@ -193,18 +198,20 @@ pub(super) async fn insert_duplicated_page(
             parent_page_id,
             parent_block_id,
             parent_data_source_id,
+            folder_id,
             title,
             properties,
             icon,
             cover
          )
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&plan.duplicate_id)
     .bind(parent_type)
     .bind(parent_page_id)
     .bind(parent_block_id)
     .bind(parent_data_source_id)
+    .bind(folder_id)
     .bind(&plan.duplicate_title)
     .bind(properties)
     .bind(&plan.source_page.icon)

@@ -3,6 +3,7 @@
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { dismissOnOutside } from "$lib/utils/dismiss-on-outside";
   import { NOTES_PAGE_CHROME_EMOJI_SCALE } from "$lib/notes/page-icon";
+  import type { NotesDestinationPickerTarget } from "$lib/notes/destination-picker";
   import type { NotesPageMoveTarget } from "$lib/notes/page-move";
   import type { NotesPageParentStatus } from "$lib/notes/page-tree";
   import { notesPageTitle } from "$lib/notes/page-title";
@@ -13,6 +14,7 @@
   import Copy from "@lucide/svelte/icons/copy";
   import FileText from "@lucide/svelte/icons/file-text";
   import FolderInput from "@lucide/svelte/icons/folder-input";
+  import FolderTree from "@lucide/svelte/icons/folder-tree";
   import MoreHorizontal from "@lucide/svelte/icons/more-horizontal";
   import Pencil from "@lucide/svelte/icons/pencil";
   import Plus from "@lucide/svelte/icons/plus";
@@ -38,6 +40,8 @@
     onDuplicate,
     moveTargets,
     onMove,
+    folderMoveTargets = undefined,
+    onMoveToFolder = undefined,
     onArchive,
     onTrash,
     blockDropActive = false,
@@ -62,6 +66,8 @@
     onDuplicate: () => void;
     moveTargets: NotesPageMoveTarget[];
     onMove: (parent: NotesParent) => void;
+    folderMoveTargets?: (NotesDestinationPickerTarget & { folderId: string | null })[];
+    onMoveToFolder?: (folderId: string | null) => void;
     onArchive: () => void;
     onTrash: () => void;
     blockDropActive?: boolean;
@@ -76,6 +82,7 @@
   let editing = $state(false);
   let menuOpen = $state(false);
   let moveMenuOpen = $state(false);
+  let folderMoveMenuOpen = $state(false);
   let titleDraft = $state("");
   let renameInput = $state<HTMLInputElement | null>(null);
   const title = $derived(
@@ -90,7 +97,10 @@
   });
 
   $effect(() => {
-    if (!menuOpen) moveMenuOpen = false;
+    if (!menuOpen) {
+      moveMenuOpen = false;
+      folderMoveMenuOpen = false;
+    }
   });
 
   $effect(() => {
@@ -109,9 +119,19 @@
     onMove(target.parent);
   }
 
+  function moveToFolderTarget(targetKey: string): void {
+    const target = folderMoveTargets?.find((candidate) => candidate.key === targetKey);
+    if (!target || !onMoveToFolder) return;
+    menuOpen = false;
+    moveMenuOpen = false;
+    folderMoveMenuOpen = false;
+    onMoveToFolder(target.folderId);
+  }
+
   function closeMenu(): void {
     menuOpen = false;
     moveMenuOpen = false;
+    folderMoveMenuOpen = false;
   }
 
   function saveRename(): void {
@@ -283,6 +303,7 @@
         aria-expanded={moveMenuOpen}
         onclick={() => {
           moveMenuOpen = !moveMenuOpen;
+          folderMoveMenuOpen = false;
         }}
       >
         <FolderInput class="size-4" />
@@ -307,6 +328,40 @@
             }}
           />
         </div>
+      {/if}
+      {#if folderMoveTargets && folderMoveTargets.length > 0 && onMoveToFolder}
+        <button
+          class="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[0.8rem] hover:bg-accent"
+          type="button"
+          aria-expanded={folderMoveMenuOpen}
+          onclick={() => {
+            folderMoveMenuOpen = !folderMoveMenuOpen;
+            moveMenuOpen = false;
+          }}
+        >
+          <FolderTree class="size-4" />
+          <span>{t("notes.movePageToFolder")}</span>
+        </button>
+        {#if folderMoveMenuOpen}
+          <div
+            class="notes-page-move-menu border-y border-border bg-muted/25 py-1"
+            aria-label={t("notes.movePageToFolder")}
+          >
+            <NotesDestinationPickerList
+              targets={folderMoveTargets}
+              searchLabel={t("notes.moveDestinationSearch")}
+              searchPlaceholder={t("notes.moveDestinationSearchPlaceholder")}
+              recentLabel={t("notes.recentDestinations")}
+              pagesLabel={t("notes.folders")}
+              emptyLabel={t("notes.noFolderMoveTargets")}
+              optionLabel={(target) => t("notes.movePageToFolderTarget", target.title)}
+              onSelect={moveToFolderTarget}
+              onClose={() => {
+                folderMoveMenuOpen = false;
+              }}
+            />
+          </div>
+        {/if}
       {/if}
       <button
         class="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[0.8rem] hover:bg-accent"

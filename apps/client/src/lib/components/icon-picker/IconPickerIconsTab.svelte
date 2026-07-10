@@ -17,8 +17,8 @@
   } from "$lib/projects/project-lucide-catalog.generated";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { cn } from "$lib/utils";
-  import LucideNodeIcon from "./LucideNodeIcon.svelte";
-  import ProjectIcon from "./ProjectIcon.svelte";
+  import LucideNodeIcon from "$lib/components/projects/LucideNodeIcon.svelte";
+  import ProjectIcon from "$lib/components/projects/ProjectIcon.svelte";
 
   let {
     scrollElement = $bindable<HTMLElement | undefined>(),

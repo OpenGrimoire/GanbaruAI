@@ -1,5 +1,6 @@
 use super::models::{
-    NoteBlockUpdate, NoteBlockWrite, NoteDatabaseCreate, NotePageCreate, NotePageUpdate, NoteParent,
+    NoteBlockUpdate, NoteBlockWrite, NoteDatabaseCreate, NoteFolderCreate, NoteFolderUpdate,
+    NotePageCreate, NotePageUpdate, NoteParent,
 };
 use reqwest::Url;
 use serde_json::Value;
@@ -143,7 +144,51 @@ pub(in crate::notes) fn validate_page_create(page: &NotePageCreate) -> Result<()
     if let Some(properties) = &page.properties {
         validate_json_object(properties, "properties")?;
     }
+    if let Some(folder_id) = page.folder_id.as_deref() {
+        require_uuid(folder_id, "folder_id")?;
+        if !matches!(page.parent, NoteParent::Workspace { workspace: true }) {
+            return Err("folder_id requires a workspace parent".to_string());
+        }
+    }
     validate_parent(&page.parent)
+}
+
+pub(in crate::notes) fn validate_folder_create(folder: &NoteFolderCreate) -> Result<(), String> {
+    require_uuid(folder.id.trim(), "id")?;
+    validate_folder_project_id(&folder.project_id)?;
+    if let Some(parent_folder_id) = folder.parent_folder_id.as_deref() {
+        require_uuid(parent_folder_id.trim(), "parent_folder_id")?;
+    }
+    validate_folder_name(&folder.name)
+}
+
+pub(in crate::notes) fn validate_folder_update(folder: &NoteFolderUpdate) -> Result<(), String> {
+    if let Some(parent_folder_id) = folder.parent_folder_id.as_deref() {
+        require_uuid(parent_folder_id.trim(), "parent_folder_id")?;
+    }
+    validate_folder_name(&folder.name)
+}
+
+pub(in crate::notes) fn validate_folder_project_id(project_id: &str) -> Result<(), String> {
+    let project_id = project_id.trim();
+    if project_id.is_empty() || project_id.len() > 120 {
+        return Err("project_id is invalid".to_string());
+    }
+    Ok(())
+}
+
+fn validate_folder_name(name: &str) -> Result<(), String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("folder name must not be empty".to_string());
+    }
+    if name.chars().count() > 200 {
+        return Err("folder name must not exceed 200 characters".to_string());
+    }
+    if name.chars().any(char::is_control) {
+        return Err("folder name must not contain control characters".to_string());
+    }
+    Ok(())
 }
 
 pub(in crate::notes) fn validate_page_update(update: &NotePageUpdate) -> Result<(), String> {

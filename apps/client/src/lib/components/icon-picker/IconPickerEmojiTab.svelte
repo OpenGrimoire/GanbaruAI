@@ -25,7 +25,7 @@
   import type { ProjectIconValue } from "$lib/projects/project-icons";
   import type { ProjectCustomEmoji } from "$lib/projects/types";
   import { cn } from "$lib/utils";
-  import ProjectIcon from "./ProjectIcon.svelte";
+  import ProjectIcon from "$lib/components/projects/ProjectIcon.svelte";
 
   interface ProjectIconPickerEmojiGroup {
     category: ProjectIconPickerVisibleEmojiCategory;

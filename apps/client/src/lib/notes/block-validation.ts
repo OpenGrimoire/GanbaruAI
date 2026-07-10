@@ -71,6 +71,7 @@ import {
   type NotesDataSourceTimelineView,
   type NotesEmbedBlockPayload,
   type NotesEquationBlockPayload,
+  type NotesFolder,
   type NotesLinkPreviewBlockPayload,
   type NotesLocalUser,
   type NotesLocalObjectMentionType,
@@ -1146,6 +1147,7 @@ export function parseNotesPage(value: unknown): NotesPage {
     created_time: readString(record.created_time, "page.created_time"),
     last_edited_time: readString(record.last_edited_time, "page.last_edited_time"),
     parent: parseNotesParent(record.parent),
+    folder_id: readNullableString(record.folder_id, "page.folder_id"),
     in_trash: readBoolean(record.in_trash, "page.in_trash"),
     archived: typeof record.archived === "boolean" ? record.archived : undefined,
     icon: parseNullableNotesIcon(record.icon, "page.icon"),
@@ -1160,6 +1162,23 @@ export function parseNotesPage(value: unknown): NotesPage {
       record.source_last_edited_time,
       "page.source_last_edited_time",
     ),
+  };
+}
+
+export function parseNotesFolder(value: unknown): NotesFolder {
+  const record = readRecord(value, "folder");
+  if (record.object !== "folder") throw new Error("folder.object must be folder");
+  return {
+    object: "folder",
+    id: readString(record.id, "folder.id"),
+    project_id: readString(record.project_id, "folder.project_id"),
+    parent_folder_id: readNullableString(
+      record.parent_folder_id,
+      "folder.parent_folder_id",
+    ),
+    name: readDisplayString(record.name, "folder.name"),
+    created_time: readString(record.created_time, "folder.created_time"),
+    last_edited_time: readString(record.last_edited_time, "folder.last_edited_time"),
   };
 }
 

@@ -25,6 +25,7 @@ mod data_source_timeline;
 mod data_source_views;
 mod databases;
 mod file_assets;
+mod folders;
 mod history;
 mod html_export;
 mod html_export_archive;
@@ -105,6 +106,46 @@ pub async fn notes_list_sidebar_pages<R: Runtime>(
     let pool = connect_sqlite(app, db_url).await?;
     writes::purge_expired_trashed_pages(&pool).await?;
     reads::list_sidebar_pages(&pool, request).await
+}
+
+#[tauri::command]
+pub async fn notes_list_folders<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+) -> Result<Vec<NoteFolderDto>, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    folders::list_folders(&pool).await
+}
+
+#[tauri::command]
+pub async fn notes_create_folder<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    folder: NoteFolderCreate,
+) -> Result<NoteFolderDto, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    folders::create_folder(&pool, folder).await
+}
+
+#[tauri::command]
+pub async fn notes_update_folder<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    folder_id: String,
+    update: NoteFolderUpdate,
+) -> Result<NoteFolderDto, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    folders::update_folder(&pool, &folder_id, update).await
+}
+
+#[tauri::command]
+pub async fn notes_delete_folder<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    folder_id: String,
+) -> Result<String, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    folders::delete_folder(&pool, &folder_id).await
 }
 
 #[tauri::command]

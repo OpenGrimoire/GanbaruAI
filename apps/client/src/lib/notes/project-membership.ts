@@ -4,6 +4,7 @@ export const NOTES_PAGE_PROJECT_ID_PROPERTY = "__ganbaru_project_id";
 
 export interface NotesCreatePageOptions {
   projectId?: string | null;
+  folderId?: string | null;
 }
 
 export function normalizeNotesProjectId(projectId: string | null | undefined): string | null {

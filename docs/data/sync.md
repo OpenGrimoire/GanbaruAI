@@ -16,11 +16,11 @@ This doc is a placeholder. Deeper design comes in a later pass, alongside phase 
 
 ## What syncs
 
-- **Documents** (notes, diary entries): markdown files, with edits propagated as Yjs operations on a per-file basis.
-- **Structured data** (calendar events, kanban tasks, work environments, project state): SQLite tables, with row-level Yjs documents.
+- **File-backed documents** (diary entries, project documents, and reports): canonical files, with edits propagated through a document-appropriate CRDT.
+- **Structured data and document graphs** (Notes folders, pages, blocks, comments, calendar events, kanban tasks, work environments, and project state): canonical SQLite rows, with typed CRDT documents or operations that preserve graph invariants.
 - **Pomodoro tracking data** (runs, segments, pauses): per-user, scoped to the device. Sync exposes these to other devices the user owns. Other users on shared workspaces never see another user's tracking data.
 
-The two-category storage model (see `data/architecture.md`) is preserved across sync: documents stay markdown on each client; structured data stays SQLite on each client. Sync replicates the operations, not the storage format.
+The two-category storage model (see `data/architecture.md`) is preserved across sync: file-backed documents stay files on each client, while structured data and Notes document graphs stay SQLite on each client. Sync replicates operations, not derivative markdown exports or the storage files themselves.
 
 ## Conflict resolution
 

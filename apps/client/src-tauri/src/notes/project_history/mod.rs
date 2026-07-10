@@ -505,7 +505,16 @@ pub(in crate::notes) async fn mark_page_dirty_tx(
     let Some(project_id) = project_id else {
         return Ok(());
     };
-    if effective_retention_days_tx(tx, &project_id).await? == 0 {
+    mark_project_dirty_tx(tx, &project_id, summary, force_checkpoint).await
+}
+
+pub(in crate::notes) async fn mark_project_dirty_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    project_id: &str,
+    summary: &str,
+    force_checkpoint: bool,
+) -> Result<(), String> {
+    if effective_retention_days_tx(tx, project_id).await? == 0 {
         return Ok(());
     }
     let local_user = local_user::current_local_user_tx(tx).await?;
@@ -532,7 +541,7 @@ pub(in crate::notes) async fn mark_page_dirty_tx(
                 excluded.force_checkpoint
             )",
     )
-    .bind(&project_id)
+    .bind(project_id)
     .bind(&local_user.id)
     .bind(display_name)
     .bind(summary.trim())

@@ -1,13 +1,13 @@
 <script lang="ts">
   import ImageIcon from "@lucide/svelte/icons/image";
-  import type { ProjectIconAsset } from "$lib/api/project-icons";
+  import type { IconPickerAsset } from "$lib/components/icon-picker/types";
   import { getLocalization } from "$lib/i18n/translator.svelte";
-  import ProjectIcon from "./ProjectIcon.svelte";
 
   type ActionResult = void | Promise<void>;
 
   let {
     uploadDraft,
+    uploadPreviewUrl,
     uploadError,
     uploading,
     uploadBodyStyle,
@@ -17,7 +17,8 @@
     onSelectDraft,
     onDownloadUrl,
   }: {
-    uploadDraft: ProjectIconAsset | null;
+    uploadDraft: IconPickerAsset | null;
+    uploadPreviewUrl: string | null;
     uploadError: string | null;
     uploading: boolean;
     uploadBodyStyle: string;
@@ -35,7 +36,15 @@
   {#if uploadDraft}
     <div class="grid gap-3">
       <div class="flex h-36 items-center justify-center rounded-lg bg-muted/45">
-        <ProjectIcon name={`asset:${uploadDraft.relativePath}`} size={112} class="shadow-sm" />
+        {#if uploadPreviewUrl}
+          <img
+            src={uploadPreviewUrl}
+            alt=""
+            class="size-28 rounded-md object-cover shadow-sm"
+          />
+        {:else}
+          <ImageIcon size={48} strokeWidth={1.5} class="text-muted-foreground" />
+        {/if}
       </div>
       <div class="flex items-center justify-between gap-2">
         <button

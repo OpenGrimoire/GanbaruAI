@@ -1,13 +1,19 @@
 <script lang="ts">
-  import { tick } from "svelte";
+  import { tick, type Snippet } from "svelte";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import {
     deleteProjectIconAssetsIfUnreferenced,
     downloadProjectIconImageUrl,
     pickProjectIconImageFile,
+    projectIconAssetUrl,
     saveProjectIconImageDataUrl,
     type ProjectIconAsset,
   } from "$lib/api/project-icons";
+  import type {
+    IconPickerAsset,
+    IconPickerTriggerContext,
+    IconPickerUploadAdapter,
+  } from "$lib/components/icon-picker/types";
   import {
     FALLBACK_COLOR_INDEX,
     type EventColor,
@@ -70,13 +76,13 @@
     getConfigKey,
     setConfigKey,
   } from "$lib/vault/config";
-  import ProjectIcon from "./ProjectIcon.svelte";
-  import ProjectIconPickerCategoryMenu from "./ProjectIconPickerCategoryMenu.svelte";
-  import ProjectIconPickerColorChoicePanel from "./ProjectIconPickerColorChoicePanel.svelte";
-  import ProjectIconPickerCustomEmojiPanel from "./ProjectIconPickerCustomEmojiPanel.svelte";
-  import ProjectIconPickerEmojiTab from "./ProjectIconPickerEmojiTab.svelte";
-  import ProjectIconPickerIconsTab from "./ProjectIconPickerIconsTab.svelte";
-  import ProjectIconPickerUploadPanel from "./ProjectIconPickerUploadPanel.svelte";
+  import ProjectIcon from "$lib/components/projects/ProjectIcon.svelte";
+  import IconPickerCategoryMenu from "./IconPickerCategoryMenu.svelte";
+  import IconPickerColorChoicePanel from "./IconPickerColorChoicePanel.svelte";
+  import IconPickerCustomEmojiPanel from "./IconPickerCustomEmojiPanel.svelte";
+  import IconPickerEmojiTab from "./IconPickerEmojiTab.svelte";
+  import IconPickerIconsTab from "./IconPickerIconsTab.svelte";
+  import IconPickerUploadPanel from "./IconPickerUploadPanel.svelte";
 
   type ProjectIconPickerTab = "emoji" | "icons" | "upload";
   type IconColorChoice = {
@@ -92,12 +98,16 @@
     onChange,
     ariaLabel,
     allowIconColors = true,
+    trigger,
+    uploadAdapter,
     class: className = "",
   }: {
     value: string;
     onChange: (value: string) => void;
     ariaLabel: string;
     allowIconColors?: boolean;
+    trigger?: Snippet<[IconPickerTriggerContext]>;
+    uploadAdapter?: IconPickerUploadAdapter;
     class?: string;
   } = $props();
 
@@ -122,7 +132,7 @@
 
   let open = $state(false);
   let activeTab = $state<ProjectIconPickerTab>("icons");
-  let triggerElement = $state<HTMLButtonElement | undefined>();
+  let triggerElement = $state<HTMLElement | undefined>();
   let panelElement = $state<HTMLElement | undefined>();
   let customPanelElement = $state<HTMLElement | undefined>();
   let customEmojiTriggerElement = $state<HTMLButtonElement | undefined>();
@@ -140,7 +150,9 @@
   let emojiQuery = $state("");
   let iconQuery = $state("");
   let uploadUrl = $state("");
-  let uploadDraft = $state<ProjectIconAsset | null>(null);
+  let uploadDraft = $state<IconPickerAsset | null>(null);
+  let uploadPreviewUrl = $state<string | null>(null);
+  let uploadPreviewRequestId = 0;
   let uploadError = $state<string | null>(null);
   let uploading = $state(false);
   let iconColor = $state<EventColor>(FALLBACK_COLOR_INDEX);
@@ -608,16 +620,31 @@
     });
   }
 
-  async function savePastedFile(file: File): Promise<ProjectIconAsset> {
+  async function saveProjectIconPastedFile(file: File): Promise<ProjectIconAsset> {
     const dataUrl = await fileToDataUrl(file);
     return saveProjectIconImageDataUrl(dataUrl);
+  }
+
+  async function saveUploadPastedFile(file: File): Promise<IconPickerAsset> {
+    const dataUrl = await fileToDataUrl(file);
+    return uploadAdapter
+      ? uploadAdapter.saveImageDataUrl(dataUrl, file.name)
+      : saveProjectIconImageDataUrl(dataUrl);
   }
 
   async function chooseUploadFile(): Promise<void> {
     uploading = true;
     uploadError = null;
     try {
-      uploadDraft = await pickProjectIconImageFile();
+      const asset = uploadAdapter
+        ? await uploadAdapter.pickImageFile()
+        : await pickProjectIconImageFile();
+      if (asset && uploadAdapter?.selectPickedAssetImmediately) {
+        await uploadAdapter.selectAsset(asset);
+        closePicker();
+      } else {
+        uploadDraft = asset;
+      }
     } catch (error) {
       uploadError = error instanceof Error ? error.message : String(error);
     } finally {
@@ -632,7 +659,15 @@
     uploading = true;
     uploadError = null;
     try {
-      uploadDraft = await downloadProjectIconImageUrl(url);
+      if (uploadAdapter?.selectExternalUrl) {
+        await uploadAdapter.selectExternalUrl(url);
+        uploadUrl = "";
+        closePicker();
+      } else {
+        uploadDraft = uploadAdapter?.downloadImageUrl
+          ? await uploadAdapter.downloadImageUrl(url)
+          : await downloadProjectIconImageUrl(url);
+      }
     } catch (error) {
       uploadError = error instanceof Error ? error.message : String(error);
     } finally {
@@ -648,7 +683,13 @@
     uploading = true;
     uploadError = null;
     try {
-      uploadDraft = await savePastedFile(file);
+      const asset = await saveUploadPastedFile(file);
+      if (uploadAdapter?.selectPickedAssetImmediately) {
+        await uploadAdapter.selectAsset(asset);
+        closePicker();
+      } else {
+        uploadDraft = asset;
+      }
     } catch (error) {
       uploadError = error instanceof Error ? error.message : String(error);
     } finally {
@@ -659,7 +700,12 @@
 
   async function selectUploadDraft(): Promise<void> {
     if (!uploadDraft) return;
-    chooseIcon({ kind: "asset", relativePath: uploadDraft.relativePath });
+    if (uploadAdapter) {
+      await uploadAdapter.selectAsset(uploadDraft);
+      closePicker();
+    } else {
+      chooseIcon({ kind: "asset", relativePath: uploadDraft.relativePath });
+    }
     uploadDraft = null;
     uploadUrl = "";
   }
@@ -679,7 +725,7 @@
     event.preventDefault();
     customEmojiError = null;
     try {
-      customEmojiDraft = await savePastedFile(file);
+      customEmojiDraft = await saveProjectIconPastedFile(file);
     } catch (error) {
       customEmojiError = error instanceof Error ? error.message : String(error);
     }
@@ -731,8 +777,35 @@
     uploadDraft = null;
     await tick();
     placePanel();
-    if (draft) await deleteProjectIconAssetsIfUnreferenced([draft.relativePath]);
+    if (!draft) return;
+    if (uploadAdapter?.deleteAssetsIfUnreferenced) {
+      await uploadAdapter.deleteAssetsIfUnreferenced([draft.relativePath]);
+    } else if (!uploadAdapter) {
+      await deleteProjectIconAssetsIfUnreferenced([draft.relativePath]);
+    }
   }
+
+  function togglePicker(): void {
+    if (open) closePicker();
+    else void openPicker();
+  }
+
+  $effect(() => {
+    const draft = uploadDraft;
+    const requestId = ++uploadPreviewRequestId;
+    uploadPreviewUrl = null;
+    if (!draft) return;
+    const request = uploadAdapter
+      ? uploadAdapter.assetUrl(draft)
+      : projectIconAssetUrl(draft.relativePath);
+    void request
+      .then((url) => {
+        if (requestId === uploadPreviewRequestId) uploadPreviewUrl = url;
+      })
+      .catch(() => {
+        if (requestId === uploadPreviewRequestId) uploadPreviewUrl = null;
+      });
+  });
 
   $effect(() => {
     if (!open) return;
@@ -810,29 +883,32 @@
   });
 </script>
 
-<button
-  bind:this={triggerElement}
-  type="button"
-  class={cn(
-    "flex h-8 min-w-0 items-center justify-between gap-2 rounded-md border border-border bg-card px-2.5 text-left text-[0.8rem] font-medium text-foreground hover:bg-accent/60",
-    className,
-  )}
-  aria-label={ariaLabel}
-  onclick={() => {
-    if (open) closePicker();
-    else void openPicker();
-  }}
->
-  <span class="flex min-w-0 items-center gap-2">
-    <ProjectIcon name={value} size={15} strokeWidth={1.8} ignoreColor={!allowIconColors} class="shrink-0" />
-    <span class="truncate">{pickerLabel}</span>
+{#if trigger}
+  <span bind:this={triggerElement} class="inline-flex">
+    {@render trigger({ open, toggle: togglePicker })}
   </span>
-  <ChevronDown
-    size={13}
-    strokeWidth={2}
-    class={cn("shrink-0 text-muted-foreground transition-transform", open && "rotate-180")}
-  />
-</button>
+{:else}
+  <button
+    bind:this={triggerElement}
+    type="button"
+    class={cn(
+      "flex h-8 min-w-0 items-center justify-between gap-2 rounded-md border border-border bg-card px-2.5 text-left text-[0.8rem] font-medium text-foreground hover:bg-accent/60",
+      className,
+    )}
+    aria-label={ariaLabel}
+    onclick={togglePicker}
+  >
+    <span class="flex min-w-0 items-center gap-2">
+      <ProjectIcon name={value} size={15} strokeWidth={1.8} ignoreColor={!allowIconColors} class="shrink-0" />
+      <span class="truncate">{pickerLabel}</span>
+    </span>
+    <ChevronDown
+      size={13}
+      strokeWidth={2}
+      class={cn("shrink-0 text-muted-foreground transition-transform", open && "rotate-180")}
+    />
+  </button>
+{/if}
 
 {#if open}
   <div
@@ -874,7 +950,7 @@
     </div>
 
     {#if activeTab === "emoji"}
-      <ProjectIconPickerEmojiTab
+      <IconPickerEmojiTab
         bind:scrollElement={gridScrollElement}
         bind:customEmojiTriggerElement={customEmojiTriggerElement}
         bind:emojiQuery
@@ -898,7 +974,7 @@
         onResetGridScroll={resetGridScroll}
       />
     {:else if activeTab === "icons"}
-      <ProjectIconPickerIconsTab
+      <IconPickerIconsTab
         bind:scrollElement={gridScrollElement}
         bind:iconCategoryMenuTriggerElement={iconCategoryMenuTriggerElement}
         bind:iconQuery
@@ -935,8 +1011,9 @@
         }}
       />
     {:else}
-      <ProjectIconPickerUploadPanel
+      <IconPickerUploadPanel
         {uploadDraft}
+        {uploadPreviewUrl}
         {uploadError}
         {uploading}
         {uploadBodyStyle}
@@ -950,7 +1027,7 @@
   </div>
 
   {#if iconCategoryMenuOpen}
-    <ProjectIconPickerCategoryMenu
+    <IconPickerCategoryMenu
       bind:rootElement={iconCategoryMenuElement}
       style={iconCategoryMenuStyle}
       options={lucideCategoryOptions}
@@ -961,7 +1038,7 @@
   {/if}
 
   {#if iconColorChoice && allowIconColors}
-    <ProjectIconPickerColorChoicePanel
+    <IconPickerColorChoicePanel
       bind:rootElement={iconColorChoicePanelElement}
       style={iconColorChoiceStyle(iconColorChoice)}
       label={iconColorChoice.label}
@@ -974,7 +1051,7 @@
   {/if}
 
   {#if customEmojiPanelOpen}
-    <ProjectIconPickerCustomEmojiPanel
+    <IconPickerCustomEmojiPanel
       bind:rootElement={customPanelElement}
       style={customPanelStyle}
       {customEmojiDraft}

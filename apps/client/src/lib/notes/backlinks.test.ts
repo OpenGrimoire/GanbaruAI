@@ -7,6 +7,7 @@ const page = {
   created_time: "2026-06-30T00:00:00.000Z",
   last_edited_time: "2026-06-30T00:00:00.000Z",
   parent: { type: "workspace", workspace: true },
+  folder_id: null,
   in_trash: false,
   archived: false,
   icon: null,

@@ -326,7 +326,7 @@ fn table_family(name: &str) -> TableFamily {
 }
 
 fn table_section(name: &str) -> &'static str {
-    if matches!(name, "notes_pages" | "notes_page_aliases") {
+    if matches!(name, "notes_pages" | "notes_page_aliases" | "notes_folders") {
         return "pages";
     }
     if name == "notes_blocks" {

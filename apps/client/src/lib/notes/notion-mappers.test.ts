@@ -4,6 +4,7 @@ import {
   mapNotesBlockDto,
   mapNotesBlockListDto,
   mapNotesCreatedDatabaseDto,
+  mapNotesFolderDto,
   mapNotesLoadedPageDto,
   mapNotesPageDto,
 } from "./notion-mappers";
@@ -17,6 +18,7 @@ function pageDto() {
     created_time: now,
     last_edited_time: now,
     parent: { type: "workspace", workspace: true },
+    folder_id: null,
     in_trash: false,
     archived: false,
     icon: null,
@@ -60,6 +62,22 @@ function blockDto() {
 }
 
 describe("Notion notes DTO mappers", () => {
+  it("maps folder DTOs", () => {
+    expect(mapNotesFolderDto({
+      object: "folder",
+      id: "folder-a",
+      project_id: "project-a",
+      parent_folder_id: null,
+      name: "Research",
+      created_time: now,
+      last_edited_time: now,
+    })).toMatchObject({
+      object: "folder",
+      id: "folder-a",
+      name: "Research",
+    });
+  });
+
   it("maps page DTOs with public parent and title properties", () => {
     const page = mapNotesPageDto(pageDto());
 

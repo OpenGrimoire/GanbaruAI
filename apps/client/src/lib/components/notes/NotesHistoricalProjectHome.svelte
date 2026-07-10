@@ -48,6 +48,7 @@
       created_time: "",
       last_edited_time: "",
       parent: historicalParent(page),
+      folder_id: null,
       in_trash: page.inTrash,
       archived: page.archived,
       icon: page.icon,

@@ -15,6 +15,7 @@ import {
   parseNotesDataSourceTableView,
   parseNotesDataSourceTemplate,
   parseNotesDataSourceTimelineView,
+  parseNotesFolder,
   parseNotesHtmlArchiveSaveResult,
   parseNotesHtmlExportResult,
   parseNotesHtmlImportResult,
@@ -58,6 +59,7 @@ import type {
   NotesDataSourceTableView,
   NotesDataSourceTemplate,
   NotesDataSourceTimelineView,
+  NotesFolder,
   NotesHtmlArchiveSaveResult,
   NotesHtmlExportResult,
   NotesHtmlImportResult,
@@ -88,6 +90,11 @@ import type {
 /** Validate and map an unknown page DTO from the Tauri boundary. */
 export function mapNotesPageDto(value: unknown): NotesPage {
   return parseNotesPage(value);
+}
+
+/** Validate and map an unknown folder DTO from the Tauri boundary. */
+export function mapNotesFolderDto(value: unknown): NotesFolder {
+  return parseNotesFolder(value);
 }
 
 /** Validate and map an unknown block DTO from the Tauri boundary. */

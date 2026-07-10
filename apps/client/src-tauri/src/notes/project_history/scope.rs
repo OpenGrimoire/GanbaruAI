@@ -17,6 +17,7 @@ pub(super) struct ProjectHistoryGraph {
 
 #[derive(Default)]
 struct ProjectScope {
+    folder_ids: HashSet<String>,
     page_ids: HashSet<String>,
     block_ids: HashSet<String>,
     database_ids: HashSet<String>,
@@ -46,9 +47,20 @@ fn page_project_id(row: &Value) -> Option<&str> {
 
 fn extend_scope(rows: &BTreeMap<String, Vec<Value>>, project_id: &str) -> ProjectScope {
     let mut scope = ProjectScope::default();
+    if let Some(folders) = rows.get("notes_folders") {
+        for folder in folders {
+            if text(folder, "project_id").as_deref() == Some(project_id) {
+                if let Some(id) = text(folder, "id") {
+                    scope.folder_ids.insert(id);
+                }
+            }
+        }
+    }
     if let Some(pages) = rows.get("notes_pages") {
         for page in pages {
-            if page_project_id(page) == Some(project_id) {
+            if page_project_id(page) == Some(project_id)
+                || optional_text_in(page, "folder_id", &scope.folder_ids)
+            {
                 if let Some(id) = text(page, "id") {
                     scope.page_ids.insert(id);
                 }
@@ -161,6 +173,7 @@ fn extend_scope(rows: &BTreeMap<String, Vec<Value>>, project_id: &str) -> Projec
 
 fn row_is_selected(table: &str, row: &Value, scope: &ProjectScope) -> bool {
     match table {
+        "notes_folders" => optional_text_in(row, "id", &scope.folder_ids),
         "notes_pages" | "notes_page_aliases" => optional_text_in(
             row,
             if table == "notes_pages" {
@@ -253,4 +266,64 @@ pub(super) async fn load_project_graph(
         archived_page_count,
         deleted_page_count,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{extend_scope, row_is_selected};
+    use serde_json::{json, Value};
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn project_scope_includes_empty_folders_and_folder_owned_pages() {
+        let project_folder = json!({
+            "id": "folder-a",
+            "project_id": "project-a",
+            "parent_folder_id": null,
+            "name": "With page"
+        });
+        let empty_project_folder = json!({
+            "id": "folder-empty",
+            "project_id": "project-a",
+            "parent_folder_id": "folder-a",
+            "name": "Empty"
+        });
+        let other_project_folder = json!({
+            "id": "folder-b",
+            "project_id": "project-b",
+            "parent_folder_id": null,
+            "name": "Other"
+        });
+        let folder_page = json!({
+            "id": "page-a",
+            "folder_id": "folder-a",
+            "properties": {}
+        });
+        let mut rows = BTreeMap::<String, Vec<Value>>::new();
+        rows.insert(
+            "notes_folders".to_string(),
+            vec![
+                project_folder.clone(),
+                empty_project_folder.clone(),
+                other_project_folder.clone(),
+            ],
+        );
+        rows.insert("notes_pages".to_string(), vec![folder_page.clone()]);
+
+        let scope = extend_scope(&rows, "project-a");
+
+        assert_eq!(scope.folder_ids.len(), 2);
+        assert_eq!(scope.page_ids.len(), 1);
+        assert!(row_is_selected(
+            "notes_folders",
+            &empty_project_folder,
+            &scope
+        ));
+        assert!(!row_is_selected(
+            "notes_folders",
+            &other_project_folder,
+            &scope
+        ));
+        assert!(row_is_selected("notes_pages", &folder_page, &scope));
+    }
 }

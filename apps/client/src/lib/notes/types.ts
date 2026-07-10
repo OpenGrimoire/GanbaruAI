@@ -381,6 +381,7 @@ export interface NotesPage {
   created_time: string;
   last_edited_time: string;
   parent: NotesParent;
+  folder_id: string | null;
   in_trash: boolean;
   archived?: boolean;
   icon: NotesPageIcon | null;
@@ -392,6 +393,16 @@ export interface NotesPage {
   source_object_id: string | null;
   source_workspace_id: string | null;
   source_last_edited_time: string | null;
+}
+
+export interface NotesFolder {
+  object: "folder";
+  id: string;
+  project_id: string;
+  parent_folder_id: string | null;
+  name: string;
+  created_time: string;
+  last_edited_time: string;
 }
 
 export interface NotesSidebarPagesRequest {
@@ -726,6 +737,7 @@ export interface NotesPageCreate {
   id: string;
   title: string;
   parent: NotesParent;
+  folder_id: string | null;
   first_block_id: string;
   after_block_id?: string | null;
   properties?: Record<string, unknown> | null;
@@ -743,6 +755,19 @@ export interface NotesDuplicatePageRequest {
 
 export interface NotesMovePageRequest {
   parent: NotesParent;
+  folder_id: string | null;
+}
+
+export interface NotesFolderCreate {
+  id: string;
+  project_id: string;
+  parent_folder_id: string | null;
+  name: string;
+}
+
+export interface NotesFolderUpdate {
+  name: string;
+  parent_folder_id: string | null;
 }
 
 export interface NotesPageTemplateCreateFromPageRequest {

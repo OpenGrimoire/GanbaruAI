@@ -18,6 +18,7 @@ import {
   mapNotesDataSourceTableViewDto,
   mapNotesDataSourceTemplateDto,
   mapNotesDataSourceTimelineViewDto,
+  mapNotesFolderDto,
   mapNotesHtmlArchiveSaveDto,
   mapNotesHtmlExportDto,
   mapNotesHtmlImportDto,
@@ -88,6 +89,9 @@ import type {
   NotesDuplicateBlockRequest,
   NotesDuplicateBlocksRequest,
   NotesBlockUpdate,
+  NotesFolder,
+  NotesFolderCreate,
+  NotesFolderUpdate,
   NotesHtmlArchiveSaveResult,
   NotesHtmlExportRequest,
   NotesHtmlExportResult,
@@ -161,6 +165,37 @@ export async function listNotesPages(): Promise<NotesPage[]> {
   const rows = await invoke<unknown>("notes_list_pages", { dbUrl });
   if (!Array.isArray(rows)) throw new Error("notes_list_pages returned a non-array payload");
   return rows.map(mapNotesPageDto);
+}
+
+export async function listNotesFolders(): Promise<NotesFolder[]> {
+  const dbUrl = await ensureDbUrl();
+  const rows = await invoke<unknown>("notes_list_folders", { dbUrl });
+  if (!Array.isArray(rows)) throw new Error("notes_list_folders returned a non-array payload");
+  return rows.map(mapNotesFolderDto);
+}
+
+export async function createNotesFolder(folder: NotesFolderCreate): Promise<NotesFolder> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesFolderDto(await invoke<unknown>("notes_create_folder", { dbUrl, folder }));
+}
+
+export async function updateNotesFolder(
+  folderId: string,
+  update: NotesFolderUpdate,
+): Promise<NotesFolder> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesFolderDto(
+    await invoke<unknown>("notes_update_folder", { dbUrl, folderId, update }),
+  );
+}
+
+export async function deleteNotesFolder(folderId: string): Promise<string> {
+  const dbUrl = await ensureDbUrl();
+  const deletedFolderId = await invoke<unknown>("notes_delete_folder", { dbUrl, folderId });
+  if (typeof deletedFolderId !== "string") {
+    throw new Error("notes_delete_folder returned a non-string payload");
+  }
+  return deletedFolderId;
 }
 
 export async function listTrashedNotesPages(): Promise<NotesPage[]> {

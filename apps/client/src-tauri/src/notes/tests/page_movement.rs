@@ -12,6 +12,7 @@ fn move_page_between_workspace_and_parent_page() {
             PAGE_B,
             NoteMovePage {
                 parent: page_parent(PAGE_A),
+                folder_id: None,
             },
         )
         .await
@@ -36,6 +37,7 @@ fn move_page_between_workspace_and_parent_page() {
             PAGE_B,
             NoteMovePage {
                 parent: workspace_parent(),
+                folder_id: None,
             },
         )
         .await
@@ -57,6 +59,7 @@ fn move_page_rejects_descendant_parent() {
                 id: PAGE_B.to_string(),
                 title: "Nested".to_string(),
                 parent: page_parent(PAGE_A),
+                folder_id: None,
                 first_block_id: BLOCK_B.to_string(),
                 after_block_id: None,
                 properties: None,
@@ -70,6 +73,7 @@ fn move_page_rejects_descendant_parent() {
             PAGE_A,
             NoteMovePage {
                 parent: page_parent(PAGE_B),
+                folder_id: None,
             },
         )
         .await;
@@ -94,6 +98,7 @@ fn archiving_nested_page_hides_child_page_block() {
                 id: PAGE_B.to_string(),
                 title: "Nested".to_string(),
                 parent: page_parent(PAGE_A),
+                folder_id: None,
                 first_block_id: BLOCK_B.to_string(),
                 after_block_id: None,
                 properties: None,

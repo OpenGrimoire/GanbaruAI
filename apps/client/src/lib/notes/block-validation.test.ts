@@ -13,6 +13,7 @@ import {
   parseNotesLocalUser,
   parseNotesMentionNotification,
   parseNotesHtmlImportResult,
+  parseNotesFolder,
   parseNotesMarkdownExportResult,
   parseNotesNotionApiImportResult,
   parseNotesNotionExportImportResult,
@@ -32,6 +33,7 @@ const basePage = {
   created_time: "2026-06-30T12:00:00.000Z",
   last_edited_time: "2026-06-30T12:00:00.000Z",
   parent: { type: "workspace", workspace: true },
+  folder_id: null,
   in_trash: false,
   archived: false,
   icon: null,
@@ -78,6 +80,39 @@ const baseRichText = {
 };
 
 describe("notes boundary validation", () => {
+  it("parses folder DTOs and page folder membership", () => {
+    const folder = parseNotesFolder({
+      object: "folder",
+      id: "folder-a",
+      project_id: "project-a",
+      parent_folder_id: null,
+      name: "Research",
+      created_time: "2026-07-10T12:00:00.000Z",
+      last_edited_time: "2026-07-10T12:00:00.000Z",
+    });
+    const page = parseNotesPage({ ...basePage, folder_id: folder.id });
+
+    expect(folder).toMatchObject({
+      object: "folder",
+      id: "folder-a",
+      parent_folder_id: null,
+      name: "Research",
+    });
+    expect(page.folder_id).toBe("folder-a");
+  });
+
+  it("rejects malformed folder DTOs", () => {
+    expect(() => parseNotesFolder({
+      object: "folder",
+      id: "folder-a",
+      project_id: "project-a",
+      parent_folder_id: null,
+      name: " ",
+      created_time: "2026-07-10T12:00:00.000Z",
+      last_edited_time: "2026-07-10T12:00:00.000Z",
+    })).toThrow("folder.name must not be empty");
+  });
+
   it("parses page emoji icons", () => {
     const page = parseNotesPage({
       ...basePage,

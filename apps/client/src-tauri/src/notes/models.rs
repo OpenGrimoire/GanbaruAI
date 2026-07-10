@@ -21,6 +21,7 @@ pub struct NotePageDto {
     created_time: String,
     last_edited_time: String,
     parent: NoteParent,
+    folder_id: Option<String>,
     in_trash: bool,
     archived: bool,
     icon: Option<Value>,
@@ -49,6 +50,7 @@ impl NotePageDto {
                 row.parent_block_id,
                 row.parent_data_source_id,
             )?,
+            folder_id: row.folder_id,
             in_trash,
             archived,
             icon: parse_optional_json(row.icon, "page icon")?,
@@ -61,6 +63,31 @@ impl NotePageDto {
             source_workspace_id: row.source_workspace_id,
             source_last_edited_time: row.source_last_edited_time,
         })
+    }
+}
+
+#[derive(Serialize)]
+pub struct NoteFolderDto {
+    object: &'static str,
+    id: String,
+    project_id: String,
+    parent_folder_id: Option<String>,
+    name: String,
+    created_time: String,
+    last_edited_time: String,
+}
+
+impl NoteFolderDto {
+    pub(in crate::notes) fn new(row: NoteFolderRow) -> Self {
+        Self {
+            object: "folder",
+            id: row.id,
+            project_id: row.project_id,
+            parent_folder_id: row.parent_folder_id,
+            name: row.name,
+            created_time: row.created_time,
+            last_edited_time: row.last_edited_time,
+        }
     }
 }
 
@@ -1629,9 +1656,25 @@ pub struct NotePageCreate {
     pub(in crate::notes) id: String,
     pub(in crate::notes) title: String,
     pub(in crate::notes) parent: NoteParent,
+    #[serde(default)]
+    pub(in crate::notes) folder_id: Option<String>,
     pub(in crate::notes) first_block_id: String,
     pub(in crate::notes) after_block_id: Option<String>,
     pub(in crate::notes) properties: Option<Value>,
+}
+
+#[derive(Deserialize)]
+pub struct NoteFolderCreate {
+    pub(in crate::notes) id: String,
+    pub(in crate::notes) project_id: String,
+    pub(in crate::notes) parent_folder_id: Option<String>,
+    pub(in crate::notes) name: String,
+}
+
+#[derive(Deserialize)]
+pub struct NoteFolderUpdate {
+    pub(in crate::notes) parent_folder_id: Option<String>,
+    pub(in crate::notes) name: String,
 }
 
 #[derive(Deserialize)]
@@ -1920,6 +1963,8 @@ pub struct NoteDataSourceTimelineViewUpdate {
 #[derive(Deserialize)]
 pub struct NoteMovePage {
     pub(in crate::notes) parent: NoteParent,
+    #[serde(default)]
+    pub(in crate::notes) folder_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -2767,6 +2812,7 @@ pub(in crate::notes) struct NotePageRow {
     pub(in crate::notes) parent_page_id: Option<String>,
     pub(in crate::notes) parent_block_id: Option<String>,
     pub(in crate::notes) parent_data_source_id: Option<String>,
+    pub(in crate::notes) folder_id: Option<String>,
     pub(in crate::notes) title: String,
     pub(in crate::notes) properties: String,
     pub(in crate::notes) icon: Option<String>,
@@ -2788,6 +2834,7 @@ impl_sqlite_from_row!(NotePageRow {
     parent_page_id,
     parent_block_id,
     parent_data_source_id,
+    folder_id,
     title,
     properties,
     icon,
@@ -2800,6 +2847,24 @@ impl_sqlite_from_row!(NotePageRow {
     source_last_edited_time,
     url,
     public_url,
+    created_time,
+    last_edited_time,
+});
+
+#[derive(Clone, Serialize)]
+pub(in crate::notes) struct NoteFolderRow {
+    pub(in crate::notes) id: String,
+    pub(in crate::notes) project_id: String,
+    pub(in crate::notes) parent_folder_id: Option<String>,
+    pub(in crate::notes) name: String,
+    pub(in crate::notes) created_time: String,
+    pub(in crate::notes) last_edited_time: String,
+}
+impl_sqlite_from_row!(NoteFolderRow {
+    id,
+    project_id,
+    parent_folder_id,
+    name,
     created_time,
     last_edited_time,
 });
@@ -2860,6 +2925,7 @@ pub(in crate::notes) struct NotePageHistorySnapshotRow {
     pub(in crate::notes) parent_page_id: Option<String>,
     pub(in crate::notes) parent_block_id: Option<String>,
     pub(in crate::notes) parent_data_source_id: Option<String>,
+    pub(in crate::notes) folder_id: Option<String>,
     pub(in crate::notes) title: String,
     pub(in crate::notes) properties: String,
     pub(in crate::notes) icon: Option<String>,
@@ -2882,6 +2948,7 @@ impl_sqlite_from_row!(NotePageHistorySnapshotRow {
     parent_page_id,
     parent_block_id,
     parent_data_source_id,
+    folder_id,
     title,
     properties,
     icon,

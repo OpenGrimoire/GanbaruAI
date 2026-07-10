@@ -7,7 +7,7 @@ export const assets = {
   pageIconCustomEmoji: "Custom",
   pageIconImage: "Image",
   noPageIcon: "No icon",
-  addPageIcon: "Add note icon",
+  addPageIcon: "Add icon",
   changePageIcon: "Change note icon",
   removePageIcon: "Remove note icon",
   usePageIcon: (icon: string) => `Use ${icon}`,

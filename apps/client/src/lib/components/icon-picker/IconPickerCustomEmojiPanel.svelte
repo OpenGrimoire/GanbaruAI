@@ -5,7 +5,7 @@
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { cn } from "$lib/utils";
   import { portal } from "$lib/utils/portal";
-  import ProjectIcon from "./ProjectIcon.svelte";
+  import ProjectIcon from "$lib/components/projects/ProjectIcon.svelte";
 
   let {
     rootElement = $bindable<HTMLElement | undefined>(),
