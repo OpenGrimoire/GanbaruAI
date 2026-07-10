@@ -67,6 +67,7 @@ describe("notes clipboard paste planning", () => {
         ],
       },
     });
+    expect(pastePlan?.focusOffset).toBe("three".length);
   });
 
   it("moves selected-text suffix into the final pasted block", () => {
@@ -95,6 +96,7 @@ describe("notes clipboard paste planning", () => {
         ],
       },
     });
+    expect(pastePlan?.focusOffset).toBe("second".length);
   });
 
   it("converts pasted markdown line prefixes into canonical block types", () => {

@@ -21,6 +21,20 @@ export interface NotesSelectionViewportRect {
   height: number;
 }
 
+export interface NotesSelectionReconciliationInput {
+  focusRequestIsNew: boolean;
+  focusRequestedForEditor: boolean;
+  requestedSelection: NotesTextSelection | null;
+  currentSelection: NotesTextSelection | null;
+  textLength: number;
+  editorActive: boolean;
+}
+
+export interface NotesSelectionReconciliationPlan {
+  focusEditor: boolean;
+  selection: NotesTextSelection;
+}
+
 const TEXT_NODE = 3;
 const ELEMENT_NODE = 1;
 const DOCUMENT_FRAGMENT_NODE = 11;
@@ -72,6 +86,31 @@ export function notesSelectionForFocus(
       ?? { start: fallbackOffset, end: fallbackOffset },
     input.textLength,
   );
+}
+
+/**
+ * Choose one authoritative selection restoration after editor content changes.
+ */
+export function planNotesSelectionReconciliation(
+  input: NotesSelectionReconciliationInput,
+): NotesSelectionReconciliationPlan | null {
+  if (input.focusRequestIsNew) {
+    if (!input.focusRequestedForEditor) return null;
+    return {
+      focusEditor: true,
+      selection: notesSelectionForFocus({
+        requestedSelection: input.requestedSelection,
+        currentSelection: input.currentSelection,
+        textLength: input.textLength,
+        fallback: "end",
+      }),
+    };
+  }
+  if (!input.editorActive || !input.currentSelection) return null;
+  return {
+    focusEditor: false,
+    selection: clampNotesTextSelection(input.currentSelection, input.textLength),
+  };
 }
 
 function isElementNode(node: Node): node is Element {

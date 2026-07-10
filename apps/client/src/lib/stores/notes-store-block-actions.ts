@@ -60,6 +60,7 @@ import {
   blockWithTextLink,
   blockWithTodoChecked,
   blockWithToggleOpen,
+  blockUpdateFromBlock,
   createBlockUpdate,
   createBlockWrite,
   createColumnPayload,
@@ -1238,20 +1239,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
       createId: () => crypto.randomUUID(),
     });
     if (!plan) return false;
-    await context.flushBlockSave(blockId);
-    const before = undoSnapshot(blockId);
-    context.localApplyBlockUpdate(blockId, plan.currentUpdate);
-    await context.saveBlockNow(blockId, plan.currentUpdate);
-    if (plan.appendedBlocks.length > 0) {
-      await appendNotesBlockChildren({
-        parent: block.parent,
-        after: blockId,
-        children: plan.appendedBlocks,
-      });
-    }
-    await context.loadPageTree(selectedPageId);
-    context.requestBlockFocus(plan.focusBlockId);
-    recordUndoAfter("paste", before, plan.focusBlockId);
+    applyOptimisticPaste(selectedPageId, block, plan);
     return true;
   }
 
@@ -1272,21 +1260,86 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
       createId: () => crypto.randomUUID(),
     });
     if (!plan) return false;
-    await context.flushBlockSave(blockId);
-    const before = undoSnapshot(blockId);
-    context.localApplyBlockUpdate(blockId, plan.currentUpdate);
-    await context.saveBlockNow(blockId, plan.currentUpdate);
-    if (plan.appendedBlocks.length > 0) {
-      await appendNotesBlockChildren({
-        parent: block.parent,
-        after: blockId,
-        children: plan.appendedBlocks,
-      });
-    }
-    await context.loadPageTree(selectedPageId);
-    context.requestBlockFocus(plan.focusBlockId);
-    recordUndoAfter("paste", before, plan.focusBlockId);
+    applyOptimisticPaste(selectedPageId, block, plan);
     return true;
+  }
+
+  interface OptimisticPastePlan {
+    currentUpdate: NotesBlockUpdate;
+    appendedBlocks: NotesBlockWrite[];
+    focusBlockId: string;
+    focusOffset: number;
+  }
+
+  function applyOptimisticPaste(
+    selectedPageId: string,
+    currentBlock: NotesBlock,
+    plan: OptimisticPastePlan,
+  ): void {
+    const before = undoSnapshot(currentBlock.id);
+    const currentUpdate = cloneNotesJson(plan.currentUpdate);
+    const appendedWrites = plan.appendedBlocks.map((write) => cloneNotesJson(write));
+    const parent = cloneNotesJson(currentBlock.parent);
+    const focusSelection = { start: plan.focusOffset, end: plan.focusOffset };
+
+    context.localApplyBlockUpdate(currentBlock.id, currentUpdate);
+    context.scheduleBlockSave(currentBlock.id, currentUpdate);
+
+    let afterBlockId = currentBlock.id;
+    for (const write of appendedWrites) {
+      context.localInsertBlockAfter(optimisticBlockFromWrite(write, parent), afterBlockId);
+      afterBlockId = write.id;
+    }
+
+    context.requestBlockFocus(plan.focusBlockId, focusSelection);
+    recordUndoAfter("paste", before, plan.focusBlockId);
+
+    if (appendedWrites.length === 0) return;
+    const persistence = persistOptimisticPaste(
+      selectedPageId,
+      currentBlock.id,
+      parent,
+      appendedWrites,
+      plan.focusBlockId,
+      focusSelection,
+    ).finally(() => {
+      for (const write of appendedWrites) {
+        pendingOptimisticBlockCreates.delete(write.id);
+      }
+    });
+    for (const write of appendedWrites) {
+      pendingOptimisticBlockCreates.set(write.id, persistence);
+    }
+    void persistence;
+  }
+
+  async function persistOptimisticPaste(
+    selectedPageId: string,
+    currentBlockId: string,
+    parent: NotesParent,
+    appendedWrites: readonly NotesBlockWrite[],
+    focusBlockId: string,
+    focusSelection: NotesTextSelection,
+  ): Promise<void> {
+    try {
+      await context.flushBlockSave(currentBlockId);
+      await appendNotesBlockChildren({
+        parent: cloneNotesJson(parent),
+        after: currentBlockId,
+        children: cloneNotesJson([...appendedWrites]),
+      });
+      for (const write of appendedWrites) {
+        const latestBlock = context.blockById(write.id);
+        if (latestBlock) {
+          await context.saveBlockNow(write.id, blockUpdateFromBlock(latestBlock));
+        }
+      }
+      await context.loadPageTree(selectedPageId);
+      context.requestBlockFocus(focusBlockId, focusSelection);
+    } catch (error) {
+      console.warn("notes paste persistence failed", error);
+      await context.loadPageTree(selectedPageId);
+    }
   }
 
   async function pasteBlockSelection(

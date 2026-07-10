@@ -38,8 +38,8 @@
     clampNotesTextSelection,
     notesEditableSelectionViewportRect,
     notesPlainTextFromEditableRoot,
-    notesSelectionForFocus,
     notesTextSelectionFromEditableRoot,
+    planNotesSelectionReconciliation,
     restoreNotesEditableSelection,
     type NotesTextSelection,
   } from "$lib/notes/editor-selection";
@@ -266,6 +266,7 @@
   let mentionActiveIndex = $state(0);
   let textSelection = $state({ start: 0, end: 0 });
   let hasTextSelection = $state(false);
+  let appliedFocusRequestId = -1;
   let compositionActive = $state(false);
   let linkEditorOpen = $state(false);
   let linkRange = $state({ start: 0, end: 0, url: null as string | null });
@@ -337,19 +338,32 @@
   const mentionOpen = $derived(mentionQuery !== null && canUseMentions);
 
   $effect(() => {
-    const _focusRequestId = focusRequestId;
-    if (focusBlockId !== block.id) return;
+    const requestedFocusId = focusRequestId;
+    const focusRequestedForEditor = focusBlockId === block.id;
+    const requestedSelection = focusSelection;
+    const _blockText = text;
+    const _blockType = block.type;
+    const _lastEditedTime = block.last_edited_time;
+    const _richText = editableRichText;
+    const { selection, selectionIsKnown } = untrack(() => ({
+      selection: textSelection,
+      selectionIsKnown: hasTextSelection,
+    }));
     void tick().then(() => {
       if (!editor) return;
-      editor.focus();
       const length = notesPlainTextFromEditableRoot(editor).length;
-      const selection = notesSelectionForFocus({
-        requestedSelection: focusSelection,
-        currentSelection: hasTextSelection ? textSelection : null,
+      const plan = planNotesSelectionReconciliation({
+        focusRequestIsNew: requestedFocusId !== appliedFocusRequestId,
+        focusRequestedForEditor,
+        requestedSelection,
+        currentSelection: selectionIsKnown ? selection : null,
         textLength: length,
-        fallback: "end",
+        editorActive: document.activeElement === editor,
       });
-      restoreTrackedSelection(selection);
+      appliedFocusRequestId = requestedFocusId;
+      if (!plan) return;
+      if (plan.focusEditor) editor.focus();
+      restoreTrackedSelection(plan.selection);
     });
   });
 
@@ -418,21 +432,6 @@
     setTrackedSelection(selection);
     scheduleInlineToolbarPlacementRefresh();
   }
-
-  $effect(() => {
-    const _blockText = text;
-    const _blockType = block.type;
-    const _lastEditedTime = block.last_edited_time;
-    const _richText = editableRichText;
-    const { selection, selectionIsKnown } = untrack(() => ({
-      selection: textSelection,
-      selectionIsKnown: hasTextSelection,
-    }));
-    void tick().then(() => {
-      if (!editor || !selectionIsKnown || document.activeElement !== editor) return;
-      restoreTrackedSelection(selection);
-    });
-  });
 
   $effect(() => {
     const _query = slashQuery;

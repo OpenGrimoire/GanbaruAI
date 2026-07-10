@@ -56,6 +56,7 @@ export interface NotesRichHtmlPastePlan {
   currentUpdate: NotesBlockUpdate;
   appendedBlocks: NotesBlockWrite[];
   focusBlockId: string;
+  focusOffset: number;
 }
 
 export interface NotesRichHtmlPastePlanInput {
@@ -566,6 +567,9 @@ export function planNotesRichHtmlPaste(
           ),
       appendedBlocks: [],
       focusBlockId: input.currentBlock.id,
+      focusOffset: shouldConvertCurrentBlock
+        ? richTextPlainText(firstSegment.richText).length
+        : start + richTextPlainText(firstSegment.richText).length,
     };
   }
 
@@ -586,5 +590,6 @@ export function planNotesRichHtmlPaste(
       : blockWithRichText(input.currentBlock, currentSegment.richText),
     appendedBlocks,
     focusBlockId: appendedBlocks.at(-1)?.id ?? input.currentBlock.id,
+    focusOffset: lastSegment ? richTextPlainText(lastSegment.richText).length : 0,
   };
 }

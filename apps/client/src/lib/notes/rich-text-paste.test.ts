@@ -108,6 +108,7 @@ describe("notes rich text HTML paste planning", () => {
         && item.text.link?.url === "https://example.com/docs"
       ),
     ).toBe(true);
+    expect(plan.focusOffset).toBe("Start Hello bold italic under gone code docs".length);
   });
 
   it("splits rich paragraphs into current and appended sibling blocks", () => {
@@ -133,6 +134,7 @@ describe("notes rich text HTML paste planning", () => {
       expect(richTextPlainText(third.paragraph.rich_text)).toBe("Third");
     }
     expect(plan.focusBlockId).toBe(third?.id);
+    expect(plan.focusOffset).toBe("Third".length);
   });
 
   it("moves selected suffix into the final pasted rich block", () => {
@@ -166,6 +168,7 @@ describe("notes rich text HTML paste planning", () => {
         ),
       ).toBe(true);
     }
+    expect(plan.focusOffset).toBe("Second".length);
   });
 
   it("rejects scripts and unsafe URLs while keeping safe text", () => {

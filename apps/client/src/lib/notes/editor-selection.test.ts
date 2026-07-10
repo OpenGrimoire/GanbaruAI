@@ -9,10 +9,43 @@ import {
   notesSelectionForFocus,
   notesTextSelectionFromEditableRoot,
   notesTextSelectionFromControl,
+  planNotesSelectionReconciliation,
   restoreNotesEditableSelection,
 } from "./editor-selection";
 
 describe("notes editor selection helpers", () => {
+  it("lets a new explicit caret request replace the previous selected range", () => {
+    expect(
+      planNotesSelectionReconciliation({
+        focusRequestIsNew: true,
+        focusRequestedForEditor: true,
+        requestedSelection: { start: 8, end: 8 },
+        currentSelection: { start: 2, end: 5 },
+        textLength: 12,
+        editorActive: true,
+      }),
+    ).toEqual({
+      focusEditor: true,
+      selection: { start: 8, end: 8 },
+    });
+  });
+
+  it("preserves the collapsed caret after the explicit request has been applied", () => {
+    expect(
+      planNotesSelectionReconciliation({
+        focusRequestIsNew: false,
+        focusRequestedForEditor: true,
+        requestedSelection: { start: 8, end: 8 },
+        currentSelection: { start: 8, end: 8 },
+        textLength: 12,
+        editorActive: true,
+      }),
+    ).toEqual({
+      focusEditor: false,
+      selection: { start: 8, end: 8 },
+    });
+  });
+
   it("normalizes reversed control selections", () => {
     expect(notesTextSelectionFromControl({ selectionStart: 8, selectionEnd: 3 })).toEqual({
       start: 3,

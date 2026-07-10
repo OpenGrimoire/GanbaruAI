@@ -34,6 +34,7 @@ export interface NotesPlainTextPastePlan {
   currentUpdate: NotesBlockUpdate;
   appendedBlocks: NotesBlockWrite[];
   focusBlockId: string;
+  focusOffset: number;
 }
 
 export interface NotesPlainTextPastePlanInput {
@@ -283,9 +284,20 @@ export function planNotesPlainTextPaste(
     const id = input.createId();
     return createWriteForSegment(id, segment);
   });
+  const focusSegment = segments.at(-1) ?? firstSegment;
+  const focusSegmentPasteEnd = Math.max(
+    0,
+    segmentAsPlainText(focusSegment).length - suffix.length,
+  );
+  const focusOffset = appendedBlocks.length > 0
+    ? focusSegmentPasteEnd
+    : canConvertCurrentBlockFromSegment(input.currentBlockType, prefix, firstSegment)
+      ? focusSegmentPasteEnd
+      : prefix.length + focusSegmentPasteEnd;
   return {
     currentUpdate: createUpdateForSegment(input.currentBlockType, prefix, firstSegment),
     appendedBlocks,
     focusBlockId: appendedBlocks.at(-1)?.id ?? input.currentBlockId,
+    focusOffset,
   };
 }
