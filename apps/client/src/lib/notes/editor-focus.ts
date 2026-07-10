@@ -12,6 +12,39 @@ export interface NotesDeleteFocusInput {
   firstRemovedBlockId: string;
 }
 
+export interface NotesDocumentEndPointerInput {
+  pointerY: number;
+  lastRowBottom: number;
+  targetInsideRow: boolean;
+}
+
+export interface NotesDocumentEndFocusInput {
+  activeBlockId: string | null;
+  lastBlockId: string;
+  selection: NotesTextSelection | null;
+  textLength: number;
+}
+
+/**
+ * Decide whether a background pointer represents the document position after its final row.
+ */
+export function notesBackgroundPointerTargetsDocumentEnd(
+  input: NotesDocumentEndPointerInput,
+): boolean {
+  return !input.targetInsideRow && input.pointerY >= input.lastRowBottom;
+}
+
+/**
+ * Detect a document-end action that would only refocus the current caret position.
+ */
+export function notesDocumentEndFocusIsCurrent(
+  input: NotesDocumentEndFocusInput,
+): boolean {
+  return input.activeBlockId === input.lastBlockId
+    && input.selection?.start === input.textLength
+    && input.selection.end === input.textLength;
+}
+
 /**
  * Return the next focus request token for a Notes block.
  */

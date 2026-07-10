@@ -92,6 +92,7 @@ import {
   planOutdentBlock,
   planReparentChildrenAfterMerge,
   planReparentChildrenBeforeDelete,
+  parentIdForBlock,
   type NotesChildReparentPlan,
   type NotesTreeState,
 } from "$lib/notes/block-tree";
@@ -113,10 +114,11 @@ import {
   notesTableVisibleWidth,
   notesTableWithWidth,
 } from "$lib/notes/table";
-import type {
-  NotesUndoKind,
-  NotesUndoRecordOptions,
-  NotesUndoSnapshot,
+import {
+  notesTextChangeUndoSelections,
+  type NotesUndoKind,
+  type NotesUndoRecordOptions,
+  type NotesUndoSnapshot,
 } from "$lib/notes/undo-history";
 import type {
   NotesBlock,
@@ -172,12 +174,24 @@ export interface NotesBlockActionsContext {
   createUndoSnapshot: (
     focusBlockId: string | null,
     extraBlocks?: readonly NotesBlock[],
+    focusSelection?: NotesTextSelection | null,
+  ) => NotesUndoSnapshot | null;
+  createUndoSnapshotForBlocks: (
+    focusBlockId: string | null,
+    blockIds: readonly string[],
+    extraBlocks?: readonly NotesBlock[],
+    focusSelection?: NotesTextSelection | null,
   ) => NotesUndoSnapshot | null;
   recordUndo: (options: Omit<NotesUndoRecordOptions, "id">) => void;
 }
 
 export interface NotesBlockActions extends NotesColumnActions, NotesTabActions {
-  updateBlockText: (blockId: string, text: string) => Promise<void>;
+  flushOptimisticBlockWrites: () => Promise<void>;
+  updateBlockText: (
+    blockId: string,
+    text: string,
+    selection?: NotesTextSelection | null,
+  ) => Promise<void>;
   updateBlockRichText: (
     blockId: string,
     richText: readonly NotesRichText[],
@@ -326,7 +340,27 @@ export interface NotesBlockActions extends NotesColumnActions, NotesTabActions {
 export function createNotesBlockActions(context: NotesBlockActionsContext): NotesBlockActions {
   const blocksById = context.readBlocksById;
   const childIdsByParentId = context.readChildIdsByParentId;
-  const pendingOptimisticBlockCreates = new Map<string, Promise<void>>();
+  const pendingOptimisticBlockWrites = new Map<string, Promise<void>>();
+
+  function trackOptimisticBlockWrites(
+    blockIds: readonly string[],
+    persistence: Promise<void>,
+  ): void {
+    for (const blockId of blockIds) {
+      pendingOptimisticBlockWrites.set(blockId, persistence);
+    }
+    void persistence.finally(() => {
+      for (const blockId of blockIds) {
+        if (pendingOptimisticBlockWrites.get(blockId) === persistence) {
+          pendingOptimisticBlockWrites.delete(blockId);
+        }
+      }
+    });
+  }
+
+  async function flushOptimisticBlockWrites(): Promise<void> {
+    await Promise.all([...new Set(pendingOptimisticBlockWrites.values())]);
+  }
 
   function optimisticBlockFromWrite(write: NotesBlockWrite, parent: NotesParent): NotesBlock {
     const now = new Date().toISOString();
@@ -351,6 +385,20 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     extraBlocks: readonly NotesBlock[] = [],
   ): NotesUndoSnapshot | null {
     return context.createUndoSnapshot(focusBlockId, extraBlocks);
+  }
+
+  function undoSnapshotForBlocks(
+    blockIds: readonly string[],
+    focusBlockId: string | null,
+    focusSelection: NotesTextSelection | null = null,
+    extraBlocks: readonly NotesBlock[] = [],
+  ): NotesUndoSnapshot | null {
+    return context.createUndoSnapshotForBlocks(
+      focusBlockId,
+      blockIds,
+      extraBlocks,
+      focusSelection,
+    );
   }
 
   function recordUndo(
@@ -381,18 +429,39 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     await context.saveBlockNow(blockId, update);
   }
 
-  async function updateBlockText(blockId: string, text: string): Promise<void> {
+  async function updateBlockText(
+    blockId: string,
+    text: string,
+    selection: NotesTextSelection | null = null,
+  ): Promise<void> {
     const block = context.blockById(blockId);
     if (!block) return;
-    const before = undoSnapshot(blockId);
+    const currentText = blockPlainText(block);
+    if (currentText === text) return;
+    const undoSelections = notesTextChangeUndoSelections(
+      currentText,
+      text,
+      selection,
+    );
+    const before = undoSnapshotForBlocks([blockId], blockId, undoSelections.before);
     const update = blockWithText(block, text);
     context.localApplyBlockUpdate(blockId, update);
-    if (pendingOptimisticBlockCreates.has(blockId)) {
-      recordUndoAfter("typing", before, blockId, `typing:${blockId}`);
+    if (pendingOptimisticBlockWrites.has(blockId)) {
+      recordUndo(
+        "typing",
+        before,
+        undoSnapshotForBlocks([blockId], blockId, undoSelections.after),
+        `typing:${blockId}`,
+      );
       return;
     }
     context.scheduleBlockSave(blockId, update);
-    recordUndoAfter("typing", before, blockId, `typing:${blockId}`);
+    recordUndo(
+      "typing",
+      before,
+      undoSnapshotForBlocks([blockId], blockId, undoSelections.after),
+      `typing:${blockId}`,
+    );
   }
 
   async function updateBlockRichText(
@@ -401,15 +470,25 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
   ): Promise<void> {
     const block = context.blockById(blockId);
     if (!block) return;
-    const before = undoSnapshot(blockId);
+    const before = undoSnapshotForBlocks([blockId], blockId);
     const update = blockWithRichText(block, richText);
     context.localApplyBlockUpdate(blockId, update);
-    if (pendingOptimisticBlockCreates.has(blockId)) {
-      recordUndoAfter("typing", before, blockId, `typing:${blockId}`);
+    if (pendingOptimisticBlockWrites.has(blockId)) {
+      recordUndo(
+        "typing",
+        before,
+        undoSnapshotForBlocks([blockId], blockId),
+        `typing:${blockId}`,
+      );
       return;
     }
     context.scheduleBlockSave(blockId, update);
-    recordUndoAfter("typing", before, blockId, `typing:${blockId}`);
+    recordUndo(
+      "typing",
+      before,
+      undoSnapshotForBlocks([blockId], blockId),
+      `typing:${blockId}`,
+    );
   }
 
   async function insertPageMention(
@@ -423,12 +502,16 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     const block = context.blockById(blockId);
     if (!block) return;
     await context.flushBlockSave(blockId);
-    const before = undoSnapshot(blockId);
+    const before = undoSnapshotForBlocks([blockId], blockId);
     const update = blockWithPageMention(block, start, end, pageId, title, href);
     context.localApplyBlockUpdate(blockId, update);
     await context.saveBlockNow(blockId, update);
     await context.reloadBacklinks();
-    recordUndoAfter("mention", before, blockId);
+    recordUndo(
+      "mention",
+      before,
+      undoSnapshotForBlocks([blockId], blockId),
+    );
   }
 
   async function insertDateMention(
@@ -1143,14 +1226,16 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     selectionStart: number,
     selectionEnd: number,
   ): Promise<void> {
-    await pendingOptimisticBlockCreates.get(blockId)?.catch(() => undefined);
-    const block = context.blockById(blockId);
-    const selectedPageId = context.readSelectedPageId();
-    if (!block || !selectedPageId || !notesEnterSplitsRichTextBlock(block.type)) return;
-    await context.flushBlockSave(blockId);
+    const prerequisite = pendingOptimisticBlockWrites.get(blockId) ?? null;
     const currentBlock = context.blockById(blockId);
+    const selectedPageId = context.readSelectedPageId();
     if (!currentBlock || !notesEnterSplitsRichTextBlock(currentBlock.type)) return;
-    const before = undoSnapshot(blockId);
+    if (!selectedPageId) return;
+    const beforeSelection = {
+      start: Math.min(selectionStart, selectionEnd),
+      end: Math.max(selectionStart, selectionEnd),
+    };
+    const before = undoSnapshotForBlocks([blockId], blockId, beforeSelection);
     const split = splitRichTextForBlock(
       blockEditableRichText(currentBlock),
       selectionStart,
@@ -1172,20 +1257,31 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     const focusBlockId = planNotesInsertedBlockFocus([newBlockId], blockId) ?? newBlockId;
 
     context.localApplyBlockUpdate(blockId, currentUpdate);
+    if (!prerequisite) context.scheduleBlockSave(blockId, currentUpdate);
     context.localInsertBlockAfter(nextBlock, blockId);
     context.requestBlockFocus(focusBlockId, START_OF_BLOCK_SELECTION);
-    recordUndoAfter("create", before, focusBlockId);
+    recordUndo(
+      "create",
+      before,
+      undoSnapshotForBlocks(
+        [blockId, newBlockId],
+        focusBlockId,
+        START_OF_BLOCK_SELECTION,
+      ),
+      `create:enter:${parentIdForBlock(currentBlock)}`,
+    );
     const createPromise = persistSplitTextBlock(
       selectedPageId,
       blockId,
       currentUpdate,
       parent,
       nextBlockWrite,
-      focusBlockId,
-    ).finally(() => {
-      pendingOptimisticBlockCreates.delete(newBlockId);
-    });
-    pendingOptimisticBlockCreates.set(newBlockId, createPromise);
+      prerequisite,
+    );
+    trackOptimisticBlockWrites(
+      prerequisite ? [blockId, newBlockId] : [newBlockId],
+      createPromise,
+    );
     void createPromise;
   }
 
@@ -1195,16 +1291,20 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     currentUpdate: NotesBlockUpdate,
     parent: NotesParent,
     nextBlockWrite: NotesBlockWrite,
-    focusBlockId: string,
+    prerequisite: Promise<void> | null,
   ): Promise<void> {
     try {
-      await context.saveBlockNow(blockId, cloneNotesJson(currentUpdate));
+      await prerequisite;
+      if (prerequisite) {
+        await context.saveBlockNow(blockId, cloneNotesJson(currentUpdate));
+      } else {
+        await context.flushBlockSave(blockId);
+      }
       await appendNotesBlockChildren({
         parent: cloneNotesJson(parent),
         after: blockId,
         children: [cloneNotesJson(nextBlockWrite)],
       });
-      pendingOptimisticBlockCreates.delete(nextBlockWrite.id);
       const nextBlock = context.blockById(nextBlockWrite.id);
       if (nextBlock) {
         await context.saveBlockNow(
@@ -1212,8 +1312,6 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
           cloneNotesJson(blockWithRichText(nextBlock, blockEditableRichText(nextBlock))),
         );
       }
-      await context.loadPageTree(selectedPageId);
-      context.requestBlockFocus(focusBlockId, START_OF_BLOCK_SELECTION);
     } catch (error) {
       console.warn("notes split block persistence failed", error);
       await context.loadPageTree(selectedPageId);
@@ -1239,7 +1337,10 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
       createId: () => crypto.randomUUID(),
     });
     if (!plan) return false;
-    applyOptimisticPaste(selectedPageId, block, plan);
+    applyOptimisticPaste(selectedPageId, block, plan, {
+      start: Math.min(selectionStart, selectionEnd),
+      end: Math.max(selectionStart, selectionEnd),
+    });
     return true;
   }
 
@@ -1260,7 +1361,10 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
       createId: () => crypto.randomUUID(),
     });
     if (!plan) return false;
-    applyOptimisticPaste(selectedPageId, block, plan);
+    applyOptimisticPaste(selectedPageId, block, plan, {
+      start: Math.min(selectionStart, selectionEnd),
+      end: Math.max(selectionStart, selectionEnd),
+    });
     return true;
   }
 
@@ -1275,8 +1379,17 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     selectedPageId: string,
     currentBlock: NotesBlock,
     plan: OptimisticPastePlan,
+    beforeFocusSelection: NotesTextSelection,
   ): void {
-    const before = undoSnapshot(currentBlock.id);
+    const affectedBlockIds = [
+      currentBlock.id,
+      ...plan.appendedBlocks.map((write) => write.id),
+    ];
+    const before = undoSnapshotForBlocks(
+      affectedBlockIds,
+      currentBlock.id,
+      beforeFocusSelection,
+    );
     const currentUpdate = cloneNotesJson(plan.currentUpdate);
     const appendedWrites = plan.appendedBlocks.map((write) => cloneNotesJson(write));
     const parent = cloneNotesJson(currentBlock.parent);
@@ -1292,7 +1405,11 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     }
 
     context.requestBlockFocus(plan.focusBlockId, focusSelection);
-    recordUndoAfter("paste", before, plan.focusBlockId);
+    recordUndo(
+      "paste",
+      before,
+      undoSnapshotForBlocks(affectedBlockIds, plan.focusBlockId, focusSelection),
+    );
 
     if (appendedWrites.length === 0) return;
     const persistence = persistOptimisticPaste(
@@ -1300,16 +1417,8 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
       currentBlock.id,
       parent,
       appendedWrites,
-      plan.focusBlockId,
-      focusSelection,
-    ).finally(() => {
-      for (const write of appendedWrites) {
-        pendingOptimisticBlockCreates.delete(write.id);
-      }
-    });
-    for (const write of appendedWrites) {
-      pendingOptimisticBlockCreates.set(write.id, persistence);
-    }
+    );
+    trackOptimisticBlockWrites(appendedWrites.map((write) => write.id), persistence);
     void persistence;
   }
 
@@ -1318,8 +1427,6 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     currentBlockId: string,
     parent: NotesParent,
     appendedWrites: readonly NotesBlockWrite[],
-    focusBlockId: string,
-    focusSelection: NotesTextSelection,
   ): Promise<void> {
     try {
       await context.flushBlockSave(currentBlockId);
@@ -1334,8 +1441,6 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
           await context.saveBlockNow(write.id, blockUpdateFromBlock(latestBlock));
         }
       }
-      await context.loadPageTree(selectedPageId);
-      context.requestBlockFocus(focusBlockId, focusSelection);
     } catch (error) {
       console.warn("notes paste persistence failed", error);
       await context.loadPageTree(selectedPageId);
@@ -1879,6 +1984,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
   }
 
   return {
+    flushOptimisticBlockWrites,
     updateBlockText,
     updateBlockRichText,
     insertPageMention,

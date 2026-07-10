@@ -1505,8 +1505,8 @@
         {mentionTargets}
         {templateStatusForBlock}
         {buttonStatusForBlock}
-        onTextInput={(blockId, text) => {
-          void notes.updateBlockText(blockId, text);
+        onTextInput={(blockId, text, selection) => {
+          void notes.updateBlockText(blockId, text, selection);
         }}
         onReplaceRichText={replaceBlockRichText}
         onInsertPageMention={insertPageMention}
@@ -1646,8 +1646,8 @@
         {mentionTargets}
         {templateStatusForBlock}
         {buttonStatusForBlock}
-        onTextInput={(blockId, text) => {
-          void notes.updateBlockText(blockId, text);
+        onTextInput={(blockId, text, selection) => {
+          void notes.updateBlockText(blockId, text, selection);
         }}
         onReplaceRichText={replaceBlockRichText}
         onInsertPageMention={insertPageMention}
@@ -1785,8 +1785,8 @@
         {mentionTargets}
         templateStatus={templateStatusForBlock(item.block.id)}
         buttonStatus={buttonStatusForBlock(item.block.id)}
-        onTextInput={(blockId, text) => {
-          void notes.updateBlockText(blockId, text);
+        onTextInput={(blockId, text, selection) => {
+          void notes.updateBlockText(blockId, text, selection);
         }}
         onReplaceRichText={replaceBlockRichText}
         onInsertPageMention={insertPageMention}

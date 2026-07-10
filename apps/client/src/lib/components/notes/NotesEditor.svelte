@@ -29,7 +29,14 @@
   } from "$lib/components/icon-picker/types";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { blockPlainText, isTextEditableBlock } from "$lib/notes/block-factory";
   import { notesBlockAnchorId } from "$lib/notes/block-link";
+  import { notesEditorScrollTopForTarget } from "$lib/notes/editor-scroll";
+  import {
+    notesBackgroundPointerTargetsDocumentEnd,
+    notesDocumentEndFocusIsCurrent,
+  } from "$lib/notes/editor-focus";
+  import { notesTextSelectionFromEditableRoot } from "$lib/notes/editor-selection";
   import {
     formatNotesActivityDate,
     formatNotesActivityTime,
@@ -90,6 +97,8 @@
   import NotesSuggestions from "./NotesSuggestions.svelte";
 
   type NotesEditorPanel = "links" | "comments" | "suggestions";
+
+  const FOCUSED_BLOCK_SCROLL_PADDING_PX = 16;
 
   let {
     projectId = null,
@@ -212,6 +221,63 @@
     pageHistoryModalOpen = false;
   });
 
+  function handleBlockViewportPointerDown(event: PointerEvent): void {
+    if (event.button !== 0) return;
+    const viewport = blockScrollViewport;
+    const target = event.target;
+    if (!viewport || !(target instanceof Element)) return;
+    const rows = Array.from(
+      viewport.querySelectorAll<HTMLElement>("[data-notes-selectable-block-id]"),
+    );
+    const lastRow = rows.at(-1);
+    if (!lastRow) return;
+    const clickedRow = target.closest<HTMLElement>("[data-notes-selectable-block-id]");
+    if (!notesBackgroundPointerTargetsDocumentEnd({
+      pointerY: event.clientY,
+      lastRowBottom: lastRow.getBoundingClientRect().bottom,
+      targetInsideRow: clickedRow !== null && viewport.contains(clickedRow),
+    })) {
+      return;
+    }
+    const blockId = lastRow.dataset.notesSelectableBlockId;
+    if (!blockId) return;
+    const block = notes.blockById(blockId);
+    if (!block) return;
+    event.preventDefault();
+    if (isTextEditableBlock(block.type)) {
+      const end = blockPlainText(block).length;
+      const editor = Array.from(
+        lastRow.querySelectorAll<HTMLElement>(
+          "[contenteditable='true'][role='textbox'][data-notes-block-id]",
+        ),
+      ).find((candidate) => candidate.dataset.notesBlockId === blockId) ?? null;
+      const selection = editor ? notesTextSelectionFromEditableRoot(editor) : null;
+      const activeBlockId = document.activeElement instanceof HTMLElement
+        ? document.activeElement.dataset.notesBlockId ?? null
+        : null;
+      if (notesDocumentEndFocusIsCurrent({
+        activeBlockId,
+        lastBlockId: blockId,
+        selection,
+        textLength: end,
+      })) {
+        return;
+      }
+      notes.focusBlock(blockId, { start: end, end });
+      return;
+    }
+    notes.focusBlock(blockId);
+  }
+
+  function documentEndPointer(node: HTMLDivElement): { destroy: () => void } {
+    node.addEventListener("pointerdown", handleBlockViewportPointerDown);
+    return {
+      destroy() {
+        node.removeEventListener("pointerdown", handleBlockViewportPointerDown);
+      },
+    };
+  }
+
   onMount(() => {
     activityNowMs = Date.now();
     const intervalId = window.setInterval(() => {
@@ -229,18 +295,30 @@
   });
 
   $effect(() => {
-    const _focusRequestId = notes.focusRequestId;
+    const focusRequestId = notes.focusRequestId;
     const focusSelection = notes.focusSelection;
     const blockId = notes.focusBlockId;
     if (!blockId) return;
     void tick().then(() => {
-      const anchor = blockScrollViewport?.querySelector<HTMLElement>(
+      const viewport = blockScrollViewport;
+      if (!viewport || notes.focusRequestId !== focusRequestId) return;
+      const anchor = viewport.querySelector<HTMLElement>(
         `#${CSS.escape(notesBlockAnchorId(blockId))}`,
       );
-      anchor?.scrollIntoView({
-        block: focusSelection ? "nearest" : "center",
-        inline: "nearest",
+      if (!anchor) return;
+      const viewportRect = viewport.getBoundingClientRect();
+      const targetRect = anchor.getBoundingClientRect();
+      const nextScrollTop = notesEditorScrollTopForTarget({
+        scrollTop: viewport.scrollTop,
+        maxScrollTop: viewport.scrollHeight - viewport.clientHeight,
+        viewportTop: viewportRect.top,
+        viewportBottom: viewportRect.bottom,
+        targetTop: targetRect.top,
+        targetBottom: targetRect.bottom,
+        padding: FOCUSED_BLOCK_SCROLL_PADDING_PX,
+        alignment: focusSelection ? "nearest" : "center",
       });
+      if (nextScrollTop !== viewport.scrollTop) viewport.scrollTop = nextScrollTop;
     });
   });
 
@@ -525,7 +603,7 @@
 </script>
 
 {#if page}
-  <section class={cn("flex min-w-0 flex-1 flex-col overflow-hidden", peekMode && "h-full w-full")}>
+  <section class="flex h-full w-full min-w-0 flex-1 flex-col overflow-hidden">
     <div
       class="relative z-40 shrink-0"
       style="background-color: var(--cal-bg);"
@@ -820,7 +898,11 @@
       {/if}
     </div>
 
-    <div bind:this={blockScrollViewport} class="min-h-0 flex-1 overflow-auto">
+    <div
+      bind:this={blockScrollViewport}
+      class="min-h-0 flex-1 overflow-auto"
+      use:documentEndPointer
+    >
       {#if page.cover}
         <div class="h-28 overflow-hidden bg-muted sm:h-44">
           <NotesPageCover cover={page.cover} unavailableLabel={t("notes.pageCoverUnavailable")} />

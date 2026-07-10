@@ -9,6 +9,7 @@
   import { hasOnlyShortcutModifier } from "$lib/keyboard-shortcuts";
   import { parseNotesLinkHash } from "$lib/notes/block-link";
   import type { NotesPageOpenMode } from "$lib/notes/page-open-mode";
+  import { notesUndoShortcutAction } from "$lib/notes/undo-history";
   import { getNotes } from "$lib/stores/notes.svelte";
   import { getProjects } from "$lib/stores/projects.svelte";
   import { getViewport } from "$lib/stores/viewport.svelte";
@@ -37,6 +38,7 @@
   let projectSettingsDiscardConfirmOpen = $state(false);
   let projectVersionHistoryOpen = $state(false);
   let pendingProjectSettingsAction: (() => void) | null = null;
+  let activeNotesHistoryShortcut: "undo" | "redo" | null = null;
   const selectedProject = $derived(projects.selectedProject);
   const selectedGroup = $derived(projects.selectedGroup);
   const selectedProjectId = $derived(selectedProject?.id ?? null);
@@ -213,7 +215,39 @@
     );
   }
 
+  function notesBlockEditorContainsTarget(target: EventTarget | null): boolean {
+    if (!(target instanceof Element) || !notesRootElement?.contains(target)) return false;
+    return target.closest("[data-notes-selectable-block-id]") !== null;
+  }
+
+  function notesHistoryShortcutTargetBlocked(target: EventTarget | null): boolean {
+    return target instanceof Element
+      && target.closest("[role='dialog']:not([data-notes-page-peek])") !== null;
+  }
+
+  function runNotesHistoryShortcut(action: "undo" | "redo"): void {
+    void (action === "undo" ? notes.undoNotesEdit() : notes.redoNotesEdit());
+  }
+
   function handleNotesWindowKeydown(event: KeyboardEvent): void {
+    const historyAction = notesUndoShortcutAction(event);
+    if (historyAction) {
+      const fromBlockEditor = notesBlockEditorContainsTarget(event.target);
+      const continuesInterruptedRepeat = event.repeat
+        && activeNotesHistoryShortcut === historyAction;
+      if (!fromBlockEditor && !continuesInterruptedRepeat) return;
+      if (
+        notesHistoryShortcutTargetBlocked(event.target)
+        || notesRootElement?.querySelector("[role='dialog']:not([data-notes-page-peek])") !== null
+      ) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      activeNotesHistoryShortcut = historyAction;
+      runNotesHistoryShortcut(historyAction);
+      return;
+    }
     if (event.defaultPrevented) return;
     if (event.key.toLowerCase() !== "n" || !hasOnlyShortcutModifier(event)) return;
     if (
@@ -226,9 +260,22 @@
     event.preventDefault();
     createPage();
   }
+
+  function handleNotesWindowKeyup(event: KeyboardEvent): void {
+    const key = event.key.toLowerCase();
+    if (key === "z" || key === "y" || (!event.ctrlKey && !event.metaKey)) {
+      activeNotesHistoryShortcut = null;
+    }
+  }
 </script>
 
-<svelte:window onkeydown={handleNotesWindowKeydown} />
+<svelte:window
+  onkeydowncapture={handleNotesWindowKeydown}
+  onkeyup={handleNotesWindowKeyup}
+  onblur={() => {
+    activeNotesHistoryShortcut = null;
+  }}
+/>
 
 <div
   bind:this={notesRootElement}
@@ -286,7 +333,7 @@
     />
   {/if}
   <div class="notes-view-layout relative flex min-h-0 flex-1 overflow-hidden">
-    <div class={showSidePeek ? "min-w-0 basis-1/2 overflow-hidden" : "min-w-0 flex-1 overflow-hidden"}>
+    <div class={showSidePeek ? "flex min-w-0 basis-1/2 overflow-hidden" : "flex min-w-0 flex-1 overflow-hidden"}>
       {#if notes.viewMode === "archive"}
         <NotesArchiveView />
       {:else if notes.viewMode === "trash"}
@@ -307,7 +354,7 @@
 
     {#if showSidePeek}
       <div
-        class="min-w-0 basis-1/2 overflow-hidden border-l border-border"
+        class="flex min-w-0 basis-1/2 overflow-hidden border-l border-border"
         role="dialog"
         aria-modal="false"
         data-notes-page-peek

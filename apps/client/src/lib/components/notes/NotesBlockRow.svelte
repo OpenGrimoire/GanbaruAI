@@ -159,7 +159,11 @@
     mentionTargets: NotesNamedMentionTarget[];
     templateStatus: NotesTemplateBlockStatus;
     buttonStatus: NotesButtonBlockStatus;
-    onTextInput: (blockId: string, text: string) => void;
+    onTextInput: (
+      blockId: string,
+      text: string,
+      selection: NotesTextSelection | null,
+    ) => void;
     onReplaceRichText: (
       blockId: string,
       richText: readonly NotesRichText[],
@@ -427,7 +431,7 @@
   }
 
   function clearSlashText(): void {
-    if (text.startsWith("/")) onTextInput(block.id, "");
+    if (text.startsWith("/")) onTextInput(block.id, "", { start: 0, end: 0 });
   }
 
   function selectSlashCommand(command: NotesSlashCommand): void {

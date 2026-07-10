@@ -94,6 +94,7 @@ import {
   type NotesFocusRequest,
 } from "$lib/notes/editor-focus";
 import type { NotesTextSelection } from "$lib/notes/editor-selection";
+import type { NotesUndoSnapshot } from "$lib/notes/undo-history";
 import { createNotesBlockActions } from "./notes-store-block-actions";
 import { createNotesPageHistoryController } from "./notes-store-page-history.svelte";
 import { createNotesUndoController } from "./notes-store-undo";
@@ -368,6 +369,25 @@ function sidebarSeedPageIds(): string[] {
 
 function replaceBlock(block: NotesBlock): void {
   blocksById = { ...blocksById, [block.id]: block };
+}
+
+function applyLocalUndoSnapshot(
+  target: NotesUndoSnapshot,
+  source: NotesUndoSnapshot,
+): void {
+  const targetIds = new Set(target.blocks.map((block) => block.id));
+  const sourceIds = new Set(source.blocks.map((block) => block.id));
+  const affectedIds = new Set([...targetIds, ...sourceIds]);
+  const nextBlocksById = { ...blocksById };
+  for (const blockId of sourceIds) {
+    if (!targetIds.has(blockId)) delete nextBlocksById[blockId];
+  }
+  for (const block of target.blocks) {
+    nextBlocksById[block.id] = block;
+  }
+  for (const blockId of affectedIds) markBlockLocallyChanged(blockId);
+  blocksById = nextBlocksById;
+  childIdsByParentId = buildNotesChildIdsByParent(Object.values(nextBlocksById));
 }
 
 function insertBlockAfter(block: NotesBlock, afterBlockId: string | null): void {
@@ -1708,6 +1728,7 @@ function requestPageLoadFocus(requestedBlockId: string | null = null): void {
 
 const {
   localApplyBlockUpdate,
+  markBlockLocallyChanged,
   saveBlockNow,
   scheduleBlockSave,
   flushBlockSave,
@@ -1715,8 +1736,6 @@ const {
 } = createNotesBlockPersistence({
   readBlock: (blockId) => blocksById[blockId],
   replaceBlock,
-  readSelectedPageId: () => selectedPageId,
-  loadPageTree,
   setLoadError: (message) => {
     loadError = message;
   },
@@ -1728,10 +1747,13 @@ const undoController = createNotesUndoController({
   readTreeState: treeState,
   loadPageTreeForUndo,
   requestBlockFocus,
-  flushPendingBlockSaves,
-  setLoadError: (message) => {
-    loadError = message;
+  flushPendingMutations: async () => {
+    await Promise.all([
+      flushPendingBlockSaves(),
+      blockActions.flushOptimisticBlockWrites(),
+    ]);
   },
+  applyLocalSnapshot: applyLocalUndoSnapshot,
 });
 
 const pageHistoryController = createNotesPageHistoryController({
@@ -1770,6 +1792,7 @@ const blockActions = createNotesBlockActions({
   flushBlockSave,
   flushPendingBlockSaves,
   createUndoSnapshot: undoController.snapshot,
+  createUndoSnapshotForBlocks: undoController.snapshotBlocks,
   recordUndo: undoController.record,
 });
 

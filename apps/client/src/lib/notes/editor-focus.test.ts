@@ -1,12 +1,53 @@
 import { describe, expect, it } from "vitest";
 import {
   nextNotesFocusRequest,
+  notesBackgroundPointerTargetsDocumentEnd,
+  notesDocumentEndFocusIsCurrent,
   planNotesDeletedBlockFocus,
   planNotesInsertedBlockFocus,
   planNotesPageLoadFocus,
 } from "./editor-focus";
 
 describe("notes editor focus helpers", () => {
+  it("treats only background pointers below the final row as the document end", () => {
+    expect(notesBackgroundPointerTargetsDocumentEnd({
+      pointerY: 240,
+      lastRowBottom: 220,
+      targetInsideRow: false,
+    })).toBe(true);
+    expect(notesBackgroundPointerTargetsDocumentEnd({
+      pointerY: 200,
+      lastRowBottom: 220,
+      targetInsideRow: false,
+    })).toBe(false);
+    expect(notesBackgroundPointerTargetsDocumentEnd({
+      pointerY: 240,
+      lastRowBottom: 220,
+      targetInsideRow: true,
+    })).toBe(false);
+  });
+
+  it("does not refocus a caret that is already at the document end", () => {
+    expect(notesDocumentEndFocusIsCurrent({
+      activeBlockId: "last",
+      lastBlockId: "last",
+      selection: { start: 4, end: 4 },
+      textLength: 4,
+    })).toBe(true);
+    expect(notesDocumentEndFocusIsCurrent({
+      activeBlockId: "last",
+      lastBlockId: "last",
+      selection: { start: 2, end: 2 },
+      textLength: 4,
+    })).toBe(false);
+    expect(notesDocumentEndFocusIsCurrent({
+      activeBlockId: "other",
+      lastBlockId: "last",
+      selection: { start: 4, end: 4 },
+      textLength: 4,
+    })).toBe(false);
+  });
+
   it("increments the focus request token for each requested block", () => {
     expect(nextNotesFocusRequest({ blockId: "a", requestId: 2, selection: null }, "b")).toEqual({
       blockId: "b",

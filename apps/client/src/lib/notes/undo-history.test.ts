@@ -3,10 +3,14 @@ import { blockPlainText, createBlockWrite } from "./block-factory";
 import { buildNotesChildIdsByParent, type NotesTreeState } from "./block-tree";
 import {
   createNotesUndoSnapshot,
+  createNotesUndoSnapshotForBlocks,
+  notesUndoStateByteLength,
   notesUndoShortcutAction,
+  notesTextChangeUndoSelections,
   parseNotesUndoStateJson,
   recordNotesUndoEntry,
   serializeNotesUndoState,
+  trimNotesUndoStateToByteLimit,
   type NotesUndoEntry,
   type NotesUndoSnapshot,
   type NotesUndoState,
@@ -18,6 +22,7 @@ const pageId = "11111111-1111-4111-8111-111111111111";
 const otherPageId = "22222222-2222-4222-8222-222222222222";
 const blockA = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const blockB = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const blockC = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 
 function blockFromWrite(write: NotesBlockWrite, parent: NotesParent): NotesBlock {
   if (write.type !== "paragraph") throw new Error("fixture only supports paragraph blocks");
@@ -76,6 +81,29 @@ function entry(
 }
 
 describe("notes undo history", () => {
+  it("tracks the caret before and after controlled text changes", () => {
+    expect(
+      notesTextChangeUndoSelections(
+        "Hello ",
+        "Hello world",
+        { start: 11, end: 11 },
+      ),
+    ).toEqual({
+      before: { start: 6, end: 6 },
+      after: { start: 11, end: 11 },
+    });
+    expect(
+      notesTextChangeUndoSelections(
+        "Hello world",
+        "Hello there",
+        { start: 11, end: 11 },
+      ),
+    ).toEqual({
+      before: { start: 6, end: 11 },
+      after: { start: 11, end: 11 },
+    });
+  });
+
   it("snapshots proxy-wrapped blocks from reactive state", () => {
     const block = new Proxy(
       paragraph(blockA, { type: "page_id", page_id: pageId }, "Reactive"),
@@ -86,6 +114,20 @@ describe("notes undo history", () => {
     expect(snapshot?.blocks).toHaveLength(1);
     expect(snapshot?.blocks[0]).not.toBe(block);
     expect(blockPlainText(snapshot?.blocks[0] ?? block)).toBe("Reactive");
+  });
+
+  it("captures only affected editor blocks for frequent local operations", () => {
+    const first = paragraph(blockA, { type: "page_id", page_id: pageId }, "First");
+    const second = paragraph(blockB, { type: "page_id", page_id: pageId }, "Second");
+    const snapshot = createNotesUndoSnapshotForBlocks(
+      pageId,
+      state([first, second]),
+      blockA,
+      [blockA],
+    );
+
+    expect(snapshot?.blocks.map((block) => block.id)).toEqual([blockA]);
+    expect(snapshot?.childIdsByParentId).toEqual({});
   });
 
   it("groups typing by block within the typing window", () => {
@@ -111,6 +153,84 @@ describe("notes undo history", () => {
     expect(blockPlainText(second.undo[0].before.blocks[0])).toBe("a");
     expect(blockPlainText(second.undo[0].after.blocks[0])).toBe("abc");
     expect(second.redo).toEqual([]);
+  });
+
+  it("does not record focus or selection-only changes", () => {
+    const before = pageSnapshot("Same text");
+    const after: NotesUndoSnapshot = {
+      ...pageSnapshot("Same text"),
+      focusBlockId: blockB,
+      focusSelection: { start: 4, end: 4 },
+    };
+    const next = recordNotesUndoEntry({ undo: [], redo: [] }, {
+      id: "selection-only",
+      kind: "typing",
+      groupKey: `typing:${blockA}`,
+      before,
+      after,
+      now: 1000,
+    });
+
+    expect(next).toEqual({ undo: [], redo: [] });
+  });
+
+  it("groups consecutive Enter rows into one cumulative undo entry", () => {
+    const parent = { type: "page_id", page_id: pageId } as const;
+    const firstBlock = paragraph(blockA, parent, "First");
+    const secondBlock = paragraph(blockB, parent, "");
+    const thirdBlock = paragraph(blockC, parent, "");
+    const beforeFirst = createNotesUndoSnapshotForBlocks(
+      pageId,
+      state([firstBlock]),
+      blockA,
+      [blockA],
+    );
+    const afterFirst = createNotesUndoSnapshotForBlocks(
+      pageId,
+      state([firstBlock, secondBlock]),
+      blockB,
+      [blockA, blockB],
+    );
+    const beforeSecond = createNotesUndoSnapshotForBlocks(
+      pageId,
+      state([firstBlock, secondBlock]),
+      blockB,
+      [blockB],
+    );
+    const afterSecond = createNotesUndoSnapshotForBlocks(
+      pageId,
+      state([firstBlock, secondBlock, thirdBlock]),
+      blockC,
+      [blockB, blockC],
+    );
+    if (!beforeFirst || !afterFirst || !beforeSecond || !afterSecond) {
+      throw new Error("expected Enter snapshots");
+    }
+    const first = recordNotesUndoEntry({ undo: [], redo: [] }, {
+      id: "first-enter",
+      kind: "create",
+      groupKey: `create:enter:${pageId}`,
+      before: beforeFirst,
+      after: afterFirst,
+      now: 1000,
+    });
+    const second = recordNotesUndoEntry(first, {
+      id: "second-enter",
+      kind: "create",
+      groupKey: `create:enter:${pageId}`,
+      before: beforeSecond,
+      after: afterSecond,
+      now: 1100,
+    });
+
+    expect(second.undo).toHaveLength(1);
+    expect(second.undo[0].before.blocks.map((block) => block.id)).toEqual([blockA]);
+    expect(second.undo[0].after.blocks.map((block) => block.id)).toEqual([
+      blockA,
+      blockB,
+      blockC,
+    ]);
+    expect(second.undo[0].after.focusBlockId).toBe(blockC);
   });
 
   it("keeps discrete operations as separate undo entries", () => {
@@ -201,6 +321,45 @@ describe("notes undo history", () => {
     expect(() => parseNotesUndoStateJson(JSON.stringify(invalid))).toThrow(
       "undo[0].kind is not a supported undo kind",
     );
+  });
+
+  it("drops oldest undo entries until recovery state fits its byte limit", () => {
+    const first = entry(pageSnapshot("a".repeat(256)), pageSnapshot("b".repeat(256)), "first");
+    const second = {
+      ...entry(pageSnapshot("c".repeat(256)), pageSnapshot("d".repeat(256)), "second"),
+      createdAt: 2,
+      updatedAt: 2,
+    };
+    const newestOnly = { undo: [second], redo: [] };
+    const trimmed = trimNotesUndoStateToByteLimit(
+      { undo: [first, second], redo: [] },
+      notesUndoStateByteLength(newestOnly),
+    );
+
+    expect(trimmed.undo.map((undoEntry) => undoEntry.id)).toEqual(["second"]);
+    expect(trimmed.redo).toEqual([]);
+  });
+
+  it("drops a single entry when one page snapshot cannot fit", () => {
+    const oversized = {
+      undo: [entry(pageSnapshot("x".repeat(1024)), pageSnapshot("y".repeat(1024)))],
+      redo: [],
+    };
+    const emptyState = { undo: [], redo: [] };
+
+    expect(
+      trimNotesUndoStateToByteLimit(oversized, notesUndoStateByteLength(emptyState)),
+    ).toEqual(emptyState);
+  });
+
+  it("measures undo recovery state as UTF-8 bytes", () => {
+    const stateWithUnicode = {
+      undo: [entry(pageSnapshot("努力"), pageSnapshot("頑張る"))],
+      redo: [],
+    };
+
+    expect(notesUndoStateByteLength(stateWithUnicode))
+      .toBeGreaterThan(serializeNotesUndoState(stateWithUnicode).length);
   });
 
   it("includes moved extra blocks outside the selected page tree", () => {

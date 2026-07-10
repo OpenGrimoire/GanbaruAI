@@ -6,6 +6,7 @@ import {
   type NotesTreeState,
 } from "./block-tree";
 import { cloneNotesJson } from "./json-clone";
+import type { NotesTextSelection } from "./editor-selection";
 import type { NotesBlock } from "./types";
 
 export type NotesUndoKind =
@@ -46,6 +47,7 @@ export interface NotesUndoSnapshot {
   blocks: NotesBlock[];
   childIdsByParentId: Record<string, string[]>;
   focusBlockId: string | null;
+  focusSelection: NotesTextSelection | null;
 }
 
 export interface NotesUndoEntry {
@@ -82,7 +84,8 @@ export interface NotesUndoRecordOptions {
 
 export const NOTES_UNDO_SCHEMA_VERSION = 1;
 export const NOTES_UNDO_STACK_LIMIT = 40;
-export const NOTES_UNDO_TYPING_GROUP_MS = 1250;
+export const NOTES_UNDO_GROUP_MS = 1250;
+export const NOTES_UNDO_STATE_MAX_BYTES = 512 * 1024;
 
 interface SerializedNotesUndoState {
   schema_version: typeof NOTES_UNDO_SCHEMA_VERSION;
@@ -143,32 +146,81 @@ function cloneSnapshot(snapshot: NotesUndoSnapshot): NotesUndoSnapshot {
       ]),
     ),
     focusBlockId: snapshot.focusBlockId,
+    focusSelection: snapshot.focusSelection ? { ...snapshot.focusSelection } : null,
   };
 }
 
-function cloneEntry(entry: NotesUndoEntry): NotesUndoEntry {
-  return {
-    ...entry,
-    before: cloneSnapshot(entry.before),
-    after: cloneSnapshot(entry.after),
-  };
-}
-
-function snapshotKey(snapshot: NotesUndoSnapshot): string {
+function snapshotContentKey(snapshot: NotesUndoSnapshot): string {
   return JSON.stringify({
     pageId: snapshot.pageId,
     blocks: snapshot.blocks,
     childIdsByParentId: snapshot.childIdsByParentId,
-    focusBlockId: snapshot.focusBlockId,
   });
 }
 
-function snapshotsEqual(
+function snapshotContentsEqual(
   left: NotesUndoSnapshot | null,
   right: NotesUndoSnapshot | null,
 ): boolean {
   if (!left || !right) return left === right;
-  return snapshotKey(left) === snapshotKey(right);
+  return snapshotContentKey(left) === snapshotContentKey(right);
+}
+
+function mergeSnapshotChanges(
+  existing: NotesUndoSnapshot,
+  next: NotesUndoSnapshot,
+): NotesUndoSnapshot {
+  const nextBlockIds = new Set(next.blocks.map((block) => block.id));
+  return cloneSnapshot({
+    pageId: next.pageId,
+    blocks: [
+      ...existing.blocks.filter((block) => !nextBlockIds.has(block.id)),
+      ...next.blocks,
+    ],
+    childIdsByParentId: {
+      ...existing.childIdsByParentId,
+      ...next.childIdsByParentId,
+    },
+    focusBlockId: next.focusBlockId,
+    focusSelection: next.focusSelection,
+  });
+}
+
+/**
+ * Derive the caret ranges before and after one controlled plain-text edit.
+ */
+export function notesTextChangeUndoSelections(
+  beforeText: string,
+  afterText: string,
+  afterSelection: NotesTextSelection | null,
+): { before: NotesTextSelection; after: NotesTextSelection } {
+  let prefixLength = 0;
+  const sharedLength = Math.min(beforeText.length, afterText.length);
+  while (
+    prefixLength < sharedLength
+    && beforeText[prefixLength] === afterText[prefixLength]
+  ) {
+    prefixLength += 1;
+  }
+  let suffixLength = 0;
+  while (
+    suffixLength < beforeText.length - prefixLength
+    && suffixLength < afterText.length - prefixLength
+    && beforeText[beforeText.length - suffixLength - 1]
+      === afterText[afterText.length - suffixLength - 1]
+  ) {
+    suffixLength += 1;
+  }
+  const fallbackAfterOffset = afterText.length - suffixLength;
+  return {
+    before: {
+      start: prefixLength,
+      end: beforeText.length - suffixLength,
+    },
+    after: afterSelection
+      ? { ...afterSelection }
+      : { start: fallbackAfterOffset, end: fallbackAfterOffset },
+  };
 }
 
 function collectSnapshotBlockIds(
@@ -202,6 +254,7 @@ export function createNotesUndoSnapshot(
   state: NotesTreeState,
   focusBlockId: string | null,
   extraBlocks: readonly NotesBlock[] = [],
+  focusSelection: NotesTextSelection | null = null,
 ): NotesUndoSnapshot | null {
   if (!pageId) return null;
   const extraBlocksById = Object.fromEntries(extraBlocks.map((block) => [block.id, block]));
@@ -232,6 +285,33 @@ export function createNotesUndoSnapshot(
         ]),
     ),
     focusBlockId,
+    focusSelection: focusSelection ? { ...focusSelection } : null,
+  };
+}
+
+/**
+ * Capture only blocks affected by a local editor operation.
+ */
+export function createNotesUndoSnapshotForBlocks(
+  pageId: string | null,
+  state: NotesTreeState,
+  focusBlockId: string | null,
+  blockIds: readonly string[],
+  extraBlocks: readonly NotesBlock[] = [],
+  focusSelection: NotesTextSelection | null = null,
+): NotesUndoSnapshot | null {
+  if (!pageId) return null;
+  const extraBlocksById = new Map(extraBlocks.map((block) => [block.id, block]));
+  const uniqueBlockIds = [...new Set(blockIds)];
+  return {
+    pageId,
+    blocks: uniqueBlockIds
+      .map((blockId) => extraBlocksById.get(blockId) ?? state.blocksById[blockId])
+      .filter((block): block is NotesBlock => block !== undefined)
+      .map(cloneBlock),
+    childIdsByParentId: {},
+    focusBlockId,
+    focusSelection: focusSelection ? { ...focusSelection } : null,
   };
 }
 
@@ -240,7 +320,7 @@ export function recordNotesUndoEntry(
   options: NotesUndoRecordOptions,
 ): NotesUndoState {
   const { before, after } = options;
-  if (!before || !after || snapshotsEqual(before, after)) return state;
+  if (!before || !after || snapshotContentsEqual(before, after)) return state;
   const now = options.now ?? Date.now();
   const groupKey = options.groupKey ?? null;
   const latest = state.undo.at(-1);
@@ -249,14 +329,14 @@ export function recordNotesUndoEntry(
     && latest.groupKey !== null
     && latest.groupKey === groupKey
     && latest.kind === options.kind
-    && now - latest.updatedAt <= NOTES_UNDO_TYPING_GROUP_MS
+    && now - latest.updatedAt <= NOTES_UNDO_GROUP_MS
   ) {
     return {
       undo: [
         ...state.undo.slice(0, -1),
         {
           ...latest,
-          after: cloneSnapshot(after),
+          after: mergeSnapshotChanges(latest.after, after),
           updatedAt: now,
         },
       ],
@@ -299,6 +379,19 @@ function parseSnapshot(value: unknown, label: string): NotesUndoSnapshot {
   if (!isRecord(childIdsValue)) {
     throw new Error(`${label}.childIdsByParentId must be an object`);
   }
+  const focusSelectionValue = value.focusSelection;
+  let focusSelection: NotesTextSelection | null = null;
+  if (focusSelectionValue !== undefined && focusSelectionValue !== null) {
+    if (!isRecord(focusSelectionValue)) {
+      throw new Error(`${label}.focusSelection must be an object or null`);
+    }
+    const start = readNumber(focusSelectionValue.start, `${label}.focusSelection.start`);
+    const end = readNumber(focusSelectionValue.end, `${label}.focusSelection.end`);
+    if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end < start) {
+      throw new Error(`${label}.focusSelection must be a valid text range`);
+    }
+    focusSelection = { start, end };
+  }
   return {
     pageId: readString(value.pageId, `${label}.pageId`),
     blocks: blocksValue.map((block, index) =>
@@ -318,6 +411,7 @@ function parseSnapshot(value: unknown, label: string): NotesUndoSnapshot {
       }),
     ),
     focusBlockId: readNullableString(value.focusBlockId, `${label}.focusBlockId`),
+    focusSelection,
   };
 }
 
@@ -351,10 +445,40 @@ export function parseNotesUndoStateJson(stateJson: string): NotesUndoState {
 export function serializeNotesUndoState(state: NotesUndoState): string {
   const serialized: SerializedNotesUndoState = {
     schema_version: NOTES_UNDO_SCHEMA_VERSION,
-    undo: state.undo.map(cloneEntry),
-    redo: state.redo.map(cloneEntry),
+    undo: state.undo,
+    redo: state.redo,
   };
   return JSON.stringify(serialized);
+}
+
+/**
+ * Measure serialized undo recovery state using the backend's UTF-8 byte semantics.
+ */
+export function notesUndoStateByteLength(state: NotesUndoState): number {
+  return new TextEncoder().encode(serializeNotesUndoState(state)).byteLength;
+}
+
+/**
+ * Drop the oldest recovery entries until the serialized state fits the storage limit.
+ */
+export function trimNotesUndoStateToByteLimit(
+  state: NotesUndoState,
+  maxBytes = NOTES_UNDO_STATE_MAX_BYTES,
+): NotesUndoState {
+  let undo = [...state.undo];
+  let redo = [...state.redo];
+  while (undo.length > 0 || redo.length > 0) {
+    const candidate = { undo, redo };
+    if (notesUndoStateByteLength(candidate) <= maxBytes) return candidate;
+    const oldestUndo = undo[0];
+    const oldestRedo = redo[0];
+    if (!oldestRedo || (oldestUndo && oldestUndo.updatedAt <= oldestRedo.updatedAt)) {
+      undo = undo.slice(1);
+    } else {
+      redo = redo.slice(1);
+    }
+  }
+  return { undo: [], redo: [] };
 }
 
 export function parentIdsByDepth(snapshot: NotesUndoSnapshot): string[] {

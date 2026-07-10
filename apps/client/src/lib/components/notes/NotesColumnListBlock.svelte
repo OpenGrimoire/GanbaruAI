@@ -155,7 +155,11 @@
     mentionTargets: NotesNamedMentionTarget[];
     templateStatusForBlock: (blockId: string) => NotesTemplateBlockStatus;
     buttonStatusForBlock: (blockId: string) => NotesButtonBlockStatus;
-    onTextInput: (blockId: string, text: string) => void;
+    onTextInput: (
+      blockId: string,
+      text: string,
+      selection: NotesTextSelection | null,
+    ) => void;
     onReplaceRichText: (
       blockId: string,
       richText: readonly NotesRichText[],

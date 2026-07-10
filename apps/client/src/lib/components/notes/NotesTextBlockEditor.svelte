@@ -160,7 +160,11 @@
     suggestionAnchors: readonly NotesResolvedSuggestionAnchor[];
     templateStatus: NotesTemplateBlockStatus;
     buttonStatus: NotesButtonBlockStatus;
-    onTextInput: (blockId: string, text: string) => void;
+    onTextInput: (
+      blockId: string,
+      text: string,
+      selection: NotesTextSelection | null,
+    ) => void;
     onReplaceRichText: (
       blockId: string,
       richText: readonly NotesRichText[],
@@ -287,7 +291,6 @@
   const canUseLinks = $derived(canUseMentions);
   const canUseInlineFormatting = $derived(canUseMentions);
   const editableRichText = $derived(blockEditableRichText(block));
-  const shouldShowPlaceholder = $derived(focusBlockId === block.id && text.length === 0);
   const currentTextAnnotationRange = $derived(
     blockTextAnnotationsForSelection(block, textSelection.start, textSelection.end),
   );
@@ -720,6 +723,11 @@
 
   function handleBeforeInput(event: InputEvent): void {
     if (event.isComposing || compositionActive) return;
+    if (event.inputType === "historyUndo" || event.inputType === "historyRedo") {
+      event.preventDefault();
+      void Promise.resolve(event.inputType === "historyUndo" ? onUndo() : onRedo());
+      return;
+    }
     const target = event.currentTarget;
     if (!(target instanceof HTMLElement)) return;
 
@@ -881,8 +889,7 @@
     } else {
       updateMentionQueryFromText(value, selection);
     }
-    onTextInput(block.id, value);
-    if (selection) void focusEditorWithSelection(selection.start, selection.end);
+    onTextInput(block.id, value, selection);
   }
 
   function commitRichTextInput(target: HTMLElement): void {
@@ -942,10 +949,11 @@
     ) {
       event.preventDefault();
       const nextText = `${text.slice(0, selection.start)}${plainText}${text.slice(selection.end)}`;
-      onTextInput(block.id, nextText);
+      const cursor = selection.start + plainText.length;
+      onTextInput(block.id, nextText, { start: cursor, end: cursor });
       await focusEditorWithSelection(
-        selection.start + plainText.length,
-        selection.start + plainText.length,
+        cursor,
+        cursor,
       );
       return;
     }
@@ -955,8 +963,8 @@
     const handled = await Promise.resolve(onPastePlainText(block.id, start, end, plainText));
     if (handled) return;
     const nextText = `${text.slice(0, start)}${plainText}${text.slice(end)}`;
-    onTextInput(block.id, nextText);
     const cursor = start + plainText.length;
+    onTextInput(block.id, nextText, { start: cursor, end: cursor });
     await focusEditorWithSelection(cursor, cursor);
   }
 
@@ -967,6 +975,10 @@
       mentionQuery = null;
       mentionActiveIndex = 0;
     }, 120);
+  }
+
+  function handleEditorFocus(): void {
+    if (focusBlockId !== block.id) onFocusBlock(block.id);
   }
 
   async function selectMention(target: NotesMentionTarget): Promise<void> {
@@ -986,7 +998,7 @@
   }
 
   function clearSlashText(): void {
-    if (text.startsWith("/")) onTextInput(block.id, "");
+    if (text.startsWith("/")) onTextInput(block.id, "", { start: 0, end: 0 });
   }
 
   function selectSlashCommand(command: NotesSlashCommand): void {
@@ -1128,7 +1140,6 @@
   tabindex="0"
   data-notes-block-id={block.id}
   data-placeholder={t("notes.blockPlaceholder")}
-  data-show-placeholder={shouldShowPlaceholder ? "true" : undefined}
   oninput={handleInput}
   onkeydown={handleKeydown}
   onbeforeinput={handleBeforeInput}
@@ -1142,6 +1153,7 @@
   onclick={(event) => syncTextSelection(event.currentTarget)}
   onpointerup={(event) => syncTextSelection(event.currentTarget)}
   onmouseup={(event) => syncTextSelection(event.currentTarget)}
+  onfocus={handleEditorFocus}
   onblur={handleEditorBlur}
 ><NotesRichTextInline richText={editableRichText} {commentAnchors} {suggestionAnchors} /></div>
 {#if mentionOpen || slashOpen}
@@ -1211,8 +1223,7 @@
     caret-color: var(--foreground);
   }
 
-  .notes-rich-text-editor:empty:focus::before,
-  .notes-rich-text-editor:empty[data-show-placeholder="true"]::before {
+  .notes-rich-text-editor:empty:focus::before {
     content: attr(data-placeholder);
     color: var(--muted-foreground);
     pointer-events: none;

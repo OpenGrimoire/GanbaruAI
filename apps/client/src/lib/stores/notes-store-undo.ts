@@ -8,13 +8,15 @@ import {
 } from "$lib/api/notes";
 import { blockUpdateFromBlock } from "$lib/notes/block-factory";
 import { parentIdForBlock, type NotesTreeState } from "$lib/notes/block-tree";
-import { cloneNotesJson } from "$lib/notes/json-clone";
+import type { NotesTextSelection } from "$lib/notes/editor-selection";
 import {
   createNotesUndoSnapshot,
+  createNotesUndoSnapshotForBlocks,
   parentIdsByDepth,
   parseNotesUndoStateJson,
   recordNotesUndoEntry,
   serializeNotesUndoState,
+  trimNotesUndoStateToByteLimit,
   type NotesUndoEntry,
   type NotesUndoRecordOptions,
   type NotesUndoSnapshot,
@@ -28,9 +30,12 @@ export interface NotesUndoControllerContext {
   readSelectedPageId: () => string | null;
   readTreeState: () => NotesTreeState;
   loadPageTreeForUndo: (pageId: string) => Promise<void>;
-  requestBlockFocus: (blockId: string | null) => void;
-  flushPendingBlockSaves: () => Promise<void>;
-  setLoadError: (message: string) => void;
+  requestBlockFocus: (
+    blockId: string | null,
+    selection?: NotesTextSelection | null,
+  ) => void;
+  flushPendingMutations: () => Promise<void>;
+  applyLocalSnapshot: (target: NotesUndoSnapshot, source: NotesUndoSnapshot) => void;
 }
 
 export interface NotesUndoController {
@@ -38,16 +43,19 @@ export interface NotesUndoController {
   snapshot: (
     focusBlockId: string | null,
     extraBlocks?: readonly NotesBlock[],
+    focusSelection?: NotesTextSelection | null,
+  ) => NotesUndoSnapshot | null;
+  snapshotBlocks: (
+    focusBlockId: string | null,
+    blockIds: readonly string[],
+    extraBlocks?: readonly NotesBlock[],
+    focusSelection?: NotesTextSelection | null,
   ) => NotesUndoSnapshot | null;
   record: (options: Omit<NotesUndoRecordOptions, "id">) => void;
   undo: () => Promise<boolean>;
   redo: () => Promise<boolean>;
   canUndo: () => boolean;
   canRedo: () => boolean;
-}
-
-function cloneEntry(entry: NotesUndoEntry): NotesUndoEntry {
-  return cloneNotesJson(entry);
 }
 
 function entryIdsByPresence(
@@ -75,7 +83,7 @@ function snapshotBlocksById(snapshot: NotesUndoSnapshot): Map<string, NotesBlock
 }
 
 function stackWithLimit(entries: readonly NotesUndoEntry[]): NotesUndoEntry[] {
-  return entries.slice(-40).map(cloneEntry);
+  return entries.slice(-40);
 }
 
 async function applyUndoSnapshot(
@@ -123,6 +131,7 @@ export function createNotesUndoController(
   let hydratedPageId: string | null = null;
   let hydrateRequestId = 0;
   let persistTimer: ReturnType<typeof setTimeout> | null = null;
+  let mutationChain = Promise.resolve();
 
   function persistPageId(): string | null {
     return state.undo.at(-1)?.after.pageId
@@ -137,6 +146,7 @@ export function createNotesUndoController(
     }
     const pageId = persistPageId();
     if (!pageId) return;
+    state = trimNotesUndoStateToByteLimit(state);
     try {
       if (state.undo.length === 0 && state.redo.length === 0) {
         await clearNotesUndoState(pageId);
@@ -144,7 +154,7 @@ export function createNotesUndoController(
       }
       await saveNotesUndoState(pageId, serializeNotesUndoState(state));
     } catch (error) {
-      context.setLoadError(error instanceof Error ? error.message : String(error));
+      console.warn("persist notes undo recovery state failed", error);
     }
   }
 
@@ -165,24 +175,44 @@ export function createNotesUndoController(
     try {
       const stateJson = await loadNotesUndoState(pageId);
       if (requestId !== hydrateRequestId) return;
-      state = stateJson ? parseNotesUndoStateJson(stateJson) : EMPTY_UNDO_STATE;
+      state = stateJson
+        ? trimNotesUndoStateToByteLimit(parseNotesUndoStateJson(stateJson))
+        : EMPTY_UNDO_STATE;
     } catch (error) {
       if (requestId !== hydrateRequestId) return;
       state = EMPTY_UNDO_STATE;
       await clearNotesUndoState(pageId).catch(() => undefined);
-      context.setLoadError(error instanceof Error ? error.message : String(error));
+      console.warn("hydrate notes undo recovery state failed", error);
     }
   }
 
   function snapshot(
     focusBlockId: string | null,
     extraBlocks: readonly NotesBlock[] = [],
+    focusSelection: NotesTextSelection | null = null,
   ): NotesUndoSnapshot | null {
     return createNotesUndoSnapshot(
       context.readSelectedPageId(),
       context.readTreeState(),
       focusBlockId,
       extraBlocks,
+      focusSelection,
+    );
+  }
+
+  function snapshotBlocks(
+    focusBlockId: string | null,
+    blockIds: readonly string[],
+    extraBlocks: readonly NotesBlock[] = [],
+    focusSelection: NotesTextSelection | null = null,
+  ): NotesUndoSnapshot | null {
+    return createNotesUndoSnapshotForBlocks(
+      context.readSelectedPageId(),
+      context.readTreeState(),
+      focusBlockId,
+      blockIds,
+      extraBlocks,
+      focusSelection,
     );
   }
 
@@ -194,43 +224,53 @@ export function createNotesUndoController(
     schedulePersist();
   }
 
-  async function applyEntry(entry: NotesUndoEntry, direction: "undo" | "redo"): Promise<boolean> {
-    await context.flushPendingBlockSaves();
+  function applyEntry(entry: NotesUndoEntry, direction: "undo" | "redo"): void {
     const target = direction === "undo" ? entry.before : entry.after;
     const source = direction === "undo" ? entry.after : entry.before;
-    await applyUndoSnapshot(target, source);
-    await context.loadPageTreeForUndo(target.pageId);
-    context.requestBlockFocus(target.focusBlockId);
-    return true;
+    const pendingMutations = context.flushPendingMutations();
+    context.applyLocalSnapshot(target, source);
+    context.requestBlockFocus(target.focusBlockId, target.focusSelection);
+    const persistence = mutationChain
+      .catch(() => undefined)
+      .then(async () => {
+        await pendingMutations;
+        await applyUndoSnapshot(target, source);
+      });
+    mutationChain = persistence;
+    void persistence
+      .then(() => mutationChain === persistence ? persistNow() : undefined)
+      .catch(async (error) => {
+        console.warn(`notes ${direction} persistence failed`, error);
+        await context.loadPageTreeForUndo(target.pageId);
+      });
   }
 
   async function undo(): Promise<boolean> {
     const entry = state.undo.at(-1);
     if (!entry) return false;
-    await applyEntry(entry, "undo");
     state = {
-      undo: state.undo.slice(0, -1).map(cloneEntry),
+      undo: state.undo.slice(0, -1),
       redo: stackWithLimit([...state.redo, entry]),
     };
-    await persistNow();
+    applyEntry(entry, "undo");
     return true;
   }
 
   async function redo(): Promise<boolean> {
     const entry = state.redo.at(-1);
     if (!entry) return false;
-    await applyEntry(entry, "redo");
     state = {
       undo: stackWithLimit([...state.undo, entry]),
-      redo: state.redo.slice(0, -1).map(cloneEntry),
+      redo: state.redo.slice(0, -1),
     };
-    await persistNow();
+    applyEntry(entry, "redo");
     return true;
   }
 
   return {
     hydrate,
     snapshot,
+    snapshotBlocks,
     record,
     undo,
     redo,

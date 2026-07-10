@@ -10,14 +10,13 @@ interface PendingBlockSave {
 export interface NotesBlockPersistenceContext {
   readBlock: (blockId: string) => NotesBlock | undefined;
   replaceBlock: (block: NotesBlock) => void;
-  readSelectedPageId: () => string | null;
-  loadPageTree: (pageId: string) => Promise<void>;
   setLoadError: (message: string) => void;
   debounceMs: number;
 }
 
 export interface NotesBlockPersistence {
   localApplyBlockUpdate: (blockId: string, update: NotesBlockUpdate) => void;
+  markBlockLocallyChanged: (blockId: string) => void;
   saveBlockNow: (blockId: string, update: NotesBlockUpdate) => Promise<void>;
   scheduleBlockSave: (blockId: string, update: NotesBlockUpdate) => void;
   flushBlockSave: (blockId: string) => Promise<void>;
@@ -31,16 +30,37 @@ export function createNotesBlockPersistence(
   context: NotesBlockPersistenceContext,
 ): NotesBlockPersistence {
   const pendingBlockSaves = new Map<string, PendingBlockSave>();
+  const blockRevisions = new Map<string, number>();
+  const saveChains = new Map<string, Promise<void>>();
+
+  function markBlockLocallyChanged(blockId: string): void {
+    blockRevisions.set(blockId, (blockRevisions.get(blockId) ?? 0) + 1);
+  }
 
   function localApplyBlockUpdate(blockId: string, update: NotesBlockUpdate): void {
     const block = context.readBlock(blockId);
     if (!block) return;
+    markBlockLocallyChanged(blockId);
     context.replaceBlock(applyBlockUpdate(block, update));
   }
 
   async function saveBlockNow(blockId: string, update: NotesBlockUpdate): Promise<void> {
-    const saved = await updateNotesBlock(blockId, update);
-    context.replaceBlock(saved);
+    const revision = blockRevisions.get(blockId) ?? 0;
+    const previous = saveChains.get(blockId) ?? Promise.resolve();
+    const save = previous
+      .catch(() => undefined)
+      .then(async () => {
+        const saved = await updateNotesBlock(blockId, update);
+        if ((blockRevisions.get(blockId) ?? 0) === revision) {
+          context.replaceBlock(saved);
+        }
+      });
+    saveChains.set(blockId, save);
+    try {
+      await save;
+    } finally {
+      if (saveChains.get(blockId) === save) saveChains.delete(blockId);
+    }
   }
 
   function scheduleBlockSave(blockId: string, update: NotesBlockUpdate): void {
@@ -50,8 +70,6 @@ export function createNotesBlockPersistence(
       pendingBlockSaves.delete(blockId);
       saveBlockNow(blockId, update).catch((error) => {
         context.setLoadError(error instanceof Error ? error.message : String(error));
-        const selectedPageId = context.readSelectedPageId();
-        if (selectedPageId) void context.loadPageTree(selectedPageId);
       });
     }, context.debounceMs);
     pendingBlockSaves.set(blockId, { timer, update });
@@ -59,10 +77,13 @@ export function createNotesBlockPersistence(
 
   async function flushBlockSave(blockId: string): Promise<void> {
     const pending = pendingBlockSaves.get(blockId);
-    if (!pending) return;
-    clearTimeout(pending.timer);
-    pendingBlockSaves.delete(blockId);
-    await saveBlockNow(blockId, pending.update);
+    if (pending) {
+      clearTimeout(pending.timer);
+      pendingBlockSaves.delete(blockId);
+      await saveBlockNow(blockId, pending.update);
+      return;
+    }
+    await saveChains.get(blockId);
   }
 
   async function flushPendingBlockSaves(): Promise<void> {
@@ -72,6 +93,7 @@ export function createNotesBlockPersistence(
 
   return {
     localApplyBlockUpdate,
+    markBlockLocallyChanged,
     saveBlockNow,
     scheduleBlockSave,
     flushBlockSave,
