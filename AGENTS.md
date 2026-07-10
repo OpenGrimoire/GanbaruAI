@@ -183,6 +183,10 @@ Tauri's platform app config directory stores device-local bootstrap and runtime 
 
 **Validation policy for agent work:**
 - The root `check`, `test`, and `validate` scripts intentionally cap tool concurrency. Use those scripts for broad local verification instead of direct full-suite `turbo`, `vitest`, or `cargo` commands.
+- Run frontend and Rust validation sequentially. Do not run Cargo compilation or tests concurrently with Vitest, Svelte checks, Turbo, or another Node-based validation command.
+- Do not run additional validation commands while a root `check`, `test`, `validate`, or `validate:full` command is active.
+- For direct focused checks, use one Vitest worker and one Cargo build job and test thread unless the user explicitly requests higher concurrency.
+- Confirm that focused Vitest runs report only the requested files. Stop and correct the command if the full suite starts unexpectedly.
 - Start with the narrowest useful command. Use affected Vitest files for focused TypeScript tests and filtered Cargo tests for focused Rust tests where practical.
 - For trivial, mechanically obvious edits with no plausible impact on compilation, types, styling, behavior, generated output, persisted data, or public interfaces, do not run checks unless a relevant workflow requires them. Examples include changing existing copy text, renaming a visible label without changing keys, adjusting punctuation, or replacing one imported icon with another from the same library in an already type-compatible slot.
 - For small UI-only or docs-only edits, do not run `pnpm -w run validate` merely because files changed. Run `pnpm -w run check` or `pnpm -w run editor-check` when the edit affects Svelte compilation, TypeScript, Tailwind classes, or shared UI structure. Run focused tests only when behavior changes.
@@ -196,8 +200,8 @@ Tauri's platform app config directory stores device-local bootstrap and runtime 
 - `pnpm --dir apps/client run check`: client-only Svelte and TypeScript checks.
 - `pnpm -w run editor-check`: editor-style diagnostics, including Tailwind canonical class checks.
 - `pnpm -w run test`: all tests (vitest + cargo test) with capped Vitest, Cargo build, and Rust test concurrency. Use after changes to tested code.
-- `pnpm --dir apps/client run test -- path/to/file.test.ts`: focused frontend test file.
-- `cargo test -p ganbaru-ai test_name`: focused Rust test by name.
+- `pnpm --dir apps/client exec vitest run path/to/file.test.ts --maxWorkers=1`: focused frontend test file.
+- `cargo test -p ganbaru-ai -j 1 test_name -- --test-threads=1`: focused Rust test by name.
 - `cargo fmt --check`: Rust formatting only.
 - `cargo clippy --workspace -j 2 -- -D warnings`: Rust linting only.
 - `pnpm -w run audit:deps`: npm advisory audit for workspace dependencies. Run for dependency or lockfile changes, before PRs, before releases, and when investigating security alerts.
