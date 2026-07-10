@@ -108,6 +108,7 @@ import {
   notesTabItemsForBlock,
   notesTableRowsForBlock,
   notesTreeState,
+  notesTreeStateWithoutLeafBlock,
   previousNotesBlockType,
   type NotesBlockTreeSnapshot,
 } from "./notes-store-block-tree";
@@ -404,6 +405,15 @@ function insertBlockAfter(block: NotesBlock, afterBlockId: string | null): void 
     ],
   };
   replaceBlock(block);
+}
+
+function removeLeafBlockLocally(blockId: string): boolean {
+  const next = notesTreeStateWithoutLeafBlock(treeState(), blockId);
+  if (!next) return false;
+  markBlockLocallyChanged(blockId);
+  blocksById = next.blocksById;
+  childIdsByParentId = next.childIdsByParentId;
+  return true;
 }
 
 function setLoadedPageFromLoaded(loaded: NotesLoadedPage): void {
@@ -1787,6 +1797,7 @@ const blockActions = createNotesBlockActions({
   reloadBacklinks,
   localApplyBlockUpdate,
   localInsertBlockAfter: insertBlockAfter,
+  localRemoveLeafBlock: removeLeafBlockLocally,
   saveBlockNow,
   scheduleBlockSave,
   flushBlockSave,

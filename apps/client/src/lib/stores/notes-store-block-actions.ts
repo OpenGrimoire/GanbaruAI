@@ -67,6 +67,7 @@ import {
   createEmptyTableRowPayload,
   DEFAULT_TABLE_ROW_COUNT,
   DEFAULT_TABLE_WIDTH,
+  isTextEditableBlock,
   type NotesHeadingBlockType,
   type NotesMediaAssetChange,
 } from "$lib/notes/block-factory";
@@ -167,6 +168,7 @@ export interface NotesBlockActionsContext {
   reloadBacklinks: () => Promise<void>;
   localApplyBlockUpdate: (blockId: string, update: NotesBlockUpdate) => void;
   localInsertBlockAfter: (block: NotesBlock, afterBlockId: string | null) => void;
+  localRemoveLeafBlock: (blockId: string) => boolean;
   saveBlockNow: (blockId: string, update: NotesBlockUpdate) => Promise<void>;
   scheduleBlockSave: (blockId: string, update: NotesBlockUpdate) => void;
   flushBlockSave: (blockId: string) => Promise<void>;
@@ -418,6 +420,13 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     extraBlocks: readonly NotesBlock[] = [],
   ): void {
     recordUndo(kind, before, undoSnapshot(focusBlockId, extraBlocks), groupKey);
+  }
+
+  function selectionAtBlockEnd(blockId: string): NotesTextSelection | null {
+    const block = context.blockById(blockId);
+    if (!block || !isTextEditableBlock(block.type)) return null;
+    const end = blockPlainText(block).length;
+    return { start: end, end };
   }
 
   const columnActions = createNotesColumnActions(context);
@@ -1480,11 +1489,11 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
   async function deleteBlock(blockId: string): Promise<void> {
     const selectedPageId = context.readSelectedPageId();
     if (!selectedPageId) return;
-    await context.flushBlockSave(blockId);
     const plan = planDeleteBlock(context.flatBlockItemsForBlockContext(blockId), blockId);
     if (!plan) return;
     const before = undoSnapshot(blockId);
     if (plan.keepOnlyBlockAsParagraph) {
+      await context.flushBlockSave(blockId);
       await replaceBlockWithUpdate(blockId, createBlockUpdate("paragraph", ""));
       context.requestBlockFocus(blockId);
       recordUndoAfter("delete", before, blockId);
@@ -1492,12 +1501,53 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     }
     if (plan.deleteBlockId) {
       const childPlan = planReparentChildrenBeforeDelete(context.treeState(), plan.deleteBlockId);
-      if (!childPlan || !(await moveReparentedChildren(childPlan))) return;
+      if (!childPlan) return;
+      const deletedBlock = context.blockById(plan.deleteBlockId);
+      const canDeleteOptimistically = childPlan.childIds.length === 0
+        && deletedBlock !== undefined
+        && isTextEditableBlock(deletedBlock.type)
+        && blockPlainText(deletedBlock).length === 0;
+      if (canDeleteOptimistically) {
+        const prerequisite = pendingOptimisticBlockWrites.get(plan.deleteBlockId) ?? null;
+        const focusSelection = selectionAtBlockEnd(plan.focusBlockId);
+        if (!context.localRemoveLeafBlock(plan.deleteBlockId)) return;
+        context.requestBlockFocus(plan.focusBlockId, focusSelection);
+        recordUndo(
+          "delete",
+          before,
+          context.createUndoSnapshot(plan.focusBlockId, [], focusSelection),
+        );
+        const persistence = persistOptimisticLeafDelete(
+          selectedPageId,
+          plan.deleteBlockId,
+          prerequisite,
+        );
+        trackOptimisticBlockWrites([plan.deleteBlockId], persistence);
+        void persistence;
+        return;
+      }
+      await context.flushBlockSave(blockId);
+      if (!(await moveReparentedChildren(childPlan))) return;
       await trashNotesBlock(plan.deleteBlockId, true);
       await context.loadPageTree(selectedPageId);
     }
     context.requestBlockFocus(plan.focusBlockId);
     recordUndoAfter("delete", before, plan.focusBlockId);
+  }
+
+  async function persistOptimisticLeafDelete(
+    selectedPageId: string,
+    blockId: string,
+    prerequisite: Promise<void> | null,
+  ): Promise<void> {
+    try {
+      await prerequisite;
+      await context.flushBlockSave(blockId);
+      await trashNotesBlock(blockId, true);
+    } catch (error) {
+      console.warn("notes leaf block delete persistence failed", error);
+      await context.loadPageTree(selectedPageId);
+    }
   }
 
   async function deleteBlockSelection(blockIds: readonly string[]): Promise<void> {

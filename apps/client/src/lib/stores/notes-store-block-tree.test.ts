@@ -11,6 +11,7 @@ import {
   flatNotesBlockItemsForContext,
   isOnlyNotesBlockInContext,
   notesTableRowsForBlock,
+  notesTreeStateWithoutLeafBlock,
   previousNotesBlockType,
   type NotesBlockTreeSnapshot,
 } from "./notes-store-block-tree";
@@ -101,5 +102,27 @@ describe("notes store block tree selectors", () => {
       "row-a",
       "row-b",
     ]);
+  });
+
+  it("removes a leaf block locally while preserving sibling order", () => {
+    const current = snapshot([
+      block("a", { type: "page_id", page_id: "page" }, "A"),
+      block("b", { type: "page_id", page_id: "page" }),
+      block("c", { type: "page_id", page_id: "page" }, "C"),
+    ]);
+
+    const next = notesTreeStateWithoutLeafBlock(current, "b");
+
+    expect(next?.blocksById.b).toBeUndefined();
+    expect(next?.childIdsByParentId.page).toEqual(["a", "c"]);
+  });
+
+  it("keeps blocks with children on the transactional delete path", () => {
+    const current = snapshot([
+      block("parent", { type: "page_id", page_id: "page" }),
+      block("child", { type: "block_id", block_id: "parent" }),
+    ]);
+
+    expect(notesTreeStateWithoutLeafBlock(current, "parent")).toBeNull();
   });
 });

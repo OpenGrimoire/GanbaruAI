@@ -1,6 +1,7 @@
 import {
   flattenNotesBlockChildren,
   flattenNotesBlockTree,
+  parentIdForBlock,
   type NotesTreeState,
 } from "$lib/notes/block-tree";
 import type {
@@ -19,6 +20,11 @@ export interface NotesBlockTreeSnapshot {
   childIdsByParentId: Record<string, string[]>;
 }
 
+export interface NotesMutableBlockTreeState {
+  blocksById: Record<string, NotesBlock>;
+  childIdsByParentId: Record<string, string[]>;
+}
+
 /**
  * Build the tree snapshot consumed by Notes block planning helpers.
  */
@@ -26,6 +32,34 @@ export function notesTreeState(snapshot: NotesBlockTreeSnapshot): NotesTreeState
   return {
     blocksById: snapshot.blocksById,
     childIdsByParentId: snapshot.childIdsByParentId,
+  };
+}
+
+/**
+ * Remove a leaf block from local editor state without rebuilding from persistence.
+ */
+export function notesTreeStateWithoutLeafBlock(
+  state: NotesTreeState,
+  blockId: string,
+): NotesMutableBlockTreeState | null {
+  const block = state.blocksById[blockId];
+  if (!block || (state.childIdsByParentId[blockId]?.length ?? 0) > 0) return null;
+  const nextBlocksById = { ...state.blocksById };
+  delete nextBlocksById[blockId];
+  const parentId = parentIdForBlock(block);
+  const nextChildIdsByParentId = Object.fromEntries(
+    Object.entries(state.childIdsByParentId).map(([currentParentId, childIds]) => [
+      currentParentId,
+      [...childIds],
+    ]),
+  );
+  nextChildIdsByParentId[parentId] = (state.childIdsByParentId[parentId] ?? []).filter(
+    (candidate) => candidate !== blockId,
+  );
+  delete nextChildIdsByParentId[blockId];
+  return {
+    blocksById: nextBlocksById,
+    childIdsByParentId: nextChildIdsByParentId,
   };
 }
 
