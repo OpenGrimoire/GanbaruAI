@@ -2519,7 +2519,11 @@ mod tests {
                         30,
                     ),
                     ("project-routine-eat".to_string(), "apple".to_string(), 40,),
-                    ("project-routine-commute".to_string(), "bike".to_string(), 50,),
+                    (
+                        "project-routine-commute".to_string(),
+                        "bike".to_string(),
+                        50,
+                    ),
                     (
                         "project-routine-chores".to_string(),
                         "shopping-cart".to_string(),
