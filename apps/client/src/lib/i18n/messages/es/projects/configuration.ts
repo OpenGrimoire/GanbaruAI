@@ -102,6 +102,7 @@ export const configuration = {
     eating: "Comer",
     exercise: "Ejercicio",
     hygiene: "Higiene",
+    commute: "Traslado",
     social: "Social",
     chores: "Quehaceres",
     leisure: "Ocio",

@@ -4,14 +4,15 @@
   import Bath from "@lucide/svelte/icons/bath";
   import Bed from "@lucide/svelte/icons/bed";
   import BookOpen from "@lucide/svelte/icons/book-open";
+  import Bus from "@lucide/svelte/icons/bus";
   import Clapperboard from "@lucide/svelte/icons/clapperboard";
-  import Dumbbell from "@lucide/svelte/icons/dumbbell";
   import Folder from "@lucide/svelte/icons/folder";
   import GraduationCap from "@lucide/svelte/icons/graduation-cap";
   import Heart from "@lucide/svelte/icons/heart";
+  import Pill from "@lucide/svelte/icons/pill";
   import Repeat from "@lucide/svelte/icons/repeat";
+  import ShoppingCart from "@lucide/svelte/icons/shopping-cart";
   import Smile from "@lucide/svelte/icons/smile";
-  import Sparkles from "@lucide/svelte/icons/sparkles";
   import { projectIconAssetUrl } from "$lib/api/project-icons";
   import { getEventColor } from "$lib/components/calendar/utils";
   import {
@@ -19,6 +20,7 @@
     projectIconColorToEventColor,
   } from "$lib/projects/project-icons";
   import type { ProjectLucideIconNode } from "$lib/projects/project-lucide-catalog.generated";
+  import { projectAppIconNode } from "$lib/projects/project-app-icons";
   import { getProjects } from "$lib/stores/projects.svelte";
   import { getTheme } from "$lib/stores/theme.svelte";
   import LucideNodeIcon from "./LucideNodeIcon.svelte";
@@ -45,14 +47,15 @@
     bath: Bath,
     bed: Bed,
     "book-open": BookOpen,
+    bus: Bus,
     clapperboard: Clapperboard,
-    dumbbell: Dumbbell,
     folder: Folder,
     "graduation-cap": GraduationCap,
     heart: Heart,
+    pill: Pill,
     repeat: Repeat,
+    "shopping-cart": ShoppingCart,
     smile: Smile,
-    sparkles: Sparkles,
   };
 
   let assetUrl = $state<string | null>(null);
@@ -78,6 +81,12 @@
       ? icons[parsedIcon.slug] ?? null
       : null,
   );
+  const appIconNode = $derived(
+    parsedIcon.kind === "lucide"
+      ? projectAppIconNode(parsedIcon.slug)
+      : null,
+  );
+  const resolvedLucideNode = $derived(appIconNode ?? lucideNode);
   const eventIconColor = $derived(
     parsedIcon.kind === "lucide"
       ? projectIconColorToEventColor(parsedIcon.color)
@@ -108,7 +117,7 @@
     const currentIcon = parsedIcon;
     const requestId = ++lucideRequestId;
     lucideNode = null;
-    if (currentIcon.kind !== "lucide" || icons[currentIcon.slug]) return;
+    if (currentIcon.kind !== "lucide" || icons[currentIcon.slug] || projectAppIconNode(currentIcon.slug)) return;
     void import("$lib/projects/project-lucide-catalog.generated")
       .then((catalog) => {
         if (requestId !== lucideRequestId) return;
@@ -139,8 +148,8 @@
   />
 {:else if Icon}
   <Icon {size} {strokeWidth} class={className} style={iconStyle} />
-{:else if lucideNode}
-  <LucideNodeIcon iconNode={lucideNode} {size} {strokeWidth} class={className} style={iconStyle} />
+{:else if resolvedLucideNode}
+  <LucideNodeIcon iconNode={resolvedLucideNode} {size} {strokeWidth} class={className} style={iconStyle} />
 {:else}
   <Folder {size} {strokeWidth} class={className} style={iconStyle} />
 {/if}

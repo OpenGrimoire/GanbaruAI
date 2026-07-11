@@ -50,20 +50,11 @@ const BUILT_IN_ROUTINE_PROJECTS: &[BuiltInRoutineProject] = &[
         default_pomodoro_preset_key: None,
     },
     BuiltInRoutineProject {
-        id: "project-routine-eat",
-        name: "Eating",
-        icon: "apple",
-        color: 13,
-        sort_order: 20,
-        default_pomodoro_mode: "none",
-        default_pomodoro_preset_key: None,
-    },
-    BuiltInRoutineProject {
         id: "project-routine-exercise",
         name: "Exercise",
-        icon: "dumbbell",
+        icon: "sport-shoe",
         color: 0,
-        sort_order: 30,
+        sort_order: 20,
         default_pomodoro_mode: "none",
         default_pomodoro_preset_key: None,
     },
@@ -72,7 +63,25 @@ const BUILT_IN_ROUTINE_PROJECTS: &[BuiltInRoutineProject] = &[
         name: "Hygiene",
         icon: "bath",
         color: 15,
+        sort_order: 30,
+        default_pomodoro_mode: "none",
+        default_pomodoro_preset_key: None,
+    },
+    BuiltInRoutineProject {
+        id: "project-routine-eat",
+        name: "Eating",
+        icon: "apple",
+        color: 13,
         sort_order: 40,
+        default_pomodoro_mode: "none",
+        default_pomodoro_preset_key: None,
+    },
+    BuiltInRoutineProject {
+        id: "project-routine-commute",
+        name: "Commute",
+        icon: "bus",
+        color: 17,
+        sort_order: 50,
         default_pomodoro_mode: "none",
         default_pomodoro_preset_key: None,
     },
@@ -81,16 +90,16 @@ const BUILT_IN_ROUTINE_PROJECTS: &[BuiltInRoutineProject] = &[
         name: "Social",
         icon: "heart",
         color: 21,
-        sort_order: 50,
+        sort_order: 60,
         default_pomodoro_mode: "none",
         default_pomodoro_preset_key: None,
     },
     BuiltInRoutineProject {
         id: "project-routine-chores",
         name: "Chores",
-        icon: "house",
+        icon: "shopping-cart",
         color: 4,
-        sort_order: 60,
+        sort_order: 70,
         default_pomodoro_mode: "none",
         default_pomodoro_preset_key: None,
     },
@@ -99,7 +108,7 @@ const BUILT_IN_ROUTINE_PROJECTS: &[BuiltInRoutineProject] = &[
         name: "Leisure",
         icon: "clapperboard",
         color: 31,
-        sort_order: 70,
+        sort_order: 80,
         default_pomodoro_mode: "none",
         default_pomodoro_preset_key: None,
     },
@@ -108,7 +117,7 @@ const BUILT_IN_ROUTINE_PROJECTS: &[BuiltInRoutineProject] = &[
         name: "Meditate",
         icon: "smile",
         color: 23,
-        sort_order: 80,
+        sort_order: 90,
         default_pomodoro_mode: "none",
         default_pomodoro_preset_key: None,
     },
@@ -117,7 +126,7 @@ const BUILT_IN_ROUTINE_PROJECTS: &[BuiltInRoutineProject] = &[
         name: "Health",
         icon: "pill",
         color: 3,
-        sort_order: 90,
+        sort_order: 100,
         default_pomodoro_mode: "none",
         default_pomodoro_preset_key: None,
     },
@@ -126,7 +135,7 @@ const BUILT_IN_ROUTINE_PROJECTS: &[BuiltInRoutineProject] = &[
         name: "Sleep",
         icon: "bed",
         color: 30,
-        sort_order: 100,
+        sort_order: 110,
         default_pomodoro_mode: "none",
         default_pomodoro_preset_key: None,
     },
@@ -2453,7 +2462,7 @@ mod tests {
                 (
                     ROUTINE_GROUP_ID.to_string(),
                     "Eating".to_string(),
-                    20,
+                    40,
                     "utensils".to_string(),
                     "hidden".to_string(),
                 ),
@@ -2479,20 +2488,49 @@ mod tests {
             .await
             .unwrap();
             assert_eq!(restored_projects, BUILT_IN_ROUTINE_PROJECTS.len() as i64);
-            let health_and_sleep: Vec<(String, String, i64)> = sqlx::query_as(
+            let reordered_defaults: Vec<(String, String, i64)> = sqlx::query_as(
                 "SELECT id, icon, sort_order
                  FROM projects
-                 WHERE id IN ('project-routine-health', 'project-routine-sleep')
+                 WHERE id IN (
+                    'project-routine-exercise',
+                    'project-routine-hygiene',
+                    'project-routine-eat',
+                    'project-routine-commute',
+                    'project-routine-chores',
+                    'project-routine-health',
+                    'project-routine-sleep'
+                 )
                  ORDER BY sort_order ASC",
             )
             .fetch_all(&pool)
             .await
             .unwrap();
             assert_eq!(
-                health_and_sleep,
+                reordered_defaults,
                 vec![
-                    ("project-routine-health".to_string(), "pill".to_string(), 90,),
-                    ("project-routine-sleep".to_string(), "bed".to_string(), 100,),
+                    (
+                        "project-routine-exercise".to_string(),
+                        "sport-shoe".to_string(),
+                        20,
+                    ),
+                    (
+                        "project-routine-hygiene".to_string(),
+                        "bath".to_string(),
+                        30,
+                    ),
+                    ("project-routine-eat".to_string(), "apple".to_string(), 40,),
+                    ("project-routine-commute".to_string(), "bus".to_string(), 50,),
+                    (
+                        "project-routine-chores".to_string(),
+                        "shopping-cart".to_string(),
+                        70,
+                    ),
+                    (
+                        "project-routine-health".to_string(),
+                        "pill".to_string(),
+                        100,
+                    ),
+                    ("project-routine-sleep".to_string(), "bed".to_string(), 110,),
                 ],
             );
         });

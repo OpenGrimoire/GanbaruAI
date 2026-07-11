@@ -324,15 +324,16 @@ INSERT INTO projects (
 VALUES
     ('project-routine-learning', 'group-routine', 'Learning', 'graduation-cap', 2, 0, NULL, 'preset', 'adaptive'),
     ('project-routine-reading', 'group-routine', 'Reading', 'book-open', 3, 10, NULL, 'none', NULL),
-    ('project-routine-eat', 'group-routine', 'Eating', 'apple', 1, 20, NULL, 'none', NULL),
-    ('project-routine-exercise', 'group-routine', 'Exercise', 'dumbbell', 4, 30, NULL, 'none', NULL),
-    ('project-routine-hygiene', 'group-routine', 'Hygiene', 'bath', 5, 40, NULL, 'none', NULL),
-    ('project-routine-social', 'group-routine', 'Social', 'heart', 6, 50, NULL, 'none', NULL),
-    ('project-routine-chores', 'group-routine', 'Chores', 'house', 7, 60, NULL, 'none', NULL),
-    ('project-routine-leisure', 'group-routine', 'Leisure', 'clapperboard', 8, 70, NULL, 'none', NULL),
-    ('project-routine-meditate', 'group-routine', 'Meditate', 'smile', 9, 80, NULL, 'none', NULL),
-    ('project-routine-health', 'group-routine', 'Health', 'pill', 3, 90, NULL, 'none', NULL),
-    ('project-routine-sleep', 'group-routine', 'Sleep', 'bed', 10, 100, NULL, 'none', NULL);
+    ('project-routine-exercise', 'group-routine', 'Exercise', 'sport-shoe', 4, 20, NULL, 'none', NULL),
+    ('project-routine-hygiene', 'group-routine', 'Hygiene', 'bath', 5, 30, NULL, 'none', NULL),
+    ('project-routine-eat', 'group-routine', 'Eating', 'apple', 1, 40, NULL, 'none', NULL),
+    ('project-routine-commute', 'group-routine', 'Commute', 'bus', 17, 50, NULL, 'none', NULL),
+    ('project-routine-social', 'group-routine', 'Social', 'heart', 6, 60, NULL, 'none', NULL),
+    ('project-routine-chores', 'group-routine', 'Chores', 'shopping-cart', 7, 70, NULL, 'none', NULL),
+    ('project-routine-leisure', 'group-routine', 'Leisure', 'clapperboard', 8, 80, NULL, 'none', NULL),
+    ('project-routine-meditate', 'group-routine', 'Meditate', 'smile', 9, 90, NULL, 'none', NULL),
+    ('project-routine-health', 'group-routine', 'Health', 'pill', 3, 100, NULL, 'none', NULL),
+    ('project-routine-sleep', 'group-routine', 'Sleep', 'bed', 10, 110, NULL, 'none', NULL);
 
 INSERT INTO project_sections (id, project_id, name, sort_order)
 SELECT 'section-' || substr(id, 9) || '-general', id, 'General', 0

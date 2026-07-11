@@ -1,6 +1,8 @@
 // Lucide English search tags generated from lucide-static@0.577.0.
 // Source: https://cdn.jsdelivr.net/npm/lucide-static@0.577.0/tags.json
 
+import { SPORT_SHOE_ICON_NODE } from "$lib/projects/project-app-icons";
+
 export type ProjectLucideCategory =
   | "Accessibility"
   | "Accounts and access"
@@ -1475,6 +1477,7 @@ export const PROJECT_LUCIDE_ICONS: readonly ProjectLucideIconEntry[] = [
   { slug: "spline", label: "Spline", category: "Shapes", terms: "spline path pen tool shape curve draw", iconNode: [["circle", { "cx": "19", "cy": "5", "r": "2" }], ["circle", { "cx": "5", "cy": "19", "r": "2" }], ["path", { "d": "M5 17A12 12 0 0 1 17 5" }]] },
   { slug: "split", label: "Split", category: "Shapes", terms: "split break disband divide separate branch disunite", iconNode: [["path", { "d": "M16 3h5v5" }], ["path", { "d": "M8 3H3v5" }], ["path", { "d": "M12 22v-8.3a4 4 0 0 0-1.172-2.872L3 3" }], ["path", { "d": "m15 9 6-6" }]] },
   { slug: "spool", label: "Spool", category: "Shapes", terms: "spool bobbin spindle yarn thread string sewing needlework", iconNode: [["path", { "d": "M17 13.44 4.442 17.082A2 2 0 0 0 4.982 21H19a2 2 0 0 0 .558-3.921l-1.115-.32A2 2 0 0 1 17 14.837V7.66" }], ["path", { "d": "m7 10.56 12.558-3.642A2 2 0 0 0 19.018 3H5a2 2 0 0 0-.558 3.921l1.115.32A2 2 0 0 1 7 9.163v7.178" }]] },
+  { slug: "sport-shoe", label: "Sport Shoe", category: "Sports", terms: "sport-shoe sport shoe sneaker running exercise fitness footwear", iconNode: SPORT_SHOE_ICON_NODE },
   { slug: "spotlight", label: "Spotlight", category: "Shapes", terms: "spotlight winner soapbox stage entertainment drama podium actor actress singer light beam play theatre show focus concert performance lens leaderboard followspot best highlight", iconNode: [["path", { "d": "M15.295 19.562 16 22" }], ["path", { "d": "m17 16 3.758 2.098" }], ["path", { "d": "m19 12.5 3.026-.598" }], ["path", { "d": "M7.61 6.3a3 3 0 0 0-3.92 1.3l-1.38 2.79a3 3 0 0 0 1.3 3.91l6.89 3.597a1 1 0 0 0 1.342-.447l3.106-6.211a1 1 0 0 0-.447-1.341z" }], ["path", { "d": "M8 9V2" }]] },
   { slug: "spray-can", label: "Spray Can", category: "Shapes", terms: "spray-can spray can paint color graffiti decoration aerosol deodorant shaving foam air freshener", iconNode: [["path", { "d": "M3 3h.01" }], ["path", { "d": "M7 5h.01" }], ["path", { "d": "M11 7h.01" }], ["path", { "d": "M3 7h.01" }], ["path", { "d": "M7 9h.01" }], ["path", { "d": "M3 11h.01" }], ["rect", { "width": "4", "height": "4", "x": "15", "y": "5" }], ["path", { "d": "m19 9 2 2v10c0 .6-.4 1-1 1h-6c-.6 0-1-.4-1-1V11l2-2" }], ["path", { "d": "m13 14 8-2" }], ["path", { "d": "m13 19 8-2" }]] },
   { slug: "sprout", label: "Sprout", category: "Nature", terms: "sprout eco green growth leaf nature plant seed spring sustainability", iconNode: [["path", { "d": "M14 9.536V7a4 4 0 0 1 4-4h1.5a.5.5 0 0 1 .5.5V5a4 4 0 0 1-4 4 4 4 0 0 0-4 4c0 2 1 3 1 5a5 5 0 0 1-1 3" }], ["path", { "d": "M4 9a5 5 0 0 1 8 4 5 5 0 0 1-8-4" }], ["path", { "d": "M5 21h14" }]] },
@@ -1805,4 +1808,3 @@ export const PROJECT_LUCIDE_ICONS: readonly ProjectLucideIconEntry[] = [
   { slug: "zoom-in", label: "Zoom In", category: "Shapes", terms: "zoom-in zoom in magnifying glass plus", iconNode: [["circle", { "cx": "11", "cy": "11", "r": "8" }], ["line", { "x1": "21", "x2": "16.65", "y1": "21", "y2": "16.65" }], ["line", { "x1": "11", "x2": "11", "y1": "8", "y2": "14" }], ["line", { "x1": "8", "x2": "14", "y1": "11", "y2": "11" }]] },
   { slug: "zoom-out", label: "Zoom Out", category: "Shapes", terms: "zoom-out zoom out magnifying glass plus", iconNode: [["circle", { "cx": "11", "cy": "11", "r": "8" }], ["line", { "x1": "21", "x2": "16.65", "y1": "21", "y2": "16.65" }], ["line", { "x1": "8", "x2": "14", "y1": "11", "y2": "11" }]] },
 ] as const satisfies readonly ProjectLucideIconEntry[];
-

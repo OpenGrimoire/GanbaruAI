@@ -9,6 +9,7 @@ const BUILT_IN_ROUTINE_PROJECT_KEYS = {
   "project-routine-eat": "eating",
   "project-routine-exercise": "exercise",
   "project-routine-hygiene": "hygiene",
+  "project-routine-commute": "commute",
   "project-routine-social": "social",
   "project-routine-chores": "chores",
   "project-routine-leisure": "leisure",
@@ -43,6 +44,7 @@ export function systemProjectName(
   if (key === "eating") return t("projects.defaults.eating");
   if (key === "exercise") return t("projects.defaults.exercise");
   if (key === "hygiene") return t("projects.defaults.hygiene");
+  if (key === "commute") return t("projects.defaults.commute");
   if (key === "social") return t("projects.defaults.social");
   if (key === "chores") return t("projects.defaults.chores");
   if (key === "leisure") return t("projects.defaults.leisure");

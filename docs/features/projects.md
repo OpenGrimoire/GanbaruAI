@@ -15,9 +15,10 @@ Fresh databases create one normal group named Routine. Its default project event
 
 - Learning, Color 9
 - Reading, Color 26
-- Eating, Color 14
 - Exercise, Color 1
 - Hygiene, Color 16
+- Eating, Color 14
+- Commute, Color 18
 - Social, Color 22
 - Chores, Color 5
 - Leisure, Color 32
@@ -33,7 +34,7 @@ Routine defaults can be hidden or archived like any other project. Hiding keeps 
 
 Routine default projects use their current localized project names as default event names until the user enters a custom default event name. They start with no project-specific default duration. They also start with Default Pomodoro set to None except Learning, which starts with Adaptive. User-created projects start with no default event name. Project idle settings use global Focus defaults unless the user switches a project to custom idle settings.
 
-The Chores routine project and Chores creation template use the `house` Lucide icon.
+Exercise uses the app-supplied `sport-shoe` line icon, Commute uses the `bus` Lucide icon, and the Chores routine project and creation template use the `shopping-cart` Lucide icon. These current Routine defaults render from the lightweight project icon registry without loading the full picker catalog.
 
 Each project starts with a General section and default statuses: Backlog, To do, In progress, In review, Blocked, and Done. Default status colors use event palette slots 31, 32, 20, 24, 3, and 14 respectively. Each project also starts with default priorities: Urgent, High, Normal, and Low, with event palette slots 3, 8, 20, and 31 respectively.
 

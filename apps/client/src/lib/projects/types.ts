@@ -209,7 +209,7 @@ export const PROJECT_TEMPLATE_DEFAULTS = {
     defaultIdleThresholdMinutes: DEFAULT_FOCUS_IDLE_THRESHOLD_MINUTES,
   },
   chores: {
-    icon: "house",
+    icon: "shopping-cart",
     color: null,
     defaultEventName: null,
     defaultEventTimeMode: "timed",

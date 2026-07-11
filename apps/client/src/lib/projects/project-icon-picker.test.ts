@@ -111,6 +111,11 @@ describe("project icon picker helpers", () => {
       .toContain("biceps-flexed");
   });
 
+  it("includes the app-supplied sport shoe icon in search", () => {
+    expect(filterProjectLucideIcons(PROJECT_LUCIDE_ICONS, "sneaker", "Sports").map((entry) => entry.slug))
+      .toContain("sport-shoe");
+  });
+
   it("builds the visible emoji category tabs with the localized symbols label", () => {
     expect(projectIconPickerVisibleEmojiCategories("Symbols plus flags")).toEqual([
       { id: "smileys", label: "Smileys" },

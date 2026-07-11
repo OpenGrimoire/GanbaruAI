@@ -15,6 +15,7 @@ const spanishLabels: Readonly<Record<string, string>> = {
   "projects.defaults.eating": "Comer",
   "projects.defaults.exercise": "Ejercicio",
   "projects.defaults.hygiene": "Higiene",
+  "projects.defaults.commute": "Traslado",
   "projects.defaults.social": "Social",
   "projects.defaults.chores": "Quehaceres",
   "projects.defaults.leisure": "Ocio",
@@ -32,6 +33,7 @@ describe("project system defaults", () => {
     expect(systemProjectName("project-routine-reading", "Reading", translateSpanish)).toBe("Lectura");
     expect(systemProjectName("project-routine-eat", "Eating", translateSpanish)).toBe("Comer");
     expect(systemProjectName("project-routine-health", "Health", translateSpanish)).toBe("Salud");
+    expect(systemProjectName("project-routine-commute", "Commute", translateSpanish)).toBe("Traslado");
     expect(systemProjectName("project-routine-sleep", "Sleep", translateSpanish)).toBe("Dormir");
   });
 

@@ -20,6 +20,9 @@ const catalogPath = path.join(
 );
 const catalogEntryPattern = /^(\s*\{ slug: )("(?:[^"\\]|\\.)*")(, label: )("(?:[^"\\]|\\.)*")(, category: )("(?:[^"\\]|\\.)*")(, terms: )("(?:[^"\\]|\\.)*")(, iconNode: .*)$/u;
 const generatedHeaderPattern = /^\/\/ Lucide English search tags generated from lucide-static@[^\n]+\n\/\/ Source: [^\n]+\n\n/u;
+const appSuppliedTagsBySlug = new Map([
+  ["sport-shoe", ["sport", "shoe", "sneaker", "running", "exercise", "fitness", "footwear"]],
+]);
 
 function normalizedTerm(value) {
   return value.trim().toLowerCase().replace(/\s+/gu, " ");
@@ -81,7 +84,7 @@ const updatedCatalog = source
     const [, beforeSlug, slugLiteral, beforeLabel, labelLiteral, beforeCategory, categoryLiteral, beforeTerms, , afterTerms] = match;
     const slug = JSON.parse(slugLiteral);
     const label = JSON.parse(labelLiteral);
-    const tags = tagsBySlug.get(slug);
+    const tags = tagsBySlug.get(slug) ?? appSuppliedTagsBySlug.get(slug);
     if (!tags) {
       missingTags.push(slug);
       return line;
