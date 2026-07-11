@@ -110,7 +110,8 @@
     if (!preference) return;
     try {
       await ensureConfigLoaded();
-      localization.setLanguagePreference(preference, { persist: true });
+      const applied = await localization.setLanguagePreference(preference, { persist: true });
+      if (!applied) return;
       await flushConfig();
       clearPreVaultLanguagePreference(storage);
     } catch (err) {

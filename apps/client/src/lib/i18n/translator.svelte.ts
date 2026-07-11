@@ -10,7 +10,10 @@ import {
   resolveLanguagePreference,
 } from "./locales";
 import { en, type MessageCatalog } from "./messages/en";
-import { es } from "./messages/es";
+import {
+  loadLocaleCatalog,
+  type RuntimeMessageCatalog,
+} from "./catalog-loader";
 
 const LANGUAGE_CONFIG_KEY = "preferences.language";
 
@@ -48,14 +51,11 @@ interface LanguagePreferenceOptions {
   readonly persist?: boolean;
 }
 
-const MESSAGE_CATALOGS: Readonly<Record<AppLocale, unknown>> = Object.freeze({
-  en,
-  es,
-});
-
 let languagePreference = $state<LanguagePreference>(DEFAULT_LANGUAGE_PREFERENCE);
 let resolvedLocale = $state<AppLocale>(DEFAULT_LOCALE);
 let resolvedDirection = $state<LocaleDirection>(LOCALE_METADATA[DEFAULT_LOCALE].direction);
+let activeCatalog = $state.raw<RuntimeMessageCatalog>(en);
+let languageRequestId = 0;
 
 function browserLocaleCandidates(): string[] {
   if (typeof navigator === "undefined") return [];
@@ -84,43 +84,53 @@ function applyDocumentLocale(locale: AppLocale, direction: LocaleDirection): voi
   root.dir = direction;
 }
 
-function refreshResolvedLocale(): void {
-  const nextLocale = resolveLanguagePreference(
-    languagePreference,
-    browserLocaleCandidates(),
-  );
-  const nextDirection = LOCALE_METADATA[nextLocale].direction;
-  resolvedLocale = nextLocale;
-  resolvedDirection = nextDirection;
-  applyDocumentLocale(nextLocale, nextDirection);
-}
-
-export function initializeLocalizationFromConfig(): void {
+export async function initializeLocalizationFromConfig(): Promise<boolean> {
   const stored = getConfigKey<unknown>(LANGUAGE_CONFIG_KEY, undefined);
   const parsed = parseLanguagePreference(stored);
-  languagePreference = parsed;
   if (stored !== undefined && stored !== parsed) {
     setConfigKey(LANGUAGE_CONFIG_KEY, parsed);
   }
-  refreshResolvedLocale();
+  return await setLanguagePreference(parsed, { persist: false });
 }
 
-export function setLanguagePreference(
+/**
+ * Loads and atomically applies a language preference. A failed or stale
+ * catalog request leaves the active preference and catalog unchanged.
+ */
+export async function setLanguagePreference(
   preference: LanguagePreference,
   options: LanguagePreferenceOptions = {},
-): void {
+): Promise<boolean> {
+  const nextLocale = resolveLanguagePreference(preference, browserLocaleCandidates());
+  const requestId = ++languageRequestId;
+  let nextCatalog: RuntimeMessageCatalog;
+  try {
+    nextCatalog = await loadLocaleCatalog(nextLocale);
+  } catch (error) {
+    if (requestId === languageRequestId) {
+      console.error(`Failed to load ${nextLocale} locale catalog:`, error);
+    }
+    return false;
+  }
+  if (requestId !== languageRequestId) return false;
+
+  const nextDirection = LOCALE_METADATA[nextLocale].direction;
+  activeCatalog = nextCatalog;
   languagePreference = preference;
-  refreshResolvedLocale();
+  resolvedLocale = nextLocale;
+  resolvedDirection = nextDirection;
+  applyDocumentLocale(nextLocale, nextDirection);
   if (options.persist ?? true) {
     setConfigKey(LANGUAGE_CONFIG_KEY, preference);
   }
+  return true;
 }
 
 export const translateFromCatalog: Translate = ((
   key: TranslationKey,
   ...args: readonly unknown[]
 ) => {
-  const preferred = readCatalogPath(MESSAGE_CATALOGS[resolvedLocale], key);
+  const preferred = readCatalogPath(activeCatalog, key);
   return translateWithFallback(preferred, key, args);
 }) as Translate;
 
@@ -168,6 +178,9 @@ export function getLocalization() {
 }
 
 if (typeof window !== "undefined") {
-  refreshResolvedLocale();
-  window.addEventListener("languagechange", refreshResolvedLocale);
+  applyDocumentLocale(DEFAULT_LOCALE, LOCALE_METADATA[DEFAULT_LOCALE].direction);
+  window.addEventListener("languagechange", () => {
+    if (languagePreference !== DEFAULT_LANGUAGE_PREFERENCE) return;
+    void setLanguagePreference(DEFAULT_LANGUAGE_PREFERENCE, { persist: false });
+  });
 }

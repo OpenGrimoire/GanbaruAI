@@ -65,6 +65,15 @@
     "src/lib/components/settings/DoomscrollingSection.svelte",
     "src/lib/components/settings/DoomscrollingLimitEditor.svelte"
   ],
+  "defaultEnglishStartup": {
+    "loadedModules": [
+      "src/main.ts",
+      "src/App.svelte"
+    ],
+    "forbiddenModulePrefixes": [
+      "src/lib/i18n/messages/es/"
+    ]
+  },
   "forbiddenEntryModules": [
     "src/lib/components/notes/NotesHtmlImportDialog.svelte",
     "src/lib/components/notes/NotesNotionApiImportDialog.svelte",

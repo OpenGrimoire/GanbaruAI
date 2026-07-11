@@ -37,19 +37,23 @@ The dropdown menu should feel compact and calm:
 - Language rows use one-line labels.
 - The selected option uses a subtle inset rounded highlight aligned with the search box width, not a full-width block against the menu edge.
 
-This screen can appear before an active Ganbaru AI folder exists, so it cannot assume `config.json` is available. A language selected here is applied immediately with `persist: false`, then stored as a temporary local setup preference. After the user creates or imports a Ganbaru AI folder, the temporary value is copied into `preferences.language`, flushed to the new active folder's `config.json`, and cleared. Main boot also checks for that temporary value after `ensureConfigLoaded()` so the handoff still happens before the app mounts if the setup window reloads first.
+This screen can appear before an active Ganbaru AI folder exists, so it cannot assume `config.json` is available. A language selected here is loaded and applied with `persist: false`, then stored as a temporary local setup preference. After the user creates or imports a Ganbaru AI folder, the temporary value is copied into `preferences.language`, flushed to the new active folder's `config.json`, and cleared. Main boot also checks for that temporary value before mounting so the setup screen and the main app never paint in the previous language during the handoff.
 
 The setup trigger displays the resolved locale name for `system`, such as `Español` for `es-MX`, and falls back to `English` when the system language is unsupported.
 
 ## Runtime behavior
 
-`main.ts` loads the active config before mounting Svelte and initializes localization from that config. The localization store then exposes:
+`main.ts` resolves the system or temporary setup language before mounting any Svelte surface. For the main app it then loads the active config, resolves the persisted preference, and awaits that catalog before importing and mounting `App.svelte`. English is the resident typed fallback. Every non-default catalog is a separate dynamic chunk with one cached catalog value and one in-flight import per locale.
+
+Language changes are atomic. The preference, active catalog, resolved locale, document language and direction, and persisted config value change together only after the requested catalog loads. A failed import retains the previous language and is retryable through the next selection. A slower obsolete import cannot replace a newer selection. System `languagechange` events follow the same load-before-commit path.
+
+The localization store exposes:
 
 - `languagePreference`: the persisted selector value.
 - `locale`: the resolved app locale.
 - `direction`: the resolved text direction.
 - `t`: the typed translator.
-- `setLanguagePreference`: the persistence-aware setter used by settings.
+- `setLanguagePreference`: the asynchronous persistence-aware setter used by settings.
 
 The translator reads from the resolved catalog first, then English. English is typed as the canonical `MessageCatalog`, and non-English catalogs must satisfy that shape partially. Adding a key to English therefore updates the allowed translation key space for every caller.
 
@@ -79,7 +83,7 @@ To add a locale:
 
 1. Add the locale metadata in `apps/client/src/lib/i18n/locales.ts`.
 2. Add a catalog under `apps/client/src/lib/i18n/messages/`.
-3. Register the catalog in `translator.svelte.ts`.
+3. Register the non-default catalog importer in `catalog-loader.ts`.
 4. Add the option to `LANGUAGE_PREFERENCES` in `stores/preferences.ts`.
 5. Add the locale to setup language option generation in `apps/client/src/lib/i18n/pre-vault-language.ts` if it is not derived automatically.
 6. Add or update tests for locale resolution, translator fallback, setup search aliases, and any locale-specific formatter behavior.

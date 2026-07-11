@@ -99,6 +99,22 @@ function readBaseline(value) {
       root.settingsDetailModules,
       "baseline settingsDetailModules",
     ),
+    defaultEnglishStartup: (() => {
+      const contract = requireObject(
+        root.defaultEnglishStartup,
+        "baseline defaultEnglishStartup",
+      );
+      return {
+        loadedModules: requireStringArray(
+          contract.loadedModules,
+          "baseline defaultEnglishStartup loadedModules",
+        ),
+        forbiddenModulePrefixes: requireStringArray(
+          contract.forbiddenModulePrefixes,
+          "baseline defaultEnglishStartup forbiddenModulePrefixes",
+        ),
+      };
+    })(),
     forbiddenEntryModules: requireStringArray(
       root.forbiddenEntryModules,
       "baseline forbiddenEntryModules",
@@ -181,6 +197,30 @@ if (new Set(settingsDetailChunkNames).size !== settingsDetailChunkNames.length) 
   failures.push("Settings detail modules are not emitted in distinct chunks");
 }
 
+const defaultEnglishStartupRoots = baseline.defaultEnglishStartup.loadedModules.map(
+  (moduleId) => {
+    const owner = chunks.find((chunk) => chunk.modules.includes(moduleId));
+    if (!owner) failures.push(`default English startup module is absent: ${moduleId}`);
+    return owner;
+  },
+).filter(Boolean);
+const defaultEnglishStartupChunks = staticChunkClosure(defaultEnglishStartupRoots);
+const defaultEnglishStartupModules = new Set(
+  defaultEnglishStartupChunks.flatMap((chunk) => chunk.modules),
+);
+for (const prefix of baseline.defaultEnglishStartup.forbiddenModulePrefixes) {
+  const matchingModules = [...allModules].filter((moduleId) => moduleId.startsWith(prefix));
+  if (matchingModules.length === 0) {
+    failures.push(`default English startup forbidden prefix matches no modules: ${prefix}`);
+    continue;
+  }
+  for (const moduleId of matchingModules) {
+    if (defaultEnglishStartupModules.has(moduleId)) {
+      failures.push(`module is loaded during default English startup: ${moduleId}`);
+    }
+  }
+}
+
 for (const moduleId of baseline.forbiddenEntryModules) {
   if (!allModules.has(moduleId)) {
     failures.push(`forbidden entry module is absent from all chunks: ${moduleId}`);
@@ -206,5 +246,11 @@ console.log(JSON.stringify({
     forbiddenModules: baseline.settingsAppearance.forbiddenModules,
   },
   settingsDetailChunks,
+  defaultEnglishStartup: {
+    chunks: defaultEnglishStartupChunks.map((chunk) => chunk.fileName),
+    sourceModules: [...defaultEnglishStartupModules]
+      .filter((moduleId) => moduleId.startsWith("src/")).length,
+    forbiddenModulePrefixes: baseline.defaultEnglishStartup.forbiddenModulePrefixes,
+  },
   forbiddenEntryModules: baseline.forbiddenEntryModules,
 }, null, 2));

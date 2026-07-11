@@ -208,6 +208,8 @@ Rust library tests count typed initial-load commands, executed SQLite statements
 
 Settings uses a constructor-only lazy registry for every section and detail panel. The production bundle contract follows static chunk imports from the Settings shell and Appearance section, then rejects every inactive section, Notes transfer surface, Doomscrolling settings surface, and Updates section from that closure. It also requires the Notes section, transfer panel, four transfer dialogs, Doomscrolling section, and limit editor to occupy distinct chunks.
 
+English is the resident typed locale fallback. The production bundle contract follows the static startup closures for `main.ts` and `App.svelte` and rejects every Spanish catalog source module from the default English path. Spanish loads as one cached dynamic locale graph only when startup resolution or a runtime language change requests it.
+
 ## Package size
 
 Package size is not produced by the benchmark harness, but it is deterministic enough to track here. Use decimal MB from byte size.
