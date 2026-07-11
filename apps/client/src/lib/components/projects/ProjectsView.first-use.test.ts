@@ -2,11 +2,11 @@
 
 import { mount, tick, unmount } from "svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ProjectsSnapshot } from "$lib/projects/types";
+import type { ProjectsWorkspaceSnapshot } from "$lib/projects/types";
 
 const backend = vi.hoisted(() => {
   let calls = 0;
-  const promise = new Promise<ProjectsSnapshot>(() => undefined);
+  const promise = new Promise<ProjectsWorkspaceSnapshot>(() => undefined);
   return {
     promise,
     get calls() {
@@ -60,7 +60,7 @@ vi.mock("$lib/api/projects", async (importOriginal) => {
   const actual = await importOriginal<typeof import("$lib/api/projects")>();
   return {
     ...actual,
-    loadProjectsSnapshot: () => {
+    loadProjectsWorkspace: () => {
       backend.recordCall();
       return backend.promise;
     },

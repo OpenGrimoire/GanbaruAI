@@ -41,6 +41,7 @@ import type {
   ProjectTagCreate,
   ProjectTagUpdate,
   ProjectLinkableEvent,
+  ProjectOptionalDataKind,
   ProjectPriorityConfig,
   ProjectPriorityCreate,
   ProjectPriorityUpdate,
@@ -52,6 +53,8 @@ import type {
   ProjectStatusUpdate,
   ProjectUpdate,
   ProjectsSnapshot,
+  ProjectsOptionalData,
+  ProjectsWorkspaceSnapshot,
   ProjectTask,
   ProjectTaskChangeEvent,
   ProjectTaskCreate,
@@ -64,6 +67,7 @@ import type {
   ProjectTaskUpdate,
   ProjectViewPreference,
   ProjectViewPreferenceUpsert,
+  ProjectViewId,
 } from "$lib/projects/types";
 import { translate } from "$lib/i18n/translator.svelte";
 import {
@@ -306,6 +310,29 @@ interface ProjectsSnapshotRows {
   statuses: ProjectStatusRow[];
   priorities: ProjectPriorityRow[];
   tasks: ProjectTaskRow[];
+  checklist_items: ProjectChecklistItemRow[];
+  tags: ProjectTagRow[];
+  task_tag_links: ProjectTaskTagLinkRow[];
+  custom_fields: ProjectCustomFieldRow[];
+  custom_field_options: ProjectCustomFieldOptionRow[];
+  custom_field_values: ProjectCustomFieldValueRow[];
+  custom_field_option_values: ProjectCustomFieldOptionValueRow[];
+  dependencies: ProjectTaskDependencyRow[];
+  event_links: ProjectTaskEventLinkRow[];
+  task_change_events: ProjectTaskChangeEventRow[];
+  view_preferences: ProjectViewPreferenceRow[];
+  custom_emojis: ProjectCustomEmojiRow[];
+}
+
+interface ProjectsWorkspaceSnapshotRows {
+  resolved_project_id: string | null;
+  active_view: ProjectViewId;
+  snapshot: ProjectsSnapshotRows;
+}
+
+interface ProjectsOptionalDataRows {
+  kind: ProjectOptionalDataKind;
+  project_id: string | null;
   checklist_items: ProjectChecklistItemRow[];
   tags: ProjectTagRow[];
   task_tag_links: ProjectTaskTagLinkRow[];
@@ -642,10 +669,70 @@ function mapSnapshot(rows: ProjectsSnapshotRows): ProjectsSnapshot {
   };
 }
 
-export async function loadProjectsSnapshot(projectId?: string | null): Promise<ProjectsSnapshot> {
+function mapWorkspaceSnapshot(rows: ProjectsWorkspaceSnapshotRows): ProjectsWorkspaceSnapshot {
+  return {
+    resolvedProjectId: rows.resolved_project_id,
+    activeView: rows.active_view,
+    snapshot: mapSnapshot(rows.snapshot),
+  };
+}
+
+function mapOptionalData(rows: ProjectsOptionalDataRows): ProjectsOptionalData {
+  return {
+    kind: rows.kind,
+    projectId: rows.project_id,
+    checklistItems: rows.checklist_items.map(mapChecklistItem),
+    tags: rows.tags.map(mapTag),
+    taskTagLinks: rows.task_tag_links.map(mapTaskTagLink),
+    customFields: rows.custom_fields.map(mapCustomField),
+    customFieldOptions: rows.custom_field_options.map(mapCustomFieldOption),
+    customFieldValues: rows.custom_field_values.map(mapCustomFieldValue),
+    customFieldOptionValues: rows.custom_field_option_values.map(mapCustomFieldOptionValue),
+    dependencies: rows.dependencies.map(mapDependency),
+    eventLinks: rows.event_links.map(mapEventLink),
+    taskChangeEvents: rows.task_change_events.map(mapTaskChangeEvent),
+    viewPreferences: rows.view_preferences.map(mapViewPreference),
+    customEmojis: rows.custom_emojis.map(mapCustomEmoji),
+  };
+}
+
+export async function loadProjectsWorkspace(
+  preferredProjectId: string | null,
+  activeView: ProjectViewId,
+): Promise<ProjectsWorkspaceSnapshot> {
   const dbUrl = await ensureDbUrl();
-  const rows = await invoke<ProjectsSnapshotRows>("projects_load_snapshot", { dbUrl, projectId: projectId ?? null });
-  return mapSnapshot(rows);
+  const rows = await invoke<ProjectsWorkspaceSnapshotRows>("projects_load_workspace", {
+    dbUrl,
+    preferredProjectId,
+    activeView,
+  });
+  return mapWorkspaceSnapshot(rows);
+}
+
+export async function refreshProjectsWorkspace(
+  preferredProjectId: string | null,
+  activeView: ProjectViewId,
+): Promise<ProjectsWorkspaceSnapshot> {
+  const dbUrl = await ensureDbUrl();
+  const rows = await invoke<ProjectsWorkspaceSnapshotRows>("projects_refresh_workspace", {
+    dbUrl,
+    preferredProjectId,
+    activeView,
+  });
+  return mapWorkspaceSnapshot(rows);
+}
+
+export async function loadProjectsOptionalData(
+  kind: ProjectOptionalDataKind,
+  projectId: string | null,
+): Promise<ProjectsOptionalData> {
+  const dbUrl = await ensureDbUrl();
+  const rows = await invoke<ProjectsOptionalDataRows>("projects_load_optional_data", {
+    dbUrl,
+    projectId,
+    kind,
+  });
+  return mapOptionalData(rows);
 }
 
 export async function createProjectGroup(group: ProjectGroupCreate): Promise<void> {

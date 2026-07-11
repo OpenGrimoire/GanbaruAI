@@ -582,6 +582,37 @@ export interface ProjectsSnapshot {
   customEmojis: ProjectCustomEmoji[];
 }
 
+export interface ProjectsWorkspaceSnapshot {
+  resolvedProjectId: string | null;
+  activeView: ProjectViewId;
+  snapshot: ProjectsSnapshot;
+}
+
+export type ProjectOptionalDataKind =
+  | "relationships"
+  | "custom_fields"
+  | "history"
+  | "checklist"
+  | "saved_views"
+  | "custom_emojis";
+
+export interface ProjectsOptionalData {
+  kind: ProjectOptionalDataKind;
+  projectId: string | null;
+  checklistItems: ProjectChecklistItem[];
+  tags: ProjectTag[];
+  taskTagLinks: ProjectTaskTagLink[];
+  customFields: ProjectCustomField[];
+  customFieldOptions: ProjectCustomFieldOption[];
+  customFieldValues: ProjectCustomFieldValue[];
+  customFieldOptionValues: ProjectCustomFieldOptionValue[];
+  dependencies: ProjectTaskDependency[];
+  eventLinks: ProjectTaskEventLink[];
+  taskChangeEvents: ProjectTaskChangeEvent[];
+  viewPreferences: ProjectViewPreference[];
+  customEmojis: ProjectCustomEmoji[];
+}
+
 export interface ProjectGroupCreate {
   id: string;
   name: string;

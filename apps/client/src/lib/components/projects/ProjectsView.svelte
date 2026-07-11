@@ -133,6 +133,8 @@
   let projectSettingsDiscardConfirmOpen = $state(false);
   let pendingProjectSettingsAction: (() => void) | null = null;
   let projectsRootElement = $state<HTMLDivElement | null>(null);
+  let toolbarDataError = $state<string | null>(null);
+  let taskDetailDataError = $state<string | null>(null);
   let viewLoadState = $state<LazyComponentLoadState<
     ProjectViewId,
     LoadedProjectView
@@ -221,6 +223,48 @@
   const selectedProject = $derived(projects.selectedProject);
   const selectedGroup = $derived(projects.selectedGroup);
   const selectedProjectId = $derived(selectedProject?.id ?? null);
+  const toolbarDataReady = $derived.by(() => {
+    const projectId = selectedProjectId;
+    return Boolean(
+      projectId
+      && projects.projectOptionalDataLoaded("relationships", projectId)
+      && projects.projectOptionalDataLoaded("custom_fields", projectId)
+      && projects.projectOptionalDataLoaded("saved_views", projectId),
+    );
+  });
+  const taskDetailDataReady = $derived.by(() => {
+    const projectId = selectedProjectId;
+    return Boolean(
+      projectId
+      && projects.projectOptionalDataLoaded("relationships", projectId)
+      && projects.projectOptionalDataLoaded("custom_fields", projectId)
+      && projects.projectOptionalDataLoaded("history", projectId)
+      && projects.projectOptionalDataLoaded("checklist", projectId),
+    );
+  });
+
+  function requestProjectToolbarData(): void {
+    const projectId = selectedProjectId;
+    if (!projectId) return;
+    toolbarDataError = null;
+    void projects.ensureProjectToolbarData(projectId).catch((error) => {
+      if (selectedProjectId !== projectId || !projectToolbarPanel) return;
+      toolbarDataError = error instanceof Error ? error.message : String(error);
+      console.error("load optional Project toolbar data failed", error);
+    });
+  }
+
+  function requestTaskDetailData(): void {
+    const projectId = selectedProjectId;
+    const taskId = selectedTaskId;
+    if (!projectId || !taskId) return;
+    taskDetailDataError = null;
+    void projects.ensureTaskDetailData(projectId).catch((error) => {
+      if (selectedProjectId !== projectId || selectedTaskId !== taskId) return;
+      taskDetailDataError = error instanceof Error ? error.message : String(error);
+      console.error("load optional Project task detail data failed", error);
+    });
+  }
   $effect(() => {
     if (!selectedProjectId || projects.projectDataLoaded(selectedProjectId)) return;
     void projects.ensureProjectData(selectedProjectId).catch((error) => {
@@ -440,10 +484,15 @@
     const view = projects.activeView;
     if (!selectedProject || !selectedGroup) return;
     requestProjectView(view);
+    void projects.ensureProjectViewData(selectedProject.id, view).catch((error) => {
+      console.error(`load optional Project ${view} data failed`, error);
+    });
   });
 
   $effect(() => {
-    if (projectToolbarPanel) requestProjectOptionalComponent("toolbar");
+    if (!projectToolbarPanel) return;
+    requestProjectOptionalComponent("toolbar");
+    requestProjectToolbarData();
   });
 
   $effect(() => {
@@ -455,7 +504,9 @@
   });
 
   $effect(() => {
-    if (selectedTaskId) requestProjectOptionalComponent("task-detail");
+    if (!selectedTaskId) return;
+    requestProjectOptionalComponent("task-detail");
+    requestTaskDetailData();
   });
 
   $effect(() => {
@@ -897,7 +948,7 @@
           onToggleToolbarPanel={toggleProjectToolbarPanel}
         />
         {#if projectToolbarPanel}
-          {#if toolbarLoadState?.status === "ready" && toolbarLoadState.component.kind === "toolbar"}
+          {#if toolbarDataReady && toolbarLoadState?.status === "ready" && toolbarLoadState.component.kind === "toolbar"}
             {@const ProjectToolbarPanels = toolbarLoadState.component.component}
             <ProjectToolbarPanels
               panel={projectToolbarPanel}
@@ -944,13 +995,16 @@
               onDeleteSavedTaskView={(view) => { void deleteSavedTaskView(view); }}
               onToggleTaskListColumn={(column) => { void toggleTaskListColumn(column); }}
             />
-          {:else if toolbarLoadState?.status === "failed"}
+          {:else if toolbarDataError || toolbarLoadState?.status === "failed"}
             <div class="flex min-h-9 items-center justify-center gap-2 border-t border-border px-3 text-xs text-muted-foreground" role="alert">
               <span>{t("common.viewLoadFailed", t("projects.header.projectSettings"))}</span>
               <button
                 type="button"
                 class="font-medium text-foreground underline-offset-2 hover:underline"
-                onclick={() => requestProjectOptionalComponent("toolbar", true)}
+                onclick={() => {
+                  if (toolbarDataError) requestProjectToolbarData();
+                  else requestProjectOptionalComponent("toolbar", true);
+                }}
               >
                 {t("common.retry")}
               </button>
@@ -1153,7 +1207,7 @@
   {/if}
 
   {#if selectedTaskId}
-    {#if taskDetailLoadState?.status === "ready" && taskDetailLoadState.component.kind === "task-detail"}
+    {#if taskDetailDataReady && taskDetailLoadState?.status === "ready" && taskDetailLoadState.component.kind === "task-detail"}
       {@const ProjectTaskDetailPanel = taskDetailLoadState.component.component}
       <ProjectTaskDetailPanel
         taskId={selectedTaskId}
@@ -1170,7 +1224,7 @@
           showArchivedTasks = true;
         }}
       />
-    {:else if taskDetailLoadState?.status === "failed"}
+    {:else if taskDetailDataError || taskDetailLoadState?.status === "failed"}
       <div class="absolute inset-0 z-80 flex items-center justify-center bg-black/40 p-4" role="alert">
         <div class="flex min-h-32 w-full max-w-sm flex-col items-center justify-center gap-3 rounded-lg border border-border bg-card p-4 text-center text-sm text-muted-foreground shadow-xl">
           <p>{t("common.viewLoadFailed", t("projects.detail.title"))}</p>
@@ -1178,7 +1232,10 @@
             <button
               type="button"
               class="min-h-9 rounded-md border border-border bg-background px-3 font-medium text-foreground hover:bg-accent"
-              onclick={() => requestProjectOptionalComponent("task-detail", true)}
+              onclick={() => {
+                if (taskDetailDataError) requestTaskDetailData();
+                else requestProjectOptionalComponent("task-detail", true);
+              }}
             >
               {t("common.retry")}
             </button>

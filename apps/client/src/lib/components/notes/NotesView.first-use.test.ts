@@ -52,7 +52,7 @@ vi.mock("$lib/api/projects", async (importOriginal) => {
   const actual = await importOriginal<typeof import("$lib/api/projects")>();
   return {
     ...actual,
-    loadProjectsSnapshot: () => {
+    loadProjectsWorkspace: () => {
       backend.recordProjectsCall();
       return backend.promise;
     },

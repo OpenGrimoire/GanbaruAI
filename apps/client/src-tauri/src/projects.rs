@@ -152,7 +152,10 @@ use custom_fields::{
 };
 use history::*;
 pub use models::*;
-use templates::{insert_default_priorities, insert_default_statuses, insert_template_sections};
+use templates::{
+    insert_default_priorities, insert_default_project_graphs, insert_default_statuses,
+    insert_template_sections,
+};
 use validation::*;
 
 fn built_in_routine_project(project_id: &str) -> Option<&'static BuiltInRoutineProject> {
@@ -161,11 +164,67 @@ fn built_in_routine_project(project_id: &str) -> Option<&'static BuiltInRoutineP
         .find(|project| project.id == project_id)
 }
 
-async fn ensure_built_in_routine_defaults(pool: &sqlx::SqlitePool) -> Result<(), String> {
+async fn built_in_routine_defaults_intact(pool: &sqlx::SqlitePool) -> Result<bool, String> {
+    let mut query = sqlx::QueryBuilder::<sqlx::Sqlite>::new(
+        "SELECT EXISTS(SELECT 1 FROM project_groups WHERE id = ",
+    );
+    query
+        .push_bind(ROUTINE_GROUP_ID)
+        .push(" AND name = 'Routine') AND (SELECT COUNT(*) FROM projects WHERE ");
+    for (index, project) in BUILT_IN_ROUTINE_PROJECTS.iter().enumerate() {
+        if index > 0 {
+            query.push(" OR ");
+        }
+        query
+            .push("(id = ")
+            .push_bind(project.id)
+            .push(" AND group_id = ")
+            .push_bind(ROUTINE_GROUP_ID)
+            .push(" AND name = ")
+            .push_bind(project.name)
+            .push(" AND sort_order = ")
+            .push_bind(project.sort_order)
+            .push(")");
+    }
+    query
+        .push(") = ")
+        .push_bind(BUILT_IN_ROUTINE_PROJECTS.len() as i64);
+    query
+        .build_query_scalar::<i64>()
+        .fetch_one(pool)
+        .await
+        .map(|value| value != 0)
+        .map_err(|e| format!("check built-in Routine integrity: {e}"))
+}
+
+async fn repair_built_in_routine_defaults(pool: &sqlx::SqlitePool) -> Result<(), String> {
     let mut tx = pool
         .begin()
         .await
         .map_err(|e| format!("begin built-in Routine repair: {e}"))?;
+
+    let mut existing_query =
+        sqlx::QueryBuilder::<sqlx::Sqlite>::new("SELECT id FROM projects WHERE id IN (");
+    {
+        let mut separated = existing_query.separated(", ");
+        for project in BUILT_IN_ROUTINE_PROJECTS {
+            separated.push_bind(project.id);
+        }
+    }
+    existing_query.push(")");
+    let existing_ids: HashSet<String> = existing_query
+        .build_query_scalar()
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(|e| format!("load existing built-in Routine projects: {e}"))?
+        .into_iter()
+        .collect();
+    let missing_project_ids: Vec<&str> = BUILT_IN_ROUTINE_PROJECTS
+        .iter()
+        .filter(|project| !existing_ids.contains(project.id))
+        .map(|project| project.id)
+        .collect();
+
     sqlx::query(
         "INSERT OR IGNORE INTO project_groups (id, name, icon, color, sort_order)
          VALUES (?, 'Routine', 'repeat', 0, 0)",
@@ -184,91 +243,168 @@ async fn ensure_built_in_routine_defaults(pool: &sqlx::SqlitePool) -> Result<(),
     .await
     .map_err(|e| format!("normalize built-in Routine group: {e}"))?;
 
+    let mut insert_projects = sqlx::QueryBuilder::<sqlx::Sqlite>::new(
+        "INSERT OR IGNORE INTO projects (id, group_id, name, icon, color, sort_order, default_pomodoro_mode, default_pomodoro_preset_key) ",
+    );
+    insert_projects.push_values(BUILT_IN_ROUTINE_PROJECTS, |mut row, project| {
+        row.push_bind(project.id)
+            .push_bind(ROUTINE_GROUP_ID)
+            .push_bind(project.name)
+            .push_bind(project.icon)
+            .push_bind(project.color)
+            .push_bind(project.sort_order)
+            .push_bind(project.default_pomodoro_mode)
+            .push_bind(project.default_pomodoro_preset_key);
+    });
+    insert_projects
+        .build()
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| format!("restore built-in Routine projects: {e}"))?;
+
+    let mut normalize_projects =
+        sqlx::QueryBuilder::<sqlx::Sqlite>::new("UPDATE projects SET group_id = ");
+    normalize_projects
+        .push_bind(ROUTINE_GROUP_ID)
+        .push(", name = CASE id ");
     for project in BUILT_IN_ROUTINE_PROJECTS {
-        let result = sqlx::query(
-            "INSERT OR IGNORE INTO projects (
-                id, group_id, name, icon, color, sort_order,
-                default_pomodoro_mode, default_pomodoro_preset_key
-             )
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        )
-        .bind(project.id)
-        .bind(ROUTINE_GROUP_ID)
-        .bind(project.name)
-        .bind(project.icon)
-        .bind(project.color)
-        .bind(project.sort_order)
-        .bind(project.default_pomodoro_mode)
-        .bind(project.default_pomodoro_preset_key)
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| format!("restore built-in Routine project {}: {e}", project.id))?;
-        if result.rows_affected() > 0 {
-            insert_template_sections(&mut tx, project.id, "blank").await?;
-            insert_default_statuses(&mut tx, project.id).await?;
-            insert_default_priorities(&mut tx, project.id).await?;
-        }
-        sqlx::query(
-            "UPDATE projects
-             SET group_id = ?, name = ?, sort_order = ?
-             WHERE id = ?
-               AND (group_id <> ? OR name <> ? OR sort_order <> ?)",
-        )
-        .bind(ROUTINE_GROUP_ID)
-        .bind(project.name)
-        .bind(project.sort_order)
-        .bind(project.id)
-        .bind(ROUTINE_GROUP_ID)
-        .bind(project.name)
-        .bind(project.sort_order)
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| format!("normalize built-in Routine project {}: {e}", project.id))?;
+        normalize_projects
+            .push("WHEN ")
+            .push_bind(project.id)
+            .push(" THEN ")
+            .push_bind(project.name)
+            .push(" ");
     }
+    normalize_projects.push("END, sort_order = CASE id ");
+    for project in BUILT_IN_ROUTINE_PROJECTS {
+        normalize_projects
+            .push("WHEN ")
+            .push_bind(project.id)
+            .push(" THEN ")
+            .push_bind(project.sort_order)
+            .push(" ");
+    }
+    normalize_projects.push("END WHERE id IN (");
+    {
+        let mut separated = normalize_projects.separated(", ");
+        for project in BUILT_IN_ROUTINE_PROJECTS {
+            separated.push_bind(project.id);
+        }
+    }
+    normalize_projects.push(")");
+    normalize_projects
+        .build()
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| format!("normalize built-in Routine projects: {e}"))?;
+
+    insert_default_project_graphs(&mut tx, &missing_project_ids).await?;
 
     tx.commit()
         .await
         .map_err(|e| format!("commit built-in Routine repair: {e}"))
 }
 
-#[tauri::command]
-pub async fn projects_load_snapshot<R: Runtime>(
-    app: AppHandle<R>,
-    db_url: String,
-    project_id: Option<String>,
-) -> Result<ProjectsSnapshot, String> {
-    let pool = connect_sqlite(app, db_url).await?;
-    load_projects_snapshot(pool, project_id.as_deref()).await
+async fn ensure_built_in_routine_defaults(pool: &sqlx::SqlitePool) -> Result<(), String> {
+    if built_in_routine_defaults_intact(pool).await? {
+        return Ok(());
+    }
+    repair_built_in_routine_defaults(pool).await
 }
 
-async fn load_projects_snapshot(
-    pool: sqlx::SqlitePool,
-    project_id: Option<&str>,
-) -> Result<ProjectsSnapshot, String> {
-    ensure_built_in_routine_defaults(&pool).await?;
-    let normalized_project_id = project_id
+#[tauri::command]
+pub async fn projects_load_workspace<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    preferred_project_id: Option<String>,
+    active_view: ProjectViewId,
+) -> Result<ProjectsWorkspaceSnapshot, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    load_projects_workspace(&pool, preferred_project_id.as_deref(), active_view, true).await
+}
+
+#[tauri::command]
+pub async fn projects_refresh_workspace<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    preferred_project_id: Option<String>,
+    active_view: ProjectViewId,
+) -> Result<ProjectsWorkspaceSnapshot, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    load_projects_workspace(&pool, preferred_project_id.as_deref(), active_view, false).await
+}
+
+fn resolved_project_id(
+    projects: &[ProjectRow],
+    preferred_project_id: Option<&str>,
+) -> Option<String> {
+    if let Some(preferred) = preferred_project_id
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or("\0");
+    {
+        if projects.iter().any(|project| project.id == preferred) {
+            return Some(preferred.to_string());
+        }
+    }
+    projects
+        .iter()
+        .filter(|project| project.status == "active")
+        .min_by(|left, right| {
+            left.sort_order
+                .cmp(&right.sort_order)
+                .then_with(|| left.name.cmp(&right.name))
+        })
+        .or_else(|| projects.first())
+        .map(|project| project.id.clone())
+}
+
+async fn load_projects_workspace(
+    pool: &sqlx::SqlitePool,
+    preferred_project_id: Option<&str>,
+    active_view: ProjectViewId,
+    repair_built_ins: bool,
+) -> Result<ProjectsWorkspaceSnapshot, String> {
+    if repair_built_ins {
+        ensure_built_in_routine_defaults(pool).await?;
+    }
     let groups = sqlx::query_as::<_, ProjectGroupRow>(
         "SELECT * FROM project_groups ORDER BY sort_order ASC, name ASC",
     )
-    .fetch_all(&pool)
+    .fetch_all(pool)
     .await
     .map_err(|e| format!("load project groups: {e}"))?;
     let projects = sqlx::query_as::<_, ProjectRow>(
         "SELECT * FROM projects ORDER BY group_id ASC, sort_order ASC, name ASC",
     )
-    .fetch_all(&pool)
+    .fetch_all(pool)
     .await
     .map_err(|e| format!("load projects: {e}"))?;
+    let resolved_project_id = resolved_project_id(&projects, preferred_project_id);
+    let mut snapshot = load_projects_core_snapshot(pool, resolved_project_id.as_deref()).await?;
+    snapshot.groups = groups;
+    snapshot.projects = projects;
+    Ok(ProjectsWorkspaceSnapshot {
+        resolved_project_id,
+        active_view,
+        snapshot,
+    })
+}
+
+async fn load_projects_core_snapshot(
+    pool: &sqlx::SqlitePool,
+    project_id: Option<&str>,
+) -> Result<ProjectsSnapshot, String> {
+    let normalized_project_id = project_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("\0");
     let sections = sqlx::query_as::<_, ProjectSectionRow>(
         "SELECT * FROM project_sections
          WHERE project_id = ?
          ORDER BY project_id ASC, sort_order ASC, name ASC",
     )
     .bind(normalized_project_id)
-    .fetch_all(&pool)
+    .fetch_all(pool)
     .await
     .map_err(|e| format!("load project sections: {e}"))?;
     let statuses = sqlx::query_as::<_, ProjectStatusRow>(
@@ -277,7 +413,7 @@ async fn load_projects_snapshot(
          ORDER BY project_id ASC, sort_order ASC, name ASC",
     )
     .bind(normalized_project_id)
-    .fetch_all(&pool)
+    .fetch_all(pool)
     .await
     .map_err(|e| format!("load project statuses: {e}"))?;
     let priorities = sqlx::query_as::<_, ProjectPriorityRow>(
@@ -286,7 +422,7 @@ async fn load_projects_snapshot(
          ORDER BY project_id ASC, sort_order ASC, name ASC",
     )
     .bind(normalized_project_id)
-    .fetch_all(&pool)
+    .fetch_all(pool)
     .await
     .map_err(|e| format!("load project priorities: {e}"))?;
     let tasks = sqlx::query_as::<_, ProjectTaskRow>(
@@ -295,152 +431,237 @@ async fn load_projects_snapshot(
          ORDER BY project_id ASC, section_sort_order ASC, created_at ASC",
     )
     .bind(normalized_project_id)
-    .fetch_all(&pool)
+    .fetch_all(pool)
     .await
     .map_err(|e| format!("load project tasks: {e}"))?;
-    let checklist_items = sqlx::query_as::<_, ProjectChecklistItemRow>(
-        "SELECT project_checklist_items.*
-         FROM project_checklist_items
-         JOIN project_tasks ON project_tasks.id = project_checklist_items.task_id
-         WHERE project_tasks.project_id = ?
-         ORDER BY project_checklist_items.task_id ASC, project_checklist_items.sort_order ASC",
-    )
-    .bind(normalized_project_id)
-    .fetch_all(&pool)
-    .await
-    .map_err(|e| format!("load project checklist items: {e}"))?;
-    let tags = sqlx::query_as::<_, ProjectTagRow>(
-        "SELECT * FROM project_tags
-         WHERE project_id = ?
-         ORDER BY project_id ASC, sort_order ASC, name ASC",
-    )
-    .bind(normalized_project_id)
-    .fetch_all(&pool)
-    .await
-    .map_err(|e| format!("load project tags: {e}"))?;
-    let task_tag_links = sqlx::query_as::<_, ProjectTaskTagLinkRow>(
-        "SELECT project_task_tag_links.*
-         FROM project_task_tag_links
-         JOIN project_tasks ON project_tasks.id = project_task_tag_links.task_id
-         WHERE project_tasks.project_id = ?
-         ORDER BY project_task_tag_links.created_at ASC",
-    )
-    .bind(normalized_project_id)
-    .fetch_all(&pool)
-    .await
-    .map_err(|e| format!("load project task tag links: {e}"))?;
-    let custom_fields = sqlx::query_as::<_, ProjectCustomFieldRow>(
-        "SELECT * FROM project_custom_fields
-         WHERE project_id = ?
-         ORDER BY project_id ASC, sort_order ASC, name ASC",
-    )
-    .bind(normalized_project_id)
-    .fetch_all(&pool)
-    .await
-    .map_err(|e| format!("load project custom fields: {e}"))?;
-    let custom_field_options = sqlx::query_as::<_, ProjectCustomFieldOptionRow>(
-        "SELECT project_custom_field_options.*
-         FROM project_custom_field_options
-         JOIN project_custom_fields ON project_custom_fields.id = project_custom_field_options.field_id
-         WHERE project_custom_fields.project_id = ?
-         ORDER BY project_custom_field_options.field_id ASC, project_custom_field_options.sort_order ASC, project_custom_field_options.name ASC",
-    )
-    .bind(normalized_project_id)
-    .fetch_all(&pool)
-    .await
-    .map_err(|e| format!("load project custom field options: {e}"))?;
-    let custom_field_values = sqlx::query_as::<_, ProjectCustomFieldValueRow>(
-        "SELECT project_custom_field_values.*
-         FROM project_custom_field_values
-         JOIN project_tasks ON project_tasks.id = project_custom_field_values.task_id
-         WHERE project_tasks.project_id = ?
-         ORDER BY project_custom_field_values.updated_at ASC",
-    )
-    .bind(normalized_project_id)
-    .fetch_all(&pool)
-    .await
-    .map_err(|e| format!("load project custom field values: {e}"))?;
-    let custom_field_option_values = sqlx::query_as::<_, ProjectCustomFieldOptionValueRow>(
-        "SELECT project_custom_field_option_values.*
-         FROM project_custom_field_option_values
-         JOIN project_tasks ON project_tasks.id = project_custom_field_option_values.task_id
-         WHERE project_tasks.project_id = ?
-         ORDER BY project_custom_field_option_values.created_at ASC",
-    )
-    .bind(normalized_project_id)
-    .fetch_all(&pool)
-    .await
-    .map_err(|e| format!("load project custom field option values: {e}"))?;
-    let dependencies = sqlx::query_as::<_, ProjectTaskDependencyRow>(
-        "SELECT project_task_dependencies.*
-         FROM project_task_dependencies
-         JOIN project_tasks ON project_tasks.id = project_task_dependencies.blocked_task_id
-         WHERE project_tasks.project_id = ?
-         ORDER BY project_task_dependencies.created_at ASC",
-    )
-    .bind(normalized_project_id)
-    .fetch_all(&pool)
-    .await
-    .map_err(|e| format!("load project task dependencies: {e}"))?;
-    let event_links = sqlx::query_as::<_, ProjectTaskEventLinkRow>(
-        "SELECT project_task_event_links.*
-         FROM project_task_event_links
-         JOIN project_tasks ON project_tasks.id = project_task_event_links.task_id
-         WHERE project_tasks.project_id = ?
-         ORDER BY project_task_event_links.created_at ASC",
-    )
-    .bind(normalized_project_id)
-    .fetch_all(&pool)
-    .await
-    .map_err(|e| format!("load project task event links: {e}"))?;
-    let task_change_events = sqlx::query_as::<_, ProjectTaskChangeEventRow>(
-        "SELECT project_task_change_events.*
-         FROM project_task_change_events
-         JOIN project_tasks ON project_tasks.id = project_task_change_events.task_id
-         WHERE project_tasks.project_id = ?
-         ORDER BY project_task_change_events.occurred_at DESC
-         LIMIT 500",
-    )
-    .bind(normalized_project_id)
-    .fetch_all(&pool)
-    .await
-    .map_err(|e| format!("load project task change events: {e}"))?;
-    let view_preferences = sqlx::query_as::<_, ProjectViewPreferenceRow>(
-        "SELECT * FROM project_view_preferences ORDER BY project_id ASC, view_id ASC, updated_at DESC",
-    )
-    .fetch_all(&pool)
-    .await
-    .map_err(|e| format!("load project view preferences: {e}"))?;
-    let custom_emojis = load_project_custom_emojis(&pool).await?;
-
     Ok(ProjectsSnapshot {
-        groups,
-        projects,
+        groups: Vec::new(),
+        projects: Vec::new(),
         sections,
         statuses,
         priorities,
         tasks,
-        checklist_items,
-        tags,
-        task_tag_links,
-        custom_fields,
-        custom_field_options,
-        custom_field_values,
-        custom_field_option_values,
-        dependencies,
-        event_links,
-        task_change_events,
-        view_preferences,
-        custom_emojis,
+        checklist_items: Vec::new(),
+        tags: Vec::new(),
+        task_tag_links: Vec::new(),
+        custom_fields: Vec::new(),
+        custom_field_options: Vec::new(),
+        custom_field_values: Vec::new(),
+        custom_field_option_values: Vec::new(),
+        dependencies: Vec::new(),
+        event_links: Vec::new(),
+        task_change_events: Vec::new(),
+        view_preferences: Vec::new(),
+        custom_emojis: Vec::new(),
     })
 }
 
 #[cfg(test)]
-pub(crate) async fn load_projects_snapshot_for_first_use_contract(
+pub(crate) async fn load_projects_workspace_for_first_use_contract(
+    pool: &sqlx::SqlitePool,
+    preferred_project_id: Option<&str>,
+    active_view: ProjectViewId,
+) -> Result<ProjectsWorkspaceSnapshot, String> {
+    load_projects_workspace(pool, preferred_project_id, active_view, true).await
+}
+
+#[cfg(test)]
+pub(crate) async fn refresh_projects_workspace_for_first_use_contract(
+    pool: &sqlx::SqlitePool,
+    preferred_project_id: Option<&str>,
+    active_view: ProjectViewId,
+) -> Result<ProjectsWorkspaceSnapshot, String> {
+    load_projects_workspace(pool, preferred_project_id, active_view, false).await
+}
+
+#[tauri::command]
+pub async fn projects_load_optional_data<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    project_id: Option<String>,
+    kind: ProjectOptionalDataKind,
+) -> Result<ProjectsOptionalData, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    load_projects_optional_data(&pool, project_id.as_deref(), kind).await
+}
+
+fn required_optional_project_id(
+    project_id: Option<&str>,
+    kind: ProjectOptionalDataKind,
+) -> Result<&str, String> {
+    project_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| format!("project id is required for {kind:?} data"))
+}
+
+async fn load_projects_optional_data(
     pool: &sqlx::SqlitePool,
     project_id: Option<&str>,
-) -> Result<ProjectsSnapshot, String> {
-    load_projects_snapshot(pool.clone(), project_id).await
+    kind: ProjectOptionalDataKind,
+) -> Result<ProjectsOptionalData, String> {
+    let mut result = ProjectsOptionalData {
+        kind,
+        project_id: project_id
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string),
+        checklist_items: Vec::new(),
+        tags: Vec::new(),
+        task_tag_links: Vec::new(),
+        custom_fields: Vec::new(),
+        custom_field_options: Vec::new(),
+        custom_field_values: Vec::new(),
+        custom_field_option_values: Vec::new(),
+        dependencies: Vec::new(),
+        event_links: Vec::new(),
+        task_change_events: Vec::new(),
+        view_preferences: Vec::new(),
+        custom_emojis: Vec::new(),
+    };
+
+    match kind {
+        ProjectOptionalDataKind::Relationships => {
+            let project_id = required_optional_project_id(project_id, kind)?;
+            result.tags = sqlx::query_as::<_, ProjectTagRow>(
+                "SELECT * FROM project_tags
+                 WHERE project_id = ?
+                 ORDER BY project_id ASC, sort_order ASC, name ASC",
+            )
+            .bind(project_id)
+            .fetch_all(pool)
+            .await
+            .map_err(|e| format!("load project tags: {e}"))?;
+            result.task_tag_links = sqlx::query_as::<_, ProjectTaskTagLinkRow>(
+                "SELECT project_task_tag_links.*
+                 FROM project_task_tag_links
+                 JOIN project_tasks ON project_tasks.id = project_task_tag_links.task_id
+                 WHERE project_tasks.project_id = ?
+                 ORDER BY project_task_tag_links.created_at ASC",
+            )
+            .bind(project_id)
+            .fetch_all(pool)
+            .await
+            .map_err(|e| format!("load project task tag links: {e}"))?;
+            result.dependencies = sqlx::query_as::<_, ProjectTaskDependencyRow>(
+                "SELECT project_task_dependencies.*
+                 FROM project_task_dependencies
+                 JOIN project_tasks ON project_tasks.id = project_task_dependencies.blocked_task_id
+                 WHERE project_tasks.project_id = ?
+                 ORDER BY project_task_dependencies.created_at ASC",
+            )
+            .bind(project_id)
+            .fetch_all(pool)
+            .await
+            .map_err(|e| format!("load project task dependencies: {e}"))?;
+            result.event_links = sqlx::query_as::<_, ProjectTaskEventLinkRow>(
+                "SELECT project_task_event_links.*
+                 FROM project_task_event_links
+                 JOIN project_tasks ON project_tasks.id = project_task_event_links.task_id
+                 WHERE project_tasks.project_id = ?
+                 ORDER BY project_task_event_links.created_at ASC",
+            )
+            .bind(project_id)
+            .fetch_all(pool)
+            .await
+            .map_err(|e| format!("load project task event links: {e}"))?;
+        }
+        ProjectOptionalDataKind::CustomFields => {
+            let project_id = required_optional_project_id(project_id, kind)?;
+            result.custom_fields = sqlx::query_as::<_, ProjectCustomFieldRow>(
+                "SELECT * FROM project_custom_fields
+                 WHERE project_id = ?
+                 ORDER BY project_id ASC, sort_order ASC, name ASC",
+            )
+            .bind(project_id)
+            .fetch_all(pool)
+            .await
+            .map_err(|e| format!("load project custom fields: {e}"))?;
+            result.custom_field_options = sqlx::query_as::<_, ProjectCustomFieldOptionRow>(
+                "SELECT project_custom_field_options.*
+                 FROM project_custom_field_options
+                 JOIN project_custom_fields ON project_custom_fields.id = project_custom_field_options.field_id
+                 WHERE project_custom_fields.project_id = ?
+                 ORDER BY project_custom_field_options.field_id ASC, project_custom_field_options.sort_order ASC, project_custom_field_options.name ASC",
+            )
+            .bind(project_id)
+            .fetch_all(pool)
+            .await
+            .map_err(|e| format!("load project custom field options: {e}"))?;
+            result.custom_field_values = sqlx::query_as::<_, ProjectCustomFieldValueRow>(
+                "SELECT project_custom_field_values.*
+                 FROM project_custom_field_values
+                 JOIN project_tasks ON project_tasks.id = project_custom_field_values.task_id
+                 WHERE project_tasks.project_id = ?
+                 ORDER BY project_custom_field_values.updated_at ASC",
+            )
+            .bind(project_id)
+            .fetch_all(pool)
+            .await
+            .map_err(|e| format!("load project custom field values: {e}"))?;
+            result.custom_field_option_values =
+                sqlx::query_as::<_, ProjectCustomFieldOptionValueRow>(
+                    "SELECT project_custom_field_option_values.*
+                     FROM project_custom_field_option_values
+                     JOIN project_tasks ON project_tasks.id = project_custom_field_option_values.task_id
+                     WHERE project_tasks.project_id = ?
+                     ORDER BY project_custom_field_option_values.created_at ASC",
+                )
+                .bind(project_id)
+                .fetch_all(pool)
+                .await
+                .map_err(|e| format!("load project custom field option values: {e}"))?;
+        }
+        ProjectOptionalDataKind::History => {
+            let project_id = required_optional_project_id(project_id, kind)?;
+            result.task_change_events = sqlx::query_as::<_, ProjectTaskChangeEventRow>(
+                "SELECT project_task_change_events.*
+                 FROM project_task_change_events
+                 JOIN project_tasks ON project_tasks.id = project_task_change_events.task_id
+                 WHERE project_tasks.project_id = ?
+                 ORDER BY project_task_change_events.occurred_at DESC
+                 LIMIT 500",
+            )
+            .bind(project_id)
+            .fetch_all(pool)
+            .await
+            .map_err(|e| format!("load project task change events: {e}"))?;
+        }
+        ProjectOptionalDataKind::Checklist => {
+            let project_id = required_optional_project_id(project_id, kind)?;
+            result.checklist_items = sqlx::query_as::<_, ProjectChecklistItemRow>(
+                "SELECT project_checklist_items.*
+                 FROM project_checklist_items
+                 JOIN project_tasks ON project_tasks.id = project_checklist_items.task_id
+                 WHERE project_tasks.project_id = ?
+                 ORDER BY project_checklist_items.task_id ASC, project_checklist_items.sort_order ASC",
+            )
+            .bind(project_id)
+            .fetch_all(pool)
+            .await
+            .map_err(|e| format!("load project checklist items: {e}"))?;
+        }
+        ProjectOptionalDataKind::SavedViews => {
+            let project_id = required_optional_project_id(project_id, kind)?;
+            result.view_preferences = sqlx::query_as::<_, ProjectViewPreferenceRow>(
+                "SELECT * FROM project_view_preferences
+                 WHERE project_id = ?
+                 ORDER BY view_id ASC, updated_at DESC",
+            )
+            .bind(project_id)
+            .fetch_all(pool)
+            .await
+            .map_err(|e| format!("load project view preferences: {e}"))?;
+        }
+        ProjectOptionalDataKind::CustomEmojis => {
+            if result.project_id.is_some() {
+                return Err("project id must be omitted for custom emoji data".to_string());
+            }
+            result.custom_emojis = load_project_custom_emojis(pool).await?;
+        }
+    }
+
+    Ok(result)
 }
 
 async fn load_project_custom_emojis(

@@ -7,9 +7,9 @@ use crate::{db::run_migrations, notes, projects};
 
 const SQLITE_OK: c_int = 0;
 const SQLITE_TRACE_STMT: c_uint = 0x01;
-const EMPTY_PROJECTS_SQL_READS: usize = 36;
-const EMPTY_PROJECTS_SQL_WRITES: usize = 52;
-const EMPTY_PROJECTS_RESPONSE_BYTES: usize = 23_564;
+const EMPTY_PROJECTS_SQL_READS: usize = 7;
+const EMPTY_PROJECTS_SQL_WRITES: usize = 0;
+const EMPTY_PROJECTS_RESPONSE_BYTES: usize = 13_059;
 const EMPTY_NOTES_SQL_READS: usize = 8;
 const EMPTY_NOTES_SQL_WRITES: usize = 1;
 const EMPTY_NOTES_RESPONSE_BYTES: usize = 368;
@@ -27,7 +27,7 @@ unsafe extern "C" {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum FirstUseIpcCommand {
-    ProjectsLoadSnapshot,
+    ProjectsLoadWorkspace,
     NotesListSidebarPages,
     NotesListPages,
     NotesListFolders,
@@ -40,6 +40,12 @@ enum FirstUseIpcCommand {
 struct SqlStatementCounts {
     reads: usize,
     writes: usize,
+}
+
+#[derive(Debug, Default)]
+struct SqlTraceState {
+    counts: SqlStatementCounts,
+    statements: Vec<String>,
 }
 
 #[derive(Debug, Default, Eq, PartialEq)]
@@ -60,14 +66,14 @@ impl FirstUseContractMetrics {
 
 struct SqlTrace {
     pool: SqlitePool,
-    counts: Arc<Mutex<SqlStatementCounts>>,
-    context: *const Mutex<SqlStatementCounts>,
+    state: Arc<Mutex<SqlTraceState>>,
+    context: *const Mutex<SqlTraceState>,
 }
 
 impl SqlTrace {
     async fn start(pool: &SqlitePool) -> Self {
-        let counts = Arc::new(Mutex::new(SqlStatementCounts::default()));
-        let context = Arc::into_raw(Arc::clone(&counts));
+        let state = Arc::new(Mutex::new(SqlTraceState::default()));
+        let context = Arc::into_raw(Arc::clone(&state));
         let mut connection = pool.acquire().await.expect("acquire trace connection");
         install_trace(
             &mut connection,
@@ -78,12 +84,12 @@ impl SqlTrace {
         drop(connection);
         Self {
             pool: pool.clone(),
-            counts,
+            state,
             context,
         }
     }
 
-    async fn finish(self) -> SqlStatementCounts {
+    async fn finish(self) -> SqlTraceState {
         let mut connection = self
             .pool
             .acquire()
@@ -97,7 +103,7 @@ impl SqlTrace {
         unsafe {
             drop(Arc::from_raw(self.context));
         }
-        Arc::try_unwrap(self.counts)
+        Arc::try_unwrap(self.state)
             .expect("trace counter should have one owner")
             .into_inner()
             .expect("trace counter lock should not be poisoned")
@@ -142,13 +148,14 @@ unsafe extern "C" fn sql_trace_callback(
         return SQLITE_OK;
     };
     // SAFETY: `context` points to the `Arc` allocation held alive by `SqlTrace`.
-    let counts = unsafe { &*context.cast::<Mutex<SqlStatementCounts>>() };
-    let mut counts = counts
+    let state = unsafe { &*context.cast::<Mutex<SqlTraceState>>() };
+    let mut state = state
         .lock()
         .expect("trace counter lock should not be poisoned");
+    state.statements.push(sql.into_owned());
     match kind {
-        StatementKind::Read => counts.reads += 1,
-        StatementKind::Write => counts.writes += 1,
+        StatementKind::Read => state.counts.reads += 1,
+        StatementKind::Write => state.counts.writes += 1,
     }
     SQLITE_OK
 }
@@ -206,38 +213,65 @@ async fn assert_no_user_content(pool: &SqlitePool) {
     }
 }
 
+async fn traced_projects_workspace(
+    pool: &SqlitePool,
+    preferred_project_id: Option<&str>,
+) -> (serde_json::Value, FirstUseContractMetrics, Vec<String>) {
+    let trace = SqlTrace::start(pool).await;
+    let mut metrics = FirstUseContractMetrics::default();
+    let response = projects::load_projects_workspace_for_first_use_contract(
+        pool,
+        preferred_project_id,
+        projects::ProjectViewId::List,
+    )
+    .await
+    .expect("load Projects workspace");
+    metrics.record_response(FirstUseIpcCommand::ProjectsLoadWorkspace, &response);
+    let response = serde_json::to_value(response).expect("serialize Projects workspace");
+    let trace = trace.finish().await;
+    metrics.sql = trace.counts;
+    (response, metrics, trace.statements)
+}
+
+fn assert_no_optional_project_queries(statements: &[String]) {
+    for table in [
+        "project_checklist_items",
+        "project_tags",
+        "project_task_tag_links",
+        "project_custom_fields",
+        "project_custom_field_options",
+        "project_custom_field_values",
+        "project_custom_field_option_values",
+        "project_task_dependencies",
+        "project_task_event_links",
+        "project_task_change_events",
+        "project_view_preferences",
+        "project_custom_emojis",
+    ] {
+        assert!(
+            statements
+                .iter()
+                .all(|statement| !statement.contains(table)),
+            "initial Projects workspace queried optional table {table}",
+        );
+    }
+}
+
 #[test]
 fn empty_projects_first_use_has_a_fixed_backend_contract() {
     tauri::async_runtime::block_on(async {
         let pool = migrated_empty_pool().await;
-        projects::load_projects_snapshot_for_first_use_contract(&pool, None)
-            .await
-            .expect("seed required built-in projects");
         assert_no_user_content(&pool).await;
 
-        let trace = SqlTrace::start(&pool).await;
-        let mut metrics = FirstUseContractMetrics::default();
-        let metadata = projects::load_projects_snapshot_for_first_use_contract(&pool, None)
-            .await
-            .expect("load Projects metadata snapshot");
-        metrics.record_response(FirstUseIpcCommand::ProjectsLoadSnapshot, &metadata);
-        let metadata_json = serde_json::to_value(&metadata).expect("serialize Projects metadata");
-        let selected_project_id = metadata_json["projects"][0]["id"]
-            .as_str()
-            .expect("built-in project id");
-        let selected = projects::load_projects_snapshot_for_first_use_contract(
-            &pool,
-            Some(selected_project_id),
-        )
-        .await
-        .expect("load selected Projects snapshot");
-        metrics.record_response(FirstUseIpcCommand::ProjectsLoadSnapshot, &selected);
-        metrics.sql = trace.finish().await;
-
+        let (response, metrics, statements) = traced_projects_workspace(&pool, None).await;
+        assert_eq!(response["resolved_project_id"], "project-routine-learning");
+        assert_eq!(response["active_view"], "list");
+        assert_eq!(response["snapshot"]["tasks"], serde_json::json!([]));
+        assert_no_optional_project_queries(&statements);
         assert_eq!(
             metrics,
             FirstUseContractMetrics {
-                commands: vec![FirstUseIpcCommand::ProjectsLoadSnapshot; 2],
+                commands: vec![FirstUseIpcCommand::ProjectsLoadWorkspace],
                 sql: SqlStatementCounts {
                     reads: EMPTY_PROJECTS_SQL_READS,
                     writes: EMPTY_PROJECTS_SQL_WRITES,
@@ -245,6 +279,160 @@ fn empty_projects_first_use_has_a_fixed_backend_contract() {
                 serialized_response_bytes: EMPTY_PROJECTS_RESPONSE_BYTES,
             }
         );
+    });
+}
+
+#[test]
+fn projects_first_use_resolves_invalid_preferred_project_without_repair() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_empty_pool().await;
+        let (response, metrics, statements) =
+            traced_projects_workspace(&pool, Some("missing-project")).await;
+
+        assert_eq!(response["resolved_project_id"], "project-routine-learning");
+        assert_eq!(
+            metrics.commands,
+            vec![FirstUseIpcCommand::ProjectsLoadWorkspace]
+        );
+        assert_eq!(metrics.sql.writes, 0);
+        assert_no_optional_project_queries(&statements);
+    });
+}
+
+#[test]
+fn projects_first_use_keeps_a_valid_saved_project() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_empty_pool().await;
+        let (response, metrics, statements) =
+            traced_projects_workspace(&pool, Some("project-routine-sleep")).await;
+
+        assert_eq!(response["resolved_project_id"], "project-routine-sleep");
+        assert_eq!(
+            metrics.commands,
+            vec![FirstUseIpcCommand::ProjectsLoadWorkspace]
+        );
+        assert_eq!(metrics.sql.writes, 0);
+        assert_no_optional_project_queries(&statements);
+    });
+}
+
+#[test]
+fn projects_first_use_repairs_a_missing_built_in_with_default_graph() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_empty_pool().await;
+        sqlx::query("DELETE FROM projects WHERE id = 'project-routine-reading'")
+            .execute(&pool)
+            .await
+            .expect("remove built-in Reading project");
+
+        let (response, metrics, statements) = traced_projects_workspace(&pool, None).await;
+        let restored = response["snapshot"]["projects"]
+            .as_array()
+            .expect("Projects rows")
+            .iter()
+            .find(|project| project["id"] == "project-routine-reading")
+            .expect("restored Reading project");
+        assert_eq!(restored["color"], 25);
+        let restored_sections: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM project_sections WHERE project_id = 'project-routine-reading'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("count restored sections");
+        let restored_statuses: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM project_statuses WHERE project_id = 'project-routine-reading'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("count restored statuses");
+        let restored_priorities: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM project_priorities WHERE project_id = 'project-routine-reading'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("count restored priorities");
+        assert_eq!(
+            (restored_sections, restored_statuses, restored_priorities),
+            (1, 6, 4)
+        );
+        assert_eq!(metrics.sql.writes, 7);
+        assert_no_optional_project_queries(&statements);
+    });
+}
+
+#[test]
+fn project_refresh_does_not_run_built_in_repair() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_empty_pool().await;
+        sqlx::query("DELETE FROM projects WHERE id = 'project-routine-reading'")
+            .execute(&pool)
+            .await
+            .expect("remove built-in Reading project");
+        let trace = SqlTrace::start(&pool).await;
+        projects::refresh_projects_workspace_for_first_use_contract(
+            &pool,
+            Some("project-routine-learning"),
+            projects::ProjectViewId::List,
+        )
+        .await
+        .expect("refresh Projects workspace");
+        let trace = trace.finish().await;
+
+        let restored: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM projects WHERE id = 'project-routine-reading'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("count Reading project after refresh");
+        assert_eq!(restored, 0);
+        assert_eq!(trace.counts.writes, 0);
+        assert!(trace
+            .statements
+            .iter()
+            .all(|statement| !statement.contains("SELECT EXISTS(SELECT 1 FROM project_groups")),);
+        assert_no_optional_project_queries(&trace.statements);
+    });
+}
+
+#[test]
+fn projects_first_use_normalizes_identity_without_overwriting_authored_values() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_empty_pool().await;
+        sqlx::query("UPDATE project_groups SET name = 'Renamed' WHERE id = 'group-routine'")
+            .execute(&pool)
+            .await
+            .expect("rename Routine group");
+        sqlx::query(
+            "UPDATE projects
+             SET name = 'Meals', sort_order = 999, icon = 'utensils', color = 11,
+                 status = 'hidden', default_event_name = 'Lunch'
+             WHERE id = 'project-routine-eat'",
+        )
+        .execute(&pool)
+        .await
+        .expect("customize Eating project");
+
+        let (_response, metrics, statements) = traced_projects_workspace(&pool, None).await;
+        let row: (String, i64, String, i64, String, Option<String>) = sqlx::query_as(
+            "SELECT name, sort_order, icon, color, status, default_event_name
+             FROM projects WHERE id = 'project-routine-eat'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("load normalized Eating project");
+        assert_eq!(
+            row,
+            (
+                "Eating".to_string(),
+                40,
+                "utensils".to_string(),
+                11,
+                "hidden".to_string(),
+                Some("Lunch".to_string()),
+            ),
+        );
+        assert_eq!(metrics.sql.writes, 4);
+        assert_no_optional_project_queries(&statements);
     });
 }
 
@@ -289,7 +477,7 @@ fn empty_notes_first_use_has_a_fixed_backend_contract() {
             FirstUseIpcCommand::NotesGetPageHistorySettings,
             &history_settings,
         );
-        metrics.sql = trace.finish().await;
+        metrics.sql = trace.finish().await.counts;
 
         assert_eq!(
             metrics,

@@ -7,6 +7,7 @@
   } from "$lib/lazy-component-loader";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import type { ProjectNavigatorPanelMode } from "$lib/projects/project-toolbar";
+  import { getProjects } from "$lib/stores/projects.svelte";
   import {
     loadProjectOptionalComponent,
     retryProjectOptionalComponent,
@@ -32,6 +33,7 @@
   } = $props();
 
   const { t } = getLocalization();
+  const projects = getProjects();
   let loadState = $state<LazyComponentLoadState<
     "project-navigator",
     LoadedProjectOptionalComponent
@@ -66,7 +68,12 @@
       });
   }
 
-  $effect(() => requestNavigator());
+  $effect(() => {
+    requestNavigator();
+    void projects.ensureCustomEmojis().catch((error) => {
+      console.error("load Project navigator custom emoji failed", error);
+    });
+  });
 </script>
 
 {#if loadState?.status === "ready" && loadState.component.kind === "project-navigator"}

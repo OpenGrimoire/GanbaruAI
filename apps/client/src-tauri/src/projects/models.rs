@@ -510,6 +510,52 @@ pub struct ProjectsSnapshot {
     pub(in crate::projects) custom_emojis: Vec<ProjectCustomEmojiRow>,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectViewId {
+    List,
+    Kanban,
+    Calendar,
+    Gantt,
+    Dashboard,
+}
+
+#[derive(Serialize)]
+pub struct ProjectsWorkspaceSnapshot {
+    pub(in crate::projects) resolved_project_id: Option<String>,
+    pub(in crate::projects) active_view: ProjectViewId,
+    pub(in crate::projects) snapshot: ProjectsSnapshot,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectOptionalDataKind {
+    Relationships,
+    CustomFields,
+    History,
+    Checklist,
+    SavedViews,
+    CustomEmojis,
+}
+
+#[derive(Serialize)]
+pub struct ProjectsOptionalData {
+    pub(in crate::projects) kind: ProjectOptionalDataKind,
+    pub(in crate::projects) project_id: Option<String>,
+    pub(in crate::projects) checklist_items: Vec<ProjectChecklistItemRow>,
+    pub(in crate::projects) tags: Vec<ProjectTagRow>,
+    pub(in crate::projects) task_tag_links: Vec<ProjectTaskTagLinkRow>,
+    pub(in crate::projects) custom_fields: Vec<ProjectCustomFieldRow>,
+    pub(in crate::projects) custom_field_options: Vec<ProjectCustomFieldOptionRow>,
+    pub(in crate::projects) custom_field_values: Vec<ProjectCustomFieldValueRow>,
+    pub(in crate::projects) custom_field_option_values: Vec<ProjectCustomFieldOptionValueRow>,
+    pub(in crate::projects) dependencies: Vec<ProjectTaskDependencyRow>,
+    pub(in crate::projects) event_links: Vec<ProjectTaskEventLinkRow>,
+    pub(in crate::projects) task_change_events: Vec<ProjectTaskChangeEventRow>,
+    pub(in crate::projects) view_preferences: Vec<ProjectViewPreferenceRow>,
+    pub(in crate::projects) custom_emojis: Vec<ProjectCustomEmojiRow>,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectGroupCreate {
