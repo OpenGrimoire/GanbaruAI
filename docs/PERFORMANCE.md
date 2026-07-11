@@ -201,10 +201,10 @@ Projects and Notes have deterministic structural contracts for an isolated, migr
 
 | Surface | Critical IPC calls | SQL reads | SQL writes | Serialized response bytes | Source modules in route chunk | Useful shell before deferred backend resolves |
 |---|---:|---:|---:|---:|---:|---|
-| Projects | 2 | 36 | 52 | 23,564 | 228 | Yes |
-| Notes | 6 | 8 | 1 | 368 | 228 | Yes |
+| Projects | 2 | 36 | 52 | 23,564 | 69 | Yes |
+| Notes | 6 | 8 | 1 | 368 | 101 | Yes |
 
-Rust library tests count typed initial-load commands, executed SQLite statements, and serialized payload bytes against the fixture. Component tests keep the backend promises unresolved while asserting that the useful shell is present. The production bundle contract emits module metadata during the Vite build, enforces the route-chunk module ceilings above, and rejects named Notes transfer modules in entry chunks. `pnpm -w run validate` runs all three contract layers.
+Rust library tests count typed initial-load commands, executed SQLite statements, and serialized payload bytes against the fixture. Component tests keep the backend promises unresolved while asserting that the useful shell is present. The production bundle contract emits module metadata during the Vite build, enforces the route-chunk module ceilings above, keeps all four tab views out of the initial App shell chunk, and rejects named Notes transfer modules in entry chunks. `pnpm -w run validate` runs all three contract layers.
 
 ## Package size
 

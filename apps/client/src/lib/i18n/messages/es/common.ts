@@ -13,6 +13,8 @@ export const common = {
   edit: "Editar",
   done: "Listo",
   loading: "Cargando",
+  retry: "Reintentar",
+  viewLoadFailed: (label: string) => `No se pudo cargar ${label}.`,
   none: "Ninguno",
   disabled: "Desactivado",
   enabled: "Activado",

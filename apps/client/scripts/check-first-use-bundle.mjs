@@ -71,6 +71,16 @@ function readBaseline(value) {
   });
   return {
     routes,
+    shell: (() => {
+      const shell = requireObject(root.shell, "baseline shell");
+      return {
+        module: requireString(shell.module, "baseline shell module"),
+        forbiddenModules: requireStringArray(
+          shell.forbiddenModules,
+          "baseline shell forbiddenModules",
+        ),
+      };
+    })(),
     forbiddenEntryModules: requireStringArray(
       root.forbiddenEntryModules,
       "baseline forbiddenEntryModules",
@@ -100,6 +110,18 @@ const routes = baseline.routes.map((route) => {
   return { name: route.name, chunk: owner.fileName, sourceModules };
 });
 
+const shellChunk = chunks.find((chunk) => chunk.modules.includes(baseline.shell.module));
+if (!shellChunk) {
+  failures.push(`initial shell module is absent: ${baseline.shell.module}`);
+}
+for (const moduleId of baseline.shell.forbiddenModules) {
+  if (!allModules.has(moduleId)) {
+    failures.push(`forbidden shell module is absent from all chunks: ${moduleId}`);
+  } else if (shellChunk?.modules.includes(moduleId)) {
+    failures.push(`forbidden module is present in the initial shell chunk: ${moduleId}`);
+  }
+}
+
 for (const moduleId of baseline.forbiddenEntryModules) {
   if (!allModules.has(moduleId)) {
     failures.push(`forbidden entry module is absent from all chunks: ${moduleId}`);
@@ -112,4 +134,11 @@ if (failures.length > 0) {
   throw new Error(`first-use bundle contract failed:\n${failures.map((failure) => `* ${failure}`).join("\n")}`);
 }
 
-console.log(JSON.stringify({ routes, forbiddenEntryModules: baseline.forbiddenEntryModules }, null, 2));
+console.log(JSON.stringify({
+  routes,
+  shell: {
+    chunk: shellChunk?.fileName ?? null,
+    forbiddenModules: baseline.shell.forbiddenModules,
+  },
+  forbiddenEntryModules: baseline.forbiddenEntryModules,
+}, null, 2));
