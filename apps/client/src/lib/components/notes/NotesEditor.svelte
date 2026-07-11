@@ -388,6 +388,8 @@
 
   onDestroy(() => {
     clearActivityPanelHideTimer();
+    if (activePanel) notes.setPagePanelSubsystemOpen(activePanel, false);
+    if (pageHistoryModalOpen) notes.setPagePanelSubsystemOpen("page-history", false);
     if (lastTitlePageId) notes.clearPageTitleDraft(lastTitlePageId);
   });
 
@@ -432,9 +434,11 @@
   }
 
   function togglePanel(panel: NotesEditorPanel): void {
+    if (activePanel) notes.setPagePanelSubsystemOpen(activePanel, false);
     const nextPanel = activePanel === panel ? null : panel;
     activePanel = nextPanel;
     if (nextPanel) {
+      notes.setPagePanelSubsystemOpen(nextPanel, true);
       void notes.ensureOptionalSubsystem(nextPanel).catch((error) => {
         console.error(`load notes ${nextPanel} panel failed`, error);
       });
@@ -445,6 +449,8 @@
   }
 
   function openPageHistory(): void {
+    if (activePanel) notes.setPagePanelSubsystemOpen(activePanel, false);
+    notes.setPagePanelSubsystemOpen("page-history", true);
     pageHistoryModalOpen = true;
     void notes.ensureOptionalSubsystem("page-history").catch((error) => {
       console.error("load notes page history failed", error);
@@ -461,6 +467,7 @@
   }
 
   function closeActionPanel(): void {
+    if (activePanel) notes.setPagePanelSubsystemOpen(activePanel, false);
     activePanel = null;
   }
 
@@ -660,11 +667,15 @@
 
   function openPageDiscussion(): void {
     if (!page) return;
+    if (activePanel && activePanel !== "comments") {
+      notes.setPagePanelSubsystemOpen(activePanel, false);
+    }
     const pageParent = { type: "page_id", page_id: page.id } satisfies NotesParent;
     if (!notes.activeCommentParent || notesCommentParentKey(notes.activeCommentParent) !== notesCommentParentKey(pageParent)) {
       notes.setActiveCommentParent(pageParent);
     }
     activePanel = "comments";
+    notes.setPagePanelSubsystemOpen("comments", true);
     void notes.ensureOptionalSubsystem("comments").catch((error) => {
       console.error("load notes comments failed", error);
     });
@@ -831,7 +842,7 @@
             aria-expanded={pageMenuOpen}
             onclick={() => {
               pageMenuOpen = !pageMenuOpen;
-              activePanel = null;
+              closeActionPanel();
               if (!pageMenuOpen) {
                 moveMenuOpen = false;
                 folderMoveMenuOpen = false;
@@ -1222,6 +1233,7 @@
       pageId={page.id}
       onClose={() => {
         pageHistoryModalOpen = false;
+        notes.setPagePanelSubsystemOpen("page-history", false);
       }}
       />
     {:else if panelLoadStates["page-history"]?.status === "failed"}

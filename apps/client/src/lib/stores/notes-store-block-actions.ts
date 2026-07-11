@@ -2,7 +2,6 @@ import {
   appendNotesBlockChildren,
   createNotesDatabase,
   createNotesLinkedDatabaseView,
-  duplicateNotesBlock,
   duplicateNotesBlocks,
   moveNotesBlock,
   moveNotesBlocks,
@@ -12,7 +11,6 @@ import {
 import { invalidateAssetUrl } from "$lib/api/asset-url-cache";
 import {
   collectLoadedBlockSubtreeIds,
-  createDuplicateBlockRequest,
 } from "$lib/notes/block-duplicate";
 import { cloneNotesJson } from "$lib/notes/json-clone";
 import {
@@ -125,6 +123,7 @@ import {
 } from "$lib/notes/undo-history";
 import type {
   NotesBlock,
+  NotesAppendBlockChildrenRequest,
   NotesBlockTreeItem,
   NotesBlockType,
   NotesBlockUpdate,
@@ -132,6 +131,8 @@ import type {
   NotesButtonInsertPosition,
   NotesColor,
   NotesIcon,
+  NotesMoveBlockRequest,
+  NotesMoveBlocksRequest,
   NotesColumnBlockItems,
   NotesDateMentionValue,
   NotesParent,
@@ -147,6 +148,13 @@ import {
   createNotesTabActions,
   type NotesTabActions,
 } from "$lib/stores/notes-store-tab-actions";
+import {
+  notesPostAppendResult,
+  notesPostMoveManyResult,
+  notesPostMoveResult,
+  notesPostTrashResult,
+  type NotesPostMutationResult,
+} from "$lib/notes/post-mutation";
 
 const DEFAULT_DATABASE_TITLE = "Untitled database";
 const START_OF_BLOCK_SELECTION: NotesTextSelection = { start: 0, end: 0 };
@@ -165,9 +173,9 @@ export interface NotesBlockActionsContext {
   requestBlockFocus: (blockId: string | null, selection?: NotesTextSelection | null) => void;
   createChildPageFromBlock: (blockId: string) => Promise<void>;
   createChildPageAfterBlock: (blockId: string) => Promise<void>;
+  applyPostMutation: (result: NotesPostMutationResult) => void;
   loadPageTree: (pageId: string) => Promise<void>;
-  reloadPages: () => Promise<void>;
-  reloadBacklinks: () => Promise<void>;
+  refreshOpenLinks: () => Promise<void>;
   localApplyBlockUpdate: (blockId: string, update: NotesBlockUpdate) => void;
   localInsertBlockAfter: (block: NotesBlock, afterBlockId: string | null) => void;
   localRemoveLeafBlock: (blockId: string) => boolean;
@@ -463,6 +471,81 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     invalidateReplacedMediaAsset(previous, update);
   }
 
+  async function appendAndApply(request: NotesAppendBlockChildrenRequest): Promise<NotesBlock[]> {
+    const response = await appendNotesBlockChildren(request);
+    context.applyPostMutation(notesPostAppendResult(request, response));
+    return response.results;
+  }
+
+  async function moveAndApply(
+    blockId: string,
+    request: NotesMoveBlockRequest,
+  ): Promise<NotesBlock> {
+    const hierarchyChanged = context.blockById(blockId)?.type === "child_page";
+    const block = await moveNotesBlock(blockId, request);
+    context.applyPostMutation({
+      ...notesPostMoveResult(block, request),
+      sidebarImpact: hierarchyChanged ? "hierarchy" : "none",
+    });
+    return block;
+  }
+
+  async function moveManyAndApply(request: NotesMoveBlocksRequest): Promise<NotesBlock[]> {
+    const hierarchyChanged = request.block_ids.some(
+      (blockId) => context.blockById(blockId)?.type === "child_page",
+    );
+    const response = await moveNotesBlocks(request);
+    context.applyPostMutation({
+      ...notesPostMoveManyResult(request, response),
+      sidebarImpact: hierarchyChanged ? "hierarchy" : "none",
+    });
+    return response.results;
+  }
+
+  async function trashAndApply(rootBlockIds: readonly string[]): Promise<void> {
+    const before = context.treeState();
+    const hierarchyChanged = rootBlockIds.some((blockId) => (
+      collectLoadedBlockSubtreeIds(before, blockId).some(
+        (subtreeId) => before.blocksById[subtreeId]?.type === "child_page",
+      )
+    ));
+    if (rootBlockIds.length === 1) {
+      const blockId = rootBlockIds[0];
+      if (!blockId) return;
+      await trashNotesBlock(blockId, true);
+    } else {
+      await trashNotesBlocks({ block_ids: [...rootBlockIds], in_trash: true });
+    }
+    context.applyPostMutation({
+      ...notesPostTrashResult(before, rootBlockIds),
+      sidebarImpact: hierarchyChanged ? "hierarchy" : "none",
+    });
+  }
+
+  async function duplicateSubtreesAndApply(input: {
+    rootBlockIds: readonly string[];
+    sourceSubtreeBlockIds: readonly string[];
+    parent: NotesParent;
+    after: string | null;
+    before?: string | null;
+    includeTrashedSources?: boolean;
+  }): Promise<NotesBlock[]> {
+    const request = {
+      block_ids: [...input.rootBlockIds],
+      duplicated_block_ids: input.sourceSubtreeBlockIds.map((sourceId) => ({
+        source_id: sourceId,
+        duplicate_id: crypto.randomUUID(),
+      })),
+      parent: input.parent,
+      after: input.after,
+      before: input.before ?? null,
+      include_trashed_sources: input.includeTrashedSources ?? false,
+    };
+    const response = await duplicateNotesBlocks(request);
+    context.applyPostMutation(notesPostMoveManyResult(request, response));
+    return response.results;
+  }
+
   async function updateBlockText(
     blockId: string,
     text: string,
@@ -540,7 +623,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     const update = blockWithPageMention(block, start, end, pageId, title, href);
     context.localApplyBlockUpdate(blockId, update);
     await context.saveBlockNow(blockId, update);
-    await context.reloadBacklinks();
+    await context.refreshOpenLinks();
     recordUndo(
       "mention",
       before,
@@ -610,7 +693,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     const update = blockWithTextLink(block, start, end, url);
     context.localApplyBlockUpdate(blockId, update);
     await context.saveBlockNow(blockId, update);
-    await context.reloadBacklinks();
+    await context.refreshOpenLinks();
     recordUndoAfter("link", before, blockId);
   }
 
@@ -740,7 +823,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     const before = undoSnapshot(tableBlockId);
     const rowIndex = tableRemoveIndex(afterRowIndex, Math.max(1, rows.length));
     const after = rows[rowIndex]?.id ?? rows.at(-1)?.id ?? null;
-    await appendNotesBlockChildren({
+    await appendAndApply({
       parent: { type: "block_id", block_id: tableBlockId },
       after,
       children: [
@@ -750,7 +833,6 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
         ),
       ],
     });
-    await context.loadPageTree(selectedPageId);
     context.requestBlockFocus(tableBlockId);
     recordUndoAfter("create", before, tableBlockId);
   }
@@ -764,8 +846,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     if (!rows.some((row) => row.id === rowBlockId)) return;
     await context.flushPendingBlockSaves();
     const before = undoSnapshot(tableBlockId);
-    await trashNotesBlock(rowBlockId, true);
-    await context.loadPageTree(selectedPageId);
+    await trashAndApply([rowBlockId]);
     context.requestBlockFocus(tableBlockId);
     recordUndoAfter("delete", before, tableBlockId);
   }
@@ -787,13 +868,12 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
       await context.saveBlockNow(row.id, update);
     }
     if (rows.length === 0) {
-      await appendNotesBlockChildren({
+      await appendAndApply({
         parent: { type: "block_id", block_id: tableBlockId },
         after: null,
         children: [createNotesTableRowWrite(crypto.randomUUID(), width + 1)],
       });
     }
-    await context.loadPageTree(selectedPageId);
     context.requestBlockFocus(tableBlockId);
     recordUndoAfter("update", before, tableBlockId);
   }
@@ -814,7 +894,6 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
       context.localApplyBlockUpdate(row.id, update);
       await context.saveBlockNow(row.id, update);
     }
-    await context.loadPageTree(selectedPageId);
     context.requestBlockFocus(tableBlockId);
     recordUndoAfter("update", before, tableBlockId);
   }
@@ -889,7 +968,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
       title,
       replace_block_id: blockId,
     });
-    await context.loadPageTree(selectedPageId);
+    context.applyPostMutation({ blocks: [created.block] });
     context.requestBlockFocus(created.block.id);
     recordUndoAfter("convert", before, created.block.id);
   }
@@ -916,7 +995,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     if ((childIdsByParentId()[blockId] ?? []).length > 0 && block.type !== "table") return;
     await replaceBlockWithUpdate(blockId, createBlockUpdate("table", ""));
     if (context.tableRowsForBlock(blockId).length === 0) {
-      await appendNotesBlockChildren({
+    await appendAndApply({
         parent: { type: "block_id", block_id: blockId },
         after: null,
         children: Array.from({ length: DEFAULT_TABLE_ROW_COUNT }, () => ({
@@ -926,7 +1005,6 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
         })),
       });
     }
-    await context.loadPageTree(selectedPageId);
     context.requestBlockFocus(blockId);
   }
 
@@ -961,26 +1039,24 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
           column: createColumnPayload(0.5),
         },
       ];
-      await appendNotesBlockChildren({
+    await appendAndApply({
         parent: { type: "block_id", block_id: blockId },
         after: null,
         children: columns,
       });
-      await appendNotesBlockChildren({
+    await appendAndApply({
         parent: { type: "block_id", block_id: leftColumnId },
         after: null,
         children: [createBlockWrite(leftBlockId, "paragraph")],
       });
-      await appendNotesBlockChildren({
+    await appendAndApply({
         parent: { type: "block_id", block_id: rightColumnId },
         after: null,
         children: [createBlockWrite(rightBlockId, "paragraph")],
       });
-      await context.loadPageTree(selectedPageId);
       context.requestBlockFocus(leftBlockId);
       return;
     }
-    await context.loadPageTree(selectedPageId);
     context.requestBlockFocus(blockId);
   }
 
@@ -1004,7 +1080,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
       const secondLabelId = crypto.randomUUID();
       const firstContentId = crypto.randomUUID();
       const secondContentId = crypto.randomUUID();
-      await appendNotesBlockChildren({
+    await appendAndApply({
         parent: { type: "block_id", block_id: blockId },
         after: null,
         children: [
@@ -1012,21 +1088,19 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
           createBlockWrite(secondLabelId, "paragraph", "Tab 2"),
         ],
       });
-      await appendNotesBlockChildren({
+    await appendAndApply({
         parent: { type: "block_id", block_id: firstLabelId },
         after: null,
         children: [createBlockWrite(firstContentId, "paragraph")],
       });
-      await appendNotesBlockChildren({
+    await appendAndApply({
         parent: { type: "block_id", block_id: secondLabelId },
         after: null,
         children: [createBlockWrite(secondContentId, "paragraph")],
       });
-      await context.loadPageTree(selectedPageId);
       context.requestBlockFocus(firstContentId);
       return;
     }
-    await context.loadPageTree(selectedPageId);
     context.requestBlockFocus(blockId);
   }
 
@@ -1120,13 +1194,13 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     await context.flushBlockSave(blockId);
     const before = undoSnapshot(blockId);
     const newBlockId = crypto.randomUUID();
-    await appendNotesBlockChildren({
+    await appendAndApply({
       parent: block.parent,
       after: blockId,
       children: [createBlockWriteFromInsertCommand(newBlockId, command)],
     });
     if (command.kind === "block" && command.blockType === "table") {
-      await appendNotesBlockChildren({
+    await appendAndApply({
         parent: { type: "block_id", block_id: newBlockId },
         after: null,
         children: Array.from({ length: DEFAULT_TABLE_ROW_COUNT }, () => ({
@@ -1135,7 +1209,6 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
           table_row: createEmptyTableRowPayload(DEFAULT_TABLE_WIDTH),
         })),
       });
-      await context.loadPageTree(selectedPageId);
       const focusBlockId = planNotesInsertedBlockFocus([newBlockId], blockId);
       context.requestBlockFocus(focusBlockId, START_OF_BLOCK_SELECTION);
       recordUndoAfter("create", before, focusBlockId);
@@ -1146,7 +1219,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
       const rightColumnId = crypto.randomUUID();
       const leftBlockId = crypto.randomUUID();
       const rightBlockId = crypto.randomUUID();
-      await appendNotesBlockChildren({
+    await appendAndApply({
         parent: { type: "block_id", block_id: newBlockId },
         after: null,
         children: [
@@ -1162,17 +1235,16 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
           },
         ],
       });
-      await appendNotesBlockChildren({
+    await appendAndApply({
         parent: { type: "block_id", block_id: leftColumnId },
         after: null,
         children: [createBlockWrite(leftBlockId, "paragraph")],
       });
-      await appendNotesBlockChildren({
+    await appendAndApply({
         parent: { type: "block_id", block_id: rightColumnId },
         after: null,
         children: [createBlockWrite(rightBlockId, "paragraph")],
       });
-      await context.loadPageTree(selectedPageId);
       const focusBlockId = planNotesInsertedBlockFocus([leftBlockId], newBlockId);
       context.requestBlockFocus(focusBlockId, START_OF_BLOCK_SELECTION);
       recordUndoAfter("create", before, focusBlockId);
@@ -1183,7 +1255,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
       const secondLabelId = crypto.randomUUID();
       const firstContentId = crypto.randomUUID();
       const secondContentId = crypto.randomUUID();
-      await appendNotesBlockChildren({
+    await appendAndApply({
         parent: { type: "block_id", block_id: newBlockId },
         after: null,
         children: [
@@ -1191,23 +1263,21 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
           createBlockWrite(secondLabelId, "paragraph", "Tab 2"),
         ],
       });
-      await appendNotesBlockChildren({
+    await appendAndApply({
         parent: { type: "block_id", block_id: firstLabelId },
         after: null,
         children: [createBlockWrite(firstContentId, "paragraph")],
       });
-      await appendNotesBlockChildren({
+    await appendAndApply({
         parent: { type: "block_id", block_id: secondLabelId },
         after: null,
         children: [createBlockWrite(secondContentId, "paragraph")],
       });
-      await context.loadPageTree(selectedPageId);
       const focusBlockId = planNotesInsertedBlockFocus([firstContentId], newBlockId);
       context.requestBlockFocus(focusBlockId, START_OF_BLOCK_SELECTION);
       recordUndoAfter("create", before, focusBlockId);
       return;
     }
-    await context.loadPageTree(selectedPageId);
     const focusBlockId = planNotesInsertedBlockFocus([newBlockId], blockId) ?? newBlockId;
     context.requestBlockFocus(focusBlockId, START_OF_BLOCK_SELECTION);
     recordUndoAfter("create", before, focusBlockId);
@@ -1228,7 +1298,14 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
       parent: currentBlock.parent,
       after_block_id: blockId,
     });
-    await context.loadPageTree(selectedPageId);
+    context.applyPostMutation({
+      blocks: [created.block],
+      placements: [{
+        blockId: created.block.id,
+        parent: currentBlock.parent,
+        after: blockId,
+      }],
+    });
     context.requestBlockFocus(created.block.id);
     recordUndoAfter("create", before, created.block.id);
   }
@@ -1251,7 +1328,14 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
         currentBlock.child_database.title || DEFAULT_DATABASE_TITLE,
       ),
     );
-    await context.loadPageTree(selectedPageId);
+    context.applyPostMutation({
+      blocks: [created.block],
+      placements: [{
+        blockId: created.block.id,
+        parent: currentBlock.parent,
+        after: blockId,
+      }],
+    });
     context.requestBlockFocus(created.block.id);
     recordUndoAfter("create", before, created.block.id);
   }
@@ -1335,7 +1419,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
       } else {
         await context.flushBlockSave(blockId);
       }
-      await appendNotesBlockChildren({
+    await appendAndApply({
         parent: cloneNotesJson(parent),
         after: blockId,
         children: [cloneNotesJson(nextBlockWrite)],
@@ -1465,7 +1549,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
   ): Promise<void> {
     try {
       await context.flushBlockSave(currentBlockId);
-      await appendNotesBlockChildren({
+    await appendAndApply({
         parent: cloneNotesJson(parent),
         after: currentBlockId,
         children: cloneNotesJson([...appendedWrites]),
@@ -1494,19 +1578,15 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     if (sourceSubtreeBlockIds.length === 0) return null;
     await context.flushPendingBlockSaves();
     const before = undoSnapshot(targetBlockId);
-    const duplicates = await duplicateNotesBlocks({
-      block_ids: [...sourceRootBlockIds],
-      duplicated_block_ids: sourceSubtreeBlockIds.map((sourceId) => ({
-        source_id: sourceId,
-        duplicate_id: crypto.randomUUID(),
-      })),
+    const duplicates = await duplicateSubtreesAndApply({
+      rootBlockIds: sourceRootBlockIds,
+      sourceSubtreeBlockIds,
       parent: target.parent,
       after: targetBlockId,
       before: null,
-      include_trashed_sources: includeTrashedSources,
+      includeTrashedSources,
     });
-    const focusBlockId = planNotesInsertedBlockFocus([duplicates.results[0]?.id], targetBlockId);
-    await context.loadPageTree(selectedPageId);
+    const focusBlockId = planNotesInsertedBlockFocus([duplicates[0]?.id], targetBlockId);
     context.requestBlockFocus(focusBlockId);
     recordUndoAfter("paste", before, focusBlockId);
     return focusBlockId;
@@ -1554,8 +1634,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
       }
       await context.flushBlockSave(blockId);
       if (!(await moveReparentedChildren(childPlan))) return;
-      await trashNotesBlock(plan.deleteBlockId, true);
-      await context.loadPageTree(selectedPageId);
+      await trashAndApply([plan.deleteBlockId]);
     }
     context.requestBlockFocus(plan.focusBlockId);
     recordUndoAfter("delete", before, plan.focusBlockId);
@@ -1584,8 +1663,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     await context.flushPendingBlockSaves();
     const before = undoSnapshot(rootBlockIds[0] ?? null);
     const focusBlockId = focusAfterDeletingSelection(rootBlockIds);
-    await trashNotesBlocks({ block_ids: rootBlockIds, in_trash: true });
-    await context.loadPageTree(selectedPageId);
+    await trashAndApply(rootBlockIds);
     context.requestBlockFocus(focusBlockId);
     recordUndoAfter("delete", before, focusBlockId);
   }
@@ -1610,8 +1688,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     const before = undoSnapshot(blockId);
     await replaceBlockWithUpdate(target.id, blockWithRichText(target, plan.mergedRichText));
     if (!(await moveReparentedChildren(childPlan))) return;
-    await trashNotesBlock(plan.sourceBlockId, true);
-    await context.loadPageTree(selectedPageId);
+    await trashAndApply([plan.sourceBlockId]);
     context.requestBlockFocus(target.id);
     recordUndoAfter("delete", before, target.id);
   }
@@ -1623,11 +1700,10 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     const plan = planNestBlock(context.treeState(), blockId);
     if (!plan) return;
     const before = undoSnapshot(blockId);
-    await moveNotesBlock(blockId, {
+    await moveAndApply(blockId, {
       parent: { type: "block_id", block_id: plan.parentId },
       after: plan.after,
     });
-    await context.loadPageTree(selectedPageId);
     context.requestBlockFocus(blockId);
     recordUndoAfter("move", before, blockId);
   }
@@ -1642,8 +1718,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
       ? { type: "page_id", page_id: selectedPageId }
       : { type: "block_id", block_id: plan.parentId };
     const before = undoSnapshot(blockId);
-    await moveNotesBlock(blockId, { parent, after: plan.after });
-    await context.loadPageTree(selectedPageId);
+    await moveAndApply(blockId, { parent, after: plan.after });
     context.requestBlockFocus(blockId);
     recordUndoAfter("move", before, blockId);
   }
@@ -1693,7 +1768,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     let after = plan.after;
     for (const childId of plan.childIds) {
       await context.flushBlockSave(childId);
-      await moveNotesBlock(childId, { parent, after, before: null });
+      await moveAndApply(childId, { parent, after, before: null });
       after = childId;
     }
     return true;
@@ -1711,8 +1786,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     const parent = parentFromMoveParentId(plan.parentId);
     if (!parent) return;
     const before = undoSnapshot(blockId);
-    await moveNotesBlock(blockId, { parent, after: plan.after, before: plan.before });
-    await context.loadPageTree(selectedPageId);
+    await moveAndApply(blockId, { parent, after: plan.after, before: plan.before });
     context.requestBlockFocus(blockId);
     recordUndoAfter("move", before, blockId);
   }
@@ -1730,13 +1804,12 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     if (!parent) return;
     await context.flushPendingBlockSaves();
     const before = undoSnapshot(plan.focusBlockId);
-    await moveNotesBlocks({
+    await moveManyAndApply({
       block_ids: plan.blockIds,
       parent,
       after: plan.after,
       before: plan.before,
     });
-    await context.loadPageTree(selectedPageId);
     context.requestBlockFocus(plan.focusBlockId);
     recordUndoAfter("move", before, plan.focusBlockId);
   }
@@ -1762,8 +1835,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     const parent = parentFromMoveParentId(plan.parentId);
     if (!parent) return;
     const before = undoSnapshot(sourceBlockId);
-    await moveNotesBlock(sourceBlockId, { parent, after: plan.after, before: plan.before });
-    await context.loadPageTree(selectedPageId);
+    await moveAndApply(sourceBlockId, { parent, after: plan.after, before: plan.before });
     context.requestBlockFocus(sourceBlockId);
     recordUndoAfter("move", before, sourceBlockId);
   }
@@ -1787,13 +1859,12 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     const movedSubtree = movedSubtreeIds
       .map((subtreeId) => context.blockById(subtreeId))
       .filter((candidate): candidate is NotesBlock => candidate !== undefined);
-    const moved = await moveNotesBlock(blockId, {
+    const moved = await moveAndApply(blockId, {
       parent: { type: "page_id", page_id: pageId },
       after: null,
       before: null,
     });
-    await context.reloadPages();
-    await context.loadPageTree(selectedPageId);
+    context.applyPostMutation({ sidebarImpact: "hierarchy" });
     context.requestBlockFocus(focusBlockId);
     const afterSubtree = movedSubtree.map((subtreeBlock) =>
       subtreeBlock.id === moved.id ? moved : subtreeBlock
@@ -1807,15 +1878,17 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     if (context.blockById(blockId)?.type === "child_page") return;
     await context.flushBlockSave(blockId);
     const before = undoSnapshot(blockId);
-    const request = createDuplicateBlockRequest(
-      context.treeState(),
-      blockId,
-      () => crypto.randomUUID(),
-    );
-    if (request.duplicated_block_ids.length === 0) return;
-    const duplicate = await duplicateNotesBlock(blockId, request);
-    const focusBlockId = planNotesInsertedBlockFocus([duplicate.id], blockId);
-    await context.loadPageTree(selectedPageId);
+    const subtreeIds = collectLoadedBlockSubtreeIds(context.treeState(), blockId);
+    if (subtreeIds.length === 0) return;
+    const block = context.blockById(blockId);
+    if (!block) return;
+    const duplicates = await duplicateSubtreesAndApply({
+      rootBlockIds: [blockId],
+      sourceSubtreeBlockIds: subtreeIds,
+      parent: block.parent,
+      after: blockId,
+    });
+    const focusBlockId = planNotesInsertedBlockFocus([duplicates[0]?.id], blockId);
     context.requestBlockFocus(focusBlockId);
     recordUndoAfter("duplicate", before, focusBlockId);
   }
@@ -1837,22 +1910,17 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     if (sourceSubtreeBlockIds.length === 0) return null;
     await context.flushPendingBlockSaves();
     const before = undoSnapshot(rootBlockIds[0] ?? null);
-    const duplicates = await duplicateNotesBlocks({
-      block_ids: rootBlockIds,
-      duplicated_block_ids: sourceSubtreeBlockIds.map((sourceId) => ({
-        source_id: sourceId,
-        duplicate_id: crypto.randomUUID(),
-      })),
+    const duplicates = await duplicateSubtreesAndApply({
+      rootBlockIds,
+      sourceSubtreeBlockIds,
       parent,
       after: lastRootId,
       before: null,
-      include_trashed_sources: false,
     });
     const focusBlockId = planNotesInsertedBlockFocus(
-      [duplicates.results[0]?.id],
+      [duplicates[0]?.id],
       rootBlockIds[0] ?? null,
     );
-    await context.loadPageTree(selectedPageId);
     context.requestBlockFocus(focusBlockId);
     recordUndoAfter("duplicate", before, focusBlockId);
     return focusBlockId;
@@ -1882,19 +1950,21 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     let after = blockId;
     let firstDuplicateId: string | null = null;
     for (const childId of childIds) {
-      const request = createDuplicateBlockRequest(state, childId, () => crypto.randomUUID());
-      if (request.duplicated_block_ids.length === 0) continue;
-      const duplicate = await duplicateNotesBlock(childId, request);
-      await moveNotesBlock(duplicate.id, {
+      const sourceSubtreeIds = collectLoadedBlockSubtreeIds(state, childId);
+      if (sourceSubtreeIds.length === 0) continue;
+      const duplicates = await duplicateSubtreesAndApply({
+        rootBlockIds: [childId],
+        sourceSubtreeBlockIds: sourceSubtreeIds,
         parent: template.parent,
         after,
         before: null,
       });
-      after = duplicate.id;
-      firstDuplicateId ??= duplicate.id;
+      const duplicateId = duplicates[0]?.id;
+      if (!duplicateId) continue;
+      after = duplicateId;
+      firstDuplicateId ??= duplicateId;
     }
 
-    await context.loadPageTree(selectedPageId);
     const focusBlockId = planNotesInsertedBlockFocus([firstDuplicateId], blockId);
     context.requestBlockFocus(focusBlockId);
     recordUndoAfter("template", before, focusBlockId);
@@ -1909,12 +1979,11 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     const before = undoSnapshot(blockId);
     const childIds = activeChildIdsForBlock(blockId);
     const newBlockId = crypto.randomUUID();
-    await appendNotesBlockChildren({
+    await appendAndApply({
       parent: { type: "block_id", block_id: blockId },
       after: childIds.at(-1) ?? null,
       children: [createBlockWrite(newBlockId, "paragraph", "")],
     });
-    await context.loadPageTree(selectedPageId);
     context.requestBlockFocus(newBlockId);
     recordUndoAfter("create", before, newBlockId);
   }
@@ -1928,12 +1997,11 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     const before = undoSnapshot(blockId);
     const childIds = activeChildIdsForBlock(blockId);
     const newBlockId = crypto.randomUUID();
-    await appendNotesBlockChildren({
+    await appendAndApply({
       parent: { type: "block_id", block_id: blockId },
       after: childIds.at(-1) ?? null,
       children: [createBlockWrite(newBlockId, "paragraph", "")],
     });
-    await context.loadPageTree(selectedPageId);
     context.requestBlockFocus(newBlockId);
     recordUndoAfter("create", before, newBlockId);
   }
@@ -1995,17 +2063,20 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     let before = target.before;
     let firstDuplicateId: string | null = null;
     for (const childId of childIds) {
-      const request = createDuplicateBlockRequest(state, childId, () => crypto.randomUUID());
-      if (request.duplicated_block_ids.length === 0) continue;
-      const duplicate = await duplicateNotesBlock(childId, request);
-      await moveNotesBlock(duplicate.id, {
+      const sourceSubtreeIds = collectLoadedBlockSubtreeIds(state, childId);
+      if (sourceSubtreeIds.length === 0) continue;
+      const duplicates = await duplicateSubtreesAndApply({
+        rootBlockIds: [childId],
+        sourceSubtreeBlockIds: sourceSubtreeIds,
         parent: target.parent,
         after,
         before,
       });
-      after = duplicate.id;
+      const duplicateId = duplicates[0]?.id;
+      if (!duplicateId) continue;
+      after = duplicateId;
       before = null;
-      firstDuplicateId ??= duplicate.id;
+      firstDuplicateId ??= duplicateId;
     }
     return firstDuplicateId;
   }
@@ -2027,7 +2098,6 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     await context.flushPendingBlockSaves();
     const before = undoSnapshot(blockId);
     const firstDuplicateId = await insertLoadedChildSubtrees(childIds, target);
-    await context.loadPageTree(selectedPageId);
     const focusBlockId = planNotesInsertedBlockFocus([firstDuplicateId], blockId);
     context.requestBlockFocus(focusBlockId);
     recordUndoAfter("button", before, focusBlockId);

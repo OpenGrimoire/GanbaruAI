@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
-import { createBlockWrite } from "$lib/notes/block-factory";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { applyBlockUpdate, createBlockWrite } from "$lib/notes/block-factory";
 import {
   buildNotesChildIdsByParent,
   flattenNotesBlockTree,
@@ -21,9 +21,13 @@ import {
   type NotesBlockActionsContext,
 } from "./notes-store-block-actions";
 import { notesTreeStateWithoutLeafBlock } from "./notes-store-block-tree";
+import { applyNotesPostMutationToTree } from "$lib/notes/post-mutation";
 
 const notesApi = vi.hoisted(() => ({
+  appendNotesBlockChildren: vi.fn(),
+  moveNotesBlock: vi.fn(),
   trashNotesBlock: vi.fn(),
+  trashNotesBlocks: vi.fn(),
 }));
 
 vi.mock("$lib/api/notes", () => notesApi);
@@ -58,6 +62,10 @@ function paragraph(id: string, text: string): NotesBlock {
 }
 
 describe("notes store block actions", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it("removes an empty leaf and transfers focus before persistence finishes", async () => {
     let resolveTrash!: () => void;
     const trashPromise = new Promise<void>((resolve) => {
@@ -92,9 +100,9 @@ describe("notes store block actions", () => {
       requestBlockFocus,
       createChildPageFromBlock: async () => undefined,
       createChildPageAfterBlock: async () => undefined,
+      applyPostMutation: () => undefined,
       loadPageTree: async () => undefined,
-      reloadPages: async () => undefined,
-      reloadBacklinks: async () => undefined,
+      refreshOpenLinks: async () => undefined,
       localApplyBlockUpdate: (_blockId: string, _update: NotesBlockUpdate) => undefined,
       localInsertBlockAfter: () => undefined,
       localRemoveLeafBlock: (blockId) => {
@@ -139,5 +147,116 @@ describe("notes store block actions", () => {
     resolveTrash();
     await actions.flushOptimisticBlockWrites();
     expect(notesApi.trashNotesBlock).toHaveBeenCalledWith(emptyBlockId, true);
+  });
+
+  it("keeps typing, formatting, insert, move, and delete reads at zero", async () => {
+    const second = paragraph(emptyBlockId, "B");
+    let state: NotesTreeState = {
+      blocksById: { [firstBlockId]: paragraph(firstBlockId, "A"), [emptyBlockId]: second },
+      childIdsByParentId: buildNotesChildIdsByParent([paragraph(firstBlockId, "A"), second]),
+    };
+    const loadPageTree = vi.fn(async () => undefined);
+    const scheduleBlockSave = vi.fn();
+    const saveBlockNow = vi.fn(async (blockId: string, update: NotesBlockUpdate) => {
+      const block = state.blocksById[blockId];
+      if (!block) return;
+      state = {
+        ...state,
+        blocksById: { ...state.blocksById, [blockId]: applyBlockUpdate(block, update) },
+      };
+    });
+    notesApi.appendNotesBlockChildren.mockImplementation(async (request: {
+      parent: NotesParent;
+      children: NotesBlockWrite[];
+    }) => ({
+      object: "list",
+      type: "block",
+      block: {},
+      results: request.children.map((write) => ({
+        ...blockFromWrite(write),
+        parent: request.parent,
+      })),
+      next_cursor: null,
+      has_more: false,
+    }));
+    notesApi.moveNotesBlock.mockImplementation(async (
+      blockId: string,
+      request: { parent: NotesParent },
+    ) => ({ ...state.blocksById[blockId], parent: request.parent }));
+    notesApi.trashNotesBlocks.mockResolvedValue({
+      object: "list",
+      type: "block",
+      block: {},
+      results: [],
+      next_cursor: null,
+      has_more: false,
+    });
+    const context: NotesBlockActionsContext = {
+      readSelectedPageId: () => pageId,
+      readBlocksById: () => state.blocksById,
+      readChildIdsByParentId: () => Object.fromEntries(
+        Object.entries(state.childIdsByParentId).map(([key, childIds]) => [key, [...childIds]]),
+      ),
+      treeState: () => state,
+      blockById: (blockId) => state.blocksById[blockId],
+      flatBlockItemsForBlockContext: () => flattenNotesBlockTree(state, pageId),
+      tableRowsForBlock: () => [],
+      columnItemsForBlock: () => [],
+      tabItemsForBlock: () => [],
+      setSidebarPageCollapsed: () => undefined,
+      requestBlockFocus: () => undefined,
+      createChildPageFromBlock: async () => undefined,
+      createChildPageAfterBlock: async () => undefined,
+      applyPostMutation: (result) => {
+        state = applyNotesPostMutationToTree(state, result);
+      },
+      loadPageTree,
+      refreshOpenLinks: async () => undefined,
+      localApplyBlockUpdate: (blockId, update) => {
+        const block = state.blocksById[blockId];
+        if (!block) return;
+        state = {
+          ...state,
+          blocksById: { ...state.blocksById, [blockId]: applyBlockUpdate(block, update) },
+        };
+      },
+      localInsertBlockAfter: () => undefined,
+      localRemoveLeafBlock: () => false,
+      saveBlockNow,
+      scheduleBlockSave,
+      flushBlockSave: async () => undefined,
+      flushPendingBlockSaves: async () => undefined,
+      createUndoSnapshot: (focusBlockId, extraBlocks = [], focusSelection = null) =>
+        createNotesUndoSnapshot(pageId, state, focusBlockId, extraBlocks, focusSelection),
+      createUndoSnapshotForBlocks: (focusBlockId, blockIds, extraBlocks = [], focusSelection = null) =>
+        createNotesUndoSnapshotForBlocks(
+          pageId,
+          state,
+          focusBlockId,
+          blockIds,
+          extraBlocks,
+          focusSelection,
+        ),
+      recordUndo: () => undefined,
+    };
+    const actions = createNotesBlockActions(context);
+
+    await actions.updateBlockText(firstBlockId, "Typed");
+    await actions.updateBlockColor(firstBlockId, "blue");
+    await actions.createSiblingAfter(firstBlockId);
+    const insertedId = (state.childIdsByParentId[pageId] ?? []).find(
+      (blockId) => blockId !== firstBlockId && blockId !== emptyBlockId,
+    );
+    expect(insertedId).toBeTruthy();
+    await actions.moveBlockDown(firstBlockId);
+    if (insertedId) await actions.deleteBlockSelection([insertedId]);
+
+    expect(loadPageTree).toHaveBeenCalledTimes(0);
+    expect(scheduleBlockSave).toHaveBeenCalledTimes(1);
+    expect(saveBlockNow).toHaveBeenCalledTimes(1);
+    expect(notesApi.appendNotesBlockChildren).toHaveBeenCalledTimes(1);
+    expect(notesApi.moveNotesBlock).toHaveBeenCalledTimes(1);
+    expect(notesApi.trashNotesBlock).toHaveBeenCalledTimes(1);
+    expect(notesApi.trashNotesBlocks).toHaveBeenCalledTimes(0);
   });
 });

@@ -302,16 +302,16 @@ pub(in crate::notes) async fn duplicate_blocks(
     tx.commit()
         .await
         .map_err(|e| format!("commit duplicate notes blocks: {e}"))?;
-    let duplicate_root_ids = root_ids
+    let all_duplicate_ids = source_rows
         .iter()
-        .map(|source_id| {
+        .map(|row| {
             duplicate_ids
-                .get(source_id)
+                .get(&row.id)
                 .cloned()
-                .ok_or_else(|| "duplicated root block id is missing".to_string())
+                .ok_or_else(|| "duplicated block id is missing".to_string())
         })
         .collect::<Result<Vec<_>, _>>()?;
-    load_blocks_by_ids(pool, duplicate_root_ids).await
+    load_blocks_by_ids(pool, all_duplicate_ids).await
 }
 
 pub(super) fn duplicate_block_id_map(
