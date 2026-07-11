@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "routes": [
+    {
+      "name": "Projects",
+      "module": "src/lib/components/projects/ProjectsView.svelte",
+      "maxSourceModules": 228
+    },
+    {
+      "name": "Notes",
+      "module": "src/lib/components/notes/NotesView.svelte",
+      "maxSourceModules": 228
+    }
+  ],
+  "forbiddenEntryModules": [
+    "src/lib/components/notes/NotesHtmlImportDialog.svelte",
+    "src/lib/components/notes/NotesNotionApiImportDialog.svelte",
+    "src/lib/components/notes/NotesNotionExportImportDialog.svelte"
+  ]
+}

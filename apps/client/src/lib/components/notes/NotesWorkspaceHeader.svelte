@@ -217,6 +217,7 @@
   class="flex shrink-0 items-center gap-1 overflow-x-auto px-3"
   style="height: var(--cal-header-row-h); background-color: var(--cal-header-bg); border-bottom: 1px solid var(--sidebar);"
   onscroll={refreshNavigatorPanelGeometry}
+  data-notes-workspace-header
 >
   <div bind:this={notesIdentityElement} class="relative min-w-36 shrink-0 min-[760px]:max-w-xl">
     <div class="flex h-7 min-w-0 max-w-full items-center gap-0.5 text-sm">

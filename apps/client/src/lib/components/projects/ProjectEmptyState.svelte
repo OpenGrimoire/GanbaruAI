@@ -20,7 +20,11 @@
   let navigatorOpen = $state(false);
 </script>
 
-<div class="flex h-full flex-col items-center justify-center gap-3 p-4 text-center text-[0.866667rem] text-muted-foreground">
+<div
+  class="flex h-full flex-col items-center justify-center gap-3 p-4 text-center text-[0.866667rem] text-muted-foreground"
+  data-projects-first-use-state
+  aria-busy={projects.loading}
+>
   <div>{projects.loading ? t("projects.loading") : t("projects.navigator.empty")}</div>
   {#if !projects.loading}
     <button

@@ -13,6 +13,8 @@ mod calendars;
 mod db;
 mod db_path;
 mod doomscrolling;
+#[cfg(test)]
+mod first_use_contracts;
 mod media_controls;
 mod media_player;
 mod music;

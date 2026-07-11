@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
+    "check:first-use-bundle": "vite build && node scripts/check-first-use-bundle.mjs",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json && tsc -p tsconfig.node.json",
     "editor-check": "node scripts/check-tailwind-diagnostics.mjs",

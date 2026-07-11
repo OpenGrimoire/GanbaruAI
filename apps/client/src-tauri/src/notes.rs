@@ -474,6 +474,58 @@ pub async fn notes_get_page_history_settings<R: Runtime>(
     history::get_page_history_settings(&pool).await
 }
 
+#[cfg(test)]
+pub(crate) async fn list_sidebar_pages_for_first_use_contract(
+    pool: &sqlx::SqlitePool,
+) -> Result<NoteSidebarPageList, String> {
+    writes::purge_expired_trashed_pages(pool).await?;
+    reads::list_sidebar_pages(
+        pool,
+        NoteSidebarPagesRequest {
+            expanded_page_ids: Vec::new(),
+            seed_page_ids: Vec::new(),
+            selected_page_id: None,
+        },
+    )
+    .await
+}
+
+#[cfg(test)]
+pub(crate) async fn list_pages_for_first_use_contract(
+    pool: &sqlx::SqlitePool,
+) -> Result<Vec<NotePageDto>, String> {
+    writes::purge_expired_trashed_pages(pool).await?;
+    reads::list_pages(pool).await
+}
+
+#[cfg(test)]
+pub(crate) async fn list_folders_for_first_use_contract(
+    pool: &sqlx::SqlitePool,
+) -> Result<Vec<NoteFolderDto>, String> {
+    folders::list_folders(pool).await
+}
+
+#[cfg(test)]
+pub(crate) async fn list_page_templates_for_first_use_contract(
+    pool: &sqlx::SqlitePool,
+) -> Result<Vec<NotePageTemplateDto>, String> {
+    templates::list_page_templates(pool).await
+}
+
+#[cfg(test)]
+pub(crate) async fn get_local_user_for_first_use_contract(
+    pool: &sqlx::SqlitePool,
+) -> Result<NoteLocalUserDto, String> {
+    local_user::get_local_user(pool).await
+}
+
+#[cfg(test)]
+pub(crate) async fn get_page_history_settings_for_first_use_contract(
+    pool: &sqlx::SqlitePool,
+) -> Result<NotePageHistorySettingsDto, String> {
+    history::get_page_history_settings(pool).await
+}
+
 #[tauri::command]
 pub async fn notes_update_page_history_settings<R: Runtime>(
     app: AppHandle<R>,

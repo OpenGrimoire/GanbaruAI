@@ -238,9 +238,15 @@ pub async fn projects_load_snapshot<R: Runtime>(
     project_id: Option<String>,
 ) -> Result<ProjectsSnapshot, String> {
     let pool = connect_sqlite(app, db_url).await?;
+    load_projects_snapshot(pool, project_id.as_deref()).await
+}
+
+async fn load_projects_snapshot(
+    pool: sqlx::SqlitePool,
+    project_id: Option<&str>,
+) -> Result<ProjectsSnapshot, String> {
     ensure_built_in_routine_defaults(&pool).await?;
     let normalized_project_id = project_id
-        .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or("\0");
@@ -427,6 +433,14 @@ pub async fn projects_load_snapshot<R: Runtime>(
         view_preferences,
         custom_emojis,
     })
+}
+
+#[cfg(test)]
+pub(crate) async fn load_projects_snapshot_for_first_use_contract(
+    pool: &sqlx::SqlitePool,
+    project_id: Option<&str>,
+) -> Result<ProjectsSnapshot, String> {
+    load_projects_snapshot(pool.clone(), project_id).await
 }
 
 async fn load_project_custom_emojis(

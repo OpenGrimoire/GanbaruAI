@@ -281,6 +281,7 @@
   bind:this={notesRootElement}
   class="notes-view-root flex h-full min-h-0 flex-col overflow-hidden text-foreground"
   style="background-color: var(--cal-bg);"
+  data-first-use-shell="notes"
 >
   <NotesWorkspaceHeader
     {selectedProject}
@@ -339,7 +340,7 @@
       {:else if notes.viewMode === "trash"}
         <NotesTrashView />
       {:else if initialNotesLoadPending || (!notes.loaded && notes.loading)}
-        <div class="min-w-0 flex-1" aria-busy="true"></div>
+        <div class="min-w-0 flex-1" aria-busy="true" data-notes-first-use-state></div>
       {:else if showFullPageEditor}
         <NotesEditor
           projectId={selectedProjectId}

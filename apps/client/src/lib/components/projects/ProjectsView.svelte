@@ -749,7 +749,12 @@
   onselectionchange={handleProjectDocumentSelectionChange}
 />
 
-<div bind:this={projectsRootElement} class="projects-view-root relative flex h-full min-h-0 overflow-hidden text-foreground" style="background-color: var(--cal-bg);">
+<div
+  bind:this={projectsRootElement}
+  class="projects-view-root relative flex h-full min-h-0 overflow-hidden text-foreground"
+  style="background-color: var(--cal-bg);"
+  data-first-use-shell="projects"
+>
   <section class="flex min-w-0 flex-1 flex-col">
     {#if selectedProject && selectedGroup}
       <header class="flex shrink-0 flex-col" style="background-color: var(--cal-header-bg);">

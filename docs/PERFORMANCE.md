@@ -8,6 +8,7 @@ This file is the canonical performance record for Ganbaru AI. It exists so futur
 - [Canonical tracking rules](#canonical-tracking-rules)
 - [Benchmark identifiers](#benchmark-identifiers)
 - [Benchmark records](#benchmark-records)
+- [Automated first-use contracts](#automated-first-use-contracts)
 - [Package size](#package-size)
 - [Output rules](#output-rules)
 - [Performance principles](#performance-principles)
@@ -193,6 +194,17 @@ Rows report one 1000-event add or update pass against the practical dense datase
 | 2026-05-21-01 | dense-v1-r1y-s1-d1 | bulk import 1000 update | 474 |
 | 2026-06-02-01 | dense-v1-r1y-s1-d1 | bulk import 1000 add | 848 |
 | 2026-06-02-01 | dense-v1-r1y-s1-d1 | bulk import 1000 update | 902 |
+
+## Automated first-use contracts
+
+Projects and Notes have deterministic structural contracts for an isolated, migrated empty database. These are CI baselines, not elapsed-time benchmarks, and do not require an installed build or user interaction.
+
+| Surface | Critical IPC calls | SQL reads | SQL writes | Serialized response bytes | Source modules in route chunk | Useful shell before deferred backend resolves |
+|---|---:|---:|---:|---:|---:|---|
+| Projects | 2 | 36 | 52 | 23,564 | 228 | Yes |
+| Notes | 6 | 8 | 1 | 368 | 228 | Yes |
+
+Rust library tests count typed initial-load commands, executed SQLite statements, and serialized payload bytes against the fixture. Component tests keep the backend promises unresolved while asserting that the useful shell is present. The production bundle contract emits module metadata during the Vite build, enforces the route-chunk module ceilings above, and rejects named Notes transfer modules in entry chunks. `pnpm -w run validate` runs all three contract layers.
 
 ## Package size
 
