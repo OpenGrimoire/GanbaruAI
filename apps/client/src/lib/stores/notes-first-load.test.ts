@@ -37,7 +37,7 @@ vi.mock("$lib/api/notes", async (importOriginal) => {
       backend.optionalCalls.push("local-user");
       return Promise.reject(new Error("unexpected local user load"));
     },
-    loadNotesPage: () => {
+    openNotesPage: () => {
       backend.optionalCalls.push("page");
       return Promise.reject(new Error("unexpected page load"));
     },

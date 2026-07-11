@@ -1332,6 +1332,26 @@ pub async fn notes_load_page<R: Runtime>(
 }
 
 #[tauri::command]
+pub async fn notes_open_page<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    page_id: String,
+) -> Result<NotePageOpenDto, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    reads::open_page(&pool, &page_id).await
+}
+
+#[tauri::command]
+pub async fn notes_get_block_frontier<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    parent_ids: Vec<String>,
+) -> Result<NoteBlockFrontierDto, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    reads::get_block_frontier(&pool, &parent_ids).await
+}
+
+#[tauri::command]
 pub async fn notes_get_block_children<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,

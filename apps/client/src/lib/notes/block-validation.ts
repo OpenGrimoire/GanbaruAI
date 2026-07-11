@@ -91,6 +91,8 @@ import {
   type NotesJsonGraphExportResult,
   type NotesJsonGraphExportSaveResult,
   type NotesLoadedPage,
+  type NotesPageOpenResponse,
+  type NotesBlockFrontier,
   type NotesNotionApiImportedObject,
   type NotesNotionApiImportedUser,
   type NotesNotionApiImportDiagnostic,
@@ -1905,6 +1907,26 @@ export function parseNotesLoadedPage(value: unknown): NotesLoadedPage {
     page: parseNotesPage(record.page),
     blocks: parseNotesPaginatedBlockList(record.blocks),
   };
+}
+
+export function parseNotesPageOpenResponse(value: unknown): NotesPageOpenResponse {
+  const record = readRecord(value, "page open response");
+  if (!Array.isArray(record.breadcrumb)) {
+    throw new Error("page open response.breadcrumb must be an array");
+  }
+  return {
+    page: parseNotesPage(record.page),
+    breadcrumb: record.breadcrumb.map(parseNotesPageBreadcrumbItem),
+    blocks: parseNotesPaginatedBlockList(record.blocks),
+  };
+}
+
+export function parseNotesBlockFrontier(value: unknown): NotesBlockFrontier {
+  const record = readRecord(value, "block frontier");
+  if (!Array.isArray(record.blocks)) {
+    throw new Error("block frontier.blocks must be an array");
+  }
+  return { blocks: record.blocks.map(parseNotesBlock) };
 }
 
 export function parseNotesMarkdownImportResult(value: unknown): NotesMarkdownImportResult {

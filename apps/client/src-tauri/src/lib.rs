@@ -988,6 +988,8 @@ pub fn run() {
             notes::notes_archive_page,
             notes::notes_permanently_delete_page,
             notes::notes_load_page,
+            notes::notes_open_page,
+            notes::notes_get_block_frontier,
             notes::notes_get_block_children,
             notes::notes_append_block_children,
             notes::notes_update_block,

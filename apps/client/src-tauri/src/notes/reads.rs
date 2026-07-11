@@ -1,12 +1,14 @@
 use super::models::{
-    NoteBlockDto, NoteBlockRow, NoteLoadedPage, NotePageBreadcrumbItemDto, NotePageDto,
-    NotePageRow, NotePaginatedBlockList, NoteSidebarPageList, NoteSidebarPagesRequest,
+    NoteBlockDto, NoteBlockFrontierDto, NoteBlockRow, NoteLoadedPage, NotePageBreadcrumbItemDto,
+    NotePageDto, NotePageOpenDto, NotePageRow, NotePaginatedBlockList, NoteSidebarPageList,
+    NoteSidebarPagesRequest,
 };
 use super::validation::{require_uuid, validate_page_size};
 use sqlx::{QueryBuilder, Sqlite, SqlitePool};
 use std::collections::{HashMap, HashSet};
 
 const DEFAULT_PAGE_SIZE: i64 = 50;
+const BLOCK_FRONTIER_PARENT_BATCH_SIZE: usize = 400;
 
 pub(in crate::notes) async fn list_pages(pool: &SqlitePool) -> Result<Vec<NotePageDto>, String> {
     list_pages_by_state(pool, false, Some(false)).await
@@ -359,6 +361,152 @@ pub(in crate::notes) async fn load_page(
     let blocks =
         get_page_block_children(pool, page_id.trim(), None, Some(DEFAULT_PAGE_SIZE)).await?;
     Ok(NoteLoadedPage::new(page, blocks))
+}
+
+pub(in crate::notes) async fn open_page(
+    pool: &SqlitePool,
+    page_id: &str,
+) -> Result<NotePageOpenDto, String> {
+    let page_id = page_id.trim();
+    require_uuid(page_id, "page_id")?;
+    let mut transaction = pool
+        .begin()
+        .await
+        .map_err(|error| format!("begin notes page open: {error}"))?;
+    let page_row = sqlx::query_as::<_, NotePageRow>(
+        "SELECT * FROM notes_pages WHERE id = ? AND in_trash = 0 AND archived = 0",
+    )
+    .bind(page_id)
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(|error| format!("load notes page: {error}"))?
+    .ok_or_else(|| "notes page not found".to_string())?;
+    let breadcrumb = get_page_breadcrumb_in_transaction(&mut transaction, page_id).await?;
+    let rows = sqlx::query_as::<_, NoteBlockRow>(
+        "SELECT
+            id, page_id, parent_type, parent_page_id, parent_block_id, has_children,
+            in_trash, type AS block_type, payload, plain_text, sort_order, source_provider,
+            source_object_id, source_last_edited_time, created_time, last_edited_time
+         FROM notes_blocks
+         WHERE parent_type = 'page_id' AND parent_page_id = ? AND in_trash = 0
+         ORDER BY sort_order ASC, id ASC
+         LIMIT ?",
+    )
+    .bind(page_id)
+    .bind(DEFAULT_PAGE_SIZE + 1)
+    .fetch_all(&mut *transaction)
+    .await
+    .map_err(|error| format!("load notes page blocks: {error}"))?;
+    transaction
+        .commit()
+        .await
+        .map_err(|error| format!("commit notes page open: {error}"))?;
+    let page = NotePageDto::new(page_row)?;
+    let blocks = block_page_from_rows(rows, DEFAULT_PAGE_SIZE as usize)?;
+    Ok(NotePageOpenDto::new(page, breadcrumb, blocks))
+}
+
+async fn get_page_breadcrumb_in_transaction(
+    transaction: &mut sqlx::Transaction<'_, Sqlite>,
+    page_id: &str,
+) -> Result<Vec<NotePageBreadcrumbItemDto>, String> {
+    let mut crumbs = Vec::new();
+    let mut seen = HashSet::new();
+    let mut cursor = Some(page_id.to_string());
+    while let Some(current_page_id) = cursor {
+        if !seen.insert(current_page_id.clone()) {
+            break;
+        }
+        let row = sqlx::query_as::<_, NotePageRow>("SELECT * FROM notes_pages WHERE id = ?")
+            .bind(&current_page_id)
+            .fetch_optional(&mut **transaction)
+            .await
+            .map_err(|error| format!("load notes page breadcrumb: {error}"))?;
+        let Some(row) = row else {
+            crumbs.push(NotePageBreadcrumbItemDto::missing(current_page_id));
+            break;
+        };
+        let current = row.id == page_id;
+        if current && (row.in_trash != 0 || row.archived != 0) {
+            return Err("notes page not found".to_string());
+        }
+        cursor = (row.parent_type == "page_id")
+            .then(|| row.parent_page_id.clone())
+            .flatten();
+        crumbs.push(if row.in_trash != 0 {
+            NotePageBreadcrumbItemDto::unavailable(row, "trashed")
+        } else if row.archived != 0 {
+            NotePageBreadcrumbItemDto::unavailable(row, "archived")
+        } else {
+            NotePageBreadcrumbItemDto::active(row, current)
+        });
+    }
+    crumbs.reverse();
+    Ok(crumbs)
+}
+
+pub(in crate::notes) async fn get_block_frontier(
+    pool: &SqlitePool,
+    parent_ids: &[String],
+) -> Result<NoteBlockFrontierDto, String> {
+    if parent_ids.is_empty() {
+        return Ok(NoteBlockFrontierDto::new(Vec::new()));
+    }
+    let mut normalized = Vec::with_capacity(parent_ids.len());
+    let mut seen = HashSet::new();
+    for parent_id in parent_ids {
+        let parent_id = parent_id.trim();
+        require_uuid(parent_id, "parent_id")?;
+        if seen.insert(parent_id.to_string()) {
+            normalized.push(parent_id.to_string());
+        }
+    }
+    let mut rows = Vec::new();
+    for parent_batch in normalized.chunks(BLOCK_FRONTIER_PARENT_BATCH_SIZE) {
+        let mut query = QueryBuilder::<Sqlite>::new(
+            "SELECT id, page_id, parent_type, parent_page_id, parent_block_id, has_children, \
+             in_trash, type AS block_type, payload, plain_text, sort_order, source_provider, \
+             source_object_id, source_last_edited_time, created_time, last_edited_time \
+             FROM notes_blocks WHERE parent_type = 'block_id' AND in_trash = 0 AND parent_block_id IN (",
+        );
+        let mut separated = query.separated(", ");
+        for parent_id in parent_batch {
+            separated.push_bind(parent_id);
+        }
+        query.push(") ORDER BY parent_block_id ASC, sort_order ASC, id ASC");
+        rows.extend(
+            query
+                .build_query_as::<NoteBlockRow>()
+                .fetch_all(pool)
+                .await
+                .map_err(|error| format!("load notes block frontier: {error}"))?,
+        );
+    }
+    let blocks = rows
+        .into_iter()
+        .map(NoteBlockDto::new)
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(NoteBlockFrontierDto::new(blocks))
+}
+
+fn block_page_from_rows(
+    mut rows: Vec<NoteBlockRow>,
+    page_size: usize,
+) -> Result<NotePaginatedBlockList, String> {
+    let has_more = rows.len() > page_size;
+    if has_more {
+        rows.truncate(page_size);
+    }
+    let next_cursor = if has_more {
+        rows.last().map(|row| row.id.clone())
+    } else {
+        None
+    };
+    let results = rows
+        .into_iter()
+        .map(NoteBlockDto::new)
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(NotePaginatedBlockList::new(results, next_cursor, has_more))
 }
 
 pub(in crate::notes) async fn get_page(

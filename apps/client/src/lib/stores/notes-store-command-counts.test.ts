@@ -56,6 +56,16 @@ vi.mock("$lib/api/notes", async (importOriginal) => {
       if (!loaded) throw new Error("missing page fixture");
       return loaded;
     },
+    openNotesPage: async (pageId: string) => {
+      backend.record("page");
+      const loaded = backend.loadedPages.get(pageId);
+      if (!loaded) throw new Error("missing page fixture");
+      return { ...loaded, breadcrumb: [] };
+    },
+    getNotesBlockFrontier: async () => {
+      backend.record("frontier");
+      return { blocks: [] };
+    },
     getNotesBlockChildren: async () => {
       backend.record("children");
       return { object: "list", type: "block", block: {}, results: [], next_cursor: null, has_more: false };
@@ -223,7 +233,7 @@ describe("Notes store command counts", () => {
     await notes.unarchivePage(pageAId);
     expect(backend.count("restore-archive")).toBe(1);
     expect(backend.count("page")).toBe(1);
-    expect(backend.count("breadcrumb")).toBe(1);
+    expect(backend.count("breadcrumb")).toBe(0);
     expect(backend.count("backlinks")).toBe(0);
     await vi.advanceTimersByTimeAsync(60);
     expect(backend.count("sidebar")).toBe(1);

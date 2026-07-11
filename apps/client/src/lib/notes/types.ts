@@ -1408,6 +1408,14 @@ export interface NotesLoadedPage {
   blocks: NotesPaginatedBlockList;
 }
 
+export interface NotesPageOpenResponse extends NotesLoadedPage {
+  breadcrumb: NotesPageBreadcrumbItem[];
+}
+
+export interface NotesBlockFrontier {
+  blocks: NotesBlock[];
+}
+
 export interface NotesMarkdownImportRequest {
   parent: NotesParent;
   markdown: string;

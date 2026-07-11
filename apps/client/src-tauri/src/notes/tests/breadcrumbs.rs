@@ -1,6 +1,95 @@
 use super::helpers::*;
 
 #[test]
+fn page_open_returns_visible_chrome_and_top_level_blocks_only() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        create_page(&pool, PAGE_A, BLOCK_A).await;
+        writes::append_block_children(
+            &pool,
+            NoteAppendBlockChildren {
+                parent: block_parent(BLOCK_A),
+                after: None,
+                children: vec![block(BLOCK_B, "paragraph", paragraph_payload("Nested"))],
+            },
+        )
+        .await
+        .unwrap();
+
+        let opened = serde_json::to_value(reads::open_page(&pool, PAGE_A).await.unwrap()).unwrap();
+
+        assert_eq!(opened["page"]["id"], PAGE_A);
+        assert_eq!(opened["breadcrumb"][0]["id"], PAGE_A);
+        assert_eq!(opened["blocks"]["results"].as_array().unwrap().len(), 1);
+        assert_eq!(opened["blocks"]["results"][0]["id"], BLOCK_A);
+        assert!(opened["blocks"]["results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|block| block["id"] != BLOCK_B));
+    });
+}
+
+#[test]
+fn block_frontier_batches_children_for_multiple_parents() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        create_page(&pool, PAGE_A, BLOCK_A).await;
+        writes::append_block_children(
+            &pool,
+            NoteAppendBlockChildren {
+                parent: page_parent(PAGE_A),
+                after: Some(BLOCK_A.to_string()),
+                children: vec![block(BLOCK_B, "toggle", paragraph_payload("Second"))],
+            },
+        )
+        .await
+        .unwrap();
+        writes::append_block_children(
+            &pool,
+            NoteAppendBlockChildren {
+                parent: block_parent(BLOCK_A),
+                after: None,
+                children: vec![block(
+                    BLOCK_C,
+                    "paragraph",
+                    paragraph_payload("First child"),
+                )],
+            },
+        )
+        .await
+        .unwrap();
+        writes::append_block_children(
+            &pool,
+            NoteAppendBlockChildren {
+                parent: block_parent(BLOCK_B),
+                after: None,
+                children: vec![block(
+                    BLOCK_D,
+                    "paragraph",
+                    paragraph_payload("Second child"),
+                )],
+            },
+        )
+        .await
+        .unwrap();
+
+        let frontier =
+            reads::get_block_frontier(&pool, &[BLOCK_A.to_string(), BLOCK_B.to_string()])
+                .await
+                .unwrap();
+        let json = serde_json::to_value(frontier).unwrap();
+        let ids = json["blocks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|block| block["id"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(ids, vec![BLOCK_C, BLOCK_D]);
+    });
+}
+
+#[test]
 fn page_breadcrumb_resolves_unloaded_ancestor_rows() {
     tauri::async_runtime::block_on(async {
         let pool = migrated_memory_pool().await;

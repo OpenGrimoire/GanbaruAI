@@ -312,6 +312,38 @@ pub struct NoteLoadedPage {
     blocks: NotePaginatedBlockList,
 }
 
+#[derive(Serialize)]
+pub struct NotePageOpenDto {
+    page: NotePageDto,
+    breadcrumb: Vec<NotePageBreadcrumbItemDto>,
+    blocks: NotePaginatedBlockList,
+}
+
+impl NotePageOpenDto {
+    pub(in crate::notes) fn new(
+        page: NotePageDto,
+        breadcrumb: Vec<NotePageBreadcrumbItemDto>,
+        blocks: NotePaginatedBlockList,
+    ) -> Self {
+        Self {
+            page,
+            breadcrumb,
+            blocks,
+        }
+    }
+}
+
+#[derive(Serialize)]
+pub struct NoteBlockFrontierDto {
+    blocks: Vec<NoteBlockDto>,
+}
+
+impl NoteBlockFrontierDto {
+    pub(in crate::notes) fn new(blocks: Vec<NoteBlockDto>) -> Self {
+        Self { blocks }
+    }
+}
+
 impl NoteLoadedPage {
     pub(in crate::notes) fn new(page: NotePageDto, blocks: NotePaginatedBlockList) -> Self {
         Self { page, blocks }

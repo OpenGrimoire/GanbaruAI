@@ -55,11 +55,14 @@
   const selectedProject = $derived(projects.selectedProject);
   const selectedGroup = $derived(projects.selectedGroup);
   const selectedProjectId = $derived(selectedProject?.id ?? null);
-  const topBarSelectedPage = $derived(notes.pageOpenMode === "full" ? notes.loadedPage : null);
+  const topBarSelectedPage = $derived(
+    notes.pageOpenMode === "full" && notes.primaryContentReady ? notes.loadedPage : null,
+  );
   const hasOpenPage = $derived(
     notes.viewMode === "pages"
       && notes.selectedPageId !== null
-      && notes.loadedPage !== null,
+      && notes.loadedPage?.id === notes.selectedPageId
+      && notes.primaryContentReady,
   );
   const peekPromotesToFullPage = $derived(
     hasOpenPage

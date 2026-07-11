@@ -39,6 +39,8 @@ import {
   mapNotesJsonGraphExportSaveDto,
   mapNotesLocalUserDto,
   mapNotesLoadedPageDto,
+  mapNotesPageOpenResponseDto,
+  mapNotesBlockFrontierDto,
   mapNotesNotionApiImportDto,
   mapNotesNotionExportImportDto,
   mapNotesMarkdownExportDto,
@@ -116,6 +118,8 @@ import type {
   NotesLocalUser,
   NotesLocalUserUpdate,
   NotesLoadedPage,
+  NotesPageOpenResponse,
+  NotesBlockFrontier,
   NotesHtmlImportRequest,
   NotesHtmlImportResult,
   NotesNotionApiImportRequest,
@@ -1368,6 +1372,22 @@ export async function permanentlyDeleteNotesPage(pageId: string): Promise<string
 export async function loadNotesPage(pageId: string): Promise<NotesLoadedPage> {
   const dbUrl = await ensureDbUrl();
   return mapNotesLoadedPageDto(await invoke<unknown>("notes_load_page", { dbUrl, pageId }));
+}
+
+export async function openNotesPage(pageId: string): Promise<NotesPageOpenResponse> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesPageOpenResponseDto(
+    await invoke<unknown>("notes_open_page", { dbUrl, pageId }),
+  );
+}
+
+export async function getNotesBlockFrontier(
+  parentIds: readonly string[],
+): Promise<NotesBlockFrontier> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesBlockFrontierDto(
+    await invoke<unknown>("notes_get_block_frontier", { dbUrl, parentIds: [...parentIds] }),
+  );
 }
 
 export async function getNotesBlockChildren(
