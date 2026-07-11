@@ -675,12 +675,196 @@ async fn load_project_custom_emojis(
     .map_err(|e| format!("load project custom emoji: {e}"))
 }
 
+macro_rules! define_mutation_loader {
+    ($name:ident, $field:ident, $row:ty, $table:literal) => {
+        async fn $name(pool: &sqlx::SqlitePool, id: &str) -> Result<ProjectsMutationRows, String> {
+            let row = sqlx::query_as::<_, $row>(concat!("SELECT * FROM ", $table, " WHERE id = ?"))
+                .bind(id)
+                .fetch_one(pool)
+                .await
+                .map_err(|e| format!("load mutation result from {}: {e}", $table))?;
+            let mut mutation = ProjectsMutationRows::default();
+            mutation.$field.push(row);
+            Ok(mutation)
+        }
+    };
+}
+
+define_mutation_loader!(group_mutation, groups, ProjectGroupRow, "project_groups");
+define_mutation_loader!(project_mutation, projects, ProjectRow, "projects");
+define_mutation_loader!(
+    section_mutation,
+    sections,
+    ProjectSectionRow,
+    "project_sections"
+);
+define_mutation_loader!(
+    status_mutation,
+    statuses,
+    ProjectStatusRow,
+    "project_statuses"
+);
+define_mutation_loader!(
+    priority_mutation,
+    priorities,
+    ProjectPriorityRow,
+    "project_priorities"
+);
+define_mutation_loader!(task_mutation_base, tasks, ProjectTaskRow, "project_tasks");
+define_mutation_loader!(
+    checklist_item_mutation_base,
+    checklist_items,
+    ProjectChecklistItemRow,
+    "project_checklist_items"
+);
+define_mutation_loader!(tag_mutation, tags, ProjectTagRow, "project_tags");
+define_mutation_loader!(
+    custom_field_mutation,
+    custom_fields,
+    ProjectCustomFieldRow,
+    "project_custom_fields"
+);
+define_mutation_loader!(
+    custom_field_option_mutation,
+    custom_field_options,
+    ProjectCustomFieldOptionRow,
+    "project_custom_field_options"
+);
+define_mutation_loader!(
+    dependency_mutation_base,
+    dependencies,
+    ProjectTaskDependencyRow,
+    "project_task_dependencies"
+);
+define_mutation_loader!(
+    custom_emoji_mutation,
+    custom_emojis,
+    ProjectCustomEmojiRow,
+    "project_custom_emojis"
+);
+
+async fn latest_task_change_events(
+    pool: &sqlx::SqlitePool,
+    task_id: &str,
+) -> Result<Vec<ProjectTaskChangeEventRow>, String> {
+    sqlx::query_as::<_, ProjectTaskChangeEventRow>(
+        "SELECT * FROM project_task_change_events
+         WHERE task_id = ?
+         ORDER BY occurred_at DESC, id DESC
+         LIMIT 32",
+    )
+    .bind(task_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("load mutation task history: {e}"))
+}
+
+async fn task_mutation(
+    pool: &sqlx::SqlitePool,
+    task_id: &str,
+) -> Result<ProjectsMutationRows, String> {
+    let mut mutation = task_mutation_base(pool, task_id).await?;
+    mutation.task_change_events = latest_task_change_events(pool, task_id).await?;
+    Ok(mutation)
+}
+
+async fn checklist_item_mutation(
+    pool: &sqlx::SqlitePool,
+    item_id: &str,
+    task_id: &str,
+) -> Result<ProjectsMutationRows, String> {
+    let mut mutation = checklist_item_mutation_base(pool, item_id).await?;
+    mutation.task_change_events = latest_task_change_events(pool, task_id).await?;
+    Ok(mutation)
+}
+
+async fn dependency_mutation(
+    pool: &sqlx::SqlitePool,
+    dependency_id: &str,
+    task_id: &str,
+) -> Result<ProjectsMutationRows, String> {
+    let mut mutation = dependency_mutation_base(pool, dependency_id).await?;
+    mutation.task_change_events = latest_task_change_events(pool, task_id).await?;
+    Ok(mutation)
+}
+
+async fn task_tag_link_mutation(
+    pool: &sqlx::SqlitePool,
+    task_id: &str,
+    tag_id: &str,
+) -> Result<ProjectsMutationRows, String> {
+    let link = sqlx::query_as::<_, ProjectTaskTagLinkRow>(
+        "SELECT * FROM project_task_tag_links WHERE task_id = ? AND tag_id = ?",
+    )
+    .bind(task_id)
+    .bind(tag_id)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| format!("load task tag mutation result: {e}"))?;
+    let mut mutation = ProjectsMutationRows::default();
+    mutation.task_tag_links.push(link);
+    mutation.task_change_events = latest_task_change_events(pool, task_id).await?;
+    Ok(mutation)
+}
+
+async fn event_link_mutation(
+    pool: &sqlx::SqlitePool,
+    task_id: &str,
+    event_id: &str,
+) -> Result<ProjectsMutationRows, String> {
+    let link = sqlx::query_as::<_, ProjectTaskEventLinkRow>(
+        "SELECT * FROM project_task_event_links WHERE task_id = ? AND event_id = ?",
+    )
+    .bind(task_id)
+    .bind(event_id)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| format!("load task event mutation result: {e}"))?;
+    let project_id: String =
+        sqlx::query_scalar("SELECT project_id FROM calendar_events WHERE id = ?")
+            .bind(event_id)
+            .fetch_one(pool)
+            .await
+            .map_err(|e| format!("load assigned calendar event project: {e}"))?;
+    let mut mutation = ProjectsMutationRows::default();
+    mutation.event_links.push(link);
+    mutation.task_change_events = latest_task_change_events(pool, task_id).await?;
+    mutation
+        .calendar_event_project_assignments
+        .push(CalendarEventProjectAssignment {
+            event_id: event_id.to_string(),
+            project_id,
+        });
+    Ok(mutation)
+}
+
+async fn view_preference_mutation(
+    pool: &sqlx::SqlitePool,
+    project_id: &str,
+    view_id: &str,
+    preference_key: &str,
+) -> Result<ProjectsMutationRows, String> {
+    let preference = sqlx::query_as::<_, ProjectViewPreferenceRow>(
+        "SELECT * FROM project_view_preferences
+         WHERE project_id = ? AND view_id = ? AND preference_key = ?",
+    )
+    .bind(project_id)
+    .bind(view_id)
+    .bind(preference_key)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| format!("load view preference mutation result: {e}"))?;
+    let mut mutation = ProjectsMutationRows::default();
+    mutation.view_preferences.push(preference);
+    Ok(mutation)
+}
+
 #[tauri::command]
 pub async fn projects_create_group<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     group: ProjectGroupCreate,
-) -> Result<(), String> {
+) -> Result<ProjectsMutationRows, String> {
     validate_group_create(&group)?;
     let pool = connect_sqlite(app, db_url).await?;
     sqlx::query(
@@ -695,7 +879,7 @@ pub async fn projects_create_group<R: Runtime>(
     .execute(&pool)
     .await
     .map_err(|e| format!("create project group: {e}"))?;
-    Ok(())
+    group_mutation(&pool, &group.id).await
 }
 
 #[tauri::command]
@@ -703,7 +887,7 @@ pub async fn projects_update_group<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     group: ProjectGroupUpdate,
-) -> Result<(), String> {
+) -> Result<ProjectsMutationRows, String> {
     validate_group_update(&group)?;
     let pool = connect_sqlite(app, db_url).await?;
     let group_name = if group.id == ROUTINE_GROUP_ID {
@@ -733,7 +917,7 @@ pub async fn projects_update_group<R: Runtime>(
     if result.rows_affected() == 0 {
         return Err("project group not found".to_string());
     }
-    Ok(())
+    group_mutation(&pool, &group.id).await
 }
 
 #[tauri::command]
@@ -741,9 +925,25 @@ pub async fn projects_delete_group<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     group_id: String,
-) -> Result<(), String> {
+) -> Result<ProjectsMutationRows, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    delete_project_group(&pool, group_id.trim()).await
+    let normalized_group_id = group_id.trim();
+    let project_ids = sqlx::query_scalar::<_, String>("SELECT id FROM projects WHERE group_id = ?")
+        .bind(normalized_group_id)
+        .fetch_all(&pool)
+        .await
+        .map_err(|e| format!("load deleted group projects: {e}"))?;
+    delete_project_group(&pool, normalized_group_id).await?;
+    let mut mutation = ProjectsMutationRows::default();
+    mutation.removals.push(ProjectMutationRemoval::Group {
+        id: normalized_group_id.to_string(),
+    });
+    mutation.removals.extend(
+        project_ids
+            .into_iter()
+            .map(|id| ProjectMutationRemoval::Project { id }),
+    );
+    Ok(mutation)
 }
 
 async fn delete_project_group(pool: &sqlx::SqlitePool, group_id: &str) -> Result<(), String> {
@@ -769,7 +969,7 @@ pub async fn projects_set_group_collapsed<R: Runtime>(
     db_url: String,
     group_id: String,
     collapsed: bool,
-) -> Result<(), String> {
+) -> Result<ProjectsMutationRows, String> {
     require_non_empty(&group_id, "group_id")?;
     let pool = connect_sqlite(app, db_url).await?;
     let result = sqlx::query(
@@ -778,14 +978,14 @@ pub async fn projects_set_group_collapsed<R: Runtime>(
          WHERE id = ?",
     )
     .bind(if collapsed { 1_i64 } else { 0_i64 })
-    .bind(group_id)
+    .bind(&group_id)
     .execute(&pool)
     .await
     .map_err(|e| format!("set project group collapsed: {e}"))?;
     if result.rows_affected() == 0 {
         return Err("project group not found".to_string());
     }
-    Ok(())
+    group_mutation(&pool, group_id.trim()).await
 }
 
 #[tauri::command]
@@ -793,7 +993,7 @@ pub async fn projects_create_project<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     project: ProjectCreate,
-) -> Result<(), String> {
+) -> Result<ProjectsMutationRows, String> {
     validate_project_create(&project)?;
     let pool = connect_sqlite(app, db_url).await?;
     let mut tx = pool.begin().await.map_err(|e| format!("begin: {e}"))?;
@@ -842,7 +1042,29 @@ pub async fn projects_create_project<R: Runtime>(
     insert_default_priorities(&mut tx, &project.id).await?;
 
     tx.commit().await.map_err(|e| format!("commit: {e}"))?;
-    Ok(())
+    let mut mutation = project_mutation(&pool, &project.id).await?;
+    mutation.sections = sqlx::query_as::<_, ProjectSectionRow>(
+        "SELECT * FROM project_sections WHERE project_id = ? ORDER BY sort_order, id",
+    )
+    .bind(&project.id)
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| format!("load created project sections: {e}"))?;
+    mutation.statuses = sqlx::query_as::<_, ProjectStatusRow>(
+        "SELECT * FROM project_statuses WHERE project_id = ? ORDER BY sort_order, id",
+    )
+    .bind(&project.id)
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| format!("load created project statuses: {e}"))?;
+    mutation.priorities = sqlx::query_as::<_, ProjectPriorityRow>(
+        "SELECT * FROM project_priorities WHERE project_id = ? ORDER BY sort_order, id",
+    )
+    .bind(&project.id)
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| format!("load created project priorities: {e}"))?;
+    Ok(mutation)
 }
 
 #[tauri::command]
@@ -850,7 +1072,7 @@ pub async fn projects_update_project<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     project: ProjectUpdate,
-) -> Result<(), String> {
+) -> Result<ProjectsMutationRows, String> {
     validate_project_update(&project)?;
     let pool = connect_sqlite(app, db_url).await?;
     let built_in = built_in_routine_project(&project.id);
@@ -933,7 +1155,7 @@ pub async fn projects_update_project<R: Runtime>(
     if result.rows_affected() == 0 {
         return Err("project not found".to_string());
     }
-    Ok(())
+    project_mutation(&pool, &project.id).await
 }
 
 #[tauri::command]
@@ -943,7 +1165,7 @@ pub async fn projects_update_notes_settings<R: Runtime>(
     project_id: String,
     notes_default_open_mode: Option<String>,
     notes_history_retention_days: Option<i64>,
-) -> Result<(), String> {
+) -> Result<ProjectsMutationRows, String> {
     let project_id = project_id.trim();
     require_non_empty(project_id, "project_id")?;
     if let Some(value) = notes_default_open_mode.as_deref() {
@@ -980,7 +1202,7 @@ pub async fn projects_update_notes_settings<R: Runtime>(
     tx.commit()
         .await
         .map_err(|e| format!("commit project Notes settings update: {e}"))?;
-    Ok(())
+    project_mutation(&pool, project_id).await
 }
 
 #[tauri::command]
@@ -988,7 +1210,7 @@ pub async fn projects_create_section<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     section: ProjectSectionCreate,
-) -> Result<(), String> {
+) -> Result<ProjectsMutationRows, String> {
     validate_section_create(&section)?;
     let pool = connect_sqlite(app, db_url).await?;
     sqlx::query(
@@ -1002,7 +1224,7 @@ pub async fn projects_create_section<R: Runtime>(
     .execute(&pool)
     .await
     .map_err(|e| format!("create project section: {e}"))?;
-    Ok(())
+    section_mutation(&pool, &section.id).await
 }
 
 #[tauri::command]
@@ -1010,7 +1232,7 @@ pub async fn projects_update_section<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     section: ProjectSectionUpdate,
-) -> Result<(), String> {
+) -> Result<ProjectsMutationRows, String> {
     validate_section_update(&section)?;
     let pool = connect_sqlite(app, db_url).await?;
     let result = sqlx::query(
@@ -1035,7 +1257,7 @@ pub async fn projects_update_section<R: Runtime>(
     if result.rows_affected() == 0 {
         return Err("project section not found".to_string());
     }
-    Ok(())
+    section_mutation(&pool, &section.id).await
 }
 
 #[tauri::command]
@@ -1043,7 +1265,7 @@ pub async fn projects_create_status<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     status: ProjectStatusCreate,
-) -> Result<(), String> {
+) -> Result<ProjectsMutationRows, String> {
     validate_status_create(&status)?;
     let pool = connect_sqlite(app, db_url).await?;
     ensure_project_exists_in_pool(&pool, &status.project_id).await?;
@@ -1061,7 +1283,7 @@ pub async fn projects_create_status<R: Runtime>(
     .execute(&pool)
     .await
     .map_err(|e| format!("create project status: {e}"))?;
-    Ok(())
+    status_mutation(&pool, &status.id).await
 }
 
 #[tauri::command]
@@ -1069,7 +1291,7 @@ pub async fn projects_update_status<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     status: ProjectStatusUpdate,
-) -> Result<(), String> {
+) -> Result<ProjectsMutationRows, String> {
     validate_status_update(&status)?;
     let pool = connect_sqlite(app, db_url).await?;
     let result = sqlx::query(
@@ -1094,7 +1316,7 @@ pub async fn projects_update_status<R: Runtime>(
     if result.rows_affected() == 0 {
         return Err("project status not found".to_string());
     }
-    Ok(())
+    status_mutation(&pool, &status.id).await
 }
 
 #[tauri::command]
@@ -1102,13 +1324,17 @@ pub async fn projects_delete_status<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     status_id: String,
-) -> Result<(), String> {
+) -> Result<ProjectsMutationRows, String> {
     require_non_empty(&status_id, "status_id")?;
     let pool = connect_sqlite(app, db_url).await?;
     let mut tx = pool.begin().await.map_err(|e| format!("begin: {e}"))?;
     delete_unused_status(&mut tx, status_id.trim()).await?;
     tx.commit().await.map_err(|e| format!("commit: {e}"))?;
-    Ok(())
+    let mut mutation = ProjectsMutationRows::default();
+    mutation.removals.push(ProjectMutationRemoval::Status {
+        id: status_id.trim().to_string(),
+    });
+    Ok(mutation)
 }
 
 #[tauri::command]
@@ -1116,7 +1342,7 @@ pub async fn projects_create_priority<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     priority: ProjectPriorityCreate,
-) -> Result<(), String> {
+) -> Result<ProjectsMutationRows, String> {
     validate_priority_create(&priority)?;
     let pool = connect_sqlite(app, db_url).await?;
     ensure_project_exists_in_pool(&pool, &priority.project_id).await?;
@@ -1132,7 +1358,7 @@ pub async fn projects_create_priority<R: Runtime>(
     .execute(&pool)
     .await
     .map_err(|e| format!("create project priority: {e}"))?;
-    Ok(())
+    priority_mutation(&pool, priority.id.trim()).await
 }
 
 #[tauri::command]
@@ -1140,7 +1366,7 @@ pub async fn projects_update_priority<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     priority: ProjectPriorityUpdate,
-) -> Result<(), String> {
+) -> Result<ProjectsMutationRows, String> {
     validate_priority_update(&priority)?;
     let pool = connect_sqlite(app, db_url).await?;
     let result = sqlx::query(
@@ -1162,7 +1388,7 @@ pub async fn projects_update_priority<R: Runtime>(
     if result.rows_affected() == 0 {
         return Err("project priority not found".to_string());
     }
-    Ok(())
+    priority_mutation(&pool, priority.id.trim()).await
 }
 
 #[tauri::command]
@@ -1171,14 +1397,18 @@ pub async fn projects_delete_priority<R: Runtime>(
     db_url: String,
     project_id: String,
     priority_id: String,
-) -> Result<(), String> {
+) -> Result<ProjectsMutationRows, String> {
     require_non_empty(&project_id, "project_id")?;
     require_non_empty(&priority_id, "priority_id")?;
     let pool = connect_sqlite(app, db_url).await?;
     let mut tx = pool.begin().await.map_err(|e| format!("begin: {e}"))?;
     delete_unused_priority(&mut tx, project_id.trim(), priority_id.trim()).await?;
     tx.commit().await.map_err(|e| format!("commit: {e}"))?;
-    Ok(())
+    let mut mutation = ProjectsMutationRows::default();
+    mutation.removals.push(ProjectMutationRemoval::Priority {
+        id: priority_id.trim().to_string(),
+    });
+    Ok(mutation)
 }
 
 #[tauri::command]
@@ -1186,7 +1416,7 @@ pub async fn projects_create_task<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     task: ProjectTaskCreate,
-) -> Result<(), String> {
+) -> Result<ProjectsMutationRows, String> {
     validate_task_create(&task)?;
     let pool = connect_sqlite(app, db_url).await?;
     let mut tx = pool.begin().await.map_err(|e| format!("begin: {e}"))?;
@@ -1236,7 +1466,7 @@ pub async fn projects_create_task<R: Runtime>(
     .map_err(|e| format!("create project task: {e}"))?;
     insert_task_change_event(&mut tx, &task.id, "created", None, None, None).await?;
     tx.commit().await.map_err(|e| format!("commit: {e}"))?;
-    Ok(())
+    task_mutation(&pool, &task.id).await
 }
 
 #[tauri::command]
@@ -1244,7 +1474,7 @@ pub async fn projects_update_task<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     task: ProjectTaskUpdate,
-) -> Result<(), String> {
+) -> Result<ProjectsMutationRows, String> {
     validate_task_update(&task)?;
     let pool = connect_sqlite(app, db_url).await?;
     let mut tx = pool.begin().await.map_err(|e| format!("begin: {e}"))?;
@@ -1326,7 +1556,7 @@ pub async fn projects_update_task<R: Runtime>(
     .map_err(|e| format!("update project task: {e}"))?;
     insert_task_update_change_events(&mut tx, &previous_task, &task).await?;
     tx.commit().await.map_err(|e| format!("commit: {e}"))?;
-    Ok(())
+    task_mutation(&pool, &task.id).await
 }
 
 #[tauri::command]
@@ -1334,7 +1564,7 @@ pub async fn projects_create_task_dependency<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     dependency: ProjectTaskDependencyCreate,
-) -> Result<(), String> {
+) -> Result<ProjectsMutationRows, String> {
     validate_task_dependency_create(&dependency)?;
     let pool = connect_sqlite(app, db_url).await?;
     let mut tx = pool.begin().await.map_err(|e| format!("begin: {e}"))?;
@@ -1372,7 +1602,7 @@ pub async fn projects_create_task_dependency<R: Runtime>(
     )
     .await?;
     tx.commit().await.map_err(|e| format!("commit: {e}"))?;
-    Ok(())
+    dependency_mutation(&pool, dependency.id.trim(), &dependency.blocked_task_id).await
 }
 
 #[tauri::command]
@@ -1380,7 +1610,7 @@ pub async fn projects_delete_task_dependency<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     dependency_id: String,
-) -> Result<(), String> {
+) -> Result<ProjectsMutationRows, String> {
     require_non_empty(&dependency_id, "dependency_id")?;
     let pool = connect_sqlite(app, db_url).await?;
     let mut tx = pool.begin().await.map_err(|e| format!("begin: {e}"))?;
@@ -1407,7 +1637,14 @@ pub async fn projects_delete_task_dependency<R: Runtime>(
     )
     .await?;
     tx.commit().await.map_err(|e| format!("commit: {e}"))?;
-    Ok(())
+    let mut mutation = ProjectsMutationRows {
+        task_change_events: latest_task_change_events(&pool, &row.blocked_task_id).await?,
+        ..ProjectsMutationRows::default()
+    };
+    mutation.removals.push(ProjectMutationRemoval::Dependency {
+        id: dependency_id.trim().to_string(),
+    });
+    Ok(mutation)
 }
 
 #[tauri::command]
@@ -1415,7 +1652,7 @@ pub async fn projects_create_checklist_item<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     item: ProjectChecklistItemCreate,
-) -> Result<(), String> {
+) -> Result<ProjectsMutationRows, String> {
     validate_checklist_item_create(&item)?;
     let pool = connect_sqlite(app, db_url).await?;
     let mut tx = pool.begin().await.map_err(|e| format!("begin: {e}"))?;
@@ -1441,7 +1678,7 @@ pub async fn projects_create_checklist_item<R: Runtime>(
     )
     .await?;
     tx.commit().await.map_err(|e| format!("commit: {e}"))?;
-    Ok(())
+    checklist_item_mutation(&pool, &item.id, &item.task_id).await
 }
 
 #[tauri::command]
@@ -1449,7 +1686,7 @@ pub async fn projects_update_checklist_item<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     item: ProjectChecklistItemUpdate,
-) -> Result<(), String> {
+) -> Result<ProjectsMutationRows, String> {
     validate_checklist_item_update(&item)?;
     let pool = connect_sqlite(app, db_url).await?;
     let mut tx = pool.begin().await.map_err(|e| format!("begin: {e}"))?;
@@ -1476,7 +1713,7 @@ pub async fn projects_update_checklist_item<R: Runtime>(
     .map_err(|e| format!("update project checklist item: {e}"))?;
     insert_task_change_event(&mut tx, &task_id, "updated", Some("checklist"), None, None).await?;
     tx.commit().await.map_err(|e| format!("commit: {e}"))?;
-    Ok(())
+    checklist_item_mutation(&pool, &item.id, &task_id).await
 }
 
 #[tauri::command]
@@ -1484,7 +1721,7 @@ pub async fn projects_delete_checklist_item<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     item_id: String,
-) -> Result<(), String> {
+) -> Result<ProjectsMutationRows, String> {
     require_non_empty(&item_id, "item_id")?;
     let pool = connect_sqlite(app, db_url).await?;
     let mut tx = pool.begin().await.map_err(|e| format!("begin: {e}"))?;
@@ -1496,7 +1733,16 @@ pub async fn projects_delete_checklist_item<R: Runtime>(
         .map_err(|e| format!("delete project checklist item: {e}"))?;
     insert_task_change_event(&mut tx, &task_id, "updated", Some("checklist"), None, None).await?;
     tx.commit().await.map_err(|e| format!("commit: {e}"))?;
-    Ok(())
+    let mut mutation = ProjectsMutationRows {
+        task_change_events: latest_task_change_events(&pool, &task_id).await?,
+        ..ProjectsMutationRows::default()
+    };
+    mutation
+        .removals
+        .push(ProjectMutationRemoval::ChecklistItem {
+            id: item_id.trim().to_string(),
+        });
+    Ok(mutation)
 }
 
 #[tauri::command]
@@ -1504,7 +1750,7 @@ pub async fn projects_create_tag<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     tag: ProjectTagCreate,
-) -> Result<(), String> {
+) -> Result<ProjectsMutationRows, String> {
     validate_tag_create(&tag)?;
     let pool = connect_sqlite(app, db_url).await?;
     ensure_project_exists_in_pool(&pool, tag.project_id.trim()).await?;
@@ -1520,7 +1766,7 @@ pub async fn projects_create_tag<R: Runtime>(
     .execute(&pool)
     .await
     .map_err(|e| format!("create project tag: {e}"))?;
-    Ok(())
+    tag_mutation(&pool, tag.id.trim()).await
 }
 
 #[tauri::command]
@@ -1528,7 +1774,7 @@ pub async fn projects_update_tag<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     tag: ProjectTagUpdate,
-) -> Result<(), String> {
+) -> Result<ProjectsMutationRows, String> {
     validate_tag_update(&tag)?;
     let pool = connect_sqlite(app, db_url).await?;
     let result = sqlx::query(
@@ -1549,7 +1795,7 @@ pub async fn projects_update_tag<R: Runtime>(
     if result.rows_affected() == 0 {
         return Err("project tag not found".to_string());
     }
-    Ok(())
+    tag_mutation(&pool, tag.id.trim()).await
 }
 
 #[tauri::command]
@@ -1557,13 +1803,29 @@ pub async fn projects_delete_tag<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     tag_id: String,
-) -> Result<(), String> {
+) -> Result<ProjectsMutationRows, String> {
     require_non_empty(&tag_id, "tag_id")?;
     let pool = connect_sqlite(app, db_url).await?;
+    let task_ids = sqlx::query_scalar::<_, String>(
+        "SELECT task_id FROM project_task_tag_links WHERE tag_id = ?",
+    )
+    .bind(tag_id.trim())
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| format!("load tasks affected by tag deletion: {e}"))?;
     let mut tx = pool.begin().await.map_err(|e| format!("begin: {e}"))?;
     delete_tag_with_history(&mut tx, tag_id.trim()).await?;
     tx.commit().await.map_err(|e| format!("commit: {e}"))?;
-    Ok(())
+    let mut mutation = ProjectsMutationRows::default();
+    for task_id in task_ids {
+        mutation
+            .task_change_events
+            .extend(latest_task_change_events(&pool, &task_id).await?);
+    }
+    mutation.removals.push(ProjectMutationRemoval::Tag {
+        id: tag_id.trim().to_string(),
+    });
+    Ok(mutation)
 }
 
 #[tauri::command]
@@ -1571,7 +1833,7 @@ pub async fn projects_link_task_tag<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     link: ProjectTaskTagLinkCreate,
-) -> Result<(), String> {
+) -> Result<ProjectsMutationRows, String> {
     validate_task_tag_link_create(&link)?;
     let pool = connect_sqlite(app, db_url).await?;
     let mut tx = pool.begin().await.map_err(|e| format!("begin: {e}"))?;
@@ -1598,7 +1860,7 @@ pub async fn projects_link_task_tag<R: Runtime>(
         .await?;
     }
     tx.commit().await.map_err(|e| format!("commit: {e}"))?;
-    Ok(())
+    task_tag_link_mutation(&pool, link.task_id.trim(), link.tag_id.trim()).await
 }
 
 #[tauri::command]
@@ -1607,7 +1869,7 @@ pub async fn projects_unlink_task_tag<R: Runtime>(
     db_url: String,
     task_id: String,
     tag_id: String,
-) -> Result<(), String> {
+) -> Result<ProjectsMutationRows, String> {
     require_non_empty(&task_id, "task_id")?;
     require_non_empty(&tag_id, "tag_id")?;
     let pool = connect_sqlite(app, db_url).await?;
@@ -1632,7 +1894,15 @@ pub async fn projects_unlink_task_tag<R: Runtime>(
     )
     .await?;
     tx.commit().await.map_err(|e| format!("commit: {e}"))?;
-    Ok(())
+    let mut mutation = ProjectsMutationRows {
+        task_change_events: latest_task_change_events(&pool, task_id.trim()).await?,
+        ..ProjectsMutationRows::default()
+    };
+    mutation.removals.push(ProjectMutationRemoval::TaskTagLink {
+        task_id: task_id.trim().to_string(),
+        tag_id: tag_id.trim().to_string(),
+    });
+    Ok(mutation)
 }
 
 #[tauri::command]
@@ -1640,7 +1910,7 @@ pub async fn projects_create_custom_field<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     field: ProjectCustomFieldCreate,
-) -> Result<(), String> {
+) -> Result<ProjectsMutationRows, String> {
     validate_custom_field_create(&field)?;
     let pool = connect_sqlite(app, db_url).await?;
     ensure_project_exists_in_pool(&pool, field.project_id.trim()).await?;
@@ -1656,7 +1926,7 @@ pub async fn projects_create_custom_field<R: Runtime>(
     .execute(&pool)
     .await
     .map_err(|e| format!("create project custom field: {e}"))?;
-    Ok(())
+    custom_field_mutation(&pool, field.id.trim()).await
 }
 
 #[tauri::command]
@@ -1664,7 +1934,7 @@ pub async fn projects_update_custom_field<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     field: ProjectCustomFieldUpdate,
-) -> Result<(), String> {
+) -> Result<ProjectsMutationRows, String> {
     validate_custom_field_update(&field)?;
     let pool = connect_sqlite(app, db_url).await?;
     let result = sqlx::query(
@@ -1683,7 +1953,7 @@ pub async fn projects_update_custom_field<R: Runtime>(
     if result.rows_affected() == 0 {
         return Err("project custom field not found".to_string());
     }
-    Ok(())
+    custom_field_mutation(&pool, field.id.trim()).await
 }
 
 #[tauri::command]
@@ -1691,13 +1961,32 @@ pub async fn projects_delete_custom_field<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     field_id: String,
-) -> Result<(), String> {
+) -> Result<ProjectsMutationRows, String> {
     require_non_empty(&field_id, "field_id")?;
     let pool = connect_sqlite(app, db_url).await?;
+    let task_ids = sqlx::query_scalar::<_, String>(
+        "SELECT task_id FROM project_custom_field_values WHERE field_id = ?
+         UNION
+         SELECT task_id FROM project_custom_field_option_values WHERE field_id = ?",
+    )
+    .bind(field_id.trim())
+    .bind(field_id.trim())
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| format!("load tasks affected by custom field deletion: {e}"))?;
     let mut tx = pool.begin().await.map_err(|e| format!("begin: {e}"))?;
     delete_custom_field_with_history(&mut tx, field_id.trim()).await?;
     tx.commit().await.map_err(|e| format!("commit: {e}"))?;
-    Ok(())
+    let mut mutation = ProjectsMutationRows::default();
+    for task_id in task_ids {
+        mutation
+            .task_change_events
+            .extend(latest_task_change_events(&pool, &task_id).await?);
+    }
+    mutation.removals.push(ProjectMutationRemoval::CustomField {
+        id: field_id.trim().to_string(),
+    });
+    Ok(mutation)
 }
 
 #[tauri::command]
@@ -1705,7 +1994,7 @@ pub async fn projects_create_custom_field_option<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     option: ProjectCustomFieldOptionCreate,
-) -> Result<(), String> {
+) -> Result<ProjectsMutationRows, String> {
     validate_custom_field_option_create(&option)?;
     let pool = connect_sqlite(app, db_url).await?;
     ensure_custom_field_accepts_options_in_pool(&pool, option.field_id.trim()).await?;
@@ -1720,7 +2009,7 @@ pub async fn projects_create_custom_field_option<R: Runtime>(
     .execute(&pool)
     .await
     .map_err(|e| format!("create project custom field option: {e}"))?;
-    Ok(())
+    custom_field_option_mutation(&pool, option.id.trim()).await
 }
 
 #[tauri::command]
@@ -1728,7 +2017,7 @@ pub async fn projects_update_custom_field_option<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     option: ProjectCustomFieldOptionUpdate,
-) -> Result<(), String> {
+) -> Result<ProjectsMutationRows, String> {
     validate_custom_field_option_update(&option)?;
     let pool = connect_sqlite(app, db_url).await?;
     let result = sqlx::query(
@@ -1747,7 +2036,7 @@ pub async fn projects_update_custom_field_option<R: Runtime>(
     if result.rows_affected() == 0 {
         return Err("project custom field option not found".to_string());
     }
-    Ok(())
+    custom_field_option_mutation(&pool, option.id.trim()).await
 }
 
 #[tauri::command]
@@ -1755,13 +2044,31 @@ pub async fn projects_delete_custom_field_option<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     option_id: String,
-) -> Result<(), String> {
+) -> Result<ProjectsMutationRows, String> {
     require_non_empty(&option_id, "option_id")?;
     let pool = connect_sqlite(app, db_url).await?;
+    let task_ids = sqlx::query_scalar::<_, String>(
+        "SELECT task_id FROM project_custom_field_option_values WHERE option_id = ?",
+    )
+    .bind(option_id.trim())
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| format!("load tasks affected by custom field option deletion: {e}"))?;
     let mut tx = pool.begin().await.map_err(|e| format!("begin: {e}"))?;
     delete_custom_field_option_with_history(&mut tx, option_id.trim()).await?;
     tx.commit().await.map_err(|e| format!("commit: {e}"))?;
-    Ok(())
+    let mut mutation = ProjectsMutationRows::default();
+    for task_id in task_ids {
+        mutation
+            .task_change_events
+            .extend(latest_task_change_events(&pool, &task_id).await?);
+    }
+    mutation
+        .removals
+        .push(ProjectMutationRemoval::CustomFieldOption {
+            id: option_id.trim().to_string(),
+        });
+    Ok(mutation)
 }
 
 #[tauri::command]
@@ -1769,13 +2076,40 @@ pub async fn projects_update_custom_field_value<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     value: ProjectCustomFieldValueUpdate,
-) -> Result<(), String> {
+) -> Result<ProjectsMutationRows, String> {
     validate_custom_field_value_update(&value)?;
     let pool = connect_sqlite(app, db_url).await?;
     let mut tx = pool.begin().await.map_err(|e| format!("begin: {e}"))?;
     update_custom_field_value_with_history(&mut tx, &value).await?;
     tx.commit().await.map_err(|e| format!("commit: {e}"))?;
-    Ok(())
+    let mut mutation = ProjectsMutationRows::default();
+    mutation
+        .removals
+        .push(ProjectMutationRemoval::CustomFieldValue {
+            task_id: value.task_id.trim().to_string(),
+            field_id: value.field_id.trim().to_string(),
+        });
+    if let Some(row) = sqlx::query_as::<_, ProjectCustomFieldValueRow>(
+        "SELECT * FROM project_custom_field_values WHERE task_id = ? AND field_id = ?",
+    )
+    .bind(value.task_id.trim())
+    .bind(value.field_id.trim())
+    .fetch_optional(&pool)
+    .await
+    .map_err(|e| format!("load custom field value mutation result: {e}"))?
+    {
+        mutation.custom_field_values.push(row);
+    }
+    mutation.custom_field_option_values = sqlx::query_as::<_, ProjectCustomFieldOptionValueRow>(
+        "SELECT * FROM project_custom_field_option_values WHERE task_id = ? AND field_id = ?",
+    )
+    .bind(value.task_id.trim())
+    .bind(value.field_id.trim())
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| format!("load custom field option value mutation result: {e}"))?;
+    mutation.task_change_events = latest_task_change_events(&pool, value.task_id.trim()).await?;
+    Ok(mutation)
 }
 
 #[tauri::command]
@@ -1783,13 +2117,13 @@ pub async fn projects_link_task_event<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     link: ProjectTaskEventLinkCreate,
-) -> Result<(), String> {
+) -> Result<ProjectsMutationRows, String> {
     validate_task_event_link_create(&link)?;
     let pool = connect_sqlite(app, db_url).await?;
     let mut tx = pool.begin().await.map_err(|e| format!("begin: {e}"))?;
     link_task_event_with_project_assignment(&mut tx, &link).await?;
     tx.commit().await.map_err(|e| format!("commit: {e}"))?;
-    Ok(())
+    event_link_mutation(&pool, link.task_id.trim(), link.event_id.trim()).await
 }
 
 async fn link_task_event_with_project_assignment(
@@ -1853,7 +2187,7 @@ pub async fn projects_unlink_task_event<R: Runtime>(
     db_url: String,
     task_id: String,
     event_id: String,
-) -> Result<(), String> {
+) -> Result<ProjectsMutationRows, String> {
     require_non_empty(&task_id, "task_id")?;
     require_non_empty(&event_id, "event_id")?;
     let pool = connect_sqlite(app, db_url).await?;
@@ -1890,7 +2224,15 @@ pub async fn projects_unlink_task_event<R: Runtime>(
     )
     .await?;
     tx.commit().await.map_err(|e| format!("commit: {e}"))?;
-    Ok(())
+    let mut mutation = ProjectsMutationRows {
+        task_change_events: latest_task_change_events(&pool, task_id.trim()).await?,
+        ..ProjectsMutationRows::default()
+    };
+    mutation.removals.push(ProjectMutationRemoval::EventLink {
+        task_id: task_id.trim().to_string(),
+        event_id: event_id.trim().to_string(),
+    });
+    Ok(mutation)
 }
 
 #[tauri::command]
@@ -2050,7 +2392,7 @@ pub async fn projects_upsert_view_preference<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     preference: ProjectViewPreferenceUpsert,
-) -> Result<(), String> {
+) -> Result<ProjectsMutationRows, String> {
     validate_view_preference(&preference)?;
     let pool = connect_sqlite(app, db_url).await?;
     ensure_project_exists_in_pool(&pool, preference.project_id.trim()).await?;
@@ -2070,7 +2412,13 @@ pub async fn projects_upsert_view_preference<R: Runtime>(
     .execute(&pool)
     .await
     .map_err(|e| format!("save project view preference: {e}"))?;
-    Ok(())
+    view_preference_mutation(
+        &pool,
+        preference.project_id.trim(),
+        preference.view_id.trim(),
+        preference.preference_key.trim(),
+    )
+    .await
 }
 
 #[tauri::command]
@@ -2080,7 +2428,7 @@ pub async fn projects_delete_view_preference<R: Runtime>(
     project_id: String,
     view_id: String,
     preference_key: String,
-) -> Result<(), String> {
+) -> Result<ProjectsMutationRows, String> {
     require_non_empty(&project_id, "project_id")?;
     validate_enum(
         &view_id,
@@ -2102,7 +2450,15 @@ pub async fn projects_delete_view_preference<R: Runtime>(
     if result.rows_affected() == 0 {
         return Err("project view preference not found".to_string());
     }
-    Ok(())
+    let mut mutation = ProjectsMutationRows::default();
+    mutation
+        .removals
+        .push(ProjectMutationRemoval::ViewPreference {
+            project_id: project_id.trim().to_string(),
+            view_id: view_id.trim().to_string(),
+            preference_key: preference_key.trim().to_string(),
+        });
+    Ok(mutation)
 }
 
 #[tauri::command]
@@ -2110,10 +2466,11 @@ pub async fn projects_create_custom_emoji<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     emoji: ProjectCustomEmojiCreate,
-) -> Result<(), String> {
+) -> Result<ProjectsMutationRows, String> {
     validate_custom_emoji_create(&emoji)?;
     let pool = connect_sqlite(app, db_url).await?;
-    insert_project_custom_emoji(&pool, &emoji).await
+    insert_project_custom_emoji(&pool, &emoji).await?;
+    custom_emoji_mutation(&pool, emoji.id.trim()).await
 }
 
 async fn insert_project_custom_emoji(
@@ -2139,10 +2496,15 @@ pub async fn projects_delete_custom_emoji<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     emoji_id: String,
-) -> Result<(), String> {
+) -> Result<ProjectsMutationRows, String> {
     require_non_empty(&emoji_id, "emoji_id")?;
     let pool = connect_sqlite(app, db_url).await?;
-    delete_project_custom_emoji(&pool, &emoji_id).await
+    delete_project_custom_emoji(&pool, &emoji_id).await?;
+    let mut mutation = ProjectsMutationRows::default();
+    mutation.removals.push(ProjectMutationRemoval::CustomEmoji {
+        id: emoji_id.trim().to_string(),
+    });
+    Ok(mutation)
 }
 
 async fn delete_project_custom_emoji(
@@ -3542,6 +3904,45 @@ mod tests {
 
             assert_eq!(stored_value, "High");
             assert_eq!(history_count, 1);
+        });
+    }
+
+    #[test]
+    fn task_mutation_returns_the_authoritative_row_and_committed_history() {
+        tauri::async_runtime::block_on(async {
+            let pool = migrated_memory_pool().await;
+            insert_project_graph_fixture(&pool).await;
+            let mut tx = pool.begin().await.unwrap();
+            sqlx::query(
+                "UPDATE project_tasks
+                 SET title = 'Authoritative', updated_at = '2026-07-11T12:00:00.000Z'
+                 WHERE id = 'task-a'",
+            )
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+            insert_task_change_event(
+                &mut tx,
+                "task-a",
+                "updated",
+                Some("title"),
+                Some("task-a"),
+                Some("Authoritative"),
+            )
+            .await
+            .unwrap();
+            tx.commit().await.unwrap();
+
+            let mutation = task_mutation(&pool, "task-a").await.unwrap();
+
+            assert_eq!(mutation.tasks.len(), 1);
+            assert_eq!(mutation.tasks[0].title, "Authoritative");
+            assert_eq!(mutation.tasks[0].updated_at, "2026-07-11T12:00:00.000Z");
+            assert!(mutation.task_change_events.iter().any(|event| {
+                event.task_id == "task-a"
+                    && event.field_name.as_deref() == Some("title")
+                    && event.new_value.as_deref() == Some("Authoritative")
+            }));
         });
     }
 

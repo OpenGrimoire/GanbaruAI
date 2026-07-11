@@ -54,6 +54,7 @@ import {
   type ProjectTaskListColumnWidths,
 } from "$lib/projects/project-list-view";
 import { normalizeProjectName } from "$lib/projects/project-text";
+import { applyProjectMutation } from "$lib/projects/project-snapshot-mutations";
 import { parseProjectIcon } from "$lib/projects/project-icons";
 import {
   checklistItemUpdatePayload,
@@ -87,6 +88,7 @@ import {
   type ProjectCustomFieldValueUpdate,
   type ProjectGroup,
   type ProjectLinkableEvent,
+  type ProjectMutation,
   type ProjectPriority,
   type ProjectPriorityConfig,
   type ProjectSavedTaskView,
@@ -108,7 +110,11 @@ export interface ProjectStoreActionContext {
   selectors: ProjectStoreSelectors;
   readSnapshot: () => ProjectsSnapshot;
   updateSnapshot: (updater: (snapshot: ProjectsSnapshot) => ProjectsSnapshot) => void;
+  applyCalendarEventProjectAssignments: (
+    assignments: readonly { eventId: string; projectId: string }[],
+  ) => Promise<void>;
   readSelectedProjectId: () => string | null;
+  readLoadGeneration: () => number;
   setSelectedProjectId: (projectId: string | null) => void;
   reload: (projectId?: string | null) => Promise<void>;
   ensureProjectData: (projectId: string | null | undefined) => Promise<void>;
@@ -120,13 +126,43 @@ export interface ProjectStoreActionContext {
 export function createProjectStoreActions(context: ProjectStoreActionContext) {
   const {
     ensureProjectData,
+    applyCalendarEventProjectAssignments,
+    readLoadGeneration,
     readSelectedProjectId,
     readSnapshot,
-    reload,
     selectors,
     setSelectedProjectId,
     updateSnapshot,
   } = context;
+  const mutationGenerations = new Map<string, number>();
+
+  async function commitMutation(
+    key: string,
+    request: () => Promise<ProjectMutation>,
+  ): Promise<ProjectMutation> {
+    const generation = (mutationGenerations.get(key) ?? 0) + 1;
+    const loadGeneration = readLoadGeneration();
+    mutationGenerations.set(key, generation);
+    const mutation = await request();
+    if (
+      mutationGenerations.get(key) === generation
+      && readLoadGeneration() === loadGeneration
+    ) {
+      updateSnapshot((current) => applyProjectMutation(current, mutation));
+      await applyCalendarEventProjectAssignments(mutation.calendarEventProjectAssignments);
+    }
+    return mutation;
+  }
+
+  function changedById<T extends { id: string }>(
+    values: readonly T[],
+    id: string,
+    entity: string,
+  ): T {
+    const value = values.find((candidate) => candidate.id === id);
+    if (!value) throw new Error(`${entity} mutation did not return its authoritative row`);
+    return value;
+  }
 
   function projectAssetPath(icon: string): string | null {
     const parsed = parseProjectIcon(icon);
@@ -142,24 +178,18 @@ export function createProjectStoreActions(context: ProjectStoreActionContext) {
   async function addGroup(name: string): Promise<void> {
     const displayName = normalizeProjectName(name);
     if (!displayName) return;
-    await createProjectGroup({
-      id: crypto.randomUUID(),
+    const id = crypto.randomUUID();
+    await commitMutation(`group:${id}`, () => createProjectGroup({
+      id,
       name: displayName,
       icon: "folder",
       color: null,
       sortOrder: selectors.nextGroupSortOrder(),
-    });
-    await reload();
+    }));
   }
 
   async function setGroupCollapsed(groupId: string, collapsed: boolean): Promise<void> {
-    await setProjectGroupCollapsed(groupId, collapsed);
-    updateSnapshot((current) => ({
-      ...current,
-      groups: current.groups.map((group) =>
-        group.id === groupId ? { ...group, collapsed } : group
-      ),
-    }));
+    await commitMutation(`group:${groupId}`, () => setProjectGroupCollapsed(groupId, collapsed));
   }
 
   async function updateGroup(
@@ -169,19 +199,17 @@ export function createProjectStoreActions(context: ProjectStoreActionContext) {
     const nextName = normalizeProjectName(patch.name ?? group.name);
     if (!nextName) return;
     const update = groupUpdatePayload(group, { ...patch, name: nextName });
-    await updateProjectGroup(update);
+    await commitMutation(`group:${group.id}`, () => updateProjectGroup(update));
     invalidateReplacedProjectIcon(group.icon, update.icon);
-    await reload();
   }
 
   async function removeGroup(group: ProjectGroup): Promise<void> {
-    await deleteProjectGroup(group.id);
+    await commitMutation(`group:${group.id}`, () => deleteProjectGroup(group.id));
     invalidateAssetUrlKind("project-icon");
     const selectedProjectId = readSelectedProjectId();
     if (selectedProjectId && group.id === selectors.projectById(selectedProjectId)?.groupId) {
       setSelectedProjectId(null);
     }
-    await reload();
   }
 
   async function moveGroup(group: ProjectGroup, direction: -1 | 1): Promise<void> {
@@ -189,9 +217,10 @@ export function createProjectStoreActions(context: ProjectStoreActionContext) {
     const index = ordered.findIndex((entry) => entry.id === group.id);
     const target = ordered[index + direction];
     if (index < 0 || !target) return;
-    await updateProjectGroup(groupUpdatePayload(group, { sortOrder: target.sortOrder }));
-    await updateProjectGroup(groupUpdatePayload(target, { sortOrder: group.sortOrder }));
-    await reload();
+    await commitMutation(`group:${group.id}`, () =>
+      updateProjectGroup(groupUpdatePayload(group, { sortOrder: target.sortOrder })));
+    await commitMutation(`group:${target.id}`, () =>
+      updateProjectGroup(groupUpdatePayload(target, { sortOrder: group.sortOrder })));
   }
 
   async function addProject(groupId: string, name: string, templateId: ProjectTemplateId = "blank"): Promise<void> {
@@ -219,16 +248,14 @@ export function createProjectStoreActions(context: ProjectStoreActionContext) {
       defaultIdlePauseEnabled: templateDefaults.defaultIdlePauseEnabled,
       defaultIdleThresholdMinutes: templateDefaults.defaultIdleThresholdMinutes,
     };
-    await createProjectBackend(project);
+    await commitMutation(`project:${project.id}`, () => createProjectBackend(project));
     setSelectedProjectId(project.id);
-    await reload();
   }
 
   async function updateProject(project: ProjectUpdate): Promise<void> {
     const previousIcon = selectors.projectById(project.id)?.icon ?? project.icon;
-    await updateProjectBackend(project);
+    await commitMutation(`project:${project.id}`, () => updateProjectBackend(project));
     invalidateReplacedProjectIcon(previousIcon, project.icon);
-    await reload();
   }
 
   async function setNotesSettings(
@@ -236,8 +263,8 @@ export function createProjectStoreActions(context: ProjectStoreActionContext) {
     openMode: NotesPageOpenMode | null,
     historyRetentionDays: NotesHistoryRetentionDays | null,
   ): Promise<void> {
-    await updateProjectNotesSettings(projectId, openMode, historyRetentionDays);
-    await reload(projectId);
+    await commitMutation(`project:${projectId}`, () =>
+      updateProjectNotesSettings(projectId, openMode, historyRetentionDays));
   }
 
   async function moveProject(project: Project, direction: -1 | 1, includeInactive = false): Promise<void> {
@@ -247,21 +274,22 @@ export function createProjectStoreActions(context: ProjectStoreActionContext) {
     const index = ordered.findIndex((entry) => entry.id === project.id);
     const target = ordered[index + direction];
     if (index < 0 || !target) return;
-    await updateProjectBackend(projectUpdatePayload(project, { sortOrder: target.sortOrder }));
-    await updateProjectBackend(projectUpdatePayload(target, { sortOrder: project.sortOrder }));
-    await reload();
+    await commitMutation(`project:${project.id}`, () =>
+      updateProjectBackend(projectUpdatePayload(project, { sortOrder: target.sortOrder })));
+    await commitMutation(`project:${target.id}`, () =>
+      updateProjectBackend(projectUpdatePayload(target, { sortOrder: project.sortOrder })));
   }
 
   async function addSection(projectId: string, name: string): Promise<void> {
     const displayName = normalizeProjectName(name);
     if (!displayName) return;
-    await createProjectSection({
-      id: crypto.randomUUID(),
+    const id = crypto.randomUUID();
+    await commitMutation(`section:${id}`, () => createProjectSection({
+      id,
       projectId,
       name: displayName,
       sortOrder: selectors.nextSectionSortOrder(projectId),
-    });
-    await reload();
+    }));
   }
 
   async function updateSection(
@@ -270,8 +298,8 @@ export function createProjectStoreActions(context: ProjectStoreActionContext) {
   ): Promise<void> {
     const nextName = normalizeProjectName(patch.name ?? section.name);
     if (!nextName) return;
-    await updateProjectSection(sectionUpdatePayload(section, { ...patch, name: nextName }));
-    await reload();
+    await commitMutation(`section:${section.id}`, () =>
+      updateProjectSection(sectionUpdatePayload(section, { ...patch, name: nextName })));
   }
 
   async function hideSection(section: ProjectSection): Promise<void> {
@@ -300,11 +328,10 @@ export function createProjectStoreActions(context: ProjectStoreActionContext) {
     const updates = selectors.sectionsForProject(projectId)
       .filter((section) => section.collapsed !== collapsedIds.has(section.id));
     for (const section of updates) {
-      await updateProjectSection(sectionUpdatePayload(section, {
+      await commitMutation(`section:${section.id}`, () => updateProjectSection(sectionUpdatePayload(section, {
         collapsed: collapsedIds.has(section.id),
-      }));
+      })));
     }
-    if (updates.length > 0) await reload();
   }
 
   async function addStatus(
@@ -315,16 +342,16 @@ export function createProjectStoreActions(context: ProjectStoreActionContext) {
   ): Promise<void> {
     const displayName = normalizeProjectName(name);
     if (!displayName) return;
-    await createProjectStatus({
-      id: crypto.randomUUID(),
+    const id = crypto.randomUUID();
+    await commitMutation(`status:${id}`, () => createProjectStatus({
+      id,
       projectId,
       name: displayName,
       category,
       color,
       sortOrder: selectors.nextStatusSortOrder(projectId),
       terminal: category === "done",
-    });
-    await reload();
+    }));
   }
 
   async function updateStatus(
@@ -334,15 +361,14 @@ export function createProjectStoreActions(context: ProjectStoreActionContext) {
     const displayName = normalizeProjectName(patch.name ?? status.name);
     if (!displayName) return;
     const category = patch.category ?? status.category;
-    await updateProjectStatus({
+    await commitMutation(`status:${status.id}`, () => updateProjectStatus({
       id: status.id,
       name: displayName,
       category,
       color: patch.color ?? status.color,
       sortOrder: patch.sortOrder ?? status.sortOrder,
       terminal: category === "done",
-    });
-    await reload();
+    }));
   }
 
   async function moveStatus(status: ProjectStatus, direction: -1 | 1): Promise<void> {
@@ -350,28 +376,26 @@ export function createProjectStoreActions(context: ProjectStoreActionContext) {
     const index = ordered.findIndex((entry) => entry.id === status.id);
     const target = ordered[index + direction];
     if (index < 0 || !target) return;
-    await updateProjectStatus({
+    await commitMutation(`status:${status.id}`, () => updateProjectStatus({
       id: status.id,
       name: status.name,
       category: status.category,
       color: status.color,
       sortOrder: target.sortOrder,
       terminal: status.category === "done",
-    });
-    await updateProjectStatus({
+    }));
+    await commitMutation(`status:${target.id}`, () => updateProjectStatus({
       id: target.id,
       name: target.name,
       category: target.category,
       color: target.color,
       sortOrder: status.sortOrder,
       terminal: target.category === "done",
-    });
-    await reload();
+    }));
   }
 
   async function removeStatus(statusId: string): Promise<void> {
-    await deleteProjectStatus(statusId);
-    await reload();
+    await commitMutation(`status:${statusId}`, () => deleteProjectStatus(statusId));
   }
 
   async function addPriority(
@@ -381,14 +405,14 @@ export function createProjectStoreActions(context: ProjectStoreActionContext) {
   ): Promise<void> {
     const displayName = normalizeProjectName(name);
     if (!displayName) return;
-    await createProjectPriority({
-      id: crypto.randomUUID(),
+    const id = crypto.randomUUID();
+    await commitMutation(`priority:${id}`, () => createProjectPriority({
+      id,
       projectId,
       name: displayName,
       color,
       sortOrder: selectors.nextPrioritySortOrder(projectId),
-    });
-    await reload();
+    }));
   }
 
   async function updatePriority(
@@ -397,14 +421,13 @@ export function createProjectStoreActions(context: ProjectStoreActionContext) {
   ): Promise<void> {
     const displayName = normalizeProjectName(patch.name ?? priority.name);
     if (!displayName) return;
-    await updateProjectPriority({
+    await commitMutation(`priority:${priority.id}`, () => updateProjectPriority({
       id: priority.id,
       projectId: priority.projectId,
       name: displayName,
       color: patch.color ?? priority.color,
       sortOrder: patch.sortOrder ?? priority.sortOrder,
-    });
-    await reload();
+    }));
   }
 
   async function movePriority(priority: ProjectPriorityConfig, direction: -1 | 1): Promise<void> {
@@ -412,26 +435,25 @@ export function createProjectStoreActions(context: ProjectStoreActionContext) {
     const index = ordered.findIndex((entry) => entry.id === priority.id);
     const target = ordered[index + direction];
     if (index < 0 || !target) return;
-    await updateProjectPriority({
+    await commitMutation(`priority:${priority.id}`, () => updateProjectPriority({
       id: priority.id,
       projectId: priority.projectId,
       name: priority.name,
       color: priority.color,
       sortOrder: target.sortOrder,
-    });
-    await updateProjectPriority({
+    }));
+    await commitMutation(`priority:${target.id}`, () => updateProjectPriority({
       id: target.id,
       projectId: target.projectId,
       name: target.name,
       color: target.color,
       sortOrder: priority.sortOrder,
-    });
-    await reload();
+    }));
   }
 
   async function removePriority(priority: ProjectPriorityConfig): Promise<void> {
-    await deleteProjectPriority(priority.projectId, priority.id);
-    await reload();
+    await commitMutation(`priority:${priority.id}`, () =>
+      deleteProjectPriority(priority.projectId, priority.id));
   }
 
   async function addTask(
@@ -450,42 +472,36 @@ export function createProjectStoreActions(context: ProjectStoreActionContext) {
       throw new Error("project needs at least one section and one status");
     }
     const taskId = crypto.randomUUID();
-    await createProjectTask({
+    const mutation = await commitMutation(`task:${taskId}`, () => createProjectTask({
       id: taskId,
       projectId,
       sectionId: resolvedSectionId,
       statusId: resolvedStatusId,
       parentTaskId,
       title: displayTitle,
-    });
-    await reload(projectId);
-    const createdTask = selectors.taskById(taskId);
-    if (!createdTask) {
-      throw new Error("created task was not returned by the project snapshot");
-    }
-    return createdTask;
+    }));
+    return changedById(mutation.changed.tasks, taskId, "created task");
   }
 
   async function addChecklistItem(taskId: string, title: string): Promise<void> {
     const displayTitle = normalizeProjectName(title);
     if (!displayTitle) return;
-    await createProjectChecklistItem({
-      id: crypto.randomUUID(),
+    const id = crypto.randomUUID();
+    await commitMutation(`checklist:${id}`, () => createProjectChecklistItem({
+      id,
       taskId,
       title: displayTitle,
       sortOrder: selectors.nextChecklistSortOrder(taskId),
-    });
-    await reload();
+    }));
   }
 
   async function setChecklistItemCompleted(
     item: ProjectChecklistItem,
     completed: boolean,
   ): Promise<void> {
-    await updateProjectChecklistItem(checklistItemUpdatePayload(item, {
+    await commitMutation(`checklist:${item.id}`, () => updateProjectChecklistItem(checklistItemUpdatePayload(item, {
       completedAt: completed ? new Date().toISOString() : undefined,
-    }));
-    await reload();
+    })));
   }
 
   async function updateChecklistItem(
@@ -494,8 +510,8 @@ export function createProjectStoreActions(context: ProjectStoreActionContext) {
   ): Promise<void> {
     const nextTitle = normalizeProjectName(patch.title ?? item.title);
     if (!nextTitle) return;
-    await updateProjectChecklistItem(checklistItemUpdatePayload(item, { ...patch, title: nextTitle }));
-    await reload();
+    await commitMutation(`checklist:${item.id}`, () =>
+      updateProjectChecklistItem(checklistItemUpdatePayload(item, { ...patch, title: nextTitle })));
   }
 
   async function moveChecklistItem(item: ProjectChecklistItem, direction: -1 | 1): Promise<void> {
@@ -503,14 +519,14 @@ export function createProjectStoreActions(context: ProjectStoreActionContext) {
     const index = ordered.findIndex((entry) => entry.id === item.id);
     const target = ordered[index + direction];
     if (index < 0 || !target) return;
-    await updateProjectChecklistItem(checklistItemUpdatePayload(item, { sortOrder: target.sortOrder }));
-    await updateProjectChecklistItem(checklistItemUpdatePayload(target, { sortOrder: item.sortOrder }));
-    await reload();
+    await commitMutation(`checklist:${item.id}`, () =>
+      updateProjectChecklistItem(checklistItemUpdatePayload(item, { sortOrder: target.sortOrder })));
+    await commitMutation(`checklist:${target.id}`, () =>
+      updateProjectChecklistItem(checklistItemUpdatePayload(target, { sortOrder: item.sortOrder })));
   }
 
   async function removeChecklistItem(itemId: string): Promise<void> {
-    await deleteProjectChecklistItem(itemId);
-    await reload();
+    await commitMutation(`checklist:${itemId}`, () => deleteProjectChecklistItem(itemId));
   }
 
   async function addTag(
@@ -523,15 +539,14 @@ export function createProjectStoreActions(context: ProjectStoreActionContext) {
     const existingTag = selectors.projectTagByName(projectId, displayName);
     if (existingTag) return existingTag;
     const tagId = crypto.randomUUID();
-    await createProjectTag({
+    const mutation = await commitMutation(`tag:${tagId}`, () => createProjectTag({
       id: tagId,
       projectId,
       name: displayName,
       color: color ?? PROJECT_TAG_DEFAULT_COLOR,
       sortOrder: selectors.nextTagSortOrder(projectId),
-    });
-    await reload();
-    return selectors.tagById(tagId);
+    }));
+    return changedById(mutation.changed.tags, tagId, "created tag");
   }
 
   async function updateTag(
@@ -540,8 +555,8 @@ export function createProjectStoreActions(context: ProjectStoreActionContext) {
   ): Promise<void> {
     const nextName = normalizeProjectName(patch.name ?? tag.name);
     if (!nextName) return;
-    await updateProjectTag(tagUpdatePayload(tag, { ...patch, name: nextName }));
-    await reload();
+    await commitMutation(`tag:${tag.id}`, () =>
+      updateProjectTag(tagUpdatePayload(tag, { ...patch, name: nextName })));
   }
 
   async function moveTag(tag: ProjectTag, direction: -1 | 1): Promise<void> {
@@ -549,24 +564,22 @@ export function createProjectStoreActions(context: ProjectStoreActionContext) {
     const index = ordered.findIndex((entry) => entry.id === tag.id);
     const target = ordered[index + direction];
     if (index < 0 || !target) return;
-    await updateProjectTag(tagUpdatePayload(tag, { sortOrder: target.sortOrder }));
-    await updateProjectTag(tagUpdatePayload(target, { sortOrder: tag.sortOrder }));
-    await reload();
+    await commitMutation(`tag:${tag.id}`, () =>
+      updateProjectTag(tagUpdatePayload(tag, { sortOrder: target.sortOrder })));
+    await commitMutation(`tag:${target.id}`, () =>
+      updateProjectTag(tagUpdatePayload(target, { sortOrder: tag.sortOrder })));
   }
 
   async function removeTag(tagId: string): Promise<void> {
-    await deleteProjectTag(tagId);
-    await reload();
+    await commitMutation(`tag:${tagId}`, () => deleteProjectTag(tagId));
   }
 
   async function linkTaskTag(taskId: string, tagId: string): Promise<void> {
-    await linkProjectTaskTag({ taskId, tagId });
-    await reload();
+    await commitMutation(`task-tag:${taskId}:${tagId}`, () => linkProjectTaskTag({ taskId, tagId }));
   }
 
   async function unlinkTaskTag(taskId: string, tagId: string): Promise<void> {
-    await unlinkProjectTaskTag(taskId, tagId);
-    await reload();
+    await commitMutation(`task-tag:${taskId}:${tagId}`, () => unlinkProjectTaskTag(taskId, tagId));
   }
 
   async function addAndLinkTaskTag(task: ProjectTask, name: string): Promise<void> {
@@ -579,22 +592,20 @@ export function createProjectStoreActions(context: ProjectStoreActionContext) {
     const displayName = normalizeProjectName(name);
     if (!displayName) return undefined;
     const emojiId = crypto.randomUUID();
-    await createProjectCustomEmoji({
+    const mutation = await commitMutation(`emoji:${emojiId}`, () => createProjectCustomEmoji({
       id: emojiId,
       name: displayName,
       assetPath,
       sortOrder: selectors.nextCustomEmojiSortOrder(),
-    });
-    await reload();
-    return readSnapshot().customEmojis.find((emoji) => emoji.id === emojiId);
+    }));
+    return changedById(mutation.changed.customEmojis, emojiId, "created custom emoji");
   }
 
   async function removeCustomEmoji(emojiId: string): Promise<void> {
     const assetPath = readSnapshot().customEmojis.find((emoji) => emoji.id === emojiId)?.assetPath;
-    await deleteProjectCustomEmoji(emojiId);
+    await commitMutation(`emoji:${emojiId}`, () => deleteProjectCustomEmoji(emojiId));
     if (assetPath) invalidateAssetUrl("project-icon", assetPath);
     else invalidateAssetUrlKind("project-icon");
-    await reload();
   }
 
   async function addCustomField(
@@ -607,15 +618,14 @@ export function createProjectStoreActions(context: ProjectStoreActionContext) {
     const existingField = selectors.customFieldByName(projectId, displayName);
     if (existingField) return existingField;
     const fieldId = crypto.randomUUID();
-    await createProjectCustomField({
+    const mutation = await commitMutation(`field:${fieldId}`, () => createProjectCustomField({
       id: fieldId,
       projectId,
       name: displayName,
       fieldType,
       sortOrder: selectors.nextCustomFieldSortOrder(projectId),
-    });
-    await reload();
-    return selectors.customFieldById(fieldId);
+    }));
+    return changedById(mutation.changed.customFields, fieldId, "created custom field");
   }
 
   async function updateCustomField(
@@ -624,8 +634,8 @@ export function createProjectStoreActions(context: ProjectStoreActionContext) {
   ): Promise<void> {
     const nextName = normalizeProjectName(patch.name ?? field.name);
     if (!nextName) return;
-    await updateProjectCustomField(customFieldUpdatePayload(field, { ...patch, name: nextName }));
-    await reload();
+    await commitMutation(`field:${field.id}`, () =>
+      updateProjectCustomField(customFieldUpdatePayload(field, { ...patch, name: nextName })));
   }
 
   async function moveCustomField(field: ProjectCustomField, direction: -1 | 1): Promise<void> {
@@ -633,14 +643,14 @@ export function createProjectStoreActions(context: ProjectStoreActionContext) {
     const index = ordered.findIndex((entry) => entry.id === field.id);
     const target = ordered[index + direction];
     if (index < 0 || !target) return;
-    await updateProjectCustomField(customFieldUpdatePayload(field, { sortOrder: target.sortOrder }));
-    await updateProjectCustomField(customFieldUpdatePayload(target, { sortOrder: field.sortOrder }));
-    await reload();
+    await commitMutation(`field:${field.id}`, () =>
+      updateProjectCustomField(customFieldUpdatePayload(field, { sortOrder: target.sortOrder })));
+    await commitMutation(`field:${target.id}`, () =>
+      updateProjectCustomField(customFieldUpdatePayload(target, { sortOrder: field.sortOrder })));
   }
 
   async function removeCustomField(fieldId: string): Promise<void> {
-    await deleteProjectCustomField(fieldId);
-    await reload();
+    await commitMutation(`field:${fieldId}`, () => deleteProjectCustomField(fieldId));
   }
 
   async function addCustomFieldOption(
@@ -652,14 +662,13 @@ export function createProjectStoreActions(context: ProjectStoreActionContext) {
     const existingOption = selectors.customFieldOptionByName(fieldId, displayName);
     if (existingOption) return existingOption;
     const optionId = crypto.randomUUID();
-    await createProjectCustomFieldOption({
+    const mutation = await commitMutation(`field-option:${optionId}`, () => createProjectCustomFieldOption({
       id: optionId,
       fieldId,
       name: displayName,
       sortOrder: selectors.nextCustomFieldOptionSortOrder(fieldId),
-    });
-    await reload();
-    return readSnapshot().customFieldOptions.find((option) => option.id === optionId);
+    }));
+    return changedById(mutation.changed.customFieldOptions, optionId, "created custom field option");
   }
 
   async function updateCustomFieldOption(
@@ -668,8 +677,8 @@ export function createProjectStoreActions(context: ProjectStoreActionContext) {
   ): Promise<void> {
     const nextName = normalizeProjectName(patch.name ?? option.name);
     if (!nextName) return;
-    await updateProjectCustomFieldOption(customFieldOptionUpdatePayload(option, { ...patch, name: nextName }));
-    await reload();
+    await commitMutation(`field-option:${option.id}`, () =>
+      updateProjectCustomFieldOption(customFieldOptionUpdatePayload(option, { ...patch, name: nextName })));
   }
 
   async function moveCustomFieldOption(option: ProjectCustomFieldOption, direction: -1 | 1): Promise<void> {
@@ -677,24 +686,23 @@ export function createProjectStoreActions(context: ProjectStoreActionContext) {
     const index = ordered.findIndex((entry) => entry.id === option.id);
     const target = ordered[index + direction];
     if (index < 0 || !target) return;
-    await updateProjectCustomFieldOption(customFieldOptionUpdatePayload(option, { sortOrder: target.sortOrder }));
-    await updateProjectCustomFieldOption(customFieldOptionUpdatePayload(target, { sortOrder: option.sortOrder }));
-    await reload();
+    await commitMutation(`field-option:${option.id}`, () =>
+      updateProjectCustomFieldOption(customFieldOptionUpdatePayload(option, { sortOrder: target.sortOrder })));
+    await commitMutation(`field-option:${target.id}`, () =>
+      updateProjectCustomFieldOption(customFieldOptionUpdatePayload(target, { sortOrder: option.sortOrder })));
   }
 
   async function removeCustomFieldOption(optionId: string): Promise<void> {
-    await deleteProjectCustomFieldOption(optionId);
-    await reload();
+    await commitMutation(`field-option:${optionId}`, () => deleteProjectCustomFieldOption(optionId));
   }
 
   async function saveCustomFieldValue(value: ProjectCustomFieldValueUpdate): Promise<void> {
-    await updateProjectCustomFieldValue(value);
-    await reload();
+    await commitMutation(`field-value:${value.taskId}:${value.fieldId}`, () =>
+      updateProjectCustomFieldValue(value));
   }
 
   async function updateTask(task: ProjectTask, patch: ProjectTaskUpdatePatch): Promise<void> {
-    await updateProjectTask(taskUpdatePayload(task, patch));
-    await reload();
+    await commitMutation(`task:${task.id}`, () => updateProjectTask(taskUpdatePayload(task, patch)));
   }
 
   async function updateTasks(
@@ -702,9 +710,9 @@ export function createProjectStoreActions(context: ProjectStoreActionContext) {
     patchForTask: (task: ProjectTask, index: number) => ProjectTaskUpdatePatch,
   ): Promise<void> {
     for (const [index, task] of tasks.entries()) {
-      await updateProjectTask(taskUpdatePayload(task, patchForTask(task, index)));
+      await commitMutation(`task:${task.id}`, () =>
+        updateProjectTask(taskUpdatePayload(task, patchForTask(task, index))));
     }
-    await reload();
   }
 
   async function setTaskStatus(task: ProjectTask, statusId: string): Promise<void> {
@@ -760,9 +768,10 @@ export function createProjectStoreActions(context: ProjectStoreActionContext) {
     const index = ordered.findIndex((entry) => entry.id === task.id);
     const target = ordered[index + direction];
     if (index < 0 || !target) return;
-    await updateProjectTask(taskUpdatePayload(task, { sectionSortOrder: target.sectionSortOrder }));
-    await updateProjectTask(taskUpdatePayload(target, { sectionSortOrder: task.sectionSortOrder }));
-    await reload();
+    await commitMutation(`task:${task.id}`, () =>
+      updateProjectTask(taskUpdatePayload(task, { sectionSortOrder: target.sectionSortOrder })));
+    await commitMutation(`task:${target.id}`, () =>
+      updateProjectTask(taskUpdatePayload(target, { sectionSortOrder: task.sectionSortOrder })));
   }
 
   async function moveTaskInStatus(task: ProjectTask, direction: -1 | 1): Promise<void> {
@@ -771,9 +780,10 @@ export function createProjectStoreActions(context: ProjectStoreActionContext) {
     const index = ordered.findIndex((entry) => entry.id === task.id);
     const target = ordered[index + direction];
     if (index < 0 || !target) return;
-    await updateProjectTask(taskUpdatePayload(task, { statusSortOrder: target.statusSortOrder }));
-    await updateProjectTask(taskUpdatePayload(target, { statusSortOrder: task.statusSortOrder }));
-    await reload();
+    await commitMutation(`task:${task.id}`, () =>
+      updateProjectTask(taskUpdatePayload(task, { statusSortOrder: target.statusSortOrder })));
+    await commitMutation(`task:${target.id}`, () =>
+      updateProjectTask(taskUpdatePayload(target, { statusSortOrder: task.statusSortOrder })));
   }
 
   async function moveSubtask(task: ProjectTask, direction: -1 | 1): Promise<void> {
@@ -782,9 +792,10 @@ export function createProjectStoreActions(context: ProjectStoreActionContext) {
     const index = ordered.findIndex((entry) => entry.id === task.id);
     const target = ordered[index + direction];
     if (index < 0 || !target) return;
-    await updateProjectTask(taskUpdatePayload(task, { sectionSortOrder: target.sectionSortOrder }));
-    await updateProjectTask(taskUpdatePayload(target, { sectionSortOrder: task.sectionSortOrder }));
-    await reload();
+    await commitMutation(`task:${task.id}`, () =>
+      updateProjectTask(taskUpdatePayload(task, { sectionSortOrder: target.sectionSortOrder })));
+    await commitMutation(`task:${target.id}`, () =>
+      updateProjectTask(taskUpdatePayload(target, { sectionSortOrder: task.sectionSortOrder })));
   }
 
   async function promoteSubtask(task: ProjectTask): Promise<void> {
@@ -812,34 +823,30 @@ export function createProjectStoreActions(context: ProjectStoreActionContext) {
     eventId: string,
     linkKind: ProjectTaskEventLink["linkKind"] = "scheduled",
   ): Promise<void> {
-    await linkProjectTaskEvent({ taskId, eventId, linkKind });
-    await reload();
+    await commitMutation(`event-link:${taskId}:${eventId}`, () =>
+      linkProjectTaskEvent({ taskId, eventId, linkKind }));
   }
 
   async function unlinkTaskEvent(taskId: string, eventId: string): Promise<void> {
-    await unlinkProjectTaskEvent(taskId, eventId);
-    await reload();
+    await commitMutation(`event-link:${taskId}:${eventId}`, () =>
+      unlinkProjectTaskEvent(taskId, eventId));
   }
 
   async function setEventTaskLinks(eventId: string, taskIds: readonly string[]): Promise<void> {
     const desired = new Set(taskIds.filter((taskId) => taskId.trim().length > 0));
     const existing = selectors.eventLinksForEvent(eventId);
     const existingTaskIds = new Set(existing.map((link) => link.taskId));
-    let changed = false;
-
     for (const link of existing) {
       if (desired.has(link.taskId)) continue;
-      await unlinkProjectTaskEvent(link.taskId, eventId);
-      changed = true;
+      await commitMutation(`event-link:${link.taskId}:${eventId}`, () =>
+        unlinkProjectTaskEvent(link.taskId, eventId));
     }
 
     for (const taskId of desired) {
       if (existingTaskIds.has(taskId)) continue;
-      await linkProjectTaskEvent({ taskId, eventId, linkKind: "scheduled" });
-      changed = true;
+      await commitMutation(`event-link:${taskId}:${eventId}`, () =>
+        linkProjectTaskEvent({ taskId, eventId, linkKind: "scheduled" }));
     }
-
-    if (changed) await reload();
   }
 
   async function searchLinkableEvents(
@@ -855,65 +862,67 @@ export function createProjectStoreActions(context: ProjectStoreActionContext) {
 
   async function addTaskDependency(blockingTaskId: string, blockedTaskId: string): Promise<void> {
     if (!blockingTaskId || !blockedTaskId || blockingTaskId === blockedTaskId) return;
-    await createProjectTaskDependency({
-      id: crypto.randomUUID(),
+    const id = crypto.randomUUID();
+    await commitMutation(`dependency:${id}`, () => createProjectTaskDependency({
+      id,
       blockingTaskId,
       blockedTaskId,
       dependencyType: "blocks",
-    });
-    await reload();
+    }));
   }
 
   async function removeTaskDependency(dependencyId: string): Promise<void> {
-    await deleteProjectTaskDependency(dependencyId);
-    await reload();
+    await commitMutation(`dependency:${dependencyId}`, () =>
+      deleteProjectTaskDependency(dependencyId));
   }
 
   async function saveTaskView(view: ProjectSavedTaskView): Promise<void> {
     const name = normalizeProjectName(view.name);
     if (!name) return;
-    await upsertProjectViewPreference({
+    const preferenceKey = savedTaskViewPreferenceKey(view.id);
+    await commitMutation(`preference:${view.projectId}:${view.viewId}:${preferenceKey}`, () =>
+      upsertProjectViewPreference({
       projectId: view.projectId,
       viewId: view.viewId,
-      preferenceKey: savedTaskViewPreferenceKey(view.id),
+      preferenceKey,
       preferenceValue: savedTaskViewPreferenceValue({ ...view, name }),
-    });
-    await reload();
+    }));
   }
 
   async function deleteTaskView(view: ProjectSavedTaskView): Promise<void> {
-    await deleteProjectViewPreference(
+    const preferenceKey = savedTaskViewPreferenceKey(view.id);
+    await commitMutation(`preference:${view.projectId}:${view.viewId}:${preferenceKey}`, () =>
+      deleteProjectViewPreference(
       view.projectId,
       view.viewId,
-      savedTaskViewPreferenceKey(view.id),
-    );
-    await reload();
+      preferenceKey,
+    ));
   }
 
   async function saveTaskListColumns(
     projectId: string,
     columns: readonly ProjectTaskListColumn[],
   ): Promise<void> {
-    await upsertProjectViewPreference({
+    await commitMutation(`preference:${projectId}:list:${TASK_LIST_COLUMNS_PREFERENCE_KEY}`, () =>
+      upsertProjectViewPreference({
       projectId,
       viewId: "list",
       preferenceKey: TASK_LIST_COLUMNS_PREFERENCE_KEY,
       preferenceValue: taskListColumnsPreferenceValue(columns),
-    });
-    await reload();
+    }));
   }
 
   async function saveTaskListColumnWidths(
     projectId: string,
     widths: ProjectTaskListColumnWidths,
   ): Promise<void> {
-    await upsertProjectViewPreference({
+    await commitMutation(`preference:${projectId}:list:${TASK_LIST_COLUMN_WIDTHS_PREFERENCE_KEY}`, () =>
+      upsertProjectViewPreference({
       projectId,
       viewId: "list",
       preferenceKey: TASK_LIST_COLUMN_WIDTHS_PREFERENCE_KEY,
       preferenceValue: taskListColumnWidthsPreferenceValue(widths),
-    });
-    await reload();
+    }));
   }
 
   return {

@@ -601,6 +601,22 @@ export function getCalendar() {
       return foregroundWindowBusy;
     },
 
+    /** Applies project assignments returned by a committed task-link mutation. */
+    applyProjectAssignments(assignments: readonly { eventId: string; projectId: string }[]): void {
+      if (assignments.length === 0) return;
+      const projectIdByEventId = new Map(
+        assignments.map((assignment) => [assignment.eventId, assignment.projectId]),
+      );
+      let changed = false;
+      rawBlocks = rawBlocks.map((event) => {
+        const projectId = projectIdByEventId.get(event.id);
+        if (!projectId || event.projectId === projectId) return event;
+        changed = true;
+        return { ...event, projectId };
+      });
+      if (changed) invalidate();
+    },
+
     isWindowCurrent(
       windowStart: Temporal.PlainDate,
       windowEnd: Temporal.PlainDate,

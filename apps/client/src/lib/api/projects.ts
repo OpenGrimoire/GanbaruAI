@@ -41,6 +41,8 @@ import type {
   ProjectTagCreate,
   ProjectTagUpdate,
   ProjectLinkableEvent,
+  ProjectMutation,
+  ProjectMutationRemoval,
   ProjectOptionalDataKind,
   ProjectPriorityConfig,
   ProjectPriorityCreate,
@@ -345,6 +347,32 @@ interface ProjectsOptionalDataRows {
   task_change_events: ProjectTaskChangeEventRow[];
   view_preferences: ProjectViewPreferenceRow[];
   custom_emojis: ProjectCustomEmojiRow[];
+}
+
+type ProjectMutationRemovalRow =
+  | { kind: "group"; id: string }
+  | { kind: "project"; id: string }
+  | { kind: "status"; id: string }
+  | { kind: "priority"; id: string }
+  | { kind: "checklist_item"; id: string }
+  | { kind: "tag"; id: string }
+  | { kind: "task_tag_link"; task_id: string; tag_id: string }
+  | { kind: "custom_field"; id: string }
+  | { kind: "custom_field_option"; id: string }
+  | { kind: "custom_field_value"; task_id: string; field_id: string }
+  | { kind: "dependency"; id: string }
+  | { kind: "event_link"; task_id: string; event_id: string }
+  | {
+      kind: "view_preference";
+      project_id: string;
+      view_id: string;
+      preference_key: string;
+    }
+  | { kind: "custom_emoji"; id: string };
+
+interface ProjectsMutationRows extends ProjectsSnapshotRows {
+  removals: ProjectMutationRemovalRow[];
+  calendar_event_project_assignments: Array<{ event_id: string; project_id: string }>;
 }
 
 function optionalText(value: string | null): string | undefined {
@@ -696,6 +724,37 @@ function mapOptionalData(rows: ProjectsOptionalDataRows): ProjectsOptionalData {
   };
 }
 
+function mapMutationRemoval(row: ProjectMutationRemovalRow): ProjectMutationRemoval {
+  switch (row.kind) {
+    case "task_tag_link":
+      return { kind: row.kind, taskId: row.task_id, tagId: row.tag_id };
+    case "custom_field_value":
+      return { kind: row.kind, taskId: row.task_id, fieldId: row.field_id };
+    case "event_link":
+      return { kind: row.kind, taskId: row.task_id, eventId: row.event_id };
+    case "view_preference":
+      return {
+        kind: row.kind,
+        projectId: row.project_id,
+        viewId: row.view_id,
+        preferenceKey: row.preference_key,
+      };
+    default:
+      return row;
+  }
+}
+
+function mapMutation(rows: ProjectsMutationRows): ProjectMutation {
+  return {
+    changed: mapSnapshot(rows),
+    removals: rows.removals.map(mapMutationRemoval),
+    calendarEventProjectAssignments: rows.calendar_event_project_assignments.map((assignment) => ({
+      eventId: assignment.event_id,
+      projectId: assignment.project_id,
+    })),
+  };
+}
+
 export async function loadProjectsWorkspace(
   preferredProjectId: string | null,
   activeView: ProjectViewId,
@@ -735,46 +794,53 @@ export async function loadProjectsOptionalData(
   return mapOptionalData(rows);
 }
 
-export async function createProjectGroup(group: ProjectGroupCreate): Promise<void> {
-  const dbUrl = await ensureDbUrl();
-  await invoke("projects_create_group", { dbUrl, group });
+async function invokeProjectMutation(
+  command: string,
+  args: Record<string, unknown>,
+): Promise<ProjectMutation> {
+  return mapMutation(await invoke<ProjectsMutationRows>(command, args));
 }
 
-export async function updateProjectGroup(group: ProjectGroupUpdate): Promise<void> {
+export async function createProjectGroup(group: ProjectGroupCreate): Promise<ProjectMutation> {
   const dbUrl = await ensureDbUrl();
-  await invoke("projects_update_group", { dbUrl, group });
+  return invokeProjectMutation("projects_create_group", { dbUrl, group });
 }
 
-export async function deleteProjectGroup(groupId: string): Promise<void> {
+export async function updateProjectGroup(group: ProjectGroupUpdate): Promise<ProjectMutation> {
   const dbUrl = await ensureDbUrl();
-  await invoke("projects_delete_group", { dbUrl, groupId });
+  return invokeProjectMutation("projects_update_group", { dbUrl, group });
+}
+
+export async function deleteProjectGroup(groupId: string): Promise<ProjectMutation> {
+  const dbUrl = await ensureDbUrl();
+  return invokeProjectMutation("projects_delete_group", { dbUrl, groupId });
 }
 
 export async function setProjectGroupCollapsed(
   groupId: string,
   collapsed: boolean,
-): Promise<void> {
+): Promise<ProjectMutation> {
   const dbUrl = await ensureDbUrl();
-  await invoke("projects_set_group_collapsed", { dbUrl, groupId, collapsed });
+  return invokeProjectMutation("projects_set_group_collapsed", { dbUrl, groupId, collapsed });
 }
 
-export async function createProject(project: ProjectCreate): Promise<void> {
+export async function createProject(project: ProjectCreate): Promise<ProjectMutation> {
   const dbUrl = await ensureDbUrl();
-  await invoke("projects_create_project", { dbUrl, project });
+  return invokeProjectMutation("projects_create_project", { dbUrl, project });
 }
 
-export async function updateProject(project: ProjectUpdate): Promise<void> {
+export async function updateProject(project: ProjectUpdate): Promise<ProjectMutation> {
   const dbUrl = await ensureDbUrl();
-  await invoke("projects_update_project", { dbUrl, project });
+  return invokeProjectMutation("projects_update_project", { dbUrl, project });
 }
 
 export async function updateProjectNotesSettings(
   projectId: string,
   notesDefaultOpenMode: NotesPageOpenMode | null,
   notesHistoryRetentionDays: NotesHistoryRetentionDays | null,
-): Promise<void> {
+): Promise<ProjectMutation> {
   const dbUrl = await ensureDbUrl();
-  await invoke("projects_update_notes_settings", {
+  return invokeProjectMutation("projects_update_notes_settings", {
     dbUrl,
     projectId,
     notesDefaultOpenMode,
@@ -782,139 +848,139 @@ export async function updateProjectNotesSettings(
   });
 }
 
-export async function createProjectSection(section: ProjectSectionCreate): Promise<void> {
+export async function createProjectSection(section: ProjectSectionCreate): Promise<ProjectMutation> {
   const dbUrl = await ensureDbUrl();
-  await invoke("projects_create_section", { dbUrl, section });
+  return invokeProjectMutation("projects_create_section", { dbUrl, section });
 }
 
-export async function updateProjectSection(section: ProjectSectionUpdate): Promise<void> {
+export async function updateProjectSection(section: ProjectSectionUpdate): Promise<ProjectMutation> {
   const dbUrl = await ensureDbUrl();
-  await invoke("projects_update_section", { dbUrl, section });
+  return invokeProjectMutation("projects_update_section", { dbUrl, section });
 }
 
-export async function createProjectStatus(status: ProjectStatusCreate): Promise<void> {
+export async function createProjectStatus(status: ProjectStatusCreate): Promise<ProjectMutation> {
   const dbUrl = await ensureDbUrl();
-  await invoke("projects_create_status", { dbUrl, status });
+  return invokeProjectMutation("projects_create_status", { dbUrl, status });
 }
 
-export async function updateProjectStatus(status: ProjectStatusUpdate): Promise<void> {
+export async function updateProjectStatus(status: ProjectStatusUpdate): Promise<ProjectMutation> {
   const dbUrl = await ensureDbUrl();
-  await invoke("projects_update_status", { dbUrl, status });
+  return invokeProjectMutation("projects_update_status", { dbUrl, status });
 }
 
-export async function deleteProjectStatus(statusId: string): Promise<void> {
+export async function deleteProjectStatus(statusId: string): Promise<ProjectMutation> {
   const dbUrl = await ensureDbUrl();
-  await invoke("projects_delete_status", { dbUrl, statusId });
+  return invokeProjectMutation("projects_delete_status", { dbUrl, statusId });
 }
 
-export async function createProjectPriority(priority: ProjectPriorityCreate): Promise<void> {
+export async function createProjectPriority(priority: ProjectPriorityCreate): Promise<ProjectMutation> {
   const dbUrl = await ensureDbUrl();
-  await invoke("projects_create_priority", { dbUrl, priority });
+  return invokeProjectMutation("projects_create_priority", { dbUrl, priority });
 }
 
-export async function updateProjectPriority(priority: ProjectPriorityUpdate): Promise<void> {
+export async function updateProjectPriority(priority: ProjectPriorityUpdate): Promise<ProjectMutation> {
   const dbUrl = await ensureDbUrl();
-  await invoke("projects_update_priority", { dbUrl, priority });
+  return invokeProjectMutation("projects_update_priority", { dbUrl, priority });
 }
 
-export async function deleteProjectPriority(projectId: string, priorityId: string): Promise<void> {
+export async function deleteProjectPriority(projectId: string, priorityId: string): Promise<ProjectMutation> {
   const dbUrl = await ensureDbUrl();
-  await invoke("projects_delete_priority", { dbUrl, projectId, priorityId });
+  return invokeProjectMutation("projects_delete_priority", { dbUrl, projectId, priorityId });
 }
 
-export async function createProjectTask(task: ProjectTaskCreate): Promise<void> {
+export async function createProjectTask(task: ProjectTaskCreate): Promise<ProjectMutation> {
   const dbUrl = await ensureDbUrl();
-  await invoke("projects_create_task", { dbUrl, task });
+  return invokeProjectMutation("projects_create_task", { dbUrl, task });
 }
 
-export async function createProjectChecklistItem(item: ProjectChecklistItemCreate): Promise<void> {
+export async function createProjectChecklistItem(item: ProjectChecklistItemCreate): Promise<ProjectMutation> {
   const dbUrl = await ensureDbUrl();
-  await invoke("projects_create_checklist_item", { dbUrl, item });
+  return invokeProjectMutation("projects_create_checklist_item", { dbUrl, item });
 }
 
-export async function updateProjectChecklistItem(item: ProjectChecklistItemUpdate): Promise<void> {
+export async function updateProjectChecklistItem(item: ProjectChecklistItemUpdate): Promise<ProjectMutation> {
   const dbUrl = await ensureDbUrl();
-  await invoke("projects_update_checklist_item", { dbUrl, item });
+  return invokeProjectMutation("projects_update_checklist_item", { dbUrl, item });
 }
 
-export async function deleteProjectChecklistItem(itemId: string): Promise<void> {
+export async function deleteProjectChecklistItem(itemId: string): Promise<ProjectMutation> {
   const dbUrl = await ensureDbUrl();
-  await invoke("projects_delete_checklist_item", { dbUrl, itemId });
+  return invokeProjectMutation("projects_delete_checklist_item", { dbUrl, itemId });
 }
 
-export async function createProjectTag(tag: ProjectTagCreate): Promise<void> {
+export async function createProjectTag(tag: ProjectTagCreate): Promise<ProjectMutation> {
   const dbUrl = await ensureDbUrl();
-  await invoke("projects_create_tag", { dbUrl, tag });
+  return invokeProjectMutation("projects_create_tag", { dbUrl, tag });
 }
 
-export async function updateProjectTag(tag: ProjectTagUpdate): Promise<void> {
+export async function updateProjectTag(tag: ProjectTagUpdate): Promise<ProjectMutation> {
   const dbUrl = await ensureDbUrl();
-  await invoke("projects_update_tag", { dbUrl, tag });
+  return invokeProjectMutation("projects_update_tag", { dbUrl, tag });
 }
 
-export async function deleteProjectTag(tagId: string): Promise<void> {
+export async function deleteProjectTag(tagId: string): Promise<ProjectMutation> {
   const dbUrl = await ensureDbUrl();
-  await invoke("projects_delete_tag", { dbUrl, tagId });
+  return invokeProjectMutation("projects_delete_tag", { dbUrl, tagId });
 }
 
-export async function linkProjectTaskTag(link: ProjectTaskTagLinkCreate): Promise<void> {
+export async function linkProjectTaskTag(link: ProjectTaskTagLinkCreate): Promise<ProjectMutation> {
   const dbUrl = await ensureDbUrl();
-  await invoke("projects_link_task_tag", { dbUrl, link });
+  return invokeProjectMutation("projects_link_task_tag", { dbUrl, link });
 }
 
-export async function unlinkProjectTaskTag(taskId: string, tagId: string): Promise<void> {
+export async function unlinkProjectTaskTag(taskId: string, tagId: string): Promise<ProjectMutation> {
   const dbUrl = await ensureDbUrl();
-  await invoke("projects_unlink_task_tag", { dbUrl, taskId, tagId });
+  return invokeProjectMutation("projects_unlink_task_tag", { dbUrl, taskId, tagId });
 }
 
-export async function createProjectCustomField(field: ProjectCustomFieldCreate): Promise<void> {
+export async function createProjectCustomField(field: ProjectCustomFieldCreate): Promise<ProjectMutation> {
   const dbUrl = await ensureDbUrl();
-  await invoke("projects_create_custom_field", { dbUrl, field });
+  return invokeProjectMutation("projects_create_custom_field", { dbUrl, field });
 }
 
-export async function updateProjectCustomField(field: ProjectCustomFieldUpdate): Promise<void> {
+export async function updateProjectCustomField(field: ProjectCustomFieldUpdate): Promise<ProjectMutation> {
   const dbUrl = await ensureDbUrl();
-  await invoke("projects_update_custom_field", { dbUrl, field });
+  return invokeProjectMutation("projects_update_custom_field", { dbUrl, field });
 }
 
-export async function deleteProjectCustomField(fieldId: string): Promise<void> {
+export async function deleteProjectCustomField(fieldId: string): Promise<ProjectMutation> {
   const dbUrl = await ensureDbUrl();
-  await invoke("projects_delete_custom_field", { dbUrl, fieldId });
+  return invokeProjectMutation("projects_delete_custom_field", { dbUrl, fieldId });
 }
 
-export async function createProjectCustomFieldOption(option: ProjectCustomFieldOptionCreate): Promise<void> {
+export async function createProjectCustomFieldOption(option: ProjectCustomFieldOptionCreate): Promise<ProjectMutation> {
   const dbUrl = await ensureDbUrl();
-  await invoke("projects_create_custom_field_option", { dbUrl, option });
+  return invokeProjectMutation("projects_create_custom_field_option", { dbUrl, option });
 }
 
-export async function updateProjectCustomFieldOption(option: ProjectCustomFieldOptionUpdate): Promise<void> {
+export async function updateProjectCustomFieldOption(option: ProjectCustomFieldOptionUpdate): Promise<ProjectMutation> {
   const dbUrl = await ensureDbUrl();
-  await invoke("projects_update_custom_field_option", { dbUrl, option });
+  return invokeProjectMutation("projects_update_custom_field_option", { dbUrl, option });
 }
 
-export async function deleteProjectCustomFieldOption(optionId: string): Promise<void> {
+export async function deleteProjectCustomFieldOption(optionId: string): Promise<ProjectMutation> {
   const dbUrl = await ensureDbUrl();
-  await invoke("projects_delete_custom_field_option", { dbUrl, optionId });
+  return invokeProjectMutation("projects_delete_custom_field_option", { dbUrl, optionId });
 }
 
-export async function updateProjectCustomFieldValue(value: ProjectCustomFieldValueUpdate): Promise<void> {
+export async function updateProjectCustomFieldValue(value: ProjectCustomFieldValueUpdate): Promise<ProjectMutation> {
   const dbUrl = await ensureDbUrl();
-  await invoke("projects_update_custom_field_value", { dbUrl, value });
+  return invokeProjectMutation("projects_update_custom_field_value", { dbUrl, value });
 }
 
-export async function updateProjectTask(task: ProjectTaskUpdate): Promise<void> {
+export async function updateProjectTask(task: ProjectTaskUpdate): Promise<ProjectMutation> {
   const dbUrl = await ensureDbUrl();
-  await invoke("projects_update_task", { dbUrl, task });
+  return invokeProjectMutation("projects_update_task", { dbUrl, task });
 }
 
-export async function linkProjectTaskEvent(link: ProjectTaskEventLinkCreate): Promise<void> {
+export async function linkProjectTaskEvent(link: ProjectTaskEventLinkCreate): Promise<ProjectMutation> {
   const dbUrl = await ensureDbUrl();
-  await invoke("projects_link_task_event", { dbUrl, link });
+  return invokeProjectMutation("projects_link_task_event", { dbUrl, link });
 }
 
-export async function unlinkProjectTaskEvent(taskId: string, eventId: string): Promise<void> {
+export async function unlinkProjectTaskEvent(taskId: string, eventId: string): Promise<ProjectMutation> {
   const dbUrl = await ensureDbUrl();
-  await invoke("projects_unlink_task_event", { dbUrl, taskId, eventId });
+  return invokeProjectMutation("projects_unlink_task_event", { dbUrl, taskId, eventId });
 }
 
 export async function searchProjectLinkableEvents(
@@ -942,38 +1008,38 @@ export async function searchProjectLinkableEvents(
 
 export async function createProjectTaskDependency(
   dependency: ProjectTaskDependencyCreate,
-): Promise<void> {
+): Promise<ProjectMutation> {
   const dbUrl = await ensureDbUrl();
-  await invoke("projects_create_task_dependency", { dbUrl, dependency });
+  return invokeProjectMutation("projects_create_task_dependency", { dbUrl, dependency });
 }
 
-export async function deleteProjectTaskDependency(dependencyId: string): Promise<void> {
+export async function deleteProjectTaskDependency(dependencyId: string): Promise<ProjectMutation> {
   const dbUrl = await ensureDbUrl();
-  await invoke("projects_delete_task_dependency", { dbUrl, dependencyId });
+  return invokeProjectMutation("projects_delete_task_dependency", { dbUrl, dependencyId });
 }
 
 export async function upsertProjectViewPreference(
   preference: ProjectViewPreferenceUpsert,
-): Promise<void> {
+): Promise<ProjectMutation> {
   const dbUrl = await ensureDbUrl();
-  await invoke("projects_upsert_view_preference", { dbUrl, preference });
+  return invokeProjectMutation("projects_upsert_view_preference", { dbUrl, preference });
 }
 
 export async function deleteProjectViewPreference(
   projectId: string,
   viewId: ProjectViewPreference["viewId"],
   preferenceKey: string,
-): Promise<void> {
+): Promise<ProjectMutation> {
   const dbUrl = await ensureDbUrl();
-  await invoke("projects_delete_view_preference", { dbUrl, projectId, viewId, preferenceKey });
+  return invokeProjectMutation("projects_delete_view_preference", { dbUrl, projectId, viewId, preferenceKey });
 }
 
-export async function createProjectCustomEmoji(emoji: ProjectCustomEmojiCreate): Promise<void> {
+export async function createProjectCustomEmoji(emoji: ProjectCustomEmojiCreate): Promise<ProjectMutation> {
   const dbUrl = await ensureDbUrl();
-  await invoke("projects_create_custom_emoji", { dbUrl, emoji });
+  return invokeProjectMutation("projects_create_custom_emoji", { dbUrl, emoji });
 }
 
-export async function deleteProjectCustomEmoji(emojiId: string): Promise<void> {
+export async function deleteProjectCustomEmoji(emojiId: string): Promise<ProjectMutation> {
   const dbUrl = await ensureDbUrl();
-  await invoke("projects_delete_custom_emoji", { dbUrl, emojiId });
+  return invokeProjectMutation("projects_delete_custom_emoji", { dbUrl, emojiId });
 }

@@ -582,6 +582,33 @@ export interface ProjectsSnapshot {
   customEmojis: ProjectCustomEmoji[];
 }
 
+export type ProjectMutationRemoval =
+  | { kind: "group"; id: string }
+  | { kind: "project"; id: string }
+  | { kind: "status"; id: string }
+  | { kind: "priority"; id: string }
+  | { kind: "checklist_item"; id: string }
+  | { kind: "tag"; id: string }
+  | { kind: "task_tag_link"; taskId: string; tagId: string }
+  | { kind: "custom_field"; id: string }
+  | { kind: "custom_field_option"; id: string }
+  | { kind: "custom_field_value"; taskId: string; fieldId: string }
+  | { kind: "dependency"; id: string }
+  | { kind: "event_link"; taskId: string; eventId: string }
+  | {
+      kind: "view_preference";
+      projectId: string;
+      viewId: string;
+      preferenceKey: string;
+    }
+  | { kind: "custom_emoji"; id: string };
+
+export interface ProjectMutation {
+  changed: ProjectsSnapshot;
+  removals: ProjectMutationRemoval[];
+  calendarEventProjectAssignments: Array<{ eventId: string; projectId: string }>;
+}
+
 export interface ProjectsWorkspaceSnapshot {
   resolvedProjectId: string | null;
   activeView: ProjectViewId;

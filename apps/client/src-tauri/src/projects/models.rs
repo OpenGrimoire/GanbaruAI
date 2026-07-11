@@ -1,5 +1,87 @@
 use serde::{Deserialize, Serialize};
 
+#[derive(Default, Serialize)]
+pub struct ProjectsMutationRows {
+    pub(in crate::projects) groups: Vec<ProjectGroupRow>,
+    pub(in crate::projects) projects: Vec<ProjectRow>,
+    pub(in crate::projects) sections: Vec<ProjectSectionRow>,
+    pub(in crate::projects) statuses: Vec<ProjectStatusRow>,
+    pub(in crate::projects) priorities: Vec<ProjectPriorityRow>,
+    pub(in crate::projects) tasks: Vec<ProjectTaskRow>,
+    pub(in crate::projects) checklist_items: Vec<ProjectChecklistItemRow>,
+    pub(in crate::projects) tags: Vec<ProjectTagRow>,
+    pub(in crate::projects) task_tag_links: Vec<ProjectTaskTagLinkRow>,
+    pub(in crate::projects) custom_fields: Vec<ProjectCustomFieldRow>,
+    pub(in crate::projects) custom_field_options: Vec<ProjectCustomFieldOptionRow>,
+    pub(in crate::projects) custom_field_values: Vec<ProjectCustomFieldValueRow>,
+    pub(in crate::projects) custom_field_option_values: Vec<ProjectCustomFieldOptionValueRow>,
+    pub(in crate::projects) dependencies: Vec<ProjectTaskDependencyRow>,
+    pub(in crate::projects) event_links: Vec<ProjectTaskEventLinkRow>,
+    pub(in crate::projects) task_change_events: Vec<ProjectTaskChangeEventRow>,
+    pub(in crate::projects) view_preferences: Vec<ProjectViewPreferenceRow>,
+    pub(in crate::projects) custom_emojis: Vec<ProjectCustomEmojiRow>,
+    pub(in crate::projects) removals: Vec<ProjectMutationRemoval>,
+    pub(in crate::projects) calendar_event_project_assignments: Vec<CalendarEventProjectAssignment>,
+}
+
+#[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ProjectMutationRemoval {
+    Group {
+        id: String,
+    },
+    Project {
+        id: String,
+    },
+    Status {
+        id: String,
+    },
+    Priority {
+        id: String,
+    },
+    ChecklistItem {
+        id: String,
+    },
+    Tag {
+        id: String,
+    },
+    TaskTagLink {
+        task_id: String,
+        tag_id: String,
+    },
+    CustomField {
+        id: String,
+    },
+    CustomFieldOption {
+        id: String,
+    },
+    CustomFieldValue {
+        task_id: String,
+        field_id: String,
+    },
+    Dependency {
+        id: String,
+    },
+    EventLink {
+        task_id: String,
+        event_id: String,
+    },
+    ViewPreference {
+        project_id: String,
+        view_id: String,
+        preference_key: String,
+    },
+    CustomEmoji {
+        id: String,
+    },
+}
+
+#[derive(Serialize)]
+pub struct CalendarEventProjectAssignment {
+    pub(in crate::projects) event_id: String,
+    pub(in crate::projects) project_id: String,
+}
+
 #[derive(Serialize)]
 pub struct ProjectGroupRow {
     pub(in crate::projects) id: String,
