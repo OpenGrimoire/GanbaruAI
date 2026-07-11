@@ -102,7 +102,7 @@ describe("tab view loader", () => {
       ),
     ).toEqual({
       status: "ready",
-      view: "projects",
+      key: "projects",
       requestId: projectsRequest.requestId,
       component: "projects component",
     });
@@ -117,7 +117,7 @@ describe("tab view loader", () => {
       ),
     ).toEqual({
       status: "failed",
-      view: "projects",
+      key: "projects",
       requestId: projectsRequest.requestId,
       error,
     });

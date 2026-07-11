@@ -47,6 +47,7 @@ function readChunks(metadata) {
     return {
       fileName: requireString(chunk.fileName, `bundle chunk ${index} fileName`),
       isEntry: chunk.isEntry === true,
+      imports: requireStringArray(chunk.imports, `bundle chunk ${index} imports`),
       modules: requireStringArray(chunk.modules, `bundle chunk ${index} modules`),
     };
   });
@@ -81,6 +82,23 @@ function readBaseline(value) {
         ),
       };
     })(),
+    settingsAppearance: (() => {
+      const contract = requireObject(root.settingsAppearance, "baseline settingsAppearance");
+      return {
+        loadedModules: requireStringArray(
+          contract.loadedModules,
+          "baseline settingsAppearance loadedModules",
+        ),
+        forbiddenModules: requireStringArray(
+          contract.forbiddenModules,
+          "baseline settingsAppearance forbiddenModules",
+        ),
+      };
+    })(),
+    settingsDetailModules: requireStringArray(
+      root.settingsDetailModules,
+      "baseline settingsDetailModules",
+    ),
     forbiddenEntryModules: requireStringArray(
       root.forbiddenEntryModules,
       "baseline forbiddenEntryModules",
@@ -95,6 +113,18 @@ const entryModules = new Set(
   chunks.filter((chunk) => chunk.isEntry).flatMap((chunk) => chunk.modules),
 );
 const failures = [];
+const chunksByFileName = new Map(chunks.map((chunk) => [chunk.fileName, chunk]));
+
+function staticChunkClosure(rootChunks) {
+  const visited = new Set();
+  const visit = (chunk) => {
+    if (!chunk || visited.has(chunk.fileName)) return;
+    visited.add(chunk.fileName);
+    for (const importedFile of chunk.imports) visit(chunksByFileName.get(importedFile));
+  };
+  for (const chunk of rootChunks) visit(chunk);
+  return chunks.filter((chunk) => visited.has(chunk.fileName));
+}
 const routes = baseline.routes.map((route) => {
   const owner = chunks.find((chunk) => chunk.modules.includes(route.module));
   if (!owner) {
@@ -122,6 +152,35 @@ for (const moduleId of baseline.shell.forbiddenModules) {
   }
 }
 
+const settingsAppearanceRoots = baseline.settingsAppearance.loadedModules.map((moduleId) => {
+  const owner = chunks.find((chunk) => chunk.modules.includes(moduleId));
+  if (!owner) failures.push(`Settings Appearance loaded module is absent: ${moduleId}`);
+  return owner;
+}).filter(Boolean);
+const settingsAppearanceChunks = staticChunkClosure(settingsAppearanceRoots);
+const settingsAppearanceModules = new Set(
+  settingsAppearanceChunks.flatMap((chunk) => chunk.modules),
+);
+for (const moduleId of baseline.settingsAppearance.forbiddenModules) {
+  if (!allModules.has(moduleId)) {
+    failures.push(`Settings Appearance forbidden module is absent from all chunks: ${moduleId}`);
+  } else if (settingsAppearanceModules.has(moduleId)) {
+    failures.push(`module is loaded when opening Settings Appearance: ${moduleId}`);
+  }
+}
+
+const settingsDetailChunks = baseline.settingsDetailModules.map((moduleId) => {
+  const owner = chunks.find((chunk) => chunk.modules.includes(moduleId));
+  if (!owner) failures.push(`Settings detail module is absent: ${moduleId}`);
+  return { module: moduleId, chunk: owner?.fileName ?? null };
+});
+const settingsDetailChunkNames = settingsDetailChunks
+  .map((entry) => entry.chunk)
+  .filter((chunk) => chunk !== null);
+if (new Set(settingsDetailChunkNames).size !== settingsDetailChunkNames.length) {
+  failures.push("Settings detail modules are not emitted in distinct chunks");
+}
+
 for (const moduleId of baseline.forbiddenEntryModules) {
   if (!allModules.has(moduleId)) {
     failures.push(`forbidden entry module is absent from all chunks: ${moduleId}`);
@@ -140,5 +199,12 @@ console.log(JSON.stringify({
     chunk: shellChunk?.fileName ?? null,
     forbiddenModules: baseline.shell.forbiddenModules,
   },
+  settingsAppearance: {
+    chunks: settingsAppearanceChunks.map((chunk) => chunk.fileName),
+    sourceModules: [...settingsAppearanceModules]
+      .filter((moduleId) => moduleId.startsWith("src/")).length,
+    forbiddenModules: baseline.settingsAppearance.forbiddenModules,
+  },
+  settingsDetailChunks,
   forbiddenEntryModules: baseline.forbiddenEntryModules,
 }, null, 2));

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, type Component } from "svelte";
+  import { onMount, untrack, type Component } from "svelte";
   import { cn } from "$lib/utils";
   import Palette from "@lucide/svelte/icons/palette";
   import UserRound from "@lucide/svelte/icons/user-round";
@@ -15,28 +15,33 @@
   import DownloadCloud from "@lucide/svelte/icons/download-cloud";
   import HardDrive from "@lucide/svelte/icons/hard-drive";
   import X from "@lucide/svelte/icons/x";
-  import AboutSection from "./AboutSection.svelte";
-  import AppearanceSection from "./AppearanceSection.svelte";
-  import DataSection from "./DataSection.svelte";
   import CalendarScrollbar from "../calendar/CalendarScrollbar.svelte";
-  import FocusSection from "./FocusSection.svelte";
-  import MusicSection from "./MusicSection.svelte";
-  import NotesSection from "./NotesSection.svelte";
-  import NotesTransferSettingsPanel from "./NotesTransferSettingsPanel.svelte";
-  import ProfileSection from "./ProfileSection.svelte";
-  import DoomscrollingSection from "./DoomscrollingSection.svelte";
-  import DoomscrollingLimitEditor from "./DoomscrollingLimitEditor.svelte";
-  import ShortcutsSection from "./ShortcutsSection.svelte";
-  import UpdatesSection from "./UpdatesSection.svelte";
   import { getThemeEditor } from "$lib/stores/themeEditor.svelte";
   import { getViewport } from "$lib/stores/viewport.svelte";
   import { hasOnlyShortcutModifier } from "$lib/keyboard-shortcuts";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import {
+    beginLazyComponentLoad,
+    rejectLazyComponentLoad,
+    resolveLazyComponentLoad,
+    type LazyComponentLoadState,
+  } from "$lib/lazy-component-loader";
+  import {
+    loadSettingsSection,
+    retrySettingsSection,
+    type LoadedSettingsSection,
+  } from "./settings-section-registry";
+  import {
+    loadSettingsDetail,
+    retrySettingsDetail,
+    type LoadedSettingsDetail,
+  } from "./settings-detail-registry";
   import type {
     DoomscrollingLimitEditorTarget,
     DoomscrollingSettingsTab,
     NotesTransferOperation,
     SectionId,
+    SettingsDetailKind,
   } from "./types";
 
   type SettingsDetailView =
@@ -69,8 +74,7 @@
     icon: Component;
   }
 
-  // To add a new settings page, add an entry with an icon and a matching
-  // branch in the content switch below.
+  // Keep labels and icons aligned with the typed lazy registry.
   const SECTIONS: SectionMeta[] = [
     { id: "appearance", label: () => t("settings.section.appearance"), icon: Palette },
     { id: "profile", label: () => t("settings.section.profile"), icon: UserRound },
@@ -86,8 +90,23 @@
     { id: "about", label: () => t("settings.section.about"), icon: Info },
   ];
 
-  let activeSection = $state<SectionId>("appearance");
+  const initialActiveSection = untrack(() => initialSection ?? "appearance");
+  let activeSection = $state<SectionId>(initialActiveSection);
   let detailView = $state<SettingsDetailView | null>(null);
+  let sectionLoadState = $state<LazyComponentLoadState<
+    SectionId,
+    LoadedSettingsSection
+  > | null>(null);
+  let detailLoadState = $state<LazyComponentLoadState<
+    SettingsDetailKind,
+    LoadedSettingsDetail
+  > | null>(null);
+  const activeSectionLoadState = $derived(
+    sectionLoadState?.key === activeSection ? sectionLoadState : null,
+  );
+  const activeDetailLoadState = $derived(
+    detailView && detailLoadState?.key === detailView.kind ? detailLoadState : null,
+  );
   let detailScrollEl: HTMLElement | undefined = $state();
   let detailScrollbarInsetTop = $state(0);
   let detailScrollbarInsetBottom = $state(0);
@@ -96,39 +115,72 @@
   const useIconRail = $derived(!useTopNav && viewport.below("regular"));
   const settingsScrollbarInset = $derived(useTopNav ? 12 : useIconRail ? 16 : 24);
   const settingsContentPaddingClass = $derived(useTopNav ? "px-3 py-4" : useIconRail ? "px-5 py-5" : "p-8");
-  type CalendarsSectionComponent = typeof import("./CalendarsSection.svelte").default;
-  let CalendarsSection = $state<CalendarsSectionComponent | null>(null);
-  let loadingCalendarsSection: Promise<void> | null = null;
-
-  function loadCalendarsSection(): Promise<void> {
-    if (CalendarsSection) return Promise.resolve();
-    loadingCalendarsSection ??= import("./CalendarsSection.svelte")
-      .then((module) => {
-        CalendarsSection = module.default;
+  function requestSettingsSection(section: SectionId, retry = false): void {
+    if (!retry && sectionLoadState?.key === section) return;
+    const loadingState = beginLazyComponentLoad(sectionLoadState, section);
+    sectionLoadState = loadingState;
+    const request = retry ? retrySettingsSection(section) : loadSettingsSection(section);
+    void request
+      .then((component) => {
+        if (!sectionLoadState) return;
+        const nextState = resolveLazyComponentLoad(
+          sectionLoadState,
+          section,
+          loadingState.requestId,
+          component,
+        );
+        if (nextState !== sectionLoadState) sectionLoadState = nextState;
       })
-      .finally(() => {
-        loadingCalendarsSection = null;
+      .catch((error: unknown) => {
+        if (!sectionLoadState) return;
+        const nextState = rejectLazyComponentLoad(
+          sectionLoadState,
+          section,
+          loadingState.requestId,
+          error,
+        );
+        if (nextState === sectionLoadState) return;
+        sectionLoadState = nextState;
+        console.error(`Failed to load ${section} Settings section:`, error);
       });
-    return loadingCalendarsSection;
   }
 
-  // Apply the launcher's target section when it is set, including on first
-  // mount. The modal is unmounted/remounted on each open, so this fires at
-  // most once per open and never overrides a subsequent sidebar click (the
-  // prop does not change during the modal's lifetime).
-  $effect.pre(() => {
-    if (initialSection) {
-      activeSection = initialSection;
-      detailView = null;
-      detailScrollEl = undefined;
-      detailScrollbarInsetTop = 0;
-      detailScrollbarInsetBottom = 0;
-    }
-  });
+  function requestSettingsDetail(kind: SettingsDetailKind, retry = false): void {
+    if (!retry && detailLoadState?.key === kind) return;
+    const loadingState = beginLazyComponentLoad(detailLoadState, kind);
+    detailLoadState = loadingState;
+    const request = retry ? retrySettingsDetail(kind) : loadSettingsDetail(kind);
+    void request
+      .then((component) => {
+        if (!detailLoadState) return;
+        const nextState = resolveLazyComponentLoad(
+          detailLoadState,
+          kind,
+          loadingState.requestId,
+          component,
+        );
+        if (nextState !== detailLoadState) detailLoadState = nextState;
+      })
+      .catch((error: unknown) => {
+        if (!detailLoadState) return;
+        const nextState = rejectLazyComponentLoad(
+          detailLoadState,
+          kind,
+          loadingState.requestId,
+          error,
+        );
+        if (nextState === detailLoadState) return;
+        detailLoadState = nextState;
+        console.error(`Failed to load ${kind} Settings detail:`, error);
+      });
+  }
 
-  $effect(() => {
-    if (activeSection === "calendars") void loadCalendarsSection();
-  });
+  function activeSectionLabel(): string {
+    return SECTIONS.find((section) => section.id === activeSection)?.label()
+      ?? t("settings.title");
+  }
+
+  requestSettingsSection(initialActiveSection);
 
   function focusShortcutsSearch(): void {
     const input = document.querySelector<HTMLInputElement>(
@@ -147,9 +199,11 @@
   function selectSection(section: SectionId): void {
     activeSection = section;
     detailView = null;
+    detailLoadState = null;
     detailScrollEl = undefined;
     detailScrollbarInsetTop = 0;
     detailScrollbarInsetBottom = 0;
+    requestSettingsSection(section);
     scrollSettingsToTop();
   }
 
@@ -159,6 +213,7 @@
     detailScrollEl = undefined;
     detailScrollbarInsetTop = 0;
     detailScrollbarInsetBottom = 0;
+    requestSettingsDetail("doomscrolling-limit");
     scrollSettingsToTop();
   }
 
@@ -168,11 +223,13 @@
     detailScrollEl = undefined;
     detailScrollbarInsetTop = 0;
     detailScrollbarInsetBottom = 0;
+    requestSettingsDetail("notes-transfer");
     scrollSettingsToTop();
   }
 
   function closeDetailView(): void {
     detailView = null;
+    detailLoadState = null;
     detailScrollEl = undefined;
     detailScrollbarInsetTop = 0;
     detailScrollbarInsetBottom = 0;
@@ -232,6 +289,7 @@
   <div class="absolute inset-0 bg-black/50"></div>
   <div
     data-settings-modal-panel
+    data-settings-section={activeSection}
     class={cn(
       "relative z-10 flex overflow-hidden border border-border bg-card shadow-2xl dark:bg-background",
       useTopNav
@@ -339,66 +397,99 @@
         )}
       >
         {#if detailView}
-          {#if detailView.kind === "doomscrolling-limit"}
-            <DoomscrollingLimitEditor
-              target={detailView.target}
-              onDone={closeDetailView}
-              onCancel={closeDetailView}
-              compactLayout={useTopNav}
-              iconRailLayout={useIconRail}
-              onScrollContainerChange={(scrollContainer) => {
-                detailScrollEl = scrollContainer;
-              }}
-              onScrollbarInsetsChange={(insets) => {
-                detailScrollbarInsetTop = insets.top;
-                detailScrollbarInsetBottom = insets.bottom;
-              }}
+          {#if activeDetailLoadState?.status === "ready"}
+            {@const loadedDetail = activeDetailLoadState.component}
+            {#if loadedDetail.kind === "doomscrolling-limit" && detailView.kind === "doomscrolling-limit"}
+              {@const DetailComponent = loadedDetail.component}
+              <DetailComponent
+                target={detailView.target}
+                onDone={closeDetailView}
+                onCancel={closeDetailView}
+                compactLayout={useTopNav}
+                iconRailLayout={useIconRail}
+                onScrollContainerChange={(scrollContainer: HTMLElement | undefined) => {
+                  detailScrollEl = scrollContainer;
+                }}
+                onScrollbarInsetsChange={(insets: { top: number; bottom: number }) => {
+                  detailScrollbarInsetTop = insets.top;
+                  detailScrollbarInsetBottom = insets.bottom;
+                }}
+              />
+            {:else if loadedDetail.kind === "notes-transfer" && detailView.kind === "notes-transfer"}
+              {@const DetailComponent = loadedDetail.component}
+              <DetailComponent
+                operation={detailView.operation}
+                onCancel={closeDetailView}
+                compactLayout={useTopNav}
+                iconRailLayout={useIconRail}
+                onScrollContainerChange={(scrollContainer: HTMLElement | undefined) => {
+                  detailScrollEl = scrollContainer;
+                }}
+                onScrollbarInsetsChange={(insets: { top: number; bottom: number }) => {
+                  detailScrollbarInsetTop = insets.top;
+                  detailScrollbarInsetBottom = insets.bottom;
+                }}
+              />
+            {/if}
+          {:else if activeDetailLoadState?.status === "failed"}
+            {@const failedDetailKind = activeDetailLoadState.key}
+            <div
+              class="flex h-full flex-col items-center justify-center gap-3 p-4 text-center text-sm text-muted-foreground"
+              role="alert"
+            >
+              <p>{t("common.viewLoadFailed", activeSectionLabel())}</p>
+              <button
+                type="button"
+                class="min-h-9 rounded-md border border-border bg-background px-3 font-medium text-foreground hover:bg-accent"
+                onclick={() => requestSettingsDetail(failedDetailKind, true)}
+              >
+                {t("common.retry")}
+              </button>
+            </div>
+          {:else}
+            <div
+              class="flex h-full items-center justify-center p-4 text-sm text-muted-foreground"
+              aria-busy="true"
+            >
+              {t("common.loading")}
+            </div>
+          {/if}
+        {:else if activeSectionLoadState?.status === "ready"}
+          {@const loadedSection = activeSectionLoadState.component}
+          {#if loadedSection.section === "notes"}
+            {@const SectionComponent = loadedSection.component}
+            <SectionComponent onOpenTransferPanel={openNotesTransferPanel} />
+          {:else if loadedSection.section === "doomscrolling"}
+            {@const SectionComponent = loadedSection.component}
+            <SectionComponent
+              initialTab={initialDoomscrollingTab}
+              onOpenLimitEditor={openDoomscrollingLimitEditor}
             />
           {:else}
-            <NotesTransferSettingsPanel
-              operation={detailView.operation}
-              onCancel={closeDetailView}
-              compactLayout={useTopNav}
-              iconRailLayout={useIconRail}
-              onScrollContainerChange={(scrollContainer) => {
-                detailScrollEl = scrollContainer;
-              }}
-              onScrollbarInsetsChange={(insets) => {
-                detailScrollbarInsetTop = insets.top;
-                detailScrollbarInsetBottom = insets.bottom;
-              }}
-            />
+            {@const SectionComponent = loadedSection.component}
+            <SectionComponent />
           {/if}
-        {:else if activeSection === "appearance"}
-          <AppearanceSection />
-        {:else if activeSection === "profile"}
-          <ProfileSection />
-        {:else if activeSection === "notes"}
-          <NotesSection onOpenTransferPanel={openNotesTransferPanel} />
-        {:else if activeSection === "calendars"}
-          {#if CalendarsSection}
-            {@const Section = CalendarsSection}
-            <Section />
-          {/if}
-        {:else if activeSection === "projects"}
-          <div class="flex flex-col gap-6"></div>
-        {:else if activeSection === "focus"}
-          <FocusSection />
-        {:else if activeSection === "music"}
-          <MusicSection />
-        {:else if activeSection === "doomscrolling"}
-          <DoomscrollingSection
-            initialTab={initialDoomscrollingTab}
-            onOpenLimitEditor={openDoomscrollingLimitEditor}
-          />
-        {:else if activeSection === "data"}
-          <DataSection />
-        {:else if activeSection === "updates"}
-          <UpdatesSection />
-        {:else if activeSection === "shortcuts"}
-          <ShortcutsSection />
-        {:else if activeSection === "about"}
-          <AboutSection />
+        {:else if activeSectionLoadState?.status === "failed"}
+          <div
+            class="flex min-h-40 flex-col items-center justify-center gap-3 text-center text-sm text-muted-foreground"
+            role="alert"
+          >
+            <p>{t("common.viewLoadFailed", activeSectionLabel())}</p>
+            <button
+              type="button"
+              class="min-h-9 rounded-md border border-border bg-background px-3 font-medium text-foreground hover:bg-accent"
+              onclick={() => requestSettingsSection(activeSection, true)}
+            >
+              {t("common.retry")}
+            </button>
+          </div>
+        {:else}
+          <div
+            class="flex min-h-40 items-center justify-center text-sm text-muted-foreground"
+            aria-busy="true"
+          >
+            {t("common.loading")}
+          </div>
         {/if}
       </section>
       {#if detailView}

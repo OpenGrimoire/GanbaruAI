@@ -146,11 +146,11 @@
   );
   let tabViewState = $state<TabViewLoadState<TabViewComponent> | null>(null);
   const activeTabViewState = $derived(
-    tabViewState?.view === nav.current ? tabViewState : null,
+    tabViewState?.key === nav.current ? tabViewState : null,
   );
 
   function requestTabView(view: View, retry = false): void {
-    if (!retry && tabViewState?.view === view) return;
+    if (!retry && tabViewState?.key === view) return;
     const loadingState = beginTabViewLoad(tabViewState, view);
     tabViewState = loadingState;
     const request = retry ? tabViewLoader.retry(view) : tabViewLoader.load(view);
@@ -1059,7 +1059,7 @@
         {@const ActiveTabView = activeTabViewState.component}
         <ActiveTabView />
       {:else if activeTabViewState?.status === "failed"}
-        {@const failedView = activeTabViewState.view}
+        {@const failedView = activeTabViewState.key}
         <div
           class="flex h-full flex-col items-center justify-center gap-3 p-4 text-center text-sm text-muted-foreground"
           role="alert"

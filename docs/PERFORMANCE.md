@@ -206,6 +206,8 @@ Projects and Notes have deterministic structural contracts for an isolated, migr
 
 Rust library tests count typed initial-load commands, executed SQLite statements, and serialized payload bytes against the fixture. Component tests keep the backend promises unresolved while asserting that the useful shell is present. The production bundle contract emits module metadata during the Vite build, enforces the route-chunk module ceilings above, keeps all four tab views out of the initial App shell chunk, and rejects named Notes transfer modules in entry chunks. `pnpm -w run validate` runs all three contract layers.
 
+Settings uses a constructor-only lazy registry for every section and detail panel. The production bundle contract follows static chunk imports from the Settings shell and Appearance section, then rejects every inactive section, Notes transfer surface, Doomscrolling settings surface, and Updates section from that closure. It also requires the Notes section, transfer panel, four transfer dialogs, Doomscrolling section, and limit editor to occupy distinct chunks.
+
 ## Package size
 
 Package size is not produced by the benchmark harness, but it is deterministic enough to track here. Use decimal MB from byte size.
