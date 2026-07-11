@@ -29,7 +29,7 @@ const task: ProjectTask = {
   id: "task-1", projectId: "project-1", sectionId: "section-1", statusId: "status-1",
   title: "Before", description: "", priority: "none", taskType: "task",
   sectionSortOrder: 1000, statusSortOrder: 1000, milestone: false,
-  createdAt: "created", updatedAt: "before",
+  createdAt: "created", updatedAt: "before", detailLoaded: true,
 };
 
 function taskMutation(changedTask: ProjectTask): ProjectMutation {
@@ -72,6 +72,12 @@ describe("createProjectStoreActions", () => {
       setSelectedProjectId: vi.fn(),
       reload,
       ensureProjectData: vi.fn(async () => undefined),
+      ensureTaskDetailData: vi.fn(async (_projectId: string, taskId: string) => {
+        snapshot = {
+          ...snapshot,
+          tasks: snapshot.tasks.map((task) => task.id === taskId ? { ...task, detailLoaded: true } : task),
+        };
+      }),
     });
     return { actions, readSnapshot: () => snapshot, reload, applyCalendarEventProjectAssignments };
   }

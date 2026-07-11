@@ -10,6 +10,7 @@ export const common = {
   edit: "Edit",
   done: "Done",
   loading: "Loading",
+  loadMore: "Load more",
   retry: "Retry",
   viewLoadFailed: (label: string) => `Could not load ${label}.`,
   none: "None",

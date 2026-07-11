@@ -118,6 +118,7 @@ export interface ProjectStoreActionContext {
   setSelectedProjectId: (projectId: string | null) => void;
   reload: (projectId?: string | null) => Promise<void>;
   ensureProjectData: (projectId: string | null | undefined) => Promise<void>;
+  ensureTaskDetailData: (projectId: string, taskId: string) => Promise<void>;
 }
 
 /**
@@ -126,6 +127,7 @@ export interface ProjectStoreActionContext {
 export function createProjectStoreActions(context: ProjectStoreActionContext) {
   const {
     ensureProjectData,
+    ensureTaskDetailData,
     applyCalendarEventProjectAssignments,
     readLoadGeneration,
     readSelectedProjectId,
@@ -136,17 +138,25 @@ export function createProjectStoreActions(context: ProjectStoreActionContext) {
   } = context;
   const mutationGenerations = new Map<string, number>();
 
+  async function taskForMutation(task: ProjectTask): Promise<ProjectTask> {
+    if (task.detailLoaded) return task;
+    await ensureTaskDetailData(task.projectId, task.id);
+    const hydrated = selectors.taskById(task.id);
+    if (!hydrated?.detailLoaded) throw new Error("Task detail was not loaded before mutation");
+    return hydrated;
+  }
+
   async function commitMutation(
     key: string,
     request: () => Promise<ProjectMutation>,
+    originatingLoadGeneration = readLoadGeneration(),
   ): Promise<ProjectMutation> {
     const generation = (mutationGenerations.get(key) ?? 0) + 1;
-    const loadGeneration = readLoadGeneration();
     mutationGenerations.set(key, generation);
     const mutation = await request();
     if (
       mutationGenerations.get(key) === generation
-      && readLoadGeneration() === loadGeneration
+      && readLoadGeneration() === originatingLoadGeneration
     ) {
       updateSnapshot((current) => applyProjectMutation(current, mutation));
       await applyCalendarEventProjectAssignments(mutation.calendarEventProjectAssignments);
@@ -702,16 +712,27 @@ export function createProjectStoreActions(context: ProjectStoreActionContext) {
   }
 
   async function updateTask(task: ProjectTask, patch: ProjectTaskUpdatePatch): Promise<void> {
-    await commitMutation(`task:${task.id}`, () => updateProjectTask(taskUpdatePayload(task, patch)));
+    const loadGeneration = readLoadGeneration();
+    const hydrated = await taskForMutation(task);
+    await commitMutation(
+      `task:${task.id}`,
+      () => updateProjectTask(taskUpdatePayload(hydrated, patch)),
+      loadGeneration,
+    );
   }
 
   async function updateTasks(
     tasks: ProjectTask[],
     patchForTask: (task: ProjectTask, index: number) => ProjectTaskUpdatePatch,
   ): Promise<void> {
+    const loadGeneration = readLoadGeneration();
     for (const [index, task] of tasks.entries()) {
-      await commitMutation(`task:${task.id}`, () =>
-        updateProjectTask(taskUpdatePayload(task, patchForTask(task, index))));
+      const hydrated = await taskForMutation(task);
+      await commitMutation(
+        `task:${task.id}`,
+        () => updateProjectTask(taskUpdatePayload(hydrated, patchForTask(hydrated, index))),
+        loadGeneration,
+      );
     }
   }
 
@@ -768,10 +789,14 @@ export function createProjectStoreActions(context: ProjectStoreActionContext) {
     const index = ordered.findIndex((entry) => entry.id === task.id);
     const target = ordered[index + direction];
     if (index < 0 || !target) return;
+    const loadGeneration = readLoadGeneration();
+    const [hydratedTask, hydratedTarget] = await Promise.all([
+      taskForMutation(task), taskForMutation(target),
+    ]);
     await commitMutation(`task:${task.id}`, () =>
-      updateProjectTask(taskUpdatePayload(task, { sectionSortOrder: target.sectionSortOrder })));
+      updateProjectTask(taskUpdatePayload(hydratedTask, { sectionSortOrder: target.sectionSortOrder })), loadGeneration);
     await commitMutation(`task:${target.id}`, () =>
-      updateProjectTask(taskUpdatePayload(target, { sectionSortOrder: task.sectionSortOrder })));
+      updateProjectTask(taskUpdatePayload(hydratedTarget, { sectionSortOrder: task.sectionSortOrder })), loadGeneration);
   }
 
   async function moveTaskInStatus(task: ProjectTask, direction: -1 | 1): Promise<void> {
@@ -780,10 +805,14 @@ export function createProjectStoreActions(context: ProjectStoreActionContext) {
     const index = ordered.findIndex((entry) => entry.id === task.id);
     const target = ordered[index + direction];
     if (index < 0 || !target) return;
+    const loadGeneration = readLoadGeneration();
+    const [hydratedTask, hydratedTarget] = await Promise.all([
+      taskForMutation(task), taskForMutation(target),
+    ]);
     await commitMutation(`task:${task.id}`, () =>
-      updateProjectTask(taskUpdatePayload(task, { statusSortOrder: target.statusSortOrder })));
+      updateProjectTask(taskUpdatePayload(hydratedTask, { statusSortOrder: target.statusSortOrder })), loadGeneration);
     await commitMutation(`task:${target.id}`, () =>
-      updateProjectTask(taskUpdatePayload(target, { statusSortOrder: task.statusSortOrder })));
+      updateProjectTask(taskUpdatePayload(hydratedTarget, { statusSortOrder: task.statusSortOrder })), loadGeneration);
   }
 
   async function moveSubtask(task: ProjectTask, direction: -1 | 1): Promise<void> {
@@ -792,10 +821,14 @@ export function createProjectStoreActions(context: ProjectStoreActionContext) {
     const index = ordered.findIndex((entry) => entry.id === task.id);
     const target = ordered[index + direction];
     if (index < 0 || !target) return;
+    const loadGeneration = readLoadGeneration();
+    const [hydratedTask, hydratedTarget] = await Promise.all([
+      taskForMutation(task), taskForMutation(target),
+    ]);
     await commitMutation(`task:${task.id}`, () =>
-      updateProjectTask(taskUpdatePayload(task, { sectionSortOrder: target.sectionSortOrder })));
+      updateProjectTask(taskUpdatePayload(hydratedTask, { sectionSortOrder: target.sectionSortOrder })), loadGeneration);
     await commitMutation(`task:${target.id}`, () =>
-      updateProjectTask(taskUpdatePayload(target, { sectionSortOrder: task.sectionSortOrder })));
+      updateProjectTask(taskUpdatePayload(hydratedTarget, { sectionSortOrder: task.sectionSortOrder })), loadGeneration);
   }
 
   async function promoteSubtask(task: ProjectTask): Promise<void> {

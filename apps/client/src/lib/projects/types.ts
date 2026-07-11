@@ -299,6 +299,87 @@ export interface ProjectTask {
   milestone: boolean;
   createdAt: string;
   updatedAt: string;
+  detailLoaded?: boolean;
+  summaryBlocked?: boolean;
+}
+
+export interface ProjectTaskViewRequest {
+  projectId: string;
+  view: ProjectViewId;
+  pageSize: number;
+  cursor?: string;
+  columnCursors: Record<string, string>;
+  showArchived: boolean;
+  visibleSectionIds: string[];
+  search: string;
+  statusFilter: ProjectTaskStatusFilter;
+  sectionFilter: string;
+  priorityFilter: string;
+  dueFilter: ProjectTaskDueFilter;
+  dueRangeStart: string;
+  dueRangeEnd: string;
+  today: string;
+  weekEnd: string;
+  scheduleFilter: ProjectTaskScheduleFilter;
+  dependencyFilter: ProjectTaskDependencyFilter;
+  tagFilter: ProjectTaskTagFilter;
+  customFieldFilters: ProjectCustomFieldFilter[];
+  sortMode: ProjectTaskSortMode;
+  sortDirection: ProjectTaskSortDirection;
+  candidateEventIds: string[];
+}
+
+export interface ProjectTaskColumnCount {
+  statusId: string;
+  count: number;
+  nextCursor?: string;
+}
+
+export interface ProjectDashboardTaskAggregates {
+  total: number;
+  completed: number;
+  openEstimateMinutes: number;
+  blocked: number;
+  overdue: number;
+  unscheduledDue: number;
+  missingEstimate: number;
+  statusCounts: Record<string, number>;
+}
+
+export interface ProjectTaskViewPage {
+  projectId: string;
+  view: ProjectViewId;
+  tasks: ProjectTask[];
+  totalCount: number;
+  matchedCount: number;
+  archivedCount: number;
+  nextCursor?: string;
+  columnCounts: ProjectTaskColumnCount[];
+  aggregates?: ProjectDashboardTaskAggregates;
+  matchedEventIds: string[];
+  taskTagLinks: ProjectTaskTagLink[];
+  customFieldValues: ProjectCustomFieldValue[];
+  customFieldOptionValues: ProjectCustomFieldOptionValue[];
+  dependencies: ProjectTaskDependency[];
+  eventLinks: ProjectTaskEventLink[];
+  tags: ProjectTag[];
+  customFields: ProjectCustomField[];
+  customFieldOptions: ProjectCustomFieldOption[];
+}
+
+export interface ProjectTaskDetailData {
+  task: ProjectTask;
+  relatedTasks: ProjectTask[];
+  checklistItems: ProjectChecklistItem[];
+  tags: ProjectTag[];
+  taskTagLinks: ProjectTaskTagLink[];
+  customFields: ProjectCustomField[];
+  customFieldOptions: ProjectCustomFieldOption[];
+  customFieldValues: ProjectCustomFieldValue[];
+  customFieldOptionValues: ProjectCustomFieldOptionValue[];
+  dependencies: ProjectTaskDependency[];
+  eventLinks: ProjectTaskEventLink[];
+  taskChangeEvents: ProjectTaskChangeEvent[];
 }
 
 export interface ProjectChecklistItem {

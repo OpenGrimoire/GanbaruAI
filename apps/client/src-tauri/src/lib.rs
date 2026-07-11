@@ -828,6 +828,8 @@ pub fn run() {
             pomodoro::pomodoro_recover_open_runs,
             projects::projects_load_workspace,
             projects::projects_refresh_workspace,
+            projects::projects_load_task_view,
+            projects::projects_load_task_detail,
             projects::projects_load_optional_data,
             projects::projects_create_group,
             projects::projects_update_group,

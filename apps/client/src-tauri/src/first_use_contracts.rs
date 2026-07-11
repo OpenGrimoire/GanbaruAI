@@ -7,7 +7,7 @@ use crate::{db::run_migrations, notes, projects};
 
 const SQLITE_OK: c_int = 0;
 const SQLITE_TRACE_STMT: c_uint = 0x01;
-const EMPTY_PROJECTS_SQL_READS: usize = 7;
+const EMPTY_PROJECTS_SQL_READS: usize = 6;
 const EMPTY_PROJECTS_SQL_WRITES: usize = 0;
 const EMPTY_PROJECTS_RESPONSE_BYTES: usize = 13_059;
 const EMPTY_NOTES_SQL_READS: usize = 8;

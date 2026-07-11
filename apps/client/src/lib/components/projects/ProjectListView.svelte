@@ -92,6 +92,7 @@
     onSelectedTaskIdsChange,
     onRevealTask,
     onTaskListColumnWidthsChange,
+    onNeedMore,
   }: {
     selectedProjectId: string | null;
     sections: ProjectSection[];
@@ -113,6 +114,7 @@
     onSelectedTaskIdsChange: (taskIds: string[]) => void;
     onRevealTask: (task: ProjectTask | undefined) => void;
     onTaskListColumnWidthsChange: (widths: ProjectTaskListColumnWidths, options?: { persist?: boolean }) => void;
+    onNeedMore: () => void;
   } = $props();
 
   const projects = getProjects();
@@ -1213,6 +1215,12 @@
     if (nextStart) return t("projects.schedule.nextScheduled", nextStart.slice(0, 16), count);
     return count > 0 ? t("projects.schedule.scheduledCount", count) : null;
   }
+
+  function handleProjectListScroll(event: Event): void {
+    syncProjectListCounterScroll();
+    const target = event.currentTarget as HTMLElement;
+    if (target.scrollHeight - target.scrollTop - target.clientHeight < 600) onNeedMore();
+  }
 </script>
 
 <svelte:window
@@ -1226,7 +1234,7 @@
 <div
   bind:this={projectViewScrollContainer}
   class="project-list-scroll h-full min-h-0 overflow-auto"
-  onscroll={syncProjectListCounterScroll}
+  onscroll={handleProjectListScroll}
 >
   <div class="flex min-h-full flex-col gap-5 p-3">
     {#if taskGroupBy === "section"}

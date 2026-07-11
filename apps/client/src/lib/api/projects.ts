@@ -67,6 +67,9 @@ import type {
   ProjectTaskTagLink,
   ProjectTaskTagLinkCreate,
   ProjectTaskUpdate,
+  ProjectTaskViewRequest,
+  ProjectTaskViewPage,
+  ProjectTaskDetailData,
   ProjectViewPreference,
   ProjectViewPreferenceUpsert,
   ProjectViewId,
@@ -178,6 +181,10 @@ interface ProjectTaskRow {
   milestone: number;
   created_at: string;
   updated_at: string;
+}
+
+interface ProjectTaskSummaryRow extends Omit<ProjectTaskRow, "description" | "blocker_reason"> {
+  blocker_reason_present: number;
 }
 
 interface ProjectChecklistItemRow {
@@ -330,6 +337,51 @@ interface ProjectsWorkspaceSnapshotRows {
   resolved_project_id: string | null;
   active_view: ProjectViewId;
   snapshot: ProjectsSnapshotRows;
+}
+
+interface ProjectTaskViewPageRows {
+  project_id: string;
+  view: ProjectViewId;
+  tasks: ProjectTaskSummaryRow[];
+  total_count: number;
+  matched_count: number;
+  archived_count: number;
+  next_cursor: string | null;
+  column_counts: Array<{ status_id: string; count: number; next_cursor: string | null }>;
+  aggregates: null | {
+    total: number;
+    completed: number;
+    open_estimate_minutes: number;
+    blocked: number;
+    overdue: number;
+    unscheduled_due: number;
+    missing_estimate: number;
+    status_counts: Record<string, number>;
+  };
+  matched_event_ids: string[];
+  task_tag_links: ProjectTaskTagLinkRow[];
+  custom_field_values: ProjectCustomFieldValueRow[];
+  custom_field_option_values: ProjectCustomFieldOptionValueRow[];
+  dependencies: ProjectTaskDependencyRow[];
+  event_links: ProjectTaskEventLinkRow[];
+  tags: ProjectTagRow[];
+  custom_fields: ProjectCustomFieldRow[];
+  custom_field_options: ProjectCustomFieldOptionRow[];
+}
+
+interface ProjectTaskDetailDataRows {
+  task: ProjectTaskRow;
+  related_tasks: ProjectTaskSummaryRow[];
+  checklist_items: ProjectChecklistItemRow[];
+  tags: ProjectTagRow[];
+  task_tag_links: ProjectTaskTagLinkRow[];
+  custom_fields: ProjectCustomFieldRow[];
+  custom_field_options: ProjectCustomFieldOptionRow[];
+  custom_field_values: ProjectCustomFieldValueRow[];
+  custom_field_option_values: ProjectCustomFieldOptionValueRow[];
+  dependencies: ProjectTaskDependencyRow[];
+  event_links: ProjectTaskEventLinkRow[];
+  task_change_events: ProjectTaskChangeEventRow[];
 }
 
 interface ProjectsOptionalDataRows {
@@ -519,6 +571,15 @@ function mapTask(row: ProjectTaskRow): ProjectTask {
     milestone: row.milestone !== 0,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    detailLoaded: true,
+  };
+}
+
+function mapTaskSummary(row: ProjectTaskSummaryRow): ProjectTask {
+  return {
+    ...mapTask({ ...row, description: "", blocker_reason: null }),
+    detailLoaded: false,
+    summaryBlocked: row.blocker_reason_present !== 0,
   };
 }
 
@@ -705,6 +766,59 @@ function mapWorkspaceSnapshot(rows: ProjectsWorkspaceSnapshotRows): ProjectsWork
   };
 }
 
+function mapTaskViewPage(rows: ProjectTaskViewPageRows): ProjectTaskViewPage {
+  return {
+    projectId: rows.project_id,
+    view: rows.view,
+    tasks: rows.tasks.map(mapTaskSummary),
+    totalCount: rows.total_count,
+    matchedCount: rows.matched_count,
+    archivedCount: rows.archived_count,
+    nextCursor: optionalText(rows.next_cursor),
+    columnCounts: rows.column_counts.map((column) => ({
+      statusId: column.status_id,
+      count: column.count,
+      nextCursor: optionalText(column.next_cursor),
+    })),
+    aggregates: rows.aggregates ? {
+      total: rows.aggregates.total,
+      completed: rows.aggregates.completed,
+      openEstimateMinutes: rows.aggregates.open_estimate_minutes,
+      blocked: rows.aggregates.blocked,
+      overdue: rows.aggregates.overdue,
+      unscheduledDue: rows.aggregates.unscheduled_due,
+      missingEstimate: rows.aggregates.missing_estimate,
+      statusCounts: rows.aggregates.status_counts,
+    } : undefined,
+    matchedEventIds: rows.matched_event_ids,
+    taskTagLinks: rows.task_tag_links.map(mapTaskTagLink),
+    customFieldValues: rows.custom_field_values.map(mapCustomFieldValue),
+    customFieldOptionValues: rows.custom_field_option_values.map(mapCustomFieldOptionValue),
+    dependencies: rows.dependencies.map(mapDependency),
+    eventLinks: rows.event_links.map(mapEventLink),
+    tags: rows.tags.map(mapTag),
+    customFields: rows.custom_fields.map(mapCustomField),
+    customFieldOptions: rows.custom_field_options.map(mapCustomFieldOption),
+  };
+}
+
+function mapTaskDetailData(rows: ProjectTaskDetailDataRows): ProjectTaskDetailData {
+  return {
+    task: mapTask(rows.task),
+    relatedTasks: rows.related_tasks.map(mapTaskSummary),
+    checklistItems: rows.checklist_items.map(mapChecklistItem),
+    tags: rows.tags.map(mapTag),
+    taskTagLinks: rows.task_tag_links.map(mapTaskTagLink),
+    customFields: rows.custom_fields.map(mapCustomField),
+    customFieldOptions: rows.custom_field_options.map(mapCustomFieldOption),
+    customFieldValues: rows.custom_field_values.map(mapCustomFieldValue),
+    customFieldOptionValues: rows.custom_field_option_values.map(mapCustomFieldOptionValue),
+    dependencies: rows.dependencies.map(mapDependency),
+    eventLinks: rows.event_links.map(mapEventLink),
+    taskChangeEvents: rows.task_change_events.map(mapTaskChangeEvent),
+  };
+}
+
 function mapOptionalData(rows: ProjectsOptionalDataRows): ProjectsOptionalData {
   return {
     kind: rows.kind,
@@ -779,6 +893,26 @@ export async function refreshProjectsWorkspace(
     activeView,
   });
   return mapWorkspaceSnapshot(rows);
+}
+
+export async function loadProjectTaskView(
+  request: ProjectTaskViewRequest,
+): Promise<ProjectTaskViewPage> {
+  const dbUrl = await ensureDbUrl();
+  const rows = await invoke<ProjectTaskViewPageRows>("projects_load_task_view", {
+    dbUrl,
+    request,
+  });
+  return mapTaskViewPage(rows);
+}
+
+export async function loadProjectTaskDetail(taskId: string): Promise<ProjectTaskDetailData> {
+  const dbUrl = await ensureDbUrl();
+  const rows = await invoke<ProjectTaskDetailDataRows>("projects_load_task_detail", {
+    dbUrl,
+    taskId,
+  });
+  return mapTaskDetailData(rows);
 }
 
 export async function loadProjectsOptionalData(

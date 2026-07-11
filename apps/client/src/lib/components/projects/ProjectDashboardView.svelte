@@ -6,6 +6,7 @@
     ProjectStatus,
     ProjectTask,
     ProjectTaskChangeEvent,
+    ProjectDashboardTaskAggregates,
   } from "$lib/projects/types";
   import {
     projectPriorityDisplayColor,
@@ -27,6 +28,7 @@
     scheduledTaskIds,
     scheduledThisWeekMinutes,
     onOpenTask,
+    aggregates,
   }: {
     projectId: string | null;
     tasks: ProjectTask[];
@@ -36,6 +38,7 @@
     scheduledTaskIds: ReadonlySet<string>;
     scheduledThisWeekMinutes: number;
     onOpenTask: (task: ProjectTask) => void;
+    aggregates?: ProjectDashboardTaskAggregates;
   } = $props();
 
   const projects = getProjects();
@@ -44,15 +47,17 @@
 
   let dashboardScrollContainer = $state<HTMLElement | undefined>();
 
-  const completedTaskCount = $derived(tasks.filter((task) => isTaskDone(task)).length);
+  const completedTaskCount = $derived(aggregates?.completed ?? tasks.filter((task) => isTaskDone(task)).length);
 
   function taskCountForStatus(status: ProjectStatus): number {
-    return tasks.filter((task) => task.statusId === status.id && !task.parentTaskId).length;
+    return aggregates?.statusCounts[status.id]
+      ?? tasks.filter((task) => task.statusId === status.id && !task.parentTaskId).length;
   }
 
   function projectCompletionPercent(): number {
-    if (tasks.length === 0) return 0;
-    return Math.round((completedTaskCount / tasks.length) * 100);
+    const total = aggregates?.total ?? tasks.length;
+    if (total === 0) return 0;
+    return Math.round((completedTaskCount / total) * 100);
   }
 
   function isTaskDone(task: ProjectTask): boolean {
@@ -98,6 +103,7 @@
     return tasks
       .filter((task) =>
         projects.statusById(task.statusId)?.category === "blocked"
+        || task.summaryBlocked === true
         || Boolean(task.blockerReason?.trim())
         || projects.dependenciesBlockingTask(task.id).length > 0
       )
@@ -130,7 +136,7 @@
   }
 
   function totalOpenEstimateMinutes(): number {
-    return tasks
+    return aggregates?.openEstimateMinutes ?? tasks
       .filter((task) => !isTaskDone(task))
       .reduce((total, task) => total + (task.estimateMinutes ?? 0), 0);
   }

@@ -90,12 +90,10 @@ function relationships(): ProjectsOptionalData {
 }
 
 describe("project optional data", () => {
-  it("requests only the optional families consumed by each view", () => {
-    expect(projectViewOptionalDataKinds("list")).toEqual(["relationships", "custom_fields"]);
-    expect(projectViewOptionalDataKinds("kanban")).toEqual(["relationships"]);
-    expect(projectViewOptionalDataKinds("calendar")).toEqual(["relationships", "custom_fields"]);
-    expect(projectViewOptionalDataKinds("gantt")).toEqual(["relationships"]);
-    expect(projectViewOptionalDataKinds("dashboard")).toEqual(["relationships", "history"]);
+  it("keeps project-wide optional families out of every task view", () => {
+    for (const view of ["list", "kanban", "calendar", "gantt", "dashboard"] as const) {
+      expect(projectViewOptionalDataKinds(view)).toEqual([]);
+    }
   });
 
   it("replaces one project's relationships without dropping another project", () => {

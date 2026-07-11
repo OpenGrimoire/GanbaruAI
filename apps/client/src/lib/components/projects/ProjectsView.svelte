@@ -37,6 +37,7 @@
     ProjectTaskSortDirection,
     ProjectTaskSortMode,
     ProjectTaskStatusFilter,
+    ProjectTaskViewRequest,
     ProjectViewId,
   } from "$lib/projects/types";
   import {
@@ -47,7 +48,6 @@
   import {
     PROJECT_TASK_FILTER_DEFAULTS,
     projectTaskDataFiltersActive,
-    selectedProjectTaskIdsInView,
     taskListColumnWidthsForProject,
     type ProjectTaskListColumnWidths,
     type ProjectTaskFilterState,
@@ -227,20 +227,12 @@
     const projectId = selectedProjectId;
     return Boolean(
       projectId
-      && projects.projectOptionalDataLoaded("relationships", projectId)
-      && projects.projectOptionalDataLoaded("custom_fields", projectId)
+      && projects.taskViewPage?.projectId === projectId
       && projects.projectOptionalDataLoaded("saved_views", projectId),
     );
   });
   const taskDetailDataReady = $derived.by(() => {
-    const projectId = selectedProjectId;
-    return Boolean(
-      projectId
-      && projects.projectOptionalDataLoaded("relationships", projectId)
-      && projects.projectOptionalDataLoaded("custom_fields", projectId)
-      && projects.projectOptionalDataLoaded("history", projectId)
-      && projects.projectOptionalDataLoaded("checklist", projectId),
-    );
+    return Boolean(selectedTaskId && projects.taskById(selectedTaskId)?.detailLoaded);
   });
 
   function requestProjectToolbarData(): void {
@@ -259,7 +251,7 @@
     const taskId = selectedTaskId;
     if (!projectId || !taskId) return;
     taskDetailDataError = null;
-    void projects.ensureTaskDetailData(projectId).catch((error) => {
+    void projects.ensureTaskDetailData(projectId, taskId).catch((error) => {
       if (selectedProjectId !== projectId || selectedTaskId !== taskId) return;
       taskDetailDataError = error instanceof Error ? error.message : String(error);
       console.error("load optional Project task detail data failed", error);
@@ -289,7 +281,8 @@
       .filter((task) => visibleSectionIds.has(task.sectionId))
   );
   const archivedProjectTaskCount = $derived(
-    allProjectTasksWithArchived.filter((task) => Boolean(task.archivedAt)).length,
+    projects.taskViewPage?.archivedCount
+      ?? allProjectTasksWithArchived.filter((task) => Boolean(task.archivedAt)).length,
   );
   const allProjectTasks = $derived(showArchivedTasks ? allProjectTasksWithArchived : activeProjectTasks);
   const allProjectTaskIds = $derived.by(() => new Set(allProjectTasks.map((task) => task.id)));
@@ -416,6 +409,7 @@
     today: todayDate,
     weekEnd: taskFilterWeekEnd,
     ...taskFilterState,
+    filtersApplied: true,
     customFields: projectCustomFields,
     customFieldOptions: projects.customFieldOptions,
     customFieldValuesByTaskField,
@@ -441,7 +435,7 @@
   const selectedTasks = $derived.by(() => allProjectTasks.filter((task) => selectedTaskIdSet.has(task.id)));
   const selectedArchivedTaskCount = $derived(selectedTasks.filter((task) => Boolean(task.archivedAt)).length);
   const selectedActiveTaskCount = $derived(selectedTasks.length - selectedArchivedTaskCount);
-  const matchingTaskCount = $derived(taskView.matchedTaskIds.size);
+  const matchingTaskCount = $derived(projects.taskViewPage?.matchedCount ?? taskView.matchedTaskIds.size);
   const activeTaskFilterCount = $derived(taskView.activeFilterCount);
   const taskFiltersActive = $derived(activeTaskFilterCount > 0);
   const taskFilterControlsActive = $derived(taskFiltersActive || showArchivedTasks || showInactiveSections);
@@ -450,9 +444,11 @@
   const taskDataFiltersActive = $derived(projectTaskDataFiltersActive(taskFilterState));
   const savedTaskViews = $derived.by(() => projects.savedTaskViewsForProject(selectedProjectId));
   const eventIdsForMatchedTasks = $derived.by(() => new Set(
-    projects.eventLinks
-      .filter((link) => taskView.matchedTaskIds.has(link.taskId))
-      .map((link) => link.eventId),
+    projects.activeView === "calendar"
+      ? projects.taskViewPage?.matchedEventIds ?? []
+      : projects.eventLinks
+        .filter((link) => taskView.matchedTaskIds.has(link.taskId))
+        .map((link) => link.eventId),
   ));
   const projectEvents = $derived.by(() => {
     return allProjectEvents.filter((event) => !taskDataFiltersActive || eventIdsForMatchedTasks.has(event.id));
@@ -488,6 +484,72 @@
       console.error(`load optional Project ${view} data failed`, error);
     });
   });
+
+  $effect(() => {
+    const request = currentTaskViewRequest();
+    if (!request || !projects.projectDataLoaded(request.projectId)) return;
+    void projects.loadTaskView(
+      request,
+      false,
+      selectedTaskId ? [...selectedTaskIds, selectedTaskId] : selectedTaskIds,
+    ).catch((error) => {
+      console.error(`load Project ${request.view} task window failed`, error);
+    });
+  });
+
+  function currentTaskViewRequest(): ProjectTaskViewRequest | null {
+    const projectId = selectedProjectId;
+    const view = projects.activeView;
+    if (!projectId) return null;
+    return {
+      projectId,
+      view,
+      pageSize: view === "kanban" ? 50 : view === "gantt" ? 10_000 : 100,
+      columnCursors: {},
+      showArchived: showArchivedTasks,
+      visibleSectionIds: sections.map((section) => section.id),
+      search: taskSearch,
+      statusFilter: taskStatusFilter,
+      sectionFilter: taskSectionFilter,
+      priorityFilter: taskPriorityFilter,
+      dueFilter: taskDueFilter,
+      dueRangeStart: normalizedTaskDueRangeStart ?? "",
+      dueRangeEnd: normalizedTaskDueRangeEnd ?? "",
+      today: todayDate,
+      weekEnd: taskFilterWeekEnd,
+      scheduleFilter: taskScheduleFilter,
+      dependencyFilter: taskDependencyFilter,
+      tagFilter: taskTagFilter,
+      customFieldFilters: taskCustomFieldFilters,
+      sortMode: taskSortMode,
+      sortDirection: taskSortDirection,
+      candidateEventIds: view === "calendar" ? allProjectEvents.map((event) => event.id) : [],
+    };
+  }
+
+  function loadNextListTaskPage(): void {
+    const request = currentTaskViewRequest();
+    const cursor = projects.taskViewPage?.nextCursor;
+    if (!request || request.view !== "list" || !cursor || projects.taskViewLoading) return;
+    void projects.loadTaskView({ ...request, cursor }, true, selectedTaskIds).catch((error) => {
+      console.error("load next Project list task page failed", error);
+    });
+  }
+
+  function loadNextKanbanTaskPage(): void {
+    const request = currentTaskViewRequest();
+    const page = projects.taskViewPage;
+    if (!request || request.view !== "kanban" || !page || projects.taskViewLoading) return;
+    const columnCursors = Object.fromEntries(
+      page.columnCounts
+        .filter((column) => column.nextCursor)
+        .map((column) => [column.statusId, column.nextCursor as string]),
+    );
+    if (Object.keys(columnCursors).length === 0) return;
+    void projects.loadTaskView({ ...request, columnCursors }, true, selectedTaskIds).catch((error) => {
+      console.error("load next Project Kanban task page failed", error);
+    });
+  }
 
   $effect(() => {
     if (!projectToolbarPanel) return;
@@ -526,13 +588,6 @@
   $effect(() => {
     if (selectedTaskId && !selectedTask) {
       selectedTaskId = null;
-    }
-  });
-
-  $effect(() => {
-    const nextSelectedTaskIds = selectedProjectTaskIdsInView(selectedTaskIds, allProjectTasks);
-    if (nextSelectedTaskIds.length !== selectedTaskIds.length) {
-      selectedTaskIds = nextSelectedTaskIds;
     }
   });
 
@@ -1090,6 +1145,7 @@
               onTaskListColumnWidthsChange={(widths, options) => {
                 void updateTaskListColumnWidths(widths, options);
               }}
+              onNeedMore={loadNextListTaskPage}
             />
           {:else if loadedView.view === "kanban"}
             {@const ProjectKanbanView = loadedView.component}
@@ -1102,6 +1158,8 @@
               {taskSortDirection}
               onOpenTask={openTaskDetail}
               onToggleTaskSelection={toggleTaskSelection}
+              columnCounts={projects.taskViewPage?.columnCounts ?? []}
+              onNeedMore={loadNextKanbanTaskPage}
             />
           {:else if loadedView.view === "calendar"}
             {@const CalendarView = loadedView.component}
@@ -1137,6 +1195,7 @@
               {todayDate}
               {scheduledTaskIds}
               {scheduledThisWeekMinutes}
+              aggregates={projects.taskViewPage?.aggregates}
               onOpenTask={openTaskDetail}
             />
           {/if}
@@ -1182,7 +1241,7 @@
       <ProjectTaskFinder
         {taskSearch}
         {matchingTaskCount}
-        totalTaskCount={allProjectTasks.length}
+        totalTaskCount={projects.taskViewPage?.totalCount ?? allProjectTasks.length}
         focusRequestId={taskFinderFocusRequestId}
         onTaskSearchChange={(value) => {
           taskSearch = value;

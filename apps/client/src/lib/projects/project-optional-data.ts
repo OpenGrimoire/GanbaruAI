@@ -23,9 +23,7 @@ export function projectOptionalDataKey(
 
 /** Lists optional collections needed by a visible project view. */
 export function projectViewOptionalDataKinds(view: ProjectViewId): readonly ProjectOptionalDataKind[] {
-  if (view === "dashboard") return ["relationships", "history"];
-  if (view === "list" || view === "calendar") return ["relationships", "custom_fields"];
-  if (view === "kanban" || view === "gantt") return ["relationships"];
+  void view;
   return [];
 }
 

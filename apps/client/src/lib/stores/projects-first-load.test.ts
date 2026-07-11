@@ -6,6 +6,7 @@ import type {
   ProjectsOptionalData,
   ProjectsSnapshot,
   ProjectsWorkspaceSnapshot,
+  ProjectTaskDetailData,
 } from "$lib/projects/types";
 
 const backend = vi.hoisted(() => {
@@ -19,6 +20,7 @@ const backend = vi.hoisted(() => {
     workspace,
     workspaceCalls: 0,
     optionalCalls,
+    detailCalls: 0,
     resolveWorkspace(value: unknown) {
       resolveWorkspace?.(value);
     },
@@ -31,6 +33,16 @@ const backend = vi.hoisted(() => {
     },
     resolveOptional(kind: string, projectId: string | null, value: unknown) {
       optionalResolvers.get(`${projectId ?? "global"}:${kind}`)?.(value);
+    },
+    loadDetail() {
+      this.detailCalls += 1;
+      const task = emptySnapshot().tasks[0];
+      return Promise.resolve({
+        task,
+        relatedTasks: [], checklistItems: [], tags: [], taskTagLinks: [], customFields: [],
+        customFieldOptions: [], customFieldValues: [], customFieldOptionValues: [],
+        dependencies: [], eventLinks: [], taskChangeEvents: [],
+      } satisfies ProjectTaskDetailData);
     },
   };
 });
@@ -46,6 +58,7 @@ vi.mock("$lib/api/projects", async (importOriginal) => {
     refreshProjectsWorkspace: vi.fn(),
     loadProjectsOptionalData: (kind: string, projectId: string | null) =>
       backend.optionalRequest(kind, projectId),
+    loadProjectTaskDetail: () => backend.loadDetail(),
   };
 });
 
@@ -82,7 +95,13 @@ function emptySnapshot(): ProjectsSnapshot {
     sections: [],
     statuses: [],
     priorities: [],
-    tasks: [],
+    tasks: [{
+      id: "task-1", projectId: "project-1", sectionId: "section-1", statusId: "status-1",
+      title: "Task", description: "", priority: "normal", taskType: "task",
+      sectionSortOrder: 0, statusSortOrder: 0, milestone: false,
+      createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+      detailLoaded: false,
+    }],
     checklistItems: [],
     tags: [],
     taskTagLinks: [],
@@ -138,44 +157,21 @@ describe("Projects initial loading", () => {
     expect(projects.projectDataLoaded("project-1")).toBe(true);
     expect(backend.workspaceCalls).toBe(1);
 
-    const firstKanban = projects.ensureProjectViewData("project-1", "kanban");
-    const secondKanban = projects.ensureProjectViewData("project-1", "kanban");
-    expect(backend.optionalCalls).toEqual(["project-1:relationships"]);
-    backend.resolveOptional(
-      "relationships",
-      "project-1",
-      optionalData("relationships"),
-    );
-    await Promise.all([firstKanban, secondKanban]);
-
-    const list = projects.ensureProjectViewData("project-1", "list");
-    expect(backend.optionalCalls).toEqual([
-      "project-1:relationships",
-      "project-1:custom_fields",
+    await Promise.all([
+      projects.ensureProjectViewData("project-1", "kanban"),
+      projects.ensureProjectViewData("project-1", "list"),
     ]);
-    backend.resolveOptional("custom_fields", "project-1", optionalData("custom_fields"));
-    await list;
 
     const toolbar = projects.ensureProjectToolbarData("project-1");
-    expect(backend.optionalCalls.at(-1)).toBe("project-1:saved_views");
+    expect(backend.optionalCalls).toEqual(["project-1:saved_views"]);
     backend.resolveOptional("saved_views", "project-1", optionalData("saved_views"));
     await toolbar;
 
-    const detail = projects.ensureTaskDetailData("project-1");
-    expect(backend.optionalCalls.slice(-2)).toEqual([
-      "project-1:history",
-      "project-1:checklist",
+    await Promise.all([
+      projects.ensureTaskDetailData("project-1", "task-1"),
+      projects.ensureTaskDetailData("project-1", "task-1"),
     ]);
-    backend.resolveOptional("history", "project-1", optionalData("history"));
-    backend.resolveOptional("checklist", "project-1", optionalData("checklist"));
-    await detail;
-
-    expect(backend.optionalCalls).toEqual([
-      "project-1:relationships",
-      "project-1:custom_fields",
-      "project-1:saved_views",
-      "project-1:history",
-      "project-1:checklist",
-    ]);
+    expect(backend.detailCalls).toBe(1);
+    expect(backend.optionalCalls).toEqual(["project-1:saved_views"]);
   });
 });
