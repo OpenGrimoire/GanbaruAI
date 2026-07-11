@@ -1,6 +1,12 @@
 <script lang="ts">
   import { tick } from "svelte";
   import {
+    beginLazyComponentLoad,
+    rejectLazyComponentLoad,
+    resolveLazyComponentLoad,
+    type LazyComponentLoadState,
+  } from "$lib/lazy-component-loader";
+  import {
     applyNotesDataSourceTemplate,
     clickNotesDataSourceButton,
     createNotesDataSourceRowPage,
@@ -29,9 +35,12 @@
     type NotesDatabaseTableEditValue,
     type NotesDatabaseTableColumn,
   } from "$lib/notes/database-table";
-  import NotesDatabaseCsvExportPanel from "./NotesDatabaseCsvExportPanel.svelte";
-  import NotesDatabaseCsvImportPanel from "./NotesDatabaseCsvImportPanel.svelte";
   import NotesDatabaseRelationCell from "./NotesDatabaseRelationCell.svelte";
+  import {
+    loadNotesEditorPanel,
+    retryNotesEditorPanel,
+    type LoadedNotesEditorPanel,
+  } from "./notes-editor-component-registry";
   import type {
     NotesDatabaseTableFilter,
     NotesDatabaseTableFilterCondition,
@@ -92,6 +101,45 @@
   let selectedPanelRowId = $state<string | null>(null);
   let lastLoadSignature = $state("");
   let pendingFocusRowId = $state<string | null>(null);
+  let csvPanelOpen = $state<"database-csv-import" | "database-csv-export" | null>(null);
+  let csvPanelLoadState = $state<LazyComponentLoadState<
+    "database-csv-import" | "database-csv-export",
+    LoadedNotesEditorPanel
+  > | null>(null);
+
+  function requestCsvPanel(
+    kind: "database-csv-import" | "database-csv-export",
+    retry = false,
+  ): void {
+    csvPanelOpen = kind;
+    if (!retry && csvPanelLoadState?.key === kind) return;
+    const loadingState = beginLazyComponentLoad(csvPanelLoadState, kind);
+    csvPanelLoadState = loadingState;
+    const request = retry ? retryNotesEditorPanel(kind) : loadNotesEditorPanel(kind);
+    void request.then((component) => {
+      if (!csvPanelLoadState) return;
+      csvPanelLoadState = resolveLazyComponentLoad(
+        csvPanelLoadState,
+        kind,
+        loadingState.requestId,
+        component,
+      );
+    }).catch((error: unknown) => {
+      if (!csvPanelLoadState) return;
+      csvPanelLoadState = rejectLazyComponentLoad(
+        csvPanelLoadState,
+        kind,
+        loadingState.requestId,
+        error,
+      );
+      console.error(`load Notes ${kind} panel failed`, error);
+    });
+  }
+
+  function retryCsvPanel(): void {
+    const kind = csvPanelLoadState?.key;
+    if (kind) requestCsvPanel(kind, true);
+  }
 
   const columns = $derived(table ? notesDatabaseTableColumns(table.data_source, table.view) : []);
   const visibleColumns = $derived(notesDatabaseTableVisibleColumns(columns));
@@ -625,19 +673,30 @@
         </div>
       </details>
 
-      <NotesDatabaseCsvImportPanel
-        {dataSourceId}
-        disabled={mutating || loading}
-        onImported={async () => {
-          await loadTable();
-        }}
-      />
-      <NotesDatabaseCsvExportPanel
-        {dataSourceId}
-        {databaseId}
-        {viewId}
-        disabled={mutating || loading}
-      />
+      <div class="flex flex-wrap gap-2">
+        <button class="min-h-8 rounded-md border border-border px-2 text-[0.8rem] hover:bg-accent" type="button" onclick={() => requestCsvPanel("database-csv-import")}>{t("notes.databaseCsvImportTitle")}</button>
+        <button class="min-h-8 rounded-md border border-border px-2 text-[0.8rem] hover:bg-accent" type="button" onclick={() => requestCsvPanel("database-csv-export")}>{t("notes.databaseCsvExportTitle")}</button>
+      </div>
+      {#if csvPanelOpen === "database-csv-import" && csvPanelLoadState?.status === "ready" && csvPanelLoadState.component.kind === "database-csv-import"}
+        {@const NotesDatabaseCsvImportPanel = csvPanelLoadState.component.component}
+        <NotesDatabaseCsvImportPanel
+          {dataSourceId}
+          disabled={mutating || loading}
+          onImported={async () => {
+            await loadTable();
+          }}
+        />
+      {:else if csvPanelOpen === "database-csv-export" && csvPanelLoadState?.status === "ready" && csvPanelLoadState.component.kind === "database-csv-export"}
+        {@const NotesDatabaseCsvExportPanel = csvPanelLoadState.component.component}
+        <NotesDatabaseCsvExportPanel
+          {dataSourceId}
+          {databaseId}
+          {viewId}
+          disabled={mutating || loading}
+        />
+      {:else if csvPanelOpen && csvPanelLoadState?.status === "failed"}
+        <button class="min-h-8 rounded-md border border-border px-2 text-[0.8rem] hover:bg-accent" type="button" onclick={retryCsvPanel}>{t("common.retry")}</button>
+      {/if}
 
       <div class="grid gap-2 @lg:grid-cols-3">
         <details class="rounded-md border border-border p-2 text-[0.8rem]">

@@ -76,7 +76,72 @@
       "src/lib/components/notes/NotesPagePickerPanel.svelte",
       "src/lib/components/notes/NotesProjectNavigator.svelte",
       "src/lib/components/notes/NotesDestinationPickerList.svelte",
+      "src/lib/components/notes/NotesBlockInsertMenu.svelte",
       "src/lib/components/ui/ConfirmDialog.svelte"
+    ]
+  },
+  "notesParagraphEditor": {
+    "loadedModules": [
+      "src/lib/components/notes/NotesEditor.svelte",
+      "src/lib/components/notes/NotesBlockList.svelte",
+      "src/lib/components/notes/NotesBlockRow.svelte",
+      "src/lib/components/notes/NotesTextBlockEditor.svelte"
+    ],
+    "forbiddenModules": [
+      "src/lib/components/notes/NotesMediaBlock.svelte",
+      "src/lib/components/notes/NotesChildDatabaseBlock.svelte",
+      "src/lib/components/notes/NotesTableBlock.svelte",
+      "src/lib/components/notes/NotesCardBlock.svelte",
+      "src/lib/components/notes/NotesUnsupportedBlock.svelte",
+      "src/lib/components/notes/NotesColumnListBlock.svelte",
+      "src/lib/components/notes/NotesTabBlock.svelte",
+      "src/lib/components/notes/NotesDatabaseTableView.svelte",
+      "src/lib/components/notes/NotesDatabaseBoardView.svelte",
+      "src/lib/components/notes/NotesDatabaseGalleryView.svelte",
+      "src/lib/components/notes/NotesDatabaseListView.svelte",
+      "src/lib/components/notes/NotesDatabaseCalendarView.svelte",
+      "src/lib/components/notes/NotesDatabaseTimelineView.svelte",
+      "src/lib/components/icon-picker/IconPicker.svelte",
+      "src/lib/components/notes/NotesPageCover.svelte",
+      "src/lib/components/notes/NotesPageCoverMenu.svelte",
+      "src/lib/components/notes/NotesHtmlExportDialog.svelte",
+      "src/lib/components/notes/NotesAgentBridgeExportDialog.svelte",
+      "src/lib/components/notes/NotesPageVersionHistoryModal.svelte",
+      "src/lib/components/notes/NotesBacklinks.svelte",
+      "src/lib/components/notes/NotesPageLinks.svelte",
+      "src/lib/components/notes/NotesComments.svelte",
+      "src/lib/components/notes/NotesSuggestions.svelte",
+      "src/lib/components/notes/NotesDestinationPickerList.svelte",
+      "src/lib/components/notes/NotesInlineToolbar.svelte",
+      "src/lib/components/notes/NotesLinkEditor.svelte",
+      "src/lib/components/notes/NotesMentionMenu.svelte",
+      "src/lib/components/notes/NotesSlashMenu.svelte",
+      "src/lib/components/notes/NotesTemplateBlockControls.svelte",
+      "src/lib/components/notes/NotesButtonBlockControls.svelte"
+    ]
+  },
+  "notesAdvancedModules": [
+    "src/lib/components/notes/NotesMediaBlock.svelte",
+    "src/lib/components/notes/NotesChildDatabaseBlock.svelte",
+    "src/lib/components/notes/NotesTableBlock.svelte",
+    "src/lib/components/notes/NotesCardBlock.svelte",
+    "src/lib/components/notes/NotesUnsupportedBlock.svelte",
+    "src/lib/components/notes/NotesColumnListBlock.svelte",
+    "src/lib/components/notes/NotesTabBlock.svelte",
+    "src/lib/components/notes/NotesDatabaseTableView.svelte",
+    "src/lib/components/notes/NotesDatabaseBoardView.svelte",
+    "src/lib/components/notes/NotesDatabaseGalleryView.svelte",
+    "src/lib/components/notes/NotesDatabaseListView.svelte",
+    "src/lib/components/notes/NotesDatabaseCalendarView.svelte",
+    "src/lib/components/notes/NotesDatabaseTimelineView.svelte"
+  ],
+  "notesDatabaseTable": {
+    "loadedModules": [
+      "src/lib/components/notes/NotesDatabaseTableView.svelte"
+    ],
+    "forbiddenModules": [
+      "src/lib/components/notes/NotesDatabaseCsvImportPanel.svelte",
+      "src/lib/components/notes/NotesDatabaseCsvExportPanel.svelte"
     ]
   },
   "settingsAppearance": {

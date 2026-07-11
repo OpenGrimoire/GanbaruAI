@@ -1,5 +1,11 @@
 <script lang="ts">
   import { onDestroy, onMount, tick } from "svelte";
+  import {
+    beginLazyComponentLoad,
+    rejectLazyComponentLoad,
+    resolveLazyComponentLoad,
+    type LazyComponentLoadState,
+  } from "$lib/lazy-component-loader";
   import Archive from "@lucide/svelte/icons/archive";
   import Copy from "@lucide/svelte/icons/copy";
   import Download from "@lucide/svelte/icons/download";
@@ -22,12 +28,10 @@
     pickNotesPageIconImageFile,
     saveNotesPageIconImageDataUrl,
   } from "$lib/api/notes-page-icons";
-  import IconPicker from "$lib/components/icon-picker/IconPicker.svelte";
   import type {
     IconPickerAsset,
     IconPickerUploadAdapter,
   } from "$lib/components/icon-picker/types";
-  import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { blockPlainText, isTextEditableBlock } from "$lib/notes/block-factory";
   import { notesBlockAnchorId } from "$lib/notes/block-link";
@@ -82,19 +86,15 @@
   import { getNotes } from "$lib/stores/notes.svelte";
   import { cn } from "$lib/utils";
   import { dismissOnOutside } from "$lib/utils/dismiss-on-outside";
-  import NotesAgentBridgeExportDialog from "./NotesAgentBridgeExportDialog.svelte";
-  import NotesBacklinks from "./NotesBacklinks.svelte";
   import NotesBlockList from "./NotesBlockList.svelte";
-  import NotesComments from "./NotesComments.svelte";
-  import NotesDestinationPickerList from "./NotesDestinationPickerList.svelte";
-  import NotesHtmlExportDialog from "./NotesHtmlExportDialog.svelte";
-  import NotesPageCover from "./NotesPageCover.svelte";
-  import NotesPageCoverMenu from "./NotesPageCoverMenu.svelte";
-  import NotesPageVersionHistoryModal from "./NotesPageVersionHistoryModal.svelte";
   import NotesPageIcon from "./NotesPageIcon.svelte";
   import NotesPeekModeIcon from "./NotesPeekModeIcon.svelte";
-  import NotesPageLinks from "./NotesPageLinks.svelte";
-  import NotesSuggestions from "./NotesSuggestions.svelte";
+  import {
+    loadNotesEditorPanel,
+    retryNotesEditorPanel,
+    type LoadedNotesEditorPanel,
+    type NotesEditorPanelKind,
+  } from "./notes-editor-component-registry";
 
   type NotesEditorPanel = "links" | "comments" | "suggestions";
 
@@ -131,6 +131,13 @@
   let pageHistoryModalOpen = $state(false);
   let pendingArchivePage = $state<NotesPage | null>(null);
   let pendingTrashPage = $state<NotesPage | null>(null);
+  let requestedIconPicker = $state<"action" | "icon" | null>(null);
+  let actionIconPickerTrigger: HTMLButtonElement | null = $state(null);
+  let pageIconPickerTrigger: HTMLButtonElement | null = $state(null);
+  let panelLoadStates = $state<Partial<Record<
+    NotesEditorPanelKind,
+    LazyComponentLoadState<NotesEditorPanelKind, LoadedNotesEditorPanel>
+  >>>({});
   let blockScrollViewport: HTMLDivElement | null = $state(null);
   let activityNowMs = $state(Date.now());
   let activityPanelHideTimer: number | null = null;
@@ -208,6 +215,60 @@
   const linksBadgeCount = $derived(notes.backlinks.length + notes.pageAliases.length + notes.unresolvedLinks.length);
   const commentsBadgeCount = $derived(unreadCommentCount > 0 ? unreadCommentCount : openCommentCount);
   const peekMode = $derived(openMode !== "full");
+
+  function requestEditorPanel(kind: NotesEditorPanelKind, retry = false): void {
+    const current = panelLoadStates[kind] ?? null;
+    if (!retry && current?.key === kind) return;
+    const loadingState = beginLazyComponentLoad(current, kind);
+    panelLoadStates = { ...panelLoadStates, [kind]: loadingState };
+    const request = retry ? retryNotesEditorPanel(kind) : loadNotesEditorPanel(kind);
+    void request.then((component) => {
+      const latest = panelLoadStates[kind];
+      if (!latest) return;
+      panelLoadStates = {
+        ...panelLoadStates,
+        [kind]: resolveLazyComponentLoad(latest, kind, loadingState.requestId, component),
+      };
+    }).catch((error: unknown) => {
+      const latest = panelLoadStates[kind];
+      if (!latest) return;
+      panelLoadStates = {
+        ...panelLoadStates,
+        [kind]: rejectLazyComponentLoad(latest, kind, loadingState.requestId, error),
+      };
+      console.error(`load Notes ${kind} panel failed`, error);
+    });
+  }
+
+  function openIconPicker(kind: "action" | "icon"): void {
+    requestedIconPicker = kind;
+    requestEditorPanel("icon-picker", panelLoadStates["icon-picker"]?.status === "failed");
+  }
+
+  $effect(() => {
+    if (activePanel === "links") {
+      requestEditorPanel("backlinks");
+      requestEditorPanel("page-links");
+    } else if (activePanel === "comments") {
+      requestEditorPanel("comments");
+    } else if (activePanel === "suggestions") {
+      requestEditorPanel("suggestions");
+    }
+    if (moveMenuOpen || folderMoveMenuOpen) requestEditorPanel("destination-picker");
+    if (coverMenuOpen) requestEditorPanel("cover-menu");
+    if (page?.cover) requestEditorPanel("page-cover");
+    if (htmlExportOpen) requestEditorPanel("html-export");
+    if (agentBridgeExportOpen) requestEditorPanel("agent-export");
+    if (pageHistoryModalOpen) requestEditorPanel("page-history");
+    if (pendingArchivePage || pendingTrashPage) requestEditorPanel("confirm-dialog");
+    if (requestedIconPicker && panelLoadStates["icon-picker"]?.status === "ready") {
+      const kind = requestedIconPicker;
+      requestedIconPicker = null;
+      void tick().then(() => {
+        (kind === "action" ? actionIconPickerTrigger : pageIconPickerTrigger)?.click();
+      });
+    }
+  });
 
   $effect(() => {
     if (!page || page.id === lastTitlePageId) return;
@@ -439,6 +500,9 @@
     const nextOpen = !coverMenuOpen;
     coverMenuOpen = nextOpen;
     if (nextOpen) {
+      if (panelLoadStates["cover-menu"]?.status === "failed") {
+        requestEditorPanel("cover-menu", true);
+      }
       closePageMenu();
       closeActionPanel();
     }
@@ -810,7 +874,9 @@
               </button>
               {#if moveMenuOpen}
                 <div class="my-1 max-h-72 overflow-auto border-y border-border bg-muted/25 py-1">
-                  <NotesDestinationPickerList
+                  {#if panelLoadStates["destination-picker"]?.status === "ready" && panelLoadStates["destination-picker"].component.kind === "destination-picker"}
+                    {@const NotesDestinationPickerList = panelLoadStates["destination-picker"].component.component}
+                    <NotesDestinationPickerList
                     targets={moveTargets}
                     searchLabel={t("notes.moveDestinationSearch")}
                     searchPlaceholder={t("notes.moveDestinationSearchPlaceholder")}
@@ -822,7 +888,12 @@
                     onClose={() => {
                       moveMenuOpen = false;
                     }}
-                  />
+                    />
+                  {:else if panelLoadStates["destination-picker"]?.status === "failed"}
+                    <button class="m-2 min-h-8 rounded-md border border-border px-2 text-[0.8rem] hover:bg-accent" type="button" onclick={() => requestEditorPanel("destination-picker", true)}>{t("common.retry")}</button>
+                  {:else}
+                    <div class="p-2 text-[0.8rem] text-muted-foreground" aria-busy="true">{t("common.loading")}</div>
+                  {/if}
                 </div>
               {/if}
               {#if folderMoveTargets.length > 0}
@@ -846,7 +917,9 @@
                 </button>
                 {#if folderMoveMenuOpen}
                   <div class="my-1 max-h-72 overflow-auto border-y border-border bg-muted/25 py-1">
-                    <NotesDestinationPickerList
+                    {#if panelLoadStates["destination-picker"]?.status === "ready" && panelLoadStates["destination-picker"].component.kind === "destination-picker"}
+                      {@const NotesDestinationPickerList = panelLoadStates["destination-picker"].component.component}
+                      <NotesDestinationPickerList
                       targets={folderMoveTargets}
                       searchLabel={t("notes.moveDestinationSearch")}
                       searchPlaceholder={t("notes.moveDestinationSearchPlaceholder")}
@@ -858,7 +931,12 @@
                       onClose={() => {
                         folderMoveMenuOpen = false;
                       }}
-                    />
+                      />
+                    {:else if panelLoadStates["destination-picker"]?.status === "failed"}
+                      <button class="m-2 min-h-8 rounded-md border border-border px-2 text-[0.8rem] hover:bg-accent" type="button" onclick={() => requestEditorPanel("destination-picker", true)}>{t("common.retry")}</button>
+                    {:else}
+                      <div class="p-2 text-[0.8rem] text-muted-foreground" aria-busy="true">{t("common.loading")}</div>
+                    {/if}
                   </div>
                 {/if}
               {/if}
@@ -911,13 +989,32 @@
         >
           {#if activePanel === "links"}
             <div class="flex min-w-0 flex-col gap-2">
-              <NotesBacklinks embedded />
-              <NotesPageLinks embedded />
+              {#if panelLoadStates.backlinks?.status === "ready" && panelLoadStates.backlinks.component.kind === "backlinks"}
+                {@const NotesBacklinks = panelLoadStates.backlinks.component.component}
+                <NotesBacklinks embedded />
+              {/if}
+              {#if panelLoadStates["page-links"]?.status === "ready" && panelLoadStates["page-links"].component.kind === "page-links"}
+                {@const NotesPageLinks = panelLoadStates["page-links"].component.component}
+                <NotesPageLinks embedded />
+              {/if}
+              {#if panelLoadStates.backlinks?.status === "failed" || panelLoadStates["page-links"]?.status === "failed"}
+                <button class="min-h-8 rounded-md border border-border px-2 text-[0.8rem] hover:bg-accent" type="button" onclick={() => { if (panelLoadStates.backlinks?.status === "failed") requestEditorPanel("backlinks", true); if (panelLoadStates["page-links"]?.status === "failed") requestEditorPanel("page-links", true); }}>{t("common.retry")}</button>
+              {/if}
             </div>
           {:else if activePanel === "comments"}
-            <NotesComments embedded />
+            {#if panelLoadStates.comments?.status === "ready" && panelLoadStates.comments.component.kind === "comments"}
+              {@const NotesComments = panelLoadStates.comments.component.component}
+              <NotesComments embedded />
+            {:else if panelLoadStates.comments?.status === "failed"}
+              <button class="min-h-8 rounded-md border border-border px-2 text-[0.8rem] hover:bg-accent" type="button" onclick={() => requestEditorPanel("comments", true)}>{t("common.retry")}</button>
+            {/if}
           {:else if activePanel === "suggestions"}
-            <NotesSuggestions embedded />
+            {#if panelLoadStates.suggestions?.status === "ready" && panelLoadStates.suggestions.component.kind === "suggestions"}
+              {@const NotesSuggestions = panelLoadStates.suggestions.component.component}
+              <NotesSuggestions embedded />
+            {:else if panelLoadStates.suggestions?.status === "failed"}
+              <button class="min-h-8 rounded-md border border-border px-2 text-[0.8rem] hover:bg-accent" type="button" onclick={() => requestEditorPanel("suggestions", true)}>{t("common.retry")}</button>
+            {/if}
           {/if}
         </div>
       {/if}
@@ -930,7 +1027,12 @@
     >
       {#if page.cover}
         <div class="h-28 overflow-hidden bg-muted sm:h-44">
-          <NotesPageCover cover={page.cover} unavailableLabel={t("notes.pageCoverUnavailable")} />
+          {#if panelLoadStates["page-cover"]?.status === "ready" && panelLoadStates["page-cover"].component.kind === "page-cover"}
+            {@const NotesPageCover = panelLoadStates["page-cover"].component.component}
+            <NotesPageCover cover={page.cover} unavailableLabel={t("notes.pageCoverUnavailable")} />
+          {:else if panelLoadStates["page-cover"]?.status === "failed"}
+            <button class="m-2 min-h-8 rounded-md border border-border bg-popover px-2 text-[0.8rem]" type="button" onclick={() => requestEditorPanel("page-cover", true)}>{t("common.retry")}</button>
+          {/if}
         </div>
       {/if}
 
@@ -942,25 +1044,39 @@
       >
         <div class="notes-page-title-surface group/title min-w-0 pb-5">
           <div class="notes-page-title-actions -ml-1.5 mb-2 flex min-h-8 flex-wrap items-center gap-1.5 opacity-0 transition-opacity group-hover/title:opacity-100 group-focus-within/title:opacity-100">
-            <IconPicker
-              value={notesPageIconPickerValue(page.icon)}
-              ariaLabel={page.icon ? t("notes.changePageIcon") : t("notes.addPageIcon")}
-              uploadAdapter={notesIconUploadAdapter}
-              onChange={updatePageIconFromPicker}
-            >
-              {#snippet trigger({ open, toggle })}
-                <button
-                  class={`inline-flex max-w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-[0.8rem] text-muted-foreground hover:bg-accent hover:text-foreground ${open ? "bg-accent text-foreground" : ""}`}
-                  type="button"
-                  aria-label={page.icon ? t("notes.changePageIcon") : t("notes.addPageIcon")}
-                  data-notes-icon-picker-open={open ? "true" : undefined}
-                  onclick={() => prepareIconPicker(toggle)}
-                >
-                  <SmilePlus class="size-3.5" />
-                  <span class="truncate">{page.icon ? t("notes.changePageIcon") : t("notes.addPageIcon")}</span>
-                </button>
-              {/snippet}
-            </IconPicker>
+            {#if panelLoadStates["icon-picker"]?.status === "ready" && panelLoadStates["icon-picker"].component.kind === "icon-picker"}
+              {@const IconPicker = panelLoadStates["icon-picker"].component.component}
+              <IconPicker
+                value={notesPageIconPickerValue(page.icon)}
+                ariaLabel={page.icon ? t("notes.changePageIcon") : t("notes.addPageIcon")}
+                uploadAdapter={notesIconUploadAdapter}
+                onChange={updatePageIconFromPicker}
+              >
+                {#snippet trigger({ open, toggle })}
+                  <button
+                    bind:this={actionIconPickerTrigger}
+                    class={`inline-flex max-w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-[0.8rem] text-muted-foreground hover:bg-accent hover:text-foreground ${open ? "bg-accent text-foreground" : ""}`}
+                    type="button"
+                    aria-label={page.icon ? t("notes.changePageIcon") : t("notes.addPageIcon")}
+                    data-notes-icon-picker-open={open ? "true" : undefined}
+                    onclick={() => prepareIconPicker(toggle)}
+                  >
+                    <SmilePlus class="size-3.5" />
+                    <span class="truncate">{page.icon ? t("notes.changePageIcon") : t("notes.addPageIcon")}</span>
+                  </button>
+                {/snippet}
+              </IconPicker>
+            {:else}
+              <button
+                class="inline-flex max-w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-[0.8rem] text-muted-foreground hover:bg-accent hover:text-foreground"
+                type="button"
+                aria-label={page.icon ? t("notes.changePageIcon") : t("notes.addPageIcon")}
+                onclick={() => openIconPicker("action")}
+              >
+                <SmilePlus class="size-3.5" />
+                <span class="truncate">{page.icon ? t("notes.changePageIcon") : t("notes.addPageIcon")}</span>
+              </button>
+            {/if}
             <div
               class="relative"
               use:dismissOnOutside={{ enabled: coverMenuOpen, onDismiss: closeCoverMenu }}
@@ -975,13 +1091,18 @@
                 <span class="truncate">{page.cover ? t("notes.changePageCover") : t("notes.addPageCover")}</span>
               </button>
               {#if coverMenuOpen}
-                <NotesPageCoverMenu
+                {#if panelLoadStates["cover-menu"]?.status === "ready" && panelLoadStates["cover-menu"].component.kind === "cover-menu"}
+                  {@const NotesPageCoverMenu = panelLoadStates["cover-menu"].component.component}
+                  <NotesPageCoverMenu
                   cover={page.cover}
                   onSelect={(cover) => {
                     coverMenuOpen = false;
                     void notes.updatePageCover(page.id, cover);
                   }}
-                />
+                  />
+                {:else if panelLoadStates["cover-menu"]?.status === "failed"}
+                  <button class="min-h-8 rounded-md border border-border px-2 text-[0.8rem] hover:bg-accent" type="button" onclick={() => requestEditorPanel("cover-menu", true)}>{t("common.retry")}</button>
+                {/if}
               {/if}
             </div>
             <button
@@ -997,25 +1118,40 @@
 
           {#if page.icon}
             <div class="mb-3 inline-flex">
-              <IconPicker
-                value={notesPageIconPickerValue(page.icon)}
-                ariaLabel={t("notes.changePageIcon")}
-                uploadAdapter={notesIconUploadAdapter}
-                onChange={updatePageIconFromPicker}
-              >
-                {#snippet trigger({ open, toggle })}
-                  <button
-                    class={`flex size-16 items-center justify-center rounded-md text-foreground hover:bg-accent ${open ? "bg-accent" : ""}`}
-                    type="button"
-                    aria-label={t("notes.changePageIcon")}
-                    data-app-tooltip={t("notes.changePageIcon")}
-                    onclick={() => prepareIconPicker(toggle)}
-                  >
-                    <NotesPageIcon icon={page.icon} size={48} class="shrink-0" />
-                    <span class="sr-only">{pageIconLabel}</span>
-                  </button>
-                {/snippet}
-              </IconPicker>
+              {#if panelLoadStates["icon-picker"]?.status === "ready" && panelLoadStates["icon-picker"].component.kind === "icon-picker"}
+                {@const IconPicker = panelLoadStates["icon-picker"].component.component}
+                <IconPicker
+                  value={notesPageIconPickerValue(page.icon)}
+                  ariaLabel={t("notes.changePageIcon")}
+                  uploadAdapter={notesIconUploadAdapter}
+                  onChange={updatePageIconFromPicker}
+                >
+                  {#snippet trigger({ open, toggle })}
+                    <button
+                      bind:this={pageIconPickerTrigger}
+                      class={`flex size-16 items-center justify-center rounded-md text-foreground hover:bg-accent ${open ? "bg-accent" : ""}`}
+                      type="button"
+                      aria-label={t("notes.changePageIcon")}
+                      data-app-tooltip={t("notes.changePageIcon")}
+                      onclick={() => prepareIconPicker(toggle)}
+                    >
+                      <NotesPageIcon icon={page.icon} size={48} class="shrink-0" />
+                      <span class="sr-only">{pageIconLabel}</span>
+                    </button>
+                  {/snippet}
+                </IconPicker>
+              {:else}
+                <button
+                  class="flex size-16 items-center justify-center rounded-md text-foreground hover:bg-accent"
+                  type="button"
+                  aria-label={t("notes.changePageIcon")}
+                  data-app-tooltip={t("notes.changePageIcon")}
+                  onclick={() => openIconPicker("icon")}
+                >
+                  <NotesPageIcon icon={page.icon} size={48} class="shrink-0" />
+                  <span class="sr-only">{pageIconLabel}</span>
+                </button>
+              {/if}
             </div>
           {/if}
 
@@ -1050,36 +1186,53 @@
   </section>
 
   {#if htmlExportOpen}
-    <NotesHtmlExportDialog
+    {#if panelLoadStates["html-export"]?.status === "ready" && panelLoadStates["html-export"].component.kind === "html-export"}
+      {@const NotesHtmlExportDialog = panelLoadStates["html-export"].component.component}
+      <NotesHtmlExportDialog
       pageTitle={currentPageTitle}
       onExport={exportHtmlArchive}
       onCancel={() => {
         htmlExportOpen = false;
       }}
-    />
+      />
+    {:else if panelLoadStates["html-export"]?.status === "failed"}
+      <button class="fixed inset-0 z-50 m-auto h-10 rounded-md border border-border bg-popover px-3" type="button" onclick={() => requestEditorPanel("html-export", true)}>{t("common.retry")}</button>
+    {/if}
   {/if}
 
   {#if agentBridgeExportOpen}
-    <NotesAgentBridgeExportDialog
+    {#if panelLoadStates["agent-export"]?.status === "ready" && panelLoadStates["agent-export"].component.kind === "agent-export"}
+      {@const NotesAgentBridgeExportDialog = panelLoadStates["agent-export"].component.component}
+      <NotesAgentBridgeExportDialog
       pageTitle={currentPageTitle}
       onExport={exportAgentBridge}
       onCancel={() => {
         agentBridgeExportOpen = false;
       }}
-    />
+      />
+    {:else if panelLoadStates["agent-export"]?.status === "failed"}
+      <button class="fixed inset-0 z-50 m-auto h-10 rounded-md border border-border bg-popover px-3" type="button" onclick={() => requestEditorPanel("agent-export", true)}>{t("common.retry")}</button>
+    {/if}
   {/if}
 
   {#if pageHistoryModalOpen}
-    <NotesPageVersionHistoryModal
+    {#if panelLoadStates["page-history"]?.status === "ready" && panelLoadStates["page-history"].component.kind === "page-history"}
+      {@const NotesPageVersionHistoryModal = panelLoadStates["page-history"].component.component}
+      <NotesPageVersionHistoryModal
       pageId={page.id}
       onClose={() => {
         pageHistoryModalOpen = false;
       }}
-    />
+      />
+    {:else if panelLoadStates["page-history"]?.status === "failed"}
+      <button class="fixed inset-0 z-50 m-auto h-10 rounded-md border border-border bg-popover px-3" type="button" onclick={() => requestEditorPanel("page-history", true)}>{t("common.retry")}</button>
+    {/if}
   {/if}
 
   {#if pendingArchivePage}
-    <ConfirmDialog
+    {#if panelLoadStates["confirm-dialog"]?.status === "ready" && panelLoadStates["confirm-dialog"].component.kind === "confirm-dialog"}
+      {@const ConfirmDialog = panelLoadStates["confirm-dialog"].component.component}
+      <ConfirmDialog
       title={t("notes.archiveConfirmTitle", notesPageTitle(pendingArchivePage, t("notes.untitled")))}
       message={t("notes.archiveConfirmMessage")}
       confirmLabel={t("notes.archiveConfirm")}
@@ -1088,11 +1241,16 @@
       onCancel={() => {
         pendingArchivePage = null;
       }}
-    />
+      />
+    {:else if panelLoadStates["confirm-dialog"]?.status === "failed"}
+      <button class="fixed inset-0 z-50 m-auto h-10 rounded-md border border-border bg-popover px-3" type="button" onclick={() => requestEditorPanel("confirm-dialog", true)}>{t("common.retry")}</button>
+    {/if}
   {/if}
 
   {#if pendingTrashPage}
-    <ConfirmDialog
+    {#if panelLoadStates["confirm-dialog"]?.status === "ready" && panelLoadStates["confirm-dialog"].component.kind === "confirm-dialog"}
+      {@const ConfirmDialog = panelLoadStates["confirm-dialog"].component.component}
+      <ConfirmDialog
       title={t("notes.trashConfirmTitle", notesPageTitle(pendingTrashPage, t("notes.untitled")))}
       message={t("notes.trashConfirmMessage")}
       confirmLabel={t("notes.trashConfirm")}
@@ -1101,7 +1259,10 @@
       onCancel={() => {
         pendingTrashPage = null;
       }}
-    />
+      />
+    {:else if panelLoadStates["confirm-dialog"]?.status === "failed"}
+      <button class="fixed inset-0 z-50 m-auto h-10 rounded-md border border-border bg-popover px-3" type="button" onclick={() => requestEditorPanel("confirm-dialog", true)}>{t("common.retry")}</button>
+    {/if}
   {/if}
 {:else}
   <div class="flex min-w-0 flex-1 items-center justify-center px-4 text-center text-[0.933333rem] text-muted-foreground">

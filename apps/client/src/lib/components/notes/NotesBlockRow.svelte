@@ -1,5 +1,11 @@
 <script lang="ts">
   import { tick } from "svelte";
+  import {
+    beginLazyComponentLoad,
+    rejectLazyComponentLoad,
+    resolveLazyComponentLoad,
+    type LazyComponentLoadState,
+  } from "$lib/lazy-component-loader";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getNotes } from "$lib/stores/notes.svelte";
   import {
@@ -62,14 +68,18 @@
   import FileText from "@lucide/svelte/icons/file-text";
   import Info from "@lucide/svelte/icons/info";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
-  import NotesMediaBlock from "./NotesMediaBlock.svelte";
   import NotesBlockHandle from "./NotesBlockHandle.svelte";
-  import NotesCardBlock from "./NotesCardBlock.svelte";
-  import NotesChildDatabaseBlock from "./NotesChildDatabaseBlock.svelte";
-  import NotesSlashMenu from "./NotesSlashMenu.svelte";
-  import NotesTableBlock from "./NotesTableBlock.svelte";
   import NotesTextBlockEditor from "./NotesTextBlockEditor.svelte";
-  import NotesUnsupportedBlock from "./NotesUnsupportedBlock.svelte";
+  import {
+    loadNotesAdvancedBlock,
+    loadNotesTextControl,
+    notesBlockRenderFamily,
+    retryNotesAdvancedBlock,
+    retryNotesTextControl,
+    type LoadedNotesAdvancedBlock,
+    type LoadedNotesTextControl,
+    type NotesAdvancedBlockFamily,
+  } from "./notes-editor-component-registry";
 
   let {
     item,
@@ -323,6 +333,14 @@
   let tableOfContentsButton: HTMLButtonElement | null = $state(null);
   let syncedBlockButton: HTMLButtonElement | null = $state(null);
   let slashOpen = $state(false);
+  let advancedBlockLoadState = $state<LazyComponentLoadState<
+    NotesAdvancedBlockFamily,
+    LoadedNotesAdvancedBlock
+  > | null>(null);
+  let slashMenuLoadState = $state<LazyComponentLoadState<
+    "slash-menu",
+    LoadedNotesTextControl
+  > | null>(null);
   const block = $derived(item.block);
   const text = $derived(blockPlainText(block));
   const blockCommentThreads = $derived(
@@ -350,6 +368,71 @@
   const syncedBlockStatus = $derived(
     block.type === "synced_block" ? notesSyncedBlockStatus(block.synced_block) : null,
   );
+  const advancedBlockFamily = $derived.by((): NotesAdvancedBlockFamily | null => {
+    const family = notesBlockRenderFamily(block.type);
+    return family === "eager" || family === "column-list" || family === "tab" ? null : family;
+  });
+
+  function requestAdvancedBlock(retry = false): void {
+    const family = advancedBlockFamily;
+    if (!family || (!retry && advancedBlockLoadState?.key === family)) return;
+    const loadingState = beginLazyComponentLoad(advancedBlockLoadState, family);
+    advancedBlockLoadState = loadingState;
+    const request = retry
+      ? retryNotesAdvancedBlock(family)
+      : loadNotesAdvancedBlock(family);
+    void request.then((component) => {
+      if (!advancedBlockLoadState) return;
+      advancedBlockLoadState = resolveLazyComponentLoad(
+        advancedBlockLoadState,
+        family,
+        loadingState.requestId,
+        component,
+      );
+    }).catch((error: unknown) => {
+      if (!advancedBlockLoadState) return;
+      advancedBlockLoadState = rejectLazyComponentLoad(
+        advancedBlockLoadState,
+        family,
+        loadingState.requestId,
+        error,
+      );
+      console.error(`load Notes ${family} block failed`, error);
+    });
+  }
+
+  function requestSlashMenu(retry = false): void {
+    if (!retry && slashMenuLoadState?.key === "slash-menu") return;
+    const loadingState = beginLazyComponentLoad(slashMenuLoadState, "slash-menu");
+    slashMenuLoadState = loadingState;
+    const request = retry
+      ? retryNotesTextControl("slash-menu")
+      : loadNotesTextControl("slash-menu");
+    void request.then((component) => {
+      if (!slashMenuLoadState) return;
+      slashMenuLoadState = resolveLazyComponentLoad(
+        slashMenuLoadState,
+        "slash-menu",
+        loadingState.requestId,
+        component,
+      );
+    }).catch((error: unknown) => {
+      if (!slashMenuLoadState) return;
+      slashMenuLoadState = rejectLazyComponentLoad(
+        slashMenuLoadState,
+        "slash-menu",
+        loadingState.requestId,
+        error,
+      );
+      console.error("load Notes slash menu failed", error);
+    });
+  }
+
+  $effect(() => {
+    advancedBlockFamily;
+    requestAdvancedBlock();
+    if (slashOpen) requestSlashMenu();
+  });
 
   $effect(() => {
     const _focusRequestId = focusRequestId;
@@ -608,7 +691,9 @@
           <span class="min-w-0 truncate">{childPageTitle || t("notes.untitled")}</span>
         </button>
       {:else if block.type === "child_database"}
-        <NotesChildDatabaseBlock
+        {#if advancedBlockLoadState?.status === "ready" && advancedBlockLoadState.component.kind === "child-database"}
+          {@const NotesChildDatabaseBlock = advancedBlockLoadState.component.component}
+          <NotesChildDatabaseBlock
           {block}
           {focusBlockId}
           {focusRequestId}
@@ -616,7 +701,8 @@
           onKeydown={handleKeydown}
           {onSelectPage}
           {onCreateLinkedDatabaseView}
-        />
+          />
+        {/if}
       {:else if block.type === "breadcrumb"}
         <nav
           class="my-1 flex min-h-8 min-w-0 items-center gap-1 rounded-md px-1 text-[0.8rem] text-muted-foreground"
@@ -710,7 +796,9 @@
           {/if}
         </nav>
       {:else if block.type === "table"}
-        <NotesTableBlock
+        {#if advancedBlockLoadState?.status === "ready" && advancedBlockLoadState.component.kind === "table"}
+          {@const NotesTableBlock = advancedBlockLoadState.component.component}
+          <NotesTableBlock
           {block}
           {tableRows}
           {previousBlockType}
@@ -725,9 +813,12 @@
           {onRemoveTableRow}
           {onAddTableColumn}
           {onRemoveTableColumn}
-        />
+          />
+        {/if}
       {:else if block.type === "image" || block.type === "video" || block.type === "audio" || block.type === "file" || block.type === "pdf"}
-        <NotesMediaBlock
+        {#if advancedBlockLoadState?.status === "ready" && advancedBlockLoadState.component.kind === "media"}
+          {@const NotesMediaBlock = advancedBlockLoadState.component.component}
+          <NotesMediaBlock
           {block}
           {previousBlockType}
           {isOnlyBlock}
@@ -737,7 +828,8 @@
           {onUndo}
           {onRedo}
           {onMediaChange}
-        />
+          />
+        {/if}
       {:else if block.type === "synced_block" && syncedBlockStatus}
         <section
           class="my-1 flex min-w-0 items-start gap-2 rounded-md border border-dashed border-border bg-muted/30 p-2"
@@ -783,16 +875,21 @@
           </button>
         </section>
       {:else if block.type === "unsupported"}
-        <NotesUnsupportedBlock
+        {#if advancedBlockLoadState?.status === "ready" && advancedBlockLoadState.component.kind === "unsupported"}
+          {@const NotesUnsupportedBlock = advancedBlockLoadState.component.component}
+          <NotesUnsupportedBlock
           {block}
           {focusBlockId}
           {focusRequestId}
           onSurfaceKeydown={handleKeydown}
           {onFocusBlock}
           {onConvertUnsupported}
-        />
+          />
+        {/if}
       {:else if block.type === "bookmark" || block.type === "link_preview" || block.type === "embed" || block.type === "equation"}
-        <NotesCardBlock
+        {#if advancedBlockLoadState?.status === "ready" && advancedBlockLoadState.component.kind === "card"}
+          {@const NotesCardBlock = advancedBlockLoadState.component.component}
+          <NotesCardBlock
           {block}
           {previousBlockType}
           {isOnlyBlock}
@@ -805,7 +902,8 @@
           {onLinkPreviewUrlChange}
           {onEmbedUrlChange}
           {onEquationExpressionChange}
-        />
+          />
+        {/if}
       {:else if showTextEditor}
         <NotesTextBlockEditor
           {block}
@@ -854,13 +952,27 @@
         />
       {/if}
 
+      {#if advancedBlockFamily && advancedBlockLoadState?.status === "failed" && advancedBlockLoadState.key === advancedBlockFamily}
+        <div class="my-1 rounded-md border border-destructive/40 p-2 text-[0.8rem] text-destructive" role="alert">
+          <p>{t("common.viewLoadFailed", block.type)}</p>
+          <button class="mt-2 min-h-8 rounded-md border border-border px-2 text-foreground hover:bg-accent" type="button" onclick={() => requestAdvancedBlock(true)}>{t("common.retry")}</button>
+        </div>
+      {:else if advancedBlockFamily && advancedBlockLoadState?.status !== "ready"}
+        <div class="my-1 min-h-8 text-[0.8rem] text-muted-foreground" aria-busy="true">{t("common.loading")}</div>
+      {/if}
+
       {#if slashOpen}
-        <NotesSlashMenu
-          query={text.startsWith("/") ? text.slice(1) : ""}
-          canSetColor={blockSupportsColor}
-          currentColor={currentColor}
-          onSelect={selectSlashCommand}
-        />
+        {#if slashMenuLoadState?.status === "ready" && slashMenuLoadState.component.kind === "slash-menu"}
+          {@const NotesSlashMenu = slashMenuLoadState.component.component}
+          <NotesSlashMenu
+            query={text.startsWith("/") ? text.slice(1) : ""}
+            canSetColor={blockSupportsColor}
+            currentColor={currentColor}
+            onSelect={selectSlashCommand}
+          />
+        {:else if slashMenuLoadState?.status === "failed"}
+          <button class="min-h-8 rounded-md border border-border px-2 text-[0.8rem] text-foreground hover:bg-accent" type="button" onclick={() => requestSlashMenu(true)}>{t("common.retry")}</button>
+        {/if}
       {/if}
     </div>
   </div>

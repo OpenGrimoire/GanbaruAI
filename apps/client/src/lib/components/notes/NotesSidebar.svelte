@@ -1,5 +1,11 @@
 <script lang="ts">
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import {
+    beginLazyComponentLoad,
+    rejectLazyComponentLoad,
+    resolveLazyComponentLoad,
+    type LazyComponentLoadState,
+  } from "$lib/lazy-component-loader";
   import { notesPageMoveTargets } from "$lib/notes/page-move";
   import { planNotesSidebarNavigation } from "$lib/notes/page-sidebar";
   import { notesPageTitle } from "$lib/notes/page-title";
@@ -11,7 +17,6 @@
   } from "$lib/notes/block-drag";
   import type { NotesPage, NotesPageTemplate, NotesSearchResult } from "$lib/notes/types";
   import { getNotes } from "$lib/stores/notes.svelte";
-  import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
   import Archive from "@lucide/svelte/icons/archive";
   import Download from "@lucide/svelte/icons/download";
   import FileText from "@lucide/svelte/icons/file-text";
@@ -20,10 +25,14 @@
   import Plus from "@lucide/svelte/icons/plus";
   import Search from "@lucide/svelte/icons/search";
   import Trash2 from "@lucide/svelte/icons/trash-2";
-  import NotesHtmlExportDialog from "./NotesHtmlExportDialog.svelte";
-  import NotesAgentBridgeExportDialog from "./NotesAgentBridgeExportDialog.svelte";
   import NotesPageRow from "./NotesPageRow.svelte";
   import NotesPageTemplateRow from "./NotesPageTemplateRow.svelte";
+  import {
+    loadNotesEditorPanel,
+    retryNotesEditorPanel,
+    type LoadedNotesEditorPanel,
+    type NotesEditorPanelKind,
+  } from "./notes-editor-component-registry";
 
   const notes = getNotes();
   const { t } = getLocalization();
@@ -40,6 +49,10 @@
   let htmlExportOpen = $state(false);
   let agentBridgeExportOpen = $state(false);
   let blockDropTargetPageId = $state<string | null>(null);
+  let panelLoadStates = $state<Partial<Record<
+    NotesEditorPanelKind,
+    LazyComponentLoadState<NotesEditorPanelKind, LoadedNotesEditorPanel>
+  >>>({});
   const sidebarPlan = $derived.by(() =>
     planNotesSidebarNavigation({
       pages: notes.pages,
@@ -55,6 +68,38 @@
     })
   );
   const searchQuery = $derived(sidebarPlan.searchQuery);
+
+  function requestPanel(kind: NotesEditorPanelKind, retry = false): void {
+    const current = panelLoadStates[kind] ?? null;
+    if (!retry && current?.key === kind) return;
+    const loadingState = beginLazyComponentLoad(current, kind);
+    panelLoadStates = { ...panelLoadStates, [kind]: loadingState };
+    const request = retry ? retryNotesEditorPanel(kind) : loadNotesEditorPanel(kind);
+    void request.then((component) => {
+      const latest = panelLoadStates[kind];
+      if (!latest) return;
+      panelLoadStates = {
+        ...panelLoadStates,
+        [kind]: resolveLazyComponentLoad(latest, kind, loadingState.requestId, component),
+      };
+    }).catch((error: unknown) => {
+      const latest = panelLoadStates[kind];
+      if (!latest) return;
+      panelLoadStates = {
+        ...panelLoadStates,
+        [kind]: rejectLazyComponentLoad(latest, kind, loadingState.requestId, error),
+      };
+      console.error(`load Notes sidebar ${kind} panel failed`, error);
+    });
+  }
+
+  $effect(() => {
+    if (htmlExportOpen) requestPanel("html-export");
+    if (agentBridgeExportOpen) requestPanel("agent-export");
+    if (pendingArchivePage || pendingTrashPage || pendingDeleteTemplate) {
+      requestPanel("confirm-dialog");
+    }
+  });
 
   $effect(() => {
     const query = searchQuery;
@@ -638,27 +683,39 @@
 </aside>
 
 {#if htmlExportOpen && notes.loadedPage}
-  <NotesHtmlExportDialog
+  {#if panelLoadStates["html-export"]?.status === "ready" && panelLoadStates["html-export"].component.kind === "html-export"}
+    {@const NotesHtmlExportDialog = panelLoadStates["html-export"].component.component}
+    <NotesHtmlExportDialog
     pageTitle={notesPageTitle(notes.loadedPage, t("notes.untitled"))}
     onExport={exportHtmlArchive}
     onCancel={() => {
       htmlExportOpen = false;
     }}
-  />
+    />
+  {:else if panelLoadStates["html-export"]?.status === "failed"}
+    <button class="fixed inset-0 z-50 m-auto h-10 rounded-md border border-border bg-popover px-3" type="button" onclick={() => requestPanel("html-export", true)}>{t("common.retry")}</button>
+  {/if}
 {/if}
 
 {#if agentBridgeExportOpen && notes.loadedPage}
-  <NotesAgentBridgeExportDialog
+  {#if panelLoadStates["agent-export"]?.status === "ready" && panelLoadStates["agent-export"].component.kind === "agent-export"}
+    {@const NotesAgentBridgeExportDialog = panelLoadStates["agent-export"].component.component}
+    <NotesAgentBridgeExportDialog
     pageTitle={notesPageTitle(notes.loadedPage, t("notes.untitled"))}
     onExport={exportAgentBridge}
     onCancel={() => {
       agentBridgeExportOpen = false;
     }}
-  />
+    />
+  {:else if panelLoadStates["agent-export"]?.status === "failed"}
+    <button class="fixed inset-0 z-50 m-auto h-10 rounded-md border border-border bg-popover px-3" type="button" onclick={() => requestPanel("agent-export", true)}>{t("common.retry")}</button>
+  {/if}
 {/if}
 
 {#if pendingArchivePage}
-  <ConfirmDialog
+  {#if panelLoadStates["confirm-dialog"]?.status === "ready" && panelLoadStates["confirm-dialog"].component.kind === "confirm-dialog"}
+    {@const ConfirmDialog = panelLoadStates["confirm-dialog"].component.component}
+    <ConfirmDialog
     title={t("notes.archiveConfirmTitle", notesPageTitle(pendingArchivePage, t("notes.untitled")))}
     message={t("notes.archiveConfirmMessage")}
     confirmLabel={t("notes.archiveConfirm")}
@@ -667,11 +724,16 @@
     onCancel={() => {
       pendingArchivePage = null;
     }}
-  />
+    />
+  {:else if panelLoadStates["confirm-dialog"]?.status === "failed"}
+    <button class="fixed inset-0 z-50 m-auto h-10 rounded-md border border-border bg-popover px-3" type="button" onclick={() => requestPanel("confirm-dialog", true)}>{t("common.retry")}</button>
+  {/if}
 {/if}
 
 {#if pendingTrashPage}
-  <ConfirmDialog
+  {#if panelLoadStates["confirm-dialog"]?.status === "ready" && panelLoadStates["confirm-dialog"].component.kind === "confirm-dialog"}
+    {@const ConfirmDialog = panelLoadStates["confirm-dialog"].component.component}
+    <ConfirmDialog
     title={t("notes.trashConfirmTitle", notesPageTitle(pendingTrashPage, t("notes.untitled")))}
     message={t("notes.trashConfirmMessage")}
     confirmLabel={t("notes.trashConfirm")}
@@ -680,11 +742,16 @@
     onCancel={() => {
       pendingTrashPage = null;
     }}
-  />
+    />
+  {:else if panelLoadStates["confirm-dialog"]?.status === "failed"}
+    <button class="fixed inset-0 z-50 m-auto h-10 rounded-md border border-border bg-popover px-3" type="button" onclick={() => requestPanel("confirm-dialog", true)}>{t("common.retry")}</button>
+  {/if}
 {/if}
 
 {#if pendingDeleteTemplate}
-  <ConfirmDialog
+  {#if panelLoadStates["confirm-dialog"]?.status === "ready" && panelLoadStates["confirm-dialog"].component.kind === "confirm-dialog"}
+    {@const ConfirmDialog = panelLoadStates["confirm-dialog"].component.component}
+    <ConfirmDialog
     title={t("notes.deletePageTemplateConfirmTitle", pendingDeleteTemplate.name)}
     message={t("notes.deletePageTemplateConfirmMessage")}
     confirmLabel={t("notes.deletePageTemplateConfirm")}
@@ -693,7 +760,10 @@
     onCancel={() => {
       pendingDeleteTemplate = null;
     }}
-  />
+    />
+  {:else if panelLoadStates["confirm-dialog"]?.status === "failed"}
+    <button class="fixed inset-0 z-50 m-auto h-10 rounded-md border border-border bg-popover px-3" type="button" onclick={() => requestPanel("confirm-dialog", true)}>{t("common.retry")}</button>
+  {/if}
 {/if}
 
 <style>

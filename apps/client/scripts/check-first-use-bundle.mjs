@@ -121,6 +121,36 @@ function readBaseline(value) {
         ),
       };
     })(),
+    notesParagraphEditor: (() => {
+      const contract = requireObject(root.notesParagraphEditor, "baseline notesParagraphEditor");
+      return {
+        loadedModules: requireStringArray(
+          contract.loadedModules,
+          "baseline notesParagraphEditor loadedModules",
+        ),
+        forbiddenModules: requireStringArray(
+          contract.forbiddenModules,
+          "baseline notesParagraphEditor forbiddenModules",
+        ),
+      };
+    })(),
+    notesAdvancedModules: requireStringArray(
+      root.notesAdvancedModules,
+      "baseline notesAdvancedModules",
+    ),
+    notesDatabaseTable: (() => {
+      const contract = requireObject(root.notesDatabaseTable, "baseline notesDatabaseTable");
+      return {
+        loadedModules: requireStringArray(
+          contract.loadedModules,
+          "baseline notesDatabaseTable loadedModules",
+        ),
+        forbiddenModules: requireStringArray(
+          contract.forbiddenModules,
+          "baseline notesDatabaseTable forbiddenModules",
+        ),
+      };
+    })(),
     settingsAppearance: (() => {
       const contract = requireObject(root.settingsAppearance, "baseline settingsAppearance");
       return {
@@ -237,6 +267,25 @@ const notesShellContract = evaluateStaticModuleContract(
   baseline.notesShell,
   "Notes shell",
 );
+const notesEmptyEditorContract = evaluateStaticModuleContract(
+  baseline.notesParagraphEditor,
+  "Notes empty editor",
+);
+const notesParagraphEditorContract = evaluateStaticModuleContract(
+  baseline.notesParagraphEditor,
+  "Notes paragraph editor",
+);
+const notesDatabaseTableContract = evaluateStaticModuleContract(
+  baseline.notesDatabaseTable,
+  "Notes database table",
+);
+for (const moduleId of baseline.notesAdvancedModules) {
+  const owner = chunks.find((chunk) => chunk.modules.includes(moduleId));
+  if (!owner) failures.push(`Notes advanced module is absent from all chunks: ${moduleId}`);
+  if (notesParagraphEditorContract.modules.has(moduleId)) {
+    failures.push(`Notes paragraph editor eagerly loads advanced module: ${moduleId}`);
+  }
+}
 
 const settingsAppearanceRoots = baseline.settingsAppearance.loadedModules.map((moduleId) => {
   const owner = chunks.find((chunk) => chunk.modules.includes(moduleId));
@@ -326,6 +375,25 @@ console.log(JSON.stringify({
     sourceModules: [...notesShellContract.modules]
       .filter((moduleId) => moduleId.startsWith("src/")).length,
     forbiddenModules: baseline.notesShell.forbiddenModules,
+  },
+  notesParagraphEditor: {
+    chunks: notesParagraphEditorContract.closure.map((chunk) => chunk.fileName),
+    sourceModules: [...notesParagraphEditorContract.modules]
+      .filter((moduleId) => moduleId.startsWith("src/")).length,
+    forbiddenModules: baseline.notesParagraphEditor.forbiddenModules,
+  },
+  notesEmptyEditor: {
+    chunks: notesEmptyEditorContract.closure.map((chunk) => chunk.fileName),
+    sourceModules: [...notesEmptyEditorContract.modules]
+      .filter((moduleId) => moduleId.startsWith("src/")).length,
+    forbiddenModules: baseline.notesParagraphEditor.forbiddenModules,
+  },
+  notesAdvancedModules: baseline.notesAdvancedModules,
+  notesDatabaseTable: {
+    chunks: notesDatabaseTableContract.closure.map((chunk) => chunk.fileName),
+    sourceModules: [...notesDatabaseTableContract.modules]
+      .filter((moduleId) => moduleId.startsWith("src/")).length,
+    forbiddenModules: baseline.notesDatabaseTable.forbiddenModules,
   },
   settingsAppearance: {
     chunks: settingsAppearanceChunks.map((chunk) => chunk.fileName),

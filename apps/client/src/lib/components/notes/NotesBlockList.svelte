@@ -1,5 +1,11 @@
 <script lang="ts">
   import { tick } from "svelte";
+  import {
+    beginLazyComponentLoad,
+    rejectLazyComponentLoad,
+    resolveLazyComponentLoad,
+    type LazyComponentLoadState,
+  } from "$lib/lazy-component-loader";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import {
     listNotesDataSources,
@@ -93,8 +99,12 @@
     NotesTableOfContentsItem,
   } from "$lib/notes/types";
   import NotesBlockRow from "./NotesBlockRow.svelte";
-  import NotesColumnListBlock from "./NotesColumnListBlock.svelte";
-  import NotesTabBlock from "./NotesTabBlock.svelte";
+  import {
+    loadNotesAdvancedBlock,
+    retryNotesAdvancedBlock,
+    type LoadedNotesAdvancedBlock,
+    type NotesAdvancedBlockFamily,
+  } from "./notes-editor-component-registry";
   import ArrowDown from "@lucide/svelte/icons/arrow-down";
   import ArrowUp from "@lucide/svelte/icons/arrow-up";
   import ClipboardPaste from "@lucide/svelte/icons/clipboard-paste";
@@ -165,6 +175,10 @@
   let openBlockHandleMenuId = $state<string | null>(null);
   let mentionDataSources = $state<NotesDataSource[]>([]);
   let mentionDataSourceRowPages = $state<NotesPage[]>([]);
+  let structuralBlockLoadStates = $state<Partial<Record<
+    NotesAdvancedBlockFamily,
+    LazyComponentLoadState<NotesAdvancedBlockFamily, LoadedNotesAdvancedBlock>
+  >>>({});
   let mentionDataSourceRequestId = 0;
   const selectedBlockCount = $derived(blockSelection?.selectedBlockIds.length ?? 0);
   const selectedRootBlockIds = $derived(
@@ -179,6 +193,37 @@
     !!planNotesSelectionMoveWithinSiblings(currentTreeState(), selectedRootBlockIds, "down"),
   );
   const mentionTargets: NotesNamedMentionTarget[] = $derived(buildMentionTargets());
+
+  function requestStructuralBlock(kind: "column-list" | "tab", retry = false): void {
+    const current = structuralBlockLoadStates[kind] ?? null;
+    if (!retry && current?.key === kind) return;
+    const loadingState = beginLazyComponentLoad(current, kind);
+    structuralBlockLoadStates = { ...structuralBlockLoadStates, [kind]: loadingState };
+    const request = retry ? retryNotesAdvancedBlock(kind) : loadNotesAdvancedBlock(kind);
+    void request.then((component) => {
+      const latest = structuralBlockLoadStates[kind];
+      if (!latest) return;
+      structuralBlockLoadStates = {
+        ...structuralBlockLoadStates,
+        [kind]: resolveLazyComponentLoad(latest, kind, loadingState.requestId, component),
+      };
+    }).catch((error: unknown) => {
+      const latest = structuralBlockLoadStates[kind];
+      if (!latest) return;
+      structuralBlockLoadStates = {
+        ...structuralBlockLoadStates,
+        [kind]: rejectLazyComponentLoad(latest, kind, loadingState.requestId, error),
+      };
+      console.error(`load Notes ${kind} block failed`, error);
+    });
+  }
+
+  $effect(() => {
+    if (items.some((item) => item.block.type === "column_list")) {
+      requestStructuralBlock("column-list");
+    }
+    if (items.some((item) => item.block.type === "tab")) requestStructuralBlock("tab");
+  });
 
   $effect(() => {
     void loadMentionDataSources();
@@ -1488,7 +1533,9 @@
   {/if}
   {#each items as item (item.block.id)}
     {#if item.block.type === "column_list"}
-      <NotesColumnListBlock
+      {#if structuralBlockLoadStates["column-list"]?.status === "ready" && structuralBlockLoadStates["column-list"].component.kind === "column-list"}
+        {@const NotesColumnListBlock = structuralBlockLoadStates["column-list"].component.component}
+        <NotesColumnListBlock
         {item}
         columnItems={notes.columnItemsForBlock(item.block.id)}
         {breadcrumbItems}
@@ -1627,9 +1674,19 @@
         onHandlePointerMove={showBlockHandleFromPointer}
         onHandlePointerLeave={hideBlockHandleAfterPointerLeave}
         onHandleMenuOpenChange={updateBlockHandleMenuOpen}
-      />
+        />
+      {:else if structuralBlockLoadStates["column-list"]?.status === "failed"}
+        <div class="my-1 rounded-md border border-destructive/40 p-2 text-[0.8rem] text-destructive" role="alert">
+          <p>{t("common.viewLoadFailed", t("notes.blockType.columns"))}</p>
+          <button class="mt-2 min-h-8 rounded-md border border-border px-2 text-foreground hover:bg-accent" type="button" onclick={() => requestStructuralBlock("column-list", true)}>{t("common.retry")}</button>
+        </div>
+      {:else}
+        <div class="my-1 min-h-8 text-[0.8rem] text-muted-foreground" aria-busy="true">{t("common.loading")}</div>
+      {/if}
     {:else if item.block.type === "tab"}
-      <NotesTabBlock
+      {#if structuralBlockLoadStates.tab?.status === "ready" && structuralBlockLoadStates.tab.component.kind === "tab"}
+        {@const NotesTabBlock = structuralBlockLoadStates.tab.component.component}
+        <NotesTabBlock
         {item}
         tabItems={notes.tabItemsForBlock(item.block.id)}
         {breadcrumbItems}
@@ -1769,7 +1826,15 @@
         onHandlePointerMove={showBlockHandleFromPointer}
         onHandlePointerLeave={hideBlockHandleAfterPointerLeave}
         onHandleMenuOpenChange={updateBlockHandleMenuOpen}
-      />
+        />
+      {:else if structuralBlockLoadStates.tab?.status === "failed"}
+        <div class="my-1 rounded-md border border-destructive/40 p-2 text-[0.8rem] text-destructive" role="alert">
+          <p>{t("common.viewLoadFailed", t("notes.blockType.tab"))}</p>
+          <button class="mt-2 min-h-8 rounded-md border border-border px-2 text-foreground hover:bg-accent" type="button" onclick={() => requestStructuralBlock("tab", true)}>{t("common.retry")}</button>
+        </div>
+      {:else}
+        <div class="my-1 min-h-8 text-[0.8rem] text-muted-foreground" aria-busy="true">{t("common.loading")}</div>
+      {/if}
     {:else}
       <NotesBlockRow
         {item}

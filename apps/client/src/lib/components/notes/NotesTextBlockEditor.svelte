@@ -1,6 +1,12 @@
 <script lang="ts">
   import { Temporal } from "@js-temporal/polyfill";
   import { tick, untrack } from "svelte";
+  import {
+    beginLazyComponentLoad,
+    rejectLazyComponentLoad,
+    resolveLazyComponentLoad,
+    type LazyComponentLoadState,
+  } from "$lib/lazy-component-loader";
   import LinkIcon from "@lucide/svelte/icons/link";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import {
@@ -78,6 +84,7 @@
   import type { NotesResolvedCommentAnchor } from "$lib/notes/comments";
   import type { NotesResolvedSuggestionAnchor } from "$lib/notes/suggestions";
   import { notesUndoShortcutAction } from "$lib/notes/undo-history";
+  import { shouldRestoreNotesEditorFocusAfterLazyLoad } from "$lib/notes/lazy-editor-focus";
   import {
     nextNotesSlashActiveIndex,
     notesSlashCommandKey,
@@ -96,13 +103,13 @@
   } from "$lib/notes/types";
   import type { NotesTemplateBlockStatus } from "$lib/notes/template-block";
   import type { NotesButtonBlockStatus } from "$lib/notes/button-block";
-  import NotesButtonBlockControls from "./NotesButtonBlockControls.svelte";
-  import NotesInlineToolbar from "./NotesInlineToolbar.svelte";
-  import NotesLinkEditor from "./NotesLinkEditor.svelte";
-  import NotesMentionMenu from "./NotesMentionMenu.svelte";
   import NotesRichTextInline from "./NotesRichTextInline.svelte";
-  import NotesSlashMenu from "./NotesSlashMenu.svelte";
-  import NotesTemplateBlockControls from "./NotesTemplateBlockControls.svelte";
+  import {
+    loadNotesTextControl,
+    retryNotesTextControl,
+    type LoadedNotesTextControl,
+    type NotesTextControlKind,
+  } from "./notes-editor-component-registry";
 
   let {
     block,
@@ -277,6 +284,12 @@
   let linkUrlInput = $state("");
   let linkError = $state<string | null>(null);
   let inlineEquationErrorReason = $state<NotesInlineEquationConversionError | null>(null);
+  let templateControlsOpen = $state(false);
+  let buttonControlsOpen = $state(false);
+  let controlLoadStates = $state<Partial<Record<
+    NotesTextControlKind,
+    LazyComponentLoadState<NotesTextControlKind, LoadedNotesTextControl>
+  >>>({});
   const dateMentionLabels = $derived({
     today: t("notes.dateMentionToday"),
     tomorrow: t("notes.dateMentionTomorrow"),
@@ -339,6 +352,52 @@
 
   const mentionMatches = $derived(mentionTargetsForQuery(mentionQuery, canUseMentions));
   const mentionOpen = $derived(mentionQuery !== null && canUseMentions);
+
+  function requestTextControl(kind: NotesTextControlKind, retry = false): void {
+    const current = controlLoadStates[kind] ?? null;
+    if (!retry && current?.key === kind) return;
+    const loadingState = beginLazyComponentLoad(current, kind);
+    const requestedWhileFocused = typeof document !== "undefined" && document.activeElement === editor;
+    controlLoadStates = { ...controlLoadStates, [kind]: loadingState };
+    const request = retry ? retryNotesTextControl(kind) : loadNotesTextControl(kind);
+    void request.then((component) => {
+      const latest = controlLoadStates[kind];
+      if (!latest) return;
+      controlLoadStates = {
+        ...controlLoadStates,
+        [kind]: resolveLazyComponentLoad(latest, kind, loadingState.requestId, component),
+      };
+      if (kind === "inline-toolbar" || kind === "link-editor") {
+        void tick().then(() => {
+          if (shouldRestoreNotesEditorFocusAfterLazyLoad({
+            requestedWhileFocused,
+            stillOwnsFocus: typeof document !== "undefined" && document.activeElement === editor,
+            compositionActive,
+          })) {
+            editor?.focus();
+            restoreTrackedSelection(textSelection);
+          }
+        });
+      }
+    }).catch((error: unknown) => {
+      const latest = controlLoadStates[kind];
+      if (!latest) return;
+      controlLoadStates = {
+        ...controlLoadStates,
+        [kind]: rejectLazyComponentLoad(latest, kind, loadingState.requestId, error),
+      };
+      console.error(`load Notes ${kind} control failed`, error);
+    });
+  }
+
+  $effect(() => {
+    if (canOpenInlineToolbar) requestTextControl("inline-toolbar");
+    if (linkEditorOpen) requestTextControl("link-editor");
+    if (mentionOpen) requestTextControl("mention-menu");
+    if (slashOpen) requestTextControl("slash-menu");
+    if (templateControlsOpen) requestTextControl("template-controls");
+    if (buttonControlsOpen) requestTextControl("button-controls");
+  });
 
   $effect(() => {
     const requestedFocusId = focusRequestId;
@@ -1066,15 +1125,22 @@
     </select>
   </div>
 {:else if block.type === "template"}
-  <NotesTemplateBlockControls
+  {#if templateControlsOpen && controlLoadStates["template-controls"]?.status === "ready" && controlLoadStates["template-controls"].component.kind === "template-controls"}
+    {@const NotesTemplateBlockControls = controlLoadStates["template-controls"].component.component}
+    <NotesTemplateBlockControls
     blockId={block.id}
     title={text || t("notes.blockType.template")}
     status={templateStatus}
     {onUseTemplate}
     {onAddTemplateChild}
-  />
+    />
+  {:else}
+    <button class="mb-1 min-h-8 rounded-md border border-border px-2 text-[0.8rem] text-foreground hover:bg-accent" type="button" onclick={() => { templateControlsOpen = true; if (controlLoadStates["template-controls"]?.status === "failed") requestTextControl("template-controls", true); }}>{controlLoadStates["template-controls"]?.status === "failed" ? t("common.retry") : t("notes.blockType.template")}</button>
+  {/if}
 {:else if block.type === "button"}
-  <NotesButtonBlockControls
+  {#if buttonControlsOpen && controlLoadStates["button-controls"]?.status === "ready" && controlLoadStates["button-controls"].component.kind === "button-controls"}
+    {@const NotesButtonBlockControls = controlLoadStates["button-controls"].component.component}
+    <NotesButtonBlockControls
     blockId={block.id}
     title={text || t("notes.blockType.button")}
     button={block.button}
@@ -1083,7 +1149,10 @@
     {onAddButtonChild}
     {onButtonIconChange}
     {onButtonInsertPositionChange}
-  />
+    />
+  {:else}
+    <button class="mb-1 min-h-8 rounded-md border border-border px-2 text-[0.8rem] text-foreground hover:bg-accent" type="button" onclick={() => { buttonControlsOpen = true; if (controlLoadStates["button-controls"]?.status === "failed") requestTextControl("button-controls", true); }}>{controlLoadStates["button-controls"]?.status === "failed" ? t("common.retry") : text || t("notes.blockType.button")}</button>
+  {/if}
 {/if}
 {#if canOpenInlineToolbar}
   <div
@@ -1092,7 +1161,9 @@
     style={notesInlineToolbarWrapperStyle(inlineToolbarPlacement)}
     data-placement={inlineToolbarPlacement?.mode ?? "measuring"}
   >
-    <NotesInlineToolbar
+    {#if controlLoadStates["inline-toolbar"]?.status === "ready" && controlLoadStates["inline-toolbar"].component.kind === "inline-toolbar"}
+      {@const NotesInlineToolbar = controlLoadStates["inline-toolbar"].component.component}
+      <NotesInlineToolbar
       annotations={currentTextAnnotationRange.annotations}
       onToggleAnnotation={toggleTextAnnotation}
       onColorSelect={applyTextColor}
@@ -1100,7 +1171,10 @@
       onCreateComment={createInlineCommentFromSelection}
       onCreateSuggestion={createInlineSuggestionFromSelection}
       onOpenLink={openLinkEditorFromButton}
-    />
+      />
+    {:else if controlLoadStates["inline-toolbar"]?.status === "failed"}
+      <button class="min-h-8 rounded-md border border-border px-2 text-[0.8rem]" type="button" onclick={() => requestTextControl("inline-toolbar", true)}>{t("common.retry")}</button>
+    {/if}
   </div>
 {:else if canOpenLinkEditor}
   <div class="mb-1 flex justify-end">
@@ -1169,7 +1243,9 @@
   </p>
 {/if}
 {#if linkEditorOpen}
-  <NotesLinkEditor
+  {#if controlLoadStates["link-editor"]?.status === "ready" && controlLoadStates["link-editor"].component.kind === "link-editor"}
+    {@const NotesLinkEditor = controlLoadStates["link-editor"].component.component}
+    <NotesLinkEditor
     value={linkUrlInput}
     error={linkError}
     canRemove={linkRange.url !== null}
@@ -1186,11 +1262,16 @@
     onCancel={() => {
       linkEditorOpen = false;
     }}
-  />
+    />
+  {:else if controlLoadStates["link-editor"]?.status === "failed"}
+    <button class="min-h-8 rounded-md border border-border px-2 text-[0.8rem]" type="button" onclick={() => requestTextControl("link-editor", true)}>{t("common.retry")}</button>
+  {/if}
 {/if}
 
 {#if mentionOpen}
-  <NotesMentionMenu
+  {#if controlLoadStates["mention-menu"]?.status === "ready" && controlLoadStates["mention-menu"].component.kind === "mention-menu"}
+    {@const NotesMentionMenu = controlLoadStates["mention-menu"].component.component}
+    <NotesMentionMenu
     menuId={notesMentionMenuDomId(block.id)}
     blockId={block.id}
     targets={mentionMatches}
@@ -1198,9 +1279,14 @@
     onSelect={(target) => {
       void selectMention(target);
     }}
-  />
+    />
+  {:else if controlLoadStates["mention-menu"]?.status === "failed"}
+    <button class="min-h-8 rounded-md border border-border px-2 text-[0.8rem]" type="button" onclick={() => requestTextControl("mention-menu", true)}>{t("common.retry")}</button>
+  {/if}
 {:else if slashOpen}
-  <NotesSlashMenu
+  {#if controlLoadStates["slash-menu"]?.status === "ready" && controlLoadStates["slash-menu"].component.kind === "slash-menu"}
+    {@const NotesSlashMenu = controlLoadStates["slash-menu"].component.component}
+    <NotesSlashMenu
     menuId={notesSlashMenuDomId(block.id)}
     blockId={block.id}
     query={slashQuery}
@@ -1215,7 +1301,10 @@
       slashItemCount = itemCount;
     }}
     onSelect={selectSlashCommand}
-  />
+    />
+  {:else if controlLoadStates["slash-menu"]?.status === "failed"}
+    <button class="min-h-8 rounded-md border border-border px-2 text-[0.8rem]" type="button" onclick={() => requestTextControl("slash-menu", true)}>{t("common.retry")}</button>
+  {/if}
 {/if}
 
 <style>
