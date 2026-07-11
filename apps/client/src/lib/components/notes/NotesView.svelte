@@ -225,6 +225,9 @@
     projectSettingsDiscardConfirmOpen = false;
     projectVersionHistoryOpen = false;
     showProjectHome();
+    void notes.load().catch((error) => {
+      console.error("load selected Notes project failed", error);
+    });
   }
 
   function closeProjectSettingsImmediately(): void {

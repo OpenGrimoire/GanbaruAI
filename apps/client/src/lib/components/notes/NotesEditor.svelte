@@ -142,7 +142,10 @@
   const currentPageTitle = $derived(page ? notesPageTitle(page, t("notes.untitled")) : t("notes.untitled"));
   const pageIconLabel = $derived(pageIconScreenReaderText(page?.icon ?? null));
   const effectiveProjectId = $derived(page ? notesPageProjectId(page) ?? projectId : projectId);
-  const projectPages = $derived(notesPagesForProject(notes.allPages, effectiveProjectId));
+  const projectPages = $derived(notesPagesForProject(
+    [...new Map([...notes.allPages, ...notes.linkResolutionPages].map((item) => [item.id, item])).values()],
+    effectiveProjectId,
+  ));
   const projectFolders = $derived(notesFoldersForProject(notes.folders, effectiveProjectId));
   const moveTargets = $derived(page
     ? notesPageMoveTargets(
@@ -368,7 +371,13 @@
   }
 
   function togglePanel(panel: NotesEditorPanel): void {
-    activePanel = activePanel === panel ? null : panel;
+    const nextPanel = activePanel === panel ? null : panel;
+    activePanel = nextPanel;
+    if (nextPanel) {
+      void notes.ensureOptionalSubsystem(nextPanel).catch((error) => {
+        console.error(`load notes ${nextPanel} panel failed`, error);
+      });
+    }
     pageMenuOpen = false;
     moveMenuOpen = false;
     folderMoveMenuOpen = false;
@@ -376,6 +385,9 @@
 
   function openPageHistory(): void {
     pageHistoryModalOpen = true;
+    void notes.ensureOptionalSubsystem("page-history").catch((error) => {
+      console.error("load notes page history failed", error);
+    });
     activePanel = null;
     pageMenuOpen = false;
     moveMenuOpen = false;
@@ -589,6 +601,9 @@
       notes.setActiveCommentParent(pageParent);
     }
     activePanel = "comments";
+    void notes.ensureOptionalSubsystem("comments").catch((error) => {
+      console.error("load notes comments failed", error);
+    });
     pageMenuOpen = false;
     moveMenuOpen = false;
   }
@@ -782,6 +797,11 @@
                 aria-expanded={moveMenuOpen}
                 onclick={() => {
                   moveMenuOpen = !moveMenuOpen;
+                  if (moveMenuOpen) {
+                    void notes.ensureOptionalSubsystem("destinations").catch((error) => {
+                      console.error("load notes move destinations failed", error);
+                    });
+                  }
                   folderMoveMenuOpen = false;
                 }}
               >
@@ -813,6 +833,11 @@
                   aria-expanded={folderMoveMenuOpen}
                   onclick={() => {
                     folderMoveMenuOpen = !folderMoveMenuOpen;
+                    if (folderMoveMenuOpen) {
+                      void notes.ensureOptionalSubsystem("destinations").catch((error) => {
+                        console.error("load notes folder destinations failed", error);
+                      });
+                    }
                     moveMenuOpen = false;
                   }}
                 >

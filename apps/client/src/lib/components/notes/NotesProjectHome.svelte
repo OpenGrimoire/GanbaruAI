@@ -37,6 +37,15 @@
   const notes = getNotes();
   const { t } = getLocalization();
 
+  function handleWorkspaceScroll(event: Event): void {
+    const viewport = event.currentTarget;
+    if (!(viewport instanceof HTMLDivElement)) return;
+    if (viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight > 240) return;
+    void notes.loadMoreWorkspaceWindow().catch((error) => {
+      console.error("load more notes workspace pages failed", error);
+    });
+  }
+
   let search = $state("");
   let pendingArchivePage = $state<NotesPage | null>(null);
   let pendingTrashPage = $state<NotesPage | null>(null);
@@ -49,7 +58,10 @@
     LoadedNotesOptionalComponent
   > | null>(null);
 
-  const projectPages = $derived.by(() => notesPagesForProject(notes.allPages, projectId));
+  const projectPages = $derived.by(() => notesPagesForProject(
+    [...new Map([...notes.allPages, ...notes.linkResolutionPages].map((item) => [item.id, item])).values()],
+    projectId,
+  ));
   const projectFolders = $derived.by(() => notesFoldersForProject(notes.folders, projectId));
   const treeItems = $derived.by(() =>
     buildNotesNavigationTree(projectPages, projectFolders, {
@@ -214,7 +226,7 @@
   }
 </script>
 
-<div class="flex h-full min-h-0 flex-col overflow-auto px-4 py-4">
+<div class="flex h-full min-h-0 flex-col overflow-auto px-4 py-4" onscroll={handleWorkspaceScroll}>
   <div class="mx-auto flex w-full max-w-208 shrink-0 flex-wrap items-center gap-2">
     <label class="flex min-w-48 flex-1 items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1.5">
       <Search class="size-4 shrink-0 text-muted-foreground" />
@@ -318,6 +330,7 @@
               duplicatePage(item.page);
             }}
             moveTargets={pageMoveTargets(item.page)}
+            onRequestMoveTargets={() => notes.ensureOptionalSubsystem("destinations")}
             onMove={(parent) => {
               void notes.movePage(item.page.id, parent);
             }}

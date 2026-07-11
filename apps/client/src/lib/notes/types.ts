@@ -418,6 +418,29 @@ export interface NotesSidebarPageList {
   trashed_parent_page_ids: string[];
 }
 
+export interface NotesWorkspaceShellRequest {
+  project_id: string | null;
+  expanded_page_ids: string[];
+  seed_page_ids: string[];
+  selected_page_id: string | null;
+  page_cursor?: string | null;
+  folder_cursor?: string | null;
+  destination_candidates?: boolean;
+}
+
+export interface NotesWorkspaceShell {
+  pages: NotesPage[];
+  folders: NotesFolder[];
+  page_ids_with_children: string[];
+  missing_parent_page_ids: string[];
+  trashed_parent_page_ids: string[];
+  resolved_selected_page_id: string | null;
+  total_page_count: number;
+  total_folder_count: number;
+  next_page_cursor: string | null;
+  next_folder_cursor: string | null;
+}
+
 export interface NotesPageTemplate {
   object: "page_template";
   id: string;

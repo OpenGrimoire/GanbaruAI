@@ -873,6 +873,7 @@ pub fn run() {
             projects::projects_create_custom_emoji,
             projects::projects_delete_custom_emoji,
             notes::notes_list_pages,
+            notes::notes_load_workspace_shell,
             notes::notes_list_trashed_pages,
             notes::notes_list_archived_pages,
             notes::notes_list_sidebar_pages,

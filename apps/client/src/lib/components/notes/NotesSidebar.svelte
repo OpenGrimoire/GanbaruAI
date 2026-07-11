@@ -27,6 +27,12 @@
 
   const notes = getNotes();
   const { t } = getLocalization();
+
+  $effect(() => {
+    void notes.ensureOptionalSubsystem("templates").catch((error) => {
+      console.error("load notes page templates failed", error);
+    });
+  });
   let search = $state("");
   let pendingArchivePage = $state<NotesPage | null>(null);
   let pendingTrashPage = $state<NotesPage | null>(null);
@@ -130,7 +136,7 @@
 
   function moveTargets(page: NotesPage) {
     return notesPageMoveTargets(
-      notes.pages,
+      [...new Map([...notes.pages, ...notes.linkResolutionPages].map((item) => [item.id, item])).values()],
       page.id,
       t("notes.workspace"),
       (candidate) => notesPageTitle(candidate, t("notes.untitled")),
@@ -418,6 +424,7 @@
                 duplicatePage(page);
               }}
               moveTargets={moveTargets(page)}
+              onRequestMoveTargets={() => notes.ensureOptionalSubsystem("destinations")}
               onMove={(parent) => {
                 void notes.movePage(page.id, parent);
               }}
@@ -464,6 +471,7 @@
                 duplicatePage(page);
               }}
               moveTargets={moveTargets(page)}
+              onRequestMoveTargets={() => notes.ensureOptionalSubsystem("destinations")}
               onMove={(parent) => {
                 void notes.movePage(page.id, parent);
               }}
@@ -513,6 +521,7 @@
               duplicatePage(item.page);
             }}
             moveTargets={moveTargets(item.page)}
+            onRequestMoveTargets={() => notes.ensureOptionalSubsystem("destinations")}
             onMove={(parent) => {
               void notes.movePage(item.page.id, parent);
             }}

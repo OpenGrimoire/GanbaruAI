@@ -59,6 +59,7 @@ mod suggestions;
 mod templates;
 mod undo_state;
 mod validation;
+mod workspace_shell;
 mod writes;
 
 pub use file_assets::*;
@@ -66,6 +67,16 @@ pub use models::*;
 pub use page_cover_assets::*;
 pub use page_icon_assets::*;
 pub use project_history::*;
+
+#[tauri::command]
+pub async fn notes_load_workspace_shell<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    request: NoteWorkspaceShellRequest,
+) -> Result<NoteWorkspaceShellDto, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    workspace_shell::load_workspace_shell(&pool, request).await
+}
 
 #[tauri::command]
 pub async fn notes_list_pages<R: Runtime>(
@@ -475,55 +486,22 @@ pub async fn notes_get_page_history_settings<R: Runtime>(
 }
 
 #[cfg(test)]
-pub(crate) async fn list_sidebar_pages_for_first_use_contract(
+pub(crate) async fn load_workspace_shell_for_first_use_contract(
     pool: &sqlx::SqlitePool,
-) -> Result<NoteSidebarPageList, String> {
-    writes::purge_expired_trashed_pages(pool).await?;
-    reads::list_sidebar_pages(
+) -> Result<NoteWorkspaceShellDto, String> {
+    workspace_shell::load_workspace_shell(
         pool,
-        NoteSidebarPagesRequest {
+        NoteWorkspaceShellRequest {
+            project_id: None,
             expanded_page_ids: Vec::new(),
             seed_page_ids: Vec::new(),
             selected_page_id: None,
+            page_cursor: None,
+            folder_cursor: None,
+            destination_candidates: false,
         },
     )
     .await
-}
-
-#[cfg(test)]
-pub(crate) async fn list_pages_for_first_use_contract(
-    pool: &sqlx::SqlitePool,
-) -> Result<Vec<NotePageDto>, String> {
-    writes::purge_expired_trashed_pages(pool).await?;
-    reads::list_pages(pool).await
-}
-
-#[cfg(test)]
-pub(crate) async fn list_folders_for_first_use_contract(
-    pool: &sqlx::SqlitePool,
-) -> Result<Vec<NoteFolderDto>, String> {
-    folders::list_folders(pool).await
-}
-
-#[cfg(test)]
-pub(crate) async fn list_page_templates_for_first_use_contract(
-    pool: &sqlx::SqlitePool,
-) -> Result<Vec<NotePageTemplateDto>, String> {
-    templates::list_page_templates(pool).await
-}
-
-#[cfg(test)]
-pub(crate) async fn get_local_user_for_first_use_contract(
-    pool: &sqlx::SqlitePool,
-) -> Result<NoteLocalUserDto, String> {
-    local_user::get_local_user(pool).await
-}
-
-#[cfg(test)]
-pub(crate) async fn get_page_history_settings_for_first_use_contract(
-    pool: &sqlx::SqlitePool,
-) -> Result<NotePageHistorySettingsDto, String> {
-    history::get_page_history_settings(pool).await
 }
 
 #[tauri::command]

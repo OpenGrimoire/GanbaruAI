@@ -65,11 +65,7 @@ vi.mock("$lib/api/notes", async (importOriginal) => {
   };
   return {
     ...actual,
-    listNotesSidebarPages: unresolved,
-    listNotesPages: unresolved,
-    listNotesFolders: unresolved,
-    listNotesPageTemplates: unresolved,
-    getNotesLocalUser: unresolved,
+    loadNotesWorkspaceShell: unresolved,
   };
 });
 
@@ -117,7 +113,7 @@ describe("NotesView first use", () => {
     component = mount(NotesView, { target });
     await tick();
 
-    expect(backend.notesCalls).toBe(3);
+    expect(backend.notesCalls).toBe(1);
     expect(backend.projectsCalls).toBe(1);
     expect(target.querySelector('[data-first-use-shell="notes"]')).not.toBeNull();
     expect(target.querySelector("[data-notes-workspace-header]")).not.toBeNull();

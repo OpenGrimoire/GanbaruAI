@@ -20,7 +20,8 @@ pub(super) use super::super::models::{
     NotePageCreate, NotePageHistoryCopyBlocks, NotePageHistorySettingsUpdate,
     NotePageTemplateApply, NotePageTemplateCreateFromPage, NotePageTemplateDuplicate,
     NotePageTemplateUpdate, NotePageUpdate, NoteParent, NoteSidebarPagesRequest,
-    NoteSuggestionCreate, NoteTrashBlocks, NoteUnresolvedLinkResolve, OptionalJsonValue,
+    NoteSuggestionCreate, NoteTrashBlocks, NoteUnresolvedLinkResolve, NoteWorkspaceShellRequest,
+    OptionalJsonValue,
 };
 pub(super) use super::super::{
     agent_bridge_export, assets, backlinks, comments, data_source_board, data_source_buttons,
@@ -29,7 +30,7 @@ pub(super) use super::super::{
     data_source_templates, data_source_timeline, databases, folders, history, html_export,
     html_import, json_graph_export, link_facts, links, local_user, markdown_export,
     markdown_import, mention_notifications, notion_export_import, project_history, reads, search,
-    suggestions, templates, undo_state, validation, writes,
+    suggestions, templates, undo_state, validation, workspace_shell, writes,
 };
 pub(super) use crate::db::run_migrations;
 pub(super) use serde_json::json;

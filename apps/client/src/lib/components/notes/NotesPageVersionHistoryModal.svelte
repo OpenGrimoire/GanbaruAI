@@ -156,7 +156,9 @@
   });
 
   onMount(() => {
-    if (!notes.localUser && !notes.localUserLoading) void notes.loadLocalUser();
+    if (!notes.localUser && !notes.localUserLoading) {
+      void notes.ensureOptionalSubsystem("local-user");
+    }
     void notes.reloadPageHistory(pageId).finally(() => {
       initializing = false;
     });

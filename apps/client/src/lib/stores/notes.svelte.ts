@@ -29,7 +29,9 @@ import {
   listNotesPageTemplates,
   listNotesSuggestions,
   listNotesUnresolvedLinks,
+  listNotesDestinationCandidates,
   listNotesSidebarPages,
+  loadNotesWorkspaceShell,
   listArchivedNotesPages,
   listTrashedNotesPages,
   loadNotesPage,
@@ -70,10 +72,7 @@ import {
   parentIdForBlock,
   type NotesTreeState,
 } from "$lib/notes/block-tree";
-import {
-  nextSelectedNotesPageId,
-  restoredNotesPageSelection,
-} from "$lib/notes/page-selection";
+import { nextSelectedNotesPageId } from "$lib/notes/page-selection";
 import {
   notesPageOpenModeForSelection,
   notesDefaultOpenModeForProject,
@@ -181,6 +180,17 @@ interface NotesLoadPageTreeOptions {
   focusBlockId?: string | null;
 }
 
+type NotesOptionalSubsystem =
+  | "templates"
+  | "local-user"
+  | "history-settings"
+  | "undo"
+  | "links"
+  | "comments"
+  | "suggestions"
+  | "page-history"
+  | "destinations";
+
 const BLOCK_SAVE_DEBOUNCE_MS = 350;
 const CHILDREN_PAGE_SIZE = 100;
 
@@ -215,6 +225,11 @@ let childIdsByParentId = $state<Record<string, string[]>>({});
 let loaded = $state(false);
 let loading = $state(false);
 let loadError = $state<string | null>(null);
+let nextWorkspacePageCursor = $state<string | null>(null);
+let nextWorkspaceFolderCursor = $state<string | null>(null);
+let workspaceWindowLoading = $state(false);
+let workspaceTotalPageCount = 0;
+let workspaceTotalFolderCount = 0;
 let viewMode = $state<NotesViewMode>("pages");
 let archiveLoaded = $state(false);
 let archiveLoading = $state(false);
@@ -231,6 +246,9 @@ let focusRequest = $state<NotesFocusRequest>({
 });
 const START_OF_NOTES_BLOCK_SELECTION: NotesTextSelection = { start: 0, end: 0 };
 let loadRequestId = 0;
+let loadPromise: Promise<void> | null = null;
+const optionalSubsystemPromises = new Map<string, Promise<void>>();
+const loadedOptionalSubsystems = new Set<string>();
 let archiveRequestId = 0;
 let trashRequestId = 0;
 let pageTemplatesRequestId = 0;
@@ -495,9 +513,9 @@ async function reloadPages(selectedPageIdOverride: string | null = selectedPageI
 async function reloadLinkResolutionPages(): Promise<void> {
   const requestId = ++linkResolutionPagesRequestId;
   try {
-    const nextPages = await listNotesPages();
+    const result = await listNotesDestinationCandidates(projects.selectedProjectId);
     if (requestId !== linkResolutionPagesRequestId) return;
-    linkResolutionPages = [...nextPages];
+    linkResolutionPages = [...result.pages];
   } catch {
     if (requestId !== linkResolutionPagesRequestId) return;
     linkResolutionPages = [...allPages];
@@ -565,13 +583,6 @@ async function loadPageTree(pageId: string, options: NotesLoadPageTreeOptions = 
   setLoadedPageFromLoaded(loaded);
   await loadAllChildrenForVisibleTree();
   await reloadPageBreadcrumb(pageId);
-  await reloadBacklinks(pageId);
-  await reloadPageAliases(pageId);
-  await reloadUnresolvedLinks(pageId);
-  await reloadLinkResolutionPages();
-  await reloadComments(pageId);
-  await reloadSuggestions(pageId);
-  await pageHistoryController.reloadSnapshots(pageId);
 }
 
 async function loadPageTreeForUndo(pageId: string): Promise<void> {
@@ -1014,19 +1025,37 @@ function setSearchIncludeResolvedComments(includeResolvedComments: boolean): voi
 
 async function load(): Promise<void> {
   const requestId = ++loadRequestId;
+  const requestedSelection = selectedPageId;
   loading = true;
   loadError = null;
   try {
-    await reloadPages();
-    await reloadPageTemplates();
-    await loadLocalUser();
-    await pageHistoryController.loadSettings();
+    const shell = await loadNotesWorkspaceShell({
+      project_id: projects.selectedProjectId,
+      expanded_page_ids: [...sidebarExpandedPageIds],
+      seed_page_ids: sidebarSeedPageIds(),
+      selected_page_id: requestedSelection,
+    });
     if (requestId !== loadRequestId) return;
-    const nextSelected = restoredNotesPageSelection(selectedPageId, allPages);
-    saveSelectedPageId(nextSelected);
+    replacePages(shell.pages);
+    replaceAllPages(shell.pages);
+    replaceFolders(shell.folders);
+    sidebarPageIdsWithChildren = [...shell.page_ids_with_children];
+    sidebarMissingParentPageIds = [...shell.missing_parent_page_ids];
+    sidebarTrashedParentPageIds = [...shell.trashed_parent_page_ids];
+    nextWorkspacePageCursor = shell.next_page_cursor;
+    nextWorkspaceFolderCursor = shell.next_folder_cursor;
+    workspaceTotalPageCount = shell.total_page_count;
+    workspaceTotalFolderCount = shell.total_folder_count;
+    const selectionUnchanged = selectedPageId === requestedSelection;
+    const nextSelected = selectionUnchanged ? shell.resolved_selected_page_id : selectedPageId;
+    if (selectionUnchanged) saveSelectedPageId(nextSelected);
+    loaded = true;
     if (nextSelected) {
-      await loadPageTree(nextSelected, { focusOnLoad: true });
-      await undoController.hydrate(nextSelected);
+      void loadPageTree(nextSelected, { focusOnLoad: true }).catch((error) => {
+        if (selectedPageId === nextSelected) {
+          loadError = error instanceof Error ? error.message : String(error);
+        }
+      });
     } else {
       loadedPage = null;
       pageBreadcrumbItems = [];
@@ -1047,9 +1076,7 @@ async function load(): Promise<void> {
       pageHistoryController.resetPageState();
       blocksById = {};
       childIdsByParentId = {};
-      await undoController.hydrate(null);
     }
-    loaded = true;
   } catch (error) {
     if (requestId !== loadRequestId) return;
     loadError = error instanceof Error ? error.message : String(error);
@@ -1059,9 +1086,106 @@ async function load(): Promise<void> {
   }
 }
 
+async function loadMoreWorkspaceWindow(): Promise<void> {
+  if (workspaceWindowLoading || (!nextWorkspacePageCursor && !nextWorkspaceFolderCursor)) return;
+  workspaceWindowLoading = true;
+  const pageCursor = nextWorkspacePageCursor;
+  const folderCursor = nextWorkspaceFolderCursor;
+  const requestId = loadRequestId;
+  try {
+    const shell = await loadNotesWorkspaceShell({
+      project_id: projects.selectedProjectId,
+      expanded_page_ids: [],
+      seed_page_ids: [],
+      selected_page_id: selectedPageId,
+      page_cursor: pageCursor ?? `offset:${workspaceTotalPageCount}`,
+      folder_cursor: folderCursor ?? `offset:${workspaceTotalFolderCount}`,
+    });
+    if (requestId !== loadRequestId) return;
+    const mergedPages = [...new Map([...allPages, ...shell.pages].map((page) => [page.id, page])).values()];
+    const mergedFolders = [...new Map([...folders, ...shell.folders].map((folder) => [folder.id, folder])).values()];
+    replaceAllPages(mergedPages);
+    replacePages(mergedPages);
+    replaceFolders(mergedFolders);
+    sidebarPageIdsWithChildren = [...new Set([
+      ...sidebarPageIdsWithChildren,
+      ...shell.page_ids_with_children,
+    ])];
+    nextWorkspacePageCursor = shell.next_page_cursor;
+    nextWorkspaceFolderCursor = shell.next_folder_cursor;
+  } finally {
+    if (requestId === loadRequestId) workspaceWindowLoading = false;
+  }
+}
+
 async function ensureLoaded(): Promise<void> {
-  if (loaded || loading) return;
-  await load();
+  if (loaded) return;
+  if (loadPromise) return loadPromise;
+  loadPromise = load().finally(() => {
+    loadPromise = null;
+  });
+  return loadPromise;
+}
+
+async function ensureOptionalSubsystem(
+  subsystem: NotesOptionalSubsystem,
+  pageId: string | null = selectedPageId,
+): Promise<void> {
+  const pageScoped = subsystem === "links"
+    || subsystem === "comments"
+    || subsystem === "suggestions"
+    || subsystem === "page-history"
+    || subsystem === "undo";
+  if (pageScoped && !pageId) return;
+  const key = pageScoped
+    ? `${subsystem}:${pageId}`
+    : subsystem === "destinations"
+      ? `${subsystem}:${projects.selectedProjectId ?? "workspace"}`
+      : subsystem;
+  if (loadedOptionalSubsystems.has(key)) return;
+  const existing = optionalSubsystemPromises.get(key);
+  if (existing) return existing;
+  const promise = (async () => {
+    switch (subsystem) {
+      case "templates":
+        await reloadPageTemplates();
+        break;
+      case "local-user":
+        await loadLocalUser();
+        break;
+      case "history-settings":
+        await pageHistoryController.loadSettings();
+        break;
+      case "undo":
+        await undoController.hydrate(pageId);
+        break;
+      case "links":
+        await Promise.all([
+          reloadBacklinks(pageId),
+          reloadPageAliases(pageId),
+          reloadUnresolvedLinks(pageId),
+          reloadLinkResolutionPages(),
+        ]);
+        break;
+      case "comments":
+        await Promise.all([loadLocalUser(), reloadComments(pageId)]);
+        break;
+      case "suggestions":
+        await reloadSuggestions(pageId);
+        break;
+      case "page-history":
+        if (pageId) await pageHistoryController.reloadSnapshots(pageId);
+        break;
+      case "destinations":
+        await reloadLinkResolutionPages();
+        break;
+    }
+    loadedOptionalSubsystems.add(key);
+  })().finally(() => {
+    optionalSubsystemPromises.delete(key);
+  });
+  optionalSubsystemPromises.set(key, promise);
+  return promise;
 }
 
 async function selectPage(
@@ -2185,6 +2309,7 @@ export function getNotes() {
     },
     load,
     ensureLoaded,
+    loadMoreWorkspaceWindow,
     selectPage,
     showSelectedPageAs,
     createPage,
@@ -2207,6 +2332,7 @@ export function getNotes() {
     duplicatePageTemplate,
     deletePageTemplate,
     reloadPageTemplates,
+    ensureOptionalSubsystem,
     loadLocalUser,
     updateLocalUserDisplayName,
     loadPageHistorySettings: pageHistoryController.loadSettings,

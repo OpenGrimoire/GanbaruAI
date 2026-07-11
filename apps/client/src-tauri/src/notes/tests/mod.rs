@@ -45,3 +45,4 @@ mod search;
 mod suggestions;
 mod undo;
 mod validation;
+mod workspace_shell;

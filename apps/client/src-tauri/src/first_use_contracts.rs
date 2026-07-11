@@ -10,9 +10,9 @@ const SQLITE_TRACE_STMT: c_uint = 0x01;
 const EMPTY_PROJECTS_SQL_READS: usize = 6;
 const EMPTY_PROJECTS_SQL_WRITES: usize = 0;
 const EMPTY_PROJECTS_RESPONSE_BYTES: usize = 13_059;
-const EMPTY_NOTES_SQL_READS: usize = 8;
-const EMPTY_NOTES_SQL_WRITES: usize = 1;
-const EMPTY_NOTES_RESPONSE_BYTES: usize = 368;
+const EMPTY_NOTES_SQL_READS: usize = 4;
+const EMPTY_NOTES_SQL_WRITES: usize = 0;
+const EMPTY_NOTES_RESPONSE_BYTES: usize = 238;
 
 unsafe extern "C" {
     fn sqlite3_trace_v2(
@@ -28,12 +28,7 @@ unsafe extern "C" {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum FirstUseIpcCommand {
     ProjectsLoadWorkspace,
-    NotesListSidebarPages,
-    NotesListPages,
-    NotesListFolders,
-    NotesListPageTemplates,
-    NotesGetLocalUser,
-    NotesGetPageHistorySettings,
+    NotesLoadWorkspaceShell,
 }
 
 #[derive(Debug, Default, Eq, PartialEq)]
@@ -440,56 +435,41 @@ fn projects_first_use_normalizes_identity_without_overwriting_authored_values() 
 fn empty_notes_first_use_has_a_fixed_backend_contract() {
     tauri::async_runtime::block_on(async {
         let pool = migrated_empty_pool().await;
-        notes::get_local_user_for_first_use_contract(&pool)
-            .await
-            .expect("seed required local Notes user");
-        notes::get_page_history_settings_for_first_use_contract(&pool)
-            .await
-            .expect("seed required Notes history settings");
         assert_no_user_content(&pool).await;
 
         let trace = SqlTrace::start(&pool).await;
         let mut metrics = FirstUseContractMetrics::default();
-        let sidebar = notes::list_sidebar_pages_for_first_use_contract(&pool)
+        let shell = notes::load_workspace_shell_for_first_use_contract(&pool)
             .await
-            .expect("list Notes sidebar pages");
-        metrics.record_response(FirstUseIpcCommand::NotesListSidebarPages, &sidebar);
-        let pages = notes::list_pages_for_first_use_contract(&pool)
-            .await
-            .expect("list Notes pages");
-        metrics.record_response(FirstUseIpcCommand::NotesListPages, &pages);
-        let folders = notes::list_folders_for_first_use_contract(&pool)
-            .await
-            .expect("list Notes folders");
-        metrics.record_response(FirstUseIpcCommand::NotesListFolders, &folders);
-        let templates = notes::list_page_templates_for_first_use_contract(&pool)
-            .await
-            .expect("list Notes page templates");
-        metrics.record_response(FirstUseIpcCommand::NotesListPageTemplates, &templates);
-        let local_user = notes::get_local_user_for_first_use_contract(&pool)
-            .await
-            .expect("load local Notes user");
-        metrics.record_response(FirstUseIpcCommand::NotesGetLocalUser, &local_user);
-        let history_settings = notes::get_page_history_settings_for_first_use_contract(&pool)
-            .await
-            .expect("load Notes history settings");
-        metrics.record_response(
-            FirstUseIpcCommand::NotesGetPageHistorySettings,
-            &history_settings,
-        );
-        metrics.sql = trace.finish().await.counts;
+            .expect("load Notes workspace shell");
+        metrics.record_response(FirstUseIpcCommand::NotesLoadWorkspaceShell, &shell);
+        let trace = trace.finish().await;
+        metrics.sql = trace.counts;
+        for optional_table in [
+            "notes_blocks",
+            "notes_page_templates",
+            "notes_local_users",
+            "notes_page_history",
+            "notes_comments",
+            "notes_suggestions",
+            "notes_backlinks",
+            "notes_page_aliases",
+            "notes_unresolved_links",
+            "notes_undo_state",
+        ] {
+            assert!(
+                trace
+                    .statements
+                    .iter()
+                    .all(|statement| !statement.contains(optional_table)),
+                "empty Notes shell queried auxiliary table {optional_table}",
+            );
+        }
 
         assert_eq!(
             metrics,
             FirstUseContractMetrics {
-                commands: vec![
-                    FirstUseIpcCommand::NotesListSidebarPages,
-                    FirstUseIpcCommand::NotesListPages,
-                    FirstUseIpcCommand::NotesListFolders,
-                    FirstUseIpcCommand::NotesListPageTemplates,
-                    FirstUseIpcCommand::NotesGetLocalUser,
-                    FirstUseIpcCommand::NotesGetPageHistorySettings,
-                ],
+                commands: vec![FirstUseIpcCommand::NotesLoadWorkspaceShell],
                 sql: SqlStatementCounts {
                     reads: EMPTY_NOTES_SQL_READS,
                     writes: EMPTY_NOTES_SQL_WRITES,

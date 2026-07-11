@@ -1013,6 +1013,81 @@ pub struct NoteSidebarPagesRequest {
     pub(in crate::notes) selected_page_id: Option<String>,
 }
 
+#[derive(Deserialize)]
+pub struct NoteWorkspaceShellRequest {
+    pub(in crate::notes) project_id: Option<String>,
+    #[serde(default)]
+    pub(in crate::notes) expanded_page_ids: Vec<String>,
+    #[serde(default)]
+    pub(in crate::notes) seed_page_ids: Vec<String>,
+    #[serde(default)]
+    pub(in crate::notes) selected_page_id: Option<String>,
+    #[serde(default)]
+    pub(in crate::notes) page_cursor: Option<String>,
+    #[serde(default)]
+    pub(in crate::notes) folder_cursor: Option<String>,
+    #[serde(default)]
+    pub(in crate::notes) destination_candidates: bool,
+}
+
+#[derive(Clone, Serialize, sqlx::FromRow)]
+pub(in crate::notes) struct NotePageSummaryDto {
+    pub(in crate::notes) id: String,
+    pub(in crate::notes) parent_type: String,
+    pub(in crate::notes) parent_page_id: Option<String>,
+    pub(in crate::notes) parent_block_id: Option<String>,
+    pub(in crate::notes) parent_data_source_id: Option<String>,
+    pub(in crate::notes) folder_id: Option<String>,
+    pub(in crate::notes) title: String,
+    pub(in crate::notes) project_id: Option<String>,
+    pub(in crate::notes) icon: Option<String>,
+    pub(in crate::notes) created_time: String,
+    pub(in crate::notes) last_edited_time: String,
+}
+
+#[derive(Serialize)]
+pub struct NoteWorkspaceShellDto {
+    pages: Vec<NotePageSummaryDto>,
+    folders: Vec<NoteFolderDto>,
+    page_ids_with_children: Vec<String>,
+    missing_parent_page_ids: Vec<String>,
+    trashed_parent_page_ids: Vec<String>,
+    resolved_selected_page_id: Option<String>,
+    total_page_count: i64,
+    total_folder_count: i64,
+    next_page_cursor: Option<String>,
+    next_folder_cursor: Option<String>,
+}
+
+impl NoteWorkspaceShellDto {
+    #[allow(clippy::too_many_arguments)]
+    pub(in crate::notes) fn new(
+        pages: Vec<NotePageSummaryDto>,
+        folders: Vec<NoteFolderDto>,
+        page_ids_with_children: Vec<String>,
+        missing_parent_page_ids: Vec<String>,
+        trashed_parent_page_ids: Vec<String>,
+        resolved_selected_page_id: Option<String>,
+        total_page_count: i64,
+        total_folder_count: i64,
+        next_page_cursor: Option<String>,
+        next_folder_cursor: Option<String>,
+    ) -> Self {
+        Self {
+            pages,
+            folders,
+            page_ids_with_children,
+            missing_parent_page_ids,
+            trashed_parent_page_ids,
+            resolved_selected_page_id,
+            total_page_count,
+            total_folder_count,
+            next_page_cursor,
+            next_folder_cursor,
+        }
+    }
+}
+
 #[derive(Serialize)]
 pub struct NoteSidebarPageList {
     pages: Vec<NotePageDto>,

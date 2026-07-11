@@ -49,6 +49,7 @@
     onCreateChild,
     onDuplicate,
     moveTargets,
+    onRequestMoveTargets = undefined,
     onMove,
     folderMoveTargets = undefined,
     onMoveToFolder = undefined,
@@ -75,6 +76,7 @@
     onCreateChild: () => void;
     onDuplicate: () => void;
     moveTargets: NotesPageMoveTarget[];
+    onRequestMoveTargets?: () => void | Promise<void>;
     onMove: (parent: NotesParent) => void;
     folderMoveTargets?: (NotesDestinationPickerTarget & { folderId: string | null })[];
     onMoveToFolder?: (folderId: string | null) => void;
@@ -126,7 +128,10 @@
   });
 
   $effect(() => {
-    if (moveMenuOpen || folderMoveMenuOpen) requestDestinationPicker();
+    if (moveMenuOpen || folderMoveMenuOpen) {
+      requestDestinationPicker();
+      void onRequestMoveTargets?.();
+    }
   });
 
   function requestDestinationPicker(retry = false): void {

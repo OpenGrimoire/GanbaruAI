@@ -5,6 +5,8 @@ import {
   invalidateNotesAssetUrls,
 } from "$lib/api/asset-url-cache";
 import { invalidateNotesNotificationSchedule } from "$lib/notes/notification-schedule.svelte";
+import { createRichText } from "$lib/notes/block-factory";
+import { NOTES_PAGE_PROJECT_ID_PROPERTY } from "$lib/notes/project-membership";
 import {
   mapNotesBacklinkDto,
   mapNotesBlockDto,
@@ -149,6 +151,8 @@ import type {
   NotesTrashBlocksRequest,
   NotesUnresolvedLink,
   NotesUnresolvedLinkResolve,
+  NotesWorkspaceShell,
+  NotesWorkspaceShellRequest,
 } from "$lib/notes/types";
 
 function databaseViewScopeArgs(scope?: NotesDatabaseViewScope | null): {
@@ -177,6 +181,120 @@ export async function listNotesFolders(): Promise<NotesFolder[]> {
   const rows = await invoke<unknown>("notes_list_folders", { dbUrl });
   if (!Array.isArray(rows)) throw new Error("notes_list_folders returned a non-array payload");
   return rows.map(mapNotesFolderDto);
+}
+
+function notesWorkspaceShellRecord(value: unknown): Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("notes_load_workspace_shell returned an invalid payload");
+  }
+  return value as Record<string, unknown>;
+}
+
+function shellString(value: unknown, field: string): string {
+  if (typeof value !== "string") throw new Error(`${field} must be a string`);
+  return value;
+}
+
+function shellNullableString(value: unknown, field: string): string | null {
+  if (value === null) return null;
+  return shellString(value, field);
+}
+
+function shellStringArray(value: unknown, field: string): string[] {
+  if (!Array.isArray(value)) throw new Error(`${field} must be an array`);
+  return value.map((item, index) => shellString(item, `${field}[${index}]`));
+}
+
+function shellNumber(value: unknown, field: string): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`${field} must be a non-negative integer`);
+  }
+  return value;
+}
+
+function mapWorkspaceShellPage(value: unknown): NotesPage {
+  const row = notesWorkspaceShellRecord(value);
+  const parentType = shellString(row.parent_type, "page.parent_type");
+  let parent: NotesPage["parent"];
+  if (parentType === "workspace") {
+    parent = { type: "workspace", workspace: true };
+  } else if (parentType === "page_id") {
+    parent = { type: "page_id", page_id: shellString(row.parent_page_id, "page.parent_page_id") };
+  } else if (parentType === "block_id") {
+    parent = { type: "block_id", block_id: shellString(row.parent_block_id, "page.parent_block_id") };
+  } else if (parentType === "data_source_id") {
+    parent = {
+      type: "data_source_id",
+      data_source_id: shellString(row.parent_data_source_id, "page.parent_data_source_id"),
+    };
+  } else {
+    throw new Error("page.parent_type is invalid");
+  }
+  const title = shellString(row.title, "page.title");
+  const projectId = shellNullableString(row.project_id, "page.project_id");
+  const rawIcon = shellNullableString(row.icon, "page.icon");
+  return mapNotesPageDto({
+    object: "page",
+    id: shellString(row.id, "page.id"),
+    created_time: shellString(row.created_time, "page.created_time"),
+    last_edited_time: shellString(row.last_edited_time, "page.last_edited_time"),
+    parent,
+    folder_id: shellNullableString(row.folder_id, "page.folder_id"),
+    in_trash: false,
+    archived: false,
+    icon: rawIcon ? JSON.parse(rawIcon) : null,
+    cover: null,
+    properties: {
+      title: { id: "title", type: "title", title: title ? [createRichText(title)] : [] },
+      ...(projectId ? { [NOTES_PAGE_PROJECT_ID_PROPERTY]: projectId } : {}),
+    },
+    url: null,
+    public_url: null,
+    source_provider: null,
+    source_object_id: null,
+    source_workspace_id: null,
+    source_last_edited_time: null,
+  });
+}
+
+export async function loadNotesWorkspaceShell(
+  request: NotesWorkspaceShellRequest,
+): Promise<NotesWorkspaceShell> {
+  const dbUrl = await ensureDbUrl();
+  const value = await invoke<unknown>("notes_load_workspace_shell", { dbUrl, request });
+  const record = notesWorkspaceShellRecord(value);
+  if (!Array.isArray(record.pages) || !Array.isArray(record.folders)) {
+    throw new Error("notes_load_workspace_shell returned invalid collections");
+  }
+  return {
+    pages: record.pages.map(mapWorkspaceShellPage),
+    folders: record.folders.map(mapNotesFolderDto),
+    page_ids_with_children: shellStringArray(record.page_ids_with_children, "page_ids_with_children"),
+    missing_parent_page_ids: shellStringArray(record.missing_parent_page_ids, "missing_parent_page_ids"),
+    trashed_parent_page_ids: shellStringArray(record.trashed_parent_page_ids, "trashed_parent_page_ids"),
+    resolved_selected_page_id: shellNullableString(
+      record.resolved_selected_page_id,
+      "resolved_selected_page_id",
+    ),
+    total_page_count: shellNumber(record.total_page_count, "total_page_count"),
+    total_folder_count: shellNumber(record.total_folder_count, "total_folder_count"),
+    next_page_cursor: shellNullableString(record.next_page_cursor, "next_page_cursor"),
+    next_folder_cursor: shellNullableString(record.next_folder_cursor, "next_folder_cursor"),
+  };
+}
+
+export async function listNotesDestinationCandidates(
+  projectId: string | null,
+  cursor: string | null = null,
+): Promise<NotesWorkspaceShell> {
+  return loadNotesWorkspaceShell({
+    project_id: projectId,
+    expanded_page_ids: [],
+    seed_page_ids: [],
+    selected_page_id: null,
+    page_cursor: cursor,
+    destination_candidates: true,
+  });
 }
 
 export async function createNotesFolder(folder: NotesFolderCreate): Promise<NotesFolder> {
