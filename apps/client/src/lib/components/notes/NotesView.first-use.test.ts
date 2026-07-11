@@ -7,6 +7,7 @@ const backend = vi.hoisted(() => {
   const promise = new Promise<never>(() => undefined);
   let notesCalls = 0;
   let projectsCalls = 0;
+  const componentCalls: string[] = [];
   return {
     promise,
     get notesCalls() {
@@ -15,11 +16,35 @@ const backend = vi.hoisted(() => {
     get projectsCalls() {
       return projectsCalls;
     },
+    componentCalls,
     recordNotesCall() {
       notesCalls += 1;
     },
     recordProjectsCall() {
       projectsCalls += 1;
+    },
+  };
+});
+
+vi.mock("./notes-component-registry", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./notes-component-registry")>();
+  return {
+    ...actual,
+    loadNotesSurface: (kind: string) => {
+      backend.componentCalls.push(`surface:${kind}`);
+      return backend.promise;
+    },
+    retryNotesSurface: (kind: string) => {
+      backend.componentCalls.push(`surface-retry:${kind}`);
+      return backend.promise;
+    },
+    loadNotesOptionalComponent: (kind: string) => {
+      backend.componentCalls.push(`optional:${kind}`);
+      return backend.promise;
+    },
+    retryNotesOptionalComponent: (kind: string) => {
+      backend.componentCalls.push(`optional-retry:${kind}`);
+      return backend.promise;
     },
   };
 });
@@ -98,5 +123,8 @@ describe("NotesView first use", () => {
     expect(target.querySelector("[data-notes-workspace-header]")).not.toBeNull();
     expect(target.querySelector("[data-notes-first-use-state]")?.getAttribute("aria-busy"))
       .toBe("true");
+    expect(target.querySelector('button[disabled]')?.textContent?.trim()).toBe("New note");
+    expect(target.querySelector("[data-notes-first-use-state]")?.textContent).toContain("Loading");
+    expect(backend.componentCalls).toEqual(["surface:home"]);
   }, 15_000);
 });

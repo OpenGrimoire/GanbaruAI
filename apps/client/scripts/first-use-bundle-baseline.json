@@ -9,7 +9,7 @@
     {
       "name": "Notes",
       "module": "src/lib/components/notes/NotesView.svelte",
-      "maxSourceModules": 101
+      "maxSourceModules": 8
     }
   ],
   "shell": {
@@ -46,6 +46,37 @@
     ],
     "forbiddenModules": [
       "src/lib/components/projects/ProjectSettingsPanel.svelte"
+    ]
+  },
+  "notesShell": {
+    "loadedModules": [
+      "src/lib/components/notes/NotesView.svelte"
+    ],
+    "forbiddenModules": [
+      "src/lib/components/notes/NotesProjectHome.svelte",
+      "src/lib/components/notes/NotesEditor.svelte",
+      "src/lib/components/notes/NotesBlockList.svelte",
+      "src/lib/components/notes/NotesBlockRow.svelte",
+      "src/lib/components/notes/NotesDatabaseTableView.svelte",
+      "src/lib/components/notes/NotesDatabaseBoardView.svelte",
+      "src/lib/components/notes/NotesDatabaseGalleryView.svelte",
+      "src/lib/components/notes/NotesDatabaseListView.svelte",
+      "src/lib/components/notes/NotesDatabaseCalendarView.svelte",
+      "src/lib/components/notes/NotesDatabaseTimelineView.svelte",
+      "src/lib/components/notes/NotesHtmlImportDialog.svelte",
+      "src/lib/components/notes/NotesNotionApiImportDialog.svelte",
+      "src/lib/components/notes/NotesNotionExportImportDialog.svelte",
+      "src/lib/components/notes/NotesJsonGraphExportDialog.svelte",
+      "src/lib/components/icon-picker/IconPicker.svelte",
+      "src/lib/components/notes/NotesPageVersionHistoryModal.svelte",
+      "src/lib/components/notes/NotesProjectVersionHistoryModal.svelte",
+      "src/lib/components/notes/NotesArchiveView.svelte",
+      "src/lib/components/notes/NotesTrashView.svelte",
+      "src/lib/components/notes/NotesProjectSettingsPanel.svelte",
+      "src/lib/components/notes/NotesPagePickerPanel.svelte",
+      "src/lib/components/notes/NotesProjectNavigator.svelte",
+      "src/lib/components/notes/NotesDestinationPickerList.svelte",
+      "src/lib/components/ui/ConfirmDialog.svelte"
     ]
   },
   "settingsAppearance": {

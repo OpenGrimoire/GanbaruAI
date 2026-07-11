@@ -2,8 +2,13 @@
   import FolderPlus from "@lucide/svelte/icons/folder-plus";
   import Plus from "@lucide/svelte/icons/plus";
   import Search from "@lucide/svelte/icons/search";
-  import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import {
+    beginLazyComponentLoad,
+    rejectLazyComponentLoad,
+    resolveLazyComponentLoad,
+    type LazyComponentLoadState,
+  } from "$lib/lazy-component-loader";
   import {
     buildNotesNavigationTree,
     notesFolderMoveTargets,
@@ -17,6 +22,11 @@
   import { getNotes } from "$lib/stores/notes.svelte";
   import NotesFolderRow from "./NotesFolderRow.svelte";
   import NotesPageRow from "./NotesPageRow.svelte";
+  import {
+    loadNotesOptionalComponent,
+    retryNotesOptionalComponent,
+    type LoadedNotesOptionalComponent,
+  } from "./notes-component-registry";
 
   let {
     projectId = null,
@@ -34,6 +44,10 @@
   let folderRenameTargetId = $state<string | null>(null);
   let folderRenameRequestId = $state(0);
   let folderActionError = $state<string | null>(null);
+  let confirmDialogLoadState = $state<LazyComponentLoadState<
+    "confirm-dialog",
+    LoadedNotesOptionalComponent
+  > | null>(null);
 
   const projectPages = $derived.by(() => notesPagesForProject(notes.allPages, projectId));
   const projectFolders = $derived.by(() => notesFoldersForProject(notes.folders, projectId));
@@ -49,6 +63,43 @@
       titleForPage: (page) => notesPageTitle(page, t("notes.untitled")),
     })
   );
+
+  function requestConfirmDialog(retry = false): void {
+    if (!retry && confirmDialogLoadState?.key === "confirm-dialog") return;
+    const loadingState = beginLazyComponentLoad(confirmDialogLoadState, "confirm-dialog");
+    confirmDialogLoadState = loadingState;
+    const request = retry
+      ? retryNotesOptionalComponent("confirm-dialog")
+      : loadNotesOptionalComponent("confirm-dialog");
+    void request.then((component) => {
+      if (!confirmDialogLoadState) return;
+      confirmDialogLoadState = resolveLazyComponentLoad(
+        confirmDialogLoadState,
+        "confirm-dialog",
+        loadingState.requestId,
+        component,
+      );
+    }).catch((error: unknown) => {
+      if (!confirmDialogLoadState) return;
+      confirmDialogLoadState = rejectLazyComponentLoad(
+        confirmDialogLoadState,
+        "confirm-dialog",
+        loadingState.requestId,
+        error,
+      );
+      console.error("load Notes confirmation dialog failed", error);
+    });
+  }
+
+  function clearPendingConfirmation(): void {
+    pendingArchivePage = null;
+    pendingTrashPage = null;
+    pendingDeleteFolder = null;
+  }
+
+  $effect(() => {
+    if (pendingArchivePage || pendingTrashPage || pendingDeleteFolder) requestConfirmDialog();
+  });
 
   function createPage(folderId: string | null = null): void {
     if (folderId) notes.setFolderCollapsed(folderId, false);
@@ -287,43 +338,58 @@
   {/if}
 </div>
 
-{#if pendingArchivePage}
-  <ConfirmDialog
-    title={t("notes.archiveConfirmTitle", notesPageTitle(pendingArchivePage, t("notes.untitled")))}
-    message={t("notes.archiveConfirmMessage")}
-    confirmLabel={t("notes.archiveConfirm")}
-    cancelLabel={t("common.cancelShortcut")}
-    onConfirm={confirmArchivePage}
-    onCancel={() => {
-      pendingArchivePage = null;
-    }}
-  />
-{/if}
-
-{#if pendingTrashPage}
-  <ConfirmDialog
-    title={t("notes.trashConfirmTitle", notesPageTitle(pendingTrashPage, t("notes.untitled")))}
-    message={t("notes.trashConfirmMessage")}
-    confirmLabel={t("notes.trashConfirm")}
-    cancelLabel={t("common.cancelShortcut")}
-    onConfirm={confirmTrashPage}
-    onCancel={() => {
-      pendingTrashPage = null;
-    }}
-  />
-{/if}
-
-{#if pendingDeleteFolder}
-  <ConfirmDialog
-    title={t("notes.deleteFolderConfirmTitle", pendingDeleteFolder.name)}
-    message={t("notes.deleteFolderConfirmMessage")}
-    confirmLabel={t("notes.deleteFolderConfirm")}
-    cancelLabel={t("common.cancelShortcut")}
-    onConfirm={() => {
-      void confirmDeleteFolder();
-    }}
-    onCancel={() => {
-      pendingDeleteFolder = null;
-    }}
-  />
+{#if pendingArchivePage || pendingTrashPage || pendingDeleteFolder}
+  {#if confirmDialogLoadState?.status === "ready" && confirmDialogLoadState.component.kind === "confirm-dialog"}
+    {@const ConfirmDialog = confirmDialogLoadState.component.component}
+    {#if pendingArchivePage}
+      <ConfirmDialog
+        title={t("notes.archiveConfirmTitle", notesPageTitle(pendingArchivePage, t("notes.untitled")))}
+        message={t("notes.archiveConfirmMessage")}
+        confirmLabel={t("notes.archiveConfirm")}
+        cancelLabel={t("common.cancelShortcut")}
+        onConfirm={confirmArchivePage}
+        onCancel={() => {
+          pendingArchivePage = null;
+        }}
+      />
+    {:else if pendingTrashPage}
+      <ConfirmDialog
+        title={t("notes.trashConfirmTitle", notesPageTitle(pendingTrashPage, t("notes.untitled")))}
+        message={t("notes.trashConfirmMessage")}
+        confirmLabel={t("notes.trashConfirm")}
+        cancelLabel={t("common.cancelShortcut")}
+        onConfirm={confirmTrashPage}
+        onCancel={() => {
+          pendingTrashPage = null;
+        }}
+      />
+    {:else if pendingDeleteFolder}
+      <ConfirmDialog
+        title={t("notes.deleteFolderConfirmTitle", pendingDeleteFolder.name)}
+        message={t("notes.deleteFolderConfirmMessage")}
+        confirmLabel={t("notes.deleteFolderConfirm")}
+        cancelLabel={t("common.cancelShortcut")}
+        onConfirm={() => {
+          void confirmDeleteFolder();
+        }}
+        onCancel={() => {
+          pendingDeleteFolder = null;
+        }}
+      />
+    {/if}
+  {:else if confirmDialogLoadState?.status === "failed"}
+    <div class="fixed inset-0 z-100 flex items-center justify-center bg-black/45 p-4" role="alert">
+      <div class="rounded-md border border-border bg-popover p-4 text-sm text-popover-foreground shadow-lg">
+        <p>{t("common.viewLoadFailed", t("common.confirm"))}</p>
+        <div class="mt-3 flex gap-2">
+          <button class="min-h-8 rounded-md border border-border px-2 hover:bg-accent" type="button" onclick={() => requestConfirmDialog(true)}>{t("common.retry")}</button>
+          <button class="min-h-8 rounded-md border border-border px-2 hover:bg-accent" type="button" onclick={clearPendingConfirmation}>{t("common.cancel")}</button>
+        </div>
+      </div>
+    </div>
+  {:else}
+    <div class="fixed inset-0 z-100 flex items-center justify-center bg-black/45 p-4" role="dialog" aria-modal="true" aria-busy="true">
+      <div class="rounded-md border border-border bg-popover px-4 py-3 text-sm text-muted-foreground shadow-lg">{t("common.loading")}</div>
+    </div>
+  {/if}
 {/if}

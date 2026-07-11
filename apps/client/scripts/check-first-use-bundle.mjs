@@ -108,6 +108,19 @@ function readBaseline(value) {
         ),
       };
     })(),
+    notesShell: (() => {
+      const contract = requireObject(root.notesShell, "baseline notesShell");
+      return {
+        loadedModules: requireStringArray(
+          contract.loadedModules,
+          "baseline notesShell loadedModules",
+        ),
+        forbiddenModules: requireStringArray(
+          contract.forbiddenModules,
+          "baseline notesShell forbiddenModules",
+        ),
+      };
+    })(),
     settingsAppearance: (() => {
       const contract = requireObject(root.settingsAppearance, "baseline settingsAppearance");
       return {
@@ -220,6 +233,10 @@ const projectsToolbarContract = evaluateStaticModuleContract(
   baseline.projectsToolbar,
   "Projects toolbar",
 );
+const notesShellContract = evaluateStaticModuleContract(
+  baseline.notesShell,
+  "Notes shell",
+);
 
 const settingsAppearanceRoots = baseline.settingsAppearance.loadedModules.map((moduleId) => {
   const owner = chunks.find((chunk) => chunk.modules.includes(moduleId));
@@ -303,6 +320,12 @@ console.log(JSON.stringify({
     sourceModules: [...projectsToolbarContract.modules]
       .filter((moduleId) => moduleId.startsWith("src/")).length,
     forbiddenModules: baseline.projectsToolbar.forbiddenModules,
+  },
+  notesShell: {
+    chunks: notesShellContract.closure.map((chunk) => chunk.fileName),
+    sourceModules: [...notesShellContract.modules]
+      .filter((moduleId) => moduleId.startsWith("src/")).length,
+    forbiddenModules: baseline.notesShell.forbiddenModules,
   },
   settingsAppearance: {
     chunks: settingsAppearanceChunks.map((chunk) => chunk.fileName),
