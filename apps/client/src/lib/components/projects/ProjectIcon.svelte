@@ -4,7 +4,7 @@
   import Bath from "@lucide/svelte/icons/bath";
   import Bed from "@lucide/svelte/icons/bed";
   import BookOpen from "@lucide/svelte/icons/book-open";
-  import Bus from "@lucide/svelte/icons/bus";
+  import Car from "@lucide/svelte/icons/car";
   import Clapperboard from "@lucide/svelte/icons/clapperboard";
   import Folder from "@lucide/svelte/icons/folder";
   import GraduationCap from "@lucide/svelte/icons/graduation-cap";
@@ -47,7 +47,7 @@
     bath: Bath,
     bed: Bed,
     "book-open": BookOpen,
-    bus: Bus,
+    car: Car,
     clapperboard: Clapperboard,
     folder: Folder,
     "graduation-cap": GraduationCap,
