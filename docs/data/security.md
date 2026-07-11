@@ -100,6 +100,8 @@ The app does not send analytics, telemetry, crash reports, or usage data. Networ
 
 A network filter (e.g. Little Snitch on macOS, an outbound firewall on Linux) should see only the configured update check in a release build when the user has not configured sync or AI. Opening release notes can also open the matching GitHub Release page in the user's default browser. Turning off update notifications returns the app to no external traffic unless the user starts a manual update check, opens release notes from an already visible update prompt, or configures another network feature.
 
+User-initiated project icon downloads enforce a backend network boundary. The downloader accepts only HTTP and HTTPS URLs without embedded credentials. It disables proxies and automatic redirects, resolves each hostname through a validating connector, and rejects the complete resolution if any address is unspecified, loopback, private, link-local, multicast, documentation-only, benchmarking-only, reserved, or otherwise not globally routable. Redirects are followed manually so the same validation applies to every target, including redirects from a public host to a private service. Redirect chains retain the four-redirect limit and one eight-second request budget. Response bodies are streamed into a three MB cap, successful content is accepted only when its bytes identify PNG, JPEG, or WebP, and error responses are never copied into frontend-facing diagnostics.
+
 ## Handling code copied from web sources
 
 A specific class of supply chain attack exploits the human (or AI agent) habit of copying code from Stack Overflow, GitHub issues, or blog posts without auditing it.

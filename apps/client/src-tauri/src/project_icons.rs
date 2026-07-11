@@ -1,13 +1,22 @@
 use base64::{engine::general_purpose, Engine as _};
-use reqwest::redirect::Policy;
+use reqwest::{
+    dns::{Addrs, Name, Resolve, Resolving},
+    header::LOCATION,
+    redirect::Policy,
+    Url,
+};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::{
     collections::HashSet,
-    fs,
+    error::Error,
+    fmt, fs,
+    future::Future,
     io::Write,
+    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs},
     path::{Component, Path, PathBuf},
-    time::Duration,
+    pin::Pin,
+    time::{Duration, Instant},
 };
 use tauri::{AppHandle, Manager, Runtime};
 use tauri_plugin_dialog::{DialogExt, FilePath};
@@ -18,6 +27,8 @@ const PROJECT_ICON_MAX_DISPLAY_MEGABYTES: usize = 3;
 const PROJECT_ICON_MAX_BYTES: usize = PROJECT_ICON_MAX_DISPLAY_MEGABYTES * 1024 * 1024;
 const PROJECT_ICON_DIR: &str = "project-icons";
 const PROJECT_ICON_ALLOWED_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "webp"];
+const PROJECT_ICON_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(8);
+const PROJECT_ICON_MAX_REDIRECTS: usize = 4;
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -227,44 +238,267 @@ fn project_icon_data_url(bytes: &[u8]) -> Result<String, String> {
     ))
 }
 
-async fn download_project_icon_url(url: &str) -> Result<Vec<u8>, String> {
-    let parsed = reqwest::Url::parse(url).map_err(|e| format!("invalid project icon URL: {e}"))?;
-    if parsed.scheme() != "http" && parsed.scheme() != "https" {
+fn is_public_project_icon_ipv4(address: Ipv4Addr) -> bool {
+    let [first, second, third, _] = address.octets();
+    if first == 0 || first == 10 || first == 127 || first >= 224 {
+        return false;
+    }
+    if first == 100 && (64..=127).contains(&second) {
+        return false;
+    }
+    if first == 169 && second == 254 {
+        return false;
+    }
+    if first == 172 && (16..=31).contains(&second) {
+        return false;
+    }
+    if first == 192
+        && (second == 168
+            || (second == 0 && matches!(third, 0 | 2))
+            || (second == 88 && third == 99))
+    {
+        return false;
+    }
+    if first == 198 && (matches!(second, 18 | 19) || (second == 51 && third == 100)) {
+        return false;
+    }
+    if first == 203 && second == 0 && third == 113 {
+        return false;
+    }
+    true
+}
+
+fn is_public_project_icon_ipv6(address: Ipv6Addr) -> bool {
+    if let Some(mapped) = address.to_ipv4_mapped() {
+        return is_public_project_icon_ipv4(mapped);
+    }
+    let segments = address.segments();
+    if segments[0] & 0xe000 != 0x2000 {
+        return false;
+    }
+    if segments[0] == 0x2001
+        && (segments[1] == 0
+            || (segments[1] == 2 && segments[2] == 0)
+            || segments[1] & 0xfff0 == 0x0010
+            || segments[1] & 0xfff0 == 0x0020
+            || segments[1] == 0x0db8)
+    {
+        return false;
+    }
+    if segments[0] == 0x2002 || segments[0] & 0xfff0 == 0x3ff0 {
+        return false;
+    }
+    true
+}
+
+fn is_public_project_icon_ip(address: IpAddr) -> bool {
+    match address {
+        IpAddr::V4(address) => is_public_project_icon_ipv4(address),
+        IpAddr::V6(address) => is_public_project_icon_ipv6(address),
+    }
+}
+
+fn validate_project_icon_network_url(url: &str) -> Result<Url, String> {
+    let parsed = Url::parse(url).map_err(|_| "project icon URL is invalid".to_string())?;
+    if !matches!(parsed.scheme(), "http" | "https") {
         return Err("project icon URL must use http or https".to_string());
     }
-    let _ = rustls::crypto::ring::default_provider().install_default();
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(8))
-        .redirect(Policy::limited(4))
-        .build()
-        .map_err(|e| format!("create project icon HTTP client: {e}"))?;
-    let mut response = client
-        .get(parsed)
-        .send()
-        .await
-        .map_err(|e| format!("download project icon image: {e}"))?;
-    if !response.status().is_success() {
-        return Err(format!("project icon URL returned {}", response.status()));
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err("project icon URL cannot contain credentials".to_string());
     }
-    if response
-        .content_length()
-        .is_some_and(|length| length > PROJECT_ICON_MAX_BYTES as u64)
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| "project icon URL must include a host".to_string())?;
+    if host.eq_ignore_ascii_case("localhost") || host.to_ascii_lowercase().ends_with(".localhost") {
+        return Err("project icon URL must use a public host".to_string());
+    }
+    let ip_host = host
+        .strip_prefix('[')
+        .and_then(|host| host.strip_suffix(']'))
+        .unwrap_or(host);
+    if ip_host
+        .parse::<IpAddr>()
+        .is_ok_and(|address| !is_public_project_icon_ip(address))
     {
+        return Err("project icon URL must use a public host".to_string());
+    }
+    Ok(parsed)
+}
+
+fn validate_project_icon_resolved_addresses(
+    addresses: Vec<SocketAddr>,
+) -> Result<Vec<SocketAddr>, ProjectIconDnsError> {
+    if addresses.is_empty() {
+        return Err(ProjectIconDnsError(
+            "project icon host resolved to no addresses",
+        ));
+    }
+    if addresses
+        .iter()
+        .any(|address| !is_public_project_icon_ip(address.ip()))
+    {
+        return Err(ProjectIconDnsError(
+            "project icon host resolved to a non-public address",
+        ));
+    }
+    Ok(addresses)
+}
+
+#[derive(Clone, Copy, Debug)]
+struct PublicProjectIconDnsResolver;
+
+#[derive(Clone, Copy, Debug)]
+struct ProjectIconDnsError(&'static str);
+
+impl fmt::Display for ProjectIconDnsError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.0)
+    }
+}
+
+impl Error for ProjectIconDnsError {}
+
+impl Resolve for PublicProjectIconDnsResolver {
+    fn resolve(&self, name: Name) -> Resolving {
+        let host = name.as_str().to_owned();
+        let lookup = tauri::async_runtime::spawn_blocking(move || {
+            let addresses = (host.as_str(), 0)
+                .to_socket_addrs()
+                .map_err(|_| ProjectIconDnsError("project icon host could not be resolved"))?
+                .collect::<Vec<_>>();
+            validate_project_icon_resolved_addresses(addresses)
+        });
+        Box::pin(async move {
+            match lookup.await {
+                Ok(Ok(addresses)) => Ok(Box::new(addresses.into_iter()) as Addrs),
+                Ok(Err(error)) => Err(Box::new(error) as Box<dyn Error + Send + Sync>),
+                Err(_) => Err(
+                    Box::new(ProjectIconDnsError("project icon host resolution failed"))
+                        as Box<dyn Error + Send + Sync>,
+                ),
+            }
+        })
+    }
+}
+
+enum ProjectIconHttpHop {
+    Redirect(String),
+    Image(Vec<u8>),
+}
+
+type ProjectIconHttpFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<ProjectIconHttpHop, String>> + Send + 'a>>;
+
+trait ProjectIconHttpTransport: Sync {
+    fn fetch<'a>(&'a self, url: Url, timeout: Duration) -> ProjectIconHttpFuture<'a>;
+}
+
+#[derive(Clone, Copy, Debug)]
+struct ReqwestProjectIconHttpTransport;
+
+fn append_project_icon_response_chunk(bytes: &mut Vec<u8>, chunk: &[u8]) -> Result<(), String> {
+    let next_length = bytes
+        .len()
+        .checked_add(chunk.len())
+        .ok_or_else(project_icon_size_limit_error)?;
+    if next_length > PROJECT_ICON_MAX_BYTES {
         return Err(project_icon_size_limit_error());
     }
-    let mut bytes = Vec::new();
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|e| format!("read project icon image: {e}"))?
-    {
-        bytes.extend_from_slice(&chunk);
-        if bytes.len() > PROJECT_ICON_MAX_BYTES {
-            return Err(project_icon_size_limit_error());
+    bytes.extend_from_slice(chunk);
+    Ok(())
+}
+
+impl ProjectIconHttpTransport for ReqwestProjectIconHttpTransport {
+    fn fetch<'a>(&'a self, url: Url, timeout: Duration) -> ProjectIconHttpFuture<'a> {
+        Box::pin(async move {
+            let _ = rustls::crypto::ring::default_provider().install_default();
+            let client = reqwest::Client::builder()
+                .timeout(timeout)
+                .redirect(Policy::none())
+                .no_proxy()
+                .dns_resolver(PublicProjectIconDnsResolver)
+                .build()
+                .map_err(|_| "create project icon HTTP client failed".to_string())?;
+            let mut response = client
+                .get(url)
+                .send()
+                .await
+                .map_err(|_| "download project icon image failed".to_string())?;
+            if response.status().is_redirection() {
+                let location = response
+                    .headers()
+                    .get(LOCATION)
+                    .ok_or_else(|| "project icon redirect is missing a location".to_string())?
+                    .to_str()
+                    .map_err(|_| "project icon redirect location is invalid".to_string())?;
+                return Ok(ProjectIconHttpHop::Redirect(location.to_owned()));
+            }
+            if !response.status().is_success() {
+                return Err(format!("project icon URL returned {}", response.status()));
+            }
+            if response
+                .content_length()
+                .is_some_and(|length| length > PROJECT_ICON_MAX_BYTES as u64)
+            {
+                return Err(project_icon_size_limit_error());
+            }
+            let mut bytes = Vec::new();
+            while let Some(chunk) = response
+                .chunk()
+                .await
+                .map_err(|_| "read project icon image failed".to_string())?
+            {
+                append_project_icon_response_chunk(&mut bytes, &chunk)?;
+            }
+            ensure_project_icon_size(&bytes)?;
+            Ok(ProjectIconHttpHop::Image(bytes))
+        })
+    }
+}
+
+fn project_icon_remaining_timeout(started_at: Instant) -> Result<Duration, String> {
+    PROJECT_ICON_DOWNLOAD_TIMEOUT
+        .checked_sub(started_at.elapsed())
+        .filter(|remaining| !remaining.is_zero())
+        .ok_or_else(|| "project icon download timed out".to_string())
+}
+
+async fn download_project_icon_url_with_transport<T: ProjectIconHttpTransport>(
+    transport: &T,
+    url: &str,
+) -> Result<Vec<u8>, String> {
+    let started_at = Instant::now();
+    let mut current = validate_project_icon_network_url(url)?;
+    let mut visited = HashSet::new();
+    let mut redirect_count = 0;
+    loop {
+        current = validate_project_icon_network_url(current.as_str())?;
+        if !visited.insert(current.as_str().to_owned()) {
+            return Err("project icon redirect loop detected".to_string());
+        }
+        let timeout = project_icon_remaining_timeout(started_at)?;
+        match transport.fetch(current.clone(), timeout).await? {
+            ProjectIconHttpHop::Image(bytes) => {
+                sniff_project_icon_kind(&bytes)?;
+                return Ok(bytes);
+            }
+            ProjectIconHttpHop::Redirect(location) => {
+                if redirect_count >= PROJECT_ICON_MAX_REDIRECTS {
+                    return Err(format!(
+                        "project icon URL exceeded the {PROJECT_ICON_MAX_REDIRECTS} redirect limit"
+                    ));
+                }
+                current = current
+                    .join(&location)
+                    .map_err(|_| "project icon redirect location is invalid".to_string())?;
+                redirect_count += 1;
+            }
         }
     }
-    ensure_project_icon_size(&bytes)?;
-    Ok(bytes)
+}
+
+async fn download_project_icon_url(url: &str) -> Result<Vec<u8>, String> {
+    download_project_icon_url_with_transport(&ReqwestProjectIconHttpTransport, url).await
 }
 
 #[tauri::command]
@@ -366,6 +600,45 @@ pub async fn project_icon_delete_assets_if_unreferenced<R: Runtime>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{collections::VecDeque, sync::Mutex};
+
+    struct FakeProjectIconHttpTransport {
+        responses: Mutex<VecDeque<Result<ProjectIconHttpHop, String>>>,
+        requested_urls: Mutex<Vec<String>>,
+        timeouts: Mutex<Vec<Duration>>,
+    }
+
+    impl FakeProjectIconHttpTransport {
+        fn new(responses: Vec<Result<ProjectIconHttpHop, String>>) -> Self {
+            Self {
+                responses: Mutex::new(responses.into()),
+                requested_urls: Mutex::new(Vec::new()),
+                timeouts: Mutex::new(Vec::new()),
+            }
+        }
+
+        fn request_count(&self) -> usize {
+            self.requested_urls.lock().unwrap().len()
+        }
+    }
+
+    impl ProjectIconHttpTransport for FakeProjectIconHttpTransport {
+        fn fetch<'a>(&'a self, url: Url, timeout: Duration) -> ProjectIconHttpFuture<'a> {
+            self.requested_urls.lock().unwrap().push(String::from(url));
+            self.timeouts.lock().unwrap().push(timeout);
+            let response = self
+                .responses
+                .lock()
+                .unwrap()
+                .pop_front()
+                .unwrap_or_else(|| Err("unexpected project icon request".to_string()));
+            Box::pin(async move { response })
+        }
+    }
+
+    fn png_signature() -> Vec<u8> {
+        vec![0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a]
+    }
 
     #[test]
     fn sniff_project_icon_kind_accepts_supported_images() {
@@ -440,5 +713,190 @@ mod tests {
             project_icon_size_limit_error(),
             "project icon image exceeds the 3 MB limit",
         );
+    }
+
+    #[test]
+    fn project_icon_network_policy_rejects_non_public_addresses() {
+        for address in [
+            "0.0.0.0",
+            "10.0.0.1",
+            "100.64.0.1",
+            "127.0.0.1",
+            "169.254.1.1",
+            "172.16.0.1",
+            "192.0.0.1",
+            "192.0.2.1",
+            "192.168.0.1",
+            "198.18.0.1",
+            "198.51.100.1",
+            "203.0.113.1",
+            "224.0.0.1",
+            "240.0.0.1",
+            "::",
+            "::1",
+            "::ffff:127.0.0.1",
+            "100::1",
+            "2001:db8::1",
+            "2002:7f00:1::",
+            "3fff::1",
+            "fc00::1",
+            "fe80::1",
+            "ff00::1",
+        ] {
+            let address = address.parse().unwrap();
+            assert!(
+                !is_public_project_icon_ip(address),
+                "{address} must not be reachable by the downloader",
+            );
+        }
+        for address in ["8.8.8.8", "93.184.216.34", "2001:4860:4860::8888"] {
+            let address = address.parse().unwrap();
+            assert!(
+                is_public_project_icon_ip(address),
+                "{address} should be accepted as globally routable",
+            );
+        }
+    }
+
+    #[test]
+    fn project_icon_url_policy_rejects_local_and_encoded_host_edges() {
+        for url in [
+            "http://127.0.0.1/icon.png",
+            "http://2130706433/icon.png",
+            "http://0177.0.0.1/icon.png",
+            "http://0x7f000001/icon.png",
+            "http://[::1]/icon.png",
+            "http://[::ffff:127.0.0.1]/icon.png",
+            "http://user@example.com/icon.png",
+            "http://user:secret@example.com/icon.png",
+            "http://127.0.0.1%2f@example.com/icon.png",
+            "file:///tmp/icon.png",
+        ] {
+            assert!(
+                validate_project_icon_network_url(url).is_err(),
+                "{url} must be rejected",
+            );
+        }
+    }
+
+    #[test]
+    fn project_icon_dns_policy_rejects_mixed_public_and_private_results() {
+        let addresses = vec![
+            "93.184.216.34:443".parse().unwrap(),
+            "127.0.0.1:443".parse().unwrap(),
+        ];
+        assert!(validate_project_icon_resolved_addresses(addresses).is_err());
+        assert!(validate_project_icon_resolved_addresses(vec![
+            "93.184.216.34:443".parse().unwrap(),
+            "[2001:4860:4860::8888]:443".parse().unwrap(),
+        ])
+        .is_ok());
+    }
+
+    #[test]
+    fn project_icon_public_to_private_redirect_is_rejected_before_second_request() {
+        let transport = FakeProjectIconHttpTransport::new(vec![Ok(ProjectIconHttpHop::Redirect(
+            "http://127.0.0.1/private.png".to_string(),
+        ))]);
+        let error = tauri::async_runtime::block_on(download_project_icon_url_with_transport(
+            &transport,
+            "https://example.com/icon.png",
+        ))
+        .unwrap_err();
+        assert_eq!(error, "project icon URL must use a public host");
+        assert_eq!(transport.request_count(), 1);
+    }
+
+    #[test]
+    fn project_icon_redirect_with_credentials_is_rejected_before_following() {
+        let transport = FakeProjectIconHttpTransport::new(vec![Ok(ProjectIconHttpHop::Redirect(
+            "https://user:secret@example.net/icon.png".to_string(),
+        ))]);
+        let error = tauri::async_runtime::block_on(download_project_icon_url_with_transport(
+            &transport,
+            "https://example.com/icon.png",
+        ))
+        .unwrap_err();
+        assert_eq!(error, "project icon URL cannot contain credentials");
+        assert_eq!(transport.request_count(), 1);
+    }
+
+    #[test]
+    fn project_icon_redirect_loop_is_rejected_without_repeating_request() {
+        let transport = FakeProjectIconHttpTransport::new(vec![Ok(ProjectIconHttpHop::Redirect(
+            "/icon.png".to_string(),
+        ))]);
+        let error = tauri::async_runtime::block_on(download_project_icon_url_with_transport(
+            &transport,
+            "https://example.com/icon.png",
+        ))
+        .unwrap_err();
+        assert_eq!(error, "project icon redirect loop detected");
+        assert_eq!(transport.request_count(), 1);
+    }
+
+    #[test]
+    fn project_icon_redirect_count_stays_at_the_existing_limit() {
+        let transport = FakeProjectIconHttpTransport::new(
+            (1..=5)
+                .map(|index| {
+                    Ok(ProjectIconHttpHop::Redirect(format!(
+                        "/redirect-{index}.png"
+                    )))
+                })
+                .collect(),
+        );
+        let error = tauri::async_runtime::block_on(download_project_icon_url_with_transport(
+            &transport,
+            "https://example.com/icon.png",
+        ))
+        .unwrap_err();
+        assert_eq!(error, "project icon URL exceeded the 4 redirect limit",);
+        assert_eq!(transport.request_count(), 5);
+    }
+
+    #[test]
+    fn oversized_chunked_project_icon_body_is_rejected_while_streaming() {
+        let mut bytes = Vec::new();
+        let first_chunk = vec![0; PROJECT_ICON_MAX_BYTES];
+        append_project_icon_response_chunk(&mut bytes, &first_chunk).unwrap();
+        let error = append_project_icon_response_chunk(&mut bytes, &[0]).unwrap_err();
+        assert_eq!(error, project_icon_size_limit_error());
+        assert_eq!(bytes.len(), PROJECT_ICON_MAX_BYTES);
+    }
+
+    #[test]
+    fn valid_public_project_icon_response_returns_sniffed_image() {
+        let expected = png_signature();
+        let transport = FakeProjectIconHttpTransport::new(vec![Ok(ProjectIconHttpHop::Image(
+            expected.clone(),
+        ))]);
+        let actual = tauri::async_runtime::block_on(download_project_icon_url_with_transport(
+            &transport,
+            "https://example.com/icon.png",
+        ))
+        .unwrap();
+        assert_eq!(actual, expected);
+        assert_eq!(transport.request_count(), 1);
+        assert!(transport
+            .timeouts
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|timeout| *timeout <= PROJECT_ICON_DOWNLOAD_TIMEOUT));
+    }
+
+    #[test]
+    fn successful_non_image_response_is_rejected_after_sniffing() {
+        let transport = FakeProjectIconHttpTransport::new(vec![Ok(ProjectIconHttpHop::Image(
+            b"remote secret error body".to_vec(),
+        ))]);
+        let error = tauri::async_runtime::block_on(download_project_icon_url_with_transport(
+            &transport,
+            "https://example.com/icon.png",
+        ))
+        .unwrap_err();
+        assert_eq!(error, project_icon_unsupported_type_error());
+        assert!(!error.contains("remote secret error body"));
     }
 }
