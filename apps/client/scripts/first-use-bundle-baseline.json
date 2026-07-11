@@ -21,6 +21,33 @@
       "src/lib/components/music/MusicView.svelte"
     ]
   },
+  "projectsShell": {
+    "loadedModules": [
+      "src/lib/components/projects/ProjectsView.svelte"
+    ],
+    "forbiddenModules": [
+      "src/lib/components/projects/ProjectListView.svelte",
+      "src/lib/components/projects/ProjectKanbanView.svelte",
+      "src/lib/components/calendar/CalendarView.svelte",
+      "src/lib/components/projects/ProjectGanttView.svelte",
+      "src/lib/components/projects/ProjectDashboardView.svelte",
+      "src/lib/components/projects/ProjectToolbarPanels.svelte",
+      "src/lib/components/projects/ProjectSettingsPanel.svelte",
+      "src/lib/components/projects/ProjectTaskFinder.svelte",
+      "src/lib/components/projects/ProjectBulkActionController.svelte",
+      "src/lib/components/projects/ProjectTaskDetailPanel.svelte",
+      "src/lib/components/projects/ProjectNavigator.svelte",
+      "src/lib/components/projects/ProjectPickerPanels.svelte"
+    ]
+  },
+  "projectsToolbar": {
+    "loadedModules": [
+      "src/lib/components/projects/ProjectToolbarPanels.svelte"
+    ],
+    "forbiddenModules": [
+      "src/lib/components/projects/ProjectSettingsPanel.svelte"
+    ]
+  },
   "settingsAppearance": {
     "loadedModules": [
       "src/lib/components/settings/SettingsModal.svelte",

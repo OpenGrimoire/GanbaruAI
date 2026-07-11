@@ -18,6 +18,28 @@ const backend = vi.hoisted(() => {
   };
 });
 
+const deferredComponents = vi.hoisted(() => {
+  const promise = new Promise<never>(() => undefined);
+  return {
+    promise,
+    viewCalls: 0,
+    optionalCalls: 0,
+  };
+});
+
+vi.mock("./project-component-registry", () => ({
+  loadProjectView: () => {
+    deferredComponents.viewCalls += 1;
+    return deferredComponents.promise;
+  },
+  retryProjectView: () => deferredComponents.promise,
+  loadProjectOptionalComponent: () => {
+    deferredComponents.optionalCalls += 1;
+    return deferredComponents.promise;
+  },
+  retryProjectOptionalComponent: () => deferredComponents.promise,
+}));
+
 vi.mock("@tauri-apps/api/window", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@tauri-apps/api/window")>();
   return {
@@ -56,7 +78,7 @@ describe("ProjectsView first use", () => {
     target = undefined;
   });
 
-  it("renders a useful loading state while the initial backend promise is unresolved", async () => {
+  it("renders its header and stable frame while data and component imports are unresolved", async () => {
     target = document.createElement("div");
     document.body.append(target);
     const { default: ProjectsView } = await import("./ProjectsView.svelte");
@@ -66,7 +88,11 @@ describe("ProjectsView first use", () => {
 
     expect(backend.calls).toBe(1);
     expect(target.querySelector('[data-first-use-shell="projects"]')).not.toBeNull();
+    expect(target.querySelector("[data-projects-shell-header]")?.textContent).toContain("Projects");
+    expect(target.querySelector("[data-projects-content-frame]")).not.toBeNull();
     expect(target.querySelector("[data-projects-first-use-state]")?.getAttribute("aria-busy"))
       .toBe("true");
+    expect(deferredComponents.viewCalls).toBe(0);
+    expect(deferredComponents.optionalCalls).toBe(0);
   }, 15_000);
 });

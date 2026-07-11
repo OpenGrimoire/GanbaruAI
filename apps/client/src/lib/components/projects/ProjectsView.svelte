@@ -1,8 +1,13 @@
 <script lang="ts">
   import { Temporal } from "@js-temporal/polyfill";
   import { onMount } from "svelte";
-  import CalendarView from "$lib/components/calendar/CalendarView.svelte";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
+  import {
+    beginLazyComponentLoad,
+    rejectLazyComponentLoad,
+    resolveLazyComponentLoad,
+    type LazyComponentLoadState,
+  } from "$lib/lazy-component-loader";
   import { getCalendar } from "$lib/stores/calendar.svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getPreferences } from "$lib/stores/preferences.svelte";
@@ -75,16 +80,17 @@
     toggleProjectListColumn,
     type ProjectToolbarPanel,
   } from "$lib/projects/project-toolbar";
-  import ProjectDashboardView from "./ProjectDashboardView.svelte";
-  import ProjectKanbanView from "./ProjectKanbanView.svelte";
-  import ProjectBulkActionController from "./ProjectBulkActionController.svelte";
   import ProjectEmptyState from "./ProjectEmptyState.svelte";
-  import ProjectGanttView from "./ProjectGanttView.svelte";
-  import ProjectListView from "./ProjectListView.svelte";
-  import ProjectTaskFinder from "./ProjectTaskFinder.svelte";
-  import ProjectTaskDetailPanel from "./ProjectTaskDetailPanel.svelte";
-  import ProjectToolbarPanels from "./ProjectToolbarPanels.svelte";
   import ProjectWorkspaceHeader from "./ProjectWorkspaceHeader.svelte";
+  import {
+    loadProjectOptionalComponent,
+    loadProjectView,
+    retryProjectOptionalComponent,
+    retryProjectView,
+    type LoadedProjectOptionalComponent,
+    type LoadedProjectView,
+    type ProjectOptionalComponentKind,
+  } from "./project-component-registry";
 
   const projects = getProjects();
   const calendar = getCalendar();
@@ -127,6 +133,90 @@
   let projectSettingsDiscardConfirmOpen = $state(false);
   let pendingProjectSettingsAction: (() => void) | null = null;
   let projectsRootElement = $state<HTMLDivElement | null>(null);
+  let viewLoadState = $state<LazyComponentLoadState<
+    ProjectViewId,
+    LoadedProjectView
+  > | null>(null);
+  type ProjectOptionalLoadState = LazyComponentLoadState<
+    ProjectOptionalComponentKind,
+    LoadedProjectOptionalComponent
+  >;
+  let optionalLoadStates = $state<Partial<Record<
+    ProjectOptionalComponentKind,
+    ProjectOptionalLoadState
+  >>>({});
+
+  const activeViewLoadState = $derived(
+    viewLoadState?.key === projects.activeView ? viewLoadState : null,
+  );
+  const toolbarLoadState = $derived(optionalLoadStates.toolbar ?? null);
+  const bulkActionsLoadState = $derived(optionalLoadStates["bulk-actions"] ?? null);
+  const taskFinderLoadState = $derived(optionalLoadStates["task-finder"] ?? null);
+  const taskDetailLoadState = $derived(optionalLoadStates["task-detail"] ?? null);
+
+  function requestProjectView(view: ProjectViewId, retry = false): void {
+    if (!retry && viewLoadState?.key === view) return;
+    const loadingState = beginLazyComponentLoad(viewLoadState, view);
+    viewLoadState = loadingState;
+    const request = retry ? retryProjectView(view) : loadProjectView(view);
+    void request
+      .then((component) => {
+        if (!viewLoadState) return;
+        viewLoadState = resolveLazyComponentLoad(
+          viewLoadState,
+          view,
+          loadingState.requestId,
+          component,
+        );
+      })
+      .catch((error: unknown) => {
+        if (!viewLoadState) return;
+        viewLoadState = rejectLazyComponentLoad(
+          viewLoadState,
+          view,
+          loadingState.requestId,
+          error,
+        );
+        console.error(`Failed to load Project ${view} view:`, error);
+      });
+  }
+
+  function requestProjectOptionalComponent(
+    kind: ProjectOptionalComponentKind,
+    retry = false,
+  ): void {
+    const current = optionalLoadStates[kind] ?? null;
+    if (!retry && current) return;
+    const loadingState = beginLazyComponentLoad(current, kind);
+    optionalLoadStates = { ...optionalLoadStates, [kind]: loadingState };
+    const request = retry
+      ? retryProjectOptionalComponent(kind)
+      : loadProjectOptionalComponent(kind);
+    void request
+      .then((component) => {
+        const active = optionalLoadStates[kind];
+        if (!active) return;
+        const next = resolveLazyComponentLoad(
+          active,
+          kind,
+          loadingState.requestId,
+          component,
+        );
+        if (next !== active) optionalLoadStates = { ...optionalLoadStates, [kind]: next };
+      })
+      .catch((error: unknown) => {
+        const active = optionalLoadStates[kind];
+        if (!active) return;
+        const next = rejectLazyComponentLoad(
+          active,
+          kind,
+          loadingState.requestId,
+          error,
+        );
+        if (next !== active) optionalLoadStates = { ...optionalLoadStates, [kind]: next };
+        console.error(`Failed to load optional Project surface ${kind}:`, error);
+      });
+  }
 
   const selectedProject = $derived(projects.selectedProject);
   const selectedGroup = $derived(projects.selectedGroup);
@@ -347,6 +437,28 @@
   });
 
   $effect(() => {
+    const view = projects.activeView;
+    if (!selectedProject || !selectedGroup) return;
+    requestProjectView(view);
+  });
+
+  $effect(() => {
+    if (projectToolbarPanel) requestProjectOptionalComponent("toolbar");
+  });
+
+  $effect(() => {
+    if (selectedTaskIds.length > 0) requestProjectOptionalComponent("bulk-actions");
+  });
+
+  $effect(() => {
+    if (taskFinderOpen || taskSearch.trim()) requestProjectOptionalComponent("task-finder");
+  });
+
+  $effect(() => {
+    if (selectedTaskId) requestProjectOptionalComponent("task-detail");
+  });
+
+  $effect(() => {
     const customFieldIds = new Set(projectCustomFields.map((field) => field.id));
     taskListColumns = taskListColumnsForProject(
       projects.viewPreferences,
@@ -416,6 +528,14 @@
     if (column === "assignee") return t("projects.columns.assignee");
     if (column === "reviewer") return t("projects.columns.reviewer");
     return t("projects.columns.status");
+  }
+
+  function projectViewLabel(view: ProjectViewId): string {
+    if (view === "dashboard") return t("projects.tabs.dashboard");
+    if (view === "list") return t("projects.tabs.list");
+    if (view === "kanban") return t("projects.tabs.kanban");
+    if (view === "calendar") return t("projects.tabs.calendar");
+    return t("projects.tabs.gantt");
   }
 
   async function toggleTaskListColumn(column: ProjectTaskListColumn): Promise<void> {
@@ -776,181 +896,309 @@
           }}
           onToggleToolbarPanel={toggleProjectToolbarPanel}
         />
-        <ProjectToolbarPanels
-          panel={projectToolbarPanel}
-          projectId={selectedProjectId}
-          {sections}
-          {priorities}
-          {projectTags}
-          {projectCustomFields}
-          {savedTaskViews}
-          {taskListColumnControls}
-          {archivedProjectTaskCount}
-          {inactiveSectionCount}
-          {taskFiltersActive}
-          {savedViewSaving}
-          {savedViewError}
-          bind:taskStatusFilter
-          bind:taskSectionFilter
-          bind:taskPriorityFilter
-          bind:taskDueFilter
-          bind:taskDueRangeStart
-          bind:taskDueRangeEnd
-          bind:taskScheduleFilter
-          bind:taskDependencyFilter
-          bind:taskTagFilter
-          bind:taskCustomFieldFilters
-          bind:taskGroupBy
-          bind:taskSortMode
-          bind:taskSortDirection
-          bind:showArchivedTasks
-          bind:showInactiveSections
-          bind:savedViewNameDraft
-          onClose={() => {
-            requestProjectToolbarPanelClose();
-          }}
-          onProjectSettingsDirtyChange={(dirty) => {
-            projectSettingsDirty = dirty;
-          }}
-          onRevealInactive={() => {
-            showInactiveProjects = true;
-          }}
-          onClearTaskFilters={clearTaskFilters}
-          onSaveCurrentTaskView={() => { void saveCurrentTaskView(); }}
-          onApplyTaskView={(view) => { void applyTaskView(view); }}
-          onDeleteSavedTaskView={(view) => { void deleteSavedTaskView(view); }}
-          onToggleTaskListColumn={(column) => { void toggleTaskListColumn(column); }}
-        />
-        <ProjectBulkActionController
-          {selectedProject}
-          {priorities}
-          {selectedTasks}
-          {selectableTasks}
-          {selectedActiveTaskCount}
-          {selectedArchivedTaskCount}
-          terminalStatus={terminalStatus()}
-          firstOpenStatus={firstOpenStatus()}
-          bind:selectedTaskIds
-          bind:showArchivedTasks
-        />
+        {#if projectToolbarPanel}
+          {#if toolbarLoadState?.status === "ready" && toolbarLoadState.component.kind === "toolbar"}
+            {@const ProjectToolbarPanels = toolbarLoadState.component.component}
+            <ProjectToolbarPanels
+              panel={projectToolbarPanel}
+              projectId={selectedProjectId}
+              {sections}
+              {priorities}
+              {projectTags}
+              {projectCustomFields}
+              {savedTaskViews}
+              {taskListColumnControls}
+              {archivedProjectTaskCount}
+              {inactiveSectionCount}
+              {taskFiltersActive}
+              {savedViewSaving}
+              {savedViewError}
+              bind:taskStatusFilter
+              bind:taskSectionFilter
+              bind:taskPriorityFilter
+              bind:taskDueFilter
+              bind:taskDueRangeStart
+              bind:taskDueRangeEnd
+              bind:taskScheduleFilter
+              bind:taskDependencyFilter
+              bind:taskTagFilter
+              bind:taskCustomFieldFilters
+              bind:taskGroupBy
+              bind:taskSortMode
+              bind:taskSortDirection
+              bind:showArchivedTasks
+              bind:showInactiveSections
+              bind:savedViewNameDraft
+              onClose={() => {
+                requestProjectToolbarPanelClose();
+              }}
+              onProjectSettingsDirtyChange={(dirty) => {
+                projectSettingsDirty = dirty;
+              }}
+              onRevealInactive={() => {
+                showInactiveProjects = true;
+              }}
+              onClearTaskFilters={clearTaskFilters}
+              onSaveCurrentTaskView={() => { void saveCurrentTaskView(); }}
+              onApplyTaskView={(view) => { void applyTaskView(view); }}
+              onDeleteSavedTaskView={(view) => { void deleteSavedTaskView(view); }}
+              onToggleTaskListColumn={(column) => { void toggleTaskListColumn(column); }}
+            />
+          {:else if toolbarLoadState?.status === "failed"}
+            <div class="flex min-h-9 items-center justify-center gap-2 border-t border-border px-3 text-xs text-muted-foreground" role="alert">
+              <span>{t("common.viewLoadFailed", t("projects.header.projectSettings"))}</span>
+              <button
+                type="button"
+                class="font-medium text-foreground underline-offset-2 hover:underline"
+                onclick={() => requestProjectOptionalComponent("toolbar", true)}
+              >
+                {t("common.retry")}
+              </button>
+            </div>
+          {:else}
+            <span class="sr-only" aria-busy="true">{t("common.loading")}</span>
+          {/if}
+        {/if}
+        {#if selectedTaskIds.length > 0}
+          {#if bulkActionsLoadState?.status === "ready" && bulkActionsLoadState.component.kind === "bulk-actions"}
+            {@const ProjectBulkActionController = bulkActionsLoadState.component.component}
+            <ProjectBulkActionController
+              {selectedProject}
+              {priorities}
+              {selectedTasks}
+              {selectableTasks}
+              {selectedActiveTaskCount}
+              {selectedArchivedTaskCount}
+              terminalStatus={terminalStatus()}
+              firstOpenStatus={firstOpenStatus()}
+              bind:selectedTaskIds
+              bind:showArchivedTasks
+            />
+          {:else if bulkActionsLoadState?.status === "failed"}
+            <div class="flex min-h-9 items-center justify-center gap-2 border-t border-border px-3 text-xs text-muted-foreground" role="alert">
+              <span>{t("common.viewLoadFailed", t("projects.bulk.selected", selectedTaskIds.length))}</span>
+              <button
+                type="button"
+                class="font-medium text-foreground underline-offset-2 hover:underline"
+                onclick={() => requestProjectOptionalComponent("bulk-actions", true)}
+              >
+                {t("common.retry")}
+              </button>
+            </div>
+          {:else}
+            <span class="sr-only" aria-busy="true">{t("common.loading")}</span>
+          {/if}
+        {/if}
       </header>
 
-      <div class="relative min-h-0 flex-1" style="background-color: var(--cal-bg);">
-        {#if projects.activeView === "list"}
-          <ProjectListView
-            {selectedProjectId}
-            {sections}
-            {statuses}
-            {priorities}
-            {tasks}
-            {allProjectTasks}
-            {listTaskGroups}
-            {taskGroupBy}
-            {taskSortMode}
-            {taskSortDirection}
-            {taskListColumns}
-            {taskListColumnWidths}
-            {projectCustomFields}
-            {selectedTaskId}
-            {selectedTaskIds}
-            {showArchivedTasks}
-            onOpenTask={openTaskDetail}
-            onSelectedTaskIdsChange={(taskIds) => {
-              selectedTaskIds = taskIds;
-            }}
-            onRevealTask={revealCreatedTask}
-            onTaskListColumnWidthsChange={(widths, options) => {
-              void updateTaskListColumnWidths(widths, options);
-            }}
-          />
-        {:else if projects.activeView === "kanban"}
-          <ProjectKanbanView
-            {tasks}
-            {statuses}
-            {priorities}
-            {selectedTaskIds}
-            {taskSortMode}
-            {taskSortDirection}
-            onOpenTask={openTaskDetail}
-            onToggleTaskSelection={toggleTaskSelection}
-          />
-        {:else if projects.activeView === "calendar"}
-          <div class="h-full min-h-112 overflow-hidden">
-            <CalendarView
-              eventFilter={projectCalendarEventFilter}
-              createDefaults={projectCalendarCreateDefaults}
-              initialViewMode={projectCalendarViewMode}
-              onViewModeChange={(mode) => {
-                projectCalendarViewMode = mode;
+    {:else}
+      <header
+        data-projects-shell-header
+        class="flex h-11 shrink-0 items-center border-b border-border px-4 text-sm font-semibold"
+        style="background-color: var(--cal-header-bg);"
+      >
+        {t("titleBar.tab.projects")}
+      </header>
+    {/if}
+
+    <div
+      data-projects-content-frame
+      class="relative min-h-0 flex-1"
+      style="background-color: var(--cal-bg);"
+    >
+      {#if selectedProject && selectedGroup}
+        {#if activeViewLoadState?.status === "ready"}
+          {@const loadedView = activeViewLoadState.component}
+          {#if loadedView.view === "list"}
+            {@const ProjectListView = loadedView.component}
+            <ProjectListView
+              {selectedProjectId}
+              {sections}
+              {statuses}
+              {priorities}
+              {tasks}
+              {allProjectTasks}
+              {listTaskGroups}
+              {taskGroupBy}
+              {taskSortMode}
+              {taskSortDirection}
+              {taskListColumns}
+              {taskListColumnWidths}
+              {projectCustomFields}
+              {selectedTaskId}
+              {selectedTaskIds}
+              {showArchivedTasks}
+              onOpenTask={openTaskDetail}
+              onSelectedTaskIdsChange={(taskIds) => {
+                selectedTaskIds = taskIds;
+              }}
+              onRevealTask={revealCreatedTask}
+              onTaskListColumnWidthsChange={(widths, options) => {
+                void updateTaskListColumnWidths(widths, options);
               }}
             />
+          {:else if loadedView.view === "kanban"}
+            {@const ProjectKanbanView = loadedView.component}
+            <ProjectKanbanView
+              {tasks}
+              {statuses}
+              {priorities}
+              {selectedTaskIds}
+              {taskSortMode}
+              {taskSortDirection}
+              onOpenTask={openTaskDetail}
+              onToggleTaskSelection={toggleTaskSelection}
+            />
+          {:else if loadedView.view === "calendar"}
+            {@const CalendarView = loadedView.component}
+            <div class="h-full min-h-112 overflow-hidden">
+              <CalendarView
+                eventFilter={projectCalendarEventFilter}
+                createDefaults={projectCalendarCreateDefaults}
+                initialViewMode={projectCalendarViewMode}
+                onViewModeChange={(mode) => {
+                  projectCalendarViewMode = mode;
+                }}
+              />
+            </div>
+          {:else if loadedView.view === "gantt"}
+            {@const ProjectGanttView = loadedView.component}
+            <ProjectGanttView
+              tasks={tasks}
+              statuses={statuses}
+              sections={sections}
+              todayDate={todayDate}
+              onOpenTask={openTaskDetail}
+              onToggleSectionCollapsed={(section) => {
+                void toggleSectionCollapsed(section);
+              }}
+            />
+          {:else if loadedView.view === "dashboard"}
+            {@const ProjectDashboardView = loadedView.component}
+            <ProjectDashboardView
+              projectId={selectedProjectId}
+              {tasks}
+              {statuses}
+              {priorities}
+              {todayDate}
+              {scheduledTaskIds}
+              {scheduledThisWeekMinutes}
+              onOpenTask={openTaskDetail}
+            />
+          {/if}
+        {:else if activeViewLoadState?.status === "failed"}
+          <div
+            class="flex h-full min-h-40 flex-col items-center justify-center gap-3 p-4 text-center text-sm text-muted-foreground"
+            role="alert"
+          >
+            <p>{t("common.viewLoadFailed", projectViewLabel(projects.activeView))}</p>
+            <button
+              type="button"
+              class="min-h-9 rounded-md border border-border bg-background px-3 font-medium text-foreground hover:bg-accent"
+              onclick={() => requestProjectView(projects.activeView, true)}
+            >
+              {t("common.retry")}
+            </button>
           </div>
-        {:else if projects.activeView === "gantt"}
-          <ProjectGanttView
-            tasks={tasks}
-            statuses={statuses}
-            sections={sections}
-            todayDate={todayDate}
-            onOpenTask={openTaskDetail}
-            onToggleSectionCollapsed={(section) => {
-              void toggleSectionCollapsed(section);
-            }}
-          />
-        {:else if projects.activeView === "dashboard"}
-          <ProjectDashboardView
-            projectId={selectedProjectId}
-            {tasks}
-            {statuses}
-            {priorities}
-            {todayDate}
-            {scheduledTaskIds}
-            {scheduledThisWeekMinutes}
-            onOpenTask={openTaskDetail}
-          />
+        {:else}
+          <div
+            data-projects-view-loading
+            class="flex h-full min-h-40 items-center justify-center p-4 text-sm text-muted-foreground"
+            aria-busy="true"
+          >
+            {t("common.loading")}
+          </div>
         {/if}
-      </div>
-    {:else}
-      <ProjectEmptyState
-        {selectedProjectId}
-        bind:showInactiveProjects
-        onProjectSelected={() => {
-          selectedTaskId = null;
-          closeProjectToolbarPanelImmediately();
-        }}
-      />
-    {/if}
+      {:else}
+        <ProjectEmptyState
+          {selectedProjectId}
+          bind:showInactiveProjects
+          onProjectSelected={() => {
+            selectedTaskId = null;
+            closeProjectToolbarPanelImmediately();
+          }}
+        />
+      {/if}
+    </div>
   </section>
 
   {#if selectedProject && (taskFinderOpen || taskSearch.trim().length > 0)}
-    <ProjectTaskFinder
-      {taskSearch}
-      {matchingTaskCount}
-      totalTaskCount={allProjectTasks.length}
-      focusRequestId={taskFinderFocusRequestId}
-      onTaskSearchChange={(value) => {
-        taskSearch = value;
-      }}
-      onClose={closeTaskFinder}
-      onClearAndClose={closeOrClearTaskFinder}
-    />
+    {#if taskFinderLoadState?.status === "ready" && taskFinderLoadState.component.kind === "task-finder"}
+      {@const ProjectTaskFinder = taskFinderLoadState.component.component}
+      <ProjectTaskFinder
+        {taskSearch}
+        {matchingTaskCount}
+        totalTaskCount={allProjectTasks.length}
+        focusRequestId={taskFinderFocusRequestId}
+        onTaskSearchChange={(value) => {
+          taskSearch = value;
+        }}
+        onClose={closeTaskFinder}
+        onClearAndClose={closeOrClearTaskFinder}
+      />
+    {:else if taskFinderLoadState?.status === "failed"}
+      <div class="absolute inset-x-3 top-3 z-80 flex min-h-10 items-center justify-center gap-2 rounded-md border border-border bg-card px-3 text-xs text-muted-foreground shadow-lg" role="alert">
+        <span>{t("common.viewLoadFailed", t("projects.finder.label"))}</span>
+        <button
+          type="button"
+          class="font-medium text-foreground underline-offset-2 hover:underline"
+          onclick={() => requestProjectOptionalComponent("task-finder", true)}
+        >
+          {t("common.retry")}
+        </button>
+      </div>
+    {:else}
+      <span class="sr-only" aria-busy="true">{t("common.loading")}</span>
+    {/if}
   {/if}
 
   {#if selectedTaskId}
-    <ProjectTaskDetailPanel
-      taskId={selectedTaskId}
-      layout={taskDetailModalLayout}
-      showArchivedTasks={showArchivedTasks}
-      showInactiveSections={showInactiveSections}
-      onClose={() => {
-        selectedTaskId = null;
-      }}
-      onOpenTask={(taskId) => {
-        selectedTaskId = taskId;
-      }}
-      onShowArchivedTasks={() => {
-        showArchivedTasks = true;
-      }}
-    />
+    {#if taskDetailLoadState?.status === "ready" && taskDetailLoadState.component.kind === "task-detail"}
+      {@const ProjectTaskDetailPanel = taskDetailLoadState.component.component}
+      <ProjectTaskDetailPanel
+        taskId={selectedTaskId}
+        layout={taskDetailModalLayout}
+        showArchivedTasks={showArchivedTasks}
+        showInactiveSections={showInactiveSections}
+        onClose={() => {
+          selectedTaskId = null;
+        }}
+        onOpenTask={(taskId) => {
+          selectedTaskId = taskId;
+        }}
+        onShowArchivedTasks={() => {
+          showArchivedTasks = true;
+        }}
+      />
+    {:else if taskDetailLoadState?.status === "failed"}
+      <div class="absolute inset-0 z-80 flex items-center justify-center bg-black/40 p-4" role="alert">
+        <div class="flex min-h-32 w-full max-w-sm flex-col items-center justify-center gap-3 rounded-lg border border-border bg-card p-4 text-center text-sm text-muted-foreground shadow-xl">
+          <p>{t("common.viewLoadFailed", t("projects.detail.title"))}</p>
+          <div class="flex gap-2">
+            <button
+              type="button"
+              class="min-h-9 rounded-md border border-border bg-background px-3 font-medium text-foreground hover:bg-accent"
+              onclick={() => requestProjectOptionalComponent("task-detail", true)}
+            >
+              {t("common.retry")}
+            </button>
+            <button
+              type="button"
+              class="min-h-9 rounded-md px-3 font-medium text-foreground hover:bg-accent"
+              onclick={() => { selectedTaskId = null; }}
+            >
+              {t("common.cancel")}
+            </button>
+          </div>
+        </div>
+      </div>
+    {:else}
+      <div class="absolute inset-0 z-80 flex items-center justify-center bg-black/30 p-4" aria-busy="true">
+        <div class="rounded-md border border-border bg-card px-4 py-3 text-sm text-muted-foreground shadow-lg">
+          {t("common.loading")}
+        </div>
+      </div>
+    {/if}
   {/if}
 
   {#if projectSettingsDiscardConfirmOpen}

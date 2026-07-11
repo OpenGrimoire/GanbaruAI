@@ -20,6 +20,12 @@
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import X from "@lucide/svelte/icons/x";
   import type { Component } from "svelte";
+  import {
+    beginLazyComponentLoad,
+    rejectLazyComponentLoad,
+    resolveLazyComponentLoad,
+    type LazyComponentLoadState,
+  } from "$lib/lazy-component-loader";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import {
     projectTagColorDotStyle,
@@ -65,7 +71,11 @@
     isAppFloatingSurfaceTarget,
   } from "$lib/utils";
   import PriorityFlagIcon from "./PriorityFlagIcon.svelte";
-  import ProjectSettingsPanel from "./ProjectSettingsPanel.svelte";
+  import {
+    loadProjectOptionalComponent,
+    retryProjectOptionalComponent,
+    type LoadedProjectOptionalComponent,
+  } from "./project-component-registry";
 
   const TASK_STATUS_FILTERS: ProjectTaskStatusFilter[] = ["all", "open", "blocked", "done"];
   const TASK_DUE_FILTERS: ProjectTaskDueFilter[] = ["all", "overdue", "today", "week", "none", "range"];
@@ -183,6 +193,43 @@
   let panelGeometryFrame: number | null = null;
   let subpanelGeometryFrame: number | null = null;
   let subpanelScrollStateFrame: number | null = null;
+  let settingsLoadState = $state<LazyComponentLoadState<
+    "toolbar-settings",
+    LoadedProjectOptionalComponent
+  > | null>(null);
+
+  function requestSettingsPanel(retry = false): void {
+    if (!retry && settingsLoadState) return;
+    const loadingState = beginLazyComponentLoad(settingsLoadState, "toolbar-settings");
+    settingsLoadState = loadingState;
+    const request = retry
+      ? retryProjectOptionalComponent("toolbar-settings")
+      : loadProjectOptionalComponent("toolbar-settings");
+    void request
+      .then((component) => {
+        if (!settingsLoadState) return;
+        settingsLoadState = resolveLazyComponentLoad(
+          settingsLoadState,
+          "toolbar-settings",
+          loadingState.requestId,
+          component,
+        );
+      })
+      .catch((error: unknown) => {
+        if (!settingsLoadState) return;
+        settingsLoadState = rejectLazyComponentLoad(
+          settingsLoadState,
+          "toolbar-settings",
+          loadingState.requestId,
+          error,
+        );
+        console.error("Failed to load Project settings panel:", error);
+      });
+  }
+
+  $effect(() => {
+    if (panel === "settings" && projectId) requestSettingsPanel();
+  });
 
   function panelPreferredWidth(currentPanel: ProjectToolbarPanel): number {
     if (currentPanel === "settings") return 430;
@@ -657,13 +704,37 @@
     data-app-shortcuts="ignore"
   >
     {#if panel === "settings" && projectId}
-      <ProjectSettingsPanel
-        {projectId}
-        presentation="popover"
-        onClose={onClose}
-        onRevealInactive={onRevealInactive}
-        onDirtyChange={onProjectSettingsDirtyChange}
-      />
+      {#if settingsLoadState?.status === "ready" && settingsLoadState.component.kind === "toolbar-settings"}
+        {@const ProjectSettingsPanel = settingsLoadState.component.component}
+        <ProjectSettingsPanel
+          {projectId}
+          presentation="popover"
+          onClose={onClose}
+          onRevealInactive={onRevealInactive}
+          onDirtyChange={onProjectSettingsDirtyChange}
+        />
+      {:else if settingsLoadState?.status === "failed"}
+        <div
+          class="flex min-h-40 flex-1 flex-col items-center justify-center gap-3 p-4 text-center text-sm text-muted-foreground"
+          role="alert"
+        >
+          <p>{t("common.viewLoadFailed", t("projects.settings.title"))}</p>
+          <button
+            type="button"
+            class="min-h-9 rounded-md border border-border bg-background px-3 font-medium text-foreground hover:bg-accent"
+            onclick={() => requestSettingsPanel(true)}
+          >
+            {t("common.retry")}
+          </button>
+        </div>
+      {:else}
+        <div
+          class="flex min-h-40 flex-1 items-center justify-center p-4 text-sm text-muted-foreground"
+          aria-busy="true"
+        >
+          {t("common.loading")}
+        </div>
+      {/if}
     {:else if panel === "group"}
       <header class="sticky top-0 z-10 flex shrink-0 items-center gap-2 bg-card px-3 pb-1 pt-2">
         <div class="min-w-0 flex-1 truncate text-[0.9rem] font-semibold">{panelTitle(panel)}</div>

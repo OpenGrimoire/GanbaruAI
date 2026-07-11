@@ -82,6 +82,32 @@ function readBaseline(value) {
         ),
       };
     })(),
+    projectsShell: (() => {
+      const contract = requireObject(root.projectsShell, "baseline projectsShell");
+      return {
+        loadedModules: requireStringArray(
+          contract.loadedModules,
+          "baseline projectsShell loadedModules",
+        ),
+        forbiddenModules: requireStringArray(
+          contract.forbiddenModules,
+          "baseline projectsShell forbiddenModules",
+        ),
+      };
+    })(),
+    projectsToolbar: (() => {
+      const contract = requireObject(root.projectsToolbar, "baseline projectsToolbar");
+      return {
+        loadedModules: requireStringArray(
+          contract.loadedModules,
+          "baseline projectsToolbar loadedModules",
+        ),
+        forbiddenModules: requireStringArray(
+          contract.forbiddenModules,
+          "baseline projectsToolbar forbiddenModules",
+        ),
+      };
+    })(),
     settingsAppearance: (() => {
       const contract = requireObject(root.settingsAppearance, "baseline settingsAppearance");
       return {
@@ -168,6 +194,33 @@ for (const moduleId of baseline.shell.forbiddenModules) {
   }
 }
 
+function evaluateStaticModuleContract(contract, label) {
+  const roots = contract.loadedModules.map((moduleId) => {
+    const owner = chunks.find((chunk) => chunk.modules.includes(moduleId));
+    if (!owner) failures.push(`${label} loaded module is absent: ${moduleId}`);
+    return owner;
+  }).filter(Boolean);
+  const closure = staticChunkClosure(roots);
+  const modules = new Set(closure.flatMap((chunk) => chunk.modules));
+  for (const moduleId of contract.forbiddenModules) {
+    if (!allModules.has(moduleId)) {
+      failures.push(`${label} forbidden module is absent from all chunks: ${moduleId}`);
+    } else if (modules.has(moduleId)) {
+      failures.push(`${label} loads forbidden module: ${moduleId}`);
+    }
+  }
+  return { closure, modules };
+}
+
+const projectsShellContract = evaluateStaticModuleContract(
+  baseline.projectsShell,
+  "Projects shell",
+);
+const projectsToolbarContract = evaluateStaticModuleContract(
+  baseline.projectsToolbar,
+  "Projects toolbar",
+);
+
 const settingsAppearanceRoots = baseline.settingsAppearance.loadedModules.map((moduleId) => {
   const owner = chunks.find((chunk) => chunk.modules.includes(moduleId));
   if (!owner) failures.push(`Settings Appearance loaded module is absent: ${moduleId}`);
@@ -238,6 +291,18 @@ console.log(JSON.stringify({
   shell: {
     chunk: shellChunk?.fileName ?? null,
     forbiddenModules: baseline.shell.forbiddenModules,
+  },
+  projectsShell: {
+    chunks: projectsShellContract.closure.map((chunk) => chunk.fileName),
+    sourceModules: [...projectsShellContract.modules]
+      .filter((moduleId) => moduleId.startsWith("src/")).length,
+    forbiddenModules: baseline.projectsShell.forbiddenModules,
+  },
+  projectsToolbar: {
+    chunks: projectsToolbarContract.closure.map((chunk) => chunk.fileName),
+    sourceModules: [...projectsToolbarContract.modules]
+      .filter((moduleId) => moduleId.startsWith("src/")).length,
+    forbiddenModules: baseline.projectsToolbar.forbiddenModules,
   },
   settingsAppearance: {
     chunks: settingsAppearanceChunks.map((chunk) => chunk.fileName),
