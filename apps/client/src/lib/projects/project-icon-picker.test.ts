@@ -24,6 +24,8 @@ import {
   projectIconVirtualWindow,
   prependProjectIconRecentValue,
   projectEmojiSkinToneFromEmoji,
+  readProjectIconAskEveryTime,
+  readProjectIconDefaultColor,
   readProjectIconRecentValues,
   stripProjectEmojiSkinTone,
   type ProjectIconPickerRect,
@@ -206,19 +208,37 @@ describe("project icon picker helpers", () => {
   it("previews recent Lucide icons with the active color policy", () => {
     expect(projectIconPickerLucideRecentPreviewValue({
       rawValue: "lucide:folder",
-      allowIconColors: true,
       iconColor: 3,
     })).toBe("lucide:folder:3");
     expect(projectIconPickerLucideRecentPreviewValue({
       rawValue: "lucide:folder:9",
-      allowIconColors: false,
       iconColor: 3,
+    })).toBe("lucide:folder:3");
+    expect(projectIconPickerLucideRecentPreviewValue({
+      rawValue: "lucide:folder:9",
+      iconColor: "default",
     })).toBe("lucide:folder");
     expect(projectIconPickerLucideRecentPreviewValue({
       rawValue: "emoji:🚀",
-      allowIconColors: true,
       iconColor: 3,
     })).toBe("emoji:🚀");
+  });
+
+  it("accepts only valid stored default icon colors", () => {
+    expect(readProjectIconDefaultColor("default")).toBe("default");
+    expect(readProjectIconDefaultColor(0)).toBe(0);
+    expect(readProjectIconDefaultColor(31)).toBe(31);
+    expect(readProjectIconDefaultColor(32)).toBe("default");
+    expect(readProjectIconDefaultColor(-1)).toBe("default");
+    expect(readProjectIconDefaultColor("3")).toBe("default");
+    expect(readProjectIconDefaultColor(undefined)).toBe("default");
+  });
+
+  it("enables Ask every time only for an explicit stored true value", () => {
+    expect(readProjectIconAskEveryTime(true)).toBe(true);
+    expect(readProjectIconAskEveryTime(false)).toBe(false);
+    expect(readProjectIconAskEveryTime("true")).toBe(false);
+    expect(readProjectIconAskEveryTime(undefined)).toBe(false);
   });
 
   it("selects random emoji and Lucide values from injected randomness", () => {
@@ -229,7 +249,6 @@ describe("project icon picker helpers", () => {
       emoji: "👍🏽",
     });
     expect(projectIconPickerRandomLucideIcon(lucideEntries, {
-      allowIconColors: true,
       iconColor: 5,
       random: () => 0.9,
     })).toEqual({
@@ -238,8 +257,7 @@ describe("project icon picker helpers", () => {
       color: 5,
     });
     expect(projectIconPickerRandomLucideIcon(lucideEntries, {
-      allowIconColors: false,
-      iconColor: 5,
+      iconColor: "default",
       random: () => 0.9,
     })).toEqual({
       kind: "lucide",

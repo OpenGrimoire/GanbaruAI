@@ -3,7 +3,7 @@
 Projects are the structured work layer for calendar scheduling. The user-facing hierarchy is:
 
 1. **Group:** a top-level container for related projects. A company, team, personal routine, or broad life category can be a group.
-2. **Project:** the scheduleable unit selected from the calendar event panel. A product under a company and a routine item such as Eat or Exercise are both projects.
+2. **Project:** the scheduleable unit selected from the calendar event panel. A product under a company and a routine item such as Eating or Exercise are both projects.
 3. **Section:** a project-local way to organize tasks. Sections are flexible and user-defined.
 4. **Task:** the actionable work item. Tasks can have subtasks, status, priority, tags, dates, estimates, dependencies, and calendar links.
 
@@ -13,22 +13,27 @@ Do not add another user-facing hierarchy level between group and project. The ev
 
 Fresh databases create one normal group named Routine. Its default project event colors are:
 
-- Eat, Color 14
 - Learning, Color 9
 - Reading, Color 26
+- Eating, Color 14
 - Exercise, Color 1
 - Hygiene, Color 16
 - Social, Color 22
 - Chores, Color 5
 - Leisure, Color 32
 - Meditate, Color 24
+- Health, Color 4
 - Sleep, Color 31
 
 Routine is not a special object type. It is a group, and each item under it is a project. Users can create additional groups and projects from the Projects view or from the event panel project selector.
 
+The Routine group and its built-in projects have stable system ids and localized display names. Their labels update immediately with the app language, while user-created groups and projects retain their user-authored names. The Routine group cannot be renamed or deleted. Its built-in projects cannot be renamed, moved to another group, reordered, or deleted. Users can still add ordinary projects to Routine and can change each built-in project's icon, event color, lifecycle, scheduling defaults, and other non-identity settings. Loading Projects repairs a missing Routine group or built-in project and restores its fixed identity without overwriting allowed icon, color, or lifecycle changes on records that still exist.
+
 Routine defaults can be hidden or archived like any other project. Hiding keeps the project out of normal navigation and event picking without deleting its history. Archiving retires a project from scheduling while keeping its tasks, events, and future notes recoverable from the Projects view.
 
-Routine default projects use their own project names as default event names. They start with no project-specific default duration. They also start with Default Pomodoro set to None except Learning, which starts with Adaptive. User-created projects start with no default event name. Project idle settings use global Focus defaults unless the user switches a project to custom idle settings.
+Routine default projects use their current localized project names as default event names until the user enters a custom default event name. They start with no project-specific default duration. They also start with Default Pomodoro set to None except Learning, which starts with Adaptive. User-created projects start with no default event name. Project idle settings use global Focus defaults unless the user switches a project to custom idle settings.
+
+The Chores routine project and Chores creation template use the `house` Lucide icon.
 
 Each project starts with a General section and default statuses: Backlog, To do, In progress, In review, Blocked, and Done. Default status colors use event palette slots 31, 32, 20, 24, 3, and 14 respectively. Each project also starts with default priorities: Urgent, High, Normal, and Low, with event palette slots 3, 8, 20, and 31 respectively.
 
@@ -38,7 +43,7 @@ The Projects tab now has an initial project management surface with:
 
 - The Projects frontend is split into a workspace shell, header, toolbar panels, task finder, bulk action controller, first-class List view, list row and column pieces, and focused detail or settings section components. Shared display, scheduling, and list view calculations live under `$lib/projects/` so tags, chips, scheduling windows, list grids, selected-task cleanup, and active filter chips can be tested without Svelte, DOM, or Tauri.
 - Group and project navigation lives in an on-demand project selector opened from the project header, not as a persistent left rail. The `Group / Project` breadcrumb uses separate hover and click targets: the group segment opens a compact group panel with an adjacent project sub-panel, while the project segment opens the current group's project panel directly. The selector is fixed to the active breadcrumb segment so toolbar scrolling and content overflow cannot clip it. The selector panels reuse the calendar event project picker behavior, size to their content until they reach the Projects tab bounds, then scroll internally with fade indicators and dedicated scrollbars. The Projects tab selector adds only the hidden and archived recovery toggle.
-- Project icons use the shared app icon picker in project settings. The picker also serves Notes and future icon-enabled surfaces. It supports grouped built-in emoji from a generated Unicode emoji catalog, emoji skin tone selection, reusable custom emoji, Lucide icons with optional color selection where the surface enables it, one-off uploaded image icons, recent choices, search, icon-based category rails, random selection, and an explicit remove state. Its icon, emoji, upload, and nested picker surfaces use the same calendar canvas background as Notes and calendar content so choices are previewed against their normal content surface. Icon color choices use the same four-column vertical palette shape as the event color picker. Lucide search uses the official English icon names and tags from the matching installed Lucide version regardless of the selected app language. Project settings stores Lucide icons without icon-specific colors so icons inherit the readable foreground color of their current surface. Uploaded icons accept PNG, JPEG, and WebP files up to 3 MB. SVG files are blocked for security because they can contain interactive or external content. Project creation templates still use their compact built-in starting icons in this pass.
+- Project icons use the shared app icon picker in project settings. The picker also serves Notes and future icon-enabled surfaces. It supports grouped built-in emoji from a generated Unicode emoji catalog, emoji skin tone selection, reusable custom emoji, Lucide icon colors, one-off uploaded image icons, recent choices, search, icon-based category rails, random selection, and an explicit remove state. Every current icon-picker surface exposes the same color controls, and project and group icons honor fixed colors in headers, selectors, and navigation panels. The picker surfaces use the same calendar canvas background as Notes and calendar content so choices are previewed against their normal content surface. Icon color choices use the same four-column vertical palette shape as the event color picker. Automatic is a visible first-class color choice that removes any fixed color and returns the icon to the readable foreground of its current surface. Automatic is the initial folder-local default preview color. Choosing a different default updates the catalog preview and the current Lucide icon, and later icon selections use that default while Ask every time is off. Ask every time is off by default and remembered as a folder-local preference. When enabled, its per-icon choice is applied only to the selected icon and does not replace the saved default preview color. Opening the default-color panel closes an open per-icon color panel, and opening a per-icon panel closes the default-color panel. Lucide search uses the official English icon names and tags from the matching installed Lucide version regardless of the selected app language. Automatic Lucide icons are stored without a color suffix, while fixed colors store their palette index. Uploaded icons accept PNG, JPEG, and WebP files up to 3 MB. SVG files are blocked for security because they can contain interactive or external content. Project creation templates still use their compact built-in starting icons in this pass.
 - Project group reassignment from project settings.
 - Project creation from the navigator and event panel picker supports compact templates: Blank, Software, Course, Routine, Reading, and Chores. Templates choose the starting icon, scheduling defaults, and initial sections, while preserving the same Group -> Project -> Section -> Task model.
 - Project lifecycle controls for Active, Hidden, and Archived. The navigator hides inactive projects by default and has a compact recovery toggle for hidden and archived projects.
@@ -96,7 +101,7 @@ Projects, groups, sections, statuses, priorities, tasks, task dates and optional
 
 Project and group icon values are stored in the existing `projects.icon` and `project_groups.icon` columns. Legacy icon slugs such as `folder` remain valid and are treated as Lucide icons. New values use explicit prefixes for no icon, built-in emoji, Lucide icons with color, reusable custom emoji, and one-off asset icons. Custom emoji image bytes and one-off image icons are copied into `assets/project-icons/` under a content hash; remote image URLs are downloaded once rather than hotlinked. Asset icon values only accept PNG, JPEG, and WebP paths. Unsupported asset references, including manually inserted SVG or GIF paths, fall back to the default folder icon instead of rendering.
 
-Transient UI preferences such as the active project and active Projects view live in the active Ganbaru AI folder `config.json`. They are folder-specific, recover from invalid stored values, and do not become part of task or project history.
+Transient UI preferences such as the active project, active Projects view, recent icon choices, default icon color, and the icon picker's Ask every time preference live in the active Ganbaru AI folder `config.json`. They are folder-specific, recover from invalid stored values, and do not become part of task or project history. Ask every time is enabled only when `projects.iconPicker.askEveryTime` stores the boolean `true`; missing, false, and invalid values use the off default. `projects.iconPicker.defaultColor` stores a valid event-palette index when the user chooses a fixed default. Missing, invalid, and removed values use Automatic.
 
 Notes remain separate. Future project notes should be markdown documents under the Ganbaru AI folder and indexed by SQLite, but notes are not part of this slice.
 

@@ -78,6 +78,8 @@ export const shell = {
     skinToneMediumDark: "Medium-dark skin tone",
     skinToneDark: "Dark skin tone",
     iconColor: "Icon color",
+    automaticColor: "Automatic",
+    selectIconColor: (index: number) => `Select icon color ${index}`,
     askEveryTime: "Ask every time",
     moreCategories: "More categories",
     uploadImage: "Upload an image",

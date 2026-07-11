@@ -23,6 +23,19 @@ const EVENT_SLOT_TO_NOTES_ICON_COLOR = [
   "pink", "brown", "brown", "brown", "lightgray", "lightgray", "gray", "gray",
 ] as const satisfies readonly NotesIconColor[];
 
+const NOTES_ICON_COLOR_TO_EVENT_SLOT: Record<NotesIconColor, number> = {
+  gray: 30,
+  lightgray: 28,
+  brown: 26,
+  yellow: 8,
+  orange: 7,
+  green: 13,
+  blue: 18,
+  purple: 22,
+  pink: 1,
+  red: 3,
+};
+
 const PROJECT_COLOR_NAMES = new Set<NotesIconColor>([
   "gray",
   "brown",
@@ -35,10 +48,10 @@ const PROJECT_COLOR_NAMES = new Set<NotesIconColor>([
   "red",
 ]);
 
-function notesIconColorFromProjectColor(color: ProjectIconColor): NotesIconColor {
-  if (typeof color === "number") return EVENT_SLOT_TO_NOTES_ICON_COLOR[color] ?? "gray";
-  if (color === "default") return "gray";
-  return PROJECT_COLOR_NAMES.has(color) ? color : "gray";
+function notesIconColorFromProjectColor(color: ProjectIconColor): NotesIconColor | undefined {
+  if (typeof color === "number") return EVENT_SLOT_TO_NOTES_ICON_COLOR[color] ?? "lightgray";
+  if (color === "default") return undefined;
+  return PROJECT_COLOR_NAMES.has(color) ? color : undefined;
 }
 
 /** Convert Notes page icon metadata into the shared picker value format. */
@@ -48,7 +61,9 @@ export function notesPageIconPickerValue(icon: NotesPageIcon | null): string {
     return serializeProjectIcon({ kind: "emoji", emoji: icon.emoji });
   }
   if (icon.type === "icon") {
-    const color = icon.icon.color === "lightgray" ? "gray" : icon.icon.color ?? "default";
+    const color = icon.icon.color === undefined
+      ? "default"
+      : NOTES_ICON_COLOR_TO_EVENT_SLOT[icon.icon.color];
     return serializeProjectIcon({ kind: "lucide", slug: icon.icon.name, color });
   }
   if (icon.type === "custom_emoji") {

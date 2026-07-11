@@ -1,6 +1,7 @@
 <script lang="ts">
   import { EVENT_COLOR_OPTIONS } from "$lib/components/calendar/utils";
   import type { EventColor } from "$lib/components/calendar/types";
+  import type { ProjectIconPickerColor } from "$lib/projects/project-icon-picker";
   import type { ProjectLucideIconNode } from "$lib/projects/project-lucide-catalog.generated";
   import { serializeProjectIcon } from "$lib/projects/project-icons";
   import { portal } from "$lib/utils/portal";
@@ -15,6 +16,8 @@
     iconNode,
     iconColorLabel,
     iconColorStyle,
+    automaticIconColor,
+    automaticLabel,
     columns,
     onSelect,
   }: {
@@ -23,10 +26,12 @@
     label: string;
     slug: string;
     iconNode: readonly ProjectLucideIconNode[] | null;
-    iconColorLabel: (color: EventColor) => string;
+    iconColorLabel: (color: ProjectIconPickerColor) => string;
     iconColorStyle: (color: EventColor) => string;
+    automaticIconColor: string;
+    automaticLabel: string;
     columns: number;
-    onSelect: (color: EventColor) => void;
+    onSelect: (color: ProjectIconPickerColor) => void;
   } = $props();
 </script>
 
@@ -39,7 +44,34 @@
   data-app-floating-surface
   aria-label={label}
 >
-  <div class="grid gap-2" style={`grid-template-columns: repeat(${columns}, 1.375rem);`}>
+  <button
+    type="button"
+    class="flex h-5.5 w-full items-center justify-center gap-2 rounded-md text-[0.8rem] text-foreground hover:bg-accent"
+    aria-label={automaticLabel}
+    data-app-tooltip-disabled="true"
+    onclick={(event) => {
+      event.stopPropagation();
+      onSelect("default");
+    }}
+  >
+    <span
+      class="flex size-5.5 shrink-0 items-center justify-center"
+      style={`color: ${automaticIconColor};`}
+    >
+      {#if iconNode}
+        <LucideNodeIcon {iconNode} size={16} strokeWidth={1.75} />
+      {:else}
+        <ProjectIcon
+          name={serializeProjectIcon({ kind: "lucide", slug, color: "default" })}
+          size={16}
+          strokeWidth={1.75}
+        />
+      {/if}
+    </span>
+    <span class="min-w-0 truncate">{automaticLabel}</span>
+  </button>
+  <div class="-mx-1 mt-[0.3rem] h-px bg-border/70" aria-hidden="true"></div>
+  <div class="mt-2 grid gap-2" style={`grid-template-columns: repeat(${columns}, 1.375rem);`}>
     {#each EVENT_COLOR_OPTIONS as color}
       <button
         type="button"

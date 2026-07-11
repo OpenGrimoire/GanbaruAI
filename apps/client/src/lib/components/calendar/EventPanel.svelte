@@ -18,6 +18,7 @@
   import { cubicOut } from "svelte/easing";
   import { getTheme } from "$lib/stores/theme.svelte";
   import { getProjects } from "$lib/stores/projects.svelte";
+  import { effectiveProjectDefaultEventName } from "$lib/projects/project-system-defaults";
   import { deleteActionForCalendarEvent } from "./occurrence-protection";
   import { getPreferences } from "$lib/stores/preferences.svelte";
   import { getViewport } from "$lib/stores/viewport.svelte";
@@ -744,7 +745,7 @@
     if (selectedProject) {
       title = projectDefaultEventTitleForSelection({
         currentTitle: title,
-        defaultEventName: selectedProject.defaultEventName,
+        defaultEventName: effectiveProjectDefaultEventName(selectedProject),
       });
       color = selectedProject.color;
       if (projectAllDayDefaultForSelection({

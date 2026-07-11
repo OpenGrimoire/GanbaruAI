@@ -632,7 +632,7 @@
     onfocus={(event) => showNoteSubpanel(project, event.currentTarget, sourcePanelElement)}
     onclick={() => { void selectProject(project); }}
   >
-    <ProjectIcon name={project.icon} size={iconSize} strokeWidth={iconStrokeWidth} ignoreColor emojiScale={emojiScale} class="shrink-0" />
+    <ProjectIcon name={project.icon} size={iconSize} strokeWidth={iconStrokeWidth} emojiScale={emojiScale} class="shrink-0" />
     <span class="min-w-0 truncate">{project.name}</span>
     <span class="flex min-w-0 items-center justify-end gap-1">
       {#if project.status !== "active"}
@@ -723,7 +723,7 @@
                       aria-label={t("projects.actions.selectProject", project.name, resultGroup.group.name)}
                       onclick={() => { void selectProject(project); }}
                     >
-                      <ProjectIcon name={project.icon} size={iconSize} strokeWidth={iconStrokeWidth} ignoreColor emojiScale={emojiScale} class="shrink-0" />
+                      <ProjectIcon name={project.icon} size={iconSize} strokeWidth={iconStrokeWidth} emojiScale={emojiScale} class="shrink-0" />
                       <span class="min-w-0 flex-1 truncate">{project.name}</span>
                       {#if project.status !== "active"}
                         <span class={cn("shrink-0 rounded border px-1.5 py-0.5 text-[0.666667rem]", projectLifecycleBadgeClass(project.status))}>
@@ -759,7 +759,7 @@
                     onfocus={(event) => showProjectSubpanel(group, event.currentTarget)}
                     onclick={(event) => showProjectSubpanel(group, event.currentTarget)}
                   >
-                    <ProjectIcon name={group.icon} size={iconSize} strokeWidth={iconStrokeWidth} ignoreColor emojiScale={emojiScale} class="shrink-0" />
+                    <ProjectIcon name={group.icon} size={iconSize} strokeWidth={iconStrokeWidth} emojiScale={emojiScale} class="shrink-0" />
                     <span class="truncate text-[0.8rem] font-medium">{group.name}</span>
                     <ChevronRight size={13} strokeWidth={iconStrokeWidth} class="justify-self-end text-popover-foreground/60" />
                   </button>

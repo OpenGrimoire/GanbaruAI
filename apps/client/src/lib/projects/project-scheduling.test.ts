@@ -119,6 +119,25 @@ describe("project scheduling helpers", () => {
     });
   });
 
+  it("uses the localized built-in project name as its untouched event title", () => {
+    const defaults = projectCalendarCreateDefaults({
+      project: project({
+        id: "project-routine-eat",
+        name: "Comer",
+        defaultEventName: null,
+      }),
+      start: "2026-06-21 10:00",
+      end: "2026-06-21 11:00",
+      allDay: false,
+      globalIdleDefaults: {
+        idlePauseEnabled: true,
+        idleThresholdMinutes: 5,
+      },
+    });
+
+    expect(defaults.title).toBe("Comer");
+  });
+
   it("builds all-day calendar defaults without Pomodoro config", () => {
     expect(projectCalendarCreateDefaults({
       project: project({

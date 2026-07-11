@@ -20,6 +20,7 @@ import {
   DEFAULT_FOCUS_IDLE_THRESHOLD_MINUTES,
   type FocusIdleThresholdMinutes,
 } from "$lib/stores/preferences";
+import { projectHasLockedSystemIdentity } from "$lib/projects/project-system-defaults";
 
 export type ProjectSettingsProjectDraftError =
   | "name_required"
@@ -112,8 +113,9 @@ export function projectSettingsProjectDraftDirty(
   project: Project,
   draft: ProjectSettingsProjectDraft,
 ): boolean {
-  return draft.name !== project.name
-    || draft.groupId !== project.groupId
+  const identityDirty = !projectHasLockedSystemIdentity(project)
+    && (draft.name !== project.name || draft.groupId !== project.groupId);
+  return identityDirty
     || draft.icon !== project.icon
     || draft.status !== project.status
     || draft.color !== project.color
@@ -129,9 +131,11 @@ export function projectSettingsProjectDraftDirty(
 export function projectSettingsProjectUpdateFromDraft(
   input: ProjectSettingsProjectUpdateInput,
 ): ProjectSettingsProjectDraftResult<ProjectUpdate> {
-  const name = input.draft.name.trim();
+  const identityLocked = projectHasLockedSystemIdentity(input.project);
+  const name = identityLocked ? input.project.name : input.draft.name.trim();
+  const groupId = identityLocked ? input.project.groupId : input.draft.groupId;
   if (!name) return { ok: false, error: "name_required" };
-  if (!input.visibleGroupIds.has(input.draft.groupId)) return { ok: false, error: "group_required" };
+  if (!input.visibleGroupIds.has(groupId)) return { ok: false, error: "group_required" };
   const duration = projectSettingsProjectDurationFromDraft(input.draft);
   if (!duration.ok) return duration;
   const defaultPomodoroCustom = projectSettingsProjectPomodoroCustomDraft(input.draft);
@@ -139,13 +143,13 @@ export function projectSettingsProjectUpdateFromDraft(
     ok: true,
     value: {
       id: input.project.id,
-      groupId: input.draft.groupId,
+      groupId,
       name,
       icon: input.draft.icon,
       color: input.draft.color ?? null,
-      sortOrder: input.draft.groupId === input.project.groupId
+      sortOrder: groupId === input.project.groupId
         ? input.project.sortOrder
-        : input.nextSortOrderForGroup(input.draft.groupId, input.project.id),
+        : input.nextSortOrderForGroup(groupId, input.project.id),
       status: input.draft.status,
       defaultEventName: normalizeOptionalText(input.draft.defaultEventName),
       defaultEventTimeMode: input.draft.defaultEventTimeMode,

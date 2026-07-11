@@ -74,7 +74,7 @@
 
     <article class="mx-auto flex w-full max-w-208 flex-col px-4 pb-12 pt-8 sm:px-8">
       {#if page.icon}
-        <div class="mb-3 flex size-16 items-center justify-center rounded-md text-muted-foreground">
+        <div class="mb-3 flex size-16 items-center justify-center rounded-md text-foreground">
           <NotesPageIcon
             icon={page.icon}
             size={48}

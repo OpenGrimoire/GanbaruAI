@@ -99,6 +99,7 @@
   import ProjectSettingsDefaultsSection from "./ProjectSettingsDefaultsSection.svelte";
   import ProjectSettingsDeleteDialogs from "./ProjectSettingsDeleteDialogs.svelte";
   import ProjectSettingsIdentitySection from "./ProjectSettingsIdentitySection.svelte";
+  import { projectHasLockedSystemIdentity } from "$lib/projects/project-system-defaults";
   import ProjectSettingsPanelShell from "./ProjectSettingsPanelShell.svelte";
   import ProjectSettingsPrioritiesSection from "./ProjectSettingsPrioritiesSection.svelte";
   import ProjectSettingsStatusesSection from "./ProjectSettingsStatusesSection.svelte";
@@ -204,6 +205,9 @@
 
   const selectedProject = $derived(projects.projectById(projectId));
   const selectedProjectId = $derived(selectedProject?.id ?? null);
+  const selectedProjectIdentityLocked = $derived(
+    selectedProject ? projectHasLockedSystemIdentity(selectedProject) : false,
+  );
   const visibleProjectGroups = $derived.by(() => projects.visibleGroups());
   const statuses = $derived(projects.statusesForProject(selectedProjectId));
   const priorities = $derived(projects.prioritiesForProject(selectedProjectId));
@@ -276,6 +280,13 @@
     ) {
       loadProjectSettingsDraft(selectedProject);
     }
+  });
+
+  $effect(() => {
+    if (!selectedProject || !selectedProjectIdentityLocked) return;
+    if (projectDraftId !== selectedProject.id || projectDraft.name === selectedProject.name) return;
+    projectDraft.name = selectedProject.name;
+    projectDraft.groupId = selectedProject.groupId;
   });
 
   $effect(() => {
@@ -1790,6 +1801,7 @@
             bind:projectIconDraft={projectDraft.icon}
             {projectGroupOptions}
             {lifecycleOptions}
+            identityLocked={selectedProjectIdentityLocked}
             {setLifecycleStatus}
           />
 
@@ -1799,6 +1811,7 @@
             theme={theme.current}
             pomodoroOptions={PROJECT_POMODORO_PRESET_ORDER}
             {pomodoroPresetLabel}
+            projectDefaultEventNamePlaceholder={selectedProjectIdentityLocked ? selectedProject.name : undefined}
             bind:projectColorDraft={projectDraft.color}
             bind:projectDefaultEventNameDraft={projectDraft.defaultEventName}
             bind:projectEventTimeModeDraft={projectDraft.defaultEventTimeMode}

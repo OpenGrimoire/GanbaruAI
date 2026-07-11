@@ -27,14 +27,12 @@
     name,
     size = 14,
     strokeWidth = 1.75,
-    ignoreColor = false,
     emojiScale = 1,
     class: className = "",
   }: {
     name?: string;
     size?: number;
     strokeWidth?: number;
-    ignoreColor?: boolean;
     emojiScale?: number;
     class?: string;
   } = $props();
@@ -86,7 +84,7 @@
       : undefined,
   );
   const iconStyle = $derived(
-    !ignoreColor && parsedIcon.kind === "lucide" && eventIconColor !== undefined
+    parsedIcon.kind === "lucide" && eventIconColor !== undefined
       ? `color: ${getEventColor(eventIconColor, theme.current).bg};`
       : undefined,
   );

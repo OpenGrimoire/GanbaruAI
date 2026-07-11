@@ -46,6 +46,7 @@
     pomodoroPresetLabel,
     projectColorDraft = $bindable<EventColor | undefined>(),
     projectDefaultEventNameDraft = $bindable<string>(),
+    projectDefaultEventNamePlaceholder,
     projectEventTimeModeDraft = $bindable<ProjectDefaultEventTimeMode>(),
     projectDurationDraft = $bindable<string>(),
     projectPomodoroModeDraft = $bindable<ProjectDefaultPomodoroMode>(),
@@ -65,6 +66,7 @@
     pomodoroPresetLabel: (preset: PomodoroPresetKey) => string;
     projectColorDraft: EventColor | undefined;
     projectDefaultEventNameDraft: string;
+    projectDefaultEventNamePlaceholder?: string;
     projectEventTimeModeDraft: ProjectDefaultEventTimeMode;
     projectDurationDraft: string;
     projectPomodoroModeDraft: ProjectDefaultPomodoroMode;
@@ -458,7 +460,7 @@
       <span class="min-w-0 flex-1 text-[0.866667rem] text-foreground">{t("projects.settings.defaultEventName")}</span>
       <input
         bind:value={projectDefaultEventNameDraft}
-        placeholder={t("common.none")}
+        placeholder={projectDefaultEventNamePlaceholder ?? t("common.none")}
         aria-label={t("projects.settings.defaultEventName")}
         class="h-7 w-44 min-w-0 rounded-md border border-border bg-card px-2.5 text-left text-[0.8rem] font-medium text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-ring dark:bg-transparent max-[480px]:w-full"
         onpointerdown={moveTextInputCaretToPointer}

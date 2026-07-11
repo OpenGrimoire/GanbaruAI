@@ -322,16 +322,17 @@ INSERT INTO projects (
     default_event_duration_minutes, default_pomodoro_mode, default_pomodoro_preset_key
 )
 VALUES
-    ('project-routine-eat', 'group-routine', 'Eat', 'apple', 1, 0, NULL, 'none', NULL),
-    ('project-routine-learning', 'group-routine', 'Learning', 'graduation-cap', 2, 10, NULL, 'preset', 'adaptive'),
-    ('project-routine-reading', 'group-routine', 'Reading', 'book-open', 3, 20, NULL, 'none', NULL),
+    ('project-routine-learning', 'group-routine', 'Learning', 'graduation-cap', 2, 0, NULL, 'preset', 'adaptive'),
+    ('project-routine-reading', 'group-routine', 'Reading', 'book-open', 3, 10, NULL, 'none', NULL),
+    ('project-routine-eat', 'group-routine', 'Eating', 'apple', 1, 20, NULL, 'none', NULL),
     ('project-routine-exercise', 'group-routine', 'Exercise', 'dumbbell', 4, 30, NULL, 'none', NULL),
     ('project-routine-hygiene', 'group-routine', 'Hygiene', 'bath', 5, 40, NULL, 'none', NULL),
     ('project-routine-social', 'group-routine', 'Social', 'heart', 6, 50, NULL, 'none', NULL),
-    ('project-routine-chores', 'group-routine', 'Chores', 'sparkles', 7, 60, NULL, 'none', NULL),
+    ('project-routine-chores', 'group-routine', 'Chores', 'house', 7, 60, NULL, 'none', NULL),
     ('project-routine-leisure', 'group-routine', 'Leisure', 'clapperboard', 8, 70, NULL, 'none', NULL),
     ('project-routine-meditate', 'group-routine', 'Meditate', 'smile', 9, 80, NULL, 'none', NULL),
-    ('project-routine-sleep', 'group-routine', 'Sleep', 'bed', 10, 90, NULL, 'none', NULL);
+    ('project-routine-health', 'group-routine', 'Health', 'pill', 3, 90, NULL, 'none', NULL),
+    ('project-routine-sleep', 'group-routine', 'Sleep', 'bed', 10, 100, NULL, 'none', NULL);
 
 INSERT INTO project_sections (id, project_id, name, sort_order)
 SELECT 'section-' || substr(id, 9) || '-general', id, 'General', 0

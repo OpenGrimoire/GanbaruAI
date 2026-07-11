@@ -23,7 +23,7 @@ describe("Notes page icon picker adapter", () => {
     expect(notesPageIconPickerValue({
       type: "icon",
       icon: { name: "book-open", color: "purple" },
-    })).toBe("lucide:book-open:purple");
+    })).toBe("lucide:book-open:22");
   });
 
   it("maps the shared event palette to Notes icon colors", () => {
@@ -35,6 +35,31 @@ describe("Notes page icon picker adapter", () => {
       type: "icon",
       icon: { name: "leaf", color: "green" },
     });
+    expect(notesPageIconFromPickerValue("lucide:circle:30", customEmojis)).toEqual({
+      type: "icon",
+      icon: { name: "circle", color: "gray" },
+    });
+    expect(notesPageIconFromPickerValue("lucide:circle:28", customEmojis)).toEqual({
+      type: "icon",
+      icon: { name: "circle", color: "lightgray" },
+    });
+  });
+
+  it("round trips Automatic without converting it to an event-palette color", () => {
+    const automaticIcon = notesPageIconFromPickerValue("lucide:book-open", customEmojis);
+    expect(automaticIcon).toEqual({
+      type: "icon",
+      icon: { name: "book-open" },
+    });
+    expect(notesPageIconPickerValue(automaticIcon)).toBe("lucide:book-open");
+    expect(notesPageIconPickerValue({
+      type: "icon",
+      icon: { name: "book-open", color: "gray" },
+    })).toBe("lucide:book-open:30");
+    expect(notesPageIconPickerValue({
+      type: "icon",
+      icon: { name: "book-open", color: "lightgray" },
+    })).toBe("lucide:book-open:28");
   });
 
   it("resolves reusable custom emoji metadata", () => {

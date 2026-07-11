@@ -80,10 +80,16 @@ export function createNotesEmojiPageIcon(emoji: string): NotesPageIcon {
 }
 
 /** Create a validated Notion-style native page icon payload. */
-export function createNotesNativePageIcon(name: string, color: NotesIconColor = "gray"): NotesPageIcon {
+export function createNotesNativePageIcon(name: string, color?: NotesIconColor): NotesPageIcon {
   const trimmed = name.trim();
   if (!trimmed) throw new Error("page icon name must not be empty");
-  return { type: "icon", icon: { name: trimmed, color } };
+  return {
+    type: "icon",
+    icon: {
+      name: trimmed,
+      ...(color ? { color } : {}),
+    },
+  };
 }
 
 /** Create a validated Notion-style custom emoji icon payload. */
@@ -192,9 +198,10 @@ export function notesPageIconLabel(icon: NotesPageIcon | null): string {
 /** Return the display color for Notion-style native page icons. */
 export function notesPageNativeIconColor(color: NotesIconColor | undefined): string | undefined {
   switch (color) {
-    case "gray":
     case undefined:
       return undefined;
+    case "gray":
+      return "#646470";
     case "lightgray":
       return "#9ca3af";
     case "brown":

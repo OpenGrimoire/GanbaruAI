@@ -237,7 +237,6 @@
             name={selectedGroup.icon}
             size={14}
             strokeWidth={projectIdentityIconStrokeWidth}
-            ignoreColor
             emojiScale={projectIdentityEmojiScale}
             class="shrink-0"
           />
@@ -261,7 +260,6 @@
             name={selectedProject.icon}
             size={14}
             strokeWidth={projectIdentityIconStrokeWidth}
-            ignoreColor
             emojiScale={projectIdentityEmojiScale}
             class="shrink-0"
           />

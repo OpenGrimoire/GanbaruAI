@@ -186,7 +186,7 @@ Tauri's platform app config directory stores device-local bootstrap and runtime 
 - The root `check`, `test`, and `validate` scripts intentionally cap tool concurrency. Use those scripts for broad local verification instead of direct full-suite `turbo`, `vitest`, or `cargo` commands.
 - Run frontend and Rust validation sequentially. Do not run Cargo compilation or tests concurrently with Vitest, Svelte checks, Turbo, or another Node-based validation command.
 - Do not run additional validation commands while a root `check`, `test`, `validate`, or `validate:full` command is active.
-- For direct focused checks, use one Vitest worker and one Cargo build job and test thread unless the user explicitly requests higher concurrency.
+- For direct focused checks, use one Vitest worker and one Cargo build job and test thread unless the user explicitly requests higher concurrency. Add `--lib` when the filtered Rust test is in the library so Cargo does not build unrelated binary test targets. Use an explicit `--bin <name>` only when testing that binary.
 - Confirm that focused Vitest runs report only the requested files. Stop and correct the command if the full suite starts unexpectedly.
 - Start with the narrowest useful command. Use affected Vitest files for focused TypeScript tests and filtered Cargo tests for focused Rust tests where practical.
 - For trivial, mechanically obvious edits with no plausible impact on compilation, types, styling, behavior, generated output, persisted data, or public interfaces, do not run checks unless a relevant workflow requires them. Examples include changing existing copy text, renaming a visible label without changing keys, adjusting punctuation, or replacing one imported icon with another from the same library in an already type-compatible slot.
@@ -202,7 +202,7 @@ Tauri's platform app config directory stores device-local bootstrap and runtime 
 - `pnpm -w run editor-check`: editor-style diagnostics, including Tailwind canonical class checks.
 - `pnpm -w run test`: all tests (vitest + cargo test) with capped Vitest, Cargo build, and Rust test concurrency. Use after changes to tested code.
 - `pnpm --dir apps/client exec vitest run path/to/file.test.ts --maxWorkers=1`: focused frontend test file.
-- `cargo test -p ganbaru-ai -j 1 test_name -- --test-threads=1`: focused Rust test by name.
+- `cargo test -p ganbaru-ai --lib -j 1 test_name -- --test-threads=1`: focused Rust library test by name. Replace `--lib` with the relevant `--bin <name>` only for a binary-local test.
 - `cargo fmt --check`: Rust formatting only.
 - `cargo clippy --workspace -j 2 -- -D warnings`: Rust linting only.
 - `pnpm -w run audit:deps`: npm advisory audit for workspace dependencies. Run for dependency or lockfile changes, before PRs, before releases, and when investigating security alerts.
@@ -232,6 +232,7 @@ After the relevant gate passes, finish the task without extra dev-server, Tauri 
 - Do not leave dead persistent data behind. If a field, row key, config key, or JSON property becomes obsolete, add an explicit migration, cleanup path, or validator drop rule, then document it in the relevant data or feature spec.
 - SQLite migrations live in `apps/client/src-tauri/migrations/` and are embedded into the Rust binary through `sqlx::migrate!("./migrations")`. Use SQLx file names with a UTC timestamp prefix, `YYYYMMDDHHMMSS_description.sql`, such as `20260601103000_add_project_tables.sql`. Do not manually register migration files; the SQLx macro discovers them at compile time.
 - `20260529180656_baseline_schema.sql` is the fresh-start schema for the pre-user reset. Do not edit it after a released build can have applied it. Add a new timestamped migration file instead.
+- On 2026-07-10, the maintainer approved deleting and recreating the local Ganbaru AI folder for the current Projects default identity and icon-color work. The related baseline and pre-user default migrations may be edited in this batch. After a released build can apply them, use new migrations instead.
 - Keep `apps/client/src-tauri/src/db.rs` focused on migration execution. Put schema and migration invariant tests in `apps/client/src-tauri/src/db/tests.rs`.
 - Keep migrations idempotent and narrowly scoped when practical, but remember that SQLx validates applied migration checksums. Never rewrite an applied migration to fix a live install. Preserve user-authored values whenever those values still have meaning, and only delete data that is truly obsolete or derivable from current canonical data.
 - For local development before users exist, a baseline squash is acceptable only when a project maintainer explicitly approves a clean reinstall or purge. Document the reset in this file and the relevant data docs.

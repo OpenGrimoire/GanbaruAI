@@ -920,7 +920,6 @@
             <IconPicker
               value={notesPageIconPickerValue(page.icon)}
               ariaLabel={page.icon ? t("notes.changePageIcon") : t("notes.addPageIcon")}
-              allowIconColors
               uploadAdapter={notesIconUploadAdapter}
               onChange={updatePageIconFromPicker}
             >
@@ -976,13 +975,12 @@
               <IconPicker
                 value={notesPageIconPickerValue(page.icon)}
                 ariaLabel={t("notes.changePageIcon")}
-                allowIconColors
                 uploadAdapter={notesIconUploadAdapter}
                 onChange={updatePageIconFromPicker}
               >
                 {#snippet trigger({ open, toggle })}
                   <button
-                    class={`flex size-16 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground ${open ? "bg-accent text-foreground" : ""}`}
+                    class={`flex size-16 items-center justify-center rounded-md text-foreground hover:bg-accent ${open ? "bg-accent" : ""}`}
                     type="button"
                     aria-label={t("notes.changePageIcon")}
                     data-app-tooltip={t("notes.changePageIcon")}

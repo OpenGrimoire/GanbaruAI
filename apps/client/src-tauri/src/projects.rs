@@ -17,6 +17,120 @@ const PROJECT_IDLE_THRESHOLD_MINUTES: &[i64] = &[1, 2, 3, 4, 5, 10, 15];
 const NOTES_PAGE_OPEN_MODES: &[&str] = &["center", "side", "full"];
 const NOTES_HISTORY_RETENTION_DAYS: &[i64] = &[0, 7, 30, 90, 180, 365];
 const MAX_TASK_CHANGE_REASON_LENGTH: usize = 1000;
+const ROUTINE_GROUP_ID: &str = "group-routine";
+
+#[derive(Clone, Copy)]
+struct BuiltInRoutineProject {
+    id: &'static str,
+    name: &'static str,
+    icon: &'static str,
+    color: i64,
+    sort_order: i64,
+    default_pomodoro_mode: &'static str,
+    default_pomodoro_preset_key: Option<&'static str>,
+}
+
+const BUILT_IN_ROUTINE_PROJECTS: &[BuiltInRoutineProject] = &[
+    BuiltInRoutineProject {
+        id: "project-routine-learning",
+        name: "Learning",
+        icon: "graduation-cap",
+        color: 8,
+        sort_order: 0,
+        default_pomodoro_mode: "preset",
+        default_pomodoro_preset_key: Some("adaptive"),
+    },
+    BuiltInRoutineProject {
+        id: "project-routine-reading",
+        name: "Reading",
+        icon: "book-open",
+        color: 25,
+        sort_order: 10,
+        default_pomodoro_mode: "none",
+        default_pomodoro_preset_key: None,
+    },
+    BuiltInRoutineProject {
+        id: "project-routine-eat",
+        name: "Eating",
+        icon: "apple",
+        color: 13,
+        sort_order: 20,
+        default_pomodoro_mode: "none",
+        default_pomodoro_preset_key: None,
+    },
+    BuiltInRoutineProject {
+        id: "project-routine-exercise",
+        name: "Exercise",
+        icon: "dumbbell",
+        color: 0,
+        sort_order: 30,
+        default_pomodoro_mode: "none",
+        default_pomodoro_preset_key: None,
+    },
+    BuiltInRoutineProject {
+        id: "project-routine-hygiene",
+        name: "Hygiene",
+        icon: "bath",
+        color: 15,
+        sort_order: 40,
+        default_pomodoro_mode: "none",
+        default_pomodoro_preset_key: None,
+    },
+    BuiltInRoutineProject {
+        id: "project-routine-social",
+        name: "Social",
+        icon: "heart",
+        color: 21,
+        sort_order: 50,
+        default_pomodoro_mode: "none",
+        default_pomodoro_preset_key: None,
+    },
+    BuiltInRoutineProject {
+        id: "project-routine-chores",
+        name: "Chores",
+        icon: "house",
+        color: 4,
+        sort_order: 60,
+        default_pomodoro_mode: "none",
+        default_pomodoro_preset_key: None,
+    },
+    BuiltInRoutineProject {
+        id: "project-routine-leisure",
+        name: "Leisure",
+        icon: "clapperboard",
+        color: 31,
+        sort_order: 70,
+        default_pomodoro_mode: "none",
+        default_pomodoro_preset_key: None,
+    },
+    BuiltInRoutineProject {
+        id: "project-routine-meditate",
+        name: "Meditate",
+        icon: "smile",
+        color: 23,
+        sort_order: 80,
+        default_pomodoro_mode: "none",
+        default_pomodoro_preset_key: None,
+    },
+    BuiltInRoutineProject {
+        id: "project-routine-health",
+        name: "Health",
+        icon: "pill",
+        color: 3,
+        sort_order: 90,
+        default_pomodoro_mode: "none",
+        default_pomodoro_preset_key: None,
+    },
+    BuiltInRoutineProject {
+        id: "project-routine-sleep",
+        name: "Sleep",
+        icon: "bed",
+        color: 30,
+        sort_order: 100,
+        default_pomodoro_mode: "none",
+        default_pomodoro_preset_key: None,
+    },
+];
 
 mod custom_fields;
 mod history;
@@ -32,6 +146,82 @@ pub use models::*;
 use templates::{insert_default_priorities, insert_default_statuses, insert_template_sections};
 use validation::*;
 
+fn built_in_routine_project(project_id: &str) -> Option<&'static BuiltInRoutineProject> {
+    BUILT_IN_ROUTINE_PROJECTS
+        .iter()
+        .find(|project| project.id == project_id)
+}
+
+async fn ensure_built_in_routine_defaults(pool: &sqlx::SqlitePool) -> Result<(), String> {
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|e| format!("begin built-in Routine repair: {e}"))?;
+    sqlx::query(
+        "INSERT OR IGNORE INTO project_groups (id, name, icon, color, sort_order)
+         VALUES (?, 'Routine', 'repeat', 0, 0)",
+    )
+    .bind(ROUTINE_GROUP_ID)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| format!("restore built-in Routine group: {e}"))?;
+    sqlx::query(
+        "UPDATE project_groups
+         SET name = 'Routine'
+         WHERE id = ? AND name <> 'Routine'",
+    )
+    .bind(ROUTINE_GROUP_ID)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| format!("normalize built-in Routine group: {e}"))?;
+
+    for project in BUILT_IN_ROUTINE_PROJECTS {
+        let result = sqlx::query(
+            "INSERT OR IGNORE INTO projects (
+                id, group_id, name, icon, color, sort_order,
+                default_pomodoro_mode, default_pomodoro_preset_key
+             )
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(project.id)
+        .bind(ROUTINE_GROUP_ID)
+        .bind(project.name)
+        .bind(project.icon)
+        .bind(project.color)
+        .bind(project.sort_order)
+        .bind(project.default_pomodoro_mode)
+        .bind(project.default_pomodoro_preset_key)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| format!("restore built-in Routine project {}: {e}", project.id))?;
+        if result.rows_affected() > 0 {
+            insert_template_sections(&mut tx, project.id, "blank").await?;
+            insert_default_statuses(&mut tx, project.id).await?;
+            insert_default_priorities(&mut tx, project.id).await?;
+        }
+        sqlx::query(
+            "UPDATE projects
+             SET group_id = ?, name = ?, sort_order = ?
+             WHERE id = ?
+               AND (group_id <> ? OR name <> ? OR sort_order <> ?)",
+        )
+        .bind(ROUTINE_GROUP_ID)
+        .bind(project.name)
+        .bind(project.sort_order)
+        .bind(project.id)
+        .bind(ROUTINE_GROUP_ID)
+        .bind(project.name)
+        .bind(project.sort_order)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| format!("normalize built-in Routine project {}: {e}", project.id))?;
+    }
+
+    tx.commit()
+        .await
+        .map_err(|e| format!("commit built-in Routine repair: {e}"))
+}
+
 #[tauri::command]
 pub async fn projects_load_snapshot<R: Runtime>(
     app: AppHandle<R>,
@@ -39,6 +229,7 @@ pub async fn projects_load_snapshot<R: Runtime>(
     project_id: Option<String>,
 ) -> Result<ProjectsSnapshot, String> {
     let pool = connect_sqlite(app, db_url).await?;
+    ensure_built_in_routine_defaults(&pool).await?;
     let normalized_project_id = project_id
         .as_deref()
         .map(str::trim)
@@ -271,6 +462,11 @@ pub async fn projects_update_group<R: Runtime>(
 ) -> Result<(), String> {
     validate_group_update(&group)?;
     let pool = connect_sqlite(app, db_url).await?;
+    let group_name = if group.id == ROUTINE_GROUP_ID {
+        "Routine"
+    } else {
+        group.name.trim()
+    };
     let result = sqlx::query(
         "UPDATE project_groups
          SET name = ?,
@@ -281,7 +477,7 @@ pub async fn projects_update_group<R: Runtime>(
              updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
          WHERE id = ?",
     )
-    .bind(group.name.trim())
+    .bind(group_name)
     .bind(group.icon.trim())
     .bind(group.color)
     .bind(group.sort_order)
@@ -309,6 +505,9 @@ pub async fn projects_delete_group<R: Runtime>(
 async fn delete_project_group(pool: &sqlx::SqlitePool, group_id: &str) -> Result<(), String> {
     let normalized_group_id = group_id.trim();
     require_non_empty(normalized_group_id, "group_id")?;
+    if normalized_group_id == ROUTINE_GROUP_ID {
+        return Err("built-in Routine group cannot be deleted".to_string());
+    }
     let result = sqlx::query("DELETE FROM project_groups WHERE id = ?")
         .bind(normalized_group_id)
         .execute(pool)
@@ -410,6 +609,16 @@ pub async fn projects_update_project<R: Runtime>(
 ) -> Result<(), String> {
     validate_project_update(&project)?;
     let pool = connect_sqlite(app, db_url).await?;
+    let built_in = built_in_routine_project(&project.id);
+    let group_id = built_in
+        .map(|_| ROUTINE_GROUP_ID)
+        .unwrap_or(project.group_id.as_str());
+    let name = built_in
+        .map(|default| default.name)
+        .unwrap_or_else(|| project.name.trim());
+    let sort_order = built_in
+        .map(|default| default.sort_order)
+        .unwrap_or(project.sort_order);
     let result = sqlx::query(
         "UPDATE projects
          SET group_id = ?,
@@ -437,11 +646,11 @@ pub async fn projects_update_project<R: Runtime>(
              updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
          WHERE id = ?",
     )
-    .bind(&project.group_id)
-    .bind(project.name.trim())
+    .bind(group_id)
+    .bind(name)
     .bind(project.icon.trim())
     .bind(project.color)
-    .bind(project.sort_order)
+    .bind(sort_order)
     .bind(&project.status)
     .bind(normalized_optional_text(
         project.default_event_name.as_deref(),
@@ -2204,6 +2413,89 @@ mod tests {
             milestone: task.milestone != 0,
             change_reason: None,
         }
+    }
+
+    #[test]
+    fn built_in_routine_defaults_are_protected_and_repaired() {
+        tauri::async_runtime::block_on(async {
+            let pool = migrated_memory_pool().await;
+
+            assert_eq!(
+                delete_project_group(&pool, ROUTINE_GROUP_ID).await,
+                Err("built-in Routine group cannot be deleted".to_string()),
+            );
+
+            sqlx::query(
+                "UPDATE projects
+                 SET name = 'Renamed', group_id = 'group-routine', sort_order = 999,
+                     icon = 'utensils', status = 'hidden'
+                 WHERE id = 'project-routine-eat'",
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+            sqlx::query("DELETE FROM projects WHERE id = 'project-routine-reading'")
+                .execute(&pool)
+                .await
+                .unwrap();
+
+            ensure_built_in_routine_defaults(&pool).await.unwrap();
+
+            let eating: (String, String, i64, String, String) = sqlx::query_as(
+                "SELECT group_id, name, sort_order, icon, status
+                 FROM projects WHERE id = 'project-routine-eat'",
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert_eq!(
+                eating,
+                (
+                    ROUTINE_GROUP_ID.to_string(),
+                    "Eating".to_string(),
+                    20,
+                    "utensils".to_string(),
+                    "hidden".to_string(),
+                ),
+            );
+            let restored_reading: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM projects WHERE id = 'project-routine-reading'",
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert_eq!(restored_reading, 1);
+
+            sqlx::query("DELETE FROM project_groups WHERE id = 'group-routine'")
+                .execute(&pool)
+                .await
+                .unwrap();
+            ensure_built_in_routine_defaults(&pool).await.unwrap();
+
+            let restored_projects: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM projects WHERE group_id = 'group-routine'",
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert_eq!(restored_projects, BUILT_IN_ROUTINE_PROJECTS.len() as i64);
+            let health_and_sleep: Vec<(String, String, i64)> = sqlx::query_as(
+                "SELECT id, icon, sort_order
+                 FROM projects
+                 WHERE id IN ('project-routine-health', 'project-routine-sleep')
+                 ORDER BY sort_order ASC",
+            )
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+            assert_eq!(
+                health_and_sleep,
+                vec![
+                    ("project-routine-health".to_string(), "pill".to_string(), 90,),
+                    ("project-routine-sleep".to_string(), "bed".to_string(), 100,),
+                ],
+            );
+        });
     }
 
     #[test]

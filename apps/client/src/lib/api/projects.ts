@@ -65,6 +65,11 @@ import type {
   ProjectViewPreference,
   ProjectViewPreferenceUpsert,
 } from "$lib/projects/types";
+import { translate } from "$lib/i18n/translator.svelte";
+import {
+  systemProjectGroupName,
+  systemProjectName,
+} from "$lib/projects/project-system-defaults";
 
 interface ProjectGroupRow {
   id: string;
@@ -340,9 +345,12 @@ function mapFocusIdleThresholdMinutes(value: number): FocusIdleThresholdMinutes 
 }
 
 function mapGroup(row: ProjectGroupRow): ProjectGroup {
+  const storedName = row.name;
   return {
     id: row.id,
-    name: row.name,
+    get name() {
+      return systemProjectGroupName(row.id, storedName, translate);
+    },
     icon: row.icon,
     color: optionalNumber(row.color),
     sortOrder: row.sort_order,
@@ -355,10 +363,13 @@ function mapGroup(row: ProjectGroupRow): ProjectGroup {
 }
 
 function mapProject(row: ProjectRow): Project {
+  const storedName = row.name;
   return {
     id: row.id,
     groupId: row.group_id,
-    name: row.name,
+    get name() {
+      return systemProjectName(row.id, storedName, translate);
+    },
     icon: row.icon,
     color: optionalNumber(row.color),
     sortOrder: row.sort_order,

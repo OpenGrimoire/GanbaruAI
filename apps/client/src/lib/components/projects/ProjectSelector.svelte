@@ -189,7 +189,6 @@
         name={selectedProject.icon}
         size={eventPanelProjectIconSize}
         strokeWidth={eventPanelSelectedProjectIconStrokeWidth}
-        ignoreColor
         emojiScale={eventPanelProjectEmojiScale}
       />
     {:else}

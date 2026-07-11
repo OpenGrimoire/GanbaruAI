@@ -1,4 +1,5 @@
 import {
+  PALETTE_SIZE,
   type EventColor,
 } from "$lib/components/calendar/types";
 import {
@@ -33,6 +34,7 @@ export const PROJECT_EMOJI_SKIN_TONES = [
 ] as const;
 
 export type ProjectEmojiSkinTone = (typeof PROJECT_EMOJI_SKIN_TONES)[number];
+export type ProjectIconPickerColor = EventColor | "default";
 
 export const PROJECT_ICON_PICKER_SKIN_TONE_OPTIONS: readonly { value: ProjectEmojiSkinTone }[] = [
   { value: "default" },
@@ -242,13 +244,11 @@ interface ProjectIconPickerGroupVirtualWindowInput<TCategory extends string, TEn
 
 interface ProjectIconPickerLucideRecentPreviewInput {
   rawValue: string;
-  allowIconColors: boolean;
-  iconColor: EventColor;
+  iconColor: ProjectIconPickerColor;
 }
 
 interface ProjectIconPickerRandomLucideInput {
-  allowIconColors: boolean;
-  iconColor: EventColor;
+  iconColor: ProjectIconPickerColor;
   random?: () => number;
 }
 
@@ -259,6 +259,20 @@ function clamp(value: number, min: number, max: number): number {
 
 function finiteOrZero(value: number): number {
   return Number.isFinite(value) ? Math.max(0, value) : 0;
+}
+
+export function readProjectIconAskEveryTime(value: unknown): boolean {
+  return value === true;
+}
+
+export function readProjectIconDefaultColor(value: unknown): ProjectIconPickerColor {
+  if (value === "default") return value;
+  return typeof value === "number"
+    && Number.isInteger(value)
+    && value >= 0
+    && value < PALETTE_SIZE
+    ? value
+    : "default";
 }
 
 export function stripProjectEmojiSkinTone(emoji: string): string {
@@ -406,12 +420,11 @@ export function projectIconPickerLucideGroups(
 
 export function projectIconPickerLucideRecentPreviewValue({
   rawValue,
-  allowIconColors,
   iconColor,
 }: ProjectIconPickerLucideRecentPreviewInput): string {
   const icon = parseProjectIcon(rawValue);
   return icon.kind === "lucide"
-    ? serializeProjectIcon({ ...icon, color: allowIconColors ? iconColor : "default" })
+    ? serializeProjectIcon({ ...icon, color: iconColor })
     : rawValue;
 }
 
@@ -440,11 +453,11 @@ export function projectIconPickerRandomEmojiIcon(
 
 export function projectIconPickerRandomLucideIcon(
   entries: readonly ProjectLucideIconEntry[],
-  { allowIconColors, iconColor, random = Math.random }: ProjectIconPickerRandomLucideInput,
+  { iconColor, random = Math.random }: ProjectIconPickerRandomLucideInput,
 ): ProjectIconValue | null {
   const entry = projectIconPickerRandomEntry(entries, random);
   return entry
-    ? { kind: "lucide", slug: entry.slug, color: allowIconColors ? iconColor : "default" }
+    ? { kind: "lucide", slug: entry.slug, color: iconColor }
     : null;
 }
 

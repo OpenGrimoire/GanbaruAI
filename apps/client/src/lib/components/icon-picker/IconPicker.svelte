@@ -14,10 +14,7 @@
     IconPickerTriggerContext,
     IconPickerUploadAdapter,
   } from "$lib/components/icon-picker/types";
-  import {
-    FALLBACK_COLOR_INDEX,
-    type EventColor,
-  } from "$lib/components/calendar/types";
+  import type { EventColor } from "$lib/components/calendar/types";
   import { getEventColor } from "$lib/components/calendar/utils";
   import { contrastRatio } from "$lib/components/ui/colorMath";
   import { getLocalization } from "$lib/i18n/translator.svelte";
@@ -47,16 +44,18 @@
     projectIconPickerRandomLucideIcon,
     projectIconPickerVisibleEmojiCategories,
     projectIconPickerVisibleCustomEmojis,
+    readProjectIconAskEveryTime,
+    readProjectIconDefaultColor,
     readProjectIconRecentValues,
     stripProjectEmojiSkinTone,
     type ProjectEmojiSkinTone,
     type ProjectIconPickerAnchoredPanelPlacement,
+    type ProjectIconPickerColor,
     type ProjectIconPickerPointPlacement,
     type ProjectIconPickerRect,
   } from "$lib/projects/project-icon-picker";
   import {
     parseProjectIcon,
-    projectIconColorToEventColor,
     projectIconDisplayLabel,
     serializeProjectIcon,
     type ProjectIconValue,
@@ -68,7 +67,7 @@
   } from "$lib/projects/project-lucide-catalog.generated";
   import { getProjects } from "$lib/stores/projects.svelte";
   import { getTheme } from "$lib/stores/theme.svelte";
-  import { resolveCalendarTokens } from "$lib/stores/themes";
+  import { resolveAppTokens, resolveCalendarTokens } from "$lib/stores/themes";
   import { cn } from "$lib/utils";
   import { portal } from "$lib/utils/portal";
   import {
@@ -97,7 +96,6 @@
     value,
     onChange,
     ariaLabel,
-    allowIconColors = true,
     trigger,
     uploadAdapter,
     class: className = "",
@@ -105,7 +103,6 @@
     value: string;
     onChange: (value: string) => void;
     ariaLabel: string;
-    allowIconColors?: boolean;
     trigger?: Snippet<[IconPickerTriggerContext]>;
     uploadAdapter?: IconPickerUploadAdapter;
     class?: string;
@@ -115,6 +112,8 @@
   const projects = getProjects();
   const theme = getTheme();
   const recentConfigKey = "projects.iconPicker.recent";
+  const askEveryTimeConfigKey = "projects.iconPicker.askEveryTime";
+  const defaultColorConfigKey = "projects.iconPicker.defaultColor";
   const panelWidth = 360;
   const panelPreferredHeight = 440;
   const uploadPanelPreferredHeight = 228;
@@ -123,7 +122,7 @@
   const customPanelWidth = 330;
   const iconColorChoicePanelColumns = 4;
   const iconColorChoicePanelWidthRem = 8.25;
-  const iconColorChoicePanelHeightRem = 15.75;
+  const iconColorChoicePanelHeightRem = 18.05;
   const iconCategoryMenuWidth = 240;
   const iconCategoryMenuMaxHeight = 280;
   const gridCellSize = 36;
@@ -156,7 +155,7 @@
   let uploadPreviewRequestId = 0;
   let uploadError = $state<string | null>(null);
   let uploading = $state(false);
-  let iconColor = $state<EventColor>(FALLBACK_COLOR_INDEX);
+  let iconColor = $state<ProjectIconPickerColor>("default");
   let emojiSkinTone = $state<ProjectEmojiSkinTone>("default");
   let emojiCategory = $state<ProjectEmojiCategoryId | "all">("all");
   let iconCategory = $state<ProjectLucideCategory | "all">("all");
@@ -172,7 +171,7 @@
   let skinTonePanelOpen = $state(false);
   let iconColorPanelOpen = $state(false);
   let iconCategoryMenuOpen = $state(false);
-  let askIconColorEveryTime = $state(true);
+  let askIconColorEveryTime = $state(false);
   let iconColorChoice = $state<IconColorChoice | null>(null);
   let recentValues = $state<string[]>([]);
   let gridScrollTop = $state(0);
@@ -245,9 +244,11 @@
     groupGapHeight: gridGroupGapHeight,
   }));
   const calendarTokens = $derived(resolveCalendarTokens(theme.current));
+  const appTokens = $derived(resolveAppTokens(theme.current));
   const pickerBg = $derived(calendarTokens["--cal-bg"]);
   const pickerText = $derived(calendarTokens["--cal-time-label"]);
   const pickerRing = $derived(calendarTokens["--cal-gridline"]);
+  const automaticIconColor = $derived(appTokens["--foreground"]);
   const pickerSurfaceStyle = $derived(
     `background-color: ${pickerBg}; color: ${pickerText}; --icon-picker-bg: ${pickerBg}; --icon-picker-text: ${pickerText}; --icon-picker-ring: ${pickerRing};`,
   );
@@ -275,8 +276,10 @@
     return t("projects.iconPicker.emoji");
   }
 
-  function iconColorLabel(color: EventColor): string {
-    return t("calendar.color.selectEventColor", color + 1);
+  function iconColorLabel(color: ProjectIconPickerColor): string {
+    return color === "default"
+      ? t("projects.iconPicker.automaticColor")
+      : t("projects.iconPicker.selectIconColor", color + 1);
   }
 
   function iconColorSwatch(color: EventColor): string {
@@ -301,7 +304,7 @@
   }
 
   function lucideRecentPreviewValue(rawValue: string): string {
-    return projectIconPickerLucideRecentPreviewValue({ rawValue, allowIconColors, iconColor });
+    return projectIconPickerLucideRecentPreviewValue({ rawValue, iconColor });
   }
 
   function iconColorChoiceStyle(choice: IconColorChoice): string {
@@ -333,17 +336,33 @@
     closeInlinePanels();
   }
 
-  async function loadRecentValues(): Promise<void> {
+  async function loadPickerState(): Promise<void> {
     await ensureConfigLoaded();
     recentValues = cleanupProjectIconRecentValues(
       readProjectIconRecentValues(getConfigKey<unknown>(recentConfigKey, [])),
       customEmojiIds,
+    );
+    askIconColorEveryTime = readProjectIconAskEveryTime(
+      getConfigKey<unknown>(askEveryTimeConfigKey, false),
+    );
+    iconColor = readProjectIconDefaultColor(
+      getConfigKey<unknown>(defaultColorConfigKey, "default"),
     );
   }
 
   function saveRecentValues(values: string[]): void {
     recentValues = cleanupProjectIconRecentValues(values, customEmojiIds);
     setConfigKey(recentConfigKey, recentValues);
+  }
+
+  function setAskIconColorEveryTime(enabled: boolean): void {
+    askIconColorEveryTime = enabled;
+    setConfigKey(askEveryTimeConfigKey, enabled);
+    if (!enabled) iconColorChoice = null;
+  }
+
+  function openDefaultIconColorPanel(): void {
+    iconColorChoice = null;
   }
 
   function updateGridMetrics(): void {
@@ -512,11 +531,8 @@
   async function openPicker(): Promise<void> {
     placePanel();
     open = true;
-    if (parsedValue.kind === "lucide") {
-      iconColor = projectIconColorToEventColor(parsedValue.color) ?? FALLBACK_COLOR_INDEX;
-    }
     if (parsedValue.kind === "emoji") emojiSkinTone = projectEmojiSkinToneFromEmoji(parsedValue.emoji);
-    await loadRecentValues();
+    await loadPickerState();
     if (activeTab === "icons") await loadLucideCatalog();
     await tick();
     placePanel();
@@ -562,10 +578,6 @@
     iconNode: readonly ProjectLucideIconNode[] | null,
     target: EventTarget | null,
   ): void {
-    if (!allowIconColors) {
-      chooseIcon({ kind: "lucide", slug, color: "default" });
-      return;
-    }
     const anchor = target instanceof HTMLElement ? target : null;
     if (!anchor) {
       chooseIcon({ kind: "lucide", slug, color: iconColor });
@@ -589,10 +601,6 @@
     iconNode: readonly ProjectLucideIconNode[] | null,
     target: EventTarget | null,
   ): void {
-    if (!allowIconColors) {
-      chooseIcon({ kind: "lucide", slug, color: "default" });
-      return;
-    }
     if (askIconColorEveryTime) {
       openIconColorChoice(slug, label, iconNode, target);
       return;
@@ -616,7 +624,7 @@
   }
 
   function chooseRandomIcon(): void {
-    const icon = projectIconPickerRandomLucideIcon(filteredLucideEntries, { allowIconColors, iconColor });
+    const icon = projectIconPickerRandomLucideIcon(filteredLucideEntries, { iconColor });
     if (icon) chooseIcon(icon);
   }
 
@@ -780,15 +788,15 @@
     closePicker();
   }
 
-  function selectIconColor(color: EventColor): void {
-    if (!allowIconColors) return;
+  function selectIconColor(color: ProjectIconPickerColor): void {
     iconColor = color;
+    setConfigKey(defaultColorConfigKey, color === "default" ? undefined : color);
     if (parsedValue.kind === "lucide") {
       onChange(serializeProjectIcon({ ...parsedValue, color }));
     }
   }
 
-  function selectColorChoice(color: EventColor): void {
+  function selectColorChoice(color: ProjectIconPickerColor): void {
     const choice = iconColorChoice;
     if (!choice) return;
     chooseIcon({ kind: "lucide", slug: choice.slug, color });
@@ -921,7 +929,7 @@
     onclick={togglePicker}
   >
     <span class="flex min-w-0 items-center gap-2">
-      <ProjectIcon name={value} size={15} strokeWidth={1.8} ignoreColor={!allowIconColors} class="shrink-0" />
+      <ProjectIcon name={value} size={15} strokeWidth={1.8} class="shrink-0" />
       <span class="truncate">{pickerLabel}</span>
     </span>
     <ChevronDown
@@ -1003,11 +1011,10 @@
         bind:iconColor
         bind:iconColorPanelOpen
         bind:skinTonePanelOpen
-        bind:askIconColorEveryTime
+        {askIconColorEveryTime}
         {iconCategory}
         {iconCategoryMenuOpen}
         {iconCategoryOverflowActive}
-        {allowIconColors}
         {colorSelectionBorder}
         {gridScrollable}
         {gridCanScrollUp}
@@ -1017,6 +1024,7 @@
         {lucideGroupVirtual}
         {lucideLoading}
         {primaryLucideCategoryOptions}
+        {automaticIconColor}
         {iconColorLabel}
         {iconColorSwatch}
         {iconColorStyle}
@@ -1026,11 +1034,10 @@
         onChooseRecent={chooseRecent}
         onChooseLucideIcon={chooseLucideIcon}
         onSelectIconColor={selectIconColor}
+        onDefaultIconColorPanelOpen={openDefaultIconColorPanel}
+        onAskIconColorEveryTimeChange={setAskIconColorEveryTime}
         onSelectIconCategory={selectIconCategory}
         onToggleIconCategoryMenu={toggleIconCategoryMenu}
-        onClearIconColorChoice={() => {
-          iconColorChoice = null;
-        }}
       />
     {:else}
       <IconPickerUploadPanel
@@ -1059,7 +1066,7 @@
     />
   {/if}
 
-  {#if iconColorChoice && allowIconColors}
+  {#if iconColorChoice}
     <IconPickerColorChoicePanel
       bind:rootElement={iconColorChoicePanelElement}
       style={iconColorChoiceStyle(iconColorChoice)}
@@ -1068,6 +1075,8 @@
       iconNode={iconColorChoice.iconNode}
       {iconColorLabel}
       {iconColorStyle}
+      {automaticIconColor}
+      automaticLabel={t("projects.iconPicker.automaticColor")}
       columns={iconColorChoicePanelColumns}
       onSelect={selectColorChoice}
     />

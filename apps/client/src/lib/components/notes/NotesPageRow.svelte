@@ -214,7 +214,7 @@
             icon={page.icon}
             size={14}
             emojiScale={NOTES_PAGE_CHROME_EMOJI_SCALE}
-            class="shrink-0 text-muted-foreground"
+            class="shrink-0"
           />
         {:else}
           <FileText class="size-3.5 shrink-0 text-muted-foreground" />

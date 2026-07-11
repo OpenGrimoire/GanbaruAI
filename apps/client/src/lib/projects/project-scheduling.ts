@@ -6,6 +6,7 @@ import {
   type ProjectGlobalIdleDefaults,
 } from "./project-default-pomodoro";
 import type { Project } from "./types";
+import { effectiveProjectDefaultEventName } from "./project-system-defaults";
 
 export interface ProjectScheduleStart {
   date: string;
@@ -112,7 +113,7 @@ export function projectCalendarCreateDefaults(
     if (nextWindow) end = nextWindow.end;
   }
   return {
-    title: project.defaultEventName ?? "",
+    title: effectiveProjectDefaultEventName(project) ?? "",
     start,
     end,
     allDay: allDay || undefined,
