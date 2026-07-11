@@ -125,6 +125,7 @@ import {
   saveNotesSidebarExpandedPageIds,
 } from "./notes-store-page-state";
 import { createNotesBlockPersistence } from "./notes-store-persistence";
+import { invalidateNotesNotificationSchedule } from "$lib/notes/notification-schedule.svelte";
 import type {
   NotesBlock,
   NotesBacklink,
@@ -357,11 +358,13 @@ function upsertPageInActiveCollections(page: NotesPage): void {
   allPages = allPages.some((item) => item.id === page.id)
     ? allPages.map((item) => (item.id === page.id ? page : item))
     : [page, ...allPages];
+  invalidateNotesNotificationSchedule();
 }
 
 function removePagesFromActiveCollections(pageIds: ReadonlySet<string>): void {
   pages = pages.filter((page) => !pageIds.has(page.id));
   allPages = allPages.filter((page) => !pageIds.has(page.id));
+  invalidateNotesNotificationSchedule();
 }
 
 function sidebarSeedPageIds(): string[] {

@@ -103,7 +103,7 @@ A session has three structural moments: it begins, it runs through phases, it en
 **Begin.** A session begins when the calendar event's time window includes the current moment, the event has a pomodoro config, and no session is already running on a higher-priority event. The trigger can be:
 
 - The user opens the app while a pomodoro event is in window (auto-start).
-- The clock advances into the start of a pomodoro event (the auto-start poll, every ~1 second, picks it up).
+- The clock advances into the start of a pomodoro event (the scheduler wakes at the exact event boundary).
 - The user manually starts a session by clicking the play control on an event.
 
 The session always begins from the current moment, never from the event's scheduled start. If the event was scheduled for 14:00 and the user opens the app at 14:40, the session covers 14:40 onward. The 40-minute gap is honest: the user was not working.
@@ -122,7 +122,7 @@ Music can follow manual focus pauses through the Music settings page. The `Pause
 - `reconfigured`: the user changed the pomodoro config mid-session, ending this run and starting a new one with the updated config.
 - `block_transition`: the timer moved to a new event (consecutive or overlapping), starting a new run on that event with state inherited from this one.
 
-After a session ends, the calendar event remains in place. If the event still has time remaining, the user can manually restart, or auto-start will re-engage on the next poll.
+After a session ends, the calendar event remains in place. If the event still has time remaining, the user can manually restart, or auto-start will re-engage after the relevant calendar or timer state changes. The one-second visual timer tick runs only while a phase is logically running; paused and idle sessions have no visual tick interval.
 
 ## Block transitions
 

@@ -4,6 +4,7 @@ import type {
   SegmentPhase,
 } from "$lib/components/calendar/types";
 import { writeDoomscrollingRuntimeState } from "$lib/api/doomscrolling";
+import { createLifecycleScheduler } from "$lib/scheduling/lifecycle-scheduler";
 import {
   breakAfterFocusPosition,
   clonePomodoroConfig,
@@ -78,7 +79,6 @@ let phaseWorkDurationSeconds = DEFAULT_FOCUS_SECONDS;
 let currentRhythmPosition = $state(1);
 let isRunning = $state(false);
 let config = $state<PomodoroConfig>(clonePomodoroConfig(DEFAULT_CONFIG));
-let intervalId: ReturnType<typeof setInterval> | null = null;
 let pausedOpportunityIntervalId: ReturnType<typeof setInterval> | null = null;
 let heartbeatIntervalId: ReturnType<typeof setInterval> | null = null;
 let phaseAdvanceInFlight = false;
@@ -124,6 +124,23 @@ let suspendedAway = $state<{ awaySeconds: number } | null>(null);
 let idleTimeoutMs: number | null = null; // null = disabled
 let idlePaused = $state<IdlePauseState | null>(null);
 let lastDoomscrollingStateKey = "";
+
+const visualTickScheduler = createLifecycleScheduler({
+  initialDelayMs: 1_000,
+  run: (context) => {
+    tick();
+    return isRunning ? context.now() + 1_000 : null;
+  },
+});
+
+function startVisualTick(): void {
+  visualTickScheduler.setEnabled(false);
+  visualTickScheduler.setEnabled(true);
+}
+
+function stopVisualTick(): void {
+  visualTickScheduler.setEnabled(false);
+}
 
 type DoomscrollingPauseReason = "manual" | "idle" | "suspend";
 
@@ -651,13 +668,8 @@ const idleController = createPomodoroIdleController({
   set lastTickMs(value) {
     lastTickMs = value;
   },
-  get intervalId() {
-    return intervalId;
-  },
-  set intervalId(value) {
-    intervalId = value;
-  },
-  tick,
+  startVisualTick,
+  stopVisualTick,
   activeBlockDeadlineReached,
   expirePausedBlockAtDeadlineAndWait,
   stopPausedOpportunityCountdown,
@@ -693,10 +705,7 @@ function expirePausedBlockAtDeadline(): void {
   void closeActiveRun(endIso, "completed", "interrupted", "event_expired", "complete");
   sessionStartTime = null;
 
-  if (intervalId) {
-    clearInterval(intervalId);
-    intervalId = null;
-  }
+  stopVisualTick();
   stopOvertime();
   idleController.stopChecking();
   isRunning = false;
@@ -727,10 +736,7 @@ async function expirePausedBlockAtDeadlineAndWait(): Promise<void> {
   await closeActiveRun(endIso, "completed", "interrupted", "event_expired", "complete");
   sessionStartTime = null;
 
-  if (intervalId) {
-    clearInterval(intervalId);
-    intervalId = null;
-  }
+  stopVisualTick();
   stopOvertime();
   idleController.stopChecking();
   isRunning = false;
@@ -1003,7 +1009,7 @@ async function reconfigureSession(
     stopOvertime();
     isRunning = true;
     phaseEndTime = nowMs + remainingSeconds * 1000;
-    intervalId = setInterval(tick, 1000);
+    startVisualTick();
     lastTickMs = nowMs;
   }
   effects.scheduleBreakEndWarning();
@@ -1071,8 +1077,7 @@ async function transitionToBlock(
       phaseEndTime = Date.now() + remainingSeconds * 1000;
       if (!isRunning) {
         isRunning = true;
-        if (intervalId) clearInterval(intervalId);
-        intervalId = setInterval(tick, 1000);
+        startVisualTick();
         lastTickMs = Date.now();
       }
 
@@ -1086,8 +1091,7 @@ async function transitionToBlock(
       if (!isRunning) {
         isRunning = true;
         if (!sessionStartTime) sessionStartTime = nowIso();
-        if (intervalId) clearInterval(intervalId);
-        intervalId = setInterval(tick, 1000);
+        startVisualTick();
         lastTickMs = Date.now();
         idleController.startChecking();
       }
@@ -1107,8 +1111,7 @@ async function transitionToBlock(
       isRunning = true;
       phaseEndTime = Date.now() + remainingSeconds * 1000;
       sessionStartTime = nowIso();
-      if (intervalId) clearInterval(intervalId);
-      intervalId = setInterval(tick, 1000);
+      startVisualTick();
       lastTickMs = Date.now();
       idleController.startChecking();
       break;
@@ -1306,10 +1309,7 @@ async function startFocusSession() {
   effects.clearMusicPausedByPomodoro();
   effects.resetPausedFocusNotificationState();
   stopPausedOpportunityCountdown();
-  if (intervalId) {
-    clearInterval(intervalId);
-    intervalId = null;
-  }
+  stopVisualTick();
   stopOvertime();
   const boundaryOccurredAt = nowIso();
   const adaptiveDecision = await decideBoundaryAdaptiveForState({
@@ -1334,7 +1334,7 @@ async function startFocusSession() {
   const startedAt = nowIso();
   phaseEndTime = Date.now() + remainingSeconds * 1000;
   sessionStartTime = startedAt;
-  intervalId = setInterval(tick, 1000);
+  startVisualTick();
   lastTickMs = Date.now();
 
   if (adaptiveDecision) {
@@ -1372,7 +1372,7 @@ async function dismissSuspend(resume: boolean): Promise<void> {
     isRunning = true;
     phaseEndTime = Date.now() + remainingSeconds * 1000;
     lastTickMs = Date.now();
-    intervalId = setInterval(tick, 1000);
+    startVisualTick();
     effects.scheduleBreakEndWarning();
     idleController.startChecking();
     effects.updateTray();
@@ -1429,7 +1429,7 @@ function tick() {
         actualPhaseElapsedSeconds(),
         segmentController.timestampMs(result.suspendStartIso),
       );
-      if (intervalId) { clearInterval(intervalId); intervalId = null; }
+      stopVisualTick();
       isRunning = false;
       lastTickMs = null;
       // Mark segments
@@ -1458,7 +1458,7 @@ function tick() {
         segmentController.timestampMs(result.suspendStartIso),
       );
       phaseEndTime = result.newPhaseEndTime;
-      if (intervalId) { clearInterval(intervalId); intervalId = null; }
+      stopVisualTick();
       isRunning = false;
       lastTickMs = null;
       suspendedAway = { awaySeconds: result.awaySeconds };
@@ -1481,7 +1481,7 @@ function tick() {
         "complete",
       );
       sessionStartTime = null;
-      if (intervalId) { clearInterval(intervalId); intervalId = null; }
+      stopVisualTick();
       stopOvertime();
       idleController.stopChecking();
       isRunning = false;
@@ -1497,7 +1497,7 @@ function tick() {
       lastTickMs = now;
       recordRunningPhaseProgress(0);
       remainingSeconds = 0;
-      if (intervalId) { clearInterval(intervalId); intervalId = null; }
+      stopVisualTick();
       isRunning = false;
       breakOvertimeSeconds = 0;
       if (!overtimeIntervalId) {
@@ -1807,7 +1807,7 @@ async function startFromBlockInternal(
       effects.clearMusicPausedByPomodoro();
       stopPausedOpportunityCountdown();
       initListeners();
-      if (intervalId) { clearInterval(intervalId); intervalId = null; }
+      stopVisualTick();
 
       activeBlockId = blockId;
       activeBlockEndMs = decision.newEndMs;
@@ -1824,7 +1824,7 @@ async function startFromBlockInternal(
       isRunning = true;
       phaseEndTime = Date.now() + remainingSeconds * 1000;
       sessionStartTime = new Date().toISOString();
-      intervalId = setInterval(tick, 1000);
+      startVisualTick();
       lastTickMs = Date.now();
       idleController.startChecking();
 
@@ -1856,10 +1856,7 @@ async function stopSessionInternal(): Promise<void> {
     await closeActiveRun(nowIso(), "stopped", "interrupted", "stopped", "stop");
   }
 
-  if (intervalId) {
-    clearInterval(intervalId);
-    intervalId = null;
-  }
+  stopVisualTick();
   stopOvertime();
   idleController.stopChecking();
   isRunning = false;
@@ -1918,10 +1915,7 @@ async function completeActiveBlockAtInternal(endIso: string = nowIso()): Promise
     );
   }
 
-  if (intervalId) {
-    clearInterval(intervalId);
-    intervalId = null;
-  }
+  stopVisualTick();
   stopOvertime();
   idleController.stopChecking();
   isRunning = false;
@@ -1952,10 +1946,7 @@ function pauseSession(): void {
   isRunning = false;
   phaseEndTime = null;
   lastTickMs = null;
-  if (intervalId) {
-    clearInterval(intervalId);
-    intervalId = null;
-  }
+  stopVisualTick();
   idleController.stopChecking();
   if (currentSegmentIndex >= 0 && currentSegmentIndex < segments.length) {
     const seg = segments[currentSegmentIndex];
@@ -1990,7 +1981,7 @@ function resumeSession(): void {
       runRepository.persistSegment(seg, "Failed to save resume:", false);
     }
   }
-  intervalId = setInterval(tick, 1000);
+  startVisualTick();
   lastTickMs = Date.now();
   effects.scheduleBreakEndWarning();
   idleController.startChecking();

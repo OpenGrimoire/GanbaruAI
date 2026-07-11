@@ -40,8 +40,8 @@ interface PomodoroIdleContext {
   sessionStartTime: string | null;
   skipNextBreak: boolean;
   lastTickMs: number | null;
-  intervalId: ReturnType<typeof setInterval> | null;
-  tick(): void;
+  startVisualTick(): void;
+  stopVisualTick(): void;
   activeBlockDeadlineReached(): boolean;
   expirePausedBlockAtDeadlineAndWait(): Promise<void>;
   stopPausedOpportunityCountdown(): void;
@@ -254,8 +254,7 @@ export function createPomodoroIdleController(
     context.phaseEndTime = phaseEndMs;
     context.sessionStartTime = now;
     context.lastTickMs = nowMs;
-    if (context.intervalId) clearInterval(context.intervalId);
-    context.intervalId = setInterval(context.tick, 1000);
+    context.startVisualTick();
     startChecking();
     await repository.insertSegments([newSegment]);
     context.updateTray();
@@ -311,10 +310,7 @@ export function createPomodoroIdleController(
       );
       context.phaseEndTime = null;
 
-      if (context.intervalId) {
-        clearInterval(context.intervalId);
-        context.intervalId = null;
-      }
+      context.stopVisualTick();
       context.isRunning = false;
       context.lastTickMs = null;
 
@@ -377,7 +373,7 @@ export function createPomodoroIdleController(
       context.isRunning = true;
       context.phaseEndTime = Date.now() + context.remainingSeconds * 1000;
       context.lastTickMs = Date.now();
-      context.intervalId = setInterval(context.tick, 1000);
+      context.startVisualTick();
       context.updateTray();
     } else {
       const segment = segments.activeSegment();

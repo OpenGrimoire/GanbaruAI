@@ -67,6 +67,8 @@ The existing `main` tray icon and the title bar pomodoro ring menu own compact M
 
 The Music settings page includes a Pomodoro toggle, `Pause if the focus session is paused`, enabled by default. When enabled, manually pausing an active focus phase pauses Music only if it was playing, and resuming the focus phase resumes Music only when that Pomodoro pause caused the Music pause.
 
+Playback snapshots are refreshed only for the matching active backend. Playing YouTube and native local audio use their backend-specific active cadence, paused playback uses a slower cadence, and idle, ended, loading, error, or WebView-driven local playback has no snapshot timer. Resume and focus events trigger one catch-up refresh without allowing overlapping requests.
+
 SQLite owns playlist definitions and playback resume state:
 
 - `music_playlists`: user playlists.

@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { ensureDbUrl } from "$lib/api/db";
+import { invalidateNotesNotificationSchedule } from "$lib/notes/notification-schedule.svelte";
 import {
   mapNotesBacklinkDto,
   mapNotesBlockDto,
@@ -362,6 +363,7 @@ export async function refreshNotesMentionNotifications(): Promise<number> {
   if (typeof refreshed !== "number" || !Number.isInteger(refreshed)) {
     throw new Error("notes_refresh_mention_notifications returned an invalid count");
   }
+  invalidateNotesNotificationSchedule();
   return refreshed;
 }
 
@@ -529,7 +531,11 @@ export async function createNotesComment(
   request: NotesCommentCreate,
 ): Promise<NotesCommentThread> {
   const dbUrl = await ensureDbUrl();
-  return mapNotesCommentThreadDto(await invoke<unknown>("notes_create_comment", { dbUrl, request }));
+  const thread = mapNotesCommentThreadDto(
+    await invoke<unknown>("notes_create_comment", { dbUrl, request }),
+  );
+  invalidateNotesNotificationSchedule();
+  return thread;
 }
 
 export async function updateNotesComment(
@@ -537,16 +543,20 @@ export async function updateNotesComment(
   update: NotesCommentUpdate,
 ): Promise<NotesCommentThread> {
   const dbUrl = await ensureDbUrl();
-  return mapNotesCommentThreadDto(
+  const thread = mapNotesCommentThreadDto(
     await invoke<unknown>("notes_update_comment", { dbUrl, commentId, update }),
   );
+  invalidateNotesNotificationSchedule();
+  return thread;
 }
 
 export async function deleteNotesComment(commentId: string): Promise<NotesCommentThread> {
   const dbUrl = await ensureDbUrl();
-  return mapNotesCommentThreadDto(
+  const thread = mapNotesCommentThreadDto(
     await invoke<unknown>("notes_delete_comment", { dbUrl, commentId }),
   );
+  invalidateNotesNotificationSchedule();
+  return thread;
 }
 
 export async function resolveNotesCommentThread(
@@ -554,9 +564,11 @@ export async function resolveNotesCommentThread(
   resolved = true,
 ): Promise<NotesCommentThread> {
   const dbUrl = await ensureDbUrl();
-  return mapNotesCommentThreadDto(
+  const thread = mapNotesCommentThreadDto(
     await invoke<unknown>("notes_resolve_comment_thread", { dbUrl, discussionId, resolved }),
   );
+  invalidateNotesNotificationSchedule();
+  return thread;
 }
 
 export async function listNotesSuggestions(
@@ -1214,7 +1226,11 @@ export async function appendNotesBlockChildren(
   request: NotesAppendBlockChildrenRequest,
 ): Promise<NotesPaginatedBlockList> {
   const dbUrl = await ensureDbUrl();
-  return mapNotesBlockListDto(await invoke<unknown>("notes_append_block_children", { dbUrl, request }));
+  const blocks = mapNotesBlockListDto(
+    await invoke<unknown>("notes_append_block_children", { dbUrl, request }),
+  );
+  invalidateNotesNotificationSchedule();
+  return blocks;
 }
 
 export async function updateNotesBlock(
@@ -1222,7 +1238,11 @@ export async function updateNotesBlock(
   update: NotesBlockUpdate,
 ): Promise<NotesBlock> {
   const dbUrl = await ensureDbUrl();
-  return mapNotesBlockDto(await invoke<unknown>("notes_update_block", { dbUrl, blockId, update }));
+  const block = mapNotesBlockDto(
+    await invoke<unknown>("notes_update_block", { dbUrl, blockId, update }),
+  );
+  invalidateNotesNotificationSchedule();
+  return block;
 }
 
 export async function trashNotesBlock(
@@ -1230,14 +1250,22 @@ export async function trashNotesBlock(
   inTrash = true,
 ): Promise<NotesBlock> {
   const dbUrl = await ensureDbUrl();
-  return mapNotesBlockDto(await invoke<unknown>("notes_trash_block", { dbUrl, blockId, inTrash }));
+  const block = mapNotesBlockDto(
+    await invoke<unknown>("notes_trash_block", { dbUrl, blockId, inTrash }),
+  );
+  invalidateNotesNotificationSchedule();
+  return block;
 }
 
 export async function trashNotesBlocks(
   request: NotesTrashBlocksRequest,
 ): Promise<NotesPaginatedBlockList> {
   const dbUrl = await ensureDbUrl();
-  return mapNotesBlockListDto(await invoke<unknown>("notes_trash_blocks", { dbUrl, request }));
+  const blocks = mapNotesBlockListDto(
+    await invoke<unknown>("notes_trash_blocks", { dbUrl, request }),
+  );
+  invalidateNotesNotificationSchedule();
+  return blocks;
 }
 
 export async function moveNotesBlock(
@@ -1245,14 +1273,22 @@ export async function moveNotesBlock(
   request: NotesMoveBlockRequest,
 ): Promise<NotesBlock> {
   const dbUrl = await ensureDbUrl();
-  return mapNotesBlockDto(await invoke<unknown>("notes_move_block", { dbUrl, blockId, request }));
+  const block = mapNotesBlockDto(
+    await invoke<unknown>("notes_move_block", { dbUrl, blockId, request }),
+  );
+  invalidateNotesNotificationSchedule();
+  return block;
 }
 
 export async function moveNotesBlocks(
   request: NotesMoveBlocksRequest,
 ): Promise<NotesPaginatedBlockList> {
   const dbUrl = await ensureDbUrl();
-  return mapNotesBlockListDto(await invoke<unknown>("notes_move_blocks", { dbUrl, request }));
+  const blocks = mapNotesBlockListDto(
+    await invoke<unknown>("notes_move_blocks", { dbUrl, request }),
+  );
+  invalidateNotesNotificationSchedule();
+  return blocks;
 }
 
 export async function duplicateNotesBlock(
@@ -1260,14 +1296,22 @@ export async function duplicateNotesBlock(
   request: NotesDuplicateBlockRequest,
 ): Promise<NotesBlock> {
   const dbUrl = await ensureDbUrl();
-  return mapNotesBlockDto(await invoke<unknown>("notes_duplicate_block", { dbUrl, blockId, request }));
+  const block = mapNotesBlockDto(
+    await invoke<unknown>("notes_duplicate_block", { dbUrl, blockId, request }),
+  );
+  invalidateNotesNotificationSchedule();
+  return block;
 }
 
 export async function duplicateNotesBlocks(
   request: NotesDuplicateBlocksRequest,
 ): Promise<NotesPaginatedBlockList> {
   const dbUrl = await ensureDbUrl();
-  return mapNotesBlockListDto(await invoke<unknown>("notes_duplicate_blocks", { dbUrl, request }));
+  const blocks = mapNotesBlockListDto(
+    await invoke<unknown>("notes_duplicate_blocks", { dbUrl, request }),
+  );
+  invalidateNotesNotificationSchedule();
+  return blocks;
 }
 
 export async function loadNotesUndoState(pageId: string): Promise<string | null> {

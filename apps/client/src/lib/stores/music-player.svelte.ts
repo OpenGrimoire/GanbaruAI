@@ -60,6 +60,10 @@ import {
   type MusicSource,
 } from "$lib/music/sources";
 import { youtubeErrorMessage } from "$lib/music/youtube-player";
+import {
+  createLifecycleScheduler,
+  type SchedulerRunContext,
+} from "$lib/scheduling/lifecycle-scheduler";
 import { getNavigation } from "$lib/stores/navigation.svelte";
 import {
   initialMusicSnapshot,
@@ -91,6 +95,9 @@ const LOCAL_PLAYABLE_START_KICK_MS = 650;
 const LOCAL_PLAYABLE_START_NUDGE_MS = 1_000;
 const LOCAL_PLAYABLE_START_MAX_NUDGES = 12;
 const MEDIA_HAVE_CURRENT_DATA_READY_STATE = 2;
+const YOUTUBE_PLAYING_SNAPSHOT_MS = 1_000;
+const LOCAL_PLAYING_SNAPSHOT_MS = 500;
+const PAUSED_SNAPSHOT_MS = 5_000;
 
 const initialPlayerSettings = loadMusicPlayerSettings();
 
@@ -133,8 +140,6 @@ class MusicPlayerStore {
   private loadGeneration = 0;
   private lastPersisted: PersistedPlaybackState | null = null;
   private listenersInitialized = false;
-  private youtubeSnapshotIntervalId: number | null = null;
-  private localSnapshotIntervalId: number | null = null;
   private unlisteners: UnlistenFn[] = [];
   private lastTraySignature = "";
   private localPauseSilenced = false;
@@ -146,6 +151,13 @@ class MusicPlayerStore {
   private staleVisualClearTimeoutId: number | null = null;
   private staleVisualVersion = 0;
   private hostedMediaGeneration = 0;
+  private readonly snapshotScheduler = createLifecycleScheduler({
+    run: async (context) => this.runSnapshotRefresh(context),
+    errorRetryMs: 15_000,
+    onError: (error) => {
+      console.warn("Failed to refresh music playback snapshot:", error);
+    },
+  });
 
   get isBusy(): boolean {
     return this.snapshot.status === "loading";
@@ -241,15 +253,6 @@ class MusicPlayerStore {
     if (typeof window !== "undefined") {
       window.addEventListener("message", this.handleWindowMessage);
       window.addEventListener("keydown", this.handleHardwareKeydown, { capture: true });
-      this.youtubeSnapshotIntervalId = window.setInterval(() => {
-        if (!this.currentSource || !isYouTubeSource(this.currentSource)) return;
-        this.postYouTubeCommand({ action: "snapshot" });
-        void this.persistCurrentPlaybackState();
-      }, 1_000);
-      this.localSnapshotIntervalId = window.setInterval(() => {
-        if (!this.usesNativeLocalBackend() || this.snapshot.status === "loading") return;
-        void this.refreshNativeLocalSnapshot();
-      }, 500);
     }
     this.listenToTrayEvents();
     this.updateSystemMediaControls();
@@ -260,17 +263,10 @@ class MusicPlayerStore {
     if (typeof window !== "undefined") {
       window.removeEventListener("message", this.handleWindowMessage);
       window.removeEventListener("keydown", this.handleHardwareKeydown, { capture: true });
-      if (this.youtubeSnapshotIntervalId !== null) {
-        window.clearInterval(this.youtubeSnapshotIntervalId);
-        this.youtubeSnapshotIntervalId = null;
-      }
-      if (this.localSnapshotIntervalId !== null) {
-        window.clearInterval(this.localSnapshotIntervalId);
-        this.localSnapshotIntervalId = null;
-      }
       this.clearYouTubePlaylistTimeout();
       this.clearStaleVisual();
     }
+    this.snapshotScheduler.setEnabled(false);
     for (const unlisten of this.unlisteners) {
       unlisten();
     }
@@ -286,6 +282,10 @@ class MusicPlayerStore {
 
   registerYouTubeFrame(frame: HTMLIFrameElement | null): void {
     this.youtubeFrame = frame;
+  }
+
+  resumeSnapshotScheduler(): void {
+    this.snapshotScheduler.resume();
   }
 
   registerLocalMedia(element: HTMLMediaElement | null): void {
@@ -1039,12 +1039,12 @@ class MusicPlayerStore {
     }
   }
 
-  private async refreshNativeLocalSnapshot(): Promise<void> {
+  private async refreshNativeLocalSnapshot(context?: SchedulerRunContext): Promise<void> {
     if (this.handlingNativeLocalEnded) return;
     const wasEnded = this.snapshot.status === "ended";
     try {
       const localSnapshot = await getLocalSnapshot();
-      if (!this.usesNativeLocalBackend()) return;
+      if (!this.usesNativeLocalBackend() || (context && !context.isCurrent())) return;
       this.applyLocalSnapshot(localSnapshot);
       if (localSnapshot.status === "ended" && !wasEnded) {
         this.handlingNativeLocalEnded = true;
@@ -1876,6 +1876,7 @@ class MusicPlayerStore {
   }
 
   private updateMusicTray(): void {
+    this.syncSnapshotScheduler();
     const signature = [
       this.currentSource?.identity ?? "none",
       this.currentSource ? this.loadedTitle : "none",
@@ -1894,6 +1895,37 @@ class MusicPlayerStore {
         canNext: this.canPlayNextTrack,
       },
     }).catch(() => {});
+  }
+
+  private syncSnapshotScheduler(): void {
+    const supportedSource = Boolean(
+      this.currentSource
+      && (isYouTubeSource(this.currentSource) || this.usesNativeLocalBackend()),
+    );
+    const activeStatus = this.snapshot.status === "playing" || this.snapshot.status === "paused";
+    this.snapshotScheduler.setEnabled(this.listenersInitialized && supportedSource && activeStatus);
+  }
+
+  private async runSnapshotRefresh(context: SchedulerRunContext): Promise<number | null> {
+    const source = this.currentSource;
+    if (!source || (this.snapshot.status !== "playing" && this.snapshot.status !== "paused")) {
+      return null;
+    }
+    if (isYouTubeSource(source)) {
+      this.postYouTubeCommand({ action: "snapshot" });
+      await this.persistCurrentPlaybackState();
+    } else if (this.usesNativeLocalBackend()) {
+      await this.refreshNativeLocalSnapshot(context);
+    } else {
+      return null;
+    }
+    if (!context.isCurrent()) return null;
+    const cadenceMs = this.snapshot.status === "paused"
+      ? PAUSED_SNAPSHOT_MS
+      : isYouTubeSource(source)
+        ? YOUTUBE_PLAYING_SNAPSHOT_MS
+        : LOCAL_PLAYING_SNAPSHOT_MS;
+    return context.now() + cadenceMs;
   }
 }
 

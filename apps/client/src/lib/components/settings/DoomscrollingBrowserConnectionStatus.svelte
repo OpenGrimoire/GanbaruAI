@@ -57,7 +57,18 @@
   }
 
   onMount(() => {
-    return extensionConnection.start();
+    const stop = extensionConnection.start();
+    const resume = () => extensionConnection.resume();
+    const resumeWhenVisible = () => {
+      if (document.visibilityState === "visible") resume();
+    };
+    window.addEventListener("focus", resume);
+    document.addEventListener("visibilitychange", resumeWhenVisible);
+    return () => {
+      window.removeEventListener("focus", resume);
+      document.removeEventListener("visibilitychange", resumeWhenVisible);
+      stop();
+    };
   });
 </script>
 
