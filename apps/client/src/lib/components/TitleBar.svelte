@@ -1,6 +1,7 @@
 <script lang="ts">
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { invoke } from "@tauri-apps/api/core";
+  import { clearAssetUrlCache } from "$lib/api/asset-url-cache";
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
   import { getNavigation } from "$lib/stores/navigation.svelte";
   import { getMusicPlayer } from "$lib/stores/music-player.svelte";
@@ -216,6 +217,7 @@
   async function confirmReset() {
     showResetConfirm = false;
     pomodoro.stopSession();
+    clearAssetUrlCache();
     await invoke("reset_database");
   }
 

@@ -50,6 +50,8 @@ import {
   updateNotesPage,
   updateNotesPageTemplate,
 } from "$lib/api/notes";
+import { invalidateNotesPageCoverAssetUrl } from "$lib/api/notes-page-covers";
+import { invalidateNotesPageIconAssetUrl } from "$lib/api/notes-page-icons";
 import { blockPlainText, createRichText } from "$lib/notes/block-factory";
 import {
   notesCommentAnchorDraft,
@@ -87,6 +89,8 @@ import {
   notesPageProjectProperties,
   type NotesCreatePageOptions,
 } from "$lib/notes/project-membership";
+import { notesPageCoverAssetPath } from "$lib/notes/page-cover";
+import { notesPageIconAssetPath } from "$lib/notes/page-icon";
 import {
   nextNotesFocusRequest,
   planNotesInsertedBlockFocus,
@@ -1589,14 +1593,30 @@ async function movePageWithPlacement(
 }
 
 async function updatePageIcon(pageId: string, icon: NotesPageIcon | null): Promise<void> {
+  const previousPage = loadedPage?.id === pageId
+    ? loadedPage
+    : allPages.find((candidate) => candidate.id === pageId);
+  const previousPath = notesPageIconAssetPath(previousPage?.icon ?? null);
   const page = await updateNotesPage(pageId, { icon });
+  const nextPath = notesPageIconAssetPath(page.icon);
+  if (previousPath && previousPath !== nextPath) {
+    invalidateNotesPageIconAssetUrl(previousPath);
+  }
   upsertPageInActiveCollections(page);
   if (loadedPage?.id === page.id) loadedPage = page;
   await pageHistoryController.reloadSnapshots(pageId);
 }
 
 async function updatePageCover(pageId: string, cover: NotesPageCover | null): Promise<void> {
+  const previousPage = loadedPage?.id === pageId
+    ? loadedPage
+    : allPages.find((candidate) => candidate.id === pageId);
+  const previousPath = notesPageCoverAssetPath(previousPage?.cover ?? null);
   const page = await updateNotesPage(pageId, { cover });
+  const nextPath = notesPageCoverAssetPath(page.cover);
+  if (previousPath && previousPath !== nextPath) {
+    invalidateNotesPageCoverAssetUrl(previousPath);
+  }
   upsertPageInActiveCollections(page);
   if (loadedPage?.id === page.id) loadedPage = page;
   await pageHistoryController.reloadSnapshots(pageId);

@@ -9,6 +9,7 @@ import {
   trashNotesBlock,
   trashNotesBlocks,
 } from "$lib/api/notes";
+import { invalidateAssetUrl } from "$lib/api/asset-url-cache";
 import {
   collectLoadedBlockSubtreeIds,
   createDuplicateBlockRequest,
@@ -97,6 +98,7 @@ import {
   type NotesChildReparentPlan,
   type NotesTreeState,
 } from "$lib/notes/block-tree";
+import { mediaManagedAssetPath } from "$lib/notes/media";
 import type {
   NotesObjectMentionTarget,
   NotesRichTextAnnotationPatch,
@@ -432,10 +434,33 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
   const columnActions = createNotesColumnActions(context);
   const tabActions = createNotesTabActions(context);
 
+  function managedMediaAssetPath(
+    value: NotesBlock | NotesBlockUpdate,
+  ): string | null {
+    if (value.type === "image") return mediaManagedAssetPath(value.image);
+    if (value.type === "video") return mediaManagedAssetPath(value.video);
+    if (value.type === "audio") return mediaManagedAssetPath(value.audio);
+    if (value.type === "file") return mediaManagedAssetPath(value.file);
+    if (value.type === "pdf") return mediaManagedAssetPath(value.pdf);
+    return null;
+  }
+
+  function invalidateReplacedMediaAsset(
+    previous: NotesBlock | undefined,
+    next: NotesBlockUpdate,
+  ): void {
+    if (!previous) return;
+    const previousPath = managedMediaAssetPath(previous);
+    if (!previousPath || previousPath === managedMediaAssetPath(next)) return;
+    invalidateAssetUrl("notes-file", previousPath);
+  }
+
   async function replaceBlockWithUpdate(blockId: string, update: NotesBlockUpdate): Promise<void> {
+    const previous = context.blockById(blockId);
     await context.flushBlockSave(blockId);
     context.localApplyBlockUpdate(blockId, update);
     await context.saveBlockNow(blockId, update);
+    invalidateReplacedMediaAsset(previous, update);
   }
 
   async function updateBlockText(
@@ -661,6 +686,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     }
     const before = undoSnapshot(blockId);
     const update = blockWithMedia(block, url, caption, name, assetChange);
+    invalidateReplacedMediaAsset(block, update);
     context.localApplyBlockUpdate(blockId, update);
     context.scheduleBlockSave(blockId, update);
     recordUndoAfter("update", before, blockId, `update:${blockId}`);

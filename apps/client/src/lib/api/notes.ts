@@ -1,5 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
 import { ensureDbUrl } from "$lib/api/db";
+import {
+  invalidateAssetUrlKind,
+  invalidateNotesAssetUrls,
+} from "$lib/api/asset-url-cache";
 import { invalidateNotesNotificationSchedule } from "$lib/notes/notification-schedule.svelte";
 import {
   mapNotesBacklinkDto,
@@ -1178,7 +1182,11 @@ export async function trashNotesPage(
   inTrash = true,
 ): Promise<NotesPage> {
   const dbUrl = await ensureDbUrl();
-  return mapNotesPageDto(await invoke<unknown>("notes_trash_page", { dbUrl, pageId, inTrash }));
+  const page = mapNotesPageDto(
+    await invoke<unknown>("notes_trash_page", { dbUrl, pageId, inTrash }),
+  );
+  if (inTrash) invalidateNotesAssetUrls();
+  return page;
 }
 
 export async function archiveNotesPage(
@@ -1198,6 +1206,7 @@ export async function permanentlyDeleteNotesPage(pageId: string): Promise<string
   if (!deletedPageIds.every((deletedPageId): deletedPageId is string => typeof deletedPageId === "string")) {
     throw new Error("notes_permanently_delete_page returned invalid page ids");
   }
+  invalidateNotesAssetUrls();
   return deletedPageIds;
 }
 
@@ -1253,6 +1262,7 @@ export async function trashNotesBlock(
   const block = mapNotesBlockDto(
     await invoke<unknown>("notes_trash_block", { dbUrl, blockId, inTrash }),
   );
+  if (inTrash) invalidateAssetUrlKind("notes-file");
   invalidateNotesNotificationSchedule();
   return block;
 }
@@ -1264,6 +1274,7 @@ export async function trashNotesBlocks(
   const blocks = mapNotesBlockListDto(
     await invoke<unknown>("notes_trash_blocks", { dbUrl, request }),
   );
+  if (request.in_trash) invalidateAssetUrlKind("notes-file");
   invalidateNotesNotificationSchedule();
   return blocks;
 }

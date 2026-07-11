@@ -41,6 +41,10 @@ import {
   updateProjectTask,
   upsertProjectViewPreference,
 } from "$lib/api/projects";
+import {
+  invalidateAssetUrl,
+  invalidateAssetUrlKind,
+} from "$lib/api/asset-url-cache";
 import type { EventColor } from "$lib/components/calendar/types";
 import type { NotesPageOpenMode } from "$lib/notes/page-open-mode";
 import type { NotesHistoryRetentionDays } from "$lib/notes/history-retention";
@@ -50,6 +54,7 @@ import {
   type ProjectTaskListColumnWidths,
 } from "$lib/projects/project-list-view";
 import { normalizeProjectName } from "$lib/projects/project-text";
+import { parseProjectIcon } from "$lib/projects/project-icons";
 import {
   checklistItemUpdatePayload,
   customFieldOptionUpdatePayload,
@@ -123,6 +128,17 @@ export function createProjectStoreActions(context: ProjectStoreActionContext) {
     updateSnapshot,
   } = context;
 
+  function projectAssetPath(icon: string): string | null {
+    const parsed = parseProjectIcon(icon);
+    return parsed.kind === "asset" ? parsed.relativePath : null;
+  }
+
+  function invalidateReplacedProjectIcon(previousIcon: string, nextIcon: string): void {
+    const previousPath = projectAssetPath(previousIcon);
+    if (!previousPath || previousPath === projectAssetPath(nextIcon)) return;
+    invalidateAssetUrl("project-icon", previousPath);
+  }
+
   async function addGroup(name: string): Promise<void> {
     const displayName = normalizeProjectName(name);
     if (!displayName) return;
@@ -152,12 +168,15 @@ export function createProjectStoreActions(context: ProjectStoreActionContext) {
   ): Promise<void> {
     const nextName = normalizeProjectName(patch.name ?? group.name);
     if (!nextName) return;
-    await updateProjectGroup(groupUpdatePayload(group, { ...patch, name: nextName }));
+    const update = groupUpdatePayload(group, { ...patch, name: nextName });
+    await updateProjectGroup(update);
+    invalidateReplacedProjectIcon(group.icon, update.icon);
     await reload();
   }
 
   async function removeGroup(group: ProjectGroup): Promise<void> {
     await deleteProjectGroup(group.id);
+    invalidateAssetUrlKind("project-icon");
     const selectedProjectId = readSelectedProjectId();
     if (selectedProjectId && group.id === selectors.projectById(selectedProjectId)?.groupId) {
       setSelectedProjectId(null);
@@ -206,7 +225,9 @@ export function createProjectStoreActions(context: ProjectStoreActionContext) {
   }
 
   async function updateProject(project: ProjectUpdate): Promise<void> {
+    const previousIcon = selectors.projectById(project.id)?.icon ?? project.icon;
     await updateProjectBackend(project);
+    invalidateReplacedProjectIcon(previousIcon, project.icon);
     await reload();
   }
 
@@ -569,7 +590,10 @@ export function createProjectStoreActions(context: ProjectStoreActionContext) {
   }
 
   async function removeCustomEmoji(emojiId: string): Promise<void> {
+    const assetPath = readSnapshot().customEmojis.find((emoji) => emoji.id === emojiId)?.assetPath;
     await deleteProjectCustomEmoji(emojiId);
+    if (assetPath) invalidateAssetUrl("project-icon", assetPath);
+    else invalidateAssetUrlKind("project-icon");
     await reload();
   }
 

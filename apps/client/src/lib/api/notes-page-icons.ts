@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { ensureDbUrl } from "$lib/api/db";
+import { invalidateAssetUrl, loadAssetUrl } from "$lib/api/asset-url-cache";
 import type { NotesPageIconAssetMetadata } from "$lib/notes/page-icon";
 
 interface NotesPageIconAssetDto {
@@ -9,8 +10,6 @@ interface NotesPageIconAssetDto {
   byteSize: number;
   sha256: string;
 }
-
-const notesPageIconAssetUrls = new Map<string, string>();
 
 function mapNotesPageIconAssetDto(value: NotesPageIconAssetDto): NotesPageIconAssetMetadata {
   return {
@@ -46,10 +45,13 @@ export async function saveNotesPageIconImageDataUrl(
 
 /** Load a managed Notes page icon asset as a data URL for local rendering. */
 export async function notesPageIconAssetUrl(relativePath: string): Promise<string> {
-  const cached = notesPageIconAssetUrls.get(relativePath);
-  if (cached) return cached;
-  const dbUrl = await ensureDbUrl();
-  const assetUrl = await invoke<string>("notes_page_icon_asset_data_url", { dbUrl, relativePath });
-  notesPageIconAssetUrls.set(relativePath, assetUrl);
-  return assetUrl;
+  return loadAssetUrl("notes-page-icon", relativePath, async () => {
+    const dbUrl = await ensureDbUrl();
+    return invoke<string>("notes_page_icon_asset_data_url", { dbUrl, relativePath });
+  });
+}
+
+/** Invalidates a managed Notes page icon after replacement or removal. */
+export function invalidateNotesPageIconAssetUrl(relativePath: string): void {
+  invalidateAssetUrl("notes-page-icon", relativePath);
 }

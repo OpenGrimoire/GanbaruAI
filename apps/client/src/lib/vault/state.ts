@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { translate, type Translate } from "$lib/i18n/translator.svelte";
+import { setActiveVaultIdentity } from "$lib/vault/active-vault";
 
 export interface VaultAppState {
   activeVaultPath: string | null;
@@ -79,6 +80,13 @@ function parseDataFolderDefaultLocation(value: unknown): DataFolderDefaultLocati
 
 function parseOptionalVaultInfo(value: unknown): VaultInfo | null {
   return value === null ? null : parseVaultInfo(value);
+}
+
+function activateVaultInfo(info: VaultInfo): VaultInfo;
+function activateVaultInfo(info: VaultInfo | null): VaultInfo | null;
+function activateVaultInfo(info: VaultInfo | null): VaultInfo | null {
+  setActiveVaultIdentity(info?.vaultId ?? null);
+  return info;
 }
 
 function errorMessage(value: unknown, t: Translate): string {
@@ -185,7 +193,7 @@ export async function readVaultAppState(): Promise<VaultAppState> {
 }
 
 export async function getActiveVaultInfo(): Promise<VaultInfo | null> {
-  return parseOptionalVaultInfo(await invoke<unknown>("vault_active_info"));
+  return activateVaultInfo(parseOptionalVaultInfo(await invoke<unknown>("vault_active_info")));
 }
 
 export async function getDefaultDataFolderLocation(): Promise<DataFolderDefaultLocation> {
@@ -193,15 +201,17 @@ export async function getDefaultDataFolderLocation(): Promise<DataFolderDefaultL
 }
 
 export async function useDefaultDataFolder(): Promise<DataFolderInfo> {
-  return parseVaultInfo(await invoke<unknown>("vault_use_default_folder"));
+  return activateVaultInfo(parseVaultInfo(await invoke<unknown>("vault_use_default_folder")));
 }
 
 export async function pickCreateVault(): Promise<VaultInfo | null> {
-  return parseOptionalVaultInfo(await invoke<unknown>("vault_pick_create"));
+  const info = parseOptionalVaultInfo(await invoke<unknown>("vault_pick_create"));
+  return info ? activateVaultInfo(info) : null;
 }
 
 export async function pickOpenVault(): Promise<VaultInfo | null> {
-  return parseOptionalVaultInfo(await invoke<unknown>("vault_pick_open"));
+  const info = parseOptionalVaultInfo(await invoke<unknown>("vault_pick_open"));
+  return info ? activateVaultInfo(info) : null;
 }
 
 export async function pickDataFolderLocation(): Promise<DataFolderInfo | null> {
@@ -213,7 +223,9 @@ export async function importDataFolder(): Promise<DataFolderInfo | null> {
 }
 
 export async function selectRecentVault(path: string): Promise<VaultInfo> {
-  return parseVaultInfo(await invoke<unknown>("vault_select_recent", { path }));
+  return activateVaultInfo(
+    parseVaultInfo(await invoke<unknown>("vault_select_recent", { path })),
+  );
 }
 
 export async function revealActiveVault(): Promise<void> {
