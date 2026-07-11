@@ -79,7 +79,7 @@ const BUILT_IN_ROUTINE_PROJECTS: &[BuiltInRoutineProject] = &[
     BuiltInRoutineProject {
         id: "project-routine-commute",
         name: "Commute",
-        icon: "car",
+        icon: "bike",
         color: 17,
         sort_order: 50,
         default_pomodoro_mode: "none",
@@ -2519,7 +2519,7 @@ mod tests {
                         30,
                     ),
                     ("project-routine-eat".to_string(), "apple".to_string(), 40,),
-                    ("project-routine-commute".to_string(), "car".to_string(), 50,),
+                    ("project-routine-commute".to_string(), "bike".to_string(), 50,),
                     (
                         "project-routine-chores".to_string(),
                         "shopping-cart".to_string(),

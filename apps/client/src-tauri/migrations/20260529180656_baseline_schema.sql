@@ -327,7 +327,7 @@ VALUES
     ('project-routine-exercise', 'group-routine', 'Exercise', 'sport-shoe', 4, 20, NULL, 'none', NULL),
     ('project-routine-hygiene', 'group-routine', 'Hygiene', 'bath', 5, 30, NULL, 'none', NULL),
     ('project-routine-eat', 'group-routine', 'Eating', 'apple', 1, 40, NULL, 'none', NULL),
-    ('project-routine-commute', 'group-routine', 'Commute', 'car', 17, 50, NULL, 'none', NULL),
+    ('project-routine-commute', 'group-routine', 'Commute', 'bike', 17, 50, NULL, 'none', NULL),
     ('project-routine-social', 'group-routine', 'Social', 'heart', 6, 60, NULL, 'none', NULL),
     ('project-routine-chores', 'group-routine', 'Chores', 'shopping-cart', 7, 70, NULL, 'none', NULL),
     ('project-routine-leisure', 'group-routine', 'Leisure', 'clapperboard', 8, 80, NULL, 'none', NULL),

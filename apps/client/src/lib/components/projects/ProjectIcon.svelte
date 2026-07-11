@@ -3,8 +3,8 @@
   import Apple from "@lucide/svelte/icons/apple";
   import Bath from "@lucide/svelte/icons/bath";
   import Bed from "@lucide/svelte/icons/bed";
+  import Bike from "@lucide/svelte/icons/bike";
   import BookOpen from "@lucide/svelte/icons/book-open";
-  import Car from "@lucide/svelte/icons/car";
   import Clapperboard from "@lucide/svelte/icons/clapperboard";
   import Folder from "@lucide/svelte/icons/folder";
   import GraduationCap from "@lucide/svelte/icons/graduation-cap";
@@ -46,8 +46,8 @@
     apple: Apple,
     bath: Bath,
     bed: Bed,
+    bike: Bike,
     "book-open": BookOpen,
-    car: Car,
     clapperboard: Clapperboard,
     folder: Folder,
     "graduation-cap": GraduationCap,
