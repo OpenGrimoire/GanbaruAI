@@ -381,6 +381,7 @@ mod tests {
         assert!(host.contains("const initialLoad = initialPayloadFromParams()"));
         assert!(host.contains("load: loadId"));
         assert!(host.contains("ganbaru-ai-youtube-playlist-error"));
+        assert!(host.contains("event.source !== parent"));
         assert!(host.contains("activeSource.kind !== \"youtube-playlist\""));
         assert!(host.contains("if (source.kind === \"youtube-video\" || source.videoId)"));
         assert!(!host.contains("videoId: source.kind"));

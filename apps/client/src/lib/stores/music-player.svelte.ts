@@ -22,7 +22,9 @@ import {
   pickMediaFolder,
   registerEmbeddedArtwork,
   registerMediaFile,
+  retainHostedMedia,
   savePlaybackState,
+  unregisterHostedMedia,
 } from "$lib/api/music";
 import {
   clampRate,
@@ -143,6 +145,7 @@ class MusicPlayerStore {
   private youtubePlaylistTimeoutId: number | null = null;
   private staleVisualClearTimeoutId: number | null = null;
   private staleVisualVersion = 0;
+  private hostedMediaGeneration = 0;
 
   get isBusy(): boolean {
     return this.snapshot.status === "loading";
@@ -273,6 +276,8 @@ class MusicPlayerStore {
     }
     this.unlisteners = [];
     this.listenersInitialized = false;
+    const hostedMediaGeneration = this.nextHostedMediaGeneration();
+    void retainHostedMedia([], hostedMediaGeneration).catch(() => null);
   }
 
   setSurfaceElement(element: HTMLElement | null): void {
@@ -350,10 +355,16 @@ class MusicPlayerStore {
       await this.waitForStaleVisualPaint();
       if (generation !== this.loadGeneration) return;
     }
+    const hostedMediaGeneration = this.nextHostedMediaGeneration();
     const nextVolume = clampVolume(this.snapshot.volume);
     this.destroyYouTubePlayer();
     await this.resetLocalPlayback();
+    if (generation !== this.loadGeneration) return;
     this.currentArtworkUrl = null;
+    if (source.kind !== "local-file") {
+      await retainHostedMedia([], hostedMediaGeneration).catch(() => null);
+      if (generation !== this.loadGeneration) return;
+    }
     if (!options.preserveQueue) {
       this.queue = [source];
       this.shuffleOrder = [];
@@ -384,7 +395,13 @@ class MusicPlayerStore {
     this.lastPersisted = persisted;
 
     if (source.kind === "local-file") {
-      await this.loadLocalSource(source, persisted, generation, options);
+      await this.loadLocalSource(
+        source,
+        persisted,
+        generation,
+        hostedMediaGeneration,
+        options,
+      );
       return;
     }
 
@@ -594,9 +611,12 @@ class MusicPlayerStore {
   }
 
   async resetPlayer(): Promise<void> {
+    const generation = ++this.loadGeneration;
     this.clearStaleVisual();
+    const hostedMediaGeneration = this.nextHostedMediaGeneration();
     this.destroyYouTubePlayer();
     await this.resetLocalPlayback();
+    if (generation !== this.loadGeneration) return;
     this.currentSource = null;
     this.parseError = null;
     this.playerError = null;
@@ -614,6 +634,7 @@ class MusicPlayerStore {
     this.queueHistory = [];
     this.pendingQueueIndex = null;
     this.currentArtworkUrl = null;
+    await retainHostedMedia([], hostedMediaGeneration).catch(() => null);
     this.updateSystemMediaControls();
     this.updateMusicTray();
   }
@@ -794,14 +815,17 @@ class MusicPlayerStore {
 
   handleArtworkError(): void {
     this.currentArtworkUrl = null;
+    this.syncHostedMediaRetention();
   }
 
   private async loadLocalSource(
     source: LocalFileSource,
     persisted: PersistedPlaybackState | null,
     generation: number,
+    hostedMediaGeneration: number,
     options: LoadSourceOptions,
   ): Promise<void> {
+    const registeredUrls: string[] = [];
     try {
       const localSnapshot = await loadLocalMedia({
         source: {
@@ -825,14 +849,26 @@ class MusicPlayerStore {
         };
       }
       const mediaUrl = useVideoElement
-        ? await registerMediaFile(source.path)
+        ? await registerMediaFile(source.path, hostedMediaGeneration)
         : null;
-      if (generation !== this.loadGeneration) return;
+      if (mediaUrl) registeredUrls.push(mediaUrl);
+      if (generation !== this.loadGeneration) {
+        await this.unregisterHostedMediaGeneration(registeredUrls, hostedMediaGeneration);
+        return;
+      }
       let artworkUrl = source.artworkPath
-        ? await registerMediaFile(source.artworkPath).catch(() => null)
+        ? await registerMediaFile(source.artworkPath, hostedMediaGeneration).catch(() => null)
         : null;
-      artworkUrl ??= await registerEmbeddedArtwork(source.path).catch(() => null);
-      if (generation !== this.loadGeneration) return;
+      if (artworkUrl) registeredUrls.push(artworkUrl);
+      if (!artworkUrl) {
+        artworkUrl = await registerEmbeddedArtwork(source.path, hostedMediaGeneration)
+          .catch(() => null);
+        if (artworkUrl) registeredUrls.push(artworkUrl);
+      }
+      if (generation !== this.loadGeneration) {
+        await this.unregisterHostedMediaGeneration(registeredUrls, hostedMediaGeneration);
+        return;
+      }
       this.pendingLocalResumeMs = persisted?.positionMs ?? source.startMs ?? 0;
       this.localMediaPlayableStartMs = useVideoElement
         ? normalizeLocalPlayableStartMs(localSnapshot.playableStartMs)
@@ -845,6 +881,11 @@ class MusicPlayerStore {
       this.localVideoReady = !useVideoElement;
       this.localMediaSrc = mediaUrl;
       this.currentArtworkUrl = artworkUrl;
+      await retainHostedMedia(this.currentHostedMediaUrls(), hostedMediaGeneration);
+      if (generation !== this.loadGeneration) {
+        await this.unregisterHostedMediaGeneration(registeredUrls, hostedMediaGeneration);
+        return;
+      }
       this.applyLocalSnapshot(localSnapshot);
       await tick();
       if (generation !== this.loadGeneration) return;
@@ -862,7 +903,10 @@ class MusicPlayerStore {
       await this.persistCurrentPlaybackState();
       this.updateMusicTray();
     } catch (error) {
+      await this.unregisterHostedMediaGeneration(registeredUrls, hostedMediaGeneration);
       if (generation !== this.loadGeneration) return;
+      await retainHostedMedia(this.currentHostedMediaUrls(), hostedMediaGeneration)
+        .catch(() => null);
       this.playerError = mediaPlayerErrorMessage(error);
       this.snapshot = { ...this.snapshot, status: "error", error: this.playerError };
       this.updateMusicTray();
@@ -1529,6 +1573,7 @@ class MusicPlayerStore {
     if (!this.staleVisual) return;
     this.clearStaleVisualTimeout();
     this.staleVisual = null;
+    this.syncHostedMediaRetention();
   }
 
   private finishVisualTransitionAfterPaint(): void {
@@ -1583,6 +1628,32 @@ class MusicPlayerStore {
         : null;
     }
     return null;
+  }
+
+  private nextHostedMediaGeneration(): number {
+    this.hostedMediaGeneration += 1;
+    return this.hostedMediaGeneration;
+  }
+
+  private currentHostedMediaUrls(): string[] {
+    return [...new Set([
+      this.localMediaSrc,
+      this.currentArtworkUrl,
+      this.staleVisual?.url ?? null,
+    ].filter((url): url is string => typeof url === "string" && url.length > 0))];
+  }
+
+  private syncHostedMediaRetention(): void {
+    const generation = this.nextHostedMediaGeneration();
+    void retainHostedMedia(this.currentHostedMediaUrls(), generation).catch(() => null);
+  }
+
+  private async unregisterHostedMediaGeneration(
+    mediaUrls: string[],
+    generation: number,
+  ): Promise<void> {
+    if (mediaUrls.length === 0) return;
+    await unregisterHostedMedia(mediaUrls, generation).catch(() => null);
   }
 
   private persistPlayerSettings(): void {

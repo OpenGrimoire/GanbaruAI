@@ -735,6 +735,8 @@ pub fn run() {
             music::music_pick_media_folder,
             music::host::music_register_embedded_artwork,
             music::host::music_register_media_file,
+            music::host::music_retain_hosted_media,
+            music::host::music_unregister_hosted_media,
             music::music_reveal_local_file,
             music::music_save_playback_state,
             music::host::music_youtube_host_url,
