@@ -21,6 +21,7 @@ function payloadFromRules(
   return rules
     .filter((rule) => rule.enabled)
     .map((rule) => ({
+      ruleIdentity: { kind: "desktop-app" as const, ruleId: rule.name },
       name: rule.name,
       matchNames: rule.matchNames,
     }));
@@ -54,7 +55,12 @@ async function enforceBlockedMatch(match: DoomscrollingRunningDesktopAppMatch): 
     }).catch((err) => {
       console.warn(`Failed to record blocked desktop app ${match.appName}:`, err);
     });
-    await closeDoomscrollingDesktopApp(match.processId);
+    await closeDoomscrollingDesktopApp({
+      processId: match.processId,
+      processName: match.processName,
+      processIdentity: match.processIdentity,
+      ruleIdentity: match.ruleIdentity,
+    });
     if (shouldNotifyClosedApp()) {
       await showDoomscrollingDesktopBlockNotification(match.appName);
     }

@@ -1,9 +1,11 @@
 use crate::{db_path::connect_sqlite, vault};
 use chrono::{DateTime, SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use sha2::{Digest, Sha256};
 use sqlx::{Row, SqlitePool};
 use std::collections::{HashMap, HashSet};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use tauri::{Manager, Runtime};
@@ -11,6 +13,9 @@ use tauri::{Manager, Runtime};
 const STATE_FILE: &str = "doomscrolling-state.json";
 const EXTENSION_CONNECTION_FILE: &str = "doomscrolling-extension-status.json";
 const LIMIT_STATE_FILE: &str = "doomscrolling-limit-state.json";
+const VAULT_CONFIG_FILE: &str = "config.json";
+const MAX_AUTHORIZATION_CONFIG_BYTES: u64 = 1024 * 1024;
+const LIMIT_STATE_STALE_SECONDS: i64 = 20;
 const EXTENSION_CONNECTION_STALE_SECONDS: i64 = 60;
 const ACTIVE_STATE_STALE_SECONDS: i64 = 45;
 const EXTENSION_INSTALL_README_URL: &str =
@@ -269,8 +274,20 @@ pub struct DoomscrollingDesktopAppCandidate {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DoomscrollingDesktopAppRuleInput {
+    rule_identity: DoomscrollingDesktopRuleIdentity,
     name: String,
     match_names: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "kebab-case",
+    rename_all_fields = "camelCase"
+)]
+pub enum DoomscrollingDesktopRuleIdentity {
+    DesktopApp { rule_id: String },
+    UsageLimit { rule_id: String, entry_id: String },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -279,6 +296,37 @@ pub struct DoomscrollingRunningDesktopAppMatch {
     app_name: String,
     process_name: String,
     process_id: u32,
+    process_identity: String,
+    rule_identity: DoomscrollingDesktopRuleIdentity,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DoomscrollingCloseDesktopAppRequest {
+    process_id: u32,
+    process_name: String,
+    process_identity: String,
+    rule_identity: DoomscrollingDesktopRuleIdentity,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DoomscrollingCloseForegroundDesktopAppRequest {
+    expected: DoomscrollingForegroundDesktopAppExpectation,
+    rule_identity: DoomscrollingDesktopRuleIdentity,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ObservedDesktopProcess {
+    process_name: String,
+    match_names: Vec<String>,
+    process_identity: String,
+}
+
+#[derive(Clone, Debug)]
+struct DesktopRuleMatcher {
+    app_name: String,
+    rule_identity: DoomscrollingDesktopRuleIdentity,
 }
 
 fn state_path<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<PathBuf, String> {
@@ -1213,7 +1261,9 @@ fn list_installed_desktop_apps() -> Vec<DoomscrollingDesktopAppCandidate> {
     Vec::new()
 }
 
-fn desktop_rule_matchers(apps: Vec<DoomscrollingDesktopAppRuleInput>) -> HashMap<String, String> {
+fn desktop_rule_matchers(
+    apps: Vec<DoomscrollingDesktopAppRuleInput>,
+) -> HashMap<String, DesktopRuleMatcher> {
     let mut matchers = HashMap::new();
     for app in apps {
         let Some(app_name) = normalize_app_candidate_name(&app.name) else {
@@ -1222,10 +1272,33 @@ fn desktop_rule_matchers(apps: Vec<DoomscrollingDesktopAppRuleInput>) -> HashMap
         if is_protected_desktop_app_name(&app_name) {
             continue;
         }
+        let rule_identity = match &app.rule_identity {
+            DoomscrollingDesktopRuleIdentity::DesktopApp { rule_id } => {
+                let Some(rule_id) = normalize_app_candidate_name(rule_id) else {
+                    continue;
+                };
+                if app_name_key(&rule_id) != app_name_key(&app_name) {
+                    continue;
+                }
+                DoomscrollingDesktopRuleIdentity::DesktopApp { rule_id }
+            }
+            DoomscrollingDesktopRuleIdentity::UsageLimit { rule_id, entry_id }
+                if !rule_id.trim().is_empty() && !entry_id.trim().is_empty() =>
+            {
+                DoomscrollingDesktopRuleIdentity::UsageLimit {
+                    rule_id: rule_id.clone(),
+                    entry_id: entry_id.clone(),
+                }
+            }
+            DoomscrollingDesktopRuleIdentity::UsageLimit { .. } => continue,
+        };
         for match_name in normalize_process_match_names(&app_name, app.match_names) {
             matchers
                 .entry(app_name_key(&match_name))
-                .or_insert_with(|| app_name.clone());
+                .or_insert_with(|| DesktopRuleMatcher {
+                    app_name: app_name.clone(),
+                    rule_identity: rule_identity.clone(),
+                });
         }
     }
     matchers
@@ -1253,6 +1326,48 @@ fn read_linux_process_name(path: &Path) -> Vec<String> {
 }
 
 #[cfg(target_os = "linux")]
+fn linux_process_start_time(path: &Path) -> Option<String> {
+    let stat = std::fs::read_to_string(path.join("stat")).ok()?;
+    let command_end = stat.rfind(')')?;
+    stat.get(command_end + 1..)?
+        .split_whitespace()
+        .nth(19)
+        .map(ToOwned::to_owned)
+}
+
+#[cfg(target_os = "linux")]
+fn update_process_identity_hash(hasher: &mut Sha256, value: &str) {
+    hasher.update((value.len() as u64).to_le_bytes());
+    hasher.update(value.as_bytes());
+}
+
+#[cfg(target_os = "linux")]
+fn observe_linux_process(path: &Path, process_id: u32) -> Option<ObservedDesktopProcess> {
+    let start_time = linux_process_start_time(path)?;
+    let mut match_names = read_linux_process_name(path);
+    match_names.sort_by_key(|name| app_name_key(name));
+    match_names.dedup_by(|left, right| app_name_key(left) == app_name_key(right));
+    let process_name = match_names.first()?.clone();
+    let executable = std::fs::read_link(path.join("exe"))
+        .ok()
+        .map(|path| path.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let mut hasher = Sha256::new();
+    update_process_identity_hash(&mut hasher, &process_id.to_string());
+    update_process_identity_hash(&mut hasher, &start_time);
+    update_process_identity_hash(&mut hasher, &executable);
+    for name in &match_names {
+        update_process_identity_hash(&mut hasher, &app_name_key(name));
+    }
+    let process_identity = format!("{:x}", hasher.finalize());
+    Some(ObservedDesktopProcess {
+        process_name,
+        match_names,
+        process_identity,
+    })
+}
+
+#[cfg(target_os = "linux")]
 fn list_blocked_desktop_app_matches(
     apps: Vec<DoomscrollingDesktopAppRuleInput>,
 ) -> Vec<DoomscrollingRunningDesktopAppMatch> {
@@ -1277,18 +1392,23 @@ fn list_blocked_desktop_app_matches(
         if process_id <= 1 || process_id == current_process_id {
             continue;
         }
-        for process_name in read_linux_process_name(&entry.path()) {
-            let key = app_name_key(&process_name);
-            let Some(app_name) = matchers.get(&key) else {
+        let Some(observed) = observe_linux_process(&entry.path(), process_id) else {
+            continue;
+        };
+        for process_name in &observed.match_names {
+            let key = app_name_key(process_name);
+            let Some(rule_matcher) = matchers.get(&key) else {
                 continue;
             };
             if !seen_processes.insert(process_id) {
                 break;
             }
             matches.push(DoomscrollingRunningDesktopAppMatch {
-                app_name: app_name.clone(),
-                process_name,
+                app_name: rule_matcher.app_name.clone(),
+                process_name: process_name.clone(),
                 process_id,
+                process_identity: observed.process_identity.clone(),
+                rule_identity: rule_matcher.rule_identity.clone(),
             });
             break;
         }
@@ -1310,6 +1430,255 @@ fn list_blocked_desktop_app_matches(
     Vec::new()
 }
 
+#[derive(Clone, Debug)]
+struct DesktopCloseAuthorization {
+    match_name_keys: HashSet<String>,
+}
+
+fn json_enabled(value: &Value) -> bool {
+    value
+        .get("enabled")
+        .and_then(Value::as_bool)
+        .unwrap_or(true)
+}
+
+fn configured_desktop_process_names(rule: &Value) -> Result<Vec<String>, String> {
+    let name = rule
+        .get("name")
+        .and_then(Value::as_str)
+        .and_then(normalize_app_candidate_name)
+        .ok_or_else(|| "configured desktop rule name is invalid".to_string())?;
+    let match_names = rule
+        .get("matchNames")
+        .and_then(Value::as_array)
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(Value::as_str)
+                .map(ToOwned::to_owned)
+                .collect()
+        })
+        .unwrap_or_default();
+    let names = normalize_process_match_names(&name, match_names);
+    if names.is_empty() || names.iter().any(|name| is_protected_desktop_app_name(name)) {
+        return Err("configured desktop rule is not closeable".to_string());
+    }
+    Ok(names)
+}
+
+fn desktop_runtime_authorizes_close(desktop: &Value, runtime: &DoomscrollingRuntimeState) -> bool {
+    if !runtime.active {
+        return false;
+    }
+    let strict_pause =
+        runtime.paused && matches!(runtime.pause_reason.as_deref(), Some("idle" | "suspend"));
+    if runtime.paused
+        && !strict_pause
+        && desktop
+            .get("pauseDuringFocusPause")
+            .and_then(Value::as_bool)
+            .unwrap_or(true)
+    {
+        return false;
+    }
+    let setting = match runtime.phase.as_str() {
+        "focus" => "blockDuringFocus",
+        "short_break" => "blockDuringShortBreaks",
+        "long_break" => "blockDuringLongBreaks",
+        _ => return false,
+    };
+    desktop
+        .get(setting)
+        .and_then(Value::as_bool)
+        .unwrap_or(true)
+}
+
+fn configured_close_authorization(
+    config: &Value,
+    runtime: Option<&DoomscrollingRuntimeState>,
+    limit_state: Option<&DoomscrollingLimitState>,
+    rule_identity: &DoomscrollingDesktopRuleIdentity,
+) -> Result<DesktopCloseAuthorization, String> {
+    let doomscrolling = config
+        .get("doomscrolling")
+        .ok_or_else(|| "persisted doomscrolling configuration is unavailable".to_string())?;
+    let names = match rule_identity {
+        DoomscrollingDesktopRuleIdentity::DesktopApp { rule_id } => {
+            let rule_id = normalize_app_candidate_name(rule_id)
+                .ok_or_else(|| "desktop rule identity is invalid".to_string())?;
+            let desktop = doomscrolling.get("desktop").ok_or_else(|| {
+                "persisted desktop blocker configuration is unavailable".to_string()
+            })?;
+            if !json_enabled(desktop) {
+                return Err("desktop blocker is disabled".to_string());
+            }
+            let runtime = runtime.ok_or_else(|| {
+                "desktop blocker runtime authorization is unavailable".to_string()
+            })?;
+            if !desktop_runtime_authorizes_close(desktop, runtime) {
+                return Err("desktop blocker is not active for the current phase".to_string());
+            }
+            let rule = desktop
+                .get("blockedApps")
+                .and_then(Value::as_array)
+                .and_then(|rules| {
+                    rules.iter().find(|rule| {
+                        rule.get("name")
+                            .and_then(Value::as_str)
+                            .and_then(normalize_app_candidate_name)
+                            .is_some_and(|name| app_name_key(&name) == app_name_key(&rule_id))
+                    })
+                })
+                .ok_or_else(|| "desktop blocker rule is no longer configured".to_string())?;
+            if !json_enabled(rule) {
+                return Err("desktop blocker rule is disabled".to_string());
+            }
+            configured_desktop_process_names(rule)?
+        }
+        DoomscrollingDesktopRuleIdentity::UsageLimit { rule_id, entry_id } => {
+            let limits = doomscrolling
+                .get("limits")
+                .ok_or_else(|| "persisted usage limit configuration is unavailable".to_string())?;
+            if !json_enabled(limits) {
+                return Err("usage limits are disabled".to_string());
+            }
+            let limit = limits
+                .get("items")
+                .and_then(Value::as_array)
+                .and_then(|limits| {
+                    limits.iter().find(|limit| {
+                        limit.get("id").and_then(Value::as_str) == Some(rule_id.as_str())
+                    })
+                })
+                .ok_or_else(|| "usage limit rule is no longer configured".to_string())?;
+            if !json_enabled(limit) {
+                return Err("usage limit rule is disabled".to_string());
+            }
+            let entry = limit
+                .get("entries")
+                .and_then(Value::as_array)
+                .and_then(|entries| {
+                    entries.iter().find(|entry| {
+                        entry.get("id").and_then(Value::as_str) == Some(entry_id.as_str())
+                    })
+                })
+                .ok_or_else(|| "usage limit desktop entry is no longer configured".to_string())?;
+            let app_name = entry
+                .get("desktopAppName")
+                .and_then(Value::as_str)
+                .and_then(normalize_app_candidate_name)
+                .ok_or_else(|| "usage limit desktop entry is invalid".to_string())?;
+            let match_names = entry
+                .get("desktopAppMatchNames")
+                .and_then(Value::as_array)
+                .map(|values| {
+                    values
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(ToOwned::to_owned)
+                        .collect()
+                })
+                .unwrap_or_default();
+            let names = normalize_process_match_names(&app_name, match_names);
+            if names.is_empty() || names.iter().any(|name| is_protected_desktop_app_name(name)) {
+                return Err("usage limit desktop entry is not closeable".to_string());
+            }
+            if !limit_state.is_some_and(|state| {
+                state
+                    .limits
+                    .iter()
+                    .any(|limit| limit.id == *rule_id && limit.exhausted)
+            }) {
+                return Err("usage limit is not currently exhausted".to_string());
+            }
+            names
+        }
+    };
+    Ok(DesktopCloseAuthorization {
+        match_name_keys: names.into_iter().map(|name| app_name_key(&name)).collect(),
+    })
+}
+
+fn validate_names_authorized(
+    names: impl IntoIterator<Item = String>,
+    authorization: &DesktopCloseAuthorization,
+) -> Result<(), String> {
+    if names
+        .into_iter()
+        .any(|name| authorization.match_name_keys.contains(&app_name_key(&name)))
+    {
+        Ok(())
+    } else {
+        Err("current process identity is not authorized by the persisted rule".to_string())
+    }
+}
+
+fn read_authorization_config<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<Value, String> {
+    let path = vault::active_vault_path(app)?.join(VAULT_CONFIG_FILE);
+    let file = std::fs::File::open(&path)
+        .map_err(|_| "persisted doomscrolling configuration is unavailable".to_string())?;
+    let mut contents = Vec::new();
+    file.take(MAX_AUTHORIZATION_CONFIG_BYTES + 1)
+        .read_to_end(&mut contents)
+        .map_err(|_| "persisted doomscrolling configuration is unavailable".to_string())?;
+    if contents.len() as u64 > MAX_AUTHORIZATION_CONFIG_BYTES {
+        return Err("persisted doomscrolling configuration is too large".to_string());
+    }
+    serde_json::from_slice(&contents)
+        .map_err(|_| "persisted doomscrolling configuration is invalid".to_string())
+}
+
+fn read_fresh_limit_state(
+    path: &Path,
+    checked_at: DateTime<Utc>,
+    expected_database_path: &Path,
+) -> Option<DoomscrollingLimitState> {
+    let contents = std::fs::read_to_string(path).ok()?;
+    let state = serde_json::from_str::<DoomscrollingLimitState>(&contents).ok()?;
+    if validate_limit_state(&state).is_err()
+        || state.database_path.as_deref().map(Path::new) != Some(expected_database_path)
+    {
+        return None;
+    }
+    let updated_at = DateTime::parse_from_rfc3339(&state.updated_at)
+        .ok()?
+        .with_timezone(&Utc);
+    let age_seconds = (checked_at - updated_at).num_seconds().max(0);
+    (age_seconds <= LIMIT_STATE_STALE_SECONDS).then_some(state)
+}
+
+fn load_close_authorization<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    rule_identity: &DoomscrollingDesktopRuleIdentity,
+) -> Result<DesktopCloseAuthorization, String> {
+    let checked_at = now_utc();
+    let config = read_authorization_config(app)?;
+    let runtime = matches!(
+        rule_identity,
+        DoomscrollingDesktopRuleIdentity::DesktopApp { .. }
+    )
+    .then(|| read_fresh_runtime_state(&state_path(app).ok()?, checked_at))
+    .flatten();
+    let limit_state = matches!(
+        rule_identity,
+        DoomscrollingDesktopRuleIdentity::UsageLimit { .. }
+    )
+    .then(|| {
+        read_fresh_limit_state(
+            &limit_state_path(app).ok()?,
+            checked_at,
+            &vault::active_database_path(app).ok()?,
+        )
+    })
+    .flatten();
+    configured_close_authorization(
+        &config,
+        runtime.as_ref(),
+        limit_state.as_ref(),
+        rule_identity,
+    )
+}
+
 #[cfg(target_os = "linux")]
 fn signal_desktop_process(process_id: u32, signal: &str) -> Result<(), String> {
     let status = std::process::Command::new("kill")
@@ -1328,16 +1697,45 @@ fn signal_desktop_process(process_id: u32, signal: &str) -> Result<(), String> {
 }
 
 #[cfg(target_os = "linux")]
-fn desktop_process_exists(process_id: u32) -> bool {
-    std::process::Command::new("kill")
-        .arg("-0")
-        .arg(process_id.to_string())
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map(|status| status.success())
-        .unwrap_or(false)
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum DesktopProcessSignal {
+    Term,
+    Kill,
+}
+
+#[cfg(target_os = "linux")]
+trait DesktopProcessController {
+    fn observe(&mut self, process_id: u32) -> Result<Option<ObservedDesktopProcess>, String>;
+    fn signal(&mut self, process_id: u32, signal: DesktopProcessSignal) -> Result<(), String>;
+    fn wait(&mut self, duration: std::time::Duration);
+}
+
+#[cfg(target_os = "linux")]
+struct SystemDesktopProcessController;
+
+#[cfg(target_os = "linux")]
+impl DesktopProcessController for SystemDesktopProcessController {
+    fn observe(&mut self, process_id: u32) -> Result<Option<ObservedDesktopProcess>, String> {
+        let process_path = PathBuf::from("/proc").join(process_id.to_string());
+        if !process_path.exists() {
+            return Ok(None);
+        }
+        Ok(observe_linux_process(&process_path, process_id))
+    }
+
+    fn signal(&mut self, process_id: u32, signal: DesktopProcessSignal) -> Result<(), String> {
+        signal_desktop_process(
+            process_id,
+            match signal {
+                DesktopProcessSignal::Term => "-TERM",
+                DesktopProcessSignal::Kill => "-KILL",
+            },
+        )
+    }
+
+    fn wait(&mut self, duration: std::time::Duration) {
+        std::thread::sleep(duration);
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -1345,39 +1743,103 @@ fn validate_close_process_id(process_id: u32) -> Result<(), String> {
     if process_id <= 1 || process_id == std::process::id() {
         return Err("refusing to close protected process".to_string());
     }
-    let process_path = PathBuf::from("/proc").join(process_id.to_string());
-    if read_linux_process_name(&process_path)
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn validate_observed_close_process(
+    request: &DoomscrollingCloseDesktopAppRequest,
+    observed: &ObservedDesktopProcess,
+) -> Result<(), String> {
+    validate_close_process_id(request.process_id)?;
+    let process_name = normalize_process_match_name(&request.process_name)
+        .ok_or_else(|| "observed process name is invalid".to_string())?;
+    if request.process_identity.trim().is_empty()
+        || request.process_identity.len() > 128
+        || request.process_identity != observed.process_identity
+    {
+        return Err("process identity changed before it could be closed".to_string());
+    }
+    let observed_names = std::iter::once(observed.process_name.clone())
+        .chain(observed.match_names.iter().cloned())
+        .collect::<Vec<_>>();
+    if observed_names
         .iter()
         .any(|name| is_protected_desktop_app_name(name))
     {
         return Err("refusing to close protected process".to_string());
     }
+    if !observed_names
+        .iter()
+        .any(|name| app_name_key(name) == app_name_key(&process_name))
+    {
+        return Err("process name changed before it could be closed".to_string());
+    }
     Ok(())
 }
 
 #[cfg(target_os = "linux")]
-fn close_desktop_process(process_id: u32) -> Result<(), String> {
-    validate_close_process_id(process_id)?;
-    if !desktop_process_exists(process_id) {
+fn observe_exact_close_process<C: DesktopProcessController>(
+    request: &DoomscrollingCloseDesktopAppRequest,
+    controller: &mut C,
+) -> Result<Option<ObservedDesktopProcess>, String> {
+    let Some(observed) = controller.observe(request.process_id)? else {
+        return Ok(None);
+    };
+    validate_observed_close_process(request, &observed)?;
+    Ok(Some(observed))
+}
+
+#[cfg(target_os = "linux")]
+fn close_desktop_process_with<C, A>(
+    request: &DoomscrollingCloseDesktopAppRequest,
+    controller: &mut C,
+    mut authorize: A,
+) -> Result<(), String>
+where
+    C: DesktopProcessController,
+    A: FnMut(&ObservedDesktopProcess) -> Result<(), String>,
+{
+    let Some(observed) = observe_exact_close_process(request, controller)? else {
         return Ok(());
-    }
-    if let Err(err) = signal_desktop_process(process_id, "-TERM") {
-        if !desktop_process_exists(process_id) {
+    };
+    authorize(&observed)?;
+    if let Err(error) = controller.signal(request.process_id, DesktopProcessSignal::Term) {
+        if observe_exact_close_process(request, controller)?.is_none() {
             return Ok(());
         }
-        return Err(err);
+        return Err(error);
     }
     for _ in 0..8 {
-        std::thread::sleep(std::time::Duration::from_millis(100));
-        if !desktop_process_exists(process_id) {
+        controller.wait(std::time::Duration::from_millis(100));
+        if observe_exact_close_process(request, controller)?.is_none() {
             return Ok(());
         }
     }
-    signal_desktop_process(process_id, "-KILL")
+    let Some(observed) = observe_exact_close_process(request, controller)? else {
+        return Ok(());
+    };
+    authorize(&observed)?;
+    controller.signal(request.process_id, DesktopProcessSignal::Kill)
+}
+
+#[cfg(target_os = "linux")]
+fn close_desktop_process<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    request: DoomscrollingCloseDesktopAppRequest,
+) -> Result<(), String> {
+    let mut controller = SystemDesktopProcessController;
+    close_desktop_process_with(&request, &mut controller, |observed| {
+        let authorization = load_close_authorization(app, &request.rule_identity)?;
+        validate_names_authorized(observed.match_names.clone(), &authorization)
+    })
 }
 
 #[cfg(not(target_os = "linux"))]
-fn close_desktop_process(_process_id: u32) -> Result<(), String> {
+fn close_desktop_process<R: Runtime>(
+    _app: &tauri::AppHandle<R>,
+    _request: DoomscrollingCloseDesktopAppRequest,
+) -> Result<(), String> {
     Err("desktop app closing is only available on Linux for now".to_string())
 }
 
@@ -1474,6 +1936,7 @@ fn foreground_desktop_app_status() -> DoomscrollingForegroundDesktopAppStatus {
 #[cfg(windows)]
 fn close_current_foreground_desktop_app(
     expected: DoomscrollingForegroundDesktopAppExpectation,
+    authorize: &mut dyn FnMut(&DoomscrollingForegroundDesktopAppStatus) -> Result<(), String>,
 ) -> Result<(), String> {
     use windows::Win32::Foundation::{LPARAM, WPARAM};
     use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_CLOSE};
@@ -1485,6 +1948,7 @@ fn close_current_foreground_desktop_app(
     if !foreground_expectation_matches(&status, &expected) {
         return Err("foreground app changed before it could be closed".to_string());
     }
+    authorize(&status)?;
     unsafe {
         PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0))
             .map_err(|e| format!("close foreground window: {e}"))?;
@@ -1531,6 +1995,7 @@ fn foreground_desktop_app_status() -> DoomscrollingForegroundDesktopAppStatus {
 #[cfg(target_os = "macos")]
 fn close_current_foreground_desktop_app(
     expected: DoomscrollingForegroundDesktopAppExpectation,
+    authorize: &mut dyn FnMut(&DoomscrollingForegroundDesktopAppStatus) -> Result<(), String>,
 ) -> Result<(), String> {
     use objc2_app_kit::NSRunningApplication;
 
@@ -1539,6 +2004,7 @@ fn close_current_foreground_desktop_app(
     if !foreground_expectation_matches(&status, &expected) {
         return Err("foreground app changed before it could be closed".to_string());
     }
+    authorize(&status)?;
     let process_id = status
         .process_id
         .ok_or_else(|| "foreground app process is unavailable".to_string())?;
@@ -1696,6 +2162,7 @@ fn x11_window_status<C: x11rb::connection::Connection>(
 #[cfg(target_os = "linux")]
 fn x11_close_active_window(
     expected: DoomscrollingForegroundDesktopAppExpectation,
+    authorize: &mut dyn FnMut(&DoomscrollingForegroundDesktopAppStatus) -> Result<(), String>,
 ) -> Result<(), String> {
     use x11rb::connection::Connection as _;
     use x11rb::protocol::xproto::{
@@ -1714,6 +2181,7 @@ fn x11_close_active_window(
     if !foreground_expectation_matches(&status, &expected) {
         return Err("foreground app changed before it could be closed".to_string());
     }
+    authorize(&status)?;
     let close_atom = x11_intern_atom(&conn, b"_NET_CLOSE_WINDOW")?;
     let event = ClientMessageEvent::new(
         32,
@@ -1929,6 +2397,7 @@ fn wayland_foreground_window_status() -> Result<DoomscrollingForegroundDesktopAp
 #[cfg(target_os = "linux")]
 fn wayland_close_active_window(
     expected: DoomscrollingForegroundDesktopAppExpectation,
+    authorize: &mut dyn FnMut(&DoomscrollingForegroundDesktopAppStatus) -> Result<(), String>,
 ) -> Result<(), String> {
     with_wayland_toplevel_state(|conn, state| {
         let Some(info) = state.active_toplevel().cloned() else {
@@ -1940,6 +2409,7 @@ fn wayland_close_active_window(
         if !foreground_expectation_matches(&status, &expected) {
             return Err("foreground app changed before it could be closed".to_string());
         }
+        authorize(&status)?;
         info.handle.close();
         conn.flush()
             .map_err(|e| format!("flush Wayland close request: {e}"))?;
@@ -1965,12 +2435,13 @@ fn foreground_desktop_app_status() -> DoomscrollingForegroundDesktopAppStatus {
 #[cfg(target_os = "linux")]
 fn close_current_foreground_desktop_app(
     expected: DoomscrollingForegroundDesktopAppExpectation,
+    authorize: &mut dyn FnMut(&DoomscrollingForegroundDesktopAppStatus) -> Result<(), String>,
 ) -> Result<(), String> {
     if linux_is_wayland_session() {
-        return wayland_close_active_window(expected);
+        return wayland_close_active_window(expected, authorize);
     }
     if std::env::var_os("DISPLAY").is_some() {
-        return x11_close_active_window(expected);
+        return x11_close_active_window(expected, authorize);
     }
     Err("foreground desktop app closing needs X11 or a Wayland compositor with zwlr_foreign_toplevel_manager_v1".to_string())
 }
@@ -1985,6 +2456,7 @@ fn foreground_desktop_app_status() -> DoomscrollingForegroundDesktopAppStatus {
 #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 fn close_current_foreground_desktop_app(
     _expected: DoomscrollingForegroundDesktopAppExpectation,
+    _authorize: &mut dyn FnMut(&DoomscrollingForegroundDesktopAppStatus) -> Result<(), String>,
 ) -> Result<(), String> {
     Err("foreground desktop app closing is not supported on this platform".to_string())
 }
@@ -2260,15 +2732,24 @@ pub fn doomscrolling_list_blocked_desktop_app_matches(
 }
 
 #[tauri::command]
-pub fn doomscrolling_close_desktop_app(process_id: u32) -> Result<(), String> {
-    close_desktop_process(process_id)
+pub fn doomscrolling_close_desktop_app<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    request: DoomscrollingCloseDesktopAppRequest,
+) -> Result<(), String> {
+    close_desktop_process(&app, request)
 }
 
 #[tauri::command]
-pub fn doomscrolling_close_current_foreground_desktop_app(
-    expected: DoomscrollingForegroundDesktopAppExpectation,
+pub fn doomscrolling_close_current_foreground_desktop_app<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    request: DoomscrollingCloseForegroundDesktopAppRequest,
 ) -> Result<(), String> {
-    close_current_foreground_desktop_app(expected)
+    let rule_identity = request.rule_identity;
+    let mut authorize = |status: &DoomscrollingForegroundDesktopAppStatus| {
+        let authorization = load_close_authorization(&app, &rule_identity)?;
+        validate_names_authorized(foreground_status_match_names(status), &authorization)
+    };
+    close_current_foreground_desktop_app(request.expected, &mut authorize)
 }
 
 #[tauri::command]

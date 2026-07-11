@@ -8,6 +8,7 @@ import {
   showDoomscrollingDesktopLimitNotification,
   writeDoomscrollingLimitState,
   type DoomscrollingDesktopAppRulePayload,
+  type DoomscrollingDesktopRuleIdentity,
   type DoomscrollingForegroundDesktopAppStatus,
   type DoomscrollingRunningDesktopAppMatch,
   type DoomscrollingUsageSampleRow,
@@ -44,6 +45,8 @@ interface OpenAppUsageSnapshot {
   sourceKey: string;
   displayName: string;
   processId: number;
+  processName: string;
+  processIdentity: string;
   startedAt: number;
   localDate: string;
 }
@@ -215,7 +218,12 @@ function exhaustedForegroundLimit(
   source: ForegroundUsageSource,
   startedAt: number,
   sampleLocalDate: string,
-): { limitId: string; limitName: string; period: DoomscrollingLimitPeriod } | null {
+): {
+  limitId: string;
+  limitName: string;
+  entryId: string;
+  period: DoomscrollingLimitPeriod;
+} | null {
   const doomscrolling = getDoomscrolling();
   if (!doomscrolling.limitsEnabled) return null;
   const sample = foregroundLimitSample(source, startedAt, sampleLocalDate);
@@ -227,8 +235,16 @@ function exhaustedForegroundLimit(
       && item.usedSeconds >= item.limitSeconds
     );
     if (!total) continue;
-    if (!limit.entries.some((entry) => matchesDoomscrollingLimitEntry(entry, sample))) continue;
-    return { limitId: limit.id, limitName: limit.name, period: total.period ?? "day" };
+    const entry = limit.entries.find((candidate) =>
+      matchesDoomscrollingLimitEntry(candidate, sample)
+    );
+    if (!entry) continue;
+    return {
+      limitId: limit.id,
+      limitName: limit.name,
+      entryId: entry.id,
+      period: total.period ?? "day",
+    };
   }
   return null;
 }
@@ -247,10 +263,17 @@ async function enforceForegroundLimit(
   if (now - previousAttempt < DESKTOP_LIMIT_CLOSE_THROTTLE_MS) return;
   desktopLimitCloseAttempts.set(closeKey, now);
   await closeCurrentForegroundDoomscrollingDesktopApp({
-    appName: status.appName,
-    processName: status.processName,
-    processId: status.processId,
-    matchNames: status.matchNames,
+    expected: {
+      appName: status.appName,
+      processName: status.processName,
+      processId: status.processId,
+      matchNames: status.matchNames,
+    },
+    ruleIdentity: {
+      kind: "usage-limit",
+      ruleId: exhausted.limitId,
+      entryId: exhausted.entryId,
+    },
   });
   await showDoomscrollingDesktopLimitNotification(source.displayName, exhausted.limitName);
 }
@@ -268,6 +291,11 @@ function openAppLimitPayloads(): DoomscrollingDesktopAppRulePayload[] {
         ? entry.desktopAppMatchNames
         : [entry.desktopAppName];
       byKey.set(entry.desktopAppName.toLowerCase(), {
+        ruleIdentity: {
+          kind: "usage-limit",
+          ruleId: limit.id,
+          entryId: entry.id,
+        },
         name: entry.desktopAppName,
         matchNames: [...matchNames],
       });
@@ -291,6 +319,8 @@ function openAppSourcesFromMatches(
       sourceKey,
       displayName: match.appName,
       processId: match.processId,
+      processName: match.processName,
+      processIdentity: match.processIdentity,
       startedAt: now,
       localDate: sampleLocalDate,
     });
@@ -313,7 +343,17 @@ async function enforceOpenAppLimit(snapshot: OpenAppUsageSnapshot): Promise<void
   const previousAttempt = desktopLimitCloseAttempts.get(closeKey) ?? 0;
   if (now - previousAttempt < DESKTOP_LIMIT_CLOSE_THROTTLE_MS) return;
   desktopLimitCloseAttempts.set(closeKey, now);
-  await closeDoomscrollingDesktopApp(snapshot.processId);
+  const ruleIdentity: DoomscrollingDesktopRuleIdentity = {
+    kind: "usage-limit",
+    ruleId: exhausted.limitId,
+    entryId: exhausted.entryId,
+  };
+  await closeDoomscrollingDesktopApp({
+    processId: snapshot.processId,
+    processName: snapshot.processName,
+    processIdentity: snapshot.processIdentity,
+    ruleIdentity,
+  });
   await showDoomscrollingDesktopLimitNotification(snapshot.displayName, exhausted.limitName);
 }
 
