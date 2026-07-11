@@ -16,7 +16,7 @@ use crate::notes::validation::{
     plain_text_from_payload, require_uuid, validate_block_update, validate_block_write,
     validate_children_count, validate_parent,
 };
-use crate::notes::{assets, history, mention_notifications, reads};
+use crate::notes::{assets, history, mention_notifications, project_history, reads};
 use serde_json::Value;
 use sqlx::SqlitePool;
 use std::collections::HashSet;
@@ -30,6 +30,7 @@ pub(in crate::notes) async fn append_block_children(
     for child in &request.children {
         validate_block_write(child)?;
     }
+    project_history::ensure_parent_baseline_for_mutation(pool, &request.parent).await?;
     let mut tx = pool
         .begin()
         .await
@@ -65,6 +66,7 @@ pub(in crate::notes) async fn update_block(
     let block_id = block_id.trim();
     require_uuid(block_id, "block_id")?;
     let current = reads::get_block_row(pool, block_id, false).await?;
+    project_history::ensure_page_baseline_for_mutation(pool, &current.page_id).await?;
     let (block_type, payload) = validate_block_update(&current.block_type, &update)?;
     validate_block_update_parent(pool, &current, &block_type, &payload).await?;
     validate_block_update_children(pool, block_id, &current.block_type, &block_type, &payload)
@@ -144,6 +146,7 @@ pub(in crate::notes) async fn trash_block(
     let block_id = block_id.trim();
     require_uuid(block_id, "block_id")?;
     let current = reads::get_block_row(pool, block_id, true).await?;
+    project_history::ensure_page_baseline_for_mutation(pool, &current.page_id).await?;
     let mut tx = pool
         .begin()
         .await
@@ -173,6 +176,7 @@ pub(in crate::notes) async fn trash_blocks(
     pool: &SqlitePool,
     request: NoteTrashBlocks,
 ) -> Result<NotePaginatedBlockList, String> {
+    project_history::ensure_blocks_baseline_for_mutation(pool, &request.block_ids).await?;
     let in_trash = request.in_trash.unwrap_or(true);
     let mut tx = pool
         .begin()

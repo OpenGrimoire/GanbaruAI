@@ -2,7 +2,7 @@ mod bundles;
 mod restore;
 mod scope;
 
-use super::{local_user, writes};
+use super::{local_user, writes, NoteParent};
 use crate::db_path::connect_sqlite;
 use bundles::{garbage_collect_bundles_tx, load_bundle_tx, store_bundle_tx};
 use scope::{load_project_graph, ProjectHistoryGraph};
@@ -18,6 +18,7 @@ const ACTIVE_CHECKPOINT_MINUTES: i64 = 10;
 const IDLE_CHECKPOINT_MINUTES: i64 = 2;
 const DEFAULT_PAGE_SIZE: i64 = 40;
 const MAX_PAGE_SIZE: i64 = 100;
+const MAINTENANCE_INTERVAL_HOURS: i64 = 6;
 const SUPPORTED_RETENTION_DAYS: [i64; 6] = [0, 7, 30, 90, 180, 365];
 
 #[cfg(test)]
@@ -106,6 +107,54 @@ pub struct NotesProjectHistoryVersionListDto {
 pub struct NotesHistoryRetentionImpactDto {
     version_count: i64,
     stored_bytes: i64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotesProjectHistoryScheduleDto {
+    created_count: i64,
+    next_checkpoint_at: Option<String>,
+    next_maintenance_at: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotesMutationResultDto<T: Serialize> {
+    value: T,
+    next_history_checkpoint_at: Option<String>,
+}
+
+pub(in crate::notes) async fn mutation_result<T: Serialize>(
+    pool: &SqlitePool,
+    value: T,
+) -> Result<NotesMutationResultDto<T>, String> {
+    let next_history_checkpoint_at = next_checkpoint_at(pool).await?;
+    Ok(NotesMutationResultDto {
+        value,
+        next_history_checkpoint_at,
+    })
+}
+
+async fn next_checkpoint_at(pool: &SqlitePool) -> Result<Option<String>, String> {
+    sqlx::query_scalar(
+        "SELECT MIN(
+             CASE
+                 WHEN force_checkpoint = 1 THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                 WHEN datetime(first_dirty_at, '+' || ? || ' minutes')
+                    <= datetime(last_dirty_at, '+' || ? || ' minutes')
+                 THEN strftime('%Y-%m-%dT%H:%M:%fZ', first_dirty_at, '+' || ? || ' minutes')
+                 ELSE strftime('%Y-%m-%dT%H:%M:%fZ', last_dirty_at, '+' || ? || ' minutes')
+             END
+         )
+         FROM notes_project_history_dirty",
+    )
+    .bind(ACTIVE_CHECKPOINT_MINUTES)
+    .bind(IDLE_CHECKPOINT_MINUTES)
+    .bind(ACTIVE_CHECKPOINT_MINUTES)
+    .bind(IDLE_CHECKPOINT_MINUTES)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| format!("load next Notes history checkpoint deadline: {e}"))
 }
 
 #[derive(Serialize)]
@@ -347,7 +396,6 @@ pub(super) async fn prune_project_history_tx(
             .await
             .map_err(|e| format!("clear disabled Notes project history dirty state: {e}"))?;
     }
-    garbage_collect_bundles_tx(tx).await?;
     i64::try_from(result.rows_affected())
         .map_err(|_| "pruned Notes history count is too large".to_string())
 }
@@ -552,6 +600,139 @@ pub(in crate::notes) async fn mark_project_dirty_tx(
     Ok(())
 }
 
+pub(in crate::notes) async fn ensure_project_baseline_for_mutation(
+    pool: &SqlitePool,
+    project_id: &str,
+) -> Result<(), String> {
+    let project_id = validate_project_id(project_id)?;
+    let project_exists: Option<i64> = sqlx::query_scalar("SELECT 1 FROM projects WHERE id = ?")
+        .bind(&project_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| format!("check Notes history project: {e}"))?;
+    if project_exists.is_none() {
+        return Ok(());
+    }
+    let exists: Option<i64> = sqlx::query_scalar(
+        "SELECT 1 FROM notes_project_history_versions WHERE project_id = ? LIMIT 1",
+    )
+    .bind(&project_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| format!("check Notes project history baseline: {e}"))?;
+    if exists.is_some() {
+        return Ok(());
+    }
+    create_checkpoint(pool, &project_id, "baseline", None, None, "Initial version").await?;
+    Ok(())
+}
+
+pub(in crate::notes) async fn ensure_page_baseline_for_mutation(
+    pool: &SqlitePool,
+    page_id: &str,
+) -> Result<(), String> {
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|e| format!("begin Notes history page baseline lookup: {e}"))?;
+    let project_id = resolve_project_id_for_page_tx(&mut tx, page_id).await?;
+    tx.commit()
+        .await
+        .map_err(|e| format!("commit Notes history page baseline lookup: {e}"))?;
+    if let Some(project_id) = project_id {
+        ensure_project_baseline_for_mutation(pool, &project_id).await?;
+    }
+    Ok(())
+}
+
+pub(in crate::notes) async fn ensure_data_source_baseline_for_mutation(
+    pool: &SqlitePool,
+    data_source_id: &str,
+) -> Result<(), String> {
+    let page_id: Option<String> = sqlx::query_scalar(
+        "SELECT page_id
+         FROM (
+             SELECT database.parent_page_id AS page_id, 1 AS priority
+             FROM notes_data_sources AS data_source
+             JOIN notes_databases AS database ON database.id = data_source.database_id
+             WHERE data_source.id = ? AND database.parent_page_id IS NOT NULL
+             UNION ALL
+             SELECT block.page_id AS page_id, 2 AS priority
+             FROM notes_data_sources AS data_source
+             JOIN notes_databases AS database ON database.id = data_source.database_id
+             JOIN notes_blocks AS block ON block.id = database.id
+             WHERE data_source.id = ?
+             UNION ALL
+             SELECT row_page.id AS page_id, 3 AS priority
+             FROM notes_pages AS row_page
+             WHERE row_page.parent_data_source_id = ?
+         )
+         ORDER BY priority
+         LIMIT 1",
+    )
+    .bind(data_source_id)
+    .bind(data_source_id)
+    .bind(data_source_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| format!("resolve Notes history baseline data source: {e}"))?;
+    if let Some(page_id) = page_id {
+        ensure_page_baseline_for_mutation(pool, &page_id).await?;
+    }
+    Ok(())
+}
+
+pub(in crate::notes) async fn ensure_parent_baseline_for_mutation(
+    pool: &SqlitePool,
+    parent: &NoteParent,
+) -> Result<(), String> {
+    match parent {
+        NoteParent::Workspace { .. } => Ok(()),
+        NoteParent::PageId { page_id } => ensure_page_baseline_for_mutation(pool, page_id).await,
+        NoteParent::BlockId { block_id } => {
+            let page_id: Option<String> =
+                sqlx::query_scalar("SELECT page_id FROM notes_blocks WHERE id = ?")
+                    .bind(block_id.trim())
+                    .fetch_optional(pool)
+                    .await
+                    .map_err(|e| format!("resolve Notes history baseline block: {e}"))?;
+            if let Some(page_id) = page_id {
+                ensure_page_baseline_for_mutation(pool, &page_id).await?;
+            }
+            Ok(())
+        }
+        NoteParent::DataSourceId { data_source_id } => {
+            ensure_data_source_baseline_for_mutation(pool, data_source_id).await
+        }
+    }
+}
+
+pub(in crate::notes) async fn ensure_blocks_baseline_for_mutation(
+    pool: &SqlitePool,
+    block_ids: &[String],
+) -> Result<(), String> {
+    if block_ids.is_empty() {
+        return Ok(());
+    }
+    let mut query = sqlx::QueryBuilder::<Sqlite>::new(
+        "SELECT DISTINCT page_id FROM notes_blocks WHERE id IN (",
+    );
+    let mut separated = query.separated(", ");
+    for block_id in block_ids {
+        separated.push_bind(block_id.trim());
+    }
+    separated.push_unseparated(")");
+    let page_ids = query
+        .build_query_scalar::<String>()
+        .fetch_all(pool)
+        .await
+        .map_err(|e| format!("resolve Notes history baseline blocks: {e}"))?;
+    for page_id in page_ids {
+        ensure_page_baseline_for_mutation(pool, &page_id).await?;
+    }
+    Ok(())
+}
+
 async fn resolve_project_id_for_page_tx(
     tx: &mut Transaction<'_, Sqlite>,
     page_id: &str,
@@ -682,27 +863,58 @@ pub async fn notes_initialize_project_history<R: Runtime>(
     project_id: String,
 ) -> Result<Option<NotesProjectHistoryVersionDto>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    create_checkpoint(
-        &pool,
-        &project_id,
-        "baseline",
-        None,
-        None,
-        "Initial version",
+    initialize_project_history(&pool, &project_id).await
+}
+
+async fn initialize_project_history(
+    pool: &SqlitePool,
+    project_id: &str,
+) -> Result<Option<NotesProjectHistoryVersionDto>, String> {
+    let project_id = validate_project_id(project_id)?;
+    let has_content: bool = sqlx::query_scalar(
+        "SELECT EXISTS(
+             SELECT 1 FROM notes_folders WHERE project_id = ?
+             UNION ALL
+             SELECT 1 FROM notes_pages
+             WHERE trim(json_extract(properties, '$.__ganbaru_project_id')) = ?
+         )",
     )
+    .bind(&project_id)
+    .bind(&project_id)
+    .fetch_one(pool)
     .await
+    .map_err(|e| format!("check Notes project history content: {e}"))?;
+    if !has_content {
+        return Ok(None);
+    }
+    ensure_project_baseline_for_mutation(pool, &project_id).await?;
+    let row = sqlx::query(
+        "SELECT id, project_id, manifest_hash, reason, created_by, display_name,
+                changed_note_summary, page_count, active_page_count,
+                archived_page_count, deleted_page_count, created_time
+         FROM notes_project_history_versions
+         WHERE project_id = ?
+         ORDER BY created_time ASC, id ASC LIMIT 1",
+    )
+    .bind(&project_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| format!("load Notes project history baseline: {e}"))?;
+    row.as_ref().map(version_from_row).transpose()
 }
 
 #[tauri::command]
 pub async fn notes_flush_due_project_history<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
-) -> Result<i64, String> {
+) -> Result<NotesProjectHistoryScheduleDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
     flush_due_checkpoints(&pool).await
 }
 
-pub(in crate::notes) async fn flush_due_checkpoints(pool: &SqlitePool) -> Result<i64, String> {
+pub(in crate::notes) async fn flush_due_checkpoints(
+    pool: &SqlitePool,
+) -> Result<NotesProjectHistoryScheduleDto, String> {
     let rows = sqlx::query(
         "SELECT project_id, actor_id, actor_display_name, changed_note_summary
          FROM notes_project_history_dirty
@@ -745,23 +957,70 @@ pub(in crate::notes) async fn flush_due_checkpoints(pool: &SqlitePool) -> Result
             created += 1;
         }
     }
-    let mut maintenance_tx = pool
+    run_due_maintenance(pool).await?;
+    history_schedule(pool, created).await
+}
+
+async fn run_due_maintenance(pool: &SqlitePool) -> Result<(), String> {
+    let maintenance_due: bool = sqlx::query_scalar(
+        "SELECT last_run_at IS NULL
+             OR last_run_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-' || ? || ' hours')
+         FROM notes_history_maintenance_state WHERE id = 1",
+    )
+    .bind(MAINTENANCE_INTERVAL_HOURS)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| format!("check Notes history maintenance deadline: {e}"))?;
+    if !maintenance_due {
+        return Ok(());
+    }
+    let mut tx = pool
         .begin()
         .await
-        .map_err(|e| format!("begin Notes history startup maintenance: {e}"))?;
-    super::history::cleanup_history_retention_tx(&mut maintenance_tx).await?;
+        .map_err(|e| format!("begin Notes history maintenance: {e}"))?;
+    super::history::cleanup_history_retention_tx(&mut tx).await?;
     let project_ids: Vec<String> = sqlx::query_scalar("SELECT id FROM projects ORDER BY id")
-        .fetch_all(&mut *maintenance_tx)
+        .fetch_all(&mut *tx)
         .await
         .map_err(|e| format!("list projects for Notes history maintenance: {e}"))?;
     for project_id in project_ids {
-        prune_project_history_tx(&mut maintenance_tx, &project_id).await?;
+        prune_project_history_tx(&mut tx, &project_id).await?;
     }
-    maintenance_tx
-        .commit()
+    garbage_collect_bundles_tx(&mut tx).await?;
+    sqlx::query(
+        "UPDATE notes_history_maintenance_state
+         SET last_run_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+         WHERE id = 1",
+    )
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| format!("record Notes history maintenance: {e}"))?;
+    tx.commit()
         .await
-        .map_err(|e| format!("commit Notes history startup maintenance: {e}"))?;
-    Ok(created)
+        .map_err(|e| format!("commit Notes history maintenance: {e}"))
+}
+
+async fn history_schedule(
+    pool: &SqlitePool,
+    created_count: i64,
+) -> Result<NotesProjectHistoryScheduleDto, String> {
+    let next_checkpoint_at = next_checkpoint_at(pool).await?;
+    let next_maintenance_at: String = sqlx::query_scalar(
+        "SELECT CASE
+             WHEN last_run_at IS NULL THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+             ELSE strftime('%Y-%m-%dT%H:%M:%fZ', last_run_at, '+' || ? || ' hours')
+         END
+         FROM notes_history_maintenance_state WHERE id = 1",
+    )
+    .bind(MAINTENANCE_INTERVAL_HOURS)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| format!("load next Notes history maintenance deadline: {e}"))?;
+    Ok(NotesProjectHistoryScheduleDto {
+        created_count,
+        next_checkpoint_at,
+        next_maintenance_at,
+    })
 }
 
 #[tauri::command]
@@ -1194,6 +1453,7 @@ pub async fn notes_prune_project_history<R: Runtime>(
         .map_err(|e| format!("begin Notes project history pruning: {e}"))?;
     super::history::cleanup_history_retention_tx(&mut tx).await?;
     let pruned = prune_project_history_tx(&mut tx, &project_id).await?;
+    garbage_collect_bundles_tx(&mut tx).await?;
     tx.commit()
         .await
         .map_err(|e| format!("commit Notes project history pruning: {e}"))?;
@@ -1224,7 +1484,11 @@ pub async fn notes_restore_project_history_version<R: Runtime>(
 
 #[cfg(test)]
 mod tests {
-    use super::{checkpoint_is_due, create_checkpoint, normalize_legacy_retention_days, restore};
+    use super::{
+        checkpoint_is_due, create_checkpoint, ensure_project_baseline_for_mutation,
+        flush_due_checkpoints, initialize_project_history, mark_project_dirty_tx, mutation_result,
+        normalize_legacy_retention_days, restore,
+    };
     use crate::db::run_migrations;
     use sqlx::SqlitePool;
 
@@ -1261,6 +1525,20 @@ mod tests {
         .await
         .unwrap();
         insert_project_page(pool, PAGE_ID, BLOCK_ID, "First version").await;
+    }
+
+    async fn seed_empty_project(pool: &SqlitePool) {
+        sqlx::query("INSERT INTO project_groups (id, name) VALUES ('group-history', 'History')")
+            .execute(pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO projects (id, group_id, name) VALUES (?, 'group-history', 'Learning')",
+        )
+        .bind(PROJECT_ID)
+        .execute(pool)
+        .await
+        .unwrap();
     }
 
     async fn insert_project_page(pool: &SqlitePool, page_id: &str, block_id: &str, text: &str) {
@@ -1329,6 +1607,124 @@ mod tests {
         assert!(checkpoint_is_due(30, 120, false));
         assert!(checkpoint_is_due(0, 0, true));
         assert!(checkpoint_is_due(3_600, 3_600, false));
+    }
+
+    #[test]
+    fn selecting_an_empty_project_does_not_create_a_baseline() {
+        tauri::async_runtime::block_on(async {
+            let pool = migrated_pool().await;
+            seed_empty_project(&pool).await;
+            let initialized = initialize_project_history(&pool, PROJECT_ID).await.unwrap();
+            assert!(initialized.is_none());
+            let version_count: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM notes_project_history_versions")
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+            assert_eq!(version_count, 0);
+        });
+    }
+
+    #[test]
+    fn first_mutation_creates_one_baseline_and_due_flush_returns_no_dirty_deadline() {
+        tauri::async_runtime::block_on(async {
+            let pool = migrated_pool().await;
+            seed_empty_project(&pool).await;
+            ensure_project_baseline_for_mutation(&pool, PROJECT_ID)
+                .await
+                .unwrap();
+            ensure_project_baseline_for_mutation(&pool, PROJECT_ID)
+                .await
+                .unwrap();
+            let baseline_count: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM notes_project_history_versions WHERE project_id = ?",
+            )
+            .bind(PROJECT_ID)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert_eq!(baseline_count, 1);
+
+            insert_project_page(&pool, PAGE_ID, BLOCK_ID, "First version").await;
+            let mut tx = pool.begin().await.unwrap();
+            mark_project_dirty_tx(&mut tx, PROJECT_ID, "First version", false)
+                .await
+                .unwrap();
+            mark_project_dirty_tx(&mut tx, PROJECT_ID, "Edited again", false)
+                .await
+                .unwrap();
+            tx.commit().await.unwrap();
+            let pending = super::history_schedule(&pool, 0).await.unwrap();
+            assert!(pending.next_checkpoint_at.is_some());
+            let write_result = mutation_result(&pool, "saved").await.unwrap();
+            let write_json = serde_json::to_value(write_result).unwrap();
+            assert_eq!(write_json["value"], "saved");
+            assert!(write_json["nextHistoryCheckpointAt"].is_string());
+
+            sqlx::query(
+                "UPDATE notes_project_history_dirty
+                 SET last_dirty_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-3 minutes')",
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+            let flushed = flush_due_checkpoints(&pool).await.unwrap();
+            assert_eq!(flushed.created_count, 1);
+            assert!(flushed.next_checkpoint_at.is_none());
+            let version_count: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM notes_project_history_versions WHERE project_id = ?",
+            )
+            .bind(PROJECT_ID)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert_eq!(version_count, 2);
+        });
+    }
+
+    #[test]
+    fn orphan_maintenance_runs_only_after_its_vault_deadline() {
+        tauri::async_runtime::block_on(async {
+            let pool = migrated_pool().await;
+            seed_empty_project(&pool).await;
+            flush_due_checkpoints(&pool).await.unwrap();
+            let orphan_hash = "0000000000000000000000000000000000000000000000000000000000000000";
+            sqlx::query(
+                "INSERT INTO notes_history_bundles (
+                    hash, kind, encoding, payload, uncompressed_bytes, stored_bytes
+                 ) VALUES (?, 'row', 'raw-json-v1', X'7B7D', 2, 2)",
+            )
+            .bind(orphan_hash)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+            flush_due_checkpoints(&pool).await.unwrap();
+            let retained: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM notes_history_bundles WHERE hash = ?")
+                    .bind(orphan_hash)
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+            assert_eq!(retained, 1);
+
+            sqlx::query(
+                "UPDATE notes_history_maintenance_state
+                 SET last_run_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-7 hours')
+                 WHERE id = 1",
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+            flush_due_checkpoints(&pool).await.unwrap();
+            let collected: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM notes_history_bundles WHERE hash = ?")
+                    .bind(orphan_hash)
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+            assert_eq!(collected, 0);
+        });
     }
 
     #[test]

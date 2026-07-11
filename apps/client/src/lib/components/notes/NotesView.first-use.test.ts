@@ -7,6 +7,7 @@ const backend = vi.hoisted(() => {
   const promise = new Promise<never>(() => undefined);
   let notesCalls = 0;
   let projectsCalls = 0;
+  let historyCalls = 0;
   const componentCalls: string[] = [];
   return {
     promise,
@@ -16,12 +17,18 @@ const backend = vi.hoisted(() => {
     get projectsCalls() {
       return projectsCalls;
     },
+    get historyCalls() {
+      return historyCalls;
+    },
     componentCalls,
     recordNotesCall() {
       notesCalls += 1;
     },
     recordProjectsCall() {
       projectsCalls += 1;
+    },
+    recordHistoryCall() {
+      historyCalls += 1;
     },
   };
 });
@@ -84,8 +91,14 @@ vi.mock("$lib/api/notes-project-history", async (importOriginal) => {
   const actual = await importOriginal<typeof import("$lib/api/notes-project-history")>();
   return {
     ...actual,
-    flushDueNotesProjectHistory: () => Promise.resolve(),
-    initializeNotesProjectHistory: () => Promise.resolve(),
+    flushDueNotesProjectHistory: () => {
+      backend.recordHistoryCall();
+      return Promise.resolve();
+    },
+    initializeNotesProjectHistory: () => {
+      backend.recordHistoryCall();
+      return Promise.resolve();
+    },
   };
 });
 
@@ -115,6 +128,7 @@ describe("NotesView first use", () => {
 
     expect(backend.notesCalls).toBe(1);
     expect(backend.projectsCalls).toBe(1);
+    expect(backend.historyCalls).toBe(0);
     expect(target.querySelector('[data-first-use-shell="notes"]')).not.toBeNull();
     expect(target.querySelector("[data-notes-workspace-header]")).not.toBeNull();
     expect(target.querySelector("[data-notes-first-use-state]")?.getAttribute("aria-busy"))

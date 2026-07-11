@@ -1,9 +1,5 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import {
-    flushDueNotesProjectHistory,
-    initializeNotesProjectHistory,
-  } from "$lib/api/notes-project-history";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { hasOnlyShortcutModifier } from "$lib/keyboard-shortcuts";
   import {
@@ -167,32 +163,15 @@
     void projects.ensureLoaded().catch((error) => {
       console.error("load projects failed", error);
     });
-    void flushDueNotesProjectHistory().catch((error) => {
-      console.error("flush recovered notes project history failed", error);
-    });
     const onHashChange = () => {
       void openHashTarget().catch((error) => {
         console.error("open notes block link failed", error);
       });
     };
     window.addEventListener("hashchange", onHashChange);
-    const historyFlushTimer = window.setInterval(() => {
-      void flushDueNotesProjectHistory().catch((error) => {
-        console.error("flush notes project history failed", error);
-      });
-    }, 60_000);
     return () => {
       window.removeEventListener("hashchange", onHashChange);
-      window.clearInterval(historyFlushTimer);
     };
-  });
-
-  $effect(() => {
-    const projectId = selectedProjectId;
-    if (!projectId) return;
-    void initializeNotesProjectHistory(projectId).catch((error) => {
-      console.error("initialize notes project history failed", error);
-    });
   });
 
   $effect(() => {

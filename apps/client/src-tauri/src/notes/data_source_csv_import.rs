@@ -37,6 +37,13 @@ pub(in crate::notes) async fn import_csv(
     }
     let dry_run = request.dry_run.unwrap_or(true);
     let parsed = parse_csv(&request.csv)?;
+    if !dry_run {
+        crate::notes::project_history::ensure_data_source_baseline_for_mutation(
+            pool,
+            data_source_id,
+        )
+        .await?;
+    }
     let mut tx = pool
         .begin()
         .await

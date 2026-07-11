@@ -24,6 +24,7 @@ export interface LifecycleScheduler {
   setEnabled(enabled: boolean): void;
   invalidate(): void;
   resume(): void;
+  scheduleAt(deadlineMs: number): void;
   dispose(): void;
   isEnabled(): boolean;
   hasScheduledDeadline(): boolean;
@@ -157,6 +158,12 @@ export function createLifecycleScheduler(
     setEnabled,
     invalidate,
     resume: invalidate,
+    scheduleAt: (deadlineMs) => {
+      if (!enabled || disposed || !Number.isFinite(deadlineMs)) return;
+      generation += 1;
+      queued = false;
+      scheduleAt(deadlineMs);
+    },
     dispose,
     isEnabled: () => enabled,
     hasScheduledDeadline: () => timeout !== null,

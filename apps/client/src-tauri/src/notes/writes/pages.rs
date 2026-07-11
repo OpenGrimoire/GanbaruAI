@@ -13,7 +13,7 @@ use crate::notes::validation::{
     plain_text_from_payload, require_uuid, validate_page_create, validate_page_update,
     validate_sort_order,
 };
-use crate::notes::{assets, history, reads};
+use crate::notes::{assets, history, project_history, reads};
 use serde_json::Value;
 use sqlx::SqlitePool;
 
@@ -27,6 +27,16 @@ pub(in crate::notes) async fn create_page(
     }
     let title = page.title.trim().to_string();
     let properties = page_properties_for_create(&title, page.properties.as_ref())?;
+    if let Some(project_id) = properties
+        .get("__ganbaru_project_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        project_history::ensure_project_baseline_for_mutation(pool, project_id).await?;
+    } else {
+        project_history::ensure_parent_baseline_for_mutation(pool, &page.parent).await?;
+    }
     let folder_id = page.folder_id.as_deref().map(str::trim);
     let (parent_type, parent_page_id, parent_block_id) = parent_columns(&page.parent);
     let first_payload = default_text_payload("");
@@ -148,6 +158,7 @@ pub(in crate::notes) async fn create_child_page_from_block(
     if current.block_type == "child_page" {
         return reads::load_page(pool, block_id).await;
     }
+    project_history::ensure_page_baseline_for_mutation(pool, &current.page_id).await?;
     let title = request
         .title
         .as_deref()
@@ -316,6 +327,7 @@ pub(in crate::notes) async fn update_page(
     let page_id = page_id.trim();
     require_uuid(page_id, "page_id")?;
     validate_page_update(&update)?;
+    project_history::ensure_page_baseline_for_mutation(pool, page_id).await?;
     let mut tx = pool
         .begin()
         .await

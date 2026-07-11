@@ -450,6 +450,8 @@ fn empty_notes_first_use_has_a_fixed_backend_contract() {
             "notes_page_templates",
             "notes_local_users",
             "notes_page_history",
+            "notes_project_history",
+            "notes_history_maintenance_state",
             "notes_comments",
             "notes_suggestions",
             "notes_backlinks",

@@ -36,6 +36,8 @@ pub(in crate::notes) async fn get_data_source_timeline_view(
     view_id: Option<&str>,
 ) -> Result<NoteDataSourceTimelineViewDto, String> {
     data_source_views::validate_view_scope(data_source_id, database_id, view_id)?;
+    crate::notes::project_history::ensure_data_source_baseline_for_mutation(pool, data_source_id)
+        .await?;
     let mut tx = pool
         .begin()
         .await

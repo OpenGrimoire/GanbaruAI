@@ -40,6 +40,27 @@ function boolean(value: unknown, name: string): boolean {
   return value;
 }
 
+export interface NotesProjectHistorySchedule {
+  createdCount: number;
+  nextCheckpointAt: string | null;
+  nextMaintenanceAt: string;
+}
+
+function schedule(value: unknown): NotesProjectHistorySchedule {
+  const parsed = record(value, "project history schedule");
+  return {
+    createdCount: number(parsed.createdCount, "project history schedule.createdCount"),
+    nextCheckpointAt: optionalString(
+      parsed.nextCheckpointAt,
+      "project history schedule.nextCheckpointAt",
+    ),
+    nextMaintenanceAt: string(
+      parsed.nextMaintenanceAt,
+      "project history schedule.nextMaintenanceAt",
+    ),
+  };
+}
+
 function displayName(value: unknown): NotesCommentDisplayName {
   const parsed = record(value, "history display name");
   const type = string(parsed.type, "history display name.type");
@@ -109,12 +130,9 @@ export async function initializeNotesProjectHistory(
   return value === null ? null : version(value);
 }
 
-export async function flushDueNotesProjectHistory(): Promise<number> {
+export async function flushDueNotesProjectHistory(): Promise<NotesProjectHistorySchedule> {
   const dbUrl = await ensureDbUrl();
-  return number(
-    await invoke<unknown>("notes_flush_due_project_history", { dbUrl }),
-    "flushed project history count",
-  );
+  return schedule(await invoke<unknown>("notes_flush_due_project_history", { dbUrl }));
 }
 
 export async function listNotesProjectHistoryVersions(args: {

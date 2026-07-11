@@ -12,7 +12,7 @@ use crate::notes::models::{
 use crate::notes::validation::{
     plain_text_from_payload, require_uuid, validate_parent, validate_sort_order,
 };
-use crate::notes::{history, reads};
+use crate::notes::{history, project_history, reads};
 use sqlx::SqlitePool;
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -32,6 +32,7 @@ pub(in crate::notes) async fn duplicate_page(
 ) -> Result<NoteLoadedPage, String> {
     let page_id = page_id.trim();
     require_uuid(page_id, "page_id")?;
+    project_history::ensure_page_baseline_for_mutation(pool, page_id).await?;
     let mut tx = pool
         .begin()
         .await

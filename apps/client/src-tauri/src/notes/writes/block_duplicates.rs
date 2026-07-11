@@ -15,7 +15,7 @@ use crate::notes::models::{
 use crate::notes::validation::{
     require_uuid, validate_duplicate_block_count, validate_parent, validate_sort_order,
 };
-use crate::notes::{history, reads};
+use crate::notes::{history, project_history, reads};
 use serde_json::Value;
 use sqlx::SqlitePool;
 use std::collections::{HashMap, HashSet};
@@ -27,6 +27,8 @@ pub(in crate::notes) async fn duplicate_block(
 ) -> Result<NoteBlockDto, String> {
     let block_id = block_id.trim();
     require_uuid(block_id, "block_id")?;
+    let source = reads::get_block_row(pool, block_id, false).await?;
+    project_history::ensure_page_baseline_for_mutation(pool, &source.page_id).await?;
     validate_duplicate_block_count(request.duplicated_block_ids.len())?;
     let mut duplicate_ids = HashMap::with_capacity(request.duplicated_block_ids.len());
     let mut seen_duplicate_ids = HashSet::with_capacity(request.duplicated_block_ids.len());
@@ -165,6 +167,8 @@ pub(in crate::notes) async fn duplicate_blocks(
     request: NoteDuplicateBlocks,
 ) -> Result<NotePaginatedBlockList, String> {
     validate_parent(&request.parent)?;
+    project_history::ensure_blocks_baseline_for_mutation(pool, &request.block_ids).await?;
+    project_history::ensure_parent_baseline_for_mutation(pool, &request.parent).await?;
     if request.after.is_some() && request.before.is_some() {
         return Err("duplicate request cannot include both after and before".to_string());
     }

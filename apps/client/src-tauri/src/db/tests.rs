@@ -2441,6 +2441,7 @@ fn schema_creates_strict_project_notes_history_storage() {
             "notes_project_history_bundle_references",
             "notes_project_history_asset_pins",
             "notes_project_history_dirty",
+            "notes_history_maintenance_state",
         ] {
             let exists: i64 = sqlx::query_scalar(
                 "SELECT COUNT(*) FROM sqlite_schema WHERE type = 'table' AND name = ?",
@@ -2451,6 +2452,16 @@ fn schema_creates_strict_project_notes_history_storage() {
             .unwrap();
             assert_eq!(exists, 1, "missing table {table}");
         }
+
+        let deadline_index_exists: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM sqlite_schema
+             WHERE type = 'index'
+               AND name = 'idx_notes_project_history_dirty_deadlines'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(deadline_index_exists, 1);
 
         let operation_foreign_keys: Vec<String> = sqlx::query_scalar(
             "SELECT \"table\" FROM pragma_foreign_key_list('notes_collaboration_operations')",

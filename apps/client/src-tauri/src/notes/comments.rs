@@ -147,6 +147,11 @@ pub(in crate::notes) async fn create_comment(
     if request.anchor.is_some() && request.discussion_id.is_some() {
         return Err("inline comment anchors can only start new block comment threads".to_string());
     }
+    if let Some(parent) = request.parent.as_ref() {
+        crate::notes::project_history::ensure_parent_baseline_for_mutation(pool, parent).await?;
+    } else if let Some(discussion_id) = request.discussion_id.as_deref() {
+        ensure_comment_thread_baseline(pool, discussion_id).await?;
+    }
     let mut tx = pool
         .begin()
         .await
@@ -265,6 +270,7 @@ pub(in crate::notes) async fn update_comment(
     let comment_id = comment_id.trim();
     require_uuid(comment_id, "comment_id")?;
     validate_comment_rich_text(&update.rich_text)?;
+    ensure_comment_baseline(pool, comment_id).await?;
     if let Some(attachments) = update.attachments.as_ref() {
         validate_comment_attachments(attachments)?;
     }
@@ -355,6 +361,7 @@ pub(in crate::notes) async fn delete_comment(
 ) -> Result<NoteCommentThreadDto, String> {
     let comment_id = comment_id.trim();
     require_uuid(comment_id, "comment_id")?;
+    ensure_comment_baseline(pool, comment_id).await?;
     let mut tx = pool
         .begin()
         .await
@@ -410,6 +417,7 @@ pub(in crate::notes) async fn resolve_comment_thread(
 ) -> Result<NoteCommentThreadDto, String> {
     let discussion_id = discussion_id.trim();
     require_uuid(discussion_id, "discussion_id")?;
+    ensure_comment_thread_baseline(pool, discussion_id).await?;
     let mut tx = pool
         .begin()
         .await
@@ -475,6 +483,39 @@ pub(in crate::notes) async fn resolve_comment_thread(
         .await
         .map_err(|e| format!("commit notes comment thread resolve: {e}"))?;
     load_thread(pool, discussion_id).await
+}
+
+async fn ensure_comment_baseline(pool: &SqlitePool, comment_id: &str) -> Result<(), String> {
+    let page_id: Option<String> = sqlx::query_scalar(
+        "SELECT thread.page_id
+         FROM notes_comments AS comment
+         JOIN notes_comment_threads AS thread ON thread.id = comment.thread_id
+         WHERE comment.id = ?",
+    )
+    .bind(comment_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| format!("load Notes comment history page: {e}"))?;
+    if let Some(page_id) = page_id {
+        crate::notes::project_history::ensure_page_baseline_for_mutation(pool, &page_id).await?;
+    }
+    Ok(())
+}
+
+async fn ensure_comment_thread_baseline(
+    pool: &SqlitePool,
+    discussion_id: &str,
+) -> Result<(), String> {
+    let page_id: Option<String> =
+        sqlx::query_scalar("SELECT page_id FROM notes_comment_threads WHERE id = ?")
+            .bind(discussion_id)
+            .fetch_optional(pool)
+            .await
+            .map_err(|e| format!("load Notes discussion history page: {e}"))?;
+    if let Some(page_id) = page_id {
+        crate::notes::project_history::ensure_page_baseline_for_mutation(pool, &page_id).await?;
+    }
+    Ok(())
 }
 
 async fn load_thread(pool: &SqlitePool, thread_id: &str) -> Result<NoteCommentThreadDto, String> {

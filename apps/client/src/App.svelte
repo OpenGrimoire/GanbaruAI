@@ -84,6 +84,8 @@
     createNotesNotificationScheduler,
   } from "$lib/scheduling/notification-schedulers";
   import { onMount, type Component } from "svelte";
+  import { getNotesProjectHistoryScheduler } from "$lib/notes/project-history-scheduler";
+  import { onActiveVaultIdentityChange } from "$lib/vault/active-vault";
 
   perfMark("boot.script-start");
 
@@ -110,6 +112,7 @@
   const locale = $derived(localization.locale);
   const detachedWindows = getDetachedWindows();
   const notesNotificationSchedule = getNotesNotificationSchedule();
+  const notesProjectHistoryScheduler = getNotesProjectHistoryScheduler();
   let unlistenCalendarNotificationOpen: UnlistenFn | null = null;
   let unlistenNotesNotificationOpen: UnlistenFn | null = null;
   let unlistenDoomscrollingDesktopSettingsOpen: UnlistenFn | null = null;
@@ -317,6 +320,7 @@
       }, UPDATE_AUTO_CHECK_INTERVAL_MS + AUTOMATIC_UPDATE_CHECK_DELAY_MS + 1_000)
       : null;
     if (isMainWindow) {
+      notesProjectHistoryScheduler.setEnabled(true);
       listen("calendar-notification-open", () => {
         nav.navigate("calendar");
       })
@@ -348,6 +352,9 @@
         })
         .catch((e) => console.error("Failed to listen for doomscrolling limit settings opens:", e));
     }
+    const unsubscribeHistoryVault = isMainWindow
+      ? onActiveVaultIdentityChange(() => notesProjectHistoryScheduler.switchVault())
+      : null;
 
     // Valid benchmark boots are claimed before normal calendar hydration so
     // the measured window is the scenario anchor, not today's normal window.
@@ -443,6 +450,12 @@
       if (automaticUpdateCheckTimerId) clearTimeout(automaticUpdateCheckTimerId);
       if (automaticUpdateCheckIntervalId) clearInterval(automaticUpdateCheckIntervalId);
       clearTimeout(startupMemoryTimerId);
+      unsubscribeHistoryVault?.();
+      if (isMainWindow) {
+        void notesProjectHistoryScheduler.shutdown().catch((error) => {
+          console.error("Notes project history shutdown flush failed", error);
+        });
+      }
       disposeLifecycleSchedulers();
     };
   });
@@ -1036,6 +1049,7 @@
     activeBlockScheduler.resume();
     eventNotificationScheduler.resume();
     notesNotificationScheduler.resume();
+    notesProjectHistoryScheduler.resume();
     desktopBlockingScheduler.resume();
     doomscrollingUsage.resume();
     music.resumeSnapshotScheduler();

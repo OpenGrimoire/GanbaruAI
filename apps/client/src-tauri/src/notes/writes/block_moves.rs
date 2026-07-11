@@ -7,7 +7,7 @@ use super::parents::{
 use super::sort::{next_sort_orders, sort_order_before, sort_orders_before};
 use crate::notes::models::{NoteBlockDto, NoteMoveBlock, NoteMoveBlocks, NotePaginatedBlockList};
 use crate::notes::validation::{require_uuid, validate_parent, validate_sort_order};
-use crate::notes::{history, reads};
+use crate::notes::{history, project_history, reads};
 use serde_json::Value;
 use sqlx::SqlitePool;
 use std::collections::HashSet;
@@ -21,6 +21,8 @@ pub(in crate::notes) async fn move_block(
     require_uuid(block_id, "block_id")?;
     validate_parent(&request.parent)?;
     let current = reads::get_block_row(pool, block_id, false).await?;
+    project_history::ensure_page_baseline_for_mutation(pool, &current.page_id).await?;
+    project_history::ensure_parent_baseline_for_mutation(pool, &request.parent).await?;
     let mut tx = pool
         .begin()
         .await
@@ -127,6 +129,8 @@ pub(in crate::notes) async fn move_blocks(
     request: NoteMoveBlocks,
 ) -> Result<NotePaginatedBlockList, String> {
     validate_parent(&request.parent)?;
+    project_history::ensure_blocks_baseline_for_mutation(pool, &request.block_ids).await?;
+    project_history::ensure_parent_baseline_for_mutation(pool, &request.parent).await?;
     if request.after.is_some() && request.before.is_some() {
         return Err("move request cannot include both after and before".to_string());
     }

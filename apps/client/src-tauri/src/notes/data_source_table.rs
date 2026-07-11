@@ -37,6 +37,8 @@ pub(in crate::notes) async fn get_data_source_table_view(
     view_id: Option<&str>,
 ) -> Result<NoteDataSourceTableViewDto, String> {
     data_source_views::validate_view_scope(data_source_id, database_id, view_id)?;
+    crate::notes::project_history::ensure_data_source_baseline_for_mutation(pool, data_source_id)
+        .await?;
     let mut tx = pool
         .begin()
         .await
@@ -108,6 +110,8 @@ pub(in crate::notes) async fn update_data_source_row_property(
 ) -> Result<NotePageDto, String> {
     require_uuid(data_source_id, "data_source_id")?;
     require_uuid(page_id, "page_id")?;
+    crate::notes::project_history::ensure_data_source_baseline_for_mutation(pool, data_source_id)
+        .await?;
     let mut tx = pool
         .begin()
         .await

@@ -53,6 +53,15 @@ pub(in crate::notes) async fn create_suggestion(
     request: NoteSuggestionCreate,
 ) -> Result<NoteSuggestionDto, String> {
     validate_suggestion_create(&request)?;
+    let page_id: Option<String> =
+        sqlx::query_scalar("SELECT page_id FROM notes_blocks WHERE id = ? AND in_trash = 0")
+            .bind(request.block_id.trim())
+            .fetch_optional(pool)
+            .await
+            .map_err(|e| format!("load Notes suggestion history page: {e}"))?;
+    if let Some(page_id) = page_id {
+        crate::notes::project_history::ensure_page_baseline_for_mutation(pool, &page_id).await?;
+    }
     let mut tx = pool
         .begin()
         .await
@@ -138,6 +147,15 @@ async fn decide_suggestion(
 ) -> Result<NoteSuggestionDto, String> {
     let suggestion_id = suggestion_id.trim();
     require_uuid(suggestion_id, "suggestion_id")?;
+    let page_id: Option<String> =
+        sqlx::query_scalar("SELECT page_id FROM notes_suggestions WHERE id = ?")
+            .bind(suggestion_id)
+            .fetch_optional(pool)
+            .await
+            .map_err(|e| format!("load Notes suggestion history page: {e}"))?;
+    if let Some(page_id) = page_id {
+        crate::notes::project_history::ensure_page_baseline_for_mutation(pool, &page_id).await?;
+    }
     let mut tx = pool
         .begin()
         .await
