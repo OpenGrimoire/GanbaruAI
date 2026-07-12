@@ -25,40 +25,22 @@
     type ProjectSettingsStatusDraftState,
     type ProjectSettingsTagDraftState,
   } from "$lib/projects/project-settings-collection-drafts";
-  import { projectCustomFieldUsesOptions } from "$lib/projects/custom-fields";
   import {
     PROJECT_LIFECYCLE_STATUSES,
     PROJECT_TAG_DEFAULT_COLOR,
   } from "$lib/projects/types";
-  import type {
-    NewCustomFieldDraft,
-    NewCustomFieldOptionDraft,
-  } from "$lib/projects/project-settings-custom-field-drafts";
-  import {
-    projectSettingsCustomFieldNameDraftValue,
-    projectSettingsCustomFieldOptionCreateDraftRows,
-    projectSettingsCustomFieldOptionNameDraftValue,
-    projectSettingsCustomFieldOptionNamesForCreate,
-    projectSettingsRemoveCustomFieldCreateDraft,
-    projectSettingsRemoveCustomFieldCreateDraftOption,
-    projectSettingsRemoveCustomFieldOptionCreateDraft,
-    projectSettingsSetCustomFieldCreateDraftName,
-    projectSettingsSetCustomFieldCreateDraftOptionName,
-    projectSettingsSetCustomFieldCreateDraftPendingOptionName,
-    projectSettingsSetCustomFieldOptionCreateDraftName,
-  } from "$lib/projects/project-settings-custom-field-drafts";
+  import { createProjectSettingsCustomFieldController } from "$lib/projects/project-settings-custom-field-controller.svelte";
+  import { createProjectSettingsColorAllocator } from "$lib/projects/project-settings-color-controller";
   import { createProjectSettingsReorderController } from "$lib/projects/project-settings-reorder-controller.svelte";
   import { createProjectSettingsSession } from "$lib/projects/project-settings-session.svelte";
   import {
     nextProjectSettingsPaletteColor,
-    nextUnusedProjectSettingsColor,
     scrollProjectSettingsRowIntoView,
   } from "$lib/projects/project-settings-ui";
   import type {
     Project,
     ProjectCustomField,
     ProjectCustomFieldOption,
-    ProjectCustomFieldType,
     ProjectTag,
     ProjectLifecycleStatus,
     ProjectPriorityConfig,
@@ -113,8 +95,6 @@
   let pendingDeleteStatusId = $state<string | null>(null);
   let pendingDeletePriorityId = $state<string | null>(null);
   let pendingDeleteTagId = $state<string | null>(null);
-  let pendingDeleteCustomFieldId = $state<string | null>(null);
-  let pendingDeleteCustomFieldOptionId = $state<string | null>(null);
   let settingsScrollElement = $state<HTMLElement | undefined>();
   let newStatusRowElement = $state<HTMLDivElement | undefined>();
   let newPriorityRowElement = $state<HTMLDivElement | undefined>();
@@ -149,17 +129,6 @@
   const pendingDeleteTag = $derived.by(() =>
     pendingDeleteTagId ? projectTags.find((tag) => tag.id === pendingDeleteTagId) : undefined
   );
-  const pendingDeleteCustomField = $derived.by(() =>
-    pendingDeleteCustomFieldId
-      ? projectCustomFields.find((field) => field.id === pendingDeleteCustomFieldId)
-      : undefined
-  );
-  const pendingDeleteCustomFieldOption = $derived.by(() => {
-    if (!pendingDeleteCustomFieldOptionId) return undefined;
-    return projectCustomFields
-      .flatMap((field) => projects.customFieldOptionsForField(field.id))
-      .find((entry) => entry.id === pendingDeleteCustomFieldOptionId);
-  });
   const pendingDeleteStatus = $derived.by(() =>
     pendingDeleteStatusId ? statuses.find((status) => status.id === pendingDeleteStatusId) : undefined
   );
@@ -172,6 +141,16 @@
   const projectSettingsDirty = $derived.by(() =>
     selectedProject ? session.dirty(selectedProject, sessionCollections()) : false
   );
+  const customFields = createProjectSettingsCustomFieldController({
+    state: sessionState,
+    fields: () => projectCustomFields,
+    projects,
+    translate: t,
+    setDraftError: session.setCustomFieldDraftError,
+    afterCreateDraft: () => { void scrollToNewCustomFieldRow(); },
+  });
+  const pendingDeleteCustomField = $derived(customFields.pendingDeleteField());
+  const pendingDeleteCustomFieldOption = $derived(customFields.pendingDeleteOption());
 
   const statusReorder = createProjectSettingsReorderController({
     dataType: PROJECT_STATUS_DRAG_DATA_TYPE,
@@ -244,8 +223,7 @@
     pendingDeleteStatusId = null;
     pendingDeletePriorityId = null;
     pendingDeleteTagId = null;
-    pendingDeleteCustomFieldId = null;
-    pendingDeleteCustomFieldOptionId = null;
+    customFields.resetTransientState();
     clearCustomFieldDrag();
     clearCustomFieldOptionDrag();
   }
@@ -338,212 +316,20 @@
     };
   }
 
-  function customFieldAcceptsOptions(field: ProjectCustomField): boolean {
-    return projectCustomFieldUsesOptions(field.fieldType);
-  }
-
-  function newCustomFieldAcceptsOptions(): boolean {
-    return projectCustomFieldUsesOptions(sessionState.newCustomFieldType);
-  }
-
-  function customFieldCreateDraftAcceptsOptions(field: NewCustomFieldDraft): boolean {
-    return projectCustomFieldUsesOptions(field.fieldType);
-  }
-
-  function customFieldNameDraftValue(field: ProjectCustomField): string {
-    return projectSettingsCustomFieldNameDraftValue(field, sessionState.customFieldNameDrafts);
-  }
-
-  function customFieldNameExists(name: string, ignoredFieldId?: string): boolean {
-    const normalized = name.trim().toLowerCase();
-    if (!normalized) return false;
-    return projectCustomFields.some((field) =>
-      field.id !== ignoredFieldId && customFieldNameDraftValue(field).trim().toLowerCase() === normalized
-    );
-  }
-
-  function customFieldCreateDraftNameExists(name: string, ignoredDraftId?: string): boolean {
-    const normalized = name.trim().toLowerCase();
-    if (!normalized) return false;
-    if (customFieldNameExists(name)) return true;
-    return sessionState.customFieldCreateDraftRows.some((field) =>
-      field.id !== ignoredDraftId && field.name.trim().toLowerCase() === normalized
-    );
-  }
-
-  function customFieldOptions(field: ProjectCustomField): ProjectCustomFieldOption[] {
-    return projects.customFieldOptionsForField(field.id);
-  }
-
-  function customFieldOptionById(optionId: string | null | undefined): ProjectCustomFieldOption | undefined {
-    if (!optionId) return undefined;
-    return projects.customFieldOptions.find((option) => option.id === optionId);
-  }
-
-  function customFieldOptionNameDraftValue(option: ProjectCustomFieldOption): string {
-    return projectSettingsCustomFieldOptionNameDraftValue(option, sessionState.customFieldOptionNameDrafts);
-  }
-
-  function customFieldOptionNameExists(fieldId: string, name: string, ignoredOptionId?: string): boolean {
-    const normalized = name.trim().toLowerCase();
-    if (!normalized) return false;
-    return projects.customFieldOptionsForField(fieldId).some((option) =>
-      option.id !== ignoredOptionId && customFieldOptionNameDraftValue(option).trim().toLowerCase() === normalized
-    );
-  }
-
-  function customFieldOptionCreateDraftRows(fieldId: string): NewCustomFieldOptionDraft[] {
-    return projectSettingsCustomFieldOptionCreateDraftRows(sessionState.customFieldOptionDraftRowsByField, fieldId);
-  }
-
-  function customFieldOptionCreateDraftDirty(field: ProjectCustomField): boolean {
-    return customFieldOptionCreateDraftRows(field.id).length > 0;
-  }
-
-  function customFieldOptionCreateDraftNameExists(
-    fieldId: string,
-    name: string,
-    ignoredDraftId?: string,
-  ): boolean {
-    const normalized = name.trim().toLowerCase();
-    if (!normalized) return false;
-    if (customFieldOptionNameExists(fieldId, name)) return true;
-    return customFieldOptionCreateDraftRows(fieldId).some((option) =>
-      option.id !== ignoredDraftId && option.name.trim().toLowerCase() === normalized
-    );
-  }
-
-  function setCustomFieldOptionCreateDraftName(fieldId: string, optionId: string, name: string): void {
-    sessionState.customFieldOptionDraftRowsByField = projectSettingsSetCustomFieldOptionCreateDraftName(
-      sessionState.customFieldOptionDraftRowsByField,
-      fieldId,
-      optionId,
-      name,
-    );
-  }
-
-  function removeCustomFieldOptionCreateDraft(fieldId: string, optionId: string): void {
-    sessionState.customFieldOptionDraftRowsByField = projectSettingsRemoveCustomFieldOptionCreateDraft(
-      sessionState.customFieldOptionDraftRowsByField,
-      fieldId,
-      optionId,
-    );
-  }
+  const customFieldOptions = customFields.fieldOptions;
+  const customFieldOptionCreateDraftRows = customFields.optionCreateRows;
 
   function fieldForCustomFieldOption(option: ProjectCustomFieldOption | undefined): ProjectCustomField | undefined {
     return option ? projectCustomFields.find((field) => field.id === option.fieldId) : undefined;
   }
 
-  function newCustomFieldOptionDraftNameExists(name: string, ignoredDraftId?: string): boolean {
-    const normalized = name.trim().toLowerCase();
-    if (!normalized) return false;
-    return sessionState.newCustomFieldOptionRows.some((option) =>
-      option.id !== ignoredDraftId && option.name.trim().toLowerCase() === normalized
-    );
-  }
-
-  function customFieldCreateDraftOptionNameExists(
-    field: NewCustomFieldDraft,
-    name: string,
-    ignoredDraftId?: string,
-  ): boolean {
-    const normalized = name.trim().toLowerCase();
-    if (!normalized) return false;
-    return field.optionRows.some((option) =>
-      option.id !== ignoredDraftId && option.name.trim().toLowerCase() === normalized
-    );
-  }
-
-  function setCustomFieldCreateDraftName(fieldId: string, name: string): void {
-    sessionState.customFieldCreateDraftRows = projectSettingsSetCustomFieldCreateDraftName(
-      sessionState.customFieldCreateDraftRows,
-      fieldId,
-      name,
-    );
-  }
-
-  function setCustomFieldCreateDraftOptionName(fieldId: string, optionId: string, name: string): void {
-    sessionState.customFieldCreateDraftRows = projectSettingsSetCustomFieldCreateDraftOptionName(
-      sessionState.customFieldCreateDraftRows,
-      fieldId,
-      optionId,
-      name,
-    );
-  }
-
-  function setCustomFieldCreateDraftPendingOptionName(fieldId: string, optionName: string): void {
-    sessionState.customFieldCreateDraftRows = projectSettingsSetCustomFieldCreateDraftPendingOptionName(
-      sessionState.customFieldCreateDraftRows,
-      fieldId,
-      optionName,
-    );
-  }
-
-  function removeCustomFieldCreateDraft(fieldId: string): void {
-    sessionState.customFieldCreateDraftRows = projectSettingsRemoveCustomFieldCreateDraft(
-      sessionState.customFieldCreateDraftRows,
-      fieldId,
-    );
-  }
-
-  function removeCustomFieldCreateDraftOption(fieldId: string, optionId: string): void {
-    sessionState.customFieldCreateDraftRows = projectSettingsRemoveCustomFieldCreateDraftOption(
-      sessionState.customFieldCreateDraftRows,
-      fieldId,
-      optionId,
-    );
-  }
-
-  function usedStatusColors(extraColor?: EventColor): Set<EventColor> {
-    const used = new Set<EventColor>();
-    for (const status of statuses) {
-      used.add(statusColorDraftValue(status));
-    }
-    if (extraColor !== undefined) used.add(extraColor);
-    return used;
-  }
-
-  function usedPriorityColors(extraColor?: EventColor): Set<EventColor> {
-    const used = new Set<EventColor>();
-    for (const priority of priorities) {
-      used.add(priorityColorDraftValue(priority));
-    }
-    if (extraColor !== undefined) used.add(extraColor);
-    return used;
-  }
-
-  function usedTagColors(extraColor?: EventColor): Set<EventColor> {
-    const used = new Set<EventColor>();
-    for (const tag of projectTags) {
-      used.add(tagColorDraftValue(tag));
-    }
-    if (extraColor !== undefined) used.add(extraColor);
-    return used;
-  }
-
-  function nextUnusedStatusColor(preferredColor: EventColor, extraColor?: EventColor): EventColor {
-    return nextUnusedProjectSettingsColor({
-      preferredColor,
-      usedColors: usedStatusColors(extraColor),
-      fallbackColor: NEW_STATUS_FIRST_COLOR,
-    });
-  }
-
-  function nextUnusedPriorityColor(preferredColor: EventColor, extraColor?: EventColor): EventColor {
-    return nextUnusedProjectSettingsColor({
-      preferredColor,
-      usedColors: usedPriorityColors(extraColor),
-      fallbackColor: NEW_STATUS_FIRST_COLOR,
-    });
-  }
-
-  function nextUnusedTagColor(preferredColor: EventColor, extraColor?: EventColor): EventColor {
-    return nextUnusedProjectSettingsColor({
-      preferredColor,
-      usedColors: usedTagColors(extraColor),
-      fallbackColor: NEW_STATUS_FIRST_COLOR,
-    });
-  }
+  const setCustomFieldOptionCreateDraftName = customFields.setOptionCreateName;
+  const removeCustomFieldOptionCreateDraft = customFields.removeOptionCreate;
+  const setCustomFieldCreateDraftName = customFields.setCreateFieldName;
+  const setCustomFieldCreateDraftOptionName = customFields.setCreateOptionName;
+  const setCustomFieldCreateDraftPendingOptionName = customFields.setCreatePendingOptionName;
+  const removeCustomFieldCreateDraft = customFields.removeCreateField;
+  const removeCustomFieldCreateDraftOption = customFields.removeCreateOption;
 
   async function scrollToSettingsRow(rowElement: HTMLElement | undefined): Promise<void> {
     await tick();
@@ -580,6 +366,16 @@
   function tagDraftDirty(tag: ProjectTag): boolean {
     return projectSettingsTagDraftDirty(tag, tagDraftState());
   }
+
+  const nextUnusedStatusColor = createProjectSettingsColorAllocator({
+    entries: () => statuses, color: statusColorDraftValue, fallback: NEW_STATUS_FIRST_COLOR,
+  });
+  const nextUnusedPriorityColor = createProjectSettingsColorAllocator({
+    entries: () => priorities, color: priorityColorDraftValue, fallback: NEW_STATUS_FIRST_COLOR,
+  });
+  const nextUnusedTagColor = createProjectSettingsColorAllocator({
+    entries: () => projectTags, color: tagColorDraftValue, fallback: NEW_STATUS_FIRST_COLOR,
+  });
 
   function tagNameExists(name: string, ignoredTagId?: string): boolean {
     return projectSettingsTagNameExists({
@@ -874,106 +670,11 @@
     }
   }
 
-  function customFieldOptionNamesForCreate(
-    fieldType: ProjectCustomFieldType,
-    optionRows: readonly NewCustomFieldOptionDraft[],
-    pendingOptionName: string,
-  ): string[] | null {
-    const result = projectSettingsCustomFieldOptionNamesForCreate(
-      fieldType,
-      optionRows,
-      pendingOptionName,
-    );
-    if (result.ok) return result.value;
-    session.setCustomFieldDraftError(result.error);
-    return null;
-  }
-
-  function setNewCustomFieldOptionDraftName(optionId: string, name: string): void {
-    sessionState.newCustomFieldOptionRows = sessionState.newCustomFieldOptionRows.map((option) =>
-      option.id === optionId ? { ...option, name } : option
-    );
-  }
-
-  function removeNewCustomFieldOptionDraft(optionId: string): void {
-    sessionState.newCustomFieldOptionRows = sessionState.newCustomFieldOptionRows.filter((option) => option.id !== optionId);
-  }
-
-  function submitNewCustomFieldOptionDraft(): void {
-    if (!newCustomFieldAcceptsOptions()) return;
-    const name = sessionState.newCustomFieldOptionName.trim();
-    if (!name) {
-      sessionState.projectSettingsError = t("projects.customFields.optionNameRequired");
-      return;
-    }
-    if (newCustomFieldOptionDraftNameExists(name)) {
-      sessionState.projectSettingsError = t("projects.customFields.optionNameExists");
-      return;
-    }
-    sessionState.newCustomFieldOptionRows = [
-      ...sessionState.newCustomFieldOptionRows,
-      { id: crypto.randomUUID(), name },
-    ];
-    sessionState.newCustomFieldOptionName = "";
-    sessionState.projectSettingsError = null;
-  }
-
-  function submitCustomFieldCreateDraftOption(field: NewCustomFieldDraft): void {
-    if (!customFieldCreateDraftAcceptsOptions(field)) return;
-    const name = field.optionName.trim();
-    if (!name) {
-      sessionState.projectSettingsError = t("projects.customFields.optionNameRequired");
-      return;
-    }
-    if (customFieldCreateDraftOptionNameExists(field, name)) {
-      sessionState.projectSettingsError = t("projects.customFields.optionNameExists");
-      return;
-    }
-    sessionState.customFieldCreateDraftRows = sessionState.customFieldCreateDraftRows.map((entry) =>
-      entry.id === field.id
-        ? {
-            ...entry,
-            optionRows: [...entry.optionRows, { id: crypto.randomUUID(), name }],
-            optionName: "",
-          }
-        : entry
-    );
-    sessionState.projectSettingsError = null;
-  }
-
-  function submitCustomField(): void {
-    const name = sessionState.newCustomFieldName.trim();
-    if (!name) {
-      sessionState.projectSettingsError = t("projects.customFields.nameRequired");
-      return;
-    }
-    if (customFieldCreateDraftNameExists(name)) {
-      sessionState.projectSettingsError = t("projects.customFields.nameExists");
-      return;
-    }
-    const optionNames = customFieldOptionNamesForCreate(
-      sessionState.newCustomFieldType,
-      sessionState.newCustomFieldOptionRows,
-      sessionState.newCustomFieldOptionName,
-    );
-    if (!optionNames) return;
-    sessionState.projectSettingsError = null;
-    sessionState.customFieldCreateDraftRows = [
-      ...sessionState.customFieldCreateDraftRows,
-      {
-        id: crypto.randomUUID(),
-        name,
-        fieldType: sessionState.newCustomFieldType,
-        optionRows: optionNames.map((optionName) => ({ id: crypto.randomUUID(), name: optionName })),
-        optionName: "",
-      },
-    ];
-    sessionState.newCustomFieldName = "";
-    sessionState.newCustomFieldType = "text";
-    sessionState.newCustomFieldOptionRows = [];
-    sessionState.newCustomFieldOptionName = "";
-    void scrollToNewCustomFieldRow();
-  }
+  const setNewCustomFieldOptionDraftName = customFields.setNewOptionName;
+  const removeNewCustomFieldOptionDraft = customFields.removeNewOption;
+  const submitNewCustomFieldOptionDraft = customFields.submitNewOption;
+  const submitCustomFieldCreateDraftOption = customFields.submitCreateDraftOption;
+  const submitCustomField = customFields.submitField;
 
   async function moveProjectCustomField(field: ProjectCustomField, direction: -1 | 1): Promise<void> {
     sessionState.projectSettingsError = null;
@@ -987,58 +688,10 @@
     }
   }
 
-  function requestDeleteCustomField(field: ProjectCustomField): void {
-    pendingDeleteCustomFieldId = field.id;
-  }
-
-  function cancelDeleteCustomField(): void {
-    pendingDeleteCustomFieldId = null;
-  }
-
-  async function confirmDeleteCustomField(): Promise<void> {
-    if (!pendingDeleteCustomField) return;
-    const field = pendingDeleteCustomField;
-    pendingDeleteCustomFieldId = null;
-    sessionState.projectSettingsError = null;
-    try {
-      await projects.removeCustomField(field.id);
-      const remainingNames = { ...sessionState.customFieldNameDrafts };
-      delete remainingNames[field.id];
-      sessionState.customFieldNameDrafts = remainingNames;
-      const remainingOptionInputs = { ...sessionState.newCustomFieldOptionDrafts };
-      delete remainingOptionInputs[field.id];
-      sessionState.newCustomFieldOptionDrafts = remainingOptionInputs;
-      const remainingOptionRows = { ...sessionState.customFieldOptionDraftRowsByField };
-      delete remainingOptionRows[field.id];
-      sessionState.customFieldOptionDraftRowsByField = remainingOptionRows;
-    } catch (error) {
-      sessionState.projectSettingsError = t(
-        "projects.customFields.deleteFailed",
-        error instanceof Error ? error.message : String(error),
-      );
-    }
-  }
-
-  function submitCustomFieldOption(field: ProjectCustomField): void {
-    const name = (sessionState.newCustomFieldOptionDrafts[field.id] ?? "").trim();
-    if (!name) {
-      sessionState.projectSettingsError = t("projects.customFields.optionNameRequired");
-      return;
-    }
-    if (customFieldOptionCreateDraftNameExists(field.id, name)) {
-      sessionState.projectSettingsError = t("projects.customFields.optionNameExists");
-      return;
-    }
-    sessionState.projectSettingsError = null;
-    sessionState.customFieldOptionDraftRowsByField = {
-      ...sessionState.customFieldOptionDraftRowsByField,
-      [field.id]: [...customFieldOptionCreateDraftRows(field.id), { id: crypto.randomUUID(), name }],
-    };
-    sessionState.newCustomFieldOptionDrafts = {
-      ...sessionState.newCustomFieldOptionDrafts,
-      [field.id]: "",
-    };
-  }
+  const requestDeleteCustomField = customFields.requestDeleteField;
+  const cancelDeleteCustomField = customFields.cancelDeleteField;
+  const confirmDeleteCustomField = customFields.removeField;
+  const submitCustomFieldOption = customFields.submitOption;
 
   async function moveProjectCustomFieldOption(option: ProjectCustomFieldOption, direction: -1 | 1): Promise<void> {
     sessionState.projectSettingsError = null;
@@ -1052,31 +705,9 @@
     }
   }
 
-  function requestDeleteCustomFieldOption(option: ProjectCustomFieldOption): void {
-    pendingDeleteCustomFieldOptionId = option.id;
-  }
-
-  function cancelDeleteCustomFieldOption(): void {
-    pendingDeleteCustomFieldOptionId = null;
-  }
-
-  async function confirmDeleteCustomFieldOption(): Promise<void> {
-    if (!pendingDeleteCustomFieldOption) return;
-    const option = pendingDeleteCustomFieldOption;
-    pendingDeleteCustomFieldOptionId = null;
-    sessionState.projectSettingsError = null;
-    try {
-      await projects.removeCustomFieldOption(option.id);
-      const remainingNames = { ...sessionState.customFieldOptionNameDrafts };
-      delete remainingNames[option.id];
-      sessionState.customFieldOptionNameDrafts = remainingNames;
-    } catch (error) {
-      sessionState.projectSettingsError = t(
-        "projects.customFields.optionDeleteFailed",
-        error instanceof Error ? error.message : String(error),
-      );
-    }
-  }
+  const requestDeleteCustomFieldOption = customFields.requestDeleteOption;
+  const cancelDeleteCustomFieldOption = customFields.cancelDeleteOption;
+  const confirmDeleteCustomFieldOption = customFields.removeOption;
 
   async function moveStatusByDirection(status: ProjectStatus, direction: -1 | 1): Promise<void> {
     sessionState.projectSettingsError = null;

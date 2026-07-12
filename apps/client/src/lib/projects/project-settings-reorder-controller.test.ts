@@ -68,4 +68,28 @@ describe("project settings reorder controller", () => {
     expect(event.preventDefault).not.toHaveBeenCalled();
     expect(controller.markerVisible("b", "after")).toBe(false);
   });
+
+  it("clears drag markers when the owning settings panel switches projects", () => {
+    const entries: Entry[] = [
+      { id: "a", fieldId: "field-1" },
+      { id: "b", fieldId: "field-1" },
+    ];
+    const controller = createProjectSettingsReorderController({
+      dataType: "application/test",
+      getEntries: () => entries,
+      moveEntry: async () => undefined,
+      setError: () => undefined,
+      reorderFailedMessage: () => "reorder failed",
+      saveFailedMessage: (message) => message,
+    });
+    controller.start(dragEvent(), entries[0]);
+    controller.dragOver(dragEvent(), entries[1], {
+      getBoundingClientRect: () => ({ top: 0, height: 10 }),
+    } as HTMLElement);
+
+    controller.clear();
+
+    expect(controller.draggedId).toBeNull();
+    expect(controller.markerVisible("b", "after")).toBe(false);
+  });
 });
