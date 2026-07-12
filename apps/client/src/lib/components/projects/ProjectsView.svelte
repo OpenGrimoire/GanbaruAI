@@ -1,224 +1,49 @@
 <script lang="ts">
-  import { Temporal } from "@js-temporal/polyfill";
   import { onMount } from "svelte";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
-  import {
-    beginLazyComponentLoad,
-    rejectLazyComponentLoad,
-    resolveLazyComponentLoad,
-    type LazyComponentLoadState,
-  } from "$lib/lazy-component-loader";
   import { getCalendar } from "$lib/stores/calendar.svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getPreferences } from "$lib/stores/preferences.svelte";
   import { getProjects } from "$lib/stores/projects.svelte";
   import { getViewport } from "$lib/stores/viewport.svelte";
-  import { formatCalendarDate } from "$lib/components/calendar/utils";
-  import { cn, isAppShortcutBlockedTarget, isEditableKeyboardTarget } from "$lib/utils";
+  import type { CalendarEvent, CalendarViewMode } from "$lib/components/calendar/types";
   import type {
-    CalendarEvent,
-    CalendarViewMode,
-  } from "$lib/components/calendar/types";
-  import type {
-    ProjectCustomField,
-    ProjectCustomFieldFilter,
-    ProjectCustomFieldValue,
-    ProjectPriority,
-    ProjectSavedTaskView,
     ProjectSection,
     ProjectStatus,
     ProjectTask,
-    ProjectTaskDependencyFilter,
-    ProjectTaskDueFilter,
-    ProjectTaskGroupMode,
-    ProjectTaskTagFilter,
-    ProjectTaskListColumn,
-    ProjectTaskScheduleFilter,
-    ProjectTaskSortDirection,
-    ProjectTaskSortMode,
-    ProjectTaskStatusFilter,
-    ProjectTaskViewRequest,
     ProjectViewId,
   } from "$lib/projects/types";
   import {
     projectCalendarCreateDefaults as buildProjectCalendarCreateDefaults,
-    projectCalendarEventRootId,
     projectEventDurationMinutesInDateRange,
   } from "$lib/projects/project-scheduling";
   import {
-    PROJECT_TASK_FILTER_DEFAULTS,
-    projectTaskDataFiltersActive,
-    taskListColumnWidthsForProject,
-    type ProjectTaskListColumnWidths,
-    type ProjectTaskFilterState,
-  } from "$lib/projects/project-list-view";
-  import {
-    PROJECT_TASK_LIST_COLUMNS,
-    PROJECT_VIEW_IDS,
-  } from "$lib/projects/types";
-  import {
-    customFieldIdFromCustomFieldReference,
-    customFieldIdFromTaskListColumn,
-    customTaskListColumn,
-    DEFAULT_TASK_LIST_COLUMNS,
-    taskListColumnsMatch,
-    taskListColumnsForProject,
-  } from "$lib/projects/task-list-columns";
-  import {
-    createProjectSavedTaskViewSnapshot,
-    projectCustomFieldFilterStillExists,
-    projectTaskFilterStateFromSavedTaskView,
-  } from "$lib/projects/saved-task-views";
-  import {
-    buildProjectTaskListGroups,
-    buildProjectTaskView,
-    projectTaskCustomFieldKey,
-  } from "$lib/projects/task-view";
-  import {
-    deriveProjectListColumnControls,
     pickProjectTaskModalLayout,
-    toggleProjectListColumn,
-    type ProjectToolbarPanel,
   } from "$lib/projects/project-toolbar";
   import ProjectEmptyState from "./ProjectEmptyState.svelte";
   import ProjectWorkspaceHeader from "./ProjectWorkspaceHeader.svelte";
-  import {
-    loadProjectOptionalComponent,
-    loadProjectView,
-    retryProjectOptionalComponent,
-    retryProjectView,
-    type LoadedProjectOptionalComponent,
-    type LoadedProjectView,
-    type ProjectOptionalComponentKind,
-  } from "./project-component-registry";
+  import { ProjectTaskQueryController } from "./project-task-query-controller.svelte";
+  import { ProjectRouteLoadController } from "./project-route-load-controller.svelte";
+  import { ProjectRouteUiController } from "./project-route-ui-controller.svelte";
 
   const projects = getProjects();
   const calendar = getCalendar();
   const preferences = getPreferences();
   const viewport = getViewport();
   const { t } = getLocalization();
-  const PROJECT_VIEW_SHORTCUTS = new Map<string, ProjectViewId>(
-    PROJECT_VIEW_IDS.map((view, index) => [String(index + 1), view]),
-  );
-
   let showInactiveProjects = $state(false);
-  let showInactiveSections = $state(false);
-  let showArchivedTasks = $state(false);
-  let taskSearch = $state("");
-  let taskFinderOpen = $state(false);
-  let taskFinderFocusRequestId = $state(0);
-  let taskStatusFilter = $state<ProjectTaskStatusFilter>("all");
-  let taskSectionFilter = $state<string | "all">("all");
-  let taskPriorityFilter = $state<ProjectPriority | "all">("all");
-  let taskDueFilter = $state<ProjectTaskDueFilter>("all");
-  let taskDueRangeStart = $state("");
-  let taskDueRangeEnd = $state("");
-  let taskScheduleFilter = $state<ProjectTaskScheduleFilter>("all");
-  let taskDependencyFilter = $state<ProjectTaskDependencyFilter>("all");
-  let taskTagFilter = $state<ProjectTaskTagFilter>("all");
-  let taskCustomFieldFilters = $state<ProjectCustomFieldFilter[]>([]);
-  let taskGroupBy = $state<ProjectTaskGroupMode>("section");
-  let taskSortMode = $state<ProjectTaskSortMode>("manual");
-  let taskSortDirection = $state<ProjectTaskSortDirection>("asc");
-  let taskListColumns = $state<ProjectTaskListColumn[]>([...DEFAULT_TASK_LIST_COLUMNS]);
-  let taskListColumnWidths = $state<ProjectTaskListColumnWidths>({});
   let projectCalendarViewMode = $state<CalendarViewMode>("week");
-  let savedViewNameDraft = $state("");
-  let savedViewSaving = $state(false);
-  let savedViewError = $state<string | null>(null);
-  let selectedTaskId = $state<string | null>(null);
-  let selectedTaskIds = $state<string[]>([]);
-  let projectToolbarPanel = $state<ProjectToolbarPanel | null>(null);
-  let projectSettingsDirty = $state(false);
-  let projectSettingsDiscardConfirmOpen = $state(false);
-  let pendingProjectSettingsAction: (() => void) | null = null;
-  let projectsRootElement = $state<HTMLDivElement | null>(null);
-  let toolbarDataError = $state<string | null>(null);
-  let taskDetailDataError = $state<string | null>(null);
-  let viewLoadState = $state<LazyComponentLoadState<
-    ProjectViewId,
-    LoadedProjectView
-  > | null>(null);
-  type ProjectOptionalLoadState = LazyComponentLoadState<
-    ProjectOptionalComponentKind,
-    LoadedProjectOptionalComponent
-  >;
-  let optionalLoadStates = $state<Partial<Record<
-    ProjectOptionalComponentKind,
-    ProjectOptionalLoadState
-  >>>({});
+  const taskQuery = new ProjectTaskQueryController({ projects, calendar, translate: t });
+  const routeLoad = new ProjectRouteLoadController(projects);
+  const routeUi = new ProjectRouteUiController({
+    setActiveView: (view) => { projects.activeView = view; },
+  });
 
-  const activeViewLoadState = $derived(
-    viewLoadState?.key === projects.activeView ? viewLoadState : null,
-  );
-  const toolbarLoadState = $derived(optionalLoadStates.toolbar ?? null);
-  const bulkActionsLoadState = $derived(optionalLoadStates["bulk-actions"] ?? null);
-  const taskFinderLoadState = $derived(optionalLoadStates["task-finder"] ?? null);
-  const taskDetailLoadState = $derived(optionalLoadStates["task-detail"] ?? null);
-
-  function requestProjectView(view: ProjectViewId, retry = false): void {
-    if (!retry && viewLoadState?.key === view) return;
-    const loadingState = beginLazyComponentLoad(viewLoadState, view);
-    viewLoadState = loadingState;
-    const request = retry ? retryProjectView(view) : loadProjectView(view);
-    void request
-      .then((component) => {
-        if (!viewLoadState) return;
-        viewLoadState = resolveLazyComponentLoad(
-          viewLoadState,
-          view,
-          loadingState.requestId,
-          component,
-        );
-      })
-      .catch((error: unknown) => {
-        if (!viewLoadState) return;
-        viewLoadState = rejectLazyComponentLoad(
-          viewLoadState,
-          view,
-          loadingState.requestId,
-          error,
-        );
-        console.error(`Failed to load Project ${view} view:`, error);
-      });
-  }
-
-  function requestProjectOptionalComponent(
-    kind: ProjectOptionalComponentKind,
-    retry = false,
-  ): void {
-    const current = optionalLoadStates[kind] ?? null;
-    if (!retry && current) return;
-    const loadingState = beginLazyComponentLoad(current, kind);
-    optionalLoadStates = { ...optionalLoadStates, [kind]: loadingState };
-    const request = retry
-      ? retryProjectOptionalComponent(kind)
-      : loadProjectOptionalComponent(kind);
-    void request
-      .then((component) => {
-        const active = optionalLoadStates[kind];
-        if (!active) return;
-        const next = resolveLazyComponentLoad(
-          active,
-          kind,
-          loadingState.requestId,
-          component,
-        );
-        if (next !== active) optionalLoadStates = { ...optionalLoadStates, [kind]: next };
-      })
-      .catch((error: unknown) => {
-        const active = optionalLoadStates[kind];
-        if (!active) return;
-        const next = rejectLazyComponentLoad(
-          active,
-          kind,
-          loadingState.requestId,
-          error,
-        );
-        if (next !== active) optionalLoadStates = { ...optionalLoadStates, [kind]: next };
-        console.error(`Failed to load optional Project surface ${kind}:`, error);
-      });
-  }
+  const activeViewLoadState = $derived(routeLoad.activeViewState(projects.activeView));
+  const toolbarLoadState = $derived(routeLoad.optionalState("toolbar"));
+  const bulkActionsLoadState = $derived(routeLoad.optionalState("bulk-actions"));
+  const taskFinderLoadState = $derived(routeLoad.optionalState("task-finder"));
+  const taskDetailLoadState = $derived(routeLoad.optionalState("task-detail"));
 
   const selectedProject = $derived(projects.selectedProject);
   const selectedGroup = $derived(projects.selectedGroup);
@@ -232,129 +57,29 @@
     );
   });
   const taskDetailDataReady = $derived.by(() => {
-    return Boolean(selectedTaskId && projects.taskById(selectedTaskId)?.detailLoaded);
+    return Boolean(
+      routeUi.selectedTaskId
+      && projects.taskById(routeUi.selectedTaskId)?.detailLoaded,
+    );
   });
 
-  function requestProjectToolbarData(): void {
-    const projectId = selectedProjectId;
-    if (!projectId) return;
-    toolbarDataError = null;
-    void projects.ensureProjectToolbarData(projectId).catch((error) => {
-      if (selectedProjectId !== projectId || !projectToolbarPanel) return;
-      toolbarDataError = error instanceof Error ? error.message : String(error);
-      console.error("load optional Project toolbar data failed", error);
-    });
-  }
-
-  function requestTaskDetailData(): void {
-    const projectId = selectedProjectId;
-    const taskId = selectedTaskId;
-    if (!projectId || !taskId) return;
-    taskDetailDataError = null;
-    void projects.ensureTaskDetailData(projectId, taskId).catch((error) => {
-      if (selectedProjectId !== projectId || selectedTaskId !== taskId) return;
-      taskDetailDataError = error instanceof Error ? error.message : String(error);
-      console.error("load optional Project task detail data failed", error);
-    });
-  }
   $effect(() => {
     if (!selectedProjectId || projects.projectDataLoaded(selectedProjectId)) return;
     void projects.ensureProjectData(selectedProjectId).catch((error) => {
       console.error("load selected project data failed", error);
     });
   });
-  const allProjectSections = $derived(projects.sectionsForProjectIncludingInactive(selectedProjectId));
-  const inactiveSectionCount = $derived(
-    allProjectSections.filter((section) => Boolean(section.hiddenAt || section.archivedAt)).length,
-  );
-  const sections = $derived.by(() =>
-    showInactiveSections ? allProjectSections : projects.sectionsForProject(selectedProjectId)
-  );
-  const visibleSectionIds = $derived.by(() => new Set(sections.map((section) => section.id)));
-  const statuses = $derived(projects.statusesForProject(selectedProjectId));
-  const priorities = $derived(projects.prioritiesForProject(selectedProjectId));
-  const activeProjectTasks = $derived.by(() =>
-    projects.tasksForProject(selectedProjectId).filter((task) => visibleSectionIds.has(task.sectionId))
-  );
-  const allProjectTasksWithArchived = $derived.by(() =>
-    projects.tasksForProjectIncludingArchived(selectedProjectId)
-      .filter((task) => visibleSectionIds.has(task.sectionId))
-  );
-  const archivedProjectTaskCount = $derived(
-    projects.taskViewPage?.archivedCount
-      ?? allProjectTasksWithArchived.filter((task) => Boolean(task.archivedAt)).length,
-  );
-  const allProjectTasks = $derived(showArchivedTasks ? allProjectTasksWithArchived : activeProjectTasks);
-  const allProjectTaskIds = $derived.by(() => new Set(allProjectTasks.map((task) => task.id)));
-  const projectTags = $derived(projects.tagsForProject(selectedProjectId));
-  const projectCustomFields = $derived(projects.customFieldsForProject(selectedProjectId));
-  const customFieldValuesByTaskField = $derived.by(() => {
-    const values = new Map<string, ProjectCustomFieldValue>();
-    for (const value of projects.customFieldValues) {
-      if (!allProjectTaskIds.has(value.taskId)) continue;
-      values.set(projectTaskCustomFieldKey(value.taskId, value.fieldId), value);
-    }
-    return values;
-  });
-  const customFieldOptionIdsByTaskField = $derived.by(() => {
-    const optionIdsByTaskField = new Map<string, Set<string>>();
-    for (const value of projects.customFieldOptionValues) {
-      if (!allProjectTaskIds.has(value.taskId)) continue;
-      const key = projectTaskCustomFieldKey(value.taskId, value.fieldId);
-      const optionIds = optionIdsByTaskField.get(key) ?? new Set<string>();
-      optionIds.add(value.optionId);
-      optionIdsByTaskField.set(key, optionIds);
-    }
-    return optionIdsByTaskField;
-  });
-  const taskTagIdsByTaskId = $derived.by(() => {
-    const tagsByTask = new Map<string, Set<string>>();
-    for (const link of projects.taskTagLinks) {
-      if (!allProjectTaskIds.has(link.taskId)) continue;
-      const tagIds = tagsByTask.get(link.taskId) ?? new Set<string>();
-      tagIds.add(link.tagId);
-      tagsByTask.set(link.taskId, tagIds);
-    }
-    return tagsByTask;
-  });
-  const todayDate = $derived(Temporal.Now.plainDateISO().toString());
-  const taskFilterWeekEnd = $derived(Temporal.PlainDate.from(todayDate).add({ days: 7 }).toString());
-  const normalizedTaskDueRangeStart = $derived(normalizeFilterDate(taskDueRangeStart));
-  const normalizedTaskDueRangeEnd = $derived(normalizeFilterDate(taskDueRangeEnd));
-  const taskFilterState = $derived.by((): ProjectTaskFilterState => ({
-    search: taskSearch,
-    statusFilter: taskStatusFilter,
-    sectionFilter: taskSectionFilter,
-    priorityFilter: taskPriorityFilter,
-    dueFilter: taskDueFilter,
-    dueRangeStart: normalizedTaskDueRangeStart ?? "",
-    dueRangeEnd: normalizedTaskDueRangeEnd ?? "",
-    scheduleFilter: taskScheduleFilter,
-    dependencyFilter: taskDependencyFilter,
-    tagFilter: taskTagFilter,
-    customFieldFilters: taskCustomFieldFilters,
-    groupBy: taskGroupBy,
-    sortMode: taskSortMode,
-    sortDirection: taskSortDirection,
-  }));
-  const scheduledTaskIds = $derived.by(() => new Set(
-    projects.eventLinks
-      .filter((link) => link.linkKind === "scheduled")
-      .map((link) => link.taskId),
-  ));
-  const nowCalendarDateTime = $derived(formatCalendarDate(new Date()));
-  const allProjectEvents = $derived.by(() => {
-    if (!selectedProjectId) return [];
-    return calendar.rawBlocks
-      .filter((event) => event.projectId === selectedProjectId)
-      .sort((a, b) => a.start.localeCompare(b.start));
-  });
-  const allProjectEventsById = $derived.by(() => new Map(allProjectEvents.map((event) => [event.id, event])));
-  function projectCalendarEventFilter(event: CalendarEvent): boolean {
-    if (!selectedProjectId || event.projectId !== selectedProjectId) return false;
-    if (!taskDataFiltersActive) return true;
-    return eventIdsForMatchedTasks.has(event.id) || eventIdsForMatchedTasks.has(projectCalendarEventRootId(event));
-  }
+  const inactiveSectionCount = $derived(taskQuery.inactiveSectionCount);
+  const sections = $derived(taskQuery.sections);
+  const statuses = $derived(taskQuery.statuses);
+  const priorities = $derived(taskQuery.priorities);
+  const archivedProjectTaskCount = $derived(taskQuery.archivedTaskCount);
+  const allProjectTasks = $derived(taskQuery.allTasks);
+  const projectTags = $derived(taskQuery.projectTags);
+  const projectCustomFields = $derived(taskQuery.customFields);
+  const todayDate = $derived(taskQuery.today);
+  const scheduledTaskIds = $derived(taskQuery.scheduledTaskIds);
+  const allProjectEvents = $derived(taskQuery.allEvents);
 
   function projectCalendarCreateDefaults(input: {
     start: string;
@@ -370,100 +95,24 @@
       },
     });
   }
-  const nextScheduledStartByTaskId = $derived.by(() => {
-    const startsByTaskId = new Map<string, string[]>();
-    for (const link of projects.eventLinks) {
-      if (link.linkKind !== "scheduled" || !allProjectTaskIds.has(link.taskId)) continue;
-      const start = allProjectEventsById.get(link.eventId)?.start;
-      if (!start) continue;
-      const starts = startsByTaskId.get(link.taskId) ?? [];
-      starts.push(start);
-      startsByTaskId.set(link.taskId, starts);
-    }
-    const nextStarts = new Map<string, string>();
-    for (const [taskId, starts] of startsByTaskId) {
-      const sortedStarts = starts.sort((a, b) => a.localeCompare(b));
-      nextStarts.set(taskId, sortedStarts.find((start) => start >= nowCalendarDateTime) ?? sortedStarts[0]);
-    }
-    return nextStarts;
-  });
-  const dependencyBlockedTaskIds = $derived.by(() => new Set(
-    projects.dependencies
-      .filter((dependency) => allProjectTaskIds.has(dependency.blockedTaskId))
-      .map((dependency) => dependency.blockedTaskId),
-  ));
-  const dependencyBlockingTaskIds = $derived.by(() => new Set(
-    projects.dependencies
-      .filter((dependency) => allProjectTaskIds.has(dependency.blockingTaskId))
-      .map((dependency) => dependency.blockingTaskId),
-  ));
-  const taskView = $derived.by(() => buildProjectTaskView({
-    tasks: allProjectTasks,
-    statuses,
-    priorities,
-    scheduledTaskIds,
-    nextScheduledStartByTaskId,
-    taskTagIdsByTaskId,
-    dependencyBlockedTaskIds,
-    dependencyBlockingTaskIds,
-    today: todayDate,
-    weekEnd: taskFilterWeekEnd,
-    ...taskFilterState,
-    filtersApplied: true,
-    customFields: projectCustomFields,
-    customFieldOptions: projects.customFieldOptions,
-    customFieldValuesByTaskField,
-    customFieldOptionIdsByTaskField,
-  }));
-  const tasks = $derived.by(() => {
-    return taskView.tasks;
-  });
-  const listTaskGroups = $derived.by(() => {
-    if (taskGroupBy === "section") return [];
-    return buildProjectTaskListGroups({
-      tasks,
-      statuses,
-      priorities,
-      scheduledTaskIds,
-      today: todayDate,
-      weekEnd: taskFilterWeekEnd,
-      groupBy: taskGroupBy,
-    });
-  });
+  const tasks = $derived(taskQuery.tasks);
+  const listTaskGroups = $derived(taskQuery.listGroups);
   const selectableTasks = $derived.by(() => tasks.filter((task) => !task.parentTaskId));
-  const selectedTaskIdSet = $derived.by(() => new Set(selectedTaskIds));
+  const selectedTaskIdSet = $derived.by(() => new Set(routeUi.selectedTaskIds));
   const selectedTasks = $derived.by(() => allProjectTasks.filter((task) => selectedTaskIdSet.has(task.id)));
   const selectedArchivedTaskCount = $derived(selectedTasks.filter((task) => Boolean(task.archivedAt)).length);
   const selectedActiveTaskCount = $derived(selectedTasks.length - selectedArchivedTaskCount);
-  const matchingTaskCount = $derived(projects.taskViewPage?.matchedCount ?? taskView.matchedTaskIds.size);
-  const activeTaskFilterCount = $derived(taskView.activeFilterCount);
-  const taskFiltersActive = $derived(activeTaskFilterCount > 0);
-  const taskFilterControlsActive = $derived(taskFiltersActive || showArchivedTasks || showInactiveSections);
-  const taskGroupingActive = $derived(taskGroupBy !== "section");
-  const taskCustomizeActive = $derived(!taskListColumnsMatch(taskListColumns, DEFAULT_TASK_LIST_COLUMNS));
-  const taskDataFiltersActive = $derived(projectTaskDataFiltersActive(taskFilterState));
-  const savedTaskViews = $derived.by(() => projects.savedTaskViewsForProject(selectedProjectId));
-  const eventIdsForMatchedTasks = $derived.by(() => new Set(
-    projects.activeView === "calendar"
-      ? projects.taskViewPage?.matchedEventIds ?? []
-      : projects.eventLinks
-        .filter((link) => taskView.matchedTaskIds.has(link.taskId))
-        .map((link) => link.eventId),
-  ));
-  const projectEvents = $derived.by(() => {
-    return allProjectEvents.filter((event) => !taskDataFiltersActive || eventIdsForMatchedTasks.has(event.id));
-  });
+  const matchingTaskCount = $derived(taskQuery.matchingTaskCount);
+  const taskFiltersActive = $derived(taskQuery.filtersActive);
+  const taskFilterControlsActive = $derived(taskQuery.filterControlsActive);
+  const taskGroupingActive = $derived(taskQuery.groupingActive);
+  const taskCustomizeActive = $derived(taskQuery.customizeActive);
+  const savedTaskViews = $derived(taskQuery.savedViews);
   const scheduledThisWeekMinutes = $derived.by(() => thisWeekScheduledMinutes());
   const selectedTask = $derived.by(() =>
-    selectedTaskId ? allProjectTasks.find((task) => task.id === selectedTaskId) : undefined
+    routeUi.selectedTaskId ? allProjectTasks.find((task) => task.id === routeUi.selectedTaskId) : undefined
   );
-  const availableTaskListColumns = $derived.by(() => [
-    ...PROJECT_TASK_LIST_COLUMNS,
-    ...projectCustomFields.map((field) => customTaskListColumn(field.id)),
-  ]);
-  const taskListColumnControls = $derived.by(() =>
-    deriveProjectListColumnControls(availableTaskListColumns, taskListColumns, taskListColumnLabel)
-  );
+  const taskListColumnControls = $derived(taskQuery.columnControls);
   const taskDetailModalLayout = $derived(pickProjectTaskModalLayout({
     viewportWidth: viewport.width,
     viewportHeight: viewport.height,
@@ -479,162 +128,63 @@
   $effect(() => {
     const view = projects.activeView;
     if (!selectedProject || !selectedGroup) return;
-    requestProjectView(view);
+    routeLoad.requestView(view);
     void projects.ensureProjectViewData(selectedProject.id, view).catch((error) => {
       console.error(`load optional Project ${view} data failed`, error);
     });
   });
 
   $effect(() => {
-    const request = currentTaskViewRequest();
-    if (!request || !projects.projectDataLoaded(request.projectId)) return;
-    void projects.loadTaskView(
-      request,
-      false,
-      selectedTaskId ? [...selectedTaskIds, selectedTaskId] : selectedTaskIds,
-    ).catch((error) => {
-      console.error(`load Project ${request.view} task window failed`, error);
-    });
+    projects.activeView;
+    taskQuery.filterState;
+    taskQuery.sections;
+    taskQuery.allEvents;
+    taskQuery.loadCurrent(routeUi.selectedTaskIds, routeUi.selectedTaskId);
   });
 
-  function currentTaskViewRequest(): ProjectTaskViewRequest | null {
+  $effect(() => {
+    if (!routeUi.toolbarPanel) return;
+    routeLoad.requestOptional("toolbar");
     const projectId = selectedProjectId;
-    const view = projects.activeView;
-    if (!projectId) return null;
-    return {
-      projectId,
-      view,
-      pageSize: view === "kanban" ? 50 : view === "gantt" ? 10_000 : 100,
-      columnCursors: {},
-      showArchived: showArchivedTasks,
-      visibleSectionIds: sections.map((section) => section.id),
-      search: taskSearch,
-      statusFilter: taskStatusFilter,
-      sectionFilter: taskSectionFilter,
-      priorityFilter: taskPriorityFilter,
-      dueFilter: taskDueFilter,
-      dueRangeStart: normalizedTaskDueRangeStart ?? "",
-      dueRangeEnd: normalizedTaskDueRangeEnd ?? "",
-      today: todayDate,
-      weekEnd: taskFilterWeekEnd,
-      scheduleFilter: taskScheduleFilter,
-      dependencyFilter: taskDependencyFilter,
-      tagFilter: taskTagFilter,
-      customFieldFilters: taskCustomFieldFilters,
-      sortMode: taskSortMode,
-      sortDirection: taskSortDirection,
-      candidateEventIds: view === "calendar" ? allProjectEvents.map((event) => event.id) : [],
-    };
-  }
-
-  function loadNextListTaskPage(): void {
-    const request = currentTaskViewRequest();
-    const cursor = projects.taskViewPage?.nextCursor;
-    if (!request || request.view !== "list" || !cursor || projects.taskViewLoading) return;
-    void projects.loadTaskView({ ...request, cursor }, true, selectedTaskIds).catch((error) => {
-      console.error("load next Project list task page failed", error);
-    });
-  }
-
-  function loadNextKanbanTaskPage(): void {
-    const request = currentTaskViewRequest();
-    const page = projects.taskViewPage;
-    if (!request || request.view !== "kanban" || !page || projects.taskViewLoading) return;
-    const columnCursors = Object.fromEntries(
-      page.columnCounts
-        .filter((column) => column.nextCursor)
-        .map((column) => [column.statusId, column.nextCursor as string]),
-    );
-    if (Object.keys(columnCursors).length === 0) return;
-    void projects.loadTaskView({ ...request, columnCursors }, true, selectedTaskIds).catch((error) => {
-      console.error("load next Project Kanban task page failed", error);
-    });
-  }
-
-  $effect(() => {
-    if (!projectToolbarPanel) return;
-    requestProjectOptionalComponent("toolbar");
-    requestProjectToolbarData();
+    void routeLoad.requestToolbarData(projectId, () => (
+      routeUi.toolbarPanel !== null && selectedProjectId === projectId
+    ));
   });
 
   $effect(() => {
-    if (selectedTaskIds.length > 0) requestProjectOptionalComponent("bulk-actions");
+    if (routeUi.selectedTaskIds.length > 0) routeLoad.requestOptional("bulk-actions");
   });
 
   $effect(() => {
-    if (taskFinderOpen || taskSearch.trim()) requestProjectOptionalComponent("task-finder");
+    if (routeUi.taskFinderOpen || taskQuery.search.trim()) routeLoad.requestOptional("task-finder");
   });
 
   $effect(() => {
-    if (!selectedTaskId) return;
-    requestProjectOptionalComponent("task-detail");
-    requestTaskDetailData();
+    if (!routeUi.selectedTaskId) return;
+    routeLoad.requestOptional("task-detail");
+    void routeLoad.requestTaskDetailData(selectedProjectId, routeUi.selectedTaskId);
   });
 
   $effect(() => {
-    const customFieldIds = new Set(projectCustomFields.map((field) => field.id));
-    taskListColumns = taskListColumnsForProject(
-      projects.viewPreferences,
-      selectedProjectId,
-      customFieldIds,
-    );
-    taskListColumnWidths = taskListColumnWidthsForProject(
-      projects.viewPreferences,
-      selectedProjectId,
-      customFieldIds,
-    );
+    selectedProjectId;
+    projects.viewPreferences;
+    projectCustomFields;
+    taskQuery.syncListPreferences();
   });
 
   $effect(() => {
-    if (selectedTaskId && !selectedTask) {
-      selectedTaskId = null;
+    if (routeUi.selectedTaskId && !selectedTask) {
+      routeUi.selectedTaskId = null;
+      routeLoad.invalidateTaskDetailData();
     }
   });
 
   $effect(() => {
-    if (taskSectionFilter !== "all" && !sections.some((section) => section.id === taskSectionFilter)) {
-      taskSectionFilter = "all";
-    }
-    if (
-      taskTagFilter !== "all"
-      && taskTagFilter !== "none"
-      && !projectTags.some((tag) => tag.id === taskTagFilter)
-    ) {
-      taskTagFilter = "all";
-    }
-    const fieldIds = new Set(projectCustomFields.map((field) => field.id));
-    const optionIds = new Set(
-      projectCustomFields.flatMap((field) => projects.customFieldOptionsForField(field.id).map((option) => option.id)),
-    );
-    const nextCustomFieldFilters = taskCustomFieldFilters.filter((filter) =>
-      projectCustomFieldFilterStillExists(filter, fieldIds, optionIds)
-    );
-    if (nextCustomFieldFilters.length !== taskCustomFieldFilters.length) {
-      taskCustomFieldFilters = nextCustomFieldFilters;
-    }
-    const customSortFieldId = customFieldIdFromCustomFieldReference(taskSortMode);
-    if (customSortFieldId && !fieldIds.has(customSortFieldId)) {
-      taskSortMode = "manual";
-      taskSortDirection = "asc";
-    }
+    sections;
+    projectTags;
+    projectCustomFields;
+    taskQuery.repairDisappearingFields();
   });
-
-  function taskListColumnLabel(column: ProjectTaskListColumn): string {
-    const customFieldId = customFieldIdFromTaskListColumn(column);
-    if (customFieldId) {
-      return projectCustomFields.find((field) => field.id === customFieldId)?.name
-        ?? t("projects.columns.customField");
-    }
-    if (column === "priority") return t("projects.columns.priority");
-    if (column === "estimate") return t("projects.columns.estimate");
-    if (column === "start") return t("projects.columns.start");
-    if (column === "due") return t("projects.columns.due");
-    if (column === "scheduled") return t("projects.columns.scheduled");
-    if (column === "dependencies") return t("projects.columns.dependencies");
-    if (column === "assignee") return t("projects.columns.assignee");
-    if (column === "reviewer") return t("projects.columns.reviewer");
-    return t("projects.columns.status");
-  }
 
   function projectViewLabel(view: ProjectViewId): string {
     if (view === "dashboard") return t("projects.tabs.dashboard");
@@ -642,26 +192,6 @@
     if (view === "kanban") return t("projects.tabs.kanban");
     if (view === "calendar") return t("projects.tabs.calendar");
     return t("projects.tabs.gantt");
-  }
-
-  async function toggleTaskListColumn(column: ProjectTaskListColumn): Promise<void> {
-    if (!selectedProjectId) return;
-    const nextColumns = toggleProjectListColumn(taskListColumns, column);
-    taskListColumns = nextColumns;
-    await projects.saveTaskListColumns(selectedProjectId, nextColumns);
-  }
-
-  async function updateTaskListColumnWidths(
-    widths: ProjectTaskListColumnWidths,
-    options: { persist?: boolean } = {},
-  ): Promise<void> {
-    taskListColumnWidths = widths;
-    if (!options.persist || !selectedProjectId) return;
-    await projects.saveTaskListColumnWidths(selectedProjectId, widths);
-  }
-
-  function estimateLabel(minutes: number): string {
-    return t("projects.list.estimateMinutes", minutes);
   }
 
   function terminalStatus(): ProjectStatus | undefined {
@@ -673,269 +203,18 @@
       ?? statuses.find((status) => !status.terminal);
   }
 
-  function runAfterProjectSettingsClose(action: () => void): void {
-    if (projectToolbarPanel === "settings" && projectSettingsDirty) {
-      pendingProjectSettingsAction = action;
-      projectSettingsDiscardConfirmOpen = true;
-      return;
-    }
-    action();
-  }
-
-  function setProjectToolbarPanel(panel: ProjectToolbarPanel | null): void {
-    projectToolbarPanel = panel;
-    if (panel !== "settings") projectSettingsDirty = false;
-  }
-
-  function toggleProjectToolbarPanel(panel: ProjectToolbarPanel): void {
-    const nextPanel = projectToolbarPanel === panel ? null : panel;
-    runAfterProjectSettingsClose(() => {
-      setProjectToolbarPanel(nextPanel);
-    });
-  }
-
-  function requestProjectToolbarPanelClose(): void {
-    runAfterProjectSettingsClose(() => {
-      setProjectToolbarPanel(null);
-    });
-  }
-
-  function confirmDiscardProjectSettings(): void {
-    const action = pendingProjectSettingsAction;
-    pendingProjectSettingsAction = null;
-    projectSettingsDiscardConfirmOpen = false;
-    projectSettingsDirty = false;
-    action?.();
-  }
-
-  function cancelDiscardProjectSettings(): void {
-    pendingProjectSettingsAction = null;
-    projectSettingsDiscardConfirmOpen = false;
-  }
-
-  function closeProjectToolbarPanelImmediately(): void {
-    pendingProjectSettingsAction = null;
-    projectSettingsDiscardConfirmOpen = false;
-    setProjectToolbarPanel(null);
-  }
-
-  function openTaskFinder(): void {
-    runAfterProjectSettingsClose(() => {
-      taskFinderOpen = true;
-      setProjectToolbarPanel(null);
-      taskFinderFocusRequestId += 1;
-    });
-  }
-
-  function clearAndCloseTaskFinder(): void {
-    taskSearch = "";
-    taskFinderOpen = false;
-  }
-
-  function closeTaskFinder(): void {
-    taskFinderOpen = false;
-  }
-
-  function closeOrClearTaskFinder(): void {
-    if (taskSearch.trim()) {
-      clearAndCloseTaskFinder();
-      return;
-    }
-    closeTaskFinder();
-  }
-
-  function projectsKeyboardTargetBlocked(target: EventTarget | null): boolean {
-    return isEditableKeyboardTarget(target)
-      || isAppShortcutBlockedTarget(target)
-      || (target instanceof Element && target.closest("[role='dialog']") !== null);
-  }
-
-  function projectsViewShortcutBlocked(event: KeyboardEvent): boolean {
-    return selectedTaskId !== null
-      || taskFinderOpen
-      || projectToolbarPanel !== null
-      || projectsKeyboardTargetBlocked(event.target)
-      || projectsKeyboardTargetBlocked(document.activeElement)
-      || projectsRootElement?.querySelector("[role='dialog']") !== null;
-  }
-
-  function handleProjectViewShortcut(event: KeyboardEvent): boolean {
-    if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return false;
-    const view = PROJECT_VIEW_SHORTCUTS.get(event.key);
-    if (!view || projectsViewShortcutBlocked(event)) return false;
-    event.preventDefault();
-    projects.activeView = view;
-    return true;
-  }
-
-
-  function projectsEditableSelectionTarget(target: EventTarget | null): boolean {
-    if (!(target instanceof Element)) return false;
-    return Boolean(target.closest("input, textarea, [contenteditable='true'], [role='textbox']"));
-  }
-
-  function projectsSelectionNodeInside(node: Node | null): boolean {
-    return Boolean(projectsRootElement && node && projectsRootElement.contains(node));
-  }
-
-  function handleProjectWindowKeydown(event: KeyboardEvent): void {
-    if (event.defaultPrevented) return;
-    if (selectedTaskId) return;
-    if (handleProjectViewShortcut(event)) return;
-    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f") {
-      event.preventDefault();
-      openTaskFinder();
-      return;
-    }
-    if (event.key === "Escape" && taskFinderOpen) {
-      event.preventDefault();
-      closeTaskFinder();
-    }
-  }
-
-
-  function handleProjectDocumentSelectStart(event: Event): void {
-    const target = event.target;
-    if (!(target instanceof Node) || !projectsRootElement?.contains(target)) return;
-    if (projectsEditableSelectionTarget(target)) return;
-    event.preventDefault();
-  }
-
-  function handleProjectDocumentSelectionChange(): void {
-    const selection = document.getSelection();
-    if (!selection || selection.isCollapsed) return;
-
-    const activeElement = document.activeElement;
-    if (activeElement && projectsEditableSelectionTarget(activeElement)) return;
-    if (!projectsSelectionNodeInside(selection.anchorNode) && !projectsSelectionNodeInside(selection.focusNode)) return;
-
-    selection.removeAllRanges();
-  }
-
-  function clearTaskCustomFieldFilter(fieldId: string): void {
-    taskCustomFieldFilters = taskCustomFieldFilters.filter((filter) => filter.fieldId !== fieldId);
-  }
-
-  function applyTaskFilterState(state: ProjectTaskFilterState): void {
-    taskSearch = state.search;
-    taskStatusFilter = state.statusFilter;
-    taskSectionFilter = state.sectionFilter;
-    taskPriorityFilter = state.priorityFilter;
-    taskDueFilter = state.dueFilter;
-    taskDueRangeStart = state.dueRangeStart;
-    taskDueRangeEnd = state.dueRangeEnd;
-    taskScheduleFilter = state.scheduleFilter;
-    taskDependencyFilter = state.dependencyFilter;
-    taskTagFilter = state.tagFilter;
-    taskCustomFieldFilters = [...state.customFieldFilters];
-    taskGroupBy = state.groupBy;
-    taskSortMode = state.sortMode;
-    taskSortDirection = state.sortDirection;
-  }
-
-  function resetTaskFilterState(): void {
-    applyTaskFilterState(PROJECT_TASK_FILTER_DEFAULTS);
-  }
-
   function clearTaskFilters(): void {
-    resetTaskFilterState();
-  }
-
-  function taskViewSnapshot(name: string, viewId: string): ProjectSavedTaskView | undefined {
-    if (!selectedProjectId) return undefined;
-    return createProjectSavedTaskViewSnapshot({
-      ...taskFilterState,
-      projectId: selectedProjectId,
-      id: viewId,
-      name,
-      viewId: projects.activeView,
-      collapsedSectionIds: sections
-        .filter((section) => section.collapsed)
-        .map((section) => section.id),
-      showArchivedTasks,
-      visibleColumns: taskListColumns,
-    });
-  }
-
-  async function saveCurrentTaskView(): Promise<void> {
-    const name = savedViewNameDraft.trim();
-    if (!name) {
-      savedViewError = t("projects.savedViews.nameRequired");
-      return;
-    }
-    const existingView = savedTaskViews.find((view) => view.name.toLowerCase() === name.toLowerCase());
-    const view = taskViewSnapshot(name, existingView?.id ?? crypto.randomUUID());
-    if (!view) return;
-    savedViewSaving = true;
-    savedViewError = null;
-    try {
-      await projects.saveTaskView(view);
-      savedViewNameDraft = "";
-    } catch (error) {
-      savedViewError = t(
-        "projects.savedViews.saveFailed",
-        error instanceof Error ? error.message : String(error),
-      );
-    } finally {
-      savedViewSaving = false;
-    }
-  }
-
-  async function applyTaskView(view: ProjectSavedTaskView): Promise<void> {
-    projects.activeView = view.viewId;
-    applyTaskFilterState(projectTaskFilterStateFromSavedTaskView(view));
-    showArchivedTasks = view.showArchivedTasks;
-    taskListColumns = view.visibleColumns;
-    if (selectedProjectId) {
-      void projects.saveTaskListColumns(selectedProjectId, view.visibleColumns);
-    }
-    savedViewError = null;
-    try {
-      if (view.groupBy === "section") {
-        await projects.applySectionCollapseState(view.projectId, view.collapsedSectionIds);
-      }
-    } catch (error) {
-      savedViewError = t(
-        "projects.savedViews.applyFailed",
-        error instanceof Error ? error.message : String(error),
-      );
-    }
-    clearTaskSelection();
-  }
-
-  async function deleteSavedTaskView(view: ProjectSavedTaskView): Promise<void> {
-    savedViewSaving = true;
-    savedViewError = null;
-    try {
-      await projects.deleteTaskView(view);
-    } catch (error) {
-      savedViewError = t(
-        "projects.savedViews.deleteFailed",
-        error instanceof Error ? error.message : String(error),
-      );
-    } finally {
-      savedViewSaving = false;
-    }
-  }
-
-  function toggleTaskSelection(task: ProjectTask): void {
-    selectedTaskIds = selectedTaskIdSet.has(task.id)
-      ? selectedTaskIds.filter((taskId) => taskId !== task.id)
-      : [...selectedTaskIds, task.id];
-  }
-
-  function clearTaskSelection(): void {
-    selectedTaskIds = [];
+    taskQuery.reset();
   }
 
   function revealCreatedTask(task: ProjectTask | undefined): void {
     if (!task) return;
     projects.activeView = "list";
-    resetTaskFilterState();
-    selectedTaskId = task.id;
-    selectedTaskIds = [];
-    showArchivedTasks = false;
-    showInactiveSections = false;
+    taskQuery.reset();
+    routeUi.selectedTaskId = task.id;
+    routeUi.clearTaskSelection();
+    taskQuery.showArchivedTasks = false;
+    taskQuery.showInactiveSections = false;
   }
 
 
@@ -943,40 +222,21 @@
     await projects.updateSection(section, { collapsed: !section.collapsed });
   }
 
-  function openTaskDetail(task: ProjectTask): void {
-    runAfterProjectSettingsClose(() => {
-      setProjectToolbarPanel(null);
-      selectedTaskId = task.id;
-    });
-  }
-
-  function normalizeFilterDate(value: string): string | undefined {
-    const trimmed = value.trim();
-    if (!trimmed) return undefined;
-    try {
-      return Temporal.PlainDate.from(trimmed).toString();
-    } catch {
-      return undefined;
-    }
-  }
-
-
   function thisWeekScheduledMinutes(): number {
-    const weekEnd = Temporal.PlainDate.from(todayDate).add({ days: 7 }).toString();
-    return projectEventDurationMinutesInDateRange(allProjectEvents, todayDate, weekEnd);
+    return projectEventDurationMinutesInDateRange(allProjectEvents, todayDate, taskQuery.weekEnd);
   }
 
 </script>
 
-<svelte:window onkeydown={handleProjectWindowKeydown} />
+<svelte:window onkeydown={(event) => routeUi.handleWindowKeydown(event)} />
 
 <svelte:document
-  onselectstart={handleProjectDocumentSelectStart}
-  onselectionchange={handleProjectDocumentSelectionChange}
+  onselectstart={(event) => routeUi.handleDocumentSelectStart(event)}
+  onselectionchange={() => routeUi.handleDocumentSelectionChange()}
 />
 
 <div
-  bind:this={projectsRootElement}
+  bind:this={routeUi.rootElement}
   class="projects-view-root relative flex h-full min-h-0 overflow-hidden text-foreground"
   style="background-color: var(--cal-bg);"
   data-first-use-shell="projects"
@@ -989,7 +249,7 @@
           {selectedGroup}
           {selectedProjectId}
           {showInactiveProjects}
-          {projectToolbarPanel}
+          projectToolbarPanel={routeUi.toolbarPanel}
           {taskGroupingActive}
           taskFiltersActive={taskFilterControlsActive}
           {taskCustomizeActive}
@@ -997,16 +257,16 @@
             showInactiveProjects = value;
           }}
           onProjectSelected={() => {
-            selectedTaskId = null;
-            closeProjectToolbarPanelImmediately();
+            routeUi.selectedTaskId = null;
+            routeUi.closeToolbarImmediately();
           }}
-          onToggleToolbarPanel={toggleProjectToolbarPanel}
+          onToggleToolbarPanel={(panel) => routeUi.toggleToolbarPanel(panel)}
         />
-        {#if projectToolbarPanel}
+        {#if routeUi.toolbarPanel}
           {#if toolbarDataReady && toolbarLoadState?.status === "ready" && toolbarLoadState.component.kind === "toolbar"}
             {@const ProjectToolbarPanels = toolbarLoadState.component.component}
             <ProjectToolbarPanels
-              panel={projectToolbarPanel}
+              panel={routeUi.toolbarPanel}
               projectId={selectedProjectId}
               {sections}
               {priorities}
@@ -1017,48 +277,54 @@
               {archivedProjectTaskCount}
               {inactiveSectionCount}
               {taskFiltersActive}
-              {savedViewSaving}
-              {savedViewError}
-              bind:taskStatusFilter
-              bind:taskSectionFilter
-              bind:taskPriorityFilter
-              bind:taskDueFilter
-              bind:taskDueRangeStart
-              bind:taskDueRangeEnd
-              bind:taskScheduleFilter
-              bind:taskDependencyFilter
-              bind:taskTagFilter
-              bind:taskCustomFieldFilters
-              bind:taskGroupBy
-              bind:taskSortMode
-              bind:taskSortDirection
-              bind:showArchivedTasks
-              bind:showInactiveSections
-              bind:savedViewNameDraft
+              savedViewSaving={taskQuery.savedViewSaving}
+              savedViewError={taskQuery.savedViewError}
+              bind:taskStatusFilter={taskQuery.statusFilter}
+              bind:taskSectionFilter={taskQuery.sectionFilter}
+              bind:taskPriorityFilter={taskQuery.priorityFilter}
+              bind:taskDueFilter={taskQuery.dueFilter}
+              bind:taskDueRangeStart={taskQuery.dueRangeStart}
+              bind:taskDueRangeEnd={taskQuery.dueRangeEnd}
+              bind:taskScheduleFilter={taskQuery.scheduleFilter}
+              bind:taskDependencyFilter={taskQuery.dependencyFilter}
+              bind:taskTagFilter={taskQuery.tagFilter}
+              bind:taskCustomFieldFilters={taskQuery.customFieldFilters}
+              bind:taskGroupBy={taskQuery.groupBy}
+              bind:taskSortMode={taskQuery.sortMode}
+              bind:taskSortDirection={taskQuery.sortDirection}
+              bind:showArchivedTasks={taskQuery.showArchivedTasks}
+              bind:showInactiveSections={taskQuery.showInactiveSections}
+              bind:savedViewNameDraft={taskQuery.savedViewNameDraft}
               onClose={() => {
-                requestProjectToolbarPanelClose();
+                routeUi.requestToolbarClose();
               }}
               onProjectSettingsDirtyChange={(dirty) => {
-                projectSettingsDirty = dirty;
+                routeUi.settingsDirty = dirty;
               }}
               onRevealInactive={() => {
                 showInactiveProjects = true;
               }}
               onClearTaskFilters={clearTaskFilters}
-              onSaveCurrentTaskView={() => { void saveCurrentTaskView(); }}
-              onApplyTaskView={(view) => { void applyTaskView(view); }}
-              onDeleteSavedTaskView={(view) => { void deleteSavedTaskView(view); }}
-              onToggleTaskListColumn={(column) => { void toggleTaskListColumn(column); }}
+              onSaveCurrentTaskView={() => { void taskQuery.saveCurrentView(); }}
+              onApplyTaskView={(view) => {
+                void taskQuery.applySavedView(view).finally(() => routeUi.clearTaskSelection());
+              }}
+              onDeleteSavedTaskView={(view) => { void taskQuery.deleteSavedView(view); }}
+              onToggleTaskListColumn={(column) => { void taskQuery.toggleColumn(column); }}
             />
-          {:else if toolbarDataError || toolbarLoadState?.status === "failed"}
+          {:else if routeLoad.toolbarDataError || toolbarLoadState?.status === "failed"}
             <div class="flex min-h-9 items-center justify-center gap-2 border-t border-border px-3 text-xs text-muted-foreground" role="alert">
               <span>{t("common.viewLoadFailed", t("projects.header.projectSettings"))}</span>
               <button
                 type="button"
                 class="font-medium text-foreground underline-offset-2 hover:underline"
                 onclick={() => {
-                  if (toolbarDataError) requestProjectToolbarData();
-                  else requestProjectOptionalComponent("toolbar", true);
+                  if (routeLoad.toolbarDataError) {
+                    const projectId = selectedProjectId;
+                    void routeLoad.requestToolbarData(projectId, () => (
+                      routeUi.toolbarPanel !== null && selectedProjectId === projectId
+                    ));
+                  } else routeLoad.requestOptional("toolbar", true);
                 }}
               >
                 {t("common.retry")}
@@ -1068,7 +334,7 @@
             <span class="sr-only" aria-busy="true">{t("common.loading")}</span>
           {/if}
         {/if}
-        {#if selectedTaskIds.length > 0}
+        {#if routeUi.selectedTaskIds.length > 0}
           {#if bulkActionsLoadState?.status === "ready" && bulkActionsLoadState.component.kind === "bulk-actions"}
             {@const ProjectBulkActionController = bulkActionsLoadState.component.component}
             <ProjectBulkActionController
@@ -1080,16 +346,16 @@
               {selectedArchivedTaskCount}
               terminalStatus={terminalStatus()}
               firstOpenStatus={firstOpenStatus()}
-              bind:selectedTaskIds
-              bind:showArchivedTasks
+              bind:selectedTaskIds={routeUi.selectedTaskIds}
+              bind:showArchivedTasks={taskQuery.showArchivedTasks}
             />
           {:else if bulkActionsLoadState?.status === "failed"}
             <div class="flex min-h-9 items-center justify-center gap-2 border-t border-border px-3 text-xs text-muted-foreground" role="alert">
-              <span>{t("common.viewLoadFailed", t("projects.bulk.selected", selectedTaskIds.length))}</span>
+              <span>{t("common.viewLoadFailed", t("projects.bulk.selected", routeUi.selectedTaskIds.length))}</span>
               <button
                 type="button"
                 class="font-medium text-foreground underline-offset-2 hover:underline"
-                onclick={() => requestProjectOptionalComponent("bulk-actions", true)}
+                onclick={() => routeLoad.requestOptional("bulk-actions", true)}
               >
                 {t("common.retry")}
               </button>
@@ -1128,24 +394,24 @@
               {tasks}
               {allProjectTasks}
               {listTaskGroups}
-              {taskGroupBy}
-              {taskSortMode}
-              {taskSortDirection}
-              {taskListColumns}
-              {taskListColumnWidths}
+              taskGroupBy={taskQuery.groupBy}
+              taskSortMode={taskQuery.sortMode}
+              taskSortDirection={taskQuery.sortDirection}
+              taskListColumns={taskQuery.listColumns}
+              taskListColumnWidths={taskQuery.listColumnWidths}
               {projectCustomFields}
-              {selectedTaskId}
-              {selectedTaskIds}
-              {showArchivedTasks}
-              onOpenTask={openTaskDetail}
+              selectedTaskId={routeUi.selectedTaskId}
+              selectedTaskIds={routeUi.selectedTaskIds}
+              showArchivedTasks={taskQuery.showArchivedTasks}
+              onOpenTask={(task) => routeUi.openTask(task)}
               onSelectedTaskIdsChange={(taskIds) => {
-                selectedTaskIds = taskIds;
+                routeUi.selectedTaskIds = taskIds;
               }}
               onRevealTask={revealCreatedTask}
               onTaskListColumnWidthsChange={(widths, options) => {
-                void updateTaskListColumnWidths(widths, options);
+                void taskQuery.updateColumnWidths(widths, options);
               }}
-              onNeedMore={loadNextListTaskPage}
+              onNeedMore={() => taskQuery.loadNextList(routeUi.selectedTaskIds)}
             />
           {:else if loadedView.view === "kanban"}
             {@const ProjectKanbanView = loadedView.component}
@@ -1153,19 +419,19 @@
               {tasks}
               {statuses}
               {priorities}
-              {selectedTaskIds}
-              {taskSortMode}
-              {taskSortDirection}
-              onOpenTask={openTaskDetail}
-              onToggleTaskSelection={toggleTaskSelection}
+              selectedTaskIds={routeUi.selectedTaskIds}
+              taskSortMode={taskQuery.sortMode}
+              taskSortDirection={taskQuery.sortDirection}
+              onOpenTask={(task) => routeUi.openTask(task)}
+              onToggleTaskSelection={(task) => routeUi.toggleTaskSelection(task)}
               columnCounts={projects.taskViewPage?.columnCounts ?? []}
-              onNeedMore={loadNextKanbanTaskPage}
+              onNeedMore={() => taskQuery.loadNextKanban(routeUi.selectedTaskIds)}
             />
           {:else if loadedView.view === "calendar"}
             {@const CalendarView = loadedView.component}
             <div class="h-full min-h-112 overflow-hidden">
               <CalendarView
-                eventFilter={projectCalendarEventFilter}
+                eventFilter={(event) => taskQuery.eventMatches(event)}
                 createDefaults={projectCalendarCreateDefaults}
                 initialViewMode={projectCalendarViewMode}
                 onViewModeChange={(mode) => {
@@ -1180,7 +446,7 @@
               statuses={statuses}
               sections={sections}
               todayDate={todayDate}
-              onOpenTask={openTaskDetail}
+              onOpenTask={(task) => routeUi.openTask(task)}
               onToggleSectionCollapsed={(section) => {
                 void toggleSectionCollapsed(section);
               }}
@@ -1196,7 +462,7 @@
               {scheduledTaskIds}
               {scheduledThisWeekMinutes}
               aggregates={projects.taskViewPage?.aggregates}
-              onOpenTask={openTaskDetail}
+              onOpenTask={(task) => routeUi.openTask(task)}
             />
           {/if}
         {:else if activeViewLoadState?.status === "failed"}
@@ -1208,7 +474,7 @@
             <button
               type="button"
               class="min-h-9 rounded-md border border-border bg-background px-3 font-medium text-foreground hover:bg-accent"
-              onclick={() => requestProjectView(projects.activeView, true)}
+              onclick={() => routeLoad.requestView(projects.activeView, true)}
             >
               {t("common.retry")}
             </button>
@@ -1227,27 +493,27 @@
           {selectedProjectId}
           bind:showInactiveProjects
           onProjectSelected={() => {
-            selectedTaskId = null;
-            closeProjectToolbarPanelImmediately();
+            routeUi.selectedTaskId = null;
+            routeUi.closeToolbarImmediately();
           }}
         />
       {/if}
     </div>
   </section>
 
-  {#if selectedProject && (taskFinderOpen || taskSearch.trim().length > 0)}
+  {#if selectedProject && (routeUi.taskFinderOpen || taskQuery.search.trim().length > 0)}
     {#if taskFinderLoadState?.status === "ready" && taskFinderLoadState.component.kind === "task-finder"}
       {@const ProjectTaskFinder = taskFinderLoadState.component.component}
       <ProjectTaskFinder
-        {taskSearch}
+        taskSearch={taskQuery.search}
         {matchingTaskCount}
         totalTaskCount={projects.taskViewPage?.totalCount ?? allProjectTasks.length}
-        focusRequestId={taskFinderFocusRequestId}
+        focusRequestId={routeUi.taskFinderFocusRequestId}
         onTaskSearchChange={(value) => {
-          taskSearch = value;
+          taskQuery.search = value;
         }}
-        onClose={closeTaskFinder}
-        onClearAndClose={closeOrClearTaskFinder}
+        onClose={() => routeUi.closeFinder()}
+        onClearAndClose={() => routeUi.closeOrClearFinder(taskQuery.search, () => { taskQuery.search = ""; })}
       />
     {:else if taskFinderLoadState?.status === "failed"}
       <div class="absolute inset-x-3 top-3 z-80 flex min-h-10 items-center justify-center gap-2 rounded-md border border-border bg-card px-3 text-xs text-muted-foreground shadow-lg" role="alert">
@@ -1255,7 +521,7 @@
         <button
           type="button"
           class="font-medium text-foreground underline-offset-2 hover:underline"
-          onclick={() => requestProjectOptionalComponent("task-finder", true)}
+          onclick={() => routeLoad.requestOptional("task-finder", true)}
         >
           {t("common.retry")}
         </button>
@@ -1265,25 +531,26 @@
     {/if}
   {/if}
 
-  {#if selectedTaskId}
+  {#if routeUi.selectedTaskId}
     {#if taskDetailDataReady && taskDetailLoadState?.status === "ready" && taskDetailLoadState.component.kind === "task-detail"}
       {@const ProjectTaskDetailPanel = taskDetailLoadState.component.component}
       <ProjectTaskDetailPanel
-        taskId={selectedTaskId}
+        taskId={routeUi.selectedTaskId}
         layout={taskDetailModalLayout}
-        showArchivedTasks={showArchivedTasks}
-        showInactiveSections={showInactiveSections}
+        showArchivedTasks={taskQuery.showArchivedTasks}
+        showInactiveSections={taskQuery.showInactiveSections}
         onClose={() => {
-          selectedTaskId = null;
+          routeUi.selectedTaskId = null;
+          routeLoad.invalidateTaskDetailData();
         }}
         onOpenTask={(taskId) => {
-          selectedTaskId = taskId;
+          routeUi.selectedTaskId = taskId;
         }}
         onShowArchivedTasks={() => {
-          showArchivedTasks = true;
+          taskQuery.showArchivedTasks = true;
         }}
       />
-    {:else if taskDetailDataError || taskDetailLoadState?.status === "failed"}
+    {:else if routeLoad.taskDetailDataError || taskDetailLoadState?.status === "failed"}
       <div class="absolute inset-0 z-80 flex items-center justify-center bg-black/40 p-4" role="alert">
         <div class="flex min-h-32 w-full max-w-sm flex-col items-center justify-center gap-3 rounded-lg border border-border bg-card p-4 text-center text-sm text-muted-foreground shadow-xl">
           <p>{t("common.viewLoadFailed", t("projects.detail.title"))}</p>
@@ -1292,8 +559,9 @@
               type="button"
               class="min-h-9 rounded-md border border-border bg-background px-3 font-medium text-foreground hover:bg-accent"
               onclick={() => {
-                if (taskDetailDataError) requestTaskDetailData();
-                else requestProjectOptionalComponent("task-detail", true);
+                if (routeLoad.taskDetailDataError) {
+                  void routeLoad.requestTaskDetailData(selectedProjectId, routeUi.selectedTaskId);
+                } else routeLoad.requestOptional("task-detail", true);
               }}
             >
               {t("common.retry")}
@@ -1301,7 +569,10 @@
             <button
               type="button"
               class="min-h-9 rounded-md px-3 font-medium text-foreground hover:bg-accent"
-              onclick={() => { selectedTaskId = null; }}
+              onclick={() => {
+                routeUi.selectedTaskId = null;
+                routeLoad.invalidateTaskDetailData();
+              }}
             >
               {t("common.cancel")}
             </button>
@@ -1317,14 +588,14 @@
     {/if}
   {/if}
 
-  {#if projectSettingsDiscardConfirmOpen}
+  {#if routeUi.discardConfirmOpen}
     <ConfirmDialog
       title={t("calendar.view.discardUnsavedTitle")}
       message={t("calendar.view.changesLost")}
       confirmLabel={t("calendar.view.discard")}
       cancelLabel={t("common.cancelShortcut")}
-      onConfirm={confirmDiscardProjectSettings}
-      onCancel={cancelDiscardProjectSettings}
+      onConfirm={() => routeUi.confirmDiscard()}
+      onCancel={() => routeUi.cancelDiscard()}
     />
   {/if}
 </div>
