@@ -58,7 +58,7 @@ export interface CalendarWindowRows {
   events: DbCalendarEvent[];
   overrides: DbOverride[];
   attendees: DbWindowAttendee[];
-  total_event_count: number;
+  total_event_count: number | null;
 }
 
 export interface CalendarPomodoroSchedulerRows {

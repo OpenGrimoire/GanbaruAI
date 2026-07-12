@@ -1,30 +1,127 @@
 use std::collections::BTreeMap;
 
-use sqlx::{Row, SqlitePool};
+use sqlx::{Row, Sqlite, SqlitePool, Transaction};
 
 use super::icalendar::load_component_jcal;
 use super::{DbCalendarEventRow, DbFullEventRow, DbFullOverrideRow};
 
 pub(super) async fn hydrate_window_event_rows(
-    pool: &SqlitePool,
+    transaction: &mut Transaction<'_, Sqlite>,
     rows: &mut [DbCalendarEventRow],
 ) -> Result<(), String> {
     let ids = rows.iter().map(|row| row.id.clone()).collect::<Vec<_>>();
     if ids.is_empty() {
         return Ok(());
     }
-    let notifications =
-        load_i64_list_map(pool, "calendar_event_notifications", "offset_minutes", &ids).await?;
-    let exceptions =
-        load_string_list_map(pool, "calendar_event_exdates", "occurrence_date", &ids).await?;
-    let rdates =
-        load_string_list_map(pool, "calendar_event_rdates", "occurrence_start", &ids).await?;
+    let notifications = load_i64_list_map_tx(
+        transaction,
+        "calendar_event_notifications",
+        "offset_minutes",
+        &ids,
+    )
+    .await?;
+    let exceptions = load_string_list_map_tx(
+        transaction,
+        "calendar_event_exdates",
+        "occurrence_date",
+        &ids,
+    )
+    .await?;
+    let rdates = load_string_list_map_tx(
+        transaction,
+        "calendar_event_rdates",
+        "occurrence_start",
+        &ids,
+    )
+    .await?;
     for row in rows {
         row.notifications = notifications.get(&row.id).cloned();
         row.exceptions = exceptions.get(&row.id).cloned();
         row.rdate = rdates.get(&row.id).cloned();
     }
     Ok(())
+}
+
+async fn load_i64_list_map_tx(
+    transaction: &mut Transaction<'_, Sqlite>,
+    table: &'static str,
+    column: &'static str,
+    ids: &[String],
+) -> Result<BTreeMap<String, String>, String> {
+    let placeholders = std::iter::repeat_n("?", ids.len())
+        .collect::<Vec<_>>()
+        .join(",");
+    let query = format!(
+        "SELECT event_id, {column} AS value FROM {table}
+         WHERE event_id IN ({placeholders}) ORDER BY event_id ASC, sort_order ASC"
+    );
+    let mut query = sqlx::query(&query);
+    for id in ids {
+        query = query.bind(id);
+    }
+    let rows = query
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(|e| format!("load {table}: {e}"))?;
+    let mut grouped: BTreeMap<String, Vec<i64>> = BTreeMap::new();
+    for row in rows {
+        let event_id = row
+            .try_get::<String, _>("event_id")
+            .map_err(|e| format!("read {table}.event_id: {e}"))?;
+        let value = row
+            .try_get::<i64, _>("value")
+            .map_err(|e| format!("read {table}.{column}: {e}"))?;
+        grouped.entry(event_id).or_default().push(value);
+    }
+    grouped
+        .into_iter()
+        .map(|(id, values)| {
+            serde_json::to_string(&values)
+                .map(|json| (id, json))
+                .map_err(|e| format!("serialize {table}: {e}"))
+        })
+        .collect()
+}
+
+async fn load_string_list_map_tx(
+    transaction: &mut Transaction<'_, Sqlite>,
+    table: &'static str,
+    column: &'static str,
+    ids: &[String],
+) -> Result<BTreeMap<String, String>, String> {
+    let placeholders = std::iter::repeat_n("?", ids.len())
+        .collect::<Vec<_>>()
+        .join(",");
+    let query = format!(
+        "SELECT event_id, {column} AS value FROM {table}
+         WHERE event_id IN ({placeholders}) ORDER BY event_id ASC, sort_order ASC"
+    );
+    let mut query = sqlx::query(&query);
+    for id in ids {
+        query = query.bind(id);
+    }
+    let rows = query
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(|e| format!("load {table}: {e}"))?;
+    let mut grouped: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for row in rows {
+        let event_id = row
+            .try_get::<String, _>("event_id")
+            .map_err(|e| format!("read {table}.event_id: {e}"))?;
+        let value = row
+            .try_get::<String, _>("value")
+            .map_err(|e| format!("read {table}.{column}: {e}"))?;
+        grouped.entry(event_id).or_default().push(value);
+    }
+    grouped
+        .into_iter()
+        .map(|(id, values)| {
+            serde_json::to_string(&values)
+                .map(|json| (id, json))
+                .map_err(|e| format!("serialize {table}: {e}"))
+        })
+        .collect()
 }
 
 pub(super) async fn hydrate_full_event_row(

@@ -312,7 +312,7 @@ pub struct CalendarWindowRows {
     events: Vec<DbCalendarEventRow>,
     overrides: Vec<DbOverrideRow>,
     attendees: Vec<DbWindowAttendeeRow>,
-    total_event_count: i64,
+    total_event_count: Option<i64>,
 }
 
 #[derive(Serialize)]
@@ -520,17 +520,22 @@ pub async fn calendar_load_window<R: Runtime>(
     window_end_date: String,
     window_start_utc: String,
     window_end_exclusive_utc: String,
+    include_total_event_count: Option<bool>,
 ) -> Result<CalendarWindowRows, String> {
     let pool = connect_sqlite(app, db_url).await?;
+    let mut transaction = pool
+        .begin()
+        .await
+        .map_err(|e| format!("begin calendar window read: {e}"))?;
     let mut events = sqlx::query_as::<_, DbCalendarEventRow>(WINDOW_EVENTS_SQL)
         .bind(&window_start_date)
         .bind(&window_end_date)
         .bind(&window_start_utc)
         .bind(&window_end_exclusive_utc)
-        .fetch_all(&pool)
+        .fetch_all(&mut *transaction)
         .await
         .map_err(|e| format!("load calendar window events: {e}"))?;
-    hydrate_window_event_rows(&pool, &mut events).await?;
+    hydrate_window_event_rows(&mut transaction, &mut events).await?;
     let overrides = if events.is_empty() {
         Vec::new()
     } else {
@@ -539,7 +544,7 @@ pub async fn calendar_load_window<R: Runtime>(
             .bind(&window_end_date)
             .bind(&window_start_utc)
             .bind(&window_end_exclusive_utc)
-            .fetch_all(&pool)
+            .fetch_all(&mut *transaction)
             .await
             .map_err(|e| format!("load calendar window overrides: {e}"))?
     };
@@ -551,14 +556,24 @@ pub async fn calendar_load_window<R: Runtime>(
             .bind(&window_end_date)
             .bind(&window_start_utc)
             .bind(&window_end_exclusive_utc)
-            .fetch_all(&pool)
+            .fetch_all(&mut *transaction)
             .await
             .map_err(|e| format!("load calendar window attendees: {e}"))?
     };
-    let total_event_count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM calendar_events")
-        .fetch_one(&pool)
+    let total_event_count = if include_total_event_count.unwrap_or(false) {
+        Some(
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM calendar_events")
+                .fetch_one(&mut *transaction)
+                .await
+                .map_err(|e| format!("count calendar events: {e}"))?,
+        )
+    } else {
+        None
+    };
+    transaction
+        .commit()
         .await
-        .map_err(|e| format!("count calendar events: {e}"))?;
+        .map_err(|e| format!("commit calendar window read: {e}"))?;
 
     Ok(CalendarWindowRows {
         events,
@@ -578,15 +593,19 @@ pub async fn calendar_load_pomodoro_scheduler_window<R: Runtime>(
     window_end_exclusive_utc: String,
 ) -> Result<CalendarPomodoroSchedulerRows, String> {
     let pool = connect_sqlite(app, db_url).await?;
+    let mut transaction = pool
+        .begin()
+        .await
+        .map_err(|e| format!("begin pomodoro calendar window read: {e}"))?;
     let mut events = sqlx::query_as::<_, DbCalendarEventRow>(POMODORO_SCHEDULER_EVENTS_SQL)
         .bind(&window_start_date)
         .bind(&window_end_date)
         .bind(&window_start_utc)
         .bind(&window_end_exclusive_utc)
-        .fetch_all(&pool)
+        .fetch_all(&mut *transaction)
         .await
         .map_err(|e| format!("load pomodoro scheduler events: {e}"))?;
-    hydrate_window_event_rows(&pool, &mut events).await?;
+    hydrate_window_event_rows(&mut transaction, &mut events).await?;
 
     let overrides = if events.is_empty() {
         Vec::new()
@@ -596,11 +615,15 @@ pub async fn calendar_load_pomodoro_scheduler_window<R: Runtime>(
             .bind(&window_end_date)
             .bind(&window_start_utc)
             .bind(&window_end_exclusive_utc)
-            .fetch_all(&pool)
+            .fetch_all(&mut *transaction)
             .await
             .map_err(|e| format!("load pomodoro scheduler overrides: {e}"))?
     };
 
+    transaction
+        .commit()
+        .await
+        .map_err(|e| format!("commit pomodoro calendar window read: {e}"))?;
     Ok(CalendarPomodoroSchedulerRows { events, overrides })
 }
 
@@ -857,6 +880,63 @@ mod tests {
             assert!(!lower.contains("raw_jcal"));
             assert!(!lower.contains("projection_warnings"));
         }
+    }
+
+    #[test]
+    fn calendar_window_queries_use_existing_range_and_child_indexes() {
+        tauri::async_runtime::block_on(async {
+            let pool = migrated_memory_pool().await;
+            let bounds = [
+                "2026-01-01",
+                "2026-01-31",
+                "2026-01-01T00:00:00Z",
+                "2026-02-01T00:00:00Z",
+            ];
+            for (label, sql) in [
+                ("events", super::WINDOW_EVENTS_SQL),
+                ("overrides", super::WINDOW_OVERRIDES_SQL),
+                ("attendees", super::WINDOW_ATTENDEES_SQL),
+            ] {
+                let plan_sql = format!("EXPLAIN QUERY PLAN {sql}");
+                let rows = sqlx::query(&plan_sql)
+                    .bind(bounds[0])
+                    .bind(bounds[1])
+                    .bind(bounds[2])
+                    .bind(bounds[3])
+                    .fetch_all(&pool)
+                    .await
+                    .unwrap();
+                let details = rows
+                    .iter()
+                    .map(|row| sqlx::Row::get::<String, _>(row, "detail"))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                assert!(
+                    details.contains("INDEX"),
+                    "{label} plan did not use an index: {details}"
+                );
+            }
+            for (table, index) in [
+                (
+                    "calendar_event_notifications",
+                    "idx_event_notifications_event",
+                ),
+                ("calendar_event_exdates", "idx_event_exdates_event_date"),
+                ("calendar_event_rdates", "idx_event_rdates_event_start"),
+            ] {
+                let sql = format!("EXPLAIN QUERY PLAN SELECT event_id FROM {table} WHERE event_id IN ('event-a', 'event-b') ORDER BY event_id, sort_order");
+                let rows = sqlx::query(&sql).fetch_all(&pool).await.unwrap();
+                let details = rows
+                    .iter()
+                    .map(|row| sqlx::Row::get::<String, _>(row, "detail"))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                assert!(
+                    details.contains(index),
+                    "{table} plan did not use {index}: {details}"
+                );
+            }
+        });
     }
 
     #[test]

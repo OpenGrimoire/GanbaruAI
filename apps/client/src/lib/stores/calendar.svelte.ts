@@ -66,6 +66,7 @@ import {
   prefetchPanelEvent,
 } from "./calendar-event-loaders";
 import { removeCalendarMutationTarget } from "./calendar-block-state";
+import { calendarWindowIncludesGlobalCount } from "./calendar-window-count";
 import { loadPomodoroSchedulerEventsFromDb } from "./calendar-pomodoro-window";
 
 export { expandRecurring, parseYMD, fmtYMD };
@@ -324,12 +325,13 @@ async function runWindowLoadRequest(
     windowEndDate,
     windowStartUtc: wallClockToUtcIso(`${windowStartDate} 00:00`, renderZone),
     windowEndExclusiveUtc: wallClockToUtcIso(`${windowEndExclusiveDate} 00:00`, renderZone),
+    includeTotalEventCount: calendarWindowIncludesGlobalCount(markBoot),
   });
   perfMark("window.rows-done", {
     mode,
     rows: rows.events.length,
     attendees: rows.attendees.length,
-    total: rows.total_event_count,
+    total: rows.total_event_count ?? totalEventCount,
   });
 
   if (!markBoot && isSuperseded()) {
@@ -337,7 +339,7 @@ async function runWindowLoadRequest(
     return "superseded";
   }
 
-  if (markBoot) perfMark("boot.sql-main-done", { rows: rows.events.length, total: rows.total_event_count });
+  if (markBoot) perfMark("boot.sql-main-done", { rows: rows.events.length, total: rows.total_event_count ?? totalEventCount });
   const mapped = mapWindowRows(rows, renderZone);
   if (markBoot) perfMark("boot.maprow-done");
 
@@ -370,7 +372,7 @@ async function runWindowLoadRequest(
     rawBlocks: mapped,
     windowEvents: expanded,
     expansionIndex: buildExpansionIndex(mapped),
-    totalEventCount: rows.total_event_count,
+    totalEventCount: rows.total_event_count ?? totalEventCount,
   };
   rememberWindowSnapshot(snapshot);
 
@@ -780,6 +782,16 @@ export function getCalendar() {
         dbUrl: dbUrl(),
         operations,
       });
+      let nextBlocks = rawBlocks;
+      let nextTotal = totalEventCount;
+      for (const operation of operations) {
+        if (operation.type === "cap_series") continue;
+        const next = removeCalendarMutationTarget(nextBlocks, nextTotal, operation.target);
+        nextBlocks = next.blocks;
+        nextTotal = next.totalEventCount;
+      }
+      rawBlocks = nextBlocks;
+      totalEventCount = nextTotal;
       invalidate(false);
       clearPanelEventCache();
       publishCalendarWindowSync();
