@@ -1,7 +1,5 @@
 import {
   appendNotesBlockChildren,
-  createNotesDatabase,
-  createNotesLinkedDatabaseView,
   duplicateNotesBlocks,
   moveNotesBlock,
   moveNotesBlocks,
@@ -12,73 +10,8 @@ import {
   collectLoadedBlockSubtreeIds,
 } from "$lib/notes/block-duplicate";
 import { cloneNotesJson } from "$lib/notes/json-clone";
-import {
-  unsupportedBlockJsonText,
-  unsupportedBlockSummaryText,
-  type NotesUnsupportedConversionTarget,
-} from "$lib/notes/unsupported";
-import { planNotesPlainTextPaste } from "$lib/notes/block-clipboard";
-import { planNotesRichHtmlPaste } from "$lib/notes/rich-text-paste";
-import {
-  notesSelectionRootBlockIds,
-  notesSelectionSubtreeIds,
-  planNotesSelectionMoveWithinSiblings,
-  type NotesSelectionMoveDirection,
-} from "$lib/notes/block-selection-operations";
-import { blockColor, blockWithColor, canBlockHaveColor } from "$lib/notes/block-color";
-import {
-  createBlockWriteFromInsertCommand,
-  normalizeNotesBlockInsertCommand,
-  type NotesBlockInsertRequest,
-} from "$lib/notes/block-insertion";
-import { createNotesLinkedDatabaseViewRequest } from "$lib/notes/database-linked";
-import {
-  blockEditableRichText,
-  blockConvertedToType,
-  blockPlainText,
-  blockWithCodeLanguage,
-  blockWithHeadingToggleable,
-  blockWithHeadingToggleOpen,
-  blockWithRichText,
-  blockWithTodoChecked,
-  blockWithToggleOpen,
-  blockUpdateFromBlock,
-  createBlockUpdate,
-  createBlockWrite,
-  createColumnPayload,
-  createEmptyTableRowPayload,
-  DEFAULT_TABLE_ROW_COUNT,
-  DEFAULT_TABLE_WIDTH,
-  isTextEditableBlock,
-  type NotesHeadingBlockType,
-} from "$lib/notes/block-factory";
 import type { NotesTextSelection } from "$lib/notes/editor-selection";
-import { createBlockWriteFromRichText } from "$lib/notes/block-rich-text-write";
-import {
-  notesEnterSiblingBlockType,
-  notesEnterSplitsRichTextBlock,
-} from "$lib/notes/block-enter";
-import {
-  planNotesBlockDrop,
-  type NotesBlockDropIntent,
-} from "$lib/notes/block-drag";
-import {
-  planNotesDeletedBlockFocus,
-  planNotesInsertedBlockFocus,
-} from "$lib/notes/editor-focus";
-import {
-  planDeleteBlock,
-  planMergeWithPrevious,
-  planMoveBlockWithinSiblings,
-  planNestBlock,
-  planOutdentBlock,
-  planReparentChildrenAfterMerge,
-  planReparentChildrenBeforeDelete,
-  parentIdForBlock,
-  type NotesChildReparentPlan,
-  type NotesTreeState,
-} from "$lib/notes/block-tree";
-import { splitRichTextForBlock } from "$lib/notes/rich-text-split";
+import type { NotesTreeState } from "$lib/notes/block-tree";
 import {
   type NotesUndoKind,
   type NotesUndoRecordOptions,
@@ -88,10 +21,8 @@ import type {
   NotesBlock,
   NotesAppendBlockChildrenRequest,
   NotesBlockTreeItem,
-  NotesBlockType,
   NotesBlockUpdate,
   NotesBlockWrite,
-  NotesColor,
   NotesMoveBlockRequest,
   NotesMoveBlocksRequest,
   NotesColumnBlockItems,

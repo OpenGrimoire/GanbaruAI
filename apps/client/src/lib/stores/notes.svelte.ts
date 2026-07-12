@@ -1,23 +1,9 @@
 import {
-  archiveNotesPage,
-  createNotesChildPageFromBlock,
-  createNotesPage,
-  duplicateNotesPage,
-  getNotesBlockFrontier,
-  getNotesBlockOutlineFrontier,
   getNotesPageBreadcrumb,
   listNotesSidebarPages,
-  loadNotesWorkspaceShell,
   loadNotesPage,
   openNotesPage,
-  hydrateNotesBlocks,
-  moveNotesPage,
-  permanentlyDeleteNotesPage,
-  trashNotesPage,
-  updateNotesPage,
 } from "$lib/api/notes";
-import { invalidateNotesPageCoverAssetUrl } from "$lib/api/notes-page-covers";
-import { invalidateNotesPageIconAssetUrl } from "$lib/api/notes-page-icons";
 import { blockPlainText } from "$lib/notes/block-factory";
 import type { NotesBlockLinkTarget, NotesPageLinkTarget } from "$lib/notes/block-link";
 import {
@@ -30,23 +16,16 @@ import {
   notesBlockOutlineFromBlock,
   type NotesBlockOutlineItem,
 } from "$lib/notes/block-outline";
-import { nextSelectedNotesPageId } from "$lib/notes/page-selection";
 import {
   notesPageOpenModeForSelection,
   notesDefaultOpenModeForProject,
   type NotesPageOpenMode,
 } from "$lib/notes/page-open-mode";
 import {
-  normalizeNotesProjectId,
   notesPageProjectId,
-  notesPageProjectProperties,
-  type NotesCreatePageOptions,
 } from "$lib/notes/project-membership";
-import { notesPageCoverAssetPath } from "$lib/notes/page-cover";
-import { notesPageIconAssetPath } from "$lib/notes/page-icon";
 import {
   nextNotesFocusRequest,
-  planNotesInsertedBlockFocus,
   planNotesPageLoadFocus,
   type NotesFocusRequest,
 } from "$lib/notes/editor-focus";
@@ -67,6 +46,9 @@ import { createNotesTransferActions } from "./notes-store-transfer-actions";
 import { createNotesSidebarController } from "./notes-store-sidebar.svelte";
 import { createNotesPageTemplatesController } from "./notes-store-page-templates.svelte";
 import { createNotesFoldersController } from "./notes-store-folders.svelte";
+import { createNotesPageActions } from "./notes-store-page-actions";
+import { createNotesHydrationController } from "./notes-store-hydration";
+import { createNotesWorkspaceController } from "./notes-store-workspace.svelte";
 import {
   createNotesOptionalSubsystemController,
   type NotesOptionalSubsystem,
@@ -103,13 +85,11 @@ import type {
   NotesLoadedPage,
   NotesPage,
   NotesPageBreadcrumbItem,
-  NotesPageCover,
   NotesPageHistorySettings,
   NotesPageHistorySnapshot,
-  NotesPageIcon,
-  NotesParent,
   NotesTabBlockItems,
   NotesTableRowBlock,
+  NotesWorkspaceShell,
 } from "$lib/notes/types";
 
 type NotesViewMode = "pages" | "archive" | "trash";
@@ -124,8 +104,6 @@ interface NotesLoadPageTreeOptions {
 }
 
 const BLOCK_SAVE_DEBOUNCE_MS = 350;
-const BLOCK_VIRTUALIZATION_THRESHOLD = 120;
-const BLOCK_HYDRATION_LIMIT = 200;
 
 let pages = $state<NotesPage[]>([]);
 let allPages = $state<NotesPage[]>([]);
@@ -137,15 +115,7 @@ let blocksById = $state<Record<string, NotesBlock>>({});
 let childIdsByParentId = $state<Record<string, string[]>>({});
 let blockOutlines = $state<NotesBlockOutline[]>([]);
 let flatBlockOutlines = $state<NotesBlockOutlineItem[]>([]);
-let loaded = $state(false);
-let loading = $state(false);
 let primaryContentReady = $state(false);
-let loadError = $state<string | null>(null);
-let nextWorkspacePageCursor = $state<string | null>(null);
-let nextWorkspaceFolderCursor = $state<string | null>(null);
-let workspaceWindowLoading = $state(false);
-let workspaceTotalPageCount = 0;
-let workspaceTotalFolderCount = 0;
 let viewMode = $state<NotesViewMode>("pages");
 let focusRequest = $state<NotesFocusRequest>({
   blockId: null,
@@ -153,10 +123,7 @@ let focusRequest = $state<NotesFocusRequest>({
   selection: null,
 });
 const START_OF_NOTES_BLOCK_SELECTION: NotesTextSelection = { start: 0, end: 0 };
-let loadRequestId = 0;
 let pageWorkGeneration = 0;
-let blockHydrationRequestId = 0;
-let loadPromise: Promise<void> | null = null;
 let titleFocusRequest = $state<{ pageId: string | null; requestId: number }>({
   pageId: null,
   requestId: 0,
@@ -366,72 +333,6 @@ function syncHydratedBlockOutlines(pageId: string): void {
   replaceBlockOutlines([...next.values()], pageId);
 }
 
-async function loadOutlineDescendantFrontiers(
-  pageId: string,
-  requestId: number,
-): Promise<void> {
-  let frontier = blockOutlines
-    .filter((outline) => outline.has_children && outline.type !== "child_page")
-    .map((outline) => outline.id);
-  const visited = new Set<string>();
-  while (frontier.length > 0) {
-    const parentIds = frontier.filter((id) => !visited.has(id));
-    if (parentIds.length === 0) break;
-    parentIds.forEach((id) => visited.add(id));
-    const children = await getNotesBlockOutlineFrontier(pageId, parentIds);
-    if (requestId !== pageWorkGeneration || pageId !== selectedPageId) return;
-    mergeBlockOutlines(children, pageId);
-    frontier = children
-      .filter((outline) => outline.has_children && outline.type !== "child_page")
-      .map((outline) => outline.id);
-  }
-  if (requestId !== pageWorkGeneration || pageId !== selectedPageId) return;
-  const initialIds = flatBlockOutlines.length < BLOCK_VIRTUALIZATION_THRESHOLD
-    ? flatBlockOutlines.map((item) => item.outline.id)
-    : flatBlockOutlines.slice(0, 80).map((item) => item.outline.id);
-  await hydrateBlockRange(initialIds, requestId);
-}
-
-async function hydrateBlockRange(
-  blockIds: readonly string[],
-  generation: number = pageWorkGeneration,
-): Promise<void> {
-  const pageId = selectedPageId;
-  if (!pageId || generation !== pageWorkGeneration) return;
-  const outlinesById = new Map(blockOutlines.map((outline) => [outline.id, outline]));
-  const retained = new Set(blockIds);
-  if (focusRequest.blockId) retained.add(focusRequest.blockId);
-  for (const blockId of [...retained]) {
-    let parent = outlinesById.get(blockId)?.parent;
-    while (parent?.type === "block_id") {
-      if (retained.has(parent.block_id)) break;
-      retained.add(parent.block_id);
-      parent = outlinesById.get(parent.block_id)?.parent;
-    }
-  }
-  const boundedIds = [...retained].slice(0, BLOCK_HYDRATION_LIMIT);
-  const missingIds = boundedIds.filter((id) => !blocksById[id]);
-  const requestId = ++blockHydrationRequestId;
-  const hydrated = missingIds.length > 0
-    ? await hydrateNotesBlocks({ page_id: pageId, block_ids: missingIds })
-    : [];
-  if (
-    requestId !== blockHydrationRequestId
-    || generation !== pageWorkGeneration
-    || pageId !== selectedPageId
-  ) return;
-  const retainedIds = new Set(boundedIds);
-  const nextBlocks = flatBlockOutlines.length >= BLOCK_VIRTUALIZATION_THRESHOLD
-    ? Object.fromEntries(Object.entries(blocksById).filter(([id]) => retainedIds.has(id)))
-    : { ...blocksById };
-  for (const block of hydrated) nextBlocks[block.id] = block;
-  blocksById = nextBlocks;
-  childIdsByParentId = buildNotesChildIdsByParent(Object.values(blocksById));
-  if (optionalSubsystemController.isPanelOpen("comments")) {
-    void collaborationController.reloadComments(pageId);
-  }
-}
-
 function requestLoadedPageFocus(
   loaded: NotesLoadedPage,
   focusBlockId: string | null = null,
@@ -444,50 +345,25 @@ function requestLoadedPageFocus(
   );
 }
 
-async function loadDescendantFrontiers(
-  pageId: string = selectedPageId ?? "",
-  requestId: number = pageWorkGeneration,
+async function hydrateBlockRange(
+  blockIds: readonly string[],
+  generation = pageWorkGeneration,
 ): Promise<void> {
-  let frontier = Object.values(blocksById).filter(
-    (block) => block.has_children && block.type !== "child_page",
-  ).map((block) => block.id);
-  const visited = new Set<string>();
-  while (frontier.length > 0) {
-    const parentIds = frontier.filter((id) => !visited.has(id));
-    if (parentIds.length === 0) return;
-    parentIds.forEach((id) => visited.add(id));
-    const { blocks: loadedChildren } = await getNotesBlockFrontier(parentIds);
-    if (requestId !== pageWorkGeneration || pageId !== selectedPageId) return;
-    if (loadedChildren.length === 0) return;
-    blocksById = {
-      ...blocksById,
-      ...Object.fromEntries(loadedChildren.map((child) => [child.id, child])),
-    };
-    childIdsByParentId = buildNotesChildIdsByParent(Object.values(blocksById));
-    frontier = loadedChildren
-      .filter((child) => child.has_children && child.type !== "child_page")
-      .map((child) => child.id);
-  }
+  await hydrationController.hydrateBlockRange(blockIds, generation);
 }
 
 function queueDescendantHydration(
   pageId: string = selectedPageId ?? "",
-  requestId: number = pageWorkGeneration,
+  generation: number = pageWorkGeneration,
 ): void {
-  void loadDescendantFrontiers(pageId, requestId).catch((error) => {
-    if (requestId === pageWorkGeneration && pageId === selectedPageId) {
-      loadError = error instanceof Error ? error.message : String(error);
-    }
-  });
+  hydrationController.queueDescendantHydration(pageId, generation);
 }
 
 async function reloadPages(selectedPageIdOverride: string | null = selectedPageId): Promise<void> {
-  const shell = await loadNotesWorkspaceShell({
-    project_id: projects.selectedProjectId,
-    expanded_page_ids: [...sidebarController.expandedPageIds],
-    seed_page_ids: sidebarSeedPageIds(),
-    selected_page_id: selectedPageIdOverride,
-  });
+  await workspaceController.reloadPages(selectedPageIdOverride);
+}
+
+function mergeReloadedWorkspaceShell(shell: NotesWorkspaceShell): void {
   const mergedPages = [...new Map([...allPages, ...shell.pages].map((page) => [page.id, page])).values()];
   replacePages(mergedPages);
   replaceAllPages(mergedPages);
@@ -497,6 +373,56 @@ async function reloadPages(selectedPageIdOverride: string | null = selectedPageI
     missingParentPageIds: shell.missing_parent_page_ids,
     trashedParentPageIds: shell.trashed_parent_page_ids,
   });
+}
+
+function prepareWorkspaceLoad(): void {
+  pageWorkGeneration += 1;
+  hydrationController.invalidate();
+  blockOutlines = [];
+  flatBlockOutlines = [];
+  optionalSubsystemController.resetAll();
+  linksController.resetAll();
+  collaborationController.resetPageState();
+  pageHistoryController.resetPageState();
+  sidebarRefreshCoordinator.cancel();
+}
+
+function applyInitialWorkspaceShell(
+  shell: NotesWorkspaceShell,
+  requestedSelection: string | null,
+): string | null {
+  replacePages(shell.pages);
+  replaceAllPages(shell.pages);
+  foldersController.replace(shell.folders);
+  sidebarController.replaceMetadata({
+    pageIdsWithChildren: shell.page_ids_with_children,
+    missingParentPageIds: shell.missing_parent_page_ids,
+    trashedParentPageIds: shell.trashed_parent_page_ids,
+  });
+  const selectionUnchanged = selectedPageId === requestedSelection;
+  const nextSelected = selectionUnchanged ? shell.resolved_selected_page_id : selectedPageId;
+  if (selectionUnchanged) saveSelectedPageId(nextSelected);
+  return nextSelected;
+}
+
+function applyAdditionalWorkspaceShell(shell: NotesWorkspaceShell): void {
+  const mergedPages = [...new Map([...allPages, ...shell.pages].map((page) => [page.id, page])).values()];
+  replaceAllPages(mergedPages);
+  replacePages(mergedPages);
+  foldersController.merge(shell.folders);
+  sidebarController.mergeMetadata({
+    pageIdsWithChildren: shell.page_ids_with_children,
+    missingParentPageIds: shell.missing_parent_page_ids,
+    trashedParentPageIds: shell.trashed_parent_page_ids,
+  });
+}
+
+function clearSelectedPageState(): void {
+  loadedPage = null;
+  pageBreadcrumbItems = [];
+  pageHistoryController.resetPageState();
+  blocksById = {};
+  childIdsByParentId = {};
 }
 
 const sidebarRefreshCoordinator = createNotesSidebarRefreshCoordinator({
@@ -556,9 +482,9 @@ async function loadPageTree(pageId: string, options: NotesLoadPageTreeOptions = 
   setLoadedPageFromLoaded(loaded);
   replaceBlockOutlines(loaded.outlines, pageId);
   pageBreadcrumbItems = [...loaded.breadcrumb];
-  void loadOutlineDescendantFrontiers(pageId, requestId).catch((error) => {
+  void hydrationController.loadOutlineDescendantFrontiers(pageId, requestId).catch((error) => {
     if (requestId === pageWorkGeneration && pageId === selectedPageId) {
-      loadError = error instanceof Error ? error.message : String(error);
+      workspaceController.setError(error instanceof Error ? error.message : String(error));
     }
   });
 }
@@ -575,107 +501,6 @@ async function reloadPageBreadcrumb(pageId: string | null = selectedPageId): Pro
     return;
   }
   pageBreadcrumbItems = [...await getNotesPageBreadcrumb(pageId)];
-}
-
-async function load(): Promise<void> {
-  const requestId = ++loadRequestId;
-  pageWorkGeneration += 1;
-  blockHydrationRequestId += 1;
-  blockOutlines = [];
-  flatBlockOutlines = [];
-  optionalSubsystemController.resetAll();
-  linksController.resetAll();
-  collaborationController.resetPageState();
-  pageHistoryController.resetPageState();
-  sidebarRefreshCoordinator.cancel();
-  const requestedSelection = selectedPageId;
-  loading = true;
-  loadError = null;
-  try {
-    const shell = await loadNotesWorkspaceShell({
-      project_id: projects.selectedProjectId,
-      expanded_page_ids: [...sidebarController.expandedPageIds],
-      seed_page_ids: sidebarSeedPageIds(),
-      selected_page_id: requestedSelection,
-    });
-    if (requestId !== loadRequestId) return;
-    replacePages(shell.pages);
-    replaceAllPages(shell.pages);
-    foldersController.replace(shell.folders);
-    sidebarController.replaceMetadata({
-      pageIdsWithChildren: shell.page_ids_with_children,
-      missingParentPageIds: shell.missing_parent_page_ids,
-      trashedParentPageIds: shell.trashed_parent_page_ids,
-    });
-    nextWorkspacePageCursor = shell.next_page_cursor;
-    nextWorkspaceFolderCursor = shell.next_folder_cursor;
-    workspaceTotalPageCount = shell.total_page_count;
-    workspaceTotalFolderCount = shell.total_folder_count;
-    const selectionUnchanged = selectedPageId === requestedSelection;
-    const nextSelected = selectionUnchanged ? shell.resolved_selected_page_id : selectedPageId;
-    if (selectionUnchanged) saveSelectedPageId(nextSelected);
-    loaded = true;
-    if (nextSelected) {
-      void loadPageTree(nextSelected, { focusOnLoad: true }).catch((error) => {
-        if (selectedPageId === nextSelected) {
-          loadError = error instanceof Error ? error.message : String(error);
-        }
-      });
-    } else {
-      loadedPage = null;
-      pageBreadcrumbItems = [];
-      pageHistoryController.resetPageState();
-      blocksById = {};
-      childIdsByParentId = {};
-    }
-  } catch (error) {
-    if (requestId !== loadRequestId) return;
-    loadError = error instanceof Error ? error.message : String(error);
-    throw error;
-  } finally {
-    if (requestId === loadRequestId) loading = false;
-  }
-}
-
-async function loadMoreWorkspaceWindow(): Promise<void> {
-  if (workspaceWindowLoading || (!nextWorkspacePageCursor && !nextWorkspaceFolderCursor)) return;
-  workspaceWindowLoading = true;
-  const pageCursor = nextWorkspacePageCursor;
-  const folderCursor = nextWorkspaceFolderCursor;
-  const requestId = loadRequestId;
-  try {
-    const shell = await loadNotesWorkspaceShell({
-      project_id: projects.selectedProjectId,
-      expanded_page_ids: [],
-      seed_page_ids: [],
-      selected_page_id: selectedPageId,
-      page_cursor: pageCursor ?? "end",
-      folder_cursor: folderCursor ?? "end",
-    });
-    if (requestId !== loadRequestId) return;
-    const mergedPages = [...new Map([...allPages, ...shell.pages].map((page) => [page.id, page])).values()];
-    replaceAllPages(mergedPages);
-    replacePages(mergedPages);
-    foldersController.merge(shell.folders);
-    sidebarController.mergeMetadata({
-      pageIdsWithChildren: shell.page_ids_with_children,
-      missingParentPageIds: shell.missing_parent_page_ids,
-      trashedParentPageIds: shell.trashed_parent_page_ids,
-    });
-    nextWorkspacePageCursor = shell.next_page_cursor;
-    nextWorkspaceFolderCursor = shell.next_folder_cursor;
-  } finally {
-    if (requestId === loadRequestId) workspaceWindowLoading = false;
-  }
-}
-
-async function ensureLoaded(): Promise<void> {
-  if (loaded) return;
-  if (loadPromise) return loadPromise;
-  loadPromise = load().finally(() => {
-    loadPromise = null;
-  });
-  return loadPromise;
 }
 
 async function loadOptionalSubsystem(
@@ -769,7 +594,7 @@ async function selectPage(
   }
   if (alreadyLoaded) return;
   pageWorkGeneration += 1;
-  blockHydrationRequestId += 1;
+  hydrationController.invalidate();
   blockOutlines = [];
   flatBlockOutlines = [];
   optionalSubsystemController.resetPageScoped();
@@ -787,8 +612,8 @@ async function selectPage(
     childIdsByParentId = {};
     return;
   }
-  loading = true;
-  loadError = null;
+  workspaceController.setLoading(true);
+  workspaceController.setError(null);
   try {
     await loadPageTree(pageId, {
       focusOnLoad: true,
@@ -796,68 +621,11 @@ async function selectPage(
     });
     recordRecentPage(pageId);
   } catch (error) {
-    loadError = error instanceof Error ? error.message : String(error);
+    workspaceController.setError(error instanceof Error ? error.message : String(error));
     throw error;
   } finally {
-    loading = false;
+    workspaceController.setLoading(false);
   }
-}
-
-async function createPage(title: string, options: NotesCreatePageOptions = {}): Promise<void> {
-  await createPageWithParent(title, { type: "workspace", workspace: true }, options);
-}
-
-async function createSubpage(
-  parentPageId: string,
-  title: string,
-  options: NotesCreatePageOptions = {},
-): Promise<void> {
-  setSidebarPageCollapsed(parentPageId, false);
-  await createPageWithParent(title, { type: "page_id", page_id: parentPageId }, options);
-}
-
-function pageProjectIdForParent(
-  parent: NotesParent,
-  options: NotesCreatePageOptions,
-): string | null {
-  if ("projectId" in options) return normalizeNotesProjectId(options.projectId);
-  const folderId = options.folderId?.trim();
-  if (parent.type === "workspace" && folderId) {
-    return normalizeNotesProjectId(
-      foldersController.folders.find((folder) => folder.id === folderId)?.project_id,
-    );
-  }
-  if (parent.type !== "page_id") return null;
-  const parentPage = allPages.find((page) => page.id === parent.page_id)
-    ?? (loadedPage?.id === parent.page_id ? loadedPage : null);
-  return parentPage ? notesPageProjectId(parentPage) : null;
-}
-
-async function createPageWithParent(
-  title: string,
-  parent: NotesParent,
-  options: NotesCreatePageOptions = {},
-): Promise<void> {
-  const pageId = crypto.randomUUID();
-  const firstBlockId = crypto.randomUUID();
-  const projectId = pageProjectIdForParent(parent, options);
-  const folderId = parent.type === "workspace"
-    ? options.folderId?.trim() || null
-    : null;
-  const projectProperties = notesPageProjectProperties(projectId);
-  const loaded = await createNotesPage({
-    id: pageId,
-    title,
-    parent,
-    folder_id: folderId,
-    first_block_id: firstBlockId,
-    after_block_id: null,
-    properties: projectProperties,
-  });
-  if (loaded.page.folder_id) setFolderCollapsed(loaded.page.folder_id, false);
-  await activateReturnedPage(loaded, "hierarchy", defaultNotesPageOpenMode(projectId));
-  requestBlockFocus(null);
-  requestTitleFocus(loaded.page.id);
 }
 
 async function activateReturnedPage(
@@ -881,6 +649,18 @@ async function activateReturnedPage(
   await reloadPageBreadcrumb(loaded.page.id);
 }
 
+async function activateRestoredPage(page: NotesPage): Promise<void> {
+  pageWorkGeneration += 1;
+  undoController.reset(page.id);
+  pageHistoryController.resetPageState();
+  optionalSubsystemController.resetPageScoped();
+  openSelectedPage(page.id, defaultNotesPageOpenMode(notesPageProjectId(page)));
+  applyPostMutation({ pages: [page], sidebarImpact: "hierarchy" });
+  await loadPageTree(page.id);
+  recordRecentPage(page.id);
+  requestPageLoadFocus();
+}
+
 function setFolderCollapsed(folderId: string, collapsed: boolean): void {
   sidebarController.setFolderCollapsed(folderId, collapsed);
 }
@@ -891,189 +671,6 @@ function setSidebarPageCollapsed(pageId: string, collapsed: boolean): void {
 
 function setPageFavorited(pageId: string, favorited: boolean): void {
   sidebarController.setPageFavorited(pageId, favorited);
-}
-
-async function createChildPageFromBlock(blockId: string): Promise<void> {
-  const block = blocksById[blockId];
-  if (!block || block.type === "child_page") return;
-  await flushBlockSave(blockId);
-  const firstBlockId = crypto.randomUUID();
-  const projectProperties = notesPageProjectProperties(
-    loadedPage ? notesPageProjectId(loadedPage) : null,
-  );
-  const loaded = await createNotesChildPageFromBlock(blockId, {
-    first_block_id: firstBlockId,
-    title: blockPlainText(block).trim(),
-    properties: projectProperties,
-  });
-  await activateReturnedPage(loaded, "hierarchy");
-  requestBlockFocus(
-    planNotesInsertedBlockFocus([loaded.blocks.results[0]?.id, firstBlockId]),
-    START_OF_NOTES_BLOCK_SELECTION,
-  );
-}
-
-async function createChildPageAfterBlock(blockId: string): Promise<void> {
-  const block = blocksById[blockId];
-  if (!block) return;
-  await flushBlockSave(blockId);
-  const pageId = crypto.randomUUID();
-  const firstBlockId = crypto.randomUUID();
-  const projectProperties = notesPageProjectProperties(
-    loadedPage ? notesPageProjectId(loadedPage) : null,
-  );
-  const loaded = await createNotesPage({
-    id: pageId,
-    title: "",
-    parent: block.parent,
-    folder_id: null,
-    first_block_id: firstBlockId,
-    after_block_id: blockId,
-    properties: projectProperties,
-  });
-  if (block.parent.type === "page_id") {
-    setSidebarPageCollapsed(block.parent.page_id, false);
-  }
-  await activateReturnedPage(loaded, "hierarchy");
-  requestBlockFocus(
-    planNotesInsertedBlockFocus([loaded.blocks.results[0]?.id, firstBlockId]),
-    START_OF_NOTES_BLOCK_SELECTION,
-  );
-}
-
-async function renamePage(pageId: string, title: string): Promise<void> {
-  const trimmedTitle = title.trim();
-  const page = await updateNotesPage(pageId, { title: trimmedTitle });
-  applyPostMutation({ pages: [page], sidebarImpact: "visible-metadata" });
-  if (selectedPageId === page.id) await reloadPageBreadcrumb(page.id);
-}
-
-async function duplicatePage(pageId: string, title: string): Promise<void> {
-  await flushPendingBlockSaves();
-  const loaded = await duplicateNotesPage(pageId, { title });
-  if (loaded.page.parent.type === "page_id") {
-    setSidebarPageCollapsed(loaded.page.parent.page_id, false);
-  }
-  if (loaded.page.folder_id) setFolderCollapsed(loaded.page.folder_id, false);
-  await activateReturnedPage(loaded, "hierarchy");
-  requestBlockFocus(planNotesPageLoadFocus(loaded.blocks.results.map((block) => block.id)));
-}
-
-async function movePage(pageId: string, parent: NotesParent): Promise<void> {
-  await movePageWithPlacement(pageId, parent, null);
-}
-
-async function movePageToFolder(pageId: string, folderId: string | null): Promise<void> {
-  const normalizedFolderId = folderId?.trim() || null;
-  await movePageWithPlacement(
-    pageId,
-    { type: "workspace", workspace: true },
-    normalizedFolderId,
-  );
-}
-
-async function movePageWithPlacement(
-  pageId: string,
-  parent: NotesParent,
-  folderId: string | null,
-): Promise<void> {
-  await flushPendingBlockSaves();
-  const loaded = await moveNotesPage(pageId, { parent, folder_id: folderId });
-  if (loaded.page.parent.type === "page_id") {
-    setSidebarPageCollapsed(loaded.page.parent.page_id, false);
-  }
-  if (loaded.page.folder_id) setFolderCollapsed(loaded.page.folder_id, false);
-  await activateReturnedPage(loaded, "hierarchy");
-  queueDescendantHydration();
-  requestPageLoadFocus();
-}
-
-async function updatePageIcon(pageId: string, icon: NotesPageIcon | null): Promise<void> {
-  const previousPage = loadedPage?.id === pageId
-    ? loadedPage
-    : allPages.find((candidate) => candidate.id === pageId);
-  const previousPath = notesPageIconAssetPath(previousPage?.icon ?? null);
-  const page = await updateNotesPage(pageId, { icon });
-  const nextPath = notesPageIconAssetPath(page.icon);
-  if (previousPath && previousPath !== nextPath) {
-    invalidateNotesPageIconAssetUrl(previousPath);
-  }
-  applyPostMutation({ pages: [page], sidebarImpact: "visible-metadata" });
-}
-
-async function updatePageCover(pageId: string, cover: NotesPageCover | null): Promise<void> {
-  const previousPage = loadedPage?.id === pageId
-    ? loadedPage
-    : allPages.find((candidate) => candidate.id === pageId);
-  const previousPath = notesPageCoverAssetPath(previousPage?.cover ?? null);
-  const page = await updateNotesPage(pageId, { cover });
-  const nextPath = notesPageCoverAssetPath(page.cover);
-  if (previousPath && previousPath !== nextPath) {
-    invalidateNotesPageCoverAssetUrl(previousPath);
-  }
-  applyPostMutation({ pages: [page] });
-}
-
-async function trashPage(pageId: string): Promise<void> {
-  const trashedPage = await trashNotesPage(pageId, true);
-  const preferredNextSelected = nextSelectedNotesPageId(pages, pageId);
-  archiveController.prependTrashedPage(trashedPage);
-  archiveController.removeArchivedPages(new Set([pageId]));
-  applyPostMutation({ removedPageIds: [pageId], sidebarImpact: "hierarchy" });
-  const nextSelected = preferredNextSelected && pages.some((page) => page.id === preferredNextSelected)
-    ? preferredNextSelected
-    : pages[0]?.id ?? null;
-  await selectPage(nextSelected);
-}
-
-async function archivePage(pageId: string): Promise<void> {
-  const archivedPage = await archiveNotesPage(pageId, true);
-  archiveController.prependArchivedPage(archivedPage);
-  const nextSelected = nextSelectedNotesPageId(pages, pageId);
-  applyPostMutation({ removedPageIds: [pageId], sidebarImpact: "hierarchy" });
-  await selectPage(nextSelected);
-}
-
-async function unarchivePage(pageId: string): Promise<void> {
-  const restoredPage = await archiveNotesPage(pageId, false);
-  archiveController.removeArchivedPages(new Set([pageId]));
-  pageWorkGeneration += 1;
-  undoController.reset(restoredPage.id);
-  pageHistoryController.resetPageState();
-  optionalSubsystemController.resetPageScoped();
-  openSelectedPage(restoredPage.id, defaultNotesPageOpenMode(notesPageProjectId(restoredPage)));
-  applyPostMutation({ pages: [restoredPage], sidebarImpact: "hierarchy" });
-  await loadPageTree(restoredPage.id);
-  recordRecentPage(restoredPage.id);
-  requestPageLoadFocus();
-}
-
-async function restorePage(pageId: string): Promise<void> {
-  const restoredPage = await trashNotesPage(pageId, false);
-  archiveController.removeTrashedPages(new Set([pageId]));
-  pageWorkGeneration += 1;
-  undoController.reset(restoredPage.id);
-  pageHistoryController.resetPageState();
-  optionalSubsystemController.resetPageScoped();
-  openSelectedPage(restoredPage.id, defaultNotesPageOpenMode(notesPageProjectId(restoredPage)));
-  applyPostMutation({ pages: [restoredPage], sidebarImpact: "hierarchy" });
-  await loadPageTree(restoredPage.id);
-  recordRecentPage(restoredPage.id);
-  requestPageLoadFocus();
-}
-
-async function permanentlyDeletePage(pageId: string): Promise<void> {
-  await flushPendingBlockSaves();
-  const deletedPageIds = await permanentlyDeleteNotesPage(pageId);
-  const deletedPageIdSet = new Set(deletedPageIds);
-  removePagesFromActiveCollections(deletedPageIdSet);
-  archiveController.removeArchivedPages(deletedPageIdSet);
-  archiveController.removeTrashedPages(deletedPageIdSet);
-  sidebarController.removePageIds(deletedPageIdSet);
-  sidebarRefreshCoordinator.schedule("hierarchy");
-  if (selectedPageId && deletedPageIdSet.has(selectedPageId)) {
-    await selectPage(pages[0]?.id ?? null);
-  }
 }
 
 async function openArchive(): Promise<void> {
@@ -1165,7 +762,7 @@ const {
   readBlock: (blockId) => blocksById[blockId],
   replaceBlock,
   setLoadError: (message) => {
-    loadError = message;
+    workspaceController.setError(message);
   },
   debounceMs: BLOCK_SAVE_DEBOUNCE_MS,
 });
@@ -1190,7 +787,7 @@ const pageHistoryController = createNotesPageHistoryController({
   requestPageLoadFocus,
   flushPendingBlockSaves,
   setLoadError: (message) => {
-    loadError = message;
+    workspaceController.setError(message);
   },
 });
 
@@ -1199,6 +796,22 @@ const optionalSubsystemController = createNotesOptionalSubsystemController({
   readSelectedPageId: () => selectedPageId,
   readSelectedProjectId: () => projects.selectedProjectId,
   load: loadOptionalSubsystem,
+});
+
+const workspaceController = createNotesWorkspaceController({
+  readRequestState: () => ({
+    projectId: projects.selectedProjectId,
+    expandedPageIds: [...sidebarController.expandedPageIds],
+    seedPageIds: sidebarSeedPageIds(),
+    selectedPageId,
+  }),
+  prepareLoad: prepareWorkspaceLoad,
+  applyInitialShell: applyInitialWorkspaceShell,
+  applyAdditionalShell: applyAdditionalWorkspaceShell,
+  mergeReloadedShell: mergeReloadedWorkspaceShell,
+  loadSelectedPage: (pageId) => loadPageTree(pageId, { focusOnLoad: true }),
+  clearSelectedPageState,
+  readSelectedPageId: () => selectedPageId,
 });
 
 const transferActions = createNotesTransferActions({
@@ -1221,6 +834,36 @@ const pageTemplatesController = createNotesPageTemplatesController({
   requestPageLoadFocus: () => requestPageLoadFocus(),
 });
 
+const pageActions = createNotesPageActions({
+  readSelectedPageId: () => selectedPageId,
+  readPages: () => pages,
+  readAllPages: () => allPages,
+  readLoadedPage: () => loadedPage,
+  readFolders: () => foldersController.folders,
+  readBlocksById: () => blocksById,
+  defaultOpenMode: defaultNotesPageOpenMode,
+  activateReturnedPage,
+  activateRestoredPage,
+  applyPostMutation,
+  selectPage: (pageId) => selectPage(pageId),
+  reloadPageBreadcrumb: (pageId) => reloadPageBreadcrumb(pageId),
+  flushBlockSave,
+  flushPendingBlockSaves,
+  requestBlockFocus,
+  requestTitleFocus,
+  requestPageLoadFocus: () => requestPageLoadFocus(),
+  queueDescendantHydration: () => queueDescendantHydration(),
+  setFolderCollapsed,
+  setSidebarPageCollapsed,
+  prependArchivedPage: archiveController.prependArchivedPage,
+  prependTrashedPage: archiveController.prependTrashedPage,
+  removeArchivedPages: archiveController.removeArchivedPages,
+  removeTrashedPages: archiveController.removeTrashedPages,
+  removePagesFromActiveCollections,
+  removeSidebarPageIds: sidebarController.removePageIds,
+  scheduleHierarchyRefresh: () => sidebarRefreshCoordinator.schedule("hierarchy"),
+});
+
 const blockActions = createNotesBlockActions({
   readSelectedPageId: () => selectedPageId,
   readBlocksById: () => blocksById,
@@ -1234,8 +877,8 @@ const blockActions = createNotesBlockActions({
   tabItemsForBlock,
   setSidebarPageCollapsed,
   requestBlockFocus,
-  createChildPageFromBlock,
-  createChildPageAfterBlock,
+  createChildPageFromBlock: pageActions.createChildPageFromBlock,
+  createChildPageAfterBlock: pageActions.createChildPageAfterBlock,
   applyPostMutation,
   loadPageTree,
   refreshOpenLinks,
@@ -1258,6 +901,28 @@ const collaborationController = createNotesCollaborationController({
   requestBlockFocus: (blockId) => requestBlockFocus(blockId),
   updateBlockRichText: blockActions.updateBlockRichText,
   isPanelOpen: (panel) => optionalSubsystemController.isPanelOpen(panel),
+});
+
+const hydrationController = createNotesHydrationController({
+  readPageGeneration: () => pageWorkGeneration,
+  readSelectedPageId: () => selectedPageId,
+  readBlockOutlines: () => blockOutlines,
+  readFlatBlockOutlines: () => flatBlockOutlines,
+  readBlocksById: () => blocksById,
+  readFocusRequest: () => focusRequest,
+  mergeBlockOutlines,
+  replaceHydratedBlocks: (nextBlocksById, nextChildIdsByParentId) => {
+    blocksById = nextBlocksById;
+    childIdsByParentId = nextChildIdsByParentId;
+  },
+  setLoadError: (message) => {
+    workspaceController.setError(message);
+  },
+  reloadOpenComments: (pageId) => {
+    if (optionalSubsystemController.isPanelOpen("comments")) {
+      void collaborationController.reloadComments(pageId);
+    }
+  },
 });
 
 const {
@@ -1339,7 +1004,7 @@ async function undoNotesEdit(): Promise<boolean> {
     }
     return await undoController.undo();
   } catch (error) {
-    loadError = error instanceof Error ? error.message : String(error);
+    workspaceController.setError(error instanceof Error ? error.message : String(error));
     throw error;
   }
 }
@@ -1351,7 +1016,7 @@ async function redoNotesEdit(): Promise<boolean> {
     }
     return await undoController.redo();
   } catch (error) {
-    loadError = error instanceof Error ? error.message : String(error);
+    workspaceController.setError(error instanceof Error ? error.message : String(error));
     throw error;
   }
 }
@@ -1362,7 +1027,7 @@ async function openBlockLink(target: NotesBlockLinkTarget): Promise<boolean> {
 
 async function openNotesLink(target: NotesPageLinkTarget): Promise<boolean> {
   viewMode = "pages";
-  await ensureLoaded();
+  await workspaceController.ensureLoaded();
   if (!allPages.some((page) => page.id === target.pageId)) {
     await reloadPages(target.pageId);
   }
@@ -1547,13 +1212,13 @@ export function getNotes() {
       return flatBlockItems();
     },
     get loaded(): boolean {
-      return loaded;
+      return workspaceController.loaded;
     },
     get loading(): boolean {
-      return loading;
+      return workspaceController.loading;
     },
     get loadError(): string | null {
-      return loadError;
+      return workspaceController.error;
     },
     get viewMode(): NotesViewMode {
       return viewMode;
@@ -1637,13 +1302,13 @@ export function getNotes() {
     get canRedoNotesEdit(): boolean {
       return undoController.canRedo();
     },
-    load,
-    ensureLoaded,
-    loadMoreWorkspaceWindow,
+    load: workspaceController.load,
+    ensureLoaded: workspaceController.ensureLoaded,
+    loadMoreWorkspaceWindow: workspaceController.loadMoreWorkspaceWindow,
     selectPage,
     showSelectedPageAs,
-    createPage,
-    createSubpage,
+    createPage: pageActions.createPage,
+    createSubpage: pageActions.createSubpage,
     createFolder: foldersController.createFolder,
     renameFolder: foldersController.renameFolder,
     moveFolder: foldersController.moveFolder,
@@ -1654,7 +1319,7 @@ export function getNotes() {
     exportHtmlArchive: transferActions.exportHtmlArchive,
     exportJsonGraph: transferActions.exportJsonGraph,
     exportAgentBridge: transferActions.exportAgentBridge,
-    createChildPageFromBlock,
+    createChildPageFromBlock: pageActions.createChildPageFromBlock,
     applyPageTemplate: pageTemplatesController.applyPageTemplate,
     createPageTemplateFromCurrentPage: pageTemplatesController.createPageTemplateFromCurrentPage,
     updatePageTemplateFromCurrentPage: pageTemplatesController.updatePageTemplateFromCurrentPage,
@@ -1672,15 +1337,15 @@ export function getNotes() {
     loadPageHistoryVersion: pageHistoryController.loadVersion,
     restorePageHistoryVersion: pageHistoryController.restoreVersion,
     copyPageHistoryBlocks: pageHistoryController.copyBlocks,
-    renamePage,
-    duplicatePage,
-    movePage,
-    movePageToFolder,
-    archivePage,
-    unarchivePage,
-    trashPage,
-    restorePage,
-    permanentlyDeletePage,
+    renamePage: pageActions.renamePage,
+    duplicatePage: pageActions.duplicatePage,
+    movePage: pageActions.movePage,
+    movePageToFolder: pageActions.movePageToFolder,
+    archivePage: pageActions.archivePage,
+    unarchivePage: pageActions.unarchivePage,
+    trashPage: pageActions.trashPage,
+    restorePage: pageActions.restorePage,
+    permanentlyDeletePage: pageActions.permanentlyDeletePage,
     openArchive,
     closeArchive,
     reloadArchivedPages,
@@ -1732,8 +1397,8 @@ export function getNotes() {
     setPageFavorited,
     setFolderCollapsed,
     setSidebarPageCollapsed,
-    updatePageIcon,
-    updatePageCover,
+    updatePageIcon: pageActions.updatePageIcon,
+    updatePageCover: pageActions.updatePageCover,
     openBlockLink,
     openNotesLink,
     undoNotesEdit,
