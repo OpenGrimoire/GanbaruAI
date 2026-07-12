@@ -1019,6 +1019,7 @@ pub fn run() {
             doomscrolling::doomscrolling_open_extension_install_docs,
             doomscrolling::doomscrolling_record_desktop_block_event,
             doomscrolling::doomscrolling_record_usage_sample,
+            doomscrolling::doomscrolling_record_usage_samples,
             doomscrolling::doomscrolling_write_limit_state,
             doomscrolling::doomscrolling_write_state,
             themes::theme_insert,

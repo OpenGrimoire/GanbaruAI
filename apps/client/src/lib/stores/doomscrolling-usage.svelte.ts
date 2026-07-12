@@ -4,7 +4,7 @@ import {
   getForegroundDoomscrollingDesktopApp,
   listBlockedDoomscrollingDesktopAppMatches,
   listDoomscrollingUsageSamples,
-  recordDoomscrollingUsageSample,
+  recordDoomscrollingUsageSamples,
   showDoomscrollingDesktopLimitNotification,
   writeDoomscrollingLimitState,
   type DoomscrollingDesktopAppRulePayload,
@@ -12,6 +12,7 @@ import {
   type DoomscrollingForegroundDesktopAppStatus,
   type DoomscrollingRunningDesktopAppMatch,
   type DoomscrollingUsageSampleRow,
+  type DoomscrollingUsageSamplePayload,
 } from "$lib/api/doomscrolling";
 import { ensureDbUrl } from "$lib/api/db";
 import {
@@ -25,11 +26,10 @@ import {
 } from "$lib/doomscrolling";
 import { getDoomscrolling } from "$lib/stores/doomscrolling.svelte";
 import {
-  createLifecycleScheduler,
   type SchedulerRunContext,
 } from "$lib/scheduling/lifecycle-scheduler";
+import { createDoomscrollingUsageBatch } from "./doomscrolling-usage-batch";
 
-const REFRESH_INTERVAL_MS = 5_000;
 const DESKTOP_LIMIT_CLOSE_THROTTLE_MS = 60_000;
 
 interface ForegroundUsageSnapshot {
@@ -71,6 +71,13 @@ let foregroundUsageSnapshot: ForegroundUsageSnapshot | null = null;
 let openAppUsageSnapshots = new Map<string, OpenAppUsageSnapshot>();
 let foregroundUsageRunning = false;
 const desktopLimitCloseAttempts = new Map<string, number>();
+const usageBatch = createDoomscrollingUsageBatch<DoomscrollingUsageSamplePayload>(async (samples) => {
+  await recordDoomscrollingUsageSamples(await ensureDbUrl(), samples);
+});
+
+async function flushUsageSamples(): Promise<void> {
+  await usageBatch.flush();
+}
 
 function todayLocalDate(): string {
   const date = new Date();
@@ -164,8 +171,7 @@ async function recordForegroundUsageUntil(endedAt: number): Promise<boolean> {
   if (!snapshot) return false;
   const elapsedSeconds = Math.floor((endedAt - snapshot.startedAt) / 1000);
   if (elapsedSeconds < 1) return false;
-  const dbUrl = await ensureDbUrl();
-  await recordDoomscrollingUsageSample(dbUrl, {
+  usageBatch.enqueue({
     sourceType: "desktop-app",
     sourceKey: snapshot.sourceKey,
     displayName: snapshot.displayName,
@@ -182,8 +188,7 @@ async function recordOpenAppUsageSnapshot(
 ): Promise<boolean> {
   const elapsedSeconds = Math.floor((endedAt - snapshot.startedAt) / 1000);
   if (elapsedSeconds < 1) return false;
-  const dbUrl = await ensureDbUrl();
-  await recordDoomscrollingUsageSample(dbUrl, {
+  usageBatch.enqueue({
     sourceType: "desktop-app",
     sourceKey: snapshot.sourceKey,
     displayName: snapshot.displayName,
@@ -461,22 +466,11 @@ async function updateForegroundUsage(context?: SchedulerRunContext): Promise<voi
   }
 }
 
-const usageScheduler = createLifecycleScheduler({
-  run: async (context) => {
-    await updateForegroundUsage(context);
-    if (!context.isCurrent()) return null;
-    await refreshUsage(context);
-    return context.isCurrent() ? context.now() + REFRESH_INTERVAL_MS : null;
-  },
-  errorRetryMs: 60_000,
-  onError: (error) => {
-    console.warn("Failed to run doomscrolling usage scheduler:", error);
-  },
-});
+let usageEnabled = false;
 
 function setUsageSchedulerEnabled(enabled: boolean): void {
-  const wasEnabled = usageScheduler.isEnabled();
-  usageScheduler.setEnabled(enabled);
+  const wasEnabled = usageEnabled;
+  usageEnabled = enabled;
   if (!wasEnabled || enabled) return;
   const endedAt = Date.now();
   void recordForegroundUsageUntil(endedAt).catch((err) => {
@@ -484,6 +478,9 @@ function setUsageSchedulerEnabled(enabled: boolean): void {
   });
   void recordOpenAppUsageUntil(endedAt).catch((err) => {
     console.warn("Failed to record final doomscrolling open app usage sample:", err);
+  });
+  void flushUsageSamples().catch((err) => {
+    console.warn("Failed to flush final doomscrolling usage samples:", err);
   });
 }
 
@@ -514,16 +511,27 @@ export function getDoomscrollingUsage() {
       return refreshUsage();
     },
     isEnabled(): boolean {
-      return usageScheduler.isEnabled();
+      return usageEnabled;
     },
     setEnabled(enabled: boolean): void {
       setUsageSchedulerEnabled(enabled);
     },
     invalidate(): void {
-      usageScheduler.invalidate();
+      // The app-level observation coordinator owns invalidation.
     },
     resume(): void {
-      usageScheduler.resume();
+      // The app-level observation coordinator owns lifecycle resume.
+    },
+    flush(): Promise<void> {
+      return flushUsageSamples();
+    },
+    async runOnce(context: SchedulerRunContext): Promise<void> {
+      if (!usageEnabled) return;
+      await updateForegroundUsage(context);
+      if (!context.isCurrent()) return;
+      await flushUsageSamples();
+      if (!context.isCurrent()) return;
+      await refreshUsage(context);
     },
   };
 }

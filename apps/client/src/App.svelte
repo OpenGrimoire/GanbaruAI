@@ -86,6 +86,7 @@
   import { onMount, type Component } from "svelte";
   import { getNotesProjectHistoryScheduler } from "$lib/notes/project-history-scheduler";
   import { onActiveVaultIdentityChange } from "$lib/vault/active-vault";
+  import { doomscrollingObservationPlan } from "$lib/stores/doomscrolling-observation-policy";
 
   perfMark("boot.script-start");
 
@@ -534,6 +535,7 @@
   const desktopBlockingScheduler = createLifecycleScheduler({
     run: async (context) => {
       await checkDesktopAppBlocking(context);
+      if (context.isCurrent()) await doomscrollingUsage.runOnce(context);
       return context.isCurrent()
         ? context.now() + DESKTOP_BLOCKING_CHECK_INTERVAL_MS
         : null;
@@ -555,7 +557,11 @@
     const _longBreaks = doomscrolling.desktopBlockDuringLongBreaks;
     const _pause = doomscrolling.desktopPauseDuringFocusPause;
     const _rules = doomscrolling.blockedApps;
-    const active = desktopAppBlockingActive();
+    const active = doomscrollingObservationPlan(
+      isMainWindow,
+      desktopAppBlockingActive(),
+      doomscrollingUsage.isEnabled(),
+    ).coordinatorEnabled;
     const wasEnabled = desktopBlockingScheduler.isEnabled();
     desktopBlockingScheduler.setEnabled(active);
     if (!active) {
@@ -573,7 +579,16 @@
       && doomscrolling.usageLimits.some((limit) => limit.enabled);
     const wasEnabled = doomscrollingUsage.isEnabled();
     doomscrollingUsage.setEnabled(enabled);
-    if (enabled && wasEnabled) doomscrollingUsage.invalidate();
+    const coordinatorEnabled = doomscrollingObservationPlan(
+      isMainWindow,
+      desktopAppBlockingActive(),
+      enabled,
+    ).coordinatorEnabled;
+    const coordinatorWasEnabled = desktopBlockingScheduler.isEnabled();
+    desktopBlockingScheduler.setEnabled(coordinatorEnabled);
+    if (coordinatorEnabled && (wasEnabled || coordinatorWasEnabled)) {
+      desktopBlockingScheduler.invalidate();
+    }
   });
 
   function toggleDevtools(): void {
@@ -1061,6 +1076,9 @@
     notesNotificationScheduler.dispose();
     desktopBlockingScheduler.dispose();
     doomscrollingUsage.setEnabled(false);
+    void doomscrollingUsage.flush().catch((error) => {
+      console.warn("Failed to flush doomscrolling usage on shutdown:", error);
+    });
     desktopBlocker.clear();
   }
 </script>

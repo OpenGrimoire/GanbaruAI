@@ -178,6 +178,14 @@ export async function recordDoomscrollingUsageSample(
   await invoke("doomscrolling_record_usage_sample", { dbUrl, sample });
 }
 
+export async function recordDoomscrollingUsageSamples(
+  dbUrl: string,
+  samples: DoomscrollingUsageSamplePayload[],
+): Promise<void> {
+  if (samples.length === 0) return;
+  await invoke("doomscrolling_record_usage_samples", { dbUrl, samples });
+}
+
 export async function listDoomscrollingUsageSamples(
   dbUrl: string,
   startLocalDate: string,

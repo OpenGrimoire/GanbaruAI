@@ -598,10 +598,13 @@ fn normalize_usage_sample(
         return Err("local_date must use yyyy-mm-dd".to_string());
     }
     let id = sample.id.unwrap_or_else(|| {
+        let identity = format!(
+            "{source_type}|{source_key}|{}|{}",
+            sample.started_at, sample.local_date
+        );
         format!(
-            "{fallback_id_prefix}-{}-{}",
-            now_epoch_ms(),
-            std::process::id()
+            "{fallback_id_prefix}-{:x}",
+            Sha256::digest(identity.as_bytes())
         )
     });
     if id.trim().is_empty() {
@@ -2563,6 +2566,43 @@ pub async fn doomscrolling_record_usage_sample<R: Runtime>(
     .execute(&pool)
     .await
     .map_err(|e| format!("record doomscrolling usage sample: {e}"))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn doomscrolling_record_usage_samples<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    db_url: String,
+    samples: Vec<DoomscrollingUsageSampleInput>,
+) -> Result<(), String> {
+    if samples.is_empty() {
+        return Ok(());
+    }
+    let samples = samples
+        .into_iter()
+        .map(|sample| normalize_usage_sample(sample, "app"))
+        .collect::<Result<Vec<_>, _>>()?;
+    let pool = connect_sqlite(app, db_url).await?;
+    let mut tx = pool.begin().await.map_err(|e| format!("begin: {e}"))?;
+    for sample in samples {
+        sqlx::query(
+            "INSERT OR IGNORE INTO doomscrolling_usage_samples
+                (id, source_type, source_key, display_name, started_at, elapsed_seconds, local_date, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(sample.id)
+        .bind(sample.source_type)
+        .bind(sample.source_key)
+        .bind(sample.display_name)
+        .bind(sample.started_at)
+        .bind(sample.elapsed_seconds)
+        .bind(sample.local_date)
+        .bind(sample.created_at)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| format!("record doomscrolling usage sample: {e}"))?;
+    }
+    tx.commit().await.map_err(|e| format!("commit: {e}"))?;
     Ok(())
 }
 

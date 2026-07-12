@@ -14,17 +14,22 @@ const CLOSED_NOTIFICATION_WINDOW_MS = 60_000;
 let checkRunning = false;
 const closingProcessIds = new Set<number>();
 const closedNotificationTimes: number[] = [];
+let cachedRules: readonly DoomscrollingAppRule[] | null = null;
+let cachedPayload: DoomscrollingDesktopAppRulePayload[] = [];
 
 function payloadFromRules(
   rules: readonly DoomscrollingAppRule[],
 ): DoomscrollingDesktopAppRulePayload[] {
-  return rules
+  if (rules === cachedRules) return cachedPayload;
+  cachedRules = rules;
+  cachedPayload = rules
     .filter((rule) => rule.enabled)
     .map((rule) => ({
       ruleIdentity: { kind: "desktop-app" as const, ruleId: rule.name },
       name: rule.name,
       matchNames: rule.matchNames,
     }));
+  return cachedPayload;
 }
 
 function clearAlert(): void {

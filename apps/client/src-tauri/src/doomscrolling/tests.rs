@@ -326,6 +326,22 @@ fn usage_samples_normalize_website_hosts() {
 }
 
 #[test]
+fn usage_sample_fallback_ids_are_stable_for_exactly_once_batch_retries() {
+    let sample = DoomscrollingUsageSampleInput {
+        id: None,
+        source_type: "desktop-app".to_string(),
+        source_key: "Steam".to_string(),
+        display_name: Some("Steam".to_string()),
+        started_at: 1_720_000_000_000,
+        elapsed_seconds: 5,
+        local_date: "2026-07-11".to_string(),
+    };
+    let first = super::normalize_usage_sample(sample.clone(), "app").unwrap();
+    let retry = super::normalize_usage_sample(sample, "app").unwrap();
+    assert_eq!(first.id, retry.id);
+}
+
+#[test]
 fn limit_state_requires_a_local_date() {
     let state = DoomscrollingLimitState {
         local_date: "today".to_string(),
