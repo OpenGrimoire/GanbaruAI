@@ -31,10 +31,9 @@ use custom_fields::{
 };
 use history::*;
 pub use models::*;
-use routine::{
-    built_in_routine_project, ensure_built_in_routine_defaults, BUILT_IN_ROUTINE_PROJECTS,
-    ROUTINE_GROUP_ID,
-};
+#[cfg(test)]
+use routine::BUILT_IN_ROUTINE_PROJECTS;
+use routine::{built_in_routine_project, ensure_built_in_routine_defaults, ROUTINE_GROUP_ID};
 use task_views::{load_task_detail, load_task_view};
 use templates::{insert_default_priorities, insert_default_statuses, insert_template_sections};
 use validation::*;
@@ -45,6 +44,7 @@ use workspace::{
     custom_field_option_mutation, dependency_mutation_base, group_mutation, priority_mutation,
     project_mutation, section_mutation, status_mutation, tag_mutation, task_mutation_base,
 };
+#[cfg(test)]
 pub(crate) use workspace::{
     load_projects_workspace_for_first_use_contract,
     refresh_projects_workspace_for_first_use_contract,
