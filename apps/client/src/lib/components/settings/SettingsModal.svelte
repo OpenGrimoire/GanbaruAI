@@ -1,19 +1,7 @@
 <script lang="ts">
-  import { onMount, untrack, type Component } from "svelte";
+  import { onMount, untrack } from "svelte";
   import { cn } from "$lib/utils";
-  import Palette from "@lucide/svelte/icons/palette";
-  import UserRound from "@lucide/svelte/icons/user-round";
-  import Calendar from "@lucide/svelte/icons/calendar";
-  import Folder from "@lucide/svelte/icons/folder";
-  import Book from "@lucide/svelte/icons/book";
-  import GlobeOff from "@lucide/svelte/icons/globe-off";
-  import Info from "@lucide/svelte/icons/info";
-  import Keyboard from "@lucide/svelte/icons/keyboard";
-  import Music from "@lucide/svelte/icons/music";
   import SettingsIcon from "@lucide/svelte/icons/settings";
-  import Timer from "@lucide/svelte/icons/timer";
-  import DownloadCloud from "@lucide/svelte/icons/download-cloud";
-  import HardDrive from "@lucide/svelte/icons/hard-drive";
   import X from "@lucide/svelte/icons/x";
   import CalendarScrollbar from "../calendar/CalendarScrollbar.svelte";
   import { getThemeEditor } from "$lib/stores/themeEditor.svelte";
@@ -43,6 +31,7 @@
     SectionId,
     SettingsDetailKind,
   } from "./types";
+  import { SETTINGS_SECTIONS } from "./settings-sections";
 
   type SettingsDetailView =
     | { kind: "doomscrolling-limit"; target: DoomscrollingLimitEditorTarget }
@@ -68,27 +57,7 @@
     if (themeEditor.editingId) onClose();
   });
 
-  interface SectionMeta {
-    id: SectionId;
-    label: () => string;
-    icon: Component;
-  }
-
-  // Keep labels and icons aligned with the typed lazy registry.
-  const SECTIONS: SectionMeta[] = [
-    { id: "appearance", label: () => t("settings.section.appearance"), icon: Palette },
-    { id: "profile", label: () => t("settings.section.profile"), icon: UserRound },
-    { id: "calendars", label: () => t("settings.section.calendars"), icon: Calendar },
-    { id: "projects", label: () => t("settings.section.projects"), icon: Folder },
-    { id: "notes", label: () => t("settings.section.notes"), icon: Book },
-    { id: "focus", label: () => t("settings.section.focus"), icon: Timer },
-    { id: "music", label: () => t("settings.section.music"), icon: Music },
-    { id: "doomscrolling", label: () => t("settings.section.doomscrolling"), icon: GlobeOff },
-    { id: "data", label: () => t("settings.section.data"), icon: HardDrive },
-    { id: "updates", label: () => t("settings.section.updates"), icon: DownloadCloud },
-    { id: "shortcuts", label: () => t("settings.section.shortcuts"), icon: Keyboard },
-    { id: "about", label: () => t("settings.section.about"), icon: Info },
-  ];
+  const SECTIONS = SETTINGS_SECTIONS;
 
   const initialActiveSection = untrack(() => initialSection ?? "appearance");
   let activeSection = $state<SectionId>(initialActiveSection);
@@ -176,8 +145,8 @@
   }
 
   function activeSectionLabel(): string {
-    return SECTIONS.find((section) => section.id === activeSection)?.label()
-      ?? t("settings.title");
+    const section = SECTIONS.find((candidate) => candidate.id === activeSection);
+    return section ? t(section.labelKey) : t("settings.title");
   }
 
   requestSettingsSection(initialActiveSection);
@@ -317,7 +286,7 @@
               )}
             >
               <Icon size={14} strokeWidth={1.75} class="shrink-0" />
-              <span>{section.label()}</span>
+              <span>{t(section.labelKey)}</span>
             </button>
           {/each}
         </nav>
@@ -363,7 +332,7 @@
               onclick={() => {
                 selectSection(section.id);
               }}
-              aria-label={section.label()}
+              aria-label={t(section.labelKey)}
               data-app-tooltip-disabled="true"
               class={cn(
                 "flex items-center rounded-md text-left text-[0.866667rem] font-medium",
@@ -375,7 +344,7 @@
             >
               <Icon size={15} strokeWidth={1.75} class="shrink-0" />
               {#if !useIconRail}
-                <span>{section.label()}</span>
+                <span>{t(section.labelKey)}</span>
               {/if}
             </button>
           {/each}
