@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { APP_SOUND_IDS, playAppSound } from "$lib/app-sounds";
 import { getMusicPlayer } from "$lib/stores/music-player.svelte";
 import { getPreferences } from "$lib/stores/preferences.svelte";
+import { createPomodoroNativeTrayPolicy } from "./pomodoro-native-update-policy";
 
 interface PomodoroTrayUpdateOptions {
   publishSnapshot?: boolean;
@@ -64,6 +65,7 @@ const PAUSED_TRAY_PULSE_FRAME_COUNT = PAUSED_PULSE_AMOUNTS.length;
 const PAUSED_TRAY_PULSE_FRAME_MS = 180;
 
 export function createPomodoroEffects(context: PomodoroEffectsContext): PomodoroEffects {
+  const nativeTrayPolicy = createPomodoroNativeTrayPolicy();
   let pausedTrayPulseFrame = $state(0);
   let pausedTrayPulseIntervalId: ReturnType<typeof setInterval> | null = null;
   let breakEndWarningTimeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -183,6 +185,8 @@ export function createPomodoroEffects(context: PomodoroEffectsContext): Pomodoro
       canAddFocusTime: context.canAddFocusTime(),
       pausedPulseFrame: currentPausedTrayPulseFrame(),
     };
+
+    if (!nativeTrayPolicy.shouldSend(update)) return;
 
     invoke("update_tray", { update }).catch(() => {});
   }

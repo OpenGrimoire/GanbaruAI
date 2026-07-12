@@ -2061,6 +2061,58 @@ fn close_run_clamps_end_to_active_segment_start() {
 }
 
 #[test]
+fn crash_recovery_closes_run_and_segment_at_last_heartbeat() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_pool_with_event().await;
+        let mut tx = pool.begin().await.unwrap();
+        let run = run_write(PomodoroRunRhythm::Count {
+            focus_duration_minutes: 40,
+            short_break_minutes: 5,
+            long_break_minutes: 10,
+            long_break_after_focus_count: 4,
+        });
+        insert_run_tx(&mut tx, &run, &initial_segment())
+            .await
+            .unwrap();
+        sqlx::query("UPDATE pomodoro_runs SET last_heartbeat = ? WHERE id = ?")
+            .bind("2026-05-29T10:10:00Z")
+            .bind("run-1")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        close_run_tx(
+            &mut tx,
+            &PomodoroRunClosure {
+                run_id: "run-1".to_string(),
+                ended_at: "2026-05-29T10:10:00Z".to_string(),
+                end_reason: "interrupted".to_string(),
+                segment_status: "interrupted".to_string(),
+                segment_end_reason: "crash_recovery".to_string(),
+                event_type: "crash_recovery".to_string(),
+            },
+        )
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+
+        let row = sqlx::query(
+            "SELECT r.ended_at AS run_end, s.actual_end AS segment_end,
+                    s.status AS segment_status, s.end_reason AS segment_end_reason
+             FROM pomodoro_runs r
+             JOIN pomodoro_segments s ON s.run_id = r.id
+             WHERE r.id = 'run-1'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(row.get::<String, _>("run_end"), "2026-05-29T10:10:00Z");
+        assert_eq!(row.get::<String, _>("segment_end"), "2026-05-29T10:10:00Z");
+        assert_eq!(row.get::<String, _>("segment_status"), "interrupted");
+        assert_eq!(row.get::<String, _>("segment_end_reason"), "crash_recovery");
+    });
+}
+
+#[test]
 fn validates_pause_reason() {
     assert!(validate_pause_reason("idle").is_ok());
     assert!(validate_pause_reason("manual").is_ok());

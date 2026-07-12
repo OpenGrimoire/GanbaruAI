@@ -5,6 +5,7 @@ import {
   limitRemainingSecondsToBlockEnd,
   isPomodoroSessionActive,
   canPauseResumePomodoro,
+  deriveMonotonicRemainingSeconds,
   decideTick,
   decideAdvancePhase,
   decideTransition,
@@ -362,6 +363,15 @@ describe("decideTick", () => {
   });
 
   describe("countdown", () => {
+    it("does not add time when the wall clock moves backward", () => {
+      expect(deriveMonotonicRemainingSeconds(120, NOW + 300_000, NOW)).toBe(120);
+    });
+
+    it("continues from the wall deadline when the clock advances normally", () => {
+      expect(deriveMonotonicRemainingSeconds(120, NOW + 119_500, NOW)).toBe(120);
+      expect(deriveMonotonicRemainingSeconds(120, NOW + 118_500, NOW)).toBe(119);
+    });
+
     it("returns countdown with ceiling-rounded remaining", () => {
       const snap = makeSnapshot({
         phaseEndTime: NOW + 120_500,
