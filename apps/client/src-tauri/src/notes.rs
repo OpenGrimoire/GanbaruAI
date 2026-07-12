@@ -52,7 +52,7 @@ mod notion_api_import_writer;
 mod notion_export_import;
 mod page_cover_assets;
 mod page_icon_assets;
-mod project_history;
+pub(crate) mod project_history;
 mod reads;
 mod search;
 mod search_properties;
@@ -67,6 +67,7 @@ pub use file_assets::*;
 pub use models::*;
 pub use page_cover_assets::*;
 pub use page_icon_assets::*;
+#[allow(unused_imports)]
 pub use project_history::*;
 
 #[tauri::command]
