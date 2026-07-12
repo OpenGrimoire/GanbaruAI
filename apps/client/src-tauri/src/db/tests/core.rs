@@ -1,0 +1,346 @@
+use super::helpers::{insert_event, insert_open_run, migrated_memory_pool};
+use sqlx::Row;
+
+#[test]
+fn schema_does_not_create_json_storage_columns() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+
+        let rows = sqlx::query(
+            "SELECT m.name AS table_name, p.name AS column_name
+             FROM sqlite_schema AS m, pragma_table_info(m.name) AS p
+             WHERE m.type = 'table'",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        let forbidden = [
+            "pause_log",
+            "raw_jcal",
+            "skip_ranges_json",
+            "break_source_json",
+            "notifications",
+            "exceptions",
+            "categories",
+            "geo",
+            "rdate",
+            "extended_properties",
+            "organizer",
+        ];
+        let forbidden_tables = ["pomodoro_sessions"];
+        for row in rows {
+            let table_name: String = row.try_get("table_name").unwrap();
+            let column_name: String = row.try_get("column_name").unwrap();
+            assert!(
+                !forbidden_tables.contains(&table_name.as_str()),
+                "{table_name} should not be created as persisted storage",
+            );
+            assert!(
+                !forbidden.contains(&column_name.as_str()) && !column_name.ends_with("_json"),
+                "{table_name}.{column_name} should be normalized, not JSON storage",
+            );
+        }
+    });
+}
+
+#[test]
+fn schema_allows_only_one_open_pause_per_segment() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        insert_event(&pool).await;
+        insert_open_run(&pool, "run-1").await.unwrap();
+        sqlx::query(
+            "INSERT INTO pomodoro_segments
+                (id, event_id, event_date, run_id, rhythm_position, phase,
+                 planned_start, planned_end, actual_start, status)
+             VALUES ('segment-1', 'event-1', '2026-05-23', 'run-1', 1, 'focus',
+                     '2026-05-23T09:00:00Z', '2026-05-23T09:40:00Z',
+                     '2026-05-23T09:00:00Z', 'active')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO pomodoro_pauses (id, segment_id, started_at, reason)
+             VALUES ('pause-1', 'segment-1', '2026-05-23T09:10:00Z', 'manual')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let second_open_pause = sqlx::query(
+            "INSERT INTO pomodoro_pauses (id, segment_id, started_at, reason)
+             VALUES ('pause-2', 'segment-1', '2026-05-23T09:15:00Z', 'idle')",
+        )
+        .execute(&pool)
+        .await;
+
+        assert!(second_open_pause.is_err());
+    });
+}
+
+#[test]
+fn schema_enforces_adaptive_policy_and_decision_integrity() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        insert_event(&pool).await;
+        insert_open_run(&pool, "run-1").await.unwrap();
+
+        sqlx::query(
+            "INSERT INTO pomodoro_adaptive_policies
+                (id, status, policy_version, model_version)
+             VALUES ('policy-1', 'active', 1, 1)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let second_active_policy = sqlx::query(
+            "INSERT INTO pomodoro_adaptive_policies
+                (id, status, policy_version, model_version)
+             VALUES ('policy-2', 'active', 1, 1)",
+        )
+        .execute(&pool)
+        .await;
+        assert!(second_active_policy.is_err());
+
+        sqlx::query(
+            "INSERT INTO pomodoro_adaptive_policy_bounds
+                (policy_id, parameter_key, min_value, max_value)
+             VALUES ('policy-1', 'focus_duration_minutes', 15, 60)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let invalid_bounds = sqlx::query(
+            "INSERT INTO pomodoro_adaptive_policy_bounds
+                (policy_id, parameter_key, min_value, max_value)
+             VALUES ('policy-1', 'short_break_minutes', 12, 3)",
+        )
+        .execute(&pool)
+        .await;
+        assert!(invalid_bounds.is_err());
+
+        sqlx::query(
+            "INSERT INTO pomodoro_adaptive_context_snapshots
+                (id, run_id, local_started_at, time_of_day, session_position,
+                 event_length, workload, energy)
+             VALUES ('snapshot-1', 'run-1', '2026-05-23T09:00:00Z',
+                     'morning', 'first', 'medium', 'low', 'unknown')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO pomodoro_adaptive_context_snapshot_features
+                (snapshot_id, feature_key, numeric_value, source_kind)
+             VALUES ('snapshot-1', 'clean_focus_seconds', 2400, 'pomodoro')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO pomodoro_adaptive_data_quality_flags (snapshot_id, flag)
+             VALUES ('snapshot-1', 'diary_missing')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO pomodoro_adaptive_decisions
+                (id, policy_id, run_id, context_snapshot_id, opportunity_kind,
+                 decision_mode, policy_version, model_version, occurred_at)
+             VALUES ('decision-1', 'policy-1', 'run-1', 'snapshot-1',
+                     'run_start', 'fallback', 1, 1, '2026-05-23T09:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO pomodoro_adaptive_decision_values
+                (decision_id, value_key, previous_numeric_value, selected_numeric_value, value_unit)
+             VALUES ('decision-1', 'focus_duration_minutes', 40, 40, 'minutes')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let invalid_bundle_value = sqlx::query(
+            "INSERT INTO pomodoro_adaptive_decision_values
+                (decision_id, value_key, previous_numeric_value, selected_numeric_value, value_unit)
+             VALUES ('decision-1', 'rhythm_bundle', 0, 1, 'count')",
+        )
+        .execute(&pool)
+        .await;
+        assert!(invalid_bundle_value.is_err());
+
+        sqlx::query(
+            "INSERT INTO pomodoro_adaptive_decision_reasons (decision_id, reason_code)
+             VALUES ('decision-1', 'no_history')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let invalid_reason = sqlx::query(
+            "INSERT INTO pomodoro_adaptive_decision_reasons (decision_id, reason_code)
+             VALUES ('decision-1', 'raw_anxiety_label')",
+        )
+        .execute(&pool)
+        .await;
+        assert!(invalid_reason.is_err());
+
+        sqlx::query(
+            "INSERT INTO pomodoro_adaptive_decision_state_scores
+                (decision_id, readiness, strain, recovery_debt,
+                 avoidance_pressure, momentum, confidence)
+             VALUES ('decision-1', 0.2, 0.1, 0.1, 0.0, 0.2, 0.1)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let invalid_score = sqlx::query(
+            "INSERT INTO pomodoro_adaptive_decision_state_scores
+                (decision_id, readiness, strain, recovery_debt,
+                 avoidance_pressure, momentum, confidence)
+             VALUES ('decision-bad', 1.2, 0.1, 0.1, 0.0, 0.2, 0.1)",
+        )
+        .execute(&pool)
+        .await;
+        assert!(invalid_score.is_err());
+
+        sqlx::query(
+            "INSERT INTO pomodoro_run_adaptive_snapshots
+                (run_id, policy_id, policy_version, model_version,
+                 context_snapshot_id, decision_id)
+             VALUES ('run-1', 'policy-1', 1, 1, 'snapshot-1', 'decision-1')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+    });
+}
+
+#[test]
+fn schema_records_adaptive_experiments_and_outcomes() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        insert_event(&pool).await;
+        insert_open_run(&pool, "run-1").await.unwrap();
+
+        sqlx::query(
+            "INSERT INTO pomodoro_adaptive_policies
+                (id, status, policy_version, model_version)
+             VALUES ('policy-1', 'active', 1, 1)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO pomodoro_adaptive_context_snapshots
+                (id, run_id, local_started_at, time_of_day, session_position,
+                 event_length, workload, energy)
+             VALUES ('snapshot-1', 'run-1', '2026-05-23T09:00:00Z',
+                     'morning', 'first', 'medium', 'low', 'unknown')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO pomodoro_adaptive_experiments
+                (id, policy_id, parameter_key, assignment_unit, status, started_at)
+             VALUES ('experiment-1', 'policy-1', 'focus_duration_minutes',
+                     'run', 'active', '2026-05-23T09:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO pomodoro_adaptive_experiments
+                (id, policy_id, parameter_key, assignment_unit, status, started_at)
+             VALUES ('experiment-bundle', 'policy-1', 'rhythm_bundle',
+                     'run', 'active', '2026-05-23T09:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let invalid_bundle_bound = sqlx::query(
+            "INSERT INTO pomodoro_adaptive_policy_bounds
+                (policy_id, parameter_key, min_value, max_value)
+             VALUES ('policy-1', 'rhythm_bundle', 0, 1)",
+        )
+        .execute(&pool)
+        .await;
+        assert!(invalid_bundle_bound.is_err());
+
+        sqlx::query(
+            "INSERT INTO pomodoro_adaptive_experiment_variants
+                (experiment_id, variant_key, numeric_value, is_control)
+             VALUES ('experiment-1', 'control', 40, 1)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO pomodoro_adaptive_experiment_variants
+                (experiment_id, variant_key, numeric_value, is_control)
+             VALUES ('experiment-1', 'shorter', 35, 0)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let second_control = sqlx::query(
+            "INSERT INTO pomodoro_adaptive_experiment_variants
+                (experiment_id, variant_key, numeric_value, is_control)
+             VALUES ('experiment-1', 'other-control', 45, 1)",
+        )
+        .execute(&pool)
+        .await;
+        assert!(second_control.is_err());
+
+        sqlx::query(
+            "INSERT INTO pomodoro_adaptive_assignments
+                (id, experiment_id, variant_key, run_id,
+                 context_snapshot_id, assignment_seed, assigned_at)
+             VALUES ('assignment-1', 'experiment-1', 'shorter', 'run-1',
+                     'snapshot-1', 'seed-1', '2026-05-23T09:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let invalid_assignment = sqlx::query(
+            "INSERT INTO pomodoro_adaptive_assignments
+                (id, experiment_id, variant_key, assignment_seed, assigned_at)
+             VALUES ('assignment-bad', 'experiment-1', 'missing',
+                     'seed-2', '2026-05-23T09:00:00Z')",
+        )
+        .execute(&pool)
+        .await;
+        assert!(invalid_assignment.is_err());
+
+        sqlx::query(
+            "INSERT INTO pomodoro_adaptive_outcomes
+                (id, assignment_id, outcome_window, outcome_key,
+                 boolean_value, measured_at)
+             VALUES ('outcome-1', 'assignment-1', 'run',
+                     'clean_focus_completed', 1, '2026-05-23T10:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+    });
+}
