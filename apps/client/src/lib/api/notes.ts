@@ -41,6 +41,7 @@ import {
   mapNotesLoadedPageDto,
   mapNotesPageOpenResponseDto,
   mapNotesBlockFrontierDto,
+  mapNotesBlockOutlineDto,
   mapNotesNotionApiImportDto,
   mapNotesNotionExportImportDto,
   mapNotesMarkdownExportDto,
@@ -91,6 +92,7 @@ import type {
   NotesDataSourceSchemaUpdate,
   NotesDataSourceTableView,
   NotesDataSourceTableViewUpdate,
+  NotesDataSourceViewWindowRequest,
   NotesDataSourceTemplate,
   NotesDataSourceTemplateApplyRequest,
   NotesDataSourceTemplateCreateFromRowRequest,
@@ -120,6 +122,8 @@ import type {
   NotesLoadedPage,
   NotesPageOpenResponse,
   NotesBlockFrontier,
+  NotesBlockOutline,
+  NotesBlockHydrationRequest,
   NotesHtmlImportRequest,
   NotesHtmlImportResult,
   NotesNotionApiImportRequest,
@@ -668,9 +672,15 @@ export async function copyNotesPageHistoryBlocks(
 export async function listNotesComments(
   pageId: string,
   includeResolved = false,
+  blockIds?: readonly string[],
 ): Promise<NotesCommentThread[]> {
   const dbUrl = await ensureDbUrl();
-  const rows = await invoke<unknown>("notes_list_comments", { dbUrl, pageId, includeResolved });
+  const rows = await invoke<unknown>("notes_list_comments", {
+    dbUrl,
+    pageId,
+    includeResolved,
+    blockIds: blockIds ? [...blockIds] : null,
+  });
   if (!Array.isArray(rows)) throw new Error("notes_list_comments returned a non-array payload");
   return rows.map(mapNotesCommentThreadDto);
 }
@@ -1083,6 +1093,7 @@ export async function deleteNotesDataSourceTemplate(
 export async function getNotesDataSourceTableView(
   dataSourceId: string,
   scope?: NotesDatabaseViewScope | null,
+  window?: NotesDataSourceViewWindowRequest,
 ): Promise<NotesDataSourceTableView> {
   const dbUrl = await ensureDbUrl();
   return mapNotesDataSourceTableViewDto(
@@ -1090,6 +1101,7 @@ export async function getNotesDataSourceTableView(
       dbUrl,
       dataSourceId,
       ...databaseViewScopeArgs(scope),
+      window: window ?? null,
     }),
   );
 }
@@ -1113,6 +1125,7 @@ export async function updateNotesDataSourceTableView(
 export async function getNotesDataSourceBoardView(
   dataSourceId: string,
   scope?: NotesDatabaseViewScope | null,
+  window?: NotesDataSourceViewWindowRequest,
 ): Promise<NotesDataSourceBoardView> {
   const dbUrl = await ensureDbUrl();
   return mapNotesDataSourceBoardViewDto(
@@ -1120,6 +1133,7 @@ export async function getNotesDataSourceBoardView(
       dbUrl,
       dataSourceId,
       ...databaseViewScopeArgs(scope),
+      window: window ?? null,
     }),
   );
 }
@@ -1159,6 +1173,7 @@ export async function moveNotesDataSourceBoardRow(
 export async function getNotesDataSourceGalleryView(
   dataSourceId: string,
   scope?: NotesDatabaseViewScope | null,
+  window?: NotesDataSourceViewWindowRequest,
 ): Promise<NotesDataSourceGalleryView> {
   const dbUrl = await ensureDbUrl();
   return mapNotesDataSourceGalleryViewDto(
@@ -1166,6 +1181,7 @@ export async function getNotesDataSourceGalleryView(
       dbUrl,
       dataSourceId,
       ...databaseViewScopeArgs(scope),
+      window: window ?? null,
     }),
   );
 }
@@ -1221,6 +1237,7 @@ export async function clickNotesDataSourceButton(
 export async function getNotesDataSourceListView(
   dataSourceId: string,
   scope?: NotesDatabaseViewScope | null,
+  window?: NotesDataSourceViewWindowRequest,
 ): Promise<NotesDataSourceListView> {
   const dbUrl = await ensureDbUrl();
   return mapNotesDataSourceListViewDto(
@@ -1228,6 +1245,7 @@ export async function getNotesDataSourceListView(
       dbUrl,
       dataSourceId,
       ...databaseViewScopeArgs(scope),
+      window: window ?? null,
     }),
   );
 }
@@ -1251,6 +1269,7 @@ export async function updateNotesDataSourceListView(
 export async function getNotesDataSourceCalendarView(
   dataSourceId: string,
   scope?: NotesDatabaseViewScope | null,
+  window?: NotesDataSourceViewWindowRequest,
 ): Promise<NotesDataSourceCalendarView> {
   const dbUrl = await ensureDbUrl();
   return mapNotesDataSourceCalendarViewDto(
@@ -1258,6 +1277,7 @@ export async function getNotesDataSourceCalendarView(
       dbUrl,
       dataSourceId,
       ...databaseViewScopeArgs(scope),
+      window: window ?? null,
     }),
   );
 }
@@ -1281,6 +1301,7 @@ export async function updateNotesDataSourceCalendarView(
 export async function getNotesDataSourceTimelineView(
   dataSourceId: string,
   scope?: NotesDatabaseViewScope | null,
+  window?: NotesDataSourceViewWindowRequest,
 ): Promise<NotesDataSourceTimelineView> {
   const dbUrl = await ensureDbUrl();
   return mapNotesDataSourceTimelineViewDto(
@@ -1288,6 +1309,7 @@ export async function getNotesDataSourceTimelineView(
       dbUrl,
       dataSourceId,
       ...databaseViewScopeArgs(scope),
+      window: window ?? null,
     }),
   );
 }
@@ -1388,6 +1410,29 @@ export async function getNotesBlockFrontier(
   return mapNotesBlockFrontierDto(
     await invoke<unknown>("notes_get_block_frontier", { dbUrl, parentIds: [...parentIds] }),
   );
+}
+
+export async function getNotesBlockOutlineFrontier(
+  pageId: string,
+  parentIds: readonly string[],
+): Promise<NotesBlockOutline[]> {
+  const dbUrl = await ensureDbUrl();
+  const value = await invoke<unknown>("notes_get_block_outline_frontier", {
+    dbUrl,
+    pageId,
+    parentIds: [...parentIds],
+  });
+  if (!Array.isArray(value)) throw new Error("notes_get_block_outline_frontier returned a non-array payload");
+  return value.map(mapNotesBlockOutlineDto);
+}
+
+export async function hydrateNotesBlocks(
+  request: NotesBlockHydrationRequest,
+): Promise<NotesBlock[]> {
+  const dbUrl = await ensureDbUrl();
+  const value = await invoke<unknown>("notes_hydrate_blocks", { dbUrl, request });
+  if (!Array.isArray(value)) throw new Error("notes_hydrate_blocks returned a non-array payload");
+  return value.map(mapNotesBlockDto);
 }
 
 export async function getNotesBlockChildren(

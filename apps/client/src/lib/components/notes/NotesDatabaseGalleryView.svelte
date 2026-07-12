@@ -20,6 +20,7 @@
     notesDatabaseGalleryVisibleColumns,
   } from "$lib/notes/database-gallery";
   import type { NotesDatabaseTableColumn } from "$lib/notes/database-table";
+  import { mergeNotesDatabaseRows } from "$lib/notes/database-view-window";
   import type {
     NotesDatabaseGalleryCardSize,
     NotesDatabaseGalleryConfiguration,
@@ -40,6 +41,7 @@
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import NotesPageCover from "./NotesPageCover.svelte";
+  import NotesDatabaseWindowSentinel from "./NotesDatabaseWindowSentinel.svelte";
 
   let {
     dataSourceId,
@@ -67,6 +69,8 @@
 
   let gallery = $state<NotesDataSourceGalleryView | null>(null);
   let loading = $state(false);
+  let loadingMore = $state(false);
+  let requestId = 0;
   let mutating = $state(false);
   let error = $state<string | null>(null);
   let draftTitle = $state("");
@@ -99,10 +103,12 @@
   }
 
   async function loadGallery(): Promise<NotesDataSourceGalleryView | null> {
+    const currentRequest = ++requestId;
     loading = true;
     error = null;
     try {
       const loaded = await getNotesDataSourceGalleryView(dataSourceId, viewScope());
+      if (currentRequest !== requestId) return null;
       gallery = loaded;
       if (selectedPanelRowId && !loaded.rows.some((row) => row.id === selectedPanelRowId)) {
         selectedPanelRowId = null;
@@ -113,6 +119,24 @@
       return null;
     } finally {
       loading = false;
+    }
+  }
+
+  async function loadMoreGallery(): Promise<void> {
+    const current = gallery;
+    if (!current?.has_more || !current.next_cursor || loadingMore) return;
+    const currentRequest = requestId;
+    loadingMore = true;
+    try {
+      const loaded = await getNotesDataSourceGalleryView(dataSourceId, viewScope(), {
+        start_cursor: current.next_cursor,
+      });
+      if (currentRequest !== requestId || gallery !== current) return;
+      gallery = { ...loaded, rows: mergeNotesDatabaseRows(current.rows, loaded.rows) };
+    } catch (caught) {
+      if (currentRequest === requestId) error = caught instanceof Error ? caught.message : String(caught);
+    } finally {
+      if (currentRequest === requestId) loadingMore = false;
     }
   }
 
@@ -690,6 +714,11 @@
       {#if gallery.rows.length === 0 && !loading && !error}
         <p class="text-[0.8rem] text-muted-foreground">{t("notes.databaseRowsEmpty")}</p>
       {/if}
+      <NotesDatabaseWindowSentinel
+        hasMore={gallery.has_more}
+        loading={loadingMore}
+        onLoad={loadMoreGallery}
+      />
 
       {#if configuration.row_open_mode === "side_panel"}
         <aside class="rounded-md border border-border p-3" aria-label={t("notes.databaseTableSidePanelTitle")}>

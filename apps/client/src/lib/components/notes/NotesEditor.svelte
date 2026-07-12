@@ -1033,6 +1033,7 @@
 
     <div
       bind:this={blockScrollViewport}
+      data-notes-editor-scroll
       class="min-h-0 flex-1 overflow-auto"
       use:documentEndPointer
     >
@@ -1191,6 +1192,7 @@
           onFocusBlock={(blockId) => {
             notes.focusBlock(blockId);
           }}
+          scrollViewport={blockScrollViewport}
         />
       </div>
     </div>

@@ -21,6 +21,8 @@
     notesDatabaseBoardVisibleColumns,
   } from "$lib/notes/database-board";
   import type { NotesDatabaseTableColumn } from "$lib/notes/database-table";
+  import { mergeNotesDatabaseBoardWindow } from "$lib/notes/database-view-window";
+  import NotesDatabaseWindowSentinel from "./NotesDatabaseWindowSentinel.svelte";
   import type {
     NotesDatabaseBoardConfiguration,
     NotesDatabaseBoardRowOpenMode,
@@ -69,6 +71,8 @@
 
   let board = $state<NotesDataSourceBoardView | null>(null);
   let loading = $state(false);
+  let loadingMore = $state(false);
+  let requestId = 0;
   let mutating = $state(false);
   let error = $state<string | null>(null);
   let draftTitleByGroup = $state<Record<string, string>>({});
@@ -107,10 +111,12 @@
   }
 
   async function loadBoard(): Promise<NotesDataSourceBoardView | null> {
+    const currentRequest = ++requestId;
     loading = true;
     error = null;
     try {
       const loaded = await getNotesDataSourceBoardView(dataSourceId, viewScope());
+      if (currentRequest !== requestId) return null;
       board = loaded;
       if (selectedPanelRowId && !hasBoardRow(selectedPanelRowId, loaded.groups)) {
         selectedPanelRowId = null;
@@ -121,6 +127,24 @@
       return null;
     } finally {
       loading = false;
+    }
+  }
+
+  async function loadMoreBoard(): Promise<void> {
+    const current = board;
+    if (!current?.has_more || !current.next_cursor || loadingMore) return;
+    const currentRequest = requestId;
+    loadingMore = true;
+    try {
+      const loaded = await getNotesDataSourceBoardView(dataSourceId, viewScope(), {
+        start_cursor: current.next_cursor,
+      });
+      if (currentRequest !== requestId || board !== current) return;
+      board = mergeNotesDatabaseBoardWindow(current, loaded);
+    } catch (caught) {
+      if (currentRequest === requestId) error = caught instanceof Error ? caught.message : String(caught);
+    } finally {
+      if (currentRequest === requestId) loadingMore = false;
     }
   }
 
@@ -741,6 +765,8 @@
       {#if cardCount === 0 && !loading && !error}
         <p class="text-[0.8rem] text-muted-foreground">{t("notes.databaseRowsEmpty")}</p>
       {/if}
+
+      <NotesDatabaseWindowSentinel hasMore={board.has_more} loading={loadingMore} onLoad={loadMoreBoard} />
 
       {#if configuration.row_open_mode === "side_panel"}
         <aside class="rounded-md border border-border p-3" aria-label={t("notes.databaseTableSidePanelTitle")}>

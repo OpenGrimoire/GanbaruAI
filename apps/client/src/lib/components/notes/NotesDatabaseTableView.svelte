@@ -91,6 +91,9 @@
   let table = $state<NotesDataSourceTableView | null>(null);
   let templates = $state<NotesDataSourceTemplate[]>([]);
   let loading = $state(false);
+  let loadingMore = $state(false);
+  let loadMoreSentinel: HTMLDivElement | null = $state(null);
+  let tableRequestId = 0;
   let mutating = $state(false);
   let error = $state<string | null>(null);
   let draftTitle = $state("");
@@ -167,6 +170,7 @@
   }
 
   async function loadTable(): Promise<NotesDataSourceTableView | null> {
+    const requestId = ++tableRequestId;
     loading = true;
     error = null;
     try {
@@ -174,6 +178,7 @@
         getNotesDataSourceTableView(dataSourceId, viewScope()),
         listNotesDataSourceTemplates(dataSourceId),
       ]);
+      if (requestId !== tableRequestId) return null;
       table = loaded;
       templates = loadedTemplates;
       if (selectedPanelRowId && !loaded.rows.some((row) => row.id === selectedPanelRowId)) {
@@ -197,6 +202,36 @@
       loading = false;
     }
   }
+
+  async function loadMoreTableRows(): Promise<void> {
+    const current = table;
+    if (!current?.has_more || !current.next_cursor || loadingMore) return;
+    const requestId = tableRequestId;
+    loadingMore = true;
+    try {
+      const loaded = await getNotesDataSourceTableView(dataSourceId, viewScope(), {
+        start_cursor: current.next_cursor,
+      });
+      if (requestId !== tableRequestId || table !== current) return;
+      const rows = new Map(current.rows.map((row) => [row.id, row]));
+      for (const row of loaded.rows) rows.set(row.id, row);
+      table = { ...loaded, rows: [...rows.values()] };
+    } catch (caught) {
+      if (requestId === tableRequestId) error = caught instanceof Error ? caught.message : String(caught);
+    } finally {
+      if (requestId === tableRequestId) loadingMore = false;
+    }
+  }
+
+  $effect(() => {
+    const sentinel = loadMoreSentinel;
+    if (!sentinel || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) void loadMoreTableRows();
+    }, { root: sentinel.closest("[data-notes-editor-scroll]") });
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  });
 
   async function focusPendingRow(loaded: NotesDataSourceTableView): Promise<void> {
     const rowId = pendingFocusRowId;
@@ -1036,6 +1071,12 @@
 
       {#if table.rows.length === 0 && !loading && !error}
         <p class="text-[0.8rem] text-muted-foreground">{t("notes.databaseRowsEmpty")}</p>
+      {/if}
+      {#if table.has_more}
+        <div bind:this={loadMoreSentinel} class="h-px" aria-hidden="true"></div>
+        {#if loadingMore}
+          <div class="py-2 text-center text-[0.8rem] text-muted-foreground" aria-busy="true">{t("common.loading")}</div>
+        {/if}
       {/if}
 
       {#if visibleColumns.length === 0}

@@ -2,16 +2,16 @@ use super::models::{
     NoteDataSourceBoardConfigurationUpdate, NoteDataSourceBoardGroupDto,
     NoteDataSourceBoardRowMove, NoteDataSourceBoardViewDto, NoteDataSourceBoardViewUpdate,
     NoteDataSourceRow, NoteDataSourceRowPropertyUpdate, NoteDataSourceTableFilter,
-    NoteDataSourceTableSort, NoteDatabaseRow, NoteDatabaseViewRow, NotePageRow,
+    NoteDataSourceTableSort, NoteDataSourceViewWindowRequest, NoteDatabaseRow, NoteDatabaseViewRow,
+    NotePageRow,
 };
 use super::validation::require_uuid;
 use super::{
     data_source_buttons, data_source_formulas, data_source_relations, data_source_rollups,
-    data_source_table, data_source_views, writes,
+    data_source_table, data_source_views, data_source_window, writes,
 };
 use serde_json::{json, Map, Value};
 use sqlx::{Sqlite, SqlitePool, Transaction};
-use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashSet};
 
 const DEFAULT_BOARD_VIEW_NAME: &str = "Board";
@@ -46,6 +46,23 @@ pub(in crate::notes) async fn get_data_source_board_view(
     database_id: Option<&str>,
     view_id: Option<&str>,
 ) -> Result<NoteDataSourceBoardViewDto, String> {
+    get_data_source_board_view_window(
+        pool,
+        data_source_id,
+        database_id,
+        view_id,
+        NoteDataSourceViewWindowRequest::default(),
+    )
+    .await
+}
+
+pub(in crate::notes) async fn get_data_source_board_view_window(
+    pool: &SqlitePool,
+    data_source_id: &str,
+    database_id: Option<&str>,
+    view_id: Option<&str>,
+    window: NoteDataSourceViewWindowRequest,
+) -> Result<NoteDataSourceBoardViewDto, String> {
     data_source_views::validate_view_scope(data_source_id, database_id, view_id)?;
     crate::notes::project_history::ensure_data_source_baseline_for_mutation(pool, data_source_id)
         .await?;
@@ -53,7 +70,7 @@ pub(in crate::notes) async fn get_data_source_board_view(
         .begin()
         .await
         .map_err(|e| format!("begin notes data source board read: {e}"))?;
-    let dto = load_board_view_tx(&mut tx, data_source_id, database_id, view_id).await?;
+    let dto = load_board_view_tx(&mut tx, data_source_id, database_id, view_id, &window).await?;
     tx.commit()
         .await
         .map_err(|e| format!("commit notes data source board read: {e}"))?;
@@ -108,7 +125,14 @@ pub(in crate::notes) async fn update_data_source_board_view(
     .execute(&mut *tx)
     .await
     .map_err(|e| format!("update notes data source board view: {e}"))?;
-    let dto = load_board_view_tx(&mut tx, data_source_id, database_id, Some(&view.id)).await?;
+    let dto = load_board_view_tx(
+        &mut tx,
+        data_source_id,
+        database_id,
+        Some(&view.id),
+        &NoteDataSourceViewWindowRequest::default(),
+    )
+    .await?;
     tx.commit()
         .await
         .map_err(|e| format!("commit notes data source board view update: {e}"))?;
@@ -175,6 +199,7 @@ async fn load_board_view_tx(
     data_source_id: &str,
     database_id: Option<&str>,
     view_id: Option<&str>,
+    window_request: &NoteDataSourceViewWindowRequest,
 ) -> Result<NoteDataSourceBoardViewDto, String> {
     let (data_source, database) =
         load_active_data_source_and_database_tx(tx, data_source_id).await?;
@@ -184,20 +209,41 @@ async fn load_board_view_tx(
     let configuration = board_configuration(view.configuration.as_deref(), &schema)?;
     let filters = stored_filters(view.filter.as_deref())?;
     let sorts = stored_sorts(&view.sorts)?;
-    let mut rows = load_active_row_pages_tx(tx, data_source_id).await?;
-    rows = rows
+    let window_schema = data_source_window::table_properties_from_board(&schema);
+    let group_property = configuration
+        .group_property_id
+        .as_deref()
+        .and_then(|id| window_schema.iter().find(|property| property.id == id));
+    let mut window = data_source_window::load_row_window_tx(
+        tx,
+        data_source_id,
+        data_source_window::RowWindowQuery {
+            schema: &window_schema,
+            filters: &filters,
+            sorts: &sorts,
+            request: window_request,
+            date_property: None,
+            group_property,
+        },
+    )
+    .await?;
+    window.rows = window
+        .rows
         .into_iter()
         .map(|row| normalized_row_for_schema(row, &schema))
         .collect::<Result<Vec<_>, _>>()?;
-    data_source_relations::hydrate_relation_titles_tx(tx, &mut rows).await?;
-    data_source_rollups::hydrate_rollups_tx(tx, data_source_id, &schema_properties, &mut rows)
-        .await?;
-    data_source_formulas::hydrate_formulas(&schema_properties, &mut rows)?;
-    data_source_buttons::hydrate_buttons(&schema_properties, &mut rows)?;
-    rows.retain(|row| row_matches_filters(row, &schema, &filters));
-    sort_rows(&mut rows, &schema, &sorts);
-    let groups = board_groups(&schema, &configuration, rows)?;
-    NoteDataSourceBoardViewDto::new(data_source, database, view, groups)
+    data_source_relations::hydrate_relation_titles_tx(tx, &mut window.rows).await?;
+    data_source_rollups::hydrate_rollups_tx(
+        tx,
+        data_source_id,
+        &schema_properties,
+        &mut window.rows,
+    )
+    .await?;
+    data_source_formulas::hydrate_formulas(&schema_properties, &mut window.rows)?;
+    data_source_buttons::hydrate_buttons(&schema_properties, &mut window.rows)?;
+    let groups = board_groups(&schema, &configuration, std::mem::take(&mut window.rows))?;
+    NoteDataSourceBoardViewDto::new(data_source, database, view, groups, window)
 }
 
 pub(in crate::notes) async fn load_active_data_source_and_database_tx(
@@ -275,25 +321,6 @@ async fn load_board_view_row_tx(
 ) -> Result<Option<NoteDatabaseViewRow>, String> {
     data_source_views::load_scoped_view_row_tx(tx, data_source_id, "board", database_id, view_id)
         .await
-}
-
-pub(in crate::notes) async fn load_active_row_pages_tx(
-    tx: &mut Transaction<'_, Sqlite>,
-    data_source_id: &str,
-) -> Result<Vec<NotePageRow>, String> {
-    sqlx::query_as::<_, NotePageRow>(
-        "SELECT page.*
-         FROM notes_pages AS page
-         WHERE page.parent_type = 'data_source_id'
-           AND page.parent_data_source_id = ?
-           AND page.in_trash = 0
-           AND page.archived = 0
-         ORDER BY page.last_edited_time DESC, page.title COLLATE NOCASE ASC, page.id ASC",
-    )
-    .bind(data_source_id.trim())
-    .fetch_all(&mut **tx)
-    .await
-    .map_err(|e| format!("load notes data source board rows: {e}"))
 }
 
 pub(in crate::notes) async fn generated_uuid_tx(
@@ -1056,118 +1083,6 @@ fn canonical_property_payload(property_type: &str, value: &Value) -> Result<Valu
     }
 }
 
-pub(in crate::notes) fn row_matches_filters(
-    row: &NotePageRow,
-    schema: &[BoardProperty],
-    filters: &[NoteDataSourceTableFilter],
-) -> bool {
-    filters.iter().all(|filter| {
-        let Some(property) = schema
-            .iter()
-            .find(|property| property.id == filter.property_id)
-        else {
-            return true;
-        };
-        let text = row_property_plain_text(row, property);
-        match filter.condition.as_str() {
-            "contains" => filter
-                .value
-                .as_ref()
-                .and_then(Value::as_str)
-                .map(|value| text.to_lowercase().contains(&value.to_lowercase()))
-                .unwrap_or(true),
-            "equals" => filter
-                .value
-                .as_ref()
-                .map(|value| scalar_filter_text(value).to_lowercase() == text.to_lowercase())
-                .unwrap_or_else(|| text.is_empty()),
-            "is_empty" => text.trim().is_empty(),
-            "is_not_empty" => !text.trim().is_empty(),
-            "checked" => row_property_checked(row, property) == Some(true),
-            "unchecked" => row_property_checked(row, property) == Some(false),
-            _ => true,
-        }
-    })
-}
-
-pub(in crate::notes) fn sort_rows(
-    rows: &mut [NotePageRow],
-    schema: &[BoardProperty],
-    sorts: &[NoteDataSourceTableSort],
-) {
-    rows.sort_by(|left, right| {
-        for sort in sorts {
-            let Some(property) = schema
-                .iter()
-                .find(|property| property.id == sort.property_id)
-            else {
-                continue;
-            };
-            let ordering = compare_row_property(left, right, property);
-            if ordering != Ordering::Equal {
-                return if sort.direction == "descending" {
-                    ordering.reverse()
-                } else {
-                    ordering
-                };
-            }
-        }
-        left.title
-            .to_lowercase()
-            .cmp(&right.title.to_lowercase())
-            .then_with(|| left.id.cmp(&right.id))
-    });
-}
-
-fn compare_row_property(
-    left: &NotePageRow,
-    right: &NotePageRow,
-    property: &BoardProperty,
-) -> Ordering {
-    match property.property_type.as_str() {
-        "number" => compare_optional_f64(
-            row_property_number(left, property),
-            row_property_number(right, property),
-        ),
-        "rollup" | "formula" => match (
-            row_property_number(left, property),
-            row_property_number(right, property),
-        ) {
-            (Some(left_number), Some(right_number)) => {
-                compare_optional_f64(Some(left_number), Some(right_number))
-            }
-            _ => row_property_plain_text(left, property)
-                .to_lowercase()
-                .cmp(&row_property_plain_text(right, property).to_lowercase()),
-        },
-        "checkbox" => compare_optional_bool(
-            row_property_checked(left, property),
-            row_property_checked(right, property),
-        ),
-        _ => row_property_plain_text(left, property)
-            .to_lowercase()
-            .cmp(&row_property_plain_text(right, property).to_lowercase()),
-    }
-}
-
-fn compare_optional_f64(left: Option<f64>, right: Option<f64>) -> Ordering {
-    match (left, right) {
-        (Some(left), Some(right)) => left.partial_cmp(&right).unwrap_or(Ordering::Equal),
-        (Some(_), None) => Ordering::Less,
-        (None, Some(_)) => Ordering::Greater,
-        (None, None) => Ordering::Equal,
-    }
-}
-
-fn compare_optional_bool(left: Option<bool>, right: Option<bool>) -> Ordering {
-    match (left, right) {
-        (Some(left), Some(right)) => left.cmp(&right),
-        (Some(_), None) => Ordering::Less,
-        (None, Some(_)) => Ordering::Greater,
-        (None, None) => Ordering::Equal,
-    }
-}
-
 fn row_property_value(row: &NotePageRow, property: &BoardProperty) -> Option<Value> {
     let properties = parse_json(&row.properties, "row page properties").ok()?;
     properties.get(&property.key).cloned()
@@ -1177,86 +1092,6 @@ fn row_property_payload(row: &NotePageRow, property: &BoardProperty) -> Option<V
     row_property_value(row, property)?
         .get(&property.property_type)
         .cloned()
-}
-
-fn row_property_plain_text(row: &NotePageRow, property: &BoardProperty) -> String {
-    match property.property_type.as_str() {
-        "title" | "rich_text" => row_property_payload(row, property)
-            .and_then(|payload| payload.as_array().cloned())
-            .map(|items| rich_text_plain_text(&items))
-            .unwrap_or_default(),
-        "number" => row_property_number(row, property)
-            .map(|number| number.to_string())
-            .unwrap_or_default(),
-        "checkbox" => row_property_checked(row, property)
-            .map(|checked| checked.to_string())
-            .unwrap_or_default(),
-        "select" | "status" => row_property_payload(row, property)
-            .and_then(|payload| {
-                payload
-                    .get("name")
-                    .and_then(Value::as_str)
-                    .map(str::to_string)
-            })
-            .unwrap_or_default(),
-        "multi_select" | "people" | "relation" => row_property_payload(row, property)
-            .and_then(|payload| payload.as_array().cloned())
-            .map(|items| {
-                items
-                    .iter()
-                    .filter_map(|item| {
-                        item.get("title")
-                            .or_else(|| item.get("name"))
-                            .or_else(|| item.get("id"))
-                            .and_then(Value::as_str)
-                    })
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            })
-            .unwrap_or_default(),
-        "date" => row_property_payload(row, property)
-            .and_then(|payload| {
-                payload
-                    .get("start")
-                    .and_then(Value::as_str)
-                    .map(str::to_string)
-            })
-            .unwrap_or_default(),
-        "rollup" => row_property_payload(row, property)
-            .map(|payload| data_source_rollups::rollup_plain_text(&payload))
-            .unwrap_or_default(),
-        "formula" => row_property_payload(row, property)
-            .map(|payload| data_source_formulas::formula_plain_text(&payload))
-            .unwrap_or_default(),
-        "button" => row_property_payload(row, property)
-            .map(|payload| data_source_buttons::button_plain_text(&payload))
-            .unwrap_or_default(),
-        "url" | "email" | "phone_number" => row_property_payload(row, property)
-            .and_then(|payload| payload.as_str().map(str::to_string))
-            .unwrap_or_default(),
-        "created_time" => row.created_time.clone(),
-        "last_edited_time" => row.last_edited_time.clone(),
-        "place" => row_property_payload(row, property)
-            .and_then(|payload| {
-                payload
-                    .get("name")
-                    .and_then(Value::as_str)
-                    .map(str::to_string)
-            })
-            .unwrap_or_default(),
-        _ => String::new(),
-    }
-}
-
-fn row_property_number(row: &NotePageRow, property: &BoardProperty) -> Option<f64> {
-    let payload = row_property_payload(row, property)?;
-    if property.property_type == "rollup" {
-        return data_source_rollups::rollup_number(&payload);
-    }
-    if property.property_type == "formula" {
-        return data_source_formulas::formula_number(&payload);
-    }
-    payload.as_f64()
 }
 
 fn row_property_checked(row: &NotePageRow, property: &BoardProperty) -> Option<bool> {
@@ -1319,16 +1154,6 @@ fn string_array(value: Option<&Value>) -> Result<Vec<String>, String> {
                 .ok_or_else(|| "board configuration list item must be text".to_string())
         })
         .collect()
-}
-
-fn scalar_filter_text(value: &Value) -> String {
-    match value {
-        Value::Null => String::new(),
-        Value::Bool(value) => value.to_string(),
-        Value::Number(value) => value.to_string(),
-        Value::String(value) => value.clone(),
-        _ => String::new(),
-    }
 }
 
 fn validate_text(value: &str, label: &str, max_chars: usize) -> Result<String, String> {

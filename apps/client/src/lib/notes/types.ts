@@ -1134,6 +1134,16 @@ export interface NotesDataSourceTableView {
   data_source: NotesDataSource;
   view: NotesDatabaseView;
   rows: NotesPage[];
+  total_row_count: number;
+  next_cursor: string | null;
+  has_more: boolean;
+}
+
+export interface NotesDataSourceViewWindowRequest {
+  start_cursor?: string | null;
+  page_size?: number | null;
+  range_start?: string | null;
+  range_end?: string | null;
 }
 
 export type NotesDatabaseBoardRowOpenMode = "full_page" | "side_panel";
@@ -1169,6 +1179,10 @@ export interface NotesDataSourceBoardView {
   data_source: NotesDataSource;
   view: NotesDatabaseView;
   groups: NotesDataSourceBoardGroup[];
+  total_row_count: number;
+  next_cursor: string | null;
+  has_more: boolean;
+  group_counts: Record<string, number>;
 }
 
 export type NotesDatabaseGalleryRowOpenMode = "full_page" | "side_panel";
@@ -1194,6 +1208,9 @@ export interface NotesDataSourceGalleryView {
   data_source: NotesDataSource;
   view: NotesDatabaseView;
   rows: NotesPage[];
+  total_row_count: number;
+  next_cursor: string | null;
+  has_more: boolean;
 }
 
 export type NotesDatabaseListRowOpenMode = "full_page" | "side_panel";
@@ -1224,6 +1241,10 @@ export interface NotesDataSourceListView {
   data_source: NotesDataSource;
   view: NotesDatabaseView;
   rows: NotesPage[];
+  total_row_count: number;
+  next_cursor: string | null;
+  has_more: boolean;
+  group_counts: Record<string, number>;
 }
 
 export type NotesDatabaseCalendarRowOpenMode = "full_page" | "side_panel";
@@ -1252,6 +1273,9 @@ export interface NotesDataSourceCalendarView {
   data_source: NotesDataSource;
   view: NotesDatabaseView;
   rows: NotesPage[];
+  total_row_count: number;
+  next_cursor: string | null;
+  has_more: boolean;
 }
 
 export type NotesDatabaseTimelineRowOpenMode = "full_page" | "side_panel";
@@ -1285,6 +1309,10 @@ export interface NotesDataSourceTimelineView {
   data_source: NotesDataSource;
   view: NotesDatabaseView;
   rows: NotesPage[];
+  total_row_count: number;
+  next_cursor: string | null;
+  has_more: boolean;
+  group_counts: Record<string, number>;
 }
 
 export const NOTES_DATABASE_VIEW_TYPES = [
@@ -1410,6 +1438,22 @@ export interface NotesLoadedPage {
 
 export interface NotesPageOpenResponse extends NotesLoadedPage {
   breadcrumb: NotesPageBreadcrumbItem[];
+  outlines: NotesBlockOutline[];
+}
+
+export interface NotesBlockOutline {
+  id: string;
+  page_id: string;
+  parent: Extract<NotesParent, { type: "page_id" | "block_id" }>;
+  type: NotesBlockType;
+  sort_order: number;
+  has_children: boolean;
+  retained_height: number;
+}
+
+export interface NotesBlockHydrationRequest {
+  page_id: string;
+  block_ids: string[];
 }
 
 export interface NotesBlockFrontier {

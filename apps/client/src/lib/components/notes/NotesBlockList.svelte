@@ -98,6 +98,12 @@
     NotesRichText,
     NotesTableOfContentsItem,
   } from "$lib/notes/types";
+  import {
+    notesScrollAnchor,
+    notesScrollOffsetForAnchor,
+    notesVisibleRange,
+  } from "$lib/notes/visible-range";
+  import { notesHydratedItemsByOutline } from "$lib/notes/block-outline";
   import NotesBlockRow from "./NotesBlockRow.svelte";
   import {
     loadNotesAdvancedBlock,
@@ -147,6 +153,7 @@
     tableOfContentsItems,
     onSelectPage,
     onFocusBlock,
+    scrollViewport,
   }: {
     items: NotesBlockTreeItem[];
     pageId: string;
@@ -154,6 +161,7 @@
     tableOfContentsItems: NotesTableOfContentsItem[];
     onSelectPage: (pageId: string) => void;
     onFocusBlock: (blockId: string) => void;
+    scrollViewport: HTMLDivElement | null;
   } = $props();
 
   const notes = getNotes();
@@ -180,6 +188,22 @@
     LazyComponentLoadState<NotesAdvancedBlockFamily, LoadedNotesAdvancedBlock>
   >>>({});
   let mentionDataSourceRequestId = 0;
+  let viewportStart = $state(0);
+  let viewportHeight = $state(0);
+  let measuredBlockHeights = $state(new Map<string, number>());
+  let handledFocusRequestId = 0;
+  const outlineRangeItems = $derived(notes.flatBlockOutlines.map((item) => ({
+    id: item.outline.id,
+    estimatedHeight: item.outline.retained_height,
+  })));
+  const visibleRange = $derived(notesVisibleRange(outlineRangeItems, measuredBlockHeights, {
+    viewportStart,
+    viewportEnd: viewportStart + viewportHeight,
+    overscanPx: 480,
+    minimumVirtualizedCount: 120,
+  }));
+  const visibleOutlines = $derived(notes.flatBlockOutlines.slice(visibleRange.start, visibleRange.end));
+  const hydratedItemsById = $derived(notesHydratedItemsByOutline(notes.flatBlockOutlines, items));
   const selectedBlockCount = $derived(blockSelection?.selectedBlockIds.length ?? 0);
   const selectedRootBlockIds = $derived(
     blockSelection
@@ -193,6 +217,79 @@
     !!planNotesSelectionMoveWithinSiblings(currentTreeState(), selectedRootBlockIds, "down"),
   );
   const mentionTargets: NotesNamedMentionTarget[] = $derived(buildMentionTargets());
+
+  function updateViewportRange(): void {
+    if (!scrollViewport || !blockListElement) return;
+    const viewportRect = scrollViewport.getBoundingClientRect();
+    const listRect = blockListElement.getBoundingClientRect();
+    const listStart = scrollViewport.scrollTop + listRect.top - viewportRect.top;
+    viewportStart = Math.max(0, scrollViewport.scrollTop - listStart);
+    viewportHeight = scrollViewport.clientHeight;
+  }
+
+  $effect(() => {
+    const viewport = scrollViewport;
+    if (!viewport) return;
+    const observer = new ResizeObserver(updateViewportRange);
+    observer.observe(viewport);
+    viewport.addEventListener("scroll", updateViewportRange, { passive: true });
+    updateViewportRange();
+    return () => {
+      observer.disconnect();
+      viewport.removeEventListener("scroll", updateViewportRange);
+    };
+  });
+
+  $effect(() => {
+    const retainedIds = visibleOutlines.map((item) => item.outline.id);
+    if (draggingBlockId) retainedIds.push(draggingBlockId);
+    if (openBlockHandleMenuId) retainedIds.push(openBlockHandleMenuId);
+    if (notes.focusBlockId) retainedIds.push(notes.focusBlockId);
+    retainedIds.push(...(blockSelection?.selectedBlockIds ?? []));
+    void notes.hydrateBlockRange(retainedIds);
+  });
+
+  $effect(() => {
+    const requestId = notes.focusRequestId;
+    const blockId = notes.focusBlockId;
+    if (!blockId || requestId === handledFocusRequestId || !scrollViewport) return;
+    const index = outlineRangeItems.findIndex((item) => item.id === blockId);
+    if (index < 0) return;
+    handledFocusRequestId = requestId;
+    const targetOffset = outlineRangeItems
+      .slice(0, index)
+      .reduce((total, item) => total + (measuredBlockHeights.get(item.id) ?? item.estimatedHeight), 0);
+    scrollViewport.scrollTop += targetOffset - viewportStart;
+    updateViewportRange();
+  });
+
+  function measureVirtualBlock(
+    node: HTMLElement,
+    blockId: string,
+  ): { update: (nextId: string) => void; destroy: () => void } {
+    let currentId = blockId;
+    const observer = new ResizeObserver(([entry]) => {
+      const nextHeight = entry?.borderBoxSize?.[0]?.blockSize ?? entry?.contentRect.height;
+      if (!nextHeight || Math.abs((measuredBlockHeights.get(currentId) ?? 0) - nextHeight) < 0.5) return;
+      const anchor = notesScrollAnchor(outlineRangeItems, measuredBlockHeights, viewportStart);
+      const next = new Map(measuredBlockHeights);
+      next.set(currentId, nextHeight);
+      measuredBlockHeights = next;
+      const corrected = notesScrollOffsetForAnchor(outlineRangeItems, next, anchor);
+      if (corrected !== null && scrollViewport && Math.abs(corrected - viewportStart) >= 0.5) {
+        scrollViewport.scrollTop += corrected - viewportStart;
+      }
+    });
+    observer.observe(node);
+    return {
+      update(nextId) {
+        currentId = nextId;
+      },
+      destroy() {
+        observer.disconnect();
+      },
+    };
+  }
 
   function requestStructuralBlock(kind: "column-list" | "tab", retry = false): void {
     const current = structuralBlockLoadStates[kind] ?? null;
@@ -1531,8 +1628,14 @@
       {/if}
     </div>
   {/if}
-  {#each items as item (item.block.id)}
-    {#if item.block.type === "column_list"}
+  {#if visibleRange.topHeight > 0}
+    <div aria-hidden="true" style:height={`${visibleRange.topHeight}px`}></div>
+  {/if}
+  {#each visibleOutlines as outlineItem (outlineItem.outline.id)}
+    {@const item = hydratedItemsById.get(outlineItem.outline.id)}
+    {#if item}
+      <div use:measureVirtualBlock={item.block.id} data-notes-virtual-block={item.block.id}>
+      {#if item.block.type === "column_list"}
       {#if structuralBlockLoadStates["column-list"]?.status === "ready" && structuralBlockLoadStates["column-list"].component.kind === "column-list"}
         {@const NotesColumnListBlock = structuralBlockLoadStates["column-list"].component.component}
         <NotesColumnListBlock
@@ -1965,8 +2068,20 @@
         onHandlePointerLeave={hideBlockHandleAfterPointerLeave}
         onHandleMenuOpenChange={updateBlockHandleMenuOpen}
       />
+      {/if}
+      </div>
+    {:else}
+      <div
+        class="rounded-sm bg-muted/20"
+        style:height={`${outlineItem.outline.retained_height}px`}
+        data-notes-block-placeholder={outlineItem.outline.id}
+        aria-hidden="true"
+      ></div>
     {/if}
   {/each}
+  {#if visibleRange.bottomHeight > 0}
+    <div aria-hidden="true" style:height={`${visibleRange.bottomHeight}px`}></div>
+  {/if}
 </div>
 
 <style>

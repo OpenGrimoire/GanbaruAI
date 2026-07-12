@@ -22,6 +22,8 @@ fn page_open_returns_visible_chrome_and_top_level_blocks_only() {
         assert_eq!(opened["breadcrumb"][0]["id"], PAGE_A);
         assert_eq!(opened["blocks"]["results"].as_array().unwrap().len(), 1);
         assert_eq!(opened["blocks"]["results"][0]["id"], BLOCK_A);
+        assert_eq!(opened["outlines"][0]["id"], BLOCK_A);
+        assert_eq!(opened["outlines"][0]["retained_height"], 36);
         assert!(opened["blocks"]["results"]
             .as_array()
             .unwrap()
@@ -86,6 +88,34 @@ fn block_frontier_batches_children_for_multiple_parents() {
             .map(|block| block["id"].as_str().unwrap())
             .collect::<Vec<_>>();
         assert_eq!(ids, vec![BLOCK_C, BLOCK_D]);
+
+        let outlines = reads::get_block_outline_frontier(
+            &pool,
+            PAGE_A,
+            &[BLOCK_A.to_string(), BLOCK_B.to_string()],
+        )
+        .await
+        .unwrap();
+        let outline_json = serde_json::to_value(outlines).unwrap();
+        assert_eq!(outline_json[0]["id"], BLOCK_C);
+        assert!(outline_json[0].get("paragraph").is_none());
+
+        let hydrated = reads::hydrate_blocks(
+            &pool,
+            NoteBlockHydrationRequest {
+                page_id: PAGE_A.to_string(),
+                block_ids: vec![BLOCK_D.to_string()],
+            },
+        )
+        .await
+        .unwrap();
+        let hydrated_json = serde_json::to_value(hydrated).unwrap();
+        assert_eq!(hydrated_json.as_array().unwrap().len(), 1);
+        assert_eq!(hydrated_json[0]["id"], BLOCK_D);
+        assert_eq!(
+            hydrated_json[0]["paragraph"]["rich_text"][0]["plain_text"],
+            "Second child"
+        );
     });
 }
 

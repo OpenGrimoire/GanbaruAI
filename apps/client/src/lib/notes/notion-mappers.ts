@@ -27,6 +27,7 @@ import {
   parseNotesLoadedPage,
   parseNotesPageOpenResponse,
   parseNotesBlockFrontier,
+  parseNotesBlockOutline,
   parseNotesNotionApiImportResult,
   parseNotesNotionExportImportResult,
   parseNotesMarkdownExportResult,
@@ -73,6 +74,7 @@ import type {
   NotesLoadedPage,
   NotesPageOpenResponse,
   NotesBlockFrontier,
+  NotesBlockOutline,
   NotesNotionApiImportResult,
   NotesNotionExportImportResult,
   NotesMarkdownExportResult,
@@ -124,6 +126,11 @@ export function mapNotesPageOpenResponseDto(value: unknown): NotesPageOpenRespon
 /** Validate and map a batched block frontier from the Tauri boundary. */
 export function mapNotesBlockFrontierDto(value: unknown): NotesBlockFrontier {
   return parseNotesBlockFrontier(value);
+}
+
+/** Validate and map a lightweight block outline from the Tauri boundary. */
+export function mapNotesBlockOutlineDto(value: unknown): NotesBlockOutline {
+  return parseNotesBlockOutline(value);
 }
 
 /** Validate and map an unknown markdown import DTO from the Tauri boundary. */

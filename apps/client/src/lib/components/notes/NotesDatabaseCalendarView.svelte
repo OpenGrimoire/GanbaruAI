@@ -24,6 +24,8 @@
     notesDatabaseCalendarMonthRange,
   } from "$lib/notes/database-calendar";
   import type { NotesDatabaseTableColumn } from "$lib/notes/database-table";
+  import { mergeNotesDatabaseRows } from "$lib/notes/database-view-window";
+  import NotesDatabaseWindowSentinel from "./NotesDatabaseWindowSentinel.svelte";
   import type {
     NotesDatabaseCalendarConfiguration,
     NotesDatabaseCalendarRowOpenMode,
@@ -71,6 +73,8 @@
 
   let calendar = $state<NotesDataSourceCalendarView | null>(null);
   let loading = $state(false);
+  let loadingMore = $state(false);
+  let requestId = 0;
   let mutating = $state(false);
   let error = $state<string | null>(null);
   let draftTitleByDate = $state<Record<string, string>>({});
@@ -105,10 +109,12 @@
   }
 
   async function loadCalendar(): Promise<NotesDataSourceCalendarView | null> {
+    const currentRequest = ++requestId;
     loading = true;
     error = null;
     try {
       const loaded = await getNotesDataSourceCalendarView(dataSourceId, viewScope());
+      if (currentRequest !== requestId) return null;
       calendar = loaded;
       if (selectedPanelRowId && !loaded.rows.some((row) => row.id === selectedPanelRowId)) {
         selectedPanelRowId = null;
@@ -119,6 +125,26 @@
       return null;
     } finally {
       loading = false;
+    }
+  }
+
+  async function loadMoreCalendar(): Promise<void> {
+    const current = calendar;
+    if (!current?.has_more || !current.next_cursor || loadingMore) return;
+    const currentRequest = requestId;
+    loadingMore = true;
+    try {
+      const loaded = await getNotesDataSourceCalendarView(dataSourceId, viewScope(), {
+        start_cursor: current.next_cursor,
+        range_start: configuration.range_start,
+        range_end: configuration.range_end,
+      });
+      if (currentRequest !== requestId || calendar !== current) return;
+      calendar = { ...loaded, rows: mergeNotesDatabaseRows(current.rows, loaded.rows) };
+    } catch (caught) {
+      if (currentRequest === requestId) error = caught instanceof Error ? caught.message : String(caught);
+    } finally {
+      if (currentRequest === requestId) loadingMore = false;
     }
   }
 
@@ -693,6 +719,10 @@
         </div>
       </div>
     {/if}
+  {/if}
+
+  {#if calendar}
+    <NotesDatabaseWindowSentinel hasMore={calendar.has_more} loading={loadingMore} onLoad={loadMoreCalendar} />
   {/if}
 
   {#if selectedPanelRow}

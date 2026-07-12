@@ -1,6 +1,160 @@
 use super::helpers::*;
 
 #[test]
+fn database_view_window_keyset_pages_ten_thousand_rows_with_bounded_payloads() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        create_page(&pool, PAGE_A, BLOCK_A).await;
+        databases::create_database(
+            &pool,
+            NoteDatabaseCreate {
+                id: DATABASE_A.to_string(),
+                data_source_id: DATA_SOURCE_A.to_string(),
+                view_id: DATABASE_VIEW_A.to_string(),
+                title: "Tasks".to_string(),
+                parent: Some(page_parent(PAGE_A)),
+                after_block_id: Some(BLOCK_A.to_string()),
+                replace_block_id: None,
+                icon: None,
+                cover: None,
+            },
+        )
+        .await
+        .unwrap();
+        let mut tx = pool.begin().await.unwrap();
+        for index in 0..10_000 {
+            let id = format!("40000000-0000-4000-8000-{index:012}");
+            let title = format!("Task {index:05}");
+            let properties = json!({
+                "Name": {
+                    "id": "title",
+                    "type": "title",
+                    "title": [{
+                        "type": "text",
+                        "text": { "content": title, "link": null },
+                        "annotations": {
+                            "bold": false, "italic": false, "strikethrough": false,
+                            "underline": false, "code": false, "color": "default"
+                        },
+                        "plain_text": title,
+                        "href": null
+                    }]
+                }
+            });
+            sqlx::query(
+                "INSERT INTO notes_pages (
+                    id, parent_type, parent_data_source_id, title, properties
+                 ) VALUES (?, 'data_source_id', ?, ?, ?)",
+            )
+            .bind(id)
+            .bind(DATA_SOURCE_A)
+            .bind(&title)
+            .bind(properties.to_string())
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        }
+        sqlx::query(
+            "UPDATE notes_database_views
+             SET filter = ?, sorts = ?
+             WHERE id = ?",
+        )
+        .bind(
+            json!({
+                "filters": [{ "property_id": "title", "condition": "contains", "value": "Task" }]
+            })
+            .to_string(),
+        )
+        .bind(json!([{ "property_id": "title", "direction": "descending" }]).to_string())
+        .bind(DATABASE_VIEW_A)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+
+        let first = data_source_table::get_data_source_table_view_window(
+            &pool,
+            DATA_SOURCE_A,
+            None,
+            None,
+            NoteDataSourceViewWindowRequest {
+                start_cursor: None,
+                page_size: Some(80),
+                range_start: None,
+                range_end: None,
+            },
+        )
+        .await
+        .unwrap();
+        let first_json = serde_json::to_value(&first).unwrap();
+        assert_eq!(first_json["total_row_count"], 10_000);
+        assert_eq!(first_json["rows"].as_array().unwrap().len(), 80);
+        assert_eq!(
+            first_json["rows"][0]["properties"]["Name"]["title"][0]["plain_text"],
+            "Task 09999"
+        );
+        assert!(serde_json::to_vec(&first).unwrap().len() < 256 * 1024);
+        let plan = sqlx::query(
+            "EXPLAIN QUERY PLAN
+             SELECT page.id
+             FROM notes_pages AS page
+             WHERE page.parent_type = 'data_source_id'
+               AND page.parent_data_source_id = ?
+               AND page.in_trash = 0
+               AND page.archived = 0
+             ORDER BY page.title COLLATE NOCASE DESC, page.id ASC
+             LIMIT 80",
+        )
+        .bind(DATA_SOURCE_A)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        let plan_details = plan
+            .iter()
+            .map(|row| row.get::<String, _>("detail"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            plan_details.contains("SEARCH page USING INDEX"),
+            "{plan_details}"
+        );
+
+        let cursor = first_json["next_cursor"].as_str().unwrap().to_string();
+        let second = data_source_table::get_data_source_table_view_window(
+            &pool,
+            DATA_SOURCE_A,
+            None,
+            None,
+            NoteDataSourceViewWindowRequest {
+                start_cursor: Some(cursor),
+                page_size: Some(80),
+                range_start: None,
+                range_end: None,
+            },
+        )
+        .await
+        .unwrap();
+        let second_json = serde_json::to_value(second).unwrap();
+        assert_eq!(second_json["rows"].as_array().unwrap().len(), 80);
+        assert_eq!(
+            second_json["rows"][0]["properties"]["Name"]["title"][0]["plain_text"],
+            "Task 09919"
+        );
+        let first_ids = first_json["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| row["id"].as_str().unwrap())
+            .collect::<std::collections::HashSet<_>>();
+        assert!(second_json["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|row| { !first_ids.contains(row["id"].as_str().unwrap()) }));
+    });
+}
+
+#[test]
 fn database_row_pages_are_real_pages_with_page_lifecycle() {
     tauri::async_runtime::block_on(async {
         let pool = migrated_memory_pool().await;

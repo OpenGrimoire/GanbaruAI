@@ -6,7 +6,7 @@ use super::models::{
 use super::validation::{require_uuid, rich_text_items_plain_text, validate_comment_rich_text};
 use super::{assets, collaboration_operations, local_user, mention_notifications};
 use serde_json::{json, Value};
-use sqlx::{Sqlite, SqlitePool, Transaction};
+use sqlx::{QueryBuilder, Sqlite, SqlitePool, Transaction};
 use std::collections::HashSet;
 
 const COMMENT_ANCHOR_MAX_TEXT_LENGTH: usize = 2000;
@@ -27,62 +27,64 @@ pub(in crate::notes) async fn list_comments(
     page_id: &str,
     include_resolved: bool,
 ) -> Result<Vec<NoteCommentThreadDto>, String> {
+    list_comments_for_blocks(pool, page_id, include_resolved, None).await
+}
+
+pub(in crate::notes) async fn list_comments_for_blocks(
+    pool: &SqlitePool,
+    page_id: &str,
+    include_resolved: bool,
+    block_ids: Option<&[String]>,
+) -> Result<Vec<NoteCommentThreadDto>, String> {
     let page_id = page_id.trim();
     require_uuid(page_id, "page_id")?;
     ensure_active_page(pool, page_id).await?;
-    let thread_rows = if include_resolved {
-        sqlx::query_as::<_, NoteCommentThreadRow>(
-            "SELECT *
-             FROM notes_comment_threads
-             WHERE page_id = ?
-               AND EXISTS (
-                   SELECT 1
-                   FROM notes_comments AS comment
-                   WHERE comment.thread_id = notes_comment_threads.id
-                     AND comment.deleted_at IS NULL
-               )
-               AND (
-                   parent_type = 'page_id'
-                   OR EXISTS (
-                       SELECT 1
-                       FROM notes_blocks AS block
-                       WHERE block.id = notes_comment_threads.parent_block_id
-                         AND block.in_trash = 0
-                   )
-               )
-             ORDER BY created_time ASC, id ASC",
-        )
-        .bind(page_id)
-        .fetch_all(pool)
-        .await
-    } else {
-        sqlx::query_as::<_, NoteCommentThreadRow>(
-            "SELECT *
-             FROM notes_comment_threads
-             WHERE page_id = ?
-               AND status = 'open'
-               AND EXISTS (
-                   SELECT 1
-                   FROM notes_comments AS comment
-                   WHERE comment.thread_id = notes_comment_threads.id
-                     AND comment.deleted_at IS NULL
-               )
-               AND (
-                   parent_type = 'page_id'
-                   OR EXISTS (
-                       SELECT 1
-                       FROM notes_blocks AS block
-                       WHERE block.id = notes_comment_threads.parent_block_id
-                         AND block.in_trash = 0
-                   )
-               )
-             ORDER BY created_time ASC, id ASC",
-        )
-        .bind(page_id)
-        .fetch_all(pool)
-        .await
+    let mut normalized_block_ids = Vec::new();
+    let mut seen = HashSet::new();
+    for block_id in block_ids.unwrap_or_default() {
+        require_uuid(block_id, "block_id")?;
+        if seen.insert(block_id.clone()) {
+            normalized_block_ids.push(block_id.clone());
+        }
     }
-    .map_err(|e| format!("list notes comment threads: {e}"))?;
+    if normalized_block_ids.len() > 200 {
+        return Err("comment block range is limited to 200 blocks".to_string());
+    }
+    let mut query =
+        QueryBuilder::<Sqlite>::new("SELECT * FROM notes_comment_threads WHERE page_id = ");
+    query.push_bind(page_id);
+    if !include_resolved {
+        query.push(" AND status = 'open'");
+    }
+    query.push(
+        " AND EXISTS (
+            SELECT 1 FROM notes_comments AS comment
+            WHERE comment.thread_id = notes_comment_threads.id
+              AND comment.deleted_at IS NULL
+          ) AND (parent_type = 'page_id'",
+    );
+    if block_ids.is_none() {
+        query.push(
+            " OR EXISTS (
+                SELECT 1 FROM notes_blocks AS block
+                WHERE block.id = notes_comment_threads.parent_block_id
+                  AND block.in_trash = 0
+              )",
+        );
+    } else if !normalized_block_ids.is_empty() {
+        query.push(" OR parent_block_id IN (");
+        let mut separated = query.separated(", ");
+        for block_id in &normalized_block_ids {
+            separated.push_bind(block_id);
+        }
+        query.push(")");
+    }
+    query.push(") ORDER BY created_time ASC, id ASC");
+    let thread_rows = query
+        .build_query_as::<NoteCommentThreadRow>()
+        .fetch_all(pool)
+        .await
+        .map_err(|e| format!("list notes comment threads: {e}"))?;
     thread_dtos(pool, thread_rows).await
 }
 

@@ -13,6 +13,7 @@ import type {
 const backend = vi.hoisted(() => ({
   calls: [] as Array<{ name: string; ids?: readonly string[] }>,
   pages: new Map<string, NotesPageOpenResponse>(),
+  hydrated: new Map<string, NotesBlock>(),
   frontier: async (_ids: readonly string[]): Promise<NotesBlockFrontier> => ({ blocks: [] }),
   record(name: string, ids?: readonly string[]): void {
     this.calls.push({ name, ids });
@@ -60,6 +61,25 @@ vi.mock("$lib/api/notes", async (importOriginal) => {
       backend.record("frontier", [...ids]);
       return backend.frontier(ids);
     },
+    getNotesBlockOutlineFrontier: async (_pageId: string, ids: readonly string[]) => {
+      backend.record("frontier", [...ids]);
+      const result = await backend.frontier(ids);
+      for (const block of result.blocks) backend.hydrated.set(block.id, block);
+      return result.blocks.map((block, index) => ({
+        id: block.id,
+        page_id: block.parent.type === "page_id" ? block.parent.page_id : pageAId,
+        parent: block.parent.type === "page_id" || block.parent.type === "block_id"
+          ? block.parent
+          : { type: "page_id" as const, page_id: pageAId },
+        type: block.type,
+        sort_order: (index + 1) * 1_000,
+        has_children: block.has_children,
+        retained_height: 36,
+      }));
+    },
+    hydrateNotesBlocks: async (request: { block_ids: string[] }) => request.block_ids
+      .map((id) => backend.hydrated.get(id))
+      .filter((block): block is NotesBlock => block !== undefined),
     getNotesBlockChildren: async () => ({
       object: "list",
       type: "block",
@@ -132,9 +152,21 @@ function paragraph(id: string, parent: NotesBlock["parent"], hasChildren = false
 }
 
 function response(pageId: string, blocks: NotesBlock[]): NotesPageOpenResponse {
+  for (const block of blocks) backend.hydrated.set(block.id, block);
   return {
     page: page(pageId),
     breadcrumb: [{ id: pageId, title: pageId, current: true, status: "active" }],
+    outlines: blocks.map((block, index) => ({
+      id: block.id,
+      page_id: pageId,
+      parent: block.parent.type === "page_id" || block.parent.type === "block_id"
+        ? block.parent
+        : { type: "page_id", page_id: pageId },
+      type: block.type,
+      sort_order: (index + 1) * 1_000,
+      has_children: block.has_children,
+      retained_height: 36,
+    })),
     blocks: {
       object: "list",
       type: "block",
@@ -191,7 +223,7 @@ describe("Notes critical page opening", () => {
       [topAId, topBId],
       [childAId],
     ]);
-    expect(Object.keys(notes.blocksById)).toContain(nestedId);
+    await vi.waitFor(() => expect(Object.keys(notes.blocksById)).toContain(nestedId));
   });
 
   it("ignores a late descendant frontier after switching pages", async () => {

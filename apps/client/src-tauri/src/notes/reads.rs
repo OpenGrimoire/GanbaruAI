@@ -1,7 +1,7 @@
 use super::models::{
-    NoteBlockDto, NoteBlockFrontierDto, NoteBlockRow, NoteLoadedPage, NotePageBreadcrumbItemDto,
-    NotePageDto, NotePageOpenDto, NotePageRow, NotePaginatedBlockList, NoteSidebarPageList,
-    NoteSidebarPagesRequest,
+    NoteBlockDto, NoteBlockFrontierDto, NoteBlockHydrationRequest, NoteBlockOutlineDto,
+    NoteBlockRow, NoteLoadedPage, NotePageBreadcrumbItemDto, NotePageDto, NotePageOpenDto,
+    NotePageRow, NotePaginatedBlockList, NoteSidebarPageList, NoteSidebarPagesRequest,
 };
 use super::validation::{require_uuid, validate_page_size};
 use sqlx::{QueryBuilder, Sqlite, SqlitePool};
@@ -397,13 +397,115 @@ pub(in crate::notes) async fn open_page(
     .fetch_all(&mut *transaction)
     .await
     .map_err(|error| format!("load notes page blocks: {error}"))?;
+    let outline_rows = sqlx::query_as::<_, BlockOutlineRow>(
+        "SELECT id, page_id, parent_type, parent_page_id, parent_block_id,
+                type AS block_type, sort_order, has_children
+         FROM notes_blocks
+         WHERE parent_type = 'page_id' AND parent_page_id = ? AND in_trash = 0
+         ORDER BY sort_order ASC, id ASC",
+    )
+    .bind(page_id)
+    .fetch_all(&mut *transaction)
+    .await
+    .map_err(|error| format!("load notes page block outline: {error}"))?;
     transaction
         .commit()
         .await
         .map_err(|error| format!("commit notes page open: {error}"))?;
     let page = NotePageDto::new(page_row)?;
     let blocks = block_page_from_rows(rows, DEFAULT_PAGE_SIZE as usize)?;
-    Ok(NotePageOpenDto::new(page, breadcrumb, blocks))
+    let outlines = outline_rows
+        .into_iter()
+        .map(NoteBlockOutlineDto::try_from)
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(NotePageOpenDto::new(page, breadcrumb, blocks, outlines))
+}
+
+pub(in crate::notes) async fn get_block_outline_frontier(
+    pool: &SqlitePool,
+    page_id: &str,
+    parent_ids: &[String],
+) -> Result<Vec<NoteBlockOutlineDto>, String> {
+    let page_id = page_id.trim();
+    require_uuid(page_id, "page_id")?;
+    let parent_ids = normalize_block_ids(parent_ids, "parent_id")?;
+    if parent_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut rows = Vec::new();
+    for parent_batch in parent_ids.chunks(BLOCK_FRONTIER_PARENT_BATCH_SIZE) {
+        let mut query = QueryBuilder::<Sqlite>::new(
+            "SELECT id, page_id, parent_type, parent_page_id, parent_block_id, \
+                    type AS block_type, sort_order, has_children \
+             FROM notes_blocks WHERE page_id = ",
+        );
+        query.push_bind(page_id);
+        query.push(" AND parent_type = 'block_id' AND in_trash = 0 AND parent_block_id IN (");
+        let mut separated = query.separated(", ");
+        for parent_id in parent_batch {
+            separated.push_bind(parent_id);
+        }
+        query.push(") ORDER BY parent_block_id ASC, sort_order ASC, id ASC");
+        rows.extend(
+            query
+                .build_query_as::<BlockOutlineRow>()
+                .fetch_all(pool)
+                .await
+                .map_err(|error| format!("load notes block outline frontier: {error}"))?,
+        );
+    }
+    rows.into_iter()
+        .map(NoteBlockOutlineDto::try_from)
+        .collect()
+}
+
+pub(in crate::notes) async fn hydrate_blocks(
+    pool: &SqlitePool,
+    request: NoteBlockHydrationRequest,
+) -> Result<Vec<NoteBlockDto>, String> {
+    let page_id = request.page_id.trim();
+    require_uuid(page_id, "page_id")?;
+    let block_ids = normalize_block_ids(&request.block_ids, "block_id")?;
+    if block_ids.len() > 200 {
+        return Err("block hydration is limited to 200 blocks".to_string());
+    }
+    if block_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut query = QueryBuilder::<Sqlite>::new(
+        "SELECT id, page_id, parent_type, parent_page_id, parent_block_id, has_children, \
+                in_trash, type AS block_type, payload, plain_text, sort_order, source_provider, \
+                source_object_id, source_last_edited_time, created_time, last_edited_time \
+         FROM notes_blocks WHERE page_id = ",
+    );
+    query.push_bind(page_id);
+    query.push(" AND in_trash = 0 AND id IN (");
+    let mut separated = query.separated(", ");
+    for block_id in &block_ids {
+        separated.push_bind(block_id);
+    }
+    query.push(") ORDER BY sort_order ASC, id ASC");
+    query
+        .build_query_as::<NoteBlockRow>()
+        .fetch_all(pool)
+        .await
+        .map_err(|error| format!("hydrate notes blocks: {error}"))?
+        .into_iter()
+        .map(NoteBlockDto::new)
+        .collect()
+}
+
+fn normalize_block_ids(ids: &[String], label: &str) -> Result<Vec<String>, String> {
+    let mut normalized = Vec::with_capacity(ids.len());
+    let mut seen = HashSet::new();
+    for id in ids {
+        let id = id.trim();
+        require_uuid(id, label)?;
+        if seen.insert(id.to_string()) {
+            normalized.push(id.to_string());
+        }
+    }
+    Ok(normalized)
 }
 
 async fn get_page_breadcrumb_in_transaction(
@@ -507,6 +609,69 @@ fn block_page_from_rows(
         .map(NoteBlockDto::new)
         .collect::<Result<Vec<_>, _>>()?;
     Ok(NotePaginatedBlockList::new(results, next_cursor, has_more))
+}
+
+struct BlockOutlineRow {
+    id: String,
+    page_id: String,
+    parent_type: String,
+    parent_page_id: Option<String>,
+    parent_block_id: Option<String>,
+    block_type: String,
+    sort_order: f64,
+    has_children: i64,
+}
+
+impl<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow> for BlockOutlineRow {
+    fn from_row(row: &'r sqlx::sqlite::SqliteRow) -> Result<Self, sqlx::Error> {
+        use sqlx::Row;
+        Ok(Self {
+            id: row.try_get("id")?,
+            page_id: row.try_get("page_id")?,
+            parent_type: row.try_get("parent_type")?,
+            parent_page_id: row.try_get("parent_page_id")?,
+            parent_block_id: row.try_get("parent_block_id")?,
+            block_type: row.try_get("block_type")?,
+            sort_order: row.try_get("sort_order")?,
+            has_children: row.try_get("has_children")?,
+        })
+    }
+}
+
+impl TryFrom<BlockOutlineRow> for NoteBlockOutlineDto {
+    type Error = String;
+
+    fn try_from(row: BlockOutlineRow) -> Result<Self, Self::Error> {
+        let parent = match row.parent_type.as_str() {
+            "page_id" => super::models::NoteParent::PageId {
+                page_id: row
+                    .parent_page_id
+                    .ok_or_else(|| "page block outline is missing parent_page_id".to_string())?,
+            },
+            "block_id" => super::models::NoteParent::BlockId {
+                block_id: row
+                    .parent_block_id
+                    .ok_or_else(|| "nested block outline is missing parent_block_id".to_string())?,
+            },
+            other => return Err(format!("unsupported block outline parent type: {other}")),
+        };
+        let retained_height = match row.block_type.as_str() {
+            "image" | "video" | "pdf" | "bookmark" | "link_preview" | "embed" => 240,
+            "child_database" | "table" | "column_list" | "tab" => 180,
+            "code" | "callout" => 72,
+            "heading_1" | "heading_2" | "heading_3" | "heading_4" => 48,
+            _ => 36,
+        };
+        Ok(NoteBlockOutlineDto::new(
+            row.id,
+            row.page_id,
+            parent,
+            row.block_type,
+            row.sort_order,
+            row.has_children != 0,
+            retained_height,
+        ))
+    }
 }
 
 pub(in crate::notes) async fn get_page(

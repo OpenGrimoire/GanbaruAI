@@ -317,6 +317,7 @@ pub struct NotePageOpenDto {
     page: NotePageDto,
     breadcrumb: Vec<NotePageBreadcrumbItemDto>,
     blocks: NotePaginatedBlockList,
+    outlines: Vec<NoteBlockOutlineDto>,
 }
 
 impl NotePageOpenDto {
@@ -324,13 +325,55 @@ impl NotePageOpenDto {
         page: NotePageDto,
         breadcrumb: Vec<NotePageBreadcrumbItemDto>,
         blocks: NotePaginatedBlockList,
+        outlines: Vec<NoteBlockOutlineDto>,
     ) -> Self {
         Self {
             page,
             breadcrumb,
             blocks,
+            outlines,
         }
     }
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct NoteBlockOutlineDto {
+    id: String,
+    page_id: String,
+    parent: NoteParent,
+    #[serde(rename = "type")]
+    block_type: String,
+    sort_order: f64,
+    has_children: bool,
+    retained_height: i64,
+}
+
+impl NoteBlockOutlineDto {
+    pub(in crate::notes) fn new(
+        id: String,
+        page_id: String,
+        parent: NoteParent,
+        block_type: String,
+        sort_order: f64,
+        has_children: bool,
+        retained_height: i64,
+    ) -> Self {
+        Self {
+            id,
+            page_id,
+            parent,
+            block_type,
+            sort_order,
+            has_children,
+            retained_height,
+        }
+    }
+}
+
+#[derive(Deserialize)]
+pub struct NoteBlockHydrationRequest {
+    pub(in crate::notes) page_id: String,
+    pub(in crate::notes) block_ids: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -1971,6 +2014,22 @@ pub struct NoteDataSourceTableViewUpdate {
     pub(in crate::notes) configuration: NoteDataSourceTableConfigurationUpdate,
 }
 
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct NoteDataSourceViewWindowRequest {
+    pub(in crate::notes) start_cursor: Option<String>,
+    pub(in crate::notes) page_size: Option<i64>,
+    pub(in crate::notes) range_start: Option<String>,
+    pub(in crate::notes) range_end: Option<String>,
+}
+
+pub(in crate::notes) struct NoteDataSourceRowWindow {
+    pub(in crate::notes) rows: Vec<NotePageRow>,
+    pub(in crate::notes) total_row_count: i64,
+    pub(in crate::notes) next_cursor: Option<String>,
+    pub(in crate::notes) has_more: bool,
+    pub(in crate::notes) group_counts: std::collections::HashMap<String, i64>,
+}
+
 #[derive(Deserialize)]
 pub struct NoteDataSourceRowPropertyUpdate {
     pub(in crate::notes) property_id: String,
@@ -2430,6 +2489,9 @@ pub struct NoteDataSourceTableViewDto {
     data_source: NoteDataSourceDto,
     view: NoteDatabaseViewDto,
     rows: Vec<NotePageDto>,
+    total_row_count: i64,
+    next_cursor: Option<String>,
+    has_more: bool,
 }
 
 impl NoteDataSourceTableViewDto {
@@ -2437,7 +2499,7 @@ impl NoteDataSourceTableViewDto {
         data_source: NoteDataSourceRow,
         database: NoteDatabaseRow,
         view: NoteDatabaseViewRow,
-        rows: Vec<NotePageRow>,
+        window: NoteDataSourceRowWindow,
     ) -> Result<Self, String> {
         Ok(Self {
             data_source: NoteDataSourceDto::new(
@@ -2445,10 +2507,14 @@ impl NoteDataSourceTableViewDto {
                 block_parent_from_database_row(&database)?,
             )?,
             view: NoteDatabaseViewDto::new(view)?,
-            rows: rows
+            rows: window
+                .rows
                 .into_iter()
                 .map(NotePageDto::new)
                 .collect::<Result<Vec<_>, _>>()?,
+            total_row_count: window.total_row_count,
+            next_cursor: window.next_cursor,
+            has_more: window.has_more,
         })
     }
 }
@@ -2488,6 +2554,10 @@ pub struct NoteDataSourceBoardViewDto {
     data_source: NoteDataSourceDto,
     view: NoteDatabaseViewDto,
     groups: Vec<NoteDataSourceBoardGroupDto>,
+    total_row_count: i64,
+    next_cursor: Option<String>,
+    has_more: bool,
+    group_counts: std::collections::HashMap<String, i64>,
 }
 
 impl NoteDataSourceBoardViewDto {
@@ -2496,6 +2566,7 @@ impl NoteDataSourceBoardViewDto {
         database: NoteDatabaseRow,
         view: NoteDatabaseViewRow,
         groups: Vec<NoteDataSourceBoardGroupDto>,
+        window: NoteDataSourceRowWindow,
     ) -> Result<Self, String> {
         Ok(Self {
             data_source: NoteDataSourceDto::new(
@@ -2504,6 +2575,10 @@ impl NoteDataSourceBoardViewDto {
             )?,
             view: NoteDatabaseViewDto::new(view)?,
             groups,
+            total_row_count: window.total_row_count,
+            next_cursor: window.next_cursor,
+            has_more: window.has_more,
+            group_counts: window.group_counts,
         })
     }
 }
@@ -2513,6 +2588,9 @@ pub struct NoteDataSourceGalleryViewDto {
     data_source: NoteDataSourceDto,
     view: NoteDatabaseViewDto,
     rows: Vec<NotePageDto>,
+    total_row_count: i64,
+    next_cursor: Option<String>,
+    has_more: bool,
 }
 
 impl NoteDataSourceGalleryViewDto {
@@ -2520,7 +2598,7 @@ impl NoteDataSourceGalleryViewDto {
         data_source: NoteDataSourceRow,
         database: NoteDatabaseRow,
         view: NoteDatabaseViewRow,
-        rows: Vec<NotePageRow>,
+        window: NoteDataSourceRowWindow,
     ) -> Result<Self, String> {
         Ok(Self {
             data_source: NoteDataSourceDto::new(
@@ -2528,10 +2606,14 @@ impl NoteDataSourceGalleryViewDto {
                 block_parent_from_database_row(&database)?,
             )?,
             view: NoteDatabaseViewDto::new(view)?,
-            rows: rows
+            rows: window
+                .rows
                 .into_iter()
                 .map(NotePageDto::new)
                 .collect::<Result<Vec<_>, _>>()?,
+            total_row_count: window.total_row_count,
+            next_cursor: window.next_cursor,
+            has_more: window.has_more,
         })
     }
 }
@@ -2541,6 +2623,10 @@ pub struct NoteDataSourceListViewDto {
     data_source: NoteDataSourceDto,
     view: NoteDatabaseViewDto,
     rows: Vec<NotePageDto>,
+    total_row_count: i64,
+    next_cursor: Option<String>,
+    has_more: bool,
+    group_counts: std::collections::HashMap<String, i64>,
 }
 
 impl NoteDataSourceListViewDto {
@@ -2548,7 +2634,7 @@ impl NoteDataSourceListViewDto {
         data_source: NoteDataSourceRow,
         database: NoteDatabaseRow,
         view: NoteDatabaseViewRow,
-        rows: Vec<NotePageRow>,
+        window: NoteDataSourceRowWindow,
     ) -> Result<Self, String> {
         Ok(Self {
             data_source: NoteDataSourceDto::new(
@@ -2556,10 +2642,15 @@ impl NoteDataSourceListViewDto {
                 block_parent_from_database_row(&database)?,
             )?,
             view: NoteDatabaseViewDto::new(view)?,
-            rows: rows
+            rows: window
+                .rows
                 .into_iter()
                 .map(NotePageDto::new)
                 .collect::<Result<Vec<_>, _>>()?,
+            total_row_count: window.total_row_count,
+            next_cursor: window.next_cursor,
+            has_more: window.has_more,
+            group_counts: window.group_counts,
         })
     }
 }
@@ -2569,6 +2660,9 @@ pub struct NoteDataSourceCalendarViewDto {
     data_source: NoteDataSourceDto,
     view: NoteDatabaseViewDto,
     rows: Vec<NotePageDto>,
+    total_row_count: i64,
+    next_cursor: Option<String>,
+    has_more: bool,
 }
 
 impl NoteDataSourceCalendarViewDto {
@@ -2576,7 +2670,7 @@ impl NoteDataSourceCalendarViewDto {
         data_source: NoteDataSourceRow,
         database: NoteDatabaseRow,
         view: NoteDatabaseViewRow,
-        rows: Vec<NotePageRow>,
+        window: NoteDataSourceRowWindow,
     ) -> Result<Self, String> {
         Ok(Self {
             data_source: NoteDataSourceDto::new(
@@ -2584,10 +2678,14 @@ impl NoteDataSourceCalendarViewDto {
                 block_parent_from_database_row(&database)?,
             )?,
             view: NoteDatabaseViewDto::new(view)?,
-            rows: rows
+            rows: window
+                .rows
                 .into_iter()
                 .map(NotePageDto::new)
                 .collect::<Result<Vec<_>, _>>()?,
+            total_row_count: window.total_row_count,
+            next_cursor: window.next_cursor,
+            has_more: window.has_more,
         })
     }
 }
@@ -2597,6 +2695,10 @@ pub struct NoteDataSourceTimelineViewDto {
     data_source: NoteDataSourceDto,
     view: NoteDatabaseViewDto,
     rows: Vec<NotePageDto>,
+    total_row_count: i64,
+    next_cursor: Option<String>,
+    has_more: bool,
+    group_counts: std::collections::HashMap<String, i64>,
 }
 
 impl NoteDataSourceTimelineViewDto {
@@ -2604,7 +2706,7 @@ impl NoteDataSourceTimelineViewDto {
         data_source: NoteDataSourceRow,
         database: NoteDatabaseRow,
         view: NoteDatabaseViewRow,
-        rows: Vec<NotePageRow>,
+        window: NoteDataSourceRowWindow,
     ) -> Result<Self, String> {
         Ok(Self {
             data_source: NoteDataSourceDto::new(
@@ -2612,10 +2714,15 @@ impl NoteDataSourceTimelineViewDto {
                 block_parent_from_database_row(&database)?,
             )?,
             view: NoteDatabaseViewDto::new(view)?,
-            rows: rows
+            rows: window
+                .rows
                 .into_iter()
                 .map(NotePageDto::new)
                 .collect::<Result<Vec<_>, _>>()?,
+            total_row_count: window.total_row_count,
+            next_cursor: window.next_cursor,
+            has_more: window.has_more,
+            group_counts: window.group_counts,
         })
     }
 }

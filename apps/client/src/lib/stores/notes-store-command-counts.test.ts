@@ -60,12 +60,14 @@ vi.mock("$lib/api/notes", async (importOriginal) => {
       backend.record("page");
       const loaded = backend.loadedPages.get(pageId);
       if (!loaded) throw new Error("missing page fixture");
-      return { ...loaded, breadcrumb: [] };
+      return { ...loaded, breadcrumb: [], outlines: [] };
     },
     getNotesBlockFrontier: async () => {
       backend.record("frontier");
       return { blocks: [] };
     },
+    getNotesBlockOutlineFrontier: async () => [],
+    hydrateNotesBlocks: async () => [],
     getNotesBlockChildren: async () => {
       backend.record("children");
       return { object: "list", type: "block", block: {}, results: [], next_cursor: null, has_more: false };

@@ -29,6 +29,8 @@
     notesDatabaseTimelineVisibleColumns,
   } from "$lib/notes/database-timeline";
   import type { NotesDatabaseTableColumn } from "$lib/notes/database-table";
+  import { mergeNotesDatabaseRows } from "$lib/notes/database-view-window";
+  import NotesDatabaseWindowSentinel from "./NotesDatabaseWindowSentinel.svelte";
   import type {
     NotesDatabaseTableFilter,
     NotesDatabaseTableFilterCondition,
@@ -79,6 +81,8 @@
 
   let timeline = $state<NotesDataSourceTimelineView | null>(null);
   let loading = $state(false);
+  let loadingMore = $state(false);
+  let requestId = 0;
   let mutating = $state(false);
   let error = $state<string | null>(null);
   let draftTitle = $state("");
@@ -123,10 +127,12 @@
   }
 
   async function loadTimeline(): Promise<NotesDataSourceTimelineView | null> {
+    const currentRequest = ++requestId;
     loading = true;
     error = null;
     try {
       const loaded = await getNotesDataSourceTimelineView(dataSourceId, viewScope());
+      if (currentRequest !== requestId) return null;
       timeline = loaded;
       if (selectedPanelRowId && !loaded.rows.some((row) => row.id === selectedPanelRowId)) {
         selectedPanelRowId = null;
@@ -137,6 +143,26 @@
       return null;
     } finally {
       loading = false;
+    }
+  }
+
+  async function loadMoreTimeline(): Promise<void> {
+    const current = timeline;
+    if (!current?.has_more || !current.next_cursor || loadingMore) return;
+    const currentRequest = requestId;
+    loadingMore = true;
+    try {
+      const loaded = await getNotesDataSourceTimelineView(dataSourceId, viewScope(), {
+        start_cursor: current.next_cursor,
+        range_start: configuration.range_start,
+        range_end: configuration.range_end,
+      });
+      if (currentRequest !== requestId || timeline !== current) return;
+      timeline = { ...loaded, rows: mergeNotesDatabaseRows(current.rows, loaded.rows) };
+    } catch (caught) {
+      if (currentRequest === requestId) error = caught instanceof Error ? caught.message : String(caught);
+    } finally {
+      if (currentRequest === requestId) loadingMore = false;
     }
   }
 
@@ -835,6 +861,10 @@
         </div>
       </div>
     {/if}
+  {/if}
+
+  {#if timeline}
+    <NotesDatabaseWindowSentinel hasMore={timeline.has_more} loading={loadingMore} onLoad={loadMoreTimeline} />
   {/if}
 
   {#if selectedPanelRow}

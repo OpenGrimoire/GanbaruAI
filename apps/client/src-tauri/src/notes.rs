@@ -23,6 +23,7 @@ mod data_source_table;
 mod data_source_templates;
 mod data_source_timeline;
 mod data_source_views;
+mod data_source_window;
 mod databases;
 mod file_assets;
 mod folders;
@@ -581,9 +582,16 @@ pub async fn notes_list_comments<R: Runtime>(
     db_url: String,
     page_id: String,
     include_resolved: Option<bool>,
+    block_ids: Option<Vec<String>>,
 ) -> Result<Vec<NoteCommentThreadDto>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    comments::list_comments(&pool, &page_id, include_resolved.unwrap_or(false)).await
+    comments::list_comments_for_blocks(
+        &pool,
+        &page_id,
+        include_resolved.unwrap_or(false),
+        block_ids.as_deref(),
+    )
+    .await
 }
 
 #[tauri::command]
@@ -961,13 +969,15 @@ pub async fn notes_get_data_source_table_view<R: Runtime>(
     data_source_id: String,
     database_id: Option<String>,
     view_id: Option<String>,
+    window: Option<NoteDataSourceViewWindowRequest>,
 ) -> Result<NoteDataSourceTableViewDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    data_source_table::get_data_source_table_view(
+    data_source_table::get_data_source_table_view_window(
         &pool,
         &data_source_id,
         database_id.as_deref(),
         view_id.as_deref(),
+        window.unwrap_or_default(),
     )
     .await
 }
@@ -1034,13 +1044,15 @@ pub async fn notes_get_data_source_board_view<R: Runtime>(
     data_source_id: String,
     database_id: Option<String>,
     view_id: Option<String>,
+    window: Option<NoteDataSourceViewWindowRequest>,
 ) -> Result<NoteDataSourceBoardViewDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    data_source_board::get_data_source_board_view(
+    data_source_board::get_data_source_board_view_window(
         &pool,
         &data_source_id,
         database_id.as_deref(),
         view_id.as_deref(),
+        window.unwrap_or_default(),
     )
     .await
 }
@@ -1094,13 +1106,15 @@ pub async fn notes_get_data_source_gallery_view<R: Runtime>(
     data_source_id: String,
     database_id: Option<String>,
     view_id: Option<String>,
+    window: Option<NoteDataSourceViewWindowRequest>,
 ) -> Result<NoteDataSourceGalleryViewDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    data_source_gallery::get_data_source_gallery_view(
+    data_source_gallery::get_data_source_gallery_view_window(
         &pool,
         &data_source_id,
         database_id.as_deref(),
         view_id.as_deref(),
+        window.unwrap_or_default(),
     )
     .await
 }
@@ -1133,13 +1147,15 @@ pub async fn notes_get_data_source_list_view<R: Runtime>(
     data_source_id: String,
     database_id: Option<String>,
     view_id: Option<String>,
+    window: Option<NoteDataSourceViewWindowRequest>,
 ) -> Result<NoteDataSourceListViewDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    data_source_list::get_data_source_list_view(
+    data_source_list::get_data_source_list_view_window(
         &pool,
         &data_source_id,
         database_id.as_deref(),
         view_id.as_deref(),
+        window.unwrap_or_default(),
     )
     .await
 }
@@ -1172,13 +1188,15 @@ pub async fn notes_get_data_source_calendar_view<R: Runtime>(
     data_source_id: String,
     database_id: Option<String>,
     view_id: Option<String>,
+    window: Option<NoteDataSourceViewWindowRequest>,
 ) -> Result<NoteDataSourceCalendarViewDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    data_source_calendar::get_data_source_calendar_view(
+    data_source_calendar::get_data_source_calendar_view_window(
         &pool,
         &data_source_id,
         database_id.as_deref(),
         view_id.as_deref(),
+        window.unwrap_or_default(),
     )
     .await
 }
@@ -1211,13 +1229,15 @@ pub async fn notes_get_data_source_timeline_view<R: Runtime>(
     data_source_id: String,
     database_id: Option<String>,
     view_id: Option<String>,
+    window: Option<NoteDataSourceViewWindowRequest>,
 ) -> Result<NoteDataSourceTimelineViewDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    data_source_timeline::get_data_source_timeline_view(
+    data_source_timeline::get_data_source_timeline_view_window(
         &pool,
         &data_source_id,
         database_id.as_deref(),
         view_id.as_deref(),
+        window.unwrap_or_default(),
     )
     .await
 }
@@ -1349,6 +1369,27 @@ pub async fn notes_get_block_frontier<R: Runtime>(
 ) -> Result<NoteBlockFrontierDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
     reads::get_block_frontier(&pool, &parent_ids).await
+}
+
+#[tauri::command]
+pub async fn notes_get_block_outline_frontier<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    page_id: String,
+    parent_ids: Vec<String>,
+) -> Result<Vec<NoteBlockOutlineDto>, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    reads::get_block_outline_frontier(&pool, &page_id, &parent_ids).await
+}
+
+#[tauri::command]
+pub async fn notes_hydrate_blocks<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    request: NoteBlockHydrationRequest,
+) -> Result<Vec<NoteBlockDto>, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    reads::hydrate_blocks(&pool, request).await
 }
 
 #[tauri::command]

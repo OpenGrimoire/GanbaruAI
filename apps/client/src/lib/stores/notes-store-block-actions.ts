@@ -164,6 +164,7 @@ export interface NotesBlockActionsContext {
   readBlocksById: () => Record<string, NotesBlock>;
   readChildIdsByParentId: () => Record<string, string[]>;
   treeState: () => NotesTreeState;
+  outlineSubtreeIds: (rootBlockIds: readonly string[]) => string[];
   blockById: (blockId: string) => NotesBlock | undefined;
   flatBlockItemsForBlockContext: (blockId: string) => NotesBlockTreeItem[];
   tableRowsForBlock: (blockId: string) => NotesTableRowBlock[];
@@ -1878,7 +1879,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     if (context.blockById(blockId)?.type === "child_page") return;
     await context.flushBlockSave(blockId);
     const before = undoSnapshot(blockId);
-    const subtreeIds = collectLoadedBlockSubtreeIds(context.treeState(), blockId);
+    const subtreeIds = context.outlineSubtreeIds([blockId]);
     if (subtreeIds.length === 0) return;
     const block = context.blockById(blockId);
     if (!block) return;
@@ -1906,7 +1907,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     if (!parent) return null;
     const lastRootId = rootBlockIds[rootBlockIds.length - 1];
     if (!lastRootId) return null;
-    const sourceSubtreeBlockIds = notesSelectionSubtreeIds(state, rootBlockIds);
+    const sourceSubtreeBlockIds = context.outlineSubtreeIds(rootBlockIds);
     if (sourceSubtreeBlockIds.length === 0) return null;
     await context.flushPendingBlockSaves();
     const before = undoSnapshot(rootBlockIds[0] ?? null);

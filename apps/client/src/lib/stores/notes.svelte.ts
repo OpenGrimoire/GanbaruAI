@@ -17,7 +17,7 @@ import {
   duplicateNotesPageTemplate,
   getNotesLocalUser,
   getNotesBlockFrontier,
-  getNotesBlockChildren,
+  getNotesBlockOutlineFrontier,
   getNotesPageBreadcrumb,
   importNotesHtmlPage,
   importNotesNotionApi,
@@ -37,6 +37,7 @@ import {
   listTrashedNotesPages,
   loadNotesPage,
   openNotesPage,
+  hydrateNotesBlocks,
   markNotesCommentThreadsRead,
   moveNotesPage,
   permanentlyDeleteNotesPage,
@@ -74,6 +75,11 @@ import {
   parentIdForBlock,
   type NotesTreeState,
 } from "$lib/notes/block-tree";
+import {
+  flattenNotesBlockOutlines,
+  notesBlockOutlineFromBlock,
+  type NotesBlockOutlineItem,
+} from "$lib/notes/block-outline";
 import { nextSelectedNotesPageId } from "$lib/notes/page-selection";
 import {
   notesPageOpenModeForSelection,
@@ -139,6 +145,7 @@ import { createNotesBlockPersistence } from "./notes-store-persistence";
 import { invalidateNotesNotificationSchedule } from "$lib/notes/notification-schedule.svelte";
 import type {
   NotesBlock,
+  NotesBlockOutline,
   NotesBacklink,
   NotesCommentAnchorCreate,
   NotesColumnBlockItems,
@@ -201,7 +208,8 @@ type NotesOptionalSubsystem =
 type NotesPagePanelSubsystem = "links" | "comments" | "suggestions" | "page-history";
 
 const BLOCK_SAVE_DEBOUNCE_MS = 350;
-const CHILDREN_PAGE_SIZE = 100;
+const BLOCK_VIRTUALIZATION_THRESHOLD = 120;
+const BLOCK_HYDRATION_LIMIT = 200;
 
 let pages = $state<NotesPage[]>([]);
 let allPages = $state<NotesPage[]>([]);
@@ -231,6 +239,8 @@ let suggestions = $state<NotesSuggestion[]>([]);
 let activeSuggestionDraft = $state<NotesSuggestionDraft | null>(null);
 let blocksById = $state<Record<string, NotesBlock>>({});
 let childIdsByParentId = $state<Record<string, string[]>>({});
+let blockOutlines = $state<NotesBlockOutline[]>([]);
+let flatBlockOutlines = $state<NotesBlockOutlineItem[]>([]);
 let loaded = $state(false);
 let loading = $state(false);
 let primaryContentReady = $state(false);
@@ -257,6 +267,7 @@ let focusRequest = $state<NotesFocusRequest>({
 const START_OF_NOTES_BLOCK_SELECTION: NotesTextSelection = { start: 0, end: 0 };
 let loadRequestId = 0;
 let pageWorkGeneration = 0;
+let blockHydrationRequestId = 0;
 let loadPromise: Promise<void> | null = null;
 const optionalSubsystemPromises = new Map<string, Promise<void>>();
 const loadedOptionalSubsystems = new Set<string>();
@@ -461,6 +472,99 @@ function setLoadedPageFromLoaded(loaded: NotesLoadedPage): void {
   primaryContentReady = true;
 }
 
+function replaceBlockOutlines(outlines: readonly NotesBlockOutline[], pageId: string): void {
+  blockOutlines = [...outlines];
+  flatBlockOutlines = flattenNotesBlockOutlines(blockOutlines, pageId);
+}
+
+function mergeBlockOutlines(outlines: readonly NotesBlockOutline[], pageId: string): void {
+  const next = new Map(blockOutlines.map((outline) => [outline.id, outline]));
+  for (const outline of outlines) next.set(outline.id, outline);
+  replaceBlockOutlines([...next.values()], pageId);
+}
+
+function syncHydratedBlockOutlines(pageId: string): void {
+  const next = new Map(blockOutlines.map((outline) => [outline.id, outline]));
+  for (const [parentId, childIds] of Object.entries(childIdsByParentId)) {
+    childIds.forEach((blockId, index) => {
+      const block = blocksById[blockId];
+      if (!block) return;
+      const outline = notesBlockOutlineFromBlock(block, pageId, (index + 1) * 1_000);
+      next.set(blockId, {
+        ...outline,
+        parent: parentId === pageId
+          ? { type: "page_id", page_id: pageId }
+          : { type: "block_id", block_id: parentId },
+      });
+    });
+  }
+  replaceBlockOutlines([...next.values()], pageId);
+}
+
+async function loadOutlineDescendantFrontiers(
+  pageId: string,
+  requestId: number,
+): Promise<void> {
+  let frontier = blockOutlines
+    .filter((outline) => outline.has_children && outline.type !== "child_page")
+    .map((outline) => outline.id);
+  const visited = new Set<string>();
+  while (frontier.length > 0) {
+    const parentIds = frontier.filter((id) => !visited.has(id));
+    if (parentIds.length === 0) break;
+    parentIds.forEach((id) => visited.add(id));
+    const children = await getNotesBlockOutlineFrontier(pageId, parentIds);
+    if (requestId !== pageWorkGeneration || pageId !== selectedPageId) return;
+    mergeBlockOutlines(children, pageId);
+    frontier = children
+      .filter((outline) => outline.has_children && outline.type !== "child_page")
+      .map((outline) => outline.id);
+  }
+  if (requestId !== pageWorkGeneration || pageId !== selectedPageId) return;
+  const initialIds = flatBlockOutlines.length < BLOCK_VIRTUALIZATION_THRESHOLD
+    ? flatBlockOutlines.map((item) => item.outline.id)
+    : flatBlockOutlines.slice(0, 80).map((item) => item.outline.id);
+  await hydrateBlockRange(initialIds, requestId);
+}
+
+async function hydrateBlockRange(
+  blockIds: readonly string[],
+  generation: number = pageWorkGeneration,
+): Promise<void> {
+  const pageId = selectedPageId;
+  if (!pageId || generation !== pageWorkGeneration) return;
+  const outlinesById = new Map(blockOutlines.map((outline) => [outline.id, outline]));
+  const retained = new Set(blockIds);
+  if (focusRequest.blockId) retained.add(focusRequest.blockId);
+  for (const blockId of [...retained]) {
+    let parent = outlinesById.get(blockId)?.parent;
+    while (parent?.type === "block_id") {
+      if (retained.has(parent.block_id)) break;
+      retained.add(parent.block_id);
+      parent = outlinesById.get(parent.block_id)?.parent;
+    }
+  }
+  const boundedIds = [...retained].slice(0, BLOCK_HYDRATION_LIMIT);
+  const missingIds = boundedIds.filter((id) => !blocksById[id]);
+  const requestId = ++blockHydrationRequestId;
+  const hydrated = missingIds.length > 0
+    ? await hydrateNotesBlocks({ page_id: pageId, block_ids: missingIds })
+    : [];
+  if (
+    requestId !== blockHydrationRequestId
+    || generation !== pageWorkGeneration
+    || pageId !== selectedPageId
+  ) return;
+  const retainedIds = new Set(boundedIds);
+  const nextBlocks = flatBlockOutlines.length >= BLOCK_VIRTUALIZATION_THRESHOLD
+    ? Object.fromEntries(Object.entries(blocksById).filter(([id]) => retainedIds.has(id)))
+    : { ...blocksById };
+  for (const block of hydrated) nextBlocks[block.id] = block;
+  blocksById = nextBlocks;
+  childIdsByParentId = buildNotesChildIdsByParent(Object.values(blocksById));
+  if (openPagePanelSubsystems.has("comments")) void reloadComments(pageId);
+}
+
 function requestLoadedPageFocus(
   loaded: NotesLoadedPage,
   focusBlockId: string | null = null,
@@ -471,26 +575,6 @@ function requestLoadedPageFocus(
       focusBlockId,
     ),
   );
-}
-
-async function loadRemainingTopLevelBlocks(
-  pageId: string = selectedPageId ?? "",
-  requestId: number = pageWorkGeneration,
-  initialCursor: string | null = null,
-): Promise<void> {
-  let cursor = initialCursor;
-  while (cursor) {
-    const page = await getNotesBlockChildren(pageId, cursor, CHILDREN_PAGE_SIZE);
-    if (requestId !== pageWorkGeneration || pageId !== selectedPageId) return;
-    if (page.results.length > 0) {
-      blocksById = {
-        ...blocksById,
-        ...Object.fromEntries(page.results.map((block) => [block.id, block])),
-      };
-      childIdsByParentId = buildNotesChildIdsByParent(Object.values(blocksById));
-    }
-    cursor = page.next_cursor;
-  }
 }
 
 async function loadDescendantFrontiers(
@@ -558,6 +642,8 @@ function applyPostMutation(result: NotesPostMutationResult): void {
   if (result.loadedPage !== undefined) {
     if (result.loadedPage) {
       setLoadedPageFromLoaded(result.loadedPage);
+      blockOutlines = [];
+      syncHydratedBlockOutlines(result.loadedPage.page.id);
     } else {
       loadedPage = null;
       blocksById = {};
@@ -583,6 +669,11 @@ function applyPostMutation(result: NotesPostMutationResult): void {
   if (loadedPage) {
     const returnedLoadedPage = result.pages?.find((page) => page.id === loadedPage?.id);
     if (returnedLoadedPage) loadedPage = returnedLoadedPage;
+    if (result.blocks || result.placements || result.removedBlockIds) {
+      const removed = new Set(result.removedBlockIds ?? []);
+      blockOutlines = blockOutlines.filter((outline) => !removed.has(outline.id));
+      syncHydratedBlockOutlines(loadedPage.id);
+    }
   }
   sidebarRefreshCoordinator.schedule(result.sidebarImpact ?? "none");
 }
@@ -662,12 +753,9 @@ async function loadPageTree(pageId: string, options: NotesLoadPageTreeOptions = 
     requestLoadedPageFocus(loaded, options.focusBlockId ?? null);
   }
   setLoadedPageFromLoaded(loaded);
+  replaceBlockOutlines(loaded.outlines, pageId);
   pageBreadcrumbItems = [...loaded.breadcrumb];
-  void (async () => {
-    await loadRemainingTopLevelBlocks(pageId, requestId, loaded.blocks.next_cursor);
-    if (requestId !== pageWorkGeneration || pageId !== selectedPageId) return;
-    queueDescendantHydration(pageId, requestId);
-  })().catch((error) => {
+  void loadOutlineDescendantFrontiers(pageId, requestId).catch((error) => {
     if (requestId === pageWorkGeneration && pageId === selectedPageId) {
       loadError = error instanceof Error ? error.message : String(error);
     }
@@ -770,7 +858,11 @@ async function reloadComments(pageId: string | null = selectedPageId): Promise<v
   commentsLoading = true;
   commentsError = null;
   try {
-    const nextThreads = await listNotesComments(pageId, commentsIncludeResolved);
+    const nextThreads = await listNotesComments(
+      pageId,
+      commentsIncludeResolved,
+      Object.keys(blocksById),
+    );
     if (requestId !== commentsRequestId || pageId !== selectedPageId) return;
     commentThreads = [...nextThreads];
   } catch (error) {
@@ -1121,6 +1213,9 @@ function setSearchIncludeResolvedComments(includeResolvedComments: boolean): voi
 async function load(): Promise<void> {
   const requestId = ++loadRequestId;
   pageWorkGeneration += 1;
+  blockHydrationRequestId += 1;
+  blockOutlines = [];
+  flatBlockOutlines = [];
   openPagePanelSubsystems.clear();
   loadedOptionalSubsystems.clear();
   optionalSubsystemPromises.clear();
@@ -1345,6 +1440,9 @@ async function selectPage(
   }
   if (alreadyLoaded) return;
   pageWorkGeneration += 1;
+  blockHydrationRequestId += 1;
+  blockOutlines = [];
+  flatBlockOutlines = [];
   for (const key of loadedOptionalSubsystems) {
     if (/^\d+:/.test(key)) loadedOptionalSubsystems.delete(key);
   }
@@ -1463,6 +1561,8 @@ async function activateReturnedPage(
   openMode: NotesPageOpenMode = defaultNotesPageOpenMode(notesPageProjectId(loaded.page)),
 ): Promise<void> {
   pageWorkGeneration += 1;
+  blockOutlines = [];
+  flatBlockOutlines = [];
   undoController.reset(loaded.page.id);
   pageHistoryController.resetPageState();
   openPagePanelSubsystems.clear();
@@ -1938,6 +2038,26 @@ function visibleBlockIds(): string[] {
   return flatBlockItems().map((item) => item.block.id);
 }
 
+function outlineSubtreeIds(rootBlockIds: readonly string[]): string[] {
+  const roots = new Set(rootBlockIds);
+  const outlinesById = new Map(blockOutlines.map((outline) => [outline.id, outline]));
+  const included = new Set<string>();
+  for (const item of flatBlockOutlines) {
+    let current: NotesBlockOutline | undefined = item.outline;
+    while (current) {
+      if (roots.has(current.id)) {
+        included.add(item.outline.id);
+        break;
+      }
+      const parentId: string | null = current.parent.type === "block_id"
+        ? current.parent.block_id
+        : null;
+      current = parentId ? outlinesById.get(parentId) : undefined;
+    }
+  }
+  return [...included];
+}
+
 function requestPageLoadFocus(requestedBlockId: string | null = null): void {
   requestBlockFocus(planNotesPageLoadFocus(visibleBlockIds(), requestedBlockId));
 }
@@ -1987,6 +2107,7 @@ const blockActions = createNotesBlockActions({
   readBlocksById: () => blocksById,
   readChildIdsByParentId: () => childIdsByParentId,
   treeState,
+  outlineSubtreeIds,
   blockById,
   flatBlockItemsForBlockContext,
   tableRowsForBlock,
@@ -2279,6 +2400,9 @@ export function getNotes() {
     get childIdsByParentId(): Record<string, string[]> {
       return childIdsByParentId;
     },
+    get flatBlockOutlines(): NotesBlockOutlineItem[] {
+      return flatBlockOutlines;
+    },
     get flatBlocks(): NotesBlockTreeItem[] {
       return flatBlockItems();
     },
@@ -2459,6 +2583,7 @@ export function getNotes() {
     previousBlockType,
     isOnlyBlock,
     focusBlock,
+    hydrateBlockRange,
     setPageFavorited,
     setFolderCollapsed,
     setSidebarPageCollapsed,

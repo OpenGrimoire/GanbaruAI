@@ -1,15 +1,15 @@
 use super::data_source_board::{
     board_schema, canonical_filter, canonical_sorts, generated_uuid_tx,
-    load_active_data_source_and_database_tx, load_active_row_pages_tx, normalized_row_for_schema,
-    parse_json, row_matches_filters, sort_rows, stored_filters, stored_sorts, BoardProperty,
+    load_active_data_source_and_database_tx, normalized_row_for_schema, parse_json, stored_filters,
+    stored_sorts, BoardProperty,
 };
 use super::models::{
     NoteDataSourceListConfigurationUpdate, NoteDataSourceListViewDto, NoteDataSourceListViewUpdate,
-    NoteDataSourceRow, NoteDatabaseViewRow,
+    NoteDataSourceRow, NoteDataSourceViewWindowRequest, NoteDatabaseViewRow,
 };
 use super::{
     data_source_buttons, data_source_formulas, data_source_relations, data_source_rollups,
-    data_source_views,
+    data_source_views, data_source_window,
 };
 use serde_json::{json, Value};
 use sqlx::{Sqlite, SqlitePool, Transaction};
@@ -28,11 +28,29 @@ const LIST_GROUP_PROPERTY_TYPES: &[&str] = &[
     "date",
 ];
 
+#[cfg(test)]
 pub(in crate::notes) async fn get_data_source_list_view(
     pool: &SqlitePool,
     data_source_id: &str,
     database_id: Option<&str>,
     view_id: Option<&str>,
+) -> Result<NoteDataSourceListViewDto, String> {
+    get_data_source_list_view_window(
+        pool,
+        data_source_id,
+        database_id,
+        view_id,
+        NoteDataSourceViewWindowRequest::default(),
+    )
+    .await
+}
+
+pub(in crate::notes) async fn get_data_source_list_view_window(
+    pool: &SqlitePool,
+    data_source_id: &str,
+    database_id: Option<&str>,
+    view_id: Option<&str>,
+    window: NoteDataSourceViewWindowRequest,
 ) -> Result<NoteDataSourceListViewDto, String> {
     data_source_views::validate_view_scope(data_source_id, database_id, view_id)?;
     crate::notes::project_history::ensure_data_source_baseline_for_mutation(pool, data_source_id)
@@ -41,7 +59,7 @@ pub(in crate::notes) async fn get_data_source_list_view(
         .begin()
         .await
         .map_err(|e| format!("begin notes data source list read: {e}"))?;
-    let dto = load_list_view_tx(&mut tx, data_source_id, database_id, view_id).await?;
+    let dto = load_list_view_tx(&mut tx, data_source_id, database_id, view_id, &window).await?;
     tx.commit()
         .await
         .map_err(|e| format!("commit notes data source list read: {e}"))?;
@@ -94,7 +112,14 @@ pub(in crate::notes) async fn update_data_source_list_view(
     .execute(&mut *tx)
     .await
     .map_err(|e| format!("update notes data source list view: {e}"))?;
-    let dto = load_list_view_tx(&mut tx, data_source_id, database_id, Some(&view.id)).await?;
+    let dto = load_list_view_tx(
+        &mut tx,
+        data_source_id,
+        database_id,
+        Some(&view.id),
+        &NoteDataSourceViewWindowRequest::default(),
+    )
+    .await?;
     tx.commit()
         .await
         .map_err(|e| format!("commit notes data source list view update: {e}"))?;
@@ -106,6 +131,7 @@ async fn load_list_view_tx(
     data_source_id: &str,
     database_id: Option<&str>,
     view_id: Option<&str>,
+    window_request: &NoteDataSourceViewWindowRequest,
 ) -> Result<NoteDataSourceListViewDto, String> {
     let (data_source, database) =
         load_active_data_source_and_database_tx(tx, data_source_id).await?;
@@ -115,19 +141,45 @@ async fn load_list_view_tx(
     validate_list_configuration(view.configuration.as_deref(), &schema)?;
     let filters = stored_filters(view.filter.as_deref())?;
     let sorts = stored_sorts(&view.sorts)?;
-    let mut rows = load_active_row_pages_tx(tx, data_source_id).await?;
-    rows = rows
+    let window_schema = data_source_window::table_properties_from_board(&schema);
+    let configuration = parse_json(
+        view.configuration.as_deref().unwrap_or("{}"),
+        "list view configuration",
+    )?;
+    let group_property = configuration
+        .get("list")
+        .and_then(|value| value.get("group_property_id"))
+        .and_then(Value::as_str)
+        .and_then(|id| window_schema.iter().find(|property| property.id == id));
+    let mut window = data_source_window::load_row_window_tx(
+        tx,
+        data_source_id,
+        data_source_window::RowWindowQuery {
+            schema: &window_schema,
+            filters: &filters,
+            sorts: &sorts,
+            request: window_request,
+            date_property: None,
+            group_property,
+        },
+    )
+    .await?;
+    window.rows = window
+        .rows
         .into_iter()
         .map(|row| normalized_row_for_schema(row, &schema))
         .collect::<Result<Vec<_>, _>>()?;
-    data_source_relations::hydrate_relation_titles_tx(tx, &mut rows).await?;
-    data_source_rollups::hydrate_rollups_tx(tx, data_source_id, &schema_properties, &mut rows)
-        .await?;
-    data_source_formulas::hydrate_formulas(&schema_properties, &mut rows)?;
-    data_source_buttons::hydrate_buttons(&schema_properties, &mut rows)?;
-    rows.retain(|row| row_matches_filters(row, &schema, &filters));
-    sort_rows(&mut rows, &schema, &sorts);
-    NoteDataSourceListViewDto::new(data_source, database, view, rows)
+    data_source_relations::hydrate_relation_titles_tx(tx, &mut window.rows).await?;
+    data_source_rollups::hydrate_rollups_tx(
+        tx,
+        data_source_id,
+        &schema_properties,
+        &mut window.rows,
+    )
+    .await?;
+    data_source_formulas::hydrate_formulas(&schema_properties, &mut window.rows)?;
+    data_source_buttons::hydrate_buttons(&schema_properties, &mut window.rows)?;
+    NoteDataSourceListViewDto::new(data_source, database, view, window)
 }
 
 async fn ensure_list_view_row_tx(

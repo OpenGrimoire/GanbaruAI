@@ -22,6 +22,7 @@ import {
 } from "./notes-store-block-actions";
 import { notesTreeStateWithoutLeafBlock } from "./notes-store-block-tree";
 import { applyNotesPostMutationToTree } from "$lib/notes/post-mutation";
+import { collectLoadedBlockSubtreeIds } from "$lib/notes/block-duplicate";
 
 const notesApi = vi.hoisted(() => ({
   appendNotesBlockChildren: vi.fn(),
@@ -91,6 +92,7 @@ describe("notes store block actions", () => {
         Object.entries(state.childIdsByParentId).map(([key, childIds]) => [key, [...childIds]]),
       ),
       treeState: () => state,
+      outlineSubtreeIds: (rootIds) => rootIds.flatMap((id) => collectLoadedBlockSubtreeIds(state, id)),
       blockById: (blockId) => state.blocksById[blockId],
       flatBlockItemsForBlockContext: () => flattenNotesBlockTree(state, pageId),
       tableRowsForBlock: () => [],
@@ -198,6 +200,7 @@ describe("notes store block actions", () => {
         Object.entries(state.childIdsByParentId).map(([key, childIds]) => [key, [...childIds]]),
       ),
       treeState: () => state,
+      outlineSubtreeIds: (rootIds) => rootIds.flatMap((id) => collectLoadedBlockSubtreeIds(state, id)),
       blockById: (blockId) => state.blocksById[blockId],
       flatBlockItemsForBlockContext: () => flattenNotesBlockTree(state, pageId),
       tableRowsForBlock: () => [],

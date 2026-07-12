@@ -990,6 +990,8 @@ pub fn run() {
             notes::notes_load_page,
             notes::notes_open_page,
             notes::notes_get_block_frontier,
+            notes::notes_get_block_outline_frontier,
+            notes::notes_hydrate_blocks,
             notes::notes_get_block_children,
             notes::notes_append_block_children,
             notes::notes_update_block,

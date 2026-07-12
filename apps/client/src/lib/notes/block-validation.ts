@@ -93,6 +93,7 @@ import {
   type NotesLoadedPage,
   type NotesPageOpenResponse,
   type NotesBlockFrontier,
+  type NotesBlockOutline,
   type NotesNotionApiImportedObject,
   type NotesNotionApiImportedUser,
   type NotesNotionApiImportDiagnostic,
@@ -217,6 +218,13 @@ function readBoolean(value: unknown, label: string): boolean {
 function readInteger(value: unknown, label: string): number {
   if (typeof value !== "number" || !Number.isInteger(value)) {
     throw new Error(`${label} must be an integer`);
+  }
+  return value;
+}
+
+function readFiniteNumber(value: unknown, label: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new Error(`${label} must be a finite number`);
   }
   return value;
 }
@@ -1605,6 +1613,23 @@ function parseNotesDataSourceBoardGroup(
   };
 }
 
+function parseDataSourceWindowMetadata(record: UnknownRecord, label: string) {
+  return {
+    total_row_count: readInteger(record.total_row_count, `${label}.total_row_count`),
+    next_cursor: readNullableString(record.next_cursor, `${label}.next_cursor`),
+    has_more: readBoolean(record.has_more, `${label}.has_more`),
+  };
+}
+
+function parseDataSourceGroupCounts(value: unknown, label: string): Record<string, number> {
+  const record = readRecord(value, label);
+  return Object.fromEntries(Object.entries(record).map(([id, count]) => {
+    const parsed = readInteger(count, `${label}.${id}`);
+    if (parsed < 0) throw new Error(`${label}.${id} must not be negative`);
+    return [id, parsed];
+  }));
+}
+
 export function parseNotesDataSourceTableView(value: unknown): NotesDataSourceTableView {
   const record = readRecord(value, "data source table view");
   const dataSource = parseNotesDataSource(record.data_source);
@@ -1623,6 +1648,9 @@ export function parseNotesDataSourceTableView(value: unknown): NotesDataSourceTa
     data_source: dataSource,
     view,
     rows: record.rows.map(parseNotesPage),
+    total_row_count: readInteger(record.total_row_count, "data source table view.total_row_count"),
+    next_cursor: readNullableString(record.next_cursor, "data source table view.next_cursor"),
+    has_more: readBoolean(record.has_more, "data source table view.has_more"),
   };
 }
 
@@ -1648,6 +1676,8 @@ export function parseNotesDataSourceBoardView(value: unknown): NotesDataSourceBo
     groups: record.groups.map((group, index) =>
       parseNotesDataSourceBoardGroup(group, `data source board view.groups[${index}]`)
     ),
+    ...parseDataSourceWindowMetadata(record, "data source board view"),
+    group_counts: parseDataSourceGroupCounts(record.group_counts, "data source board view.group_counts"),
   };
 }
 
@@ -1671,6 +1701,7 @@ export function parseNotesDataSourceGalleryView(value: unknown): NotesDataSource
     data_source: dataSource,
     view,
     rows: record.rows.map(parseNotesPage),
+    ...parseDataSourceWindowMetadata(record, "data source gallery view"),
   };
 }
 
@@ -1694,6 +1725,8 @@ export function parseNotesDataSourceListView(value: unknown): NotesDataSourceLis
     data_source: dataSource,
     view,
     rows: record.rows.map(parseNotesPage),
+    ...parseDataSourceWindowMetadata(record, "data source list view"),
+    group_counts: parseDataSourceGroupCounts(record.group_counts, "data source list view.group_counts"),
   };
 }
 
@@ -1717,6 +1750,7 @@ export function parseNotesDataSourceCalendarView(value: unknown): NotesDataSourc
     data_source: dataSource,
     view,
     rows: record.rows.map(parseNotesPage),
+    ...parseDataSourceWindowMetadata(record, "data source calendar view"),
   };
 }
 
@@ -1740,6 +1774,8 @@ export function parseNotesDataSourceTimelineView(value: unknown): NotesDataSourc
     data_source: dataSource,
     view,
     rows: record.rows.map(parseNotesPage),
+    ...parseDataSourceWindowMetadata(record, "data source timeline view"),
+    group_counts: parseDataSourceGroupCounts(record.group_counts, "data source timeline view.group_counts"),
   };
 }
 
@@ -1914,10 +1950,35 @@ export function parseNotesPageOpenResponse(value: unknown): NotesPageOpenRespons
   if (!Array.isArray(record.breadcrumb)) {
     throw new Error("page open response.breadcrumb must be an array");
   }
+  if (!Array.isArray(record.outlines)) {
+    throw new Error("page open response.outlines must be an array");
+  }
   return {
     page: parseNotesPage(record.page),
     breadcrumb: record.breadcrumb.map(parseNotesPageBreadcrumbItem),
     blocks: parseNotesPaginatedBlockList(record.blocks),
+    outlines: record.outlines.map(parseNotesBlockOutline),
+  };
+}
+
+export function parseNotesBlockOutline(value: unknown): NotesBlockOutline {
+  const record = readRecord(value, "block outline");
+  const blockType = readString(record.type, "block outline.type");
+  if (!isNotesBlockType(blockType)) throw new Error("block outline.type is unsupported");
+  const parent = parseNotesParent(record.parent);
+  if (parent.type !== "page_id" && parent.type !== "block_id") {
+    throw new Error("block outline.parent must identify a page or block");
+  }
+  const retainedHeight = readInteger(record.retained_height, "block outline.retained_height");
+  if (retainedHeight <= 0) throw new Error("block outline.retained_height must be positive");
+  return {
+    id: readString(record.id, "block outline.id"),
+    page_id: readString(record.page_id, "block outline.page_id"),
+    parent,
+    type: blockType,
+    sort_order: readFiniteNumber(record.sort_order, "block outline.sort_order"),
+    has_children: readBoolean(record.has_children, "block outline.has_children"),
+    retained_height: retainedHeight,
   };
 }
 
