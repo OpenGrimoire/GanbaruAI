@@ -8,6 +8,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::{Manager, Runtime};
 
 const STATE_FILE: &str = "doomscrolling-state.json";
@@ -18,6 +19,9 @@ const MAX_AUTHORIZATION_CONFIG_BYTES: u64 = 1024 * 1024;
 const LIMIT_STATE_STALE_SECONDS: i64 = 20;
 const EXTENSION_CONNECTION_STALE_SECONDS: i64 = 60;
 const ACTIVE_STATE_STALE_SECONDS: i64 = 45;
+static DESKTOP_APP_LIST_GENERATION: AtomicU64 = AtomicU64::new(0);
+static PROCESS_SCAN_GENERATION: AtomicU64 = AtomicU64::new(0);
+static FOREGROUND_OBSERVATION_GENERATION: AtomicU64 = AtomicU64::new(0);
 const EXTENSION_INSTALL_README_URL: &str =
     "https://github.com/opengrimoire/ganbaru-ai/blob/dev/extensions/chrome/README.md";
 const PROTECTED_DESKTOP_APP_NAMES: &[&str] = &[
@@ -1373,6 +1377,7 @@ fn observe_linux_process(path: &Path, process_id: u32) -> Option<ObservedDesktop
 #[cfg(target_os = "linux")]
 fn list_blocked_desktop_app_matches(
     apps: Vec<DoomscrollingDesktopAppRuleInput>,
+    is_cancelled: impl Fn() -> bool,
 ) -> Vec<DoomscrollingRunningDesktopAppMatch> {
     let matchers = desktop_rule_matchers(apps);
     if matchers.is_empty() {
@@ -1385,6 +1390,9 @@ fn list_blocked_desktop_app_matches(
     let mut matches = Vec::new();
     let mut seen_processes = HashSet::new();
     for entry in entries.flatten() {
+        if is_cancelled() {
+            return Vec::new();
+        }
         let file_name = entry.file_name();
         let Some(pid_text) = file_name.to_str() else {
             continue;
@@ -1428,6 +1436,7 @@ fn list_blocked_desktop_app_matches(
 #[cfg(not(target_os = "linux"))]
 fn list_blocked_desktop_app_matches(
     apps: Vec<DoomscrollingDesktopAppRuleInput>,
+    _is_cancelled: impl Fn() -> bool,
 ) -> Vec<DoomscrollingRunningDesktopAppMatch> {
     let _ = desktop_rule_matchers(apps);
     Vec::new()
@@ -2760,41 +2769,76 @@ pub fn doomscrolling_open_extension_install_docs() -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn doomscrolling_list_desktop_apps() -> Vec<DoomscrollingDesktopAppCandidate> {
-    sort_and_deduplicate_candidates(list_installed_desktop_apps())
+pub async fn doomscrolling_list_desktop_apps(
+) -> Result<Vec<DoomscrollingDesktopAppCandidate>, String> {
+    let generation = DESKTOP_APP_LIST_GENERATION.fetch_add(1, Ordering::AcqRel) + 1;
+    tauri::async_runtime::spawn_blocking(move || {
+        let apps = sort_and_deduplicate_candidates(list_installed_desktop_apps());
+        if DESKTOP_APP_LIST_GENERATION.load(Ordering::Acquire) != generation {
+            Vec::new()
+        } else {
+            apps
+        }
+    })
+    .await
+    .map_err(|error| format!("desktop app worker failed: {error}"))
 }
 
 #[tauri::command]
-pub fn doomscrolling_list_blocked_desktop_app_matches(
+pub async fn doomscrolling_list_blocked_desktop_app_matches(
     apps: Vec<DoomscrollingDesktopAppRuleInput>,
-) -> Vec<DoomscrollingRunningDesktopAppMatch> {
-    list_blocked_desktop_app_matches(apps)
+) -> Result<Vec<DoomscrollingRunningDesktopAppMatch>, String> {
+    let generation = PROCESS_SCAN_GENERATION.fetch_add(1, Ordering::AcqRel) + 1;
+    tauri::async_runtime::spawn_blocking(move || {
+        list_blocked_desktop_app_matches(apps, || {
+            PROCESS_SCAN_GENERATION.load(Ordering::Acquire) != generation
+        })
+    })
+    .await
+    .map_err(|error| format!("desktop process scan worker failed: {error}"))
 }
 
 #[tauri::command]
-pub fn doomscrolling_close_desktop_app<R: Runtime>(
+pub async fn doomscrolling_close_desktop_app<R: Runtime>(
     app: tauri::AppHandle<R>,
     request: DoomscrollingCloseDesktopAppRequest,
 ) -> Result<(), String> {
-    close_desktop_process(&app, request)
+    tauri::async_runtime::spawn_blocking(move || close_desktop_process(&app, request))
+        .await
+        .map_err(|error| format!("desktop close worker failed: {error}"))?
 }
 
 #[tauri::command]
-pub fn doomscrolling_close_current_foreground_desktop_app<R: Runtime>(
+pub async fn doomscrolling_close_current_foreground_desktop_app<R: Runtime>(
     app: tauri::AppHandle<R>,
     request: DoomscrollingCloseForegroundDesktopAppRequest,
 ) -> Result<(), String> {
-    let rule_identity = request.rule_identity;
-    let mut authorize = |status: &DoomscrollingForegroundDesktopAppStatus| {
-        let authorization = load_close_authorization(&app, &rule_identity)?;
-        validate_names_authorized(foreground_status_match_names(status), &authorization)
-    };
-    close_current_foreground_desktop_app(request.expected, &mut authorize)
+    tauri::async_runtime::spawn_blocking(move || {
+        let rule_identity = request.rule_identity;
+        let mut authorize = |status: &DoomscrollingForegroundDesktopAppStatus| {
+            let authorization = load_close_authorization(&app, &rule_identity)?;
+            validate_names_authorized(foreground_status_match_names(status), &authorization)
+        };
+        close_current_foreground_desktop_app(request.expected, &mut authorize)
+    })
+    .await
+    .map_err(|error| format!("foreground close worker failed: {error}"))?
 }
 
 #[tauri::command]
-pub fn doomscrolling_get_foreground_desktop_app() -> DoomscrollingForegroundDesktopAppStatus {
-    foreground_desktop_app_status()
+pub async fn doomscrolling_get_foreground_desktop_app(
+) -> Result<DoomscrollingForegroundDesktopAppStatus, String> {
+    let generation = FOREGROUND_OBSERVATION_GENERATION.fetch_add(1, Ordering::AcqRel) + 1;
+    tauri::async_runtime::spawn_blocking(move || {
+        let status = foreground_desktop_app_status();
+        if FOREGROUND_OBSERVATION_GENERATION.load(Ordering::Acquire) != generation {
+            unavailable_foreground_desktop_app_status("foreground observation was replaced")
+        } else {
+            status
+        }
+    })
+    .await
+    .map_err(|error| format!("foreground observation worker failed: {error}"))
 }
 
 #[cfg(test)]

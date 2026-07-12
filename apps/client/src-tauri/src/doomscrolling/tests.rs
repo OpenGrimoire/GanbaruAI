@@ -430,6 +430,20 @@ fn desktop_rule_matchers_skip_protected_process_names() {
 
 #[cfg(target_os = "linux")]
 #[test]
+fn process_scan_cancellation_discards_partial_matches() {
+    let apps = vec![DoomscrollingDesktopAppRuleInput {
+        rule_identity: super::DoomscrollingDesktopRuleIdentity::DesktopApp {
+            rule_id: "Steam".to_string(),
+        },
+        name: "Steam".to_string(),
+        match_names: vec!["steam".to_string()],
+    }];
+    let matches = super::list_blocked_desktop_app_matches(apps, || true);
+    assert!(matches.is_empty());
+}
+
+#[cfg(target_os = "linux")]
+#[test]
 fn close_request_rejects_pid_reuse_and_tampered_identity() {
     let request = super::DoomscrollingCloseDesktopAppRequest {
         process_id: 42,
