@@ -1,18 +1,11 @@
 import {
-  applyNotesPageTemplate,
   archiveNotesPage,
-  createNotesFolder,
   createNotesChildPageFromBlock,
   createNotesPage,
-  createNotesPageTemplateFromPage,
-  deleteNotesFolder,
-  deleteNotesPageTemplate,
   duplicateNotesPage,
-  duplicateNotesPageTemplate,
   getNotesBlockFrontier,
   getNotesBlockOutlineFrontier,
   getNotesPageBreadcrumb,
-  listNotesPageTemplates,
   listNotesSidebarPages,
   loadNotesWorkspaceShell,
   loadNotesPage,
@@ -21,9 +14,7 @@ import {
   moveNotesPage,
   permanentlyDeleteNotesPage,
   trashNotesPage,
-  updateNotesFolder,
   updateNotesPage,
-  updateNotesPageTemplate,
 } from "$lib/api/notes";
 import { invalidateNotesPageCoverAssetUrl } from "$lib/api/notes-page-covers";
 import { invalidateNotesPageIconAssetUrl } from "$lib/api/notes-page-icons";
@@ -45,10 +36,6 @@ import {
   notesDefaultOpenModeForProject,
   type NotesPageOpenMode,
 } from "$lib/notes/page-open-mode";
-import {
-  recordRecentNotesPageId,
-  setNotesPageFavoriteId,
-} from "$lib/notes/page-navigation";
 import {
   normalizeNotesProjectId,
   notesPageProjectId,
@@ -77,6 +64,9 @@ import { createNotesSearchController } from "./notes-store-search.svelte";
 import { createNotesLinksController } from "./notes-store-links.svelte";
 import { createNotesCollaborationController } from "./notes-store-collaboration.svelte";
 import { createNotesTransferActions } from "./notes-store-transfer-actions";
+import { createNotesSidebarController } from "./notes-store-sidebar.svelte";
+import { createNotesPageTemplatesController } from "./notes-store-page-templates.svelte";
+import { createNotesFoldersController } from "./notes-store-folders.svelte";
 import {
   createNotesOptionalSubsystemController,
   type NotesOptionalSubsystem,
@@ -99,16 +89,8 @@ import {
   type NotesBlockTreeSnapshot,
 } from "./notes-store-block-tree";
 import {
-  initialNotesFavoritePageIds,
-  initialNotesRecentPageIds,
   initialNotesSelectedPageId,
-  initialNotesSidebarCollapsedFolderIds,
-  initialNotesSidebarExpandedPageIds,
-  saveNotesFavoritePageIds,
-  saveNotesRecentPageIds,
   saveNotesSelectedPageId,
-  saveNotesSidebarCollapsedFolderIds,
-  saveNotesSidebarExpandedPageIds,
 } from "./notes-store-page-state";
 import { createNotesBlockPersistence } from "./notes-store-persistence";
 import { invalidateNotesNotificationSchedule } from "$lib/notes/notification-schedule.svelte";
@@ -116,7 +98,6 @@ import type {
   NotesBlock,
   NotesBlockOutline,
   NotesColumnBlockItems,
-  NotesFolder,
   NotesBlockTreeItem,
   NotesBlockType,
   NotesLoadedPage,
@@ -126,7 +107,6 @@ import type {
   NotesPageHistorySettings,
   NotesPageHistorySnapshot,
   NotesPageIcon,
-  NotesPageTemplate,
   NotesParent,
   NotesTabBlockItems,
   NotesTableRowBlock,
@@ -149,17 +129,8 @@ const BLOCK_HYDRATION_LIMIT = 200;
 
 let pages = $state<NotesPage[]>([]);
 let allPages = $state<NotesPage[]>([]);
-let folders = $state<NotesFolder[]>([]);
-let pageTemplates = $state<NotesPageTemplate[]>([]);
 let selectedPageId = $state<string | null>(initialNotesSelectedPageId());
 let pageOpenMode = $state<NotesPageOpenMode>("full");
-let favoritePageIds = $state<string[]>(initialNotesFavoritePageIds());
-let recentPageIds = $state<string[]>(initialNotesRecentPageIds());
-let collapsedFolderIds = $state<string[]>(initialNotesSidebarCollapsedFolderIds());
-let sidebarExpandedPageIds = $state<string[]>(initialNotesSidebarExpandedPageIds());
-let sidebarPageIdsWithChildren = $state<string[]>([]);
-let sidebarMissingParentPageIds = $state<string[]>([]);
-let sidebarTrashedParentPageIds = $state<string[]>([]);
 let loadedPage = $state<NotesPage | null>(null);
 let pageBreadcrumbItems = $state<NotesPageBreadcrumbItem[]>([]);
 let blocksById = $state<Record<string, NotesBlock>>({});
@@ -176,8 +147,6 @@ let workspaceWindowLoading = $state(false);
 let workspaceTotalPageCount = 0;
 let workspaceTotalFolderCount = 0;
 let viewMode = $state<NotesViewMode>("pages");
-let pageTemplatesLoading = $state(false);
-let pageTemplatesError = $state<string | null>(null);
 let focusRequest = $state<NotesFocusRequest>({
   blockId: null,
   requestId: 0,
@@ -188,7 +157,6 @@ let loadRequestId = 0;
 let pageWorkGeneration = 0;
 let blockHydrationRequestId = 0;
 let loadPromise: Promise<void> | null = null;
-let pageTemplatesRequestId = 0;
 let titleFocusRequest = $state<{ pageId: string | null; requestId: number }>({
   pageId: null,
   requestId: 0,
@@ -204,6 +172,13 @@ const linksController = createNotesLinksController({
   readAllPages: () => allPages,
   reloadSelectedPage: (pageId) => loadPageTree(pageId),
   scheduleVisibleMetadataRefresh: () => sidebarRefreshCoordinator.schedule("visible-metadata"),
+});
+const sidebarController = createNotesSidebarController({
+  reloadPages: () => reloadPages(),
+});
+const foldersController = createNotesFoldersController({
+  setFolderCollapsed: (folderId, collapsed) => sidebarController.setFolderCollapsed(folderId, collapsed),
+  scheduleHierarchyRefresh: () => sidebarRefreshCoordinator.schedule("hierarchy"),
 });
 const {
   reloadArchivedPages,
@@ -249,9 +224,7 @@ function openSelectedPage(pageId: string, openMode: NotesPageOpenMode): void {
 }
 
 function recordRecentPage(pageId: string): void {
-  const next = recordRecentNotesPageId(recentPageIds, pageId);
-  recentPageIds = next;
-  saveNotesRecentPageIds(next);
+  sidebarController.recordRecentPage(pageId);
 }
 
 function requestBlockFocus(
@@ -288,16 +261,6 @@ function replaceAllPages(nextPages: NotesPage[]): void {
   allPages = [...nextPages];
 }
 
-function replaceFolders(nextFolders: NotesFolder[]): void {
-  folders = [...nextFolders];
-}
-
-function upsertFolder(folder: NotesFolder): void {
-  folders = folders.some((item) => item.id === folder.id)
-    ? folders.map((item) => (item.id === folder.id ? folder : item))
-    : [...folders, folder];
-}
-
 function upsertPageInActiveCollections(page: NotesPage): void {
   pages = pages.some((item) => item.id === page.id)
     ? pages.map((item) => (item.id === page.id ? page : item))
@@ -315,7 +278,7 @@ function removePagesFromActiveCollections(pageIds: ReadonlySet<string>): void {
 }
 
 function sidebarSeedPageIds(): string[] {
-  return [...new Set([...favoritePageIds, ...recentPageIds])];
+  return sidebarController.seedPageIds();
 }
 
 function replaceBlock(block: NotesBlock): void {
@@ -521,18 +484,19 @@ function queueDescendantHydration(
 async function reloadPages(selectedPageIdOverride: string | null = selectedPageId): Promise<void> {
   const shell = await loadNotesWorkspaceShell({
     project_id: projects.selectedProjectId,
-    expanded_page_ids: [...sidebarExpandedPageIds],
+    expanded_page_ids: [...sidebarController.expandedPageIds],
     seed_page_ids: sidebarSeedPageIds(),
     selected_page_id: selectedPageIdOverride,
   });
   const mergedPages = [...new Map([...allPages, ...shell.pages].map((page) => [page.id, page])).values()];
-  const mergedFolders = [...new Map([...folders, ...shell.folders].map((folder) => [folder.id, folder])).values()];
   replacePages(mergedPages);
   replaceAllPages(mergedPages);
-  replaceFolders(mergedFolders);
-  sidebarPageIdsWithChildren = [...new Set([...sidebarPageIdsWithChildren, ...shell.page_ids_with_children])];
-  sidebarMissingParentPageIds = [...shell.missing_parent_page_ids];
-  sidebarTrashedParentPageIds = [...shell.trashed_parent_page_ids];
+  foldersController.merge(shell.folders);
+  sidebarController.mergeMetadata({
+    pageIdsWithChildren: shell.page_ids_with_children,
+    missingParentPageIds: shell.missing_parent_page_ids,
+    trashedParentPageIds: shell.trashed_parent_page_ids,
+  });
 }
 
 const sidebarRefreshCoordinator = createNotesSidebarRefreshCoordinator({
@@ -579,23 +543,6 @@ function applyPostMutation(result: NotesPostMutationResult): void {
     }
   }
   sidebarRefreshCoordinator.schedule(result.sidebarImpact ?? "none");
-}
-
-async function reloadPageTemplates(): Promise<void> {
-  const requestId = ++pageTemplatesRequestId;
-  pageTemplatesLoading = true;
-  pageTemplatesError = null;
-  try {
-    const nextTemplates = await listNotesPageTemplates();
-    if (requestId !== pageTemplatesRequestId) return;
-    pageTemplates = [...nextTemplates];
-  } catch (error) {
-    if (requestId !== pageTemplatesRequestId) return;
-    pageTemplatesError = error instanceof Error ? error.message : String(error);
-    throw error;
-  } finally {
-    if (requestId === pageTemplatesRequestId) pageTemplatesLoading = false;
-  }
 }
 
 async function loadPageTree(pageId: string, options: NotesLoadPageTreeOptions = {}): Promise<void> {
@@ -647,17 +594,19 @@ async function load(): Promise<void> {
   try {
     const shell = await loadNotesWorkspaceShell({
       project_id: projects.selectedProjectId,
-      expanded_page_ids: [...sidebarExpandedPageIds],
+      expanded_page_ids: [...sidebarController.expandedPageIds],
       seed_page_ids: sidebarSeedPageIds(),
       selected_page_id: requestedSelection,
     });
     if (requestId !== loadRequestId) return;
     replacePages(shell.pages);
     replaceAllPages(shell.pages);
-    replaceFolders(shell.folders);
-    sidebarPageIdsWithChildren = [...shell.page_ids_with_children];
-    sidebarMissingParentPageIds = [...shell.missing_parent_page_ids];
-    sidebarTrashedParentPageIds = [...shell.trashed_parent_page_ids];
+    foldersController.replace(shell.folders);
+    sidebarController.replaceMetadata({
+      pageIdsWithChildren: shell.page_ids_with_children,
+      missingParentPageIds: shell.missing_parent_page_ids,
+      trashedParentPageIds: shell.trashed_parent_page_ids,
+    });
     nextWorkspacePageCursor = shell.next_page_cursor;
     nextWorkspaceFolderCursor = shell.next_folder_cursor;
     workspaceTotalPageCount = shell.total_page_count;
@@ -705,14 +654,14 @@ async function loadMoreWorkspaceWindow(): Promise<void> {
     });
     if (requestId !== loadRequestId) return;
     const mergedPages = [...new Map([...allPages, ...shell.pages].map((page) => [page.id, page])).values()];
-    const mergedFolders = [...new Map([...folders, ...shell.folders].map((folder) => [folder.id, folder])).values()];
     replaceAllPages(mergedPages);
     replacePages(mergedPages);
-    replaceFolders(mergedFolders);
-    sidebarPageIdsWithChildren = [...new Set([
-      ...sidebarPageIdsWithChildren,
-      ...shell.page_ids_with_children,
-    ])];
+    foldersController.merge(shell.folders);
+    sidebarController.mergeMetadata({
+      pageIdsWithChildren: shell.page_ids_with_children,
+      missingParentPageIds: shell.missing_parent_page_ids,
+      trashedParentPageIds: shell.trashed_parent_page_ids,
+    });
     nextWorkspacePageCursor = shell.next_page_cursor;
     nextWorkspaceFolderCursor = shell.next_folder_cursor;
   } finally {
@@ -735,7 +684,7 @@ async function loadOptionalSubsystem(
 ): Promise<void> {
   switch (subsystem) {
     case "templates":
-      await reloadPageTemplates();
+      await pageTemplatesController.reloadPageTemplates();
       break;
     case "local-user":
       await collaborationController.loadLocalUser();
@@ -875,7 +824,7 @@ function pageProjectIdForParent(
   const folderId = options.folderId?.trim();
   if (parent.type === "workspace" && folderId) {
     return normalizeNotesProjectId(
-      folders.find((folder) => folder.id === folderId)?.project_id,
+      foldersController.folders.find((folder) => folder.id === folderId)?.project_id,
     );
   }
   if (parent.type !== "page_id") return null;
@@ -932,137 +881,16 @@ async function activateReturnedPage(
   await reloadPageBreadcrumb(loaded.page.id);
 }
 
-async function applyPageTemplate(templateId: string, title?: string): Promise<void> {
-  const loaded = await applyNotesPageTemplate(templateId, {
-    parent: { type: "workspace", workspace: true },
-    title: title?.trim() || null,
-  });
-  await activateReturnedPage(loaded, "hierarchy");
-  queueDescendantHydration();
-  requestPageLoadFocus();
-}
-
-async function createPageTemplateFromCurrentPage(name: string): Promise<void> {
-  if (!loadedPage) return;
-  await flushPendingBlockSaves();
-  const template = await createNotesPageTemplateFromPage({
-    id: crypto.randomUUID(),
-    source_page_id: loadedPage.id,
-    name,
-  });
-  pageTemplates = [template, ...pageTemplates.filter((item) => item.id !== template.id)];
-}
-
-async function updatePageTemplateFromCurrentPage(templateId: string): Promise<void> {
-  if (!loadedPage) return;
-  await flushPendingBlockSaves();
-  const template = await updateNotesPageTemplate(templateId, {
-    source_page_id: loadedPage.id,
-  });
-  pageTemplates = pageTemplates.map((item) => (item.id === template.id ? template : item));
-}
-
-async function renamePageTemplate(templateId: string, name: string): Promise<void> {
-  const template = await updateNotesPageTemplate(templateId, { name });
-  pageTemplates = pageTemplates.map((item) => (item.id === template.id ? template : item));
-}
-
-async function duplicatePageTemplate(templateId: string, name: string): Promise<void> {
-  const template = await duplicateNotesPageTemplate(templateId, {
-    id: crypto.randomUUID(),
-    name,
-  });
-  pageTemplates = [template, ...pageTemplates];
-}
-
-async function deletePageTemplate(templateId: string): Promise<void> {
-  const deletedTemplateId = await deleteNotesPageTemplate(templateId);
-  pageTemplates = pageTemplates.filter((template) => template.id !== deletedTemplateId);
-}
-
-async function createFolder(
-  projectId: string,
-  name: string,
-  parentFolderId: string | null,
-): Promise<NotesFolder> {
-  const normalizedProjectId = normalizeNotesProjectId(projectId);
-  const normalizedName = name.trim();
-  const normalizedParentFolderId = parentFolderId?.trim() || null;
-  if (!normalizedProjectId) throw new Error("folder project id must not be empty");
-  if (!normalizedName) throw new Error("folder name must not be empty");
-  const folder = await createNotesFolder({
-    id: crypto.randomUUID(),
-    project_id: normalizedProjectId,
-    parent_folder_id: normalizedParentFolderId,
-    name: normalizedName,
-  });
-  upsertFolder(folder);
-  if (normalizedParentFolderId) setFolderCollapsed(normalizedParentFolderId, false);
-  return folder;
-}
-
-async function renameFolder(folderId: string, name: string): Promise<void> {
-  const normalizedName = name.trim();
-  if (!normalizedName) throw new Error("folder name must not be empty");
-  const currentFolder = folders.find((folder) => folder.id === folderId);
-  if (!currentFolder) throw new Error("notes folder not found");
-  upsertFolder(await updateNotesFolder(folderId, {
-    name: normalizedName,
-    parent_folder_id: currentFolder.parent_folder_id,
-  }));
-}
-
-async function moveFolder(folderId: string, parentFolderId: string | null): Promise<void> {
-  const normalizedParentFolderId = parentFolderId?.trim() || null;
-  const currentFolder = folders.find((folder) => folder.id === folderId);
-  if (!currentFolder) throw new Error("notes folder not found");
-  upsertFolder(
-    await updateNotesFolder(folderId, {
-      name: currentFolder.name,
-      parent_folder_id: normalizedParentFolderId,
-    }),
-  );
-  if (normalizedParentFolderId) setFolderCollapsed(normalizedParentFolderId, false);
-}
-
-async function deleteFolder(folderId: string): Promise<void> {
-  const deletedFolderId = await deleteNotesFolder(folderId);
-  folders = folders.filter((folder) => folder.id !== deletedFolderId);
-  setFolderCollapsed(deletedFolderId, false);
-  sidebarRefreshCoordinator.schedule("hierarchy");
-}
-
 function setFolderCollapsed(folderId: string, collapsed: boolean): void {
-  const normalizedFolderId = folderId.trim();
-  if (!normalizedFolderId) return;
-  const next = collapsed
-    ? [
-        normalizedFolderId,
-        ...collapsedFolderIds.filter((candidate) => candidate !== normalizedFolderId),
-      ]
-    : collapsedFolderIds.filter((candidate) => candidate !== normalizedFolderId);
-  collapsedFolderIds = next;
-  saveNotesSidebarCollapsedFolderIds(next);
+  sidebarController.setFolderCollapsed(folderId, collapsed);
 }
 
 function setSidebarPageCollapsed(pageId: string, collapsed: boolean): void {
-  const normalizedPageId = pageId.trim();
-  if (!normalizedPageId) return;
-  const next = collapsed
-    ? sidebarExpandedPageIds.filter((candidate) => candidate !== normalizedPageId)
-    : [
-        normalizedPageId,
-        ...sidebarExpandedPageIds.filter((candidate) => candidate !== normalizedPageId),
-      ];
-  sidebarExpandedPageIds = next;
-  saveNotesSidebarExpandedPageIds(next);
-  if (!collapsed) void reloadPages();
+  sidebarController.setPageCollapsed(pageId, collapsed);
 }
 
 function setPageFavorited(pageId: string, favorited: boolean): void {
-  const next = setNotesPageFavoriteId(favoritePageIds, pageId, favorited);
-  favoritePageIds = next;
-  saveNotesFavoritePageIds(next);
+  sidebarController.setPageFavorited(pageId, favorited);
 }
 
 async function createChildPageFromBlock(blockId: string): Promise<void> {
@@ -1241,15 +1069,7 @@ async function permanentlyDeletePage(pageId: string): Promise<void> {
   removePagesFromActiveCollections(deletedPageIdSet);
   archiveController.removeArchivedPages(deletedPageIdSet);
   archiveController.removeTrashedPages(deletedPageIdSet);
-  const nextFavoritePageIds = favoritePageIds.filter((id) => !deletedPageIdSet.has(id));
-  const nextRecentPageIds = recentPageIds.filter((id) => !deletedPageIdSet.has(id));
-  const nextExpandedPageIds = sidebarExpandedPageIds.filter((id) => !deletedPageIdSet.has(id));
-  favoritePageIds = nextFavoritePageIds;
-  recentPageIds = nextRecentPageIds;
-  sidebarExpandedPageIds = nextExpandedPageIds;
-  saveNotesFavoritePageIds(nextFavoritePageIds);
-  saveNotesRecentPageIds(nextRecentPageIds);
-  saveNotesSidebarExpandedPageIds(nextExpandedPageIds);
+  sidebarController.removePageIds(deletedPageIdSet);
   sidebarRefreshCoordinator.schedule("hierarchy");
   if (selectedPageId && deletedPageIdSet.has(selectedPageId)) {
     await selectPage(pages[0]?.id ?? null);
@@ -1389,6 +1209,14 @@ const transferActions = createNotesTransferActions({
     viewMode = "pages";
   },
   scheduleHierarchyRefresh: () => sidebarRefreshCoordinator.schedule("hierarchy"),
+  queueDescendantHydration: () => queueDescendantHydration(),
+  requestPageLoadFocus: () => requestPageLoadFocus(),
+});
+
+const pageTemplatesController = createNotesPageTemplatesController({
+  readLoadedPage: () => loadedPage,
+  flushPendingBlockSaves,
+  activateReturnedPage: (nextLoadedPage) => activateReturnedPage(nextLoadedPage, "hierarchy"),
   queueDescendantHydration: () => queueDescendantHydration(),
   requestPageLoadFocus: () => requestPageLoadFocus(),
 });
@@ -1559,8 +1387,8 @@ export function getNotes() {
     get allPages(): NotesPage[] {
       return allPages;
     },
-    get folders(): NotesFolder[] {
-      return folders;
+    get folders() {
+      return foldersController.folders;
     },
     get archivedPages(): NotesPage[] {
       return archiveController.archivedPages;
@@ -1568,32 +1396,32 @@ export function getNotes() {
     get archiveHasMore(): boolean {
       return archiveController.archiveHasMore;
     },
-    get pageTemplates(): NotesPageTemplate[] {
-      return pageTemplates;
+    get pageTemplates() {
+      return pageTemplatesController.templates;
     },
     get workspacePages(): NotesPage[] {
       return allPages.filter((page) => page.parent.type === "workspace");
     },
     get favoritePageIds(): readonly string[] {
-      return favoritePageIds;
+      return sidebarController.favoritePageIds;
     },
     get recentPageIds(): readonly string[] {
-      return recentPageIds;
+      return sidebarController.recentPageIds;
     },
     get collapsedFolderIds(): readonly string[] {
-      return collapsedFolderIds;
+      return sidebarController.collapsedFolderIds;
     },
     get sidebarExpandedPageIds(): readonly string[] {
-      return sidebarExpandedPageIds;
+      return sidebarController.expandedPageIds;
     },
     get sidebarPageIdsWithChildren(): readonly string[] {
-      return sidebarPageIdsWithChildren;
+      return sidebarController.pageIdsWithChildren;
     },
     get sidebarMissingParentPageIds(): readonly string[] {
-      return sidebarMissingParentPageIds;
+      return sidebarController.missingParentPageIds;
     },
     get sidebarTrashedParentPageIds(): readonly string[] {
-      return sidebarTrashedParentPageIds;
+      return sidebarController.trashedParentPageIds;
     },
     get trashedPages(): NotesPage[] {
       return archiveController.trashedPages;
@@ -1749,10 +1577,10 @@ export function getNotes() {
       return archiveController.trashError;
     },
     get pageTemplatesLoading(): boolean {
-      return pageTemplatesLoading;
+      return pageTemplatesController.loading;
     },
     get pageTemplatesError(): string | null {
-      return pageTemplatesError;
+      return pageTemplatesController.error;
     },
     get pageHistorySnapshots(): NotesPageHistorySnapshot[] {
       return pageHistoryController.snapshots;
@@ -1816,10 +1644,10 @@ export function getNotes() {
     showSelectedPageAs,
     createPage,
     createSubpage,
-    createFolder,
-    renameFolder,
-    moveFolder,
-    deleteFolder,
+    createFolder: foldersController.createFolder,
+    renameFolder: foldersController.renameFolder,
+    moveFolder: foldersController.moveFolder,
+    deleteFolder: foldersController.deleteFolder,
     importHtmlPage: transferActions.importHtmlPage,
     importNotionApi: transferActions.importNotionApi,
     importNotionExportFolder: transferActions.importNotionExportFolder,
@@ -1827,13 +1655,13 @@ export function getNotes() {
     exportJsonGraph: transferActions.exportJsonGraph,
     exportAgentBridge: transferActions.exportAgentBridge,
     createChildPageFromBlock,
-    applyPageTemplate,
-    createPageTemplateFromCurrentPage,
-    updatePageTemplateFromCurrentPage,
-    renamePageTemplate,
-    duplicatePageTemplate,
-    deletePageTemplate,
-    reloadPageTemplates,
+    applyPageTemplate: pageTemplatesController.applyPageTemplate,
+    createPageTemplateFromCurrentPage: pageTemplatesController.createPageTemplateFromCurrentPage,
+    updatePageTemplateFromCurrentPage: pageTemplatesController.updatePageTemplateFromCurrentPage,
+    renamePageTemplate: pageTemplatesController.renamePageTemplate,
+    duplicatePageTemplate: pageTemplatesController.duplicatePageTemplate,
+    deletePageTemplate: pageTemplatesController.deletePageTemplate,
+    reloadPageTemplates: pageTemplatesController.reloadPageTemplates,
     ensureOptionalSubsystem,
     setPagePanelSubsystemOpen,
     loadLocalUser: collaborationController.loadLocalUser,
