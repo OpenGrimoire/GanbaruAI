@@ -41,7 +41,7 @@ Playlists tied to work environments inherit to all session blocks using that env
 
 Music files stay wherever the user keeps them; the Ganbaru AI folder stores only playlist definitions (lists of file paths, YouTube IDs, and per-track config). Backups go to the user's chosen path, not into the Ganbaru AI folder.
 
-The Music view can scan a user-selected local folder recursively for common audio and video extensions. When opening the folder picker, desktop builds seed the dialog with Tauri's platform audio directory when it exists, so localized Music folder names come from the OS user directory API instead of a hardcoded path. The scan runs outside the UI thread, skips symlinks, and caps the first playlist at 5000 files to avoid blocking on unexpectedly large folders. Loading a folder starts playback immediately. If shuffle is enabled, the initial track is selected from the shuffled playlist instead of always using the first file.
+The Music view can scan a user-selected local folder recursively for common audio and video extensions. When opening the folder picker, desktop builds seed the dialog with Tauri's platform audio directory when it exists, so localized Music folder names come from the OS user directory API instead of a hardcoded path. The scan runs outside the UI thread, uses breadth-first traversal with deterministic path ordering, skips symlinks, and caps the first playlist at 5000 files to avoid blocking on unexpectedly large folders. Starting a newer scan cancels the older generation, which returns its deterministic partial result as truncated. Per-scan artwork directory caches prevent repeated directory reads and are released with the scan. Loading a folder starts playback immediately. If shuffle is enabled, the initial track is selected from the shuffled playlist instead of always using the first file.
 
 Local playlist playback advances automatically to the next folder track when the current track ends. Clicking a different track in the local folder playlist starts it immediately from the beginning, while clicking the active track is ignored. Playlist rows show clean track names without file extensions or raw source labels. Automatic playlist transitions should keep the transport and source buttons visually stable, and unknown media duration is displayed as `0:00` with an empty seek bar until metadata is available.
 
@@ -68,6 +68,8 @@ The existing `main` tray icon and the title bar pomodoro ring menu own compact M
 The Music settings page includes a Pomodoro toggle, `Pause if the focus session is paused`, enabled by default. When enabled, manually pausing an active focus phase pauses Music only if it was playing, and resuming the focus phase resumes Music only when that Pomodoro pause caused the Music pause.
 
 Playback snapshots are refreshed only for the matching active backend. Playing YouTube and native local audio use their backend-specific active cadence, paused playback uses a slower cadence, and idle, ended, loading, error, or WebView-driven local playback has no snapshot timer. Resume and focus events trigger one catch-up refresh without allowing overlapping requests.
+
+Playback persistence follows media events plus a bounded five-second checkpoint. Writes are serialized and queued checkpoints coalesce to the newest state. A source generation guard drops late work after a source switch, and SQLite rejects an older timestamp from replacing a newer saved state.
 
 SQLite owns playlist definitions and playback resume state:
 

@@ -4,6 +4,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
     process::Stdio,
+    sync::atomic::{AtomicU64, Ordering},
 };
 use tauri::Manager;
 use tauri_plugin_dialog::{DialogExt, FilePath};
@@ -23,6 +24,7 @@ const VALID_PLAYBACK_STATUSES: &[&str] = &[
     "idle", "loading", "ready", "playing", "paused", "ended", "error",
 ];
 const MAX_MEDIA_FOLDER_FILES: usize = 5_000;
+static MEDIA_FOLDER_SCAN_GENERATION: AtomicU64 = AtomicU64::new(0);
 const MEDIA_EXTENSIONS: &[&str] = &[
     "aac", "aif", "aiff", "alac", "ape", "avi", "flac", "flv", "m4a", "m4v", "mkv", "mov", "mp3",
     "mp4", "mpeg", "mpg", "ogg", "ogv", "opus", "wav", "webm", "wma", "wmv",
@@ -113,7 +115,8 @@ pub async fn music_save_playback_state(
             position_ms = excluded.position_ms,
             duration_ms = excluded.duration_ms,
             status = excluded.status,
-            updated_at = excluded.updated_at",
+            updated_at = excluded.updated_at
+         WHERE excluded.updated_at >= music_playback_states.updated_at",
     )
     .bind(state.source_identity)
     .bind(state.source_kind)
@@ -141,7 +144,11 @@ pub async fn music_pick_media_folder(
             return Ok(None);
         };
 
-        scan_media_folder(&folder).map(Some)
+        let generation = MEDIA_FOLDER_SCAN_GENERATION.fetch_add(1, Ordering::AcqRel) + 1;
+        scan_media_folder_with_cancel(&folder, || {
+            MEDIA_FOLDER_SCAN_GENERATION.load(Ordering::Acquire) != generation
+        })
+        .map(Some)
     })
     .await
     .map_err(|e| format!("media folder picker failed: {e}"))?
@@ -162,7 +169,15 @@ pub fn music_reveal_local_file(path: String) -> Result<(), String> {
     reveal_local_file(&path)
 }
 
+#[cfg(test)]
 fn scan_media_folder(folder: &Path) -> Result<MediaFolderSelection, String> {
+    scan_media_folder_with_cancel(folder, || false)
+}
+
+fn scan_media_folder_with_cancel(
+    folder: &Path,
+    is_cancelled: impl Fn() -> bool,
+) -> Result<MediaFolderSelection, String> {
     require_absolute_directory(folder)?;
     let mut queue = VecDeque::from([folder.to_path_buf()]);
     let mut tracks = Vec::new();
@@ -170,10 +185,20 @@ fn scan_media_folder(folder: &Path) -> Result<MediaFolderSelection, String> {
     let mut artwork_cache: HashMap<PathBuf, Vec<PathBuf>> = HashMap::new();
 
     while let Some(dir) = queue.pop_front() {
-        let entries = fs::read_dir(&dir)
-            .map_err(|e| format!("failed to read media folder '{}': {e}", dir.display()))?;
+        if is_cancelled() {
+            truncated = true;
+            break;
+        }
+        let mut entries = fs::read_dir(&dir)
+            .map_err(|e| format!("failed to read media folder '{}': {e}", dir.display()))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("failed to read media folder entry: {e}"))?;
+        entries.sort_by_key(|entry| entry.path());
         for entry in entries {
-            let entry = entry.map_err(|e| format!("failed to read media folder entry: {e}"))?;
+            if is_cancelled() {
+                truncated = true;
+                break;
+            }
             let path = entry.path();
             let file_type = entry
                 .file_type()
@@ -456,6 +481,78 @@ mod tests {
         assert_eq!(existing_music_start_directory(Some(file_path)), None);
         assert_eq!(existing_music_start_directory(None), None);
 
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn media_folder_scan_returns_deterministic_partial_results_on_cancellation() {
+        use std::cell::Cell;
+
+        let root = unique_temp_dir("ganbaru-ai-music-cancel");
+        fs::create_dir_all(&root).unwrap();
+        for name in ["c.mp3", "a.mp3", "b.mp3"] {
+            fs::write(root.join(name), []).unwrap();
+        }
+        let checks = Cell::new(0usize);
+        let result = scan_media_folder_with_cancel(&root, || {
+            let next = checks.get() + 1;
+            checks.set(next);
+            next > 3
+        })
+        .unwrap();
+
+        assert!(result.truncated);
+        assert_eq!(result.tracks.len(), 2);
+        assert!(result.tracks[0].path.ends_with("a.mp3"));
+        assert!(result.tracks[1].path.ends_with("b.mp3"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn media_folder_scan_handles_deep_trees_without_recursion() {
+        let root = unique_temp_dir("ganbaru-ai-music-deep");
+        let mut directory = root.clone();
+        for index in 0..128 {
+            directory = directory.join(format!("d{index}"));
+            fs::create_dir_all(&directory).unwrap();
+        }
+        fs::write(directory.join("deep.mp3"), []).unwrap();
+
+        let result = scan_media_folder(&root).unwrap();
+        assert_eq!(result.tracks.len(), 1);
+        assert!(!result.truncated);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn media_folder_scan_does_not_follow_symlinks() {
+        use std::os::unix::fs::symlink;
+
+        let root = unique_temp_dir("ganbaru-ai-music-symlink");
+        let outside = unique_temp_dir("ganbaru-ai-music-outside");
+        fs::create_dir_all(&root).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(outside.join("outside.mp3"), []).unwrap();
+        symlink(&outside, root.join("linked")).unwrap();
+
+        let result = scan_media_folder(&root).unwrap();
+        assert!(result.tracks.is_empty());
+        fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(outside).unwrap();
+    }
+
+    #[test]
+    fn media_folder_scan_stops_at_five_thousand_tracks() {
+        let root = unique_temp_dir("ganbaru-ai-music-cap");
+        fs::create_dir_all(&root).unwrap();
+        for index in 0..=MAX_MEDIA_FOLDER_FILES {
+            fs::write(root.join(format!("{index:05}.mp3")), []).unwrap();
+        }
+
+        let result = scan_media_folder(&root).unwrap();
+        assert_eq!(result.tracks.len(), MAX_MEDIA_FOLDER_FILES);
+        assert!(result.truncated);
         fs::remove_dir_all(root).unwrap();
     }
 

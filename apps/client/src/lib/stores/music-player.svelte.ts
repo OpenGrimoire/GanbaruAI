@@ -78,6 +78,8 @@ import {
   type YouTubeHostPlaylistMessage,
   type YouTubeSource,
 } from "./music-player-youtube-host";
+import { createMusicPlaybackWriter } from "./music-playback-writer";
+import { activeMusicSnapshotBackend, type MusicSnapshotBackend } from "./music-snapshot-policy";
 
 interface LoadSourceOptions {
   autoplay?: boolean;
@@ -151,6 +153,8 @@ class MusicPlayerStore {
   private staleVisualClearTimeoutId: number | null = null;
   private staleVisualVersion = 0;
   private hostedMediaGeneration = 0;
+  private readonly playbackWriter = createMusicPlaybackWriter(savePlaybackState);
+  private snapshotBackend: MusicSnapshotBackend | null = null;
   private readonly snapshotScheduler = createLifecycleScheduler({
     run: async (context) => this.runSnapshotRefresh(context),
     errorRetryMs: 15_000,
@@ -1542,8 +1546,16 @@ class MusicPlayerStore {
     }, this.lastPersisted)) {
       return;
     }
-    await savePlaybackState(next);
-    this.lastPersisted = next;
+    const generation = this.loadGeneration;
+    const saved = await this.playbackWriter.save(
+      next,
+      generation,
+      (candidateGeneration, sourceIdentity) => (
+        candidateGeneration === this.loadGeneration
+        && sourceIdentity === this.currentSource?.identity
+      ),
+    );
+    if (saved) this.lastPersisted = next;
   }
 
   private destroyYouTubePlayer(): void {
@@ -1898,12 +1910,18 @@ class MusicPlayerStore {
   }
 
   private syncSnapshotScheduler(): void {
-    const supportedSource = Boolean(
-      this.currentSource
-      && (isYouTubeSource(this.currentSource) || this.usesNativeLocalBackend()),
-    );
-    const activeStatus = this.snapshot.status === "playing" || this.snapshot.status === "paused";
-    this.snapshotScheduler.setEnabled(this.listenersInitialized && supportedSource && activeStatus);
+    const nextBackend = this.listenersInitialized
+      ? activeMusicSnapshotBackend(
+        this.currentSource,
+        this.snapshot.status,
+        this.usesNativeLocalBackend(),
+      )
+      : null;
+    if (nextBackend !== this.snapshotBackend) {
+      this.snapshotScheduler.setEnabled(false);
+      this.snapshotBackend = nextBackend;
+    }
+    this.snapshotScheduler.setEnabled(nextBackend !== null);
   }
 
   private async runSnapshotRefresh(context: SchedulerRunContext): Promise<number | null> {
