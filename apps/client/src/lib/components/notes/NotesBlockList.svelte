@@ -1,23 +1,11 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import {
-    beginLazyComponentLoad,
-    rejectLazyComponentLoad,
-    resolveLazyComponentLoad,
-    type LazyComponentLoadState,
-  } from "$lib/lazy-component-loader";
   import { getLocalization } from "$lib/i18n/translator.svelte";
-  import {
-    listNotesDataSources,
-    listNotesDataSourceRowPages,
-  } from "$lib/api/notes";
   import { getCalendar } from "$lib/stores/calendar.svelte";
   import { getMusicPlayer } from "$lib/stores/music-player.svelte";
   import { getNotes } from "$lib/stores/notes.svelte";
   import { getPomodoro } from "$lib/stores/pomodoro.svelte";
   import { getProjects } from "$lib/stores/projects.svelte";
-  import type { CalendarEvent } from "$lib/components/calendar/types";
-  import { sourceDisplayLabel, type MusicSource } from "$lib/music/sources";
   import { buildNotesBlockLink, buildNotesPageLink } from "$lib/notes/block-link";
   import {
     notesBlockSelectionAfterClick,
@@ -35,9 +23,6 @@
     notesSelectionSubtreeIds,
     planNotesSelectionMoveWithinSiblings,
   } from "$lib/notes/block-selection-operations";
-  import { notesLocalUserDisplayName } from "$lib/notes/local-user";
-  import { notesPageIconText } from "$lib/notes/page-icon";
-  import { notesPageTitle } from "$lib/notes/page-title";
   import { notesTemplateBlockStatus } from "$lib/notes/template-block";
   import { notesButtonBlockStatus } from "$lib/notes/button-block";
   import type { NotesUnsupportedConversionTarget } from "$lib/notes/unsupported";
@@ -46,19 +31,8 @@
     isTextEditableBlock,
     type NotesHeadingBlockType,
   } from "$lib/notes/block-factory";
-  import {
-    notesAdjacentRenderedBlockId,
-    notesBoundaryRenderedBlockId,
-    notesCollapsedNavigationSelection,
-    type NotesBlockNavigationBoundary,
-    type NotesBlockNavigationDirection,
-  } from "$lib/notes/block-navigation";
   import type { NotesBlockInsertRequest } from "$lib/notes/block-insertion";
   import {
-    notesEditableOffsetFromDomPoint,
-    notesPlainTextFromEditableRoot,
-    notesTextSelectionFromEditableRoot,
-    restoreNotesEditableSelection,
     type NotesTextSelection,
   } from "$lib/notes/editor-selection";
   import type {
@@ -73,78 +47,41 @@
     notesMoveToPageTargets,
     type NotesMoveToPageTarget,
   } from "$lib/notes/block-move";
-  import {
-    NOTES_BLOCK_DRAG_MIME,
-    planNotesBlockDrop,
-    setActiveNotesBlockDragId,
-    type NotesBlockDropIndicator,
-    type NotesBlockDropIntent,
-  } from "$lib/notes/block-drag";
-  import {
-    EMPTY_NOTES_BLOCK_HANDLE_HOVER_STATE,
-    notesBlockHandleHoverStateAfterKeydown,
-    notesBlockHandleHoverStateAfterPointerLeave,
-    notesBlockHandleHoverStateAfterPointerMove,
-  } from "$lib/notes/block-handle-hover";
   import type {
     NotesBlock,
     NotesBlockTreeItem,
     NotesBlockType,
     NotesButtonInsertPosition,
-    NotesDataSource,
     NotesIcon,
-    NotesPage,
     NotesPageBreadcrumbItem,
     NotesRichText,
     NotesTableOfContentsItem,
   } from "$lib/notes/types";
-  import {
-    notesScrollAnchor,
-    notesScrollOffsetForAnchor,
-    notesVisibleRange,
-  } from "$lib/notes/visible-range";
-  import { notesHydratedItemsByOutline } from "$lib/notes/block-outline";
   import NotesBlockRow from "./NotesBlockRow.svelte";
+  import NotesBlockSelectionToolbar from "./NotesBlockSelectionToolbar.svelte";
+  import NotesVirtualBlock from "./NotesVirtualBlock.svelte";
+  import NotesVisibleBlockRenderer from "./NotesVisibleBlockRenderer.svelte";
+  import { createNotesBlockDragController } from "./notes-block-drag-controller.svelte";
+  import { createNotesBlockHandleController } from "./notes-block-handle-controller.svelte";
+  import { createNotesBlockVirtualizer } from "./notes-block-virtualizer.svelte";
+  import { createNotesBlockNavigationController } from "./notes-block-navigation-controller";
   import {
-    loadNotesAdvancedBlock,
-    retryNotesAdvancedBlock,
-    type LoadedNotesAdvancedBlock,
-    type NotesAdvancedBlockFamily,
-  } from "./notes-editor-component-registry";
-  import ArrowDown from "@lucide/svelte/icons/arrow-down";
-  import ArrowUp from "@lucide/svelte/icons/arrow-up";
-  import ClipboardPaste from "@lucide/svelte/icons/clipboard-paste";
-  import Copy from "@lucide/svelte/icons/copy";
-  import CopyPlus from "@lucide/svelte/icons/copy-plus";
-  import Scissors from "@lucide/svelte/icons/scissors";
-  import Trash2 from "@lucide/svelte/icons/trash-2";
-
-  type NotesBlockSelectionClipboard = {
-    mode: "copy" | "cut";
-    pageId: string;
-    rootBlockIds: string[];
-    subtreeBlockIds: string[];
-    plainText: string;
-  };
-
-  interface NotesEditableVisualLine {
-    top: number;
-    right: number;
-    bottom: number;
-    left: number;
-  }
-
-  interface DocumentWithCaretPositionFromPoint {
-    caretPositionFromPoint?: (
-      x: number,
-      y: number,
-      options?: CaretPositionFromPointOptions,
-    ) => CaretPosition | null;
-  }
-
-  interface DocumentWithCaretRangeFromPoint {
-    caretRangeFromPoint?: (x: number, y: number) => Range | null;
-  }
+    createNotesBlockSelectionController,
+    type NotesBlockSelectionDelegates,
+  } from "./notes-block-selection-controller.svelte";
+  import type {
+    NotesBlockDragBindings,
+    NotesBlockRenderActions,
+    NotesBlockRenderLookups,
+    NotesBlockRenderState,
+    NotesColumnRenderActions,
+    NotesTabRenderActions,
+  } from "./notes-block-render-contract";
+  import { createNotesStructuralBlockLoader } from "./notes-structural-block-loader.svelte";
+  import {
+    buildNotesMentionTargets,
+  } from "./notes-block-mention-targets";
+  import { createNotesMentionDataController } from "./notes-mention-data-controller.svelte";
 
   let {
     items,
@@ -171,159 +108,87 @@
   const projects = getProjects();
   const { t } = getLocalization();
   let blockListElement: HTMLDivElement | null = $state(null);
-  let draggingBlockId = $state<string | null>(null);
-  let dropTarget = $state<{ blockId: string; intent: NotesBlockDropIndicator } | null>(null);
-  let blockSelection = $state<NotesBlockSelectionState | null>(null);
-  let selectionDragAnchorBlockId = $state<string | null>(null);
-  let selectionDragPointerId = $state<number | null>(null);
-  let selectionClipboard = $state<NotesBlockSelectionClipboard | null>(null);
-  let selectionBusy = $state(false);
-  let selectionActionError = $state<string | null>(null);
-  let blockHandleHoverState = $state(EMPTY_NOTES_BLOCK_HANDLE_HOVER_STATE);
-  let openBlockHandleMenuId = $state<string | null>(null);
-  let mentionDataSources = $state<NotesDataSource[]>([]);
-  let mentionDataSourceRowPages = $state<NotesPage[]>([]);
-  let structuralBlockLoadStates = $state<Partial<Record<
-    NotesAdvancedBlockFamily,
-    LazyComponentLoadState<NotesAdvancedBlockFamily, LoadedNotesAdvancedBlock>
-  >>>({});
-  let mentionDataSourceRequestId = 0;
-  let viewportStart = $state(0);
-  let viewportHeight = $state(0);
-  let measuredBlockHeights = $state(new Map<string, number>());
-  let handledFocusRequestId = 0;
-  const outlineRangeItems = $derived(notes.flatBlockOutlines.map((item) => ({
-    id: item.outline.id,
-    estimatedHeight: item.outline.retained_height,
-  })));
-  const visibleRange = $derived(notesVisibleRange(outlineRangeItems, measuredBlockHeights, {
-    viewportStart,
-    viewportEnd: viewportStart + viewportHeight,
-    overscanPx: 480,
-    minimumVirtualizedCount: 120,
-  }));
-  const visibleOutlines = $derived(notes.flatBlockOutlines.slice(visibleRange.start, visibleRange.end));
-  const hydratedItemsById = $derived(notesHydratedItemsByOutline(notes.flatBlockOutlines, items));
+  const mentionDataController = createNotesMentionDataController();
+  const mentionDataSources = $derived(mentionDataController.dataSources);
+  const mentionDataSourceRowPages = $derived(mentionDataController.rowPages);
+  const blockHandle = createNotesBlockHandleController();
+  const blockSelectionController = createNotesBlockSelectionController({
+    readPageId: () => pageId,
+    readListElement: () => blockListElement,
+    readRenderedBlockIds: renderedSelectableBlockIds,
+    readTreeState: currentTreeState,
+    blockIdFromEvent: (event) => navigation.blockIdFromEvent(event),
+    targetIsEditable: (target) => navigation.targetIsEditable(target),
+    targetIsSelectionZone: (target) => target instanceof Element && target.closest("[data-notes-block-selection-zone]") !== null,
+    focusTextEditorAtEnd: (id) => navigation.focusTextEditorAtEnd(id),
+    focusRow: (id, preventScroll) => navigation.focusRow(id, preventScroll),
+    handleNavigationKeydown: (event, id) => navigation.handleKeydown(event, id),
+    onKeydown: (event) => blockHandle.keydown(event),
+    pasteBlocks: notes.pasteBlockSelection,
+    duplicateBlocks: notes.duplicateBlockSelection,
+    moveBlocks: notes.moveBlockSelection,
+    deleteBlocks: notes.deleteBlockSelection,
+  });
+  const blockSelection = $derived(blockSelectionController.selection);
+  const selectionDragAnchorBlockId = $derived(blockSelectionController.dragAnchorBlockId);
+  const selectionDragPointerId = $derived(blockSelectionController.dragPointerId);
+  const selectionClipboard = $derived(blockSelectionController.clipboard);
+  const selectionBusy = $derived(blockSelectionController.busy);
+  const selectionActionError = $derived(blockSelectionController.error);
   const selectedBlockCount = $derived(blockSelection?.selectedBlockIds.length ?? 0);
-  const selectedRootBlockIds = $derived(
-    blockSelection
-      ? notesSelectionRootBlockIds(currentTreeState(), blockSelection.selectedBlockIds)
-      : [],
-  );
-  const canMoveSelectionUp = $derived(
-    !!planNotesSelectionMoveWithinSiblings(currentTreeState(), selectedRootBlockIds, "up"),
-  );
-  const canMoveSelectionDown = $derived(
-    !!planNotesSelectionMoveWithinSiblings(currentTreeState(), selectedRootBlockIds, "down"),
-  );
+  const selectedRootBlockIds = $derived(blockSelectionController.selectedRootBlockIds);
+  const canMoveSelectionUp = $derived(blockSelectionController.canMoveUp);
+  const canMoveSelectionDown = $derived(blockSelectionController.canMoveDown);
   const mentionTargets: NotesNamedMentionTarget[] = $derived(buildMentionTargets());
-
-  function updateViewportRange(): void {
-    if (!scrollViewport || !blockListElement) return;
-    const viewportRect = scrollViewport.getBoundingClientRect();
-    const listRect = blockListElement.getBoundingClientRect();
-    const listStart = scrollViewport.scrollTop + listRect.top - viewportRect.top;
-    viewportStart = Math.max(0, scrollViewport.scrollTop - listStart);
-    viewportHeight = scrollViewport.clientHeight;
-  }
-
-  $effect(() => {
-    const viewport = scrollViewport;
-    if (!viewport) return;
-    const observer = new ResizeObserver(updateViewportRange);
-    observer.observe(viewport);
-    viewport.addEventListener("scroll", updateViewportRange, { passive: true });
-    updateViewportRange();
-    return () => {
-      observer.disconnect();
-      viewport.removeEventListener("scroll", updateViewportRange);
-    };
+  const renderState: NotesBlockRenderState = $derived({
+    breadcrumbItems,
+    tableOfContentsItems,
+    focusBlockId: notes.focusBlockId,
+    focusRequestId: notes.focusRequestId,
+    focusSelection: notes.focusSelection,
+    handleVisibleBlockId: blockHandle.visibleBlockId,
+    mentionTargets,
   });
-
-  $effect(() => {
-    const retainedIds = visibleOutlines.map((item) => item.outline.id);
-    if (draggingBlockId) retainedIds.push(draggingBlockId);
-    if (openBlockHandleMenuId) retainedIds.push(openBlockHandleMenuId);
-    if (notes.focusBlockId) retainedIds.push(notes.focusBlockId);
-    retainedIds.push(...(blockSelection?.selectedBlockIds ?? []));
-    void notes.hydrateBlockRange(retainedIds);
+  const structuralBlockLoader = createNotesStructuralBlockLoader();
+  const columnListLoadState = $derived(structuralBlockLoader.stateFor("column-list"));
+  const tabLoadState = $derived(structuralBlockLoader.stateFor("tab"));
+  const blockDrag = createNotesBlockDragController({
+    readTreeState: currentTreeState,
+    dropBlock: (sourceBlockId, targetBlockId, intent) => (
+      notes.dropBlockOnBlock(sourceBlockId, targetBlockId, intent)
+    ),
   });
-
-  $effect(() => {
-    const requestId = notes.focusRequestId;
-    const blockId = notes.focusBlockId;
-    if (!blockId || requestId === handledFocusRequestId || !scrollViewport) return;
-    const index = outlineRangeItems.findIndex((item) => item.id === blockId);
-    if (index < 0) return;
-    handledFocusRequestId = requestId;
-    const targetOffset = outlineRangeItems
-      .slice(0, index)
-      .reduce((total, item) => total + (measuredBlockHeights.get(item.id) ?? item.estimatedHeight), 0);
-    scrollViewport.scrollTop += targetOffset - viewportStart;
-    updateViewportRange();
+  const virtualizer = createNotesBlockVirtualizer({
+    readScrollViewport: () => scrollViewport,
+    readListElement: () => blockListElement,
+    readOutlines: () => notes.flatBlockOutlines,
+    readItems: () => items,
+    readPinnedBlockIds: () => [
+      blockDrag.draggingBlockId,
+      blockHandle.openMenuBlockId,
+      notes.focusBlockId,
+      ...(blockSelection?.selectedBlockIds ?? []),
+    ].filter((blockId): blockId is string => blockId !== null),
+    readFocusRequest: () => ({
+      blockId: notes.focusBlockId,
+      requestId: notes.focusRequestId,
+    }),
+    hydrateBlockRange: notes.hydrateBlockRange,
   });
-
-  function measureVirtualBlock(
-    node: HTMLElement,
-    blockId: string,
-  ): { update: (nextId: string) => void; destroy: () => void } {
-    let currentId = blockId;
-    const observer = new ResizeObserver(([entry]) => {
-      const nextHeight = entry?.borderBoxSize?.[0]?.blockSize ?? entry?.contentRect.height;
-      if (!nextHeight || Math.abs((measuredBlockHeights.get(currentId) ?? 0) - nextHeight) < 0.5) return;
-      const anchor = notesScrollAnchor(outlineRangeItems, measuredBlockHeights, viewportStart);
-      const next = new Map(measuredBlockHeights);
-      next.set(currentId, nextHeight);
-      measuredBlockHeights = next;
-      const corrected = notesScrollOffsetForAnchor(outlineRangeItems, next, anchor);
-      if (corrected !== null && scrollViewport && Math.abs(corrected - viewportStart) >= 0.5) {
-        scrollViewport.scrollTop += corrected - viewportStart;
-      }
-    });
-    observer.observe(node);
-    return {
-      update(nextId) {
-        currentId = nextId;
-      },
-      destroy() {
-        observer.disconnect();
-      },
-    };
-  }
-
-  function requestStructuralBlock(kind: "column-list" | "tab", retry = false): void {
-    const current = structuralBlockLoadStates[kind] ?? null;
-    if (!retry && current?.key === kind) return;
-    const loadingState = beginLazyComponentLoad(current, kind);
-    structuralBlockLoadStates = { ...structuralBlockLoadStates, [kind]: loadingState };
-    const request = retry ? retryNotesAdvancedBlock(kind) : loadNotesAdvancedBlock(kind);
-    void request.then((component) => {
-      const latest = structuralBlockLoadStates[kind];
-      if (!latest) return;
-      structuralBlockLoadStates = {
-        ...structuralBlockLoadStates,
-        [kind]: resolveLazyComponentLoad(latest, kind, loadingState.requestId, component),
-      };
-    }).catch((error: unknown) => {
-      const latest = structuralBlockLoadStates[kind];
-      if (!latest) return;
-      structuralBlockLoadStates = {
-        ...structuralBlockLoadStates,
-        [kind]: rejectLazyComponentLoad(latest, kind, loadingState.requestId, error),
-      };
-      console.error(`load Notes ${kind} block failed`, error);
-    });
-  }
+  const visibleRange = $derived(virtualizer.visibleRange);
+  const visibleOutlines = $derived(virtualizer.visibleOutlines);
+  const hydratedItemsById = $derived(virtualizer.hydratedItemsById);
+  const measureVirtualBlock = virtualizer.measureBlock;
 
   $effect(() => {
     if (items.some((item) => item.block.type === "column_list")) {
-      requestStructuralBlock("column-list");
+      structuralBlockLoader.request("column-list");
     }
-    if (items.some((item) => item.block.type === "tab")) requestStructuralBlock("tab");
+    if (items.some((item) => item.block.type === "tab")) structuralBlockLoader.request("tab");
   });
 
   $effect(() => {
-    void loadMentionDataSources();
+    void mentionDataController.reload();
   });
 
   $effect(() => {
@@ -346,200 +211,29 @@
     }
   });
 
-  async function loadMentionDataSources(): Promise<void> {
-    const requestId = ++mentionDataSourceRequestId;
-    try {
-      const dataSources = await listNotesDataSources();
-      if (requestId !== mentionDataSourceRequestId) return;
-      mentionDataSources = dataSources;
-      const rowPageGroups = await Promise.all(
-        dataSources.map(async (dataSource) => {
-          try {
-            return await listNotesDataSourceRowPages(dataSource.id);
-          } catch (error) {
-            console.warn("notes mention data source row targets failed", error);
-            return [];
-          }
-        }),
-      );
-      if (requestId !== mentionDataSourceRequestId) return;
-      mentionDataSourceRowPages = rowPageGroups.flat();
-    } catch (error) {
-      if (requestId !== mentionDataSourceRequestId) return;
-      console.warn("notes mention data source targets failed", error);
-      mentionDataSources = [];
-      mentionDataSourceRowPages = [];
-    }
-  }
-
-  function dataSourceById(dataSourceId: string | null): NotesDataSource | undefined {
-    if (!dataSourceId) return undefined;
-    return mentionDataSources.find((dataSource) => dataSource.id === dataSourceId);
-  }
-
-  function pageMentionSubtitle(page: NotesPage): string {
-    if (page.parent.type === "data_source_id") {
-      const dataSource = dataSourceById(page.parent.data_source_id);
-      return dataSource
-        ? t("notes.mentionTargetDataSourceRowIn", dataSource.title || t("notes.untitled"))
-        : t("notes.mentionTargetDataSourceRow");
-    }
-    const parentPageId = page.parent.type === "page_id" ? page.parent.page_id : null;
-    const parentPage = parentPageId
-      ? notes.allPages.find((candidate) => candidate.id === parentPageId)
-      : null;
-    return parentPage
-      ? notesPageTitle(parentPage, t("notes.untitled"))
-      : t("notes.workspace");
-  }
-
-  function pageMentionTargets(): NotesPageMentionTarget[] {
-    const seen = new Set<string>();
-    const targets: NotesPageMentionTarget[] = [];
-    for (const page of [...notes.allPages, ...mentionDataSourceRowPages]) {
-      if (seen.has(page.id)) continue;
-      seen.add(page.id);
-      targets.push({
-        kind: "page",
-        id: page.id,
-        title: notesPageTitle(page, t("notes.untitled")),
-        subtitle: pageMentionSubtitle(page),
-        iconText: notesPageIconText(page.icon),
-      });
-    }
-    return targets;
-  }
-
-  function localUserMentionTargets(): NotesObjectMentionTarget[] {
-    if (!notes.localUser) return [];
-    return [{
-      kind: "user",
-      id: notes.localUser.id,
-      title: notesLocalUserDisplayName(notes.localUser.display_name),
-      subtitle: t("notes.mentionTargetLocalUser"),
-    }];
-  }
-
-  function databaseMentionTargets(): NotesObjectMentionTarget[] {
-    const seen = new Set<string>();
-    const targets: NotesObjectMentionTarget[] = [];
-    for (const dataSource of mentionDataSources) {
-      const databaseId = dataSource.parent.database_id;
-      if (seen.has(databaseId)) continue;
-      seen.add(databaseId);
-      targets.push({
-        kind: "database",
-        id: databaseId,
-        title: dataSource.title || t("notes.untitled"),
-        subtitle: t("notes.mentionTargetDatabase"),
-        iconText: notesPageIconText(dataSource.icon),
-      });
-    }
-    return targets;
-  }
-
-  function projectMentionTargets(): NotesObjectMentionTarget[] {
-    return projects.projects
-      .filter((project) => project.status === "active")
-      .map((project) => ({
-        kind: "project",
-        id: project.id,
-        title: project.name,
-        subtitle: t("notes.mentionTargetProject"),
-      }));
-  }
-
-  function projectTaskMentionTargets(): NotesObjectMentionTarget[] {
-    return projects.tasks
-      .filter((task) => !task.archivedAt)
-      .map((task) => {
-        const project = projects.projectById(task.projectId);
-        return {
-          kind: "project_task",
-          id: task.id,
-          title: task.title || t("notes.untitled"),
-          subtitle: project
-            ? t("notes.mentionTargetProjectTaskIn", project.name)
-            : t("notes.mentionTargetProjectTask"),
-        };
-      });
-  }
-
-  function calendarEventMentionTargets(
-    events: readonly CalendarEvent[],
-  ): NotesObjectMentionTarget[] {
-    return events
-      .filter((event) => event.status !== "cancelled")
-      .map((event) => ({
-        kind: "calendar_event",
-        id: event.recurringParentId ?? event.id,
-        title: event.title || t("notes.untitled"),
-        subtitle: t("notes.mentionTargetCalendarEvent"),
-      }));
-  }
-
-  function pomodoroMentionTargets(): NotesObjectMentionTarget[] {
-    if (!pomodoro.activeRunId) return [];
-    return [{
-      kind: "pomodoro_run",
-      id: pomodoro.activeRunId,
-      title: t("notes.mentionTargetPomodoroRun"),
-      subtitle: pomodoro.formattedTime,
-    }];
-  }
-
-  function musicMentionTargets(): NotesObjectMentionTarget[] {
-    const sources: MusicSource[] = musicPlayer.currentSource
-      ? [musicPlayer.currentSource, ...musicPlayer.queue]
-      : [...musicPlayer.queue];
-    const seen = new Set<string>();
-    const targets: NotesObjectMentionTarget[] = [];
-    for (const source of sources) {
-      if (seen.has(source.identity)) continue;
-      seen.add(source.identity);
-      targets.push({
-        kind: "music_item",
-        id: source.identity,
-        title: sourceDisplayLabel(source),
-        subtitle: t("notes.mentionTargetMusicItem"),
-      });
-    }
-    return targets;
-  }
-
   function buildMentionTargets(): NotesNamedMentionTarget[] {
-    return [
-      ...localUserMentionTargets(),
-      ...pageMentionTargets(),
-      ...databaseMentionTargets(),
-      ...projectMentionTargets(),
-      ...projectTaskMentionTargets(),
-      ...calendarEventMentionTargets(calendar.rawBlocks),
-      ...pomodoroMentionTargets(),
-      ...musicMentionTargets(),
-    ];
+    return buildNotesMentionTargets({
+      pages: notes.allPages,
+      localUser: notes.localUser,
+      dataSources: mentionDataSources,
+      dataSourceRowPages: mentionDataSourceRowPages,
+      projects: projects.projects,
+      tasks: projects.tasks,
+      calendarEvents: calendar.rawBlocks,
+      activePomodoroRunId: pomodoro.activeRunId,
+      pomodoroTime: pomodoro.formattedTime,
+      currentMusicSource: musicPlayer.currentSource,
+      musicQueue: musicPlayer.queue,
+      translate: t,
+    });
   }
-
-  $effect(() => {
-    if (typeof window === "undefined" || selectionDragPointerId === null) return;
-    const stopSelectionDrag = () => {
-      selectionDragAnchorBlockId = null;
-      selectionDragPointerId = null;
-    };
-    window.addEventListener("pointerup", stopSelectionDrag);
-    window.addEventListener("pointercancel", stopSelectionDrag);
-    return () => {
-      window.removeEventListener("pointerup", stopSelectionDrag);
-      window.removeEventListener("pointercancel", stopSelectionDrag);
-    };
-  });
 
   $effect(() => {
     const _pageId = pageId;
     const _itemCount = items.length;
     const _selection = blockSelection;
     void tick().then(() => {
-      pruneAndSyncBlockSelection();
+      blockSelectionController.pruneToRendered();
     });
   });
 
@@ -566,592 +260,36 @@
     return notesButtonBlockStatus(currentTreeState(), blockId);
   }
 
-  function selectableBlockRowFromEvent(event: Event): HTMLElement | null {
-    const target = event.target;
-    if (!(target instanceof Element) || !blockListElement) return null;
-    const row = target.closest<HTMLElement>("[data-notes-selectable-block-id]");
-    if (!row || !blockListElement.contains(row)) return null;
-    return row;
-  }
+  const navigation = createNotesBlockNavigationController({
+    readListElement: () => blockListElement,
+    readRenderedBlockIds: renderedSelectableBlockIds,
+    readBlock: notes.blockById,
+    requestFocus: notes.focusBlock,
+  });
 
-  function selectableBlockIdFromEvent(event: Event): string | null {
-    return selectableBlockRowFromEvent(event)?.dataset.notesSelectableBlockId ?? null;
-  }
-
-  function eventTargetIsEditable(target: EventTarget | null): boolean {
-    if (!(target instanceof Element)) return false;
-    return target.closest("input, textarea, select, button, a, [contenteditable='true'], [role='textbox']")
-      !== null;
-  }
-
-  function eventTargetIsSelectionZone(target: EventTarget | null): boolean {
-    return target instanceof Element && target.closest("[data-notes-block-selection-zone]") !== null;
-  }
-
-  function syncBlockSelectionAttributes(): void {
-    if (!blockListElement) return;
-    for (const row of blockListElement.querySelectorAll<HTMLElement>("[data-notes-selectable-block-id]")) {
-      const blockId = row.dataset.notesSelectableBlockId ?? "";
-      const selected = notesBlockSelectionContains(blockSelection, blockId);
-      row.toggleAttribute("data-notes-block-selected", selected);
-    }
-  }
-
-  function pruneAndSyncBlockSelection(): void {
-    const pruned = notesBlockSelectionPrunedToVisible(renderedSelectableBlockIds(), blockSelection);
-    if (!sameBlockSelection(blockSelection, pruned)) {
-      blockSelection = pruned;
-      return;
-    }
-    syncBlockSelectionAttributes();
-  }
-
-  function sameBlockSelection(
-    left: NotesBlockSelectionState | null,
-    right: NotesBlockSelectionState | null,
-  ): boolean {
-    if (left === right) return true;
-    if (!left || !right) return false;
-    return (
-      left.anchorBlockId === right.anchorBlockId
-      && left.focusBlockId === right.focusBlockId
-      && left.selectedBlockIds.length === right.selectedBlockIds.length
-      && left.selectedBlockIds.every((blockId, index) => right.selectedBlockIds[index] === blockId)
-    );
-  }
-
-  function setBlockSelection(selection: NotesBlockSelectionState | null): void {
-    blockSelection = selection;
-    void tick().then(syncBlockSelectionAttributes);
-  }
-
-  function focusSelectedBlockRow(blockId: string, preventScroll = true): void {
-    void tick().then(() => {
-      selectableBlockRowFromBlockId(blockId)?.focus({ preventScroll });
-    });
-  }
-
-  function selectableBlockRowFromBlockId(blockId: string): HTMLElement | null {
-    if (!blockListElement) return null;
-    return Array.from(blockListElement.querySelectorAll<HTMLElement>("[data-notes-selectable-block-id]"))
-      .find((element) => element.dataset.notesSelectableBlockId === blockId) ?? null;
-  }
-
-  function textEditorForBlock(blockId: string): HTMLElement | null {
-    return Array.from(
-      selectableBlockRowFromBlockId(blockId)
-        ?.querySelectorAll<HTMLElement>(
-          "[contenteditable='true'][role='textbox'][data-notes-block-id]",
-        ) ?? [],
-    ).find((editor) => editor.dataset.notesBlockId === blockId) ?? null;
-  }
-
-  function focusTextEditorForBlock(blockId: string): boolean {
-    const block = notes.blockById(blockId);
-    if (!block || !isTextEditableBlock(block.type)) return false;
-
-    const editor = textEditorForBlock(blockId);
-    if (!editor) return false;
-
-    editor.focus({ preventScroll: true });
-    const textLength = notesPlainTextFromEditableRoot(editor).length;
-    restoreNotesEditableSelection(editor, { start: textLength, end: textLength });
-    return true;
-  }
-
-  function notesTextEditorFromEvent(
-    event: Event,
-    blockId: string,
-  ): HTMLElement | null {
-    const target = event.target;
-    if (!(target instanceof Element)) return null;
-    const editor = target.closest<HTMLElement>(
-      "[contenteditable='true'][role='textbox'][data-notes-block-id]",
-    );
-    if (!editor || editor.dataset.notesBlockId !== blockId) return null;
-    return editor;
-  }
-
-  function editableVisualLines(editor: HTMLElement): NotesEditableVisualLine[] {
-    const range = editor.ownerDocument.createRange();
-    range.selectNodeContents(editor);
-    const lines: NotesEditableVisualLine[] = [];
-    for (const rect of Array.from(range.getClientRects())) {
-      if (rect.width <= 0 && rect.height <= 0) continue;
-      const existing = lines.find((line) => Math.abs(line.top - rect.top) < 2);
-      if (existing) {
-        existing.top = Math.min(existing.top, rect.top);
-        existing.right = Math.max(existing.right, rect.right);
-        existing.bottom = Math.max(existing.bottom, rect.bottom);
-        existing.left = Math.min(existing.left, rect.left);
-      } else {
-        lines.push({
-          top: rect.top,
-          right: rect.right,
-          bottom: rect.bottom,
-          left: rect.left,
-        });
-      }
-    }
-    return lines.sort((left, right) => left.top - right.top);
-  }
-
-  function editableVisualLineTops(editor: HTMLElement): number[] {
-    return editableVisualLines(editor).map((line) => line.top);
-  }
-
-  function collapsedSelectionRect(editor: HTMLElement): DOMRect | null {
-    const selection = editor.ownerDocument.getSelection();
-    if (!selection || selection.rangeCount === 0 || !selection.isCollapsed) return null;
-    if (!selection.focusNode || !editor.contains(selection.focusNode)) return null;
-    const range = selection.getRangeAt(0).cloneRange();
-    const rect = range.getBoundingClientRect();
-    if (rect.width > 0 || rect.height > 0) return rect;
-    return Array.from(range.getClientRects())
-      .find((candidate) => candidate.width > 0 || candidate.height > 0) ?? null;
-  }
-
-  function caretIsOnBoundaryVisualLine(
-    editor: HTMLElement,
-    direction: NotesBlockNavigationDirection,
-  ): boolean {
-    const selection = notesTextSelectionFromEditableRoot(editor);
-    const textLength = notesPlainTextFromEditableRoot(editor).length;
-    if (selection && selection.start === selection.end) {
-      if (direction === "previous" && selection.start === 0) return true;
-      if (direction === "next" && selection.start === textLength) return true;
-    }
-    const lineTops = editableVisualLineTops(editor);
-    if (lineTops.length <= 1) return true;
-    const caretRect = collapsedSelectionRect(editor);
-    if (!caretRect) return false;
-    const boundaryTop = direction === "previous" ? lineTops[0] : lineTops.at(-1);
-    return boundaryTop !== undefined && Math.abs(caretRect.top - boundaryTop) < 2;
-  }
-
-  function caretOffsetFromViewportPoint(
-    editor: HTMLElement,
-    x: number,
-    y: number,
-  ): number | null {
-    const documentWithCaretPosition = editor.ownerDocument as DocumentWithCaretPositionFromPoint;
-    const position = documentWithCaretPosition.caretPositionFromPoint?.(x, y) ?? null;
-    if (position && editor.contains(position.offsetNode)) {
-      return notesEditableOffsetFromDomPoint(editor, position.offsetNode, position.offset);
-    }
-
-    const documentWithCaretRange = editor.ownerDocument as DocumentWithCaretRangeFromPoint;
-    const range = documentWithCaretRange.caretRangeFromPoint?.(x, y) ?? null;
-    if (!range || !editor.contains(range.startContainer)) return null;
-    return notesEditableOffsetFromDomPoint(editor, range.startContainer, range.startOffset);
-  }
-
-  function clampedNavigationPointX(editor: HTMLElement, x: number): number {
-    const editorRect = editor.getBoundingClientRect();
-    const left = editorRect.left + 1;
-    const right = editorRect.right - 1;
-    if (right <= left) return editorRect.left;
-    return Math.min(Math.max(x, left), right);
-  }
-
-  function targetLineOffsetFromNavigationX(
-    editor: HTMLElement,
-    direction: NotesBlockNavigationDirection,
-    navigationX: number,
-  ): number | null {
-    const lines = editableVisualLines(editor);
-    const line = direction === "previous" ? lines.at(-1) : lines[0];
-    if (!line) return null;
-    const y = line.top + Math.max(1, (line.bottom - line.top) / 2);
-    return caretOffsetFromViewportPoint(editor, clampedNavigationPointX(editor, navigationX), y);
-  }
-
-  function nativeLineNavigationStaysInsideEditor(
-    editor: HTMLElement,
-    direction: NotesBlockNavigationDirection,
-  ): boolean {
-    const selection = editor.ownerDocument.getSelection();
-    if (!selection || selection.rangeCount === 0 || !selection.isCollapsed) return true;
-    if (!selection.focusNode || !editor.contains(selection.focusNode)) return true;
-    if (caretIsOnBoundaryVisualLine(editor, direction)) return false;
-    return true;
-  }
-
-  function textSelectionForFocusedBlockOffset(
-    blockId: string,
-    offset: number,
-  ): NotesTextSelection | null {
-    const block = notes.blockById(blockId);
-    if (!block || !isTextEditableBlock(block.type)) return null;
-    const textLength = blockPlainText(block).length;
-    const safeOffset = Math.min(Math.max(0, offset), textLength);
-    return notesCollapsedNavigationSelection(safeOffset);
-  }
-
-  function textSelectionForFocusedBlock(
-    blockId: string,
-    selection: NotesTextSelection | null,
-  ): NotesTextSelection | null {
-    const block = notes.blockById(blockId);
-    if (!block || !isTextEditableBlock(block.type) || !selection) return null;
-    const textLength = blockPlainText(block).length;
-    const start = Math.min(Math.max(0, selection.start), textLength);
-    const end = Math.min(Math.max(0, selection.end), textLength);
-    return {
-      start: Math.min(start, end),
-      end: Math.max(start, end),
-    };
-  }
-
-  function adjacentNavigationFallbackOffset(
-    blockId: string,
-    direction: NotesBlockNavigationDirection,
-  ): number {
-    if (direction === "next") return 0;
-    const block = notes.blockById(blockId);
-    return block && isTextEditableBlock(block.type) ? blockPlainText(block).length : 0;
-  }
-
-  function adjacentNavigationSelection(
-    blockId: string,
-    direction: NotesBlockNavigationDirection,
-    navigationX: number | null,
-  ): NotesTextSelection | null {
-    const block = notes.blockById(blockId);
-    if (!block || !isTextEditableBlock(block.type)) return null;
-    const editor = navigationX === null ? null : textEditorForBlock(blockId);
-    const offset = editor && navigationX !== null
-      ? targetLineOffsetFromNavigationX(editor, direction, navigationX)
-      : null;
-    return textSelectionForFocusedBlockOffset(
-      blockId,
-      offset ?? adjacentNavigationFallbackOffset(blockId, direction),
-    );
-  }
-
-  function focusRenderedBlock(blockId: string, selection: NotesTextSelection | null): void {
-    notes.focusBlock(blockId, textSelectionForFocusedBlock(blockId, selection));
-  }
-
-  function focusAdjacentRenderedBlock(
-    currentBlockId: string,
-    direction: NotesBlockNavigationDirection,
-    navigationX: number | null,
-  ): boolean {
-    const targetBlockId = notesAdjacentRenderedBlockId(
-      renderedSelectableBlockIds(),
-      currentBlockId,
-      direction,
-    );
-    if (!targetBlockId) return false;
-    focusRenderedBlock(
-      targetBlockId,
-      adjacentNavigationSelection(targetBlockId, direction, navigationX),
-    );
-    return true;
-  }
-
-  function boundaryFocusOffset(blockId: string, boundary: NotesBlockNavigationBoundary): number {
-    if (boundary === "first") return 0;
-    const block = notes.blockById(blockId);
-    return block && isTextEditableBlock(block.type) ? blockPlainText(block).length : 0;
-  }
-
-  function focusBoundaryRenderedBlock(boundary: NotesBlockNavigationBoundary): boolean {
-    const targetBlockId = notesBoundaryRenderedBlockId(renderedSelectableBlockIds(), boundary);
-    if (!targetBlockId) return false;
-    focusRenderedBlock(
-      targetBlockId,
-      textSelectionForFocusedBlockOffset(targetBlockId, boundaryFocusOffset(targetBlockId, boundary)),
-    );
-    return true;
-  }
-
-  function handleDocumentNavigationKeydown(event: KeyboardEvent, blockId: string): boolean {
-    if (event.altKey || event.shiftKey) return false;
-
-    if (event.ctrlKey || event.metaKey) {
-      if (event.key === "Home" || (event.metaKey && event.key === "ArrowUp")) {
-        event.preventDefault();
-        return focusBoundaryRenderedBlock("first");
-      }
-      if (event.key === "End" || (event.metaKey && event.key === "ArrowDown")) {
-        event.preventDefault();
-        return focusBoundaryRenderedBlock("last");
-      }
-      return false;
-    }
-
-    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return false;
-    const direction: NotesBlockNavigationDirection = event.key === "ArrowUp" ? "previous" : "next";
-    const editor = notesTextEditorFromEvent(event, blockId);
-    if (editor) {
-      const selection = notesTextSelectionFromEditableRoot(editor);
-      if (!selection || selection.start !== selection.end) return false;
-      if (nativeLineNavigationStaysInsideEditor(editor, direction)) return false;
-      const navigationX = collapsedSelectionRect(editor)?.left ?? null;
-      if (!focusAdjacentRenderedBlock(blockId, direction, navigationX)) return false;
-      event.preventDefault();
-      return true;
-    }
-
-    if (eventTargetIsEditable(event.target)) return false;
-    if (!focusAdjacentRenderedBlock(blockId, direction, null)) return false;
-    event.preventDefault();
-    return true;
-  }
-
-  function clearNativeSelection(): void {
-    if (typeof window === "undefined") return;
-    window.getSelection()?.removeAllRanges();
-  }
-
-  function selectBlockFromPointer(blockId: string, extend: boolean): void {
-    const selection = notesBlockSelectionAfterClick({
-      blockIds: renderedSelectableBlockIds(),
-      current: blockSelection,
-      blockId,
-      extend,
-    });
-    setBlockSelection(selection);
-    if (selection) focusSelectedBlockRow(selection.focusBlockId);
-  }
-
-  function handleBlockSelectionPointerDown(event: PointerEvent): void {
-    if (event.button !== 0) return;
-    const blockId = selectableBlockIdFromEvent(event);
-    if (!blockId) {
-      if (blockSelection) setBlockSelection(null);
-      return;
-    }
-    const shouldExtend = event.shiftKey && blockSelection !== null;
-    if (shouldExtend) {
-      event.preventDefault();
-      clearNativeSelection();
-      selectBlockFromPointer(blockId, true);
-      return;
-    }
-    if (!eventTargetIsSelectionZone(event.target)) {
-      if (blockSelection) setBlockSelection(null);
-      return;
-    }
-    if (eventTargetIsEditable(event.target)) return;
-    if (focusTextEditorForBlock(blockId)) {
-      event.preventDefault();
-      setBlockSelection(null);
-      return;
-    }
-    event.preventDefault();
-    clearNativeSelection();
-    selectionDragAnchorBlockId = blockId;
-    selectionDragPointerId = event.pointerId;
-    setBlockSelection(notesBlockSelectionForBlock(renderedSelectableBlockIds(), blockId));
-    focusSelectedBlockRow(blockId);
-  }
-
-  function handleBlockSelectionPointerOver(event: PointerEvent): void {
-    if (selectionDragPointerId === null || event.pointerId !== selectionDragPointerId) return;
-    const anchorBlockId = selectionDragAnchorBlockId;
-    const blockId = selectableBlockIdFromEvent(event);
-    if (!anchorBlockId || !blockId) return;
-    const selection = notesBlockSelectionRange(renderedSelectableBlockIds(), anchorBlockId, blockId);
-    setBlockSelection(selection);
-  }
+  const selectableBlockIdFromEvent = navigation.blockIdFromEvent;
+  const eventTargetIsEditable = navigation.targetIsEditable;
+  const focusSelectedBlockRow = navigation.focusRow;
+  const focusTextEditorForBlock = navigation.focusTextEditorAtEnd;
+  const handleDocumentNavigationKeydown = navigation.handleKeydown;
 
   function showBlockHandleFromPointer(blockId: string): void {
-    if (openBlockHandleMenuId) return;
-    blockHandleHoverState = notesBlockHandleHoverStateAfterPointerMove(
-      blockHandleHoverState,
-      blockId,
-    );
+    blockHandle.pointerMove(blockId);
   }
 
   function hideBlockHandleAfterPointerLeave(blockId: string): void {
-    blockHandleHoverState = notesBlockHandleHoverStateAfterPointerLeave(
-      blockHandleHoverState,
-      blockId,
-    );
+    blockHandle.pointerLeave(blockId);
   }
 
   function hideBlockHandleAfterKeyboard(event: KeyboardEvent): void {
-    blockHandleHoverState = notesBlockHandleHoverStateAfterKeydown(
-      blockHandleHoverState,
-      event.key,
-    );
+    blockHandle.keydown(event);
   }
 
   function updateBlockHandleMenuOpen(blockId: string, open: boolean): void {
-    if (open) {
-      openBlockHandleMenuId = blockId;
-      blockHandleHoverState = EMPTY_NOTES_BLOCK_HANDLE_HOVER_STATE;
-      return;
-    }
-    if (openBlockHandleMenuId === blockId) openBlockHandleMenuId = null;
+    blockHandle.setMenuOpen(blockId, open);
   }
 
-  function handleBlockListKeydown(event: KeyboardEvent): void {
-    hideBlockHandleAfterKeyboard(event);
-    if (event.defaultPrevented) return;
-    const blockId = selectableBlockIdFromEvent(event);
-    if (!blockId) return;
-    if (handleDocumentNavigationKeydown(event, blockId)) return;
-    if (handleBlockSelectionShortcut(event, blockId)) return;
-    if (event.key === "Escape" && !event.ctrlKey && !event.metaKey && !event.altKey) {
-      event.preventDefault();
-      clearNativeSelection();
-      setBlockSelection(notesBlockSelectionForBlock(renderedSelectableBlockIds(), blockId));
-      focusSelectedBlockRow(blockId);
-      return;
-    }
-    if (
-      event.shiftKey
-      && !event.ctrlKey
-      && !event.metaKey
-      && !event.altKey
-      && (event.key === "ArrowDown" || event.key === "ArrowUp")
-    ) {
-      if (!blockSelection && eventTargetIsEditable(event.target)) return;
-      event.preventDefault();
-      clearNativeSelection();
-      const selection = notesBlockSelectionAfterKeyboard({
-        blockIds: renderedSelectableBlockIds(),
-        current: blockSelection,
-        focusedBlockId: blockId,
-        direction: event.key === "ArrowDown" ? "next" : "previous",
-      });
-      setBlockSelection(selection);
-      if (selection) focusSelectedBlockRow(selection.focusBlockId, false);
-    }
-  }
-
-  function handleBlockSelectionShortcut(event: KeyboardEvent, blockId: string): boolean {
-    const hasModifier = event.ctrlKey || event.metaKey;
-    const key = event.key.toLowerCase();
-    if (
-      selectionClipboard
-      && hasModifier
-      && !event.shiftKey
-      && !event.altKey
-      && key === "v"
-      && !eventTargetIsEditable(event.target)
-    ) {
-      event.preventDefault();
-      void runSelectionAction(() => pasteSelectionClipboard(blockSelection?.focusBlockId ?? blockId));
-      return true;
-    }
-    if (!blockSelection) return false;
-    if (!event.altKey && (event.key === "Backspace" || event.key === "Delete")) {
-      event.preventDefault();
-      void runSelectionAction(deleteCurrentBlockSelection);
-      return true;
-    }
-    if (hasModifier && event.shiftKey && !event.altKey && event.key === "ArrowUp") {
-      event.preventDefault();
-      void runSelectionAction(() => moveCurrentBlockSelection("up"));
-      return true;
-    }
-    if (hasModifier && event.shiftKey && !event.altKey && event.key === "ArrowDown") {
-      event.preventDefault();
-      void runSelectionAction(() => moveCurrentBlockSelection("down"));
-      return true;
-    }
-    if (!hasModifier || event.shiftKey || event.altKey) return false;
-    if (key === "c") {
-      event.preventDefault();
-      void runSelectionAction(() => copyCurrentBlockSelection("copy"));
-      return true;
-    }
-    if (key === "x") {
-      event.preventDefault();
-      void runSelectionAction(() => copyCurrentBlockSelection("cut"));
-      return true;
-    }
-    if (key === "d") {
-      event.preventDefault();
-      void runSelectionAction(duplicateCurrentBlockSelection);
-      return true;
-    }
-    return false;
-  }
-
-  async function runSelectionAction(action: () => Promise<void> | void): Promise<void> {
-    if (selectionBusy) return;
-    selectionBusy = true;
-    selectionActionError = null;
-    try {
-      await action();
-    } catch (error) {
-      selectionActionError = error instanceof Error ? error.message : String(error);
-    } finally {
-      selectionBusy = false;
-    }
-  }
-
-  async function copyCurrentBlockSelection(mode: "copy" | "cut"): Promise<void> {
-    const selection = blockSelection;
-    if (!selection) return;
-    const state = currentTreeState();
-    const rootBlockIds = notesSelectionRootBlockIds(state, selection.selectedBlockIds);
-    const subtreeBlockIds = notesSelectionSubtreeIds(state, rootBlockIds);
-    if (rootBlockIds.length === 0 || subtreeBlockIds.length === 0) return;
-    const plainText = notesSelectionPlainText(state, rootBlockIds);
-    selectionClipboard = { mode, pageId, rootBlockIds, subtreeBlockIds, plainText };
-    if (plainText && typeof navigator !== "undefined" && navigator.clipboard) {
-      await navigator.clipboard.writeText(plainText).catch(() => undefined);
-    }
-    if (mode === "cut") {
-      await notes.deleteBlockSelection(selection.selectedBlockIds);
-      setBlockSelection(null);
-    }
-  }
-
-  async function pasteSelectionClipboard(targetBlockId: string | null): Promise<void> {
-    const clipboard = selectionClipboard;
-    if (!clipboard || !targetBlockId) return;
-    const focusBlockId = await notes.pasteBlockSelection(
-      clipboard.rootBlockIds,
-      clipboard.subtreeBlockIds,
-      targetBlockId,
-      clipboard.mode === "cut",
-    );
-    if (clipboard.mode === "cut") selectionClipboard = null;
-    setBlockSelection(null);
-    if (focusBlockId) focusSelectedBlockRow(focusBlockId, false);
-  }
-
-  async function duplicateCurrentBlockSelection(): Promise<void> {
-    const selection = blockSelection;
-    if (!selection) return;
-    await notes.duplicateBlockSelection(selection.selectedBlockIds);
-    setBlockSelection(null);
-  }
-
-  async function moveCurrentBlockSelection(direction: "up" | "down"): Promise<void> {
-    const selection = blockSelection;
-    if (!selection) return;
-    await notes.moveBlockSelection(selection.selectedBlockIds, direction);
-  }
-
-  async function deleteCurrentBlockSelection(): Promise<void> {
-    const selection = blockSelection;
-    if (!selection) return;
-    await notes.deleteBlockSelection(selection.selectedBlockIds);
-    setBlockSelection(null);
-  }
-
-  function blockSelectionDelegation(node: HTMLDivElement): { destroy: () => void } {
-    node.addEventListener("pointerdown", handleBlockSelectionPointerDown);
-    node.addEventListener("pointerover", handleBlockSelectionPointerOver);
-    node.addEventListener("keydown", handleBlockListKeydown);
-    return {
-      destroy() {
-        node.removeEventListener("pointerdown", handleBlockSelectionPointerDown);
-        node.removeEventListener("pointerover", handleBlockSelectionPointerOver);
-        node.removeEventListener("keydown", handleBlockListKeydown);
-      },
-    };
-  }
-
+  const blockSelectionDelegation = blockSelectionController.delegation;
   function handleKeyboardAction(blockId: string, action: NotesKeyboardAction): void {
     if (action.type === "create_sibling") {
       void notes.createSiblingAfter(blockId);
@@ -1423,97 +561,55 @@
     void notes.redoNotesEdit();
   }
 
-  function draggedBlockIdFromEvent(event: DragEvent): string | null {
-    const transferred = event.dataTransfer?.getData(NOTES_BLOCK_DRAG_MIME) ?? "";
-    return transferred || draggingBlockId;
-  }
-
-  function blockDropIntentFromEvent(event: DragEvent): NotesBlockDropIntent {
-    const target = event.currentTarget;
-    if (!(target instanceof HTMLElement)) return "after";
-    const rect = target.getBoundingClientRect();
-    const depth = Number.parseInt(
-      getComputedStyle(target).getPropertyValue("--notes-depth").trim(),
-      10,
-    );
-    const safeDepth = Number.isFinite(depth) ? Math.max(depth, 0) : 0;
-    const yRatio = rect.height > 0 ? (event.clientY - rect.top) / rect.height : 0.5;
-    if (yRatio < 0.25) return "before";
-    const outdentBoundary = rect.left + safeDepth * 20 + 28;
-    if (safeDepth > 0 && event.clientX < outdentBoundary) return "outdent";
-    if (yRatio > 0.75) return "after";
-    return "inside";
-  }
-
-  function handleBlockDragStart(blockId: string, event: DragEvent): void {
-    draggingBlockId = blockId;
-    setActiveNotesBlockDragId(blockId);
-    dropTarget = null;
-    if (event.dataTransfer) {
-      event.dataTransfer.effectAllowed = "move";
-      event.dataTransfer.setData(NOTES_BLOCK_DRAG_MIME, blockId);
-      event.dataTransfer.setData("text/plain", blockId);
-    }
-  }
-
-  function handleBlockDragEnd(): void {
-    draggingBlockId = null;
-    setActiveNotesBlockDragId(null);
-    dropTarget = null;
-  }
-
-  function handleBlockDragOver(targetBlockId: string, event: DragEvent): void {
-    const sourceBlockId = draggedBlockIdFromEvent(event);
-    if (!sourceBlockId) {
-      if (dropTarget?.blockId === targetBlockId) dropTarget = null;
-      return;
-    }
-    const intent = blockDropIntentFromEvent(event);
-    const plan = planNotesBlockDrop(currentTreeState(), sourceBlockId, targetBlockId, intent);
-    if (!plan) {
-      if (dropTarget?.blockId === targetBlockId) dropTarget = null;
-      return;
-    }
-    event.preventDefault();
-    if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
-    dropTarget = { blockId: targetBlockId, intent: plan.indicator };
-  }
-
-  function handleBlockDragLeave(targetBlockId: string, event: DragEvent): void {
-    const target = event.currentTarget;
-    const related = event.relatedTarget;
-    if (
-      target instanceof HTMLElement
-      && related instanceof Node
-      && target.contains(related)
-    ) {
-      return;
-    }
-    if (dropTarget?.blockId === targetBlockId) dropTarget = null;
-  }
-
-  function handleBlockDrop(targetBlockId: string, event: DragEvent): void {
-    const sourceBlockId = draggedBlockIdFromEvent(event);
-    if (!sourceBlockId) {
-      handleBlockDragEnd();
-      return;
-    }
-    const intent = dropTarget?.blockId === targetBlockId
-      ? dropTarget.intent
-      : blockDropIntentFromEvent(event);
-    const plan = planNotesBlockDrop(currentTreeState(), sourceBlockId, targetBlockId, intent);
-    if (!plan) {
-      handleBlockDragEnd();
-      return;
-    }
-    event.preventDefault();
-    handleBlockDragEnd();
-    void notes.dropBlockOnBlock(sourceBlockId, targetBlockId, plan.indicator);
-  }
-
-  function dropPositionForBlock(blockId: string): NotesBlockDropIndicator | null {
-    return dropTarget?.blockId === blockId ? dropTarget.intent : null;
-  }
+  const draggingBlockId = $derived(blockDrag.draggingBlockId);
+  const handleBlockDragStart = blockDrag.start;
+  const handleBlockDragEnd = blockDrag.end;
+  const handleBlockDragOver = blockDrag.over;
+  const handleBlockDragLeave = blockDrag.leave;
+  const handleBlockDrop = blockDrag.drop;
+  const dropPositionForBlock = blockDrag.dropPositionForBlock;
+  const renderActions: NotesBlockRenderActions = {
+    onTextInput: (id, text, selection) => void notes.updateBlockText(id, text, selection),
+    onReplaceRichText: replaceBlockRichText,
+    onInsertPageMention: insertPageMention, onInsertDateMention: insertDateMention,
+    onInsertObjectMention: insertObjectMention, onApplyTextLink: applyTextLink,
+    onInsertInlineEquation: insertInlineEquation, onPastePlainText: pastePlainText,
+    onPasteRichHtml: pasteRichHtml, onApplyTextAnnotations: applyTextAnnotations,
+    onCreateInlineComment: notes.startInlineComment, onCreateInlineSuggestion: notes.startInlineSuggestion,
+    onKeyboardAction: handleKeyboardAction, onUndo: undoNotesEdit, onRedo: redoNotesEdit,
+    onAddBelow: (id, request) => void notes.createSiblingAfter(id, request), onConvert: handleConvert,
+    onConvertToToggleHeading: convertToToggleHeading, onColorChange: (id, color) => void notes.updateBlockColor(id, color),
+    onCopyLink: copyBlockLink, onDuplicate: (id) => void notes.duplicateBlock(id),
+    onUseTemplate: (id) => void notes.useTemplateBlock(id), onAddTemplateChild: (id) => void notes.addTemplateChild(id),
+    onUseButton: (id) => void notes.useButtonBlock(id), onAddButtonChild: (id) => void notes.addButtonChild(id),
+    onButtonIconChange: (id, icon) => void notes.updateButtonIcon(id, icon),
+    onButtonInsertPositionChange: (id, position) => void notes.updateButtonInsertPosition(id, position),
+    onCreateLinkedDatabaseView: notes.createLinkedDatabaseViewAfter, onConvertUnsupported: notes.convertUnsupportedBlock,
+    onComment: (id) => void notes.startBlockComment(id), onMoveUp: (id) => void notes.moveBlockUp(id),
+    onMoveDown: (id) => void notes.moveBlockDown(id), onMoveToPage: (id, page) => void notes.moveBlockToPage(id, page),
+    onDelete: (id) => void notes.deleteBlock(id), onToggleTodo: (id, checked) => void notes.toggleTodo(id, checked),
+    onToggleOpen: (id, open) => void notes.updateToggleOpen(id, open),
+    onCodeLanguageChange: (id, language) => void notes.updateCodeLanguage(id, language),
+    onBookmarkChange: (id, url, caption) => void notes.updateBookmark(id, url, caption),
+    onLinkPreviewUrlChange: (id, url) => void notes.updateLinkPreviewUrl(id, url),
+    onEmbedUrlChange: (id, url) => void notes.updateEmbedUrl(id, url),
+    onEquationExpressionChange: (id, expression) => void notes.updateEquationExpression(id, expression),
+    onMediaChange: (id, url, caption, name, change) => void notes.updateMedia(id, url, caption, name, change),
+    onTableCellRichTextChange: replaceTableCellRichText,
+    onAddTableRow: addTableRow, onRemoveTableRow: removeTableRow,
+    onAddTableColumn: addTableColumn, onRemoveTableColumn: removeTableColumn,
+    onSelectPage: (id) => onSelectPage(id), onFocusBlock: (id) => onFocusBlock(id),
+    onHandlePointerMove: showBlockHandleFromPointer, onHandlePointerLeave: hideBlockHandleAfterPointerLeave,
+    onHandleMenuOpenChange: updateBlockHandleMenuOpen,
+  };
+  const renderLookups: NotesBlockRenderLookups = {
+    tableRowsForBlock: notes.tableRowsForBlock, previousBlockTypeForBlock: notes.previousBlockType,
+    isOnlyBlockForBlock: notes.isOnlyBlock, moveTargetsForBlock: moveTargetsForBlockId,
+    templateStatusForBlock, buttonStatusForBlock,
+  };
+  const columnRenderActions: NotesColumnRenderActions = { onAddColumn: addColumn, onRemoveColumn: removeColumn, onMoveColumn: moveColumn, onResizeColumn: resizeColumn, onMoveBlockToColumn: moveBlockToColumn };
+  const tabRenderActions: NotesTabRenderActions = { onUpdateTabLabel: updateTabLabel, onUpdateTabIcon: updateTabIcon, onAddTab: addTab, onRemoveTab: removeTab, onMoveTab: moveTab, onMoveBlockToTab: moveBlockToTab };
+  const dragBindings: NotesBlockDragBindings = $derived({ draggingBlockId, dropPositionForBlock, onDragStart: handleBlockDragStart, onDragEnd: handleBlockDragEnd, onDragOver: handleBlockDragOver, onDragLeave: handleBlockDragLeave, onDrop: handleBlockDrop });
 </script>
 
 <div
@@ -1524,560 +620,59 @@
   aria-label={t("notes.blockList")}
 >
   {#if blockSelection}
-    <div
-      class="sticky top-2 z-20 mb-2 flex min-w-0 flex-wrap items-center gap-1 rounded-md border border-border bg-popover/95 px-2 py-1.5 text-xs text-popover-foreground shadow-sm backdrop-blur"
-      role="toolbar"
-      aria-label={t("notes.selectionActions")}
-    >
-      <span class="mr-1 shrink-0 font-medium text-muted-foreground">
-        {t("notes.selectedBlocks", selectedBlockCount)}
-      </span>
-      <button
-        type="button"
-        class="inline-flex h-8 items-center gap-1 rounded-md px-2 text-xs hover:bg-accent disabled:pointer-events-none disabled:opacity-50"
-        disabled={selectionBusy || selectedRootBlockIds.length === 0}
-        aria-label={t("notes.copySelection")}
-        title={t("notes.copySelection")}
-        onclick={() => {
-          void runSelectionAction(() => copyCurrentBlockSelection("copy"));
-        }}
-      >
-        <Copy size={14} aria-hidden="true" />
-        <span>{t("notes.copySelection")}</span>
-      </button>
-      <button
-        type="button"
-        class="inline-flex h-8 items-center gap-1 rounded-md px-2 text-xs hover:bg-accent disabled:pointer-events-none disabled:opacity-50"
-        disabled={selectionBusy || selectedRootBlockIds.length === 0}
-        aria-label={t("notes.cutSelection")}
-        title={t("notes.cutSelection")}
-        onclick={() => {
-          void runSelectionAction(() => copyCurrentBlockSelection("cut"));
-        }}
-      >
-        <Scissors size={14} aria-hidden="true" />
-        <span>{t("notes.cutSelection")}</span>
-      </button>
-      <button
-        type="button"
-        class="inline-flex h-8 items-center gap-1 rounded-md px-2 text-xs hover:bg-accent disabled:pointer-events-none disabled:opacity-50"
-        disabled={selectionBusy || !selectionClipboard}
-        aria-label={t("notes.pasteSelection")}
-        title={t("notes.pasteSelection")}
-        onclick={() => {
-          void runSelectionAction(() => pasteSelectionClipboard(blockSelection?.focusBlockId ?? notes.focusBlockId));
-        }}
-      >
-        <ClipboardPaste size={14} aria-hidden="true" />
-        <span>{t("notes.pasteSelection")}</span>
-      </button>
-      <button
-        type="button"
-        class="inline-flex h-8 items-center gap-1 rounded-md px-2 text-xs hover:bg-accent disabled:pointer-events-none disabled:opacity-50"
-        disabled={selectionBusy || selectedRootBlockIds.length === 0}
-        aria-label={t("notes.duplicateSelection")}
-        title={t("notes.duplicateSelection")}
-        onclick={() => {
-          void runSelectionAction(duplicateCurrentBlockSelection);
-        }}
-      >
-        <CopyPlus size={14} aria-hidden="true" />
-        <span>{t("notes.duplicateSelection")}</span>
-      </button>
-      <button
-        type="button"
-        class="inline-flex h-8 items-center justify-center rounded-md px-2 hover:bg-accent disabled:pointer-events-none disabled:opacity-50"
-        disabled={selectionBusy || !canMoveSelectionUp}
-        aria-label={t("notes.moveSelectionUp")}
-        title={t("notes.moveSelectionUp")}
-        onclick={() => {
-          void runSelectionAction(() => moveCurrentBlockSelection("up"));
-        }}
-      >
-        <ArrowUp size={15} aria-hidden="true" />
-      </button>
-      <button
-        type="button"
-        class="inline-flex h-8 items-center justify-center rounded-md px-2 hover:bg-accent disabled:pointer-events-none disabled:opacity-50"
-        disabled={selectionBusy || !canMoveSelectionDown}
-        aria-label={t("notes.moveSelectionDown")}
-        title={t("notes.moveSelectionDown")}
-        onclick={() => {
-          void runSelectionAction(() => moveCurrentBlockSelection("down"));
-        }}
-      >
-        <ArrowDown size={15} aria-hidden="true" />
-      </button>
-      <button
-        type="button"
-        class="inline-flex h-8 items-center gap-1 rounded-md px-2 text-xs text-destructive hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50"
-        disabled={selectionBusy || selectedRootBlockIds.length === 0}
-        aria-label={t("notes.deleteSelection")}
-        title={t("notes.deleteSelection")}
-        onclick={() => {
-          void runSelectionAction(deleteCurrentBlockSelection);
-        }}
-      >
-        <Trash2 size={14} aria-hidden="true" />
-        <span>{t("notes.deleteSelection")}</span>
-      </button>
-      {#if selectionActionError}
-        <span class="min-w-0 flex-1 truncate text-destructive" role="status">
-          {t("notes.selectionActionFailed")} {selectionActionError}
-        </span>
-      {/if}
-    </div>
+    <NotesBlockSelectionToolbar
+      selectedCount={selectedBlockCount}
+      hasSelectedRoots={selectedRootBlockIds.length > 0}
+      clipboardAvailable={selectionClipboard !== null}
+      canMoveUp={canMoveSelectionUp}
+      canMoveDown={canMoveSelectionDown}
+      busy={selectionBusy}
+      error={selectionActionError}
+      onCopy={() => void blockSelectionController.run(() => blockSelectionController.copy("copy"))}
+      onCut={() => void blockSelectionController.run(() => blockSelectionController.copy("cut"))}
+      onPaste={() => void blockSelectionController.run(() => blockSelectionController.paste(blockSelection?.focusBlockId ?? notes.focusBlockId))}
+      onDuplicate={() => void blockSelectionController.run(blockSelectionController.duplicate)}
+      onMoveUp={() => void blockSelectionController.run(() => blockSelectionController.move("up"))}
+      onMoveDown={() => void blockSelectionController.run(() => blockSelectionController.move("down"))}
+      onDelete={() => void blockSelectionController.run(blockSelectionController.remove)}
+    />
   {/if}
   {#if visibleRange.topHeight > 0}
     <div aria-hidden="true" style:height={`${visibleRange.topHeight}px`}></div>
   {/if}
   {#each visibleOutlines as outlineItem (outlineItem.outline.id)}
     {@const item = hydratedItemsById.get(outlineItem.outline.id)}
-    {#if item}
-      <div use:measureVirtualBlock={item.block.id} data-notes-virtual-block={item.block.id}>
-      {#if item.block.type === "column_list"}
-      {#if structuralBlockLoadStates["column-list"]?.status === "ready" && structuralBlockLoadStates["column-list"].component.kind === "column-list"}
-        {@const NotesColumnListBlock = structuralBlockLoadStates["column-list"].component.component}
-        <NotesColumnListBlock
+    <NotesVirtualBlock
+      {item}
+      blockId={outlineItem.outline.id}
+      retainedHeight={outlineItem.outline.retained_height}
+      measure={measureVirtualBlock}
+    >
+      {#snippet children(item)}
+      <NotesVisibleBlockRenderer
         {item}
+        state={renderState}
+        actions={renderActions}
+        drag={dragBindings}
+        lookups={renderLookups}
+        columnActions={columnRenderActions}
+        tabActions={tabRenderActions}
         columnItems={notes.columnItemsForBlock(item.block.id)}
-        {breadcrumbItems}
-        {tableOfContentsItems}
-        tableRowsForBlock={notes.tableRowsForBlock}
-        previousBlockType={notes.previousBlockType(item.block.id)}
-        previousBlockTypeForBlock={notes.previousBlockType}
-        isOnlyBlock={notes.isOnlyBlock(item.block.id)}
-        isOnlyBlockForBlock={notes.isOnlyBlock}
-        focusBlockId={notes.focusBlockId}
-        focusRequestId={notes.focusRequestId}
-        focusSelection={notes.focusSelection}
-        handleVisibleBlockId={blockHandleHoverState.visibleBlockId}
-        {mentionTargets}
-        {templateStatusForBlock}
-        {buttonStatusForBlock}
-        onTextInput={(blockId, text, selection) => {
-          void notes.updateBlockText(blockId, text, selection);
-        }}
-        onReplaceRichText={replaceBlockRichText}
-        onInsertPageMention={insertPageMention}
-        onInsertDateMention={insertDateMention}
-        onInsertObjectMention={insertObjectMention}
-        onApplyTextLink={applyTextLink}
-        onInsertInlineEquation={insertInlineEquation}
-        onPastePlainText={pastePlainText}
-        onPasteRichHtml={pasteRichHtml}
-        onApplyTextAnnotations={applyTextAnnotations}
-        onCreateInlineComment={(blockId, start, end) => {
-          void notes.startInlineComment(blockId, start, end);
-        }}
-        onCreateInlineSuggestion={(blockId, start, end) => {
-          void notes.startInlineSuggestion(blockId, start, end);
-        }}
-        onKeyboardAction={handleKeyboardAction}
-        onUndo={undoNotesEdit}
-        onRedo={redoNotesEdit}
-        onAddBelow={(blockId, request?: NotesBlockInsertRequest) => {
-          void notes.createSiblingAfter(blockId, request);
-        }}
-        onConvert={handleConvert}
-        onConvertToToggleHeading={convertToToggleHeading}
-        onColorChange={(blockId, color) => {
-          void notes.updateBlockColor(blockId, color);
-        }}
-        onCopyLink={copyBlockLink}
-        onDuplicate={(blockId) => {
-          void notes.duplicateBlock(blockId);
-        }}
-        onUseTemplate={(blockId) => {
-          void notes.useTemplateBlock(blockId);
-        }}
-        onAddTemplateChild={(blockId) => {
-          void notes.addTemplateChild(blockId);
-        }}
-        onUseButton={(blockId) => {
-          void notes.useButtonBlock(blockId);
-        }}
-        onAddButtonChild={(blockId) => {
-          void notes.addButtonChild(blockId);
-        }}
-        onButtonIconChange={(blockId, icon: NotesIcon | null) => {
-          void notes.updateButtonIcon(blockId, icon);
-        }}
-        onButtonInsertPositionChange={(blockId, position: NotesButtonInsertPosition) => {
-          void notes.updateButtonInsertPosition(blockId, position);
-        }}
-        onCreateLinkedDatabaseView={(blockId) => {
-          void notes.createLinkedDatabaseViewAfter(blockId);
-        }}
-        onConvertUnsupported={(blockId, target: NotesUnsupportedConversionTarget) => {
-          void notes.convertUnsupportedBlock(blockId, target);
-        }}
-        onComment={(blockId) => {
-          void notes.startBlockComment(blockId);
-        }}
-        onMoveUp={(blockId) => {
-          void notes.moveBlockUp(blockId);
-        }}
-        onMoveDown={(blockId) => {
-          void notes.moveBlockDown(blockId);
-        }}
-        moveTargets={moveTargetsForBlock(item.block)}
-        moveTargetsForBlock={moveTargetsForBlockId}
-        onMoveToPage={(blockId, targetPageId) => {
-          void notes.moveBlockToPage(blockId, targetPageId);
-        }}
-        onDelete={(blockId) => {
-          void notes.deleteBlock(blockId);
-        }}
-        isDragging={draggingBlockId === item.block.id}
-        dropPosition={dropPositionForBlock(item.block.id)}
-        {draggingBlockId}
-        {dropPositionForBlock}
-        onDragStart={handleBlockDragStart}
-        onDragEnd={handleBlockDragEnd}
-        onDragOver={handleBlockDragOver}
-        onDragLeave={handleBlockDragLeave}
-        onDrop={handleBlockDrop}
-        onToggleTodo={(blockId, checked) => {
-          void notes.toggleTodo(blockId, checked);
-        }}
-        onToggleOpen={(blockId, open) => {
-          void notes.updateToggleOpen(blockId, open);
-        }}
-        onCodeLanguageChange={(blockId, language) => {
-          void notes.updateCodeLanguage(blockId, language);
-        }}
-        onBookmarkChange={(blockId, url, caption) => {
-          void notes.updateBookmark(blockId, url, caption);
-        }}
-        onLinkPreviewUrlChange={(blockId, url) => {
-          void notes.updateLinkPreviewUrl(blockId, url);
-        }}
-        onEmbedUrlChange={(blockId, url) => {
-          void notes.updateEmbedUrl(blockId, url);
-        }}
-        onEquationExpressionChange={(blockId, expression) => {
-          void notes.updateEquationExpression(blockId, expression);
-        }}
-        onMediaChange={(blockId, url, caption, name, assetChange) => {
-          void notes.updateMedia(blockId, url, caption, name, assetChange);
-        }}
-        onTableCellRichTextChange={replaceTableCellRichText}
-        onAddTableRow={addTableRow}
-        onRemoveTableRow={removeTableRow}
-        onAddTableColumn={addTableColumn}
-        onRemoveTableColumn={removeTableColumn}
-        onAddColumn={addColumn}
-        onRemoveColumn={removeColumn}
-        onMoveColumn={moveColumn}
-        onResizeColumn={resizeColumn}
-        onMoveBlockToColumn={moveBlockToColumn}
-        {onSelectPage}
-        {onFocusBlock}
-        onHandlePointerMove={showBlockHandleFromPointer}
-        onHandlePointerLeave={hideBlockHandleAfterPointerLeave}
-        onHandleMenuOpenChange={updateBlockHandleMenuOpen}
-        />
-      {:else if structuralBlockLoadStates["column-list"]?.status === "failed"}
-        <div class="my-1 rounded-md border border-destructive/40 p-2 text-[0.8rem] text-destructive" role="alert">
-          <p>{t("common.viewLoadFailed", t("notes.blockType.columns"))}</p>
-          <button class="mt-2 min-h-8 rounded-md border border-border px-2 text-foreground hover:bg-accent" type="button" onclick={() => requestStructuralBlock("column-list", true)}>{t("common.retry")}</button>
-        </div>
-      {:else}
-        <div class="my-1 min-h-8 text-[0.8rem] text-muted-foreground" aria-busy="true">{t("common.loading")}</div>
-      {/if}
-    {:else if item.block.type === "tab"}
-      {#if structuralBlockLoadStates.tab?.status === "ready" && structuralBlockLoadStates.tab.component.kind === "tab"}
-        {@const NotesTabBlock = structuralBlockLoadStates.tab.component.component}
-        <NotesTabBlock
-        {item}
         tabItems={notes.tabItemsForBlock(item.block.id)}
-        {breadcrumbItems}
-        {tableOfContentsItems}
-        tableRowsForBlock={notes.tableRowsForBlock}
-        previousBlockType={notes.previousBlockType(item.block.id)}
-        previousBlockTypeForBlock={notes.previousBlockType}
-        isOnlyBlock={notes.isOnlyBlock(item.block.id)}
-        isOnlyBlockForBlock={notes.isOnlyBlock}
-        focusBlockId={notes.focusBlockId}
-        focusRequestId={notes.focusRequestId}
-        focusSelection={notes.focusSelection}
-        handleVisibleBlockId={blockHandleHoverState.visibleBlockId}
-        {mentionTargets}
-        {templateStatusForBlock}
-        {buttonStatusForBlock}
-        onTextInput={(blockId, text, selection) => {
-          void notes.updateBlockText(blockId, text, selection);
-        }}
-        onReplaceRichText={replaceBlockRichText}
-        onInsertPageMention={insertPageMention}
-        onInsertDateMention={insertDateMention}
-        onInsertObjectMention={insertObjectMention}
-        onApplyTextLink={applyTextLink}
-        onInsertInlineEquation={insertInlineEquation}
-        onPastePlainText={pastePlainText}
-        onPasteRichHtml={pasteRichHtml}
-        onApplyTextAnnotations={applyTextAnnotations}
-        onCreateInlineComment={(blockId, start, end) => {
-          void notes.startInlineComment(blockId, start, end);
-        }}
-        onCreateInlineSuggestion={(blockId, start, end) => {
-          void notes.startInlineSuggestion(blockId, start, end);
-        }}
-        onKeyboardAction={handleKeyboardAction}
-        onUndo={undoNotesEdit}
-        onRedo={redoNotesEdit}
-        onAddBelow={(blockId, request?: NotesBlockInsertRequest) => {
-          void notes.createSiblingAfter(blockId, request);
-        }}
-        onConvert={handleConvert}
-        onConvertToToggleHeading={convertToToggleHeading}
-        onColorChange={(blockId, color) => {
-          void notes.updateBlockColor(blockId, color);
-        }}
-        onCopyLink={copyBlockLink}
-        onDuplicate={(blockId) => {
-          void notes.duplicateBlock(blockId);
-        }}
-        onUseTemplate={(blockId) => {
-          void notes.useTemplateBlock(blockId);
-        }}
-        onAddTemplateChild={(blockId) => {
-          void notes.addTemplateChild(blockId);
-        }}
-        onUseButton={(blockId) => {
-          void notes.useButtonBlock(blockId);
-        }}
-        onAddButtonChild={(blockId) => {
-          void notes.addButtonChild(blockId);
-        }}
-        onButtonIconChange={(blockId, icon: NotesIcon | null) => {
-          void notes.updateButtonIcon(blockId, icon);
-        }}
-        onButtonInsertPositionChange={(blockId, position: NotesButtonInsertPosition) => {
-          void notes.updateButtonInsertPosition(blockId, position);
-        }}
-        onCreateLinkedDatabaseView={(blockId) => {
-          void notes.createLinkedDatabaseViewAfter(blockId);
-        }}
-        onConvertUnsupported={(blockId, target: NotesUnsupportedConversionTarget) => {
-          void notes.convertUnsupportedBlock(blockId, target);
-        }}
-        onComment={(blockId) => {
-          void notes.startBlockComment(blockId);
-        }}
-        onMoveUp={(blockId) => {
-          void notes.moveBlockUp(blockId);
-        }}
-        onMoveDown={(blockId) => {
-          void notes.moveBlockDown(blockId);
-        }}
-        moveTargets={moveTargetsForBlock(item.block)}
-        moveTargetsForBlock={moveTargetsForBlockId}
-        onMoveToPage={(blockId, targetPageId) => {
-          void notes.moveBlockToPage(blockId, targetPageId);
-        }}
-        onDelete={(blockId) => {
-          void notes.deleteBlock(blockId);
-        }}
-        isDragging={draggingBlockId === item.block.id}
-        dropPosition={dropPositionForBlock(item.block.id)}
-        {draggingBlockId}
-        {dropPositionForBlock}
-        onDragStart={handleBlockDragStart}
-        onDragEnd={handleBlockDragEnd}
-        onDragOver={handleBlockDragOver}
-        onDragLeave={handleBlockDragLeave}
-        onDrop={handleBlockDrop}
-        onToggleTodo={(blockId, checked) => {
-          void notes.toggleTodo(blockId, checked);
-        }}
-        onToggleOpen={(blockId, open) => {
-          void notes.updateToggleOpen(blockId, open);
-        }}
-        onCodeLanguageChange={(blockId, language) => {
-          void notes.updateCodeLanguage(blockId, language);
-        }}
-        onBookmarkChange={(blockId, url, caption) => {
-          void notes.updateBookmark(blockId, url, caption);
-        }}
-        onLinkPreviewUrlChange={(blockId, url) => {
-          void notes.updateLinkPreviewUrl(blockId, url);
-        }}
-        onEmbedUrlChange={(blockId, url) => {
-          void notes.updateEmbedUrl(blockId, url);
-        }}
-        onEquationExpressionChange={(blockId, expression) => {
-          void notes.updateEquationExpression(blockId, expression);
-        }}
-        onMediaChange={(blockId, url, caption, name, assetChange) => {
-          void notes.updateMedia(blockId, url, caption, name, assetChange);
-        }}
-        onTableCellRichTextChange={replaceTableCellRichText}
-        onAddTableRow={addTableRow}
-        onRemoveTableRow={removeTableRow}
-        onAddTableColumn={addTableColumn}
-        onRemoveTableColumn={removeTableColumn}
-        onUpdateTabLabel={updateTabLabel}
-        onUpdateTabIcon={updateTabIcon}
-        onAddTab={addTab}
-        onRemoveTab={removeTab}
-        onMoveTab={moveTab}
-        onMoveBlockToTab={moveBlockToTab}
-        {onSelectPage}
-        {onFocusBlock}
-        onHandlePointerMove={showBlockHandleFromPointer}
-        onHandlePointerLeave={hideBlockHandleAfterPointerLeave}
-        onHandleMenuOpenChange={updateBlockHandleMenuOpen}
-        />
-      {:else if structuralBlockLoadStates.tab?.status === "failed"}
-        <div class="my-1 rounded-md border border-destructive/40 p-2 text-[0.8rem] text-destructive" role="alert">
-          <p>{t("common.viewLoadFailed", t("notes.blockType.tab"))}</p>
-          <button class="mt-2 min-h-8 rounded-md border border-border px-2 text-foreground hover:bg-accent" type="button" onclick={() => requestStructuralBlock("tab", true)}>{t("common.retry")}</button>
-        </div>
-      {:else}
-        <div class="my-1 min-h-8 text-[0.8rem] text-muted-foreground" aria-busy="true">{t("common.loading")}</div>
-      {/if}
-    {:else}
-      <NotesBlockRow
-        {item}
-        {breadcrumbItems}
-        {tableOfContentsItems}
         tableRows={notes.tableRowsForBlock(item.block.id)}
         previousBlockType={notes.previousBlockType(item.block.id)}
         isOnlyBlock={notes.isOnlyBlock(item.block.id)}
-        focusBlockId={notes.focusBlockId}
-        focusRequestId={notes.focusRequestId}
-        focusSelection={notes.focusSelection}
-        handleVisibleBlockId={blockHandleHoverState.visibleBlockId}
-        {mentionTargets}
+        moveTargets={moveTargetsForBlock(item.block)}
         templateStatus={templateStatusForBlock(item.block.id)}
         buttonStatus={buttonStatusForBlock(item.block.id)}
-        onTextInput={(blockId, text, selection) => {
-          void notes.updateBlockText(blockId, text, selection);
-        }}
-        onReplaceRichText={replaceBlockRichText}
-        onInsertPageMention={insertPageMention}
-        onInsertDateMention={insertDateMention}
-        onInsertObjectMention={insertObjectMention}
-        onApplyTextLink={applyTextLink}
-        onInsertInlineEquation={insertInlineEquation}
-        onPastePlainText={pastePlainText}
-        onPasteRichHtml={pasteRichHtml}
-        onApplyTextAnnotations={applyTextAnnotations}
-      onCreateInlineComment={(blockId, start, end) => {
-        void notes.startInlineComment(blockId, start, end);
-      }}
-      onCreateInlineSuggestion={(blockId, start, end) => {
-        void notes.startInlineSuggestion(blockId, start, end);
-      }}
-      onKeyboardAction={handleKeyboardAction}
-        onUndo={undoNotesEdit}
-        onRedo={redoNotesEdit}
-        onAddBelow={(blockId, request?: NotesBlockInsertRequest) => {
-          void notes.createSiblingAfter(blockId, request);
-        }}
-        onConvert={handleConvert}
-        onConvertToToggleHeading={convertToToggleHeading}
-        onColorChange={(blockId, color) => {
-          void notes.updateBlockColor(blockId, color);
-        }}
-        onCopyLink={copyBlockLink}
-        onDuplicate={(blockId) => {
-          void notes.duplicateBlock(blockId);
-        }}
-        onUseTemplate={(blockId) => {
-          void notes.useTemplateBlock(blockId);
-        }}
-        onAddTemplateChild={(blockId) => {
-          void notes.addTemplateChild(blockId);
-        }}
-        onUseButton={(blockId) => {
-          void notes.useButtonBlock(blockId);
-        }}
-        onAddButtonChild={(blockId) => {
-          void notes.addButtonChild(blockId);
-        }}
-        onButtonIconChange={(blockId, icon: NotesIcon | null) => {
-          void notes.updateButtonIcon(blockId, icon);
-        }}
-        onButtonInsertPositionChange={(blockId, position: NotesButtonInsertPosition) => {
-          void notes.updateButtonInsertPosition(blockId, position);
-        }}
-        onCreateLinkedDatabaseView={(blockId) => {
-          void notes.createLinkedDatabaseViewAfter(blockId);
-        }}
-        onConvertUnsupported={(blockId, target: NotesUnsupportedConversionTarget) => {
-          void notes.convertUnsupportedBlock(blockId, target);
-        }}
-        onComment={(blockId) => {
-          void notes.startBlockComment(blockId);
-        }}
-        onMoveUp={(blockId) => {
-          void notes.moveBlockUp(blockId);
-        }}
-        onMoveDown={(blockId) => {
-          void notes.moveBlockDown(blockId);
-        }}
-        moveTargets={moveTargetsForBlock(item.block)}
-        onMoveToPage={(blockId, targetPageId) => {
-          void notes.moveBlockToPage(blockId, targetPageId);
-        }}
-        onDelete={(blockId) => {
-          void notes.deleteBlock(blockId);
-        }}
-        isDragging={draggingBlockId === item.block.id}
-        dropPosition={dropPositionForBlock(item.block.id)}
-        onDragStart={handleBlockDragStart}
-        onDragEnd={handleBlockDragEnd}
-        onDragOver={handleBlockDragOver}
-        onDragLeave={handleBlockDragLeave}
-        onDrop={handleBlockDrop}
-        onToggleTodo={(blockId, checked) => {
-          void notes.toggleTodo(blockId, checked);
-        }}
-        onToggleOpen={(blockId, open) => {
-          void notes.updateToggleOpen(blockId, open);
-        }}
-        onCodeLanguageChange={(blockId, language) => {
-          void notes.updateCodeLanguage(blockId, language);
-        }}
-        onBookmarkChange={(blockId, url, caption) => {
-          void notes.updateBookmark(blockId, url, caption);
-        }}
-        onLinkPreviewUrlChange={(blockId, url) => {
-          void notes.updateLinkPreviewUrl(blockId, url);
-        }}
-        onEmbedUrlChange={(blockId, url) => {
-          void notes.updateEmbedUrl(blockId, url);
-        }}
-        onEquationExpressionChange={(blockId, expression) => {
-          void notes.updateEquationExpression(blockId, expression);
-        }}
-        onMediaChange={(blockId, url, caption, name, assetChange) => {
-          void notes.updateMedia(blockId, url, caption, name, assetChange);
-        }}
-        onTableCellRichTextChange={replaceTableCellRichText}
-        onAddTableRow={addTableRow}
-        onRemoveTableRow={removeTableRow}
-        onAddTableColumn={addTableColumn}
-        onRemoveTableColumn={removeTableColumn}
-        {onSelectPage}
-        {onFocusBlock}
-        onHandlePointerMove={showBlockHandleFromPointer}
-        onHandlePointerLeave={hideBlockHandleAfterPointerLeave}
-        onHandleMenuOpenChange={updateBlockHandleMenuOpen}
+        columnComponent={columnListLoadState?.status === "ready" && columnListLoadState.component.kind === "column-list" ? columnListLoadState.component.component : null}
+        tabComponent={tabLoadState?.status === "ready" && tabLoadState.component.kind === "tab" ? tabLoadState.component.component : null}
+        columnFailed={columnListLoadState?.status === "failed"}
+        tabFailed={tabLoadState?.status === "failed"}
+        retryStructural={(kind) => structuralBlockLoader.request(kind, true)}
       />
-      {/if}
-      </div>
-    {:else}
-      <div
-        class="rounded-sm bg-muted/20"
-        style:height={`${outlineItem.outline.retained_height}px`}
-        data-notes-block-placeholder={outlineItem.outline.id}
-        aria-hidden="true"
-      ></div>
-    {/if}
+      {/snippet}
+    </NotesVirtualBlock>
   {/each}
   {#if visibleRange.bottomHeight > 0}
     <div aria-hidden="true" style:height={`${visibleRange.bottomHeight}px`}></div>
