@@ -1,4 +1,9 @@
-use super::*;
+use crate::db_path::connect_sqlite;
+use tauri::{AppHandle, Runtime};
+
+use super::models::*;
+use super::routine::ensure_built_in_routine_defaults;
+use super::task_views::{load_task_detail, load_task_view};
 
 #[tauri::command]
 pub async fn projects_load_workspace<R: Runtime>(
@@ -373,74 +378,3 @@ pub(super) async fn load_project_custom_emojis(
     .await
     .map_err(|e| format!("load project custom emoji: {e}"))
 }
-
-macro_rules! define_mutation_loader {
-    ($name:ident, $field:ident, $row:ty, $table:literal) => {
-        pub(super) async fn $name(
-            pool: &sqlx::SqlitePool,
-            id: &str,
-        ) -> Result<ProjectsMutationRows, String> {
-            let row = sqlx::query_as::<_, $row>(concat!("SELECT * FROM ", $table, " WHERE id = ?"))
-                .bind(id)
-                .fetch_one(pool)
-                .await
-                .map_err(|e| format!("load mutation result from {}: {e}", $table))?;
-            let mut mutation = ProjectsMutationRows::default();
-            mutation.$field.push(row);
-            Ok(mutation)
-        }
-    };
-}
-
-define_mutation_loader!(group_mutation, groups, ProjectGroupRow, "project_groups");
-define_mutation_loader!(project_mutation, projects, ProjectRow, "projects");
-define_mutation_loader!(
-    section_mutation,
-    sections,
-    ProjectSectionRow,
-    "project_sections"
-);
-define_mutation_loader!(
-    status_mutation,
-    statuses,
-    ProjectStatusRow,
-    "project_statuses"
-);
-define_mutation_loader!(
-    priority_mutation,
-    priorities,
-    ProjectPriorityRow,
-    "project_priorities"
-);
-define_mutation_loader!(task_mutation_base, tasks, ProjectTaskRow, "project_tasks");
-define_mutation_loader!(
-    checklist_item_mutation_base,
-    checklist_items,
-    ProjectChecklistItemRow,
-    "project_checklist_items"
-);
-define_mutation_loader!(tag_mutation, tags, ProjectTagRow, "project_tags");
-define_mutation_loader!(
-    custom_field_mutation,
-    custom_fields,
-    ProjectCustomFieldRow,
-    "project_custom_fields"
-);
-define_mutation_loader!(
-    custom_field_option_mutation,
-    custom_field_options,
-    ProjectCustomFieldOptionRow,
-    "project_custom_field_options"
-);
-define_mutation_loader!(
-    dependency_mutation_base,
-    dependencies,
-    ProjectTaskDependencyRow,
-    "project_task_dependencies"
-);
-define_mutation_loader!(
-    custom_emoji_mutation,
-    custom_emojis,
-    ProjectCustomEmojiRow,
-    "project_custom_emojis"
-);
