@@ -78,6 +78,7 @@ import {
   notesPostTrashResult,
   type NotesPostMutationResult,
 } from "$lib/notes/post-mutation";
+import { createNotesOptimisticWriteTracker } from "./notes-store-optimistic-writes";
 
 export interface NotesBlockReadCapabilities {
   readSelectedPageId: () => string | null;
@@ -155,26 +156,11 @@ export interface NotesBlockActions
  * Create Notes block mutation and UI action methods.
  */
 export function createNotesBlockActions(context: NotesBlockActionsContext): NotesBlockActions {
-  const pendingOptimisticBlockWrites = new Map<string, Promise<void>>();
-
-  function trackOptimisticBlockWrites(
-    blockIds: readonly string[],
-    persistence: Promise<void>,
-  ): void {
-    for (const blockId of blockIds) {
-      pendingOptimisticBlockWrites.set(blockId, persistence);
-    }
-    void persistence.finally(() => {
-      for (const blockId of blockIds) {
-        if (pendingOptimisticBlockWrites.get(blockId) === persistence) {
-          pendingOptimisticBlockWrites.delete(blockId);
-        }
-      }
-    });
-  }
+  const optimisticWrites = createNotesOptimisticWriteTracker();
+  const trackOptimisticBlockWrites = optimisticWrites.track;
 
   async function flushOptimisticBlockWrites(): Promise<void> {
-    await Promise.all([...new Set(pendingOptimisticBlockWrites.values())]);
+    await optimisticWrites.flush();
   }
 
   function optimisticBlockFromWrite(write: NotesBlockWrite, parent: NotesParent): NotesBlock {
@@ -240,7 +226,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
   const mediaActions = createNotesMediaBlockActions(context);
   const richTextActions = createNotesRichTextBlockActions({
     ...context,
-    hasPendingOptimisticWrite: (blockId) => pendingOptimisticBlockWrites.has(blockId),
+    hasPendingOptimisticWrite: optimisticWrites.has,
   });
   const tableActions = createNotesTableBlockActions({
     ...context,
@@ -269,7 +255,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     moveAndApply,
     moveManyAndApply,
     trashAndApply,
-    pendingOptimisticWrite: (blockId) => pendingOptimisticBlockWrites.get(blockId) ?? null,
+    pendingOptimisticWrite: optimisticWrites.pending,
     trackOptimisticBlockWrites,
     undoSnapshot,
     recordUndo,
@@ -278,7 +264,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
   const pasteActions = createNotesBlockPasteActions({
     ...context,
     appendAndApply,
-    pendingOptimisticWrite: (blockId) => pendingOptimisticBlockWrites.get(blockId) ?? null,
+    pendingOptimisticWrite: optimisticWrites.pending,
     trackOptimisticBlockWrites,
     optimisticBlockFromWrite,
     undoSnapshotForBlocks,

@@ -7,13 +7,10 @@ import {
 import { blockPlainText } from "$lib/notes/block-factory";
 import type { NotesBlockLinkTarget, NotesPageLinkTarget } from "$lib/notes/block-link";
 import {
-  buildNotesChildIdsByParent,
   parentIdForBlock,
   type NotesTreeState,
 } from "$lib/notes/block-tree";
 import {
-  flattenNotesBlockOutlines,
-  notesBlockOutlineFromBlock,
   type NotesBlockOutlineItem,
 } from "$lib/notes/block-outline";
 import {
@@ -32,7 +29,6 @@ import {
 import type { NotesTextSelection } from "$lib/notes/editor-selection";
 import type { NotesUndoSnapshot } from "$lib/notes/undo-history";
 import {
-  applyNotesPostMutationToTree,
   type NotesPostMutationResult,
   type NotesSidebarMetadataImpact,
 } from "$lib/notes/post-mutation";
@@ -66,7 +62,6 @@ import {
   notesTabItemsForBlock,
   notesTableRowsForBlock,
   notesTreeState,
-  notesTreeStateWithoutLeafBlock,
   previousNotesBlockType,
   type NotesBlockTreeSnapshot,
 } from "./notes-store-block-tree";
@@ -75,6 +70,8 @@ import {
   saveNotesSelectedPageId,
 } from "./notes-store-page-state";
 import { createNotesBlockPersistence } from "./notes-store-persistence";
+import { NotesPageSessionController } from "./notes-store-page-session.svelte";
+import { NotesTreeProjectionController } from "./notes-store-tree-projection.svelte";
 import { invalidateNotesNotificationSchedule } from "$lib/notes/notification-schedule.svelte";
 import type {
   NotesBlock,
@@ -107,15 +104,6 @@ const BLOCK_SAVE_DEBOUNCE_MS = 350;
 
 let pages = $state<NotesPage[]>([]);
 let allPages = $state<NotesPage[]>([]);
-let selectedPageId = $state<string | null>(initialNotesSelectedPageId());
-let pageOpenMode = $state<NotesPageOpenMode>("full");
-let loadedPage = $state<NotesPage | null>(null);
-let pageBreadcrumbItems = $state<NotesPageBreadcrumbItem[]>([]);
-let blocksById = $state<Record<string, NotesBlock>>({});
-let childIdsByParentId = $state<Record<string, string[]>>({});
-let blockOutlines = $state<NotesBlockOutline[]>([]);
-let flatBlockOutlines = $state<NotesBlockOutlineItem[]>([]);
-let primaryContentReady = $state(false);
 let viewMode = $state<NotesViewMode>("pages");
 let focusRequest = $state<NotesFocusRequest>({
   blockId: null,
@@ -123,21 +111,25 @@ let focusRequest = $state<NotesFocusRequest>({
   selection: null,
 });
 const START_OF_NOTES_BLOCK_SELECTION: NotesTextSelection = { start: 0, end: 0 };
-let pageWorkGeneration = 0;
-let titleFocusRequest = $state<{ pageId: string | null; requestId: number }>({
-  pageId: null,
-  requestId: 0,
+const pageSession = new NotesPageSessionController({
+  initialSelectedPageId: initialNotesSelectedPageId(),
+  persistSelectedPageId: saveNotesSelectedPageId,
+  recordRecentPage: (pageId) => sidebarController.recordRecentPage(pageId),
 });
-let pageTitleDraft = $state<{ pageId: string; title: string } | null>(null);
+const treeProjection = new NotesTreeProjectionController({
+  readSelectedPageId: () => pageSession.selectedPageId,
+});
 const preferences = getPreferences();
 const projects = getProjects();
 const archiveController = createNotesArchiveController();
 const searchController = createNotesSearchController();
 const linksController = createNotesLinksController({
-  readSelectedPageId: () => selectedPageId,
+  readSelectedPageId: () => pageSession.selectedPageId,
   readSelectedProjectId: () => projects.selectedProjectId,
   readAllPages: () => allPages,
-  reloadSelectedPage: (pageId) => loadPageTree(pageId),
+  reloadSelectedPage: async (pageId) => {
+    await loadPageTree(pageId);
+  },
   scheduleVisibleMetadataRefresh: () => sidebarRefreshCoordinator.schedule("visible-metadata"),
 });
 const sidebarController = createNotesSidebarController({
@@ -155,7 +147,11 @@ const {
 } = archiveController;
 
 function blockTreeSnapshot(): NotesBlockTreeSnapshot {
-  return { selectedPageId, blocksById, childIdsByParentId };
+  return {
+    selectedPageId: pageSession.selectedPageId,
+    blocksById: treeProjection.blocksById,
+    childIdsByParentId: treeProjection.childIdsByParentId,
+  };
 }
 
 function defaultNotesPageOpenMode(projectId: string | null = projects.selectedProjectId): NotesPageOpenMode {
@@ -167,7 +163,7 @@ function defaultNotesPageOpenMode(projectId: string | null = projects.selectedPr
 
 function projectIdForPage(pageId: string): string | null {
   const page = allPages.find((candidate) => candidate.id === pageId)
-    ?? (loadedPage?.id === pageId ? loadedPage : null);
+    ?? (treeProjection.loadedPage?.id === pageId ? treeProjection.loadedPage : null);
   return page ? notesPageProjectId(page) : projects.selectedProjectId;
 }
 
@@ -176,22 +172,20 @@ function treeState(): NotesTreeState {
 }
 
 function saveSelectedPageId(pageId: string | null): void {
-  selectedPageId = pageId;
-  saveNotesSelectedPageId(pageId);
+  pageSession.select(pageId);
 }
 
 function showSelectedPageAs(openMode: NotesPageOpenMode): void {
-  pageOpenMode = openMode;
+  pageSession.pageOpenMode = openMode;
 }
 
 function openSelectedPage(pageId: string, openMode: NotesPageOpenMode): void {
   viewMode = "pages";
-  showSelectedPageAs(openMode);
-  saveSelectedPageId(pageId);
+  pageSession.open(pageId, openMode);
 }
 
 function recordRecentPage(pageId: string): void {
-  sidebarController.recordRecentPage(pageId);
+  pageSession.recordRecentIfCurrent(pageSession.generation, pageId);
 }
 
 function requestBlockFocus(
@@ -202,22 +196,19 @@ function requestBlockFocus(
 }
 
 function requestTitleFocus(pageId: string): void {
-  titleFocusRequest = {
-    pageId,
-    requestId: titleFocusRequest.requestId + 1,
-  };
+  pageSession.requestTitleFocus(pageId);
 }
 
 function setPageTitleDraft(pageId: string, title: string): void {
-  pageTitleDraft = { pageId, title };
+  pageSession.setTitleDraft(pageId, title);
 }
 
 function clearPageTitleDraft(pageId: string): void {
-  if (pageTitleDraft?.pageId === pageId) pageTitleDraft = null;
+  pageSession.clearTitleDraft(pageId);
 }
 
 function pageTitleDraftForPage(pageId: string): string | null {
-  return pageTitleDraft?.pageId === pageId ? pageTitleDraft.title : null;
+  return pageSession.titleDraftForPage(pageId);
 }
 
 function replacePages(nextPages: NotesPage[]): void {
@@ -249,88 +240,38 @@ function sidebarSeedPageIds(): string[] {
 }
 
 function replaceBlock(block: NotesBlock): void {
-  blocksById = { ...blocksById, [block.id]: block };
+  treeProjection.replaceBlock(block);
 }
 
 function applyLocalUndoSnapshot(
   target: NotesUndoSnapshot,
   source: NotesUndoSnapshot,
 ): void {
-  const targetIds = new Set(target.blocks.map((block) => block.id));
-  const sourceIds = new Set(source.blocks.map((block) => block.id));
-  const affectedIds = new Set([...targetIds, ...sourceIds]);
-  const nextBlocksById = { ...blocksById };
-  for (const blockId of sourceIds) {
-    if (!targetIds.has(blockId)) delete nextBlocksById[blockId];
-  }
-  for (const block of target.blocks) {
-    nextBlocksById[block.id] = block;
-  }
-  for (const blockId of affectedIds) markBlockLocallyChanged(blockId);
-  blocksById = nextBlocksById;
-  childIdsByParentId = buildNotesChildIdsByParent(Object.values(nextBlocksById));
+  treeProjection.applyLocalUndoSnapshot(target, source);
 }
 
 function insertBlockAfter(block: NotesBlock, afterBlockId: string | null): void {
-  const parentId = parentIdForBlock(block);
-  const currentChildIds = (childIdsByParentId[parentId] ?? []).filter((id) => id !== block.id);
-  const afterIndex = afterBlockId ? currentChildIds.indexOf(afterBlockId) : -1;
-  const insertIndex = afterIndex >= 0 ? afterIndex + 1 : currentChildIds.length;
-  childIdsByParentId = {
-    ...childIdsByParentId,
-    [parentId]: [
-      ...currentChildIds.slice(0, insertIndex),
-      block.id,
-      ...currentChildIds.slice(insertIndex),
-    ],
-  };
-  replaceBlock(block);
+  treeProjection.insertBlockAfter(block, afterBlockId);
 }
 
 function removeLeafBlockLocally(blockId: string): boolean {
-  const next = notesTreeStateWithoutLeafBlock(treeState(), blockId);
-  if (!next) return false;
-  markBlockLocallyChanged(blockId);
-  blocksById = next.blocksById;
-  childIdsByParentId = next.childIdsByParentId;
-  return true;
+  return treeProjection.removeLeafBlock(blockId);
 }
 
 function setLoadedPageFromLoaded(loaded: NotesLoadedPage): void {
-  loadedPage = loaded.page;
-  const blocks = loaded.blocks.results;
-  blocksById = Object.fromEntries(blocks.map((block) => [block.id, block]));
-  childIdsByParentId = buildNotesChildIdsByParent(blocks);
-  primaryContentReady = true;
+  treeProjection.setLoadedPage(loaded);
 }
 
 function replaceBlockOutlines(outlines: readonly NotesBlockOutline[], pageId: string): void {
-  blockOutlines = [...outlines];
-  flatBlockOutlines = flattenNotesBlockOutlines(blockOutlines, pageId);
+  treeProjection.replaceOutlines(outlines, pageId);
 }
 
 function mergeBlockOutlines(outlines: readonly NotesBlockOutline[], pageId: string): void {
-  const next = new Map(blockOutlines.map((outline) => [outline.id, outline]));
-  for (const outline of outlines) next.set(outline.id, outline);
-  replaceBlockOutlines([...next.values()], pageId);
+  treeProjection.mergeOutlines(outlines, pageId);
 }
 
 function syncHydratedBlockOutlines(pageId: string): void {
-  const next = new Map(blockOutlines.map((outline) => [outline.id, outline]));
-  for (const [parentId, childIds] of Object.entries(childIdsByParentId)) {
-    childIds.forEach((blockId, index) => {
-      const block = blocksById[blockId];
-      if (!block) return;
-      const outline = notesBlockOutlineFromBlock(block, pageId, (index + 1) * 1_000);
-      next.set(blockId, {
-        ...outline,
-        parent: parentId === pageId
-          ? { type: "page_id", page_id: pageId }
-          : { type: "block_id", block_id: parentId },
-      });
-    });
-  }
-  replaceBlockOutlines([...next.values()], pageId);
+  treeProjection.syncHydratedOutlines(pageId);
 }
 
 function requestLoadedPageFocus(
@@ -347,19 +288,19 @@ function requestLoadedPageFocus(
 
 async function hydrateBlockRange(
   blockIds: readonly string[],
-  generation = pageWorkGeneration,
+  generation = pageSession.generation,
 ): Promise<void> {
   await hydrationController.hydrateBlockRange(blockIds, generation);
 }
 
 function queueDescendantHydration(
-  pageId: string = selectedPageId ?? "",
-  generation: number = pageWorkGeneration,
+  pageId: string = pageSession.selectedPageId ?? "",
+  generation: number = pageSession.generation,
 ): void {
   hydrationController.queueDescendantHydration(pageId, generation);
 }
 
-async function reloadPages(selectedPageIdOverride: string | null = selectedPageId): Promise<void> {
+async function reloadPages(selectedPageIdOverride: string | null = pageSession.selectedPageId): Promise<void> {
   await workspaceController.reloadPages(selectedPageIdOverride);
 }
 
@@ -376,10 +317,9 @@ function mergeReloadedWorkspaceShell(shell: NotesWorkspaceShell): void {
 }
 
 function prepareWorkspaceLoad(): void {
-  pageWorkGeneration += 1;
+  pageSession.invalidate();
   hydrationController.invalidate();
-  blockOutlines = [];
-  flatBlockOutlines = [];
+  treeProjection.resetOutlines();
   optionalSubsystemController.resetAll();
   linksController.resetAll();
   collaborationController.resetPageState();
@@ -399,8 +339,8 @@ function applyInitialWorkspaceShell(
     missingParentPageIds: shell.missing_parent_page_ids,
     trashedParentPageIds: shell.trashed_parent_page_ids,
   });
-  const selectionUnchanged = selectedPageId === requestedSelection;
-  const nextSelected = selectionUnchanged ? shell.resolved_selected_page_id : selectedPageId;
+  const selectionUnchanged = pageSession.selectedPageId === requestedSelection;
+  const nextSelected = selectionUnchanged ? shell.resolved_selected_page_id : pageSession.selectedPageId;
   if (selectionUnchanged) saveSelectedPageId(nextSelected);
   return nextSelected;
 }
@@ -418,11 +358,9 @@ function applyAdditionalWorkspaceShell(shell: NotesWorkspaceShell): void {
 }
 
 function clearSelectedPageState(): void {
-  loadedPage = null;
-  pageBreadcrumbItems = [];
+  treeProjection.clearLoadedTree();
+  pageSession.breadcrumbs = [];
   pageHistoryController.resetPageState();
-  blocksById = {};
-  childIdsByParentId = {};
 }
 
 const sidebarRefreshCoordinator = createNotesSidebarRefreshCoordinator({
@@ -432,75 +370,47 @@ const sidebarRefreshCoordinator = createNotesSidebarRefreshCoordinator({
 });
 
 function applyPostMutation(result: NotesPostMutationResult): void {
-  if (result.loadedPage !== undefined) {
-    if (result.loadedPage) {
-      setLoadedPageFromLoaded(result.loadedPage);
-      blockOutlines = [];
-      syncHydratedBlockOutlines(result.loadedPage.page.id);
-    } else {
-      loadedPage = null;
-      blocksById = {};
-      childIdsByParentId = {};
-    }
-  }
-  if (result.blocks || result.placements || result.removedBlockIds) {
-    const next = applyNotesPostMutationToTree(treeState(), result);
-    blocksById = { ...next.blocksById };
-    childIdsByParentId = Object.fromEntries(
-      Object.entries(next.childIdsByParentId).map(([parentId, childIds]) => [
-        parentId,
-        [...childIds],
-      ]),
-    );
-    for (const block of result.blocks ?? []) markBlockLocallyChanged(block.id);
-    for (const blockId of result.removedBlockIds ?? []) markBlockLocallyChanged(blockId);
-  }
+  treeProjection.applyPostMutation(result);
   for (const page of result.pages ?? []) upsertPageInActiveCollections(page);
   if (result.removedPageIds?.length) {
     removePagesFromActiveCollections(new Set(result.removedPageIds));
   }
-  if (loadedPage) {
-    const returnedLoadedPage = result.pages?.find((page) => page.id === loadedPage?.id);
-    if (returnedLoadedPage) loadedPage = returnedLoadedPage;
-    if (result.blocks || result.placements || result.removedBlockIds) {
-      const removed = new Set(result.removedBlockIds ?? []);
-      blockOutlines = blockOutlines.filter((outline) => !removed.has(outline.id));
-      syncHydratedBlockOutlines(loadedPage.id);
-    }
-  }
   sidebarRefreshCoordinator.schedule(result.sidebarImpact ?? "none");
 }
 
-async function loadPageTree(pageId: string, options: NotesLoadPageTreeOptions = {}): Promise<void> {
-  const requestId = ++pageWorkGeneration;
-  primaryContentReady = false;
+async function loadPageTree(pageId: string, options: NotesLoadPageTreeOptions = {}): Promise<boolean> {
+  const requestId = pageSession.invalidate();
+  treeProjection.primaryContentReady = false;
   const loaded = await openNotesPage(pageId);
-  if (requestId !== pageWorkGeneration || pageId !== selectedPageId) return;
+  if (!pageSession.isCurrent(requestId, pageId)) return false;
   if (options.focusOnLoad) {
     requestLoadedPageFocus(loaded, options.focusBlockId ?? null);
   }
   setLoadedPageFromLoaded(loaded);
   replaceBlockOutlines(loaded.outlines, pageId);
-  pageBreadcrumbItems = [...loaded.breadcrumb];
+  pageSession.applyBreadcrumbsIfCurrent(requestId, pageId, loaded.breadcrumb);
   void hydrationController.loadOutlineDescendantFrontiers(pageId, requestId).catch((error) => {
-    if (requestId === pageWorkGeneration && pageId === selectedPageId) {
+    if (pageSession.isCurrent(requestId, pageId)) {
       workspaceController.setError(error instanceof Error ? error.message : String(error));
     }
   });
+  return true;
 }
 
 async function loadPageTreeForUndo(pageId: string): Promise<void> {
-  openSelectedPage(pageId, pageOpenMode);
+  openSelectedPage(pageId, pageSession.pageOpenMode);
   await loadPageTree(pageId);
   recordRecentPage(pageId);
 }
 
-async function reloadPageBreadcrumb(pageId: string | null = selectedPageId): Promise<void> {
+async function reloadPageBreadcrumb(pageId: string | null = pageSession.selectedPageId): Promise<void> {
   if (!pageId) {
-    pageBreadcrumbItems = [];
+    pageSession.breadcrumbs = [];
     return;
   }
-  pageBreadcrumbItems = [...await getNotesPageBreadcrumb(pageId)];
+  const generation = pageSession.generation;
+  const breadcrumbs = await getNotesPageBreadcrumb(pageId);
+  pageSession.applyBreadcrumbsIfCurrent(generation, pageId, breadcrumbs);
 }
 
 async function loadOptionalSubsystem(
@@ -548,7 +458,7 @@ async function loadOptionalSubsystem(
 
 async function ensureOptionalSubsystem(
   subsystem: NotesOptionalSubsystem,
-  pageId: string | null = selectedPageId,
+  pageId: string | null = pageSession.selectedPageId,
 ): Promise<void> {
   return optionalSubsystemController.ensure(subsystem, pageId);
 }
@@ -561,16 +471,16 @@ function setPagePanelSubsystemOpen(
 }
 
 async function refreshOpenLinks(): Promise<void> {
-  const pageId = selectedPageId;
+  const pageId = pageSession.selectedPageId;
   if (!pageId || !optionalSubsystemController.isPanelOpen("links")) return;
-  const generation = pageWorkGeneration;
+  const generation = pageSession.generation;
   await Promise.all([
     linksController.reloadBacklinks(pageId),
     linksController.reloadPageAliases(pageId),
     linksController.reloadUnresolvedLinks(pageId),
     linksController.reloadLinkResolutionPages(),
   ]);
-  if (generation !== pageWorkGeneration || pageId !== selectedPageId) return;
+  if (!pageSession.isCurrent(generation, pageId)) return;
   optionalSubsystemController.markPageSubsystemLoaded("links", pageId, generation);
 }
 
@@ -578,14 +488,14 @@ async function selectPage(
   pageId: string | null,
   options: NotesSelectPageOptions = {},
 ): Promise<void> {
-  const alreadyLoaded = selectedPageId === pageId && (!pageId || loadedPage?.id === pageId);
+  const alreadyLoaded = pageSession.selectedPageId === pageId && (!pageId || treeProjection.loadedPage?.id === pageId);
   const openMode = notesPageOpenModeForSelection({
     requestedOpenMode: options.openMode,
-    currentOpenMode: pageOpenMode,
+    currentOpenMode: pageSession.pageOpenMode,
     defaultOpenMode: pageId
       ? defaultNotesPageOpenMode(projectIdForPage(pageId))
       : defaultNotesPageOpenMode(),
-    hasOpenPage: selectedPageId !== null,
+    hasOpenPage: pageSession.selectedPageId !== null,
   });
   if (pageId) {
     openSelectedPage(pageId, openMode);
@@ -593,33 +503,29 @@ async function selectPage(
     saveSelectedPageId(null);
   }
   if (alreadyLoaded) return;
-  pageWorkGeneration += 1;
+  pageSession.invalidate();
   hydrationController.invalidate();
-  blockOutlines = [];
-  flatBlockOutlines = [];
+  treeProjection.resetOutlines();
   optionalSubsystemController.resetPageScoped();
   undoController.reset(pageId);
   pageHistoryController.resetPageState();
   linksController.resetPageState();
   collaborationController.resetPageState();
   if (!pageId) {
-    loadedPage = null;
-    primaryContentReady = false;
-    pageBreadcrumbItems = [];
+    treeProjection.clearSelection();
+    pageSession.breadcrumbs = [];
     linksController.resetAll();
     pageHistoryController.resetPageState();
-    blocksById = {};
-    childIdsByParentId = {};
     return;
   }
   workspaceController.setLoading(true);
   workspaceController.setError(null);
   try {
-    await loadPageTree(pageId, {
+    const applied = await loadPageTree(pageId, {
       focusOnLoad: true,
       focusBlockId: options.focusBlockId ?? null,
     });
-    recordRecentPage(pageId);
+    if (applied) pageSession.recordRecentIfCurrent(pageSession.generation, pageId);
   } catch (error) {
     workspaceController.setError(error instanceof Error ? error.message : String(error));
     throw error;
@@ -633,9 +539,8 @@ async function activateReturnedPage(
   sidebarImpact: Exclude<NotesSidebarMetadataImpact, "none">,
   openMode: NotesPageOpenMode = defaultNotesPageOpenMode(notesPageProjectId(loaded.page)),
 ): Promise<void> {
-  pageWorkGeneration += 1;
-  blockOutlines = [];
-  flatBlockOutlines = [];
+  pageSession.invalidate();
+  treeProjection.resetOutlines();
   undoController.reset(loaded.page.id);
   pageHistoryController.resetPageState();
   optionalSubsystemController.resetPageScoped();
@@ -650,7 +555,7 @@ async function activateReturnedPage(
 }
 
 async function activateRestoredPage(page: NotesPage): Promise<void> {
-  pageWorkGeneration += 1;
+  pageSession.invalidate();
   undoController.reset(page.id);
   pageHistoryController.resetPageState();
   optionalSubsystemController.resetPageScoped();
@@ -704,7 +609,7 @@ function flatBlockItemsForBlockContext(blockId: string): NotesBlockTreeItem[] {
 }
 
 function blockById(blockId: string): NotesBlock | undefined {
-  return blocksById[blockId];
+  return treeProjection.blocksById[blockId];
 }
 
 function tableRowsForBlock(blockId: string): NotesTableRowBlock[] {
@@ -729,9 +634,9 @@ function visibleBlockIds(): string[] {
 
 function outlineSubtreeIds(rootBlockIds: readonly string[]): string[] {
   const roots = new Set(rootBlockIds);
-  const outlinesById = new Map(blockOutlines.map((outline) => [outline.id, outline]));
+  const outlinesById = new Map(treeProjection.blockOutlines.map((outline) => [outline.id, outline]));
   const included = new Set<string>();
-  for (const item of flatBlockOutlines) {
+  for (const item of treeProjection.flatBlockOutlines) {
     let current: NotesBlockOutline | undefined = item.outline;
     while (current) {
       if (roots.has(current.id)) {
@@ -759,16 +664,17 @@ const {
   flushBlockSave,
   flushPendingBlockSaves,
 } = createNotesBlockPersistence({
-  readBlock: (blockId) => blocksById[blockId],
+  readBlock: (blockId) => treeProjection.blocksById[blockId],
   replaceBlock,
   setLoadError: (message) => {
     workspaceController.setError(message);
   },
   debounceMs: BLOCK_SAVE_DEBOUNCE_MS,
 });
+treeProjection.setLocalChangeMarker(markBlockLocallyChanged);
 
 const undoController = createNotesUndoController({
-  readSelectedPageId: () => selectedPageId,
+  readSelectedPageId: () => pageSession.selectedPageId,
   readTreeState: treeState,
   loadPageTreeForUndo,
   requestBlockFocus,
@@ -782,7 +688,7 @@ const undoController = createNotesUndoController({
 });
 
 const pageHistoryController = createNotesPageHistoryController({
-  readSelectedPageId: () => selectedPageId,
+  readSelectedPageId: () => pageSession.selectedPageId,
   applyPostMutation,
   requestPageLoadFocus,
   flushPendingBlockSaves,
@@ -792,8 +698,8 @@ const pageHistoryController = createNotesPageHistoryController({
 });
 
 const optionalSubsystemController = createNotesOptionalSubsystemController({
-  readPageGeneration: () => pageWorkGeneration,
-  readSelectedPageId: () => selectedPageId,
+  readPageGeneration: () => pageSession.generation,
+  readSelectedPageId: () => pageSession.selectedPageId,
   readSelectedProjectId: () => projects.selectedProjectId,
   load: loadOptionalSubsystem,
 });
@@ -803,19 +709,21 @@ const workspaceController = createNotesWorkspaceController({
     projectId: projects.selectedProjectId,
     expandedPageIds: [...sidebarController.expandedPageIds],
     seedPageIds: sidebarSeedPageIds(),
-    selectedPageId,
+    selectedPageId: pageSession.selectedPageId,
   }),
   prepareLoad: prepareWorkspaceLoad,
   applyInitialShell: applyInitialWorkspaceShell,
   applyAdditionalShell: applyAdditionalWorkspaceShell,
   mergeReloadedShell: mergeReloadedWorkspaceShell,
-  loadSelectedPage: (pageId) => loadPageTree(pageId, { focusOnLoad: true }),
+  loadSelectedPage: async (pageId) => {
+    await loadPageTree(pageId, { focusOnLoad: true });
+  },
   clearSelectedPageState,
-  readSelectedPageId: () => selectedPageId,
+  readSelectedPageId: () => pageSession.selectedPageId,
 });
 
 const transferActions = createNotesTransferActions({
-  readSelectedPageId: () => selectedPageId,
+  readSelectedPageId: () => pageSession.selectedPageId,
   activateReturnedPage: (nextLoadedPage) => activateReturnedPage(nextLoadedPage, "hierarchy"),
   upsertPage: upsertPageInActiveCollections,
   showPages: () => {
@@ -827,7 +735,7 @@ const transferActions = createNotesTransferActions({
 });
 
 const pageTemplatesController = createNotesPageTemplatesController({
-  readLoadedPage: () => loadedPage,
+  readLoadedPage: () => treeProjection.loadedPage,
   flushPendingBlockSaves,
   activateReturnedPage: (nextLoadedPage) => activateReturnedPage(nextLoadedPage, "hierarchy"),
   queueDescendantHydration: () => queueDescendantHydration(),
@@ -835,12 +743,12 @@ const pageTemplatesController = createNotesPageTemplatesController({
 });
 
 const pageActions = createNotesPageActions({
-  readSelectedPageId: () => selectedPageId,
+  readSelectedPageId: () => pageSession.selectedPageId,
   readPages: () => pages,
   readAllPages: () => allPages,
-  readLoadedPage: () => loadedPage,
+  readLoadedPage: () => treeProjection.loadedPage,
   readFolders: () => foldersController.folders,
-  readBlocksById: () => blocksById,
+  readBlocksById: () => treeProjection.blocksById,
   defaultOpenMode: defaultNotesPageOpenMode,
   activateReturnedPage,
   activateRestoredPage,
@@ -865,9 +773,9 @@ const pageActions = createNotesPageActions({
 });
 
 const blockActions = createNotesBlockActions({
-  readSelectedPageId: () => selectedPageId,
-  readBlocksById: () => blocksById,
-  readChildIdsByParentId: () => childIdsByParentId,
+  readSelectedPageId: () => pageSession.selectedPageId,
+  readBlocksById: () => treeProjection.blocksById,
+  readChildIdsByParentId: () => treeProjection.childIdsByParentId,
   treeState,
   outlineSubtreeIds,
   blockById,
@@ -880,7 +788,9 @@ const blockActions = createNotesBlockActions({
   createChildPageFromBlock: pageActions.createChildPageFromBlock,
   createChildPageAfterBlock: pageActions.createChildPageAfterBlock,
   applyPostMutation,
-  loadPageTree,
+  loadPageTree: async (pageId) => {
+    await loadPageTree(pageId);
+  },
   refreshOpenLinks,
   localApplyBlockUpdate,
   localInsertBlockAfter: insertBlockAfter,
@@ -895,8 +805,8 @@ const blockActions = createNotesBlockActions({
 });
 
 const collaborationController = createNotesCollaborationController({
-  readSelectedPageId: () => selectedPageId,
-  readBlocksById: () => blocksById,
+  readSelectedPageId: () => pageSession.selectedPageId,
+  readBlocksById: () => treeProjection.blocksById,
   flushBlockSave,
   requestBlockFocus: (blockId) => requestBlockFocus(blockId),
   updateBlockRichText: blockActions.updateBlockRichText,
@@ -904,16 +814,16 @@ const collaborationController = createNotesCollaborationController({
 });
 
 const hydrationController = createNotesHydrationController({
-  readPageGeneration: () => pageWorkGeneration,
-  readSelectedPageId: () => selectedPageId,
-  readBlockOutlines: () => blockOutlines,
-  readFlatBlockOutlines: () => flatBlockOutlines,
-  readBlocksById: () => blocksById,
+  readPageGeneration: () => pageSession.generation,
+  readSelectedPageId: () => pageSession.selectedPageId,
+  readBlockOutlines: () => treeProjection.blockOutlines,
+  readFlatBlockOutlines: () => treeProjection.flatBlockOutlines,
+  readBlocksById: () => treeProjection.blocksById,
   readFocusRequest: () => focusRequest,
   mergeBlockOutlines,
   replaceHydratedBlocks: (nextBlocksById, nextChildIdsByParentId) => {
-    blocksById = nextBlocksById;
-    childIdsByParentId = nextChildIdsByParentId;
+    treeProjection.blocksById = nextBlocksById;
+    treeProjection.childIdsByParentId = nextChildIdsByParentId;
   },
   setLoadError: (message) => {
     workspaceController.setError(message);
@@ -999,8 +909,8 @@ function focusBlock(blockId: string, selection: NotesTextSelection | null = null
 
 async function undoNotesEdit(): Promise<boolean> {
   try {
-    if (!undoController.canUndo() && selectedPageId) {
-      await ensureOptionalSubsystem("undo", selectedPageId);
+    if (!undoController.canUndo() && pageSession.selectedPageId) {
+      await ensureOptionalSubsystem("undo", pageSession.selectedPageId);
     }
     return await undoController.undo();
   } catch (error) {
@@ -1011,8 +921,8 @@ async function undoNotesEdit(): Promise<boolean> {
 
 async function redoNotesEdit(): Promise<boolean> {
   try {
-    if (!undoController.canRedo() && selectedPageId) {
-      await ensureOptionalSubsystem("undo", selectedPageId);
+    if (!undoController.canRedo() && pageSession.selectedPageId) {
+      await ensureOptionalSubsystem("undo", pageSession.selectedPageId);
     }
     return await undoController.redo();
   } catch (error) {
@@ -1032,14 +942,14 @@ async function openNotesLink(target: NotesPageLinkTarget): Promise<boolean> {
     await reloadPages(target.pageId);
   }
   if (!allPages.some((page) => page.id === target.pageId)) return false;
-  if (loadedPage?.id !== target.pageId) {
+  if (treeProjection.loadedPage?.id !== target.pageId) {
     await selectPage(target.pageId, { focusBlockId: target.blockId ?? null });
   }
   if (!target.blockId) {
     requestPageLoadFocus();
     return true;
   }
-  if (!blocksById[target.blockId] || !visibleBlockIds().includes(target.blockId)) return false;
+  if (!treeProjection.blocksById[target.blockId] || !visibleBlockIds().includes(target.blockId)) return false;
   requestBlockFocus(planNotesPageLoadFocus(visibleBlockIds(), target.blockId));
   return true;
 }
@@ -1095,19 +1005,19 @@ export function getNotes() {
       return archiveController.trashHasMore;
     },
     get selectedPageId(): string | null {
-      return selectedPageId;
+      return pageSession.selectedPageId;
     },
     get pageOpenMode(): NotesPageOpenMode {
-      return pageOpenMode;
+      return pageSession.pageOpenMode;
     },
     get loadedPage(): NotesPage | null {
-      return loadedPage;
+      return treeProjection.loadedPage;
     },
     get primaryContentReady(): boolean {
-      return primaryContentReady;
+      return treeProjection.primaryContentReady;
     },
     get pageBreadcrumbItems(): NotesPageBreadcrumbItem[] {
-      return pageBreadcrumbItems;
+      return pageSession.breadcrumbs;
     },
     get backlinks() {
       return linksController.backlinks;
@@ -1200,13 +1110,13 @@ export function getNotes() {
       return searchController.includeResolvedComments;
     },
     get blocksById(): Record<string, NotesBlock> {
-      return blocksById;
+      return treeProjection.blocksById;
     },
     get childIdsByParentId(): Record<string, string[]> {
-      return childIdsByParentId;
+      return treeProjection.childIdsByParentId;
     },
     get flatBlockOutlines(): NotesBlockOutlineItem[] {
-      return flatBlockOutlines;
+      return treeProjection.flatBlockOutlines;
     },
     get flatBlocks(): NotesBlockTreeItem[] {
       return flatBlockItems();
@@ -1290,10 +1200,10 @@ export function getNotes() {
       return focusRequest.selection;
     },
     get titleFocusPageId(): string | null {
-      return titleFocusRequest.pageId;
+      return pageSession.titleFocus.pageId;
     },
     get titleFocusRequestId(): number {
-      return titleFocusRequest.requestId;
+      return pageSession.titleFocus.requestId;
     },
     pageTitleDraftForPage,
     get canUndoNotesEdit(): boolean {
@@ -1470,3 +1380,6 @@ export function getNotes() {
     moveBlockToTab,
   };
 }
+
+/** Stable public Notes store facade returned by {@link getNotes}. */
+export type NotesStoreFacade = ReturnType<typeof getNotes>;
