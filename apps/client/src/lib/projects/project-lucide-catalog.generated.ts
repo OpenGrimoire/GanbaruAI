@@ -1,5 +1,8 @@
 // Lucide English search tags generated from lucide-static@0.577.0.
 // Source: https://cdn.jsdelivr.net/npm/lucide-static@0.577.0/tags.json
+// Icon nodes and category assignments entered the repository in a508fc0b.
+// No complete base-catalog generator is checked in. The search-tag generator
+// updates terms only and deliberately preserves icon order and node data.
 
 import { SPORT_SHOE_ICON_NODE } from "$lib/projects/project-app-icons";
 
