@@ -109,6 +109,8 @@ Calendar rendering is windowed. The frontend asks Rust for the visible date rang
 
 The initial calendar window includes the global event count. Adjacent, prefetched, and ordinary replacement windows omit that count and preserve the store count maintained from authoritative creates, deletes, archives, restores, recurrence changes, clears, and imports. Each window reads its event rows, notification offsets, EXDATEs, RDATEs, overrides, and attendees from one SQLite transaction so the rendered snapshot cannot mix states from concurrent writes. The hot range and child lookups use their existing event-time, parent-event, and event-id indexes.
 
+Each Calendar render builds one indexed view model for its store version, visible window, timezone, and view mode. The model owns day buckets, timed overlap positions, and all-day row positions shared by week, day, and month children. Pointer drag and create previews recompute only the affected day overlay. Unrelated state and pointer movement do not rebuild the full model.
+
 The selected view mode (day, work cycle, week, or month) is remembered in the active Ganbaru AI folder root `config.json` and restored on later calendar mounts and app restarts. The remembered mode controls the initial calendar window loaded at boot so the first visible grid matches the last committed view.
 
 Rapid navigation is latest-wins. If the user holds an arrow key or a scripted driver sends many forward/back requests, stale intermediate windows must not each force a full row map, recurrence expansion, state apply, and paint. The app may finish a native query that has already started, but once a newer target exists it should skip stale mapping, stale expansion where possible, and stale state application.

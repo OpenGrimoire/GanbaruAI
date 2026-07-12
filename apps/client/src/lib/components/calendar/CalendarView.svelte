@@ -65,7 +65,7 @@
     type CalendarDeleteArchiveRestoreSnapshot,
   } from "./delete-archive-plan";
   import { createCalendarViewToastController } from "./calendar-view-toasts.svelte";
-  import { buildEventsByDay } from "./calendar-view-events-by-day";
+  import { createCalendarViewModelBuilder, calendarViewModelDays } from "./calendar-view-model";
   import { createCalendarViewConfirmationController } from "./calendar-view-confirmation.svelte";
   import {
     createCalendarOutsideCloseAction,
@@ -548,7 +548,19 @@
     });
   });
 
-  const eventsByDay = $derived(buildEventsByDay(visibleEvents));
+  const calendarViewModelBuilder = createCalendarViewModelBuilder();
+  const calendarViewModel = $derived.by(() => calendarViewModelBuilder.build({
+    key: {
+      storeVersion: calendarStore.indexVersion,
+      windowStart: viewWindow.start.toString(),
+      windowEnd: viewWindow.end.toString(),
+      timezone: getLocalTimezone(),
+      mode: viewMode,
+    },
+    events: visibleEvents,
+    visibleDays: calendarViewModelDays(viewMode, anchorDate, multiDayRangeDays),
+  }));
+  const eventsByDay = $derived(calendarViewModel.eventsByDay);
 
   let suppressEditingGlow = $state(false);
   let endingActiveEvent = $state(false);
@@ -1812,7 +1824,8 @@
         {anchorDate}
         days={multiDayRangeDays}
         events={visibleEvents}
-        {eventsByDay}
+        positionedTimedEventsByDay={calendarViewModel.positionedTimedEventsByDay}
+        positionedAllDayEvents={calendarViewModel.positionedAllDayEvents}
         theme={theme.current}
         {timezones}
         {tzAbbrMode}
@@ -1836,7 +1849,8 @@
       <DayView
         {anchorDate}
         events={visibleEvents}
-        {eventsByDay}
+        positionedTimedEventsByDay={calendarViewModel.positionedTimedEventsByDay}
+        allDayEventsByDay={calendarViewModel.allDayEventsByDay}
         theme={theme.current}
         {timezones}
         {tzAbbrMode}
