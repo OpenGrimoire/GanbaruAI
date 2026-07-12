@@ -1,72 +1,33 @@
 import {
-  acceptNotesSuggestion,
-  addNotesPageAlias,
   applyNotesPageTemplate,
   archiveNotesPage,
   createNotesFolder,
   createNotesChildPageFromBlock,
-  createNotesComment,
   createNotesPage,
   createNotesPageTemplateFromPage,
-  createNotesSuggestion,
-  deleteNotesComment,
   deleteNotesFolder,
-  deleteNotesPageAlias,
   deleteNotesPageTemplate,
   duplicateNotesPage,
   duplicateNotesPageTemplate,
-  getNotesLocalUser,
   getNotesBlockFrontier,
   getNotesBlockOutlineFrontier,
   getNotesPageBreadcrumb,
-  importNotesHtmlPage,
-  importNotesNotionApi,
-  importNotesNotionExportFolder,
-  listNotesBacklinks,
-  listNotesComments,
-  listNotesPageAliases,
   listNotesPageTemplates,
-  listNotesSuggestions,
-  listNotesUnresolvedLinks,
-  listNotesDestinationCandidates,
   listNotesSidebarPages,
   loadNotesWorkspaceShell,
-  listArchivedNotesPages,
-  listTrashedNotesPages,
   loadNotesPage,
   openNotesPage,
   hydrateNotesBlocks,
-  markNotesCommentThreadsRead,
   moveNotesPage,
   permanentlyDeleteNotesPage,
-  resolveNotesCommentThread,
-  resolveNotesUnresolvedLink,
-  rejectNotesSuggestion,
-  saveNotesAgentBridge,
-  saveNotesHtmlArchive,
-  saveNotesJsonGraph,
-  searchNotes,
   trashNotesPage,
-  updateNotesComment,
   updateNotesFolder,
-  updateNotesLocalUser,
   updateNotesPage,
   updateNotesPageTemplate,
 } from "$lib/api/notes";
 import { invalidateNotesPageCoverAssetUrl } from "$lib/api/notes-page-covers";
 import { invalidateNotesPageIconAssetUrl } from "$lib/api/notes-page-icons";
-import { blockPlainText, createRichText } from "$lib/notes/block-factory";
-import {
-  notesCommentAnchorDraft,
-  notesCommentParentKey,
-  notesCommentParentMatches,
-} from "$lib/notes/comments";
-import {
-  notesApplySuggestionToBlock,
-  notesSuggestionCreateRequest,
-  notesSuggestionDraft,
-  type NotesSuggestionDraft,
-} from "$lib/notes/suggestions";
+import { blockPlainText } from "$lib/notes/block-factory";
 import type { NotesBlockLinkTarget, NotesPageLinkTarget } from "$lib/notes/block-link";
 import {
   buildNotesChildIdsByParent,
@@ -111,6 +72,16 @@ import {
 } from "$lib/notes/post-mutation";
 import { createNotesSidebarRefreshCoordinator } from "$lib/notes/sidebar-refresh-coordinator";
 import { createNotesBlockActions } from "./notes-store-block-actions";
+import { createNotesArchiveController } from "./notes-store-archive.svelte";
+import { createNotesSearchController } from "./notes-store-search.svelte";
+import { createNotesLinksController } from "./notes-store-links.svelte";
+import { createNotesCollaborationController } from "./notes-store-collaboration.svelte";
+import { createNotesTransferActions } from "./notes-store-transfer-actions";
+import {
+  createNotesOptionalSubsystemController,
+  type NotesOptionalSubsystem,
+  type NotesPagePanelSubsystem,
+} from "./notes-store-optional-subsystems";
 import { createNotesPageHistoryController } from "./notes-store-page-history.svelte";
 import { createNotesUndoController } from "./notes-store-undo";
 import { getPreferences } from "./preferences.svelte";
@@ -144,30 +115,12 @@ import { invalidateNotesNotificationSchedule } from "$lib/notes/notification-sch
 import type {
   NotesBlock,
   NotesBlockOutline,
-  NotesBacklink,
-  NotesCommentAnchorCreate,
   NotesColumnBlockItems,
   NotesFolder,
   NotesBlockTreeItem,
   NotesBlockType,
-  NotesCommentParent,
-  NotesCommentThread,
-  NotesLocalUser,
   NotesLoadedPage,
-  NotesHtmlArchiveSaveResult,
-  NotesHtmlExportRequest,
-  NotesHtmlImportRequest,
-  NotesHtmlImportResult,
-  NotesAgentBridgeExportRequest,
-  NotesAgentBridgeExportSaveResult,
-  NotesJsonGraphExportRequest,
-  NotesJsonGraphExportSaveResult,
   NotesPage,
-  NotesNotionApiImportRequest,
-  NotesNotionApiImportResult,
-  NotesNotionExportImportRequest,
-  NotesNotionExportImportResult,
-  NotesPageAlias,
   NotesPageBreadcrumbItem,
   NotesPageCover,
   NotesPageHistorySettings,
@@ -175,11 +128,8 @@ import type {
   NotesPageIcon,
   NotesPageTemplate,
   NotesParent,
-  NotesSearchResult,
-  NotesSuggestion,
   NotesTabBlockItems,
   NotesTableRowBlock,
-  NotesUnresolvedLink,
 } from "$lib/notes/types";
 
 type NotesViewMode = "pages" | "archive" | "trash";
@@ -193,18 +143,6 @@ interface NotesLoadPageTreeOptions {
   focusBlockId?: string | null;
 }
 
-type NotesOptionalSubsystem =
-  | "templates"
-  | "local-user"
-  | "history-settings"
-  | "undo"
-  | "links"
-  | "comments"
-  | "suggestions"
-  | "page-history"
-  | "destinations";
-type NotesPagePanelSubsystem = "links" | "comments" | "suggestions" | "page-history";
-
 const BLOCK_SAVE_DEBOUNCE_MS = 350;
 const BLOCK_VIRTUALIZATION_THRESHOLD = 120;
 const BLOCK_HYDRATION_LIMIT = 200;
@@ -212,12 +150,6 @@ const BLOCK_HYDRATION_LIMIT = 200;
 let pages = $state<NotesPage[]>([]);
 let allPages = $state<NotesPage[]>([]);
 let folders = $state<NotesFolder[]>([]);
-let archivedPages = $state<NotesPage[]>([]);
-let trashedPages = $state<NotesPage[]>([]);
-let archiveNextCursor = $state<string | null>(null);
-let trashNextCursor = $state<string | null>(null);
-let archiveQuery = "";
-let trashQuery = "";
 let pageTemplates = $state<NotesPageTemplate[]>([]);
 let selectedPageId = $state<string | null>(initialNotesSelectedPageId());
 let pageOpenMode = $state<NotesPageOpenMode>("full");
@@ -230,17 +162,6 @@ let sidebarMissingParentPageIds = $state<string[]>([]);
 let sidebarTrashedParentPageIds = $state<string[]>([]);
 let loadedPage = $state<NotesPage | null>(null);
 let pageBreadcrumbItems = $state<NotesPageBreadcrumbItem[]>([]);
-let backlinks = $state<NotesBacklink[]>([]);
-let pageAliases = $state<NotesPageAlias[]>([]);
-let unresolvedLinks = $state<NotesUnresolvedLink[]>([]);
-let linkResolutionPages = $state<NotesPage[]>([]);
-let destinationNextCursor = $state<string | null>(null);
-let destinationQuery = "";
-let commentThreads = $state<NotesCommentThread[]>([]);
-let activeCommentParent = $state<NotesCommentParent | null>(null);
-let activeCommentAnchor = $state<NotesCommentAnchorCreate | null>(null);
-let suggestions = $state<NotesSuggestion[]>([]);
-let activeSuggestionDraft = $state<NotesSuggestionDraft | null>(null);
 let blocksById = $state<Record<string, NotesBlock>>({});
 let childIdsByParentId = $state<Record<string, string[]>>({});
 let blockOutlines = $state<NotesBlockOutline[]>([]);
@@ -255,12 +176,6 @@ let workspaceWindowLoading = $state(false);
 let workspaceTotalPageCount = 0;
 let workspaceTotalFolderCount = 0;
 let viewMode = $state<NotesViewMode>("pages");
-let archiveLoaded = $state(false);
-let archiveLoading = $state(false);
-let archiveError = $state<string | null>(null);
-let trashLoaded = $state(false);
-let trashLoading = $state(false);
-let trashError = $state<string | null>(null);
 let pageTemplatesLoading = $state(false);
 let pageTemplatesError = $state<string | null>(null);
 let focusRequest = $state<NotesFocusRequest>({
@@ -273,42 +188,7 @@ let loadRequestId = 0;
 let pageWorkGeneration = 0;
 let blockHydrationRequestId = 0;
 let loadPromise: Promise<void> | null = null;
-const optionalSubsystemPromises = new Map<string, Promise<void>>();
-const loadedOptionalSubsystems = new Set<string>();
-const openPagePanelSubsystems = new Set<NotesPagePanelSubsystem>();
-let archiveRequestId = 0;
-let trashRequestId = 0;
 let pageTemplatesRequestId = 0;
-let backlinksRequestId = 0;
-let pageAliasesRequestId = 0;
-let unresolvedLinksRequestId = 0;
-let linkResolutionPagesRequestId = 0;
-let commentsRequestId = 0;
-let suggestionsRequestId = 0;
-let localUserRequestId = 0;
-let searchRequestId = 0;
-let backlinksLoading = $state(false);
-let backlinksError = $state<string | null>(null);
-let pageAliasesLoading = $state(false);
-let pageAliasesError = $state<string | null>(null);
-let unresolvedLinksLoading = $state(false);
-let unresolvedLinksError = $state<string | null>(null);
-let commentsLoading = $state(false);
-let commentsError = $state<string | null>(null);
-let commentsIncludeResolved = $state(false);
-let suggestionsLoading = $state(false);
-let suggestionsError = $state<string | null>(null);
-let suggestionsIncludeDecided = $state(false);
-let localUser = $state<NotesLocalUser | null>(null);
-let localUserLoading = $state(false);
-let localUserError = $state<string | null>(null);
-let searchResults = $state<NotesSearchResult[]>([]);
-let searchNextCursor = $state<string | null>(null);
-let activeSearchQuery = "";
-let activeSearchPageSize = 20;
-let searchLoading = $state(false);
-let searchError = $state<string | null>(null);
-let searchIncludeResolvedComments = $state(false);
 let titleFocusRequest = $state<{ pageId: string | null; requestId: number }>({
   pageId: null,
   requestId: 0,
@@ -316,6 +196,21 @@ let titleFocusRequest = $state<{ pageId: string | null; requestId: number }>({
 let pageTitleDraft = $state<{ pageId: string; title: string } | null>(null);
 const preferences = getPreferences();
 const projects = getProjects();
+const archiveController = createNotesArchiveController();
+const searchController = createNotesSearchController();
+const linksController = createNotesLinksController({
+  readSelectedPageId: () => selectedPageId,
+  readSelectedProjectId: () => projects.selectedProjectId,
+  readAllPages: () => allPages,
+  reloadSelectedPage: (pageId) => loadPageTree(pageId),
+  scheduleVisibleMetadataRefresh: () => sidebarRefreshCoordinator.schedule("visible-metadata"),
+});
+const {
+  reloadArchivedPages,
+  loadMoreArchivedPages,
+  reloadTrashedPages,
+  loadMoreTrashedPages,
+} = archiveController;
 
 function blockTreeSnapshot(): NotesBlockTreeSnapshot {
   return { selectedPageId, blocksById, childIdsByParentId };
@@ -569,7 +464,9 @@ async function hydrateBlockRange(
   for (const block of hydrated) nextBlocks[block.id] = block;
   blocksById = nextBlocks;
   childIdsByParentId = buildNotesChildIdsByParent(Object.values(blocksById));
-  if (openPagePanelSubsystems.has("comments")) void reloadComments(pageId);
+  if (optionalSubsystemController.isPanelOpen("comments")) {
+    void collaborationController.reloadComments(pageId);
+  }
 }
 
 function requestLoadedPageFocus(
@@ -684,102 +581,6 @@ function applyPostMutation(result: NotesPostMutationResult): void {
   sidebarRefreshCoordinator.schedule(result.sidebarImpact ?? "none");
 }
 
-async function reloadLinkResolutionPages(query = ""): Promise<void> {
-  const requestId = ++linkResolutionPagesRequestId;
-  const projectId = projects.selectedProjectId;
-  destinationQuery = query.trim();
-  try {
-    const result = await listNotesDestinationCandidates(projectId, null, destinationQuery);
-    if (requestId !== linkResolutionPagesRequestId || projectId !== projects.selectedProjectId) return;
-    linkResolutionPages = [...result.pages];
-    destinationNextCursor = result.next_page_cursor;
-  } catch {
-    if (requestId !== linkResolutionPagesRequestId || projectId !== projects.selectedProjectId) return;
-    linkResolutionPages = [...allPages];
-  }
-}
-
-async function loadMoreDestinationCandidates(): Promise<void> {
-  const cursor = destinationNextCursor;
-  if (!cursor) return;
-  const requestId = ++linkResolutionPagesRequestId;
-  const projectId = projects.selectedProjectId;
-  const result = await listNotesDestinationCandidates(projectId, cursor, destinationQuery);
-  if (requestId !== linkResolutionPagesRequestId || projectId !== projects.selectedProjectId) return;
-  linkResolutionPages = [...new Map([...linkResolutionPages, ...result.pages].map((page) => [page.id, page])).values()];
-  destinationNextCursor = result.next_page_cursor;
-}
-
-async function reloadArchivedPages(query = ""): Promise<void> {
-  const requestId = ++archiveRequestId;
-  archiveQuery = query.trim();
-  archiveLoading = true;
-  archiveError = null;
-  try {
-    const nextPages = await listArchivedNotesPages({ query: archiveQuery });
-    if (requestId !== archiveRequestId) return;
-    archivedPages = [...nextPages.pages];
-    archiveNextCursor = nextPages.next_cursor;
-    archiveLoaded = true;
-  } catch (error) {
-    if (requestId !== archiveRequestId) return;
-    archiveError = error instanceof Error ? error.message : String(error);
-    throw error;
-  } finally {
-    if (requestId === archiveRequestId) archiveLoading = false;
-  }
-}
-
-async function loadMoreArchivedPages(): Promise<void> {
-  const cursor = archiveNextCursor;
-  if (!cursor || archiveLoading) return;
-  const requestId = ++archiveRequestId;
-  archiveLoading = true;
-  try {
-    const window = await listArchivedNotesPages({ cursor, query: archiveQuery });
-    if (requestId !== archiveRequestId) return;
-    archivedPages = [...new Map([...archivedPages, ...window.pages].map((page) => [page.id, page])).values()];
-    archiveNextCursor = window.next_cursor;
-  } finally {
-    if (requestId === archiveRequestId) archiveLoading = false;
-  }
-}
-
-async function reloadTrashedPages(query = ""): Promise<void> {
-  const requestId = ++trashRequestId;
-  trashQuery = query.trim();
-  trashLoading = true;
-  trashError = null;
-  try {
-    const nextPages = await listTrashedNotesPages({ query: trashQuery });
-    if (requestId !== trashRequestId) return;
-    trashedPages = [...nextPages.pages];
-    trashNextCursor = nextPages.next_cursor;
-    trashLoaded = true;
-  } catch (error) {
-    if (requestId !== trashRequestId) return;
-    trashError = error instanceof Error ? error.message : String(error);
-    throw error;
-  } finally {
-    if (requestId === trashRequestId) trashLoading = false;
-  }
-}
-
-async function loadMoreTrashedPages(): Promise<void> {
-  const cursor = trashNextCursor;
-  if (!cursor || trashLoading) return;
-  const requestId = ++trashRequestId;
-  trashLoading = true;
-  try {
-    const window = await listTrashedNotesPages({ cursor, query: trashQuery });
-    if (requestId !== trashRequestId) return;
-    trashedPages = [...new Map([...trashedPages, ...window.pages].map((page) => [page.id, page])).values()];
-    trashNextCursor = window.next_cursor;
-  } finally {
-    if (requestId === trashRequestId) trashLoading = false;
-  }
-}
-
 async function reloadPageTemplates(): Promise<void> {
   const requestId = ++pageTemplatesRequestId;
   pageTemplatesLoading = true;
@@ -821,75 +622,6 @@ async function loadPageTreeForUndo(pageId: string): Promise<void> {
   recordRecentPage(pageId);
 }
 
-async function reloadBacklinks(pageId: string | null = selectedPageId): Promise<void> {
-  const requestId = ++backlinksRequestId;
-  if (!pageId) {
-    backlinks = [];
-    backlinksError = null;
-    backlinksLoading = false;
-    return;
-  }
-  backlinksLoading = true;
-  backlinksError = null;
-  try {
-    const nextBacklinks = await listNotesBacklinks(pageId);
-    if (requestId !== backlinksRequestId || pageId !== selectedPageId) return;
-    backlinks = [...nextBacklinks];
-  } catch (error) {
-    if (requestId !== backlinksRequestId || pageId !== selectedPageId) return;
-    backlinks = [];
-    backlinksError = error instanceof Error ? error.message : String(error);
-  } finally {
-    if (requestId === backlinksRequestId) backlinksLoading = false;
-  }
-}
-
-async function reloadPageAliases(pageId: string | null = selectedPageId): Promise<void> {
-  const requestId = ++pageAliasesRequestId;
-  if (!pageId) {
-    pageAliases = [];
-    pageAliasesError = null;
-    pageAliasesLoading = false;
-    return;
-  }
-  pageAliasesLoading = true;
-  pageAliasesError = null;
-  try {
-    const nextAliases = await listNotesPageAliases(pageId);
-    if (requestId !== pageAliasesRequestId || pageId !== selectedPageId) return;
-    pageAliases = [...nextAliases];
-  } catch (error) {
-    if (requestId !== pageAliasesRequestId || pageId !== selectedPageId) return;
-    pageAliases = [];
-    pageAliasesError = error instanceof Error ? error.message : String(error);
-  } finally {
-    if (requestId === pageAliasesRequestId) pageAliasesLoading = false;
-  }
-}
-
-async function reloadUnresolvedLinks(pageId: string | null = selectedPageId): Promise<void> {
-  const requestId = ++unresolvedLinksRequestId;
-  if (!pageId) {
-    unresolvedLinks = [];
-    unresolvedLinksError = null;
-    unresolvedLinksLoading = false;
-    return;
-  }
-  unresolvedLinksLoading = true;
-  unresolvedLinksError = null;
-  try {
-    const nextLinks = await listNotesUnresolvedLinks(pageId);
-    if (requestId !== unresolvedLinksRequestId || pageId !== selectedPageId) return;
-    unresolvedLinks = [...nextLinks];
-  } catch (error) {
-    if (requestId !== unresolvedLinksRequestId || pageId !== selectedPageId) return;
-    unresolvedLinks = [];
-    unresolvedLinksError = error instanceof Error ? error.message : String(error);
-  } finally {
-    if (requestId === unresolvedLinksRequestId) unresolvedLinksLoading = false;
-  }
-}
-
 async function reloadPageBreadcrumb(pageId: string | null = selectedPageId): Promise<void> {
   if (!pageId) {
     pageBreadcrumbItems = [];
@@ -898,412 +630,15 @@ async function reloadPageBreadcrumb(pageId: string | null = selectedPageId): Pro
   pageBreadcrumbItems = [...await getNotesPageBreadcrumb(pageId)];
 }
 
-async function reloadComments(pageId: string | null = selectedPageId): Promise<void> {
-  const requestId = ++commentsRequestId;
-  if (!pageId) {
-    commentThreads = [];
-    activeCommentParent = null;
-    activeCommentAnchor = null;
-    commentsError = null;
-    commentsLoading = false;
-    return;
-  }
-  commentsLoading = true;
-  commentsError = null;
-  try {
-    const nextThreads = await listNotesComments(
-      pageId,
-      commentsIncludeResolved,
-      Object.keys(blocksById),
-    );
-    if (requestId !== commentsRequestId || pageId !== selectedPageId) return;
-    commentThreads = [...nextThreads];
-  } catch (error) {
-    if (requestId !== commentsRequestId || pageId !== selectedPageId) return;
-    commentThreads = [];
-    commentsError = error instanceof Error ? error.message : String(error);
-  } finally {
-    if (requestId === commentsRequestId) commentsLoading = false;
-  }
-}
-
-async function reloadSuggestions(pageId: string | null = selectedPageId): Promise<void> {
-  const requestId = ++suggestionsRequestId;
-  if (!pageId) {
-    suggestions = [];
-    activeSuggestionDraft = null;
-    suggestionsError = null;
-    suggestionsLoading = false;
-    return;
-  }
-  suggestionsLoading = true;
-  suggestionsError = null;
-  try {
-    const nextSuggestions = await listNotesSuggestions(pageId, suggestionsIncludeDecided);
-    if (requestId !== suggestionsRequestId || pageId !== selectedPageId) return;
-    suggestions = [...nextSuggestions];
-  } catch (error) {
-    if (requestId !== suggestionsRequestId || pageId !== selectedPageId) return;
-    suggestions = [];
-    suggestionsError = error instanceof Error ? error.message : String(error);
-  } finally {
-    if (requestId === suggestionsRequestId) suggestionsLoading = false;
-  }
-}
-
-async function loadLocalUser(): Promise<NotesLocalUser | null> {
-  const requestId = ++localUserRequestId;
-  localUserLoading = true;
-  localUserError = null;
-  try {
-    const nextLocalUser = await getNotesLocalUser();
-    if (requestId !== localUserRequestId) return localUser;
-    localUser = nextLocalUser;
-    return nextLocalUser;
-  } catch (error) {
-    if (requestId !== localUserRequestId) return localUser;
-    localUserError = error instanceof Error ? error.message : String(error);
-    return null;
-  } finally {
-    if (requestId === localUserRequestId) localUserLoading = false;
-  }
-}
-
-async function updateLocalUserDisplayName(displayName: string): Promise<NotesLocalUser | null> {
-  const requestId = ++localUserRequestId;
-  localUserLoading = true;
-  localUserError = null;
-  try {
-    const nextLocalUser = await updateNotesLocalUser({ display_name: displayName });
-    if (requestId !== localUserRequestId) return localUser;
-    localUser = nextLocalUser;
-    await Promise.all([
-      openPagePanelSubsystems.has("comments") ? reloadComments() : Promise.resolve(),
-      openPagePanelSubsystems.has("suggestions") ? reloadSuggestions() : Promise.resolve(),
-    ]);
-    return nextLocalUser;
-  } catch (error) {
-    if (requestId !== localUserRequestId) return localUser;
-    localUserError = error instanceof Error ? error.message : String(error);
-    return null;
-  } finally {
-    if (requestId === localUserRequestId) localUserLoading = false;
-  }
-}
-
-function updateCommentThread(thread: NotesCommentThread): void {
-  if (thread.comments.length === 0 || (thread.status === "resolved" && !commentsIncludeResolved)) {
-    commentThreads = commentThreads.filter((candidate) => candidate.id !== thread.id);
-    return;
-  }
-  const existingIndex = commentThreads.findIndex((candidate) => candidate.id === thread.id);
-  if (existingIndex === -1) {
-    commentThreads = [...commentThreads, thread];
-    return;
-  }
-  commentThreads = commentThreads.map((candidate) => (candidate.id === thread.id ? thread : candidate));
-}
-
-function updateSuggestion(suggestion: NotesSuggestion): void {
-  if (suggestion.status !== "open" && !suggestionsIncludeDecided) {
-    suggestions = suggestions.filter((candidate) => candidate.id !== suggestion.id);
-    return;
-  }
-  const existingIndex = suggestions.findIndex((candidate) => candidate.id === suggestion.id);
-  if (existingIndex === -1) {
-    suggestions = [...suggestions, suggestion];
-    return;
-  }
-  suggestions = suggestions.map((candidate) => (
-    candidate.id === suggestion.id ? suggestion : candidate
-  ));
-}
-
-function commentParentForSelectedPage(): NotesCommentParent | null {
-  return selectedPageId ? { type: "page_id", page_id: selectedPageId } : null;
-}
-
-function setActiveCommentParent(parent: NotesCommentParent | null): void {
-  activeCommentParent = parent;
-  activeCommentAnchor = null;
-}
-
-async function startBlockComment(blockId: string): Promise<void> {
-  if (!blocksById[blockId]) return;
-  await flushBlockSave(blockId);
-  activeCommentParent = { type: "block_id", block_id: blockId };
-  activeCommentAnchor = null;
-  requestBlockFocus(blockId);
-}
-
-async function startInlineComment(blockId: string, start: number, end: number): Promise<void> {
-  const block = blocksById[blockId];
-  if (!block) return;
-  const anchor = notesCommentAnchorDraft(blockPlainText(block), start, end);
-  if (!anchor) return;
-  await flushBlockSave(blockId);
-  activeCommentParent = { type: "block_id", block_id: blockId };
-  activeCommentAnchor = anchor;
-  requestBlockFocus(blockId);
-}
-
-async function startInlineSuggestion(blockId: string, start: number, end: number): Promise<void> {
-  const block = blocksById[blockId];
-  if (!block) return;
-  const draft = notesSuggestionDraft(block.id, blockPlainText(block), start, end);
-  if (!draft) return;
-  await flushBlockSave(blockId);
-  activeSuggestionDraft = draft;
-  requestBlockFocus(blockId);
-}
-
-function cancelSuggestionDraft(): void {
-  activeSuggestionDraft = null;
-}
-
-async function createSuggestion(proposedText: string): Promise<void> {
-  const draft = activeSuggestionDraft;
-  if (!draft || proposedText === draft.original_text) return;
-  await flushBlockSave(draft.block_id);
-  const suggestion = await createNotesSuggestion(
-    notesSuggestionCreateRequest(crypto.randomUUID(), draft, proposedText),
-  );
-  updateSuggestion(suggestion);
-  activeSuggestionDraft = null;
-  requestBlockFocus(draft.block_id);
-}
-
-async function acceptSuggestion(suggestionId: string): Promise<void> {
-  const suggestion = suggestions.find((candidate) => candidate.id === suggestionId);
-  if (!suggestion || suggestion.status !== "open") return;
-  const block = blocksById[suggestion.block_id];
-  if (!block) return;
-  await flushBlockSave(suggestion.block_id);
-  const plan = notesApplySuggestionToBlock(block, suggestion);
-  if (!plan) {
-    suggestionsError = "target_missing";
-    return;
-  }
-  await blockActions.updateBlockRichText(suggestion.block_id, plan.richText);
-  await flushBlockSave(suggestion.block_id);
-  const updated = await acceptNotesSuggestion(suggestion.id);
-  updateSuggestion(updated);
-  requestBlockFocus(suggestion.block_id);
-}
-
-async function rejectSuggestion(suggestionId: string): Promise<void> {
-  const suggestion = suggestions.find((candidate) => candidate.id === suggestionId);
-  if (!suggestion || suggestion.status !== "open") return;
-  await flushBlockSave(suggestion.block_id);
-  const updated = await rejectNotesSuggestion(suggestion.id);
-  updateSuggestion(updated);
-  requestBlockFocus(suggestion.block_id);
-}
-
-async function setSuggestionsIncludeDecided(includeDecided: boolean): Promise<void> {
-  suggestionsIncludeDecided = includeDecided;
-  await reloadSuggestions();
-}
-
-async function addPageAlias(alias: string): Promise<void> {
-  if (!selectedPageId) return;
-  const content = alias.trim();
-  if (!content) return;
-  pageAliases = await addNotesPageAlias(selectedPageId, {
-    id: crypto.randomUUID(),
-    alias: content,
-  });
-  pageAliasesError = null;
-  await Promise.all([
-    reloadUnresolvedLinks(selectedPageId),
-    reloadBacklinks(selectedPageId),
-  ]);
-}
-
-async function deletePageAlias(aliasId: string): Promise<void> {
-  if (!selectedPageId) return;
-  pageAliases = await deleteNotesPageAlias(selectedPageId, aliasId);
-  pageAliasesError = null;
-  await Promise.all([
-    reloadUnresolvedLinks(selectedPageId),
-    reloadBacklinks(selectedPageId),
-  ]);
-}
-
-async function resolveUnresolvedLink(linkId: string, targetPageId: string): Promise<void> {
-  const targetId = targetPageId.trim();
-  if (!targetId) return;
-  unresolvedLinks = await resolveNotesUnresolvedLink(linkId, {
-    target_page_id: targetId,
-  });
-  unresolvedLinksError = null;
-  const sourcePageId = selectedPageId;
-  await Promise.all([
-    reloadLinkResolutionPages(),
-    sourcePageId ? loadPageTree(sourcePageId) : Promise.resolve(),
-  ]);
-  sidebarRefreshCoordinator.schedule("visible-metadata");
-}
-
-async function createComment(
-  text: string,
-  parent: NotesCommentParent | null = activeCommentParent ?? commentParentForSelectedPage(),
-): Promise<void> {
-  const content = text.trim();
-  if (!content || !parent) return;
-  if (parent.type === "block_id") {
-    await flushBlockSave(parent.block_id);
-  }
-  const anchor = activeCommentParent
-    && notesCommentParentKey(activeCommentParent) === notesCommentParentKey(parent)
-    ? activeCommentAnchor
-    : null;
-  const thread = await createNotesComment({
-    id: crypto.randomUUID(),
-    parent,
-    anchor: anchor ?? undefined,
-    rich_text: [createRichText(content)],
-  });
-  updateCommentThread(thread);
-  activeCommentParent = null;
-  activeCommentAnchor = null;
-}
-
-async function replyToCommentThread(discussionId: string, text: string): Promise<void> {
-  const content = text.trim();
-  if (!content) return;
-  const thread = await createNotesComment({
-    id: crypto.randomUUID(),
-    discussion_id: discussionId,
-    rich_text: [createRichText(content)],
-  });
-  updateCommentThread(thread);
-}
-
-async function updateComment(commentId: string, text: string): Promise<void> {
-  const content = text.trim();
-  if (!content) return;
-  const thread = await updateNotesComment(commentId, {
-    rich_text: [createRichText(content)],
-  });
-  updateCommentThread(thread);
-}
-
-async function deleteComment(commentId: string): Promise<void> {
-  const thread = await deleteNotesComment(commentId);
-  updateCommentThread(thread);
-}
-
-async function setCommentThreadResolved(
-  discussionId: string,
-  resolved: boolean,
-): Promise<void> {
-  const thread = await resolveNotesCommentThread(discussionId, resolved);
-  updateCommentThread(thread);
-}
-
-async function markCommentThreadsRead(discussionIds: readonly string[]): Promise<void> {
-  if (!selectedPageId) return;
-  const normalizedIds = [
-    ...new Set(discussionIds.map((discussionId) => discussionId.trim()).filter(Boolean)),
-  ];
-  if (normalizedIds.length === 0) return;
-  const nextThreads = await markNotesCommentThreadsRead({
-    page_id: selectedPageId,
-    discussion_ids: normalizedIds,
-    include_resolved: commentsIncludeResolved,
-  });
-  commentThreads = [...nextThreads];
-  commentsError = null;
-}
-
-async function markVisibleCommentThreadsRead(parent: NotesCommentParent | null = null): Promise<void> {
-  const visibleThreads = parent
-    ? commentThreads.filter((thread) => notesCommentParentMatches(thread.parent, parent))
-    : commentThreads;
-  await markCommentThreadsRead(
-    visibleThreads.filter((thread) => thread.unread).map((thread) => thread.id),
-  );
-}
-
-async function setCommentsIncludeResolved(includeResolved: boolean): Promise<void> {
-  commentsIncludeResolved = includeResolved;
-  await reloadComments();
-}
-
-async function search(
-  query: string,
-  pageSize = 20,
-  includeResolvedComments = searchIncludeResolvedComments,
-): Promise<void> {
-  const trimmed = query.trim();
-  const requestId = ++searchRequestId;
-  if (!trimmed) {
-    searchResults = [];
-    searchNextCursor = null;
-    searchError = null;
-    searchLoading = false;
-    return;
-  }
-  searchLoading = true;
-  activeSearchQuery = trimmed;
-  activeSearchPageSize = pageSize;
-  searchError = null;
-  try {
-    const window = await searchNotes(trimmed, pageSize, includeResolvedComments);
-    if (requestId !== searchRequestId) return;
-    searchResults = [...window.results];
-    searchNextCursor = window.next_cursor;
-  } catch (error) {
-    if (requestId !== searchRequestId) return;
-    searchResults = [];
-    searchError = error instanceof Error ? error.message : String(error);
-  } finally {
-    if (requestId === searchRequestId) searchLoading = false;
-  }
-}
-
-async function loadMoreSearchResults(): Promise<void> {
-  const cursor = searchNextCursor;
-  if (!cursor || searchLoading || !activeSearchQuery) return;
-  const requestId = ++searchRequestId;
-  searchLoading = true;
-  try {
-    const window = await searchNotes(
-      activeSearchQuery,
-      activeSearchPageSize,
-      searchIncludeResolvedComments,
-      cursor,
-    );
-    if (requestId !== searchRequestId) return;
-    searchResults = [...new Map([...searchResults, ...window.results].map((result) => [result.id, result])).values()];
-    searchNextCursor = window.next_cursor;
-  } catch (error) {
-    if (requestId === searchRequestId) searchError = error instanceof Error ? error.message : String(error);
-  } finally {
-    if (requestId === searchRequestId) searchLoading = false;
-  }
-}
-
-function setSearchIncludeResolvedComments(includeResolvedComments: boolean): void {
-  searchIncludeResolvedComments = includeResolvedComments;
-}
-
 async function load(): Promise<void> {
   const requestId = ++loadRequestId;
   pageWorkGeneration += 1;
   blockHydrationRequestId += 1;
   blockOutlines = [];
   flatBlockOutlines = [];
-  openPagePanelSubsystems.clear();
-  loadedOptionalSubsystems.clear();
-  optionalSubsystemPromises.clear();
-  backlinksRequestId += 1;
-  pageAliasesRequestId += 1;
-  unresolvedLinksRequestId += 1;
-  linkResolutionPagesRequestId += 1;
-  commentsRequestId += 1;
-  suggestionsRequestId += 1;
+  optionalSubsystemController.resetAll();
+  linksController.resetAll();
+  collaborationController.resetPageState();
   pageHistoryController.resetPageState();
   sidebarRefreshCoordinator.cancel();
   const requestedSelection = selectedPageId;
@@ -1340,20 +675,6 @@ async function load(): Promise<void> {
     } else {
       loadedPage = null;
       pageBreadcrumbItems = [];
-      backlinks = [];
-      backlinksError = null;
-      pageAliases = [];
-      pageAliasesError = null;
-      unresolvedLinks = [];
-      unresolvedLinksError = null;
-      linkResolutionPages = [];
-      commentThreads = [];
-      activeCommentParent = null;
-      activeCommentAnchor = null;
-      commentsError = null;
-      suggestions = [];
-      activeSuggestionDraft = null;
-      suggestionsError = null;
       pageHistoryController.resetPageState();
       blocksById = {};
       childIdsByParentId = {};
@@ -1408,95 +729,75 @@ async function ensureLoaded(): Promise<void> {
   return loadPromise;
 }
 
+async function loadOptionalSubsystem(
+  subsystem: NotesOptionalSubsystem,
+  pageId: string | null,
+): Promise<void> {
+  switch (subsystem) {
+    case "templates":
+      await reloadPageTemplates();
+      break;
+    case "local-user":
+      await collaborationController.loadLocalUser();
+      break;
+    case "history-settings":
+      await pageHistoryController.loadSettings();
+      break;
+    case "undo":
+      await undoController.hydrate(pageId);
+      break;
+    case "links":
+      await Promise.all([
+        linksController.reloadBacklinks(pageId),
+        linksController.reloadPageAliases(pageId),
+        linksController.reloadUnresolvedLinks(pageId),
+        linksController.reloadLinkResolutionPages(),
+      ]);
+      break;
+    case "comments":
+      await Promise.all([
+        collaborationController.loadLocalUser(),
+        collaborationController.reloadComments(pageId),
+      ]);
+      break;
+    case "suggestions":
+      await collaborationController.reloadSuggestions(pageId);
+      break;
+    case "page-history":
+      if (pageId) await pageHistoryController.reloadSnapshots(pageId);
+      break;
+    case "destinations":
+      await linksController.reloadLinkResolutionPages();
+      break;
+  }
+}
+
 async function ensureOptionalSubsystem(
   subsystem: NotesOptionalSubsystem,
   pageId: string | null = selectedPageId,
 ): Promise<void> {
-  const pageScoped = subsystem === "links"
-    || subsystem === "comments"
-    || subsystem === "suggestions"
-    || subsystem === "page-history"
-    || subsystem === "undo";
-  if (pageScoped && !pageId) return;
-  const generation = pageWorkGeneration;
-  const key = pageScoped
-    ? `${generation}:${subsystem}:${pageId}`
-    : subsystem === "destinations"
-      ? `${subsystem}:${projects.selectedProjectId ?? "workspace"}`
-      : subsystem;
-  if (loadedOptionalSubsystems.has(key)) return;
-  const existing = optionalSubsystemPromises.get(key);
-  if (existing) return existing;
-  const promise = (async () => {
-    switch (subsystem) {
-      case "templates":
-        await reloadPageTemplates();
-        break;
-      case "local-user":
-        await loadLocalUser();
-        break;
-      case "history-settings":
-        await pageHistoryController.loadSettings();
-        break;
-      case "undo":
-        await undoController.hydrate(pageId);
-        break;
-      case "links":
-        await Promise.all([
-          reloadBacklinks(pageId),
-          reloadPageAliases(pageId),
-          reloadUnresolvedLinks(pageId),
-          reloadLinkResolutionPages(),
-        ]);
-        break;
-      case "comments":
-        await Promise.all([loadLocalUser(), reloadComments(pageId)]);
-        break;
-      case "suggestions":
-        await reloadSuggestions(pageId);
-        break;
-      case "page-history":
-        if (pageId) await pageHistoryController.reloadSnapshots(pageId);
-        break;
-      case "destinations":
-        await reloadLinkResolutionPages();
-        break;
-    }
-    if (!pageScoped || (generation === pageWorkGeneration && pageId === selectedPageId)) {
-      loadedOptionalSubsystems.add(key);
-    }
-  })().finally(() => {
-    if (optionalSubsystemPromises.get(key) === promise) {
-      optionalSubsystemPromises.delete(key);
-    }
-  });
-  optionalSubsystemPromises.set(key, promise);
-  return promise;
+  return optionalSubsystemController.ensure(subsystem, pageId);
 }
 
 function setPagePanelSubsystemOpen(
   subsystem: NotesPagePanelSubsystem,
   open: boolean,
 ): void {
-  if (open) {
-    openPagePanelSubsystems.add(subsystem);
-  } else {
-    openPagePanelSubsystems.delete(subsystem);
-  }
+  optionalSubsystemController.setPanelOpen(subsystem, open);
 }
 
 async function refreshOpenLinks(): Promise<void> {
   const pageId = selectedPageId;
-  if (!pageId || !openPagePanelSubsystems.has("links")) return;
+  if (!pageId || !optionalSubsystemController.isPanelOpen("links")) return;
   const generation = pageWorkGeneration;
   await Promise.all([
-    reloadBacklinks(pageId),
-    reloadPageAliases(pageId),
-    reloadUnresolvedLinks(pageId),
-    reloadLinkResolutionPages(),
+    linksController.reloadBacklinks(pageId),
+    linksController.reloadPageAliases(pageId),
+    linksController.reloadUnresolvedLinks(pageId),
+    linksController.reloadLinkResolutionPages(),
   ]);
   if (generation !== pageWorkGeneration || pageId !== selectedPageId) return;
-  loadedOptionalSubsystems.add(`${generation}:links:${pageId}`);
+  optionalSubsystemController.markPageSubsystemLoaded("links", pageId, generation);
 }
 
 async function selectPage(
@@ -1522,40 +823,16 @@ async function selectPage(
   blockHydrationRequestId += 1;
   blockOutlines = [];
   flatBlockOutlines = [];
-  for (const key of loadedOptionalSubsystems) {
-    if (/^\d+:/.test(key)) loadedOptionalSubsystems.delete(key);
-  }
+  optionalSubsystemController.resetPageScoped();
   undoController.reset(pageId);
   pageHistoryController.resetPageState();
-  openPagePanelSubsystems.clear();
-  backlinksRequestId += 1;
-  pageAliasesRequestId += 1;
-  unresolvedLinksRequestId += 1;
-  commentsRequestId += 1;
-  suggestionsRequestId += 1;
-  backlinks = [];
-  pageAliases = [];
-  unresolvedLinks = [];
-  commentThreads = [];
-  suggestions = [];
+  linksController.resetPageState();
+  collaborationController.resetPageState();
   if (!pageId) {
     loadedPage = null;
     primaryContentReady = false;
     pageBreadcrumbItems = [];
-    backlinks = [];
-    backlinksError = null;
-    pageAliases = [];
-    pageAliasesError = null;
-    unresolvedLinks = [];
-    unresolvedLinksError = null;
-    linkResolutionPages = [];
-    commentThreads = [];
-    activeCommentParent = null;
-    activeCommentAnchor = null;
-    commentsError = null;
-    suggestions = [];
-    activeSuggestionDraft = null;
-    suggestionsError = null;
+    linksController.resetAll();
     pageHistoryController.resetPageState();
     blocksById = {};
     childIdsByParentId = {};
@@ -1644,7 +921,7 @@ async function activateReturnedPage(
   flatBlockOutlines = [];
   undoController.reset(loaded.page.id);
   pageHistoryController.resetPageState();
-  openPagePanelSubsystems.clear();
+  optionalSubsystemController.resetPageScoped();
   openSelectedPage(loaded.page.id, openMode);
   recordRecentPage(loaded.page.id);
   applyPostMutation({
@@ -1653,86 +930,6 @@ async function activateReturnedPage(
     sidebarImpact,
   });
   await reloadPageBreadcrumb(loaded.page.id);
-}
-
-async function importHtmlPage(
-  input: Omit<NotesHtmlImportRequest, "parent"> & { parent?: NotesParent },
-): Promise<NotesHtmlImportResult> {
-  const result = await importNotesHtmlPage({
-    ...input,
-    parent: input.parent ?? { type: "workspace", workspace: true },
-  });
-  await activateReturnedPage(result.page, "hierarchy");
-  queueDescendantHydration();
-  requestPageLoadFocus();
-  return result;
-}
-
-async function importNotionApi(
-  input: Omit<NotesNotionApiImportRequest, "parent"> & { parent?: NotesParent },
-): Promise<NotesNotionApiImportResult> {
-  const result = await importNotesNotionApi({
-    ...input,
-    parent: input.parent ?? { type: "workspace", workspace: true },
-  });
-  await refreshAfterMultiPageImport(result.imported_pages);
-  return result;
-}
-
-async function importNotionExportFolder(
-  input: Omit<NotesNotionExportImportRequest, "parent"> & { parent?: NotesParent },
-): Promise<NotesNotionExportImportResult> {
-  const result = await importNotesNotionExportFolder({
-    ...input,
-    parent: input.parent ?? { type: "workspace", workspace: true },
-  });
-  await refreshAfterMultiPageImport(result.imported_pages);
-  return result;
-}
-
-async function refreshAfterMultiPageImport(importedPages: NotesLoadedPage[]): Promise<void> {
-  viewMode = "pages";
-  const firstPage = importedPages[0] ?? null;
-  for (const loaded of importedPages) {
-    upsertPageInActiveCollections(loaded.page);
-  }
-  if (firstPage) {
-    await activateReturnedPage(firstPage, "hierarchy");
-    queueDescendantHydration();
-    requestPageLoadFocus();
-  } else {
-    sidebarRefreshCoordinator.schedule("hierarchy");
-  }
-}
-
-async function exportHtmlArchive(
-  input: Omit<NotesHtmlExportRequest, "page_id"> = {},
-): Promise<NotesHtmlArchiveSaveResult> {
-  if (!selectedPageId) {
-    throw new Error("No Notes page is selected");
-  }
-  return saveNotesHtmlArchive({
-    ...input,
-    page_id: selectedPageId,
-  });
-}
-
-async function exportJsonGraph(
-  input: NotesJsonGraphExportRequest = {},
-): Promise<NotesJsonGraphExportSaveResult> {
-  return saveNotesJsonGraph(input);
-}
-
-async function exportAgentBridge(
-  input: Omit<NotesAgentBridgeExportRequest, "page_ids"> = {},
-): Promise<NotesAgentBridgeExportSaveResult> {
-  if (!selectedPageId) {
-    throw new Error("No Notes page is selected");
-  }
-  return saveNotesAgentBridge({
-    ...input,
-    page_ids: [selectedPageId],
-  });
 }
 
 async function applyPageTemplate(templateId: string, title?: string): Promise<void> {
@@ -1992,10 +1189,8 @@ async function updatePageCover(pageId: string, cover: NotesPageCover | null): Pr
 async function trashPage(pageId: string): Promise<void> {
   const trashedPage = await trashNotesPage(pageId, true);
   const preferredNextSelected = nextSelectedNotesPageId(pages, pageId);
-  if (trashLoaded) {
-    trashedPages = [trashedPage, ...trashedPages.filter((page) => page.id !== pageId)];
-  }
-  archivedPages = archivedPages.filter((page) => page.id !== pageId);
+  archiveController.prependTrashedPage(trashedPage);
+  archiveController.removeArchivedPages(new Set([pageId]));
   applyPostMutation({ removedPageIds: [pageId], sidebarImpact: "hierarchy" });
   const nextSelected = preferredNextSelected && pages.some((page) => page.id === preferredNextSelected)
     ? preferredNextSelected
@@ -2005,9 +1200,7 @@ async function trashPage(pageId: string): Promise<void> {
 
 async function archivePage(pageId: string): Promise<void> {
   const archivedPage = await archiveNotesPage(pageId, true);
-  if (archiveLoaded) {
-    archivedPages = [archivedPage, ...archivedPages.filter((page) => page.id !== pageId)];
-  }
+  archiveController.prependArchivedPage(archivedPage);
   const nextSelected = nextSelectedNotesPageId(pages, pageId);
   applyPostMutation({ removedPageIds: [pageId], sidebarImpact: "hierarchy" });
   await selectPage(nextSelected);
@@ -2015,11 +1208,11 @@ async function archivePage(pageId: string): Promise<void> {
 
 async function unarchivePage(pageId: string): Promise<void> {
   const restoredPage = await archiveNotesPage(pageId, false);
-  archivedPages = archivedPages.filter((page) => page.id !== pageId);
+  archiveController.removeArchivedPages(new Set([pageId]));
   pageWorkGeneration += 1;
   undoController.reset(restoredPage.id);
   pageHistoryController.resetPageState();
-  openPagePanelSubsystems.clear();
+  optionalSubsystemController.resetPageScoped();
   openSelectedPage(restoredPage.id, defaultNotesPageOpenMode(notesPageProjectId(restoredPage)));
   applyPostMutation({ pages: [restoredPage], sidebarImpact: "hierarchy" });
   await loadPageTree(restoredPage.id);
@@ -2029,11 +1222,11 @@ async function unarchivePage(pageId: string): Promise<void> {
 
 async function restorePage(pageId: string): Promise<void> {
   const restoredPage = await trashNotesPage(pageId, false);
-  trashedPages = trashedPages.filter((page) => page.id !== pageId);
+  archiveController.removeTrashedPages(new Set([pageId]));
   pageWorkGeneration += 1;
   undoController.reset(restoredPage.id);
   pageHistoryController.resetPageState();
-  openPagePanelSubsystems.clear();
+  optionalSubsystemController.resetPageScoped();
   openSelectedPage(restoredPage.id, defaultNotesPageOpenMode(notesPageProjectId(restoredPage)));
   applyPostMutation({ pages: [restoredPage], sidebarImpact: "hierarchy" });
   await loadPageTree(restoredPage.id);
@@ -2046,8 +1239,8 @@ async function permanentlyDeletePage(pageId: string): Promise<void> {
   const deletedPageIds = await permanentlyDeleteNotesPage(pageId);
   const deletedPageIdSet = new Set(deletedPageIds);
   removePagesFromActiveCollections(deletedPageIdSet);
-  archivedPages = archivedPages.filter((page) => !deletedPageIdSet.has(page.id));
-  trashedPages = trashedPages.filter((page) => !deletedPageIdSet.has(page.id));
+  archiveController.removeArchivedPages(deletedPageIdSet);
+  archiveController.removeTrashedPages(deletedPageIdSet);
   const nextFavoritePageIds = favoritePageIds.filter((id) => !deletedPageIdSet.has(id));
   const nextRecentPageIds = recentPageIds.filter((id) => !deletedPageIdSet.has(id));
   const nextExpandedPageIds = sidebarExpandedPageIds.filter((id) => !deletedPageIdSet.has(id));
@@ -2065,7 +1258,7 @@ async function permanentlyDeletePage(pageId: string): Promise<void> {
 
 async function openArchive(): Promise<void> {
   viewMode = "archive";
-  if (!archiveLoaded && !archiveLoading) {
+  if (!archiveController.archiveLoaded && !archiveController.archiveLoading) {
     await reloadArchivedPages();
   }
 }
@@ -2076,7 +1269,7 @@ function closeArchive(): void {
 
 async function openTrash(): Promise<void> {
   viewMode = "trash";
-  if (!trashLoaded && !trashLoading) {
+  if (!archiveController.trashLoaded && !archiveController.trashLoading) {
     await reloadTrashedPages();
   }
 }
@@ -2181,6 +1374,25 @@ const pageHistoryController = createNotesPageHistoryController({
   },
 });
 
+const optionalSubsystemController = createNotesOptionalSubsystemController({
+  readPageGeneration: () => pageWorkGeneration,
+  readSelectedPageId: () => selectedPageId,
+  readSelectedProjectId: () => projects.selectedProjectId,
+  load: loadOptionalSubsystem,
+});
+
+const transferActions = createNotesTransferActions({
+  readSelectedPageId: () => selectedPageId,
+  activateReturnedPage: (nextLoadedPage) => activateReturnedPage(nextLoadedPage, "hierarchy"),
+  upsertPage: upsertPageInActiveCollections,
+  showPages: () => {
+    viewMode = "pages";
+  },
+  scheduleHierarchyRefresh: () => sidebarRefreshCoordinator.schedule("hierarchy"),
+  queueDescendantHydration: () => queueDescendantHydration(),
+  requestPageLoadFocus: () => requestPageLoadFocus(),
+});
+
 const blockActions = createNotesBlockActions({
   readSelectedPageId: () => selectedPageId,
   readBlocksById: () => blocksById,
@@ -2209,6 +1421,15 @@ const blockActions = createNotesBlockActions({
   createUndoSnapshot: undoController.snapshot,
   createUndoSnapshotForBlocks: undoController.snapshotBlocks,
   recordUndo: undoController.record,
+});
+
+const collaborationController = createNotesCollaborationController({
+  readSelectedPageId: () => selectedPageId,
+  readBlocksById: () => blocksById,
+  flushBlockSave,
+  requestBlockFocus: (blockId) => requestBlockFocus(blockId),
+  updateBlockRichText: blockActions.updateBlockRichText,
+  isPanelOpen: (panel) => optionalSubsystemController.isPanelOpen(panel),
 });
 
 const {
@@ -2342,10 +1563,10 @@ export function getNotes() {
       return folders;
     },
     get archivedPages(): NotesPage[] {
-      return archivedPages;
+      return archiveController.archivedPages;
     },
     get archiveHasMore(): boolean {
-      return archiveNextCursor !== null;
+      return archiveController.archiveHasMore;
     },
     get pageTemplates(): NotesPageTemplate[] {
       return pageTemplates;
@@ -2375,10 +1596,10 @@ export function getNotes() {
       return sidebarTrashedParentPageIds;
     },
     get trashedPages(): NotesPage[] {
-      return trashedPages;
+      return archiveController.trashedPages;
     },
     get trashHasMore(): boolean {
-      return trashNextCursor !== null;
+      return archiveController.trashHasMore;
     },
     get selectedPageId(): string | null {
       return selectedPageId;
@@ -2395,95 +1616,95 @@ export function getNotes() {
     get pageBreadcrumbItems(): NotesPageBreadcrumbItem[] {
       return pageBreadcrumbItems;
     },
-    get backlinks(): NotesBacklink[] {
-      return backlinks;
+    get backlinks() {
+      return linksController.backlinks;
     },
     get backlinksLoading(): boolean {
-      return backlinksLoading;
+      return linksController.backlinksLoading;
     },
     get backlinksError(): string | null {
-      return backlinksError;
+      return linksController.backlinksError;
     },
-    get pageAliases(): NotesPageAlias[] {
-      return pageAliases;
+    get pageAliases() {
+      return linksController.aliases;
     },
     get pageAliasesLoading(): boolean {
-      return pageAliasesLoading;
+      return linksController.aliasesLoading;
     },
     get pageAliasesError(): string | null {
-      return pageAliasesError;
+      return linksController.aliasesError;
     },
-    get unresolvedLinks(): NotesUnresolvedLink[] {
-      return unresolvedLinks;
+    get unresolvedLinks() {
+      return linksController.unresolvedLinks;
     },
     get unresolvedLinksLoading(): boolean {
-      return unresolvedLinksLoading;
+      return linksController.unresolvedLoading;
     },
     get unresolvedLinksError(): string | null {
-      return unresolvedLinksError;
+      return linksController.unresolvedError;
     },
     get linkResolutionPages(): NotesPage[] {
-      return linkResolutionPages;
+      return linksController.destinations;
     },
     get destinationHasMore(): boolean {
-      return destinationNextCursor !== null;
+      return linksController.destinationHasMore;
     },
-    get commentThreads(): NotesCommentThread[] {
-      return commentThreads;
+    get commentThreads() {
+      return collaborationController.commentThreads;
     },
     get commentsLoading(): boolean {
-      return commentsLoading;
+      return collaborationController.commentsLoading;
     },
     get commentsError(): string | null {
-      return commentsError;
+      return collaborationController.commentsError;
     },
     get commentsIncludeResolved(): boolean {
-      return commentsIncludeResolved;
+      return collaborationController.commentsIncludeResolved;
     },
-    get activeCommentParent(): NotesCommentParent | null {
-      return activeCommentParent;
+    get activeCommentParent() {
+      return collaborationController.activeCommentParent;
     },
-    get activeCommentAnchor(): NotesCommentAnchorCreate | null {
-      return activeCommentAnchor;
+    get activeCommentAnchor() {
+      return collaborationController.activeCommentAnchor;
     },
-    get suggestions(): NotesSuggestion[] {
-      return suggestions;
+    get suggestions() {
+      return collaborationController.suggestions;
     },
     get suggestionsLoading(): boolean {
-      return suggestionsLoading;
+      return collaborationController.suggestionsLoading;
     },
     get suggestionsError(): string | null {
-      return suggestionsError;
+      return collaborationController.suggestionsError;
     },
     get suggestionsIncludeDecided(): boolean {
-      return suggestionsIncludeDecided;
+      return collaborationController.suggestionsIncludeDecided;
     },
-    get activeSuggestionDraft(): NotesSuggestionDraft | null {
-      return activeSuggestionDraft;
+    get activeSuggestionDraft() {
+      return collaborationController.activeSuggestionDraft;
     },
-    get localUser(): NotesLocalUser | null {
-      return localUser;
+    get localUser() {
+      return collaborationController.localUser;
     },
     get localUserLoading(): boolean {
-      return localUserLoading;
+      return collaborationController.localUserLoading;
     },
     get localUserError(): string | null {
-      return localUserError;
+      return collaborationController.localUserError;
     },
-    get searchResults(): NotesSearchResult[] {
-      return searchResults;
+    get searchResults() {
+      return searchController.results;
     },
     get searchHasMore(): boolean {
-      return searchNextCursor !== null;
+      return searchController.hasMore;
     },
     get searchLoading(): boolean {
-      return searchLoading;
+      return searchController.loading;
     },
     get searchError(): string | null {
-      return searchError;
+      return searchController.error;
     },
     get searchIncludeResolvedComments(): boolean {
-      return searchIncludeResolvedComments;
+      return searchController.includeResolvedComments;
     },
     get blocksById(): Record<string, NotesBlock> {
       return blocksById;
@@ -2510,22 +1731,22 @@ export function getNotes() {
       return viewMode;
     },
     get archiveLoaded(): boolean {
-      return archiveLoaded;
+      return archiveController.archiveLoaded;
     },
     get archiveLoading(): boolean {
-      return archiveLoading;
+      return archiveController.archiveLoading;
     },
     get archiveError(): string | null {
-      return archiveError;
+      return archiveController.archiveError;
     },
     get trashLoaded(): boolean {
-      return trashLoaded;
+      return archiveController.trashLoaded;
     },
     get trashLoading(): boolean {
-      return trashLoading;
+      return archiveController.trashLoading;
     },
     get trashError(): string | null {
-      return trashError;
+      return archiveController.trashError;
     },
     get pageTemplatesLoading(): boolean {
       return pageTemplatesLoading;
@@ -2599,12 +1820,12 @@ export function getNotes() {
     renameFolder,
     moveFolder,
     deleteFolder,
-    importHtmlPage,
-    importNotionApi,
-    importNotionExportFolder,
-    exportHtmlArchive,
-    exportJsonGraph,
-    exportAgentBridge,
+    importHtmlPage: transferActions.importHtmlPage,
+    importNotionApi: transferActions.importNotionApi,
+    importNotionExportFolder: transferActions.importNotionExportFolder,
+    exportHtmlArchive: transferActions.exportHtmlArchive,
+    exportJsonGraph: transferActions.exportJsonGraph,
+    exportAgentBridge: transferActions.exportAgentBridge,
     createChildPageFromBlock,
     applyPageTemplate,
     createPageTemplateFromCurrentPage,
@@ -2615,8 +1836,8 @@ export function getNotes() {
     reloadPageTemplates,
     ensureOptionalSubsystem,
     setPagePanelSubsystemOpen,
-    loadLocalUser,
-    updateLocalUserDisplayName,
+    loadLocalUser: collaborationController.loadLocalUser,
+    updateLocalUserDisplayName: collaborationController.updateLocalUserDisplayName,
     loadPageHistorySettings: pageHistoryController.loadSettings,
     updatePageHistoryRetention: pageHistoryController.updateRetention,
     reloadPageHistory: pageHistoryController.reloadSnapshots,
@@ -2640,37 +1861,37 @@ export function getNotes() {
     closeTrash,
     reloadTrashedPages,
     loadMoreTrashedPages,
-    reloadBacklinks,
-    reloadPageAliases,
-    reloadUnresolvedLinks,
-    reloadLinkResolutionPages,
-    loadMoreDestinationCandidates,
-    addPageAlias,
-    deletePageAlias,
-    resolveUnresolvedLink,
-    reloadComments,
-    reloadSuggestions,
-    setCommentsIncludeResolved,
-    setSuggestionsIncludeDecided,
-    setActiveCommentParent,
-    startBlockComment,
-    startInlineComment,
-    startInlineSuggestion,
-    cancelSuggestionDraft,
-    createSuggestion,
-    acceptSuggestion,
-    rejectSuggestion,
-    createComment,
-    replyToCommentThread,
-    updateComment,
-    deleteComment,
-    setCommentThreadResolved,
-    markCommentThreadsRead,
-    markVisibleCommentThreadsRead,
-    search,
-    loadMoreSearchResults,
-    setSearchIncludeResolvedComments,
-    notesCommentParentKey,
+    reloadBacklinks: linksController.reloadBacklinks,
+    reloadPageAliases: linksController.reloadPageAliases,
+    reloadUnresolvedLinks: linksController.reloadUnresolvedLinks,
+    reloadLinkResolutionPages: linksController.reloadLinkResolutionPages,
+    loadMoreDestinationCandidates: linksController.loadMoreDestinationCandidates,
+    addPageAlias: linksController.addPageAlias,
+    deletePageAlias: linksController.deletePageAlias,
+    resolveUnresolvedLink: linksController.resolveUnresolvedLink,
+    reloadComments: collaborationController.reloadComments,
+    reloadSuggestions: collaborationController.reloadSuggestions,
+    setCommentsIncludeResolved: collaborationController.setCommentsIncludeResolved,
+    setSuggestionsIncludeDecided: collaborationController.setSuggestionsIncludeDecided,
+    setActiveCommentParent: collaborationController.setActiveCommentParent,
+    startBlockComment: collaborationController.startBlockComment,
+    startInlineComment: collaborationController.startInlineComment,
+    startInlineSuggestion: collaborationController.startInlineSuggestion,
+    cancelSuggestionDraft: collaborationController.cancelSuggestionDraft,
+    createSuggestion: collaborationController.createSuggestion,
+    acceptSuggestion: collaborationController.acceptSuggestion,
+    rejectSuggestion: collaborationController.rejectSuggestion,
+    createComment: collaborationController.createComment,
+    replyToCommentThread: collaborationController.replyToCommentThread,
+    updateComment: collaborationController.updateComment,
+    deleteComment: collaborationController.deleteComment,
+    setCommentThreadResolved: collaborationController.setCommentThreadResolved,
+    markCommentThreadsRead: collaborationController.markCommentThreadsRead,
+    markVisibleCommentThreadsRead: collaborationController.markVisibleCommentThreadsRead,
+    search: searchController.search,
+    loadMoreSearchResults: searchController.loadMoreSearchResults,
+    setSearchIncludeResolvedComments: searchController.setIncludeResolvedComments,
+    notesCommentParentKey: collaborationController.notesCommentParentKey,
     blockById,
     tableRowsForBlock,
     columnItemsForBlock,

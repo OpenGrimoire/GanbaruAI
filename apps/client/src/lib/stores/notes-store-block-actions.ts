@@ -8,7 +8,6 @@ import {
   trashNotesBlock,
   trashNotesBlocks,
 } from "$lib/api/notes";
-import { invalidateAssetUrl } from "$lib/api/asset-url-cache";
 import {
   collectLoadedBlockSubtreeIds,
 } from "$lib/notes/block-duplicate";
@@ -41,22 +40,10 @@ import {
   blockEditableRichText,
   blockConvertedToType,
   blockPlainText,
-  blockWithBookmark,
   blockWithCodeLanguage,
-  blockWithDateMention,
-  blockWithEmbedUrl,
-  blockWithEquationExpression,
   blockWithHeadingToggleable,
   blockWithHeadingToggleOpen,
-  blockWithInlineEquation,
-  blockWithLinkPreviewUrl,
-  blockWithMedia,
-  blockWithObjectMention,
-  blockWithPageMention,
   blockWithRichText,
-  blockWithText,
-  blockWithTextAnnotations,
-  blockWithTextLink,
   blockWithTodoChecked,
   blockWithToggleOpen,
   blockUpdateFromBlock,
@@ -68,7 +55,6 @@ import {
   DEFAULT_TABLE_WIDTH,
   isTextEditableBlock,
   type NotesHeadingBlockType,
-  type NotesMediaAssetChange,
 } from "$lib/notes/block-factory";
 import type { NotesTextSelection } from "$lib/notes/editor-selection";
 import { createBlockWriteFromRichText } from "$lib/notes/block-rich-text-write";
@@ -96,27 +82,8 @@ import {
   type NotesChildReparentPlan,
   type NotesTreeState,
 } from "$lib/notes/block-tree";
-import { mediaManagedAssetPath } from "$lib/notes/media";
-import type {
-  NotesObjectMentionTarget,
-  NotesRichTextAnnotationPatch,
-} from "$lib/notes/rich-text";
 import { splitRichTextForBlock } from "$lib/notes/rich-text-split";
 import {
-  createNotesTableRowWrite,
-  notesTableCanAddColumn,
-  notesTableCanAddRow,
-  notesTableCanRemoveColumn,
-  notesTableCanRemoveRow,
-  notesTableRowWithCellRichText,
-  notesTableRowWithCellText,
-  notesTableRowWithInsertedColumn,
-  notesTableRowWithRemovedColumn,
-  notesTableVisibleWidth,
-  notesTableWithWidth,
-} from "$lib/notes/table";
-import {
-  notesTextChangeUndoSelections,
   type NotesUndoKind,
   type NotesUndoRecordOptions,
   type NotesUndoSnapshot,
@@ -134,9 +101,7 @@ import type {
   NotesMoveBlockRequest,
   NotesMoveBlocksRequest,
   NotesColumnBlockItems,
-  NotesDateMentionValue,
   NotesParent,
-  NotesRichText,
   NotesTabBlockItems,
   NotesTableRowBlock,
 } from "$lib/notes/types";
@@ -149,6 +114,19 @@ import {
   type NotesTabActions,
 } from "$lib/stores/notes-store-tab-actions";
 import {
+  createNotesMediaBlockActions,
+  invalidateReplacedNotesMediaAsset,
+  type NotesMediaBlockActions,
+} from "$lib/stores/notes-store-block-media-actions";
+import {
+  createNotesRichTextBlockActions,
+  type NotesRichTextBlockActions,
+} from "$lib/stores/notes-store-block-rich-text-actions";
+import {
+  createNotesTableBlockActions,
+  type NotesTableBlockActions,
+} from "$lib/stores/notes-store-block-table-actions";
+import {
   notesPostAppendResult,
   notesPostMoveManyResult,
   notesPostMoveResult,
@@ -159,7 +137,7 @@ import {
 const DEFAULT_DATABASE_TITLE = "Untitled database";
 const START_OF_BLOCK_SELECTION: NotesTextSelection = { start: 0, end: 0 };
 
-export interface NotesBlockActionsContext {
+export interface NotesBlockReadCapabilities {
   readSelectedPageId: () => string | null;
   readBlocksById: () => Record<string, NotesBlock>;
   readChildIdsByParentId: () => Record<string, string[]>;
@@ -170,20 +148,32 @@ export interface NotesBlockActionsContext {
   tableRowsForBlock: (blockId: string) => NotesTableRowBlock[];
   columnItemsForBlock: (blockId: string) => NotesColumnBlockItems[];
   tabItemsForBlock: (blockId: string) => NotesTabBlockItems[];
+}
+
+export interface NotesBlockNavigationCapabilities {
   setSidebarPageCollapsed: (pageId: string, collapsed: boolean) => void;
   requestBlockFocus: (blockId: string | null, selection?: NotesTextSelection | null) => void;
   createChildPageFromBlock: (blockId: string) => Promise<void>;
   createChildPageAfterBlock: (blockId: string) => Promise<void>;
-  applyPostMutation: (result: NotesPostMutationResult) => void;
   loadPageTree: (pageId: string) => Promise<void>;
   refreshOpenLinks: () => Promise<void>;
+}
+
+export interface NotesBlockLocalMutationCapabilities {
+  applyPostMutation: (result: NotesPostMutationResult) => void;
   localApplyBlockUpdate: (blockId: string, update: NotesBlockUpdate) => void;
   localInsertBlockAfter: (block: NotesBlock, afterBlockId: string | null) => void;
   localRemoveLeafBlock: (blockId: string) => boolean;
+}
+
+export interface NotesBlockPersistenceCapabilities {
   saveBlockNow: (blockId: string, update: NotesBlockUpdate) => Promise<void>;
   scheduleBlockSave: (blockId: string, update: NotesBlockUpdate) => void;
   flushBlockSave: (blockId: string) => Promise<void>;
   flushPendingBlockSaves: () => Promise<void>;
+}
+
+export interface NotesBlockUndoCapabilities {
   createUndoSnapshot: (
     focusBlockId: string | null,
     extraBlocks?: readonly NotesBlock[],
@@ -198,81 +188,20 @@ export interface NotesBlockActionsContext {
   recordUndo: (options: Omit<NotesUndoRecordOptions, "id">) => void;
 }
 
-export interface NotesBlockActions extends NotesColumnActions, NotesTabActions {
+export interface NotesBlockActionsContext
+  extends NotesBlockReadCapabilities,
+    NotesBlockNavigationCapabilities,
+    NotesBlockLocalMutationCapabilities,
+    NotesBlockPersistenceCapabilities,
+    NotesBlockUndoCapabilities {}
+
+export interface NotesBlockActions
+  extends NotesColumnActions,
+    NotesTabActions,
+    NotesMediaBlockActions,
+    NotesRichTextBlockActions,
+    NotesTableBlockActions {
   flushOptimisticBlockWrites: () => Promise<void>;
-  updateBlockText: (
-    blockId: string,
-    text: string,
-    selection?: NotesTextSelection | null,
-  ) => Promise<void>;
-  updateBlockRichText: (
-    blockId: string,
-    richText: readonly NotesRichText[],
-  ) => Promise<void>;
-  insertPageMention: (
-    blockId: string,
-    start: number,
-    end: number,
-    pageId: string,
-    title: string,
-    href: string | null,
-  ) => Promise<void>;
-  insertDateMention: (
-    blockId: string,
-    start: number,
-    end: number,
-    date: NotesDateMentionValue,
-    title: string,
-  ) => Promise<void>;
-  insertObjectMention: (
-    blockId: string,
-    start: number,
-    end: number,
-    target: NotesObjectMentionTarget,
-  ) => Promise<void>;
-  insertInlineEquation: (
-    blockId: string,
-    start: number,
-    end: number,
-    expression: string,
-  ) => Promise<void>;
-  updateBlockTextLink: (
-    blockId: string,
-    start: number,
-    end: number,
-    url: string | null,
-  ) => Promise<void>;
-  updateBlockTextAnnotations: (
-    blockId: string,
-    start: number,
-    end: number,
-    patch: NotesRichTextAnnotationPatch,
-  ) => Promise<void>;
-  updateBookmark: (blockId: string, url: string, caption: string) => Promise<void>;
-  updateEmbedUrl: (blockId: string, url: string) => Promise<void>;
-  updateLinkPreviewUrl: (blockId: string, url: string) => Promise<void>;
-  updateEquationExpression: (blockId: string, expression: string) => Promise<void>;
-  updateMedia: (
-    blockId: string,
-    url: string,
-    caption: string,
-    name?: string,
-    assetChange?: NotesMediaAssetChange,
-  ) => Promise<void>;
-  updateTableCell: (
-    rowBlockId: string,
-    columnIndex: number,
-    text: string,
-  ) => Promise<void>;
-  updateTableCellRichText: (
-    rowBlockId: string,
-    columnIndex: number,
-    richText: readonly NotesRichText[],
-  ) => Promise<void>;
-  addTableRow: (tableBlockId: string, afterRowIndex: number) => Promise<void>;
-  removeTableRow: (tableBlockId: string, rowBlockId: string) => Promise<void>;
-  addTableColumn: (tableBlockId: string, afterColumnIndex: number) => Promise<void>;
-  removeTableColumn: (tableBlockId: string, columnIndex: number) => Promise<void>;
   convertBlock: (blockId: string, type: NotesBlockType, clearText?: boolean) => Promise<void>;
   toggleTodo: (blockId: string, checked: boolean) => Promise<void>;
   updateCodeLanguage: (blockId: string, language: string) => Promise<void>;
@@ -442,34 +371,26 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
 
   const columnActions = createNotesColumnActions(context);
   const tabActions = createNotesTabActions(context);
-
-  function managedMediaAssetPath(
-    value: NotesBlock | NotesBlockUpdate,
-  ): string | null {
-    if (value.type === "image") return mediaManagedAssetPath(value.image);
-    if (value.type === "video") return mediaManagedAssetPath(value.video);
-    if (value.type === "audio") return mediaManagedAssetPath(value.audio);
-    if (value.type === "file") return mediaManagedAssetPath(value.file);
-    if (value.type === "pdf") return mediaManagedAssetPath(value.pdf);
-    return null;
-  }
-
-  function invalidateReplacedMediaAsset(
-    previous: NotesBlock | undefined,
-    next: NotesBlockUpdate,
-  ): void {
-    if (!previous) return;
-    const previousPath = managedMediaAssetPath(previous);
-    if (!previousPath || previousPath === managedMediaAssetPath(next)) return;
-    invalidateAssetUrl("notes-file", previousPath);
-  }
+  const mediaActions = createNotesMediaBlockActions(context);
+  const richTextActions = createNotesRichTextBlockActions({
+    ...context,
+    hasPendingOptimisticWrite: (blockId) => pendingOptimisticBlockWrites.has(blockId),
+  });
+  const tableActions = createNotesTableBlockActions({
+    ...context,
+    appendAndApply,
+    trashAndApply,
+    replaceBlockWithUpdate,
+    undoSnapshot,
+    recordUndoAfter,
+  });
 
   async function replaceBlockWithUpdate(blockId: string, update: NotesBlockUpdate): Promise<void> {
     const previous = context.blockById(blockId);
     await context.flushBlockSave(blockId);
     context.localApplyBlockUpdate(blockId, update);
     await context.saveBlockNow(blockId, update);
-    invalidateReplacedMediaAsset(previous, update);
+    invalidateReplacedNotesMediaAsset(previous, update);
   }
 
   async function appendAndApply(request: NotesAppendBlockChildrenRequest): Promise<NotesBlock[]> {
@@ -545,358 +466,6 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     const response = await duplicateNotesBlocks(request);
     context.applyPostMutation(notesPostMoveManyResult(request, response));
     return response.results;
-  }
-
-  async function updateBlockText(
-    blockId: string,
-    text: string,
-    selection: NotesTextSelection | null = null,
-  ): Promise<void> {
-    const block = context.blockById(blockId);
-    if (!block) return;
-    const currentText = blockPlainText(block);
-    if (currentText === text) return;
-    const undoSelections = notesTextChangeUndoSelections(
-      currentText,
-      text,
-      selection,
-    );
-    const before = undoSnapshotForBlocks([blockId], blockId, undoSelections.before);
-    const update = blockWithText(block, text);
-    context.localApplyBlockUpdate(blockId, update);
-    if (pendingOptimisticBlockWrites.has(blockId)) {
-      recordUndo(
-        "typing",
-        before,
-        undoSnapshotForBlocks([blockId], blockId, undoSelections.after),
-        `typing:${blockId}`,
-      );
-      return;
-    }
-    context.scheduleBlockSave(blockId, update);
-    recordUndo(
-      "typing",
-      before,
-      undoSnapshotForBlocks([blockId], blockId, undoSelections.after),
-      `typing:${blockId}`,
-    );
-  }
-
-  async function updateBlockRichText(
-    blockId: string,
-    richText: readonly NotesRichText[],
-  ): Promise<void> {
-    const block = context.blockById(blockId);
-    if (!block) return;
-    const before = undoSnapshotForBlocks([blockId], blockId);
-    const update = blockWithRichText(block, richText);
-    context.localApplyBlockUpdate(blockId, update);
-    if (pendingOptimisticBlockWrites.has(blockId)) {
-      recordUndo(
-        "typing",
-        before,
-        undoSnapshotForBlocks([blockId], blockId),
-        `typing:${blockId}`,
-      );
-      return;
-    }
-    context.scheduleBlockSave(blockId, update);
-    recordUndo(
-      "typing",
-      before,
-      undoSnapshotForBlocks([blockId], blockId),
-      `typing:${blockId}`,
-    );
-  }
-
-  async function insertPageMention(
-    blockId: string,
-    start: number,
-    end: number,
-    pageId: string,
-    title: string,
-    href: string | null,
-  ): Promise<void> {
-    const block = context.blockById(blockId);
-    if (!block) return;
-    await context.flushBlockSave(blockId);
-    const before = undoSnapshotForBlocks([blockId], blockId);
-    const update = blockWithPageMention(block, start, end, pageId, title, href);
-    context.localApplyBlockUpdate(blockId, update);
-    await context.saveBlockNow(blockId, update);
-    await context.refreshOpenLinks();
-    recordUndo(
-      "mention",
-      before,
-      undoSnapshotForBlocks([blockId], blockId),
-    );
-  }
-
-  async function insertDateMention(
-    blockId: string,
-    start: number,
-    end: number,
-    date: NotesDateMentionValue,
-    title: string,
-  ): Promise<void> {
-    const block = context.blockById(blockId);
-    if (!block) return;
-    await context.flushBlockSave(blockId);
-    const before = undoSnapshot(blockId);
-    const update = blockWithDateMention(block, start, end, date, title);
-    context.localApplyBlockUpdate(blockId, update);
-    await context.saveBlockNow(blockId, update);
-    recordUndoAfter("mention", before, blockId);
-  }
-
-  async function insertObjectMention(
-    blockId: string,
-    start: number,
-    end: number,
-    target: NotesObjectMentionTarget,
-  ): Promise<void> {
-    const block = context.blockById(blockId);
-    if (!block) return;
-    await context.flushBlockSave(blockId);
-    const before = undoSnapshot(blockId);
-    const update = blockWithObjectMention(block, start, end, target);
-    context.localApplyBlockUpdate(blockId, update);
-    await context.saveBlockNow(blockId, update);
-    recordUndoAfter("mention", before, blockId);
-  }
-
-  async function insertInlineEquation(
-    blockId: string,
-    start: number,
-    end: number,
-    expression: string,
-  ): Promise<void> {
-    const block = context.blockById(blockId);
-    if (!block) return;
-    await context.flushBlockSave(blockId);
-    const before = undoSnapshot(blockId);
-    const update = blockWithInlineEquation(block, start, end, expression);
-    context.localApplyBlockUpdate(blockId, update);
-    await context.saveBlockNow(blockId, update);
-    recordUndoAfter("equation", before, blockId);
-  }
-
-  async function updateBlockTextLink(
-    blockId: string,
-    start: number,
-    end: number,
-    url: string | null,
-  ): Promise<void> {
-    await context.flushBlockSave(blockId);
-    const block = context.blockById(blockId);
-    if (!block) return;
-    const before = undoSnapshot(blockId);
-    const update = blockWithTextLink(block, start, end, url);
-    context.localApplyBlockUpdate(blockId, update);
-    await context.saveBlockNow(blockId, update);
-    await context.refreshOpenLinks();
-    recordUndoAfter("link", before, blockId);
-  }
-
-  async function updateBlockTextAnnotations(
-    blockId: string,
-    start: number,
-    end: number,
-    patch: NotesRichTextAnnotationPatch,
-  ): Promise<void> {
-    await context.flushBlockSave(blockId);
-    const block = context.blockById(blockId);
-    if (!block) return;
-    const before = undoSnapshot(blockId);
-    const update = blockWithTextAnnotations(block, start, end, patch);
-    context.localApplyBlockUpdate(blockId, update);
-    await context.saveBlockNow(blockId, update);
-    recordUndoAfter("formatting", before, blockId);
-  }
-
-  async function updateBookmark(blockId: string, url: string, caption: string): Promise<void> {
-    const block = context.blockById(blockId);
-    if (!block || block.type !== "bookmark") return;
-    const before = undoSnapshot(blockId);
-    const update = blockWithBookmark(block, url, caption);
-    context.localApplyBlockUpdate(blockId, update);
-    context.scheduleBlockSave(blockId, update);
-    recordUndoAfter("update", before, blockId, `update:${blockId}`);
-  }
-
-  async function updateEmbedUrl(blockId: string, url: string): Promise<void> {
-    const block = context.blockById(blockId);
-    if (!block || block.type !== "embed") return;
-    const before = undoSnapshot(blockId);
-    const update = blockWithEmbedUrl(block, url);
-    context.localApplyBlockUpdate(blockId, update);
-    context.scheduleBlockSave(blockId, update);
-    recordUndoAfter("update", before, blockId, `update:${blockId}`);
-  }
-
-  async function updateLinkPreviewUrl(blockId: string, url: string): Promise<void> {
-    const block = context.blockById(blockId);
-    if (!block || block.type !== "link_preview") return;
-    const before = undoSnapshot(blockId);
-    const update = blockWithLinkPreviewUrl(block, url);
-    context.localApplyBlockUpdate(blockId, update);
-    context.scheduleBlockSave(blockId, update);
-    recordUndoAfter("update", before, blockId, `update:${blockId}`);
-  }
-
-  async function updateEquationExpression(blockId: string, expression: string): Promise<void> {
-    const block = context.blockById(blockId);
-    if (!block || block.type !== "equation") return;
-    const before = undoSnapshot(blockId);
-    const update = blockWithEquationExpression(block, expression);
-    context.localApplyBlockUpdate(blockId, update);
-    context.scheduleBlockSave(blockId, update);
-    recordUndoAfter("update", before, blockId, `update:${blockId}`);
-  }
-
-  async function updateMedia(
-    blockId: string,
-    url: string,
-    caption: string,
-    name?: string,
-    assetChange?: NotesMediaAssetChange,
-  ): Promise<void> {
-    const block = context.blockById(blockId);
-    if (
-      !block
-      || !["image", "video", "audio", "file", "pdf"].includes(block.type)
-    ) {
-      return;
-    }
-    const before = undoSnapshot(blockId);
-    const update = blockWithMedia(block, url, caption, name, assetChange);
-    invalidateReplacedMediaAsset(block, update);
-    context.localApplyBlockUpdate(blockId, update);
-    context.scheduleBlockSave(blockId, update);
-    recordUndoAfter("update", before, blockId, `update:${blockId}`);
-  }
-
-  async function updateTableCell(
-    rowBlockId: string,
-    columnIndex: number,
-    text: string,
-  ): Promise<void> {
-    const block = context.blockById(rowBlockId);
-    if (!block || block.type !== "table_row") return;
-    const before = undoSnapshot(rowBlockId);
-    const update = notesTableRowWithCellText(block, columnIndex, text);
-    context.localApplyBlockUpdate(rowBlockId, update);
-    context.scheduleBlockSave(rowBlockId, update);
-    recordUndoAfter("typing", before, rowBlockId, `typing:${rowBlockId}:${columnIndex}`);
-  }
-
-  async function updateTableCellRichText(
-    rowBlockId: string,
-    columnIndex: number,
-    richText: readonly NotesRichText[],
-  ): Promise<void> {
-    const block = context.blockById(rowBlockId);
-    if (!block || block.type !== "table_row") return;
-    const before = undoSnapshot(rowBlockId);
-    const update = notesTableRowWithCellRichText(block, columnIndex, richText);
-    context.localApplyBlockUpdate(rowBlockId, update);
-    context.scheduleBlockSave(rowBlockId, update);
-    recordUndoAfter("typing", before, rowBlockId, `typing:${rowBlockId}:${columnIndex}`);
-  }
-
-  function tableInsertIndex(index: number, width: number): number {
-    if (!Number.isFinite(index)) return width;
-    return Math.max(0, Math.min(width, Math.trunc(index)));
-  }
-
-  function tableRemoveIndex(index: number, width: number): number {
-    if (!Number.isFinite(index)) return Math.max(0, width - 1);
-    return Math.max(0, Math.min(Math.max(0, width - 1), Math.trunc(index)));
-  }
-
-  async function addTableRow(tableBlockId: string, afterRowIndex: number): Promise<void> {
-    const selectedPageId = context.readSelectedPageId();
-    const table = context.blockById(tableBlockId);
-    if (!selectedPageId || !table || table.type !== "table") return;
-    const rows = context.tableRowsForBlock(tableBlockId);
-    if (!notesTableCanAddRow(rows.length)) return;
-    await context.flushPendingBlockSaves();
-    const before = undoSnapshot(tableBlockId);
-    const rowIndex = tableRemoveIndex(afterRowIndex, Math.max(1, rows.length));
-    const after = rows[rowIndex]?.id ?? rows.at(-1)?.id ?? null;
-    await appendAndApply({
-      parent: { type: "block_id", block_id: tableBlockId },
-      after,
-      children: [
-        createNotesTableRowWrite(
-          crypto.randomUUID(),
-          notesTableVisibleWidth(table, rows),
-        ),
-      ],
-    });
-    context.requestBlockFocus(tableBlockId);
-    recordUndoAfter("create", before, tableBlockId);
-  }
-
-  async function removeTableRow(tableBlockId: string, rowBlockId: string): Promise<void> {
-    const selectedPageId = context.readSelectedPageId();
-    const table = context.blockById(tableBlockId);
-    if (!selectedPageId || !table || table.type !== "table") return;
-    const rows = context.tableRowsForBlock(tableBlockId);
-    if (!notesTableCanRemoveRow(rows.length)) return;
-    if (!rows.some((row) => row.id === rowBlockId)) return;
-    await context.flushPendingBlockSaves();
-    const before = undoSnapshot(tableBlockId);
-    await trashAndApply([rowBlockId]);
-    context.requestBlockFocus(tableBlockId);
-    recordUndoAfter("delete", before, tableBlockId);
-  }
-
-  async function addTableColumn(tableBlockId: string, afterColumnIndex: number): Promise<void> {
-    const selectedPageId = context.readSelectedPageId();
-    const table = context.blockById(tableBlockId);
-    if (!selectedPageId || !table || table.type !== "table") return;
-    const rows = context.tableRowsForBlock(tableBlockId);
-    const width = notesTableVisibleWidth(table, rows);
-    if (!notesTableCanAddColumn(width)) return;
-    const insertIndex = tableInsertIndex(afterColumnIndex + 1, width);
-    await context.flushPendingBlockSaves();
-    const before = undoSnapshot(tableBlockId);
-    await replaceBlockWithUpdate(tableBlockId, notesTableWithWidth(table, width + 1));
-    for (const row of rows) {
-      const update = notesTableRowWithInsertedColumn(row, insertIndex, width);
-      context.localApplyBlockUpdate(row.id, update);
-      await context.saveBlockNow(row.id, update);
-    }
-    if (rows.length === 0) {
-      await appendAndApply({
-        parent: { type: "block_id", block_id: tableBlockId },
-        after: null,
-        children: [createNotesTableRowWrite(crypto.randomUUID(), width + 1)],
-      });
-    }
-    context.requestBlockFocus(tableBlockId);
-    recordUndoAfter("update", before, tableBlockId);
-  }
-
-  async function removeTableColumn(tableBlockId: string, columnIndex: number): Promise<void> {
-    const selectedPageId = context.readSelectedPageId();
-    const table = context.blockById(tableBlockId);
-    if (!selectedPageId || !table || table.type !== "table") return;
-    const rows = context.tableRowsForBlock(tableBlockId);
-    const width = notesTableVisibleWidth(table, rows);
-    if (!notesTableCanRemoveColumn(width)) return;
-    const removeIndex = tableRemoveIndex(columnIndex, width);
-    await context.flushPendingBlockSaves();
-    const before = undoSnapshot(tableBlockId);
-    await replaceBlockWithUpdate(tableBlockId, notesTableWithWidth(table, width - 1));
-    for (const row of rows) {
-      const update = notesTableRowWithRemovedColumn(row, removeIndex, width);
-      context.localApplyBlockUpdate(row.id, update);
-      await context.saveBlockNow(row.id, update);
-    }
-    context.requestBlockFocus(tableBlockId);
-    recordUndoAfter("update", before, tableBlockId);
   }
 
   async function convertBlock(blockId: string, type: NotesBlockType, clearText = false): Promise<void> {
@@ -2132,25 +1701,9 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
 
   return {
     flushOptimisticBlockWrites,
-    updateBlockText,
-    updateBlockRichText,
-    insertPageMention,
-    insertDateMention,
-    insertObjectMention,
-    insertInlineEquation,
-    updateBlockTextLink,
-    updateBlockTextAnnotations,
-    updateBookmark,
-    updateEmbedUrl,
-    updateLinkPreviewUrl,
-    updateEquationExpression,
-    updateMedia,
-    updateTableCell,
-    updateTableCellRichText,
-    addTableRow,
-    removeTableRow,
-    addTableColumn,
-    removeTableColumn,
+    ...richTextActions,
+    ...mediaActions,
+    ...tableActions,
     ...columnActions,
     ...tabActions,
     convertBlock,
