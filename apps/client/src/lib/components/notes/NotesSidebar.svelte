@@ -431,6 +431,16 @@
               </span>
             </button>
           {/each}
+          {#if notes.searchHasMore}
+            <button
+              type="button"
+              class="mx-2 rounded-md border border-border px-2 py-1.5 text-[0.733333rem] text-foreground hover:bg-accent disabled:opacity-60"
+              disabled={notes.searchLoading}
+              onclick={() => void notes.loadMoreSearchResults()}
+            >
+              {t("common.loadMore")}
+            </button>
+          {/if}
         {/if}
       </div>
     {:else if sidebarPlan.treeItems.length === 0}

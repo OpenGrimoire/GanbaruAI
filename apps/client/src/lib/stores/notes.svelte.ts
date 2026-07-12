@@ -24,9 +24,7 @@ import {
   importNotesNotionExportFolder,
   listNotesBacklinks,
   listNotesComments,
-  listNotesFolders,
   listNotesPageAliases,
-  listNotesPages,
   listNotesPageTemplates,
   listNotesSuggestions,
   listNotesUnresolvedLinks,
@@ -216,6 +214,10 @@ let allPages = $state<NotesPage[]>([]);
 let folders = $state<NotesFolder[]>([]);
 let archivedPages = $state<NotesPage[]>([]);
 let trashedPages = $state<NotesPage[]>([]);
+let archiveNextCursor = $state<string | null>(null);
+let trashNextCursor = $state<string | null>(null);
+let archiveQuery = "";
+let trashQuery = "";
 let pageTemplates = $state<NotesPageTemplate[]>([]);
 let selectedPageId = $state<string | null>(initialNotesSelectedPageId());
 let pageOpenMode = $state<NotesPageOpenMode>("full");
@@ -232,6 +234,8 @@ let backlinks = $state<NotesBacklink[]>([]);
 let pageAliases = $state<NotesPageAlias[]>([]);
 let unresolvedLinks = $state<NotesUnresolvedLink[]>([]);
 let linkResolutionPages = $state<NotesPage[]>([]);
+let destinationNextCursor = $state<string | null>(null);
+let destinationQuery = "";
 let commentThreads = $state<NotesCommentThread[]>([]);
 let activeCommentParent = $state<NotesCommentParent | null>(null);
 let activeCommentAnchor = $state<NotesCommentAnchorCreate | null>(null);
@@ -299,6 +303,9 @@ let localUser = $state<NotesLocalUser | null>(null);
 let localUserLoading = $state(false);
 let localUserError = $state<string | null>(null);
 let searchResults = $state<NotesSearchResult[]>([]);
+let searchNextCursor = $state<string | null>(null);
+let activeSearchQuery = "";
+let activeSearchPageSize = 20;
 let searchLoading = $state(false);
 let searchError = $state<string | null>(null);
 let searchIncludeResolvedComments = $state(false);
@@ -615,21 +622,20 @@ function queueDescendantHydration(
 }
 
 async function reloadPages(selectedPageIdOverride: string | null = selectedPageId): Promise<void> {
-  const [sidebarPages, nextAllPages, nextFolders] = await Promise.all([
-    listNotesSidebarPages({
-      expanded_page_ids: [...sidebarExpandedPageIds],
-      seed_page_ids: sidebarSeedPageIds(),
-      selected_page_id: selectedPageIdOverride,
-    }),
-    listNotesPages(),
-    listNotesFolders(),
-  ]);
-  replacePages(sidebarPages.pages);
-  replaceAllPages(nextAllPages);
-  replaceFolders(nextFolders);
-  sidebarPageIdsWithChildren = [...sidebarPages.page_ids_with_children];
-  sidebarMissingParentPageIds = [...sidebarPages.missing_parent_page_ids];
-  sidebarTrashedParentPageIds = [...sidebarPages.trashed_parent_page_ids];
+  const shell = await loadNotesWorkspaceShell({
+    project_id: projects.selectedProjectId,
+    expanded_page_ids: [...sidebarExpandedPageIds],
+    seed_page_ids: sidebarSeedPageIds(),
+    selected_page_id: selectedPageIdOverride,
+  });
+  const mergedPages = [...new Map([...allPages, ...shell.pages].map((page) => [page.id, page])).values()];
+  const mergedFolders = [...new Map([...folders, ...shell.folders].map((folder) => [folder.id, folder])).values()];
+  replacePages(mergedPages);
+  replaceAllPages(mergedPages);
+  replaceFolders(mergedFolders);
+  sidebarPageIdsWithChildren = [...new Set([...sidebarPageIdsWithChildren, ...shell.page_ids_with_children])];
+  sidebarMissingParentPageIds = [...shell.missing_parent_page_ids];
+  sidebarTrashedParentPageIds = [...shell.trashed_parent_page_ids];
 }
 
 const sidebarRefreshCoordinator = createNotesSidebarRefreshCoordinator({
@@ -678,27 +684,42 @@ function applyPostMutation(result: NotesPostMutationResult): void {
   sidebarRefreshCoordinator.schedule(result.sidebarImpact ?? "none");
 }
 
-async function reloadLinkResolutionPages(): Promise<void> {
+async function reloadLinkResolutionPages(query = ""): Promise<void> {
   const requestId = ++linkResolutionPagesRequestId;
   const projectId = projects.selectedProjectId;
+  destinationQuery = query.trim();
   try {
-    const result = await listNotesDestinationCandidates(projectId);
+    const result = await listNotesDestinationCandidates(projectId, null, destinationQuery);
     if (requestId !== linkResolutionPagesRequestId || projectId !== projects.selectedProjectId) return;
     linkResolutionPages = [...result.pages];
+    destinationNextCursor = result.next_page_cursor;
   } catch {
     if (requestId !== linkResolutionPagesRequestId || projectId !== projects.selectedProjectId) return;
     linkResolutionPages = [...allPages];
   }
 }
 
-async function reloadArchivedPages(): Promise<void> {
+async function loadMoreDestinationCandidates(): Promise<void> {
+  const cursor = destinationNextCursor;
+  if (!cursor) return;
+  const requestId = ++linkResolutionPagesRequestId;
+  const projectId = projects.selectedProjectId;
+  const result = await listNotesDestinationCandidates(projectId, cursor, destinationQuery);
+  if (requestId !== linkResolutionPagesRequestId || projectId !== projects.selectedProjectId) return;
+  linkResolutionPages = [...new Map([...linkResolutionPages, ...result.pages].map((page) => [page.id, page])).values()];
+  destinationNextCursor = result.next_page_cursor;
+}
+
+async function reloadArchivedPages(query = ""): Promise<void> {
   const requestId = ++archiveRequestId;
+  archiveQuery = query.trim();
   archiveLoading = true;
   archiveError = null;
   try {
-    const nextPages = await listArchivedNotesPages();
+    const nextPages = await listArchivedNotesPages({ query: archiveQuery });
     if (requestId !== archiveRequestId) return;
-    archivedPages = [...nextPages];
+    archivedPages = [...nextPages.pages];
+    archiveNextCursor = nextPages.next_cursor;
     archiveLoaded = true;
   } catch (error) {
     if (requestId !== archiveRequestId) return;
@@ -709,19 +730,51 @@ async function reloadArchivedPages(): Promise<void> {
   }
 }
 
-async function reloadTrashedPages(): Promise<void> {
+async function loadMoreArchivedPages(): Promise<void> {
+  const cursor = archiveNextCursor;
+  if (!cursor || archiveLoading) return;
+  const requestId = ++archiveRequestId;
+  archiveLoading = true;
+  try {
+    const window = await listArchivedNotesPages({ cursor, query: archiveQuery });
+    if (requestId !== archiveRequestId) return;
+    archivedPages = [...new Map([...archivedPages, ...window.pages].map((page) => [page.id, page])).values()];
+    archiveNextCursor = window.next_cursor;
+  } finally {
+    if (requestId === archiveRequestId) archiveLoading = false;
+  }
+}
+
+async function reloadTrashedPages(query = ""): Promise<void> {
   const requestId = ++trashRequestId;
+  trashQuery = query.trim();
   trashLoading = true;
   trashError = null;
   try {
-    const nextPages = await listTrashedNotesPages();
+    const nextPages = await listTrashedNotesPages({ query: trashQuery });
     if (requestId !== trashRequestId) return;
-    trashedPages = [...nextPages];
+    trashedPages = [...nextPages.pages];
+    trashNextCursor = nextPages.next_cursor;
     trashLoaded = true;
   } catch (error) {
     if (requestId !== trashRequestId) return;
     trashError = error instanceof Error ? error.message : String(error);
     throw error;
+  } finally {
+    if (requestId === trashRequestId) trashLoading = false;
+  }
+}
+
+async function loadMoreTrashedPages(): Promise<void> {
+  const cursor = trashNextCursor;
+  if (!cursor || trashLoading) return;
+  const requestId = ++trashRequestId;
+  trashLoading = true;
+  try {
+    const window = await listTrashedNotesPages({ cursor, query: trashQuery });
+    if (requestId !== trashRequestId) return;
+    trashedPages = [...new Map([...trashedPages, ...window.pages].map((page) => [page.id, page])).values()];
+    trashNextCursor = window.next_cursor;
   } finally {
     if (requestId === trashRequestId) trashLoading = false;
   }
@@ -1187,20 +1240,46 @@ async function search(
   const requestId = ++searchRequestId;
   if (!trimmed) {
     searchResults = [];
+    searchNextCursor = null;
     searchError = null;
     searchLoading = false;
     return;
   }
   searchLoading = true;
+  activeSearchQuery = trimmed;
+  activeSearchPageSize = pageSize;
   searchError = null;
   try {
-    const results = await searchNotes(trimmed, pageSize, includeResolvedComments);
+    const window = await searchNotes(trimmed, pageSize, includeResolvedComments);
     if (requestId !== searchRequestId) return;
-    searchResults = [...results];
+    searchResults = [...window.results];
+    searchNextCursor = window.next_cursor;
   } catch (error) {
     if (requestId !== searchRequestId) return;
     searchResults = [];
     searchError = error instanceof Error ? error.message : String(error);
+  } finally {
+    if (requestId === searchRequestId) searchLoading = false;
+  }
+}
+
+async function loadMoreSearchResults(): Promise<void> {
+  const cursor = searchNextCursor;
+  if (!cursor || searchLoading || !activeSearchQuery) return;
+  const requestId = ++searchRequestId;
+  searchLoading = true;
+  try {
+    const window = await searchNotes(
+      activeSearchQuery,
+      activeSearchPageSize,
+      searchIncludeResolvedComments,
+      cursor,
+    );
+    if (requestId !== searchRequestId) return;
+    searchResults = [...new Map([...searchResults, ...window.results].map((result) => [result.id, result])).values()];
+    searchNextCursor = window.next_cursor;
+  } catch (error) {
+    if (requestId === searchRequestId) searchError = error instanceof Error ? error.message : String(error);
   } finally {
     if (requestId === searchRequestId) searchLoading = false;
   }
@@ -1300,8 +1379,8 @@ async function loadMoreWorkspaceWindow(): Promise<void> {
       expanded_page_ids: [],
       seed_page_ids: [],
       selected_page_id: selectedPageId,
-      page_cursor: pageCursor ?? `offset:${workspaceTotalPageCount}`,
-      folder_cursor: folderCursor ?? `offset:${workspaceTotalFolderCount}`,
+      page_cursor: pageCursor ?? "end",
+      folder_cursor: folderCursor ?? "end",
     });
     if (requestId !== loadRequestId) return;
     const mergedPages = [...new Map([...allPages, ...shell.pages].map((page) => [page.id, page])).values()];
@@ -2265,6 +2344,9 @@ export function getNotes() {
     get archivedPages(): NotesPage[] {
       return archivedPages;
     },
+    get archiveHasMore(): boolean {
+      return archiveNextCursor !== null;
+    },
     get pageTemplates(): NotesPageTemplate[] {
       return pageTemplates;
     },
@@ -2294,6 +2376,9 @@ export function getNotes() {
     },
     get trashedPages(): NotesPage[] {
       return trashedPages;
+    },
+    get trashHasMore(): boolean {
+      return trashNextCursor !== null;
     },
     get selectedPageId(): string | null {
       return selectedPageId;
@@ -2338,7 +2423,10 @@ export function getNotes() {
       return unresolvedLinksError;
     },
     get linkResolutionPages(): NotesPage[] {
-      return linkResolutionPages.length > 0 ? linkResolutionPages : allPages;
+      return linkResolutionPages;
+    },
+    get destinationHasMore(): boolean {
+      return destinationNextCursor !== null;
     },
     get commentThreads(): NotesCommentThread[] {
       return commentThreads;
@@ -2384,6 +2472,9 @@ export function getNotes() {
     },
     get searchResults(): NotesSearchResult[] {
       return searchResults;
+    },
+    get searchHasMore(): boolean {
+      return searchNextCursor !== null;
     },
     get searchLoading(): boolean {
       return searchLoading;
@@ -2544,12 +2635,16 @@ export function getNotes() {
     openArchive,
     closeArchive,
     reloadArchivedPages,
+    loadMoreArchivedPages,
     openTrash,
     closeTrash,
     reloadTrashedPages,
+    loadMoreTrashedPages,
     reloadBacklinks,
     reloadPageAliases,
     reloadUnresolvedLinks,
+    reloadLinkResolutionPages,
+    loadMoreDestinationCandidates,
     addPageAlias,
     deletePageAlias,
     resolveUnresolvedLink,
@@ -2573,6 +2668,7 @@ export function getNotes() {
     markCommentThreadsRead,
     markVisibleCommentThreadsRead,
     search,
+    loadMoreSearchResults,
     setSearchIncludeResolvedComments,
     notesCommentParentKey,
     blockById,

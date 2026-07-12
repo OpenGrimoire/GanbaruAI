@@ -80,33 +80,25 @@ pub async fn notes_load_workspace_shell<R: Runtime>(
 }
 
 #[tauri::command]
-pub async fn notes_list_pages<R: Runtime>(
-    app: AppHandle<R>,
-    db_url: String,
-) -> Result<Vec<NotePageDto>, String> {
-    let pool = connect_sqlite(app, db_url).await?;
-    writes::purge_expired_trashed_pages(&pool).await?;
-    reads::list_pages(&pool).await
-}
-
-#[tauri::command]
 pub async fn notes_list_trashed_pages<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
-) -> Result<Vec<NotePageDto>, String> {
+    request: Option<NotePageSummaryWindowRequest>,
+) -> Result<NotePageSummaryWindowDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
     writes::purge_expired_trashed_pages(&pool).await?;
-    reads::list_trashed_pages(&pool).await
+    reads::list_trashed_page_window(&pool, request.unwrap_or_default()).await
 }
 
 #[tauri::command]
 pub async fn notes_list_archived_pages<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
-) -> Result<Vec<NotePageDto>, String> {
+    request: Option<NotePageSummaryWindowRequest>,
+) -> Result<NotePageSummaryWindowDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
     writes::purge_expired_trashed_pages(&pool).await?;
-    reads::list_archived_pages(&pool).await
+    reads::list_archived_page_window(&pool, request.unwrap_or_default()).await
 }
 
 #[tauri::command]
@@ -190,13 +182,15 @@ pub async fn notes_search<R: Runtime>(
     query: String,
     page_size: Option<i64>,
     include_resolved_comments: Option<bool>,
-) -> Result<Vec<NoteSearchResultDto>, String> {
+    cursor: Option<String>,
+) -> Result<NoteSearchWindowDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    search::search(
+    search::search_window(
         &pool,
         &query,
         page_size,
         include_resolved_comments.unwrap_or(false),
+        cursor.as_deref(),
     )
     .await
 }
@@ -513,6 +507,7 @@ pub(crate) async fn load_workspace_shell_for_first_use_contract(
             page_cursor: None,
             folder_cursor: None,
             destination_candidates: false,
+            page_query: None,
         },
     )
     .await

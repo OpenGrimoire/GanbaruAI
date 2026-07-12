@@ -418,6 +418,18 @@ export interface NotesSidebarPageList {
   trashed_parent_page_ids: string[];
 }
 
+export interface NotesPageSummaryWindowRequest {
+  cursor?: string | null;
+  query?: string | null;
+  page_size?: number | null;
+}
+
+export interface NotesPageSummaryWindow {
+  pages: NotesPage[];
+  total_count: number;
+  next_cursor: string | null;
+}
+
 export interface NotesWorkspaceShellRequest {
   project_id: string | null;
   expanded_page_ids: string[];
@@ -426,6 +438,7 @@ export interface NotesWorkspaceShellRequest {
   page_cursor?: string | null;
   folder_cursor?: string | null;
   destination_candidates?: boolean;
+  page_query?: string | null;
 }
 
 export interface NotesWorkspaceShell {
@@ -1931,6 +1944,11 @@ export interface NotesSearchResult {
   comment_anchor: NotesCommentAnchor | null;
   snippet: string;
   last_edited_time: string;
+}
+
+export interface NotesSearchWindow {
+  results: NotesSearchResult[];
+  next_cursor: string | null;
 }
 
 export type NotesCommentParent =

@@ -1,10 +1,10 @@
 use super::models::{
-    NoteBlockRow, NoteCommentAnchorRow, NoteCommentRow, NotePageAliasRow, NotePageRow,
-    NoteSearchResultDto,
+    NoteBlockRow, NoteCommentAnchorRow, NoteCommentRow, NotePageAliasRow, NotePageSummaryDto,
+    NoteSearchResultDto, NoteSearchWindowDto,
 };
-use super::reads;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sqlx::{FromRow, Row, SqlitePool};
+use sqlx::{FromRow, QueryBuilder, Row, Sqlite, SqlitePool};
 use std::cmp::Ordering;
 use std::collections::HashSet;
 
@@ -12,22 +12,37 @@ const DEFAULT_PAGE_SIZE: i64 = 20;
 const MAX_PAGE_SIZE: i64 = 50;
 const FINGERPRINT_KEY: &str = "source_fingerprint";
 
-pub(in crate::notes) async fn search(
+#[derive(Deserialize, Serialize)]
+struct SearchCursor {
+    source_order: i64,
+    rank: f64,
+    sort_time: String,
+    index_id: String,
+}
+
+pub(in crate::notes) async fn search_window(
     pool: &SqlitePool,
     query: &str,
     page_size: Option<i64>,
     include_resolved_comments: bool,
-) -> Result<Vec<NoteSearchResultDto>, String> {
+    cursor: Option<&str>,
+) -> Result<NoteSearchWindowDto, String> {
     let query = query.trim();
     validate_search_query(query)?;
     let fts_query = fts_query(query)?;
     let page_size = normalized_page_size(page_size)?;
+    let cursor = cursor
+        .map(|value| {
+            serde_json::from_str::<SearchCursor>(value)
+                .map_err(|_| "invalid search cursor".to_string())
+        })
+        .transpose()?;
     ensure_index_current(pool).await?;
 
-    let matches = sqlx::query_as::<_, SearchIndexMatch>(
-        "SELECT
+    let mut matches_query = QueryBuilder::<Sqlite>::new(
+        "SELECT id, page_id, block_id, comment_id, property_id, block_type, title, body,
+                metadata, source_last_edited_time, rank, source_order FROM (SELECT
             idx.id,
-            idx.source_type,
             idx.page_id,
             idx.block_id,
             idx.comment_id,
@@ -37,7 +52,18 @@ pub(in crate::notes) async fn search(
             idx.body,
             idx.metadata,
             idx.source_last_edited_time,
-            bm25(notes_search_fts, 3.0, 1.5, 0.7) AS rank
+            bm25(notes_search_fts, 3.0, 1.5, 0.7) AS rank,
+            CASE
+              WHEN idx.source_type = 'page' THEN 0
+              WHEN idx.source_type IN ('property', 'alias') THEN 1
+              WHEN idx.source_type = 'block' THEN 2
+              WHEN idx.source_type = 'file' AND idx.block_id IS NOT NULL THEN 3
+              WHEN idx.source_type = 'file' AND idx.comment_id IS NOT NULL THEN 5
+              WHEN idx.source_type = 'file' THEN 1
+              WHEN idx.source_type = 'comment' THEN 5
+              WHEN idx.source_type = 'metadata' THEN 6
+              ELSE 7
+            END AS source_order
          FROM notes_search_fts
          JOIN notes_search_index AS idx ON idx.id = notes_search_fts.index_id
          JOIN notes_pages AS page ON page.id = idx.page_id
@@ -45,7 +71,11 @@ pub(in crate::notes) async fn search(
          LEFT JOIN notes_comments AS comment ON comment.id = idx.comment_id
          LEFT JOIN notes_comment_threads AS thread ON thread.id = comment.thread_id
          LEFT JOIN notes_blocks AS target_block ON target_block.id = thread.parent_block_id
-         WHERE notes_search_fts MATCH ?
+         WHERE notes_search_fts MATCH ",
+    );
+    matches_query.push_bind(&fts_query);
+    matches_query.push(
+        "
            AND page.in_trash = 0
            AND page.archived = 0
            AND (
@@ -69,23 +99,32 @@ pub(in crate::notes) async fn search(
                    comment.id IS NOT NULL
                    AND comment.deleted_at IS NULL
                    AND thread.id IS NOT NULL
-                   AND (? OR thread.status = 'open')
+                   AND (",
+    );
+    matches_query.push_bind(include_resolved_comments);
+    matches_query.push(
+        " OR thread.status = 'open')
                    AND (
                        thread.parent_block_id IS NULL
                        OR (target_block.id IS NOT NULL AND target_block.in_trash = 0)
                    )
                )
            )
-         ORDER BY rank ASC, idx.source_last_edited_time DESC, idx.id ASC
-         LIMIT ?",
-    )
-    .bind(&fts_query)
-    .bind(include_resolved_comments)
-    .bind(page_size * 6)
-    .fetch_all(pool)
-    .await
-    .map_err(|e| format!("search notes FTS index: {e}"))?;
+         ) AS ranked WHERE 1 = 1",
+    );
+    if let Some(cursor) = &cursor {
+        push_search_cursor(&mut matches_query, cursor);
+    }
+    matches_query
+        .push(" ORDER BY source_order ASC, rank ASC, source_last_edited_time DESC, id ASC LIMIT ");
+    matches_query.push_bind(page_size * 6 + 1);
+    let matches = matches_query
+        .build_query_as::<SearchIndexMatch>()
+        .fetch_all(pool)
+        .await
+        .map_err(|e| format!("search notes FTS index: {e}"))?;
 
+    let raw_window_full = matches.len() > (page_size * 6) as usize;
     let mut candidates = Vec::new();
     for row in matches {
         if let Some(candidate) = search_candidate(pool, row, query).await? {
@@ -101,12 +140,22 @@ pub(in crate::notes) async fn search(
                     .unwrap_or(Ordering::Equal)
             })
             .then_with(|| right.sort_time.cmp(&left.sort_time))
-            .then_with(|| left.id.cmp(&right.id))
+            .then_with(|| left.index_id.cmp(&right.index_id))
     });
 
     let mut seen = HashSet::new();
     let mut results = Vec::new();
+    let mut next_cursor = None;
+    let candidate_count = candidates.len();
+    let mut processed_count = 0;
     for candidate in candidates {
+        processed_count += 1;
+        next_cursor = Some(SearchCursor {
+            source_order: candidate.source_order,
+            rank: candidate.rank,
+            sort_time: candidate.sort_time.clone(),
+            index_id: candidate.index_id.clone(),
+        });
         if seen.insert(candidate.id) {
             results.push(candidate.result);
         }
@@ -114,7 +163,48 @@ pub(in crate::notes) async fn search(
             break;
         }
     }
-    Ok(results)
+    let has_more = processed_count < candidate_count || raw_window_full;
+    let next_cursor = has_more
+        .then_some(next_cursor)
+        .flatten()
+        .map(|cursor| {
+            serde_json::to_string(&cursor).map_err(|e| format!("serialize search cursor: {e}"))
+        })
+        .transpose()?;
+    Ok(NoteSearchWindowDto::new(results, next_cursor))
+}
+
+#[cfg(test)]
+pub(in crate::notes) async fn search(
+    pool: &SqlitePool,
+    query: &str,
+    page_size: Option<i64>,
+    include_resolved_comments: bool,
+) -> Result<Vec<NoteSearchResultDto>, String> {
+    search_window(pool, query, page_size, include_resolved_comments, None)
+        .await
+        .map(NoteSearchWindowDto::into_results)
+}
+
+fn push_search_cursor(query: &mut QueryBuilder<'_, Sqlite>, cursor: &SearchCursor) {
+    query
+        .push(" AND (source_order > ")
+        .push_bind(cursor.source_order);
+    query
+        .push(" OR (source_order = ")
+        .push_bind(cursor.source_order);
+    query.push(" AND (rank > ").push_bind(cursor.rank);
+    query.push(" OR (rank = ").push_bind(cursor.rank);
+    query
+        .push(" AND (source_last_edited_time < ")
+        .push_bind(cursor.sort_time.clone());
+    query
+        .push(" OR (source_last_edited_time = ")
+        .push_bind(cursor.sort_time.clone());
+    query
+        .push(" AND id > ")
+        .push_bind(cursor.index_id.clone())
+        .push("))))))");
 }
 
 pub(in crate::notes) async fn rebuild_index(pool: &SqlitePool) -> Result<i64, String> {
@@ -262,10 +352,14 @@ async fn append_page_entries(
     pool: &SqlitePool,
     entries: &mut Vec<SearchIndexEntry>,
 ) -> Result<(), String> {
-    let rows = sqlx::query_as::<_, NotePageRow>("SELECT * FROM notes_pages")
-        .fetch_all(pool)
-        .await
-        .map_err(|e| format!("load notes pages for search index: {e}"))?;
+    let rows = sqlx::query_as::<_, SearchPageIndexRow>(
+        "SELECT id, title, properties, icon, cover, url, public_url, source_provider,
+                source_object_id, source_workspace_id, source_last_edited_time, last_edited_time
+         FROM notes_pages",
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("load notes pages for search index: {e}"))?;
     for row in rows {
         let property_text = indexable_json_text(&row.properties, "page properties")?;
         let metadata = page_metadata_text(&row)?;
@@ -291,7 +385,8 @@ async fn append_alias_entries(
     entries: &mut Vec<SearchIndexEntry>,
 ) -> Result<(), String> {
     let rows = sqlx::query_as::<_, NotePageAliasRow>(
-        "SELECT alias.*
+        "SELECT alias.id, alias.page_id, alias.alias, alias.normalized_alias,
+                alias.created_time, alias.last_edited_time
          FROM notes_page_aliases AS alias
          JOIN notes_pages AS page ON page.id = alias.page_id
          WHERE page.in_trash = 0
@@ -551,8 +646,9 @@ async fn search_candidate(
     if let Some(comment_id) = row.comment_id.as_deref() {
         let comment = load_comment_row(pool, comment_id).await?;
         let target = comment_thread_search_target(pool, &comment.thread_id).await?;
-        let source_page = reads::get_page(pool, &target.page_id, false).await?;
+        let source_page = load_page_summary(pool, &target.page_id).await?;
         return Ok(Some(SearchCandidate {
+            index_id: row.id.clone(),
             id: format!("comment:{comment_id}"),
             source_order: source_order(&row),
             rank: row.rank,
@@ -570,8 +666,9 @@ async fn search_candidate(
 
     if let Some(block_id) = row.block_id.as_deref() {
         let block = load_block_row(pool, block_id).await?;
-        let source_page = reads::get_page(pool, &block.page_id, false).await?;
+        let source_page = load_page_summary(pool, &block.page_id).await?;
         return Ok(Some(SearchCandidate {
+            index_id: row.id.clone(),
             id: format!("block:{block_id}"),
             source_order: source_order(&row),
             rank: row.rank,
@@ -580,15 +677,27 @@ async fn search_candidate(
         }));
     }
 
-    let page = reads::get_page(pool, &row.page_id, false).await?;
+    let page = load_page_summary(pool, &row.page_id).await?;
     let sort_time = row.source_last_edited_time.clone();
     Ok(Some(SearchCandidate {
+        index_id: row.id.clone(),
         id: format!("page:{}", row.page_id),
         source_order: source_order(&row),
         rank: row.rank,
         sort_time: sort_time.clone(),
         result: NoteSearchResultDto::page(page, snippet, sort_time),
     }))
+}
+
+async fn load_page_summary(pool: &SqlitePool, page_id: &str) -> Result<NotePageSummaryDto, String> {
+    sqlx::query_as::<_, NotePageSummaryDto>(&format!(
+        "SELECT {} FROM notes_pages WHERE id = ? AND in_trash = 0 AND archived = 0",
+        super::workspace_shell::page_projection()
+    ))
+    .bind(page_id)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| format!("load notes search result page summary: {e}"))
 }
 
 async fn load_block_row(pool: &SqlitePool, block_id: &str) -> Result<NoteBlockRow, String> {
@@ -620,11 +729,15 @@ async fn load_block_row(pool: &SqlitePool, block_id: &str) -> Result<NoteBlockRo
 }
 
 async fn load_comment_row(pool: &SqlitePool, comment_id: &str) -> Result<NoteCommentRow, String> {
-    sqlx::query_as::<_, NoteCommentRow>("SELECT * FROM notes_comments WHERE id = ?")
-        .bind(comment_id)
-        .fetch_one(pool)
-        .await
-        .map_err(|e| format!("load notes search result comment: {e}"))
+    sqlx::query_as::<_, NoteCommentRow>(
+        "SELECT id, thread_id, rich_text, plain_text, created_by, display_name, attachments,
+                deleted_at, sync_version, created_time, last_edited_time
+         FROM notes_comments WHERE id = ?",
+    )
+    .bind(comment_id)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| format!("load notes search result comment: {e}"))
 }
 
 async fn comment_thread_search_target(
@@ -641,7 +754,8 @@ async fn comment_thread_search_target(
     .await
     .map_err(|e| format!("load notes comment thread target: {e}"))?;
     let anchor = sqlx::query_as::<_, NoteCommentAnchorRow>(
-        "SELECT *
+        "SELECT thread_id, page_id, block_id, start_offset, end_offset, anchor_text,
+                prefix_text, suffix_text, created_time, last_edited_time
          FROM notes_comment_thread_anchors
          WHERE thread_id = ?",
     )
@@ -764,7 +878,7 @@ fn fts_query(query: &str) -> Result<String, String> {
         .join(" AND "))
 }
 
-fn page_metadata_text(row: &NotePageRow) -> Result<String, String> {
+fn page_metadata_text(row: &SearchPageIndexRow) -> Result<String, String> {
     let icon_text = row
         .icon
         .as_deref()
@@ -862,17 +976,7 @@ fn join_text(parts: impl IntoIterator<Item = Option<String>>) -> String {
 }
 
 fn source_order(row: &SearchIndexMatch) -> i64 {
-    match row.source_type.as_str() {
-        "page" => 0,
-        "property" | "alias" => 1,
-        "block" => 2,
-        "file" if row.block_id.is_some() => 3,
-        "file" if row.comment_id.is_some() => 5,
-        "file" => 1,
-        "comment" => 5,
-        "metadata" => 6,
-        _ => 7,
-    }
+    row.source_order
 }
 
 fn search_snippet(text: &str, query: &str) -> String {
@@ -912,9 +1016,24 @@ struct SearchIndexEntry {
 }
 
 #[derive(FromRow)]
+struct SearchPageIndexRow {
+    id: String,
+    title: String,
+    properties: String,
+    icon: Option<String>,
+    cover: Option<String>,
+    url: Option<String>,
+    public_url: Option<String>,
+    source_provider: Option<String>,
+    source_object_id: Option<String>,
+    source_workspace_id: Option<String>,
+    source_last_edited_time: Option<String>,
+    last_edited_time: String,
+}
+
+#[derive(FromRow)]
 struct SearchIndexMatch {
     id: String,
-    source_type: String,
     page_id: String,
     block_id: Option<String>,
     comment_id: Option<String>,
@@ -925,6 +1044,7 @@ struct SearchIndexMatch {
     metadata: String,
     source_last_edited_time: String,
     rank: f64,
+    source_order: i64,
 }
 
 impl SearchIndexMatch {
@@ -941,6 +1061,7 @@ impl SearchIndexMatch {
 }
 
 struct SearchCandidate {
+    index_id: String,
     id: String,
     source_order: i64,
     rank: f64,

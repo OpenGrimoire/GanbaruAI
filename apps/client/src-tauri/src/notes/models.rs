@@ -1103,6 +1103,8 @@ pub struct NoteWorkspaceShellRequest {
     pub(in crate::notes) folder_cursor: Option<String>,
     #[serde(default)]
     pub(in crate::notes) destination_candidates: bool,
+    #[serde(default)]
+    pub(in crate::notes) page_query: Option<String>,
 }
 
 #[derive(Clone, Serialize, sqlx::FromRow)]
@@ -1116,8 +1118,38 @@ pub(in crate::notes) struct NotePageSummaryDto {
     pub(in crate::notes) title: String,
     pub(in crate::notes) project_id: Option<String>,
     pub(in crate::notes) icon: Option<String>,
+    pub(in crate::notes) in_trash: bool,
+    pub(in crate::notes) archived: bool,
     pub(in crate::notes) created_time: String,
     pub(in crate::notes) last_edited_time: String,
+}
+
+#[derive(Default, Deserialize)]
+pub struct NotePageSummaryWindowRequest {
+    pub(in crate::notes) cursor: Option<String>,
+    pub(in crate::notes) query: Option<String>,
+    pub(in crate::notes) page_size: Option<i64>,
+}
+
+#[derive(Serialize)]
+pub struct NotePageSummaryWindowDto {
+    pages: Vec<NotePageSummaryDto>,
+    total_count: i64,
+    next_cursor: Option<String>,
+}
+
+impl NotePageSummaryWindowDto {
+    pub(in crate::notes) fn new(
+        pages: Vec<NotePageSummaryDto>,
+        total_count: i64,
+        next_cursor: Option<String>,
+    ) -> Self {
+        Self {
+            pages,
+            total_count,
+            next_cursor,
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -1165,7 +1197,7 @@ impl NoteWorkspaceShellDto {
 
 #[derive(Serialize)]
 pub struct NoteSidebarPageList {
-    pages: Vec<NotePageDto>,
+    pages: Vec<NotePageSummaryDto>,
     page_ids_with_children: Vec<String>,
     missing_parent_page_ids: Vec<String>,
     trashed_parent_page_ids: Vec<String>,
@@ -1173,20 +1205,17 @@ pub struct NoteSidebarPageList {
 
 impl NoteSidebarPageList {
     pub(in crate::notes) fn new(
-        pages: Vec<NotePageRow>,
+        pages: Vec<NotePageSummaryDto>,
         page_ids_with_children: Vec<String>,
         missing_parent_page_ids: Vec<String>,
         trashed_parent_page_ids: Vec<String>,
-    ) -> Result<Self, String> {
-        Ok(Self {
-            pages: pages
-                .into_iter()
-                .map(NotePageDto::new)
-                .collect::<Result<Vec<_>, _>>()?,
+    ) -> Self {
+        Self {
+            pages,
             page_ids_with_children,
             missing_parent_page_ids,
             trashed_parent_page_ids,
-        })
+        }
     }
 }
 
@@ -1505,7 +1534,7 @@ pub struct NoteSearchResultDto {
     id: String,
     #[serde(rename = "type")]
     result_type: String,
-    page: NotePageDto,
+    page: NotePageSummaryDto,
     block_id: Option<String>,
     block_type: Option<String>,
     comment_id: Option<String>,
@@ -1519,7 +1548,7 @@ pub struct NoteSearchResultDto {
 
 impl NoteSearchResultDto {
     pub(in crate::notes) fn page(
-        page: NotePageDto,
+        page: NotePageSummaryDto,
         snippet: String,
         last_edited_time: String,
     ) -> Self {
@@ -1541,7 +1570,11 @@ impl NoteSearchResultDto {
         }
     }
 
-    pub(in crate::notes) fn block(page: NotePageDto, block: NoteBlockRow, snippet: String) -> Self {
+    pub(in crate::notes) fn block(
+        page: NotePageSummaryDto,
+        block: NoteBlockRow,
+        snippet: String,
+    ) -> Self {
         Self {
             object: "search_result",
             id: format!("block:{}", block.id),
@@ -1560,7 +1593,7 @@ impl NoteSearchResultDto {
     }
 
     pub(in crate::notes) fn comment(
-        page: NotePageDto,
+        page: NotePageSummaryDto,
         comment: NoteCommentRow,
         block_id: Option<String>,
         status: String,
@@ -1583,6 +1616,29 @@ impl NoteSearchResultDto {
             snippet,
             last_edited_time: comment.last_edited_time,
         })
+    }
+}
+
+#[derive(Serialize)]
+pub struct NoteSearchWindowDto {
+    results: Vec<NoteSearchResultDto>,
+    next_cursor: Option<String>,
+}
+
+impl NoteSearchWindowDto {
+    pub(in crate::notes) fn new(
+        results: Vec<NoteSearchResultDto>,
+        next_cursor: Option<String>,
+    ) -> Self {
+        Self {
+            results,
+            next_cursor,
+        }
+    }
+
+    #[cfg(test)]
+    pub(in crate::notes) fn into_results(self) -> Vec<NoteSearchResultDto> {
+        self.results
     }
 }
 

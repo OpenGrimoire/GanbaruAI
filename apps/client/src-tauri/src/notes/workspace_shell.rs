@@ -3,6 +3,7 @@ use super::models::{
     NoteWorkspaceShellRequest,
 };
 use super::validation::require_uuid;
+use serde::{Deserialize, Serialize};
 use sqlx::{QueryBuilder, Sqlite, SqlitePool};
 use std::collections::{HashMap, HashSet};
 
@@ -12,16 +13,38 @@ const MAX_SHELL_PAGES: usize = 200;
 const MAX_SEED_IDS: usize = 50;
 const MAX_EXPANDED_IDS: usize = 50;
 
+#[derive(Deserialize, Serialize)]
+struct PageCursor {
+    last_edited_time: String,
+    title: String,
+    id: String,
+}
+
+#[derive(Deserialize, Serialize)]
+struct FolderCursor {
+    name: String,
+    id: String,
+}
+
 pub(in crate::notes) async fn load_workspace_shell(
     pool: &SqlitePool,
     request: NoteWorkspaceShellRequest,
 ) -> Result<NoteWorkspaceShellDto, String> {
     let project_id = normalize_optional_uuid(request.project_id, "project_id")?;
     let selected_page_id = normalize_optional_uuid(request.selected_page_id, "selected_page_id")?;
+    let page_query = request
+        .page_query
+        .unwrap_or_default()
+        .trim()
+        .chars()
+        .take(200)
+        .collect::<String>();
     let seed_page_ids = normalize_ids(request.seed_page_ids, MAX_SEED_IDS);
     let expanded_page_ids = normalize_ids(request.expanded_page_ids, MAX_EXPANDED_IDS);
-    let page_offset = decode_cursor(request.page_cursor.as_deref(), "page")?;
-    let folder_offset = decode_cursor(request.folder_cursor.as_deref(), "folder")?;
+    let load_page_window = request.page_cursor.as_deref() != Some("end");
+    let load_folder_window = request.folder_cursor.as_deref() != Some("end");
+    let page_cursor = decode_cursor::<PageCursor>(request.page_cursor.as_deref(), "page")?;
+    let folder_cursor = decode_cursor::<FolderCursor>(request.folder_cursor.as_deref(), "folder")?;
     let mut transaction = pool
         .begin()
         .await
@@ -31,11 +54,14 @@ pub(in crate::notes) async fn load_workspace_shell(
     let total_folder_count = count_folders(&mut transaction, project_id.as_deref()).await?;
     let mut rows_by_id = HashMap::<String, NotePageSummaryDto>::new();
 
-    let initial_pages = if request.destination_candidates {
+    let initial_pages = if !load_page_window {
+        Vec::new()
+    } else if request.destination_candidates {
         fetch_destination_window(
             &mut transaction,
             project_id.as_deref(),
-            page_offset,
+            &page_query,
+            page_cursor.as_ref(),
             PAGE_WINDOW_SIZE,
         )
         .await?
@@ -43,12 +69,13 @@ pub(in crate::notes) async fn load_workspace_shell(
         fetch_root_window(
             &mut transaction,
             project_id.as_deref(),
-            page_offset,
+            page_cursor.as_ref(),
             PAGE_WINDOW_SIZE,
         )
         .await?
     };
     let initial_page_window_full = initial_pages.len() == PAGE_WINDOW_SIZE as usize;
+    let initial_page_cursor = pages_cursor(&initial_pages);
     add_unique(&mut rows_by_id, initial_pages);
 
     let mut recovery_ids = seed_page_ids;
@@ -86,24 +113,35 @@ pub(in crate::notes) async fn load_workspace_shell(
         fetch_unavailable_parent_ids(&mut transaction, &pages, &loaded_ids).await?;
     let resolved_selected_page_id =
         selected_page_id.filter(|selected| pages.iter().any(|page| page.id == *selected));
-    let folder_rows = fetch_folder_window(
-        &mut transaction,
-        project_id.as_deref(),
-        folder_offset,
-        FOLDER_WINDOW_SIZE,
-    )
-    .await?;
+    let folder_rows = if load_folder_window {
+        fetch_folder_window(
+            &mut transaction,
+            project_id.as_deref(),
+            folder_cursor.as_ref(),
+            FOLDER_WINDOW_SIZE,
+        )
+        .await?
+    } else {
+        Vec::new()
+    };
     let folder_window_full = folder_rows.len() == FOLDER_WINDOW_SIZE as usize;
+    let folder_window_cursor = folder_cursor_from_rows(&folder_rows);
     let folders = folder_rows.into_iter().map(NoteFolderDto::new).collect();
 
     transaction
         .commit()
         .await
         .map_err(|error| format!("commit notes workspace shell read: {error}"))?;
-    let next_page_cursor =
-        initial_page_window_full.then(|| encode_cursor(page_offset + PAGE_WINDOW_SIZE));
-    let next_folder_cursor =
-        folder_window_full.then(|| encode_cursor(folder_offset + FOLDER_WINDOW_SIZE));
+    let next_page_cursor = initial_page_window_full
+        .then_some(initial_page_cursor)
+        .flatten()
+        .map(encode_cursor)
+        .transpose()?;
+    let next_folder_cursor = folder_window_full
+        .then_some(folder_window_cursor)
+        .flatten()
+        .map(encode_cursor)
+        .transpose()?;
     Ok(NoteWorkspaceShellDto::new(
         pages,
         folders,
@@ -142,17 +180,33 @@ fn normalize_ids(values: Vec<String>, limit: usize) -> Vec<String> {
         .collect()
 }
 
-fn decode_cursor(cursor: Option<&str>, field: &str) -> Result<i64, String> {
-    let Some(cursor) = cursor else { return Ok(0) };
+fn decode_cursor<T: for<'de> Deserialize<'de>>(
+    cursor: Option<&str>,
+    field: &str,
+) -> Result<Option<T>, String> {
     cursor
-        .strip_prefix("offset:")
-        .and_then(|value| value.parse::<i64>().ok())
-        .filter(|value| *value >= 0)
-        .ok_or_else(|| format!("invalid {field} cursor"))
+        .filter(|value| *value != "end")
+        .map(|value| serde_json::from_str(value).map_err(|_| format!("invalid {field} cursor")))
+        .transpose()
 }
 
-fn encode_cursor(offset: i64) -> String {
-    format!("offset:{offset}")
+fn encode_cursor<T: Serialize>(cursor: T) -> Result<String, String> {
+    serde_json::to_string(&cursor).map_err(|error| format!("serialize workspace cursor: {error}"))
+}
+
+fn pages_cursor(pages: &[NotePageSummaryDto]) -> Option<PageCursor> {
+    pages.last().map(|page| PageCursor {
+        last_edited_time: page.last_edited_time.clone(),
+        title: page.title.clone(),
+        id: page.id.clone(),
+    })
+}
+
+fn folder_cursor_from_rows(folders: &[NoteFolderRow]) -> Option<FolderCursor> {
+    folders.last().map(|folder| FolderCursor {
+        name: folder.name.clone(),
+        id: folder.id.clone(),
+    })
 }
 
 fn add_unique(
@@ -167,8 +221,8 @@ fn add_unique(
     }
 }
 
-fn page_projection() -> &'static str {
-    "id, parent_type, parent_page_id, parent_block_id, parent_data_source_id, folder_id, title, json_extract(properties, '$.__ganbaru_project_id') AS project_id, icon, created_time, last_edited_time"
+pub(super) fn page_projection() -> &'static str {
+    "id, parent_type, parent_page_id, parent_block_id, parent_data_source_id, folder_id, title, json_extract(properties, '$.__ganbaru_project_id') AS project_id, icon, in_trash, archived, created_time, last_edited_time"
 }
 
 fn push_project_filter(query: &mut QueryBuilder<'_, Sqlite>, project_id: Option<&str>) {
@@ -216,7 +270,7 @@ async fn count_folders(
 async fn fetch_root_window(
     transaction: &mut sqlx::Transaction<'_, Sqlite>,
     project_id: Option<&str>,
-    offset: i64,
+    cursor: Option<&PageCursor>,
     limit: i64,
 ) -> Result<Vec<NotePageSummaryDto>, String> {
     let mut query = QueryBuilder::new(format!(
@@ -224,11 +278,10 @@ async fn fetch_root_window(
         page_projection()
     ));
     push_project_filter(&mut query, project_id);
+    push_page_cursor(&mut query, cursor);
     query
         .push(" ORDER BY last_edited_time DESC, title COLLATE NOCASE ASC, id ASC LIMIT ")
-        .push_bind(limit)
-        .push(" OFFSET ")
-        .push_bind(offset);
+        .push_bind(limit);
     query
         .build_query_as()
         .fetch_all(&mut **transaction)
@@ -239,7 +292,8 @@ async fn fetch_root_window(
 async fn fetch_destination_window(
     transaction: &mut sqlx::Transaction<'_, Sqlite>,
     project_id: Option<&str>,
-    offset: i64,
+    search: &str,
+    cursor: Option<&PageCursor>,
     limit: i64,
 ) -> Result<Vec<NotePageSummaryDto>, String> {
     let mut query = QueryBuilder::new(format!(
@@ -247,11 +301,16 @@ async fn fetch_destination_window(
         page_projection()
     ));
     push_project_filter(&mut query, project_id);
+    if !search.is_empty() {
+        query
+            .push(" AND instr(lower(title), lower(")
+            .push_bind(search.to_string())
+            .push(")) > 0");
+    }
+    push_page_cursor(&mut query, cursor);
     query
         .push(" ORDER BY last_edited_time DESC, title COLLATE NOCASE ASC, id ASC LIMIT ")
-        .push_bind(limit)
-        .push(" OFFSET ")
-        .push_bind(offset);
+        .push_bind(limit);
     query
         .build_query_as()
         .fetch_all(&mut **transaction)
@@ -401,7 +460,7 @@ async fn fetch_unavailable_parent_ids(
 async fn fetch_folder_window(
     transaction: &mut sqlx::Transaction<'_, Sqlite>,
     project_id: Option<&str>,
-    offset: i64,
+    cursor: Option<&FolderCursor>,
     limit: i64,
 ) -> Result<Vec<NoteFolderRow>, String> {
     let mut query = QueryBuilder::new("SELECT id, project_id, parent_folder_id, name, created_time, last_edited_time FROM notes_folders WHERE 1 = 1");
@@ -412,14 +471,44 @@ async fn fetch_folder_window(
     } else {
         query.push(" AND project_id = ''");
     }
+    if let Some(cursor) = cursor {
+        query
+            .push(" AND (name COLLATE NOCASE > ")
+            .push_bind(cursor.name.clone());
+        query
+            .push(" COLLATE NOCASE OR (name COLLATE NOCASE = ")
+            .push_bind(cursor.name.clone());
+        query
+            .push(" COLLATE NOCASE AND id > ")
+            .push_bind(cursor.id.clone())
+            .push("))");
+    }
     query
         .push(" ORDER BY name COLLATE NOCASE ASC, id ASC LIMIT ")
-        .push_bind(limit)
-        .push(" OFFSET ")
-        .push_bind(offset);
+        .push_bind(limit);
     query
         .build_query_as()
         .fetch_all(&mut **transaction)
         .await
         .map_err(|error| format!("list notes workspace folders: {error}"))
+}
+
+fn push_page_cursor(query: &mut QueryBuilder<'_, Sqlite>, cursor: Option<&PageCursor>) {
+    let Some(cursor) = cursor else { return };
+    query
+        .push(" AND (last_edited_time < ")
+        .push_bind(cursor.last_edited_time.clone());
+    query
+        .push(" OR (last_edited_time = ")
+        .push_bind(cursor.last_edited_time.clone());
+    query
+        .push(" AND (title COLLATE NOCASE > ")
+        .push_bind(cursor.title.clone());
+    query
+        .push(" COLLATE NOCASE OR (title COLLATE NOCASE = ")
+        .push_bind(cursor.title.clone());
+    query
+        .push(" COLLATE NOCASE AND id > ")
+        .push_bind(cursor.id.clone())
+        .push("))))");
 }

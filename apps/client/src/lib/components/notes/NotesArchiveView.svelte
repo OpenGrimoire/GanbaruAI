@@ -13,12 +13,23 @@
   const localization = getLocalization();
   const { t } = localization;
   let search = $state("");
+  let searchInitialized = false;
   let restoringPageId = $state<string | null>(null);
   const filteredPages = $derived.by(() =>
     filterNotesPagesByTitle(notes.archivedPages, search, (page) =>
       notesPageTitle(page, t("notes.untitled"))
     )
   );
+
+  $effect(() => {
+    const query = search;
+    if (!searchInitialized) {
+      searchInitialized = true;
+      return;
+    }
+    const timeout = window.setTimeout(() => void notes.reloadArchivedPages(query), 150);
+    return () => window.clearTimeout(timeout);
+  });
 
   function editedLabel(page: NotesPage): string {
     return t("notes.metadataEdited", new Date(page.last_edited_time).toLocaleString(localization.locale));
@@ -102,6 +113,16 @@
           </div>
         {/each}
       </div>
+      {#if notes.archiveHasMore}
+        <button
+          type="button"
+          class="mt-2 rounded-md border border-border px-3 py-1.5 text-[0.8rem] text-foreground hover:bg-accent disabled:opacity-60"
+          disabled={notes.archiveLoading}
+          onclick={() => void notes.loadMoreArchivedPages()}
+        >
+          {t("common.loadMore")}
+        </button>
+      {/if}
     {/if}
   </div>
 </section>

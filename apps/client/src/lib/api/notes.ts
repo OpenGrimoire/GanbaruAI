@@ -140,6 +140,8 @@ import type {
   NotesMoveBlockRequest,
   NotesMoveBlocksRequest,
   NotesPage,
+  NotesPageSummaryWindow,
+  NotesPageSummaryWindowRequest,
   NotesPageAlias,
   NotesPageAliasCreate,
   NotesPageBreadcrumbItem,
@@ -156,6 +158,7 @@ import type {
   NotesPageUpdate,
   NotesPaginatedBlockList,
   NotesSearchResult,
+  NotesSearchWindow,
   NotesSidebarPageList,
   NotesSidebarPagesRequest,
   NotesSuggestion,
@@ -202,13 +205,6 @@ function schemaViewScopeArgs(scope?: NotesDatabaseViewScope | null): { viewId: s
   return { viewId: scope?.viewId ?? null };
 }
 
-export async function listNotesPages(): Promise<NotesPage[]> {
-  const dbUrl = await ensureDbUrl();
-  const rows = await invoke<unknown>("notes_list_pages", { dbUrl });
-  if (!Array.isArray(rows)) throw new Error("notes_list_pages returned a non-array payload");
-  return rows.map(mapNotesPageDto);
-}
-
 export async function listNotesFolders(): Promise<NotesFolder[]> {
   const dbUrl = await ensureDbUrl();
   const rows = await invoke<unknown>("notes_list_folders", { dbUrl });
@@ -245,7 +241,12 @@ function shellNumber(value: unknown, field: string): number {
   return value;
 }
 
-function mapWorkspaceShellPage(value: unknown): NotesPage {
+function shellBoolean(value: unknown, field: string): boolean {
+  if (typeof value !== "boolean") throw new Error(`${field} must be a boolean`);
+  return value;
+}
+
+function mapPageSummary(value: unknown): NotesPage {
   const row = notesWorkspaceShellRecord(value);
   const parentType = shellString(row.parent_type, "page.parent_type");
   let parent: NotesPage["parent"];
@@ -273,8 +274,8 @@ function mapWorkspaceShellPage(value: unknown): NotesPage {
     last_edited_time: shellString(row.last_edited_time, "page.last_edited_time"),
     parent,
     folder_id: shellNullableString(row.folder_id, "page.folder_id"),
-    in_trash: false,
-    archived: false,
+    in_trash: row.in_trash === undefined ? false : shellBoolean(row.in_trash, "page.in_trash"),
+    archived: row.archived === undefined ? false : shellBoolean(row.archived, "page.archived"),
     icon: rawIcon ? JSON.parse(rawIcon) : null,
     cover: null,
     properties: {
@@ -300,7 +301,7 @@ export async function loadNotesWorkspaceShell(
     throw new Error("notes_load_workspace_shell returned invalid collections");
   }
   return {
-    pages: record.pages.map(mapWorkspaceShellPage),
+    pages: record.pages.map(mapPageSummary),
     folders: record.folders.map(mapNotesFolderDto),
     page_ids_with_children: shellStringArray(record.page_ids_with_children, "page_ids_with_children"),
     missing_parent_page_ids: shellStringArray(record.missing_parent_page_ids, "missing_parent_page_ids"),
@@ -319,6 +320,7 @@ export async function loadNotesWorkspaceShell(
 export async function listNotesDestinationCandidates(
   projectId: string | null,
   cursor: string | null = null,
+  query = "",
 ): Promise<NotesWorkspaceShell> {
   return loadNotesWorkspaceShell({
     project_id: projectId,
@@ -326,7 +328,9 @@ export async function listNotesDestinationCandidates(
     seed_page_ids: [],
     selected_page_id: null,
     page_cursor: cursor,
+    folder_cursor: "end",
     destination_candidates: true,
+    page_query: query,
   });
 }
 
@@ -354,31 +358,52 @@ export async function deleteNotesFolder(folderId: string): Promise<string> {
   return deletedFolderId;
 }
 
-export async function listTrashedNotesPages(): Promise<NotesPage[]> {
+export async function listTrashedNotesPages(
+  request: NotesPageSummaryWindowRequest = {},
+): Promise<NotesPageSummaryWindow> {
   const dbUrl = await ensureDbUrl();
-  const rows = await invoke<unknown>("notes_list_trashed_pages", { dbUrl });
-  if (!Array.isArray(rows)) {
-    throw new Error("notes_list_trashed_pages returned a non-array payload");
-  }
-  return rows.map(mapNotesPageDto);
+  return mapPageSummaryWindow(
+    await invoke<unknown>("notes_list_trashed_pages", { dbUrl, request }),
+    "notes_list_trashed_pages",
+  );
 }
 
-export async function listArchivedNotesPages(): Promise<NotesPage[]> {
+export async function listArchivedNotesPages(
+  request: NotesPageSummaryWindowRequest = {},
+): Promise<NotesPageSummaryWindow> {
   const dbUrl = await ensureDbUrl();
-  const rows = await invoke<unknown>("notes_list_archived_pages", { dbUrl });
-  if (!Array.isArray(rows)) {
-    throw new Error("notes_list_archived_pages returned a non-array payload");
-  }
-  return rows.map(mapNotesPageDto);
+  return mapPageSummaryWindow(
+    await invoke<unknown>("notes_list_archived_pages", { dbUrl, request }),
+    "notes_list_archived_pages",
+  );
+}
+
+function mapPageSummaryWindow(value: unknown, command: string): NotesPageSummaryWindow {
+  const record = notesWorkspaceShellRecord(value);
+  if (!Array.isArray(record.pages)) throw new Error(`${command} returned invalid pages`);
+  return {
+    pages: record.pages.map(mapPageSummary),
+    total_count: shellNumber(record.total_count, `${command}.total_count`),
+    next_cursor: shellNullableString(record.next_cursor, `${command}.next_cursor`),
+  };
 }
 
 export async function listNotesSidebarPages(
   request: NotesSidebarPagesRequest,
 ): Promise<NotesSidebarPageList> {
   const dbUrl = await ensureDbUrl();
-  return mapNotesSidebarPageListDto(
+  const record = notesWorkspaceShellRecord(
     await invoke<unknown>("notes_list_sidebar_pages", { dbUrl, request }),
   );
+  if (!Array.isArray(record.pages)) {
+    throw new Error("notes_list_sidebar_pages returned invalid pages");
+  }
+  return {
+    pages: record.pages.map(mapPageSummary),
+    page_ids_with_children: shellStringArray(record.page_ids_with_children, "page_ids_with_children"),
+    missing_parent_page_ids: shellStringArray(record.missing_parent_page_ids, "missing_parent_page_ids"),
+    trashed_parent_page_ids: shellStringArray(record.trashed_parent_page_ids, "trashed_parent_page_ids"),
+  };
 }
 
 export async function listNotesBacklinks(pageId: string): Promise<NotesBacklink[]> {
@@ -477,16 +502,25 @@ export async function searchNotes(
   query: string,
   pageSize = 20,
   includeResolvedComments = false,
-): Promise<NotesSearchResult[]> {
+  cursor: string | null = null,
+): Promise<NotesSearchWindow> {
   const dbUrl = await ensureDbUrl();
   const rows = await invoke<unknown>("notes_search", {
     dbUrl,
     query,
     pageSize,
     includeResolvedComments,
+    cursor,
   });
-  if (!Array.isArray(rows)) throw new Error("notes_search returned a non-array payload");
-  return rows.map(mapNotesSearchResultDto);
+  const record = notesWorkspaceShellRecord(rows);
+  if (!Array.isArray(record.results)) throw new Error("notes_search returned invalid results");
+  return {
+    results: record.results.map((value) => {
+    const record = notesWorkspaceShellRecord(value);
+    return mapNotesSearchResultDto({ ...record, page: mapPageSummary(record.page) });
+    }),
+    next_cursor: shellNullableString(record.next_cursor, "notes_search.next_cursor"),
+  };
 }
 
 export async function rebuildNotesSearchIndex(): Promise<number> {

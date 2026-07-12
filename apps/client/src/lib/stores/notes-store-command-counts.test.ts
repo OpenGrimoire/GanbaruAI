@@ -7,6 +7,7 @@ import type {
   NotesBlock,
   NotesLoadedPage,
   NotesPage,
+  NotesSearchWindow,
   NotesWorkspaceShell,
 } from "$lib/notes/types";
 
@@ -15,6 +16,7 @@ const backend = vi.hoisted(() => ({
   pages: new Map<string, NotesPage>(),
   loadedPages: new Map<string, NotesLoadedPage>(),
   pendingBacklinks: [] as Array<(value: NotesBacklink[]) => void>,
+  pendingSearches: [] as Array<{ query: string; resolve: (value: NotesSearchWindow) => void }>,
   record(name: string): void {
     this.calls.push(name);
   },
@@ -121,6 +123,10 @@ vi.mock("$lib/api/notes", async (importOriginal) => {
       backend.record("destinations");
       return { pages: [], folders: [] };
     },
+    searchNotes: async (query: string) => {
+      backend.record(`search:${query}`);
+      return new Promise<NotesSearchWindow>((resolve) => backend.pendingSearches.push({ query, resolve }));
+    },
     loadNotesUndoState: async () => {
       backend.record("undo-state");
       return null;
@@ -218,9 +224,10 @@ describe("Notes store command counts", () => {
     expect(backend.count("breadcrumb")).toBeLessThanOrEqual(1);
     expect(backend.count("page")).toBe(0);
     await vi.advanceTimersByTimeAsync(60);
-    expect(backend.count("sidebar")).toBe(1);
-    expect(backend.count("all-pages")).toBe(1);
-    expect(backend.count("folders")).toBe(1);
+    expect(backend.count("workspace")).toBe(1);
+    expect(backend.count("sidebar")).toBe(0);
+    expect(backend.count("all-pages")).toBe(0);
+    expect(backend.count("folders")).toBe(0);
 
     backend.clear();
     await notes.archivePage(pageAId);
@@ -229,7 +236,7 @@ describe("Notes store command counts", () => {
     expect(backend.count("backlinks")).toBe(0);
     expect(backend.count("aliases")).toBe(0);
     await vi.advanceTimersByTimeAsync(60);
-    expect(backend.count("sidebar")).toBe(1);
+    expect(backend.count("workspace")).toBe(1);
 
     backend.clear();
     await notes.unarchivePage(pageAId);
@@ -238,7 +245,7 @@ describe("Notes store command counts", () => {
     expect(backend.count("breadcrumb")).toBe(0);
     expect(backend.count("backlinks")).toBe(0);
     await vi.advanceTimersByTimeAsync(60);
-    expect(backend.count("sidebar")).toBe(1);
+    expect(backend.count("workspace")).toBe(1);
   });
 
   it("starts panel reads together and ignores a late old-page backlink result", async () => {
@@ -268,5 +275,37 @@ describe("Notes store command counts", () => {
 
     expect(notes.selectedPageId).toBe(pageBId);
     expect(notes.backlinks).toEqual([]);
+  });
+
+  it("ignores a completed search after a newer query", async () => {
+    const oldSearch = notes.search("old");
+    const newSearch = notes.search("new");
+    await Promise.resolve();
+    const newPending = backend.pendingSearches.find((pending) => pending.query === "new");
+    newPending?.resolve({ results: [], next_cursor: null });
+    await newSearch;
+    const oldPending = backend.pendingSearches.find((pending) => pending.query === "old");
+    oldPending?.resolve({
+      results: [{
+        object: "search_result",
+        id: `page:${pageAId}`,
+        type: "page",
+        page: backend.pages.get(pageAId) as NotesPage,
+        block_id: null,
+        block_type: null,
+        comment_id: null,
+        discussion_id: null,
+        comment_status: null,
+        comment_author: null,
+        comment_anchor: null,
+        snippet: "stale",
+        last_edited_time: now,
+      }],
+      next_cursor: "stale",
+    });
+    await oldSearch;
+
+    expect(notes.searchResults).toEqual([]);
+    expect(notes.searchHasMore).toBe(false);
   });
 });
