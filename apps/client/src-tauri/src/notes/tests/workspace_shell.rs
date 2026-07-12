@@ -31,6 +31,31 @@ fn empty_workspace_shell_contains_summaries_only() {
 }
 
 #[test]
+fn workspace_shell_accepts_built_in_project_ids() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        let shell = workspace_shell::load_workspace_shell(
+            &pool,
+            NoteWorkspaceShellRequest {
+                project_id: Some("project-routine-learning".to_string()),
+                expanded_page_ids: Vec::new(),
+                seed_page_ids: Vec::new(),
+                selected_page_id: None,
+                page_cursor: None,
+                folder_cursor: None,
+                destination_candidates: false,
+                page_query: None,
+            },
+        )
+        .await
+        .expect("load shell for built-in project");
+
+        let value = serde_json::to_value(shell).expect("serialize shell");
+        assert_eq!(value["total_page_count"], 0);
+    });
+}
+
+#[test]
 fn dense_workspace_shell_stays_within_row_and_byte_caps() {
     tauri::async_runtime::block_on(async {
         let pool = migrated_memory_pool().await;

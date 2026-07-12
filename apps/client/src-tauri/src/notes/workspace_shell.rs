@@ -2,7 +2,7 @@ use super::models::{
     NoteFolderDto, NoteFolderRow, NotePageSummaryDto, NoteWorkspaceShellDto,
     NoteWorkspaceShellRequest,
 };
-use super::validation::require_uuid;
+use super::validation::{require_uuid, validate_folder_project_id};
 use serde::{Deserialize, Serialize};
 use sqlx::{QueryBuilder, Sqlite, SqlitePool};
 use std::collections::{HashMap, HashSet};
@@ -30,7 +30,7 @@ pub(in crate::notes) async fn load_workspace_shell(
     pool: &SqlitePool,
     request: NoteWorkspaceShellRequest,
 ) -> Result<NoteWorkspaceShellDto, String> {
-    let project_id = normalize_optional_uuid(request.project_id, "project_id")?;
+    let project_id = normalize_optional_project_id(request.project_id)?;
     let selected_page_id = normalize_optional_uuid(request.selected_page_id, "selected_page_id")?;
     let page_query = request
         .page_query
@@ -161,6 +161,16 @@ fn normalize_optional_uuid(value: Option<String>, field: &str) -> Result<Option<
         .map(|value| {
             let trimmed = value.trim();
             require_uuid(trimmed, field)?;
+            Ok(trimmed.to_string())
+        })
+        .transpose()
+}
+
+fn normalize_optional_project_id(value: Option<String>) -> Result<Option<String>, String> {
+    value
+        .map(|value| {
+            let trimmed = value.trim();
+            validate_folder_project_id(trimmed)?;
             Ok(trimmed.to_string())
         })
         .transpose()
