@@ -24,8 +24,19 @@
   class="flex h-full flex-col items-center justify-center gap-3 p-4 text-center text-[0.866667rem] text-muted-foreground"
   data-projects-first-use-state
 >
-  <div>{t("projects.navigator.empty")}</div>
-  {#if projects.loaded}
+  {#if projects.loadError}
+    <div role="alert">{t("projects.loadFailed", projects.loadError)}</div>
+    <button
+      type="button"
+      class="min-h-9 rounded-md border border-border bg-background px-3 text-[0.8rem] font-medium text-foreground hover:bg-accent"
+      onclick={() => {
+        void projects.load().catch(() => undefined);
+      }}
+    >
+      {t("common.retry")}
+    </button>
+  {:else if projects.loaded}
+    <div>{t("projects.navigator.empty")}</div>
     <button
       type="button"
       class="flex min-h-9 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-[0.8rem] font-medium text-foreground hover:bg-accent"

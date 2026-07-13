@@ -13,6 +13,7 @@
   import { getDoomscrollingUsage } from "$lib/stores/doomscrolling-usage.svelte";
   import { getMusicPlayer } from "$lib/stores/music-player.svelte";
   import { getPomodoro } from "$lib/stores/pomodoro.svelte";
+  import { getProjects } from "$lib/stores/projects.svelte";
   import { getZoom } from "$lib/stores/zoom.svelte";
   import { getPreferences } from "$lib/stores/preferences.svelte";
   import { getSettingsLauncher } from "$lib/stores/settingsLauncher.svelte";
@@ -98,6 +99,7 @@
   const doomscrollingUsage = getDoomscrollingUsage();
   const music = getMusicPlayer();
   const pomodoro = getPomodoro();
+  const projects = getProjects();
   const zoom = getZoom();
   const preferences = getPreferences();
   const settingsLauncher = getSettingsLauncher();
@@ -295,8 +297,23 @@
         .catch((e) => console.error("Failed to listen for doomscrolling limit settings opens:", e));
     }
     const unsubscribeHistoryVault = isMainWindow
-      ? onActiveVaultIdentityChange(() => notesProjectHistoryScheduler.switchVault())
+      ? onActiveVaultIdentityChange((previousVaultId, nextVaultId) => {
+          notesProjectHistoryScheduler.switchVault();
+          if (!nextVaultId) return;
+          const request = previousVaultId ? projects.load() : projects.ensureLoaded();
+          void request.catch((error) => {
+            console.error("projects workspace preload failed", error);
+          });
+        })
       : null;
+
+    if (isMainWindow) {
+      void ensureDbUrl()
+        .then(() => projects.ensureLoaded())
+        .catch((error) => {
+          console.error("projects workspace preload failed", error);
+        });
+    }
 
     // Valid benchmark boots are claimed before normal calendar hydration so
     // the measured window is the scenario anchor, not today's normal window.

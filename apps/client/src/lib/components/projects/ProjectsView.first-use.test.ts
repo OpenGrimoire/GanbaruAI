@@ -94,6 +94,8 @@ describe("ProjectsView first use", () => {
       .toBeNull();
     expect(target.querySelector("[data-projects-first-use-state]")?.textContent)
       .not.toContain("Loading");
+    expect(target.querySelector("[data-projects-first-use-state]")?.textContent)
+      .not.toContain("No projects");
     expect(deferredComponents.viewCalls).toBe(0);
     expect(deferredComponents.optionalCalls).toBe(0);
   }, 15_000);
