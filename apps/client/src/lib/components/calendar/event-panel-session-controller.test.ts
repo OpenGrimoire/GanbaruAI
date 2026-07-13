@@ -23,7 +23,7 @@ function project(overrides: Partial<Project> = {}): Project {
     id: "project-a",
     groupId: "group-a",
     name: "Project",
-    icon: "folder",
+    icon: "lucide:folder",
     sortOrder: 0,
     status: "active",
     defaultEventName: "Project focus",

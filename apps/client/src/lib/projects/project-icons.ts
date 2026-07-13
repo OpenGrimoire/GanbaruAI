@@ -1,24 +1,6 @@
-import {
-  FALLBACK_COLOR_INDEX,
-  PALETTE_SIZE,
-  type EventColor,
-} from "$lib/components/calendar/types";
+import { PALETTE_SIZE, type EventColor } from "$lib/components/calendar/types";
 
-export const PROJECT_ICON_COLOR_VALUES = [
-  "default",
-  "gray",
-  "brown",
-  "orange",
-  "yellow",
-  "green",
-  "blue",
-  "purple",
-  "pink",
-  "red",
-] as const;
-
-export type LegacyProjectIconColor = Exclude<(typeof PROJECT_ICON_COLOR_VALUES)[number], "default">;
-export type ProjectIconColor = EventColor | "default" | LegacyProjectIconColor;
+export type ProjectIconColor = EventColor | "default";
 
 export type ProjectIconValue =
   | { kind: "none" }
@@ -35,30 +17,11 @@ export const DEFAULT_PROJECT_ICON_VALUE: ProjectIconValue = {
 
 const ICON_SLUG_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
 const ASSET_PATH_PATTERN = /^project-icons\/[a-f0-9]{64}\.(png|jpg|jpeg|webp)$/i;
-const LEGACY_ICON_COLOR_TO_EVENT_COLOR: Record<LegacyProjectIconColor, EventColor> = {
-  gray: 30,
-  brown: 26,
-  orange: 7,
-  yellow: 8,
-  green: 13,
-  blue: 18,
-  purple: 22,
-  pink: 1,
-  red: 3,
-};
-
-function isLegacyProjectIconColor(value: string): value is LegacyProjectIconColor {
-  return PROJECT_ICON_COLOR_VALUES.includes(value as (typeof PROJECT_ICON_COLOR_VALUES)[number])
-    && value !== "default";
-}
-
-function parseProjectIconColor(value: string): ProjectIconColor {
-  if (value === "default") return "default";
-  if (isLegacyProjectIconColor(value)) return value;
+function parseProjectIconColor(value: string): EventColor | null {
   const numericColor = Number(value);
   return Number.isInteger(numericColor) && numericColor >= 0 && numericColor < PALETTE_SIZE
     ? numericColor
-    : "default";
+    : null;
 }
 
 function isIconSlug(value: string): boolean {
@@ -80,12 +43,17 @@ export function parseProjectIcon(value: string | null | undefined): ProjectIconV
   }
 
   if (trimmed.startsWith("lucide:")) {
-    const [, slug = "", color = "default"] = trimmed.split(":");
+    const parts = trimmed.split(":");
+    const slug = parts[1] ?? "";
     if (!isIconSlug(slug)) return DEFAULT_PROJECT_ICON_VALUE;
+    if (parts.length === 2) return { kind: "lucide", slug, color: "default" };
+    if (parts.length !== 3) return DEFAULT_PROJECT_ICON_VALUE;
+    const color = parseProjectIconColor(parts[2] ?? "");
+    if (color === null) return DEFAULT_PROJECT_ICON_VALUE;
     return {
       kind: "lucide",
       slug,
-      color: parseProjectIconColor(color),
+      color,
     };
   }
 
@@ -99,10 +67,6 @@ export function parseProjectIcon(value: string | null | undefined): ProjectIconV
     return isProjectIconAssetPath(relativePath)
       ? { kind: "asset", relativePath }
       : DEFAULT_PROJECT_ICON_VALUE;
-  }
-
-  if (isIconSlug(trimmed)) {
-    return { kind: "lucide", slug: trimmed, color: "default" };
   }
 
   return DEFAULT_PROJECT_ICON_VALUE;
@@ -130,9 +94,7 @@ export function serializeProjectIcon(value: ProjectIconValue): string {
 }
 
 export function projectIconColorToEventColor(color: ProjectIconColor): EventColor | undefined {
-  if (typeof color === "number") return color;
-  if (color === "default") return undefined;
-  return LEGACY_ICON_COLOR_TO_EVENT_COLOR[color] ?? FALLBACK_COLOR_INDEX;
+  return typeof color === "number" ? color : undefined;
 }
 
 export function projectIconDisplayLabel(value: ProjectIconValue): string {

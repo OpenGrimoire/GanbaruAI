@@ -51,7 +51,7 @@ fn task_tag_link_rejects_tags_from_another_project() {
         insert_project_graph_fixture(&pool).await;
         sqlx::query(
             "INSERT INTO projects (id, group_id, name, icon, sort_order)
-             VALUES ('project-b', 'group-a', 'Project B', 'folder', 200)",
+             VALUES ('project-b', 'group-a', 'Project B', 'lucide:folder', 200)",
         )
         .execute(&pool)
         .await
@@ -157,7 +157,7 @@ fn task_event_link_rejects_event_from_another_project() {
         insert_project_graph_fixture(&pool).await;
         sqlx::query(
             "INSERT INTO projects (id, group_id, name, icon, sort_order)
-             VALUES ('project-b', 'group-a', 'Project B', 'folder', 200)",
+             VALUES ('project-b', 'group-a', 'Project B', 'lucide:folder', 200)",
         )
         .execute(&pool)
         .await

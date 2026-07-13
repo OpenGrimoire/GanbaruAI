@@ -53,18 +53,6 @@ pub(in crate::notes) async fn prune_project_history_tx(
         .map_err(|_| "pruned Notes history count is too large".to_string())
 }
 
-#[cfg(test)]
-pub(super) fn normalize_legacy_retention_days(value: Option<i64>) -> i64 {
-    match value {
-        None => 365,
-        Some(days) if days <= 7 => 7,
-        Some(days) if days <= 30 => 30,
-        Some(days) if days <= 90 => 90,
-        Some(days) if days <= 180 => 180,
-        Some(_) => 365,
-    }
-}
-
 pub(super) fn validate_retention_days(retention_days: i64) -> Result<(), String> {
     if !SUPPORTED_RETENTION_DAYS.contains(&retention_days) {
         return Err("Notes history retention must be off, 7, 30, 90, 180, or 365 days".to_string());
@@ -213,7 +201,7 @@ pub async fn notes_get_history_retention_impact<R: Runtime>(
         .await
     }
     .map_err(|e| format!("calculate Notes history retention impact: {e}"))?;
-    let legacy_row = if let Some(project_id) = project_filter.as_deref() {
+    let page_history_row = if let Some(project_id) = project_filter.as_deref() {
         sqlx::query(
             "WITH RECURSIVE ownership(page_id, parent_page_id, project_id) AS (
                  SELECT page.id,
@@ -328,18 +316,18 @@ pub async fn notes_get_history_retention_impact<R: Runtime>(
         .fetch_one(&pool)
         .await
     }
-    .map_err(|e| format!("calculate legacy Notes history retention impact: {e}"))?;
+    .map_err(|e| format!("calculate Notes page history retention impact: {e}"))?;
     let project_version_count: i64 = row.try_get("version_count").map_err(|e| e.to_string())?;
     let project_stored_bytes: i64 = row.try_get("stored_bytes").map_err(|e| e.to_string())?;
-    let legacy_version_count: i64 = legacy_row
+    let page_history_version_count: i64 = page_history_row
         .try_get("version_count")
         .map_err(|e| e.to_string())?;
-    let legacy_stored_bytes: i64 = legacy_row
+    let page_history_stored_bytes: i64 = page_history_row
         .try_get("stored_bytes")
         .map_err(|e| e.to_string())?;
     Ok(NotesHistoryRetentionImpactDto {
-        version_count: project_version_count.saturating_add(legacy_version_count),
-        stored_bytes: project_stored_bytes.saturating_add(legacy_stored_bytes),
+        version_count: project_version_count.saturating_add(page_history_version_count),
+        stored_bytes: project_stored_bytes.saturating_add(page_history_stored_bytes),
     })
 }
 

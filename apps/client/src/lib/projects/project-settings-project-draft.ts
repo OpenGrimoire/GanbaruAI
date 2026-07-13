@@ -64,7 +64,7 @@ export function emptyProjectSettingsProjectDraft(): ProjectSettingsProjectDraft 
   return {
     groupId: "",
     name: "",
-    icon: "folder",
+    icon: "lucide:folder",
     status: "active",
     color: undefined,
     defaultEventName: "",

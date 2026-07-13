@@ -1,8 +1,7 @@
 use super::{
     checkpoint_is_due, create_checkpoint, create_checkpoint_after_graph_load,
     ensure_project_baseline_for_mutation, flush_due_checkpoints, history_schedule,
-    initialize_project_history, mark_project_dirty_tx, mutation_result,
-    normalize_legacy_retention_days, restore,
+    initialize_project_history, mark_project_dirty_tx, mutation_result, restore,
 };
 use crate::db::run_migrations;
 use sqlx::SqlitePool;

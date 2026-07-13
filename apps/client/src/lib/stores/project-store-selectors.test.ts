@@ -37,7 +37,7 @@ describe("createProjectStoreSelectors", () => {
       groups: [{
         id: "group-1",
         name: "Inbox",
-        icon: "folder",
+        icon: "lucide:folder",
         sortOrder: 1000,
         collapsed: false,
         createdAt: "2026-01-01T00:00:00.000Z",

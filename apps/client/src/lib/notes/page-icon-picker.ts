@@ -36,22 +36,9 @@ const NOTES_ICON_COLOR_TO_EVENT_SLOT: Record<NotesIconColor, number> = {
   red: 3,
 };
 
-const PROJECT_COLOR_NAMES = new Set<NotesIconColor>([
-  "gray",
-  "brown",
-  "orange",
-  "yellow",
-  "green",
-  "blue",
-  "purple",
-  "pink",
-  "red",
-]);
-
 function notesIconColorFromProjectColor(color: ProjectIconColor): NotesIconColor | undefined {
   if (typeof color === "number") return EVENT_SLOT_TO_NOTES_ICON_COLOR[color] ?? "lightgray";
-  if (color === "default") return undefined;
-  return PROJECT_COLOR_NAMES.has(color) ? color : undefined;
+  return undefined;
 }
 
 /** Convert Notes page icon metadata into the shared picker value format. */

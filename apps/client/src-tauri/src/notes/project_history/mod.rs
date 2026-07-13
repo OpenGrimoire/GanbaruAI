@@ -32,8 +32,6 @@ pub use reads::{
     notes_list_project_history_versions, notes_load_project_history_page,
     notes_load_project_history_tree,
 };
-#[cfg(test)]
-use retention::normalize_legacy_retention_days;
 pub(in crate::notes) use retention::prune_project_history_tx;
 use retention::{effective_retention_days_tx, run_due_maintenance, validate_retention_days};
 #[allow(unused_imports)]

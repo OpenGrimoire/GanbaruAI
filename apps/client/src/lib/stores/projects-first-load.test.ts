@@ -67,7 +67,7 @@ function emptySnapshot(): ProjectsSnapshot {
     groups: [{
       id: "group-1",
       name: "Group",
-      icon: "folder",
+      icon: "lucide:folder",
       sortOrder: 0,
       collapsed: false,
       createdAt: "2026-01-01T00:00:00Z",
@@ -77,7 +77,7 @@ function emptySnapshot(): ProjectsSnapshot {
       id: "project-1",
       groupId: "group-1",
       name: "Project",
-      icon: "folder",
+      icon: "lucide:folder",
       color: 8,
       sortOrder: 0,
       status: "active",

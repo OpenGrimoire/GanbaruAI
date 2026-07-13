@@ -86,31 +86,39 @@ fn built_in_routine_defaults_are_protected_and_repaired() {
             vec![
                 (
                     "project-routine-exercise".to_string(),
-                    "sport-shoe".to_string(),
+                    "lucide:sport-shoe".to_string(),
                     20,
                 ),
                 (
                     "project-routine-hygiene".to_string(),
-                    "bath".to_string(),
+                    "lucide:bath".to_string(),
                     30,
                 ),
-                ("project-routine-eat".to_string(), "apple".to_string(), 40,),
+                (
+                    "project-routine-eat".to_string(),
+                    "lucide:apple".to_string(),
+                    40,
+                ),
                 (
                     "project-routine-commute".to_string(),
-                    "bike".to_string(),
+                    "lucide:bike".to_string(),
                     50,
                 ),
                 (
                     "project-routine-chores".to_string(),
-                    "shopping-cart".to_string(),
+                    "lucide:shopping-cart".to_string(),
                     70,
                 ),
                 (
                     "project-routine-health".to_string(),
-                    "pill".to_string(),
+                    "lucide:pill".to_string(),
                     100,
                 ),
-                ("project-routine-sleep".to_string(), "bed".to_string(), 110,),
+                (
+                    "project-routine-sleep".to_string(),
+                    "lucide:bed".to_string(),
+                    110,
+                ),
             ],
         );
     });

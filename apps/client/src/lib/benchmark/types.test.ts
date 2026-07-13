@@ -57,10 +57,8 @@ describe("benchmark state freshness", () => {
     }, NOW_MS)).toBe(false);
   });
 
-  it("falls back to startedAt for older state files without updatedAt", () => {
+  it("rejects pending state without an updated timestamp", () => {
     expect(isFreshBenchmarkPendingAge({ startedAt: isoAgo(PENDING_STATE_TTL_MS - 1) }, NOW_MS))
-      .toBe(true);
-    expect(isFreshBenchmarkPendingAge({ startedAt: isoAgo(PENDING_STATE_TTL_MS + 1) }, NOW_MS))
       .toBe(false);
   });
 });

@@ -1,7 +1,6 @@
 import { notesPageTitle } from "./page-title";
 import type { NotesPage } from "./types";
 
-const SIDEBAR_COLLAPSED_PAGE_IDS_CONFIG_KEY = "notes.sidebarCollapsedPageIds";
 const SIDEBAR_EXPANDED_PAGE_IDS_CONFIG_KEY = "notes.sidebarExpandedPageIds";
 
 export type NotesPageParentStatus = "missing" | "trashed";
@@ -28,20 +27,9 @@ export interface NotesPageTreeOptions {
   titleForPage?: (page: NotesPage) => string;
 }
 
-/** Return the config key that stores collapsed sidebar page ids. */
-export function notesSidebarCollapsedPageIdsConfigKey(): string {
-  return SIDEBAR_COLLAPSED_PAGE_IDS_CONFIG_KEY;
-}
-
 /** Return the config key that stores expanded sidebar page ids. */
 export function notesSidebarExpandedPageIdsConfigKey(): string {
   return SIDEBAR_EXPANDED_PAGE_IDS_CONFIG_KEY;
-}
-
-/** Parse persisted collapsed sidebar page ids from config defensively. */
-export function parseStoredNotesSidebarCollapsedPageIds(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return [...new Set(value.filter((item): item is string => typeof item === "string"))];
 }
 
 /** Parse persisted expanded sidebar page ids from config defensively. */

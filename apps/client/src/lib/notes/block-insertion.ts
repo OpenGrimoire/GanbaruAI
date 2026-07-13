@@ -44,7 +44,7 @@ export type NotesInsertableBlockType = (typeof NOTES_INSERTABLE_BLOCK_TYPES)[num
 export type NotesBlockInsertCommand =
   | { kind: "block"; blockType: NotesInsertableBlockType }
   | { kind: "toggle_heading"; headingType: NotesHeadingBlockType };
-export type NotesBlockInsertRequest = NotesInsertableBlockType | NotesBlockInsertCommand;
+export type NotesBlockInsertRequest = NotesBlockInsertCommand;
 export interface NotesBlockInsertMenuRect {
   top: number;
   right: number;
@@ -103,7 +103,6 @@ export function normalizeNotesBlockInsertCommand(
   request?: NotesBlockInsertRequest,
 ): NotesBlockInsertCommand {
   if (request === undefined) return { kind: "block", blockType: "paragraph" };
-  if (typeof request === "string") return { kind: "block", blockType: request };
   return request;
 }
 

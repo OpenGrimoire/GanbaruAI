@@ -24,7 +24,7 @@ describe("applyProjectMutation", () => {
     const initial = emptySnapshot();
     const result = applyProjectMutation(initial, mutation({
       groups: [{
-        id: "group-1", name: "Work", icon: "folder", sortOrder: 1000, collapsed: false,
+        id: "group-1", name: "Work", icon: "lucide:folder", sortOrder: 1000, collapsed: false,
         createdAt: "created", updatedAt: "updated",
       }],
       taskTagLinks: [{ taskId: "task-1", tagId: "tag-1", createdAt: "created" }],
@@ -41,9 +41,9 @@ describe("applyProjectMutation", () => {
 
   it("applies removals and their local cascade before replacement rows", () => {
     const initial = mutation({
-      groups: [{ id: "group-1", name: "Work", icon: "folder", sortOrder: 1000, collapsed: false, createdAt: "c", updatedAt: "u" }],
+      groups: [{ id: "group-1", name: "Work", icon: "lucide:folder", sortOrder: 1000, collapsed: false, createdAt: "c", updatedAt: "u" }],
       projects: [{
-        id: "project-1", groupId: "group-1", name: "Project", icon: "folder", sortOrder: 1000,
+        id: "project-1", groupId: "group-1", name: "Project", icon: "lucide:folder", sortOrder: 1000,
         status: "active", defaultEventName: null, defaultEventTimeMode: "timed",
         defaultEventDurationMinutes: null, defaultPomodoroMode: "preset", defaultIdleSettingsSource: "global",
         defaultIdlePauseEnabled: true, defaultIdleThresholdMinutes: 5, createdAt: "c", updatedAt: "u",

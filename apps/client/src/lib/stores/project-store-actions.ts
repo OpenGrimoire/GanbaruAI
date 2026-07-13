@@ -192,7 +192,7 @@ export function createProjectStoreActions(context: ProjectStoreActionContext) {
     await commitMutation(`group:${id}`, () => createProjectGroup({
       id,
       name: displayName,
-      icon: "folder",
+      icon: "lucide:folder",
       color: null,
       sortOrder: selectors.nextGroupSortOrder(),
     }));

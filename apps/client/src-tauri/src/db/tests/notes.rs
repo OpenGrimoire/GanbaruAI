@@ -234,14 +234,14 @@ fn schema_validates_project_notes_default_open_mode() {
         let pool = migrated_memory_pool().await;
         sqlx::query(
             "INSERT INTO project_groups (id, name, icon, sort_order)
-             VALUES ('group-notes-mode', 'Notes mode', 'folder', 100)",
+             VALUES ('group-notes-mode', 'Notes mode', 'lucide:folder', 100)",
         )
         .execute(&pool)
         .await
         .unwrap();
         sqlx::query(
             "INSERT INTO projects (id, group_id, name, icon, sort_order)
-             VALUES ('project-notes-mode', 'group-notes-mode', 'Notes mode', 'folder', 100)",
+             VALUES ('project-notes-mode', 'group-notes-mode', 'Notes mode', 'lucide:folder', 100)",
         )
         .execute(&pool)
         .await

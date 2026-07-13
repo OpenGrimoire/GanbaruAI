@@ -32,7 +32,7 @@ function emptySnapshot(): ProjectsSnapshot {
 
 function project(id: string, groupId: string, status: Project["status"], sortOrder: number): Project {
   return {
-    id, groupId, name: id, icon: "folder", sortOrder, status,
+    id, groupId, name: id, icon: "lucide:folder", sortOrder, status,
     defaultEventName: null, defaultEventTimeMode: "timed", defaultEventDurationMinutes: null,
     defaultPomodoroMode: "preset", defaultIdleSettingsSource: "global",
     defaultIdlePauseEnabled: true, defaultIdleThresholdMinutes: 5, createdAt, updatedAt,
@@ -66,9 +66,9 @@ function nestedFixture(): ProjectsSnapshot {
   };
   return {
     groups: [
-      { id: "group-b", name: "B", icon: "folder", sortOrder: 2000, collapsed: false, createdAt, updatedAt },
-      { id: "group-a", name: "A", icon: "folder", sortOrder: 1000, collapsed: false, createdAt, updatedAt },
-      { id: "group-hidden", name: "Hidden", icon: "folder", sortOrder: 500, collapsed: false, hiddenAt: updatedAt, createdAt, updatedAt },
+      { id: "group-b", name: "B", icon: "lucide:folder", sortOrder: 2000, collapsed: false, createdAt, updatedAt },
+      { id: "group-a", name: "A", icon: "lucide:folder", sortOrder: 1000, collapsed: false, createdAt, updatedAt },
+      { id: "group-hidden", name: "Hidden", icon: "lucide:folder", sortOrder: 500, collapsed: false, hiddenAt: updatedAt, createdAt, updatedAt },
     ],
     projects: [
       project("project-b", "group-a", "archived", 500),

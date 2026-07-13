@@ -242,10 +242,11 @@ After the relevant gate passes, finish the task without extra dev-server, Tauri 
 - Treat stored user data as durable. Any change to SQLite schema, persisted JSON, config keys, theme tokens, import/export formats, or generated Ganbaru AI folder data must consider existing installs, older exports, stale rows, removed fields, renamed keys, seed/reset data, and rollback or fallback behavior.
 - Do not leave dead persistent data behind. If a field, row key, config key, or JSON property becomes obsolete, add an explicit migration, cleanup path, or validator drop rule, then document it in the relevant data or feature spec.
 - SQLite migrations live in `apps/client/src-tauri/migrations/` and are embedded into the Rust binary through `sqlx::migrate!("./migrations")`. Use SQLx file names with a UTC timestamp prefix, `YYYYMMDDHHMMSS_description.sql`, such as `20260601103000_add_project_tables.sql`. Do not manually register migration files; the SQLx macro discovers them at compile time.
-- `20260529180656_baseline_schema.sql` is the fresh-start schema for the pre-user reset. Do not edit it after a released build can have applied it. Add a new timestamped migration file instead.
+- `20260713024120_baseline_schema.sql` is the fresh-start schema for the final pre-user reset. Earlier development databases are intentionally unsupported and must be recreated. Once a user-capable release can apply this baseline, never edit it. Add a new timestamped migration file instead.
 - Keep `apps/client/src-tauri/src/db.rs` focused on migration execution. Put schema and migration invariant tests in `apps/client/src-tauri/src/db/tests.rs`.
 - Keep migrations idempotent and narrowly scoped when practical, but remember that SQLx validates applied migration checksums. Never rewrite an applied migration to fix a live install. Preserve user-authored values whenever those values still have meaning, and only delete data that is truly obsolete or derivable from current canonical data.
-- For local development before users exist, a baseline squash is acceptable only when a project maintainer explicitly approves a clean reinstall or purge. Document the reset in this file and the relevant data docs.
+- The maintainer approved the final pre-user baseline squash on 2026-07-12.
+- Future baseline squashes require explicit maintainer approval. Once users can have applied the current baseline, preserve it permanently and use additive migrations.
 
 ### Theme and color tokens
 

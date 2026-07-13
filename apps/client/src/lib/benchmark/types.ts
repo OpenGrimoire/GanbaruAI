@@ -243,7 +243,7 @@ export interface BenchmarkState {
   /** ISO 8601 from when the run was confirmed. Drives the stale TTL check. */
   startedAt: string;
   /** ISO 8601 from the last state write. Drives the pending-restart TTL check. */
-  updatedAt?: string;
+  updatedAt: string;
   /** Pinned `HARNESS_VERSION` at write time. Mismatch on read clears state. */
   harnessVersion: string;
   /** Dense dataset version pinned at seed time. Currently `v1`. */
@@ -313,7 +313,7 @@ export function benchmarkTotalAgeMs(state: BenchmarkStateTimeProbe, nowMs = Date
 }
 
 export function benchmarkPendingAgeMs(state: BenchmarkStateTimeProbe, nowMs = Date.now()): number {
-  return timestampAgeMs(state.updatedAt ?? state.startedAt, nowMs);
+  return timestampAgeMs(state.updatedAt, nowMs);
 }
 
 export function isFreshBenchmarkTotalAge(state: BenchmarkStateTimeProbe, nowMs = Date.now()): boolean {

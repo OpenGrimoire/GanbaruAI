@@ -12,7 +12,7 @@ function project(overrides: Partial<Project> = {}): Project {
     id: "project-1",
     groupId: "group-1",
     name: "Project",
-    icon: "folder",
+    icon: "lucide:folder",
     color: 8,
     sortOrder: 1000,
     status: "active",
@@ -155,7 +155,7 @@ describe("projectSettingsProjectUpdateFromDraft", () => {
     const draft = updateDraft(projectSettingsProjectDraftFromProject(currentProject), {
       name: "Renamed",
       groupId: "group-2",
-      icon: "utensils",
+      icon: "lucide:utensils",
       status: "hidden",
     });
 
@@ -172,7 +172,7 @@ describe("projectSettingsProjectUpdateFromDraft", () => {
         groupId: "group-routine",
         name: "Comer",
         sortOrder: 20,
-        icon: "utensils",
+        icon: "lucide:utensils",
         status: "hidden",
       },
     });

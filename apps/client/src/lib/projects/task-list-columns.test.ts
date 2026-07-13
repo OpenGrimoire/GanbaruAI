@@ -42,18 +42,6 @@ describe("task list columns", () => {
     }))).toEqual(["status", "dependencies"]);
   });
 
-  it("upgrades old default-shaped preferences to the current default", () => {
-    expect(parseTaskListColumns(taskListColumnsPreferenceValue(["status", "due", "priority"]))).toEqual(
-      DEFAULT_TASK_LIST_COLUMNS,
-    );
-    expect(parseTaskListColumns(taskListColumnsPreferenceValue(["due", "priority", "status"]))).toEqual(
-      DEFAULT_TASK_LIST_COLUMNS,
-    );
-    expect(parseTaskListColumns(taskListColumnsPreferenceValue(["status", "start", "due", "priority"]))).toEqual(
-      DEFAULT_TASK_LIST_COLUMNS,
-    );
-  });
-
   it("keeps custom field columns when the field still exists", () => {
     const riskColumn = customTaskListColumn("field-risk");
     const confidenceColumn = customTaskListColumn("field-confidence");

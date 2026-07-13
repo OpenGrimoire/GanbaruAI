@@ -115,14 +115,14 @@ fn delete_status_rejects_last_project_status() {
         let pool = migrated_memory_pool().await;
         sqlx::query(
             "INSERT INTO project_groups (id, name, icon, sort_order)
-             VALUES ('group-empty', 'Group Empty', 'folder', 100)",
+             VALUES ('group-empty', 'Group Empty', 'lucide:folder', 100)",
         )
         .execute(&pool)
         .await
         .unwrap();
         sqlx::query(
             "INSERT INTO projects (id, group_id, name, icon, sort_order)
-             VALUES ('project-empty', 'group-empty', 'Project Empty', 'folder', 100)",
+             VALUES ('project-empty', 'group-empty', 'Project Empty', 'lucide:folder', 100)",
         )
         .execute(&pool)
         .await

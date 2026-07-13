@@ -52,14 +52,10 @@ describe("notes block insertion catalog", () => {
     );
   });
 
-  it("normalizes legacy string insertion requests", () => {
+  it("defaults omitted insertion requests to a paragraph", () => {
     expect(normalizeNotesBlockInsertCommand()).toEqual({
       kind: "block",
       blockType: "paragraph",
-    });
-    expect(normalizeNotesBlockInsertCommand("bookmark")).toEqual({
-      kind: "block",
-      blockType: "bookmark",
     });
   });
 

@@ -14,10 +14,68 @@ const PROJECT_IDLE_SETTINGS_SOURCES: &[&str] = &["global", "custom"];
 const PROJECT_IDLE_THRESHOLD_MINUTES: &[i64] = &[1, 2, 3, 4, 5, 10, 15];
 pub(super) const MAX_TASK_CHANGE_REASON_LENGTH: usize = 1000;
 
+fn valid_lucide_slug(value: &str) -> bool {
+    let mut characters = value.chars();
+    let Some(first) = characters.next() else {
+        return false;
+    };
+    (first.is_ascii_lowercase() || first.is_ascii_digit())
+        && characters.all(|character| {
+            character.is_ascii_lowercase() || character.is_ascii_digit() || character == '-'
+        })
+}
+
+fn valid_project_icon_asset_path(value: &str) -> bool {
+    let Some(file_name) = value.strip_prefix("project-icons/") else {
+        return false;
+    };
+    let Some((hash, extension)) = file_name.rsplit_once('.') else {
+        return false;
+    };
+    hash.len() == 64
+        && hash.chars().all(|character| character.is_ascii_hexdigit())
+        && matches!(
+            extension.to_ascii_lowercase().as_str(),
+            "png" | "jpg" | "jpeg" | "webp"
+        )
+}
+
+fn validate_project_icon(value: &str) -> Result<(), String> {
+    let value = value.trim();
+    let valid = value == "none"
+        || value
+            .strip_prefix("emoji:")
+            .is_some_and(|emoji| !emoji.trim().is_empty())
+        || value
+            .strip_prefix("custom-emoji:")
+            .is_some_and(|id| !id.trim().is_empty())
+        || value
+            .strip_prefix("asset:")
+            .is_some_and(valid_project_icon_asset_path)
+        || value.strip_prefix("lucide:").is_some_and(|icon| {
+            let mut parts = icon.split(':');
+            let slug = parts.next().unwrap_or_default();
+            let color = parts.next();
+            if parts.next().is_some() || !valid_lucide_slug(slug) {
+                return false;
+            }
+            color.is_none_or(|value| {
+                value
+                    .parse::<i64>()
+                    .is_ok_and(|slot| (0..PALETTE_SIZE).contains(&slot))
+            })
+        });
+    if valid {
+        Ok(())
+    } else {
+        Err("icon must use a canonical project icon encoding".to_string())
+    }
+}
+
 pub(super) fn validate_group_create(group: &ProjectGroupCreate) -> Result<(), String> {
     require_non_empty(&group.id, "id")?;
     require_non_empty(&group.name, "name")?;
-    require_non_empty(&group.icon, "icon")?;
+    validate_project_icon(&group.icon)?;
     validate_color(group.color)?;
     validate_non_negative(group.sort_order, "sort_order")
 }
@@ -25,7 +83,7 @@ pub(super) fn validate_group_create(group: &ProjectGroupCreate) -> Result<(), St
 pub(super) fn validate_group_update(group: &ProjectGroupUpdate) -> Result<(), String> {
     require_non_empty(&group.id, "id")?;
     require_non_empty(&group.name, "name")?;
-    require_non_empty(&group.icon, "icon")?;
+    validate_project_icon(&group.icon)?;
     validate_color(group.color)?;
     validate_non_negative(group.sort_order, "sort_order")
 }
@@ -35,7 +93,7 @@ pub(super) fn validate_project_create(project: &ProjectCreate) -> Result<(), Str
     require_non_empty(&project.group_id, "group_id")?;
     validate_enum(&project.template_id, "template_id", PROJECT_TEMPLATE_IDS)?;
     require_non_empty(&project.name, "name")?;
-    require_non_empty(&project.icon, "icon")?;
+    validate_project_icon(&project.icon)?;
     validate_color(project.color)?;
     validate_non_negative(project.sort_order, "sort_order")?;
     validate_optional_text(&project.default_event_name, "default_event_name")?;
@@ -62,7 +120,7 @@ pub(super) fn validate_project_update(project: &ProjectUpdate) -> Result<(), Str
     require_non_empty(&project.id, "id")?;
     require_non_empty(&project.group_id, "group_id")?;
     require_non_empty(&project.name, "name")?;
-    require_non_empty(&project.icon, "icon")?;
+    validate_project_icon(&project.icon)?;
     validate_color(project.color)?;
     validate_non_negative(project.sort_order, "sort_order")?;
     validate_enum(&project.status, "status", &["active", "hidden", "archived"])?;
@@ -647,4 +705,36 @@ pub(super) fn sql_like_contains_pattern(value: &str) -> String {
     }
     escaped.push('%');
     escaped
+}
+
+#[cfg(test)]
+mod icon_tests {
+    use super::validate_project_icon;
+
+    #[test]
+    fn project_icons_accept_only_canonical_encodings() {
+        for value in [
+            "none",
+            "emoji:🚀",
+            "lucide:folder",
+            "lucide:folder:18",
+            "custom-emoji:focus",
+            "asset:project-icons/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.webp",
+        ] {
+            assert!(validate_project_icon(value).is_ok(), "{value} should be valid");
+        }
+        for value in [
+            "folder",
+            "lucide:folder:blue",
+            "lucide:folder:32",
+            "emoji:",
+            "custom-emoji:",
+            "asset:project-icons/../icon.png",
+        ] {
+            assert!(
+                validate_project_icon(value).is_err(),
+                "{value} should be invalid"
+            );
+        }
+    }
 }

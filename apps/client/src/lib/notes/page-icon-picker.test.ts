@@ -16,7 +16,7 @@ describe("Notes page icon picker adapter", () => {
       type: "emoji",
       emoji: "📌",
     });
-    expect(notesPageIconFromPickerValue("lucide:book-open:blue", customEmojis)).toEqual({
+    expect(notesPageIconFromPickerValue("lucide:book-open:18", customEmojis)).toEqual({
       type: "icon",
       icon: { name: "book-open", color: "blue" },
     });

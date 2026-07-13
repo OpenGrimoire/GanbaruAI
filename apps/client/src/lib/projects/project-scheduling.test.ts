@@ -16,7 +16,7 @@ function project(overrides: Partial<Project> = {}): Project {
     id: "project-a",
     groupId: "group-a",
     name: "Launch",
-    icon: "folder",
+    icon: "lucide:folder",
     color: 2,
     sortOrder: 1000,
     status: "active",

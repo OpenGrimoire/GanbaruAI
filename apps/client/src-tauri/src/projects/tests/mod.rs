@@ -19,14 +19,14 @@ pub(super) async fn migrated_memory_pool() -> SqlitePool {
 pub(super) async fn insert_project_graph_fixture(pool: &SqlitePool) {
     sqlx::query(
         "INSERT INTO project_groups (id, name, icon, sort_order)
-         VALUES ('group-a', 'Group A', 'folder', 100)",
+         VALUES ('group-a', 'Group A', 'lucide:folder', 100)",
     )
     .execute(pool)
     .await
     .unwrap();
     sqlx::query(
         "INSERT INTO projects (id, group_id, name, icon, sort_order)
-         VALUES ('project-a', 'group-a', 'Project A', 'folder', 100)",
+         VALUES ('project-a', 'group-a', 'Project A', 'lucide:folder', 100)",
     )
     .execute(pool)
     .await

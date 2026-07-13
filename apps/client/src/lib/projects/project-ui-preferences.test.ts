@@ -19,9 +19,9 @@ describe("project ui preferences", () => {
     expect(isProjectViewId(undefined)).toBe(false);
   });
 
-  it("maps legacy view ids and falls back to the list view for invalid stored view ids", () => {
-    expect(parseStoredProjectViewId("board")).toBe("kanban");
-    expect(parseStoredProjectViewId("summary")).toBe("dashboard");
+  it("falls back to the list view for invalid stored view ids", () => {
+    expect(parseStoredProjectViewId("board")).toBe(DEFAULT_PROJECT_VIEW_ID);
+    expect(parseStoredProjectViewId("summary")).toBe(DEFAULT_PROJECT_VIEW_ID);
     expect(parseStoredProjectViewId("timeline")).toBe(DEFAULT_PROJECT_VIEW_ID);
     expect(parseStoredProjectViewId(null)).toBe(DEFAULT_PROJECT_VIEW_ID);
   });

@@ -8,9 +8,7 @@ import {
   parseStoredNotesPageIdList,
 } from "$lib/notes/page-navigation";
 import {
-  notesSidebarCollapsedPageIdsConfigKey,
   notesSidebarExpandedPageIdsConfigKey,
-  parseStoredNotesSidebarCollapsedPageIds,
   parseStoredNotesSidebarExpandedPageIds,
 } from "$lib/notes/page-tree";
 import {
@@ -22,7 +20,6 @@ import { getConfigKey, setConfigKey } from "$lib/vault/config";
 export const notesSelectedPageKey = notesSelectedPageConfigKey();
 export const notesFavoritePageIdsKey = notesFavoritePageIdsConfigKey();
 export const notesRecentPageIdsKey = notesRecentPageIdsConfigKey();
-export const notesSidebarCollapsedPageIdsKey = notesSidebarCollapsedPageIdsConfigKey();
 export const notesSidebarExpandedPageIdsKey = notesSidebarExpandedPageIdsConfigKey();
 export const notesSidebarCollapsedFolderIdsKey = notesSidebarCollapsedFolderIdsConfigKey();
 
@@ -45,15 +42,6 @@ export function initialNotesFavoritePageIds(): string[] {
  */
 export function initialNotesRecentPageIds(): string[] {
   return parseStoredNotesPageIdList(getConfigKey<unknown>(notesRecentPageIdsKey, undefined));
-}
-
-/**
- * Load the persisted collapsed Notes sidebar page ids.
- */
-export function initialNotesSidebarCollapsedPageIds(): string[] {
-  return parseStoredNotesSidebarCollapsedPageIds(
-    getConfigKey<unknown>(notesSidebarCollapsedPageIdsKey, undefined),
-  );
 }
 
 /**
@@ -96,18 +84,10 @@ export function saveNotesRecentPageIds(pageIds: readonly string[]): void {
 }
 
 /**
- * Persist the collapsed Notes sidebar page ids.
- */
-export function saveNotesSidebarCollapsedPageIds(pageIds: readonly string[]): void {
-  setConfigKey(notesSidebarCollapsedPageIdsKey, pageIds.length > 0 ? [...pageIds] : undefined);
-}
-
-/**
  * Persist the expanded Notes sidebar page ids.
  */
 export function saveNotesSidebarExpandedPageIds(pageIds: readonly string[]): void {
   setConfigKey(notesSidebarExpandedPageIdsKey, pageIds.length > 0 ? [...pageIds] : undefined);
-  setConfigKey(notesSidebarCollapsedPageIdsKey, undefined);
 }
 
 /**

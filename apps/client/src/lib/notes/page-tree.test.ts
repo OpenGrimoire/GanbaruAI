@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { createRichText } from "./block-factory";
 import {
   buildNotesPageTree,
-  parseStoredNotesSidebarCollapsedPageIds,
   parseStoredNotesSidebarExpandedPageIds,
 } from "./page-tree";
 import type { NotesPage, NotesParent } from "./types";
@@ -144,11 +143,6 @@ describe("notes page tree", () => {
       ["missing-child", "missing"],
       ["trashed-child", "trashed"],
     ]);
-  });
-
-  it("parses stored collapsed ids defensively", () => {
-    expect(parseStoredNotesSidebarCollapsedPageIds(["a", "b", "a", 1])).toEqual(["a", "b"]);
-    expect(parseStoredNotesSidebarCollapsedPageIds("a")).toEqual([]);
   });
 
   it("parses stored expanded ids defensively", () => {

@@ -160,11 +160,11 @@ pub(super) async fn restore_version(
     remap_copy_rows(&mut historical, &copy_scope, &id_map);
     resolve_copied_alias_conflicts_tx(&mut tx, &mut historical, &id_map).await?;
     suppress_historical_notifications(&mut historical);
-    preserve_legacy_page_history_tx(&mut tx, &historical_page_ids).await?;
+    preserve_page_history_tx(&mut tx, &historical_page_ids).await?;
     delete_current_project_pages_tx(&mut tx, &current_page_ids).await?;
     delete_current_project_folders_tx(&mut tx, &current_folder_ids).await?;
     insert_historical_rows_tx(&mut tx, &historical).await?;
-    restore_preserved_legacy_page_history_tx(&mut tx).await?;
+    restore_preserved_page_history_tx(&mut tx).await?;
     append_restore_operations_tx(&mut tx, &historical, version_id).await?;
     sqlx::query("DELETE FROM notes_project_history_dirty WHERE project_id = ?")
         .bind(&project_id)
@@ -206,7 +206,7 @@ pub(super) async fn restore_version(
     super::version_from_row(&row)
 }
 
-async fn preserve_legacy_page_history_tx(
+async fn preserve_page_history_tx(
     tx: &mut Transaction<'_, Sqlite>,
     restored_page_ids: &HashSet<String>,
 ) -> Result<(), String> {
@@ -237,20 +237,18 @@ async fn preserve_legacy_page_history_tx(
         .build()
         .execute(&mut **tx)
         .await
-        .map_err(|e| format!("preserve legacy Notes page history during restore: {e}"))?;
+        .map_err(|e| format!("preserve Notes page history during project restore: {e}"))?;
     Ok(())
 }
 
-async fn restore_preserved_legacy_page_history_tx(
-    tx: &mut Transaction<'_, Sqlite>,
-) -> Result<(), String> {
+async fn restore_preserved_page_history_tx(tx: &mut Transaction<'_, Sqlite>) -> Result<(), String> {
     sqlx::query(
         "INSERT OR IGNORE INTO notes_page_history_snapshots
          SELECT * FROM temp.notes_restore_page_history",
     )
     .execute(&mut **tx)
     .await
-    .map_err(|e| format!("restore legacy Notes page history records: {e}"))?;
+    .map_err(|e| format!("restore preserved Notes page history records: {e}"))?;
     sqlx::query("DROP TABLE temp.notes_restore_page_history")
         .execute(&mut **tx)
         .await

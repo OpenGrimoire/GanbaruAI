@@ -9,7 +9,7 @@ function project(overrides: Partial<Project> = {}): Project {
     id: "project-1",
     groupId: "group-1",
     name: "Project",
-    icon: "folder",
+    icon: "lucide:folder",
     color: 8,
     sortOrder: 1000,
     status: "active",

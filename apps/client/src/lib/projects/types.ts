@@ -129,7 +129,7 @@ export interface Project {
 
 export const PROJECT_TEMPLATE_DEFAULTS = {
   blank: {
-    icon: "folder",
+    icon: "lucide:folder",
     color: null,
     defaultEventName: null,
     defaultEventTimeMode: "timed",
@@ -145,7 +145,7 @@ export const PROJECT_TEMPLATE_DEFAULTS = {
     defaultIdleThresholdMinutes: DEFAULT_FOCUS_IDLE_THRESHOLD_MINUTES,
   },
   software: {
-    icon: "folder",
+    icon: "lucide:folder",
     color: null,
     defaultEventName: null,
     defaultEventTimeMode: "timed",
@@ -161,7 +161,7 @@ export const PROJECT_TEMPLATE_DEFAULTS = {
     defaultIdleThresholdMinutes: DEFAULT_FOCUS_IDLE_THRESHOLD_MINUTES,
   },
   course: {
-    icon: "graduation-cap",
+    icon: "lucide:graduation-cap",
     color: null,
     defaultEventName: null,
     defaultEventTimeMode: "timed",
@@ -177,7 +177,7 @@ export const PROJECT_TEMPLATE_DEFAULTS = {
     defaultIdleThresholdMinutes: DEFAULT_FOCUS_IDLE_THRESHOLD_MINUTES,
   },
   routine: {
-    icon: "repeat",
+    icon: "lucide:repeat",
     color: null,
     defaultEventName: null,
     defaultEventTimeMode: "timed",
@@ -193,7 +193,7 @@ export const PROJECT_TEMPLATE_DEFAULTS = {
     defaultIdleThresholdMinutes: DEFAULT_FOCUS_IDLE_THRESHOLD_MINUTES,
   },
   reading: {
-    icon: "book-open",
+    icon: "lucide:book-open",
     color: null,
     defaultEventName: null,
     defaultEventTimeMode: "timed",
@@ -209,7 +209,7 @@ export const PROJECT_TEMPLATE_DEFAULTS = {
     defaultIdleThresholdMinutes: DEFAULT_FOCUS_IDLE_THRESHOLD_MINUTES,
   },
   chores: {
-    icon: "shopping-cart",
+    icon: "lucide:shopping-cart",
     color: null,
     defaultEventName: null,
     defaultEventTimeMode: "timed",

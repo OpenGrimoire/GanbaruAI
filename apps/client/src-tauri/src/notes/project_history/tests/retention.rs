@@ -1,18 +1,6 @@
 use super::*;
 
 #[test]
-fn legacy_retention_values_round_up_and_remove_forever() {
-    assert_eq!(normalize_legacy_retention_days(Some(7)), 7);
-    assert_eq!(normalize_legacy_retention_days(Some(8)), 30);
-    assert_eq!(normalize_legacy_retention_days(Some(31)), 90);
-    assert_eq!(normalize_legacy_retention_days(Some(91)), 180);
-    assert_eq!(normalize_legacy_retention_days(Some(181)), 365);
-    assert_eq!(normalize_legacy_retention_days(Some(365)), 365);
-    assert_eq!(normalize_legacy_retention_days(Some(3_650)), 365);
-    assert_eq!(normalize_legacy_retention_days(None), 365);
-}
-
-#[test]
 fn orphan_maintenance_runs_only_after_its_vault_deadline() {
     tauri::async_runtime::block_on(async {
         let pool = migrated_pool().await;

@@ -19,7 +19,7 @@ pub(super) const BUILT_IN_ROUTINE_PROJECTS: &[BuiltInRoutineProject] = &[
     BuiltInRoutineProject {
         id: "project-routine-learning",
         name: "Learning",
-        icon: "graduation-cap",
+        icon: "lucide:graduation-cap",
         color: 8,
         sort_order: 0,
         default_pomodoro_mode: "preset",
@@ -28,7 +28,7 @@ pub(super) const BUILT_IN_ROUTINE_PROJECTS: &[BuiltInRoutineProject] = &[
     BuiltInRoutineProject {
         id: "project-routine-reading",
         name: "Reading",
-        icon: "book-open",
+        icon: "lucide:book-open",
         color: 25,
         sort_order: 10,
         default_pomodoro_mode: "none",
@@ -37,7 +37,7 @@ pub(super) const BUILT_IN_ROUTINE_PROJECTS: &[BuiltInRoutineProject] = &[
     BuiltInRoutineProject {
         id: "project-routine-exercise",
         name: "Exercise",
-        icon: "sport-shoe",
+        icon: "lucide:sport-shoe",
         color: 0,
         sort_order: 20,
         default_pomodoro_mode: "none",
@@ -46,7 +46,7 @@ pub(super) const BUILT_IN_ROUTINE_PROJECTS: &[BuiltInRoutineProject] = &[
     BuiltInRoutineProject {
         id: "project-routine-hygiene",
         name: "Hygiene",
-        icon: "bath",
+        icon: "lucide:bath",
         color: 15,
         sort_order: 30,
         default_pomodoro_mode: "none",
@@ -55,7 +55,7 @@ pub(super) const BUILT_IN_ROUTINE_PROJECTS: &[BuiltInRoutineProject] = &[
     BuiltInRoutineProject {
         id: "project-routine-eat",
         name: "Eating",
-        icon: "apple",
+        icon: "lucide:apple",
         color: 13,
         sort_order: 40,
         default_pomodoro_mode: "none",
@@ -64,7 +64,7 @@ pub(super) const BUILT_IN_ROUTINE_PROJECTS: &[BuiltInRoutineProject] = &[
     BuiltInRoutineProject {
         id: "project-routine-commute",
         name: "Commute",
-        icon: "bike",
+        icon: "lucide:bike",
         color: 17,
         sort_order: 50,
         default_pomodoro_mode: "none",
@@ -73,7 +73,7 @@ pub(super) const BUILT_IN_ROUTINE_PROJECTS: &[BuiltInRoutineProject] = &[
     BuiltInRoutineProject {
         id: "project-routine-social",
         name: "Social",
-        icon: "heart",
+        icon: "lucide:heart",
         color: 21,
         sort_order: 60,
         default_pomodoro_mode: "none",
@@ -82,7 +82,7 @@ pub(super) const BUILT_IN_ROUTINE_PROJECTS: &[BuiltInRoutineProject] = &[
     BuiltInRoutineProject {
         id: "project-routine-chores",
         name: "Chores",
-        icon: "shopping-cart",
+        icon: "lucide:shopping-cart",
         color: 4,
         sort_order: 70,
         default_pomodoro_mode: "none",
@@ -91,7 +91,7 @@ pub(super) const BUILT_IN_ROUTINE_PROJECTS: &[BuiltInRoutineProject] = &[
     BuiltInRoutineProject {
         id: "project-routine-leisure",
         name: "Leisure",
-        icon: "clapperboard",
+        icon: "lucide:clapperboard",
         color: 31,
         sort_order: 80,
         default_pomodoro_mode: "none",
@@ -100,7 +100,7 @@ pub(super) const BUILT_IN_ROUTINE_PROJECTS: &[BuiltInRoutineProject] = &[
     BuiltInRoutineProject {
         id: "project-routine-meditate",
         name: "Meditate",
-        icon: "smile",
+        icon: "lucide:smile",
         color: 23,
         sort_order: 90,
         default_pomodoro_mode: "none",
@@ -109,7 +109,7 @@ pub(super) const BUILT_IN_ROUTINE_PROJECTS: &[BuiltInRoutineProject] = &[
     BuiltInRoutineProject {
         id: "project-routine-health",
         name: "Health",
-        icon: "pill",
+        icon: "lucide:pill",
         color: 3,
         sort_order: 100,
         default_pomodoro_mode: "none",
@@ -118,7 +118,7 @@ pub(super) const BUILT_IN_ROUTINE_PROJECTS: &[BuiltInRoutineProject] = &[
     BuiltInRoutineProject {
         id: "project-routine-sleep",
         name: "Sleep",
-        icon: "bed",
+        icon: "lucide:bed",
         color: 30,
         sort_order: 110,
         default_pomodoro_mode: "none",
@@ -195,7 +195,7 @@ async fn repair_built_in_routine_defaults(pool: &sqlx::SqlitePool) -> Result<(),
 
     sqlx::query(
         "INSERT OR IGNORE INTO project_groups (id, name, icon, color, sort_order)
-         VALUES (?, 'Routine', 'repeat', 0, 0)",
+         VALUES (?, 'Routine', 'lucide:repeat', 0, 0)",
     )
     .bind(ROUTINE_GROUP_ID)
     .execute(&mut *tx)

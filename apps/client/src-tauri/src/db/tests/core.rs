@@ -1,5 +1,113 @@
+use super::super::run_migrations;
 use super::helpers::{insert_event, insert_open_run, migrated_memory_pool};
 use sqlx::Row;
+
+#[test]
+fn fresh_baseline_has_one_complete_schema() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        let migration_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM _sqlx_migrations WHERE success = 1")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(migration_count, 1);
+        let integrity: String = sqlx::query_scalar("PRAGMA integrity_check")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(integrity, "ok");
+        let foreign_key_errors: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM pragma_foreign_key_check")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(foreign_key_errors, 0);
+
+        for object in [
+            "calendar_events",
+            "project_tasks",
+            "music_playlists",
+            "music_playlist_tracks",
+            "music_track_skip_ranges",
+            "music_track_break_sources",
+            "notes_pages",
+            "notes_blocks",
+            "notes_search_fts",
+            "notes_folders_validate_parent_insert",
+            "idx_notes_project_history_dirty_deadlines",
+        ] {
+            let exists: Option<i64> =
+                sqlx::query_scalar("SELECT 1 FROM sqlite_schema WHERE name = ?")
+                    .bind(object)
+                    .fetch_optional(&pool)
+                    .await
+                    .unwrap();
+            assert_eq!(exists, Some(1), "{object} should exist");
+        }
+        for obsolete in [
+            "project_labels",
+            "project_task_label_links",
+            "project_view_preferences_new",
+            "notes_blocks_next",
+            "notes_pages_next",
+            "notes_page_history_settings_next",
+        ] {
+            let exists: Option<i64> =
+                sqlx::query_scalar("SELECT 1 FROM sqlite_schema WHERE name = ?")
+                    .bind(obsolete)
+                    .fetch_optional(&pool)
+                    .await
+                    .unwrap();
+            assert_eq!(exists, None, "{obsolete} should not exist");
+        }
+        let removed_idle_column: Option<i64> = sqlx::query_scalar(
+            "SELECT 1 FROM pragma_table_info('projects') WHERE name = 'default_idle_timeout_minutes'",
+        )
+        .fetch_optional(&pool)
+        .await
+        .unwrap();
+        assert_eq!(removed_idle_column, None);
+        let noncanonical_icons: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM projects WHERE icon NOT GLOB '*:*'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(noncanonical_icons, 0);
+    });
+}
+
+#[test]
+fn fresh_baseline_migrates_a_file_backed_database() {
+    tauri::async_runtime::block_on(async {
+        let path = std::env::temp_dir().join(format!(
+            "ganbaru-ai-baseline-{}-{}.sqlite",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+        ));
+        let options = sqlx::sqlite::SqliteConnectOptions::new()
+            .filename(&path)
+            .create_if_missing(true)
+            .foreign_keys(true);
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .unwrap();
+        run_migrations(&pool).await.unwrap();
+        let migration_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM _sqlx_migrations WHERE success = 1")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(migration_count, 1);
+        pool.close().await;
+        std::fs::remove_file(path).unwrap();
+    });
+}
 
 #[test]
 fn schema_does_not_create_json_storage_columns() {

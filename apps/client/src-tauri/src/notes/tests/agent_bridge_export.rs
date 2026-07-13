@@ -183,7 +183,7 @@ async fn seed_database_view(pool: &SqlitePool) {
 async fn seed_project_context(pool: &SqlitePool) {
     sqlx::query(
         "INSERT INTO project_groups (id, name, icon, sort_order)
-         VALUES (?, 'Agent context', 'folder', 0)",
+         VALUES (?, 'Agent context', 'lucide:folder', 0)",
     )
     .bind(PROJECT_GROUP_ID)
     .execute(pool)
@@ -191,7 +191,7 @@ async fn seed_project_context(pool: &SqlitePool) {
     .unwrap();
     sqlx::query(
         "INSERT INTO projects (id, group_id, name, icon, sort_order, status)
-         VALUES (?, ?, 'Agent bridge project', 'folder', 0, 'active')",
+         VALUES (?, ?, 'Agent bridge project', 'lucide:folder', 0, 'active')",
     )
     .bind(PROJECT_ID)
     .bind(PROJECT_GROUP_ID)

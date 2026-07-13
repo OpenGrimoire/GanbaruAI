@@ -18,11 +18,6 @@ function makeCalendar(overrides: Partial<Calendar> = {}): Calendar {
   };
 }
 
-const expectedDateFormatter = new Intl.DateTimeFormat(undefined, {
-  day: "numeric",
-  month: "short",
-  year: "numeric",
-});
 const expectedDateTimeFormatter = new Intl.DateTimeFormat(undefined, {
   day: "numeric",
   month: "short",
@@ -31,10 +26,6 @@ const expectedDateTimeFormatter = new Intl.DateTimeFormat(undefined, {
   minute: "2-digit",
 });
 
-function expectedLocalDate(value: string): string {
-  return expectedDateFormatter.format(new Date(`${value}T12:00:00`));
-}
-
 function expectedLocalTimestamp(value: string): string {
   return expectedDateTimeFormatter.format(new Date(value));
 }
@@ -42,7 +33,7 @@ function expectedLocalTimestamp(value: string): string {
 describe("calendar display helpers", () => {
   it("uses the .ics source filename as the imported calendar label", () => {
     const calendar = makeCalendar({
-      name: "Imported from old-label@example.com (2026-05-14)",
+      name: "Stored calendar name",
       source: "ics",
       sourceUrl: "person@example.com.ics",
     });
@@ -50,14 +41,14 @@ describe("calendar display helpers", () => {
     expect(calendarDisplayName(calendar)).toBe("person@example.com");
   });
 
-  it("falls back to imported calendar names when source_url is unavailable", () => {
+  it("uses the stored name when an imported source URL is unavailable", () => {
     const calendar = makeCalendar({
-      name: "Imported from old-label@example.com (2026-05-14)",
+      name: "person@example.com",
       source: "ics",
     });
 
-    expect(calendarDisplayName(calendar)).toBe("old-label@example.com");
-    expect(calendarImportDate(calendar)).toBe(expectedLocalDate("2026-05-14"));
+    expect(calendarDisplayName(calendar)).toBe("person@example.com");
+    expect(calendarImportDate(calendar)).toBeUndefined();
   });
 
   it("formats imported timestamps in the local date and time", () => {

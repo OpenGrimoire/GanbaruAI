@@ -6,14 +6,14 @@ fn html_import_creates_canonical_blocks_rich_text_tables_media_and_toggles() {
         let pool = migrated_memory_pool().await;
         sqlx::query(
             "INSERT INTO project_groups (id, name, icon, sort_order)
-             VALUES ('project-group-a', 'Import destinations', 'folder', 0)",
+             VALUES ('project-group-a', 'Import destinations', 'lucide:folder', 0)",
         )
         .execute(&pool)
         .await
         .unwrap();
         sqlx::query(
             "INSERT INTO projects (id, group_id, name, icon, sort_order, status)
-             VALUES ('project-a', 'project-group-a', 'Project A', 'folder', 0, 'active')",
+             VALUES ('project-a', 'project-group-a', 'Project A', 'lucide:folder', 0, 'active')",
         )
         .execute(&pool)
         .await

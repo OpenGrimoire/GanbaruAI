@@ -98,15 +98,15 @@ fn atomic_state_write_does_not_follow_predictable_temp_symlinks() {
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("doomscrolling-state.json");
     let target = dir.join("protected.txt");
-    let legacy_temp = dir.join("doomscrolling-state.json.tmp");
+    let predictable_temp = dir.join("doomscrolling-state.json.tmp");
     std::fs::write(&target, "protected").unwrap();
-    symlink(&target, &legacy_temp).unwrap();
+    symlink(&target, &predictable_temp).unwrap();
 
     write_text_file_atomically(&path, "new state").unwrap();
 
     assert_eq!(std::fs::read_to_string(&target).unwrap(), "protected");
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "new state");
-    assert!(std::fs::symlink_metadata(&legacy_temp)
+    assert!(std::fs::symlink_metadata(&predictable_temp)
         .unwrap()
         .file_type()
         .is_symlink());
