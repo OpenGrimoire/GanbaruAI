@@ -28,4 +28,5 @@ export const common = {
   minimize: "Minimizar",
   maximize: "Maximizar",
   restore: "Restaurar",
+  horizontalScrollTooltip: "Mayús + rueda abajo / arriba",
 } as const satisfies MessageShape<typeof enCommon>;

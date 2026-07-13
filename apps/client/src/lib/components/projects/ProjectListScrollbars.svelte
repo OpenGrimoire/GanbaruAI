@@ -1,4 +1,8 @@
 <script lang="ts">
+  import { getLocalization } from "$lib/i18n/translator.svelte";
+
+  const { t } = getLocalization();
+
   let {
     scrollContainer,
     getMaxScrollLeft,
@@ -265,6 +269,7 @@
 <div
   bind:this={horizontalTrackEl}
   class="pointer-events-auto absolute bottom-0 z-40"
+  data-app-tooltip={t("common.horizontalScrollTooltip")}
   role="presentation"
   aria-hidden="true"
   style="
@@ -281,7 +286,7 @@
 >
   {#if horizontalThumbWidth > 0}
     <div
-      class="absolute bottom-0.5 top-0.5 rounded-full transition-colors duration-150"
+      class="absolute bottom-px top-px rounded-full transition-colors duration-150"
       style="
         left: {horizontalThumbLeft}px;
         width: {horizontalThumbWidth}px;

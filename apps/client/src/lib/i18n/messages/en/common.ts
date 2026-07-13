@@ -25,4 +25,5 @@ export const common = {
   minimize: "Minimize",
   maximize: "Maximize",
   restore: "Restore",
+  horizontalScrollTooltip: "Shift + Scroll down / up",
 } as const;

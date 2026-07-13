@@ -34,6 +34,21 @@ export interface TooltipContentWidthOptions {
   measureText: (text: string) => number;
 }
 
+export interface HorizontalScrollbarMetrics {
+  rect: TooltipRect;
+  clientLeft: number;
+  clientTop: number;
+  clientWidth: number;
+  clientHeight: number;
+  scrollWidth: number;
+  borderBottomWidth: number;
+}
+
+export interface TooltipPoint {
+  x: number;
+  y: number;
+}
+
 export interface CssRgbColor {
   r: number;
   g: number;
@@ -62,6 +77,22 @@ function clamp(value: number, min: number, max: number): number {
 
 function roundPx(value: number): number {
   return Math.round(value * 100) / 100;
+}
+
+/** Return whether a pointer is inside a rendered native horizontal scrollbar. */
+export function isPointInHorizontalScrollbar(
+  metrics: HorizontalScrollbarMetrics,
+  point: TooltipPoint,
+): boolean {
+  if (metrics.scrollWidth - metrics.clientWidth <= 2) return false;
+
+  const left = metrics.rect.left + metrics.clientLeft;
+  const right = left + metrics.clientWidth;
+  const top = metrics.rect.top + metrics.clientTop + metrics.clientHeight;
+  const bottom = metrics.rect.bottom - metrics.borderBottomWidth;
+  if (bottom - top < 2) return false;
+
+  return point.x >= left && point.x <= right && point.y >= top && point.y <= bottom;
 }
 
 function wordCount(line: string): number {

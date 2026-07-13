@@ -235,6 +235,7 @@
     min-height: 24px;
   }
   *::-webkit-scrollbar-thumb:horizontal {
+    border-width: 1px;
     min-width: 24px;
   }
   *::-webkit-scrollbar-thumb:hover,
