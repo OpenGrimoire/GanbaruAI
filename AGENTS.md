@@ -8,8 +8,8 @@ Features are highly interconnected. Current status:
 - Doomscrolling (work in progress; browser and desktop blocking exist, mobile remains pending)
 - Music player (work in progress; local playback, source parsing, controls, and tray/titlebar integration exist)
 - Localization (work in progress; English and Spanish catalogs with language preferences exist)
-- Projects (pending)
-- Note-taking (work in progress; first SQLite-backed page and block editor slice exists)
+- Projects (work in progress; SQLite-backed planning, task views, scheduling, settings, history, templates, and custom fields exist)
+- Note-taking (work in progress; SQLite-backed pages, blocks, databases, templates, history, links, comments, assets, and transfer workflows exist)
 - Sleep alarm (pending)
 - Daily diary (pending)
 - Gamification (pending)
@@ -35,7 +35,7 @@ Docs describe the optimal/ideal end state of the app, not the current implementa
 
 ## Workspace structure
 
-> Update this when directories are created, renamed, or removed. Items marked (planned) do not exist yet.
+> Update this architectural map when directories are created, renamed, or removed. It lists existing source paths unless an entry is explicitly marked as planned.
 
 ```
 .github/
@@ -51,25 +51,19 @@ apps/
       lib/: shared frontend code
         components/: reusable Svelte components
           benchmark/: benchmark overlay and diagnostics components
-          calendar/: calendar wrappers, session block rendering
+          calendar/: calendar views, event editing, recurrence, import, and session block rendering
           icon-picker/: shared icon, emoji, custom emoji, and image picker
           music/: player controls, source parsing, playlist management surfaces
-          perf/: memory and performance diagnostics components
-          pomodoro/: timer display, break screen, idle overlay
-          settings/: settings surfaces, theme editor, preferences
+          notes/: Notes navigation, editor, databases, history, transfer, and project surfaces
+          perf/: memory and performance diagnostics surfaces
+          pomodoro/: timer display, controls, break screen, and idle overlay
+          projects/: project navigation, planning views, task details, and settings
+          settings/: resident settings surfaces, theme editor, preferences, and optional tools
+          title-bar/: application title bar and window controls
+          ui/: shared generated shadcn-svelte primitives
           updates/: app update UI
           vault/: data folder setup and active-folder UI
-          ui/: shadcn-svelte generated components
-          projects/: (planned) project and task planning surfaces
-          notes/: SQLite-backed page sidebar and block editor surfaces
-          diary/: (planned) morning/evening entry forms
-          ai-panel/: (planned) integrated terminal (xterm.js) and BYOK chat
-          visual-novel/: (planned) NPC dialogue, conversation state machine
-          edge-panel/: (planned) panel layout, quick-access widgets
-          environment/: (planned) work environment config UI
-          contracts/: (planned) contract creation, tracking, proof UI
-          project/: (planned) project management quest chain phases
-        api/: typed wrappers around Tauri invoke() calls
+        api/: typed wrappers around Tauri commands and asset URL handling
         benchmark/: benchmark runner, samplers, output, scenarios
         calendar/: shared calendar logic and iCalendar parser/serializer
         data/: shared static/domain data helpers
@@ -78,8 +72,13 @@ apps/
         i18n/: typed localization catalogs, locale resolution, formatters
           messages/: split locale catalog entry points, domain modules, and shape tests
         music/: frontend music source and playback helpers
-        notes/: Notion-shaped DTOs, validation, keyboard, and tree helpers
-        stores/: Svelte runes ($state), global app state
+        notes/: Notes contracts, validation, editor operations, databases, and tree helpers
+          contracts/: typed Notes DTO families and view models
+          validation/: split validation helpers
+        pomodoro/: adaptive rhythm and Pomodoro domain logic
+        projects/: project planning, view, settings, icon, and task domain logic
+        scheduling/: lifecycle and notification schedulers
+        stores/: Svelte rune stores and domain controllers for active runtime state
         types/: frontend-specific TypeScript types
         utils/: shared helpers, formatters
         vault/: frontend data folder config and state
@@ -93,18 +92,22 @@ apps/
         lib.rs: Tauri app setup and command registration
         bin/: auxiliary Rust binaries, including native messaging host
           ganbaru-ai-native-messaging/: native messaging host test modules
-        db.rs, db/: SQLite pool, migration execution, schema invariant tests
+        db.rs, db/: SQLite pool, migration execution, and schema invariant tests
         vault.rs, db_path.rs, sqlite_row.rs: data folder, database path, and row helpers
-        calendar_*.rs, calendars.rs, recurrence.rs: calendar persistence, import, reads, and recurrence logic
+        calendar_events/, calendar_import/, calendar_reads/: split calendar persistence, import, and query services
+        calendar_description.rs, calendar_import.rs, calendar_reads.rs, calendars.rs, recurrence.rs: calendar command roots and shared logic
         pomodoro.rs, pomodoro/: timer commands, DTOs, persistence, validation, reads, and tests
         projects.rs, projects/: project commands, DTOs, persistence, validation, history, custom fields, and templates
-        notes.rs, notes/: Notes page and block commands, DTOs, reads, writes, validation, and tests
+        notes.rs, notes/: Notes pages, blocks, databases, assets, history, links, comments, imports, exports, validation, and tests
           writes/: split Notes write command modules and shared write helpers
           tests/: split Notes backend test modules and shared helpers
-        pomodoro_enforcement.rs, notification.rs, tray.rs, window_shape.rs: timer overlays, notifications, tray, and window integration
+        notification.rs, notification/: notification commands, scheduling, and platform delivery
+        pomodoro_enforcement.rs, tray.rs, window_shape.rs: timer overlays, tray, and window integration
         doomscrolling.rs, doomscrolling/: browser and desktop blocking commands, runtime helpers, and tests
-        media_player.rs, media_controls.rs, music.rs: local playback, media controls, and music commands
-        themes.rs, benchmark_seed.rs: theme validation and benchmark dataset setup
+        media_player.rs, media_controls.rs, music.rs, music/: local playback, media controls, metadata, and music commands
+        project_icons.rs: managed project icon assets
+        themes.rs, updates.rs: theme validation and application updates
+        benchmark_seed.rs, first_use_contracts.rs: benchmark data and first-use query contracts
       migrations/: embedded SQLx SQLite migrations
       package-repo/: generated package repository public key staging (ignored)
       package-scripts/: Linux package lifecycle scripts for repo registration
@@ -114,39 +117,45 @@ apps/
       icons/: app icons
       build.rs, tauri.conf.json, tauri.dev.conf.json, Cargo.toml
     index.html, package.json, svelte.config.js, vite.config.ts, tsconfig.json
-  server/: (planned) Hocuspocus sync server (self-hostable)
 packages/
   shared-types/: TypeScript types shared across workspaces
 extensions/
   chrome/: Chrome extension (manifest v3)
   chrome-dev/: generated dev extension copy (ignored)
-  firefox/: (planned) Firefox extension
 Cargo.toml: cargo workspace root
 turbo.json: Turborepo task config
 pnpm-workspace.yaml: workspace definition
 package.json: root scripts, shared dev dependencies
 ```
 
+Planned top-level work that does not have source directories yet includes the self-hosted Hocuspocus server and Firefox extension. Planned product surfaces such as the diary, AI panel, edge panel, visual novel, environments, and contracts also do not have component directories yet.
+
 ## Ganbaru AI folder structure
 
-> Everything the app produces lives in one Ganbaru AI folder. By default production creates `Documents/Ganbaru AI`, while development builds create `Documents/Ganbaru AI Dev`. Update this as the project evolves.
+> Everything the app produces lives in one Ganbaru AI folder. By default production creates `Documents/Ganbaru AI`, while development builds create `Documents/Ganbaru AI Dev`. The base skeleton is created for every folder. Asset subdirectories are created on demand. Planned paths are explicitly labeled.
 
 ```
 Ganbaru AI/
   vault.json: internal Ganbaru AI folder marker, id, display name, and schema version
   config.json: user settings, work environment definitions, blocker rulesets
   ganbaru-ai.sqlite: SQLite source of truth for structured data, Notes, and indexes
-  notes/exports/: (planned) derivative markdown exports for Notes, not authoritative
-  diary/morning/, diary/evening/: dated diary entries (markdown, indexed fields in SQLite)
-  projects/{project-id}/: per-project file attachments (reference docs, research PDFs)
-  reports/: generated project status reports (markdown, PDF)
-  assets/: user assets (images embedded in notes, attachments)
-    notes/page-icons/: copied local Notes page icon images
-    notes/page-covers/: copied local Notes page cover images
-    notes/files/: managed local Notes block, property, comment, and import files
-    project-icons/: copied project and group icon images, including reusable custom emoji
-  templates/: project management phase templates, methodology templates (SWOT, BMC, etc.)
-  .yjs/: Yjs document state cache (binary)
+  notes/: document directories reserved by the current vault skeleton
+    daily/: reserved for daily note documents
+    projects/: reserved for project note documents
+    exports/: derivative markdown exports for Notes (planned, not created yet, not authoritative)
+  diary/: document directories created by the vault skeleton
+    morning/: dated morning diary entries (planned feature)
+    evening/: dated evening diary entries (planned feature)
+  projects/: project document and attachment root reserved by the vault skeleton
+    {project-id}/: per-project files (planned, not created yet)
+  reports/: generated project status reports (planned feature)
+  assets/: user asset root
+    notes/page-icons/: managed Notes page icon images (created on demand)
+    notes/page-covers/: managed Notes page cover images (created on demand)
+    notes/files/: managed Notes block, property, comment, and import files (created on demand)
+    project-icons/: managed project and group icon images, including custom emoji (created on demand)
+  templates/: reserved file-based project and methodology templates
+  .yjs/: reserved Yjs document state cache
 ```
 
 Music files stay wherever the user keeps them; the Ganbaru AI folder stores only playlist definitions. Backups go to a user-specified path outside the Ganbaru AI folder.
