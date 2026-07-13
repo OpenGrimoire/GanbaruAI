@@ -274,7 +274,7 @@ After the relevant gate passes, finish the task without extra dev-server, Tauri 
 - Do not scale font size with viewport width. Reduce gaps, chrome, and nonessential decoration before reducing readability.
 - When extracting responsive Svelte markup into child components, move the matching container-query rules with the DOM they style, or use intentionally scoped global selectors under a stable parent. Do not assume parent component styles will keep applying through child component boundaries.
 - Nested popovers must be viewport-aware. Cap their height, keep triggers visible when practical, and switch large pickers to sheets when popovers cannot fit.
-- For UI changes, add or update pure responsive helper tests when layout decisions are logic-heavy, then run `pnpm -w run validate`.
+- For UI changes, add or update pure responsive helper tests when layout decisions are logic-heavy. Follow the validation policy above when selecting the completion gate. Do not run `pnpm -w run validate` solely because a change affects responsive UI.
 
 ### Project philosophy
 
