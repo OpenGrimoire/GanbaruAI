@@ -37,6 +37,10 @@ import type { NotesTextSelection } from "$lib/notes/editor-selection";
 
 const START_OF_NOTES_BLOCK_SELECTION: NotesTextSelection = { start: 0, end: 0 };
 
+export interface NotesMovePageOptions {
+  preserveSelection?: boolean;
+}
+
 interface NotesPageActionsContext {
   readSelectedPageId: () => string | null;
   readPages: () => NotesPage[];
@@ -203,6 +207,7 @@ export function createNotesPageActions(context: NotesPageActionsContext) {
     pageId: string,
     parent: NotesParent,
     folderId: string | null,
+    options: NotesMovePageOptions = {},
   ): Promise<void> {
     await context.flushPendingBlockSaves();
     const loaded = await moveNotesPage(pageId, { parent, folder_id: folderId });
@@ -210,9 +215,15 @@ export function createNotesPageActions(context: NotesPageActionsContext) {
       context.setSidebarPageCollapsed(loaded.page.parent.page_id, false);
     }
     if (loaded.page.folder_id) context.setFolderCollapsed(loaded.page.folder_id, false);
-    await context.activateReturnedPage(loaded, "hierarchy");
+    if (options.preserveSelection) {
+      context.applyPostMutation({ pages: [loaded.page], sidebarImpact: "hierarchy" });
+      const selectedPageId = context.readSelectedPageId();
+      if (selectedPageId) await context.reloadPageBreadcrumb(selectedPageId);
+    } else {
+      await context.activateReturnedPage(loaded, "hierarchy");
+      context.requestPageLoadFocus();
+    }
     context.queueDescendantHydration();
-    context.requestPageLoadFocus();
   }
 
   async function updatePageIcon(pageId: string, icon: NotesPageIcon | null): Promise<void> {
@@ -291,11 +302,18 @@ export function createNotesPageActions(context: NotesPageActionsContext) {
     createChildPageAfterBlock,
     renamePage,
     duplicatePage,
-    movePage: (pageId: string, parent: NotesParent) => movePageWithPlacement(pageId, parent, null),
-    movePageToFolder: (pageId: string, folderId: string | null) => movePageWithPlacement(
+    movePage: (pageId: string, parent: NotesParent, options?: NotesMovePageOptions) => (
+      movePageWithPlacement(pageId, parent, null, options)
+    ),
+    movePageToFolder: (
+      pageId: string,
+      folderId: string | null,
+      options?: NotesMovePageOptions,
+    ) => movePageWithPlacement(
       pageId,
       { type: "workspace", workspace: true },
       folderId?.trim() || null,
+      options,
     ),
     updatePageIcon,
     updatePageCover,

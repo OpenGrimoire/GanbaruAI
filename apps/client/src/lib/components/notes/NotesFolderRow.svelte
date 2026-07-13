@@ -56,6 +56,13 @@
     onRename,
     onMove,
     onDelete,
+    navigationDragging = false,
+    navigationDropState = "none",
+    onNavigationDragStart = undefined,
+    onNavigationDragEnd = undefined,
+    onNavigationDragOver = undefined,
+    onNavigationDragLeave = undefined,
+    onNavigationDrop = undefined,
   }: {
     folder: NotesFolder;
     depth: number;
@@ -69,6 +76,13 @@
     onRename: (name: string) => boolean | Promise<boolean>;
     onMove: (parentFolderId: string | null) => void;
     onDelete: () => void;
+    navigationDragging?: boolean;
+    navigationDropState?: "none" | "valid" | "invalid";
+    onNavigationDragStart?: (event: DragEvent) => void;
+    onNavigationDragEnd?: (event: DragEvent) => void;
+    onNavigationDragOver?: (event: DragEvent) => void;
+    onNavigationDragLeave?: (event: DragEvent) => void;
+    onNavigationDrop?: (event: DragEvent) => void;
   } = $props();
 
   const { t } = getLocalization();
@@ -83,10 +97,32 @@
   let pendingName = $state<string | null>(null);
   let renameInput = $state<HTMLInputElement | null>(null);
   let handledRenameRequestId = 0;
+  let suppressFolderActivation = false;
   let destinationPickerLoadState = $state<LazyComponentLoadState<
     "destination-picker",
     LoadedNotesOptionalComponent
   > | null>(null);
+
+  function handleNavigationDragStart(event: DragEvent): void {
+    suppressFolderActivation = true;
+    onNavigationDragStart?.(event);
+  }
+
+  function handleNavigationDragEnd(event: DragEvent): void {
+    onNavigationDragEnd?.(event);
+    window.setTimeout(() => {
+      suppressFolderActivation = false;
+    }, 0);
+  }
+
+  function activateFolder(): void {
+    if (suppressFolderActivation) {
+      suppressFolderActivation = false;
+      return;
+    }
+    onActivate();
+    onToggleCollapsed(!collapsed);
+  }
 
   const visibleName = $derived(pendingName ?? folder.name);
 
@@ -237,10 +273,20 @@
 
 <div
   class="notes-folder-row group relative"
+  class:notes-navigation-dragging={navigationDragging}
+  class:notes-navigation-draggable={Boolean(onNavigationDragStart) && !editing}
+  class:notes-navigation-drop-valid={navigationDropState === "valid"}
+  class:notes-navigation-drop-invalid={navigationDropState === "invalid"}
   role="group"
   aria-label={visibleName}
   style={`--notes-folder-depth: ${Math.min(depth, 10)}`}
   oncontextmenu={openContextMenu}
+  draggable={!editing && Boolean(onNavigationDragStart)}
+  ondragstart={handleNavigationDragStart}
+  ondragend={handleNavigationDragEnd}
+  ondragover={onNavigationDragOver}
+  ondragleave={onNavigationDragLeave}
+  ondrop={onNavigationDrop}
   use:dismissOnOutside={{ enabled: menuOpen, onDismiss: closeMenu }}
 >
   {#if editing}
@@ -269,10 +315,7 @@
         type="button"
         aria-expanded={!collapsed}
         aria-label={collapsed ? t("notes.expandFolder") : t("notes.collapseFolder")}
-        onclick={() => {
-          onActivate();
-          onToggleCollapsed(!collapsed);
-        }}
+        onclick={activateFolder}
       >
         {#if collapsed}
           <Folder size={explorerRowIconSize} class="shrink-0" strokeWidth={explorerRowIconStrokeWidth} />
@@ -386,6 +429,28 @@
 
   .notes-folder-row-content {
     margin-left: var(--notes-folder-indent);
+  }
+
+  .notes-navigation-dragging .notes-folder-row-content {
+    opacity: 0.42;
+  }
+
+  .notes-navigation-draggable .notes-folder-row-content {
+    cursor: grab;
+  }
+
+  .notes-navigation-dragging .notes-folder-row-content {
+    cursor: grabbing;
+  }
+
+  .notes-navigation-drop-valid .notes-folder-row-content {
+    background: color-mix(in oklab, var(--accent) 78%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--foreground) 18%, transparent);
+  }
+
+  .notes-navigation-drop-invalid .notes-folder-row-content {
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--destructive) 42%, transparent);
+    cursor: no-drop;
   }
 
   .notes-folder-action-menu {

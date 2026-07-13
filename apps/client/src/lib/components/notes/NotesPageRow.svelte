@@ -76,6 +76,13 @@
     readOnly = false,
     showDisclosure = true,
     highlightRequestId = 0,
+    navigationDragging = false,
+    navigationDropState = "none",
+    onNavigationDragStart = undefined,
+    onNavigationDragEnd = undefined,
+    onNavigationDragOver = undefined,
+    onNavigationDragLeave = undefined,
+    onNavigationDrop = undefined,
     displayTitle,
   }: {
     page: NotesPage;
@@ -105,6 +112,13 @@
     readOnly?: boolean;
     showDisclosure?: boolean;
     highlightRequestId?: number;
+    navigationDragging?: boolean;
+    navigationDropState?: "none" | "valid" | "invalid";
+    onNavigationDragStart?: (event: DragEvent) => void;
+    onNavigationDragEnd?: (event: DragEvent) => void;
+    onNavigationDragOver?: (event: DragEvent) => void;
+    onNavigationDragLeave?: (event: DragEvent) => void;
+    onNavigationDrop?: (event: DragEvent) => void;
     displayTitle?: string;
   } = $props();
 
@@ -128,10 +142,31 @@
   let scrollObservationFrame: number | null = null;
   let rowElement = $state<HTMLDivElement | null>(null);
   let renameInput = $state<HTMLInputElement | null>(null);
+  let suppressNavigationSelect = false;
   let destinationPickerLoadState = $state<LazyComponentLoadState<
     "destination-picker",
     LoadedNotesOptionalComponent
   > | null>(null);
+
+  function handleNavigationDragStart(event: DragEvent): void {
+    suppressNavigationSelect = true;
+    onNavigationDragStart?.(event);
+  }
+
+  function handleNavigationDragEnd(event: DragEvent): void {
+    onNavigationDragEnd?.(event);
+    window.setTimeout(() => {
+      suppressNavigationSelect = false;
+    }, 0);
+  }
+
+  function handleSelect(): void {
+    if (suppressNavigationSelect) {
+      suppressNavigationSelect = false;
+      return;
+    }
+    onSelect();
+  }
   const storedTitle = $derived(
     displayTitle === undefined
       ? notesPageTitle(page, t("notes.untitled"))
@@ -383,13 +418,29 @@
   class="notes-page-row group relative"
   class:notes-page-block-drop-target={blockDropActive}
   class:notes-page-row-current-file-pulse={highlightPulseActive}
+  class:notes-navigation-dragging={navigationDragging}
+  class:notes-navigation-draggable={Boolean(onNavigationDragStart) && !editing && !readOnly}
+  class:notes-navigation-drop-valid={navigationDropState === "valid"}
+  class:notes-navigation-drop-invalid={navigationDropState === "invalid"}
   role="group"
   aria-label={title}
   style={`--notes-page-depth: ${Math.min(depth, 10)}`}
   data-app-tooltip={blockDropActive ? t("notes.dropBlockOnPage", title) : undefined}
-  ondragover={(event) => onBlockDragOver?.(page.id, event)}
-  ondragleave={(event) => onBlockDragLeave?.(page.id, event)}
-  ondrop={(event) => onBlockDrop?.(page.id, event)}
+  ondragover={(event) => {
+    onNavigationDragOver?.(event);
+    onBlockDragOver?.(page.id, event);
+  }}
+  ondragleave={(event) => {
+    onNavigationDragLeave?.(event);
+    onBlockDragLeave?.(page.id, event);
+  }}
+  ondrop={(event) => {
+    onNavigationDrop?.(event);
+    onBlockDrop?.(page.id, event);
+  }}
+  draggable={!editing && !readOnly && Boolean(onNavigationDragStart)}
+  ondragstart={handleNavigationDragStart}
+  ondragend={handleNavigationDragEnd}
   oncontextmenu={openContextMenu}
   onanimationend={() => {
     highlightPulseActive = false;
@@ -458,7 +509,7 @@
         class={`flex min-w-0 flex-1 items-center gap-1.5 py-1.5 pr-1 text-left text-[0.866667rem] text-inherit ${selected ? "font-medium" : ""}`}
         type="button"
         aria-current={selected ? "page" : undefined}
-        onclick={onSelect}
+        onclick={handleSelect}
       >
         {#if page.icon}
           <NotesPageIcon
@@ -663,6 +714,28 @@
   .notes-page-block-drop-target .notes-page-row-content {
     background: hsl(var(--primary) / 0.12);
     box-shadow: inset 0 0 0 1px hsl(var(--primary) / 0.55);
+  }
+
+  .notes-navigation-dragging .notes-page-row-content {
+    opacity: 0.42;
+  }
+
+  .notes-navigation-draggable .notes-page-row-content {
+    cursor: grab;
+  }
+
+  .notes-navigation-dragging .notes-page-row-content {
+    cursor: grabbing;
+  }
+
+  .notes-navigation-drop-valid .notes-page-row-content {
+    background: color-mix(in oklab, var(--accent) 78%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--foreground) 18%, transparent);
+  }
+
+  .notes-navigation-drop-invalid .notes-page-row-content {
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--destructive) 42%, transparent);
+    cursor: no-drop;
   }
 
   .notes-page-row-current-file-pulse .notes-page-row-content {

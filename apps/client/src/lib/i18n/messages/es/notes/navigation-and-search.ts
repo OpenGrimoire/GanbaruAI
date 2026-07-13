@@ -63,6 +63,8 @@ export const navigationAndSearch = {
   expandExplorer: "Expandir todo",
   expandExplorerSidebar: "Expandir barra lateral",
   highlightCurrentFile: "Resaltar archivo actual",
+  moveToProjectRoot: "Mover a la raíz del proyecto",
+  navigationMoveFailed: (message: string) => `No se pudo mover este elemento: ${message}`,
   sortExplorer: "Ordenar carpetas y notas",
   sortNameAscending: "Nombre (A a Z)",
   sortNameDescending: "Nombre (Z a A)",
