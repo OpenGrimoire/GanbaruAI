@@ -35,17 +35,6 @@ export type NotesNavigationTreeItem =
   | NotesNavigationFolderTreeItem
   | NotesNavigationPageTreeItem;
 
-export interface NotesNavigationFolderActionItem {
-  kind: "folder-action";
-  key: string;
-  depth: number;
-  folder: NotesFolder;
-}
-
-export type NotesNavigationRenderItem =
-  | NotesNavigationTreeItem
-  | NotesNavigationFolderActionItem;
-
 export type NotesNavigationSortOrder =
   | "name-asc"
   | "name-desc"
@@ -66,41 +55,6 @@ export interface NotesNavigationTreeOptions {
   untitledTitle?: string;
   titleForPage?: (page: NotesPage) => string;
   sortOrder?: NotesNavigationSortOrder;
-}
-
-export function addNotesFolderActions(
-  items: readonly NotesNavigationTreeItem[],
-): NotesNavigationRenderItem[] {
-  const result: NotesNavigationRenderItem[] = [];
-  const openFolders: NotesNavigationFolderTreeItem[] = [];
-  const folderIdsWithNotes = new Set(
-    items.flatMap((item) => item.kind === "page" && item.page.folder_id
-      ? [item.page.folder_id]
-      : []),
-  );
-
-  const closeFoldersAtOrBelowDepth = (depth: number): void => {
-    while (openFolders.at(-1)?.depth !== undefined && openFolders.at(-1)!.depth >= depth) {
-      const folderItem = openFolders.pop();
-      if (!folderItem) return;
-      if (folderIdsWithNotes.has(folderItem.folder.id)) continue;
-      result.push({
-        kind: "folder-action",
-        key: `folder-action:${folderItem.folder.id}`,
-        depth: folderItem.depth + 1,
-        folder: folderItem.folder,
-      });
-    }
-  };
-
-  for (const item of items) {
-    closeFoldersAtOrBelowDepth(item.depth);
-    result.push(item);
-    if (item.kind === "folder" && !item.collapsed) openFolders.push(item);
-  }
-  closeFoldersAtOrBelowDepth(-1);
-
-  return result;
 }
 
 export interface NotesPageFolderMoveTarget extends NotesDestinationPickerTarget {

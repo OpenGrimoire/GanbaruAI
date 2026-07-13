@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createRichText } from "./block-factory";
 import {
-  addNotesFolderActions,
   buildNotesNavigationTree,
   notesFolderMoveTargets,
   notesFoldersForProject,
@@ -66,34 +65,6 @@ function page(
 }
 
 describe("notes navigation tree", () => {
-  it("places an action after open folders without direct notes", () => {
-    const tree = buildNotesNavigationTree(
-      [
-        page("nested-note", "Nested note", undefined, "nested"),
-        page("root-note", "Root note", undefined, "root"),
-      ],
-      [folder("root", "Root"), folder("nested", "Nested", "root")],
-    );
-
-    expect(addNotesFolderActions(tree).map((item) => item.key)).toEqual([
-      "folder:root",
-      "folder:nested",
-      "page:nested-note",
-      "page:root-note",
-    ]);
-
-    const foldersOnly = buildNotesNavigationTree(
-      [],
-      [folder("root", "Root"), folder("nested", "Nested", "root")],
-    );
-    expect(addNotesFolderActions(foldersOnly).map((item) => item.key)).toEqual([
-      "folder:root",
-      "folder:nested",
-      "folder-action:nested",
-      "folder-action:root",
-    ]);
-  });
-
   it("combines nested folders with folder-owned and nested pages", () => {
     const pages = [
       page("root-note", "Root note", undefined, "research"),

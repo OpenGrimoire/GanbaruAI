@@ -416,6 +416,7 @@
 <div
   bind:this={rowElement}
   class="notes-page-row group relative"
+  class:notes-row-context-menu-open={menuOpen}
   class:notes-page-block-drop-target={blockDropActive}
   class:notes-page-row-current-file-pulse={highlightPulseActive}
   class:notes-navigation-dragging={navigationDragging}
@@ -709,6 +710,10 @@
 <style>
   .notes-page-row-content {
     margin-left: calc(var(--notes-page-depth) * 0.875rem);
+  }
+
+  .notes-row-context-menu-open .notes-page-row-content {
+    background: color-mix(in oklab, var(--accent) 50%, transparent);
   }
 
   .notes-page-block-drop-target .notes-page-row-content {

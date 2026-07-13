@@ -273,6 +273,7 @@
 
 <div
   class="notes-folder-row group relative"
+  class:notes-row-context-menu-open={menuOpen}
   class:notes-navigation-dragging={navigationDragging}
   class:notes-navigation-draggable={Boolean(onNavigationDragStart) && !editing}
   class:notes-navigation-drop-valid={navigationDropState === "valid"}
@@ -429,6 +430,10 @@
 
   .notes-folder-row-content {
     margin-left: var(--notes-folder-indent);
+  }
+
+  .notes-row-context-menu-open .notes-folder-row-content {
+    background: color-mix(in oklab, var(--accent) 50%, transparent);
   }
 
   .notes-navigation-dragging .notes-folder-row-content {

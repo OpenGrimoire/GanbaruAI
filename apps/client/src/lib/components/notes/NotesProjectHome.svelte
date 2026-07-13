@@ -19,13 +19,12 @@
     type LazyComponentLoadState,
   } from "$lib/lazy-component-loader";
   import {
-    addNotesFolderActions,
     buildNotesNavigationTree,
     notesFolderMoveTargets,
     notesFoldersForProject,
     notesPageFolderMoveTargets,
     type NotesNavigationSortOrder,
-    type NotesNavigationRenderItem,
+    type NotesNavigationTreeItem,
   } from "$lib/notes/navigation-tree";
   import {
     canDropNotesNavigationItem,
@@ -120,7 +119,7 @@
     return folderId ? { kind: "folder", id: folderId } : { kind: "root" };
   }
 
-  function explorerItemDropTarget(item: NotesNavigationRenderItem): NotesNavigationDropTarget {
+  function explorerItemDropTarget(item: NotesNavigationTreeItem): NotesNavigationDropTarget {
     if (item.kind === "page") return pageNavigationDropTarget(item.page.id);
     return { kind: "folder", id: item.folder.id };
   }
@@ -445,7 +444,7 @@
       titleForPage: (page) => notesPageTitle(page, t("notes.untitled")),
     })
   );
-  const explorerItems = $derived(addNotesFolderActions(treeItems));
+  const explorerItems = $derived(treeItems);
   const navigationFolderDropArea = $derived.by(() => {
     const result = new Map<string, {
       state: "valid" | "invalid";
@@ -1081,8 +1080,8 @@
           role="group"
           data-notes-navigation-drop-kind={itemDropTarget.kind}
           data-notes-navigation-drop-id={itemDropTarget.kind === "folder" ? itemDropTarget.id : undefined}
-          data-notes-navigation-drag-kind={item.kind === "folder-action" ? undefined : item.kind}
-          data-notes-navigation-drag-id={item.kind === "folder-action" ? undefined : item.kind === "folder" ? item.folder.id : item.page.id}
+          data-notes-navigation-drag-kind={item.kind}
+          data-notes-navigation-drag-id={item.kind === "folder" ? item.folder.id : item.page.id}
           class:notes-navigation-folder-drop-area={Boolean(folderDropArea)}
           class:notes-navigation-folder-drop-area-valid={folderDropArea?.state === "valid"}
           class:notes-navigation-folder-drop-area-invalid={folderDropArea?.state === "invalid"}
@@ -1118,7 +1117,7 @@
               pendingDeleteFolder = item.folder;
             }}
           />
-        {:else if item.kind === "page"}
+        {:else}
           <NotesPageRow
             page={item.page}
             depth={item.depth}
@@ -1165,20 +1164,6 @@
               pendingTrashPage = item.page;
             }}
           />
-        {:else}
-          <div
-            class="notes-folder-action-row flex min-w-0 items-center rounded-md pl-2 pr-1 text-foreground hover:bg-accent/50"
-            style={`margin-left: calc(${item.depth} * 0.875rem);`}
-          >
-            <button
-              class="flex min-w-0 flex-1 items-center gap-1.5 py-1.5 pr-1 text-left text-[0.866667rem] text-inherit"
-              type="button"
-              onclick={() => createPage(item.folder.id)}
-            >
-              <SquarePen class="size-3.5 shrink-0" strokeWidth={explorerIconStrokeWidth} />
-              <span class="min-w-0 flex-1 truncate">{t("notes.newPage")}</span>
-            </button>
-          </div>
         {/if}
         </div>
       {/each}
@@ -1323,8 +1308,7 @@
   }
 
   .notes-project-explorer-dragging :global(.notes-folder-row-content:hover),
-  .notes-project-explorer-dragging :global(.notes-page-row-content:hover),
-  .notes-project-explorer-dragging .notes-folder-action-row:hover {
+  .notes-project-explorer-dragging :global(.notes-page-row-content:hover) {
     background-color: transparent;
   }
 
