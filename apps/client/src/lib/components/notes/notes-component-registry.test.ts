@@ -17,16 +17,14 @@ describe("Notes component registry", () => {
     expect(notesSurfaceHasLoaded("trash")).toBe(false);
   });
 
-  it("keeps navigator and maintenance constructors separate and single-flight", async () => {
-    const first = loadNotesOptionalComponent("page-picker");
-    const second = loadNotesOptionalComponent("page-picker");
+  it("keeps maintenance constructors separate and single-flight", async () => {
+    const first = loadNotesOptionalComponent("destination-picker");
+    const second = loadNotesOptionalComponent("destination-picker");
 
     expect(second).toBe(first);
-    await expect(first).resolves.toMatchObject({ kind: "page-picker" });
-    expect(notesOptionalComponentHasLoaded("page-picker")).toBe(true);
-    expect(notesOptionalComponentHasLoaded("project-navigator")).toBe(false);
+    await expect(first).resolves.toMatchObject({ kind: "destination-picker" });
+    expect(notesOptionalComponentHasLoaded("destination-picker")).toBe(true);
     expect(notesOptionalComponentHasLoaded("project-history")).toBe(false);
     expect(notesOptionalComponentHasLoaded("confirm-dialog")).toBe(false);
-    expect(notesOptionalComponentHasLoaded("destination-picker")).toBe(false);
   });
 });

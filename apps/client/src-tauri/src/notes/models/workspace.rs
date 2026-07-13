@@ -27,6 +27,8 @@ pub struct NoteWorkspaceShellRequest {
     pub(in crate::notes) destination_candidates: bool,
     #[serde(default)]
     pub(in crate::notes) page_query: Option<String>,
+    #[serde(default)]
+    pub(in crate::notes) include_navigation_index: bool,
 }
 
 #[derive(Clone, Serialize, sqlx::FromRow)]
@@ -77,6 +79,9 @@ impl NotePageSummaryWindowDto {
 pub struct NoteWorkspaceShellDto {
     pages: Vec<NotePageSummaryDto>,
     folders: Vec<NoteFolderDto>,
+    navigation_pages: Vec<NotePageSummaryDto>,
+    navigation_folders: Vec<NoteFolderDto>,
+    navigation_page_ids_with_children: Vec<String>,
     page_ids_with_children: Vec<String>,
     missing_parent_page_ids: Vec<String>,
     trashed_parent_page_ids: Vec<String>,
@@ -92,6 +97,9 @@ impl NoteWorkspaceShellDto {
     pub(in crate::notes) fn new(
         pages: Vec<NotePageSummaryDto>,
         folders: Vec<NoteFolderDto>,
+        navigation_pages: Vec<NotePageSummaryDto>,
+        navigation_folders: Vec<NoteFolderDto>,
+        navigation_page_ids_with_children: Vec<String>,
         page_ids_with_children: Vec<String>,
         missing_parent_page_ids: Vec<String>,
         trashed_parent_page_ids: Vec<String>,
@@ -104,6 +112,9 @@ impl NoteWorkspaceShellDto {
         Self {
             pages,
             folders,
+            navigation_pages,
+            navigation_folders,
+            navigation_page_ids_with_children,
             page_ids_with_children,
             missing_parent_page_ids,
             trashed_parent_page_ids,

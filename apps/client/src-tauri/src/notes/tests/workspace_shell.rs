@@ -16,6 +16,7 @@ fn empty_workspace_shell_contains_summaries_only() {
                 folder_cursor: None,
                 destination_candidates: false,
                 page_query: None,
+                include_navigation_index: false,
             },
         )
         .await
@@ -45,6 +46,7 @@ fn workspace_shell_accepts_built_in_project_ids() {
                 folder_cursor: None,
                 destination_candidates: false,
                 page_query: None,
+                include_navigation_index: false,
             },
         )
         .await
@@ -52,6 +54,74 @@ fn workspace_shell_accepts_built_in_project_ids() {
 
         let value = serde_json::to_value(shell).expect("serialize shell");
         assert_eq!(value["total_page_count"], 0);
+    });
+}
+
+#[test]
+fn workspace_shell_can_include_cross_project_navigation_metadata() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        sqlx::raw_sql(
+            "INSERT INTO project_groups (id, name) VALUES ('notes-navigation-test-group', 'Test group');
+             INSERT INTO projects (id, group_id, name)
+             VALUES ('notes-navigation-project-a', 'notes-navigation-test-group', 'Project A'),
+                    ('notes-navigation-project-b', 'notes-navigation-test-group', 'Project B');",
+        )
+        .execute(&pool)
+        .await
+        .expect("seed navigation projects");
+        sqlx::query(
+            "INSERT INTO notes_pages (id, parent_type, title, properties, icon)
+             VALUES (?, 'workspace', 'Learning note', json_object('__ganbaru_project_id', ?), ?),
+                    (?, 'workspace', 'Eating note', json_object('__ganbaru_project_id', ?), ?)",
+        )
+        .bind("00000000-0000-4000-8000-000000000101")
+        .bind("notes-navigation-project-a")
+        .bind(r#"{"type":"emoji","emoji":"L"}"#)
+        .bind("00000000-0000-4000-8000-000000000102")
+        .bind("notes-navigation-project-b")
+        .bind(r#"{"type":"emoji","emoji":"E"}"#)
+        .execute(&pool)
+        .await
+        .expect("seed navigation pages");
+        sqlx::query(
+            "INSERT INTO notes_folders (id, project_id, name)
+             VALUES (?, ?, 'Learning folder'), (?, ?, 'Eating folder')",
+        )
+        .bind("00000000-0000-4000-8000-000000000201")
+        .bind("notes-navigation-project-a")
+        .bind("00000000-0000-4000-8000-000000000202")
+        .bind("notes-navigation-project-b")
+        .execute(&pool)
+        .await
+        .expect("seed navigation folders");
+
+        let shell = workspace_shell::load_workspace_shell(
+            &pool,
+            NoteWorkspaceShellRequest {
+                project_id: Some("notes-navigation-project-b".to_string()),
+                expanded_page_ids: Vec::new(),
+                seed_page_ids: Vec::new(),
+                selected_page_id: None,
+                page_cursor: None,
+                folder_cursor: None,
+                destination_candidates: false,
+                page_query: None,
+                include_navigation_index: true,
+            },
+        )
+        .await
+        .expect("load shell with navigation index");
+        let value = serde_json::to_value(shell).expect("serialize shell");
+
+        assert_eq!(value["pages"].as_array().map(Vec::len), Some(1));
+        assert_eq!(value["folders"].as_array().map(Vec::len), Some(1));
+        assert_eq!(value["navigation_pages"].as_array().map(Vec::len), Some(2));
+        assert_eq!(
+            value["navigation_folders"].as_array().map(Vec::len),
+            Some(2)
+        );
+        assert_eq!(value["navigation_pages"][0]["icon"].is_string(), true);
     });
 }
 
@@ -87,6 +157,7 @@ fn dense_workspace_shell_stays_within_row_and_byte_caps() {
                 folder_cursor: None,
                 destination_candidates: false,
                 page_query: None,
+                include_navigation_index: false,
             },
         )
         .await
@@ -130,6 +201,7 @@ fn workspace_shell_keyset_is_stable_for_equal_times_and_titles() {
             folder_cursor: Some("end".to_string()),
             destination_candidates: false,
             page_query: None,
+            include_navigation_index: false,
         };
         let first = serde_json::to_value(
             workspace_shell::load_workspace_shell(&pool, request(None))

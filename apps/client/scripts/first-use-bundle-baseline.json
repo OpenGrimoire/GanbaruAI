@@ -4,12 +4,12 @@
     {
       "name": "Projects",
       "module": "src/lib/components/projects/ProjectsView.svelte",
-      "maxSourceModules": 231
+      "maxSourceModules": 235
     },
     {
       "name": "Notes",
       "module": "src/lib/components/notes/NotesView.svelte",
-      "maxSourceModules": 231
+      "maxSourceModules": 235
     }
   ],
   "shell": {
@@ -35,16 +35,16 @@
       "src/lib/components/projects/ProjectKanbanView.svelte",
       "src/lib/components/calendar/CalendarView.svelte",
       "src/lib/components/projects/ProjectGanttView.svelte",
-      "src/lib/components/projects/ProjectDashboardView.svelte"
+      "src/lib/components/projects/ProjectDashboardView.svelte",
+      "src/lib/components/projects/ProjectNavigator.svelte",
+      "src/lib/components/projects/ProjectPickerPanels.svelte"
     ],
     "forbiddenModules": [
       "src/lib/components/projects/ProjectToolbarPanels.svelte",
       "src/lib/components/projects/ProjectSettingsPanel.svelte",
       "src/lib/components/projects/ProjectTaskFinder.svelte",
       "src/lib/components/projects/ProjectBulkActionController.svelte",
-      "src/lib/components/projects/ProjectTaskDetailPanel.svelte",
-      "src/lib/components/projects/ProjectNavigator.svelte",
-      "src/lib/components/projects/ProjectPickerPanels.svelte"
+      "src/lib/components/projects/ProjectTaskDetailPanel.svelte"
     ]
   },
   "projectsToolbar": {
@@ -65,7 +65,9 @@
       "src/lib/components/notes/NotesEditor.svelte",
       "src/lib/components/notes/NotesBlockList.svelte",
       "src/lib/components/notes/NotesBlockRow.svelte",
-      "src/lib/components/notes/NotesProjectSettingsPanel.svelte"
+      "src/lib/components/notes/NotesProjectSettingsPanel.svelte",
+      "src/lib/components/notes/NotesProjectNavigator.svelte",
+      "src/lib/components/notes/NotesHierarchyPickerPanel.svelte"
     ],
     "forbiddenModules": [
       "src/lib/components/notes/NotesDatabaseTableView.svelte",
@@ -83,8 +85,6 @@
       "src/lib/components/notes/NotesProjectVersionHistoryModal.svelte",
       "src/lib/components/notes/NotesArchiveView.svelte",
       "src/lib/components/notes/NotesTrashView.svelte",
-      "src/lib/components/notes/NotesPagePickerPanel.svelte",
-      "src/lib/components/notes/NotesProjectNavigator.svelte",
       "src/lib/components/notes/NotesDestinationPickerList.svelte",
       "src/lib/components/notes/NotesBlockInsertMenu.svelte"
     ]

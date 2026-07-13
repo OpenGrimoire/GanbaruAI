@@ -30,7 +30,7 @@
   import { getViewport } from "$lib/stores/viewport.svelte";
   import { cn } from "$lib/utils";
   import ProjectIcon from "./ProjectIcon.svelte";
-  import LazyProjectNavigator from "./LazyProjectNavigator.svelte";
+  import ProjectNavigator from "./ProjectNavigator.svelte";
 
   let {
     selectedProject,
@@ -326,7 +326,7 @@
         tabindex="-1"
         aria-label={t("projects.navigator.pickerLabel")}
       >
-        <LazyProjectNavigator
+        <ProjectNavigator
           {selectedProjectId}
           selectedGroupId={selectedGroup.id}
           {showInactiveProjects}

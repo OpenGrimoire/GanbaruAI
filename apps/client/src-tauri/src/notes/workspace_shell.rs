@@ -127,6 +127,25 @@ pub(in crate::notes) async fn load_workspace_shell(
     let folder_window_full = folder_rows.len() == FOLDER_WINDOW_SIZE as usize;
     let folder_window_cursor = folder_cursor_from_rows(&folder_rows);
     let folders = folder_rows.into_iter().map(NoteFolderDto::new).collect();
+    let navigation_pages = if request.include_navigation_index {
+        fetch_navigation_pages(&mut transaction).await?
+    } else {
+        Vec::new()
+    };
+    let navigation_page_ids_with_children = if request.include_navigation_index {
+        fetch_navigation_parent_ids_with_children(&mut transaction).await?
+    } else {
+        Vec::new()
+    };
+    let navigation_folders = if request.include_navigation_index {
+        fetch_navigation_folders(&mut transaction)
+            .await?
+            .into_iter()
+            .map(NoteFolderDto::new)
+            .collect()
+    } else {
+        Vec::new()
+    };
 
     transaction
         .commit()
@@ -145,6 +164,9 @@ pub(in crate::notes) async fn load_workspace_shell(
     Ok(NoteWorkspaceShellDto::new(
         pages,
         folders,
+        navigation_pages,
+        navigation_folders,
+        navigation_page_ids_with_children,
         page_ids_with_children,
         missing_parent_page_ids,
         trashed_parent_page_ids,
@@ -154,6 +176,52 @@ pub(in crate::notes) async fn load_workspace_shell(
         next_page_cursor,
         next_folder_cursor,
     ))
+}
+
+async fn fetch_navigation_pages(
+    transaction: &mut sqlx::Transaction<'_, Sqlite>,
+) -> Result<Vec<NotePageSummaryDto>, String> {
+    sqlx::query_as::<_, NotePageSummaryDto>(&format!(
+        "SELECT {} FROM notes_pages
+         WHERE in_trash = 0
+           AND archived = 0
+           AND parent_type <> 'data_source_id'
+         ORDER BY last_edited_time DESC, title COLLATE NOCASE ASC, id ASC",
+        page_projection()
+    ))
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(|error| format!("list Notes navigation pages: {error}"))
+}
+
+async fn fetch_navigation_folders(
+    transaction: &mut sqlx::Transaction<'_, Sqlite>,
+) -> Result<Vec<NoteFolderRow>, String> {
+    sqlx::query_as::<_, NoteFolderRow>(
+        "SELECT id, project_id, parent_folder_id, name, created_time, last_edited_time
+         FROM notes_folders
+         ORDER BY project_id, name COLLATE NOCASE ASC, id ASC",
+    )
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(|error| format!("list Notes navigation folders: {error}"))
+}
+
+async fn fetch_navigation_parent_ids_with_children(
+    transaction: &mut sqlx::Transaction<'_, Sqlite>,
+) -> Result<Vec<String>, String> {
+    sqlx::query_scalar(
+        "SELECT DISTINCT parent_page_id
+         FROM notes_pages
+         WHERE in_trash = 0
+           AND archived = 0
+           AND parent_type = 'page_id'
+           AND parent_page_id IS NOT NULL
+         ORDER BY parent_page_id",
+    )
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(|error| format!("list Notes navigation child markers: {error}"))
 }
 
 fn normalize_optional_uuid(value: Option<String>, field: &str) -> Result<Option<String>, String> {

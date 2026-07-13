@@ -509,6 +509,7 @@ pub(crate) async fn load_workspace_shell_for_first_use_contract(
             folder_cursor: None,
             destination_candidates: false,
             page_query: None,
+            include_navigation_index: true,
         },
     )
     .await

@@ -10,12 +10,6 @@
     COMPACT_IDENTITY_ICON_STROKE_WIDTH,
   } from "$lib/icon-sizing";
   import { formatShortcut } from "$lib/keyboard-shortcuts";
-  import {
-    beginLazyComponentLoad,
-    rejectLazyComponentLoad,
-    resolveLazyComponentLoad,
-    type LazyComponentLoadState,
-  } from "$lib/lazy-component-loader";
   import { NOTES_PAGE_CHROME_EMOJI_SCALE } from "$lib/notes/page-icon";
   import {
     notesHierarchyChildren,
@@ -41,12 +35,9 @@
   import { getViewport } from "$lib/stores/viewport.svelte";
   import { cn } from "$lib/utils";
   import ProjectIcon from "$lib/components/projects/ProjectIcon.svelte";
+  import NotesHierarchyPickerPanel from "./NotesHierarchyPickerPanel.svelte";
   import NotesPageIcon from "./NotesPageIcon.svelte";
-  import {
-    loadNotesOptionalComponent,
-    retryNotesOptionalComponent,
-    type LoadedNotesOptionalComponent,
-  } from "./notes-component-registry";
+  import NotesProjectNavigator from "./NotesProjectNavigator.svelte";
 
   type NotesNavigatorMode = ProjectNavigatorPanelMode | "notes";
 
@@ -100,12 +91,6 @@
   let navigatorPanelElement = $state<HTMLDivElement | null>(null);
   let navigatorPanelStyle = $state("");
   let navigatorPanelMaxHeight = $state(0);
-  type NotesNavigatorComponentKind = "page-picker" | "project-navigator";
-  let navigatorLoadState = $state<LazyComponentLoadState<
-    NotesNavigatorComponentKind,
-    LoadedNotesOptionalComponent
-  > | null>(null);
-
   interface NavigatorBounds {
     left: number;
     right: number;
@@ -227,7 +212,6 @@
     navigatorMode = mode;
     navigatorAnchorElement = anchor;
     navigatorOpen = true;
-    requestNavigatorComponent(mode === "notes" ? "page-picker" : "project-navigator");
     refreshNavigatorPanelGeometry();
     requestAnimationFrame(refreshNavigatorPanelGeometry);
   }
@@ -250,33 +234,6 @@
       return;
     }
     openHierarchyNavigator(node, anchor);
-  }
-
-  function requestNavigatorComponent(kind: NotesNavigatorComponentKind, retry = false): void {
-    if (!retry && navigatorLoadState?.key === kind) return;
-    const loadingState = beginLazyComponentLoad(navigatorLoadState, kind);
-    navigatorLoadState = loadingState;
-    const request = retry
-      ? retryNotesOptionalComponent(kind)
-      : loadNotesOptionalComponent(kind);
-    void request.then((component) => {
-      if (!navigatorLoadState) return;
-      navigatorLoadState = resolveLazyComponentLoad(
-        navigatorLoadState,
-        kind,
-        loadingState.requestId,
-        component,
-      );
-    }).catch((error: unknown) => {
-      if (!navigatorLoadState) return;
-      navigatorLoadState = rejectLazyComponentLoad(
-        navigatorLoadState,
-        kind,
-        loadingState.requestId,
-        error,
-      );
-      console.error(`load Notes ${kind} failed`, error);
-    });
   }
 
   function toggleNavigator(mode: NotesNavigatorMode): void {
@@ -500,8 +457,7 @@
         tabindex="-1"
         aria-label={navigatorMode === "notes" ? t("notes.noteNavigatorLabel") : t("projects.navigator.pickerLabel")}
       >
-        {#if navigatorMode === "notes" && navigatorLoadState?.status === "ready" && navigatorLoadState.component.kind === "page-picker"}
-          {@const NotesHierarchyPickerPanel = navigatorLoadState.component.component}
+        {#if navigatorMode === "notes"}
           <NotesHierarchyPickerPanel
             projectId={selectedProjectId}
             parent={notesNavigatorParent}
@@ -512,8 +468,7 @@
               navigatorOpen = false;
             }}
           />
-        {:else if navigatorMode !== "notes" && navigatorLoadState?.status === "ready" && navigatorLoadState.component.kind === "project-navigator"}
-          {@const NotesProjectNavigator = navigatorLoadState.component.component}
+        {:else}
           <NotesProjectNavigator
             {selectedProjectId}
             selectedGroupId={selectedGroup?.id ?? null}
@@ -529,21 +484,6 @@
               navigatorOpen = false;
             }}
           />
-        {:else if navigatorLoadState?.status === "failed"}
-          <div class="rounded-md border border-border bg-popover p-3 text-sm text-popover-foreground shadow-lg" role="alert">
-            <p>{t("common.viewLoadFailed", navigatorMode === "notes" ? t("notes.noteNavigatorLabel") : t("projects.navigator.pickerLabel"))}</p>
-            <button
-              type="button"
-              class="mt-2 min-h-8 rounded-md border border-border px-2 hover:bg-accent"
-              onclick={() => requestNavigatorComponent(navigatorMode === "notes" ? "page-picker" : "project-navigator", true)}
-            >
-              {t("common.retry")}
-            </button>
-          </div>
-        {:else}
-          <div class="rounded-md border border-border bg-popover px-3 py-2 text-sm text-muted-foreground shadow-lg" aria-busy="true">
-            {t("common.loading")}
-          </div>
         {/if}
       </div>
     {/if}

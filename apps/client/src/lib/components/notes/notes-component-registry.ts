@@ -12,8 +12,6 @@ export type LoadedNotesSurface =
 export type NotesOptionalComponentKind =
   | "project-history"
   | "confirm-dialog"
-  | "page-picker"
-  | "project-navigator"
   | "destination-picker";
 
 export type LoadedNotesOptionalComponent =
@@ -24,14 +22,6 @@ export type LoadedNotesOptionalComponent =
   | {
       kind: "confirm-dialog";
       component: typeof import("$lib/components/ui/ConfirmDialog.svelte").default;
-    }
-  | {
-      kind: "page-picker";
-      component: typeof import("./NotesHierarchyPickerPanel.svelte").default;
-    }
-  | {
-      kind: "project-navigator";
-      component: typeof import("./NotesProjectNavigator.svelte").default;
     }
   | {
       kind: "destination-picker";
@@ -53,14 +43,6 @@ const OPTIONAL_IMPORTERS = {
   "confirm-dialog": () => import("$lib/components/ui/ConfirmDialog.svelte")
     .then((module) => ({
       default: { kind: "confirm-dialog" as const, component: module.default },
-    })),
-  "page-picker": () => import("./NotesHierarchyPickerPanel.svelte")
-    .then((module) => ({
-      default: { kind: "page-picker" as const, component: module.default },
-    })),
-  "project-navigator": () => import("./NotesProjectNavigator.svelte")
-    .then((module) => ({
-      default: { kind: "project-navigator" as const, component: module.default },
     })),
   "destination-picker": () => import("./NotesDestinationPickerList.svelte")
     .then((module) => ({

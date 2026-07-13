@@ -23,6 +23,5 @@ describe("Project component registry", () => {
     expect(projectOptionalComponentHasLoaded("toolbar")).toBe(false);
     expect(projectOptionalComponentHasLoaded("bulk-actions")).toBe(false);
     expect(projectOptionalComponentHasLoaded("task-detail")).toBe(false);
-    expect(projectOptionalComponentHasLoaded("project-navigator")).toBe(false);
   });
 });

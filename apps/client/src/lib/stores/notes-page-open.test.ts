@@ -42,6 +42,9 @@ vi.mock("$lib/api/notes", async (importOriginal) => {
     loadNotesWorkspaceShell: async (): Promise<NotesWorkspaceShell> => ({
       pages: [...backend.pages.values()].map((response) => response.page),
       folders: [],
+      navigation_pages: [],
+      navigation_folders: [],
+      navigation_page_ids_with_children: [],
       page_ids_with_children: [],
       missing_parent_page_ids: [],
       trashed_parent_page_ids: [],

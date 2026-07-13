@@ -13,6 +13,7 @@
   import { getDoomscrollingUsage } from "$lib/stores/doomscrolling-usage.svelte";
   import { getMusicPlayer } from "$lib/stores/music-player.svelte";
   import { getPomodoro } from "$lib/stores/pomodoro.svelte";
+  import { getNotes } from "$lib/stores/notes.svelte";
   import { getProjects } from "$lib/stores/projects.svelte";
   import { getZoom } from "$lib/stores/zoom.svelte";
   import { getPreferences } from "$lib/stores/preferences.svelte";
@@ -99,6 +100,7 @@
   const doomscrollingUsage = getDoomscrollingUsage();
   const music = getMusicPlayer();
   const pomodoro = getPomodoro();
+  const notes = getNotes();
   const projects = getProjects();
   const zoom = getZoom();
   const preferences = getPreferences();
@@ -300,9 +302,9 @@
       ? onActiveVaultIdentityChange((previousVaultId, nextVaultId) => {
           notesProjectHistoryScheduler.switchVault();
           if (!nextVaultId) return;
-          const request = previousVaultId ? projects.load() : projects.ensureLoaded();
-          void request.catch((error) => {
-            console.error("projects workspace preload failed", error);
+          const projectsRequest = previousVaultId ? projects.load() : projects.ensureLoaded();
+          void projectsRequest.then(() => previousVaultId ? notes.load() : notes.ensureLoaded()).catch((error) => {
+            console.error("core workspace preload failed", error);
           });
         })
       : null;
@@ -310,8 +312,9 @@
     if (isMainWindow) {
       void ensureDbUrl()
         .then(() => projects.ensureLoaded())
+        .then(() => notes.ensureLoaded())
         .catch((error) => {
-          console.error("projects workspace preload failed", error);
+          console.error("core workspace preload failed", error);
         });
     }
 

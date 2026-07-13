@@ -45,6 +45,7 @@ export function createNotesWorkspaceController(context: NotesWorkspaceController
       expanded_page_ids: state.expandedPageIds,
       seed_page_ids: state.seedPageIds,
       selected_page_id: state.selectedPageId,
+      include_navigation_index: true,
     };
   }
 
@@ -103,6 +104,7 @@ export function createNotesWorkspaceController(context: NotesWorkspaceController
           expandedPageIds: [],
           seedPageIds: [],
         }),
+        include_navigation_index: false,
         page_cursor: pageCursor ?? "end",
         folder_cursor: folderCursor ?? "end",
       });
@@ -129,6 +131,7 @@ export function createNotesWorkspaceController(context: NotesWorkspaceController
           ? [...expandedPageIdsOverride]
           : state.expandedPageIds,
       }),
+      include_navigation_index: false,
     });
     if (projectId !== context.readRequestState().projectId) return;
     context.mergeReloadedShell(shell);

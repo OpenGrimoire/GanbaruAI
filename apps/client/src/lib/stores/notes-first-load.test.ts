@@ -66,10 +66,17 @@ function page(id: string, title: string): NotesPage {
   };
 }
 
-function shell(pages: NotesPage[], selected: string | null = null): NotesWorkspaceShell {
+function shell(
+  pages: NotesPage[],
+  selected: string | null = null,
+  navigationPages: NotesPage[] = [],
+): NotesWorkspaceShell {
   return {
     pages,
     folders: [],
+    navigation_pages: navigationPages,
+    navigation_folders: [],
+    navigation_page_ids_with_children: [],
     page_ids_with_children: [],
     missing_parent_page_ids: [],
     trashed_parent_page_ids: [],
@@ -100,12 +107,17 @@ describe("Notes initial loading", () => {
 
     const staleWorkspace = notes.load();
     const currentWorkspace = notes.load();
-    backend.resolve(2, shell([page("33333333-3333-4333-8333-333333333333", "Current")]));
+    backend.resolve(2, shell(
+      [page("33333333-3333-4333-8333-333333333333", "Current")],
+      null,
+      [page("44444444-4444-4444-8444-444444444444", "Other project")],
+    ));
     await currentWorkspace;
     backend.resolve(1, shell([page("22222222-2222-4222-8222-222222222222", "Stale")]));
     await staleWorkspace;
 
     expect(notes.allPages.map((item) => item.id)).toEqual([
+      "44444444-4444-4444-8444-444444444444",
       "33333333-3333-4333-8333-333333333333",
     ]);
     expect(backend.optionalCalls).toEqual([]);

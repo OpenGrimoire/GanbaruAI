@@ -143,6 +143,7 @@
   let activityNowMs = $state(Date.now());
   let activityPanelHideTimer: number | null = null;
   let lastTitlePageId = "";
+  let lastPanelPresencePageId = "";
   let lastHandledTitleFocusRequestId = 0;
 
   const page = $derived(notes.loadedPage);
@@ -215,6 +216,9 @@
   const openSuggestionCount = $derived(openNotesSuggestionCount(notes.suggestions));
   const linksBadgeCount = $derived(notes.backlinks.length + notes.pageAliases.length + notes.unresolvedLinks.length);
   const commentsBadgeCount = $derived(unreadCommentCount > 0 ? unreadCommentCount : openCommentCount);
+  const hasPanelMenuItems = $derived(
+    linksBadgeCount > 0 || openCommentCount > 0 || openSuggestionCount > 0,
+  );
   const peekMode = $derived(openMode !== "full");
 
   function requestEditorPanel(kind: NotesEditorPanelKind, retry = false): void {
@@ -284,6 +288,21 @@
     activityPanelOpen = false;
     coverMenuOpen = false;
     pageHistoryModalOpen = false;
+  });
+
+  $effect(() => {
+    const pageId = page?.id ?? null;
+    if (!pageId) {
+      lastPanelPresencePageId = "";
+      return;
+    }
+    if (pageId === lastPanelPresencePageId) return;
+    lastPanelPresencePageId = pageId;
+    for (const subsystem of ["links", "comments", "suggestions"] as const) {
+      void notes.ensureOptionalSubsystem(subsystem, pageId).catch((error) => {
+        console.error(`load Notes ${subsystem} presence failed`, error);
+      });
+    }
   });
 
   function handleBlockViewportPointerDown(event: PointerEvent): void {
@@ -793,44 +812,6 @@
         >
           <Star class={`size-4 ${pageFavorited ? "fill-current" : ""}`} strokeWidth={noteActionIconStrokeWidth} />
         </button>
-        <button
-          type="button"
-          class={actionButtonClass(activePanel === "links")}
-          aria-label={t("notes.noteLinks")}
-          data-app-tooltip={t("notes.noteLinks")}
-          onclick={() => togglePanel("links")}
-        >
-          <Link2 class="size-4" strokeWidth={noteActionIconStrokeWidth} />
-          {#if linksBadgeCount > 0}
-            <span class="ml-1 text-[0.7rem] leading-none">{linksBadgeCount}</span>
-          {/if}
-        </button>
-        <button
-          type="button"
-          class={actionButtonClass(activePanel === "comments")}
-          aria-label={t("notes.commentsCount", openCommentCount)}
-          data-app-tooltip={t("notes.commentsCount", openCommentCount)}
-          onclick={() => togglePanel("comments")}
-        >
-          <MessageSquare class="size-4" strokeWidth={noteActionIconStrokeWidth} />
-          {#if commentsBadgeCount > 0}
-            <span class={cn("ml-1 text-[0.7rem] leading-none", unreadCommentCount > 0 && "font-semibold text-primary")}>
-              {commentsBadgeCount}
-            </span>
-          {/if}
-        </button>
-        <button
-          type="button"
-          class={actionButtonClass(activePanel === "suggestions")}
-          aria-label={t("notes.suggestionsCount", openSuggestionCount)}
-          data-app-tooltip={t("notes.suggestionsCount", openSuggestionCount)}
-          onclick={() => togglePanel("suggestions")}
-        >
-          <PencilLine class="size-4" strokeWidth={noteActionIconStrokeWidth} />
-          {#if openSuggestionCount > 0}
-            <span class="ml-1 text-[0.7rem] leading-none">{openSuggestionCount}</span>
-          {/if}
-        </button>
         <div
           class="relative"
           use:dismissOnOutside={{ enabled: pageMenuOpen, onDismiss: closePageMenu }}
@@ -866,6 +847,32 @@
                 <Copy class="size-4" />
                 <span>{t("notes.duplicatePage")}</span>
               </button>
+              {#if hasPanelMenuItems}
+                <div class="my-1 border-t border-border" role="separator"></div>
+                {#if linksBadgeCount > 0}
+                  <button class={menuItemClass()} type="button" role="menuitem" onclick={() => togglePanel("links")}>
+                    <Link2 class="size-4" strokeWidth={noteActionIconStrokeWidth} />
+                    <span>{t("notes.noteLinks")}</span>
+                    <span class="ml-auto text-[0.7rem] text-muted-foreground">{linksBadgeCount}</span>
+                  </button>
+                {/if}
+                {#if openCommentCount > 0}
+                  <button class={menuItemClass()} type="button" role="menuitem" onclick={() => togglePanel("comments")}>
+                    <MessageSquare class="size-4" strokeWidth={noteActionIconStrokeWidth} />
+                    <span>{t("notes.commentsCount", openCommentCount)}</span>
+                    {#if unreadCommentCount > 0}
+                      <span class="ml-auto text-[0.7rem] font-semibold text-primary">{commentsBadgeCount}</span>
+                    {/if}
+                  </button>
+                {/if}
+                {#if openSuggestionCount > 0}
+                  <button class={menuItemClass()} type="button" role="menuitem" onclick={() => togglePanel("suggestions")}>
+                    <PencilLine class="size-4" strokeWidth={noteActionIconStrokeWidth} />
+                    <span>{t("notes.suggestionsCount", openSuggestionCount)}</span>
+                  </button>
+                {/if}
+                <div class="my-1 border-t border-border" role="separator"></div>
+              {/if}
               <button
                 class={menuItemClass()}
                 type="button"

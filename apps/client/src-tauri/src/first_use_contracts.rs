@@ -10,9 +10,9 @@ const SQLITE_TRACE_STMT: c_uint = 0x01;
 const EMPTY_PROJECTS_SQL_READS: usize = 6;
 const EMPTY_PROJECTS_SQL_WRITES: usize = 0;
 const EMPTY_PROJECTS_RESPONSE_BYTES: usize = 13_142;
-const EMPTY_NOTES_SQL_READS: usize = 4;
+const EMPTY_NOTES_SQL_READS: usize = 7;
 const EMPTY_NOTES_SQL_WRITES: usize = 0;
-const EMPTY_NOTES_RESPONSE_BYTES: usize = 238;
+const EMPTY_NOTES_RESPONSE_BYTES: usize = 323;
 
 unsafe extern "C" {
     fn sqlite3_trace_v2(

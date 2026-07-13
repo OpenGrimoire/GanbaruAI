@@ -341,10 +341,17 @@ function applyInitialWorkspaceShell(
   requestedSelection: string | null,
 ): string | null {
   replacePages(shell.pages);
-  replaceAllPages(shell.pages);
-  foldersController.replace(shell.folders);
+  replaceAllPages([...new Map(
+    [...shell.navigation_pages, ...shell.pages].map((page) => [page.id, page]),
+  ).values()]);
+  foldersController.replace([...new Map(
+    [...shell.navigation_folders, ...shell.folders].map((folder) => [folder.id, folder]),
+  ).values()]);
   sidebarController.replaceMetadata({
-    pageIdsWithChildren: shell.page_ids_with_children,
+    pageIdsWithChildren: [...new Set([
+      ...shell.navigation_page_ids_with_children,
+      ...shell.page_ids_with_children,
+    ])],
     missingParentPageIds: shell.missing_parent_page_ids,
     trashedParentPageIds: shell.trashed_parent_page_ids,
   });

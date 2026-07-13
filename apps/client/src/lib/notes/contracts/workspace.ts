@@ -35,11 +35,15 @@ export interface NotesWorkspaceShellRequest {
   folder_cursor?: string | null;
   destination_candidates?: boolean;
   page_query?: string | null;
+  include_navigation_index?: boolean;
 }
 
 export interface NotesWorkspaceShell {
   pages: NotesPage[];
   folders: NotesFolder[];
+  navigation_pages: NotesPage[];
+  navigation_folders: NotesFolder[];
+  navigation_page_ids_with_children: string[];
   page_ids_with_children: string[];
   missing_parent_page_ids: string[];
   trashed_parent_page_ids: string[];

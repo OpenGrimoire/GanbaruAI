@@ -6,14 +6,12 @@ import {
 export type ProjectOptionalComponentKind =
   | "toolbar"
   | "bulk-actions"
-  | "project-navigator"
   | "task-finder"
   | "task-detail";
 
 export type LoadedProjectOptionalComponent =
   | { kind: "toolbar"; component: typeof import("./ProjectToolbarPanels.svelte").default }
   | { kind: "bulk-actions"; component: typeof import("./ProjectBulkActionController.svelte").default }
-  | { kind: "project-navigator"; component: typeof import("./ProjectNavigator.svelte").default }
   | { kind: "task-finder"; component: typeof import("./ProjectTaskFinder.svelte").default }
   | { kind: "task-detail"; component: typeof import("./ProjectTaskDetailPanel.svelte").default };
 
@@ -23,10 +21,6 @@ const OPTIONAL_IMPORTERS = {
   "bulk-actions": () => import("./ProjectBulkActionController.svelte")
     .then((module) => ({
       default: { kind: "bulk-actions" as const, component: module.default },
-    })),
-  "project-navigator": () => import("./ProjectNavigator.svelte")
-    .then((module) => ({
-      default: { kind: "project-navigator" as const, component: module.default },
     })),
   "task-finder": () => import("./ProjectTaskFinder.svelte")
     .then((module) => ({

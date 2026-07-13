@@ -303,6 +303,16 @@ export async function loadNotesWorkspaceShell(
   return {
     pages: record.pages.map(mapPageSummary),
     folders: record.folders.map(mapNotesFolderDto),
+    navigation_pages: Array.isArray(record.navigation_pages)
+      ? record.navigation_pages.map(mapPageSummary)
+      : [],
+    navigation_folders: Array.isArray(record.navigation_folders)
+      ? record.navigation_folders.map(mapNotesFolderDto)
+      : [],
+    navigation_page_ids_with_children: shellStringArray(
+      record.navigation_page_ids_with_children ?? [],
+      "navigation_page_ids_with_children",
+    ),
     page_ids_with_children: shellStringArray(record.page_ids_with_children, "page_ids_with_children"),
     missing_parent_page_ids: shellStringArray(record.missing_parent_page_ids, "missing_parent_page_ids"),
     trashed_parent_page_ids: shellStringArray(record.trashed_parent_page_ids, "trashed_parent_page_ids"),
