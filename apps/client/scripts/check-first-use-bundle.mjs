@@ -75,7 +75,8 @@ function readBaseline(value) {
     shell: (() => {
       const shell = requireObject(root.shell, "baseline shell");
       return {
-        module: requireString(shell.module, "baseline shell module"),
+        loadedModules: requireStringArray(shell.loadedModules, "baseline shell loadedModules"),
+        requiredModules: requireStringArray(shell.requiredModules, "baseline shell requiredModules"),
         forbiddenModules: requireStringArray(
           shell.forbiddenModules,
           "baseline shell forbiddenModules",
@@ -88,6 +89,10 @@ function readBaseline(value) {
         loadedModules: requireStringArray(
           contract.loadedModules,
           "baseline projectsShell loadedModules",
+        ),
+        requiredModules: requireStringArray(
+          contract.requiredModules,
+          "baseline projectsShell requiredModules",
         ),
         forbiddenModules: requireStringArray(
           contract.forbiddenModules,
@@ -114,6 +119,10 @@ function readBaseline(value) {
         loadedModules: requireStringArray(
           contract.loadedModules,
           "baseline notesShell loadedModules",
+        ),
+        requiredModules: requireStringArray(
+          contract.requiredModules,
+          "baseline notesShell requiredModules",
         ),
         forbiddenModules: requireStringArray(
           contract.forbiddenModules,
@@ -225,18 +234,6 @@ const routes = baseline.routes.map((route) => {
   return { name: route.name, chunk: owner.fileName, sourceModules };
 });
 
-const shellChunk = chunks.find((chunk) => chunk.modules.includes(baseline.shell.module));
-if (!shellChunk) {
-  failures.push(`initial shell module is absent: ${baseline.shell.module}`);
-}
-for (const moduleId of baseline.shell.forbiddenModules) {
-  if (!allModules.has(moduleId)) {
-    failures.push(`forbidden shell module is absent from all chunks: ${moduleId}`);
-  } else if (shellChunk?.modules.includes(moduleId)) {
-    failures.push(`forbidden module is present in the initial shell chunk: ${moduleId}`);
-  }
-}
-
 function evaluateStaticModuleContract(contract, label) {
   const roots = contract.loadedModules.map((moduleId) => {
     const owner = chunks.find((chunk) => chunk.modules.includes(moduleId));
@@ -245,6 +242,9 @@ function evaluateStaticModuleContract(contract, label) {
   }).filter(Boolean);
   const closure = staticChunkClosure(roots);
   const modules = new Set(closure.flatMap((chunk) => chunk.modules));
+  for (const moduleId of contract.requiredModules ?? []) {
+    if (!modules.has(moduleId)) failures.push(`${label} does not load required module: ${moduleId}`);
+  }
   for (const moduleId of contract.forbiddenModules) {
     if (!allModules.has(moduleId)) {
       failures.push(`${label} forbidden module is absent from all chunks: ${moduleId}`);
@@ -254,6 +254,8 @@ function evaluateStaticModuleContract(contract, label) {
   }
   return { closure, modules };
 }
+
+const shellContract = evaluateStaticModuleContract(baseline.shell, "initial shell");
 
 const projectsShellContract = evaluateStaticModuleContract(
   baseline.projectsShell,
@@ -355,7 +357,8 @@ if (failures.length > 0) {
 console.log(JSON.stringify({
   routes,
   shell: {
-    chunk: shellChunk?.fileName ?? null,
+    chunks: shellContract.closure.map((chunk) => chunk.fileName),
+    requiredModules: baseline.shell.requiredModules,
     forbiddenModules: baseline.shell.forbiddenModules,
   },
   projectsShell: {

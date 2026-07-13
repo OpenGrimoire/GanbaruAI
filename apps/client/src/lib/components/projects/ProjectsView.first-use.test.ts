@@ -78,7 +78,7 @@ describe("ProjectsView first use", () => {
     target = undefined;
   });
 
-  it("renders its header and stable frame while data and component imports are unresolved", async () => {
+  it("renders its header and stable frame while data is unresolved", async () => {
     target = document.createElement("div");
     document.body.append(target);
     const { default: ProjectsView } = await import("./ProjectsView.svelte");
@@ -91,7 +91,9 @@ describe("ProjectsView first use", () => {
     expect(target.querySelector("[data-projects-shell-header]")?.textContent).toContain("Projects");
     expect(target.querySelector("[data-projects-content-frame]")).not.toBeNull();
     expect(target.querySelector("[data-projects-first-use-state]")?.getAttribute("aria-busy"))
-      .toBe("true");
+      .toBeNull();
+    expect(target.querySelector("[data-projects-first-use-state]")?.textContent)
+      .not.toContain("Loading");
     expect(deferredComponents.viewCalls).toBe(0);
     expect(deferredComponents.optionalCalls).toBe(0);
   }, 15_000);

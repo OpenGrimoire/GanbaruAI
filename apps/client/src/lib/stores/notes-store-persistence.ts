@@ -9,12 +9,14 @@ interface PendingBlockSave {
 
 export interface NotesBlockPersistenceContext {
   readBlock: (blockId: string) => NotesBlock | undefined;
+  beforeSave: (blockId: string) => Promise<void>;
   replaceBlock: (block: NotesBlock) => void;
   setLoadError: (message: string) => void;
   debounceMs: number;
 }
 
 export interface NotesBlockPersistence {
+  hasLocalChanges: (blockId: string) => boolean;
   localApplyBlockUpdate: (blockId: string, update: NotesBlockUpdate) => void;
   markBlockLocallyChanged: (blockId: string) => void;
   saveBlockNow: (blockId: string, update: NotesBlockUpdate) => Promise<void>;
@@ -37,6 +39,10 @@ export function createNotesBlockPersistence(
     blockRevisions.set(blockId, (blockRevisions.get(blockId) ?? 0) + 1);
   }
 
+  function hasLocalChanges(blockId: string): boolean {
+    return blockRevisions.has(blockId);
+  }
+
   function localApplyBlockUpdate(blockId: string, update: NotesBlockUpdate): void {
     const block = context.readBlock(blockId);
     if (!block) return;
@@ -50,8 +56,10 @@ export function createNotesBlockPersistence(
     const save = previous
       .catch(() => undefined)
       .then(async () => {
+        await context.beforeSave(blockId);
         const saved = await updateNotesBlock(blockId, update);
         if ((blockRevisions.get(blockId) ?? 0) === revision) {
+          blockRevisions.delete(blockId);
           context.replaceBlock(saved);
         }
       });
@@ -67,10 +75,15 @@ export function createNotesBlockPersistence(
     const pending = pendingBlockSaves.get(blockId);
     if (pending) clearTimeout(pending.timer);
     const timer = setTimeout(() => {
-      pendingBlockSaves.delete(blockId);
-      saveBlockNow(blockId, update).catch((error) => {
-        context.setLoadError(error instanceof Error ? error.message : String(error));
-      });
+      void saveBlockNow(blockId, update)
+        .then(() => {
+          if (pendingBlockSaves.get(blockId)?.update === update) {
+            pendingBlockSaves.delete(blockId);
+          }
+        })
+        .catch((error) => {
+          context.setLoadError(error instanceof Error ? error.message : String(error));
+        });
     }, context.debounceMs);
     pendingBlockSaves.set(blockId, { timer, update });
   }
@@ -92,6 +105,7 @@ export function createNotesBlockPersistence(
   }
 
   return {
+    hasLocalChanges,
     localApplyBlockUpdate,
     markBlockLocallyChanged,
     saveBlockNow,

@@ -21,6 +21,81 @@ fn create_page_persists_title_and_initial_paragraph() {
 }
 
 #[test]
+fn exact_page_create_retry_returns_the_existing_page() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        let request = || NotePageCreate {
+            id: PAGE_A.to_string(),
+            title: "First page".to_string(),
+            parent: workspace_parent(),
+            folder_id: None,
+            first_block_id: BLOCK_A.to_string(),
+            after_block_id: None,
+            properties: None,
+        };
+
+        writes::create_page(&pool, request()).await.unwrap();
+        let retried = writes::create_page(&pool, request()).await.unwrap();
+        let retried = serde_json::to_value(retried).unwrap();
+
+        assert_eq!(retried["page"]["id"], PAGE_A);
+        assert_eq!(retried["blocks"]["results"][0]["id"], BLOCK_A);
+        let page_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM notes_pages")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(page_count, 1);
+    });
+}
+
+#[test]
+fn page_create_retry_rejects_mismatched_or_partial_data() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        create_page(&pool, PAGE_A, BLOCK_A).await;
+
+        let mismatch = writes::create_page(
+            &pool,
+            NotePageCreate {
+                id: PAGE_A.to_string(),
+                title: "Different title".to_string(),
+                parent: workspace_parent(),
+                folder_id: None,
+                first_block_id: BLOCK_A.to_string(),
+                after_block_id: None,
+                properties: None,
+            },
+        )
+        .await
+        .err()
+        .expect("mismatched retry must fail");
+        assert!(mismatch.contains("different data"));
+
+        sqlx::query("DELETE FROM notes_blocks WHERE id = ?")
+            .bind(BLOCK_A)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let partial = writes::create_page(
+            &pool,
+            NotePageCreate {
+                id: PAGE_A.to_string(),
+                title: "First page".to_string(),
+                parent: workspace_parent(),
+                folder_id: None,
+                first_block_id: BLOCK_A.to_string(),
+                after_block_id: None,
+                properties: None,
+            },
+        )
+        .await
+        .err()
+        .expect("partial retry must fail");
+        assert!(partial.contains("missing its initial block"));
+    });
+}
+
+#[test]
 fn page_rename_preserves_project_metadata_properties() {
     tauri::async_runtime::block_on(async {
         let pool = migrated_memory_pool().await;

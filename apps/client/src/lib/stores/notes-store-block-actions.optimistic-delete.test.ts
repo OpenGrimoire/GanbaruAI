@@ -86,6 +86,7 @@ describe("notes store block actions", () => {
     const requestBlockFocus = vi.fn();
     const recordUndo = vi.fn<(options: Omit<NotesUndoRecordOptions, "id">) => void>();
     const context: NotesBlockActionsContext = {
+      awaitSelectedPageReady: () => Promise.resolve(),
       readSelectedPageId: () => pageId,
       readBlocksById: () => state.blocksById,
       readChildIdsByParentId: () => Object.fromEntries(

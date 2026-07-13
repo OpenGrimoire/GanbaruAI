@@ -11,7 +11,6 @@
     ProjectSection,
     ProjectStatus,
     ProjectTask,
-    ProjectViewId,
   } from "$lib/projects/types";
   import {
     projectCalendarCreateDefaults as buildProjectCalendarCreateDefaults,
@@ -21,7 +20,12 @@
     pickProjectTaskModalLayout,
   } from "$lib/projects/project-toolbar";
   import ProjectEmptyState from "./ProjectEmptyState.svelte";
+  import ProjectDashboardView from "./ProjectDashboardView.svelte";
+  import ProjectGanttView from "./ProjectGanttView.svelte";
+  import ProjectKanbanView from "./ProjectKanbanView.svelte";
+  import ProjectListView from "./ProjectListView.svelte";
   import ProjectWorkspaceHeader from "./ProjectWorkspaceHeader.svelte";
+  import CalendarView from "$lib/components/calendar/CalendarView.svelte";
   import { ProjectTaskQueryController } from "./project-task-query-controller.svelte";
   import { ProjectRouteLoadController } from "./project-route-load-controller.svelte";
   import { ProjectRouteUiController } from "./project-route-ui-controller.svelte";
@@ -39,7 +43,6 @@
     setActiveView: (view) => { projects.activeView = view; },
   });
 
-  const activeViewLoadState = $derived(routeLoad.activeViewState(projects.activeView));
   const toolbarLoadState = $derived(routeLoad.optionalState("toolbar"));
   const bulkActionsLoadState = $derived(routeLoad.optionalState("bulk-actions"));
   const taskFinderLoadState = $derived(routeLoad.optionalState("task-finder"));
@@ -128,7 +131,6 @@
   $effect(() => {
     const view = projects.activeView;
     if (!selectedProject || !selectedGroup) return;
-    routeLoad.requestView(view);
     void projects.ensureProjectViewData(selectedProject.id, view).catch((error) => {
       console.error(`load optional Project ${view} data failed`, error);
     });
@@ -185,14 +187,6 @@
     projectCustomFields;
     taskQuery.repairDisappearingFields();
   });
-
-  function projectViewLabel(view: ProjectViewId): string {
-    if (view === "dashboard") return t("projects.tabs.dashboard");
-    if (view === "list") return t("projects.tabs.list");
-    if (view === "kanban") return t("projects.tabs.kanban");
-    if (view === "calendar") return t("projects.tabs.calendar");
-    return t("projects.tabs.gantt");
-  }
 
   function terminalStatus(): ProjectStatus | undefined {
     return statuses.find((status) => status.terminal);
@@ -382,10 +376,7 @@
       style="background-color: var(--cal-bg);"
     >
       {#if selectedProject && selectedGroup}
-        {#if activeViewLoadState?.status === "ready"}
-          {@const loadedView = activeViewLoadState.component}
-          {#if loadedView.view === "list"}
-            {@const ProjectListView = loadedView.component}
+          {#if projects.activeView === "list"}
             <ProjectListView
               {selectedProjectId}
               {sections}
@@ -413,8 +404,7 @@
               }}
               onNeedMore={() => taskQuery.loadNextList(routeUi.selectedTaskIds)}
             />
-          {:else if loadedView.view === "kanban"}
-            {@const ProjectKanbanView = loadedView.component}
+          {:else if projects.activeView === "kanban"}
             <ProjectKanbanView
               {tasks}
               {statuses}
@@ -427,8 +417,7 @@
               columnCounts={projects.taskViewPage?.columnCounts ?? []}
               onNeedMore={() => taskQuery.loadNextKanban(routeUi.selectedTaskIds)}
             />
-          {:else if loadedView.view === "calendar"}
-            {@const CalendarView = loadedView.component}
+          {:else if projects.activeView === "calendar"}
             <div class="h-full min-h-112 overflow-hidden">
               <CalendarView
                 eventFilter={(event) => taskQuery.eventMatches(event)}
@@ -439,8 +428,7 @@
                 }}
               />
             </div>
-          {:else if loadedView.view === "gantt"}
-            {@const ProjectGanttView = loadedView.component}
+          {:else if projects.activeView === "gantt"}
             <ProjectGanttView
               tasks={tasks}
               statuses={statuses}
@@ -451,8 +439,7 @@
                 void toggleSectionCollapsed(section);
               }}
             />
-          {:else if loadedView.view === "dashboard"}
-            {@const ProjectDashboardView = loadedView.component}
+          {:else}
             <ProjectDashboardView
               projectId={selectedProjectId}
               {tasks}
@@ -465,29 +452,6 @@
               onOpenTask={(task) => routeUi.openTask(task)}
             />
           {/if}
-        {:else if activeViewLoadState?.status === "failed"}
-          <div
-            class="flex h-full min-h-40 flex-col items-center justify-center gap-3 p-4 text-center text-sm text-muted-foreground"
-            role="alert"
-          >
-            <p>{t("common.viewLoadFailed", projectViewLabel(projects.activeView))}</p>
-            <button
-              type="button"
-              class="min-h-9 rounded-md border border-border bg-background px-3 font-medium text-foreground hover:bg-accent"
-              onclick={() => routeLoad.requestView(projects.activeView, true)}
-            >
-              {t("common.retry")}
-            </button>
-          </div>
-        {:else}
-          <div
-            data-projects-view-loading
-            class="flex h-full min-h-40 items-center justify-center p-4 text-sm text-muted-foreground"
-            aria-busy="true"
-          >
-            {t("common.loading")}
-          </div>
-        {/if}
       {:else}
         <ProjectEmptyState
           {selectedProjectId}

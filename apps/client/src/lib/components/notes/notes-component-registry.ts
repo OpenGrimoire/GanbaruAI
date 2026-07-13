@@ -3,11 +3,9 @@ import {
   type LazyComponentImporter,
 } from "$lib/lazy-component-loader";
 
-export type NotesSurfaceKind = "home" | "editor" | "archive" | "trash";
+export type NotesSurfaceKind = "archive" | "trash";
 
 export type LoadedNotesSurface =
-  | { kind: "home"; component: typeof import("./NotesProjectHome.svelte").default }
-  | { kind: "editor"; component: typeof import("./NotesEditor.svelte").default }
   | { kind: "archive"; component: typeof import("./NotesArchiveView.svelte").default }
   | { kind: "trash"; component: typeof import("./NotesTrashView.svelte").default };
 
@@ -46,10 +44,6 @@ export type LoadedNotesOptionalComponent =
     };
 
 const SURFACE_IMPORTERS = {
-  home: () => import("./NotesProjectHome.svelte")
-    .then((module) => ({ default: { kind: "home" as const, component: module.default } })),
-  editor: () => import("./NotesEditor.svelte")
-    .then((module) => ({ default: { kind: "editor" as const, component: module.default } })),
   archive: () => import("./NotesArchiveView.svelte")
     .then((module) => ({ default: { kind: "archive" as const, component: module.default } })),
   trash: () => import("./NotesTrashView.svelte")

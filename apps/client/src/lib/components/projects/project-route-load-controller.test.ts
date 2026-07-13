@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { LoadedProjectView } from "./project-component-registry";
-import {
-  ProjectRouteLoadController,
-  type ProjectRouteLoaders,
-} from "./project-route-load-controller.svelte";
+import { ProjectRouteLoadController } from "./project-route-load-controller.svelte";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -18,30 +14,6 @@ function deferred<T>() {
 type ProjectsStore = ConstructorParameters<typeof ProjectRouteLoadController>[0];
 
 describe("Project route load controller", () => {
-  it("does not let a stale view import replace the active request", async () => {
-    const list = deferred<LoadedProjectView>();
-    const gantt = deferred<LoadedProjectView>();
-    const loaders = {
-      loadView: (view) => view === "list" ? list.promise : gantt.promise,
-      retryView: (view) => view === "list" ? list.promise : gantt.promise,
-      loadOptional: () => new Promise(() => undefined),
-      retryOptional: () => new Promise(() => undefined),
-    } satisfies ProjectRouteLoaders;
-    const controller = new ProjectRouteLoadController({} as ProjectsStore, loaders);
-
-    controller.requestView("list");
-    controller.requestView("gantt");
-    list.resolve({ view: "list", component: {} } as LoadedProjectView);
-    await list.promise;
-    await Promise.resolve();
-
-    expect(controller.viewState).toMatchObject({ key: "gantt", status: "loading" });
-    gantt.resolve({ view: "gantt", component: {} } as LoadedProjectView);
-    await gantt.promise;
-    await Promise.resolve();
-    expect(controller.viewState).toMatchObject({ key: "gantt", status: "ready" });
-  });
-
   it("isolates stale task-detail failures by project and task identity", async () => {
     const first = deferred<void>();
     const second = deferred<void>();

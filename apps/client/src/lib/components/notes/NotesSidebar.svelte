@@ -355,9 +355,7 @@
   </div>
 
   <div class="min-h-0 flex-1 overflow-auto px-2 pb-2">
-    {#if notes.loading && notes.pages.length === 0}
-      <div class="px-2 py-2 text-[0.8rem] text-muted-foreground">{t("notes.loading")}</div>
-    {:else if notes.loadError}
+    {#if notes.loadError}
       <div class="px-2 py-2 text-[0.8rem] text-destructive">
         {t("notes.loadFailed", notes.loadError)}
       </div>

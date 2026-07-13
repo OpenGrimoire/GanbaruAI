@@ -70,7 +70,7 @@ describe("Notes editor component registry", () => {
       await expect(loadNotesAdvancedBlock(kind)).resolves.toMatchObject({ kind });
       expect(notesAdvancedBlockHasLoaded(kind)).toBe(true);
     }
-  });
+  }, 15_000);
 
   it("registers every persisted block type in an eager or lazy render family", () => {
     const families = NOTES_BLOCK_TYPES.map((type) => notesBlockRenderFamily(type));

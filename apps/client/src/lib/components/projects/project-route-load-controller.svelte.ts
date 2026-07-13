@@ -5,14 +5,10 @@ import {
   type LazyComponentLoadState,
 } from "$lib/lazy-component-loader";
 import type { getProjects } from "$lib/stores/projects.svelte";
-import type { ProjectViewId } from "$lib/projects/types";
 import {
   loadProjectOptionalComponent,
-  loadProjectView,
   retryProjectOptionalComponent,
-  retryProjectView,
   type LoadedProjectOptionalComponent,
-  type LoadedProjectView,
   type ProjectOptionalComponentKind,
 } from "./project-component-registry";
 
@@ -23,15 +19,11 @@ type OptionalLoadState = LazyComponentLoadState<
 >;
 
 export interface ProjectRouteLoaders {
-  loadView: typeof loadProjectView;
-  retryView: typeof retryProjectView;
   loadOptional: typeof loadProjectOptionalComponent;
   retryOptional: typeof retryProjectOptionalComponent;
 }
 
 const DEFAULT_LOADERS: ProjectRouteLoaders = {
-  loadView: loadProjectView,
-  retryView: retryProjectView,
   loadOptional: loadProjectOptionalComponent,
   retryOptional: retryProjectOptionalComponent,
 };
@@ -40,7 +32,6 @@ const DEFAULT_LOADERS: ProjectRouteLoaders = {
 export class ProjectRouteLoadController {
   readonly #projects: ProjectsStore;
   readonly #loaders: ProjectRouteLoaders;
-  viewState = $state<LazyComponentLoadState<ProjectViewId, LoadedProjectView> | null>(null);
   optionalStates = $state<Partial<Record<ProjectOptionalComponentKind, OptionalLoadState>>>({});
   toolbarDataError = $state<string | null>(null);
   taskDetailDataError = $state<string | null>(null);
@@ -53,34 +44,8 @@ export class ProjectRouteLoadController {
     this.#loaders = loaders;
   }
 
-  activeViewState(view: ProjectViewId) {
-    return this.viewState?.key === view ? this.viewState : null;
-  }
-
   optionalState(kind: ProjectOptionalComponentKind): OptionalLoadState | null {
     return this.optionalStates[kind] ?? null;
-  }
-
-  requestView(view: ProjectViewId, retry = false): void {
-    if (!retry && this.viewState?.key === view) return;
-    const loading = beginLazyComponentLoad(this.viewState, view);
-    this.viewState = loading;
-    const request = retry ? this.#loaders.retryView(view) : this.#loaders.loadView(view);
-    void request.then((component) => {
-      if (this.viewState) {
-        this.viewState = resolveLazyComponentLoad(
-          this.viewState,
-          view,
-          loading.requestId,
-          component,
-        );
-      }
-    }).catch((error: unknown) => {
-      if (this.viewState) {
-        this.viewState = rejectLazyComponentLoad(this.viewState, view, loading.requestId, error);
-      }
-      console.error(`Failed to load Project ${view} view:`, error);
-    });
   }
 
   requestOptional(kind: ProjectOptionalComponentKind, retry = false): void {

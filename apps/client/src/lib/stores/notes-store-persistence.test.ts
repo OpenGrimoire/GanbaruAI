@@ -49,6 +49,7 @@ describe("notes block persistence", () => {
       })
     );
     const persistence = createNotesBlockPersistence({
+      beforeSave: () => Promise.resolve(),
       readBlock: () => current,
       replaceBlock: (block) => {
         current = block;
@@ -59,6 +60,7 @@ describe("notes block persistence", () => {
 
     const firstUpdate = blockWithText(current, "a");
     persistence.localApplyBlockUpdate(blockId, firstUpdate);
+    expect(persistence.hasLocalChanges(blockId)).toBe(true);
     const firstSave = persistence.saveBlockNow(blockId, firstUpdate);
     const secondUpdate = blockWithText(current, "ab");
     persistence.localApplyBlockUpdate(blockId, secondUpdate);
@@ -73,5 +75,6 @@ describe("notes block persistence", () => {
     requests[1].resolve(applyBlockUpdate(paragraph("a"), requests[1].update));
     await secondSave;
     expect(blockPlainText(current)).toBe("ab");
+    expect(persistence.hasLocalChanges(blockId)).toBe(false);
   });
 });

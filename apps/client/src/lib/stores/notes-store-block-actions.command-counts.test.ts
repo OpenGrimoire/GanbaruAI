@@ -110,6 +110,7 @@ describe("notes store block actions", () => {
       has_more: false,
     });
     const context: NotesBlockActionsContext = {
+      awaitSelectedPageReady: () => Promise.resolve(),
       readSelectedPageId: () => pageId,
       readBlocksById: () => state.blocksById,
       readChildIdsByParentId: () => Object.fromEntries(

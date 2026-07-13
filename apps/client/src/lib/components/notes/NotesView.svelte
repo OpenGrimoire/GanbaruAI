@@ -25,6 +25,8 @@
     type NotesOptionalComponentKind,
     type NotesSurfaceKind,
   } from "./notes-component-registry";
+  import NotesEditor from "./NotesEditor.svelte";
+  import NotesProjectHome from "./NotesProjectHome.svelte";
   import NotesWorkspaceHeader from "./NotesWorkspaceHeader.svelte";
 
   const notes = getNotes();
@@ -34,9 +36,9 @@
 
   const CENTER_PEEK_FULL_PAGE_MIN_WIDTH_PX = 608;
   const CENTER_PEEK_FULL_PAGE_MIN_HEIGHT_PX = 520;
+  type ActiveNotesSurfaceKind = NotesSurfaceKind | "home" | "editor";
 
   let showInactiveProjects = $state(false);
-  let initialNotesLoadPending = $state(!notes.loaded);
   let notesRootElement = $state<HTMLDivElement | null>(null);
   let projectSettingsOpen = $state(false);
   let projectSettingsDirty = $state(false);
@@ -80,14 +82,17 @@
   );
   const showCenterPeek = $derived(showPagePeek && notes.pageOpenMode === "center");
   const showSidePeek = $derived(showPagePeek && notes.pageOpenMode === "side");
-  const activeSurfaceKind = $derived.by((): NotesSurfaceKind => {
+  const activeSurfaceKind = $derived.by((): ActiveNotesSurfaceKind => {
     if (notes.viewMode === "archive") return "archive";
     if (notes.viewMode === "trash") return "trash";
     if (notes.selectedPageId !== null) return "editor";
     return "home";
   });
-  const activeSurfaceLoadState = $derived(surfaceLoadStates[activeSurfaceKind] ?? null);
-  const homeSurfaceLoadState = $derived(surfaceLoadStates.home ?? null);
+  const activeSurfaceLoadState = $derived(
+    activeSurfaceKind === "archive" || activeSurfaceKind === "trash"
+      ? surfaceLoadStates[activeSurfaceKind] ?? null
+      : null,
+  );
   const projectSettingsLoadState = $derived(optionalLoadStates["project-settings"] ?? null);
   const projectHistoryLoadState = $derived(optionalLoadStates["project-history"] ?? null);
   const confirmDialogLoadState = $derived(optionalLoadStates["confirm-dialog"] ?? null);
@@ -160,9 +165,7 @@
       .catch((error) => {
         console.error("load notes failed", error);
       })
-      .finally(() => {
-        initialNotesLoadPending = false;
-      });
+      ;
     void projects.ensureLoaded().catch((error) => {
       console.error("load projects failed", error);
     });
@@ -178,8 +181,9 @@
   });
 
   $effect(() => {
-    requestNotesSurface(activeSurfaceKind);
-    if (showPagePeek) requestNotesSurface("home");
+    if (activeSurfaceKind === "archive" || activeSurfaceKind === "trash") {
+      requestNotesSurface(activeSurfaceKind);
+    }
   });
 
   $effect(() => {
@@ -466,18 +470,7 @@
   {/if}
   <div class="notes-view-layout relative flex min-h-0 flex-1 overflow-hidden">
     <div class={showSidePeek ? "flex min-w-0 basis-1/2 overflow-hidden" : "flex min-w-0 flex-1 overflow-hidden"}>
-      {#if initialNotesLoadPending || (!notes.loaded && notes.loading)}
-        <div class="flex min-w-0 flex-1 flex-col items-center justify-center gap-3 p-4 text-center" aria-busy="true" data-notes-first-use-state>
-          <p class="text-sm text-muted-foreground">{t("notes.loading")}</p>
-          <button
-            type="button"
-            class="min-h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground opacity-60"
-            disabled
-          >
-            {t("notes.newPage")}
-          </button>
-        </div>
-      {:else if !notes.loaded && notes.loadError}
+      {#if !notes.loaded && notes.loadError}
         <div class="flex min-w-0 flex-1 flex-col items-center justify-center gap-3 p-4 text-center" role="alert" data-notes-first-use-state>
           <p class="text-sm text-destructive">{t("notes.loadFailed", notes.loadError)}</p>
           <button
@@ -493,22 +486,12 @@
           </button>
         </div>
       {:else if showFullPageEditor}
-        {#if activeSurfaceLoadState?.status === "ready" && activeSurfaceLoadState.component.kind === "editor"}
-          {@const NotesEditor = activeSurfaceLoadState.component.component}
-          <NotesEditor
-            projectId={selectedProjectId}
-            openMode="full"
-            onClose={closePagePeek}
-            onOpenModeChange={showSelectedPageAs}
-          />
-        {:else if activeSurfaceLoadState?.status === "failed"}
-          <div class="flex min-w-0 flex-1 flex-col items-center justify-center gap-3 p-4 text-center" role="alert">
-            <p class="text-sm text-destructive">{t("common.viewLoadFailed", t("notes.title"))}</p>
-            <button type="button" class="min-h-9 rounded-md border border-border px-3 text-sm hover:bg-accent" onclick={() => requestNotesSurface("editor", true)}>{t("common.retry")}</button>
-          </div>
-        {:else}
-          <div class="flex min-w-0 flex-1 items-center justify-center p-4 text-sm text-muted-foreground" aria-busy="true">{t("common.loading")}</div>
-        {/if}
+        <NotesEditor
+          projectId={selectedProjectId}
+          openMode="full"
+          onClose={closePagePeek}
+          onOpenModeChange={showSelectedPageAs}
+        />
       {:else if activeSurfaceKind === "archive" || activeSurfaceKind === "trash"}
         {#if activeSurfaceLoadState?.status === "ready" && activeSurfaceLoadState.component.kind === activeSurfaceKind}
           {@const ActiveNotesSurface = activeSurfaceLoadState.component.component}
@@ -522,17 +505,7 @@
           <div class="flex min-w-0 flex-1 items-center justify-center p-4 text-sm text-muted-foreground" aria-busy="true">{t("common.loading")}</div>
         {/if}
       {:else}
-        {#if homeSurfaceLoadState?.status === "ready" && homeSurfaceLoadState.component.kind === "home"}
-          {@const NotesProjectHome = homeSurfaceLoadState.component.component}
-          <NotesProjectHome projectId={selectedProjectId} />
-        {:else if homeSurfaceLoadState?.status === "failed"}
-          <div class="flex min-w-0 flex-1 flex-col items-center justify-center gap-3 p-4 text-center" role="alert">
-            <p class="text-sm text-destructive">{t("common.viewLoadFailed", t("notes.title"))}</p>
-            <button type="button" class="min-h-9 rounded-md border border-border px-3 text-sm hover:bg-accent" onclick={() => requestNotesSurface("home", true)}>{t("common.retry")}</button>
-          </div>
-        {:else}
-          <div class="flex min-w-0 flex-1 items-center justify-center p-4 text-sm text-muted-foreground" aria-busy="true">{t("common.loading")}</div>
-        {/if}
+        <NotesProjectHome projectId={selectedProjectId} />
       {/if}
     </div>
 
@@ -543,22 +516,12 @@
         aria-modal="false"
         data-notes-page-peek
       >
-        {#if activeSurfaceLoadState?.status === "ready" && activeSurfaceLoadState.component.kind === "editor"}
-          {@const NotesEditor = activeSurfaceLoadState.component.component}
-          <NotesEditor
-            projectId={selectedProjectId}
-            openMode="side"
-            onClose={closePagePeek}
-            onOpenModeChange={showSelectedPageAs}
-          />
-        {:else if activeSurfaceLoadState?.status === "failed"}
-          <div class="flex min-w-0 flex-1 flex-col items-center justify-center gap-3 p-4 text-center" role="alert">
-            <p class="text-sm text-destructive">{t("common.viewLoadFailed", t("notes.title"))}</p>
-            <button type="button" class="min-h-9 rounded-md border border-border px-3 text-sm hover:bg-accent" onclick={() => requestNotesSurface("editor", true)}>{t("common.retry")}</button>
-          </div>
-        {:else}
-          <div class="flex min-w-0 flex-1 items-center justify-center p-4 text-sm text-muted-foreground" aria-busy="true">{t("common.loading")}</div>
-        {/if}
+        <NotesEditor
+          projectId={selectedProjectId}
+          openMode="side"
+          onClose={closePagePeek}
+          onOpenModeChange={showSelectedPageAs}
+        />
       </div>
     {/if}
 
@@ -576,22 +539,12 @@
           aria-modal="true"
           data-notes-page-peek
         >
-          {#if activeSurfaceLoadState?.status === "ready" && activeSurfaceLoadState.component.kind === "editor"}
-            {@const NotesEditor = activeSurfaceLoadState.component.component}
-            <NotesEditor
-              projectId={selectedProjectId}
-              openMode="center"
-              onClose={closePagePeek}
-              onOpenModeChange={showSelectedPageAs}
-            />
-          {:else if activeSurfaceLoadState?.status === "failed"}
-            <div class="flex min-w-0 flex-1 flex-col items-center justify-center gap-3 p-4 text-center" role="alert">
-              <p class="text-sm text-destructive">{t("common.viewLoadFailed", t("notes.title"))}</p>
-              <button type="button" class="min-h-9 rounded-md border border-border px-3 text-sm hover:bg-accent" onclick={() => requestNotesSurface("editor", true)}>{t("common.retry")}</button>
-            </div>
-          {:else}
-            <div class="flex min-w-0 flex-1 items-center justify-center p-4 text-sm text-muted-foreground" aria-busy="true">{t("common.loading")}</div>
-          {/if}
+          <NotesEditor
+            projectId={selectedProjectId}
+            openMode="center"
+            onClose={closePagePeek}
+            onOpenModeChange={showSelectedPageAs}
+          />
         </div>
       </div>
     {/if}

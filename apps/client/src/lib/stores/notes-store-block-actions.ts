@@ -110,6 +110,7 @@ export interface NotesBlockLocalMutationCapabilities {
 }
 
 export interface NotesBlockPersistenceCapabilities {
+  awaitSelectedPageReady: () => Promise<void>;
   saveBlockNow: (blockId: string, update: NotesBlockUpdate) => Promise<void>;
   scheduleBlockSave: (blockId: string, update: NotesBlockUpdate) => void;
   flushBlockSave: (blockId: string) => Promise<void>;
@@ -287,6 +288,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
   }
 
   async function appendAndApply(request: NotesAppendBlockChildrenRequest): Promise<NotesBlock[]> {
+    await context.awaitSelectedPageReady();
     const response = await appendNotesBlockChildren(request);
     context.applyPostMutation(notesPostAppendResult(request, response));
     return response.results;
@@ -296,6 +298,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     blockId: string,
     request: NotesMoveBlockRequest,
   ): Promise<NotesBlock> {
+    await context.awaitSelectedPageReady();
     const hierarchyChanged = context.blockById(blockId)?.type === "child_page";
     const block = await moveNotesBlock(blockId, request);
     context.applyPostMutation({
@@ -306,6 +309,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
   }
 
   async function moveManyAndApply(request: NotesMoveBlocksRequest): Promise<NotesBlock[]> {
+    await context.awaitSelectedPageReady();
     const hierarchyChanged = request.block_ids.some(
       (blockId) => context.blockById(blockId)?.type === "child_page",
     );
@@ -318,6 +322,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
   }
 
   async function trashAndApply(rootBlockIds: readonly string[]): Promise<void> {
+    await context.awaitSelectedPageReady();
     const before = context.treeState();
     const hierarchyChanged = rootBlockIds.some((blockId) => (
       collectLoadedBlockSubtreeIds(before, blockId).some(
@@ -345,6 +350,7 @@ export function createNotesBlockActions(context: NotesBlockActionsContext): Note
     before?: string | null;
     includeTrashedSources?: boolean;
   }): Promise<NotesBlock[]> {
+    await context.awaitSelectedPageReady();
     const request = {
       block_ids: [...input.rootBlockIds],
       duplicated_block_ids: input.sourceSubtreeBlockIds.map((sourceId) => ({

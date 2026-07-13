@@ -226,7 +226,7 @@
   }
 </script>
 
-<div class="flex h-full min-h-0 flex-col overflow-auto px-4 py-4" onscroll={handleWorkspaceScroll}>
+<div class="flex h-full min-h-0 flex-col overflow-auto px-4 py-4" onscroll={handleWorkspaceScroll} data-notes-first-use-state>
   <div class="mx-auto flex w-full max-w-208 shrink-0 flex-wrap items-center gap-2">
     <label class="flex min-w-48 flex-1 items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1.5">
       <Search class="size-4 shrink-0 text-muted-foreground" />
@@ -251,6 +251,7 @@
     <button
       type="button"
       class="flex h-8 shrink-0 items-center gap-1.5 rounded-md bg-primary px-2.5 text-[0.8rem] font-medium text-primary-foreground hover:bg-primary/90"
+      disabled={!projectId}
       onclick={() => createPage()}
     >
       <Plus class="size-4" />
@@ -264,9 +265,7 @@
     </div>
   {/if}
 
-  {#if notes.loading && projectPages.length === 0 && projectFolders.length === 0}
-    <div class="mx-auto mt-4 w-full max-w-208 text-[0.866667rem] text-muted-foreground">{t("notes.loading")}</div>
-  {:else if notes.loadError}
+  {#if notes.loadError}
     <div class="mx-auto mt-4 w-full max-w-208 text-[0.866667rem] text-destructive">
       {t("notes.loadFailed", notes.loadError)}
     </div>

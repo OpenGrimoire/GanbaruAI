@@ -14,8 +14,6 @@ describe("Notes component registry", () => {
     expect(second).toBe(first);
     await expect(first).resolves.toMatchObject({ kind: "archive" });
     expect(notesSurfaceHasLoaded("archive")).toBe(true);
-    expect(notesSurfaceHasLoaded("home")).toBe(false);
-    expect(notesSurfaceHasLoaded("editor")).toBe(false);
     expect(notesSurfaceHasLoaded("trash")).toBe(false);
   });
 

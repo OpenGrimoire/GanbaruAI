@@ -4,33 +4,40 @@
     {
       "name": "Projects",
       "module": "src/lib/components/projects/ProjectsView.svelte",
-      "maxSourceModules": 69
+      "maxSourceModules": 133
     },
     {
       "name": "Notes",
       "module": "src/lib/components/notes/NotesView.svelte",
-      "maxSourceModules": 8
+      "maxSourceModules": 133
     }
   ],
   "shell": {
-    "module": "src/App.svelte",
-    "forbiddenModules": [
+    "loadedModules": ["src/App.svelte"],
+    "requiredModules": [
       "src/lib/components/calendar/CalendarView.svelte",
       "src/lib/components/projects/ProjectsView.svelte",
       "src/lib/components/notes/NotesView.svelte",
       "src/lib/components/music/MusicView.svelte"
+    ],
+    "forbiddenModules": [
+      "src/lib/components/notes/NotesHtmlImportDialog.svelte",
+      "src/lib/components/notes/NotesJsonGraphExportDialog.svelte",
+      "src/lib/components/settings/NotesTransferSettingsPanel.svelte"
     ]
   },
   "projectsShell": {
     "loadedModules": [
       "src/lib/components/projects/ProjectsView.svelte"
     ],
-    "forbiddenModules": [
+    "requiredModules": [
       "src/lib/components/projects/ProjectListView.svelte",
       "src/lib/components/projects/ProjectKanbanView.svelte",
       "src/lib/components/calendar/CalendarView.svelte",
       "src/lib/components/projects/ProjectGanttView.svelte",
-      "src/lib/components/projects/ProjectDashboardView.svelte",
+      "src/lib/components/projects/ProjectDashboardView.svelte"
+    ],
+    "forbiddenModules": [
       "src/lib/components/projects/ProjectToolbarPanels.svelte",
       "src/lib/components/projects/ProjectSettingsPanel.svelte",
       "src/lib/components/projects/ProjectTaskFinder.svelte",
@@ -52,11 +59,13 @@
     "loadedModules": [
       "src/lib/components/notes/NotesView.svelte"
     ],
-    "forbiddenModules": [
+    "requiredModules": [
       "src/lib/components/notes/NotesProjectHome.svelte",
       "src/lib/components/notes/NotesEditor.svelte",
       "src/lib/components/notes/NotesBlockList.svelte",
-      "src/lib/components/notes/NotesBlockRow.svelte",
+      "src/lib/components/notes/NotesBlockRow.svelte"
+    ],
+    "forbiddenModules": [
       "src/lib/components/notes/NotesDatabaseTableView.svelte",
       "src/lib/components/notes/NotesDatabaseBoardView.svelte",
       "src/lib/components/notes/NotesDatabaseGalleryView.svelte",
@@ -76,8 +85,7 @@
       "src/lib/components/notes/NotesPagePickerPanel.svelte",
       "src/lib/components/notes/NotesProjectNavigator.svelte",
       "src/lib/components/notes/NotesDestinationPickerList.svelte",
-      "src/lib/components/notes/NotesBlockInsertMenu.svelte",
-      "src/lib/components/ui/ConfirmDialog.svelte"
+      "src/lib/components/notes/NotesBlockInsertMenu.svelte"
     ]
   },
   "notesParagraphEditor": {

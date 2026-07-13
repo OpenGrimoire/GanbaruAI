@@ -15,6 +15,7 @@ import { planNotesInsertedBlockFocus, planNotesPageLoadFocus } from "$lib/notes/
 import { nextSelectedNotesPageId } from "$lib/notes/page-selection";
 import { notesPageCoverAssetPath } from "$lib/notes/page-cover";
 import { notesPageIconAssetPath } from "$lib/notes/page-icon";
+import { createProvisionalNotesPage } from "$lib/notes/page-creation";
 import type { NotesPageOpenMode } from "$lib/notes/page-open-mode";
 import {
   normalizeNotesProjectId,
@@ -49,6 +50,9 @@ interface NotesPageActionsContext {
     impact: Exclude<NotesSidebarMetadataImpact, "none">,
     openMode?: NotesPageOpenMode,
   ) => Promise<void>;
+  activateProvisionalPage: (loaded: NotesLoadedPage, openMode: NotesPageOpenMode) => void;
+  beginPageCreation: (request: Parameters<typeof createNotesPage>[0]) => void;
+  awaitPageReady: (pageId: string | null) => Promise<void>;
   activateRestoredPage: (page: NotesPage) => Promise<void>;
   applyPostMutation: (result: NotesPostMutationResult) => void;
   selectPage: (pageId: string | null) => Promise<void>;
@@ -98,7 +102,7 @@ export function createNotesPageActions(context: NotesPageActionsContext) {
     const firstBlockId = crypto.randomUUID();
     const projectId = projectIdForParent(parent, options);
     const folderId = parent.type === "workspace" ? options.folderId?.trim() || null : null;
-    const loaded = await createNotesPage({
+    const request = {
       id: pageId,
       title,
       parent,
@@ -106,11 +110,13 @@ export function createNotesPageActions(context: NotesPageActionsContext) {
       first_block_id: firstBlockId,
       after_block_id: null,
       properties: notesPageProjectProperties(projectId),
-    });
-    if (loaded.page.folder_id) context.setFolderCollapsed(loaded.page.folder_id, false);
-    await context.activateReturnedPage(loaded, "hierarchy", context.defaultOpenMode(projectId));
+    };
+    const provisional = createProvisionalNotesPage(request);
+    if (provisional.page.folder_id) context.setFolderCollapsed(provisional.page.folder_id, false);
+    context.activateProvisionalPage(provisional, context.defaultOpenMode(projectId));
     context.requestBlockFocus(null);
-    context.requestTitleFocus(loaded.page.id);
+    context.requestTitleFocus(provisional.page.id);
+    context.beginPageCreation(request);
   }
 
   async function createPage(title: string, options: NotesCreatePageOptions = {}): Promise<void> {
@@ -127,6 +133,7 @@ export function createNotesPageActions(context: NotesPageActionsContext) {
   }
 
   async function createChildPageFromBlock(blockId: string): Promise<void> {
+    await context.awaitPageReady(context.readSelectedPageId());
     const block = context.readBlocksById()[blockId];
     if (!block || block.type === "child_page") return;
     await context.flushBlockSave(blockId);
@@ -145,6 +152,7 @@ export function createNotesPageActions(context: NotesPageActionsContext) {
   }
 
   async function createChildPageAfterBlock(blockId: string): Promise<void> {
+    await context.awaitPageReady(context.readSelectedPageId());
     const block = context.readBlocksById()[blockId];
     if (!block) return;
     await context.flushBlockSave(blockId);
@@ -171,6 +179,7 @@ export function createNotesPageActions(context: NotesPageActionsContext) {
   }
 
   async function renamePage(pageId: string, title: string): Promise<void> {
+    await context.awaitPageReady(pageId);
     const page = await updateNotesPage(pageId, { title: title.trim() });
     context.applyPostMutation({ pages: [page], sidebarImpact: "visible-metadata" });
     if (context.readSelectedPageId() === page.id) await context.reloadPageBreadcrumb(page.id);

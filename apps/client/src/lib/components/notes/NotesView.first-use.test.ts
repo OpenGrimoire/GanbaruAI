@@ -132,9 +132,8 @@ describe("NotesView first use", () => {
     expect(target.querySelector('[data-first-use-shell="notes"]')).not.toBeNull();
     expect(target.querySelector("[data-notes-workspace-header]")).not.toBeNull();
     expect(target.querySelector("[data-notes-first-use-state]")?.getAttribute("aria-busy"))
-      .toBe("true");
-    expect(target.querySelector('button[disabled]')?.textContent?.trim()).toBe("New note");
-    expect(target.querySelector("[data-notes-first-use-state]")?.textContent).toContain("Loading");
-    expect(backend.componentCalls).toEqual(["surface:home"]);
+      .toBeNull();
+    expect(target.querySelector("[data-notes-first-use-state]")?.textContent).not.toContain("Loading");
+    expect(backend.componentCalls).toEqual([]);
   }, 15_000);
 });

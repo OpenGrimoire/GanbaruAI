@@ -23,10 +23,9 @@
 <div
   class="flex h-full flex-col items-center justify-center gap-3 p-4 text-center text-[0.866667rem] text-muted-foreground"
   data-projects-first-use-state
-  aria-busy={projects.loading}
 >
-  <div>{projects.loading ? t("projects.loading") : t("projects.navigator.empty")}</div>
-  {#if !projects.loading}
+  <div>{t("projects.navigator.empty")}</div>
+  {#if projects.loaded}
     <button
       type="button"
       class="flex min-h-9 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-[0.8rem] font-medium text-foreground hover:bg-accent"

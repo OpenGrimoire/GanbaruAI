@@ -52,8 +52,12 @@
   import { hasOnlyShortcutModifier, hasShortcutModifier } from "$lib/keyboard-shortcuts";
   import TitleBar from "$lib/components/TitleBar.svelte";
   import WindowResizeHandles from "$lib/components/WindowResizeHandles.svelte";
+  import CalendarView from "$lib/components/calendar/CalendarView.svelte";
   import CompletionOverlay from "$lib/components/pomodoro/CompletionOverlay.svelte";
   import MusicPlaybackHost from "$lib/components/music/MusicPlaybackHost.svelte";
+  import MusicView from "$lib/components/music/MusicView.svelte";
+  import NotesView from "$lib/components/notes/NotesView.svelte";
+  import ProjectsView from "$lib/components/projects/ProjectsView.svelte";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
   import TooltipHost from "$lib/components/ui/TooltipHost.svelte";
   import UpdateNotificationToast from "$lib/components/updates/UpdateNotificationToast.svelte";
@@ -65,15 +69,6 @@
     setShellStartupMs,
   } from "$lib/stores/perflog.svelte";
   import type { MemoryReport, StartupMemorySnapshot } from "$lib/components/perf/memoryReport";
-  import {
-    beginTabViewLoad,
-    createTabViewLoader,
-    initialTabView,
-    rejectTabViewLoad,
-    resolveTabViewLoad,
-    type TabViewImporter,
-    type TabViewLoadState,
-  } from "$lib/tab-view-loader";
   import { isEditableKeyboardTarget, shouldUseKeyboardFocusIntent } from "$lib/utils";
   import {
     createLifecycleScheduler,
@@ -83,7 +78,7 @@
     createEventNotificationScheduler,
     createNotesNotificationScheduler,
   } from "$lib/scheduling/notification-schedulers";
-  import { onMount, type Component } from "svelte";
+  import { onMount } from "svelte";
   import { getNotesProjectHistoryScheduler } from "$lib/notes/project-history-scheduler";
   import { onActiveVaultIdentityChange } from "$lib/vault/active-vault";
   import { doomscrollingObservationPlan } from "$lib/stores/doomscrolling-observation-policy";
@@ -94,7 +89,7 @@
   const isMainWindow = appWindow.label === "main";
   const detachedWindowView = detachableTabViewFromWindowLabel(appWindow.label);
   const nav = getNavigation();
-  const startupTabView = initialTabView(nav.current, detachedWindowView);
+  const startupTabView = detachedWindowView ?? nav.current;
   if (nav.current !== startupTabView) nav.navigate(startupTabView);
   const calendar = getCalendar();
   const calendars = getCalendars();
@@ -147,60 +142,6 @@
   let loadingBenchmarkOverlay: Promise<void> | null = null;
   let loadingIdleOverlay: Promise<void> | null = null;
   let devtoolsToggleInFlight = false;
-  type TabViewComponent = Component<Record<string, never>>;
-  const detachableTabViewImporters = {
-    calendar: () => import("$lib/components/calendar/CalendarView.svelte"),
-    projects: () => import("$lib/components/projects/ProjectsView.svelte"),
-    notes: () => import("$lib/components/notes/NotesView.svelte"),
-  } satisfies Readonly<Record<DetachableTabView, TabViewImporter<TabViewComponent>>>;
-  const tabViewLoader = createTabViewLoader<TabViewComponent>(
-    detachableTabViewImporters,
-    () => import("$lib/components/music/MusicView.svelte"),
-  );
-  let tabViewState = $state<TabViewLoadState<TabViewComponent> | null>(null);
-  const activeTabViewState = $derived(
-    tabViewState?.key === nav.current ? tabViewState : null,
-  );
-
-  function requestTabView(view: View, retry = false): void {
-    if (!retry && tabViewState?.key === view) return;
-    const loadingState = beginTabViewLoad(tabViewState, view);
-    tabViewState = loadingState;
-    const request = retry ? tabViewLoader.retry(view) : tabViewLoader.load(view);
-    void request
-      .then((component) => {
-        if (!tabViewState) return;
-        const nextState = resolveTabViewLoad(
-          tabViewState,
-          view,
-          loadingState.requestId,
-          component,
-        );
-        if (nextState !== tabViewState) tabViewState = nextState;
-      })
-      .catch((error: unknown) => {
-        if (!tabViewState) return;
-        const nextState = rejectTabViewLoad(
-          tabViewState,
-          view,
-          loadingState.requestId,
-          error,
-        );
-        if (nextState === tabViewState) return;
-        tabViewState = nextState;
-        console.error(`Failed to load ${view} view:`, error);
-      });
-  }
-
-  function localizedTabViewLabel(view: View): string {
-    if (view === "calendar") return t("titleBar.tab.calendar");
-    if (view === "projects") return t("titleBar.tab.projects");
-    if (view === "notes") return t("titleBar.tab.notes");
-    return t("titleBar.control.music");
-  }
-
-  requestTabView(startupTabView);
-
   function ensureBenchmarkOverlay(): Promise<void> {
     if (BenchmarkOverlay) return Promise.resolve();
     loadingBenchmarkOverlay ??= import("$lib/components/benchmark/BenchmarkOverlay.svelte")
@@ -942,14 +883,12 @@
         nav.navigate(detachedWindowView);
         return;
       }
-      requestTabView(detachedWindowView);
       return;
     }
     if (isDetachableTabView(nav.current) && !visibleTabViews.includes(nav.current)) {
       nav.navigate(firstMainView(detachedWindows.views));
       return;
     }
-    requestTabView(nav.current);
   });
 
   // Notes mention notifications
@@ -1093,33 +1032,14 @@
   <div class="flex h-full flex-col overflow-hidden bg-sidebar">
     <TitleBar {shellStartupMs} {startupMemorySnapshot} {ensureBenchmarkOverlay} />
     <main class="content-panel flex-1 min-h-0 overflow-hidden bg-background">
-      {#if activeTabViewState?.status === "ready"}
-        {@const ActiveTabView = activeTabViewState.component}
-        <ActiveTabView />
-      {:else if activeTabViewState?.status === "failed"}
-        {@const failedView = activeTabViewState.key}
-        <div
-          class="flex h-full flex-col items-center justify-center gap-3 p-4 text-center text-sm text-muted-foreground"
-          role="alert"
-          data-tab-view-load-error={failedView}
-        >
-          <p>{t("common.viewLoadFailed", localizedTabViewLabel(failedView))}</p>
-          <button
-            type="button"
-            class="min-h-9 rounded-md border border-border bg-background px-3 font-medium text-foreground hover:bg-accent"
-            onclick={() => requestTabView(failedView, true)}
-          >
-            {t("common.retry")}
-          </button>
-        </div>
+      {#if nav.current === "calendar"}
+        <CalendarView />
+      {:else if nav.current === "projects"}
+        <ProjectsView />
+      {:else if nav.current === "notes"}
+        <NotesView />
       {:else}
-        <div
-          class="flex h-full items-center justify-center p-4 text-sm text-muted-foreground"
-          aria-busy="true"
-          data-tab-view-loading={nav.current}
-        >
-          {t("common.loading")}
-        </div>
+        <MusicView />
       {/if}
     </main>
   </div>

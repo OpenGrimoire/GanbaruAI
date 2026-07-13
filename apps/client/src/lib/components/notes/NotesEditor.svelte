@@ -1031,6 +1031,15 @@
       {/if}
     </div>
 
+    {#if notes.pageCreationError}
+      <div class="flex shrink-0 items-center justify-between gap-3 border-b border-destructive/30 bg-destructive/10 px-3 py-2 text-[0.8rem] text-destructive" role="alert">
+        <span>{t("notes.pageCreationFailed", notes.pageCreationError)}</span>
+        <button class="min-h-7 shrink-0 rounded-md border border-destructive/40 px-2 font-medium hover:bg-destructive/10" type="button" onclick={notes.retryPageCreation}>
+          {t("common.retry")}
+        </button>
+      </div>
+    {/if}
+
     <div
       bind:this={blockScrollViewport}
       data-notes-editor-scroll

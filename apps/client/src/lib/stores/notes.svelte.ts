@@ -72,6 +72,7 @@ import {
 import { createNotesBlockPersistence } from "./notes-store-persistence";
 import { NotesPageSessionController } from "./notes-store-page-session.svelte";
 import { NotesTreeProjectionController } from "./notes-store-tree-projection.svelte";
+import { createNotesPageCreationController } from "./notes-store-page-creation.svelte";
 import { invalidateNotesNotificationSchedule } from "$lib/notes/notification-schedule.svelte";
 import type {
   NotesBlock,
@@ -554,6 +555,46 @@ async function activateReturnedPage(
   await reloadPageBreadcrumb(loaded.page.id);
 }
 
+function activateProvisionalPage(
+  loaded: NotesLoadedPage,
+  openMode: NotesPageOpenMode,
+): void {
+  pageSession.invalidate();
+  treeProjection.resetOutlines();
+  undoController.reset(loaded.page.id);
+  pageHistoryController.resetPageState();
+  optionalSubsystemController.resetPageScoped();
+  openSelectedPage(loaded.page.id, openMode);
+  recordRecentPage(loaded.page.id);
+  applyPostMutation({
+    loadedPage: loaded,
+    pages: [loaded.page],
+    sidebarImpact: "hierarchy",
+  });
+}
+
+async function reconcileCreatedPage(loaded: NotesLoadedPage): Promise<void> {
+  const remainsSelected = pageSession.selectedPageId === loaded.page.id
+    && treeProjection.loadedPage?.id === loaded.page.id;
+  const reconciled = remainsSelected
+    ? {
+        ...loaded,
+        blocks: {
+          ...loaded.blocks,
+          results: loaded.blocks.results.map((block) => (
+            hasLocalChanges(block.id) ? treeProjection.blocksById[block.id] ?? block : block
+          )),
+        },
+      }
+    : loaded;
+  applyPostMutation({
+    ...(remainsSelected ? { loadedPage: reconciled } : {}),
+    pages: [loaded.page],
+    sidebarImpact: "hierarchy",
+  });
+  if (remainsSelected) await reloadPageBreadcrumb(loaded.page.id);
+}
+
 async function activateRestoredPage(page: NotesPage): Promise<void> {
   pageSession.invalidate();
   undoController.reset(page.id);
@@ -656,7 +697,19 @@ function requestPageLoadFocus(requestedBlockId: string | null = null): void {
   requestBlockFocus(planNotesPageLoadFocus(visibleBlockIds(), requestedBlockId));
 }
 
+const pageCreationController = createNotesPageCreationController({
+  reconcile: reconcileCreatedPage,
+  afterPersisted: async () => {
+    try {
+      await flushPendingBlockSaves();
+    } catch (error) {
+      workspaceController.setError(error instanceof Error ? error.message : String(error));
+    }
+  },
+});
+
 const {
+  hasLocalChanges,
   localApplyBlockUpdate,
   markBlockLocallyChanged,
   saveBlockNow,
@@ -665,6 +718,7 @@ const {
   flushPendingBlockSaves,
 } = createNotesBlockPersistence({
   readBlock: (blockId) => treeProjection.blocksById[blockId],
+  beforeSave: () => pageCreationController.awaitReady(pageSession.selectedPageId),
   replaceBlock,
   setLoadError: (message) => {
     workspaceController.setError(message);
@@ -751,6 +805,9 @@ const pageActions = createNotesPageActions({
   readBlocksById: () => treeProjection.blocksById,
   defaultOpenMode: defaultNotesPageOpenMode,
   activateReturnedPage,
+  activateProvisionalPage,
+  beginPageCreation: pageCreationController.begin,
+  awaitPageReady: pageCreationController.awaitReady,
   activateRestoredPage,
   applyPostMutation,
   selectPage: (pageId) => selectPage(pageId),
@@ -799,6 +856,7 @@ const blockActions = createNotesBlockActions({
   scheduleBlockSave,
   flushBlockSave,
   flushPendingBlockSaves,
+  awaitSelectedPageReady: () => pageCreationController.awaitReady(pageSession.selectedPageId),
   createUndoSnapshot: undoController.snapshot,
   createUndoSnapshotForBlocks: undoController.snapshotBlocks,
   recordUndo: undoController.record,
@@ -1016,6 +1074,12 @@ export function getNotes() {
     get primaryContentReady(): boolean {
       return treeProjection.primaryContentReady;
     },
+    get pageCreationPending(): boolean {
+      return pageCreationController.isPending(pageSession.selectedPageId);
+    },
+    get pageCreationError(): string | null {
+      return pageCreationController.errorFor(pageSession.selectedPageId);
+    },
     get pageBreadcrumbItems(): NotesPageBreadcrumbItem[] {
       return pageSession.breadcrumbs;
     },
@@ -1219,6 +1283,10 @@ export function getNotes() {
     showSelectedPageAs,
     createPage: pageActions.createPage,
     createSubpage: pageActions.createSubpage,
+    retryPageCreation: () => {
+      const pageId = pageSession.selectedPageId;
+      if (pageId) pageCreationController.retry(pageId);
+    },
     createFolder: foldersController.createFolder,
     renameFolder: foldersController.renameFolder,
     moveFolder: foldersController.moveFolder,
