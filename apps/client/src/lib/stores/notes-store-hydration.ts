@@ -64,6 +64,10 @@ export function createNotesHydrationController(context: NotesHydrationController
     const boundedIds = [...retained].slice(0, BLOCK_HYDRATION_LIMIT);
     const currentBlocks = context.readBlocksById();
     const missingIds = boundedIds.filter((id) => !currentBlocks[id]);
+    const retainedIds = new Set(boundedIds);
+    const shouldPrune = context.readFlatBlockOutlines().length >= BLOCK_VIRTUALIZATION_THRESHOLD
+      && Object.keys(currentBlocks).some((id) => !retainedIds.has(id));
+    if (missingIds.length === 0 && !shouldPrune) return;
     const requestId = ++hydrationRequestId;
     const hydrated = missingIds.length > 0
       ? await hydrateNotesBlocks({ page_id: pageId, block_ids: missingIds })
@@ -73,7 +77,7 @@ export function createNotesHydrationController(context: NotesHydrationController
       || generation !== context.readPageGeneration()
       || pageId !== context.readSelectedPageId()
     ) return;
-    const retainedIds = new Set(boundedIds);
+    if (hydrated.length === 0 && !shouldPrune) return;
     const nextBlocks = context.readFlatBlockOutlines().length >= BLOCK_VIRTUALIZATION_THRESHOLD
       ? Object.fromEntries(Object.entries(context.readBlocksById()).filter(([id]) => retainedIds.has(id)))
       : { ...context.readBlocksById() };
