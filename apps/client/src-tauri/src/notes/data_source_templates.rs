@@ -59,6 +59,8 @@ pub(in crate::notes) async fn create_data_source_template_from_row(
     let source_page_id = normalize_uuid(&request.source_page_id, "source_page_id")?;
     let name = normalize_template_name(&request.name)?;
     let is_default = request.is_default.unwrap_or(false);
+    crate::notes::project_history::ensure_data_source_baseline_for_mutation(pool, data_source_id)
+        .await?;
     let mut tx = pool
         .begin()
         .await
@@ -120,6 +122,8 @@ pub(in crate::notes) async fn apply_data_source_template(
         .as_deref()
         .map(normalize_row_title)
         .transpose()?;
+    crate::notes::project_history::ensure_data_source_baseline_for_mutation(pool, data_source_id)
+        .await?;
     let mut tx = pool
         .begin()
         .await
@@ -200,6 +204,8 @@ pub(in crate::notes) async fn update_data_source_template(
         .as_deref()
         .map(|value| normalize_uuid(value, "source_page_id"))
         .transpose()?;
+    crate::notes::project_history::ensure_data_source_baseline_for_mutation(pool, data_source_id)
+        .await?;
     if name.is_none() && source_page_id.is_none() && update.is_default.is_none() {
         return Err("template update must include a changed field".to_string());
     }
@@ -287,6 +293,8 @@ pub(in crate::notes) async fn duplicate_data_source_template(
     let duplicate_name = normalize_template_name(&request.name)?;
     require_uuid(data_source_id, "data_source_id")?;
     let is_default = request.is_default.unwrap_or(false);
+    crate::notes::project_history::ensure_data_source_baseline_for_mutation(pool, data_source_id)
+        .await?;
     let mut tx = pool
         .begin()
         .await
@@ -334,6 +342,8 @@ pub(in crate::notes) async fn delete_data_source_template(
 ) -> Result<String, String> {
     require_uuid(data_source_id, "data_source_id")?;
     let template_id = normalize_uuid(template_id, "template_id")?;
+    crate::notes::project_history::ensure_data_source_baseline_for_mutation(pool, data_source_id)
+        .await?;
     let mut tx = pool
         .begin()
         .await

@@ -1,6 +1,12 @@
 <script lang="ts">
   import { tick } from "svelte";
   import {
+    beginLazyComponentLoad,
+    rejectLazyComponentLoad,
+    resolveLazyComponentLoad,
+    type LazyComponentLoadState,
+  } from "$lib/lazy-component-loader";
+  import {
     applyNotesDataSourceTemplate,
     clickNotesDataSourceButton,
     createNotesDataSourceRowPage,
@@ -29,9 +35,12 @@
     type NotesDatabaseTableEditValue,
     type NotesDatabaseTableColumn,
   } from "$lib/notes/database-table";
-  import NotesDatabaseCsvExportPanel from "./NotesDatabaseCsvExportPanel.svelte";
-  import NotesDatabaseCsvImportPanel from "./NotesDatabaseCsvImportPanel.svelte";
   import NotesDatabaseRelationCell from "./NotesDatabaseRelationCell.svelte";
+  import {
+    loadNotesEditorPanel,
+    retryNotesEditorPanel,
+    type LoadedNotesEditorPanel,
+  } from "./notes-editor-component-registry";
   import type {
     NotesDatabaseTableFilter,
     NotesDatabaseTableFilterCondition,
@@ -82,6 +91,9 @@
   let table = $state<NotesDataSourceTableView | null>(null);
   let templates = $state<NotesDataSourceTemplate[]>([]);
   let loading = $state(false);
+  let loadingMore = $state(false);
+  let loadMoreSentinel: HTMLDivElement | null = $state(null);
+  let tableRequestId = 0;
   let mutating = $state(false);
   let error = $state<string | null>(null);
   let draftTitle = $state("");
@@ -92,6 +104,45 @@
   let selectedPanelRowId = $state<string | null>(null);
   let lastLoadSignature = $state("");
   let pendingFocusRowId = $state<string | null>(null);
+  let csvPanelOpen = $state<"database-csv-import" | "database-csv-export" | null>(null);
+  let csvPanelLoadState = $state<LazyComponentLoadState<
+    "database-csv-import" | "database-csv-export",
+    LoadedNotesEditorPanel
+  > | null>(null);
+
+  function requestCsvPanel(
+    kind: "database-csv-import" | "database-csv-export",
+    retry = false,
+  ): void {
+    csvPanelOpen = kind;
+    if (!retry && csvPanelLoadState?.key === kind) return;
+    const loadingState = beginLazyComponentLoad(csvPanelLoadState, kind);
+    csvPanelLoadState = loadingState;
+    const request = retry ? retryNotesEditorPanel(kind) : loadNotesEditorPanel(kind);
+    void request.then((component) => {
+      if (!csvPanelLoadState) return;
+      csvPanelLoadState = resolveLazyComponentLoad(
+        csvPanelLoadState,
+        kind,
+        loadingState.requestId,
+        component,
+      );
+    }).catch((error: unknown) => {
+      if (!csvPanelLoadState) return;
+      csvPanelLoadState = rejectLazyComponentLoad(
+        csvPanelLoadState,
+        kind,
+        loadingState.requestId,
+        error,
+      );
+      console.error(`load Notes ${kind} panel failed`, error);
+    });
+  }
+
+  function retryCsvPanel(): void {
+    const kind = csvPanelLoadState?.key;
+    if (kind) requestCsvPanel(kind, true);
+  }
 
   const columns = $derived(table ? notesDatabaseTableColumns(table.data_source, table.view) : []);
   const visibleColumns = $derived(notesDatabaseTableVisibleColumns(columns));
@@ -119,6 +170,7 @@
   }
 
   async function loadTable(): Promise<NotesDataSourceTableView | null> {
+    const requestId = ++tableRequestId;
     loading = true;
     error = null;
     try {
@@ -126,6 +178,7 @@
         getNotesDataSourceTableView(dataSourceId, viewScope()),
         listNotesDataSourceTemplates(dataSourceId),
       ]);
+      if (requestId !== tableRequestId) return null;
       table = loaded;
       templates = loadedTemplates;
       if (selectedPanelRowId && !loaded.rows.some((row) => row.id === selectedPanelRowId)) {
@@ -149,6 +202,36 @@
       loading = false;
     }
   }
+
+  async function loadMoreTableRows(): Promise<void> {
+    const current = table;
+    if (!current?.has_more || !current.next_cursor || loadingMore) return;
+    const requestId = tableRequestId;
+    loadingMore = true;
+    try {
+      const loaded = await getNotesDataSourceTableView(dataSourceId, viewScope(), {
+        start_cursor: current.next_cursor,
+      });
+      if (requestId !== tableRequestId || table !== current) return;
+      const rows = new Map(current.rows.map((row) => [row.id, row]));
+      for (const row of loaded.rows) rows.set(row.id, row);
+      table = { ...loaded, rows: [...rows.values()] };
+    } catch (caught) {
+      if (requestId === tableRequestId) error = caught instanceof Error ? caught.message : String(caught);
+    } finally {
+      if (requestId === tableRequestId) loadingMore = false;
+    }
+  }
+
+  $effect(() => {
+    const sentinel = loadMoreSentinel;
+    if (!sentinel || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) void loadMoreTableRows();
+    }, { root: sentinel.closest("[data-notes-editor-scroll]") });
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  });
 
   async function focusPendingRow(loaded: NotesDataSourceTableView): Promise<void> {
     const rowId = pendingFocusRowId;
@@ -625,19 +708,30 @@
         </div>
       </details>
 
-      <NotesDatabaseCsvImportPanel
-        {dataSourceId}
-        disabled={mutating || loading}
-        onImported={async () => {
-          await loadTable();
-        }}
-      />
-      <NotesDatabaseCsvExportPanel
-        {dataSourceId}
-        {databaseId}
-        {viewId}
-        disabled={mutating || loading}
-      />
+      <div class="flex flex-wrap gap-2">
+        <button class="min-h-8 rounded-md border border-border px-2 text-[0.8rem] hover:bg-accent" type="button" onclick={() => requestCsvPanel("database-csv-import")}>{t("notes.databaseCsvImportTitle")}</button>
+        <button class="min-h-8 rounded-md border border-border px-2 text-[0.8rem] hover:bg-accent" type="button" onclick={() => requestCsvPanel("database-csv-export")}>{t("notes.databaseCsvExportTitle")}</button>
+      </div>
+      {#if csvPanelOpen === "database-csv-import" && csvPanelLoadState?.status === "ready" && csvPanelLoadState.component.kind === "database-csv-import"}
+        {@const NotesDatabaseCsvImportPanel = csvPanelLoadState.component.component}
+        <NotesDatabaseCsvImportPanel
+          {dataSourceId}
+          disabled={mutating || loading}
+          onImported={async () => {
+            await loadTable();
+          }}
+        />
+      {:else if csvPanelOpen === "database-csv-export" && csvPanelLoadState?.status === "ready" && csvPanelLoadState.component.kind === "database-csv-export"}
+        {@const NotesDatabaseCsvExportPanel = csvPanelLoadState.component.component}
+        <NotesDatabaseCsvExportPanel
+          {dataSourceId}
+          {databaseId}
+          {viewId}
+          disabled={mutating || loading}
+        />
+      {:else if csvPanelOpen && csvPanelLoadState?.status === "failed"}
+        <button class="min-h-8 rounded-md border border-border px-2 text-[0.8rem] hover:bg-accent" type="button" onclick={retryCsvPanel}>{t("common.retry")}</button>
+      {/if}
 
       <div class="grid gap-2 @lg:grid-cols-3">
         <details class="rounded-md border border-border p-2 text-[0.8rem]">
@@ -977,6 +1071,12 @@
 
       {#if table.rows.length === 0 && !loading && !error}
         <p class="text-[0.8rem] text-muted-foreground">{t("notes.databaseRowsEmpty")}</p>
+      {/if}
+      {#if table.has_more}
+        <div bind:this={loadMoreSentinel} class="h-px" aria-hidden="true"></div>
+        {#if loadingMore}
+          <div class="py-2 text-center text-[0.8rem] text-muted-foreground" aria-busy="true">{t("common.loading")}</div>
+        {/if}
       {/if}
 
       {#if visibleColumns.length === 0}

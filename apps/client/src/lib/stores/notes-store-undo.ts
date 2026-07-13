@@ -39,6 +39,7 @@ export interface NotesUndoControllerContext {
 }
 
 export interface NotesUndoController {
+  reset: (pageId: string | null) => void;
   hydrate: (pageId: string | null) => Promise<void>;
   snapshot: (
     focusBlockId: string | null,
@@ -186,6 +187,12 @@ export function createNotesUndoController(
     }
   }
 
+  function reset(pageId: string | null): void {
+    hydrateRequestId += 1;
+    hydratedPageId = pageId;
+    state = EMPTY_UNDO_STATE;
+  }
+
   function snapshot(
     focusBlockId: string | null,
     extraBlocks: readonly NotesBlock[] = [],
@@ -268,6 +275,7 @@ export function createNotesUndoController(
   }
 
   return {
+    reset,
     hydrate,
     snapshot,
     snapshotBlocks,

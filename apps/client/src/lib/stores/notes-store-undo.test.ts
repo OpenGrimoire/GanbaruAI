@@ -67,10 +67,11 @@ describe("notes undo controller", () => {
     let currentTree = tree(paragraph("ab"));
     let locallyAppliedText: string | null = null;
     let requestedSelection: NotesTextSelection | null = null;
+    const loadPageTreeForUndo = vi.fn(async () => undefined);
     const controller = createNotesUndoController({
       readSelectedPageId: () => pageId,
       readTreeState: () => currentTree,
-      loadPageTreeForUndo: async () => undefined,
+      loadPageTreeForUndo,
       requestBlockFocus: (_blockId, selection) => {
         requestedSelection = selection ?? null;
       },
@@ -109,6 +110,7 @@ describe("notes undo controller", () => {
     expect(controller.canRedo()).toBe(true);
     await expect(result).resolves.toBe(true);
     await vi.waitFor(() => expect(notesApi.updateNotesBlock).toHaveBeenCalledTimes(1));
+    expect(loadPageTreeForUndo).toHaveBeenCalledTimes(0);
 
     await expect(controller.redo()).resolves.toBe(true);
     expect(locallyAppliedText).toBe("ab");

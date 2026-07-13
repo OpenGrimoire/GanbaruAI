@@ -1,4 +1,87 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+
+#[derive(Default, Serialize)]
+pub struct ProjectsMutationRows {
+    pub(in crate::projects) groups: Vec<ProjectGroupRow>,
+    pub(in crate::projects) projects: Vec<ProjectRow>,
+    pub(in crate::projects) sections: Vec<ProjectSectionRow>,
+    pub(in crate::projects) statuses: Vec<ProjectStatusRow>,
+    pub(in crate::projects) priorities: Vec<ProjectPriorityRow>,
+    pub(in crate::projects) tasks: Vec<ProjectTaskRow>,
+    pub(in crate::projects) checklist_items: Vec<ProjectChecklistItemRow>,
+    pub(in crate::projects) tags: Vec<ProjectTagRow>,
+    pub(in crate::projects) task_tag_links: Vec<ProjectTaskTagLinkRow>,
+    pub(in crate::projects) custom_fields: Vec<ProjectCustomFieldRow>,
+    pub(in crate::projects) custom_field_options: Vec<ProjectCustomFieldOptionRow>,
+    pub(in crate::projects) custom_field_values: Vec<ProjectCustomFieldValueRow>,
+    pub(in crate::projects) custom_field_option_values: Vec<ProjectCustomFieldOptionValueRow>,
+    pub(in crate::projects) dependencies: Vec<ProjectTaskDependencyRow>,
+    pub(in crate::projects) event_links: Vec<ProjectTaskEventLinkRow>,
+    pub(in crate::projects) task_change_events: Vec<ProjectTaskChangeEventRow>,
+    pub(in crate::projects) view_preferences: Vec<ProjectViewPreferenceRow>,
+    pub(in crate::projects) custom_emojis: Vec<ProjectCustomEmojiRow>,
+    pub(in crate::projects) removals: Vec<ProjectMutationRemoval>,
+    pub(in crate::projects) calendar_event_project_assignments: Vec<CalendarEventProjectAssignment>,
+}
+
+#[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ProjectMutationRemoval {
+    Group {
+        id: String,
+    },
+    Project {
+        id: String,
+    },
+    Status {
+        id: String,
+    },
+    Priority {
+        id: String,
+    },
+    ChecklistItem {
+        id: String,
+    },
+    Tag {
+        id: String,
+    },
+    TaskTagLink {
+        task_id: String,
+        tag_id: String,
+    },
+    CustomField {
+        id: String,
+    },
+    CustomFieldOption {
+        id: String,
+    },
+    CustomFieldValue {
+        task_id: String,
+        field_id: String,
+    },
+    Dependency {
+        id: String,
+    },
+    EventLink {
+        task_id: String,
+        event_id: String,
+    },
+    ViewPreference {
+        project_id: String,
+        view_id: String,
+        preference_key: String,
+    },
+    CustomEmoji {
+        id: String,
+    },
+}
+
+#[derive(Serialize)]
+pub struct CalendarEventProjectAssignment {
+    pub(in crate::projects) event_id: String,
+    pub(in crate::projects) project_id: String,
+}
 
 #[derive(Serialize)]
 pub struct ProjectGroupRow {
@@ -180,6 +263,56 @@ pub struct ProjectTaskRow {
     pub(in crate::projects) created_at: String,
     pub(in crate::projects) updated_at: String,
 }
+
+#[derive(Serialize)]
+pub struct ProjectTaskSummaryRow {
+    pub(in crate::projects) id: String,
+    pub(in crate::projects) project_id: String,
+    pub(in crate::projects) section_id: String,
+    pub(in crate::projects) status_id: String,
+    pub(in crate::projects) parent_task_id: Option<String>,
+    pub(in crate::projects) title: String,
+    pub(in crate::projects) priority: String,
+    pub(in crate::projects) task_type: String,
+    pub(in crate::projects) section_sort_order: f64,
+    pub(in crate::projects) status_sort_order: f64,
+    pub(in crate::projects) estimate_minutes: Option<i64>,
+    pub(in crate::projects) due_date: Option<String>,
+    pub(in crate::projects) due_time: Option<String>,
+    pub(in crate::projects) start_date: Option<String>,
+    pub(in crate::projects) start_time: Option<String>,
+    pub(in crate::projects) target_end_date: Option<String>,
+    pub(in crate::projects) completed_at: Option<String>,
+    pub(in crate::projects) archived_at: Option<String>,
+    pub(in crate::projects) blocker_reason_present: i64,
+    pub(in crate::projects) milestone: i64,
+    pub(in crate::projects) created_at: String,
+    pub(in crate::projects) updated_at: String,
+}
+impl_sqlite_from_row!(ProjectTaskSummaryRow {
+    id,
+    project_id,
+    section_id,
+    status_id,
+    parent_task_id,
+    title,
+    priority,
+    task_type,
+    section_sort_order,
+    status_sort_order,
+    estimate_minutes,
+    due_date,
+    due_time,
+    start_date,
+    start_time,
+    target_end_date,
+    completed_at,
+    archived_at,
+    blocker_reason_present,
+    milestone,
+    created_at,
+    updated_at,
+});
 impl_sqlite_from_row!(ProjectTaskRow {
     id,
     project_id,
@@ -496,6 +629,146 @@ pub struct ProjectsSnapshot {
     pub(in crate::projects) statuses: Vec<ProjectStatusRow>,
     pub(in crate::projects) priorities: Vec<ProjectPriorityRow>,
     pub(in crate::projects) tasks: Vec<ProjectTaskRow>,
+    pub(in crate::projects) checklist_items: Vec<ProjectChecklistItemRow>,
+    pub(in crate::projects) tags: Vec<ProjectTagRow>,
+    pub(in crate::projects) task_tag_links: Vec<ProjectTaskTagLinkRow>,
+    pub(in crate::projects) custom_fields: Vec<ProjectCustomFieldRow>,
+    pub(in crate::projects) custom_field_options: Vec<ProjectCustomFieldOptionRow>,
+    pub(in crate::projects) custom_field_values: Vec<ProjectCustomFieldValueRow>,
+    pub(in crate::projects) custom_field_option_values: Vec<ProjectCustomFieldOptionValueRow>,
+    pub(in crate::projects) dependencies: Vec<ProjectTaskDependencyRow>,
+    pub(in crate::projects) event_links: Vec<ProjectTaskEventLinkRow>,
+    pub(in crate::projects) task_change_events: Vec<ProjectTaskChangeEventRow>,
+    pub(in crate::projects) view_preferences: Vec<ProjectViewPreferenceRow>,
+    pub(in crate::projects) custom_emojis: Vec<ProjectCustomEmojiRow>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectViewId {
+    List,
+    Kanban,
+    Calendar,
+    Gantt,
+    Dashboard,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectTaskCustomFieldFilterRequest {
+    pub(in crate::projects) field_id: String,
+    pub(in crate::projects) mode: String,
+    pub(in crate::projects) checked: Option<bool>,
+    pub(in crate::projects) option_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectTaskViewRequest {
+    pub(in crate::projects) project_id: String,
+    pub(in crate::projects) view: ProjectViewId,
+    pub(in crate::projects) page_size: i64,
+    pub(in crate::projects) cursor: Option<String>,
+    pub(in crate::projects) column_cursors: HashMap<String, String>,
+    pub(in crate::projects) show_archived: bool,
+    pub(in crate::projects) visible_section_ids: Vec<String>,
+    pub(in crate::projects) search: String,
+    pub(in crate::projects) status_filter: String,
+    pub(in crate::projects) section_filter: String,
+    pub(in crate::projects) priority_filter: String,
+    pub(in crate::projects) due_filter: String,
+    pub(in crate::projects) due_range_start: String,
+    pub(in crate::projects) due_range_end: String,
+    pub(in crate::projects) today: String,
+    pub(in crate::projects) week_end: String,
+    pub(in crate::projects) schedule_filter: String,
+    pub(in crate::projects) dependency_filter: String,
+    pub(in crate::projects) tag_filter: String,
+    pub(in crate::projects) custom_field_filters: Vec<ProjectTaskCustomFieldFilterRequest>,
+    pub(in crate::projects) sort_mode: String,
+    pub(in crate::projects) sort_direction: String,
+    pub(in crate::projects) candidate_event_ids: Vec<String>,
+}
+
+#[derive(Serialize)]
+pub struct ProjectTaskColumnCount {
+    pub(in crate::projects) status_id: String,
+    pub(in crate::projects) count: i64,
+    pub(in crate::projects) next_cursor: Option<String>,
+}
+
+#[derive(Default, Serialize)]
+pub struct ProjectDashboardTaskAggregates {
+    pub(in crate::projects) total: i64,
+    pub(in crate::projects) completed: i64,
+    pub(in crate::projects) open_estimate_minutes: i64,
+    pub(in crate::projects) blocked: i64,
+    pub(in crate::projects) overdue: i64,
+    pub(in crate::projects) unscheduled_due: i64,
+    pub(in crate::projects) missing_estimate: i64,
+    pub(in crate::projects) status_counts: HashMap<String, i64>,
+}
+
+#[derive(Serialize)]
+pub struct ProjectTaskViewPage {
+    pub(in crate::projects) project_id: String,
+    pub(in crate::projects) view: ProjectViewId,
+    pub(in crate::projects) tasks: Vec<ProjectTaskSummaryRow>,
+    pub(in crate::projects) total_count: i64,
+    pub(in crate::projects) matched_count: i64,
+    pub(in crate::projects) archived_count: i64,
+    pub(in crate::projects) next_cursor: Option<String>,
+    pub(in crate::projects) column_counts: Vec<ProjectTaskColumnCount>,
+    pub(in crate::projects) aggregates: Option<ProjectDashboardTaskAggregates>,
+    pub(in crate::projects) matched_event_ids: Vec<String>,
+    pub(in crate::projects) task_tag_links: Vec<ProjectTaskTagLinkRow>,
+    pub(in crate::projects) custom_field_values: Vec<ProjectCustomFieldValueRow>,
+    pub(in crate::projects) custom_field_option_values: Vec<ProjectCustomFieldOptionValueRow>,
+    pub(in crate::projects) dependencies: Vec<ProjectTaskDependencyRow>,
+    pub(in crate::projects) event_links: Vec<ProjectTaskEventLinkRow>,
+    pub(in crate::projects) tags: Vec<ProjectTagRow>,
+    pub(in crate::projects) custom_fields: Vec<ProjectCustomFieldRow>,
+    pub(in crate::projects) custom_field_options: Vec<ProjectCustomFieldOptionRow>,
+}
+
+#[derive(Serialize)]
+pub struct ProjectTaskDetailData {
+    pub(in crate::projects) task: ProjectTaskRow,
+    pub(in crate::projects) related_tasks: Vec<ProjectTaskSummaryRow>,
+    pub(in crate::projects) checklist_items: Vec<ProjectChecklistItemRow>,
+    pub(in crate::projects) tags: Vec<ProjectTagRow>,
+    pub(in crate::projects) task_tag_links: Vec<ProjectTaskTagLinkRow>,
+    pub(in crate::projects) custom_fields: Vec<ProjectCustomFieldRow>,
+    pub(in crate::projects) custom_field_options: Vec<ProjectCustomFieldOptionRow>,
+    pub(in crate::projects) custom_field_values: Vec<ProjectCustomFieldValueRow>,
+    pub(in crate::projects) custom_field_option_values: Vec<ProjectCustomFieldOptionValueRow>,
+    pub(in crate::projects) dependencies: Vec<ProjectTaskDependencyRow>,
+    pub(in crate::projects) event_links: Vec<ProjectTaskEventLinkRow>,
+    pub(in crate::projects) task_change_events: Vec<ProjectTaskChangeEventRow>,
+}
+
+#[derive(Serialize)]
+pub struct ProjectsWorkspaceSnapshot {
+    pub(in crate::projects) resolved_project_id: Option<String>,
+    pub(in crate::projects) active_view: ProjectViewId,
+    pub(in crate::projects) snapshot: ProjectsSnapshot,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectOptionalDataKind {
+    Relationships,
+    CustomFields,
+    History,
+    Checklist,
+    SavedViews,
+    CustomEmojis,
+}
+
+#[derive(Serialize)]
+pub struct ProjectsOptionalData {
+    pub(in crate::projects) kind: ProjectOptionalDataKind,
+    pub(in crate::projects) project_id: Option<String>,
     pub(in crate::projects) checklist_items: Vec<ProjectChecklistItemRow>,
     pub(in crate::projects) tags: Vec<ProjectTagRow>,
     pub(in crate::projects) task_tag_links: Vec<ProjectTaskTagLinkRow>,

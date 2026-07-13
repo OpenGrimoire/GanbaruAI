@@ -6,7 +6,7 @@ use super::validation::{
     plain_text_from_payload, require_uuid, validate_block_payload, validate_database_create,
     validate_sort_order,
 };
-use super::{history, writes};
+use super::{history, project_history, writes};
 use serde_json::{json, Value};
 use sqlx::{Sqlite, SqlitePool, Transaction};
 
@@ -19,6 +19,12 @@ pub(in crate::notes) async fn create_database(
     request: NoteDatabaseCreate,
 ) -> Result<NoteCreatedDatabaseDto, String> {
     validate_database_create(&request)?;
+    if let Some(block_id) = request.replace_block_id.as_ref() {
+        project_history::ensure_blocks_baseline_for_mutation(pool, std::slice::from_ref(block_id))
+            .await?;
+    } else if let Some(parent) = request.parent.as_ref() {
+        project_history::ensure_parent_baseline_for_mutation(pool, parent).await?;
+    }
     let mut tx = pool
         .begin()
         .await
@@ -65,6 +71,11 @@ pub(in crate::notes) async fn create_linked_database_view(
     request: NoteLinkedDatabaseCreate,
 ) -> Result<NoteCreatedDatabaseDto, String> {
     validate_linked_database_create(&request)?;
+    project_history::ensure_blocks_baseline_for_mutation(
+        pool,
+        std::slice::from_ref(&request.source_block_id),
+    )
+    .await?;
     let mut tx = pool
         .begin()
         .await

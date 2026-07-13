@@ -1,27 +1,164 @@
 use super::models::{
-    NoteBlockDto, NoteBlockRow, NoteLoadedPage, NotePageBreadcrumbItemDto, NotePageDto,
-    NotePageRow, NotePaginatedBlockList, NoteSidebarPageList, NoteSidebarPagesRequest,
+    NoteBlockDto, NoteBlockFrontierDto, NoteBlockHydrationRequest, NoteBlockOutlineDto,
+    NoteBlockRow, NoteLoadedPage, NotePageBreadcrumbItemDto, NotePageDto, NotePageOpenDto,
+    NotePageRow, NotePageSummaryDto, NotePageSummaryWindowDto, NotePageSummaryWindowRequest,
+    NotePaginatedBlockList, NoteSidebarPageList, NoteSidebarPagesRequest,
 };
 use super::validation::{require_uuid, validate_page_size};
+use serde::{Deserialize, Serialize};
 use sqlx::{QueryBuilder, Sqlite, SqlitePool};
 use std::collections::{HashMap, HashSet};
 
 const DEFAULT_PAGE_SIZE: i64 = 50;
+const BLOCK_FRONTIER_PARENT_BATCH_SIZE: usize = 400;
+const SUMMARY_WINDOW_SIZE: i64 = 50;
+const MAX_SUMMARY_WINDOW_SIZE: i64 = 100;
 
+#[derive(Deserialize, Serialize)]
+struct PageSummaryCursor {
+    last_edited_time: String,
+    title: String,
+    id: String,
+}
+
+#[cfg(test)]
 pub(in crate::notes) async fn list_pages(pool: &SqlitePool) -> Result<Vec<NotePageDto>, String> {
     list_pages_by_state(pool, false, Some(false)).await
 }
 
+#[cfg(test)]
 pub(in crate::notes) async fn list_trashed_pages(
     pool: &SqlitePool,
 ) -> Result<Vec<NotePageDto>, String> {
     list_pages_by_state(pool, true, None).await
 }
 
+pub(in crate::notes) async fn list_trashed_page_window(
+    pool: &SqlitePool,
+    request: NotePageSummaryWindowRequest,
+) -> Result<NotePageSummaryWindowDto, String> {
+    list_page_summary_window(pool, true, None, request).await
+}
+
+#[cfg(test)]
 pub(in crate::notes) async fn list_archived_pages(
     pool: &SqlitePool,
 ) -> Result<Vec<NotePageDto>, String> {
     list_pages_by_state(pool, false, Some(true)).await
+}
+
+pub(in crate::notes) async fn list_archived_page_window(
+    pool: &SqlitePool,
+    request: NotePageSummaryWindowRequest,
+) -> Result<NotePageSummaryWindowDto, String> {
+    list_page_summary_window(pool, false, Some(true), request).await
+}
+
+async fn list_page_summary_window(
+    pool: &SqlitePool,
+    in_trash: bool,
+    archived: Option<bool>,
+    request: NotePageSummaryWindowRequest,
+) -> Result<NotePageSummaryWindowDto, String> {
+    let page_size = request.page_size.unwrap_or(SUMMARY_WINDOW_SIZE);
+    if !(1..=MAX_SUMMARY_WINDOW_SIZE).contains(&page_size) {
+        return Err(format!(
+            "page_size must be between 1 and {MAX_SUMMARY_WINDOW_SIZE}"
+        ));
+    }
+    let search = request.query.unwrap_or_default().trim().to_string();
+    let cursor = request
+        .cursor
+        .map(|value| {
+            serde_json::from_str::<PageSummaryCursor>(&value)
+                .map_err(|_| "invalid page summary cursor".to_string())
+        })
+        .transpose()?;
+    let mut count =
+        QueryBuilder::<Sqlite>::new("SELECT COUNT(*) FROM notes_pages WHERE in_trash = ");
+    count.push_bind(in_trash);
+    if let Some(archived) = archived {
+        count.push(" AND archived = ").push_bind(archived);
+    }
+    if !search.is_empty() {
+        count
+            .push(" AND instr(lower(title), lower(")
+            .push_bind(search.clone())
+            .push(")) > 0");
+    }
+    let total_count = count
+        .build_query_scalar::<i64>()
+        .fetch_one(pool)
+        .await
+        .map_err(|e| format!("count notes page summary window: {e}"))?;
+    let mut query = QueryBuilder::<Sqlite>::new(format!(
+        "SELECT {} FROM notes_pages WHERE in_trash = ",
+        super::workspace_shell::page_projection()
+    ));
+    query.push_bind(in_trash);
+    if let Some(archived) = archived {
+        query.push(" AND archived = ").push_bind(archived);
+    }
+    if !search.is_empty() {
+        query
+            .push(" AND instr(lower(title), lower(")
+            .push_bind(search)
+            .push(")) > 0");
+    }
+    if let Some(cursor) = &cursor {
+        push_page_summary_cursor(&mut query, cursor);
+    }
+    query
+        .push(" ORDER BY last_edited_time DESC, title COLLATE NOCASE ASC, id ASC LIMIT ")
+        .push_bind(page_size + 1);
+    let mut pages = query
+        .build_query_as::<NotePageSummaryDto>()
+        .fetch_all(pool)
+        .await
+        .map_err(|e| format!("list notes page summary window: {e}"))?;
+    let has_more = pages.len() > page_size as usize;
+    if has_more {
+        pages.truncate(page_size as usize);
+    }
+    let next_cursor = if has_more {
+        pages
+            .last()
+            .map(|page| {
+                serde_json::to_string(&PageSummaryCursor {
+                    last_edited_time: page.last_edited_time.clone(),
+                    title: page.title.clone(),
+                    id: page.id.clone(),
+                })
+                .map_err(|e| format!("serialize page summary cursor: {e}"))
+            })
+            .transpose()?
+    } else {
+        None
+    };
+    Ok(NotePageSummaryWindowDto::new(
+        pages,
+        total_count,
+        next_cursor,
+    ))
+}
+
+fn push_page_summary_cursor(query: &mut QueryBuilder<'_, Sqlite>, cursor: &PageSummaryCursor) {
+    query
+        .push(" AND (last_edited_time < ")
+        .push_bind(cursor.last_edited_time.clone());
+    query
+        .push(" OR (last_edited_time = ")
+        .push_bind(cursor.last_edited_time.clone());
+    query
+        .push(" AND (title COLLATE NOCASE > ")
+        .push_bind(cursor.title.clone());
+    query
+        .push(" COLLATE NOCASE OR (title COLLATE NOCASE = ")
+        .push_bind(cursor.title.clone());
+    query
+        .push(" COLLATE NOCASE AND id > ")
+        .push_bind(cursor.id.clone())
+        .push("))))");
 }
 
 pub(in crate::notes) async fn list_sidebar_pages(
@@ -39,7 +176,7 @@ pub(in crate::notes) async fn list_sidebar_pages(
         seed_page_ids.push(selected_page_id);
     }
 
-    let mut rows_by_id = HashMap::<String, NotePageRow>::new();
+    let mut rows_by_id = HashMap::<String, NotePageSummaryDto>::new();
     push_unique_page_rows(&mut rows_by_id, fetch_sidebar_root_page_rows(pool).await?);
     push_unique_page_rows(
         &mut rows_by_id,
@@ -64,12 +201,12 @@ pub(in crate::notes) async fn list_sidebar_pages(
     let (missing_parent_page_ids, trashed_parent_page_ids) =
         fetch_unavailable_parent_page_ids(pool, &rows, &loaded_page_ids).await?;
 
-    NoteSidebarPageList::new(
+    Ok(NoteSidebarPageList::new(
         rows,
         page_ids_with_children,
         missing_parent_page_ids,
         trashed_parent_page_ids,
-    )
+    ))
 }
 
 pub(in crate::notes) async fn get_page_breadcrumb(
@@ -112,6 +249,7 @@ pub(in crate::notes) async fn get_page_breadcrumb(
     Ok(crumbs)
 }
 
+#[cfg(test)]
 async fn list_pages_by_state(
     pool: &SqlitePool,
     in_trash: bool,
@@ -158,13 +296,16 @@ fn normalize_request_page_id(page_id: &str) -> Option<String> {
     Some(trimmed.to_string())
 }
 
-fn push_unique_page_rows(rows_by_id: &mut HashMap<String, NotePageRow>, rows: Vec<NotePageRow>) {
+fn push_unique_page_rows(
+    rows_by_id: &mut HashMap<String, NotePageSummaryDto>,
+    rows: Vec<NotePageSummaryDto>,
+) {
     for row in rows {
         rows_by_id.entry(row.id.clone()).or_insert(row);
     }
 }
 
-fn sort_page_rows(rows: &mut [NotePageRow]) {
+fn sort_page_rows(rows: &mut [NotePageSummaryDto]) {
     rows.sort_by(|left, right| {
         right
             .last_edited_time
@@ -174,16 +315,19 @@ fn sort_page_rows(rows: &mut [NotePageRow]) {
     });
 }
 
-async fn fetch_sidebar_root_page_rows(pool: &SqlitePool) -> Result<Vec<NotePageRow>, String> {
-    sqlx::query_as::<_, NotePageRow>(
-        "SELECT *
+async fn fetch_sidebar_root_page_rows(
+    pool: &SqlitePool,
+) -> Result<Vec<NotePageSummaryDto>, String> {
+    sqlx::query_as::<_, NotePageSummaryDto>(&format!(
+        "SELECT {}
          FROM notes_pages
          WHERE in_trash = 0
            AND archived = 0
            AND parent_type <> 'page_id'
            AND parent_type <> 'data_source_id'
-         ORDER BY last_edited_time DESC, title COLLATE NOCASE ASC, id ASC",
-    )
+         ORDER BY last_edited_time DESC, title COLLATE NOCASE ASC, id ASC LIMIT 50",
+        super::workspace_shell::page_projection()
+    ))
     .fetch_all(pool)
     .await
     .map_err(|e| format!("list notes sidebar root pages: {e}"))
@@ -192,20 +336,21 @@ async fn fetch_sidebar_root_page_rows(pool: &SqlitePool) -> Result<Vec<NotePageR
 async fn fetch_active_page_rows_by_ids(
     pool: &SqlitePool,
     page_ids: &[String],
-) -> Result<Vec<NotePageRow>, String> {
+) -> Result<Vec<NotePageSummaryDto>, String> {
     if page_ids.is_empty() {
         return Ok(Vec::new());
     }
-    let mut query = QueryBuilder::<Sqlite>::new(
-        "SELECT * FROM notes_pages WHERE in_trash = 0 AND archived = 0 AND id IN (",
-    );
+    let mut query = QueryBuilder::<Sqlite>::new(format!(
+        "SELECT {} FROM notes_pages WHERE in_trash = 0 AND archived = 0 AND id IN (",
+        super::workspace_shell::page_projection()
+    ));
     let mut separated = query.separated(", ");
     for page_id in page_ids {
         separated.push_bind(page_id);
     }
     query.push(") ORDER BY last_edited_time DESC, title COLLATE NOCASE ASC, id ASC");
     query
-        .build_query_as::<NotePageRow>()
+        .build_query_as::<NotePageSummaryDto>()
         .fetch_all(pool)
         .await
         .map_err(|e| format!("list notes sidebar pages by id: {e}"))
@@ -214,24 +359,25 @@ async fn fetch_active_page_rows_by_ids(
 async fn fetch_active_child_page_rows(
     pool: &SqlitePool,
     parent_page_ids: &[String],
-) -> Result<Vec<NotePageRow>, String> {
+) -> Result<Vec<NotePageSummaryDto>, String> {
     if parent_page_ids.is_empty() {
         return Ok(Vec::new());
     }
-    let mut query = QueryBuilder::<Sqlite>::new(
-        "SELECT * FROM notes_pages
+    let mut query = QueryBuilder::<Sqlite>::new(format!(
+        "SELECT {} FROM notes_pages
          WHERE in_trash = 0
            AND archived = 0
            AND parent_type = 'page_id'
            AND parent_page_id IN (",
-    );
+        super::workspace_shell::page_projection()
+    ));
     let mut separated = query.separated(", ");
     for page_id in parent_page_ids {
         separated.push_bind(page_id);
     }
     query.push(") ORDER BY last_edited_time DESC, title COLLATE NOCASE ASC, id ASC");
     query
-        .build_query_as::<NotePageRow>()
+        .build_query_as::<NotePageSummaryDto>()
         .fetch_all(pool)
         .await
         .map_err(|e| format!("list notes sidebar child pages: {e}"))
@@ -240,30 +386,31 @@ async fn fetch_active_child_page_rows(
 async fn fetch_active_ancestor_page_rows(
     pool: &SqlitePool,
     page_id: &str,
-) -> Result<Vec<NotePageRow>, String> {
-    let mut rows = Vec::new();
-    let mut seen = HashSet::new();
-    let mut cursor = Some(page_id.to_string());
-    while let Some(current_page_id) = cursor {
-        let Some(row) = fetch_page_row_any_state(pool, &current_page_id).await? else {
-            break;
-        };
-        if !seen.insert(row.id.clone()) {
-            break;
-        }
-        let parent_page_id = if row.parent_type == "page_id" {
-            row.parent_page_id.clone()
-        } else {
-            None
-        };
-        if row.id != page_id && row.in_trash == 0 && row.archived == 0 {
-            rows.push(row);
-        } else if row.in_trash != 0 || row.archived != 0 {
-            break;
-        }
-        cursor = parent_page_id;
-    }
-    Ok(rows)
+) -> Result<Vec<NotePageSummaryDto>, String> {
+    let query = format!(
+        "WITH RECURSIVE ancestors(id, depth) AS (
+             SELECT parent_page_id, 1 FROM notes_pages
+             WHERE id = ? AND parent_type = 'page_id'
+             UNION ALL
+             SELECT page.parent_page_id, ancestors.depth + 1
+             FROM notes_pages AS page
+             JOIN ancestors ON page.id = ancestors.id
+             WHERE page.parent_type = 'page_id'
+               AND page.in_trash = 0
+               AND page.archived = 0
+               AND ancestors.depth < 64
+         )
+         SELECT {} FROM notes_pages
+         WHERE id IN (SELECT id FROM ancestors WHERE id IS NOT NULL)
+           AND in_trash = 0 AND archived = 0
+         LIMIT 64",
+        super::workspace_shell::page_projection()
+    );
+    sqlx::query_as::<_, NotePageSummaryDto>(&query)
+        .bind(page_id)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| format!("list notes sidebar ancestor pages: {e}"))
 }
 
 async fn fetch_page_row_any_state(
@@ -312,7 +459,7 @@ async fn fetch_active_parent_page_ids_with_children(
 
 async fn fetch_unavailable_parent_page_ids(
     pool: &SqlitePool,
-    rows: &[NotePageRow],
+    rows: &[NotePageSummaryDto],
     loaded_page_ids: &[String],
 ) -> Result<(Vec<String>, Vec<String>), String> {
     let loaded_page_id_set = loaded_page_ids
@@ -334,12 +481,19 @@ async fn fetch_unavailable_parent_page_ids(
         {
             continue;
         }
-        match fetch_page_row_any_state(pool, parent_page_id).await? {
+        let state = sqlx::query_as::<_, (i64, i64)>(
+            "SELECT in_trash, archived FROM notes_pages WHERE id = ?",
+        )
+        .bind(parent_page_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| format!("load notes sidebar parent state: {e}"))?;
+        match state {
             None => missing_parent_page_ids.push(parent_page_id.to_string()),
-            Some(parent) if parent.in_trash != 0 => {
+            Some((in_trash, _)) if in_trash != 0 => {
                 trashed_parent_page_ids.push(parent_page_id.to_string());
             }
-            Some(parent) if parent.archived != 0 => {
+            Some((_, archived)) if archived != 0 => {
                 missing_parent_page_ids.push(parent_page_id.to_string());
             }
             Some(_) => {}
@@ -359,6 +513,317 @@ pub(in crate::notes) async fn load_page(
     let blocks =
         get_page_block_children(pool, page_id.trim(), None, Some(DEFAULT_PAGE_SIZE)).await?;
     Ok(NoteLoadedPage::new(page, blocks))
+}
+
+pub(in crate::notes) async fn open_page(
+    pool: &SqlitePool,
+    page_id: &str,
+) -> Result<NotePageOpenDto, String> {
+    let page_id = page_id.trim();
+    require_uuid(page_id, "page_id")?;
+    let mut transaction = pool
+        .begin()
+        .await
+        .map_err(|error| format!("begin notes page open: {error}"))?;
+    let page_row = sqlx::query_as::<_, NotePageRow>(
+        "SELECT * FROM notes_pages WHERE id = ? AND in_trash = 0 AND archived = 0",
+    )
+    .bind(page_id)
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(|error| format!("load notes page: {error}"))?
+    .ok_or_else(|| "notes page not found".to_string())?;
+    let breadcrumb = get_page_breadcrumb_in_transaction(&mut transaction, page_id).await?;
+    let rows = sqlx::query_as::<_, NoteBlockRow>(
+        "SELECT
+            id, page_id, parent_type, parent_page_id, parent_block_id, has_children,
+            in_trash, type AS block_type, payload, plain_text, sort_order, source_provider,
+            source_object_id, source_last_edited_time, created_time, last_edited_time
+         FROM notes_blocks
+         WHERE parent_type = 'page_id' AND parent_page_id = ? AND in_trash = 0
+         ORDER BY sort_order ASC, id ASC
+         LIMIT ?",
+    )
+    .bind(page_id)
+    .bind(DEFAULT_PAGE_SIZE + 1)
+    .fetch_all(&mut *transaction)
+    .await
+    .map_err(|error| format!("load notes page blocks: {error}"))?;
+    let outline_rows = sqlx::query_as::<_, BlockOutlineRow>(
+        "SELECT id, page_id, parent_type, parent_page_id, parent_block_id,
+                type AS block_type, sort_order, has_children
+         FROM notes_blocks
+         WHERE parent_type = 'page_id' AND parent_page_id = ? AND in_trash = 0
+         ORDER BY sort_order ASC, id ASC",
+    )
+    .bind(page_id)
+    .fetch_all(&mut *transaction)
+    .await
+    .map_err(|error| format!("load notes page block outline: {error}"))?;
+    transaction
+        .commit()
+        .await
+        .map_err(|error| format!("commit notes page open: {error}"))?;
+    let page = NotePageDto::new(page_row)?;
+    let blocks = block_page_from_rows(rows, DEFAULT_PAGE_SIZE as usize)?;
+    let outlines = outline_rows
+        .into_iter()
+        .map(NoteBlockOutlineDto::try_from)
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(NotePageOpenDto::new(page, breadcrumb, blocks, outlines))
+}
+
+pub(in crate::notes) async fn get_block_outline_frontier(
+    pool: &SqlitePool,
+    page_id: &str,
+    parent_ids: &[String],
+) -> Result<Vec<NoteBlockOutlineDto>, String> {
+    let page_id = page_id.trim();
+    require_uuid(page_id, "page_id")?;
+    let parent_ids = normalize_block_ids(parent_ids, "parent_id")?;
+    if parent_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut rows = Vec::new();
+    for parent_batch in parent_ids.chunks(BLOCK_FRONTIER_PARENT_BATCH_SIZE) {
+        let mut query = QueryBuilder::<Sqlite>::new(
+            "SELECT id, page_id, parent_type, parent_page_id, parent_block_id, \
+                    type AS block_type, sort_order, has_children \
+             FROM notes_blocks WHERE page_id = ",
+        );
+        query.push_bind(page_id);
+        query.push(" AND parent_type = 'block_id' AND in_trash = 0 AND parent_block_id IN (");
+        let mut separated = query.separated(", ");
+        for parent_id in parent_batch {
+            separated.push_bind(parent_id);
+        }
+        query.push(") ORDER BY parent_block_id ASC, sort_order ASC, id ASC");
+        rows.extend(
+            query
+                .build_query_as::<BlockOutlineRow>()
+                .fetch_all(pool)
+                .await
+                .map_err(|error| format!("load notes block outline frontier: {error}"))?,
+        );
+    }
+    rows.into_iter()
+        .map(NoteBlockOutlineDto::try_from)
+        .collect()
+}
+
+pub(in crate::notes) async fn hydrate_blocks(
+    pool: &SqlitePool,
+    request: NoteBlockHydrationRequest,
+) -> Result<Vec<NoteBlockDto>, String> {
+    let page_id = request.page_id.trim();
+    require_uuid(page_id, "page_id")?;
+    let block_ids = normalize_block_ids(&request.block_ids, "block_id")?;
+    if block_ids.len() > 200 {
+        return Err("block hydration is limited to 200 blocks".to_string());
+    }
+    if block_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut query = QueryBuilder::<Sqlite>::new(
+        "SELECT id, page_id, parent_type, parent_page_id, parent_block_id, has_children, \
+                in_trash, type AS block_type, payload, plain_text, sort_order, source_provider, \
+                source_object_id, source_last_edited_time, created_time, last_edited_time \
+         FROM notes_blocks WHERE page_id = ",
+    );
+    query.push_bind(page_id);
+    query.push(" AND in_trash = 0 AND id IN (");
+    let mut separated = query.separated(", ");
+    for block_id in &block_ids {
+        separated.push_bind(block_id);
+    }
+    query.push(") ORDER BY sort_order ASC, id ASC");
+    query
+        .build_query_as::<NoteBlockRow>()
+        .fetch_all(pool)
+        .await
+        .map_err(|error| format!("hydrate notes blocks: {error}"))?
+        .into_iter()
+        .map(NoteBlockDto::new)
+        .collect()
+}
+
+fn normalize_block_ids(ids: &[String], label: &str) -> Result<Vec<String>, String> {
+    let mut normalized = Vec::with_capacity(ids.len());
+    let mut seen = HashSet::new();
+    for id in ids {
+        let id = id.trim();
+        require_uuid(id, label)?;
+        if seen.insert(id.to_string()) {
+            normalized.push(id.to_string());
+        }
+    }
+    Ok(normalized)
+}
+
+async fn get_page_breadcrumb_in_transaction(
+    transaction: &mut sqlx::Transaction<'_, Sqlite>,
+    page_id: &str,
+) -> Result<Vec<NotePageBreadcrumbItemDto>, String> {
+    let mut crumbs = Vec::new();
+    let mut seen = HashSet::new();
+    let mut cursor = Some(page_id.to_string());
+    while let Some(current_page_id) = cursor {
+        if !seen.insert(current_page_id.clone()) {
+            break;
+        }
+        let row = sqlx::query_as::<_, NotePageRow>("SELECT * FROM notes_pages WHERE id = ?")
+            .bind(&current_page_id)
+            .fetch_optional(&mut **transaction)
+            .await
+            .map_err(|error| format!("load notes page breadcrumb: {error}"))?;
+        let Some(row) = row else {
+            crumbs.push(NotePageBreadcrumbItemDto::missing(current_page_id));
+            break;
+        };
+        let current = row.id == page_id;
+        if current && (row.in_trash != 0 || row.archived != 0) {
+            return Err("notes page not found".to_string());
+        }
+        cursor = (row.parent_type == "page_id")
+            .then(|| row.parent_page_id.clone())
+            .flatten();
+        crumbs.push(if row.in_trash != 0 {
+            NotePageBreadcrumbItemDto::unavailable(row, "trashed")
+        } else if row.archived != 0 {
+            NotePageBreadcrumbItemDto::unavailable(row, "archived")
+        } else {
+            NotePageBreadcrumbItemDto::active(row, current)
+        });
+    }
+    crumbs.reverse();
+    Ok(crumbs)
+}
+
+pub(in crate::notes) async fn get_block_frontier(
+    pool: &SqlitePool,
+    parent_ids: &[String],
+) -> Result<NoteBlockFrontierDto, String> {
+    if parent_ids.is_empty() {
+        return Ok(NoteBlockFrontierDto::new(Vec::new()));
+    }
+    let mut normalized = Vec::with_capacity(parent_ids.len());
+    let mut seen = HashSet::new();
+    for parent_id in parent_ids {
+        let parent_id = parent_id.trim();
+        require_uuid(parent_id, "parent_id")?;
+        if seen.insert(parent_id.to_string()) {
+            normalized.push(parent_id.to_string());
+        }
+    }
+    let mut rows = Vec::new();
+    for parent_batch in normalized.chunks(BLOCK_FRONTIER_PARENT_BATCH_SIZE) {
+        let mut query = QueryBuilder::<Sqlite>::new(
+            "SELECT id, page_id, parent_type, parent_page_id, parent_block_id, has_children, \
+             in_trash, type AS block_type, payload, plain_text, sort_order, source_provider, \
+             source_object_id, source_last_edited_time, created_time, last_edited_time \
+             FROM notes_blocks WHERE parent_type = 'block_id' AND in_trash = 0 AND parent_block_id IN (",
+        );
+        let mut separated = query.separated(", ");
+        for parent_id in parent_batch {
+            separated.push_bind(parent_id);
+        }
+        query.push(") ORDER BY parent_block_id ASC, sort_order ASC, id ASC");
+        rows.extend(
+            query
+                .build_query_as::<NoteBlockRow>()
+                .fetch_all(pool)
+                .await
+                .map_err(|error| format!("load notes block frontier: {error}"))?,
+        );
+    }
+    let blocks = rows
+        .into_iter()
+        .map(NoteBlockDto::new)
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(NoteBlockFrontierDto::new(blocks))
+}
+
+fn block_page_from_rows(
+    mut rows: Vec<NoteBlockRow>,
+    page_size: usize,
+) -> Result<NotePaginatedBlockList, String> {
+    let has_more = rows.len() > page_size;
+    if has_more {
+        rows.truncate(page_size);
+    }
+    let next_cursor = if has_more {
+        rows.last().map(|row| row.id.clone())
+    } else {
+        None
+    };
+    let results = rows
+        .into_iter()
+        .map(NoteBlockDto::new)
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(NotePaginatedBlockList::new(results, next_cursor, has_more))
+}
+
+struct BlockOutlineRow {
+    id: String,
+    page_id: String,
+    parent_type: String,
+    parent_page_id: Option<String>,
+    parent_block_id: Option<String>,
+    block_type: String,
+    sort_order: f64,
+    has_children: i64,
+}
+
+impl<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow> for BlockOutlineRow {
+    fn from_row(row: &'r sqlx::sqlite::SqliteRow) -> Result<Self, sqlx::Error> {
+        use sqlx::Row;
+        Ok(Self {
+            id: row.try_get("id")?,
+            page_id: row.try_get("page_id")?,
+            parent_type: row.try_get("parent_type")?,
+            parent_page_id: row.try_get("parent_page_id")?,
+            parent_block_id: row.try_get("parent_block_id")?,
+            block_type: row.try_get("block_type")?,
+            sort_order: row.try_get("sort_order")?,
+            has_children: row.try_get("has_children")?,
+        })
+    }
+}
+
+impl TryFrom<BlockOutlineRow> for NoteBlockOutlineDto {
+    type Error = String;
+
+    fn try_from(row: BlockOutlineRow) -> Result<Self, Self::Error> {
+        let parent = match row.parent_type.as_str() {
+            "page_id" => super::models::NoteParent::PageId {
+                page_id: row
+                    .parent_page_id
+                    .ok_or_else(|| "page block outline is missing parent_page_id".to_string())?,
+            },
+            "block_id" => super::models::NoteParent::BlockId {
+                block_id: row
+                    .parent_block_id
+                    .ok_or_else(|| "nested block outline is missing parent_block_id".to_string())?,
+            },
+            other => return Err(format!("unsupported block outline parent type: {other}")),
+        };
+        let retained_height = match row.block_type.as_str() {
+            "image" | "video" | "pdf" | "bookmark" | "link_preview" | "embed" => 240,
+            "child_database" | "table" | "column_list" | "tab" => 180,
+            "code" | "callout" => 72,
+            "heading_1" | "heading_2" | "heading_3" | "heading_4" => 48,
+            _ => 36,
+        };
+        Ok(NoteBlockOutlineDto::new(
+            row.id,
+            row.page_id,
+            parent,
+            row.block_type,
+            row.sort_order,
+            row.has_children != 0,
+            retained_height,
+        ))
+    }
 }
 
 pub(in crate::notes) async fn get_page(

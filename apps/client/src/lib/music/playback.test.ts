@@ -27,6 +27,25 @@ const previous: PersistedPlaybackState = {
 };
 
 describe("shouldPersistPlaybackState", () => {
+  it("bounds uninterrupted ten-minute playback checkpoints", () => {
+    let saved: PersistedPlaybackState | null = null;
+    let writes = 0;
+    for (let second = 0; second <= 600; second += 1) {
+      const next = {
+        sourceIdentity: "youtube:video:abc",
+        sourceKind: "youtube-video" as const,
+        positionMs: second * 1_000,
+        durationMs: 600_000,
+        status: "playing" as const,
+        nowMs: second * 1_000,
+      };
+      if (!shouldPersistPlaybackState(next, saved)) continue;
+      writes += 1;
+      saved = { ...next, updatedAt: next.nowMs };
+    }
+    expect(writes).toBe(121);
+  });
+
   it("persists when status changes", () => {
     expect(shouldPersistPlaybackState({
       sourceIdentity: "youtube:video:abc",

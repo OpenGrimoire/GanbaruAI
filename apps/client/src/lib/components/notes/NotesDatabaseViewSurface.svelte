@@ -4,12 +4,17 @@
     NOTES_DATABASE_VIEW_KINDS,
     type NotesDatabaseViewKind,
   } from "$lib/notes/database-view-kind";
-  import NotesDatabaseBoardView from "./NotesDatabaseBoardView.svelte";
-  import NotesDatabaseCalendarView from "./NotesDatabaseCalendarView.svelte";
-  import NotesDatabaseGalleryView from "./NotesDatabaseGalleryView.svelte";
-  import NotesDatabaseListView from "./NotesDatabaseListView.svelte";
-  import NotesDatabaseTableView from "./NotesDatabaseTableView.svelte";
-  import NotesDatabaseTimelineView from "./NotesDatabaseTimelineView.svelte";
+  import {
+    beginLazyComponentLoad,
+    rejectLazyComponentLoad,
+    resolveLazyComponentLoad,
+    type LazyComponentLoadState,
+  } from "$lib/lazy-component-loader";
+  import {
+    loadNotesDatabaseView,
+    retryNotesDatabaseView,
+    type LoadedNotesDatabaseView,
+  } from "./notes-editor-component-registry";
 
   let {
     activeView,
@@ -30,6 +35,41 @@
   } = $props();
 
   const { t } = getLocalization();
+  let viewLoadState = $state<LazyComponentLoadState<
+    NotesDatabaseViewKind,
+    LoadedNotesDatabaseView
+  > | null>(null);
+
+  function requestActiveView(retry = false): void {
+    if (!retry && viewLoadState?.key === activeView) return;
+    const kind = activeView;
+    const loadingState = beginLazyComponentLoad(viewLoadState, kind);
+    viewLoadState = loadingState;
+    const request = retry ? retryNotesDatabaseView(kind) : loadNotesDatabaseView(kind);
+    void request.then((component) => {
+      if (!viewLoadState) return;
+      viewLoadState = resolveLazyComponentLoad(
+        viewLoadState,
+        kind,
+        loadingState.requestId,
+        component,
+      );
+    }).catch((error: unknown) => {
+      if (!viewLoadState) return;
+      viewLoadState = rejectLazyComponentLoad(
+        viewLoadState,
+        kind,
+        loadingState.requestId,
+        error,
+      );
+      console.error(`load Notes ${kind} database view failed`, error);
+    });
+  }
+
+  $effect(() => {
+    activeView;
+    requestActiveView();
+  });
 
   function viewLabel(view: NotesDatabaseViewKind): string {
     if (view === "table") return t("notes.databaseViewTable");
@@ -63,7 +103,8 @@
   {/each}
 </div>
 
-{#if activeView === "table"}
+{#if viewLoadState?.status === "ready" && viewLoadState.key === activeView && viewLoadState.component.kind === "table"}
+  {@const NotesDatabaseTableView = viewLoadState.component.component}
   <NotesDatabaseTableView
     {dataSourceId}
     {databaseId}
@@ -71,7 +112,8 @@
     {onSelectPage}
     reloadKey={reloadKeys.table}
   />
-{:else if activeView === "board"}
+{:else if viewLoadState?.status === "ready" && viewLoadState.key === activeView && viewLoadState.component.kind === "board"}
+  {@const NotesDatabaseBoardView = viewLoadState.component.component}
   <NotesDatabaseBoardView
     {dataSourceId}
     {databaseId}
@@ -79,7 +121,8 @@
     {onSelectPage}
     reloadKey={reloadKeys.board}
   />
-{:else if activeView === "gallery"}
+{:else if viewLoadState?.status === "ready" && viewLoadState.key === activeView && viewLoadState.component.kind === "gallery"}
+  {@const NotesDatabaseGalleryView = viewLoadState.component.component}
   <NotesDatabaseGalleryView
     {dataSourceId}
     {databaseId}
@@ -87,7 +130,8 @@
     {onSelectPage}
     reloadKey={reloadKeys.gallery}
   />
-{:else if activeView === "list"}
+{:else if viewLoadState?.status === "ready" && viewLoadState.key === activeView && viewLoadState.component.kind === "list"}
+  {@const NotesDatabaseListView = viewLoadState.component.component}
   <NotesDatabaseListView
     {dataSourceId}
     {databaseId}
@@ -95,7 +139,8 @@
     {onSelectPage}
     reloadKey={reloadKeys.list}
   />
-{:else if activeView === "calendar"}
+{:else if viewLoadState?.status === "ready" && viewLoadState.key === activeView && viewLoadState.component.kind === "calendar"}
+  {@const NotesDatabaseCalendarView = viewLoadState.component.component}
   <NotesDatabaseCalendarView
     {dataSourceId}
     {databaseId}
@@ -103,7 +148,8 @@
     {onSelectPage}
     reloadKey={reloadKeys.calendar}
   />
-{:else}
+{:else if viewLoadState?.status === "ready" && viewLoadState.key === activeView && viewLoadState.component.kind === "timeline"}
+  {@const NotesDatabaseTimelineView = viewLoadState.component.component}
   <NotesDatabaseTimelineView
     {dataSourceId}
     {databaseId}
@@ -111,4 +157,19 @@
     {onSelectPage}
     reloadKey={reloadKeys.timeline}
   />
+{:else if viewLoadState?.status === "failed" && viewLoadState.key === activeView}
+  <div class="my-3 rounded-md border border-destructive/40 p-3 text-[0.8rem] text-destructive" role="alert">
+    <p>{t("common.viewLoadFailed", viewLabel(activeView))}</p>
+    <button
+      class="mt-2 min-h-8 rounded-md border border-border px-2 text-foreground hover:bg-accent"
+      type="button"
+      onclick={() => requestActiveView(true)}
+    >
+      {t("common.retry")}
+    </button>
+  </div>
+{:else}
+  <div class="my-3 text-[0.8rem] text-muted-foreground" aria-busy="true">
+    {t("common.loading")}
+  </div>
 {/if}

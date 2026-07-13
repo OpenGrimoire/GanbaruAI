@@ -13,9 +13,9 @@ use crate::notes::validation::{
     plain_text_from_payload, require_uuid, validate_page_create, validate_page_update,
     validate_sort_order,
 };
-use crate::notes::{assets, history, reads};
+use crate::notes::{assets, history, project_history, reads};
 use serde_json::Value;
-use sqlx::SqlitePool;
+use sqlx::{Row, SqlitePool};
 
 pub(in crate::notes) async fn create_page(
     pool: &SqlitePool,
@@ -27,6 +27,19 @@ pub(in crate::notes) async fn create_page(
     }
     let title = page.title.trim().to_string();
     let properties = page_properties_for_create(&title, page.properties.as_ref())?;
+    if let Some(existing) = load_idempotent_page_create(pool, &page, &title, &properties).await? {
+        return Ok(existing);
+    }
+    if let Some(project_id) = properties
+        .get("__ganbaru_project_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        project_history::ensure_project_baseline_for_mutation(pool, project_id).await?;
+    } else {
+        project_history::ensure_parent_baseline_for_mutation(pool, &page.parent).await?;
+    }
     let folder_id = page.folder_id.as_deref().map(str::trim);
     let (parent_type, parent_page_id, parent_block_id) = parent_columns(&page.parent);
     let first_payload = default_text_payload("");
@@ -133,6 +146,110 @@ pub(in crate::notes) async fn create_page(
     reads::load_page(pool, page.id.trim()).await
 }
 
+async fn load_idempotent_page_create(
+    pool: &SqlitePool,
+    page: &NotePageCreate,
+    title: &str,
+    properties: &Value,
+) -> Result<Option<NoteLoadedPage>, String> {
+    let page_id = page.id.trim();
+    let existing = sqlx::query(
+        "SELECT parent_type, parent_page_id, parent_block_id, folder_id, title, properties
+         FROM notes_pages WHERE id = ?",
+    )
+    .bind(page_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| format!("check existing notes page create: {e}"))?;
+    let Some(existing) = existing else {
+        let first_block_exists: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM notes_blocks WHERE id = ?")
+                .bind(page.first_block_id.trim())
+                .fetch_one(pool)
+                .await
+                .map_err(|e| format!("check existing initial notes block: {e}"))?;
+        if first_block_exists != 0 {
+            return Err("notes page create ids already belong to different data".to_string());
+        }
+        return Ok(None);
+    };
+
+    let (parent_type, parent_page_id, parent_block_id) = parent_columns(&page.parent);
+    let stored_properties: String = existing
+        .try_get("properties")
+        .map_err(|e| format!("read existing notes page properties: {e}"))?;
+    let stored_properties: Value = serde_json::from_str(&stored_properties)
+        .map_err(|e| format!("parse existing notes page properties: {e}"))?;
+    let stored_parent_type: String = existing
+        .try_get("parent_type")
+        .map_err(|e| format!("read existing notes page parent type: {e}"))?;
+    let stored_parent_page_id: Option<String> = existing
+        .try_get("parent_page_id")
+        .map_err(|e| format!("read existing notes page parent page: {e}"))?;
+    let stored_parent_block_id: Option<String> = existing
+        .try_get("parent_block_id")
+        .map_err(|e| format!("read existing notes page parent block: {e}"))?;
+    let stored_folder_id: Option<String> = existing
+        .try_get("folder_id")
+        .map_err(|e| format!("read existing notes page folder: {e}"))?;
+    let stored_title: String = existing
+        .try_get("title")
+        .map_err(|e| format!("read existing notes page title: {e}"))?;
+    let page_matches = stored_parent_type == parent_type
+        && stored_parent_page_id.as_deref() == parent_page_id
+        && stored_parent_block_id.as_deref() == parent_block_id
+        && stored_folder_id.as_deref() == page.folder_id.as_deref().map(str::trim)
+        && stored_title == title
+        && stored_properties == *properties;
+    if !page_matches {
+        return Err("notes page create id already belongs to different data".to_string());
+    }
+
+    let initial_payload = default_text_payload("");
+    let initial = sqlx::query(
+        "SELECT page_id, parent_type, parent_page_id, type, payload, sort_order
+         FROM notes_blocks WHERE id = ?",
+    )
+    .bind(page.first_block_id.trim())
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| format!("check existing initial notes block: {e}"))?;
+    let Some(initial) = initial else {
+        return Err("existing notes page is missing its initial block".to_string());
+    };
+    let stored_payload: String = initial
+        .try_get("payload")
+        .map_err(|e| format!("read existing initial notes block payload: {e}"))?;
+    let stored_payload: Value = serde_json::from_str(&stored_payload)
+        .map_err(|e| format!("parse existing initial notes block payload: {e}"))?;
+    let stored_page_id: String = initial
+        .try_get("page_id")
+        .map_err(|e| format!("read existing initial block page: {e}"))?;
+    let stored_parent_type: String = initial
+        .try_get("parent_type")
+        .map_err(|e| format!("read existing initial block parent type: {e}"))?;
+    let stored_parent_page_id: Option<String> = initial
+        .try_get("parent_page_id")
+        .map_err(|e| format!("read existing initial block parent page: {e}"))?;
+    let stored_type: String = initial
+        .try_get("type")
+        .map_err(|e| format!("read existing initial block type: {e}"))?;
+    let stored_sort_order: f64 = initial
+        .try_get("sort_order")
+        .map_err(|e| format!("read existing initial block sort order: {e}"))?;
+    let block_matches = stored_page_id == page_id
+        && stored_parent_type == "page_id"
+        && stored_parent_page_id.as_deref() == Some(page_id)
+        && stored_type == "paragraph"
+        && stored_sort_order == 1000.0
+        && stored_payload == initial_payload;
+    if !block_matches {
+        return Err("initial notes block id already belongs to different data".to_string());
+    }
+
+    reads::load_page(pool, page_id).await.map(Some)
+}
+
 pub(in crate::notes) async fn create_child_page_from_block(
     pool: &SqlitePool,
     block_id: &str,
@@ -148,6 +265,7 @@ pub(in crate::notes) async fn create_child_page_from_block(
     if current.block_type == "child_page" {
         return reads::load_page(pool, block_id).await;
     }
+    project_history::ensure_page_baseline_for_mutation(pool, &current.page_id).await?;
     let title = request
         .title
         .as_deref()
@@ -316,6 +434,7 @@ pub(in crate::notes) async fn update_page(
     let page_id = page_id.trim();
     require_uuid(page_id, "page_id")?;
     validate_page_update(&update)?;
+    project_history::ensure_page_baseline_for_mutation(pool, page_id).await?;
     let mut tx = pool
         .begin()
         .await

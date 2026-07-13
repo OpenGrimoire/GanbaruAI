@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  APP_VIEWS,
   isDetachableTabView,
   isView,
   firstMainView,
@@ -24,8 +25,9 @@ describe("navigation helpers", () => {
   });
 
   it("parses an initial view from the window search string", () => {
-    expect(parseInitialViewSearch("?view=notes")).toBe("notes");
-    expect(parseInitialViewSearch("?view=music")).toBe("music");
+    for (const view of APP_VIEWS) {
+      expect(parseInitialViewSearch(`?view=${view}`)).toBe(view);
+    }
     expect(parseInitialViewSearch("?view=settings")).toBeUndefined();
     expect(parseInitialViewSearch("")).toBeUndefined();
   });

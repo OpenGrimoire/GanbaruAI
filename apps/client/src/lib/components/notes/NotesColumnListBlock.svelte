@@ -51,7 +51,7 @@
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import NotesBlockHandle from "./NotesBlockHandle.svelte";
   import NotesBlockRow from "./NotesBlockRow.svelte";
-  import NotesSlashMenu from "./NotesSlashMenu.svelte";
+  import NotesLazySlashMenu from "./NotesLazySlashMenu.svelte";
 
   let {
     item,
@@ -716,7 +716,7 @@
       </section>
 
       {#if slashOpen}
-        <NotesSlashMenu canSetColor={false} onSelect={selectSlashCommand} />
+        <NotesLazySlashMenu onSelect={selectSlashCommand} />
       {/if}
     </div>
   </div>

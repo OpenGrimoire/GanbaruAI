@@ -67,3 +67,25 @@ export function selectActivePomodoroBlock(
 
   return [...candidates].sort(compareCandidates(nowMs))[0].event;
 }
+
+/** Returns the next start or end boundary that can change Pomodoro ownership. */
+export function nextPomodoroBlockBoundaryMs(
+  events: readonly CalendarEvent[],
+  nowMs: number,
+): number | null {
+  let nextBoundaryMs: number | null = null;
+  for (const event of events) {
+    if (!event.pomodoroConfig) continue;
+    const boundaries = [
+      parseCalendarDate(event.start).getTime(),
+      parseCalendarDate(event.end).getTime(),
+    ];
+    for (const boundaryMs of boundaries) {
+      if (!Number.isFinite(boundaryMs) || boundaryMs <= nowMs) continue;
+      nextBoundaryMs = nextBoundaryMs === null
+        ? boundaryMs
+        : Math.min(nextBoundaryMs, boundaryMs);
+    }
+  }
+  return nextBoundaryMs;
+}

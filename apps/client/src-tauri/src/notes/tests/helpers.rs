@@ -1,8 +1,9 @@
 pub(super) use super::super::models::{
-    NoteAgentBridgeExportRequest, NoteAppendBlockChildren, NoteBlockUpdate, NoteBlockWrite,
-    NoteChildPageFromBlockCreate, NoteCommentAnchorCreate, NoteCommentCreate,
-    NoteCommentThreadReadUpdate, NoteCommentUpdate, NoteDataSourceBoardConfigurationUpdate,
-    NoteDataSourceBoardRowMove, NoteDataSourceBoardViewUpdate, NoteDataSourceButtonClick,
+    NoteAgentBridgeExportRequest, NoteAppendBlockChildren, NoteBlockHydrationRequest,
+    NoteBlockUpdate, NoteBlockWrite, NoteChildPageFromBlockCreate, NoteCommentAnchorCreate,
+    NoteCommentCreate, NoteCommentThreadReadUpdate, NoteCommentUpdate,
+    NoteDataSourceBoardConfigurationUpdate, NoteDataSourceBoardRowMove,
+    NoteDataSourceBoardViewUpdate, NoteDataSourceButtonClick,
     NoteDataSourceCalendarConfigurationUpdate, NoteDataSourceCalendarViewUpdate,
     NoteDataSourceCsvExportRequest, NoteDataSourceCsvImportRequest,
     NoteDataSourceGalleryConfigurationUpdate, NoteDataSourceGalleryViewUpdate,
@@ -11,16 +12,17 @@ pub(super) use super::super::models::{
     NoteDataSourceTableConfigurationUpdate, NoteDataSourceTableFilter, NoteDataSourceTableSort,
     NoteDataSourceTableViewUpdate, NoteDataSourceTemplateApply,
     NoteDataSourceTemplateCreateFromRow, NoteDataSourceTimelineConfigurationUpdate,
-    NoteDataSourceTimelineViewUpdate, NoteDatabaseCreate, NoteDuplicateBlock, NoteDuplicateBlocks,
-    NoteDuplicatePage, NoteDuplicatedBlockId, NoteFolderCreate, NoteFolderUpdate,
-    NoteHtmlExportRequest, NoteHtmlImportRequest, NoteJsonGraphExportRequest,
-    NoteLinkedDatabaseCreate, NoteLocalUserUpdate, NoteMarkdownExportRequest,
-    NoteMarkdownImportRequest, NoteMentionNotificationDeliveryUpdate, NoteMoveBlock,
-    NoteMoveBlocks, NoteMovePage, NoteNotionExportImportRequest, NotePageAliasCreate,
-    NotePageCreate, NotePageHistoryCopyBlocks, NotePageHistorySettingsUpdate,
+    NoteDataSourceTimelineViewUpdate, NoteDataSourceViewWindowRequest, NoteDatabaseCreate,
+    NoteDuplicateBlock, NoteDuplicateBlocks, NoteDuplicatePage, NoteDuplicatedBlockId,
+    NoteFolderCreate, NoteFolderUpdate, NoteHtmlExportRequest, NoteHtmlImportRequest,
+    NoteJsonGraphExportRequest, NoteLinkedDatabaseCreate, NoteLocalUserUpdate,
+    NoteMarkdownExportRequest, NoteMarkdownImportRequest, NoteMentionNotificationDeliveryUpdate,
+    NoteMoveBlock, NoteMoveBlocks, NoteMovePage, NoteNotionExportImportRequest,
+    NotePageAliasCreate, NotePageCreate, NotePageHistoryCopyBlocks, NotePageHistorySettingsUpdate,
     NotePageTemplateApply, NotePageTemplateCreateFromPage, NotePageTemplateDuplicate,
     NotePageTemplateUpdate, NotePageUpdate, NoteParent, NoteSidebarPagesRequest,
-    NoteSuggestionCreate, NoteTrashBlocks, NoteUnresolvedLinkResolve, OptionalJsonValue,
+    NoteSuggestionCreate, NoteTrashBlocks, NoteUnresolvedLinkResolve, NoteWorkspaceShellRequest,
+    OptionalJsonValue,
 };
 pub(super) use super::super::{
     agent_bridge_export, assets, backlinks, comments, data_source_board, data_source_buttons,
@@ -29,7 +31,7 @@ pub(super) use super::super::{
     data_source_templates, data_source_timeline, databases, folders, history, html_export,
     html_import, json_graph_export, link_facts, links, local_user, markdown_export,
     markdown_import, mention_notifications, notion_export_import, project_history, reads, search,
-    suggestions, templates, undo_state, validation, writes,
+    suggestions, templates, undo_state, validation, workspace_shell, writes,
 };
 pub(super) use crate::db::run_migrations;
 pub(super) use serde_json::json;

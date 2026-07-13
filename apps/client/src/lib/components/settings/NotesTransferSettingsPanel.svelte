@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import type {
     NotesHtmlImportRequest,
@@ -7,10 +8,17 @@
     NotesNotionExportImportRequest,
   } from "$lib/notes/types";
   import { getNotes } from "$lib/stores/notes.svelte";
-  import NotesHtmlImportDialog from "$lib/components/notes/NotesHtmlImportDialog.svelte";
-  import NotesJsonGraphExportDialog from "$lib/components/notes/NotesJsonGraphExportDialog.svelte";
-  import NotesNotionApiImportDialog from "$lib/components/notes/NotesNotionApiImportDialog.svelte";
-  import NotesNotionExportImportDialog from "$lib/components/notes/NotesNotionExportImportDialog.svelte";
+  import {
+    beginLazyComponentLoad,
+    rejectLazyComponentLoad,
+    resolveLazyComponentLoad,
+    type LazyComponentLoadState,
+  } from "$lib/lazy-component-loader";
+  import {
+    loadNotesTransferDialog,
+    retryNotesTransferDialog,
+    type LoadedNotesTransferDialog,
+  } from "./notes-transfer-dialog-registry";
   import type { NotesTransferOperation } from "./types";
 
   let {
@@ -33,8 +41,54 @@
   const { t } = getLocalization();
   let panelRootEl: HTMLElement | undefined = $state();
   let panelScrollEl: HTMLElement | undefined = $state();
+  let dialogLoadState = $state<LazyComponentLoadState<
+    NotesTransferOperation,
+    LoadedNotesTransferDialog
+  > | null>(null);
+  const activeDialogLoadState = $derived(
+    dialogLoadState?.key === operation ? dialogLoadState : null,
+  );
   const contentPaddingX = $derived(compactLayout ? "0.75rem" : iconRailLayout ? "1.25rem" : "2rem");
   const contentPaddingY = $derived(compactLayout ? "1rem" : iconRailLayout ? "1.25rem" : "2rem");
+
+  function requestDialog(nextOperation: NotesTransferOperation, retry = false): void {
+    if (!retry && dialogLoadState?.key === nextOperation) return;
+    const loadingState = beginLazyComponentLoad(dialogLoadState, nextOperation);
+    dialogLoadState = loadingState;
+    const request = retry
+      ? retryNotesTransferDialog(nextOperation)
+      : loadNotesTransferDialog(nextOperation);
+    void request
+      .then((component) => {
+        if (!dialogLoadState) return;
+        const nextState = resolveLazyComponentLoad(
+          dialogLoadState,
+          nextOperation,
+          loadingState.requestId,
+          component,
+        );
+        if (nextState !== dialogLoadState) dialogLoadState = nextState;
+      })
+      .catch((error: unknown) => {
+        if (!dialogLoadState) return;
+        const nextState = rejectLazyComponentLoad(
+          dialogLoadState,
+          nextOperation,
+          loadingState.requestId,
+          error,
+        );
+        if (nextState === dialogLoadState) return;
+        dialogLoadState = nextState;
+        console.error(`Failed to load ${nextOperation} Notes transfer dialog:`, error);
+      });
+  }
+
+  const initialOperation = untrack(() => operation);
+  requestDialog(initialOperation);
+
+  $effect(() => {
+    requestDialog(operation);
+  });
 
   $effect(() => {
     onScrollContainerChange(panelScrollEl);
@@ -170,34 +224,57 @@
     class="hide-scrollbar min-h-0 flex-1 overflow-y-auto"
     style="padding: {contentPaddingY} {contentPaddingX};"
   >
-    {#if operation === "html-import"}
-      <NotesHtmlImportDialog
-        embedded
-        description={operationDescription()}
-        onImport={importHtmlPage}
-        onCancel={onCancel}
-      />
-    {:else if operation === "notion-api-import"}
-      <NotesNotionApiImportDialog
-        embedded
-        description={operationDescription()}
-        onImport={importNotionApi}
-        onCancel={onCancel}
-      />
-    {:else if operation === "notion-export-import"}
-      <NotesNotionExportImportDialog
-        embedded
-        description={operationDescription()}
-        onImport={importNotionExportFolder}
-        onCancel={onCancel}
-      />
+    {#if activeDialogLoadState?.status === "ready"}
+      {@const loadedDialog = activeDialogLoadState.component}
+      {#if loadedDialog.operation === "html-import"}
+        {@const DialogComponent = loadedDialog.component}
+        <DialogComponent
+          embedded
+          description={operationDescription()}
+          onImport={importHtmlPage}
+          onCancel={onCancel}
+        />
+      {:else if loadedDialog.operation === "notion-api-import"}
+        {@const DialogComponent = loadedDialog.component}
+        <DialogComponent
+          embedded
+          description={operationDescription()}
+          onImport={importNotionApi}
+          onCancel={onCancel}
+        />
+      {:else if loadedDialog.operation === "notion-export-import"}
+        {@const DialogComponent = loadedDialog.component}
+        <DialogComponent
+          embedded
+          description={operationDescription()}
+          onImport={importNotionExportFolder}
+          onCancel={onCancel}
+        />
+      {:else}
+        {@const DialogComponent = loadedDialog.component}
+        <DialogComponent
+          embedded
+          description={operationDescription()}
+          onExport={exportJsonGraph}
+          onCancel={onCancel}
+        />
+      {/if}
+    {:else if activeDialogLoadState?.status === "failed"}
+      {@const failedOperation = activeDialogLoadState.key}
+      <div class="flex min-h-40 flex-col items-center justify-center gap-3 text-center text-sm text-muted-foreground" role="alert">
+        <p>{t("common.viewLoadFailed", operationDescription())}</p>
+        <button
+          type="button"
+          class="min-h-9 rounded-md border border-border bg-background px-3 font-medium text-foreground hover:bg-accent"
+          onclick={() => requestDialog(failedOperation, true)}
+        >
+          {t("common.retry")}
+        </button>
+      </div>
     {:else}
-      <NotesJsonGraphExportDialog
-        embedded
-        description={operationDescription()}
-        onExport={exportJsonGraph}
-        onCancel={onCancel}
-      />
+      <div class="flex min-h-40 items-center justify-center text-sm text-muted-foreground" aria-busy="true">
+        {t("common.loading")}
+      </div>
     {/if}
   </main>
 </div>

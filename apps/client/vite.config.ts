@@ -131,6 +131,39 @@ function tauriDevReady(): Plugin {
   };
 }
 
+function normalizedBundleModuleId(id: string): string {
+  const withoutQuery = id.replaceAll("\\", "/").split("?", 1)[0] ?? id;
+  const relative = path.relative(configDir, withoutQuery).replaceAll(path.sep, "/");
+  return relative.startsWith("../") ? withoutQuery : relative;
+}
+
+function firstUseBundleMetadata(): Plugin {
+  return {
+    name: "ganbaru-ai:first-use-bundle-metadata",
+    apply: "build",
+    generateBundle(_options, bundle) {
+      const chunks = Object.values(bundle)
+        .filter((item) => item.type === "chunk")
+        .map((chunk) => ({
+          fileName: chunk.fileName,
+          isEntry: chunk.isEntry,
+          facadeModuleId: chunk.facadeModuleId
+            ? normalizedBundleModuleId(chunk.facadeModuleId)
+            : null,
+          imports: [...chunk.imports].sort(),
+          dynamicImports: [...chunk.dynamicImports].sort(),
+          modules: [...new Set(Object.keys(chunk.modules).map(normalizedBundleModuleId))].sort(),
+        }))
+        .sort((left, right) => left.fileName.localeCompare(right.fileName));
+      this.emitFile({
+        type: "asset",
+        fileName: "first-use-bundle-metadata.json",
+        source: `${JSON.stringify({ schemaVersion: 1, chunks }, null, 2)}\n`,
+      });
+    },
+  };
+}
+
 /**
  * Skip Svelte component style virtuals (`?svelte&type=style&lang.css`) in
  * Tailwind's transform. None of the project's `<style>` blocks use Tailwind
@@ -154,7 +187,12 @@ function skipSvelteStyleVirtuals(plugins: Plugin[]): Plugin[] {
 }
 
 export default defineConfig({
-  plugins: [tauriDevReady(), ...skipSvelteStyleVirtuals(tailwindcss()), svelte()],
+  plugins: [
+    tauriDevReady(),
+    firstUseBundleMetadata(),
+    ...skipSvelteStyleVirtuals(tailwindcss()),
+    svelte(),
+  ],
   define: {
     __GANBARU_AI_BUILD_REF__: JSON.stringify(buildRef),
     __GANBARU_AI_GITHUB_REPOSITORY__: JSON.stringify(githubRepository),

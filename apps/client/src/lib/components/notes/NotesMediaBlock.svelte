@@ -1,7 +1,11 @@
 <script lang="ts">
   import { tick } from "svelte";
   import { openUrl } from "@tauri-apps/plugin-opener";
-  import { pickNotesFileAsset, notesFileAssetUrl } from "$lib/api/notes-file-assets";
+  import {
+    notesFileAssetUrl,
+    pickNotesFileAsset,
+    releaseNotesFileAssetUrl,
+  } from "$lib/api/notes-file-assets";
   import { formatNumber } from "$lib/i18n/formatters";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import {
@@ -163,6 +167,7 @@
       });
     return () => {
       cancelled = true;
+      releaseNotesFileAssetUrl(assetPath);
     };
   });
 

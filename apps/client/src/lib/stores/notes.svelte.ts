@@ -1,101 +1,55 @@
 import {
-  acceptNotesSuggestion,
-  addNotesPageAlias,
-  applyNotesPageTemplate,
-  archiveNotesPage,
-  createNotesFolder,
-  createNotesChildPageFromBlock,
-  createNotesComment,
-  createNotesPage,
-  createNotesPageTemplateFromPage,
-  createNotesSuggestion,
-  deleteNotesComment,
-  deleteNotesFolder,
-  deleteNotesPageAlias,
-  deleteNotesPageTemplate,
-  duplicateNotesPage,
-  duplicateNotesPageTemplate,
-  getNotesLocalUser,
-  getNotesBlockChildren,
   getNotesPageBreadcrumb,
-  importNotesHtmlPage,
-  importNotesNotionApi,
-  importNotesNotionExportFolder,
-  listNotesBacklinks,
-  listNotesComments,
-  listNotesFolders,
-  listNotesPageAliases,
-  listNotesPages,
-  listNotesPageTemplates,
-  listNotesSuggestions,
-  listNotesUnresolvedLinks,
   listNotesSidebarPages,
-  listArchivedNotesPages,
-  listTrashedNotesPages,
   loadNotesPage,
-  markNotesCommentThreadsRead,
-  moveNotesPage,
-  permanentlyDeleteNotesPage,
-  resolveNotesCommentThread,
-  resolveNotesUnresolvedLink,
-  rejectNotesSuggestion,
-  saveNotesAgentBridge,
-  saveNotesHtmlArchive,
-  saveNotesJsonGraph,
-  searchNotes,
-  trashNotesPage,
-  updateNotesComment,
-  updateNotesFolder,
-  updateNotesLocalUser,
-  updateNotesPage,
-  updateNotesPageTemplate,
+  openNotesPage,
 } from "$lib/api/notes";
-import { blockPlainText, createRichText } from "$lib/notes/block-factory";
-import {
-  notesCommentAnchorDraft,
-  notesCommentParentKey,
-  notesCommentParentMatches,
-} from "$lib/notes/comments";
-import {
-  notesApplySuggestionToBlock,
-  notesSuggestionCreateRequest,
-  notesSuggestionDraft,
-  type NotesSuggestionDraft,
-} from "$lib/notes/suggestions";
+import { blockPlainText } from "$lib/notes/block-factory";
 import type { NotesBlockLinkTarget, NotesPageLinkTarget } from "$lib/notes/block-link";
 import {
-  buildNotesChildIdsByParent,
   parentIdForBlock,
   type NotesTreeState,
 } from "$lib/notes/block-tree";
 import {
-  nextSelectedNotesPageId,
-  restoredNotesPageSelection,
-} from "$lib/notes/page-selection";
+  type NotesBlockOutlineItem,
+} from "$lib/notes/block-outline";
 import {
   notesPageOpenModeForSelection,
   notesDefaultOpenModeForProject,
   type NotesPageOpenMode,
 } from "$lib/notes/page-open-mode";
 import {
-  recordRecentNotesPageId,
-  setNotesPageFavoriteId,
-} from "$lib/notes/page-navigation";
-import {
-  normalizeNotesProjectId,
   notesPageProjectId,
-  notesPageProjectProperties,
-  type NotesCreatePageOptions,
 } from "$lib/notes/project-membership";
 import {
   nextNotesFocusRequest,
-  planNotesInsertedBlockFocus,
   planNotesPageLoadFocus,
   type NotesFocusRequest,
 } from "$lib/notes/editor-focus";
 import type { NotesTextSelection } from "$lib/notes/editor-selection";
 import type { NotesUndoSnapshot } from "$lib/notes/undo-history";
+import {
+  type NotesPostMutationResult,
+  type NotesSidebarMetadataImpact,
+} from "$lib/notes/post-mutation";
+import { createNotesSidebarRefreshCoordinator } from "$lib/notes/sidebar-refresh-coordinator";
 import { createNotesBlockActions } from "./notes-store-block-actions";
+import { createNotesArchiveController } from "./notes-store-archive.svelte";
+import { createNotesSearchController } from "./notes-store-search.svelte";
+import { createNotesLinksController } from "./notes-store-links.svelte";
+import { createNotesCollaborationController } from "./notes-store-collaboration.svelte";
+import { createNotesTransferActions } from "./notes-store-transfer-actions";
+import { createNotesSidebarController } from "./notes-store-sidebar.svelte";
+import { createNotesPageTemplatesController } from "./notes-store-page-templates.svelte";
+import { createNotesFoldersController } from "./notes-store-folders.svelte";
+import { createNotesPageActions } from "./notes-store-page-actions";
+import { createNotesHydrationController } from "./notes-store-hydration";
+import { createNotesWorkspaceController } from "./notes-store-workspace.svelte";
+import {
+  createNotesOptionalSubsystemController,
+  type NotesOptionalSubsystem,
+  type NotesPagePanelSubsystem,
+} from "./notes-store-optional-subsystems";
 import { createNotesPageHistoryController } from "./notes-store-page-history.svelte";
 import { createNotesUndoController } from "./notes-store-undo";
 import { getPreferences } from "./preferences.svelte";
@@ -108,61 +62,32 @@ import {
   notesTabItemsForBlock,
   notesTableRowsForBlock,
   notesTreeState,
-  notesTreeStateWithoutLeafBlock,
   previousNotesBlockType,
   type NotesBlockTreeSnapshot,
 } from "./notes-store-block-tree";
 import {
-  initialNotesFavoritePageIds,
-  initialNotesRecentPageIds,
   initialNotesSelectedPageId,
-  initialNotesSidebarCollapsedFolderIds,
-  initialNotesSidebarExpandedPageIds,
-  saveNotesFavoritePageIds,
-  saveNotesRecentPageIds,
   saveNotesSelectedPageId,
-  saveNotesSidebarCollapsedFolderIds,
-  saveNotesSidebarExpandedPageIds,
 } from "./notes-store-page-state";
 import { createNotesBlockPersistence } from "./notes-store-persistence";
+import { NotesPageSessionController } from "./notes-store-page-session.svelte";
+import { NotesTreeProjectionController } from "./notes-store-tree-projection.svelte";
+import { createNotesPageCreationController } from "./notes-store-page-creation.svelte";
+import { invalidateNotesNotificationSchedule } from "$lib/notes/notification-schedule.svelte";
 import type {
   NotesBlock,
-  NotesBacklink,
-  NotesCommentAnchorCreate,
+  NotesBlockOutline,
   NotesColumnBlockItems,
-  NotesFolder,
   NotesBlockTreeItem,
   NotesBlockType,
-  NotesCommentParent,
-  NotesCommentThread,
-  NotesLocalUser,
   NotesLoadedPage,
-  NotesHtmlArchiveSaveResult,
-  NotesHtmlExportRequest,
-  NotesHtmlImportRequest,
-  NotesHtmlImportResult,
-  NotesAgentBridgeExportRequest,
-  NotesAgentBridgeExportSaveResult,
-  NotesJsonGraphExportRequest,
-  NotesJsonGraphExportSaveResult,
   NotesPage,
-  NotesNotionApiImportRequest,
-  NotesNotionApiImportResult,
-  NotesNotionExportImportRequest,
-  NotesNotionExportImportResult,
-  NotesPageAlias,
   NotesPageBreadcrumbItem,
-  NotesPageCover,
   NotesPageHistorySettings,
   NotesPageHistorySnapshot,
-  NotesPageIcon,
-  NotesPageTemplate,
-  NotesParent,
-  NotesSearchResult,
-  NotesSuggestion,
   NotesTabBlockItems,
   NotesTableRowBlock,
-  NotesUnresolvedLink,
+  NotesWorkspaceShell,
 } from "$lib/notes/types";
 
 type NotesViewMode = "pages" | "archive" | "trash";
@@ -177,95 +102,57 @@ interface NotesLoadPageTreeOptions {
 }
 
 const BLOCK_SAVE_DEBOUNCE_MS = 350;
-const CHILDREN_PAGE_SIZE = 100;
 
 let pages = $state<NotesPage[]>([]);
 let allPages = $state<NotesPage[]>([]);
-let folders = $state<NotesFolder[]>([]);
-let archivedPages = $state<NotesPage[]>([]);
-let trashedPages = $state<NotesPage[]>([]);
-let pageTemplates = $state<NotesPageTemplate[]>([]);
-let selectedPageId = $state<string | null>(initialNotesSelectedPageId());
-let pageOpenMode = $state<NotesPageOpenMode>("full");
-let favoritePageIds = $state<string[]>(initialNotesFavoritePageIds());
-let recentPageIds = $state<string[]>(initialNotesRecentPageIds());
-let collapsedFolderIds = $state<string[]>(initialNotesSidebarCollapsedFolderIds());
-let sidebarExpandedPageIds = $state<string[]>(initialNotesSidebarExpandedPageIds());
-let sidebarPageIdsWithChildren = $state<string[]>([]);
-let sidebarMissingParentPageIds = $state<string[]>([]);
-let sidebarTrashedParentPageIds = $state<string[]>([]);
-let loadedPage = $state<NotesPage | null>(null);
-let pageBreadcrumbItems = $state<NotesPageBreadcrumbItem[]>([]);
-let backlinks = $state<NotesBacklink[]>([]);
-let pageAliases = $state<NotesPageAlias[]>([]);
-let unresolvedLinks = $state<NotesUnresolvedLink[]>([]);
-let linkResolutionPages = $state<NotesPage[]>([]);
-let commentThreads = $state<NotesCommentThread[]>([]);
-let activeCommentParent = $state<NotesCommentParent | null>(null);
-let activeCommentAnchor = $state<NotesCommentAnchorCreate | null>(null);
-let suggestions = $state<NotesSuggestion[]>([]);
-let activeSuggestionDraft = $state<NotesSuggestionDraft | null>(null);
-let blocksById = $state<Record<string, NotesBlock>>({});
-let childIdsByParentId = $state<Record<string, string[]>>({});
-let loaded = $state(false);
-let loading = $state(false);
-let loadError = $state<string | null>(null);
 let viewMode = $state<NotesViewMode>("pages");
-let archiveLoaded = $state(false);
-let archiveLoading = $state(false);
-let archiveError = $state<string | null>(null);
-let trashLoaded = $state(false);
-let trashLoading = $state(false);
-let trashError = $state<string | null>(null);
-let pageTemplatesLoading = $state(false);
-let pageTemplatesError = $state<string | null>(null);
 let focusRequest = $state<NotesFocusRequest>({
   blockId: null,
   requestId: 0,
   selection: null,
 });
 const START_OF_NOTES_BLOCK_SELECTION: NotesTextSelection = { start: 0, end: 0 };
-let loadRequestId = 0;
-let archiveRequestId = 0;
-let trashRequestId = 0;
-let pageTemplatesRequestId = 0;
-let backlinksRequestId = 0;
-let pageAliasesRequestId = 0;
-let unresolvedLinksRequestId = 0;
-let linkResolutionPagesRequestId = 0;
-let commentsRequestId = 0;
-let suggestionsRequestId = 0;
-let localUserRequestId = 0;
-let searchRequestId = 0;
-let backlinksLoading = $state(false);
-let backlinksError = $state<string | null>(null);
-let pageAliasesLoading = $state(false);
-let pageAliasesError = $state<string | null>(null);
-let unresolvedLinksLoading = $state(false);
-let unresolvedLinksError = $state<string | null>(null);
-let commentsLoading = $state(false);
-let commentsError = $state<string | null>(null);
-let commentsIncludeResolved = $state(false);
-let suggestionsLoading = $state(false);
-let suggestionsError = $state<string | null>(null);
-let suggestionsIncludeDecided = $state(false);
-let localUser = $state<NotesLocalUser | null>(null);
-let localUserLoading = $state(false);
-let localUserError = $state<string | null>(null);
-let searchResults = $state<NotesSearchResult[]>([]);
-let searchLoading = $state(false);
-let searchError = $state<string | null>(null);
-let searchIncludeResolvedComments = $state(false);
-let titleFocusRequest = $state<{ pageId: string | null; requestId: number }>({
-  pageId: null,
-  requestId: 0,
+const pageSession = new NotesPageSessionController({
+  initialSelectedPageId: initialNotesSelectedPageId(),
+  persistSelectedPageId: saveNotesSelectedPageId,
+  recordRecentPage: (pageId) => sidebarController.recordRecentPage(pageId),
 });
-let pageTitleDraft = $state<{ pageId: string; title: string } | null>(null);
+const treeProjection = new NotesTreeProjectionController({
+  readSelectedPageId: () => pageSession.selectedPageId,
+});
 const preferences = getPreferences();
 const projects = getProjects();
+const archiveController = createNotesArchiveController();
+const searchController = createNotesSearchController();
+const linksController = createNotesLinksController({
+  readSelectedPageId: () => pageSession.selectedPageId,
+  readSelectedProjectId: () => projects.selectedProjectId,
+  readAllPages: () => allPages,
+  reloadSelectedPage: async (pageId) => {
+    await loadPageTree(pageId);
+  },
+  scheduleVisibleMetadataRefresh: () => sidebarRefreshCoordinator.schedule("visible-metadata"),
+});
+const sidebarController = createNotesSidebarController({
+  reloadPages: () => reloadPages(),
+});
+const foldersController = createNotesFoldersController({
+  setFolderCollapsed: (folderId, collapsed) => sidebarController.setFolderCollapsed(folderId, collapsed),
+  scheduleHierarchyRefresh: () => sidebarRefreshCoordinator.schedule("hierarchy"),
+});
+const {
+  reloadArchivedPages,
+  loadMoreArchivedPages,
+  reloadTrashedPages,
+  loadMoreTrashedPages,
+} = archiveController;
 
 function blockTreeSnapshot(): NotesBlockTreeSnapshot {
-  return { selectedPageId, blocksById, childIdsByParentId };
+  return {
+    selectedPageId: pageSession.selectedPageId,
+    blocksById: treeProjection.blocksById,
+    childIdsByParentId: treeProjection.childIdsByParentId,
+  };
 }
 
 function defaultNotesPageOpenMode(projectId: string | null = projects.selectedProjectId): NotesPageOpenMode {
@@ -277,7 +164,7 @@ function defaultNotesPageOpenMode(projectId: string | null = projects.selectedPr
 
 function projectIdForPage(pageId: string): string | null {
   const page = allPages.find((candidate) => candidate.id === pageId)
-    ?? (loadedPage?.id === pageId ? loadedPage : null);
+    ?? (treeProjection.loadedPage?.id === pageId ? treeProjection.loadedPage : null);
   return page ? notesPageProjectId(page) : projects.selectedProjectId;
 }
 
@@ -286,24 +173,20 @@ function treeState(): NotesTreeState {
 }
 
 function saveSelectedPageId(pageId: string | null): void {
-  selectedPageId = pageId;
-  saveNotesSelectedPageId(pageId);
+  pageSession.select(pageId);
 }
 
 function showSelectedPageAs(openMode: NotesPageOpenMode): void {
-  pageOpenMode = openMode;
+  pageSession.pageOpenMode = openMode;
 }
 
 function openSelectedPage(pageId: string, openMode: NotesPageOpenMode): void {
   viewMode = "pages";
-  showSelectedPageAs(openMode);
-  saveSelectedPageId(pageId);
+  pageSession.open(pageId, openMode);
 }
 
 function recordRecentPage(pageId: string): void {
-  const next = recordRecentNotesPageId(recentPageIds, pageId);
-  recentPageIds = next;
-  saveNotesRecentPageIds(next);
+  pageSession.recordRecentIfCurrent(pageSession.generation, pageId);
 }
 
 function requestBlockFocus(
@@ -314,22 +197,19 @@ function requestBlockFocus(
 }
 
 function requestTitleFocus(pageId: string): void {
-  titleFocusRequest = {
-    pageId,
-    requestId: titleFocusRequest.requestId + 1,
-  };
+  pageSession.requestTitleFocus(pageId);
 }
 
 function setPageTitleDraft(pageId: string, title: string): void {
-  pageTitleDraft = { pageId, title };
+  pageSession.setTitleDraft(pageId, title);
 }
 
 function clearPageTitleDraft(pageId: string): void {
-  if (pageTitleDraft?.pageId === pageId) pageTitleDraft = null;
+  pageSession.clearTitleDraft(pageId);
 }
 
 function pageTitleDraftForPage(pageId: string): string | null {
-  return pageTitleDraft?.pageId === pageId ? pageTitleDraft.title : null;
+  return pageSession.titleDraftForPage(pageId);
 }
 
 function replacePages(nextPages: NotesPage[]): void {
@@ -340,16 +220,6 @@ function replaceAllPages(nextPages: NotesPage[]): void {
   allPages = [...nextPages];
 }
 
-function replaceFolders(nextFolders: NotesFolder[]): void {
-  folders = [...nextFolders];
-}
-
-function upsertFolder(folder: NotesFolder): void {
-  folders = folders.some((item) => item.id === folder.id)
-    ? folders.map((item) => (item.id === folder.id ? folder : item))
-    : [...folders, folder];
-}
-
 function upsertPageInActiveCollections(page: NotesPage): void {
   pages = pages.some((item) => item.id === page.id)
     ? pages.map((item) => (item.id === page.id ? page : item))
@@ -357,70 +227,52 @@ function upsertPageInActiveCollections(page: NotesPage): void {
   allPages = allPages.some((item) => item.id === page.id)
     ? allPages.map((item) => (item.id === page.id ? page : item))
     : [page, ...allPages];
+  invalidateNotesNotificationSchedule();
 }
 
 function removePagesFromActiveCollections(pageIds: ReadonlySet<string>): void {
   pages = pages.filter((page) => !pageIds.has(page.id));
   allPages = allPages.filter((page) => !pageIds.has(page.id));
+  invalidateNotesNotificationSchedule();
 }
 
 function sidebarSeedPageIds(): string[] {
-  return [...new Set([...favoritePageIds, ...recentPageIds])];
+  return sidebarController.seedPageIds();
 }
 
 function replaceBlock(block: NotesBlock): void {
-  blocksById = { ...blocksById, [block.id]: block };
+  treeProjection.replaceBlock(block);
 }
 
 function applyLocalUndoSnapshot(
   target: NotesUndoSnapshot,
   source: NotesUndoSnapshot,
 ): void {
-  const targetIds = new Set(target.blocks.map((block) => block.id));
-  const sourceIds = new Set(source.blocks.map((block) => block.id));
-  const affectedIds = new Set([...targetIds, ...sourceIds]);
-  const nextBlocksById = { ...blocksById };
-  for (const blockId of sourceIds) {
-    if (!targetIds.has(blockId)) delete nextBlocksById[blockId];
-  }
-  for (const block of target.blocks) {
-    nextBlocksById[block.id] = block;
-  }
-  for (const blockId of affectedIds) markBlockLocallyChanged(blockId);
-  blocksById = nextBlocksById;
-  childIdsByParentId = buildNotesChildIdsByParent(Object.values(nextBlocksById));
+  treeProjection.applyLocalUndoSnapshot(target, source);
 }
 
 function insertBlockAfter(block: NotesBlock, afterBlockId: string | null): void {
-  const parentId = parentIdForBlock(block);
-  const currentChildIds = (childIdsByParentId[parentId] ?? []).filter((id) => id !== block.id);
-  const afterIndex = afterBlockId ? currentChildIds.indexOf(afterBlockId) : -1;
-  const insertIndex = afterIndex >= 0 ? afterIndex + 1 : currentChildIds.length;
-  childIdsByParentId = {
-    ...childIdsByParentId,
-    [parentId]: [
-      ...currentChildIds.slice(0, insertIndex),
-      block.id,
-      ...currentChildIds.slice(insertIndex),
-    ],
-  };
-  replaceBlock(block);
+  treeProjection.insertBlockAfter(block, afterBlockId);
 }
 
 function removeLeafBlockLocally(blockId: string): boolean {
-  const next = notesTreeStateWithoutLeafBlock(treeState(), blockId);
-  if (!next) return false;
-  markBlockLocallyChanged(blockId);
-  blocksById = next.blocksById;
-  childIdsByParentId = next.childIdsByParentId;
-  return true;
+  return treeProjection.removeLeafBlock(blockId);
 }
 
 function setLoadedPageFromLoaded(loaded: NotesLoadedPage): void {
-  loadedPage = loaded.page;
-  const blocks = loaded.blocks.results;
-  blocksById = Object.fromEntries(blocks.map((block) => [block.id, block]));
-  childIdsByParentId = buildNotesChildIdsByParent(blocks);
+  treeProjection.setLoadedPage(loaded);
+}
+
+function replaceBlockOutlines(outlines: readonly NotesBlockOutline[], pageId: string): void {
+  treeProjection.replaceOutlines(outlines, pageId);
+}
+
+function mergeBlockOutlines(outlines: readonly NotesBlockOutline[], pageId: string): void {
+  treeProjection.mergeOutlines(outlines, pageId);
+}
+
+function syncHydratedBlockOutlines(pageId: string): void {
+  treeProjection.syncHydratedOutlines(pageId);
 }
 
 function requestLoadedPageFocus(
@@ -435,640 +287,216 @@ function requestLoadedPageFocus(
   );
 }
 
-async function loadAllChildrenForVisibleTree(): Promise<void> {
-  let queue = Object.values(blocksById).filter(
-    (block) => block.has_children && block.type !== "child_page",
-  );
-  const visited = new Set<string>();
-  while (queue.length > 0) {
-    const block = queue.shift();
-    if (!block || visited.has(block.id)) continue;
-    visited.add(block.id);
-    let cursor: string | null = null;
-    const loadedChildren: NotesBlock[] = [];
-    do {
-      const page = await getNotesBlockChildren(block.id, cursor, CHILDREN_PAGE_SIZE);
-      loadedChildren.push(...page.results);
-      cursor = page.next_cursor;
-    } while (cursor);
-    if (loadedChildren.length === 0) continue;
-    blocksById = {
-      ...blocksById,
-      ...Object.fromEntries(loadedChildren.map((child) => [child.id, child])),
-    };
-    childIdsByParentId = {
-      ...childIdsByParentId,
-      [block.id]: loadedChildren.map((child) => child.id),
-    };
-    queue = [
-      ...queue,
-      ...loadedChildren.filter((child) => child.has_children && child.type !== "child_page"),
-    ];
+async function hydrateBlockRange(
+  blockIds: readonly string[],
+  generation = pageSession.generation,
+): Promise<void> {
+  await hydrationController.hydrateBlockRange(blockIds, generation);
+}
+
+function queueDescendantHydration(
+  pageId: string = pageSession.selectedPageId ?? "",
+  generation: number = pageSession.generation,
+): void {
+  hydrationController.queueDescendantHydration(pageId, generation);
+}
+
+async function reloadPages(selectedPageIdOverride: string | null = pageSession.selectedPageId): Promise<void> {
+  await workspaceController.reloadPages(selectedPageIdOverride);
+}
+
+function mergeReloadedWorkspaceShell(shell: NotesWorkspaceShell): void {
+  const mergedPages = [...new Map([...allPages, ...shell.pages].map((page) => [page.id, page])).values()];
+  replacePages(mergedPages);
+  replaceAllPages(mergedPages);
+  foldersController.merge(shell.folders);
+  sidebarController.mergeMetadata({
+    pageIdsWithChildren: shell.page_ids_with_children,
+    missingParentPageIds: shell.missing_parent_page_ids,
+    trashedParentPageIds: shell.trashed_parent_page_ids,
+  });
+}
+
+function prepareWorkspaceLoad(): void {
+  pageSession.invalidate();
+  hydrationController.invalidate();
+  treeProjection.resetOutlines();
+  optionalSubsystemController.resetAll();
+  linksController.resetAll();
+  collaborationController.resetPageState();
+  pageHistoryController.resetPageState();
+  sidebarRefreshCoordinator.cancel();
+}
+
+function applyInitialWorkspaceShell(
+  shell: NotesWorkspaceShell,
+  requestedSelection: string | null,
+): string | null {
+  replacePages(shell.pages);
+  replaceAllPages(shell.pages);
+  foldersController.replace(shell.folders);
+  sidebarController.replaceMetadata({
+    pageIdsWithChildren: shell.page_ids_with_children,
+    missingParentPageIds: shell.missing_parent_page_ids,
+    trashedParentPageIds: shell.trashed_parent_page_ids,
+  });
+  const selectionUnchanged = pageSession.selectedPageId === requestedSelection;
+  const nextSelected = selectionUnchanged ? shell.resolved_selected_page_id : pageSession.selectedPageId;
+  if (selectionUnchanged) saveSelectedPageId(nextSelected);
+  return nextSelected;
+}
+
+function applyAdditionalWorkspaceShell(shell: NotesWorkspaceShell): void {
+  const mergedPages = [...new Map([...allPages, ...shell.pages].map((page) => [page.id, page])).values()];
+  replaceAllPages(mergedPages);
+  replacePages(mergedPages);
+  foldersController.merge(shell.folders);
+  sidebarController.mergeMetadata({
+    pageIdsWithChildren: shell.page_ids_with_children,
+    missingParentPageIds: shell.missing_parent_page_ids,
+    trashedParentPageIds: shell.trashed_parent_page_ids,
+  });
+}
+
+function clearSelectedPageState(): void {
+  treeProjection.clearLoadedTree();
+  pageSession.breadcrumbs = [];
+  pageHistoryController.resetPageState();
+}
+
+const sidebarRefreshCoordinator = createNotesSidebarRefreshCoordinator({
+  refresh: async (_impact: Exclude<NotesSidebarMetadataImpact, "none">) => {
+    await reloadPages();
+  },
+});
+
+function applyPostMutation(result: NotesPostMutationResult): void {
+  treeProjection.applyPostMutation(result);
+  for (const page of result.pages ?? []) upsertPageInActiveCollections(page);
+  if (result.removedPageIds?.length) {
+    removePagesFromActiveCollections(new Set(result.removedPageIds));
   }
+  sidebarRefreshCoordinator.schedule(result.sidebarImpact ?? "none");
 }
 
-async function reloadPages(selectedPageIdOverride: string | null = selectedPageId): Promise<void> {
-  const [sidebarPages, nextAllPages, nextFolders] = await Promise.all([
-    listNotesSidebarPages({
-      expanded_page_ids: [...sidebarExpandedPageIds],
-      seed_page_ids: sidebarSeedPageIds(),
-      selected_page_id: selectedPageIdOverride,
-    }),
-    listNotesPages(),
-    listNotesFolders(),
-  ]);
-  replacePages(sidebarPages.pages);
-  replaceAllPages(nextAllPages);
-  replaceFolders(nextFolders);
-  sidebarPageIdsWithChildren = [...sidebarPages.page_ids_with_children];
-  sidebarMissingParentPageIds = [...sidebarPages.missing_parent_page_ids];
-  sidebarTrashedParentPageIds = [...sidebarPages.trashed_parent_page_ids];
-}
-
-async function reloadLinkResolutionPages(): Promise<void> {
-  const requestId = ++linkResolutionPagesRequestId;
-  try {
-    const nextPages = await listNotesPages();
-    if (requestId !== linkResolutionPagesRequestId) return;
-    linkResolutionPages = [...nextPages];
-  } catch {
-    if (requestId !== linkResolutionPagesRequestId) return;
-    linkResolutionPages = [...allPages];
-  }
-}
-
-async function reloadArchivedPages(): Promise<void> {
-  const requestId = ++archiveRequestId;
-  archiveLoading = true;
-  archiveError = null;
-  try {
-    const nextPages = await listArchivedNotesPages();
-    if (requestId !== archiveRequestId) return;
-    archivedPages = [...nextPages];
-    archiveLoaded = true;
-  } catch (error) {
-    if (requestId !== archiveRequestId) return;
-    archiveError = error instanceof Error ? error.message : String(error);
-    throw error;
-  } finally {
-    if (requestId === archiveRequestId) archiveLoading = false;
-  }
-}
-
-async function reloadTrashedPages(): Promise<void> {
-  const requestId = ++trashRequestId;
-  trashLoading = true;
-  trashError = null;
-  try {
-    const nextPages = await listTrashedNotesPages();
-    if (requestId !== trashRequestId) return;
-    trashedPages = [...nextPages];
-    trashLoaded = true;
-  } catch (error) {
-    if (requestId !== trashRequestId) return;
-    trashError = error instanceof Error ? error.message : String(error);
-    throw error;
-  } finally {
-    if (requestId === trashRequestId) trashLoading = false;
-  }
-}
-
-async function reloadPageTemplates(): Promise<void> {
-  const requestId = ++pageTemplatesRequestId;
-  pageTemplatesLoading = true;
-  pageTemplatesError = null;
-  try {
-    const nextTemplates = await listNotesPageTemplates();
-    if (requestId !== pageTemplatesRequestId) return;
-    pageTemplates = [...nextTemplates];
-  } catch (error) {
-    if (requestId !== pageTemplatesRequestId) return;
-    pageTemplatesError = error instanceof Error ? error.message : String(error);
-    throw error;
-  } finally {
-    if (requestId === pageTemplatesRequestId) pageTemplatesLoading = false;
-  }
-}
-
-async function loadPageTree(pageId: string, options: NotesLoadPageTreeOptions = {}): Promise<void> {
-  const loaded = await loadNotesPage(pageId);
+async function loadPageTree(pageId: string, options: NotesLoadPageTreeOptions = {}): Promise<boolean> {
+  const requestId = pageSession.invalidate();
+  treeProjection.primaryContentReady = false;
+  const loaded = await openNotesPage(pageId);
+  if (!pageSession.isCurrent(requestId, pageId)) return false;
   if (options.focusOnLoad) {
     requestLoadedPageFocus(loaded, options.focusBlockId ?? null);
   }
   setLoadedPageFromLoaded(loaded);
-  await loadAllChildrenForVisibleTree();
-  await reloadPageBreadcrumb(pageId);
-  await reloadBacklinks(pageId);
-  await reloadPageAliases(pageId);
-  await reloadUnresolvedLinks(pageId);
-  await reloadLinkResolutionPages();
-  await reloadComments(pageId);
-  await reloadSuggestions(pageId);
-  await pageHistoryController.reloadSnapshots(pageId);
+  replaceBlockOutlines(loaded.outlines, pageId);
+  pageSession.applyBreadcrumbsIfCurrent(requestId, pageId, loaded.breadcrumb);
+  void hydrationController.loadOutlineDescendantFrontiers(pageId, requestId).catch((error) => {
+    if (pageSession.isCurrent(requestId, pageId)) {
+      workspaceController.setError(error instanceof Error ? error.message : String(error));
+    }
+  });
+  return true;
 }
 
 async function loadPageTreeForUndo(pageId: string): Promise<void> {
-  openSelectedPage(pageId, pageOpenMode);
-  await reloadPages();
+  openSelectedPage(pageId, pageSession.pageOpenMode);
   await loadPageTree(pageId);
   recordRecentPage(pageId);
 }
 
-async function reloadBacklinks(pageId: string | null = selectedPageId): Promise<void> {
-  const requestId = ++backlinksRequestId;
+async function reloadPageBreadcrumb(pageId: string | null = pageSession.selectedPageId): Promise<void> {
   if (!pageId) {
-    backlinks = [];
-    backlinksError = null;
-    backlinksLoading = false;
+    pageSession.breadcrumbs = [];
     return;
   }
-  backlinksLoading = true;
-  backlinksError = null;
-  try {
-    const nextBacklinks = await listNotesBacklinks(pageId);
-    if (requestId !== backlinksRequestId) return;
-    backlinks = [...nextBacklinks];
-  } catch (error) {
-    if (requestId !== backlinksRequestId) return;
-    backlinks = [];
-    backlinksError = error instanceof Error ? error.message : String(error);
-  } finally {
-    if (requestId === backlinksRequestId) backlinksLoading = false;
-  }
+  const generation = pageSession.generation;
+  const breadcrumbs = await getNotesPageBreadcrumb(pageId);
+  pageSession.applyBreadcrumbsIfCurrent(generation, pageId, breadcrumbs);
 }
 
-async function reloadPageAliases(pageId: string | null = selectedPageId): Promise<void> {
-  const requestId = ++pageAliasesRequestId;
-  if (!pageId) {
-    pageAliases = [];
-    pageAliasesError = null;
-    pageAliasesLoading = false;
-    return;
-  }
-  pageAliasesLoading = true;
-  pageAliasesError = null;
-  try {
-    const nextAliases = await listNotesPageAliases(pageId);
-    if (requestId !== pageAliasesRequestId) return;
-    pageAliases = [...nextAliases];
-  } catch (error) {
-    if (requestId !== pageAliasesRequestId) return;
-    pageAliases = [];
-    pageAliasesError = error instanceof Error ? error.message : String(error);
-  } finally {
-    if (requestId === pageAliasesRequestId) pageAliasesLoading = false;
-  }
-}
-
-async function reloadUnresolvedLinks(pageId: string | null = selectedPageId): Promise<void> {
-  const requestId = ++unresolvedLinksRequestId;
-  if (!pageId) {
-    unresolvedLinks = [];
-    unresolvedLinksError = null;
-    unresolvedLinksLoading = false;
-    return;
-  }
-  unresolvedLinksLoading = true;
-  unresolvedLinksError = null;
-  try {
-    const nextLinks = await listNotesUnresolvedLinks(pageId);
-    if (requestId !== unresolvedLinksRequestId) return;
-    unresolvedLinks = [...nextLinks];
-  } catch (error) {
-    if (requestId !== unresolvedLinksRequestId) return;
-    unresolvedLinks = [];
-    unresolvedLinksError = error instanceof Error ? error.message : String(error);
-  } finally {
-    if (requestId === unresolvedLinksRequestId) unresolvedLinksLoading = false;
-  }
-}
-
-async function reloadPageBreadcrumb(pageId: string | null = selectedPageId): Promise<void> {
-  if (!pageId) {
-    pageBreadcrumbItems = [];
-    return;
-  }
-  pageBreadcrumbItems = [...await getNotesPageBreadcrumb(pageId)];
-}
-
-async function reloadComments(pageId: string | null = selectedPageId): Promise<void> {
-  const requestId = ++commentsRequestId;
-  if (!pageId) {
-    commentThreads = [];
-    activeCommentParent = null;
-    activeCommentAnchor = null;
-    commentsError = null;
-    commentsLoading = false;
-    return;
-  }
-  commentsLoading = true;
-  commentsError = null;
-  try {
-    const nextThreads = await listNotesComments(pageId, commentsIncludeResolved);
-    if (requestId !== commentsRequestId) return;
-    commentThreads = [...nextThreads];
-  } catch (error) {
-    if (requestId !== commentsRequestId) return;
-    commentThreads = [];
-    commentsError = error instanceof Error ? error.message : String(error);
-  } finally {
-    if (requestId === commentsRequestId) commentsLoading = false;
-  }
-}
-
-async function reloadSuggestions(pageId: string | null = selectedPageId): Promise<void> {
-  const requestId = ++suggestionsRequestId;
-  if (!pageId) {
-    suggestions = [];
-    activeSuggestionDraft = null;
-    suggestionsError = null;
-    suggestionsLoading = false;
-    return;
-  }
-  suggestionsLoading = true;
-  suggestionsError = null;
-  try {
-    const nextSuggestions = await listNotesSuggestions(pageId, suggestionsIncludeDecided);
-    if (requestId !== suggestionsRequestId) return;
-    suggestions = [...nextSuggestions];
-  } catch (error) {
-    if (requestId !== suggestionsRequestId) return;
-    suggestions = [];
-    suggestionsError = error instanceof Error ? error.message : String(error);
-  } finally {
-    if (requestId === suggestionsRequestId) suggestionsLoading = false;
-  }
-}
-
-async function loadLocalUser(): Promise<NotesLocalUser | null> {
-  const requestId = ++localUserRequestId;
-  localUserLoading = true;
-  localUserError = null;
-  try {
-    const nextLocalUser = await getNotesLocalUser();
-    if (requestId !== localUserRequestId) return localUser;
-    localUser = nextLocalUser;
-    return nextLocalUser;
-  } catch (error) {
-    if (requestId !== localUserRequestId) return localUser;
-    localUserError = error instanceof Error ? error.message : String(error);
-    return null;
-  } finally {
-    if (requestId === localUserRequestId) localUserLoading = false;
-  }
-}
-
-async function updateLocalUserDisplayName(displayName: string): Promise<NotesLocalUser | null> {
-  const requestId = ++localUserRequestId;
-  localUserLoading = true;
-  localUserError = null;
-  try {
-    const nextLocalUser = await updateNotesLocalUser({ display_name: displayName });
-    if (requestId !== localUserRequestId) return localUser;
-    localUser = nextLocalUser;
-    await reloadComments();
-    await reloadSuggestions();
-    return nextLocalUser;
-  } catch (error) {
-    if (requestId !== localUserRequestId) return localUser;
-    localUserError = error instanceof Error ? error.message : String(error);
-    return null;
-  } finally {
-    if (requestId === localUserRequestId) localUserLoading = false;
-  }
-}
-
-function updateCommentThread(thread: NotesCommentThread): void {
-  if (thread.comments.length === 0 || (thread.status === "resolved" && !commentsIncludeResolved)) {
-    commentThreads = commentThreads.filter((candidate) => candidate.id !== thread.id);
-    return;
-  }
-  const existingIndex = commentThreads.findIndex((candidate) => candidate.id === thread.id);
-  if (existingIndex === -1) {
-    commentThreads = [...commentThreads, thread];
-    return;
-  }
-  commentThreads = commentThreads.map((candidate) => (candidate.id === thread.id ? thread : candidate));
-}
-
-function updateSuggestion(suggestion: NotesSuggestion): void {
-  if (suggestion.status !== "open" && !suggestionsIncludeDecided) {
-    suggestions = suggestions.filter((candidate) => candidate.id !== suggestion.id);
-    return;
-  }
-  const existingIndex = suggestions.findIndex((candidate) => candidate.id === suggestion.id);
-  if (existingIndex === -1) {
-    suggestions = [...suggestions, suggestion];
-    return;
-  }
-  suggestions = suggestions.map((candidate) => (
-    candidate.id === suggestion.id ? suggestion : candidate
-  ));
-}
-
-function commentParentForSelectedPage(): NotesCommentParent | null {
-  return selectedPageId ? { type: "page_id", page_id: selectedPageId } : null;
-}
-
-function setActiveCommentParent(parent: NotesCommentParent | null): void {
-  activeCommentParent = parent;
-  activeCommentAnchor = null;
-}
-
-async function startBlockComment(blockId: string): Promise<void> {
-  if (!blocksById[blockId]) return;
-  await flushBlockSave(blockId);
-  activeCommentParent = { type: "block_id", block_id: blockId };
-  activeCommentAnchor = null;
-  requestBlockFocus(blockId);
-}
-
-async function startInlineComment(blockId: string, start: number, end: number): Promise<void> {
-  const block = blocksById[blockId];
-  if (!block) return;
-  const anchor = notesCommentAnchorDraft(blockPlainText(block), start, end);
-  if (!anchor) return;
-  await flushBlockSave(blockId);
-  activeCommentParent = { type: "block_id", block_id: blockId };
-  activeCommentAnchor = anchor;
-  requestBlockFocus(blockId);
-}
-
-async function startInlineSuggestion(blockId: string, start: number, end: number): Promise<void> {
-  const block = blocksById[blockId];
-  if (!block) return;
-  const draft = notesSuggestionDraft(block.id, blockPlainText(block), start, end);
-  if (!draft) return;
-  await flushBlockSave(blockId);
-  activeSuggestionDraft = draft;
-  requestBlockFocus(blockId);
-}
-
-function cancelSuggestionDraft(): void {
-  activeSuggestionDraft = null;
-}
-
-async function createSuggestion(proposedText: string): Promise<void> {
-  const draft = activeSuggestionDraft;
-  if (!draft || proposedText === draft.original_text) return;
-  await flushBlockSave(draft.block_id);
-  const suggestion = await createNotesSuggestion(
-    notesSuggestionCreateRequest(crypto.randomUUID(), draft, proposedText),
-  );
-  updateSuggestion(suggestion);
-  activeSuggestionDraft = null;
-  requestBlockFocus(draft.block_id);
-}
-
-async function acceptSuggestion(suggestionId: string): Promise<void> {
-  const suggestion = suggestions.find((candidate) => candidate.id === suggestionId);
-  if (!suggestion || suggestion.status !== "open") return;
-  const block = blocksById[suggestion.block_id];
-  if (!block) return;
-  await flushBlockSave(suggestion.block_id);
-  const plan = notesApplySuggestionToBlock(block, suggestion);
-  if (!plan) {
-    suggestionsError = "target_missing";
-    return;
-  }
-  await blockActions.updateBlockRichText(suggestion.block_id, plan.richText);
-  await flushBlockSave(suggestion.block_id);
-  const updated = await acceptNotesSuggestion(suggestion.id);
-  updateSuggestion(updated);
-  requestBlockFocus(suggestion.block_id);
-}
-
-async function rejectSuggestion(suggestionId: string): Promise<void> {
-  const suggestion = suggestions.find((candidate) => candidate.id === suggestionId);
-  if (!suggestion || suggestion.status !== "open") return;
-  await flushBlockSave(suggestion.block_id);
-  const updated = await rejectNotesSuggestion(suggestion.id);
-  updateSuggestion(updated);
-  requestBlockFocus(suggestion.block_id);
-}
-
-async function setSuggestionsIncludeDecided(includeDecided: boolean): Promise<void> {
-  suggestionsIncludeDecided = includeDecided;
-  await reloadSuggestions();
-}
-
-async function addPageAlias(alias: string): Promise<void> {
-  if (!selectedPageId) return;
-  const content = alias.trim();
-  if (!content) return;
-  pageAliases = await addNotesPageAlias(selectedPageId, {
-    id: crypto.randomUUID(),
-    alias: content,
-  });
-  pageAliasesError = null;
-  await reloadUnresolvedLinks(selectedPageId);
-  await reloadBacklinks(selectedPageId);
-}
-
-async function deletePageAlias(aliasId: string): Promise<void> {
-  if (!selectedPageId) return;
-  pageAliases = await deleteNotesPageAlias(selectedPageId, aliasId);
-  pageAliasesError = null;
-  await reloadUnresolvedLinks(selectedPageId);
-  await reloadBacklinks(selectedPageId);
-}
-
-async function resolveUnresolvedLink(linkId: string, targetPageId: string): Promise<void> {
-  const targetId = targetPageId.trim();
-  if (!targetId) return;
-  unresolvedLinks = await resolveNotesUnresolvedLink(linkId, {
-    target_page_id: targetId,
-  });
-  unresolvedLinksError = null;
-  await reloadPages(targetId);
-  await reloadLinkResolutionPages();
-  if (selectedPageId) {
-    await loadPageTree(selectedPageId);
-  }
-}
-
-async function createComment(
-  text: string,
-  parent: NotesCommentParent | null = activeCommentParent ?? commentParentForSelectedPage(),
+async function loadOptionalSubsystem(
+  subsystem: NotesOptionalSubsystem,
+  pageId: string | null,
 ): Promise<void> {
-  const content = text.trim();
-  if (!content || !parent) return;
-  if (parent.type === "block_id") {
-    await flushBlockSave(parent.block_id);
+  switch (subsystem) {
+    case "templates":
+      await pageTemplatesController.reloadPageTemplates();
+      break;
+    case "local-user":
+      await collaborationController.loadLocalUser();
+      break;
+    case "history-settings":
+      await pageHistoryController.loadSettings();
+      break;
+    case "undo":
+      await undoController.hydrate(pageId);
+      break;
+    case "links":
+      await Promise.all([
+        linksController.reloadBacklinks(pageId),
+        linksController.reloadPageAliases(pageId),
+        linksController.reloadUnresolvedLinks(pageId),
+        linksController.reloadLinkResolutionPages(),
+      ]);
+      break;
+    case "comments":
+      await Promise.all([
+        collaborationController.loadLocalUser(),
+        collaborationController.reloadComments(pageId),
+      ]);
+      break;
+    case "suggestions":
+      await collaborationController.reloadSuggestions(pageId);
+      break;
+    case "page-history":
+      if (pageId) await pageHistoryController.reloadSnapshots(pageId);
+      break;
+    case "destinations":
+      await linksController.reloadLinkResolutionPages();
+      break;
   }
-  const anchor = activeCommentParent
-    && notesCommentParentKey(activeCommentParent) === notesCommentParentKey(parent)
-    ? activeCommentAnchor
-    : null;
-  const thread = await createNotesComment({
-    id: crypto.randomUUID(),
-    parent,
-    anchor: anchor ?? undefined,
-    rich_text: [createRichText(content)],
-  });
-  updateCommentThread(thread);
-  activeCommentParent = null;
-  activeCommentAnchor = null;
 }
 
-async function replyToCommentThread(discussionId: string, text: string): Promise<void> {
-  const content = text.trim();
-  if (!content) return;
-  const thread = await createNotesComment({
-    id: crypto.randomUUID(),
-    discussion_id: discussionId,
-    rich_text: [createRichText(content)],
-  });
-  updateCommentThread(thread);
-}
-
-async function updateComment(commentId: string, text: string): Promise<void> {
-  const content = text.trim();
-  if (!content) return;
-  const thread = await updateNotesComment(commentId, {
-    rich_text: [createRichText(content)],
-  });
-  updateCommentThread(thread);
-}
-
-async function deleteComment(commentId: string): Promise<void> {
-  const thread = await deleteNotesComment(commentId);
-  updateCommentThread(thread);
-}
-
-async function setCommentThreadResolved(
-  discussionId: string,
-  resolved: boolean,
+async function ensureOptionalSubsystem(
+  subsystem: NotesOptionalSubsystem,
+  pageId: string | null = pageSession.selectedPageId,
 ): Promise<void> {
-  const thread = await resolveNotesCommentThread(discussionId, resolved);
-  updateCommentThread(thread);
+  return optionalSubsystemController.ensure(subsystem, pageId);
 }
 
-async function markCommentThreadsRead(discussionIds: readonly string[]): Promise<void> {
-  if (!selectedPageId) return;
-  const normalizedIds = [
-    ...new Set(discussionIds.map((discussionId) => discussionId.trim()).filter(Boolean)),
-  ];
-  if (normalizedIds.length === 0) return;
-  const nextThreads = await markNotesCommentThreadsRead({
-    page_id: selectedPageId,
-    discussion_ids: normalizedIds,
-    include_resolved: commentsIncludeResolved,
-  });
-  commentThreads = [...nextThreads];
-  commentsError = null;
+function setPagePanelSubsystemOpen(
+  subsystem: NotesPagePanelSubsystem,
+  open: boolean,
+): void {
+  optionalSubsystemController.setPanelOpen(subsystem, open);
 }
 
-async function markVisibleCommentThreadsRead(parent: NotesCommentParent | null = null): Promise<void> {
-  const visibleThreads = parent
-    ? commentThreads.filter((thread) => notesCommentParentMatches(thread.parent, parent))
-    : commentThreads;
-  await markCommentThreadsRead(
-    visibleThreads.filter((thread) => thread.unread).map((thread) => thread.id),
-  );
-}
-
-async function setCommentsIncludeResolved(includeResolved: boolean): Promise<void> {
-  commentsIncludeResolved = includeResolved;
-  await reloadComments();
-}
-
-async function search(
-  query: string,
-  pageSize = 20,
-  includeResolvedComments = searchIncludeResolvedComments,
-): Promise<void> {
-  const trimmed = query.trim();
-  const requestId = ++searchRequestId;
-  if (!trimmed) {
-    searchResults = [];
-    searchError = null;
-    searchLoading = false;
-    return;
-  }
-  searchLoading = true;
-  searchError = null;
-  try {
-    const results = await searchNotes(trimmed, pageSize, includeResolvedComments);
-    if (requestId !== searchRequestId) return;
-    searchResults = [...results];
-  } catch (error) {
-    if (requestId !== searchRequestId) return;
-    searchResults = [];
-    searchError = error instanceof Error ? error.message : String(error);
-  } finally {
-    if (requestId === searchRequestId) searchLoading = false;
-  }
-}
-
-function setSearchIncludeResolvedComments(includeResolvedComments: boolean): void {
-  searchIncludeResolvedComments = includeResolvedComments;
-}
-
-async function load(): Promise<void> {
-  const requestId = ++loadRequestId;
-  loading = true;
-  loadError = null;
-  try {
-    await reloadPages();
-    await reloadPageTemplates();
-    await loadLocalUser();
-    await pageHistoryController.loadSettings();
-    if (requestId !== loadRequestId) return;
-    const nextSelected = restoredNotesPageSelection(selectedPageId, allPages);
-    saveSelectedPageId(nextSelected);
-    if (nextSelected) {
-      await loadPageTree(nextSelected, { focusOnLoad: true });
-      await undoController.hydrate(nextSelected);
-    } else {
-      loadedPage = null;
-      pageBreadcrumbItems = [];
-      backlinks = [];
-      backlinksError = null;
-      pageAliases = [];
-      pageAliasesError = null;
-      unresolvedLinks = [];
-      unresolvedLinksError = null;
-      linkResolutionPages = [];
-      commentThreads = [];
-      activeCommentParent = null;
-      activeCommentAnchor = null;
-      commentsError = null;
-      suggestions = [];
-      activeSuggestionDraft = null;
-      suggestionsError = null;
-      pageHistoryController.resetPageState();
-      blocksById = {};
-      childIdsByParentId = {};
-      await undoController.hydrate(null);
-    }
-    loaded = true;
-  } catch (error) {
-    if (requestId !== loadRequestId) return;
-    loadError = error instanceof Error ? error.message : String(error);
-    throw error;
-  } finally {
-    if (requestId === loadRequestId) loading = false;
-  }
-}
-
-async function ensureLoaded(): Promise<void> {
-  if (loaded || loading) return;
-  await load();
+async function refreshOpenLinks(): Promise<void> {
+  const pageId = pageSession.selectedPageId;
+  if (!pageId || !optionalSubsystemController.isPanelOpen("links")) return;
+  const generation = pageSession.generation;
+  await Promise.all([
+    linksController.reloadBacklinks(pageId),
+    linksController.reloadPageAliases(pageId),
+    linksController.reloadUnresolvedLinks(pageId),
+    linksController.reloadLinkResolutionPages(),
+  ]);
+  if (!pageSession.isCurrent(generation, pageId)) return;
+  optionalSubsystemController.markPageSubsystemLoaded("links", pageId, generation);
 }
 
 async function selectPage(
   pageId: string | null,
   options: NotesSelectPageOptions = {},
 ): Promise<void> {
-  const alreadyLoaded = selectedPageId === pageId && (!pageId || loadedPage?.id === pageId);
+  const alreadyLoaded = pageSession.selectedPageId === pageId && (!pageId || treeProjection.loadedPage?.id === pageId);
   const openMode = notesPageOpenModeForSelection({
     requestedOpenMode: options.openMode,
-    currentOpenMode: pageOpenMode,
+    currentOpenMode: pageSession.pageOpenMode,
     defaultOpenMode: pageId
       ? defaultNotesPageOpenMode(projectIdForPage(pageId))
       : defaultNotesPageOpenMode(),
-    hasOpenPage: selectedPageId !== null,
+    hasOpenPage: pageSession.selectedPageId !== null,
   });
   if (pageId) {
     openSelectedPage(pageId, openMode);
@@ -1076,611 +504,124 @@ async function selectPage(
     saveSelectedPageId(null);
   }
   if (alreadyLoaded) return;
+  pageSession.invalidate();
+  hydrationController.invalidate();
+  treeProjection.resetOutlines();
+  optionalSubsystemController.resetPageScoped();
+  undoController.reset(pageId);
+  pageHistoryController.resetPageState();
+  linksController.resetPageState();
+  collaborationController.resetPageState();
   if (!pageId) {
-    loadedPage = null;
-    pageBreadcrumbItems = [];
-    backlinks = [];
-    backlinksError = null;
-    pageAliases = [];
-    pageAliasesError = null;
-    unresolvedLinks = [];
-    unresolvedLinksError = null;
-    linkResolutionPages = [];
-    commentThreads = [];
-    activeCommentParent = null;
-    activeCommentAnchor = null;
-    commentsError = null;
-    suggestions = [];
-    activeSuggestionDraft = null;
-    suggestionsError = null;
+    treeProjection.clearSelection();
+    pageSession.breadcrumbs = [];
+    linksController.resetAll();
     pageHistoryController.resetPageState();
-    blocksById = {};
-    childIdsByParentId = {};
-    await undoController.hydrate(null);
     return;
   }
-  loading = true;
-  loadError = null;
+  workspaceController.setLoading(true);
+  workspaceController.setError(null);
   try {
-    await reloadPages();
-    await loadPageTree(pageId, {
+    const applied = await loadPageTree(pageId, {
       focusOnLoad: true,
       focusBlockId: options.focusBlockId ?? null,
     });
-    recordRecentPage(pageId);
-    await undoController.hydrate(pageId);
+    if (applied) pageSession.recordRecentIfCurrent(pageSession.generation, pageId);
   } catch (error) {
-    loadError = error instanceof Error ? error.message : String(error);
+    workspaceController.setError(error instanceof Error ? error.message : String(error));
     throw error;
   } finally {
-    loading = false;
+    workspaceController.setLoading(false);
   }
 }
 
-async function createPage(title: string, options: NotesCreatePageOptions = {}): Promise<void> {
-  await createPageWithParent(title, { type: "workspace", workspace: true }, options);
-}
-
-async function createSubpage(
-  parentPageId: string,
-  title: string,
-  options: NotesCreatePageOptions = {},
+async function activateReturnedPage(
+  loaded: NotesLoadedPage,
+  sidebarImpact: Exclude<NotesSidebarMetadataImpact, "none">,
+  openMode: NotesPageOpenMode = defaultNotesPageOpenMode(notesPageProjectId(loaded.page)),
 ): Promise<void> {
-  setSidebarPageCollapsed(parentPageId, false);
-  await createPageWithParent(title, { type: "page_id", page_id: parentPageId }, options);
-}
-
-function pageProjectIdForParent(
-  parent: NotesParent,
-  options: NotesCreatePageOptions,
-): string | null {
-  if ("projectId" in options) return normalizeNotesProjectId(options.projectId);
-  const folderId = options.folderId?.trim();
-  if (parent.type === "workspace" && folderId) {
-    return normalizeNotesProjectId(
-      folders.find((folder) => folder.id === folderId)?.project_id,
-    );
-  }
-  if (parent.type !== "page_id") return null;
-  const parentPage = allPages.find((page) => page.id === parent.page_id)
-    ?? (loadedPage?.id === parent.page_id ? loadedPage : null);
-  return parentPage ? notesPageProjectId(parentPage) : null;
-}
-
-async function createPageWithParent(
-  title: string,
-  parent: NotesParent,
-  options: NotesCreatePageOptions = {},
-): Promise<void> {
-  const pageId = crypto.randomUUID();
-  const firstBlockId = crypto.randomUUID();
-  const projectId = pageProjectIdForParent(parent, options);
-  const folderId = parent.type === "workspace"
-    ? options.folderId?.trim() || null
-    : null;
-  const projectProperties = notesPageProjectProperties(projectId);
-  const loaded = await createNotesPage({
-    id: pageId,
-    title,
-    parent,
-    folder_id: folderId,
-    first_block_id: firstBlockId,
-    after_block_id: null,
-    properties: projectProperties,
-  });
-  if (loaded.page.folder_id) setFolderCollapsed(loaded.page.folder_id, false);
-  openSelectedPage(loaded.page.id, defaultNotesPageOpenMode(projectId));
+  pageSession.invalidate();
+  treeProjection.resetOutlines();
+  undoController.reset(loaded.page.id);
+  pageHistoryController.resetPageState();
+  optionalSubsystemController.resetPageScoped();
+  openSelectedPage(loaded.page.id, openMode);
   recordRecentPage(loaded.page.id);
-  await reloadPages();
-  upsertPageInActiveCollections(loaded.page);
-  setLoadedPageFromLoaded(loaded);
+  applyPostMutation({
+    loadedPage: loaded,
+    pages: [loaded.page],
+    sidebarImpact,
+  });
   await reloadPageBreadcrumb(loaded.page.id);
-  await reloadBacklinks(loaded.page.id);
-  await reloadPageAliases(loaded.page.id);
-  await reloadUnresolvedLinks(loaded.page.id);
-  await reloadLinkResolutionPages();
-  await reloadComments(loaded.page.id);
-  await reloadSuggestions(loaded.page.id);
-  await pageHistoryController.reloadSnapshots(loaded.page.id);
-  await undoController.hydrate(loaded.page.id);
-  requestBlockFocus(null);
-  requestTitleFocus(loaded.page.id);
 }
 
-async function importHtmlPage(
-  input: Omit<NotesHtmlImportRequest, "parent"> & { parent?: NotesParent },
-): Promise<NotesHtmlImportResult> {
-  const result = await importNotesHtmlPage({
-    ...input,
-    parent: input.parent ?? { type: "workspace", workspace: true },
-  });
-  openSelectedPage(result.page.page.id, defaultNotesPageOpenMode());
-  recordRecentPage(result.page.page.id);
-  await reloadPages(result.page.page.id);
-  upsertPageInActiveCollections(result.page.page);
-  setLoadedPageFromLoaded(result.page);
-  await loadAllChildrenForVisibleTree();
-  await reloadPageBreadcrumb(result.page.page.id);
-  await reloadBacklinks(result.page.page.id);
-  await reloadPageAliases(result.page.page.id);
-  await reloadUnresolvedLinks(result.page.page.id);
-  await reloadLinkResolutionPages();
-  await reloadComments(result.page.page.id);
-  await reloadSuggestions(result.page.page.id);
-  await pageHistoryController.reloadSnapshots(result.page.page.id);
-  await undoController.hydrate(result.page.page.id);
-  requestPageLoadFocus();
-  return result;
-}
-
-async function importNotionApi(
-  input: Omit<NotesNotionApiImportRequest, "parent"> & { parent?: NotesParent },
-): Promise<NotesNotionApiImportResult> {
-  const result = await importNotesNotionApi({
-    ...input,
-    parent: input.parent ?? { type: "workspace", workspace: true },
-  });
-  await refreshAfterMultiPageImport(result.imported_pages);
-  return result;
-}
-
-async function importNotionExportFolder(
-  input: Omit<NotesNotionExportImportRequest, "parent"> & { parent?: NotesParent },
-): Promise<NotesNotionExportImportResult> {
-  const result = await importNotesNotionExportFolder({
-    ...input,
-    parent: input.parent ?? { type: "workspace", workspace: true },
-  });
-  await refreshAfterMultiPageImport(result.imported_pages);
-  return result;
-}
-
-async function refreshAfterMultiPageImport(importedPages: NotesLoadedPage[]): Promise<void> {
-  viewMode = "pages";
-  const firstPage = importedPages[0] ?? null;
-  await reloadPages(firstPage?.page.id);
-  for (const loaded of importedPages) {
-    upsertPageInActiveCollections(loaded.page);
-  }
-  await loadAllChildrenForVisibleTree();
-  if (firstPage) {
-    openSelectedPage(firstPage.page.id, defaultNotesPageOpenMode());
-    recordRecentPage(firstPage.page.id);
-    setLoadedPageFromLoaded(firstPage);
-    await reloadPageBreadcrumb(firstPage.page.id);
-    await reloadBacklinks(firstPage.page.id);
-    await reloadPageAliases(firstPage.page.id);
-    await reloadUnresolvedLinks(firstPage.page.id);
-    await reloadLinkResolutionPages();
-    await reloadComments(firstPage.page.id);
-    await reloadSuggestions(firstPage.page.id);
-    await pageHistoryController.reloadSnapshots(firstPage.page.id);
-    await undoController.hydrate(firstPage.page.id);
-    requestPageLoadFocus();
-  }
-}
-
-async function exportHtmlArchive(
-  input: Omit<NotesHtmlExportRequest, "page_id"> = {},
-): Promise<NotesHtmlArchiveSaveResult> {
-  if (!selectedPageId) {
-    throw new Error("No Notes page is selected");
-  }
-  return saveNotesHtmlArchive({
-    ...input,
-    page_id: selectedPageId,
-  });
-}
-
-async function exportJsonGraph(
-  input: NotesJsonGraphExportRequest = {},
-): Promise<NotesJsonGraphExportSaveResult> {
-  return saveNotesJsonGraph(input);
-}
-
-async function exportAgentBridge(
-  input: Omit<NotesAgentBridgeExportRequest, "page_ids"> = {},
-): Promise<NotesAgentBridgeExportSaveResult> {
-  if (!selectedPageId) {
-    throw new Error("No Notes page is selected");
-  }
-  return saveNotesAgentBridge({
-    ...input,
-    page_ids: [selectedPageId],
-  });
-}
-
-async function applyPageTemplate(templateId: string, title?: string): Promise<void> {
-  const loaded = await applyNotesPageTemplate(templateId, {
-    parent: { type: "workspace", workspace: true },
-    title: title?.trim() || null,
-  });
-  openSelectedPage(loaded.page.id, defaultNotesPageOpenMode());
+function activateProvisionalPage(
+  loaded: NotesLoadedPage,
+  openMode: NotesPageOpenMode,
+): void {
+  pageSession.invalidate();
+  treeProjection.resetOutlines();
+  undoController.reset(loaded.page.id);
+  pageHistoryController.resetPageState();
+  optionalSubsystemController.resetPageScoped();
+  openSelectedPage(loaded.page.id, openMode);
   recordRecentPage(loaded.page.id);
-  await reloadPages(loaded.page.id);
-  upsertPageInActiveCollections(loaded.page);
-  setLoadedPageFromLoaded(loaded);
-  await loadAllChildrenForVisibleTree();
-  await reloadPageBreadcrumb(loaded.page.id);
-  await reloadBacklinks(loaded.page.id);
-  await reloadPageAliases(loaded.page.id);
-  await reloadUnresolvedLinks(loaded.page.id);
-  await reloadLinkResolutionPages();
-  await reloadComments(loaded.page.id);
-  await reloadSuggestions(loaded.page.id);
-  await pageHistoryController.reloadSnapshots(loaded.page.id);
-  await undoController.hydrate(loaded.page.id);
+  applyPostMutation({
+    loadedPage: loaded,
+    pages: [loaded.page],
+    sidebarImpact: "hierarchy",
+  });
+}
+
+async function reconcileCreatedPage(loaded: NotesLoadedPage): Promise<void> {
+  const remainsSelected = pageSession.selectedPageId === loaded.page.id
+    && treeProjection.loadedPage?.id === loaded.page.id;
+  const reconciled = remainsSelected
+    ? {
+        ...loaded,
+        blocks: {
+          ...loaded.blocks,
+          results: loaded.blocks.results.map((block) => (
+            hasLocalChanges(block.id) ? treeProjection.blocksById[block.id] ?? block : block
+          )),
+        },
+      }
+    : loaded;
+  applyPostMutation({
+    ...(remainsSelected ? { loadedPage: reconciled } : {}),
+    pages: [loaded.page],
+    sidebarImpact: "hierarchy",
+  });
+  if (remainsSelected) await reloadPageBreadcrumb(loaded.page.id);
+}
+
+async function activateRestoredPage(page: NotesPage): Promise<void> {
+  pageSession.invalidate();
+  undoController.reset(page.id);
+  pageHistoryController.resetPageState();
+  optionalSubsystemController.resetPageScoped();
+  openSelectedPage(page.id, defaultNotesPageOpenMode(notesPageProjectId(page)));
+  applyPostMutation({ pages: [page], sidebarImpact: "hierarchy" });
+  await loadPageTree(page.id);
+  recordRecentPage(page.id);
   requestPageLoadFocus();
-}
-
-async function createPageTemplateFromCurrentPage(name: string): Promise<void> {
-  if (!loadedPage) return;
-  await flushPendingBlockSaves();
-  const template = await createNotesPageTemplateFromPage({
-    id: crypto.randomUUID(),
-    source_page_id: loadedPage.id,
-    name,
-  });
-  pageTemplates = [template, ...pageTemplates.filter((item) => item.id !== template.id)];
-}
-
-async function updatePageTemplateFromCurrentPage(templateId: string): Promise<void> {
-  if (!loadedPage) return;
-  await flushPendingBlockSaves();
-  const template = await updateNotesPageTemplate(templateId, {
-    source_page_id: loadedPage.id,
-  });
-  pageTemplates = pageTemplates.map((item) => (item.id === template.id ? template : item));
-}
-
-async function renamePageTemplate(templateId: string, name: string): Promise<void> {
-  const template = await updateNotesPageTemplate(templateId, { name });
-  pageTemplates = pageTemplates.map((item) => (item.id === template.id ? template : item));
-}
-
-async function duplicatePageTemplate(templateId: string, name: string): Promise<void> {
-  const template = await duplicateNotesPageTemplate(templateId, {
-    id: crypto.randomUUID(),
-    name,
-  });
-  pageTemplates = [template, ...pageTemplates];
-}
-
-async function deletePageTemplate(templateId: string): Promise<void> {
-  const deletedTemplateId = await deleteNotesPageTemplate(templateId);
-  pageTemplates = pageTemplates.filter((template) => template.id !== deletedTemplateId);
-}
-
-async function createFolder(
-  projectId: string,
-  name: string,
-  parentFolderId: string | null,
-): Promise<NotesFolder> {
-  const normalizedProjectId = normalizeNotesProjectId(projectId);
-  const normalizedName = name.trim();
-  const normalizedParentFolderId = parentFolderId?.trim() || null;
-  if (!normalizedProjectId) throw new Error("folder project id must not be empty");
-  if (!normalizedName) throw new Error("folder name must not be empty");
-  const folder = await createNotesFolder({
-    id: crypto.randomUUID(),
-    project_id: normalizedProjectId,
-    parent_folder_id: normalizedParentFolderId,
-    name: normalizedName,
-  });
-  upsertFolder(folder);
-  if (normalizedParentFolderId) setFolderCollapsed(normalizedParentFolderId, false);
-  return folder;
-}
-
-async function renameFolder(folderId: string, name: string): Promise<void> {
-  const normalizedName = name.trim();
-  if (!normalizedName) throw new Error("folder name must not be empty");
-  const currentFolder = folders.find((folder) => folder.id === folderId);
-  if (!currentFolder) throw new Error("notes folder not found");
-  upsertFolder(await updateNotesFolder(folderId, {
-    name: normalizedName,
-    parent_folder_id: currentFolder.parent_folder_id,
-  }));
-}
-
-async function moveFolder(folderId: string, parentFolderId: string | null): Promise<void> {
-  const normalizedParentFolderId = parentFolderId?.trim() || null;
-  const currentFolder = folders.find((folder) => folder.id === folderId);
-  if (!currentFolder) throw new Error("notes folder not found");
-  upsertFolder(
-    await updateNotesFolder(folderId, {
-      name: currentFolder.name,
-      parent_folder_id: normalizedParentFolderId,
-    }),
-  );
-  if (normalizedParentFolderId) setFolderCollapsed(normalizedParentFolderId, false);
-}
-
-async function deleteFolder(folderId: string): Promise<void> {
-  const deletedFolderId = await deleteNotesFolder(folderId);
-  folders = folders.filter((folder) => folder.id !== deletedFolderId);
-  setFolderCollapsed(deletedFolderId, false);
-  await reloadPages();
 }
 
 function setFolderCollapsed(folderId: string, collapsed: boolean): void {
-  const normalizedFolderId = folderId.trim();
-  if (!normalizedFolderId) return;
-  const next = collapsed
-    ? [
-        normalizedFolderId,
-        ...collapsedFolderIds.filter((candidate) => candidate !== normalizedFolderId),
-      ]
-    : collapsedFolderIds.filter((candidate) => candidate !== normalizedFolderId);
-  collapsedFolderIds = next;
-  saveNotesSidebarCollapsedFolderIds(next);
+  sidebarController.setFolderCollapsed(folderId, collapsed);
 }
 
 function setSidebarPageCollapsed(pageId: string, collapsed: boolean): void {
-  const normalizedPageId = pageId.trim();
-  if (!normalizedPageId) return;
-  const next = collapsed
-    ? sidebarExpandedPageIds.filter((candidate) => candidate !== normalizedPageId)
-    : [
-        normalizedPageId,
-        ...sidebarExpandedPageIds.filter((candidate) => candidate !== normalizedPageId),
-      ];
-  sidebarExpandedPageIds = next;
-  saveNotesSidebarExpandedPageIds(next);
-  if (!collapsed) void reloadPages();
+  sidebarController.setPageCollapsed(pageId, collapsed);
 }
 
 function setPageFavorited(pageId: string, favorited: boolean): void {
-  const next = setNotesPageFavoriteId(favoritePageIds, pageId, favorited);
-  favoritePageIds = next;
-  saveNotesFavoritePageIds(next);
-}
-
-async function createChildPageFromBlock(blockId: string): Promise<void> {
-  const block = blocksById[blockId];
-  if (!block || block.type === "child_page") return;
-  await flushBlockSave(blockId);
-  const firstBlockId = crypto.randomUUID();
-  const projectProperties = notesPageProjectProperties(
-    loadedPage ? notesPageProjectId(loadedPage) : null,
-  );
-  const loaded = await createNotesChildPageFromBlock(blockId, {
-    first_block_id: firstBlockId,
-    title: blockPlainText(block).trim(),
-    properties: projectProperties,
-  });
-  openSelectedPage(loaded.page.id, defaultNotesPageOpenMode());
-  recordRecentPage(loaded.page.id);
-  await reloadPages();
-  upsertPageInActiveCollections(loaded.page);
-  setLoadedPageFromLoaded(loaded);
-  await reloadPageBreadcrumb(loaded.page.id);
-  await reloadBacklinks(loaded.page.id);
-  await reloadPageAliases(loaded.page.id);
-  await reloadUnresolvedLinks(loaded.page.id);
-  await reloadLinkResolutionPages();
-  await reloadComments(loaded.page.id);
-  await reloadSuggestions(loaded.page.id);
-  await pageHistoryController.reloadSnapshots(loaded.page.id);
-  await undoController.hydrate(loaded.page.id);
-  requestBlockFocus(
-    planNotesInsertedBlockFocus([loaded.blocks.results[0]?.id, firstBlockId]),
-    START_OF_NOTES_BLOCK_SELECTION,
-  );
-}
-
-async function createChildPageAfterBlock(blockId: string): Promise<void> {
-  const block = blocksById[blockId];
-  if (!block) return;
-  await flushBlockSave(blockId);
-  const pageId = crypto.randomUUID();
-  const firstBlockId = crypto.randomUUID();
-  const projectProperties = notesPageProjectProperties(
-    loadedPage ? notesPageProjectId(loadedPage) : null,
-  );
-  const loaded = await createNotesPage({
-    id: pageId,
-    title: "",
-    parent: block.parent,
-    folder_id: null,
-    first_block_id: firstBlockId,
-    after_block_id: blockId,
-    properties: projectProperties,
-  });
-  if (block.parent.type === "page_id") {
-    setSidebarPageCollapsed(block.parent.page_id, false);
-  }
-  openSelectedPage(loaded.page.id, defaultNotesPageOpenMode());
-  recordRecentPage(loaded.page.id);
-  await reloadPages();
-  upsertPageInActiveCollections(loaded.page);
-  setLoadedPageFromLoaded(loaded);
-  await reloadPageBreadcrumb(loaded.page.id);
-  await reloadBacklinks(loaded.page.id);
-  await reloadPageAliases(loaded.page.id);
-  await reloadUnresolvedLinks(loaded.page.id);
-  await reloadLinkResolutionPages();
-  await reloadComments(loaded.page.id);
-  await reloadSuggestions(loaded.page.id);
-  await pageHistoryController.reloadSnapshots(loaded.page.id);
-  await undoController.hydrate(loaded.page.id);
-  requestBlockFocus(
-    planNotesInsertedBlockFocus([loaded.blocks.results[0]?.id, firstBlockId]),
-    START_OF_NOTES_BLOCK_SELECTION,
-  );
-}
-
-async function renamePage(pageId: string, title: string): Promise<void> {
-  const trimmedTitle = title.trim();
-  const page = await updateNotesPage(pageId, { title: trimmedTitle });
-  upsertPageInActiveCollections(page);
-  if (loadedPage?.id === page.id) loadedPage = page;
-  if (selectedPageId === page.id) await reloadPageBreadcrumb(page.id);
-  await pageHistoryController.reloadSnapshots(pageId);
-}
-
-async function duplicatePage(pageId: string, title: string): Promise<void> {
-  await flushPendingBlockSaves();
-  const loaded = await duplicateNotesPage(pageId, { title });
-  if (loaded.page.parent.type === "page_id") {
-    setSidebarPageCollapsed(loaded.page.parent.page_id, false);
-  }
-  if (loaded.page.folder_id) setFolderCollapsed(loaded.page.folder_id, false);
-  openSelectedPage(loaded.page.id, defaultNotesPageOpenMode());
-  recordRecentPage(loaded.page.id);
-  await reloadPages();
-  upsertPageInActiveCollections(loaded.page);
-  setLoadedPageFromLoaded(loaded);
-  await reloadPageBreadcrumb(loaded.page.id);
-  await reloadBacklinks(loaded.page.id);
-  await reloadPageAliases(loaded.page.id);
-  await reloadUnresolvedLinks(loaded.page.id);
-  await reloadLinkResolutionPages();
-  await reloadComments(loaded.page.id);
-  await reloadSuggestions(loaded.page.id);
-  await pageHistoryController.reloadSnapshots(loaded.page.id);
-  await undoController.hydrate(loaded.page.id);
-  requestBlockFocus(planNotesPageLoadFocus(loaded.blocks.results.map((block) => block.id)));
-}
-
-async function movePage(pageId: string, parent: NotesParent): Promise<void> {
-  await movePageWithPlacement(pageId, parent, null);
-}
-
-async function movePageToFolder(pageId: string, folderId: string | null): Promise<void> {
-  const normalizedFolderId = folderId?.trim() || null;
-  await movePageWithPlacement(
-    pageId,
-    { type: "workspace", workspace: true },
-    normalizedFolderId,
-  );
-}
-
-async function movePageWithPlacement(
-  pageId: string,
-  parent: NotesParent,
-  folderId: string | null,
-): Promise<void> {
-  await flushPendingBlockSaves();
-  const loaded = await moveNotesPage(pageId, { parent, folder_id: folderId });
-  if (loaded.page.parent.type === "page_id") {
-    setSidebarPageCollapsed(loaded.page.parent.page_id, false);
-  }
-  if (loaded.page.folder_id) setFolderCollapsed(loaded.page.folder_id, false);
-  openSelectedPage(loaded.page.id, defaultNotesPageOpenMode());
-  recordRecentPage(loaded.page.id);
-  await reloadPages();
-  upsertPageInActiveCollections(loaded.page);
-  setLoadedPageFromLoaded(loaded);
-  await loadAllChildrenForVisibleTree();
-  await reloadPageBreadcrumb(loaded.page.id);
-  await reloadBacklinks(loaded.page.id);
-  await reloadPageAliases(loaded.page.id);
-  await reloadUnresolvedLinks(loaded.page.id);
-  await reloadLinkResolutionPages();
-  await reloadComments(loaded.page.id);
-  await reloadSuggestions(loaded.page.id);
-  await pageHistoryController.reloadSnapshots(loaded.page.id);
-  await undoController.hydrate(loaded.page.id);
-  requestPageLoadFocus();
-}
-
-async function updatePageIcon(pageId: string, icon: NotesPageIcon | null): Promise<void> {
-  const page = await updateNotesPage(pageId, { icon });
-  upsertPageInActiveCollections(page);
-  if (loadedPage?.id === page.id) loadedPage = page;
-  await pageHistoryController.reloadSnapshots(pageId);
-}
-
-async function updatePageCover(pageId: string, cover: NotesPageCover | null): Promise<void> {
-  const page = await updateNotesPage(pageId, { cover });
-  upsertPageInActiveCollections(page);
-  if (loadedPage?.id === page.id) loadedPage = page;
-  await pageHistoryController.reloadSnapshots(pageId);
-}
-
-async function trashPage(pageId: string): Promise<void> {
-  await trashNotesPage(pageId, true);
-  const preferredNextSelected = nextSelectedNotesPageId(pages, pageId);
-  if (trashLoaded) {
-    await reloadTrashedPages();
-  }
-  if (archiveLoaded) {
-    await reloadArchivedPages();
-  }
-  await reloadPages(preferredNextSelected);
-  const nextSelected = preferredNextSelected && pages.some((page) => page.id === preferredNextSelected)
-    ? preferredNextSelected
-    : pages[0]?.id ?? null;
-  await selectPage(nextSelected);
-}
-
-async function archivePage(pageId: string): Promise<void> {
-  const archivedPage = await archiveNotesPage(pageId, true);
-  if (archiveLoaded) {
-    archivedPages = [archivedPage, ...archivedPages.filter((page) => page.id !== pageId)];
-  }
-  const nextSelected = nextSelectedNotesPageId(pages, pageId);
-  removePagesFromActiveCollections(new Set([pageId]));
-  await selectPage(nextSelected);
-}
-
-async function unarchivePage(pageId: string): Promise<void> {
-  const restoredPage = await archiveNotesPage(pageId, false);
-  archivedPages = archivedPages.filter((page) => page.id !== pageId);
-  openSelectedPage(restoredPage.id, defaultNotesPageOpenMode(notesPageProjectId(restoredPage)));
-  await reloadPages();
-  upsertPageInActiveCollections(restoredPage);
-  await loadPageTree(restoredPage.id);
-  recordRecentPage(restoredPage.id);
-  await undoController.hydrate(restoredPage.id);
-  requestPageLoadFocus();
-}
-
-async function restorePage(pageId: string): Promise<void> {
-  const restoredPage = await trashNotesPage(pageId, false);
-  if (trashLoaded) {
-    await reloadTrashedPages();
-  } else {
-    trashedPages = trashedPages.filter((page) => page.id !== pageId);
-  }
-  openSelectedPage(restoredPage.id, defaultNotesPageOpenMode(notesPageProjectId(restoredPage)));
-  await reloadPages();
-  upsertPageInActiveCollections(restoredPage);
-  await loadPageTree(restoredPage.id);
-  recordRecentPage(restoredPage.id);
-  await undoController.hydrate(restoredPage.id);
-  requestPageLoadFocus();
-}
-
-async function permanentlyDeletePage(pageId: string): Promise<void> {
-  await flushPendingBlockSaves();
-  const deletedPageIds = await permanentlyDeleteNotesPage(pageId);
-  const deletedPageIdSet = new Set(deletedPageIds);
-  removePagesFromActiveCollections(deletedPageIdSet);
-  archivedPages = archivedPages.filter((page) => !deletedPageIdSet.has(page.id));
-  trashedPages = trashedPages.filter((page) => !deletedPageIdSet.has(page.id));
-  const nextFavoritePageIds = favoritePageIds.filter((id) => !deletedPageIdSet.has(id));
-  const nextRecentPageIds = recentPageIds.filter((id) => !deletedPageIdSet.has(id));
-  const nextExpandedPageIds = sidebarExpandedPageIds.filter((id) => !deletedPageIdSet.has(id));
-  favoritePageIds = nextFavoritePageIds;
-  recentPageIds = nextRecentPageIds;
-  sidebarExpandedPageIds = nextExpandedPageIds;
-  saveNotesFavoritePageIds(nextFavoritePageIds);
-  saveNotesRecentPageIds(nextRecentPageIds);
-  saveNotesSidebarExpandedPageIds(nextExpandedPageIds);
-  if (trashLoaded) {
-    await reloadTrashedPages();
-  }
-  await reloadPages();
-  if (selectedPageId && deletedPageIdSet.has(selectedPageId)) {
-    await selectPage(pages[0]?.id ?? null);
-  }
+  sidebarController.setPageFavorited(pageId, favorited);
 }
 
 async function openArchive(): Promise<void> {
   viewMode = "archive";
-  if (!archiveLoaded && !archiveLoading) {
+  if (!archiveController.archiveLoaded && !archiveController.archiveLoading) {
     await reloadArchivedPages();
   }
 }
@@ -1691,7 +632,7 @@ function closeArchive(): void {
 
 async function openTrash(): Promise<void> {
   viewMode = "trash";
-  if (!trashLoaded && !trashLoading) {
+  if (!archiveController.trashLoaded && !archiveController.trashLoading) {
     await reloadTrashedPages();
   }
 }
@@ -1709,7 +650,7 @@ function flatBlockItemsForBlockContext(blockId: string): NotesBlockTreeItem[] {
 }
 
 function blockById(blockId: string): NotesBlock | undefined {
-  return blocksById[blockId];
+  return treeProjection.blocksById[blockId];
 }
 
 function tableRowsForBlock(blockId: string): NotesTableRowBlock[] {
@@ -1732,11 +673,43 @@ function visibleBlockIds(): string[] {
   return flatBlockItems().map((item) => item.block.id);
 }
 
+function outlineSubtreeIds(rootBlockIds: readonly string[]): string[] {
+  const roots = new Set(rootBlockIds);
+  const outlinesById = new Map(treeProjection.blockOutlines.map((outline) => [outline.id, outline]));
+  const included = new Set<string>();
+  for (const item of treeProjection.flatBlockOutlines) {
+    let current: NotesBlockOutline | undefined = item.outline;
+    while (current) {
+      if (roots.has(current.id)) {
+        included.add(item.outline.id);
+        break;
+      }
+      const parentId: string | null = current.parent.type === "block_id"
+        ? current.parent.block_id
+        : null;
+      current = parentId ? outlinesById.get(parentId) : undefined;
+    }
+  }
+  return [...included];
+}
+
 function requestPageLoadFocus(requestedBlockId: string | null = null): void {
   requestBlockFocus(planNotesPageLoadFocus(visibleBlockIds(), requestedBlockId));
 }
 
+const pageCreationController = createNotesPageCreationController({
+  reconcile: reconcileCreatedPage,
+  afterPersisted: async () => {
+    try {
+      await flushPendingBlockSaves();
+    } catch (error) {
+      workspaceController.setError(error instanceof Error ? error.message : String(error));
+    }
+  },
+});
+
 const {
+  hasLocalChanges,
   localApplyBlockUpdate,
   markBlockLocallyChanged,
   saveBlockNow,
@@ -1744,16 +717,18 @@ const {
   flushBlockSave,
   flushPendingBlockSaves,
 } = createNotesBlockPersistence({
-  readBlock: (blockId) => blocksById[blockId],
+  readBlock: (blockId) => treeProjection.blocksById[blockId],
+  beforeSave: () => pageCreationController.awaitReady(pageSession.selectedPageId),
   replaceBlock,
   setLoadError: (message) => {
-    loadError = message;
+    workspaceController.setError(message);
   },
   debounceMs: BLOCK_SAVE_DEBOUNCE_MS,
 });
+treeProjection.setLocalChangeMarker(markBlockLocallyChanged);
 
 const undoController = createNotesUndoController({
-  readSelectedPageId: () => selectedPageId,
+  readSelectedPageId: () => pageSession.selectedPageId,
   readTreeState: treeState,
   loadPageTreeForUndo,
   requestBlockFocus,
@@ -1767,22 +742,99 @@ const undoController = createNotesUndoController({
 });
 
 const pageHistoryController = createNotesPageHistoryController({
-  readSelectedPageId: () => selectedPageId,
-  loadPageTree,
-  reloadPages,
-  hydrateUndo: undoController.hydrate,
+  readSelectedPageId: () => pageSession.selectedPageId,
+  applyPostMutation,
   requestPageLoadFocus,
   flushPendingBlockSaves,
   setLoadError: (message) => {
-    loadError = message;
+    workspaceController.setError(message);
   },
 });
 
+const optionalSubsystemController = createNotesOptionalSubsystemController({
+  readPageGeneration: () => pageSession.generation,
+  readSelectedPageId: () => pageSession.selectedPageId,
+  readSelectedProjectId: () => projects.selectedProjectId,
+  load: loadOptionalSubsystem,
+});
+
+const workspaceController = createNotesWorkspaceController({
+  readRequestState: () => ({
+    projectId: projects.selectedProjectId,
+    expandedPageIds: [...sidebarController.expandedPageIds],
+    seedPageIds: sidebarSeedPageIds(),
+    selectedPageId: pageSession.selectedPageId,
+  }),
+  prepareLoad: prepareWorkspaceLoad,
+  applyInitialShell: applyInitialWorkspaceShell,
+  applyAdditionalShell: applyAdditionalWorkspaceShell,
+  mergeReloadedShell: mergeReloadedWorkspaceShell,
+  loadSelectedPage: async (pageId) => {
+    await loadPageTree(pageId, { focusOnLoad: true });
+  },
+  clearSelectedPageState,
+  readSelectedPageId: () => pageSession.selectedPageId,
+});
+
+const transferActions = createNotesTransferActions({
+  readSelectedPageId: () => pageSession.selectedPageId,
+  activateReturnedPage: (nextLoadedPage) => activateReturnedPage(nextLoadedPage, "hierarchy"),
+  upsertPage: upsertPageInActiveCollections,
+  showPages: () => {
+    viewMode = "pages";
+  },
+  scheduleHierarchyRefresh: () => sidebarRefreshCoordinator.schedule("hierarchy"),
+  queueDescendantHydration: () => queueDescendantHydration(),
+  requestPageLoadFocus: () => requestPageLoadFocus(),
+});
+
+const pageTemplatesController = createNotesPageTemplatesController({
+  readLoadedPage: () => treeProjection.loadedPage,
+  flushPendingBlockSaves,
+  activateReturnedPage: (nextLoadedPage) => activateReturnedPage(nextLoadedPage, "hierarchy"),
+  queueDescendantHydration: () => queueDescendantHydration(),
+  requestPageLoadFocus: () => requestPageLoadFocus(),
+});
+
+const pageActions = createNotesPageActions({
+  readSelectedPageId: () => pageSession.selectedPageId,
+  readPages: () => pages,
+  readAllPages: () => allPages,
+  readLoadedPage: () => treeProjection.loadedPage,
+  readFolders: () => foldersController.folders,
+  readBlocksById: () => treeProjection.blocksById,
+  defaultOpenMode: defaultNotesPageOpenMode,
+  activateReturnedPage,
+  activateProvisionalPage,
+  beginPageCreation: pageCreationController.begin,
+  awaitPageReady: pageCreationController.awaitReady,
+  activateRestoredPage,
+  applyPostMutation,
+  selectPage: (pageId) => selectPage(pageId),
+  reloadPageBreadcrumb: (pageId) => reloadPageBreadcrumb(pageId),
+  flushBlockSave,
+  flushPendingBlockSaves,
+  requestBlockFocus,
+  requestTitleFocus,
+  requestPageLoadFocus: () => requestPageLoadFocus(),
+  queueDescendantHydration: () => queueDescendantHydration(),
+  setFolderCollapsed,
+  setSidebarPageCollapsed,
+  prependArchivedPage: archiveController.prependArchivedPage,
+  prependTrashedPage: archiveController.prependTrashedPage,
+  removeArchivedPages: archiveController.removeArchivedPages,
+  removeTrashedPages: archiveController.removeTrashedPages,
+  removePagesFromActiveCollections,
+  removeSidebarPageIds: sidebarController.removePageIds,
+  scheduleHierarchyRefresh: () => sidebarRefreshCoordinator.schedule("hierarchy"),
+});
+
 const blockActions = createNotesBlockActions({
-  readSelectedPageId: () => selectedPageId,
-  readBlocksById: () => blocksById,
-  readChildIdsByParentId: () => childIdsByParentId,
+  readSelectedPageId: () => pageSession.selectedPageId,
+  readBlocksById: () => treeProjection.blocksById,
+  readChildIdsByParentId: () => treeProjection.childIdsByParentId,
   treeState,
+  outlineSubtreeIds,
   blockById,
   flatBlockItemsForBlockContext,
   tableRowsForBlock,
@@ -1790,11 +842,13 @@ const blockActions = createNotesBlockActions({
   tabItemsForBlock,
   setSidebarPageCollapsed,
   requestBlockFocus,
-  createChildPageFromBlock,
-  createChildPageAfterBlock,
-  loadPageTree,
-  reloadPages,
-  reloadBacklinks,
+  createChildPageFromBlock: pageActions.createChildPageFromBlock,
+  createChildPageAfterBlock: pageActions.createChildPageAfterBlock,
+  applyPostMutation,
+  loadPageTree: async (pageId) => {
+    await loadPageTree(pageId);
+  },
+  refreshOpenLinks,
   localApplyBlockUpdate,
   localInsertBlockAfter: insertBlockAfter,
   localRemoveLeafBlock: removeLeafBlockLocally,
@@ -1802,9 +856,41 @@ const blockActions = createNotesBlockActions({
   scheduleBlockSave,
   flushBlockSave,
   flushPendingBlockSaves,
+  awaitSelectedPageReady: () => pageCreationController.awaitReady(pageSession.selectedPageId),
   createUndoSnapshot: undoController.snapshot,
   createUndoSnapshotForBlocks: undoController.snapshotBlocks,
   recordUndo: undoController.record,
+});
+
+const collaborationController = createNotesCollaborationController({
+  readSelectedPageId: () => pageSession.selectedPageId,
+  readBlocksById: () => treeProjection.blocksById,
+  flushBlockSave,
+  requestBlockFocus: (blockId) => requestBlockFocus(blockId),
+  updateBlockRichText: blockActions.updateBlockRichText,
+  isPanelOpen: (panel) => optionalSubsystemController.isPanelOpen(panel),
+});
+
+const hydrationController = createNotesHydrationController({
+  readPageGeneration: () => pageSession.generation,
+  readSelectedPageId: () => pageSession.selectedPageId,
+  readBlockOutlines: () => treeProjection.blockOutlines,
+  readFlatBlockOutlines: () => treeProjection.flatBlockOutlines,
+  readBlocksById: () => treeProjection.blocksById,
+  readFocusRequest: () => focusRequest,
+  mergeBlockOutlines,
+  replaceHydratedBlocks: (nextBlocksById, nextChildIdsByParentId) => {
+    treeProjection.blocksById = nextBlocksById;
+    treeProjection.childIdsByParentId = nextChildIdsByParentId;
+  },
+  setLoadError: (message) => {
+    workspaceController.setError(message);
+  },
+  reloadOpenComments: (pageId) => {
+    if (optionalSubsystemController.isPanelOpen("comments")) {
+      void collaborationController.reloadComments(pageId);
+    }
+  },
 });
 
 const {
@@ -1881,18 +967,24 @@ function focusBlock(blockId: string, selection: NotesTextSelection | null = null
 
 async function undoNotesEdit(): Promise<boolean> {
   try {
+    if (!undoController.canUndo() && pageSession.selectedPageId) {
+      await ensureOptionalSubsystem("undo", pageSession.selectedPageId);
+    }
     return await undoController.undo();
   } catch (error) {
-    loadError = error instanceof Error ? error.message : String(error);
+    workspaceController.setError(error instanceof Error ? error.message : String(error));
     throw error;
   }
 }
 
 async function redoNotesEdit(): Promise<boolean> {
   try {
+    if (!undoController.canRedo() && pageSession.selectedPageId) {
+      await ensureOptionalSubsystem("undo", pageSession.selectedPageId);
+    }
     return await undoController.redo();
   } catch (error) {
-    loadError = error instanceof Error ? error.message : String(error);
+    workspaceController.setError(error instanceof Error ? error.message : String(error));
     throw error;
   }
 }
@@ -1903,19 +995,19 @@ async function openBlockLink(target: NotesBlockLinkTarget): Promise<boolean> {
 
 async function openNotesLink(target: NotesPageLinkTarget): Promise<boolean> {
   viewMode = "pages";
-  await ensureLoaded();
+  await workspaceController.ensureLoaded();
   if (!allPages.some((page) => page.id === target.pageId)) {
     await reloadPages(target.pageId);
   }
   if (!allPages.some((page) => page.id === target.pageId)) return false;
-  if (loadedPage?.id !== target.pageId) {
+  if (treeProjection.loadedPage?.id !== target.pageId) {
     await selectPage(target.pageId, { focusBlockId: target.blockId ?? null });
   }
   if (!target.blockId) {
     requestPageLoadFocus();
     return true;
   }
-  if (!blocksById[target.blockId] || !visibleBlockIds().includes(target.blockId)) return false;
+  if (!treeProjection.blocksById[target.blockId] || !visibleBlockIds().includes(target.blockId)) return false;
   requestBlockFocus(planNotesPageLoadFocus(visibleBlockIds(), target.blockId));
   return true;
 }
@@ -1928,182 +1020,206 @@ export function getNotes() {
     get allPages(): NotesPage[] {
       return allPages;
     },
-    get folders(): NotesFolder[] {
-      return folders;
+    get folders() {
+      return foldersController.folders;
     },
     get archivedPages(): NotesPage[] {
-      return archivedPages;
+      return archiveController.archivedPages;
     },
-    get pageTemplates(): NotesPageTemplate[] {
-      return pageTemplates;
+    get archiveHasMore(): boolean {
+      return archiveController.archiveHasMore;
+    },
+    get pageTemplates() {
+      return pageTemplatesController.templates;
     },
     get workspacePages(): NotesPage[] {
       return allPages.filter((page) => page.parent.type === "workspace");
     },
     get favoritePageIds(): readonly string[] {
-      return favoritePageIds;
+      return sidebarController.favoritePageIds;
     },
     get recentPageIds(): readonly string[] {
-      return recentPageIds;
+      return sidebarController.recentPageIds;
     },
     get collapsedFolderIds(): readonly string[] {
-      return collapsedFolderIds;
+      return sidebarController.collapsedFolderIds;
     },
     get sidebarExpandedPageIds(): readonly string[] {
-      return sidebarExpandedPageIds;
+      return sidebarController.expandedPageIds;
     },
     get sidebarPageIdsWithChildren(): readonly string[] {
-      return sidebarPageIdsWithChildren;
+      return sidebarController.pageIdsWithChildren;
     },
     get sidebarMissingParentPageIds(): readonly string[] {
-      return sidebarMissingParentPageIds;
+      return sidebarController.missingParentPageIds;
     },
     get sidebarTrashedParentPageIds(): readonly string[] {
-      return sidebarTrashedParentPageIds;
+      return sidebarController.trashedParentPageIds;
     },
     get trashedPages(): NotesPage[] {
-      return trashedPages;
+      return archiveController.trashedPages;
+    },
+    get trashHasMore(): boolean {
+      return archiveController.trashHasMore;
     },
     get selectedPageId(): string | null {
-      return selectedPageId;
+      return pageSession.selectedPageId;
     },
     get pageOpenMode(): NotesPageOpenMode {
-      return pageOpenMode;
+      return pageSession.pageOpenMode;
     },
     get loadedPage(): NotesPage | null {
-      return loadedPage;
+      return treeProjection.loadedPage;
+    },
+    get primaryContentReady(): boolean {
+      return treeProjection.primaryContentReady;
+    },
+    get pageCreationPending(): boolean {
+      return pageCreationController.isPending(pageSession.selectedPageId);
+    },
+    get pageCreationError(): string | null {
+      return pageCreationController.errorFor(pageSession.selectedPageId);
     },
     get pageBreadcrumbItems(): NotesPageBreadcrumbItem[] {
-      return pageBreadcrumbItems;
+      return pageSession.breadcrumbs;
     },
-    get backlinks(): NotesBacklink[] {
-      return backlinks;
+    get backlinks() {
+      return linksController.backlinks;
     },
     get backlinksLoading(): boolean {
-      return backlinksLoading;
+      return linksController.backlinksLoading;
     },
     get backlinksError(): string | null {
-      return backlinksError;
+      return linksController.backlinksError;
     },
-    get pageAliases(): NotesPageAlias[] {
-      return pageAliases;
+    get pageAliases() {
+      return linksController.aliases;
     },
     get pageAliasesLoading(): boolean {
-      return pageAliasesLoading;
+      return linksController.aliasesLoading;
     },
     get pageAliasesError(): string | null {
-      return pageAliasesError;
+      return linksController.aliasesError;
     },
-    get unresolvedLinks(): NotesUnresolvedLink[] {
-      return unresolvedLinks;
+    get unresolvedLinks() {
+      return linksController.unresolvedLinks;
     },
     get unresolvedLinksLoading(): boolean {
-      return unresolvedLinksLoading;
+      return linksController.unresolvedLoading;
     },
     get unresolvedLinksError(): string | null {
-      return unresolvedLinksError;
+      return linksController.unresolvedError;
     },
     get linkResolutionPages(): NotesPage[] {
-      return linkResolutionPages.length > 0 ? linkResolutionPages : allPages;
+      return linksController.destinations;
     },
-    get commentThreads(): NotesCommentThread[] {
-      return commentThreads;
+    get destinationHasMore(): boolean {
+      return linksController.destinationHasMore;
+    },
+    get commentThreads() {
+      return collaborationController.commentThreads;
     },
     get commentsLoading(): boolean {
-      return commentsLoading;
+      return collaborationController.commentsLoading;
     },
     get commentsError(): string | null {
-      return commentsError;
+      return collaborationController.commentsError;
     },
     get commentsIncludeResolved(): boolean {
-      return commentsIncludeResolved;
+      return collaborationController.commentsIncludeResolved;
     },
-    get activeCommentParent(): NotesCommentParent | null {
-      return activeCommentParent;
+    get activeCommentParent() {
+      return collaborationController.activeCommentParent;
     },
-    get activeCommentAnchor(): NotesCommentAnchorCreate | null {
-      return activeCommentAnchor;
+    get activeCommentAnchor() {
+      return collaborationController.activeCommentAnchor;
     },
-    get suggestions(): NotesSuggestion[] {
-      return suggestions;
+    get suggestions() {
+      return collaborationController.suggestions;
     },
     get suggestionsLoading(): boolean {
-      return suggestionsLoading;
+      return collaborationController.suggestionsLoading;
     },
     get suggestionsError(): string | null {
-      return suggestionsError;
+      return collaborationController.suggestionsError;
     },
     get suggestionsIncludeDecided(): boolean {
-      return suggestionsIncludeDecided;
+      return collaborationController.suggestionsIncludeDecided;
     },
-    get activeSuggestionDraft(): NotesSuggestionDraft | null {
-      return activeSuggestionDraft;
+    get activeSuggestionDraft() {
+      return collaborationController.activeSuggestionDraft;
     },
-    get localUser(): NotesLocalUser | null {
-      return localUser;
+    get localUser() {
+      return collaborationController.localUser;
     },
     get localUserLoading(): boolean {
-      return localUserLoading;
+      return collaborationController.localUserLoading;
     },
     get localUserError(): string | null {
-      return localUserError;
+      return collaborationController.localUserError;
     },
-    get searchResults(): NotesSearchResult[] {
-      return searchResults;
+    get searchResults() {
+      return searchController.results;
+    },
+    get searchHasMore(): boolean {
+      return searchController.hasMore;
     },
     get searchLoading(): boolean {
-      return searchLoading;
+      return searchController.loading;
     },
     get searchError(): string | null {
-      return searchError;
+      return searchController.error;
     },
     get searchIncludeResolvedComments(): boolean {
-      return searchIncludeResolvedComments;
+      return searchController.includeResolvedComments;
     },
     get blocksById(): Record<string, NotesBlock> {
-      return blocksById;
+      return treeProjection.blocksById;
     },
     get childIdsByParentId(): Record<string, string[]> {
-      return childIdsByParentId;
+      return treeProjection.childIdsByParentId;
+    },
+    get flatBlockOutlines(): NotesBlockOutlineItem[] {
+      return treeProjection.flatBlockOutlines;
     },
     get flatBlocks(): NotesBlockTreeItem[] {
       return flatBlockItems();
     },
     get loaded(): boolean {
-      return loaded;
+      return workspaceController.loaded;
     },
     get loading(): boolean {
-      return loading;
+      return workspaceController.loading;
     },
     get loadError(): string | null {
-      return loadError;
+      return workspaceController.error;
     },
     get viewMode(): NotesViewMode {
       return viewMode;
     },
     get archiveLoaded(): boolean {
-      return archiveLoaded;
+      return archiveController.archiveLoaded;
     },
     get archiveLoading(): boolean {
-      return archiveLoading;
+      return archiveController.archiveLoading;
     },
     get archiveError(): string | null {
-      return archiveError;
+      return archiveController.archiveError;
     },
     get trashLoaded(): boolean {
-      return trashLoaded;
+      return archiveController.trashLoaded;
     },
     get trashLoading(): boolean {
-      return trashLoading;
+      return archiveController.trashLoading;
     },
     get trashError(): string | null {
-      return trashError;
+      return archiveController.trashError;
     },
     get pageTemplatesLoading(): boolean {
-      return pageTemplatesLoading;
+      return pageTemplatesController.loading;
     },
     get pageTemplatesError(): string | null {
-      return pageTemplatesError;
+      return pageTemplatesController.error;
     },
     get pageHistorySnapshots(): NotesPageHistorySnapshot[] {
       return pageHistoryController.snapshots;
@@ -2148,10 +1264,10 @@ export function getNotes() {
       return focusRequest.selection;
     },
     get titleFocusPageId(): string | null {
-      return titleFocusRequest.pageId;
+      return pageSession.titleFocus.pageId;
     },
     get titleFocusRequestId(): number {
-      return titleFocusRequest.requestId;
+      return pageSession.titleFocus.requestId;
     },
     pageTitleDraftForPage,
     get canUndoNotesEdit(): boolean {
@@ -2160,81 +1276,93 @@ export function getNotes() {
     get canRedoNotesEdit(): boolean {
       return undoController.canRedo();
     },
-    load,
-    ensureLoaded,
+    load: workspaceController.load,
+    ensureLoaded: workspaceController.ensureLoaded,
+    loadMoreWorkspaceWindow: workspaceController.loadMoreWorkspaceWindow,
     selectPage,
     showSelectedPageAs,
-    createPage,
-    createSubpage,
-    createFolder,
-    renameFolder,
-    moveFolder,
-    deleteFolder,
-    importHtmlPage,
-    importNotionApi,
-    importNotionExportFolder,
-    exportHtmlArchive,
-    exportJsonGraph,
-    exportAgentBridge,
-    createChildPageFromBlock,
-    applyPageTemplate,
-    createPageTemplateFromCurrentPage,
-    updatePageTemplateFromCurrentPage,
-    renamePageTemplate,
-    duplicatePageTemplate,
-    deletePageTemplate,
-    reloadPageTemplates,
-    loadLocalUser,
-    updateLocalUserDisplayName,
+    createPage: pageActions.createPage,
+    createSubpage: pageActions.createSubpage,
+    retryPageCreation: () => {
+      const pageId = pageSession.selectedPageId;
+      if (pageId) pageCreationController.retry(pageId);
+    },
+    createFolder: foldersController.createFolder,
+    renameFolder: foldersController.renameFolder,
+    moveFolder: foldersController.moveFolder,
+    deleteFolder: foldersController.deleteFolder,
+    importHtmlPage: transferActions.importHtmlPage,
+    importNotionApi: transferActions.importNotionApi,
+    importNotionExportFolder: transferActions.importNotionExportFolder,
+    exportHtmlArchive: transferActions.exportHtmlArchive,
+    exportJsonGraph: transferActions.exportJsonGraph,
+    exportAgentBridge: transferActions.exportAgentBridge,
+    createChildPageFromBlock: pageActions.createChildPageFromBlock,
+    applyPageTemplate: pageTemplatesController.applyPageTemplate,
+    createPageTemplateFromCurrentPage: pageTemplatesController.createPageTemplateFromCurrentPage,
+    updatePageTemplateFromCurrentPage: pageTemplatesController.updatePageTemplateFromCurrentPage,
+    renamePageTemplate: pageTemplatesController.renamePageTemplate,
+    duplicatePageTemplate: pageTemplatesController.duplicatePageTemplate,
+    deletePageTemplate: pageTemplatesController.deletePageTemplate,
+    reloadPageTemplates: pageTemplatesController.reloadPageTemplates,
+    ensureOptionalSubsystem,
+    setPagePanelSubsystemOpen,
+    loadLocalUser: collaborationController.loadLocalUser,
+    updateLocalUserDisplayName: collaborationController.updateLocalUserDisplayName,
     loadPageHistorySettings: pageHistoryController.loadSettings,
     updatePageHistoryRetention: pageHistoryController.updateRetention,
     reloadPageHistory: pageHistoryController.reloadSnapshots,
     loadPageHistoryVersion: pageHistoryController.loadVersion,
     restorePageHistoryVersion: pageHistoryController.restoreVersion,
     copyPageHistoryBlocks: pageHistoryController.copyBlocks,
-    renamePage,
-    duplicatePage,
-    movePage,
-    movePageToFolder,
-    archivePage,
-    unarchivePage,
-    trashPage,
-    restorePage,
-    permanentlyDeletePage,
+    renamePage: pageActions.renamePage,
+    duplicatePage: pageActions.duplicatePage,
+    movePage: pageActions.movePage,
+    movePageToFolder: pageActions.movePageToFolder,
+    archivePage: pageActions.archivePage,
+    unarchivePage: pageActions.unarchivePage,
+    trashPage: pageActions.trashPage,
+    restorePage: pageActions.restorePage,
+    permanentlyDeletePage: pageActions.permanentlyDeletePage,
     openArchive,
     closeArchive,
     reloadArchivedPages,
+    loadMoreArchivedPages,
     openTrash,
     closeTrash,
     reloadTrashedPages,
-    reloadBacklinks,
-    reloadPageAliases,
-    reloadUnresolvedLinks,
-    addPageAlias,
-    deletePageAlias,
-    resolveUnresolvedLink,
-    reloadComments,
-    reloadSuggestions,
-    setCommentsIncludeResolved,
-    setSuggestionsIncludeDecided,
-    setActiveCommentParent,
-    startBlockComment,
-    startInlineComment,
-    startInlineSuggestion,
-    cancelSuggestionDraft,
-    createSuggestion,
-    acceptSuggestion,
-    rejectSuggestion,
-    createComment,
-    replyToCommentThread,
-    updateComment,
-    deleteComment,
-    setCommentThreadResolved,
-    markCommentThreadsRead,
-    markVisibleCommentThreadsRead,
-    search,
-    setSearchIncludeResolvedComments,
-    notesCommentParentKey,
+    loadMoreTrashedPages,
+    reloadBacklinks: linksController.reloadBacklinks,
+    reloadPageAliases: linksController.reloadPageAliases,
+    reloadUnresolvedLinks: linksController.reloadUnresolvedLinks,
+    reloadLinkResolutionPages: linksController.reloadLinkResolutionPages,
+    loadMoreDestinationCandidates: linksController.loadMoreDestinationCandidates,
+    addPageAlias: linksController.addPageAlias,
+    deletePageAlias: linksController.deletePageAlias,
+    resolveUnresolvedLink: linksController.resolveUnresolvedLink,
+    reloadComments: collaborationController.reloadComments,
+    reloadSuggestions: collaborationController.reloadSuggestions,
+    setCommentsIncludeResolved: collaborationController.setCommentsIncludeResolved,
+    setSuggestionsIncludeDecided: collaborationController.setSuggestionsIncludeDecided,
+    setActiveCommentParent: collaborationController.setActiveCommentParent,
+    startBlockComment: collaborationController.startBlockComment,
+    startInlineComment: collaborationController.startInlineComment,
+    startInlineSuggestion: collaborationController.startInlineSuggestion,
+    cancelSuggestionDraft: collaborationController.cancelSuggestionDraft,
+    createSuggestion: collaborationController.createSuggestion,
+    acceptSuggestion: collaborationController.acceptSuggestion,
+    rejectSuggestion: collaborationController.rejectSuggestion,
+    createComment: collaborationController.createComment,
+    replyToCommentThread: collaborationController.replyToCommentThread,
+    updateComment: collaborationController.updateComment,
+    deleteComment: collaborationController.deleteComment,
+    setCommentThreadResolved: collaborationController.setCommentThreadResolved,
+    markCommentThreadsRead: collaborationController.markCommentThreadsRead,
+    markVisibleCommentThreadsRead: collaborationController.markVisibleCommentThreadsRead,
+    search: searchController.search,
+    loadMoreSearchResults: searchController.loadMoreSearchResults,
+    setSearchIncludeResolvedComments: searchController.setIncludeResolvedComments,
+    notesCommentParentKey: collaborationController.notesCommentParentKey,
     blockById,
     tableRowsForBlock,
     columnItemsForBlock,
@@ -2243,11 +1371,12 @@ export function getNotes() {
     previousBlockType,
     isOnlyBlock,
     focusBlock,
+    hydrateBlockRange,
     setPageFavorited,
     setFolderCollapsed,
     setSidebarPageCollapsed,
-    updatePageIcon,
-    updatePageCover,
+    updatePageIcon: pageActions.updatePageIcon,
+    updatePageCover: pageActions.updatePageCover,
     openBlockLink,
     openNotesLink,
     undoNotesEdit,
@@ -2319,3 +1448,6 @@ export function getNotes() {
     moveBlockToTab,
   };
 }
+
+/** Stable public Notes store facade returned by {@link getNotes}. */
+export type NotesStoreFacade = ReturnType<typeof getNotes>;

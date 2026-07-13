@@ -28,6 +28,7 @@ export const pageActions = {
     "Las notas y subcarpetas que contiene se moverán al nivel actual de esta carpeta. No se eliminará ninguna nota.",
   deleteFolderConfirm: "Eliminar carpeta (Enter)",
   folderActionFailed: (message: string) => `No se pudo actualizar la carpeta: ${message}`,
+  pageCreationFailed: (message: string) => `No se pudo guardar esta nota nueva: ${message}`,
   archivePage: "Archivar",
   archiveConfirmTitle: (title: string) => `¿Archivar ${title}?`,
   archiveConfirmMessage:

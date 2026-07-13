@@ -207,6 +207,7 @@ fn duplicate_blocks_copies_loaded_subtrees_and_block_comments() {
         .unwrap();
         let duplicated_json = serde_json::to_value(duplicated).unwrap();
         assert_eq!(duplicated_json["results"][0]["id"], BLOCK_D);
+        assert_eq!(duplicated_json["results"][1]["id"], BLOCK_E);
 
         let duplicated_children = reads::get_block_children(&pool, BLOCK_D, None, Some(10))
             .await

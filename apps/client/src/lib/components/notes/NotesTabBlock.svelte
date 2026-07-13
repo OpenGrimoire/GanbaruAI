@@ -46,7 +46,7 @@
   } from "$lib/notes/types";
   import NotesBlockHandle from "./NotesBlockHandle.svelte";
   import NotesBlockRow from "./NotesBlockRow.svelte";
-  import NotesSlashMenu from "./NotesSlashMenu.svelte";
+  import NotesLazySlashMenu from "./NotesLazySlashMenu.svelte";
   import ArrowLeft from "@lucide/svelte/icons/arrow-left";
   import ArrowRight from "@lucide/svelte/icons/arrow-right";
   import Plus from "@lucide/svelte/icons/plus";
@@ -747,7 +747,7 @@
       </section>
 
       {#if slashOpen}
-        <NotesSlashMenu canSetColor={false} onSelect={selectSlashCommand} />
+        <NotesLazySlashMenu onSelect={selectSlashCommand} />
       {/if}
     </div>
   </div>

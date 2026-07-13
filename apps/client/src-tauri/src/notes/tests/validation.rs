@@ -576,3 +576,97 @@ fn notes_validation_rejects_bad_ids_and_payloads() {
         Err("unsupported.warnings[0] must not be empty".to_string())
     );
 }
+
+#[test]
+fn notes_validation_boundary_matrix_keeps_acceptance_and_errors_stable() {
+    let managed_image = local_media_payload(
+        "notes/files/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+        "image/png",
+        42,
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "",
+        Some("image.png"),
+    );
+    let escaped_image = local_media_payload(
+        "notes/page-icons/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+        "image/png",
+        42,
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "",
+        Some("image.png"),
+    );
+    let cases = [
+        (
+            "managed Notes file",
+            validation::validate_block_payload("image", &managed_image),
+            Ok(()),
+        ),
+        (
+            "managed path outside Notes files",
+            validation::validate_block_payload("image", &escaped_image),
+            Err("image.file.ganbaru_asset_path must stay under the managed Notes file directory"
+                .to_string()),
+        ),
+        (
+            "HTTPS rich-text URL",
+            validation::validate_block_payload(
+                "paragraph",
+                &json!({
+                    "rich_text": [linked_rich_text("Docs", "https://example.com/docs")],
+                    "color": "default"
+                }),
+            ),
+            Ok(()),
+        ),
+        (
+            "blocked rich-text URL scheme",
+            validation::validate_block_payload(
+                "paragraph",
+                &json!({
+                    "rich_text": [linked_rich_text("Bad", "javascript:alert(1)")],
+                    "color": "default"
+                }),
+            ),
+            Err("rich text text.link.url must be a valid HTTP, HTTPS, or email URL".to_string()),
+        ),
+        (
+            "control character",
+            validation::validate_block_payload(
+                "equation",
+                &json!({ "expression": "bad\u{0008}" }),
+            ),
+            Err("equation.expression must not contain control characters".to_string()),
+        ),
+        (
+            "ISO date mention",
+            validation::validate_block_payload(
+                "paragraph",
+                &json!({
+                    "rich_text": [date_mention("2026-06-30", "Today", true)],
+                    "color": "default"
+                }),
+            ),
+            Ok(()),
+        ),
+        (
+            "invalid date mention",
+            validation::validate_block_payload(
+                "paragraph",
+                &json!({
+                    "rich_text": [date_mention("2026-99-30", "Bad date", false)],
+                    "color": "default"
+                }),
+            ),
+            Err("rich text mention.date.start must be an ISO date or date-time".to_string()),
+        ),
+        (
+            "blocked future block",
+            validation::validate_block_type("meeting_notes"),
+            Err("meeting_notes is blocked by the Notes block catalog gate until rich editor P0 completion, current block quality completion, honest docs, usable editing UI, persistence, focused tests, pnpm -w run validate are complete".to_string()),
+        ),
+    ];
+
+    for (label, actual, expected) in cases {
+        assert_eq!(actual, expected, "{label}");
+    }
+}

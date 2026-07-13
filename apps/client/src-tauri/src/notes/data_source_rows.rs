@@ -44,6 +44,8 @@ pub(in crate::notes) async fn create_data_source_row_page(
     if request.id.trim() == request.first_block_id.trim() {
         return Err("first_block_id must not match id".to_string());
     }
+    crate::notes::project_history::ensure_data_source_baseline_for_mutation(pool, data_source_id)
+        .await?;
     let mut tx = pool
         .begin()
         .await

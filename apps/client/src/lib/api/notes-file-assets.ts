@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { ensureDbUrl } from "$lib/api/db";
+import { invalidateAssetUrl, loadAssetUrl } from "$lib/api/asset-url-cache";
 import type { NotesFileAssetMetadata, NotesMediaBlockType } from "$lib/notes/media";
 import type {
   NotesImportFileDiagnostic,
@@ -23,8 +24,6 @@ interface NotesImportFileReferenceDto {
   externalUrl: string | null;
   diagnostics: NotesImportFileDiagnostic[];
 }
-
-const notesFileAssetUrls = new Map<string, string>();
 
 function mapNotesFileAssetDto(value: NotesFileAssetDto): NotesFileAssetMetadata {
   return {
@@ -71,10 +70,13 @@ export async function prepareNotesImportFileReference(
 
 /** Load a managed Notes file asset as a data URL for local preview rendering. */
 export async function notesFileAssetUrl(relativePath: string): Promise<string> {
-  const cached = notesFileAssetUrls.get(relativePath);
-  if (cached) return cached;
-  const dbUrl = await ensureDbUrl();
-  const assetUrl = await invoke<string>("notes_file_asset_data_url", { dbUrl, relativePath });
-  notesFileAssetUrls.set(relativePath, assetUrl);
-  return assetUrl;
+  return loadAssetUrl("notes-file", relativePath, async () => {
+    const dbUrl = await ensureDbUrl();
+    return invoke<string>("notes_file_asset_data_url", { dbUrl, relativePath });
+  });
+}
+
+/** Releases a local Notes preview when it leaves the retained render range. */
+export function releaseNotesFileAssetUrl(relativePath: string): void {
+  invalidateAssetUrl("notes-file", relativePath);
 }

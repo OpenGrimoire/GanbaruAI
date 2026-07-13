@@ -186,6 +186,8 @@ SQLite is the source of truth for Notes and structured productivity data. Diary 
 
 Module-level `$state` objects exposed through getter functions (e.g. `getPomodoro()`, `getKanban()`, `getNavigation()`) manage live app state: current Pomodoro phase and timer, active work environment, which overlay is visible (break screen), current collaborative session, and presence data. The getter pattern keeps the API surface clean and encapsulates mutations. No external state manager or Svelte stores (`writable`/`readable`) needed; runes handle it natively.
 
+Frontend background work uses lifecycle schedulers backed by injectable clocks. A scheduler owns one concern, runs at most one asynchronous request, coalesces repeated invalidations into one rerun, and ignores deadlines returned by stale work. Calendar and Notes notifications schedule their exact next deadline and catch up when the window resumes or regains focus. Pomodoro, Music, Doomscrolling, and extension status schedulers exist only while their corresponding timer, source, rule, limit, or settings surface is active, so an idle app does not keep high-frequency application polling alive.
+
 ---
 
 ## Data architecture: documents vs structured data

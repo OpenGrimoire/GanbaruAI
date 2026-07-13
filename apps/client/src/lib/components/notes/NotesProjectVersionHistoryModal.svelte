@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import {
-    initializeNotesProjectHistory,
     listNotesProjectHistoryVersions,
     loadNotesProjectHistoryPage,
     loadNotesProjectHistoryTree,
@@ -176,13 +175,7 @@
   }
 
   onMount(() => {
-    void initializeNotesProjectHistory(projectId)
-      .then(() => loadVersions(true))
-      .catch((cause) => {
-        const message = cause instanceof Error ? cause.message : String(cause);
-        error = t("notes.projectHistoryLoadFailed", message);
-        loadingVersions = false;
-      });
+    void loadVersions(true);
     return () => {
       versionsRequestId += 1;
       previewRequestId += 1;

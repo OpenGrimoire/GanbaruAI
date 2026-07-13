@@ -1,4 +1,18 @@
-use super::*;
+use super::models::*;
+
+const PALETTE_SIZE: i64 = 32;
+const PROJECT_TEMPLATE_IDS: &[&str] = &[
+    "blank", "software", "course", "routine", "reading", "chores",
+];
+const MAX_PROJECT_EVENT_DURATION_MINUTES: i64 = 24 * 60;
+const MAX_PROJECT_POMODORO_FOCUS_MINUTES: i64 = 120;
+const MAX_PROJECT_POMODORO_SHORT_BREAK_MINUTES: i64 = 30;
+const MAX_PROJECT_POMODORO_LONG_BREAK_MINUTES: i64 = 60;
+const MAX_PROJECT_POMODORO_CYCLE_COUNT: i64 = 12;
+const PROJECT_EVENT_TIME_MODES: &[&str] = &["timed", "all_day"];
+const PROJECT_IDLE_SETTINGS_SOURCES: &[&str] = &["global", "custom"];
+const PROJECT_IDLE_THRESHOLD_MINUTES: &[i64] = &[1, 2, 3, 4, 5, 10, 15];
+pub(super) const MAX_TASK_CHANGE_REASON_LENGTH: usize = 1000;
 
 pub(super) fn validate_group_create(group: &ProjectGroupCreate) -> Result<(), String> {
     require_non_empty(&group.id, "id")?;

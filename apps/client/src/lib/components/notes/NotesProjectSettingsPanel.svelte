@@ -259,7 +259,7 @@
 
   $effect(() => {
     if (notes.pageHistorySettings || notes.pageHistorySettingsLoading) return;
-    void notes.loadPageHistorySettings();
+    void notes.ensureOptionalSubsystem("history-settings");
   });
 
   $effect(() => {

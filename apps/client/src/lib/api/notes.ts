@@ -1,6 +1,17 @@
 import { invoke } from "@tauri-apps/api/core";
 import { ensureDbUrl } from "$lib/api/db";
 import {
+  invalidateAssetUrlKind,
+  invalidateNotesAssetUrls,
+} from "$lib/api/asset-url-cache";
+import { invalidateNotesNotificationSchedule } from "$lib/notes/notification-schedule.svelte";
+import { createRichText } from "$lib/notes/block-factory";
+import { NOTES_PAGE_PROJECT_ID_PROPERTY } from "$lib/notes/project-membership";
+import {
+  applyNotesProjectHistoryMutationDeadline,
+  notifyNotesProjectHistoryMutation,
+} from "$lib/notes/project-history-scheduler";
+import {
   mapNotesBacklinkDto,
   mapNotesBlockDto,
   mapNotesBlockListDto,
@@ -28,6 +39,9 @@ import {
   mapNotesJsonGraphExportSaveDto,
   mapNotesLocalUserDto,
   mapNotesLoadedPageDto,
+  mapNotesPageOpenResponseDto,
+  mapNotesBlockFrontierDto,
+  mapNotesBlockOutlineDto,
   mapNotesNotionApiImportDto,
   mapNotesNotionExportImportDto,
   mapNotesMarkdownExportDto,
@@ -78,6 +92,7 @@ import type {
   NotesDataSourceSchemaUpdate,
   NotesDataSourceTableView,
   NotesDataSourceTableViewUpdate,
+  NotesDataSourceViewWindowRequest,
   NotesDataSourceTemplate,
   NotesDataSourceTemplateApplyRequest,
   NotesDataSourceTemplateCreateFromRowRequest,
@@ -105,6 +120,10 @@ import type {
   NotesLocalUser,
   NotesLocalUserUpdate,
   NotesLoadedPage,
+  NotesPageOpenResponse,
+  NotesBlockFrontier,
+  NotesBlockOutline,
+  NotesBlockHydrationRequest,
   NotesHtmlImportRequest,
   NotesHtmlImportResult,
   NotesNotionApiImportRequest,
@@ -121,6 +140,8 @@ import type {
   NotesMoveBlockRequest,
   NotesMoveBlocksRequest,
   NotesPage,
+  NotesPageSummaryWindow,
+  NotesPageSummaryWindowRequest,
   NotesPageAlias,
   NotesPageAliasCreate,
   NotesPageBreadcrumbItem,
@@ -137,6 +158,7 @@ import type {
   NotesPageUpdate,
   NotesPaginatedBlockList,
   NotesSearchResult,
+  NotesSearchWindow,
   NotesSidebarPageList,
   NotesSidebarPagesRequest,
   NotesSuggestion,
@@ -144,6 +166,8 @@ import type {
   NotesTrashBlocksRequest,
   NotesUnresolvedLink,
   NotesUnresolvedLinkResolve,
+  NotesWorkspaceShell,
+  NotesWorkspaceShellRequest,
 } from "$lib/notes/types";
 
 function databaseViewScopeArgs(scope?: NotesDatabaseViewScope | null): {
@@ -156,15 +180,29 @@ function databaseViewScopeArgs(scope?: NotesDatabaseViewScope | null): {
   };
 }
 
-function schemaViewScopeArgs(scope?: NotesDatabaseViewScope | null): { viewId: string | null } {
-  return { viewId: scope?.viewId ?? null };
+async function invokeNotesMutation(
+  command: string,
+  args: Record<string, unknown>,
+  forceCheckpoint = false,
+): Promise<unknown> {
+  const result = await invoke<unknown>(command, args);
+  if (typeof result === "object" && result !== null && !Array.isArray(result)) {
+    const record = result as Record<string, unknown>;
+    if (Object.hasOwn(record, "value") && Object.hasOwn(record, "nextHistoryCheckpointAt")) {
+      const deadline = record.nextHistoryCheckpointAt;
+      if (deadline !== null && typeof deadline !== "string") {
+        throw new Error(`${command} returned an invalid Notes history deadline`);
+      }
+      applyNotesProjectHistoryMutationDeadline(deadline as string | null);
+      return record.value;
+    }
+  }
+  notifyNotesProjectHistoryMutation(forceCheckpoint);
+  return result;
 }
 
-export async function listNotesPages(): Promise<NotesPage[]> {
-  const dbUrl = await ensureDbUrl();
-  const rows = await invoke<unknown>("notes_list_pages", { dbUrl });
-  if (!Array.isArray(rows)) throw new Error("notes_list_pages returned a non-array payload");
-  return rows.map(mapNotesPageDto);
+function schemaViewScopeArgs(scope?: NotesDatabaseViewScope | null): { viewId: string | null } {
+  return { viewId: scope?.viewId ?? null };
 }
 
 export async function listNotesFolders(): Promise<NotesFolder[]> {
@@ -174,9 +212,131 @@ export async function listNotesFolders(): Promise<NotesFolder[]> {
   return rows.map(mapNotesFolderDto);
 }
 
+function notesWorkspaceShellRecord(value: unknown): Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("notes_load_workspace_shell returned an invalid payload");
+  }
+  return value as Record<string, unknown>;
+}
+
+function shellString(value: unknown, field: string): string {
+  if (typeof value !== "string") throw new Error(`${field} must be a string`);
+  return value;
+}
+
+function shellNullableString(value: unknown, field: string): string | null {
+  if (value === null) return null;
+  return shellString(value, field);
+}
+
+function shellStringArray(value: unknown, field: string): string[] {
+  if (!Array.isArray(value)) throw new Error(`${field} must be an array`);
+  return value.map((item, index) => shellString(item, `${field}[${index}]`));
+}
+
+function shellNumber(value: unknown, field: string): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`${field} must be a non-negative integer`);
+  }
+  return value;
+}
+
+function shellBoolean(value: unknown, field: string): boolean {
+  if (typeof value !== "boolean") throw new Error(`${field} must be a boolean`);
+  return value;
+}
+
+function mapPageSummary(value: unknown): NotesPage {
+  const row = notesWorkspaceShellRecord(value);
+  const parentType = shellString(row.parent_type, "page.parent_type");
+  let parent: NotesPage["parent"];
+  if (parentType === "workspace") {
+    parent = { type: "workspace", workspace: true };
+  } else if (parentType === "page_id") {
+    parent = { type: "page_id", page_id: shellString(row.parent_page_id, "page.parent_page_id") };
+  } else if (parentType === "block_id") {
+    parent = { type: "block_id", block_id: shellString(row.parent_block_id, "page.parent_block_id") };
+  } else if (parentType === "data_source_id") {
+    parent = {
+      type: "data_source_id",
+      data_source_id: shellString(row.parent_data_source_id, "page.parent_data_source_id"),
+    };
+  } else {
+    throw new Error("page.parent_type is invalid");
+  }
+  const title = shellString(row.title, "page.title");
+  const projectId = shellNullableString(row.project_id, "page.project_id");
+  const rawIcon = shellNullableString(row.icon, "page.icon");
+  return mapNotesPageDto({
+    object: "page",
+    id: shellString(row.id, "page.id"),
+    created_time: shellString(row.created_time, "page.created_time"),
+    last_edited_time: shellString(row.last_edited_time, "page.last_edited_time"),
+    parent,
+    folder_id: shellNullableString(row.folder_id, "page.folder_id"),
+    in_trash: row.in_trash === undefined ? false : shellBoolean(row.in_trash, "page.in_trash"),
+    archived: row.archived === undefined ? false : shellBoolean(row.archived, "page.archived"),
+    icon: rawIcon ? JSON.parse(rawIcon) : null,
+    cover: null,
+    properties: {
+      title: { id: "title", type: "title", title: title ? [createRichText(title)] : [] },
+      ...(projectId ? { [NOTES_PAGE_PROJECT_ID_PROPERTY]: projectId } : {}),
+    },
+    url: null,
+    public_url: null,
+    source_provider: null,
+    source_object_id: null,
+    source_workspace_id: null,
+    source_last_edited_time: null,
+  });
+}
+
+export async function loadNotesWorkspaceShell(
+  request: NotesWorkspaceShellRequest,
+): Promise<NotesWorkspaceShell> {
+  const dbUrl = await ensureDbUrl();
+  const value = await invoke<unknown>("notes_load_workspace_shell", { dbUrl, request });
+  const record = notesWorkspaceShellRecord(value);
+  if (!Array.isArray(record.pages) || !Array.isArray(record.folders)) {
+    throw new Error("notes_load_workspace_shell returned invalid collections");
+  }
+  return {
+    pages: record.pages.map(mapPageSummary),
+    folders: record.folders.map(mapNotesFolderDto),
+    page_ids_with_children: shellStringArray(record.page_ids_with_children, "page_ids_with_children"),
+    missing_parent_page_ids: shellStringArray(record.missing_parent_page_ids, "missing_parent_page_ids"),
+    trashed_parent_page_ids: shellStringArray(record.trashed_parent_page_ids, "trashed_parent_page_ids"),
+    resolved_selected_page_id: shellNullableString(
+      record.resolved_selected_page_id,
+      "resolved_selected_page_id",
+    ),
+    total_page_count: shellNumber(record.total_page_count, "total_page_count"),
+    total_folder_count: shellNumber(record.total_folder_count, "total_folder_count"),
+    next_page_cursor: shellNullableString(record.next_page_cursor, "next_page_cursor"),
+    next_folder_cursor: shellNullableString(record.next_folder_cursor, "next_folder_cursor"),
+  };
+}
+
+export async function listNotesDestinationCandidates(
+  projectId: string | null,
+  cursor: string | null = null,
+  query = "",
+): Promise<NotesWorkspaceShell> {
+  return loadNotesWorkspaceShell({
+    project_id: projectId,
+    expanded_page_ids: [],
+    seed_page_ids: [],
+    selected_page_id: null,
+    page_cursor: cursor,
+    folder_cursor: "end",
+    destination_candidates: true,
+    page_query: query,
+  });
+}
+
 export async function createNotesFolder(folder: NotesFolderCreate): Promise<NotesFolder> {
   const dbUrl = await ensureDbUrl();
-  return mapNotesFolderDto(await invoke<unknown>("notes_create_folder", { dbUrl, folder }));
+  return mapNotesFolderDto(await invokeNotesMutation("notes_create_folder", { dbUrl, folder }));
 }
 
 export async function updateNotesFolder(
@@ -185,44 +345,65 @@ export async function updateNotesFolder(
 ): Promise<NotesFolder> {
   const dbUrl = await ensureDbUrl();
   return mapNotesFolderDto(
-    await invoke<unknown>("notes_update_folder", { dbUrl, folderId, update }),
+    await invokeNotesMutation("notes_update_folder", { dbUrl, folderId, update }),
   );
 }
 
 export async function deleteNotesFolder(folderId: string): Promise<string> {
   const dbUrl = await ensureDbUrl();
-  const deletedFolderId = await invoke<unknown>("notes_delete_folder", { dbUrl, folderId });
+  const deletedFolderId = await invokeNotesMutation("notes_delete_folder", { dbUrl, folderId });
   if (typeof deletedFolderId !== "string") {
     throw new Error("notes_delete_folder returned a non-string payload");
   }
   return deletedFolderId;
 }
 
-export async function listTrashedNotesPages(): Promise<NotesPage[]> {
+export async function listTrashedNotesPages(
+  request: NotesPageSummaryWindowRequest = {},
+): Promise<NotesPageSummaryWindow> {
   const dbUrl = await ensureDbUrl();
-  const rows = await invoke<unknown>("notes_list_trashed_pages", { dbUrl });
-  if (!Array.isArray(rows)) {
-    throw new Error("notes_list_trashed_pages returned a non-array payload");
-  }
-  return rows.map(mapNotesPageDto);
+  return mapPageSummaryWindow(
+    await invoke<unknown>("notes_list_trashed_pages", { dbUrl, request }),
+    "notes_list_trashed_pages",
+  );
 }
 
-export async function listArchivedNotesPages(): Promise<NotesPage[]> {
+export async function listArchivedNotesPages(
+  request: NotesPageSummaryWindowRequest = {},
+): Promise<NotesPageSummaryWindow> {
   const dbUrl = await ensureDbUrl();
-  const rows = await invoke<unknown>("notes_list_archived_pages", { dbUrl });
-  if (!Array.isArray(rows)) {
-    throw new Error("notes_list_archived_pages returned a non-array payload");
-  }
-  return rows.map(mapNotesPageDto);
+  return mapPageSummaryWindow(
+    await invoke<unknown>("notes_list_archived_pages", { dbUrl, request }),
+    "notes_list_archived_pages",
+  );
+}
+
+function mapPageSummaryWindow(value: unknown, command: string): NotesPageSummaryWindow {
+  const record = notesWorkspaceShellRecord(value);
+  if (!Array.isArray(record.pages)) throw new Error(`${command} returned invalid pages`);
+  return {
+    pages: record.pages.map(mapPageSummary),
+    total_count: shellNumber(record.total_count, `${command}.total_count`),
+    next_cursor: shellNullableString(record.next_cursor, `${command}.next_cursor`),
+  };
 }
 
 export async function listNotesSidebarPages(
   request: NotesSidebarPagesRequest,
 ): Promise<NotesSidebarPageList> {
   const dbUrl = await ensureDbUrl();
-  return mapNotesSidebarPageListDto(
+  const record = notesWorkspaceShellRecord(
     await invoke<unknown>("notes_list_sidebar_pages", { dbUrl, request }),
   );
+  if (!Array.isArray(record.pages)) {
+    throw new Error("notes_list_sidebar_pages returned invalid pages");
+  }
+  return {
+    pages: record.pages.map(mapPageSummary),
+    page_ids_with_children: shellStringArray(record.page_ids_with_children, "page_ids_with_children"),
+    missing_parent_page_ids: shellStringArray(record.missing_parent_page_ids, "missing_parent_page_ids"),
+    trashed_parent_page_ids: shellStringArray(record.trashed_parent_page_ids, "trashed_parent_page_ids"),
+  };
 }
 
 export async function listNotesBacklinks(pageId: string): Promise<NotesBacklink[]> {
@@ -264,7 +445,7 @@ export async function addNotesPageAlias(
   request: NotesPageAliasCreate,
 ): Promise<NotesPageAlias[]> {
   const dbUrl = await ensureDbUrl();
-  const rows = await invoke<unknown>("notes_add_page_alias", { dbUrl, pageId, request });
+  const rows = await invokeNotesMutation("notes_add_page_alias", { dbUrl, pageId, request });
   if (!Array.isArray(rows)) {
     throw new Error("notes_add_page_alias returned a non-array payload");
   }
@@ -276,7 +457,7 @@ export async function deleteNotesPageAlias(
   aliasId: string,
 ): Promise<NotesPageAlias[]> {
   const dbUrl = await ensureDbUrl();
-  const rows = await invoke<unknown>("notes_delete_page_alias", { dbUrl, pageId, aliasId });
+  const rows = await invokeNotesMutation("notes_delete_page_alias", { dbUrl, pageId, aliasId });
   if (!Array.isArray(rows)) {
     throw new Error("notes_delete_page_alias returned a non-array payload");
   }
@@ -297,7 +478,7 @@ export async function resolveNotesUnresolvedLink(
   request: NotesUnresolvedLinkResolve,
 ): Promise<NotesUnresolvedLink[]> {
   const dbUrl = await ensureDbUrl();
-  const rows = await invoke<unknown>("notes_resolve_unresolved_link", {
+  const rows = await invokeNotesMutation("notes_resolve_unresolved_link", {
     dbUrl,
     linkId,
     request,
@@ -321,16 +502,25 @@ export async function searchNotes(
   query: string,
   pageSize = 20,
   includeResolvedComments = false,
-): Promise<NotesSearchResult[]> {
+  cursor: string | null = null,
+): Promise<NotesSearchWindow> {
   const dbUrl = await ensureDbUrl();
   const rows = await invoke<unknown>("notes_search", {
     dbUrl,
     query,
     pageSize,
     includeResolvedComments,
+    cursor,
   });
-  if (!Array.isArray(rows)) throw new Error("notes_search returned a non-array payload");
-  return rows.map(mapNotesSearchResultDto);
+  const record = notesWorkspaceShellRecord(rows);
+  if (!Array.isArray(record.results)) throw new Error("notes_search returned invalid results");
+  return {
+    results: record.results.map((value) => {
+    const record = notesWorkspaceShellRecord(value);
+    return mapNotesSearchResultDto({ ...record, page: mapPageSummary(record.page) });
+    }),
+    next_cursor: shellNullableString(record.next_cursor, "notes_search.next_cursor"),
+  };
 }
 
 export async function rebuildNotesSearchIndex(): Promise<number> {
@@ -362,6 +552,7 @@ export async function refreshNotesMentionNotifications(): Promise<number> {
   if (typeof refreshed !== "number" || !Number.isInteger(refreshed)) {
     throw new Error("notes_refresh_mention_notifications returned an invalid count");
   }
+  invalidateNotesNotificationSchedule();
   return refreshed;
 }
 
@@ -489,7 +680,11 @@ export async function restoreNotesPageHistorySnapshot(
 ): Promise<NotesLoadedPage> {
   const dbUrl = await ensureDbUrl();
   return mapNotesLoadedPageDto(
-    await invoke<unknown>("notes_restore_page_history_snapshot", { dbUrl, pageId, snapshotId }),
+    await invokeNotesMutation(
+      "notes_restore_page_history_snapshot",
+      { dbUrl, pageId, snapshotId },
+      true,
+    ),
   );
 }
 
@@ -500,16 +695,26 @@ export async function copyNotesPageHistoryBlocks(
 ): Promise<NotesPaginatedBlockList> {
   const dbUrl = await ensureDbUrl();
   return mapNotesBlockListDto(
-    await invoke<unknown>("notes_copy_page_history_blocks", { dbUrl, pageId, snapshotId, request }),
+    await invokeNotesMutation(
+      "notes_copy_page_history_blocks",
+      { dbUrl, pageId, snapshotId, request },
+      true,
+    ),
   );
 }
 
 export async function listNotesComments(
   pageId: string,
   includeResolved = false,
+  blockIds?: readonly string[],
 ): Promise<NotesCommentThread[]> {
   const dbUrl = await ensureDbUrl();
-  const rows = await invoke<unknown>("notes_list_comments", { dbUrl, pageId, includeResolved });
+  const rows = await invoke<unknown>("notes_list_comments", {
+    dbUrl,
+    pageId,
+    includeResolved,
+    blockIds: blockIds ? [...blockIds] : null,
+  });
   if (!Array.isArray(rows)) throw new Error("notes_list_comments returned a non-array payload");
   return rows.map(mapNotesCommentThreadDto);
 }
@@ -529,7 +734,11 @@ export async function createNotesComment(
   request: NotesCommentCreate,
 ): Promise<NotesCommentThread> {
   const dbUrl = await ensureDbUrl();
-  return mapNotesCommentThreadDto(await invoke<unknown>("notes_create_comment", { dbUrl, request }));
+  const thread = mapNotesCommentThreadDto(
+    await invokeNotesMutation("notes_create_comment", { dbUrl, request }),
+  );
+  invalidateNotesNotificationSchedule();
+  return thread;
 }
 
 export async function updateNotesComment(
@@ -537,16 +746,20 @@ export async function updateNotesComment(
   update: NotesCommentUpdate,
 ): Promise<NotesCommentThread> {
   const dbUrl = await ensureDbUrl();
-  return mapNotesCommentThreadDto(
-    await invoke<unknown>("notes_update_comment", { dbUrl, commentId, update }),
+  const thread = mapNotesCommentThreadDto(
+    await invokeNotesMutation("notes_update_comment", { dbUrl, commentId, update }),
   );
+  invalidateNotesNotificationSchedule();
+  return thread;
 }
 
 export async function deleteNotesComment(commentId: string): Promise<NotesCommentThread> {
   const dbUrl = await ensureDbUrl();
-  return mapNotesCommentThreadDto(
-    await invoke<unknown>("notes_delete_comment", { dbUrl, commentId }),
+  const thread = mapNotesCommentThreadDto(
+    await invokeNotesMutation("notes_delete_comment", { dbUrl, commentId }),
   );
+  invalidateNotesNotificationSchedule();
+  return thread;
 }
 
 export async function resolveNotesCommentThread(
@@ -554,9 +767,11 @@ export async function resolveNotesCommentThread(
   resolved = true,
 ): Promise<NotesCommentThread> {
   const dbUrl = await ensureDbUrl();
-  return mapNotesCommentThreadDto(
-    await invoke<unknown>("notes_resolve_comment_thread", { dbUrl, discussionId, resolved }),
+  const thread = mapNotesCommentThreadDto(
+    await invokeNotesMutation("notes_resolve_comment_thread", { dbUrl, discussionId, resolved }),
   );
+  invalidateNotesNotificationSchedule();
+  return thread;
 }
 
 export async function listNotesSuggestions(
@@ -574,27 +789,27 @@ export async function createNotesSuggestion(
 ): Promise<NotesSuggestion> {
   const dbUrl = await ensureDbUrl();
   return mapNotesSuggestionDto(
-    await invoke<unknown>("notes_create_suggestion", { dbUrl, request }),
+    await invokeNotesMutation("notes_create_suggestion", { dbUrl, request }),
   );
 }
 
 export async function acceptNotesSuggestion(suggestionId: string): Promise<NotesSuggestion> {
   const dbUrl = await ensureDbUrl();
   return mapNotesSuggestionDto(
-    await invoke<unknown>("notes_accept_suggestion", { dbUrl, suggestionId }),
+    await invokeNotesMutation("notes_accept_suggestion", { dbUrl, suggestionId }),
   );
 }
 
 export async function rejectNotesSuggestion(suggestionId: string): Promise<NotesSuggestion> {
   const dbUrl = await ensureDbUrl();
   return mapNotesSuggestionDto(
-    await invoke<unknown>("notes_reject_suggestion", { dbUrl, suggestionId }),
+    await invokeNotesMutation("notes_reject_suggestion", { dbUrl, suggestionId }),
   );
 }
 
 export async function createNotesPage(page: NotesPageCreate): Promise<NotesLoadedPage> {
   const dbUrl = await ensureDbUrl();
-  return mapNotesLoadedPageDto(await invoke<unknown>("notes_create_page", { dbUrl, page }));
+  return mapNotesLoadedPageDto(await invokeNotesMutation("notes_create_page", { dbUrl, page }));
 }
 
 export async function importNotesMarkdownPage(
@@ -602,7 +817,7 @@ export async function importNotesMarkdownPage(
 ): Promise<NotesMarkdownImportResult> {
   const dbUrl = await ensureDbUrl();
   return mapNotesMarkdownImportDto(
-    await invoke<unknown>("notes_import_markdown_page", { dbUrl, request }),
+    await invokeNotesMutation("notes_import_markdown_page", { dbUrl, request }, true),
   );
 }
 
@@ -611,7 +826,7 @@ export async function importNotesHtmlPage(
 ): Promise<NotesHtmlImportResult> {
   const dbUrl = await ensureDbUrl();
   return mapNotesHtmlImportDto(
-    await invoke<unknown>("notes_import_html_page", { dbUrl, request }),
+    await invokeNotesMutation("notes_import_html_page", { dbUrl, request }, true),
   );
 }
 
@@ -620,7 +835,7 @@ export async function importNotesNotionApi(
 ): Promise<NotesNotionApiImportResult> {
   const dbUrl = await ensureDbUrl();
   return mapNotesNotionApiImportDto(
-    await invoke<unknown>("notes_import_notion_api", { dbUrl, request }),
+    await invokeNotesMutation("notes_import_notion_api", { dbUrl, request }, true),
   );
 }
 
@@ -629,7 +844,7 @@ export async function importNotesNotionExportFolder(
 ): Promise<NotesNotionExportImportResult> {
   const dbUrl = await ensureDbUrl();
   return mapNotesNotionExportImportDto(
-    await invoke<unknown>("notes_import_notion_export_folder", { dbUrl, request }),
+    await invokeNotesMutation("notes_import_notion_export_folder", { dbUrl, request }, true),
   );
 }
 
@@ -700,7 +915,7 @@ export async function createNotesChildPageFromBlock(
 ): Promise<NotesLoadedPage> {
   const dbUrl = await ensureDbUrl();
   return mapNotesLoadedPageDto(
-    await invoke<unknown>("notes_create_child_page_from_block", { dbUrl, blockId, request }),
+    await invokeNotesMutation("notes_create_child_page_from_block", { dbUrl, blockId, request }),
   );
 }
 
@@ -709,7 +924,7 @@ export async function createNotesDatabase(
 ): Promise<NotesCreatedDatabase> {
   const dbUrl = await ensureDbUrl();
   return mapNotesCreatedDatabaseDto(
-    await invoke<unknown>("notes_create_database", { dbUrl, request }),
+    await invokeNotesMutation("notes_create_database", { dbUrl, request }),
   );
 }
 
@@ -718,7 +933,7 @@ export async function createNotesLinkedDatabaseView(
 ): Promise<NotesCreatedDatabase> {
   const dbUrl = await ensureDbUrl();
   return mapNotesCreatedDatabaseDto(
-    await invoke<unknown>("notes_create_linked_database_view", { dbUrl, request }),
+    await invokeNotesMutation("notes_create_linked_database_view", { dbUrl, request }),
   );
 }
 
@@ -743,7 +958,7 @@ export async function updateNotesDataSourceSchema(
 ): Promise<NotesDataSourceSchema> {
   const dbUrl = await ensureDbUrl();
   return mapNotesDataSourceSchemaDto(
-    await invoke<unknown>("notes_update_data_source_schema", {
+    await invokeNotesMutation("notes_update_data_source_schema", {
       dbUrl,
       dataSourceId,
       update,
@@ -778,7 +993,7 @@ export async function createNotesDataSourceRowPage(
 ): Promise<NotesLoadedPage> {
   const dbUrl = await ensureDbUrl();
   return mapNotesLoadedPageDto(
-    await invoke<unknown>("notes_create_data_source_row_page", {
+    await invokeNotesMutation("notes_create_data_source_row_page", {
       dbUrl,
       dataSourceId,
       request,
@@ -792,11 +1007,11 @@ export async function importNotesDataSourceCsv(
 ): Promise<NotesDataSourceCsvImportResult> {
   const dbUrl = await ensureDbUrl();
   return mapNotesDataSourceCsvImportDto(
-    await invoke<unknown>("notes_import_data_source_csv", {
-      dbUrl,
-      dataSourceId,
-      request,
-    }),
+    await invokeNotesMutation(
+      "notes_import_data_source_csv",
+      { dbUrl, dataSourceId, request },
+      request.dry_run === false,
+    ),
   );
 }
 
@@ -837,7 +1052,7 @@ export async function createNotesDataSourceTemplateFromRow(
 ): Promise<NotesDataSourceTemplate> {
   const dbUrl = await ensureDbUrl();
   return mapNotesDataSourceTemplateDto(
-    await invoke<unknown>("notes_create_data_source_template_from_row", {
+    await invokeNotesMutation("notes_create_data_source_template_from_row", {
       dbUrl,
       dataSourceId,
       request,
@@ -852,7 +1067,7 @@ export async function applyNotesDataSourceTemplate(
 ): Promise<NotesLoadedPage> {
   const dbUrl = await ensureDbUrl();
   return mapNotesLoadedPageDto(
-    await invoke<unknown>("notes_apply_data_source_template", {
+    await invokeNotesMutation("notes_apply_data_source_template", {
       dbUrl,
       dataSourceId,
       templateId,
@@ -868,7 +1083,7 @@ export async function updateNotesDataSourceTemplate(
 ): Promise<NotesDataSourceTemplate> {
   const dbUrl = await ensureDbUrl();
   return mapNotesDataSourceTemplateDto(
-    await invoke<unknown>("notes_update_data_source_template", {
+    await invokeNotesMutation("notes_update_data_source_template", {
       dbUrl,
       dataSourceId,
       templateId,
@@ -884,7 +1099,7 @@ export async function duplicateNotesDataSourceTemplate(
 ): Promise<NotesDataSourceTemplate> {
   const dbUrl = await ensureDbUrl();
   return mapNotesDataSourceTemplateDto(
-    await invoke<unknown>("notes_duplicate_data_source_template", {
+    await invokeNotesMutation("notes_duplicate_data_source_template", {
       dbUrl,
       dataSourceId,
       templateId,
@@ -898,7 +1113,7 @@ export async function deleteNotesDataSourceTemplate(
   templateId: string,
 ): Promise<string> {
   const dbUrl = await ensureDbUrl();
-  const deletedTemplateId = await invoke<unknown>("notes_delete_data_source_template", {
+  const deletedTemplateId = await invokeNotesMutation("notes_delete_data_source_template", {
     dbUrl,
     dataSourceId,
     templateId,
@@ -912,6 +1127,7 @@ export async function deleteNotesDataSourceTemplate(
 export async function getNotesDataSourceTableView(
   dataSourceId: string,
   scope?: NotesDatabaseViewScope | null,
+  window?: NotesDataSourceViewWindowRequest,
 ): Promise<NotesDataSourceTableView> {
   const dbUrl = await ensureDbUrl();
   return mapNotesDataSourceTableViewDto(
@@ -919,6 +1135,7 @@ export async function getNotesDataSourceTableView(
       dbUrl,
       dataSourceId,
       ...databaseViewScopeArgs(scope),
+      window: window ?? null,
     }),
   );
 }
@@ -930,7 +1147,7 @@ export async function updateNotesDataSourceTableView(
 ): Promise<NotesDataSourceTableView> {
   const dbUrl = await ensureDbUrl();
   return mapNotesDataSourceTableViewDto(
-    await invoke<unknown>("notes_update_data_source_table_view", {
+    await invokeNotesMutation("notes_update_data_source_table_view", {
       dbUrl,
       dataSourceId,
       update,
@@ -942,6 +1159,7 @@ export async function updateNotesDataSourceTableView(
 export async function getNotesDataSourceBoardView(
   dataSourceId: string,
   scope?: NotesDatabaseViewScope | null,
+  window?: NotesDataSourceViewWindowRequest,
 ): Promise<NotesDataSourceBoardView> {
   const dbUrl = await ensureDbUrl();
   return mapNotesDataSourceBoardViewDto(
@@ -949,6 +1167,7 @@ export async function getNotesDataSourceBoardView(
       dbUrl,
       dataSourceId,
       ...databaseViewScopeArgs(scope),
+      window: window ?? null,
     }),
   );
 }
@@ -960,7 +1179,7 @@ export async function updateNotesDataSourceBoardView(
 ): Promise<NotesDataSourceBoardView> {
   const dbUrl = await ensureDbUrl();
   return mapNotesDataSourceBoardViewDto(
-    await invoke<unknown>("notes_update_data_source_board_view", {
+    await invokeNotesMutation("notes_update_data_source_board_view", {
       dbUrl,
       dataSourceId,
       update,
@@ -976,7 +1195,7 @@ export async function moveNotesDataSourceBoardRow(
 ): Promise<NotesDataSourceBoardView> {
   const dbUrl = await ensureDbUrl();
   return mapNotesDataSourceBoardViewDto(
-    await invoke<unknown>("notes_move_data_source_board_row", {
+    await invokeNotesMutation("notes_move_data_source_board_row", {
       dbUrl,
       dataSourceId,
       request,
@@ -988,6 +1207,7 @@ export async function moveNotesDataSourceBoardRow(
 export async function getNotesDataSourceGalleryView(
   dataSourceId: string,
   scope?: NotesDatabaseViewScope | null,
+  window?: NotesDataSourceViewWindowRequest,
 ): Promise<NotesDataSourceGalleryView> {
   const dbUrl = await ensureDbUrl();
   return mapNotesDataSourceGalleryViewDto(
@@ -995,6 +1215,7 @@ export async function getNotesDataSourceGalleryView(
       dbUrl,
       dataSourceId,
       ...databaseViewScopeArgs(scope),
+      window: window ?? null,
     }),
   );
 }
@@ -1006,7 +1227,7 @@ export async function updateNotesDataSourceGalleryView(
 ): Promise<NotesDataSourceGalleryView> {
   const dbUrl = await ensureDbUrl();
   return mapNotesDataSourceGalleryViewDto(
-    await invoke<unknown>("notes_update_data_source_gallery_view", {
+    await invokeNotesMutation("notes_update_data_source_gallery_view", {
       dbUrl,
       dataSourceId,
       update,
@@ -1022,7 +1243,7 @@ export async function updateNotesDataSourceRowProperty(
 ): Promise<NotesPage> {
   const dbUrl = await ensureDbUrl();
   return mapNotesPageDto(
-    await invoke<unknown>("notes_update_data_source_row_property", {
+    await invokeNotesMutation("notes_update_data_source_row_property", {
       dbUrl,
       dataSourceId,
       pageId,
@@ -1038,7 +1259,7 @@ export async function clickNotesDataSourceButton(
 ): Promise<NotesPage> {
   const dbUrl = await ensureDbUrl();
   return mapNotesPageDto(
-    await invoke<unknown>("notes_click_data_source_button", {
+    await invokeNotesMutation("notes_click_data_source_button", {
       dbUrl,
       dataSourceId,
       pageId,
@@ -1050,6 +1271,7 @@ export async function clickNotesDataSourceButton(
 export async function getNotesDataSourceListView(
   dataSourceId: string,
   scope?: NotesDatabaseViewScope | null,
+  window?: NotesDataSourceViewWindowRequest,
 ): Promise<NotesDataSourceListView> {
   const dbUrl = await ensureDbUrl();
   return mapNotesDataSourceListViewDto(
@@ -1057,6 +1279,7 @@ export async function getNotesDataSourceListView(
       dbUrl,
       dataSourceId,
       ...databaseViewScopeArgs(scope),
+      window: window ?? null,
     }),
   );
 }
@@ -1068,7 +1291,7 @@ export async function updateNotesDataSourceListView(
 ): Promise<NotesDataSourceListView> {
   const dbUrl = await ensureDbUrl();
   return mapNotesDataSourceListViewDto(
-    await invoke<unknown>("notes_update_data_source_list_view", {
+    await invokeNotesMutation("notes_update_data_source_list_view", {
       dbUrl,
       dataSourceId,
       update,
@@ -1080,6 +1303,7 @@ export async function updateNotesDataSourceListView(
 export async function getNotesDataSourceCalendarView(
   dataSourceId: string,
   scope?: NotesDatabaseViewScope | null,
+  window?: NotesDataSourceViewWindowRequest,
 ): Promise<NotesDataSourceCalendarView> {
   const dbUrl = await ensureDbUrl();
   return mapNotesDataSourceCalendarViewDto(
@@ -1087,6 +1311,7 @@ export async function getNotesDataSourceCalendarView(
       dbUrl,
       dataSourceId,
       ...databaseViewScopeArgs(scope),
+      window: window ?? null,
     }),
   );
 }
@@ -1098,7 +1323,7 @@ export async function updateNotesDataSourceCalendarView(
 ): Promise<NotesDataSourceCalendarView> {
   const dbUrl = await ensureDbUrl();
   return mapNotesDataSourceCalendarViewDto(
-    await invoke<unknown>("notes_update_data_source_calendar_view", {
+    await invokeNotesMutation("notes_update_data_source_calendar_view", {
       dbUrl,
       dataSourceId,
       update,
@@ -1110,6 +1335,7 @@ export async function updateNotesDataSourceCalendarView(
 export async function getNotesDataSourceTimelineView(
   dataSourceId: string,
   scope?: NotesDatabaseViewScope | null,
+  window?: NotesDataSourceViewWindowRequest,
 ): Promise<NotesDataSourceTimelineView> {
   const dbUrl = await ensureDbUrl();
   return mapNotesDataSourceTimelineViewDto(
@@ -1117,6 +1343,7 @@ export async function getNotesDataSourceTimelineView(
       dbUrl,
       dataSourceId,
       ...databaseViewScopeArgs(scope),
+      window: window ?? null,
     }),
   );
 }
@@ -1128,7 +1355,7 @@ export async function updateNotesDataSourceTimelineView(
 ): Promise<NotesDataSourceTimelineView> {
   const dbUrl = await ensureDbUrl();
   return mapNotesDataSourceTimelineViewDto(
-    await invoke<unknown>("notes_update_data_source_timeline_view", {
+    await invokeNotesMutation("notes_update_data_source_timeline_view", {
       dbUrl,
       dataSourceId,
       update,
@@ -1142,7 +1369,7 @@ export async function duplicateNotesPage(
   request: NotesDuplicatePageRequest,
 ): Promise<NotesLoadedPage> {
   const dbUrl = await ensureDbUrl();
-  return mapNotesLoadedPageDto(await invoke<unknown>("notes_duplicate_page", { dbUrl, pageId, request }));
+  return mapNotesLoadedPageDto(await invokeNotesMutation("notes_duplicate_page", { dbUrl, pageId, request }));
 }
 
 export async function moveNotesPage(
@@ -1150,7 +1377,7 @@ export async function moveNotesPage(
   request: NotesMovePageRequest,
 ): Promise<NotesLoadedPage> {
   const dbUrl = await ensureDbUrl();
-  return mapNotesLoadedPageDto(await invoke<unknown>("notes_move_page", { dbUrl, pageId, request }));
+  return mapNotesLoadedPageDto(await invokeNotesMutation("notes_move_page", { dbUrl, pageId, request }, true));
 }
 
 export async function updateNotesPage(
@@ -1158,7 +1385,7 @@ export async function updateNotesPage(
   update: NotesPageUpdate,
 ): Promise<NotesPage> {
   const dbUrl = await ensureDbUrl();
-  return mapNotesPageDto(await invoke<unknown>("notes_update_page", { dbUrl, pageId, update }));
+  return mapNotesPageDto(await invokeNotesMutation("notes_update_page", { dbUrl, pageId, update }));
 }
 
 export async function trashNotesPage(
@@ -1166,7 +1393,11 @@ export async function trashNotesPage(
   inTrash = true,
 ): Promise<NotesPage> {
   const dbUrl = await ensureDbUrl();
-  return mapNotesPageDto(await invoke<unknown>("notes_trash_page", { dbUrl, pageId, inTrash }));
+  const page = mapNotesPageDto(
+    await invokeNotesMutation("notes_trash_page", { dbUrl, pageId, inTrash }, true),
+  );
+  if (inTrash) invalidateNotesAssetUrls();
+  return page;
 }
 
 export async function archiveNotesPage(
@@ -1174,24 +1405,68 @@ export async function archiveNotesPage(
   archived = true,
 ): Promise<NotesPage> {
   const dbUrl = await ensureDbUrl();
-  return mapNotesPageDto(await invoke<unknown>("notes_archive_page", { dbUrl, pageId, archived }));
+  return mapNotesPageDto(await invokeNotesMutation("notes_archive_page", { dbUrl, pageId, archived }, true));
 }
 
 export async function permanentlyDeleteNotesPage(pageId: string): Promise<string[]> {
   const dbUrl = await ensureDbUrl();
-  const deletedPageIds = await invoke<unknown>("notes_permanently_delete_page", { dbUrl, pageId });
+  const deletedPageIds = await invokeNotesMutation(
+    "notes_permanently_delete_page",
+    { dbUrl, pageId },
+    true,
+  );
   if (!Array.isArray(deletedPageIds)) {
     throw new Error("notes_permanently_delete_page returned a non-array payload");
   }
   if (!deletedPageIds.every((deletedPageId): deletedPageId is string => typeof deletedPageId === "string")) {
     throw new Error("notes_permanently_delete_page returned invalid page ids");
   }
+  invalidateNotesAssetUrls();
   return deletedPageIds;
 }
 
 export async function loadNotesPage(pageId: string): Promise<NotesLoadedPage> {
   const dbUrl = await ensureDbUrl();
   return mapNotesLoadedPageDto(await invoke<unknown>("notes_load_page", { dbUrl, pageId }));
+}
+
+export async function openNotesPage(pageId: string): Promise<NotesPageOpenResponse> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesPageOpenResponseDto(
+    await invoke<unknown>("notes_open_page", { dbUrl, pageId }),
+  );
+}
+
+export async function getNotesBlockFrontier(
+  parentIds: readonly string[],
+): Promise<NotesBlockFrontier> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesBlockFrontierDto(
+    await invoke<unknown>("notes_get_block_frontier", { dbUrl, parentIds: [...parentIds] }),
+  );
+}
+
+export async function getNotesBlockOutlineFrontier(
+  pageId: string,
+  parentIds: readonly string[],
+): Promise<NotesBlockOutline[]> {
+  const dbUrl = await ensureDbUrl();
+  const value = await invoke<unknown>("notes_get_block_outline_frontier", {
+    dbUrl,
+    pageId,
+    parentIds: [...parentIds],
+  });
+  if (!Array.isArray(value)) throw new Error("notes_get_block_outline_frontier returned a non-array payload");
+  return value.map(mapNotesBlockOutlineDto);
+}
+
+export async function hydrateNotesBlocks(
+  request: NotesBlockHydrationRequest,
+): Promise<NotesBlock[]> {
+  const dbUrl = await ensureDbUrl();
+  const value = await invoke<unknown>("notes_hydrate_blocks", { dbUrl, request });
+  if (!Array.isArray(value)) throw new Error("notes_hydrate_blocks returned a non-array payload");
+  return value.map(mapNotesBlockDto);
 }
 
 export async function getNotesBlockChildren(
@@ -1214,7 +1489,11 @@ export async function appendNotesBlockChildren(
   request: NotesAppendBlockChildrenRequest,
 ): Promise<NotesPaginatedBlockList> {
   const dbUrl = await ensureDbUrl();
-  return mapNotesBlockListDto(await invoke<unknown>("notes_append_block_children", { dbUrl, request }));
+  const blocks = mapNotesBlockListDto(
+    await invokeNotesMutation("notes_append_block_children", { dbUrl, request }),
+  );
+  invalidateNotesNotificationSchedule();
+  return blocks;
 }
 
 export async function updateNotesBlock(
@@ -1222,7 +1501,11 @@ export async function updateNotesBlock(
   update: NotesBlockUpdate,
 ): Promise<NotesBlock> {
   const dbUrl = await ensureDbUrl();
-  return mapNotesBlockDto(await invoke<unknown>("notes_update_block", { dbUrl, blockId, update }));
+  const block = mapNotesBlockDto(
+    await invokeNotesMutation("notes_update_block", { dbUrl, blockId, update }),
+  );
+  invalidateNotesNotificationSchedule();
+  return block;
 }
 
 export async function trashNotesBlock(
@@ -1230,14 +1513,24 @@ export async function trashNotesBlock(
   inTrash = true,
 ): Promise<NotesBlock> {
   const dbUrl = await ensureDbUrl();
-  return mapNotesBlockDto(await invoke<unknown>("notes_trash_block", { dbUrl, blockId, inTrash }));
+  const block = mapNotesBlockDto(
+    await invokeNotesMutation("notes_trash_block", { dbUrl, blockId, inTrash }),
+  );
+  if (inTrash) invalidateAssetUrlKind("notes-file");
+  invalidateNotesNotificationSchedule();
+  return block;
 }
 
 export async function trashNotesBlocks(
   request: NotesTrashBlocksRequest,
 ): Promise<NotesPaginatedBlockList> {
   const dbUrl = await ensureDbUrl();
-  return mapNotesBlockListDto(await invoke<unknown>("notes_trash_blocks", { dbUrl, request }));
+  const blocks = mapNotesBlockListDto(
+    await invokeNotesMutation("notes_trash_blocks", { dbUrl, request }),
+  );
+  if (request.in_trash) invalidateAssetUrlKind("notes-file");
+  invalidateNotesNotificationSchedule();
+  return blocks;
 }
 
 export async function moveNotesBlock(
@@ -1245,14 +1538,22 @@ export async function moveNotesBlock(
   request: NotesMoveBlockRequest,
 ): Promise<NotesBlock> {
   const dbUrl = await ensureDbUrl();
-  return mapNotesBlockDto(await invoke<unknown>("notes_move_block", { dbUrl, blockId, request }));
+  const block = mapNotesBlockDto(
+    await invokeNotesMutation("notes_move_block", { dbUrl, blockId, request }),
+  );
+  invalidateNotesNotificationSchedule();
+  return block;
 }
 
 export async function moveNotesBlocks(
   request: NotesMoveBlocksRequest,
 ): Promise<NotesPaginatedBlockList> {
   const dbUrl = await ensureDbUrl();
-  return mapNotesBlockListDto(await invoke<unknown>("notes_move_blocks", { dbUrl, request }));
+  const blocks = mapNotesBlockListDto(
+    await invokeNotesMutation("notes_move_blocks", { dbUrl, request }),
+  );
+  invalidateNotesNotificationSchedule();
+  return blocks;
 }
 
 export async function duplicateNotesBlock(
@@ -1260,14 +1561,22 @@ export async function duplicateNotesBlock(
   request: NotesDuplicateBlockRequest,
 ): Promise<NotesBlock> {
   const dbUrl = await ensureDbUrl();
-  return mapNotesBlockDto(await invoke<unknown>("notes_duplicate_block", { dbUrl, blockId, request }));
+  const block = mapNotesBlockDto(
+    await invokeNotesMutation("notes_duplicate_block", { dbUrl, blockId, request }),
+  );
+  invalidateNotesNotificationSchedule();
+  return block;
 }
 
 export async function duplicateNotesBlocks(
   request: NotesDuplicateBlocksRequest,
 ): Promise<NotesPaginatedBlockList> {
   const dbUrl = await ensureDbUrl();
-  return mapNotesBlockListDto(await invoke<unknown>("notes_duplicate_blocks", { dbUrl, request }));
+  const blocks = mapNotesBlockListDto(
+    await invokeNotesMutation("notes_duplicate_blocks", { dbUrl, request }),
+  );
+  invalidateNotesNotificationSchedule();
+  return blocks;
 }
 
 export async function loadNotesUndoState(pageId: string): Promise<string | null> {

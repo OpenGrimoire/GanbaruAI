@@ -40,7 +40,8 @@ coverage/
 # local scripts
 /scripts/
 
-# Claude
+# Local AI tool configuration
+.codex/
 .claude/
 
 # Goal

@@ -1,5 +1,11 @@
 <script lang="ts">
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import {
+    beginLazyComponentLoad,
+    rejectLazyComponentLoad,
+    resolveLazyComponentLoad,
+    type LazyComponentLoadState,
+  } from "$lib/lazy-component-loader";
   import { dismissOnOutside } from "$lib/utils/dismiss-on-outside";
   import {
     NOTES_BACKGROUND_COLORS,
@@ -34,8 +40,14 @@
   import Plus from "@lucide/svelte/icons/plus";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import { onDestroy } from "svelte";
-  import NotesBlockInsertMenu from "./NotesBlockInsertMenu.svelte";
-  import NotesDestinationPickerList from "./NotesDestinationPickerList.svelte";
+  import {
+    loadNotesEditorPanel,
+    loadNotesTextControl,
+    retryNotesEditorPanel,
+    retryNotesTextControl,
+    type LoadedNotesEditorPanel,
+    type LoadedNotesTextControl,
+  } from "./notes-editor-component-registry";
 
   let {
     onAddBelow,
@@ -89,6 +101,14 @@
   let actionMenuTriggerRect = $state<NotesBlockInsertMenuRect | null>(null);
   let copyLinkStatus = $state<"idle" | "copied" | "failed">("idle");
   let copyLinkTimer: ReturnType<typeof setTimeout> | null = null;
+  let destinationPickerLoadState = $state<LazyComponentLoadState<
+    "destination-picker",
+    LoadedNotesEditorPanel
+  > | null>(null);
+  let insertMenuLoadState = $state<LazyComponentLoadState<
+    "block-insert-menu",
+    LoadedNotesTextControl
+  > | null>(null);
   const visibleCommentCount = $derived(unreadCommentCount > 0 ? unreadCommentCount : commentCount);
   const visibleCommentLabel = $derived(
     unreadCommentCount > 0
@@ -285,6 +305,64 @@
         return t("notes.blockColor.redBackground");
     }
   }
+  function requestDestinationPicker(retry = false): void {
+    if (!retry && destinationPickerLoadState) return;
+    const loadingState = beginLazyComponentLoad(destinationPickerLoadState, "destination-picker");
+    destinationPickerLoadState = loadingState;
+    const request = retry
+      ? retryNotesEditorPanel("destination-picker")
+      : loadNotesEditorPanel("destination-picker");
+    void request.then((component) => {
+      if (!destinationPickerLoadState) return;
+      destinationPickerLoadState = resolveLazyComponentLoad(
+        destinationPickerLoadState,
+        "destination-picker",
+        loadingState.requestId,
+        component,
+      );
+    }).catch((error: unknown) => {
+      if (!destinationPickerLoadState) return;
+      destinationPickerLoadState = rejectLazyComponentLoad(
+        destinationPickerLoadState,
+        "destination-picker",
+        loadingState.requestId,
+        error,
+      );
+      console.error("load Notes block destination picker failed", error);
+    });
+  }
+
+  function requestInsertMenu(retry = false): void {
+    if (!retry && insertMenuLoadState) return;
+    const loadingState = beginLazyComponentLoad(insertMenuLoadState, "block-insert-menu");
+    insertMenuLoadState = loadingState;
+    const request = retry
+      ? retryNotesTextControl("block-insert-menu")
+      : loadNotesTextControl("block-insert-menu");
+    void request.then((component) => {
+      if (!insertMenuLoadState) return;
+      insertMenuLoadState = resolveLazyComponentLoad(
+        insertMenuLoadState,
+        "block-insert-menu",
+        loadingState.requestId,
+        component,
+      );
+    }).catch((error: unknown) => {
+      if (!insertMenuLoadState) return;
+      insertMenuLoadState = rejectLazyComponentLoad(
+        insertMenuLoadState,
+        "block-insert-menu",
+        loadingState.requestId,
+        error,
+      );
+      console.error("load Notes block insert menu failed", error);
+    });
+  }
+
+  $effect(() => {
+    if (moveMenuOpen) requestDestinationPicker();
+    if (insertMenuOpen) requestInsertMenu();
+  });
 </script>
 
 <div
@@ -341,7 +419,12 @@
   {/if}
 
   {#if insertMenuOpen}
-    <NotesBlockInsertMenu triggerRect={insertMenuTriggerRect} onSelect={insertBlock} />
+    {#if insertMenuLoadState?.status === "ready" && insertMenuLoadState.component.kind === "block-insert-menu"}
+      {@const NotesBlockInsertMenu = insertMenuLoadState.component.component}
+      <NotesBlockInsertMenu triggerRect={insertMenuTriggerRect} onSelect={insertBlock} />
+    {:else if insertMenuLoadState?.status === "failed"}
+      <button class="min-h-8 rounded-md border border-border px-2 text-[0.8rem] hover:bg-accent" type="button" onclick={() => requestInsertMenu(true)}>{t("common.retry")}</button>
+    {/if}
   {/if}
 
   {#if menuOpen}
@@ -497,19 +580,26 @@
       </button>
       {#if moveMenuOpen}
         <div class="border-y border-border bg-muted/25 py-1" role="group" aria-label={t("notes.moveBlockToPage")}>
-          <NotesDestinationPickerList
-            targets={moveTargets}
-            searchLabel={t("notes.moveDestinationSearch")}
-            searchPlaceholder={t("notes.moveDestinationSearchPlaceholder")}
-            recentLabel={t("notes.recentDestinations")}
-            pagesLabel={t("notes.allPages")}
-            emptyLabel={t("notes.noMoveTargets")}
-            optionLabel={(target) => t("notes.moveBlockToPageTarget", target.title)}
-            onSelect={moveToPageTarget}
-            onClose={() => {
-              moveMenuOpen = false;
-            }}
-          />
+          {#if destinationPickerLoadState?.status === "ready" && destinationPickerLoadState.component.kind === "destination-picker"}
+            {@const NotesDestinationPickerList = destinationPickerLoadState.component.component}
+            <NotesDestinationPickerList
+              targets={moveTargets}
+              searchLabel={t("notes.moveDestinationSearch")}
+              searchPlaceholder={t("notes.moveDestinationSearchPlaceholder")}
+              recentLabel={t("notes.recentDestinations")}
+              pagesLabel={t("notes.allPages")}
+              emptyLabel={t("notes.noMoveTargets")}
+              optionLabel={(target) => t("notes.moveBlockToPageTarget", target.title)}
+              onSelect={moveToPageTarget}
+              onClose={() => {
+                moveMenuOpen = false;
+              }}
+            />
+          {:else if destinationPickerLoadState?.status === "failed"}
+            <button class="m-2 min-h-8 rounded-md border border-border px-2 text-[0.8rem] hover:bg-accent" type="button" onclick={() => requestDestinationPicker(true)}>{t("common.retry")}</button>
+          {:else}
+            <div class="p-2 text-[0.8rem] text-muted-foreground" aria-busy="true">{t("common.loading")}</div>
+          {/if}
         </div>
       {/if}
       <button

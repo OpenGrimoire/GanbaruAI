@@ -12,12 +12,14 @@ import type {
   NotesPageHistorySnapshot,
 } from "$lib/notes/types";
 import type { NotesHistoryRetentionDays } from "$lib/notes/history-retention";
+import {
+  notesPostAppendResult,
+  type NotesPostMutationResult,
+} from "$lib/notes/post-mutation";
 
 export interface NotesPageHistoryControllerContext {
   readSelectedPageId: () => string | null;
-  loadPageTree: (pageId: string) => Promise<void>;
-  reloadPages: (selectedPageIdOverride?: string | null) => Promise<void>;
-  hydrateUndo: (pageId: string | null) => Promise<void>;
+  applyPostMutation: (result: NotesPostMutationResult) => void;
   requestPageLoadFocus: (requestedBlockId?: string | null) => void;
   flushPendingBlockSaves: () => Promise<void>;
   setLoadError: (message: string) => void;
@@ -129,7 +131,7 @@ export function createNotesPageHistoryController(
     snapshotsError = null;
     try {
       const nextSnapshots = await listNotesPageHistorySnapshots(pageId);
-      if (requestId !== snapshotsRequestId) return;
+      if (requestId !== snapshotsRequestId || pageId !== context.readSelectedPageId()) return;
       snapshots = [...nextSnapshots];
       if (version && version.page.id !== pageId) {
         version = null;
@@ -140,7 +142,7 @@ export function createNotesPageHistoryController(
         versionSnapshotId = null;
       }
     } catch (error) {
-      if (requestId !== snapshotsRequestId) return;
+      if (requestId !== snapshotsRequestId || pageId !== context.readSelectedPageId()) return;
       snapshots = [];
       snapshotsError = errorMessage(error);
     } finally {
@@ -159,11 +161,11 @@ export function createNotesPageHistoryController(
     versionError = null;
     try {
       const loaded = await loadNotesPageHistorySnapshot(pageId, snapshotId);
-      if (requestId !== versionRequestId) return;
+      if (requestId !== versionRequestId || pageId !== context.readSelectedPageId()) return;
       version = loaded;
       versionSnapshotId = snapshotId;
     } catch (error) {
-      if (requestId !== versionRequestId) return;
+      if (requestId !== versionRequestId || pageId !== context.readSelectedPageId()) return;
       version = null;
       versionSnapshotId = null;
       versionError = errorMessage(error);
@@ -179,10 +181,12 @@ export function createNotesPageHistoryController(
     actionError = null;
     try {
       await context.flushPendingBlockSaves();
-      await restoreNotesPageHistorySnapshot(pageId, snapshotId);
-      await context.loadPageTree(pageId);
-      await context.reloadPages(pageId);
-      await context.hydrateUndo(pageId);
+      const loaded = await restoreNotesPageHistorySnapshot(pageId, snapshotId);
+      context.applyPostMutation({
+        loadedPage: loaded,
+        pages: [loaded.page],
+        sidebarImpact: "visible-metadata",
+      });
       context.requestPageLoadFocus();
     } catch (error) {
       actionError = errorMessage(error);
@@ -199,11 +203,16 @@ export function createNotesPageHistoryController(
     actionError = null;
     try {
       await context.flushPendingBlockSaves();
-      const copied = await copyNotesPageHistoryBlocks(pageId, snapshotId, {
+      const request = {
+        parent: { type: "page_id", page_id: pageId } as const,
         after_block_id: null,
-      });
-      await context.loadPageTree(pageId);
-      await context.reloadPages(pageId);
+      };
+      const copied = await copyNotesPageHistoryBlocks(pageId, snapshotId, request);
+      context.applyPostMutation(notesPostAppendResult({
+        parent: request.parent,
+        after: request.after_block_id,
+        children: [],
+      }, copied));
       context.requestPageLoadFocus(copied.results[0]?.id ?? null);
     } catch (error) {
       actionError = errorMessage(error);

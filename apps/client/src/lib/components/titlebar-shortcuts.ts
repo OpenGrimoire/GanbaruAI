@@ -17,6 +17,16 @@ export interface ResetShortcutSequenceResult {
 
 export type CloseWindowShortcutEvent = Pick<KeyboardEvent, "key"> & KeyboardModifierState;
 
+export type TitleBarShortcutAction =
+  | "close"
+  | "theme-toggle"
+  | "theme-switcher"
+  | "zoom-in"
+  | "zoom-out"
+  | "zoom-reset";
+
+export type TitleBarShortcutEvent = Pick<KeyboardEvent, "key"> & KeyboardModifierState;
+
 /**
  * Record one hidden reset shortcut press.
  *
@@ -51,4 +61,23 @@ export function isCloseWindowShortcut(event: CloseWindowShortcutEvent): boolean 
   const key = event.key.toLowerCase();
   if (key !== "w") return false;
   return hasOnlyShortcutModifier(event) || hasOnlyShortcutModifier(event, { shift: true });
+}
+
+/** Resolve shell-wide shortcuts before view-level handlers run. */
+export function titleBarShortcutAction(
+  event: TitleBarShortcutEvent,
+  editableTarget: boolean,
+): TitleBarShortcutAction | null {
+  if (isCloseWindowShortcut(event)) return "close";
+  if (editableTarget) return null;
+  const key = event.key.toLowerCase();
+  if (hasOnlyShortcutModifier(event, { shift: true })) {
+    if (key === "l") return "theme-toggle";
+    if (key === "t") return "theme-switcher";
+  }
+  if (!hasOnlyShortcutModifier(event)) return null;
+  if (key === "=" || key === "+") return "zoom-in";
+  if (key === "-") return "zoom-out";
+  if (key === "0") return "zoom-reset";
+  return null;
 }

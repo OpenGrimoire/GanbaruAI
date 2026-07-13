@@ -165,10 +165,10 @@
         value={preferences.languagePreference}
         options={languageOptions}
         onChange={(value) => {
-          if (isLanguagePreference(value)) preferences.setLanguagePreference(value);
+          if (isLanguagePreference(value)) void preferences.setLanguagePreference(value);
         }}
         canReset={preferences.languagePreference !== "system"}
-        onReset={() => preferences.setLanguagePreference("system")}
+        onReset={() => void preferences.setLanguagePreference("system")}
       />
     </div>
   </section>

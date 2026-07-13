@@ -25,6 +25,7 @@ export const pageActions = {
     "Notes and subfolders inside will move to this folder's current parent. No notes will be deleted.",
   deleteFolderConfirm: "Delete folder (Enter)",
   folderActionFailed: (message: string) => `Could not update folder: ${message}`,
+  pageCreationFailed: (message: string) => `Could not save this new note: ${message}`,
   archivePage: "Archive",
   archiveConfirmTitle: (title: string) => `Archive ${title}?`,
   archiveConfirmMessage:

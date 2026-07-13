@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { tick } from "svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getCalendar } from "$lib/stores/calendar.svelte";
   import { getProjects } from "$lib/stores/projects.svelte";
@@ -10,40 +9,19 @@
     projectCustomFieldUsesOptions,
   } from "$lib/projects/custom-fields";
   import {
-    doubleClickProjectTaskListColumnResizeWidths,
-    keyboardProjectTaskListColumnResizeWidths,
-    moveProjectTaskListColumnResize,
-    projectTaskListResizableColumnWidthRem,
     projectTaskListGridMinWidth,
     projectTaskListGridTemplate,
-    startProjectTaskListColumnResize,
-    type ProjectTaskListColumnResizeGesture,
     type ProjectTaskListColumnWidths,
-    type ProjectTaskListResizableColumn,
+    type ProjectTaskListGridInput,
   } from "$lib/projects/project-list-view";
-  import {
-    projectListDropSortOrder,
-    projectListDropPositionFromPoint,
-    projectListPointerDragGestureReady,
-    projectListSectionDropSortOrder,
-    projectListSectionDragAllowed,
-    projectListSectionDropAllowed,
-    projectListTaskDragAllowed,
-    projectListTaskDropAllowed,
-    type ProjectListDropPosition,
-    type ProjectListPointerDragGesture,
-  } from "$lib/projects/list-drag";
   import {
     projectListDueDateEditPlan,
     projectListStartDateEditPlan,
   } from "$lib/projects/project-list-date-edit";
   import {
-    projectListGroupQuickAddPlan,
     projectListGroupTaskCreateTarget,
     projectListGroupTaskDraftKey,
     projectListSectionTaskCreateTarget,
-    type ProjectListGroupQuickAddPlan,
-    type ProjectListTaskCreateTarget,
   } from "$lib/projects/project-list-quick-add";
   import {
     type ProjectCustomField,
@@ -69,8 +47,11 @@
   import ProjectListSectionBlock from "./ProjectListSectionBlock.svelte";
   import ProjectListTaskAddRow from "./ProjectListTaskAddRow.svelte";
   import ProjectListTaskRows from "./ProjectListTaskRows.svelte";
+  import { ProjectListDragController } from "./project-list-drag-controller.svelte";
+  import { ProjectListInteractionController } from "./project-list-interaction-controller.svelte";
+  import { ProjectListQuickAddController } from "./project-list-quick-add-controller.svelte";
+  import { ProjectListViewportController } from "./project-list-viewport-controller.svelte";
 
-  type ProjectListTaskMenu = "status" | "priority" | "start" | "due";
   let {
     selectedProjectId,
     sections,
@@ -92,6 +73,7 @@
     onSelectedTaskIdsChange,
     onRevealTask,
     onTaskListColumnWidthsChange,
+    onNeedMore,
   }: {
     selectedProjectId: string | null;
     sections: ProjectSection[];
@@ -113,6 +95,7 @@
     onSelectedTaskIdsChange: (taskIds: string[]) => void;
     onRevealTask: (task: ProjectTask | undefined) => void;
     onTaskListColumnWidthsChange: (widths: ProjectTaskListColumnWidths, options?: { persist?: boolean }) => void;
+    onNeedMore: () => void;
   } = $props();
 
   const projects = getProjects();
@@ -120,232 +103,75 @@
   const theme = getTheme();
   const { t } = getLocalization();
 
-  const PROJECT_LIST_DRAG_MIME = "application/x-ganbaru-project-list-task";
-  const PROJECT_LIST_SECTION_DRAG_MIME = "application/x-ganbaru-project-list-section";
-  const PROJECT_LIST_KEYBOARD_SCROLL_PX = 48;
-
-  let taskCreatePendingTarget = $state<ProjectListTaskCreateTarget | null>(null);
-  let taskCreateErrorTarget = $state<ProjectListTaskCreateTarget | null>(null);
-  let taskCreateErrorMessage = $state<string | null>(null);
-  let sectionDraft = $state("");
-  let sectionTaskDrafts = $state<Record<string, string>>({});
-  let groupTaskDrafts = $state<Record<string, string>>({});
-  let activeSectionTaskDraftInputId = $state<string | null>(null);
-  let activeGroupTaskDraftInputId = $state<string | null>(null);
-  let sectionDraftInputActive = $state(false);
-  let listDraggingTaskId = $state<string | null>(null);
-  let listDragOverSectionId = $state<string | null>(null);
-  let listDragOverTaskId = $state<string | null>(null);
-  let listDragOverPosition = $state<ProjectListDropPosition | "section" | null>(null);
-  let listDropPendingTaskId = $state<string | null>(null);
-  let listRowDragGesture = $state<ProjectListPointerDragGesture | null>(null);
-  let listDraggingSectionId = $state<string | null>(null);
-  let listSectionDragOverId = $state<string | null>(null);
-  let listSectionDragOverPosition = $state<ProjectListDropPosition | null>(null);
-  let listSectionDropPendingId = $state<string | null>(null);
-  let listSectionDragGesture = $state<ProjectListPointerDragGesture | null>(null);
-  let suppressedTaskOpenTaskId = $state<string | null>(null);
   let sectionNameDrafts = $state<Record<string, string>>({});
-  let sectionOptionsMenuId = $state<string | null>(null);
-  let statusMenuTaskId = $state<string | null>(null);
-  let priorityMenuTaskId = $state<string | null>(null);
-  let startDateMenuTaskId = $state<string | null>(null);
-  let dueDateMenuTaskId = $state<string | null>(null);
-  let projectViewScrollContainer = $state<HTMLDivElement | null>(null);
-  let listColumnResizeGesture = $state<ProjectTaskListColumnResizeGesture | null>(null);
-
-  const selectedTaskIdSet = $derived.by(() => new Set(selectedTaskIds));
-  const effectiveTaskListColumnWidths = $derived(listColumnResizeGesture?.draftWidths ?? taskListColumnWidths);
-  const taskListGridInput = $derived({
-    columns: taskListColumns,
-    columnWidths: effectiveTaskListColumnWidths,
-    tasks,
-    statuses,
-    customFields: projectCustomFields,
-    nameLabel: t("projects.list.name"),
-    sectionLabels: sections.map((section) => section.name),
-    groupLabels: listTaskGroups.map((group) => taskListGroupTitle(group.value)),
-    columnLabel: taskListColumnLabel,
-    priorityLabel: (priority: ProjectPriority) => projectPriorityDisplayLabel(priority, priorities, t),
-    estimateLabel,
-    customFieldDisplayValue,
-    scheduledLabel,
+  const interaction = new ProjectListInteractionController({
+    getSelectedTaskIds: () => selectedTaskIds,
+    selectedTaskIdsChanged: (taskIds) => onSelectedTaskIdsChange(taskIds),
   });
+  const quickAdd = new ProjectListQuickAddController({
+    projects,
+    getSelectedProjectId: () => selectedProjectId,
+    getGroupBy: () => taskGroupBy,
+    getStatuses: () => statuses,
+    getPriorities: () => priorities,
+    revealTask: (task) => onRevealTask(task),
+    selectProjectFirstMessage: () => t("projects.tasks.selectProjectFirst"),
+    createFailedMessage: (error) => t(
+      "projects.tasks.createFailed",
+      error instanceof Error ? error.message : String(error),
+    ),
+  });
+  const drag = new ProjectListDragController({
+    getTasks: () => tasks,
+    getAllTasks: () => allProjectTasks,
+    getSections: () => sections,
+    getGroupBy: () => taskGroupBy,
+    getSortMode: () => taskSortMode,
+    getSortDirection: () => taskSortDirection,
+    updateTask: (task, patch) => projects.updateTask(task, patch),
+    updateSection: (section, patch) => projects.updateSection(section, patch),
+  });
+  const viewport = new ProjectListViewportController({
+    getColumnWidths: () => taskListColumnWidths,
+    getGridInput: taskListGridInputFor,
+    persistColumnWidths: (widths) => onTaskListColumnWidthsChange(widths, { persist: true }),
+  });
+
+  function taskListGridInputFor(columnWidths: ProjectTaskListColumnWidths): ProjectTaskListGridInput {
+    return {
+      columns: taskListColumns,
+      columnWidths,
+      tasks,
+      statuses,
+      customFields: projectCustomFields,
+      nameLabel: t("projects.list.name"),
+      sectionLabels: sections.map((section) => section.name),
+      groupLabels: listTaskGroups.map((group) => taskListGroupTitle(group.value)),
+      columnLabel: taskListColumnLabel,
+      priorityLabel: (priority: ProjectPriority) => projectPriorityDisplayLabel(priority, priorities, t),
+      estimateLabel,
+      customFieldDisplayValue,
+      scheduledLabel,
+    };
+  }
+  const taskListGridInput = $derived(taskListGridInputFor(viewport.effectiveColumnWidths));
   const taskListGridTemplate = $derived(projectTaskListGridTemplate(taskListGridInput));
   const taskListGridMinWidth = $derived(projectTaskListGridMinWidth(taskListGridInput));
   const listRangeDateColumnsVisible = $derived(taskListColumns.includes("start") && taskListColumns.includes("due"));
 
-  function cssPixelValue(value: string): number {
-    const parsed = Number.parseFloat(value);
-    return Number.isFinite(parsed) ? parsed : 0;
-  }
-
-  function projectListMaxHorizontalScrollLeft(): number {
-    const el = projectViewScrollContainer;
-    if (!el) return 0;
-
-    const content = el.firstElementChild;
-    if (!(content instanceof HTMLElement)) {
-      return Math.max(0, el.scrollWidth - el.clientWidth);
-    }
-
-    const contentStyle = getComputedStyle(content);
-    const paddingRight = cssPixelValue(contentStyle.paddingRight);
-    let contentRight = 0;
-
-    for (const child of Array.from(content.children)) {
-      if (!(child instanceof HTMLElement)) continue;
-      contentRight = Math.max(contentRight, child.offsetLeft + child.offsetWidth);
-    }
-
-    if (contentRight <= 0) return Math.max(0, el.scrollWidth - el.clientWidth);
-    return Math.max(0, contentRight + paddingRight - el.clientWidth);
-  }
-
-  function setProjectListCounterScroll(scrollLeft: number): number {
-    const el = projectViewScrollContainer;
-    if (!el) return scrollLeft;
-    const maxScrollLeft = projectListMaxHorizontalScrollLeft();
-    const nextScrollLeft = Math.max(0, Math.min(maxScrollLeft, scrollLeft));
-    el.style.setProperty("--project-list-scroll-left", `${nextScrollLeft}px`);
-    el.style.setProperty("--project-list-scroll-left-negative", `${-nextScrollLeft}px`);
-    return nextScrollLeft;
-  }
-
-  function setProjectListHorizontalScroll(scrollLeft: number): number {
-    const el = projectViewScrollContainer;
-    const nextScrollLeft = setProjectListCounterScroll(scrollLeft);
-    if (el && el.scrollLeft !== nextScrollLeft) {
-      el.scrollLeft = nextScrollLeft;
-    }
-    return nextScrollLeft;
-  }
-
-  function syncProjectListCounterScroll(): void {
-    const el = projectViewScrollContainer;
-    if (!el) return;
-    setProjectListHorizontalScroll(el.scrollLeft);
-  }
-
-  function projectListRootFontSizePx(): number {
-    const parsed = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : 16;
-  }
-
-  function startProjectListColumnResize(
-    event: PointerEvent,
-    column: ProjectTaskListResizableColumn,
-  ): void {
-    if (event.button !== 0) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const trigger = event.currentTarget;
-    if (!(trigger instanceof HTMLElement)) return;
-    const rootFontSizePx = projectListRootFontSizePx();
-    const headerCell = trigger.closest(".project-list-header-cell");
-    const startWidthRem = headerCell instanceof HTMLElement
-      ? headerCell.getBoundingClientRect().width / rootFontSizePx
-      : projectTaskListResizableColumnWidthRem(column, taskListGridInput);
-    const widthsAtStart = { ...effectiveTaskListColumnWidths };
-    listColumnResizeGesture = startProjectTaskListColumnResize({
-      column,
-      pointerId: event.pointerId,
-      startClientX: event.clientX,
-      startWidthRem,
-      rootFontSizePx,
-      widthsAtStart,
-    });
-    trigger.setPointerCapture(event.pointerId);
-  }
-
-  function handleProjectListColumnResizePointerMove(event: PointerEvent): void {
-    const gesture = listColumnResizeGesture;
-    if (!gesture || event.pointerId !== gesture.pointerId) return;
-    event.preventDefault();
-    listColumnResizeGesture = moveProjectTaskListColumnResize(gesture, event.clientX);
-    void tick().then(syncProjectListCounterScroll);
-  }
-
-  function finishProjectListColumnResize(event: PointerEvent, persist: boolean): void {
-    const gesture = listColumnResizeGesture;
-    if (!gesture || event.pointerId !== gesture.pointerId) return;
-    if (persist && gesture.moved) {
-      onTaskListColumnWidthsChange(gesture.draftWidths, { persist: true });
-    }
-    listColumnResizeGesture = null;
-    void tick().then(syncProjectListCounterScroll);
-  }
-
-  function handleProjectListColumnResizeDoubleClick(
-    event: MouseEvent,
-    column: ProjectTaskListResizableColumn,
-  ): void {
-    event.preventDefault();
-    event.stopPropagation();
-    const nextWidths = doubleClickProjectTaskListColumnResizeWidths({
-      column,
-      widths: effectiveTaskListColumnWidths,
-      gridInput: taskListGridInput,
-    });
-    onTaskListColumnWidthsChange(nextWidths, { persist: true });
-    void tick().then(syncProjectListCounterScroll);
-  }
-
-  function handleProjectListColumnResizeKeydown(
-    event: KeyboardEvent,
-    column: ProjectTaskListResizableColumn,
-  ): void {
-    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-    event.preventDefault();
-    event.stopPropagation();
-    const direction = event.key === "ArrowRight" ? 1 : -1;
-    onTaskListColumnWidthsChange(keyboardProjectTaskListColumnResizeWidths({
-      column,
-      direction,
-      wideStep: event.shiftKey,
-      widths: effectiveTaskListColumnWidths,
-      gridInput: taskListGridInput,
-    }), { persist: true });
-    void tick().then(syncProjectListCounterScroll);
-  }
-
   $effect(() => {
-    const el = projectViewScrollContainer;
-    if (!el) return;
-    setProjectListCounterScroll(el.scrollLeft);
+    if (viewport.container) viewport.syncCounterScroll();
   });
 
-  function projectListKeyboardScrollAllowed(target: EventTarget | null): boolean {
-    if (!(target instanceof Element)) return true;
-    return !target.closest("input, textarea, select, [contenteditable='true'], [role='textbox']");
-  }
-
   function handleProjectListHorizontalKeydown(event: KeyboardEvent): void {
-    if (event.key === "Escape" && projectListAddDraftActive()) {
+    if (event.key === "Escape" && quickAdd.hasActiveDraft()) {
       event.preventDefault();
       event.stopPropagation();
-      cancelActiveProjectListAddDrafts();
+      quickAdd.cancelActiveDrafts();
       projectListBlurTarget(event.target);
       return;
     }
-
-    if (event.altKey || event.ctrlKey || event.metaKey) return;
-    if (!projectListKeyboardScrollAllowed(event.target)) return;
-    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-
-    const el = projectViewScrollContainer;
-    if (!el) return;
-    const maxScrollLeft = projectListMaxHorizontalScrollLeft();
-    if (maxScrollLeft <= 0) return;
-
-    const delta = event.key === "ArrowRight"
-      ? PROJECT_LIST_KEYBOARD_SCROLL_PX
-      : -PROJECT_LIST_KEYBOARD_SCROLL_PX;
-    const nextScrollLeft = Math.max(0, Math.min(maxScrollLeft, el.scrollLeft + delta));
-    if (nextScrollLeft === el.scrollLeft) return;
-
-    event.preventDefault();
-    setProjectListHorizontalScroll(nextScrollLeft);
+    viewport.handleHorizontalKeydown(event);
   }
 
   function projectListEventTargetElement(target: EventTarget | null): Element | null {
@@ -365,99 +191,13 @@
     }
   }
 
-  function projectListAddDraftActive(): boolean {
-    return activeSectionTaskDraftInputId !== null
-      || activeGroupTaskDraftInputId !== null
-      || sectionDraftInputActive
-      || sectionDraft.trim().length > 0
-      || Object.values(groupTaskDrafts).some((draft) => draft.trim().length > 0);
-  }
-
-  function cancelActiveProjectListAddDrafts(): void {
-    if (activeSectionTaskDraftInputId) {
-      const targetId = activeSectionTaskDraftInputId;
-      sectionTaskDrafts = { ...sectionTaskDrafts, [targetId]: "" };
-      activeSectionTaskDraftInputId = null;
-      clearTaskCreateError(projectListSectionTaskCreateTarget(targetId));
-    }
-
-    if (activeGroupTaskDraftInputId) {
-      const targetId = activeGroupTaskDraftInputId;
-      groupTaskDrafts = { ...groupTaskDrafts, [targetId]: "" };
-      activeGroupTaskDraftInputId = null;
-      clearTaskCreateError(projectListGroupTaskCreateTarget(targetId));
-    }
-
-    if (sectionDraftInputActive || sectionDraft.trim()) {
-      sectionDraft = "";
-      sectionDraftInputActive = false;
-    }
-  }
-
-  function cancelProjectListAddDraftsForOutsideTarget(target: Element): void {
-    if (activeSectionTaskDraftInputId) {
-      const taskAddRow = target.closest("[data-section-task-add-row]");
-      const taskAddRowSectionId = taskAddRow?.getAttribute("data-section-task-add-row");
-      if (taskAddRowSectionId !== activeSectionTaskDraftInputId) {
-        const targetId = activeSectionTaskDraftInputId;
-        sectionTaskDrafts = { ...sectionTaskDrafts, [targetId]: "" };
-        activeSectionTaskDraftInputId = null;
-        clearTaskCreateError(projectListSectionTaskCreateTarget(targetId));
-      }
-    }
-
-    if (activeGroupTaskDraftInputId) {
-      const taskAddRow = target.closest("[data-group-task-add-row]");
-      const taskAddRowGroupId = taskAddRow?.getAttribute("data-group-task-add-row");
-      if (taskAddRowGroupId !== activeGroupTaskDraftInputId) {
-        const targetId = activeGroupTaskDraftInputId;
-        groupTaskDrafts = { ...groupTaskDrafts, [targetId]: "" };
-        activeGroupTaskDraftInputId = null;
-        clearTaskCreateError(projectListGroupTaskCreateTarget(targetId));
-      }
-    }
-
-    if ((sectionDraftInputActive || sectionDraft.trim()) && !target.closest("[data-add-section-row='true']")) {
-      sectionDraft = "";
-      sectionDraftInputActive = false;
-    }
-  }
-
   function handleProjectWindowPointerDown(event: PointerEvent): void {
     const target = event.target;
     if (!(target instanceof Node)) return;
     const targetElement = projectListEventTargetElement(target);
     if (targetElement) {
-      cancelProjectListAddDraftsForOutsideTarget(targetElement);
-    }
-    if (
-      sectionOptionsMenuId
-      && targetElement
-      && !targetElement.closest("[data-section-options-root='true']")
-    ) {
-      sectionOptionsMenuId = null;
-    }
-    if (
-      statusMenuTaskId
-      && targetElement
-      && !targetElement.closest("[data-list-status-menu-root='true']")
-    ) {
-      statusMenuTaskId = null;
-    }
-    if (
-      priorityMenuTaskId
-      && targetElement
-      && !targetElement.closest("[data-list-priority-menu-root='true']")
-    ) {
-      priorityMenuTaskId = null;
-    }
-    if (
-      (startDateMenuTaskId || dueDateMenuTaskId)
-      && targetElement
-      && !targetElement.closest("[data-list-date-menu-root='true']")
-    ) {
-      startDateMenuTaskId = null;
-      dueDateMenuTaskId = null;
+      quickAdd.cancelForOutsideTarget(targetElement);
+      interaction.handleOutsidePointerTarget(targetElement);
     }
   }
 
@@ -498,392 +238,14 @@
     return t("projects.columns.status");
   }
 
-  function tasksForSection(section: ProjectSection): ProjectTask[] {
-    return tasks.filter((task) => task.sectionId === section.id && !task.parentTaskId);
-  }
-
-  function listDragEnabled(): boolean {
-    return taskGroupBy === "section" && taskSortMode === "manual";
-  }
-
-  function listSectionDragEnabled(): boolean {
-    return taskGroupBy === "section";
-  }
-
   function subtasksForTask(parent: ProjectTask): ProjectTask[] {
     return showArchivedTasks
       ? projects.subtasksForTaskIncludingArchived(parent.id)
       : projects.subtasksForTask(parent.id);
   }
 
-  function taskById(taskId: string): ProjectTask | undefined {
-    return allProjectTasks.find((task) => task.id === taskId);
-  }
-
-  function sectionById(sectionId: string): ProjectSection | undefined {
-    return sections.find((section) => section.id === sectionId);
-  }
-
-  function canStartListTaskDrag(task: ProjectTask): boolean {
-    return projectListTaskDragAllowed({
-      dragEnabled: listDragEnabled(),
-      task,
-      dropPendingTaskId: listDropPendingTaskId,
-    });
-  }
-
-  function canStartListSectionDrag(section: ProjectSection): boolean {
-    return projectListSectionDragAllowed({
-      dragEnabled: listSectionDragEnabled(),
-      section,
-      dropPendingSectionId: listSectionDropPendingId,
-    });
-  }
-
-  function listRowDragTargetAllowed(target: EventTarget | null): boolean {
-    if (!(target instanceof Element)) return true;
-    if (target.closest("[data-list-row-drag-source='true']")) return true;
-    return !target.closest("button, input, textarea, select, a, [role='button']");
-  }
-
-  function listSectionDragTargetAllowed(target: EventTarget | null): boolean {
-    if (!(target instanceof Element)) return true;
-    if (target.closest("[data-list-section-drag-source='true']")) return true;
-    return !target.closest("button, textarea, select, a, [role='button']");
-  }
-
-  function handleListRowPointerDown(event: PointerEvent, task: ProjectTask): void {
-    if (event.button !== 0 || !canStartListTaskDrag(task) || !listRowDragTargetAllowed(event.target)) {
-      listRowDragGesture = null;
-      return;
-    }
-    listRowDragGesture = {
-      itemId: task.id,
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
-      startedAt: Date.now(),
-    };
-  }
-
-  function clearListRowDragGesture(event?: PointerEvent): void {
-    if (event && listRowDragGesture && event.pointerId !== listRowDragGesture.pointerId) return;
-    listRowDragGesture = null;
-  }
-
-  function handleListSectionPointerDown(event: PointerEvent, section: ProjectSection): void {
-    if (
-      event.button !== 0
-      || !canStartListSectionDrag(section)
-      || !listSectionDragTargetAllowed(event.target)
-    ) {
-      listSectionDragGesture = null;
-      return;
-    }
-    listSectionDragGesture = {
-      itemId: section.id,
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
-      startedAt: Date.now(),
-    };
-  }
-
-  function clearListSectionDragGesture(event?: PointerEvent): void {
-    if (event && listSectionDragGesture && event.pointerId !== listSectionDragGesture.pointerId) return;
-    listSectionDragGesture = null;
-  }
-
-  function listRowDragGestureReady(event: DragEvent, task: ProjectTask): boolean {
-    return projectListPointerDragGestureReady({
-      gesture: listRowDragGesture,
-      itemId: task.id,
-      clientX: event.clientX,
-      clientY: event.clientY,
-      now: Date.now(),
-    });
-  }
-
-  function listSectionDragGestureReady(event: DragEvent, section: ProjectSection): boolean {
-    return projectListPointerDragGestureReady({
-      gesture: listSectionDragGesture,
-      itemId: section.id,
-      clientX: event.clientX,
-      clientY: event.clientY,
-      now: Date.now(),
-    });
-  }
-
-  function suppressNextTaskOpen(taskId: string): void {
-    suppressedTaskOpenTaskId = taskId;
-    window.setTimeout(() => {
-      if (suppressedTaskOpenTaskId === taskId) suppressedTaskOpenTaskId = null;
-    }, 0);
-  }
-
-  function resetListDragTarget(): void {
-    listDragOverSectionId = null;
-    listDragOverTaskId = null;
-    listDragOverPosition = null;
-  }
-
-  function resetListSectionDragTarget(): void {
-    listSectionDragOverId = null;
-    listSectionDragOverPosition = null;
-  }
-
-  function listDragTaskId(event: DragEvent): string | null {
-    return event.dataTransfer?.getData(PROJECT_LIST_DRAG_MIME) || listDraggingTaskId;
-  }
-
-  function listDragSectionId(event: DragEvent): string | null {
-    return event.dataTransfer?.getData(PROJECT_LIST_SECTION_DRAG_MIME) || listDraggingSectionId;
-  }
-
-  function canDropListTask(task: ProjectTask | undefined, section: ProjectSection): boolean {
-    return projectListTaskDropAllowed({
-      dragEnabled: listDragEnabled(),
-      task,
-      targetSection: section,
-    });
-  }
-
-  function canDropListSection(
-    draggedSection: ProjectSection | undefined,
-    targetSection: ProjectSection,
-  ): boolean {
-    return projectListSectionDropAllowed({
-      dragEnabled: listSectionDragEnabled(),
-      draggedSection,
-      targetSection,
-    });
-  }
-
-  function handleListTaskDragStart(event: DragEvent, task: ProjectTask): void {
-    if (!canStartListTaskDrag(task) || !listRowDragGestureReady(event, task)) {
-      event.preventDefault();
-      return;
-    }
-    event.stopPropagation();
-    listDraggingTaskId = task.id;
-    listRowDragGesture = null;
-    suppressNextTaskOpen(task.id);
-    event.dataTransfer?.setData(PROJECT_LIST_DRAG_MIME, task.id);
-    if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
-  }
-
-  function handleListSectionDragStart(event: DragEvent, section: ProjectSection): void {
-    if (!canStartListSectionDrag(section) || !listSectionDragGestureReady(event, section)) {
-      event.preventDefault();
-      return;
-    }
-    event.stopPropagation();
-    listDraggingSectionId = section.id;
-    listSectionDragGesture = null;
-    resetListDragTarget();
-    event.dataTransfer?.setData(PROJECT_LIST_SECTION_DRAG_MIME, section.id);
-    if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
-  }
-
-  function handleListTaskDragEnd(): void {
-    listDraggingTaskId = null;
-    listDropPendingTaskId = null;
-    listRowDragGesture = null;
-    resetListDragTarget();
-  }
-
-  function handleListSectionDragEnd(): void {
-    listDraggingSectionId = null;
-    listSectionDropPendingId = null;
-    listSectionDragGesture = null;
-    resetListSectionDragTarget();
-  }
-
-  function listRowDropPosition(event: DragEvent): ProjectListDropPosition {
-    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-    return projectListDropPositionFromPoint(event.clientY, rect);
-  }
-
-  function listSectionDropPosition(event: DragEvent): ProjectListDropPosition {
-    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-    return projectListDropPositionFromPoint(event.clientY, rect);
-  }
-
-  function handleListRowDragOver(event: DragEvent, section: ProjectSection, task: ProjectTask): void {
-    const dragged = taskById(listDragTaskId(event) ?? "");
-    if (!dragged || !canDropListTask(dragged, section) || dragged.id === task.id) return;
-    event.preventDefault();
-    event.stopPropagation();
-    if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
-    listDragOverSectionId = section.id;
-    listDragOverTaskId = task.id;
-    listDragOverPosition = listRowDropPosition(event);
-  }
-
-  function handleListSectionDragOver(event: DragEvent, section: ProjectSection): void {
-    const dragged = taskById(listDragTaskId(event) ?? "");
-    if (!canDropListTask(dragged, section)) return;
-    event.preventDefault();
-    if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
-    listDragOverSectionId = section.id;
-    listDragOverTaskId = null;
-    listDragOverPosition = "section";
-  }
-
-  function handleListSectionGroupDragOver(event: DragEvent, section: ProjectSection): void {
-    const draggedSection = sectionById(listDragSectionId(event) ?? "");
-    if (draggedSection && canDropListSection(draggedSection, section) && draggedSection.id !== section.id) {
-      event.preventDefault();
-      event.stopPropagation();
-      if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
-      resetListDragTarget();
-      listSectionDragOverId = section.id;
-      listSectionDragOverPosition = listSectionDropPosition(event);
-      return;
-    }
-    handleListSectionDragOver(event, section);
-  }
-
-  async function dropListTask(
-    event: DragEvent,
-    section: ProjectSection,
-    targetTask?: ProjectTask,
-    position?: ProjectListDropPosition,
-  ): Promise<void> {
-    event.preventDefault();
-    event.stopPropagation();
-    const dragged = taskById(listDragTaskId(event) ?? "");
-    if (!dragged || !canDropListTask(dragged, section) || dragged.id === targetTask?.id) {
-      resetListDragTarget();
-      return;
-    }
-
-    const orderedTasks = tasksForSection(section);
-    const nextSectionSortOrder = projectListDropSortOrder({
-      orderedTasks,
-      draggedTaskId: dragged.id,
-      overTaskId: targetTask?.id,
-      position,
-      sortDirection: taskSortDirection,
-    });
-
-    if (
-      dragged.sectionId === section.id
-      && dragged.sectionSortOrder === nextSectionSortOrder
-    ) {
-      resetListDragTarget();
-      return;
-    }
-
-    listDropPendingTaskId = dragged.id;
-    resetListDragTarget();
-    try {
-      await projects.updateTask(dragged, {
-        sectionId: section.id,
-        sectionSortOrder: nextSectionSortOrder,
-      });
-    } finally {
-      listDropPendingTaskId = null;
-      listDraggingTaskId = null;
-    }
-  }
-
-  async function dropListSection(event: DragEvent, targetSection: ProjectSection): Promise<void> {
-    event.preventDefault();
-    event.stopPropagation();
-    const draggedSection = sectionById(listDragSectionId(event) ?? "");
-    if (
-      !draggedSection
-      || !canDropListSection(draggedSection, targetSection)
-      || draggedSection.id === targetSection.id
-    ) {
-      resetListSectionDragTarget();
-      return;
-    }
-
-    const orderedSections = sections.filter((section) => !section.archivedAt && !section.hiddenAt);
-    const nextSortOrder = projectListSectionDropSortOrder({
-      orderedSections,
-      draggedSectionId: draggedSection.id,
-      overSectionId: targetSection.id,
-      position: listSectionDropPosition(event),
-    });
-
-    if (draggedSection.sortOrder === nextSortOrder) {
-      resetListSectionDragTarget();
-      return;
-    }
-
-    listSectionDropPendingId = draggedSection.id;
-    resetListSectionDragTarget();
-    try {
-      await projects.updateSection(draggedSection, { sortOrder: nextSortOrder });
-    } finally {
-      listSectionDropPendingId = null;
-      listDraggingSectionId = null;
-    }
-  }
-
-  async function dropListSectionOrTask(event: DragEvent, section: ProjectSection): Promise<void> {
-    const draggedSection = sectionById(listDragSectionId(event) ?? "");
-    if (draggedSection && canDropListSection(draggedSection, section)) {
-      await dropListSection(event, section);
-      return;
-    }
-    await dropListTask(event, section);
-  }
-
-  function listDropMarkerVisible(
-    section: ProjectSection,
-    task: ProjectTask,
-    position: ProjectListDropPosition,
-  ): boolean {
-    return listDragOverSectionId === section.id
-      && listDragOverTaskId === task.id
-      && listDragOverPosition === position;
-  }
-
-  function listSectionDropMarkerVisible(
-    section: ProjectSection,
-    position: ProjectListDropPosition,
-  ): boolean {
-    return listSectionDragOverId === section.id
-      && listSectionDragOverPosition === position;
-  }
-
   function statusForTask(task: ProjectTask): ProjectStatus | undefined {
     return projects.statusById(task.statusId);
-  }
-
-  function taskSelected(task: ProjectTask): boolean {
-    return selectedTaskIdSet.has(task.id);
-  }
-
-  function allTasksSelected(groupTasks: ProjectTask[]): boolean {
-    return groupTasks.length > 0 && groupTasks.every((task) => selectedTaskIdSet.has(task.id));
-  }
-
-  function someTasksSelected(groupTasks: ProjectTask[]): boolean {
-    return groupTasks.some((task) => selectedTaskIdSet.has(task.id));
-  }
-
-  function toggleTaskSelection(task: ProjectTask): void {
-    onSelectedTaskIdsChange(
-      taskSelected(task)
-        ? selectedTaskIds.filter((taskId) => taskId !== task.id)
-        : [...selectedTaskIds, task.id],
-    );
-  }
-
-  function toggleTaskGroupSelection(groupTasks: ProjectTask[]): void {
-    if (groupTasks.length === 0) return;
-    const nextIds = new Set(selectedTaskIds);
-    if (allTasksSelected(groupTasks)) {
-      for (const task of groupTasks) nextIds.delete(task.id);
-    } else {
-      for (const task of groupTasks) nextIds.add(task.id);
-    }
-    onSelectedTaskIdsChange(Array.from(nextIds));
   }
 
   function blockedByDependencies(task: ProjectTask) {
@@ -953,20 +315,20 @@
 
   async function setTaskStatusFromList(task: ProjectTask, status: ProjectStatus): Promise<void> {
     if (task.archivedAt || task.statusId === status.id) {
-      statusMenuTaskId = null;
+      interaction.statusMenuTaskId = null;
       return;
     }
     await projects.setTasksStatus([task], status.id);
-    statusMenuTaskId = null;
+    interaction.statusMenuTaskId = null;
   }
 
   async function setTaskPriorityFromList(task: ProjectTask, priority: ProjectPriority): Promise<void> {
     if (task.archivedAt || task.priority === priority) {
-      priorityMenuTaskId = null;
+      interaction.priorityMenuTaskId = null;
       return;
     }
     await projects.setTaskPriority(task, priority);
-    priorityMenuTaskId = null;
+    interaction.priorityMenuTaskId = null;
   }
 
   async function setTaskStartDateFromList(task: ProjectTask, startDate: string | undefined): Promise<void> {
@@ -978,8 +340,8 @@
     if (plan.patch) {
       await projects.updateTask(task, plan.patch);
     }
-    startDateMenuTaskId = null;
-    dueDateMenuTaskId = plan.nextOpenMenu === "due" ? task.id : null;
+    interaction.startDateMenuTaskId = null;
+    interaction.dueDateMenuTaskId = plan.nextOpenMenu === "due" ? task.id : null;
   }
 
   async function setTaskDueDateFromList(task: ProjectTask, dueDate: string | undefined): Promise<void> {
@@ -991,13 +353,13 @@
     if (plan.patch) {
       await projects.updateTask(task, plan.patch);
     }
-    dueDateMenuTaskId = null;
-    startDateMenuTaskId = plan.nextOpenMenu === "start" ? task.id : null;
+    interaction.dueDateMenuTaskId = null;
+    interaction.startDateMenuTaskId = plan.nextOpenMenu === "start" ? task.id : null;
   }
 
   async function setTaskStartTimeFromList(task: ProjectTask, startTime: string | undefined): Promise<void> {
     if (task.archivedAt) {
-      startDateMenuTaskId = null;
+      interaction.startDateMenuTaskId = null;
       return;
     }
     if (!task.startDate || task.startTime === startTime) return;
@@ -1006,141 +368,11 @@
 
   async function setTaskDueTimeFromList(task: ProjectTask, dueTime: string | undefined): Promise<void> {
     if (task.archivedAt) {
-      dueDateMenuTaskId = null;
+      interaction.dueDateMenuTaskId = null;
       return;
     }
     if (!task.dueDate || task.dueTime === dueTime) return;
     await projects.updateTask(task, { dueTime });
-  }
-
-  function closeProjectListTaskMenu(menu: ProjectListTaskMenu): void {
-    if (menu === "status") statusMenuTaskId = null;
-    if (menu === "priority") priorityMenuTaskId = null;
-    if (menu === "start") startDateMenuTaskId = null;
-    if (menu === "due") dueDateMenuTaskId = null;
-  }
-
-  function closeOtherProjectListTaskMenus(menu: ProjectListTaskMenu): void {
-    if (menu !== "status") statusMenuTaskId = null;
-    if (menu !== "priority") priorityMenuTaskId = null;
-    if (menu !== "start") startDateMenuTaskId = null;
-    if (menu !== "due") dueDateMenuTaskId = null;
-  }
-
-  function projectListTaskMenuTaskId(menu: ProjectListTaskMenu): string | null {
-    if (menu === "status") return statusMenuTaskId;
-    if (menu === "priority") return priorityMenuTaskId;
-    if (menu === "start") return startDateMenuTaskId;
-    return dueDateMenuTaskId;
-  }
-
-  function setProjectListTaskMenuTaskId(menu: ProjectListTaskMenu, taskId: string | null): void {
-    if (menu === "status") statusMenuTaskId = taskId;
-    if (menu === "priority") priorityMenuTaskId = taskId;
-    if (menu === "start") startDateMenuTaskId = taskId;
-    if (menu === "due") dueDateMenuTaskId = taskId;
-  }
-
-  function toggleProjectListTaskMenu(menu: ProjectListTaskMenu, taskId: string): void {
-    const nextTaskId = projectListTaskMenuTaskId(menu) === taskId ? null : taskId;
-    setProjectListTaskMenuTaskId(menu, nextTaskId);
-    if (nextTaskId) closeOtherProjectListTaskMenus(menu);
-  }
-
-  function groupTaskQuickAddPlan(group: ProjectTaskListGroup): ProjectListGroupQuickAddPlan {
-    return projectListGroupQuickAddPlan({
-      groupBy: taskGroupBy,
-      group,
-      statuses,
-      priorities,
-    });
-  }
-
-  function clearTaskCreateError(target: ProjectListTaskCreateTarget): void {
-    if (taskCreateErrorTarget !== target) return;
-    taskCreateErrorTarget = null;
-    taskCreateErrorMessage = null;
-  }
-
-  function setTaskCreateError(target: ProjectListTaskCreateTarget, message: string): void {
-    taskCreateErrorTarget = target;
-    taskCreateErrorMessage = message;
-  }
-
-  function taskCreateErrorFor(target: ProjectListTaskCreateTarget): string | null {
-    return taskCreateErrorTarget === target ? taskCreateErrorMessage : null;
-  }
-
-  function taskCreateFailedMessage(error: unknown): string {
-    const message = error instanceof Error ? error.message : String(error);
-    return t("projects.tasks.createFailed", message);
-  }
-
-  async function createTaskFromDraft(
-    target: ProjectListTaskCreateTarget,
-    title: string,
-    options: {
-      sectionId?: string;
-      statusId?: string;
-      patch?: Partial<Pick<ProjectTask, "priority" | "dueDate">>;
-    } = {},
-  ): Promise<ProjectTask | undefined> {
-    const projectId = selectedProjectId;
-    if (!projectId) {
-      setTaskCreateError(target, t("projects.tasks.selectProjectFirst"));
-      return undefined;
-    }
-    const displayTitle = title.trim();
-    if (!displayTitle) return undefined;
-    taskCreatePendingTarget = target;
-    clearTaskCreateError(target);
-    try {
-      const createdTask = await projects.addTask(projectId, displayTitle, options.sectionId, options.statusId);
-      if (!createdTask || !options.patch || Object.keys(options.patch).length === 0) return createdTask;
-      await projects.updateTask(createdTask, options.patch);
-      return projects.taskById(createdTask.id) ?? createdTask;
-    } catch (error) {
-      console.error("create project task failed", error);
-      setTaskCreateError(target, taskCreateFailedMessage(error));
-      return undefined;
-    } finally {
-      if (taskCreatePendingTarget === target) {
-        taskCreatePendingTarget = null;
-      }
-    }
-  }
-
-  async function submitSectionTask(sectionId: string): Promise<void> {
-    const target = projectListSectionTaskCreateTarget(sectionId);
-    const title = (sectionTaskDrafts[sectionId] ?? "").trim();
-    if (!title) return;
-    const createdTask = await createTaskFromDraft(target, title, { sectionId });
-    if (!createdTask) return;
-    sectionTaskDrafts = { ...sectionTaskDrafts, [sectionId]: "" };
-    onRevealTask(createdTask);
-  }
-
-  async function submitGroupTask(group: ProjectTaskListGroup): Promise<void> {
-    const quickAddPlan = groupTaskQuickAddPlan(group);
-    if (!quickAddPlan.enabled) return;
-    const groupKey = projectListGroupTaskDraftKey(taskGroupBy, group);
-    const target = projectListGroupTaskCreateTarget(groupKey);
-    const title = (groupTaskDrafts[groupKey] ?? "").trim();
-    if (!title) return;
-    const createdTask = await createTaskFromDraft(target, title, {
-      statusId: quickAddPlan.statusId,
-      patch: quickAddPlan.patch,
-    });
-    if (!createdTask) return;
-    groupTaskDrafts = { ...groupTaskDrafts, [groupKey]: "" };
-    onRevealTask(createdTask);
-  }
-
-  async function submitSection(): Promise<void> {
-    const name = sectionDraft.trim();
-    if (!selectedProjectId || !name) return;
-    await projects.addSection(selectedProjectId, name);
-    sectionDraft = "";
   }
 
   function sectionNameDraft(section: ProjectSection): string {
@@ -1185,11 +417,7 @@
   }
 
   function openTaskDetail(task: ProjectTask): void {
-    if (suppressedTaskOpenTaskId === task.id) {
-      suppressedTaskOpenTaskId = null;
-      return;
-    }
-    onOpenTask(task);
+    drag.openTask(task, onOpenTask);
   }
 
   function estimateLabel(minutes: number): string {
@@ -1213,25 +441,31 @@
     if (nextStart) return t("projects.schedule.nextScheduled", nextStart.slice(0, 16), count);
     return count > 0 ? t("projects.schedule.scheduledCount", count) : null;
   }
+
+  function handleProjectListScroll(event: Event): void {
+    viewport.syncCounterScroll();
+    const target = event.currentTarget as HTMLElement;
+    if (target.scrollHeight - target.scrollTop - target.clientHeight < 600) onNeedMore();
+  }
 </script>
 
 <svelte:window
   onkeydown={handleProjectListHorizontalKeydown}
   onpointerdown={handleProjectWindowPointerDown}
-  onpointermove={handleProjectListColumnResizePointerMove}
-  onpointerup={(event) => finishProjectListColumnResize(event, true)}
-  onpointercancel={(event) => finishProjectListColumnResize(event, false)}
+  onpointermove={viewport.handleResizePointerMove}
+  onpointerup={(event) => viewport.finishResize(event, true)}
+  onpointercancel={(event) => viewport.finishResize(event, false)}
 />
 
 <div
-  bind:this={projectViewScrollContainer}
+  bind:this={viewport.container}
   class="project-list-scroll h-full min-h-0 overflow-auto"
-  onscroll={syncProjectListCounterScroll}
+  onscroll={handleProjectListScroll}
 >
   <div class="flex min-h-full flex-col gap-5 p-3">
     {#if taskGroupBy === "section"}
       {#each sections as section (section.id)}
-        {@const sectionTasks = tasksForSection(section)}
+        {@const sectionTasks = drag.tasksForSection(section)}
         <ProjectListSectionBlock
             {section}
             {sectionTasks}
@@ -1243,31 +477,31 @@
             {priorities}
             {projectCustomFields}
             {selectedTaskId}
-            {statusMenuTaskId}
-            {priorityMenuTaskId}
-            {startDateMenuTaskId}
-            {dueDateMenuTaskId}
-            draggingTaskId={listDraggingTaskId}
-            dropPendingTaskId={listDropPendingTaskId}
-            sectionDragOver={listDragOverSectionId === section.id}
-            sectionDragging={listDraggingSectionId === section.id}
-            sectionDropPending={listSectionDropPendingId === section.id}
-            sectionDropMarkerBefore={listSectionDropMarkerVisible(section, "before")}
-            sectionDropMarkerAfter={listSectionDropMarkerVisible(section, "after")}
-            taskSectionDropMarkerVisible={listDragOverSectionId === section.id && listDragOverPosition === "section"}
+            statusMenuTaskId={interaction.statusMenuTaskId}
+            priorityMenuTaskId={interaction.priorityMenuTaskId}
+            startDateMenuTaskId={interaction.startDateMenuTaskId}
+            dueDateMenuTaskId={interaction.dueDateMenuTaskId}
+            draggingTaskId={drag.draggingTaskId}
+            dropPendingTaskId={drag.dropPendingTaskId}
+            sectionDragOver={drag.dragOverSectionId === section.id}
+            sectionDragging={drag.draggingSectionId === section.id}
+            sectionDropPending={drag.sectionDropPendingId === section.id}
+            sectionDropMarkerBefore={drag.sectionMarkerVisible(section, "before")}
+            sectionDropMarkerAfter={drag.sectionMarkerVisible(section, "after")}
+            taskSectionDropMarkerVisible={drag.dragOverSectionId === section.id && drag.dragOverPosition === "section"}
             theme={theme.current}
-            allTasksSelected={allTasksSelected(sectionTasks)}
-            partiallySelected={someTasksSelected(sectionTasks) && !allTasksSelected(sectionTasks)}
-            canDragSection={canStartListSectionDrag(section)}
+            allTasksSelected={interaction.allTasksSelected(sectionTasks)}
+            partiallySelected={interaction.someTasksSelected(sectionTasks) && !interaction.allTasksSelected(sectionTasks)}
+            canDragSection={drag.canStartSection(section)}
             sectionDraft={sectionNameDraft(section)}
             sectionDraftDirty={sectionDraftDirty(section)}
             sectionDraftSaveable={sectionDraftSaveable(section)}
-            sectionOptionsMenuOpen={sectionOptionsMenuId === section.id}
-            taskDraft={sectionTaskDrafts[section.id] ?? ""}
+            sectionOptionsMenuOpen={interaction.sectionOptionsMenuId === section.id}
+            taskDraft={quickAdd.sectionTaskDrafts[section.id] ?? ""}
             taskAddLabel={t("projects.list.addTaskInSection", section.name)}
-            taskAddActive={activeSectionTaskDraftInputId === section.id}
-            taskAddPending={taskCreatePendingTarget !== null}
-            taskAddError={taskCreateErrorFor(projectListSectionTaskCreateTarget(section.id))}
+            taskAddActive={quickAdd.activeSectionTaskDraftInputId === section.id}
+            taskAddPending={quickAdd.pendingTarget !== null}
+            taskAddError={quickAdd.errorFor(projectListSectionTaskCreateTarget(section.id))}
             {statusForTask}
             {subtasksForTask}
             {scheduledLabel}
@@ -1275,17 +509,17 @@
             {hiddenTaskTagCount}
             {blockedByDependencies}
             {blocksDependencies}
-            {taskSelected}
+            taskSelected={(task) => interaction.taskSelected(task)}
             {estimateLabel}
             {customFieldDisplayValue}
             {customFieldOptions}
             {customFieldValue}
             {customFieldOptionValues}
-            canStartTaskDrag={canStartListTaskDrag}
-            taskDropMarkerVisible={(task, position) => listDropMarkerVisible(section, task, position)}
-            onSectionDragOver={(event) => handleListSectionGroupDragOver(event, section)}
-            onSectionDrop={(event) => { void dropListSectionOrTask(event, section); }}
-            onToggleSectionSelection={() => toggleTaskGroupSelection(sectionTasks)}
+            canStartTaskDrag={drag.canStartTask}
+            taskDropMarkerVisible={(task, position) => drag.taskMarkerVisible(section, task, position)}
+            onSectionDragOver={(event) => drag.handleSectionGroupDragOver(event, section)}
+            onSectionDrop={(event) => { void drag.dropSectionOrTask(event, section); }}
+            onToggleSectionSelection={() => interaction.toggleTaskGroupSelection(sectionTasks)}
             onToggleSectionCollapsed={() => toggleSectionCollapsed(section)}
             onSectionDraftChange={(value) => {
               sectionNameDrafts = {
@@ -1295,90 +529,90 @@
             }}
             onSaveSection={() => saveSection(section)}
             onToggleSectionOptionsMenu={() => {
-              sectionOptionsMenuId = sectionOptionsMenuId === section.id ? null : section.id;
+              interaction.sectionOptionsMenuId = interaction.sectionOptionsMenuId === section.id ? null : section.id;
             }}
             onRestoreSection={() => {
-              sectionOptionsMenuId = null;
+              interaction.sectionOptionsMenuId = null;
               return restoreSection(section);
             }}
             onHideSection={() => {
-              sectionOptionsMenuId = null;
+              interaction.sectionOptionsMenuId = null;
               return hideSection(section);
             }}
             onArchiveSection={() => {
-              sectionOptionsMenuId = null;
+              interaction.sectionOptionsMenuId = null;
               return archiveSection(section);
             }}
-            onSectionPointerDown={(event) => handleListSectionPointerDown(event, section)}
-            onSectionPointerUp={clearListSectionDragGesture}
-            onSectionPointerCancel={clearListSectionDragGesture}
-            onSectionDragStart={(event) => handleListSectionDragStart(event, section)}
-            onSectionDragEnd={handleListSectionDragEnd}
-            onResizePointerDown={startProjectListColumnResize}
-            onResizeDoubleClick={handleProjectListColumnResizeDoubleClick}
-            onResizeKeydown={handleProjectListColumnResizeKeydown}
+            onSectionPointerDown={(event) => drag.handleSectionPointerDown(event, section)}
+            onSectionPointerUp={drag.clearSectionGesture}
+            onSectionPointerCancel={drag.clearSectionGesture}
+            onSectionDragStart={(event) => drag.handleSectionDragStart(event, section)}
+            onSectionDragEnd={drag.handleSectionDragEnd}
+            onResizePointerDown={viewport.startResize}
+            onResizeDoubleClick={viewport.handleResizeDoubleClick}
+            onResizeKeydown={viewport.handleResizeKeydown}
             onSaveCustomFieldValue={saveTaskCustomFieldValueFromList}
-            onToggleTaskSelection={toggleTaskSelection}
+            onToggleTaskSelection={interaction.toggleTaskSelection}
             onOpenTask={openTaskDetail}
-            onTaskPointerDown={(event, task) => handleListRowPointerDown(event, task)}
-            onTaskPointerUp={clearListRowDragGesture}
-            onTaskPointerCancel={clearListRowDragGesture}
-            onTaskDragStart={(event, task) => handleListTaskDragStart(event, task)}
-            onTaskDragEnd={handleListTaskDragEnd}
-            onTaskDragOver={(event, task) => handleListRowDragOver(event, section, task)}
-            onTaskDrop={(event, task) => { void dropListTask(event, section, task, listRowDropPosition(event)); }}
-            onToggleStatusMenu={(task) => toggleProjectListTaskMenu("status", task.id)}
+            onTaskPointerDown={(event, task) => drag.handleTaskPointerDown(event, task)}
+            onTaskPointerUp={drag.clearTaskGesture}
+            onTaskPointerCancel={drag.clearTaskGesture}
+            onTaskDragStart={(event, task) => drag.handleTaskDragStart(event, task)}
+            onTaskDragEnd={drag.handleTaskDragEnd}
+            onTaskDragOver={(event, task) => drag.handleTaskDragOver(event, section, task)}
+            onTaskDrop={(event, task) => { void drag.dropTask(event, section, task); }}
+            onToggleStatusMenu={(task) => interaction.toggleTaskMenu("status", task.id)}
             onSetStatus={(task, nextStatus) => { void setTaskStatusFromList(task, nextStatus); }}
-            onTogglePriorityMenu={(task) => toggleProjectListTaskMenu("priority", task.id)}
+            onTogglePriorityMenu={(task) => interaction.toggleTaskMenu("priority", task.id)}
             onSetPriority={(task, priority) => { void setTaskPriorityFromList(task, priority); }}
-            onToggleStartDateMenu={(task) => toggleProjectListTaskMenu("start", task.id)}
-            onCloseStartDateMenu={() => closeProjectListTaskMenu("start")}
+            onToggleStartDateMenu={(task) => interaction.toggleTaskMenu("start", task.id)}
+            onCloseStartDateMenu={() => interaction.closeTaskMenu("start")}
             onSetStartDate={(task, startDate) => { void setTaskStartDateFromList(task, startDate); }}
             onClearStartDate={(task) => { void setTaskStartDateFromList(task, undefined); }}
             onSetStartTime={(task, startTime) => { void setTaskStartTimeFromList(task, startTime); }}
             onClearStartTime={(task) => { void setTaskStartTimeFromList(task, undefined); }}
-            onToggleDueDateMenu={(task) => toggleProjectListTaskMenu("due", task.id)}
-            onCloseDueDateMenu={() => closeProjectListTaskMenu("due")}
+            onToggleDueDateMenu={(task) => interaction.toggleTaskMenu("due", task.id)}
+            onCloseDueDateMenu={() => interaction.closeTaskMenu("due")}
             onSetDueDate={(task, dueDate) => { void setTaskDueDateFromList(task, dueDate); }}
             onClearDueDate={(task) => { void setTaskDueDateFromList(task, undefined); }}
             onSetDueTime={(task, dueTime) => { void setTaskDueTimeFromList(task, dueTime); }}
             onClearDueTime={(task) => { void setTaskDueTimeFromList(task, undefined); }}
             onToggleSubtaskDone={(subtask) => { void projects.toggleTaskDone(subtask); }}
             onTaskDraftChange={(value) => {
-                sectionTaskDrafts = {
-                  ...sectionTaskDrafts,
+                quickAdd.sectionTaskDrafts = {
+                  ...quickAdd.sectionTaskDrafts,
                   [section.id]: value,
                 };
             }}
             onTaskAddActiveChange={(active) => {
                 if (active) {
-                  activeSectionTaskDraftInputId = section.id;
-                } else if (activeSectionTaskDraftInputId === section.id) {
-                  activeSectionTaskDraftInputId = null;
+                  quickAdd.activeSectionTaskDraftInputId = section.id;
+                } else if (quickAdd.activeSectionTaskDraftInputId === section.id) {
+                  quickAdd.activeSectionTaskDraftInputId = null;
                 }
             }}
-            onSubmitTask={() => submitSectionTask(section.id)}
+            onSubmitTask={() => quickAdd.submitSectionTask(section.id)}
         />
       {/each}
       <ProjectListSectionAddRow
         gridTemplate={taskListGridTemplate}
         gridMinWidth={taskListGridMinWidth}
         label={t("projects.header.addSection")}
-        draft={sectionDraft}
-        active={sectionDraftInputActive}
+        draft={quickAdd.sectionDraft}
+        active={quickAdd.sectionDraftInputActive}
         onDraftChange={(value) => {
-          sectionDraft = value;
+          quickAdd.sectionDraft = value;
         }}
         onActiveChange={(active) => {
-          sectionDraftInputActive = active;
+          quickAdd.sectionDraftInputActive = active;
         }}
-        onSubmit={submitSection}
+        onSubmit={() => quickAdd.submitSection()}
       />
     {:else}
       {#each listTaskGroups as group (group.id)}
         {@const groupKey = projectListGroupTaskDraftKey(taskGroupBy, group)}
         {@const groupTitle = taskListGroupTitle(group.value)}
-        {@const groupQuickAddPlan = groupTaskQuickAddPlan(group)}
+        {@const groupQuickAddPlan = quickAdd.groupPlan(group)}
         {@const groupCreateTarget = projectListGroupTaskCreateTarget(groupKey)}
         <section
           class="flex flex-col gap-0"
@@ -1389,9 +623,9 @@
             gridTemplate={taskListGridTemplate}
             gridMinWidth={taskListGridMinWidth}
             taskCount={group.tasks.length}
-            allSelected={allTasksSelected(group.tasks)}
-            partiallySelected={someTasksSelected(group.tasks) && !allTasksSelected(group.tasks)}
-            onToggleSelection={() => toggleTaskGroupSelection(group.tasks)}
+            allSelected={interaction.allTasksSelected(group.tasks)}
+            partiallySelected={interaction.someTasksSelected(group.tasks) && !interaction.allTasksSelected(group.tasks)}
+            onToggleSelection={() => interaction.toggleTaskGroupSelection(group.tasks)}
           />
           <ProjectListColumnHeaders
             mode="group"
@@ -1399,9 +633,9 @@
             gridMinWidth={taskListGridMinWidth}
             {taskListColumns}
             {taskListColumnLabel}
-            onResizePointerDown={startProjectListColumnResize}
-            onResizeDoubleClick={handleProjectListColumnResizeDoubleClick}
-            onResizeKeydown={handleProjectListColumnResizeKeydown}
+            onResizePointerDown={viewport.startResize}
+            onResizeDoubleClick={viewport.handleResizeDoubleClick}
+            onResizeKeydown={viewport.handleResizeKeydown}
           />
           <ProjectListTaskRows
             tasks={group.tasks}
@@ -1410,10 +644,10 @@
             {taskListColumns}
             {projectCustomFields}
             {selectedTaskId}
-            {statusMenuTaskId}
-            {priorityMenuTaskId}
-            {startDateMenuTaskId}
-            {dueDateMenuTaskId}
+            statusMenuTaskId={interaction.statusMenuTaskId}
+            priorityMenuTaskId={interaction.priorityMenuTaskId}
+            startDateMenuTaskId={interaction.startDateMenuTaskId}
+            dueDateMenuTaskId={interaction.dueDateMenuTaskId}
             gridTemplate={taskListGridTemplate}
             gridMinWidth={taskListGridMinWidth}
             theme={theme.current}
@@ -1424,7 +658,7 @@
             {hiddenTaskTagCount}
             {blockedByDependencies}
             {blocksDependencies}
-            {taskSelected}
+            taskSelected={(task) => interaction.taskSelected(task)}
             sectionNameForTask={(task) => sectionForTask(task)?.name}
             {estimateLabel}
             {customFieldDisplayValue}
@@ -1432,20 +666,20 @@
             {customFieldValue}
             {customFieldOptionValues}
             onSaveCustomFieldValue={saveTaskCustomFieldValueFromList}
-            onToggleTaskSelection={toggleTaskSelection}
+            onToggleTaskSelection={interaction.toggleTaskSelection}
             onOpenTask={openTaskDetail}
-            onToggleStatusMenu={(task) => toggleProjectListTaskMenu("status", task.id)}
+            onToggleStatusMenu={(task) => interaction.toggleTaskMenu("status", task.id)}
             onSetStatus={(task, nextStatus) => { void setTaskStatusFromList(task, nextStatus); }}
-            onTogglePriorityMenu={(task) => toggleProjectListTaskMenu("priority", task.id)}
+            onTogglePriorityMenu={(task) => interaction.toggleTaskMenu("priority", task.id)}
             onSetPriority={(task, priority) => { void setTaskPriorityFromList(task, priority); }}
-            onToggleStartDateMenu={(task) => toggleProjectListTaskMenu("start", task.id)}
-            onCloseStartDateMenu={() => closeProjectListTaskMenu("start")}
+            onToggleStartDateMenu={(task) => interaction.toggleTaskMenu("start", task.id)}
+            onCloseStartDateMenu={() => interaction.closeTaskMenu("start")}
             onSetStartDate={(task, startDate) => { void setTaskStartDateFromList(task, startDate); }}
             onClearStartDate={(task) => { void setTaskStartDateFromList(task, undefined); }}
             onSetStartTime={(task, startTime) => { void setTaskStartTimeFromList(task, startTime); }}
             onClearStartTime={(task) => { void setTaskStartTimeFromList(task, undefined); }}
-            onToggleDueDateMenu={(task) => toggleProjectListTaskMenu("due", task.id)}
-            onCloseDueDateMenu={() => closeProjectListTaskMenu("due")}
+            onToggleDueDateMenu={(task) => interaction.toggleTaskMenu("due", task.id)}
+            onCloseDueDateMenu={() => interaction.closeTaskMenu("due")}
             onSetDueDate={(task, dueDate) => { void setTaskDueDateFromList(task, dueDate); }}
             onClearDueDate={(task) => { void setTaskDueDateFromList(task, undefined); }}
             onSetDueTime={(task, dueTime) => { void setTaskDueTimeFromList(task, dueTime); }}
@@ -1459,24 +693,24 @@
                 gridTemplate={taskListGridTemplate}
                 gridMinWidth={taskListGridMinWidth}
                 label={t("projects.list.addTaskInSection", groupTitle)}
-                draft={groupTaskDrafts[groupKey] ?? ""}
-                active={activeGroupTaskDraftInputId === groupKey}
-                pending={taskCreatePendingTarget !== null}
-                error={taskCreateErrorFor(groupCreateTarget)}
+                draft={quickAdd.groupTaskDrafts[groupKey] ?? ""}
+                active={quickAdd.activeGroupTaskDraftInputId === groupKey}
+                pending={quickAdd.pendingTarget !== null}
+                error={quickAdd.errorFor(groupCreateTarget)}
                 onDraftChange={(value) => {
-                  groupTaskDrafts = {
-                    ...groupTaskDrafts,
+                  quickAdd.groupTaskDrafts = {
+                    ...quickAdd.groupTaskDrafts,
                     [groupKey]: value,
                   };
                 }}
                 onActiveChange={(active) => {
                   if (active) {
-                    activeGroupTaskDraftInputId = groupKey;
-                  } else if (activeGroupTaskDraftInputId === groupKey) {
-                    activeGroupTaskDraftInputId = null;
+                    quickAdd.activeGroupTaskDraftInputId = groupKey;
+                  } else if (quickAdd.activeGroupTaskDraftInputId === groupKey) {
+                    quickAdd.activeGroupTaskDraftInputId = null;
                   }
                 }}
-                onSubmit={() => submitGroupTask(group)}
+                onSubmit={() => quickAdd.submitGroupTask(group)}
               />
             {/if}
         </section>
@@ -1490,9 +724,9 @@
   </div>
 </div>
 <ProjectListScrollbars
-  scrollContainer={projectViewScrollContainer}
-  getMaxScrollLeft={projectListMaxHorizontalScrollLeft}
-  onScrollPositionChange={setProjectListHorizontalScroll}
+  scrollContainer={viewport.container}
+  getMaxScrollLeft={viewport.maxHorizontalScrollLeft}
+  onScrollPositionChange={viewport.setHorizontalScroll}
 />
 
 <style>

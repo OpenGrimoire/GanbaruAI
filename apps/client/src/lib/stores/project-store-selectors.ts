@@ -1,4 +1,8 @@
 import * as projectSnapshot from "$lib/projects/project-snapshot";
+import {
+  createProjectLoadedDataIndexReader,
+  type ProjectLoadedDataIndexReader,
+} from "$lib/projects/project-loaded-data-index";
 import type {
   Project,
   ProjectChecklistItem,
@@ -24,7 +28,11 @@ type ProjectSnapshotReader = () => ProjectsSnapshot;
 /**
  * Creates the read side of the project store around the current reactive snapshot.
  */
-export function createProjectStoreSelectors(readSnapshot: ProjectSnapshotReader) {
+export function createProjectStoreSelectors(
+  readRawSnapshot: ProjectSnapshotReader,
+  indexReader: ProjectLoadedDataIndexReader = createProjectLoadedDataIndexReader(),
+) {
+  const readSnapshot = () => indexReader.read(readRawSnapshot());
   return {
     activeProjects(): Project[] {
       return projectSnapshot.activeProjects(readSnapshot());

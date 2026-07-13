@@ -23,6 +23,7 @@ mod data_source_table;
 mod data_source_templates;
 mod data_source_timeline;
 mod data_source_views;
+mod data_source_window;
 mod databases;
 mod file_assets;
 mod folders;
@@ -51,7 +52,7 @@ mod notion_api_import_writer;
 mod notion_export_import;
 mod page_cover_assets;
 mod page_icon_assets;
-mod project_history;
+pub(crate) mod project_history;
 mod reads;
 mod search;
 mod search_properties;
@@ -59,42 +60,46 @@ mod suggestions;
 mod templates;
 mod undo_state;
 mod validation;
+mod workspace_shell;
 mod writes;
 
 pub use file_assets::*;
 pub use models::*;
 pub use page_cover_assets::*;
 pub use page_icon_assets::*;
+#[allow(unused_imports)]
 pub use project_history::*;
 
 #[tauri::command]
-pub async fn notes_list_pages<R: Runtime>(
+pub async fn notes_load_workspace_shell<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
-) -> Result<Vec<NotePageDto>, String> {
+    request: NoteWorkspaceShellRequest,
+) -> Result<NoteWorkspaceShellDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    writes::purge_expired_trashed_pages(&pool).await?;
-    reads::list_pages(&pool).await
+    workspace_shell::load_workspace_shell(&pool, request).await
 }
 
 #[tauri::command]
 pub async fn notes_list_trashed_pages<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
-) -> Result<Vec<NotePageDto>, String> {
+    request: Option<NotePageSummaryWindowRequest>,
+) -> Result<NotePageSummaryWindowDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
     writes::purge_expired_trashed_pages(&pool).await?;
-    reads::list_trashed_pages(&pool).await
+    reads::list_trashed_page_window(&pool, request.unwrap_or_default()).await
 }
 
 #[tauri::command]
 pub async fn notes_list_archived_pages<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
-) -> Result<Vec<NotePageDto>, String> {
+    request: Option<NotePageSummaryWindowRequest>,
+) -> Result<NotePageSummaryWindowDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
     writes::purge_expired_trashed_pages(&pool).await?;
-    reads::list_archived_pages(&pool).await
+    reads::list_archived_page_window(&pool, request.unwrap_or_default()).await
 }
 
 #[tauri::command]
@@ -122,9 +127,10 @@ pub async fn notes_create_folder<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     folder: NoteFolderCreate,
-) -> Result<NoteFolderDto, String> {
+) -> Result<project_history::NotesMutationResultDto<NoteFolderDto>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    folders::create_folder(&pool, folder).await
+    let value = folders::create_folder(&pool, folder).await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -133,9 +139,10 @@ pub async fn notes_update_folder<R: Runtime>(
     db_url: String,
     folder_id: String,
     update: NoteFolderUpdate,
-) -> Result<NoteFolderDto, String> {
+) -> Result<project_history::NotesMutationResultDto<NoteFolderDto>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    folders::update_folder(&pool, &folder_id, update).await
+    let value = folders::update_folder(&pool, &folder_id, update).await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -143,9 +150,10 @@ pub async fn notes_delete_folder<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     folder_id: String,
-) -> Result<String, String> {
+) -> Result<project_history::NotesMutationResultDto<String>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    folders::delete_folder(&pool, &folder_id).await
+    let value = folders::delete_folder(&pool, &folder_id).await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -175,13 +183,15 @@ pub async fn notes_search<R: Runtime>(
     query: String,
     page_size: Option<i64>,
     include_resolved_comments: Option<bool>,
-) -> Result<Vec<NoteSearchResultDto>, String> {
+    cursor: Option<String>,
+) -> Result<NoteSearchWindowDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    search::search(
+    search::search_window(
         &pool,
         &query,
         page_size,
         include_resolved_comments.unwrap_or(false),
+        cursor.as_deref(),
     )
     .await
 }
@@ -229,9 +239,11 @@ pub async fn notes_add_page_alias<R: Runtime>(
     db_url: String,
     page_id: String,
     request: NotePageAliasCreate,
-) -> Result<Vec<NotePageAliasDto>, String> {
+) -> Result<project_history::NotesMutationResultDto<Vec<NotePageAliasDto>>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    links::add_page_alias(&pool, &page_id, request).await
+    project_history::ensure_page_baseline_for_mutation(&pool, &page_id).await?;
+    let value = links::add_page_alias(&pool, &page_id, request).await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -240,9 +252,11 @@ pub async fn notes_delete_page_alias<R: Runtime>(
     db_url: String,
     page_id: String,
     alias_id: String,
-) -> Result<Vec<NotePageAliasDto>, String> {
+) -> Result<project_history::NotesMutationResultDto<Vec<NotePageAliasDto>>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    links::delete_page_alias(&pool, &page_id, &alias_id).await
+    project_history::ensure_page_baseline_for_mutation(&pool, &page_id).await?;
+    let value = links::delete_page_alias(&pool, &page_id, &alias_id).await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -261,9 +275,19 @@ pub async fn notes_resolve_unresolved_link<R: Runtime>(
     db_url: String,
     link_id: String,
     request: NoteUnresolvedLinkResolve,
-) -> Result<Vec<NoteUnresolvedLinkDto>, String> {
+) -> Result<project_history::NotesMutationResultDto<Vec<NoteUnresolvedLinkDto>>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    links::resolve_unresolved_link(&pool, &link_id, request).await
+    let source_page_id: Option<String> =
+        sqlx::query_scalar("SELECT source_page_id FROM notes_unresolved_link_index WHERE id = ?")
+            .bind(&link_id)
+            .fetch_optional(&pool)
+            .await
+            .map_err(|e| format!("load unresolved Notes history page: {e}"))?;
+    if let Some(source_page_id) = source_page_id {
+        project_history::ensure_page_baseline_for_mutation(&pool, &source_page_id).await?;
+    }
+    let value = links::resolve_unresolved_link(&pool, &link_id, request).await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -271,11 +295,10 @@ pub async fn notes_import_markdown_page<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     request: NoteMarkdownImportRequest,
-) -> Result<NoteMarkdownImportDto, String> {
+) -> Result<project_history::NotesMutationResultDto<NoteMarkdownImportDto>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    let result = markdown_import::import_page(&pool, request).await?;
-    project_history::flush_due_checkpoints(&pool).await?;
-    Ok(result)
+    let value = markdown_import::import_page(&pool, request).await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -283,11 +306,10 @@ pub async fn notes_import_html_page<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     request: NoteHtmlImportRequest,
-) -> Result<NoteHtmlImportDto, String> {
+) -> Result<project_history::NotesMutationResultDto<NoteHtmlImportDto>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    let result = html_import::import_page(&pool, request).await?;
-    project_history::flush_due_checkpoints(&pool).await?;
-    Ok(result)
+    let value = html_import::import_page(&pool, request).await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -295,11 +317,10 @@ pub async fn notes_import_notion_api<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     request: NoteNotionApiImportRequest,
-) -> Result<NoteNotionApiImportDto, String> {
+) -> Result<project_history::NotesMutationResultDto<NoteNotionApiImportDto>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    let result = notion_api_import::import_from_api(&pool, request).await?;
-    project_history::flush_due_checkpoints(&pool).await?;
-    Ok(result)
+    let value = notion_api_import::import_from_api(&pool, request).await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -307,11 +328,10 @@ pub async fn notes_import_notion_export_folder<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     request: NoteNotionExportImportRequest,
-) -> Result<NoteNotionExportImportDto, String> {
+) -> Result<project_history::NotesMutationResultDto<NoteNotionExportImportDto>, String> {
     let pool = connect_sqlite(app.clone(), db_url.clone()).await?;
-    let result = notion_export_import::import_folder(&app, &db_url, &pool, request).await?;
-    project_history::flush_due_checkpoints(&pool).await?;
-    Ok(result)
+    let value = notion_export_import::import_folder(&app, &db_url, &pool, request).await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -474,6 +494,26 @@ pub async fn notes_get_page_history_settings<R: Runtime>(
     history::get_page_history_settings(&pool).await
 }
 
+#[cfg(test)]
+pub(crate) async fn load_workspace_shell_for_first_use_contract(
+    pool: &sqlx::SqlitePool,
+) -> Result<NoteWorkspaceShellDto, String> {
+    workspace_shell::load_workspace_shell(
+        pool,
+        NoteWorkspaceShellRequest {
+            project_id: None,
+            expanded_page_ids: Vec::new(),
+            seed_page_ids: Vec::new(),
+            selected_page_id: None,
+            page_cursor: None,
+            folder_cursor: None,
+            destination_candidates: false,
+            page_query: None,
+        },
+    )
+    .await
+}
+
 #[tauri::command]
 pub async fn notes_update_page_history_settings<R: Runtime>(
     app: AppHandle<R>,
@@ -511,9 +551,11 @@ pub async fn notes_restore_page_history_snapshot<R: Runtime>(
     db_url: String,
     page_id: String,
     snapshot_id: String,
-) -> Result<NoteLoadedPage, String> {
+) -> Result<project_history::NotesMutationResultDto<NoteLoadedPage>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    history::restore_page_history_snapshot(&pool, &page_id, &snapshot_id).await
+    project_history::ensure_page_baseline_for_mutation(&pool, &page_id).await?;
+    let value = history::restore_page_history_snapshot(&pool, &page_id, &snapshot_id).await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -523,9 +565,11 @@ pub async fn notes_copy_page_history_blocks<R: Runtime>(
     page_id: String,
     snapshot_id: String,
     request: NotePageHistoryCopyBlocks,
-) -> Result<NotePaginatedBlockList, String> {
+) -> Result<project_history::NotesMutationResultDto<NotePaginatedBlockList>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    history::copy_page_history_blocks(&pool, &page_id, &snapshot_id, request).await
+    project_history::ensure_page_baseline_for_mutation(&pool, &page_id).await?;
+    let value = history::copy_page_history_blocks(&pool, &page_id, &snapshot_id, request).await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -534,9 +578,16 @@ pub async fn notes_list_comments<R: Runtime>(
     db_url: String,
     page_id: String,
     include_resolved: Option<bool>,
+    block_ids: Option<Vec<String>>,
 ) -> Result<Vec<NoteCommentThreadDto>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    comments::list_comments(&pool, &page_id, include_resolved.unwrap_or(false)).await
+    comments::list_comments_for_blocks(
+        &pool,
+        &page_id,
+        include_resolved.unwrap_or(false),
+        block_ids.as_deref(),
+    )
+    .await
 }
 
 #[tauri::command]
@@ -554,9 +605,10 @@ pub async fn notes_create_comment<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     request: NoteCommentCreate,
-) -> Result<NoteCommentThreadDto, String> {
+) -> Result<project_history::NotesMutationResultDto<NoteCommentThreadDto>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    comments::create_comment(&pool, request).await
+    let value = comments::create_comment(&pool, request).await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -565,9 +617,10 @@ pub async fn notes_update_comment<R: Runtime>(
     db_url: String,
     comment_id: String,
     update: NoteCommentUpdate,
-) -> Result<NoteCommentThreadDto, String> {
+) -> Result<project_history::NotesMutationResultDto<NoteCommentThreadDto>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    comments::update_comment(&pool, &comment_id, update).await
+    let value = comments::update_comment(&pool, &comment_id, update).await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -575,9 +628,10 @@ pub async fn notes_delete_comment<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     comment_id: String,
-) -> Result<NoteCommentThreadDto, String> {
+) -> Result<project_history::NotesMutationResultDto<NoteCommentThreadDto>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    comments::delete_comment(&pool, &comment_id).await
+    let value = comments::delete_comment(&pool, &comment_id).await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -586,9 +640,11 @@ pub async fn notes_resolve_comment_thread<R: Runtime>(
     db_url: String,
     discussion_id: String,
     resolved: Option<bool>,
-) -> Result<NoteCommentThreadDto, String> {
+) -> Result<project_history::NotesMutationResultDto<NoteCommentThreadDto>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    comments::resolve_comment_thread(&pool, &discussion_id, resolved.unwrap_or(true)).await
+    let value =
+        comments::resolve_comment_thread(&pool, &discussion_id, resolved.unwrap_or(true)).await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -607,9 +663,10 @@ pub async fn notes_create_suggestion<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     request: NoteSuggestionCreate,
-) -> Result<NoteSuggestionDto, String> {
+) -> Result<project_history::NotesMutationResultDto<NoteSuggestionDto>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    suggestions::create_suggestion(&pool, request).await
+    let value = suggestions::create_suggestion(&pool, request).await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -617,9 +674,10 @@ pub async fn notes_accept_suggestion<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     suggestion_id: String,
-) -> Result<NoteSuggestionDto, String> {
+) -> Result<project_history::NotesMutationResultDto<NoteSuggestionDto>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    suggestions::accept_suggestion(&pool, &suggestion_id).await
+    let value = suggestions::accept_suggestion(&pool, &suggestion_id).await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -627,9 +685,10 @@ pub async fn notes_reject_suggestion<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     suggestion_id: String,
-) -> Result<NoteSuggestionDto, String> {
+) -> Result<project_history::NotesMutationResultDto<NoteSuggestionDto>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    suggestions::reject_suggestion(&pool, &suggestion_id).await
+    let value = suggestions::reject_suggestion(&pool, &suggestion_id).await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -665,9 +724,10 @@ pub async fn notes_create_page<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     page: NotePageCreate,
-) -> Result<NoteLoadedPage, String> {
+) -> Result<project_history::NotesMutationResultDto<NoteLoadedPage>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    writes::create_page(&pool, page).await
+    let value = writes::create_page(&pool, page).await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -676,9 +736,10 @@ pub async fn notes_create_child_page_from_block<R: Runtime>(
     db_url: String,
     block_id: String,
     request: NoteChildPageFromBlockCreate,
-) -> Result<NoteLoadedPage, String> {
+) -> Result<project_history::NotesMutationResultDto<NoteLoadedPage>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    writes::create_child_page_from_block(&pool, &block_id, request).await
+    let value = writes::create_child_page_from_block(&pool, &block_id, request).await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -686,9 +747,10 @@ pub async fn notes_create_database<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     request: NoteDatabaseCreate,
-) -> Result<NoteCreatedDatabaseDto, String> {
+) -> Result<project_history::NotesMutationResultDto<NoteCreatedDatabaseDto>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    databases::create_database(&pool, request).await
+    let value = databases::create_database(&pool, request).await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -696,9 +758,10 @@ pub async fn notes_create_linked_database_view<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     request: NoteLinkedDatabaseCreate,
-) -> Result<NoteCreatedDatabaseDto, String> {
+) -> Result<project_history::NotesMutationResultDto<NoteCreatedDatabaseDto>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    databases::create_linked_database_view(&pool, request).await
+    let value = databases::create_linked_database_view(&pool, request).await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -728,15 +791,16 @@ pub async fn notes_update_data_source_schema<R: Runtime>(
     data_source_id: String,
     view_id: Option<String>,
     update: NoteDataSourceSchemaUpdate,
-) -> Result<NoteDataSourceSchemaDto, String> {
+) -> Result<project_history::NotesMutationResultDto<NoteDataSourceSchemaDto>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    data_source_schema::update_data_source_schema(
+    let value = data_source_schema::update_data_source_schema(
         &pool,
         &data_source_id,
         view_id.as_deref(),
         update,
     )
-    .await
+    .await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -755,9 +819,11 @@ pub async fn notes_create_data_source_row_page<R: Runtime>(
     db_url: String,
     data_source_id: String,
     request: NoteDataSourceRowPageCreate,
-) -> Result<NoteLoadedPage, String> {
+) -> Result<project_history::NotesMutationResultDto<NoteLoadedPage>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    data_source_rows::create_data_source_row_page(&pool, &data_source_id, request).await
+    let value =
+        data_source_rows::create_data_source_row_page(&pool, &data_source_id, request).await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -766,11 +832,10 @@ pub async fn notes_import_data_source_csv<R: Runtime>(
     db_url: String,
     data_source_id: String,
     request: NoteDataSourceCsvImportRequest,
-) -> Result<NoteDataSourceCsvImportDto, String> {
+) -> Result<project_history::NotesMutationResultDto<NoteDataSourceCsvImportDto>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    let result = data_source_csv_import::import_csv(&pool, &data_source_id, request).await?;
-    project_history::flush_due_checkpoints(&pool).await?;
-    Ok(result)
+    let value = data_source_csv_import::import_csv(&pool, &data_source_id, request).await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -811,10 +876,15 @@ pub async fn notes_create_data_source_template_from_row<R: Runtime>(
     db_url: String,
     data_source_id: String,
     request: NoteDataSourceTemplateCreateFromRow,
-) -> Result<NoteDataSourceTemplateDto, String> {
+) -> Result<project_history::NotesMutationResultDto<NoteDataSourceTemplateDto>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    data_source_templates::create_data_source_template_from_row(&pool, &data_source_id, request)
-        .await
+    let value = data_source_templates::create_data_source_template_from_row(
+        &pool,
+        &data_source_id,
+        request,
+    )
+    .await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -824,10 +894,16 @@ pub async fn notes_apply_data_source_template<R: Runtime>(
     data_source_id: String,
     template_id: String,
     request: NoteDataSourceTemplateApply,
-) -> Result<NoteLoadedPage, String> {
+) -> Result<project_history::NotesMutationResultDto<NoteLoadedPage>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    data_source_templates::apply_data_source_template(&pool, &data_source_id, &template_id, request)
-        .await
+    let value = data_source_templates::apply_data_source_template(
+        &pool,
+        &data_source_id,
+        &template_id,
+        request,
+    )
+    .await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -837,10 +913,16 @@ pub async fn notes_update_data_source_template<R: Runtime>(
     data_source_id: String,
     template_id: String,
     update: NoteDataSourceTemplateUpdate,
-) -> Result<NoteDataSourceTemplateDto, String> {
+) -> Result<project_history::NotesMutationResultDto<NoteDataSourceTemplateDto>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    data_source_templates::update_data_source_template(&pool, &data_source_id, &template_id, update)
-        .await
+    let value = data_source_templates::update_data_source_template(
+        &pool,
+        &data_source_id,
+        &template_id,
+        update,
+    )
+    .await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -850,15 +932,16 @@ pub async fn notes_duplicate_data_source_template<R: Runtime>(
     data_source_id: String,
     template_id: String,
     request: NoteDataSourceTemplateDuplicate,
-) -> Result<NoteDataSourceTemplateDto, String> {
+) -> Result<project_history::NotesMutationResultDto<NoteDataSourceTemplateDto>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    data_source_templates::duplicate_data_source_template(
+    let value = data_source_templates::duplicate_data_source_template(
         &pool,
         &data_source_id,
         &template_id,
         request,
     )
-    .await
+    .await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -867,9 +950,12 @@ pub async fn notes_delete_data_source_template<R: Runtime>(
     db_url: String,
     data_source_id: String,
     template_id: String,
-) -> Result<String, String> {
+) -> Result<project_history::NotesMutationResultDto<String>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    data_source_templates::delete_data_source_template(&pool, &data_source_id, &template_id).await
+    let value =
+        data_source_templates::delete_data_source_template(&pool, &data_source_id, &template_id)
+            .await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -879,13 +965,15 @@ pub async fn notes_get_data_source_table_view<R: Runtime>(
     data_source_id: String,
     database_id: Option<String>,
     view_id: Option<String>,
+    window: Option<NoteDataSourceViewWindowRequest>,
 ) -> Result<NoteDataSourceTableViewDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    data_source_table::get_data_source_table_view(
+    data_source_table::get_data_source_table_view_window(
         &pool,
         &data_source_id,
         database_id.as_deref(),
         view_id.as_deref(),
+        window.unwrap_or_default(),
     )
     .await
 }
@@ -898,16 +986,17 @@ pub async fn notes_update_data_source_table_view<R: Runtime>(
     database_id: Option<String>,
     view_id: Option<String>,
     update: NoteDataSourceTableViewUpdate,
-) -> Result<NoteDataSourceTableViewDto, String> {
+) -> Result<project_history::NotesMutationResultDto<NoteDataSourceTableViewDto>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    data_source_table::update_data_source_table_view(
+    let value = data_source_table::update_data_source_table_view(
         &pool,
         &data_source_id,
         database_id.as_deref(),
         view_id.as_deref(),
         update,
     )
-    .await
+    .await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -917,10 +1006,16 @@ pub async fn notes_update_data_source_row_property<R: Runtime>(
     data_source_id: String,
     page_id: String,
     update: NoteDataSourceRowPropertyUpdate,
-) -> Result<NotePageDto, String> {
+) -> Result<project_history::NotesMutationResultDto<NotePageDto>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    data_source_table::update_data_source_row_property(&pool, &data_source_id, &page_id, update)
-        .await
+    let value = data_source_table::update_data_source_row_property(
+        &pool,
+        &data_source_id,
+        &page_id,
+        update,
+    )
+    .await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -930,9 +1025,12 @@ pub async fn notes_click_data_source_button<R: Runtime>(
     data_source_id: String,
     page_id: String,
     request: NoteDataSourceButtonClick,
-) -> Result<NotePageDto, String> {
+) -> Result<project_history::NotesMutationResultDto<NotePageDto>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    data_source_buttons::click_data_source_button(&pool, &data_source_id, &page_id, request).await
+    let value =
+        data_source_buttons::click_data_source_button(&pool, &data_source_id, &page_id, request)
+            .await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -942,13 +1040,15 @@ pub async fn notes_get_data_source_board_view<R: Runtime>(
     data_source_id: String,
     database_id: Option<String>,
     view_id: Option<String>,
+    window: Option<NoteDataSourceViewWindowRequest>,
 ) -> Result<NoteDataSourceBoardViewDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    data_source_board::get_data_source_board_view(
+    data_source_board::get_data_source_board_view_window(
         &pool,
         &data_source_id,
         database_id.as_deref(),
         view_id.as_deref(),
+        window.unwrap_or_default(),
     )
     .await
 }
@@ -961,16 +1061,17 @@ pub async fn notes_update_data_source_board_view<R: Runtime>(
     database_id: Option<String>,
     view_id: Option<String>,
     update: NoteDataSourceBoardViewUpdate,
-) -> Result<NoteDataSourceBoardViewDto, String> {
+) -> Result<project_history::NotesMutationResultDto<NoteDataSourceBoardViewDto>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    data_source_board::update_data_source_board_view(
+    let value = data_source_board::update_data_source_board_view(
         &pool,
         &data_source_id,
         database_id.as_deref(),
         view_id.as_deref(),
         update,
     )
-    .await
+    .await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -981,16 +1082,17 @@ pub async fn notes_move_data_source_board_row<R: Runtime>(
     database_id: Option<String>,
     view_id: Option<String>,
     request: NoteDataSourceBoardRowMove,
-) -> Result<NoteDataSourceBoardViewDto, String> {
+) -> Result<project_history::NotesMutationResultDto<NoteDataSourceBoardViewDto>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    data_source_board::move_data_source_board_row(
+    let value = data_source_board::move_data_source_board_row(
         &pool,
         &data_source_id,
         database_id.as_deref(),
         view_id.as_deref(),
         request,
     )
-    .await
+    .await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -1000,13 +1102,15 @@ pub async fn notes_get_data_source_gallery_view<R: Runtime>(
     data_source_id: String,
     database_id: Option<String>,
     view_id: Option<String>,
+    window: Option<NoteDataSourceViewWindowRequest>,
 ) -> Result<NoteDataSourceGalleryViewDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    data_source_gallery::get_data_source_gallery_view(
+    data_source_gallery::get_data_source_gallery_view_window(
         &pool,
         &data_source_id,
         database_id.as_deref(),
         view_id.as_deref(),
+        window.unwrap_or_default(),
     )
     .await
 }
@@ -1019,16 +1123,17 @@ pub async fn notes_update_data_source_gallery_view<R: Runtime>(
     database_id: Option<String>,
     view_id: Option<String>,
     update: NoteDataSourceGalleryViewUpdate,
-) -> Result<NoteDataSourceGalleryViewDto, String> {
+) -> Result<project_history::NotesMutationResultDto<NoteDataSourceGalleryViewDto>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    data_source_gallery::update_data_source_gallery_view(
+    let value = data_source_gallery::update_data_source_gallery_view(
         &pool,
         &data_source_id,
         database_id.as_deref(),
         view_id.as_deref(),
         update,
     )
-    .await
+    .await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -1038,13 +1143,15 @@ pub async fn notes_get_data_source_list_view<R: Runtime>(
     data_source_id: String,
     database_id: Option<String>,
     view_id: Option<String>,
+    window: Option<NoteDataSourceViewWindowRequest>,
 ) -> Result<NoteDataSourceListViewDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    data_source_list::get_data_source_list_view(
+    data_source_list::get_data_source_list_view_window(
         &pool,
         &data_source_id,
         database_id.as_deref(),
         view_id.as_deref(),
+        window.unwrap_or_default(),
     )
     .await
 }
@@ -1057,16 +1164,17 @@ pub async fn notes_update_data_source_list_view<R: Runtime>(
     database_id: Option<String>,
     view_id: Option<String>,
     update: NoteDataSourceListViewUpdate,
-) -> Result<NoteDataSourceListViewDto, String> {
+) -> Result<project_history::NotesMutationResultDto<NoteDataSourceListViewDto>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    data_source_list::update_data_source_list_view(
+    let value = data_source_list::update_data_source_list_view(
         &pool,
         &data_source_id,
         database_id.as_deref(),
         view_id.as_deref(),
         update,
     )
-    .await
+    .await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -1076,13 +1184,15 @@ pub async fn notes_get_data_source_calendar_view<R: Runtime>(
     data_source_id: String,
     database_id: Option<String>,
     view_id: Option<String>,
+    window: Option<NoteDataSourceViewWindowRequest>,
 ) -> Result<NoteDataSourceCalendarViewDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    data_source_calendar::get_data_source_calendar_view(
+    data_source_calendar::get_data_source_calendar_view_window(
         &pool,
         &data_source_id,
         database_id.as_deref(),
         view_id.as_deref(),
+        window.unwrap_or_default(),
     )
     .await
 }
@@ -1095,16 +1205,17 @@ pub async fn notes_update_data_source_calendar_view<R: Runtime>(
     database_id: Option<String>,
     view_id: Option<String>,
     update: NoteDataSourceCalendarViewUpdate,
-) -> Result<NoteDataSourceCalendarViewDto, String> {
+) -> Result<project_history::NotesMutationResultDto<NoteDataSourceCalendarViewDto>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    data_source_calendar::update_data_source_calendar_view(
+    let value = data_source_calendar::update_data_source_calendar_view(
         &pool,
         &data_source_id,
         database_id.as_deref(),
         view_id.as_deref(),
         update,
     )
-    .await
+    .await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -1114,13 +1225,15 @@ pub async fn notes_get_data_source_timeline_view<R: Runtime>(
     data_source_id: String,
     database_id: Option<String>,
     view_id: Option<String>,
+    window: Option<NoteDataSourceViewWindowRequest>,
 ) -> Result<NoteDataSourceTimelineViewDto, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    data_source_timeline::get_data_source_timeline_view(
+    data_source_timeline::get_data_source_timeline_view_window(
         &pool,
         &data_source_id,
         database_id.as_deref(),
         view_id.as_deref(),
+        window.unwrap_or_default(),
     )
     .await
 }
@@ -1133,16 +1246,17 @@ pub async fn notes_update_data_source_timeline_view<R: Runtime>(
     database_id: Option<String>,
     view_id: Option<String>,
     update: NoteDataSourceTimelineViewUpdate,
-) -> Result<NoteDataSourceTimelineViewDto, String> {
+) -> Result<project_history::NotesMutationResultDto<NoteDataSourceTimelineViewDto>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    data_source_timeline::update_data_source_timeline_view(
+    let value = data_source_timeline::update_data_source_timeline_view(
         &pool,
         &data_source_id,
         database_id.as_deref(),
         view_id.as_deref(),
         update,
     )
-    .await
+    .await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -1151,9 +1265,10 @@ pub async fn notes_duplicate_page<R: Runtime>(
     db_url: String,
     page_id: String,
     request: NoteDuplicatePage,
-) -> Result<NoteLoadedPage, String> {
+) -> Result<project_history::NotesMutationResultDto<NoteLoadedPage>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    writes::duplicate_page(&pool, &page_id, request).await
+    let value = writes::duplicate_page(&pool, &page_id, request).await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -1162,12 +1277,11 @@ pub async fn notes_move_page<R: Runtime>(
     db_url: String,
     page_id: String,
     request: NoteMovePage,
-) -> Result<NoteLoadedPage, String> {
+) -> Result<project_history::NotesMutationResultDto<NoteLoadedPage>, String> {
     let pool = connect_sqlite(app, db_url).await?;
     project_history::create_safety_checkpoint_for_page(&pool, &page_id, "before_move").await?;
-    let result = writes::move_page(&pool, &page_id, request).await?;
-    project_history::flush_due_checkpoints(&pool).await?;
-    Ok(result)
+    let value = writes::move_page(&pool, &page_id, request).await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -1176,9 +1290,10 @@ pub async fn notes_update_page<R: Runtime>(
     db_url: String,
     page_id: String,
     update: NotePageUpdate,
-) -> Result<NotePageDto, String> {
+) -> Result<project_history::NotesMutationResultDto<NotePageDto>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    writes::update_page(&pool, &page_id, update).await
+    let value = writes::update_page(&pool, &page_id, update).await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -1187,13 +1302,12 @@ pub async fn notes_trash_page<R: Runtime>(
     db_url: String,
     page_id: String,
     in_trash: Option<bool>,
-) -> Result<NotePageDto, String> {
+) -> Result<project_history::NotesMutationResultDto<NotePageDto>, String> {
     let pool = connect_sqlite(app, db_url).await?;
     project_history::create_safety_checkpoint_for_page(&pool, &page_id, "before_trash").await?;
     writes::purge_expired_trashed_pages(&pool).await?;
-    let result = writes::trash_page(&pool, &page_id, in_trash.unwrap_or(true)).await?;
-    project_history::flush_due_checkpoints(&pool).await?;
-    Ok(result)
+    let value = writes::trash_page(&pool, &page_id, in_trash.unwrap_or(true)).await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -1202,12 +1316,11 @@ pub async fn notes_archive_page<R: Runtime>(
     db_url: String,
     page_id: String,
     archived: Option<bool>,
-) -> Result<NotePageDto, String> {
+) -> Result<project_history::NotesMutationResultDto<NotePageDto>, String> {
     let pool = connect_sqlite(app, db_url).await?;
     project_history::create_safety_checkpoint_for_page(&pool, &page_id, "before_archive").await?;
-    let result = writes::archive_page(&pool, &page_id, archived.unwrap_or(true)).await?;
-    project_history::flush_due_checkpoints(&pool).await?;
-    Ok(result)
+    let value = writes::archive_page(&pool, &page_id, archived.unwrap_or(true)).await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -1215,14 +1328,13 @@ pub async fn notes_permanently_delete_page<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     page_id: String,
-) -> Result<Vec<String>, String> {
+) -> Result<project_history::NotesMutationResultDto<Vec<String>>, String> {
     let pool = connect_sqlite(app, db_url).await?;
     project_history::create_safety_checkpoint_for_page(&pool, &page_id, "before_permanent_delete")
         .await?;
     writes::purge_expired_trashed_pages(&pool).await?;
-    let result = writes::permanently_delete_page(&pool, &page_id).await?;
-    project_history::flush_due_checkpoints(&pool).await?;
-    Ok(result)
+    let value = writes::permanently_delete_page(&pool, &page_id).await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -1233,6 +1345,47 @@ pub async fn notes_load_page<R: Runtime>(
 ) -> Result<NoteLoadedPage, String> {
     let pool = connect_sqlite(app, db_url).await?;
     reads::load_page(&pool, &page_id).await
+}
+
+#[tauri::command]
+pub async fn notes_open_page<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    page_id: String,
+) -> Result<NotePageOpenDto, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    reads::open_page(&pool, &page_id).await
+}
+
+#[tauri::command]
+pub async fn notes_get_block_frontier<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    parent_ids: Vec<String>,
+) -> Result<NoteBlockFrontierDto, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    reads::get_block_frontier(&pool, &parent_ids).await
+}
+
+#[tauri::command]
+pub async fn notes_get_block_outline_frontier<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    page_id: String,
+    parent_ids: Vec<String>,
+) -> Result<Vec<NoteBlockOutlineDto>, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    reads::get_block_outline_frontier(&pool, &page_id, &parent_ids).await
+}
+
+#[tauri::command]
+pub async fn notes_hydrate_blocks<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    request: NoteBlockHydrationRequest,
+) -> Result<Vec<NoteBlockDto>, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    reads::hydrate_blocks(&pool, request).await
 }
 
 #[tauri::command]
@@ -1252,9 +1405,10 @@ pub async fn notes_append_block_children<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     request: NoteAppendBlockChildren,
-) -> Result<NotePaginatedBlockList, String> {
+) -> Result<project_history::NotesMutationResultDto<NotePaginatedBlockList>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    writes::append_block_children(&pool, request).await
+    let value = writes::append_block_children(&pool, request).await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -1263,9 +1417,10 @@ pub async fn notes_update_block<R: Runtime>(
     db_url: String,
     block_id: String,
     update: NoteBlockUpdate,
-) -> Result<NoteBlockDto, String> {
+) -> Result<project_history::NotesMutationResultDto<NoteBlockDto>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    writes::update_block(&pool, &block_id, update).await
+    let value = writes::update_block(&pool, &block_id, update).await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -1274,9 +1429,10 @@ pub async fn notes_trash_block<R: Runtime>(
     db_url: String,
     block_id: String,
     in_trash: Option<bool>,
-) -> Result<NoteBlockDto, String> {
+) -> Result<project_history::NotesMutationResultDto<NoteBlockDto>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    writes::trash_block(&pool, &block_id, in_trash.unwrap_or(true)).await
+    let value = writes::trash_block(&pool, &block_id, in_trash.unwrap_or(true)).await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -1284,9 +1440,10 @@ pub async fn notes_trash_blocks<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     request: NoteTrashBlocks,
-) -> Result<NotePaginatedBlockList, String> {
+) -> Result<project_history::NotesMutationResultDto<NotePaginatedBlockList>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    writes::trash_blocks(&pool, request).await
+    let value = writes::trash_blocks(&pool, request).await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -1295,9 +1452,10 @@ pub async fn notes_move_block<R: Runtime>(
     db_url: String,
     block_id: String,
     request: NoteMoveBlock,
-) -> Result<NoteBlockDto, String> {
+) -> Result<project_history::NotesMutationResultDto<NoteBlockDto>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    writes::move_block(&pool, &block_id, request).await
+    let value = writes::move_block(&pool, &block_id, request).await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -1305,9 +1463,10 @@ pub async fn notes_move_blocks<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     request: NoteMoveBlocks,
-) -> Result<NotePaginatedBlockList, String> {
+) -> Result<project_history::NotesMutationResultDto<NotePaginatedBlockList>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    writes::move_blocks(&pool, request).await
+    let value = writes::move_blocks(&pool, request).await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -1316,9 +1475,10 @@ pub async fn notes_duplicate_block<R: Runtime>(
     db_url: String,
     block_id: String,
     request: NoteDuplicateBlock,
-) -> Result<NoteBlockDto, String> {
+) -> Result<project_history::NotesMutationResultDto<NoteBlockDto>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    writes::duplicate_block(&pool, &block_id, request).await
+    let value = writes::duplicate_block(&pool, &block_id, request).await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]
@@ -1326,9 +1486,10 @@ pub async fn notes_duplicate_blocks<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     request: NoteDuplicateBlocks,
-) -> Result<NotePaginatedBlockList, String> {
+) -> Result<project_history::NotesMutationResultDto<NotePaginatedBlockList>, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    writes::duplicate_blocks(&pool, request).await
+    let value = writes::duplicate_blocks(&pool, request).await?;
+    project_history::mutation_result(&pool, value).await
 }
 
 #[tauri::command]

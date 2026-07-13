@@ -1,9 +1,22 @@
 use super::history::{bool_to_string, insert_task_change_event_owned};
 use super::models::{
-    ProjectCustomFieldOptionRow, ProjectCustomFieldRow, ProjectCustomFieldValueUpdate,
+    ProjectCustomFieldCreate, ProjectCustomFieldOptionCreate, ProjectCustomFieldOptionRow,
+    ProjectCustomFieldOptionUpdate, ProjectCustomFieldOptionValueRow, ProjectCustomFieldRow,
+    ProjectCustomFieldUpdate, ProjectCustomFieldValueRow, ProjectCustomFieldValueUpdate,
+    ProjectMutationRemoval, ProjectsMutationRows,
 };
-use super::validation::validate_date;
+use super::mutations::{
+    custom_field_mutation, custom_field_option_mutation, ensure_project_exists_in_pool,
+    latest_task_change_events,
+};
+use super::validation::{
+    require_non_empty, validate_custom_field_create, validate_custom_field_option_create,
+    validate_custom_field_option_update, validate_custom_field_update,
+    validate_custom_field_value_update, validate_date,
+};
+use crate::db_path::connect_sqlite;
 use std::collections::HashSet;
+use tauri::{AppHandle, Runtime};
 
 async fn custom_field_for_task_value(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
@@ -506,4 +519,211 @@ pub(in crate::projects) async fn delete_custom_field_option_with_history(
         }
     }
     Ok(())
+}
+
+#[tauri::command]
+pub async fn projects_create_custom_field<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    field: ProjectCustomFieldCreate,
+) -> Result<ProjectsMutationRows, String> {
+    validate_custom_field_create(&field)?;
+    let pool = connect_sqlite(app, db_url).await?;
+    ensure_project_exists_in_pool(&pool, field.project_id.trim()).await?;
+    sqlx::query(
+        "INSERT INTO project_custom_fields (id, project_id, name, field_type, sort_order)
+         VALUES (?, ?, ?, ?, ?)",
+    )
+    .bind(field.id.trim())
+    .bind(field.project_id.trim())
+    .bind(field.name.trim())
+    .bind(field.field_type.trim())
+    .bind(field.sort_order)
+    .execute(&pool)
+    .await
+    .map_err(|e| format!("create project custom field: {e}"))?;
+    custom_field_mutation(&pool, field.id.trim()).await
+}
+
+#[tauri::command]
+pub async fn projects_update_custom_field<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    field: ProjectCustomFieldUpdate,
+) -> Result<ProjectsMutationRows, String> {
+    validate_custom_field_update(&field)?;
+    let pool = connect_sqlite(app, db_url).await?;
+    let result = sqlx::query(
+        "UPDATE project_custom_fields
+         SET name = ?,
+             sort_order = ?,
+             updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+         WHERE id = ?",
+    )
+    .bind(field.name.trim())
+    .bind(field.sort_order)
+    .bind(field.id.trim())
+    .execute(&pool)
+    .await
+    .map_err(|e| format!("update project custom field: {e}"))?;
+    if result.rows_affected() == 0 {
+        return Err("project custom field not found".to_string());
+    }
+    custom_field_mutation(&pool, field.id.trim()).await
+}
+
+#[tauri::command]
+pub async fn projects_delete_custom_field<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    field_id: String,
+) -> Result<ProjectsMutationRows, String> {
+    require_non_empty(&field_id, "field_id")?;
+    let pool = connect_sqlite(app, db_url).await?;
+    let task_ids = sqlx::query_scalar::<_, String>(
+        "SELECT task_id FROM project_custom_field_values WHERE field_id = ?
+         UNION
+         SELECT task_id FROM project_custom_field_option_values WHERE field_id = ?",
+    )
+    .bind(field_id.trim())
+    .bind(field_id.trim())
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| format!("load tasks affected by custom field deletion: {e}"))?;
+    let mut tx = pool.begin().await.map_err(|e| format!("begin: {e}"))?;
+    delete_custom_field_with_history(&mut tx, field_id.trim()).await?;
+    tx.commit().await.map_err(|e| format!("commit: {e}"))?;
+    let mut mutation = ProjectsMutationRows::default();
+    for task_id in task_ids {
+        mutation
+            .task_change_events
+            .extend(latest_task_change_events(&pool, &task_id).await?);
+    }
+    mutation.removals.push(ProjectMutationRemoval::CustomField {
+        id: field_id.trim().to_string(),
+    });
+    Ok(mutation)
+}
+
+#[tauri::command]
+pub async fn projects_create_custom_field_option<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    option: ProjectCustomFieldOptionCreate,
+) -> Result<ProjectsMutationRows, String> {
+    validate_custom_field_option_create(&option)?;
+    let pool = connect_sqlite(app, db_url).await?;
+    ensure_custom_field_accepts_options_in_pool(&pool, option.field_id.trim()).await?;
+    sqlx::query(
+        "INSERT INTO project_custom_field_options (id, field_id, name, sort_order)
+         VALUES (?, ?, ?, ?)",
+    )
+    .bind(option.id.trim())
+    .bind(option.field_id.trim())
+    .bind(option.name.trim())
+    .bind(option.sort_order)
+    .execute(&pool)
+    .await
+    .map_err(|e| format!("create project custom field option: {e}"))?;
+    custom_field_option_mutation(&pool, option.id.trim()).await
+}
+
+#[tauri::command]
+pub async fn projects_update_custom_field_option<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    option: ProjectCustomFieldOptionUpdate,
+) -> Result<ProjectsMutationRows, String> {
+    validate_custom_field_option_update(&option)?;
+    let pool = connect_sqlite(app, db_url).await?;
+    let result = sqlx::query(
+        "UPDATE project_custom_field_options
+         SET name = ?,
+             sort_order = ?,
+             updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+         WHERE id = ?",
+    )
+    .bind(option.name.trim())
+    .bind(option.sort_order)
+    .bind(option.id.trim())
+    .execute(&pool)
+    .await
+    .map_err(|e| format!("update project custom field option: {e}"))?;
+    if result.rows_affected() == 0 {
+        return Err("project custom field option not found".to_string());
+    }
+    custom_field_option_mutation(&pool, option.id.trim()).await
+}
+
+#[tauri::command]
+pub async fn projects_delete_custom_field_option<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    option_id: String,
+) -> Result<ProjectsMutationRows, String> {
+    require_non_empty(&option_id, "option_id")?;
+    let pool = connect_sqlite(app, db_url).await?;
+    let task_ids = sqlx::query_scalar::<_, String>(
+        "SELECT task_id FROM project_custom_field_option_values WHERE option_id = ?",
+    )
+    .bind(option_id.trim())
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| format!("load tasks affected by custom field option deletion: {e}"))?;
+    let mut tx = pool.begin().await.map_err(|e| format!("begin: {e}"))?;
+    delete_custom_field_option_with_history(&mut tx, option_id.trim()).await?;
+    tx.commit().await.map_err(|e| format!("commit: {e}"))?;
+    let mut mutation = ProjectsMutationRows::default();
+    for task_id in task_ids {
+        mutation
+            .task_change_events
+            .extend(latest_task_change_events(&pool, &task_id).await?);
+    }
+    mutation
+        .removals
+        .push(ProjectMutationRemoval::CustomFieldOption {
+            id: option_id.trim().to_string(),
+        });
+    Ok(mutation)
+}
+
+#[tauri::command]
+pub async fn projects_update_custom_field_value<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    value: ProjectCustomFieldValueUpdate,
+) -> Result<ProjectsMutationRows, String> {
+    validate_custom_field_value_update(&value)?;
+    let pool = connect_sqlite(app, db_url).await?;
+    let mut tx = pool.begin().await.map_err(|e| format!("begin: {e}"))?;
+    update_custom_field_value_with_history(&mut tx, &value).await?;
+    tx.commit().await.map_err(|e| format!("commit: {e}"))?;
+    let mut mutation = ProjectsMutationRows::default();
+    mutation
+        .removals
+        .push(ProjectMutationRemoval::CustomFieldValue {
+            task_id: value.task_id.trim().to_string(),
+            field_id: value.field_id.trim().to_string(),
+        });
+    if let Some(row) = sqlx::query_as::<_, ProjectCustomFieldValueRow>(
+        "SELECT * FROM project_custom_field_values WHERE task_id = ? AND field_id = ?",
+    )
+    .bind(value.task_id.trim())
+    .bind(value.field_id.trim())
+    .fetch_optional(&pool)
+    .await
+    .map_err(|e| format!("load custom field value mutation result: {e}"))?
+    {
+        mutation.custom_field_values.push(row);
+    }
+    mutation.custom_field_option_values = sqlx::query_as::<_, ProjectCustomFieldOptionValueRow>(
+        "SELECT * FROM project_custom_field_option_values WHERE task_id = ? AND field_id = ?",
+    )
+    .bind(value.task_id.trim())
+    .bind(value.field_id.trim())
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| format!("load custom field option value mutation result: {e}"))?;
+    mutation.task_change_events = latest_task_change_events(&pool, value.task_id.trim()).await?;
+    Ok(mutation)
 }

@@ -1,6 +1,12 @@
 <script lang="ts">
   import { tick } from "svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import {
+    beginLazyComponentLoad,
+    rejectLazyComponentLoad,
+    resolveLazyComponentLoad,
+    type LazyComponentLoadState,
+  } from "$lib/lazy-component-loader";
   import { dismissOnOutside } from "$lib/utils/dismiss-on-outside";
   import { NOTES_PAGE_CHROME_EMOJI_SCALE } from "$lib/notes/page-icon";
   import type { NotesDestinationPickerTarget } from "$lib/notes/destination-picker";
@@ -21,8 +27,12 @@
   import Star from "@lucide/svelte/icons/star";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
-  import NotesDestinationPickerList from "./NotesDestinationPickerList.svelte";
   import NotesPageIcon from "./NotesPageIcon.svelte";
+  import {
+    loadNotesOptionalComponent,
+    retryNotesOptionalComponent,
+    type LoadedNotesOptionalComponent,
+  } from "./notes-component-registry";
 
   let {
     page,
@@ -39,6 +49,7 @@
     onCreateChild,
     onDuplicate,
     moveTargets,
+    onRequestMoveTargets = undefined,
     onMove,
     folderMoveTargets = undefined,
     onMoveToFolder = undefined,
@@ -65,6 +76,7 @@
     onCreateChild: () => void;
     onDuplicate: () => void;
     moveTargets: NotesPageMoveTarget[];
+    onRequestMoveTargets?: () => void | Promise<void>;
     onMove: (parent: NotesParent) => void;
     folderMoveTargets?: (NotesDestinationPickerTarget & { folderId: string | null })[];
     onMoveToFolder?: (folderId: string | null) => void;
@@ -85,6 +97,10 @@
   let folderMoveMenuOpen = $state(false);
   let titleDraft = $state("");
   let renameInput = $state<HTMLInputElement | null>(null);
+  let destinationPickerLoadState = $state<LazyComponentLoadState<
+    "destination-picker",
+    LoadedNotesOptionalComponent
+  > | null>(null);
   const title = $derived(
     displayTitle === undefined
       ? notesPageTitle(page, t("notes.untitled"))
@@ -110,6 +126,40 @@
       renameInput?.select();
     });
   });
+
+  $effect(() => {
+    if (moveMenuOpen || folderMoveMenuOpen) {
+      requestDestinationPicker();
+      void onRequestMoveTargets?.();
+    }
+  });
+
+  function requestDestinationPicker(retry = false): void {
+    if (!retry && destinationPickerLoadState?.key === "destination-picker") return;
+    const loadingState = beginLazyComponentLoad(destinationPickerLoadState, "destination-picker");
+    destinationPickerLoadState = loadingState;
+    const request = retry
+      ? retryNotesOptionalComponent("destination-picker")
+      : loadNotesOptionalComponent("destination-picker");
+    void request.then((component) => {
+      if (!destinationPickerLoadState) return;
+      destinationPickerLoadState = resolveLazyComponentLoad(
+        destinationPickerLoadState,
+        "destination-picker",
+        loadingState.requestId,
+        component,
+      );
+    }).catch((error: unknown) => {
+      if (!destinationPickerLoadState) return;
+      destinationPickerLoadState = rejectLazyComponentLoad(
+        destinationPickerLoadState,
+        "destination-picker",
+        loadingState.requestId,
+        error,
+      );
+      console.error("load Notes page destination picker failed", error);
+    });
+  }
 
   function moveToTarget(targetKey: string): void {
     const target = moveTargets.find((candidate) => candidate.key === targetKey);
@@ -314,19 +364,29 @@
           class="notes-page-move-menu border-y border-border bg-muted/25 py-1"
           aria-label={t("notes.movePageTo")}
         >
-          <NotesDestinationPickerList
-            targets={moveTargets}
-            searchLabel={t("notes.moveDestinationSearch")}
-            searchPlaceholder={t("notes.moveDestinationSearchPlaceholder")}
-            recentLabel={t("notes.recentDestinations")}
-            pagesLabel={t("notes.allPages")}
-            emptyLabel={t("notes.noPageMoveTargets")}
-            optionLabel={(target) => t("notes.movePageToTarget", target.title)}
-            onSelect={moveToTarget}
-            onClose={() => {
-              moveMenuOpen = false;
-            }}
-          />
+          {#if destinationPickerLoadState?.status === "ready" && destinationPickerLoadState.component.kind === "destination-picker"}
+            {@const NotesDestinationPickerList = destinationPickerLoadState.component.component}
+            <NotesDestinationPickerList
+              targets={moveTargets}
+              searchLabel={t("notes.moveDestinationSearch")}
+              searchPlaceholder={t("notes.moveDestinationSearchPlaceholder")}
+              recentLabel={t("notes.recentDestinations")}
+              pagesLabel={t("notes.allPages")}
+              emptyLabel={t("notes.noPageMoveTargets")}
+              optionLabel={(target) => t("notes.movePageToTarget", target.title)}
+              onSelect={moveToTarget}
+              onClose={() => {
+                moveMenuOpen = false;
+              }}
+            />
+          {:else if destinationPickerLoadState?.status === "failed"}
+            <div class="p-2 text-[0.8rem] text-destructive" role="alert">
+              <p>{t("common.viewLoadFailed", t("notes.movePageTo"))}</p>
+              <button class="mt-2 min-h-8 rounded-md border border-border px-2 text-foreground hover:bg-accent" type="button" onclick={() => requestDestinationPicker(true)}>{t("common.retry")}</button>
+            </div>
+          {:else}
+            <div class="p-2 text-[0.8rem] text-muted-foreground" aria-busy="true">{t("common.loading")}</div>
+          {/if}
         </div>
       {/if}
       {#if folderMoveTargets && folderMoveTargets.length > 0 && onMoveToFolder}
@@ -347,19 +407,29 @@
             class="notes-page-move-menu border-y border-border bg-muted/25 py-1"
             aria-label={t("notes.movePageToFolder")}
           >
-            <NotesDestinationPickerList
-              targets={folderMoveTargets}
-              searchLabel={t("notes.moveDestinationSearch")}
-              searchPlaceholder={t("notes.moveDestinationSearchPlaceholder")}
-              recentLabel={t("notes.recentDestinations")}
-              pagesLabel={t("notes.folders")}
-              emptyLabel={t("notes.noFolderMoveTargets")}
-              optionLabel={(target) => t("notes.movePageToFolderTarget", target.title)}
-              onSelect={moveToFolderTarget}
-              onClose={() => {
-                folderMoveMenuOpen = false;
-              }}
-            />
+            {#if destinationPickerLoadState?.status === "ready" && destinationPickerLoadState.component.kind === "destination-picker"}
+              {@const NotesDestinationPickerList = destinationPickerLoadState.component.component}
+              <NotesDestinationPickerList
+                targets={folderMoveTargets}
+                searchLabel={t("notes.moveDestinationSearch")}
+                searchPlaceholder={t("notes.moveDestinationSearchPlaceholder")}
+                recentLabel={t("notes.recentDestinations")}
+                pagesLabel={t("notes.folders")}
+                emptyLabel={t("notes.noFolderMoveTargets")}
+                optionLabel={(target) => t("notes.movePageToFolderTarget", target.title)}
+                onSelect={moveToFolderTarget}
+                onClose={() => {
+                  folderMoveMenuOpen = false;
+                }}
+              />
+            {:else if destinationPickerLoadState?.status === "failed"}
+              <div class="p-2 text-[0.8rem] text-destructive" role="alert">
+                <p>{t("common.viewLoadFailed", t("notes.movePageToFolder"))}</p>
+                <button class="mt-2 min-h-8 rounded-md border border-border px-2 text-foreground hover:bg-accent" type="button" onclick={() => requestDestinationPicker(true)}>{t("common.retry")}</button>
+              </div>
+            {:else}
+              <div class="p-2 text-[0.8rem] text-muted-foreground" aria-busy="true">{t("common.loading")}</div>
+            {/if}
           </div>
         {/if}
       {/if}

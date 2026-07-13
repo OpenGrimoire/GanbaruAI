@@ -239,18 +239,19 @@ fn fetch_block_children_recursive<'a>(
     block_count: &'a mut usize,
 ) -> Pin<Box<dyn Future<Output = Result<Vec<FetchedNotionBlock>, String>> + Send + 'a>> {
     Box::pin(async move {
+        if *block_count >= MAX_IMPORTED_BLOCKS {
+            return Err(format!(
+                "Notion API import supports up to {MAX_IMPORTED_BLOCKS} blocks per page or row"
+            ));
+        }
+        let remaining_blocks = MAX_IMPORTED_BLOCKS - *block_count;
         let children = client
-            .list_block_children(block_id)
+            .list_block_children(block_id, remaining_blocks)
             .await
             .map_err(|e| api_error("list Notion block children", block_id, e))?;
         let mut fetched = Vec::with_capacity(children.len());
         for child in children {
             *block_count += 1;
-            if *block_count > MAX_IMPORTED_BLOCKS {
-                return Err(format!(
-                    "Notion API import supports up to {MAX_IMPORTED_BLOCKS} blocks per page or row"
-                ));
-            }
             let child_id = child.get("id").and_then(Value::as_str).unwrap_or_default();
             if include_comments && !child_id.is_empty() {
                 append_comments(client, child_id, comments, diagnostics).await;

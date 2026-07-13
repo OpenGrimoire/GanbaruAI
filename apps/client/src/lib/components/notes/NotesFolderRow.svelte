@@ -1,5 +1,11 @@
 <script lang="ts">
   import { tick } from "svelte";
+  import {
+    beginLazyComponentLoad,
+    rejectLazyComponentLoad,
+    resolveLazyComponentLoad,
+    type LazyComponentLoadState,
+  } from "$lib/lazy-component-loader";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import FilePlus2 from "@lucide/svelte/icons/file-plus-2";
@@ -14,7 +20,11 @@
   import type { NotesDestinationPickerTarget } from "$lib/notes/destination-picker";
   import type { NotesFolder } from "$lib/notes/types";
   import { dismissOnOutside } from "$lib/utils/dismiss-on-outside";
-  import NotesDestinationPickerList from "./NotesDestinationPickerList.svelte";
+  import {
+    loadNotesOptionalComponent,
+    retryNotesOptionalComponent,
+    type LoadedNotesOptionalComponent,
+  } from "./notes-component-registry";
 
   type NotesFolderRowMoveTarget = NotesDestinationPickerTarget & {
     folderId: string | null;
@@ -55,6 +65,10 @@
   let nameDraft = $state("");
   let renameInput = $state<HTMLInputElement | null>(null);
   let handledRenameRequestId = 0;
+  let destinationPickerLoadState = $state<LazyComponentLoadState<
+    "destination-picker",
+    LoadedNotesOptionalComponent
+  > | null>(null);
 
   $effect(() => {
     if (!editing) nameDraft = folder.name;
@@ -77,6 +91,37 @@
       renameInput?.select();
     });
   });
+
+  $effect(() => {
+    if (moveMenuOpen) requestDestinationPicker();
+  });
+
+  function requestDestinationPicker(retry = false): void {
+    if (!retry && destinationPickerLoadState?.key === "destination-picker") return;
+    const loadingState = beginLazyComponentLoad(destinationPickerLoadState, "destination-picker");
+    destinationPickerLoadState = loadingState;
+    const request = retry
+      ? retryNotesOptionalComponent("destination-picker")
+      : loadNotesOptionalComponent("destination-picker");
+    void request.then((component) => {
+      if (!destinationPickerLoadState) return;
+      destinationPickerLoadState = resolveLazyComponentLoad(
+        destinationPickerLoadState,
+        "destination-picker",
+        loadingState.requestId,
+        component,
+      );
+    }).catch((error: unknown) => {
+      if (!destinationPickerLoadState) return;
+      destinationPickerLoadState = rejectLazyComponentLoad(
+        destinationPickerLoadState,
+        "destination-picker",
+        loadingState.requestId,
+        error,
+      );
+      console.error("load Notes folder destination picker failed", error);
+    });
+  }
 
   function closeMenu(): void {
     menuOpen = false;
@@ -241,19 +286,29 @@
         </button>
         {#if moveMenuOpen}
           <div class="notes-folder-move-menu border-y border-border bg-muted/25 py-1">
-            <NotesDestinationPickerList
-              targets={moveTargets}
-              searchLabel={t("notes.moveDestinationSearch")}
-              searchPlaceholder={t("notes.moveDestinationSearchPlaceholder")}
-              recentLabel={t("notes.recentDestinations")}
-              pagesLabel={t("notes.folders")}
-              emptyLabel={t("notes.noFolderMoveTargets")}
-              optionLabel={(target) => t("notes.moveFolderToTarget", target.title)}
-              onSelect={moveToTarget}
-              onClose={() => {
-                moveMenuOpen = false;
-              }}
-            />
+            {#if destinationPickerLoadState?.status === "ready" && destinationPickerLoadState.component.kind === "destination-picker"}
+              {@const NotesDestinationPickerList = destinationPickerLoadState.component.component}
+              <NotesDestinationPickerList
+                targets={moveTargets}
+                searchLabel={t("notes.moveDestinationSearch")}
+                searchPlaceholder={t("notes.moveDestinationSearchPlaceholder")}
+                recentLabel={t("notes.recentDestinations")}
+                pagesLabel={t("notes.folders")}
+                emptyLabel={t("notes.noFolderMoveTargets")}
+                optionLabel={(target) => t("notes.moveFolderToTarget", target.title)}
+                onSelect={moveToTarget}
+                onClose={() => {
+                  moveMenuOpen = false;
+                }}
+              />
+            {:else if destinationPickerLoadState?.status === "failed"}
+              <div class="p-2 text-[0.8rem] text-destructive" role="alert">
+                <p>{t("common.viewLoadFailed", t("notes.moveFolderTo"))}</p>
+                <button class="mt-2 min-h-8 rounded-md border border-border px-2 text-foreground hover:bg-accent" type="button" onclick={() => requestDestinationPicker(true)}>{t("common.retry")}</button>
+              </div>
+            {:else}
+              <div class="p-2 text-[0.8rem] text-muted-foreground" aria-busy="true">{t("common.loading")}</div>
+            {/if}
           </div>
         {/if}
       {/if}

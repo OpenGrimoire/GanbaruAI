@@ -20,6 +20,8 @@
     notesDatabaseListVisibleColumns,
   } from "$lib/notes/database-list";
   import type { NotesDatabaseTableColumn } from "$lib/notes/database-table";
+  import { mergeNotesDatabaseRows } from "$lib/notes/database-view-window";
+  import NotesDatabaseWindowSentinel from "./NotesDatabaseWindowSentinel.svelte";
   import type {
     NotesDatabaseListConfiguration,
     NotesDatabaseListRowOpenMode,
@@ -67,6 +69,8 @@
 
   let list = $state<NotesDataSourceListView | null>(null);
   let loading = $state(false);
+  let loadingMore = $state(false);
+  let requestId = 0;
   let mutating = $state(false);
   let error = $state<string | null>(null);
   let draftTitle = $state("");
@@ -103,10 +107,12 @@
   }
 
   async function loadList(): Promise<NotesDataSourceListView | null> {
+    const currentRequest = ++requestId;
     loading = true;
     error = null;
     try {
       const loaded = await getNotesDataSourceListView(dataSourceId, viewScope());
+      if (currentRequest !== requestId) return null;
       list = loaded;
       if (selectedPanelRowId && !loaded.rows.some((row) => row.id === selectedPanelRowId)) {
         selectedPanelRowId = null;
@@ -117,6 +123,24 @@
       return null;
     } finally {
       loading = false;
+    }
+  }
+
+  async function loadMoreList(): Promise<void> {
+    const current = list;
+    if (!current?.has_more || !current.next_cursor || loadingMore) return;
+    const currentRequest = requestId;
+    loadingMore = true;
+    try {
+      const loaded = await getNotesDataSourceListView(dataSourceId, viewScope(), {
+        start_cursor: current.next_cursor,
+      });
+      if (currentRequest !== requestId || list !== current) return;
+      list = { ...loaded, rows: mergeNotesDatabaseRows(current.rows, loaded.rows) };
+    } catch (caught) {
+      if (currentRequest === requestId) error = caught instanceof Error ? caught.message : String(caught);
+    } finally {
+      if (currentRequest === requestId) loadingMore = false;
     }
   }
 
@@ -678,6 +702,8 @@
       {#if list.rows.length === 0 && !loading && !error}
         <p class="text-[0.8rem] text-muted-foreground">{t("notes.databaseRowsEmpty")}</p>
       {/if}
+
+      <NotesDatabaseWindowSentinel hasMore={list.has_more} loading={loadingMore} onLoad={loadMoreList} />
 
       {#if configuration.row_open_mode === "side_panel"}
         <aside class="rounded-md border border-border p-3" aria-label={t("notes.databaseTableSidePanelTitle")}>

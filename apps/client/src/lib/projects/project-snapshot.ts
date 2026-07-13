@@ -1,4 +1,8 @@
-import { parseSavedTaskViewPreference } from "$lib/projects/saved-task-views";
+import {
+  projectLoadedDataIndex,
+  projectPairKey,
+  type ProjectLoadedDataIndexSource,
+} from "$lib/projects/project-loaded-data-index";
 import { normalizeProjectName } from "$lib/projects/project-text";
 import type {
   Project,
@@ -7,12 +11,12 @@ import type {
   ProjectCustomFieldOption,
   ProjectCustomFieldValue,
   ProjectGroup,
-  ProjectTag,
   ProjectPriorityConfig,
   ProjectSavedTaskView,
   ProjectSection,
   ProjectsSnapshot,
   ProjectStatus,
+  ProjectTag,
   ProjectTask,
   ProjectTaskChangeEvent,
   ProjectTaskDependency,
@@ -20,426 +24,350 @@ import type {
   ProjectTaskTagLink,
 } from "$lib/projects/types";
 
-function sortByOrderAndName<T extends { sortOrder: number; name: string }>(a: T, b: T): number {
-  return a.sortOrder - b.sortOrder || a.name.localeCompare(b.name);
+function copy<T>(values: readonly T[] | undefined): T[] {
+  return values ? values.slice() : [];
 }
 
-function sortTasksBySectionOrder(a: ProjectTask, b: ProjectTask): number {
-  return a.sectionSortOrder - b.sectionSortOrder || a.createdAt.localeCompare(b.createdAt);
+function lastSortOrder(values: readonly { sortOrder: number }[] | undefined): number {
+  return Math.max(0, values?.at(-1)?.sortOrder ?? 0);
 }
 
-function sortTasksByStatusOrder(a: ProjectTask, b: ProjectTask): number {
-  return a.statusSortOrder - b.statusSortOrder || a.createdAt.localeCompare(b.createdAt);
+function lastTaskSectionSortOrder(values: readonly ProjectTask[] | undefined): number {
+  return Math.max(0, values?.at(-1)?.sectionSortOrder ?? 0);
 }
 
-export function activeProjects(source: ProjectsSnapshot): Project[] {
-  return source.projects
-    .filter((project) => project.status === "active")
-    .sort(sortByOrderAndName);
+function lastTaskStatusSortOrder(values: readonly ProjectTask[] | undefined): number {
+  return Math.max(0, values?.at(-1)?.statusSortOrder ?? 0);
 }
 
-export function firstProjectId(source: ProjectsSnapshot): string | null {
-  return activeProjects(source)[0]?.id ?? source.projects[0]?.id ?? null;
+export function activeProjects(source: ProjectLoadedDataIndexSource): Project[] {
+  return copy(projectLoadedDataIndex(source).activeProjects);
+}
+
+export function firstProjectId(source: ProjectLoadedDataIndexSource): string | null {
+  const index = projectLoadedDataIndex(source);
+  return index.activeProjects[0]?.id ?? index.source.projects[0]?.id ?? null;
 }
 
 export function projectById(
-  source: ProjectsSnapshot,
+  source: ProjectLoadedDataIndexSource,
   projectId: string | null | undefined,
 ): Project | undefined {
-  if (!projectId) return undefined;
-  return source.projects.find((project) => project.id === projectId);
+  return projectId ? projectLoadedDataIndex(source).projectById.get(projectId) : undefined;
 }
 
 export function groupById(
-  source: ProjectsSnapshot,
+  source: ProjectLoadedDataIndexSource,
   groupId: string | null | undefined,
 ): ProjectGroup | undefined {
-  if (!groupId) return undefined;
-  return source.groups.find((group) => group.id === groupId);
+  return groupId ? projectLoadedDataIndex(source).groupById.get(groupId) : undefined;
 }
 
 export function sectionsForProject(
-  source: ProjectsSnapshot,
+  source: ProjectLoadedDataIndexSource,
   projectId: string | null | undefined,
 ): ProjectSection[] {
-  if (!projectId) return [];
-  return source.sections
-    .filter((section) => section.projectId === projectId && !section.archivedAt && !section.hiddenAt)
-    .sort(sortByOrderAndName);
+  return projectId ? copy(projectLoadedDataIndex(source).activeSectionsByProject.get(projectId)) : [];
 }
 
 export function sectionsForProjectIncludingInactive(
-  source: ProjectsSnapshot,
+  source: ProjectLoadedDataIndexSource,
   projectId: string | null | undefined,
 ): ProjectSection[] {
-  if (!projectId) return [];
-  return source.sections
-    .filter((section) => section.projectId === projectId)
-    .sort(sortByOrderAndName);
+  return projectId ? copy(projectLoadedDataIndex(source).sectionsByProject.get(projectId)) : [];
 }
 
 export function statusesForProject(
-  source: ProjectsSnapshot,
+  source: ProjectLoadedDataIndexSource,
   projectId: string | null | undefined,
 ): ProjectStatus[] {
-  if (!projectId) return [];
-  return source.statuses
-    .filter((status) => status.projectId === projectId)
-    .sort(sortByOrderAndName);
+  return projectId ? copy(projectLoadedDataIndex(source).statusesByProject.get(projectId)) : [];
 }
 
 export function prioritiesForProject(
-  source: ProjectsSnapshot,
+  source: ProjectLoadedDataIndexSource,
   projectId: string | null | undefined,
 ): ProjectPriorityConfig[] {
-  if (!projectId) return [];
-  return source.priorities
-    .filter((priority) => priority.projectId === projectId)
-    .sort(sortByOrderAndName);
+  return projectId ? copy(projectLoadedDataIndex(source).prioritiesByProject.get(projectId)) : [];
 }
 
 export function tasksForProject(
-  source: ProjectsSnapshot,
+  source: ProjectLoadedDataIndexSource,
   projectId: string | null | undefined,
 ): ProjectTask[] {
-  if (!projectId) return [];
-  return source.tasks
-    .filter((task) => task.projectId === projectId && !task.archivedAt)
-    .sort(sortTasksBySectionOrder);
+  return projectId ? copy(projectLoadedDataIndex(source).activeTasksByProject.get(projectId)) : [];
 }
 
 export function tasksForProjectIncludingArchived(
-  source: ProjectsSnapshot,
+  source: ProjectLoadedDataIndexSource,
   projectId: string | null | undefined,
 ): ProjectTask[] {
-  if (!projectId) return [];
-  return source.tasks
-    .filter((task) => task.projectId === projectId)
-    .sort(sortTasksBySectionOrder);
+  return projectId ? copy(projectLoadedDataIndex(source).tasksByProject.get(projectId)) : [];
 }
 
 export function topLevelTasksForSection(
-  source: ProjectsSnapshot,
+  source: ProjectLoadedDataIndexSource,
   projectId: string,
   sectionId: string,
 ): ProjectTask[] {
-  return source.tasks
-    .filter((task) =>
-      task.projectId === projectId
-      && task.sectionId === sectionId
-      && !task.parentTaskId
-      && !task.archivedAt
-    )
-    .sort(sortTasksBySectionOrder);
+  return copy(
+    projectLoadedDataIndex(source).activeTopLevelTasksBySection.get(projectPairKey(projectId, sectionId)),
+  );
 }
 
 export function topLevelTasksForStatus(
-  source: ProjectsSnapshot,
+  source: ProjectLoadedDataIndexSource,
   projectId: string,
   statusId: string,
 ): ProjectTask[] {
-  return source.tasks
-    .filter((task) =>
-      task.projectId === projectId
-      && task.statusId === statusId
-      && !task.parentTaskId
-      && !task.archivedAt
-    )
-    .sort(sortTasksByStatusOrder);
+  return copy(
+    projectLoadedDataIndex(source).activeTopLevelTasksByStatus.get(projectPairKey(projectId, statusId)),
+  );
 }
 
 export function subtasksForTask(
-  source: ProjectsSnapshot,
+  source: ProjectLoadedDataIndexSource,
   parentTaskId: string | null | undefined,
 ): ProjectTask[] {
-  if (!parentTaskId) return [];
-  return source.tasks
-    .filter((task) => task.parentTaskId === parentTaskId && !task.archivedAt)
-    .sort(sortTasksBySectionOrder);
+  return parentTaskId ? copy(projectLoadedDataIndex(source).activeTasksByParent.get(parentTaskId)) : [];
 }
 
 export function subtasksForTaskIncludingArchived(
-  source: ProjectsSnapshot,
+  source: ProjectLoadedDataIndexSource,
   parentTaskId: string | null | undefined,
 ): ProjectTask[] {
-  if (!parentTaskId) return [];
-  return source.tasks
-    .filter((task) => task.parentTaskId === parentTaskId)
-    .sort(sortTasksBySectionOrder);
+  return parentTaskId ? copy(projectLoadedDataIndex(source).tasksByParent.get(parentTaskId)) : [];
 }
 
-export function projectsForGroup(source: ProjectsSnapshot, groupId: string): Project[] {
-  return source.projects
-    .filter((project) => project.groupId === groupId && project.status === "active")
-    .sort(sortByOrderAndName);
+export function projectsForGroup(source: ProjectLoadedDataIndexSource, groupId: string): Project[] {
+  return copy(projectLoadedDataIndex(source).activeProjectsByGroup.get(groupId));
 }
 
-export function projectsForGroupIncludingInactive(source: ProjectsSnapshot, groupId: string): Project[] {
-  return source.projects
-    .filter((project) => project.groupId === groupId)
-    .sort(sortByOrderAndName);
+export function projectsForGroupIncludingInactive(
+  source: ProjectLoadedDataIndexSource,
+  groupId: string,
+): Project[] {
+  return copy(projectLoadedDataIndex(source).projectsByGroup.get(groupId));
 }
 
-export function visibleGroups(source: ProjectsSnapshot): ProjectGroup[] {
-  return source.groups
-    .filter((group) => !group.hiddenAt && !group.archivedAt)
-    .sort(sortByOrderAndName);
+export function visibleGroups(source: ProjectLoadedDataIndexSource): ProjectGroup[] {
+  return copy(projectLoadedDataIndex(source).visibleGroups);
 }
 
-export function defaultSection(source: ProjectsSnapshot, projectId: string): ProjectSection | undefined {
-  return sectionsForProject(source, projectId)[0];
+export function defaultSection(
+  source: ProjectLoadedDataIndexSource,
+  projectId: string,
+): ProjectSection | undefined {
+  return projectLoadedDataIndex(source).activeSectionsByProject.get(projectId)?.[0];
 }
 
-export function defaultStatus(source: ProjectsSnapshot, projectId: string): ProjectStatus | undefined {
-  const statuses = statusesForProject(source, projectId);
-  return statuses.find((status) => status.name.toLowerCase() === "to do")
-    ?? statuses.find((status) => status.category === "not_started")
-    ?? statuses[0];
+export function defaultStatus(
+  source: ProjectLoadedDataIndexSource,
+  projectId: string,
+): ProjectStatus | undefined {
+  return projectLoadedDataIndex(source).defaultStatusByProject.get(projectId);
 }
 
-export function doneStatus(source: ProjectsSnapshot, projectId: string): ProjectStatus | undefined {
-  return statusesForProject(source, projectId).find((status) => status.terminal);
+export function doneStatus(
+  source: ProjectLoadedDataIndexSource,
+  projectId: string,
+): ProjectStatus | undefined {
+  return projectLoadedDataIndex(source).doneStatusByProject.get(projectId);
 }
 
-export function reopenStatus(source: ProjectsSnapshot, projectId: string): ProjectStatus | undefined {
-  const statuses = statusesForProject(source, projectId);
-  return statuses.find((status) => status.name.toLowerCase() === "to do")
-    ?? statuses.find((status) => !status.terminal)
-    ?? statuses[0];
+export function reopenStatus(
+  source: ProjectLoadedDataIndexSource,
+  projectId: string,
+): ProjectStatus | undefined {
+  return projectLoadedDataIndex(source).reopenStatusByProject.get(projectId);
 }
 
-export function statusById(source: ProjectsSnapshot, statusId: string): ProjectStatus | undefined {
-  return source.statuses.find((status) => status.id === statusId);
+export function statusById(
+  source: ProjectLoadedDataIndexSource,
+  statusId: string,
+): ProjectStatus | undefined {
+  return projectLoadedDataIndex(source).statusById.get(statusId);
 }
 
 export function taskById(
-  source: ProjectsSnapshot,
+  source: ProjectLoadedDataIndexSource,
   taskId: string | null | undefined,
 ): ProjectTask | undefined {
-  if (!taskId) return undefined;
-  return source.tasks.find((task) => task.id === taskId);
+  return taskId ? projectLoadedDataIndex(source).taskById.get(taskId) : undefined;
 }
 
 export function eventLinksForTask(
-  source: ProjectsSnapshot,
+  source: ProjectLoadedDataIndexSource,
   taskId: string | null | undefined,
 ): ProjectTaskEventLink[] {
-  if (!taskId) return [];
-  return source.eventLinks.filter((link) => link.taskId === taskId);
+  return taskId ? copy(projectLoadedDataIndex(source).eventLinksByTask.get(taskId)) : [];
 }
 
 export function eventLinksForEvent(
-  source: ProjectsSnapshot,
+  source: ProjectLoadedDataIndexSource,
   eventId: string | null | undefined,
 ): ProjectTaskEventLink[] {
-  if (!eventId) return [];
-  return source.eventLinks.filter((link) => link.eventId === eventId);
+  return eventId ? copy(projectLoadedDataIndex(source).eventLinksByEvent.get(eventId)) : [];
 }
 
 export function taskChangeEventsForTask(
-  source: ProjectsSnapshot,
+  source: ProjectLoadedDataIndexSource,
   taskId: string | null | undefined,
 ): ProjectTaskChangeEvent[] {
-  if (!taskId) return [];
-  return source.taskChangeEvents
-    .filter((event) => event.taskId === taskId)
-    .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
+  return taskId ? copy(projectLoadedDataIndex(source).taskChangeEventsByTask.get(taskId)) : [];
 }
 
 export function recentTaskChangeEventsForProject(
-  source: ProjectsSnapshot,
+  source: ProjectLoadedDataIndexSource,
   projectId: string | null | undefined,
   limit = 8,
 ): ProjectTaskChangeEvent[] {
   if (!projectId) return [];
-  const projectTaskIds = new Set(
-    source.tasks
-      .filter((task) => task.projectId === projectId)
-      .map((task) => task.id),
-  );
-  return source.taskChangeEvents
-    .filter((event) => projectTaskIds.has(event.taskId))
-    .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt))
-    .slice(0, limit);
+  return (projectLoadedDataIndex(source).taskChangeEventsByProject.get(projectId) ?? []).slice(0, limit);
 }
 
 export function checklistItemsForTask(
-  source: ProjectsSnapshot,
+  source: ProjectLoadedDataIndexSource,
   taskId: string | null | undefined,
 ): ProjectChecklistItem[] {
-  if (!taskId) return [];
-  return source.checklistItems
-    .filter((item) => item.taskId === taskId)
-    .sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt.localeCompare(b.createdAt));
+  return taskId ? copy(projectLoadedDataIndex(source).checklistItemsByTask.get(taskId)) : [];
 }
 
 export function tagsForProject(
-  source: ProjectsSnapshot,
+  source: ProjectLoadedDataIndexSource,
   projectId: string | null | undefined,
 ): ProjectTag[] {
-  if (!projectId) return [];
-  return source.tags
-    .filter((tag) => tag.projectId === projectId)
-    .sort(sortByOrderAndName);
+  return projectId ? copy(projectLoadedDataIndex(source).tagsByProject.get(projectId)) : [];
 }
 
 export function tagById(
-  source: ProjectsSnapshot,
+  source: ProjectLoadedDataIndexSource,
   tagId: string | null | undefined,
 ): ProjectTag | undefined {
-  if (!tagId) return undefined;
-  return source.tags.find((tag) => tag.id === tagId);
+  return tagId ? projectLoadedDataIndex(source).tagById.get(tagId) : undefined;
 }
 
 export function taskTagLinksForTask(
-  source: ProjectsSnapshot,
+  source: ProjectLoadedDataIndexSource,
   taskId: string | null | undefined,
 ): ProjectTaskTagLink[] {
-  if (!taskId) return [];
-  return source.taskTagLinks.filter((link) => link.taskId === taskId);
+  return taskId ? copy(projectLoadedDataIndex(source).taskTagLinksByTask.get(taskId)) : [];
 }
 
 export function tagsForTask(
-  source: ProjectsSnapshot,
+  source: ProjectLoadedDataIndexSource,
   taskId: string | null | undefined,
 ): ProjectTag[] {
-  const tagIds = new Set(taskTagLinksForTask(source, taskId).map((link) => link.tagId));
-  return source.tags
-    .filter((tag) => tagIds.has(tag.id))
-    .sort(sortByOrderAndName);
+  return taskId ? copy(projectLoadedDataIndex(source).tagsByTask.get(taskId)) : [];
 }
 
 export function unlinkedTagsForTask(
-  source: ProjectsSnapshot,
+  source: ProjectLoadedDataIndexSource,
   task: ProjectTask | null | undefined,
 ): ProjectTag[] {
   if (!task) return [];
-  const linkedTagIds = new Set(taskTagLinksForTask(source, task.id).map((link) => link.tagId));
-  return tagsForProject(source, task.projectId).filter((tag) => !linkedTagIds.has(tag.id));
+  return copy(projectLoadedDataIndex(source).unlinkedTagsForTask(task));
 }
 
 export function projectTagByName(
-  source: ProjectsSnapshot,
+  source: ProjectLoadedDataIndexSource,
   projectId: string,
   name: string,
 ): ProjectTag | undefined {
   const normalized = normalizeProjectName(name).toLowerCase();
-  if (!normalized) return undefined;
-  return source.tags.find((tag) =>
-    tag.projectId === projectId && tag.name.trim().toLowerCase() === normalized
-  );
+  return normalized
+    ? projectLoadedDataIndex(source).tagByProjectAndName.get(projectPairKey(projectId, normalized))
+    : undefined;
 }
 
 export function customFieldsForProject(
-  source: ProjectsSnapshot,
+  source: ProjectLoadedDataIndexSource,
   projectId: string | null | undefined,
 ): ProjectCustomField[] {
-  if (!projectId) return [];
-  return source.customFields
-    .filter((field) => field.projectId === projectId)
-    .sort(sortByOrderAndName);
+  return projectId ? copy(projectLoadedDataIndex(source).customFieldsByProject.get(projectId)) : [];
 }
 
 export function customFieldById(
-  source: ProjectsSnapshot,
+  source: ProjectLoadedDataIndexSource,
   fieldId: string | null | undefined,
 ): ProjectCustomField | undefined {
-  if (!fieldId) return undefined;
-  return source.customFields.find((field) => field.id === fieldId);
+  return fieldId ? projectLoadedDataIndex(source).customFieldById.get(fieldId) : undefined;
 }
 
 export function customFieldByName(
-  source: ProjectsSnapshot,
+  source: ProjectLoadedDataIndexSource,
   projectId: string,
   name: string,
 ): ProjectCustomField | undefined {
   const normalized = normalizeProjectName(name).toLowerCase();
-  if (!normalized) return undefined;
-  return source.customFields.find((field) =>
-    field.projectId === projectId && field.name.trim().toLowerCase() === normalized
-  );
+  return normalized
+    ? projectLoadedDataIndex(source).customFieldByProjectAndName.get(projectPairKey(projectId, normalized))
+    : undefined;
 }
 
 export function customFieldOptionsForField(
-  source: ProjectsSnapshot,
+  source: ProjectLoadedDataIndexSource,
   fieldId: string | null | undefined,
 ): ProjectCustomFieldOption[] {
-  if (!fieldId) return [];
-  return source.customFieldOptions
-    .filter((option) => option.fieldId === fieldId)
-    .sort(sortByOrderAndName);
+  return fieldId ? copy(projectLoadedDataIndex(source).customFieldOptionsByField.get(fieldId)) : [];
 }
 
 export function customFieldOptionByName(
-  source: ProjectsSnapshot,
+  source: ProjectLoadedDataIndexSource,
   fieldId: string,
   name: string,
 ): ProjectCustomFieldOption | undefined {
   const normalized = normalizeProjectName(name).toLowerCase();
-  if (!normalized) return undefined;
-  return source.customFieldOptions.find((option) =>
-    option.fieldId === fieldId && option.name.trim().toLowerCase() === normalized
-  );
+  return normalized
+    ? projectLoadedDataIndex(source).customFieldOptionByFieldAndName.get(projectPairKey(fieldId, normalized))
+    : undefined;
 }
 
 export function customFieldValueForTask(
-  source: ProjectsSnapshot,
+  source: ProjectLoadedDataIndexSource,
   taskId: string | null | undefined,
   fieldId: string | null | undefined,
 ): ProjectCustomFieldValue | undefined {
-  if (!taskId || !fieldId) return undefined;
-  return source.customFieldValues.find((value) => value.taskId === taskId && value.fieldId === fieldId);
+  return taskId && fieldId
+    ? projectLoadedDataIndex(source).customFieldValueByTaskAndField.get(projectPairKey(taskId, fieldId))
+    : undefined;
 }
 
 export function customFieldOptionValuesForTask(
-  source: ProjectsSnapshot,
+  source: ProjectLoadedDataIndexSource,
   taskId: string | null | undefined,
   fieldId: string | null | undefined,
 ): ProjectCustomFieldOption[] {
   if (!taskId || !fieldId) return [];
-  const optionIds = new Set(
-    source.customFieldOptionValues
-      .filter((value) => value.taskId === taskId && value.fieldId === fieldId)
-      .map((value) => value.optionId),
+  return copy(
+    projectLoadedDataIndex(source).customFieldOptionsByTaskAndField.get(projectPairKey(taskId, fieldId)),
   );
-  return customFieldOptionsForField(source, fieldId).filter((option) => optionIds.has(option.id));
 }
 
 export function dependenciesBlockingTask(
-  source: ProjectsSnapshot,
+  source: ProjectLoadedDataIndexSource,
   taskId: string | null | undefined,
 ): ProjectTaskDependency[] {
-  if (!taskId) return [];
-  return source.dependencies.filter((dependency) => dependency.blockedTaskId === taskId);
+  return taskId ? copy(projectLoadedDataIndex(source).dependenciesBlockingTask.get(taskId)) : [];
 }
 
 export function dependenciesBlockedByTask(
-  source: ProjectsSnapshot,
+  source: ProjectLoadedDataIndexSource,
   taskId: string | null | undefined,
 ): ProjectTaskDependency[] {
-  if (!taskId) return [];
-  return source.dependencies.filter((dependency) => dependency.blockingTaskId === taskId);
+  return taskId ? copy(projectLoadedDataIndex(source).dependenciesBlockedByTask.get(taskId)) : [];
 }
 
 export function savedTaskViewsForProject(
-  source: ProjectsSnapshot,
+  source: ProjectLoadedDataIndexSource,
   projectId: string | null | undefined,
 ): ProjectSavedTaskView[] {
   if (!projectId) return [];
-  const customFields = customFieldsForProject(source, projectId);
-  const customFieldIds = new Set(customFields.map((field) => field.id));
-  const customFieldOptionIds = new Set(
-    customFields.flatMap((field) => customFieldOptionsForField(source, field.id).map((option) => option.id)),
-  );
-  return source.viewPreferences
-    .filter((preference) => preference.projectId === projectId)
-    .map((preference) => parseSavedTaskViewPreference(preference, customFieldIds, customFieldOptionIds))
-    .filter((view): view is ProjectSavedTaskView => view !== undefined)
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.name.localeCompare(b.name));
+  return copy(projectLoadedDataIndex(source).savedTaskViewsByProject.get(projectId));
 }
 
-export function taskClosure(source: ProjectsSnapshot, tasks: ProjectTask[]): ProjectTask[] {
-  const taskMap = new Map(source.tasks.map((task) => [task.id, task]));
+export function taskClosure(source: ProjectLoadedDataIndexSource, tasks: ProjectTask[]): ProjectTask[] {
+  const index = projectLoadedDataIndex(source);
   const visited = new Set<string>();
   const pending = tasks.map((task) => task.id);
   const result: ProjectTask[] = [];
@@ -447,115 +375,83 @@ export function taskClosure(source: ProjectsSnapshot, tasks: ProjectTask[]): Pro
     const taskId = pending.pop();
     if (!taskId || visited.has(taskId)) continue;
     visited.add(taskId);
-    const task = taskMap.get(taskId);
+    const task = index.taskById.get(taskId);
     if (!task) continue;
     result.push(task);
-    for (const child of source.tasks) {
-      if (child.parentTaskId === task.id) pending.push(child.id);
-    }
+    for (const child of index.tasksByParentSourceOrder.get(task.id) ?? []) pending.push(child.id);
   }
   return result;
 }
 
-export function nextGroupSortOrder(source: ProjectsSnapshot): number {
-  return Math.max(0, ...source.groups.map((group) => group.sortOrder)) + 1000;
+export function nextGroupSortOrder(source: ProjectLoadedDataIndexSource): number {
+  return projectLoadedDataIndex(source).maxGroupSortOrder + 1000;
 }
 
-export function nextProjectSortOrder(source: ProjectsSnapshot, groupId: string): number {
-  return Math.max(0, ...projectsForGroupIncludingInactive(source, groupId).map((project) => project.sortOrder)) + 1000;
+export function nextProjectSortOrder(source: ProjectLoadedDataIndexSource, groupId: string): number {
+  return lastSortOrder(projectLoadedDataIndex(source).projectsByGroup.get(groupId)) + 1000;
 }
 
-export function nextSectionSortOrder(source: ProjectsSnapshot, projectId: string): number {
-  return Math.max(0, ...sectionsForProject(source, projectId).map((section) => section.sortOrder)) + 1000;
+export function nextSectionSortOrder(source: ProjectLoadedDataIndexSource, projectId: string): number {
+  return lastSortOrder(projectLoadedDataIndex(source).activeSectionsByProject.get(projectId)) + 1000;
 }
 
-export function nextStatusSortOrder(source: ProjectsSnapshot, projectId: string): number {
-  return Math.max(0, ...statusesForProject(source, projectId).map((status) => status.sortOrder)) + 1000;
+export function nextStatusSortOrder(source: ProjectLoadedDataIndexSource, projectId: string): number {
+  return lastSortOrder(projectLoadedDataIndex(source).statusesByProject.get(projectId)) + 1000;
 }
 
-export function nextPrioritySortOrder(source: ProjectsSnapshot, projectId: string): number {
-  return Math.max(0, ...prioritiesForProject(source, projectId).map((priority) => priority.sortOrder)) + 1000;
+export function nextPrioritySortOrder(source: ProjectLoadedDataIndexSource, projectId: string): number {
+  return lastSortOrder(projectLoadedDataIndex(source).prioritiesByProject.get(projectId)) + 1000;
 }
 
 export function nextTaskSectionSortOrder(
-  source: ProjectsSnapshot,
+  source: ProjectLoadedDataIndexSource,
   projectId: string,
   sectionId: string,
 ): number {
-  return Math.max(
-    0,
-    ...source.tasks
-      .filter((task) =>
-        task.projectId === projectId
-        && task.sectionId === sectionId
-        && !task.parentTaskId
-        && !task.archivedAt
-      )
-      .map((task) => task.sectionSortOrder),
+  return lastTaskSectionSortOrder(
+    projectLoadedDataIndex(source).activeTopLevelTasksBySection.get(projectPairKey(projectId, sectionId)),
   ) + 1000;
 }
 
-export function nextSubtaskSortOrder(source: ProjectsSnapshot, parentTaskId: string): number {
-  return Math.max(
-    0,
-    ...subtasksForTaskIncludingArchived(source, parentTaskId).map((task) => task.sectionSortOrder),
-  ) + 1000;
+export function nextSubtaskSortOrder(source: ProjectLoadedDataIndexSource, parentTaskId: string): number {
+  return lastTaskSectionSortOrder(projectLoadedDataIndex(source).tasksByParent.get(parentTaskId)) + 1000;
 }
 
-export function nextChecklistSortOrder(source: ProjectsSnapshot, taskId: string): number {
-  return Math.max(0, ...checklistItemsForTask(source, taskId).map((item) => item.sortOrder)) + 1000;
+export function nextChecklistSortOrder(source: ProjectLoadedDataIndexSource, taskId: string): number {
+  return lastSortOrder(projectLoadedDataIndex(source).checklistItemsByTask.get(taskId)) + 1000;
 }
 
-export function nextTagSortOrder(source: ProjectsSnapshot, projectId: string): number {
-  return Math.max(0, ...tagsForProject(source, projectId).map((tag) => tag.sortOrder)) + 1000;
+export function nextTagSortOrder(source: ProjectLoadedDataIndexSource, projectId: string): number {
+  return lastSortOrder(projectLoadedDataIndex(source).tagsByProject.get(projectId)) + 1000;
 }
 
-export function nextCustomFieldSortOrder(source: ProjectsSnapshot, projectId: string): number {
-  return Math.max(0, ...customFieldsForProject(source, projectId).map((field) => field.sortOrder)) + 1000;
+export function nextCustomFieldSortOrder(source: ProjectLoadedDataIndexSource, projectId: string): number {
+  return lastSortOrder(projectLoadedDataIndex(source).customFieldsByProject.get(projectId)) + 1000;
 }
 
-export function nextCustomFieldOptionSortOrder(source: ProjectsSnapshot, fieldId: string): number {
-  return Math.max(0, ...customFieldOptionsForField(source, fieldId).map((option) => option.sortOrder)) + 1000;
+export function nextCustomFieldOptionSortOrder(source: ProjectLoadedDataIndexSource, fieldId: string): number {
+  return lastSortOrder(projectLoadedDataIndex(source).customFieldOptionsByField.get(fieldId)) + 1000;
 }
 
-export function nextCustomEmojiSortOrder(source: ProjectsSnapshot): number {
-  return Math.max(0, ...source.customEmojis.map((emoji) => emoji.sortOrder)) + 1000;
+export function nextCustomEmojiSortOrder(source: ProjectLoadedDataIndexSource): number {
+  return projectLoadedDataIndex(source).maxCustomEmojiSortOrder + 1000;
 }
 
 export function nextTaskStatusSortOrder(
-  source: ProjectsSnapshot,
+  source: ProjectLoadedDataIndexSource,
   projectId: string,
   statusId: string,
 ): number {
-  return Math.max(
-    0,
-    ...source.tasks
-      .filter((task) =>
-        task.projectId === projectId
-        && task.statusId === statusId
-        && !task.parentTaskId
-        && !task.archivedAt
-      )
-      .map((task) => task.statusSortOrder),
+  return lastTaskStatusSortOrder(
+    projectLoadedDataIndex(source).activeTopLevelTasksByStatus.get(projectPairKey(projectId, statusId)),
   ) + 1000;
 }
 
-function taskIdsForProject(source: ProjectsSnapshot, projectId: string): Set<string> {
-  return new Set(source.tasks.filter((task) => task.projectId === projectId).map((task) => task.id));
-}
-
-function fieldIdsForProject(source: ProjectsSnapshot, projectId: string): Set<string> {
-  return new Set(source.customFields.filter((field) => field.projectId === projectId).map((field) => field.id));
-}
-
-function tagIdsForProject(source: ProjectsSnapshot, projectId: string): Set<string> {
-  return new Set(source.tags.filter((tag) => tag.projectId === projectId).map((tag) => tag.id));
-}
-
 function snapshotWithoutProjectData(source: ProjectsSnapshot, projectId: string): ProjectsSnapshot {
-  const taskIds = taskIdsForProject(source, projectId);
-  const fieldIds = fieldIdsForProject(source, projectId);
-  const tagIds = tagIdsForProject(source, projectId);
+  const index = projectLoadedDataIndex(source);
+  const taskIds = index.taskIdsByProject.get(projectId) ?? new Set<string>();
+  const fieldIds = new Set((index.customFieldsByProject.get(projectId) ?? []).map((field) => field.id));
+  const tagIds = new Set((index.tagsByProject.get(projectId) ?? []).map((tag) => tag.id));
   return {
     ...source,
     sections: source.sections.filter((section) => section.projectId !== projectId),

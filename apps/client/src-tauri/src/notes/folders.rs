@@ -28,6 +28,7 @@ pub(in crate::notes) async fn create_folder(
     let project_id = folder.project_id.trim();
     let parent_folder_id = folder.parent_folder_id.as_deref().map(str::trim);
     let name = folder.name.trim();
+    project_history::ensure_project_baseline_for_mutation(pool, project_id).await?;
     let mut tx = pool
         .begin()
         .await
@@ -65,6 +66,14 @@ pub(in crate::notes) async fn update_folder(
         return Err("folder cannot be moved under itself".to_string());
     }
     let name = update.name.trim();
+    let current_project_id: String =
+        sqlx::query_scalar("SELECT project_id FROM notes_folders WHERE id = ?")
+            .bind(folder_id)
+            .fetch_optional(pool)
+            .await
+            .map_err(|e| format!("load notes folder project: {e}"))?
+            .ok_or_else(|| "notes folder not found".to_string())?;
+    project_history::ensure_project_baseline_for_mutation(pool, &current_project_id).await?;
     let mut tx = pool
         .begin()
         .await
@@ -100,6 +109,14 @@ pub(in crate::notes) async fn delete_folder(
 ) -> Result<String, String> {
     let folder_id = folder_id.trim();
     require_uuid(folder_id, "folder_id")?;
+    let project_id: String =
+        sqlx::query_scalar("SELECT project_id FROM notes_folders WHERE id = ?")
+            .bind(folder_id)
+            .fetch_optional(pool)
+            .await
+            .map_err(|e| format!("load notes folder project: {e}"))?
+            .ok_or_else(|| "notes folder not found".to_string())?;
+    project_history::ensure_project_baseline_for_mutation(pool, &project_id).await?;
     let mut tx = pool
         .begin()
         .await

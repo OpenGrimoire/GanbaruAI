@@ -183,7 +183,6 @@
   let panelGeometryFrame: number | null = null;
   let subpanelGeometryFrame: number | null = null;
   let subpanelScrollStateFrame: number | null = null;
-
   function panelPreferredWidth(currentPanel: ProjectToolbarPanel): number {
     if (currentPanel === "settings") return 430;
     if (currentPanel === "group") return 240;

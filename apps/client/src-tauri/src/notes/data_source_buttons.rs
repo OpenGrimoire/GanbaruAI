@@ -157,6 +157,8 @@ pub(in crate::notes) async fn click_data_source_button(
     page_id: &str,
     request: NoteDataSourceButtonClick,
 ) -> Result<NotePageDto, String> {
+    crate::notes::project_history::ensure_data_source_baseline_for_mutation(pool, data_source_id)
+        .await?;
     require_uuid(data_source_id, "data_source_id")?;
     require_uuid(page_id, "page_id")?;
     let property_id = request.property_id.trim();

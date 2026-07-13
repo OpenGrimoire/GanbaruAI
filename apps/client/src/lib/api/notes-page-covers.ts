@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { ensureDbUrl } from "$lib/api/db";
+import { invalidateAssetUrl, loadAssetUrl } from "$lib/api/asset-url-cache";
 import type { NotesPageCoverAssetMetadata } from "$lib/notes/page-cover";
 
 interface NotesPageCoverAssetDto {
@@ -9,8 +10,6 @@ interface NotesPageCoverAssetDto {
   byteSize: number;
   sha256: string;
 }
-
-const notesPageCoverAssetUrls = new Map<string, string>();
 
 function mapNotesPageCoverAssetDto(value: NotesPageCoverAssetDto): NotesPageCoverAssetMetadata {
   return {
@@ -46,10 +45,13 @@ export async function saveNotesPageCoverImageDataUrl(
 
 /** Load a managed Notes page cover asset as a data URL for local rendering. */
 export async function notesPageCoverAssetUrl(relativePath: string): Promise<string> {
-  const cached = notesPageCoverAssetUrls.get(relativePath);
-  if (cached) return cached;
-  const dbUrl = await ensureDbUrl();
-  const assetUrl = await invoke<string>("notes_page_cover_asset_data_url", { dbUrl, relativePath });
-  notesPageCoverAssetUrls.set(relativePath, assetUrl);
-  return assetUrl;
+  return loadAssetUrl("notes-page-cover", relativePath, async () => {
+    const dbUrl = await ensureDbUrl();
+    return invoke<string>("notes_page_cover_asset_data_url", { dbUrl, relativePath });
+  });
+}
+
+/** Invalidates a managed Notes page cover after replacement or removal. */
+export function invalidateNotesPageCoverAssetUrl(relativePath: string): void {
+  invalidateAssetUrl("notes-page-cover", relativePath);
 }

@@ -92,6 +92,11 @@ pub(super) async fn create_imported_page(
             Vec::new(),
         ));
     }
+    if let Some(project_id) = request.project_id {
+        super::project_history::ensure_project_baseline_for_mutation(pool, project_id).await?;
+    } else {
+        super::project_history::ensure_parent_baseline_for_mutation(pool, request.parent).await?;
+    }
 
     let mut tx = pool
         .begin()
@@ -126,6 +131,8 @@ pub(super) async fn create_imported_row_page(
     pool: &SqlitePool,
     mut request: ImportedRowPageCreate<'_>,
 ) -> Result<NoteLoadedPage, String> {
+    super::project_history::ensure_data_source_baseline_for_mutation(pool, request.data_source_id)
+        .await?;
     if request.blocks.is_empty() {
         request.blocks.push(ImportBlock::new(
             "paragraph",

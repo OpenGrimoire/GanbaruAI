@@ -62,6 +62,76 @@ fn search_returns_page_block_and_comment_matches() {
 }
 
 #[test]
+fn search_keyset_pages_equal_titles_without_full_page_payloads() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        sqlx::raw_sql(
+            "WITH RECURSIVE sequence(value) AS (
+                 SELECT 1 UNION ALL SELECT value + 1 FROM sequence WHERE value < 60
+             )
+             INSERT INTO notes_pages (id, parent_type, title, properties, last_edited_time)
+             SELECT printf('10000000-0000-4000-8000-%012d', value), 'workspace', 'Needle same',
+                    json_object('title', json_object('id', 'title', 'type', 'title', 'title', json_array())),
+                    '2026-07-11T00:00:00.000Z'
+             FROM sequence;",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        search::rebuild_index(&pool).await.unwrap();
+
+        let first = serde_json::to_value(
+            search::search_window(&pool, "needle", Some(20), false, None)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        let cursor = first["next_cursor"].as_str().unwrap();
+        let second = serde_json::to_value(
+            search::search_window(&pool, "needle", Some(20), false, Some(cursor))
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        let first_ids = first["results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|result| result["id"].as_str().unwrap())
+            .collect::<std::collections::HashSet<_>>();
+        let second_results = second["results"].as_array().unwrap();
+
+        assert_eq!(first_ids.len(), 20);
+        assert_eq!(second_results.len(), 20);
+        assert!(second_results
+            .iter()
+            .all(|result| !first_ids.contains(result["id"].as_str().unwrap())));
+        let page = &first["results"][0]["page"];
+        assert!(page.get("properties").is_none());
+        assert!(page.get("cover").is_none());
+        assert!(page.get("source_provider").is_none());
+        let plan = sqlx::query(
+            "EXPLAIN QUERY PLAN SELECT idx.id
+             FROM notes_search_fts
+             JOIN notes_search_index AS idx ON idx.id = notes_search_fts.index_id
+             WHERE notes_search_fts MATCH 'needle*' LIMIT 20",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        let details = plan
+            .iter()
+            .map(|row| sqlx::Row::get::<String, _>(row, "detail"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            details.contains("VIRTUAL TABLE INDEX"),
+            "unexpected plan: {details}"
+        );
+    });
+}
+
+#[test]
 fn search_indexes_comment_targets_authors_anchors_and_resolved_filter() {
     tauri::async_runtime::block_on(async {
         let pool = migrated_memory_pool().await;

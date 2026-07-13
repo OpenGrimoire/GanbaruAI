@@ -16,6 +16,7 @@ import {
 } from "$lib/notes/tab";
 import type {
   NotesBlock,
+  NotesAppendBlockChildrenRequest,
   NotesBlockUpdate,
   NotesIcon,
   NotesTabBlockItems,
@@ -27,6 +28,13 @@ import type {
 } from "$lib/notes/undo-history";
 import type { NotesTreeState } from "$lib/notes/block-tree";
 import { createBlockWrite } from "$lib/notes/block-factory";
+import {
+  notesPostAppendResult,
+  notesPostMoveManyResult,
+  notesPostMoveResult,
+  notesPostTrashResult,
+  type NotesPostMutationResult,
+} from "$lib/notes/post-mutation";
 
 export interface NotesTabActionsContext {
   readSelectedPageId: () => string | null;
@@ -35,7 +43,7 @@ export interface NotesTabActionsContext {
   blockById: (blockId: string) => NotesBlock | undefined;
   tabItemsForBlock: (blockId: string) => NotesTabBlockItems[];
   requestBlockFocus: (blockId: string | null) => void;
-  loadPageTree: (pageId: string) => Promise<void>;
+  applyPostMutation: (result: NotesPostMutationResult) => void;
   localApplyBlockUpdate: (blockId: string, update: NotesBlockUpdate) => void;
   saveBlockNow: (blockId: string, update: NotesBlockUpdate) => Promise<void>;
   flushPendingBlockSaves: () => Promise<void>;
@@ -146,17 +154,24 @@ export function createNotesTabActions(context: NotesTabActionsContext): NotesTab
     const labelBlockId = crypto.randomUUID();
     const contentBlockId = crypto.randomUUID();
     const insertAfter = tabs[Math.max(0, afterTabIndex)]?.label.id ?? tabs.at(-1)?.label.id ?? null;
-    await appendNotesBlockChildren({
+    const labelRequest = {
       parent: { type: "block_id", block_id: tabBlockId },
       after: insertAfter,
       children: [createNotesTabLabelWrite(labelBlockId, `Tab ${tabs.length + 1}`)],
-    });
-    await appendNotesBlockChildren({
+    } satisfies NotesAppendBlockChildrenRequest;
+    context.applyPostMutation(notesPostAppendResult(
+      labelRequest,
+      await appendNotesBlockChildren(labelRequest),
+    ));
+    const contentRequest = {
       parent: { type: "block_id", block_id: labelBlockId },
       after: null,
       children: [createBlockWrite(contentBlockId, "paragraph")],
-    });
-    await context.loadPageTree(selectedPageId);
+    } satisfies NotesAppendBlockChildrenRequest;
+    context.applyPostMutation(notesPostAppendResult(
+      contentRequest,
+      await appendNotesBlockChildren(contentRequest),
+    ));
     context.requestBlockFocus(contentBlockId);
     recordUndoAfter("create", before, contentBlockId);
   }
@@ -177,14 +192,18 @@ export function createNotesTabActions(context: NotesTabActionsContext): NotesTab
     const movedChildIds = activeChildBlockIds(removed.label.id);
     const targetChildIds = activeChildBlockIds(target.label.id);
     if (movedChildIds.length > 0) {
-      await moveNotesBlocks({
+      const moveRequest = {
         block_ids: movedChildIds,
         parent: { type: "block_id", block_id: target.label.id },
         after: targetChildIds.at(-1) ?? null,
-      });
+      } as const;
+      context.applyPostMutation(notesPostMoveManyResult(
+        moveRequest,
+        await moveNotesBlocks(moveRequest),
+      ));
     }
     await trashNotesBlock(removed.label.id, true);
-    await context.loadPageTree(selectedPageId);
+    context.applyPostMutation(notesPostTrashResult(context.treeState(), [removed.label.id]));
     const focusBlockId = movedChildIds[0] ?? targetChildIds.at(-1) ?? target.label.id;
     context.requestBlockFocus(focusBlockId);
     recordUndoAfter("delete", before, focusBlockId);
@@ -205,12 +224,15 @@ export function createNotesTabActions(context: NotesTabActionsContext): NotesTab
     if (!target) return;
     await context.flushPendingBlockSaves();
     const before = undoSnapshot(tabBlockId);
-    await moveNotesBlock(labelBlockId, {
+    const moveRequest = {
       parent: { type: "block_id", block_id: tabBlockId },
       after: direction === "right" ? target.label.id : null,
       before: direction === "left" ? target.label.id : null,
-    });
-    await context.loadPageTree(selectedPageId);
+    } as const;
+    context.applyPostMutation(notesPostMoveResult(
+      await moveNotesBlock(labelBlockId, moveRequest),
+      moveRequest,
+    ));
     context.requestBlockFocus(labelBlockId);
     recordUndoAfter("move", before, labelBlockId);
   }
@@ -234,12 +256,15 @@ export function createNotesTabActions(context: NotesTabActionsContext): NotesTab
     const childIds = originalChildIds.filter((childId) => childId !== blockId);
     await context.flushPendingBlockSaves();
     const before = undoSnapshot(blockId);
-    await moveNotesBlock(blockId, {
+    const moveRequest = {
       parent: { type: "block_id", block_id: labelBlockId },
       after: childIds.at(-1) ?? null,
       before: null,
-    });
-    await context.loadPageTree(selectedPageId);
+    } as const;
+    context.applyPostMutation(notesPostMoveResult(
+      await moveNotesBlock(blockId, moveRequest),
+      moveRequest,
+    ));
     context.requestBlockFocus(blockId);
     recordUndoAfter("move", before, blockId);
   }

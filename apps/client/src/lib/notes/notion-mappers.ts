@@ -25,6 +25,9 @@ import {
   parseNotesJsonGraphExportSaveResult,
   parseNotesLocalUser,
   parseNotesLoadedPage,
+  parseNotesPageOpenResponse,
+  parseNotesBlockFrontier,
+  parseNotesBlockOutline,
   parseNotesNotionApiImportResult,
   parseNotesNotionExportImportResult,
   parseNotesMarkdownExportResult,
@@ -69,6 +72,9 @@ import type {
   NotesJsonGraphExportSaveResult,
   NotesLocalUser,
   NotesLoadedPage,
+  NotesPageOpenResponse,
+  NotesBlockFrontier,
+  NotesBlockOutline,
   NotesNotionApiImportResult,
   NotesNotionExportImportResult,
   NotesMarkdownExportResult,
@@ -110,6 +116,21 @@ export function mapNotesBlockListDto(value: unknown): NotesPaginatedBlockList {
 /** Validate and map an unknown loaded page DTO from the Tauri boundary. */
 export function mapNotesLoadedPageDto(value: unknown): NotesLoadedPage {
   return parseNotesLoadedPage(value);
+}
+
+/** Validate and map the critical page-open response from the Tauri boundary. */
+export function mapNotesPageOpenResponseDto(value: unknown): NotesPageOpenResponse {
+  return parseNotesPageOpenResponse(value);
+}
+
+/** Validate and map a batched block frontier from the Tauri boundary. */
+export function mapNotesBlockFrontierDto(value: unknown): NotesBlockFrontier {
+  return parseNotesBlockFrontier(value);
+}
+
+/** Validate and map a lightweight block outline from the Tauri boundary. */
+export function mapNotesBlockOutlineDto(value: unknown): NotesBlockOutline {
+  return parseNotesBlockOutline(value);
 }
 
 /** Validate and map an unknown markdown import DTO from the Tauri boundary. */

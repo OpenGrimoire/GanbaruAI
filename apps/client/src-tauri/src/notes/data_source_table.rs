@@ -1,12 +1,13 @@
 use super::models::{
     NoteDataSourceRow, NoteDataSourceRowPropertyUpdate, NoteDataSourceTableConfigurationUpdate,
     NoteDataSourceTableFilter, NoteDataSourceTableSort, NoteDataSourceTableViewDto,
-    NoteDataSourceTableViewUpdate, NoteDatabaseRow, NoteDatabaseViewRow, NotePageDto, NotePageRow,
+    NoteDataSourceTableViewUpdate, NoteDataSourceViewWindowRequest, NoteDatabaseRow,
+    NoteDatabaseViewRow, NotePageDto, NotePageRow,
 };
 use super::validation::require_uuid;
 use super::{
     data_source_buttons, data_source_formulas, data_source_relations, data_source_rollups,
-    data_source_views, history, writes,
+    data_source_views, data_source_window, history, writes,
 };
 use serde_json::{json, Map, Value};
 use sqlx::{Sqlite, SqlitePool, Transaction};
@@ -30,18 +31,38 @@ const FILTER_CONDITIONS: &[&str] = &[
     "unchecked",
 ];
 
+#[cfg(test)]
 pub(in crate::notes) async fn get_data_source_table_view(
     pool: &SqlitePool,
     data_source_id: &str,
     database_id: Option<&str>,
     view_id: Option<&str>,
 ) -> Result<NoteDataSourceTableViewDto, String> {
+    get_data_source_table_view_window(
+        pool,
+        data_source_id,
+        database_id,
+        view_id,
+        NoteDataSourceViewWindowRequest::default(),
+    )
+    .await
+}
+
+pub(in crate::notes) async fn get_data_source_table_view_window(
+    pool: &SqlitePool,
+    data_source_id: &str,
+    database_id: Option<&str>,
+    view_id: Option<&str>,
+    window: NoteDataSourceViewWindowRequest,
+) -> Result<NoteDataSourceTableViewDto, String> {
     data_source_views::validate_view_scope(data_source_id, database_id, view_id)?;
+    crate::notes::project_history::ensure_data_source_baseline_for_mutation(pool, data_source_id)
+        .await?;
     let mut tx = pool
         .begin()
         .await
         .map_err(|e| format!("begin notes data source table read: {e}"))?;
-    let dto = load_table_view_tx(&mut tx, data_source_id, database_id, view_id).await?;
+    let dto = load_table_view_tx(&mut tx, data_source_id, database_id, view_id, &window).await?;
     tx.commit()
         .await
         .map_err(|e| format!("commit notes data source table read: {e}"))?;
@@ -93,7 +114,14 @@ pub(in crate::notes) async fn update_data_source_table_view(
     .execute(&mut *tx)
     .await
     .map_err(|e| format!("update notes data source table view: {e}"))?;
-    let dto = load_table_view_tx(&mut tx, data_source_id, database_id, Some(&view.id)).await?;
+    let dto = load_table_view_tx(
+        &mut tx,
+        data_source_id,
+        database_id,
+        Some(&view.id),
+        &NoteDataSourceViewWindowRequest::default(),
+    )
+    .await?;
     tx.commit()
         .await
         .map_err(|e| format!("commit notes data source table view update: {e}"))?;
@@ -108,6 +136,8 @@ pub(in crate::notes) async fn update_data_source_row_property(
 ) -> Result<NotePageDto, String> {
     require_uuid(data_source_id, "data_source_id")?;
     require_uuid(page_id, "page_id")?;
+    crate::notes::project_history::ensure_data_source_baseline_for_mutation(pool, data_source_id)
+        .await?;
     let mut tx = pool
         .begin()
         .await
@@ -182,6 +212,7 @@ async fn load_table_view_tx(
     data_source_id: &str,
     database_id: Option<&str>,
     view_id: Option<&str>,
+    window_request: &NoteDataSourceViewWindowRequest,
 ) -> Result<NoteDataSourceTableViewDto, String> {
     let (data_source, database) =
         load_active_data_source_and_database_tx(tx, data_source_id).await?;
@@ -190,19 +221,35 @@ async fn load_table_view_tx(
     let schema = table_schema(&schema_properties)?;
     let filters = stored_filters(view.filter.as_deref())?;
     let sorts = stored_sorts(&view.sorts)?;
-    let mut rows = load_active_row_pages_tx(tx, data_source_id).await?;
-    rows = rows
+    let mut window = data_source_window::load_row_window_tx(
+        tx,
+        data_source_id,
+        data_source_window::RowWindowQuery {
+            schema: &schema,
+            filters: &filters,
+            sorts: &sorts,
+            request: window_request,
+            date_property: None,
+            group_property: None,
+        },
+    )
+    .await?;
+    window.rows = window
+        .rows
         .into_iter()
         .map(|row| normalized_row_for_schema(row, &schema))
         .collect::<Result<Vec<_>, _>>()?;
-    data_source_relations::hydrate_relation_titles_tx(tx, &mut rows).await?;
-    data_source_rollups::hydrate_rollups_tx(tx, data_source_id, &schema_properties, &mut rows)
-        .await?;
-    data_source_formulas::hydrate_formulas(&schema_properties, &mut rows)?;
-    data_source_buttons::hydrate_buttons(&schema_properties, &mut rows)?;
-    rows.retain(|row| row_matches_filters(row, &schema, &filters));
-    sort_rows(&mut rows, &schema, &sorts);
-    NoteDataSourceTableViewDto::new(data_source, database, view, rows)
+    data_source_relations::hydrate_relation_titles_tx(tx, &mut window.rows).await?;
+    data_source_rollups::hydrate_rollups_tx(
+        tx,
+        data_source_id,
+        &schema_properties,
+        &mut window.rows,
+    )
+    .await?;
+    data_source_formulas::hydrate_formulas(&schema_properties, &mut window.rows)?;
+    data_source_buttons::hydrate_buttons(&schema_properties, &mut window.rows)?;
+    NoteDataSourceTableViewDto::new(data_source, database, view, window)
 }
 
 pub(super) async fn ensure_table_view_row_tx(
@@ -1163,7 +1210,7 @@ fn row_property_payload(row: &NotePageRow, property: &TableProperty) -> Option<V
         .cloned()
 }
 
-fn row_property_plain_text(row: &NotePageRow, property: &TableProperty) -> String {
+pub(super) fn row_property_plain_text(row: &NotePageRow, property: &TableProperty) -> String {
     match property.property_type.as_str() {
         "title" | "rich_text" => row_property_payload(row, property)
             .and_then(|payload| payload.as_array().cloned())
@@ -1252,7 +1299,7 @@ fn row_property_plain_text(row: &NotePageRow, property: &TableProperty) -> Strin
     }
 }
 
-fn row_property_number(row: &NotePageRow, property: &TableProperty) -> Option<f64> {
+pub(super) fn row_property_number(row: &NotePageRow, property: &TableProperty) -> Option<f64> {
     let payload = row_property_payload(row, property)?;
     if property.property_type == "rollup" {
         return data_source_rollups::rollup_number(&payload);
@@ -1263,7 +1310,7 @@ fn row_property_number(row: &NotePageRow, property: &TableProperty) -> Option<f6
     payload.as_f64()
 }
 
-fn row_property_checked(row: &NotePageRow, property: &TableProperty) -> Option<bool> {
+pub(super) fn row_property_checked(row: &NotePageRow, property: &TableProperty) -> Option<bool> {
     let payload = row_property_payload(row, property)?;
     if property.property_type == "formula" {
         return data_source_formulas::formula_checked(&payload);

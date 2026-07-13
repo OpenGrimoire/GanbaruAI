@@ -34,7 +34,7 @@
 
   let {
     date,
-    events,
+    positionedEvents,
     theme,
     isToday = false,
     isPast = false,
@@ -57,7 +57,7 @@
     visibleEndMinute = 1440,
   }: {
     date: Date;
-    events: CalendarEvent[];
+    positionedEvents: PositionedEvent[];
     theme: Theme;
     isToday?: boolean;
     isPast?: boolean;
@@ -87,10 +87,8 @@
   const panelOpen = $derived(!!editingId);
 
   const dateStr = $derived(formatDatePart(date));
-  // `events` arrives pre-bucketed per day from CalendarView, so the only
-  // remaining concern is to drop all-day rows which render in the banner.
-  const dayEvents = $derived(events.filter((e) => !e.allDay));
-  const positioned = $derived(layoutEventsForDay(dayEvents, dateStr));
+  const dayEvents = $derived(positionedEvents.map((positionedEvent) => positionedEvent.event));
+  const positioned = $derived(positionedEvents);
 
   // Layout-aware preview: include drag/create preview in layout computation
   // so overlapping events shift in real time to show the final result.

@@ -15,7 +15,7 @@ use crate::notes::models::{
 use crate::notes::validation::{
     require_uuid, validate_duplicate_block_count, validate_parent, validate_sort_order,
 };
-use crate::notes::{history, reads};
+use crate::notes::{history, project_history, reads};
 use serde_json::Value;
 use sqlx::SqlitePool;
 use std::collections::{HashMap, HashSet};
@@ -27,6 +27,8 @@ pub(in crate::notes) async fn duplicate_block(
 ) -> Result<NoteBlockDto, String> {
     let block_id = block_id.trim();
     require_uuid(block_id, "block_id")?;
+    let source = reads::get_block_row(pool, block_id, false).await?;
+    project_history::ensure_page_baseline_for_mutation(pool, &source.page_id).await?;
     validate_duplicate_block_count(request.duplicated_block_ids.len())?;
     let mut duplicate_ids = HashMap::with_capacity(request.duplicated_block_ids.len());
     let mut seen_duplicate_ids = HashSet::with_capacity(request.duplicated_block_ids.len());
@@ -165,6 +167,8 @@ pub(in crate::notes) async fn duplicate_blocks(
     request: NoteDuplicateBlocks,
 ) -> Result<NotePaginatedBlockList, String> {
     validate_parent(&request.parent)?;
+    project_history::ensure_blocks_baseline_for_mutation(pool, &request.block_ids).await?;
+    project_history::ensure_parent_baseline_for_mutation(pool, &request.parent).await?;
     if request.after.is_some() && request.before.is_some() {
         return Err("duplicate request cannot include both after and before".to_string());
     }
@@ -298,16 +302,16 @@ pub(in crate::notes) async fn duplicate_blocks(
     tx.commit()
         .await
         .map_err(|e| format!("commit duplicate notes blocks: {e}"))?;
-    let duplicate_root_ids = root_ids
+    let all_duplicate_ids = source_rows
         .iter()
-        .map(|source_id| {
+        .map(|row| {
             duplicate_ids
-                .get(source_id)
+                .get(&row.id)
                 .cloned()
-                .ok_or_else(|| "duplicated root block id is missing".to_string())
+                .ok_or_else(|| "duplicated block id is missing".to_string())
         })
         .collect::<Result<Vec<_>, _>>()?;
-    load_blocks_by_ids(pool, duplicate_root_ids).await
+    load_blocks_by_ids(pool, all_duplicate_ids).await
 }
 
 pub(super) fn duplicate_block_id_map(

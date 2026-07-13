@@ -22,10 +22,12 @@
     ProjectTask,
     ProjectTaskSortDirection,
     ProjectTaskSortMode,
+    ProjectTaskColumnCount,
   } from "$lib/projects/types";
   import { getProjects } from "$lib/stores/projects.svelte";
   import { getTheme } from "$lib/stores/theme.svelte";
   import { cn } from "$lib/utils";
+  import { projectVisibleRange } from "$lib/projects/visible-range";
   import PriorityFlagIcon from "./PriorityFlagIcon.svelte";
   import ProjectStatusBadge from "./ProjectStatusBadge.svelte";
 
@@ -38,6 +40,8 @@
     taskSortDirection,
     onOpenTask,
     onToggleTaskSelection,
+    columnCounts,
+    onNeedMore,
   }: {
     tasks: ProjectTask[];
     statuses: ProjectStatus[];
@@ -47,6 +51,8 @@
     taskSortDirection: ProjectTaskSortDirection;
     onOpenTask: (task: ProjectTask) => void;
     onToggleTaskSelection: (task: ProjectTask) => void;
+    columnCounts: ProjectTaskColumnCount[];
+    onNeedMore: () => void;
   } = $props();
 
   const projects = getProjects();
@@ -60,6 +66,9 @@
   let kanbanDragOverTaskId = $state<string | null>(null);
   let kanbanDragOverPosition = $state<ProjectKanbanDropPosition | "column" | null>(null);
   let kanbanDropPendingTaskId = $state<string | null>(null);
+  let columnScrollState = $state<Record<string, { top: number; height: number }>>({});
+  const KANBAN_CARD_ESTIMATED_HEIGHT_PX = 180;
+  const KANBAN_OVERSCAN_CARDS = 3;
 
   const selectedTaskIdSet = $derived.by(() => new Set(selectedTaskIds));
 
@@ -69,6 +78,39 @@
     return [...statusTasks].sort((a, b) =>
       taskSortDirection === "asc" ? manualStatusCompare(a, b) : manualStatusCompare(b, a)
     );
+  }
+
+  function totalTasksForStatus(status: ProjectStatus, loadedCount: number): number {
+    return columnCounts.find((column) => column.statusId === status.id)?.count ?? loadedCount;
+  }
+
+  function visibleTasksForStatus(status: ProjectStatus): {
+    tasks: ProjectTask[];
+    beforePx: number;
+    afterPx: number;
+  } {
+    const statusTasks = tasksForStatus(status);
+    const scroll = columnScrollState[status.id] ?? { top: 0, height: 720 };
+    const range = projectVisibleRange(
+      statusTasks.length,
+      scroll.top,
+      scroll.height,
+      KANBAN_CARD_ESTIMATED_HEIGHT_PX,
+      KANBAN_OVERSCAN_CARDS,
+    );
+    return {
+      tasks: statusTasks.slice(range.start, range.end),
+      beforePx: range.beforePx,
+      afterPx: range.afterPx,
+    };
+  }
+
+  function trackColumnScroll(statusId: string, event: Event): void {
+    const target = event.currentTarget as HTMLElement;
+    columnScrollState = {
+      ...columnScrollState,
+      [statusId]: { top: target.scrollTop, height: target.clientHeight },
+    };
   }
 
   function kanbanOrderTasksForStatus(status: ProjectStatus): ProjectTask[] {
@@ -226,12 +268,13 @@
   }
 </script>
 
-<div class="flex min-h-full gap-3 overflow-x-auto p-3">
+<div class="flex h-full min-h-0 gap-3 overflow-x-auto p-3">
   {#each statuses as status (status.id)}
     {@const statusTasks = tasksForStatus(status)}
+    {@const visibleStatusTasks = visibleTasksForStatus(status)}
     <section
       class={cn(
-        "flex w-64 shrink-0 flex-col gap-2 rounded-lg border border-transparent p-1",
+        "flex h-full min-h-0 w-64 shrink-0 flex-col gap-2 rounded-lg border border-transparent p-1",
         kanbanDragOverStatusId === status.id && "border-primary/40 bg-primary/5",
       )}
       role="list"
@@ -243,12 +286,15 @@
         <ProjectStatusBadge
           {status}
           theme={theme.current}
-          label={`${status.name} (${statusTasks.length})`}
+          label={`${status.name} (${totalTasksForStatus(status, statusTasks.length)})`}
           class="text-[0.8rem]"
         />
       </div>
-      <div class="flex flex-col gap-2">
-        {#each statusTasks as task (task.id)}
+      <div class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto" onscroll={(event) => trackColumnScroll(status.id, event)}>
+        {#if visibleStatusTasks.beforePx > 0}
+          <div aria-hidden="true" style={`height: ${visibleStatusTasks.beforePx}px`}></div>
+        {/if}
+        {#each visibleStatusTasks.tasks as task (task.id)}
           {@const previousStatus = adjacentStatus(task, -1)}
           {@const nextStatus = adjacentStatus(task, 1)}
           {@const previousStatusTask = adjacentTaskInStatus(task, -1)}
@@ -388,6 +434,9 @@
             <div class="h-1 rounded-full bg-primary"></div>
           {/if}
         {/each}
+        {#if visibleStatusTasks.afterPx > 0}
+          <div aria-hidden="true" style={`height: ${visibleStatusTasks.afterPx}px`}></div>
+        {/if}
         {#if kanbanDragOverStatusId === status.id && kanbanDragOverPosition === "column"}
           <div class="h-1 rounded-full bg-primary"></div>
         {/if}
@@ -395,6 +444,15 @@
           <div class="rounded-md border border-dashed border-border px-2 py-3 text-[0.8rem] text-muted-foreground">
             {t("projects.kanban.emptyColumn")}
           </div>
+        {/if}
+        {#if statusTasks.length < totalTasksForStatus(status, statusTasks.length)}
+          <button
+            type="button"
+            class="min-h-9 rounded-md border border-border px-3 text-[0.8rem] text-muted-foreground hover:bg-accent hover:text-foreground"
+            onclick={onNeedMore}
+          >
+            {t("common.loadMore")}
+          </button>
         {/if}
       </div>
     </section>

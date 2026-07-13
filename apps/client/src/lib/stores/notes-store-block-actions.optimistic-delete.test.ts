@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
-import { createBlockWrite } from "$lib/notes/block-factory";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { applyBlockUpdate, createBlockWrite } from "$lib/notes/block-factory";
 import {
   buildNotesChildIdsByParent,
   flattenNotesBlockTree,
@@ -21,9 +21,14 @@ import {
   type NotesBlockActionsContext,
 } from "./notes-store-block-actions";
 import { notesTreeStateWithoutLeafBlock } from "./notes-store-block-tree";
+import { applyNotesPostMutationToTree } from "$lib/notes/post-mutation";
+import { collectLoadedBlockSubtreeIds } from "$lib/notes/block-duplicate";
 
 const notesApi = vi.hoisted(() => ({
+  appendNotesBlockChildren: vi.fn(),
+  moveNotesBlock: vi.fn(),
   trashNotesBlock: vi.fn(),
+  trashNotesBlocks: vi.fn(),
 }));
 
 vi.mock("$lib/api/notes", () => notesApi);
@@ -58,6 +63,10 @@ function paragraph(id: string, text: string): NotesBlock {
 }
 
 describe("notes store block actions", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it("removes an empty leaf and transfers focus before persistence finishes", async () => {
     let resolveTrash!: () => void;
     const trashPromise = new Promise<void>((resolve) => {
@@ -77,12 +86,14 @@ describe("notes store block actions", () => {
     const requestBlockFocus = vi.fn();
     const recordUndo = vi.fn<(options: Omit<NotesUndoRecordOptions, "id">) => void>();
     const context: NotesBlockActionsContext = {
+      awaitSelectedPageReady: () => Promise.resolve(),
       readSelectedPageId: () => pageId,
       readBlocksById: () => state.blocksById,
       readChildIdsByParentId: () => Object.fromEntries(
         Object.entries(state.childIdsByParentId).map(([key, childIds]) => [key, [...childIds]]),
       ),
       treeState: () => state,
+      outlineSubtreeIds: (rootIds) => rootIds.flatMap((id) => collectLoadedBlockSubtreeIds(state, id)),
       blockById: (blockId) => state.blocksById[blockId],
       flatBlockItemsForBlockContext: () => flattenNotesBlockTree(state, pageId),
       tableRowsForBlock: () => [],
@@ -92,9 +103,9 @@ describe("notes store block actions", () => {
       requestBlockFocus,
       createChildPageFromBlock: async () => undefined,
       createChildPageAfterBlock: async () => undefined,
+      applyPostMutation: () => undefined,
       loadPageTree: async () => undefined,
-      reloadPages: async () => undefined,
-      reloadBacklinks: async () => undefined,
+      refreshOpenLinks: async () => undefined,
       localApplyBlockUpdate: (_blockId: string, _update: NotesBlockUpdate) => undefined,
       localInsertBlockAfter: () => undefined,
       localRemoveLeafBlock: (blockId) => {
@@ -140,4 +151,5 @@ describe("notes store block actions", () => {
     await actions.flushOptimisticBlockWrites();
     expect(notesApi.trashNotesBlock).toHaveBeenCalledWith(emptyBlockId, true);
   });
+
 });

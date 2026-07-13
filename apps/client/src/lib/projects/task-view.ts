@@ -47,6 +47,7 @@ export interface ProjectTaskViewInput {
   groupBy: ProjectTaskGroupMode;
   sortMode: ProjectTaskSortMode;
   sortDirection: ProjectTaskSortDirection;
+  filtersApplied?: boolean;
 }
 
 export interface ProjectTaskViewResult {
@@ -438,7 +439,9 @@ function compareTasks(
 }
 
 export function buildProjectTaskView(input: ProjectTaskViewInput): ProjectTaskViewResult {
-  const matchedTaskIds = new Set(input.tasks.filter((task) => taskMatches(input, task)).map((task) => task.id));
+  const matchedTaskIds = new Set(
+    input.tasks.filter((task) => input.filtersApplied || taskMatches(input, task)).map((task) => task.id),
+  );
   const visibleTaskIds = new Set(matchedTaskIds);
   for (const task of input.tasks) {
     if (task.parentTaskId && matchedTaskIds.has(task.id)) {

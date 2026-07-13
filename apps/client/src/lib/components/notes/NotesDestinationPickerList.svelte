@@ -1,5 +1,7 @@
 <script lang="ts">
   import { tick } from "svelte";
+  import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { getNotes } from "$lib/stores/notes.svelte";
   import {
     flatNotesDestinationPickerTargets,
     nextNotesDestinationPickerIndex,
@@ -32,6 +34,9 @@
   } = $props();
 
   let query = $state("");
+  let queryInitialized = false;
+  const notes = getNotes();
+  const { t } = getLocalization();
   let activeIndex = $state(0);
   let searchInput = $state<HTMLInputElement | null>(null);
   const sections = $derived(notesDestinationPickerSections(targets, query));
@@ -44,6 +49,16 @@
   $effect(() => {
     const _query = query;
     activeIndex = flatTargets.length > 0 ? 0 : -1;
+  });
+
+  $effect(() => {
+    const search = query;
+    if (!queryInitialized) {
+      queryInitialized = true;
+      return;
+    }
+    const timeout = window.setTimeout(() => void notes.reloadLinkResolutionPages(search), 150);
+    return () => window.clearTimeout(timeout);
   });
 
   $effect(() => {
@@ -149,6 +164,15 @@
           </button>
         {/each}
       {/each}
+      {#if notes.destinationHasMore}
+        <button
+          type="button"
+          class="mx-2 my-1 rounded-md border border-border px-2 py-1.5 text-[0.733333rem] text-foreground hover:bg-accent"
+          onclick={() => void notes.loadMoreDestinationCandidates()}
+        >
+          {t("common.loadMore")}
+        </button>
+      {/if}
     </div>
   {/if}
 </div>

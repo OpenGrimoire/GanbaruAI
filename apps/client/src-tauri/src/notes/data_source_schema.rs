@@ -128,6 +128,8 @@ pub(in crate::notes) async fn get_data_source_schema(
     view_id: Option<&str>,
 ) -> Result<NoteDataSourceSchemaDto, String> {
     data_source_views::validate_view_scope(data_source_id, None, view_id)?;
+    crate::notes::project_history::ensure_data_source_baseline_for_mutation(pool, data_source_id)
+        .await?;
     let mut tx = pool
         .begin()
         .await

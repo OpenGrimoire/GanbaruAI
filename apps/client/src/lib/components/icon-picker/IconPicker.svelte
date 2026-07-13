@@ -184,6 +184,11 @@
 
   const parsedValue = $derived(parseProjectIcon(value));
   const customEmojiIds = $derived(new Set(projects.customEmojis.map((emoji) => emoji.id)));
+  $effect(() => {
+    void projects.ensureCustomEmojis().catch((error) => {
+      console.error("load icon picker custom emoji failed", error);
+    });
+  });
   const pickerLabel = $derived.by(() => {
     if (parsedValue.kind === "emoji") {
       const baseEmoji = stripProjectEmojiSkinTone(parsedValue.emoji);
