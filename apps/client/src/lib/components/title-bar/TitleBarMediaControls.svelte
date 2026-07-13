@@ -7,6 +7,7 @@
   import PlayIcon from "@lucide/svelte/icons/play";
   import SkipBack from "@lucide/svelte/icons/skip-back";
   import SkipForward from "@lucide/svelte/icons/skip-forward";
+  import StickyNote from "@lucide/svelte/icons/sticky-note";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import type { PlaybackStatus } from "$lib/music/playback";
   import { getMusicPlayer } from "$lib/stores/music-player.svelte";
@@ -374,6 +375,15 @@
         {/if}
       </div>
     {/if}
+
+    <button
+      type="button"
+      class={`titlebar-icon-button flex items-center justify-center rounded-lg transition-colors ${TITLE_BAR_ICON_COLOR_CLASS} hover:bg-sidebar-accent`}
+      title={t("titleBar.control.quickNotes")}
+      aria-label={t("titleBar.control.quickNotes")}
+    >
+      <StickyNote size={TITLE_BAR_ICON_SIZE} strokeWidth={TITLE_BAR_ICON_STROKE_WIDTH} />
+    </button>
 
     {#if isMainWindow && showMusic}
       <button

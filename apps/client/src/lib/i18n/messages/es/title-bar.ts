@@ -10,6 +10,7 @@ export const titleBar = {
   },
   control: {
     pomodoro: "Pomodoro",
+    quickNotes: "Notas rápidas",
     music: "Música",
     theme: "Cambio de tema",
     performance: "Diagnóstico",
