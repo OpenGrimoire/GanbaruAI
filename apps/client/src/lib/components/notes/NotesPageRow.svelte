@@ -123,6 +123,7 @@
   let renameHistory = $state(createInlineRenameHistory(""));
   let pendingTitle = $state<string | null>(null);
   let highlightPulseActive = $state(false);
+  let highlightRequestInitialized = false;
   let handledHighlightRequestId = 0;
   let scrollObservationFrame: number | null = null;
   let rowElement = $state<HTMLDivElement | null>(null);
@@ -162,11 +163,17 @@
   });
 
   $effect(() => {
-    if (highlightRequestId <= 0 || highlightRequestId === handledHighlightRequestId) return;
-    handledHighlightRequestId = highlightRequestId;
+    const requestId = highlightRequestId;
+    if (!highlightRequestInitialized) {
+      highlightRequestInitialized = true;
+      handledHighlightRequestId = requestId;
+      return;
+    }
+    if (requestId <= 0 || requestId === handledHighlightRequestId) return;
+    handledHighlightRequestId = requestId;
     highlightPulseActive = false;
     void tick().then(() => {
-      revealAndHighlightCurrentRow(highlightRequestId);
+      revealAndHighlightCurrentRow(requestId);
     });
   });
 
