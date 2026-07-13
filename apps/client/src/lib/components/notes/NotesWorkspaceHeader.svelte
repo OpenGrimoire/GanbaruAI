@@ -1,5 +1,6 @@
 <script lang="ts">
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
+  import Folder from "@lucide/svelte/icons/folder";
   import Plus from "@lucide/svelte/icons/plus";
   import Settings2 from "@lucide/svelte/icons/settings-2";
   import { getLocalization } from "$lib/i18n/translator.svelte";
@@ -16,7 +17,16 @@
     type LazyComponentLoadState,
   } from "$lib/lazy-component-loader";
   import { NOTES_PAGE_CHROME_EMOJI_SCALE } from "$lib/notes/page-icon";
+  import {
+    notesHierarchyChildren,
+    notesHierarchyNodeParent,
+    notesHierarchyPath,
+    type NotesHierarchyNode,
+    type NotesHierarchyParent,
+  } from "$lib/notes/hierarchy-navigation";
+  import { notesFoldersForProject } from "$lib/notes/navigation-tree";
   import { notesPageTitle } from "$lib/notes/page-title";
+  import { notesPagesForProject } from "$lib/notes/project-membership";
   import type { NotesPage } from "$lib/notes/types";
   import {
     projectLifecycleBadgeClass,
@@ -45,6 +55,8 @@
     selectedGroup,
     selectedProjectId,
     selectedPage,
+    explorerCollapsed,
+    creationFolderId,
     showInactiveProjects,
     onShowInactiveProjectsChange,
     onProjectSelected,
@@ -56,6 +68,8 @@
     selectedGroup: ProjectGroup | undefined;
     selectedProjectId: string | null;
     selectedPage: NotesPage | null;
+    explorerCollapsed: boolean;
+    creationFolderId: string | null;
     showInactiveProjects: boolean;
     onShowInactiveProjectsChange: (value: boolean) => void;
     onProjectSelected: () => void;
@@ -75,6 +89,8 @@
 
   let navigatorOpen = $state(false);
   let navigatorMode = $state<NotesNavigatorMode>("groups");
+  let notesNavigatorParent = $state<NotesHierarchyParent>({ kind: "root" });
+  let notesNavigatorSourceKey = $state("root");
   let notesHeaderElement = $state<HTMLDivElement | null>(null);
   let notesIdentityElement = $state<HTMLDivElement | null>(null);
   let navigatorAnchorElement = $state<HTMLButtonElement | null>(null);
@@ -109,6 +125,34 @@
     return notesPageTitle(selectedPage, t("notes.untitled"));
   });
   const selectedPageId = $derived(selectedPage?.id ?? null);
+  const selectedProjectPages = $derived.by(() => notesPagesForProject(
+    [...new Map(
+      [...notes.allPages, ...notes.linkResolutionPages].map((page) => [page.id, page]),
+    ).values()],
+    selectedProjectId,
+  ));
+  const selectedProjectFolders = $derived.by(() => notesFoldersForProject(
+    notes.folders,
+    selectedProjectId,
+  ));
+  const selectedPagePath = $derived(notesHierarchyPath(
+    selectedPageId,
+    selectedProjectPages,
+    selectedProjectFolders,
+    notes.sidebarPageIdsWithChildren,
+  ));
+  const showSelectedPagePath = $derived(explorerCollapsed && selectedPagePath.length > 0);
+  const notesNavigatorItemCount = $derived(notesHierarchyChildren(
+    selectedProjectPages,
+    selectedProjectFolders,
+    notesNavigatorParent,
+    t("notes.untitled"),
+    notes.sidebarPageIdsWithChildren,
+  ).length);
+  const notesNavigatorPanelHeight = $derived(Math.min(
+    navigatorPanelMaxHeight,
+    Math.max(124, notesNavigatorItemCount * 32 + 92),
+  ));
 
   function toolbarIconButtonClass(active = false, open = false, primary = false): string {
     return cn(
@@ -176,13 +220,36 @@
     return noteTriggerElement ?? projectTriggerElement;
   }
 
-  function openNavigator(mode: NotesNavigatorMode): void {
+  function openNavigator(
+    mode: NotesNavigatorMode,
+    anchor: HTMLButtonElement | null = triggerForMode(mode),
+  ): void {
     navigatorMode = mode;
-    navigatorAnchorElement = triggerForMode(mode);
+    navigatorAnchorElement = anchor;
     navigatorOpen = true;
     requestNavigatorComponent(mode === "notes" ? "page-picker" : "project-navigator");
     refreshNavigatorPanelGeometry();
     requestAnimationFrame(refreshNavigatorPanelGeometry);
+  }
+
+  function openHierarchyNavigator(
+    node: NotesHierarchyNode,
+    anchor: EventTarget | null,
+  ): void {
+    notesNavigatorParent = notesHierarchyNodeParent(node);
+    notesNavigatorSourceKey = node.key;
+    openNavigator("notes", anchor instanceof HTMLButtonElement ? anchor : null);
+  }
+
+  function toggleHierarchyNavigator(
+    node: NotesHierarchyNode,
+    anchor: EventTarget | null,
+  ): void {
+    if (navigatorOpen && navigatorMode === "notes" && notesNavigatorSourceKey === node.key) {
+      navigatorOpen = false;
+      return;
+    }
+    openHierarchyNavigator(node, anchor);
   }
 
   function requestNavigatorComponent(kind: NotesNavigatorComponentKind, retry = false): void {
@@ -234,9 +301,7 @@
     if (!(target instanceof Node)) return;
     if (
       navigatorOpen
-      && !groupTriggerElement?.contains(target)
-      && !projectTriggerElement?.contains(target)
-      && !noteTriggerElement?.contains(target)
+      && !notesIdentityElement?.contains(target)
       && !navigatorPanelElement?.contains(target)
     ) {
       navigatorOpen = false;
@@ -245,7 +310,11 @@
 
   function createPage(): void {
     navigatorOpen = false;
-    void notes.createPage("", { projectId: selectedProjectId, openMode: "full" });
+    void notes.createPage("", {
+      projectId: selectedProjectId,
+      folderId: creationFolderId,
+      openMode: "full",
+    });
   }
 
   $effect(() => {
@@ -322,7 +391,7 @@
             </span>
           {/if}
         </button>
-        {#if !selectedPageTitle}
+        {#if !showSelectedPagePath}
           <button
             type="button"
             class={inlineNewPageButtonClass()}
@@ -334,30 +403,49 @@
             <Plus size={14} strokeWidth={1.75} />
           </button>
         {/if}
-        {#if selectedPageTitle}
-          <span class="shrink-0 px-0.5 font-semibold text-muted-foreground">/</span>
-          <button
-            bind:this={noteTriggerElement}
-            type="button"
-            class={cn(
-              "flex h-7 min-w-0 items-center gap-1.5 rounded-md pl-1.5 pr-0.5 text-left hover:bg-accent hover:text-accent-foreground",
-              navigatorOpen && navigatorMode === "notes" && "bg-accent text-accent-foreground",
-            )}
-            aria-label={t("notes.openNoteNavigator")}
-            aria-expanded={navigatorOpen && navigatorMode === "notes"}
-            onpointerenter={() => openNavigator("notes")}
-            onclick={() => toggleNavigator("notes")}
-          >
-            <NotesPageIcon
-              icon={selectedPage?.icon ?? null}
-              size={identityIconSize}
-              strokeWidth={identityIconStrokeWidth}
-              emojiScale={NOTES_PAGE_CHROME_EMOJI_SCALE}
-              class="shrink-0"
-            />
-            <span class="min-w-0 truncate font-semibold text-foreground">{selectedPageTitle}</span>
-            <ChevronDown size={14} strokeWidth={1.75} class="shrink-0 text-muted-foreground" />
-          </button>
+        {#if showSelectedPagePath}
+          {#each selectedPagePath as node (node.key)}
+            {@const pathTitle = node.kind === "folder"
+              ? node.folder.name
+              : node.page.id === selectedPageId && selectedPageTitle
+                ? selectedPageTitle
+                : notesPageTitle(node.page, t("notes.untitled"))}
+            <span class="shrink-0 px-0.5 font-semibold text-muted-foreground">/</span>
+            <button
+              type="button"
+              class={cn(
+                "flex h-7 min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left hover:bg-accent hover:text-accent-foreground",
+                navigatorOpen
+                  && navigatorMode === "notes"
+                  && notesNavigatorSourceKey === node.key
+                  && "bg-accent text-accent-foreground",
+              )}
+              aria-label={pathTitle}
+              aria-expanded={navigatorOpen && navigatorMode === "notes" && notesNavigatorSourceKey === node.key}
+              onpointerenter={(event) => openHierarchyNavigator(node, event.currentTarget)}
+              onclick={(event) => toggleHierarchyNavigator(node, event.currentTarget)}
+            >
+              {#if node.kind === "folder"}
+                <Folder
+                  size={identityIconSize}
+                  strokeWidth={identityIconStrokeWidth}
+                  class="shrink-0"
+                />
+              {:else}
+                <NotesPageIcon
+                  icon={node.page.icon}
+                  size={identityIconSize}
+                  strokeWidth={identityIconStrokeWidth}
+                  emojiScale={NOTES_PAGE_CHROME_EMOJI_SCALE}
+                  class="shrink-0"
+                />
+              {/if}
+              <span class="min-w-0 truncate font-semibold text-foreground">{pathTitle}</span>
+              {#if node.hasChildren}
+                <ChevronDown size={14} strokeWidth={1.75} class="shrink-0 text-muted-foreground" />
+              {/if}
+            </button>
+          {/each}
           <button
             type="button"
             class={inlineNewPageButtonClass()}
@@ -413,12 +501,13 @@
         aria-label={navigatorMode === "notes" ? t("notes.noteNavigatorLabel") : t("projects.navigator.pickerLabel")}
       >
         {#if navigatorMode === "notes" && navigatorLoadState?.status === "ready" && navigatorLoadState.component.kind === "page-picker"}
-          {@const NotesPagePickerPanel = navigatorLoadState.component.component}
-          <NotesPagePickerPanel
-            selectedPageId={notes.selectedPageId}
+          {@const NotesHierarchyPickerPanel = navigatorLoadState.component.component}
+          <NotesHierarchyPickerPanel
             projectId={selectedProjectId}
-            panelMaxHeight={navigatorPanelMaxHeight}
-            focusSearchRequestId={navigatorOpen ? 1 : 0}
+            parent={notesNavigatorParent}
+            frameStyle={`width: 100%; height: ${notesNavigatorPanelHeight}px; max-height: ${notesNavigatorPanelHeight}px;`}
+            className="relative"
+            zIndexClass=""
             onPageSelected={() => {
               navigatorOpen = false;
             }}

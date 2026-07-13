@@ -49,6 +49,7 @@
     collapsed,
     renameRequestId = 0,
     moveTargets,
+    onActivate,
     onToggleCollapsed,
     onCreatePage,
     onCreateFolder,
@@ -61,6 +62,7 @@
     collapsed: boolean;
     renameRequestId?: number;
     moveTargets: NotesFolderRowMoveTarget[];
+    onActivate: () => void;
     onToggleCollapsed: (collapsed: boolean) => void;
     onCreatePage: () => void;
     onCreateFolder: () => void;
@@ -268,6 +270,7 @@
         aria-expanded={!collapsed}
         aria-label={collapsed ? t("notes.expandFolder") : t("notes.collapseFolder")}
         onclick={() => {
+          onActivate();
           onToggleCollapsed(!collapsed);
         }}
       >

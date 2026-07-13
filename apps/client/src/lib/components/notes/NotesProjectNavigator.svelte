@@ -34,13 +34,14 @@
     type ProjectTemplateId,
   } from "$lib/projects/types";
   import { notesFoldersForProject } from "$lib/notes/navigation-tree";
+  import { notesHierarchyChildren } from "$lib/notes/hierarchy-navigation";
   import { notesPagesForProject } from "$lib/notes/project-membership";
   import type { ProjectNavigatorPanelMode } from "$lib/projects/project-toolbar";
   import { getNotes } from "$lib/stores/notes.svelte";
   import { getProjects } from "$lib/stores/projects.svelte";
   import { cn } from "$lib/utils";
   import ProjectIcon from "$lib/components/projects/ProjectIcon.svelte";
-  import NotesPagePickerPanel from "./NotesPagePickerPanel.svelte";
+  import NotesHierarchyPickerPanel from "./NotesHierarchyPickerPanel.svelte";
 
   type MaybePromise<T> = T | Promise<T>;
 
@@ -139,6 +140,13 @@
   const directProjects = $derived.by(() => directProjectGroup ? projectsInGroup(directProjectGroup) : []);
   const activeProjectPages = $derived.by(() => notesPagesForProject(notes.allPages, activeProjectId));
   const activeProjectFolders = $derived.by(() => notesFoldersForProject(notes.folders, activeProjectId));
+  const activeProjectRootItems = $derived(notesHierarchyChildren(
+    activeProjectPages,
+    activeProjectFolders,
+    { kind: "root" },
+    t("notes.untitled"),
+    notes.sidebarPageIdsWithChildren,
+  ));
 
   function projectsInGroup(group: ProjectGroup): Project[] {
     const groupProjects = showInactiveProjects
@@ -315,8 +323,8 @@
       panelRect,
       bounds,
       gap: subpanelGap,
-      footerHeight: subpanelFallbackFooterHeight,
-      projectCount: Math.max(1, activeProjectPages.length + activeProjectFolders.length),
+      footerHeight: 84,
+      projectCount: Math.max(1, activeProjectRootItems.length),
       visibleRows: null,
       listPadding: subpanelListPadding,
       rowHeight: subpanelRowHeight,
@@ -551,7 +559,7 @@
     const groupCount = visibleGroups.length;
     const resultCount = searchResultGroups.reduce((count, entry) => count + entry.projects.length, 0);
     const directProjectCount = directProjectGroup ? projectsInGroup(directProjectGroup).length : 0;
-    const noteCount = activeProjectPages.length + activeProjectFolders.length;
+    const noteCount = activeProjectRootItems.length;
     const creatingGroup = createGroupOpen;
     const creatingProject = createProjectGroupId;
     void maxHeight;
@@ -996,14 +1004,13 @@
     style={noteSubpanelBridgeStyle}
     onpointerleave={handleNoteSubpanelBoundaryLeave}
   ></div>
-  <NotesPagePickerPanel
+  <NotesHierarchyPickerPanel
     bind:rootElement={noteSubpanelElement}
-    selectedPageId={notes.selectedPageId}
     projectId={activeProjectId}
+    parent={{ kind: "root" }}
     frameStyle={noteSubpanelStyle}
     className="fixed"
     {zIndexClass}
-    showSearch={false}
     onLayoutChange={updateNoteSubpanelGeometry}
     onPointerLeave={handleNoteSubpanelBoundaryLeave}
     onPageSelected={async () => {

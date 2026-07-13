@@ -27,7 +27,7 @@ export type LoadedNotesOptionalComponent =
     }
   | {
       kind: "page-picker";
-      component: typeof import("./NotesPagePickerPanel.svelte").default;
+      component: typeof import("./NotesHierarchyPickerPanel.svelte").default;
     }
   | {
       kind: "project-navigator";
@@ -54,7 +54,7 @@ const OPTIONAL_IMPORTERS = {
     .then((module) => ({
       default: { kind: "confirm-dialog" as const, component: module.default },
     })),
-  "page-picker": () => import("./NotesPagePickerPanel.svelte")
+  "page-picker": () => import("./NotesHierarchyPickerPanel.svelte")
     .then((module) => ({
       default: { kind: "page-picker" as const, component: module.default },
     })),

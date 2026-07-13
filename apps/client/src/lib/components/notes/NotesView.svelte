@@ -9,6 +9,7 @@
     type LazyComponentLoadState,
   } from "$lib/lazy-component-loader";
   import { parseNotesLinkHash } from "$lib/notes/block-link";
+  import { notesPageContainingFolderId } from "$lib/notes/hierarchy-navigation";
   import type { NotesPageOpenMode } from "$lib/notes/page-open-mode";
   import { notesUndoShortcutAction } from "$lib/notes/undo-history";
   import { getNotes } from "$lib/stores/notes.svelte";
@@ -40,6 +41,10 @@
   type ActiveNotesSurfaceKind = NotesSurfaceKind | "home" | "editor";
 
   let showInactiveProjects = $state(false);
+  let explorerCollapsed = $state(false);
+  let creationFolderOverride = $state<string | null | undefined>(undefined);
+  let creationContextProjectId = $state<string | null>(null);
+  let creationContextPageId = $state<string | null>(null);
   let notesRootElement = $state<HTMLDivElement | null>(null);
   let projectSettingsOpen = $state(false);
   let projectSettingsDirty = $state(false);
@@ -58,9 +63,22 @@
   const selectedProject = $derived(projects.selectedProject);
   const selectedGroup = $derived(projects.selectedGroup);
   const selectedProjectId = $derived(selectedProject?.id ?? null);
-  const topBarSelectedPage = $derived(
-    notes.pageOpenMode === "full" && notes.primaryContentReady ? notes.loadedPage : null,
-  );
+  const creationFolderId = $derived.by(() => {
+    if (creationFolderOverride !== undefined) return creationFolderOverride;
+    return notesPageContainingFolderId(
+      notes.selectedPageId,
+      [...new Map(
+        [...notes.allPages, ...notes.linkResolutionPages].map((page) => [page.id, page]),
+      ).values()],
+    );
+  });
+  const topBarSelectedPage = $derived.by(() => {
+    if (notes.pageOpenMode !== "full" || !notes.selectedPageId) return null;
+    if (notes.loadedPage?.id === notes.selectedPageId) return notes.loadedPage;
+    return notes.allPages.find((page) => page.id === notes.selectedPageId)
+      ?? notes.linkResolutionPages.find((page) => page.id === notes.selectedPageId)
+      ?? null;
+  });
   const hasOpenPage = $derived(
     notes.viewMode === "pages"
       && notes.selectedPageId !== null
@@ -181,6 +199,15 @@
   });
 
   $effect(() => {
+    const projectId = selectedProjectId;
+    const pageId = notes.selectedPageId;
+    if (projectId === creationContextProjectId && pageId === creationContextPageId) return;
+    creationContextProjectId = projectId;
+    creationContextPageId = pageId;
+    creationFolderOverride = undefined;
+  });
+
+  $effect(() => {
     if (activeSurfaceKind === "archive" || activeSurfaceKind === "trash") {
       requestNotesSurface(activeSurfaceKind);
     }
@@ -278,7 +305,11 @@
   }
 
   function createPage(): void {
-    void notes.createPage("", { projectId: selectedProjectId, openMode: "full" });
+    void notes.createPage("", {
+      projectId: selectedProjectId,
+      folderId: creationFolderId,
+      openMode: "full",
+    });
   }
 
   function closePagePeek(): void {
@@ -380,6 +411,8 @@
     {selectedGroup}
     {selectedProjectId}
     selectedPage={topBarSelectedPage}
+    {explorerCollapsed}
+    {creationFolderId}
     {showInactiveProjects}
     onShowInactiveProjectsChange={(value) => {
       showInactiveProjects = value;
@@ -460,7 +493,14 @@
     {/if}
   {/if}
   <div class="notes-view-layout relative flex min-h-0 flex-1 overflow-hidden">
-    <NotesProjectHome projectId={selectedProjectId} />
+    <NotesProjectHome
+      projectId={selectedProjectId}
+      bind:explorerCollapsed
+      {creationFolderId}
+      onCreationFolderChange={(folderId) => {
+        creationFolderOverride = folderId;
+      }}
+    />
     <div class={showSidePeek ? "flex min-w-0 basis-1/2 overflow-hidden" : "flex min-w-0 flex-1 overflow-hidden"}>
       {#if !notes.loaded && notes.loadError}
         <div class="flex min-w-0 flex-1 flex-col items-center justify-center gap-3 p-4 text-center" role="alert" data-notes-first-use-state>

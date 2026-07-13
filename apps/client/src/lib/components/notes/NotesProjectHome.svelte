@@ -26,6 +26,7 @@
     type NotesNavigationSortOrder,
   } from "$lib/notes/navigation-tree";
   import { notesPageMoveTargets } from "$lib/notes/page-move";
+  import { notesPageContainingFolderId } from "$lib/notes/hierarchy-navigation";
   import { notesPageTitle } from "$lib/notes/page-title";
   import { notesPagesForProject } from "$lib/notes/project-membership";
   import type { NotesFolder, NotesPage } from "$lib/notes/types";
@@ -40,8 +41,14 @@
 
   let {
     projectId = null,
+    explorerCollapsed = $bindable(false),
+    creationFolderId = null,
+    onCreationFolderChange,
   }: {
     projectId?: string | null;
+    explorerCollapsed?: boolean;
+    creationFolderId?: string | null;
+    onCreationFolderChange: (folderId: string | null) => void;
   } = $props();
 
   const notes = getNotes();
@@ -59,8 +66,19 @@
     });
   }
 
+  function resetCreationLocationOnBlankPointer(node: HTMLElement) {
+    const handlePointerDown = (event: PointerEvent): void => {
+      if (event.button === 0 && event.target === node) onCreationFolderChange(null);
+    };
+    node.addEventListener("pointerdown", handlePointerDown);
+    return {
+      destroy(): void {
+        node.removeEventListener("pointerdown", handlePointerDown);
+      },
+    };
+  }
+
   let search = $state("");
-  let explorerCollapsed = $state(false);
   let searchOpen = $state(false);
   let sortMenuOpen = $state(false);
   let sortOrder = $state<NotesNavigationSortOrder>("name-asc");
@@ -166,7 +184,7 @@
     if (pendingArchivePage || pendingTrashPage || pendingDeleteFolder) requestConfirmDialog();
   });
 
-  function createPage(folderId: string | null = null): void {
+  function createPage(folderId: string | null = creationFolderId): void {
     if (folderId) notes.setFolderCollapsed(folderId, false);
     if (notes.viewMode === "archive") notes.closeArchive();
     if (notes.viewMode === "trash") notes.closeTrash();
@@ -310,7 +328,9 @@
     return `${baseName} ${suffix}`;
   }
 
-  async function createFolder(parentFolderId: string | null = null): Promise<void> {
+  async function createFolder(
+    parentFolderId: string | null = creationFolderId,
+  ): Promise<void> {
     if (!projectId) return;
     folderActionError = null;
     try {
@@ -656,6 +676,7 @@
     class="min-h-0 flex-1 overflow-auto px-2 pb-2"
     data-notes-explorer-scroll
     onscroll={handleWorkspaceScroll}
+    use:resetCreationLocationOnBlankPointer
   >
     {#if notes.loadError}
       <div class="px-1 py-2 text-[0.8rem] text-destructive">
@@ -674,6 +695,9 @@
             collapsed={item.collapsed}
             renameRequestId={folderRenameTargetId === item.folder.id ? folderRenameRequestId : 0}
             moveTargets={folderMoveTargets(item.folder)}
+            onActivate={() => {
+              onCreationFolderChange(item.folder.id);
+            }}
             onToggleCollapsed={(collapsed) => {
               notes.setFolderCollapsed(item.folder.id, collapsed);
             }}
@@ -703,6 +727,7 @@
             showDisclosure={false}
             highlightRequestId={item.page.id === notes.selectedPageId ? currentFileHighlightRequestId : 0}
             onSelect={() => {
+              onCreationFolderChange(notesPageContainingFolderId(item.page.id, projectPages));
               selectPrimaryPage(item.page.id);
             }}
             onRename={(title) => {

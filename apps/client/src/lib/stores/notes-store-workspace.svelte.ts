@@ -115,11 +115,20 @@ export function createNotesWorkspaceController(context: NotesWorkspaceController
     }
   }
 
-  async function reloadPages(selectedPageIdOverride = context.readSelectedPageId()): Promise<void> {
+  async function reloadPages(
+    selectedPageIdOverride = context.readSelectedPageId(),
+    expandedPageIdsOverride?: readonly string[],
+  ): Promise<void> {
     const state = context.readRequestState();
     const projectId = state.projectId;
     const shell = await loadNotesWorkspaceShell({
-      ...requestFromState({ ...state, selectedPageId: selectedPageIdOverride }),
+      ...requestFromState({
+        ...state,
+        selectedPageId: selectedPageIdOverride,
+        expandedPageIds: expandedPageIdsOverride
+          ? [...expandedPageIdsOverride]
+          : state.expandedPageIds,
+      }),
     });
     if (projectId !== context.readRequestState().projectId) return;
     context.mergeReloadedShell(shell);

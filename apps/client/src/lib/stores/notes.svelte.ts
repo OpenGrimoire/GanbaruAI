@@ -308,6 +308,11 @@ async function reloadPages(selectedPageIdOverride: string | null = pageSession.s
   await workspaceController.reloadPages(selectedPageIdOverride);
 }
 
+async function loadNavigationChildren(pageId: string): Promise<void> {
+  const expandedPageIds = [...new Set([...sidebarController.expandedPageIds, pageId])];
+  await workspaceController.reloadPages(pageSession.selectedPageId, expandedPageIds);
+}
+
 function mergeReloadedWorkspaceShell(shell: NotesWorkspaceShell): void {
   const mergedPages = [...new Map([...allPages, ...shell.pages].map((page) => [page.id, page])).values()];
   replacePages(mergedPages);
@@ -1399,6 +1404,7 @@ export function getNotes() {
     setPageFavorited,
     setFolderCollapsed,
     setSidebarPageCollapsed,
+    loadNavigationChildren,
     updatePageIcon: pageActions.updatePageIcon,
     updatePageCover: pageActions.updatePageCover,
     openBlockLink,
