@@ -62,7 +62,7 @@
   const notes = getNotes();
   const viewport = getViewport();
   const { t } = getLocalization();
-  const projectIdentityIconStrokeWidth = 1.5;
+  const identityIconStrokeWidth = 1.5;
   const projectIdentityEmojiScale = 0.94;
   const newPageShortcut = $derived(formatShortcut("Mod + N"));
   const newPageTitle = $derived(`${t("notes.newPage")} (${newPageShortcut})`);
@@ -279,7 +279,7 @@
           <ProjectIcon
             name={selectedGroup.icon}
             size={14}
-            strokeWidth={projectIdentityIconStrokeWidth}
+            strokeWidth={identityIconStrokeWidth}
             emojiScale={projectIdentityEmojiScale}
             class="shrink-0"
           />
@@ -302,7 +302,7 @@
           <ProjectIcon
             name={selectedProject.icon}
             size={14}
-            strokeWidth={projectIdentityIconStrokeWidth}
+            strokeWidth={identityIconStrokeWidth}
             emojiScale={projectIdentityEmojiScale}
             class="shrink-0"
           />
@@ -345,7 +345,7 @@
             <NotesPageIcon
               icon={selectedPage?.icon ?? null}
               size={14}
-              strokeWidth={1.75}
+              strokeWidth={identityIconStrokeWidth}
               emojiScale={NOTES_PAGE_CHROME_EMOJI_SCALE}
               class="shrink-0"
             />
@@ -378,7 +378,7 @@
           <NotesPageIcon
             icon={selectedPage?.icon ?? null}
             size={14}
-            strokeWidth={1.75}
+            strokeWidth={identityIconStrokeWidth}
             emojiScale={NOTES_PAGE_CHROME_EMOJI_SCALE}
             class="shrink-0"
           />
