@@ -26,7 +26,7 @@ All documentation lives in `docs/`. Top-level overviews:
 
 Granular docs (read the relevant one when working on a feature):
 
-- **docs/features/**: per-feature behavior and UX (calendar, calendar-recurrence, localization, music, doomscrolling, pomodoro, pomodoro-break-screen, pomodoro-idle-detection, pomodoro-progress-displays, plus placeholders for unbuilt features)
+- **docs/features/**: current and planned per-feature behavior and UX, including Calendar, Pomodoro, Doomscrolling, Music, Notes, Projects, themes, localization, performance, AI integration, work environments, and future product surfaces
 - **docs/data/**: data architecture, schema, invariants, sync, hazards, security
 - **docs/algorithms/**: pure-logic specs (recurrence-expansion, pomodoro-adaptive-rhythm, pomodoro-segments-and-plan, pomodoro-state-machine, idle-detection, time-conflict-detection, undo-redo)
 - **docs/interop/**: interoperability plans, standards scope, conformance fixtures, client behavior, and migration strategy for external formats and calendar clients
@@ -137,7 +137,7 @@ Planned top-level work that does not have source directories yet includes the se
 ```
 Ganbaru AI/
   vault.json: internal Ganbaru AI folder marker, id, display name, and schema version
-  config.json: user settings, work environment definitions, blocker rulesets
+  config.json: folder-local user preferences, UI state, and Doomscrolling settings
   ganbaru-ai.sqlite: SQLite source of truth for structured data, Notes, and indexes
   notes/: document directories reserved by the current vault skeleton
     daily/: reserved for daily note documents
@@ -169,15 +169,15 @@ Tauri's platform app config directory stores device-local bootstrap and runtime 
 - **Frontend:** plain Svelte 5 with runes (not SvelteKit)
 - **Desktop/mobile shell:** Tauri v2
 - **License:** AGPL 3.0
-- **Data architecture:** two categories of data with different storage. Documents (diary entries, project docs, reports, and attachments) are files on disk; SQLite can index them for fast queries but the file is the source of truth where the document format is canonical. Structured data and document graphs (Notes pages and blocks, calendar events, future project tasks, workspace configs, pomodoro configs, runs, segments, pauses, and run events) live in SQLite as the source of truth. Markdown for Notes is derivative import, export, or bridge output only.
-- **AI integration:** three paths. (1) Integrated terminal (xterm.js) running Codex or another CLI coding agent, with calendar-driven session switching, per-project conversation threads, and task context passed through the agent prompt or standard input. (2) BYOK chat widget for non-developer users (OpenAI API, OpenAI-compatible API, Ollama for local models, and other user-configured providers). (3) MCP for external AI clients only (ChatGPT, teammate agents, etc.), not for internal agent interaction.
-- **Agent data bridge:** a `ganbaru-ai` CLI (Rust, reads the same SQLite) is the primary bridge between AI agents and Ganbaru AI's data. Agents call it via Bash. The CLI exports project state as markdown to git repos for collaborators and agents without the CLI. These exports are views of the database, not the source of truth.
+- **Data architecture:** two categories of data with different storage. Documents (diary entries, project docs, reports, and attachments) are files on disk; SQLite can index them for fast queries but the file is the source of truth where the document format is canonical. Structured data and document graphs (Notes pages and blocks, calendar events, project tasks, workspace configs, pomodoro configs, runs, segments, pauses, and run events) live in SQLite as the source of truth. Markdown for Notes is derivative import, export, or bridge output only.
+- **AI integration:** the planned architecture has three opt-in paths. (1) An integrated terminal running Codex or another CLI coding agent. (2) A BYOK chat widget supporting hosted and local user-configured providers. (3) MCP for external AI clients only, not for internal agent interaction. These application paths are not implemented yet.
+- **Agent data bridge:** the planned primary bridge is a Rust `ganbaru-ai` CLI that reads the same SQLite database and can export derivative project views for agents and collaborators. The CLI is not implemented yet. The current Notes UI provides a deterministic agent-bridge markdown export for selected Notes and related project context.
 - **State management:** Svelte 5 runes ($state, $derived, $effect), no external state manager
 - **Localization:** user-facing UI text must use the typed i18n catalog. Language selectors show explicit languages as autonyms, such as `English` and `Español`, while non-language options like system preference are localized. User-facing date, time, number, plural, relative-minute, and list formatting should use the current locale helpers.
 - **Branching and releases:** normal work uses topic branches from `dev` and PRs back to `dev`. Direct pushes to `dev` or `main` are not normal workflow. `main`, `app-v*` tags, release environment approval, published GitHub Releases, package repositories, and AUR publication are controlled by organization admins for supply-chain safety. Releases are promoted through a PR from `dev` to `main`, merged through `main` merge queue, then published from explicit `app-v*` tags that build draft GitHub Releases. Publishing the GitHub Release updates the apt, RPM, and AUR package paths. See `CONTRIBUTING.md`, `docs/release.md`, and `docs/rulesets.md`.
 - **Pull request workflow:** for review work, create a neutral topic branch from current `dev` before committing. Branch names describe the work, such as `docs/github-templates` or `fix/calendar-import`; never use tool names, assistant names, or vanity prefixes in branches, commits, or PR titles. Open PRs into `dev` unless the user explicitly asks for a release PR. Creating a PR does not imply merging it. Merge only when the user explicitly asks to merge, or explicitly asks to complete the whole PR flow after checks pass. Before merging, confirm the PR is mergeable, required checks passed, and the branch is up to date with its base. For release PRs from `dev` to `main`, do not update `dev` with `main`; add the PR to `main` merge queue after pull request checks pass. If `gh pr merge` attempts auto-merge instead of queueing a `main` PR, use GitHub's queue action or the GraphQL `enqueuePullRequest` mutation; do not enable auto-merge. If a non-release PR branch is out of date, update it once, then merge if merging was already authorized after checks pass. After opening a PR, do not wait or poll repeatedly for GitHub Actions. Check status once immediately when useful, or when the user reports checks are complete. When a PR into `dev` is merged, fetch `origin/dev`, switch back to `dev`, sync local `dev` to `origin/dev`, and delete merged topic branches locally and remotely. When a PR into `main` is merged, fetch `origin/main`, switch back to `main`, and sync local `main` to `origin/main`. Do not keep backup branches unless the user explicitly asks.
 - **Commit signing:** commits should be signed with the configured SSH signing key. If signing fails, stop and report it instead of creating an unsigned commit.
-- **Sync:** Yjs + Hocuspocus (CRDT-based, E2E encrypted, self-hosted by the user)
+- **Sync:** planned Yjs + Hocuspocus architecture (CRDT-based, E2E encrypted, and self-hosted by the user); sync is not implemented yet
 - **Build tool:** Vite (default with Tauri + Svelte scaffold)
 
 ## Testing
@@ -219,7 +219,7 @@ Tauri's platform app config directory stores device-local bootstrap and runtime 
 - `pnpm -w run audit:deps`: npm advisory audit for workspace dependencies. Run for dependency or lockfile changes, before PRs, before releases, and when investigating security alerts.
 - `pnpm -w run audit:rust`: RustSec audit for cargo dependencies. Run for dependency or lockfile changes, before PRs, before releases, and when investigating security alerts. Reviewed ignores live in `.cargo/audit.toml` and must be documented in `docs/data/security.md`.
 - `pnpm -w run audit`: both dependency audits (`audit:deps` + `audit:rust`).
-- `pnpm -w run validate`: full normal gate (check + test + editor-check). Run before PRs, releases, risk-sensitive completion gates, and explicit full-validation requests. Do not treat ordinary task completion or a commit alone as requiring this gate. All errors must be fixed before treating that gate as passed.
+- `pnpm -w run validate`: full normal gate (check + test + editor-check + bundle contracts). Run before PRs, releases, risk-sensitive completion gates, and explicit full-validation requests. Do not treat ordinary task completion or a commit alone as requiring this gate. All errors must be fixed before treating that gate as passed.
 - `pnpm -w run validate:full`: security and code gate (audit + validate). Run for dependency or lockfile changes, before PRs, before releases, and when explicitly requested.
 - `pnpm test:coverage` (from apps/client): coverage report to see what's tested.
 
