@@ -25,7 +25,6 @@ describe("Notes component registry", () => {
     await expect(first).resolves.toMatchObject({ kind: "page-picker" });
     expect(notesOptionalComponentHasLoaded("page-picker")).toBe(true);
     expect(notesOptionalComponentHasLoaded("project-navigator")).toBe(false);
-    expect(notesOptionalComponentHasLoaded("project-settings")).toBe(false);
     expect(notesOptionalComponentHasLoaded("project-history")).toBe(false);
     expect(notesOptionalComponentHasLoaded("confirm-dialog")).toBe(false);
     expect(notesOptionalComponentHasLoaded("destination-picker")).toBe(false);

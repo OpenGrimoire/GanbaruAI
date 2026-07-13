@@ -21,7 +21,6 @@ describe("Project component registry", () => {
     await expect(first).resolves.toMatchObject({ kind: "task-finder" });
     expect(projectOptionalComponentHasLoaded("task-finder")).toBe(true);
     expect(projectOptionalComponentHasLoaded("toolbar")).toBe(false);
-    expect(projectOptionalComponentHasLoaded("toolbar-settings")).toBe(false);
     expect(projectOptionalComponentHasLoaded("bulk-actions")).toBe(false);
     expect(projectOptionalComponentHasLoaded("task-detail")).toBe(false);
     expect(projectOptionalComponentHasLoaded("project-navigator")).toBe(false);

@@ -27,6 +27,7 @@
   } from "./notes-component-registry";
   import NotesEditor from "./NotesEditor.svelte";
   import NotesProjectHome from "./NotesProjectHome.svelte";
+  import NotesProjectSettingsPanel from "./NotesProjectSettingsPanel.svelte";
   import NotesWorkspaceHeader from "./NotesWorkspaceHeader.svelte";
 
   const notes = getNotes();
@@ -93,7 +94,6 @@
       ? surfaceLoadStates[activeSurfaceKind] ?? null
       : null,
   );
-  const projectSettingsLoadState = $derived(optionalLoadStates["project-settings"] ?? null);
   const projectHistoryLoadState = $derived(optionalLoadStates["project-history"] ?? null);
   const confirmDialogLoadState = $derived(optionalLoadStates["confirm-dialog"] ?? null);
 
@@ -187,7 +187,6 @@
   });
 
   $effect(() => {
-    if (projectSettingsOpen) requestNotesOptionalComponent("project-settings");
   });
 
   $effect(() => {
@@ -385,9 +384,7 @@
     onToggleProjectSettings={toggleProjectSettings}
   />
   {#if projectSettingsOpen && selectedProjectId}
-    {#if projectSettingsLoadState?.status === "ready" && projectSettingsLoadState.component.kind === "project-settings"}
-      {@const NotesProjectSettingsPanel = projectSettingsLoadState.component.component}
-      <NotesProjectSettingsPanel
+    <NotesProjectSettingsPanel
         projectId={selectedProjectId}
         popoverBoundaryElement={notesRootElement}
         onRequestClose={requestProjectSettingsClose}
@@ -397,19 +394,7 @@
         onOpenVersionHistory={openVersionHistoryFromProjectSettings}
         onOpenArchive={openArchiveFromProjectSettings}
         onOpenTrash={openTrashFromProjectSettings}
-      />
-    {:else if projectSettingsLoadState?.status === "failed"}
-      <div class="absolute right-3 top-12 z-80 rounded-md border border-border bg-popover p-3 text-sm text-popover-foreground shadow-lg" role="alert">
-        <p>{t("common.viewLoadFailed", t("notes.projectSettingsTitle", selectedProject?.name ?? t("notes.title")))}</p>
-        <button class="mt-2 min-h-8 rounded-md border border-border px-2 hover:bg-accent" type="button" onclick={() => requestNotesOptionalComponent("project-settings", true)}>
-          {t("common.retry")}
-        </button>
-      </div>
-    {:else}
-      <div class="absolute right-3 top-12 z-80 rounded-md border border-border bg-popover px-3 py-2 text-sm text-muted-foreground shadow-lg" aria-busy="true">
-        {t("common.loading")}
-      </div>
-    {/if}
+    />
   {/if}
   {#if projectVersionHistoryOpen && selectedProject}
     {#if projectHistoryLoadState?.status === "ready" && projectHistoryLoadState.component.kind === "project-history"}

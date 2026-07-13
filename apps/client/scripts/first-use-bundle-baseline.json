@@ -4,12 +4,12 @@
     {
       "name": "Projects",
       "module": "src/lib/components/projects/ProjectsView.svelte",
-      "maxSourceModules": 133
+      "maxSourceModules": 231
     },
     {
       "name": "Notes",
       "module": "src/lib/components/notes/NotesView.svelte",
-      "maxSourceModules": 133
+      "maxSourceModules": 231
     }
   ],
   "shell": {
@@ -51,9 +51,10 @@
     "loadedModules": [
       "src/lib/components/projects/ProjectToolbarPanels.svelte"
     ],
-    "forbiddenModules": [
+    "requiredModules": [
       "src/lib/components/projects/ProjectSettingsPanel.svelte"
-    ]
+    ],
+    "forbiddenModules": []
   },
   "notesShell": {
     "loadedModules": [
@@ -63,7 +64,8 @@
       "src/lib/components/notes/NotesProjectHome.svelte",
       "src/lib/components/notes/NotesEditor.svelte",
       "src/lib/components/notes/NotesBlockList.svelte",
-      "src/lib/components/notes/NotesBlockRow.svelte"
+      "src/lib/components/notes/NotesBlockRow.svelte",
+      "src/lib/components/notes/NotesProjectSettingsPanel.svelte"
     ],
     "forbiddenModules": [
       "src/lib/components/notes/NotesDatabaseTableView.svelte",
@@ -81,7 +83,6 @@
       "src/lib/components/notes/NotesProjectVersionHistoryModal.svelte",
       "src/lib/components/notes/NotesArchiveView.svelte",
       "src/lib/components/notes/NotesTrashView.svelte",
-      "src/lib/components/notes/NotesProjectSettingsPanel.svelte",
       "src/lib/components/notes/NotesPagePickerPanel.svelte",
       "src/lib/components/notes/NotesProjectNavigator.svelte",
       "src/lib/components/notes/NotesDestinationPickerList.svelte",
@@ -157,7 +158,8 @@
       "src/lib/components/settings/SettingsModal.svelte",
       "src/lib/components/settings/AppearanceSection.svelte"
     ],
-    "forbiddenModules": [
+    "requiredModules": [
+      "src/lib/components/settings/AppearanceSection.svelte",
       "src/lib/components/settings/ProfileSection.svelte",
       "src/lib/components/settings/CalendarsSection.svelte",
       "src/lib/components/settings/ProjectsSection.svelte",
@@ -168,17 +170,10 @@
       "src/lib/components/settings/DataSection.svelte",
       "src/lib/components/settings/UpdatesSection.svelte",
       "src/lib/components/settings/ShortcutsSection.svelte",
-      "src/lib/components/settings/AboutSection.svelte",
+      "src/lib/components/settings/AboutSection.svelte"
+    ],
+    "forbiddenModules": [
       "src/lib/components/settings/DoomscrollingLimitEditor.svelte",
-      "src/lib/components/settings/DoomscrollingAppSelector.svelte",
-      "src/lib/components/settings/DoomscrollingBrowserConnectionStatus.svelte",
-      "src/lib/components/settings/DoomscrollingBrowserSettings.svelte",
-      "src/lib/components/settings/DoomscrollingConfigurationSection.svelte",
-      "src/lib/components/settings/DoomscrollingDesktopSettings.svelte",
-      "src/lib/components/settings/DoomscrollingLimitsSettings.svelte",
-      "src/lib/components/settings/DoomscrollingMobileSettings.svelte",
-      "src/lib/components/settings/DoomscrollingModeSelector.svelte",
-      "src/lib/components/settings/DoomscrollingRuleList.svelte",
       "src/lib/components/settings/NotesTransferSettingsPanel.svelte",
       "src/lib/components/notes/NotesHtmlImportDialog.svelte",
       "src/lib/components/notes/NotesNotionApiImportDialog.svelte",
@@ -187,13 +182,11 @@
     ]
   },
   "settingsDetailModules": [
-    "src/lib/components/settings/NotesSection.svelte",
     "src/lib/components/settings/NotesTransferSettingsPanel.svelte",
     "src/lib/components/notes/NotesHtmlImportDialog.svelte",
     "src/lib/components/notes/NotesNotionApiImportDialog.svelte",
     "src/lib/components/notes/NotesNotionExportImportDialog.svelte",
     "src/lib/components/notes/NotesJsonGraphExportDialog.svelte",
-    "src/lib/components/settings/DoomscrollingSection.svelte",
     "src/lib/components/settings/DoomscrollingLimitEditor.svelte"
   ],
   "defaultEnglishStartup": {

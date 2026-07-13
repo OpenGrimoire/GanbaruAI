@@ -3,9 +3,9 @@
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getSettingsLauncher } from "$lib/stores/settingsLauncher.svelte";
   import { getThemeEditor } from "$lib/stores/themeEditor.svelte";
+  import SettingsModal from "$lib/components/settings/SettingsModal.svelte";
 
   type PerformancePopoverComponent = typeof import("$lib/components/perf/PerformancePopover.svelte").default;
-  type SettingsModalComponent = typeof import("$lib/components/settings/SettingsModal.svelte").default;
   type FloatingThemeEditorComponent = typeof import("$lib/components/settings/FloatingThemeEditor.svelte").default;
   type ThemeQuickSwitcherComponent = typeof import("$lib/components/ThemeQuickSwitcher.svelte").default;
 
@@ -30,11 +30,9 @@
   const { t } = getLocalization();
 
   let PerformancePopover = $state<PerformancePopoverComponent | null>(null);
-  let SettingsModal = $state<SettingsModalComponent | null>(null);
   let FloatingThemeEditor = $state<FloatingThemeEditorComponent | null>(null);
   let ThemeQuickSwitcher = $state<ThemeQuickSwitcherComponent | null>(null);
   let performanceLoad: Promise<void> | null = null;
-  let settingsLoad: Promise<void> | null = null;
   let editorLoad: Promise<void> | null = null;
   let switcherLoad: Promise<void> | null = null;
 
@@ -44,14 +42,6 @@
       .then((module) => { PerformancePopover = module.default; })
       .finally(() => { performanceLoad = null; });
     return performanceLoad;
-  }
-
-  function loadSettings(): Promise<void> {
-    if (SettingsModal) return Promise.resolve();
-    settingsLoad ??= import("$lib/components/settings/SettingsModal.svelte")
-      .then((module) => { SettingsModal = module.default; })
-      .finally(() => { settingsLoad = null; });
-    return settingsLoad;
   }
 
   function loadEditor(): Promise<void> {
@@ -72,7 +62,6 @@
 
   $effect(() => {
     if (showPerformance) void loadPerformance();
-    if (settingsLauncher.isOpen) void loadSettings();
     if (themeEditor.editingId) void loadEditor();
     if (showThemeQuickSwitcher) void loadSwitcher();
   });
@@ -111,9 +100,8 @@
   <Switcher onClose={() => { showThemeQuickSwitcher = false; }} />
 {/if}
 
-{#if settingsLauncher.isOpen && SettingsModal}
-  {@const Modal = SettingsModal}
-  <Modal
+{#if settingsLauncher.isOpen}
+  <SettingsModal
     onClose={() => settingsLauncher.close()}
     initialSection={settingsLauncher.targetSection}
     initialDoomscrollingTab={settingsLauncher.targetDoomscrollingTab}
@@ -125,7 +113,6 @@
   <Editor
     onBackToList={() => {
       settingsLauncher.open("appearance");
-      void loadSettings();
     }}
   />
 {/if}

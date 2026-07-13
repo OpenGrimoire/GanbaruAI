@@ -10,7 +10,6 @@ export type LoadedNotesSurface =
   | { kind: "trash"; component: typeof import("./NotesTrashView.svelte").default };
 
 export type NotesOptionalComponentKind =
-  | "project-settings"
   | "project-history"
   | "confirm-dialog"
   | "page-picker"
@@ -18,10 +17,6 @@ export type NotesOptionalComponentKind =
   | "destination-picker";
 
 export type LoadedNotesOptionalComponent =
-  | {
-      kind: "project-settings";
-      component: typeof import("./NotesProjectSettingsPanel.svelte").default;
-    }
   | {
       kind: "project-history";
       component: typeof import("./NotesProjectVersionHistoryModal.svelte").default;
@@ -51,10 +46,6 @@ const SURFACE_IMPORTERS = {
 } satisfies Readonly<Record<NotesSurfaceKind, LazyComponentImporter<LoadedNotesSurface>>>;
 
 const OPTIONAL_IMPORTERS = {
-  "project-settings": () => import("./NotesProjectSettingsPanel.svelte")
-    .then((module) => ({
-      default: { kind: "project-settings" as const, component: module.default },
-    })),
   "project-history": () => import("./NotesProjectVersionHistoryModal.svelte")
     .then((module) => ({
       default: { kind: "project-history" as const, component: module.default },

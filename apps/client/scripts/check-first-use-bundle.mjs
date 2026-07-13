@@ -107,6 +107,10 @@ function readBaseline(value) {
           contract.loadedModules,
           "baseline projectsToolbar loadedModules",
         ),
+        requiredModules: requireStringArray(
+          contract.requiredModules,
+          "baseline projectsToolbar requiredModules",
+        ),
         forbiddenModules: requireStringArray(
           contract.forbiddenModules,
           "baseline projectsToolbar forbiddenModules",
@@ -166,6 +170,10 @@ function readBaseline(value) {
         loadedModules: requireStringArray(
           contract.loadedModules,
           "baseline settingsAppearance loadedModules",
+        ),
+        requiredModules: requireStringArray(
+          contract.requiredModules,
+          "baseline settingsAppearance requiredModules",
         ),
         forbiddenModules: requireStringArray(
           contract.forbiddenModules,
@@ -298,6 +306,11 @@ const settingsAppearanceChunks = staticChunkClosure(settingsAppearanceRoots);
 const settingsAppearanceModules = new Set(
   settingsAppearanceChunks.flatMap((chunk) => chunk.modules),
 );
+for (const moduleId of baseline.settingsAppearance.requiredModules) {
+  if (!settingsAppearanceModules.has(moduleId)) {
+    failures.push(`Settings Appearance does not load required module: ${moduleId}`);
+  }
+}
 for (const moduleId of baseline.settingsAppearance.forbiddenModules) {
   if (!allModules.has(moduleId)) {
     failures.push(`Settings Appearance forbidden module is absent from all chunks: ${moduleId}`);
@@ -402,6 +415,7 @@ console.log(JSON.stringify({
     chunks: settingsAppearanceChunks.map((chunk) => chunk.fileName),
     sourceModules: [...settingsAppearanceModules]
       .filter((moduleId) => moduleId.startsWith("src/")).length,
+    requiredModules: baseline.settingsAppearance.requiredModules,
     forbiddenModules: baseline.settingsAppearance.forbiddenModules,
   },
   settingsDetailChunks,

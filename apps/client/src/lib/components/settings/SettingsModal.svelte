@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, untrack } from "svelte";
+  import { onMount, untrack, type Component } from "svelte";
   import { cn } from "$lib/utils";
   import SettingsIcon from "@lucide/svelte/icons/settings";
   import X from "@lucide/svelte/icons/x";
@@ -15,11 +15,6 @@
     type LazyComponentLoadState,
   } from "$lib/lazy-component-loader";
   import {
-    loadSettingsSection,
-    retrySettingsSection,
-    type LoadedSettingsSection,
-  } from "./settings-section-registry";
-  import {
     loadSettingsDetail,
     retrySettingsDetail,
     type LoadedSettingsDetail,
@@ -32,6 +27,33 @@
     SettingsDetailKind,
   } from "./types";
   import { SETTINGS_SECTIONS } from "./settings-sections";
+  import AppearanceSection from "./AppearanceSection.svelte";
+  import ProfileSection from "./ProfileSection.svelte";
+  import CalendarsSection from "./CalendarsSection.svelte";
+  import ProjectsSection from "./ProjectsSection.svelte";
+  import NotesSection from "./NotesSection.svelte";
+  import FocusSection from "./FocusSection.svelte";
+  import MusicSection from "./MusicSection.svelte";
+  import DoomscrollingSection from "./DoomscrollingSection.svelte";
+  import DataSection from "./DataSection.svelte";
+  import UpdatesSection from "./UpdatesSection.svelte";
+  import ShortcutsSection from "./ShortcutsSection.svelte";
+  import AboutSection from "./AboutSection.svelte";
+
+  const SECTION_COMPONENTS = {
+    appearance: AppearanceSection,
+    profile: ProfileSection,
+    calendars: CalendarsSection,
+    projects: ProjectsSection,
+    notes: NotesSection,
+    focus: FocusSection,
+    music: MusicSection,
+    doomscrolling: DoomscrollingSection,
+    data: DataSection,
+    updates: UpdatesSection,
+    shortcuts: ShortcutsSection,
+    about: AboutSection,
+  } satisfies Readonly<Record<SectionId, Component>>;
 
   type SettingsDetailView =
     | { kind: "doomscrolling-limit"; target: DoomscrollingLimitEditorTarget }
@@ -62,17 +84,11 @@
   const initialActiveSection = untrack(() => initialSection ?? "appearance");
   let activeSection = $state<SectionId>(initialActiveSection);
   let detailView = $state<SettingsDetailView | null>(null);
-  let sectionLoadState = $state<LazyComponentLoadState<
-    SectionId,
-    LoadedSettingsSection
-  > | null>(null);
   let detailLoadState = $state<LazyComponentLoadState<
     SettingsDetailKind,
     LoadedSettingsDetail
   > | null>(null);
-  const activeSectionLoadState = $derived(
-    sectionLoadState?.key === activeSection ? sectionLoadState : null,
-  );
+  const activeSectionComponent = $derived(SECTION_COMPONENTS[activeSection]);
   const activeDetailLoadState = $derived(
     detailView && detailLoadState?.key === detailView.kind ? detailLoadState : null,
   );
@@ -84,36 +100,6 @@
   const useIconRail = $derived(!useTopNav && viewport.below("regular"));
   const settingsScrollbarInset = $derived(useTopNav ? 12 : useIconRail ? 16 : 24);
   const settingsContentPaddingClass = $derived(useTopNav ? "px-3 py-4" : useIconRail ? "px-5 py-5" : "p-8");
-  function requestSettingsSection(section: SectionId, retry = false): void {
-    if (!retry && sectionLoadState?.key === section) return;
-    const loadingState = beginLazyComponentLoad(sectionLoadState, section);
-    sectionLoadState = loadingState;
-    const request = retry ? retrySettingsSection(section) : loadSettingsSection(section);
-    void request
-      .then((component) => {
-        if (!sectionLoadState) return;
-        const nextState = resolveLazyComponentLoad(
-          sectionLoadState,
-          section,
-          loadingState.requestId,
-          component,
-        );
-        if (nextState !== sectionLoadState) sectionLoadState = nextState;
-      })
-      .catch((error: unknown) => {
-        if (!sectionLoadState) return;
-        const nextState = rejectLazyComponentLoad(
-          sectionLoadState,
-          section,
-          loadingState.requestId,
-          error,
-        );
-        if (nextState === sectionLoadState) return;
-        sectionLoadState = nextState;
-        console.error(`Failed to load ${section} Settings section:`, error);
-      });
-  }
-
   function requestSettingsDetail(kind: SettingsDetailKind, retry = false): void {
     if (!retry && detailLoadState?.key === kind) return;
     const loadingState = beginLazyComponentLoad(detailLoadState, kind);
@@ -149,8 +135,6 @@
     return section ? t(section.labelKey) : t("settings.title");
   }
 
-  requestSettingsSection(initialActiveSection);
-
   function focusShortcutsSearch(): void {
     const input = document.querySelector<HTMLInputElement>(
       "[data-shortcuts-search-input]",
@@ -172,7 +156,6 @@
     detailScrollEl = undefined;
     detailScrollbarInsetTop = 0;
     detailScrollbarInsetBottom = 0;
-    requestSettingsSection(section);
     scrollSettingsToTop();
   }
 
@@ -423,42 +406,16 @@
               {t("common.loading")}
             </div>
           {/if}
-        {:else if activeSectionLoadState?.status === "ready"}
-          {@const loadedSection = activeSectionLoadState.component}
-          {#if loadedSection.section === "notes"}
-            {@const SectionComponent = loadedSection.component}
-            <SectionComponent onOpenTransferPanel={openNotesTransferPanel} />
-          {:else if loadedSection.section === "doomscrolling"}
-            {@const SectionComponent = loadedSection.component}
-            <SectionComponent
+        {:else if activeSection === "notes"}
+            <NotesSection onOpenTransferPanel={openNotesTransferPanel} />
+        {:else if activeSection === "doomscrolling"}
+            <DoomscrollingSection
               initialTab={initialDoomscrollingTab}
               onOpenLimitEditor={openDoomscrollingLimitEditor}
             />
-          {:else}
-            {@const SectionComponent = loadedSection.component}
-            <SectionComponent />
-          {/if}
-        {:else if activeSectionLoadState?.status === "failed"}
-          <div
-            class="flex min-h-40 flex-col items-center justify-center gap-3 text-center text-sm text-muted-foreground"
-            role="alert"
-          >
-            <p>{t("common.viewLoadFailed", activeSectionLabel())}</p>
-            <button
-              type="button"
-              class="min-h-9 rounded-md border border-border bg-background px-3 font-medium text-foreground hover:bg-accent"
-              onclick={() => requestSettingsSection(activeSection, true)}
-            >
-              {t("common.retry")}
-            </button>
-          </div>
         {:else}
-          <div
-            class="flex min-h-40 items-center justify-center text-sm text-muted-foreground"
-            aria-busy="true"
-          >
-            {t("common.loading")}
-          </div>
+          {@const SectionComponent = activeSectionComponent}
+          <SectionComponent />
         {/if}
       </section>
       {#if detailView}
