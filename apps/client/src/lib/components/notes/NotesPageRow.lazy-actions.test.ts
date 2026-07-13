@@ -92,9 +92,14 @@ describe("NotesPageRow lazy actions", () => {
     await tick();
     expect(loader.calls).toEqual([]);
 
-    const actionButton = target.querySelector<HTMLButtonElement>('[aria-label="Note actions"]');
-    expect(actionButton).not.toBeNull();
-    actionButton?.click();
+    const row = target.querySelector<HTMLElement>('[role="group"]');
+    expect(row).not.toBeNull();
+    row?.dispatchEvent(new MouseEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true,
+      clientX: 24,
+      clientY: 24,
+    }));
     await tick();
     expect(loader.calls).toEqual([]);
 

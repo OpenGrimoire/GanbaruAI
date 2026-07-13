@@ -6,18 +6,31 @@
     resolveLazyComponentLoad,
     type LazyComponentLoadState,
   } from "$lib/lazy-component-loader";
-  import ChevronDown from "@lucide/svelte/icons/chevron-down";
-  import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import FilePlus2 from "@lucide/svelte/icons/file-plus-2";
   import Folder from "@lucide/svelte/icons/folder";
   import FolderInput from "@lucide/svelte/icons/folder-input";
   import FolderOpen from "@lucide/svelte/icons/folder-open";
   import FolderPlus from "@lucide/svelte/icons/folder-plus";
-  import MoreHorizontal from "@lucide/svelte/icons/more-horizontal";
   import Pencil from "@lucide/svelte/icons/pencil";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import {
+    COMPACT_IDENTITY_ICON_SIZE,
+    COMPACT_IDENTITY_ICON_STROKE_WIDTH,
+  } from "$lib/icon-sizing";
   import type { NotesDestinationPickerTarget } from "$lib/notes/destination-picker";
+  import {
+    createInlineRenameHistory,
+    inlineRenameHistoryAction,
+    inlineRenameInputKind,
+    inlineRenameHistoryValue,
+    recordInlineRenameValue,
+    stepInlineRenameHistory,
+  } from "$lib/notes/inline-rename-history";
+  import {
+    notesRowContextMenuGeometry,
+    notesRowContextMenuStyle,
+  } from "$lib/notes/row-context-menu";
   import type { NotesFolder } from "$lib/notes/types";
   import { dismissOnOutside } from "$lib/utils/dismiss-on-outside";
   import {
@@ -33,7 +46,6 @@
   let {
     folder,
     depth,
-    hasChildren,
     collapsed,
     renameRequestId = 0,
     moveTargets,
@@ -46,23 +58,27 @@
   }: {
     folder: NotesFolder;
     depth: number;
-    hasChildren: boolean;
     collapsed: boolean;
     renameRequestId?: number;
     moveTargets: NotesFolderRowMoveTarget[];
     onToggleCollapsed: (collapsed: boolean) => void;
     onCreatePage: () => void;
     onCreateFolder: () => void;
-    onRename: (name: string) => void;
+    onRename: (name: string) => boolean | Promise<boolean>;
     onMove: (parentFolderId: string | null) => void;
     onDelete: () => void;
   } = $props();
 
   const { t } = getLocalization();
+  const explorerRowIconSize = COMPACT_IDENTITY_ICON_SIZE;
+  const explorerRowIconStrokeWidth = COMPACT_IDENTITY_ICON_STROKE_WIDTH;
   let editing = $state(false);
   let menuOpen = $state(false);
+  let menuStyle = $state("");
   let moveMenuOpen = $state(false);
   let nameDraft = $state("");
+  let renameHistory = $state(createInlineRenameHistory(""));
+  let pendingName = $state<string | null>(null);
   let renameInput = $state<HTMLInputElement | null>(null);
   let handledRenameRequestId = 0;
   let destinationPickerLoadState = $state<LazyComponentLoadState<
@@ -70,8 +86,11 @@
     LoadedNotesOptionalComponent
   > | null>(null);
 
+  const visibleName = $derived(pendingName ?? folder.name);
+
   $effect(() => {
-    if (!editing) nameDraft = folder.name;
+    if (pendingName !== null && folder.name === pendingName) pendingName = null;
+    if (!editing && pendingName === null) nameDraft = folder.name;
   });
 
   $effect(() => {
@@ -81,7 +100,7 @@
   $effect(() => {
     if (renameRequestId <= 0 || renameRequestId === handledRenameRequestId) return;
     handledRenameRequestId = renameRequestId;
-    editing = true;
+    beginRename();
   });
 
   $effect(() => {
@@ -128,16 +147,73 @@
     moveMenuOpen = false;
   }
 
+  function openContextMenu(event: MouseEvent): void {
+    if (editing) return;
+    if (event.target instanceof Element && event.target.closest("[data-app-floating-surface]")) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    menuStyle = notesRowContextMenuStyle(notesRowContextMenuGeometry({
+      clientX: event.clientX,
+      clientY: event.clientY,
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+    }));
+    menuOpen = true;
+  }
+
   function saveRename(): void {
+    if (!editing) return;
     const name = nameDraft.trim();
+    const previousName = folder.name;
     editing = false;
     menuOpen = false;
     nameDraft = name || folder.name;
     if (!name || name === folder.name) return;
-    onRename(name);
+    pendingName = name;
+    void Promise.resolve(onRename(name)).then((renamed) => {
+      if (renamed) return;
+      pendingName = null;
+      nameDraft = previousName;
+    }).catch(() => {
+      pendingName = null;
+      nameDraft = previousName;
+    });
+  }
+
+  function beginRename(): void {
+    nameDraft = visibleName;
+    renameHistory = createInlineRenameHistory(nameDraft);
+    editing = true;
+  }
+
+  function handleRenameInput(event: Event): void {
+    const input = event.currentTarget;
+    if (!(input instanceof HTMLInputElement)) return;
+    nameDraft = input.value;
+    const inputType = event instanceof InputEvent ? event.inputType : "";
+    renameHistory = recordInlineRenameValue(
+      renameHistory,
+      nameDraft,
+      inlineRenameInputKind(inputType),
+      Date.now(),
+    );
   }
 
   function handleRenameKeydown(event: KeyboardEvent): void {
+    const historyAction = inlineRenameHistoryAction(event);
+    if (historyAction) {
+      event.preventDefault();
+      event.stopPropagation();
+      renameHistory = stepInlineRenameHistory(renameHistory, historyAction);
+      nameDraft = inlineRenameHistoryValue(renameHistory);
+      if (renameInput) {
+        renameInput.value = nameDraft;
+        renameInput.setSelectionRange(nameDraft.length, nameDraft.length);
+      }
+      return;
+    }
     if (event.key === "Enter") {
       event.preventDefault();
       saveRename();
@@ -160,83 +236,56 @@
 <div
   class="notes-folder-row group relative"
   role="group"
-  aria-label={folder.name}
+  aria-label={visibleName}
   style={`--notes-folder-depth: ${Math.min(depth, 10)}`}
+  oncontextmenu={openContextMenu}
   use:dismissOnOutside={{ enabled: menuOpen, onDismiss: closeMenu }}
 >
   {#if editing}
-    <input
-      bind:this={renameInput}
-      class="notes-folder-row-content rounded-md border border-border bg-background px-2 py-1.5 text-[0.866667rem] text-foreground outline-none"
-      style="width: calc(100% - var(--notes-folder-indent));"
-      aria-label={t("notes.renameFolder")}
-      bind:value={nameDraft}
-      placeholder={t("notes.folderNamePlaceholder")}
-      onkeydown={handleRenameKeydown}
-      onblur={saveRename}
-    />
+    <div class="notes-folder-row-content flex min-w-0 items-center gap-1.5 rounded-md bg-accent/50 px-2 py-1.5 text-foreground">
+      {#if collapsed}
+        <Folder size={explorerRowIconSize} class="shrink-0" strokeWidth={explorerRowIconStrokeWidth} />
+      {:else}
+        <FolderOpen size={explorerRowIconSize} class="shrink-0" strokeWidth={explorerRowIconStrokeWidth} />
+      {/if}
+      <input
+        bind:this={renameInput}
+        class="min-w-0 flex-1 bg-transparent text-[0.866667rem] text-inherit caret-primary outline-none placeholder:text-muted-foreground"
+        data-app-shortcuts="ignore"
+        aria-label={t("notes.renameFolder")}
+        value={nameDraft}
+        placeholder={t("notes.folderNamePlaceholder")}
+        oninput={handleRenameInput}
+        onkeydown={handleRenameKeydown}
+        onblur={saveRename}
+      />
+    </div>
   {:else}
-    <div class="notes-folder-row-content flex min-w-0 items-center rounded-md pr-1 text-foreground hover:bg-accent/70">
+    <div class="notes-folder-row-content flex min-w-0 items-center rounded-md pr-1 text-foreground hover:bg-accent/50">
       <button
-        class="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-background/80 hover:text-foreground"
+        class="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1.5 text-left text-[0.866667rem] text-inherit"
         type="button"
+        aria-expanded={!collapsed}
         aria-label={collapsed ? t("notes.expandFolder") : t("notes.collapseFolder")}
-        disabled={!hasChildren}
-        onclick={(event) => {
-          event.stopPropagation();
+        onclick={() => {
           onToggleCollapsed(!collapsed);
         }}
       >
-        {#if hasChildren && collapsed}
-          <ChevronRight class="size-4" />
-        {:else if hasChildren}
-          <ChevronDown class="size-4" />
-        {/if}
-      </button>
-      <button
-        class="flex min-w-0 flex-1 items-center gap-1.5 py-1.5 pr-1 text-left text-[0.866667rem] font-medium"
-        type="button"
-        aria-expanded={hasChildren ? !collapsed : undefined}
-        onclick={() => {
-          if (hasChildren) onToggleCollapsed(!collapsed);
-        }}
-      >
-        {#if collapsed || !hasChildren}
-          <Folder class="size-3.5 shrink-0 text-muted-foreground" />
+        {#if collapsed}
+          <Folder size={explorerRowIconSize} class="shrink-0" strokeWidth={explorerRowIconStrokeWidth} />
         {:else}
-          <FolderOpen class="size-3.5 shrink-0 text-muted-foreground" />
+          <FolderOpen size={explorerRowIconSize} class="shrink-0" strokeWidth={explorerRowIconStrokeWidth} />
         {/if}
-        <span class="min-w-0 flex-1 truncate">{folder.name}</span>
-      </button>
-      <button
-        class="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-background/80 hover:text-foreground"
-        type="button"
-        aria-label={t("notes.newNoteInFolder")}
-        data-app-tooltip={t("notes.newNoteInFolder")}
-        onclick={(event) => {
-          event.stopPropagation();
-          onCreatePage();
-        }}
-      >
-        <FilePlus2 class="size-3.5" />
-      </button>
-      <button
-        class="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-background/80 hover:text-foreground"
-        type="button"
-        aria-label={t("notes.folderActions")}
-        onclick={(event) => {
-          event.stopPropagation();
-          menuOpen = !menuOpen;
-        }}
-      >
-        <MoreHorizontal class="size-4" />
+        <span class="min-w-0 flex-1 truncate">{visibleName}</span>
       </button>
     </div>
   {/if}
 
   {#if menuOpen}
     <div
-      class="notes-folder-action-menu absolute right-1 top-8 z-20 min-w-40 rounded-md border border-border bg-popover py-1 text-popover-foreground shadow-lg"
+      class="notes-folder-action-menu fixed z-50 min-w-40 rounded-md border border-border bg-popover py-1 text-popover-foreground shadow-lg"
+      style={menuStyle}
+      role="menu"
       data-app-floating-surface
     >
       <button
@@ -265,7 +314,7 @@
         class="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[0.8rem] hover:bg-accent"
         type="button"
         onclick={() => {
-          editing = true;
+          beginRename();
           closeMenu();
         }}
       >

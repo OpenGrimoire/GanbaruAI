@@ -23,6 +23,13 @@ export function notesDefaultOpenModeForProject(
   return projectDefaultOpenMode ?? globalDefaultOpenMode;
 }
 
+export function notesContextualPageOpenMode(
+  currentOpenMode: NotesPageOpenMode,
+  defaultOpenMode: NotesPageOpenMode,
+): NotesPageOpenMode {
+  return currentOpenMode === "full" ? defaultOpenMode : currentOpenMode;
+}
+
 export function notesPageOpenModeForSelection({
   requestedOpenMode,
   currentOpenMode,

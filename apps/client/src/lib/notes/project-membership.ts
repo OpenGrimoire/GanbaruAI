@@ -1,10 +1,12 @@
 import type { NotesPage } from "./types";
+import type { NotesPageOpenMode } from "./page-open-mode";
 
 export const NOTES_PAGE_PROJECT_ID_PROPERTY = "__ganbaru_project_id";
 
 export interface NotesCreatePageOptions {
   projectId?: string | null;
   folderId?: string | null;
+  openMode?: NotesPageOpenMode;
 }
 
 export function normalizeNotesProjectId(projectId: string | null | undefined): string | null {

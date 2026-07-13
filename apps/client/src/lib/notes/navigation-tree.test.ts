@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createRichText } from "./block-factory";
 import {
+  addNotesFolderActions,
   buildNotesNavigationTree,
   notesFolderMoveTargets,
   notesFoldersForProject,
@@ -65,6 +66,34 @@ function page(
 }
 
 describe("notes navigation tree", () => {
+  it("places an action after open folders without direct notes", () => {
+    const tree = buildNotesNavigationTree(
+      [
+        page("nested-note", "Nested note", undefined, "nested"),
+        page("root-note", "Root note", undefined, "root"),
+      ],
+      [folder("root", "Root"), folder("nested", "Nested", "root")],
+    );
+
+    expect(addNotesFolderActions(tree).map((item) => item.key)).toEqual([
+      "folder:root",
+      "folder:nested",
+      "page:nested-note",
+      "page:root-note",
+    ]);
+
+    const foldersOnly = buildNotesNavigationTree(
+      [],
+      [folder("root", "Root"), folder("nested", "Nested", "root")],
+    );
+    expect(addNotesFolderActions(foldersOnly).map((item) => item.key)).toEqual([
+      "folder:root",
+      "folder:nested",
+      "folder-action:nested",
+      "folder-action:root",
+    ]);
+  });
+
   it("combines nested folders with folder-owned and nested pages", () => {
     const pages = [
       page("root-note", "Root note", undefined, "research"),
@@ -87,7 +116,42 @@ describe("notes navigation tree", () => {
     ]);
   });
 
-  it("keeps collapsed folders closed but reveals active page ancestors", () => {
+  it("sorts folders and notes within each hierarchy level", () => {
+    const early = "2026-07-08T12:00:00.000Z";
+    const middle = "2026-07-09T12:00:00.000Z";
+    const late = "2026-07-10T12:00:00.000Z";
+    const pages = [
+      { ...page("page-z", "Zulu"), created_time: early, last_edited_time: late },
+      { ...page("page-a", "Alpha"), created_time: late, last_edited_time: middle },
+    ];
+    const folders = [
+      { ...folder("folder-z", "Zoo"), created_time: middle, last_edited_time: early },
+      { ...folder("folder-a", "Archive"), created_time: late, last_edited_time: late },
+    ];
+    const keysFor = (sortOrder: NonNullable<Parameters<typeof buildNotesNavigationTree>[2]>["sortOrder"]): string[] =>
+      buildNotesNavigationTree(pages, folders, { sortOrder }).map((item) => item.key);
+
+    expect(keysFor("name-asc")).toEqual([
+      "folder:folder-a", "folder:folder-z", "page:page-a", "page:page-z",
+    ]);
+    expect(keysFor("name-desc")).toEqual([
+      "folder:folder-z", "folder:folder-a", "page:page-z", "page:page-a",
+    ]);
+    expect(keysFor("modified-desc")).toEqual([
+      "folder:folder-a", "folder:folder-z", "page:page-z", "page:page-a",
+    ]);
+    expect(keysFor("modified-asc")).toEqual([
+      "folder:folder-z", "folder:folder-a", "page:page-a", "page:page-z",
+    ]);
+    expect(keysFor("created-desc")).toEqual([
+      "folder:folder-a", "folder:folder-z", "page:page-a", "page:page-z",
+    ]);
+    expect(keysFor("created-asc")).toEqual([
+      "folder:folder-z", "folder:folder-a", "page:page-z", "page:page-a",
+    ]);
+  });
+
+  it("keeps selected notes open while allowing their folder to close", () => {
     const pages = [
       page("root-note", "Root note", undefined, "research"),
       page("child-note", "Child note", { type: "page_id", page_id: "root-note" }),
@@ -106,7 +170,30 @@ describe("notes navigation tree", () => {
         expandedPageIds: [],
         activePageId: "child-note",
       }).map((item) => item.key),
+    ).toEqual(["folder:research"]);
+    expect(
+      buildNotesNavigationTree(pages, folders, {
+        expandedPageIds: [],
+        activePageId: "child-note",
+      }).map((item) => item.key),
     ).toEqual(["folder:research", "page:root-note", "page:child-note"]);
+  });
+
+  it("opens empty folders by default and preserves their closed state", () => {
+    const folders = [folder("empty", "Empty")];
+
+    expect(buildNotesNavigationTree([], folders)[0]).toMatchObject({
+      kind: "folder",
+      collapsed: false,
+      hasChildren: false,
+    });
+    expect(buildNotesNavigationTree([], folders, {
+      collapsedFolderIds: ["empty"],
+    })[0]).toMatchObject({
+      kind: "folder",
+      collapsed: true,
+      hasChildren: false,
+    });
   });
 
   it("shows matching pages with their folder and page ancestors", () => {

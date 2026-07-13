@@ -117,6 +117,7 @@
   const projects = getProjects();
   const localization = getLocalization();
   const { t } = localization;
+  const noteActionIconStrokeWidth = 1.5;
 
   let titleDraft = $state("");
   let titleInput: HTMLInputElement | null = $state(null);
@@ -709,7 +710,7 @@
               data-app-tooltip={t("notes.closePeek")}
               onclick={() => onClose?.()}
             >
-              <X class="size-4" />
+              <X class="size-4" strokeWidth={noteActionIconStrokeWidth} />
             </button>
           {/if}
           {#if peekMode}
@@ -720,7 +721,7 @@
               data-app-tooltip={t("notes.expandNote")}
               onclick={openAsFullPage}
             >
-              <NotesPeekModeIcon mode="full" class="size-4" />
+              <NotesPeekModeIcon mode="full" class="size-4" strokeWidth={noteActionIconStrokeWidth} />
             </button>
             <button
               type="button"
@@ -730,9 +731,9 @@
               onclick={() => selectOpenMode(openMode === "side" ? "center" : "side")}
             >
               {#if openMode === "side"}
-                <NotesPeekModeIcon mode="center" class="size-4" />
+                <NotesPeekModeIcon mode="center" class="size-4" strokeWidth={noteActionIconStrokeWidth} />
               {:else}
-                <NotesPeekModeIcon mode="side" class="size-4" />
+                <NotesPeekModeIcon mode="side" class="size-4" strokeWidth={noteActionIconStrokeWidth} />
               {/if}
             </button>
           {/if}
@@ -790,7 +791,7 @@
             notes.setPageFavorited(page.id, !pageFavorited);
           }}
         >
-          <Star class={`size-4 ${pageFavorited ? "fill-current" : ""}`} />
+          <Star class={`size-4 ${pageFavorited ? "fill-current" : ""}`} strokeWidth={noteActionIconStrokeWidth} />
         </button>
         <button
           type="button"
@@ -799,7 +800,7 @@
           data-app-tooltip={t("notes.noteLinks")}
           onclick={() => togglePanel("links")}
         >
-          <Link2 class="size-4" />
+          <Link2 class="size-4" strokeWidth={noteActionIconStrokeWidth} />
           {#if linksBadgeCount > 0}
             <span class="ml-1 text-[0.7rem] leading-none">{linksBadgeCount}</span>
           {/if}
@@ -811,7 +812,7 @@
           data-app-tooltip={t("notes.commentsCount", openCommentCount)}
           onclick={() => togglePanel("comments")}
         >
-          <MessageSquare class="size-4" />
+          <MessageSquare class="size-4" strokeWidth={noteActionIconStrokeWidth} />
           {#if commentsBadgeCount > 0}
             <span class={cn("ml-1 text-[0.7rem] leading-none", unreadCommentCount > 0 && "font-semibold text-primary")}>
               {commentsBadgeCount}
@@ -825,7 +826,7 @@
           data-app-tooltip={t("notes.suggestionsCount", openSuggestionCount)}
           onclick={() => togglePanel("suggestions")}
         >
-          <PencilLine class="size-4" />
+          <PencilLine class="size-4" strokeWidth={noteActionIconStrokeWidth} />
           {#if openSuggestionCount > 0}
             <span class="ml-1 text-[0.7rem] leading-none">{openSuggestionCount}</span>
           {/if}
@@ -849,7 +850,7 @@
               }
             }}
           >
-            <MoreHorizontal class="size-4" />
+            <MoreHorizontal class="size-4" strokeWidth={noteActionIconStrokeWidth} />
           </button>
           {#if pageMenuOpen}
             <div
@@ -1196,7 +1197,7 @@
           {breadcrumbItems}
           {tableOfContentsItems}
           onSelectPage={(pageId) => {
-            void notes.selectPage(pageId);
+            void notes.openPageContextually(pageId);
           }}
           onFocusBlock={(blockId) => {
             notes.focusBlock(blockId);

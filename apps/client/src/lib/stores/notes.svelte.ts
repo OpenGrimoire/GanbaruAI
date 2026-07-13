@@ -14,6 +14,7 @@ import {
   type NotesBlockOutlineItem,
 } from "$lib/notes/block-outline";
 import {
+  notesContextualPageOpenMode,
   notesPageOpenModeForSelection,
   notesDefaultOpenModeForProject,
   type NotesPageOpenMode,
@@ -106,6 +107,7 @@ const BLOCK_SAVE_DEBOUNCE_MS = 350;
 let pages = $state<NotesPage[]>([]);
 let allPages = $state<NotesPage[]>([]);
 let viewMode = $state<NotesViewMode>("pages");
+let contextualReturnPageId: string | null = null;
 let focusRequest = $state<NotesFocusRequest>({
   blockId: null,
   requestId: 0,
@@ -177,6 +179,7 @@ function saveSelectedPageId(pageId: string | null): void {
 }
 
 function showSelectedPageAs(openMode: NotesPageOpenMode): void {
+  if (openMode === "full") contextualReturnPageId = null;
   pageSession.pageOpenMode = openMode;
 }
 
@@ -498,6 +501,7 @@ async function selectPage(
       : defaultNotesPageOpenMode(),
     hasOpenPage: pageSession.selectedPageId !== null,
   });
+  if (!pageId || openMode === "full") contextualReturnPageId = null;
   if (pageId) {
     openSelectedPage(pageId, openMode);
   } else {
@@ -533,6 +537,24 @@ async function selectPage(
   } finally {
     workspaceController.setLoading(false);
   }
+}
+
+async function openPageContextually(pageId: string): Promise<void> {
+  const sourcePageId = pageSession.selectedPageId;
+  const openMode = notesContextualPageOpenMode(
+    pageSession.pageOpenMode,
+    defaultNotesPageOpenMode(projectIdForPage(pageId)),
+  );
+  if (openMode !== "full" && pageSession.pageOpenMode === "full") {
+    contextualReturnPageId = sourcePageId;
+  }
+  await selectPage(pageId, { openMode });
+}
+
+async function closeContextualPage(): Promise<void> {
+  const returnPageId = contextualReturnPageId;
+  contextualReturnPageId = null;
+  await selectPage(returnPageId, { openMode: "full" });
 }
 
 async function activateReturnedPage(
@@ -1280,6 +1302,8 @@ export function getNotes() {
     ensureLoaded: workspaceController.ensureLoaded,
     loadMoreWorkspaceWindow: workspaceController.loadMoreWorkspaceWindow,
     selectPage,
+    openPageContextually,
+    closeContextualPage,
     showSelectedPageAs,
     createPage: pageActions.createPage,
     createSubpage: pageActions.createSubpage,

@@ -186,7 +186,7 @@
   }
 
   async function selectPage(pageId: string): Promise<void> {
-    await notes.selectPage(pageId);
+    await notes.selectPage(pageId, { openMode: "full" });
     await onPageSelected?.();
   }
 

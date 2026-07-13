@@ -113,7 +113,10 @@ export function createNotesPageActions(context: NotesPageActionsContext) {
     };
     const provisional = createProvisionalNotesPage(request);
     if (provisional.page.folder_id) context.setFolderCollapsed(provisional.page.folder_id, false);
-    context.activateProvisionalPage(provisional, context.defaultOpenMode(projectId));
+    context.activateProvisionalPage(
+      provisional,
+      options.openMode ?? context.defaultOpenMode(projectId),
+    );
     context.requestBlockFocus(null);
     context.requestTitleFocus(provisional.page.id);
     context.beginPageCreation(request);

@@ -35,6 +35,25 @@ export type NotesNavigationTreeItem =
   | NotesNavigationFolderTreeItem
   | NotesNavigationPageTreeItem;
 
+export interface NotesNavigationFolderActionItem {
+  kind: "folder-action";
+  key: string;
+  depth: number;
+  folder: NotesFolder;
+}
+
+export type NotesNavigationRenderItem =
+  | NotesNavigationTreeItem
+  | NotesNavigationFolderActionItem;
+
+export type NotesNavigationSortOrder =
+  | "name-asc"
+  | "name-desc"
+  | "modified-desc"
+  | "modified-asc"
+  | "created-desc"
+  | "created-asc";
+
 export interface NotesNavigationTreeOptions {
   collapsedPageIds?: readonly string[];
   expandedPageIds?: readonly string[];
@@ -46,6 +65,42 @@ export interface NotesNavigationTreeOptions {
   query?: string;
   untitledTitle?: string;
   titleForPage?: (page: NotesPage) => string;
+  sortOrder?: NotesNavigationSortOrder;
+}
+
+export function addNotesFolderActions(
+  items: readonly NotesNavigationTreeItem[],
+): NotesNavigationRenderItem[] {
+  const result: NotesNavigationRenderItem[] = [];
+  const openFolders: NotesNavigationFolderTreeItem[] = [];
+  const folderIdsWithNotes = new Set(
+    items.flatMap((item) => item.kind === "page" && item.page.folder_id
+      ? [item.page.folder_id]
+      : []),
+  );
+
+  const closeFoldersAtOrBelowDepth = (depth: number): void => {
+    while (openFolders.at(-1)?.depth !== undefined && openFolders.at(-1)!.depth >= depth) {
+      const folderItem = openFolders.pop();
+      if (!folderItem) return;
+      if (folderIdsWithNotes.has(folderItem.folder.id)) continue;
+      result.push({
+        kind: "folder-action",
+        key: `folder-action:${folderItem.folder.id}`,
+        depth: folderItem.depth + 1,
+        folder: folderItem.folder,
+      });
+    }
+  };
+
+  for (const item of items) {
+    closeFoldersAtOrBelowDepth(item.depth);
+    result.push(item);
+    if (item.kind === "folder" && !item.collapsed) openFolders.push(item);
+  }
+  closeFoldersAtOrBelowDepth(-1);
+
+  return result;
 }
 
 export interface NotesPageFolderMoveTarget extends NotesDestinationPickerTarget {
@@ -88,6 +143,7 @@ interface AppendNavigationItemsOptions {
   activeAncestorKeys: ReadonlySet<string>;
   normalizedQuery: string;
   titleForPage: (page: NotesPage) => string;
+  sortOrder: NotesNavigationSortOrder;
   matchByNodeKey: Map<string, boolean>;
   result: NotesNavigationTreeItem[];
 }
@@ -175,6 +231,7 @@ export function buildNotesNavigationTree(
     ),
     normalizedQuery: normalizeSearchText(options.query ?? ""),
     titleForPage,
+    sortOrder: options.sortOrder ?? "name-asc",
     matchByNodeKey: new Map(),
     result,
   });
@@ -386,7 +443,9 @@ function pageHasParentCycle(
 }
 
 function appendNavigationItems(options: AppendNavigationItemsOptions): void {
-  const children = options.childrenByParentKey.get(options.parentKey) ?? [];
+  const children = [...(options.childrenByParentKey.get(options.parentKey) ?? [])].sort(
+    (left, right) => compareNavigationNodes(left, right, options),
+  );
   for (const node of children) {
     const childNodes = options.childrenByParentKey.get(node.key) ?? [];
     const hasChildren = childNodes.length > 0
@@ -440,6 +499,37 @@ function appendNavigationItems(options: AppendNavigationItemsOptions): void {
   }
 }
 
+function compareNavigationNodes(
+  left: NavigationNode,
+  right: NavigationNode,
+  options: Pick<AppendNavigationItemsOptions, "sortOrder" | "titleForPage">,
+): number {
+  if (left.kind !== right.kind) return left.kind === "folder" ? -1 : 1;
+  const leftTitle = left.kind === "folder" ? left.folder.name : options.titleForPage(left.page);
+  const rightTitle = right.kind === "folder" ? right.folder.name : options.titleForPage(right.page);
+  const nameComparison = leftTitle.localeCompare(rightTitle, undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
+  if (options.sortOrder === "name-asc") return nameComparison || left.key.localeCompare(right.key);
+  if (options.sortOrder === "name-desc") return -nameComparison || left.key.localeCompare(right.key);
+
+  const timestampField = options.sortOrder.startsWith("modified")
+    ? "last_edited_time"
+    : "created_time";
+  const leftTimestamp = left.kind === "folder"
+    ? left.folder[timestampField]
+    : left.page[timestampField];
+  const rightTimestamp = right.kind === "folder"
+    ? right.folder[timestampField]
+    : right.page[timestampField];
+  const timestampComparison = leftTimestamp.localeCompare(rightTimestamp);
+  const chronologicalComparison = options.sortOrder.endsWith("asc")
+    ? timestampComparison
+    : -timestampComparison;
+  return chronologicalComparison || nameComparison || left.key.localeCompare(right.key);
+}
+
 function navigationNodeMatchesQuery(
   node: NavigationNode,
   normalizedQuery: string,
@@ -472,16 +562,12 @@ function navigationNodeIsCollapsed(
   hasChildren: boolean,
   options: AppendNavigationItemsOptions,
 ): boolean {
-  if (
-    !hasChildren
-    || options.normalizedQuery
-    || options.activeAncestorKeys.has(node.key)
-  ) {
-    return false;
-  }
+  if (options.normalizedQuery) return false;
   if (node.kind === "folder") {
     return options.collapsedFolderIds.has(node.folder.id);
   }
+  if (options.activeAncestorKeys.has(node.key)) return false;
+  if (!hasChildren) return false;
   if (options.expandedPageIds) {
     return !options.expandedPageIds.has(node.page.id);
   }

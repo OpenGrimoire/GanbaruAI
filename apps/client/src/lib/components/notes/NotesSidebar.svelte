@@ -116,6 +116,16 @@
     void notes.createPage("");
   }
 
+  async function renamePage(pageId: string, title: string): Promise<boolean> {
+    try {
+      await notes.renamePage(pageId, title);
+      return true;
+    } catch (error) {
+      console.error("rename Notes page failed", error);
+      return false;
+    }
+  }
+
   function exportHtmlArchive(input: {
     includePageTree: boolean;
     includeComments: boolean;
@@ -464,7 +474,7 @@
                 void notes.selectPage(page.id);
               }}
               onRename={(title) => {
-                void notes.renamePage(page.id, title);
+                return renamePage(page.id, title);
               }}
               onToggleCollapsed={() => undefined}
               onToggleFavorite={(favorited) => {
@@ -511,7 +521,7 @@
                 void notes.selectPage(page.id);
               }}
               onRename={(title) => {
-                void notes.renamePage(page.id, title);
+                return renamePage(page.id, title);
               }}
               onToggleCollapsed={() => undefined}
               onToggleFavorite={(favorited) => {
@@ -559,7 +569,7 @@
               void notes.selectPage(item.page.id);
             }}
             onRename={(title) => {
-              void notes.renamePage(item.page.id, title);
+              return renamePage(item.page.id, title);
             }}
             onToggleCollapsed={(collapsed) => {
               notes.setSidebarPageCollapsed(item.page.id, collapsed);

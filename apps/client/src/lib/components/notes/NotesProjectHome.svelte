@@ -1,7 +1,15 @@
 <script lang="ts">
+  import { tick } from "svelte";
+  import ArrowUpNarrowWide from "@lucide/svelte/icons/arrow-up-narrow-wide";
+  import Check from "@lucide/svelte/icons/check";
+  import ChevronsLeft from "@lucide/svelte/icons/chevrons-left";
+  import ChevronsRight from "@lucide/svelte/icons/chevrons-right";
+  import ChevronsDownUp from "@lucide/svelte/icons/chevrons-down-up";
+  import ChevronsUpDown from "@lucide/svelte/icons/chevrons-up-down";
+  import FileQuestionMark from "@lucide/svelte/icons/file-question-mark";
   import FolderPlus from "@lucide/svelte/icons/folder-plus";
-  import Plus from "@lucide/svelte/icons/plus";
   import Search from "@lucide/svelte/icons/search";
+  import SquarePen from "@lucide/svelte/icons/square-pen";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import {
     beginLazyComponentLoad,
@@ -10,10 +18,12 @@
     type LazyComponentLoadState,
   } from "$lib/lazy-component-loader";
   import {
+    addNotesFolderActions,
     buildNotesNavigationTree,
     notesFolderMoveTargets,
     notesFoldersForProject,
     notesPageFolderMoveTargets,
+    type NotesNavigationSortOrder,
   } from "$lib/notes/navigation-tree";
   import { notesPageMoveTargets } from "$lib/notes/page-move";
   import { notesPageTitle } from "$lib/notes/page-title";
@@ -36,6 +46,9 @@
 
   const notes = getNotes();
   const { t } = getLocalization();
+  const explorerIconStrokeWidth = 1.5;
+  const sortMenuViewportGap = 8;
+  const sortMenuTriggerGap = 4;
 
   function handleWorkspaceScroll(event: Event): void {
     const viewport = event.currentTarget;
@@ -47,6 +60,17 @@
   }
 
   let search = $state("");
+  let explorerCollapsed = $state(false);
+  let searchOpen = $state(false);
+  let sortMenuOpen = $state(false);
+  let sortOrder = $state<NotesNavigationSortOrder>("name-asc");
+  let currentFileHighlightRequestId = $state(0);
+  let hoveredSortOrder = $state<NotesNavigationSortOrder | null>(null);
+  let sortMenuStyle = $state("");
+  let sortButtonElement = $state<HTMLButtonElement | null>(null);
+  let sortMenuElement = $state<HTMLDivElement | null>(null);
+  let expandExplorerButtonElement = $state<HTMLButtonElement | null>(null);
+  let collapseExplorerButtonElement = $state<HTMLButtonElement | null>(null);
   let pendingArchivePage = $state<NotesPage | null>(null);
   let pendingTrashPage = $state<NotesPage | null>(null);
   let pendingDeleteFolder = $state<NotesFolder | null>(null);
@@ -72,9 +96,38 @@
       missingParentPageIds: notes.sidebarMissingParentPageIds,
       trashedParentPageIds: notes.sidebarTrashedParentPageIds,
       query: search,
+      sortOrder,
       titleForPage: (page) => notesPageTitle(page, t("notes.untitled")),
     })
   );
+  const explorerItems = $derived(addNotesFolderActions(treeItems));
+  const expandablePageIds = $derived.by(() => {
+    const projectPageIds = new Set(projectPages.map((page) => page.id));
+    const result = new Set(
+      notes.sidebarPageIdsWithChildren.filter((pageId) => projectPageIds.has(pageId)),
+    );
+    for (const page of projectPages) {
+      if (page.parent.type === "page_id" && projectPageIds.has(page.parent.page_id)) {
+        result.add(page.parent.page_id);
+      }
+    }
+    return [...result];
+  });
+  const shouldExpandExplorer = $derived(
+    projectFolders.some((folder) => notes.collapsedFolderIds.includes(folder.id))
+    || expandablePageIds.some((pageId) => !notes.sidebarExpandedPageIds.includes(pageId))
+  );
+
+  async function setExplorerCollapsed(collapsed: boolean): Promise<void> {
+    sortMenuOpen = false;
+    explorerCollapsed = collapsed;
+    await tick();
+    if (collapsed) {
+      expandExplorerButtonElement?.focus();
+    } else {
+      collapseExplorerButtonElement?.focus();
+    }
+  }
 
   function requestConfirmDialog(retry = false): void {
     if (!retry && confirmDialogLoadState?.key === "confirm-dialog") return;
@@ -115,11 +168,133 @@
 
   function createPage(folderId: string | null = null): void {
     if (folderId) notes.setFolderCollapsed(folderId, false);
-    void notes.createPage("", { projectId, folderId });
+    if (notes.viewMode === "archive") notes.closeArchive();
+    if (notes.viewMode === "trash") notes.closeTrash();
+    void notes.createPage("", { projectId, folderId, openMode: "full" });
   }
 
   function createSubpage(parentPageId: string): void {
-    void notes.createSubpage(parentPageId, "");
+    void notes.createSubpage(parentPageId, "", { openMode: "full" });
+  }
+
+  async function renamePage(pageId: string, title: string): Promise<boolean> {
+    try {
+      await notes.renamePage(pageId, title);
+      return true;
+    } catch (error) {
+      console.error("rename Notes page failed", error);
+      return false;
+    }
+  }
+
+  function selectPrimaryPage(pageId: string): void {
+    if (notes.viewMode === "archive") notes.closeArchive();
+    if (notes.viewMode === "trash") notes.closeTrash();
+    void notes.selectPage(pageId, { openMode: "full" });
+  }
+
+  function toggleSearch(): void {
+    searchOpen = !searchOpen;
+    if (!searchOpen) search = "";
+  }
+
+  function selectSortOrder(nextOrder: NotesNavigationSortOrder): void {
+    sortOrder = nextOrder;
+    sortMenuOpen = false;
+  }
+
+  function sortOptionClass(order: NotesNavigationSortOrder): string {
+    return `grid min-h-7 w-full grid-cols-[max-content_1rem] items-center gap-2 px-3 text-left hover:bg-accent ${hoveredSortOrder === order ? "bg-accent" : ""}`;
+  }
+
+  function highlightNearestSortOption(
+    event: MouseEvent,
+    before: NotesNavigationSortOrder,
+    after: NotesNavigationSortOrder,
+  ): void {
+    const divider = event.currentTarget;
+    if (!(divider instanceof HTMLDivElement)) return;
+    const rect = divider.getBoundingClientRect();
+    hoveredSortOrder = event.clientY < rect.top + rect.height / 2 ? before : after;
+  }
+
+  function positionSortMenu(): void {
+    if (!sortButtonElement) return;
+    const triggerRect = sortButtonElement.getBoundingClientRect();
+    const availableWidth = Math.max(0, window.innerWidth - sortMenuViewportGap * 2);
+    const measuredWidth = sortMenuElement?.getBoundingClientRect().width ?? 0;
+    const width = Math.min(measuredWidth, availableWidth);
+    const maxLeft = Math.max(sortMenuViewportGap, window.innerWidth - width - sortMenuViewportGap);
+    const left = Math.min(Math.max(sortMenuViewportGap, triggerRect.left), maxLeft);
+    const top = triggerRect.bottom + sortMenuTriggerGap;
+    const maxHeight = Math.max(0, window.innerHeight - top - sortMenuViewportGap);
+    sortMenuStyle = `left: ${left}px; top: ${top}px; width: max-content; max-width: ${availableWidth}px; max-height: ${maxHeight}px;`;
+  }
+
+  function toggleSortMenu(): void {
+    if (sortMenuOpen) {
+      sortMenuOpen = false;
+      return;
+    }
+    hoveredSortOrder = null;
+    positionSortMenu();
+    sortMenuOpen = true;
+    void tick().then(positionSortMenu);
+  }
+
+  async function highlightCurrentFile(): Promise<void> {
+    const selectedPageId = notes.selectedPageId;
+    if (!selectedPageId) return;
+    const pageById = new Map(projectPages.map((page) => [page.id, page]));
+    const folderById = new Map(projectFolders.map((folder) => [folder.id, folder]));
+    const visitedPageIds = new Set<string>();
+    let currentPage = pageById.get(selectedPageId);
+    let folderId: string | null = null;
+
+    while (currentPage && !visitedPageIds.has(currentPage.id)) {
+      visitedPageIds.add(currentPage.id);
+      if (currentPage.parent.type !== "page_id") {
+        folderId = currentPage.folder_id;
+        break;
+      }
+      notes.setSidebarPageCollapsed(currentPage.parent.page_id, false);
+      currentPage = pageById.get(currentPage.parent.page_id);
+    }
+
+    const visitedFolderIds = new Set<string>();
+    while (folderId && !visitedFolderIds.has(folderId)) {
+      visitedFolderIds.add(folderId);
+      notes.setFolderCollapsed(folderId, false);
+      folderId = folderById.get(folderId)?.parent_folder_id ?? null;
+    }
+
+    await tick();
+    currentFileHighlightRequestId += 1;
+  }
+
+  function handleWindowPointerDown(event: PointerEvent): void {
+    const target = event.target;
+    if (!(target instanceof Node) || !sortMenuOpen) return;
+    if (sortButtonElement?.contains(target) || sortMenuElement?.contains(target)) return;
+    sortMenuOpen = false;
+  }
+
+  function handleWindowKeydown(event: KeyboardEvent): void {
+    if (event.key === "Escape" && sortMenuOpen) sortMenuOpen = false;
+  }
+
+  function handleWindowResize(): void {
+    if (sortMenuOpen) positionSortMenu();
+  }
+
+  function toggleExplorerExpansion(): void {
+    const collapsed = !shouldExpandExplorer;
+    for (const folder of projectFolders) {
+      notes.setFolderCollapsed(folder.id, collapsed);
+    }
+    for (const pageId of expandablePageIds) {
+      notes.setSidebarPageCollapsed(pageId, collapsed);
+    }
   }
 
   function nextFolderName(parentFolderId: string | null): string {
@@ -145,6 +320,7 @@
         parentFolderId,
       );
       if (parentFolderId) notes.setFolderCollapsed(parentFolderId, false);
+      notes.setFolderCollapsed(folder.id, false);
       folderRenameTargetId = folder.id;
       folderRenameRequestId += 1;
     } catch (error) {
@@ -152,12 +328,14 @@
     }
   }
 
-  async function renameFolder(folderId: string, name: string): Promise<void> {
+  async function renameFolder(folderId: string, name: string): Promise<boolean> {
     folderActionError = null;
     try {
       await notes.renameFolder(folderId, name);
+      return true;
     } catch (error) {
       folderActionError = error instanceof Error ? error.message : String(error);
+      return false;
     }
   }
 
@@ -226,61 +404,273 @@
   }
 </script>
 
-<div class="flex h-full min-h-0 flex-col overflow-auto px-4 py-4" onscroll={handleWorkspaceScroll} data-notes-first-use-state>
-  <div class="mx-auto flex w-full max-w-208 shrink-0 flex-wrap items-center gap-2">
-    <label class="flex min-w-48 flex-1 items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1.5">
-      <Search class="size-4 shrink-0 text-muted-foreground" />
-      <input
-        class="min-w-0 flex-1 bg-transparent text-[0.866667rem] text-foreground outline-none placeholder:text-muted-foreground"
-        bind:value={search}
-        placeholder={t("notes.searchPlaceholder")}
-        aria-label={t("notes.searchLabel")}
-      />
-    </label>
+<svelte:window
+  onpointerdown={handleWindowPointerDown}
+  onkeydown={handleWindowKeydown}
+  onresize={handleWindowResize}
+/>
+
+<aside
+  class="notes-project-explorer relative h-full min-h-0 shrink-0 overflow-hidden"
+  class:notes-project-explorer-collapsed={explorerCollapsed}
+  style="background-color: var(--cal-bg);"
+  aria-label={t("notes.explorerLabel")}
+  data-notes-explorer
+  data-notes-first-use-state
+>
+  <div
+    class="notes-project-explorer-collapsed-rail absolute inset-y-0 left-0 z-10 w-11"
+    aria-hidden={!explorerCollapsed}
+  >
+    <div class="flex h-(--cal-header-row-h) items-center justify-center">
+      <button
+        bind:this={expandExplorerButtonElement}
+        type="button"
+        class="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+        aria-label={t("notes.expandExplorerSidebar")}
+        aria-expanded="false"
+        data-app-tooltip={t("notes.expandExplorerSidebar")}
+        onclick={() => {
+          void setExplorerCollapsed(false);
+        }}
+      >
+        <ChevronsRight class="size-4" strokeWidth={explorerIconStrokeWidth} />
+      </button>
+    </div>
+  </div>
+
+  <div
+    class="notes-project-explorer-content flex h-full min-h-0 w-64 min-w-64 flex-col"
+    inert={explorerCollapsed}
+  >
+  <div class="flex h-(--cal-header-row-h) shrink-0 items-center justify-start gap-0.5 px-2">
+    <button
+      bind:this={collapseExplorerButtonElement}
+      type="button"
+      class="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-45"
+      aria-label={t("notes.newPage")}
+      data-app-tooltip={t("notes.newPage")}
+      disabled={!projectId}
+      onclick={() => createPage()}
+    >
+      <SquarePen class="size-4" strokeWidth={explorerIconStrokeWidth} />
+    </button>
     <button
       type="button"
-      class="flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-[0.8rem] font-medium text-foreground hover:bg-accent disabled:pointer-events-none disabled:opacity-45"
+      class="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-45"
+      aria-label={t("notes.newFolder")}
+      data-app-tooltip={t("notes.newFolder")}
       disabled={!projectId}
       onclick={() => {
         void createFolder();
       }}
     >
-      <FolderPlus class="size-4" />
-      <span>{t("notes.newFolder")}</span>
+      <FolderPlus class="size-4" strokeWidth={explorerIconStrokeWidth} />
+    </button>
+    <div class="relative">
+      <button
+        bind:this={sortButtonElement}
+        type="button"
+        class={`flex size-7 shrink-0 items-center justify-center rounded-md hover:bg-accent hover:text-foreground ${sortMenuOpen ? "bg-accent text-foreground" : "text-muted-foreground"}`}
+        aria-label={t("notes.sortExplorer")}
+        aria-expanded={sortMenuOpen}
+        aria-haspopup="menu"
+        data-app-tooltip={t("notes.sortExplorer")}
+        onclick={toggleSortMenu}
+      >
+        <ArrowUpNarrowWide class="size-4" strokeWidth={explorerIconStrokeWidth} />
+      </button>
+      {#if sortMenuOpen}
+        <div
+          bind:this={sortMenuElement}
+          class="fixed z-60 overflow-y-auto rounded-lg border border-border bg-popover py-1 text-[0.8rem] text-popover-foreground shadow-lg"
+          style={sortMenuStyle}
+          role="menu"
+          tabindex="-1"
+          aria-label={t("notes.sortExplorer")}
+          onmouseleave={() => {
+            hoveredSortOrder = null;
+          }}
+        >
+          <button
+            type="button"
+            class={sortOptionClass("name-asc")}
+            role="menuitemradio"
+            aria-checked={sortOrder === "name-asc"}
+            onmouseenter={() => {
+              hoveredSortOrder = "name-asc";
+            }}
+            onclick={() => selectSortOrder("name-asc")}
+          >
+            <span>{t("notes.sortNameAscending")}</span>
+            {#if sortOrder === "name-asc"}<Check class="size-4" />{/if}
+          </button>
+          <button
+            type="button"
+            class={sortOptionClass("name-desc")}
+            role="menuitemradio"
+            aria-checked={sortOrder === "name-desc"}
+            onmouseenter={() => {
+              hoveredSortOrder = "name-desc";
+            }}
+            onclick={() => selectSortOrder("name-desc")}
+          >
+            <span>{t("notes.sortNameDescending")}</span>
+            {#if sortOrder === "name-desc"}<Check class="size-4" />{/if}
+          </button>
+          <div
+            class="my-1 border-t border-border"
+            role="separator"
+            onmousemove={(event) => highlightNearestSortOption(event, "name-desc", "modified-desc")}
+          ></div>
+          <button
+            type="button"
+            class={sortOptionClass("modified-desc")}
+            role="menuitemradio"
+            aria-checked={sortOrder === "modified-desc"}
+            onmouseenter={() => {
+              hoveredSortOrder = "modified-desc";
+            }}
+            onclick={() => selectSortOrder("modified-desc")}
+          >
+            <span>{t("notes.sortModifiedDescending")}</span>
+            {#if sortOrder === "modified-desc"}<Check class="size-4" />{/if}
+          </button>
+          <button
+            type="button"
+            class={sortOptionClass("modified-asc")}
+            role="menuitemradio"
+            aria-checked={sortOrder === "modified-asc"}
+            onmouseenter={() => {
+              hoveredSortOrder = "modified-asc";
+            }}
+            onclick={() => selectSortOrder("modified-asc")}
+          >
+            <span>{t("notes.sortModifiedAscending")}</span>
+            {#if sortOrder === "modified-asc"}<Check class="size-4" />{/if}
+          </button>
+          <div
+            class="my-1 border-t border-border"
+            role="separator"
+            onmousemove={(event) => highlightNearestSortOption(event, "modified-asc", "created-desc")}
+          ></div>
+          <button
+            type="button"
+            class={sortOptionClass("created-desc")}
+            role="menuitemradio"
+            aria-checked={sortOrder === "created-desc"}
+            onmouseenter={() => {
+              hoveredSortOrder = "created-desc";
+            }}
+            onclick={() => selectSortOrder("created-desc")}
+          >
+            <span>{t("notes.sortCreatedDescending")}</span>
+            {#if sortOrder === "created-desc"}<Check class="size-4" />{/if}
+          </button>
+          <button
+            type="button"
+            class={sortOptionClass("created-asc")}
+            role="menuitemradio"
+            aria-checked={sortOrder === "created-asc"}
+            onmouseenter={() => {
+              hoveredSortOrder = "created-asc";
+            }}
+            onclick={() => selectSortOrder("created-asc")}
+          >
+            <span>{t("notes.sortCreatedAscending")}</span>
+            {#if sortOrder === "created-asc"}<Check class="size-4" />{/if}
+          </button>
+        </div>
+      {/if}
+    </div>
+    <button
+      type="button"
+      class="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-45"
+      aria-label={t("notes.highlightCurrentFile")}
+      data-app-tooltip={t("notes.highlightCurrentFile")}
+      disabled={!notes.selectedPageId}
+      onclick={() => {
+        void highlightCurrentFile();
+      }}
+    >
+      <FileQuestionMark class="size-4" strokeWidth={explorerIconStrokeWidth} />
     </button>
     <button
       type="button"
-      class="flex h-8 shrink-0 items-center gap-1.5 rounded-md bg-primary px-2.5 text-[0.8rem] font-medium text-primary-foreground hover:bg-primary/90"
-      disabled={!projectId}
-      onclick={() => createPage()}
+      class="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-45"
+      aria-label={shouldExpandExplorer ? t("notes.expandExplorer") : t("notes.collapseExplorer")}
+      data-app-tooltip={shouldExpandExplorer ? t("notes.expandExplorer") : t("notes.collapseExplorer")}
+      onclick={toggleExplorerExpansion}
     >
-      <Plus class="size-4" />
-      <span>{t("notes.newPage")}</span>
+      {#if shouldExpandExplorer}
+        <ChevronsUpDown class="size-4" strokeWidth={explorerIconStrokeWidth} />
+      {:else}
+        <ChevronsDownUp class="size-4" strokeWidth={explorerIconStrokeWidth} />
+      {/if}
+    </button>
+    <button
+      type="button"
+      class={`flex size-7 shrink-0 items-center justify-center rounded-md hover:bg-accent hover:text-foreground ${searchOpen ? "bg-accent text-foreground" : "text-muted-foreground"}`}
+      aria-label={t("notes.searchLabel")}
+      aria-pressed={searchOpen}
+      data-app-tooltip={t("notes.searchLabel")}
+      onclick={toggleSearch}
+    >
+      <Search class="size-4" strokeWidth={explorerIconStrokeWidth} />
+    </button>
+    <button
+      type="button"
+      class="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+      aria-label={t("notes.collapseExplorerSidebar")}
+      aria-expanded="true"
+      data-app-tooltip={t("notes.collapseExplorerSidebar")}
+      onclick={() => {
+        void setExplorerCollapsed(true);
+      }}
+    >
+      <ChevronsLeft class="size-4" strokeWidth={explorerIconStrokeWidth} />
     </button>
   </div>
 
+  {#if searchOpen}
+    <div class="shrink-0 px-2 pb-2">
+      <label class="flex items-center gap-1.5 rounded-md bg-accent/50 px-2 py-1.5">
+        <Search class="size-3.5 shrink-0 text-muted-foreground" />
+        <input
+          class="min-w-0 flex-1 bg-transparent text-[0.8rem] text-foreground outline-none placeholder:text-muted-foreground"
+          bind:value={search}
+          placeholder={t("notes.searchPlaceholder")}
+          aria-label={t("notes.searchLabel")}
+        />
+      </label>
+    </div>
+  {/if}
+
   {#if folderActionError}
-    <div class="mx-auto mt-2 w-full max-w-208 text-[0.8rem] text-destructive" role="alert">
+    <div class="shrink-0 px-3 py-2 text-[0.8rem] text-destructive" role="alert">
       {t("notes.folderActionFailed", folderActionError)}
     </div>
   {/if}
 
-  {#if notes.loadError}
-    <div class="mx-auto mt-4 w-full max-w-208 text-[0.866667rem] text-destructive">
-      {t("notes.loadFailed", notes.loadError)}
-    </div>
-  {:else if treeItems.length === 0}
-    <div class="mx-auto flex min-h-0 w-full max-w-208 flex-1 items-center justify-center text-center text-[0.866667rem] text-muted-foreground">
-      {search.trim() ? t("notes.noSearchResults") : t("notes.noPages")}
-    </div>
-  {:else}
-    <div class="mx-auto mt-4 flex w-full max-w-208 min-w-0 flex-col">
-      {#each treeItems as item (item.key)}
+  <div
+    class="min-h-0 flex-1 overflow-auto px-2 pb-2"
+    data-notes-explorer-scroll
+    onscroll={handleWorkspaceScroll}
+  >
+    {#if notes.loadError}
+      <div class="px-1 py-2 text-[0.8rem] text-destructive">
+        {t("notes.loadFailed", notes.loadError)}
+      </div>
+    {:else if treeItems.length === 0 && search.trim()}
+      <div class="px-1 py-2 text-[0.8rem] text-muted-foreground">
+        {t("notes.noSearchResults")}
+      </div>
+    {:else}
+      {#each explorerItems as item (item.key)}
         {#if item.kind === "folder"}
           <NotesFolderRow
             folder={item.folder}
             depth={item.depth}
-            hasChildren={item.hasChildren}
             collapsed={item.collapsed}
             renameRequestId={folderRenameTargetId === item.folder.id ? folderRenameRequestId : 0}
             moveTargets={folderMoveTargets(item.folder)}
@@ -292,7 +682,7 @@
               void createFolder(item.folder.id);
             }}
             onRename={(name) => {
-              void renameFolder(item.folder.id, name);
+              return renameFolder(item.folder.id, name);
             }}
             onMove={(parentFolderId) => {
               void moveFolder(item.folder.id, parentFolderId);
@@ -301,7 +691,7 @@
               pendingDeleteFolder = item.folder;
             }}
           />
-        {:else}
+        {:else if item.kind === "page"}
           <NotesPageRow
             page={item.page}
             depth={item.depth}
@@ -310,11 +700,13 @@
             parentStatus={item.parentStatus}
             favorited={notes.favoritePageIds.includes(item.page.id)}
             selected={item.page.id === notes.selectedPageId}
+            showDisclosure={false}
+            highlightRequestId={item.page.id === notes.selectedPageId ? currentFileHighlightRequestId : 0}
             onSelect={() => {
-              void notes.selectPage(item.page.id);
+              selectPrimaryPage(item.page.id);
             }}
             onRename={(title) => {
-              void notes.renamePage(item.page.id, title);
+              return renamePage(item.page.id, title);
             }}
             onToggleCollapsed={(collapsed) => {
               notes.setSidebarPageCollapsed(item.page.id, collapsed);
@@ -344,11 +736,27 @@
               pendingTrashPage = item.page;
             }}
           />
+        {:else}
+          <div
+            class="flex min-w-0 items-center rounded-md pl-2 pr-1 text-foreground hover:bg-accent/50"
+            style={`margin-left: calc(${item.depth} * 0.875rem);`}
+          >
+            <button
+              class="flex min-w-0 flex-1 items-center gap-1.5 py-1.5 pr-1 text-left text-[0.866667rem] text-inherit"
+              type="button"
+              onclick={() => createPage(item.folder.id)}
+            >
+              <SquarePen class="size-3.5 shrink-0" strokeWidth={explorerIconStrokeWidth} />
+              <span class="min-w-0 flex-1 truncate">{t("notes.newPage")}</span>
+            </button>
+          </div>
         {/if}
       {/each}
-    </div>
-  {/if}
-</div>
+    {/if}
+  </div>
+  </div>
+
+</aside>
 
 {#if pendingArchivePage || pendingTrashPage || pendingDeleteFolder}
   {#if confirmDialogLoadState?.status === "ready" && confirmDialogLoadState.component.kind === "confirm-dialog"}
@@ -405,3 +813,34 @@
     </div>
   {/if}
 {/if}
+
+<style>
+  .notes-project-explorer {
+    width: 16rem;
+    transition: width 180ms cubic-bezier(0.2, 0, 0, 1);
+  }
+
+  .notes-project-explorer-collapsed {
+    width: 2.75rem;
+  }
+
+  .notes-project-explorer-collapsed-rail {
+    background-color: var(--cal-bg);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 60ms linear;
+  }
+
+  .notes-project-explorer-collapsed .notes-project-explorer-collapsed-rail {
+    opacity: 1;
+    pointer-events: auto;
+    transition-delay: 100ms;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .notes-project-explorer,
+    .notes-project-explorer-collapsed-rail {
+      transition: none;
+    }
+  }
+</style>

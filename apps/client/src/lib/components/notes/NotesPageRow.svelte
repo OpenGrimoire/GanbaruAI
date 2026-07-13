@@ -1,6 +1,11 @@
 <script lang="ts">
-  import { tick } from "svelte";
+  import { onDestroy, tick } from "svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import {
+    COMPACT_IDENTITY_EMOJI_SCALE,
+    COMPACT_IDENTITY_ICON_SIZE,
+    COMPACT_IDENTITY_ICON_STROKE_WIDTH,
+  } from "$lib/icon-sizing";
   import {
     beginLazyComponentLoad,
     rejectLazyComponentLoad,
@@ -8,8 +13,19 @@
     type LazyComponentLoadState,
   } from "$lib/lazy-component-loader";
   import { dismissOnOutside } from "$lib/utils/dismiss-on-outside";
-  import { NOTES_PAGE_CHROME_EMOJI_SCALE } from "$lib/notes/page-icon";
+  import {
+    createInlineRenameHistory,
+    inlineRenameHistoryAction,
+    inlineRenameInputKind,
+    inlineRenameHistoryValue,
+    recordInlineRenameValue,
+    stepInlineRenameHistory,
+  } from "$lib/notes/inline-rename-history";
   import type { NotesDestinationPickerTarget } from "$lib/notes/destination-picker";
+  import {
+    notesRowContextMenuGeometry,
+    notesRowContextMenuStyle,
+  } from "$lib/notes/row-context-menu";
   import type { NotesPageMoveTarget } from "$lib/notes/page-move";
   import type { NotesPageParentStatus } from "$lib/notes/page-tree";
   import { notesPageTitle } from "$lib/notes/page-title";
@@ -18,12 +34,10 @@
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import Copy from "@lucide/svelte/icons/copy";
-  import FileText from "@lucide/svelte/icons/file-text";
+  import FilePlus2 from "@lucide/svelte/icons/file-plus-2";
   import FolderInput from "@lucide/svelte/icons/folder-input";
   import FolderTree from "@lucide/svelte/icons/folder-tree";
-  import MoreHorizontal from "@lucide/svelte/icons/more-horizontal";
   import Pencil from "@lucide/svelte/icons/pencil";
-  import Plus from "@lucide/svelte/icons/plus";
   import Star from "@lucide/svelte/icons/star";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
@@ -60,6 +74,8 @@
     onBlockDragLeave,
     onBlockDrop,
     readOnly = false,
+    showDisclosure = true,
+    highlightRequestId = 0,
     displayTitle,
   }: {
     page: NotesPage;
@@ -70,7 +86,7 @@
     favorited: boolean;
     selected: boolean;
     onSelect: () => void;
-    onRename: (title: string) => void;
+    onRename: (title: string) => boolean | void | Promise<boolean | void>;
     onToggleCollapsed: (collapsed: boolean) => void;
     onToggleFavorite: (favorited: boolean) => void;
     onCreateChild: () => void;
@@ -87,29 +103,47 @@
     onBlockDragLeave?: (pageId: string, event: DragEvent) => void;
     onBlockDrop?: (pageId: string, event: DragEvent) => void;
     readOnly?: boolean;
+    showDisclosure?: boolean;
+    highlightRequestId?: number;
     displayTitle?: string;
   } = $props();
 
   const { t } = getLocalization();
+  const explorerRowIconSize = COMPACT_IDENTITY_ICON_SIZE;
+  const explorerRowIconStrokeWidth = COMPACT_IDENTITY_ICON_STROKE_WIDTH;
+  const settledScrollTolerancePx = 0.5;
+  const settledScrollFrameCount = 3;
+  const maximumScrollObservationFrames = 90;
   let editing = $state(false);
   let menuOpen = $state(false);
+  let menuStyle = $state("");
   let moveMenuOpen = $state(false);
   let folderMoveMenuOpen = $state(false);
   let titleDraft = $state("");
+  let renameHistory = $state(createInlineRenameHistory(""));
+  let pendingTitle = $state<string | null>(null);
+  let highlightPulseActive = $state(false);
+  let handledHighlightRequestId = 0;
+  let scrollObservationFrame: number | null = null;
+  let rowElement = $state<HTMLDivElement | null>(null);
   let renameInput = $state<HTMLInputElement | null>(null);
   let destinationPickerLoadState = $state<LazyComponentLoadState<
     "destination-picker",
     LoadedNotesOptionalComponent
   > | null>(null);
-  const title = $derived(
+  const storedTitle = $derived(
     displayTitle === undefined
       ? notesPageTitle(page, t("notes.untitled"))
       : displayTitle.trim() || t("notes.untitled"),
   );
   const editableTitle = $derived(notesPageTitle(page, ""));
+  const title = $derived(
+    pendingTitle === null ? storedTitle : pendingTitle || t("notes.untitled"),
+  );
 
   $effect(() => {
-    if (!editing) titleDraft = editableTitle;
+    if (pendingTitle !== null && editableTitle === pendingTitle) pendingTitle = null;
+    if (!editing && pendingTitle === null) titleDraft = editableTitle;
   });
 
   $effect(() => {
@@ -125,6 +159,19 @@
       renameInput?.focus();
       renameInput?.select();
     });
+  });
+
+  $effect(() => {
+    if (highlightRequestId <= 0 || highlightRequestId === handledHighlightRequestId) return;
+    handledHighlightRequestId = highlightRequestId;
+    highlightPulseActive = false;
+    void tick().then(() => {
+      revealAndHighlightCurrentRow(highlightRequestId);
+    });
+  });
+
+  onDestroy(() => {
+    if (scrollObservationFrame !== null) cancelAnimationFrame(scrollObservationFrame);
   });
 
   $effect(() => {
@@ -161,6 +208,63 @@
     });
   }
 
+  function revealAndHighlightCurrentRow(requestId: number): void {
+    const row = rowElement;
+    const scrollContainer = row?.closest<HTMLElement>("[data-notes-explorer-scroll]");
+    if (!row || !scrollContainer) return;
+
+    if (scrollObservationFrame !== null) cancelAnimationFrame(scrollObservationFrame);
+    scrollObservationFrame = null;
+
+    const rowBounds = row.getBoundingClientRect();
+    const containerBounds = scrollContainer.getBoundingClientRect();
+    const rowIsVisible = rowBounds.bottom > containerBounds.top
+      && rowBounds.top < containerBounds.bottom;
+    if (rowIsVisible) {
+      highlightPulseActive = true;
+      return;
+    }
+
+    let previousScrollTop = scrollContainer.scrollTop;
+    let stableFrames = 0;
+    let observedMovement = false;
+    let observedFrames = 0;
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    row.scrollIntoView({
+      behavior: reducedMotion ? "auto" : "smooth",
+      block: "center",
+      inline: "nearest",
+    });
+
+    const observeScroll = (): void => {
+      if (handledHighlightRequestId !== requestId) return;
+
+      const currentScrollTop = scrollContainer.scrollTop;
+      const scrollDifference = Math.abs(currentScrollTop - previousScrollTop);
+      observedFrames += 1;
+      if (scrollDifference <= settledScrollTolerancePx) {
+        stableFrames += 1;
+      } else {
+        observedMovement = true;
+        stableFrames = 0;
+      }
+      previousScrollTop = currentScrollTop;
+
+      if (
+        (observedMovement && stableFrames >= settledScrollFrameCount)
+        || observedFrames >= maximumScrollObservationFrames
+      ) {
+        scrollObservationFrame = null;
+        highlightPulseActive = true;
+        return;
+      }
+      scrollObservationFrame = requestAnimationFrame(observeScroll);
+    };
+
+    scrollObservationFrame = requestAnimationFrame(observeScroll);
+  }
+
   function moveToTarget(targetKey: string): void {
     const target = moveTargets.find((candidate) => candidate.key === targetKey);
     if (!target) return;
@@ -184,16 +288,73 @@
     folderMoveMenuOpen = false;
   }
 
+  function openContextMenu(event: MouseEvent): void {
+    if (readOnly || editing) return;
+    if (event.target instanceof Element && event.target.closest("[data-app-floating-surface]")) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    menuStyle = notesRowContextMenuStyle(notesRowContextMenuGeometry({
+      clientX: event.clientX,
+      clientY: event.clientY,
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+    }));
+    menuOpen = true;
+  }
+
   function saveRename(): void {
+    if (!editing) return;
     const title = titleDraft.trim();
+    const previousTitle = editableTitle;
     editing = false;
     menuOpen = false;
     titleDraft = title;
     if (title === editableTitle) return;
-    onRename(title);
+    pendingTitle = title;
+    void Promise.resolve(onRename(title)).then((renamed) => {
+      if (renamed !== false) return;
+      pendingTitle = null;
+      titleDraft = previousTitle;
+    }).catch(() => {
+      pendingTitle = null;
+      titleDraft = previousTitle;
+    });
+  }
+
+  function beginRename(): void {
+    titleDraft = editableTitle;
+    renameHistory = createInlineRenameHistory(titleDraft);
+    editing = true;
+  }
+
+  function handleRenameInput(event: Event): void {
+    const input = event.currentTarget;
+    if (!(input instanceof HTMLInputElement)) return;
+    titleDraft = input.value;
+    const inputType = event instanceof InputEvent ? event.inputType : "";
+    renameHistory = recordInlineRenameValue(
+      renameHistory,
+      titleDraft,
+      inlineRenameInputKind(inputType),
+      Date.now(),
+    );
   }
 
   function handleRenameKeydown(event: KeyboardEvent): void {
+    const historyAction = inlineRenameHistoryAction(event);
+    if (historyAction) {
+      event.preventDefault();
+      event.stopPropagation();
+      renameHistory = stepInlineRenameHistory(renameHistory, historyAction);
+      titleDraft = inlineRenameHistoryValue(renameHistory);
+      if (renameInput) {
+        renameInput.value = titleDraft;
+        renameInput.setSelectionRange(titleDraft.length, titleDraft.length);
+      }
+      return;
+    }
     if (event.key === "Enter") {
       event.preventDefault();
       saveRename();
@@ -211,8 +372,10 @@
 </script>
 
 <div
+  bind:this={rowElement}
   class="notes-page-row group relative"
   class:notes-page-block-drop-target={blockDropActive}
+  class:notes-page-row-current-file-pulse={highlightPulseActive}
   role="group"
   aria-label={title}
   style={`--notes-page-depth: ${Math.min(depth, 10)}`}
@@ -220,54 +383,92 @@
   ondragover={(event) => onBlockDragOver?.(page.id, event)}
   ondragleave={(event) => onBlockDragLeave?.(page.id, event)}
   ondrop={(event) => onBlockDrop?.(page.id, event)}
+  oncontextmenu={openContextMenu}
+  onanimationend={() => {
+    highlightPulseActive = false;
+  }}
   use:dismissOnOutside={{ enabled: menuOpen, onDismiss: closeMenu }}
 >
   {#if editing}
-    <input
-      bind:this={renameInput}
-      class="notes-page-row-content w-full rounded-md border border-border bg-background px-2 py-1.5 text-[0.866667rem] text-foreground outline-none"
-      aria-label={t("notes.renamePage")}
-      bind:value={titleDraft}
-      placeholder={t("notes.titlePlaceholder")}
-      onkeydown={handleRenameKeydown}
-      onblur={saveRename}
-    />
+    <div class={`notes-page-row-content flex min-w-0 items-center rounded-md bg-accent/50 py-1.5 pr-1 text-foreground ${showDisclosure ? "" : "pl-2"}`}>
+      {#if showDisclosure}
+        <span class="size-6 shrink-0" aria-hidden="true"></span>
+      {/if}
+      <div class="flex min-w-0 flex-1 items-center gap-1.5">
+        {#if page.icon}
+          <NotesPageIcon
+            icon={page.icon}
+            size={explorerRowIconSize}
+            strokeWidth={explorerRowIconStrokeWidth}
+            emojiScale={COMPACT_IDENTITY_EMOJI_SCALE}
+            class="shrink-0"
+          />
+        {:else}
+          <NotesPageIcon
+            icon={null}
+            size={explorerRowIconSize}
+            strokeWidth={explorerRowIconStrokeWidth}
+            emojiScale={COMPACT_IDENTITY_EMOJI_SCALE}
+            class="shrink-0"
+          />
+        {/if}
+        <input
+          bind:this={renameInput}
+          class="min-w-0 flex-1 bg-transparent text-[0.866667rem] text-inherit caret-primary outline-none placeholder:text-muted-foreground"
+          data-app-shortcuts="ignore"
+          aria-label={t("notes.renamePage")}
+          value={titleDraft}
+          placeholder={t("notes.titlePlaceholder")}
+          oninput={handleRenameInput}
+          onkeydown={handleRenameKeydown}
+          onblur={saveRename}
+        />
+      </div>
+    </div>
   {:else}
     <div
-      class={`notes-page-row-content flex min-w-0 items-center rounded-md ${readOnly ? "pr-1" : "pr-6"} ${
-        selected ? "bg-accent text-accent-foreground" : "text-foreground hover:bg-accent/70"
-      }`}
+      class={`notes-page-row-content flex min-w-0 items-center rounded-md pr-1 text-foreground hover:bg-accent/50 ${showDisclosure ? "" : "pl-2"}`}
     >
+      {#if showDisclosure}
+        <button
+          class="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-background/80 hover:text-foreground disabled:pointer-events-none disabled:opacity-0"
+          type="button"
+          aria-label={collapsed ? t("notes.expandPage") : t("notes.collapsePage")}
+          disabled={!hasChildren}
+          onclick={(event) => {
+            event.stopPropagation();
+            onToggleCollapsed(!collapsed);
+          }}
+        >
+          {#if hasChildren && collapsed}
+            <ChevronRight class="size-4" strokeWidth={explorerRowIconStrokeWidth} />
+          {:else if hasChildren}
+            <ChevronDown class="size-4" strokeWidth={explorerRowIconStrokeWidth} />
+          {/if}
+        </button>
+      {/if}
       <button
-        class="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-background/80 hover:text-foreground disabled:pointer-events-none disabled:opacity-0"
+        class={`flex min-w-0 flex-1 items-center gap-1.5 py-1.5 pr-1 text-left text-[0.866667rem] text-inherit ${selected ? "font-medium" : ""}`}
         type="button"
-        aria-label={collapsed ? t("notes.expandPage") : t("notes.collapsePage")}
-        disabled={!hasChildren}
-        onclick={(event) => {
-          event.stopPropagation();
-          onToggleCollapsed(!collapsed);
-        }}
-      >
-        {#if hasChildren && collapsed}
-          <ChevronRight class="size-4" />
-        {:else if hasChildren}
-          <ChevronDown class="size-4" />
-        {/if}
-      </button>
-      <button
-        class="flex min-w-0 flex-1 items-center gap-1.5 py-1.5 pr-1 text-left text-[0.866667rem]"
-        type="button"
+        aria-current={selected ? "page" : undefined}
         onclick={onSelect}
       >
         {#if page.icon}
           <NotesPageIcon
             icon={page.icon}
-            size={14}
-            emojiScale={NOTES_PAGE_CHROME_EMOJI_SCALE}
+            size={explorerRowIconSize}
+            strokeWidth={explorerRowIconStrokeWidth}
+            emojiScale={COMPACT_IDENTITY_EMOJI_SCALE}
             class="shrink-0"
           />
         {:else}
-          <FileText class="size-3.5 shrink-0 text-muted-foreground" />
+          <NotesPageIcon
+            icon={null}
+            size={explorerRowIconSize}
+            strokeWidth={explorerRowIconStrokeWidth}
+            emojiScale={COMPACT_IDENTITY_EMOJI_SCALE}
+            class="shrink-0"
+          />
         {/if}
         <span class="min-w-0 flex-1 truncate">{title}</span>
         {#if parentStatus}
@@ -281,39 +482,27 @@
           <Star class="size-3.5 shrink-0 fill-current text-primary" aria-hidden="true" />
         {/if}
       </button>
-      {#if !readOnly}
-        <button
-          class="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground opacity-100 hover:bg-background/80 hover:text-foreground"
-          type="button"
-          aria-label={t("notes.newSubpage")}
-          data-app-tooltip={t("notes.newSubpage")}
-          onclick={(event) => {
-            event.stopPropagation();
-            onCreateChild();
-          }}
-        >
-          <Plus class="size-3.5" />
-        </button>
-        <button
-          class="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground opacity-100 hover:bg-background/80 hover:text-foreground"
-          type="button"
-          aria-label={t("notes.pageActions")}
-          onclick={(event) => {
-            event.stopPropagation();
-            menuOpen = !menuOpen;
-          }}
-        >
-          <MoreHorizontal class="size-4" />
-        </button>
-      {/if}
     </div>
   {/if}
 
   {#if menuOpen}
     <div
-      class="notes-page-action-menu absolute right-1 top-8 z-20 min-w-36 rounded-md border border-border bg-popover py-1 text-popover-foreground shadow-lg"
+      class="notes-page-action-menu fixed z-50 min-w-36 rounded-md border border-border bg-popover py-1 text-popover-foreground shadow-lg"
+      style={menuStyle}
+      role="menu"
       data-app-floating-surface
     >
+      <button
+        class="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[0.8rem] hover:bg-accent"
+        type="button"
+        onclick={() => {
+          menuOpen = false;
+          onCreateChild();
+        }}
+      >
+        <FilePlus2 class="size-4" />
+        <span>{t("notes.newSubpage")}</span>
+      </button>
       <button
         class="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[0.8rem] hover:bg-accent"
         type="button"
@@ -329,7 +518,7 @@
         class="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[0.8rem] hover:bg-accent"
         type="button"
         onclick={() => {
-          editing = true;
+          beginRename();
           menuOpen = false;
         }}
       >
@@ -467,6 +656,27 @@
   .notes-page-block-drop-target .notes-page-row-content {
     background: hsl(var(--primary) / 0.12);
     box-shadow: inset 0 0 0 1px hsl(var(--primary) / 0.55);
+  }
+
+  .notes-page-row-current-file-pulse .notes-page-row-content {
+    animation: notes-current-file-highlight 360ms ease-in-out 2;
+  }
+
+  @keyframes notes-current-file-highlight {
+    0%, 100% {
+      background-color: transparent;
+    }
+
+    50% {
+      background-color: color-mix(in oklab, var(--accent) 55%, transparent);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .notes-page-row-current-file-pulse .notes-page-row-content {
+      animation-duration: 1ms;
+      animation-iteration-count: 1;
+    }
   }
 
   .notes-page-action-menu {

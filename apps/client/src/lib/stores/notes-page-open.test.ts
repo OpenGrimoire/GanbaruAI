@@ -247,4 +247,19 @@ describe("Notes critical page opening", () => {
     expect(notes.loadedPage?.id).toBe(pageBId);
     expect(Object.keys(notes.blocksById)).not.toContain(staleId);
   });
+
+  it("returns to the primary note after closing a contextual page", async () => {
+    backend.frontier = async () => ({ blocks: [] });
+    await notes.selectPage(pageAId, { openMode: "full" });
+
+    await notes.openPageContextually(pageBId);
+
+    expect(notes.selectedPageId).toBe(pageBId);
+    expect(notes.pageOpenMode).toBe("center");
+
+    await notes.closeContextualPage();
+
+    expect(notes.selectedPageId).toBe(pageAId);
+    expect(notes.pageOpenMode).toBe("full");
+  });
 });

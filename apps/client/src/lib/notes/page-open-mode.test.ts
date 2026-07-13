@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_NOTES_PAGE_OPEN_MODE,
   isNotesPageOpenMode,
+  notesContextualPageOpenMode,
   notesPageOpenModeForSelection,
   notesDefaultOpenModeForProject,
   type NotesPageOpenMode,
@@ -53,6 +54,16 @@ describe("notes page open mode", () => {
         hasOpenPage: true,
       }),
     ).toBe("center");
+  });
+
+  it("uses the configured mode when opening from a primary note", () => {
+    expect(notesContextualPageOpenMode("full", "center")).toBe("center");
+    expect(notesContextualPageOpenMode("full", "side")).toBe("side");
+  });
+
+  it("keeps the current peek mode through contextual navigation", () => {
+    expect(notesContextualPageOpenMode("center", "side")).toBe("center");
+    expect(notesContextualPageOpenMode("side", "center")).toBe("side");
   });
 
   it("accepts only known open mode values", () => {

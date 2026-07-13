@@ -3,6 +3,11 @@
   import Plus from "@lucide/svelte/icons/plus";
   import Settings2 from "@lucide/svelte/icons/settings-2";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import {
+    COMPACT_IDENTITY_EMOJI_SCALE,
+    COMPACT_IDENTITY_ICON_SIZE,
+    COMPACT_IDENTITY_ICON_STROKE_WIDTH,
+  } from "$lib/icon-sizing";
   import { formatShortcut } from "$lib/keyboard-shortcuts";
   import {
     beginLazyComponentLoad,
@@ -62,8 +67,9 @@
   const notes = getNotes();
   const viewport = getViewport();
   const { t } = getLocalization();
-  const identityIconStrokeWidth = 1.5;
-  const projectIdentityEmojiScale = 0.94;
+  const identityIconSize = COMPACT_IDENTITY_ICON_SIZE;
+  const identityIconStrokeWidth = COMPACT_IDENTITY_ICON_STROKE_WIDTH;
+  const projectIdentityEmojiScale = COMPACT_IDENTITY_EMOJI_SCALE;
   const newPageShortcut = $derived(formatShortcut("Mod + N"));
   const newPageTitle = $derived(`${t("notes.newPage")} (${newPageShortcut})`);
 
@@ -239,7 +245,7 @@
 
   function createPage(): void {
     navigatorOpen = false;
-    void notes.createPage("", { projectId: selectedProjectId });
+    void notes.createPage("", { projectId: selectedProjectId, openMode: "full" });
   }
 
   $effect(() => {
@@ -278,7 +284,7 @@
         >
           <ProjectIcon
             name={selectedGroup.icon}
-            size={14}
+            size={identityIconSize}
             strokeWidth={identityIconStrokeWidth}
             emojiScale={projectIdentityEmojiScale}
             class="shrink-0"
@@ -301,7 +307,7 @@
         >
           <ProjectIcon
             name={selectedProject.icon}
-            size={14}
+            size={identityIconSize}
             strokeWidth={identityIconStrokeWidth}
             emojiScale={projectIdentityEmojiScale}
             class="shrink-0"
@@ -344,7 +350,7 @@
           >
             <NotesPageIcon
               icon={selectedPage?.icon ?? null}
-              size={14}
+              size={identityIconSize}
               strokeWidth={identityIconStrokeWidth}
               emojiScale={NOTES_PAGE_CHROME_EMOJI_SCALE}
               class="shrink-0"
@@ -377,7 +383,7 @@
         >
           <NotesPageIcon
             icon={selectedPage?.icon ?? null}
-            size={14}
+            size={identityIconSize}
             strokeWidth={identityIconStrokeWidth}
             emojiScale={NOTES_PAGE_CHROME_EMOJI_SCALE}
             class="shrink-0"

@@ -14,7 +14,7 @@
   import { getNotes } from "$lib/stores/notes.svelte";
   import { getProjects } from "$lib/stores/projects.svelte";
   import { getViewport } from "$lib/stores/viewport.svelte";
-  import { isAppShortcutBlockedTarget } from "$lib/utils";
+  import { isAppShortcutBlockedTarget, isEditableKeyboardTarget } from "$lib/utils";
   import {
     loadNotesOptionalComponent,
     loadNotesSurface,
@@ -278,11 +278,11 @@
   }
 
   function createPage(): void {
-    void notes.createPage("", { projectId: selectedProjectId });
+    void notes.createPage("", { projectId: selectedProjectId, openMode: "full" });
   }
 
   function closePagePeek(): void {
-    void notes.selectPage(null);
+    void notes.closeContextualPage();
   }
 
   function showSelectedPageAs(openMode: NotesPageOpenMode): void {
@@ -318,6 +318,12 @@
   function handleNotesWindowKeydown(event: KeyboardEvent): void {
     const historyAction = notesUndoShortcutAction(event);
     if (historyAction) {
+      if (
+        isEditableKeyboardTarget(event.target)
+        || isEditableKeyboardTarget(document.activeElement)
+      ) {
+        return;
+      }
       const fromBlockEditor = notesBlockEditorContainsTarget(event.target);
       const continuesInterruptedRepeat = event.repeat
         && activeNotesHistoryShortcut === historyAction;
@@ -454,6 +460,7 @@
     {/if}
   {/if}
   <div class="notes-view-layout relative flex min-h-0 flex-1 overflow-hidden">
+    <NotesProjectHome projectId={selectedProjectId} />
     <div class={showSidePeek ? "flex min-w-0 basis-1/2 overflow-hidden" : "flex min-w-0 flex-1 overflow-hidden"}>
       {#if !notes.loaded && notes.loadError}
         <div class="flex min-w-0 flex-1 flex-col items-center justify-center gap-3 p-4 text-center" role="alert" data-notes-first-use-state>
@@ -470,13 +477,6 @@
             {t("common.retry")}
           </button>
         </div>
-      {:else if showFullPageEditor}
-        <NotesEditor
-          projectId={selectedProjectId}
-          openMode="full"
-          onClose={closePagePeek}
-          onOpenModeChange={showSelectedPageAs}
-        />
       {:else if activeSurfaceKind === "archive" || activeSurfaceKind === "trash"}
         {#if activeSurfaceLoadState?.status === "ready" && activeSurfaceLoadState.component.kind === activeSurfaceKind}
           {@const ActiveNotesSurface = activeSurfaceLoadState.component.component}
@@ -489,8 +489,15 @@
         {:else}
           <div class="flex min-w-0 flex-1 items-center justify-center p-4 text-sm text-muted-foreground" aria-busy="true">{t("common.loading")}</div>
         {/if}
+      {:else if showFullPageEditor}
+        <NotesEditor
+          projectId={selectedProjectId}
+          openMode="full"
+          onClose={closePagePeek}
+          onOpenModeChange={showSelectedPageAs}
+        />
       {:else}
-        <NotesProjectHome projectId={selectedProjectId} />
+        <div class="min-w-0 flex-1"></div>
       {/if}
     </div>
 
@@ -544,5 +551,11 @@
   .notes-center-peek-panel {
     width: clamp(560px, calc(100vw - 214px), 960px);
     height: min(667px, calc(100dvh - 214px));
+  }
+
+  @container notes-view (max-width: 34rem) {
+    :global(.notes-project-explorer) {
+      display: none;
+    }
   }
 </style>
