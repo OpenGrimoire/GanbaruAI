@@ -24,9 +24,11 @@
   import { quickNoteViewIndexForKey, quickNoteViewShortcut } from "$lib/quick-notes/tags";
   import {
     cacheQuickNotesAllWindow,
+    cacheQuickNotesViewWindow,
     cacheQuickNoteTags,
     preloadQuickNotesInitialSnapshot,
     readQuickNotesInitialSnapshot,
+    readQuickNotesViewWindow,
   } from "$lib/quick-notes/initial-snapshot";
   import type { QuickNote, QuickNotesCollection, QuickNoteTag } from "$lib/quick-notes/types";
   import { listenForQuickNotesChanges, publishQuickNotesChanged } from "$lib/quick-notes/window-sync";
@@ -44,10 +46,12 @@
   let panel = $state<HTMLDivElement | null>(null);
   let searchInput = $state<HTMLInputElement | null>(null);
   let collection = $state<QuickNotesCollection>("active");
+  let renderedCollection = $state<QuickNotesCollection>("active");
   let selectedTagId = $state<string | null>(null);
   let tags = $state<QuickNoteTag[]>(initialSnapshot?.tags ?? []);
   let searchText = $state("");
   let searchOpen = $state(false);
+  let animateLayout = $state(false);
   let notes = $state<QuickNote[]>(initialSnapshot?.window.notes ?? []);
   let nextCursor = $state<string | null>(initialSnapshot?.window.nextCursor ?? null);
   let loading = $state(false);
@@ -63,8 +67,8 @@
   let searchTimer: ReturnType<typeof setTimeout> | null = null;
   let loadGeneration = 0;
 
-  const pinnedNotes = $derived(collection === "active" ? notes.filter((note) => note.pinned) : []);
-  const otherNotes = $derived(collection === "active" ? notes.filter((note) => !note.pinned) : notes);
+  const pinnedNotes = $derived(renderedCollection === "active" ? notes.filter((note) => note.pinned) : []);
+  const otherNotes = $derived(renderedCollection === "active" ? notes.filter((note) => !note.pinned) : notes);
   const creationColors = $derived(getQuickNoteColor(FALLBACK_COLOR_INDEX, theme.current));
   const emptyMessage = $derived(searchText.trim()
     ? t("quickNotes.empty.search")
@@ -76,6 +80,10 @@
 
   async function load(reset = true): Promise<void> {
     const generation = ++loadGeneration;
+    const requestedCollection = collection;
+    const requestedTagId = requestedCollection === "active" ? selectedTagId : null;
+    const requestedSearchText = searchText.trim();
+    const requestedCursor = reset ? null : nextCursor;
     if (reset) {
       loading = true;
       loadError = "";
@@ -84,18 +92,21 @@
     }
     try {
       const window = await listQuickNotes(
-        collection,
-        searchText.trim(),
-        collection === "active" ? selectedTagId : null,
-        reset ? null : nextCursor,
+        requestedCollection,
+        requestedSearchText,
+        requestedTagId,
+        requestedCursor,
       );
       if (generation !== loadGeneration) return;
       notes = reset
         ? window.notes
         : [...notes, ...window.notes.filter((note) => !notes.some((current) => current.id === note.id))];
+      if (reset) renderedCollection = requestedCollection;
       nextCursor = window.nextCursor;
-      if (reset && collection === "active" && selectedTagId === null && searchText.trim() === "") {
+      if (reset && requestedCollection === "active" && requestedTagId === null && requestedSearchText === "") {
         cacheQuickNotesAllWindow(window);
+      } else if (reset && requestedSearchText === "") {
+        cacheQuickNotesViewWindow(requestedCollection, requestedTagId, window);
       }
     } catch (error: unknown) {
       if (generation !== loadGeneration) return;
@@ -108,21 +119,31 @@
     }
   }
 
+  function restoreCachedView(nextCollection: QuickNotesCollection, nextTagId: string | null): void {
+    const cached = readQuickNotesViewWindow(nextCollection, nextTagId);
+    if (!cached) return;
+    notes = cached.notes;
+    nextCursor = cached.nextCursor;
+    renderedCollection = nextCollection;
+  }
+
   function selectCollection(next: QuickNotesCollection): void {
     if (collection === next && selectedTagId === null) return;
+    animateLayout = false;
     collection = next;
     selectedTagId = null;
-    notes = [];
     nextCursor = null;
+    if (searchText.trim() === "") restoreCachedView(next, null);
     void load();
   }
 
   function selectTag(tagId: string | null): void {
     if (collection === "active" && selectedTagId === tagId) return;
+    animateLayout = false;
     collection = "active";
     selectedTagId = tagId;
-    notes = [];
     nextCursor = null;
+    if (searchText.trim() === "") restoreCachedView("active", tagId);
     void load();
   }
 
@@ -145,7 +166,11 @@
   }
 
   function updateSearch(value: string): void {
+    animateLayout = false;
     searchText = value;
+    if (value.trim() === "") {
+      restoreCachedView(collection, collection === "active" ? selectedTagId : null);
+    }
     if (searchTimer) clearTimeout(searchTimer);
     searchTimer = setTimeout(() => void load(), 200);
   }
@@ -177,6 +202,7 @@
   }
 
   async function runMutation(action: () => Promise<unknown>): Promise<void> {
+    animateLayout = true;
     loadError = "";
     try {
       await action();
@@ -268,6 +294,7 @@
   }
 
   function noteSaved(saved: QuickNote): void {
+    animateLayout = true;
     if (selectedTagId && saved.tagId !== selectedTagId) {
       notes = notes.filter((note) => note.id !== saved.id);
       return;
@@ -341,7 +368,10 @@
 
   function observeMore(node: HTMLElement): { destroy: () => void } {
     const observer = new IntersectionObserver((entries) => {
-      if (entries.some((entry) => entry.isIntersecting) && nextCursor && !loadingMore) void load(false);
+      if (entries.some((entry) => entry.isIntersecting) && nextCursor && !loadingMore) {
+        animateLayout = true;
+        void load(false);
+      }
     }, { root: panel, rootMargin: "160px" });
     observer.observe(node);
     return { destroy: () => observer.disconnect() };
@@ -365,6 +395,7 @@
     void tick().then(() => panel?.focus());
     let stopSync: (() => void) | null = null;
     void listenForQuickNotesChanges(() => {
+      animateLayout = true;
       void loadTags();
       void load();
     }).then((unlisten) => { stopSync = unlisten; });
@@ -462,28 +493,22 @@
     </div>
   </header>
 
-  <div class="min-h-0 flex-1 overflow-y-auto px-3 pb-3 pt-1.5 sm:px-4">
-    {#if collection === "active"}
+  <div class="min-h-0 flex-1 overflow-y-auto px-3 pb-3 pt-1.5 sm:px-4" aria-busy={loading}>
+    {#if renderedCollection === "active"}
       <button
         type="button"
         class="mx-auto mb-4 flex min-h-12 w-2/3 items-center rounded-xl px-4 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         style="background-color: {creationColors.bg}; color: {creationColors.text};"
         onclick={() => { editorNote = null; }}
       >{t("quickNotes.takeNote")}</button>
-    {:else if collection === "trash"}
+    {:else if renderedCollection === "trash"}
       <div class="mb-3 flex items-center gap-2 rounded-lg bg-muted/45 px-3 py-2">
         <p class="min-w-0 flex-1 text-xs text-muted-foreground">{t("quickNotes.trashRetention")}</p>
         {#if notes.length > 0}<button type="button" class="shrink-0 rounded-md px-2 py-1 text-xs text-destructive hover:bg-destructive/10" onclick={() => { confirmEmptyTrash = true; }}>{t("quickNotes.action.emptyTrash")}</button>{/if}
       </div>
     {/if}
 
-    {#if loading && notes.length === 0}
-      <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4" aria-label={t("quickNotes.loading")}>
-        {#each [1, 2, 3, 4, 5, 6] as _}
-          <div class="h-32 animate-pulse rounded-xl bg-muted/55"></div>
-        {/each}
-      </div>
-    {:else if loadError && notes.length === 0}
+    {#if loadError && notes.length === 0}
       <div class="flex min-h-40 flex-col items-center justify-center gap-3 text-center">
         <p class="text-sm text-muted-foreground">{t("quickNotes.loadFailed")}</p>
         <button type="button" class="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-accent" onclick={() => void load()}>{t("quickNotes.retry")}</button>
@@ -493,14 +518,14 @@
     {:else}
       {#if pinnedNotes.length > 0}
         <h3 class="mb-2 px-1 text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{t("quickNotes.pinned")}</h3>
-        <QuickNotesMasonry notes={pinnedNotes} {collection} theme={theme.current} {tags} onopen={(note) => void openNote(note)} onpin={pinNote} oncolor={colorNote} ontag={tagNote} onarchive={archiveNote} onunarchive={unarchiveNote} ontrash={trashNote} onrestore={restoreNote} ondelete={(note) => { deleteTarget = note; }} />
+        <QuickNotesMasonry notes={pinnedNotes} collection={renderedCollection} {animateLayout} theme={theme.current} {tags} onopen={(note) => void openNote(note)} onpin={pinNote} oncolor={colorNote} ontag={tagNote} onarchive={archiveNote} onunarchive={unarchiveNote} ontrash={trashNote} onrestore={restoreNote} ondelete={(note) => { deleteTarget = note; }} />
       {/if}
       {#if otherNotes.length > 0}
         {#if pinnedNotes.length > 0}<h3 class="mb-2 mt-5 px-1 text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{t("quickNotes.others")}</h3>{/if}
-        <QuickNotesMasonry notes={otherNotes} {collection} theme={theme.current} {tags} onopen={(note) => void openNote(note)} onpin={pinNote} oncolor={colorNote} ontag={tagNote} onarchive={archiveNote} onunarchive={unarchiveNote} ontrash={trashNote} onrestore={restoreNote} ondelete={(note) => { deleteTarget = note; }} />
+        <QuickNotesMasonry notes={otherNotes} collection={renderedCollection} {animateLayout} theme={theme.current} {tags} onopen={(note) => void openNote(note)} onpin={pinNote} oncolor={colorNote} ontag={tagNote} onarchive={archiveNote} onunarchive={unarchiveNote} ontrash={trashNote} onrestore={restoreNote} ondelete={(note) => { deleteTarget = note; }} />
       {/if}
       {#if nextCursor}
-        <button use:observeMore type="button" class="mt-4 w-full rounded-md py-2 text-xs text-muted-foreground hover:bg-accent" disabled={loadingMore} onclick={() => void load(false)}>{loadingMore ? t("common.loading") : t("quickNotes.action.loadMore")}</button>
+        <button use:observeMore type="button" class="mt-4 w-full rounded-md py-2 text-xs text-muted-foreground hover:bg-accent" disabled={loadingMore} onclick={() => { animateLayout = true; void load(false); }}>{loadingMore ? t("common.loading") : t("quickNotes.action.loadMore")}</button>
       {/if}
     {/if}
     {#if loadError && notes.length > 0}<p class="mt-3 text-center text-xs text-destructive">{loadError}</p>{/if}

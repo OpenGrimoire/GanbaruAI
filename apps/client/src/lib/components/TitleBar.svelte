@@ -31,6 +31,7 @@
   import { createTitleBarShortcutController } from "$lib/components/title-bar/title-bar-shortcut-controller.svelte";
   import TitleBarWindowControls from "$lib/components/title-bar/TitleBarWindowControls.svelte";
   import { flushQuickNoteEditors } from "$lib/quick-notes/persistence";
+  import { preloadQuickNotesInitialSnapshot } from "$lib/quick-notes/initial-snapshot";
 
   let {
     shellStartupMs = null,
@@ -93,6 +94,25 @@
   function toggleThemeFromShortcut() {
     if (lockedByThemeEditor) return;
     theme.toggle();
+  }
+
+  async function toggleQuickNotes(): Promise<void> {
+    if (showQuickNotes) {
+      showQuickNotes = false;
+      return;
+    }
+    try {
+      await preloadQuickNotesInitialSnapshot();
+    } catch (error: unknown) {
+      console.warn("Quick notes preload failed", error);
+    }
+    showQuickNotes = true;
+    showPomodoroMenu = false;
+    showPerfMenu = false;
+    showTitleBarMenu = false;
+    showUtilityOverflowMenu = false;
+    showThemeQuickSwitcher = false;
+    settingsLauncher.close();
   }
 
   let showThemeQuickSwitcher = $state(false);
@@ -389,15 +409,7 @@
         showUtilityOverflowMenu = false;
         showQuickNotes = false;
       }}
-      onToggleQuickNotes={() => {
-        showQuickNotes = !showQuickNotes;
-        showPomodoroMenu = false;
-        showPerfMenu = false;
-        showTitleBarMenu = false;
-        showUtilityOverflowMenu = false;
-        showThemeQuickSwitcher = false;
-        settingsLauncher.close();
-      }}
+      onToggleQuickNotes={() => { void toggleQuickNotes(); }}
     />
 
     <TitleBarUtilityControls

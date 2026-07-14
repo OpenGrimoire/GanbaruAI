@@ -72,7 +72,6 @@ export const quickNotes = {
   movedToArchive: "Nota rápida archivada",
   movedToTrash: "Nota rápida movida a la Papelera",
   restored: "Nota rápida restaurada",
-  loading: "Cargando notas rápidas...",
   loadFailed: "No se pudieron cargar las notas rápidas",
   retry: "Reintentar",
 } as const satisfies MessageShape<typeof enQuickNotes>;

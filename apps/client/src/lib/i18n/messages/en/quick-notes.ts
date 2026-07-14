@@ -69,7 +69,6 @@ export const quickNotes = {
   movedToArchive: "Quick note archived",
   movedToTrash: "Quick note moved to Trash",
   restored: "Quick note restored",
-  loading: "Loading quick notes...",
   loadFailed: "Quick notes could not be loaded",
   retry: "Retry",
 } as const;

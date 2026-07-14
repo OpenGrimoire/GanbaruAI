@@ -8,6 +8,7 @@
   let {
     notes,
     collection,
+    animateLayout = false,
     theme,
     tags,
     onopen,
@@ -22,6 +23,7 @@
   }: {
     notes: readonly QuickNote[];
     collection: QuickNotesCollection;
+    animateLayout?: boolean;
     theme: Theme;
     tags: readonly QuickNoteTag[];
     onopen: (note: QuickNote) => void;
@@ -41,28 +43,27 @@
   let layoutHeight = $state(0);
   const heights = new Map<string, number>();
   const observers = new Map<string, ResizeObserver>();
-  let frame: number | null = null;
 
-  function scheduleLayout(): void {
-    if (frame !== null) cancelAnimationFrame(frame);
-    frame = requestAnimationFrame(() => {
-      frame = null;
-      const layout = quickNoteMasonryLayout(width, notes.map((note) => heights.get(note.id) ?? 120));
-      positions = Object.fromEntries(notes.map((note, index) => [note.id, layout.positions[index]]));
-      layoutHeight = layout.height;
-    });
+  function applyLayout(): void {
+    const availableWidth = width || container?.clientWidth || 210;
+    const layout = quickNoteMasonryLayout(
+      availableWidth,
+      notes.map((note) => heights.get(note.id) ?? 120),
+    );
+    positions = Object.fromEntries(notes.map((note, index) => [note.id, layout.positions[index]]));
+    layoutHeight = layout.height;
   }
 
   function measure(node: HTMLElement, noteId: string): { update: (id: string) => void; destroy: () => void } {
     let id = noteId;
     const observer = new ResizeObserver(() => {
       heights.set(id, node.getBoundingClientRect().height);
-      scheduleLayout();
+      applyLayout();
     });
     observer.observe(node);
     observers.set(id, observer);
     heights.set(id, node.getBoundingClientRect().height);
-    scheduleLayout();
+    applyLayout();
     return {
       update(nextId: string) {
         observers.delete(id);
@@ -70,7 +71,7 @@
         id = nextId;
         observers.set(id, observer);
         heights.set(id, node.getBoundingClientRect().height);
-        scheduleLayout();
+        applyLayout();
       },
       destroy() {
         observer.disconnect();
@@ -84,21 +85,20 @@
     if (!container) return;
     const observer = new ResizeObserver(([entry]) => {
       width = entry?.contentRect.width ?? container?.clientWidth ?? 0;
-      scheduleLayout();
+      applyLayout();
     });
     observer.observe(container);
     width = container.clientWidth;
-    scheduleLayout();
+    applyLayout();
     return () => {
       observer.disconnect();
       for (const cardObserver of observers.values()) cardObserver.disconnect();
-      if (frame !== null) cancelAnimationFrame(frame);
     };
   });
 
   $effect(() => {
     void notes.map((note) => note.id).join("|");
-    scheduleLayout();
+    applyLayout();
   });
 </script>
 
@@ -107,8 +107,7 @@
     {@const position = positions[note.id]}
     <div
       use:measure={note.id}
-      class="absolute left-0 top-0 will-change-transform motion-safe:transition-transform motion-safe:duration-150"
-      class:opacity-0={!position}
+      class={`absolute left-0 top-0 will-change-transform ${animateLayout ? "motion-safe:transition-transform motion-safe:duration-150" : ""}`}
       style={position ? `width: ${position.width}px; transform: translate(${position.left}px, ${position.top}px);` : "width: 210px;"}
       role="listitem"
     >

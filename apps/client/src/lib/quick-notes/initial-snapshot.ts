@@ -1,5 +1,9 @@
 import { listQuickNotes, listQuickNoteTags } from "$lib/api/quick-notes";
-import type { QuickNotesWindow, QuickNoteTag } from "$lib/quick-notes/types";
+import type {
+  QuickNotesCollection,
+  QuickNotesWindow,
+  QuickNoteTag,
+} from "$lib/quick-notes/types";
 
 export interface QuickNotesInitialSnapshot {
   tags: QuickNoteTag[];
@@ -8,14 +12,23 @@ export interface QuickNotesInitialSnapshot {
 
 let cachedTags: QuickNoteTag[] | null = null;
 let cachedWindow: QuickNotesWindow | null = null;
+const cachedViews = new Map<string, QuickNotesWindow>();
 let preloadPromise: Promise<QuickNotesInitialSnapshot> | null = null;
 let cacheEpoch = 0;
+
+function viewKey(collection: QuickNotesCollection, tagId: string | null): string {
+  return collection === "active" ? `active:${tagId ?? "all"}` : collection;
+}
+
+function copyWindow(window: QuickNotesWindow): QuickNotesWindow {
+  return { notes: [...window.notes], nextCursor: window.nextCursor };
+}
 
 function snapshot(): QuickNotesInitialSnapshot | null {
   if (!cachedTags || !cachedWindow) return null;
   return {
     tags: [...cachedTags],
-    window: { notes: [...cachedWindow.notes], nextCursor: cachedWindow.nextCursor },
+    window: copyWindow(cachedWindow),
   };
 }
 
@@ -39,7 +52,7 @@ export function preloadQuickNotesInitialSnapshot(): Promise<QuickNotesInitialSna
       return preloadQuickNotesInitialSnapshot();
     }
     cachedTags = [...tags];
-    cachedWindow = { notes: [...window.notes], nextCursor: window.nextCursor };
+    cacheQuickNotesViewWindow("active", null, window);
     return snapshot()!;
   });
   preloadPromise = request;
@@ -57,7 +70,27 @@ export function cacheQuickNoteTags(tags: readonly QuickNoteTag[]): void {
 
 /** Refreshes the cached All-view window after a canonical collection read. */
 export function cacheQuickNotesAllWindow(window: QuickNotesWindow): void {
-  cachedWindow = { notes: [...window.notes], nextCursor: window.nextCursor };
+  cacheQuickNotesViewWindow("active", null, window);
+}
+
+/** Returns a resident non-search collection window when it has been visited. */
+export function readQuickNotesViewWindow(
+  collection: QuickNotesCollection,
+  tagId: string | null,
+): QuickNotesWindow | null {
+  const window = cachedViews.get(viewKey(collection, tagId));
+  return window ? copyWindow(window) : null;
+}
+
+/** Caches one bounded non-search collection window for instant view revisits. */
+export function cacheQuickNotesViewWindow(
+  collection: QuickNotesCollection,
+  tagId: string | null,
+  window: QuickNotesWindow,
+): void {
+  const copy = copyWindow(window);
+  cachedViews.set(viewKey(collection, tagId), copy);
+  if (collection === "active" && tagId === null) cachedWindow = copy;
 }
 
 /** Drops resident data after a mutation so the next read cannot reuse stale notes. */
@@ -65,4 +98,5 @@ export function invalidateQuickNotesInitialSnapshot(): void {
   cacheEpoch += 1;
   cachedTags = null;
   cachedWindow = null;
+  cachedViews.clear();
 }
