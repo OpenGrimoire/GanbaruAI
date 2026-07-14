@@ -4,6 +4,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+#[cfg(target_os = "linux")]
 use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::{Manager, Runtime};
@@ -19,9 +20,10 @@ mod rules;
 pub(crate) mod state;
 pub(crate) mod usage;
 
+#[cfg(target_os = "linux")]
+use contracts::ObservedDesktopProcess;
 use contracts::{
     DesktopRuleMatcher, DoomscrollingExtensionConnectionFile, NormalizedDesktopBlockEvent,
-    ObservedDesktopProcess,
 };
 #[allow(unused_imports)]
 pub use contracts::{
@@ -37,7 +39,9 @@ pub use contracts::{
 use authorization::{load_close_authorization, validate_names_authorized};
 use foreground::{close_current_foreground_desktop_app, foreground_desktop_app_status};
 use process_control::close_desktop_process;
-use processes::{list_blocked_desktop_app_matches, observe_linux_process, read_linux_process_name};
+use processes::list_blocked_desktop_app_matches;
+#[cfg(target_os = "linux")]
+use processes::{observe_linux_process, read_linux_process_name};
 use rules::{
     app_name_key, desktop_rule_matchers, foreground_expectation_matches,
     foreground_status_from_parts, foreground_status_match_names,

@@ -548,9 +548,13 @@ fn replace_url_value(value: &mut Value, raw_url: &str, target_url: &str) -> bool
             }
             changed
         }
-        Value::Array(items) => items.iter_mut().fold(false, |changed, item| {
-            replace_url_value(item, raw_url, target_url) || changed
-        }),
+        Value::Array(items) => {
+            let mut changed = false;
+            for item in items {
+                changed |= replace_url_value(item, raw_url, target_url);
+            }
+            changed
+        }
         _ => false,
     }
 }

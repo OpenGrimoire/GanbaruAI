@@ -1,8 +1,8 @@
 use super::*;
 
 #[cfg(windows)]
-fn windows_foreground_window() -> Option<windows::Win32::Foundation::HWND> {
-    use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
+fn windows_foreground_window() -> Option<::windows::Win32::Foundation::HWND> {
+    use ::windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
 
     let hwnd = unsafe { GetForegroundWindow() };
     if hwnd.0.is_null() {
@@ -13,8 +13,8 @@ fn windows_foreground_window() -> Option<windows::Win32::Foundation::HWND> {
 }
 
 #[cfg(windows)]
-fn windows_foreground_process_id(hwnd: windows::Win32::Foundation::HWND) -> Option<u32> {
-    use windows::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId;
+fn windows_foreground_process_id(hwnd: ::windows::Win32::Foundation::HWND) -> Option<u32> {
+    use ::windows::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId;
 
     let mut process_id = 0;
     unsafe {
@@ -29,9 +29,9 @@ fn windows_foreground_process_id(hwnd: windows::Win32::Foundation::HWND) -> Opti
 
 #[cfg(windows)]
 fn windows_process_image_path(process_id: u32) -> Option<String> {
-    use windows::core::PWSTR;
-    use windows::Win32::Foundation::CloseHandle;
-    use windows::Win32::System::Threading::{
+    use ::windows::core::PWSTR;
+    use ::windows::Win32::Foundation::CloseHandle;
+    use ::windows::Win32::System::Threading::{
         OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
         PROCESS_QUERY_LIMITED_INFORMATION,
     };
@@ -57,7 +57,7 @@ fn windows_process_image_path(process_id: u32) -> Option<String> {
 
 #[cfg(windows)]
 fn windows_status_for_window(
-    hwnd: windows::Win32::Foundation::HWND,
+    hwnd: ::windows::Win32::Foundation::HWND,
 ) -> DoomscrollingForegroundDesktopAppStatus {
     let Some(process_id) = windows_foreground_process_id(hwnd) else {
         return unavailable_foreground_desktop_app_status(
@@ -96,8 +96,8 @@ pub(in crate::doomscrolling) fn close_current_foreground_desktop_app(
     expected: DoomscrollingForegroundDesktopAppExpectation,
     authorize: &mut dyn FnMut(&DoomscrollingForegroundDesktopAppStatus) -> Result<(), String>,
 ) -> Result<(), String> {
-    use windows::Win32::Foundation::{LPARAM, WPARAM};
-    use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_CLOSE};
+    use ::windows::Win32::Foundation::{LPARAM, WPARAM};
+    use ::windows::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_CLOSE};
 
     let hwnd =
         windows_foreground_window().ok_or_else(|| "no foreground window is active".to_string())?;
