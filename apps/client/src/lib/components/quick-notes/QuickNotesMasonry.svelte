@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import type { QuickNote, QuickNotesCollection, QuickNoteTag } from "$lib/quick-notes/types";
   import {
     quickNoteMasonryInsertion,
@@ -65,15 +65,27 @@
     originalIndex: number;
   }
 
+  interface DropSettle {
+    noteId: string;
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  }
+
   let container = $state<HTMLDivElement | null>(null);
   let width = $state(0);
   let visualOrder = $state<string[]>([]);
   let positions = $state<Record<string, MasonryPosition>>({});
   let layoutHeight = $state(0);
   let drag = $state<ActiveDrag | null>(null);
+  let settling = $state<DropSettle | null>(null);
+  let handoffId = $state<string | null>(null);
   let suppressClickFor = $state<string | null>(null);
   let pendingPointer: PendingPointer | null = null;
   let dragFrame: number | null = null;
+  let settleTimer: ReturnType<typeof setTimeout> | null = null;
+  let handoffFrame: number | null = null;
   let previousCursor = "";
   const heights = new Map<string, number>();
   const observers = new Map<string, ResizeObserver>();
@@ -127,6 +139,7 @@
 
   function startPointer(event: PointerEvent, noteId: string, node: HTMLDivElement): void {
     if (!pointerCanStart(event)) return;
+    completeDropSettle();
     const rect = node.getBoundingClientRect();
     pendingPointer = {
       pointerId: event.pointerId,
@@ -238,6 +251,8 @@
   function finishPointer(event: PointerEvent, cancelled: boolean): void {
     const pending = pendingPointer;
     if (!pending || pending.pointerId !== event.pointerId) return;
+    if (drag) drag = { ...drag, clientX: event.clientX, clientY: event.clientY };
+    updateDragOrder();
     const active = drag;
     pendingPointer = null;
     if (pending.node.hasPointerCapture(event.pointerId)) pending.node.releasePointerCapture(event.pointerId);
@@ -247,15 +262,64 @@
     dragFrame = null;
     document.documentElement.style.cursor = previousCursor;
     delete document.documentElement.dataset.quickNoteDragging;
-    drag = null;
     if (cancelled) {
+      drag = null;
       visualOrder = notes.map((note) => note.id);
       applyLayout();
+      suppressLayoutTransition(active.noteId);
     } else {
       const position = visualOrder.indexOf(active.noteId);
       if (position !== active.originalIndex) onreorder(visualOrder, active.noteId, position);
+      void settleDrop(active);
     }
     setTimeout(() => { if (suppressClickFor === active.noteId) suppressClickFor = null; }, 0);
+  }
+
+  async function settleDrop(active: ActiveDrag): Promise<void> {
+    const position = positions[active.noteId];
+    const rect = container?.getBoundingClientRect();
+    if (!position || !rect) {
+      drag = null;
+      suppressLayoutTransition(active.noteId);
+      return;
+    }
+    settling = {
+      noteId: active.noteId,
+      left: active.clientX - active.grabX,
+      top: active.clientY - active.grabY,
+      width: active.width,
+      height: active.height,
+    };
+    drag = null;
+    await tick();
+    if (settling?.noteId !== active.noteId) return;
+    active.node.getBoundingClientRect();
+    settling = {
+      ...settling,
+      left: rect.left + position.left,
+      top: rect.top + position.top,
+      width: position.width,
+    };
+    if (settleTimer) clearTimeout(settleTimer);
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    settleTimer = setTimeout(completeDropSettle, reducedMotion ? 0 : 180);
+  }
+
+  function suppressLayoutTransition(noteId: string): void {
+    handoffId = noteId;
+    if (handoffFrame !== null) cancelAnimationFrame(handoffFrame);
+    handoffFrame = requestAnimationFrame(() => {
+      handoffFrame = null;
+      if (handoffId === noteId) handoffId = null;
+    });
+  }
+
+  function completeDropSettle(): void {
+    const noteId = settling?.noteId;
+    if (settleTimer) clearTimeout(settleTimer);
+    settleTimer = null;
+    settling = null;
+    if (noteId) suppressLayoutTransition(noteId);
   }
 
   function cancelDragFromKeyboard(event: KeyboardEvent): void {
@@ -273,6 +337,7 @@
     drag = null;
     visualOrder = notes.map((note) => note.id);
     applyLayout();
+    suppressLayoutTransition(active.noteId);
     setTimeout(() => { if (suppressClickFor === active.noteId) suppressClickFor = null; }, 0);
   }
 
@@ -295,6 +360,9 @@
     if (drag?.noteId === noteId) {
       return `position: fixed; left: ${drag.clientX - drag.grabX}px; top: ${drag.clientY - drag.grabY}px; width: ${drag.width}px; height: ${drag.height}px; transform: none; z-index: 70;`;
     }
+    if (settling?.noteId === noteId) {
+      return `position: fixed; left: ${settling.left}px; top: ${settling.top}px; width: ${settling.width}px; height: ${settling.height}px; transform: none; z-index: 70;`;
+    }
     return position
       ? `width: ${position.width}px; transform: translate(${position.left}px, ${position.top}px);`
       : "width: 210px;";
@@ -315,6 +383,8 @@
       window.removeEventListener("keydown", cancelDragFromKeyboard, true);
       for (const cardObserver of observers.values()) cardObserver.disconnect();
       if (dragFrame !== null) cancelAnimationFrame(dragFrame);
+      if (settleTimer) clearTimeout(settleTimer);
+      if (handoffFrame !== null) cancelAnimationFrame(handoffFrame);
       if (drag) {
         document.documentElement.style.cursor = previousCursor;
         delete document.documentElement.dataset.quickNoteDragging;
@@ -338,7 +408,7 @@
     {@const position = positions[note.id]}
     <div
       use:measure={note.id}
-      class={`absolute left-0 top-0 will-change-transform ${drag?.noteId === note.id ? "cursor-grabbing opacity-95 shadow-2xl" : reorderable ? "cursor-grab" : ""} ${(animateLayout || drag) && drag?.noteId !== note.id ? "motion-safe:transition-transform motion-safe:duration-200 motion-safe:ease-out" : ""}`}
+      class={`absolute left-0 top-0 will-change-transform ${drag?.noteId === note.id ? "cursor-grabbing opacity-95 shadow-2xl" : settling?.noteId === note.id ? "quick-note-drop-settling opacity-95 shadow-2xl" : reorderable ? "cursor-grab" : ""} ${(animateLayout || drag) && drag?.noteId !== note.id && settling?.noteId !== note.id && handoffId !== note.id ? "motion-safe:transition-transform motion-safe:duration-200 motion-safe:ease-out" : ""}`}
       style={wrapperStyle(note.id, position)}
       role="listitem"
       onpointerdown={(event) => startPointer(event, note.id, event.currentTarget)}
@@ -367,3 +437,17 @@
     </div>
   {/each}
 </div>
+
+<style>
+  .quick-note-drop-settling {
+    transition-property: left, top, width;
+    transition-duration: 160ms;
+    transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .quick-note-drop-settling {
+      transition-duration: 0ms;
+    }
+  }
+</style>
