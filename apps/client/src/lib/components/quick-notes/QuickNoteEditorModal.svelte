@@ -16,13 +16,14 @@
     getQuickNote,
     updateQuickNote,
   } from "$lib/api/quick-notes";
-  import { getEventColor } from "$lib/components/calendar/utils";
+  import { FALLBACK_COLOR_INDEX } from "$lib/components/calendar/types";
   import {
     notesPlainTextFromEditableRoot,
     notesTextSelectionFromEditableRoot,
     restoreNotesEditableSelection,
   } from "$lib/notes/editor-selection";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { getQuickNoteColor } from "$lib/quick-notes/colors";
   import { registerQuickNotesFlusher } from "$lib/quick-notes/persistence";
   import {
     createQuickNoteHistory,
@@ -93,7 +94,7 @@
   let id = $state(initialId);
   let title = $state(initialNote?.title ?? "");
   let runs = $state<QuickNoteTextRun[]>(initialNote?.runs.map((run) => ({ ...run })) ?? []);
-  let color = $state<QuickNote["color"]>(initialNote?.color ?? null);
+  let color = $state<QuickNote["color"]>(initialNote?.color ?? FALLBACK_COLOR_INDEX);
   let tagId = $state(initialNote?.tagId ?? initialTagId);
   let pinned = $state(initialNote?.pinned ?? false);
   let persisted = $state<QuickNote | null>(initialNote);
@@ -115,10 +116,8 @@
   let compositionSnapshot: QuickNoteHistorySnapshot | null = null;
   let nativeInputSnapshot: QuickNoteHistorySnapshot | null = null;
   const readOnly = $derived(persisted?.trashedAt !== null && persisted !== null);
-  const colors = $derived(color === null ? null : getEventColor(color, theme));
-  const modalStyle = $derived(colors
-    ? `--quick-editor-bg: ${colors.bg}; --quick-editor-fg: ${colors.text};`
-    : "--quick-editor-bg: var(--card); --quick-editor-fg: var(--card-foreground);");
+  const colors = $derived(getQuickNoteColor(color, theme));
+  const modalStyle = $derived(`--quick-editor-bg: ${colors.bg}; --quick-editor-fg: ${colors.text};`);
   const selectedFormatting = $derived(selection.start === selection.end
     ? typingFormatting
     : quickNoteFormattingForSelection(runs, selection));

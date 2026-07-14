@@ -37,6 +37,7 @@ describe("Quick notes API boundary", () => {
   });
 
   it("rejects malformed rows and nested runs", () => {
+    expect(() => mapQuickNote({ ...validQuickNote(), color: null })).toThrow("color is invalid");
     expect(() => mapQuickNote({ ...validQuickNote(), color: 32 })).toThrow("color is invalid");
     expect(() =>
       mapQuickNote({

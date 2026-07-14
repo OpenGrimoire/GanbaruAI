@@ -19,7 +19,7 @@ export interface QuickNote {
   bodyPlainText: string;
   runs: QuickNoteTextRun[];
   previewTruncated: boolean;
-  color: EventColor | null;
+  color: EventColor;
   tagId: string | null;
   pinned: boolean;
   archived: boolean;
@@ -40,7 +40,7 @@ export interface QuickNoteCreate {
   id: string;
   title: string;
   runs: QuickNoteTextRun[];
-  color: EventColor | null;
+  color: EventColor;
   tagId: string | null;
   pinned: boolean;
 }

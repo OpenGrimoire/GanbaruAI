@@ -21,7 +21,6 @@ export const quickNotes = {
   pinned: "Fijadas",
   others: "Otras",
   empty: {
-    active: "Tus ideas rápidas aparecerán aquí",
     archive: "Las notas rápidas archivadas aparecerán aquí",
     trash: "La papelera está vacía",
     search: "Ninguna nota rápida coincide con esta búsqueda",
@@ -47,7 +46,6 @@ export const quickNotes = {
     pin: "Fijar nota",
     unpin: "Desfijar nota",
     color: "Color de la nota",
-    clearColor: "Sin color",
     archive: "Archivar nota",
     unarchive: "Desarchivar nota",
     trash: "Mover nota a la Papelera",

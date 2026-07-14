@@ -18,7 +18,7 @@ Creating or opening a card shows a modal editor above the collection panel. The 
 
 Pasted content is converted to text, line breaks, bold, italic, and underline. Links, lists, media, scripts, styles, and unsupported formatting are flattened or discarded. Raw HTML is never persisted. Titles are limited to 200 characters and bodies to 65,536 characters.
 
-The note background can be neutral or use any of the 32 theme-aware event palette slots. The same palette slot follows theme changes, and foreground text uses the event palette's contrast resolution.
+The note background uses the muted variant of one of the 32 theme-aware event palette slots. New notes default to palette index 30, the same penultimate default used by Calendar events. The picker shows each source palette color clearly, while the card and editor apply the same canvas-blended treatment as past calendar events. The same palette slot follows theme changes. Note titles and bodies share whichever of pure black or pure white has the higher WCAG contrast against the blended background.
 
 Edits autosave after 250 milliseconds and pending writes flush before an editor, panel, detached window, or application closes. Empty new drafts are discarded. Revision checks prevent another window from silently overwriting an edited note. Conflicts can be reloaded or saved as a separate copy, while ordinary failures keep the editor open with a retry action.
 

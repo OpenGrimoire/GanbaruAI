@@ -18,7 +18,6 @@ export const quickNotes = {
   pinned: "Pinned",
   others: "Others",
   empty: {
-    active: "Quick thoughts will appear here",
     archive: "Archived quick notes will appear here",
     trash: "Trash is empty",
     search: "No quick notes match this search",
@@ -44,7 +43,6 @@ export const quickNotes = {
     pin: "Pin note",
     unpin: "Unpin note",
     color: "Note color",
-    clearColor: "No color",
     archive: "Archive note",
     unarchive: "Unarchive note",
     trash: "Move note to Trash",

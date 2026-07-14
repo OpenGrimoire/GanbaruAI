@@ -4,6 +4,7 @@
   import Search from "@lucide/svelte/icons/search";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import X from "@lucide/svelte/icons/x";
+  import { FALLBACK_COLOR_INDEX } from "$lib/components/calendar/types";
   import {
     archiveQuickNote,
     createQuickNoteTag,
@@ -19,6 +20,7 @@
     updateQuickNote,
   } from "$lib/api/quick-notes";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { getQuickNoteColor } from "$lib/quick-notes/colors";
   import { quickNoteViewIndexForKey, quickNoteViewShortcut } from "$lib/quick-notes/tags";
   import {
     cacheQuickNotesAllWindow,
@@ -45,6 +47,7 @@
   let selectedTagId = $state<string | null>(null);
   let tags = $state<QuickNoteTag[]>(initialSnapshot?.tags ?? []);
   let searchText = $state("");
+  let searchOpen = $state(false);
   let notes = $state<QuickNote[]>(initialSnapshot?.window.notes ?? []);
   let nextCursor = $state<string | null>(initialSnapshot?.window.nextCursor ?? null);
   let loading = $state(false);
@@ -62,13 +65,14 @@
 
   const pinnedNotes = $derived(collection === "active" ? notes.filter((note) => note.pinned) : []);
   const otherNotes = $derived(collection === "active" ? notes.filter((note) => !note.pinned) : notes);
+  const creationColors = $derived(getQuickNoteColor(FALLBACK_COLOR_INDEX, theme.current));
   const emptyMessage = $derived(searchText.trim()
     ? t("quickNotes.empty.search")
-    : collection === "active"
-      ? t("quickNotes.empty.active")
-      : collection === "archive"
-        ? t("quickNotes.empty.archive")
-        : t("quickNotes.empty.trash"));
+    : collection === "archive"
+      ? t("quickNotes.empty.archive")
+      : collection === "trash"
+        ? t("quickNotes.empty.trash")
+        : null);
 
   async function load(reset = true): Promise<void> {
     const generation = ++loadGeneration;
@@ -144,6 +148,17 @@
     searchText = value;
     if (searchTimer) clearTimeout(searchTimer);
     searchTimer = setTimeout(() => void load(), 200);
+  }
+
+  async function openSearch(): Promise<void> {
+    searchOpen = true;
+    await tick();
+    searchInput?.focus();
+  }
+
+  function closeSearch(): void {
+    searchOpen = false;
+    if (searchText) updateSearch("");
   }
 
   function revisionRequest(note: QuickNote): { id: string; expectedRevision: number } {
@@ -347,7 +362,7 @@
         initializing = false;
       });
     }
-    void tick().then(() => searchInput?.focus());
+    void tick().then(() => panel?.focus());
     let stopSync: (() => void) | null = null;
     void listenForQuickNotesChanges(() => {
       void loadTags();
@@ -368,39 +383,20 @@
 <div class="fixed inset-0 z-40" onclick={(event) => { if (event.target === event.currentTarget) onclose(); }}></div>
 <div
   bind:this={panel}
-  class="fixed right-2 z-50 flex w-[min(760px,calc(100vw-1rem))] flex-col overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-2xl outline-none"
-  style="top: calc(var(--titlebar-h) + 4px); height: min(680px, calc(100dvh - var(--titlebar-h) - 12px));"
+  class="fixed right-2 z-50 flex w-[min(760px,calc(100vw-1rem))] flex-col overflow-hidden rounded-xl border border-border text-foreground shadow-lg outline-none"
+  style="top: calc(var(--titlebar-h) + 4px); height: min(680px, calc(100dvh - var(--titlebar-h) - 12px)); background-color: var(--cal-bg);"
   role="dialog"
   aria-modal="true"
   aria-label={t("quickNotes.title")}
   tabindex="-1"
 >
-  <header class="shrink-0 border-b border-border/70 bg-popover/95 px-3 py-3 backdrop-blur sm:px-4">
-    <div class="flex items-center gap-2">
-      <h2 class="shrink-0 text-sm font-semibold sm:text-base">{t("quickNotes.title")}</h2>
-      <div class="relative ml-auto min-w-0 flex-1 sm:max-w-sm">
-        <Search class="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" strokeWidth={1.5} />
-        <input
-          bind:this={searchInput}
-          type="search"
-          value={searchText}
-          class="h-8 w-full rounded-lg border border-border bg-background/65 pl-8 pr-8 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          placeholder={t("quickNotes.search")}
-          aria-label={t("quickNotes.search")}
-          oninput={(event) => updateSearch(event.currentTarget.value)}
-        />
-        {#if searchText}
-          <button type="button" class="absolute right-1.5 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded hover:bg-accent" aria-label={t("quickNotes.clearSearch")} onclick={() => updateSearch("")}><X class="size-3" strokeWidth={1.5} /></button>
-        {/if}
-      </div>
-      <button type="button" class="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground" aria-label={t("common.close")} onclick={onclose}><X class="size-4" strokeWidth={1.5} /></button>
-    </div>
-    <div class="mt-2 flex min-w-0 items-center gap-1">
+  <header class="shrink-0 px-3 py-3 sm:px-4">
+    <div class="flex min-w-0 items-center gap-1">
       <div class="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto" role="group" aria-label={t("quickNotes.title")}>
         <button
           type="button"
           aria-pressed={collection === "active" && selectedTagId === null}
-          class={`flex h-7 shrink-0 items-center rounded-md px-2.5 text-xs transition-colors ${collection === "active" && selectedTagId === null ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"}`}
+          class={`flex h-7 shrink-0 items-center rounded-md px-2.5 text-xs transition-colors ${collection === "active" && selectedTagId === null ? "text-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"}`}
           title={`${t("quickNotes.collection.active")} (${t("calendar.toolbar.shortcutKey", "1")})`}
           onclick={() => selectTag(null)}
         >{t("quickNotes.collection.active")}</button>
@@ -408,7 +404,7 @@
           <button
             type="button"
             aria-pressed={collection === "active" && selectedTagId === tag.id}
-            class={`flex h-7 max-w-32 shrink-0 items-center rounded-md px-2.5 text-xs transition-colors ${collection === "active" && selectedTagId === tag.id ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"}`}
+            class={`flex h-7 max-w-32 shrink-0 items-center rounded-md px-2.5 text-xs transition-colors ${collection === "active" && selectedTagId === tag.id ? "text-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"}`}
             title={tagTitle(tag, index)}
             onclick={() => selectTag(tag.id)}
           ><span class="truncate">{tag.name}</span></button>
@@ -416,18 +412,52 @@
         <QuickNoteTagManager tagCount={tags.length} oncreate={createTag} />
       </div>
       <div class="ml-auto flex shrink-0 items-center gap-1" role="group" aria-label={t("quickNotes.title")}>
+        {#if searchOpen}
+          <div class="relative w-24 sm:w-48">
+            <Search class="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" strokeWidth={1.5} />
+            <input
+              bind:this={searchInput}
+              type="search"
+              value={searchText}
+              class="h-7 w-full rounded-md border border-border bg-background/65 pl-8 pr-7 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              placeholder={t("quickNotes.search")}
+              aria-label={t("quickNotes.search")}
+              oninput={(event) => updateSearch(event.currentTarget.value)}
+            />
+            <button type="button" class="absolute right-1 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded hover:bg-accent" aria-label={t("quickNotes.clearSearch")} onclick={closeSearch}><X class="size-3" strokeWidth={1.5} /></button>
+          </div>
+        {:else}
+          <button
+            type="button"
+            aria-label={t("quickNotes.search")}
+            title={t("quickNotes.search")}
+            class="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
+            onclick={() => void openSearch()}
+          ><Search class="size-3.5" strokeWidth={1.5} /></button>
+        {/if}
         <button
           type="button"
           aria-pressed={collection === "archive"}
-          class={`flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs transition-colors ${collection === "archive" ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"}`}
+          aria-label={t("quickNotes.collection.archive")}
+          title={t("quickNotes.collection.archive")}
+          class={`flex size-7 items-center justify-center rounded-md transition-colors ${collection === "archive" ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"}`}
           onclick={() => selectCollection("archive")}
-        ><Archive class="size-3.5" strokeWidth={1.5} /><span class="max-[360px]:hidden">{t("quickNotes.collection.archive")}</span></button>
+        ><Archive class="size-3.5" strokeWidth={1.5} /></button>
         <button
           type="button"
           aria-pressed={collection === "trash"}
-          class={`flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs transition-colors ${collection === "trash" ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"}`}
+          aria-label={t("quickNotes.collection.trash")}
+          title={t("quickNotes.collection.trash")}
+          class={`flex size-7 items-center justify-center rounded-md transition-colors ${collection === "trash" ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"}`}
           onclick={() => selectCollection("trash")}
-        ><Trash2 class="size-3.5" strokeWidth={1.5} /><span class="max-[360px]:hidden">{t("quickNotes.collection.trash")}</span></button>
+        ><Trash2 class="size-3.5" strokeWidth={1.5} /></button>
+        <button
+          type="button"
+          class="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
+          aria-label={t("common.close")}
+          title={t("common.close")}
+          onclick={onclose}
+        ><X class="size-4" strokeWidth={1.5} /></button>
       </div>
     </div>
   </header>
@@ -436,7 +466,8 @@
     {#if collection === "active"}
       <button
         type="button"
-        class="mb-4 flex min-h-12 w-full items-center rounded-xl border border-border bg-card px-4 text-left text-sm text-muted-foreground shadow-sm transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        class="mx-auto mb-4 flex min-h-12 w-2/3 items-center rounded-xl border border-border px-4 text-left text-sm shadow-sm transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        style="background-color: {creationColors.bg}; color: {creationColors.text};"
         onclick={() => { editorNote = null; }}
       >{t("quickNotes.takeNote")}</button>
     {:else if collection === "trash"}
@@ -458,7 +489,7 @@
         <button type="button" class="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-accent" onclick={() => void load()}>{t("quickNotes.retry")}</button>
       </div>
     {:else if !initializing && notes.length === 0}
-      <div class="flex min-h-40 items-center justify-center text-center text-sm text-muted-foreground">{emptyMessage}</div>
+      {#if emptyMessage}<div class="flex min-h-40 items-center justify-center text-center text-sm text-muted-foreground">{emptyMessage}</div>{/if}
     {:else}
       {#if pinnedNotes.length > 0}
         <h3 class="mb-2 px-1 text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{t("quickNotes.pinned")}</h3>

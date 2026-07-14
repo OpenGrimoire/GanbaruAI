@@ -31,7 +31,7 @@ pub struct QuickNoteWrite {
     id: String,
     title: String,
     runs: Vec<QuickNoteTextRun>,
-    color: Option<i64>,
+    color: i64,
     tag_id: Option<String>,
     pinned: bool,
 }
@@ -43,7 +43,7 @@ pub struct QuickNoteUpdate {
     expected_revision: i64,
     title: String,
     runs: Vec<QuickNoteTextRun>,
-    color: Option<i64>,
+    color: i64,
     tag_id: Option<String>,
     pinned: bool,
 }
@@ -93,7 +93,7 @@ struct QuickNoteRow {
     id: String,
     title: String,
     body_plain_text: String,
-    color: Option<i64>,
+    color: i64,
     tag_id: Option<String>,
     pinned: i64,
     archived: i64,
@@ -121,7 +121,7 @@ pub struct QuickNoteRead {
     body_plain_text: String,
     runs: Vec<QuickNoteTextRun>,
     preview_truncated: bool,
-    color: Option<i64>,
+    color: i64,
     tag_id: Option<String>,
     pinned: bool,
     archived: bool,
@@ -162,8 +162,8 @@ fn validate_id(id: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn validate_color(color: Option<i64>) -> Result<(), String> {
-    if color.is_some_and(|value| !(0..32).contains(&value)) {
+fn validate_color(color: i64) -> Result<(), String> {
+    if !(0..32).contains(&color) {
         return Err("quick note color must be between 0 and 31".to_string());
     }
     Ok(())
@@ -223,7 +223,7 @@ fn validate_content(
     id: &str,
     title: &str,
     runs: &[QuickNoteTextRun],
-    color: Option<i64>,
+    color: i64,
 ) -> Result<Vec<QuickNoteTextRun>, String> {
     validate_id(id)?;
     if title.chars().count() > MAX_TITLE_CHARS {

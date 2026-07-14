@@ -60,8 +60,8 @@ fn normalizes_adjacent_runs_and_enforces_limits() {
     .unwrap();
     assert_eq!(merged.len(), 1);
     assert_eq!(merged[0].content, "one two");
-    assert!(validate_content("id", &"x".repeat(201), &[], None).is_err());
-    assert!(validate_content("id", "title", &runs("body"), Some(32)).is_err());
+    assert!(validate_content("id", &"x".repeat(201), &[], 30).is_err());
+    assert!(validate_content("id", "title", &runs("body"), 32).is_err());
 }
 
 #[test]

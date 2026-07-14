@@ -57,15 +57,15 @@ function mapRun(value: unknown, label: string): QuickNoteTextRun {
 export function mapQuickNote(value: unknown): QuickNote {
   const row = record(value, "quick note");
   if (!Array.isArray(row.runs)) throw new Error("quick note.runs must be an array");
-  const color = row.color === null ? null : normalizeEventColor(row.color);
-  if (row.color !== null && color === undefined) throw new Error("quick note.color is invalid");
+  const color = normalizeEventColor(row.color);
+  if (color === undefined) throw new Error("quick note.color is invalid");
   return {
     id: string(row.id, "quick note.id"),
     title: string(row.title, "quick note.title"),
     bodyPlainText: string(row.bodyPlainText, "quick note.bodyPlainText"),
     runs: row.runs.map((run, index) => mapRun(run, `quick note.runs[${index}]`)),
     previewTruncated: boolean(row.previewTruncated, "quick note.previewTruncated"),
-    color: color ?? null,
+    color,
     tagId: nullableString(row.tagId, "quick note.tagId"),
     pinned: boolean(row.pinned, "quick note.pinned"),
     archived: boolean(row.archived, "quick note.archived"),

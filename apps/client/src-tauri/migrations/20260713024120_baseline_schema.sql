@@ -2119,7 +2119,7 @@ CREATE TABLE quick_notes (
     id TEXT PRIMARY KEY CHECK (trim(id) <> ''),
     title TEXT NOT NULL DEFAULT '' CHECK (length(title) <= 200),
     body_plain_text TEXT NOT NULL DEFAULT '' CHECK (length(body_plain_text) <= 65536),
-    color INTEGER CHECK (color IS NULL OR (color >= 0 AND color < 32)),
+    color INTEGER NOT NULL DEFAULT 30 CHECK (color >= 0 AND color < 32),
     tag_id TEXT REFERENCES quick_note_tags(id) ON DELETE SET NULL,
     pinned INTEGER NOT NULL DEFAULT 0 CHECK (pinned IN (0, 1)),
     archived INTEGER NOT NULL DEFAULT 0 CHECK (archived IN (0, 1)),

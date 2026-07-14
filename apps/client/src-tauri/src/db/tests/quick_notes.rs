@@ -23,6 +23,21 @@ fn schema_creates_normalized_quick_notes_storage() {
                 .execute(&pool)
                 .await;
         assert!(invalid_color.is_err());
+        sqlx::query("INSERT INTO quick_notes (id) VALUES ('default-color')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let default_color: i64 =
+            sqlx::query_scalar("SELECT color FROM quick_notes WHERE id = 'default-color'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(default_color, 30);
+        let null_color =
+            sqlx::query("UPDATE quick_notes SET color = NULL WHERE id = 'default-color'")
+                .execute(&pool)
+                .await;
+        assert!(null_color.is_err());
         let invalid_run = sqlx::query(
             "INSERT INTO quick_note_text_runs (note_id, sort_order, content) VALUES ('missing', 0, 'text')",
         )

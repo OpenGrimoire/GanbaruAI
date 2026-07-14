@@ -5,8 +5,8 @@
   import PinOff from "@lucide/svelte/icons/pin-off";
   import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
   import Trash2 from "@lucide/svelte/icons/trash-2";
-  import { getEventColor } from "$lib/components/calendar/utils";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { getQuickNoteColor } from "$lib/quick-notes/colors";
   import type { QuickNote, QuickNotesCollection, QuickNoteTag } from "$lib/quick-notes/types";
   import type { Theme } from "$lib/stores/themes";
   import QuickNoteColorPicker from "./QuickNoteColorPicker.svelte";
@@ -44,11 +44,9 @@
   } = $props();
 
   const { t } = getLocalization();
-  const colors = $derived(note.color === null ? null : getEventColor(note.color, theme));
+  const colors = $derived(getQuickNoteColor(note.color, theme));
   const tag = $derived(tags.find((candidate) => candidate.id === note.tagId) ?? null);
-  const surfaceStyle = $derived(colors
-    ? `--quick-card-bg: ${colors.bg}; --quick-card-fg: ${colors.text};`
-    : "--quick-card-bg: var(--card); --quick-card-fg: var(--card-foreground);");
+  const surfaceStyle = $derived(`--quick-card-bg: ${colors.bg}; --quick-card-fg: ${colors.text};`);
   const actionClass = "flex size-7 items-center justify-center rounded-md transition-colors hover:bg-black/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current dark:hover:bg-white/10";
 </script>
 
