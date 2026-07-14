@@ -20,11 +20,8 @@ mod rules;
 pub(crate) mod state;
 pub(crate) mod usage;
 
-#[cfg(target_os = "linux")]
-use contracts::ObservedDesktopProcess;
-use contracts::{
-    DesktopRuleMatcher, DoomscrollingExtensionConnectionFile, NormalizedDesktopBlockEvent,
-};
+#[cfg(any(target_os = "linux", test))]
+use contracts::{DesktopRuleMatcher, ObservedDesktopProcess};
 #[allow(unused_imports)]
 pub use contracts::{
     DoomscrollingCloseDesktopAppRequest, DoomscrollingCloseForegroundDesktopAppRequest,
@@ -35,6 +32,7 @@ pub use contracts::{
     DoomscrollingRunningDesktopAppMatch, DoomscrollingRuntimeState, DoomscrollingUsageSampleInput,
     DoomscrollingUsageSampleRow,
 };
+use contracts::{DoomscrollingExtensionConnectionFile, NormalizedDesktopBlockEvent};
 
 use authorization::{load_close_authorization, validate_names_authorized};
 use foreground::{close_current_foreground_desktop_app, foreground_desktop_app_status};
@@ -42,12 +40,14 @@ use process_control::close_desktop_process;
 use processes::list_blocked_desktop_app_matches;
 #[cfg(target_os = "linux")]
 use processes::{observe_linux_process, read_linux_process_name};
+#[cfg(any(target_os = "linux", test))]
+use rules::desktop_rule_matchers;
 use rules::{
-    app_name_key, desktop_rule_matchers, foreground_expectation_matches,
-    foreground_status_from_parts, foreground_status_match_names,
-    is_protected_desktop_app_candidate, is_protected_desktop_app_name,
-    normalize_app_candidate_name, normalize_process_match_name, normalize_process_match_names,
-    unavailable_foreground_desktop_app_status, validate_foreground_status_is_closeable,
+    app_name_key, foreground_expectation_matches, foreground_status_from_parts,
+    foreground_status_match_names, is_protected_desktop_app_candidate,
+    is_protected_desktop_app_name, normalize_app_candidate_name, normalize_process_match_name,
+    normalize_process_match_names, unavailable_foreground_desktop_app_status,
+    validate_foreground_status_is_closeable,
 };
 pub use state::clear_doomscrolling_enforcement_state;
 use state::{

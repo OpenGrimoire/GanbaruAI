@@ -159,7 +159,13 @@ pub(super) fn close_desktop_process<R: Runtime>(
 #[cfg(not(target_os = "linux"))]
 pub(super) fn close_desktop_process<R: Runtime>(
     _app: &tauri::AppHandle<R>,
-    _request: DoomscrollingCloseDesktopAppRequest,
+    request: DoomscrollingCloseDesktopAppRequest,
 ) -> Result<(), String> {
+    let _ = (
+        request.process_id,
+        request.process_name,
+        request.process_identity,
+        request.rule_identity,
+    );
     Err("desktop app closing is only available on Linux for now".to_string())
 }

@@ -170,6 +170,7 @@ pub struct DoomscrollingCloseForegroundDesktopAppRequest {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg(any(target_os = "linux", test))]
 pub(super) struct ObservedDesktopProcess {
     pub(super) process_name: String,
     pub(super) match_names: Vec<String>,
@@ -177,6 +178,7 @@ pub(super) struct ObservedDesktopProcess {
 }
 
 #[derive(Clone, Debug)]
+#[cfg(any(target_os = "linux", test))]
 pub(super) struct DesktopRuleMatcher {
     pub(super) app_name: String,
     pub(super) rule_identity: DoomscrollingDesktopRuleIdentity,

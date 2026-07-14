@@ -127,9 +127,8 @@ pub(super) fn list_blocked_desktop_app_matches(
 
 #[cfg(not(target_os = "linux"))]
 pub(super) fn list_blocked_desktop_app_matches(
-    apps: Vec<DoomscrollingDesktopAppRuleInput>,
+    _apps: Vec<DoomscrollingDesktopAppRuleInput>,
     _is_cancelled: impl Fn() -> bool,
 ) -> Vec<DoomscrollingRunningDesktopAppMatch> {
-    let _ = desktop_rule_matchers(apps);
     Vec::new()
 }
