@@ -18,15 +18,19 @@
   let {
     showPomodoro,
     showMusic,
+    quickNotesOpen,
     showMenu = $bindable(),
     isMainWindow,
     onMenuOpened,
+    onToggleQuickNotes,
   }: {
     showPomodoro: boolean;
     showMusic: boolean;
+    quickNotesOpen: boolean;
     showMenu: boolean;
     isMainWindow: boolean;
     onMenuOpened: () => void;
+    onToggleQuickNotes: () => void;
   } = $props();
 
   const musicPlayer = getMusicPlayer();
@@ -378,9 +382,15 @@
 
     <button
       type="button"
-      class={`titlebar-icon-button flex items-center justify-center rounded-lg transition-colors ${TITLE_BAR_ICON_COLOR_CLASS} hover:bg-sidebar-accent`}
+      onclick={onToggleQuickNotes}
+      class={cn(
+        "titlebar-icon-button flex items-center justify-center rounded-lg transition-colors",
+        quickNotesOpen ? "bg-sidebar-accent text-foreground" : `${TITLE_BAR_ICON_COLOR_CLASS} hover:bg-sidebar-accent`,
+      )}
       title={t("titleBar.control.quickNotes")}
       aria-label={t("titleBar.control.quickNotes")}
+      aria-haspopup="dialog"
+      aria-expanded={quickNotesOpen}
     >
       <StickyNote size={TITLE_BAR_ICON_SIZE} strokeWidth={TITLE_BAR_ICON_STROKE_WIDTH} />
     </button>

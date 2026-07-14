@@ -9,6 +9,7 @@ import { format } from "./format";
 import { music } from "./music";
 import { notes } from "./notes";
 import { projects } from "./projects";
+import { quickNotes } from "./quick-notes";
 import { settings } from "./settings";
 import { theme } from "./theme";
 import { titleBar } from "./title-bar";
@@ -31,6 +32,7 @@ export const es = {
   benchmark,
   notes,
   projects,
+  quickNotes,
   music,
   titleBar,
   format,

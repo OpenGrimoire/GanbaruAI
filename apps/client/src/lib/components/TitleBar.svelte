@@ -30,6 +30,7 @@
   import TitleBarMenus from "$lib/components/title-bar/TitleBarMenus.svelte";
   import { createTitleBarShortcutController } from "$lib/components/title-bar/title-bar-shortcut-controller.svelte";
   import TitleBarWindowControls from "$lib/components/title-bar/TitleBarWindowControls.svelte";
+  import { flushQuickNoteEditors } from "$lib/quick-notes/persistence";
 
   let {
     shellStartupMs = null,
@@ -56,6 +57,7 @@
 
   let showCloseConfirm = $state(false);
   let showPomodoroMenu = $state(false);
+  let showQuickNotes = $state(false);
   let showResetSequenceConfirm = $state(false);
   let showResetConfirm = $state(false);
   let showPerfMenu = $state(false);
@@ -77,12 +79,14 @@
     showPerfMenu = !showPerfMenu;
     showPomodoroMenu = false;
     showUtilityOverflowMenu = false;
+    showQuickNotes = false;
   }
 
   function toggleTheme() {
     if (lockedByThemeEditor) return;
     showPomodoroMenu = false;
     showUtilityOverflowMenu = false;
+    showQuickNotes = false;
     theme.toggle();
   }
 
@@ -100,12 +104,14 @@
     showPomodoroMenu = false;
     showTitleBarMenu = false;
     showUtilityOverflowMenu = false;
+    showQuickNotes = false;
     showThemeQuickSwitcher = true;
   }
 
   function openSettings(section?: SectionId) {
     showPomodoroMenu = false;
     showUtilityOverflowMenu = false;
+    showQuickNotes = false;
     settingsLauncher.open(section);
   }
 
@@ -151,6 +157,7 @@
     requestCloseConfirmation: () => { showCloseConfirm = true; },
     closeConfirmation: () => { showCloseConfirm = false; },
     ensureBenchmarkOverlay: () => ensureBenchmarkOverlay(),
+    beforeClose: flushQuickNoteEditors,
     themeEditOpen: () => !!themeEditor.editingId,
     cancelThemeEdit: () => themeEditor.cancel(),
     reportError: (message, error) => { console.error(message, error); },
@@ -291,6 +298,7 @@
     e.preventDefault();
     e.stopPropagation();
     showPomodoroMenu = false;
+    showQuickNotes = false;
     showTabContextMenu = false;
     tabContextView = null;
 
@@ -312,6 +320,7 @@
     e.preventDefault();
     e.stopPropagation();
     showPomodoroMenu = false;
+    showQuickNotes = false;
     showTitleBarMenu = false;
     showUtilityOverflowMenu = false;
     showTabContextMenu = true;
@@ -371,12 +380,23 @@
       bind:this={mediaControls}
       showPomodoro={titleBarControlVisible("pomodoro")}
       showMusic={titleBarControlVisible("music")}
+      quickNotesOpen={showQuickNotes}
       bind:showMenu={showPomodoroMenu}
       {isMainWindow}
       onMenuOpened={() => {
         showPerfMenu = false;
         showTitleBarMenu = false;
         showUtilityOverflowMenu = false;
+        showQuickNotes = false;
+      }}
+      onToggleQuickNotes={() => {
+        showQuickNotes = !showQuickNotes;
+        showPomodoroMenu = false;
+        showPerfMenu = false;
+        showTitleBarMenu = false;
+        showUtilityOverflowMenu = false;
+        showThemeQuickSwitcher = false;
+        settingsLauncher.close();
       }}
     />
 
@@ -399,6 +419,7 @@
       onOverflowOpened={() => {
         showPomodoroMenu = false;
         showPerfMenu = false;
+        showQuickNotes = false;
       }}
     />
 
@@ -418,6 +439,7 @@
   bind:showPerformance={showPerfMenu}
   bind:performancePinned={perfPinned}
   bind:showThemeQuickSwitcher
+  bind:showQuickNotes
   {shellStartupMs}
   {startupMemorySnapshot}
   {ensureBenchmarkOverlay}

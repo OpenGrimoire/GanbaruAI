@@ -4,12 +4,12 @@
     {
       "name": "Projects",
       "module": "src/lib/components/projects/ProjectsView.svelte",
-      "maxSourceModules": 235
+      "maxSourceModules": 252
     },
     {
       "name": "Notes",
       "module": "src/lib/components/notes/NotesView.svelte",
-      "maxSourceModules": 235
+      "maxSourceModules": 252
     }
   ],
   "shell": {
@@ -18,7 +18,8 @@
       "src/lib/components/calendar/CalendarView.svelte",
       "src/lib/components/projects/ProjectsView.svelte",
       "src/lib/components/notes/NotesView.svelte",
-      "src/lib/components/music/MusicView.svelte"
+      "src/lib/components/music/MusicView.svelte",
+      "src/lib/components/quick-notes/QuickNotesPanel.svelte"
     ],
     "forbiddenModules": [
       "src/lib/components/notes/NotesHtmlImportDialog.svelte",

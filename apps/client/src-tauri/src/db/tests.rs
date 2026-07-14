@@ -6,3 +6,4 @@ mod notes;
 mod pomodoro;
 mod projects;
 mod query_plans;
+mod quick_notes;

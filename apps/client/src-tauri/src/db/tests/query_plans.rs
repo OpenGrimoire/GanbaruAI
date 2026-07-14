@@ -13,6 +13,8 @@ fn hot_domain_queries_use_expected_indexes() {
             ("Doomscrolling usage window", "SELECT id FROM doomscrolling_usage_samples WHERE local_date >= '2026-07-01' AND local_date <= '2026-07-11' ORDER BY local_date, source_type, source_key", "idx_doomscrolling_usage_samples_date_source"),
             ("open Pomodoro run", "SELECT id FROM pomodoro_runs WHERE ended_at IS NULL LIMIT 1", "idx_pomodoro_runs_open"),
             ("active Pomodoro segment", "SELECT id FROM pomodoro_segments WHERE status = 'active' LIMIT 1", "idx_pomodoro_segments_single_active"),
+            ("active Quick notes", "SELECT id FROM quick_notes WHERE archived = 0 AND trashed_at IS NULL ORDER BY pinned DESC, updated_at DESC, id LIMIT 60", "idx_quick_notes_active"),
+            ("tagged Quick notes", "SELECT id FROM quick_notes WHERE tag_id = 'tag-1' AND archived = 0 AND trashed_at IS NULL ORDER BY pinned DESC, updated_at DESC, id LIMIT 60", "idx_quick_notes_tag_active"),
         ];
         for (name, sql, expected) in cases {
             let plan = query_plan(&pool, sql).await;

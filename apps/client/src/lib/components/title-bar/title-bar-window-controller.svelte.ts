@@ -14,6 +14,7 @@ export interface TitleBarWindowControllerContext {
   requestCloseConfirmation: () => void;
   closeConfirmation: () => void;
   ensureBenchmarkOverlay: () => Promise<void>;
+  beforeClose: () => Promise<void>;
   themeEditOpen: () => boolean;
   cancelThemeEdit: () => Promise<void>;
   reportError: (message: string, error: unknown) => void;
@@ -36,6 +37,12 @@ export function createTitleBarWindowController(
 
   async function requestClose(): Promise<void> {
     if (context.detachedWindowView) {
+      try {
+        await context.beforeClose();
+      } catch (error) {
+        context.reportError("Failed to save Quick notes before closing:", error);
+        return;
+      }
       context.markDetachedViewAttached(context.detachedWindowView);
       try {
         await notifyDetachedViewWindowChanged({
@@ -57,10 +64,16 @@ export function createTitleBarWindowController(
     context.requestCloseConfirmation();
   }
 
-  function confirmClose(): void {
+  async function confirmClose(): Promise<void> {
     if (context.benchmarkLocked()) {
       context.closeConfirmation();
       void context.ensureBenchmarkOverlay();
+      return;
+    }
+    try {
+      await context.beforeClose();
+    } catch (error) {
+      context.reportError("Failed to save Quick notes before closing:", error);
       return;
     }
     context.closeConfirmation();

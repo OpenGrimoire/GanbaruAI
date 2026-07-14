@@ -37,6 +37,7 @@ The local-first knowledge layer. Users can take notes linked to their tasks and 
 - Tiptap note editor: block-based editing, slash commands, rich formatting, drag-to-reorder blocks
 - SQLite-backed page and block graph, with Markdown and HTML kept as explicit import and derivative export formats
 - Project-scoped navigation folders that organize workspace notes without replacing compatible nested-note relationships
+- App-wide Quick notes panel with lightweight formatted notes, colors, masonry cards, pinning, Archive, and Trash
 - Bidirectional backlinks tracked in SQLite (note-to-note, note-to-task, note-to-project)
 - Note tags and search indexing in SQLite
 - Daily notes (auto-created dated markdown files)

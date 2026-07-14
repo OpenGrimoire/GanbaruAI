@@ -24,6 +24,7 @@ mod pomodoro;
 mod pomodoro_enforcement;
 mod project_icons;
 mod projects;
+mod quick_notes;
 mod recurrence;
 mod themes;
 mod tray;
@@ -1003,6 +1004,20 @@ pub fn run() {
             notes::notes_load_undo_state,
             notes::notes_save_undo_state,
             notes::notes_clear_undo_state,
+            quick_notes::quick_notes_list,
+            quick_notes::quick_notes_get,
+            quick_notes::quick_notes_create,
+            quick_notes::quick_notes_update,
+            quick_notes::quick_notes_set_pinned,
+            quick_notes::quick_notes_archive,
+            quick_notes::quick_notes_unarchive,
+            quick_notes::quick_notes_trash,
+            quick_notes::quick_notes_restore,
+            quick_notes::quick_notes_delete_permanently,
+            quick_notes::quick_notes_empty_trash,
+            quick_notes::quick_note_tags_list,
+            quick_notes::quick_note_tags_create,
+            quick_notes::quick_note_tags_delete,
             project_icons::project_icon_pick_image_file,
             project_icons::project_icon_save_image_data_url,
             project_icons::project_icon_download_image_url,

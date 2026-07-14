@@ -58,6 +58,7 @@ apps/
           perf/: memory and performance diagnostics surfaces
           pomodoro/: timer display, controls, break screen, and idle overlay
           projects/: project navigation, planning views, task details, and settings
+          quick-notes/: Quick notes panel, masonry cards, editor, and color controls
           settings/: resident settings surfaces, theme editor, preferences, and optional tools
           title-bar/: application title bar and window controls
           ui/: shared generated shadcn-svelte primitives
@@ -77,6 +78,7 @@ apps/
           validation/: split validation helpers
         pomodoro/: adaptive rhythm and Pomodoro domain logic
         projects/: project planning, view, settings, icon, and task domain logic
+        quick-notes/: Quick notes contracts, rich-text operations, masonry, persistence, and window sync
         scheduling/: lifecycle and notification schedulers
         stores/: Svelte rune stores and domain controllers for active runtime state
         types/: frontend-specific TypeScript types
@@ -98,6 +100,7 @@ apps/
         calendar_description.rs, calendar_import.rs, calendar_reads.rs, calendars.rs, recurrence.rs: calendar command roots and shared logic
         pomodoro.rs, pomodoro/: timer commands, DTOs, persistence, validation, reads, and tests
         projects.rs, projects/: project commands, DTOs, persistence, validation, history, custom fields, and templates
+        quick_notes/: Quick notes commands, normalized text runs, lifecycle, search, and tests
         notes.rs, notes/: Notes pages, blocks, databases, assets, history, links, comments, imports, exports, validation, and tests
           writes/: split Notes write command modules and shared write helpers
           tests/: split Notes backend test modules and shared helpers

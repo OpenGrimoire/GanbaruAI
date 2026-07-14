@@ -2105,6 +2105,41 @@ CREATE TABLE pomodoro_segments (
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE quick_note_tags (
+    id TEXT PRIMARY KEY CHECK (trim(id) <> ''),
+    name TEXT NOT NULL COLLATE NOCASE CHECK (length(trim(name)) BETWEEN 1 AND 40),
+    sort_order INTEGER NOT NULL CHECK (sort_order >= 0 AND sort_order < 9),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) CHECK (trim(created_at) <> ''),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) CHECK (trim(updated_at) <> ''),
+    UNIQUE (name),
+    UNIQUE (sort_order)
+);
+
+CREATE TABLE quick_notes (
+    id TEXT PRIMARY KEY CHECK (trim(id) <> ''),
+    title TEXT NOT NULL DEFAULT '' CHECK (length(title) <= 200),
+    body_plain_text TEXT NOT NULL DEFAULT '' CHECK (length(body_plain_text) <= 65536),
+    color INTEGER CHECK (color IS NULL OR (color >= 0 AND color < 32)),
+    tag_id TEXT REFERENCES quick_note_tags(id) ON DELETE SET NULL,
+    pinned INTEGER NOT NULL DEFAULT 0 CHECK (pinned IN (0, 1)),
+    archived INTEGER NOT NULL DEFAULT 0 CHECK (archived IN (0, 1)),
+    trashed_at TEXT CHECK (trashed_at IS NULL OR trim(trashed_at) <> ''),
+    revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) CHECK (trim(created_at) <> ''),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) CHECK (trim(updated_at) <> ''),
+    CHECK (pinned = 0 OR (archived = 0 AND trashed_at IS NULL))
+);
+
+CREATE TABLE quick_note_text_runs (
+    note_id TEXT NOT NULL REFERENCES quick_notes(id) ON DELETE CASCADE,
+    sort_order INTEGER NOT NULL CHECK (sort_order >= 0),
+    content TEXT NOT NULL CHECK (content <> ''),
+    bold INTEGER NOT NULL DEFAULT 0 CHECK (bold IN (0, 1)),
+    italic INTEGER NOT NULL DEFAULT 0 CHECK (italic IN (0, 1)),
+    underline INTEGER NOT NULL DEFAULT 0 CHECK (underline IN (0, 1)),
+    PRIMARY KEY (note_id, sort_order)
+);
+
 CREATE TABLE project_checklist_items (
     id TEXT PRIMARY KEY CHECK (trim(id) <> ''),
     task_id TEXT NOT NULL REFERENCES project_tasks(id) ON DELETE CASCADE,
@@ -2493,6 +2528,13 @@ CREATE VIRTUAL TABLE notes_search_fts USING fts5(
     title,
     body,
     metadata,
+    tokenize = 'unicode61 remove_diacritics 2'
+);
+
+CREATE VIRTUAL TABLE quick_notes_search_fts USING fts5(
+    note_id UNINDEXED,
+    title,
+    body,
     tokenize = 'unicode61 remove_diacritics 2'
 );
 
@@ -2919,6 +2961,45 @@ CREATE INDEX idx_pomodoro_segments_run ON pomodoro_segments(run_id);
 CREATE INDEX idx_pomodoro_segments_run_actual ON pomodoro_segments(run_id, actual_start);
 
 CREATE UNIQUE INDEX idx_pomodoro_segments_single_active ON pomodoro_segments((1)) WHERE status = 'active';
+
+CREATE INDEX idx_quick_note_text_runs_note ON quick_note_text_runs(note_id, sort_order);
+
+CREATE INDEX idx_quick_notes_tag_active
+    ON quick_notes(tag_id, pinned DESC, updated_at DESC, id)
+    WHERE archived = 0 AND trashed_at IS NULL;
+
+CREATE INDEX idx_quick_notes_active
+    ON quick_notes(pinned DESC, updated_at DESC, id)
+    WHERE archived = 0 AND trashed_at IS NULL;
+
+CREATE INDEX idx_quick_notes_archive
+    ON quick_notes(updated_at DESC, id)
+    WHERE archived = 1 AND trashed_at IS NULL;
+
+CREATE INDEX idx_quick_notes_trash
+    ON quick_notes(trashed_at DESC, id)
+    WHERE trashed_at IS NOT NULL;
+
+CREATE TRIGGER quick_notes_search_insert
+AFTER INSERT ON quick_notes
+BEGIN
+    INSERT INTO quick_notes_search_fts(note_id, title, body)
+    VALUES (NEW.id, NEW.title, NEW.body_plain_text);
+END;
+
+CREATE TRIGGER quick_notes_search_update
+AFTER UPDATE OF title, body_plain_text ON quick_notes
+BEGIN
+    DELETE FROM quick_notes_search_fts WHERE note_id = OLD.id;
+    INSERT INTO quick_notes_search_fts(note_id, title, body)
+    VALUES (NEW.id, NEW.title, NEW.body_plain_text);
+END;
+
+CREATE TRIGGER quick_notes_search_delete
+AFTER DELETE ON quick_notes
+BEGIN
+    DELETE FROM quick_notes_search_fts WHERE note_id = OLD.id;
+END;
 
 CREATE INDEX idx_project_checklist_items_task ON project_checklist_items(task_id, sort_order);
 

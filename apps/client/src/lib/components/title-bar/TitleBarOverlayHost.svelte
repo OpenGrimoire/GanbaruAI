@@ -1,9 +1,12 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import type { StartupMemorySnapshot } from "$lib/components/perf/memoryReport";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getSettingsLauncher } from "$lib/stores/settingsLauncher.svelte";
   import { getThemeEditor } from "$lib/stores/themeEditor.svelte";
   import SettingsModal from "$lib/components/settings/SettingsModal.svelte";
+  import QuickNotesPanel from "$lib/components/quick-notes/QuickNotesPanel.svelte";
+  import { preloadQuickNotesInitialSnapshot } from "$lib/quick-notes/initial-snapshot";
 
   type PerformancePopoverComponent = typeof import("$lib/components/perf/PerformancePopover.svelte").default;
   type FloatingThemeEditorComponent = typeof import("$lib/components/settings/FloatingThemeEditor.svelte").default;
@@ -13,6 +16,7 @@
     showPerformance = $bindable(),
     performancePinned = $bindable(),
     showThemeQuickSwitcher = $bindable(),
+    showQuickNotes = $bindable(),
     shellStartupMs,
     startupMemorySnapshot,
     ensureBenchmarkOverlay,
@@ -20,6 +24,7 @@
     showPerformance: boolean;
     performancePinned: boolean;
     showThemeQuickSwitcher: boolean;
+    showQuickNotes: boolean;
     shellStartupMs: number | null;
     startupMemorySnapshot: StartupMemorySnapshot;
     ensureBenchmarkOverlay: () => Promise<void>;
@@ -65,6 +70,12 @@
     if (themeEditor.editingId) void loadEditor();
     if (showThemeQuickSwitcher) void loadSwitcher();
   });
+
+  onMount(() => {
+    void preloadQuickNotesInitialSnapshot().catch((error: unknown) => {
+      console.warn("Quick notes preload failed", error);
+    });
+  });
 </script>
 
 {#if showPerformance}
@@ -93,6 +104,10 @@
       {t("common.loading")}...
     </div>
   {/if}
+{/if}
+
+{#if showQuickNotes}
+  <QuickNotesPanel onclose={() => { showQuickNotes = false; }} />
 {/if}
 
 {#if showThemeQuickSwitcher && ThemeQuickSwitcher}
