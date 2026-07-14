@@ -304,6 +304,7 @@ pub(super) fn validate_foreground_status_is_closeable(
     Ok(())
 }
 
+#[cfg(any(target_os = "linux", test))]
 pub(super) fn desktop_rule_matchers(
     apps: Vec<DoomscrollingDesktopAppRuleInput>,
 ) -> HashMap<String, DesktopRuleMatcher> {
