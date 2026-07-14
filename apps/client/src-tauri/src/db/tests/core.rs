@@ -3,7 +3,7 @@ use super::helpers::{insert_event, insert_open_run, migrated_memory_pool};
 use sqlx::Row;
 
 #[test]
-fn fresh_baseline_has_one_complete_schema() {
+fn fresh_database_applies_baseline_and_additive_migrations() {
     tauri::async_runtime::block_on(async {
         let pool = migrated_memory_pool().await;
         let migration_count: i64 =
@@ -11,7 +11,7 @@ fn fresh_baseline_has_one_complete_schema() {
                 .fetch_one(&pool)
                 .await
                 .unwrap();
-        assert_eq!(migration_count, 1);
+        assert_eq!(migration_count, 2);
         let integrity: String = sqlx::query_scalar("PRAGMA integrity_check")
             .fetch_one(&pool)
             .await
@@ -78,7 +78,7 @@ fn fresh_baseline_has_one_complete_schema() {
 }
 
 #[test]
-fn fresh_baseline_migrates_a_file_backed_database() {
+fn fresh_file_database_applies_baseline_and_additive_migrations() {
     tauri::async_runtime::block_on(async {
         let path = std::env::temp_dir().join(format!(
             "ganbaru-ai-baseline-{}-{}.sqlite",
@@ -103,7 +103,7 @@ fn fresh_baseline_migrates_a_file_backed_database() {
                 .fetch_one(&pool)
                 .await
                 .unwrap();
-        assert_eq!(migration_count, 1);
+        assert_eq!(migration_count, 2);
         pool.close().await;
         std::fs::remove_file(path).unwrap();
     });

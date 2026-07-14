@@ -4,12 +4,12 @@
     {
       "name": "Projects",
       "module": "src/lib/components/projects/ProjectsView.svelte",
-      "maxSourceModules": 252
+      "maxSourceModules": 253
     },
     {
       "name": "Notes",
       "module": "src/lib/components/notes/NotesView.svelte",
-      "maxSourceModules": 252
+      "maxSourceModules": 253
     }
   ],
   "shell": {

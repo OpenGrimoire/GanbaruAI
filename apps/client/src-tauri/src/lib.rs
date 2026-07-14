@@ -1009,6 +1009,7 @@ pub fn run() {
             quick_notes::quick_notes_create,
             quick_notes::quick_notes_update,
             quick_notes::quick_notes_set_pinned,
+            quick_notes::quick_notes_reorder,
             quick_notes::quick_notes_archive,
             quick_notes::quick_notes_unarchive,
             quick_notes::quick_notes_trash,

@@ -51,6 +51,8 @@ export const quickNotes = {
     emptyTrash: "Empty Trash",
     undo: "Undo",
     loadMore: "Load more quick notes",
+    reorder: "Reorder note",
+    reorderHint: "Drag to reorder. Use arrow keys for keyboard reordering.",
   },
   formatting: {
     bold: "Bold",
@@ -69,6 +71,8 @@ export const quickNotes = {
   movedToArchive: "Quick note archived",
   movedToTrash: "Quick note moved to Trash",
   restored: "Quick note restored",
+  reordered: (position: number, total: number) => `Note moved to position ${position} of ${total}`,
+  reorderFailed: "The note order could not be saved",
   loadFailed: "Quick notes could not be loaded",
   retry: "Retry",
 } as const;

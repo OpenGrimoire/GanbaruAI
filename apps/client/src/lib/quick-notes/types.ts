@@ -62,6 +62,13 @@ export interface QuickNoteRevisionRequest {
   expectedRevision: number;
 }
 
+export interface QuickNoteReorderRequest {
+  id: string;
+  previousId: string | null;
+  nextId: string | null;
+  tagId: string | null;
+}
+
 export interface QuickNoteFormatting {
   bold: boolean;
   italic: boolean;

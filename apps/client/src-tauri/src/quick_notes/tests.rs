@@ -119,7 +119,7 @@ fn crud_search_lifecycle_and_revision_conflicts_are_consistent() {
 }
 
 #[test]
-fn list_cursor_preserves_pinned_then_recent_order() {
+fn list_cursor_preserves_pinned_then_manual_order() {
     tauri::async_runtime::block_on(async {
         let pool = pool().await;
         for id in ["a", "b", "c"] {
@@ -157,6 +157,93 @@ fn list_cursor_preserves_pinned_then_recent_order() {
         .unwrap();
         assert_eq!(second.notes.len(), 1);
         assert!(!first.notes.iter().any(|note| note.id == second.notes[0].id));
+    });
+}
+
+#[test]
+fn reorder_persists_between_adjacent_visible_anchors() {
+    tauri::async_runtime::block_on(async {
+        let pool = pool().await;
+        for (index, id) in ["a", "hidden", "b", "c"].iter().enumerate() {
+            create(&pool, id, id, id).await;
+            sqlx::query("UPDATE quick_notes SET manual_order = ? WHERE id = ?")
+                .bind(index as f64 * 1024.0)
+                .bind(id)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        sqlx::query(
+            "INSERT INTO quick_note_tags (id, name, sort_order) VALUES ('tag-1', 'Work', 0)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("UPDATE quick_notes SET tag_id = 'tag-1' WHERE id IN ('a', 'b', 'c')")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        reorder_from_pool(
+            &pool,
+            QuickNoteReorderRequest {
+                id: "c".into(),
+                previous_id: Some("a".into()),
+                next_id: Some("b".into()),
+                tag_id: Some("tag-1".into()),
+            },
+        )
+        .await
+        .unwrap();
+
+        let tagged = list_window_from_pool(
+            &pool,
+            QuickNotesListRequest {
+                collection: QuickNotesCollection::Active,
+                query: None,
+                tag_id: Some("tag-1".into()),
+                cursor: None,
+                page_size: Some(60),
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            tagged
+                .notes
+                .iter()
+                .map(|note| note.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["a", "c", "b"]
+        );
+        assert_eq!(load_note_from_pool(&pool, "c").await.unwrap().revision, 1);
+    });
+}
+
+#[test]
+fn reorder_rejects_nonadjacent_filtered_anchors() {
+    tauri::async_runtime::block_on(async {
+        let pool = pool().await;
+        for (index, id) in ["a", "b", "c", "d"].iter().enumerate() {
+            create(&pool, id, id, id).await;
+            sqlx::query("UPDATE quick_notes SET manual_order = ? WHERE id = ?")
+                .bind(index as f64 * 1024.0)
+                .bind(id)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        let result = reorder_from_pool(
+            &pool,
+            QuickNoteReorderRequest {
+                id: "d".into(),
+                previous_id: Some("a".into()),
+                next_id: Some("c".into()),
+                tag_id: None,
+            },
+        )
+        .await;
+        assert!(result.is_err());
     });
 }
 

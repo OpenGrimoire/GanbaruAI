@@ -18,7 +18,9 @@
     collection,
     theme,
     tags,
+    reorderable = false,
     onopen,
+    onmove,
     onpin,
     oncolor,
     ontag,
@@ -32,7 +34,9 @@
     collection: QuickNotesCollection;
     theme: Theme;
     tags: readonly QuickNoteTag[];
+    reorderable?: boolean;
     onopen: () => void;
+    onmove: (direction: -1 | 1) => void;
     onpin: (pinned: boolean) => void;
     oncolor: (color: QuickNote["color"]) => void;
     ontag: (tagId: string | null) => void;
@@ -48,15 +52,36 @@
   const tag = $derived(tags.find((candidate) => candidate.id === note.tagId) ?? null);
   const surfaceStyle = $derived(`--quick-card-bg: ${colors.bg}; --quick-card-fg: ${colors.text};`);
   const actionClass = "flex size-7 items-center justify-center rounded-md transition-colors hover:bg-black/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current dark:hover:bg-white/10";
+
+  function handleReorderKeydown(event: KeyboardEvent): void {
+    if (event.key !== "ArrowUp" && event.key !== "ArrowLeft" && event.key !== "ArrowDown" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    event.stopPropagation();
+    onmove(event.key === "ArrowUp" || event.key === "ArrowLeft" ? -1 : 1);
+  }
 </script>
 
 <article
-  class="quick-note-card group overflow-hidden rounded-xl"
+  class="quick-note-card group relative overflow-hidden rounded-xl"
   style={surfaceStyle}
 >
+  {#if reorderable}
+    <button
+      type="button"
+      class="quick-note-drag-handle absolute right-1 top-1 z-10 flex size-7 touch-none items-center justify-center rounded-md opacity-60 transition-opacity hover:bg-black/10 hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current dark:hover:bg-white/10"
+      data-quick-note-drag-handle
+      aria-label={t("quickNotes.action.reorder")}
+      title={t("quickNotes.action.reorderHint")}
+      onkeydown={handleReorderKeydown}
+    >
+      <span class="grid grid-cols-2 gap-0.5" aria-hidden="true">
+        {#each [1, 2, 3, 4, 5, 6] as _}<span class="size-0.5 rounded-full bg-current"></span>{/each}
+      </span>
+    </button>
+  {/if}
   <button
     type="button"
-    class="block w-full px-3.5 pb-2 pt-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-current"
+    class={`block w-full px-3.5 pb-2 pt-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-current ${reorderable ? "pr-9" : ""}`}
     onclick={onopen}
   >
     {#if note.title}
@@ -72,7 +97,7 @@
       </div>
     {/if}
   </button>
-  <div class="quick-note-actions flex min-h-9 items-center gap-0.5 px-2 pb-1.5" role="toolbar">
+  <div class="quick-note-actions flex min-h-9 cursor-default items-center gap-0.5 px-2 pb-1.5" role="toolbar" data-quick-note-no-drag>
     {#if collection === "active"}
       <button class={actionClass} type="button" aria-label={note.pinned ? t("quickNotes.action.unpin") : t("quickNotes.action.pin")} title={note.pinned ? t("quickNotes.action.unpin") : t("quickNotes.action.pin")} onclick={() => onpin(!note.pinned)}>
         {#if note.pinned}<PinOff class="size-3.5" strokeWidth={1.5} />{:else}<Pin class="size-3.5" strokeWidth={1.5} />{/if}

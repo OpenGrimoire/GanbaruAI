@@ -81,9 +81,19 @@ pub struct QuickNotesListRequest {
     page_size: Option<i64>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuickNoteReorderRequest {
+    id: String,
+    previous_id: Option<String>,
+    next_id: Option<String>,
+    tag_id: Option<String>,
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 struct QuickNotesCursor {
     pinned: i64,
+    manual_order: f64,
     sort_time: String,
     id: String,
 }
@@ -99,6 +109,7 @@ struct QuickNoteRow {
     archived: i64,
     trashed_at: Option<String>,
     revision: i64,
+    manual_order: f64,
     created_at: String,
     updated_at: String,
 }
@@ -463,10 +474,10 @@ async fn list_window_from_pool(
         if request.collection == QuickNotesCollection::Active {
             sql.push(" AND (q.pinned < ").push_bind(cursor.pinned);
             sql.push(" OR (q.pinned = ").push_bind(cursor.pinned);
-            sql.push(" AND (q.updated_at < ")
-                .push_bind(cursor.sort_time.clone());
-            sql.push(" OR (q.updated_at = ")
-                .push_bind(cursor.sort_time.clone());
+            sql.push(" AND (q.manual_order > ")
+                .push_bind(cursor.manual_order);
+            sql.push(" OR (q.manual_order = ")
+                .push_bind(cursor.manual_order);
             sql.push(" AND q.id > ")
                 .push_bind(cursor.id.clone())
                 .push("))))");
@@ -490,7 +501,7 @@ async fn list_window_from_pool(
     }
     match request.collection {
         QuickNotesCollection::Active => {
-            sql.push(" ORDER BY q.pinned DESC, q.updated_at DESC, q.id ASC")
+            sql.push(" ORDER BY q.pinned DESC, q.manual_order ASC, q.id ASC")
         }
         QuickNotesCollection::Archive => sql.push(" ORDER BY q.updated_at DESC, q.id ASC"),
         QuickNotesCollection::Trash => sql.push(" ORDER BY q.trashed_at DESC, q.id ASC"),
@@ -509,6 +520,7 @@ async fn list_window_from_pool(
         rows.last()
             .map(|row| QuickNotesCursor {
                 pinned: cursor_pinned(row, request.collection),
+                manual_order: row.manual_order,
                 sort_time: cursor_sort_time(row, request.collection),
                 id: row.id.clone(),
             })
@@ -568,14 +580,23 @@ pub async fn quick_notes_create<R: Runtime>(
         .await
         .map_err(|error| format!("begin quick note create: {error}"))?;
     sqlx::query(
-        "INSERT INTO quick_notes (id, title, body_plain_text, color, tag_id, pinned)
-         VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO quick_notes (
+             id, title, body_plain_text, color, tag_id, pinned, manual_order
+         ) VALUES (
+             ?, ?, ?, ?, ?, ?,
+             COALESCE((
+                 SELECT MIN(manual_order) - 1024.0
+                 FROM quick_notes
+                 WHERE pinned = ? AND archived = 0 AND trashed_at IS NULL
+             ), 0.0)
+         )",
     )
     .bind(&note.id)
     .bind(note.title.trim())
     .bind(body)
     .bind(note.color)
     .bind(note.tag_id)
+    .bind(i64::from(note.pinned))
     .bind(i64::from(note.pinned))
     .execute(&mut *tx)
     .await
@@ -661,10 +682,22 @@ pub async fn quick_notes_set_pinned<R: Runtime>(
     let pool = connect_sqlite(app, db_url).await?;
     let result = sqlx::query(
         "UPDATE quick_notes
-         SET pinned = ?, revision = revision + 1,
+         SET manual_order = CASE
+                 WHEN pinned <> ? THEN COALESCE((
+                     SELECT MIN(candidate.manual_order) - 1024.0
+                     FROM quick_notes AS candidate
+                     WHERE candidate.pinned = ?
+                       AND candidate.archived = 0
+                       AND candidate.trashed_at IS NULL
+                 ), 0.0)
+                 ELSE manual_order
+             END,
+             pinned = ?, revision = revision + 1,
              updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
          WHERE id = ? AND revision = ? AND archived = 0 AND trashed_at IS NULL",
     )
+    .bind(i64::from(request.pinned))
+    .bind(i64::from(request.pinned))
     .bind(i64::from(request.pinned))
     .bind(&request.id)
     .bind(request.expected_revision)
@@ -675,6 +708,144 @@ pub async fn quick_notes_set_pinned<R: Runtime>(
         return Err("quick note revision conflict".to_string());
     }
     load_note_from_pool(&pool, &request.id).await
+}
+
+#[derive(Debug, FromRow)]
+struct QuickNoteOrderRow {
+    id: String,
+    tag_id: Option<String>,
+    manual_order: f64,
+}
+
+async fn reorder_from_pool(
+    pool: &SqlitePool,
+    request: QuickNoteReorderRequest,
+) -> Result<(), String> {
+    validate_id(&request.id)?;
+    validate_optional_tag_id(request.previous_id.as_deref())?;
+    validate_optional_tag_id(request.next_id.as_deref())?;
+    validate_optional_tag_id(request.tag_id.as_deref())?;
+    if request.previous_id.as_deref() == Some(request.id.as_str())
+        || request.next_id.as_deref() == Some(request.id.as_str())
+        || request.previous_id == request.next_id
+    {
+        return Err("quick note reorder anchors must be distinct".to_string());
+    }
+
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|error| format!("begin quick note reorder: {error}"))?;
+    let pinned = sqlx::query_scalar::<_, i64>(
+        "SELECT pinned FROM quick_notes
+         WHERE id = ? AND archived = 0 AND trashed_at IS NULL",
+    )
+    .bind(&request.id)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(|error| format!("load quick note reorder source: {error}"))?
+    .ok_or_else(|| "active quick note not found".to_string())?;
+
+    let mut rows = sqlx::query_as::<_, QuickNoteOrderRow>(
+        "SELECT id, tag_id, manual_order
+         FROM quick_notes
+         WHERE pinned = ? AND archived = 0 AND trashed_at IS NULL
+         ORDER BY manual_order ASC, id ASC",
+    )
+    .bind(pinned)
+    .fetch_all(&mut *tx)
+    .await
+    .map_err(|error| format!("load quick note reorder group: {error}"))?;
+
+    let source = rows
+        .iter()
+        .find(|row| row.id == request.id)
+        .ok_or_else(|| "quick note reorder source is outside its order group".to_string())?;
+    if request.tag_id.is_some() && source.tag_id != request.tag_id {
+        return Err("quick note reorder source is outside the selected tag".to_string());
+    }
+    rows.retain(|row| row.id != request.id);
+
+    let is_visible = |row: &&QuickNoteOrderRow| match request.tag_id.as_ref() {
+        Some(tag_id) => row.tag_id.as_ref() == Some(tag_id),
+        None => true,
+    };
+    let visible_ids = rows
+        .iter()
+        .filter(is_visible)
+        .map(|row| row.id.as_str())
+        .collect::<Vec<_>>();
+    let visible_position = |anchor: Option<&str>, label: &str| -> Result<Option<usize>, String> {
+        match anchor {
+            Some(id) => visible_ids
+                .iter()
+                .position(|candidate| *candidate == id)
+                .map(Some)
+                .ok_or_else(|| format!("quick note reorder {label} anchor is invalid")),
+            None => Ok(None),
+        }
+    };
+    let previous_visible_index = visible_position(request.previous_id.as_deref(), "previous")?;
+    let next_visible_index = visible_position(request.next_id.as_deref(), "next")?;
+    if let (Some(previous), Some(next)) = (previous_visible_index, next_visible_index) {
+        if previous + 1 != next {
+            return Err("quick note reorder anchors are not adjacent".to_string());
+        }
+    }
+
+    let insertion_index = if let Some(next_id) = request.next_id.as_deref() {
+        rows.iter()
+            .position(|row| row.id == next_id)
+            .ok_or_else(|| "quick note reorder next anchor is unavailable".to_string())?
+    } else if let Some(previous_id) = request.previous_id.as_deref() {
+        rows.iter()
+            .position(|row| row.id == previous_id)
+            .map(|index| index + 1)
+            .ok_or_else(|| "quick note reorder previous anchor is unavailable".to_string())?
+    } else {
+        0
+    };
+    let previous_order = insertion_index
+        .checked_sub(1)
+        .map(|index| rows[index].manual_order);
+    let next_order = rows.get(insertion_index).map(|row| row.manual_order);
+    let new_order = match (previous_order, next_order) {
+        (Some(previous), Some(next)) if next - previous > 0.000_001 => (previous + next) / 2.0,
+        (None, Some(next)) => next - 1024.0,
+        (Some(previous), None) => previous + 1024.0,
+        (None, None) => 0.0,
+        (Some(_), Some(_)) => {
+            for (index, row) in rows.iter().enumerate() {
+                sqlx::query("UPDATE quick_notes SET manual_order = ? WHERE id = ?")
+                    .bind(index as f64 * 1024.0)
+                    .bind(&row.id)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|error| format!("rebalance quick note order: {error}"))?;
+            }
+            insertion_index as f64 * 1024.0 - 512.0
+        }
+    };
+    sqlx::query("UPDATE quick_notes SET manual_order = ? WHERE id = ?")
+        .bind(new_order)
+        .bind(&request.id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|error| format!("reorder quick note: {error}"))?;
+    tx.commit()
+        .await
+        .map_err(|error| format!("commit quick note reorder: {error}"))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn quick_notes_reorder<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    request: QuickNoteReorderRequest,
+) -> Result<(), String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    reorder_from_pool(&pool, request).await
 }
 
 #[tauri::command]
@@ -705,7 +876,15 @@ pub async fn quick_notes_unarchive<R: Runtime>(
     revision_mutation(
         &pool,
         &request,
-        "UPDATE quick_notes SET archived = 0, pinned = 0, revision = revision + 1,
+        "UPDATE quick_notes SET archived = 0, pinned = 0,
+         manual_order = COALESCE((
+             SELECT MIN(candidate.manual_order) - 1024.0
+             FROM quick_notes AS candidate
+             WHERE candidate.pinned = 0
+               AND candidate.archived = 0
+               AND candidate.trashed_at IS NULL
+         ), 0.0),
+         revision = revision + 1,
          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
          WHERE id = ? AND revision = ? AND archived = 1 AND trashed_at IS NULL",
         "unarchive quick note",
@@ -742,7 +921,15 @@ pub async fn quick_notes_restore<R: Runtime>(
     revision_mutation(
         &pool,
         &request,
-        "UPDATE quick_notes SET trashed_at = NULL, pinned = 0, revision = revision + 1,
+        "UPDATE quick_notes SET trashed_at = NULL, pinned = 0,
+         manual_order = COALESCE((
+             SELECT MIN(candidate.manual_order) - 1024.0
+             FROM quick_notes AS candidate
+             WHERE candidate.pinned = 0
+               AND candidate.archived = 0
+               AND candidate.trashed_at IS NULL
+         ), 0.0),
+         revision = revision + 1,
          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
          WHERE id = ? AND revision = ? AND trashed_at IS NOT NULL",
         "restore quick note",

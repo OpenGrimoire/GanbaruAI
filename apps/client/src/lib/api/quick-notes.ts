@@ -5,6 +5,7 @@ import type {
   QuickNote,
   QuickNoteCreate,
   QuickNoteRevisionRequest,
+  QuickNoteReorderRequest,
   QuickNotesCollection,
   QuickNotesWindow,
   QuickNoteTextRun,
@@ -112,6 +113,10 @@ export function updateQuickNote(note: QuickNoteUpdate): Promise<QuickNote> {
 
 export function setQuickNotePinned(request: QuickNoteRevisionRequest, pinned: boolean): Promise<QuickNote> {
   return invokeNote("quick_notes_set_pinned", { request: { ...request, pinned } });
+}
+
+export async function reorderQuickNote(request: QuickNoteReorderRequest): Promise<void> {
+  await invoke("quick_notes_reorder", { dbUrl: await ensureDbUrl(), request });
 }
 
 export function archiveQuickNote(request: QuickNoteRevisionRequest): Promise<QuickNote> {

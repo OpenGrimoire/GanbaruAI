@@ -54,6 +54,8 @@ export const quickNotes = {
     emptyTrash: "Vaciar Papelera",
     undo: "Deshacer",
     loadMore: "Cargar más notas rápidas",
+    reorder: "Reordenar nota",
+    reorderHint: "Arrastra para reordenar. Usa las flechas para reordenar con el teclado.",
   },
   formatting: {
     bold: "Negrita",
@@ -72,6 +74,8 @@ export const quickNotes = {
   movedToArchive: "Nota rápida archivada",
   movedToTrash: "Nota rápida movida a la Papelera",
   restored: "Nota rápida restaurada",
+  reordered: (position: number, total: number) => `Nota movida a la posición ${position} de ${total}`,
+  reorderFailed: "No se pudo guardar el orden de la nota",
   loadFailed: "No se pudieron cargar las notas rápidas",
   retry: "Reintentar",
 } as const satisfies MessageShape<typeof enQuickNotes>;

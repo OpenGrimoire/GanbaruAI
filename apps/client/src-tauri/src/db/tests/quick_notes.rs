@@ -33,6 +33,12 @@ fn schema_creates_normalized_quick_notes_storage() {
                 .await
                 .unwrap();
         assert_eq!(default_color, 30);
+        let default_manual_order: f64 =
+            sqlx::query_scalar("SELECT manual_order FROM quick_notes WHERE id = 'default-color'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(default_manual_order, 0.0);
         let null_color =
             sqlx::query("UPDATE quick_notes SET color = NULL WHERE id = 'default-color'")
                 .execute(&pool)

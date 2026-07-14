@@ -14,6 +14,7 @@
     listQuickNotes,
     listQuickNoteTags,
     restoreQuickNote,
+    reorderQuickNote,
     setQuickNotePinned,
     trashQuickNote,
     unarchiveQuickNote,
@@ -22,6 +23,7 @@
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getQuickNoteColor } from "$lib/quick-notes/colors";
   import { quickNoteViewIndexForKey, quickNoteViewShortcut } from "$lib/quick-notes/tags";
+  import { applyQuickNoteGroupOrder } from "$lib/quick-notes/masonry";
   import {
     cacheQuickNotesAllWindow,
     cacheQuickNotesViewWindow,
@@ -62,14 +64,28 @@
   let deleteTarget = $state<QuickNote | null>(null);
   let confirmEmptyTrash = $state(false);
   let undoMessage = $state("");
+  let reorderAnnouncement = $state("");
   let undoAction = $state<(() => Promise<void>) | null>(null);
   let undoTimer: ReturnType<typeof setTimeout> | null = null;
   let searchTimer: ReturnType<typeof setTimeout> | null = null;
   let loadGeneration = 0;
+  let reorderWorkerRunning = false;
+  const pendingReorders = new Map<string, {
+    id: string;
+    previousId: string | null;
+    nextId: string | null;
+    tagId: string | null;
+  }>();
 
   const pinnedNotes = $derived(renderedCollection === "active" ? notes.filter((note) => note.pinned) : []);
   const otherNotes = $derived(renderedCollection === "active" ? notes.filter((note) => !note.pinned) : notes);
   const creationColors = $derived(getQuickNoteColor(FALLBACK_COLOR_INDEX, theme.current));
+  const reorderable = $derived(
+    collection === "active"
+      && renderedCollection === "active"
+      && searchText.trim() === ""
+      && !loading,
+  );
   const emptyMessage = $derived(searchText.trim()
     ? t("quickNotes.empty.search")
     : collection === "archive"
@@ -217,6 +233,46 @@
     void runMutation(() => setQuickNotePinned(revisionRequest(note), pinned));
   }
 
+  async function flushPendingReorders(): Promise<void> {
+    if (reorderWorkerRunning) return;
+    reorderWorkerRunning = true;
+    try {
+      while (pendingReorders.size > 0) {
+        const requests = [...pendingReorders.values()];
+        pendingReorders.clear();
+        for (const request of requests) await reorderQuickNote(request);
+        publishQuickNotesChanged();
+      }
+    } catch (error: unknown) {
+      pendingReorders.clear();
+      reorderAnnouncement = t("quickNotes.reorderFailed");
+      loadError = error instanceof Error ? error.message : String(error);
+      await load();
+    } finally {
+      reorderWorkerRunning = false;
+      if (pendingReorders.size > 0) void flushPendingReorders();
+    }
+  }
+
+  function reorderNoteGroup(
+    orderedIds: readonly string[],
+    movedId: string,
+    position: number,
+    pinned: boolean,
+  ): void {
+    if (!reorderable) return;
+    notes = applyQuickNoteGroupOrder(notes, orderedIds);
+    animateLayout = true;
+    reorderAnnouncement = t("quickNotes.reordered", position + 1, orderedIds.length);
+    pendingReorders.set(pinned ? "pinned" : "other", {
+      id: movedId,
+      previousId: orderedIds[position - 1] ?? null,
+      nextId: orderedIds[position + 1] ?? null,
+      tagId: selectedTagId,
+    });
+    void flushPendingReorders();
+  }
+
   function colorNote(note: QuickNote, color: QuickNote["color"]): void {
     void runMutation(async () => {
       const full = await getQuickNote(note.id);
@@ -327,6 +383,7 @@
     const target = event.target instanceof Element ? event.target : null;
     const targetDialog = target?.closest("[role='dialog']") ?? null;
     if (event.key === "Escape") {
+      if (document.documentElement.dataset.quickNoteDragging === "true") return;
       if (target?.closest("[data-quick-note-tag-creator]") !== null) return;
       if (targetDialog !== null && targetDialog !== panel) return;
       event.preventDefault();
@@ -493,7 +550,7 @@
     </div>
   </header>
 
-  <div class="min-h-0 flex-1 overflow-y-auto px-3 pb-3 pt-1.5 sm:px-4" aria-busy={loading}>
+  <div data-quick-notes-scroll class="min-h-0 flex-1 overflow-y-auto px-3 pb-3 pt-1.5 sm:px-4" aria-busy={loading}>
     {#if renderedCollection === "active"}
       <button
         type="button"
@@ -518,17 +575,18 @@
     {:else}
       {#if pinnedNotes.length > 0}
         <h3 class="mb-2 px-1 text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{t("quickNotes.pinned")}</h3>
-        <QuickNotesMasonry notes={pinnedNotes} collection={renderedCollection} {animateLayout} theme={theme.current} {tags} onopen={(note) => void openNote(note)} onpin={pinNote} oncolor={colorNote} ontag={tagNote} onarchive={archiveNote} onunarchive={unarchiveNote} ontrash={trashNote} onrestore={restoreNote} ondelete={(note) => { deleteTarget = note; }} />
+        <QuickNotesMasonry notes={pinnedNotes} collection={renderedCollection} {animateLayout} {reorderable} theme={theme.current} {tags} onopen={(note) => void openNote(note)} onreorder={(ids, id, position) => reorderNoteGroup(ids, id, position, true)} onpin={pinNote} oncolor={colorNote} ontag={tagNote} onarchive={archiveNote} onunarchive={unarchiveNote} ontrash={trashNote} onrestore={restoreNote} ondelete={(note) => { deleteTarget = note; }} />
       {/if}
       {#if otherNotes.length > 0}
         {#if pinnedNotes.length > 0}<h3 class="mb-2 mt-5 px-1 text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{t("quickNotes.others")}</h3>{/if}
-        <QuickNotesMasonry notes={otherNotes} collection={renderedCollection} {animateLayout} theme={theme.current} {tags} onopen={(note) => void openNote(note)} onpin={pinNote} oncolor={colorNote} ontag={tagNote} onarchive={archiveNote} onunarchive={unarchiveNote} ontrash={trashNote} onrestore={restoreNote} ondelete={(note) => { deleteTarget = note; }} />
+        <QuickNotesMasonry notes={otherNotes} collection={renderedCollection} {animateLayout} {reorderable} theme={theme.current} {tags} onopen={(note) => void openNote(note)} onreorder={(ids, id, position) => reorderNoteGroup(ids, id, position, false)} onpin={pinNote} oncolor={colorNote} ontag={tagNote} onarchive={archiveNote} onunarchive={unarchiveNote} ontrash={trashNote} onrestore={restoreNote} ondelete={(note) => { deleteTarget = note; }} />
       {/if}
       {#if nextCursor}
         <button use:observeMore type="button" class="mt-4 w-full rounded-md py-2 text-xs text-muted-foreground hover:bg-accent" disabled={loadingMore} onclick={() => { animateLayout = true; void load(false); }}>{loadingMore ? t("common.loading") : t("quickNotes.action.loadMore")}</button>
       {/if}
     {/if}
     {#if loadError && notes.length > 0}<p class="mt-3 text-center text-xs text-destructive">{loadError}</p>{/if}
+    <p class="sr-only" aria-live="polite">{reorderAnnouncement}</p>
   </div>
 
   {#if undoAction}
