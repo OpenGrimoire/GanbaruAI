@@ -390,7 +390,7 @@
   aria-label={t("quickNotes.title")}
   tabindex="-1"
 >
-  <header class="shrink-0 px-3 py-3 sm:px-4">
+  <header class="shrink-0 px-3 pb-1.5 pt-3 sm:px-4">
     <div class="flex min-w-0 items-center gap-1">
       <div class="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto" role="group" aria-label={t("quickNotes.title")}>
         <button
@@ -462,11 +462,11 @@
     </div>
   </header>
 
-  <div class="min-h-0 flex-1 overflow-y-auto px-3 py-3 sm:px-4">
+  <div class="min-h-0 flex-1 overflow-y-auto px-3 pb-3 pt-1.5 sm:px-4">
     {#if collection === "active"}
       <button
         type="button"
-        class="mx-auto mb-4 flex min-h-12 w-2/3 items-center rounded-xl border border-border px-4 text-left text-sm shadow-sm transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        class="mx-auto mb-4 flex min-h-12 w-2/3 items-center rounded-xl px-4 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         style="background-color: {creationColors.bg}; color: {creationColors.text};"
         onclick={() => { editorNote = null; }}
       >{t("quickNotes.takeNote")}</button>

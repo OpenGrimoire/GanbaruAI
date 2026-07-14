@@ -51,7 +51,7 @@
 </script>
 
 <article
-  class="quick-note-card group overflow-hidden rounded-xl border border-black/10 shadow-sm transition-shadow hover:shadow-md dark:border-white/10"
+  class="quick-note-card group overflow-hidden rounded-xl"
   style={surfaceStyle}
 >
   <button

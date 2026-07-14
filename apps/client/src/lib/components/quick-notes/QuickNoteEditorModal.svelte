@@ -514,6 +514,8 @@
 
   onMount(() => {
     const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const restoreTriggerFocus = returnFocus?.matches(":focus-visible") ?? false;
+    const returnContainer = returnFocus?.closest<HTMLElement>("[role='dialog']") ?? null;
     const unregister = registerQuickNotesFlusher(flush);
     window.addEventListener("keydown", handleDialogKeydown, true);
     void tick().then(() => (titleInput ?? editor ?? dialog)?.focus());
@@ -521,7 +523,10 @@
       unregister();
       if (saveTimer) clearTimeout(saveTimer);
       window.removeEventListener("keydown", handleDialogKeydown, true);
-      queueMicrotask(() => returnFocus?.focus());
+      queueMicrotask(() => {
+        if (restoreTriggerFocus) returnFocus?.focus();
+        else returnContainer?.focus({ preventScroll: true });
+      });
     };
   });
 </script>
