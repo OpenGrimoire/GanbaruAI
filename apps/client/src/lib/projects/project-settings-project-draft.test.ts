@@ -12,7 +12,7 @@ function project(overrides: Partial<Project> = {}): Project {
     id: "project-1",
     groupId: "group-1",
     name: "Project",
-    icon: "folder",
+    icon: "lucide:folder",
     color: 8,
     sortOrder: 1000,
     status: "active",
@@ -78,6 +78,20 @@ describe("projectSettingsProjectDraftDirty", () => {
 
     expect(projectSettingsProjectDraftDirty(currentProject, draft)).toBe(true);
   });
+
+  it("ignores locked identity drafts for built-in Routine projects", () => {
+    const currentProject = project({
+      id: "project-routine-eat",
+      groupId: "group-routine",
+      name: "Eating",
+    });
+    const draft = updateDraft(projectSettingsProjectDraftFromProject(currentProject), {
+      name: "Renamed",
+      groupId: "group-2",
+    });
+
+    expect(projectSettingsProjectDraftDirty(currentProject, draft)).toBe(false);
+  });
 });
 
 describe("projectSettingsProjectUpdateFromDraft", () => {
@@ -128,6 +142,39 @@ describe("projectSettingsProjectUpdateFromDraft", () => {
     expect(result).toMatchObject({
       ok: true,
       value: { groupId: "group-2", sortOrder: 5000 },
+    });
+  });
+
+  it("preserves the built-in Routine project identity", () => {
+    const currentProject = project({
+      id: "project-routine-eat",
+      groupId: "group-routine",
+      name: "Comer",
+      sortOrder: 20,
+    });
+    const draft = updateDraft(projectSettingsProjectDraftFromProject(currentProject), {
+      name: "Renamed",
+      groupId: "group-2",
+      icon: "lucide:utensils",
+      status: "hidden",
+    });
+
+    const result = projectSettingsProjectUpdateFromDraft({
+      project: currentProject,
+      draft,
+      visibleGroupIds: new Set(["group-routine", "group-2"]),
+      nextSortOrderForGroup: () => 5000,
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        groupId: "group-routine",
+        name: "Comer",
+        sortOrder: 20,
+        icon: "lucide:utensils",
+        status: "hidden",
+      },
     });
   });
 

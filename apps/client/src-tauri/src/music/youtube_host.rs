@@ -1,3 +1,7 @@
+pub(crate) fn youtube_host_content_security_policy() -> &'static str {
+    "default-src 'none'; script-src 'unsafe-inline' https://www.youtube.com; style-src 'unsafe-inline'; frame-src https://www.youtube.com https://www.youtube-nocookie.com; connect-src https://www.youtube.com https://*.youtube.com https://*.googlevideo.com; img-src https://i.ytimg.com https://*.ytimg.com data:; media-src https://*.googlevideo.com; object-src 'none'; base-uri 'none'; form-action 'none'"
+}
+
 pub(crate) fn youtube_host_html() -> &'static str {
     r#"<!doctype html>
 <html lang="en">
@@ -296,6 +300,7 @@ pub(crate) fn youtube_host_html() -> &'static str {
     };
 
     window.addEventListener("message", (event) => {
+      if (event.source !== parent) return;
       const data = event.data;
       if (!data || data.token !== token || data.type !== "ganbaru-ai-youtube-command") return;
       handleCommand(data);

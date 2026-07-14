@@ -46,6 +46,8 @@ ganbaru-ai export projects --project foo
 
 This is the bridge between AI agents and Ganbaru AI's data. It works with any agent that can run a shell command (Codex, Cursor, custom scripts), with no plugin or MCP server required for the local case.
 
+The current Notes implementation also exposes a deterministic agent bridge markdown export from the app UI. It is a local derivative view over selected Notes pages, optional subpages, database views, backlinks, and project task context read from SQLite. It is useful for agents that need a portable context file before the full CLI bridge command set exists, but it follows the same source-of-truth rule: regenerate it from Ganbaru AI instead of editing it as canonical project state.
+
 ## Workflow phase prompts
 
 Each project lifecycle phase (see `features/project-management.md`) has a structured system prompt:

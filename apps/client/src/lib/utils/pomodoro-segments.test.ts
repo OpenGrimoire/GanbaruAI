@@ -2,8 +2,8 @@ import { describe, it, expect } from "vitest";
 import {
   computeDayTimelineBands,
   computePlannedSegments,
-  computeTrailingCycleNumber,
   computeTrailingFocusMinutes,
+  computeTrailingRhythmState,
 } from "./pomodoro-segments";
 import type { PersistedSegment, PomodoroConfig } from "$lib/components/calendar/types";
 import type { TimelineEvent, ActivePomodoroState } from "./pomodoro-segments";
@@ -194,7 +194,7 @@ describe("computePlannedSegments", () => {
     // Position 1: focus 0-40, short_break 40-45, position 2: focus 45-80 (clipped).
     const blockA = computePlannedSegments(DEFAULT_CONFIG, 80);
     expect(computeTrailingFocusMinutes(blockA)).toBe(35); // 80-45=35 min focus
-    expect(computeTrailingCycleNumber(blockA)).toBe(2);
+    expect(computeTrailingRhythmState(DEFAULT_CONFIG, 80).rhythmPosition).toBe(2);
 
     // Block B: 220 min, inherits 35 min focus at position 2.
     const blockB = computePlannedSegments(DEFAULT_CONFIG, 220, 35, 2);
@@ -222,16 +222,23 @@ describe("computePlannedSegments", () => {
     // Block C: 120 min, overlapping A and B (starts 20 min before A ends)
     // Block B should inherit from Block A, not Block C.
     const blockA = computePlannedSegments(DEFAULT_CONFIG, 120);
-    const trailingFocusA = computeTrailingFocusMinutes(blockA);
-    const trailingPositionA = computeTrailingCycleNumber(blockA);
+    const trailingA = computeTrailingRhythmState(DEFAULT_CONFIG, 120);
+    const trailingFocusA = trailingA.focusOffsetMinutes;
+    const trailingPositionA = trailingA.rhythmPosition;
 
     // Block B inheriting from Block A (correct predecessor)
     const blockB = computePlannedSegments(DEFAULT_CONFIG, 240, trailingFocusA, trailingPositionA);
 
     // Block C inheriting from Block A (stacked event)
     const blockC = computePlannedSegments(DEFAULT_CONFIG, 120, trailingFocusA, trailingPositionA);
-    const trailingFocusC = computeTrailingFocusMinutes(blockC);
-    const trailingPositionC = computeTrailingCycleNumber(blockC);
+    const trailingC = computeTrailingRhythmState(
+      DEFAULT_CONFIG,
+      120,
+      trailingFocusA,
+      trailingPositionA,
+    );
+    const trailingFocusC = trailingC.focusOffsetMinutes;
+    const trailingPositionC = trailingC.rhythmPosition;
 
     // Block B inheriting from Block C (wrong predecessor) would differ
     const blockBFromC = computePlannedSegments(DEFAULT_CONFIG, 240, trailingFocusC, trailingPositionC);
@@ -268,47 +275,6 @@ describe("computeTrailingFocusMinutes", () => {
     const last = segments[segments.length - 1];
     expect(last.phase).toBe("focus");
     expect(computeTrailingFocusMinutes(segments)).toBe(25);
-  });
-});
-
-describe("computeTrailingCycleNumber compatibility helper", () => {
-  it("returns 1 for empty segments", () => {
-    expect(computeTrailingCycleNumber([])).toBe(1);
-  });
-
-  it("returns rhythm position when last segment is focus", () => {
-    const segments = computePlannedSegments(DEFAULT_CONFIG, 25);
-    // Single focus at position 1.
-    expect(computeTrailingCycleNumber(segments)).toBe(1);
-  });
-
-  it("returns the next position when last segment is short break", () => {
-    const segments = computePlannedSegments(DEFAULT_CONFIG, 45);
-    // Focus 0-40, short_break 40-45 at position 1.
-    expect(computeTrailingCycleNumber(segments)).toBe(2);
-  });
-
-  it("returns 1 when last segment is long break", () => {
-    const segments = computePlannedSegments(DEFAULT_CONFIG, 185);
-    // Full count rhythm pattern: 4 focus + 3 short + 1 long.
-    const last = segments[segments.length - 1];
-    expect(last.phase).toBe("long_break");
-    expect(computeTrailingCycleNumber(segments)).toBe(1);
-  });
-
-  it("returns correct position for mid-focus at position 2", () => {
-    const segments = computePlannedSegments(DEFAULT_CONFIG, 70);
-    // Focus 0-40, short_break 40-45, focus 45-70 (position 2).
-    expect(computeTrailingCycleNumber(segments)).toBe(2);
-  });
-
-  it("returns correct position after multiple short breaks", () => {
-    // 3 focus positions: 3*40 + 3*5 = 135 min, ending with short_break at position 3.
-    const segments = computePlannedSegments(DEFAULT_CONFIG, 135);
-    const last = segments[segments.length - 1];
-    expect(last.phase).toBe("short_break");
-    expect(last.rhythmPosition).toBe(3);
-    expect(computeTrailingCycleNumber(segments)).toBe(4);
   });
 });
 

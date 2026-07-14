@@ -6,7 +6,11 @@ import { mount } from "svelte";
 import { invoke } from "@tauri-apps/api/core";
 import { ensureConfigLoaded, flushConfig } from "./lib/vault/config";
 import { getActiveVaultInfo } from "./lib/vault/state";
-import { getLocalization, initializeLocalizationFromConfig } from "./lib/i18n/translator.svelte";
+import {
+  getLocalization,
+  initializeLocalizationFromConfig,
+} from "./lib/i18n/translator.svelte";
+import { DEFAULT_LANGUAGE_PREFERENCE } from "./lib/i18n/locales";
 import {
   clearPreVaultLanguagePreference,
   readPreVaultLanguagePreference,
@@ -84,7 +88,8 @@ async function applyPreVaultLanguagePreference(): Promise<void> {
   const storage = safeStorage();
   const preference = readPreVaultLanguagePreference(storage);
   if (!preference) return;
-  getLocalization().setLanguagePreference(preference);
+  const applied = await getLocalization().setLanguagePreference(preference);
+  if (!applied) return;
   await flushConfig();
   clearPreVaultLanguagePreference(storage);
 }
@@ -94,6 +99,12 @@ async function applyPreVaultLanguagePreference(): Promise<void> {
 // reads block first paint so the initial render matches what the user has on
 // disk, with no flash of defaults.
 const appPromise = (async () => {
+  const preVaultPreference = readPreVaultLanguagePreference(safeStorage());
+  await getLocalization().setLanguagePreference(
+    preVaultPreference ?? DEFAULT_LANGUAGE_PREFERENCE,
+    { persist: false },
+  );
+
   const windowKind = new URLSearchParams(window.location.search).get("ganbaruWindow");
   if (windowKind === "pomodoroOverlay") {
     preparePomodoroOverlayDocument();
@@ -135,7 +146,7 @@ const appPromise = (async () => {
       return await mountVaultSetupView(null);
     }
     await ensureConfigLoaded();
-    initializeLocalizationFromConfig();
+    await initializeLocalizationFromConfig();
     await applyPreVaultLanguagePreference();
     const benchmarkResumePending = await hasFreshBenchmarkResumeState();
     if (!benchmarkResumePending) {

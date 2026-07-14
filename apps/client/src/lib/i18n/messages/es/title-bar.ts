@@ -1,0 +1,73 @@
+import type { titleBar as enTitleBar } from "../en/title-bar";
+import type { MessageShape } from "../types";
+
+export const titleBar = {
+  tab: {
+    calendar: "Calendario",
+    projects: "Proyectos",
+    notes: "Notas",
+    withShortcut: (label: string, shortcut: string) => `${label} (${shortcut})`,
+  },
+  control: {
+    pomodoro: "Pomodoro",
+    quickNotes: "Notas rápidas",
+    music: "Música",
+    theme: "Cambio de tema",
+    performance: "Diagnóstico",
+    settings: "Ajustes",
+    compactTabs: "Pestañas compactas",
+    more: "Más controles",
+  },
+  pomodoro: {
+    resumeFocus: "Reanudar enfoque",
+    pauseFocus: "Pausar enfoque",
+    goToBreakNow: "Ir al descanso ahora",
+    startFocusNow: "Iniciar enfoque ahora",
+    noActiveSession: "No hay sesión activa",
+    left: (time: string) => `Quedan ${time}`,
+    remaining: (time: string) => `Quedan ${time}`,
+    extendFocusMinutes: (count: number) => `Extender enfoque ${count} minutos`,
+  },
+  music: {
+    noMusicLoaded: "No hay música cargada",
+    pause: "Pausar música",
+    play: "Reproducir música",
+    previous: "Música anterior",
+    next: "Música siguiente",
+    open: "Abrir música",
+    volume: "Volumen",
+    volumeLabel: "Volumen de música",
+    volumeTooltip: (volume: string) => `Volumen: ${volume}`,
+    status: {
+      playing: "Reproduciendo",
+      paused: "Pausado",
+      loading: "Cargando",
+      ready: "Listo",
+      ended: "Terminado",
+      error: "Error",
+      idle: "Inactivo",
+    },
+  },
+  theme: {
+    disabledWhileEditing: "Desactivado mientras editas un tema",
+    switchToLight: (shortcut: string) => `Cambiar a modo claro (${shortcut})`,
+    switchToDark: (shortcut: string) => `Cambiar a modo oscuro (${shortcut})`,
+  },
+  diagnosticsWithShortcut: (shortcut: string) => `Diagnóstico (${shortcut})`,
+  settingsWithShortcut: (shortcut: string) => `Ajustes (${shortcut})`,
+  disabledBenchmark: "Desactivado mientras hay un benchmark activo",
+  moveBackToMainWindow: "Mover de vuelta a la ventana principal",
+  moveToNewWindow: "Mover a una ventana nueva",
+  resetSequenceTitle: "¿Abrir confirmación de reinicio?",
+  resetSequenceMessage:
+    "Presionaste el atajo oculto de reinicio 10 veces. Continúa solo si querías borrar tus datos locales de la app",
+  resetSequenceConfirm: "Continuar (Enter)",
+  resetDatabaseTitle: "¿Reiniciar datos locales?",
+  resetDatabaseMessage:
+    "El archivo de datos local de la carpeta activa de Ganbaru AI se eliminará permanentemente",
+  resetDatabaseConfirm: "Reiniciar datos locales (Enter)",
+  closeAppTitle: "¿Cerrar la app?",
+  closeAppMessage: "Todas las funciones de productividad dejarán de funcionar",
+  closeAnyway: "Cerrar de todos modos (Enter)",
+  stay: "Quedarse (Esc)",
+} as const satisfies MessageShape<typeof enTitleBar>;

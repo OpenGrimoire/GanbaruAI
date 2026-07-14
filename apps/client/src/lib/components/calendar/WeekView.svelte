@@ -1,10 +1,9 @@
 <script lang="ts">
-  import type { CalendarEvent, PersistedSegment, PositionedAllDayEvent } from "./types";
+  import type { CalendarEvent, PersistedSegment, PositionedAllDayEvent, PositionedEvent } from "./types";
   import type { DayNameFormat, TimezoneAbbrMode } from "./utils";
   import {
     formatDayName,
     formatDatePart,
-    layoutAllDayEventsForWeek,
     getEventColor,
     GUTTER_WIDTH_PER_TZ,
     visibleMinuteRangeForScroll,
@@ -36,7 +35,8 @@
     anchorDate,
     days = [] as Date[],
     events,
-    eventsByDay,
+    positionedTimedEventsByDay,
+    positionedAllDayEvents,
     theme,
     timezones = [] as string[],
     tzAbbrMode = "acronym" as TimezoneAbbrMode,
@@ -59,7 +59,8 @@
     anchorDate: Date;
     days?: Date[];
     events: CalendarEvent[];
-    eventsByDay: Map<string, CalendarEvent[]>;
+    positionedTimedEventsByDay: Map<string, PositionedEvent[]>;
+    positionedAllDayEvents: PositionedAllDayEvent[];
     theme: Theme;
     timezones?: string[];
     tzAbbrMode?: TimezoneAbbrMode;
@@ -81,7 +82,7 @@
   } = $props();
 
   /** Stable empty fallback so day columns without events keep a consistent prop reference. */
-  const EMPTY_DAY: CalendarEvent[] = [];
+  const EMPTY_POSITIONED: PositionedEvent[] = [];
 
   const ALL_DAY_ROW_H = 21;
   const ALL_DAY_GAP = 1;
@@ -91,24 +92,7 @@
   const visibleDays = $derived(days.length > 0 ? days : [anchorDate]);
   const dayCount = $derived(visibleDays.length);
 
-  // Structurally track all-day layout using stable fields only. Event object
-  // identity can be a Svelte proxy/raw mix when panel state changes.
-  let _prevAllDay: PositionedAllDayEvent[] = [];
-  const allDayPositioned = $derived.by(() => {
-    const next = layoutAllDayEventsForWeek(events, visibleDays);
-    if (next.length !== _prevAllDay.length) { _prevAllDay = next; return next; }
-    let layoutSame = true;
-    for (let i = 0; i < next.length; i++) {
-      const n = next[i], p = _prevAllDay[i];
-      if (n.event.id !== p.event.id || n.row !== p.row || n.startCol !== p.startCol || n.spanCols !== p.spanCols) {
-        layoutSame = false;
-        break;
-      }
-    }
-    if (!layoutSame) { _prevAllDay = next; return next; }
-    _prevAllDay = next;
-    return next;
-  });
+  const allDayPositioned = $derived(positionedAllDayEvents);
   const allDayMaxRow = $derived(allDayPositioned.length > 0 ? Math.max(...allDayPositioned.map((p) => p.row)) + 1 : 0);
   const tzCount = $derived(Math.max(1, timezones.length));
   const gridCols = $derived(
@@ -716,7 +700,7 @@
           <div data-day-column-shell class="day-col min-w-0" style="border-left: 1px solid var(--cal-gridline);">
             <DayColumn
               date={day}
-              events={eventsByDay.get(dateStr) ?? EMPTY_DAY}
+              positionedEvents={positionedTimedEventsByDay.get(dateStr) ?? EMPTY_POSITIONED}
               {theme}
               isToday={formatDatePart(day) === todayStr}
               isPast={formatDatePart(day) < todayStr}

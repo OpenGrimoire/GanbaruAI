@@ -2,7 +2,7 @@
 
 ## Overview
 
-A cross-platform productivity app for desktop and mobile built around a calendar, Kanban board, Pomodoro system, Notion-like note-taking (stored as markdown), daily diary, sleep alarm, work environment management, website/app blocking, music player, project management framework, and collaborative workspaces. Designed as a local-first, privacy-respecting alternative to Notion, ClickUp, and Asana. A gamification layer (skill tree, XP, contracts, NPC-guided workflows) is planned for later phases.
+A cross-platform productivity app for desktop and mobile built around a calendar, Kanban board, Pomodoro system, Notion-like note-taking stored as a local SQLite page and block graph, daily diary, sleep alarm, work environment management, website/app blocking, music player, project management framework, and collaborative workspaces. Designed as a local-first, privacy-respecting alternative to Notion, ClickUp, and Asana. A gamification layer (skill tree, XP, contracts, NPC-guided workflows) is planned for later phases.
 
 Desktop (Windows, Linux) is the primary target. Mobile (iOS, Android via Tauri v2) is a first-class secondary target sharing the same codebase but offering a focused subset of features.
 
@@ -108,26 +108,17 @@ Registry-based theme system. Each theme is a single frozen object containing the
 
 ## Note editor
 
-### Tiptap (`@tiptap/core` + `@tiptap/starter-kit`)
+### Local Notion-shaped block graph
 
-The rich text editor engine. Chosen because:
+The first Notes implementation uses Svelte 5 components and pure TypeScript editor planning helpers over a Rust and SQLite page and block graph. The public command boundary follows Notion API concepts: pages, parents, blocks, rich text arrays, child pagination, timestamps, trash state, and local archive state. The app never calls Notion and does not depend on private Notion behavior.
 
-- Produces a Notion-like editing experience (block-based, slash commands, drag-to-reorder blocks) while serializing to standard markdown.
-- Headless, with no imposed styles. The visual design is entirely yours.
-- First-class Yjs integration via `@tiptap/extension-collaboration`, meaning the editor natively speaks the sync and collaboration protocol without any impedance mismatch.
-- Large extension ecosystem for future additions (tables, embeds, code blocks with syntax highlighting, etc.).
+SQLite is canonical for Notes. Markdown is import, export, preview, or agent bridge output only. It is never the editable source of truth.
 
-### `@tiptap/extension-markdown`
+The first editor slice supports page creation, nested sidebar page trees, favorites, recents, workspace search across page titles, blocks, and comments, emoji page icons, external HTTPS page covers, subpage creation from the sidebar, nested child pages, page duplication, page movement between the workspace and parent pages, selection, rename, archive, unarchive from the local Archive view, trash, restore and permanent delete from the local Trash view, derived backlinks, SQLite-backed page discussions and block comments, page mention, date mention, reminder mention, inline annotation rich text, inline equation rich text, and safe inline hyperlink rich text with local `@`, formatting, and link editors, page-only Notes links, and core block editing with paragraphs, headings 1 through 4, toggle headings 1 through 4, bulleted list items, numbered list items, to-do items, toggles, callouts, quotes, child pages, child database preservation, breadcrumbs, table of contents, columns, simple tables, tabs, media and file blocks, bookmarks, link previews, synced block preservation, template buttons, local button blocks, embeds, equations, dividers, code blocks, unsupported blocks, block colors, block links, nesting, Tab and Shift+Tab, sibling reordering by keyboard, menu, and handle drag, move to page, Enter behavior, Backspace behavior, slash conversion with actions, colors, filtering, session recents, plus-menu insertion, markdown-like start shortcuts, multi-line paste into canonical sibling blocks, and block handle actions for adding, converting, commenting, coloring, copying links, duplicating, moving, and deleting blocks.
 
-Handles serialization between Tiptap's internal document model and markdown. On every save, the document is serialized to a `.md` file written to disk by the Rust file system layer. Markdown is the canonical on-disk format, not a database or a proprietary format. Users own their files and can open them in Obsidian, VS Code, or any text editor.
+Unsupported Notes blocks preserve validated import metadata and render as visible placeholders with their imported type, so future Notion import work can retain data Ganbaru AI cannot yet render.
 
-### `@tiptap/extension-collaboration`
-
-Connects Tiptap to the Yjs CRDT layer. Every keystroke generates a Yjs binary update rather than replacing the whole document. This is the foundation of both personal multi-device sync and real-time collaborative editing; the same extension handles both cases.
-
-### `@tiptap/extension-collaboration-cursor`
-
-Shows live cursor positions and selections of other collaborators inside a shared document. Used in collaborative workspaces (the ClickUp/Notion alternative tier), not in personal Ganbaru AI folders.
+Tiptap or another rich editing engine may be reconsidered later only if it can target the same canonical page and block graph without taking over persistence.
 
 ---
 
@@ -137,26 +128,26 @@ This is one of the most important architectural decisions in the app. The system
 
 ### Core principle: local-first
 
-The local file system is always the source of truth. The app works fully offline with zero degradation. Sync is additive: it extends the local-first experience to other devices rather than replacing it. This is the fundamental difference from Notion, which requires internet access to function.
+Local storage inside the Ganbaru AI folder is always the source of truth. For Notes, that local source is SQLite. For markdown documents, it is the file. The app works fully offline with zero degradation. Sync is additive: it extends the local-first experience to other devices rather than replacing it. This is the fundamental difference from Notion, which requires internet access to function.
 
 ### Yjs
 
-A CRDT (conflict-free replicated data type) library. The core of both sync and collaboration. Every document is a Yjs data structure. Edits generate small binary updates that can be merged from any source in any order and always converge to the same result. This means:
+A CRDT (conflict-free replicated data type) library. The core of both sync and collaboration. Future collaborative document graphs can be represented as Yjs data structures whose updates merge from any source in any order and converge to the same result. This means:
 
 - **No conflict resolution logic to write.** The math handles it at the data structure level.
 - **Works offline.** Updates accumulate locally and sync when connection is restored.
 - **Real-time collab and async sync use the same primitive.** A Yjs document does not care whether updates arrive 10ms or 10 days later.
 
-Yjs was built specifically for this use case and is used in production by Jupyter, several major Notion alternatives, and Tiptap Cloud itself.
+Yjs was built specifically for collaborative local-first data and is used in production by Jupyter, several major Notion alternatives, and collaborative editor platforms.
 
 ### Hocuspocus
 
-A production-grade Yjs server built specifically for the Tiptap ecosystem. Open source and self-hostable. Chosen over the simpler `y-websocket` because:
+A production-grade Yjs server. Open source and self-hostable. Chosen over the simpler `y-websocket` because:
 
 - Handles **persistent document state**, so new collaborators can load the full document even if they were offline when edits happened.
 - Supports **presence and awareness**: who is online, live cursor positions.
 - Has **authentication and authorization hooks**, needed for workspace access control (who can read/write which workspace).
-- Designed for exactly this Tiptap + Yjs stack.
+- Designed for persistent collaborative editing over Yjs.
 
 Users run their own Hocuspocus instance on a cheap VPS, Raspberry Pi, or any cloud provider. The app includes guided setup instructions to make this as painless as possible.
 
@@ -187,23 +178,25 @@ See the Ganbaru AI folder directory tree in `AGENTS.md` for the canonical layout
 
 ### SQLite (via Rust commands)
 
-Local database for all structured data in the app. This includes: metadata and search indexes for notes, tags, and bidirectional backlinks between notes; calendar event indexes and session block configurations; Kanban task state, priority tiers, estimated vs. actual Pomodoro counts, and task-to-session-block links; work environment configs and blocker rulesets; Pomodoro session history; requirement version diffs (timestamped changes to task descriptions, scope, and acceptance criteria within the project management framework); diary entry indexes (the entries themselves are markdown files, but mood, energy, sleep quality fields are indexed for trend analysis); and app settings.
+Local database for all structured data and local document graphs in the app. This includes: Notes pages, block trees, rich text payloads, tags, and future bidirectional backlinks; calendar event indexes and session block configurations; Kanban task state, priority tiers, estimated vs. actual Pomodoro counts, and task-to-session-block links; work environment configs and blocker rulesets; Pomodoro session history; requirement version diffs (timestamped changes to task descriptions, scope, and acceptance criteria within the project management framework); diary entry indexes (the entries themselves are markdown files, but mood, energy, sleep quality fields are indexed for trend analysis); and app settings.
 
-SQLite is never the source of truth for note or diary content; that lives in `.md` files. SQLite is the fast query layer over the Ganbaru AI folder and the primary store for all productivity metrics.
+SQLite is the source of truth for Notes and structured productivity data. Diary content remains markdown on disk, with SQLite as the fast query layer over indexed fields and productivity metrics.
 
 ### Svelte runes (in-memory state)
 
 Module-level `$state` objects exposed through getter functions (e.g. `getPomodoro()`, `getKanban()`, `getNavigation()`) manage live app state: current Pomodoro phase and timer, active work environment, which overlay is visible (break screen), current collaborative session, and presence data. The getter pattern keeps the API surface clean and encapsulates mutations. No external state manager or Svelte stores (`writable`/`readable`) needed; runes handle it natively.
 
+Frontend background work uses lifecycle schedulers backed by injectable clocks. A scheduler owns one concern, runs at most one asynchronous request, coalesces repeated invalidations into one rerun, and ignores deadlines returned by stale work. Calendar and Notes notifications schedule their exact next deadline and catch up when the window resumes or regains focus. Pomodoro, Music, Doomscrolling, and extension status schedulers exist only while their corresponding timer, source, rule, limit, or settings surface is active, so an idle app does not keep high-frequency application polling alive.
+
 ---
 
 ## Data architecture: documents vs structured data
 
-Ganbaru AI has two fundamentally different categories of data, and each uses the storage format that fits it. Mixing them up (e.g., storing calendar events as markdown, or storing notes in SQLite) would compromise both.
+Ganbaru AI has two fundamentally different categories of data, and each uses the storage format that fits it. Calendar events, Notes page and block graphs, and other relational data belong in SQLite. Diary entries and project working documents belong on disk as user-editable files.
 
 ### Documents: markdown on disk, SQLite indexes
 
-Notes, diary entries, and project documentation are markdown files stored in the Ganbaru AI folder. SQLite stores metadata (title, tags, backlinks, mood/energy fields for diary) for fast queries, but the `.md` file is always the source of truth for content.
+Diary entries and project documentation are markdown files stored in the Ganbaru AI folder. SQLite stores metadata such as title, tags, backlinks, and mood or energy fields for fast queries, but the `.md` file is always the source of truth for that content.
 
 Why markdown for documents:
 
@@ -212,13 +205,18 @@ Why markdown for documents:
 - Portable. No lock-in. If the user stops using Ganbaru AI, their writing is intact.
 - AI-agent-friendly. Any AI coding agent can read and write markdown natively, with no tools or plugins required.
 
-Why NOT SQLite for document content: binary format that can't be diffed, can't be opened in external editors, creates lock-in, and makes the folder opaque.
+Why not SQLite for those document files: they need plain-file ownership, meaningful diffs, and direct editing in external tools.
+
+### Notes: SQLite page and block graph
+
+Notes are the deliberate exception to markdown document storage. A Notion-like editor needs stable block ids, nesting, pagination, parent objects, type payloads, trash state, unsupported block preservation, and transactional edits. SQLite stores that graph directly, while markdown remains a derived import, export, preview, or bridge format.
 
 ### Structured data: SQLite as source of truth
 
 Everything with fields, relationships, and query requirements lives in SQLite. This includes:
 
 - **Calendar events** with start/end times, recurrence rules, pomodoro config, music playlist, color, project ID, workspace association, attendees, alarms, and overrides.
+- **Notes pages, blocks, and comments** with parent objects, text, inline annotation, inline equation, inline hyperlink, page mention, date mention, and reminder mention rich text arrays, type payloads, nested child ordering, discussion threads, search projections, trash state, and pagination cursors.
 - **Kanban tasks** with status, priority, column position, estimated/actual pomodoro counts, linked calendar events, and project ID.
 - **Workspace configurations** defining which browser tabs to open, which terminal to activate, which apps to launch/close, which blocker ruleset to apply, and which project context to load.
 - **Pomodoro configs, runs, segments, pauses, and run events** with timestamps, phase history, normalized pause intervals, idle and suspend detection, and future XP computation.
@@ -320,7 +318,7 @@ Example output of `ganbaru-ai export kanban`:
 # Kanban: Ganbaru AI
 
 ## In progress
-- #42: Tiptap rich text editor [high] (assigned calendar: Mon/Wed 10:00-12:00)
+- #42: Notes block editor [high] (assigned calendar: Mon/Wed 10:00-12:00)
 - #45: Diary entry forms [medium]
 
 ## To do
@@ -491,7 +489,7 @@ The skill tree visualization, visual novel NPC interactions, Will system, contra
 
 ## Mobile (Tauri v2)
 
-Tauri v2 has official iOS and Android support. The mobile app shares the Svelte frontend, Tiptap editor, Yjs sync layer, and SQLite database with the desktop app. It is not a separate product; it is the same app with a mobile-appropriate layout and a focused subset of features.
+Tauri v2 has official iOS and Android support. The mobile app shares the Svelte frontend, Notes page and block graph, Yjs sync layer, and SQLite database with the desktop app. It is not a separate product; it is the same app with a mobile-appropriate layout and a focused subset of features.
 
 Features available on mobile: note editor, calendar view and editing, Pomodoro timer (with notification-based breaks instead of fullscreen overlay), daily diary (morning and evening entries), sleep alarm (triggers diary flows and morning playlist), Doomscrolling (app-level blocking during scheduled focus times and mornings), collaborative workspaces, sync.
 
@@ -645,13 +643,13 @@ Everything is free. The project is sustained by donations via GitHub Sponsors.
 | Calendar UI               | calendar widget                                           | Only mature Svelte calendar with drag-and-drop                                     |
 | Kanban drag-and-drop      | svelte-dnd-action                                    | Drag-and-drop for Kanban columns and task reordering                               |
 | Theming                   | Registry-based theme store                           | One frozen object per theme; palette plus optional shell token overrides           |
-| Note editor               | Tiptap + starter-kit                                 | Notion-like UX, markdown serialization, native Yjs integration                     |
-| Markdown serialization    | `@tiptap/extension-markdown`                         | On-save serialization to `.md` files on disk                                       |
-| Sync / collaboration      | Yjs + `@tiptap/extension-collaboration`              | CRDT-based, conflict-free, same primitive for sync and real-time collab            |
-| Collaboration cursors     | `@tiptap/extension-collaboration-cursor`             | Live presence in shared workspaces                                                 |
+| Note editor               | Svelte components + TypeScript planner + Rust commands | Notion-like UX over canonical SQLite page and block graph                        |
+| Markdown bridge           | Import and export mappers                            | Derivative markdown for portability and agent bridge output                        |
+| Sync / collaboration      | Yjs-compatible document graph planning               | CRDT-based future sync without replacing local SQLite canonical storage            |
+| Collaboration cursors     | Planned awareness UI                                 | Live presence in shared workspaces                                                 |
 | Sync server               | Hocuspocus                                           | Yjs server with persistence, presence, and auth hooks                              |
 | Encryption                | libsodium / `@noble/ciphers`                         | E2E encryption, server sees only ciphertext                                        |
-| Local DB                  | SQLite through Rust `sqlx` commands                  | Metadata, search, tags, Pomodoro runs and segments, requirement diffs    |
+| Local DB                  | SQLite through Rust `sqlx` commands                  | Notes, structured data, indexes, Pomodoro runs and segments, requirement diffs     |
 | Media engine (video)      | Platform WebView media element                       | Local video through Tauri's platform WebView stack                                 |
 | Media engine (audio-only) | Rodio + Symphonia target                             | Native audio playback and decoding path for low-RAM local music                    |
 | YouTube playback          | IFrame Player API                                    | Official, free, no developer key, full programmatic control, ToS-compliant         |

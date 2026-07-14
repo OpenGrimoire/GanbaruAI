@@ -4,6 +4,8 @@
   import Save from "@lucide/svelte/icons/save";
   import X from "@lucide/svelte/icons/x";
   import CalendarScrollbar from "$lib/components/calendar/CalendarScrollbar.svelte";
+  import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
+  import { getLocalization } from "$lib/i18n/translator.svelte";
   import { cn } from "$lib/utils";
 
   let {
@@ -16,7 +18,6 @@
     discardLabel,
     closeLabel,
     saveLabel,
-    loadingLabel,
     onDiscard,
     onClose,
     onSave,
@@ -32,7 +33,6 @@
     discardLabel: string;
     closeLabel: string;
     saveLabel: string;
-    loadingLabel: string;
     onDiscard: () => void;
     onClose: () => void;
     onSave: () => void;
@@ -40,7 +40,10 @@
     scrollElement?: HTMLElement;
   } = $props();
 
+  const { t } = getLocalization();
+
   let contentElement = $state<HTMLElement | undefined>();
+  let discardConfirmOpen = $state(false);
   let scrollable = $state(false);
   let canScrollUp = $state(false);
   let canScrollDown = $state(false);
@@ -64,6 +67,11 @@
   function requestScrollStateRefresh(): void {
     if (scrollStateFrame !== null) cancelAnimationFrame(scrollStateFrame);
     scrollStateFrame = requestAnimationFrame(refreshScrollState);
+  }
+
+  function confirmDiscard(): void {
+    discardConfirmOpen = false;
+    onDiscard();
   }
 
   $effect(() => {
@@ -101,7 +109,9 @@
       aria-label={discardLabel}
       title={discardLabel}
       disabled={!draftReady || !dirty}
-      onclick={onDiscard}
+      onclick={() => {
+        if (dirty) discardConfirmOpen = true;
+      }}
     >
       <RotateCcw size={14} strokeWidth={1.75} />
     </button>
@@ -152,17 +162,33 @@
         {/if}
         <button
           type="button"
-          class="flex min-h-8 shrink-0 items-center gap-1.5 rounded-md bg-primary px-2 text-[0.8rem] font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-60"
+          class={cn(
+            "flex min-h-8 shrink-0 items-center gap-1.5 rounded-md bg-primary px-2 text-[0.8rem] font-medium text-primary-foreground disabled:cursor-not-allowed",
+            dirty || saving ? "hover:bg-primary/90" : "opacity-60",
+          )}
           disabled={saving || !dirty}
           onclick={onSave}
         >
           <Save size={14} strokeWidth={1.75} />
-          <span>{saving ? loadingLabel : saveLabel}</span>
+          <span>{saveLabel}</span>
         </button>
       </footer>
     {/if}
   </form>
 </aside>
+
+{#if discardConfirmOpen}
+  <ConfirmDialog
+    title={t("calendar.view.discardUnsavedTitle")}
+    message={t("calendar.view.changesLost")}
+    confirmLabel={t("calendar.view.discard")}
+    cancelLabel={t("common.cancelShortcut")}
+    onConfirm={confirmDiscard}
+    onCancel={() => {
+      discardConfirmOpen = false;
+    }}
+  />
+{/if}
 
 <style>
   .project-settings-panel {

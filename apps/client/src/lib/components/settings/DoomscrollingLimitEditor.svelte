@@ -638,7 +638,7 @@
         {/if}
       </section>
 
-      <div class="h-px bg-border/70" aria-hidden="true"></div>
+      <div class="h-px shrink-0 scale-y-50 bg-border" aria-hidden="true"></div>
 
       <section class="flex flex-col gap-4">
         <div class="min-w-0 px-1">
@@ -663,7 +663,6 @@
                   <ColorPicker
                     color={entry.color ?? undefined}
                     theme={theme.current}
-                    title={t("settings.doomscrolling.limits.editor.sourceColor")}
                     ariaLabel={t("settings.doomscrolling.limits.editor.selectSourceColor")}
                     onselect={(color) => updateEntryColor(entry.id, color)}
                   />

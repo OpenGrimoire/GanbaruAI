@@ -88,6 +88,16 @@ The user owns the SQLite file and can modify it directly with a third-party tool
 
 Recurring events have additional protection: structural changes that would cause protected occurrences to silently stop expanding (an EXDATE on a protected date, an UNTIL moved earlier, a pattern change that excludes protected dates) must preserve those occurrences first. This is not a visible-window-only rule. For supported recurrence rules, structural edit code must reason over all affected occurrences from the template start through the captured edit time, using each occurrence's start time rather than only its date. Same-day occurrences that already started are protected; same-day occurrences that have not started and have no tracking remain mutable. A capped historical template is preferred when it can preserve the protected range without changing its meaning. Detached standalone events or archive snapshots are required when an occurrence needs its own event ID or cannot be represented safely by the capped template. Delete/archive requests and recurrence edit saves use one semantic frontend plan and one atomic backend batch so protected archive snapshots, detachments, template caps, splits, and active Pomodoro reference transfers cannot partially apply. The frontend may build occurrence materialization payloads because it owns live preview and wall-clock edit semantics; the backend remains authoritative for persisted writes and invariant enforcement. Occurrences with runs, segments, overrides, exceptions, active sessions, or persisted references are always protected. See `features/calendar-recurrence.md`.
 
+## 8. Notes folder placement has one valid owner path
+
+A Notes folder belongs to exactly one project, folder parents stay inside that project, and the folder graph is acyclic. A page may have a folder id only while its canonical parent is `workspace`, and that folder must belong to the page's project. Page-parented, block-parented, and data-source-parented pages never carry folder placement.
+
+**Why:** folders organize the page navigation graph without replacing the Notion-compatible page graph. Allowing both paths at once would make one note appear to have two locations and would desynchronize paired child-page blocks.
+
+**What would break:** navigation could duplicate or lose pages, folder deletion could affect another project, imports and exports could infer the wrong page hierarchy, and project history could restore an invalid graph.
+
+**Enforced by:** SQLite foreign keys and placement triggers, folder create and update validation, the atomic page move command, defensive mixed-tree planning, migration invariant tests, and focused folder and page-movement tests.
+
 ## Adding new invariants
 
 When an operation reveals a constraint the system depends on but had not stated explicitly, add it here as the next number. Number reuse is forbidden; numbers may be marked deprecated but never recycled. Each new invariant gets the same five fields: statement, why, what would break, enforced by, plus any cross-doc links.

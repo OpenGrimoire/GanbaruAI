@@ -4,6 +4,8 @@ import {
   DEFAULT_FONT_FAMILY_ID,
   DEFAULT_FONT_SCALE,
   DEFAULT_CALENDAR_DIM_PAST_EVENTS,
+  DEFAULT_PROFILE_DISPLAY_NAME,
+  DEFAULT_PROFILE_FULL_NAME,
   DEFAULT_MUSIC_PAUSE_ON_POMODORO_PAUSE,
   DEFAULT_CALENDAR_TIME_FORMAT,
   DEFAULT_FOCUS_IDLE_PAUSE_ON_EVENT_CREATE,
@@ -13,6 +15,11 @@ import {
   DEFAULT_FOCUS_BREAK_EXTENSION_LIMIT,
   DEFAULT_FOCUS_BREAK_FINISHED_REPEAT_SECONDS,
   DEFAULT_FOCUS_PAUSE_NOTIFICATION_INTERVAL_MINUTES,
+  DEFAULT_NOTES_MENTION_NOTIFICATIONS_ENABLED,
+  DEFAULT_NOTES_NOTIFICATION_INCLUDE_CONTENT,
+  DEFAULT_NOTES_REMINDER_NOTIFICATIONS_ENABLED,
+  DEFAULT_NOTES_TASK_MENTION_NOTIFICATIONS_ENABLED,
+  DEFAULT_NOTES_USER_MENTION_NOTIFICATIONS_ENABLED,
   DEFAULT_TITLE_BAR_VISIBILITY,
   DEFAULT_CALENDAR_VIEW_MODE,
   LANGUAGE_PREFERENCES,
@@ -36,12 +43,21 @@ import {
   parseFocusBreakSoundIntervalSeconds,
   parseFocusPauseNotificationIntervalMinutes,
   parseTitleBarVisibility,
+  normalizeProfileDisplayName,
+  normalizeProfileFullName,
   resolveFontFamilyStack,
   shouldNormalizeTitleBarVisibility,
 } from "./preferences";
 import { getConfigKey, setConfigKey } from "../vault/config";
 import { getLocalization } from "$lib/i18n/translator.svelte";
+import {
+  DEFAULT_NOTES_PAGE_OPEN_MODE,
+  isNotesPageOpenMode,
+  type NotesPageOpenMode,
+} from "$lib/notes/page-open-mode";
 
+const PROFILE_DISPLAY_NAME_CONFIG_KEY = "profile.displayName";
+const PROFILE_FULL_NAME_CONFIG_KEY = "profile.fullName";
 const FONT_FAMILY_CONFIG_KEY = "preferences.fontFamilyId";
 const FONT_SCALE_CONFIG_KEY = "preferences.fontScale";
 const EVENT_TZ_DISPLAY_KEY = "preferences.eventTimezoneDisplay";
@@ -61,6 +77,17 @@ const FOCUS_BREAK_EXTENSION_LIMIT_CONFIG_KEY =
 const FOCUS_PAUSE_NOTIFICATION_INTERVAL_MINUTES_CONFIG_KEY =
   "preferences.focusPauseNotificationIntervalMinutes";
 const MUSIC_PAUSE_ON_POMODORO_PAUSE_CONFIG_KEY = "preferences.musicPauseOnPomodoroPause";
+const NOTES_DEFAULT_OPEN_MODE_CONFIG_KEY = "preferences.notesDefaultOpenMode";
+const NOTES_MENTION_NOTIFICATIONS_ENABLED_CONFIG_KEY =
+  "preferences.notesMentionNotificationsEnabled";
+const NOTES_REMINDER_NOTIFICATIONS_ENABLED_CONFIG_KEY =
+  "preferences.notesReminderNotificationsEnabled";
+const NOTES_USER_MENTION_NOTIFICATIONS_ENABLED_CONFIG_KEY =
+  "preferences.notesUserMentionNotificationsEnabled";
+const NOTES_TASK_MENTION_NOTIFICATIONS_ENABLED_CONFIG_KEY =
+  "preferences.notesTaskMentionNotificationsEnabled";
+const NOTES_NOTIFICATION_INCLUDE_CONTENT_CONFIG_KEY =
+  "preferences.notesNotificationIncludeContent";
 const TITLE_BAR_VISIBILITY_CONFIG_KEY = "preferences.titleBarVisibility";
 
 export type EventTimezoneDisplay = "device" | "homeZone";
@@ -82,6 +109,20 @@ function loadSavedEventTzDisplay(): EventTimezoneDisplay {
   const saved = getConfigKey<string | undefined>(EVENT_TZ_DISPLAY_KEY, undefined);
   if (saved === "device" || saved === "homeZone") return saved;
   return DEFAULT_EVENT_TZ_DISPLAY;
+}
+
+function loadSavedProfileDisplayName(): string {
+  const saved = getConfigKey<unknown>(PROFILE_DISPLAY_NAME_CONFIG_KEY, undefined);
+  if (typeof saved !== "string") return DEFAULT_PROFILE_DISPLAY_NAME;
+  const normalized = normalizeProfileDisplayName(saved);
+  return normalized.ok ? normalized.value : DEFAULT_PROFILE_DISPLAY_NAME;
+}
+
+function loadSavedProfileFullName(): string {
+  const saved = getConfigKey<unknown>(PROFILE_FULL_NAME_CONFIG_KEY, undefined);
+  if (typeof saved !== "string") return DEFAULT_PROFILE_FULL_NAME;
+  const normalized = normalizeProfileFullName(saved);
+  return normalized.ok ? normalized.value : DEFAULT_PROFILE_FULL_NAME;
 }
 
 function loadSavedCalendarTimeFormat(): CalendarTimeFormat {
@@ -158,6 +199,18 @@ function loadSavedMusicPauseOnPomodoroPause(): boolean {
   return DEFAULT_MUSIC_PAUSE_ON_POMODORO_PAUSE;
 }
 
+function loadSavedBooleanPreference(key: string, fallback: boolean): boolean {
+  const saved = getConfigKey<unknown>(key, undefined);
+  if (typeof saved === "boolean") return saved;
+  return fallback;
+}
+
+function loadSavedNotesDefaultOpenMode(): NotesPageOpenMode {
+  const saved = getConfigKey<unknown>(NOTES_DEFAULT_OPEN_MODE_CONFIG_KEY, undefined);
+  if (isNotesPageOpenMode(saved)) return saved;
+  return DEFAULT_NOTES_PAGE_OPEN_MODE;
+}
+
 function loadSavedTitleBarVisibility(): TitleBarVisibility {
   const saved = getConfigKey<unknown>(TITLE_BAR_VISIBILITY_CONFIG_KEY, undefined);
   const parsed = parseTitleBarVisibility(saved);
@@ -170,6 +223,8 @@ function loadSavedTitleBarVisibility(): TitleBarVisibility {
 let fontFamilyId = $state<FontFamilyId>(loadSavedFontFamilyId());
 let fontScale = $state<number>(loadSavedFontScale());
 let eventTimezoneDisplay = $state<EventTimezoneDisplay>(loadSavedEventTzDisplay());
+let profileDisplayName = $state<string>(loadSavedProfileDisplayName());
+let profileFullName = $state<string>(loadSavedProfileFullName());
 let calendarTimeFormat = $state<CalendarTimeFormat>(loadSavedCalendarTimeFormat());
 let calendarViewMode = $state<CalendarViewMode>(loadSavedCalendarViewMode());
 let calendarDimPastEvents = $state<boolean>(loadSavedCalendarDimPastEvents());
@@ -191,6 +246,37 @@ let focusPauseNotificationIntervalMinutes = $state<FocusPauseNotificationInterva
   loadSavedFocusPauseNotificationIntervalMinutes(),
 );
 let musicPauseOnPomodoroPause = $state<boolean>(loadSavedMusicPauseOnPomodoroPause());
+let notesDefaultOpenMode = $state<NotesPageOpenMode>(loadSavedNotesDefaultOpenMode());
+let notesMentionNotificationsEnabled = $state<boolean>(
+  loadSavedBooleanPreference(
+    NOTES_MENTION_NOTIFICATIONS_ENABLED_CONFIG_KEY,
+    DEFAULT_NOTES_MENTION_NOTIFICATIONS_ENABLED,
+  ),
+);
+let notesReminderNotificationsEnabled = $state<boolean>(
+  loadSavedBooleanPreference(
+    NOTES_REMINDER_NOTIFICATIONS_ENABLED_CONFIG_KEY,
+    DEFAULT_NOTES_REMINDER_NOTIFICATIONS_ENABLED,
+  ),
+);
+let notesUserMentionNotificationsEnabled = $state<boolean>(
+  loadSavedBooleanPreference(
+    NOTES_USER_MENTION_NOTIFICATIONS_ENABLED_CONFIG_KEY,
+    DEFAULT_NOTES_USER_MENTION_NOTIFICATIONS_ENABLED,
+  ),
+);
+let notesTaskMentionNotificationsEnabled = $state<boolean>(
+  loadSavedBooleanPreference(
+    NOTES_TASK_MENTION_NOTIFICATIONS_ENABLED_CONFIG_KEY,
+    DEFAULT_NOTES_TASK_MENTION_NOTIFICATIONS_ENABLED,
+  ),
+);
+let notesNotificationIncludeContent = $state<boolean>(
+  loadSavedBooleanPreference(
+    NOTES_NOTIFICATION_INCLUDE_CONTENT_CONFIG_KEY,
+    DEFAULT_NOTES_NOTIFICATION_INCLUDE_CONTENT,
+  ),
+);
 let titleBarVisibility = $state<TitleBarVisibility>(loadSavedTitleBarVisibility());
 const localization = getLocalization();
 
@@ -224,6 +310,28 @@ function setFontScale(value: number): void {
 function setEventTimezoneDisplay(value: EventTimezoneDisplay): void {
   eventTimezoneDisplay = value;
   setConfigKey(EVENT_TZ_DISPLAY_KEY, value);
+}
+
+function setProfileDisplayName(value: string): boolean {
+  const normalized = normalizeProfileDisplayName(value);
+  if (!normalized.ok) return false;
+  profileDisplayName = normalized.value;
+  setConfigKey(
+    PROFILE_DISPLAY_NAME_CONFIG_KEY,
+    normalized.value ? normalized.value : undefined,
+  );
+  return true;
+}
+
+function setProfileFullName(value: string): boolean {
+  const normalized = normalizeProfileFullName(value);
+  if (!normalized.ok) return false;
+  profileFullName = normalized.value;
+  setConfigKey(
+    PROFILE_FULL_NAME_CONFIG_KEY,
+    normalized.value ? normalized.value : undefined,
+  );
+  return true;
 }
 
 function setCalendarTimeFormat(value: CalendarTimeFormat): void {
@@ -305,6 +413,37 @@ function setMusicPauseOnPomodoroPause(value: boolean): void {
   setConfigKey(MUSIC_PAUSE_ON_POMODORO_PAUSE_CONFIG_KEY, value);
 }
 
+function setNotesDefaultOpenMode(value: NotesPageOpenMode): void {
+  if (!isNotesPageOpenMode(value)) return;
+  notesDefaultOpenMode = value;
+  setConfigKey(NOTES_DEFAULT_OPEN_MODE_CONFIG_KEY, value);
+}
+
+function setNotesMentionNotificationsEnabled(value: boolean): void {
+  notesMentionNotificationsEnabled = value;
+  setConfigKey(NOTES_MENTION_NOTIFICATIONS_ENABLED_CONFIG_KEY, value);
+}
+
+function setNotesReminderNotificationsEnabled(value: boolean): void {
+  notesReminderNotificationsEnabled = value;
+  setConfigKey(NOTES_REMINDER_NOTIFICATIONS_ENABLED_CONFIG_KEY, value);
+}
+
+function setNotesUserMentionNotificationsEnabled(value: boolean): void {
+  notesUserMentionNotificationsEnabled = value;
+  setConfigKey(NOTES_USER_MENTION_NOTIFICATIONS_ENABLED_CONFIG_KEY, value);
+}
+
+function setNotesTaskMentionNotificationsEnabled(value: boolean): void {
+  notesTaskMentionNotificationsEnabled = value;
+  setConfigKey(NOTES_TASK_MENTION_NOTIFICATIONS_ENABLED_CONFIG_KEY, value);
+}
+
+function setNotesNotificationIncludeContent(value: boolean): void {
+  notesNotificationIncludeContent = value;
+  setConfigKey(NOTES_NOTIFICATION_INCLUDE_CONTENT_CONFIG_KEY, value);
+}
+
 function setTitleBarControlVisible(id: TitleBarControlId, visible: boolean): void {
   if (!isTitleBarControlId(id)) return;
   titleBarVisibility = { ...titleBarVisibility, [id]: visible };
@@ -338,6 +477,12 @@ export function getPreferences() {
     },
     get eventTimezoneDisplay(): EventTimezoneDisplay {
       return eventTimezoneDisplay;
+    },
+    get profileDisplayName(): string {
+      return profileDisplayName;
+    },
+    get profileFullName(): string {
+      return profileFullName;
     },
     get languagePreference(): LanguagePreference {
       return localization.languagePreference;
@@ -378,11 +523,31 @@ export function getPreferences() {
     get musicPauseOnPomodoroPause(): boolean {
       return musicPauseOnPomodoroPause;
     },
+    get notesDefaultOpenMode(): NotesPageOpenMode {
+      return notesDefaultOpenMode;
+    },
+    get notesMentionNotificationsEnabled(): boolean {
+      return notesMentionNotificationsEnabled;
+    },
+    get notesReminderNotificationsEnabled(): boolean {
+      return notesReminderNotificationsEnabled;
+    },
+    get notesUserMentionNotificationsEnabled(): boolean {
+      return notesUserMentionNotificationsEnabled;
+    },
+    get notesTaskMentionNotificationsEnabled(): boolean {
+      return notesTaskMentionNotificationsEnabled;
+    },
+    get notesNotificationIncludeContent(): boolean {
+      return notesNotificationIncludeContent;
+    },
     get titleBarVisibility(): TitleBarVisibility {
       return titleBarVisibility;
     },
     setFontFamily,
     setFontScale,
+    setProfileDisplayName,
+    setProfileFullName,
     setLanguagePreference: localization.setLanguagePreference,
     setEventTimezoneDisplay,
     setCalendarTimeFormat,
@@ -396,6 +561,12 @@ export function getPreferences() {
     setFocusBreakExtensionLimit,
     setFocusPauseNotificationIntervalMinutes,
     setMusicPauseOnPomodoroPause,
+    setNotesDefaultOpenMode,
+    setNotesMentionNotificationsEnabled,
+    setNotesReminderNotificationsEnabled,
+    setNotesUserMentionNotificationsEnabled,
+    setNotesTaskMentionNotificationsEnabled,
+    setNotesNotificationIncludeContent,
     setTitleBarControlVisible,
     toggleTitleBarControl,
     resetFontFamily() {
@@ -441,6 +612,24 @@ export function getPreferences() {
     },
     resetMusicPauseOnPomodoroPause() {
       setMusicPauseOnPomodoroPause(DEFAULT_MUSIC_PAUSE_ON_POMODORO_PAUSE);
+    },
+    resetNotesDefaultOpenMode() {
+      setNotesDefaultOpenMode(DEFAULT_NOTES_PAGE_OPEN_MODE);
+    },
+    resetNotesMentionNotificationsEnabled() {
+      setNotesMentionNotificationsEnabled(DEFAULT_NOTES_MENTION_NOTIFICATIONS_ENABLED);
+    },
+    resetNotesReminderNotificationsEnabled() {
+      setNotesReminderNotificationsEnabled(DEFAULT_NOTES_REMINDER_NOTIFICATIONS_ENABLED);
+    },
+    resetNotesUserMentionNotificationsEnabled() {
+      setNotesUserMentionNotificationsEnabled(DEFAULT_NOTES_USER_MENTION_NOTIFICATIONS_ENABLED);
+    },
+    resetNotesTaskMentionNotificationsEnabled() {
+      setNotesTaskMentionNotificationsEnabled(DEFAULT_NOTES_TASK_MENTION_NOTIFICATIONS_ENABLED);
+    },
+    resetNotesNotificationIncludeContent() {
+      setNotesNotificationIncludeContent(DEFAULT_NOTES_NOTIFICATION_INCLUDE_CONTENT);
     },
     resetTitleBarVisibility,
   };

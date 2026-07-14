@@ -1,10 +1,9 @@
 <script lang="ts">
-  import type { CalendarEvent, PersistedSegment } from "./types";
+  import type { CalendarEvent, PersistedSegment, PositionedEvent } from "./types";
   import type { DayNameFormat, TimezoneAbbrMode } from "./utils";
   import {
     formatDatePart,
     formatDayName,
-    allDayEventsForDay,
     GUTTER_WIDTH_PER_TZ,
     visibleMinuteRangeForScroll,
   } from "./utils";
@@ -28,7 +27,8 @@
   let {
     anchorDate,
     events,
-    eventsByDay,
+    positionedTimedEventsByDay,
+    allDayEventsByDay,
     theme,
     timezones = [] as string[],
     tzAbbrMode = "acronym" as TimezoneAbbrMode,
@@ -50,7 +50,8 @@
   }: {
     anchorDate: Date;
     events: CalendarEvent[];
-    eventsByDay: Map<string, CalendarEvent[]>;
+    positionedTimedEventsByDay: Map<string, PositionedEvent[]>;
+    allDayEventsByDay: Map<string, CalendarEvent[]>;
     theme: Theme;
     timezones?: string[];
     tzAbbrMode?: TimezoneAbbrMode;
@@ -73,6 +74,7 @@
 
   /** Stable empty fallback so the day column keeps a consistent prop reference. */
   const EMPTY_DAY: CalendarEvent[] = [];
+  const EMPTY_POSITIONED: PositionedEvent[] = [];
 
   let scrollContainer: HTMLDivElement | undefined = $state();
   let wheelCooldown = false;
@@ -144,8 +146,7 @@
   const today = $derived(formatDatePart(anchorDate) === todayStr);
   const past = $derived(formatDatePart(anchorDate) < todayStr);
   const dateStr = $derived(formatDatePart(anchorDate));
-  const dayBucket = $derived(eventsByDay.get(dateStr) ?? EMPTY_DAY);
-  const allDayEvents = $derived(allDayEventsForDay(dayBucket, anchorDate));
+  const allDayEvents = $derived(allDayEventsByDay.get(dateStr) ?? EMPTY_DAY);
 
   let allDayExpanded = $state(false);
   const allDayCollapsible = $derived(allDayEvents.length > ALL_DAY_MAX_VISIBLE);
@@ -498,9 +499,9 @@
         style="border-left: 1px solid var(--cal-gridline);"
       >
         <HourGridlines />
-        <DayColumn
+      <DayColumn
           date={anchorDate}
-          events={dayBucket}
+        positionedEvents={positionedTimedEventsByDay.get(dateStr) ?? EMPTY_POSITIONED}
           {theme}
           isToday={today}
           isPast={past}

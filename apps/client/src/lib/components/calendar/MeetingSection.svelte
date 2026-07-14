@@ -382,7 +382,7 @@
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div bind:this={scrollEl} onscroll={updateFade} onwheel={onWheel}
             use:observeResize
-            class="relative max-h-18 overflow-y-auto scrollbar-thin"
+            class="relative max-h-18 overflow-y-auto"
             style:mask-image={fadeTop && fadeBottom ? 'linear-gradient(to bottom, transparent, black 10px, black calc(100% - 10px), transparent)' : fadeTop ? 'linear-gradient(to bottom, transparent, black 10px)' : fadeBottom ? 'linear-gradient(to bottom, black calc(100% - 10px), transparent)' : 'none'}
             style:-webkit-mask-image={fadeTop && fadeBottom ? 'linear-gradient(to bottom, transparent, black 10px, black calc(100% - 10px), transparent)' : fadeTop ? 'linear-gradient(to bottom, transparent, black 10px)' : fadeBottom ? 'linear-gradient(to bottom, black calc(100% - 10px), transparent)' : 'none'}>
             {#each guestAttendees as att (att.id)}
@@ -443,9 +443,3 @@
     </div>
   {/if}
 </div>
-
-<style>
-  .scrollbar-thin {
-    scrollbar-width: thin;
-  }
-</style>

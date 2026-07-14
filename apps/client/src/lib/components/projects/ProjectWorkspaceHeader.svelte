@@ -12,6 +12,11 @@
   import SquareKanban from "@lucide/svelte/icons/square-kanban";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import {
+    COMPACT_IDENTITY_EMOJI_SCALE,
+    COMPACT_IDENTITY_ICON_SIZE,
+    COMPACT_IDENTITY_ICON_STROKE_WIDTH,
+  } from "$lib/icon-sizing";
+  import {
     projectLifecycleBadgeClass,
     projectLifecycleLabel,
   } from "$lib/projects/project-display";
@@ -56,8 +61,9 @@
   const projects = getProjects();
   const viewport = getViewport();
   const { t } = getLocalization();
-  const projectIdentityIconStrokeWidth = 1.5;
-  const projectIdentityEmojiScale = 0.94;
+  const projectIdentityIconSize = COMPACT_IDENTITY_ICON_SIZE;
+  const projectIdentityIconStrokeWidth = COMPACT_IDENTITY_ICON_STROKE_WIDTH;
+  const projectIdentityEmojiScale = COMPACT_IDENTITY_EMOJI_SCALE;
 
   let projectNavigatorOpen = $state(false);
   let projectNavigatorMode = $state<ProjectNavigatorPanelMode>("groups");
@@ -275,9 +281,8 @@
       >
         <ProjectIcon
           name={selectedGroup.icon}
-          size={14}
+          size={projectIdentityIconSize}
           strokeWidth={projectIdentityIconStrokeWidth}
-          ignoreColor
           emojiScale={projectIdentityEmojiScale}
           class="shrink-0"
         />
@@ -298,9 +303,8 @@
       >
         <ProjectIcon
           name={selectedProject.icon}
-          size={14}
+          size={projectIdentityIconSize}
           strokeWidth={projectIdentityIconStrokeWidth}
-          ignoreColor
           emojiScale={projectIdentityEmojiScale}
           class="shrink-0"
         />

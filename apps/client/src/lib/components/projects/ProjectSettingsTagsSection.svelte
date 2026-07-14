@@ -4,6 +4,7 @@
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import ColorPicker from "$lib/components/calendar/ColorPicker.svelte";
   import type { EventColor } from "$lib/components/calendar/types";
+  import { moveTextInputCaretToPointer } from "$lib/utils/text-input-caret";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import type { ProjectSettingsDropPosition } from "$lib/projects/project-settings-reorder";
   import { projectSettingsIconButtonClass } from "$lib/projects/project-settings-ui";
@@ -107,7 +108,6 @@
         <ColorPicker
           color={tagColorDraftValue(tag)}
           {theme}
-          title={t("projects.settings.tagColor")}
           ariaLabel={t("projects.settings.selectTagColor", tag.name)}
           class="h-7 w-7 justify-center self-center"
           buttonClass="size-6 rounded-md"
@@ -117,6 +117,7 @@
           value={tagNameDraftValue(tag)}
           class="h-7 min-w-0 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:border-ring placeholder:text-muted-foreground"
           aria-label={t("projects.settings.tagName")}
+          onpointerdown={moveTextInputCaretToPointer}
           oninput={(event) => setTagNameDraft(tag.id, event.currentTarget.value)}
         />
         <button
@@ -139,7 +140,6 @@
       <ColorPicker
         color={newTagColor}
         {theme}
-        title={t("projects.settings.tagColor")}
         ariaLabel={t("projects.settings.selectNewTagColor")}
         class="h-7 w-7 justify-center self-center"
         buttonClass="size-6 rounded-md"
@@ -149,6 +149,7 @@
         bind:value={newTagName}
         class="h-7 min-w-0 rounded-md border border-border bg-background px-2 text-[0.8rem] text-foreground outline-none transition-colors focus:border-ring placeholder:text-muted-foreground"
         placeholder={t("projects.settings.newTagPlaceholder")}
+        onpointerdown={moveTextInputCaretToPointer}
         onkeydown={(event) => {
           if (event.key === "Enter") {
             event.preventDefault();

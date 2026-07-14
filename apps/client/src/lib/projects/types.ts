@@ -10,6 +10,8 @@ import {
   type FocusIdleThresholdMinutes,
 } from "$lib/stores/preferences";
 import type { ProjectDefaultEventTimeMode } from "$lib/projects/project-settings-duration";
+import type { NotesPageOpenMode } from "$lib/notes/page-open-mode";
+import type { NotesHistoryRetentionDays } from "$lib/notes/history-retention";
 
 export const PROJECT_VIEW_IDS = ["dashboard", "list", "kanban", "calendar", "gantt"] as const;
 export type ProjectViewId = (typeof PROJECT_VIEW_IDS)[number];
@@ -119,13 +121,15 @@ export interface Project {
   breakPlaylistId?: string;
   workEnvironmentId?: string;
   blockerRulesetId?: string;
+  notesDefaultOpenMode?: NotesPageOpenMode;
+  notesHistoryRetentionDays?: NotesHistoryRetentionDays;
   createdAt: string;
   updatedAt: string;
 }
 
 export const PROJECT_TEMPLATE_DEFAULTS = {
   blank: {
-    icon: "folder",
+    icon: "lucide:folder",
     color: null,
     defaultEventName: null,
     defaultEventTimeMode: "timed",
@@ -141,7 +145,7 @@ export const PROJECT_TEMPLATE_DEFAULTS = {
     defaultIdleThresholdMinutes: DEFAULT_FOCUS_IDLE_THRESHOLD_MINUTES,
   },
   software: {
-    icon: "folder",
+    icon: "lucide:folder",
     color: null,
     defaultEventName: null,
     defaultEventTimeMode: "timed",
@@ -157,7 +161,7 @@ export const PROJECT_TEMPLATE_DEFAULTS = {
     defaultIdleThresholdMinutes: DEFAULT_FOCUS_IDLE_THRESHOLD_MINUTES,
   },
   course: {
-    icon: "graduation-cap",
+    icon: "lucide:graduation-cap",
     color: null,
     defaultEventName: null,
     defaultEventTimeMode: "timed",
@@ -173,7 +177,7 @@ export const PROJECT_TEMPLATE_DEFAULTS = {
     defaultIdleThresholdMinutes: DEFAULT_FOCUS_IDLE_THRESHOLD_MINUTES,
   },
   routine: {
-    icon: "repeat",
+    icon: "lucide:repeat",
     color: null,
     defaultEventName: null,
     defaultEventTimeMode: "timed",
@@ -189,7 +193,7 @@ export const PROJECT_TEMPLATE_DEFAULTS = {
     defaultIdleThresholdMinutes: DEFAULT_FOCUS_IDLE_THRESHOLD_MINUTES,
   },
   reading: {
-    icon: "book-open",
+    icon: "lucide:book-open",
     color: null,
     defaultEventName: null,
     defaultEventTimeMode: "timed",
@@ -205,7 +209,7 @@ export const PROJECT_TEMPLATE_DEFAULTS = {
     defaultIdleThresholdMinutes: DEFAULT_FOCUS_IDLE_THRESHOLD_MINUTES,
   },
   chores: {
-    icon: "sparkles",
+    icon: "lucide:shopping-cart",
     color: null,
     defaultEventName: null,
     defaultEventTimeMode: "timed",
@@ -295,6 +299,87 @@ export interface ProjectTask {
   milestone: boolean;
   createdAt: string;
   updatedAt: string;
+  detailLoaded?: boolean;
+  summaryBlocked?: boolean;
+}
+
+export interface ProjectTaskViewRequest {
+  projectId: string;
+  view: ProjectViewId;
+  pageSize: number;
+  cursor?: string;
+  columnCursors: Record<string, string>;
+  showArchived: boolean;
+  visibleSectionIds: string[];
+  search: string;
+  statusFilter: ProjectTaskStatusFilter;
+  sectionFilter: string;
+  priorityFilter: string;
+  dueFilter: ProjectTaskDueFilter;
+  dueRangeStart: string;
+  dueRangeEnd: string;
+  today: string;
+  weekEnd: string;
+  scheduleFilter: ProjectTaskScheduleFilter;
+  dependencyFilter: ProjectTaskDependencyFilter;
+  tagFilter: ProjectTaskTagFilter;
+  customFieldFilters: ProjectCustomFieldFilter[];
+  sortMode: ProjectTaskSortMode;
+  sortDirection: ProjectTaskSortDirection;
+  candidateEventIds: string[];
+}
+
+export interface ProjectTaskColumnCount {
+  statusId: string;
+  count: number;
+  nextCursor?: string;
+}
+
+export interface ProjectDashboardTaskAggregates {
+  total: number;
+  completed: number;
+  openEstimateMinutes: number;
+  blocked: number;
+  overdue: number;
+  unscheduledDue: number;
+  missingEstimate: number;
+  statusCounts: Record<string, number>;
+}
+
+export interface ProjectTaskViewPage {
+  projectId: string;
+  view: ProjectViewId;
+  tasks: ProjectTask[];
+  totalCount: number;
+  matchedCount: number;
+  archivedCount: number;
+  nextCursor?: string;
+  columnCounts: ProjectTaskColumnCount[];
+  aggregates?: ProjectDashboardTaskAggregates;
+  matchedEventIds: string[];
+  taskTagLinks: ProjectTaskTagLink[];
+  customFieldValues: ProjectCustomFieldValue[];
+  customFieldOptionValues: ProjectCustomFieldOptionValue[];
+  dependencies: ProjectTaskDependency[];
+  eventLinks: ProjectTaskEventLink[];
+  tags: ProjectTag[];
+  customFields: ProjectCustomField[];
+  customFieldOptions: ProjectCustomFieldOption[];
+}
+
+export interface ProjectTaskDetailData {
+  task: ProjectTask;
+  relatedTasks: ProjectTask[];
+  checklistItems: ProjectChecklistItem[];
+  tags: ProjectTag[];
+  taskTagLinks: ProjectTaskTagLink[];
+  customFields: ProjectCustomField[];
+  customFieldOptions: ProjectCustomFieldOption[];
+  customFieldValues: ProjectCustomFieldValue[];
+  customFieldOptionValues: ProjectCustomFieldOptionValue[];
+  dependencies: ProjectTaskDependency[];
+  eventLinks: ProjectTaskEventLink[];
+  taskChangeEvents: ProjectTaskChangeEvent[];
 }
 
 export interface ProjectChecklistItem {
@@ -564,6 +649,64 @@ export interface ProjectsSnapshot {
   statuses: ProjectStatus[];
   priorities: ProjectPriorityConfig[];
   tasks: ProjectTask[];
+  checklistItems: ProjectChecklistItem[];
+  tags: ProjectTag[];
+  taskTagLinks: ProjectTaskTagLink[];
+  customFields: ProjectCustomField[];
+  customFieldOptions: ProjectCustomFieldOption[];
+  customFieldValues: ProjectCustomFieldValue[];
+  customFieldOptionValues: ProjectCustomFieldOptionValue[];
+  dependencies: ProjectTaskDependency[];
+  eventLinks: ProjectTaskEventLink[];
+  taskChangeEvents: ProjectTaskChangeEvent[];
+  viewPreferences: ProjectViewPreference[];
+  customEmojis: ProjectCustomEmoji[];
+}
+
+export type ProjectMutationRemoval =
+  | { kind: "group"; id: string }
+  | { kind: "project"; id: string }
+  | { kind: "status"; id: string }
+  | { kind: "priority"; id: string }
+  | { kind: "checklist_item"; id: string }
+  | { kind: "tag"; id: string }
+  | { kind: "task_tag_link"; taskId: string; tagId: string }
+  | { kind: "custom_field"; id: string }
+  | { kind: "custom_field_option"; id: string }
+  | { kind: "custom_field_value"; taskId: string; fieldId: string }
+  | { kind: "dependency"; id: string }
+  | { kind: "event_link"; taskId: string; eventId: string }
+  | {
+      kind: "view_preference";
+      projectId: string;
+      viewId: string;
+      preferenceKey: string;
+    }
+  | { kind: "custom_emoji"; id: string };
+
+export interface ProjectMutation {
+  changed: ProjectsSnapshot;
+  removals: ProjectMutationRemoval[];
+  calendarEventProjectAssignments: Array<{ eventId: string; projectId: string }>;
+}
+
+export interface ProjectsWorkspaceSnapshot {
+  resolvedProjectId: string | null;
+  activeView: ProjectViewId;
+  snapshot: ProjectsSnapshot;
+}
+
+export type ProjectOptionalDataKind =
+  | "relationships"
+  | "custom_fields"
+  | "history"
+  | "checklist"
+  | "saved_views"
+  | "custom_emojis";
+
+export interface ProjectsOptionalData {
+  kind: ProjectOptionalDataKind;
+  projectId: string | null;
   checklistItems: ProjectChecklistItem[];
   tags: ProjectTag[];
   taskTagLinks: ProjectTaskTagLink[];

@@ -32,6 +32,7 @@
     type ProjectDurationUnit,
   } from "$lib/projects/project-settings-duration";
   import CustomSelect from "$lib/components/settings/CustomSelect.svelte";
+  import { moveTextInputCaretToPointer } from "$lib/utils/text-input-caret";
   import ToggleSetting from "$lib/components/settings/ToggleSetting.svelte";
   import {
     FOCUS_IDLE_THRESHOLD_MINUTES_OPTIONS,
@@ -45,6 +46,7 @@
     pomodoroPresetLabel,
     projectColorDraft = $bindable<EventColor | undefined>(),
     projectDefaultEventNameDraft = $bindable<string>(),
+    projectDefaultEventNamePlaceholder,
     projectEventTimeModeDraft = $bindable<ProjectDefaultEventTimeMode>(),
     projectDurationDraft = $bindable<string>(),
     projectPomodoroModeDraft = $bindable<ProjectDefaultPomodoroMode>(),
@@ -64,6 +66,7 @@
     pomodoroPresetLabel: (preset: PomodoroPresetKey) => string;
     projectColorDraft: EventColor | undefined;
     projectDefaultEventNameDraft: string;
+    projectDefaultEventNamePlaceholder?: string;
     projectEventTimeModeDraft: ProjectDefaultEventTimeMode;
     projectDurationDraft: string;
     projectPomodoroModeDraft: ProjectDefaultPomodoroMode;
@@ -457,9 +460,10 @@
       <span class="min-w-0 flex-1 text-[0.866667rem] text-foreground">{t("projects.settings.defaultEventName")}</span>
       <input
         bind:value={projectDefaultEventNameDraft}
-        placeholder={t("common.none")}
+        placeholder={projectDefaultEventNamePlaceholder ?? t("common.none")}
         aria-label={t("projects.settings.defaultEventName")}
         class="h-7 w-44 min-w-0 rounded-md border border-border bg-card px-2.5 text-left text-[0.8rem] font-medium text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-ring dark:bg-transparent max-[480px]:w-full"
+        onpointerdown={moveTextInputCaretToPointer}
       />
     </div>
 
@@ -468,7 +472,6 @@
       <ColorPicker
         color={projectColorDraft}
         {theme}
-        title={t("projects.settings.color")}
         ariaLabel={t("projects.settings.selectColor")}
         displayLabel
         class="w-44 max-[480px]:w-full"
@@ -494,6 +497,7 @@
             inputmode="decimal"
             aria-label={t("projects.settings.customDurationValue")}
             class="h-7 min-w-0 flex-1 rounded-md border border-border bg-card px-2.5 text-left text-[0.8rem] font-medium text-foreground outline-none transition-colors focus:border-ring dark:bg-transparent"
+            onpointerdown={moveTextInputCaretToPointer}
             oninput={(event) => {
               setCustomDurationValue(event.currentTarget);
             }}

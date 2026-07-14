@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick } from "svelte";
+  import { onDestroy, tick } from "svelte";
   import { FALLBACK_COLOR_INDEX, type EventColor } from "$lib/components/calendar/types";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import type { PomodoroPresetKey } from "$lib/pomodoro/rhythm";
@@ -10,83 +10,37 @@
     projectLifecycleLabel,
   } from "$lib/projects/project-display";
   import {
-    emptyProjectSettingsProjectDraft,
-    projectSettingsProjectDraftDirty,
-    projectSettingsProjectDraftFromProject,
-    projectSettingsProjectUpdateFromDraft,
-    type ProjectSettingsProjectDraft,
-    type ProjectSettingsProjectDraftError,
-  } from "$lib/projects/project-settings-project-draft";
-  import {
     projectSettingsPriorityColorDraftValue,
     projectSettingsPriorityDraftDirty,
     projectSettingsPriorityNameDraftValue,
-    projectSettingsPrioritySaveDrafts,
     projectSettingsStatusCategoryDraftValue,
     projectSettingsStatusColorDraftValue,
     projectSettingsStatusDraftDirty,
     projectSettingsStatusNameDraftValue,
-    projectSettingsStatusSaveDrafts,
     projectSettingsTagColorDraftValue,
     projectSettingsTagDraftDirty,
     projectSettingsTagNameDraftValue,
     projectSettingsTagNameExists,
-    projectSettingsTagSaveDrafts,
     type ProjectSettingsPriorityDraftState,
-    type ProjectSettingsPrioritySaveDraft,
     type ProjectSettingsStatusDraftState,
-    type ProjectSettingsStatusSaveDraft,
     type ProjectSettingsTagDraftState,
-    type ProjectSettingsTagSaveDraft,
   } from "$lib/projects/project-settings-collection-drafts";
-  import { projectCustomFieldUsesOptions } from "$lib/projects/custom-fields";
   import {
     PROJECT_LIFECYCLE_STATUSES,
     PROJECT_TAG_DEFAULT_COLOR,
   } from "$lib/projects/types";
-  import type {
-    CustomFieldOptionSaveDraft,
-    CustomFieldSaveDraft,
-    NewCustomFieldDraft,
-    NewCustomFieldOptionDraft,
-    ProjectSettingsCustomFieldDraftError,
-  } from "$lib/projects/project-settings-custom-field-drafts";
-  import {
-    projectSettingsCustomFieldDraftDirty,
-    projectSettingsCustomFieldNameDraftValue,
-    projectSettingsCustomFieldOptionCreateDraftRows,
-    projectSettingsCustomFieldOptionDraftDirty,
-    projectSettingsCustomFieldOptionNameDraftValue,
-    projectSettingsCustomFieldOptionNamesForCreate,
-    projectSettingsCustomFieldOptionSaveDrafts,
-    projectSettingsCustomFieldSaveDrafts,
-    projectSettingsRemoveCustomFieldCreateDraft,
-    projectSettingsRemoveCustomFieldCreateDraftOption,
-    projectSettingsRemoveCustomFieldOptionCreateDraft,
-    projectSettingsSetCustomFieldCreateDraftName,
-    projectSettingsSetCustomFieldCreateDraftOptionName,
-    projectSettingsSetCustomFieldCreateDraftPendingOptionName,
-    projectSettingsSetCustomFieldOptionCreateDraftName,
-  } from "$lib/projects/project-settings-custom-field-drafts";
-  import {
-    projectSettingsDraggedEntryDropTarget,
-    projectSettingsDragOverPlan,
-    moveProjectSettingsEntryToIndex,
-    projectSettingsDropMarkerVisible,
-    projectSettingsDropPosition,
-    projectSettingsStartDrag,
-    type ProjectSettingsDropPosition,
-  } from "$lib/projects/project-settings-reorder";
+  import { createProjectSettingsCustomFieldController } from "$lib/projects/project-settings-custom-field-controller.svelte";
+  import { createProjectSettingsColorAllocator } from "$lib/projects/project-settings-color-controller";
+  import { createProjectSettingsReorderController } from "$lib/projects/project-settings-reorder-controller.svelte";
+  import { createProjectSettingsSession } from "$lib/projects/project-settings-session.svelte";
   import {
     nextProjectSettingsPaletteColor,
-    nextUnusedProjectSettingsColor,
     scrollProjectSettingsRowIntoView,
   } from "$lib/projects/project-settings-ui";
   import type {
     Project,
     ProjectCustomField,
     ProjectCustomFieldOption,
-    ProjectCustomFieldType,
     ProjectTag,
     ProjectLifecycleStatus,
     ProjectPriorityConfig,
@@ -99,6 +53,7 @@
   import ProjectSettingsDefaultsSection from "./ProjectSettingsDefaultsSection.svelte";
   import ProjectSettingsDeleteDialogs from "./ProjectSettingsDeleteDialogs.svelte";
   import ProjectSettingsIdentitySection from "./ProjectSettingsIdentitySection.svelte";
+  import { projectHasLockedSystemIdentity } from "$lib/projects/project-system-defaults";
   import ProjectSettingsPanelShell from "./ProjectSettingsPanelShell.svelte";
   import ProjectSettingsPrioritiesSection from "./ProjectSettingsPrioritiesSection.svelte";
   import ProjectSettingsStatusesSection from "./ProjectSettingsStatusesSection.svelte";
@@ -109,11 +64,13 @@
     presentation = "side",
     onClose,
     onRevealInactive,
+    onDirtyChange,
   }: {
     projectId: string;
     presentation?: "side" | "popover";
     onClose: () => void;
     onRevealInactive: () => void;
+    onDirtyChange: (dirty: boolean) => void;
   } = $props();
 
   const projects = getProjects();
@@ -130,78 +87,25 @@
   const PROJECT_CUSTOM_FIELD_DRAG_DATA_TYPE = "application/x-ganbaru-project-custom-field";
   const PROJECT_CUSTOM_FIELD_OPTION_DRAG_DATA_TYPE = "application/x-ganbaru-project-custom-field-option";
   type SelectOption = { value: string; label: string };
-  type StatusDropPosition = ProjectSettingsDropPosition;
-  type PriorityDropPosition = ProjectSettingsDropPosition;
-  type TagDropPosition = ProjectSettingsDropPosition;
-  type CustomFieldDropPosition = ProjectSettingsDropPosition;
-  type CustomFieldOptionDropPosition = ProjectSettingsDropPosition;
-  type ProjectSettingsTargetSetter = (
-    overId: string | null,
-    position: ProjectSettingsDropPosition | null,
-  ) => void;
-  type ProjectSettingsPendingSetter = (pending: boolean) => void;
 
-  let projectDraftId = $state<string | null>(null);
-  let projectDraftUpdatedAt = $state<string | null>(null);
-  let projectDraft = $state<ProjectSettingsProjectDraft>(emptyProjectSettingsProjectDraft());
-  let projectSettingsSaving = $state(false);
-  let projectSettingsError = $state<string | null>(null);
-  let statusNameDrafts = $state<Record<string, string>>({});
-  let statusCategoryDrafts = $state<Record<string, ProjectStatusCategory>>({});
-  let statusColorDrafts = $state<Record<string, EventColor>>({});
-  let priorityNameDrafts = $state<Record<string, string>>({});
-  let priorityColorDrafts = $state<Record<string, EventColor>>({});
-  let newStatusName = $state("");
-  let newStatusCategory = $state<ProjectStatusCategory>("active");
-  let newStatusColor = $state<EventColor>(NEW_STATUS_FIRST_COLOR);
-  let newPriorityName = $state("");
-  let newPriorityColor = $state<EventColor>(NEW_PRIORITY_FIRST_COLOR);
+  const session = createProjectSettingsSession({
+    onRevealInactive: () => onRevealInactive(),
+  });
+  const sessionState = session.state;
   let pendingDeleteStatusId = $state<string | null>(null);
   let pendingDeletePriorityId = $state<string | null>(null);
-  let tagNameDrafts = $state<Record<string, string>>({});
-  let tagColorDrafts = $state<Record<string, EventColor>>({});
-  let newTagName = $state("");
-  let newTagColor = $state<EventColor>(NEW_TAG_FIRST_COLOR);
   let pendingDeleteTagId = $state<string | null>(null);
-  let customFieldNameDrafts = $state<Record<string, string>>({});
-  let customFieldOptionNameDrafts = $state<Record<string, string>>({});
-  let customFieldOptionDraftRowsByField = $state<Record<string, NewCustomFieldOptionDraft[]>>({});
-  let customFieldCreateDraftRows = $state<NewCustomFieldDraft[]>([]);
-  let newCustomFieldName = $state("");
-  let newCustomFieldType = $state<ProjectCustomFieldType>("text");
-  let newCustomFieldOptionDrafts = $state<Record<string, string>>({});
-  let newCustomFieldOptionRows = $state<NewCustomFieldOptionDraft[]>([]);
-  let newCustomFieldOptionName = $state("");
-  let pendingDeleteCustomFieldId = $state<string | null>(null);
-  let pendingDeleteCustomFieldOptionId = $state<string | null>(null);
   let settingsScrollElement = $state<HTMLElement | undefined>();
   let newStatusRowElement = $state<HTMLDivElement | undefined>();
   let newPriorityRowElement = $state<HTMLDivElement | undefined>();
   let newTagRowElement = $state<HTMLDivElement | undefined>();
   let newCustomFieldRowElement = $state<HTMLDivElement | undefined>();
-  let draggedStatusId = $state<string | null>(null);
-  let dragOverStatusId = $state<string | null>(null);
-  let statusDropPosition = $state<StatusDropPosition | null>(null);
-  let statusReorderPending = $state(false);
-  let draggedPriorityId = $state<string | null>(null);
-  let dragOverPriorityId = $state<string | null>(null);
-  let priorityDropPosition = $state<PriorityDropPosition | null>(null);
-  let priorityReorderPending = $state(false);
-  let draggedTagId = $state<string | null>(null);
-  let dragOverTagId = $state<string | null>(null);
-  let tagDropPosition = $state<TagDropPosition | null>(null);
-  let tagReorderPending = $state(false);
-  let draggedCustomFieldId = $state<string | null>(null);
-  let dragOverCustomFieldId = $state<string | null>(null);
-  let customFieldDropPosition = $state<CustomFieldDropPosition | null>(null);
-  let customFieldReorderPending = $state(false);
-  let draggedCustomFieldOptionId = $state<string | null>(null);
-  let dragOverCustomFieldOptionId = $state<string | null>(null);
-  let customFieldOptionDropPosition = $state<CustomFieldOptionDropPosition | null>(null);
-  let customFieldOptionReorderPending = $state(false);
 
   const selectedProject = $derived(projects.projectById(projectId));
   const selectedProjectId = $derived(selectedProject?.id ?? null);
+  const selectedProjectIdentityLocked = $derived(
+    selectedProject ? projectHasLockedSystemIdentity(selectedProject) : false,
+  );
   const visibleProjectGroups = $derived.by(() => projects.visibleGroups());
   const statuses = $derived(projects.statusesForProject(selectedProjectId));
   const priorities = $derived(projects.prioritiesForProject(selectedProjectId));
@@ -225,17 +129,6 @@
   const pendingDeleteTag = $derived.by(() =>
     pendingDeleteTagId ? projectTags.find((tag) => tag.id === pendingDeleteTagId) : undefined
   );
-  const pendingDeleteCustomField = $derived.by(() =>
-    pendingDeleteCustomFieldId
-      ? projectCustomFields.find((field) => field.id === pendingDeleteCustomFieldId)
-      : undefined
-  );
-  const pendingDeleteCustomFieldOption = $derived.by(() => {
-    if (!pendingDeleteCustomFieldOptionId) return undefined;
-    return projectCustomFields
-      .flatMap((field) => projects.customFieldOptionsForField(field.id))
-      .find((entry) => entry.id === pendingDeleteCustomFieldOptionId);
-  });
   const pendingDeleteStatus = $derived.by(() =>
     pendingDeleteStatusId ? statuses.find((status) => status.id === pendingDeleteStatusId) : undefined
   );
@@ -243,102 +136,124 @@
     pendingDeletePriorityId ? priorities.find((priority) => priority.id === pendingDeletePriorityId) : undefined
   );
   const projectSettingsDraftReady = $derived(
-    Boolean(selectedProject && projectDraftId === selectedProject.id),
+    Boolean(selectedProject && sessionState.projectDraftId === selectedProject.id),
   );
-  const projectFieldSettingsDirty = $derived.by(() => {
-    if (!selectedProject) return false;
-    return projectSettingsProjectDraftDirty(selectedProject, projectDraft);
+  const projectSettingsDirty = $derived.by(() =>
+    selectedProject ? session.dirty(selectedProject, sessionCollections()) : false
+  );
+  const customFields = createProjectSettingsCustomFieldController({
+    state: sessionState,
+    fields: () => projectCustomFields,
+    projects,
+    translate: t,
+    setDraftError: session.setCustomFieldDraftError,
+    afterCreateDraft: () => { void scrollToNewCustomFieldRow(); },
   });
-  const statusSettingsDirty = $derived.by(() => statuses.some(statusDraftDirty));
-  const prioritySettingsDirty = $derived.by(() => priorities.some(priorityDraftDirty));
-  const tagSettingsDirty = $derived.by(() => projectTags.some(tagDraftDirty));
-  const customFieldSettingsDirty = $derived.by(() =>
-    projectCustomFields.some(customFieldDraftDirty)
-      || projectCustomFields.some((field) => customFieldOptions(field).some(customFieldOptionDraftDirty))
-      || projectCustomFields.some(customFieldOptionCreateDraftDirty)
-      || customFieldCreateDraftDirty()
-  );
-  const projectSettingsDirty = $derived(
-    projectFieldSettingsDirty
-      || statusSettingsDirty
-      || prioritySettingsDirty
-      || tagSettingsDirty
-      || customFieldSettingsDirty,
-  );
+  const pendingDeleteCustomField = $derived(customFields.pendingDeleteField());
+  const pendingDeleteCustomFieldOption = $derived(customFields.pendingDeleteOption());
+
+  const statusReorder = createProjectSettingsReorderController({
+    dataType: PROJECT_STATUS_DRAG_DATA_TYPE,
+    getEntries: () => statuses,
+    moveEntry: projects.moveStatus,
+    setError: (error) => { sessionState.projectSettingsError = error; },
+    reorderFailedMessage: () => t("projects.settings.statusReorderFailed"),
+    saveFailedMessage: (message) => t("projects.settings.statusSaveFailed", message),
+  });
+  const priorityReorder = createProjectSettingsReorderController({
+    dataType: PROJECT_PRIORITY_DRAG_DATA_TYPE,
+    getEntries: () => priorities,
+    moveEntry: projects.movePriority,
+    setError: (error) => { sessionState.projectSettingsError = error; },
+    reorderFailedMessage: () => t("projects.settings.priorityReorderFailed"),
+    saveFailedMessage: (message) => t("projects.settings.prioritySaveFailed", message),
+  });
+  const tagReorder = createProjectSettingsReorderController({
+    dataType: PROJECT_TAG_DRAG_DATA_TYPE,
+    getEntries: () => projectTags,
+    moveEntry: projects.moveTag,
+    setError: (error) => { sessionState.projectSettingsError = error; },
+    reorderFailedMessage: () => t("projects.settings.tagReorderFailed"),
+    saveFailedMessage: (message) => t("projects.settings.tagSaveFailed", message),
+  });
+  const customFieldReorder = createProjectSettingsReorderController({
+    dataType: PROJECT_CUSTOM_FIELD_DRAG_DATA_TYPE,
+    getEntries: () => projectCustomFields,
+    moveEntry: projects.moveCustomField,
+    setError: (error) => { sessionState.projectSettingsError = error; },
+    reorderFailedMessage: () => t("projects.customFields.reorderFailed"),
+    saveFailedMessage: (message) => t("projects.customFields.saveFailed", message),
+  });
+  const customFieldOptionReorder = createProjectSettingsReorderController({
+    dataType: PROJECT_CUSTOM_FIELD_OPTION_DRAG_DATA_TYPE,
+    getEntries: () => projectCustomFields.flatMap(customFieldOptions),
+    getEntriesForEntry: (option) => projects.customFieldOptionsForField(option.fieldId),
+    moveEntry: projects.moveCustomFieldOption,
+    setError: (error) => { sessionState.projectSettingsError = error; },
+    reorderFailedMessage: () => t("projects.customFields.optionReorderFailed"),
+    saveFailedMessage: (message) => t("projects.customFields.optionSaveFailed", message),
+    canDrop: (dragged, target) => dragged.fieldId === target.fieldId,
+  });
 
   $effect(() => {
     if (!selectedProject) return;
     if (
-      projectDraftId !== selectedProject.id
-      || (!projectSettingsDirty && projectDraftUpdatedAt !== selectedProject.updatedAt)
+      sessionState.projectDraftId !== selectedProject.id
+      || (!projectSettingsDirty && sessionState.projectDraftUpdatedAt !== selectedProject.updatedAt)
     ) {
       loadProjectSettingsDraft(selectedProject);
     }
   });
 
+  $effect(() => {
+    if (!selectedProject || !selectedProjectIdentityLocked) return;
+    session.synchronizeLockedIdentity(selectedProject);
+  });
+
+  $effect(() => {
+    onDirtyChange(projectSettingsDirty);
+  });
+
+  onDestroy(() => {
+    onDirtyChange(false);
+  });
+
   function loadProjectSettingsDraft(project: Project): void {
-    projectDraftId = project.id;
-    projectDraftUpdatedAt = project.updatedAt;
-    projectDraft = projectSettingsProjectDraftFromProject(project);
-    projectSettingsError = null;
-    statusNameDrafts = Object.fromEntries(statuses.map((status) => [status.id, status.name]));
-    statusCategoryDrafts = Object.fromEntries(
-      statuses.map((status) => [status.id, status.category]),
-    );
-    statusColorDrafts = Object.fromEntries(statuses.map((status) => [status.id, status.color]));
-    priorityNameDrafts = Object.fromEntries(priorities.map((priority) => [priority.id, priority.name]));
-    priorityColorDrafts = Object.fromEntries(priorities.map((priority) => [priority.id, priority.color]));
-    tagNameDrafts = Object.fromEntries(projectTags.map((tag) => [tag.id, tag.name]));
-    const nextTagColorDrafts: Record<string, EventColor> = {};
-    for (const tag of projectTags) {
-      nextTagColorDrafts[tag.id] = tag.color ?? FALLBACK_COLOR_INDEX;
-    }
-    tagColorDrafts = nextTagColorDrafts;
-    customFieldNameDrafts = Object.fromEntries(projectCustomFields.map((field) => [field.id, field.name]));
-    customFieldOptionNameDrafts = Object.fromEntries(
-      projectCustomFields.flatMap((field) =>
-        projects.customFieldOptionsForField(field.id).map((option) => [option.id, option.name]),
-      ),
-    );
-    customFieldOptionDraftRowsByField = {};
-    customFieldCreateDraftRows = [];
-    newStatusName = "";
-    newStatusCategory = "active";
-    newStatusColor = nextUnusedStatusColor(NEW_STATUS_FIRST_COLOR);
+    session.load(project, sessionCollections(), initialCreateColors());
     pendingDeleteStatusId = null;
-    newPriorityName = "";
-    newPriorityColor = nextUnusedPriorityColor(NEW_PRIORITY_FIRST_COLOR);
     pendingDeletePriorityId = null;
-    newTagName = "";
-    newTagColor = nextUnusedTagColor(NEW_TAG_FIRST_COLOR);
     pendingDeleteTagId = null;
-    newCustomFieldName = "";
-    newCustomFieldType = "text";
-    newCustomFieldOptionDrafts = {};
-    newCustomFieldOptionRows = [];
-    newCustomFieldOptionName = "";
-    pendingDeleteCustomFieldId = null;
-    pendingDeleteCustomFieldOptionId = null;
+    customFields.resetTransientState();
     clearCustomFieldDrag();
     clearCustomFieldOptionDrag();
   }
 
+  function sessionCollections() {
+    return {
+      statuses,
+      priorities,
+      tags: projectTags,
+      customFields: projectCustomFields,
+      optionsForField: projects.customFieldOptionsForField,
+    };
+  }
+
+  function initialCreateColors() {
+    return {
+      status: nextUnusedStatusColor(NEW_STATUS_FIRST_COLOR),
+      priority: nextUnusedPriorityColor(NEW_PRIORITY_FIRST_COLOR),
+      tag: nextUnusedTagColor(NEW_TAG_FIRST_COLOR),
+    };
+  }
+
   function closeProjectSettings(): void {
-    if (selectedProject) loadProjectSettingsDraft(selectedProject);
     onClose();
   }
 
   function discardProjectSettings(): void {
-    if (selectedProject) loadProjectSettingsDraft(selectedProject);
-  }
-
-  function nextProjectSortOrderForGroup(groupId: string, excludeProjectId: string): number {
-    return Math.max(
-      0,
-      ...projects.projectsForGroupIncludingInactive(groupId)
-        .filter((project) => project.id !== excludeProjectId)
-        .map((project) => project.sortOrder),
-    ) + 1000;
+    if (selectedProject) {
+      session.discard(selectedProject, sessionCollections(), initialCreateColors());
+    }
   }
 
   function statusCategoryLabel(category: ProjectStatusCategory): string {
@@ -350,21 +265,21 @@
 
   function setLifecycleStatus(value: string): void {
     if (PROJECT_LIFECYCLE_STATUSES.includes(value as ProjectLifecycleStatus)) {
-      projectDraft.status = value as ProjectLifecycleStatus;
+      sessionState.projectDraft.status = value as ProjectLifecycleStatus;
     }
   }
 
   function setStatusCategory(statusId: string, value: string): void {
     if (!PROJECT_STATUS_CATEGORIES.includes(value as ProjectStatusCategory)) return;
-    statusCategoryDrafts = {
-      ...statusCategoryDrafts,
+    sessionState.statusCategoryDrafts = {
+      ...sessionState.statusCategoryDrafts,
       [statusId]: value as ProjectStatusCategory,
     };
   }
 
   function setNewStatusCategory(value: string): void {
     if (PROJECT_STATUS_CATEGORIES.includes(value as ProjectStatusCategory)) {
-      newStatusCategory = value as ProjectStatusCategory;
+      sessionState.newStatusCategory = value as ProjectStatusCategory;
     }
   }
 
@@ -378,247 +293,43 @@
 
   function statusDraftState(): ProjectSettingsStatusDraftState {
     return {
-      nameDrafts: statusNameDrafts,
-      categoryDrafts: statusCategoryDrafts,
-      colorDrafts: statusColorDrafts,
+      nameDrafts: sessionState.statusNameDrafts,
+      categoryDrafts: sessionState.statusCategoryDrafts,
+      colorDrafts: sessionState.statusColorDrafts,
       fallbackColor: FALLBACK_COLOR_INDEX,
     };
   }
 
   function priorityDraftState(): ProjectSettingsPriorityDraftState {
     return {
-      nameDrafts: priorityNameDrafts,
-      colorDrafts: priorityColorDrafts,
+      nameDrafts: sessionState.priorityNameDrafts,
+      colorDrafts: sessionState.priorityColorDrafts,
       fallbackColor: FALLBACK_COLOR_INDEX,
     };
   }
 
   function tagDraftState(): ProjectSettingsTagDraftState {
     return {
-      nameDrafts: tagNameDrafts,
-      colorDrafts: tagColorDrafts,
+      nameDrafts: sessionState.tagNameDrafts,
+      colorDrafts: sessionState.tagColorDrafts,
       fallbackColor: FALLBACK_COLOR_INDEX,
     };
   }
 
-  function customFieldAcceptsOptions(field: ProjectCustomField): boolean {
-    return projectCustomFieldUsesOptions(field.fieldType);
-  }
-
-  function newCustomFieldAcceptsOptions(): boolean {
-    return projectCustomFieldUsesOptions(newCustomFieldType);
-  }
-
-  function customFieldCreateDraftAcceptsOptions(field: NewCustomFieldDraft): boolean {
-    return projectCustomFieldUsesOptions(field.fieldType);
-  }
-
-  function customFieldCreateDraftDirty(): boolean {
-    return customFieldCreateDraftRows.length > 0;
-  }
-
-  function customFieldNameDraftValue(field: ProjectCustomField): string {
-    return projectSettingsCustomFieldNameDraftValue(field, customFieldNameDrafts);
-  }
-
-  function customFieldNameExists(name: string, ignoredFieldId?: string): boolean {
-    const normalized = name.trim().toLowerCase();
-    if (!normalized) return false;
-    return projectCustomFields.some((field) =>
-      field.id !== ignoredFieldId && customFieldNameDraftValue(field).trim().toLowerCase() === normalized
-    );
-  }
-
-  function customFieldCreateDraftNameExists(name: string, ignoredDraftId?: string): boolean {
-    const normalized = name.trim().toLowerCase();
-    if (!normalized) return false;
-    if (customFieldNameExists(name)) return true;
-    return customFieldCreateDraftRows.some((field) =>
-      field.id !== ignoredDraftId && field.name.trim().toLowerCase() === normalized
-    );
-  }
-
-  function customFieldDraftDirty(field: ProjectCustomField): boolean {
-    return projectSettingsCustomFieldDraftDirty(field, customFieldNameDrafts);
-  }
-
-  function customFieldOptions(field: ProjectCustomField): ProjectCustomFieldOption[] {
-    return projects.customFieldOptionsForField(field.id);
-  }
-
-  function customFieldOptionById(optionId: string | null | undefined): ProjectCustomFieldOption | undefined {
-    if (!optionId) return undefined;
-    return projects.customFieldOptions.find((option) => option.id === optionId);
-  }
-
-  function customFieldOptionNameDraftValue(option: ProjectCustomFieldOption): string {
-    return projectSettingsCustomFieldOptionNameDraftValue(option, customFieldOptionNameDrafts);
-  }
-
-  function customFieldOptionNameExists(fieldId: string, name: string, ignoredOptionId?: string): boolean {
-    const normalized = name.trim().toLowerCase();
-    if (!normalized) return false;
-    return projects.customFieldOptionsForField(fieldId).some((option) =>
-      option.id !== ignoredOptionId && customFieldOptionNameDraftValue(option).trim().toLowerCase() === normalized
-    );
-  }
-
-  function customFieldOptionDraftDirty(option: ProjectCustomFieldOption): boolean {
-    return projectSettingsCustomFieldOptionDraftDirty(option, customFieldOptionNameDrafts);
-  }
-
-  function customFieldOptionCreateDraftRows(fieldId: string): NewCustomFieldOptionDraft[] {
-    return projectSettingsCustomFieldOptionCreateDraftRows(customFieldOptionDraftRowsByField, fieldId);
-  }
-
-  function customFieldOptionCreateDraftDirty(field: ProjectCustomField): boolean {
-    return customFieldOptionCreateDraftRows(field.id).length > 0;
-  }
-
-  function customFieldOptionCreateDraftNameExists(
-    fieldId: string,
-    name: string,
-    ignoredDraftId?: string,
-  ): boolean {
-    const normalized = name.trim().toLowerCase();
-    if (!normalized) return false;
-    if (customFieldOptionNameExists(fieldId, name)) return true;
-    return customFieldOptionCreateDraftRows(fieldId).some((option) =>
-      option.id !== ignoredDraftId && option.name.trim().toLowerCase() === normalized
-    );
-  }
-
-  function setCustomFieldOptionCreateDraftName(fieldId: string, optionId: string, name: string): void {
-    customFieldOptionDraftRowsByField = projectSettingsSetCustomFieldOptionCreateDraftName(
-      customFieldOptionDraftRowsByField,
-      fieldId,
-      optionId,
-      name,
-    );
-  }
-
-  function removeCustomFieldOptionCreateDraft(fieldId: string, optionId: string): void {
-    customFieldOptionDraftRowsByField = projectSettingsRemoveCustomFieldOptionCreateDraft(
-      customFieldOptionDraftRowsByField,
-      fieldId,
-      optionId,
-    );
-  }
+  const customFieldOptions = customFields.fieldOptions;
+  const customFieldOptionCreateDraftRows = customFields.optionCreateRows;
 
   function fieldForCustomFieldOption(option: ProjectCustomFieldOption | undefined): ProjectCustomField | undefined {
     return option ? projectCustomFields.find((field) => field.id === option.fieldId) : undefined;
   }
 
-  function newCustomFieldOptionDraftNameExists(name: string, ignoredDraftId?: string): boolean {
-    const normalized = name.trim().toLowerCase();
-    if (!normalized) return false;
-    return newCustomFieldOptionRows.some((option) =>
-      option.id !== ignoredDraftId && option.name.trim().toLowerCase() === normalized
-    );
-  }
-
-  function customFieldCreateDraftOptionNameExists(
-    field: NewCustomFieldDraft,
-    name: string,
-    ignoredDraftId?: string,
-  ): boolean {
-    const normalized = name.trim().toLowerCase();
-    if (!normalized) return false;
-    return field.optionRows.some((option) =>
-      option.id !== ignoredDraftId && option.name.trim().toLowerCase() === normalized
-    );
-  }
-
-  function setCustomFieldCreateDraftName(fieldId: string, name: string): void {
-    customFieldCreateDraftRows = projectSettingsSetCustomFieldCreateDraftName(
-      customFieldCreateDraftRows,
-      fieldId,
-      name,
-    );
-  }
-
-  function setCustomFieldCreateDraftOptionName(fieldId: string, optionId: string, name: string): void {
-    customFieldCreateDraftRows = projectSettingsSetCustomFieldCreateDraftOptionName(
-      customFieldCreateDraftRows,
-      fieldId,
-      optionId,
-      name,
-    );
-  }
-
-  function setCustomFieldCreateDraftPendingOptionName(fieldId: string, optionName: string): void {
-    customFieldCreateDraftRows = projectSettingsSetCustomFieldCreateDraftPendingOptionName(
-      customFieldCreateDraftRows,
-      fieldId,
-      optionName,
-    );
-  }
-
-  function removeCustomFieldCreateDraft(fieldId: string): void {
-    customFieldCreateDraftRows = projectSettingsRemoveCustomFieldCreateDraft(
-      customFieldCreateDraftRows,
-      fieldId,
-    );
-  }
-
-  function removeCustomFieldCreateDraftOption(fieldId: string, optionId: string): void {
-    customFieldCreateDraftRows = projectSettingsRemoveCustomFieldCreateDraftOption(
-      customFieldCreateDraftRows,
-      fieldId,
-      optionId,
-    );
-  }
-
-  function usedStatusColors(extraColor?: EventColor): Set<EventColor> {
-    const used = new Set<EventColor>();
-    for (const status of statuses) {
-      used.add(statusColorDraftValue(status));
-    }
-    if (extraColor !== undefined) used.add(extraColor);
-    return used;
-  }
-
-  function usedPriorityColors(extraColor?: EventColor): Set<EventColor> {
-    const used = new Set<EventColor>();
-    for (const priority of priorities) {
-      used.add(priorityColorDraftValue(priority));
-    }
-    if (extraColor !== undefined) used.add(extraColor);
-    return used;
-  }
-
-  function usedTagColors(extraColor?: EventColor): Set<EventColor> {
-    const used = new Set<EventColor>();
-    for (const tag of projectTags) {
-      used.add(tagColorDraftValue(tag));
-    }
-    if (extraColor !== undefined) used.add(extraColor);
-    return used;
-  }
-
-  function nextUnusedStatusColor(preferredColor: EventColor, extraColor?: EventColor): EventColor {
-    return nextUnusedProjectSettingsColor({
-      preferredColor,
-      usedColors: usedStatusColors(extraColor),
-      fallbackColor: NEW_STATUS_FIRST_COLOR,
-    });
-  }
-
-  function nextUnusedPriorityColor(preferredColor: EventColor, extraColor?: EventColor): EventColor {
-    return nextUnusedProjectSettingsColor({
-      preferredColor,
-      usedColors: usedPriorityColors(extraColor),
-      fallbackColor: NEW_STATUS_FIRST_COLOR,
-    });
-  }
-
-  function nextUnusedTagColor(preferredColor: EventColor, extraColor?: EventColor): EventColor {
-    return nextUnusedProjectSettingsColor({
-      preferredColor,
-      usedColors: usedTagColors(extraColor),
-      fallbackColor: NEW_STATUS_FIRST_COLOR,
-    });
-  }
+  const setCustomFieldOptionCreateDraftName = customFields.setOptionCreateName;
+  const removeCustomFieldOptionCreateDraft = customFields.removeOptionCreate;
+  const setCustomFieldCreateDraftName = customFields.setCreateFieldName;
+  const setCustomFieldCreateDraftOptionName = customFields.setCreateOptionName;
+  const setCustomFieldCreateDraftPendingOptionName = customFields.setCreatePendingOptionName;
+  const removeCustomFieldCreateDraft = customFields.removeCreateField;
+  const removeCustomFieldCreateDraftOption = customFields.removeCreateOption;
 
   async function scrollToSettingsRow(rowElement: HTMLElement | undefined): Promise<void> {
     await tick();
@@ -656,6 +367,16 @@
     return projectSettingsTagDraftDirty(tag, tagDraftState());
   }
 
+  const nextUnusedStatusColor = createProjectSettingsColorAllocator({
+    entries: () => statuses, color: statusColorDraftValue, fallback: NEW_STATUS_FIRST_COLOR,
+  });
+  const nextUnusedPriorityColor = createProjectSettingsColorAllocator({
+    entries: () => priorities, color: priorityColorDraftValue, fallback: NEW_STATUS_FIRST_COLOR,
+  });
+  const nextUnusedTagColor = createProjectSettingsColorAllocator({
+    entries: () => projectTags, color: tagColorDraftValue, fallback: NEW_STATUS_FIRST_COLOR,
+  });
+
   function tagNameExists(name: string, ignoredTagId?: string): boolean {
     return projectSettingsTagNameExists({
       tags: projectTags,
@@ -664,427 +385,11 @@
     });
   }
 
-  function clearStatusDrag(): void {
-    draggedStatusId = null;
-    dragOverStatusId = null;
-    statusDropPosition = null;
-  }
-
-  function clearPriorityDrag(): void {
-    draggedPriorityId = null;
-    dragOverPriorityId = null;
-    priorityDropPosition = null;
-  }
-
-  function clearTagDrag(): void {
-    draggedTagId = null;
-    dragOverTagId = null;
-    tagDropPosition = null;
-  }
-
-  function clearCustomFieldDrag(): void {
-    draggedCustomFieldId = null;
-    dragOverCustomFieldId = null;
-    customFieldDropPosition = null;
-  }
-
-  function clearCustomFieldOptionDrag(): void {
-    draggedCustomFieldOptionId = null;
-    dragOverCustomFieldOptionId = null;
-    customFieldOptionDropPosition = null;
-  }
-
-  function dropPositionForEvent(event: DragEvent, target: HTMLElement): ProjectSettingsDropPosition {
-    const bounds = target.getBoundingClientRect();
-    return projectSettingsDropPosition(event.clientY, bounds.top, bounds.height);
-  }
-
-  function handleSettingsDragOver(
-    event: DragEvent,
-    target: HTMLElement,
-    input: {
-      draggedId: string | null;
-      targetId: string;
-      reorderPending: boolean;
-      setTarget: ProjectSettingsTargetSetter;
-      dropAllowed?: boolean;
-    },
-  ): void {
-    const plan = projectSettingsDragOverPlan({
-      draggedId: input.draggedId,
-      targetId: input.targetId,
-      reorderPending: input.reorderPending,
-      position: dropPositionForEvent(event, target),
-      dropAllowed: input.dropAllowed,
-    });
-    if (!plan) return;
-    if (plan.preventDefault) {
-      event.preventDefault();
-      if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
-    }
-    input.setTarget(plan.overId, plan.position);
-  }
-
-  async function moveSettingsEntryToIndex<T extends { id: string }>(
-    input: {
-      entryId: string;
-      targetIndex: number;
-      getEntries: () => readonly T[];
-      moveEntry: (entry: T, direction: -1 | 1) => Promise<void>;
-      setPending: ProjectSettingsPendingSetter;
-      clearDrag: () => void;
-      reorderFailedMessage: string;
-      saveFailedMessage: (message: string) => string;
-    },
-  ): Promise<void> {
-    input.setPending(true);
-    projectSettingsError = null;
-    try {
-      const moved = await moveProjectSettingsEntryToIndex({
-        entryId: input.entryId,
-        targetIndex: input.targetIndex,
-        getEntries: input.getEntries,
-        moveEntry: input.moveEntry,
-      });
-      if (!moved) {
-        projectSettingsError = input.reorderFailedMessage;
-      }
-    } catch (error) {
-      projectSettingsError = input.saveFailedMessage(error instanceof Error ? error.message : String(error));
-    } finally {
-      input.setPending(false);
-      input.clearDrag();
-    }
-  }
-
-  async function dropSettingsEntry<T extends { id: string }>(
-    event: DragEvent,
-    input: {
-      dataType: string;
-      activeDraggedId: string | null;
-      entries: readonly T[];
-      targetId: string;
-      position: ProjectSettingsDropPosition | null;
-      clearDrag: () => void;
-      moveToIndex: (entryId: string, targetIndex: number) => Promise<void>;
-    },
-  ): Promise<void> {
-    event.preventDefault();
-    const target = projectSettingsDraggedEntryDropTarget({
-      event,
-      dataType: input.dataType,
-      activeDraggedId: input.activeDraggedId,
-      entries: input.entries,
-      targetId: input.targetId,
-      position: input.position ?? "before",
-    });
-    if (!target) {
-      input.clearDrag();
-      return;
-    }
-    await input.moveToIndex(target.entryId, target.targetIndex);
-  }
-
-  function statusDropMarkerVisible(statusId: string, position: StatusDropPosition): boolean {
-    return projectSettingsDropMarkerVisible({
-      draggedId: draggedStatusId,
-      targetId: statusId,
-      overId: dragOverStatusId,
-      currentPosition: statusDropPosition,
-      markerPosition: position,
-    });
-  }
-
-  function priorityDropMarkerVisible(priorityId: string, position: PriorityDropPosition): boolean {
-    return projectSettingsDropMarkerVisible({
-      draggedId: draggedPriorityId,
-      targetId: priorityId,
-      overId: dragOverPriorityId,
-      currentPosition: priorityDropPosition,
-      markerPosition: position,
-    });
-  }
-
-  function tagDropMarkerVisible(tagId: string, position: TagDropPosition): boolean {
-    return projectSettingsDropMarkerVisible({
-      draggedId: draggedTagId,
-      targetId: tagId,
-      overId: dragOverTagId,
-      currentPosition: tagDropPosition,
-      markerPosition: position,
-    });
-  }
-
-  function customFieldDropMarkerVisible(fieldId: string, position: CustomFieldDropPosition): boolean {
-    return projectSettingsDropMarkerVisible({
-      draggedId: draggedCustomFieldId,
-      targetId: fieldId,
-      overId: dragOverCustomFieldId,
-      currentPosition: customFieldDropPosition,
-      markerPosition: position,
-    });
-  }
-
-  function customFieldOptionDropMarkerVisible(
-    optionId: string,
-    position: CustomFieldOptionDropPosition,
-  ): boolean {
-    return projectSettingsDropMarkerVisible({
-      draggedId: draggedCustomFieldOptionId,
-      targetId: optionId,
-      overId: dragOverCustomFieldOptionId,
-      currentPosition: customFieldOptionDropPosition,
-      markerPosition: position,
-    });
-  }
-
-  function handleStatusDragStart(event: DragEvent, status: ProjectStatus): void {
-    draggedStatusId = status.id;
-    dragOverStatusId = null;
-    statusDropPosition = null;
-    projectSettingsStartDrag(event, PROJECT_STATUS_DRAG_DATA_TYPE, status.id);
-  }
-
-  function handlePriorityDragStart(event: DragEvent, priority: ProjectPriorityConfig): void {
-    draggedPriorityId = priority.id;
-    dragOverPriorityId = null;
-    priorityDropPosition = null;
-    projectSettingsStartDrag(event, PROJECT_PRIORITY_DRAG_DATA_TYPE, priority.id);
-  }
-
-  function handleTagDragStart(event: DragEvent, tag: ProjectTag): void {
-    draggedTagId = tag.id;
-    dragOverTagId = null;
-    tagDropPosition = null;
-    projectSettingsStartDrag(event, PROJECT_TAG_DRAG_DATA_TYPE, tag.id);
-  }
-
-  function handleCustomFieldDragStart(event: DragEvent, field: ProjectCustomField): void {
-    draggedCustomFieldId = field.id;
-    dragOverCustomFieldId = null;
-    customFieldDropPosition = null;
-    projectSettingsStartDrag(event, PROJECT_CUSTOM_FIELD_DRAG_DATA_TYPE, field.id);
-  }
-
-  function handleCustomFieldOptionDragStart(event: DragEvent, option: ProjectCustomFieldOption): void {
-    draggedCustomFieldOptionId = option.id;
-    dragOverCustomFieldOptionId = null;
-    customFieldOptionDropPosition = null;
-    projectSettingsStartDrag(event, PROJECT_CUSTOM_FIELD_OPTION_DRAG_DATA_TYPE, option.id);
-  }
-
-  function handleStatusDragOver(
-    event: DragEvent,
-    status: ProjectStatus,
-    target: HTMLElement,
-  ): void {
-    handleSettingsDragOver(event, target, {
-      draggedId: draggedStatusId,
-      targetId: status.id,
-      reorderPending: statusReorderPending,
-      setTarget: (overId, position) => {
-        dragOverStatusId = overId;
-        statusDropPosition = position;
-      },
-    });
-  }
-
-  function handlePriorityDragOver(
-    event: DragEvent,
-    priority: ProjectPriorityConfig,
-    target: HTMLElement,
-  ): void {
-    handleSettingsDragOver(event, target, {
-      draggedId: draggedPriorityId,
-      targetId: priority.id,
-      reorderPending: priorityReorderPending,
-      setTarget: (overId, position) => {
-        dragOverPriorityId = overId;
-        priorityDropPosition = position;
-      },
-    });
-  }
-
-  function handleTagDragOver(
-    event: DragEvent,
-    tag: ProjectTag,
-    target: HTMLElement,
-  ): void {
-    handleSettingsDragOver(event, target, {
-      draggedId: draggedTagId,
-      targetId: tag.id,
-      reorderPending: tagReorderPending,
-      setTarget: (overId, position) => {
-        dragOverTagId = overId;
-        tagDropPosition = position;
-      },
-    });
-  }
-
-  function handleCustomFieldDragOver(
-    event: DragEvent,
-    field: ProjectCustomField,
-    target: HTMLElement,
-  ): void {
-    handleSettingsDragOver(event, target, {
-      draggedId: draggedCustomFieldId,
-      targetId: field.id,
-      reorderPending: customFieldReorderPending,
-      setTarget: (overId, position) => {
-        dragOverCustomFieldId = overId;
-        customFieldDropPosition = position;
-      },
-    });
-  }
-
-  function handleCustomFieldOptionDragOver(
-    event: DragEvent,
-    option: ProjectCustomFieldOption,
-    target: HTMLElement,
-  ): void {
-    const draggedOption = customFieldOptionById(draggedCustomFieldOptionId);
-    handleSettingsDragOver(event, target, {
-      draggedId: draggedCustomFieldOptionId,
-      targetId: option.id,
-      reorderPending: customFieldOptionReorderPending,
-      dropAllowed: draggedOption?.fieldId === option.fieldId,
-      setTarget: (overId, position) => {
-        dragOverCustomFieldOptionId = overId;
-        customFieldOptionDropPosition = position;
-      },
-    });
-  }
-
-  async function moveStatusToIndex(statusId: string, targetIndex: number): Promise<void> {
-    await moveSettingsEntryToIndex({
-      entryId: statusId,
-      targetIndex,
-      getEntries: () => statuses,
-      moveEntry: projects.moveStatus,
-      setPending: (pending) => { statusReorderPending = pending; },
-      clearDrag: clearStatusDrag,
-      reorderFailedMessage: t("projects.settings.statusReorderFailed"),
-      saveFailedMessage: (message) => t("projects.settings.statusSaveFailed", message),
-    });
-  }
-
-  async function movePriorityToIndex(priorityId: string, targetIndex: number): Promise<void> {
-    await moveSettingsEntryToIndex({
-      entryId: priorityId,
-      targetIndex,
-      getEntries: () => priorities,
-      moveEntry: projects.movePriority,
-      setPending: (pending) => { priorityReorderPending = pending; },
-      clearDrag: clearPriorityDrag,
-      reorderFailedMessage: t("projects.settings.priorityReorderFailed"),
-      saveFailedMessage: (message) => t("projects.settings.prioritySaveFailed", message),
-    });
-  }
-
-  async function moveTagToIndex(tagId: string, targetIndex: number): Promise<void> {
-    await moveSettingsEntryToIndex({
-      entryId: tagId,
-      targetIndex,
-      getEntries: () => projectTags,
-      moveEntry: projects.moveTag,
-      setPending: (pending) => { tagReorderPending = pending; },
-      clearDrag: clearTagDrag,
-      reorderFailedMessage: t("projects.settings.tagReorderFailed"),
-      saveFailedMessage: (message) => t("projects.settings.tagSaveFailed", message),
-    });
-  }
-
-  async function moveCustomFieldToIndex(fieldId: string, targetIndex: number): Promise<void> {
-    await moveSettingsEntryToIndex({
-      entryId: fieldId,
-      targetIndex,
-      getEntries: () => projectCustomFields,
-      moveEntry: projects.moveCustomField,
-      setPending: (pending) => { customFieldReorderPending = pending; },
-      clearDrag: clearCustomFieldDrag,
-      reorderFailedMessage: t("projects.customFields.reorderFailed"),
-      saveFailedMessage: (message) => t("projects.customFields.saveFailed", message),
-    });
-  }
-
-  async function moveCustomFieldOptionToIndex(optionId: string, targetIndex: number): Promise<void> {
-    const initialOption = customFieldOptionById(optionId);
-    if (!initialOption) return;
-    const fieldId = initialOption.fieldId;
-    await moveSettingsEntryToIndex({
-      entryId: optionId,
-      targetIndex,
-      getEntries: () => projects.customFieldOptionsForField(fieldId),
-      moveEntry: projects.moveCustomFieldOption,
-      setPending: (pending) => { customFieldOptionReorderPending = pending; },
-      clearDrag: clearCustomFieldOptionDrag,
-      reorderFailedMessage: t("projects.customFields.optionReorderFailed"),
-      saveFailedMessage: (message) => t("projects.customFields.optionSaveFailed", message),
-    });
-  }
-
-  async function dropStatus(event: DragEvent, targetStatus: ProjectStatus): Promise<void> {
-    await dropSettingsEntry(event, {
-      dataType: PROJECT_STATUS_DRAG_DATA_TYPE,
-      activeDraggedId: draggedStatusId,
-      entries: statuses,
-      targetId: targetStatus.id,
-      position: statusDropPosition ?? "before",
-      clearDrag: clearStatusDrag,
-      moveToIndex: moveStatusToIndex,
-    });
-  }
-
-  async function dropPriority(event: DragEvent, targetPriority: ProjectPriorityConfig): Promise<void> {
-    await dropSettingsEntry(event, {
-      dataType: PROJECT_PRIORITY_DRAG_DATA_TYPE,
-      activeDraggedId: draggedPriorityId,
-      entries: priorities,
-      targetId: targetPriority.id,
-      position: priorityDropPosition ?? "before",
-      clearDrag: clearPriorityDrag,
-      moveToIndex: movePriorityToIndex,
-    });
-  }
-
-  async function dropTag(event: DragEvent, targetTag: ProjectTag): Promise<void> {
-    await dropSettingsEntry(event, {
-      dataType: PROJECT_TAG_DRAG_DATA_TYPE,
-      activeDraggedId: draggedTagId,
-      entries: projectTags,
-      targetId: targetTag.id,
-      position: tagDropPosition ?? "before",
-      clearDrag: clearTagDrag,
-      moveToIndex: moveTagToIndex,
-    });
-  }
-
-  async function dropCustomField(event: DragEvent, targetField: ProjectCustomField): Promise<void> {
-    await dropSettingsEntry(event, {
-      dataType: PROJECT_CUSTOM_FIELD_DRAG_DATA_TYPE,
-      activeDraggedId: draggedCustomFieldId,
-      entries: projectCustomFields,
-      targetId: targetField.id,
-      position: customFieldDropPosition ?? "before",
-      clearDrag: clearCustomFieldDrag,
-      moveToIndex: moveCustomFieldToIndex,
-    });
-  }
-
-  async function dropCustomFieldOption(
-    event: DragEvent,
-    targetOption: ProjectCustomFieldOption,
-  ): Promise<void> {
-    await dropSettingsEntry(event, {
-      dataType: PROJECT_CUSTOM_FIELD_OPTION_DRAG_DATA_TYPE,
-      activeDraggedId: draggedCustomFieldOptionId,
-      entries: projects.customFieldOptionsForField(targetOption.fieldId),
-      targetId: targetOption.id,
-      position: customFieldOptionDropPosition ?? "before",
-      clearDrag: clearCustomFieldOptionDrag,
-      moveToIndex: moveCustomFieldOptionToIndex,
-    });
-  }
+  const clearStatusDrag = statusReorder.clear;
+  const clearPriorityDrag = priorityReorder.clear;
+  const clearTagDrag = tagReorder.clear;
+  const clearCustomFieldDrag = customFieldReorder.clear;
+  const clearCustomFieldOptionDrag = customFieldOptionReorder.clear;
 
   function statusDraftDirty(status: ProjectStatus): boolean {
     return projectSettingsStatusDraftDirty(status, statusDraftState());
@@ -1104,14 +409,14 @@
 
   function setStatusColor(statusId: string, color: EventColor | undefined): void {
     if (color === undefined) return;
-    statusColorDrafts = {
-      ...statusColorDrafts,
+    sessionState.statusColorDrafts = {
+      ...sessionState.statusColorDrafts,
       [statusId]: color,
     };
   }
 
   function setNewStatusColor(color: EventColor | undefined): void {
-    if (color !== undefined) newStatusColor = color;
+    if (color !== undefined) sessionState.newStatusColor = color;
   }
 
   function statusTaskCount(status: ProjectStatus): number {
@@ -1144,17 +449,17 @@
     if (!pendingDeleteStatus) return;
     const status = pendingDeleteStatus;
     pendingDeleteStatusId = null;
-    projectSettingsError = null;
+    sessionState.projectSettingsError = null;
     try {
       await projects.removeStatus(status.id);
-      const remainingNames = { ...statusNameDrafts };
-      const remainingCategories = { ...statusCategoryDrafts };
+      const remainingNames = { ...sessionState.statusNameDrafts };
+      const remainingCategories = { ...sessionState.statusCategoryDrafts };
       delete remainingNames[status.id];
       delete remainingCategories[status.id];
-      statusNameDrafts = remainingNames;
-      statusCategoryDrafts = remainingCategories;
+      sessionState.statusNameDrafts = remainingNames;
+      sessionState.statusCategoryDrafts = remainingCategories;
     } catch (error) {
-      projectSettingsError = t(
+      sessionState.projectSettingsError = t(
         "projects.settings.statusDeleteFailed",
         error instanceof Error ? error.message : String(error),
       );
@@ -1175,14 +480,14 @@
 
   function setPriorityColor(priorityId: string, color: EventColor | undefined): void {
     if (color === undefined) return;
-    priorityColorDrafts = {
-      ...priorityColorDrafts,
+    sessionState.priorityColorDrafts = {
+      ...sessionState.priorityColorDrafts,
       [priorityId]: color,
     };
   }
 
   function setNewPriorityColor(color: EventColor | undefined): void {
-    if (color !== undefined) newPriorityColor = color;
+    if (color !== undefined) sessionState.newPriorityColor = color;
   }
 
   function priorityTaskCount(priority: ProjectPriorityConfig): number {
@@ -1215,82 +520,68 @@
     if (!pendingDeletePriority) return;
     const priority = pendingDeletePriority;
     pendingDeletePriorityId = null;
-    projectSettingsError = null;
+    sessionState.projectSettingsError = null;
     try {
       await projects.removePriority(priority);
-      const remainingNames = { ...priorityNameDrafts };
-      const remainingColors = { ...priorityColorDrafts };
+      const remainingNames = { ...sessionState.priorityNameDrafts };
+      const remainingColors = { ...sessionState.priorityColorDrafts };
       delete remainingNames[priority.id];
       delete remainingColors[priority.id];
-      priorityNameDrafts = remainingNames;
-      priorityColorDrafts = remainingColors;
+      sessionState.priorityNameDrafts = remainingNames;
+      sessionState.priorityColorDrafts = remainingColors;
     } catch (error) {
-      projectSettingsError = t(
+      sessionState.projectSettingsError = t(
         "projects.settings.priorityDeleteFailed",
         error instanceof Error ? error.message : String(error),
       );
     }
   }
 
-  function prioritySaveDrafts(): ProjectSettingsPrioritySaveDraft[] | null {
-    const result = projectSettingsPrioritySaveDrafts(priorities, priorityDraftState());
-    if (result.ok) return result.drafts;
-    projectSettingsError = t("projects.settings.priorityNameRequired");
-    return null;
-  }
-
   async function submitPriority(): Promise<void> {
     if (!selectedProjectId) return;
-    const name = newPriorityName.trim();
-    const createdColor = newPriorityColor;
+    const name = sessionState.newPriorityName.trim();
+    const createdColor = sessionState.newPriorityColor;
     if (!name) {
-      projectSettingsError = t("projects.settings.priorityNameRequired");
+      sessionState.projectSettingsError = t("projects.settings.priorityNameRequired");
       return;
     }
-    projectSettingsError = null;
+    sessionState.projectSettingsError = null;
     try {
       await projects.addPriority(selectedProjectId, name, createdColor);
-      newPriorityName = "";
-      newPriorityColor = nextUnusedPriorityColor(
+      sessionState.newPriorityName = "";
+      sessionState.newPriorityColor = nextUnusedPriorityColor(
         nextProjectSettingsPaletteColor(createdColor, NEW_STATUS_FIRST_COLOR),
         createdColor,
       );
       await scrollToNewPriorityRow();
     } catch (error) {
-      projectSettingsError = t(
+      sessionState.projectSettingsError = t(
         "projects.settings.prioritySaveFailed",
         error instanceof Error ? error.message : String(error),
       );
     }
   }
 
-  function statusSaveDrafts(): ProjectSettingsStatusSaveDraft[] | null {
-    const result = projectSettingsStatusSaveDrafts(statuses, statusDraftState());
-    if (result.ok) return result.drafts;
-    projectSettingsError = t("projects.settings.statusNameRequired");
-    return null;
-  }
-
   async function submitStatus(): Promise<void> {
     if (!selectedProjectId) return;
-    const name = newStatusName.trim();
-    const createdColor = newStatusColor;
+    const name = sessionState.newStatusName.trim();
+    const createdColor = sessionState.newStatusColor;
     if (!name) {
-      projectSettingsError = t("projects.settings.statusNameRequired");
+      sessionState.projectSettingsError = t("projects.settings.statusNameRequired");
       return;
     }
-    projectSettingsError = null;
+    sessionState.projectSettingsError = null;
     try {
-      await projects.addStatus(selectedProjectId, name, newStatusCategory, createdColor);
-      newStatusName = "";
-      newStatusCategory = "active";
-      newStatusColor = nextUnusedStatusColor(
+      await projects.addStatus(selectedProjectId, name, sessionState.newStatusCategory, createdColor);
+      sessionState.newStatusName = "";
+      sessionState.newStatusCategory = "active";
+      sessionState.newStatusColor = nextUnusedStatusColor(
         nextProjectSettingsPaletteColor(createdColor, NEW_STATUS_FIRST_COLOR),
         createdColor,
       );
       await scrollToNewStatusRow();
     } catch (error) {
-      projectSettingsError = t(
+      sessionState.projectSettingsError = t(
         "projects.settings.statusSaveFailed",
         error instanceof Error ? error.message : String(error),
       );
@@ -1299,48 +590,39 @@
 
   function setTagColor(tagId: string, color: EventColor | undefined): void {
     if (color === undefined) return;
-    tagColorDrafts = {
-      ...tagColorDrafts,
+    sessionState.tagColorDrafts = {
+      ...sessionState.tagColorDrafts,
       [tagId]: color,
     };
   }
 
   function setNewTagColor(color: EventColor | undefined): void {
-    if (color !== undefined) newTagColor = color;
-  }
-
-  function tagSaveDrafts(): ProjectSettingsTagSaveDraft[] | null {
-    const result = projectSettingsTagSaveDrafts(projectTags, tagDraftState());
-    if (result.ok) return result.drafts;
-    projectSettingsError = result.error === "name_exists"
-      ? t("projects.settings.tagNameExists")
-      : t("projects.settings.tagNameRequired");
-    return null;
+    if (color !== undefined) sessionState.newTagColor = color;
   }
 
   async function submitTag(): Promise<void> {
     if (!selectedProjectId) return;
-    const name = newTagName.trim();
-    const createdColor = newTagColor;
+    const name = sessionState.newTagName.trim();
+    const createdColor = sessionState.newTagColor;
     if (!name) {
-      projectSettingsError = t("projects.settings.tagNameRequired");
+      sessionState.projectSettingsError = t("projects.settings.tagNameRequired");
       return;
     }
     if (tagNameExists(name)) {
-      projectSettingsError = t("projects.settings.tagNameExists");
+      sessionState.projectSettingsError = t("projects.settings.tagNameExists");
       return;
     }
-    projectSettingsError = null;
+    sessionState.projectSettingsError = null;
     try {
       await projects.addTag(selectedProjectId, name, createdColor);
-      newTagName = "";
-      newTagColor = nextUnusedTagColor(
+      sessionState.newTagName = "";
+      sessionState.newTagColor = nextUnusedTagColor(
         nextProjectSettingsPaletteColor(createdColor, NEW_STATUS_FIRST_COLOR),
         createdColor,
       );
       await scrollToNewTagRow();
     } catch (error) {
-      projectSettingsError = t(
+      sessionState.projectSettingsError = t(
         "projects.settings.tagSaveFailed",
         error instanceof Error ? error.message : String(error),
       );
@@ -1348,11 +630,11 @@
   }
 
   async function moveTagByDirection(tag: ProjectTag, direction: -1 | 1): Promise<void> {
-    projectSettingsError = null;
+    sessionState.projectSettingsError = null;
     try {
       await projects.moveTag(tag, direction);
     } catch (error) {
-      projectSettingsError = t(
+      sessionState.projectSettingsError = t(
         "projects.settings.tagSaveFailed",
         error instanceof Error ? error.message : String(error),
       );
@@ -1371,263 +653,68 @@
     if (!pendingDeleteTag) return;
     const tag = pendingDeleteTag;
     pendingDeleteTagId = null;
-    projectSettingsError = null;
+    sessionState.projectSettingsError = null;
     try {
       await projects.removeTag(tag.id);
-      const remainingNames = { ...tagNameDrafts };
-      const remainingColors = { ...tagColorDrafts };
+      const remainingNames = { ...sessionState.tagNameDrafts };
+      const remainingColors = { ...sessionState.tagColorDrafts };
       delete remainingNames[tag.id];
       delete remainingColors[tag.id];
-      tagNameDrafts = remainingNames;
-      tagColorDrafts = remainingColors;
+      sessionState.tagNameDrafts = remainingNames;
+      sessionState.tagColorDrafts = remainingColors;
     } catch (error) {
-      projectSettingsError = t(
+      sessionState.projectSettingsError = t(
         "projects.settings.tagDeleteFailed",
         error instanceof Error ? error.message : String(error),
       );
     }
   }
 
-  function customFieldSaveDrafts(): CustomFieldSaveDraft | null {
-    const result = projectSettingsCustomFieldSaveDrafts({
-      fields: projectCustomFields,
-      fieldNameDrafts: customFieldNameDrafts,
-      createDraftRows: customFieldCreateDraftRows,
-    });
-    if (result.ok) return result.value;
-    projectSettingsError = customFieldDraftErrorMessage(result.error);
-    return null;
-  }
-
-  function customFieldOptionSaveDrafts(): CustomFieldOptionSaveDraft | null {
-    const result = projectSettingsCustomFieldOptionSaveDrafts({
-      fields: projectCustomFields,
-      fieldOptions: (fieldId) => projects.customFieldOptionsForField(fieldId),
-      optionNameDrafts: customFieldOptionNameDrafts,
-      optionCreateDraftRowsByField: customFieldOptionDraftRowsByField,
-    });
-    if (result.ok) return result.value;
-    projectSettingsError = customFieldDraftErrorMessage(result.error);
-    return null;
-  }
-
-  function customFieldDraftErrorMessage(error: ProjectSettingsCustomFieldDraftError): string {
-    if (error === "name_required") return t("projects.customFields.nameRequired");
-    if (error === "name_exists") return t("projects.customFields.nameExists");
-    if (error === "option_name_exists") return t("projects.customFields.optionNameExists");
-    return t("projects.customFields.optionNameRequired");
-  }
-
-  function projectDraftErrorMessage(error: ProjectSettingsProjectDraftError): string {
-    if (error === "name_required") return t("projects.settings.nameRequired");
-    if (error === "group_required") return t("projects.settings.groupRequired");
-    return t("projects.settings.invalidDuration");
-  }
-
-  function customFieldOptionNamesForCreate(
-    fieldType: ProjectCustomFieldType,
-    optionRows: readonly NewCustomFieldOptionDraft[],
-    pendingOptionName: string,
-  ): string[] | null {
-    const result = projectSettingsCustomFieldOptionNamesForCreate(
-      fieldType,
-      optionRows,
-      pendingOptionName,
-    );
-    if (result.ok) return result.value;
-    projectSettingsError = customFieldDraftErrorMessage(result.error);
-    return null;
-  }
-
-  function setNewCustomFieldOptionDraftName(optionId: string, name: string): void {
-    newCustomFieldOptionRows = newCustomFieldOptionRows.map((option) =>
-      option.id === optionId ? { ...option, name } : option
-    );
-  }
-
-  function removeNewCustomFieldOptionDraft(optionId: string): void {
-    newCustomFieldOptionRows = newCustomFieldOptionRows.filter((option) => option.id !== optionId);
-  }
-
-  function submitNewCustomFieldOptionDraft(): void {
-    if (!newCustomFieldAcceptsOptions()) return;
-    const name = newCustomFieldOptionName.trim();
-    if (!name) {
-      projectSettingsError = t("projects.customFields.optionNameRequired");
-      return;
-    }
-    if (newCustomFieldOptionDraftNameExists(name)) {
-      projectSettingsError = t("projects.customFields.optionNameExists");
-      return;
-    }
-    newCustomFieldOptionRows = [...newCustomFieldOptionRows, { id: crypto.randomUUID(), name }];
-    newCustomFieldOptionName = "";
-    projectSettingsError = null;
-  }
-
-  function submitCustomFieldCreateDraftOption(field: NewCustomFieldDraft): void {
-    if (!customFieldCreateDraftAcceptsOptions(field)) return;
-    const name = field.optionName.trim();
-    if (!name) {
-      projectSettingsError = t("projects.customFields.optionNameRequired");
-      return;
-    }
-    if (customFieldCreateDraftOptionNameExists(field, name)) {
-      projectSettingsError = t("projects.customFields.optionNameExists");
-      return;
-    }
-    customFieldCreateDraftRows = customFieldCreateDraftRows.map((entry) =>
-      entry.id === field.id
-        ? {
-            ...entry,
-            optionRows: [...entry.optionRows, { id: crypto.randomUUID(), name }],
-            optionName: "",
-          }
-        : entry
-    );
-    projectSettingsError = null;
-  }
-
-  function submitCustomField(): void {
-    const name = newCustomFieldName.trim();
-    if (!name) {
-      projectSettingsError = t("projects.customFields.nameRequired");
-      return;
-    }
-    if (customFieldCreateDraftNameExists(name)) {
-      projectSettingsError = t("projects.customFields.nameExists");
-      return;
-    }
-    const optionNames = customFieldOptionNamesForCreate(
-      newCustomFieldType,
-      newCustomFieldOptionRows,
-      newCustomFieldOptionName,
-    );
-    if (!optionNames) return;
-    projectSettingsError = null;
-    customFieldCreateDraftRows = [
-      ...customFieldCreateDraftRows,
-      {
-        id: crypto.randomUUID(),
-        name,
-        fieldType: newCustomFieldType,
-        optionRows: optionNames.map((optionName) => ({ id: crypto.randomUUID(), name: optionName })),
-        optionName: "",
-      },
-    ];
-    newCustomFieldName = "";
-    newCustomFieldType = "text";
-    newCustomFieldOptionRows = [];
-    newCustomFieldOptionName = "";
-    void scrollToNewCustomFieldRow();
-  }
+  const setNewCustomFieldOptionDraftName = customFields.setNewOptionName;
+  const removeNewCustomFieldOptionDraft = customFields.removeNewOption;
+  const submitNewCustomFieldOptionDraft = customFields.submitNewOption;
+  const submitCustomFieldCreateDraftOption = customFields.submitCreateDraftOption;
+  const submitCustomField = customFields.submitField;
 
   async function moveProjectCustomField(field: ProjectCustomField, direction: -1 | 1): Promise<void> {
-    projectSettingsError = null;
+    sessionState.projectSettingsError = null;
     try {
       await projects.moveCustomField(field, direction);
     } catch (error) {
-      projectSettingsError = t(
+      sessionState.projectSettingsError = t(
         "projects.customFields.saveFailed",
         error instanceof Error ? error.message : String(error),
       );
     }
   }
 
-  function requestDeleteCustomField(field: ProjectCustomField): void {
-    pendingDeleteCustomFieldId = field.id;
-  }
-
-  function cancelDeleteCustomField(): void {
-    pendingDeleteCustomFieldId = null;
-  }
-
-  async function confirmDeleteCustomField(): Promise<void> {
-    if (!pendingDeleteCustomField) return;
-    const field = pendingDeleteCustomField;
-    pendingDeleteCustomFieldId = null;
-    projectSettingsError = null;
-    try {
-      await projects.removeCustomField(field.id);
-      const remainingNames = { ...customFieldNameDrafts };
-      delete remainingNames[field.id];
-      customFieldNameDrafts = remainingNames;
-      const remainingOptionInputs = { ...newCustomFieldOptionDrafts };
-      delete remainingOptionInputs[field.id];
-      newCustomFieldOptionDrafts = remainingOptionInputs;
-      const remainingOptionRows = { ...customFieldOptionDraftRowsByField };
-      delete remainingOptionRows[field.id];
-      customFieldOptionDraftRowsByField = remainingOptionRows;
-    } catch (error) {
-      projectSettingsError = t(
-        "projects.customFields.deleteFailed",
-        error instanceof Error ? error.message : String(error),
-      );
-    }
-  }
-
-  function submitCustomFieldOption(field: ProjectCustomField): void {
-    const name = (newCustomFieldOptionDrafts[field.id] ?? "").trim();
-    if (!name) {
-      projectSettingsError = t("projects.customFields.optionNameRequired");
-      return;
-    }
-    if (customFieldOptionCreateDraftNameExists(field.id, name)) {
-      projectSettingsError = t("projects.customFields.optionNameExists");
-      return;
-    }
-    projectSettingsError = null;
-    customFieldOptionDraftRowsByField = {
-      ...customFieldOptionDraftRowsByField,
-      [field.id]: [...customFieldOptionCreateDraftRows(field.id), { id: crypto.randomUUID(), name }],
-    };
-    newCustomFieldOptionDrafts = { ...newCustomFieldOptionDrafts, [field.id]: "" };
-  }
+  const requestDeleteCustomField = customFields.requestDeleteField;
+  const cancelDeleteCustomField = customFields.cancelDeleteField;
+  const confirmDeleteCustomField = customFields.removeField;
+  const submitCustomFieldOption = customFields.submitOption;
 
   async function moveProjectCustomFieldOption(option: ProjectCustomFieldOption, direction: -1 | 1): Promise<void> {
-    projectSettingsError = null;
+    sessionState.projectSettingsError = null;
     try {
       await projects.moveCustomFieldOption(option, direction);
     } catch (error) {
-      projectSettingsError = t(
+      sessionState.projectSettingsError = t(
         "projects.customFields.optionSaveFailed",
         error instanceof Error ? error.message : String(error),
       );
     }
   }
 
-  function requestDeleteCustomFieldOption(option: ProjectCustomFieldOption): void {
-    pendingDeleteCustomFieldOptionId = option.id;
-  }
-
-  function cancelDeleteCustomFieldOption(): void {
-    pendingDeleteCustomFieldOptionId = null;
-  }
-
-  async function confirmDeleteCustomFieldOption(): Promise<void> {
-    if (!pendingDeleteCustomFieldOption) return;
-    const option = pendingDeleteCustomFieldOption;
-    pendingDeleteCustomFieldOptionId = null;
-    projectSettingsError = null;
-    try {
-      await projects.removeCustomFieldOption(option.id);
-      const remainingNames = { ...customFieldOptionNameDrafts };
-      delete remainingNames[option.id];
-      customFieldOptionNameDrafts = remainingNames;
-    } catch (error) {
-      projectSettingsError = t(
-        "projects.customFields.optionDeleteFailed",
-        error instanceof Error ? error.message : String(error),
-      );
-    }
-  }
+  const requestDeleteCustomFieldOption = customFields.requestDeleteOption;
+  const cancelDeleteCustomFieldOption = customFields.cancelDeleteOption;
+  const confirmDeleteCustomFieldOption = customFields.removeOption;
 
   async function moveStatusByDirection(status: ProjectStatus, direction: -1 | 1): Promise<void> {
-    projectSettingsError = null;
+    sessionState.projectSettingsError = null;
     try {
       await projects.moveStatus(status, direction);
     } catch (error) {
-      projectSettingsError = t(
+      sessionState.projectSettingsError = t(
         "projects.settings.statusSaveFailed",
         error instanceof Error ? error.message : String(error),
       );
@@ -1635,11 +722,11 @@
   }
 
   async function movePriorityByDirection(priority: ProjectPriorityConfig, direction: -1 | 1): Promise<void> {
-    projectSettingsError = null;
+    sessionState.projectSettingsError = null;
     try {
       await projects.movePriority(priority, direction);
     } catch (error) {
-      projectSettingsError = t(
+      sessionState.projectSettingsError = t(
         "projects.settings.prioritySaveFailed",
         error instanceof Error ? error.message : String(error),
       );
@@ -1648,112 +735,11 @@
 
   async function saveProjectSettings(): Promise<void> {
     if (!selectedProject) return;
-    const shouldUpdateProject = projectFieldSettingsDirty;
-    const projectUpdateResult = shouldUpdateProject
-      ? projectSettingsProjectUpdateFromDraft({
-          project: selectedProject,
-          draft: projectDraft,
-          visibleGroupIds: new Set(visibleProjectGroups.map((group) => group.id)),
-          nextSortOrderForGroup: nextProjectSortOrderForGroup,
-        })
-      : null;
-    if (projectUpdateResult && !projectUpdateResult.ok) {
-      projectSettingsError = projectDraftErrorMessage(projectUpdateResult.error);
-      return;
-    }
-    const statusDrafts = statusSaveDrafts();
-    if (!statusDrafts) return;
-    const priorityDrafts = prioritySaveDrafts();
-    if (!priorityDrafts) return;
-    const tagDrafts = tagSaveDrafts();
-    if (!tagDrafts) return;
-    const customFieldDrafts = customFieldSaveDrafts();
-    if (!customFieldDrafts) return;
-    const customFieldOptionDrafts = customFieldOptionSaveDrafts();
-    if (!customFieldOptionDrafts) return;
-    const shouldRevealInactive = shouldUpdateProject && projectDraft.status !== "active";
-    projectSettingsSaving = true;
-    projectSettingsError = null;
-    try {
-      if (projectUpdateResult?.ok) {
-        await projects.updateProject(projectUpdateResult.value);
-      }
-      for (const draft of statusDrafts) {
-        await projects.updateStatus(draft.status, {
-          name: draft.name,
-          category: draft.category,
-          color: draft.color,
-        });
-        statusNameDrafts = { ...statusNameDrafts, [draft.status.id]: draft.name };
-        statusCategoryDrafts = { ...statusCategoryDrafts, [draft.status.id]: draft.category };
-        statusColorDrafts = { ...statusColorDrafts, [draft.status.id]: draft.color };
-      }
-      for (const draft of priorityDrafts) {
-        await projects.updatePriority(draft.priority, {
-          name: draft.name,
-          color: draft.color,
-        });
-        priorityNameDrafts = { ...priorityNameDrafts, [draft.priority.id]: draft.name };
-        priorityColorDrafts = { ...priorityColorDrafts, [draft.priority.id]: draft.color };
-      }
-      for (const draft of tagDrafts) {
-        await projects.updateTag(draft.tag, {
-          name: draft.name,
-          color: draft.color,
-        });
-        tagNameDrafts = { ...tagNameDrafts, [draft.tag.id]: draft.name };
-        tagColorDrafts = { ...tagColorDrafts, [draft.tag.id]: draft.color };
-      }
-      for (const draft of customFieldDrafts.updates) {
-        await projects.updateCustomField(draft.field, {
-          name: draft.name,
-        });
-        customFieldNameDrafts = { ...customFieldNameDrafts, [draft.field.id]: draft.name };
-      }
-      for (const draft of customFieldDrafts.creates) {
-        const createdField = await projects.addCustomField(selectedProject.id, draft.name, draft.fieldType);
-        if (createdField) {
-          customFieldNameDrafts = {
-            ...customFieldNameDrafts,
-            [createdField.id]: createdField.name,
-          };
-          for (const optionName of draft.optionNames) {
-            const createdOption = await projects.addCustomFieldOption(createdField.id, optionName);
-            if (createdOption) {
-              customFieldOptionNameDrafts = {
-                ...customFieldOptionNameDrafts,
-                [createdOption.id]: createdOption.name,
-              };
-            }
-          }
-        }
-        removeCustomFieldCreateDraft(draft.draftId);
-      }
-      for (const draft of customFieldOptionDrafts.updates) {
-        await projects.updateCustomFieldOption(draft.option, {
-          name: draft.name,
-        });
-        customFieldOptionNameDrafts = { ...customFieldOptionNameDrafts, [draft.option.id]: draft.name };
-      }
-      for (const draft of customFieldOptionDrafts.creates) {
-        const createdOption = await projects.addCustomFieldOption(draft.field.id, draft.name);
-        if (createdOption) {
-          customFieldOptionNameDrafts = {
-            ...customFieldOptionNameDrafts,
-            [createdOption.id]: createdOption.name,
-          };
-        }
-        removeCustomFieldOptionCreateDraft(draft.field.id, draft.draftId);
-      }
-      if (shouldRevealInactive) {
-        onRevealInactive();
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      projectSettingsError = t("projects.settings.saveFailed", message);
-    } finally {
-      projectSettingsSaving = false;
-    }
+    await session.save(
+      selectedProject,
+      new Set(visibleProjectGroups.map((group) => group.id)),
+      sessionCollections(),
+    );
   }
 
 </script>
@@ -1763,25 +749,25 @@
   {presentation}
   draftReady={projectSettingsDraftReady}
   dirty={projectSettingsDirty}
-  saving={projectSettingsSaving}
-  error={projectSettingsError}
+  saving={sessionState.projectSettingsSaving}
+  error={sessionState.projectSettingsError}
   title={t("projects.settings.title")}
   discardLabel={t("projects.settings.discard")}
   closeLabel={t("projects.settings.close")}
   saveLabel={t("projects.settings.save")}
-  loadingLabel={t("common.loading")}
   onDiscard={discardProjectSettings}
   onClose={closeProjectSettings}
   onSave={() => { void saveProjectSettings(); }}
   bind:scrollElement={settingsScrollElement}
 >
           <ProjectSettingsIdentitySection
-            bind:projectNameDraft={projectDraft.name}
-            bind:projectGroupDraft={projectDraft.groupId}
-            bind:projectStatusDraft={projectDraft.status}
-            bind:projectIconDraft={projectDraft.icon}
+            bind:projectNameDraft={sessionState.projectDraft.name}
+            bind:projectGroupDraft={sessionState.projectDraft.groupId}
+            bind:projectStatusDraft={sessionState.projectDraft.status}
+            bind:projectIconDraft={sessionState.projectDraft.icon}
             {projectGroupOptions}
             {lifecycleOptions}
+            identityLocked={selectedProjectIdentityLocked}
             {setLifecycleStatus}
           />
 
@@ -1791,21 +777,22 @@
             theme={theme.current}
             pomodoroOptions={PROJECT_POMODORO_PRESET_ORDER}
             {pomodoroPresetLabel}
-            bind:projectColorDraft={projectDraft.color}
-            bind:projectDefaultEventNameDraft={projectDraft.defaultEventName}
-            bind:projectEventTimeModeDraft={projectDraft.defaultEventTimeMode}
-            bind:projectDurationDraft={projectDraft.defaultEventDurationMinutes}
-            bind:projectPomodoroModeDraft={projectDraft.defaultPomodoroMode}
-            bind:projectPomodoroPresetDraft={projectDraft.defaultPomodoroPresetKey}
-            bind:projectPomodoroFocusDraft={projectDraft.defaultPomodoroFocusMinutes}
-            bind:projectPomodoroShortBreakDraft={projectDraft.defaultPomodoroShortBreakMinutes}
-            bind:projectPomodoroLongBreakDraft={projectDraft.defaultPomodoroLongBreakMinutes}
-            bind:projectPomodoroLongBreakAfterFocusDraft={projectDraft.defaultPomodoroLongBreakAfterFocusCount}
-            bind:projectIdleSettingsSourceDraft={projectDraft.defaultIdleSettingsSource}
-            bind:projectIdlePauseEnabledDraft={projectDraft.defaultIdlePauseEnabled}
-            bind:projectIdleThresholdMinutesDraft={projectDraft.defaultIdleThresholdMinutes}
-            bind:projectFocusPlaylistDraft={projectDraft.focusPlaylistId}
-            bind:projectBreakPlaylistDraft={projectDraft.breakPlaylistId}
+            projectDefaultEventNamePlaceholder={selectedProjectIdentityLocked ? selectedProject.name : undefined}
+            bind:projectColorDraft={sessionState.projectDraft.color}
+            bind:projectDefaultEventNameDraft={sessionState.projectDraft.defaultEventName}
+            bind:projectEventTimeModeDraft={sessionState.projectDraft.defaultEventTimeMode}
+            bind:projectDurationDraft={sessionState.projectDraft.defaultEventDurationMinutes}
+            bind:projectPomodoroModeDraft={sessionState.projectDraft.defaultPomodoroMode}
+            bind:projectPomodoroPresetDraft={sessionState.projectDraft.defaultPomodoroPresetKey}
+            bind:projectPomodoroFocusDraft={sessionState.projectDraft.defaultPomodoroFocusMinutes}
+            bind:projectPomodoroShortBreakDraft={sessionState.projectDraft.defaultPomodoroShortBreakMinutes}
+            bind:projectPomodoroLongBreakDraft={sessionState.projectDraft.defaultPomodoroLongBreakMinutes}
+            bind:projectPomodoroLongBreakAfterFocusDraft={sessionState.projectDraft.defaultPomodoroLongBreakAfterFocusCount}
+            bind:projectIdleSettingsSourceDraft={sessionState.projectDraft.defaultIdleSettingsSource}
+            bind:projectIdlePauseEnabledDraft={sessionState.projectDraft.defaultIdlePauseEnabled}
+            bind:projectIdleThresholdMinutesDraft={sessionState.projectDraft.defaultIdleThresholdMinutes}
+            bind:projectFocusPlaylistDraft={sessionState.projectDraft.focusPlaylistId}
+            bind:projectBreakPlaylistDraft={sessionState.projectDraft.breakPlaylistId}
           />
 
           <div class="h-px bg-border/70" aria-hidden="true"></div>
@@ -1813,23 +800,23 @@
           <ProjectSettingsTagsSection
             theme={theme.current}
             tags={projectTags}
-            {draggedTagId}
-            {tagReorderPending}
+            draggedTagId={tagReorder.draggedId}
+            tagReorderPending={tagReorder.pending}
             bind:newTagRowElement
-            bind:newTagName
-            bind:newTagColor
-            {tagDropMarkerVisible}
-            onTagDragOver={handleTagDragOver}
-            onTagDrop={dropTag}
-            onTagDragStart={handleTagDragStart}
+            bind:newTagName={sessionState.newTagName}
+            bind:newTagColor={sessionState.newTagColor}
+            tagDropMarkerVisible={tagReorder.markerVisible}
+            onTagDragOver={tagReorder.dragOver}
+            onTagDrop={tagReorder.drop}
+            onTagDragStart={tagReorder.start}
             {clearTagDrag}
             {moveTagByDirection}
             {tagColorDraftValue}
             {setTagColor}
             {tagNameDraftValue}
             setTagNameDraft={(tagId, name) => {
-              tagNameDrafts = {
-                ...tagNameDrafts,
+              sessionState.tagNameDrafts = {
+                ...sessionState.tagNameDrafts,
                 [tagId]: name,
               };
             }}
@@ -1844,30 +831,30 @@
             {projectCustomFields}
             {customFieldOptions}
             {customFieldOptionCreateDraftRows}
-            bind:customFieldNameDrafts
-            bind:customFieldOptionNameDrafts
-            bind:customFieldCreateDraftRows
-            bind:newCustomFieldName
-            bind:newCustomFieldType
-            bind:newCustomFieldOptionDrafts
-            bind:newCustomFieldOptionRows
-            bind:newCustomFieldOptionName
+            bind:customFieldNameDrafts={sessionState.customFieldNameDrafts}
+            bind:customFieldOptionNameDrafts={sessionState.customFieldOptionNameDrafts}
+            bind:customFieldCreateDraftRows={sessionState.customFieldCreateDraftRows}
+            bind:newCustomFieldName={sessionState.newCustomFieldName}
+            bind:newCustomFieldType={sessionState.newCustomFieldType}
+            bind:newCustomFieldOptionDrafts={sessionState.newCustomFieldOptionDrafts}
+            bind:newCustomFieldOptionRows={sessionState.newCustomFieldOptionRows}
+            bind:newCustomFieldOptionName={sessionState.newCustomFieldOptionName}
             bind:newCustomFieldRowElement
-            {draggedCustomFieldId}
-            {draggedCustomFieldOptionId}
-            {customFieldReorderPending}
-            {customFieldOptionReorderPending}
-            {customFieldDropMarkerVisible}
-            {customFieldOptionDropMarkerVisible}
-            onCustomFieldDragOver={handleCustomFieldDragOver}
-            onCustomFieldDrop={dropCustomField}
-            onCustomFieldDragStart={handleCustomFieldDragStart}
+            draggedCustomFieldId={customFieldReorder.draggedId}
+            draggedCustomFieldOptionId={customFieldOptionReorder.draggedId}
+            customFieldReorderPending={customFieldReorder.pending}
+            customFieldOptionReorderPending={customFieldOptionReorder.pending}
+            customFieldDropMarkerVisible={customFieldReorder.markerVisible}
+            customFieldOptionDropMarkerVisible={customFieldOptionReorder.markerVisible}
+            onCustomFieldDragOver={customFieldReorder.dragOver}
+            onCustomFieldDrop={customFieldReorder.drop}
+            onCustomFieldDragStart={customFieldReorder.start}
             {clearCustomFieldDrag}
             {moveProjectCustomField}
             {requestDeleteCustomField}
-            onCustomFieldOptionDragOver={handleCustomFieldOptionDragOver}
-            onCustomFieldOptionDrop={dropCustomFieldOption}
-            onCustomFieldOptionDragStart={handleCustomFieldOptionDragStart}
+            onCustomFieldOptionDragOver={customFieldOptionReorder.dragOver}
+            onCustomFieldOptionDrop={customFieldOptionReorder.drop}
+            onCustomFieldOptionDragStart={customFieldOptionReorder.start}
             {clearCustomFieldOptionDrag}
             {moveProjectCustomFieldOption}
             {requestDeleteCustomFieldOption}
@@ -1892,24 +879,24 @@
             theme={theme.current}
             {statuses}
             {statusCategoryOptions}
-            {draggedStatusId}
-            {statusReorderPending}
+            draggedStatusId={statusReorder.draggedId}
+            statusReorderPending={statusReorder.pending}
             bind:newStatusRowElement
-            bind:newStatusName
-            bind:newStatusColor
-            bind:newStatusCategory
-            {statusDropMarkerVisible}
-            onStatusDragOver={handleStatusDragOver}
-            onStatusDrop={dropStatus}
-            onStatusDragStart={handleStatusDragStart}
+            bind:newStatusName={sessionState.newStatusName}
+            bind:newStatusColor={sessionState.newStatusColor}
+            bind:newStatusCategory={sessionState.newStatusCategory}
+            statusDropMarkerVisible={statusReorder.markerVisible}
+            onStatusDragOver={statusReorder.dragOver}
+            onStatusDrop={statusReorder.drop}
+            onStatusDragStart={statusReorder.start}
             {clearStatusDrag}
             {moveStatusByDirection}
             {statusColorDraftValue}
             {setStatusColor}
             {statusNameDraftValue}
             setStatusNameDraft={(statusId, name) => {
-              statusNameDrafts = {
-                ...statusNameDrafts,
+              sessionState.statusNameDrafts = {
+                ...sessionState.statusNameDrafts,
                 [statusId]: name,
               };
             }}
@@ -1928,23 +915,23 @@
           <ProjectSettingsPrioritiesSection
             theme={theme.current}
             {priorities}
-            {draggedPriorityId}
-            {priorityReorderPending}
+            draggedPriorityId={priorityReorder.draggedId}
+            priorityReorderPending={priorityReorder.pending}
             bind:newPriorityRowElement
-            bind:newPriorityName
-            bind:newPriorityColor
-            {priorityDropMarkerVisible}
-            onPriorityDragOver={handlePriorityDragOver}
-            onPriorityDrop={dropPriority}
-            onPriorityDragStart={handlePriorityDragStart}
+            bind:newPriorityName={sessionState.newPriorityName}
+            bind:newPriorityColor={sessionState.newPriorityColor}
+            priorityDropMarkerVisible={priorityReorder.markerVisible}
+            onPriorityDragOver={priorityReorder.dragOver}
+            onPriorityDrop={priorityReorder.drop}
+            onPriorityDragStart={priorityReorder.start}
             {clearPriorityDrag}
             {movePriorityByDirection}
             {priorityColorDraftValue}
             {setPriorityColor}
             {priorityNameDraftValue}
             setPriorityNameDraft={(priorityId, name) => {
-              priorityNameDrafts = {
-                ...priorityNameDrafts,
+              sessionState.priorityNameDrafts = {
+                ...sessionState.priorityNameDrafts,
                 [priorityId]: name,
               };
             }}

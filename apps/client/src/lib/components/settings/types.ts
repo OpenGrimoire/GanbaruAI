@@ -3,19 +3,37 @@
  * so external launchers (the calendar header, future feature surfaces) can
  * type their requests against the same identifier set.
  */
-export type SectionId =
-  | "appearance"
-  | "calendars"
-  | "focus"
-  | "music"
-  | "doomscrolling"
-  | "data"
-  | "updates"
-  | "shortcuts"
-  | "about";
+export const SETTINGS_SECTION_IDS = [
+  "appearance",
+  "profile",
+  "calendars",
+  "projects",
+  "notes",
+  "focus",
+  "music",
+  "doomscrolling",
+  "data",
+  "updates",
+  "shortcuts",
+  "about",
+] as const;
+
+export type SectionId = (typeof SETTINGS_SECTION_IDS)[number];
 
 export type DoomscrollingSettingsTab = "limits" | "browser" | "mobile" | "desktop";
 
 export type DoomscrollingLimitEditorTarget =
   | { mode: "create" }
   | { mode: "edit"; limitId: string };
+
+export const NOTES_TRANSFER_OPERATIONS = [
+  "html-import",
+  "notion-api-import",
+  "notion-export-import",
+  "json-graph-export",
+] as const;
+
+export type NotesTransferOperation = (typeof NOTES_TRANSFER_OPERATIONS)[number];
+
+export const SETTINGS_DETAIL_KINDS = ["doomscrolling-limit", "notes-transfer"] as const;
+export type SettingsDetailKind = (typeof SETTINGS_DETAIL_KINDS)[number];

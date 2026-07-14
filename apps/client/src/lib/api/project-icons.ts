@@ -1,11 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
 import { ensureDbUrl } from "$lib/api/db";
+import { invalidateAssetUrl, loadAssetUrl } from "$lib/api/asset-url-cache";
 
 export interface ProjectIconAsset {
   relativePath: string;
 }
-
-const projectIconAssetUrls = new Map<string, string>();
 
 export async function pickProjectIconImageFile(): Promise<ProjectIconAsset | null> {
   return invoke<ProjectIconAsset | null>("project_icon_pick_image_file");
@@ -20,17 +19,15 @@ export async function downloadProjectIconImageUrl(url: string): Promise<ProjectI
 }
 
 export async function projectIconAssetUrl(relativePath: string): Promise<string> {
-  const cached = projectIconAssetUrls.get(relativePath);
-  if (cached) return cached;
-  const assetUrl = await invoke<string>("project_icon_asset_data_url", { relativePath });
-  projectIconAssetUrls.set(relativePath, assetUrl);
-  return assetUrl;
+  return loadAssetUrl("project-icon", relativePath, () =>
+    invoke<string>("project_icon_asset_data_url", { relativePath })
+  );
 }
 
 export async function deleteProjectIconAssetsIfUnreferenced(relativePaths: string[]): Promise<void> {
   const dbUrl = await ensureDbUrl();
   await invoke("project_icon_delete_assets_if_unreferenced", { dbUrl, relativePaths });
   for (const relativePath of relativePaths) {
-    projectIconAssetUrls.delete(relativePath);
+    invalidateAssetUrl("project-icon", relativePath);
   }
 }

@@ -1,8 +1,9 @@
 <script lang="ts">
   import CustomSelect from "$lib/components/settings/CustomSelect.svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { moveTextInputCaretToPointer } from "$lib/utils/text-input-caret";
   import type { ProjectLifecycleStatus } from "$lib/projects/types";
-  import ProjectIconPicker from "./ProjectIconPicker.svelte";
+  import IconPicker from "$lib/components/icon-picker/IconPicker.svelte";
   import ProjectSettingsSectionHeading from "./ProjectSettingsSectionHeading.svelte";
 
   type SelectOption = { value: string; label: string };
@@ -14,6 +15,7 @@
     projectIconDraft = $bindable<string>(),
     projectGroupOptions,
     lifecycleOptions,
+    identityLocked = false,
     setLifecycleStatus,
   }: {
     projectNameDraft: string;
@@ -22,6 +24,7 @@
     projectIconDraft: string;
     projectGroupOptions: SelectOption[];
     lifecycleOptions: SelectOption[];
+    identityLocked?: boolean;
     setLifecycleStatus: (value: string) => void;
   } = $props();
 
@@ -37,8 +40,10 @@
         <span class="min-w-0 flex-1 text-[0.866667rem] text-foreground">{t("projects.settings.name")}</span>
         <input
           bind:value={projectNameDraft}
+          disabled={identityLocked}
           aria-label={t("projects.settings.name")}
-          class="h-7 w-44 min-w-0 rounded-md border border-border bg-card px-2.5 text-left text-[0.8rem] font-medium text-foreground outline-none transition-colors focus:border-ring dark:bg-transparent max-[480px]:w-full"
+          class="h-7 w-44 min-w-0 rounded-md border border-border bg-card px-2.5 text-left text-[0.8rem] font-medium text-foreground outline-none transition-colors focus:border-ring disabled:cursor-not-allowed disabled:text-foreground dark:bg-transparent max-[480px]:w-full"
+          onpointerdown={moveTextInputCaretToPointer}
         />
       </div>
 
@@ -46,6 +51,7 @@
         label={t("projects.settings.group")}
         value={projectGroupDraft}
         options={projectGroupOptions}
+        disabled={identityLocked}
         onChange={(value) => {
           projectGroupDraft = value;
         }}
@@ -62,10 +68,9 @@
 
       <div class="flex items-center justify-between gap-4 px-1 py-1 max-[480px]:flex-col max-[480px]:items-stretch max-[480px]:gap-2">
         <div class="min-w-0 flex-1 text-[0.866667rem] text-foreground">{t("projects.settings.icon")}</div>
-        <ProjectIconPicker
+        <IconPicker
           value={projectIconDraft}
           ariaLabel={t("projects.settings.selectIcon", projectIconDraft)}
-          allowIconColors={false}
           class="h-7 w-44 max-[480px]:w-full"
           onChange={(nextIcon) => {
             projectIconDraft = nextIcon;

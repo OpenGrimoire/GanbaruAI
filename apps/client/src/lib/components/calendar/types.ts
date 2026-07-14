@@ -39,7 +39,7 @@ export interface OrdinalWeekday {
 export interface RecurrenceConfig {
   frequency: RecurrenceFrequency;
   interval: number;
-  /** Simple BYDAY weekdays for weekly recurrence (backward compat). */
+  /** Simple BYDAY weekdays for weekly recurrence. */
   weekdays?: Weekday[];
   /** BYDAY with ordinal prefixes (2TU, -1FR) for monthly/yearly. */
   ordinalWeekdays?: OrdinalWeekday[];

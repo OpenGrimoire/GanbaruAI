@@ -36,6 +36,10 @@ The most substantial phase. Subdivided into planning (3.1), MVP (3.2), execution
 
 The framework's order and granularity are not set in stone. Different projects need different sequences. The point is to start working, not to follow the template rigidly.
 
+## Project settings
+
+The Projects top bar opens project settings in an anchored, responsive panel. Settings are edited as a draft and saved explicitly. Closing the panel through its close button, the Settings trigger, outside click, Escape, or another toolbar action asks for confirmation when the draft has unsaved changes, so an accidental dismissal does not silently lose edits. The explicit discard control uses the same confirmation before resetting the draft while keeping the panel open.
+
 ## Methodology templates
 
 Beyond the lifecycle, the system includes guided forms for established methodologies: reverse brainstorming, value proposition canvas, business model canvas, SWOT analysis, market research frameworks. Each is structured and actionable, not a static template the user has to interpret.

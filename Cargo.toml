@@ -3,3 +3,6 @@ resolver = "2"
 members = [
   "apps/client/src-tauri",
 ]
+
+[profile.test]
+debug = 1

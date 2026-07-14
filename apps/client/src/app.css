@@ -25,6 +25,9 @@
   --border: rgba(0, 0, 20, 0.10);
   --input: rgba(0, 0, 20, 0.08);
   --ring: #8C8C98;
+  --selection-background: rgba(37, 99, 235, 0.28);
+  --app-scrollbar-thumb: color-mix(in srgb, var(--foreground) 18%, transparent);
+  --app-scrollbar-thumb-hover: color-mix(in srgb, var(--foreground) 36%, transparent);
 
   /* Frame / contour (titlebar) */
   --sidebar: #DCDCE2;
@@ -91,6 +94,7 @@
   --border: rgba(255, 255, 255, 0.10);
   --input: rgba(255, 255, 255, 0.08);
   --ring: #606070;
+  --selection-background: rgba(96, 165, 250, 0.38);
 
   /* Frame / contour (titlebar) */
   --sidebar: #1E1E23;
@@ -201,6 +205,49 @@
   * {
     @apply border-border outline-ring/50;
   }
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+    background: transparent;
+  }
+  *::-webkit-scrollbar-track,
+  *::-webkit-scrollbar-track-piece,
+  *::-webkit-scrollbar-corner {
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+  *::-webkit-scrollbar-button {
+    display: none;
+    width: 0;
+    height: 0;
+    border: 0;
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: 9999px;
+    background-color: var(--app-scrollbar-thumb);
+    background-clip: content-box;
+    box-shadow: none;
+  }
+  *::-webkit-scrollbar-thumb:vertical {
+    min-height: 24px;
+  }
+  *::-webkit-scrollbar-thumb:horizontal {
+    border-width: 1px;
+    min-width: 24px;
+  }
+  *::-webkit-scrollbar-thumb:hover,
+  *::-webkit-scrollbar-thumb:active {
+    background-color: var(--app-scrollbar-thumb-hover);
+  }
+  @supports not selector(::-webkit-scrollbar) {
+    * {
+      scrollbar-color: var(--app-scrollbar-thumb) transparent;
+      scrollbar-width: thin;
+    }
+  }
   :where(button, a, input, select, textarea, [tabindex]):focus,
   :where(button, a, input, select, textarea, [tabindex]):focus-visible {
     outline: none;
@@ -215,6 +262,14 @@
   }
   body {
     @apply text-foreground;
+  }
+  ::selection {
+    color: inherit;
+    background-color: var(--selection-background);
+  }
+  ::-moz-selection {
+    color: inherit;
+    background-color: var(--selection-background);
   }
   html[data-theme-switching="true"],
   html[data-theme-switching="true"] *,

@@ -16,7 +16,7 @@ Called every second while a session is active.
 
 **Returns:** one of:
 
-- `tick`: normal countdown, decrement remaining seconds.
+- `tick`: derive the visible countdown from the phase deadline without persisting the visual tick. The derived value is clamped so a backward wall-clock adjustment cannot add focus or break time.
 - `notify`: 60 seconds remain in focus; emit a notification.
 - `advance`: phase ended, advance to the next phase.
 - `expire`: event time expired, end the run (or transition if a consecutive event exists).
@@ -103,6 +103,8 @@ The opposite design (decisions interleaved with writes) would make all of the ab
 ## Heartbeat
 
 `pomodoro_runs.last_heartbeat` is updated approximately every 30 seconds while the session is active. The heartbeat is the basis for crash recovery: if the app stops without setting `ended_at`, recovery uses `last_heartbeat` as the run's true end time.
+
+The one-second display scheduler is intentionally separate from persistence and native side effects. Segment rows and plans change only at phase transitions, pause or resume actions, reconfiguration, extensions, and session closure. The heartbeat is the only bounded write during an uninterrupted segment. Tray updates are coalesced by structural state and rendered percentage, while break overlays receive an absolute end timestamp and do not require per-second IPC.
 
 Heartbeat properties:
 

@@ -151,15 +151,6 @@ describe("saved task views", () => {
     }, fieldIds, optionIds)).toBe(false);
   });
 
-  it("maps legacy saved view ids to their current view ids", () => {
-    expect(parseSavedTaskViewPreference(preference({
-      preferenceValue: JSON.stringify({ ...savedView(), viewId: "board" }),
-    }))?.viewId).toBe("kanban");
-    expect(parseSavedTaskViewPreference(preference({
-      preferenceValue: JSON.stringify({ ...savedView(), viewId: "summary" }),
-    }))?.viewId).toBe("dashboard");
-  });
-
   it("defaults stale enum values instead of trusting persisted data", () => {
     const result = parseSavedTaskViewPreference(preference({
       preferenceValue: JSON.stringify({

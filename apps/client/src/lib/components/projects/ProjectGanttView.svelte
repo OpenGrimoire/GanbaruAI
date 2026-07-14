@@ -422,7 +422,7 @@
                         {#each sectionRows as row (row.task.id)}
                           {@const rowDependencyLabel = ganttDependencyLabel(row)}
                           {@const rowDependencyConflicts = ganttConflictsForTask(row.task.id)}
-                          <div class="grid min-h-11 grid-cols-[minmax(12rem,16rem)_minmax(34rem,1fr)] border-b border-border/50">
+                          <div class="project-gantt-row grid min-h-11 grid-cols-[minmax(12rem,16rem)_minmax(34rem,1fr)] border-b border-border/50">
                             <button
                               type="button"
                               class="grid min-w-0 content-center gap-0.5 border-r border-border px-2 text-left hover:bg-accent"
@@ -532,7 +532,7 @@
                           {#each ganttSubtaskRows(row.task) as subtaskRow (subtaskRow.task.id)}
                             {@const subtaskDependencyLabel = ganttDependencyLabel(subtaskRow)}
                             {@const subtaskDependencyConflicts = ganttConflictsForTask(subtaskRow.task.id)}
-                            <div class="grid min-h-10 grid-cols-[minmax(12rem,16rem)_minmax(34rem,1fr)] border-b border-border/50 bg-muted/10">
+                            <div class="project-gantt-row grid min-h-10 grid-cols-[minmax(12rem,16rem)_minmax(34rem,1fr)] border-b border-border/50 bg-muted/10">
                               <button
                                 type="button"
                                 class="grid min-w-0 content-center gap-0.5 border-r border-border px-2 pl-6 text-left hover:bg-accent"
@@ -652,3 +652,10 @@
               </div>
             {/if}
           </div>
+
+<style>
+  .project-gantt-row {
+    content-visibility: auto;
+    contain-intrinsic-block-size: 44px;
+  }
+</style>

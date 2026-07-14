@@ -8,8 +8,8 @@ Features are highly interconnected. Current status:
 - Doomscrolling (work in progress; browser and desktop blocking exist, mobile remains pending)
 - Music player (work in progress; local playback, source parsing, controls, and tray/titlebar integration exist)
 - Localization (work in progress; English and Spanish catalogs with language preferences exist)
-- Projects (pending)
-- Note-taking (pending)
+- Projects (work in progress; SQLite-backed planning, task views, scheduling, settings, history, templates, and custom fields exist)
+- Note-taking (work in progress; SQLite-backed pages, blocks, databases, templates, history, links, comments, assets, and transfer workflows exist)
 - Sleep alarm (pending)
 - Daily diary (pending)
 - Gamification (pending)
@@ -26,7 +26,7 @@ All documentation lives in `docs/`. Top-level overviews:
 
 Granular docs (read the relevant one when working on a feature):
 
-- **docs/features/**: per-feature behavior and UX (calendar, calendar-recurrence, localization, music, doomscrolling, pomodoro, pomodoro-break-screen, pomodoro-idle-detection, pomodoro-progress-displays, plus placeholders for unbuilt features)
+- **docs/features/**: current and planned per-feature behavior and UX, including Calendar, Pomodoro, Doomscrolling, Music, Notes, Projects, themes, localization, performance, AI integration, work environments, and future product surfaces
 - **docs/data/**: data architecture, schema, invariants, sync, hazards, security
 - **docs/algorithms/**: pure-logic specs (recurrence-expansion, pomodoro-adaptive-rhythm, pomodoro-segments-and-plan, pomodoro-state-machine, idle-detection, time-conflict-detection, undo-redo)
 - **docs/interop/**: interoperability plans, standards scope, conformance fixtures, client behavior, and migration strategy for external formats and calendar clients
@@ -35,7 +35,7 @@ Docs describe the optimal/ideal end state of the app, not the current implementa
 
 ## Workspace structure
 
-> Update this when directories are created, renamed, or removed. Items marked (planned) do not exist yet.
+> Update this architectural map when directories are created, renamed, or removed. It lists existing source paths unless an entry is explicitly marked as planned.
 
 ```
 .github/
@@ -51,32 +51,36 @@ apps/
       lib/: shared frontend code
         components/: reusable Svelte components
           benchmark/: benchmark overlay and diagnostics components
-          calendar/: calendar wrappers, session block rendering
+          calendar/: calendar views, event editing, recurrence, import, and session block rendering
+          icon-picker/: shared icon, emoji, custom emoji, and image picker
           music/: player controls, source parsing, playlist management surfaces
-          perf/: memory and performance diagnostics components
-          pomodoro/: timer display, break screen, idle overlay
-          settings/: settings surfaces, theme editor, preferences
+          notes/: Notes navigation, editor, databases, history, transfer, and project surfaces
+          perf/: memory and performance diagnostics surfaces
+          pomodoro/: timer display, controls, break screen, and idle overlay
+          projects/: project navigation, planning views, task details, and settings
+          quick-notes/: Quick notes panel, masonry cards, editor, and color controls
+          settings/: resident settings surfaces, theme editor, preferences, and optional tools
+          title-bar/: application title bar and window controls
+          ui/: shared generated shadcn-svelte primitives
           updates/: app update UI
           vault/: data folder setup and active-folder UI
-          ui/: shadcn-svelte generated components
-          projects/: (planned) project and task planning surfaces
-          notes/: (planned) Tiptap editor wrapper, slash commands
-          diary/: (planned) morning/evening entry forms
-          ai-panel/: (planned) integrated terminal (xterm.js) and BYOK chat
-          visual-novel/: (planned) NPC dialogue, conversation state machine
-          edge-panel/: (planned) panel layout, quick-access widgets
-          environment/: (planned) work environment config UI
-          contracts/: (planned) contract creation, tracking, proof UI
-          project/: (planned) project management quest chain phases
-        api/: typed wrappers around Tauri invoke() calls
+        api/: typed wrappers around Tauri commands and asset URL handling
         benchmark/: benchmark runner, samplers, output, scenarios
         calendar/: shared calendar logic and iCalendar parser/serializer
         data/: shared static/domain data helpers
         doomscrolling/: shared browser and desktop blocking rules
         hooks/: reusable Svelte hooks
         i18n/: typed localization catalogs, locale resolution, formatters
+          messages/: split locale catalog entry points, domain modules, and shape tests
         music/: frontend music source and playback helpers
-        stores/: Svelte runes ($state), global app state
+        notes/: Notes contracts, validation, editor operations, databases, and tree helpers
+          contracts/: typed Notes DTO families and view models
+          validation/: split validation helpers
+        pomodoro/: adaptive rhythm and Pomodoro domain logic
+        projects/: project planning, view, settings, icon, and task domain logic
+        quick-notes/: Quick notes contracts, rich-text operations, masonry, persistence, and window sync
+        scheduling/: lifecycle and notification schedulers
+        stores/: Svelte rune stores and domain controllers for active runtime state
         types/: frontend-specific TypeScript types
         utils/: shared helpers, formatters
         vault/: frontend data folder config and state
@@ -90,15 +94,23 @@ apps/
         lib.rs: Tauri app setup and command registration
         bin/: auxiliary Rust binaries, including native messaging host
           ganbaru-ai-native-messaging/: native messaging host test modules
-        db.rs, db/: SQLite pool, migration execution, schema invariant tests
+        db.rs, db/: SQLite pool, migration execution, and schema invariant tests
         vault.rs, db_path.rs, sqlite_row.rs: data folder, database path, and row helpers
-        calendar_*.rs, calendars.rs, recurrence.rs: calendar persistence, import, reads, and recurrence logic
+        calendar_events/, calendar_import/, calendar_reads/: split calendar persistence, import, and query services
+        calendar_description.rs, calendar_import.rs, calendar_reads.rs, calendars.rs, recurrence.rs: calendar command roots and shared logic
         pomodoro.rs, pomodoro/: timer commands, DTOs, persistence, validation, reads, and tests
         projects.rs, projects/: project commands, DTOs, persistence, validation, history, custom fields, and templates
-        pomodoro_enforcement.rs, notification.rs, tray.rs, window_shape.rs: timer overlays, notifications, tray, and window integration
+        quick_notes/: Quick notes commands, normalized text runs, lifecycle, search, and tests
+        notes.rs, notes/: Notes pages, blocks, databases, assets, history, links, comments, imports, exports, validation, and tests
+          writes/: split Notes write command modules and shared write helpers
+          tests/: split Notes backend test modules and shared helpers
+        notification.rs, notification/: notification commands, scheduling, and platform delivery
+        pomodoro_enforcement.rs, tray.rs, window_shape.rs: timer overlays, tray, and window integration
         doomscrolling.rs, doomscrolling/: browser and desktop blocking commands, runtime helpers, and tests
-        media_player.rs, media_controls.rs, music.rs: local playback, media controls, and music commands
-        themes.rs, benchmark_seed.rs: theme validation and benchmark dataset setup
+        media_player.rs, media_controls.rs, music.rs, music/: local playback, media controls, metadata, and music commands
+        project_icons.rs: managed project icon assets
+        themes.rs, updates.rs: theme validation and application updates
+        benchmark_seed.rs, first_use_contracts.rs: benchmark data and first-use query contracts
       migrations/: embedded SQLx SQLite migrations
       package-repo/: generated package repository public key staging (ignored)
       package-scripts/: Linux package lifecycle scripts for repo registration
@@ -108,37 +120,45 @@ apps/
       icons/: app icons
       build.rs, tauri.conf.json, tauri.dev.conf.json, Cargo.toml
     index.html, package.json, svelte.config.js, vite.config.ts, tsconfig.json
-  server/: (planned) Hocuspocus sync server (self-hostable)
 packages/
   shared-types/: TypeScript types shared across workspaces
 extensions/
   chrome/: Chrome extension (manifest v3)
   chrome-dev/: generated dev extension copy (ignored)
-  firefox/: (planned) Firefox extension
 Cargo.toml: cargo workspace root
 turbo.json: Turborepo task config
 pnpm-workspace.yaml: workspace definition
 package.json: root scripts, shared dev dependencies
 ```
 
+Planned top-level work that does not have source directories yet includes the self-hosted Hocuspocus server and Firefox extension. Planned product surfaces such as the diary, AI panel, edge panel, visual novel, environments, and contracts also do not have component directories yet.
+
 ## Ganbaru AI folder structure
 
-> Everything the app produces lives in one Ganbaru AI folder. By default production creates `Documents/Ganbaru AI`, while development builds create `Documents/Ganbaru AI Dev`. Update this as the project evolves.
+> Everything the app produces lives in one Ganbaru AI folder. By default production creates `Documents/Ganbaru AI`, while development builds create `Documents/Ganbaru AI Dev`. The base skeleton is created for every folder. Asset subdirectories are created on demand. Planned paths are explicitly labeled.
 
 ```
 Ganbaru AI/
   vault.json: internal Ganbaru AI folder marker, id, display name, and schema version
-  config.json: user settings, work environment definitions, blocker rulesets
-  ganbaru-ai.sqlite: SQLite source of truth for structured data and indexes
-  notes/daily/: daily notes (markdown)
-  notes/projects/: per-project notes and working documents (markdown)
-  diary/morning/, diary/evening/: dated diary entries (markdown, indexed fields in SQLite)
-  projects/{project-id}/: per-project file attachments (reference docs, research PDFs)
-  reports/: generated project status reports (markdown, PDF)
-  assets/: user assets (images embedded in notes, attachments)
-    project-icons/: copied project and group icon images, including reusable custom emoji
-  templates/: project management phase templates, methodology templates (SWOT, BMC, etc.)
-  .yjs/: Yjs document state cache (binary)
+  config.json: folder-local user preferences, UI state, and Doomscrolling settings
+  ganbaru-ai.sqlite: SQLite source of truth for structured data, Notes, and indexes
+  notes/: document directories reserved by the current vault skeleton
+    daily/: reserved for daily note documents
+    projects/: reserved for project note documents
+    exports/: derivative markdown exports for Notes (planned, not created yet, not authoritative)
+  diary/: document directories created by the vault skeleton
+    morning/: dated morning diary entries (planned feature)
+    evening/: dated evening diary entries (planned feature)
+  projects/: project document and attachment root reserved by the vault skeleton
+    {project-id}/: per-project files (planned, not created yet)
+  reports/: generated project status reports (planned feature)
+  assets/: user asset root
+    notes/page-icons/: managed Notes page icon images (created on demand)
+    notes/page-covers/: managed Notes page cover images (created on demand)
+    notes/files/: managed Notes block, property, comment, and import files (created on demand)
+    project-icons/: managed project and group icon images, including custom emoji (created on demand)
+  templates/: reserved file-based project and methodology templates
+  .yjs/: reserved Yjs document state cache
 ```
 
 Music files stay wherever the user keeps them; the Ganbaru AI folder stores only playlist definitions. Backups go to a user-specified path outside the Ganbaru AI folder.
@@ -152,15 +172,15 @@ Tauri's platform app config directory stores device-local bootstrap and runtime 
 - **Frontend:** plain Svelte 5 with runes (not SvelteKit)
 - **Desktop/mobile shell:** Tauri v2
 - **License:** AGPL 3.0
-- **Data architecture:** two categories of data with different storage. Documents (notes, diary, project docs) are markdown files on disk; SQLite indexes them for fast queries but the file is the source of truth. Structured data (calendar events, future project tasks, workspace configs, pomodoro configs, runs, segments, pauses, and run events) lives in SQLite as the source of truth. Never store structured data as markdown or document content in SQLite.
-- **AI integration:** three paths. (1) Integrated terminal (xterm.js) running Codex or another CLI coding agent, with calendar-driven session switching, per-project conversation threads, and task context passed through the agent prompt or standard input. (2) BYOK chat widget for non-developer users (OpenAI API, OpenAI-compatible API, Ollama for local models, and other user-configured providers). (3) MCP for external AI clients only (ChatGPT, teammate agents, etc.), not for internal agent interaction.
-- **Agent data bridge:** a `ganbaru-ai` CLI (Rust, reads the same SQLite) is the primary bridge between AI agents and Ganbaru AI's data. Agents call it via Bash. The CLI exports project state as markdown to git repos for collaborators and agents without the CLI. These exports are views of the database, not the source of truth.
+- **Data architecture:** two categories of data with different storage. Documents (diary entries, project docs, reports, and attachments) are files on disk; SQLite can index them for fast queries but the file is the source of truth where the document format is canonical. Structured data and document graphs (Notes pages and blocks, calendar events, project tasks, workspace configs, pomodoro configs, runs, segments, pauses, and run events) live in SQLite as the source of truth. Markdown for Notes is derivative import, export, or bridge output only.
+- **AI integration:** the planned architecture has three opt-in paths. (1) An integrated terminal running Codex or another CLI coding agent. (2) A BYOK chat widget supporting hosted and local user-configured providers. (3) MCP for external AI clients only, not for internal agent interaction. These application paths are not implemented yet.
+- **Agent data bridge:** the planned primary bridge is a Rust `ganbaru-ai` CLI that reads the same SQLite database and can export derivative project views for agents and collaborators. The CLI is not implemented yet. The current Notes UI provides a deterministic agent-bridge markdown export for selected Notes and related project context.
 - **State management:** Svelte 5 runes ($state, $derived, $effect), no external state manager
 - **Localization:** user-facing UI text must use the typed i18n catalog. Language selectors show explicit languages as autonyms, such as `English` and `Español`, while non-language options like system preference are localized. User-facing date, time, number, plural, relative-minute, and list formatting should use the current locale helpers.
 - **Branching and releases:** normal work uses topic branches from `dev` and PRs back to `dev`. Direct pushes to `dev` or `main` are not normal workflow. `main`, `app-v*` tags, release environment approval, published GitHub Releases, package repositories, and AUR publication are controlled by organization admins for supply-chain safety. Releases are promoted through a PR from `dev` to `main`, merged through `main` merge queue, then published from explicit `app-v*` tags that build draft GitHub Releases. Publishing the GitHub Release updates the apt, RPM, and AUR package paths. See `CONTRIBUTING.md`, `docs/release.md`, and `docs/rulesets.md`.
 - **Pull request workflow:** for review work, create a neutral topic branch from current `dev` before committing. Branch names describe the work, such as `docs/github-templates` or `fix/calendar-import`; never use tool names, assistant names, or vanity prefixes in branches, commits, or PR titles. Open PRs into `dev` unless the user explicitly asks for a release PR. Creating a PR does not imply merging it. Merge only when the user explicitly asks to merge, or explicitly asks to complete the whole PR flow after checks pass. Before merging, confirm the PR is mergeable, required checks passed, and the branch is up to date with its base. For release PRs from `dev` to `main`, do not update `dev` with `main`; add the PR to `main` merge queue after pull request checks pass. If `gh pr merge` attempts auto-merge instead of queueing a `main` PR, use GitHub's queue action or the GraphQL `enqueuePullRequest` mutation; do not enable auto-merge. If a non-release PR branch is out of date, update it once, then merge if merging was already authorized after checks pass. After opening a PR, do not wait or poll repeatedly for GitHub Actions. Check status once immediately when useful, or when the user reports checks are complete. When a PR into `dev` is merged, fetch `origin/dev`, switch back to `dev`, sync local `dev` to `origin/dev`, and delete merged topic branches locally and remotely. When a PR into `main` is merged, fetch `origin/main`, switch back to `main`, and sync local `main` to `origin/main`. Do not keep backup branches unless the user explicitly asks.
 - **Commit signing:** commits should be signed with the configured SSH signing key. If signing fails, stop and report it instead of creating an unsigned commit.
-- **Sync:** Yjs + Hocuspocus (CRDT-based, E2E encrypted, self-hosted by the user)
+- **Sync:** planned Yjs + Hocuspocus architecture (CRDT-based, E2E encrypted, and self-hosted by the user); sync is not implemented yet
 - **Build tool:** Vite (default with Tauri + Svelte scaffold)
 
 ## Testing
@@ -172,16 +192,37 @@ Tauri's platform app config directory stores device-local bootstrap and runtime 
 - Cover edge cases, not just happy paths. Shallow "it exists" tests are worthless.
 - Test names describe behavior, not implementation.
 
-**For UI/component changes:** `pnpm -w run validate` is the completion gate. Agents cannot manually verify the real Tauri app UI from this environment. Do not start a dev server, launch Tauri, or run HTTP smoke checks as a substitute for manual verification. If a UI behavior needs more confidence than existing checks provide, add or update tests where practical, then run `pnpm -w run validate`.
+**For UI/component changes:** Agents cannot manually verify the real Tauri app UI from this environment. Do not start a dev server, launch Tauri, or run HTTP smoke checks as a substitute for manual verification. During iterative UI work, do not run full `pnpm -w run validate` after every small visual adjustment. Use the narrowest relevant checks while coding, rely on user manual app inspection for visual confirmation, and run the risk-appropriate completion gate when the batch is ready or when requested. Committing a small UI-only change does not by itself require full validation. If a UI behavior needs more confidence than existing checks provide, add or update focused tests where practical.
+
+**Validation policy for agent work:**
+- The root `check`, `test`, and `validate` scripts intentionally cap tool concurrency. Use those scripts for broad local verification instead of direct full-suite `turbo`, `vitest`, or `cargo` commands.
+- Run frontend and Rust validation sequentially. Do not run Cargo compilation or tests concurrently with Vitest, Svelte checks, Turbo, or another Node-based validation command.
+- Do not run additional validation commands while a root `check`, `test`, `validate`, or `validate:full` command is active.
+- For direct focused checks, use one Vitest worker and one Cargo build job and test thread unless the user explicitly requests higher concurrency. Add `--lib` when the filtered Rust test is in the library so Cargo does not build unrelated binary test targets. Use an explicit `--bin <name>` only when testing that binary.
+- The workspace test profile uses limited debug information to keep Rust test binaries and relinks smaller while retaining useful line-based stack traces. Do not restore full test debug information unless a concrete debugger session needs local-variable inspection.
+- Keep standard Cargo commands portable across Linux, Windows, and macOS. Do not make an external linker a required project dependency. Any optional linker optimization must fall back to the standard toolchain on unsupported systems and must be benchmarked before repository-wide adoption.
+- Confirm that focused Vitest runs report only the requested files. Stop and correct the command if the full suite starts unexpectedly.
+- Start with the narrowest useful command. Use affected Vitest files for focused TypeScript tests and filtered Cargo tests for focused Rust tests where practical.
+- For trivial, mechanically obvious edits with no plausible impact on compilation, types, styling, behavior, generated output, persisted data, or public interfaces, do not run checks unless a relevant workflow requires them. Examples include changing existing copy text, renaming a visible label without changing keys, adjusting punctuation, or replacing one imported icon with another from the same library in an already type-compatible slot.
+- For small UI-only or docs-only edits, do not run `pnpm -w run validate` merely because files changed, the task is complete, or the user asks for a commit. Run `pnpm -w run check` or `pnpm -w run editor-check` when the edit affects Svelte compilation, TypeScript, Tailwind classes, or shared UI structure. Run focused tests only when behavior changes.
+- For backend, persistence, SQLite, import/export, migrations, project membership, note saving, or other data-loss-sensitive changes, run focused Rust or Vitest tests immediately, then a broader gate before committing.
+- Run `pnpm -w run validate` before opening a PR, before a release, when the risk-specific rules above require a broader gate, or when the user explicitly requests full validation. Ordinary completion of an uncommitted task is not a release-ready handoff, and creating a commit does not automatically require full validation. If a batch already passed `validate`, do not rerun it unless later changes materially affect the behavior covered by that gate; use narrow checks for later isolated changes.
+- Run `pnpm -w run validate:full` for dependency, lockfile, security, release, and audit-sensitive work, or when explicitly requested.
+- Do not repeat full validation after unrelated clean status checks unless the code or generated output changed again.
 
 **Commands (always use `-w` flag for root scripts):**
-- `pnpm -w run check`: fast feedback (types, format, lint). Use while coding.
+- `pnpm -w run check`: broad static feedback, including Svelte and TypeScript checks through Turbo, Rust formatting, and Rust clippy.
+- `pnpm --dir apps/client run check`: client-only Svelte and TypeScript checks.
 - `pnpm -w run editor-check`: editor-style diagnostics, including Tailwind canonical class checks.
-- `pnpm -w run test`: all tests (vitest + cargo test). Use after changes to tested code.
+- `pnpm -w run test`: all tests (vitest + cargo test) with capped Vitest, Cargo build, and Rust test concurrency. Use after changes to tested code.
+- `pnpm --dir apps/client exec vitest run path/to/file.test.ts --maxWorkers=1`: focused frontend test file.
+- `cargo test -p ganbaru-ai --lib -j 1 test_name -- --test-threads=1`: focused Rust library test by name. Replace `--lib` with the relevant `--bin <name>` only for a binary-local test.
+- `cargo fmt --check`: Rust formatting only.
+- `cargo clippy --workspace -j 2 -- -D warnings`: Rust linting only.
 - `pnpm -w run audit:deps`: npm advisory audit for workspace dependencies. Run for dependency or lockfile changes, before PRs, before releases, and when investigating security alerts.
 - `pnpm -w run audit:rust`: RustSec audit for cargo dependencies. Run for dependency or lockfile changes, before PRs, before releases, and when investigating security alerts. Reviewed ignores live in `.cargo/audit.toml` and must be documented in `docs/data/security.md`.
 - `pnpm -w run audit`: both dependency audits (`audit:deps` + `audit:rust`).
-- `pnpm -w run validate`: normal completion gate (check + test + editor-check). Run before reporting a code task as complete. All errors must be fixed; do not report a task as done if validate fails.
+- `pnpm -w run validate`: full normal gate (check + test + editor-check + bundle contracts). Run before PRs, releases, risk-sensitive completion gates, and explicit full-validation requests. Do not treat ordinary task completion or a commit alone as requiring this gate. All errors must be fixed before treating that gate as passed.
 - `pnpm -w run validate:full`: security and code gate (audit + validate). Run for dependency or lockfile changes, before PRs, before releases, and when explicitly requested.
 - `pnpm test:coverage` (from apps/client): coverage report to see what's tested.
 
@@ -204,10 +245,11 @@ After the relevant gate passes, finish the task without extra dev-server, Tauri 
 - Treat stored user data as durable. Any change to SQLite schema, persisted JSON, config keys, theme tokens, import/export formats, or generated Ganbaru AI folder data must consider existing installs, older exports, stale rows, removed fields, renamed keys, seed/reset data, and rollback or fallback behavior.
 - Do not leave dead persistent data behind. If a field, row key, config key, or JSON property becomes obsolete, add an explicit migration, cleanup path, or validator drop rule, then document it in the relevant data or feature spec.
 - SQLite migrations live in `apps/client/src-tauri/migrations/` and are embedded into the Rust binary through `sqlx::migrate!("./migrations")`. Use SQLx file names with a UTC timestamp prefix, `YYYYMMDDHHMMSS_description.sql`, such as `20260601103000_add_project_tables.sql`. Do not manually register migration files; the SQLx macro discovers them at compile time.
-- `20260529180656_baseline_schema.sql` is the fresh-start schema for the pre-user reset. Do not edit it after a released build can have applied it. Add a new timestamped migration file instead.
+- `20260713024120_baseline_schema.sql` is the fresh-start schema for the final pre-user reset. Earlier development databases are intentionally unsupported and must be recreated. Once a user-capable release can apply this baseline, never edit it. Add a new timestamped migration file instead.
 - Keep `apps/client/src-tauri/src/db.rs` focused on migration execution. Put schema and migration invariant tests in `apps/client/src-tauri/src/db/tests.rs`.
 - Keep migrations idempotent and narrowly scoped when practical, but remember that SQLx validates applied migration checksums. Never rewrite an applied migration to fix a live install. Preserve user-authored values whenever those values still have meaning, and only delete data that is truly obsolete or derivable from current canonical data.
-- For local development before users exist, a baseline squash is acceptable only when a project maintainer explicitly approves a clean reinstall or purge. Document the reset in this file and the relevant data docs.
+- The maintainer approved the final pre-user baseline squash on 2026-07-12.
+- Future baseline squashes require explicit maintainer approval. Once users can have applied the current baseline, preserve it permanently and use additive migrations.
 
 ### Theme and color tokens
 
@@ -218,7 +260,7 @@ After the relevant gate passes, finish the task without extra dev-server, Tauri 
 
 ### Code style
 
-- Do not use em dash characters or two consecutive hyphens in markdown, code comments, or commit messages. Restructure sentences using periods, commas, colons, semicolons, or parentheses instead.
+- Do not use em dash characters or two consecutive hyphens in markdown, code comments, or commit messages. Restructure sentences using periods, commas, colons, semicolons, or parentheses instead. Literal syntax is allowed when required, including command flags, CLI examples, code, URLs, file contents, diffs, and copied tool output.
 - Avoid unnecessary capitalization. Use sentence case in markdown headings, code comments, documentation, branch names, and commit messages unless capitalization is required by grammar, proper nouns, acronyms, or official names. Correct nearby text that violates this when editing files.
 - Prefer Tailwind canonical utilities over arbitrary-value equivalents. Use arbitrary values only when the value is genuinely custom or not represented by Tailwind theme tokens or project tokens.
 
@@ -235,7 +277,7 @@ After the relevant gate passes, finish the task without extra dev-server, Tauri 
 - Do not scale font size with viewport width. Reduce gaps, chrome, and nonessential decoration before reducing readability.
 - When extracting responsive Svelte markup into child components, move the matching container-query rules with the DOM they style, or use intentionally scoped global selectors under a stable parent. Do not assume parent component styles will keep applying through child component boundaries.
 - Nested popovers must be viewport-aware. Cap their height, keep triggers visible when practical, and switch large pickers to sheets when popovers cannot fit.
-- For UI changes, add or update pure responsive helper tests when layout decisions are logic-heavy, then run `pnpm -w run validate`.
+- For UI changes, add or update pure responsive helper tests when layout decisions are logic-heavy. Follow the validation policy above when selecting the completion gate. Do not run `pnpm -w run validate` solely because a change affects responsive UI.
 
 ### Project philosophy
 

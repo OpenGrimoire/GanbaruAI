@@ -43,6 +43,17 @@ export const BREAK_FINISHED_ALERT_INTERVAL_SECONDS = 10;
 export const IDLE_CHECK_MIN_INTERVAL_MS = 1_000;
 export const IDLE_CHECK_MAX_INTERVAL_MS = 15_000;
 
+/** Derive a countdown that cannot increase when the wall clock moves backward. */
+export function deriveMonotonicRemainingSeconds(
+  previousRemainingSeconds: number,
+  phaseEndTime: number | null,
+  nowMs: number,
+): number {
+  if (phaseEndTime === null) return Math.max(0, previousRemainingSeconds);
+  const wallRemainingSeconds = Math.max(0, Math.ceil((phaseEndTime - nowMs) / 1000));
+  return Math.min(Math.max(0, previousRemainingSeconds), wallRemainingSeconds);
+}
+
 // Utility functions
 
 export function phaseDurationSeconds(
@@ -182,10 +193,11 @@ export function decideTick(snapshot: TimerSnapshot, nowMs: number): TickResult {
   }
 
   // 3. Compute remaining seconds
-  const remainingSeconds =
-    snapshot.phaseEndTime !== null
-      ? Math.max(0, Math.ceil((snapshot.phaseEndTime - nowMs) / 1000))
-      : snapshot.remainingSeconds;
+  const remainingSeconds = deriveMonotonicRemainingSeconds(
+    snapshot.remainingSeconds,
+    snapshot.phaseEndTime,
+    nowMs,
+  );
 
   // 4. Timer at zero
   if (remainingSeconds <= 0) {

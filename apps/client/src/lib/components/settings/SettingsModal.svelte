@@ -1,36 +1,63 @@
 <script lang="ts">
-  import { onMount, type Component } from "svelte";
+  import { onMount, untrack, type Component } from "svelte";
   import { cn } from "$lib/utils";
-  import Palette from "@lucide/svelte/icons/palette";
-  import CalendarDays from "@lucide/svelte/icons/calendar-days";
-  import GlobeOff from "@lucide/svelte/icons/globe-off";
-  import Info from "@lucide/svelte/icons/info";
-  import Keyboard from "@lucide/svelte/icons/keyboard";
-  import Music from "@lucide/svelte/icons/music";
   import SettingsIcon from "@lucide/svelte/icons/settings";
-  import Timer from "@lucide/svelte/icons/timer";
-  import DownloadCloud from "@lucide/svelte/icons/download-cloud";
-  import HardDrive from "@lucide/svelte/icons/hard-drive";
   import X from "@lucide/svelte/icons/x";
-  import AboutSection from "./AboutSection.svelte";
-  import AppearanceSection from "./AppearanceSection.svelte";
-  import DataSection from "./DataSection.svelte";
   import CalendarScrollbar from "../calendar/CalendarScrollbar.svelte";
-  import FocusSection from "./FocusSection.svelte";
-  import MusicSection from "./MusicSection.svelte";
-  import DoomscrollingSection from "./DoomscrollingSection.svelte";
-  import DoomscrollingLimitEditor from "./DoomscrollingLimitEditor.svelte";
-  import ShortcutsSection from "./ShortcutsSection.svelte";
-  import UpdatesSection from "./UpdatesSection.svelte";
   import { getThemeEditor } from "$lib/stores/themeEditor.svelte";
   import { getViewport } from "$lib/stores/viewport.svelte";
   import { hasOnlyShortcutModifier } from "$lib/keyboard-shortcuts";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import {
+    beginLazyComponentLoad,
+    rejectLazyComponentLoad,
+    resolveLazyComponentLoad,
+    type LazyComponentLoadState,
+  } from "$lib/lazy-component-loader";
+  import {
+    loadSettingsDetail,
+    retrySettingsDetail,
+    type LoadedSettingsDetail,
+  } from "./settings-detail-registry";
   import type {
     DoomscrollingLimitEditorTarget,
     DoomscrollingSettingsTab,
+    NotesTransferOperation,
     SectionId,
+    SettingsDetailKind,
   } from "./types";
+  import { SETTINGS_SECTIONS } from "./settings-sections";
+  import AppearanceSection from "./AppearanceSection.svelte";
+  import ProfileSection from "./ProfileSection.svelte";
+  import CalendarsSection from "./CalendarsSection.svelte";
+  import ProjectsSection from "./ProjectsSection.svelte";
+  import NotesSection from "./NotesSection.svelte";
+  import FocusSection from "./FocusSection.svelte";
+  import MusicSection from "./MusicSection.svelte";
+  import DoomscrollingSection from "./DoomscrollingSection.svelte";
+  import DataSection from "./DataSection.svelte";
+  import UpdatesSection from "./UpdatesSection.svelte";
+  import ShortcutsSection from "./ShortcutsSection.svelte";
+  import AboutSection from "./AboutSection.svelte";
+
+  const SECTION_COMPONENTS = {
+    appearance: AppearanceSection,
+    profile: ProfileSection,
+    calendars: CalendarsSection,
+    projects: ProjectsSection,
+    notes: NotesSection,
+    focus: FocusSection,
+    music: MusicSection,
+    doomscrolling: DoomscrollingSection,
+    data: DataSection,
+    updates: UpdatesSection,
+    shortcuts: ShortcutsSection,
+    about: AboutSection,
+  } satisfies Readonly<Record<SectionId, Component>>;
+
+  type SettingsDetailView =
+    | { kind: "doomscrolling-limit"; target: DoomscrollingLimitEditorTarget }
+    | { kind: "notes-transfer"; operation: NotesTransferOperation };
 
   let {
     onClose,
@@ -52,28 +79,19 @@
     if (themeEditor.editingId) onClose();
   });
 
-  interface SectionMeta {
-    id: SectionId;
-    label: () => string;
-    icon: Component;
-  }
+  const SECTIONS = SETTINGS_SECTIONS;
 
-  // To add a new settings page, add an entry with an icon and a matching
-  // branch in the content switch below.
-  const SECTIONS: SectionMeta[] = [
-    { id: "appearance", label: () => t("settings.section.appearance"), icon: Palette },
-    { id: "calendars", label: () => t("settings.section.calendars"), icon: CalendarDays },
-    { id: "focus", label: () => t("settings.section.focus"), icon: Timer },
-    { id: "music", label: () => t("settings.section.music"), icon: Music },
-    { id: "doomscrolling", label: () => t("settings.section.doomscrolling"), icon: GlobeOff },
-    { id: "data", label: () => t("settings.section.data"), icon: HardDrive },
-    { id: "updates", label: () => t("settings.section.updates"), icon: DownloadCloud },
-    { id: "shortcuts", label: () => t("settings.section.shortcuts"), icon: Keyboard },
-    { id: "about", label: () => t("settings.section.about"), icon: Info },
-  ];
-
-  let activeSection = $state<SectionId>("appearance");
-  let detailView = $state<DoomscrollingLimitEditorTarget | null>(null);
+  const initialActiveSection = untrack(() => initialSection ?? "appearance");
+  let activeSection = $state<SectionId>(initialActiveSection);
+  let detailView = $state<SettingsDetailView | null>(null);
+  let detailLoadState = $state<LazyComponentLoadState<
+    SettingsDetailKind,
+    LoadedSettingsDetail
+  > | null>(null);
+  const activeSectionComponent = $derived(SECTION_COMPONENTS[activeSection]);
+  const activeDetailLoadState = $derived(
+    detailView && detailLoadState?.key === detailView.kind ? detailLoadState : null,
+  );
   let detailScrollEl: HTMLElement | undefined = $state();
   let detailScrollbarInsetTop = $state(0);
   let detailScrollbarInsetBottom = $state(0);
@@ -82,39 +100,40 @@
   const useIconRail = $derived(!useTopNav && viewport.below("regular"));
   const settingsScrollbarInset = $derived(useTopNav ? 12 : useIconRail ? 16 : 24);
   const settingsContentPaddingClass = $derived(useTopNav ? "px-3 py-4" : useIconRail ? "px-5 py-5" : "p-8");
-  type CalendarsSectionComponent = typeof import("./CalendarsSection.svelte").default;
-  let CalendarsSection = $state<CalendarsSectionComponent | null>(null);
-  let loadingCalendarsSection: Promise<void> | null = null;
-
-  function loadCalendarsSection(): Promise<void> {
-    if (CalendarsSection) return Promise.resolve();
-    loadingCalendarsSection ??= import("./CalendarsSection.svelte")
-      .then((module) => {
-        CalendarsSection = module.default;
+  function requestSettingsDetail(kind: SettingsDetailKind, retry = false): void {
+    if (!retry && detailLoadState?.key === kind) return;
+    const loadingState = beginLazyComponentLoad(detailLoadState, kind);
+    detailLoadState = loadingState;
+    const request = retry ? retrySettingsDetail(kind) : loadSettingsDetail(kind);
+    void request
+      .then((component) => {
+        if (!detailLoadState) return;
+        const nextState = resolveLazyComponentLoad(
+          detailLoadState,
+          kind,
+          loadingState.requestId,
+          component,
+        );
+        if (nextState !== detailLoadState) detailLoadState = nextState;
       })
-      .finally(() => {
-        loadingCalendarsSection = null;
+      .catch((error: unknown) => {
+        if (!detailLoadState) return;
+        const nextState = rejectLazyComponentLoad(
+          detailLoadState,
+          kind,
+          loadingState.requestId,
+          error,
+        );
+        if (nextState === detailLoadState) return;
+        detailLoadState = nextState;
+        console.error(`Failed to load ${kind} Settings detail:`, error);
       });
-    return loadingCalendarsSection;
   }
 
-  // Apply the launcher's target section when it is set, including on first
-  // mount. The modal is unmounted/remounted on each open, so this fires at
-  // most once per open and never overrides a subsequent sidebar click (the
-  // prop does not change during the modal's lifetime).
-  $effect.pre(() => {
-    if (initialSection) {
-      activeSection = initialSection;
-      detailView = null;
-      detailScrollEl = undefined;
-      detailScrollbarInsetTop = 0;
-      detailScrollbarInsetBottom = 0;
-    }
-  });
-
-  $effect(() => {
-    if (activeSection === "calendars") void loadCalendarsSection();
-  });
+  function activeSectionLabel(): string {
+    const section = SECTIONS.find((candidate) => candidate.id === activeSection);
+    return section ? t(section.labelKey) : t("settings.title");
+  }
 
   function focusShortcutsSearch(): void {
     const input = document.querySelector<HTMLInputElement>(
@@ -133,6 +152,7 @@
   function selectSection(section: SectionId): void {
     activeSection = section;
     detailView = null;
+    detailLoadState = null;
     detailScrollEl = undefined;
     detailScrollbarInsetTop = 0;
     detailScrollbarInsetBottom = 0;
@@ -141,15 +161,27 @@
 
   function openDoomscrollingLimitEditor(target: DoomscrollingLimitEditorTarget): void {
     activeSection = "doomscrolling";
-    detailView = target;
+    detailView = { kind: "doomscrolling-limit", target };
     detailScrollEl = undefined;
     detailScrollbarInsetTop = 0;
     detailScrollbarInsetBottom = 0;
+    requestSettingsDetail("doomscrolling-limit");
+    scrollSettingsToTop();
+  }
+
+  function openNotesTransferPanel(operation: NotesTransferOperation): void {
+    activeSection = "notes";
+    detailView = { kind: "notes-transfer", operation };
+    detailScrollEl = undefined;
+    detailScrollbarInsetTop = 0;
+    detailScrollbarInsetBottom = 0;
+    requestSettingsDetail("notes-transfer");
     scrollSettingsToTop();
   }
 
   function closeDetailView(): void {
     detailView = null;
+    detailLoadState = null;
     detailScrollEl = undefined;
     detailScrollbarInsetTop = 0;
     detailScrollbarInsetBottom = 0;
@@ -209,6 +241,7 @@
   <div class="absolute inset-0 bg-black/50"></div>
   <div
     data-settings-modal-panel
+    data-settings-section={activeSection}
     class={cn(
       "relative z-10 flex overflow-hidden border border-border bg-card shadow-2xl dark:bg-background",
       useTopNav
@@ -220,7 +253,7 @@
     onclick={(e) => e.stopPropagation()}
   >
     {#if useTopNav}
-      <header class="flex shrink-0 items-center gap-2 border-b border-border bg-background/40 px-2 py-2 dark:bg-black/20">
+      <header class="flex shrink-0 items-center gap-2 border-b border-border/70 bg-background/40 px-2 py-2 dark:bg-black/20">
         <nav class="flex min-w-0 flex-1 gap-1 overflow-x-auto rounded-md bg-card/60 p-0.5 dark:bg-background/60">
           {#each SECTIONS as section}
             {@const Icon = section.icon}
@@ -236,7 +269,7 @@
               )}
             >
               <Icon size={14} strokeWidth={1.75} class="shrink-0" />
-              <span>{section.label()}</span>
+              <span>{t(section.labelKey)}</span>
             </button>
           {/each}
         </nav>
@@ -282,7 +315,7 @@
               onclick={() => {
                 selectSection(section.id);
               }}
-              aria-label={section.label()}
+              aria-label={t(section.labelKey)}
               data-app-tooltip-disabled="true"
               class={cn(
                 "flex items-center rounded-md text-left text-[0.866667rem] font-medium",
@@ -294,7 +327,7 @@
             >
               <Icon size={15} strokeWidth={1.75} class="shrink-0" />
               {#if !useIconRail}
-                <span>{section.label()}</span>
+                <span>{t(section.labelKey)}</span>
               {/if}
             </button>
           {/each}
@@ -316,44 +349,73 @@
         )}
       >
         {#if detailView}
-          <DoomscrollingLimitEditor
-            target={detailView}
-            onDone={closeDetailView}
-            onCancel={closeDetailView}
-            compactLayout={useTopNav}
-            iconRailLayout={useIconRail}
-            onScrollContainerChange={(scrollContainer) => {
-              detailScrollEl = scrollContainer;
-            }}
-            onScrollbarInsetsChange={(insets) => {
-              detailScrollbarInsetTop = insets.top;
-              detailScrollbarInsetBottom = insets.bottom;
-            }}
-          />
-        {:else if activeSection === "appearance"}
-          <AppearanceSection />
-        {:else if activeSection === "calendars"}
-          {#if CalendarsSection}
-            {@const Section = CalendarsSection}
-            <Section />
+          {#if activeDetailLoadState?.status === "ready"}
+            {@const loadedDetail = activeDetailLoadState.component}
+            {#if loadedDetail.kind === "doomscrolling-limit" && detailView.kind === "doomscrolling-limit"}
+              {@const DetailComponent = loadedDetail.component}
+              <DetailComponent
+                target={detailView.target}
+                onDone={closeDetailView}
+                onCancel={closeDetailView}
+                compactLayout={useTopNav}
+                iconRailLayout={useIconRail}
+                onScrollContainerChange={(scrollContainer: HTMLElement | undefined) => {
+                  detailScrollEl = scrollContainer;
+                }}
+                onScrollbarInsetsChange={(insets: { top: number; bottom: number }) => {
+                  detailScrollbarInsetTop = insets.top;
+                  detailScrollbarInsetBottom = insets.bottom;
+                }}
+              />
+            {:else if loadedDetail.kind === "notes-transfer" && detailView.kind === "notes-transfer"}
+              {@const DetailComponent = loadedDetail.component}
+              <DetailComponent
+                operation={detailView.operation}
+                onCancel={closeDetailView}
+                compactLayout={useTopNav}
+                iconRailLayout={useIconRail}
+                onScrollContainerChange={(scrollContainer: HTMLElement | undefined) => {
+                  detailScrollEl = scrollContainer;
+                }}
+                onScrollbarInsetsChange={(insets: { top: number; bottom: number }) => {
+                  detailScrollbarInsetTop = insets.top;
+                  detailScrollbarInsetBottom = insets.bottom;
+                }}
+              />
+            {/if}
+          {:else if activeDetailLoadState?.status === "failed"}
+            {@const failedDetailKind = activeDetailLoadState.key}
+            <div
+              class="flex h-full flex-col items-center justify-center gap-3 p-4 text-center text-sm text-muted-foreground"
+              role="alert"
+            >
+              <p>{t("common.viewLoadFailed", activeSectionLabel())}</p>
+              <button
+                type="button"
+                class="min-h-9 rounded-md border border-border bg-background px-3 font-medium text-foreground hover:bg-accent"
+                onclick={() => requestSettingsDetail(failedDetailKind, true)}
+              >
+                {t("common.retry")}
+              </button>
+            </div>
+          {:else}
+            <div
+              class="flex h-full items-center justify-center p-4 text-sm text-muted-foreground"
+              aria-busy="true"
+            >
+              {t("common.loading")}
+            </div>
           {/if}
-        {:else if activeSection === "focus"}
-          <FocusSection />
-        {:else if activeSection === "music"}
-          <MusicSection />
+        {:else if activeSection === "notes"}
+            <NotesSection onOpenTransferPanel={openNotesTransferPanel} />
         {:else if activeSection === "doomscrolling"}
-          <DoomscrollingSection
-            initialTab={initialDoomscrollingTab}
-            onOpenLimitEditor={openDoomscrollingLimitEditor}
-          />
-        {:else if activeSection === "data"}
-          <DataSection />
-        {:else if activeSection === "updates"}
-          <UpdatesSection />
-        {:else if activeSection === "shortcuts"}
-          <ShortcutsSection />
-        {:else if activeSection === "about"}
-          <AboutSection />
+            <DoomscrollingSection
+              initialTab={initialDoomscrollingTab}
+              onOpenLimitEditor={openDoomscrollingLimitEditor}
+            />
+        {:else}
+          {@const SectionComponent = activeSectionComponent}
+          <SectionComponent />
         {/if}
       </section>
       {#if detailView}

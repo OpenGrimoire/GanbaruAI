@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { CalendarEvent, PomodoroConfig } from "$lib/components/calendar/types";
 import { createPresetPomodoroConfig } from "$lib/pomodoro/rhythm";
-import { selectActivePomodoroBlock } from "./pomodoro-scheduler";
+import {
+  nextPomodoroBlockBoundaryMs,
+  selectActivePomodoroBlock,
+} from "./pomodoro-scheduler";
 
 const config: PomodoroConfig = createPresetPomodoroConfig("adaptive");
 
@@ -100,5 +103,24 @@ describe("selectActivePomodoroBlock", () => {
         },
       ),
     ).toBe(interrupted);
+  });
+
+  it("returns the next Pomodoro start or end boundary without polling", () => {
+    const active = event({
+      id: "active",
+      start: "2026-05-25 10:00",
+      end: "2026-05-25 10:30",
+    });
+    const future = event({
+      id: "future",
+      start: "2026-05-25 10:20",
+      end: "2026-05-25 11:00",
+    });
+
+    expect(nextPomodoroBlockBoundaryMs([active, future], now.getTime())).toBe(
+      new Date(2026, 4, 25, 10, 20).getTime(),
+    );
+    expect(nextPomodoroBlockBoundaryMs([active], new Date(2026, 4, 25, 10, 30).getTime()))
+      .toBeNull();
   });
 });

@@ -52,8 +52,6 @@ function isOneOf<T extends string>(value: unknown, options: readonly T[]): value
 }
 
 function parseProjectViewId(value: unknown, fallback: ProjectSavedTaskView["viewId"]): ProjectSavedTaskView["viewId"] {
-  if (value === "board") return "kanban";
-  if (value === "summary") return "dashboard";
   return isOneOf(value, PROJECT_VIEW_IDS) ? value : fallback;
 }
 

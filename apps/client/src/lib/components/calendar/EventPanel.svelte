@@ -1,11 +1,9 @@
 <script lang="ts">
   import type {
-    CalendarEvent, EventColor, EventStatus, EventSurfaceStatus, EventTransparency, EventVisibility,
-    EventAttendee, EventOrganizer, GeoCoordinates, GuestPermissions, AttendeeStatus,
-    RecurrenceConfig, RecurringScope,
+    CalendarEvent, EventSurfaceStatus, EventTransparency, EventVisibility, RecurringScope,
   } from "./types";
   import MiniDatePicker from "./MiniDatePicker.svelte";
-  import TimePicker, { type TimePickerInputNavigation } from "./TimePicker.svelte";
+  import TimePicker from "./TimePicker.svelte";
   import ColorPicker from "./ColorPicker.svelte";
   import CalendarScrollbar from "./CalendarScrollbar.svelte";
   import MeetingSection from "./MeetingSection.svelte";
@@ -13,7 +11,7 @@
   import NotificationsSection from "./NotificationsSection.svelte";
   import RecurrenceSection from "./RecurrenceSection.svelte";
   import ProjectSelector from "$lib/components/projects/ProjectSelector.svelte";
-  import { onMount, tick, untrack } from "svelte";
+  import { onMount, tick } from "svelte";
   import { slide } from "svelte/transition";
   import { cubicOut } from "svelte/easing";
   import { getTheme } from "$lib/stores/theme.svelte";
@@ -22,60 +20,22 @@
   import { getPreferences } from "$lib/stores/preferences.svelte";
   import { getViewport } from "$lib/stores/viewport.svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
-  import {
-    projectDefaultIdleTimeoutMinutes,
-    projectDefaultPomodoroConfig,
-  } from "$lib/projects/project-default-pomodoro";
   import { cn } from "$lib/utils";
   import { formatShortcut, hasOnlyShortcutModifier, hasShortcutModifier } from "$lib/keyboard-shortcuts";
-  import {
-    commitTimeDraft,
-    displayTimeDraft,
-    projectAllDayDefaultForSelection,
-    projectDefaultEventTitleForSelection,
-    moveRovingIndex,
-    projectDurationDefaultForSelection,
-    restoreTimeDraft,
-    sanitizeTimeDraftInput,
-  } from "./event-panel-utils";
+  import { moveRovingIndex } from "./event-panel-utils";
   import { buildEventPanelInitKey } from "./event-panel-init-key";
-  import { isPanelArrowKey, panelArrowKeyTarget } from "./event-panel-arrow-nav";
-  import { formatCalendarDate, formatTimeLabel } from "./utils";
+  import { panelArrowKeyTarget } from "./event-panel-arrow-nav";
+  import { formatCalendarDate } from "./utils";
+  import { EventPanelGeometryController } from "./event-panel-geometry-controller.svelte";
   import {
-    selectDateRangeEnd,
-    selectDateRangeStart,
-  } from "$lib/calendar/date-range-selection";
+    EventPanelSessionController,
+    eventPanelHeavyLookupId,
+  } from "./event-panel-session-controller.svelte";
   import {
-    EVENT_PANEL_EDGE_MARGIN,
-    EVENT_PANEL_MAX_WIDTH,
-    EVENT_PANEL_TITLE_BAR_HEIGHT,
-    getResponsivePanelWidth,
-    pickEventPanelLayout,
-    type EventPanelLayout,
-  } from "$lib/utils/responsive";
-  import {
-    buildEventPanelStyle,
-    clampFloatingLeft,
-    clampFloatingTop,
-    getAvailablePanelHeight,
-    getPanelHeightLimit,
-    shouldConstrainPanelHeight,
-    type EventPanelGeometryInput,
-  } from "./event-panel-geometry";
-  import {
-    COUNT_PRESET_RHYTHMS,
-    type SequencePomodoroRhythmStep,
-  } from "$lib/pomodoro/rhythm";
-  import {
-    buildEventPanelChangesPayload,
-    buildEventPanelHeavyInitPayload,
-    buildEventPanelPomodoroConfig,
-    buildEventPanelSaveData,
-    collectEventPanelNotifications,
-    hasMeetingState,
-    type EventPanelPayloadInput,
-    type PanelSaveData,
-  } from "./event-panel-payloads";
+    EventPanelActionsController,
+    canRunEventPanelSave,
+  } from "./event-panel-actions-controller.svelte";
+  import type { PanelSaveData } from "./event-panel-payloads";
 
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import Archive from "@lucide/svelte/icons/archive";
@@ -96,12 +56,6 @@
   const localization = getLocalization();
   const { t } = localization;
   const locale = $derived(localization.locale);
-
-  const DEFAULT_PANEL_HEIGHT = 540;
-  const PANEL_MAX_WIDTH = Math.round(EVENT_PANEL_MAX_WIDTH * 1.08);
-  const PANEL_GAP = EVENT_PANEL_EDGE_MARGIN;
-  const TITLE_BAR_HEIGHT = EVENT_PANEL_TITLE_BAR_HEIGHT;
-  const PANEL_HEIGHT_CONSTRAINT_TOLERANCE = 2;
 
   let {
     mode,
@@ -178,58 +132,20 @@
   const generalDisabledAffordance = $derived(parked);
   const startDisabledAffordance = $derived(parked || (lockStartControls && !readOnly));
 
-  // ─── Core fields ────────────────────────────────────────────────
-  let title = $state("");
-  let startTime = $state("");
-  let endTime = $state("");
-  let startTimeDraft = $state("");
-  let endTimeDraft = $state("");
-  let startDate = $state("");
-  let endDate = $state("");
-  let color: EventColor | undefined = $state(undefined);
-  let projectId: string | undefined = $state(undefined);
-  let environmentId: string | undefined = $state(undefined);
-  let playlistId: string | undefined = $state(undefined);
-  let description = $state("");
-  let scope: RecurringScope = $state("this");
-
-  // ─── New fields (import prep) ──────────────────────────────────
-  let allDay = $state(false);
-  let stashedStartTime = "";
-  let stashedEndTime = "";
-  let location = $state("");
-  let eventUrl = $state("");
-  let transparency: EventTransparency = $state("opaque");
-  let eventStatus: EventStatus = $state("confirmed");
-  let visibility: EventVisibility = $state("private");
-
-  // ─── Meeting (attendees + location + url bundle) ────────────────
-  // Persisted flag. When false, Meeting data is retained in memory for
-  // misclick safety but omitted from save/change payloads.
-  let meetingEnabled = $state(false);
-  let attendees: EventAttendee[] = $state([]);
-  let localParticipationStatus: AttendeeStatus | undefined = $state(undefined);
-  let guestCanModify = $state(false);
-  let guestCanInviteOthers = $state(true);
-  let guestCanSeeOtherGuests = $state(true);
-
-  // ─── Read-only imported fields ────────────────────────────────────
-  let organizer: EventOrganizer | undefined = $state(undefined);
-  let geo: GeoCoordinates | undefined = $state(undefined);
-  let rdate: string[] | undefined = $state(undefined);
-
-  // ─── Pomodoro ───────────────────────────────────────────────────
-  let pomodoroEnabled = $state(false);
-  let pomodoroPreset: "adaptive" | "creative" | "balanced" | "deep" | "extended" | "custom" = $state("adaptive");
-  let focusDuration = $state(40);
-  let shortBreak = $state(5);
-  let longBreak = $state(10);
-  let longBreakAfterFocusCount = $state(4);
-  let customRhythmMode: "simple" | "sequence" = $state("simple");
-  let sequenceSteps: SequencePomodoroRhythmStep[] = $state([]);
-  let idleTimeoutEnabled = $state(true);
-  let idleTimeoutMinutesDraft = $state(preferences.focusIdleThresholdMinutes);
-  const timedSectionsVisible = $derived(!allDay);
+  const session = new EventPanelSessionController({
+    projects,
+    controlsDisabled: () => controlsDisabled,
+    lockStartControls: () => lockStartControls,
+    timeFormat: () => preferences.calendarTimeFormat,
+    mode: () => mode,
+    preferences: () => ({
+      idlePauseEnabled: preferences.focusIdlePauseOnEventCreate,
+      idleThresholdMinutes: preferences.focusIdleThresholdMinutes,
+    }),
+    onChange: () => onChange,
+  });
+  const dateTime = session.dateTime;
+  const timedSectionsVisible = $derived(session.timedSectionsVisible);
   const pomodoroControlsDisabled = $derived(
     parked || !timedSectionsVisible || (readOnly && !allowPomodoroWhenReadOnly),
   );
@@ -237,34 +153,9 @@
     readOnly && allowPomodoroWhenReadOnly && !parked && timedSectionsVisible,
   );
 
-  function applyDefaultIdleTimeoutPreference(): void {
-    idleTimeoutEnabled = preferences.focusIdlePauseOnEventCreate;
-    idleTimeoutMinutesDraft = preferences.focusIdleThresholdMinutes;
-  }
-
-  function idleTimeoutMinutesForPayload(): number | null {
-    return idleTimeoutEnabled ? idleTimeoutMinutesDraft : null;
-  }
-
-  function globalFocusIdleDefaults() {
-    return {
-      idlePauseEnabled: preferences.focusIdlePauseOnEventCreate,
-      idleThresholdMinutes: preferences.focusIdleThresholdMinutes,
-    };
-  }
-
-  // ─── Notifications ──────────────────────────────────────────────
-  let notifEnabled = $state(false);
-  let notifSelected = $state(new Set<number>());
-  let customNotifs: { amount: number; unit: number }[] = $state([]);
-
-  // ─── Recurrence ─────────────────────────────────────────────────
-  let recurrence: RecurrenceConfig | undefined = $state(undefined);
-
   // ─── Inline delete confirmation ────────────────────────────────
   // Two-step delete: first click arms, second click confirms. Any other
   // click inside the panel disarms (see panel-root onclick below).
-  let deleteArmed = $state(false);
   let confirmDeleteBtn: HTMLButtonElement | undefined = $state();
   const deleteAction = $derived(event ? deleteActionForCalendarEvent(event) : "delete");
   const deleteActionLabel = $derived(
@@ -275,543 +166,27 @@
         : t("calendar.eventPanel.deleteDelete"),
   );
 
-  // ─── Date pickers ──────────────────────────────────────────────
-  let datepickerOpen = $state(false);
-  let endDatepickerOpen = $state(false);
-  let startDateButton: HTMLButtonElement | undefined = $state();
-  let endDateButton: HTMLButtonElement | undefined = $state();
-
-  async function focusDateButton(target: "start" | "end") {
-    await tick();
-    if (target === "start") startDateButton?.focus();
-    else endDateButton?.focus();
-  }
-
-  function cancelDpDay(source?: "keyboard" | "pointer") {
-    datepickerOpen = false;
-    if (source === "keyboard") void focusDateButton("start");
-  }
-
-  function cancelEdpDay(source?: "keyboard" | "pointer") {
-    endDatepickerOpen = false;
-    if (source === "keyboard") void focusDateButton("end");
-  }
-
-  function selectDpDay(dateStr: string, source?: "keyboard" | "pointer") {
-    if (startControlsDisabled) return;
-    const nextRange = selectDateRangeStart({
-      selectedDate: dateStr,
-      startDate,
-      endDate,
-      fillMissingEndDate: true,
-    });
-    startDate = nextRange.startDate ?? dateStr;
-    endDate = nextRange.endDate ?? dateStr;
-    datepickerOpen = false;
-    emitChange();
-    if (source === "keyboard") void focusDateButton("start");
-  }
-
-  function selectEdpDay(dateStr: string, source?: "keyboard" | "pointer") {
-    if (controlsDisabled) return;
-    const nextRange = selectDateRangeEnd({
-      selectedDate: dateStr,
-      startDate,
-      endDate,
-      fillMissingStartDate: true,
-    });
-    startDate = nextRange.startDate ?? dateStr;
-    endDate = nextRange.endDate ?? dateStr;
-    endDatepickerOpen = false;
-    emitChange();
-    if (source === "keyboard") void focusDateButton("end");
-  }
-
-  function toggleDatepicker(source: "keyboard" | "pointer" = "pointer") {
-    if (startControlsDisabled) return;
-    timePickerTarget = null;
-    timePickerKeyboardOpen = false;
-    endDatepickerOpen = false;
-    datepickerOpen = source === "keyboard" ? true : !datepickerOpen;
-  }
-
-  function toggleEndDatepicker(source: "keyboard" | "pointer" = "pointer") {
-    if (controlsDisabled) return;
-    timePickerTarget = null;
-    timePickerKeyboardOpen = false;
-    datepickerOpen = false;
-    endDatepickerOpen = source === "keyboard" ? true : !endDatepickerOpen;
-  }
-
-  function handleDateButtonKeydown(e: KeyboardEvent, target: "start" | "end") {
-    if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
-    if (e.key === " ") {
-      e.preventDefault();
-      e.stopPropagation();
-      return;
-    }
-    if (e.key !== "Enter") return;
-    e.preventDefault();
-    e.stopPropagation();
-    if (target === "start") toggleDatepicker("keyboard");
-    else toggleEndDatepicker("keyboard");
-  }
-
-  // ─── Time picker ─────────────────────────────────────────────
-  let timePickerTarget: "start" | "end" | null = $state(null);
-  let timePickerKeyboardOpen = $state(false);
-  let startTimeInput: HTMLInputElement | undefined = $state();
-  let endTimeInput: HTMLInputElement | undefined = $state();
-  let startTimeDraftEdited = $state(false);
-  let endTimeDraftEdited = $state(false);
-  let timeInputEditTarget: "start" | "end" | null = $state(null);
-  let timePickerInputNavigation: TimePickerInputNavigation | null = $state(null);
-  let timePickerInputNavigationSequence = 0;
-
-  async function focusTimeInput(target: "start" | "end", moveCaretToEnd = false) {
-    await tick();
-    const input = target === "start" ? startTimeInput : endTimeInput;
-    input?.focus();
-    if (moveCaretToEnd && input) {
-      const end = input.value.length;
-      input.setSelectionRange(end, end);
-    }
-  }
-
-  function closeTimePicker(source?: "keyboard" | "pointer") {
-    const target = timePickerTarget;
-    timePickerTarget = null;
-    timePickerKeyboardOpen = false;
-    if (source === "keyboard" && target) void focusTimeInput(target);
-  }
-
-  function openTimePicker(target: "start" | "end", source: "keyboard" | "pointer" = "pointer") {
-    if (controlsDisabled || (target === "start" && lockStartControls)) return;
-    datepickerOpen = false;
-    endDatepickerOpen = false;
-    timePickerKeyboardOpen = source === "keyboard";
-    timePickerInputNavigation = null;
-    timePickerTarget = target;
-  }
-
-  function setTimeDraft(target: "start" | "end", value: string) {
-    if (target === "start") startTimeDraft = value;
-    else endTimeDraft = value;
-  }
-
-  function setTimeDraftEdited(target: "start" | "end", value: boolean) {
-    if (target === "start") startTimeDraftEdited = value;
-    else endTimeDraftEdited = value;
-  }
-
-  function isTimeDraftEdited(target: "start" | "end"): boolean {
-    return target === "start" ? startTimeDraftEdited : endTimeDraftEdited;
-  }
-
-  function isTimeInputEditing(target: "start" | "end"): boolean {
-    return timeInputEditTarget === target;
-  }
-
-  function isAnyTimeInputEditing(): boolean {
-    return timeInputEditTarget !== null || startTimeDraftEdited || endTimeDraftEdited;
-  }
-
-  function timeInputDisplayValue(target: "start" | "end"): string {
-    const draft = target === "start" ? startTimeDraft : endTimeDraft;
-    const canonical = target === "start" ? startTime : endTime;
-    if (isTimeInputEditing(target) || isTimeDraftEdited(target)) return draft;
-    return formatTimeLabel(canonical || draft, preferences.calendarTimeFormat, "compact");
-  }
-
-  function timeInputMirrorValue(target: "start" | "end"): string {
-    const displayValue = timeInputDisplayValue(target);
-    if (displayValue) return displayValue;
-    return preferences.calendarTimeFormat === "12h" ? "h:mmam" : "HH:MM";
-  }
-
-  function timePickerWidth(isEnd: boolean): string {
-    if (preferences.calendarTimeFormat === "24h") return isEnd ? "124px" : "80px";
-    return isEnd ? "148px" : "98px";
-  }
-
-  function editableTimeDraft(target: "start" | "end"): string {
-    return restoreTimeDraft(target === "start" ? startTime : endTime, preferences.calendarTimeFormat);
-  }
-
-  function enterTimeInputEditMode(target: "start" | "end") {
-    if (timeInputEditTarget !== target && !isTimeDraftEdited(target)) {
-      setTimeDraft(target, editableTimeDraft(target));
-    }
-    timeInputEditTarget = target;
-  }
-
-  function leaveTimeInputEditMode(target?: "start" | "end") {
-    if (!target || timeInputEditTarget === target) timeInputEditTarget = null;
-  }
-
-  function handleTimeDraftInput(e: Event & { currentTarget: HTMLInputElement }, target: "start" | "end") {
-    if (target === "start" && lockStartControls) return;
-    const inputType = "inputType" in e && typeof e.inputType === "string" ? e.inputType : "";
-    const formatShortCompact = inputType !== "insertText" && inputType !== "deleteContentBackward";
-    setTimeDraft(target, displayTimeDraft(e.currentTarget.value, formatShortCompact, preferences.calendarTimeFormat));
-    setTimeDraftEdited(target, true);
-    enterTimeInputEditMode(target);
-    if (timePickerTarget === target) {
-      timePickerTarget = null;
-      timePickerKeyboardOpen = false;
-    }
-  }
-
-  function handleTimeBeforeInput(e: InputEvent) {
-    if (e.inputType !== "insertText") return;
-    const text = e.data ?? "";
-    const allowMeridiem = preferences.calendarTimeFormat === "12h";
-    const sanitized = sanitizeTimeDraftInput(text, allowMeridiem);
-    if (allowMeridiem ? sanitized.length > 0 : sanitized === text) return;
-    e.preventDefault();
-  }
-
-  function syncTimeDrafts() {
-    startTimeDraft = startTime;
-    endTimeDraft = endTime;
-    startTimeDraftEdited = false;
-    endTimeDraftEdited = false;
-    leaveTimeInputEditMode();
-  }
-
-  function commitTimeInput(target: "start" | "end"): boolean {
-    if (target === "start" && lockStartControls) {
-      restoreTimeInput("start");
-      return false;
-    }
-    const previous = target === "start" ? startTime : endTime;
-    const draft = target === "start" ? startTimeDraft : endTimeDraft;
-    const result = commitTimeDraft(draft, previous, preferences.calendarTimeFormat);
-    setTimeDraft(target, result.value);
-    setTimeDraftEdited(target, false);
-    leaveTimeInputEditMode(target);
-    if (!result.committed) return false;
-
-    if (target === "start") startTime = result.value;
-    else endTime = result.value;
-    syncEndDateFromTimes();
-    emitChange();
-    return true;
-  }
-
-  function hasSaveableTimeDraft(): boolean {
-    return endTimeDraftEdited || (!lockStartControls && startTimeDraftEdited);
-  }
-
-  function commitSaveableTimeDrafts(): boolean {
-    let committed = false;
-    if (!lockStartControls && startTimeDraftEdited) {
-      committed = commitTimeInput("start") || committed;
-    }
-    if (endTimeDraftEdited) {
-      committed = commitTimeInput("end") || committed;
-    }
-    return committed;
-  }
-
-  function restoreTimeInput(target: "start" | "end") {
-    setTimeDraft(target, restoreTimeDraft(target === "start" ? startTime : endTime, preferences.calendarTimeFormat));
-    setTimeDraftEdited(target, false);
-    leaveTimeInputEditMode(target);
-  }
-
-  function selectTime(time: string, source?: "keyboard" | "pointer") {
-    if (timePickerTarget === "start" && lockStartControls) {
-      closeTimePicker(source);
-      return;
-    }
-    if (timePickerTarget === "start") {
-      startTime = time;
-      startTimeDraft = time;
-      startTimeDraftEdited = false;
-      leaveTimeInputEditMode("start");
-      syncEndDateFromTimes();
-    } else if (timePickerTarget === "end") {
-      endTime = time;
-      endTimeDraft = time;
-      endTimeDraftEdited = false;
-      leaveTimeInputEditMode("end");
-      syncEndDateFromTimes();
-    }
-    closeTimePicker(source);
-    emitChange();
-  }
-
-  function cancelTimePicker(source?: "keyboard" | "pointer") {
-    closeTimePicker(source);
-  }
-
-  function beginTimeTypingFromPicker(digit: string) {
-    const target = timePickerTarget;
-    if (!target || controlsDisabled || allDay || (target === "start" && lockStartControls)) return;
-    timePickerTarget = null;
-    timePickerKeyboardOpen = false;
-    setTimeDraft(target, displayTimeDraft(digit, false, preferences.calendarTimeFormat));
-    setTimeDraftEdited(target, true);
-    enterTimeInputEditMode(target);
-    void focusTimeInput(target, true);
-  }
-
-  function selectTimeInputText(target: "start" | "end") {
-    const input = target === "start" ? startTimeInput : endTimeInput;
-    input?.select();
-  }
-
-  function handleTimeInputClick(target: "start" | "end") {
-    if (controlsDisabled || (target === "start" && lockStartControls)) return;
-    const input = target === "start" ? startTimeInput : endTimeInput;
-    const shouldSelectAll = timeInputEditTarget !== target || document.activeElement !== input;
-    openTimePicker(target, "pointer");
-    enterTimeInputEditMode(target);
-    if (shouldSelectAll) selectTimeInputText(target);
-  }
-
-  function beginTimeTypingFromNavigation(target: "start" | "end", text: string) {
-    if (target === "start" && lockStartControls) return;
-    const draft = displayTimeDraft(text, false, preferences.calendarTimeFormat);
-    if (!draft) return;
-    if (timePickerTarget === target) {
-      timePickerTarget = null;
-      timePickerKeyboardOpen = false;
-    }
-    setTimeDraft(target, draft);
-    setTimeDraftEdited(target, true);
-    enterTimeInputEditMode(target);
-    void focusTimeInput(target, true);
-  }
-
-  function moveOpenTimePickerFromInput(target: "start" | "end", key: "ArrowUp" | "ArrowDown") {
-    if (target === "start" && lockStartControls) return false;
-    if (timePickerTarget !== target) return false;
-    timePickerKeyboardOpen = true;
-    timePickerInputNavigation = {
-      key,
-      sequence: timePickerInputNavigationSequence + 1,
-    };
-    timePickerInputNavigationSequence += 1;
-    return true;
-  }
-
-  function handleTimeInputKeydown(e: KeyboardEvent, target: "start" | "end") {
-    if (e.key === "Enter" && hasShortcutModifier(e)) return;
-    if ((e.key === "d" || e.key === "D") && hasOnlyShortcutModifier(e)) return;
-
-    if (!e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        e.stopPropagation();
-        const commitOnly = isTimeDraftEdited(target);
-        commitTimeInput(target);
-        if (commitOnly) {
-          if (timePickerTarget === target) closeTimePicker("keyboard");
-          leaveTimeInputEditMode(target);
-          return;
-        }
-        openTimePicker(target, "keyboard");
-        return;
-      }
-      if (e.key === "Escape") {
-        e.preventDefault();
-        e.stopPropagation();
-        restoreTimeInput(target);
-        if (timePickerTarget) closeTimePicker("keyboard");
-        return;
-      }
-      if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
-        if (!isTimeInputEditing(target)) return;
-        if (timePickerTarget === target) {
-          timePickerTarget = null;
-          timePickerKeyboardOpen = false;
-        }
-        e.stopPropagation();
-        return;
-      }
-      if ((e.key === "ArrowUp" || e.key === "ArrowDown") && moveOpenTimePickerFromInput(target, e.key)) {
-        e.preventDefault();
-        e.stopPropagation();
-        return;
-      }
-      if (isPanelArrowKey(e.key)) return;
-      if (/^[\d:]$/.test(e.key) && !isTimeInputEditing(target)) {
-        e.preventDefault();
-        e.stopPropagation();
-        beginTimeTypingFromNavigation(target, e.key);
-        return;
-      }
-    }
-
-    e.stopPropagation();
-  }
-
-  /** When times change, set endDate = startDate + 1 day if end < start, else same day. */
-  function syncEndDateFromTimes() {
-    if (!startDate) return;
-    if (endTime < startTime) {
-      const [y, m, d] = startDate.split("-").map(Number);
-      const next = new Date(y, m - 1, d + 1);
-      endDate = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-${String(next.getDate()).padStart(2, "0")}`;
-    } else {
-      endDate = startDate;
-    }
-  }
-
-  function addMinutesToLocalDateTime(date: string, time: string, minutes: number): { date: string; time: string } | null {
-    if (!date || !time || minutes <= 0) return null;
-    const [year, month, day] = date.split("-").map(Number);
-    const [hour, minute] = time.split(":").map(Number);
-    if (
-      !Number.isInteger(year)
-      || !Number.isInteger(month)
-      || !Number.isInteger(day)
-      || !Number.isInteger(hour)
-      || !Number.isInteger(minute)
-    ) {
-      return null;
-    }
-    const next = new Date(year, month - 1, day, hour, minute + minutes);
-    return {
-      date: `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-${String(next.getDate()).padStart(2, "0")}`,
-      time: `${String(next.getHours()).padStart(2, "0")}:${String(next.getMinutes()).padStart(2, "0")}`,
-    };
-  }
-
-  function applyPomodoroConfigDraft(
-    config: CalendarEvent["pomodoroConfig"],
-    fallbackEnabled: boolean,
-  ): void {
-    pomodoroEnabled = !!config || fallbackEnabled;
-    if (!config) {
-      focusDuration = 40;
-      shortBreak = 5;
-      longBreak = 10;
-      longBreakAfterFocusCount = 4;
-      customRhythmMode = "simple";
-      sequenceSteps = [{ focusDurationMinutes: 40, breakPhase: "short_break", breakDurationMinutes: 5 }];
-      pomodoroPreset = "adaptive";
-      applyDefaultIdleTimeoutPreference();
-      return;
-    }
-
-    pomodoroPreset = config.rhythmSource === "preset" && config.presetKey
-      ? config.presetKey
-      : "custom";
-    if (config.rhythm.kind === "count") {
-      focusDuration = config.rhythm.focusDurationMinutes;
-      shortBreak = config.rhythm.shortBreakMinutes;
-      longBreak = config.rhythm.longBreakMinutes;
-      longBreakAfterFocusCount = config.rhythm.longBreakAfterFocusCount;
-      customRhythmMode = "simple";
-      sequenceSteps = [{
-        focusDurationMinutes: config.rhythm.focusDurationMinutes,
-        breakPhase: "short_break",
-        breakDurationMinutes: config.rhythm.shortBreakMinutes,
-      }];
-    } else {
-      const firstStep = config.rhythm.steps[0] ?? {
-        focusDurationMinutes: COUNT_PRESET_RHYTHMS.adaptive.focusDurationMinutes,
-        breakPhase: "short_break" as const,
-        breakDurationMinutes: COUNT_PRESET_RHYTHMS.adaptive.shortBreakMinutes,
-      };
-      focusDuration = firstStep.focusDurationMinutes;
-      shortBreak = firstStep.breakPhase === "short_break"
-        ? firstStep.breakDurationMinutes
-        : COUNT_PRESET_RHYTHMS.adaptive.shortBreakMinutes;
-      longBreak = firstStep.breakPhase === "long_break"
-        ? firstStep.breakDurationMinutes
-        : COUNT_PRESET_RHYTHMS.adaptive.longBreakMinutes;
-      longBreakAfterFocusCount = config.rhythm.steps.length;
-      customRhythmMode = "sequence";
-      sequenceSteps = config.rhythm.steps.map((step: SequencePomodoroRhythmStep) => ({ ...step }));
-    }
-    idleTimeoutEnabled = config.idleTimeoutMinutes !== null;
-    if (config.idleTimeoutMinutes !== null) {
-      idleTimeoutMinutesDraft = config.idleTimeoutMinutes;
-    } else {
-      idleTimeoutMinutesDraft = preferences.focusIdleThresholdMinutes;
-    }
-  }
-
-  function handleProjectSelect(nextProjectId: string | undefined): void {
-    projectId = nextProjectId;
-    const selectedProject = projects.projectById(nextProjectId);
-    environmentId = selectedProject?.workEnvironmentId;
-    playlistId = selectedProject?.focusPlaylistId;
-    if (selectedProject) {
-      title = projectDefaultEventTitleForSelection({
-        currentTitle: title,
-        defaultEventName: selectedProject.defaultEventName,
-      });
-      color = selectedProject.color;
-      if (projectAllDayDefaultForSelection({
-        mode,
-        allDay,
-        activeEdit: mode === "edit" && lockStartControls,
-        defaultEventTimeMode: selectedProject.defaultEventTimeMode,
-        defaultEventDurationMinutes: selectedProject.defaultEventDurationMinutes,
-      })) {
-        allDay = true;
-        stashedStartTime = startTime;
-        stashedEndTime = endTime;
-        endDate = startDate;
-        startTime = "00:00";
-        endTime = "00:00";
-        syncTimeDrafts();
-      }
-      if (!allDay) {
-        const durationMinutes = projectDurationDefaultForSelection({
-          mode,
-          allDay,
-          activeEdit: mode === "edit" && lockStartControls,
-          defaultEventTimeMode: selectedProject.defaultEventTimeMode,
-          defaultEventDurationMinutes: selectedProject.defaultEventDurationMinutes,
-        });
-        if (durationMinutes !== null) {
-          const nextEnd = addMinutesToLocalDateTime(startDate, startTime, durationMinutes);
-          if (nextEnd) {
-            endDate = nextEnd.date;
-            endTime = nextEnd.time;
-            syncTimeDrafts();
-          }
-        }
-        applyPomodoroConfigDraft(
-          projectDefaultPomodoroConfig(
-            selectedProject,
-            projectDefaultIdleTimeoutMinutes(selectedProject, globalFocusIdleDefaults()),
-          ),
-          false,
-        );
-      }
-    }
-    emitChange();
-  }
+  const handleProjectSelect = (projectId: string | undefined): void => session.handleProjectSelect(projectId);
 
   // ─── Tab system ─────────────────────────────────────────────────
   type Section = "meeting" | "pomodoro" | "notifications" | "repeat" | "music";
   let openSection: Section | null = $state(null);
 
-  const panelWidth = $derived(getResponsivePanelWidth(viewport.width, PANEL_MAX_WIDTH, PANEL_GAP));
-  const panelLayout = $derived.by((): EventPanelLayout => (
-    pickEventPanelLayout({
-      viewport: { width: viewport.width, height: viewport.height },
-      anchor,
-      panelWidth: PANEL_MAX_WIDTH,
-      edgeMargin: PANEL_GAP,
-      titleBarHeight: TITLE_BAR_HEIGHT,
-    })
-  ));
-  const panelCanDrag = $derived(panelLayout === "anchored" || panelLayout === "centered");
-  const stackedDateTime = $derived(panelWidth < 300);
+  const geometry = new EventPanelGeometryController({
+    anchor: () => anchor,
+    parked: () => parked,
+    viewport: () => ({ width: viewport.width, height: viewport.height }),
+  });
+  const panelWidth = $derived(geometry.width);
+  const panelLayout = $derived(geometry.layout);
+  const panelCanDrag = $derived(geometry.canDrag);
+  const stackedDateTime = $derived(geometry.stackedDateTime);
 
   function isSectionEnabled(s: Section): boolean {
-    if (s === "meeting") return meetingEnabled;
-    if (s === "pomodoro") return pomodoroEnabled;
-    if (s === "notifications") return notifEnabled;
-    if (s === "repeat") return !!recurrence;
+    if (s === "meeting") return session.meetingEnabled;
+    if (s === "pomodoro") return session.pomodoroEnabled;
+    if (s === "notifications") return session.notifEnabled;
+    if (s === "repeat") return !!session.recurrence;
     return false;
   }
 
@@ -827,19 +202,38 @@
     if (enabled) {
       // Disable: keep the meeting data in memory so a misclick is recoverable.
       // Save is what actually commits the erasure (buildSaveData gates on the flag).
-      if (s === "meeting") meetingEnabled = false;
-      if (s === "pomodoro") pomodoroEnabled = false;
-      if (s === "notifications") { notifEnabled = false; notifSelected = new Set(); customNotifs = []; }
-      if (s === "repeat") recurrence = undefined;
+      if (s === "meeting") session.meetingEnabled = false;
+      if (s === "pomodoro") session.pomodoroEnabled = false;
+      if (s === "notifications") {
+        session.notifEnabled = false;
+        session.notifSelected = new Set();
+        session.customNotifs = [];
+      }
+      if (s === "repeat") session.recurrence = undefined;
       if (openSection === s) openSection = null;
     } else {
       // Enable with defaults
-      if (s === "meeting") { meetingEnabled = true; emitChange(); handleExpand("meeting"); return; }
-      if (s === "pomodoro") { pomodoroEnabled = true; pomodoroPreset = "adaptive"; focusDuration = 40; shortBreak = 5; longBreak = 10; applyDefaultIdleTimeoutPreference(); }
-      if (s === "notifications") { notifEnabled = true; notifSelected = new Set([0]); }
-      if (s === "repeat") recurrence = { frequency: "daily", interval: 1, end: { type: "never" } };
+      if (s === "meeting") {
+        session.meetingEnabled = true;
+        session.emitChange();
+        handleExpand("meeting");
+        return;
+      }
+      if (s === "pomodoro") {
+        session.pomodoroEnabled = true;
+        session.pomodoroPreset = "adaptive";
+        session.focusDuration = 40;
+        session.shortBreak = 5;
+        session.longBreak = 10;
+        session.applyDefaultIdleTimeoutPreference();
+      }
+      if (s === "notifications") {
+        session.notifEnabled = true;
+        session.notifSelected = new Set([0]);
+      }
+      if (s === "repeat") session.recurrence = { frequency: "daily", interval: 1, end: { type: "never" } };
     }
-    emitChange();
+    session.emitChange();
   }
 
   function canExpandSection(s: Section): boolean {
@@ -853,80 +247,22 @@
     if (!canExpandSection(s)) return;
     const canMutate = s === "pomodoro" ? !pomodoroControlsDisabled : !controlsDisabled;
     // Auto-activate repeat when expanding for the first time.
-    if (canMutate && s === "repeat" && !recurrence && openSection !== s) {
-      recurrence = { frequency: "daily", interval: 1, end: { type: "never" } };
-      emitChange();
+    if (canMutate && s === "repeat" && !session.recurrence && openSection !== s) {
+      session.recurrence = { frequency: "daily", interval: 1, end: { type: "never" } };
+      session.emitChange();
     }
     // Auto-activate meeting when expanding from a disabled state.
-    if (canMutate && s === "meeting" && !meetingEnabled && openSection !== s) {
-      meetingEnabled = true;
-      emitChange();
+    if (canMutate && s === "meeting" && !session.meetingEnabled && openSection !== s) {
+      session.meetingEnabled = true;
+      session.emitChange();
     }
     const opening = openSection !== s;
     openSection = opening ? s : null;
-    if (opening && panelEl && panelCanDrag) {
-      // Decide pinning direction only when opening
-      const rect = panelEl.getBoundingClientRect();
-      const vh = viewport.height;
-      const roomBelow = vh - PANEL_GAP - rect.bottom;
-      const roomAbove = rect.top - minTop;
-      // Pin bottom when there's less room below, so panel expands upward
-      if (roomBelow < roomAbove) {
-        pinnedBottom = rect.bottom;
-        pinnedDragY = dragOffset.y;
-      } else {
-        pinnedBottom = 0;
-      }
-    } else if (opening) {
-      pinnedBottom = 0;
-    } else if (!opening && pinnedBottom > 0) {
-      // Closing: keep the same pinning from open, release after animation.
-      // Bake the rendered position into baseTop so rawTop matches after clearing.
-      setTimeout(() => {
-        if (pinnedBottom > 0 && panelEl) {
-          baseTop = panelEl.getBoundingClientRect().top - dragOffset.y;
-        }
-        pinnedBottom = 0;
-      }, 200);
-    }
+    geometry.updateSectionPin(opening);
   }
 
   // ─── Panel positioning & drag ───────────────────────────────────
   let titleInput: HTMLInputElement | undefined = $state();
-  let panelEl: HTMLDivElement | undefined = $state();
-  let eventPanelScrollEl: HTMLDivElement | undefined = $state();
-  let eventPanelContentEl: HTMLDivElement | undefined = $state();
-  let panelHeight = $state(0);
-  let panelPositionReady = $state(false);
-  let pinnedBottom = $state(0);
-  let pinnedDragY = 0;
-  let dragOffset = $state({ x: 0, y: 0 });
-  let isDragging = $state(false);
-  let userDragged = false;
-  let dragStart = { x: 0, y: 0 };
-  let baseLeft = $state(0);
-  let baseTop = $state(0);
-  const minTop = TITLE_BAR_HEIGHT + PANEL_GAP;
-
-  function currentGeometryInput(): EventPanelGeometryInput {
-    return {
-      baseLeft,
-      baseTop,
-      defaultPanelHeight: DEFAULT_PANEL_HEIGHT,
-      dragOffset,
-      gap: PANEL_GAP,
-      heightConstraintTolerance: PANEL_HEIGHT_CONSTRAINT_TOLERANCE,
-      layout: panelLayout,
-      minTop,
-      panelHeight,
-      pinnedBottom,
-      pinnedDragY,
-      titleBarHeight: TITLE_BAR_HEIGHT,
-      viewportHeight: viewport.height,
-      viewportWidth: viewport.width,
-      width: panelWidth,
-    };
-  }
 
   const isRecurring = $derived(
     mode === "edit" && recurringScopeEnabled,
@@ -937,21 +273,7 @@
   // so the panel paints meeting details, visibility, and description in its
   // first stable render. The async `loadFullEvent` path remains as a fallback
   // for callers that still hand over a slim event.
-  let lastInitKey = "";
-  let lastFullKey = "";
-  let lastHeavyAppliedKey = "";
-  let initialized = $state(false);
-  let fullEvent = $state<CalendarEvent | null>(null);
-  let savePending = $state(false);
-  const showHeavySections = $derived(mode === "create" || detailsLoaded || fullEvent);
-
-  function resetExitAnimation() {
-    const el = panelEl;
-    if (!el) return;
-    for (const animation of el.getAnimations()) {
-      animation.cancel();
-    }
-  }
+  const showHeavySections = $derived(mode === "create" || detailsLoaded || session.fullEvent);
 
   // Trigger the heavy-field fetch whenever a different event opens. The
   // resolver checks `lastFullKey` again at completion so a stale promise
@@ -959,17 +281,15 @@
   // current panel.
   $effect(() => {
     if (parked || mode !== "edit" || !event?.id || detailsLoaded || !loadFullEvent) {
-      fullEvent = null;
-      lastFullKey = "";
+      session.cancelHeavyLoad();
       return;
     }
     const id = event.id;
-    if (id === lastFullKey) return;
-    lastFullKey = id;
-    fullEvent = null;
-    const lookupId = event.recurringParentId ?? id;
+    if (id === session.lastFullKey) return;
+    const request = session.beginHeavyLoad(id);
+    const lookupId = eventPanelHeavyLookupId(event);
     loadFullEvent(lookupId).then((full) => {
-      if (lastFullKey === id && full) fullEvent = full;
+      if (full) session.completeHeavyLoad(request, full);
     }).catch((e) => {
       console.error("[EventPanel] loadFullEvent failed:", e);
     });
@@ -982,119 +302,21 @@
       panelSessionKey,
       eventId: event?.id,
     });
-    if (key === lastInitKey) return;
-    lastInitKey = key;
-    lastHeavyAppliedKey = "";
-    resetExitAnimation();
-    savePending = false;
-    deleteArmed = false;
-    initialized = false;
-    panelHeight = 0;
-    panelPositionReady = parked;
+    if (!session.beginInitialization(key)) return;
+    geometry.resetExitAnimation();
+    actions.reset();
+    geometry.resetForSession(parked);
 
     if (mode === "edit" && event) {
-      title = event.title;
-      startDate = event.start.split(" ")[0] ?? "";
-      startTime = event.start.split(" ")[1] ?? "";
-      endDate = event.end.split(" ")[0] ?? "";
-      endTime = event.end.split(" ")[1] ?? "";
-      syncTimeDrafts();
-      color = event.color;
-      projectId = event.projectId;
-      environmentId = event.environmentId;
-      playlistId = event.playlistId;
-      recurrence = event.recurrence ? { ...event.recurrence } : undefined;
-      allDay = event.allDay ?? false;
-      stashedStartTime = "";
-      stashedEndTime = "";
-      location = event.location ?? "";
-      transparency = event.transparency ?? "opaque";
-      eventStatus = event.status ?? "confirmed";
-      rdate = event.rdate;
-      description = event.description ?? "";
-      eventUrl = event.url ?? "";
-      visibility = event.visibility ?? "public";
-      organizer = event.organizer;
-      attendees = event.attendees ? [...event.attendees] : [];
-      localParticipationStatus = event.localParticipationStatus;
-      guestCanModify = event.guestPermissions?.canModify ?? false;
-      guestCanInviteOthers = event.guestPermissions?.canInviteOthers ?? true;
-      guestCanSeeOtherGuests = event.guestPermissions?.canSeeOtherGuests ?? true;
-      geo = event.geo;
-      meetingEnabled = hasMeetingState(event);
-
-      applyPomodoroConfigDraft(event.pomodoroConfig, false);
-
-      const notifs = event.notifications;
-      notifEnabled = !!notifs && notifs.length > 0;
-      notifSelected = new Set<number>();
-      customNotifs = [];
-      if (notifs) {
-        const presetValues = new Set([0, 5, 10, 30, 60, 1440]);
-        const customUnitsDesc = [10080, 1440, 60, 1]; // weeks, days, hours, minutes
-        for (const m of notifs) {
-          if (presetValues.has(m)) notifSelected.add(m);
-          else {
-            let found = false;
-            for (const u of customUnitsDesc) {
-              if (m > 0 && m % u === 0 && customNotifs.length < 2) {
-                customNotifs = [...customNotifs, { amount: m / u, unit: u }];
-                found = true;
-                break;
-              }
-            }
-            if (!found && customNotifs.length < 2) customNotifs = [...customNotifs, { amount: m, unit: 1 }];
-          }
-        }
-      }
-
+      session.initializeEdit(event);
     } else if (mode === "create") {
       const createData = initialCreateData ?? {};
-      const initialStart = createData.start ?? start ?? "";
-      const initialEnd = createData.end ?? end ?? "";
-      title = createData.title ?? "";
-      startDate = initialStart.split(" ")[0] ?? "";
-      startTime = initialStart.split(" ")[1] ?? "";
-      endDate = initialEnd.split(" ")[0] ?? "";
-      endTime = initialEnd.split(" ")[1] ?? "";
-      syncTimeDrafts();
-      color = createData.color;
-      projectId = createData.projectId;
-      environmentId = createData.environmentId;
-      playlistId = createData.playlistId;
-      description = createData.description ?? "";
-      recurrence = createData.recurrence ? { ...createData.recurrence } : undefined;
-      applyPomodoroConfigDraft(createData.pomodoroConfig, true);
-      notifEnabled = createData.notifications !== undefined ? createData.notifications.length > 0 : true;
-      notifSelected = new Set(createData.notifications ?? [0]);
-      customNotifs = [];
-      allDay = createData.allDay ?? initialAllDay;
-      stashedStartTime = "";
-      stashedEndTime = "";
-      location = createData.location ?? "";
-      eventUrl = createData.url ?? "";
-      transparency = createData.transparency ?? "opaque";
-      eventStatus = createData.status ?? "confirmed";
-      visibility = createData.visibility ?? "private";
-      organizer = undefined;
-      attendees = createData.attendees ? [...createData.attendees] : [];
-      localParticipationStatus = createData.localParticipationStatus;
-      guestCanModify = false;
-      guestCanInviteOthers = true;
-      guestCanSeeOtherGuests = true;
-      geo = undefined;
-      rdate = undefined;
-      meetingEnabled = false;
+      session.initializeCreate(createData, start ?? "", end ?? "", initialAllDay);
     }
 
-    datepickerOpen = false;
-    endDatepickerOpen = false;
-    timePickerTarget = null;
-    timePickerKeyboardOpen = false;
+    dateTime.resetInteraction();
     openSection = null;
-    scope = "this";
-    dragOffset = { x: 0, y: 0 };
-    userDragged = false;
+    session.scope = "this";
 
     // Sync the panel's initial field values so the session baseline exactly
     // matches what the user sees. This must not mark the session dirty: the
@@ -1103,14 +325,14 @@
     // clean session, and the panel can be closed silently (no "Discard
     // unsaved changes?" prompt).
     if (!parked && !initialSyncSeeded) {
-      (onInitialSync ?? onChange)?.(buildChangesPayload());
+      (onInitialSync ?? onChange)?.(session.changesPayload());
     }
-    initialized = true;
+    session.initialized = true;
 
     if (!parked && mode === "create") {
       const selectKey = key;
       tick().then(() => {
-        if (lastInitKey === selectKey && !parked && mode === "create") {
+        if (session.lastInitKey === selectKey && !parked && mode === "create") {
           titleInput?.select();
         }
       });
@@ -1119,8 +341,8 @@
     if (!parked) {
       const measureKey = key;
       tick().then(() => {
-        if (lastInitKey === measureKey && !parked) {
-          measurePanelNaturalHeight();
+        if (session.lastInitKey === measureKey && !parked) {
+          geometry.measureNaturalHeight();
         }
       });
     }
@@ -1133,36 +355,19 @@
   // the user cannot have edited any of them before this runs, so overwriting
   // their state is safe.
   $effect(() => {
-    if (detailsLoaded || !fullEvent) return;
+    if (detailsLoaded || !session.fullEvent) return;
     if (mode !== "edit") return;
-    if (fullEvent.id === lastHeavyAppliedKey) return;
-    lastHeavyAppliedKey = fullEvent.id;
-
-    description = fullEvent.description ?? "";
-    projectId = fullEvent.projectId;
-    environmentId = fullEvent.environmentId;
-    playlistId = fullEvent.playlistId;
-    eventUrl = fullEvent.url ?? "";
-    visibility = fullEvent.visibility ?? "public";
-    organizer = fullEvent.organizer;
-    attendees = fullEvent.attendees ? [...fullEvent.attendees] : [];
-    localParticipationStatus = fullEvent.localParticipationStatus;
-    guestCanModify = fullEvent.guestPermissions?.canModify ?? false;
-    guestCanInviteOthers = fullEvent.guestPermissions?.canInviteOthers ?? true;
-    guestCanSeeOtherGuests = fullEvent.guestPermissions?.canSeeOtherGuests ?? true;
-    geo = fullEvent.geo;
-    meetingEnabled = hasMeetingState(fullEvent);
-
-    (onInitialSync ?? onChange)?.(buildHeavyInitPayload());
+    if (session.fullEvent.id === session.lastHeavyAppliedKey) return;
+    session.lastHeavyAppliedKey = session.fullEvent.id;
+    (onInitialSync ?? onChange)?.(session.heavyPayload());
   });
 
   $effect(() => {
     if (!lockStartControls) return;
-    datepickerOpen = false;
-    if (timePickerTarget === "start") {
-      timePickerTarget = null;
-      timePickerKeyboardOpen = false;
-      restoreTimeInput("start");
+    dateTime.datepickerOpen = false;
+    if (dateTime.timePickerTarget === "start") {
+      dateTime.closeTimePicker();
+      dateTime.restoreTimeInput("start");
     }
   });
 
@@ -1171,100 +376,12 @@
   // have edited in the panel. The session's diff-based dirty tracking handles
   // revert-to-original automatically.
   $effect(() => {
-    if (isAnyTimeInputEditing()) return;
+    if (dateTime.isEditing) return;
     if (mode === "edit" && event) {
-      startDate = event.start.split(" ")[0] ?? "";
-      startTime = event.start.split(" ")[1] ?? "";
-      endDate = event.end.split(" ")[0] ?? "";
-      endTime = event.end.split(" ")[1] ?? "";
-      syncTimeDrafts();
+      session.syncExternalTimes(event.start, event.end);
     } else if (mode === "create") {
-      startDate = (start ?? "").split(" ")[0] ?? "";
-      startTime = (start ?? "").split(" ")[1] ?? "";
-      endDate = (end ?? "").split(" ")[0] ?? "";
-      endTime = (end ?? "").split(" ")[1] ?? "";
-      syncTimeDrafts();
+      session.syncExternalTimes(start ?? "", end ?? "");
     }
-  });
-
-  function measurePanelNaturalHeight() {
-    const panel = panelEl;
-    if (!panel) return;
-
-    const renderedHeight = panel.offsetHeight;
-    let naturalHeight = panel.scrollHeight;
-
-    if (eventPanelScrollEl) {
-      const panelRect = panel.getBoundingClientRect();
-      const scrollRect = eventPanelScrollEl.getBoundingClientRect();
-      const chromeHeight = Math.max(0, panelRect.height - scrollRect.height);
-      naturalHeight = Math.max(naturalHeight, chromeHeight + eventPanelScrollEl.scrollHeight);
-    }
-
-    panelHeight = Math.ceil(Math.max(renderedHeight, naturalHeight));
-  }
-
-  // Track natural panel height so scrolling starts only when the panel
-  // cannot fit in the usable viewport height.
-  $effect(() => {
-    const panel = panelEl;
-    if (!panel) return;
-
-    const observer = new ResizeObserver(measurePanelNaturalHeight);
-    observer.observe(panel);
-    if (eventPanelScrollEl) observer.observe(eventPanelScrollEl);
-    if (eventPanelContentEl) observer.observe(eventPanelContentEl);
-    void tick().then(measurePanelNaturalHeight);
-
-    return () => observer.disconnect();
-  });
-
-
-  // Pin base position when anchor changes. A newly opened panel waits for
-  // its first real height measurement before becoming visible, then later
-  // height changes from expanding sections do not reposition the panel.
-  // Skip repositioning if the user has manually dragged the panel.
-  $effect(() => {
-    const _a = anchor;
-    const layout = panelLayout;
-    const width = panelWidth;
-    const vw = viewport.width;
-    const vh = viewport.height;
-    const panel = panelEl;
-    const ph = panelPositionReady ? untrack(() => panelHeight) : panelHeight;
-    if (!panel || ph <= 0) {
-      if (!parked) panelPositionReady = false;
-      return;
-    }
-    if (!panelCanDrag) {
-      dragOffset = { x: 0, y: 0 };
-      pinnedBottom = 0;
-      userDragged = false;
-      panelPositionReady = true;
-      return;
-    }
-    if (userDragged) return;
-    const availableHeight = getAvailablePanelHeight(vh, TITLE_BAR_HEIGHT, PANEL_GAP);
-    const visibleHeight = Math.min(ph, availableHeight);
-
-    let left: number;
-    if (layout === "centered") {
-      left = Math.round((vw - width) / 2);
-    } else {
-      const anchorLeft = _a.x - _a.width;
-      const requiredSideSpace = width + PANEL_GAP * 2;
-      const rightSpace = vw - _a.x;
-      if (anchorLeft >= requiredSideSpace) left = anchorLeft - PANEL_GAP - width;
-      else if (rightSpace >= requiredSideSpace) left = _a.x + PANEL_GAP;
-      else left = Math.round((vw - width) / 2);
-    }
-
-    const top = layout === "centered" ? Math.round((vh - visibleHeight) / 2) : _a.y;
-
-    baseLeft = clampFloatingLeft(left, vw, width, PANEL_GAP);
-    baseTop = clampFloatingTop(top, vh, visibleHeight, minTop, PANEL_GAP);
-    dragOffset = { x: 0, y: 0 };
-    panelPositionReady = true;
   });
 
   // ─── Dirty tracking ────────────────────────────────────────────
@@ -1272,18 +389,11 @@
   // In edit mode it tracks the session's diff-based dirty flag so that
   // reverting all edits back to the original values disables the button
   // again, matching the click-outside cancellation behavior.
-  const saveReady = $derived(mode === "create" || externalDirty || hasSaveableTimeDraft());
+  const saveReady = $derived(mode === "create" || externalDirty || dateTime.hasSaveableTimeDraft);
   const saveControlsDisabled = $derived(
-    (controlsDisabled && !pomodoroReadOnlyInteractive) || savePending || !saveReady,
+    (controlsDisabled && !pomodoroReadOnlyInteractive) || session.savePending || !saveReady,
   );
-  const eventPanelBodyConstrained = $derived.by(() => (
-    panelLayout === "fullscreen"
-    || shouldConstrainPanelHeight(
-      panelHeight,
-      getPanelHeightLimit(currentGeometryInput()),
-      PANEL_HEIGHT_CONSTRAINT_TOLERANCE,
-    )
-  ));
+  const eventPanelBodyConstrained = $derived(geometry.bodyConstrained);
 
   // ─── Emit changes ───────────────────────────────────────────────
   /**
@@ -1293,10 +403,6 @@
    * what lets the session compare the two sides field-by-field and
    * detect revert-to-original without false positives.
    */
-  function buildChangesPayload(): Partial<CalendarEvent> {
-    return buildEventPanelChangesPayload(currentPayloadInput());
-  }
-
   /**
    * Initial sync payload restricted to the keys that arrive with the full
    * event row. The heavy sections are gated on `fullEvent`, so by the time
@@ -1305,181 +411,102 @@
    * flip dirty. Slim keys are deliberately omitted so they don't overwrite
    * an in-progress slim edit that happened during the load window.
    */
-  function buildHeavyInitPayload(): Partial<CalendarEvent> {
-    return buildEventPanelHeavyInitPayload(currentPayloadInput());
-  }
-
-  function emitChange() {
-    // Auto-adjust endDate when times are manually typed
-    if (startDate && startTime && endTime && endDate === startDate && endTime < startTime) {
-      syncEndDateFromTimes();
-    }
-    onChange?.(buildChangesPayload());
-  }
-
   // ─── Panel position ─────────────────────────────────────────────
   // When a section is expanded, the panel's bottom edge is pinned at
   // its pre-expansion position so it only grows upward. Otherwise the
   // top is pinned and the panel grows downward, nudging up only if
   // it would overflow the viewport.
-  const panelStyle = $derived(buildEventPanelStyle(currentGeometryInput()));
-  const parkedPanelStyle = $derived(
-    `position:fixed; left:-10000px; top:-10000px; width:${Math.round(panelWidth)}px; z-index:-1; pointer-events:none;`,
-  );
+  const panelStyle = $derived(geometry.style);
+  const parkedPanelStyle = $derived(geometry.parkedStyle);
 
 
   const shortDate = $derived.by(() => {
-    if (!startDate) return "";
-    const [y, m, d] = startDate.split("-").map(Number);
+    if (!session.startDate) return "";
+    const [y, m, d] = session.startDate.split("-").map(Number);
     const dt = new Date(y, m - 1, d);
     return dt.toLocaleDateString(locale, { weekday: "short", month: "short", day: "numeric" });
   });
 
-  const isCrossMidnight = $derived(endDate !== "" && endDate !== startDate);
+  const isCrossMidnight = $derived(
+    session.endDate !== "" && session.endDate !== session.startDate,
+  );
 
   const shortEndDate = $derived.by(() => {
-    if (!endDate) return "";
-    const [y, m, d] = endDate.split("-").map(Number);
+    if (!session.endDate) return "";
+    const [y, m, d] = session.endDate.split("-").map(Number);
     const dt = new Date(y, m - 1, d);
     return dt.toLocaleDateString(locale, { weekday: "short", month: "short", day: "numeric" });
   });
 
   // ─── Build data and handlers ────────────────────────────────────
-  function buildSaveData(): PanelSaveData {
-    return buildEventPanelSaveData(currentPayloadInput());
-  }
-
-  function currentPayloadInput(): EventPanelPayloadInput {
-    return {
-      title,
-      startDate,
-      startTime,
-      endDate,
-      endTime,
-      color,
-      projectId,
-      linkedTaskIds: [],
-      environmentId,
-      playlistId,
-      description,
-      recurrence,
-      notifications: collectEventPanelNotifications({
-        enabled: notifEnabled,
-        selected: notifSelected,
-        custom: customNotifs,
-      }),
-      pomodoroConfig: buildEventPanelPomodoroConfig({
-        allDay,
-        enabled: pomodoroEnabled,
-        preset: pomodoroPreset,
-        customRhythmMode,
-        sequenceSteps,
-        focusDurationMinutes: focusDuration,
-        shortBreakMinutes: shortBreak,
-        longBreakMinutes: longBreak,
-        longBreakAfterFocusCount,
-        idleTimeoutMinutes: idleTimeoutMinutesForPayload(),
-      }),
-      allDay,
-      meetingEnabled,
-      location,
-      eventUrl,
-      transparency,
-      eventStatus,
-      visibility,
-      attendees,
-      localParticipationStatus,
-      guestCanModify,
-      guestCanInviteOthers,
-      guestCanSeeOtherGuests,
-    };
-  }
-
   async function handleSave() {
-    if (parked) return;
-    if (controlsDisabled && !pomodoroReadOnlyInteractive) return;
-    if (savePending) return;
-    const hadSaveableTimeDraft = hasSaveableTimeDraft();
-    const committedTimeDraft = commitSaveableTimeDrafts();
+    if (!canRunEventPanelSave({
+      parked,
+      controlsDisabled,
+      pomodoroReadOnlyInteractive,
+      savePending: session.savePending,
+    })) return;
+    const hadSaveableTimeDraft = dateTime.hasSaveableTimeDraft;
+    const committedTimeDraft = dateTime.commitSaveableTimeDrafts();
     if (!externalDirty && mode !== "create" && (!hadSaveableTimeDraft || !committedTimeDraft)) return;
-    const data = buildSaveData();
-    const s = isRecurring ? scope : undefined;
-    savePending = true;
+    const data = session.saveData();
+    const s = isRecurring ? session.scope : undefined;
+    session.savePending = true;
     try {
       await onSave(data, s);
     } finally {
-      savePending = false;
+      session.savePending = false;
     }
   }
   function handleDeleteClick() {
     if (deleteControlsDisabled) return;
-    if (!parked && event && onDelete) onDelete(event.id, isRecurring ? scope : undefined);
+    if (!parked && event && onDelete) onDelete(event.id, isRecurring ? session.scope : undefined);
   }
 
   function handleEndEventClick() {
     if (deleteControlsDisabled || !onEndEvent) return;
     const data: PanelSaveData = {
-      ...buildSaveData(),
+      ...session.saveData(),
       end: formatCalendarDate(new Date()),
     };
-    deleteArmed = false;
-    onEndEvent(data, isRecurring ? scope : undefined);
+    actions.reset();
+    onEndEvent(data, isRecurring ? session.scope : undefined);
   }
 
-  function confirmArmedDelete() {
-    if (!deleteArmed) return false;
-    deleteArmed = false;
-    if (endEventAction) handleEndEventClick();
-    else handleDeleteClick();
-    return true;
-  }
-
-  function armOrConfirmDelete() {
-    if (mode !== "edit" || !event || (!onDelete && !onEndEvent)) return;
-    if (deleteControlsDisabled) return;
-    if (endEventAction) {
-      if (!inlineEndEventConfirm) {
-        handleEndEventClick();
-        return;
-      }
-      if (!confirmArmedDelete()) deleteArmed = true;
-      return;
-    }
-    // For deletes that would stop the active pomodoro session, skip the
-    // inline arm step and go straight to delete. The parent will show a
-    // modal that acts as the confirmation.
-    if (skipInlineDeleteConfirm) {
-      deleteArmed = false;
-      handleDeleteClick();
-      return;
-    }
-    if (!confirmArmedDelete()) deleteArmed = true;
-  }
+  const actions = new EventPanelActionsController({
+    parked: () => parked,
+    canDelete: () => !deleteControlsDisabled,
+    hasDeleteTarget: () => mode === "edit" && !!event && !!(onDelete || onEndEvent),
+    endEventAction: () => endEventAction,
+    inlineEndEventConfirm: () => inlineEndEventConfirm,
+    skipInlineDeleteConfirm: () => skipInlineDeleteConfirm,
+    save: () => { void handleSave(); },
+    delete: handleDeleteClick,
+    endEvent: handleEndEventClick,
+  });
 
   function handlePanelClick(e: MouseEvent) {
     if (parked) return;
     e.stopPropagation();
     // Disarm the inline delete confirmation if the click landed outside the
     // confirm button. The confirm button handles its own disarm on click.
-    if (deleteArmed && confirmDeleteBtn && !confirmDeleteBtn.contains(e.target as Node)) {
-      deleteArmed = false;
-    }
+    actions.disarmOutsideConfirm(!!confirmDeleteBtn?.contains(e.target as Node));
   }
 
   function focusPanelArrowTarget(target: HTMLElement) {
     target.focus();
 
-    if (target === startTimeInput) {
-      leaveTimeInputEditMode("start");
-      startTimeInput.select();
-    } else if (target === endTimeInput) {
-      leaveTimeInputEditMode("end");
-      endTimeInput.select();
+    if (target === dateTime.startTimeInput) {
+      dateTime.leaveTimeInputEditMode("start");
+      dateTime.startTimeInput?.select();
+    } else if (target === dateTime.endTimeInput) {
+      dateTime.leaveTimeInputEditMode("end");
+      dateTime.endTimeInput?.select();
     }
   }
 
   function handlePanelArrowKeydown(e: KeyboardEvent) {
-    const next = panelArrowKeyTarget(e, panelEl, parked);
+    const next = panelArrowKeyTarget(e, geometry.panelEl, parked);
     if (!next) return;
 
     e.preventDefault();
@@ -1526,7 +553,7 @@
 
   function startTimeShellStateClass(): string {
     if (!startControlsDisabled) {
-      return timePickerTarget === "start"
+      return dateTime.timePickerTarget === "start"
         ? "ring-1 ring-primary/60"
         : "hover:bg-black/5 dark:hover:bg-black/15";
     }
@@ -1552,8 +579,8 @@
       : t("calendar.eventPanel.visibilityPrivate");
   }
 
-  const transparencyLabel = $derived(transparencyDisplayLabel(transparency));
-  const visibilityLabel = $derived(visibilityDisplayLabel(visibility));
+  const transparencyLabel = $derived(transparencyDisplayLabel(session.transparency));
+  const visibilityLabel = $derived(visibilityDisplayLabel(session.visibility));
   const deleteActionVerb = $derived(
     endEventAction
       ? t("calendar.eventPanel.actionEndEvent")
@@ -1575,7 +602,7 @@
 
   async function focusPanelRovingButton(group: string, index: number) {
     await tick();
-    panelEl
+    geometry.panelEl
       ?.querySelector<HTMLButtonElement>(`[data-panel-roving="${group}"][data-roving-index="${index}"]`)
       ?.focus();
   }
@@ -1607,43 +634,22 @@
 
   function toggleTransparency() {
     if (controlsDisabled) return;
-    datepickerOpen = false;
-    endDatepickerOpen = false;
-    timePickerTarget = null;
-    timePickerKeyboardOpen = false;
-    transparency = transparency === "transparent" ? "opaque" : "transparent";
-    emitChange();
+      dateTime.resetInteraction();
+    session.transparency = session.transparency === "transparent" ? "opaque" : "transparent";
+    session.emitChange();
   }
 
   function toggleVisibility() {
     if (controlsDisabled) return;
-    datepickerOpen = false;
-    endDatepickerOpen = false;
-    timePickerTarget = null;
-    timePickerKeyboardOpen = false;
-    visibility = visibility === "public" ? "private" : "public";
-    emitChange();
+      dateTime.resetInteraction();
+    session.visibility = session.visibility === "public" ? "private" : "public";
+    session.emitChange();
   }
 
   function handleScopeClick(s: RecurringScope) {
     if (scopeControlsDisabled) return;
-    scope = s;
+    session.scope = s;
     onScopeChange?.(s);
-  }
-
-  function handleDragStart(e: PointerEvent) {
-    if (!panelCanDrag) return;
-    if (parked) return;
-    isDragging = true;
-    userDragged = true;
-    dragStart = { x: e.clientX - dragOffset.x, y: e.clientY - dragOffset.y };
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-  }
-  function handleDragMove(e: PointerEvent) {
-    if (isDragging && panelCanDrag) dragOffset = { x: e.clientX - dragStart.x, y: e.clientY - dragStart.y };
-  }
-  function handleDragEnd() {
-    isDragging = false;
   }
 
   // Global shortcut handling: active whenever the panel is mounted, so the
@@ -1655,37 +661,7 @@
       console.error("load projects failed", error);
     });
 
-    function handleKeydown(e: KeyboardEvent) {
-      if (parked) return;
-      if (
-        deleteArmed
-        && e.key === "Enter"
-        && !e.altKey
-        && !e.ctrlKey
-        && !e.metaKey
-        && !e.shiftKey
-      ) {
-        e.preventDefault();
-        confirmArmedDelete();
-        return;
-      }
-      // Mod + Enter: save. Chosen over plain Enter so typing newlines
-      // in the description textarea still works.
-      if (e.key === "Enter" && hasShortcutModifier(e)) {
-        e.preventDefault();
-        handleSave();
-        return;
-      }
-      // Mod + D: end the active event or arm delete; press again to confirm.
-      // If delete would stop the active pomodoro block, the first press goes
-      // straight to the modal (see armOrConfirmDelete).
-      if ((e.key === "d" || e.key === "D") && hasOnlyShortcutModifier(e)) {
-        e.preventDefault();
-        armOrConfirmDelete();
-        return;
-      }
-      // Escape is handled by CalendarView's global keydown listener
-    }
+    function handleKeydown(e: KeyboardEvent) { actions.handleKeydown(e); }
     window.addEventListener("keydown", handleKeydown);
     return () => window.removeEventListener("keydown", handleKeydown);
   });
@@ -1694,13 +670,13 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <div
-  bind:this={panelEl}
+  bind:this={geometry.panelEl}
   class="panel-root flex flex-col"
   data-layout={panelLayout}
   data-readonly={controlsDisabled || undefined}
   data-parked={parked || undefined}
   aria-hidden={parked || undefined}
-  style="box-shadow: 0 0 2px 0px var(--panel-edge), 0 1px 2px var(--panel-shadow); {parked ? parkedPanelStyle : panelStyle} background-color: var(--panel-bg); visibility: {initialized && panelPositionReady && !parked ? 'visible' : 'hidden'};"
+  style="box-shadow: 0 0 2px 0px var(--panel-edge), 0 1px 2px var(--panel-shadow); {parked ? parkedPanelStyle : panelStyle} background-color: var(--panel-bg); visibility: {session.initialized && geometry.positionReady && !parked ? 'visible' : 'hidden'};"
   onclick={handlePanelClick}
   onkeydown={handlePanelArrowKeydown}
 >
@@ -1712,10 +688,11 @@
       panelCanDrag ? "cursor-grab active:cursor-grabbing" : "cursor-default",
     )}
     style="background-color: var(--sidebar);"
-    onpointerdown={handleDragStart}
-    onpointermove={handleDragMove}
-    onpointerup={handleDragEnd}
-    onpointercancel={handleDragEnd}
+    onpointerdown={(event) => geometry.handleDragStart(event)}
+    onpointermove={(event) => geometry.handleDragMove(event)}
+    onpointerup={() => geometry.handleDragEnd()}
+    onpointercancel={() => geometry.handleDragEnd()}
+    onlostpointercapture={() => geometry.handleDragEnd()}
   >
     <div class="flex flex-1 items-center justify-center py-2.5">
       <div class="h-[1.5px] w-9 bg-muted-foreground/50"></div>
@@ -1729,13 +706,13 @@
     )}
   >
     <div
-      bind:this={eventPanelScrollEl}
+      bind:this={geometry.scrollEl}
       class={cn(
         "event-panel-scroll hide-scrollbar overscroll-contain",
         eventPanelBodyConstrained ? "h-full overflow-y-auto" : "overflow-visible",
       )}
     >
-    <div bind:this={eventPanelContentEl}>
+    <div bind:this={geometry.contentEl}>
     <!-- Main editor: title + date -->
     <div class="shrink-0 px-4 pt-2.5">
 
@@ -1747,7 +724,7 @@
         {#each SCOPE_OPTIONS as option, index}
           <button
             role="radio"
-            aria-checked={scope === option.value}
+            aria-checked={session.scope === option.value}
             onclick={() => handleScopeClick(option.value)}
             onfocus={() => { scopeFocusIndex = index; }}
             onkeydown={(e) => handlePanelRovingKeydown(e, "scope", index, SCOPE_OPTIONS.length)}
@@ -1757,7 +734,7 @@
             disabled={scopeControlsDisabled}
             class={cn(
               "readonly-interactive flex min-w-0 items-center justify-center rounded px-2 py-1 text-center font-semibold",
-              scope === option.value
+              session.scope === option.value
                 ? "bg-action-confirm text-action-confirm-foreground"
                 : "text-event-panel-input-text/70",
             )}
@@ -1774,21 +751,24 @@
         <input
           bind:this={titleInput}
           type="text"
-          bind:value={title}
+          bind:value={session.title}
           placeholder={t("calendar.eventPanel.titlePlaceholder")}
           disabled={controlsDisabled}
           class="w-full bg-transparent py-0.5 text-[1rem] font-semibold text-foreground outline-none placeholder:text-event-panel-placeholder"
-          oninput={emitChange}
+          oninput={() => session.emitChange()}
           onkeydown={inputKeydown}
         />
       </div>
       <ProjectSelector
-        selectedProjectId={projectId}
+        selectedProjectId={session.projectId}
         disabled={controlsDisabled}
         onSelect={handleProjectSelect}
       />
       {#if !controlsDisabled}
-        <ColorPicker {color} theme={theme.current} onselect={(c) => { color = c; emitChange(); }} />
+        <ColorPicker color={session.color} theme={theme.current} onselect={(color) => {
+          session.color = color;
+          session.emitChange();
+        }} />
       {/if}
     </div>
     <hr class="border-event-panel-divider mx-1 mt-0.5" />
@@ -1801,16 +781,16 @@
       >
       <!-- Start date -->
       <div class="relative z-1 min-w-0 justify-self-start">
-        <button bind:this={startDateButton}
-          onclick={() => toggleDatepicker("pointer")}
-          onkeydown={(e) => handleDateButtonKeydown(e, "start")}
+        <button bind:this={dateTime.startDateButton}
+          onclick={() => dateTime.toggleDatePicker("start", "pointer")}
+          onkeydown={(e) => dateTime.handleDateButtonKeydown(e, "start")}
           disabled={startControlsDisabled}
           class={cn(
             "date-chip max-w-full rounded py-0.5 text-event-panel-input-text",
             disabledAffordanceClass(startDisabledAffordance),
             startControlsDisabled
               ? ""
-              : datepickerOpen
+              : dateTime.datepickerOpen
                 ? "ring-1 ring-primary/60"
                 : "hover:bg-black/5 dark:hover:bg-black/15",
           )}>
@@ -1818,21 +798,21 @@
         </button>
 
         <!-- Floating start date picker -->
-        {#if datepickerOpen}
+        {#if dateTime.datepickerOpen}
           <!-- svelte-ignore a11y_click_events_have_key_events -->
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <!-- svelte-ignore a11y_click_events_have_key_events -->
           <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <div class="fixed inset-0 z-19" onclick={() => { datepickerOpen = false; }}></div>
+          <div class="fixed inset-0 z-19" onclick={() => { dateTime.datepickerOpen = false; }}></div>
           <div class="absolute left-0 top-full z-20 mt-1 w-60 rounded-lg bg-popover p-2 shadow-lg ring-1 ring-border/60">
             <MiniDatePicker
-              selectedDate={startDate}
-              rangeStartDate={startDate}
-              rangeEndDate={endDate}
+              selectedDate={session.startDate}
+              rangeStartDate={session.startDate}
+              rangeEndDate={session.endDate}
               highlightToday={false}
               activeHighlight="primary"
-              onselect={selectDpDay}
-              oncancel={cancelDpDay}
+              onselect={(date, source) => dateTime.selectDate("start", date, source)}
+              oncancel={(source) => dateTime.cancelDatePicker("start", source)}
             />
           </div>
         {/if}
@@ -1840,102 +820,102 @@
 
       <!-- Time group, visually hidden when all-day so the date grid keeps its shape. -->
       <div
-        class="time-group relative {timePickerTarget ? 'z-20' : 'z-2'} flex items-center justify-center gap-1.5 py-0.5"
-        class:invisible={allDay}
-        class:pointer-events-none={allDay}
-        aria-hidden={allDay}
+        class="time-group relative {dateTime.timePickerTarget ? 'z-20' : 'z-2'} flex items-center justify-center gap-1.5 py-0.5"
+        class:invisible={session.allDay}
+        class:pointer-events-none={session.allDay}
+        aria-hidden={session.allDay}
       >
         <span
           class="time-input-shell relative z-30 rounded text-center text-event-panel-input-text
             {preferences.calendarTimeFormat === '12h' ? 'text-[0.8rem]' : 'text-[0.866667rem]'}
             {startTimeShellStateClass()}"
-          data-value={timeInputMirrorValue("start")}>
-          <input bind:this={startTimeInput}
+          data-value={dateTime.timeInputMirrorValue("start")}>
+          <input bind:this={dateTime.startTimeInput}
             type="text"
             data-panel-arrow-nav="true"
             inputmode={preferences.calendarTimeFormat === "12h" ? "text" : "numeric"}
-            onbeforeinput={handleTimeBeforeInput}
-            oninput={(e) => handleTimeDraftInput(e, "start")}
-            onblur={() => commitTimeInput("start")}
-            onclick={() => handleTimeInputClick("start")}
-            disabled={startControlsDisabled || allDay}
+            onbeforeinput={(event) => dateTime.handleTimeBeforeInput(event)}
+            oninput={(event) => dateTime.handleTimeDraftInput(event, "start")}
+            onblur={() => dateTime.commitTimeInput("start")}
+            onclick={() => dateTime.handleTimeInputClick("start")}
+            disabled={startControlsDisabled || session.allDay}
             maxlength={preferences.calendarTimeFormat === "12h" ? 7 : 5}
             placeholder={preferences.calendarTimeFormat === "12h" ? "h:mmam" : "HH:MM"}
             class={cn(
               "time-input bg-transparent px-0 py-0.5 text-center outline-none",
               disabledAffordanceClass(startDisabledAffordance),
             )}
-            value={timeInputDisplayValue("start")}
-            onkeydown={(e) => handleTimeInputKeydown(e, "start")} />
+            value={dateTime.timeInputDisplayValue("start")}
+            onkeydown={(event) => dateTime.handleTimeInputKeydown(event, "start")} />
         </span>
         <span class="text-muted-foreground/60">-</span>
         <span
           class="time-input-shell relative z-30 rounded text-center text-event-panel-input-text
             {preferences.calendarTimeFormat === '12h' ? 'text-[0.8rem]' : 'text-[0.866667rem]'}
-            {controlsDisabled ? '' : timePickerTarget === 'end' ? 'ring-1 ring-primary/60' : 'hover:bg-black/5 dark:hover:bg-black/15'}"
-          data-value={timeInputMirrorValue("end")}>
-          <input bind:this={endTimeInput}
+            {controlsDisabled ? '' : dateTime.timePickerTarget === 'end' ? 'ring-1 ring-primary/60' : 'hover:bg-black/5 dark:hover:bg-black/15'}"
+          data-value={dateTime.timeInputMirrorValue("end")}>
+          <input bind:this={dateTime.endTimeInput}
             type="text"
             data-panel-arrow-nav="true"
             inputmode={preferences.calendarTimeFormat === "12h" ? "text" : "numeric"}
-            onbeforeinput={handleTimeBeforeInput}
-            oninput={(e) => handleTimeDraftInput(e, "end")}
-            onblur={() => commitTimeInput("end")}
-            onclick={() => handleTimeInputClick("end")}
-            disabled={controlsDisabled || allDay}
+            onbeforeinput={(event) => dateTime.handleTimeBeforeInput(event)}
+            oninput={(event) => dateTime.handleTimeDraftInput(event, "end")}
+            onblur={() => dateTime.commitTimeInput("end")}
+            onclick={() => dateTime.handleTimeInputClick("end")}
+            disabled={controlsDisabled || session.allDay}
             maxlength={preferences.calendarTimeFormat === "12h" ? 7 : 5}
             placeholder={preferences.calendarTimeFormat === "12h" ? "h:mmam" : "HH:MM"}
             class="time-input bg-transparent px-0 py-0.5 text-center outline-none"
-            value={timeInputDisplayValue("end")}
-            onkeydown={(e) => handleTimeInputKeydown(e, "end")} />
+            value={dateTime.timeInputDisplayValue("end")}
+            onkeydown={(event) => dateTime.handleTimeInputKeydown(event, "end")} />
         </span>
 
         <!-- Floating time picker -->
-        {#if timePickerTarget}
+        {#if dateTime.timePickerTarget}
           <!-- svelte-ignore a11y_click_events_have_key_events -->
           <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <div class="fixed inset-0 z-19" onpointerdown={() => closeTimePicker("pointer")}></div>
-          {@const isEnd = timePickerTarget === 'end'}
-          {@const startMins = (() => { const [h, m] = (startTime || "0:0").split(":").map(Number); return h * 60 + m; })()}
+          <div class="fixed inset-0 z-19" onpointerdown={() => dateTime.closeTimePicker("pointer")}></div>
+          {@const isEnd = dateTime.timePickerTarget === 'end'}
+          {@const startMins = (() => { const [h, m] = (session.startTime || "0:0").split(":").map(Number); return h * 60 + m; })()}
           <div class="absolute top-full z-20 mt-1 rounded-lg bg-popover shadow-lg ring-1 ring-border/60"
-            style="left: {isEnd ? '50%' : '0'}; width: {timePickerWidth(isEnd)};">
+            style="left: {isEnd ? '50%' : '0'}; width: {dateTime.timePickerWidth(isEnd)};">
             <TimePicker
-              currentTime={isEnd ? endTime : startTime}
+              currentTime={isEnd ? session.endTime : session.startTime}
               {isEnd}
               startMinutes={startMins}
-              focusOnOpen={timePickerKeyboardOpen}
-              inputNavigation={timePickerInputNavigation}
-              onselect={selectTime}
-              oncancel={cancelTimePicker}
-              ontypedigit={beginTimeTypingFromPicker} />
+              focusOnOpen={dateTime.timePickerKeyboardOpen}
+              inputNavigation={dateTime.timePickerInputNavigation}
+              onselect={(time, source) => dateTime.selectTime(time, source)}
+              oncancel={(source) => dateTime.closeTimePicker(source)}
+              ontypedigit={(digit) => dateTime.beginTimeTypingFromPicker(digit)} />
           </div>
         {/if}
       </div>
 
       <!-- End date -->
       <div class="relative z-1 min-w-0 justify-self-end text-right">
-        <button bind:this={endDateButton}
-          onclick={() => toggleEndDatepicker("pointer")}
-          onkeydown={(e) => handleDateButtonKeydown(e, "end")}
+        <button bind:this={dateTime.endDateButton}
+          onclick={() => dateTime.toggleDatePicker("end", "pointer")}
+          onkeydown={(e) => dateTime.handleDateButtonKeydown(e, "end")}
           class="date-chip max-w-full rounded py-0.5 text-event-panel-input-text
-            {controlsDisabled ? '' : endDatepickerOpen ? 'ring-1 ring-primary/60' : 'hover:bg-black/5 dark:hover:bg-black/15'}">
+            {controlsDisabled ? '' : dateTime.endDatepickerOpen ? 'ring-1 ring-primary/60' : 'hover:bg-black/5 dark:hover:bg-black/15'}">
           {shortEndDate}
         </button>
 
         <!-- Floating end date picker -->
-        {#if endDatepickerOpen}
+        {#if dateTime.endDatepickerOpen}
           <!-- svelte-ignore a11y_click_events_have_key_events -->
           <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <div class="fixed inset-0 z-19" onclick={() => { endDatepickerOpen = false; }}></div>
+          <div class="fixed inset-0 z-19" onclick={() => { dateTime.endDatepickerOpen = false; }}></div>
           <div class="absolute right-0 top-full z-20 mt-1 w-60 rounded-lg bg-popover p-2 shadow-lg ring-1 ring-border/60">
             <MiniDatePicker
-              selectedDate={endDate}
-              rangeStartDate={startDate}
-              rangeEndDate={endDate}
+              selectedDate={session.endDate}
+              rangeStartDate={session.startDate}
+              rangeEndDate={session.endDate}
               highlightToday={false}
               activeHighlight="primary"
-              onselect={selectEdpDay}
-              oncancel={cancelEdpDay}
+              onselect={(date, source) => dateTime.selectDate("end", date, source)}
+              oncancel={(source) => dateTime.cancelDatePicker("end", source)}
             />
           </div>
         {/if}
@@ -1953,40 +933,7 @@
     <div class="flex w-full items-center justify-evenly overflow-hidden rounded-none bg-event-panel-contrast text-[0.733333rem]">
       <!-- All day -->
       <button
-        onclick={() => {
-          if (startControlsDisabled) return;
-          timePickerTarget = null;
-          timePickerKeyboardOpen = false;
-          allDay = !allDay;
-          if (allDay) {
-            stashedStartTime = startTime;
-            stashedEndTime = endTime;
-            startTime = "00:00";
-            endTime = "00:00";
-            syncTimeDrafts();
-          } else if (stashedStartTime && stashedStartTime !== "00:00") {
-            startTime = stashedStartTime;
-            endTime = stashedEndTime;
-            stashedStartTime = "";
-            stashedEndTime = "";
-            syncEndDateFromTimes();
-            syncTimeDrafts();
-          } else {
-            const now = new Date();
-            const m = Math.ceil(now.getMinutes() / 15) * 15;
-            now.setMinutes(m, 0, 0);
-            const hh = String(now.getHours()).padStart(2, "0");
-            const mm = String(now.getMinutes()).padStart(2, "0");
-            startTime = `${hh}:${mm}`;
-            const end = new Date(now.getTime() + 3600000);
-            endTime = `${String(end.getHours()).padStart(2, "0")}:${String(end.getMinutes()).padStart(2, "0")}`;
-            stashedStartTime = "";
-            stashedEndTime = "";
-            syncEndDateFromTimes();
-            syncTimeDrafts();
-          }
-          emitChange();
-        }}
+        onclick={() => dateTime.toggleAllDay()}
         onfocus={() => { metadataFocusIndex = 0; }}
         onkeydown={(e) => handlePanelRovingKeydown(e, "metadata", 0, metadataItemCount)}
         data-panel-roving="metadata"
@@ -1995,7 +942,7 @@
         disabled={startControlsDisabled}
         class={metadataStartButtonClass()}
       >
-        {#if allDay}
+        {#if session.allDay}
           <Calendar1 size={METADATA_ICON_SIZE} class={METADATA_ICON_CLASS} />
           <span class="translate-y-[1.13px] truncate">{t("calendar.eventPanel.allDay")}</span>
         {:else}
@@ -2017,7 +964,7 @@
         class={metadataButtonClass()}
         title={t("calendar.eventPanel.busyTitle")}
       >
-        {#if transparency === "transparent"}
+        {#if session.transparency === "transparent"}
           <Smile size={METADATA_ICON_SIZE} class={METADATA_ICON_CLASS} />
         {:else}
           <Ban size={METADATA_ICON_SIZE} class={METADATA_ICON_CLASS} />
@@ -2038,7 +985,7 @@
           class={metadataButtonClass("capitalize")}
           title={t("calendar.eventPanel.privateTitle")}
         >
-          {#if visibility === "public"}
+          {#if session.visibility === "public"}
             <Eye size={METADATA_ICON_SIZE} class={METADATA_ICON_CLASS} />
           {:else}
             <Lock size={METADATA_ICON_SIZE} class={METADATA_ICON_CLASS} />
@@ -2056,62 +1003,69 @@
       <!-- 1) Meeting -->
       {#if showHeavySections}
         <MeetingSection
-          enabled={meetingEnabled}
-          bind:url={eventUrl}
-          bind:location
-          {geo}
-          bind:attendees
-          bind:localParticipationStatus
-          bind:guestCanModify
-          bind:guestCanInviteOthers
-          bind:guestCanSeeOtherGuests
-          {organizer}
+          enabled={session.meetingEnabled}
+          bind:url={session.eventUrl}
+          bind:location={session.location}
+          geo={session.geo}
+          bind:attendees={session.attendees}
+          bind:localParticipationStatus={session.localParticipationStatus}
+          bind:guestCanModify={session.guestCanModify}
+          bind:guestCanInviteOthers={session.guestCanInviteOthers}
+          bind:guestCanSeeOtherGuests={session.guestCanSeeOtherGuests}
+          organizer={session.organizer}
           selfEmail={calendarIdentityEmail}
-          {description}
+          description={session.description}
           readOnly={controlsDisabled}
           allowReadOnlyExpand={readOnly && !parked}
           expanded={openSection === "meeting"}
           ontoggle={() => handleToggle("meeting")}
           onexpand={() => handleExpand("meeting")}
           onsurfacestatuschange={onSurfaceStatusChange}
-          onchange={emitChange}
-          ondescriptionchange={(html) => { description = html; emitChange(); }} />
+          onchange={() => session.emitChange()}
+          ondescriptionchange={(html) => {
+            session.description = html;
+            session.emitChange();
+          }} />
       {/if}
 
       <!-- 2) Pomodoro -->
       {#if timedSectionsVisible}
         <PomodoroSection
-          enabled={pomodoroEnabled}
-          bind:preset={pomodoroPreset}
-          bind:focusDuration bind:shortBreak bind:longBreak
-          bind:longBreakAfterFocusCount bind:customRhythmMode bind:sequenceSteps
-          bind:idleTimeoutEnabled
+          enabled={session.pomodoroEnabled}
+          bind:preset={session.pomodoroPreset}
+          bind:focusDuration={session.focusDuration}
+          bind:shortBreak={session.shortBreak}
+          bind:longBreak={session.longBreak}
+          bind:longBreakAfterFocusCount={session.longBreakAfterFocusCount}
+          bind:customRhythmMode={session.customRhythmMode}
+          bind:sequenceSteps={session.sequenceSteps}
+          bind:idleTimeoutEnabled={session.idleTimeoutEnabled}
           expanded={openSection === "pomodoro"}
           readonlyInteractive={pomodoroReadOnlyInteractive}
           ontoggle={() => handleToggle("pomodoro")}
           onexpand={() => handleExpand("pomodoro")}
-          onchange={emitChange} />
+          onchange={() => session.emitChange()} />
       {/if}
 
       <!-- 3) Notifications -->
       <NotificationsSection
-        enabled={notifEnabled}
-        bind:selected={notifSelected}
-        bind:customNotifs
+        enabled={session.notifEnabled}
+        bind:selected={session.notifSelected}
+        bind:customNotifs={session.customNotifs}
         expanded={openSection === "notifications"}
         ontoggle={() => handleToggle("notifications")}
         onexpand={() => handleExpand("notifications")}
-        onchange={emitChange} />
+        onchange={() => session.emitChange()} />
 
       <!-- 4) Repeat -->
       <RecurrenceSection
-        bind:recurrence
-        {startDate}
-        {rdate}
+        bind:recurrence={session.recurrence}
+        startDate={session.startDate}
+        rdate={session.rdate}
         expanded={openSection === "repeat"}
         ontoggle={() => handleToggle("repeat")}
         onexpand={() => handleExpand("repeat")}
-        onchange={emitChange} />
+        onchange={() => session.emitChange()} />
 
       <!-- 5) Music -->
       {#if timedSectionsVisible}
@@ -2135,7 +1089,7 @@
   </div>
   </div>
     {#if eventPanelBodyConstrained}
-      <CalendarScrollbar scrollContainer={eventPanelScrollEl} wheelPassthrough />
+      <CalendarScrollbar scrollContainer={geometry.scrollEl} wheelPassthrough />
     {/if}
   </div>
 
@@ -2156,10 +1110,10 @@
       </div>
     {:else}
       <div class="panel-footer-actions flex">
-        {#if deleteArmed && mode === "edit" && event && (onDelete || onEndEvent) && (!endEventAction || inlineEndEventConfirm)}
+        {#if actions.deleteArmed && mode === "edit" && event && (onDelete || onEndEvent) && (!endEventAction || inlineEndEventConfirm)}
           <button
             bind:this={confirmDeleteBtn}
-            onclick={() => { deleteArmed = false; if (endEventAction) handleEndEventClick(); else handleDeleteClick(); }}
+            onclick={() => actions.confirmArmedDelete()}
             disabled={deleteControlsDisabled}
             class="readonly-interactive flex flex-1 items-center justify-center gap-2 py-1.5 text-[0.866667rem] text-action-danger-armed-foreground bg-action-danger-armed">
             {#if endEventAction}
@@ -2173,7 +1127,7 @@
           </button>
         {:else}
           {#if mode === "edit" && (onDelete || onEndEvent) && event}
-            <button onclick={armOrConfirmDelete}
+            <button onclick={() => actions.armOrConfirmDelete()}
               disabled={deleteControlsDisabled}
               class={cn(
                 "readonly-interactive event-panel-delete-icon-button flex w-10 shrink-0 items-center justify-center text-foreground",

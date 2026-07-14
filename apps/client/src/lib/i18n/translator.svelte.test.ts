@@ -27,6 +27,7 @@ async function loadTranslator() {
 
 beforeEach(() => {
   vi.resetModules();
+  vi.doUnmock("./messages/es");
   getConfigKeyMock.mockReset();
   setConfigKeyMock.mockReset();
   getConfigKeyMock.mockReturnValue(undefined);
@@ -36,15 +37,116 @@ beforeEach(() => {
 });
 
 describe("translator", () => {
-  it("uses Spanish messages when Spanish is active", async () => {
-    setBrowserLanguages(["es-MX"]);
-    const { getLocalization } = await loadTranslator();
-    const localization = getLocalization();
-    localization.setLanguagePreference("system", { persist: false });
+  it("starts in English without importing the Spanish runtime catalog", async () => {
+    const { getLocalization, initializeLocalizationFromConfig } = await loadTranslator();
+    const { localeCatalogHasLoaded } = await import("./catalog-loader");
 
+    await expect(initializeLocalizationFromConfig()).resolves.toBe(true);
+
+    expect(getLocalization().locale).toBe("en");
+    expect(getLocalization().t("common.save")).toBe("Save");
+    expect(localeCatalogHasLoaded("es")).toBe(false);
+  });
+
+  it("loads Spanish before completing Spanish startup", async () => {
+    getConfigKeyMock.mockReturnValue("es");
+    const { getLocalization, initializeLocalizationFromConfig } = await loadTranslator();
+
+    await expect(initializeLocalizationFromConfig()).resolves.toBe(true);
+
+    const localization = getLocalization();
+    expect(localization.languagePreference).toBe("es");
     expect(localization.locale).toBe("es");
     expect(localization.t("common.save")).toBe("Guardar");
     expect(localization.t("format.relativeMinutesFuture", 3)).toBe("en 3 min");
+    expect(document.documentElement.lang).toBe("es");
+    expect(document.documentElement.dir).toBe("ltr");
+  });
+
+  it("switches atomically from English to Spanish and back", async () => {
+    const { getLocalization } = await loadTranslator();
+    const localization = getLocalization();
+    await localization.setLanguagePreference("en", { persist: false });
+
+    await expect(localization.setLanguagePreference("es")).resolves.toBe(true);
+    expect(localization.languagePreference).toBe("es");
+    expect(localization.locale).toBe("es");
+    expect(localization.t("common.save")).toBe("Guardar");
+    expect(setConfigKeyMock).toHaveBeenLastCalledWith("preferences.language", "es");
+
+    await expect(localization.setLanguagePreference("en")).resolves.toBe(true);
+    expect(localization.languagePreference).toBe("en");
+    expect(localization.locale).toBe("en");
+    expect(localization.t("common.save")).toBe("Save");
+    expect(setConfigKeyMock).toHaveBeenLastCalledWith("preferences.language", "en");
+  });
+
+  it("does not let a slow previous catalog replace a newer language choice", async () => {
+    const actualSpanish = await vi.importActual<typeof import("./messages/es")>(
+      "./messages/es",
+    );
+    let resolveSpanish!: (module: typeof actualSpanish) => void;
+    const spanishModule = new Promise<typeof actualSpanish>((resolve) => {
+      resolveSpanish = resolve;
+    });
+    vi.doMock("./messages/es", () => spanishModule);
+    const { getLocalization } = await loadTranslator();
+    const localization = getLocalization();
+    await localization.setLanguagePreference("en", { persist: false });
+
+    const slowSpanishSwitch = localization.setLanguagePreference("es", { persist: false });
+    expect(localization.languagePreference).toBe("en");
+    expect(localization.locale).toBe("en");
+    expect(localization.t("common.save")).toBe("Save");
+    await expect(localization.setLanguagePreference("en", { persist: false })).resolves.toBe(true);
+    resolveSpanish(actualSpanish);
+
+    await expect(slowSpanishSwitch).resolves.toBe(false);
+    expect(localization.languagePreference).toBe("en");
+    expect(localization.locale).toBe("en");
+    expect(localization.t("common.save")).toBe("Save");
+  });
+
+  it("follows system language changes after the replacement catalog loads", async () => {
+    const { getLocalization } = await loadTranslator();
+    const localization = getLocalization();
+    await localization.setLanguagePreference("system", { persist: false });
+
+    setBrowserLanguages(["es-MX"]);
+    window.dispatchEvent(new Event("languagechange"));
+    await vi.waitFor(() => expect(localization.locale).toBe("es"));
+    expect(localization.t("common.save")).toBe("Guardar");
+
+    setBrowserLanguages(["en-CA"]);
+    window.dispatchEvent(new Event("languagechange"));
+    await vi.waitFor(() => expect(localization.locale).toBe("en"));
+    expect(localization.t("common.save")).toBe("Save");
+
+    await localization.setLanguagePreference("en", { persist: false });
+    setBrowserLanguages(["es-MX"]);
+    window.dispatchEvent(new Event("languagechange"));
+    await Promise.resolve();
+    expect(localization.locale).toBe("en");
+    expect(localization.languagePreference).toBe("en");
+  });
+
+  it("retains the active language when a replacement catalog fails", async () => {
+    vi.doMock("./messages/es", () => {
+      throw new Error("Spanish chunk failed");
+    });
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const { getLocalization } = await loadTranslator();
+    const localization = getLocalization();
+    await localization.setLanguagePreference("en", { persist: false });
+
+    await expect(localization.setLanguagePreference("es")).resolves.toBe(false);
+
+    expect(localization.languagePreference).toBe("en");
+    expect(localization.locale).toBe("en");
+    expect(localization.t("common.save")).toBe("Save");
+    expect(setConfigKeyMock).not.toHaveBeenCalled();
+    expect(consoleError).toHaveBeenCalledOnce();
+    consoleError.mockRestore();
   });
 
   it("falls back to English for missing partial catalog messages", async () => {
@@ -56,32 +158,11 @@ describe("translator", () => {
     );
   });
 
-  it("persists the selected language preference", async () => {
-    const { getLocalization } = await loadTranslator();
-    const localization = getLocalization();
-    localization.setLanguagePreference("es");
-
-    expect(setConfigKeyMock).toHaveBeenCalledWith("preferences.language", "es");
-  });
-
-  it("loads the persisted language preference from config", async () => {
-    getConfigKeyMock.mockReturnValue("es");
-    const { getLocalization, initializeLocalizationFromConfig } = await loadTranslator();
-
-    initializeLocalizationFromConfig();
-    const localization = getLocalization();
-
-    expect(localization.languagePreference).toBe("es");
-    expect(localization.locale).toBe("es");
-    expect(document.documentElement.lang).toBe("es");
-    expect(document.documentElement.dir).toBe("ltr");
-  });
-
   it("normalizes invalid stored language preferences", async () => {
     getConfigKeyMock.mockReturnValue("fr");
     const { getLocalization, initializeLocalizationFromConfig } = await loadTranslator();
 
-    initializeLocalizationFromConfig();
+    await initializeLocalizationFromConfig();
 
     expect(getLocalization().languagePreference).toBe("system");
     expect(setConfigKeyMock).toHaveBeenCalledWith("preferences.language", "system");

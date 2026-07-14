@@ -1,0 +1,1182 @@
+use super::models::{
+    NoteDataSourceBoardConfigurationUpdate, NoteDataSourceBoardGroupDto,
+    NoteDataSourceBoardRowMove, NoteDataSourceBoardViewDto, NoteDataSourceBoardViewUpdate,
+    NoteDataSourceRow, NoteDataSourceRowPropertyUpdate, NoteDataSourceTableFilter,
+    NoteDataSourceTableSort, NoteDataSourceViewWindowRequest, NoteDatabaseRow, NoteDatabaseViewRow,
+    NotePageRow,
+};
+use super::validation::require_uuid;
+use super::{
+    data_source_buttons, data_source_formulas, data_source_relations, data_source_rollups,
+    data_source_table, data_source_views, data_source_window, writes,
+};
+use serde_json::{json, Map, Value};
+use sqlx::{Sqlite, SqlitePool, Transaction};
+use std::collections::{BTreeMap, HashSet};
+
+const DEFAULT_BOARD_VIEW_NAME: &str = "Board";
+const MAX_FILTERS: usize = 10;
+const MAX_SORTS: usize = 5;
+const MAX_BOARD_CONFIGURATION_BYTES: usize = 50 * 1024;
+const MAX_FILTER_TEXT_CHARS: usize = 200;
+const BOARD_EMPTY_GROUP_ID: &str = "__empty__";
+const BOARD_UNGROUPED_ID: &str = "__ungrouped__";
+const BOARD_ROW_OPEN_MODES: &[&str] = &["full_page", "side_panel"];
+const FILTER_CONDITIONS: &[&str] = &[
+    "contains",
+    "equals",
+    "is_empty",
+    "is_not_empty",
+    "checked",
+    "unchecked",
+];
+const BOARD_GROUP_PROPERTY_TYPES: &[&str] = &[
+    "status",
+    "select",
+    "multi_select",
+    "checkbox",
+    "people",
+    "relation",
+    "date",
+];
+
+pub(in crate::notes) async fn get_data_source_board_view(
+    pool: &SqlitePool,
+    data_source_id: &str,
+    database_id: Option<&str>,
+    view_id: Option<&str>,
+) -> Result<NoteDataSourceBoardViewDto, String> {
+    get_data_source_board_view_window(
+        pool,
+        data_source_id,
+        database_id,
+        view_id,
+        NoteDataSourceViewWindowRequest::default(),
+    )
+    .await
+}
+
+pub(in crate::notes) async fn get_data_source_board_view_window(
+    pool: &SqlitePool,
+    data_source_id: &str,
+    database_id: Option<&str>,
+    view_id: Option<&str>,
+    window: NoteDataSourceViewWindowRequest,
+) -> Result<NoteDataSourceBoardViewDto, String> {
+    data_source_views::validate_view_scope(data_source_id, database_id, view_id)?;
+    crate::notes::project_history::ensure_data_source_baseline_for_mutation(pool, data_source_id)
+        .await?;
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|e| format!("begin notes data source board read: {e}"))?;
+    let dto = load_board_view_tx(&mut tx, data_source_id, database_id, view_id, &window).await?;
+    tx.commit()
+        .await
+        .map_err(|e| format!("commit notes data source board read: {e}"))?;
+    Ok(dto)
+}
+
+pub(in crate::notes) async fn update_data_source_board_view(
+    pool: &SqlitePool,
+    data_source_id: &str,
+    database_id: Option<&str>,
+    view_id: Option<&str>,
+    update: NoteDataSourceBoardViewUpdate,
+) -> Result<NoteDataSourceBoardViewDto, String> {
+    data_source_views::validate_view_scope(data_source_id, database_id, view_id)?;
+    crate::notes::project_history::ensure_data_source_baseline_for_mutation(pool, data_source_id)
+        .await?;
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|e| format!("begin notes data source board view update: {e}"))?;
+    crate::notes::project_history::mark_data_source_dirty_tx(
+        &mut tx,
+        data_source_id,
+        "Board view",
+        false,
+    )
+    .await?;
+    let (data_source, _database) =
+        load_active_data_source_and_database_tx(&mut tx, data_source_id).await?;
+    let schema = board_schema(&parse_json(
+        &data_source.properties,
+        "data source properties",
+    )?)?;
+    let property_ids: HashSet<String> = schema.iter().map(|property| property.id.clone()).collect();
+    let filter = canonical_filter(&update.filter, &property_ids)?;
+    let sorts = canonical_sorts(&update.sorts, &property_ids)?;
+    let configuration = canonical_board_configuration(&update.configuration, &schema)?;
+    let view =
+        ensure_board_view_row_tx(&mut tx, &data_source, database_id, view_id, &schema).await?;
+    sqlx::query(
+        "UPDATE notes_database_views
+         SET filter = ?,
+             sorts = ?,
+             configuration = ?,
+             last_edited_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+         WHERE id = ?",
+    )
+    .bind(filter.map(|value| value.to_string()))
+    .bind(sorts.to_string())
+    .bind(configuration.to_string())
+    .bind(&view.id)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| format!("update notes data source board view: {e}"))?;
+    let dto = load_board_view_tx(
+        &mut tx,
+        data_source_id,
+        database_id,
+        Some(&view.id),
+        &NoteDataSourceViewWindowRequest::default(),
+    )
+    .await?;
+    tx.commit()
+        .await
+        .map_err(|e| format!("commit notes data source board view update: {e}"))?;
+    Ok(dto)
+}
+
+pub(in crate::notes) async fn move_data_source_board_row(
+    pool: &SqlitePool,
+    data_source_id: &str,
+    database_id: Option<&str>,
+    view_id: Option<&str>,
+    request: NoteDataSourceBoardRowMove,
+) -> Result<NoteDataSourceBoardViewDto, String> {
+    data_source_views::validate_view_scope(data_source_id, database_id, view_id)?;
+    require_uuid(&request.page_id, "page_id")?;
+    let group_id = request.group_id.trim();
+    if group_id.is_empty() {
+        return Err("board group_id is required".to_string());
+    }
+    let group_property = {
+        let mut tx = pool
+            .begin()
+            .await
+            .map_err(|e| format!("begin notes data source board row move: {e}"))?;
+        let (data_source, _) =
+            load_active_data_source_and_database_tx(&mut tx, data_source_id).await?;
+        let schema = board_schema(&parse_json(
+            &data_source.properties,
+            "data source properties",
+        )?)?;
+        let view =
+            ensure_board_view_row_tx(&mut tx, &data_source, database_id, view_id, &schema).await?;
+        let configuration = board_configuration(view.configuration.as_deref(), &schema)?;
+        let group_property_id = configuration
+            .group_property_id
+            .as_deref()
+            .ok_or_else(|| "board view has no group property".to_string())?;
+        let property = schema
+            .iter()
+            .find(|property| property.id == group_property_id)
+            .cloned()
+            .ok_or_else(|| "board group property was not found".to_string())?;
+        tx.commit()
+            .await
+            .map_err(|e| format!("commit notes data source board row move read: {e}"))?;
+        property
+    };
+    let value = board_move_value(&group_property, group_id)?;
+    data_source_table::update_data_source_row_property(
+        pool,
+        data_source_id,
+        &request.page_id,
+        NoteDataSourceRowPropertyUpdate {
+            property_id: group_property.id,
+            value,
+        },
+    )
+    .await?;
+    get_data_source_board_view(pool, data_source_id, database_id, view_id).await
+}
+
+async fn load_board_view_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    data_source_id: &str,
+    database_id: Option<&str>,
+    view_id: Option<&str>,
+    window_request: &NoteDataSourceViewWindowRequest,
+) -> Result<NoteDataSourceBoardViewDto, String> {
+    let (data_source, database) =
+        load_active_data_source_and_database_tx(tx, data_source_id).await?;
+    let schema_properties = parse_json(&data_source.properties, "data source properties")?;
+    let schema = board_schema(&schema_properties)?;
+    let view = ensure_board_view_row_tx(tx, &data_source, database_id, view_id, &schema).await?;
+    let configuration = board_configuration(view.configuration.as_deref(), &schema)?;
+    let filters = stored_filters(view.filter.as_deref())?;
+    let sorts = stored_sorts(&view.sorts)?;
+    let window_schema = data_source_window::table_properties_from_board(&schema);
+    let group_property = configuration
+        .group_property_id
+        .as_deref()
+        .and_then(|id| window_schema.iter().find(|property| property.id == id));
+    let mut window = data_source_window::load_row_window_tx(
+        tx,
+        data_source_id,
+        data_source_window::RowWindowQuery {
+            schema: &window_schema,
+            filters: &filters,
+            sorts: &sorts,
+            request: window_request,
+            date_property: None,
+            group_property,
+        },
+    )
+    .await?;
+    window.rows = window
+        .rows
+        .into_iter()
+        .map(|row| normalized_row_for_schema(row, &schema))
+        .collect::<Result<Vec<_>, _>>()?;
+    data_source_relations::hydrate_relation_titles_tx(tx, &mut window.rows).await?;
+    data_source_rollups::hydrate_rollups_tx(
+        tx,
+        data_source_id,
+        &schema_properties,
+        &mut window.rows,
+    )
+    .await?;
+    data_source_formulas::hydrate_formulas(&schema_properties, &mut window.rows)?;
+    data_source_buttons::hydrate_buttons(&schema_properties, &mut window.rows)?;
+    let groups = board_groups(&schema, &configuration, std::mem::take(&mut window.rows))?;
+    NoteDataSourceBoardViewDto::new(data_source, database, view, groups, window)
+}
+
+pub(in crate::notes) async fn load_active_data_source_and_database_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    data_source_id: &str,
+) -> Result<(NoteDataSourceRow, NoteDatabaseRow), String> {
+    let data_source = sqlx::query_as::<_, NoteDataSourceRow>(
+        "SELECT data_source.*
+         FROM notes_data_sources AS data_source
+         JOIN notes_databases AS database ON database.id = data_source.database_id
+         WHERE data_source.id = ?
+           AND data_source.in_trash = 0
+           AND database.in_trash = 0",
+    )
+    .bind(data_source_id.trim())
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|e| format!("load notes data source for board: {e}"))?
+    .ok_or_else(|| "data source not found".to_string())?;
+    let database = sqlx::query_as::<_, NoteDatabaseRow>(
+        "SELECT * FROM notes_databases WHERE id = ? AND in_trash = 0",
+    )
+    .bind(&data_source.database_id)
+    .fetch_one(&mut **tx)
+    .await
+    .map_err(|e| format!("load notes database for board: {e}"))?;
+    Ok((data_source, database))
+}
+
+async fn ensure_board_view_row_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    data_source: &NoteDataSourceRow,
+    database_id: Option<&str>,
+    view_id: Option<&str>,
+    schema: &[BoardProperty],
+) -> Result<NoteDatabaseViewRow, String> {
+    if let Some(view) = load_board_view_row_tx(tx, &data_source.id, database_id, view_id).await? {
+        return Ok(view);
+    }
+    let database_id = data_source_views::scoped_database_id(data_source, database_id);
+    let id = generated_uuid_tx(tx).await?;
+    let sort_order = data_source_views::next_view_sort_order_tx(tx, database_id).await?;
+    sqlx::query(
+        "INSERT INTO notes_database_views (
+            id,
+            database_id,
+            data_source_id,
+            name,
+            type,
+            sorts,
+            configuration,
+            sort_order
+         )
+         VALUES (?, ?, ?, ?, 'board', '[]', ?, ?)",
+    )
+    .bind(&id)
+    .bind(database_id)
+    .bind(&data_source.id)
+    .bind(DEFAULT_BOARD_VIEW_NAME)
+    .bind(default_board_configuration(schema).to_string())
+    .bind(sort_order)
+    .execute(&mut **tx)
+    .await
+    .map_err(|e| format!("insert notes board view: {e}"))?;
+    load_board_view_row_tx(tx, &data_source.id, Some(database_id), Some(&id))
+        .await?
+        .ok_or_else(|| "inserted board view was not found".to_string())
+}
+
+async fn load_board_view_row_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    data_source_id: &str,
+    database_id: Option<&str>,
+    view_id: Option<&str>,
+) -> Result<Option<NoteDatabaseViewRow>, String> {
+    data_source_views::load_scoped_view_row_tx(tx, data_source_id, "board", database_id, view_id)
+        .await
+}
+
+pub(in crate::notes) async fn generated_uuid_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+) -> Result<String, String> {
+    let id: String = sqlx::query_scalar(
+        "SELECT lower(hex(randomblob(4))) || '-' ||
+                lower(hex(randomblob(2))) || '-' ||
+                lower(hex(randomblob(2))) || '-' ||
+                lower(hex(randomblob(2))) || '-' ||
+                lower(hex(randomblob(6)))",
+    )
+    .fetch_one(&mut **tx)
+    .await
+    .map_err(|e| format!("generate board view id: {e}"))?;
+    require_uuid(&id, "generated_board_view_id")?;
+    Ok(id)
+}
+
+#[derive(Clone)]
+pub(in crate::notes) struct BoardProperty {
+    pub(in crate::notes) key: String,
+    pub(in crate::notes) id: String,
+    pub(in crate::notes) property_type: String,
+    pub(in crate::notes) schema: Value,
+}
+
+#[derive(Clone)]
+struct BoardConfiguration {
+    group_property_id: Option<String>,
+    group_order: Vec<String>,
+    hidden_group_ids: HashSet<String>,
+}
+
+struct BoardGroupDraft {
+    id: String,
+    name: String,
+    color: String,
+    hidden: bool,
+    rows: Vec<NotePageRow>,
+}
+
+pub(in crate::notes) fn board_schema(properties: &Value) -> Result<Vec<BoardProperty>, String> {
+    let object = properties
+        .as_object()
+        .ok_or_else(|| "data source properties must be an object".to_string())?;
+    let mut schema = Vec::with_capacity(object.len());
+    for (key, value) in object {
+        let property = value
+            .as_object()
+            .ok_or_else(|| "data source property must be an object".to_string())?;
+        schema.push(BoardProperty {
+            key: key.clone(),
+            id: read_string_field(property, "id", "property.id")?.to_string(),
+            property_type: read_string_field(property, "type", "property.type")?.to_string(),
+            schema: value.clone(),
+        });
+    }
+    Ok(schema)
+}
+
+fn default_board_configuration(schema: &[BoardProperty]) -> Value {
+    let group_property_id = default_group_property_id(schema);
+    json!({
+        "type": "board",
+        "board": {
+            "group_property_id": group_property_id,
+            "group_order": [],
+            "hidden_group_ids": [],
+            "visible_property_ids": visible_board_property_ids(schema, group_property_id.as_deref()),
+            "row_open_mode": "full_page"
+        }
+    })
+}
+
+fn canonical_board_configuration(
+    update: &NoteDataSourceBoardConfigurationUpdate,
+    schema: &[BoardProperty],
+) -> Result<Value, String> {
+    let property_ids: HashSet<&str> = schema.iter().map(|property| property.id.as_str()).collect();
+    let group_property_id = match update.group_property_id.as_deref().map(str::trim) {
+        Some("") | None => None,
+        Some(id) => {
+            let property = schema
+                .iter()
+                .find(|property| property.id == id)
+                .ok_or_else(|| "board group property references an unknown property".to_string())?;
+            if !BOARD_GROUP_PROPERTY_TYPES.contains(&property.property_type.as_str()) {
+                return Err("board group property type is not supported".to_string());
+            }
+            Some(id.to_string())
+        }
+    };
+    let group_order = unique_strings(&update.group_order);
+    let hidden_group_ids = unique_strings(&update.hidden_group_ids);
+    let mut visible_property_ids = Vec::new();
+    let mut seen = HashSet::new();
+    for id in &update.visible_property_ids {
+        let id = id.trim();
+        if id.is_empty() || id == "title" || !property_ids.contains(id) {
+            continue;
+        }
+        if seen.insert(id.to_string()) {
+            visible_property_ids.push(id.to_string());
+        }
+    }
+    let row_open_mode = update.row_open_mode.trim();
+    if !BOARD_ROW_OPEN_MODES.contains(&row_open_mode) {
+        return Err("board row_open_mode is not supported".to_string());
+    }
+    let value = json!({
+        "type": "board",
+        "board": {
+            "group_property_id": group_property_id,
+            "group_order": group_order,
+            "hidden_group_ids": hidden_group_ids,
+            "visible_property_ids": visible_property_ids,
+            "row_open_mode": row_open_mode
+        }
+    });
+    if value.to_string().len() > MAX_BOARD_CONFIGURATION_BYTES {
+        return Err("board configuration must not exceed 50KB".to_string());
+    }
+    Ok(value)
+}
+
+fn board_configuration(
+    configuration: Option<&str>,
+    schema: &[BoardProperty],
+) -> Result<BoardConfiguration, String> {
+    let value = configuration
+        .map(|configuration| parse_json(configuration, "board view configuration"))
+        .transpose()?
+        .unwrap_or_else(|| default_board_configuration(schema));
+    let board = value
+        .get("board")
+        .and_then(Value::as_object)
+        .ok_or_else(|| "board view configuration must contain board".to_string())?;
+    let group_property_id = board
+        .get("group_property_id")
+        .and_then(Value::as_str)
+        .filter(|id| schema.iter().any(|property| property.id == *id))
+        .map(str::to_string)
+        .or_else(|| default_group_property_id(schema));
+    let group_order = string_array(board.get("group_order")).unwrap_or_default();
+    let hidden_group_ids = string_array(board.get("hidden_group_ids"))
+        .unwrap_or_default()
+        .into_iter()
+        .collect();
+    Ok(BoardConfiguration {
+        group_property_id,
+        group_order,
+        hidden_group_ids,
+    })
+}
+
+fn default_group_property_id(schema: &[BoardProperty]) -> Option<String> {
+    BOARD_GROUP_PROPERTY_TYPES.iter().find_map(|property_type| {
+        schema
+            .iter()
+            .find(|property| property.property_type == *property_type)
+            .map(|property| property.id.clone())
+    })
+}
+
+fn visible_board_property_ids(
+    schema: &[BoardProperty],
+    group_property_id: Option<&str>,
+) -> Vec<String> {
+    schema
+        .iter()
+        .filter(|property| property.property_type != "title")
+        .filter(|property| Some(property.id.as_str()) != group_property_id)
+        .take(4)
+        .map(|property| property.id.clone())
+        .collect()
+}
+
+fn board_groups(
+    schema: &[BoardProperty],
+    configuration: &BoardConfiguration,
+    rows: Vec<NotePageRow>,
+) -> Result<Vec<NoteDataSourceBoardGroupDto>, String> {
+    let group_property = configuration
+        .group_property_id
+        .as_deref()
+        .and_then(|id| schema.iter().find(|property| property.id == id));
+    let mut groups = initial_groups(group_property, configuration);
+    for row in rows {
+        let group_ids = group_property
+            .map(|property| row_group_ids(&row, property))
+            .unwrap_or_else(|| vec![BOARD_UNGROUPED_ID.to_string()]);
+        for group_id in group_ids {
+            if !groups.contains_key(&group_id) {
+                let (name, color) = dynamic_group_label(&group_id, group_property);
+                groups.insert(
+                    group_id.clone(),
+                    BoardGroupDraft {
+                        id: group_id.clone(),
+                        name,
+                        color,
+                        hidden: false,
+                        rows: Vec::new(),
+                    },
+                );
+            }
+            if let Some(group) = groups.get_mut(&group_id) {
+                group.rows.push(row.clone());
+            }
+        }
+    }
+    let mut ordered = Vec::new();
+    for group_id in &configuration.group_order {
+        if let Some(group) = groups.remove(group_id) {
+            ordered.push(group);
+        }
+    }
+    ordered.extend(groups.into_values());
+    ordered
+        .into_iter()
+        .map(|group| {
+            NoteDataSourceBoardGroupDto::new(
+                group.id,
+                group.name,
+                group.color,
+                group.hidden,
+                group.rows,
+            )
+        })
+        .collect()
+}
+
+fn initial_groups(
+    group_property: Option<&BoardProperty>,
+    configuration: &BoardConfiguration,
+) -> BTreeMap<String, BoardGroupDraft> {
+    let mut groups = BTreeMap::new();
+    let Some(property) = group_property else {
+        groups.insert(
+            BOARD_UNGROUPED_ID.to_string(),
+            group_draft(BOARD_UNGROUPED_ID, "Ungrouped", "default", configuration),
+        );
+        return groups;
+    };
+    match property.property_type.as_str() {
+        "select" | "multi_select" | "status" => {
+            for option in property_options(property) {
+                groups.insert(
+                    option.id.clone(),
+                    group_draft(&option.id, &option.name, &option.color, configuration),
+                );
+            }
+            groups.insert(
+                BOARD_EMPTY_GROUP_ID.to_string(),
+                group_draft(BOARD_EMPTY_GROUP_ID, "No value", "default", configuration),
+            );
+        }
+        "checkbox" => {
+            groups.insert(
+                "false".to_string(),
+                group_draft("false", "Unchecked", "gray", configuration),
+            );
+            groups.insert(
+                "true".to_string(),
+                group_draft("true", "Checked", "green", configuration),
+            );
+        }
+        "date" | "people" | "relation" => {
+            groups.insert(
+                BOARD_EMPTY_GROUP_ID.to_string(),
+                group_draft(BOARD_EMPTY_GROUP_ID, "No value", "default", configuration),
+            );
+        }
+        _ => {
+            groups.insert(
+                BOARD_UNGROUPED_ID.to_string(),
+                group_draft(BOARD_UNGROUPED_ID, "Ungrouped", "default", configuration),
+            );
+        }
+    }
+    groups
+}
+
+fn group_draft(
+    id: &str,
+    name: &str,
+    color: &str,
+    configuration: &BoardConfiguration,
+) -> BoardGroupDraft {
+    BoardGroupDraft {
+        id: id.to_string(),
+        name: name.to_string(),
+        color: color.to_string(),
+        hidden: configuration.hidden_group_ids.contains(id),
+        rows: Vec::new(),
+    }
+}
+
+struct BoardOption {
+    id: String,
+    name: String,
+    color: String,
+}
+
+fn property_options(property: &BoardProperty) -> Vec<BoardOption> {
+    property
+        .schema
+        .get(&property.property_type)
+        .and_then(|config| config.get("options"))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_object)
+        .filter_map(|option| {
+            Some(BoardOption {
+                id: option.get("id")?.as_str()?.to_string(),
+                name: option.get("name")?.as_str()?.to_string(),
+                color: option
+                    .get("color")
+                    .and_then(Value::as_str)
+                    .unwrap_or("default")
+                    .to_string(),
+            })
+        })
+        .collect()
+}
+
+fn row_group_ids(row: &NotePageRow, property: &BoardProperty) -> Vec<String> {
+    match property.property_type.as_str() {
+        "select" | "status" => row_property_payload(row, property)
+            .and_then(|payload| {
+                payload
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+            })
+            .filter(|id| !id.is_empty())
+            .map(|id| vec![id])
+            .unwrap_or_else(|| vec![BOARD_EMPTY_GROUP_ID.to_string()]),
+        "multi_select" => {
+            let ids: Vec<String> = row_property_payload(row, property)
+                .and_then(|payload| payload.as_array().cloned())
+                .unwrap_or_default()
+                .iter()
+                .filter_map(|item| item.get("id").and_then(Value::as_str).map(str::to_string))
+                .collect();
+            if ids.is_empty() {
+                vec![BOARD_EMPTY_GROUP_ID.to_string()]
+            } else {
+                ids
+            }
+        }
+        "checkbox" => row_property_checked(row, property)
+            .map(|checked| checked.to_string())
+            .into_iter()
+            .collect(),
+        "date" => row_property_payload(row, property)
+            .and_then(|payload| {
+                payload
+                    .get("start")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+            })
+            .filter(|date| !date.trim().is_empty())
+            .map(|date| vec![date])
+            .unwrap_or_else(|| vec![BOARD_EMPTY_GROUP_ID.to_string()]),
+        "people" | "relation" => {
+            let ids: Vec<String> = row_property_payload(row, property)
+                .and_then(|payload| payload.as_array().cloned())
+                .unwrap_or_default()
+                .iter()
+                .filter_map(|item| item.get("id").and_then(Value::as_str).map(str::to_string))
+                .collect();
+            if ids.is_empty() {
+                vec![BOARD_EMPTY_GROUP_ID.to_string()]
+            } else {
+                ids
+            }
+        }
+        _ => vec![BOARD_UNGROUPED_ID.to_string()],
+    }
+}
+
+fn dynamic_group_label(group_id: &str, group_property: Option<&BoardProperty>) -> (String, String) {
+    if group_id == BOARD_EMPTY_GROUP_ID {
+        return ("No value".to_string(), "default".to_string());
+    }
+    if let Some(property) = group_property {
+        if property.property_type == "date" {
+            return (group_id.to_string(), "blue".to_string());
+        }
+        if property.property_type == "people" {
+            return (format!("Person {group_id}"), "purple".to_string());
+        }
+        if property.property_type == "relation" {
+            return (format!("Related {group_id}"), "default".to_string());
+        }
+    }
+    (group_id.to_string(), "default".to_string())
+}
+
+fn board_move_value(property: &BoardProperty, group_id: &str) -> Result<Value, String> {
+    match property.property_type.as_str() {
+        "select" | "status" => {
+            if group_id == BOARD_EMPTY_GROUP_ID {
+                Ok(Value::Null)
+            } else {
+                option_name_by_id(property, group_id).map(Value::String)
+            }
+        }
+        "multi_select" => {
+            if group_id == BOARD_EMPTY_GROUP_ID {
+                Ok(Value::String(String::new()))
+            } else {
+                option_name_by_id(property, group_id).map(Value::String)
+            }
+        }
+        "checkbox" => match group_id {
+            "true" => Ok(Value::Bool(true)),
+            "false" => Ok(Value::Bool(false)),
+            _ => Err("checkbox board group must be checked or unchecked".to_string()),
+        },
+        "date" => {
+            if group_id == BOARD_EMPTY_GROUP_ID {
+                Ok(Value::Null)
+            } else {
+                Ok(Value::String(group_id.to_string()))
+            }
+        }
+        "people" => {
+            if group_id == BOARD_EMPTY_GROUP_ID {
+                Ok(Value::Array(Vec::new()))
+            } else {
+                Err("people board groups can only move cards to no value".to_string())
+            }
+        }
+        "relation" => Err("relation board moves require normalized relation links".to_string()),
+        _ => Err("board group property type is not movable".to_string()),
+    }
+}
+
+fn option_name_by_id(property: &BoardProperty, group_id: &str) -> Result<String, String> {
+    property_options(property)
+        .into_iter()
+        .find(|option| option.id == group_id || option.name.eq_ignore_ascii_case(group_id))
+        .map(|option| option.name)
+        .ok_or_else(|| "board target group option was not found".to_string())
+}
+
+pub(in crate::notes) fn canonical_filter(
+    filters: &[NoteDataSourceTableFilter],
+    property_ids: &HashSet<String>,
+) -> Result<Option<Value>, String> {
+    if filters.len() > MAX_FILTERS {
+        return Err("board filters are limited to 10".to_string());
+    }
+    let mut canonical = Vec::new();
+    for filter in filters {
+        let property_id = filter.property_id.trim();
+        if property_id.is_empty() {
+            continue;
+        }
+        if !property_ids.contains(property_id) {
+            return Err("board filter references an unknown property".to_string());
+        }
+        let condition = filter.condition.trim();
+        if !FILTER_CONDITIONS.contains(&condition) {
+            return Err("board filter condition is not supported".to_string());
+        }
+        let value = canonical_filter_value(condition, filter.value.as_ref())?;
+        canonical.push(json!({
+            "property_id": property_id,
+            "condition": condition,
+            "value": value
+        }));
+    }
+    if canonical.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(json!({
+            "type": "and",
+            "filters": canonical
+        })))
+    }
+}
+
+fn canonical_filter_value(condition: &str, value: Option<&Value>) -> Result<Value, String> {
+    if matches!(
+        condition,
+        "is_empty" | "is_not_empty" | "checked" | "unchecked"
+    ) {
+        return Ok(Value::Null);
+    }
+    let Some(value) = value else {
+        return Ok(Value::Null);
+    };
+    match value {
+        Value::Null | Value::Bool(_) | Value::Number(_) => Ok(value.clone()),
+        Value::String(text) => Ok(Value::String(validate_text(
+            text.trim(),
+            "board filter value",
+            MAX_FILTER_TEXT_CHARS,
+        )?)),
+        _ => Err("board filter value must be a scalar".to_string()),
+    }
+}
+
+pub(in crate::notes) fn canonical_sorts(
+    sorts: &[NoteDataSourceTableSort],
+    property_ids: &HashSet<String>,
+) -> Result<Value, String> {
+    if sorts.len() > MAX_SORTS {
+        return Err("board sorts are limited to 5".to_string());
+    }
+    let mut seen = HashSet::new();
+    let mut canonical = Vec::new();
+    for sort in sorts {
+        let property_id = sort.property_id.trim();
+        if property_id.is_empty() {
+            continue;
+        }
+        if !property_ids.contains(property_id) {
+            return Err("board sort references an unknown property".to_string());
+        }
+        if !seen.insert(property_id.to_string()) {
+            return Err("board sorts must not repeat properties".to_string());
+        }
+        let direction = sort.direction.trim();
+        if direction != "ascending" && direction != "descending" {
+            return Err("board sort direction is not supported".to_string());
+        }
+        canonical.push(json!({
+            "property_id": property_id,
+            "direction": direction
+        }));
+    }
+    Ok(Value::Array(canonical))
+}
+
+pub(in crate::notes) fn stored_filters(
+    filter: Option<&str>,
+) -> Result<Vec<NoteDataSourceTableFilter>, String> {
+    let Some(filter) = filter else {
+        return Ok(Vec::new());
+    };
+    let value = parse_json(filter, "database board filter")?;
+    let filters = value
+        .get("filters")
+        .cloned()
+        .unwrap_or_else(|| Value::Array(Vec::new()));
+    serde_json::from_value(filters).map_err(|e| format!("parse board filters: {e}"))
+}
+
+pub(in crate::notes) fn stored_sorts(sorts: &str) -> Result<Vec<NoteDataSourceTableSort>, String> {
+    let value = parse_json(sorts, "database board sorts")?;
+    serde_json::from_value(value).map_err(|e| format!("parse board sorts: {e}"))
+}
+
+pub(in crate::notes) fn normalized_row_for_schema(
+    mut row: NotePageRow,
+    schema: &[BoardProperty],
+) -> Result<NotePageRow, String> {
+    let current = parse_json(&row.properties, "row page properties")?;
+    let (title, properties) = normalized_row_properties(schema, &current, &row.title)?;
+    row.title = title;
+    row.properties = properties.to_string();
+    Ok(row)
+}
+
+fn normalized_row_properties(
+    schema: &[BoardProperty],
+    current: &Value,
+    fallback_title: &str,
+) -> Result<(String, Value), String> {
+    let current_object = current
+        .as_object()
+        .ok_or_else(|| "row page properties must be an object".to_string())?;
+    let mut title = fallback_title.to_string();
+    let mut next = Map::new();
+    for property in schema {
+        if matches!(
+            property.property_type.as_str(),
+            "rollup" | "formula" | "button"
+        ) {
+            continue;
+        }
+        let value = existing_property_value(current_object, property)
+            .and_then(|value| canonical_stored_property_value(property, value).ok())
+            .unwrap_or_else(|| default_property_value(property, fallback_title));
+        if property.property_type == "title" {
+            title = title_from_property_value(&value).unwrap_or_else(|| fallback_title.to_string());
+        }
+        next.insert(property.key.clone(), value);
+    }
+    Ok((title, Value::Object(next)))
+}
+
+fn existing_property_value<'a>(
+    current: &'a Map<String, Value>,
+    property: &BoardProperty,
+) -> Option<&'a Value> {
+    current
+        .get(&property.key)
+        .filter(|value| property_value_matches_schema(property, value))
+        .or_else(|| {
+            current
+                .values()
+                .find(|value| property_value_matches_schema(property, value))
+        })
+}
+
+fn property_value_matches_schema(property: &BoardProperty, value: &Value) -> bool {
+    let Some(object) = value.as_object() else {
+        return false;
+    };
+    object.get("id").and_then(Value::as_str) == Some(property.id.as_str())
+        && object.get("type").and_then(Value::as_str) == Some(property.property_type.as_str())
+}
+
+fn canonical_stored_property_value(
+    property: &BoardProperty,
+    value: &Value,
+) -> Result<Value, String> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| "row property value must be an object".to_string())?;
+    if object.get("id").and_then(Value::as_str) != Some(property.id.as_str()) {
+        return Err("row property id does not match schema".to_string());
+    }
+    if object.get("type").and_then(Value::as_str) != Some(property.property_type.as_str()) {
+        return Err("row property type does not match schema".to_string());
+    }
+    let payload = object
+        .get(&property.property_type)
+        .ok_or_else(|| "row property is missing its typed value".to_string())?;
+    let payload = canonical_property_payload(&property.property_type, payload)?;
+    if property.property_type == "relation" {
+        return Ok(data_source_relations::relation_property_value(
+            &property.id,
+            payload,
+        ));
+    }
+    Ok(json!({
+        "id": property.id,
+        "type": property.property_type,
+        property.property_type.clone(): payload
+    }))
+}
+
+fn default_property_value(property: &BoardProperty, title: &str) -> Value {
+    let payload = match property.property_type.as_str() {
+        "title" => Value::Array(vec![writes::rich_text(title)]),
+        "rich_text" | "multi_select" | "files" | "people" | "relation" => Value::Array(Vec::new()),
+        "number" | "select" | "status" | "date" | "url" | "email" | "phone_number"
+        | "created_time" | "created_by" | "last_edited_time" | "last_edited_by" | "place" => {
+            Value::Null
+        }
+        "checkbox" => Value::Bool(false),
+        "unique_id" => json!({
+            "number": null,
+            "prefix": property
+                .schema
+                .get("unique_id")
+                .and_then(|config| config.get("prefix"))
+                .cloned()
+                .unwrap_or(Value::Null)
+        }),
+        "formula" => json!({
+            "type": "string",
+            "string": ""
+        }),
+        "button" => property
+            .schema
+            .get("button")
+            .map(|config| {
+                data_source_buttons::button_property_value(
+                    &property.id,
+                    &data_source_buttons::button_plain_text(config),
+                )
+            })
+            .unwrap_or_else(|| data_source_buttons::button_property_value(&property.id, "Run")),
+        _ => Value::Null,
+    };
+    if property.property_type == "relation" {
+        return data_source_relations::relation_property_value(&property.id, payload);
+    }
+    if property.property_type == "formula" {
+        return data_source_formulas::formula_property_value(&property.id, payload);
+    }
+    if property.property_type == "button" {
+        return data_source_buttons::button_property_value(
+            &property.id,
+            &data_source_buttons::button_plain_text(&payload),
+        );
+    }
+    json!({
+        "id": property.id,
+        "type": property.property_type,
+        property.property_type.clone(): payload
+    })
+}
+
+fn canonical_property_payload(property_type: &str, value: &Value) -> Result<Value, String> {
+    match property_type {
+        "title" | "rich_text" | "multi_select" | "files" | "people" => {
+            if value.is_array() {
+                Ok(value.clone())
+            } else {
+                Err(format!("{property_type} property must be an array"))
+            }
+        }
+        "relation" => data_source_relations::canonical_relation_payload(value),
+        "number" => {
+            if value.is_null() || value.is_number() {
+                Ok(value.clone())
+            } else {
+                Err("number property must be a number or null".to_string())
+            }
+        }
+        "select" | "status" | "date" | "created_by" | "last_edited_by" | "unique_id" | "place" => {
+            if value.is_null() || value.is_object() {
+                Ok(value.clone())
+            } else {
+                Err(format!(
+                    "{property_type} property must be an object or null"
+                ))
+            }
+        }
+        "checkbox" => value
+            .as_bool()
+            .map(Value::Bool)
+            .ok_or_else(|| "checkbox property must be boolean".to_string()),
+        "url" | "email" | "phone_number" | "created_time" | "last_edited_time" => {
+            if value.is_null() {
+                return Ok(Value::Null);
+            }
+            Ok(Value::String(validate_text(
+                value
+                    .as_str()
+                    .ok_or_else(|| format!("{property_type} property must be text or null"))?,
+                property_type,
+                MAX_FILTER_TEXT_CHARS,
+            )?))
+        }
+        "formula" => {
+            if value.is_object() {
+                Ok(value.clone())
+            } else {
+                Err("formula property must be an object".to_string())
+            }
+        }
+        "button" => {
+            if value.is_object() {
+                Ok(value.clone())
+            } else {
+                Err("button property must be an object".to_string())
+            }
+        }
+        other => Err(format!("unsupported row property type: {other}")),
+    }
+}
+
+fn row_property_value(row: &NotePageRow, property: &BoardProperty) -> Option<Value> {
+    let properties = parse_json(&row.properties, "row page properties").ok()?;
+    properties.get(&property.key).cloned()
+}
+
+fn row_property_payload(row: &NotePageRow, property: &BoardProperty) -> Option<Value> {
+    row_property_value(row, property)?
+        .get(&property.property_type)
+        .cloned()
+}
+
+fn row_property_checked(row: &NotePageRow, property: &BoardProperty) -> Option<bool> {
+    let payload = row_property_payload(row, property)?;
+    if property.property_type == "formula" {
+        return data_source_formulas::formula_checked(&payload);
+    }
+    payload.as_bool()
+}
+
+fn rich_text_plain_text(items: &[Value]) -> String {
+    let mut text = String::new();
+    for item in items {
+        if let Some(plain_text) = item.get("plain_text").and_then(Value::as_str) {
+            text.push_str(plain_text);
+        } else if let Some(content) = item
+            .get("text")
+            .and_then(|value| value.get("content"))
+            .and_then(Value::as_str)
+        {
+            text.push_str(content);
+        }
+    }
+    text
+}
+
+fn title_from_property_value(value: &Value) -> Option<String> {
+    value
+        .get("title")?
+        .as_array()
+        .map(|items| rich_text_plain_text(items))
+}
+
+fn unique_strings(values: &[String]) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut result = Vec::new();
+    for value in values {
+        let value = value.trim();
+        if value.is_empty() {
+            continue;
+        }
+        if seen.insert(value.to_string()) {
+            result.push(value.to_string());
+        }
+    }
+    result
+}
+
+fn string_array(value: Option<&Value>) -> Result<Vec<String>, String> {
+    let Some(value) = value else {
+        return Ok(Vec::new());
+    };
+    value
+        .as_array()
+        .ok_or_else(|| "board configuration list must be an array".to_string())?
+        .iter()
+        .map(|item| {
+            item.as_str()
+                .map(str::to_string)
+                .ok_or_else(|| "board configuration list item must be text".to_string())
+        })
+        .collect()
+}
+
+fn validate_text(value: &str, label: &str, max_chars: usize) -> Result<String, String> {
+    if value.chars().any(char::is_control) {
+        return Err(format!("{label} must not contain control characters"));
+    }
+    if value.chars().count() > max_chars {
+        return Err(format!("{label} is too long"));
+    }
+    Ok(value.to_string())
+}
+
+pub(in crate::notes) fn parse_json(value: &str, label: &str) -> Result<Value, String> {
+    serde_json::from_str(value).map_err(|e| format!("parse {label}: {e}"))
+}
+
+fn read_string_field<'a>(
+    object: &'a Map<String, Value>,
+    key: &str,
+    label: &str,
+) -> Result<&'a str, String> {
+    object
+        .get(key)
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("{label} must be a string"))
+}

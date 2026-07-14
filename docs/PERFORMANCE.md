@@ -8,6 +8,7 @@ This file is the canonical performance record for Ganbaru AI. It exists so futur
 - [Canonical tracking rules](#canonical-tracking-rules)
 - [Benchmark identifiers](#benchmark-identifiers)
 - [Benchmark records](#benchmark-records)
+- [Automated first-use contracts](#automated-first-use-contracts)
 - [Package size](#package-size)
 - [Output rules](#output-rules)
 - [Performance principles](#performance-principles)
@@ -193,6 +194,21 @@ Rows report one 1000-event add or update pass against the practical dense datase
 | 2026-05-21-01 | dense-v1-r1y-s1-d1 | bulk import 1000 update | 474 |
 | 2026-06-02-01 | dense-v1-r1y-s1-d1 | bulk import 1000 add | 848 |
 | 2026-06-02-01 | dense-v1-r1y-s1-d1 | bulk import 1000 update | 902 |
+
+## Automated first-use contracts
+
+Projects and Notes have deterministic structural contracts for an isolated, migrated empty database. These are CI baselines, not elapsed-time benchmarks, and do not require an installed build or user interaction.
+
+| Surface | Critical IPC calls | SQL reads | SQL writes | Serialized response bytes | Source modules in route chunk | Useful shell before deferred backend resolves |
+|---|---:|---:|---:|---:|---:|---|
+| Projects | 1 | 6 | 0 | 13,142 | 253 | Yes |
+| Notes | 1 | 7 | 0 | 323 | 253 | Yes |
+
+Rust library tests count typed initial-load commands, executed SQLite statements, and serialized payload bytes against the fixture. Component tests keep the backend promises unresolved while asserting that the useful shell is present. They also prove that empty Notes performs no history or auxiliary page request and that paragraph content becomes ready without waiting for auxiliary metadata. The production bundle contract emits module metadata during the Vite build and enforces the route-chunk module ceilings above. Calendar, Projects, Notes, Music, Quick notes, the global Settings modal, its top-level sections, the Project settings panel, and the Notes project settings panel constructors are resident. Quick notes accepts a deliberate 17-module shell increase so its panel and editor open without a deferred component import and its initial collection read can begin at shell mount. The primary Projects views, the Projects navigator, the Notes home, the Notes navigators, and the paragraph editor are resident in their route closures. Projects workspace metadata begins loading at vault activation, followed by lightweight Notes workspace and cross-project navigation metadata, so first navigation can reuse the same single-flight requests while task windows, note bodies, and optional data remain demand-driven. Notes maintenance and transfer surfaces, database views, advanced block families, Settings detail workflows, diagnostics, and the icon catalog remain lazy. Only the selected surface mounts, so residency does not activate hidden component effects. `pnpm -w run validate` runs all three contract layers.
+
+Global Settings opens synchronously and switches among its top-level sections without constructor-loading states. The production bundle contract requires the modal and every top-level section in the resident closure. Notes transfer workflows, transfer dialogs, and the Doomscrolling limit editor remain separate lazy detail chunks because they are uncommon, heavier workflows rather than navigation surfaces.
+
+English is the resident typed locale fallback. The production bundle contract follows the static startup closures for `main.ts` and `App.svelte` and rejects every Spanish catalog source module from the default English path. Spanish loads as one cached dynamic locale graph only when startup resolution or a runtime language change requests it.
 
 ## Package size
 

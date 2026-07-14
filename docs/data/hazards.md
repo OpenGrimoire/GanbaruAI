@@ -115,3 +115,15 @@ Situations most likely to produce bugs, data corruption, or confusing UX. Every 
 **Key rule:** `inherited_focus_minutes` on the new run equals focus already accumulated in the ending run's current cycle, including any focus inherited by the ending run itself. It is cumulative, not just the delta from the last run.
 
 **Governed by:** `data/schema.md` (inherited fields), `algorithms/pomodoro-state-machine.md` (reconfiguration), `algorithms/pomodoro-segments-and-plan.md` (plan derivation).
+
+## 10. Notes folder and page graph divergence
+
+**Why it's dangerous:** a folder is a local navigation owner while a page parent is part of the Notion-shaped document graph. Updating one without the other can leave a page visible in two places, hide a paired child-page block incorrectly, or place a page in another project's folder.
+
+**Scenario, moving a nested page into a folder.** The operation must change the canonical parent to `workspace`, hide the paired child-page block, assign the folder, and refresh both old and new navigation parents in one transaction. Setting only the folder id would leave the page nested under its old note and inside the folder at the same time.
+
+**Scenario, deleting a folder.** Direct pages and child folders must move to the deleted folder's parent before the folder row is removed. A database cascade that deletes pages together with the folder would turn a harmless organization action into data loss.
+
+**Scenario, project history restore.** Folder rows must be restored before page rows that reference them, and the current project's folder rows must be replaced with the historical set. Omitting empty folders or folder placement from the project scope changes navigation even when note bodies restore correctly.
+
+**Governed by:** `features/notes.md`, `data/schema.md`, invariant 8, folder migration triggers, atomic folder and page commands, and project history restore ordering.

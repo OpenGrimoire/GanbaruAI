@@ -85,7 +85,7 @@ describe("findOrdinalWeekday", () => {
   });
 });
 
-describe("expandRecurring - backward compatibility", () => {
+describe("expandRecurring basic frequencies", () => {
   it("expands simple daily recurrence", () => {
     const evt = makeEvent({
       recurrence: { frequency: "daily", interval: 1, end: { type: "count", count: 3 } },

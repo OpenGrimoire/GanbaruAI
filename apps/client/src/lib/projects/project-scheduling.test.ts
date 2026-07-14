@@ -16,7 +16,7 @@ function project(overrides: Partial<Project> = {}): Project {
     id: "project-a",
     groupId: "group-a",
     name: "Launch",
-    icon: "folder",
+    icon: "lucide:folder",
     color: 2,
     sortOrder: 1000,
     status: "active",
@@ -117,6 +117,25 @@ describe("project scheduling helpers", () => {
         idleTimeoutMinutes: 5,
       },
     });
+  });
+
+  it("uses the localized built-in project name as its untouched event title", () => {
+    const defaults = projectCalendarCreateDefaults({
+      project: project({
+        id: "project-routine-eat",
+        name: "Comer",
+        defaultEventName: null,
+      }),
+      start: "2026-06-21 10:00",
+      end: "2026-06-21 11:00",
+      allDay: false,
+      globalIdleDefaults: {
+        idlePauseEnabled: true,
+        idleThresholdMinutes: 5,
+      },
+    });
+
+    expect(defaults.title).toBe("Comer");
   });
 
   it("builds all-day calendar defaults without Pomodoro config", () => {

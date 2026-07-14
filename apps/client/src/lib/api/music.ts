@@ -35,12 +35,28 @@ export async function pickMediaFolder(): Promise<MediaFolderSelection | null> {
   return invoke("music_pick_media_folder");
 }
 
-export async function registerMediaFile(path: string): Promise<string> {
-  return invoke("music_register_media_file", { path });
+export async function registerMediaFile(path: string, generation: number): Promise<string> {
+  return invoke("music_register_media_file", { path, generation });
 }
 
-export async function registerEmbeddedArtwork(path: string): Promise<string | null> {
-  return invoke("music_register_embedded_artwork", { path });
+export async function registerEmbeddedArtwork(
+  path: string,
+  generation: number,
+): Promise<string | null> {
+  return invoke("music_register_embedded_artwork", { path, generation });
+}
+
+/** Retains only the hosted media URLs referenced by the current playback lifecycle. */
+export async function retainHostedMedia(mediaUrls: string[], generation: number): Promise<void> {
+  await invoke("music_retain_hosted_media", { mediaUrls, generation });
+}
+
+/** Removes registrations abandoned by one stale playback lifecycle. */
+export async function unregisterHostedMedia(
+  mediaUrls: string[],
+  generation: number,
+): Promise<void> {
+  await invoke("music_unregister_hosted_media", { mediaUrls, generation });
 }
 
 export async function revealLocalFile(path: string): Promise<void> {

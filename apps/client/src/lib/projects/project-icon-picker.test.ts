@@ -24,6 +24,8 @@ import {
   projectIconVirtualWindow,
   prependProjectIconRecentValue,
   projectEmojiSkinToneFromEmoji,
+  readProjectIconAskEveryTime,
+  readProjectIconDefaultColor,
   readProjectIconRecentValues,
   stripProjectEmojiSkinTone,
   type ProjectIconPickerRect,
@@ -34,7 +36,10 @@ import {
   PROJECT_EMOJI_SKIN_TONE_BASES,
   type ProjectEmojiEntry,
 } from "./project-emoji-catalog";
-import type { ProjectLucideIconEntry } from "./project-lucide-catalog.generated";
+import {
+  PROJECT_LUCIDE_ICONS,
+  type ProjectLucideIconEntry,
+} from "./project-lucide-catalog.generated";
 import type { ProjectCustomEmoji } from "./types";
 
 const emojiEntries: readonly ProjectEmojiEntry[] = [
@@ -99,6 +104,16 @@ describe("project icon picker helpers", () => {
   it("filters Lucide icons by category and search terms", () => {
     expect(filterProjectLucideIcons(lucideEntries, "file", "all").map((entry) => entry.slug)).toEqual(["folder"]);
     expect(filterProjectLucideIcons(lucideEntries, "", "Travel").map((entry) => entry.slug)).toEqual(["rocket"]);
+  });
+
+  it("searches official English Lucide tags", () => {
+    expect(filterProjectLucideIcons(PROJECT_LUCIDE_ICONS, "strong", "all").map((entry) => entry.slug))
+      .toContain("biceps-flexed");
+  });
+
+  it("includes the app-supplied sport shoe icon in search", () => {
+    expect(filterProjectLucideIcons(PROJECT_LUCIDE_ICONS, "sneaker", "Sports").map((entry) => entry.slug))
+      .toContain("sport-shoe");
   });
 
   it("builds the visible emoji category tabs with the localized symbols label", () => {
@@ -198,19 +213,37 @@ describe("project icon picker helpers", () => {
   it("previews recent Lucide icons with the active color policy", () => {
     expect(projectIconPickerLucideRecentPreviewValue({
       rawValue: "lucide:folder",
-      allowIconColors: true,
       iconColor: 3,
     })).toBe("lucide:folder:3");
     expect(projectIconPickerLucideRecentPreviewValue({
       rawValue: "lucide:folder:9",
-      allowIconColors: false,
       iconColor: 3,
+    })).toBe("lucide:folder:3");
+    expect(projectIconPickerLucideRecentPreviewValue({
+      rawValue: "lucide:folder:9",
+      iconColor: "default",
     })).toBe("lucide:folder");
     expect(projectIconPickerLucideRecentPreviewValue({
       rawValue: "emoji:🚀",
-      allowIconColors: true,
       iconColor: 3,
     })).toBe("emoji:🚀");
+  });
+
+  it("accepts only valid stored default icon colors", () => {
+    expect(readProjectIconDefaultColor("default")).toBe("default");
+    expect(readProjectIconDefaultColor(0)).toBe(0);
+    expect(readProjectIconDefaultColor(31)).toBe(31);
+    expect(readProjectIconDefaultColor(32)).toBe("default");
+    expect(readProjectIconDefaultColor(-1)).toBe("default");
+    expect(readProjectIconDefaultColor("3")).toBe("default");
+    expect(readProjectIconDefaultColor(undefined)).toBe("default");
+  });
+
+  it("enables Ask every time only for an explicit stored true value", () => {
+    expect(readProjectIconAskEveryTime(true)).toBe(true);
+    expect(readProjectIconAskEveryTime(false)).toBe(false);
+    expect(readProjectIconAskEveryTime("true")).toBe(false);
+    expect(readProjectIconAskEveryTime(undefined)).toBe(false);
   });
 
   it("selects random emoji and Lucide values from injected randomness", () => {
@@ -221,7 +254,6 @@ describe("project icon picker helpers", () => {
       emoji: "👍🏽",
     });
     expect(projectIconPickerRandomLucideIcon(lucideEntries, {
-      allowIconColors: true,
       iconColor: 5,
       random: () => 0.9,
     })).toEqual({
@@ -230,8 +262,7 @@ describe("project icon picker helpers", () => {
       color: 5,
     });
     expect(projectIconPickerRandomLucideIcon(lucideEntries, {
-      allowIconColors: false,
-      iconColor: 5,
+      iconColor: "default",
       random: () => 0.9,
     })).toEqual({
       kind: "lucide",

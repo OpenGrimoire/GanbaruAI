@@ -60,9 +60,8 @@ export function computeTrailingRhythmState(
 
 /**
  * Compute the accumulated focus time at the end of a planned segment sequence.
- * Returns the minutes of focus in the last segment if it's a focus segment
- * (i.e., focus that would carry over to the next event). Returns 0 if the
- * last segment is a break (focus resets after a break).
+ * Returns the minutes of focus in the last segment if it is a focus segment.
+ * Returns 0 when the last segment is a break because focus resets after a break.
  */
 export function computeTrailingFocusMinutes(segments: PlannedSegment[]): number {
   if (segments.length === 0) return 0;
@@ -70,20 +69,7 @@ export function computeTrailingFocusMinutes(segments: PlannedSegment[]): number 
   if (last.phase === "focus") {
     return last.endOffsetMinutes - last.startOffsetMinutes;
   }
-  // Last segment is a break, so focus resets
   return 0;
-}
-
-/**
- * Deprecated compatibility helper for older tests. Prefer
- * `computeTrailingRhythmState` so inherited focus is preserved.
- */
-export function computeTrailingCycleNumber(segments: PlannedSegment[]): number {
-  if (segments.length === 0) return 1;
-  const last = segments[segments.length - 1];
-  if (last.phase === "long_break") return 1;
-  if (last.phase === "short_break") return last.rhythmPosition + 1;
-  return last.rhythmPosition;
 }
 
 /**
