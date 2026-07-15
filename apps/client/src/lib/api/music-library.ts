@@ -1,6 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
 import { dbUrl } from "$lib/api/db";
 import {
+  parseMusicContextAssignments,
+  type MusicAssignmentOwnerKind,
+  type MusicContextAssignment,
+  type MusicContextAssignmentSet,
+} from "$lib/music/music-context-assignment";
+import {
   parseBindingResult,
   parseBindings,
   parseCollections,
@@ -231,6 +237,15 @@ export const recordMusicListening = (request: MusicListeningUpdate): Promise<voi
   call("music_library_record_listening", databaseArgs({ request }), parseVoid);
 export const getMusicRecentSelections = (playlistId: string | null, limit = 32): Promise<MusicRecentSelection[]> =>
   call("music_library_recent_selections", databaseArgs({ playlistId, limit }), parseRecentSelections);
+export const getMusicContextAssignments = (
+  ownerKind: MusicAssignmentOwnerKind,
+  ownerId: string,
+): Promise<MusicContextAssignment[]> =>
+  call("music_library_context_assignments", databaseArgs({ ownerKind, ownerId }), parseMusicContextAssignments);
+export const replaceMusicContextAssignments = (
+  request: MusicContextAssignmentSet,
+): Promise<MusicContextAssignment[]> =>
+  call("music_library_replace_context_assignments", databaseArgs({ request }), parseMusicContextAssignments);
 export const bulkSetMusicReviewState = (request: MusicBulkReviewWrite): Promise<MusicBulkMembershipResult> =>
   call("music_library_bulk_set_review_state", databaseArgs({ request }), (value) => {
     if (typeof value !== "object" || value === null || !("changedCount" in value) || typeof value.changedCount !== "number") throw new Error("bulk review result must contain changedCount");

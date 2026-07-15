@@ -1,4 +1,5 @@
 pub(crate) mod commands;
+mod contexts;
 mod error;
 pub(crate) mod fixtures;
 mod item_repair;
@@ -22,6 +23,8 @@ pub use models::*;
 pub(crate) use rows::*;
 pub(crate) use validation::*;
 
+#[cfg(test)]
+mod contexts_tests;
 #[cfg(test)]
 mod playback_tests;
 #[cfg(test)]

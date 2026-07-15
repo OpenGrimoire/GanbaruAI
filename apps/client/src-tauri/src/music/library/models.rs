@@ -127,6 +127,29 @@ string_enum!(MusicIntendedUse {
     Relaxation => "relaxation",
     Energizing => "energizing",
 });
+string_enum!(MusicActivityPhase {
+    Focus => "focus",
+    ShortBreak => "short-break",
+    LongBreak => "long-break",
+});
+string_enum!(MusicAssignmentBehavior {
+    Inherit => "inherit",
+    PlayAutomatically => "play-automatically",
+    PrepareSilently => "prepare-silently",
+    PauseMusic => "pause-music",
+    KeepCurrentMusic => "keep-current-music",
+});
+string_enum!(MusicAssignmentOwnerKind {
+    ProjectDefault => "project-default",
+    EventSnapshot => "event-snapshot",
+    EventOverride => "event-override",
+    WorkEnvironment => "work-environment",
+});
+string_enum!(MusicAssignmentProvenanceKind {
+    Explicit => "explicit",
+    CopiedProject => "copied-project",
+    WorkEnvironment => "work-environment",
+});
 string_enum!(MusicItemSignal {
     Lyrics => "lyrics",
     SuddenChanges => "sudden-changes",
@@ -626,6 +649,41 @@ pub struct MusicListeningUpdate {
 pub struct MusicRecentSelection {
     pub item_id: String,
     pub selected_at: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicContextAssignment {
+    pub owner_kind: MusicAssignmentOwnerKind,
+    pub owner_id: String,
+    pub phase: MusicActivityPhase,
+    pub behavior: MusicAssignmentBehavior,
+    pub playlist_id: Option<String>,
+    pub soundscape_id: Option<String>,
+    pub provenance_kind: MusicAssignmentProvenanceKind,
+    pub provenance_id: Option<String>,
+    pub updated_at: i64,
+    pub version: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicContextAssignmentDraft {
+    pub phase: MusicActivityPhase,
+    pub behavior: MusicAssignmentBehavior,
+    pub playlist_id: Option<String>,
+    pub soundscape_id: Option<String>,
+    pub provenance_kind: MusicAssignmentProvenanceKind,
+    pub provenance_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicContextAssignmentSet {
+    pub owner_kind: MusicAssignmentOwnerKind,
+    pub owner_id: String,
+    pub assignments: Vec<MusicContextAssignmentDraft>,
+    pub updated_at: i64,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

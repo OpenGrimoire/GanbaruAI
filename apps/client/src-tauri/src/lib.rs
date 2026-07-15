@@ -767,6 +767,8 @@ pub fn run() {
             music::library::commands::music_library_playlist_playback_entries,
             music::library::commands::music_library_record_listening,
             music::library::commands::music_library_recent_selections,
+            music::library::commands::music_library_context_assignments,
+            music::library::commands::music_library_replace_context_assignments,
             music::library::commands::music_library_bulk_set_review_state,
             music::library::commands::music_library_bulk_snooze,
             music::library::commands::music_library_save_advanced_membership,

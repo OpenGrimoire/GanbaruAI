@@ -383,6 +383,31 @@ pub async fn music_library_recent_selections(
 }
 
 #[tauri::command]
+pub async fn music_library_context_assignments(
+    app: tauri::AppHandle,
+    db_url: String,
+    owner_kind: MusicAssignmentOwnerKind,
+    owner_id: String,
+) -> MusicLibraryResult<Vec<MusicContextAssignment>> {
+    let pool = connect_sqlite(app, db_url)
+        .await
+        .map_err(connection_error)?;
+    super::contexts::assignments(&pool, owner_kind, &owner_id).await
+}
+
+#[tauri::command]
+pub async fn music_library_replace_context_assignments(
+    app: tauri::AppHandle,
+    db_url: String,
+    request: MusicContextAssignmentSet,
+) -> MusicLibraryResult<Vec<MusicContextAssignment>> {
+    let pool = connect_sqlite(app, db_url)
+        .await
+        .map_err(connection_error)?;
+    super::contexts::replace_assignments(&pool, request).await
+}
+
+#[tauri::command]
 pub async fn music_library_bulk_set_review_state(
     app: tauri::AppHandle,
     db_url: String,
