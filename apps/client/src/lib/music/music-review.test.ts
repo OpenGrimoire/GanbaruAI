@@ -29,7 +29,7 @@ function detail(sourceKind: "local-file" | "youtube-video"): MusicInspectorDetai
       fileSizeBytes: 1, modifiedAtMs: 1, lightweightFingerprint: "a", strongFingerprint: "b",
       availability: "available", lastSeenGeneration: 1, firstSeenAt: 1, updatedAt: 1,
     }] : [],
-    memberships: [], snoozes: [], signals: [], statistics: null, sourceCollectionIds: [],
+    memberships: [], membershipSkipRanges: [], snoozes: [], signals: [], statistics: null, sourceCollectionIds: [],
   };
 }
 

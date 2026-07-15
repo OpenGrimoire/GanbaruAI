@@ -12,7 +12,7 @@ function detail(id: string): MusicInspectorDetail {
       durationMs: null, availability: "available", reviewState: "unreviewed",
       reviewChangedAt: null, reviewDeferredUntil: null, discoveredAt: 1, updatedAt: 1, version: 1,
     },
-    locations: [], memberships: [], snoozes: [], signals: [], statistics: null,
+    locations: [], memberships: [], membershipSkipRanges: [], snoozes: [], signals: [], statistics: null,
     sourceCollectionIds: [],
   };
 }

@@ -158,4 +158,21 @@ describe("Music library controller", () => {
     expect(undo).toHaveBeenCalledOnce();
     expect(controller.undoCount).toBe(0);
   });
+
+  it("appends bounded pages without duplicating retained rows", async () => {
+    const itemWindow = vi.fn(async (request) => ({
+      ...window(request.offset === 0 ? "first" : "second"),
+      totalCount: 2,
+      offset: request.offset,
+      limit: request.limit,
+    }));
+    const controller = createMusicLibraryController(api(itemWindow));
+    controller.setVault("vault-1");
+    controller.navigate({ kind: "library" });
+    await controller.refresh();
+    await controller.loadMore();
+
+    expect(controller.currentWindow.items.map((item) => item.id)).toEqual(["first", "second"]);
+    expect(itemWindow).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 1, limit: 200 }));
+  });
 });

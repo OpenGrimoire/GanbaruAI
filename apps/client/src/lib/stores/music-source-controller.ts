@@ -56,6 +56,8 @@ export interface MusicSourceState {
   localBackendKind: LocalBackendKind;
   localVideoReady: boolean;
   currentArtworkUrl: string | null;
+  activePlaylistId: string | null;
+  activeQueueItemIds: string[];
 }
 
 interface MusicSourceControllerContext {
@@ -120,6 +122,8 @@ export function createMusicSourceController(
       state.folderScanTruncated = selection.truncated;
       state.queue = selection.tracks.map((track) =>
         localFileSourceFromPath(track.path, track.title, track.artworkPath));
+      state.activePlaylistId = null;
+      state.activeQueueItemIds = [];
       state.shuffleOrder = [];
       state.queueHistory = [];
       state.pendingQueueIndex = null;
@@ -265,6 +269,8 @@ export function createMusicSourceController(
     }
     if (!options.preserveQueue) {
       state.queue = [source];
+      state.activePlaylistId = null;
+      state.activeQueueItemIds = [];
       state.shuffleOrder = [];
       state.queueHistory = [];
       state.pendingQueueIndex = 0;
@@ -325,6 +331,8 @@ export function createMusicSourceController(
     state.sourceInput = "";
     context.clearYouTubePlaylist();
     state.queue = [];
+    state.activePlaylistId = null;
+    state.activeQueueItemIds = [];
     state.folderScanTruncated = false;
     state.shuffleOrder = [];
     state.queueHistory = [];

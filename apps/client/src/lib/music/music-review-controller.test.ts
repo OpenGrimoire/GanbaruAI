@@ -41,7 +41,7 @@ const detail = (): MusicInspectorDetail => ({
     durationMs: 1_000, availability: "available", reviewState: "unreviewed",
     reviewChangedAt: null, reviewDeferredUntil: null, discoveredAt: 1, updatedAt: 1, version: 1,
   },
-  locations: [], memberships: [], snoozes: [], signals: [], statistics: null, sourceCollectionIds: [],
+  locations: [], memberships: [], membershipSkipRanges: [], snoozes: [], signals: [], statistics: null, sourceCollectionIds: [],
 });
 
 describe("MusicReviewController", () => {

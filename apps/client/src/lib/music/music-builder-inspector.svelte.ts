@@ -1,5 +1,5 @@
-import { getMusicInspectorDetail } from "$lib/api/music-library";
-import type { MusicInspectorDetail } from "$lib/music/library-contracts";
+import { getMusicInspectorDetail, saveMusicAdvancedMembership, setMusicMetadataOverrides } from "$lib/api/music-library";
+import type { MusicInspectorDetail, MusicMembershipSkipRange, MusicPlaylistMembership } from "$lib/music/library-contracts";
 
 export interface MusicBuilderInspectorApi {
   detail(itemId: string): Promise<MusicInspectorDetail>;
@@ -12,6 +12,7 @@ export class MusicBuilderInspectorController {
   detail = $state<MusicInspectorDetail | null>(null);
   busy = $state(false);
   error = $state<Error | null>(null);
+  saving = $state(false);
   expandedSections = $state<Set<string>>(new Set(["details", "memberships"]));
 
   private generation = 0;
@@ -59,6 +60,61 @@ export class MusicBuilderInspectorController {
     if (next.has(section)) next.delete(section);
     else next.add(section);
     this.expandedSections = next;
+  }
+
+  async saveMetadataOverrides(overrides: {
+    titleOverride: string | null;
+    artistOverride: string | null;
+    albumOverride: string | null;
+    artworkOverride: string | null;
+  }): Promise<boolean> {
+    const detail = this.detail;
+    if (!detail || this.saving) return false;
+    this.saving = true;
+    this.error = null;
+    try {
+      const receipt = await setMusicMetadataOverrides({
+        itemId: detail.item.id,
+        ...overrides,
+        expectedVersion: detail.item.version,
+        updatedAt: Date.now(),
+      });
+      Object.assign(detail.item, overrides, { version: receipt.version });
+      return true;
+    } catch (error) {
+      this.error = error instanceof Error ? error : new Error(String(error));
+      return false;
+    } finally {
+      this.saving = false;
+    }
+  }
+
+  async saveAdvancedMembership(
+    membership: MusicPlaylistMembership,
+    skipRanges: MusicMembershipSkipRange[],
+  ): Promise<boolean> {
+    if (this.saving) return false;
+    this.saving = true;
+    this.error = null;
+    try {
+      const receipt = await saveMusicAdvancedMembership({
+        membership: { ...membership, expectedVersion: membership.version, updatedAt: Date.now() },
+        skipRanges,
+      });
+      membership.version = receipt.version;
+      if (this.detail) {
+        this.detail.membershipSkipRanges = [
+          ...this.detail.membershipSkipRanges.filter((range) => range.membershipId !== membership.id),
+          ...skipRanges,
+        ];
+      }
+      return true;
+    } catch (error) {
+      this.error = error instanceof Error ? error : new Error(String(error));
+      return false;
+    } finally {
+      this.saving = false;
+    }
   }
 }
 

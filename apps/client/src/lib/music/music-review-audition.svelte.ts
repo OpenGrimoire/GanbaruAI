@@ -16,6 +16,8 @@ interface MusicReviewPlaybackContext {
   queueHistory: number[];
   pendingQueueIndex: number | null;
   contextOwner: MusicPlaybackContextOwner;
+  activePlaylistId: string | null;
+  activeQueueItemIds: string[];
 }
 
 export class MusicReviewAuditionController {
@@ -42,6 +44,8 @@ export class MusicReviewAuditionController {
       queueHistory: [...this.player.queueHistory],
       pendingQueueIndex: this.player.pendingQueueIndex,
       contextOwner: this.player.contextOwner,
+      activePlaylistId: this.player.activePlaylistId,
+      activeQueueItemIds: [...this.player.activeQueueItemIds],
     };
     this.active = true;
   }
@@ -60,6 +64,8 @@ export class MusicReviewAuditionController {
     }
     this.error = null;
     try {
+      this.player.activePlaylistId = null;
+      this.player.activeQueueItemIds = [];
       await this.player.loadSource(source, { autoplay, resume: false, preserveQueue: true });
       this.player.contextOwner = "review";
       this.reviewItemId = detail.item.id;
@@ -82,6 +88,8 @@ export class MusicReviewAuditionController {
     this.player.queueHistory = context.queueHistory;
     this.player.pendingQueueIndex = context.pendingQueueIndex;
     this.player.contextOwner = context.contextOwner;
+    this.player.activePlaylistId = context.activePlaylistId;
+    this.player.activeQueueItemIds = context.activeQueueItemIds;
     if (!context.source) {
       await this.player.resetPlayer();
       return;
@@ -94,6 +102,8 @@ export class MusicReviewAuditionController {
 
   keep(): void {
     this.player.contextOwner = "manual";
+    this.player.activePlaylistId = null;
+    this.player.activeQueueItemIds = [];
     this.clearOwnership();
   }
 

@@ -144,6 +144,11 @@ string_enum!(MusicRepeatMode {
     All => "all",
     One => "one",
 });
+string_enum!(MusicPlaylistAssignmentKind {
+    ProjectFocus => "project-focus",
+    ProjectBreak => "project-break",
+    CalendarEvent => "calendar-event",
+});
 string_enum!(MusicListDestination {
     Review => "review",
     Library => "library",
@@ -153,7 +158,9 @@ string_enum!(MusicItemSort {
     Title => "title",
     Artist => "artist",
     Album => "album",
+    SourceOrder => "source-order",
     DiscoveredAt => "discovered-at",
+    AddedToPlaylist => "added-to-playlist",
     LastPlayedAt => "last-played-at",
     PlayCount => "play-count",
     ManualPosition => "manual-position",
@@ -528,6 +535,98 @@ pub struct MusicBulkMembershipWrite {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct MusicBulkMembershipEdit {
+    pub action_id: String,
+    pub item_ids: Vec<String>,
+    pub add_playlist_ids: Vec<String>,
+    pub remove_playlist_ids: Vec<String>,
+    pub weight_playlist_ids: Vec<String>,
+    pub weight: Option<MusicWeight>,
+    pub updated_at: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicBulkMembershipResult {
+    pub changed_count: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicMembershipMatrixEntry {
+    pub item_id: String,
+    pub playlist_id: String,
+    pub weight: MusicWeight,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicPlaylistReorder {
+    pub playlist_id: String,
+    pub item_id: String,
+    pub target_index: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicPlaylistReorderResult {
+    pub item_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicPlaylistPlaybackEntry {
+    pub membership_id: String,
+    pub item_id: String,
+    pub identity_key: String,
+    pub source_kind: MusicLibrarySourceKind,
+    pub youtube_video_id: Option<String>,
+    pub title: String,
+    pub availability: MusicItemAvailability,
+    pub root_id: Option<String>,
+    pub relative_path: Option<String>,
+    pub position: i64,
+    pub weight: MusicWeight,
+    pub enabled: bool,
+    pub start_ms: Option<i64>,
+    pub end_ms: Option<i64>,
+    pub volume: Option<f64>,
+    pub rate: Option<f64>,
+    pub snoozed: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicVersionedItem {
+    pub item_id: String,
+    pub expected_version: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicBulkReviewWrite {
+    pub items: Vec<MusicVersionedItem>,
+    pub review_state: MusicReviewState,
+    pub deferred_until: Option<i64>,
+    pub updated_at: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicBulkSnoozeWrite {
+    pub action_id: String,
+    pub item_ids: Vec<String>,
+    pub scope: MusicSnoozeScope,
+    pub playlist_id: Option<String>,
+    pub starts_at: i64,
+    pub ends_at: Option<i64>,
+    pub reason: String,
+    pub created_at: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MusicSnoozeWrite {
     pub id: String,
     pub item_id: String,
@@ -562,12 +661,22 @@ pub struct MusicPlaylistDeleteImpact {
     pub project_focus_assignment_count: i64,
     pub project_break_assignment_count: i64,
     pub calendar_assignment_count: i64,
+    pub assignments: Vec<MusicPlaylistAssignmentReference>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicPlaylistAssignmentReference {
+    pub kind: MusicPlaylistAssignmentKind,
+    pub id: String,
+    pub label: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MusicPlaylistDelete {
     pub playlist_id: String,
+    pub replacement_playlist_id: Option<String>,
     pub expected_version: i64,
     pub expected_impact: MusicPlaylistDeleteImpact,
 }
@@ -584,8 +693,37 @@ pub struct MusicReviewWrite {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct MusicMetadataOverrideWrite {
+    pub item_id: String,
+    pub title_override: Option<String>,
+    pub artist_override: Option<String>,
+    pub album_override: Option<String>,
+    pub artwork_override: Option<String>,
+    pub expected_version: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MusicMembershipRemove {
     pub membership_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicMembershipSkipRange {
+    pub id: String,
+    pub membership_id: String,
+    pub start_ms: i64,
+    pub end_ms: i64,
+    pub sort_order: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicAdvancedMembershipWrite {
+    pub membership: MusicMembershipWrite,
+    pub skip_ranges: Vec<MusicMembershipSkipRange>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -611,6 +749,7 @@ pub struct MusicItemWindowRequest {
     pub availability: Option<MusicItemAvailability>,
     pub review_state: Option<MusicReviewState>,
     pub source_collection_id: Option<String>,
+    pub membership_playlist_id: Option<String>,
     pub snoozed: Option<bool>,
     pub sort: MusicItemSort,
     pub direction: MusicSortDirection,
@@ -630,6 +769,7 @@ pub struct MusicItemListEntry {
     pub title: String,
     pub artist: String,
     pub album: String,
+    pub artwork_override: Option<String>,
     pub duration_ms: Option<i64>,
     pub availability: MusicItemAvailability,
     pub review_state: MusicReviewState,
@@ -808,6 +948,7 @@ pub struct MusicInspectorDetail {
     pub item: MusicLibraryItem,
     pub locations: Vec<MusicLocalLocation>,
     pub memberships: Vec<MusicPlaylistMembership>,
+    pub membership_skip_ranges: Vec<MusicMembershipSkipRange>,
     pub snoozes: Vec<MusicSnooze>,
     pub signals: Vec<MusicItemSignal>,
     pub statistics: Option<MusicListeningStatistics>,

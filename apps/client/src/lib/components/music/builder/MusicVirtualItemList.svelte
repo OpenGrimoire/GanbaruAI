@@ -1,5 +1,6 @@
 <script lang="ts">
   import { tick } from "svelte";
+  import { flip } from "svelte/animate";
   import type { MusicItemListEntry } from "$lib/music/library-contracts";
   import { musicVirtualWindow, revealMusicVirtualIndex } from "$lib/music/music-virtual-window";
   import MusicBuilderItemRow from "./MusicBuilderItemRow.svelte";
@@ -10,20 +11,32 @@
     selectedItemIds = selectedItemId ? [selectedItemId] : [],
     initialScrollTop = 0,
     playingItemId = null,
+    playlistMode = false,
+    reorderEnabled = false,
     onSelect,
     onSelectionChange = () => undefined,
     onPlay = () => undefined,
     onScrollTop = () => undefined,
+    onReorder = () => undefined,
+    hasMore = false,
+    loadingMore = false,
+    onLoadMore = () => undefined,
   }: {
     items: MusicItemListEntry[];
     selectedItemId: string | null;
     selectedItemIds?: string[];
     initialScrollTop?: number;
     playingItemId?: string | null;
+    playlistMode?: boolean;
+    reorderEnabled?: boolean;
     onSelect: (item: MusicItemListEntry) => void;
     onSelectionChange?: (itemIds: string[], activeItemId: string) => void;
     onPlay?: (item: MusicItemListEntry) => void;
     onScrollTop?: (scrollTop: number) => void;
+    onReorder?: (item: MusicItemListEntry, targetIndex: number) => void;
+    hasMore?: boolean;
+    loadingMore?: boolean;
+    onLoadMore?: () => void;
   } = $props();
 
   const rowHeight = 64;
@@ -31,8 +44,20 @@
   let scrollTop = $state(0);
   let viewportHeight = $state(0);
   let rangeAnchor = $state<string | null>(null);
+  let draggedItemId = $state<string | null>(null);
+  let dropTargetId = $state<string | null>(null);
+  let dropEdge = $state<"before" | "after">("before");
+  let revealedPlayingItemId = $state<string | null>(null);
   const windowed = $derived(musicVirtualWindow({ count: items.length, scrollTop, viewportHeight, rowHeight, overscan: 6 }));
   const visibleItems = $derived(items.slice(windowed.startIndex, windowed.endIndex));
+
+  $effect(() => {
+    if (!playingItemId || playingItemId === revealedPlayingItemId || !viewport) return;
+    const index = items.findIndex((item) => item.id === playingItemId);
+    if (index < 0) return;
+    revealedPlayingItemId = playingItemId;
+    viewport.scrollTop = revealMusicVirtualIndex(index, viewport.scrollTop, viewport.clientHeight, rowHeight);
+  });
 
   function viewportAction(node: HTMLElement): { destroy: () => void } {
     viewport = node;
@@ -41,6 +66,7 @@
       scrollTop = node.scrollTop;
       viewportHeight = node.clientHeight;
       onScrollTop(scrollTop);
+      if (hasMore && !loadingMore && node.scrollTop + node.clientHeight >= node.scrollHeight - rowHeight * 4) onLoadMore();
     };
     const observer = new ResizeObserver(update);
     observer.observe(node);
@@ -75,6 +101,16 @@
   }
 
   function handleKeydown(event: KeyboardEvent): void {
+    if (playlistMode && reorderEnabled && event.altKey && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+      const selectedIndex = items.findIndex((item) => item.id === selectedItemId);
+      if (selectedIndex < 0) return;
+      event.preventDefault();
+      const targetIndex = event.key === "ArrowUp"
+        ? Math.max(0, selectedIndex - 1)
+        : Math.min(items.length - 1, selectedIndex + 1);
+      onReorder(items[selectedIndex], targetIndex);
+      return;
+    }
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp" && event.key !== "Home" && event.key !== "End") return;
     event.preventDefault();
     if (items.length === 0) return;
@@ -100,6 +136,45 @@
     if (viewport) viewport.scrollTop = revealMusicVirtualIndex(nextIndex, viewport.scrollTop, viewport.clientHeight, rowHeight);
     void tick().then(() => document.querySelector<HTMLElement>(`[data-music-focus-key="item:${CSS.escape(items[nextIndex].id)}"] button`)?.focus());
   }
+
+  function dragStart(item: MusicItemListEntry, event: DragEvent): void {
+    draggedItemId = item.id;
+    event.dataTransfer?.setData("text/plain", item.id);
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+  }
+
+  function dragOver(item: MusicItemListEntry, event: DragEvent): void {
+    if (!draggedItemId) return;
+    event.preventDefault();
+    const row = event.currentTarget as HTMLElement;
+    const rowBounds = row.getBoundingClientRect();
+    dropTargetId = item.id;
+    dropEdge = event.clientY < rowBounds.top + rowBounds.height / 2 ? "before" : "after";
+    if (!viewport) return;
+    const bounds = viewport.getBoundingClientRect();
+    const edge = 36;
+    if (event.clientY < bounds.top + edge) viewport.scrollTop -= rowHeight;
+    else if (event.clientY > bounds.bottom - edge) viewport.scrollTop += rowHeight;
+  }
+
+  function drop(target: MusicItemListEntry, event: DragEvent): void {
+    event.preventDefault();
+    const sourceId = draggedItemId ?? event.dataTransfer?.getData("text/plain") ?? null;
+    draggedItemId = null;
+    dropTargetId = null;
+    if (!sourceId || sourceId === target.id) return;
+    const source = items.find((item) => item.id === sourceId);
+    const sourceIndex = items.findIndex((item) => item.id === sourceId);
+    const remaining = items.filter((item) => item.id !== sourceId);
+    const remainingTargetIndex = remaining.findIndex((item) => item.id === target.id);
+    const targetIndex = Math.min(items.length - 1, remainingTargetIndex + (dropEdge === "after" ? 1 : 0));
+    if (source && sourceIndex >= 0 && remainingTargetIndex >= 0 && sourceIndex !== targetIndex) onReorder(source, targetIndex);
+  }
+
+  function dragEnd(): void {
+    draggedItemId = null;
+    dropTargetId = null;
+  }
 </script>
 
 <div
@@ -112,15 +187,31 @@
 >
   <div style={`height: ${windowed.topSpacer}px`} aria-hidden="true"></div>
   {#each visibleItems as item (item.id)}
+    <div animate:flip={{ duration: 150 }}>
     <MusicBuilderItemRow
       {item}
       selected={selectedItemIds.includes(item.id)}
       playing={item.id === playingItemId}
+      {playlistMode}
+      {reorderEnabled}
+      dropEdge={dropTargetId === item.id ? dropEdge : null}
       onSelect={(selected, event) => { void select(selected, event); }}
       {onPlay}
+      onMore={(selected) => { void select(selected); }}
+      onMove={(entry, direction) => {
+        const index = items.findIndex((item) => item.id === entry.id);
+        onReorder(entry, direction === "up" ? Math.max(0, index - 1) : Math.min(items.length - 1, index + 1));
+      }}
+      onMoveTo={onReorder}
+      onDragStart={dragStart}
+      onDragEnd={dragEnd}
+      onDragOver={dragOver}
+      onDrop={drop}
     />
+    </div>
   {/each}
   <div style={`height: ${windowed.bottomSpacer}px`} aria-hidden="true"></div>
+  {#if loadingMore}<div class="mx-2 my-1 h-10 animate-pulse rounded-lg bg-secondary motion-reduce:animate-none" aria-hidden="true"></div>{/if}
 </div>
 
 <style>

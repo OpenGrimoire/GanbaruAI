@@ -34,6 +34,7 @@ export interface MusicDestinationState {
   availability: MusicItemAvailability | null;
   reviewState: MusicReviewState | null;
   sourceCollectionId: string | null;
+  membershipPlaylistId: string | null;
   snoozed: boolean | null;
   sort: MusicItemSort;
   direction: MusicSortDirection;
@@ -92,12 +93,13 @@ function defaultDestinationState(location: MusicBuilderLocation): MusicDestinati
     availability: null,
     reviewState: location.kind === "review" ? "unreviewed" : null,
     sourceCollectionId: null,
+    membershipPlaylistId: null,
     snoozed: null,
     sort: location.kind === "playlist" ? "manual-position" : location.kind === "review" ? "discovered-at" : "title",
     direction: "ascending",
     groupBy: "none",
     offset: 0,
-    limit: 50,
+    limit: 200,
     scrollTop: 0,
     selectedItemId: null,
     selectedItemIds: [],
@@ -121,6 +123,7 @@ function itemWindowRequest(
     availability: state.availability,
     reviewState: state.reviewState,
     sourceCollectionId: state.sourceCollectionId,
+    membershipPlaylistId: state.membershipPlaylistId,
     snoozed: state.snoozed,
     sort: state.sort,
     direction: state.direction,
@@ -147,6 +150,8 @@ export class MusicLibraryController {
   sourceSummaries = $state<MusicSourceSummary[]>([]);
   issues = $state<MusicIssue[]>([]);
   busy = $state(false);
+  loadingMore = $state(false);
+  loadMoreError = $state<Error | null>(null);
   error = $state<Error | null>(null);
   undoCount = $state(0);
   lastUndoLabel = $state<string | null>(null);
@@ -183,6 +188,8 @@ export class MusicLibraryController {
     this.issues = [];
     this.error = null;
     this.busy = false;
+    this.loadingMore = false;
+    this.loadMoreError = null;
     this.mutationRevisions = {};
     this.mutationTails = {};
     this.undoEntries = [];
@@ -279,6 +286,33 @@ export class MusicLibraryController {
       return false;
     } finally {
       if (this.isCurrent(generation, vaultId)) this.busy = false;
+    }
+  }
+
+  async loadMore(): Promise<boolean> {
+    if (!this.vaultId || this.loadingMore || this.busy || !hasItemWindow(this.location)) return false;
+    const current = this.currentWindow;
+    if (current.items.length >= current.totalCount) return false;
+    const vaultId = this.vaultId;
+    const location = this.location;
+    const key = this.currentKey;
+    const state = { ...this.currentState, offset: current.items.length };
+    this.loadingMore = true;
+    this.loadMoreError = null;
+    try {
+      const next = await this.api.itemWindow(itemWindowRequest(location, state, this.now()));
+      if (this.vaultId !== vaultId || this.currentKey !== key) return false;
+      const known = new Set(current.items.map((item) => item.id));
+      current.items = [...current.items, ...next.items.filter((item) => !known.has(item.id))];
+      current.totalCount = next.totalCount;
+      current.groups = next.groups;
+      return true;
+    } catch (error) {
+      if (this.vaultId !== vaultId || this.currentKey !== key) return false;
+      this.loadMoreError = error instanceof Error ? error : new Error(String(error));
+      return false;
+    } finally {
+      if (this.vaultId === vaultId && this.currentKey === key) this.loadingMore = false;
     }
   }
 

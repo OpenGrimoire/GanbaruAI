@@ -1,3 +1,4 @@
+use base64::{engine::general_purpose, Engine as _};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, VecDeque},
@@ -26,6 +27,7 @@ const VALID_PLAYBACK_STATUSES: &[&str] = &[
     "idle", "loading", "ready", "playing", "paused", "ended", "error",
 ];
 const MAX_MEDIA_FOLDER_FILES: usize = 5_000;
+const MAX_ARTWORK_BYTES: u64 = 12 * 1024 * 1024;
 static MEDIA_FOLDER_SCAN_GENERATION: AtomicU64 = AtomicU64::new(0);
 const MEDIA_EXTENSIONS: &[&str] = &[
     "aac", "aif", "aiff", "alac", "ape", "avi", "flac", "flv", "m4a", "m4v", "mkv", "mov", "mp3",
@@ -172,6 +174,65 @@ pub async fn music_pick_media_file(app: tauri::AppHandle) -> Result<Option<Strin
     .await
     .map_err(|error| format!("media file picker failed: {error}"))??;
     Ok(selected.map(|path| path.to_string_lossy().into_owned()))
+}
+
+#[tauri::command]
+pub async fn music_pick_artwork_file(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let selected = tauri::async_runtime::spawn_blocking(move || {
+        app.dialog()
+            .file()
+            .set_title("Select playlist artwork")
+            .add_filter(
+                "Images",
+                &["png", "jpg", "jpeg", "webp", "gif", "bmp", "avif"],
+            )
+            .blocking_pick_file()
+            .map(dialog_path)
+            .transpose()
+    })
+    .await
+    .map_err(|error| format!("artwork file picker failed: {error}"))??;
+    Ok(selected.map(|path| path.to_string_lossy().into_owned()))
+}
+
+#[tauri::command]
+pub async fn music_artwork_data_url(path: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = PathBuf::from(path);
+        require_absolute_file(&path)?;
+        let metadata = fs::metadata(&path)
+            .map_err(|error| format!("failed to inspect artwork file: {error}"))?;
+        if metadata.len() > MAX_ARTWORK_BYTES {
+            return Err("artwork file exceeds the 12 MB display limit".to_string());
+        }
+        let bytes = fs::read(&path).map_err(|error| format!("failed to read artwork: {error}"))?;
+        let content_type = artwork_content_type(&bytes)
+            .ok_or_else(|| "selected artwork is not a supported image".to_string())?;
+        Ok(format!(
+            "data:{content_type};base64,{}",
+            general_purpose::STANDARD.encode(bytes)
+        ))
+    })
+    .await
+    .map_err(|error| format!("artwork loading task failed: {error}"))?
+}
+
+fn artwork_content_type(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some("image/png")
+    } else if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
+        Some("image/jpeg")
+    } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        Some("image/gif")
+    } else if bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        Some("image/webp")
+    } else if bytes.starts_with(b"BM") {
+        Some("image/bmp")
+    } else if bytes.len() >= 12 && &bytes[4..8] == b"ftyp" && &bytes[8..12] == b"avif" {
+        Some("image/avif")
+    } else {
+        None
+    }
 }
 
 fn music_folder_start_directory(app: &tauri::AppHandle) -> Option<PathBuf> {
@@ -598,6 +659,19 @@ mod tests {
             media_content_type(Path::new("/music/folder.webp")),
             "image/webp"
         );
+    }
+
+    #[test]
+    fn artwork_data_url_sniffing_rejects_extension_only_files() {
+        assert_eq!(
+            artwork_content_type(b"\x89PNG\r\n\x1a\nrest"),
+            Some("image/png")
+        );
+        assert_eq!(
+            artwork_content_type(&[0xff, 0xd8, 0xff, 0xdb]),
+            Some("image/jpeg")
+        );
+        assert_eq!(artwork_content_type(b"not an image"), None);
     }
 
     #[test]

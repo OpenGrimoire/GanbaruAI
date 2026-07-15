@@ -285,6 +285,18 @@ pub async fn music_library_set_review_state(
 }
 
 #[tauri::command]
+pub async fn music_library_set_metadata_overrides(
+    app: tauri::AppHandle,
+    db_url: String,
+    request: MusicMetadataOverrideWrite,
+) -> MusicLibraryResult<MusicWriteReceipt> {
+    let pool = connect_sqlite(app, db_url)
+        .await
+        .map_err(connection_error)?;
+    super::writes::set_metadata_overrides(&pool, request).await
+}
+
+#[tauri::command]
 pub async fn music_library_upsert_memberships(
     app: tauri::AppHandle,
     db_url: String,
@@ -294,6 +306,91 @@ pub async fn music_library_upsert_memberships(
         .await
         .map_err(connection_error)?;
     super::writes::upsert_memberships(&pool, request).await
+}
+
+#[tauri::command]
+pub async fn music_library_bulk_edit_memberships(
+    app: tauri::AppHandle,
+    db_url: String,
+    request: MusicBulkMembershipEdit,
+) -> MusicLibraryResult<MusicBulkMembershipResult> {
+    let pool = connect_sqlite(app, db_url)
+        .await
+        .map_err(connection_error)?;
+    super::playlist_edits::bulk_edit_memberships(&pool, request).await
+}
+
+#[tauri::command]
+pub async fn music_library_membership_matrix(
+    app: tauri::AppHandle,
+    db_url: String,
+    item_ids: Vec<String>,
+) -> MusicLibraryResult<Vec<MusicMembershipMatrixEntry>> {
+    let pool = connect_sqlite(app, db_url)
+        .await
+        .map_err(connection_error)?;
+    super::queries::membership_matrix(&pool, item_ids).await
+}
+
+#[tauri::command]
+pub async fn music_library_reorder_playlist(
+    app: tauri::AppHandle,
+    db_url: String,
+    request: MusicPlaylistReorder,
+) -> MusicLibraryResult<MusicPlaylistReorderResult> {
+    let pool = connect_sqlite(app, db_url)
+        .await
+        .map_err(connection_error)?;
+    super::playlist_edits::reorder_playlist(&pool, request).await
+}
+
+#[tauri::command]
+pub async fn music_library_playlist_playback_entries(
+    app: tauri::AppHandle,
+    db_url: String,
+    playlist_id: String,
+    now_ms: i64,
+) -> MusicLibraryResult<Vec<MusicPlaylistPlaybackEntry>> {
+    let pool = connect_sqlite(app, db_url)
+        .await
+        .map_err(connection_error)?;
+    super::queries::playlist_playback_entries(&pool, &playlist_id, now_ms).await
+}
+
+#[tauri::command]
+pub async fn music_library_bulk_set_review_state(
+    app: tauri::AppHandle,
+    db_url: String,
+    request: MusicBulkReviewWrite,
+) -> MusicLibraryResult<MusicBulkMembershipResult> {
+    let pool = connect_sqlite(app, db_url)
+        .await
+        .map_err(connection_error)?;
+    super::playlist_edits::bulk_set_review_state(&pool, request).await
+}
+
+#[tauri::command]
+pub async fn music_library_bulk_snooze(
+    app: tauri::AppHandle,
+    db_url: String,
+    request: MusicBulkSnoozeWrite,
+) -> MusicLibraryResult<MusicBulkMembershipResult> {
+    let pool = connect_sqlite(app, db_url)
+        .await
+        .map_err(connection_error)?;
+    super::playlist_edits::bulk_snooze(&pool, request).await
+}
+
+#[tauri::command]
+pub async fn music_library_save_advanced_membership(
+    app: tauri::AppHandle,
+    db_url: String,
+    request: MusicAdvancedMembershipWrite,
+) -> MusicLibraryResult<MusicWriteReceipt> {
+    let pool = connect_sqlite(app, db_url)
+        .await
+        .map_err(connection_error)?;
+    super::writes::save_advanced_membership(&pool, request).await
 }
 
 #[tauri::command]

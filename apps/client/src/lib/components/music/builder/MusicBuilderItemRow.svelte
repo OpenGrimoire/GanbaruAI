@@ -2,9 +2,10 @@
   import CircleAlert from "@lucide/svelte/icons/circle-alert";
   import Clock3 from "@lucide/svelte/icons/clock-3";
   import MoreHorizontal from "@lucide/svelte/icons/ellipsis";
-  import Music2 from "@lucide/svelte/icons/music-2";
   import Play from "@lucide/svelte/icons/play";
-  import Youtube from "@lucide/svelte/icons/youtube";
+  import GripVertical from "@lucide/svelte/icons/grip-vertical";
+  import ArrowUp from "@lucide/svelte/icons/arrow-up";
+  import ArrowDown from "@lucide/svelte/icons/arrow-down";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import type { MusicItemListEntry } from "$lib/music/library-contracts";
   import {
@@ -14,21 +15,40 @@
     musicReviewTone,
   } from "$lib/music/music-builder-presentation";
   import { cn } from "$lib/utils";
+  import MusicArtworkThumbnail from "./MusicArtworkThumbnail.svelte";
 
   let {
     item,
     selected = false,
     playing = false,
+    playlistMode = false,
+    reorderEnabled = false,
+    dropEdge = null,
     onSelect,
     onPlay = () => undefined,
     onMore = () => undefined,
+    onMove = () => undefined,
+    onMoveTo = () => undefined,
+    onDragStart = () => undefined,
+    onDragEnd = () => undefined,
+    onDragOver = () => undefined,
+    onDrop = () => undefined,
   }: {
     item: MusicItemListEntry;
     selected?: boolean;
     playing?: boolean;
+    playlistMode?: boolean;
+    reorderEnabled?: boolean;
+    dropEdge?: "before" | "after" | null;
     onSelect: (item: MusicItemListEntry, event: MouseEvent) => void;
     onPlay?: (item: MusicItemListEntry) => void;
     onMore?: (item: MusicItemListEntry, anchor: HTMLElement) => void;
+    onMove?: (item: MusicItemListEntry, direction: "up" | "down") => void;
+    onMoveTo?: (item: MusicItemListEntry, position: number) => void;
+    onDragStart?: (item: MusicItemListEntry, event: DragEvent) => void;
+    onDragEnd?: () => void;
+    onDragOver?: (item: MusicItemListEntry, event: DragEvent) => void;
+    onDrop?: (item: MusicItemListEntry, event: DragEvent) => void;
   } = $props();
 
   const { t } = getLocalization();
@@ -36,6 +56,8 @@
   const duration = $derived(formatMusicDuration(item.durationMs));
   const availabilityTone = $derived(musicAvailabilityTone(item.availability));
   const reviewTone = $derived(musicReviewTone(item.reviewState));
+  let menuOpen = $state(false);
+  let positionDraft = $state("");
 
   function availabilityLabel(): string {
     if (item.availability === "available") return t("music.builder.available");
@@ -47,11 +69,17 @@
 </script>
 
 <div
-  class={cn("music-builder-row group", selected && "music-builder-row-selected", playing && "music-builder-row-playing")}
+  class={cn("music-builder-row group", selected && "music-builder-row-selected", playing && "music-builder-row-playing", dropEdge === "before" && "music-builder-drop-before", dropEdge === "after" && "music-builder-drop-after")}
   role="option"
+  tabindex="-1"
   aria-selected={selected}
   data-music-focus-key={`item:${item.id}`}
+  ondragover={(event) => onDragOver(item, event)}
+  ondrop={(event) => onDrop(item, event)}
 >
+  {#if playlistMode && reorderEnabled}
+    <button type="button" draggable="true" ondragstart={(event) => onDragStart(item, event)} ondragend={onDragEnd} class="-mr-1 grid h-8 w-5 shrink-0 cursor-grab place-items-center rounded text-muted-foreground hover:bg-accent active:cursor-grabbing" aria-label={t("music.builder.dragToReorder", item.title)} title={t("music.builder.dragToReorder", item.title)}><GripVertical size={13} /></button>
+  {/if}
   <button
     type="button"
     class="music-builder-artwork"
@@ -61,11 +89,7 @@
     }}
     aria-label={t("music.play")}
   >
-    {#if item.sourceKind === "youtube-video"}
-      <Youtube size={17} strokeWidth={1.5} />
-    {:else}
-      <Music2 size={16} strokeWidth={1.5} />
-    {/if}
+    <MusicArtworkThumbnail path={item.artworkOverride} sourceKind={item.sourceKind} version={item.updatedAt} />
     <span class="music-builder-play-overlay"><Play size={14} fill="currentColor" strokeWidth={1.5} /></span>
   </button>
 
@@ -84,8 +108,14 @@
     </span>
     <span class="min-w-0 max-[470px]:hidden">
       <span class="block truncate text-[0.7rem] text-muted-foreground">{secondary.secondary}</span>
-      <span class="mt-0.5 block truncate text-[0.62rem] text-muted-foreground/75">
-        {t("music.builder.playlistsMembership", item.playlistCount)}
+      <span class="mt-0.5 flex min-w-0 items-center gap-2 truncate text-[0.62rem] text-muted-foreground/75">
+        {#if playlistMode && item.membershipPosition !== null}
+          <span>{t("music.builder.playlistPosition", item.membershipPosition + 1)}</span>
+          {#if item.membershipWeight}<span>{t(`music.builder.weight.${item.membershipWeight}`)}</span>{/if}
+          {#if item.membershipEnabled === false}<span class="text-warning">{t("music.builder.membershipDisabled")}</span>{/if}
+        {:else}
+          <span>{t("music.builder.playlistsMembership", item.playlistCount)}</span>
+        {/if}
       </span>
     </span>
   </button>
@@ -104,12 +134,26 @@
       <span class="h-1.5 w-1.5 rounded-full bg-primary" title={t("music.builder.unreviewed")}></span>
     {/if}
     {#if duration}<span class="w-10 text-right text-[0.65rem] tabular-nums text-muted-foreground">{duration}</span>{/if}
+    <div class="relative">
     <button
       type="button"
       class="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground opacity-70 transition hover:bg-accent hover:text-accent-foreground group-hover:opacity-100 focus:opacity-100"
-      onclick={(event) => onMore(item, event.currentTarget)}
+      onclick={(event) => { if (playlistMode) menuOpen = !menuOpen; else onMore(item, event.currentTarget); }}
       aria-label={t("music.builder.moreActions")}
     ><MoreHorizontal size={15} strokeWidth={1.7} /></button>
+    {#if playlistMode && menuOpen}
+      <div class="absolute bottom-[calc(100%+0.25rem)] right-0 z-20 w-44 rounded-lg border border-border/70 bg-card p-1 shadow-xl">
+        {#if reorderEnabled}
+        <button type="button" onclick={() => { menuOpen = false; onMove(item, "up"); }} class="row-menu-item"><ArrowUp size={12} />{t("music.builder.moveUp")}</button>
+        <button type="button" onclick={() => { menuOpen = false; onMove(item, "down"); }} class="row-menu-item"><ArrowDown size={12} />{t("music.builder.moveDown")}</button>
+        <form class="mt-1 flex gap-1 border-t border-border/60 pt-1" onsubmit={(event) => { event.preventDefault(); const position = Number(positionDraft); if (Number.isInteger(position) && position > 0) { menuOpen = false; onMoveTo(item, position - 1); } }}>
+          <input bind:value={positionDraft} inputmode="numeric" aria-label={t("music.builder.moveToPosition")} placeholder="#" class="h-7 min-w-0 flex-1 rounded bg-background px-2 text-[0.68rem] outline-none focus:ring-1 focus:ring-primary" />
+          <button type="submit" class="h-7 rounded bg-secondary px-2 text-[0.65rem] font-medium">{t("music.builder.move")}</button>
+        </form>
+        {:else}<p class="p-2 text-[0.64rem] leading-relaxed text-muted-foreground">{t("music.builder.reorderManualSortOnly")}</p>{/if}
+      </div>
+    {/if}
+    </div>
   </div>
 </div>
 
@@ -128,6 +172,8 @@
   .music-builder-row:hover { background: color-mix(in srgb, var(--accent) 55%, transparent); }
   .music-builder-row-selected { border-color: color-mix(in srgb, var(--primary) 36%, transparent); background: color-mix(in srgb, var(--primary) 8%, var(--card)); }
   .music-builder-row-playing { box-shadow: inset 3px 0 color-mix(in srgb, var(--primary) 82%, transparent); }
+  .music-builder-drop-before { box-shadow: inset 0 2px var(--primary); }
+  .music-builder-drop-after { box-shadow: inset 0 -2px var(--primary); }
   .music-builder-artwork { position: relative; display: grid; height: 2.75rem; width: 2.75rem; flex: none; place-items: center; overflow: hidden; border-radius: 0.65rem; background: linear-gradient(145deg, color-mix(in srgb, var(--primary) 13%, var(--secondary)), var(--secondary)); color: var(--muted-foreground); }
   .music-builder-play-overlay { position: absolute; inset: 0; display: grid; place-items: center; background: color-mix(in srgb, var(--background) 55%, transparent); color: var(--foreground); opacity: 0; transition: opacity 120ms ease; }
   .music-builder-artwork:hover .music-builder-play-overlay, .music-builder-artwork:focus-visible .music-builder-play-overlay { opacity: 1; }
@@ -139,6 +185,8 @@
   .playing-bars i:nth-child(1) { height: 45%; }
   .playing-bars i:nth-child(2) { height: 90%; animation-delay: 160ms; }
   .playing-bars i:nth-child(3) { height: 60%; animation-delay: 320ms; }
+  .row-menu-item { display: flex; height: 1.8rem; width: 100%; align-items: center; gap: 0.45rem; border-radius: 0.35rem; padding-inline: 0.45rem; font-size: 0.68rem; }
+  .row-menu-item:hover { background: var(--accent); color: var(--accent-foreground); }
   @media (prefers-reduced-motion: reduce) { .music-builder-row, .music-builder-play-overlay { transition: none; } .playing-bars i { animation: none; } }
   @keyframes playing-wave { to { height: 25%; } }
 </style>

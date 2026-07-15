@@ -1,6 +1,89 @@
 use super::*;
 use sqlx::{QueryBuilder, Sqlite, SqlitePool};
 
+pub(crate) async fn membership_matrix(
+    pool: &SqlitePool,
+    item_ids: Vec<String>,
+) -> MusicLibraryResult<Vec<MusicMembershipMatrixEntry>> {
+    validate_bounded_unique_ids(&item_ids, "itemIds")?;
+    let mut query = QueryBuilder::<Sqlite>::new(
+        "SELECT item_id, playlist_id, weight FROM music_playlist_memberships WHERE item_id IN (",
+    );
+    let mut separated = query.separated(", ");
+    for item_id in &item_ids {
+        separated.push_bind(item_id);
+    }
+    separated.push_unseparated(") ORDER BY playlist_id, item_id");
+    let rows = query
+        .build_query_as::<(String, String, String)>()
+        .fetch_all(pool)
+        .await
+        .map_err(|error| MusicLibraryError::database("load membership matrix", error))?;
+    rows.into_iter()
+        .map(|(item_id, playlist_id, weight)| {
+            Ok(MusicMembershipMatrixEntry {
+                item_id,
+                playlist_id,
+                weight: MusicWeight::try_from(weight.as_str()).map_err(|message| {
+                    MusicLibraryError::runtime("decode membership weight", message)
+                })?,
+            })
+        })
+        .collect()
+}
+
+pub(crate) async fn playlist_playback_entries(
+    pool: &SqlitePool,
+    playlist_id: &str,
+    now_ms: i64,
+) -> MusicLibraryResult<Vec<MusicPlaylistPlaybackEntry>> {
+    validate_id(playlist_id, "playlistId")?;
+    if now_ms <= 0 {
+        return Err(MusicLibraryError::validation("nowMs", "must be positive"));
+    }
+    let rows = sqlx::query_as::<_, MusicPlaylistPlaybackRow>(
+        "SELECT
+            membership.id AS membership_id,
+            item.id AS item_id,
+            item.identity_key,
+            item.source_kind,
+            item.youtube_video_id,
+            COALESCE(NULLIF(item.title_override, ''), item.original_title) AS title,
+            item.availability,
+            (SELECT location.root_id FROM music_local_locations AS location
+             WHERE location.item_id = item.id AND location.availability = 'available'
+             ORDER BY location.updated_at DESC, location.id LIMIT 1) AS root_id,
+            (SELECT location.relative_path FROM music_local_locations AS location
+             WHERE location.item_id = item.id AND location.availability = 'available'
+             ORDER BY location.updated_at DESC, location.id LIMIT 1) AS relative_path,
+            membership.position,
+            membership.weight,
+            membership.enabled,
+            membership.start_ms,
+            membership.end_ms,
+            membership.volume,
+            membership.rate,
+            EXISTS(
+                SELECT 1 FROM music_snoozes AS snooze
+                WHERE snooze.item_id = item.id
+                  AND snooze.starts_at <= ?
+                  AND (snooze.ends_at IS NULL OR snooze.ends_at > ?)
+                  AND (snooze.scope = 'all-playlists' OR snooze.playlist_id = membership.playlist_id)
+            ) AS snoozed
+         FROM music_playlist_memberships AS membership
+         JOIN music_library_items AS item ON item.id = membership.item_id
+         WHERE membership.playlist_id = ?
+         ORDER BY membership.position, membership.id",
+    )
+    .bind(now_ms)
+    .bind(now_ms)
+    .bind(playlist_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|error| MusicLibraryError::database("load playlist playback entries", error))?;
+    rows.into_iter().map(TryInto::try_into).collect()
+}
+
 fn push_item_from(builder: &mut QueryBuilder<'_, Sqlite>, request: &MusicItemWindowRequest) {
     builder.push(
         " FROM music_library_items AS item
@@ -36,6 +119,14 @@ fn push_item_filters(builder: &mut QueryBuilder<'_, Sqlite>, request: &MusicItem
         builder.push("AND item.source_kind = ");
         builder.push_bind(source_kind.as_ref().to_string());
         builder.push(" ");
+    }
+    if let Some(playlist_id) = &request.membership_playlist_id {
+        builder.push(
+            "AND EXISTS (SELECT 1 FROM music_playlist_memberships AS filtered_membership
+             WHERE filtered_membership.item_id = item.id AND filtered_membership.playlist_id = ",
+        );
+        builder.push_bind(playlist_id.clone());
+        builder.push(") ");
     }
     if let Some(availability) = request.availability {
         builder.push("AND item.availability = ");
@@ -100,7 +191,13 @@ fn push_item_order(builder: &mut QueryBuilder<'_, Sqlite>, request: &MusicItemWi
             "COALESCE(item.artist_override, item.original_artist) COLLATE NOCASE"
         }
         MusicItemSort::Album => "COALESCE(item.album_override, item.original_album) COLLATE NOCASE",
+        MusicItemSort::SourceOrder => {
+            "COALESCE((SELECT MIN(source_item.source_position)
+            FROM music_source_collection_items AS source_item
+            WHERE source_item.item_id = item.id), 9223372036854775807)"
+        }
         MusicItemSort::DiscoveredAt => "item.discovered_at",
+        MusicItemSort::AddedToPlaylist => "membership.created_at",
         MusicItemSort::LastPlayedAt => "COALESCE(stats.last_played_at, 0)",
         MusicItemSort::PlayCount => "COALESCE(stats.play_count, 0)",
         MusicItemSort::ManualPosition => "membership.position",
@@ -170,6 +267,7 @@ pub(crate) async fn item_window(
             COALESCE(item.title_override, item.original_title) AS title,
             COALESCE(item.artist_override, item.original_artist) AS artist,
             COALESCE(item.album_override, item.original_album) AS album,
+            item.artwork_override,
             item.duration_ms, item.availability, item.review_state,
             item.discovered_at, item.updated_at, item.version,
             (SELECT COUNT(*) FROM music_playlist_memberships AS all_memberships
@@ -635,6 +733,28 @@ pub(crate) async fn inspector_detail(
     .into_iter()
     .map(MusicPlaylistMembership::try_from)
     .collect::<MusicLibraryResult<Vec<_>>>()?;
+    let membership_skip_ranges = sqlx::query_as::<_, (String, String, i64, i64, i64)>(
+        "SELECT skip.id, skip.membership_id, skip.start_ms, skip.end_ms, skip.sort_order
+         FROM music_membership_skip_ranges AS skip
+         JOIN music_playlist_memberships AS membership ON membership.id = skip.membership_id
+         WHERE membership.item_id = ?
+         ORDER BY skip.membership_id, skip.sort_order",
+    )
+    .bind(item_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|error| MusicLibraryError::database("load membership skip ranges", error))?
+    .into_iter()
+    .map(
+        |(id, membership_id, start_ms, end_ms, sort_order)| MusicMembershipSkipRange {
+            id,
+            membership_id,
+            start_ms,
+            end_ms,
+            sort_order,
+        },
+    )
+    .collect();
     let snoozes = sqlx::query_as::<_, MusicSnoozeRow>(
         "SELECT id, item_id, scope, playlist_id, starts_at, ends_at, reason, created_at
          FROM music_snoozes WHERE item_id = ? ORDER BY created_at DESC, id",
@@ -681,6 +801,7 @@ pub(crate) async fn inspector_detail(
         item,
         locations,
         memberships,
+        membership_skip_ranges,
         snoozes,
         signals,
         statistics,

@@ -11,10 +11,11 @@
     MusicLibrarySourceKind,
     MusicReviewState,
     MusicSortDirection,
+    MusicSourceSummary,
   } from "$lib/music/library-contracts";
   import { cn } from "$lib/utils";
 
-  type MenuKind = "source" | "availability" | "review" | "sort" | "group";
+  type MenuKind = "source" | "collection" | "membership" | "availability" | "review" | "snooze" | "sort" | "group";
   interface Option<T extends string | null> { value: T; label: string }
 
   let {
@@ -25,6 +26,12 @@
     direction,
     groupBy,
     resultCount,
+    sourceCollectionId,
+    membershipPlaylistId,
+    snoozed,
+    sources = [],
+    playlists = [],
+    playlistMode = false,
     onChange,
   }: {
     sourceKind: MusicLibrarySourceKind | null;
@@ -34,10 +41,19 @@
     direction: MusicSortDirection;
     groupBy: MusicGroupBy;
     resultCount: number;
+    sourceCollectionId: string | null;
+    membershipPlaylistId: string | null;
+    snoozed: boolean | null;
+    sources?: MusicSourceSummary[];
+    playlists?: import("$lib/music/library-contracts").MusicPlaylistSummary[];
+    playlistMode?: boolean;
     onChange: (patch: {
       sourceKind?: MusicLibrarySourceKind | null;
       availability?: MusicItemAvailability | null;
       reviewState?: MusicReviewState | null;
+      sourceCollectionId?: string | null;
+      membershipPlaylistId?: string | null;
+      snoozed?: boolean | null;
       sort?: MusicItemSort;
       direction?: MusicSortDirection;
       groupBy?: MusicGroupBy;
@@ -46,7 +62,10 @@
 
   const { t } = getLocalization();
   let openMenu = $state<MenuKind | null>(null);
-  const filterCount = $derived(Number(sourceKind !== null) + Number(availability !== null) + Number(reviewState !== null));
+  let menuTop = $state(0);
+  let menuLeft = $state(0);
+  const filterCount = $derived(Number(sourceKind !== null) + Number(sourceCollectionId !== null) + Number(membershipPlaylistId !== null) + Number(availability !== null) + Number(reviewState !== null) + Number(snoozed !== null));
+  const snoozeValue = $derived<"snoozed" | "active" | null>(snoozed === null ? null : snoozed ? "snoozed" : "active");
   const sourceOptions = $derived<Option<MusicLibrarySourceKind | null>[]>([
     { value: null, label: t("music.builder.allSources") },
     { value: "local-file", label: t("music.builder.local") },
@@ -67,13 +86,29 @@
     { value: "deferred", label: t("music.builder.deferred") },
     { value: "ignored", label: t("music.builder.ignored") },
   ]);
+  const collectionOptions = $derived<Option<string | null>[]>([
+    { value: null, label: t("music.builder.allCollections") },
+    ...sources.map((source) => ({ value: source.id, label: source.name })),
+  ]);
+  const membershipOptions = $derived<Option<string | null>[]>([
+    { value: null, label: t("music.builder.anyPlaylistMembership") },
+    ...playlists.map((playlist) => ({ value: playlist.id, label: playlist.name })),
+  ]);
+  const snoozeOptions = $derived<Option<"snoozed" | "active" | null>[]>([
+    { value: null, label: t("music.builder.allSnoozeStates") },
+    { value: "snoozed", label: t("music.builder.snoozed") },
+    { value: "active", label: t("music.builder.notSnoozed") },
+  ]);
   const sortOptions = $derived<Option<MusicItemSort>[]>([
     { value: "title", label: t("music.builder.sortTitle") },
     { value: "artist", label: t("music.builder.sortArtist") },
     { value: "album", label: t("music.builder.sortAlbum") },
+    { value: "source-order", label: t("music.builder.sortSourceOrder") },
     { value: "discovered-at", label: t("music.builder.sortDiscovered") },
+    ...(playlistMode ? [{ value: "added-to-playlist" as const, label: t("music.builder.sortAddedToPlaylist") }] : []),
     { value: "last-played-at", label: t("music.builder.sortLastPlayed") },
     { value: "play-count", label: t("music.builder.sortPlayCount") },
+    ...(playlistMode ? [{ value: "manual-position" as const, label: t("music.builder.sortManual") }] : []),
   ]);
   const groupOptions = $derived<Option<MusicGroupBy>[]>([
     { value: "none", label: t("music.builder.groupNone") },
@@ -81,6 +116,8 @@
     { value: "review-state", label: t("music.builder.groupReview") },
     { value: "availability", label: t("music.builder.groupAvailability") },
     { value: "album", label: t("music.builder.groupAlbum") },
+    { value: "folder", label: t("music.builder.groupFolder") },
+    { value: "source-collection", label: t("music.builder.groupCollection") },
   ]);
 
   function labelFor<T extends string | null>(options: Option<T>[], value: T): string {
@@ -88,18 +125,25 @@
   }
 
   function closeAfter(action: () => void): void { action(); openMenu = null; }
+  function toggleMenu(kind: MenuKind, anchor: HTMLElement): void {
+    if (openMenu === kind) { openMenu = null; return; }
+    const bounds = anchor.getBoundingClientRect();
+    menuTop = Math.max(4, Math.min(bounds.bottom + 5, window.innerHeight - 284));
+    menuLeft = Math.max(4, Math.min(bounds.left, window.innerWidth - 180));
+    openMenu = kind;
+  }
 </script>
 
 <svelte:window onkeydown={(event) => { if (event.key === "Escape" && openMenu) { event.stopPropagation(); openMenu = null; } }} />
 
-<div class="flex min-h-10 shrink-0 items-center gap-1.5 overflow-x-auto border-b border-border/45 px-2 py-1.5" aria-label={t("music.builder.filters")}>
+<div class="flex min-h-10 shrink-0 items-center gap-1.5 overflow-x-auto border-b border-border/45 px-2 py-1.5" style={`--filter-menu-top:${menuTop}px;--filter-menu-left:${menuLeft}px`} aria-label={t("music.builder.filters")}>
   <span class="mr-0.5 inline-flex shrink-0 items-center gap-1 text-[0.66rem] font-medium text-muted-foreground">
     <Filter size={12} strokeWidth={1.7} />
     {filterCount > 0 ? filterCount : ""}
   </span>
 
   <div class="relative shrink-0">
-    <button type="button" class={cn("filter-pill", sourceKind && "filter-pill-active")} onclick={() => openMenu = openMenu === "source" ? null : "source"}>
+    <button type="button" class={cn("filter-pill", sourceKind && "filter-pill-active")} onclick={(event) => toggleMenu("source", event.currentTarget)}>
       {labelFor(sourceOptions, sourceKind)} <ChevronDown size={11} />
     </button>
     {#if openMenu === "source"}
@@ -111,8 +155,24 @@
     {/if}
   </div>
 
+  {#if playlists.length > 0}
+    <div class="relative shrink-0">
+      <button type="button" class={cn("filter-pill", membershipPlaylistId && "filter-pill-active")} onclick={(event) => toggleMenu("membership", event.currentTarget)}>
+        {labelFor(membershipOptions, membershipPlaylistId)} <ChevronDown size={11} />
+      </button>
+      {#if openMenu === "membership"}<div class="filter-menu">{#each membershipOptions as option (option.value)}<button type="button" onclick={() => closeAfter(() => onChange({ membershipPlaylistId: option.value }))}>{option.label}{#if option.value === membershipPlaylistId}<Check size={12} />{/if}</button>{/each}</div>{/if}
+    </div>
+  {/if}
+
   <div class="relative shrink-0">
-    <button type="button" class={cn("filter-pill", availability && "filter-pill-active")} onclick={() => openMenu = openMenu === "availability" ? null : "availability"}>
+    <button type="button" class={cn("filter-pill", sourceCollectionId && "filter-pill-active")} onclick={(event) => toggleMenu("collection", event.currentTarget)}>
+      {labelFor(collectionOptions, sourceCollectionId)} <ChevronDown size={11} />
+    </button>
+    {#if openMenu === "collection"}<div class="filter-menu">{#each collectionOptions as option (option.value)}<button type="button" onclick={() => closeAfter(() => onChange({ sourceCollectionId: option.value }))}>{option.label}{#if option.value === sourceCollectionId}<Check size={12} />{/if}</button>{/each}</div>{/if}
+  </div>
+
+  <div class="relative shrink-0">
+    <button type="button" class={cn("filter-pill", availability && "filter-pill-active")} onclick={(event) => toggleMenu("availability", event.currentTarget)}>
       {labelFor(availabilityOptions, availability)} <ChevronDown size={11} />
     </button>
     {#if openMenu === "availability"}
@@ -125,7 +185,12 @@
   </div>
 
   <div class="relative shrink-0">
-    <button type="button" class={cn("filter-pill", reviewState && "filter-pill-active")} onclick={() => openMenu = openMenu === "review" ? null : "review"}>
+    <button type="button" class={cn("filter-pill", snoozed !== null && "filter-pill-active")} onclick={(event) => toggleMenu("snooze", event.currentTarget)}>{labelFor(snoozeOptions, snoozeValue)} <ChevronDown size={11} /></button>
+    {#if openMenu === "snooze"}<div class="filter-menu">{#each snoozeOptions as option (option.value)}<button type="button" onclick={() => closeAfter(() => onChange({ snoozed: option.value === null ? null : option.value === "snoozed" }))}>{option.label}{#if option.value === snoozeValue}<Check size={12} />{/if}</button>{/each}</div>{/if}
+  </div>
+
+  <div class="relative shrink-0">
+    <button type="button" class={cn("filter-pill", reviewState && "filter-pill-active")} onclick={(event) => toggleMenu("review", event.currentTarget)}>
       {labelFor(reviewOptions, reviewState)} <ChevronDown size={11} />
     </button>
     {#if openMenu === "review"}
@@ -138,7 +203,7 @@
   </div>
 
   <div class="relative ml-auto shrink-0">
-    <button type="button" class="filter-pill" onclick={() => openMenu = openMenu === "sort" ? null : "sort"}>
+    <button type="button" class="filter-pill" onclick={(event) => toggleMenu("sort", event.currentTarget)}>
       {labelFor(sortOptions, sort)} <ChevronDown size={11} />
     </button>
     {#if openMenu === "sort"}
@@ -155,7 +220,7 @@
   </div>
 
   <div class="relative shrink-0">
-    <button type="button" class="filter-pill" onclick={() => openMenu = openMenu === "group" ? null : "group"}>
+    <button type="button" class="filter-pill" onclick={(event) => toggleMenu("group", event.currentTarget)}>
       {labelFor(groupOptions, groupBy)} <ChevronDown size={11} />
     </button>
     {#if openMenu === "group"}
@@ -168,7 +233,7 @@
   </div>
 
   {#if filterCount > 0}
-    <button type="button" class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-accent hover:text-accent-foreground" onclick={() => onChange({ sourceKind: null, availability: null, reviewState: null })} aria-label={t("music.builder.clearFilters")}><X size={12} /></button>
+    <button type="button" class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-accent hover:text-accent-foreground" onclick={() => onChange({ sourceKind: null, sourceCollectionId: null, membershipPlaylistId: null, availability: null, reviewState: null, snoozed: null })} aria-label={t("music.builder.clearFilters")}><X size={12} /></button>
   {/if}
   <span class="shrink-0 px-1 text-[0.64rem] tabular-nums text-muted-foreground">{t("music.builder.resultCount", resultCount)}</span>
 </div>
@@ -177,8 +242,7 @@
   .filter-pill { display: inline-flex; height: 1.75rem; align-items: center; gap: 0.25rem; border: 1px solid color-mix(in srgb, var(--border) 75%, transparent); border-radius: 999px; background: color-mix(in srgb, var(--card) 78%, transparent); padding-inline: 0.6rem; color: var(--muted-foreground); font-size: 0.65rem; white-space: nowrap; }
   .filter-pill:hover, .filter-pill-active { border-color: color-mix(in srgb, var(--primary) 35%, var(--border)); color: var(--foreground); }
   .filter-pill-active { background: color-mix(in srgb, var(--primary) 9%, var(--card)); }
-  .filter-menu { position: absolute; top: calc(100% + 0.3rem); z-index: 50; min-width: 10.5rem; max-height: min(18rem, 55vh); overflow-y: auto; border: 1px solid color-mix(in srgb, var(--border) 85%, transparent); border-radius: 0.7rem; background: var(--popover); padding: 0.3rem; box-shadow: 0 12px 32px color-mix(in srgb, black 20%, transparent); }
-  .filter-menu-right { right: 0; }
+  .filter-menu { position: fixed; top: var(--filter-menu-top); left: var(--filter-menu-left); z-index: 70; min-width: 10.5rem; max-height: min(18rem, 55vh); overflow-y: auto; border: 1px solid color-mix(in srgb, var(--border) 85%, transparent); border-radius: 0.7rem; background: var(--popover); padding: 0.3rem; box-shadow: 0 12px 32px color-mix(in srgb, black 20%, transparent); }
   .filter-menu button { display: flex; width: 100%; min-height: 1.8rem; align-items: center; justify-content: space-between; gap: 0.75rem; border-radius: 0.45rem; padding-inline: 0.55rem; color: var(--popover-foreground); font-size: 0.68rem; text-align: left; }
   .filter-menu button:hover, .filter-menu button:focus-visible { background: var(--accent); outline: none; }
 </style>

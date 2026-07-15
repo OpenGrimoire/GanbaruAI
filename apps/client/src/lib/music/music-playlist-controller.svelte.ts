@@ -1,0 +1,278 @@
+import {
+  createMusicPlaylist,
+  deleteMusicPlaylist,
+  duplicateMusicPlaylist,
+  getMusicPlaylist,
+  getMusicPlaylistDeleteImpact,
+  getMusicPlaylistPlaybackEntries,
+  updateMusicPlaylist,
+  reorderMusicPlaylist,
+} from "$lib/api/music-library";
+import { getMusicPlayer } from "$lib/stores/music-player.svelte";
+import { projectMusicPlaylistPlayback, type MusicPlaylistPlaybackProjection } from "$lib/music/music-playlist-playback";
+import type { MusicLibraryController } from "$lib/music/music-library-controller.svelte";
+import type {
+  MusicIntendedUse,
+  MusicPlaylist,
+  MusicPlaylistDeleteImpact,
+  MusicRepeatMode,
+  LocalRootBinding,
+} from "$lib/music/library-contracts";
+
+export interface MusicPlaylistDraft {
+  name: string;
+  description: string;
+  shuffleEnabled: boolean;
+  repeatMode: MusicRepeatMode;
+  intendedUses: MusicIntendedUse[];
+}
+
+export class MusicPlaylistController {
+  detail = $state<MusicPlaylist | null>(null);
+  busy = $state(false);
+  saving = $state(false);
+  error = $state<string | null>(null);
+  deleteImpact = $state<MusicPlaylistDeleteImpact | null>(null);
+  playbackProjection = $state<MusicPlaylistPlaybackProjection | null>(null);
+  playbackIssue = $state<"no-eligible-items" | null>(null);
+  private loadGeneration = 0;
+
+  constructor(
+    private readonly library: MusicLibraryController,
+    private readonly now: () => number = Date.now,
+    private readonly id: () => string = () => crypto.randomUUID(),
+  ) {}
+
+  async load(playlistId: string | null): Promise<boolean> {
+    if (!playlistId) { this.clear(); return true; }
+    if (this.detail?.id === playlistId) return true;
+    const generation = ++this.loadGeneration;
+    this.busy = true;
+    this.error = null;
+    try {
+      const detail = await getMusicPlaylist(playlistId);
+      if (generation !== this.loadGeneration) return false;
+      this.detail = detail;
+      return true;
+    } catch (error) {
+      if (generation !== this.loadGeneration) return false;
+      this.error = error instanceof Error ? error.message : String(error);
+      this.detail = null;
+      return false;
+    } finally {
+      if (generation === this.loadGeneration) this.busy = false;
+    }
+  }
+
+  clear(): void {
+    this.loadGeneration += 1;
+    this.detail = null;
+    this.deleteImpact = null;
+    this.error = null;
+    this.busy = false;
+  }
+
+  async create(draft: MusicPlaylistDraft): Promise<string | null> {
+    if (this.saving || !draft.name.trim()) return null;
+    this.saving = true;
+    this.error = null;
+    const playlistId = this.id();
+    try {
+      await createMusicPlaylist({
+        id: playlistId,
+        ...normalizedDraft(draft),
+        createdAt: this.now(),
+      });
+      await this.library.refresh();
+      await this.load(playlistId);
+      return playlistId;
+    } catch (error) {
+      this.error = error instanceof Error ? error.message : String(error);
+      return null;
+    } finally {
+      this.saving = false;
+    }
+  }
+
+  async update(draft: MusicPlaylistDraft): Promise<boolean> {
+    const detail = this.detail;
+    if (!detail || this.saving || !draft.name.trim()) return false;
+    const previous = { ...detail, intendedUses: [...detail.intendedUses] };
+    const next = normalizedDraft(draft);
+    this.saving = true;
+    this.error = null;
+    try {
+      const receipt = await this.library.runOptimistic({
+        key: `playlist:${detail.id}:details`,
+        label: `Edit ${previous.name}`,
+        apply: () => { Object.assign(detail, next); this.patchSummary(detail.id, next); },
+        rollback: () => { Object.assign(detail, previous); this.patchSummary(detail.id, previous); },
+        persist: () => updateMusicPlaylist({
+          id: detail.id, ...next, expectedVersion: previous.version, updatedAt: this.now(),
+        }),
+        undo: async () => {
+          const receipt = await updateMusicPlaylist({
+            id: previous.id, name: previous.name, description: previous.description,
+            shuffleEnabled: previous.shuffleEnabled, repeatMode: previous.repeatMode,
+            intendedUses: previous.intendedUses, expectedVersion: detail.version, updatedAt: this.now(),
+          });
+          Object.assign(detail, previous, { version: receipt.version });
+          this.patchSummary(detail.id, previous);
+        },
+      });
+      detail.version = receipt.version;
+      return true;
+    } catch (error) {
+      this.error = error instanceof Error ? error.message : String(error);
+      return false;
+    } finally {
+      this.saving = false;
+    }
+  }
+
+  async duplicate(name: string): Promise<string | null> {
+    const detail = this.detail;
+    if (!detail || this.saving || !name.trim()) return null;
+    this.saving = true;
+    this.error = null;
+    const playlistId = this.id();
+    try {
+      await duplicateMusicPlaylist({
+        sourcePlaylistId: detail.id,
+        newPlaylistId: playlistId,
+        name: name.trim(),
+        createdAt: this.now(),
+      });
+      await this.library.refresh();
+      return playlistId;
+    } catch (error) {
+      this.error = error instanceof Error ? error.message : String(error);
+      return null;
+    } finally {
+      this.saving = false;
+    }
+  }
+
+  async inspectDelete(): Promise<boolean> {
+    const detail = this.detail;
+    if (!detail) return false;
+    this.error = null;
+    try {
+      this.deleteImpact = await getMusicPlaylistDeleteImpact(detail.id);
+      return true;
+    } catch (error) {
+      this.error = error instanceof Error ? error.message : String(error);
+      return false;
+    }
+  }
+
+  async play(bindings: readonly LocalRootBinding[], explicitItemId: string | null = null): Promise<boolean> {
+    const detail = this.detail;
+    if (!detail || this.saving) return false;
+    this.saving = true;
+    this.error = null;
+    this.playbackIssue = null;
+    try {
+      const entries = await getMusicPlaylistPlaybackEntries(detail.id, this.now());
+      const projection = projectMusicPlaylistPlayback(entries, bindings, explicitItemId);
+      this.playbackProjection = projection;
+      if (projection.sources.length === 0) {
+        this.playbackIssue = "no-eligible-items";
+        return false;
+      }
+      const initialIndex = explicitItemId ? projection.itemIds.indexOf(explicitItemId) : 0;
+      return getMusicPlayer().loadSavedPlaylist(
+        detail.id,
+        projection.sources,
+        projection.itemIds,
+        detail.shuffleEnabled,
+        Math.max(0, initialIndex),
+      );
+    } catch (error) {
+      this.error = error instanceof Error ? error.message : String(error);
+      return false;
+    } finally {
+      this.saving = false;
+    }
+  }
+
+  async reorder(itemId: string, targetIndex: number): Promise<boolean> {
+    const detail = this.detail;
+    if (!detail || this.saving) return false;
+    const window = this.library.currentWindow;
+    const sourceIndex = window.items.findIndex((item) => item.id === itemId);
+    if (sourceIndex < 0 || targetIndex < 0 || targetIndex >= window.totalCount || sourceIndex === targetIndex) return false;
+    const previousItems = [...window.items];
+    this.saving = true;
+    this.error = null;
+    try {
+      await this.library.runOptimistic({
+        key: `playlist:${detail.id}:order`,
+        label: `Reorder ${detail.name}`,
+        apply: () => {
+          if (targetIndex >= window.items.length) return;
+          const next = [...window.items];
+          const [moved] = next.splice(sourceIndex, 1);
+          if (moved) next.splice(targetIndex, 0, moved);
+          window.items = next.map((item, index) => ({ ...item, membershipPosition: index }));
+        },
+        rollback: () => { window.items = previousItems; },
+        persist: () => reorderMusicPlaylist({ playlistId: detail.id, itemId, targetIndex, updatedAt: this.now() }),
+        undo: async () => {
+          await reorderMusicPlaylist({ playlistId: detail.id, itemId, targetIndex: sourceIndex, updatedAt: this.now() });
+          await this.library.refresh();
+        },
+      });
+      await this.library.refresh();
+      return true;
+    } catch (error) {
+      this.error = error instanceof Error ? error.message : String(error);
+      return false;
+    } finally {
+      this.saving = false;
+    }
+  }
+
+  async remove(replacementPlaylistId: string | null): Promise<boolean> {
+    const detail = this.detail;
+    const impact = this.deleteImpact;
+    if (!detail || !impact || this.saving) return false;
+    this.saving = true;
+    this.error = null;
+    try {
+      await deleteMusicPlaylist({ playlistId: detail.id, replacementPlaylistId, expectedVersion: detail.version, expectedImpact: impact });
+      this.clear();
+      await this.library.refresh();
+      return true;
+    } catch (error) {
+      this.error = error instanceof Error ? error.message : String(error);
+      return false;
+    } finally {
+      this.saving = false;
+    }
+  }
+
+  private patchSummary(playlistId: string, draft: MusicPlaylistDraft): void {
+    const summary = this.library.playlistSummaries.find((entry) => entry.id === playlistId);
+    if (!summary) return;
+    summary.name = draft.name;
+    summary.description = draft.description;
+    summary.shuffleEnabled = draft.shuffleEnabled;
+    summary.repeatMode = draft.repeatMode;
+    summary.intendedUses = [...draft.intendedUses];
+  }
+}
+
+function normalizedDraft(draft: MusicPlaylistDraft): MusicPlaylistDraft {
+  return {
+    name: draft.name.trim(),
+    description: draft.description.trim(),
+    shuffleEnabled: draft.shuffleEnabled,
+    repeatMode: draft.repeatMode,
+    intendedUses: [...new Set(draft.intendedUses)],
+  };
+}
+
+export function createMusicPlaylistController(library: MusicLibraryController): MusicPlaylistController {
+  return new MusicPlaylistController(library);
+}

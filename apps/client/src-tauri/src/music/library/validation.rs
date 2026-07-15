@@ -13,7 +13,7 @@ pub(crate) const MAX_ITEM_WINDOW: i64 = 200;
 pub(crate) const MAX_SUMMARY_WINDOW: i64 = 500;
 const MAX_SEARCH_CHARS: usize = 300;
 
-fn validate_id(value: &str, field: &str) -> MusicLibraryResult<()> {
+pub(crate) fn validate_id(value: &str, field: &str) -> MusicLibraryResult<()> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
         return Err(MusicLibraryError::validation(field, "is required"));
@@ -329,6 +329,124 @@ pub(crate) fn validate_bulk_membership_write(
     Ok(())
 }
 
+pub(crate) fn validate_bulk_membership_edit(
+    request: &MusicBulkMembershipEdit,
+) -> MusicLibraryResult<()> {
+    validate_id(&request.action_id, "actionId")?;
+    validate_bounded_unique_ids(&request.item_ids, "itemIds")?;
+    if request.add_playlist_ids.is_empty()
+        && request.remove_playlist_ids.is_empty()
+        && request.weight_playlist_ids.is_empty()
+    {
+        return Err(MusicLibraryError::validation(
+            "playlistIds",
+            "must contain at least one requested edit",
+        ));
+    }
+    if !request.add_playlist_ids.is_empty() {
+        validate_bounded_unique_ids(&request.add_playlist_ids, "addPlaylistIds")?;
+    }
+    if !request.remove_playlist_ids.is_empty() {
+        validate_bounded_unique_ids(&request.remove_playlist_ids, "removePlaylistIds")?;
+    }
+    if !request.weight_playlist_ids.is_empty() {
+        validate_bounded_unique_ids(&request.weight_playlist_ids, "weightPlaylistIds")?;
+    }
+    if request
+        .add_playlist_ids
+        .iter()
+        .any(|playlist_id| request.remove_playlist_ids.contains(playlist_id))
+    {
+        return Err(MusicLibraryError::validation(
+            "playlistIds",
+            "cannot add and remove the same playlist",
+        ));
+    }
+    validate_timestamp(request.updated_at, "updatedAt")?;
+    match (
+        request.weight_playlist_ids.is_empty(),
+        request.weight.is_some(),
+    ) {
+        (false, false) => Err(MusicLibraryError::validation(
+            "weight",
+            "is required when setting weight",
+        )),
+        (true, true) => Err(MusicLibraryError::validation(
+            "weight",
+            "must be empty when no playlist weight is changing",
+        )),
+        _ => Ok(()),
+    }
+}
+
+pub(crate) fn validate_playlist_reorder(request: &MusicPlaylistReorder) -> MusicLibraryResult<()> {
+    validate_id(&request.playlist_id, "playlistId")?;
+    validate_id(&request.item_id, "itemId")?;
+    if request.target_index < 0 {
+        return Err(MusicLibraryError::validation(
+            "targetIndex",
+            "must be zero or greater",
+        ));
+    }
+    validate_timestamp(request.updated_at, "updatedAt")
+}
+
+pub(crate) fn validate_bulk_review_write(request: &MusicBulkReviewWrite) -> MusicLibraryResult<()> {
+    if request.items.is_empty() || request.items.len() > MAX_BULK_MEMBERSHIPS {
+        return Err(MusicLibraryError::validation(
+            "items",
+            format!("must contain between 1 and {MAX_BULK_MEMBERSHIPS} items"),
+        ));
+    }
+    let mut ids = HashSet::with_capacity(request.items.len());
+    for item in &request.items {
+        validate_id(&item.item_id, "itemId")?;
+        if item.expected_version <= 0 {
+            return Err(MusicLibraryError::validation(
+                "expectedVersion",
+                "must be positive",
+            ));
+        }
+        if !ids.insert(&item.item_id) {
+            return Err(MusicLibraryError::validation(
+                "items",
+                "contains duplicate item ids",
+            ));
+        }
+    }
+    validate_timestamp(request.updated_at, "updatedAt")?;
+    if request.review_state != MusicReviewState::Deferred && request.deferred_until.is_some() {
+        return Err(MusicLibraryError::validation(
+            "deferredUntil",
+            "must be empty unless the review state is deferred",
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_bulk_snooze_write(request: &MusicBulkSnoozeWrite) -> MusicLibraryResult<()> {
+    validate_id(&request.action_id, "actionId")?;
+    validate_bounded_unique_ids(&request.item_ids, "itemIds")?;
+    validate_timestamp(request.starts_at, "startsAt")?;
+    validate_timestamp(request.created_at, "createdAt")?;
+    validate_optional_text(&request.reason, "reason", MAX_REASON_CHARS)?;
+    if request.ends_at.is_some_and(|end| end <= request.starts_at) {
+        return Err(MusicLibraryError::validation(
+            "endsAt",
+            "must be later than startsAt",
+        ));
+    }
+    match request.scope {
+        MusicSnoozeScope::Playlist if request.playlist_id.is_none() => Err(
+            MusicLibraryError::validation("playlistId", "is required for playlist scope"),
+        ),
+        MusicSnoozeScope::AllPlaylists if request.playlist_id.is_some() => Err(
+            MusicLibraryError::validation("playlistId", "must be empty for all-playlists scope"),
+        ),
+        _ => Ok(()),
+    }
+}
+
 pub(crate) fn validate_snooze_write(snooze: &MusicSnoozeWrite) -> MusicLibraryResult<()> {
     validate_id(&snooze.id, "id")?;
     validate_id(&snooze.item_id, "itemId")?;
@@ -369,6 +487,15 @@ pub(crate) fn validate_playlist_duplicate(
 
 pub(crate) fn validate_playlist_delete(request: &MusicPlaylistDelete) -> MusicLibraryResult<()> {
     validate_id(&request.playlist_id, "playlistId")?;
+    if let Some(replacement_id) = &request.replacement_playlist_id {
+        validate_id(replacement_id, "replacementPlaylistId")?;
+        if replacement_id == &request.playlist_id {
+            return Err(MusicLibraryError::validation(
+                "replacementPlaylistId",
+                "must differ from the deleted playlist",
+            ));
+        }
+    }
     if request.expected_version <= 0 {
         return Err(MusicLibraryError::validation(
             "expectedVersion",
@@ -428,10 +555,70 @@ pub(crate) fn validate_review_write(request: &MusicReviewWrite) -> MusicLibraryR
     Ok(())
 }
 
+pub(crate) fn validate_metadata_override_write(
+    request: &MusicMetadataOverrideWrite,
+) -> MusicLibraryResult<()> {
+    validate_id(&request.item_id, "itemId")?;
+    if request.expected_version <= 0 {
+        return Err(MusicLibraryError::validation(
+            "expectedVersion",
+            "must be greater than zero",
+        ));
+    }
+    for (field, value, maximum) in [
+        ("titleOverride", &request.title_override, 500_usize),
+        ("artistOverride", &request.artist_override, 500_usize),
+        ("albumOverride", &request.album_override, 500_usize),
+        ("artworkOverride", &request.artwork_override, 2_048_usize),
+    ] {
+        if let Some(value) = value {
+            if value.trim().is_empty() || value.len() > maximum {
+                return Err(MusicLibraryError::validation(
+                    field,
+                    format!("must be non-empty and at most {maximum} bytes"),
+                ));
+            }
+        }
+    }
+    validate_timestamp(request.updated_at, "updatedAt")
+}
+
 pub(crate) fn validate_membership_remove(
     request: &MusicMembershipRemove,
 ) -> MusicLibraryResult<()> {
     validate_bounded_unique_ids(&request.membership_ids, "membershipIds")
+}
+
+pub(crate) fn validate_advanced_membership_write(
+    request: &MusicAdvancedMembershipWrite,
+) -> MusicLibraryResult<()> {
+    validate_membership_write(&request.membership)?;
+    let mut previous_end = None;
+    let mut ids = HashSet::new();
+    for (index, range) in request.skip_ranges.iter().enumerate() {
+        validate_id(&range.id, "skipRanges.id")?;
+        if range.membership_id != request.membership.id {
+            return Err(MusicLibraryError::validation(
+                "skipRanges.membershipId",
+                "must match membership.id",
+            ));
+        }
+        if !ids.insert(&range.id) || range.start_ms < 0 || range.end_ms <= range.start_ms {
+            return Err(MusicLibraryError::validation(
+                "skipRanges",
+                "must contain unique ranges with endMs greater than startMs",
+            ));
+        }
+        if range.sort_order != index as i64 || previous_end.is_some_and(|end| range.start_ms < end)
+        {
+            return Err(MusicLibraryError::validation(
+                "skipRanges",
+                "must be ordered, contiguous in sort order, and non-overlapping",
+            ));
+        }
+        previous_end = Some(range.end_ms);
+    }
+    Ok(())
 }
 
 pub(crate) fn validate_snooze_remove(request: &MusicSnoozeRemove) -> MusicLibraryResult<()> {
@@ -442,7 +629,10 @@ pub(crate) fn validate_statistics_reset(request: &MusicStatisticsReset) -> Music
     validate_bounded_unique_ids(&request.item_ids, "itemIds")
 }
 
-fn validate_bounded_unique_ids(values: &[String], field: &str) -> MusicLibraryResult<()> {
+pub(crate) fn validate_bounded_unique_ids(
+    values: &[String],
+    field: &str,
+) -> MusicLibraryResult<()> {
     if values.is_empty() {
         return Err(MusicLibraryError::validation(
             field,
@@ -512,12 +702,17 @@ pub(crate) fn validate_item_window(request: &MusicItemWindowRequest) -> MusicLib
             if let Some(collection_id) = &request.source_collection_id {
                 validate_id(collection_id, "sourceCollectionId")?;
             }
-            if request.sort == MusicItemSort::ManualPosition
-                && request.destination != MusicListDestination::Playlist
+            if let Some(playlist_id) = &request.membership_playlist_id {
+                validate_id(playlist_id, "membershipPlaylistId")?;
+            }
+            if matches!(
+                request.sort,
+                MusicItemSort::ManualPosition | MusicItemSort::AddedToPlaylist
+            ) && request.destination != MusicListDestination::Playlist
             {
                 return Err(MusicLibraryError::validation(
                     "sort",
-                    "manual position is available only inside a playlist",
+                    "this sort is available only inside a playlist",
                 ));
             }
             Ok(())

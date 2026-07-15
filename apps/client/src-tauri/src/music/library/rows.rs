@@ -158,6 +158,53 @@ impl TryFrom<MusicMembershipRow> for MusicPlaylistMembership {
 }
 
 #[derive(Clone, Debug, sqlx::FromRow)]
+pub(crate) struct MusicPlaylistPlaybackRow {
+    pub membership_id: String,
+    pub item_id: String,
+    pub identity_key: String,
+    pub source_kind: String,
+    pub youtube_video_id: Option<String>,
+    pub title: String,
+    pub availability: String,
+    pub root_id: Option<String>,
+    pub relative_path: Option<String>,
+    pub position: i64,
+    pub weight: String,
+    pub enabled: i64,
+    pub start_ms: Option<i64>,
+    pub end_ms: Option<i64>,
+    pub volume: Option<f64>,
+    pub rate: Option<f64>,
+    pub snoozed: i64,
+}
+
+impl TryFrom<MusicPlaylistPlaybackRow> for MusicPlaylistPlaybackEntry {
+    type Error = MusicLibraryError;
+
+    fn try_from(row: MusicPlaylistPlaybackRow) -> MusicLibraryResult<Self> {
+        Ok(Self {
+            membership_id: row.membership_id,
+            item_id: row.item_id,
+            identity_key: row.identity_key,
+            source_kind: parse_enum(&row.source_kind, "sourceKind")?,
+            youtube_video_id: row.youtube_video_id,
+            title: row.title,
+            availability: parse_enum(&row.availability, "availability")?,
+            root_id: row.root_id,
+            relative_path: row.relative_path,
+            position: row.position,
+            weight: parse_enum(&row.weight, "weight")?,
+            enabled: parse_bool(row.enabled, "enabled")?,
+            start_ms: row.start_ms,
+            end_ms: row.end_ms,
+            volume: row.volume,
+            rate: row.rate,
+            snoozed: parse_bool(row.snoozed, "snoozed")?,
+        })
+    }
+}
+
+#[derive(Clone, Debug, sqlx::FromRow)]
 pub(crate) struct MusicSnoozeRow {
     pub id: String,
     pub item_id: String,
@@ -195,6 +242,7 @@ pub(crate) struct MusicItemListRow {
     pub title: String,
     pub artist: String,
     pub album: String,
+    pub artwork_override: Option<String>,
     pub duration_ms: Option<i64>,
     pub availability: String,
     pub review_state: String,
@@ -238,6 +286,7 @@ impl TryFrom<MusicItemListRow> for MusicItemListEntry {
             title: row.title,
             artist: row.artist,
             album: row.album,
+            artwork_override: row.artwork_override,
             duration_ms: row.duration_ms,
             availability: parse_enum(&row.availability, "availability")?,
             review_state: parse_enum(&row.review_state, "reviewState")?,

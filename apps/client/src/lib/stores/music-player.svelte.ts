@@ -80,6 +80,8 @@ class MusicPlayerStore {
   sourceActionBusy = $state(false);
   volumeFeedbackId = $state(0);
   contextOwner = $state<MusicPlaybackContextOwner>("manual");
+  activePlaylistId = $state<string | null>(null);
+  activeQueueItemIds = $state<string[]>([]);
 
   private readonly loadRuntime = new MusicLoadRuntime();
   private surfaceClaims = new Map<string, { element: HTMLElement; priority: number; order: number }>();
@@ -292,6 +294,16 @@ class MusicPlayerStore {
     this.syncSurfaceElement();
   }
 
+  applyLibraryMetadata(itemId: string, identityKey: string, title: string, artworkUrl?: string | null): void {
+    const queueIndex = this.activeQueueItemIds.indexOf(itemId);
+    if (queueIndex >= 0 && this.queue[queueIndex]) this.queue[queueIndex] = { ...this.queue[queueIndex], title };
+    if (!this.currentSource || (queueIndex !== this.currentQueueIndex && this.currentSource.identity !== identityKey)) return;
+    this.currentSource = { ...this.currentSource, title };
+    if (artworkUrl !== undefined) this.currentArtworkUrl = artworkUrl;
+    this.updateSystemMediaControls();
+    this.updateMusicTray();
+  }
+
   claimSurface(owner: string, element: HTMLElement, priority = 0): () => void {
     this.surfaceClaims.set(owner, {
       element,
@@ -330,6 +342,27 @@ class MusicPlayerStore {
     options: LoadSourceOptions = {},
   ): Promise<void> {
     await this.sourceController.loadSource(source, options);
+  }
+  async loadSavedPlaylist(
+    playlistId: string,
+    sources: MusicSource[],
+    itemIds: string[],
+    shuffleEnabled: boolean,
+    initialIndex = 0,
+  ): Promise<boolean> {
+    const first = sources[initialIndex];
+    if (!first || sources.length !== itemIds.length) return false;
+    this.queue = [...sources];
+    this.activeQueueItemIds = [...itemIds];
+    this.activePlaylistId = playlistId;
+    this.contextOwner = "manual";
+    this.shuffleEnabled = shuffleEnabled;
+    this.shuffleOrder = [];
+    this.queueHistory = [];
+    this.pendingQueueIndex = initialIndex;
+    this.persistPlayerSettings();
+    await this.loadSource(first, { autoplay: true, resume: false, preserveQueue: true });
+    return true;
   }
   async togglePlay(): Promise<void> {
     if (!this.currentSource || this.snapshot.status === "loading") return;

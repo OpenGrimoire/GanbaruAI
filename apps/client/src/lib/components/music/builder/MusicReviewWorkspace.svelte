@@ -8,7 +8,6 @@
   import ListPlus from "@lucide/svelte/icons/list-plus";
   import Pause from "@lucide/svelte/icons/pause";
   import Play from "@lucide/svelte/icons/play";
-  import Search from "@lucide/svelte/icons/search";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import type { MusicBuilderInspectorController } from "$lib/music/music-builder-inspector.svelte";
   import type { MusicLibraryController } from "$lib/music/music-library-controller.svelte";
@@ -20,16 +19,16 @@
   import type { MusicSourcesController } from "$lib/music/music-sources-controller.svelte";
   import {
     isMusicReviewEditableTarget,
-    sortReviewPlaylists,
   } from "$lib/music/music-review";
   import type {
     MusicGroupBy,
-    MusicIntendedUse,
+    MusicWeight,
   } from "$lib/music/library-contracts";
   import { formatMusicDuration } from "$lib/music/music-builder-presentation";
   import { clampRate, formatPlaybackTime } from "$lib/music/playback";
   import { cn } from "$lib/utils";
   import { formatShortcut } from "$lib/keyboard-shortcuts";
+  import MusicPlaylistPicker from "./MusicPlaylistPicker.svelte";
 
   let {
     library,
@@ -66,7 +65,9 @@
   const item = $derived(library.selectedItem ?? library.currentWindow.items[0] ?? null);
   const detail = $derived(inspector.detail?.item.id === item?.id ? inspector.detail : null);
   const checkedIds = $derived(new Set(detail?.memberships.map((membership) => membership.playlistId) ?? []));
-  const visiblePlaylists = $derived(sortReviewPlaylists(library.playlistSummaries, checkedIds, playlistSearch));
+  const membershipWeights = $derived(Object.fromEntries(
+    (detail?.memberships ?? []).map((membership) => [membership.playlistId, membership.weight]),
+  ) as Record<string, MusicWeight>);
   const currentIndex = $derived(item ? library.currentWindow.items.findIndex((entry) => entry.id === item.id) : -1);
   const progressCurrent = $derived(Math.max(1, sessionTotal - library.currentWindow.totalCount + currentIndex + 1));
   const player = $derived(audition.musicPlayer);
@@ -84,14 +85,6 @@
     if (detail.item.availability === "unavailable") return t("music.builder.unavailable");
     if (detail.item.availability === "ambiguous") return t("music.builder.ambiguous");
     return t("music.builder.unknownAvailability");
-  }
-
-  function intendedUseLabel(use: MusicIntendedUse): string {
-    if (use === "focus") return t("music.builder.intendedUse.focus");
-    if (use === "reading") return t("music.builder.intendedUse.reading");
-    if (use === "relaxation") return t("music.builder.intendedUse.relaxation");
-    if (use === "energizing") return t("music.builder.intendedUse.energizing");
-    return t("music.builder.intendedUse.general");
   }
 
   $effect(() => {
@@ -314,10 +307,6 @@
         <div><h2 class="text-sm font-semibold">{t("music.builder.classifyPlaylists")}</h2><p class="text-[0.68rem] text-muted-foreground">{t("music.builder.classifyHint")}</p></div>
         {#if checkedIds.size > 0}<button type="button" onclick={() => { void review.clearMemberships(); }} class="text-[0.68rem] text-muted-foreground hover:text-foreground">{t("music.builder.clearMemberships")}</button>{/if}
       </div>
-      <label class="mt-3 flex h-8 items-center gap-2 rounded-md bg-background px-2.5">
-        <Search size={14} class="text-muted-foreground" />
-        <input bind:this={playlistSearchInput} bind:value={playlistSearch} class="min-w-0 flex-1 bg-transparent text-xs outline-none" placeholder={t("music.builder.searchPlaylists")} title={t("music.builder.playlistSearchTitle", formatShortcut("/"))} />
-      </label>
       {#if inlineCreateOpen}
         <form class="mt-2 rounded-lg border border-border/70 bg-background/75 p-2" onsubmit={(event) => { event.preventDefault(); void createPlaylistAndAdd(); }}>
           <input bind:this={newPlaylistNameInput} bind:value={newPlaylistName} class="h-8 w-full rounded-md border border-border/70 bg-background px-2.5 text-xs outline-none focus:border-primary" placeholder={t("music.builder.inlinePlaylistName")} />
@@ -333,26 +322,21 @@
       {/if}
     </div>
 
-    <div bind:this={checklistRoot} class="min-h-0 flex-1 overflow-y-auto p-2" data-music-scrollable="true">
-      {#each visiblePlaylists as playlist (playlist.id)}
-        {@const membership = review.membershipFor(playlist.id)}
-        <div class={cn("mb-1 flex min-w-0 items-center gap-2 rounded-lg border px-2 py-2 transition-colors", membership ? "border-primary/35 bg-primary/8" : "border-transparent hover:bg-accent/60")}>
-          <button type="button" onclick={() => { void review.toggleMembership(playlist); }} disabled={!detail} aria-busy={review.membershipBusy.has(playlist.id)} class={cn("grid h-5 w-5 shrink-0 place-items-center rounded border", membership ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background")} aria-label={membership ? t("music.builder.removeFromPlaylist", playlist.name) : t("music.builder.addToPlaylist", playlist.name)}>
-            {#if membership}<Check size={13} strokeWidth={2.5} />{/if}
-          </button>
-          <button type="button" data-review-playlist-id={playlist.id} onclick={() => { void review.toggleMembership(playlist); }} class="min-w-0 flex-1 text-left">
-            <span class="block truncate text-xs font-medium">{playlist.name}</span>
-            <span class="block truncate text-[0.65rem] text-muted-foreground">{playlist.intendedUses.length > 0 ? playlist.intendedUses.map(intendedUseLabel).join(" · ") : playlist.description || t("music.builder.playlistTrackCount", playlist.totalCount)}</span>
-          </button>
-          {#if detail?.item.availability !== "available"}<CircleAlert size={13} class="shrink-0 text-warning" aria-label={availabilityLabel()} />{/if}
-          {#if membership}
-            <button type="button" onclick={() => { void review.cycleMembershipWeight(membership); }} class="shrink-0 rounded-md bg-secondary px-2 py-1 text-[0.62rem] text-secondary-foreground" title={t("music.builder.changeProbability")}>{t(`music.builder.weight.${membership.weight}`)}</button>
-          {/if}
-        </div>
-        {#if review.membershipErrors[playlist.id]}<p class="mb-1 px-2 text-[0.62rem] text-destructive" role="alert">{review.membershipErrors[playlist.id]}</p>{/if}
-      {:else}
-        <p class="p-4 text-center text-xs text-muted-foreground">{t("music.builder.noPlaylistMatches")}</p>
-      {/each}
+    <div bind:this={checklistRoot} class="flex min-h-0 flex-1 flex-col">
+      <MusicPlaylistPicker
+        playlists={library.playlistSummaries}
+        {checkedIds}
+        search={playlistSearch}
+        onSearch={(value) => playlistSearch = value}
+        onSearchInput={(element) => playlistSearchInput = element}
+        onToggle={(playlist) => { void review.toggleMembership(playlist); }}
+        weights={membershipWeights}
+        onCycleWeight={(playlist) => { const membership = review.membershipFor(playlist.id); if (membership) void review.cycleMembershipWeight(membership); }}
+        busyIds={review.membershipBusy}
+        errors={review.membershipErrors}
+        showIssue={detail?.item.availability !== "available"}
+        issueLabel={availabilityLabel()}
+      />
     </div>
 
     <div class="review-actions grid shrink-0 grid-cols-3 gap-2 border-t border-border/70 bg-card p-3">

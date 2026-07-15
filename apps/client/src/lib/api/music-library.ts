@@ -12,6 +12,7 @@ import {
   parseItemWindow,
   parsePlaylist,
   parsePlaylistSummaries,
+  parsePlaylistPlaybackEntries,
   parseRefreshJobProgress,
   parseRelinkPlanSummary,
   parseRelinkPlanWindow,
@@ -23,6 +24,11 @@ import {
   parseYouTubeSnapshotResult,
   type LocalRootBinding,
   type MusicBulkMembershipWrite,
+  type MusicBulkMembershipEdit,
+  type MusicBulkMembershipResult,
+  type MusicBulkReviewWrite,
+  type MusicBulkSnoozeWrite,
+  type MusicAdvancedMembershipWrite,
   type MusicCollectionWrite,
   type MusicInspectorDetail,
   type MusicItemRepairApply,
@@ -35,7 +41,9 @@ import {
   type MusicLocalLocationWrite,
   type MusicLocalRootCreate,
   type MusicLocalRoot,
+  type MusicMetadataOverrideWrite,
   type MusicMembershipRemove,
+  type MusicMembershipMatrixEntry,
   type MusicPlaylist,
   type MusicPlaylistCreate,
   type MusicPlaylistDelete,
@@ -43,6 +51,9 @@ import {
   type MusicPlaylistDuplicate,
   type MusicPlaylistSummary,
   type MusicPlaylistUpdate,
+  type MusicPlaylistReorder,
+  type MusicPlaylistReorderResult,
+  type MusicPlaylistPlaybackEntry,
   type MusicReviewWrite,
   type MusicRelinkApplyRequest,
   type MusicRelinkPlanRequest,
@@ -177,11 +188,54 @@ export const deleteMusicPlaylist = (request: MusicPlaylistDelete): Promise<Music
   call("music_library_delete_playlist", databaseArgs({ request }), parseDeleteImpact);
 export const setMusicReviewState = (request: MusicReviewWrite): Promise<MusicWriteReceipt> =>
   call("music_library_set_review_state", databaseArgs({ request }), parseWriteReceipt);
+export const setMusicMetadataOverrides = (request: MusicMetadataOverrideWrite): Promise<MusicWriteReceipt> =>
+  call("music_library_set_metadata_overrides", databaseArgs({ request }), parseWriteReceipt);
 export const upsertMusicMemberships = (request: MusicBulkMembershipWrite): Promise<MusicWriteReceipt[]> =>
   call("music_library_upsert_memberships", databaseArgs({ request }), (value) => {
     if (!Array.isArray(value)) throw new Error("membership receipts must be an array");
     return value.map((entry, index) => parseWriteReceipt(entry, `membership receipts[${index}]`));
   });
+export const bulkEditMusicMemberships = (request: MusicBulkMembershipEdit): Promise<MusicBulkMembershipResult> =>
+  call("music_library_bulk_edit_memberships", databaseArgs({ request }), (value) => {
+    if (typeof value !== "object" || value === null || !("changedCount" in value) || typeof value.changedCount !== "number") {
+      throw new Error("bulk membership result must contain changedCount");
+    }
+    return { changedCount: value.changedCount };
+  });
+export const getMusicMembershipMatrix = (itemIds: string[]): Promise<MusicMembershipMatrixEntry[]> =>
+  call("music_library_membership_matrix", databaseArgs({ itemIds }), (value) => {
+    if (!Array.isArray(value)) throw new Error("membership matrix must be an array");
+    const weights = new Set(["rarely", "less-often", "normal", "more-often", "much-more-often"]);
+    return value.map((entry, index) => {
+      if (typeof entry !== "object" || entry === null) throw new Error(`membership matrix[${index}] must be an object`);
+      const row = entry as Record<string, unknown>;
+      if (typeof row.itemId !== "string" || typeof row.playlistId !== "string" || typeof row.weight !== "string" || !weights.has(row.weight)) {
+        throw new Error(`membership matrix[${index}] is invalid`);
+      }
+      return { itemId: row.itemId, playlistId: row.playlistId, weight: row.weight as MusicMembershipMatrixEntry["weight"] };
+    });
+  });
+export const reorderMusicPlaylist = (request: MusicPlaylistReorder): Promise<MusicPlaylistReorderResult> =>
+  call("music_library_reorder_playlist", databaseArgs({ request }), (value) => {
+    if (typeof value !== "object" || value === null || !("itemIds" in value) || !Array.isArray(value.itemIds) || !value.itemIds.every((itemId) => typeof itemId === "string")) {
+      throw new Error("playlist reorder result must contain itemIds");
+    }
+    return { itemIds: value.itemIds };
+  });
+export const getMusicPlaylistPlaybackEntries = (playlistId: string, nowMs: number): Promise<MusicPlaylistPlaybackEntry[]> =>
+  call("music_library_playlist_playback_entries", databaseArgs({ playlistId, nowMs }), parsePlaylistPlaybackEntries);
+export const bulkSetMusicReviewState = (request: MusicBulkReviewWrite): Promise<MusicBulkMembershipResult> =>
+  call("music_library_bulk_set_review_state", databaseArgs({ request }), (value) => {
+    if (typeof value !== "object" || value === null || !("changedCount" in value) || typeof value.changedCount !== "number") throw new Error("bulk review result must contain changedCount");
+    return { changedCount: value.changedCount };
+  });
+export const bulkSnoozeMusicItems = (request: MusicBulkSnoozeWrite): Promise<MusicBulkMembershipResult> =>
+  call("music_library_bulk_snooze", databaseArgs({ request }), (value) => {
+    if (typeof value !== "object" || value === null || !("changedCount" in value) || typeof value.changedCount !== "number") throw new Error("bulk snooze result must contain changedCount");
+    return { changedCount: value.changedCount };
+  });
+export const saveMusicAdvancedMembership = (request: MusicAdvancedMembershipWrite): Promise<MusicWriteReceipt> =>
+  call("music_library_save_advanced_membership", databaseArgs({ request }), parseWriteReceipt);
 export const removeMusicMemberships = (request: MusicMembershipRemove): Promise<void> =>
   call("music_library_remove_memberships", databaseArgs({ request }), parseVoid);
 export const upsertMusicSnooze = (request: MusicSnoozeWrite): Promise<void> =>

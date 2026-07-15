@@ -4,6 +4,7 @@ pub(crate) mod fixtures;
 mod item_repair;
 pub(crate) mod local_refresh;
 mod models;
+mod playlist_edits;
 mod queries;
 mod relink;
 mod rows;
@@ -20,6 +21,8 @@ pub use models::*;
 pub(crate) use rows::*;
 pub(crate) use validation::*;
 
+#[cfg(test)]
+mod query_tests;
 #[cfg(test)]
 mod relink_tests;
 #[cfg(test)]

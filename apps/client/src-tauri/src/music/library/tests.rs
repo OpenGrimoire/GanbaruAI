@@ -1,7 +1,7 @@
 use super::*;
-use sqlx::{Row, SqlitePool};
+use sqlx::SqlitePool;
 
-async fn pool() -> SqlitePool {
+pub(super) async fn pool() -> SqlitePool {
     let pool = sqlx::sqlite::SqlitePoolOptions::new()
         .max_connections(1)
         .connect("sqlite::memory:")
@@ -15,7 +15,7 @@ async fn pool() -> SqlitePool {
     pool
 }
 
-async fn seed_item(pool: &SqlitePool, id: &str, identity: &str) {
+pub(super) async fn seed_item(pool: &SqlitePool, id: &str, identity: &str) {
     sqlx::query(
         "INSERT INTO music_library_items
             (id, identity_key, source_kind, original_title, availability, review_state,
@@ -31,7 +31,7 @@ async fn seed_item(pool: &SqlitePool, id: &str, identity: &str) {
     .unwrap();
 }
 
-fn playlist(id: &str) -> MusicPlaylistCreate {
+pub(super) fn playlist(id: &str) -> MusicPlaylistCreate {
     MusicPlaylistCreate {
         id: id.to_string(),
         name: "Focus".to_string(),
@@ -43,7 +43,7 @@ fn playlist(id: &str) -> MusicPlaylistCreate {
     }
 }
 
-fn library_window() -> MusicItemWindowRequest {
+pub(super) fn library_window() -> MusicItemWindowRequest {
     MusicItemWindowRequest {
         destination: MusicListDestination::Library,
         playlist_id: None,
@@ -52,6 +52,7 @@ fn library_window() -> MusicItemWindowRequest {
         availability: None,
         review_state: None,
         source_collection_id: None,
+        membership_playlist_id: None,
         snoozed: None,
         sort: MusicItemSort::Title,
         direction: MusicSortDirection::Ascending,
@@ -62,7 +63,7 @@ fn library_window() -> MusicItemWindowRequest {
     }
 }
 
-fn membership(index: usize) -> MusicMembershipWrite {
+pub(super) fn membership(index: usize) -> MusicMembershipWrite {
     MusicMembershipWrite {
         id: format!("membership-{index}"),
         playlist_id: "playlist-1".to_string(),
@@ -530,10 +531,13 @@ fn duplicate_playlist_preserves_membership_details_and_ranges() {
 }
 
 #[test]
-fn deletion_requires_current_impact_and_clears_assignments_atomically() {
+fn deletion_requires_current_impact_and_repairs_assignments_atomically() {
     tauri::async_runtime::block_on(async {
         let pool = pool().await;
         super::writes::create_playlist(&pool, playlist("playlist-1"))
+            .await
+            .unwrap();
+        super::writes::create_playlist(&pool, playlist("playlist-2"))
             .await
             .unwrap();
         seed_item(&pool, "item-1", "local:item-1").await;
@@ -567,6 +571,7 @@ fn deletion_requires_current_impact_and_clears_assignments_atomically() {
             &pool,
             MusicPlaylistDelete {
                 playlist_id: "playlist-1".to_string(),
+                replacement_playlist_id: Some("playlist-2".to_string()),
                 expected_version: 1,
                 expected_impact: stale_impact,
             },
@@ -579,6 +584,7 @@ fn deletion_requires_current_impact_and_clears_assignments_atomically() {
             &pool,
             MusicPlaylistDelete {
                 playlist_id: "playlist-1".to_string(),
+                replacement_playlist_id: Some("playlist-2".to_string()),
                 expected_version: 1,
                 expected_impact: impact,
             },
@@ -590,12 +596,12 @@ fn deletion_requires_current_impact_and_clears_assignments_atomically() {
                 .fetch_one(&pool)
                 .await
                 .unwrap();
-        assert_eq!(assignment, None);
+        assert_eq!(assignment.as_deref(), Some("playlist-2"));
         let playlist_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM music_playlists")
             .fetch_one(&pool)
             .await
             .unwrap();
-        assert_eq!(playlist_count, 0);
+        assert_eq!(playlist_count, 1);
     });
 }
 
@@ -639,459 +645,296 @@ fn deferred_review_items_return_after_their_optional_date() {
 }
 
 #[test]
-fn review_snooze_and_statistics_commands_preserve_independent_scopes() {
+fn metadata_overrides_preserve_original_values_and_refresh_search() {
     tauri::async_runtime::block_on(async {
         let pool = pool().await;
         seed_item(&pool, "item-1", "local:item-1").await;
-        super::writes::set_review_state(
+        let receipt = super::writes::set_metadata_overrides(
             &pool,
-            MusicReviewWrite {
+            MusicMetadataOverrideWrite {
                 item_id: "item-1".to_string(),
-                review_state: MusicReviewState::Ignored,
-                deferred_until: None,
+                title_override: Some("Quiet focus".to_string()),
+                artist_override: Some("Composer".to_string()),
+                album_override: None,
+                artwork_override: None,
                 expected_version: 1,
-                updated_at: 1_700_000_000_100,
+                updated_at: 1_700_000_100_000,
             },
         )
         .await
         .unwrap();
-        super::writes::upsert_snooze(
-            &pool,
-            MusicSnoozeWrite {
-                id: "snooze-1".to_string(),
-                item_id: "item-1".to_string(),
-                scope: MusicSnoozeScope::AllPlaylists,
-                playlist_id: None,
-                starts_at: 1_700_000_000_100,
-                ends_at: None,
-                reason: "Rest".to_string(),
-                created_at: 1_700_000_000_100,
-            },
-        )
-        .await
-        .unwrap();
-        sqlx::query(
-            "INSERT INTO music_listening_statistics
-                (item_id, play_count, completion_count, skip_count, updated_at)
-             VALUES ('item-1', 3, 2, 1, 1700000000200)",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        sqlx::query(
-            "INSERT INTO music_recent_selections (item_id, selection_kind, selected_at)
-             VALUES ('item-1', 'automatic', 1700000000200)",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        super::writes::reset_statistics(
-            &pool,
-            MusicStatisticsReset {
-                item_ids: vec!["item-1".to_string()],
-                reset_recent_selections: false,
-            },
-        )
-        .await
-        .unwrap();
+        assert_eq!(receipt.version, 2);
 
-        let recent_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM music_recent_selections")
-            .fetch_one(&pool)
+        let detail = super::queries::inspector_detail(&pool, "item-1")
             .await
             .unwrap();
-        let snooze_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM music_snoozes")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-        let review_state: String =
-            sqlx::query_scalar("SELECT review_state FROM music_library_items WHERE id = 'item-1'")
-                .fetch_one(&pool)
-                .await
-                .unwrap();
-        assert_eq!(recent_count, 1);
-        assert_eq!(snooze_count, 1);
-        assert_eq!(review_state, "ignored");
+        assert_eq!(detail.item.original_title, "item-1");
+        assert_eq!(detail.item.title_override.as_deref(), Some("Quiet focus"));
+
+        let mut request = library_window();
+        request.search = "Quiet".to_string();
+        let window = super::queries::item_window(&pool, request).await.unwrap();
+        assert_eq!(window.total_count, 1);
+        assert_eq!(window.items[0].title, "Quiet focus");
     });
 }
 
 #[test]
-fn item_windows_are_bounded_stable_filterable_and_grouped() {
-    tauri::async_runtime::block_on(async {
-        let pool = pool().await;
-        let mut transaction = pool.begin().await.unwrap();
-        for index in 0..600 {
-            sqlx::query(
-                "INSERT INTO music_library_items
-                    (id, identity_key, source_kind, media_kind, youtube_video_id,
-                     original_title, original_artist,
-                     original_album, availability, review_state, discovered_at, updated_at)
-                 VALUES (?, ?, ?, 'audio', ?, ?, ?, ?, ?, ?, ?, ?)",
-            )
-            .bind(format!("item-{index:04}"))
-            .bind(format!("identity-{index:04}"))
-            .bind(if index % 3 == 0 {
-                "youtube-video"
-            } else {
-                "local-file"
-            })
-            .bind(if index % 3 == 0 {
-                Some(format!("video-{index:04}"))
-            } else {
-                None
-            })
-            .bind(format!("Track {index:04}"))
-            .bind(if index % 2 == 0 {
-                "Alpha Composer"
-            } else {
-                "Beta Composer"
-            })
-            .bind(format!("Album {:02}", index % 12))
-            .bind(if index % 17 == 0 {
-                "missing"
-            } else {
-                "available"
-            })
-            .bind(if index % 5 == 0 {
-                "unreviewed"
-            } else {
-                "reviewed"
-            })
-            .bind(1_700_000_000_000_i64 + index)
-            .bind(1_700_000_000_000_i64 + index)
-            .execute(&mut *transaction)
-            .await
-            .unwrap();
-        }
-        transaction.commit().await.unwrap();
-
-        let first = super::queries::item_window(&pool, library_window())
-            .await
-            .unwrap();
-        assert_eq!(first.total_count, 600);
-        assert_eq!(first.items.len(), 50);
-        assert_eq!(first.items.first().unwrap().title, "Track 0000");
-        assert_eq!(first.items.last().unwrap().title, "Track 0049");
-
-        let mut filtered = library_window();
-        filtered.search = "Alpha".to_string();
-        filtered.availability = Some(MusicItemAvailability::Available);
-        filtered.group_by = MusicGroupBy::SourceKind;
-        filtered.limit = 25;
-        let result = super::queries::item_window(&pool, filtered).await.unwrap();
-        assert_eq!(result.items.len(), 25);
-        assert!(result.total_count < 300);
-        assert_eq!(
-            result.groups.iter().map(|group| group.count).sum::<i64>(),
-            result.total_count,
-        );
-        assert!(result
-            .items
-            .iter()
-            .all(|item| item.artist == "Alpha Composer"
-                && item.availability == MusicItemAvailability::Available));
-    });
-}
-
-#[test]
-fn playlist_window_uses_manual_order_and_returns_membership_state() {
+fn advanced_membership_settings_replace_validated_skip_ranges_atomically() {
     tauri::async_runtime::block_on(async {
         let pool = pool().await;
         super::writes::create_playlist(&pool, playlist("playlist-1"))
             .await
             .unwrap();
-        for index in 0..3 {
+        seed_item(&pool, "item-1", "local:item-1").await;
+        let initial = membership(1);
+        super::writes::upsert_memberships(
+            &pool,
+            MusicBulkMembershipWrite {
+                memberships: vec![initial.clone()],
+            },
+        )
+        .await
+        .unwrap();
+        let mut updated = initial;
+        updated.start_ms = Some(1_000);
+        updated.end_ms = Some(90_000);
+        updated.volume = Some(0.6);
+        updated.rate = Some(1.25);
+        updated.expected_version = Some(1);
+        let receipt = super::writes::save_advanced_membership(
+            &pool,
+            MusicAdvancedMembershipWrite {
+                membership: updated,
+                skip_ranges: vec![
+                    MusicMembershipSkipRange {
+                        id: "skip-1".to_string(),
+                        membership_id: "membership-1".to_string(),
+                        start_ms: 5_000,
+                        end_ms: 10_000,
+                        sort_order: 0,
+                    },
+                    MusicMembershipSkipRange {
+                        id: "skip-2".to_string(),
+                        membership_id: "membership-1".to_string(),
+                        start_ms: 20_000,
+                        end_ms: 25_000,
+                        sort_order: 1,
+                    },
+                ],
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(receipt.version, 2);
+        let detail = super::queries::inspector_detail(&pool, "item-1")
+            .await
+            .unwrap();
+        assert_eq!(detail.memberships[0].start_ms, Some(1_000));
+        assert_eq!(detail.membership_skip_ranges.len(), 2);
+        assert_eq!(detail.membership_skip_ranges[1].start_ms, 20_000);
+    });
+}
+
+#[test]
+fn bulk_membership_edits_preserve_existing_settings_and_commit_as_one_change() {
+    tauri::async_runtime::block_on(async {
+        let pool = pool().await;
+        for index in 1..=3 {
             seed_item(
                 &pool,
                 &format!("item-{index}"),
                 &format!("local:item-{index}"),
             )
             .await;
-            let mut entry = membership(index);
-            entry.item_id = format!("item-{index}");
-            entry.position = 2 - index as i64;
-            super::writes::upsert_memberships(
-                &pool,
-                MusicBulkMembershipWrite {
-                    memberships: vec![entry],
-                },
-            )
+        }
+        super::writes::create_playlist(&pool, playlist("playlist-1"))
             .await
             .unwrap();
-        }
-        let mut request = library_window();
-        request.destination = MusicListDestination::Playlist;
-        request.playlist_id = Some("playlist-1".to_string());
-        request.sort = MusicItemSort::ManualPosition;
-        let result = super::queries::item_window(&pool, request).await.unwrap();
+        let mut existing = membership(1);
+        existing.weight = MusicWeight::Rarely;
+        existing.start_ms = Some(5_000);
+        super::writes::upsert_memberships(
+            &pool,
+            MusicBulkMembershipWrite {
+                memberships: vec![existing],
+            },
+        )
+        .await
+        .unwrap();
 
-        assert_eq!(
-            result
-                .items
-                .iter()
-                .map(|item| item.membership_position)
-                .collect::<Vec<_>>(),
-            vec![Some(0), Some(1), Some(2)],
-        );
-        assert!(result.items.iter().all(|item| item.membership_id.is_some()));
+        let added = super::playlist_edits::bulk_edit_memberships(
+            &pool,
+            MusicBulkMembershipEdit {
+                action_id: "bulk-add".to_string(),
+                item_ids: vec!["item-1".to_string(), "item-2".to_string()],
+                add_playlist_ids: vec!["playlist-1".to_string()],
+                remove_playlist_ids: vec![],
+                weight_playlist_ids: vec![],
+                weight: None,
+                updated_at: 1_700_000_000_100,
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(added.changed_count, 1);
+        let preserved: (String, Option<i64>) = sqlx::query_as(
+            "SELECT weight, start_ms FROM music_playlist_memberships WHERE playlist_id = 'playlist-1' AND item_id = 'item-1'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(preserved, ("rarely".to_string(), Some(5_000)));
+
+        let weighted = super::playlist_edits::bulk_edit_memberships(
+            &pool,
+            MusicBulkMembershipEdit {
+                action_id: "bulk-weight".to_string(),
+                item_ids: vec!["item-1".to_string(), "item-2".to_string()],
+                add_playlist_ids: vec![],
+                remove_playlist_ids: vec![],
+                weight_playlist_ids: vec!["playlist-1".to_string()],
+                weight: Some(MusicWeight::MoreOften),
+                updated_at: 1_700_000_000_200,
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(weighted.changed_count, 2);
+
+        let removed = super::playlist_edits::bulk_edit_memberships(
+            &pool,
+            MusicBulkMembershipEdit {
+                action_id: "bulk-remove".to_string(),
+                item_ids: vec!["item-1".to_string(), "item-3".to_string()],
+                add_playlist_ids: vec![],
+                remove_playlist_ids: vec!["playlist-1".to_string()],
+                weight_playlist_ids: vec![],
+                weight: None,
+                updated_at: 1_700_000_000_300,
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(removed.changed_count, 1);
+        let remaining: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM music_playlist_memberships WHERE playlist_id = 'playlist-1'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(remaining, 1);
     });
 }
 
 #[test]
-fn summaries_issues_and_inspector_return_composed_data_without_row_queries() {
+fn playlist_reorder_and_playback_projection_share_canonical_memberships() {
     tauri::async_runtime::block_on(async {
         let pool = pool().await;
         super::writes::create_playlist(&pool, playlist("playlist-1"))
             .await
             .unwrap();
-        seed_item(&pool, "item-1", "local:item-1").await;
-        let linked = membership(1);
-        super::writes::upsert_memberships(
-            &pool,
-            MusicBulkMembershipWrite {
-                memberships: vec![linked],
-            },
-        )
-        .await
-        .unwrap();
-        sqlx::query(
-            "INSERT INTO music_local_roots (id, name, created_at, updated_at)
-             VALUES ('root-1', 'Soundtracks', 1700000000000, 1700000000000)",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        sqlx::query(
-            "INSERT INTO music_local_locations
-                (id, item_id, root_id, relative_path, availability, first_seen_at, updated_at)
-             VALUES ('location-1', 'item-1', 'root-1', 'Album/track.flac',
-                 'available', 1700000000000, 1700000000000)",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        sqlx::query(
-            "INSERT INTO music_source_collections
-                (id, kind, identity_key, name, local_root_id, created_at, updated_at)
-             VALUES ('source-1', 'local-root', 'root:root-1', 'Soundtracks', 'root-1',
-                 1700000000000, 1700000000000)",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        sqlx::query(
-            "INSERT INTO music_source_collection_items
-                (collection_id, item_id, first_discovered_at)
-             VALUES ('source-1', 'item-1', 1700000000000)",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        for (group_by, expected_key) in [
-            (MusicGroupBy::Folder, "Album"),
-            (MusicGroupBy::SourceCollection, "Soundtracks"),
-        ] {
-            let mut request = library_window();
-            request.group_by = group_by;
-            let window = super::queries::item_window(&pool, request).await.unwrap();
-            assert_eq!(window.groups.len(), 1);
-            assert_eq!(window.groups[0].key, expected_key);
-            assert_eq!(window.groups[0].count, 1);
+        for index in 1..=3 {
+            seed_item(
+                &pool,
+                &format!("item-{index}"),
+                &format!("local:item-{index}"),
+            )
+            .await;
+            super::writes::upsert_memberships(
+                &pool,
+                MusicBulkMembershipWrite {
+                    memberships: vec![membership(index)],
+                },
+            )
+            .await
+            .unwrap();
         }
-        sqlx::query(
-            "INSERT INTO music_item_signals (item_id, signal, created_at)
-             VALUES ('item-1', 'calm', 1700000000000)",
+        let reordered = super::playlist_edits::reorder_playlist(
+            &pool,
+            MusicPlaylistReorder {
+                playlist_id: "playlist-1".to_string(),
+                item_id: "item-3".to_string(),
+                target_index: 0,
+                updated_at: 1_700_000_000_100,
+            },
         )
-        .execute(&pool)
         .await
         .unwrap();
-        sqlx::query(
-            "INSERT INTO music_library_repair_issues
-                (id, issue_kind, item_id, message, created_at)
-             VALUES ('issue-1', 'legacy-local-root-required', 'item-1',
-                 'Choose a root.', 1700000000000)",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
+        assert_eq!(reordered.item_ids, vec!["item-3", "item-1", "item-2"]);
 
-        let playlists = super::queries::playlist_summaries(&pool, 1_700_000_100_000, 0, 20)
-            .await
-            .unwrap();
-        let sources = super::queries::source_summaries(&pool, 1_700_000_000_000, 0, 20)
-            .await
-            .unwrap();
-        let roots = super::queries::local_roots(&pool, 0, 20).await.unwrap();
-        let collections = super::queries::source_collections(&pool, 0, 20)
-            .await
-            .unwrap();
-        let playlist_detail = super::queries::playlist_detail(&pool, "playlist-1")
-            .await
-            .unwrap();
-        let issues = super::queries::issues(&pool, 0, 20).await.unwrap();
-        let detail = super::queries::inspector_detail(&pool, "item-1")
-            .await
-            .unwrap();
-
-        assert_eq!(playlists[0].total_count, 1);
-        assert_eq!(sources[0].item_count, 1);
-        assert_eq!(sources[0].open_issue_count, 1);
-        assert_eq!(roots[0].name, "Soundtracks");
-        assert_eq!(collections[0].kind, MusicCollectionKind::LocalRoot);
-        assert_eq!(playlist_detail.intended_uses, vec![MusicIntendedUse::Focus]);
-        assert_eq!(issues[0].id, "issue-1");
-        assert_eq!(detail.locations.len(), 1);
-        assert_eq!(detail.memberships.len(), 1);
-        assert_eq!(detail.signals, vec![MusicItemSignal::Calm]);
-        assert_eq!(detail.source_collection_ids, vec!["source-1"]);
+        let entries =
+            super::queries::playlist_playback_entries(&pool, "playlist-1", 1_700_000_000_200)
+                .await
+                .unwrap();
+        assert_eq!(
+            entries
+                .iter()
+                .map(|entry| entry.item_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["item-3", "item-1", "item-2"]
+        );
+        assert!(entries.iter().all(|entry| entry.enabled && !entry.snoozed));
     });
 }
 
 #[test]
-fn review_and_membership_queries_use_purpose_built_indexes() {
+fn bulk_review_and_snooze_updates_are_atomic() {
     tauri::async_runtime::block_on(async {
         let pool = pool().await;
-        let review_plan = sqlx::query(
-            "EXPLAIN QUERY PLAN
-             SELECT id FROM music_library_items
-             WHERE review_state = 'unreviewed'
-             ORDER BY discovered_at, id LIMIT 50",
-        )
-        .fetch_all(&pool)
-        .await
-        .unwrap()
-        .into_iter()
-        .map(|row| row.get::<String, _>("detail"))
-        .collect::<Vec<_>>()
-        .join("\n");
-        let membership_plan = sqlx::query(
-            "EXPLAIN QUERY PLAN
-             SELECT id FROM music_playlist_memberships
-             WHERE playlist_id = 'playlist-1'
-             ORDER BY position, id LIMIT 50",
-        )
-        .fetch_all(&pool)
-        .await
-        .unwrap()
-        .into_iter()
-        .map(|row| row.get::<String, _>("detail"))
-        .collect::<Vec<_>>()
-        .join("\n");
-
-        assert!(review_plan.contains("idx_music_library_items_review"));
-        assert!(membership_plan.contains("idx_music_playlist_memberships_order"));
-    });
-}
-
-#[test]
-fn search_rebuild_repairs_stale_rows_and_incremental_membership_metadata() {
-    tauri::async_runtime::block_on(async {
-        let pool = pool().await;
-        sqlx::query(
-            "INSERT INTO music_library_items
-                (id, identity_key, source_kind, media_kind, original_title, original_artist,
-                 original_album, availability, review_state, discovered_at, updated_at)
-             VALUES ('item-1', 'local:item-1', 'local-file', 'audio',
-                 'Café de la pluie 雨', 'Artista', 'Lectura tranquila',
-                 'available', 'unreviewed', 1700000000000, 1700000000000)",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        let rebuilt = super::search::rebuild(&pool, 1_700_000_100_000)
-            .await
-            .unwrap();
-        assert_eq!(rebuilt.indexed_item_count, 1);
-
-        let mut by_diacritic = library_window();
-        by_diacritic.search = "cafe".to_string();
-        assert_eq!(
-            super::queries::item_window(&pool, by_diacritic)
-                .await
-                .unwrap()
-                .total_count,
-            1,
-        );
-        let mut by_cjk = library_window();
-        by_cjk.search = "雨".to_string();
-        assert_eq!(
-            super::queries::item_window(&pool, by_cjk)
-                .await
-                .unwrap()
-                .total_count,
-            1,
-        );
-
-        sqlx::query("DELETE FROM music_search_fts")
-            .execute(&pool)
-            .await
-            .unwrap();
-        sqlx::query(
-            "UPDATE music_search_index_state SET fingerprint = 'stale' WHERE singleton = 1",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        let mut repaired = library_window();
-        repaired.search = "tranquila".to_string();
-        assert_eq!(
-            super::queries::item_window(&pool, repaired)
-                .await
-                .unwrap()
-                .total_count,
-            1,
-        );
-
-        super::writes::create_playlist(
+        for index in 1..=2 {
+            seed_item(
+                &pool,
+                &format!("item-{index}"),
+                &format!("local:item-{index}"),
+            )
+            .await;
+        }
+        let result = super::playlist_edits::bulk_set_review_state(
             &pool,
-            MusicPlaylistCreate {
-                name: "Morning flow".to_string(),
-                ..playlist("playlist-1")
+            MusicBulkReviewWrite {
+                items: vec![
+                    MusicVersionedItem {
+                        item_id: "item-1".to_string(),
+                        expected_version: 1,
+                    },
+                    MusicVersionedItem {
+                        item_id: "item-2".to_string(),
+                        expected_version: 1,
+                    },
+                ],
+                review_state: MusicReviewState::Reviewed,
+                deferred_until: None,
+                updated_at: 1_700_000_000_100,
             },
         )
         .await
         .unwrap();
-        let linked = membership(1);
-        super::writes::upsert_memberships(
+        assert_eq!(result.changed_count, 2);
+        let snoozed = super::playlist_edits::bulk_snooze(
             &pool,
-            MusicBulkMembershipWrite {
-                memberships: vec![linked],
+            MusicBulkSnoozeWrite {
+                action_id: "snooze-action".to_string(),
+                item_ids: vec!["item-1".to_string(), "item-2".to_string()],
+                scope: MusicSnoozeScope::AllPlaylists,
+                playlist_id: None,
+                starts_at: 1_700_000_000_100,
+                ends_at: Some(1_700_086_400_100),
+                reason: String::new(),
+                created_at: 1_700_000_000_100,
             },
         )
         .await
         .unwrap();
-        let mut by_playlist = library_window();
-        by_playlist.search = "Morning".to_string();
-        assert_eq!(
-            super::queries::item_window(&pool, by_playlist)
-                .await
-                .unwrap()
-                .total_count,
-            1,
-        );
-
-        super::writes::update_playlist(
-            &pool,
-            MusicPlaylistUpdate {
-                id: "playlist-1".to_string(),
-                name: "Dawn routine".to_string(),
-                description: String::new(),
-                shuffle_enabled: true,
-                repeat_mode: MusicRepeatMode::All,
-                intended_uses: vec![MusicIntendedUse::General],
-                expected_version: 1,
-                updated_at: 1_700_000_200_000,
-            },
+        assert_eq!(snoozed.changed_count, 2);
+        let counts: (i64, i64) = sqlx::query_as(
+            "SELECT
+                (SELECT COUNT(*) FROM music_library_items WHERE review_state = 'reviewed'),
+                (SELECT COUNT(*) FROM music_snoozes)",
         )
+        .fetch_one(&pool)
         .await
         .unwrap();
-        let mut by_renamed_playlist = library_window();
-        by_renamed_playlist.search = "Dawn".to_string();
-        assert_eq!(
-            super::queries::item_window(&pool, by_renamed_playlist)
-                .await
-                .unwrap()
-                .total_count,
-            1,
-        );
+        assert_eq!(counts, (2, 2));
     });
 }

@@ -4,13 +4,17 @@
   import FolderOpen from "@lucide/svelte/icons/folder-open";
   import ListMusic from "@lucide/svelte/icons/list-music";
   import Play from "@lucide/svelte/icons/play";
+  import Pencil from "@lucide/svelte/icons/pencil";
   import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
   import X from "@lucide/svelte/icons/x";
+  import Clock3 from "@lucide/svelte/icons/clock-3";
   import { fade } from "svelte/transition";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { pickArtworkFile } from "$lib/api/music";
   import type { MusicBuilderInspectorController } from "$lib/music/music-builder-inspector.svelte";
   import { formatMusicDuration } from "$lib/music/music-builder-presentation";
   import MusicBuilderAsyncState from "./MusicBuilderAsyncState.svelte";
+  import MusicAdvancedMembershipEditor from "./MusicAdvancedMembershipEditor.svelte";
 
   let {
     controller,
@@ -18,12 +22,34 @@
     onClose = () => undefined,
     onPlay = () => undefined,
     onRepair = () => undefined,
+    onMetadataSaved = () => undefined,
+    activePlaylistId = null,
+    onPreviewMembership = () => undefined,
+    onShowFile = () => undefined,
+    onReviewState = () => undefined,
+    onSnooze = () => undefined,
+    onResetStatistics = () => undefined,
+    playlistNames = {},
+    onEditMembership = () => undefined,
+    sourceNames = {},
+    onOpenSource = () => undefined,
   }: {
     controller: MusicBuilderInspectorController;
     showClose?: boolean;
     onClose?: () => void;
     onPlay?: (itemId: string) => void;
     onRepair?: (itemId: string) => void;
+    onMetadataSaved?: () => void;
+    activePlaylistId?: string | null;
+    onPreviewMembership?: (membership: import("$lib/music/library-contracts").MusicPlaylistMembership) => void;
+    onShowFile?: (itemId: string) => void;
+    onReviewState?: (itemId: string) => void;
+    onSnooze?: (itemId: string) => void;
+    onResetStatistics?: (itemId: string) => void;
+    playlistNames?: Record<string, string>;
+    onEditMembership?: (itemId: string) => void;
+    sourceNames?: Record<string, string>;
+    onOpenSource?: (sourceId: string) => void;
   } = $props();
 
   const { t } = getLocalization();
@@ -31,6 +57,12 @@
   const title = $derived(item?.titleOverride?.trim() || item?.originalTitle || "");
   const artist = $derived(item?.artistOverride?.trim() || item?.originalArtist || t("music.builder.noArtist"));
   const album = $derived(item?.albumOverride?.trim() || item?.originalAlbum || t("music.builder.noAlbum"));
+  const activeMembership = $derived(controller.detail?.memberships.find((membership) => membership.playlistId === activePlaylistId) ?? controller.detail?.memberships[0] ?? null);
+  let metadataEditing = $state(false);
+  let titleDraft = $state("");
+  let artistDraft = $state("");
+  let albumDraft = $state("");
+  let artworkDraft = $state("");
 
   function sectionOpen(id: string): boolean { return controller.expandedSections.has(id); }
   function availabilityLabel(): string {
@@ -40,6 +72,31 @@
     if (item.availability === "unavailable") return t("music.builder.unavailable");
     if (item.availability === "ambiguous") return t("music.builder.ambiguous");
     return t("music.builder.unknownAvailability");
+  }
+
+  function beginMetadataEdit(): void {
+    if (!item) return;
+    titleDraft = item.titleOverride ?? "";
+    artistDraft = item.artistOverride ?? "";
+    albumDraft = item.albumOverride ?? "";
+    artworkDraft = item.artworkOverride ?? "";
+    metadataEditing = true;
+  }
+
+  async function saveMetadata(reset = false): Promise<void> {
+    const value = (draft: string): string | null => draft.trim() || null;
+    const saved = await controller.saveMetadataOverrides({
+      titleOverride: reset ? null : value(titleDraft),
+      artistOverride: reset ? null : value(artistDraft),
+      albumOverride: reset ? null : value(albumDraft),
+      artworkOverride: reset ? null : value(artworkDraft),
+    });
+    if (saved) { metadataEditing = false; onMetadataSaved(); }
+  }
+
+  async function chooseArtwork(): Promise<void> {
+    const selected = await pickArtworkFile();
+    if (selected) artworkDraft = selected;
   }
 </script>
 
@@ -68,8 +125,9 @@
           <div class="mt-3 flex gap-2">
             <button type="button" onclick={() => onPlay(item.id)} class="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg bg-primary text-xs font-semibold text-primary-foreground hover:bg-primary/90"><Play size={13} fill="currentColor" />{t("music.play")}</button>
             {#if item.sourceKind === "local-file"}
-              <button type="button" class="inline-flex h-8 w-9 items-center justify-center rounded-lg bg-secondary text-secondary-foreground hover:bg-accent" aria-label={t("music.showCurrentFileLocation")}><FolderOpen size={14} /></button>
+              <button type="button" onclick={() => onShowFile(item.id)} class="inline-flex h-8 w-9 items-center justify-center rounded-lg bg-secondary text-secondary-foreground hover:bg-accent" aria-label={t("music.showCurrentFileLocation")}><FolderOpen size={14} /></button>
             {/if}
+            <button type="button" onclick={() => onSnooze(item.id)} class="inline-flex h-8 w-9 items-center justify-center rounded-lg bg-secondary text-secondary-foreground hover:bg-accent" aria-label={t("music.builder.snoozeAction")}><Clock3 size={14} /></button>
             {#if item.sourceKind === "local-file" && item.availability !== "available"}
               <button type="button" onclick={() => onRepair(item.id)} class="inline-flex h-8 items-center justify-center rounded-lg bg-secondary px-2.5 text-[0.65rem] font-semibold text-secondary-foreground hover:bg-accent">{t("music.builder.repair")}</button>
             {/if}
@@ -86,16 +144,55 @@
                 <div><dt>{t("music.builder.availability")}</dt><dd>{availabilityLabel()}</dd></div>
                 <div><dt>{t("music.builder.reviewState")}</dt><dd>{item.reviewState}</dd></div>
               </dl>
+              <button type="button" onclick={() => onReviewState(item.id)} class="mx-2 mb-2 h-7 rounded-md bg-secondary px-2 text-[0.65rem] font-medium">{t("music.builder.changeReviewState")}</button>
+            {/if}
+          </section>
+
+          <section class="inspector-section">
+            <button type="button" onclick={() => controller.toggleSection("provenance")} aria-expanded={sectionOpen("provenance")}><span>{t("music.builder.provenance")}</span><ChevronDown class={sectionOpen("provenance") ? "rotate-180" : ""} size={13} /></button>
+            {#if sectionOpen("provenance")}
+              <div class="space-y-1 px-2 pb-2">
+                {#each controller.detail?.sourceCollectionIds ?? [] as sourceId}
+                  <button type="button" onclick={() => onOpenSource(sourceId)} class="flex h-7 w-full items-center gap-2 rounded-md bg-secondary/55 px-2 text-left text-[0.66rem]"><span class="min-w-0 flex-1 truncate">{sourceNames[sourceId] ?? sourceId}</span><span class="text-muted-foreground">{t("music.builder.openSource")}</span></button>
+                {:else}<p class="text-[0.65rem] text-muted-foreground">{t("music.builder.noSourceCollection")}</p>{/each}
+                {#if controller.detail?.signals.length}<div class="flex flex-wrap gap-1 pt-1">{#each controller.detail.signals as signal}<span class="rounded-full bg-secondary px-2 py-0.5 text-[0.6rem] text-muted-foreground">{signal}</span>{/each}</div>{/if}
+              </div>
+            {/if}
+          </section>
+
+          {#if activeMembership}
+            <section class="inspector-section">
+              <button type="button" onclick={() => controller.toggleSection("advanced")} aria-expanded={sectionOpen("advanced")}><span>{t("music.builder.advanced")}</span><ChevronDown class={sectionOpen("advanced") ? "rotate-180" : ""} size={13} /></button>
+              {#if sectionOpen("advanced")}<MusicAdvancedMembershipEditor controller={controller} membership={activeMembership} durationMs={item.durationMs} onPreview={onPreviewMembership} />{/if}
+            </section>
+          {/if}
+
+          <section class="inspector-section">
+            <button type="button" onclick={() => controller.toggleSection("metadata")} aria-expanded={sectionOpen("metadata")}><span>{t("music.builder.metadataOverrides")}</span><ChevronDown class={sectionOpen("metadata") ? "rotate-180" : ""} size={13} /></button>
+            {#if sectionOpen("metadata")}
+              {#if metadataEditing}
+                <div class="space-y-2 px-2 pb-2">
+                  <label class="block text-[0.64rem] text-muted-foreground">{t("music.builder.title")}<input bind:value={titleDraft} placeholder={item.originalTitle} class="mt-1 h-8 w-full rounded-md border border-border/70 bg-background px-2 text-[0.68rem] text-foreground outline-none" /></label>
+                  <label class="block text-[0.64rem] text-muted-foreground">{t("music.builder.artist")}<input bind:value={artistDraft} placeholder={item.originalArtist} class="mt-1 h-8 w-full rounded-md border border-border/70 bg-background px-2 text-[0.68rem] text-foreground outline-none" /></label>
+                  <label class="block text-[0.64rem] text-muted-foreground">{t("music.builder.album")}<input bind:value={albumDraft} placeholder={item.originalAlbum} class="mt-1 h-8 w-full rounded-md border border-border/70 bg-background px-2 text-[0.68rem] text-foreground outline-none" /></label>
+                  <div class="rounded-lg border border-border/60 bg-background p-2"><span class="block text-[0.64rem] text-muted-foreground">{t("music.builder.artworkOverride")}</span><p class="mt-1 truncate text-[0.65rem] text-foreground">{artworkDraft || t("music.builder.originalArtwork")}</p><div class="mt-2 flex gap-1.5"><button type="button" onclick={() => { void chooseArtwork(); }} class="h-7 rounded-md bg-secondary px-2 text-[0.65rem]">{t("music.builder.chooseArtwork")}</button><button type="button" onclick={() => artworkDraft = ""} class="h-7 rounded-md bg-secondary px-2 text-[0.65rem]">{t("music.builder.useOriginalArtwork")}</button></div></div>
+                  <p class="text-[0.61rem] leading-relaxed text-muted-foreground">{t("music.builder.metadataFilesUntouched")}</p>
+                  <div class="flex justify-end gap-1.5"><button type="button" onclick={() => metadataEditing = false} class="h-7 rounded-md bg-secondary px-2 text-[0.65rem]">{t("music.builder.cancel")}</button><button type="button" onclick={() => { void saveMetadata(true); }} class="h-7 rounded-md bg-secondary px-2 text-[0.65rem]">{t("music.builder.resetOverrides")}</button><button type="button" onclick={() => { void saveMetadata(); }} disabled={controller.saving} class="h-7 rounded-md bg-primary px-2 text-[0.65rem] font-medium text-primary-foreground disabled:opacity-40">{t("music.builder.savePlaylist")}</button></div>
+                </div>
+              {:else}
+                <div class="px-2 pb-2"><p class="text-[0.64rem] leading-relaxed text-muted-foreground">{t("music.builder.originalMetadataPreserved")}</p><button type="button" onclick={beginMetadataEdit} class="mt-2 inline-flex h-7 items-center gap-1.5 rounded-md bg-secondary px-2 text-[0.65rem]"><Pencil size={11} />{t("music.builder.editMetadata")}</button></div>
+              {/if}
             {/if}
           </section>
 
           <section class="inspector-section">
             <button type="button" onclick={() => controller.toggleSection("memberships")} aria-expanded={sectionOpen("memberships")}><span>{t("music.builder.memberships")}</span><ChevronDown class={sectionOpen("memberships") ? "rotate-180" : ""} size={13} /></button>
             {#if sectionOpen("memberships")}
+              <button type="button" onclick={() => onEditMembership(item.id)} class="mx-2 mb-2 h-7 rounded-md bg-primary/10 px-2 text-[0.65rem] font-medium text-primary">{t("music.builder.editMemberships")}</button>
               {#if controller.detail?.memberships.length}
                 <div class="space-y-1 px-2 pb-2">
                   {#each controller.detail.memberships as membership (membership.id)}
-                    <div class="flex items-center gap-2 rounded-lg bg-secondary/55 px-2 py-1.5 text-[0.68rem]"><ListMusic size={12} /><span class="min-w-0 flex-1 truncate">{membership.playlistId}</span><span class="text-muted-foreground">{membership.weight}</span></div>
+                    <div class="flex items-center gap-2 rounded-lg bg-secondary/55 px-2 py-1.5 text-[0.68rem]"><ListMusic size={12} /><span class="min-w-0 flex-1 truncate">{playlistNames[membership.playlistId] ?? membership.playlistId}</span><span class="text-muted-foreground">{t(`music.builder.weight.${membership.weight}`)}</span></div>
                   {/each}
                 </div>
               {:else}<p class="px-2 pb-2 text-[0.68rem] text-muted-foreground">{t("music.builder.playlistsMembership", 0)}</p>{/if}
@@ -110,7 +207,7 @@
                 <div><dt>{t("music.builder.completionCount")}</dt><dd>{controller.detail?.statistics?.completionCount ?? 0}</dd></div>
                 <div><dt>{t("music.builder.skipCount")}</dt><dd>{controller.detail?.statistics?.skipCount ?? 0}</dd></div>
               </dl>
-              <button type="button" class="mx-2 mb-2 inline-flex h-7 items-center gap-1.5 rounded-lg px-2 text-[0.65rem] text-muted-foreground hover:bg-accent hover:text-accent-foreground"><RotateCcw size={11} />{t("music.builder.neverPlayed")}</button>
+              <button type="button" onclick={() => onResetStatistics(item.id)} class="mx-2 mb-2 inline-flex h-7 items-center gap-1.5 rounded-lg px-2 text-[0.65rem] text-muted-foreground hover:bg-accent hover:text-accent-foreground"><RotateCcw size={11} />{t("music.builder.resetListeningHistory")}</button>
             {/if}
           </section>
         </div>

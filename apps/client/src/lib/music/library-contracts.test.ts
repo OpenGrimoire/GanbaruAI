@@ -23,6 +23,7 @@ const item = {
   title: "Focus",
   artist: "Composer",
   album: "Soundtrack",
+  artworkOverride: null,
   durationMs: 120_000,
   availability: "available",
   reviewState: "unreviewed",
@@ -81,7 +82,7 @@ describe("music library contracts", () => {
         durationMs: null, availability: "available", reviewState: "reviewed", reviewChangedAt: null, reviewDeferredUntil: null,
         discoveredAt: 1, updatedAt: 1, version: 1,
       },
-      locations: [], memberships: [], snoozes: [], signals: ["invented"],
+      locations: [], memberships: [], membershipSkipRanges: [], snoozes: [], signals: ["invented"],
       statistics: null, sourceCollectionIds: [],
     })).toThrow("signals[0] is not supported");
   });
