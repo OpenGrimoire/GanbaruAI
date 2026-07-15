@@ -11,7 +11,6 @@
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import type { PlaybackStatus } from "$lib/music/playback";
   import { getMusicPlayer } from "$lib/stores/music-player.svelte";
-  import { getNavigation } from "$lib/stores/navigation.svelte";
   import { getPomodoro } from "$lib/stores/pomodoro.svelte";
   import { cn } from "$lib/utils";
 
@@ -19,22 +18,25 @@
     showPomodoro,
     showMusic,
     quickNotesOpen,
+    musicPanelOpen,
     showMenu = $bindable(),
     isMainWindow,
     onMenuOpened,
     onToggleQuickNotes,
+    onToggleMusic,
   }: {
     showPomodoro: boolean;
     showMusic: boolean;
     quickNotesOpen: boolean;
+    musicPanelOpen: boolean;
     showMenu: boolean;
     isMainWindow: boolean;
     onMenuOpened: () => void;
     onToggleQuickNotes: () => void;
+    onToggleMusic: () => void;
   } = $props();
 
   const musicPlayer = getMusicPlayer();
-  const nav = getNavigation();
   const pomodoro = getPomodoro();
   const { t } = getLocalization();
 
@@ -144,7 +146,7 @@
 
   function openMusicFromTitleBarMenu(): void {
     showMenu = false;
-    nav.navigate("music");
+    onToggleMusic();
   }
 </script>
 
@@ -398,16 +400,18 @@
     {#if isMainWindow && showMusic}
       <button
         type="button"
-        onclick={() => nav.navigate("music")}
+        onclick={onToggleMusic}
         onwheel={handleVolumeWheel}
         class={cn(
           "titlebar-icon-button flex items-center justify-center rounded-lg transition-colors",
-          nav.current === "music"
+          musicPanelOpen
             ? "bg-background text-foreground dark:bg-accent dark:text-white"
             : `${TITLE_BAR_ICON_COLOR_CLASS} hover:bg-sidebar-accent`,
         )}
         title={musicButtonTooltip}
         aria-label={t("titleBar.control.music")}
+        aria-haspopup="dialog"
+        aria-expanded={musicPanelOpen}
       >
         <Music size={TITLE_BAR_ICON_SIZE} strokeWidth={TITLE_BAR_ICON_STROKE_WIDTH} />
       </button>

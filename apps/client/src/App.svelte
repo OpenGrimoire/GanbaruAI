@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getNavigation, type View } from "$lib/stores/navigation.svelte";
+  import { getNavigation } from "$lib/stores/navigation.svelte";
   import {
     firstMainView,
     isDetachableTabView,
@@ -57,7 +57,6 @@
   import CalendarView from "$lib/components/calendar/CalendarView.svelte";
   import CompletionOverlay from "$lib/components/pomodoro/CompletionOverlay.svelte";
   import MusicPlaybackHost from "$lib/components/music/MusicPlaybackHost.svelte";
-  import MusicView from "$lib/components/music/MusicView.svelte";
   import NotesView from "$lib/components/notes/NotesView.svelte";
   import ProjectsView from "$lib/components/projects/ProjectsView.svelte";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
@@ -71,7 +70,7 @@
     setShellStartupMs,
   } from "$lib/stores/perflog.svelte";
   import type { MemoryReport, StartupMemorySnapshot } from "$lib/components/perf/memoryReport";
-  import { isEditableKeyboardTarget, shouldUseKeyboardFocusIntent } from "$lib/utils";
+  import { shouldUseKeyboardFocusIntent } from "$lib/utils";
   import {
     createLifecycleScheduler,
     type SchedulerRunContext,
@@ -436,10 +435,7 @@
     if (detachedWindowView) return [detachedWindowView];
     return mainTabViews(detachedWindows.views);
   });
-  const keyboardViews = $derived.by<View[]>(() => {
-    if (!isMainWindow) return visibleTabViews;
-    return [...visibleTabViews, "music"];
-  });
+  const keyboardViews = $derived(visibleTabViews);
   let showStopConfirm = $state(false);
   let savedBlockState: CalendarEvent | null = null;
   let reverting = false;
@@ -605,13 +601,6 @@
     if (e.altKey && e.key >= "1" && e.key <= String(visibleTabViews.length)) {
       e.preventDefault();
       nav.navigate(visibleTabViews[parseInt(e.key) - 1]);
-      return;
-    }
-
-    if (isMainWindow && hasOnlyShortcutModifier(e) && e.key.toLowerCase() === "m") {
-      if (isEditableKeyboardTarget(e.target)) return;
-      e.preventDefault();
-      nav.navigate("music");
       return;
     }
 
@@ -1056,10 +1045,8 @@
         <CalendarView />
       {:else if nav.current === "projects"}
         <ProjectsView />
-      {:else if nav.current === "notes"}
-        <NotesView />
       {:else}
-        <MusicView />
+        <NotesView />
       {/if}
     </main>
   </div>

@@ -2,6 +2,7 @@ import type { music as enMusic } from "../en/music";
 import type { MessageShape } from "../types";
 
 export const music = {
+  title: "Música",
   playlistBuilder: "Constructor de playlists",
   backToPlayer: "Volver al reproductor de música",
   mediaPlayer: "Reproductor multimedia",

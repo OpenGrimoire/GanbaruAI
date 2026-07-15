@@ -18,7 +18,7 @@ It also gives access to common controls:
 - Advance to break or start focus, depending on the current phase.
 - Play or pause Music.
 - Move to previous or next Music item.
-- Open the Music view.
+- Open the Music panel in the main window.
 
 The tray is not a stats surface. It does not show cycle count, total focus today, future breaks, or detailed session history.
 

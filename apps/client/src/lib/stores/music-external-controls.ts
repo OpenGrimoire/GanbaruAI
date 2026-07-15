@@ -7,7 +7,6 @@ import {
 } from "$lib/music/hardware-controls";
 import type { MusicSource } from "$lib/music/sources";
 import type { PlaybackSnapshot } from "$lib/music/playback";
-import { getNavigation } from "$lib/stores/navigation.svelte";
 
 interface MusicExternalControlsContext {
   currentSource(): MusicSource | null;
@@ -119,7 +118,6 @@ export function createMusicExternalControls(
     trackListener("tray-music-play-pause", () => { void context.togglePlay(); });
     trackListener("tray-music-previous", () => { void context.previous(); });
     trackListener("tray-music-next", () => { void context.next(); });
-    trackListener("tray-music-open", () => { getNavigation().navigate("music"); });
     trackListener("music-hardware-control", (event) => {
       const payload = parseMusicHardwareControlPayload(event.payload);
       if (payload) void handleHardwareControl(payload);

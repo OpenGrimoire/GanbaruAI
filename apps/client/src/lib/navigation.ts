@@ -1,7 +1,7 @@
-export const APP_VIEWS = ["calendar", "projects", "notes", "music"] as const;
+export const APP_VIEWS = ["calendar", "projects", "notes"] as const;
 export type View = (typeof APP_VIEWS)[number];
 
-export const DETACHABLE_TAB_VIEWS = ["calendar", "projects", "notes"] as const;
+export const DETACHABLE_TAB_VIEWS = APP_VIEWS;
 export type DetachableTabView = (typeof DETACHABLE_TAB_VIEWS)[number];
 
 const VIEW_SET = new Set<string>(APP_VIEWS);
@@ -18,8 +18,7 @@ export function isDetachableTabView(value: unknown): value is DetachableTabView 
 export function viewLabel(view: View): string {
   if (view === "calendar") return "Calendar";
   if (view === "projects") return "Projects";
-  if (view === "notes") return "Notes";
-  return "Music";
+  return "Notes";
 }
 
 export function parseInitialViewSearch(search: string): View | undefined {
@@ -33,5 +32,9 @@ export function mainTabViews(detachedViews: ReadonlySet<DetachableTabView>): Det
 }
 
 export function firstMainView(detachedViews: ReadonlySet<DetachableTabView>): View {
-  return mainTabViews(detachedViews)[0] ?? "music";
+  return mainTabViews(detachedViews)[0] ?? "calendar";
+}
+
+export function canDetachMainView(detachedViews: ReadonlySet<DetachableTabView>): boolean {
+  return mainTabViews(detachedViews).length > 1;
 }

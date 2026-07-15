@@ -235,8 +235,8 @@
 
 <div
   bind:this={hostElement}
-  class="music-playback-host pointer-events-none fixed z-20 overflow-hidden"
-  style={hostStyle}
+  class="music-playback-host pointer-events-none fixed overflow-hidden"
+  style={`z-index: 60; ${hostStyle}`}
   tabindex="-1"
   aria-hidden={!hasHostSurface && !hostIsFullscreen}
   onkeydown={handleFullscreenSurfaceKeydown}

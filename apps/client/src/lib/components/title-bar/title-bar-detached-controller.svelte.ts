@@ -1,6 +1,11 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { firstMainView, type DetachableTabView, type View } from "$lib/navigation";
+import {
+  canDetachMainView,
+  firstMainView,
+  type DetachableTabView,
+  type View,
+} from "$lib/navigation";
 import {
   DETACHED_VIEW_DRAG_MIME,
   DETACHED_VIEW_REATTACH_REQUESTED_EVENT,
@@ -62,7 +67,7 @@ export function createTitleBarDetachedController(
 
   async function moveToNewWindow(): Promise<void> {
     const view = context.contextView();
-    if (!view) return;
+    if (!view || !canDetachContextView()) return;
     context.closeContextMenu();
     try {
       await openDetachedViewWindow(view);
@@ -116,6 +121,14 @@ export function createTitleBarDetachedController(
     }
   }
 
+  function canDetachContextView(): boolean {
+    return Boolean(
+      context.isMainWindow
+      && context.contextView()
+      && canDetachMainView(context.detachedViews()),
+    );
+  }
+
   $effect(() => {
     if (!context.detachedWindowView) return;
     let cleanup: UnlistenFn | undefined;
@@ -132,5 +145,5 @@ export function createTitleBarDetachedController(
     return () => cleanup?.();
   });
 
-  return { activateContextAction, handleDragOver, handleDrop };
+  return { activateContextAction, canDetachContextView, handleDragOver, handleDrop };
 }

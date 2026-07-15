@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, tick } from "svelte";
+  import { onDestroy, onMount, tick } from "svelte";
   import AlertCircle from "@lucide/svelte/icons/alert-circle";
   import Check from "@lucide/svelte/icons/check";
   import FolderOpen from "@lucide/svelte/icons/folder-open";
@@ -17,13 +17,15 @@
   import Volume2 from "@lucide/svelte/icons/volume-2";
   import VolumeX from "@lucide/svelte/icons/volume-x";
   import CalendarScrollbar from "$lib/components/calendar/CalendarScrollbar.svelte";
-  import MusicPlaylistBuilderView from "$lib/components/music/MusicPlaylistBuilderView.svelte";
+  import MusicPlaylistBuilderPage from "$lib/components/music/MusicPlaylistBuilderPage.svelte";
   import { revealLocalFile } from "$lib/api/music";
   import { SPEED_PRESETS, clampRate, formatPlaybackTime, isSpeedPreset } from "$lib/music/playback";
   import { getMusicPlayer } from "$lib/stores/music-player.svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { cn } from "$lib/utils";
   import { formatShortcut, hasShortcutModifier } from "$lib/keyboard-shortcuts";
+
+  let { onclose }: { onclose: () => void } = $props();
 
   const player = getMusicPlayer();
   const { t } = getLocalization();
@@ -51,6 +53,7 @@
   let lastPlaylistAutoScrollIdentity: string | null = null;
   let playlistScrollRequestId = 0;
   let mediaTitleMeasuredCenterPx = $state<number | null>(null);
+  let panel = $state<HTMLElement | null>(null);
 
   const mediaSurfaceFullscreenEvent = "ganbaru-ai-music-media-surface-fullscreen";
   const volumeMax = $derived(player.volumeMax);
@@ -137,6 +140,14 @@
   onDestroy(() => {
     clearMediaSurfaceClickTimeout();
     clearVolumeFeedbackTimeout();
+  });
+
+  onMount(() => {
+    const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    void tick().then(() => panel?.focus());
+    return () => {
+      queueMicrotask(() => returnFocus?.focus());
+    };
   });
 
   $effect(() => {
@@ -238,6 +249,16 @@
   }
 
   function handleKeydown(event: KeyboardEvent): void {
+    if (event.key === "Escape" && !mediaSurfaceFullscreen) {
+      event.preventDefault();
+      event.stopPropagation();
+      onclose();
+      return;
+    }
+    if (event.key === "Tab") {
+      trapPanelFocus(event);
+      return;
+    }
     if (musicPage !== "player") return;
     if (event.altKey) return;
     if (isEditableTarget(event.target)) return;
@@ -326,6 +347,23 @@
     if (event.key === "-" || event.code === "NumpadSubtract") {
       event.preventDefault();
       void player.setRate(clampRate(player.snapshot.rate - speedShortcutStep));
+    }
+  }
+
+  function trapPanelFocus(event: KeyboardEvent): void {
+    if (!panel) return;
+    const focusable = [...panel.querySelectorAll<HTMLElement>(
+      "button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex='-1'])",
+    )].filter((element) => element.offsetParent !== null);
+    const first = focusable[0];
+    const last = focusable.at(-1);
+    if (!first || !last) return;
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
     }
   }
 
@@ -484,21 +522,39 @@
 
 <svelte:window onkeydown={handleKeydown} onpointerdown={handleWindowPointerDown} />
 
-{#if musicPage === "playlist-builder"}
-  <MusicPlaylistBuilderView onBack={closePlaylistBuilder} />
-{:else}
-<section
-    class="flex h-full min-h-0 select-none flex-col text-foreground"
-    style="background-color: var(--cal-bg);"
-    use:releaseClickedButtonFocusAction
-    onwheel={(event) => player.handleVolumeWheel(event)}
-  >
-  <div bind:this={musicHeader} class="relative flex h-(--cal-header-row-h) shrink-0 items-center gap-3 px-2">
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="fixed inset-0 z-40" onclick={(event) => { if (event.target === event.currentTarget) onclose(); }}></div>
+<div
+  class="pointer-events-none fixed right-2 z-50 w-[min(1000px,calc(100vw-1rem))] overflow-hidden rounded-xl border border-border shadow-lg"
+  style="top: calc(var(--titlebar-h) + 4px); height: min(680px, calc(100dvh - var(--titlebar-h) - 12px));"
+  aria-hidden="true"
+>
+  <div class="h-full w-full" style="background-color: var(--cal-bg);"></div>
+</div>
+<div
+  bind:this={panel}
+  class="fixed right-2 z-70 flex w-[min(1000px,calc(100vw-1rem))] flex-col overflow-hidden rounded-xl outline-none"
+  style="top: calc(var(--titlebar-h) + 4px); height: min(680px, calc(100dvh - var(--titlebar-h) - 12px));"
+  role="dialog"
+  aria-modal="true"
+  aria-label={t("music.title")}
+  tabindex="-1"
+>
+  {#if musicPage === "playlist-builder"}
+    <MusicPlaylistBuilderPage onBack={closePlaylistBuilder} />
+  {:else}
+  <section
+      class="flex h-full min-h-0 select-none flex-col text-foreground"
+      use:releaseClickedButtonFocusAction
+      onwheel={(event) => player.handleVolumeWheel(event)}
+    >
+  <div bind:this={musicHeader} class="relative flex h-(--cal-header-row-h) shrink-0 items-center gap-3 px-2" style="background-color: var(--cal-bg);">
     <div class="relative z-10 flex min-w-0 shrink-0 items-center gap-2">
       <button
         type="button"
         onclick={openPlaylistBuilder}
-        class="inline-flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-md border border-border bg-secondary px-2.5 text-[0.8rem] font-medium text-secondary-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+        class="inline-flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-md bg-secondary px-2.5 text-[0.8rem] font-medium text-secondary-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
         aria-label={t("music.playlistBuilder")}
       >
         <ListPlus size={musicIconSize} strokeWidth={musicIconStrokeWidth} />
@@ -532,7 +588,7 @@
       onsubmit={(event) => { event.preventDefault(); void player.loadFromInput(); }}
     >
       <label class="sr-only" for="music-source">{t("music.sourceLabel")}</label>
-      <div class="music-source-field hidden h-7 min-w-0 items-center gap-2 rounded-md border border-border bg-card px-2.5 min-[540px]:flex">
+      <div class="music-source-field hidden h-7 min-w-0 items-center gap-2 rounded-md bg-card px-2.5 min-[540px]:flex">
         <LinkIcon class="shrink-0 text-muted-foreground" size={musicIconSize} strokeWidth={musicIconStrokeWidth} />
         <input
           id="music-source"
@@ -544,7 +600,7 @@
         />
       </div>
       {#if player.parseError || player.playerError}
-        <div class="hidden min-w-0 max-w-56 items-center gap-1.5 text-[0.733333rem] text-destructive min-[1360px]:flex">
+        <div class="hidden min-w-0 max-w-56 items-center gap-1.5 text-[0.733333rem] text-destructive min-[1000px]:flex">
           <AlertCircle class="shrink-0" size={musicIconSize} strokeWidth={musicIconStrokeWidth} />
           <span class="truncate">{player.parseError ?? player.playerError}</span>
         </div>
@@ -554,7 +610,7 @@
           type="button"
           onclick={() => { void player.loadFolder(); }}
           disabled={player.sourceActionBusy}
-          class="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border bg-secondary text-secondary-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+          class="inline-flex h-7 w-7 items-center justify-center rounded-md bg-secondary text-secondary-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
           aria-label={t("music.pickFolder")}
           title={t("music.pickFolder")}
         >
@@ -563,7 +619,7 @@
         <button
           type="submit"
           disabled={player.sourceActionBusy}
-          class="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border bg-secondary text-secondary-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+          class="inline-flex h-7 w-7 items-center justify-center rounded-md bg-secondary text-secondary-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
           aria-label={player.sourceActionBusy ? t("music.loadingSource") : t("music.loadSource")}
           title={player.sourceActionBusy ? t("music.loadingSource") : t("music.loadSource")}
         >
@@ -576,7 +632,7 @@
         <button
           type="button"
           onclick={() => { void player.resetPlayer(); }}
-          class="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border bg-secondary text-secondary-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+          class="inline-flex h-7 w-7 items-center justify-center rounded-md bg-secondary text-secondary-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
           aria-label={t("music.reset")}
           data-app-tooltip-disabled="true"
         >
@@ -588,17 +644,16 @@
 
   <div
     class={cn(
-      "grid min-h-0 flex-1",
+      "music-player-grid grid min-h-0 flex-1",
       playlistVisible
-        ? "grid-cols-[minmax(0,1fr)_minmax(16rem,20rem)] grid-rows-[minmax(0,1fr)_auto] max-[860px]:grid-cols-1 max-[860px]:grid-rows-[minmax(0,1fr)_minmax(7rem,35%)_auto]"
+        ? "grid-cols-[minmax(0,1fr)_minmax(16rem,20rem)] grid-rows-[minmax(0,1fr)_auto] max-[860px]:grid-cols-1 max-[860px]:grid-rows-[minmax(0,1fr)_minmax(0,35%)_auto]"
         : "grid-cols-1 grid-rows-[minmax(0,1fr)_auto]",
     )}
   >
-    <div class="min-h-0">
+    <div class="music-media-cell flex min-h-0 items-center justify-center overflow-hidden">
       <div
         bind:this={mediaSurface}
-        class="music-media-surface relative h-full min-h-48 cursor-default overflow-hidden max-[520px]:min-h-36"
-        style="background-color: var(--cal-bg);"
+        class="music-media-surface relative cursor-default overflow-hidden"
         role="button"
         tabindex="-1"
         aria-label={player.isPlaying ? t("music.pause") : t("music.play")}
@@ -954,11 +1009,21 @@
     </div>
   </div>
 </section>
-{/if}
+  {/if}
+</div>
 
 <style>
   .music-header-title {
     width: clamp(3rem, 22vw, 16rem);
+  }
+
+  .music-media-cell {
+    container-type: size;
+  }
+
+  .music-media-surface {
+    aspect-ratio: 16 / 9;
+    width: min(100%, calc(100cqh * 16 / 9));
   }
 
   .music-source-field {
@@ -1015,6 +1080,16 @@
     .music-control-group {
       display: flex;
       width: 100%;
+    }
+  }
+
+  @media (max-height: 300px) {
+    .music-player-grid {
+      grid-template-rows: minmax(0, 1fr) auto;
+    }
+
+    .music-player-grid :global(#music-playlist) {
+      display: none;
     }
   }
 

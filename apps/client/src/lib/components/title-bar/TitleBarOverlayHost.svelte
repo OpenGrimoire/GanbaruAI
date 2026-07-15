@@ -5,6 +5,7 @@
   import { getSettingsLauncher } from "$lib/stores/settingsLauncher.svelte";
   import { getThemeEditor } from "$lib/stores/themeEditor.svelte";
   import SettingsModal from "$lib/components/settings/SettingsModal.svelte";
+  import MusicPanel from "$lib/components/music/MusicPanel.svelte";
   import QuickNotesPanel from "$lib/components/quick-notes/QuickNotesPanel.svelte";
   import { preloadQuickNotesInitialSnapshot } from "$lib/quick-notes/initial-snapshot";
 
@@ -17,6 +18,7 @@
     performancePinned = $bindable(),
     showThemeQuickSwitcher = $bindable(),
     showQuickNotes = $bindable(),
+    showMusic = $bindable(),
     shellStartupMs,
     startupMemorySnapshot,
     ensureBenchmarkOverlay,
@@ -25,6 +27,7 @@
     performancePinned: boolean;
     showThemeQuickSwitcher: boolean;
     showQuickNotes: boolean;
+    showMusic: boolean;
     shellStartupMs: number | null;
     startupMemorySnapshot: StartupMemorySnapshot;
     ensureBenchmarkOverlay: () => Promise<void>;
@@ -108,6 +111,10 @@
 
 {#if showQuickNotes}
   <QuickNotesPanel onclose={() => { showQuickNotes = false; }} />
+{/if}
+
+{#if showMusic}
+  <MusicPanel onclose={() => { showMusic = false; }} />
 {/if}
 
 {#if showThemeQuickSwitcher && ThemeQuickSwitcher}

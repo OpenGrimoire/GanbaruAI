@@ -59,7 +59,7 @@ export const focusAndShortcuts = {
       openCalendar: "Open calendar",
       openProjects: "Open projects",
       openNotes: "Open notes",
-      openMusic: "Open music",
+      toggleMusicPanel: "Open or close music panel",
       openOrCloseSettings: "Open or close settings",
       zoomIn: "Zoom in",
       zoomOut: "Zoom out",

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   APP_VIEWS,
+  canDetachMainView,
   isDetachableTabView,
   isView,
   firstMainView,
@@ -12,7 +13,7 @@ import {
 describe("navigation helpers", () => {
   it("accepts registered views only", () => {
     expect(isView("calendar")).toBe(true);
-    expect(isView("music")).toBe(true);
+    expect(isView("music")).toBe(false);
     expect(isView("settings")).toBe(false);
     expect(isView(null)).toBe(false);
   });
@@ -28,6 +29,7 @@ describe("navigation helpers", () => {
     for (const view of APP_VIEWS) {
       expect(parseInitialViewSearch(`?view=${view}`)).toBe(view);
     }
+    expect(parseInitialViewSearch("?view=music")).toBeUndefined();
     expect(parseInitialViewSearch("?view=settings")).toBeUndefined();
     expect(parseInitialViewSearch("")).toBeUndefined();
   });
@@ -36,14 +38,19 @@ describe("navigation helpers", () => {
     expect(viewLabel("calendar")).toBe("Calendar");
     expect(viewLabel("projects")).toBe("Projects");
     expect(viewLabel("notes")).toBe("Notes");
-    expect(viewLabel("music")).toBe("Music");
   });
 
   it("removes detached tabs from the main tab list", () => {
     expect(mainTabViews(new Set(["calendar", "notes"]))).toEqual(["projects"]);
   });
 
-  it("falls back to music when every primary tab is detached", () => {
-    expect(firstMainView(new Set(["calendar", "projects", "notes"]))).toBe("music");
+  it("uses Calendar as the defensive fallback when no primary tab remains", () => {
+    expect(firstMainView(new Set(["calendar", "projects", "notes"]))).toBe("calendar");
+  });
+
+  it("allows detaching only while another primary tab remains", () => {
+    expect(canDetachMainView(new Set())).toBe(true);
+    expect(canDetachMainView(new Set(["calendar"]))).toBe(true);
+    expect(canDetachMainView(new Set(["calendar", "projects"]))).toBe(false);
   });
 });

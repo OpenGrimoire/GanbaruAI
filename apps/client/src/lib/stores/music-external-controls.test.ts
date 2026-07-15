@@ -47,9 +47,9 @@ describe("Music external controls", () => {
     controls.init();
     await Promise.resolve();
 
-    expect(listenMock).toHaveBeenCalledTimes(5);
+    expect(listenMock).toHaveBeenCalledTimes(4);
     controls.destroy();
-    expect(unlisten).toHaveBeenCalledTimes(5);
+    expect(unlisten).toHaveBeenCalledTimes(4);
     expect(controls.isInitialized()).toBe(false);
   });
 });

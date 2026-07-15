@@ -21,7 +21,7 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = Object.freeze([
       { keys: ["Alt + 1"], action: "Open calendar" },
       { keys: ["Alt + 2"], action: "Open projects" },
       { keys: ["Alt + 3"], action: "Open notes" },
-      { keys: ["Mod + M"], action: "Open music" },
+      { keys: ["Mod + M"], action: "Toggle music panel" },
       { keys: ["Mod + ,"], action: "Open or close settings" },
       { keys: ["Mod + +"], action: "Zoom in" },
       { keys: ["Mod + -"], action: "Zoom out" },
@@ -107,8 +107,8 @@ function localizedAction(action: string, t: Translate): string {
       return t("settings.shortcuts.action.openProjects");
     case "Open notes":
       return t("settings.shortcuts.action.openNotes");
-    case "Open music":
-      return t("settings.shortcuts.action.openMusic");
+    case "Toggle music panel":
+      return t("settings.shortcuts.action.toggleMusicPanel");
     case "Open or close settings":
       return t("settings.shortcuts.action.openOrCloseSettings");
     case "Zoom in":

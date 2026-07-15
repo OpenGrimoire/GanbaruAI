@@ -1,4 +1,5 @@
 export const music = {
+  title: "Music",
   playlistBuilder: "Playlist builder",
   backToPlayer: "Back to music player",
   mediaPlayer: "Media player",
