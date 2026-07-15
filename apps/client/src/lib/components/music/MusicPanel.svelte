@@ -19,6 +19,7 @@
   import CalendarScrollbar from "$lib/components/calendar/CalendarScrollbar.svelte";
   import MusicPlaylistLauncher from "$lib/components/music/MusicPlaylistLauncher.svelte";
   import MusicCurrentItemMenu from "$lib/components/music/MusicCurrentItemMenu.svelte";
+  import MusicSoundscapeControl from "$lib/components/music/MusicSoundscapeControl.svelte";
   import { revealLocalFile } from "$lib/api/music";
   import { SPEED_PRESETS, clampRate, formatPlaybackTime, isSpeedPreset } from "$lib/music/playback";
   import { fittedSidePlaylistPanelHeight } from "$lib/music/panel-layout";
@@ -1094,6 +1095,7 @@
             </button>
           </div>
           <MusicCurrentItemMenu onOpenItem={(itemId) => openPlaylistBuilder({ kind: "open-item", itemId })} />
+          <MusicSoundscapeControl onOpenSoundscapes={() => openPlaylistBuilder({ kind: "open-soundscapes" })} />
           <div
             bind:this={volumeMenuRoot}
             class="music-compact-volume-control relative"

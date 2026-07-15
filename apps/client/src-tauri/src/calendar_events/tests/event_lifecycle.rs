@@ -384,6 +384,7 @@ fn event_music_assignments_share_the_calendar_update_transaction() {
             behavior: crate::music::library::MusicAssignmentBehavior::PlayAutomatically,
             playlist_id: Some("playlist-1".to_string()),
             soundscape_id: None,
+            soundscape_behavior: crate::music::library::MusicSoundscapeBehavior::Inherit,
             provenance_kind: crate::music::library::MusicAssignmentProvenanceKind::CopiedProject,
             provenance_id: Some("project-1".to_string()),
         };
@@ -392,6 +393,7 @@ fn event_music_assignments_share_the_calendar_update_transaction() {
             behavior: crate::music::library::MusicAssignmentBehavior::PauseMusic,
             playlist_id: None,
             soundscape_id: None,
+            soundscape_behavior: crate::music::library::MusicSoundscapeBehavior::Inherit,
             provenance_kind: crate::music::library::MusicAssignmentProvenanceKind::Explicit,
             provenance_id: None,
         };

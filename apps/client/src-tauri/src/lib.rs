@@ -26,6 +26,7 @@ mod project_icons;
 mod projects;
 mod quick_notes;
 mod recurrence;
+mod soundscape;
 mod themes;
 mod tray;
 mod updates;
@@ -708,6 +709,7 @@ pub fn run() {
         .manage(notification::AppSoundState::default())
         .manage(notification::PomodoroOverlayState::default())
         .manage(media_player::MediaPlayerState::default())
+        .manage(soundscape::SoundscapeEngineState::default())
         .plugin(tauri_plugin_dialog::init())
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -790,11 +792,17 @@ pub fn run() {
             music::library::commands::music_library_source_collections,
             music::library::commands::music_library_playlist_detail,
             music::library::commands::music_library_upsert_source_collection,
+            music::library::commands::music_library_soundscapes,
+            music::library::commands::music_library_upsert_soundscape,
+            music::library::commands::music_library_remove_soundscape,
+            music::library::commands::music_library_soundscape_state,
+            music::library::commands::music_library_update_soundscape_state,
             music::root_bindings::music_get_local_root_bindings,
             music::root_bindings::music_set_local_root_binding,
             music::root_bindings::music_clear_local_root_binding,
             music::music_pick_media_folder,
             music::music_pick_media_file,
+            music::music_pick_soundscape_file,
             music::host::music_register_embedded_artwork,
             music::host::music_register_media_file,
             music::host::music_retain_hosted_media,
@@ -813,6 +821,13 @@ pub fn run() {
             media_player::media_player_set_muted,
             media_player::media_player_set_rate,
             media_player::media_player_snapshot,
+            soundscape::soundscape_start,
+            soundscape::soundscape_pause,
+            soundscape::soundscape_resume,
+            soundscape::soundscape_stop,
+            soundscape::soundscape_set_volume,
+            soundscape::soundscape_recover,
+            soundscape::soundscape_snapshot,
             tray::update_music_tray,
             tray::update_tray,
             force_quit,
@@ -831,6 +846,7 @@ pub fn run() {
             get_memory_report,
             get_startup_elapsed_ms,
             vault::vault_read_app_state,
+            vault::vault_device_id,
             vault::vault_default_location,
             vault::vault_use_default_folder,
             vault::vault_active_info,

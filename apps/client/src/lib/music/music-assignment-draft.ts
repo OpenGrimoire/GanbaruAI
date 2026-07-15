@@ -22,6 +22,7 @@ export function emptyMusicAssignmentDraft(
     behavior: "inherit",
     playlistId: null,
     soundscapeId: null,
+    soundscapeBehavior: "inherit",
     provenanceKind,
     provenanceId,
   };
@@ -46,6 +47,7 @@ export function toMusicAssignmentDraft(
     behavior: assignment.behavior,
     playlistId: assignment.playlistId,
     soundscapeId: assignment.soundscapeId,
+    soundscapeBehavior: assignment.soundscapeBehavior,
     provenanceKind: assignment.provenanceKind,
     provenanceId: assignment.provenanceId,
   };
@@ -54,7 +56,7 @@ export function toMusicAssignmentDraft(
 export function updateMusicAssignmentDraft(
   assignments: readonly MusicContextAssignmentDraft[],
   phase: MusicActivityPhase,
-  update: Partial<Pick<MusicContextAssignmentDraft, "behavior" | "playlistId" | "soundscapeId">>,
+  update: Partial<Pick<MusicContextAssignmentDraft, "behavior" | "playlistId" | "soundscapeId" | "soundscapeBehavior">>,
 ): MusicContextAssignmentDraft[] {
   return completeMusicAssignmentDrafts(assignments).map((assignment) => {
     if (assignment.phase !== phase) return assignment;
@@ -70,7 +72,8 @@ export function persistedMusicAssignmentDrafts(
   return completeMusicAssignmentDrafts(assignments)
     .filter((assignment) => assignment.behavior !== "inherit"
       || assignment.playlistId !== null
-      || assignment.soundscapeId !== null);
+      || assignment.soundscapeId !== null
+      || assignment.soundscapeBehavior !== "inherit");
 }
 
 export function musicAssignmentDraftsEqual(
@@ -85,6 +88,7 @@ export function musicAssignmentDraftsEqual(
       && assignment.behavior === other.behavior
       && assignment.playlistId === other.playlistId
       && assignment.soundscapeId === other.soundscapeId
+      && assignment.soundscapeBehavior === other.soundscapeBehavior
       && assignment.provenanceKind === other.provenanceKind
       && assignment.provenanceId === other.provenanceId;
   });

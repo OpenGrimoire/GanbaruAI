@@ -109,6 +109,7 @@
     const action = initialAction;
     if (!action || !library.vaultId) return;
     if (action === "new-playlist") playlistSurface = "create";
+    else if (action.kind === "open-soundscapes") void navigateNow({ kind: "soundscapes" });
     else {
       void navigateNow({ kind: "library" }).then(() => selectItem(action.itemId));
     }

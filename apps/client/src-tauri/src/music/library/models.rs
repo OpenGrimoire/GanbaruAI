@@ -139,6 +139,27 @@ string_enum!(MusicAssignmentBehavior {
     PauseMusic => "pause-music",
     KeepCurrentMusic => "keep-current-music",
 });
+string_enum!(MusicSoundscapeBehavior {
+    Inherit => "inherit",
+    PlaySelected => "play-selected",
+    PauseSoundscape => "pause-soundscape",
+    KeepCurrentSoundscape => "keep-current-soundscape",
+});
+string_enum!(MusicSoundscapeSourceKind {
+    GeneratedNoise => "generated-noise",
+    LocalLoop => "local-loop",
+    BundledLoop => "bundled-loop",
+});
+string_enum!(MusicGeneratedNoiseKind {
+    White => "white",
+    Pink => "pink",
+    Brown => "brown",
+});
+string_enum!(MusicSoundscapeAvailability {
+    Available => "available",
+    Missing => "missing",
+    Unsupported => "unsupported",
+});
 string_enum!(MusicAssignmentOwnerKind {
     ProjectDefault => "project-default",
     EventSnapshot => "event-snapshot",
@@ -661,6 +682,7 @@ pub struct MusicContextAssignment {
     pub behavior: MusicAssignmentBehavior,
     pub playlist_id: Option<String>,
     pub soundscape_id: Option<String>,
+    pub soundscape_behavior: MusicSoundscapeBehavior,
     pub provenance_kind: MusicAssignmentProvenanceKind,
     pub provenance_id: Option<String>,
     pub updated_at: i64,
@@ -674,6 +696,7 @@ pub struct MusicContextAssignmentDraft {
     pub behavior: MusicAssignmentBehavior,
     pub playlist_id: Option<String>,
     pub soundscape_id: Option<String>,
+    pub soundscape_behavior: MusicSoundscapeBehavior,
     pub provenance_kind: MusicAssignmentProvenanceKind,
     pub provenance_id: Option<String>,
 }
@@ -684,6 +707,55 @@ pub struct MusicContextAssignmentSet {
     pub owner_kind: MusicAssignmentOwnerKind,
     pub owner_id: String,
     pub assignments: Vec<MusicContextAssignmentDraft>,
+    pub updated_at: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicSoundscapeDefinition {
+    pub id: String,
+    pub source_kind: MusicSoundscapeSourceKind,
+    pub generated_kind: Option<MusicGeneratedNoiseKind>,
+    pub bundled_identity: Option<String>,
+    pub name: String,
+    pub availability: MusicSoundscapeAvailability,
+    pub local_path: Option<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub version: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicSoundscapeWrite {
+    pub id: String,
+    pub source_kind: MusicSoundscapeSourceKind,
+    pub generated_kind: Option<MusicGeneratedNoiseKind>,
+    pub bundled_identity: Option<String>,
+    pub name: String,
+    pub device_id: String,
+    pub local_path: Option<String>,
+    pub expected_version: Option<i64>,
+    pub updated_at: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicSoundscapeState {
+    pub active_soundscape_id: Option<String>,
+    pub desired_playing: bool,
+    pub volume: f64,
+    pub updated_at: i64,
+    pub version: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicSoundscapeStateWrite {
+    pub active_soundscape_id: Option<String>,
+    pub desired_playing: bool,
+    pub volume: f64,
+    pub expected_version: i64,
     pub updated_at: i64,
 }
 

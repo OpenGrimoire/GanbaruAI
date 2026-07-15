@@ -13,11 +13,14 @@
     updateMusicAssignmentDraft,
   } from "$lib/music/music-assignment-draft";
   import type { MusicPlaylistSummary } from "$lib/music/library-contracts";
+  import type { MusicSoundscapeDefinition } from "$lib/music/soundscape-contracts";
   import type {
     MusicActivityPhase,
     MusicAssignmentBehavior,
     MusicContextAssignmentDraft,
+    MusicSoundscapeBehavior,
   } from "$lib/music/music-context-assignment";
+  import { getSoundscapeStore } from "$lib/stores/soundscape.svelte";
   import { cn } from "$lib/utils";
   import MusicPlaylistSelect from "./MusicPlaylistSelect.svelte";
 
@@ -49,12 +52,19 @@
   } = $props();
 
   const { t } = getLocalization();
+  const soundscapeStore = getSoundscapeStore();
   const MUSIC_ASSIGNMENT_BEHAVIORS: readonly MusicAssignmentBehavior[] = [
     "inherit",
     "play-automatically",
     "prepare-silently",
     "pause-music",
     "keep-current-music",
+  ];
+  const SOUNDSCAPE_BEHAVIORS: readonly MusicSoundscapeBehavior[] = [
+    "inherit",
+    "play-selected",
+    "pause-soundscape",
+    "keep-current-soundscape",
   ];
   let activePhase = $state<MusicActivityPhase>("focus");
   const completeAssignments = $derived(completeMusicAssignmentDrafts(assignments));
@@ -64,14 +74,26 @@
     label: t(`music.assignment.behavior.${behavior}`),
     summary: t(`music.assignment.behaviorSummary.${behavior}`),
   })));
+  const availableSoundscapes = $derived(soundscapes.length > 0 ? soundscapes : soundscapeStore.definitions);
   const soundscapeOptions = $derived([
     { value: "none", label: t("music.assignment.noSoundscape") },
-    ...soundscapes.map((soundscape) => ({ value: soundscape.id, label: soundscape.name })),
+    ...availableSoundscapes.map((soundscape) => ({ value: soundscape.id, label: soundscapeName(soundscape) })),
   ]);
+  const soundscapeBehaviorOptions = $derived(SOUNDSCAPE_BEHAVIORS.map((behavior) => ({
+    value: behavior,
+    label: t(`music.assignment.soundscapeBehavior.${behavior}`),
+    summary: t(`music.assignment.soundscapeBehaviorSummary.${behavior}`),
+  })));
 
   function setBehavior(phase: MusicActivityPhase, value: string): void {
     if (!MUSIC_ASSIGNMENT_BEHAVIORS.includes(value as MusicAssignmentBehavior)) return;
     onChange(updateMusicAssignmentDraft(assignments, phase, { behavior: value as MusicAssignmentBehavior }));
+  }
+
+  function soundscapeName(soundscape: MusicSoundscapeOption | MusicSoundscapeDefinition): string {
+    return "generatedKind" in soundscape && soundscape.generatedKind
+      ? t(`music.soundscape.generatedName.${soundscape.generatedKind}`)
+      : soundscape.name;
   }
 
   function setPlaylist(phase: MusicActivityPhase, playlistId: string | null): void {
@@ -80,6 +102,11 @@
 
   function setSoundscape(phase: MusicActivityPhase, value: string): void {
     onChange(updateMusicAssignmentDraft(assignments, phase, { soundscapeId: value === "none" ? null : value }));
+  }
+
+  function setSoundscapeBehavior(phase: MusicActivityPhase, value: string): void {
+    if (!SOUNDSCAPE_BEHAVIORS.includes(value as MusicSoundscapeBehavior)) return;
+    onChange(updateMusicAssignmentDraft(assignments, phase, { soundscapeBehavior: value as MusicSoundscapeBehavior }));
   }
 
   function phaseIcon(phase: MusicActivityPhase) {
@@ -154,14 +181,10 @@
             </div>
           {/if}
 
-          <CustomSelect
-            label={t("music.assignment.soundscapeLabel")}
-            value={assignment.soundscapeId ?? "none"}
-            options={soundscapeOptions}
-            onChange={(value) => setSoundscape(assignment.phase, value)}
-            {disabled}
-            class="w-full"
-          />
+          <CustomSelect label={t("music.assignment.soundscapeBehaviorLabel")} value={assignment.soundscapeBehavior} options={soundscapeBehaviorOptions} onChange={(value) => setSoundscapeBehavior(assignment.phase, value)} {disabled} class="w-full" />
+          {#if assignment.soundscapeBehavior === "play-selected"}
+            <CustomSelect label={t("music.assignment.soundscapeLabel")} value={assignment.soundscapeId ?? "none"} options={soundscapeOptions} onChange={(value) => setSoundscape(assignment.phase, value)} {disabled} class="w-full" />
+          {/if}
         </div>
       </article>
     {/each}

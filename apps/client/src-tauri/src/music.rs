@@ -33,6 +33,7 @@ const MEDIA_EXTENSIONS: &[&str] = &[
     "aac", "aif", "aiff", "alac", "ape", "avi", "flac", "flv", "m4a", "m4v", "mkv", "mov", "mp3",
     "mp4", "mpeg", "mpg", "ogg", "ogv", "opus", "wav", "webm", "wma", "wmv",
 ];
+const SOUNDSCAPE_AUDIO_EXTENSIONS: &[&str] = &["flac", "m4a", "mp3", "mp4", "oga", "ogg", "wav"];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -173,6 +174,24 @@ pub async fn music_pick_media_file(app: tauri::AppHandle) -> Result<Option<Strin
     })
     .await
     .map_err(|error| format!("media file picker failed: {error}"))??;
+    Ok(selected.map(|path| path.to_string_lossy().into_owned()))
+}
+
+#[tauri::command]
+pub async fn music_pick_soundscape_file(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let selected = tauri::async_runtime::spawn_blocking(move || {
+        let mut picker = app
+            .dialog()
+            .file()
+            .set_title("Select background audio loop")
+            .add_filter("Supported audio", SOUNDSCAPE_AUDIO_EXTENSIONS);
+        if let Some(directory) = music_folder_start_directory(&app) {
+            picker = picker.set_directory(directory);
+        }
+        picker.blocking_pick_file().map(dialog_path).transpose()
+    })
+    .await
+    .map_err(|error| format!("background audio picker failed: {error}"))??;
     Ok(selected.map(|path| path.to_string_lossy().into_owned()))
 }
 

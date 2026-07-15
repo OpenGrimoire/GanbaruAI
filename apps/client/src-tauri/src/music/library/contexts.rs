@@ -10,6 +10,7 @@ type AssignmentRow = (
     Option<String>,
     Option<String>,
     String,
+    String,
     Option<String>,
     i64,
     i64,
@@ -22,7 +23,7 @@ pub(crate) async fn assignments(
 ) -> MusicLibraryResult<Vec<MusicContextAssignment>> {
     validate_id(owner_id, "ownerId")?;
     let rows = sqlx::query_as::<_, AssignmentRow>(
-        "SELECT owner_kind, owner_id, phase, behavior, playlist_id, soundscape_id,
+        "SELECT owner_kind, owner_id, phase, behavior, playlist_id, soundscape_id, soundscape_behavior,
                 provenance_kind, provenance_id, updated_at, version
          FROM music_context_assignments
          WHERE owner_kind = ? AND owner_id = ?
@@ -94,9 +95,9 @@ pub(crate) async fn replace_assignments_in_transaction(
             + 1;
         sqlx::query(
             "INSERT INTO music_context_assignments
-                (owner_kind, owner_id, phase, behavior, playlist_id, soundscape_id,
+                (owner_kind, owner_id, phase, behavior, playlist_id, soundscape_id, soundscape_behavior,
                  provenance_kind, provenance_id, updated_at, version)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(owner_kind.as_ref())
         .bind(owner_id)
@@ -104,6 +105,7 @@ pub(crate) async fn replace_assignments_in_transaction(
         .bind(assignment.behavior.as_ref())
         .bind(assignment.playlist_id)
         .bind(assignment.soundscape_id)
+        .bind(assignment.soundscape_behavior.as_ref())
         .bind(assignment.provenance_kind.as_ref())
         .bind(assignment.provenance_id)
         .bind(updated_at)
@@ -181,11 +183,13 @@ fn decode(row: AssignmentRow) -> MusicLibraryResult<MusicContextAssignment> {
             .map_err(|message| MusicLibraryError::runtime("decode assignment behavior", message))?,
         playlist_id: row.4,
         soundscape_id: row.5,
-        provenance_kind: MusicAssignmentProvenanceKind::try_from(row.6.as_str()).map_err(
+        soundscape_behavior: MusicSoundscapeBehavior::try_from(row.6.as_str())
+            .map_err(|message| MusicLibraryError::runtime("decode soundscape behavior", message))?,
+        provenance_kind: MusicAssignmentProvenanceKind::try_from(row.7.as_str()).map_err(
             |message| MusicLibraryError::runtime("decode assignment provenance", message),
         )?,
-        provenance_id: row.7,
-        updated_at: row.8,
-        version: row.9,
+        provenance_id: row.8,
+        updated_at: row.9,
+        version: row.10,
     })
 }

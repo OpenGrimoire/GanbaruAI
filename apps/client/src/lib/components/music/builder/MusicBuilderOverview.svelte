@@ -11,6 +11,7 @@
   import type { MusicIssue, MusicPlaylistSummary, MusicSourceSummary } from "$lib/music/library-contracts";
   import type { MusicBuilderDestination } from "$lib/music/music-builder-routing";
   import MusicBuilderAsyncState from "./MusicBuilderAsyncState.svelte";
+  import MusicSoundscapeBuilder from "../MusicSoundscapeBuilder.svelte";
 
   let {
     destination,
@@ -92,7 +93,7 @@
       </div>
     {/if}
   {:else if destination.kind === "soundscapes"}
-    <MusicBuilderAsyncState kind="empty" title={t("music.builder.emptySoundscapesTitle")} description={t("music.builder.emptySoundscapesDescription")} />
+    <MusicSoundscapeBuilder />
   {:else}
     <MusicBuilderAsyncState kind="empty" title={t("music.builder.emptyLibraryTitle")} description={t("music.builder.emptyLibraryDescription")} actionLabel={t("music.builder.addMusic")} onAction={onPrimary} />
   {/if}

@@ -39,6 +39,10 @@ export async function pickMediaFile(): Promise<string | null> {
   return invoke("music_pick_media_file");
 }
 
+export async function pickSoundscapeFile(): Promise<string | null> {
+  return invoke("music_pick_soundscape_file");
+}
+
 export async function pickArtworkFile(): Promise<string | null> {
   return invoke("music_pick_artwork_file");
 }

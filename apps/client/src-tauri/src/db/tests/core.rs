@@ -2,7 +2,7 @@ use super::super::run_migrations;
 use super::helpers::{insert_event, insert_open_run, migrated_memory_pool};
 use sqlx::Row;
 
-const EXPECTED_MIGRATION_COUNT: i64 = 7;
+const EXPECTED_MIGRATION_COUNT: i64 = 8;
 
 #[test]
 fn fresh_database_applies_baseline_and_additive_migrations() {
@@ -43,6 +43,9 @@ fn fresh_database_applies_baseline_and_additive_migrations() {
             "music_listening_statistics",
             "music_recent_selections",
             "music_context_assignments",
+            "music_soundscapes",
+            "music_soundscape_locations",
+            "music_soundscape_state",
             "music_search_fts",
             "music_track_skip_ranges",
             "music_track_break_sources",

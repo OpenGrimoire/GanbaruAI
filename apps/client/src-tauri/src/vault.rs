@@ -29,11 +29,33 @@ const MAX_RECENT_VAULTS: usize = 8;
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VaultAppState {
+    #[serde(default)]
+    pub device_id: Option<String>,
     pub active_vault_path: Option<String>,
     #[serde(default)]
     pub recent_vault_paths: Vec<String>,
     #[serde(default)]
     pub music_root_bindings: BTreeMap<String, BTreeMap<String, String>>,
+}
+
+#[tauri::command]
+pub(crate) fn vault_device_id<R: Runtime>(app: tauri::AppHandle<R>) -> Result<String, String> {
+    let mut state = read_app_state(&app)?;
+    if let Some(device_id) = state
+        .device_id
+        .as_ref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        return Ok(device_id.clone());
+    }
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|error| format!("create device id timestamp: {error}"))?
+        .as_nanos();
+    let device_id = format!("device-{timestamp:x}-{:x}", std::process::id());
+    state.device_id = Some(device_id.clone());
+    write_app_state(&app, &state)?;
+    Ok(device_id)
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -983,6 +1005,7 @@ mod tests {
             )]),
         );
         let state = VaultAppState {
+            device_id: Some("device-test".to_string()),
             active_vault_path: Some("/tmp/ganbaru-ai-vault".to_string()),
             recent_vault_paths: vec!["/tmp/ganbaru-ai-vault".to_string()],
             music_root_bindings,
@@ -992,6 +1015,7 @@ mod tests {
         let saved = read_app_state_from_path(&path).expect("read app state");
 
         assert_eq!(saved.active_vault_path, state.active_vault_path);
+        assert_eq!(saved.device_id, state.device_id);
         assert_eq!(saved.recent_vault_paths, state.recent_vault_paths);
         assert_eq!(saved.music_root_bindings, state.music_root_bindings);
         let _ = fs::remove_file(&path);
@@ -1009,6 +1033,7 @@ mod tests {
         let state = read_app_state_from_path(&path).expect("read legacy state");
 
         assert!(state.music_root_bindings.is_empty());
+        assert!(state.device_id.is_none());
         let _ = fs::remove_file(&path);
     }
 

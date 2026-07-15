@@ -5,6 +5,11 @@ export type MusicAssignmentBehavior =
   | "prepare-silently"
   | "pause-music"
   | "keep-current-music";
+export type MusicSoundscapeBehavior =
+  | "inherit"
+  | "play-selected"
+  | "pause-soundscape"
+  | "keep-current-soundscape";
 export type MusicAssignmentOwnerKind =
   | "project-default"
   | "event-snapshot"
@@ -22,6 +27,7 @@ export interface MusicContextAssignment {
   behavior: MusicAssignmentBehavior;
   playlistId: string | null;
   soundscapeId: string | null;
+  soundscapeBehavior: MusicSoundscapeBehavior;
   provenanceKind: MusicAssignmentProvenanceKind;
   provenanceId: string | null;
   updatedAt: number;
@@ -33,6 +39,7 @@ export interface MusicContextAssignmentDraft {
   behavior: MusicAssignmentBehavior;
   playlistId: string | null;
   soundscapeId: string | null;
+  soundscapeBehavior: MusicSoundscapeBehavior;
   provenanceKind: MusicAssignmentProvenanceKind;
   provenanceId: string | null;
 }
@@ -71,6 +78,19 @@ export interface ResolvedMusicAssignment {
   consecutiveEvent: boolean;
 }
 
+export type MusicSoundscapePhaseAction = "none" | "play-selected" | "pause" | "keep-current" | "missing";
+
+/** Plans the independent background layer without coupling it to main music behavior. */
+export function musicSoundscapePhaseAction(
+  assignment: MusicContextAssignment | MusicContextAssignmentDraft,
+  availability: MusicSoundscapeAssignmentAvailability,
+): MusicSoundscapePhaseAction {
+  if (assignment.soundscapeBehavior === "inherit") return "none";
+  if (assignment.soundscapeBehavior === "pause-soundscape") return "pause";
+  if (assignment.soundscapeBehavior === "keep-current-soundscape") return "keep-current";
+  return assignment.soundscapeId && availability === "ready" ? "play-selected" : "missing";
+}
+
 /** Resolves one phase without reading stores, clocks, or persistence. */
 export function resolveMusicContextAssignment(
   input: MusicAssignmentResolverInput,
@@ -84,7 +104,8 @@ export function resolveMusicContextAssignment(
     ["project-snapshot", input.projectSnapshot],
   ];
   for (const [source, assignment] of candidates) {
-    if (!assignment || assignment.phase !== input.phase || assignment.behavior === "inherit") continue;
+    if (!assignment || assignment.phase !== input.phase
+      || (assignment.behavior === "inherit" && assignment.soundscapeBehavior === "inherit")) continue;
     const requiresPlaylist = assignment.behavior === "play-automatically"
       || assignment.behavior === "prepare-silently";
     const availability = requiresPlaylist
@@ -108,7 +129,7 @@ function result(
     assignment,
     source,
     availability,
-    soundscapeAvailability: assignment?.soundscapeId
+    soundscapeAvailability: assignment?.soundscapeBehavior === "play-selected" && assignment.soundscapeId
       ? input.availableSoundscapeIds?.has(assignment.soundscapeId) ? "ready" : "missing-soundscape"
       : "none",
     startFreshTrack: startsTrack,
@@ -124,6 +145,12 @@ const assignmentBehaviors = new Set<MusicAssignmentBehavior>([
   "prepare-silently",
   "pause-music",
   "keep-current-music",
+]);
+const soundscapeBehaviors = new Set<MusicSoundscapeBehavior>([
+  "inherit",
+  "play-selected",
+  "pause-soundscape",
+  "keep-current-soundscape",
 ]);
 const assignmentOwnerKinds = new Set<MusicAssignmentOwnerKind>([
   "project-default",
@@ -155,6 +182,7 @@ function parseMusicContextAssignment(value: unknown, label: string): MusicContex
     behavior: enumValue(row.behavior, assignmentBehaviors, `${label}.behavior`),
     playlistId: nullableString(row.playlistId, `${label}.playlistId`),
     soundscapeId: nullableString(row.soundscapeId, `${label}.soundscapeId`),
+    soundscapeBehavior: enumValue(row.soundscapeBehavior, soundscapeBehaviors, `${label}.soundscapeBehavior`),
     provenanceKind: enumValue(row.provenanceKind, assignmentProvenanceKinds, `${label}.provenanceKind`),
     provenanceId: nullableString(row.provenanceId, `${label}.provenanceId`),
     updatedAt: integerValue(row.updatedAt, `${label}.updatedAt`),

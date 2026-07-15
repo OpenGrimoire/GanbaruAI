@@ -667,3 +667,63 @@ pub async fn music_library_upsert_source_collection(
         .map_err(connection_error)?;
     super::writes::upsert_source_collection(&pool, request).await
 }
+
+#[tauri::command]
+pub async fn music_library_soundscapes(
+    app: tauri::AppHandle,
+    db_url: String,
+    device_id: String,
+) -> MusicLibraryResult<Vec<MusicSoundscapeDefinition>> {
+    let pool = connect_sqlite(app, db_url)
+        .await
+        .map_err(connection_error)?;
+    super::soundscapes::definitions(&pool, &device_id).await
+}
+
+#[tauri::command]
+pub async fn music_library_upsert_soundscape(
+    app: tauri::AppHandle,
+    db_url: String,
+    request: MusicSoundscapeWrite,
+) -> MusicLibraryResult<MusicSoundscapeDefinition> {
+    let pool = connect_sqlite(app, db_url)
+        .await
+        .map_err(connection_error)?;
+    super::soundscapes::upsert(&pool, request).await
+}
+
+#[tauri::command]
+pub async fn music_library_remove_soundscape(
+    app: tauri::AppHandle,
+    db_url: String,
+    soundscape_id: String,
+    expected_version: i64,
+) -> MusicLibraryResult<()> {
+    let pool = connect_sqlite(app, db_url)
+        .await
+        .map_err(connection_error)?;
+    super::soundscapes::remove(&pool, &soundscape_id, expected_version).await
+}
+
+#[tauri::command]
+pub async fn music_library_soundscape_state(
+    app: tauri::AppHandle,
+    db_url: String,
+) -> MusicLibraryResult<MusicSoundscapeState> {
+    let pool = connect_sqlite(app, db_url)
+        .await
+        .map_err(connection_error)?;
+    super::soundscapes::state(&pool).await
+}
+
+#[tauri::command]
+pub async fn music_library_update_soundscape_state(
+    app: tauri::AppHandle,
+    db_url: String,
+    request: MusicSoundscapeStateWrite,
+) -> MusicLibraryResult<MusicSoundscapeState> {
+    let pool = connect_sqlite(app, db_url)
+        .await
+        .map_err(connection_error)?;
+    super::soundscapes::update_state(&pool, request).await
+}

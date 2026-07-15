@@ -1,6 +1,6 @@
 import type { Component } from "svelte";
 
-export type MusicBuilderInitialAction = "new-playlist" | { kind: "open-item"; itemId: string };
+export type MusicBuilderInitialAction = "new-playlist" | { kind: "open-item"; itemId: string } | { kind: "open-soundscapes" };
 
 export interface MusicBuilderComponentProps {
   onBack: () => void;

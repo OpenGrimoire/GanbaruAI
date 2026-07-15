@@ -174,6 +174,7 @@ mod tests {
 
     fn state() -> VaultAppState {
         VaultAppState {
+            device_id: None,
             active_vault_path: None,
             recent_vault_paths: Vec::new(),
             music_root_bindings: BTreeMap::new(),

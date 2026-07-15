@@ -58,6 +58,7 @@
   import CompletionOverlay from "$lib/components/pomodoro/CompletionOverlay.svelte";
   import MusicPlaybackHost from "$lib/components/music/MusicPlaybackHost.svelte";
   import MusicContextCoordinator from "$lib/components/music/MusicContextCoordinator.svelte";
+  import MusicSoundscapeCoordinator from "$lib/components/music/MusicSoundscapeCoordinator.svelte";
   import NotesView from "$lib/components/notes/NotesView.svelte";
   import ProjectsView from "$lib/components/projects/ProjectsView.svelte";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
@@ -1116,7 +1117,10 @@
   {/if}
 
   <MusicPlaybackHost />
-  {#if isMainWindow}<MusicContextCoordinator />{/if}
+  {#if isMainWindow}
+    <MusicContextCoordinator />
+    <MusicSoundscapeCoordinator />
+  {/if}
   <TooltipHost />
   <WindowResizeHandles disabled={isMaximized || !!idleInfo} />
 </div>

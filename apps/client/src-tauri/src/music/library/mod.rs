@@ -11,6 +11,7 @@ mod queries;
 mod relink;
 mod rows;
 mod search;
+pub(crate) mod soundscapes;
 mod source_lifecycle;
 mod validation;
 mod writes;

@@ -13,6 +13,7 @@ describe("music assignment drafts", () => {
       behavior: "pause-music",
       playlistId: null,
       soundscapeId: null,
+      soundscapeBehavior: "inherit",
       provenanceKind: "explicit",
       provenanceId: null,
     }]);

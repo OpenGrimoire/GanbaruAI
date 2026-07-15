@@ -6,6 +6,7 @@
   import { loadContextMusicPlaylist } from "$lib/music/music-context-playlist-loader";
   import {
     resolveMusicContextAssignment,
+    musicSoundscapePhaseAction,
     type MusicActivityPhase,
     type MusicAssignmentSource,
     type MusicContextAssignment,
@@ -24,10 +25,12 @@
     type MusicContextPlaybackIssue,
   } from "$lib/stores/music-player.svelte";
   import { getPomodoro } from "$lib/stores/pomodoro.svelte";
+  import { getSoundscapeStore } from "$lib/stores/soundscape.svelte";
 
   const calendar = getCalendar();
   const player = getMusicPlayer();
   const pomodoro = getPomodoro();
+  const soundscape = getSoundscapeStore();
   const { t } = getLocalization();
   const planner = new MusicPhaseAutomationPlanner();
   let boundaryPulse = $state(0);
@@ -110,6 +113,7 @@
     const manualActionVersion = player.manualPlaybackActionVersion;
     const ownerId = event.recurringParentId ?? event.id.split("::")[0];
     try {
+      if (!soundscape.deviceId && !soundscape.loading) await soundscape.initialize();
       const [overrides, snapshots, environment, playlists] = await Promise.all([
         getMusicContextAssignments("event-override", ownerId),
         getMusicContextAssignments("event-snapshot", ownerId),
@@ -129,7 +133,7 @@
         environmentAssignment: phaseAssignment(environment, activation.phase),
         projectSnapshot: phaseAssignment(snapshots, activation.phase),
         availablePlaylistIds: new Set(playlists.map((playlist) => playlist.id)),
-        availableSoundscapeIds: new Set(),
+        availableSoundscapeIds: new Set(soundscape.definitions.filter((definition) => definition.availability === "available").map((definition) => definition.id)),
         timedEvent: !event.allDay,
         pomodoroEnabled: Boolean(event.pomodoroConfig),
         activation: activation.activation,
@@ -146,6 +150,12 @@
       const soundscapeIssue: MusicContextPlaybackIssue = resolved.soundscapeAvailability === "missing-soundscape"
         ? "deleted-soundscape"
         : null;
+      const soundscapeAction = musicSoundscapePhaseAction(assignment, resolved.soundscapeAvailability);
+      if (soundscapeAction === "play-selected" && assignment.soundscapeId) {
+        await soundscape.play(assignment.soundscapeId);
+      } else if (soundscapeAction === "pause") {
+        if (soundscape.snapshot.status === "playing") await soundscape.pause();
+      }
       if (resolved.availability === "missing-playlist") {
         await pauseForUnavailable(playbackContext(
           activation,

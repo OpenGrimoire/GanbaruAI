@@ -102,6 +102,7 @@ fn valid_project_update() -> ProjectUpdate {
             behavior: crate::music::library::MusicAssignmentBehavior::PlayAutomatically,
             playlist_id: Some("playlist-a".to_string()),
             soundscape_id: None,
+            soundscape_behavior: crate::music::library::MusicSoundscapeBehavior::Inherit,
             provenance_kind: crate::music::library::MusicAssignmentProvenanceKind::Explicit,
             provenance_id: None,
         }]),

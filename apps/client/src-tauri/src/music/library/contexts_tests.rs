@@ -10,6 +10,7 @@ fn draft(
         behavior,
         playlist_id: Some("playlist-1".to_string()),
         soundscape_id: None,
+        soundscape_behavior: MusicSoundscapeBehavior::Inherit,
         provenance_kind: MusicAssignmentProvenanceKind::Explicit,
         provenance_id: None,
     }

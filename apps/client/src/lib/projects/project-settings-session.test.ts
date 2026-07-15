@@ -153,6 +153,7 @@ describe("project settings session", () => {
         behavior: "play-automatically",
         playlistId: "playlist-1",
         soundscapeId: null,
+        soundscapeBehavior: "inherit",
         provenanceKind: "explicit",
         provenanceId: null,
       }],

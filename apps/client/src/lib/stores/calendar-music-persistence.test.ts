@@ -9,6 +9,7 @@ const snapshot: MusicContextAssignmentDraft = {
   behavior: "play-automatically",
   playlistId: "playlist-1",
   soundscapeId: null,
+  soundscapeBehavior: "inherit",
   provenanceKind: "copied-project",
   provenanceId: "project-1",
 };
@@ -17,6 +18,7 @@ const override: MusicContextAssignmentDraft = {
   behavior: "pause-music",
   playlistId: null,
   soundscapeId: null,
+  soundscapeBehavior: "inherit",
   provenanceKind: "explicit",
   provenanceId: null,
 };

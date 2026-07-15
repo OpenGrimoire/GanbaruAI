@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   resolveMusicContextAssignment,
+  musicSoundscapePhaseAction,
   parseMusicContextAssignments,
   type MusicActivityPhase,
   type MusicAssignmentBehavior,
   type MusicAssignmentOwnerKind,
   type MusicContextAssignment,
+  type MusicSoundscapeBehavior,
 } from "./music-context-assignment";
 
 function assignment(
@@ -21,6 +23,7 @@ function assignment(
     behavior,
     playlistId,
     soundscapeId: null,
+    soundscapeBehavior: "inherit",
     provenanceKind: ownerKind === "event-snapshot" ? "copied-project" : ownerKind === "work-environment" ? "work-environment" : "explicit",
     provenanceId: null,
     updatedAt: 1,
@@ -95,6 +98,7 @@ describe("music context assignment resolver", () => {
     const withSoundscape = {
       ...assignment("event-override", "play-automatically"),
       soundscapeId: "deleted-rain",
+      soundscapeBehavior: "play-selected" as const,
     };
     expect(resolveMusicContextAssignment({
       ...base,
@@ -138,6 +142,18 @@ describe("music context assignment resolver", () => {
       eventOverride: assignment("event-override", "pause-music"),
     }).availability).toBe("not-applicable");
   });
+
+  it("plans every music and background behavior pair independently", () => {
+    const musicBehaviors: MusicAssignmentBehavior[] = ["inherit", "play-automatically", "prepare-silently", "pause-music", "keep-current-music"];
+    const soundscapeBehaviors: MusicSoundscapeBehavior[] = ["inherit", "play-selected", "pause-soundscape", "keep-current-soundscape"];
+    const expected = { inherit: "none", "play-selected": "play-selected", "pause-soundscape": "pause", "keep-current-soundscape": "keep-current" } as const;
+    for (const behavior of musicBehaviors) {
+      for (const soundscapeBehavior of soundscapeBehaviors) {
+        const value = { ...assignment("event-override", behavior), soundscapeBehavior, soundscapeId: "rain" };
+        expect(musicSoundscapePhaseAction(value, "ready"), `${behavior} with ${soundscapeBehavior}`).toBe(expected[soundscapeBehavior]);
+      }
+    }
+  });
 });
 
 describe("music context assignment boundary", () => {
@@ -149,6 +165,7 @@ describe("music context assignment boundary", () => {
       behavior: "play-automatically",
       playlistId: "playlist-1",
       soundscapeId: null,
+      soundscapeBehavior: "inherit",
       provenanceKind: "explicit",
       provenanceId: null,
       updatedAt: 1_700_000_000_000,
@@ -168,6 +185,7 @@ describe("music context assignment boundary", () => {
       behavior: "play-automatically",
       playlistId: null,
       soundscapeId: null,
+      soundscapeBehavior: "inherit",
       provenanceKind: "explicit",
       provenanceId: null,
       updatedAt: 1,
