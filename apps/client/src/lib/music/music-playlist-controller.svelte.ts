@@ -83,7 +83,7 @@ export class MusicPlaylistController {
         ...normalizedDraft(draft),
         createdAt: this.now(),
       });
-      await this.library.refresh();
+      await this.library.refreshAfterMutation();
       await this.load(playlistId);
       return playlistId;
     } catch (error) {
@@ -143,7 +143,7 @@ export class MusicPlaylistController {
         name: name.trim(),
         createdAt: this.now(),
       });
-      await this.library.refresh();
+      await this.library.refreshAfterMutation();
       return playlistId;
     } catch (error) {
       this.error = error instanceof Error ? error.message : String(error);
@@ -226,11 +226,11 @@ export class MusicPlaylistController {
         persist: () => reorderMusicPlaylist({ playlistId: detail.id, itemId, targetIndex, updatedAt: this.now() }),
         undo: async () => {
           await reorderMusicPlaylist({ playlistId: detail.id, itemId, targetIndex: sourceIndex, updatedAt: this.now() });
-          await this.library.refresh();
+          await this.library.refreshAfterMutation();
           await this.refreshActivePlayback(bindings);
         },
       });
-      await this.library.refresh();
+      await this.library.refreshAfterMutation();
       await this.refreshActivePlayback(bindings);
       return true;
     } catch (error) {
@@ -250,7 +250,7 @@ export class MusicPlaylistController {
     try {
       await deleteMusicPlaylist({ playlistId: detail.id, replacementPlaylistId, expectedVersion: detail.version, expectedImpact: impact });
       this.clear();
-      await this.library.refresh();
+      await this.library.refreshAfterMutation();
       return true;
     } catch (error) {
       this.error = error instanceof Error ? error.message : String(error);

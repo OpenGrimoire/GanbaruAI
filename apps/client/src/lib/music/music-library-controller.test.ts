@@ -52,6 +52,39 @@ describe("Music library controller", () => {
     expect(controller.selectedItem?.id).toBe("library");
   });
 
+  it("preloads core windows once and reuses them during destination navigation", async () => {
+    const itemWindow = vi.fn(async (request) => window(request.destination));
+    const controller = createMusicLibraryController(api(itemWindow));
+    controller.setVault("vault-1");
+
+    expect(await controller.preloadCoreDestinations()).toBe(true);
+    expect(itemWindow).toHaveBeenCalledTimes(2);
+    expect(controller.windows.review?.items[0]?.id).toBe("review");
+    expect(controller.windows.library?.items[0]?.id).toBe("library");
+
+    controller.navigate({ kind: "library" });
+    expect(await controller.ensureCurrentDestination()).toBe(true);
+    controller.navigate({ kind: "review" });
+    expect(await controller.ensureCurrentDestination()).toBe(true);
+    expect(itemWindow).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps stale windows visible while refreshing them after a mutation", async () => {
+    const itemWindow = vi.fn(async (request) => window(`${request.destination}-${itemWindow.mock.calls.length}`));
+    const controller = createMusicLibraryController(api(itemWindow));
+    controller.setVault("vault-1");
+    await controller.preloadCoreDestinations();
+    controller.navigate({ kind: "review" });
+
+    await controller.refreshAfterMutation();
+    controller.navigate({ kind: "library" });
+    expect(controller.currentWindow.items).toHaveLength(1);
+    await controller.ensureCurrentDestination();
+
+    expect(itemWindow).toHaveBeenCalledTimes(4);
+    expect(controller.currentWindow.items[0]?.id).toBe("library-4");
+  });
+
   it("supports stable toggle and range selection without clearing it on filters", async () => {
     const controller = createMusicLibraryController(api(async () => ({
       ...window("first"),

@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   backMusicBuilderRoute,
   initialMusicBuilderRoute,
+  musicBuilderDestinationForKey,
+  musicBuilderDestinationShortcut,
   pushMusicBuilderRoute,
   repairMusicBuilderHistory,
 } from "./music-builder-routing";
@@ -12,6 +14,21 @@ const context = {
 };
 
 describe("music builder routing", () => {
+  it("maps primary destinations to the visible 1 through 6 shortcuts", () => {
+    expect(["1", "2", "3", "4", "5", "6"].map(musicBuilderDestinationForKey)).toEqual([
+      { kind: "review" },
+      { kind: "playlists" },
+      { kind: "library" },
+      { kind: "sources" },
+      { kind: "issues" },
+      { kind: "soundscapes" },
+    ]);
+    expect(musicBuilderDestinationForKey("0")).toBeNull();
+    expect(musicBuilderDestinationForKey("Digit1")).toBeNull();
+    expect(musicBuilderDestinationShortcut("playlist")).toBe("2");
+    expect(musicBuilderDestinationShortcut("soundscapes")).toBe("6");
+  });
+
   it("opens Review first only when work is waiting", () => {
     expect(initialMusicBuilderRoute(3, { kind: "library" }, context).current.destination.kind).toBe("library");
     expect(initialMusicBuilderRoute(3, null, context).current.destination.kind).toBe("review");

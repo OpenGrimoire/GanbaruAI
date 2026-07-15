@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { projectMusicBuilderLayout } from "./music-builder-layout";
 
 describe("music builder layout projection", () => {
-  it("uses the three-area workspace at the normal panel size", () => {
+  it("uses the persistent-inspector workspace at the normal panel size", () => {
     expect(projectMusicBuilderLayout({ width: 1000, height: 680 })).toMatchObject({
       mode: "wide",
       inspectorPresentation: "persistent",
@@ -21,7 +21,6 @@ describe("music builder layout projection", () => {
   it("keeps a recoverable page projection at the app floor", () => {
     expect(projectMusicBuilderLayout({ width: 280, height: 180 })).toEqual({
       mode: "narrow",
-      navigationVisible: false,
       inspectorPresentation: "page",
       comfortable: false,
     });

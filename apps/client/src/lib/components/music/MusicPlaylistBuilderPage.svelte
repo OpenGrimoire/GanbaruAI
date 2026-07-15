@@ -10,6 +10,7 @@
   import {
     backMusicBuilderRoute,
     initialMusicBuilderRoute,
+    musicBuilderDestinationForKey,
     pushMusicBuilderRoute,
     type MusicBuilderDestination,
     type MusicBuilderHistory,
@@ -39,7 +40,6 @@
   import MusicBuilderFilterBar from "./builder/MusicBuilderFilterBar.svelte";
   import MusicBuilderHeader from "./builder/MusicBuilderHeader.svelte";
   import MusicBuilderInspectorSurface from "./builder/MusicBuilderInspectorSurface.svelte";
-  import MusicBuilderNavigation from "./builder/MusicBuilderNavigation.svelte";
   import MusicBuilderOverview from "./builder/MusicBuilderOverview.svelte";
   import MusicVirtualItemList from "./builder/MusicVirtualItemList.svelte";
   import MusicAddSourceDialog from "./builder/MusicAddSourceDialog.svelte";
@@ -84,7 +84,6 @@
   let root = $state<HTMLElement | null>(null);
   let width = $state(1000);
   let height = $state(680);
-  let navigationOpen = $state(false);
   let history = $state<MusicBuilderHistory>(initialMusicBuilderRoute(1, null, { playlistIds: new Set() }));
   let unsubscribeVault: (() => void) | null = null;
   let unsubscribeLibraryChanges: (() => void) | null = null;
@@ -121,16 +120,6 @@
     onInitialActionHandled();
   });
 
-  function destinationTitle(): string {
-    if (destination.kind === "review") return t("music.builder.review");
-    if (destination.kind === "playlists") return t("music.builder.playlists");
-    if (destination.kind === "playlist") return library.playlistSummaries.find((playlist) => playlist.id === destination.playlistId)?.name ?? t("music.builder.playlists");
-    if (destination.kind === "library") return t("music.builder.library");
-    if (destination.kind === "sources") return t("music.builder.sources");
-    if (destination.kind === "issues") return t("music.builder.issues");
-    return t("music.builder.soundscapes");
-  }
-
   function primaryLabel(): string | null {
     if (destination.kind === "playlists") return t("music.builder.newPlaylist");
     if (destination.kind === "sources" || destination.kind === "library") return t("music.builder.addMusic");
@@ -149,11 +138,11 @@
   async function loadVault(vaultId: string): Promise<void> {
     library.setVault(vaultId);
     sources.setVault(vaultId);
-    await Promise.all([library.refresh(), sources.load()]);
+    await Promise.all([library.preloadCoreDestinations(), sources.load()]);
     const remembered = history.current.destination;
     history = initialMusicBuilderRoute(reviewCount, remembered, routeContext);
     library.navigate(history.current.destination);
-    await library.refresh();
+    await library.ensureCurrentDestination();
     if (history.current.destination.kind === "playlist") await playlist.load(history.current.destination.playlistId);
   }
 
@@ -182,7 +171,7 @@
   async function runSourceRefresh(plan: MusicSourceRefreshPlan, allowNetwork: boolean): Promise<void> {
     pendingRefreshPlan = null;
     await sources.runRefresh(plan, allowNetwork);
-    await library.refresh();
+    await library.refreshAfterMutation();
   }
 
   function collectionById(collectionId: string): MusicSourceCollection | null {
@@ -223,9 +212,8 @@
   async function navigateNow(next: MusicBuilderDestination): Promise<void> {
     history = pushMusicBuilderRoute(history, { destination: next, inspectorItemId: null }, routeContext);
     library.navigate(next);
-    navigationOpen = false;
     inspector.clear();
-    await library.refresh();
+    await library.ensureCurrentDestination();
     if (next.kind === "playlist") await playlist.load(next.playlistId);
     else playlist.clear();
   }
@@ -284,13 +272,13 @@
       requestReviewExit(() => {
         history = previous;
         library.navigate(history.current.destination);
-        void library.refresh();
+        void library.ensureCurrentDestination();
       });
       return;
     }
     history = previous;
     library.navigate(history.current.destination);
-    await library.refresh();
+    await library.ensureCurrentDestination();
     if (history.current.destination.kind === "playlist") await playlist.load(history.current.destination.playlistId);
     else playlist.clear();
     if (history.current.inspectorItemId) await inspector.select(history.current.inspectorItemId);
@@ -299,6 +287,11 @@
   function patchFilters(patch: Partial<MusicDestinationState>): void {
     library.patchCurrentState({ ...patch, offset: 0 });
     void library.refresh();
+  }
+
+  function updateSearch(search: string): void {
+    library.patchCurrentState({ search, offset: 0 });
+    if (destination.kind !== "playlists") void library.refresh();
   }
 
   async function syncInspectorMetadata(): Promise<void> {
@@ -313,6 +306,7 @@
       listItem.updatedAt = item.updatedAt;
     }
     if (item.artworkOverride) invalidateMusicArtwork(item.artworkOverride);
+    library.markRetainedWindowsStale();
     const artworkUrl = item.artworkOverride ? await registerMediaFile(item.artworkOverride, Date.now()).catch(() => null) : null;
     audition.musicPlayer.applyLibraryMetadata(item.id, item.identityKey, item.titleOverride?.trim() || item.originalTitle, artworkUrl);
   }
@@ -398,7 +392,7 @@
     await resetMusicStatistics({ itemIds: [itemId], resetAggregates: mode === "all", resetRecentSelections: true });
     await inspector.select(null);
     await inspector.select(itemId);
-    await library.refresh();
+    await library.refreshAfterMutation();
   }
 
   function handleWindowKeydown(event: KeyboardEvent): void {
@@ -406,15 +400,26 @@
       if (reviewExitOpen) { event.preventDefault(); event.stopPropagation(); reviewExitOpen = false; pendingReviewExit = null; return; }
       if (bulkSurface) { event.stopPropagation(); closeBulkSurface(); return; }
       if (sourceSurface || pendingRefreshPlan) { event.stopPropagation(); closeSourceSurface(); pendingRefreshPlan = null; return; }
-      if (navigationOpen) { event.stopPropagation(); navigationOpen = false; return; }
       if (history.current.inspectorItemId) { event.stopPropagation(); void closeInspector(); return; }
       event.stopPropagation();
       void handleBack();
     }
+    const target = event.target instanceof Element ? event.target : null;
+    const shortcutDestination = musicBuilderDestinationForKey(event.key);
+    const shortcutBlocked = event.ctrlKey || event.metaKey || event.altKey || event.shiftKey
+      || Boolean(target?.closest("input, textarea, [contenteditable='true'], [role='dialog']"))
+      || Boolean(reviewExitOpen || bulkSurface || sourceSurface || pendingRefreshPlan || playlistSurface || interchange.open);
+    if (shortcutDestination && !shortcutBlocked) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      navigate(shortcutDestination);
+      return;
+    }
     if (event.key === "/" && !(event.target instanceof HTMLInputElement) && !(event.target instanceof HTMLTextAreaElement)) {
       if (destination.kind === "review") return;
+      if (!hasList) return;
       event.preventDefault();
-      root?.querySelector<HTMLInputElement>("input")?.focus();
+      root?.querySelector<HTMLButtonElement>("[data-builder-search-trigger]")?.click();
     }
   }
 
@@ -425,7 +430,7 @@
       if (next) void loadVault(next);
       else { library.setVault(null); sources.setVault(null); }
     });
-    unsubscribeLibraryChanges = onMusicLibraryChanged(() => { void library.refresh(); });
+    unsubscribeLibraryChanges = onMusicLibraryChanged(() => { void library.refreshAfterMutation(); });
   });
 
   onDestroy(() => {
@@ -439,26 +444,23 @@
 
 <section bind:this={root} use:observeRoot class="builder-root flex h-full min-h-0 flex-col overflow-hidden text-foreground" style="background-color: var(--cal-bg);">
   <MusicBuilderHeader
-    title={destinationTitle()}
+    {destination}
     search={library.currentState.search}
+    searchAvailable={destination.kind === "review" || destination.kind === "playlists" || hasList}
     busy={library.busy}
-    resultCount={hasList ? library.currentWindow.totalCount : null}
-    compact={layout.mode === "narrow"}
+    {reviewCount}
+    {issueCount}
     primaryLabel={primaryLabel()}
     canUndo={library.undoCount > 0}
     {onOpenPlayer}
-    onSearch={(search) => patchFilters({ search })}
+    onNavigate={(next) => { void navigate(next); }}
+    onSearch={updateSearch}
     onRefresh={() => { void library.refresh(); }}
     onUndo={() => { void library.undoLast(); }}
     onPrimary={primaryAction}
-    onToggleNavigation={() => navigationOpen = !navigationOpen}
   />
 
   <div class="relative grid min-h-0 flex-1" class:builder-wide={layout.mode === "wide"} class:builder-medium={layout.mode === "medium"} class:builder-narrow={layout.mode === "narrow"} class:builder-review={destination.kind === "review"}>
-    {#if layout.navigationVisible}
-      <MusicBuilderNavigation {destination} playlists={library.playlistSummaries} playingPlaylistId={audition.musicPlayer.activePlaylistId} {reviewCount} {issueCount} onNavigate={(next) => { void navigate(next); }} />
-    {/if}
-
     <main class="relative flex min-h-0 min-w-0 flex-col overflow-hidden bg-background/30">
       {#if destination.kind === "review"}
         {#if library.error && library.currentWindow.items.length === 0}
@@ -600,7 +602,7 @@
       {:else if destination.kind === "issues"}
         <MusicIssueBrowser issues={library.issues} onRepair={repairIssue} onRefresh={() => requestSourceRefresh()} />
       {:else}
-        <MusicBuilderOverview {destination} playlists={library.playlistSummaries} sources={library.sourceSummaries} issues={library.issues} onNavigate={(next) => { void navigate(next); }} onPrimary={primaryAction} onImport={() => interchange.show("import")} onExport={() => interchange.show("export", destination.kind === "playlist" ? destination.playlistId : null)} />
+        <MusicBuilderOverview {destination} search={library.currentState.search} playlists={library.playlistSummaries} sources={library.sourceSummaries} issues={library.issues} onNavigate={(next) => { void navigate(next); }} onPrimary={primaryAction} onImport={() => interchange.show("import")} onExport={() => interchange.show("export", destination.kind === "playlist" ? destination.playlistId : null)} />
       {/if}
     </main>
 
@@ -627,21 +629,14 @@
       />
     {/if}
 
-    {#if layout.mode === "narrow" && navigationOpen}
-      <div class="absolute inset-0 z-40 bg-background/55 p-2 backdrop-blur-sm">
-        <button type="button" class="absolute inset-0" onclick={() => navigationOpen = false} aria-label={t("music.builder.compactNavigation")}></button>
-        <div class="relative h-full w-fit"><MusicBuilderNavigation compact {destination} playlists={library.playlistSummaries} playingPlaylistId={audition.musicPlayer.activePlaylistId} {reviewCount} {issueCount} onNavigate={(next) => { void navigate(next); }} /></div>
-      </div>
-    {/if}
-
     {#if sourceSurface === "add"}
-      <MusicAddSourceDialog controller={sources} onClose={closeSourceSurface} onSaved={() => { closeSourceSurface(); void library.refresh(); }} />
+      <MusicAddSourceDialog controller={sources} onClose={closeSourceSurface} onSaved={() => { closeSourceSurface(); void library.refreshAfterMutation(); }} />
     {:else if sourceSurface === "relink" && sourceSurfaceCollection}
-      <MusicRelinkWizard controller={sources} collection={sourceSurfaceCollection} onClose={closeSourceSurface} onApplied={() => { sourceSurface = null; sourceSurfaceCollection = null; void library.refresh(); }} />
+      <MusicRelinkWizard controller={sources} collection={sourceSurfaceCollection} onClose={closeSourceSurface} onApplied={() => { sourceSurface = null; sourceSurfaceCollection = null; void library.refreshAfterMutation(); }} />
     {:else if sourceSurface === "remove" && sourceSurfaceCollection}
-      <MusicSourceRemovalDialog controller={sources} collection={sourceSurfaceCollection} onClose={closeSourceSurface} onRemoved={() => { sourceSurface = null; sourceSurfaceCollection = null; void library.refresh(); }} />
+      <MusicSourceRemovalDialog controller={sources} collection={sourceSurfaceCollection} onClose={closeSourceSurface} onRemoved={() => { sourceSurface = null; sourceSurfaceCollection = null; void library.refreshAfterMutation(); }} />
     {:else if sourceSurface === "item-repair" && repairItemId}
-      <MusicItemRepairDialog controller={sources} itemId={repairItemId} onClose={closeSourceSurface} onRepaired={() => { void library.refresh(); void inspector.select(repairItemId); void playlist.refreshActivePlayback(sources.bindings); }} />
+      <MusicItemRepairDialog controller={sources} itemId={repairItemId} onClose={closeSourceSurface} onRepaired={() => { void library.refreshAfterMutation(); void inspector.select(repairItemId); void playlist.refreshActivePlayback(sources.bindings); }} />
     {/if}
     {#if pendingRefreshPlan}
       <MusicNetworkRefreshDialog onlineCount={pendingRefreshPlan.onlineCount} onClose={() => pendingRefreshPlan = null} onLocalOnly={() => { void runSourceRefresh(pendingRefreshPlan!, false); }} onContinue={() => { void runSourceRefresh(pendingRefreshPlan!, true); }} />
@@ -708,16 +703,16 @@
     {:else if bulkSurface === "signals" || (bulkSurface === "focus-fit" && destination.kind === "playlist")}
       <MusicBulkClassificationDialog controller={bulk} mode={bulkSurface} playlistId={destination.kind === "playlist" ? destination.playlistId : null} onClose={closeBulkSurface} onSaved={() => { closeBulkSurface(); library.setItemSelection([], null); void playlist.refreshActivePlayback(sources.bindings); }} />
     {/if}
-    {#if interchange.open}<MusicInterchangeDialog controller={interchange} playlists={library.playlistSummaries} onClose={() => interchange.close()} onImported={() => { void library.refresh(); void sources.load(); }} />{/if}
+    {#if interchange.open}<MusicInterchangeDialog controller={interchange} playlists={library.playlistSummaries} onClose={() => interchange.close()} onImported={() => { void library.refreshAfterMutation(); void sources.load(); }} />{/if}
   </div>
 </section>
 
 <style>
   .builder-root { container-type: size; }
-  .builder-wide { grid-template-columns: minmax(10.5rem, 0.65fr) minmax(20rem, 1.7fr) minmax(15rem, 0.85fr); }
-  .builder-medium { grid-template-columns: minmax(10rem, 0.55fr) minmax(0, 1.8fr); }
+  .builder-wide { grid-template-columns: minmax(20rem, 1.7fr) minmax(15rem, 0.85fr); }
+  .builder-medium { grid-template-columns: minmax(0, 1fr); }
   .builder-narrow { grid-template-columns: minmax(0, 1fr); }
-  .builder-wide.builder-review { grid-template-columns: minmax(10.5rem, 0.55fr) minmax(0, 2.45fr); }
+  .builder-wide.builder-review { grid-template-columns: minmax(0, 1fr); }
   @container (height < 260px) { :global(.builder-header) { min-height: 2.25rem; } }
   @media (prefers-reduced-motion: reduce) { :global(.builder-root *) { scroll-behavior: auto; } }
 </style>

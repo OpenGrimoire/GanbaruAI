@@ -110,10 +110,10 @@ export class MusicBulkEditController {
         persist: () => setMusicItemSignals({ itemIds: this.itemIds, signals, updatedAt: this.now() }),
         undo: async () => {
           for (const entry of prior) await setMusicItemSignals({ itemIds: [entry.itemId], signals: entry.signals, updatedAt: this.now() });
-          await this.library.refresh();
+          await this.library.refreshAfterMutation();
         },
       });
-      await this.library.refresh();
+      await this.library.refreshAfterMutation();
       return true;
     } catch (error) {
       this.error = error instanceof Error ? error.message : String(error);
@@ -138,7 +138,7 @@ export class MusicBulkEditController {
     this.error = null;
     try {
       await bulkSetMusicReviewState({ items, reviewState, deferredUntil: null, updatedAt: this.now() });
-      await this.library.refresh();
+      await this.library.refreshAfterMutation();
       return true;
     } catch (error) {
       this.error = error instanceof Error ? error.message : String(error);
@@ -158,7 +158,7 @@ export class MusicBulkEditController {
         actionId: this.id(), itemIds: this.itemIds, scope, playlistId,
         startsAt: now, endsAt, reason: "", createdAt: now,
       });
-      await this.library.refresh();
+      await this.library.refreshAfterMutation();
       return true;
     } catch (error) {
       this.error = error instanceof Error ? error.message : String(error);
@@ -196,7 +196,7 @@ export class MusicBulkEditController {
         ...edit,
         updatedAt: this.now(),
       });
-      await this.library.refresh();
+      await this.library.refreshAfterMutation();
       return true;
     } catch (error) {
       this.error = error instanceof Error ? error.message : String(error);

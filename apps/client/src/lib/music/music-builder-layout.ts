@@ -7,7 +7,6 @@ export interface MusicBuilderLayoutInput {
 
 export interface MusicBuilderLayoutProjection {
   mode: MusicBuilderLayoutMode;
-  navigationVisible: boolean;
   inspectorPresentation: "persistent" | "overlay" | "page";
   comfortable: boolean;
 }
@@ -20,7 +19,6 @@ export function projectMusicBuilderLayout(
   if (width >= 860 && height >= 440) {
     return {
       mode: "wide",
-      navigationVisible: true,
       inspectorPresentation: "persistent",
       comfortable: true,
     };
@@ -28,14 +26,12 @@ export function projectMusicBuilderLayout(
   if (width >= 560 && height >= 300) {
     return {
       mode: "medium",
-      navigationVisible: true,
       inspectorPresentation: "overlay",
       comfortable: height >= 380,
     };
   }
   return {
     mode: "narrow",
-    navigationVisible: false,
     inspectorPresentation: "page",
     comfortable: width >= 360 && height >= 300,
   };

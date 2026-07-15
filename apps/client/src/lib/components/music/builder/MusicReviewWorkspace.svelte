@@ -257,7 +257,7 @@
       event.preventDefault(); void player.setRate(clampRate(player.snapshot.rate + 0.25));
     } else if (event.key === "-" || event.code === "NumpadSubtract") {
       event.preventDefault(); void player.setRate(clampRate(player.snapshot.rate - 0.25));
-    } else if (!event.shiftKey && /^[0-9]$/.test(event.key) && player.snapshot.durationMs) {
+    } else if (!event.shiftKey && /^[07-9]$/.test(event.key) && player.snapshot.durationMs) {
       event.preventDefault(); void player.seekToMs(Math.round(player.snapshot.durationMs * Number(event.key) / 10));
     } else if (event.key === "/") {
       event.preventDefault(); playlistSearchInput?.focus();

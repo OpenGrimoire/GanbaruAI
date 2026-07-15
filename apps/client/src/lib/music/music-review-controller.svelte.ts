@@ -184,7 +184,7 @@ export class MusicReviewController {
         id: playlistId, name, description: descriptionInput.trim(), shuffleEnabled: true,
         repeatMode: "all", intendedUses: [], createdAt: this.now(),
       });
-      await this.library.refresh();
+      await this.library.refreshAfterMutation();
       const playlist = this.library.playlistSummaries.find((entry) => entry.id === playlistId);
       if (!playlist) throw new Error("The new playlist could not be loaded.");
       await this.toggleMembership(playlist);
@@ -208,7 +208,7 @@ export class MusicReviewController {
       });
       this.inspector.clear();
       this.library.selectItem(null);
-      await this.library.refresh();
+      await this.library.refreshAfterMutation();
       return true;
     } catch (error) {
       this.library.error = error instanceof Error ? error : new Error(String(error));

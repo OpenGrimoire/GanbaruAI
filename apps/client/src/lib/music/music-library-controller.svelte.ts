@@ -168,6 +168,7 @@ export class MusicLibraryController {
   private readonly api: MusicLibraryControllerApi;
   private readonly now: () => number;
   private refreshGeneration = 0;
+  private staleWindowKeys = new Set<string>();
   private mutationRevisions: Record<string, number> = {};
   private mutationTails: Record<string, Promise<void>> = {};
   private undoEntries: UndoEntry[] = [];
@@ -183,6 +184,7 @@ export class MusicLibraryController {
     this.vaultId = normalized;
     this.refreshGeneration += 1;
     this.windows = {};
+    this.staleWindowKeys.clear();
     this.playlistSummaries = [];
     this.sourceSummaries = [];
     this.issues = [];
@@ -255,6 +257,61 @@ export class MusicLibraryController {
     this.patchCurrentState({ scrollTop: Math.max(0, scrollTop) });
   }
 
+  /** Loads shared builder summaries plus the Review and Library windows in one initialization pass. */
+  async preloadCoreDestinations(): Promise<boolean> {
+    if (!this.vaultId) return false;
+    const generation = ++this.refreshGeneration;
+    const vaultId = this.vaultId;
+    const reviewLocation = { kind: "review" } as const;
+    const libraryLocation = { kind: "library" } as const;
+    const reviewState = { ...(this.destinationStates.review ?? defaultDestinationState(reviewLocation)) };
+    const libraryState = { ...(this.destinationStates.library ?? defaultDestinationState(libraryLocation)) };
+    const nowMs = this.now();
+    this.busy = true;
+    this.error = null;
+    try {
+      const [reviewWindow, libraryWindow, playlists, sources, issues] = await Promise.all([
+        this.api.itemWindow(itemWindowRequest(reviewLocation, reviewState, nowMs)),
+        this.api.itemWindow(itemWindowRequest(libraryLocation, libraryState, nowMs)),
+        this.api.playlistSummaries(nowMs, 0, 500),
+        this.api.sourceSummaries(nowMs, 0, 500),
+        this.api.issues(0, 500),
+      ]);
+      if (!this.isCurrent(generation, vaultId)) return false;
+      this.windows.review = reviewWindow;
+      this.windows.library = libraryWindow;
+      this.staleWindowKeys.delete("review");
+      this.staleWindowKeys.delete("library");
+      this.playlistSummaries = playlists;
+      this.sourceSummaries = sources;
+      this.issues = issues;
+      return true;
+    } catch (error) {
+      if (!this.isCurrent(generation, vaultId)) return false;
+      this.error = error instanceof Error ? error : new Error(String(error));
+      return false;
+    } finally {
+      if (this.isCurrent(generation, vaultId)) this.busy = false;
+    }
+  }
+
+  /** Loads the active item window only when the destination has not been visited or preloaded. */
+  ensureCurrentDestination(): Promise<boolean> {
+    if (!hasItemWindow(this.location) || (this.windows[this.currentKey] && !this.staleWindowKeys.has(this.currentKey))) return Promise.resolve(true);
+    return this.refresh();
+  }
+
+  /** Marks retained item windows for background refresh the next time each destination is opened. */
+  markRetainedWindowsStale(): void {
+    for (const key of Object.keys(this.windows)) this.staleWindowKeys.add(key);
+  }
+
+  /** Refreshes the current view after a canonical mutation while retaining other windows on screen. */
+  refreshAfterMutation(): Promise<boolean> {
+    this.markRetainedWindowsStale();
+    return this.refresh();
+  }
+
   async refresh(): Promise<boolean> {
     if (!this.vaultId) return false;
     const generation = ++this.refreshGeneration;
@@ -275,7 +332,10 @@ export class MusicLibraryController {
         this.api.issues(0, 500),
       ]);
       if (!this.isCurrent(generation, vaultId)) return false;
-      if (window) this.windows[key] = window;
+      if (window) {
+        this.windows[key] = window;
+        this.staleWindowKeys.delete(key);
+      }
       this.playlistSummaries = playlists;
       this.sourceSummaries = sources;
       this.issues = issues;

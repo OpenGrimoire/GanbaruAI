@@ -24,18 +24,24 @@ describe("MusicBuilderHeader", () => {
     component = mount(MusicBuilderHeader, {
       target,
       props: {
-        title: "Library",
+        destination: { kind: "library" },
         search: "",
+        searchAvailable: true,
         busy: false,
-        resultCount: 12,
+        reviewCount: 12,
+        issueCount: 2,
         onOpenPlayer: vi.fn(),
+        onNavigate: vi.fn(),
         onSearch,
         onRefresh: vi.fn(),
       },
     });
     await tick();
 
-    const input = target.querySelector<HTMLInputElement>("input");
+    expect(target.querySelector("input")).toBeNull();
+    target.querySelector<HTMLButtonElement>("button[aria-label='Search music']")?.click();
+    await tick();
+    const input = target.querySelector<HTMLInputElement>("input[type='search']");
     expect(input).not.toBeNull();
     input!.value = "rain";
     input!.dispatchEvent(new InputEvent("input", { bubbles: true }));
@@ -55,11 +61,14 @@ describe("MusicBuilderHeader", () => {
     component = mount(MusicBuilderHeader, {
       target,
       props: {
-        title: "Playlists",
+        destination: { kind: "playlists" },
         search: "",
+        searchAvailable: false,
         busy: false,
-        resultCount: null,
+        reviewCount: 0,
+        issueCount: 0,
         onOpenPlayer,
+        onNavigate: vi.fn(),
         onSearch: vi.fn(),
         onRefresh: vi.fn(),
       },
@@ -69,5 +78,37 @@ describe("MusicBuilderHeader", () => {
     target.querySelector<HTMLButtonElement>("[data-music-focus-key='builder:back-to-player']")?.click();
 
     expect(onOpenPlayer).toHaveBeenCalledOnce();
+  });
+
+  it("renders the six destinations as one roving top-bar navigation group", async () => {
+    target = document.createElement("div");
+    document.body.append(target);
+    const onNavigate = vi.fn();
+    component = mount(MusicBuilderHeader, {
+      target,
+      props: {
+        destination: { kind: "review" },
+        search: "",
+        searchAvailable: true,
+        busy: false,
+        reviewCount: 4,
+        issueCount: 1,
+        onOpenPlayer: vi.fn(),
+        onNavigate,
+        onSearch: vi.fn(),
+        onRefresh: vi.fn(),
+      },
+    });
+    await tick();
+
+    const items = [...target.querySelectorAll<HTMLButtonElement>("[data-builder-nav-item]")];
+    expect(items).toHaveLength(6);
+    expect(items.filter((item) => item.tabIndex === 0)).toEqual([items[0]]);
+    expect(target.querySelector("h1")).toBeNull();
+    items[0]?.focus();
+    items[0]?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(items[1]);
+    items[1]?.click();
+    expect(onNavigate).toHaveBeenCalledWith({ kind: "playlists" });
   });
 });

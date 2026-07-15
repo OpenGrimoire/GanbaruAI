@@ -22,6 +22,31 @@ export interface MusicBuilderRouteContext {
   itemIds?: ReadonlySet<string>;
 }
 
+export type MusicBuilderPrimaryDestinationKind = "review" | "playlists" | "library" | "sources" | "issues" | "soundscapes";
+
+export const MUSIC_BUILDER_PRIMARY_DESTINATIONS: readonly MusicBuilderPrimaryDestinationKind[] = [
+  "review",
+  "playlists",
+  "library",
+  "sources",
+  "issues",
+  "soundscapes",
+];
+
+/** Resolves a bare numeric key to a primary builder destination. */
+export function musicBuilderDestinationForKey(key: string): MusicBuilderDestination | null {
+  if (!/^[1-6]$/u.test(key)) return null;
+  const kind = MUSIC_BUILDER_PRIMARY_DESTINATIONS[Number(key) - 1];
+  return kind ? { kind } : null;
+}
+
+/** Returns the visible shortcut for a primary builder destination. */
+export function musicBuilderDestinationShortcut(kind: MusicBuilderDestination["kind"]): string | null {
+  const primaryKind = kind === "playlist" ? "playlists" : kind;
+  const index = MUSIC_BUILDER_PRIMARY_DESTINATIONS.indexOf(primaryKind);
+  return index < 0 ? null : String(index + 1);
+}
+
 export function initialMusicBuilderRoute(
   unreviewedCount: number,
   remembered: MusicBuilderDestination | null,
