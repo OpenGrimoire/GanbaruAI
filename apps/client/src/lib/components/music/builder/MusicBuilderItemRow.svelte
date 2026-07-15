@@ -66,6 +66,14 @@
     if (item.availability === "ambiguous") return t("music.builder.ambiguous");
     return t("music.builder.unknownAvailability");
   }
+
+  function handleMenuKeydown(event: KeyboardEvent): void {
+    if (event.key !== "Escape" || !menuOpen) return;
+    event.preventDefault();
+    event.stopPropagation();
+    menuOpen = false;
+    queueMicrotask(() => document.querySelector<HTMLButtonElement>(`[data-music-row-menu="${CSS.escape(item.id)}"]`)?.focus());
+  }
 </script>
 
 <div
@@ -98,6 +106,7 @@
     class="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(5rem,0.65fr)] items-center gap-3 text-left max-[470px]:grid-cols-1 max-[470px]:gap-0.5"
     onclick={(event) => onSelect(item, event)}
     aria-label={t("music.builder.selectTrack", item.title)}
+    aria-pressed={selected}
   >
     <span class="min-w-0">
       <span class="flex min-w-0 items-center gap-1.5">
@@ -128,21 +137,25 @@
       ><CircleAlert size={12} strokeWidth={1.8} /><span class="sr-only">{availabilityLabel()}</span></span>
     {/if}
     {#if item.activeSnoozeCount > 0}
-      <span class="row-status" title={t("music.builder.snoozed")}><Clock3 size={12} strokeWidth={1.7} /></span>
+      <span class="row-status" title={t("music.builder.snoozed")}><Clock3 size={12} strokeWidth={1.7} /><span class="sr-only">{t("music.builder.snoozed")}</span></span>
     {/if}
     {#if reviewTone === "accent"}
-      <span class="h-1.5 w-1.5 rounded-full bg-primary" title={t("music.builder.unreviewed")}></span>
+      <span class="h-1.5 w-1.5 rounded-full bg-primary" title={t("music.builder.unreviewed")}><span class="sr-only">{t("music.builder.unreviewed")}</span></span>
     {/if}
     {#if duration}<span class="w-10 text-right text-[0.65rem] tabular-nums text-muted-foreground">{duration}</span>{/if}
     <div class="relative">
     <button
+      data-music-row-menu={item.id}
       type="button"
       class="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground opacity-70 transition hover:bg-accent hover:text-accent-foreground group-hover:opacity-100 focus:opacity-100"
       onclick={(event) => { if (playlistMode) menuOpen = !menuOpen; else onMore(item, event.currentTarget); }}
+      onkeydown={handleMenuKeydown}
       aria-label={t("music.builder.moreActions")}
+      aria-haspopup={playlistMode ? "dialog" : undefined}
+      aria-expanded={playlistMode ? menuOpen : undefined}
     ><MoreHorizontal size={15} strokeWidth={1.7} /></button>
     {#if playlistMode && menuOpen}
-      <div class="absolute bottom-[calc(100%+0.25rem)] right-0 z-20 w-44 rounded-lg border border-border/70 bg-card p-1 shadow-xl">
+      <div role="dialog" aria-label={t("music.builder.moreActions")} tabindex="-1" onkeydown={handleMenuKeydown} class="absolute bottom-[calc(100%+0.25rem)] right-0 z-20 w-44 rounded-lg border border-border/70 bg-card p-1 shadow-xl">
         {#if reorderEnabled}
         <button type="button" onclick={() => { menuOpen = false; onMove(item, "up"); }} class="row-menu-item"><ArrowUp size={12} />{t("music.builder.moveUp")}</button>
         <button type="button" onclick={() => { menuOpen = false; onMove(item, "down"); }} class="row-menu-item"><ArrowDown size={12} />{t("music.builder.moveDown")}</button>

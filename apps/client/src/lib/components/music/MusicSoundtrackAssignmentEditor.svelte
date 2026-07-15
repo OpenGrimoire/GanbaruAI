@@ -10,6 +10,7 @@
     MUSIC_ACTIVITY_PHASES,
     behaviorUsesPlaylist,
     completeMusicAssignmentDrafts,
+    nextMusicAssignmentPhase,
     updateMusicAssignmentDraft,
   } from "$lib/music/music-assignment-draft";
   import type { MusicPlaylistSummary } from "$lib/music/library-contracts";
@@ -123,6 +124,15 @@
       ? `${t(`music.assignment.behavior.${inherited.behavior}`)} · ${playlist.name}`
       : t(`music.assignment.behavior.${inherited.behavior}`);
   }
+
+  function handlePhaseKeydown(event: KeyboardEvent, phase: MusicActivityPhase): void {
+    if (!MUSIC_ACTIVITY_PHASES.includes(phase)) return;
+    const key = event.key;
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(key)) return;
+    event.preventDefault();
+    activePhase = nextMusicAssignmentPhase(phase, key as import("$lib/music/music-assignment-draft").MusicPhaseNavigationKey);
+    queueMicrotask(() => document.querySelector<HTMLButtonElement>(`[data-music-phase-tab="${activePhase}"]`)?.focus());
+  }
 </script>
 
 <section class="music-assignment-editor min-w-0" aria-label={title ?? t("music.assignment.title")}>
@@ -135,7 +145,7 @@
 
   <div class="phase-tabs mb-2 rounded-xl bg-secondary/55 p-1" role="tablist" aria-label={t("music.assignment.choosePhase")}>
     {#each MUSIC_ACTIVITY_PHASES as phase}
-      <button type="button" role="tab" aria-selected={activePhase === phase} onclick={() => { activePhase = phase; }} class={cn("min-w-0 flex-1 rounded-lg px-2 py-1.5 text-[0.68rem] font-medium transition-colors", activePhase === phase ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}>
+      <button data-music-phase-tab={phase} id={`music-phase-tab-${phase}`} type="button" role="tab" aria-selected={activePhase === phase} aria-controls={`music-phase-panel-${phase}`} tabindex={activePhase === phase ? 0 : -1} onclick={() => { activePhase = phase; }} onkeydown={(event) => handlePhaseKeydown(event, phase)} class={cn("min-w-0 flex-1 rounded-lg px-2 py-1.5 text-[0.68rem] font-medium transition-colors", activePhase === phase ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}>
         <span class="block truncate">{t(`music.assignment.phase.${phase}`)}</span>
       </button>
     {/each}
@@ -144,7 +154,7 @@
   <div class="phase-grid grid min-w-0 grid-cols-3 gap-2">
     {#each completeAssignments as assignment (assignment.phase)}
       {@const Icon = phaseIcon(assignment.phase)}
-      <article class:hidden-phase={activePhase !== assignment.phase} class="phase-card min-w-0 rounded-xl border border-border/65 bg-card/55 p-2.5 shadow-sm">
+      <div id={`music-phase-panel-${assignment.phase}`} role="tabpanel" aria-labelledby={`music-phase-tab-${assignment.phase}`} class:hidden-phase={activePhase !== assignment.phase} class="phase-card min-w-0 rounded-xl border border-border/65 bg-card/55 p-2.5 shadow-sm">
         <div class="mb-2 flex min-w-0 items-center gap-2">
           <span class="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary"><Icon size={14} /></span>
           <div class="min-w-0 flex-1"><h4 class="truncate text-xs font-semibold">{t(`music.assignment.phase.${assignment.phase}`)}</h4><p class="truncate text-[0.62rem] text-muted-foreground">{t(`music.assignment.phaseSummary.${assignment.phase}`)}</p></div>
@@ -186,7 +196,7 @@
             <CustomSelect label={t("music.assignment.soundscapeLabel")} value={assignment.soundscapeId ?? "none"} options={soundscapeOptions} onChange={(value) => setSoundscape(assignment.phase, value)} {disabled} class="w-full" />
           {/if}
         </div>
-      </article>
+      </div>
     {/each}
   </div>
 </section>

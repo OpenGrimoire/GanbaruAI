@@ -27,6 +27,7 @@
   const { t } = getLocalization();
   const player = getMusicPlayer();
   let root = $state<HTMLElement | null>(null);
+  let trigger = $state<HTMLButtonElement | null>(null);
   let open = $state(false);
   let addOpen = $state(false);
   let busy = $state(false);
@@ -53,8 +54,10 @@
     };
     const key = (event: KeyboardEvent) => {
       if (open && event.key === "Escape") {
+        event.preventDefault();
         event.stopPropagation();
         close();
+        trigger?.focus();
       }
     };
     window.addEventListener("pointerdown", pointer);
@@ -176,9 +179,9 @@
 </script>
 
 <div bind:this={root} class="relative">
-  <button type="button" onclick={() => { void toggle(); }} disabled={!available} class="inline-flex h-9 w-9 items-center justify-center rounded-md bg-secondary text-secondary-foreground transition-colors hover:bg-accent disabled:pointer-events-none disabled:opacity-50" aria-label={t("music.itemMenu.actions")} aria-expanded={open} aria-haspopup="menu"><MoreHorizontal size={15} /></button>
+  <button bind:this={trigger} type="button" onclick={() => { void toggle(); }} disabled={!available} class="inline-flex h-9 w-9 items-center justify-center rounded-md bg-secondary text-secondary-foreground transition-colors hover:bg-accent disabled:pointer-events-none disabled:opacity-50" aria-label={t("music.itemMenu.actions")} aria-expanded={open} aria-haspopup="menu"><MoreHorizontal size={15} /></button>
   {#if open}
-    <div role="menu" aria-label={t("music.itemMenu.actions")} class="absolute bottom-[calc(100%+0.45rem)] right-0 z-40 w-[min(20rem,calc(100vw-1rem))] overflow-hidden rounded-xl border border-border/80 bg-popover p-1.5 text-popover-foreground shadow-2xl">
+    <div role="menu" aria-label={t("music.itemMenu.actions")} class="absolute bottom-[calc(100%+0.45rem)] right-0 z-40 max-h-[calc(100vh-1rem)] w-[min(20rem,calc(100vw-1rem))] overflow-y-auto rounded-xl border border-border/80 bg-popover p-1.5 text-popover-foreground shadow-2xl">
       {#if busy && playlists.length === 0}<div class="flex items-center gap-2 px-3 py-4 text-xs text-muted-foreground"><LoaderCircle class="animate-spin motion-reduce:animate-none" size={14} />{t("music.itemMenu.loading")}</div>{/if}
       {#if error}<p class="m-1 rounded-md bg-destructive/10 px-2.5 py-2 text-[0.68rem] text-destructive" role="alert">{error}</p>{/if}
       {#if itemId}

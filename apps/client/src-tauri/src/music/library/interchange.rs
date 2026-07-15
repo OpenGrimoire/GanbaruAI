@@ -1,12 +1,12 @@
 use super::*;
 use sqlx::{Sqlite, SqlitePool, Transaction};
 use std::collections::{HashMap, HashSet};
-use std::path::{Component, Path};
 
 const INTERCHANGE_FORMAT: &str = "ganbaru-ai/music-playlists";
 const INTERCHANGE_VERSION: i64 = 1;
 const MAX_PLAYLISTS: usize = 500;
 const MAX_MEMBERSHIPS: usize = 10_000;
+type ImportedSnoozeKey = (String, String, Option<String>, i64, Option<i64>, String);
 
 pub(crate) async fn import(
     pool: &SqlitePool,
@@ -20,6 +20,7 @@ pub(crate) async fn import(
     let mut item_ids = HashMap::<String, String>::new();
     let mut playlist_ids = HashMap::<String, String>::new();
     let mut changed_items = HashSet::<String>::new();
+    let mut imported_snoozes = HashSet::<ImportedSnoozeKey>::new();
     let mut result = MusicInterchangeImportResult {
         playlist_count: 0,
         item_count: 0,
@@ -54,8 +55,8 @@ pub(crate) async fn import(
                 &target_playlist_id,
                 &item_id,
                 membership,
-                playlist_index,
-                membership_index,
+                (playlist_index, membership_index),
+                &mut imported_snoozes,
                 &request,
             )
             .await?;
@@ -198,14 +199,13 @@ fn validate_item(
 }
 
 fn safe_relative_path(value: &str) -> bool {
-    let path = Path::new(value);
     !value.trim().is_empty()
-        && !path.is_absolute()
         && !value.starts_with(['/', '\\'])
-        && value.as_bytes().get(1).is_none_or(|value| *value != b':')
-        && path
-            .components()
-            .all(|component| matches!(component, Component::Normal(_)))
+        && !value.contains([':', '\0'])
+        && !value.chars().any(char::is_control)
+        && value
+            .split(['/', '\\'])
+            .all(|component| !component.is_empty() && component != "." && component != "..")
 }
 
 async fn import_roots(
@@ -418,10 +418,11 @@ async fn import_membership(
     playlist_id: &str,
     item_id: &str,
     membership: &MusicInterchangeMembership,
-    playlist_index: usize,
-    membership_index: usize,
+    position: (usize, usize),
+    imported_snoozes: &mut HashSet<ImportedSnoozeKey>,
     request: &MusicInterchangeImportRequest,
 ) -> MusicLibraryResult<()> {
+    let (playlist_index, membership_index) = position;
     let membership_id = format!(
         "music-import:{}:membership:{playlist_index}:{membership_index}",
         request.imported_at
@@ -467,6 +468,17 @@ async fn import_membership(
         } else {
             None
         };
+        let snooze_key = (
+            item_id.to_string(),
+            snooze.scope.as_ref().to_string(),
+            mapped_playlist_id.map(str::to_string),
+            snooze.starts_at,
+            snooze.ends_at,
+            snooze.reason.clone(),
+        );
+        if !imported_snoozes.insert(snooze_key) {
+            continue;
+        }
         sqlx::query(
             "INSERT INTO music_snoozes (id, item_id, scope, playlist_id, starts_at, ends_at, reason, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         )

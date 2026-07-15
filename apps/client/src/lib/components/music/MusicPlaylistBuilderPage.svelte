@@ -31,6 +31,7 @@
   import type { MusicIssue, MusicSourceCollection } from "$lib/music/library-contracts";
   import type { MusicSourceRefreshPlan } from "$lib/music/music-source-refresh";
   import { restoreMusicFocus } from "$lib/music/music-focus-recovery";
+  import { containMusicDialogFocus } from "$lib/music/music-dialog-focus";
   import { onMusicLibraryChanged } from "$lib/music/music-library-events";
   import { onActiveVaultIdentityChange, requireActiveVaultIdentity } from "$lib/vault/active-vault";
   import { getConfigKey, setConfigKey } from "$lib/vault/config";
@@ -647,7 +648,7 @@
     {/if}
     {#if reviewExitOpen}
       <div class="absolute inset-0 z-60 grid place-items-center bg-background/65 p-3 backdrop-blur-sm" role="presentation">
-        <div class="w-full max-w-sm rounded-xl border border-border/70 bg-card p-4 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="music-review-exit-title" tabindex="-1">
+        <div use:containMusicDialogFocus={{ onEscape: () => { reviewExitOpen = false; pendingReviewExit = null; } }} class="w-full max-w-sm rounded-xl border border-border/70 bg-card p-4 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="music-review-exit-title" tabindex="-1">
           <h2 id="music-review-exit-title" class="text-sm font-semibold">{t("music.builder.reviewExitTitle")}</h2>
           <p class="mt-1 text-xs leading-relaxed text-muted-foreground">{t("music.builder.reviewExitDescription")}</p>
           <label class="mt-3 flex items-center gap-2 text-xs text-muted-foreground"><input type="checkbox" bind:checked={rememberReviewExit} class="accent-primary" />{t("music.builder.rememberExitChoice")}</label>

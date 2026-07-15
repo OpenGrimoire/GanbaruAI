@@ -126,19 +126,51 @@ fn interchange_import_rejects_unsafe_paths_before_writing() {
     tauri::async_runtime::block_on(async {
         let pool = super::tests::pool().await;
         let mut unsafe_request = request(MusicImportPlaylistConflict::ImportCopy);
-        unsafe_request.document.playlists[0].memberships[0]
-            .item
-            .locations[0]
-            .relative_path = "../outside.flac".to_string();
-        assert!(super::interchange::import(&pool, unsafe_request)
-            .await
-            .is_err());
+        for unsafe_path in [
+            "../outside.flac",
+            "folder\\..\\outside.flac",
+            "track:stream",
+        ] {
+            unsafe_request.document.playlists[0].memberships[0]
+                .item
+                .locations[0]
+                .relative_path = unsafe_path.to_string();
+            assert!(super::interchange::import(&pool, unsafe_request.clone())
+                .await
+                .is_err());
+        }
         assert_eq!(
             sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM music_playlists")
                 .fetch_one(&pool)
                 .await
                 .unwrap(),
             0
+        );
+    });
+}
+
+#[test]
+fn interchange_import_deduplicates_item_wide_snoozes_across_playlists() {
+    tauri::async_runtime::block_on(async {
+        let pool = super::tests::pool().await;
+        let mut import_request = request(MusicImportPlaylistConflict::ImportCopy);
+        let mut second_playlist = import_request.document.playlists[0].clone();
+        second_playlist.id = "playlist-2".to_string();
+        second_playlist.name = "Reading".to_string();
+        import_request.document.playlists[0].memberships[0].snoozes[0].scope =
+            MusicSnoozeScope::AllPlaylists;
+        second_playlist.memberships[0].snoozes[0].scope = MusicSnoozeScope::AllPlaylists;
+        import_request.document.playlists.push(second_playlist);
+
+        super::interchange::import(&pool, import_request)
+            .await
+            .unwrap();
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM music_snoozes")
+                .fetch_one(&pool)
+                .await
+                .unwrap(),
+            1
         );
     });
 }

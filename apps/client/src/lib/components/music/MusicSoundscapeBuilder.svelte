@@ -114,10 +114,10 @@
               {/if}
             </span>
             {#if definition.availability === "available"}
-              <button type="button" class="soundscape-action" onclick={() => { void (isPlaying(definition) ? soundscape.pause() : soundscape.play(definition.id)); }}>{#if isPlaying(definition)}<Pause size={15} />{:else}<Play size={15} />{/if}</button>
-              <button type="button" class="soundscape-action" title={t("music.soundscape.showFile")} onclick={() => definition.localPath && void revealLocalFile(definition.localPath)}><FolderOpen size={15} /></button>
+              <button type="button" class="soundscape-action" aria-label={isPlaying(definition) ? t("music.soundscape.pause") : t("music.soundscape.play", displayName(definition))} onclick={() => { void (isPlaying(definition) ? soundscape.pause() : soundscape.play(definition.id)); }}>{#if isPlaying(definition)}<Pause size={15} />{:else}<Play size={15} />{/if}</button>
+              <button type="button" class="soundscape-action" aria-label={t("music.soundscape.showFile")} title={t("music.soundscape.showFile")} onclick={() => definition.localPath && void revealLocalFile(definition.localPath)}><FolderOpen size={15} /></button>
             {:else}<button type="button" class="rounded-md bg-secondary px-2 py-1.5 text-xs" onclick={() => { void addLoop(definition); }}>{t("music.soundscape.repair")}</button>{/if}
-            <button type="button" class="soundscape-action text-destructive" title={t("music.soundscape.remove")} onclick={() => { pendingDelete = definition; }}><Trash2 size={15} /></button>
+            <button type="button" class="soundscape-action text-destructive" aria-label={t("music.soundscape.remove")} title={t("music.soundscape.remove")} onclick={() => { pendingDelete = definition; }}><Trash2 size={15} /></button>
           </article>
         {/each}
       </div>

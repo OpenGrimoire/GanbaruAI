@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick } from "svelte";
+  import { onMount, tick } from "svelte";
   import { flip } from "svelte/animate";
   import type { MusicItemListEntry } from "$lib/music/library-contracts";
   import { musicVirtualWindow, revealMusicVirtualIndex } from "$lib/music/music-virtual-window";
@@ -48,8 +48,17 @@
   let dropTargetId = $state<string | null>(null);
   let dropEdge = $state<"before" | "after">("before");
   let revealedPlayingItemId = $state<string | null>(null);
+  let reducedMotion = $state(false);
   const windowed = $derived(musicVirtualWindow({ count: items.length, scrollTop, viewportHeight, rowHeight, overscan: 6 }));
   const visibleItems = $derived(items.slice(windowed.startIndex, windowed.endIndex));
+
+  onMount(() => {
+    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const update = (): void => { reducedMotion = query.matches; };
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  });
 
   $effect(() => {
     if (!playingItemId || playingItemId === revealedPlayingItemId || !viewport) return;
@@ -187,7 +196,7 @@
 >
   <div style={`height: ${windowed.topSpacer}px`} aria-hidden="true"></div>
   {#each visibleItems as item (item.id)}
-    <div animate:flip={{ duration: 150 }}>
+    <div animate:flip={{ duration: reducedMotion ? 0 : 150 }}>
     <MusicBuilderItemRow
       {item}
       selected={selectedItemIds.includes(item.id)}

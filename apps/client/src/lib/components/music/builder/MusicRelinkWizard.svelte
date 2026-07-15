@@ -4,6 +4,7 @@
   import FolderSearch from "@lucide/svelte/icons/folder-search";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { containMusicDialogFocus } from "$lib/music/music-dialog-focus";
   import type { MusicSourceCollection } from "$lib/music/library-contracts";
   import type { MusicSourcesController } from "$lib/music/music-sources-controller.svelte";
 
@@ -44,7 +45,7 @@
 
 <div class="absolute inset-0 z-50 grid place-items-center bg-background/60 p-2 backdrop-blur-sm">
   <button type="button" class="absolute inset-0" onclick={() => { void close(); }} aria-label={t("music.builder.close")}></button>
-  <div class="relative flex max-h-full w-[min(42rem,100%)] flex-col overflow-hidden rounded-2xl border border-border/70 bg-popover shadow-2xl" role="dialog" aria-modal="true" aria-label={t("music.builder.relinkRoot")} tabindex="-1">
+  <div use:containMusicDialogFocus={{ onEscape: () => { void close(); }, escapeDisabled: step === "applying" }} class="relative flex max-h-full w-[min(42rem,100%)] flex-col overflow-hidden rounded-2xl border border-border/70 bg-popover shadow-2xl" role="dialog" aria-modal="true" aria-label={t("music.builder.relinkRoot")} tabindex="-1">
     <header class="flex min-h-11 items-center gap-2 border-b border-border/55 px-3"><button type="button" onclick={() => { void close(); }} class="inline-flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent" aria-label={t("music.builder.back")}><ArrowLeft size={14} /></button><h2 class="min-w-0 flex-1 truncate text-sm font-semibold">{t("music.builder.relinkRoot")}: {collection.name}</h2></header>
     <div class="relink-scroll min-h-0 flex-1 overflow-y-auto p-3">
       <ol class="mb-4 grid grid-cols-3 gap-1.5 text-[0.62rem]">

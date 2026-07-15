@@ -3,6 +3,7 @@
   import CheckCircle2 from "@lucide/svelte/icons/circle-check-big";
   import { onMount } from "svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { containMusicDialogFocus } from "$lib/music/music-dialog-focus";
   import type { MusicBulkEditController } from "$lib/music/music-bulk-edit-controller.svelte";
   import type { MusicReviewState, MusicSnoozeScope } from "$lib/music/library-contracts";
   import {
@@ -52,7 +53,8 @@
 </script>
 
 <div class="absolute inset-0 z-60 grid place-items-center bg-background/65 p-3 backdrop-blur-sm">
-  <div role="dialog" aria-modal="true" aria-labelledby="music-bulk-status-title" class="w-full max-w-sm rounded-xl border border-border/70 bg-card p-4 shadow-2xl">
+  <div use:containMusicDialogFocus={{ onEscape: onClose, escapeDisabled: controller.saving }} role="dialog" aria-modal="true" aria-labelledby="music-bulk-status-title" tabindex="-1" class="flex max-h-full w-full max-w-sm flex-col overflow-hidden rounded-xl border border-border/70 bg-card shadow-2xl">
+    <div class="min-h-0 overflow-y-auto p-4">
     <div class="flex items-center gap-3"><div class="grid h-9 w-9 place-items-center rounded-lg bg-primary/10 text-primary">{#if mode === "review"}<CheckCircle2 size={17} />{:else}<Clock3 size={17} />{/if}</div><div><h2 id="music-bulk-status-title" class="text-sm font-semibold">{mode === "review" ? t("music.builder.bulkReviewTitle") : t("music.builder.bulkSnoozeTitle")}</h2><p class="mt-0.5 text-[0.68rem] text-muted-foreground">{t("music.builder.bulkStatusDescription", controller.itemIds.length)}</p></div></div>
     {#if mode === "review"}
       <div class="mt-4 grid gap-1.5">
@@ -84,8 +86,8 @@
       </div>
     {/if}
     {#if controller.selectionStale}<p class="mt-3 text-[0.68rem] text-warning" role="alert">{t("music.builder.selectionChanged")}</p>{/if}
-    {#if controller.error}<p class="mt-3 text-[0.68rem] text-destructive" role="alert">{controller.error}</p>{/if}
-    <div class="mt-4 flex justify-end"><button type="button" onclick={onClose} class="h-8 rounded-md bg-secondary px-3 text-xs font-medium">{t("music.builder.cancel")}</button></div>
+    {#if controller.error}<p class="mt-3 text-[0.68rem] text-destructive" role="alert">{controller.error}</p>{/if}</div>
+    <div class="flex shrink-0 justify-end border-t border-border/60 p-3"><button type="button" onclick={onClose} disabled={controller.saving} class="h-8 rounded-md bg-secondary px-3 text-xs font-medium disabled:opacity-50">{t("music.builder.cancel")}</button></div>
   </div>
 </div>
 

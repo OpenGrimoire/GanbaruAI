@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MUSIC_INTERCHANGE_FORMAT, MUSIC_INTERCHANGE_VERSION, parseMusicInterchangeJson, parseMusicM3u8, previewMusicInterchange, serializeMusicInterchange, serializeMusicM3u8, type MusicInterchangeDocument } from "./music-interchange";
+import { MUSIC_INTERCHANGE_FORMAT, MUSIC_INTERCHANGE_VERSION, musicImportedLocalIdentitySeed, parseMusicInterchangeJson, parseMusicM3u8, previewMusicInterchange, serializeMusicInterchange, serializeMusicM3u8, type MusicInterchangeDocument } from "./music-interchange";
 
 const document: MusicInterchangeDocument = {
   format: MUSIC_INTERCHANGE_FORMAT, version: MUSIC_INTERCHANGE_VERSION, exportedAt: 1_700_000_000_000,
@@ -22,6 +22,10 @@ describe("Ganbaru AI music interchange", () => {
     expect(() => parseMusicInterchangeJson(JSON.stringify({ ...document, version: 99 }))).toThrow("not supported");
     const unsafe = structuredClone(document); unsafe.playlists[0]!.memberships[0]!.item = { ...unsafe.playlists[0]!.memberships[0]!.item, sourceKind: "local-file", youtubeVideoId: null, locations: [{ rootId: "root-a", relativePath: "../secret.mp3", availability: "available" }] };
     expect(() => parseMusicInterchangeJson(JSON.stringify(unsafe))).toThrow("safe relative path");
+    for (const path of ["folder\\..\\secret.mp3", "folder//track.mp3", "track:stream.mp3"]) {
+      unsafe.playlists[0]!.memberships[0]!.item.locations[0]!.relativePath = path;
+      expect(() => parseMusicInterchangeJson(JSON.stringify(unsafe))).toThrow("safe relative path");
+    }
   });
 
   it("previews matches, duplicates, conflicts, and missing root mappings", () => {
@@ -38,6 +42,15 @@ describe("Ganbaru AI music interchange", () => {
     const preview = previewMusicInterchange(JSON.stringify(unsupported), new Set(), new Set(), new Set());
     expect(preview.unsupported).toHaveLength(1);
     expect(preview.document.playlists[0]?.memberships).toEqual([]);
+  });
+
+  it("preserves case when deriving portable local identities", () => {
+    expect(musicImportedLocalIdentitySeed("root", "Album/Track.flac")).not.toBe(
+      musicImportedLocalIdentitySeed("root", "Album/track.flac"),
+    );
+    expect(musicImportedLocalIdentitySeed("root", "Album\\Track.flac")).toBe(
+      musicImportedLocalIdentitySeed("root", "Album/Track.flac"),
+    );
   });
 });
 

@@ -10,6 +10,10 @@ export const MUSIC_INTERCHANGE_FORMAT = "ganbaru-ai/music-playlists";
 export const MUSIC_INTERCHANGE_VERSION = 1;
 export const MUSIC_INTERCHANGE_MAX_BYTES = 8 * 1024 * 1024;
 
+export function musicImportedLocalIdentitySeed(rootId: string, relativePath: string): string {
+  return `${rootId}\0${relativePath.replaceAll("\\", "/")}`;
+}
+
 export interface MusicInterchangeLocation {
   rootId: string;
   relativePath: string;
@@ -113,7 +117,8 @@ function list<T>(value: unknown, label: string, parse: (entry: unknown, label: s
 
 function safeRelativePath(value: unknown, label: string): string {
   const path = text(value, label);
-  if (!path.trim() || path.startsWith("/") || path.startsWith("\\") || /^[A-Za-z]:[\\/]/.test(path) || path.split(/[\\/]/).includes("..")) {
+  const segments = path.split(/[\\/]/);
+  if (!path.trim() || path.startsWith("/") || path.startsWith("\\") || path.includes(":") || /[\u0000-\u001F\u007F]/.test(path) || segments.some((segment) => !segment || segment === "." || segment === "..")) {
     throw new Error(`${label} must be a safe relative path.`);
   }
   return path.replaceAll("\\", "/");

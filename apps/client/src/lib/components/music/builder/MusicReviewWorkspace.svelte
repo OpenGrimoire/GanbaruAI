@@ -55,6 +55,7 @@
   let newPlaylistDescription = $state("");
   let inlineCreateOpen = $state(false);
   let laterMenuOpen = $state(false);
+  let laterButton = $state<HTMLButtonElement | null>(null);
   let laterDate = $state("");
   let lastSelectedId = $state<string | null>(null);
   let lastAutoplayedId = $state<string | null>(null);
@@ -184,6 +185,11 @@
     void finishReviewState("deferred", Number.isFinite(deferredUntil) ? deferredUntil : null);
   }
 
+  function closeLaterMenu(restoreFocus = true): void {
+    laterMenuOpen = false;
+    if (restoreFocus && laterButton?.isConnected) queueMicrotask(() => laterButton?.focus());
+  }
+
   async function selectRelative(delta: number): Promise<void> {
     const target = library.currentWindow.items[currentIndex + delta];
     if (!target) return;
@@ -192,6 +198,12 @@
   }
 
   function handleKeydown(event: KeyboardEvent): void {
+    if (event.key === "Escape" && laterMenuOpen) {
+      event.preventDefault();
+      event.stopPropagation();
+      closeLaterMenu();
+      return;
+    }
     if (event.isComposing || event.altKey || isMusicReviewEditableTarget(event.target)) return;
     const modified = event.ctrlKey || event.metaKey;
     if (event.code === "Space" && !modified) {
@@ -233,7 +245,7 @@
 <div class="review-workspace grid min-h-0 flex-1 overflow-hidden">
   <section class="review-audition min-h-0 overflow-y-auto px-4 py-3" data-music-scrollable="true">
     <div class="flex items-center justify-between gap-3">
-      <p class="text-[0.7rem] font-medium text-muted-foreground">{t("music.builder.reviewProgress", progressCurrent, sessionTotal)}</p>
+      <p class="text-[0.7rem] font-medium text-muted-foreground" role="status" aria-live="polite">{t("music.builder.reviewProgress", progressCurrent, sessionTotal)}</p>
       <div class="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
         {#if audition.active}
           <button type="button" onclick={() => { void audition.restore(); }} class="h-7 rounded-md bg-secondary px-2 text-[0.68rem] font-medium text-secondary-foreground">{t("music.builder.returnPreviousPlayback")}</button>
@@ -364,14 +376,14 @@
     <div class="review-actions grid shrink-0 grid-cols-3 gap-2 border-t border-border/70 bg-card p-3">
       <button type="button" onclick={() => { void finishReviewState("ignored"); }} disabled={!detail || review.actionBusy} class="review-action bg-secondary text-secondary-foreground">{t("music.builder.ignore")}</button>
       <div class="relative">
-        <button type="button" onclick={() => laterMenuOpen = !laterMenuOpen} disabled={!detail || review.actionBusy} class="review-action h-full w-full bg-secondary text-secondary-foreground">{t("music.builder.later")}</button>
+        <button bind:this={laterButton} type="button" aria-haspopup="dialog" aria-expanded={laterMenuOpen} onclick={() => laterMenuOpen ? closeLaterMenu(false) : laterMenuOpen = true} disabled={!detail || review.actionBusy} class="review-action h-full w-full bg-secondary text-secondary-foreground">{t("music.builder.later")}</button>
         {#if laterMenuOpen}
-          <div class="absolute bottom-[calc(100%+0.5rem)] left-1/2 z-20 w-56 -translate-x-1/2 rounded-xl border border-border/70 bg-card p-3 text-left shadow-xl">
+          <div role="dialog" aria-label={t("music.builder.returnDate")} tabindex="-1" class="later-popover absolute bottom-[calc(100%+0.5rem)] left-1/2 z-20 w-56 -translate-x-1/2 rounded-xl border border-border/70 bg-card p-3 text-left shadow-xl">
             <label for="music-review-return-date" class="block text-[0.68rem] font-medium">{t("music.builder.returnDate")}</label>
             <input id="music-review-return-date" type="date" bind:value={laterDate} min={new Date(Date.now() + 86_400_000).toISOString().slice(0, 10)} class="mt-1.5 h-8 w-full rounded-md border border-border/70 bg-background px-2 text-xs outline-none" />
             <p class="mt-1.5 text-[0.62rem] leading-relaxed text-muted-foreground">{t("music.builder.returnDateHint")}</p>
             <div class="mt-2 flex justify-end gap-2">
-              <button type="button" onclick={() => laterMenuOpen = false} class="h-7 rounded-md bg-secondary px-2 text-[0.68rem]">{t("music.builder.cancel")}</button>
+              <button type="button" onclick={() => closeLaterMenu()} class="h-7 rounded-md bg-secondary px-2 text-[0.68rem]">{t("music.builder.cancel")}</button>
               <button type="button" onclick={deferCurrentItem} class="h-7 rounded-md bg-primary px-2 text-[0.68rem] font-medium text-primary-foreground">{t("music.builder.confirmLater")}</button>
             </div>
           </div>
@@ -400,5 +412,8 @@
   @container (height < 300px) and (width >= 620px) {
     .review-audition { padding-block: 0.5rem; }
     .review-audition > :global(.aspect-video) { max-height: 7rem; }
+  }
+  @container (height < 260px) {
+    .later-popover { position: fixed; inset: 0.5rem; width: auto; max-height: calc(100vh - 1rem); overflow-y: auto; transform: none; }
   }
 </style>

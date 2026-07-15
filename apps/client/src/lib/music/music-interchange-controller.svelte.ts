@@ -9,10 +9,12 @@ import {
   setLocalRootBinding,
 } from "$lib/api/music-library";
 import type { LocalRootBinding, MusicItemListEntry, MusicItemWindowRequest, MusicPlaylistSummary } from "./library-contracts";
+import { mapMusicWithConcurrency } from "./music-bounded-work";
 import {
   MUSIC_INTERCHANGE_FORMAT,
   MUSIC_INTERCHANGE_VERSION,
   inspectorToInterchangeMembership,
+  musicImportedLocalIdentitySeed,
   parseMusicM3u8,
   playlistToInterchange,
   previewMusicInterchange,
@@ -27,6 +29,7 @@ import {
 
 export type MusicInterchangeFormat = "json" | "m3u8";
 export type MusicInterchangeMode = "import" | "export";
+const MUSIC_EXPORT_DETAIL_CONCURRENCY = 8;
 
 export interface MusicM3u8Preview {
   entries: M3u8Entry[];
@@ -54,7 +57,7 @@ async function loadAllItems(destination: "library" | "playlist", playlistId: str
 }
 
 async function importedLocalIdentity(rootId: string, relativePath: string): Promise<string> {
-  const bytes = new TextEncoder().encode(`${rootId}\0${relativePath.replaceAll("\\", "/").toLocaleLowerCase()}`);
+  const bytes = new TextEncoder().encode(musicImportedLocalIdentitySeed(rootId, relativePath));
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
   return `local-import:${[...digest].map((value) => value.toString(16).padStart(2, "0")).join("")}`;
 }
@@ -172,8 +175,8 @@ export class MusicInterchangeController {
       for (const playlistId of playlistIds) {
         const [playlist, items] = await Promise.all([getMusicPlaylist(playlistId), loadAllItems("playlist", playlistId)]);
         const memberships = [];
-        for (const item of items) {
-          const detail = await getMusicInspectorDetail(item.id);
+        const details = await mapMusicWithConcurrency(items, MUSIC_EXPORT_DETAIL_CONCURRENCY, (item) => getMusicInspectorDetail(item.id));
+        for (const detail of details) {
           const membership = inspectorToInterchangeMembership(detail, playlistId);
           if (membership) memberships.push(membership);
           if (detail.locations.some((location) => unavailableRootIds.has(location.rootId))) warnings.add(`Playlist "${playlist.name}" contains local media whose root is unavailable on this device.`);
@@ -239,8 +242,13 @@ export class MusicInterchangeController {
     const rootNames = new Map(roots.map((root) => [root.id, root.name]));
     const bindings = this.bindings().filter((binding) => binding.folderPath);
     const allItems = await loadAllItems("library", null);
-    const details = new Map<string, Awaited<ReturnType<typeof getMusicInspectorDetail>>>();
-    for (const item of allItems) details.set(item.id, await getMusicInspectorDetail(item.id));
+    const hydratedDetails = await mapMusicWithConcurrency(allItems, MUSIC_EXPORT_DETAIL_CONCURRENCY, (item) => getMusicInspectorDetail(item.id));
+    const youtubeItems = new Map(hydratedDetails.flatMap((detail) => detail.item.youtubeVideoId ? [[detail.item.youtubeVideoId, detail.item] as const] : []));
+    const windowsRoots = new Set(bindings.filter((binding) => this.isWindowsBinding(binding)).map((binding) => binding.rootId));
+    const localItems = new Map(hydratedDetails.flatMap((detail) => detail.locations.map((location) => [
+      this.localLookupKey(location.rootId, location.relativePath, windowsRoots.has(location.rootId)),
+      detail,
+    ] as const)));
     const memberships: MusicInterchangeMembership[] = [];
     const usedRootIds = new Set<string>();
     for (const [position, entry] of preview.entries.entries()) {
@@ -248,7 +256,7 @@ export class MusicInterchangeController {
       if (entry.kind === "youtube") {
         const videoId = entry.value.match(/(?:v=|youtu\.be\/)([A-Za-z0-9_-]{6,})/)?.[1];
         if (!videoId) continue;
-        const existing = [...details.values()].find((detail) => detail.item.youtubeVideoId === videoId)?.item;
+        const existing = youtubeItems.get(videoId);
         memberships.push(this.basicMembership(position, {
           identityKey: existing?.identityKey ?? `youtube:${videoId}`, sourceKind: "youtube-video", youtubeVideoId: videoId,
           title: entry.title ?? existing?.originalTitle ?? videoId, artist: existing?.originalArtist ?? "", album: existing?.originalAlbum ?? "",
@@ -259,7 +267,7 @@ export class MusicInterchangeController {
       const resolved = this.resolveM3uLocalEntry(entry.value, bindings);
       if (!resolved) continue;
       usedRootIds.add(resolved.rootId);
-      const existingDetail = [...details.values()].find((detail) => detail.locations.some((location) => location.rootId === resolved.rootId && location.relativePath.replaceAll("\\", "/").toLocaleLowerCase() === resolved.relativePath.toLocaleLowerCase()));
+      const existingDetail = localItems.get(this.localLookupKey(resolved.rootId, resolved.relativePath, windowsRoots.has(resolved.rootId)));
       memberships.push(this.basicMembership(position, {
         identityKey: existingDetail?.item.identityKey ?? await importedLocalIdentity(resolved.rootId, resolved.relativePath),
         sourceKind: "local-file", youtubeVideoId: null, title: entry.title ?? existingDetail?.item.originalTitle ?? resolved.relativePath.split("/").pop() ?? resolved.relativePath,
@@ -279,10 +287,22 @@ export class MusicInterchangeController {
     const normalized = value.replaceAll("\\", "/");
     for (const binding of bindings) {
       const root = binding.folderPath?.replaceAll("\\", "/").replace(/\/+$/, "");
-      if (root && normalized.toLocaleLowerCase().startsWith(`${root.toLocaleLowerCase()}/`)) return { rootId: binding.rootId, relativePath: normalized.slice(root.length + 1) };
+      if (!root) continue;
+      const comparableValue = this.isWindowsBinding(binding) ? normalized.toLocaleLowerCase() : normalized;
+      const comparableRoot = this.isWindowsBinding(binding) ? root.toLocaleLowerCase() : root;
+      if (comparableValue.startsWith(`${comparableRoot}/`)) return { rootId: binding.rootId, relativePath: normalized.slice(root.length + 1) };
     }
     if (!/^(?:\/|[A-Za-z]:\/)/.test(normalized) && this.m3u8RootId) return { rootId: this.m3u8RootId, relativePath: normalized.replace(/^\.\//, "") };
     return null;
+  }
+
+  private isWindowsBinding(binding: LocalRootBinding): boolean {
+    return /^[A-Za-z]:[\\/]/.test(binding.folderPath ?? "") || Boolean(binding.folderPath?.includes("\\"));
+  }
+
+  private localLookupKey(rootId: string, relativePath: string, caseInsensitive: boolean): string {
+    const normalized = relativePath.replaceAll("\\", "/");
+    return `${rootId}\0${caseInsensitive ? normalized.toLocaleLowerCase() : normalized}`;
   }
 
   private basicMembership(position: number, item: MusicInterchangeMembership["item"]): MusicInterchangeMembership {
@@ -294,8 +314,10 @@ export class MusicInterchangeController {
     const bindingPaths = new Map(this.bindings().filter((binding) => binding.folderPath).map((binding) => [binding.rootId, binding.folderPath as string]));
     for (const playlistId of playlistIds) {
       const items = await loadAllItems("playlist", playlistId);
-      for (const item of items) {
-        const detail = await getMusicInspectorDetail(item.id);
+      const details = await mapMusicWithConcurrency(items, MUSIC_EXPORT_DETAIL_CONCURRENCY, (item) => getMusicInspectorDetail(item.id));
+      for (const [index, detail] of details.entries()) {
+        const item = items[index];
+        if (!item) continue;
         if (detail.item.sourceKind === "youtube-video" && detail.item.youtubeVideoId) {
           entries.push({ value: `https://www.youtube.com/watch?v=${detail.item.youtubeVideoId}`, title: item.title, kind: "youtube" });
           continue;

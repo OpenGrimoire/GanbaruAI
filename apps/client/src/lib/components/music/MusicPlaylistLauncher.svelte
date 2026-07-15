@@ -32,6 +32,7 @@
   const { t } = getLocalization();
   const player = getMusicPlayer();
   let root = $state<HTMLElement | null>(null);
+  let trigger = $state<HTMLButtonElement | null>(null);
   let searchInput = $state<HTMLInputElement | null>(null);
   let open = $state(false);
   let search = $state("");
@@ -59,8 +60,10 @@
     };
     const handleKey = (event: KeyboardEvent) => {
       if (open && event.key === "Escape") {
+        event.preventDefault();
         event.stopPropagation();
         close();
+        trigger?.focus();
       }
     };
     window.addEventListener("pointerdown", handlePointer);
@@ -141,6 +144,7 @@
 
 <div bind:this={root} class="relative z-20 min-w-0">
   <button
+    bind:this={trigger}
     type="button"
     onclick={() => { void toggle(); }}
     class={cn(
@@ -161,12 +165,13 @@
     <div
       role="dialog"
       aria-label={t("music.launcher.choosePlaylist")}
-      class="absolute left-0 top-[calc(100%+0.4rem)] flex max-h-[min(30rem,calc(100vh-5rem))] w-[min(23rem,calc(100vw-1rem))] flex-col overflow-hidden rounded-xl border border-border/80 bg-popover text-popover-foreground shadow-2xl"
+      tabindex="-1"
+      class="playlist-launcher-popover absolute left-0 top-[calc(100%+0.4rem)] flex max-h-[min(30rem,calc(100vh-5rem))] w-[min(23rem,calc(100vw-1rem))] flex-col overflow-hidden rounded-xl border border-border/80 bg-popover text-popover-foreground shadow-2xl"
     >
       <div class="border-b border-border/60 p-2.5">
         <div class="flex items-center gap-2 rounded-lg bg-secondary/65 px-2.5">
           <Search size={13} class="shrink-0 text-muted-foreground" />
-          <input bind:this={searchInput} bind:value={search} placeholder={t("music.launcher.search")} class="h-8 min-w-0 flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground" />
+          <input bind:this={searchInput} bind:value={search} aria-label={t("music.launcher.search")} placeholder={t("music.launcher.search")} class="h-8 min-w-0 flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground" />
         </div>
       </div>
 
@@ -212,3 +217,9 @@
     </div>
   {/if}
 </div>
+
+<style>
+  @media (max-height: 260px) {
+    .playlist-launcher-popover { position: fixed; inset: 0.5rem; width: auto; max-height: none; }
+  }
+</style>

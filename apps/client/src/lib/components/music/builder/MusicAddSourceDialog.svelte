@@ -6,6 +6,7 @@
   import Network from "@lucide/svelte/icons/network";
   import Youtube from "@lucide/svelte/icons/youtube";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { containMusicDialogFocus } from "$lib/music/music-dialog-focus";
   import type { MediaFolderSelection } from "$lib/api/music";
   import type { MusicSourcesController } from "$lib/music/music-sources-controller.svelte";
   import type { MusicYouTubeResolutionSource, MusicYouTubeSourcePreview } from "$lib/music/music-youtube-source-resolver";
@@ -72,7 +73,7 @@
 
 <div class="absolute inset-0 z-50 grid place-items-center bg-background/60 p-2 backdrop-blur-sm">
   <button type="button" class="absolute inset-0" onclick={onClose} aria-label={t("music.builder.close")}></button>
-  <div class="source-dialog relative flex max-h-full w-[min(37rem,100%)] flex-col overflow-hidden rounded-2xl border border-border/70 bg-popover shadow-2xl" role="dialog" aria-modal="true" aria-label={t("music.builder.addSource")} tabindex="-1">
+  <div use:containMusicDialogFocus={{ onEscape: onClose, escapeDisabled: controller.busy || controller.resolving }} class="source-dialog relative flex max-h-full w-[min(37rem,100%)] flex-col overflow-hidden rounded-2xl border border-border/70 bg-popover shadow-2xl" role="dialog" aria-modal="true" aria-label={t("music.builder.addSource")} tabindex="-1">
     <header class="flex min-h-11 shrink-0 items-center gap-2 border-b border-border/55 px-3">
       {#if step !== "choose"}<button type="button" onclick={() => { step = "choose"; controller.cancelResolution(); }} class="inline-flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-accent-foreground" aria-label={t("music.builder.back")}><ArrowLeft size={14} /></button>{/if}
       <h2 class="min-w-0 flex-1 truncate text-sm font-semibold">{step === "choose" ? t("music.builder.chooseSourceType") : step === "local" ? t("music.builder.localFolder") : youtubeKind === "youtube-video" ? t("music.builder.youtubeVideo") : t("music.builder.youtubePlaylist")}</h2>

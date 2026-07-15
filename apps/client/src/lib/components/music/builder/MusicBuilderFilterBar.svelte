@@ -64,6 +64,7 @@
   let openMenu = $state<MenuKind | null>(null);
   let menuTop = $state(0);
   let menuLeft = $state(0);
+  let menuAnchor: HTMLElement | null = null;
   const filterCount = $derived(Number(sourceKind !== null) + Number(sourceCollectionId !== null) + Number(membershipPlaylistId !== null) + Number(availability !== null) + Number(reviewState !== null) + Number(snoozed !== null));
   const snoozeValue = $derived<"snoozed" | "active" | null>(snoozed === null ? null : snoozed ? "snoozed" : "active");
   const sourceOptions = $derived<Option<MusicLibrarySourceKind | null>[]>([
@@ -124,17 +125,24 @@
     return options.find((option) => option.value === value)?.label ?? "";
   }
 
-  function closeAfter(action: () => void): void { action(); openMenu = null; }
+  function closeMenu(restoreFocus: boolean): void {
+    const anchor = menuAnchor;
+    openMenu = null;
+    menuAnchor = null;
+    if (restoreFocus && anchor?.isConnected) queueMicrotask(() => anchor.focus());
+  }
+  function closeAfter(action: () => void): void { action(); closeMenu(true); }
   function toggleMenu(kind: MenuKind, anchor: HTMLElement): void {
-    if (openMenu === kind) { openMenu = null; return; }
+    if (openMenu === kind) { closeMenu(true); return; }
     const bounds = anchor.getBoundingClientRect();
     menuTop = Math.max(4, Math.min(bounds.bottom + 5, window.innerHeight - 284));
     menuLeft = Math.max(4, Math.min(bounds.left, window.innerWidth - 180));
+    menuAnchor = anchor;
     openMenu = kind;
   }
 </script>
 
-<svelte:window onkeydown={(event) => { if (event.key === "Escape" && openMenu) { event.stopPropagation(); openMenu = null; } }} />
+<svelte:window onkeydown={(event) => { if (event.key === "Escape" && openMenu) { event.stopPropagation(); closeMenu(true); } }} />
 
 <div class="flex min-h-10 shrink-0 items-center gap-1.5 overflow-x-auto border-b border-border/45 px-2 py-1.5" style={`--filter-menu-top:${menuTop}px;--filter-menu-left:${menuLeft}px`} aria-label={t("music.builder.filters")}>
   <span class="mr-0.5 inline-flex shrink-0 items-center gap-1 text-[0.66rem] font-medium text-muted-foreground">
@@ -143,7 +151,7 @@
   </span>
 
   <div class="relative shrink-0">
-    <button type="button" class={cn("filter-pill", sourceKind && "filter-pill-active")} onclick={(event) => toggleMenu("source", event.currentTarget)}>
+    <button type="button" aria-haspopup="menu" aria-expanded={openMenu === "source"} class={cn("filter-pill", sourceKind && "filter-pill-active")} onclick={(event) => toggleMenu("source", event.currentTarget)}>
       {labelFor(sourceOptions, sourceKind)} <ChevronDown size={11} />
     </button>
     {#if openMenu === "source"}
@@ -157,7 +165,7 @@
 
   {#if playlists.length > 0}
     <div class="relative shrink-0">
-      <button type="button" class={cn("filter-pill", membershipPlaylistId && "filter-pill-active")} onclick={(event) => toggleMenu("membership", event.currentTarget)}>
+      <button type="button" aria-haspopup="menu" aria-expanded={openMenu === "membership"} class={cn("filter-pill", membershipPlaylistId && "filter-pill-active")} onclick={(event) => toggleMenu("membership", event.currentTarget)}>
         {labelFor(membershipOptions, membershipPlaylistId)} <ChevronDown size={11} />
       </button>
       {#if openMenu === "membership"}<div class="filter-menu">{#each membershipOptions as option (option.value)}<button type="button" onclick={() => closeAfter(() => onChange({ membershipPlaylistId: option.value }))}>{option.label}{#if option.value === membershipPlaylistId}<Check size={12} />{/if}</button>{/each}</div>{/if}
@@ -165,14 +173,14 @@
   {/if}
 
   <div class="relative shrink-0">
-    <button type="button" class={cn("filter-pill", sourceCollectionId && "filter-pill-active")} onclick={(event) => toggleMenu("collection", event.currentTarget)}>
+    <button type="button" aria-haspopup="menu" aria-expanded={openMenu === "collection"} class={cn("filter-pill", sourceCollectionId && "filter-pill-active")} onclick={(event) => toggleMenu("collection", event.currentTarget)}>
       {labelFor(collectionOptions, sourceCollectionId)} <ChevronDown size={11} />
     </button>
     {#if openMenu === "collection"}<div class="filter-menu">{#each collectionOptions as option (option.value)}<button type="button" onclick={() => closeAfter(() => onChange({ sourceCollectionId: option.value }))}>{option.label}{#if option.value === sourceCollectionId}<Check size={12} />{/if}</button>{/each}</div>{/if}
   </div>
 
   <div class="relative shrink-0">
-    <button type="button" class={cn("filter-pill", availability && "filter-pill-active")} onclick={(event) => toggleMenu("availability", event.currentTarget)}>
+    <button type="button" aria-haspopup="menu" aria-expanded={openMenu === "availability"} class={cn("filter-pill", availability && "filter-pill-active")} onclick={(event) => toggleMenu("availability", event.currentTarget)}>
       {labelFor(availabilityOptions, availability)} <ChevronDown size={11} />
     </button>
     {#if openMenu === "availability"}
@@ -185,12 +193,12 @@
   </div>
 
   <div class="relative shrink-0">
-    <button type="button" class={cn("filter-pill", snoozed !== null && "filter-pill-active")} onclick={(event) => toggleMenu("snooze", event.currentTarget)}>{labelFor(snoozeOptions, snoozeValue)} <ChevronDown size={11} /></button>
+    <button type="button" aria-haspopup="menu" aria-expanded={openMenu === "snooze"} class={cn("filter-pill", snoozed !== null && "filter-pill-active")} onclick={(event) => toggleMenu("snooze", event.currentTarget)}>{labelFor(snoozeOptions, snoozeValue)} <ChevronDown size={11} /></button>
     {#if openMenu === "snooze"}<div class="filter-menu">{#each snoozeOptions as option (option.value)}<button type="button" onclick={() => closeAfter(() => onChange({ snoozed: option.value === null ? null : option.value === "snoozed" }))}>{option.label}{#if option.value === snoozeValue}<Check size={12} />{/if}</button>{/each}</div>{/if}
   </div>
 
   <div class="relative shrink-0">
-    <button type="button" class={cn("filter-pill", reviewState && "filter-pill-active")} onclick={(event) => toggleMenu("review", event.currentTarget)}>
+    <button type="button" aria-haspopup="menu" aria-expanded={openMenu === "review"} class={cn("filter-pill", reviewState && "filter-pill-active")} onclick={(event) => toggleMenu("review", event.currentTarget)}>
       {labelFor(reviewOptions, reviewState)} <ChevronDown size={11} />
     </button>
     {#if openMenu === "review"}
@@ -203,7 +211,7 @@
   </div>
 
   <div class="relative ml-auto shrink-0">
-    <button type="button" class="filter-pill" onclick={(event) => toggleMenu("sort", event.currentTarget)}>
+    <button type="button" aria-haspopup="menu" aria-expanded={openMenu === "sort"} class="filter-pill" onclick={(event) => toggleMenu("sort", event.currentTarget)}>
       {labelFor(sortOptions, sort)} <ChevronDown size={11} />
     </button>
     {#if openMenu === "sort"}
@@ -220,7 +228,7 @@
   </div>
 
   <div class="relative shrink-0">
-    <button type="button" class="filter-pill" onclick={(event) => toggleMenu("group", event.currentTarget)}>
+    <button type="button" aria-haspopup="menu" aria-expanded={openMenu === "group"} class="filter-pill" onclick={(event) => toggleMenu("group", event.currentTarget)}>
       {labelFor(groupOptions, groupBy)} <ChevronDown size={11} />
     </button>
     {#if openMenu === "group"}

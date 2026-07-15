@@ -4,6 +4,7 @@
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import { onMount } from "svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { containMusicDialogFocus } from "$lib/music/music-dialog-focus";
   import type { MusicPlaylistController, MusicPlaylistDraft } from "$lib/music/music-playlist-controller.svelte";
   import type { MusicIntendedUse, MusicRepeatMode } from "$lib/music/library-contracts";
 
@@ -32,8 +33,6 @@
   let repeatMode = $state<MusicRepeatMode>("all");
   let intendedUses = $state<MusicIntendedUse[]>([]);
   let replacementPlaylistId = $state("");
-  let dialogElement = $state<HTMLElement | null>(null);
-  let nameInput = $state<HTMLInputElement | null>(null);
   const useOptions: MusicIntendedUse[] = ["general", "focus", "reading", "relaxation", "energizing"];
 
   onMount(() => {
@@ -46,7 +45,6 @@
       intendedUses = [...detail.intendedUses];
       if (mode === "delete" && !controller.deleteImpact) void controller.inspectDelete();
     }
-    queueMicrotask(() => (mode === "delete" ? dialogElement : nameInput)?.focus());
   });
 
   function title(): string {
@@ -88,7 +86,7 @@
 </script>
 
 <div class="absolute inset-0 z-60 grid place-items-center bg-background/65 p-3 backdrop-blur-sm">
-  <div bind:this={dialogElement} role="dialog" aria-modal="true" aria-labelledby="music-playlist-dialog-title" class="flex max-h-full w-full max-w-md flex-col overflow-hidden rounded-xl border border-border/70 bg-card shadow-2xl" tabindex="-1">
+  <div use:containMusicDialogFocus={{ onEscape: onClose, escapeDisabled: controller.saving }} role="dialog" aria-modal="true" aria-labelledby="music-playlist-dialog-title" class="flex max-h-full w-full max-w-md flex-col overflow-hidden rounded-xl border border-border/70 bg-card shadow-2xl" tabindex="-1">
     <header class="flex shrink-0 items-center gap-3 border-b border-border/60 p-4">
       <div class="grid h-9 w-9 place-items-center rounded-lg bg-secondary text-muted-foreground">
         {#if mode === "delete"}<Trash2 size={17} />{:else if mode === "duplicate"}<Copy size={17} />{:else}<ListMusic size={17} />{/if}
@@ -128,7 +126,7 @@
         {/if}
       {:else}
         <label class="block text-[0.7rem] font-medium" for="music-playlist-name">{t("music.builder.playlistName")}</label>
-        <input bind:this={nameInput} id="music-playlist-name" bind:value={name} class="mt-1.5 h-9 w-full rounded-md border border-border/70 bg-background px-3 text-xs outline-none focus:border-primary" />
+        <input data-dialog-autofocus id="music-playlist-name" bind:value={name} class="mt-1.5 h-9 w-full rounded-md border border-border/70 bg-background px-3 text-xs outline-none focus:border-primary" />
         {#if mode !== "duplicate"}
           <label class="mt-3 block text-[0.7rem] font-medium" for="music-playlist-description">{t("music.builder.playlistDescription")}</label>
           <textarea id="music-playlist-description" bind:value={description} rows="3" class="mt-1.5 w-full resize-none rounded-md border border-border/70 bg-background p-3 text-xs outline-none focus:border-primary"></textarea>
@@ -142,8 +140,8 @@
       {#if controller.error}<p class="mt-3 text-[0.68rem] text-destructive" role="alert">{controller.error}</p>{/if}
     </div>
 
-    <footer class="flex shrink-0 justify-end gap-2 border-t border-border/60 p-3">
-      <button type="button" onclick={onClose} class="h-8 rounded-md bg-secondary px-3 text-xs font-medium">{t("music.builder.cancel")}</button>
+    <footer class="flex shrink-0 flex-wrap justify-end gap-2 border-t border-border/60 p-3">
+      <button type="button" onclick={onClose} disabled={controller.saving} class="h-8 rounded-md bg-secondary px-3 text-xs font-medium disabled:opacity-50">{t("music.builder.cancel")}</button>
       <button type="button" onclick={() => { void save(); }} disabled={controller.saving || (mode !== "delete" && !name.trim()) || (mode === "delete" && !controller.deleteImpact)} class={mode === "delete" ? "h-8 rounded-md bg-destructive px-3 text-xs font-semibold text-destructive-foreground disabled:opacity-40" : "h-8 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground disabled:opacity-40"}>{mode === "delete" ? t("music.builder.deletePlaylist") : t("music.builder.savePlaylist")}</button>
     </footer>
   </div>

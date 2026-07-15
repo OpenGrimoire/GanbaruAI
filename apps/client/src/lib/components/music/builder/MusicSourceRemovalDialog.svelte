@@ -4,6 +4,7 @@
   import RadioTower from "@lucide/svelte/icons/radio-tower";
   import ShieldCheck from "@lucide/svelte/icons/shield-check";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { containMusicDialogFocus } from "$lib/music/music-dialog-focus";
   import type { MusicSourceCollection } from "$lib/music/library-contracts";
   import type { MusicSourcesController } from "$lib/music/music-sources-controller.svelte";
 
@@ -31,7 +32,7 @@
 
 <div class="absolute inset-0 z-50 grid place-items-center bg-background/60 p-2 backdrop-blur-sm">
   <button type="button" class="absolute inset-0" onclick={onClose} aria-label={t("music.builder.close")}></button>
-  <div class="relative flex max-h-full w-[min(34rem,100%)] flex-col overflow-hidden rounded-2xl border border-border/70 bg-popover shadow-2xl" role="alertdialog" aria-modal="true" aria-label={t("music.builder.sourceRemovalTitle")} tabindex="-1">
+  <div use:containMusicDialogFocus={{ onEscape: onClose, escapeDisabled: saving }} class="relative flex max-h-full w-[min(34rem,100%)] flex-col overflow-hidden rounded-2xl border border-border/70 bg-popover shadow-2xl" role="alertdialog" aria-modal="true" aria-label={t("music.builder.sourceRemovalTitle")} tabindex="-1">
     <header class="border-b border-border/55 px-4 py-3"><h2 class="text-sm font-semibold">{t("music.builder.sourceRemovalTitle")}</h2><p class="mt-1 truncate text-[0.68rem] text-muted-foreground">{collection.name}</p></header>
     <div class="min-h-0 flex-1 overflow-y-auto p-3">
       <div class="flex items-start gap-2 rounded-xl bg-primary/7 p-2.5 text-[0.68rem] leading-relaxed text-muted-foreground"><ShieldCheck class="mt-0.5 shrink-0 text-primary" size={15} /><span>{t("music.builder.sourceRemovalSafe")}</span></div>

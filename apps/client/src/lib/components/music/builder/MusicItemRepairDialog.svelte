@@ -5,6 +5,7 @@
   import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
   import ShieldAlert from "@lucide/svelte/icons/shield-alert";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { containMusicDialogFocus } from "$lib/music/music-dialog-focus";
   import type { MusicSourcesController } from "$lib/music/music-sources-controller.svelte";
   import { formatMusicDuration } from "$lib/music/music-builder-presentation";
 
@@ -47,7 +48,7 @@
 
 <div class="absolute inset-0 z-50 grid place-items-center bg-background/60 p-2 backdrop-blur-sm">
   <button type="button" class="absolute inset-0" onclick={onClose} aria-label={t("music.builder.close")}></button>
-  <div class="relative flex max-h-full w-[min(32rem,100%)] flex-col overflow-hidden rounded-2xl border border-border/70 bg-popover shadow-2xl" role="dialog" aria-modal="true" aria-label={t("music.builder.repairItemLocation")} tabindex="-1">
+  <div use:containMusicDialogFocus={{ onEscape: onClose, escapeDisabled: busy }} class="relative flex max-h-full w-[min(32rem,100%)] flex-col overflow-hidden rounded-2xl border border-border/70 bg-popover shadow-2xl" role="dialog" aria-modal="true" aria-label={t("music.builder.repairItemLocation")} tabindex="-1">
     <header class="border-b border-border/55 px-4 py-3"><h2 class="text-sm font-semibold">{t("music.builder.repairItemLocation")}</h2><p class="mt-1 text-[0.68rem] leading-relaxed text-muted-foreground">{t("music.builder.replacementFileDescription")}</p></header>
     <div class="min-h-0 flex-1 overflow-y-auto p-3">
       {#if controller.itemRepairApplied}
