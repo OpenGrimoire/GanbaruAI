@@ -5,6 +5,11 @@ export type MusicItemAvailability = "available" | "missing" | "unavailable" | "a
 export type MusicLocationAvailability = "available" | "missing" | "ambiguous" | "unsupported" | "unknown";
 export type MusicCollectionKind = "local-root" | "youtube-playlist";
 export type MusicRefreshState = "idle" | "queued" | "running" | "partial" | "failed";
+export type MusicRefreshJobState = "queued" | "running" | "completed" | "partial" | "failed" | "cancelled";
+export type MusicYouTubeResolutionState = "resolving" | "ready" | "unavailable" | "embedding-blocked" | "timed-out";
+export type MusicSourceHealth = "healthy" | "stale" | "issues" | "disabled";
+export type MusicRelinkPlanState = "planning" | "ready" | "applied" | "cancelled";
+export type MusicRelinkMatchKind = "exact" | "likely" | "ambiguous" | "missing" | "new";
 export type MusicWeight = "rarely" | "less-often" | "normal" | "more-often" | "much-more-often";
 export type MusicFocusFit = "helpful" | "neutral" | "potentially-distracting" | "unknown";
 export type MusicIntendedUse = "general" | "focus" | "reading" | "relaxation" | "energizing";
@@ -100,6 +105,9 @@ export interface MusicLibraryItemWrite {
   originalTitle: string;
   originalArtist: string;
   originalAlbum: string;
+  originalTrackNumber: number | null;
+  originalArtworkIdentity: string | null;
+  youtubeResolutionState: MusicYouTubeResolutionState | null;
   durationMs: number | null;
   availability: MusicItemAvailability;
   discoveredAt: number;
@@ -188,10 +196,17 @@ export interface MusicSourceSummary {
   name: string;
   refreshState: MusicRefreshState;
   lastSuccessfulRefreshAt: number | null;
+  localRootId: string | null;
+  youtubePlaylistId: string | null;
   itemCount: number;
   missingCount: number;
   newCount: number;
+  unreviewedCount: number;
+  unavailableCount: number;
+  ambiguousCount: number;
   openIssueCount: number;
+  health: MusicSourceHealth;
+  discoveryEnabled: boolean;
   version: number;
 }
 export interface MusicIssue {
@@ -199,6 +214,10 @@ export interface MusicIssue {
   issueKind: string;
   itemId: string | null;
   playlistId: string | null;
+  collectionId: string | null;
+  rootId: string | null;
+  relativePath: string | null;
+  actionRequired: boolean;
   message: string;
   createdAt: number;
 }
@@ -211,6 +230,9 @@ export interface MusicLibraryItem {
   originalTitle: string;
   originalArtist: string;
   originalAlbum: string;
+  originalTrackNumber: number | null;
+  originalArtworkIdentity: string | null;
+  youtubeResolutionState: MusicYouTubeResolutionState | null;
   titleOverride: string | null;
   artistOverride: string | null;
   albumOverride: string | null;
@@ -222,6 +244,64 @@ export interface MusicLibraryItem {
   discoveredAt: number;
   updatedAt: number;
   version: number;
+}
+export interface MusicLocalRefreshRequest {
+  jobId: string;
+  rootId: string;
+  collectionId: string;
+  folderPath: string;
+  availableRoots: MusicAvailableRootPath[];
+  requestedAt: number;
+}
+export interface MusicAvailableRootPath { rootId: string; folderPath: string }
+export interface MusicYouTubeVideoWrite {
+  videoId: string;
+  title: string;
+  channel: string;
+  durationMs: number | null;
+  resolutionState: MusicYouTubeResolutionState;
+  resolvedAt: number;
+}
+export interface MusicYouTubePlaylistSnapshotWrite {
+  collectionId: string;
+  playlistId: string;
+  name: string;
+  videoIds: string[];
+  resolvedAt: number;
+}
+export interface MusicYouTubeSourceFailureWrite {
+  collectionId: string;
+  playlistId: string;
+  name: string;
+  resolutionState: MusicYouTubeResolutionState;
+  errorCode: string;
+  occurredAt: number;
+}
+export interface MusicYouTubeSnapshotResult {
+  collectionId: string;
+  canonicalItemCount: number;
+  newlyDiscoveredCount: number;
+  repeatedVideoCount: number;
+  generation: number;
+}
+export interface MusicRefreshJobProgress {
+  jobId: string;
+  collectionId: string;
+  rootId: string | null;
+  kind: MusicCollectionKind;
+  state: MusicRefreshJobState;
+  generation: number;
+  discoveredCount: number;
+  processedCount: number;
+  skippedCount: number;
+  issueCount: number;
+  truncatedCount: number;
+  absenceDetermined: boolean;
+  statusMessage: string;
+  requestedAt: number;
+  startedAt: number | null;
+  finishedAt: number | null;
+  updatedAt: number;
 }
 export interface MusicLocalLocation {
   id: string;
@@ -269,11 +349,70 @@ export interface MusicSourceCollection {
   youtubePlaylistId: string | null;
   refreshState: MusicRefreshState;
   lastSuccessfulRefreshAt: number | null;
+  previousSuccessfulRefreshAt: number | null;
   lastRefreshErrorCode: string | null;
   snapshotGeneration: number;
   createdAt: number;
   updatedAt: number;
   version: number;
+  discoveryEnabled: boolean;
+  removedAt: number | null;
+}
+export interface MusicRelinkPlanRequest {
+  planId: string;
+  rootId: string;
+  replacementFolderPath: string;
+  createdAt: number;
+}
+export interface MusicRelinkPlanSummary {
+  id: string;
+  rootId: string;
+  state: MusicRelinkPlanState;
+  exactCount: number;
+  likelyCount: number;
+  ambiguousCount: number;
+  missingCount: number;
+  newCount: number;
+  createdAt: number;
+  updatedAt: number;
+}
+export interface MusicRelinkPlanEntry {
+  id: string;
+  matchKind: MusicRelinkMatchKind;
+  oldLocationId: string | null;
+  suggestedItemId: string | null;
+  candidateRelativePath: string | null;
+  candidateItemIds: string[];
+  fileSizeBytes: number | null;
+  resolvedItemId: string | null;
+  resolvedAt: number | null;
+}
+export interface MusicRelinkPlanWindow {
+  entries: MusicRelinkPlanEntry[];
+  totalCount: number;
+  offset: number;
+  limit: number;
+}
+export interface MusicRelinkDecision { entryId: string; itemId: string }
+export interface MusicRelinkApplyRequest {
+  planId: string;
+  decisions: MusicRelinkDecision[];
+  appliedAt: number;
+}
+export interface MusicSourceRemovalImpact {
+  collectionId: string;
+  itemCount: number;
+  membershipCount: number;
+  sharedItemCount: number;
+  orphanedItemCount: number;
+  activeRefreshCount: number;
+}
+export interface MusicSourceRemovalRequest {
+  collectionId: string;
+  expectedVersion: number;
+  expectedImpact: MusicSourceRemovalImpact;
+  removeOrphanedItems: boolean;
+  removedAt: number;
 }
 export interface MusicPlaylist {
   id: string;
@@ -296,6 +435,11 @@ const itemAvailability = ["available", "missing", "unavailable", "ambiguous", "u
 const locationAvailability = ["available", "missing", "ambiguous", "unsupported", "unknown"] as const;
 const collectionKinds = ["local-root", "youtube-playlist"] as const;
 const refreshStates = ["idle", "queued", "running", "partial", "failed"] as const;
+const refreshJobStates = ["queued", "running", "completed", "partial", "failed", "cancelled"] as const;
+const youtubeResolutionStates = ["resolving", "ready", "unavailable", "embedding-blocked", "timed-out"] as const;
+const sourceHealthStates = ["healthy", "stale", "issues", "disabled"] as const;
+const relinkPlanStates = ["planning", "ready", "applied", "cancelled"] as const;
+const relinkMatchKinds = ["exact", "likely", "ambiguous", "missing", "new"] as const;
 const weights = ["rarely", "less-often", "normal", "more-often", "much-more-often"] as const;
 const focusFits = ["helpful", "neutral", "potentially-distracting", "unknown"] as const;
 const intendedUses = ["general", "focus", "reading", "relaxation", "energizing"] as const;
@@ -338,6 +482,21 @@ function enumeration<const T extends readonly string[]>(value: unknown, values: 
 
 export function parseWriteReceipt(value: unknown, label = "music write receipt"): MusicWriteReceipt {
   const row = object(value, label); return { id: string(row.id, `${label}.id`), version: number(row.version, `${label}.version`) };
+}
+export function parseYouTubeSnapshotResult(value: unknown): MusicYouTubeSnapshotResult {
+  const row = object(value, "YouTube playlist snapshot");
+  return {
+    collectionId: string(row.collectionId, "YouTube playlist snapshot.collectionId"),
+    canonicalItemCount: number(row.canonicalItemCount, "YouTube playlist snapshot.canonicalItemCount"),
+    newlyDiscoveredCount: number(row.newlyDiscoveredCount, "YouTube playlist snapshot.newlyDiscoveredCount"),
+    repeatedVideoCount: number(row.repeatedVideoCount, "YouTube playlist snapshot.repeatedVideoCount"),
+    generation: number(row.generation, "YouTube playlist snapshot.generation"),
+  };
+}
+export function parseRefreshJobProgress(value: unknown, label = "music refresh progress"): MusicRefreshJobProgress {
+  const row = object(value, label); return {
+    jobId: string(row.jobId, `${label}.jobId`), collectionId: string(row.collectionId, `${label}.collectionId`), rootId: nullable(row.rootId, string, `${label}.rootId`), kind: enumeration(row.kind, collectionKinds, `${label}.kind`), state: enumeration(row.state, refreshJobStates, `${label}.state`), generation: number(row.generation, `${label}.generation`), discoveredCount: number(row.discoveredCount, `${label}.discoveredCount`), processedCount: number(row.processedCount, `${label}.processedCount`), skippedCount: number(row.skippedCount, `${label}.skippedCount`), issueCount: number(row.issueCount, `${label}.issueCount`), truncatedCount: number(row.truncatedCount, `${label}.truncatedCount`), absenceDetermined: boolean(row.absenceDetermined, `${label}.absenceDetermined`), statusMessage: string(row.statusMessage, `${label}.statusMessage`), requestedAt: number(row.requestedAt, `${label}.requestedAt`), startedAt: nullable(row.startedAt, number, `${label}.startedAt`), finishedAt: nullable(row.finishedAt, number, `${label}.finishedAt`), updatedAt: number(row.updatedAt, `${label}.updatedAt`),
+  };
 }
 export function parseDeleteImpact(value: unknown, label = "playlist delete impact"): MusicPlaylistDeleteImpact {
   const row = object(value, label); return {
@@ -382,18 +541,19 @@ function parseSourceSummary(value: unknown, label: string): MusicSourceSummary {
   const row = object(value, label); return {
     id: string(row.id, `${label}.id`), kind: enumeration(row.kind, collectionKinds, `${label}.kind`), name: string(row.name, `${label}.name`),
     refreshState: enumeration(row.refreshState, refreshStates, `${label}.refreshState`), lastSuccessfulRefreshAt: nullable(row.lastSuccessfulRefreshAt, number, `${label}.lastSuccessfulRefreshAt`),
-    itemCount: number(row.itemCount, `${label}.itemCount`), missingCount: number(row.missingCount, `${label}.missingCount`), newCount: number(row.newCount, `${label}.newCount`), openIssueCount: number(row.openIssueCount, `${label}.openIssueCount`), version: number(row.version, `${label}.version`),
+    localRootId: nullable(row.localRootId, string, `${label}.localRootId`), youtubePlaylistId: nullable(row.youtubePlaylistId, string, `${label}.youtubePlaylistId`),
+    itemCount: number(row.itemCount, `${label}.itemCount`), missingCount: number(row.missingCount, `${label}.missingCount`), newCount: number(row.newCount, `${label}.newCount`), unreviewedCount: number(row.unreviewedCount, `${label}.unreviewedCount`), unavailableCount: number(row.unavailableCount, `${label}.unavailableCount`), ambiguousCount: number(row.ambiguousCount, `${label}.ambiguousCount`), openIssueCount: number(row.openIssueCount, `${label}.openIssueCount`), health: enumeration(row.health, sourceHealthStates, `${label}.health`), discoveryEnabled: boolean(row.discoveryEnabled, `${label}.discoveryEnabled`), version: number(row.version, `${label}.version`),
   };
 }
 export const parseSourceSummaries = (value: unknown): MusicSourceSummary[] => array(value, parseSourceSummary, "source summaries");
 function parseIssue(value: unknown, label: string): MusicIssue {
-  const row = object(value, label); return { id: string(row.id, `${label}.id`), issueKind: string(row.issueKind, `${label}.issueKind`), itemId: nullable(row.itemId, string, `${label}.itemId`), playlistId: nullable(row.playlistId, string, `${label}.playlistId`), message: string(row.message, `${label}.message`), createdAt: number(row.createdAt, `${label}.createdAt`) };
+  const row = object(value, label); return { id: string(row.id, `${label}.id`), issueKind: string(row.issueKind, `${label}.issueKind`), itemId: nullable(row.itemId, string, `${label}.itemId`), playlistId: nullable(row.playlistId, string, `${label}.playlistId`), collectionId: nullable(row.collectionId, string, `${label}.collectionId`), rootId: nullable(row.rootId, string, `${label}.rootId`), relativePath: nullable(row.relativePath, string, `${label}.relativePath`), actionRequired: boolean(row.actionRequired, `${label}.actionRequired`), message: string(row.message, `${label}.message`), createdAt: number(row.createdAt, `${label}.createdAt`) };
 }
 export const parseIssues = (value: unknown): MusicIssue[] => array(value, parseIssue, "music issues");
 function parseLibraryItem(value: unknown, label: string): MusicLibraryItem {
   const row = object(value, label); return {
     id: string(row.id, `${label}.id`), identityKey: string(row.identityKey, `${label}.identityKey`), sourceKind: enumeration(row.sourceKind, sourceKinds, `${label}.sourceKind`), mediaKind: enumeration(row.mediaKind, mediaKinds, `${label}.mediaKind`),
-    youtubeVideoId: nullable(row.youtubeVideoId, string, `${label}.youtubeVideoId`), originalTitle: string(row.originalTitle, `${label}.originalTitle`), originalArtist: string(row.originalArtist, `${label}.originalArtist`), originalAlbum: string(row.originalAlbum, `${label}.originalAlbum`),
+    youtubeVideoId: nullable(row.youtubeVideoId, string, `${label}.youtubeVideoId`), originalTitle: string(row.originalTitle, `${label}.originalTitle`), originalArtist: string(row.originalArtist, `${label}.originalArtist`), originalAlbum: string(row.originalAlbum, `${label}.originalAlbum`), originalTrackNumber: nullable(row.originalTrackNumber, number, `${label}.originalTrackNumber`), originalArtworkIdentity: nullable(row.originalArtworkIdentity, string, `${label}.originalArtworkIdentity`), youtubeResolutionState: nullable(row.youtubeResolutionState, (entry, entryLabel) => enumeration(entry, youtubeResolutionStates, entryLabel), `${label}.youtubeResolutionState`),
     titleOverride: nullable(row.titleOverride, string, `${label}.titleOverride`), artistOverride: nullable(row.artistOverride, string, `${label}.artistOverride`), albumOverride: nullable(row.albumOverride, string, `${label}.albumOverride`), artworkOverride: nullable(row.artworkOverride, string, `${label}.artworkOverride`),
     durationMs: nullable(row.durationMs, number, `${label}.durationMs`), availability: enumeration(row.availability, itemAvailability, `${label}.availability`), reviewState: enumeration(row.reviewState, reviewStates, `${label}.reviewState`), reviewChangedAt: nullable(row.reviewChangedAt, number, `${label}.reviewChangedAt`), discoveredAt: number(row.discoveredAt, `${label}.discoveredAt`), updatedAt: number(row.updatedAt, `${label}.updatedAt`), version: number(row.version, `${label}.version`),
   };
@@ -415,10 +575,58 @@ export function parseInspectorDetail(value: unknown): MusicInspectorDetail {
 }
 function parseRoot(value: unknown, label: string): MusicLocalRoot { const row = object(value, label); return { id: string(row.id, `${label}.id`), name: string(row.name, `${label}.name`), createdAt: number(row.createdAt, `${label}.createdAt`), updatedAt: number(row.updatedAt, `${label}.updatedAt`), version: number(row.version, `${label}.version`) }; }
 export const parseRoots = (value: unknown): MusicLocalRoot[] => array(value, parseRoot, "music roots");
-function parseCollection(value: unknown, label: string): MusicSourceCollection { const row = object(value, label); return { id: string(row.id, `${label}.id`), kind: enumeration(row.kind, collectionKinds, `${label}.kind`), identityKey: string(row.identityKey, `${label}.identityKey`), name: string(row.name, `${label}.name`), localRootId: nullable(row.localRootId, string, `${label}.localRootId`), youtubePlaylistId: nullable(row.youtubePlaylistId, string, `${label}.youtubePlaylistId`), refreshState: enumeration(row.refreshState, refreshStates, `${label}.refreshState`), lastSuccessfulRefreshAt: nullable(row.lastSuccessfulRefreshAt, number, `${label}.lastSuccessfulRefreshAt`), lastRefreshErrorCode: nullable(row.lastRefreshErrorCode, string, `${label}.lastRefreshErrorCode`), snapshotGeneration: number(row.snapshotGeneration, `${label}.snapshotGeneration`), createdAt: number(row.createdAt, `${label}.createdAt`), updatedAt: number(row.updatedAt, `${label}.updatedAt`), version: number(row.version, `${label}.version`) }; }
+function parseCollection(value: unknown, label: string): MusicSourceCollection { const row = object(value, label); return { id: string(row.id, `${label}.id`), kind: enumeration(row.kind, collectionKinds, `${label}.kind`), identityKey: string(row.identityKey, `${label}.identityKey`), name: string(row.name, `${label}.name`), localRootId: nullable(row.localRootId, string, `${label}.localRootId`), youtubePlaylistId: nullable(row.youtubePlaylistId, string, `${label}.youtubePlaylistId`), refreshState: enumeration(row.refreshState, refreshStates, `${label}.refreshState`), lastSuccessfulRefreshAt: nullable(row.lastSuccessfulRefreshAt, number, `${label}.lastSuccessfulRefreshAt`), previousSuccessfulRefreshAt: nullable(row.previousSuccessfulRefreshAt, number, `${label}.previousSuccessfulRefreshAt`), lastRefreshErrorCode: nullable(row.lastRefreshErrorCode, string, `${label}.lastRefreshErrorCode`), snapshotGeneration: number(row.snapshotGeneration, `${label}.snapshotGeneration`), createdAt: number(row.createdAt, `${label}.createdAt`), updatedAt: number(row.updatedAt, `${label}.updatedAt`), version: number(row.version, `${label}.version`), discoveryEnabled: boolean(row.discoveryEnabled, `${label}.discoveryEnabled`), removedAt: nullable(row.removedAt, number, `${label}.removedAt`) }; }
 export const parseCollections = (value: unknown): MusicSourceCollection[] => array(value, parseCollection, "music collections");
 export function parsePlaylist(value: unknown): MusicPlaylist { const row = object(value, "music playlist"); return { id: string(row.id, "music playlist.id"), name: string(row.name, "music playlist.name"), description: string(row.description, "music playlist.description"), shuffleEnabled: boolean(row.shuffleEnabled, "music playlist.shuffleEnabled"), repeatMode: enumeration(row.repeatMode, repeatModes, "music playlist.repeatMode"), intendedUses: array(row.intendedUses, (entry, label) => enumeration(entry, intendedUses, label), "music playlist.intendedUses"), createdAt: number(row.createdAt, "music playlist.createdAt"), updatedAt: number(row.updatedAt, "music playlist.updatedAt"), version: number(row.version, "music playlist.version") }; }
 export function parseSearchRebuild(value: unknown): MusicSearchRebuildResult { const row = object(value, "music search rebuild"); return { indexedItemCount: number(row.indexedItemCount, "music search rebuild.indexedItemCount"), schemaVersion: number(row.schemaVersion, "music search rebuild.schemaVersion"), fingerprint: string(row.fingerprint, "music search rebuild.fingerprint"), rebuiltAt: number(row.rebuiltAt, "music search rebuild.rebuiltAt") }; }
 function parseBinding(value: unknown, label: string): LocalRootBinding { const row = object(value, label); return { rootId: string(row.rootId, `${label}.rootId`), folderPath: nullable(row.folderPath, string, `${label}.folderPath`), status: enumeration(row.status, rootStatuses, `${label}.status`) }; }
 export const parseBindings = (value: unknown): LocalRootBinding[] => array(value, parseBinding, "music root bindings");
 export const parseBindingResult = (value: unknown): LocalRootBinding => parseBinding(value, "music root binding");
+export function parseRelinkPlanSummary(value: unknown): MusicRelinkPlanSummary {
+  const row = object(value, "music relink plan");
+  return {
+    id: string(row.id, "music relink plan.id"),
+    rootId: string(row.rootId, "music relink plan.rootId"),
+    state: enumeration(row.state, relinkPlanStates, "music relink plan.state"),
+    exactCount: number(row.exactCount, "music relink plan.exactCount"),
+    likelyCount: number(row.likelyCount, "music relink plan.likelyCount"),
+    ambiguousCount: number(row.ambiguousCount, "music relink plan.ambiguousCount"),
+    missingCount: number(row.missingCount, "music relink plan.missingCount"),
+    newCount: number(row.newCount, "music relink plan.newCount"),
+    createdAt: number(row.createdAt, "music relink plan.createdAt"),
+    updatedAt: number(row.updatedAt, "music relink plan.updatedAt"),
+  };
+}
+export function parseRelinkPlanWindow(value: unknown): MusicRelinkPlanWindow {
+  const row = object(value, "music relink plan window");
+  return {
+    entries: array(row.entries, (entry, label) => {
+      const item = object(entry, label);
+      return {
+        id: string(item.id, `${label}.id`),
+        matchKind: enumeration(item.matchKind, relinkMatchKinds, `${label}.matchKind`),
+        oldLocationId: nullable(item.oldLocationId, string, `${label}.oldLocationId`),
+        suggestedItemId: nullable(item.suggestedItemId, string, `${label}.suggestedItemId`),
+        candidateRelativePath: nullable(item.candidateRelativePath, string, `${label}.candidateRelativePath`),
+        candidateItemIds: array(item.candidateItemIds, string, `${label}.candidateItemIds`),
+        fileSizeBytes: nullable(item.fileSizeBytes, number, `${label}.fileSizeBytes`),
+        resolvedItemId: nullable(item.resolvedItemId, string, `${label}.resolvedItemId`),
+        resolvedAt: nullable(item.resolvedAt, number, `${label}.resolvedAt`),
+      };
+    }, "music relink plan window.entries"),
+    totalCount: number(row.totalCount, "music relink plan window.totalCount"),
+    offset: number(row.offset, "music relink plan window.offset"),
+    limit: number(row.limit, "music relink plan window.limit"),
+  };
+}
+export function parseSourceRemovalImpact(value: unknown): MusicSourceRemovalImpact {
+  const row = object(value, "music source removal impact");
+  return {
+    collectionId: string(row.collectionId, "music source removal impact.collectionId"),
+    itemCount: number(row.itemCount, "music source removal impact.itemCount"),
+    membershipCount: number(row.membershipCount, "music source removal impact.membershipCount"),
+    sharedItemCount: number(row.sharedItemCount, "music source removal impact.sharedItemCount"),
+    orphanedItemCount: number(row.orphanedItemCount, "music source removal impact.orphanedItemCount"),
+    activeRefreshCount: number(row.activeRefreshCount, "music source removal impact.activeRefreshCount"),
+  };
+}

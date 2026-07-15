@@ -68,6 +68,40 @@ string_enum!(MusicRefreshState {
     Partial => "partial",
     Failed => "failed",
 });
+string_enum!(MusicRefreshJobState {
+    Queued => "queued",
+    Running => "running",
+    Completed => "completed",
+    Partial => "partial",
+    Failed => "failed",
+    Cancelled => "cancelled",
+});
+string_enum!(MusicSourceHealth {
+    Healthy => "healthy",
+    Stale => "stale",
+    Issues => "issues",
+    Disabled => "disabled",
+});
+string_enum!(MusicRelinkPlanState {
+    Planning => "planning",
+    Ready => "ready",
+    Applied => "applied",
+    Cancelled => "cancelled",
+});
+string_enum!(MusicRelinkMatchKind {
+    Exact => "exact",
+    Likely => "likely",
+    Ambiguous => "ambiguous",
+    Missing => "missing",
+    New => "new",
+});
+string_enum!(MusicYouTubeResolutionState {
+    Resolving => "resolving",
+    Ready => "ready",
+    Unavailable => "unavailable",
+    EmbeddingBlocked => "embedding-blocked",
+    TimedOut => "timed-out",
+});
 string_enum!(MusicWeight {
     Rarely => "rarely",
     LessOften => "less-often",
@@ -142,6 +176,9 @@ pub struct MusicLibraryItem {
     pub original_title: String,
     pub original_artist: String,
     pub original_album: String,
+    pub original_track_number: Option<i64>,
+    pub original_artwork_identity: Option<String>,
+    pub youtube_resolution_state: Option<MusicYouTubeResolutionState>,
     pub title_override: Option<String>,
     pub artist_override: Option<String>,
     pub album_override: Option<String>,
@@ -193,11 +230,14 @@ pub struct MusicSourceCollection {
     pub youtube_playlist_id: Option<String>,
     pub refresh_state: MusicRefreshState,
     pub last_successful_refresh_at: Option<i64>,
+    pub previous_successful_refresh_at: Option<i64>,
     pub last_refresh_error_code: Option<String>,
     pub snapshot_generation: i64,
     pub created_at: i64,
     pub updated_at: i64,
     pub version: i64,
+    pub discovery_enabled: bool,
+    pub removed_at: Option<i64>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -268,9 +308,94 @@ pub struct MusicLibraryItemWrite {
     pub original_title: String,
     pub original_artist: String,
     pub original_album: String,
+    pub original_track_number: Option<i64>,
+    pub original_artwork_identity: Option<String>,
+    pub youtube_resolution_state: Option<MusicYouTubeResolutionState>,
     pub duration_ms: Option<i64>,
     pub availability: MusicItemAvailability,
     pub discovered_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicLocalRefreshRequest {
+    pub job_id: String,
+    pub root_id: String,
+    pub collection_id: String,
+    pub folder_path: String,
+    pub available_roots: Vec<MusicAvailableRootPath>,
+    pub requested_at: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicAvailableRootPath {
+    pub root_id: String,
+    pub folder_path: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicYouTubeVideoWrite {
+    pub video_id: String,
+    pub title: String,
+    pub channel: String,
+    pub duration_ms: Option<i64>,
+    pub resolution_state: MusicYouTubeResolutionState,
+    pub resolved_at: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicYouTubePlaylistSnapshotWrite {
+    pub collection_id: String,
+    pub playlist_id: String,
+    pub name: String,
+    pub video_ids: Vec<String>,
+    pub resolved_at: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicYouTubeSourceFailureWrite {
+    pub collection_id: String,
+    pub playlist_id: String,
+    pub name: String,
+    pub resolution_state: MusicYouTubeResolutionState,
+    pub error_code: String,
+    pub occurred_at: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicYouTubeSnapshotResult {
+    pub collection_id: String,
+    pub canonical_item_count: i64,
+    pub newly_discovered_count: i64,
+    pub repeated_video_count: i64,
+    pub generation: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicRefreshJobProgress {
+    pub job_id: String,
+    pub collection_id: String,
+    pub root_id: Option<String>,
+    pub kind: MusicCollectionKind,
+    pub state: MusicRefreshJobState,
+    pub generation: i64,
+    pub discovered_count: i64,
+    pub processed_count: i64,
+    pub skipped_count: i64,
+    pub issue_count: i64,
+    pub truncated_count: i64,
+    pub absence_determined: bool,
+    pub status_message: String,
+    pub requested_at: i64,
+    pub started_at: Option<i64>,
+    pub finished_at: Option<i64>,
     pub updated_at: i64,
 }
 
@@ -514,10 +639,17 @@ pub struct MusicSourceSummary {
     pub name: String,
     pub refresh_state: MusicRefreshState,
     pub last_successful_refresh_at: Option<i64>,
+    pub local_root_id: Option<String>,
+    pub youtube_playlist_id: Option<String>,
     pub item_count: i64,
     pub missing_count: i64,
     pub new_count: i64,
+    pub unreviewed_count: i64,
+    pub unavailable_count: i64,
+    pub ambiguous_count: i64,
     pub open_issue_count: i64,
+    pub health: MusicSourceHealth,
+    pub discovery_enabled: bool,
     pub version: i64,
 }
 
@@ -528,8 +660,95 @@ pub struct MusicIssue {
     pub issue_kind: String,
     pub item_id: Option<String>,
     pub playlist_id: Option<String>,
+    pub collection_id: Option<String>,
+    pub root_id: Option<String>,
+    pub relative_path: Option<String>,
+    pub action_required: bool,
     pub message: String,
     pub created_at: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicRelinkPlanRequest {
+    pub plan_id: String,
+    pub root_id: String,
+    pub replacement_folder_path: String,
+    pub created_at: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicRelinkPlanSummary {
+    pub id: String,
+    pub root_id: String,
+    pub state: MusicRelinkPlanState,
+    pub exact_count: i64,
+    pub likely_count: i64,
+    pub ambiguous_count: i64,
+    pub missing_count: i64,
+    pub new_count: i64,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicRelinkPlanEntry {
+    pub id: String,
+    pub match_kind: MusicRelinkMatchKind,
+    pub old_location_id: Option<String>,
+    pub suggested_item_id: Option<String>,
+    pub candidate_relative_path: Option<String>,
+    pub candidate_item_ids: Vec<String>,
+    pub file_size_bytes: Option<i64>,
+    pub resolved_item_id: Option<String>,
+    pub resolved_at: Option<i64>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicRelinkPlanWindow {
+    pub entries: Vec<MusicRelinkPlanEntry>,
+    pub total_count: i64,
+    pub offset: i64,
+    pub limit: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicRelinkDecision {
+    pub entry_id: String,
+    pub item_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicRelinkApplyRequest {
+    pub plan_id: String,
+    pub decisions: Vec<MusicRelinkDecision>,
+    pub applied_at: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicSourceRemovalImpact {
+    pub collection_id: String,
+    pub item_count: i64,
+    pub membership_count: i64,
+    pub shared_item_count: i64,
+    pub orphaned_item_count: i64,
+    pub active_refresh_count: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicSourceRemovalRequest {
+    pub collection_id: String,
+    pub expected_version: i64,
+    pub expected_impact: MusicSourceRemovalImpact,
+    pub remove_orphaned_items: bool,
+    pub removed_at: i64,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]

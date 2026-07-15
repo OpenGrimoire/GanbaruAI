@@ -29,6 +29,9 @@ pub(crate) struct MusicLibraryItemRow {
     pub original_title: String,
     pub original_artist: String,
     pub original_album: String,
+    pub original_track_number: Option<i64>,
+    pub original_artwork_identity: Option<String>,
+    pub youtube_resolution_state: Option<String>,
     pub title_override: Option<String>,
     pub artist_override: Option<String>,
     pub album_override: Option<String>,
@@ -55,6 +58,16 @@ impl TryFrom<MusicLibraryItemRow> for MusicLibraryItem {
             original_title: row.original_title,
             original_artist: row.original_artist,
             original_album: row.original_album,
+            original_track_number: row.original_track_number,
+            original_artwork_identity: row.original_artwork_identity,
+            youtube_resolution_state: row
+                .youtube_resolution_state
+                .as_deref()
+                .map(MusicYouTubeResolutionState::try_from)
+                .transpose()
+                .map_err(|message| {
+                    MusicLibraryError::validation("youtubeResolutionState", message)
+                })?,
             title_override: row.title_override,
             artist_override: row.artist_override,
             album_override: row.album_override,
@@ -203,6 +216,10 @@ pub(crate) struct MusicIssueRow {
     pub issue_kind: String,
     pub item_id: Option<String>,
     pub playlist_id: Option<String>,
+    pub collection_id: Option<String>,
+    pub root_id: Option<String>,
+    pub relative_path: Option<String>,
+    pub action_required: i64,
     pub message: String,
     pub created_at: i64,
 }

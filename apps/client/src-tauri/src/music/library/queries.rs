@@ -302,30 +302,66 @@ struct SourceSummaryRow {
     name: String,
     refresh_state: String,
     last_successful_refresh_at: Option<i64>,
+    local_root_id: Option<String>,
+    youtube_playlist_id: Option<String>,
     item_count: i64,
     missing_count: i64,
     new_count: i64,
+    unreviewed_count: i64,
+    unavailable_count: i64,
+    ambiguous_count: i64,
     open_issue_count: i64,
+    discovery_enabled: i64,
     version: i64,
 }
 
+const SOURCE_STALE_AFTER_MS: i64 = 30 * 24 * 60 * 60 * 1_000;
+
 pub(crate) async fn source_summaries(
     pool: &SqlitePool,
+    now_ms: i64,
     offset: i64,
     limit: i64,
 ) -> MusicLibraryResult<Vec<MusicSourceSummary>> {
     validate_summary_window(offset, limit)?;
+    if now_ms <= 0 {
+        return Err(MusicLibraryError::validation("nowMs", "must be positive"));
+    }
     let rows = sqlx::query_as::<_, SourceSummaryRow>(
         "SELECT source.id, source.kind, source.name, source.refresh_state,
-                source.last_successful_refresh_at, COUNT(source_item.item_id) AS item_count,
-                SUM(CASE WHEN item.availability IN ('missing', 'unavailable', 'ambiguous')
-                    THEN 1 ELSE 0 END) AS missing_count,
-                SUM(CASE WHEN item.review_state = 'unreviewed' THEN 1 ELSE 0 END) AS new_count,
-                (SELECT COUNT(*) FROM music_library_repair_issues AS issue
+                source.last_successful_refresh_at, source.local_root_id,
+                source.youtube_playlist_id,
+                COUNT(source_item.item_id) AS item_count,
+                SUM(CASE WHEN item.availability = 'missing' THEN 1 ELSE 0 END) AS missing_count,
+                SUM(CASE WHEN item.review_state = 'unreviewed'
+                              AND source_item.first_discovered_at >= COALESCE(source.previous_successful_refresh_at, 0)
+                    THEN 1 ELSE 0 END) AS new_count,
+                SUM(CASE WHEN item.review_state = 'unreviewed' THEN 1 ELSE 0 END) AS unreviewed_count,
+                SUM(CASE WHEN item.availability = 'unavailable' THEN 1 ELSE 0 END) AS unavailable_count,
+                SUM(CASE WHEN item.availability = 'ambiguous' THEN 1 ELSE 0 END) AS ambiguous_count,
+                ((SELECT COUNT(*) FROM music_library_repair_issues AS issue
                  WHERE issue.resolved_at IS NULL AND issue.item_id IN (
                     SELECT nested.item_id FROM music_source_collection_items AS nested
                     WHERE nested.collection_id = source.id
-                 )) AS open_issue_count,
+                 )) +
+                 (SELECT COUNT(*) FROM music_refresh_job_issues AS refresh_issue
+                  JOIN music_refresh_jobs AS refresh_job ON refresh_job.id = refresh_issue.job_id
+                  WHERE refresh_job.source_collection_id = source.id
+                    AND refresh_issue.issue_code <> 'metadata-fallback'
+                    AND NOT EXISTS (
+                        SELECT 1 FROM music_refresh_jobs AS newer
+                        WHERE newer.source_collection_id = source.id
+                          AND newer.generation > refresh_job.generation
+                    )) +
+                 (SELECT COUNT(*) FROM music_relink_plan_entries AS relink_entry
+                  JOIN music_relink_plans AS relink_plan ON relink_plan.id = relink_entry.plan_id
+                  WHERE relink_plan.root_id = source.local_root_id
+                    AND relink_plan.state IN ('ready', 'applied')
+                    AND relink_entry.match_kind IN ('ambiguous', 'missing')
+                    AND relink_entry.resolved_at IS NULL) +
+                 SUM(CASE WHEN item.availability IN ('missing', 'unavailable', 'ambiguous')
+                     THEN 1 ELSE 0 END)) AS open_issue_count,
+                source.discovery_enabled,
                 source.version
          FROM music_source_collections AS source
          LEFT JOIN music_source_collection_items AS source_item
@@ -342,6 +378,8 @@ pub(crate) async fn source_summaries(
     .map_err(|error| MusicLibraryError::database("load music source summaries", error))?;
     rows.into_iter()
         .map(|row| {
+            let health = source_health(&row, now_ms)?;
+            let discovery_enabled = parse_query_bool(row.discovery_enabled, "discoveryEnabled")?;
             Ok(MusicSourceSummary {
                 id: row.id,
                 kind: MusicCollectionKind::try_from(row.kind.as_str())
@@ -350,14 +388,53 @@ pub(crate) async fn source_summaries(
                 refresh_state: MusicRefreshState::try_from(row.refresh_state.as_str())
                     .map_err(|message| MusicLibraryError::validation("refreshState", message))?,
                 last_successful_refresh_at: row.last_successful_refresh_at,
+                local_root_id: row.local_root_id,
+                youtube_playlist_id: row.youtube_playlist_id,
                 item_count: row.item_count,
                 missing_count: row.missing_count,
                 new_count: row.new_count,
+                unreviewed_count: row.unreviewed_count,
+                unavailable_count: row.unavailable_count,
+                ambiguous_count: row.ambiguous_count,
                 open_issue_count: row.open_issue_count,
+                health,
+                discovery_enabled,
                 version: row.version,
             })
         })
         .collect()
+}
+
+fn source_health(row: &SourceSummaryRow, now_ms: i64) -> MusicLibraryResult<MusicSourceHealth> {
+    if !parse_query_bool(row.discovery_enabled, "discoveryEnabled")? {
+        return Ok(MusicSourceHealth::Disabled);
+    }
+    if row.open_issue_count > 0
+        || row.missing_count > 0
+        || row.unavailable_count > 0
+        || row.ambiguous_count > 0
+        || matches!(row.refresh_state.as_str(), "partial" | "failed")
+    {
+        return Ok(MusicSourceHealth::Issues);
+    }
+    if row
+        .last_successful_refresh_at
+        .is_none_or(|refreshed_at| now_ms.saturating_sub(refreshed_at) > SOURCE_STALE_AFTER_MS)
+    {
+        return Ok(MusicSourceHealth::Stale);
+    }
+    Ok(MusicSourceHealth::Healthy)
+}
+
+fn parse_query_bool(value: i64, field: &str) -> MusicLibraryResult<bool> {
+    match value {
+        0 => Ok(false),
+        1 => Ok(true),
+        _ => Err(MusicLibraryError::validation(
+            field,
+            format!("expected 0 or 1, received {value}"),
+        )),
+    }
 }
 
 pub(crate) async fn issues(
@@ -367,20 +444,75 @@ pub(crate) async fn issues(
 ) -> MusicLibraryResult<Vec<MusicIssue>> {
     validate_summary_window(offset, limit)?;
     let rows = sqlx::query_as::<_, MusicIssueRow>(
-        "SELECT id, issue_kind, item_id, playlist_id, message, created_at
+        "SELECT id, issue_kind, item_id, playlist_id, collection_id, root_id,
+                relative_path, action_required, message, created_at
              FROM (
-                SELECT id, issue_kind, item_id, playlist_id, message, created_at
-                FROM music_library_repair_issues WHERE resolved_at IS NULL
+                SELECT repair.id, repair.issue_kind, repair.item_id, repair.playlist_id,
+                    (SELECT source_item.collection_id
+                     FROM music_source_collection_items AS source_item
+                     WHERE source_item.item_id = repair.item_id
+                     ORDER BY source_item.collection_id LIMIT 1) AS collection_id,
+                    (SELECT source.local_root_id
+                     FROM music_source_collections AS source
+                     JOIN music_source_collection_items AS source_item ON source_item.collection_id = source.id
+                     WHERE source_item.item_id = repair.item_id
+                     ORDER BY source.id LIMIT 1) AS root_id,
+                    NULL AS relative_path, 1 AS action_required,
+                    repair.message, repair.created_at
+                FROM music_library_repair_issues AS repair WHERE repair.resolved_at IS NULL
                 UNION ALL
-                SELECT 'availability:' || id, 'item-' || availability, id, NULL,
-                    CASE availability
+                SELECT 'availability:' || item.id,
+                    CASE
+                        WHEN item.youtube_resolution_state = 'embedding-blocked' THEN 'youtube-embedding-blocked'
+                        WHEN item.youtube_resolution_state = 'timed-out' THEN 'youtube-timed-out'
+                        WHEN item.source_kind = 'youtube-video' THEN 'youtube-unavailable'
+                        ELSE 'item-' || item.availability
+                    END,
+                    item.id, NULL,
+                    (SELECT source_item.collection_id FROM music_source_collection_items AS source_item
+                     WHERE source_item.item_id = item.id ORDER BY source_item.collection_id LIMIT 1),
+                    (SELECT location.root_id FROM music_local_locations AS location
+                     WHERE location.item_id = item.id ORDER BY location.root_id LIMIT 1),
+                    (SELECT location.relative_path FROM music_local_locations AS location
+                     WHERE location.item_id = item.id ORDER BY location.root_id, location.relative_path LIMIT 1),
+                    1,
+                    CASE item.availability
                         WHEN 'missing' THEN 'The local media location is missing.'
                         WHEN 'ambiguous' THEN 'The media identity needs confirmation.'
                         ELSE 'The online media is unavailable.'
                     END,
-                    updated_at
-                FROM music_library_items
-                WHERE availability IN ('missing', 'ambiguous', 'unavailable')
+                    item.updated_at
+                FROM music_library_items AS item
+                WHERE item.availability IN ('missing', 'ambiguous', 'unavailable')
+                UNION ALL
+                SELECT refresh_issue.id, refresh_issue.issue_code, refresh_issue.item_id, NULL,
+                    refresh_job.source_collection_id, refresh_job.local_root_id,
+                    refresh_issue.relative_path,
+                    CASE WHEN refresh_issue.issue_code = 'metadata-fallback' THEN 0 ELSE 1 END,
+                    refresh_issue.message, refresh_issue.created_at
+                FROM music_refresh_job_issues AS refresh_issue
+                JOIN music_refresh_jobs AS refresh_job ON refresh_job.id = refresh_issue.job_id
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM music_refresh_jobs AS newer
+                    WHERE newer.source_collection_id = refresh_job.source_collection_id
+                      AND newer.generation > refresh_job.generation
+                )
+                UNION ALL
+                SELECT relink_entry.id, 'relink-' || relink_entry.match_kind,
+                    relink_entry.suggested_item_id, NULL,
+                    (SELECT source.id FROM music_source_collections AS source
+                     WHERE source.local_root_id = relink_plan.root_id LIMIT 1),
+                    relink_plan.root_id, relink_entry.candidate_relative_path, 1,
+                    CASE relink_entry.match_kind
+                        WHEN 'ambiguous' THEN 'Several existing tracks could match this replacement file.'
+                        ELSE 'An existing track was not found in the replacement folder.'
+                    END,
+                    relink_entry.created_at
+                FROM music_relink_plan_entries AS relink_entry
+                JOIN music_relink_plans AS relink_plan ON relink_plan.id = relink_entry.plan_id
+                WHERE relink_plan.state IN ('ready', 'applied')
+                  AND relink_entry.match_kind IN ('ambiguous', 'missing')
+                  AND relink_entry.resolved_at IS NULL
              )
              ORDER BY created_at DESC, id
              LIMIT ? OFFSET ?",
@@ -390,17 +522,22 @@ pub(crate) async fn issues(
     .fetch_all(pool)
     .await
     .map_err(|error| MusicLibraryError::database("load music issues", error))?;
-    Ok(rows
-        .into_iter()
-        .map(|row| MusicIssue {
-            id: row.id,
-            issue_kind: row.issue_kind,
-            item_id: row.item_id,
-            playlist_id: row.playlist_id,
-            message: row.message,
-            created_at: row.created_at,
+    rows.into_iter()
+        .map(|row| {
+            Ok(MusicIssue {
+                id: row.id,
+                issue_kind: row.issue_kind,
+                item_id: row.item_id,
+                playlist_id: row.playlist_id,
+                collection_id: row.collection_id,
+                root_id: row.root_id,
+                relative_path: row.relative_path,
+                action_required: parse_query_bool(row.action_required, "actionRequired")?,
+                message: row.message,
+                created_at: row.created_at,
+            })
         })
-        .collect())
+        .collect()
 }
 
 pub(crate) async fn inspector_detail(
@@ -409,7 +546,8 @@ pub(crate) async fn inspector_detail(
 ) -> MusicLibraryResult<MusicInspectorDetail> {
     let item_row = sqlx::query_as::<_, MusicLibraryItemRow>(
         "SELECT id, identity_key, source_kind, media_kind, youtube_video_id,
-                original_title, original_artist, original_album, title_override,
+                original_title, original_artist, original_album, original_track_number,
+                original_artwork_identity, youtube_resolution_state, title_override,
                 artist_override, album_override, artwork_override, duration_ms,
                 availability, review_state, review_changed_at, discovered_at,
                 updated_at, version
@@ -540,11 +678,14 @@ struct SourceCollectionRow {
     youtube_playlist_id: Option<String>,
     refresh_state: String,
     last_successful_refresh_at: Option<i64>,
+    previous_successful_refresh_at: Option<i64>,
     last_refresh_error_code: Option<String>,
     snapshot_generation: i64,
     created_at: i64,
     updated_at: i64,
     version: i64,
+    discovery_enabled: i64,
+    removed_at: Option<i64>,
 }
 
 pub(crate) async fn source_collections(
@@ -556,7 +697,8 @@ pub(crate) async fn source_collections(
     sqlx::query_as::<_, SourceCollectionRow>(
         "SELECT id, kind, identity_key, name, local_root_id, youtube_playlist_id,
                 refresh_state, last_successful_refresh_at, last_refresh_error_code,
-                snapshot_generation, created_at, updated_at, version
+                previous_successful_refresh_at, snapshot_generation, created_at,
+                updated_at, version, discovery_enabled, removed_at
          FROM music_source_collections
          ORDER BY name COLLATE NOCASE, id
          LIMIT ? OFFSET ?",
@@ -579,11 +721,14 @@ pub(crate) async fn source_collections(
             refresh_state: MusicRefreshState::try_from(row.refresh_state.as_str())
                 .map_err(|message| MusicLibraryError::validation("refreshState", message))?,
             last_successful_refresh_at: row.last_successful_refresh_at,
+            previous_successful_refresh_at: row.previous_successful_refresh_at,
             last_refresh_error_code: row.last_refresh_error_code,
             snapshot_generation: row.snapshot_generation,
             created_at: row.created_at,
             updated_at: row.updated_at,
             version: row.version,
+            discovery_enabled: parse_query_bool(row.discovery_enabled, "discoveryEnabled")?,
+            removed_at: row.removed_at,
         })
     })
     .collect()

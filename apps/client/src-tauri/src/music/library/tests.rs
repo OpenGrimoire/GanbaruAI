@@ -98,6 +98,9 @@ fn library_items_require_source_specific_identity() {
         original_title: "Video".to_string(),
         original_artist: String::new(),
         original_album: String::new(),
+        original_track_number: None,
+        original_artwork_identity: None,
+        youtube_resolution_state: None,
         duration_ms: None,
         availability: MusicItemAvailability::Unknown,
         discovered_at: 1_700_000_000_000,
@@ -128,6 +131,9 @@ fn item_and_location_upserts_preserve_canonical_identity_and_refresh_search() {
             original_title: "First title".to_string(),
             original_artist: "Composer".to_string(),
             original_album: "Album".to_string(),
+            original_track_number: Some(3),
+            original_artwork_identity: None,
+            youtube_resolution_state: None,
             duration_ms: Some(120_000),
             availability: MusicItemAvailability::Available,
             discovered_at: 1_700_000_000_000,
@@ -766,7 +772,7 @@ fn summaries_issues_and_inspector_return_composed_data_without_row_queries() {
         let playlists = super::queries::playlist_summaries(&pool, 1_700_000_100_000, 0, 20)
             .await
             .unwrap();
-        let sources = super::queries::source_summaries(&pool, 0, 20)
+        let sources = super::queries::source_summaries(&pool, 1_700_000_000_000, 0, 20)
             .await
             .unwrap();
         let roots = super::queries::local_roots(&pool, 0, 20).await.unwrap();

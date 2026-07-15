@@ -635,6 +635,19 @@ mod tests {
     }
 
     #[test]
+    fn apic_frame_parser_rejects_oversized_artwork_without_rejecting_the_track() {
+        let mut frame = Vec::new();
+        frame.push(0);
+        frame.extend_from_slice(b"image/jpeg\0");
+        frame.push(3);
+        frame.push(0);
+        frame.extend_from_slice(&[0xff, 0xd8, 0xff]);
+        frame.resize(24 * 1024 * 1024 + 32, 0);
+
+        assert!(parse_apic_frame(&frame).is_none());
+    }
+
+    #[test]
     fn id3_unsynchronization_removes_inserted_zero_bytes() {
         assert_eq!(
             remove_id3_unsynchronization(&[0xff, 0x00, 0xe0, 0x11]),

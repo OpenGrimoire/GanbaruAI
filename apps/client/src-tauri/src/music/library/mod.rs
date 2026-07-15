@@ -1,12 +1,16 @@
 pub(crate) mod commands;
 mod error;
 pub(crate) mod fixtures;
+pub(crate) mod local_refresh;
 mod models;
 mod queries;
+mod relink;
 mod rows;
 mod search;
+mod source_lifecycle;
 mod validation;
 mod writes;
+mod youtube;
 
 #[cfg(test)]
 pub use error::MusicLibraryErrorCode;
@@ -15,5 +19,9 @@ pub use models::*;
 pub(crate) use rows::*;
 pub(crate) use validation::*;
 
+#[cfg(test)]
+mod relink_tests;
+#[cfg(test)]
+mod source_lifecycle_tests;
 #[cfg(test)]
 mod tests;

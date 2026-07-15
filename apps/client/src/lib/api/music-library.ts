@@ -10,10 +10,15 @@ import {
   parseItemWindow,
   parsePlaylist,
   parsePlaylistSummaries,
+  parseRefreshJobProgress,
+  parseRelinkPlanSummary,
+  parseRelinkPlanWindow,
   parseRoots,
   parseSearchRebuild,
   parseSourceSummaries,
+  parseSourceRemovalImpact,
   parseWriteReceipt,
+  parseYouTubeSnapshotResult,
   type LocalRootBinding,
   type MusicBulkMembershipWrite,
   type MusicCollectionWrite,
@@ -22,6 +27,7 @@ import {
   type MusicItemWindow,
   type MusicItemWindowRequest,
   type MusicLibraryItemWrite,
+  type MusicLocalRefreshRequest,
   type MusicLocalLocationWrite,
   type MusicLocalRoot,
   type MusicMembershipRemove,
@@ -33,12 +39,23 @@ import {
   type MusicPlaylistSummary,
   type MusicPlaylistUpdate,
   type MusicReviewWrite,
+  type MusicRelinkApplyRequest,
+  type MusicRelinkPlanRequest,
+  type MusicRelinkPlanSummary,
+  type MusicRelinkPlanWindow,
+  type MusicRefreshJobProgress,
   type MusicSearchRebuildResult,
   type MusicSnoozeWrite,
   type MusicSourceCollection,
   type MusicSourceSummary,
+  type MusicSourceRemovalImpact,
+  type MusicSourceRemovalRequest,
   type MusicStatisticsReset,
   type MusicWriteReceipt,
+  type MusicYouTubePlaylistSnapshotWrite,
+  type MusicYouTubeSnapshotResult,
+  type MusicYouTubeSourceFailureWrite,
+  type MusicYouTubeVideoWrite,
 } from "$lib/music/library-contracts";
 
 export type MusicLibraryApiErrorCode = "validation" | "not-found" | "conflict" | "stale-write" | "database" | "unknown";
@@ -105,6 +122,42 @@ export const upsertMusicLibraryItem = (request: MusicLibraryItemWrite): Promise<
   call("music_library_upsert_item", databaseArgs({ request }), parseWriteReceipt);
 export const upsertMusicLocalLocation = (request: MusicLocalLocationWrite): Promise<void> =>
   call("music_library_upsert_local_location", databaseArgs({ request }), parseVoid);
+export const startMusicLocalRefresh = (request: MusicLocalRefreshRequest): Promise<MusicRefreshJobProgress> =>
+  call("music_library_start_local_refresh", databaseArgs({ request }), parseRefreshJobProgress);
+export const getMusicRefreshProgress = (jobId: string): Promise<MusicRefreshJobProgress> =>
+  call("music_library_refresh_progress", databaseArgs({ jobId }), parseRefreshJobProgress);
+export const cancelMusicRefresh = (jobId: string, cancelledAt: number): Promise<MusicRefreshJobProgress> =>
+  call("music_library_cancel_refresh", databaseArgs({ jobId, cancelledAt }), parseRefreshJobProgress);
+export const upsertMusicYouTubeVideo = (request: MusicYouTubeVideoWrite): Promise<MusicWriteReceipt> =>
+  call("music_library_upsert_youtube_video", databaseArgs({ request }), parseWriteReceipt);
+export const applyMusicYouTubePlaylistSnapshot = (
+  request: MusicYouTubePlaylistSnapshotWrite,
+): Promise<MusicYouTubeSnapshotResult> =>
+  call("music_library_apply_youtube_playlist_snapshot", databaseArgs({ request }), parseYouTubeSnapshotResult);
+export const reportMusicYouTubeSourceFailure = (request: MusicYouTubeSourceFailureWrite): Promise<void> =>
+  call("music_library_report_youtube_source_failure", databaseArgs({ request }), parseVoid);
+export const createMusicRelinkPlan = (request: MusicRelinkPlanRequest): Promise<MusicRelinkPlanSummary> =>
+  call("music_library_create_relink_plan", databaseArgs({ request }), parseRelinkPlanSummary);
+export const getMusicRelinkPlanEntries = (
+  planId: string,
+  offset: number,
+  limit: number,
+): Promise<MusicRelinkPlanWindow> =>
+  call("music_library_relink_plan_entries", databaseArgs({ planId, offset, limit }), parseRelinkPlanWindow);
+export const applyMusicRelinkPlan = (request: MusicRelinkApplyRequest): Promise<MusicRelinkPlanSummary> =>
+  call("music_library_apply_relink_plan", databaseArgs({ request }), parseRelinkPlanSummary);
+export const cancelMusicRelinkPlan = (planId: string, cancelledAt: number): Promise<MusicRelinkPlanSummary> =>
+  call("music_library_cancel_relink_plan", databaseArgs({ planId, cancelledAt }), parseRelinkPlanSummary);
+export const getMusicSourceRemovalImpact = (collectionId: string): Promise<MusicSourceRemovalImpact> =>
+  call("music_library_source_removal_impact", databaseArgs({ collectionId }), parseSourceRemovalImpact);
+export const removeMusicSource = (request: MusicSourceRemovalRequest): Promise<MusicSourceRemovalImpact> =>
+  call("music_library_remove_source", databaseArgs({ request }), parseSourceRemovalImpact);
+export const restoreMusicSource = (
+  collectionId: string,
+  expectedVersion: number,
+  restoredAt: number,
+): Promise<MusicWriteReceipt> =>
+  call("music_library_restore_source", databaseArgs({ collectionId, expectedVersion, restoredAt }), parseWriteReceipt);
 export const createMusicPlaylist = (request: MusicPlaylistCreate): Promise<MusicWriteReceipt> =>
   call("music_library_create_playlist", databaseArgs({ request }), parseWriteReceipt);
 export const updateMusicPlaylist = (request: MusicPlaylistUpdate): Promise<MusicWriteReceipt> =>
@@ -134,8 +187,8 @@ export const getMusicItemWindow = (request: MusicItemWindowRequest): Promise<Mus
   call("music_library_item_window", databaseArgs({ request }), parseItemWindow);
 export const getMusicPlaylistSummaries = (nowMs: number, offset: number, limit: number): Promise<MusicPlaylistSummary[]> =>
   call("music_library_playlist_summaries", databaseArgs({ nowMs, offset, limit }), parsePlaylistSummaries);
-export const getMusicSourceSummaries = (offset: number, limit: number): Promise<MusicSourceSummary[]> =>
-  call("music_library_source_summaries", databaseArgs({ offset, limit }), parseSourceSummaries);
+export const getMusicSourceSummaries = (nowMs: number, offset: number, limit: number): Promise<MusicSourceSummary[]> =>
+  call("music_library_source_summaries", databaseArgs({ nowMs, offset, limit }), parseSourceSummaries);
 export const getMusicIssues = (offset: number, limit: number): Promise<MusicIssue[]> =>
   call("music_library_issues", databaseArgs({ offset, limit }), parseIssues);
 export const getMusicInspectorDetail = (itemId: string): Promise<MusicInspectorDetail> =>

@@ -30,6 +30,177 @@ pub async fn music_library_upsert_local_location(
 }
 
 #[tauri::command]
+pub async fn music_library_start_local_refresh(
+    app: tauri::AppHandle,
+    db_url: String,
+    request: MusicLocalRefreshRequest,
+) -> MusicLibraryResult<MusicRefreshJobProgress> {
+    let pool = connect_sqlite(app, db_url)
+        .await
+        .map_err(connection_error)?;
+    let progress = super::local_refresh::prepare(&pool, &request).await?;
+    let refresh_pool = pool.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let _ = tauri::async_runtime::block_on(super::local_refresh::run_prepared(
+            &refresh_pool,
+            request,
+        ));
+    });
+    Ok(progress)
+}
+
+#[tauri::command]
+pub async fn music_library_refresh_progress(
+    app: tauri::AppHandle,
+    db_url: String,
+    job_id: String,
+) -> MusicLibraryResult<MusicRefreshJobProgress> {
+    let pool = connect_sqlite(app, db_url)
+        .await
+        .map_err(connection_error)?;
+    super::local_refresh::progress(&pool, &job_id).await
+}
+
+#[tauri::command]
+pub async fn music_library_cancel_refresh(
+    app: tauri::AppHandle,
+    db_url: String,
+    job_id: String,
+    cancelled_at: i64,
+) -> MusicLibraryResult<MusicRefreshJobProgress> {
+    let pool = connect_sqlite(app, db_url)
+        .await
+        .map_err(connection_error)?;
+    super::local_refresh::cancel(&pool, &job_id, cancelled_at).await
+}
+
+#[tauri::command]
+pub async fn music_library_upsert_youtube_video(
+    app: tauri::AppHandle,
+    db_url: String,
+    request: MusicYouTubeVideoWrite,
+) -> MusicLibraryResult<MusicWriteReceipt> {
+    let pool = connect_sqlite(app, db_url)
+        .await
+        .map_err(connection_error)?;
+    super::youtube::upsert_video(&pool, request).await
+}
+
+#[tauri::command]
+pub async fn music_library_apply_youtube_playlist_snapshot(
+    app: tauri::AppHandle,
+    db_url: String,
+    request: MusicYouTubePlaylistSnapshotWrite,
+) -> MusicLibraryResult<MusicYouTubeSnapshotResult> {
+    let pool = connect_sqlite(app, db_url)
+        .await
+        .map_err(connection_error)?;
+    super::youtube::apply_playlist_snapshot(&pool, request).await
+}
+
+#[tauri::command]
+pub async fn music_library_report_youtube_source_failure(
+    app: tauri::AppHandle,
+    db_url: String,
+    request: MusicYouTubeSourceFailureWrite,
+) -> MusicLibraryResult<()> {
+    let pool = connect_sqlite(app, db_url)
+        .await
+        .map_err(connection_error)?;
+    super::youtube::report_source_failure(&pool, request).await
+}
+
+#[tauri::command]
+pub async fn music_library_create_relink_plan(
+    app: tauri::AppHandle,
+    db_url: String,
+    request: MusicRelinkPlanRequest,
+) -> MusicLibraryResult<MusicRelinkPlanSummary> {
+    let pool = connect_sqlite(app, db_url)
+        .await
+        .map_err(connection_error)?;
+    super::relink::create_plan(&pool, request).await
+}
+
+#[tauri::command]
+pub async fn music_library_relink_plan_entries(
+    app: tauri::AppHandle,
+    db_url: String,
+    plan_id: String,
+    offset: i64,
+    limit: i64,
+) -> MusicLibraryResult<MusicRelinkPlanWindow> {
+    let pool = connect_sqlite(app, db_url)
+        .await
+        .map_err(connection_error)?;
+    super::relink::plan_entries(&pool, &plan_id, offset, limit).await
+}
+
+#[tauri::command]
+pub async fn music_library_apply_relink_plan(
+    app: tauri::AppHandle,
+    db_url: String,
+    request: MusicRelinkApplyRequest,
+) -> MusicLibraryResult<MusicRelinkPlanSummary> {
+    let pool = connect_sqlite(app, db_url)
+        .await
+        .map_err(connection_error)?;
+    super::relink::apply_plan(&pool, request).await
+}
+
+#[tauri::command]
+pub async fn music_library_cancel_relink_plan(
+    app: tauri::AppHandle,
+    db_url: String,
+    plan_id: String,
+    cancelled_at: i64,
+) -> MusicLibraryResult<MusicRelinkPlanSummary> {
+    let pool = connect_sqlite(app, db_url)
+        .await
+        .map_err(connection_error)?;
+    super::relink::cancel_plan(&pool, &plan_id, cancelled_at).await
+}
+
+#[tauri::command]
+pub async fn music_library_source_removal_impact(
+    app: tauri::AppHandle,
+    db_url: String,
+    collection_id: String,
+) -> MusicLibraryResult<MusicSourceRemovalImpact> {
+    let pool = connect_sqlite(app, db_url)
+        .await
+        .map_err(connection_error)?;
+    super::source_lifecycle::removal_impact(&pool, &collection_id).await
+}
+
+#[tauri::command]
+pub async fn music_library_remove_source(
+    app: tauri::AppHandle,
+    db_url: String,
+    request: MusicSourceRemovalRequest,
+) -> MusicLibraryResult<MusicSourceRemovalImpact> {
+    let pool = connect_sqlite(app, db_url)
+        .await
+        .map_err(connection_error)?;
+    super::source_lifecycle::remove_source(&pool, request).await
+}
+
+#[tauri::command]
+pub async fn music_library_restore_source(
+    app: tauri::AppHandle,
+    db_url: String,
+    collection_id: String,
+    expected_version: i64,
+    restored_at: i64,
+) -> MusicLibraryResult<MusicWriteReceipt> {
+    let pool = connect_sqlite(app, db_url)
+        .await
+        .map_err(connection_error)?;
+    super::source_lifecycle::restore_source(&pool, &collection_id, expected_version, restored_at)
+        .await
+}
+
+#[tauri::command]
 pub async fn music_library_create_playlist(
     app: tauri::AppHandle,
     db_url: String,
@@ -191,13 +362,14 @@ pub async fn music_library_playlist_summaries(
 pub async fn music_library_source_summaries(
     app: tauri::AppHandle,
     db_url: String,
+    now_ms: i64,
     offset: i64,
     limit: i64,
 ) -> MusicLibraryResult<Vec<MusicSourceSummary>> {
     let pool = connect_sqlite(app, db_url)
         .await
         .map_err(connection_error)?;
-    super::queries::source_summaries(&pool, offset, limit).await
+    super::queries::source_summaries(&pool, now_ms, offset, limit).await
 }
 
 #[tauri::command]

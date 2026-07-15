@@ -1,6 +1,16 @@
 import { tick } from "svelte";
 import { getYouTubeHostUrl } from "$lib/api/music";
 import {
+  applyMusicYouTubePlaylistSnapshot,
+  reportMusicYouTubeSourceFailure,
+  upsertMusicYouTubeVideo,
+} from "$lib/api/music-library";
+import type {
+  MusicYouTubePlaylistSnapshotWrite,
+  MusicYouTubeSourceFailureWrite,
+  MusicYouTubeVideoWrite,
+} from "$lib/music/library-contracts";
+import {
   clampVolume,
   initialQueueSelection,
   stableStatusDuringYouTubeBuffering,
@@ -52,6 +62,9 @@ interface MusicYouTubeAdapterContext {
   canPlayNext(): boolean;
   playNext(): Promise<void>;
   getHostUrl?: typeof getYouTubeHostUrl;
+  persistYouTubeVideo?: (request: MusicYouTubeVideoWrite) => Promise<unknown>;
+  persistYouTubePlaylist?: (request: MusicYouTubePlaylistSnapshotWrite) => Promise<unknown>;
+  reportYouTubeFailure?: (request: MusicYouTubeSourceFailureWrite) => Promise<void>;
   now?(): number;
 }
 
@@ -77,6 +90,9 @@ export function createMusicYouTubeAdapter(
 ): MusicYouTubeAdapter {
   const state = context.state;
   const getHostUrl = context.getHostUrl ?? getYouTubeHostUrl;
+  const persistYouTubeVideo = context.persistYouTubeVideo ?? upsertMusicYouTubeVideo;
+  const persistYouTubePlaylist = context.persistYouTubePlaylist ?? applyMusicYouTubePlaylistSnapshot;
+  const reportYouTubeFailure = context.reportYouTubeFailure ?? reportMusicYouTubeSourceFailure;
   const currentTime = context.now ?? Date.now;
   let hostBaseUrl: string | null = null;
   let hostLoadId: string | null = null;
@@ -84,6 +100,38 @@ export function createMusicYouTubeAdapter(
   let playlistTimeoutId: number | null = null;
   let optimisticPauseUntil = 0;
   let handlingEnded = false;
+  let lastMetadataSignature = "";
+
+  function playlistCollectionId(playlistId: string): string {
+    return `music-youtube-playlist-${playlistId}`;
+  }
+
+  function reportPersistenceError(operation: string, error: unknown): void {
+    console.error(`Unable to ${operation}.`, error);
+  }
+
+  function persistVideo(request: MusicYouTubeVideoWrite): void {
+    void persistYouTubeVideo(request).catch((error: unknown) => {
+      reportPersistenceError("save YouTube metadata", error);
+    });
+  }
+
+  function reportPlaylistFailure(
+    resolving: ResolvingYouTubePlaylist,
+    resolutionState: "unavailable" | "embedding-blocked" | "timed-out",
+    errorCode: string,
+  ): void {
+    void reportYouTubeFailure({
+      collectionId: playlistCollectionId(resolving.playlistId),
+      playlistId: resolving.playlistId,
+      name: resolving.playlistId,
+      resolutionState,
+      errorCode,
+      occurredAt: currentTime(),
+    }).catch((error: unknown) => {
+      reportPersistenceError("record the YouTube playlist issue", error);
+    });
+  }
 
   function registerFrame(frame: HTMLIFrameElement | null): void {
     state.youtubeFrame = frame;
@@ -113,7 +161,9 @@ export function createMusicYouTubeAdapter(
 
   function failPlaylistResolution(playlistId: string): void {
     if (!resolvingPlaylist || resolvingPlaylist.playlistId !== playlistId) return;
+    const failed = resolvingPlaylist;
     clearPlaylistResolution();
+    reportPlaylistFailure(failed, "timed-out", "playlist-resolution-timeout");
     state.playerError = "The YouTube playlist did not return playable videos. Check that it is public and supports embedded playback.";
     state.snapshot = {
       ...state.snapshot,
@@ -165,6 +215,7 @@ export function createMusicYouTubeAdapter(
     generation: number,
     autoplay: boolean,
   ): Promise<void> {
+    lastMetadataSignature = "";
     resolvingPlaylist = source.kind === "youtube-playlist"
       ? {
           playlistId: source.playlistId,
@@ -176,7 +227,17 @@ export function createMusicYouTubeAdapter(
         }
       : null;
     if (resolvingPlaylist) startPlaylistTimeout(resolvingPlaylist);
-    else clearPlaylistTimeout();
+    else if (source.kind === "youtube-video") {
+      clearPlaylistTimeout();
+      persistVideo({
+        videoId: source.videoId,
+        title: source.title === source.videoId ? "" : source.title,
+        channel: "",
+        durationMs: null,
+        resolutionState: "resolving",
+        resolvedAt: currentTime(),
+      });
+    }
     try {
       await ensureHostFrame(generation, source, persisted, autoplay);
     } catch (error) {
@@ -227,6 +288,18 @@ export function createMusicYouTubeAdapter(
       || resolving.playlistId !== message.playlistId
       || message.videoIds.length === 0
     ) return;
+    try {
+      await persistYouTubePlaylist({
+        collectionId: playlistCollectionId(message.playlistId),
+        playlistId: message.playlistId,
+        name: state.currentSource?.title || message.playlistId,
+        videoIds: message.videoIds,
+        resolvedAt: currentTime(),
+      });
+    } catch (error) {
+      reportPersistenceError("save the YouTube playlist snapshot", error);
+    }
+    if (!context.loadRuntime.isCurrent(resolving.generation)) return;
     const preferredIndex = resolving.preferredVideoId
       ? message.videoIds.indexOf(resolving.preferredVideoId)
       : -1;
@@ -276,7 +349,26 @@ export function createMusicYouTubeAdapter(
       return;
     }
     if (message.type === "ganbaru-ai-youtube-error") {
+      const failedPlaylist = resolvingPlaylist;
       clearPlaylistResolution();
+      const resolutionState = message.code === 101 || message.code === 150
+        ? "embedding-blocked"
+        : "unavailable";
+      if (failedPlaylist) {
+        reportPlaylistFailure(failedPlaylist, resolutionState, `youtube-error-${message.code}`);
+      } else {
+        const source = state.currentSource;
+        if (source?.kind === "youtube-video") {
+          persistVideo({
+            videoId: source.videoId,
+            title: source.title === source.videoId ? "" : source.title,
+            channel: "",
+            durationMs: state.snapshot.durationMs,
+            resolutionState,
+            resolvedAt: currentTime(),
+          });
+        }
+      }
       state.playerError = youtubeErrorMessage(message.code);
       state.snapshot = {
         ...state.snapshot,
@@ -297,6 +389,20 @@ export function createMusicYouTubeAdapter(
     }
     if (state.currentSource?.kind === "youtube-playlist" && !resolvingPlaylist) return;
     applyMetadataTitle(message.videoId, message.title);
+    if (message.videoId) {
+      const signature = [message.videoId, message.title ?? "", message.channel ?? "", message.durationMs ?? ""].join("\u0000");
+      if (signature !== lastMetadataSignature) {
+        lastMetadataSignature = signature;
+        persistVideo({
+          videoId: message.videoId,
+          title: message.title ?? "",
+          channel: message.channel ?? "",
+          durationMs: message.durationMs,
+          resolutionState: "ready",
+          resolvedAt: currentTime(),
+        });
+      }
+    }
     if (message.status === "playing" && currentTime() < optimisticPauseUntil) return;
     if (message.status !== "playing") optimisticPauseUntil = 0;
     const wasEnded = state.snapshot.status === "ended";

@@ -68,15 +68,19 @@ pub(crate) async fn upsert_library_item(
     sqlx::query(
         "INSERT INTO music_library_items
             (id, identity_key, source_kind, media_kind, youtube_video_id,
-             original_title, original_artist, original_album, duration_ms,
+             original_title, original_artist, original_album, original_track_number,
+             original_artwork_identity, youtube_resolution_state, duration_ms,
              availability, discovered_at, updated_at, version)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
          ON CONFLICT(id) DO UPDATE SET
             media_kind = excluded.media_kind,
             youtube_video_id = excluded.youtube_video_id,
             original_title = excluded.original_title,
             original_artist = excluded.original_artist,
             original_album = excluded.original_album,
+            original_track_number = excluded.original_track_number,
+            original_artwork_identity = excluded.original_artwork_identity,
+            youtube_resolution_state = excluded.youtube_resolution_state,
             duration_ms = excluded.duration_ms,
             availability = excluded.availability,
             updated_at = excluded.updated_at,
@@ -90,6 +94,13 @@ pub(crate) async fn upsert_library_item(
     .bind(request.original_title.trim())
     .bind(request.original_artist.trim())
     .bind(request.original_album.trim())
+    .bind(request.original_track_number)
+    .bind(&request.original_artwork_identity)
+    .bind(
+        request
+            .youtube_resolution_state
+            .map(|state| state.as_ref().to_string()),
+    )
     .bind(request.duration_ms)
     .bind(request.availability.as_ref())
     .bind(request.discovered_at)

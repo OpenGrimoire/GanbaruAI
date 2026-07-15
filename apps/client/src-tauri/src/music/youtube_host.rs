@@ -94,7 +94,8 @@ pub(crate) fn youtube_host_html() -> &'static str {
         positionMs: Math.max(0, Math.round(player.getCurrentTime() * 1000)),
         durationMs: Number.isFinite(duration) && duration > 0 ? Math.round(duration * 1000) : null,
         videoId: metadata.videoId,
-        title: metadata.title
+        title: metadata.title,
+        channel: metadata.channel
       });
     }
 
@@ -158,11 +159,11 @@ pub(crate) fn youtube_host_html() -> &'static str {
 
     function videoMetadata() {
       if (!player || typeof player.getVideoData !== "function") {
-        return { videoId: null, title: null };
+        return { videoId: null, title: null, channel: null };
       }
       const data = player.getVideoData();
       if (!data || typeof data !== "object") {
-        return { videoId: null, title: null };
+        return { videoId: null, title: null, channel: null };
       }
       const videoId = typeof data.video_id === "string" && data.video_id.trim()
         ? data.video_id.trim()
@@ -170,7 +171,10 @@ pub(crate) fn youtube_host_html() -> &'static str {
       const title = typeof data.title === "string" && data.title.trim()
         ? data.title.trim()
         : null;
-      return { videoId, title };
+      const channel = typeof data.author === "string" && data.author.trim()
+        ? data.author.trim()
+        : null;
+      return { videoId, title, channel };
     }
 
     function applyVolume(value) {

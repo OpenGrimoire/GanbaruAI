@@ -65,10 +65,24 @@ pub(crate) fn validate_library_item_write(item: &MusicLibraryItemWrite) -> Music
             "must be zero or greater",
         ));
     }
+    if item
+        .original_track_number
+        .is_some_and(|track_number| track_number <= 0)
+    {
+        return Err(MusicLibraryError::validation(
+            "originalTrackNumber",
+            "must be greater than zero",
+        ));
+    }
     match item.source_kind {
-        MusicLibrarySourceKind::LocalFile if item.youtube_video_id.is_some() => Err(
-            MusicLibraryError::validation("youtubeVideoId", "must be empty for a local item"),
-        ),
+        MusicLibrarySourceKind::LocalFile
+            if item.youtube_video_id.is_some() || item.youtube_resolution_state.is_some() =>
+        {
+            Err(MusicLibraryError::validation(
+                "youtubeVideoId",
+                "YouTube fields must be empty for a local item",
+            ))
+        }
         MusicLibrarySourceKind::YouTubeVideo
             if item
                 .youtube_video_id
@@ -77,6 +91,12 @@ pub(crate) fn validate_library_item_write(item: &MusicLibraryItemWrite) -> Music
         {
             Err(MusicLibraryError::validation(
                 "youtubeVideoId",
+                "is required for a YouTube item",
+            ))
+        }
+        MusicLibrarySourceKind::YouTubeVideo if item.youtube_resolution_state.is_none() => {
+            Err(MusicLibraryError::validation(
+                "youtubeResolutionState",
                 "is required for a YouTube item",
             ))
         }

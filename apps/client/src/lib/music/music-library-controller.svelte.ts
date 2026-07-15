@@ -45,7 +45,7 @@ export interface MusicDestinationState {
 export interface MusicLibraryControllerApi {
   itemWindow(request: MusicItemWindowRequest): Promise<MusicItemWindow>;
   playlistSummaries(nowMs: number, offset: number, limit: number): Promise<MusicPlaylistSummary[]>;
-  sourceSummaries(offset: number, limit: number): Promise<MusicSourceSummary[]>;
+  sourceSummaries(nowMs: number, offset: number, limit: number): Promise<MusicSourceSummary[]>;
   issues(offset: number, limit: number): Promise<MusicIssue[]>;
 }
 
@@ -220,7 +220,7 @@ export class MusicLibraryController {
           ? this.api.itemWindow(itemWindowRequest(location, state, nowMs))
           : Promise.resolve(null),
         this.api.playlistSummaries(nowMs, 0, 500),
-        this.api.sourceSummaries(0, 500),
+        this.api.sourceSummaries(nowMs, 0, 500),
         this.api.issues(0, 500),
       ]);
       if (!this.isCurrent(generation, vaultId)) return false;
