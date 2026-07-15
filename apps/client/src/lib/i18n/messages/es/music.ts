@@ -237,6 +237,7 @@ export const music = {
     emptyReviewDescription: "La música nueva aparecerá aquí después de actualizar una fuente.",
     preparingMusicFolder: "Preparando tu carpeta Música",
     preparingMusicFolderProgress: (processed: number, discovered: number) => `${processed} de ${discovered} archivos listos`,
+    chooseMusicFolder: "Elige tu carpeta Música",
     emptyLibraryTitle: "Tu biblioteca está lista para música",
     emptyLibraryDescription: "Agrega una carpeta local, un video de YouTube o una playlist de YouTube para comenzar.",
     emptyPlaylistsTitle: "Crea una playlist para un momento de tu día",

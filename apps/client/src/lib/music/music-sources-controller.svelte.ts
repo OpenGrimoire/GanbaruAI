@@ -101,6 +101,7 @@ export class MusicSourcesController {
   bindings = $state<LocalRootBinding[]>([]);
   refreshStatuses = $state<Record<string, MusicSourceRefreshStatus>>({});
   busy = $state(false);
+  loaded = $state(false);
   error = $state<string | null>(null);
   resolving = $state(false);
   resolutionError = $state<string | null>(null);
@@ -173,6 +174,7 @@ export class MusicSourcesController {
     this.bindings = [];
     this.refreshStatuses = {};
     this.error = null;
+    this.loaded = false;
     this.detectedDefaultFolder = null;
     this.detectingDefaultFolder = false;
     this.addingDefaultFolder = false;
@@ -210,7 +212,10 @@ export class MusicSourcesController {
       this.error = error instanceof Error ? error.message : String(error);
       return false;
     } finally {
-      if (generation === this.loadGeneration) this.busy = false;
+      if (generation === this.loadGeneration) {
+        this.busy = false;
+        this.loaded = true;
+      }
     }
   }
 

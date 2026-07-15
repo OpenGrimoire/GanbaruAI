@@ -90,6 +90,7 @@ describe("MusicSourcesController", () => {
     }), () => 10, () => "id", refreshStub());
     controller.setVault("vault-1");
     expect(await controller.load()).toBe(true);
+    expect(controller.loaded).toBe(true);
     expect(controller.roots[0]?.name).toBe("OST");
     expect(controller.bindings[0]?.folderPath).toBe("/music/ost");
   });

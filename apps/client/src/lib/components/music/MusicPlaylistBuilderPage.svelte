@@ -102,6 +102,8 @@
   let reviewAutoplay = $state(parseMusicReviewAutoplay(getConfigKey<unknown>("music.review.autoplay", undefined)));
   let reviewExitPreference = $state<MusicReviewExitPreference>(parseMusicReviewExitPreference(getConfigKey<unknown>("music.review.exitPreference", undefined)));
   let pendingReviewExit: (() => void) | null = null;
+  let choosingFirstUseFolder = $state(false);
+  let firstUseFolderError = $state<string | null>(null);
   const layout = $derived(projectMusicBuilderLayout({ width, height }));
   const destination = $derived(history.current.destination);
   const selectedItemId = $derived(history.current.inspectorItemId ?? library.currentState.selectedItemId);
@@ -113,6 +115,14 @@
   const playlistNames = $derived(Object.fromEntries(library.playlistSummaries.map((entry) => [entry.id, entry.name])));
   const sourceNames = $derived(Object.fromEntries(library.sourceSummaries.map((entry) => [entry.id, entry.name])));
   const firstUsePreparation = $derived(sources.preparingDefaultFolder && library.currentWindow.items.length === 0);
+  const firstUseNeedsFolder = $derived(
+    destination.kind === "review"
+      && sources.loaded
+      && !sources.busy
+      && !sources.preparingDefaultFolder
+      && sources.roots.length === 0
+      && library.currentWindow.items.length === 0,
+  );
   const firstUseRefreshProgress = $derived(Object.values(sources.refreshStatuses).find((status) => status.kind === "local-root"));
 
   $effect(() => {
@@ -362,6 +372,22 @@
     await bulk.open(uniqueIds, library.playlistSummaries);
   }
 
+  async function chooseFirstUseFolder(): Promise<void> {
+    if (choosingFirstUseFolder) return;
+    choosingFirstUseFolder = true;
+    firstUseFolderError = null;
+    try {
+      const draft = await sources.chooseLocalFolder();
+      if (!draft) return;
+      await sources.addLocalFolder(draft.selection, draft.name, true);
+      await library.refreshAfterMutation();
+    } catch (error) {
+      firstUseFolderError = error instanceof Error ? error.message : String(error);
+    } finally {
+      choosingFirstUseFolder = false;
+    }
+  }
+
   async function openItemMembership(itemId: string): Promise<void> {
     library.setItemSelection([itemId], itemId);
     bulkSurface = "memberships";
@@ -462,7 +488,7 @@
 <svelte:window onkeydown={handleWindowKeydown} />
 
 <section bind:this={root} use:observeRoot class="builder-root flex h-full min-h-0 flex-col overflow-hidden text-foreground" style="background-color: var(--cal-bg);">
-  {#if !firstUsePreparation}<MusicBuilderHeader
+  {#if !firstUsePreparation && !firstUseNeedsFolder}<MusicBuilderHeader
     {destination}
     search={library.currentState.search}
     searchAvailable={destination.kind === "review" || destination.kind === "playlists" || hasList}
@@ -498,6 +524,17 @@
                   <p class="mt-2 text-[0.68rem] tabular-nums text-muted-foreground">{t("music.builder.preparingMusicFolderProgress", firstUseRefreshProgress.progress?.processedCount ?? 0, firstUseRefreshProgress.progress?.discoveredCount ?? 0)}</p>
                 </div>
               {/if}
+            </div>
+          </div>
+        {:else if firstUseNeedsFolder}
+          <div class="relative grid h-full min-h-40 place-items-center overflow-hidden p-5">
+            <button type="button" onclick={onOpenPlayer} class="absolute left-3 top-3 grid h-9 w-9 place-items-center rounded-full bg-secondary/75 text-secondary-foreground hover:bg-accent" aria-label={t("music.backToPlayer")}><ArrowLeft size={17} /></button>
+            <div class="w-full max-w-sm text-center">
+              <button type="button" onclick={() => { void chooseFirstUseFolder(); }} disabled={choosingFirstUseFolder} class="group mx-auto grid h-24 w-24 place-items-center rounded-3xl bg-primary/10 text-primary transition-transform hover:scale-105 active:scale-95 disabled:opacity-50 motion-reduce:transform-none">
+                {#if choosingFirstUseFolder}<LoaderCircle class="animate-spin motion-reduce:animate-none" size={32} />{:else}<FolderSearch size={34} strokeWidth={1.35} />{/if}
+              </button>
+              <h1 class="mt-5 text-lg font-semibold tracking-tight">{t("music.builder.chooseMusicFolder")}</h1>
+              {#if firstUseFolderError || sources.defaultFolderPreparationError}<p class="mt-3 text-xs text-destructive" role="alert">{firstUseFolderError ?? sources.defaultFolderPreparationError}</p>{/if}
             </div>
           </div>
         {:else if library.error && library.currentWindow.items.length === 0}
