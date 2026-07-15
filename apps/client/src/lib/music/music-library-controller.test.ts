@@ -52,6 +52,25 @@ describe("Music library controller", () => {
     expect(controller.selectedItem?.id).toBe("library");
   });
 
+  it("supports stable toggle and range selection without clearing it on filters", async () => {
+    const controller = createMusicLibraryController(api(async () => ({
+      ...window("first"),
+      items: [window("first").items[0], window("second").items[0], window("third").items[0]],
+      totalCount: 3,
+    })));
+    controller.setVault("vault-1");
+    controller.navigate({ kind: "library" });
+    await controller.refresh();
+
+    controller.selectItemRange("first", "third");
+    expect(controller.currentState.selectedItemIds).toEqual(["first", "second", "third"]);
+    controller.toggleItemSelection("second");
+    controller.patchCurrentState({ search: "soundtrack" });
+
+    expect(controller.currentState.selectedItemIds).toEqual(["first", "third"]);
+    expect(controller.currentState.selectedItemId).toBe("third");
+  });
+
   it("ignores an older refresh that resolves after the newest request", async () => {
     let resolveFirst!: (value: MusicItemWindow) => void;
     const first = new Promise<MusicItemWindow>((resolve) => { resolveFirst = resolve; });
@@ -91,18 +110,22 @@ describe("Music library controller", () => {
       releaseOlder = () => reject(new Error("old failure"));
     });
     let value = 0;
+    const persistNewer = vi.fn(async () => undefined);
     const older = controller.runOptimistic({
       key: "weight:item-1:playlist-1", label: "Change weight",
       apply: () => { value = 1; }, rollback: () => { value = 0; },
       persist: async () => olderFailure,
     });
-    await controller.runOptimistic({
+    const newer = controller.runOptimistic({
       key: "weight:item-1:playlist-1", label: "Change weight",
       apply: () => { value = 2; }, rollback: () => { value = 1; },
-      persist: async () => undefined,
+      persist: persistNewer,
     });
+    expect(persistNewer).not.toHaveBeenCalled();
     releaseOlder();
     await expect(older).rejects.toThrow("old failure");
+    await newer;
+    expect(persistNewer).toHaveBeenCalledOnce();
     expect(value).toBe(2);
   });
 

@@ -62,4 +62,33 @@ describe("MusicPanel", () => {
     player.currentSource = null;
     player.queue = [];
   });
+
+  it("keeps the player DOM mounted while opening and reopening the lazy builder", async () => {
+    vi.stubGlobal("ResizeObserver", ResizeObserverStub);
+    target = document.createElement("div");
+    document.body.append(target);
+    const { default: MusicPanel } = await import("./MusicPanel.svelte");
+
+    component = mount(MusicPanel, { target, props: { onclose: vi.fn() } });
+    await tick();
+    const playerPage = target.querySelector<HTMLElement>("[data-music-player-page]");
+    expect(playerPage).not.toBeNull();
+
+    target.querySelector<HTMLButtonElement>(`button[aria-label="Playlist builder"]`)?.click();
+    await vi.waitFor(() => {
+      expect(target?.querySelector(".builder-root"), target?.textContent ?? "").not.toBeNull();
+    });
+    expect(target.querySelector("[data-music-player-page]")).toBe(playerPage);
+    expect(playerPage?.classList.contains("hidden")).toBe(true);
+
+    target.querySelector<HTMLButtonElement>(`[data-music-focus-key="builder:back-to-player"]`)?.click();
+    await tick();
+    expect(target.querySelector("[data-music-player-page]")).toBe(playerPage);
+    expect(playerPage?.classList.contains("hidden")).toBe(false);
+
+    target.querySelector<HTMLButtonElement>(`button[aria-label="Playlist builder"]`)?.click();
+    await tick();
+    expect(target.querySelector(".builder-root")).not.toBeNull();
+    expect(target.querySelector("[data-music-player-page]")).toBe(playerPage);
+  });
 });

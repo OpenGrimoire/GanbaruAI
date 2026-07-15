@@ -21,10 +21,12 @@ import type {
 
 export type MusicBuilderLocation =
   | { kind: "review" }
+  | { kind: "playlists" }
   | { kind: "library" }
   | { kind: "playlist"; playlistId: string }
   | { kind: "sources" }
-  | { kind: "issues" };
+  | { kind: "issues" }
+  | { kind: "soundscapes" };
 
 export interface MusicDestinationState {
   search: string;
@@ -40,6 +42,7 @@ export interface MusicDestinationState {
   limit: number;
   scrollTop: number;
   selectedItemId: string | null;
+  selectedItemIds: string[];
 }
 
 export interface MusicLibraryControllerApi {
@@ -97,6 +100,7 @@ function defaultDestinationState(location: MusicBuilderLocation): MusicDestinati
     limit: 50,
     scrollTop: 0,
     selectedItemId: null,
+    selectedItemIds: [],
   };
 }
 
@@ -132,9 +136,11 @@ export class MusicLibraryController {
   location = $state<MusicBuilderLocation>({ kind: "review" });
   destinationStates = $state<Record<string, MusicDestinationState>>({
     review: defaultDestinationState({ kind: "review" }),
+    playlists: defaultDestinationState({ kind: "playlists" }),
     library: defaultDestinationState({ kind: "library" }),
     sources: defaultDestinationState({ kind: "sources" }),
     issues: defaultDestinationState({ kind: "issues" }),
+    soundscapes: defaultDestinationState({ kind: "soundscapes" }),
   });
   windows = $state<Record<string, MusicItemWindow>>({});
   playlistSummaries = $state<MusicPlaylistSummary[]>([]);
@@ -158,6 +164,7 @@ export class MusicLibraryController {
   private readonly now: () => number;
   private refreshGeneration = 0;
   private mutationRevisions: Record<string, number> = {};
+  private mutationTails: Record<string, Promise<void>> = {};
   private undoEntries: UndoEntry[] = [];
 
   constructor(api: MusicLibraryControllerApi = defaultApi, now: () => number = Date.now) {
@@ -177,9 +184,13 @@ export class MusicLibraryController {
     this.error = null;
     this.busy = false;
     this.mutationRevisions = {};
+    this.mutationTails = {};
     this.undoEntries = [];
     this.syncUndoProjection();
-    for (const state of Object.values(this.destinationStates)) state.selectedItemId = null;
+    for (const state of Object.values(this.destinationStates)) {
+      state.selectedItemId = null;
+      state.selectedItemIds = [];
+    }
   }
 
   navigate(location: MusicBuilderLocation): void {
@@ -197,7 +208,40 @@ export class MusicLibraryController {
   }
 
   selectItem(itemId: string | null): void {
-    this.patchCurrentState({ selectedItemId: itemId });
+    this.patchCurrentState({
+      selectedItemId: itemId,
+      selectedItemIds: itemId ? [itemId] : [],
+    });
+  }
+
+  setItemSelection(itemIds: readonly string[], activeItemId: string | null): void {
+    const uniqueIds = [...new Set(itemIds.filter((itemId) => itemId.trim()))];
+    this.patchCurrentState({
+      selectedItemIds: uniqueIds,
+      selectedItemId: activeItemId && uniqueIds.includes(activeItemId)
+        ? activeItemId
+        : uniqueIds.at(-1) ?? null,
+    });
+  }
+
+  toggleItemSelection(itemId: string): void {
+    const selected = new Set(this.currentState.selectedItemIds);
+    if (selected.has(itemId)) selected.delete(itemId);
+    else selected.add(itemId);
+    this.setItemSelection([...selected], itemId);
+  }
+
+  selectItemRange(anchorItemId: string, itemId: string): void {
+    const ids = this.currentWindow.items.map((item) => item.id);
+    const anchor = ids.indexOf(anchorItemId);
+    const target = ids.indexOf(itemId);
+    if (anchor < 0 || target < 0) {
+      this.selectItem(itemId);
+      return;
+    }
+    const start = Math.min(anchor, target);
+    const end = Math.max(anchor, target);
+    this.setItemSelection(ids.slice(start, end + 1), itemId);
   }
 
   setScrollTop(scrollTop: number): void {
@@ -242,8 +286,14 @@ export class MusicLibraryController {
     const revision = (this.mutationRevisions[mutation.key] ?? 0) + 1;
     this.mutationRevisions[mutation.key] = revision;
     mutation.apply();
+    const previous = this.mutationTails[mutation.key] ?? Promise.resolve();
+    const persistence = previous
+      .catch(() => undefined)
+      .then(mutation.persist);
+    const tail = persistence.then(() => undefined, () => undefined);
+    this.mutationTails[mutation.key] = tail;
     try {
-      const result = await mutation.persist();
+      const result = await persistence;
       if (this.mutationRevisions[mutation.key] === revision && mutation.undo) {
         this.pushUndo(mutation.label, mutation.undo);
       }
@@ -251,6 +301,8 @@ export class MusicLibraryController {
     } catch (error) {
       if (this.mutationRevisions[mutation.key] === revision) mutation.rollback();
       throw error;
+    } finally {
+      if (this.mutationTails[mutation.key] === tail) delete this.mutationTails[mutation.key];
     }
   }
 

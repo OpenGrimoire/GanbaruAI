@@ -17,7 +17,6 @@
   import Volume2 from "@lucide/svelte/icons/volume-2";
   import VolumeX from "@lucide/svelte/icons/volume-x";
   import CalendarScrollbar from "$lib/components/calendar/CalendarScrollbar.svelte";
-  import MusicPlaylistBuilderPage from "$lib/components/music/MusicPlaylistBuilderPage.svelte";
   import { revealLocalFile } from "$lib/api/music";
   import { SPEED_PRESETS, clampRate, formatPlaybackTime, isSpeedPreset } from "$lib/music/playback";
   import { fittedSidePlaylistPanelHeight } from "$lib/music/panel-layout";
@@ -29,6 +28,10 @@
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { cn } from "$lib/utils";
   import { formatShortcut, hasShortcutModifier } from "$lib/keyboard-shortcuts";
+  import {
+    musicBuilderLoader,
+    type MusicBuilderComponent,
+  } from "$lib/music/music-builder-loader";
 
   let { onclose }: { onclose: () => void } = $props();
 
@@ -51,6 +54,10 @@
   let customRateDraft = $state("1");
   const playlistVisible = $derived(player.playlistVisible);
   let musicPage = $state<MusicPage>("player");
+  let playlistBuilderComponent = $state<MusicBuilderComponent | null>(musicBuilderLoader.peek());
+  let playlistBuilderLoading = $state(false);
+  let playlistBuilderLoadError = $state<string | null>(null);
+  const PlaylistBuilder = $derived(playlistBuilderComponent);
   let mediaSurfaceFullscreen = $state(false);
   let volumeFeedbackVisible = $state(false);
   let mediaSurfaceClickTimeoutId: number | null = null;
@@ -272,10 +279,24 @@
     player.setPlaylistVisible(!playlistVisible);
   }
 
+  async function loadPlaylistBuilder(): Promise<void> {
+    if (playlistBuilderComponent || playlistBuilderLoading) return;
+    playlistBuilderLoading = true;
+    playlistBuilderLoadError = null;
+    try {
+      playlistBuilderComponent = await musicBuilderLoader.load();
+    } catch (error) {
+      playlistBuilderLoadError = error instanceof Error ? error.message : String(error);
+    } finally {
+      playlistBuilderLoading = false;
+    }
+  }
+
   function openPlaylistBuilder(): void {
     closeSpeedMenu();
     closeVolumeMenu();
     musicPage = "playlist-builder";
+    void loadPlaylistBuilder();
   }
 
   function closePlaylistBuilder(): void {
@@ -625,10 +646,46 @@
   aria-label={t("music.title")}
   tabindex="-1"
 >
-  {#if musicPage === "playlist-builder"}
-    <MusicPlaylistBuilderPage onBack={closePlaylistBuilder} />
-  {:else}
+  {#if PlaylistBuilder}
+    <div class:hidden={musicPage !== "playlist-builder"} class="h-full min-h-0" aria-hidden={musicPage !== "playlist-builder"}>
+      <PlaylistBuilder onBack={closePlaylistBuilder} />
+    </div>
+  {:else if musicPage === "playlist-builder"}
+    <section class="flex h-full min-h-0 flex-col text-foreground" style="background-color: var(--cal-bg);">
+      <header class="flex h-(--cal-header-row-h) shrink-0 items-center px-2">
+        <button
+          type="button"
+          onclick={closePlaylistBuilder}
+          class="inline-flex h-7 items-center gap-1.5 rounded-md bg-secondary px-2.5 text-[0.8rem] font-medium text-secondary-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+        >
+          {t("music.mediaPlayer")}
+        </button>
+      </header>
+      <div class="grid min-h-0 flex-1 place-items-center px-5 text-center">
+        <div class="max-w-sm rounded-xl border border-border/70 bg-card/70 p-5 shadow-sm">
+          {#if playlistBuilderLoadError}
+            <AlertCircle class="mx-auto mb-3 text-destructive" size={22} strokeWidth={1.5} />
+            <p class="text-sm font-medium">{t("music.builder.loadFailed")}</p>
+            <p class="mt-1 text-xs leading-relaxed text-muted-foreground">{playlistBuilderLoadError}</p>
+            <button
+              type="button"
+              onclick={() => { void loadPlaylistBuilder(); }}
+              class="mt-4 inline-flex h-8 items-center rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+            >
+              {t("music.builder.retry")}
+            </button>
+          {:else}
+            <LoaderCircle class="mx-auto mb-3 animate-spin text-muted-foreground motion-reduce:animate-none" size={22} strokeWidth={1.5} />
+            <p class="text-sm font-medium">{t("music.builder.loading")}</p>
+          {/if}
+        </div>
+      </div>
+    </section>
+  {/if}
   <section
+      class:hidden={musicPage === "playlist-builder"}
+      aria-hidden={musicPage === "playlist-builder"}
+      data-music-player-page
       class="flex h-full min-h-0 select-none flex-col text-foreground"
       use:releaseClickedButtonFocusAction
       onwheel={(event) => player.handleVolumeWheel(event)}
@@ -1100,7 +1157,6 @@
     </div>
   </div>
 </section>
-  {/if}
 </div>
 
 <style>
