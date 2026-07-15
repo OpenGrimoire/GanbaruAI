@@ -106,7 +106,7 @@
           {/if}
         </div>
       {/if}
-      {#if error}<p class="mt-3 rounded-lg bg-destructive/10 px-2.5 py-2 text-[0.68rem] text-destructive">{error}</p>{/if}
+      {#if error}<p class="mt-3 rounded-lg bg-destructive/10 px-2.5 py-2 text-[0.68rem] text-destructive" role="alert">{error}</p>{/if}
     </div>
 
     {#if step !== "choose"}
@@ -131,5 +131,5 @@
   .source-action, .source-save { background: var(--primary); color: var(--primary-foreground); }
   .source-cancel { background: var(--secondary); color: var(--secondary-foreground); }
   .source-action:disabled, .source-save:disabled { opacity: 0.45; }
-  @media (prefers-reduced-motion: reduce) { .source-choice { transition: none; } }
+  @media (prefers-reduced-motion: reduce) { .source-choice, .source-choice:hover { transition: none; transform: none; } }
 </style>

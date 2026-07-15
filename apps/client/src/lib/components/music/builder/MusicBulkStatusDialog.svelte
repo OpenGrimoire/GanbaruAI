@@ -78,8 +78,8 @@
         {#if customOpen}
           <div class="rounded-lg border border-border/70 bg-background p-2.5">
             <label for="music-snooze-custom-date" class="text-[0.68rem] font-medium">{t("music.builder.snoozeUntil")}</label>
-            <div class="mt-1.5 flex gap-2"><input id="music-snooze-custom-date" type="datetime-local" bind:value={customDate} oninput={() => customInvalid = false} aria-invalid={customInvalid} class="h-8 min-w-0 flex-1 rounded-md border border-border bg-card px-2 text-xs" /><button type="button" onclick={() => { void snooze("custom"); }} class="rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground">{t("music.builder.applyChanges")}</button></div>
-            {#if customInvalid}<p class="mt-1.5 text-[0.65rem] text-destructive" role="alert">{t("music.builder.futureDateRequired")}</p>{/if}
+            <div class="mt-1.5 flex gap-2"><input id="music-snooze-custom-date" type="datetime-local" bind:value={customDate} oninput={() => customInvalid = false} aria-invalid={customInvalid} aria-describedby={customInvalid ? "music-snooze-custom-date-error" : undefined} class="h-8 min-w-0 flex-1 rounded-md border border-border bg-card px-2 text-xs" /><button type="button" onclick={() => { void snooze("custom"); }} class="rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground">{t("music.builder.applyChanges")}</button></div>
+            {#if customInvalid}<p id="music-snooze-custom-date-error" class="mt-1.5 text-[0.65rem] text-destructive" role="alert">{t("music.builder.futureDateRequired")}</p>{/if}
           </div>
         {/if}
         <button type="button" onclick={() => { void snooze("until-resumed"); }} class="status-choice">{t("music.builder.untilResumed")}</button>

@@ -84,7 +84,7 @@
   }
 </script>
 
-<div class="space-y-2 px-2 pb-2">
+<div class="space-y-2 px-2 pb-2" role="group" aria-describedby={error ? "music-membership-settings-error" : undefined}>
   <div class="grid grid-cols-2 gap-2">
     <label class="text-[0.63rem] text-muted-foreground">{t("music.builder.segmentStart")}<input bind:value={startDraft} placeholder="0:00" class="membership-input" /></label>
     <label class="text-[0.63rem] text-muted-foreground">{t("music.builder.segmentEnd")}<input bind:value={endDraft} placeholder={formatMusicTimecode(durationMs)} class="membership-input" /></label>
@@ -100,7 +100,7 @@
       <div class="mt-1.5 grid grid-cols-[1fr_1fr_auto] gap-1.5"><input bind:value={range.start} placeholder="0:00" class="membership-input mt-0" aria-label={t("music.builder.segmentStart")} /><input bind:value={range.end} placeholder="0:10" class="membership-input mt-0" aria-label={t("music.builder.segmentEnd")} /><button type="button" onclick={() => removeRange(range.id)} class="grid h-8 w-8 place-items-center rounded-md bg-secondary" aria-label={t("music.builder.removeRange")}><Trash2 size={11} /></button></div>
     {/each}
   </div>
-  {#if error}<p class="text-[0.62rem] text-destructive" role="alert">{error}</p>{/if}
+  {#if error}<p id="music-membership-settings-error" class="text-[0.62rem] text-destructive" role="alert">{error}</p>{/if}
   <p class="text-[0.6rem] leading-relaxed text-muted-foreground">{t("music.builder.capabilitySettingsHint")}</p>
   <div class="flex flex-wrap justify-end gap-1.5"><button type="button" onclick={resetDraft} class="h-7 rounded-md bg-secondary px-2 text-[0.63rem]">{t("music.builder.resetOverrides")}</button><button type="button" onclick={() => onPreview(membership)} class="h-7 rounded-md bg-secondary px-2 text-[0.63rem]">{t("music.builder.previewSegment")}</button><button type="button" onclick={() => { void save(); }} disabled={controller.saving} class="h-7 rounded-md bg-primary px-2 text-[0.63rem] font-medium text-primary-foreground disabled:opacity-40">{t("music.builder.savePlaylist")}</button></div>
 </div>

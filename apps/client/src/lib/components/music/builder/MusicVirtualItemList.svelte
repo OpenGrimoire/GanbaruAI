@@ -1,8 +1,10 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
   import { flip } from "svelte/animate";
+  import { getLocalization } from "$lib/i18n/translator.svelte";
   import type { MusicItemListEntry } from "$lib/music/library-contracts";
   import { musicVirtualWindow, revealMusicVirtualIndex } from "$lib/music/music-virtual-window";
+  import { isMusicReviewEditableTarget } from "$lib/music/music-review";
   import MusicBuilderItemRow from "./MusicBuilderItemRow.svelte";
 
   let {
@@ -39,6 +41,7 @@
     onLoadMore?: () => void;
   } = $props();
 
+  const { t } = getLocalization();
   const rowHeight = 64;
   let viewport = $state<HTMLElement | null>(null);
   let scrollTop = $state(0);
@@ -110,6 +113,7 @@
   }
 
   function handleKeydown(event: KeyboardEvent): void {
+    if (event.isComposing || isMusicReviewEditableTarget(event.target)) return;
     if (playlistMode && reorderEnabled && event.altKey && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
       const selectedIndex = items.findIndex((item) => item.id === selectedItemId);
       if (selectedIndex < 0) return;
@@ -144,6 +148,11 @@
     onSelect(nextItem);
     if (viewport) viewport.scrollTop = revealMusicVirtualIndex(nextIndex, viewport.scrollTop, viewport.clientHeight, rowHeight);
     void tick().then(() => document.querySelector<HTMLElement>(`[data-music-focus-key="item:${CSS.escape(items[nextIndex].id)}"] button`)?.focus());
+  }
+
+  function handleWindowKeydown(event: KeyboardEvent): void {
+    if (!(event.target instanceof Node) || !viewport?.contains(event.target)) return;
+    handleKeydown(event);
   }
 
   function dragStart(item: MusicItemListEntry, event: DragEvent): void {
@@ -186,19 +195,21 @@
   }
 </script>
 
+<svelte:window onkeydown={handleWindowKeydown} />
+
 <div
   class="music-builder-list h-full min-h-0 overflow-y-auto px-2 py-1 outline-none"
   use:viewportAction
-  role="listbox"
-  aria-multiselectable="true"
-  tabindex="0"
-  onkeydown={handleKeydown}
+  role="list"
+  aria-busy={loadingMore}
 >
   <div style={`height: ${windowed.topSpacer}px`} aria-hidden="true"></div>
-  {#each visibleItems as item (item.id)}
+  {#each visibleItems as item, visibleIndex (item.id)}
     <div animate:flip={{ duration: reducedMotion ? 0 : 150 }}>
     <MusicBuilderItemRow
       {item}
+      position={windowed.startIndex + visibleIndex + 1}
+      setSize={items.length}
       selected={selectedItemIds.includes(item.id)}
       playing={item.id === playingItemId}
       {playlistMode}
@@ -221,6 +232,7 @@
   {/each}
   <div style={`height: ${windowed.bottomSpacer}px`} aria-hidden="true"></div>
   {#if loadingMore}<div class="mx-2 my-1 h-10 animate-pulse rounded-lg bg-secondary motion-reduce:animate-none" aria-hidden="true"></div>{/if}
+  <span class="sr-only" role="status" aria-live="polite">{loadingMore ? t("music.builder.loadingMore") : ""}</span>
 </div>
 
 <style>

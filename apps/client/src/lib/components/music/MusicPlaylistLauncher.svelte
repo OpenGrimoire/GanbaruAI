@@ -88,6 +88,11 @@
     search = "";
   }
 
+  function handleFocusOut(event: FocusEvent): void {
+    if (!open || !(event.relatedTarget instanceof Node) || root?.contains(event.relatedTarget)) return;
+    close();
+  }
+
   async function refresh(): Promise<void> {
     loading = true;
     try {
@@ -142,7 +147,7 @@
   }
 </script>
 
-<div bind:this={root} class="relative z-20 min-w-0">
+<div bind:this={root} class="relative z-20 min-w-0" onfocusout={handleFocusOut}>
   <button
     bind:this={trigger}
     type="button"

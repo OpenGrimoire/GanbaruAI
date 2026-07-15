@@ -65,6 +65,7 @@
   let menuTop = $state(0);
   let menuLeft = $state(0);
   let menuAnchor: HTMLElement | null = null;
+  let menuNode: HTMLElement | null = null;
   const filterCount = $derived(Number(sourceKind !== null) + Number(sourceCollectionId !== null) + Number(membershipPlaylistId !== null) + Number(availability !== null) + Number(reviewState !== null) + Number(snoozed !== null));
   const snoozeValue = $derived<"snoozed" | "active" | null>(snoozed === null ? null : snoozed ? "snoozed" : "active");
   const sourceOptions = $derived<Option<MusicLibrarySourceKind | null>[]>([
@@ -140,9 +141,49 @@
     menuAnchor = anchor;
     openMenu = kind;
   }
+
+  function menuAction(node: HTMLElement): { destroy: () => void } {
+    menuNode = node;
+    const items = (): HTMLButtonElement[] => [...node.querySelectorAll<HTMLButtonElement>("[role='menuitem'], [role='menuitemradio']")];
+    const handleKeydown = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        closeMenu(true);
+        return;
+      }
+      if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+      const options = items();
+      if (options.length === 0) return;
+      event.preventDefault();
+      const current = options.indexOf(document.activeElement as HTMLButtonElement);
+      const next = event.key === "Home" ? 0
+        : event.key === "End" ? options.length - 1
+        : event.key === "ArrowDown" ? (current + 1 + options.length) % options.length
+        : (current - 1 + options.length) % options.length;
+      options[next]?.focus();
+    };
+    node.addEventListener("keydown", handleKeydown);
+    queueMicrotask(() => {
+      const options = items();
+      (options.find((option) => option.getAttribute("aria-checked") === "true") ?? options[0])?.focus();
+    });
+    return {
+      destroy: () => {
+        node.removeEventListener("keydown", handleKeydown);
+        if (menuNode === node) menuNode = null;
+      },
+    };
+  }
+
+  function handleWindowPointerDown(event: PointerEvent): void {
+    if (!openMenu || !(event.target instanceof Node)) return;
+    if (menuNode?.contains(event.target) || menuAnchor?.contains(event.target)) return;
+    closeMenu(false);
+  }
 </script>
 
-<svelte:window onkeydown={(event) => { if (event.key === "Escape" && openMenu) { event.stopPropagation(); closeMenu(true); } }} />
+<svelte:window onkeydown={(event) => { if (event.key === "Escape" && openMenu) { event.stopPropagation(); closeMenu(true); } }} onpointerdown={handleWindowPointerDown} />
 
 <div class="flex min-h-10 shrink-0 items-center gap-1.5 overflow-x-auto border-b border-border/45 px-2 py-1.5" style={`--filter-menu-top:${menuTop}px;--filter-menu-left:${menuLeft}px`} aria-label={t("music.builder.filters")}>
   <span class="mr-0.5 inline-flex shrink-0 items-center gap-1 text-[0.66rem] font-medium text-muted-foreground">
@@ -156,9 +197,9 @@
     </button>
     {#if sourceKind}<button type="button" class="filter-remove" onclick={() => onChange({ sourceKind: null })} aria-label={t("music.builder.clearFilter", labelFor(sourceOptions, sourceKind))}><X size={10} /></button>{/if}
     {#if openMenu === "source"}
-      <div class="filter-menu">
+      <div use:menuAction role="menu" class="filter-menu">
         {#each sourceOptions as option (option.value)}
-          <button type="button" onclick={() => closeAfter(() => onChange({ sourceKind: option.value }))}>{option.label}{#if option.value === sourceKind}<Check size={12} />{/if}</button>
+          <button type="button" role="menuitemradio" aria-checked={option.value === sourceKind} onclick={() => closeAfter(() => onChange({ sourceKind: option.value }))}>{option.label}{#if option.value === sourceKind}<Check size={12} />{/if}</button>
         {/each}
       </div>
     {/if}
@@ -170,7 +211,7 @@
         {labelFor(membershipOptions, membershipPlaylistId)} <ChevronDown size={11} />
       </button>
       {#if membershipPlaylistId}<button type="button" class="filter-remove" onclick={() => onChange({ membershipPlaylistId: null })} aria-label={t("music.builder.clearFilter", labelFor(membershipOptions, membershipPlaylistId))}><X size={10} /></button>{/if}
-      {#if openMenu === "membership"}<div class="filter-menu">{#each membershipOptions as option (option.value)}<button type="button" onclick={() => closeAfter(() => onChange({ membershipPlaylistId: option.value }))}>{option.label}{#if option.value === membershipPlaylistId}<Check size={12} />{/if}</button>{/each}</div>{/if}
+      {#if openMenu === "membership"}<div use:menuAction role="menu" class="filter-menu">{#each membershipOptions as option (option.value)}<button type="button" role="menuitemradio" aria-checked={option.value === membershipPlaylistId} onclick={() => closeAfter(() => onChange({ membershipPlaylistId: option.value }))}>{option.label}{#if option.value === membershipPlaylistId}<Check size={12} />{/if}</button>{/each}</div>{/if}
     </div>
   {/if}
 
@@ -179,7 +220,7 @@
       {labelFor(collectionOptions, sourceCollectionId)} <ChevronDown size={11} />
     </button>
     {#if sourceCollectionId}<button type="button" class="filter-remove" onclick={() => onChange({ sourceCollectionId: null })} aria-label={t("music.builder.clearFilter", labelFor(collectionOptions, sourceCollectionId))}><X size={10} /></button>{/if}
-    {#if openMenu === "collection"}<div class="filter-menu">{#each collectionOptions as option (option.value)}<button type="button" onclick={() => closeAfter(() => onChange({ sourceCollectionId: option.value }))}>{option.label}{#if option.value === sourceCollectionId}<Check size={12} />{/if}</button>{/each}</div>{/if}
+    {#if openMenu === "collection"}<div use:menuAction role="menu" class="filter-menu">{#each collectionOptions as option (option.value)}<button type="button" role="menuitemradio" aria-checked={option.value === sourceCollectionId} onclick={() => closeAfter(() => onChange({ sourceCollectionId: option.value }))}>{option.label}{#if option.value === sourceCollectionId}<Check size={12} />{/if}</button>{/each}</div>{/if}
   </div>
 
   <div class="relative shrink-0">
@@ -188,9 +229,9 @@
     </button>
     {#if availability}<button type="button" class="filter-remove" onclick={() => onChange({ availability: null })} aria-label={t("music.builder.clearFilter", labelFor(availabilityOptions, availability))}><X size={10} /></button>{/if}
     {#if openMenu === "availability"}
-      <div class="filter-menu">
+      <div use:menuAction role="menu" class="filter-menu">
         {#each availabilityOptions as option (option.value)}
-          <button type="button" onclick={() => closeAfter(() => onChange({ availability: option.value }))}>{option.label}{#if option.value === availability}<Check size={12} />{/if}</button>
+          <button type="button" role="menuitemradio" aria-checked={option.value === availability} onclick={() => closeAfter(() => onChange({ availability: option.value }))}>{option.label}{#if option.value === availability}<Check size={12} />{/if}</button>
         {/each}
       </div>
     {/if}
@@ -199,7 +240,7 @@
   <div class="relative shrink-0">
     <button type="button" aria-haspopup="menu" aria-expanded={openMenu === "snooze"} class={cn("filter-pill", snoozed !== null && "filter-pill-active filter-pill-removable")} onclick={(event) => toggleMenu("snooze", event.currentTarget)}>{labelFor(snoozeOptions, snoozeValue)} <ChevronDown size={11} /></button>
     {#if snoozed !== null}<button type="button" class="filter-remove" onclick={() => onChange({ snoozed: null })} aria-label={t("music.builder.clearFilter", labelFor(snoozeOptions, snoozeValue))}><X size={10} /></button>{/if}
-    {#if openMenu === "snooze"}<div class="filter-menu">{#each snoozeOptions as option (option.value)}<button type="button" onclick={() => closeAfter(() => onChange({ snoozed: option.value === null ? null : option.value === "snoozed" }))}>{option.label}{#if option.value === snoozeValue}<Check size={12} />{/if}</button>{/each}</div>{/if}
+    {#if openMenu === "snooze"}<div use:menuAction role="menu" class="filter-menu">{#each snoozeOptions as option (option.value)}<button type="button" role="menuitemradio" aria-checked={option.value === snoozeValue} onclick={() => closeAfter(() => onChange({ snoozed: option.value === null ? null : option.value === "snoozed" }))}>{option.label}{#if option.value === snoozeValue}<Check size={12} />{/if}</button>{/each}</div>{/if}
   </div>
 
   <div class="relative shrink-0">
@@ -208,9 +249,9 @@
     </button>
     {#if reviewState}<button type="button" class="filter-remove" onclick={() => onChange({ reviewState: null })} aria-label={t("music.builder.clearFilter", labelFor(reviewOptions, reviewState))}><X size={10} /></button>{/if}
     {#if openMenu === "review"}
-      <div class="filter-menu">
+      <div use:menuAction role="menu" class="filter-menu">
         {#each reviewOptions as option (option.value)}
-          <button type="button" onclick={() => closeAfter(() => onChange({ reviewState: option.value }))}>{option.label}{#if option.value === reviewState}<Check size={12} />{/if}</button>
+          <button type="button" role="menuitemradio" aria-checked={option.value === reviewState} onclick={() => closeAfter(() => onChange({ reviewState: option.value }))}>{option.label}{#if option.value === reviewState}<Check size={12} />{/if}</button>
         {/each}
       </div>
     {/if}
@@ -221,12 +262,12 @@
       {labelFor(sortOptions, sort)} <ChevronDown size={11} />
     </button>
     {#if openMenu === "sort"}
-      <div class="filter-menu filter-menu-right">
+      <div use:menuAction role="menu" class="filter-menu filter-menu-right">
         {#each sortOptions as option (option.value)}
-          <button type="button" onclick={() => closeAfter(() => onChange({ sort: option.value }))}>{option.label}{#if option.value === sort}<Check size={12} />{/if}</button>
+          <button type="button" role="menuitemradio" aria-checked={option.value === sort} onclick={() => closeAfter(() => onChange({ sort: option.value }))}>{option.label}{#if option.value === sort}<Check size={12} />{/if}</button>
         {/each}
-        <div class="my-1 h-px bg-border/60"></div>
-        <button type="button" onclick={() => closeAfter(() => onChange({ direction: direction === "ascending" ? "descending" : "ascending" }))}>
+        <div role="separator" class="my-1 h-px bg-border/60"></div>
+        <button type="button" role="menuitem" onclick={() => closeAfter(() => onChange({ direction: direction === "ascending" ? "descending" : "ascending" }))}>
           {direction === "ascending" ? t("music.builder.ascending") : t("music.builder.descending")}
         </button>
       </div>
@@ -238,9 +279,9 @@
       {labelFor(groupOptions, groupBy)} <ChevronDown size={11} />
     </button>
     {#if openMenu === "group"}
-      <div class="filter-menu filter-menu-right">
+      <div use:menuAction role="menu" class="filter-menu filter-menu-right">
         {#each groupOptions as option (option.value)}
-          <button type="button" onclick={() => closeAfter(() => onChange({ groupBy: option.value }))}>{option.label}{#if option.value === groupBy}<Check size={12} />{/if}</button>
+          <button type="button" role="menuitemradio" aria-checked={option.value === groupBy} onclick={() => closeAfter(() => onChange({ groupBy: option.value }))}>{option.label}{#if option.value === groupBy}<Check size={12} />{/if}</button>
         {/each}
       </div>
     {/if}

@@ -42,7 +42,7 @@
         <button type="button" onclick={() => choice = "orphans"} class:selected={choice === "orphans"} class="removal-choice"><span><Library size={17} /></span><span class="min-w-0 flex-1"><strong>{t("music.builder.removeOrphans")}</strong><small>{t("music.builder.affectedItems", controller.removalImpact?.orphanedItemCount ?? 0)}</small></span><i></i></button>
       </div>
       {#if controller.removalImpact}<div class="mt-3 grid grid-cols-2 gap-2"><div class="impact"><strong>{controller.removalImpact.itemCount}</strong><span>{t("music.builder.affectedItems", controller.removalImpact.itemCount)}</span></div><div class="impact"><strong>{controller.removalImpact.membershipCount}</strong><span>{t("music.builder.affectedMemberships", controller.removalImpact.membershipCount)}</span></div></div>{/if}
-      {#if error}<p class="mt-3 rounded-lg bg-destructive/10 px-2.5 py-2 text-[0.68rem] text-destructive">{error}</p>{/if}
+      {#if error}<p class="mt-3 rounded-lg bg-destructive/10 px-2.5 py-2 text-[0.68rem] text-destructive" role="alert">{error}</p>{/if}
     </div>
     <footer class="flex shrink-0 justify-end gap-2 border-t border-border/55 px-3 py-2"><button type="button" onclick={onClose} class="h-8 rounded-lg bg-secondary px-3 text-[0.68rem] font-semibold">{t("music.builder.cancel")}</button><button type="button" onclick={() => { void confirm(); }} disabled={saving} class="h-8 rounded-lg bg-destructive px-3 text-[0.68rem] font-semibold text-destructive-foreground disabled:opacity-45">{t("music.builder.confirmRemoval")}</button></footer>
   </div>

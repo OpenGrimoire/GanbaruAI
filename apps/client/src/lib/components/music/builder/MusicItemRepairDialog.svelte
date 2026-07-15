@@ -62,7 +62,7 @@
       {:else}
         <div class="grid min-h-40 place-items-center rounded-xl border border-dashed border-border/70 bg-card/35 p-4 text-center"><div><FileAudio class="mx-auto text-muted-foreground" size={24} /><button type="button" onclick={() => { void choose(); }} class="mt-3 h-8 rounded-lg bg-primary px-3 text-[0.68rem] font-semibold text-primary-foreground">{t("music.builder.chooseReplacementFile")}</button></div></div>
       {/if}
-      {#if error}<p class="mt-3 rounded-lg bg-destructive/10 px-2.5 py-2 text-[0.68rem] text-destructive">{error}</p>{/if}
+      {#if error}<p class="mt-3 rounded-lg bg-destructive/10 px-2.5 py-2 text-[0.68rem] text-destructive" role="alert">{error}</p>{/if}
     </div>
     <footer class="flex shrink-0 justify-end gap-2 border-t border-border/55 px-3 py-2"><button type="button" onclick={onClose} class="h-8 rounded-lg bg-secondary px-3 text-[0.68rem] font-semibold">{t("music.builder.close")}</button>{#if controller.itemRepairPreview && !controller.itemRepairApplied}<button type="button" onclick={() => { void apply(); }} disabled={busy || (controller.itemRepairPreview.matchStrength === "weak" && !acceptedWeak)} class="h-8 rounded-lg bg-primary px-3 text-[0.68rem] font-semibold text-primary-foreground disabled:opacity-45">{t("music.builder.bindLocation")}</button>{/if}</footer>
   </div>

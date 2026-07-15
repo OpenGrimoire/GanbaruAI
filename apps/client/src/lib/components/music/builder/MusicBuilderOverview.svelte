@@ -115,5 +115,5 @@
   .overview-add { min-height: 5.5rem; align-items: center; justify-content: center; border-style: dashed; color: var(--muted-foreground); }
   .source-health { height: 0.45rem; width: 0.45rem; flex: none; border-radius: 999px; background: color-mix(in srgb, var(--primary) 70%, var(--muted)); }
   .source-warning { background: var(--destructive); }
-  @media (prefers-reduced-motion: reduce) { .overview-card { transition: none; } }
+  @media (prefers-reduced-motion: reduce) { .overview-card, button.overview-card:hover { transition: none; transform: none; } }
 </style>

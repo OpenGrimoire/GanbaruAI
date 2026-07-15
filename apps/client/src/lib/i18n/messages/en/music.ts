@@ -168,6 +168,7 @@ export const music = {
   },
   builder: {
     loading: "Opening your music library…",
+    loadingMore: "Loading more music",
     loadFailed: "The playlist builder could not be opened.",
     retry: "Try again",
     review: "Review",

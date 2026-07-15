@@ -56,6 +56,8 @@
   let inlineCreateOpen = $state(false);
   let laterMenuOpen = $state(false);
   let laterButton = $state<HTMLButtonElement | null>(null);
+  let laterPopover = $state<HTMLElement | null>(null);
+  let laterDateInput = $state<HTMLInputElement | null>(null);
   let laterDate = $state("");
   let lastSelectedId = $state<string | null>(null);
   let lastAutoplayedId = $state<string | null>(null);
@@ -81,6 +83,17 @@
   const focusAdvisory = $derived(detail && guidanceEnabled && dismissedAdvisoryItemId !== detail.item.id
     ? getMusicFocusAdvisory(detail.signals, checkedIds, library.playlistSummaries)
     : null);
+
+  $effect(() => {
+    if (!laterMenuOpen) return;
+    const handlePointerDown = (event: PointerEvent): void => {
+      if (!(event.target instanceof Node)) return;
+      if (laterPopover?.contains(event.target) || laterButton?.contains(event.target)) return;
+      closeLaterMenu(false);
+    };
+    window.addEventListener("pointerdown", handlePointerDown, true);
+    return () => window.removeEventListener("pointerdown", handlePointerDown, true);
+  });
 
   $effect(() => {
     if (sessionTotal === 0 && library.currentWindow.totalCount > 0) {
@@ -181,13 +194,25 @@
 
   function deferCurrentItem(): void {
     const deferredUntil = laterDate ? new Date(`${laterDate}T09:00:00`).getTime() : null;
-    laterMenuOpen = false;
+    closeLaterMenu();
     void finishReviewState("deferred", Number.isFinite(deferredUntil) ? deferredUntil : null);
+  }
+
+  async function openLaterMenu(): Promise<void> {
+    laterMenuOpen = true;
+    await tick();
+    laterDateInput?.focus();
   }
 
   function closeLaterMenu(restoreFocus = true): void {
     laterMenuOpen = false;
     if (restoreFocus && laterButton?.isConnected) queueMicrotask(() => laterButton?.focus());
+  }
+
+  function handleLaterFocusOut(event: FocusEvent): void {
+    const next = event.relatedTarget;
+    if (!(next instanceof Node) || laterPopover?.contains(next) || laterButton?.contains(next)) return;
+    closeLaterMenu(false);
   }
 
   async function selectRelative(delta: number): Promise<void> {
@@ -336,8 +361,8 @@
       </div>
       {#if inlineCreateOpen}
         <form class="mt-2 rounded-lg border border-border/70 bg-background/75 p-2" onsubmit={(event) => { event.preventDefault(); void createPlaylistAndAdd(); }}>
-          <input bind:this={newPlaylistNameInput} bind:value={newPlaylistName} class="h-8 w-full rounded-md border border-border/70 bg-background px-2.5 text-xs outline-none focus:border-primary" placeholder={t("music.builder.inlinePlaylistName")} />
-          <input bind:value={newPlaylistDescription} class="mt-2 h-8 w-full rounded-md border border-border/70 bg-background px-2.5 text-xs outline-none focus:border-primary" placeholder={t("music.builder.inlinePlaylistDescription")} />
+          <input bind:this={newPlaylistNameInput} bind:value={newPlaylistName} aria-label={t("music.builder.inlinePlaylistName")} class="h-8 w-full rounded-md border border-border/70 bg-background px-2.5 text-xs outline-none focus:border-primary" placeholder={t("music.builder.inlinePlaylistName")} />
+          <input bind:value={newPlaylistDescription} aria-label={t("music.builder.inlinePlaylistDescription")} class="mt-2 h-8 w-full rounded-md border border-border/70 bg-background px-2.5 text-xs outline-none focus:border-primary" placeholder={t("music.builder.inlinePlaylistDescription")} />
           {#if review.createError}<p class="mt-1.5 text-[0.65rem] text-destructive" role="alert">{review.createError}</p>{/if}
           <div class="mt-2 flex justify-end gap-2">
             <button type="button" onclick={() => { inlineCreateOpen = false; review.createError = null; }} class="h-8 rounded-md bg-secondary px-2.5 text-xs font-medium">{t("music.builder.cancel")}</button>
@@ -376,11 +401,11 @@
     <div class="review-actions grid shrink-0 grid-cols-3 gap-2 border-t border-border/70 bg-card p-3">
       <button type="button" onclick={() => { void finishReviewState("ignored"); }} disabled={!detail || review.actionBusy} class="review-action bg-secondary text-secondary-foreground">{t("music.builder.ignore")}</button>
       <div class="relative">
-        <button bind:this={laterButton} type="button" aria-haspopup="dialog" aria-expanded={laterMenuOpen} onclick={() => laterMenuOpen ? closeLaterMenu(false) : laterMenuOpen = true} disabled={!detail || review.actionBusy} class="review-action h-full w-full bg-secondary text-secondary-foreground">{t("music.builder.later")}</button>
+        <button bind:this={laterButton} type="button" aria-haspopup="dialog" aria-expanded={laterMenuOpen} onclick={() => { if (laterMenuOpen) closeLaterMenu(false); else void openLaterMenu(); }} disabled={!detail || review.actionBusy} class="review-action h-full w-full bg-secondary text-secondary-foreground">{t("music.builder.later")}</button>
         {#if laterMenuOpen}
-          <div role="dialog" aria-label={t("music.builder.returnDate")} tabindex="-1" class="later-popover absolute bottom-[calc(100%+0.5rem)] left-1/2 z-20 w-56 -translate-x-1/2 rounded-xl border border-border/70 bg-card p-3 text-left shadow-xl">
+          <div bind:this={laterPopover} role="dialog" aria-label={t("music.builder.returnDate")} tabindex="-1" onfocusout={handleLaterFocusOut} class="later-popover absolute bottom-[calc(100%+0.5rem)] left-1/2 z-20 w-56 -translate-x-1/2 rounded-xl border border-border/70 bg-card p-3 text-left shadow-xl">
             <label for="music-review-return-date" class="block text-[0.68rem] font-medium">{t("music.builder.returnDate")}</label>
-            <input id="music-review-return-date" type="date" bind:value={laterDate} min={new Date(Date.now() + 86_400_000).toISOString().slice(0, 10)} class="mt-1.5 h-8 w-full rounded-md border border-border/70 bg-background px-2 text-xs outline-none" />
+            <input bind:this={laterDateInput} id="music-review-return-date" type="date" bind:value={laterDate} min={new Date(Date.now() + 86_400_000).toISOString().slice(0, 10)} class="mt-1.5 h-8 w-full rounded-md border border-border/70 bg-background px-2 text-xs outline-none" />
             <p class="mt-1.5 text-[0.62rem] leading-relaxed text-muted-foreground">{t("music.builder.returnDateHint")}</p>
             <div class="mt-2 flex justify-end gap-2">
               <button type="button" onclick={() => closeLaterMenu()} class="h-7 rounded-md bg-secondary px-2 text-[0.68rem]">{t("music.builder.cancel")}</button>

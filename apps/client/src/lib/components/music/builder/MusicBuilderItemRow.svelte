@@ -21,6 +21,8 @@
     item,
     selected = false,
     playing = false,
+    position = undefined,
+    setSize = undefined,
     playlistMode = false,
     reorderEnabled = false,
     dropEdge = null,
@@ -37,6 +39,8 @@
     item: MusicItemListEntry;
     selected?: boolean;
     playing?: boolean;
+    position?: number;
+    setSize?: number;
     playlistMode?: boolean;
     reorderEnabled?: boolean;
     dropEdge?: "before" | "after" | null;
@@ -58,6 +62,40 @@
   const reviewTone = $derived(musicReviewTone(item.reviewState));
   let menuOpen = $state(false);
   let positionDraft = $state("");
+  let menuTrigger = $state<HTMLButtonElement | null>(null);
+  let menuNode = $state<HTMLElement | null>(null);
+
+  $effect(() => {
+    if (!menuOpen) return;
+    const handlePointerDown = (event: PointerEvent): void => {
+      if (!(event.target instanceof Node)) return;
+      if (menuNode?.contains(event.target) || menuTrigger?.contains(event.target)) return;
+      closeMenu(false);
+    };
+    window.addEventListener("pointerdown", handlePointerDown, true);
+    return () => window.removeEventListener("pointerdown", handlePointerDown, true);
+  });
+
+  function closeMenu(restoreFocus = true): void {
+    menuOpen = false;
+    positionDraft = "";
+    if (restoreFocus && menuTrigger?.isConnected) queueMicrotask(() => menuTrigger?.focus());
+  }
+
+  function toggleMenu(): void {
+    if (menuOpen) {
+      closeMenu();
+      return;
+    }
+    menuOpen = true;
+    queueMicrotask(() => (menuNode?.querySelector<HTMLElement>("button, input") ?? menuNode)?.focus());
+  }
+
+  function handleMenuFocusOut(event: FocusEvent): void {
+    const next = event.relatedTarget;
+    if (!(next instanceof Node) || menuNode?.contains(next) || menuTrigger?.contains(next)) return;
+    closeMenu(false);
+  }
 
   function availabilityLabel(): string {
     if (item.availability === "available") return t("music.builder.available");
@@ -71,16 +109,16 @@
     if (event.key !== "Escape" || !menuOpen) return;
     event.preventDefault();
     event.stopPropagation();
-    menuOpen = false;
-    queueMicrotask(() => document.querySelector<HTMLButtonElement>(`[data-music-row-menu="${CSS.escape(item.id)}"]`)?.focus());
+    closeMenu();
   }
 </script>
 
 <div
   class={cn("music-builder-row group", selected && "music-builder-row-selected", playing && "music-builder-row-playing", dropEdge === "before" && "music-builder-drop-before", dropEdge === "after" && "music-builder-drop-after")}
-  role="option"
+  role="listitem"
   tabindex="-1"
-  aria-selected={selected}
+  aria-posinset={position}
+  aria-setsize={setSize}
   data-music-focus-key={`item:${item.id}`}
   ondragover={(event) => onDragOver(item, event)}
   ondrop={(event) => onDrop(item, event)}
@@ -145,21 +183,22 @@
     {#if duration}<span class="w-10 text-right text-[0.65rem] tabular-nums text-muted-foreground">{duration}</span>{/if}
     <div class="relative">
     <button
+      bind:this={menuTrigger}
       data-music-row-menu={item.id}
       type="button"
       class="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground opacity-70 transition hover:bg-accent hover:text-accent-foreground group-hover:opacity-100 focus:opacity-100"
-      onclick={(event) => { if (playlistMode) menuOpen = !menuOpen; else onMore(item, event.currentTarget); }}
+      onclick={(event) => { if (playlistMode) toggleMenu(); else onMore(item, event.currentTarget); }}
       onkeydown={handleMenuKeydown}
       aria-label={t("music.builder.moreActions")}
       aria-haspopup={playlistMode ? "dialog" : undefined}
       aria-expanded={playlistMode ? menuOpen : undefined}
     ><MoreHorizontal size={15} strokeWidth={1.7} /></button>
     {#if playlistMode && menuOpen}
-      <div role="dialog" aria-label={t("music.builder.moreActions")} tabindex="-1" onkeydown={handleMenuKeydown} class="absolute bottom-[calc(100%+0.25rem)] right-0 z-20 w-44 rounded-lg border border-border/70 bg-card p-1 shadow-xl">
+      <div bind:this={menuNode} role="dialog" aria-label={t("music.builder.moreActions")} tabindex="-1" onkeydown={handleMenuKeydown} onfocusout={handleMenuFocusOut} class="absolute bottom-[calc(100%+0.25rem)] right-0 z-20 w-44 rounded-lg border border-border/70 bg-card p-1 shadow-xl">
         {#if reorderEnabled}
-        <button type="button" onclick={() => { menuOpen = false; onMove(item, "up"); }} class="row-menu-item"><ArrowUp size={12} />{t("music.builder.moveUp")}</button>
-        <button type="button" onclick={() => { menuOpen = false; onMove(item, "down"); }} class="row-menu-item"><ArrowDown size={12} />{t("music.builder.moveDown")}</button>
-        <form class="mt-1 flex gap-1 border-t border-border/60 pt-1" onsubmit={(event) => { event.preventDefault(); const position = Number(positionDraft); if (Number.isInteger(position) && position > 0) { menuOpen = false; onMoveTo(item, position - 1); } }}>
+        <button type="button" onclick={() => { closeMenu(); onMove(item, "up"); }} class="row-menu-item"><ArrowUp size={12} />{t("music.builder.moveUp")}</button>
+        <button type="button" onclick={() => { closeMenu(); onMove(item, "down"); }} class="row-menu-item"><ArrowDown size={12} />{t("music.builder.moveDown")}</button>
+        <form class="mt-1 flex gap-1 border-t border-border/60 pt-1" onsubmit={(event) => { event.preventDefault(); const position = Number(positionDraft); if (Number.isInteger(position) && position > 0) { closeMenu(); onMoveTo(item, position - 1); } }}>
           <input bind:value={positionDraft} inputmode="numeric" aria-label={t("music.builder.moveToPosition")} placeholder="#" class="h-7 min-w-0 flex-1 rounded bg-background px-2 text-[0.68rem] outline-none focus:ring-1 focus:ring-primary" />
           <button type="submit" class="h-7 rounded bg-secondary px-2 text-[0.65rem] font-medium">{t("music.builder.move")}</button>
         </form>

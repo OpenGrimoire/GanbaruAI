@@ -42,21 +42,45 @@
   }
 
   function navigationKeyboard(node: HTMLElement): { destroy: () => void } {
-    const navigateWithKeyboard = (event: KeyboardEvent): void => {
-    if (event.target instanceof HTMLInputElement) return;
-    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
-    const items = [...node.querySelectorAll<HTMLButtonElement>("[data-builder-nav-item]")];
-    if (items.length === 0) return;
-    event.preventDefault();
-    const current = Math.max(0, items.indexOf(document.activeElement as HTMLButtonElement));
-    const index = event.key === "Home" ? 0
-      : event.key === "End" ? items.length - 1
-      : event.key === "ArrowDown" ? Math.min(items.length - 1, current + 1)
-      : Math.max(0, current - 1);
-    items[index]?.focus();
+    const items = (): HTMLButtonElement[] => [...node.querySelectorAll<HTMLButtonElement>("[data-builder-nav-item]")];
+    const setCurrent = (current: HTMLButtonElement): void => {
+      for (const item of items()) item.tabIndex = item === current ? 0 : -1;
     };
+    const ensureCurrent = (): void => {
+      const currentItems = items();
+      if (!currentItems.some((item) => item.tabIndex === 0)) currentItems[0]?.setAttribute("tabindex", "0");
+    };
+    const navigateWithKeyboard = (event: KeyboardEvent): void => {
+      if (event.target instanceof HTMLInputElement) return;
+      if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+      const currentItems = items();
+      if (currentItems.length === 0) return;
+      event.preventDefault();
+      const current = Math.max(0, currentItems.indexOf(document.activeElement as HTMLButtonElement));
+      const index = event.key === "Home" ? 0
+        : event.key === "End" ? currentItems.length - 1
+        : event.key === "ArrowDown" ? Math.min(currentItems.length - 1, current + 1)
+        : Math.max(0, current - 1);
+      const next = currentItems[index];
+      if (next) {
+        setCurrent(next);
+        next.focus();
+      }
+    };
+    const handleFocus = (event: FocusEvent): void => {
+      const target = event.target;
+      if (target instanceof HTMLButtonElement && target.hasAttribute("data-builder-nav-item")) setCurrent(target);
+    };
+    const observer = new MutationObserver(ensureCurrent);
+    observer.observe(node, { childList: true, subtree: true });
+    queueMicrotask(ensureCurrent);
     node.addEventListener("keydown", navigateWithKeyboard);
-    return { destroy: () => node.removeEventListener("keydown", navigateWithKeyboard) };
+    node.addEventListener("focusin", handleFocus);
+    return { destroy: () => {
+      observer.disconnect();
+      node.removeEventListener("keydown", navigateWithKeyboard);
+      node.removeEventListener("focusin", handleFocus);
+    } };
   }
 </script>
 
@@ -72,6 +96,7 @@
     <div class="space-y-0.5">
       <button
         data-builder-nav-item
+        tabindex={active("review") ? 0 : -1}
         type="button"
         onclick={() => onNavigate({ kind: "review" })}
         class={cn("builder-nav-item", active("review") && "builder-nav-item-active")}
@@ -83,6 +108,7 @@
       </button>
       <button
         data-builder-nav-item
+        tabindex={active("playlists") ? 0 : -1}
         type="button"
         onclick={() => onNavigate({ kind: "playlists" })}
         class={cn("builder-nav-item", active("playlists") && "builder-nav-item-active")}
@@ -93,6 +119,7 @@
       </button>
       <button
         data-builder-nav-item
+        tabindex={active("library") ? 0 : -1}
         type="button"
         onclick={() => onNavigate({ kind: "library" })}
         class={cn("builder-nav-item", active("library") && "builder-nav-item-active")}
@@ -103,6 +130,7 @@
       </button>
       <button
         data-builder-nav-item
+        tabindex={active("sources") ? 0 : -1}
         type="button"
         onclick={() => onNavigate({ kind: "sources" })}
         class={cn("builder-nav-item", active("sources") && "builder-nav-item-active")}
@@ -114,6 +142,7 @@
       </button>
       <button
         data-builder-nav-item
+        tabindex={active("issues") ? 0 : -1}
         type="button"
         onclick={() => onNavigate({ kind: "issues" })}
         class={cn("builder-nav-item", active("issues") && "builder-nav-item-active")}
@@ -124,6 +153,7 @@
       </button>
       <button
         data-builder-nav-item
+        tabindex={active("soundscapes") ? 0 : -1}
         type="button"
         onclick={() => onNavigate({ kind: "soundscapes" })}
         class={cn("builder-nav-item", active("soundscapes") && "builder-nav-item-active")}
@@ -137,12 +167,13 @@
     {#if playlists.length > 0}
       <div class="mx-2 my-2.5 h-px bg-border/60"></div>
       {#if playlists.length > 5}
-        <label class="mx-1 mb-1.5 flex h-7 items-center gap-1.5 rounded-md bg-background/70 px-2"><Search size={12} class="text-muted-foreground" /><input bind:value={playlistSearch} class="min-w-0 flex-1 bg-transparent text-[0.68rem] outline-none" placeholder={t("music.builder.searchPlaylists")} /></label>
+        <label class="mx-1 mb-1.5 flex h-7 items-center gap-1.5 rounded-md bg-background/70 px-2"><Search size={12} class="text-muted-foreground" /><input bind:value={playlistSearch} aria-label={t("music.builder.searchPlaylists")} class="min-w-0 flex-1 bg-transparent text-[0.68rem] outline-none" placeholder={t("music.builder.searchPlaylists")} /></label>
       {/if}
       <div class="space-y-0.5">
         {#each visiblePlaylists as playlist (playlist.id)}
           <button
             data-builder-nav-item
+            tabindex={active("playlist", playlist.id) ? 0 : -1}
             type="button"
             onclick={() => onNavigate({ kind: "playlist", playlistId: playlist.id })}
             class={cn("builder-nav-item", active("playlist", playlist.id) && "builder-nav-item-active")}

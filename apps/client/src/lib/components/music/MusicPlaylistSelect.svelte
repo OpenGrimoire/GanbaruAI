@@ -59,14 +59,15 @@
     searchInput?.focus();
   }
 
-  function close(): void {
+  function close(restoreFocus = false): void {
     open = false;
     search = "";
+    if (restoreFocus && trigger?.isConnected) queueMicrotask(() => trigger?.focus());
   }
 
   function choose(playlistId: string | null): void {
     onChange(playlistId);
-    close();
+    close(true);
   }
 
   function position(): void {
@@ -93,6 +94,12 @@
     return `top:${geometry.top}px;left:${geometry.left}px;width:${geometry.width ?? geometry.minWidth}px;max-width:${geometry.maxWidth}px;max-height:${geometry.maxHeight}px`;
   }
 
+  function handlePopoverFocusOut(event: FocusEvent): void {
+    const next = event.relatedTarget;
+    if (!(next instanceof Node) || popover?.contains(next) || trigger?.contains(next)) return;
+    close();
+  }
+
   $effect(() => {
     if (!open) return;
     const pointer = (event: PointerEvent) => {
@@ -102,8 +109,7 @@
     const keydown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.stopPropagation();
-      close();
-      trigger?.focus();
+      close(true);
     };
     window.addEventListener("pointerdown", pointer, true);
     window.addEventListener("keydown", keydown, true);
@@ -142,12 +148,13 @@
     bind:this={popover}
     role="dialog"
     aria-label={label}
+    onfocusout={handlePopoverFocusOut}
     style={popoverStyle()}
     class="fixed z-120 flex min-h-0 flex-col overflow-hidden rounded-xl border border-border/80 bg-popover text-popover-foreground shadow-2xl"
   >
     <label class="m-2 mb-1 flex h-8 shrink-0 items-center gap-2 rounded-lg bg-secondary/70 px-2.5">
       <Search size={13} class="text-muted-foreground" />
-      <input bind:this={searchInput} bind:value={search} class="min-w-0 flex-1 bg-transparent text-xs outline-none" placeholder={t("music.assignment.searchPlaylists")} />
+      <input bind:this={searchInput} bind:value={search} aria-label={t("music.assignment.searchPlaylists")} class="min-w-0 flex-1 bg-transparent text-xs outline-none" placeholder={t("music.assignment.searchPlaylists")} />
     </label>
     <div class="min-h-0 flex-1 overflow-y-auto p-2">
       <button type="button" onclick={() => choose(null)} class="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs hover:bg-accent">

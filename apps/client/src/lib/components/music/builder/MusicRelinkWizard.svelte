@@ -70,7 +70,7 @@
           {#if !everyAmbiguityResolved}<p class="mt-2 text-[0.65rem] text-destructive">{t("music.builder.unresolvedAmbiguities")}</p>{/if}
         {:else}<p class="mt-3 rounded-xl bg-primary/8 p-2.5 text-[0.68rem] text-muted-foreground">{t("music.builder.dataPreserved")}</p>{/if}
       {/if}
-      {#if error}<p class="mt-3 rounded-lg bg-destructive/10 px-2.5 py-2 text-[0.68rem] text-destructive">{error}</p>{/if}
+      {#if error}<p class="mt-3 rounded-lg bg-destructive/10 px-2.5 py-2 text-[0.68rem] text-destructive" role="alert">{error}</p>{/if}
     </div>
     <footer class="flex shrink-0 justify-end gap-2 border-t border-border/55 px-3 py-2"><button type="button" onclick={() => { void close(); }} class="h-8 rounded-lg bg-secondary px-3 text-[0.68rem] font-semibold">{t("music.builder.cancel")}</button>{#if step === "review" || step === "applying"}<button type="button" onclick={() => { void apply(); }} disabled={!everyAmbiguityResolved || step === "applying"} class="h-8 rounded-lg bg-primary px-3 text-[0.68rem] font-semibold text-primary-foreground disabled:opacity-45">{t("music.builder.applyRelink")}</button>{/if}</footer>
   </div>

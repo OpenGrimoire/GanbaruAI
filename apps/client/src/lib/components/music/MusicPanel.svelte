@@ -672,7 +672,7 @@
 </div>
 <div
   bind:this={panel}
-  class="fixed right-2 z-70 flex w-[min(1000px,calc(100vw-1rem))] flex-col overflow-hidden rounded-xl outline-none"
+  class="music-panel-root fixed right-2 z-70 flex w-[min(1000px,calc(100vw-1rem))] flex-col overflow-hidden rounded-xl outline-none"
   style={`top: calc(var(--titlebar-h) + 4px); height: min(${panelMaximumHeight}, calc(100dvh - var(--titlebar-h) - 12px));`}
   role="dialog"
   aria-modal="true"
@@ -1388,5 +1388,14 @@
   .music-volume-slider-vertical-frame {
     width: var(--music-volume-thumb-size);
     height: 8rem;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    :global(.music-panel-root *) {
+      scroll-behavior: auto !important;
+      transition-duration: 0.01ms !important;
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+    }
   }
 </style>
