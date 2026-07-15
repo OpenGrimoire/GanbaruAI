@@ -475,6 +475,19 @@ mod tests {
             .unwrap();
             assert_eq!(saved.local_path.as_deref(), path.to_str());
 
+            let copied_device = definitions(&pool, "device-b")
+                .await
+                .unwrap()
+                .into_iter()
+                .find(|entry| entry.id == saved.id)
+                .unwrap();
+            assert_eq!(copied_device.name, "Rain");
+            assert_eq!(copied_device.local_path, None);
+            assert_eq!(
+                copied_device.availability,
+                MusicSoundscapeAvailability::Missing
+            );
+
             let initial = state(&pool).await.unwrap();
             let playing = update_state(
                 &pool,

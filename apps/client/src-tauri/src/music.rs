@@ -656,6 +656,8 @@ mod tests {
         assert!(host.contains("ganbaru-ai-youtube-playlist-error"));
         assert!(host.contains("event.source !== parent"));
         assert!(host.contains("activeSource.kind !== \"youtube-playlist\""));
+        assert!(host.contains("playbackActive = event.data === 1"));
+        assert!(host.contains("if (player && playbackActive) snapshot()"));
         assert!(host.contains("if (source.kind === \"youtube-video\" || source.videoId)"));
         assert!(!host.contains("videoId: source.kind"));
         assert!(!host.contains("modestbranding"));

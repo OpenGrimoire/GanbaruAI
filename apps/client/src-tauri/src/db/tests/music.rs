@@ -1,4 +1,5 @@
 use super::helpers::migrated_memory_pool;
+use crate::db::run_migrations;
 use sqlx::{Row, SqlitePool};
 
 const BASELINE_SCHEMA: &str =
@@ -24,6 +25,44 @@ async fn pre_legacy_music_migration_pool() -> SqlitePool {
         .await
         .unwrap();
     pool
+}
+
+#[test]
+fn repeated_migration_startup_preserves_music_data() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        sqlx::query(
+            "INSERT INTO music_playlists (id, name, description, created_at, updated_at)
+             VALUES ('playlist-1', 'Deep focus', 'User-authored description', 1, 1)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let migration_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM _sqlx_migrations")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+        run_migrations(&pool).await.unwrap();
+
+        let playlist: (String, Option<String>) =
+            sqlx::query_as("SELECT name, description FROM music_playlists WHERE id = 'playlist-1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        let repeated_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM _sqlx_migrations")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            playlist,
+            (
+                "Deep focus".into(),
+                Some("User-authored description".into())
+            )
+        );
+        assert_eq!(repeated_count, migration_count);
+    });
 }
 
 #[test]

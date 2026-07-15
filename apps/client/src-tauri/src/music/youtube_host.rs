@@ -23,6 +23,7 @@ pub(crate) fn youtube_host_html() -> &'static str {
     let player = null;
     let apiReady = false;
     let activeSource = null;
+    let playbackActive = false;
     let playlistSnapshotTimer = null;
     let playlistErrorSent = false;
 
@@ -215,6 +216,7 @@ pub(crate) fn youtube_host_html() -> &'static str {
         player.destroy();
         player = null;
       }
+      playbackActive = false;
       const playerElement = resetPlayerElement();
       const source = payload.source;
       activeSource = source;
@@ -250,10 +252,12 @@ pub(crate) fn youtube_host_html() -> &'static str {
             sendPlaylistSnapshot(30);
           },
           onStateChange(event) {
+            playbackActive = event.data === 1;
             snapshot(playbackStatus(event.data));
             sendPlaylistSnapshot(30);
           },
           onError(event) {
+            playbackActive = false;
             send({ type: "ganbaru-ai-youtube-error", code: event.data });
           }
         }
@@ -274,6 +278,7 @@ pub(crate) fn youtube_host_html() -> &'static str {
         const volume = typeof data.volume === "number" ? data.volume : null;
         applyVolume(volume);
         player.playVideo();
+        playbackActive = true;
         if (volume !== null) {
           setTimeout(() => applyVolume(volume), 0);
           setTimeout(() => applyVolume(volume), 150);
@@ -284,10 +289,14 @@ pub(crate) fn youtube_host_html() -> &'static str {
       if (data.action === "pause") {
         applyVolume(data.volume);
         player.pauseVideo();
+        playbackActive = false;
         snapshot("paused");
         return;
       }
-      if (data.action === "stop") player.stopVideo();
+      if (data.action === "stop") {
+        playbackActive = false;
+        player.stopVideo();
+      }
       if (data.action === "seek") player.seekTo(data.positionMs / 1000, true);
       if (data.action === "volume") applyVolume(data.volume);
       if (data.action === "rate") player.setPlaybackRate(data.rate);
@@ -311,7 +320,7 @@ pub(crate) fn youtube_host_html() -> &'static str {
     });
 
     window.setInterval(() => {
-      if (player) snapshot();
+      if (player && playbackActive) snapshot();
     }, 1000);
   </script>
   <script src="https://www.youtube.com/iframe_api"></script>
