@@ -168,6 +168,8 @@ string_enum!(MusicGroupBy {
     ReviewState => "review-state",
     Availability => "availability",
     Album => "album",
+    Folder => "folder",
+    SourceCollection => "source-collection",
 });
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -192,6 +194,7 @@ pub struct MusicLibraryItem {
     pub availability: MusicItemAvailability,
     pub review_state: MusicReviewState,
     pub review_changed_at: Option<i64>,
+    pub review_deferred_until: Option<i64>,
     pub discovered_at: i64,
     pub updated_at: i64,
     pub version: i64,
@@ -574,6 +577,7 @@ pub struct MusicPlaylistDelete {
 pub struct MusicReviewWrite {
     pub item_id: String,
     pub review_state: MusicReviewState,
+    pub deferred_until: Option<i64>,
     pub expected_version: i64,
     pub updated_at: i64,
 }
@@ -668,6 +672,7 @@ pub struct MusicPlaylistSummary {
     pub description: String,
     pub shuffle_enabled: bool,
     pub repeat_mode: MusicRepeatMode,
+    pub intended_uses: Vec<MusicIntendedUse>,
     pub total_count: i64,
     pub eligible_count: i64,
     pub unavailable_count: i64,

@@ -20,7 +20,7 @@ export type MusicRepeatMode = "off" | "all" | "one";
 export type MusicListDestination = "review" | "library" | "playlist";
 export type MusicItemSort = "title" | "artist" | "album" | "discovered-at" | "last-played-at" | "play-count" | "manual-position";
 export type MusicSortDirection = "ascending" | "descending";
-export type MusicGroupBy = "none" | "source-kind" | "review-state" | "availability" | "album";
+export type MusicGroupBy = "none" | "source-kind" | "review-state" | "availability" | "album" | "folder" | "source-collection";
 export type LocalRootBindingStatus = "available" | "missing" | "needs-relink";
 
 export interface MusicWriteReceipt { id: string; version: number }
@@ -57,6 +57,7 @@ export interface MusicPlaylistDelete {
 export interface MusicReviewWrite {
   itemId: string;
   reviewState: MusicReviewState;
+  deferredUntil: number | null;
   expectedVersion: number;
   updatedAt: number;
 }
@@ -215,6 +216,7 @@ export interface MusicPlaylistSummary {
   description: string;
   shuffleEnabled: boolean;
   repeatMode: MusicRepeatMode;
+  intendedUses: MusicIntendedUse[];
   totalCount: number;
   eligibleCount: number;
   unavailableCount: number;
@@ -274,6 +276,7 @@ export interface MusicLibraryItem {
   availability: MusicItemAvailability;
   reviewState: MusicReviewState;
   reviewChangedAt: number | null;
+  reviewDeferredUntil: number | null;
   discoveredAt: number;
   updatedAt: number;
   version: number;
@@ -586,6 +589,7 @@ function parsePlaylistSummary(value: unknown, label: string): MusicPlaylistSumma
   const row = object(value, label); return {
     id: string(row.id, `${label}.id`), name: string(row.name, `${label}.name`), description: string(row.description, `${label}.description`),
     shuffleEnabled: boolean(row.shuffleEnabled, `${label}.shuffleEnabled`), repeatMode: enumeration(row.repeatMode, repeatModes, `${label}.repeatMode`),
+    intendedUses: array(row.intendedUses, (entry, entryLabel) => enumeration(entry, intendedUses, entryLabel), `${label}.intendedUses`),
     totalCount: number(row.totalCount, `${label}.totalCount`), eligibleCount: number(row.eligibleCount, `${label}.eligibleCount`), unavailableCount: number(row.unavailableCount, `${label}.unavailableCount`),
     snoozedCount: number(row.snoozedCount, `${label}.snoozedCount`), localCount: number(row.localCount, `${label}.localCount`), onlineCount: number(row.onlineCount, `${label}.onlineCount`), version: number(row.version, `${label}.version`),
   };
@@ -609,7 +613,7 @@ function parseLibraryItem(value: unknown, label: string): MusicLibraryItem {
     id: string(row.id, `${label}.id`), identityKey: string(row.identityKey, `${label}.identityKey`), sourceKind: enumeration(row.sourceKind, sourceKinds, `${label}.sourceKind`), mediaKind: enumeration(row.mediaKind, mediaKinds, `${label}.mediaKind`),
     youtubeVideoId: nullable(row.youtubeVideoId, string, `${label}.youtubeVideoId`), originalTitle: string(row.originalTitle, `${label}.originalTitle`), originalArtist: string(row.originalArtist, `${label}.originalArtist`), originalAlbum: string(row.originalAlbum, `${label}.originalAlbum`), originalTrackNumber: nullable(row.originalTrackNumber, number, `${label}.originalTrackNumber`), originalArtworkIdentity: nullable(row.originalArtworkIdentity, string, `${label}.originalArtworkIdentity`), youtubeResolutionState: nullable(row.youtubeResolutionState, (entry, entryLabel) => enumeration(entry, youtubeResolutionStates, entryLabel), `${label}.youtubeResolutionState`),
     titleOverride: nullable(row.titleOverride, string, `${label}.titleOverride`), artistOverride: nullable(row.artistOverride, string, `${label}.artistOverride`), albumOverride: nullable(row.albumOverride, string, `${label}.albumOverride`), artworkOverride: nullable(row.artworkOverride, string, `${label}.artworkOverride`),
-    durationMs: nullable(row.durationMs, number, `${label}.durationMs`), availability: enumeration(row.availability, itemAvailability, `${label}.availability`), reviewState: enumeration(row.reviewState, reviewStates, `${label}.reviewState`), reviewChangedAt: nullable(row.reviewChangedAt, number, `${label}.reviewChangedAt`), discoveredAt: number(row.discoveredAt, `${label}.discoveredAt`), updatedAt: number(row.updatedAt, `${label}.updatedAt`), version: number(row.version, `${label}.version`),
+    durationMs: nullable(row.durationMs, number, `${label}.durationMs`), availability: enumeration(row.availability, itemAvailability, `${label}.availability`), reviewState: enumeration(row.reviewState, reviewStates, `${label}.reviewState`), reviewChangedAt: nullable(row.reviewChangedAt, number, `${label}.reviewChangedAt`), reviewDeferredUntil: nullable(row.reviewDeferredUntil, number, `${label}.reviewDeferredUntil`), discoveredAt: number(row.discoveredAt, `${label}.discoveredAt`), updatedAt: number(row.updatedAt, `${label}.updatedAt`), version: number(row.version, `${label}.version`),
   };
 }
 function parseLocation(value: unknown, label: string): MusicLocalLocation {

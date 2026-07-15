@@ -475,11 +475,12 @@ pub(crate) async fn set_review_state(
     validate_review_write(&request)?;
     let result = sqlx::query(
         "UPDATE music_library_items
-         SET review_state = ?, review_changed_at = ?, updated_at = ?, version = version + 1
+         SET review_state = ?, review_changed_at = ?, review_deferred_until = ?, updated_at = ?, version = version + 1
          WHERE id = ? AND version = ?",
     )
     .bind(request.review_state.as_ref())
     .bind(request.updated_at)
+    .bind(request.deferred_until)
     .bind(request.updated_at)
     .bind(&request.item_id)
     .bind(request.expected_version)

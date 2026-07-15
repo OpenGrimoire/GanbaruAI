@@ -44,6 +44,7 @@ import {
 } from "./music-source-controller";
 
 export type { MusicStaleVisual } from "./music-hosted-media-controller";
+export type MusicPlaybackContextOwner = "manual" | "review" | "calendar-event" | "pomodoro" | "soundscape";
 
 const progressMaxFallback = 1;
 
@@ -78,8 +79,11 @@ class MusicPlayerStore {
   surfaceElement = $state<HTMLElement | null>(null);
   sourceActionBusy = $state(false);
   volumeFeedbackId = $state(0);
+  contextOwner = $state<MusicPlaybackContextOwner>("manual");
 
   private readonly loadRuntime = new MusicLoadRuntime();
+  private surfaceClaims = new Map<string, { element: HTMLElement; priority: number; order: number }>();
+  private nextSurfaceClaimOrder = 0;
   private lastTraySignature = "";
   private readonly queueController = createMusicQueueController({
     state: this,
@@ -276,7 +280,31 @@ class MusicPlayerStore {
   }
 
   setSurfaceElement(element: HTMLElement | null): void {
-    this.surfaceElement = element;
+    if (element) {
+      this.surfaceClaims.set("legacy", {
+        element,
+        priority: 0,
+        order: ++this.nextSurfaceClaimOrder,
+      });
+    } else {
+      this.surfaceClaims.delete("legacy");
+    }
+    this.syncSurfaceElement();
+  }
+
+  claimSurface(owner: string, element: HTMLElement, priority = 0): () => void {
+    this.surfaceClaims.set(owner, {
+      element,
+      priority,
+      order: ++this.nextSurfaceClaimOrder,
+    });
+    this.syncSurfaceElement();
+    return () => {
+      const claim = this.surfaceClaims.get(owner);
+      if (claim?.element !== element) return;
+      this.surfaceClaims.delete(owner);
+      this.syncSurfaceElement();
+    };
   }
 
   registerYouTubeFrame(frame: HTMLIFrameElement | null): void {
@@ -637,6 +665,18 @@ class MusicPlayerStore {
 
   private resetLocalMediaElement(): void {
     this.webviewLocalAdapter.reset();
+  }
+
+  private syncSurfaceElement(): void {
+    let active: { element: HTMLElement; priority: number; order: number } | null = null;
+    for (const claim of this.surfaceClaims.values()) {
+      if (!active || claim.priority > active.priority || (
+        claim.priority === active.priority && claim.order > active.order
+      )) {
+        active = claim;
+      }
+    }
+    this.surfaceElement = active?.element ?? null;
   }
 
   private postYouTubeCommand(payload: Record<string, unknown> & { action: YouTubeCommandAction | "snapshot" }): void {

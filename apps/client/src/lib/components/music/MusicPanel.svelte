@@ -337,6 +337,7 @@
 
   function handleKeydown(event: KeyboardEvent): void {
     if (event.key === "Escape" && !mediaSurfaceFullscreen) {
+      if (musicPage === "playlist-builder") return;
       event.preventDefault();
       event.stopPropagation();
       onclose();

@@ -24,7 +24,13 @@ fn push_item_from(builder: &mut QueryBuilder<'_, Sqlite>, request: &MusicItemWin
 fn push_item_filters(builder: &mut QueryBuilder<'_, Sqlite>, request: &MusicItemWindowRequest) {
     builder.push(" WHERE 1 = 1 ");
     if request.destination == MusicListDestination::Review {
-        builder.push("AND item.review_state IN ('unreviewed', 'deferred') ");
+        builder.push(
+            "AND (item.review_state = 'unreviewed' OR (
+            item.review_state = 'deferred'
+            AND (item.review_deferred_until IS NULL OR item.review_deferred_until <= ",
+        );
+        builder.push_bind(request.now_ms);
+        builder.push("))) ");
     }
     if let Some(source_kind) = request.source_kind {
         builder.push("AND item.source_kind = ");
@@ -84,6 +90,10 @@ fn push_item_filters(builder: &mut QueryBuilder<'_, Sqlite>, request: &MusicItem
 
 fn push_item_order(builder: &mut QueryBuilder<'_, Sqlite>, request: &MusicItemWindowRequest) {
     builder.push(" ORDER BY ");
+    if let Some(group) = group_expression(request.group_by) {
+        builder.push(group);
+        builder.push(" COLLATE NOCASE ASC, ");
+    }
     let expression = match request.sort {
         MusicItemSort::Title => "COALESCE(item.title_override, item.original_title) COLLATE NOCASE",
         MusicItemSort::Artist => {
@@ -112,6 +122,29 @@ fn group_expression(group_by: MusicGroupBy) -> Option<&'static str> {
         MusicGroupBy::Album => Some(
             "CASE WHEN trim(COALESCE(item.album_override, item.original_album)) = ''
              THEN 'unknown' ELSE COALESCE(item.album_override, item.original_album) END",
+        ),
+        MusicGroupBy::Folder => Some(
+            "CASE WHEN item.source_kind = 'youtube-video' THEN 'Online'
+             ELSE COALESCE((
+                 SELECT CASE
+                     WHEN instr(replace(location.relative_path, '\\', '/'), '/') > 0
+                     THEN substr(replace(location.relative_path, '\\', '/'), 1,
+                         instr(replace(location.relative_path, '\\', '/'), '/') - 1)
+                     ELSE 'Root folder'
+                 END
+                 FROM music_local_locations AS location
+                 WHERE location.item_id = item.id
+                 ORDER BY location.availability = 'available' DESC, location.relative_path
+                 LIMIT 1
+             ), 'Unknown folder') END",
+        ),
+        MusicGroupBy::SourceCollection => Some(
+            "COALESCE((
+                SELECT MIN(source.name COLLATE NOCASE)
+                FROM music_source_collection_items AS source_item
+                JOIN music_source_collections AS source ON source.id = source_item.collection_id
+                WHERE source_item.item_id = item.id
+            ), 'Unlinked source')",
         ),
     }
 }
@@ -209,6 +242,7 @@ struct PlaylistSummaryRow {
     description: String,
     shuffle_enabled: i64,
     repeat_mode: String,
+    intended_uses: String,
     total_count: i64,
     eligible_count: i64,
     unavailable_count: i64,
@@ -230,7 +264,14 @@ pub(crate) async fn playlist_summaries(
     }
     let rows = sqlx::query_as::<_, PlaylistSummaryRow>(
         "SELECT playlist.id, playlist.name, playlist.description, playlist.shuffle_enabled,
-                playlist.repeat_mode, COUNT(membership.id) AS total_count,
+                playlist.repeat_mode,
+                COALESCE((
+                    SELECT group_concat(intended.intended_use, ',')
+                    FROM music_playlist_intended_uses AS intended
+                    WHERE intended.playlist_id = playlist.id
+                    ORDER BY intended.intended_use
+                ), '') AS intended_uses,
+                COUNT(membership.id) AS total_count,
                 SUM(CASE WHEN membership.enabled = 1 AND item.availability = 'available'
                     AND NOT EXISTS (
                         SELECT 1 FROM music_snoozes AS snooze
@@ -283,6 +324,16 @@ pub(crate) async fn playlist_summaries(
                 },
                 repeat_mode: MusicRepeatMode::try_from(row.repeat_mode.as_str())
                     .map_err(|message| MusicLibraryError::validation("repeatMode", message))?,
+                intended_uses: row
+                    .intended_uses
+                    .split(',')
+                    .filter(|value| !value.is_empty())
+                    .map(|value| {
+                        MusicIntendedUse::try_from(value).map_err(|message| {
+                            MusicLibraryError::validation("intendedUses", message)
+                        })
+                    })
+                    .collect::<MusicLibraryResult<Vec<_>>>()?,
                 total_count: row.total_count,
                 eligible_count: row.eligible_count,
                 unavailable_count: row.unavailable_count,
@@ -549,7 +600,7 @@ pub(crate) async fn inspector_detail(
                 original_title, original_artist, original_album, original_track_number,
                 original_artwork_identity, youtube_resolution_state, title_override,
                 artist_override, album_override, artwork_override, duration_ms,
-                availability, review_state, review_changed_at, discovered_at,
+                availability, review_state, review_changed_at, review_deferred_until, discovered_at,
                 updated_at, version
          FROM music_library_items WHERE id = ?",
     )

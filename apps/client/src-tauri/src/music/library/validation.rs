@@ -408,7 +408,24 @@ pub(crate) fn validate_review_write(request: &MusicReviewWrite) -> MusicLibraryR
             "must be greater than zero",
         ));
     }
-    validate_timestamp(request.updated_at, "updatedAt")
+    validate_timestamp(request.updated_at, "updatedAt")?;
+    if request.review_state == MusicReviewState::Deferred {
+        if let Some(deferred_until) = request.deferred_until {
+            validate_timestamp(deferred_until, "deferredUntil")?;
+            if deferred_until <= request.updated_at {
+                return Err(MusicLibraryError::validation(
+                    "deferredUntil",
+                    "must be later than updatedAt",
+                ));
+            }
+        }
+    } else if request.deferred_until.is_some() {
+        return Err(MusicLibraryError::validation(
+            "deferredUntil",
+            "must be null unless reviewState is deferred",
+        ));
+    }
+    Ok(())
 }
 
 pub(crate) fn validate_membership_remove(

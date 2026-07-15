@@ -66,6 +66,7 @@ describe("music library contracts", () => {
       description: "",
       shuffleEnabled: false,
       repeatMode: "all",
+      intendedUses: [],
       totalCount: 1,
     }])).toThrow("eligibleCount must be a safe integer");
   });
@@ -77,7 +78,7 @@ describe("music library contracts", () => {
         youtubeVideoId: null, originalTitle: "Focus", originalArtist: "", originalAlbum: "",
         originalTrackNumber: null, originalArtworkIdentity: null, youtubeResolutionState: null,
         titleOverride: null, artistOverride: null, albumOverride: null, artworkOverride: null,
-        durationMs: null, availability: "available", reviewState: "reviewed", reviewChangedAt: null,
+        durationMs: null, availability: "available", reviewState: "reviewed", reviewChangedAt: null, reviewDeferredUntil: null,
         discoveredAt: 1, updatedAt: 1, version: 1,
       },
       locations: [], memberships: [], snoozes: [], signals: ["invented"],

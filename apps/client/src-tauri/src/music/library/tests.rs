@@ -600,6 +600,45 @@ fn deletion_requires_current_impact_and_clears_assignments_atomically() {
 }
 
 #[test]
+fn deferred_review_items_return_after_their_optional_date() {
+    tauri::async_runtime::block_on(async {
+        let pool = pool().await;
+        seed_item(&pool, "item-1", "local:item-1").await;
+        super::writes::set_review_state(
+            &pool,
+            MusicReviewWrite {
+                item_id: "item-1".to_string(),
+                review_state: MusicReviewState::Deferred,
+                deferred_until: Some(1_700_000_200_000),
+                expected_version: 1,
+                updated_at: 1_700_000_100_000,
+            },
+        )
+        .await
+        .unwrap();
+
+        let mut request = library_window();
+        request.destination = MusicListDestination::Review;
+        request.now_ms = 1_700_000_150_000;
+        assert_eq!(
+            super::queries::item_window(&pool, request.clone())
+                .await
+                .unwrap()
+                .total_count,
+            0
+        );
+        request.now_ms = 1_700_000_250_000;
+        assert_eq!(
+            super::queries::item_window(&pool, request)
+                .await
+                .unwrap()
+                .total_count,
+            1
+        );
+    });
+}
+
+#[test]
 fn review_snooze_and_statistics_commands_preserve_independent_scopes() {
     tauri::async_runtime::block_on(async {
         let pool = pool().await;
@@ -609,6 +648,7 @@ fn review_snooze_and_statistics_commands_preserve_independent_scopes() {
             MusicReviewWrite {
                 item_id: "item-1".to_string(),
                 review_state: MusicReviewState::Ignored,
+                deferred_until: None,
                 expected_version: 1,
                 updated_at: 1_700_000_000_100,
             },
@@ -846,6 +886,17 @@ fn summaries_issues_and_inspector_return_composed_data_without_row_queries() {
         .execute(&pool)
         .await
         .unwrap();
+        for (group_by, expected_key) in [
+            (MusicGroupBy::Folder, "Album"),
+            (MusicGroupBy::SourceCollection, "Soundtracks"),
+        ] {
+            let mut request = library_window();
+            request.group_by = group_by;
+            let window = super::queries::item_window(&pool, request).await.unwrap();
+            assert_eq!(window.groups.len(), 1);
+            assert_eq!(window.groups[0].key, expected_key);
+            assert_eq!(window.groups[0].count, 1);
+        }
         sqlx::query(
             "INSERT INTO music_item_signals (item_id, signal, created_at)
              VALUES ('item-1', 'calm', 1700000000000)",
