@@ -107,20 +107,28 @@ describe("MusicSourcesController", () => {
     expect(createRoot).not.toHaveBeenCalled();
   });
 
-  it("detects the system Music folder once when no local root exists", async () => {
+  it("automatically adopts and scans the system Music folder once when no local root exists", async () => {
     const detectDefaultFolder = vi.fn(async () => ({
       folderPath: "/home/user/Music",
       tracks: [{ path: "/home/user/Music/focus.flac", title: "focus", artworkPath: null }],
       truncated: false,
     }));
-    const controller = createMusicSourcesController(api({ detectDefaultFolder }), () => 10, () => "id", refreshStub());
+    const createRoot = vi.fn(async (request: Parameters<MusicSourcesControllerApi["createRoot"]>[0]) => ({ id: request.collectionId, version: 1 }));
+    const bindRoot = vi.fn(async (_vaultId: string, rootId: string, folderPath: string) => ({ rootId, folderPath, status: "available" as const }));
+    const refresh = refreshStub();
+    const ids = ["root-1", "collection-1", "job-1"];
+    const controller = createMusicSourcesController(api({ detectDefaultFolder, createRoot, bindRoot }), () => 10, () => ids.shift() ?? "id", refresh);
     controller.setVault("vault-1");
 
     await controller.load();
-    await vi.waitFor(() => expect(controller.detectedDefaultFolder?.tracks).toHaveLength(1));
+    await vi.waitFor(() => expect(refresh.run).toHaveBeenCalledOnce());
     await controller.load();
 
     expect(detectDefaultFolder).toHaveBeenCalledOnce();
+    expect(bindRoot).toHaveBeenCalledWith("vault-1", "root-1", "/home/user/Music");
+    expect(createRoot).toHaveBeenCalledOnce();
+    expect(controller.detectedDefaultFolder).toBeNull();
+    expect(controller.preparingDefaultFolder).toBe(false);
   });
 
   it("does not detect a default folder when a local root already exists", async () => {

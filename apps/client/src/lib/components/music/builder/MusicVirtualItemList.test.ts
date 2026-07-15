@@ -13,6 +13,7 @@ const item: MusicItemListEntry = {
   title: "Quiet morning",
   artist: "Composer",
   album: "Soundtrack",
+  relativePath: "Soundtrack/Quiet morning.flac",
   artworkOverride: null,
   durationMs: 120_000,
   availability: "available",

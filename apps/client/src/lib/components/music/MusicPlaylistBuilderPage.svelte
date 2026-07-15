@@ -1,6 +1,9 @@
 <script lang="ts">
   import { onDestroy, onMount, tick } from "svelte";
   import Check from "@lucide/svelte/icons/check";
+  import ArrowLeft from "@lucide/svelte/icons/arrow-left";
+  import FolderSearch from "@lucide/svelte/icons/folder-search";
+  import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { registerMediaFile, revealLocalFile } from "$lib/api/music";
   import { invalidateMusicArtwork } from "$lib/music/music-artwork-cache";
@@ -109,6 +112,8 @@
   const playingItemId = $derived(audition.musicPlayer.activeQueueItemIds[audition.musicPlayer.currentQueueIndex] ?? null);
   const playlistNames = $derived(Object.fromEntries(library.playlistSummaries.map((entry) => [entry.id, entry.name])));
   const sourceNames = $derived(Object.fromEntries(library.sourceSummaries.map((entry) => [entry.id, entry.name])));
+  const firstUsePreparation = $derived(sources.preparingDefaultFolder && library.currentWindow.items.length === 0);
+  const firstUseRefreshProgress = $derived(Object.values(sources.refreshStatuses).find((status) => status.kind === "local-root"));
 
   $effect(() => {
     const action = initialAction;
@@ -349,6 +354,14 @@
     if (removeCurrent && destination.kind === "playlist") bulk.toggle(destination.playlistId);
   }
 
+  async function assignReviewSelection(itemIds: string[]): Promise<void> {
+    const uniqueIds = [...new Set(itemIds)].filter((itemId) => library.currentWindow.items.some((item) => item.id === itemId));
+    if (uniqueIds.length === 0) return;
+    library.setItemSelection(uniqueIds, uniqueIds.at(-1) ?? null);
+    bulkSurface = "memberships";
+    await bulk.open(uniqueIds, library.playlistSummaries);
+  }
+
   async function openItemMembership(itemId: string): Promise<void> {
     library.setItemSelection([itemId], itemId);
     bulkSurface = "memberships";
@@ -449,7 +462,7 @@
 <svelte:window onkeydown={handleWindowKeydown} />
 
 <section bind:this={root} use:observeRoot class="builder-root flex h-full min-h-0 flex-col overflow-hidden text-foreground" style="background-color: var(--cal-bg);">
-  <MusicBuilderHeader
+  {#if !firstUsePreparation}<MusicBuilderHeader
     {destination}
     search={library.currentState.search}
     searchAvailable={destination.kind === "review" || destination.kind === "playlists" || hasList}
@@ -464,12 +477,30 @@
     onRefresh={() => { void library.refresh(); }}
     onUndo={() => { void library.undoLast(); }}
     onPrimary={primaryAction}
-  />
+  />{/if}
 
   <div class="relative grid min-h-0 flex-1" class:builder-wide={layout.mode === "wide"} class:builder-medium={layout.mode === "medium"} class:builder-narrow={layout.mode === "narrow"} class:builder-review={destination.kind === "review"}>
     <main class="relative flex min-h-0 min-w-0 flex-col overflow-hidden bg-background/30">
       {#if destination.kind === "review"}
-        {#if library.error && library.currentWindow.items.length === 0}
+        {#if firstUsePreparation}
+          <div class="relative grid h-full min-h-40 place-items-center overflow-hidden p-5">
+            <button type="button" onclick={onOpenPlayer} class="absolute left-3 top-3 grid h-9 w-9 place-items-center rounded-full bg-secondary/75 text-secondary-foreground hover:bg-accent" aria-label={t("music.backToPlayer")}><ArrowLeft size={17} /></button>
+            <div class="w-full max-w-lg text-center">
+              <div class="relative mx-auto grid h-20 w-20 place-items-center rounded-3xl bg-primary/10 text-primary">
+                <FolderSearch size={32} strokeWidth={1.35} />
+                <LoaderCircle class="absolute -bottom-1 -right-1 animate-spin rounded-full bg-background p-1.5 motion-reduce:animate-none" size={28} />
+              </div>
+              <h1 class="mt-5 text-lg font-semibold tracking-tight">{t("music.builder.preparingMusicFolder")}</h1>
+              {#if sources.preparingDefaultFolderPath}<p class="mx-auto mt-2 max-w-md truncate text-xs text-muted-foreground" title={sources.preparingDefaultFolderPath}>{sources.preparingDefaultFolderPath}</p>{/if}
+              {#if firstUseRefreshProgress}
+                <div class="mx-auto mt-5 max-w-sm">
+                  <div class="h-1 overflow-hidden rounded-full bg-secondary"><div class="h-full rounded-full bg-primary transition-[width] motion-reduce:transition-none" style={`width: ${firstUseRefreshProgress.progress && firstUseRefreshProgress.progress.discoveredCount > 0 ? Math.min(96, Math.max(8, firstUseRefreshProgress.progress.processedCount / firstUseRefreshProgress.progress.discoveredCount * 100)) : 8}%`}></div></div>
+                  <p class="mt-2 text-[0.68rem] tabular-nums text-muted-foreground">{t("music.builder.preparingMusicFolderProgress", firstUseRefreshProgress.progress?.processedCount ?? 0, firstUseRefreshProgress.progress?.discoveredCount ?? 0)}</p>
+                </div>
+              {/if}
+            </div>
+          </div>
+        {:else if library.error && library.currentWindow.items.length === 0}
           <MusicBuilderAsyncState kind="error" title={library.error.message} onRetry={() => { void library.refresh(); }} />
         {:else if library.busy && library.currentWindow.items.length === 0}
           <MusicBuilderAsyncState kind="loading" />
@@ -492,7 +523,7 @@
             {/if}
           </div>
         {:else}
-          <MusicReviewWorkspace {library} {inspector} {sources} {audition} {review} autoplay={reviewAutoplay} onAutoplayChange={setReviewAutoplay} />
+          <MusicReviewWorkspace {library} {inspector} {sources} {audition} {review} autoplay={reviewAutoplay} onAutoplayChange={setReviewAutoplay} onAssignSelection={(itemIds) => { void assignReviewSelection(itemIds); }} />
         {/if}
       {:else if hasList}
         {#if destination.kind === "playlist" && playlist.detail}

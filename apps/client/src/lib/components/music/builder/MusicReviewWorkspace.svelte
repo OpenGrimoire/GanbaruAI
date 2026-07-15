@@ -19,16 +19,14 @@
   import {
     isMusicReviewEditableTarget,
   } from "$lib/music/music-review";
-  import type {
-    MusicGroupBy,
-    MusicWeight,
-  } from "$lib/music/library-contracts";
+  import type { MusicWeight } from "$lib/music/library-contracts";
   import { formatMusicDuration } from "$lib/music/music-builder-presentation";
   import { clampRate, formatPlaybackTime } from "$lib/music/playback";
   import { cn } from "$lib/utils";
   import { formatShortcut } from "$lib/keyboard-shortcuts";
   import { getMusicFocusAdvisory } from "$lib/music/music-focus-guidance";
   import MusicPlaylistPicker from "./MusicPlaylistPicker.svelte";
+  import MusicReviewTree from "./MusicReviewTree.svelte";
 
   let {
     library,
@@ -38,6 +36,7 @@
     review,
     autoplay,
     onAutoplayChange,
+    onAssignSelection,
   }: {
     library: MusicLibraryController;
     inspector: MusicBuilderInspectorController;
@@ -46,6 +45,7 @@
     review: MusicReviewController;
     autoplay: boolean;
     onAutoplayChange: (value: boolean) => void;
+    onAssignSelection: (itemIds: string[]) => void;
   } = $props();
 
   const { t } = getLocalization();
@@ -83,6 +83,11 @@
   const focusAdvisory = $derived(detail && guidanceEnabled && dismissedAdvisoryItemId !== detail.item.id
     ? getMusicFocusAdvisory(detail.signals, checkedIds, library.playlistSummaries)
     : null);
+
+  $effect(() => {
+    if (library.loadingMore || library.loadMoreError || library.currentWindow.items.length >= library.currentWindow.totalCount) return;
+    void library.loadMore();
+  });
 
   $effect(() => {
     if (!laterMenuOpen) return;
@@ -163,13 +168,6 @@
   function setIncludeLater(include: boolean): void {
     sessionTotal = 0;
     library.patchCurrentState({ reviewState: include ? null : "unreviewed", offset: 0, selectedItemId: null });
-    inspector.clear();
-    lastSelectedId = null;
-    void library.refresh();
-  }
-
-  function setGrouping(groupBy: MusicGroupBy): void {
-    library.patchCurrentState({ groupBy, offset: 0, selectedItemId: null });
     inspector.clear();
     lastSelectedId = null;
     void library.refresh();
@@ -268,6 +266,14 @@
 <svelte:window onkeydown={handleKeydown} />
 
 <div class="review-workspace grid min-h-0 flex-1 overflow-hidden">
+  <MusicReviewTree
+    items={library.currentWindow.items}
+    totalCount={library.currentWindow.totalCount}
+    loading={library.loadingMore}
+    activeItemId={item?.id ?? null}
+    onActivate={(itemId) => library.selectItem(itemId)}
+    onAssign={onAssignSelection}
+  />
   <section class="review-audition min-h-0 overflow-y-auto px-4 py-3" data-music-scrollable="true">
     <div class="flex items-center justify-between gap-3">
       <p class="text-[0.7rem] font-medium text-muted-foreground" role="status" aria-live="polite">{t("music.builder.reviewProgress", progressCurrent, sessionTotal)}</p>
@@ -275,23 +281,8 @@
         {#if audition.active}
           <button type="button" onclick={() => { void audition.restore(); }} class="h-7 rounded-md bg-secondary px-2 text-[0.68rem] font-medium text-secondary-foreground">{t("music.builder.returnPreviousPlayback")}</button>
         {/if}
-        <label class="flex items-center gap-1.5 text-[0.7rem] text-muted-foreground">
-          <span>{t("music.builder.reviewGroup")}</span>
-          <select value={library.currentState.groupBy} onchange={(event) => setGrouping(event.currentTarget.value as MusicGroupBy)} class="h-7 rounded-md border border-border/70 bg-card px-1.5 text-[0.68rem] text-foreground outline-none">
-            <option value="none">{t("music.builder.groupNone")}</option>
-            <option value="album">{t("music.builder.groupAlbum")}</option>
-            <option value="folder">{t("music.builder.groupFolder")}</option>
-            <option value="source-collection">{t("music.builder.groupCollection")}</option>
-          </select>
-        </label>
-        <label class="flex items-center gap-2 text-[0.7rem] text-muted-foreground">
-          <input type="checkbox" checked={library.currentState.reviewState === null} onchange={(event) => setIncludeLater(event.currentTarget.checked)} class="accent-primary" />
-          {t("music.builder.includeLater")}
-        </label>
-        <label class="flex items-center gap-2 text-[0.7rem] text-muted-foreground">
-          <input type="checkbox" checked={autoplay} onchange={(event) => onAutoplayChange(event.currentTarget.checked)} class="accent-primary" />
-          {t("music.builder.reviewAutoplay")}
-        </label>
+        <button type="button" onclick={() => setIncludeLater(library.currentState.reviewState !== null)} aria-pressed={library.currentState.reviewState === null} class={cn("h-7 rounded-full px-2.5 text-[0.65rem] font-medium", library.currentState.reviewState === null ? "bg-primary/12 text-primary" : "bg-secondary/70 text-muted-foreground")}>{t("music.builder.includeLater")}</button>
+        <button type="button" onclick={() => onAutoplayChange(!autoplay)} aria-pressed={autoplay} class={cn("h-7 rounded-full px-2.5 text-[0.65rem] font-medium", autoplay ? "bg-primary/12 text-primary" : "bg-secondary/70 text-muted-foreground")}>{t("music.builder.reviewAutoplay")}</button>
         {#if !guidanceEnabled}<button type="button" onclick={enableFocusGuidance} class="h-7 rounded-md bg-secondary px-2 text-[0.65rem] text-secondary-foreground">{t("music.builder.enableFocusGuidance")}</button>{/if}
       </div>
     </div>
@@ -353,8 +344,8 @@
     {/if}
   </section>
 
-  <section class="review-classify flex min-h-0 flex-col border-l border-border/70 bg-card/35">
-    <div class="shrink-0 border-b border-border/60 p-3">
+  <section class="review-classify flex min-h-0 flex-col bg-card/25">
+    <div class="shrink-0 p-3">
       <div class="flex items-center justify-between gap-2">
         <div><h2 class="text-sm font-semibold">{t("music.builder.classifyPlaylists")}</h2><p class="text-[0.68rem] text-muted-foreground">{t("music.builder.classifyHint")}</p></div>
         {#if checkedIds.size > 0}<button type="button" onclick={() => { void review.clearMemberships(); }} class="text-[0.68rem] text-muted-foreground hover:text-foreground">{t("music.builder.clearMemberships")}</button>{/if}
@@ -398,7 +389,7 @@
       />
     </div>
 
-    <div class="review-actions grid shrink-0 grid-cols-3 gap-2 border-t border-border/70 bg-card p-3">
+    <div class="review-actions grid shrink-0 grid-cols-3 gap-2 bg-card/80 p-3 backdrop-blur-sm">
       <button type="button" onclick={() => { void finishReviewState("ignored"); }} disabled={!detail || review.actionBusy} class="review-action bg-secondary text-secondary-foreground">{t("music.builder.ignore")}</button>
       <div class="relative">
         <button bind:this={laterButton} type="button" aria-haspopup="dialog" aria-expanded={laterMenuOpen} onclick={() => { if (laterMenuOpen) closeLaterMenu(false); else void openLaterMenu(); }} disabled={!detail || review.actionBusy} class="review-action h-full w-full bg-secondary text-secondary-foreground">{t("music.builder.later")}</button>
@@ -420,7 +411,8 @@
 </div>
 
 <style>
-  .review-workspace { grid-template-columns: minmax(18rem, 1.05fr) minmax(18rem, 0.95fr); }
+  .review-workspace { grid-template-columns: minmax(12rem, 0.72fr) minmax(17rem, 1.18fr) minmax(17rem, 1fr); }
+  .review-tree, .review-audition { box-shadow: 1px 0 color-mix(in srgb, var(--border) 46%, transparent); }
   .review-control { display: grid; height: 2rem; width: 2rem; place-items: center; border-radius: 9999px; background: var(--secondary); color: var(--secondary-foreground); }
   .review-control:disabled { opacity: 0.35; }
   .review-play { display: grid; height: 2.5rem; width: 2.5rem; place-items: center; border-radius: 9999px; background: var(--primary); color: var(--primary-foreground); }
@@ -428,11 +420,16 @@
   .review-action:disabled { opacity: 0.4; }
   @container (width < 620px) {
     .review-workspace { display: flex; flex-direction: column; overflow-y: auto; }
+    .review-tree { min-height: 12rem; flex: 0 0 42%; }
     .review-audition, .review-classify { min-height: auto; overflow: visible; }
     .review-audition { flex: 0 0 min(44%, 18rem); padding: 0.625rem; }
     .review-classify { flex: 1 0 18rem; border-left: 0; border-top: 1px solid var(--border); }
     .review-classify > :global(div:nth-child(2)) { min-height: 9rem; }
     .review-actions { position: sticky; bottom: 0; z-index: 5; }
+  }
+  @container (width >= 620px) and (width < 860px) {
+    .review-workspace { grid-template-columns: minmax(11rem, 0.72fr) minmax(16rem, 1.15fr); }
+    .review-classify { grid-column: 1 / -1; min-height: 15rem; }
   }
   @container (height < 300px) and (width >= 620px) {
     .review-audition { padding-block: 0.5rem; }

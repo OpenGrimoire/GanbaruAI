@@ -265,6 +265,7 @@ export interface MusicItemListEntry {
   title: string;
   artist: string;
   album: string;
+  relativePath: string | null;
   artworkOverride: string | null;
   durationMs: number | null;
   availability: MusicItemAvailability;
@@ -654,7 +655,8 @@ function parseItemEntry(value: unknown, label: string): MusicItemListEntry {
   const row = object(value, label); return {
     id: string(row.id, `${label}.id`), identityKey: string(row.identityKey, `${label}.identityKey`),
     sourceKind: enumeration(row.sourceKind, sourceKinds, `${label}.sourceKind`), mediaKind: enumeration(row.mediaKind, mediaKinds, `${label}.mediaKind`),
-    title: string(row.title, `${label}.title`), artist: string(row.artist, `${label}.artist`), album: string(row.album, `${label}.album`), artworkOverride: nullable(row.artworkOverride, string, `${label}.artworkOverride`),
+    title: string(row.title, `${label}.title`), artist: string(row.artist, `${label}.artist`), album: string(row.album, `${label}.album`),
+    relativePath: nullable(row.relativePath, string, `${label}.relativePath`), artworkOverride: nullable(row.artworkOverride, string, `${label}.artworkOverride`),
     durationMs: nullable(row.durationMs, number, `${label}.durationMs`), availability: enumeration(row.availability, itemAvailability, `${label}.availability`),
     reviewState: enumeration(row.reviewState, reviewStates, `${label}.reviewState`), discoveredAt: number(row.discoveredAt, `${label}.discoveredAt`),
     updatedAt: number(row.updatedAt, `${label}.updatedAt`), version: number(row.version, `${label}.version`), playlistCount: number(row.playlistCount, `${label}.playlistCount`),

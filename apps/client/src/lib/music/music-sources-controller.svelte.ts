@@ -113,6 +113,9 @@ export class MusicSourcesController {
   detectedDefaultFolder = $state<MediaFolderSelection | null>(null);
   detectingDefaultFolder = $state(false);
   addingDefaultFolder = $state(false);
+  preparingDefaultFolder = $state(false);
+  preparingDefaultFolderPath = $state<string | null>(null);
+  defaultFolderPreparationError = $state<string | null>(null);
 
   private readonly api: MusicSourcesControllerApi;
   private readonly now: () => number;
@@ -173,6 +176,9 @@ export class MusicSourcesController {
     this.detectedDefaultFolder = null;
     this.detectingDefaultFolder = false;
     this.addingDefaultFolder = false;
+    this.preparingDefaultFolder = false;
+    this.preparingDefaultFolderPath = null;
+    this.defaultFolderPreparationError = null;
     this.defaultFolderChecked = false;
     this.defaultFolderDismissed = false;
   }
@@ -214,16 +220,26 @@ export class MusicSourcesController {
     const vaultId = this.vaultId;
     this.defaultFolderChecked = true;
     this.detectingDefaultFolder = true;
+    this.preparingDefaultFolder = true;
+    this.defaultFolderPreparationError = null;
     try {
       const selection = await this.api.detectDefaultFolder();
       if (generation !== this.loadGeneration || vaultId !== this.vaultId || this.defaultFolderDismissed) return null;
       this.detectedDefaultFolder = selection;
+      this.preparingDefaultFolderPath = selection?.folderPath ?? null;
+      if (selection) await this.addDetectedDefaultFolder(true);
       return selection;
-    } catch {
-      if (generation === this.loadGeneration && vaultId === this.vaultId) this.detectedDefaultFolder = null;
+    } catch (error) {
+      if (vaultId === this.vaultId) {
+        this.defaultFolderPreparationError = error instanceof Error ? error.message : String(error);
+      }
       return null;
     } finally {
-      if (generation === this.loadGeneration && vaultId === this.vaultId) this.detectingDefaultFolder = false;
+      if (vaultId === this.vaultId) {
+        this.detectingDefaultFolder = false;
+        this.preparingDefaultFolder = false;
+        this.preparingDefaultFolderPath = null;
+      }
     }
   }
 
@@ -232,13 +248,17 @@ export class MusicSourcesController {
     this.detectedDefaultFolder = null;
   }
 
-  async addDetectedDefaultFolder(): Promise<string | null> {
+  async addDetectedDefaultFolder(waitForRefresh = false): Promise<string | null> {
     const selection = this.detectedDefaultFolder;
     if (!selection || this.addingDefaultFolder) return null;
     this.addingDefaultFolder = true;
     this.defaultFolderDismissed = true;
     try {
-      const collectionId = await this.addLocalFolder(selection, musicFolderDisplayName(selection.folderPath));
+      const collectionId = await this.addLocalFolder(
+        selection,
+        musicFolderDisplayName(selection.folderPath),
+        waitForRefresh,
+      );
       this.detectedDefaultFolder = null;
       return collectionId;
     } finally {
@@ -257,7 +277,7 @@ export class MusicSourcesController {
     };
   }
 
-  async addLocalFolder(selection: MediaFolderSelection, name: string): Promise<string> {
+  async addLocalFolder(selection: MediaFolderSelection, name: string, waitForRefresh = false): Promise<string> {
     if (!this.vaultId) throw new Error("The active Ganbaru AI folder is unavailable.");
     const trimmedName = name.trim();
     if (!trimmedName) throw new Error("Enter a source name.");
@@ -275,9 +295,14 @@ export class MusicSourcesController {
     await this.load();
     const target = this.localTarget(collectionId, rootId, trimmedName, selection.folderPath, createdAt);
     const plan = this.refresh.prepare([target]);
-    void this.runRefresh(plan, true)
-      .then(notifyMusicLibraryChanged)
-      .catch((error: unknown) => { this.error = error instanceof Error ? error.message : String(error); });
+    if (waitForRefresh) {
+      await this.runRefresh(plan, true);
+      notifyMusicLibraryChanged();
+    } else {
+      void this.runRefresh(plan, true)
+        .then(notifyMusicLibraryChanged)
+        .catch((error: unknown) => { this.error = error instanceof Error ? error.message : String(error); });
+    }
     return collectionId;
   }
 

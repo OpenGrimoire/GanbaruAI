@@ -945,6 +945,7 @@ pub struct MusicItemListEntry {
     pub title: String,
     pub artist: String,
     pub album: String,
+    pub relative_path: Option<String>,
     pub artwork_override: Option<String>,
     pub duration_ms: Option<i64>,
     pub availability: MusicItemAvailability,

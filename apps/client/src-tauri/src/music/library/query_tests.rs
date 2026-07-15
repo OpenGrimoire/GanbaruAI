@@ -127,6 +127,22 @@ fn item_windows_are_bounded_stable_filterable_and_grouped() {
             .await
             .unwrap();
         }
+        sqlx::query(
+            "INSERT INTO music_local_roots (id, name, created_at, updated_at)
+             VALUES ('window-root', 'Music', 1700000000000, 1700000000000)",
+        )
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO music_local_locations
+                (id, item_id, root_id, relative_path, availability, first_seen_at, updated_at)
+             VALUES ('window-location', 'item-0001', 'window-root', 'Games/Nier/theme.flac',
+                 'available', 1700000000000, 1700000000000)",
+        )
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
         transaction.commit().await.unwrap();
 
         let first = super::queries::item_window(&pool, library_window())
@@ -136,6 +152,10 @@ fn item_windows_are_bounded_stable_filterable_and_grouped() {
         assert_eq!(first.items.len(), 50);
         assert_eq!(first.items.first().unwrap().title, "Track 0000");
         assert_eq!(first.items.last().unwrap().title, "Track 0049");
+        assert_eq!(
+            first.items[1].relative_path.as_deref(),
+            Some("Games/Nier/theme.flac")
+        );
 
         let mut filtered = library_window();
         filtered.search = "Alpha".to_string();

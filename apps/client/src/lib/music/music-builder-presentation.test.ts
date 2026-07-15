@@ -15,6 +15,7 @@ const item: MusicItemListEntry = {
   title: "Track",
   artist: "",
   album: "",
+  relativePath: "Track.flac",
   artworkOverride: null,
   durationMs: 65_000,
   availability: "available",

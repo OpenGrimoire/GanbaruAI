@@ -23,6 +23,7 @@ const item = {
   title: "Focus",
   artist: "Composer",
   album: "Soundtrack",
+  relativePath: "Games/Nier/Focus.flac",
   artworkOverride: null,
   durationMs: 120_000,
   availability: "available",
@@ -49,7 +50,7 @@ describe("music library contracts", () => {
       totalCount: 1,
       offset: 0,
       limit: 50,
-    }).items[0]?.title).toBe("Focus");
+    }).items[0]).toMatchObject({ title: "Focus", relativePath: "Games/Nier/Focus.flac" });
   });
 
   it("rejects malformed enums and numeric fields", () => {
