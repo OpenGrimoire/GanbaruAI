@@ -2,6 +2,7 @@
   import { onDestroy, onMount } from "svelte";
   import { getMusicPlayer } from "$lib/stores/music-player.svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { coverPlaybackHostRect } from "$lib/music/playback-host-layout";
 
   const player = getMusicPlayer();
   const { t } = getLocalization();
@@ -38,11 +39,19 @@
       && player.currentArtworkUrl
       && !player.snapshot.error,
   ));
-  const hostStyle = $derived(hostIsFullscreen
-    ? "left: 0; top: 0; width: 100vw; height: 100vh; background-color: #000;"
-    : surfaceRect && hasHostSurface
-      ? `left: ${surfaceRect.left}px; top: ${surfaceRect.top}px; width: ${surfaceRect.width}px; height: ${surfaceRect.height}px; background-color: var(--cal-bg);`
-      : "left: -10000px; top: -10000px; width: 1px; height: 1px; background-color: var(--cal-bg);");
+  const hostStyle = $derived.by(() => {
+    if (hostIsFullscreen) {
+      return "left: 0; top: 0; width: 100vw; height: 100vh; background-color: #000;";
+    }
+    if (surfaceRect && hasHostSurface) {
+      const alignedRect = coverPlaybackHostRect(
+        surfaceRect,
+        typeof window === "undefined" ? 1 : window.devicePixelRatio,
+      );
+      return `left: ${alignedRect.left}px; top: ${alignedRect.top}px; width: ${alignedRect.width}px; height: ${alignedRect.height}px; background-color: var(--cal-bg);`;
+    }
+    return "left: -10000px; top: -10000px; width: 1px; height: 1px; background-color: var(--cal-bg);";
+  });
   const hostVisualFrameStyle = $derived(hostIsFullscreen
     ? "background-color: #000;"
     : "background-color: var(--cal-bg);");
@@ -245,7 +254,7 @@
     {#key player.youtubeHostUrl}
       <iframe
         bind:this={youtubeFrame}
-        class="pointer-events-none h-full w-full"
+        class="pointer-events-none h-full w-full border-0 outline-none"
         src={player.youtubeHostUrl ?? "about:blank"}
         title={player.loadedTitle}
         allow="autoplay; encrypted-media"
@@ -257,7 +266,7 @@
       {#key player.localMediaSrc}
         <video
           bind:this={localMediaElement}
-          class="pointer-events-none h-full w-full object-contain transition-opacity duration-75"
+          class="music-local-video pointer-events-none h-full w-full border-0 object-contain outline-none transition-opacity duration-75"
           style="background-color: var(--cal-bg);"
           class:opacity-0={!player.localVideoReady}
           class:opacity-100={player.localVideoReady}
@@ -327,6 +336,15 @@
 </div>
 
 <style>
+  .music-local-video {
+    transform: scale(1.004);
+    transform-origin: center;
+  }
+
+  :global(.music-playback-host:fullscreen .music-local-video) {
+    transform: none;
+  }
+
   :global(.music-media-surface:fullscreen) {
     width: 100vw;
     height: 100vh;
