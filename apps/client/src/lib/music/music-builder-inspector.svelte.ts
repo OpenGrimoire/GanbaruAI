@@ -1,11 +1,19 @@
-import { getMusicInspectorDetail, saveMusicAdvancedMembership, setMusicMetadataOverrides } from "$lib/api/music-library";
-import type { MusicInspectorDetail, MusicMembershipSkipRange, MusicPlaylistMembership } from "$lib/music/library-contracts";
+import { getMusicInspectorDetail, saveMusicAdvancedMembership, setMusicItemSignals, setMusicMetadataOverrides } from "$lib/api/music-library";
+import type { MusicInspectorDetail, MusicItemSignal, MusicMembershipSkipRange, MusicPlaylistMembership } from "$lib/music/library-contracts";
 
 export interface MusicBuilderInspectorApi {
   detail(itemId: string): Promise<MusicInspectorDetail>;
+  setSignals(itemId: string, signals: MusicItemSignal[], updatedAt: number): Promise<number>;
 }
 
-const defaultApi: MusicBuilderInspectorApi = { detail: getMusicInspectorDetail };
+const defaultApi: MusicBuilderInspectorApi = {
+  detail: getMusicInspectorDetail,
+  async setSignals(itemId, signals, updatedAt) {
+    const [receipt] = await setMusicItemSignals({ itemIds: [itemId], signals, updatedAt });
+    if (!receipt) throw new Error("The signal update did not return a receipt.");
+    return receipt.version;
+  },
+};
 
 export class MusicBuilderInspectorController {
   itemId = $state<string | null>(null);
@@ -14,6 +22,7 @@ export class MusicBuilderInspectorController {
   error = $state<Error | null>(null);
   saving = $state(false);
   expandedSections = $state<Set<string>>(new Set(["details", "memberships"]));
+  signalUndo = $state<MusicItemSignal[] | null>(null);
 
   private generation = 0;
   private readonly api: MusicBuilderInspectorApi;
@@ -80,6 +89,45 @@ export class MusicBuilderInspectorController {
         updatedAt: Date.now(),
       });
       Object.assign(detail.item, overrides, { version: receipt.version });
+      return true;
+    } catch (error) {
+      this.error = error instanceof Error ? error : new Error(String(error));
+      return false;
+    } finally {
+      this.saving = false;
+    }
+  }
+
+  async saveSignals(signals: MusicItemSignal[]): Promise<boolean> {
+    const detail = this.detail;
+    if (!detail || this.saving) return false;
+    const previousSignals = [...detail.signals];
+    this.saving = true;
+    this.error = null;
+    detail.signals = [...signals];
+    try {
+      detail.item.version = await this.api.setSignals(detail.item.id, signals, Date.now());
+      this.signalUndo = previousSignals;
+      return true;
+    } catch (error) {
+      detail.signals = previousSignals;
+      this.error = error instanceof Error ? error : new Error(String(error));
+      return false;
+    } finally {
+      this.saving = false;
+    }
+  }
+
+  async undoSignals(): Promise<boolean> {
+    const detail = this.detail;
+    const previous = this.signalUndo;
+    if (!detail || !previous || this.saving) return false;
+    this.saving = true;
+    this.error = null;
+    try {
+      detail.item.version = await this.api.setSignals(detail.item.id, previous, Date.now());
+      detail.signals = [...previous];
+      this.signalUndo = null;
       return true;
     } catch (error) {
       this.error = error instanceof Error ? error : new Error(String(error));

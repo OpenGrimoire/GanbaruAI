@@ -37,7 +37,7 @@
     onReviewState: (itemId: string) => void;
     onSnooze: (itemId: string) => void;
     onEditMembership: (itemId: string) => void;
-    onResetStatistics: (itemId: string) => void;
+    onResetStatistics: (itemId: string, mode: "recent" | "all") => void;
     onRepair: (itemId: string) => void;
     onMetadataSaved: () => void;
     onPreviewMembership: (membership: MusicPlaylistMembership) => void;

@@ -3,7 +3,6 @@
   import Check from "@lucide/svelte/icons/check";
   import ChevronLeft from "@lucide/svelte/icons/chevron-left";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
-  import CircleAlert from "@lucide/svelte/icons/circle-alert";
   import Disc3 from "@lucide/svelte/icons/disc-3";
   import ListPlus from "@lucide/svelte/icons/list-plus";
   import Pause from "@lucide/svelte/icons/pause";
@@ -28,6 +27,7 @@
   import { clampRate, formatPlaybackTime } from "$lib/music/playback";
   import { cn } from "$lib/utils";
   import { formatShortcut } from "$lib/keyboard-shortcuts";
+  import { getMusicFocusAdvisory } from "$lib/music/music-focus-guidance";
   import MusicPlaylistPicker from "./MusicPlaylistPicker.svelte";
 
   let {
@@ -62,15 +62,24 @@
   let playlistSearchInput = $state<HTMLInputElement | null>(null);
   let newPlaylistNameInput = $state<HTMLInputElement | null>(null);
   let checklistRoot = $state<HTMLElement | null>(null);
+  let dismissedAdvisoryItemId = $state<string | null>(null);
+  let guidanceEnabled = $state(true);
+  const focusGuidanceStorageKey = "ganbaru.music.focus-guidance.enabled";
   const item = $derived(library.selectedItem ?? library.currentWindow.items[0] ?? null);
   const detail = $derived(inspector.detail?.item.id === item?.id ? inspector.detail : null);
   const checkedIds = $derived(new Set(detail?.memberships.map((membership) => membership.playlistId) ?? []));
   const membershipWeights = $derived(Object.fromEntries(
     (detail?.memberships ?? []).map((membership) => [membership.playlistId, membership.weight]),
   ) as Record<string, MusicWeight>);
+  const membershipFocusFits = $derived(Object.fromEntries(
+    (detail?.memberships ?? []).map((membership) => [membership.playlistId, membership.focusFit]),
+  ) as Record<string, import("$lib/music/library-contracts").MusicFocusFit>);
   const currentIndex = $derived(item ? library.currentWindow.items.findIndex((entry) => entry.id === item.id) : -1);
   const progressCurrent = $derived(Math.max(1, sessionTotal - library.currentWindow.totalCount + currentIndex + 1));
   const player = $derived(audition.musicPlayer);
+  const focusAdvisory = $derived(detail && guidanceEnabled && dismissedAdvisoryItemId !== detail.item.id
+    ? getMusicFocusAdvisory(detail.signals, checkedIds, library.playlistSummaries)
+    : null);
 
   $effect(() => {
     if (sessionTotal === 0 && library.currentWindow.totalCount > 0) {
@@ -111,6 +120,7 @@
   });
 
   onMount(() => {
+    guidanceEnabled = localStorage.getItem(focusGuidanceStorageKey) !== "false";
     const handleBoundary = (event: Event) => {
       if (!(event instanceof CustomEvent)) return;
       const owner = event.detail?.owner;
@@ -119,6 +129,16 @@
     window.addEventListener(MUSIC_CONTEXT_BOUNDARY_EVENT, handleBoundary);
     return () => window.removeEventListener(MUSIC_CONTEXT_BOUNDARY_EVENT, handleBoundary);
   });
+
+  function disableFocusGuidance(): void {
+    guidanceEnabled = false;
+    localStorage.setItem(focusGuidanceStorageKey, "false");
+  }
+
+  function enableFocusGuidance(): void {
+    guidanceEnabled = true;
+    localStorage.setItem(focusGuidanceStorageKey, "true");
+  }
 
   function openInlineCreate(): void {
     inlineCreateOpen = true;
@@ -235,6 +255,7 @@
           <input type="checkbox" checked={autoplay} onchange={(event) => onAutoplayChange(event.currentTarget.checked)} class="accent-primary" />
           {t("music.builder.reviewAutoplay")}
         </label>
+        {#if !guidanceEnabled}<button type="button" onclick={enableFocusGuidance} class="h-7 rounded-md bg-secondary px-2 text-[0.65rem] text-secondary-foreground">{t("music.builder.enableFocusGuidance")}</button>{/if}
       </div>
     </div>
     {#if library.currentState.groupBy !== "none" && library.currentWindow.groups.length > 0}
@@ -279,12 +300,6 @@
           <span>{detail.item.sourceKind === "local-file" ? t("music.builder.local") : t("music.builder.youtube")}</span>
           <span>{formatMusicDuration(detail.item.durationMs)}</span>
         </div>
-        {#if detail.signals.length > 0}
-          <div class="mt-3 flex items-start gap-2 rounded-lg bg-warning/10 px-3 py-2 text-[0.7rem] text-warning">
-            <CircleAlert class="mt-0.5 shrink-0" size={14} />
-            <span>{t("music.builder.focusSignals", detail.signals.join(", "))}</span>
-          </div>
-        {/if}
       </div>
 
       <div class="mt-4 rounded-xl border border-border/70 bg-card/70 p-3">
@@ -331,7 +346,14 @@
         onSearchInput={(element) => playlistSearchInput = element}
         onToggle={(playlist) => { void review.toggleMembership(playlist); }}
         weights={membershipWeights}
+        focusFits={membershipFocusFits}
         onCycleWeight={(playlist) => { const membership = review.membershipFor(playlist.id); if (membership) void review.cycleMembershipWeight(membership); }}
+        onFocusFit={(playlist, focusFit) => { const membership = review.membershipFor(playlist.id); if (membership) void review.setMembershipFocusFit(membership, focusFit); }}
+        advisoryPlaylistId={focusAdvisory?.playlistIds[0] ?? null}
+        advisoryText={focusAdvisory ? t("music.builder.focusAdvisory", focusAdvisory.signals.map((signal) => t(`music.builder.signal.${signal}`)).join(", ")) : ""}
+        onAdvisoryKeep={() => { if (detail) dismissedAdvisoryItemId = detail.item.id; }}
+        onAdvisoryMark={() => { if (!focusAdvisory || !detail) return; for (const playlistId of focusAdvisory.playlistIds) { const membership = review.membershipFor(playlistId); if (membership) void review.setMembershipFocusFit(membership, "potentially-distracting"); } dismissedAdvisoryItemId = detail.item.id; }}
+        onDisableGuidance={disableFocusGuidance}
         busyIds={review.membershipBusy}
         errors={review.membershipErrors}
         showIssue={detail?.item.availability !== "available"}

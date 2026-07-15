@@ -337,6 +337,7 @@ pub(crate) fn validate_bulk_membership_edit(
     if request.add_playlist_ids.is_empty()
         && request.remove_playlist_ids.is_empty()
         && request.weight_playlist_ids.is_empty()
+        && request.focus_fit_playlist_ids.is_empty()
     {
         return Err(MusicLibraryError::validation(
             "playlistIds",
@@ -351,6 +352,9 @@ pub(crate) fn validate_bulk_membership_edit(
     }
     if !request.weight_playlist_ids.is_empty() {
         validate_bounded_unique_ids(&request.weight_playlist_ids, "weightPlaylistIds")?;
+    }
+    if !request.focus_fit_playlist_ids.is_empty() {
+        validate_bounded_unique_ids(&request.focus_fit_playlist_ids, "focusFitPlaylistIds")?;
     }
     if request
         .add_playlist_ids
@@ -367,13 +371,31 @@ pub(crate) fn validate_bulk_membership_edit(
         request.weight_playlist_ids.is_empty(),
         request.weight.is_some(),
     ) {
+        (false, false) => {
+            return Err(MusicLibraryError::validation(
+                "weight",
+                "is required when setting weight",
+            ))
+        }
+        (true, true) => {
+            return Err(MusicLibraryError::validation(
+                "weight",
+                "must be empty when no playlist weight is changing",
+            ))
+        }
+        _ => {}
+    }
+    match (
+        request.focus_fit_playlist_ids.is_empty(),
+        request.focus_fit.is_some(),
+    ) {
         (false, false) => Err(MusicLibraryError::validation(
-            "weight",
-            "is required when setting weight",
+            "focusFit",
+            "is required when setting focus fit",
         )),
         (true, true) => Err(MusicLibraryError::validation(
-            "weight",
-            "must be empty when no playlist weight is changing",
+            "focusFit",
+            "must be empty when focus fit is not changing",
         )),
         _ => Ok(()),
     }
@@ -583,6 +605,26 @@ pub(crate) fn validate_metadata_override_write(
                 ));
             }
         }
+    }
+    validate_timestamp(request.updated_at, "updatedAt")
+}
+
+pub(crate) fn validate_item_signals_write(
+    request: &MusicItemSignalsWrite,
+) -> MusicLibraryResult<()> {
+    validate_bounded_unique_ids(&request.item_ids, "itemIds")?;
+    if request.signals.len() > 6 {
+        return Err(MusicLibraryError::validation(
+            "signals",
+            "must contain at most six values",
+        ));
+    }
+    let mut unique = HashSet::with_capacity(request.signals.len());
+    if request.signals.iter().any(|signal| !unique.insert(signal)) {
+        return Err(MusicLibraryError::validation(
+            "signals",
+            "must not contain duplicate values",
+        ));
     }
     validate_timestamp(request.updated_at, "updatedAt")
 }

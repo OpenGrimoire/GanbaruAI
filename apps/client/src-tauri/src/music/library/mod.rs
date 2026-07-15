@@ -2,6 +2,7 @@ pub(crate) mod commands;
 pub(crate) mod contexts;
 mod error;
 pub(crate) mod fixtures;
+mod interchange;
 mod item_repair;
 pub(crate) mod local_refresh;
 mod models;
@@ -26,6 +27,8 @@ pub(crate) use validation::*;
 
 #[cfg(test)]
 mod contexts_tests;
+#[cfg(test)]
+mod interchange_tests;
 #[cfg(test)]
 mod playback_tests;
 #[cfg(test)]

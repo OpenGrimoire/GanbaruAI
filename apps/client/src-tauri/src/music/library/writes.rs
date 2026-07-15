@@ -628,6 +628,62 @@ pub(crate) async fn set_metadata_overrides(
     })
 }
 
+pub(crate) async fn set_item_signals(
+    pool: &SqlitePool,
+    request: MusicItemSignalsWrite,
+) -> MusicLibraryResult<Vec<MusicWriteReceipt>> {
+    validate_item_signals_write(&request)?;
+    let mut transaction = pool
+        .begin()
+        .await
+        .map_err(|error| MusicLibraryError::database("begin music signal update", error))?;
+    let mut receipts = Vec::with_capacity(request.item_ids.len());
+    for item_id in &request.item_ids {
+        let version: Option<i64> =
+            sqlx::query_scalar("SELECT version FROM music_library_items WHERE id = ?")
+                .bind(item_id)
+                .fetch_optional(&mut *transaction)
+                .await
+                .map_err(|error| {
+                    MusicLibraryError::database("load music item for signal update", error)
+                })?;
+        let Some(version) = version else {
+            return Err(MusicLibraryError::not_found("music library item", item_id));
+        };
+        sqlx::query("DELETE FROM music_item_signals WHERE item_id = ?")
+            .bind(item_id)
+            .execute(&mut *transaction)
+            .await
+            .map_err(|error| MusicLibraryError::database("replace music item signals", error))?;
+        for signal in &request.signals {
+            sqlx::query(
+                "INSERT INTO music_item_signals (item_id, signal, created_at) VALUES (?, ?, ?)",
+            )
+            .bind(item_id)
+            .bind(signal.as_ref())
+            .bind(request.updated_at)
+            .execute(&mut *transaction)
+            .await
+            .map_err(|error| MusicLibraryError::database("save music item signal", error))?;
+        }
+        sqlx::query(
+            "UPDATE music_library_items SET updated_at = ?, version = version + 1 WHERE id = ?",
+        )
+        .bind(request.updated_at)
+        .bind(item_id)
+        .execute(&mut *transaction)
+        .await
+        .map_err(|error| MusicLibraryError::database("version music signal update", error))?;
+        super::search::refresh_item(&mut transaction, item_id).await?;
+        receipts.push(MusicWriteReceipt {
+            id: item_id.clone(),
+            version: version + 1,
+        });
+    }
+    commit(transaction, "commit music signal update").await?;
+    Ok(receipts)
+}
+
 async fn upsert_membership_in_transaction(
     transaction: &mut Transaction<'_, Sqlite>,
     membership: &MusicMembershipWrite,

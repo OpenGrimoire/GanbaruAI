@@ -708,6 +708,61 @@ fn metadata_overrides_preserve_original_values_and_refresh_search() {
 }
 
 #[test]
+fn item_signals_replace_in_bulk_and_refresh_search() {
+    tauri::async_runtime::block_on(async {
+        let pool = pool().await;
+        seed_item(&pool, "item-1", "local:item-1").await;
+        seed_item(&pool, "item-2", "local:item-2").await;
+
+        let receipts = super::writes::set_item_signals(
+            &pool,
+            MusicItemSignalsWrite {
+                item_ids: vec!["item-1".to_string(), "item-2".to_string()],
+                signals: vec![MusicItemSignal::Lyrics, MusicItemSignal::SuddenChanges],
+                updated_at: 1_700_000_100_000,
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(receipts.len(), 2);
+        assert!(receipts.iter().all(|receipt| receipt.version == 2));
+
+        let detail = super::queries::inspector_detail(&pool, "item-1")
+            .await
+            .unwrap();
+        assert_eq!(
+            detail.signals,
+            vec![MusicItemSignal::Lyrics, MusicItemSignal::SuddenChanges]
+        );
+
+        let mut request = library_window();
+        request.search = "sudden-changes".to_string();
+        assert_eq!(
+            super::queries::item_window(&pool, request)
+                .await
+                .unwrap()
+                .total_count,
+            2
+        );
+
+        super::writes::set_item_signals(
+            &pool,
+            MusicItemSignalsWrite {
+                item_ids: vec!["item-1".to_string()],
+                signals: vec![MusicItemSignal::Calm],
+                updated_at: 1_700_000_200_000,
+            },
+        )
+        .await
+        .unwrap();
+        let detail = super::queries::inspector_detail(&pool, "item-1")
+            .await
+            .unwrap();
+        assert_eq!(detail.signals, vec![MusicItemSignal::Calm]);
+    });
+}
+
+#[test]
 fn advanced_membership_settings_replace_validated_skip_ranges_atomically() {
     tauri::async_runtime::block_on(async {
         let pool = pool().await;
@@ -800,6 +855,8 @@ fn bulk_membership_edits_preserve_existing_settings_and_commit_as_one_change() {
                 remove_playlist_ids: vec![],
                 weight_playlist_ids: vec![],
                 weight: None,
+                focus_fit_playlist_ids: vec![],
+                focus_fit: None,
                 updated_at: 1_700_000_000_100,
             },
         )
@@ -823,12 +880,38 @@ fn bulk_membership_edits_preserve_existing_settings_and_commit_as_one_change() {
                 remove_playlist_ids: vec![],
                 weight_playlist_ids: vec!["playlist-1".to_string()],
                 weight: Some(MusicWeight::MoreOften),
+                focus_fit_playlist_ids: vec![],
+                focus_fit: None,
                 updated_at: 1_700_000_000_200,
             },
         )
         .await
         .unwrap();
         assert_eq!(weighted.changed_count, 2);
+
+        let focused = super::playlist_edits::bulk_edit_memberships(
+            &pool,
+            MusicBulkMembershipEdit {
+                action_id: "bulk-focus-fit".to_string(),
+                item_ids: vec!["item-1".to_string(), "item-2".to_string()],
+                add_playlist_ids: vec![],
+                remove_playlist_ids: vec![],
+                weight_playlist_ids: vec![],
+                weight: None,
+                focus_fit_playlist_ids: vec!["playlist-1".to_string()],
+                focus_fit: Some(MusicFocusFit::Helpful),
+                updated_at: 1_700_000_000_250,
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(focused.changed_count, 2);
+        let focus_fits: Vec<String> =
+            sqlx::query_scalar("SELECT focus_fit FROM music_playlist_memberships ORDER BY item_id")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert_eq!(focus_fits, vec!["helpful", "helpful"]);
 
         let removed = super::playlist_edits::bulk_edit_memberships(
             &pool,
@@ -839,6 +922,8 @@ fn bulk_membership_edits_preserve_existing_settings_and_commit_as_one_change() {
                 remove_playlist_ids: vec!["playlist-1".to_string()],
                 weight_playlist_ids: vec![],
                 weight: None,
+                focus_fit_playlist_ids: vec![],
+                focus_fit: None,
                 updated_at: 1_700_000_000_300,
             },
         )

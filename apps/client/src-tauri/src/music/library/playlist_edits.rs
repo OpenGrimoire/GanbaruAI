@@ -86,6 +86,29 @@ pub(crate) async fn bulk_edit_memberships(
             }
         }
     }
+    if let Some(focus_fit) = request.focus_fit {
+        for playlist_id in &request.focus_fit_playlist_ids {
+            for item_id in &request.item_ids {
+                let result = sqlx::query(
+                    "UPDATE music_playlist_memberships
+                     SET focus_fit = ?, updated_at = ?, version = version + 1
+                     WHERE playlist_id = ? AND item_id = ?",
+                )
+                .bind(focus_fit.as_ref())
+                .bind(request.updated_at)
+                .bind(playlist_id)
+                .bind(item_id)
+                .execute(&mut *transaction)
+                .await
+                .map_err(|error| {
+                    MusicLibraryError::database("bulk update membership focus fit", error)
+                })?;
+                if result.rows_affected() > 0 {
+                    changed_count += result.rows_affected() as i64;
+                }
+            }
+        }
+    }
     super::writes::commit(transaction, "commit bulk playlist edit").await?;
     Ok(MusicBulkMembershipResult { changed_count })
 }

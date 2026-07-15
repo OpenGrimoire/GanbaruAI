@@ -4,6 +4,8 @@
   import FolderSearch from "@lucide/svelte/icons/folder-search";
   import ListMusic from "@lucide/svelte/icons/list-music";
   import Plus from "@lucide/svelte/icons/plus";
+  import Download from "@lucide/svelte/icons/download";
+  import Upload from "@lucide/svelte/icons/upload";
   import RadioTower from "@lucide/svelte/icons/radio-tower";
   import { flip } from "svelte/animate";
   import { onMount } from "svelte";
@@ -20,6 +22,8 @@
     issues,
     onNavigate,
     onPrimary = () => undefined,
+    onImport = () => undefined,
+    onExport = () => undefined,
   }: {
     destination: MusicBuilderDestination;
     playlists: MusicPlaylistSummary[];
@@ -27,6 +31,8 @@
     issues: MusicIssue[];
     onNavigate: (destination: MusicBuilderDestination) => void;
     onPrimary?: () => void;
+    onImport?: () => void;
+    onExport?: () => void;
   } = $props();
 
   const { t } = getLocalization();
@@ -43,6 +49,7 @@
 
 <div class="overview-scroll h-full min-h-0 overflow-y-auto p-3">
   {#if destination.kind === "playlists"}
+    <div class="mb-3 flex flex-wrap items-center justify-end gap-2"><button type="button" onclick={onImport} class="inline-flex h-8 items-center gap-1.5 rounded-lg bg-secondary px-3 text-xs font-medium"><Upload size={13} />{t("music.builder.importPlaylists")}</button><button type="button" onclick={onExport} disabled={playlists.length === 0} class="inline-flex h-8 items-center gap-1.5 rounded-lg bg-secondary px-3 text-xs font-medium disabled:opacity-40"><Download size={13} />{t("music.builder.exportPlaylists")}</button></div>
     {#if playlists.length === 0}
       <MusicBuilderAsyncState kind="empty" title={t("music.builder.emptyPlaylistsTitle")} description={t("music.builder.emptyPlaylistsDescription")} actionLabel={t("music.builder.newPlaylist")} onAction={onPrimary} />
     {:else}

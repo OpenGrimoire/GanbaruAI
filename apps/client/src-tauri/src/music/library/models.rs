@@ -587,6 +587,8 @@ pub struct MusicBulkMembershipEdit {
     pub remove_playlist_ids: Vec<String>,
     pub weight_playlist_ids: Vec<String>,
     pub weight: Option<MusicWeight>,
+    pub focus_fit_playlist_ids: Vec<String>,
+    pub focus_fit: Option<MusicFocusFit>,
     pub updated_at: i64,
 }
 
@@ -602,6 +604,7 @@ pub struct MusicMembershipMatrixEntry {
     pub item_id: String,
     pub playlist_id: String,
     pub weight: MusicWeight,
+    pub focus_fit: MusicFocusFit,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -869,6 +872,14 @@ pub struct MusicMetadataOverrideWrite {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct MusicItemSignalsWrite {
+    pub item_ids: Vec<String>,
+    pub signals: Vec<MusicItemSignal>,
+    pub updated_at: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MusicMembershipRemove {
     pub membership_ids: Vec<String>,
 }
@@ -1127,4 +1138,114 @@ pub struct MusicSearchRebuildResult {
     pub schema_version: i64,
     pub fingerprint: String,
     pub rebuilt_at: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicInterchangeLocation {
+    pub root_id: String,
+    pub relative_path: String,
+    pub availability: MusicLocationAvailability,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicInterchangeItem {
+    pub identity_key: String,
+    pub source_kind: MusicLibrarySourceKind,
+    pub youtube_video_id: Option<String>,
+    pub title: String,
+    pub artist: String,
+    pub album: String,
+    pub duration_ms: Option<i64>,
+    pub signals: Vec<MusicItemSignal>,
+    pub locations: Vec<MusicInterchangeLocation>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicInterchangeRange {
+    pub start_ms: i64,
+    pub end_ms: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicInterchangeSnooze {
+    pub scope: MusicSnoozeScope,
+    pub starts_at: i64,
+    pub ends_at: Option<i64>,
+    pub reason: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicInterchangeMembership {
+    pub item: MusicInterchangeItem,
+    pub position: i64,
+    pub weight: MusicWeight,
+    pub enabled: bool,
+    pub focus_fit: MusicFocusFit,
+    pub start_ms: Option<i64>,
+    pub end_ms: Option<i64>,
+    pub volume: Option<f64>,
+    pub rate: Option<f64>,
+    pub skip_ranges: Vec<MusicInterchangeRange>,
+    pub snoozes: Vec<MusicInterchangeSnooze>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicInterchangePlaylist {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub shuffle_enabled: bool,
+    pub repeat_mode: MusicRepeatMode,
+    pub intended_uses: Vec<MusicIntendedUse>,
+    pub memberships: Vec<MusicInterchangeMembership>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicInterchangeRoot {
+    pub id: String,
+    pub name: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicInterchangeDocument {
+    pub format: String,
+    pub version: i64,
+    pub exported_at: i64,
+    pub roots: Vec<MusicInterchangeRoot>,
+    pub playlists: Vec<MusicInterchangePlaylist>,
+    pub context_assignments: Vec<MusicContextAssignment>,
+    pub warnings: Vec<String>,
+}
+
+string_enum!(MusicImportPlaylistConflict {
+    KeepExisting => "keep-existing",
+    ImportCopy => "import-copy",
+    ReplaceExisting => "replace-existing",
+});
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicInterchangeImportRequest {
+    pub document: MusicInterchangeDocument,
+    pub playlist_conflict: MusicImportPlaylistConflict,
+    pub replace_item_descriptions: bool,
+    pub import_context_assignments: bool,
+    pub imported_at: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicInterchangeImportResult {
+    pub playlist_count: i64,
+    pub item_count: i64,
+    pub membership_count: i64,
+    pub assignment_count: i64,
 }

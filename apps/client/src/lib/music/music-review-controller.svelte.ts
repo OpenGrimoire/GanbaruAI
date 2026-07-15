@@ -120,6 +120,30 @@ export class MusicReviewController {
     }
   }
 
+  async setMembershipFocusFit(
+    membership: MusicPlaylistMembership,
+    focusFit: MusicPlaylistMembership["focusFit"],
+  ): Promise<void> {
+    if (this.membershipBusy.has(membership.playlistId) || membership.focusFit === focusFit) return;
+    const previous = membership.focusFit;
+    this.setMembershipBusy(membership.playlistId, true);
+    try {
+      const [receipt] = await upsertMusicMemberships({ memberships: [{
+        ...membership,
+        focusFit,
+        expectedVersion: membership.version,
+        updatedAt: this.now(),
+      }] });
+      membership.focusFit = focusFit;
+      membership.version = receipt?.version ?? membership.version;
+    } catch (error) {
+      membership.focusFit = previous;
+      this.recordMembershipError(membership.playlistId, error);
+    } finally {
+      this.setMembershipBusy(membership.playlistId, false);
+    }
+  }
+
   async clearMemberships(): Promise<void> {
     const detail = this.inspector.detail;
     if (!detail || detail.memberships.length === 0) return;

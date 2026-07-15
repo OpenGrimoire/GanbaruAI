@@ -297,6 +297,18 @@ pub async fn music_library_set_metadata_overrides(
 }
 
 #[tauri::command]
+pub async fn music_library_set_item_signals(
+    app: tauri::AppHandle,
+    db_url: String,
+    request: MusicItemSignalsWrite,
+) -> MusicLibraryResult<Vec<MusicWriteReceipt>> {
+    let pool = connect_sqlite(app, db_url)
+        .await
+        .map_err(connection_error)?;
+    super::writes::set_item_signals(&pool, request).await
+}
+
+#[tauri::command]
 pub async fn music_library_upsert_memberships(
     app: tauri::AppHandle,
     db_url: String,
@@ -396,6 +408,18 @@ pub async fn music_library_context_assignments(
 }
 
 #[tauri::command]
+pub async fn music_library_context_assignments_for_playlists(
+    app: tauri::AppHandle,
+    db_url: String,
+    playlist_ids: Vec<String>,
+) -> MusicLibraryResult<Vec<MusicContextAssignment>> {
+    let pool = connect_sqlite(app, db_url)
+        .await
+        .map_err(connection_error)?;
+    super::contexts::assignments_for_playlists(&pool, playlist_ids).await
+}
+
+#[tauri::command]
 pub async fn music_library_replace_context_assignments(
     app: tauri::AppHandle,
     db_url: String,
@@ -489,6 +513,18 @@ pub async fn music_library_reset_statistics(
         .await
         .map_err(connection_error)?;
     super::writes::reset_statistics(&pool, request).await
+}
+
+#[tauri::command]
+pub async fn music_library_import_interchange(
+    app: tauri::AppHandle,
+    db_url: String,
+    request: MusicInterchangeImportRequest,
+) -> MusicLibraryResult<MusicInterchangeImportResult> {
+    let pool = connect_sqlite(app, db_url)
+        .await
+        .map_err(connection_error)?;
+    super::interchange::import(&pool, request).await
 }
 
 #[tauri::command]

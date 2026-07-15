@@ -98,10 +98,12 @@ export interface MusicBulkMembershipEdit {
   removePlaylistIds: string[];
   weightPlaylistIds: string[];
   weight: MusicWeight | null;
+  focusFitPlaylistIds: string[];
+  focusFit: MusicFocusFit | null;
   updatedAt: number;
 }
 export interface MusicBulkMembershipResult { changedCount: number }
-export interface MusicMembershipMatrixEntry { itemId: string; playlistId: string; weight: MusicWeight }
+export interface MusicMembershipMatrixEntry { itemId: string; playlistId: string; weight: MusicWeight; focusFit: MusicFocusFit }
 export interface MusicPlaylistReorder { playlistId: string; itemId: string; targetIndex: number; updatedAt: number }
 export interface MusicPlaylistReorderResult { itemIds: string[] }
 export interface MusicPlaylistPlaybackEntry {
@@ -163,6 +165,8 @@ export interface MusicSnoozeWrite {
   createdAt: number;
 }
 export interface MusicStatisticsReset { itemIds: string[]; resetAggregates: boolean; resetRecentSelections: boolean }
+export interface MusicInterchangeImportResult { playlistCount: number; itemCount: number; membershipCount: number; assignmentCount: number }
+export interface MusicItemSignalsWrite { itemIds: string[]; signals: MusicItemSignal[]; updatedAt: number }
 export interface MusicCollectionWrite {
   id: string;
   kind: MusicCollectionKind;

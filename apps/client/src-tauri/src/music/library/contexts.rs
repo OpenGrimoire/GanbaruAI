@@ -37,6 +37,29 @@ pub(crate) async fn assignments(
     rows.into_iter().map(decode).collect()
 }
 
+pub(crate) async fn assignments_for_playlists(
+    pool: &SqlitePool,
+    playlist_ids: Vec<String>,
+) -> MusicLibraryResult<Vec<MusicContextAssignment>> {
+    validate_bounded_unique_ids(&playlist_ids, "playlistIds")?;
+    let mut query = sqlx::QueryBuilder::<Sqlite>::new(
+        "SELECT owner_kind, owner_id, phase, behavior, playlist_id, soundscape_id, soundscape_behavior,
+                provenance_kind, provenance_id, updated_at, version
+         FROM music_context_assignments WHERE playlist_id IN (",
+    );
+    let mut separated = query.separated(", ");
+    for playlist_id in &playlist_ids {
+        separated.push_bind(playlist_id);
+    }
+    separated.push_unseparated(") ORDER BY owner_kind, owner_id, phase");
+    let rows = query
+        .build_query_as::<AssignmentRow>()
+        .fetch_all(pool)
+        .await
+        .map_err(|error| MusicLibraryError::database("load exported music assignments", error))?;
+    rows.into_iter().map(decode).collect()
+}
+
 pub(crate) async fn replace_assignments(
     pool: &SqlitePool,
     request: MusicContextAssignmentSet,

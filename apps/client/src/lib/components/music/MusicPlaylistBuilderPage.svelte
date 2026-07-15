@@ -20,6 +20,7 @@
   import { createMusicReviewController } from "$lib/music/music-review-controller.svelte";
   import { createMusicPlaylistController } from "$lib/music/music-playlist-controller.svelte";
   import { createMusicBulkEditController } from "$lib/music/music-bulk-edit-controller.svelte";
+  import { createMusicInterchangeController } from "$lib/music/music-interchange-controller.svelte";
   import {
     parseMusicReviewAutoplay,
     parseMusicReviewExitPreference,
@@ -54,6 +55,8 @@
   import MusicBulkMembershipDialog from "./builder/MusicBulkMembershipDialog.svelte";
   import MusicBulkWeightDialog from "./builder/MusicBulkWeightDialog.svelte";
   import MusicBulkStatusDialog from "./builder/MusicBulkStatusDialog.svelte";
+  import MusicBulkClassificationDialog from "./builder/MusicBulkClassificationDialog.svelte";
+  import MusicInterchangeDialog from "./builder/MusicInterchangeDialog.svelte";
   import type { MusicBuilderInitialAction } from "$lib/music/music-builder-loader";
 
   let {
@@ -73,6 +76,7 @@
   const review = createMusicReviewController(library, inspector);
   const playlist = createMusicPlaylistController(library);
   const bulk = createMusicBulkEditController(library);
+  const interchange = createMusicInterchangeController(() => library.playlistSummaries, () => sources.bindings, () => library.vaultId);
   const actionableItemIds = $derived(library.currentState.selectedItemIds.filter((itemId) =>
     library.currentWindow.items.some((item) => item.id === itemId),
   ));
@@ -89,7 +93,7 @@
   let pendingRefreshPlan = $state<MusicSourceRefreshPlan | null>(null);
   let reviewExitOpen = $state(false);
   let playlistSurface = $state<"create" | "edit" | "duplicate" | "delete" | null>(null);
-  let bulkSurface = $state<"memberships" | "weight" | "review" | "snooze" | null>(null);
+  let bulkSurface = $state<"memberships" | "weight" | "review" | "snooze" | "signals" | "focus-fit" | null>(null);
   let rememberReviewExit = $state(false);
   let reviewAutoplay = $state(parseMusicReviewAutoplay(getConfigKey<unknown>("music.review.autoplay", undefined)));
   let reviewExitPreference = $state<MusicReviewExitPreference>(parseMusicReviewExitPreference(getConfigKey<unknown>("music.review.exitPreference", undefined)));
@@ -356,6 +360,12 @@
     await bulk.open(actionableItemIds, library.playlistSummaries);
   }
 
+  async function openBulkClassification(mode: "signals" | "focus-fit"): Promise<void> {
+    if (actionableItemIds.length === 0 || (mode === "focus-fit" && destination.kind !== "playlist")) return;
+    bulkSurface = mode;
+    await bulk.open(actionableItemIds, library.playlistSummaries);
+  }
+
   function closeBulkSurface(): void {
     bulkSurface = null;
     bulk.clear();
@@ -383,8 +393,8 @@
     await revealLocalFile(path);
   }
 
-  async function resetInspectorStatistics(itemId: string): Promise<void> {
-    await resetMusicStatistics({ itemIds: [itemId], resetAggregates: true, resetRecentSelections: true });
+  async function resetInspectorStatistics(itemId: string, mode: "recent" | "all"): Promise<void> {
+    await resetMusicStatistics({ itemIds: [itemId], resetAggregates: mode === "all", resetRecentSelections: true });
     await inspector.select(null);
     await inspector.select(itemId);
     await library.refresh();
@@ -569,6 +579,8 @@
               onWeight={() => { void openBulkWeight(); }}
               onSnooze={() => openBulkStatus("snooze")}
               onReviewState={() => openBulkStatus("review")}
+              onSignals={() => { void openBulkClassification("signals"); }}
+              onFocusFit={() => { void openBulkClassification("focus-fit"); }}
               onAvailability={actionableItemIds.some((itemId) => library.currentWindow.items.find((item) => item.id === itemId)?.availability !== "available") ? () => { void navigate({ kind: "issues" }); } : undefined}
             />
           {/if}
@@ -587,7 +599,7 @@
       {:else if destination.kind === "issues"}
         <MusicIssueBrowser issues={library.issues} onRepair={repairIssue} onRefresh={() => requestSourceRefresh()} />
       {:else}
-        <MusicBuilderOverview {destination} playlists={library.playlistSummaries} sources={library.sourceSummaries} issues={library.issues} onNavigate={(next) => { void navigate(next); }} onPrimary={primaryAction} />
+        <MusicBuilderOverview {destination} playlists={library.playlistSummaries} sources={library.sourceSummaries} issues={library.issues} onNavigate={(next) => { void navigate(next); }} onPrimary={primaryAction} onImport={() => interchange.show("import")} onExport={() => interchange.show("export", destination.kind === "playlist" ? destination.playlistId : null)} />
       {/if}
     </main>
 
@@ -606,7 +618,7 @@
         onReviewState={(itemId) => openItemStatus(itemId, "review")}
         onSnooze={(itemId) => openItemStatus(itemId, "snooze")}
         onEditMembership={(itemId) => { void openItemMembership(itemId); }}
-        onResetStatistics={(itemId) => { void resetInspectorStatistics(itemId); }}
+        onResetStatistics={(itemId, mode) => { void resetInspectorStatistics(itemId, mode); }}
         onRepair={openItemRepair}
         onMetadataSaved={syncInspectorMetadata}
         onPreviewMembership={(membership) => { void previewMembership(membership); }}
@@ -692,7 +704,10 @@
         onClose={closeBulkSurface}
         onSaved={() => { closeBulkSurface(); library.setItemSelection([], null); void playlist.refreshActivePlayback(sources.bindings); }}
       />
+    {:else if bulkSurface === "signals" || (bulkSurface === "focus-fit" && destination.kind === "playlist")}
+      <MusicBulkClassificationDialog controller={bulk} mode={bulkSurface} playlistId={destination.kind === "playlist" ? destination.playlistId : null} onClose={closeBulkSurface} onSaved={() => { closeBulkSurface(); library.setItemSelection([], null); void playlist.refreshActivePlayback(sources.bindings); }} />
     {/if}
+    {#if interchange.open}<MusicInterchangeDialog controller={interchange} playlists={library.playlistSummaries} onClose={() => interchange.close()} onImported={() => { void library.refresh(); void sources.load(); }} />{/if}
   </div>
 </section>
 

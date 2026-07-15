@@ -6,6 +6,7 @@ use std::{
     path::{Path, PathBuf},
     process::Stdio,
     sync::atomic::{AtomicU64, Ordering},
+    time::{SystemTime, UNIX_EPOCH},
 };
 use tauri::Manager;
 use tauri_plugin_dialog::{DialogExt, FilePath};
@@ -28,12 +29,49 @@ const VALID_PLAYBACK_STATUSES: &[&str] = &[
 ];
 const MAX_MEDIA_FOLDER_FILES: usize = 5_000;
 const MAX_ARTWORK_BYTES: u64 = 12 * 1024 * 1024;
+const MAX_INTERCHANGE_BYTES: u64 = 8 * 1024 * 1024;
 static MEDIA_FOLDER_SCAN_GENERATION: AtomicU64 = AtomicU64::new(0);
 const MEDIA_EXTENSIONS: &[&str] = &[
     "aac", "aif", "aiff", "alac", "ape", "avi", "flac", "flv", "m4a", "m4v", "mkv", "mov", "mp3",
     "mp4", "mpeg", "mpg", "ogg", "ogv", "opus", "wav", "webm", "wma", "wmv",
 ];
 const SOUNDSCAPE_AUDIO_EXTENSIONS: &[&str] = &["flac", "m4a", "mp3", "mp4", "oga", "ogg", "wav"];
+
+fn replace_music_export_file(path: &Path, contents: &[u8]) -> Result<(), String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| "music export path has no parent".to_string())?;
+    let file_name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("music-export");
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| format!("system clock is invalid: {error}"))?
+        .as_nanos();
+    let temporary = parent.join(format!(".{file_name}.{nonce}.tmp"));
+    let backup = parent.join(format!(".{file_name}.{nonce}.bak"));
+    fs::write(&temporary, contents)
+        .map_err(|error| format!("failed to write music export: {error}"))?;
+    let had_existing = path.exists();
+    if had_existing {
+        if let Err(error) = fs::rename(path, &backup) {
+            let _ = fs::remove_file(&temporary);
+            return Err(format!("failed to prepare existing music export: {error}"));
+        }
+    }
+    if let Err(error) = fs::rename(&temporary, path) {
+        let _ = fs::remove_file(&temporary);
+        if had_existing {
+            let _ = fs::rename(&backup, path);
+        }
+        return Err(format!("failed to finish music export: {error}"));
+    }
+    if had_existing {
+        let _ = fs::remove_file(backup);
+    }
+    Ok(())
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -160,6 +198,25 @@ pub async fn music_pick_media_folder(
 }
 
 #[tauri::command]
+pub async fn music_pick_root_binding_folder(
+    app: tauri::AppHandle,
+) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut picker = app.dialog().file().set_title("Map imported music folder");
+        if let Some(directory) = music_folder_start_directory(&app) {
+            picker = picker.set_directory(directory);
+        }
+        picker
+            .blocking_pick_folder()
+            .map(dialog_path)
+            .transpose()
+            .map(|path| path.map(|value| value.to_string_lossy().into_owned()))
+    })
+    .await
+    .map_err(|error| format!("music folder mapping picker failed: {error}"))?
+}
+
+#[tauri::command]
 pub async fn music_pick_media_file(app: tauri::AppHandle) -> Result<Option<String>, String> {
     let selected = tauri::async_runtime::spawn_blocking(move || {
         let mut picker = app
@@ -212,6 +269,97 @@ pub async fn music_pick_artwork_file(app: tauri::AppHandle) -> Result<Option<Str
     .await
     .map_err(|error| format!("artwork file picker failed: {error}"))??;
     Ok(selected.map(|path| path.to_string_lossy().into_owned()))
+}
+
+#[tauri::command]
+pub async fn music_pick_and_read_interchange_file(
+    app: tauri::AppHandle,
+) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(path) = app
+            .dialog()
+            .file()
+            .set_title("Import music playlists")
+            .add_filter("Music playlists", &["json", "m3u8", "m3u"])
+            .blocking_pick_file()
+            .map(dialog_path)
+            .transpose()?
+        else {
+            return Ok(None);
+        };
+        let extension = path
+            .extension()
+            .and_then(|value| value.to_str())
+            .map(str::to_ascii_lowercase);
+        if !matches!(extension.as_deref(), Some("json" | "m3u8" | "m3u")) {
+            return Err("music import must use .json, .m3u8, or .m3u".to_string());
+        }
+        let metadata = fs::metadata(&path)
+            .map_err(|error| format!("failed to inspect music import: {error}"))?;
+        if metadata.len() > MAX_INTERCHANGE_BYTES {
+            return Err("music import exceeds the 8 MB safety limit".to_string());
+        }
+        fs::read_to_string(&path)
+            .map(Some)
+            .map_err(|error| format!("failed to read UTF-8 music import: {error}"))
+    })
+    .await
+    .map_err(|error| format!("music import picker failed: {error}"))?
+}
+
+#[tauri::command]
+pub async fn music_pick_and_write_interchange_file(
+    app: tauri::AppHandle,
+    default_name: String,
+    contents: String,
+    format: String,
+) -> Result<bool, String> {
+    if contents.len() as u64 > MAX_INTERCHANGE_BYTES {
+        return Err("music export exceeds the 8 MB safety limit".to_string());
+    }
+    let (extension, label) = match format.as_str() {
+        "json" => ("json", "Ganbaru AI music JSON"),
+        "m3u8" => ("m3u8", "UTF-8 M3U playlist"),
+        _ => return Err("unsupported music export format".to_string()),
+    };
+    let safe_stem = default_name
+        .chars()
+        .map(|character| {
+            if character.is_alphanumeric() || matches!(character, ' ' | '-' | '_') {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    let file_name = format!("{}.{}", safe_stem.trim().trim_end_matches('.'), extension);
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(path) = app
+            .dialog()
+            .file()
+            .set_title("Export music playlists")
+            .set_file_name(file_name)
+            .add_filter(label, &[extension])
+            .blocking_save_file()
+            .map(dialog_path)
+            .transpose()?
+        else {
+            return Ok(false);
+        };
+        if path
+            .extension()
+            .and_then(|value| value.to_str())
+            .map(str::to_ascii_lowercase)
+            .as_deref()
+            != Some(extension)
+        {
+            return Err(format!("music export path must end in .{extension}"));
+        }
+        replace_music_export_file(&path, contents.as_bytes())?;
+        Ok(true)
+    })
+    .await
+    .map_err(|error| format!("music export picker failed: {error}"))?
 }
 
 #[tauri::command]

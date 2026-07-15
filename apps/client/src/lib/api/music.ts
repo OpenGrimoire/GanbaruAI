@@ -35,6 +35,10 @@ export async function pickMediaFolder(): Promise<MediaFolderSelection | null> {
   return invoke("music_pick_media_folder");
 }
 
+export async function pickMusicRootBindingFolder(): Promise<string | null> {
+  return invoke<string | null>("music_pick_root_binding_folder");
+}
+
 export async function pickMediaFile(): Promise<string | null> {
   return invoke("music_pick_media_file");
 }
@@ -45,6 +49,18 @@ export async function pickSoundscapeFile(): Promise<string | null> {
 
 export async function pickArtworkFile(): Promise<string | null> {
   return invoke("music_pick_artwork_file");
+}
+
+export async function pickAndReadMusicInterchangeFile(): Promise<string | null> {
+  return invoke<string | null>("music_pick_and_read_interchange_file");
+}
+
+export async function pickAndWriteMusicInterchangeFile(
+  defaultName: string,
+  contents: string,
+  format: "json" | "m3u8",
+): Promise<boolean> {
+  return invoke<boolean>("music_pick_and_write_interchange_file", { defaultName, contents, format });
 }
 
 export async function loadArtworkDataUrl(path: string): Promise<string> {

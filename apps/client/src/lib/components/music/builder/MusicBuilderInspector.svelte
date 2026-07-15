@@ -12,6 +12,8 @@
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { pickArtworkFile } from "$lib/api/music";
   import type { MusicBuilderInspectorController } from "$lib/music/music-builder-inspector.svelte";
+  import type { MusicItemSignal } from "$lib/music/library-contracts";
+  import { formatDateTime } from "$lib/i18n/formatters";
   import { formatMusicDuration } from "$lib/music/music-builder-presentation";
   import MusicBuilderAsyncState from "./MusicBuilderAsyncState.svelte";
   import MusicAdvancedMembershipEditor from "./MusicAdvancedMembershipEditor.svelte";
@@ -45,14 +47,14 @@
     onShowFile?: (itemId: string) => void;
     onReviewState?: (itemId: string) => void;
     onSnooze?: (itemId: string) => void;
-    onResetStatistics?: (itemId: string) => void;
+    onResetStatistics?: (itemId: string, mode: "recent" | "all") => void;
     playlistNames?: Record<string, string>;
     onEditMembership?: (itemId: string) => void;
     sourceNames?: Record<string, string>;
     onOpenSource?: (sourceId: string) => void;
   } = $props();
 
-  const { t } = getLocalization();
+  const { t, locale } = getLocalization();
   const item = $derived(controller.detail?.item ?? null);
   const title = $derived(item?.titleOverride?.trim() || item?.originalTitle || "");
   const artist = $derived(item?.artistOverride?.trim() || item?.originalArtist || t("music.builder.noArtist"));
@@ -63,6 +65,22 @@
   let artistDraft = $state("");
   let albumDraft = $state("");
   let artworkDraft = $state("");
+  let statisticsResetOpen = $state(false);
+  const signalOptions: MusicItemSignal[] = ["lyrics", "sudden-changes", "high-intensity", "calm", "repetitive", "energizing"];
+
+  function toggleSignal(signal: MusicItemSignal): void {
+    if (!controller.detail || controller.saving) return;
+    const next = controller.detail.signals.includes(signal)
+      ? controller.detail.signals.filter((entry) => entry !== signal)
+      : [...controller.detail.signals, signal];
+    void controller.saveSignals(next);
+  }
+
+  function lastPlayedLabel(): string {
+    const value = controller.detail?.statistics?.lastPlayedAt;
+    if (!value) return t("music.builder.neverPlayedLabel");
+    return formatDateTime(locale, value, { dateStyle: "medium", timeStyle: "short" });
+  }
 
   function sectionOpen(id: string): boolean { return controller.expandedSections.has(id); }
   function availabilityLabel(): string {
@@ -149,6 +167,21 @@
           </section>
 
           <section class="inspector-section">
+            <button type="button" onclick={() => controller.toggleSection("signals")} aria-expanded={sectionOpen("signals")}><span>{t("music.builder.descriptiveSignals")}</span><ChevronDown class={sectionOpen("signals") ? "rotate-180" : ""} size={13} /></button>
+            {#if sectionOpen("signals")}
+              <div class="px-2 pb-2">
+                <p class="text-[0.62rem] leading-relaxed text-muted-foreground">{t("music.builder.descriptiveSignalsHint")}</p>
+                <div class="mt-2 flex flex-wrap gap-1.5" role="group" aria-label={t("music.builder.descriptiveSignals")}>
+                  {#each signalOptions as signal}
+                    <button type="button" aria-pressed={controller.detail?.signals.includes(signal)} disabled={controller.saving} onclick={() => toggleSignal(signal)} class="rounded-full border border-border/70 px-2 py-1 text-[0.63rem] text-muted-foreground aria-pressed:border-primary aria-pressed:bg-primary/10 aria-pressed:text-foreground disabled:opacity-50">{t(`music.builder.signal.${signal}`)}</button>
+                  {/each}
+                </div>
+                {#if controller.signalUndo}<button type="button" onclick={() => { void controller.undoSignals(); }} disabled={controller.saving} class="mt-2 h-7 rounded-md bg-secondary px-2 text-[0.62rem] font-medium disabled:opacity-50">{t("music.builder.undoSignalEdit")}</button>{/if}
+              </div>
+            {/if}
+          </section>
+
+          <section class="inspector-section">
             <button type="button" onclick={() => controller.toggleSection("provenance")} aria-expanded={sectionOpen("provenance")}><span>{t("music.builder.provenance")}</span><ChevronDown class={sectionOpen("provenance") ? "rotate-180" : ""} size={13} /></button>
             {#if sectionOpen("provenance")}
               <div class="space-y-1 px-2 pb-2">
@@ -203,11 +236,19 @@
             <button type="button" onclick={() => controller.toggleSection("listening")} aria-expanded={sectionOpen("listening")}><span>{t("music.builder.listening")}</span><ChevronDown class={sectionOpen("listening") ? "rotate-180" : ""} size={13} /></button>
             {#if sectionOpen("listening")}
               <dl>
+                <div><dt>{t("music.builder.lastPlayedLabel")}</dt><dd title={lastPlayedLabel()}>{lastPlayedLabel()}</dd></div>
                 <div><dt>{t("music.builder.playCount")}</dt><dd>{controller.detail?.statistics?.playCount ?? 0}</dd></div>
                 <div><dt>{t("music.builder.completionCount")}</dt><dd>{controller.detail?.statistics?.completionCount ?? 0}</dd></div>
                 <div><dt>{t("music.builder.skipCount")}</dt><dd>{controller.detail?.statistics?.skipCount ?? 0}</dd></div>
               </dl>
-              <button type="button" onclick={() => onResetStatistics(item.id)} class="mx-2 mb-2 inline-flex h-7 items-center gap-1.5 rounded-lg px-2 text-[0.65rem] text-muted-foreground hover:bg-accent hover:text-accent-foreground"><RotateCcw size={11} />{t("music.builder.resetListeningHistory")}</button>
+              {#if statisticsResetOpen}
+                <div class="mx-2 mb-2 rounded-lg border border-border/60 bg-background p-2">
+                  <p class="text-[0.62rem] leading-relaxed text-muted-foreground">{t("music.builder.resetStatisticsExplanation")}</p>
+                  <div class="mt-2 flex flex-wrap justify-end gap-1.5"><button type="button" onclick={() => statisticsResetOpen = false} class="h-7 rounded-md bg-secondary px-2 text-[0.62rem]">{t("music.builder.cancel")}</button><button type="button" onclick={() => { onResetStatistics(item.id, "recent"); statisticsResetOpen = false; }} class="h-7 rounded-md bg-secondary px-2 text-[0.62rem]">{t("music.builder.clearRecentSelections")}</button><button type="button" onclick={() => { onResetStatistics(item.id, "all"); statisticsResetOpen = false; }} class="h-7 rounded-md bg-destructive px-2 text-[0.62rem] font-medium text-destructive-foreground">{t("music.builder.resetListeningStatistics")}</button></div>
+                </div>
+              {:else}
+                <button type="button" onclick={() => statisticsResetOpen = true} class="mx-2 mb-2 inline-flex h-7 items-center gap-1.5 rounded-lg px-2 text-[0.65rem] text-muted-foreground hover:bg-accent hover:text-accent-foreground"><RotateCcw size={11} />{t("music.builder.manageListeningHistory")}</button>
+              {/if}
             {/if}
           </section>
         </div>

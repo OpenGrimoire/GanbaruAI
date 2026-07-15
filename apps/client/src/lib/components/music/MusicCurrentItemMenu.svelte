@@ -105,6 +105,8 @@
         removePlaylistIds: [],
         weightPlaylistIds: [],
         weight: null,
+        focusFitPlaylistIds: [],
+        focusFit: null,
         updatedAt: Date.now(),
       });
       membershipPlaylistIds = new Set([...membershipPlaylistIds, playlistId]);

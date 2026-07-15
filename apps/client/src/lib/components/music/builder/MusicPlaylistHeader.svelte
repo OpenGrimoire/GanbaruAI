@@ -35,6 +35,7 @@
       <div class="flex min-w-0 items-center gap-2"><h2 class="truncate text-base font-semibold">{detail.name}</h2>{#if playing}<span class="shrink-0 rounded-full bg-success/12 px-2 py-0.5 text-[0.62rem] font-medium text-success">{t("music.builder.playing")}</span>{/if}</div>
       {#if detail.description}<p class="mt-1 line-clamp-2 max-w-2xl text-[0.7rem] leading-relaxed text-muted-foreground">{detail.description}</p>{/if}
       <div class="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[0.65rem] text-muted-foreground">
+        {#if detail.intendedUses.length > 0}<span>{t("music.builder.playlistIntent", detail.intendedUses.map((use) => t(`music.builder.intendedUse.${use}`)).join(", "))}</span>{/if}
         <span>{t("music.builder.eligibleOfTotal", summary.eligibleCount, summary.totalCount)}</span>
         <span>{summary.localCount} {t("music.builder.local")}</span>
         <span>{summary.onlineCount} {t("music.builder.youtube")}</span>

@@ -1,6 +1,6 @@
-import { bulkEditMusicMemberships, bulkSetMusicReviewState, bulkSnoozeMusicItems, getMusicMembershipMatrix } from "$lib/api/music-library";
+import { bulkEditMusicMemberships, bulkSetMusicReviewState, bulkSnoozeMusicItems, getMusicInspectorDetail, getMusicMembershipMatrix, setMusicItemSignals } from "$lib/api/music-library";
 import type { MusicLibraryController } from "$lib/music/music-library-controller.svelte";
-import type { MusicPlaylistSummary, MusicReviewState, MusicSnoozeScope, MusicWeight } from "$lib/music/library-contracts";
+import type { MusicFocusFit, MusicItemSignal, MusicPlaylistSummary, MusicReviewState, MusicSnoozeScope, MusicWeight } from "$lib/music/library-contracts";
 
 export type MusicBulkPlaylistState = "checked" | "mixed" | "unchecked";
 
@@ -8,6 +8,7 @@ export class MusicBulkEditController {
   itemIds = $state<string[]>([]);
   states = $state<Record<string, MusicBulkPlaylistState>>({});
   initialCounts = $state<Record<string, number>>({});
+  focusFits = $state<Record<string, MusicFocusFit | "mixed" | "none">>({});
   search = $state("");
   loading = $state(false);
   saving = $state(false);
@@ -45,6 +46,10 @@ export class MusicBulkEditController {
       const counts: Record<string, number> = {};
       for (const entry of matrix) counts[entry.playlistId] = (counts[entry.playlistId] ?? 0) + 1;
       this.initialCounts = counts;
+      this.focusFits = Object.fromEntries(playlists.map((playlist) => {
+        const values = new Set(matrix.filter((entry) => entry.playlistId === playlist.id).map((entry) => entry.focusFit));
+        return [playlist.id, values.size === 0 ? "none" : values.size === 1 ? [...values][0] : "mixed"];
+      }));
       this.states = Object.fromEntries(playlists.map((playlist) => {
         const count = counts[playlist.id] ?? 0;
         return [playlist.id, count === 0 ? "unchecked" : count === this.itemIds.length ? "checked" : "mixed"];
@@ -76,15 +81,46 @@ export class MusicBulkEditController {
       if (state === "unchecked" && initialCount > 0) removePlaylistIds.push(playlistId);
     }
     if (addPlaylistIds.length === 0 && removePlaylistIds.length === 0) return true;
-    return this.persist({ addPlaylistIds, removePlaylistIds, weightPlaylistIds: [], weight: null });
+    return this.persist({ addPlaylistIds, removePlaylistIds, weightPlaylistIds: [], weight: null, focusFitPlaylistIds: [], focusFit: null });
   }
 
   async setWeight(playlistId: string, weight: MusicWeight): Promise<boolean> {
-    return this.persist({ addPlaylistIds: [], removePlaylistIds: [], weightPlaylistIds: [playlistId], weight });
+    return this.persist({ addPlaylistIds: [], removePlaylistIds: [], weightPlaylistIds: [playlistId], weight, focusFitPlaylistIds: [], focusFit: null });
   }
 
   async removeFromPlaylist(playlistId: string): Promise<boolean> {
-    return this.persist({ addPlaylistIds: [], removePlaylistIds: [playlistId], weightPlaylistIds: [], weight: null });
+    return this.persist({ addPlaylistIds: [], removePlaylistIds: [playlistId], weightPlaylistIds: [], weight: null, focusFitPlaylistIds: [], focusFit: null });
+  }
+
+  async setFocusFit(playlistId: string, focusFit: MusicFocusFit): Promise<boolean> {
+    return this.persist({ addPlaylistIds: [], removePlaylistIds: [], weightPlaylistIds: [], weight: null, focusFitPlaylistIds: [playlistId], focusFit });
+  }
+
+  async setSignals(signals: MusicItemSignal[]): Promise<boolean> {
+    if (this.saving || this.itemIds.length === 0) return false;
+    this.saving = true;
+    this.error = null;
+    try {
+      const prior = await Promise.all(this.itemIds.map(async (itemId) => ({ itemId, signals: (await getMusicInspectorDetail(itemId)).signals })));
+      await this.library.runOptimistic({
+        key: `bulk-signals:${this.itemIds.join(":")}`,
+        label: "Describe selected tracks",
+        apply: () => undefined,
+        rollback: () => undefined,
+        persist: () => setMusicItemSignals({ itemIds: this.itemIds, signals, updatedAt: this.now() }),
+        undo: async () => {
+          for (const entry of prior) await setMusicItemSignals({ itemIds: [entry.itemId], signals: entry.signals, updatedAt: this.now() });
+          await this.library.refresh();
+        },
+      });
+      await this.library.refresh();
+      return true;
+    } catch (error) {
+      this.error = error instanceof Error ? error.message : String(error);
+      return false;
+    } finally {
+      this.saving = false;
+    }
   }
 
   async setReviewState(reviewState: MusicReviewState): Promise<boolean> {
@@ -136,6 +172,7 @@ export class MusicBulkEditController {
     this.itemIds = [];
     this.states = {};
     this.initialCounts = {};
+    this.focusFits = {};
     this.search = "";
     this.error = null;
     this.selectionStale = false;
@@ -146,6 +183,8 @@ export class MusicBulkEditController {
     removePlaylistIds: string[];
     weightPlaylistIds: string[];
     weight: MusicWeight | null;
+    focusFitPlaylistIds: string[];
+    focusFit: MusicFocusFit | null;
   }): Promise<boolean> {
     if (this.saving || this.itemIds.length === 0) return false;
     this.saving = true;

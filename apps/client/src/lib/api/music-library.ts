@@ -38,9 +38,11 @@ import {
   type MusicAdvancedMembershipWrite,
   type MusicCollectionWrite,
   type MusicInspectorDetail,
+  type MusicInterchangeImportResult,
   type MusicItemRepairApply,
   type MusicItemRepairPreview,
   type MusicIssue,
+  type MusicItemSignalsWrite,
   type MusicItemWindow,
   type MusicItemWindowRequest,
   type MusicLibraryItemWrite,
@@ -199,6 +201,11 @@ export const setMusicReviewState = (request: MusicReviewWrite): Promise<MusicWri
   call("music_library_set_review_state", databaseArgs({ request }), parseWriteReceipt);
 export const setMusicMetadataOverrides = (request: MusicMetadataOverrideWrite): Promise<MusicWriteReceipt> =>
   call("music_library_set_metadata_overrides", databaseArgs({ request }), parseWriteReceipt);
+export const setMusicItemSignals = (request: MusicItemSignalsWrite): Promise<MusicWriteReceipt[]> =>
+  call("music_library_set_item_signals", databaseArgs({ request }), (value) => {
+    if (!Array.isArray(value)) throw new Error("music signal receipts must be an array");
+    return value.map((entry, index) => parseWriteReceipt(entry, `music signal receipts[${index}]`));
+  });
 export const upsertMusicMemberships = (request: MusicBulkMembershipWrite): Promise<MusicWriteReceipt[]> =>
   call("music_library_upsert_memberships", databaseArgs({ request }), (value) => {
     if (!Array.isArray(value)) throw new Error("membership receipts must be an array");
@@ -215,13 +222,14 @@ export const getMusicMembershipMatrix = (itemIds: string[]): Promise<MusicMember
   call("music_library_membership_matrix", databaseArgs({ itemIds }), (value) => {
     if (!Array.isArray(value)) throw new Error("membership matrix must be an array");
     const weights = new Set(["rarely", "less-often", "normal", "more-often", "much-more-often"]);
+    const focusFits = new Set(["helpful", "neutral", "potentially-distracting", "unknown"]);
     return value.map((entry, index) => {
       if (typeof entry !== "object" || entry === null) throw new Error(`membership matrix[${index}] must be an object`);
       const row = entry as Record<string, unknown>;
-      if (typeof row.itemId !== "string" || typeof row.playlistId !== "string" || typeof row.weight !== "string" || !weights.has(row.weight)) {
+      if (typeof row.itemId !== "string" || typeof row.playlistId !== "string" || typeof row.weight !== "string" || !weights.has(row.weight) || typeof row.focusFit !== "string" || !focusFits.has(row.focusFit)) {
         throw new Error(`membership matrix[${index}] is invalid`);
       }
-      return { itemId: row.itemId, playlistId: row.playlistId, weight: row.weight as MusicMembershipMatrixEntry["weight"] };
+      return { itemId: row.itemId, playlistId: row.playlistId, weight: row.weight as MusicMembershipMatrixEntry["weight"], focusFit: row.focusFit as MusicMembershipMatrixEntry["focusFit"] };
     });
   });
 export const reorderMusicPlaylist = (request: MusicPlaylistReorder): Promise<MusicPlaylistReorderResult> =>
@@ -242,6 +250,8 @@ export const getMusicContextAssignments = (
   ownerId: string,
 ): Promise<MusicContextAssignment[]> =>
   call("music_library_context_assignments", databaseArgs({ ownerKind, ownerId }), parseMusicContextAssignments);
+export const getMusicContextAssignmentsForPlaylists = (playlistIds: string[]): Promise<MusicContextAssignment[]> =>
+  call("music_library_context_assignments_for_playlists", databaseArgs({ playlistIds }), parseMusicContextAssignments);
 export const replaceMusicContextAssignments = (
   request: MusicContextAssignmentSet,
 ): Promise<MusicContextAssignment[]> =>
@@ -266,6 +276,19 @@ export const removeMusicSnooze = (snoozeId: string): Promise<void> =>
   call("music_library_remove_snooze", databaseArgs({ request: { snoozeId } }), parseVoid);
 export const resetMusicStatistics = (request: MusicStatisticsReset): Promise<void> =>
   call("music_library_reset_statistics", databaseArgs({ request }), parseVoid);
+export const importMusicInterchange = (request: {
+  document: import("$lib/music/music-interchange").MusicInterchangeDocument;
+  playlistConflict: "keep-existing" | "import-copy" | "replace-existing";
+  replaceItemDescriptions: boolean;
+  importContextAssignments: boolean;
+  importedAt: number;
+}): Promise<MusicInterchangeImportResult> =>
+  call("music_library_import_interchange", databaseArgs({ request }), (value) => {
+    if (typeof value !== "object" || value === null) throw new Error("music import result must be an object");
+    const row = value as Record<string, unknown>;
+    if (![row.playlistCount, row.itemCount, row.membershipCount, row.assignmentCount].every((entry) => typeof entry === "number" && Number.isSafeInteger(entry))) throw new Error("music import result counts are invalid");
+    return { playlistCount: row.playlistCount as number, itemCount: row.itemCount as number, membershipCount: row.membershipCount as number, assignmentCount: row.assignmentCount as number };
+  });
 export const getMusicItemWindow = (request: MusicItemWindowRequest): Promise<MusicItemWindow> =>
   call("music_library_item_window", databaseArgs({ request }), parseItemWindow);
 export const getMusicPlaylistSummaries = (nowMs: number, offset: number, limit: number): Promise<MusicPlaylistSummary[]> =>
