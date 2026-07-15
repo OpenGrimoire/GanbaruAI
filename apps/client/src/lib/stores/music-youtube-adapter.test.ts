@@ -11,6 +11,68 @@ import {
 } from "./music-youtube-adapter";
 
 describe("Music YouTube adapter", () => {
+  it("expands a current YouTube playlist and loads its first video", async () => {
+    const parsed = parseMusicSourceInput(
+      "https://www.youtube.com/playlist?list=PL1234567890",
+    );
+    if (!parsed.source || parsed.source.kind !== "youtube-playlist") {
+      throw new Error("Expected a YouTube playlist fixture");
+    }
+    const contentWindow = { postMessage: vi.fn() };
+    const state: MusicYouTubeState = {
+      currentSource: parsed.source,
+      snapshot: { ...DEFAULT_PLAYBACK_SNAPSHOT, status: "loading" },
+      playerError: null,
+      queue: [parsed.source],
+      queueHistory: [2],
+      shuffleEnabled: false,
+      shuffleOrder: [1],
+      pendingQueueIndex: null,
+      youtubeHostUrl: null,
+      youtubeFrame: { contentWindow } as unknown as HTMLIFrameElement,
+      youtubeHostToken: null,
+      youtubeHostReady: false,
+    };
+    const loadRuntime = new MusicLoadRuntime();
+    const generation = loadRuntime.begin();
+    const loadSource = vi.fn(async () => undefined);
+    const adapter = createMusicYouTubeAdapter({
+      state,
+      loadRuntime,
+      effectiveVolume: () => 1,
+      loadSource,
+      persist: vi.fn(async () => undefined),
+      updateExternalControls: vi.fn(),
+      updateTray: vi.fn(),
+      canPlayNext: () => false,
+      playNext: vi.fn(async () => undefined),
+      getHostUrl: vi.fn(async () => "http://127.0.0.1:1234/player?token=test-token"),
+    });
+    await adapter.load(parsed.source, null, generation, true);
+
+    adapter.handleMessage({
+      source: contentWindow,
+      data: {
+        token: "test-token",
+        load: String(generation),
+        type: "ganbaru-ai-youtube-playlist",
+        playlistId: parsed.source.playlistId,
+        videoIds: ["video-a", "video-b", "video-c"],
+        index: 0,
+      },
+    } as unknown as MessageEvent<unknown>);
+    await Promise.resolve();
+
+    expect(state.queue.map((source) => source.identity)).toEqual([
+      "youtube:video:video-a",
+      "youtube:video:video-b",
+      "youtube:video:video-c",
+    ]);
+    expect(state.queueHistory).toEqual([]);
+    expect(state.pendingQueueIndex).toBe(0);
+    expect(loadSource).toHaveBeenCalledWith(state.queue[0], true);
+  });
+
   it("ignores stale playing snapshots during the optimistic pause window", async () => {
     let nowMs = 100;
     const source = youtubeVideoSourceFromId("video-1");

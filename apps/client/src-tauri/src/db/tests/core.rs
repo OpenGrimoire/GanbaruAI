@@ -11,7 +11,7 @@ fn fresh_database_applies_baseline_and_additive_migrations() {
                 .fetch_one(&pool)
                 .await
                 .unwrap();
-        assert_eq!(migration_count, 2);
+        assert_eq!(migration_count, 4);
         let integrity: String = sqlx::query_scalar("PRAGMA integrity_check")
             .fetch_one(&pool)
             .await
@@ -29,6 +29,18 @@ fn fresh_database_applies_baseline_and_additive_migrations() {
             "project_tasks",
             "music_playlists",
             "music_playlist_tracks",
+            "music_library_items",
+            "music_local_roots",
+            "music_local_locations",
+            "music_source_collections",
+            "music_source_collection_items",
+            "music_playlist_memberships",
+            "music_membership_break_items",
+            "music_library_repair_issues",
+            "music_snoozes",
+            "music_listening_statistics",
+            "music_recent_selections",
+            "music_search_fts",
             "music_track_skip_ranges",
             "music_track_break_sources",
             "notes_pages",
@@ -103,7 +115,7 @@ fn fresh_file_database_applies_baseline_and_additive_migrations() {
                 .fetch_one(&pool)
                 .await
                 .unwrap();
-        assert_eq!(migration_count, 2);
+        assert_eq!(migration_count, 4);
         pool.close().await;
         std::fs::remove_file(path).unwrap();
     });
