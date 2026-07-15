@@ -41,6 +41,7 @@
   import MusicBuilderHeader from "./builder/MusicBuilderHeader.svelte";
   import MusicBuilderInspectorSurface from "./builder/MusicBuilderInspectorSurface.svelte";
   import MusicBuilderOverview from "./builder/MusicBuilderOverview.svelte";
+  import MusicDetectedFolderCard from "./builder/MusicDetectedFolderCard.svelte";
   import MusicVirtualItemList from "./builder/MusicVirtualItemList.svelte";
   import MusicAddSourceDialog from "./builder/MusicAddSourceDialog.svelte";
   import MusicIssueBrowser from "./builder/MusicIssueBrowser.svelte";
@@ -172,6 +173,11 @@
     pendingRefreshPlan = null;
     await sources.runRefresh(plan, allowNetwork);
     await library.refreshAfterMutation();
+  }
+
+  function detectedFolderAdded(): void {
+    void library.refreshAfterMutation();
+    if (destination.kind !== "sources") navigate({ kind: "sources" });
   }
 
   function collectionById(collectionId: string): MusicSourceCollection | null {
@@ -469,17 +475,21 @@
           <MusicBuilderAsyncState kind="loading" />
         {:else if library.currentWindow.items.length === 0}
           <div class="grid h-full min-h-40 place-items-center p-5 text-center">
-            <div class="max-w-sm rounded-2xl border border-border/60 bg-card/55 p-5 shadow-sm">
-              <div class="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-success/12 text-success"><Check size={21} strokeWidth={1.8} aria-hidden="true" /></div>
-              <h2 class="mt-3 text-sm font-semibold">{t("music.builder.emptyReviewTitle")}</h2>
-              <p class="mt-1.5 text-xs leading-relaxed text-muted-foreground">{t("music.builder.emptyReviewDescription")}</p>
-              <div class="mt-4 flex flex-wrap justify-center gap-2">
-                {#if library.currentState.reviewState !== null}
-                  <button type="button" onclick={() => { library.patchCurrentState({ reviewState: null }); void library.refresh(); }} class="h-8 rounded-md bg-secondary px-3 text-xs font-medium text-secondary-foreground">{t("music.builder.reviewDeferred")}</button>
-                {/if}
-                <button type="button" onclick={() => navigate({ kind: "library" })} class="h-8 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground">{t("music.builder.browseLibrary")}</button>
+            {#if sources.detectedDefaultFolder}
+              <MusicDetectedFolderCard controller={sources} onAdded={detectedFolderAdded} />
+            {:else}
+              <div class="max-w-sm rounded-2xl border border-border/60 bg-card/55 p-5 shadow-sm">
+                <div class="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-success/12 text-success"><Check size={21} strokeWidth={1.8} aria-hidden="true" /></div>
+                <h2 class="mt-3 text-sm font-semibold">{t("music.builder.emptyReviewTitle")}</h2>
+                <p class="mt-1.5 text-xs leading-relaxed text-muted-foreground">{t("music.builder.emptyReviewDescription")}</p>
+                <div class="mt-4 flex flex-wrap justify-center gap-2">
+                  {#if library.currentState.reviewState !== null}
+                    <button type="button" onclick={() => { library.patchCurrentState({ reviewState: null }); void library.refresh(); }} class="h-8 rounded-md bg-secondary px-3 text-xs font-medium text-secondary-foreground">{t("music.builder.reviewDeferred")}</button>
+                  {/if}
+                  <button type="button" onclick={() => navigate({ kind: "library" })} class="h-8 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground">{t("music.builder.browseLibrary")}</button>
+                </div>
               </div>
-            </div>
+            {/if}
           </div>
         {:else}
           <MusicReviewWorkspace {library} {inspector} {sources} {audition} {review} autoplay={reviewAutoplay} onAutoplayChange={setReviewAutoplay} />
@@ -540,11 +550,15 @@
               </div>
             </div>
           {:else}
-            <MusicBuilderAsyncState
-              kind="empty"
-              title={destination.kind === "playlist" ? t("music.builder.noPlaylistFilterResults") : t("music.builder.emptyLibraryTitle")}
-              description={destination.kind === "playlist" ? t("music.builder.adjustPlaylistFilters") : t("music.builder.emptyLibraryDescription")}
-            />
+            {#if destination.kind === "library" && sources.detectedDefaultFolder}
+              <div class="grid min-h-0 flex-1 place-items-center p-4"><MusicDetectedFolderCard controller={sources} onAdded={detectedFolderAdded} /></div>
+            {:else}
+              <MusicBuilderAsyncState
+                kind="empty"
+                title={destination.kind === "playlist" ? t("music.builder.noPlaylistFilterResults") : t("music.builder.emptyLibraryTitle")}
+                description={destination.kind === "playlist" ? t("music.builder.adjustPlaylistFilters") : t("music.builder.emptyLibraryDescription")}
+              />
+            {/if}
           {/if}
         {:else}
           {#if library.busy}<div class="absolute inset-x-0 top-10 z-10 bg-secondary/90 px-3 py-1 text-center text-[0.62rem] text-muted-foreground backdrop-blur-sm">{t("music.builder.staleData")}</div>{/if}
@@ -598,6 +612,7 @@
           onRelink={openRelink}
           onRemove={(collectionId) => { void openRemoval(collectionId); }}
           onOpenIssues={() => { void navigate({ kind: "issues" }); }}
+          onDetectedFolderAdded={detectedFolderAdded}
         />
       {:else if destination.kind === "issues"}
         <MusicIssueBrowser issues={library.issues} onRepair={repairIssue} onRefresh={() => requestSourceRefresh()} />

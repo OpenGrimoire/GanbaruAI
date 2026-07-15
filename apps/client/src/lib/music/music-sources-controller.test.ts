@@ -26,6 +26,7 @@ function api(overrides: Partial<MusicSourcesControllerApi> = {}): MusicSourcesCo
     collections: vi.fn(async () => []),
     bindings: vi.fn(async () => []),
     pickFolder: vi.fn(async () => null),
+    detectDefaultFolder: vi.fn(async () => null),
     pickFile: vi.fn(async () => null),
     createRoot: vi.fn(async (request) => ({ id: request.collectionId, version: 1 })),
     bindRoot: vi.fn(async (_vaultId, rootId, folderPath) => ({ rootId, folderPath, status: "available" as const })),
@@ -104,6 +105,57 @@ describe("MusicSourcesController", () => {
     const draft = await controller.chooseLocalFolder();
     expect(draft).toMatchObject({ name: "ost", relationship: "duplicate" });
     expect(createRoot).not.toHaveBeenCalled();
+  });
+
+  it("detects the system Music folder once when no local root exists", async () => {
+    const detectDefaultFolder = vi.fn(async () => ({
+      folderPath: "/home/user/Music",
+      tracks: [{ path: "/home/user/Music/focus.flac", title: "focus", artworkPath: null }],
+      truncated: false,
+    }));
+    const controller = createMusicSourcesController(api({ detectDefaultFolder }), () => 10, () => "id", refreshStub());
+    controller.setVault("vault-1");
+
+    await controller.load();
+    await vi.waitFor(() => expect(controller.detectedDefaultFolder?.tracks).toHaveLength(1));
+    await controller.load();
+
+    expect(detectDefaultFolder).toHaveBeenCalledOnce();
+  });
+
+  it("does not detect a default folder when a local root already exists", async () => {
+    const detectDefaultFolder = vi.fn(async () => null);
+    const controller = createMusicSourcesController(api({
+      roots: vi.fn(async () => [{ id: "root-1", name: "OST", createdAt: 1, updatedAt: 1, version: 1 }]),
+      detectDefaultFolder,
+    }), () => 10, () => "id", refreshStub());
+    controller.setVault("vault-1");
+
+    await controller.load();
+
+    expect(detectDefaultFolder).not.toHaveBeenCalled();
+  });
+
+  it("adds the detected Music folder with one confirmed action", async () => {
+    const createRoot = vi.fn(async (request: Parameters<MusicSourcesControllerApi["createRoot"]>[0]) => ({ id: request.collectionId, version: 1 }));
+    const bindRoot = vi.fn(async (_vaultId: string, rootId: string, folderPath: string) => ({ rootId, folderPath, status: "available" as const }));
+    const ids = ["root-1", "collection-1"];
+    const controller = createMusicSourcesController(api({ createRoot, bindRoot }), () => 20, () => ids.shift()!, refreshStub());
+    controller.setVault("vault-1");
+    controller.detectedDefaultFolder = {
+      folderPath: "/home/user/Music",
+      tracks: [{ path: "/home/user/Music/focus.flac", title: "focus", artworkPath: null }],
+      truncated: false,
+    };
+
+    expect(await controller.addDetectedDefaultFolder()).toBe("collection-1");
+    expect(createRoot).toHaveBeenCalledWith(expect.objectContaining({
+      rootId: "root-1",
+      collectionId: "collection-1",
+      name: "Music",
+    }));
+    expect(bindRoot).toHaveBeenCalledWith("vault-1", "root-1", "/home/user/Music");
+    expect(controller.detectedDefaultFolder).toBeNull();
   });
 
   it("distinguishes videos from playlists and saves a resolved video", async () => {

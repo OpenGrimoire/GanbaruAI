@@ -9,6 +9,7 @@
   import type { MusicSourceSummary } from "$lib/music/library-contracts";
   import type { MusicSourcesController } from "$lib/music/music-sources-controller.svelte";
   import MusicBuilderAsyncState from "./MusicBuilderAsyncState.svelte";
+  import MusicDetectedFolderCard from "./MusicDetectedFolderCard.svelte";
 
   let {
     controller,
@@ -19,6 +20,7 @@
     onRelink,
     onRemove,
     onOpenIssues,
+    onDetectedFolderAdded = () => undefined,
   }: {
     controller: MusicSourcesController;
     summaries: MusicSourceSummary[];
@@ -28,6 +30,7 @@
     onRelink: (collectionId: string) => void;
     onRemove: (collectionId: string) => void;
     onOpenIssues: () => void;
+    onDetectedFolderAdded?: () => void;
   } = $props();
 
   const { t, locale } = getLocalization();
@@ -64,12 +67,18 @@
     </div>
   </div>
 
+  {#if controller.detectedDefaultFolder}
+    <div class="mb-3"><MusicDetectedFolderCard {controller} onAdded={onDetectedFolderAdded} /></div>
+  {/if}
+
   {#if controller.busy && controller.collections.length === 0}
     <MusicBuilderAsyncState kind="loading" />
   {:else if controller.error && controller.collections.length === 0}
     <MusicBuilderAsyncState kind="error" title={controller.error} onRetry={() => { void controller.load(); }} />
   {:else if controller.collections.length === 0}
-    <MusicBuilderAsyncState kind="empty" title={t("music.builder.emptySourcesTitle")} description={t("music.builder.emptySourcesDescription")} actionLabel={t("music.builder.addSource")} onAction={onAdd} />
+    {#if !controller.detectedDefaultFolder}
+      <MusicBuilderAsyncState kind="empty" title={t("music.builder.emptySourcesTitle")} description={t("music.builder.emptySourcesDescription")} actionLabel={t("music.builder.addSource")} onAction={onAdd} />
+    {/if}
   {:else}
     {#if totalIssues > 0 || totalNew > 0}
       <button type="button" onclick={onOpenIssues} class="mb-3 flex w-full items-center gap-3 rounded-xl border border-border/65 bg-card/65 p-2.5 text-left hover:border-primary/30 hover:bg-accent/35">

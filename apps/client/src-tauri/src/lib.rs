@@ -806,6 +806,7 @@ pub fn run() {
             music::root_bindings::music_set_local_root_binding,
             music::root_bindings::music_clear_local_root_binding,
             music::music_pick_media_folder,
+            music::music_detect_default_folder,
             music::music_pick_root_binding_folder,
             music::music_pick_media_file,
             music::music_pick_soundscape_file,

@@ -1,4 +1,4 @@
-import { pickMediaFile, pickMediaFolder, type MediaFolderSelection } from "$lib/api/music";
+import { detectDefaultMusicFolder, pickMediaFile, pickMediaFolder, type MediaFolderSelection } from "$lib/api/music";
 import {
   applyMusicRelinkPlan,
   applyMusicItemRepair,
@@ -38,6 +38,7 @@ import {
   type MusicSourceRefreshTarget,
 } from "$lib/music/music-source-refresh";
 import { parseMusicSourceInput, type YouTubePlaylistSource, type YouTubeVideoSource } from "$lib/music/sources";
+import { notifyMusicLibraryChanged } from "$lib/music/music-library-events";
 import {
   resolveMusicYouTubeSource,
   type MusicYouTubeSourcePreview,
@@ -48,6 +49,7 @@ export interface MusicSourcesControllerApi {
   collections(offset: number, limit: number): Promise<MusicSourceCollection[]>;
   bindings(vaultId: string, rootIds: string[]): Promise<LocalRootBinding[]>;
   pickFolder(): Promise<MediaFolderSelection | null>;
+  detectDefaultFolder(): Promise<MediaFolderSelection | null>;
   pickFile(): Promise<string | null>;
   createRoot(request: Parameters<typeof createMusicLocalRoot>[0]): ReturnType<typeof createMusicLocalRoot>;
   bindRoot(vaultId: string, rootId: string, folderPath: string): ReturnType<typeof setLocalRootBinding>;
@@ -72,6 +74,7 @@ const defaultApi: MusicSourcesControllerApi = {
   collections: getMusicSourceCollections,
   bindings: getLocalRootBindings,
   pickFolder: pickMediaFolder,
+  detectDefaultFolder: detectDefaultMusicFolder,
   pickFile: pickMediaFile,
   createRoot: createMusicLocalRoot,
   bindRoot: setLocalRootBinding,
@@ -107,6 +110,9 @@ export class MusicSourcesController {
   relinkEntries = $state<MusicRelinkPlanEntry[]>([]);
   itemRepairPreview = $state<MusicItemRepairPreview | null>(null);
   itemRepairApplied = $state<{ locationId: string; rootId: string } | null>(null);
+  detectedDefaultFolder = $state<MediaFolderSelection | null>(null);
+  detectingDefaultFolder = $state(false);
+  addingDefaultFolder = $state(false);
 
   private readonly api: MusicSourcesControllerApi;
   private readonly now: () => number;
@@ -114,6 +120,8 @@ export class MusicSourcesController {
   private readonly refresh: MusicSourceRefreshController;
   private resolutionController: AbortController | null = null;
   private loadGeneration = 0;
+  private defaultFolderChecked = false;
+  private defaultFolderDismissed = false;
 
   constructor(
     api: MusicSourcesControllerApi = defaultApi,
@@ -162,6 +170,11 @@ export class MusicSourcesController {
     this.bindings = [];
     this.refreshStatuses = {};
     this.error = null;
+    this.detectedDefaultFolder = null;
+    this.detectingDefaultFolder = false;
+    this.addingDefaultFolder = false;
+    this.defaultFolderChecked = false;
+    this.defaultFolderDismissed = false;
   }
 
   async load(): Promise<boolean> {
@@ -180,6 +193,11 @@ export class MusicSourcesController {
       this.roots = roots;
       this.collections = collections;
       this.bindings = bindings;
+      if (roots.length === 0 && !this.defaultFolderChecked && !this.defaultFolderDismissed) {
+        void this.detectSystemMusicFolder();
+      } else if (roots.length > 0) {
+        this.detectedDefaultFolder = null;
+      }
       return true;
     } catch (error) {
       if (generation !== this.loadGeneration || vaultId !== this.vaultId) return false;
@@ -187,6 +205,44 @@ export class MusicSourcesController {
       return false;
     } finally {
       if (generation === this.loadGeneration) this.busy = false;
+    }
+  }
+
+  async detectSystemMusicFolder(): Promise<MediaFolderSelection | null> {
+    if (!this.vaultId || this.defaultFolderChecked || this.defaultFolderDismissed || this.roots.length > 0) return null;
+    const generation = this.loadGeneration;
+    const vaultId = this.vaultId;
+    this.defaultFolderChecked = true;
+    this.detectingDefaultFolder = true;
+    try {
+      const selection = await this.api.detectDefaultFolder();
+      if (generation !== this.loadGeneration || vaultId !== this.vaultId || this.defaultFolderDismissed) return null;
+      this.detectedDefaultFolder = selection;
+      return selection;
+    } catch {
+      if (generation === this.loadGeneration && vaultId === this.vaultId) this.detectedDefaultFolder = null;
+      return null;
+    } finally {
+      if (generation === this.loadGeneration && vaultId === this.vaultId) this.detectingDefaultFolder = false;
+    }
+  }
+
+  dismissDefaultMusicFolder(): void {
+    this.defaultFolderDismissed = true;
+    this.detectedDefaultFolder = null;
+  }
+
+  async addDetectedDefaultFolder(): Promise<string | null> {
+    const selection = this.detectedDefaultFolder;
+    if (!selection || this.addingDefaultFolder) return null;
+    this.addingDefaultFolder = true;
+    this.defaultFolderDismissed = true;
+    try {
+      const collectionId = await this.addLocalFolder(selection, musicFolderDisplayName(selection.folderPath));
+      this.detectedDefaultFolder = null;
+      return collectionId;
+    } finally {
+      this.addingDefaultFolder = false;
     }
   }
 
@@ -219,7 +275,9 @@ export class MusicSourcesController {
     await this.load();
     const target = this.localTarget(collectionId, rootId, trimmedName, selection.folderPath, createdAt);
     const plan = this.refresh.prepare([target]);
-    void this.runRefresh(plan, true);
+    void this.runRefresh(plan, true)
+      .then(notifyMusicLibraryChanged)
+      .catch((error: unknown) => { this.error = error instanceof Error ? error.message : String(error); });
     return collectionId;
   }
 

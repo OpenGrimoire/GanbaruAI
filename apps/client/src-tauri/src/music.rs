@@ -198,6 +198,30 @@ pub async fn music_pick_media_folder(
 }
 
 #[tauri::command]
+pub async fn music_detect_default_folder(
+    app: tauri::AppHandle,
+) -> Result<Option<MediaFolderSelection>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(folder) = music_folder_start_directory(&app) else {
+            return Ok(None);
+        };
+        let generation = MEDIA_FOLDER_SCAN_GENERATION.fetch_add(1, Ordering::AcqRel) + 1;
+        let selection = scan_media_folder_with_cancel(&folder, || {
+            MEDIA_FOLDER_SCAN_GENERATION.load(Ordering::Acquire) != generation
+        })?;
+        Ok(non_empty_media_folder_selection(selection))
+    })
+    .await
+    .map_err(|error| format!("default music folder scan failed: {error}"))?
+}
+
+fn non_empty_media_folder_selection(
+    selection: MediaFolderSelection,
+) -> Option<MediaFolderSelection> {
+    (!selection.tracks.is_empty()).then_some(selection)
+}
+
+#[tauri::command]
 pub async fn music_pick_root_binding_folder(
     app: tauri::AppHandle,
 ) -> Result<Option<String>, String> {
@@ -732,6 +756,27 @@ mod tests {
         assert_eq!(existing_music_start_directory(None), None);
 
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn automatic_music_folder_preview_ignores_empty_folders() {
+        let empty = MediaFolderSelection {
+            folder_path: "/music".to_string(),
+            tracks: Vec::new(),
+            truncated: false,
+        };
+        let populated = MediaFolderSelection {
+            folder_path: "/music".to_string(),
+            tracks: vec![MediaFolderTrack {
+                path: "/music/focus.flac".to_string(),
+                title: "focus".to_string(),
+                artwork_path: None,
+            }],
+            truncated: false,
+        };
+
+        assert!(non_empty_media_folder_selection(empty).is_none());
+        assert!(non_empty_media_folder_selection(populated).is_some());
     }
 
     #[test]

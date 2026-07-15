@@ -35,6 +35,10 @@ export async function pickMediaFolder(): Promise<MediaFolderSelection | null> {
   return invoke("music_pick_media_folder");
 }
 
+export async function detectDefaultMusicFolder(): Promise<MediaFolderSelection | null> {
+  return invoke("music_detect_default_folder");
+}
+
 export async function pickMusicRootBindingFolder(): Promise<string | null> {
   return invoke<string | null>("music_pick_root_binding_folder");
 }
