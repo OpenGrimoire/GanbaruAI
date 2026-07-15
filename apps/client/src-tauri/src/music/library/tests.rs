@@ -112,6 +112,100 @@ fn library_items_require_source_specific_identity() {
 }
 
 #[test]
+fn local_root_creation_is_atomic_and_rejects_duplicate_identity() {
+    tauri::async_runtime::block_on(async {
+        let pool = pool().await;
+        let request = MusicLocalRootCreate {
+            root_id: "root-soundtracks".to_string(),
+            collection_id: "source-soundtracks".to_string(),
+            identity_key: "local-root:root-soundtracks".to_string(),
+            name: "Soundtracks".to_string(),
+            created_at: 1_700_000_000_000,
+        };
+        let receipt = writes::create_local_root(&pool, request.clone())
+            .await
+            .unwrap();
+        assert_eq!(receipt.id, "source-soundtracks");
+        assert_eq!(queries::local_roots(&pool, 0, 10).await.unwrap().len(), 1);
+        assert_eq!(
+            queries::source_collections(&pool, 0, 10)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+
+        let duplicate = MusicLocalRootCreate {
+            root_id: "root-other".to_string(),
+            collection_id: "source-other".to_string(),
+            ..request
+        };
+        assert!(writes::create_local_root(&pool, duplicate).await.is_err());
+        assert_eq!(queries::local_roots(&pool, 0, 10).await.unwrap().len(), 1);
+    });
+}
+
+#[test]
+fn item_location_repair_requires_weak_match_confirmation_and_can_be_undone() {
+    tauri::async_runtime::block_on(async {
+        let pool = pool().await;
+        seed_item(&pool, "repair-item", "local:repair-item").await;
+        let folder = std::env::temp_dir().join(format!(
+            "ganbaru-music-repair-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&folder).unwrap();
+        let file = folder.join("replacement.wav");
+        std::fs::write(&file, b"RIFF\x04\x00\x00\x00WAVE").unwrap();
+
+        let preview = item_repair::preview(&pool, "repair-item", &file.to_string_lossy())
+            .await
+            .unwrap();
+        assert_eq!(preview.match_strength, MusicRepairMatchStrength::Weak);
+        let mut request = MusicItemRepairApply {
+            item_id: "repair-item".to_string(),
+            root_id: "repair-root".to_string(),
+            location_id: "repair-location".to_string(),
+            root_name: "Recovered".to_string(),
+            folder_path: preview.folder_path.clone(),
+            relative_path: preview.relative_path.clone(),
+            expected_strong_fingerprint: preview.strong_fingerprint.clone(),
+            accept_weak_mismatch: false,
+            applied_at: 1_700_000_000_000,
+        };
+        assert!(item_repair::apply(&pool, request.clone()).await.is_err());
+        request.accept_weak_mismatch = true;
+        item_repair::apply(&pool, request).await.unwrap();
+        let available: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM music_local_locations
+             WHERE item_id = 'repair-item' AND availability = 'available'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(available, 1);
+
+        item_repair::undo(&pool, "repair-location", "repair-root")
+            .await
+            .unwrap();
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM music_local_locations WHERE id = 'repair-location'",
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            0
+        );
+        std::fs::remove_dir_all(folder).unwrap();
+    });
+}
+
+#[test]
 fn item_and_location_upserts_preserve_canonical_identity_and_refresh_search() {
     tauri::async_runtime::block_on(async {
         let pool = pool().await;

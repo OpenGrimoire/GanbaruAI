@@ -1,7 +1,7 @@
 use super::*;
 use sqlx::{Sqlite, SqlitePool, Transaction};
 
-fn map_database_error(context: &str, error: sqlx::Error) -> MusicLibraryError {
+pub(super) fn map_database_error(context: &str, error: sqlx::Error) -> MusicLibraryError {
     if error
         .as_database_error()
         .is_some_and(|database| database.is_unique_violation())
@@ -12,7 +12,10 @@ fn map_database_error(context: &str, error: sqlx::Error) -> MusicLibraryError {
     }
 }
 
-async fn commit(transaction: Transaction<'_, Sqlite>, context: &str) -> MusicLibraryResult<()> {
+pub(super) async fn commit(
+    transaction: Transaction<'_, Sqlite>,
+    context: &str,
+) -> MusicLibraryResult<()> {
     transaction
         .commit()
         .await
@@ -766,5 +769,46 @@ pub(crate) async fn upsert_source_collection(
     Ok(MusicWriteReceipt {
         id: request.id,
         version,
+    })
+}
+
+pub(crate) async fn create_local_root(
+    pool: &SqlitePool,
+    request: MusicLocalRootCreate,
+) -> MusicLibraryResult<MusicWriteReceipt> {
+    validate_local_root_create(&request)?;
+    let mut transaction = pool
+        .begin()
+        .await
+        .map_err(|error| MusicLibraryError::database("begin local music root creation", error))?;
+    sqlx::query(
+        "INSERT INTO music_local_roots (id, name, created_at, updated_at)
+         VALUES (?, ?, ?, ?)",
+    )
+    .bind(&request.root_id)
+    .bind(request.name.trim())
+    .bind(request.created_at)
+    .bind(request.created_at)
+    .execute(&mut *transaction)
+    .await
+    .map_err(|error| map_database_error("create local music root", error))?;
+    sqlx::query(
+        "INSERT INTO music_source_collections
+            (id, kind, identity_key, name, local_root_id, created_at, updated_at)
+         VALUES (?, 'local-root', ?, ?, ?, ?, ?)",
+    )
+    .bind(&request.collection_id)
+    .bind(&request.identity_key)
+    .bind(request.name.trim())
+    .bind(&request.root_id)
+    .bind(request.created_at)
+    .bind(request.created_at)
+    .execute(&mut *transaction)
+    .await
+    .map_err(|error| map_database_error("create local music source", error))?;
+    commit(transaction, "commit local music root creation").await?;
+    Ok(MusicWriteReceipt {
+        id: request.collection_id,
+        version: 1,
     })
 }

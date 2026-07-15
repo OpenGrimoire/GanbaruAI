@@ -185,6 +185,34 @@ pub(crate) fn validate_collection_write(
     }
 }
 
+pub(crate) fn validate_local_root_create(root: &MusicLocalRootCreate) -> MusicLibraryResult<()> {
+    validate_id(&root.root_id, "rootId")?;
+    validate_id(&root.collection_id, "collectionId")?;
+    validate_id(&root.identity_key, "identityKey")?;
+    validate_name(&root.name)?;
+    validate_timestamp(root.created_at, "createdAt")
+}
+
+pub(crate) fn validate_item_repair_apply(request: &MusicItemRepairApply) -> MusicLibraryResult<()> {
+    validate_id(&request.item_id, "itemId")?;
+    validate_id(&request.root_id, "rootId")?;
+    validate_id(&request.location_id, "locationId")?;
+    validate_name(&request.root_name)?;
+    validate_id(
+        &request.expected_strong_fingerprint,
+        "expectedStrongFingerprint",
+    )?;
+    validate_relative_path(&request.relative_path)?;
+    validate_timestamp(request.applied_at, "appliedAt")?;
+    if request.folder_path.trim().is_empty() || !Path::new(&request.folder_path).is_absolute() {
+        return Err(MusicLibraryError::validation(
+            "folderPath",
+            "must be an absolute folder path",
+        ));
+    }
+    Ok(())
+}
+
 pub(crate) fn validate_playlist_create(playlist: &MusicPlaylistCreate) -> MusicLibraryResult<()> {
     validate_id(&playlist.id, "id")?;
     validate_name(&playlist.name)?;

@@ -10,6 +10,7 @@ export type MusicYouTubeResolutionState = "resolving" | "ready" | "unavailable" 
 export type MusicSourceHealth = "healthy" | "stale" | "issues" | "disabled";
 export type MusicRelinkPlanState = "planning" | "ready" | "applied" | "cancelled";
 export type MusicRelinkMatchKind = "exact" | "likely" | "ambiguous" | "missing" | "new";
+export type MusicRepairMatchStrength = "exact" | "likely" | "weak";
 export type MusicWeight = "rarely" | "less-often" | "normal" | "more-often" | "much-more-often";
 export type MusicFocusFit = "helpful" | "neutral" | "potentially-distracting" | "unknown";
 export type MusicIntendedUse = "general" | "focus" | "reading" | "relaxation" | "energizing";
@@ -126,6 +127,38 @@ export interface MusicLocalLocationWrite {
   lastSeenGeneration: number | null;
   firstSeenAt: number;
   updatedAt: number;
+}
+export interface MusicLocalRootCreate {
+  rootId: string;
+  collectionId: string;
+  identityKey: string;
+  name: string;
+  createdAt: number;
+}
+export interface MusicItemRepairPreview {
+  itemId: string;
+  folderPath: string;
+  relativePath: string;
+  title: string;
+  artist: string;
+  album: string;
+  durationMs: number | null;
+  fileSizeBytes: number;
+  lightweightFingerprint: string;
+  strongFingerprint: string;
+  matchStrength: MusicRepairMatchStrength;
+  reasons: string[];
+}
+export interface MusicItemRepairApply {
+  itemId: string;
+  rootId: string;
+  locationId: string;
+  rootName: string;
+  folderPath: string;
+  relativePath: string;
+  expectedStrongFingerprint: string;
+  acceptWeakMismatch: boolean;
+  appliedAt: number;
 }
 export interface MusicItemWindowRequest {
   destination: MusicListDestination;
@@ -440,6 +473,7 @@ const youtubeResolutionStates = ["resolving", "ready", "unavailable", "embedding
 const sourceHealthStates = ["healthy", "stale", "issues", "disabled"] as const;
 const relinkPlanStates = ["planning", "ready", "applied", "cancelled"] as const;
 const relinkMatchKinds = ["exact", "likely", "ambiguous", "missing", "new"] as const;
+const repairMatchStrengths = ["exact", "likely", "weak"] as const;
 const weights = ["rarely", "less-often", "normal", "more-often", "much-more-often"] as const;
 const focusFits = ["helpful", "neutral", "potentially-distracting", "unknown"] as const;
 const intendedUses = ["general", "focus", "reading", "relaxation", "energizing"] as const;
@@ -482,6 +516,26 @@ function enumeration<const T extends readonly string[]>(value: unknown, values: 
 
 export function parseWriteReceipt(value: unknown, label = "music write receipt"): MusicWriteReceipt {
   const row = object(value, label); return { id: string(row.id, `${label}.id`), version: number(row.version, `${label}.version`) };
+}
+export function parseMusicCount(value: unknown, label = "music count"): number {
+  return number(value, label);
+}
+export function parseItemRepairPreview(value: unknown): MusicItemRepairPreview {
+  const row = object(value, "music item repair preview");
+  return {
+    itemId: string(row.itemId, "music item repair preview.itemId"),
+    folderPath: string(row.folderPath, "music item repair preview.folderPath"),
+    relativePath: string(row.relativePath, "music item repair preview.relativePath"),
+    title: string(row.title, "music item repair preview.title"),
+    artist: string(row.artist, "music item repair preview.artist"),
+    album: string(row.album, "music item repair preview.album"),
+    durationMs: nullable(row.durationMs, number, "music item repair preview.durationMs"),
+    fileSizeBytes: number(row.fileSizeBytes, "music item repair preview.fileSizeBytes"),
+    lightweightFingerprint: string(row.lightweightFingerprint, "music item repair preview.lightweightFingerprint"),
+    strongFingerprint: string(row.strongFingerprint, "music item repair preview.strongFingerprint"),
+    matchStrength: enumeration(row.matchStrength, repairMatchStrengths, "music item repair preview.matchStrength"),
+    reasons: array(row.reasons, string, "music item repair preview.reasons"),
+  };
 }
 export function parseYouTubeSnapshotResult(value: unknown): MusicYouTubeSnapshotResult {
   const row = object(value, "YouTube playlist snapshot");

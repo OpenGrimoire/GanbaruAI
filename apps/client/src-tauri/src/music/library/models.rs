@@ -95,6 +95,11 @@ string_enum!(MusicRelinkMatchKind {
     Missing => "missing",
     New => "new",
 });
+string_enum!(MusicRepairMatchStrength {
+    Exact => "exact",
+    Likely => "likely",
+    Weak => "weak",
+});
 string_enum!(MusicYouTubeResolutionState {
     Resolving => "resolving",
     Ready => "ready",
@@ -414,6 +419,47 @@ pub struct MusicLocalLocationWrite {
     pub last_seen_generation: Option<i64>,
     pub first_seen_at: i64,
     pub updated_at: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicLocalRootCreate {
+    pub root_id: String,
+    pub collection_id: String,
+    pub identity_key: String,
+    pub name: String,
+    pub created_at: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicItemRepairPreview {
+    pub item_id: String,
+    pub folder_path: String,
+    pub relative_path: String,
+    pub title: String,
+    pub artist: String,
+    pub album: String,
+    pub duration_ms: Option<i64>,
+    pub file_size_bytes: i64,
+    pub lightweight_fingerprint: String,
+    pub strong_fingerprint: String,
+    pub match_strength: MusicRepairMatchStrength,
+    pub reasons: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicItemRepairApply {
+    pub item_id: String,
+    pub root_id: String,
+    pub location_id: String,
+    pub root_name: String,
+    pub folder_path: String,
+    pub relative_path: String,
+    pub expected_strong_fingerprint: String,
+    pub accept_weak_mismatch: bool,
+    pub applied_at: i64,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

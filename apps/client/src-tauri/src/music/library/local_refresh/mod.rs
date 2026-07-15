@@ -3,6 +3,7 @@ mod metadata;
 mod persistence;
 mod traversal;
 
+pub(in crate::music::library) use traversal::strong_fingerprint as strong_fingerprint_for_repair;
 pub(super) use traversal::{
     inspect_media as inspect_for_relink, ArtworkCache as RelinkArtworkCache,
     LocalMediaEvidence as RelinkMediaEvidence,

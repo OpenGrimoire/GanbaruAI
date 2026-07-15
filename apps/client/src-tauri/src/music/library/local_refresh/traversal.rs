@@ -159,7 +159,7 @@ pub(in crate::music::library) fn inspect_media(
     })
 }
 
-pub(super) fn strong_fingerprint(path: &Path) -> Result<String, String> {
+pub(in crate::music::library) fn strong_fingerprint(path: &Path) -> Result<String, String> {
     let mut file = File::open(path).map_err(|error| format!("cannot open media: {error}"))?;
     let mut hasher = Sha256::new();
     let mut buffer = vec![0_u8; 256 * 1024];

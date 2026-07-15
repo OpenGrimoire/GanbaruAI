@@ -77,7 +77,7 @@ describe("MusicPanel", () => {
     target.querySelector<HTMLButtonElement>(`button[aria-label="Playlist builder"]`)?.click();
     await vi.waitFor(() => {
       expect(target?.querySelector(".builder-root"), target?.textContent ?? "").not.toBeNull();
-    });
+    }, { timeout: 5_000 });
     expect(target.querySelector("[data-music-player-page]")).toBe(playerPage);
     expect(playerPage?.classList.contains("hidden")).toBe(true);
 

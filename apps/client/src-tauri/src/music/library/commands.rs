@@ -87,6 +87,18 @@ pub async fn music_library_upsert_youtube_video(
 }
 
 #[tauri::command]
+pub async fn music_library_youtube_duplicate_count(
+    app: tauri::AppHandle,
+    db_url: String,
+    video_ids: Vec<String>,
+) -> MusicLibraryResult<i64> {
+    let pool = connect_sqlite(app, db_url)
+        .await
+        .map_err(connection_error)?;
+    super::youtube::duplicate_video_count(&pool, video_ids).await
+}
+
+#[tauri::command]
 pub async fn music_library_apply_youtube_playlist_snapshot(
     app: tauri::AppHandle,
     db_url: String,
@@ -420,6 +432,56 @@ pub async fn music_library_local_roots(
         .await
         .map_err(connection_error)?;
     super::queries::local_roots(&pool, offset, limit).await
+}
+
+#[tauri::command]
+pub async fn music_library_create_local_root(
+    app: tauri::AppHandle,
+    db_url: String,
+    request: MusicLocalRootCreate,
+) -> MusicLibraryResult<MusicWriteReceipt> {
+    let pool = connect_sqlite(app, db_url)
+        .await
+        .map_err(connection_error)?;
+    super::writes::create_local_root(&pool, request).await
+}
+
+#[tauri::command]
+pub async fn music_library_preview_item_repair(
+    app: tauri::AppHandle,
+    db_url: String,
+    item_id: String,
+    file_path: String,
+) -> MusicLibraryResult<MusicItemRepairPreview> {
+    let pool = connect_sqlite(app, db_url)
+        .await
+        .map_err(connection_error)?;
+    super::item_repair::preview(&pool, &item_id, &file_path).await
+}
+
+#[tauri::command]
+pub async fn music_library_apply_item_repair(
+    app: tauri::AppHandle,
+    db_url: String,
+    request: MusicItemRepairApply,
+) -> MusicLibraryResult<MusicWriteReceipt> {
+    let pool = connect_sqlite(app, db_url)
+        .await
+        .map_err(connection_error)?;
+    super::item_repair::apply(&pool, request).await
+}
+
+#[tauri::command]
+pub async fn music_library_undo_item_repair(
+    app: tauri::AppHandle,
+    db_url: String,
+    location_id: String,
+    root_id: String,
+) -> MusicLibraryResult<()> {
+    let pool = connect_sqlite(app, db_url)
+        .await
+        .map_err(connection_error)?;
+    super::item_repair::undo(&pool, &location_id, &root_id).await
 }
 
 #[tauri::command]

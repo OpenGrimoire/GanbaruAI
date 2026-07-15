@@ -1,6 +1,7 @@
 pub(crate) mod commands;
 mod error;
 pub(crate) mod fixtures;
+mod item_repair;
 pub(crate) mod local_refresh;
 mod models;
 mod queries;

@@ -6,6 +6,8 @@ import {
   parseCollections,
   parseDeleteImpact,
   parseInspectorDetail,
+  parseItemRepairPreview,
+  parseMusicCount,
   parseIssues,
   parseItemWindow,
   parsePlaylist,
@@ -23,12 +25,15 @@ import {
   type MusicBulkMembershipWrite,
   type MusicCollectionWrite,
   type MusicInspectorDetail,
+  type MusicItemRepairApply,
+  type MusicItemRepairPreview,
   type MusicIssue,
   type MusicItemWindow,
   type MusicItemWindowRequest,
   type MusicLibraryItemWrite,
   type MusicLocalRefreshRequest,
   type MusicLocalLocationWrite,
+  type MusicLocalRootCreate,
   type MusicLocalRoot,
   type MusicMembershipRemove,
   type MusicPlaylist,
@@ -130,6 +135,8 @@ export const cancelMusicRefresh = (jobId: string, cancelledAt: number): Promise<
   call("music_library_cancel_refresh", databaseArgs({ jobId, cancelledAt }), parseRefreshJobProgress);
 export const upsertMusicYouTubeVideo = (request: MusicYouTubeVideoWrite): Promise<MusicWriteReceipt> =>
   call("music_library_upsert_youtube_video", databaseArgs({ request }), parseWriteReceipt);
+export const getMusicYouTubeDuplicateCount = (videoIds: string[]): Promise<number> =>
+  call("music_library_youtube_duplicate_count", databaseArgs({ videoIds }), parseMusicCount);
 export const applyMusicYouTubePlaylistSnapshot = (
   request: MusicYouTubePlaylistSnapshotWrite,
 ): Promise<MusicYouTubeSnapshotResult> =>
@@ -197,6 +204,14 @@ export const rebuildMusicSearchIndex = (rebuiltAt: number): Promise<MusicSearchR
   call("music_library_rebuild_search_index", databaseArgs({ rebuiltAt }), parseSearchRebuild);
 export const getMusicLocalRoots = (offset: number, limit: number): Promise<MusicLocalRoot[]> =>
   call("music_library_local_roots", databaseArgs({ offset, limit }), parseRoots);
+export const createMusicLocalRoot = (request: MusicLocalRootCreate): Promise<MusicWriteReceipt> =>
+  call("music_library_create_local_root", databaseArgs({ request }), parseWriteReceipt);
+export const previewMusicItemRepair = (itemId: string, filePath: string): Promise<MusicItemRepairPreview> =>
+  call("music_library_preview_item_repair", databaseArgs({ itemId, filePath }), parseItemRepairPreview);
+export const applyMusicItemRepair = (request: MusicItemRepairApply): Promise<MusicWriteReceipt> =>
+  call("music_library_apply_item_repair", databaseArgs({ request }), parseWriteReceipt);
+export const undoMusicItemRepair = (locationId: string, rootId: string): Promise<void> =>
+  call("music_library_undo_item_repair", databaseArgs({ locationId, rootId }), parseVoid);
 export const getMusicSourceCollections = (offset: number, limit: number): Promise<MusicSourceCollection[]> =>
   call("music_library_source_collections", databaseArgs({ offset, limit }), parseCollections);
 export const getMusicPlaylist = (playlistId: string): Promise<MusicPlaylist> =>

@@ -9,6 +9,32 @@ const MAX_YOUTUBE_TITLE_CHARS: usize = 500;
 const MAX_YOUTUBE_CHANNEL_CHARS: usize = 300;
 const MAX_YOUTUBE_ERROR_CHARS: usize = 200;
 
+pub(crate) async fn duplicate_video_count(
+    pool: &SqlitePool,
+    video_ids: Vec<String>,
+) -> MusicLibraryResult<i64> {
+    if video_ids.len() > MAX_YOUTUBE_PLAYLIST_ITEMS {
+        return Err(MusicLibraryError::validation(
+            "videoIds",
+            format!("cannot contain more than {MAX_YOUTUBE_PLAYLIST_ITEMS} items"),
+        ));
+    }
+    let unique = video_ids.into_iter().collect::<HashSet<_>>();
+    for (index, video_id) in unique.iter().enumerate() {
+        validate_video_id(video_id, &format!("videoIds[{index}]"))?;
+    }
+    let encoded = serde_json::to_string(&unique)
+        .map_err(|error| MusicLibraryError::runtime("encode YouTube ids", error))?;
+    sqlx::query_scalar(
+        "SELECT COUNT(*) FROM music_library_items
+         WHERE youtube_video_id IN (SELECT value FROM json_each(?))",
+    )
+    .bind(encoded)
+    .fetch_one(pool)
+    .await
+    .map_err(|error| MusicLibraryError::database("count known YouTube videos", error))
+}
+
 pub(crate) async fn upsert_video(
     pool: &SqlitePool,
     request: MusicYouTubeVideoWrite,
@@ -539,6 +565,39 @@ mod tests {
             video_ids: video_ids.into_iter().map(str::to_string).collect(),
             resolved_at: 1_700_000_000_000,
         }
+    }
+
+    #[test]
+    fn duplicate_video_count_deduplicates_preview_ids() {
+        tauri::async_runtime::block_on(async {
+            let pool = pool().await;
+            upsert_video(
+                &pool,
+                MusicYouTubeVideoWrite {
+                    video_id: "abcDEF_1234".to_string(),
+                    title: "Known video".to_string(),
+                    channel: String::new(),
+                    duration_ms: None,
+                    resolution_state: MusicYouTubeResolutionState::Ready,
+                    resolved_at: 1_700_000_000_000,
+                },
+            )
+            .await
+            .unwrap();
+            assert_eq!(
+                duplicate_video_count(
+                    &pool,
+                    vec![
+                        "abcDEF_1234".to_string(),
+                        "abcDEF_1234".to_string(),
+                        "xyzABC_5678".to_string(),
+                    ],
+                )
+                .await
+                .unwrap(),
+                1
+            );
+        });
     }
 
     #[test]

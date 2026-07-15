@@ -156,6 +156,24 @@ pub async fn music_pick_media_folder(
     .map_err(|e| format!("media folder picker failed: {e}"))?
 }
 
+#[tauri::command]
+pub async fn music_pick_media_file(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let selected = tauri::async_runtime::spawn_blocking(move || {
+        let mut picker = app
+            .dialog()
+            .file()
+            .set_title("Select replacement media file")
+            .add_filter("Supported media", MEDIA_EXTENSIONS);
+        if let Some(directory) = music_folder_start_directory(&app) {
+            picker = picker.set_directory(directory);
+        }
+        picker.blocking_pick_file().map(dialog_path).transpose()
+    })
+    .await
+    .map_err(|error| format!("media file picker failed: {error}"))??;
+    Ok(selected.map(|path| path.to_string_lossy().into_owned()))
+}
+
 fn music_folder_start_directory(app: &tauri::AppHandle) -> Option<PathBuf> {
     existing_music_start_directory(app.path().audio_dir().ok())
 }

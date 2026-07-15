@@ -12,6 +12,9 @@
     type MusicBuilderHistory,
   } from "$lib/music/music-builder-routing";
   import { createMusicLibraryController, type MusicDestinationState } from "$lib/music/music-library-controller.svelte";
+  import { createMusicSourcesController } from "$lib/music/music-sources-controller.svelte";
+  import type { MusicIssue, MusicSourceCollection } from "$lib/music/library-contracts";
+  import type { MusicSourceRefreshPlan } from "$lib/music/music-source-refresh";
   import { restoreMusicFocus } from "$lib/music/music-focus-recovery";
   import { onActiveVaultIdentityChange, requireActiveVaultIdentity } from "$lib/vault/active-vault";
   import MusicBuilderAsyncState from "./builder/MusicBuilderAsyncState.svelte";
@@ -21,17 +24,29 @@
   import MusicBuilderNavigation from "./builder/MusicBuilderNavigation.svelte";
   import MusicBuilderOverview from "./builder/MusicBuilderOverview.svelte";
   import MusicVirtualItemList from "./builder/MusicVirtualItemList.svelte";
+  import MusicAddSourceDialog from "./builder/MusicAddSourceDialog.svelte";
+  import MusicIssueBrowser from "./builder/MusicIssueBrowser.svelte";
+  import MusicItemRepairDialog from "./builder/MusicItemRepairDialog.svelte";
+  import MusicNetworkRefreshDialog from "./builder/MusicNetworkRefreshDialog.svelte";
+  import MusicRelinkWizard from "./builder/MusicRelinkWizard.svelte";
+  import MusicSourceRemovalDialog from "./builder/MusicSourceRemovalDialog.svelte";
+  import MusicSourcesDashboard from "./builder/MusicSourcesDashboard.svelte";
 
   let { onBack }: { onBack: () => void } = $props();
   const { t } = getLocalization();
   const library = createMusicLibraryController();
   const inspector = createMusicBuilderInspectorController();
+  const sources = createMusicSourcesController();
   let root = $state<HTMLElement | null>(null);
   let width = $state(1000);
   let height = $state(680);
   let navigationOpen = $state(false);
   let history = $state<MusicBuilderHistory>(initialMusicBuilderRoute(1, null, { playlistIds: new Set() }));
   let unsubscribeVault: (() => void) | null = null;
+  let sourceSurface = $state<"add" | "relink" | "remove" | "item-repair" | null>(null);
+  let sourceSurfaceCollection = $state<MusicSourceCollection | null>(null);
+  let repairItemId = $state<string | null>(null);
+  let pendingRefreshPlan = $state<MusicSourceRefreshPlan | null>(null);
   const layout = $derived(projectMusicBuilderLayout({ width, height }));
   const destination = $derived(history.current.destination);
   const selectedItemId = $derived(history.current.inspectorItemId ?? library.currentState.selectedItemId);
@@ -67,11 +82,74 @@
 
   async function loadVault(vaultId: string): Promise<void> {
     library.setVault(vaultId);
-    await library.refresh();
+    sources.setVault(vaultId);
+    await Promise.all([library.refresh(), sources.load()]);
     const remembered = history.current.destination;
     history = initialMusicBuilderRoute(reviewCount, remembered, routeContext);
     library.navigate(history.current.destination);
     await library.refresh();
+  }
+
+  function primaryAction(): void {
+    if (destination.kind === "sources" || destination.kind === "library") sourceSurface = "add";
+  }
+
+  function closeSourceSurface(): void {
+    sources.cancelResolution();
+    if (sourceSurface === "relink" && sources.relinkPlan?.state === "ready") {
+      void sources.cancelRelink();
+    }
+    sourceSurface = null;
+    sourceSurfaceCollection = null;
+    repairItemId = null;
+    sources.clearItemRepair();
+  }
+
+  function requestSourceRefresh(collectionIds?: string[]): void {
+    const plan = sources.prepareRefresh(collectionIds);
+    if (plan.requiresNetworkConfirmation) pendingRefreshPlan = plan;
+    else void runSourceRefresh(plan, false);
+  }
+
+  async function runSourceRefresh(plan: MusicSourceRefreshPlan, allowNetwork: boolean): Promise<void> {
+    pendingRefreshPlan = null;
+    await sources.runRefresh(plan, allowNetwork);
+    await library.refresh();
+  }
+
+  function collectionById(collectionId: string): MusicSourceCollection | null {
+    return sources.collections.find((collection) => collection.id === collectionId) ?? null;
+  }
+
+  async function openRemoval(collectionId: string): Promise<void> {
+    const collection = collectionById(collectionId);
+    if (!collection) return;
+    sourceSurfaceCollection = collection;
+    await sources.inspectRemoval(collectionId);
+    sourceSurface = "remove";
+  }
+
+  function openRelink(collectionId: string): void {
+    const collection = collectionById(collectionId);
+    if (!collection?.localRootId) return;
+    sourceSurfaceCollection = collection;
+    sourceSurface = "relink";
+  }
+
+  function repairIssue(issue: MusicIssue): void {
+    if (issue.rootId) {
+      const collection = sources.collections.find((entry) => entry.localRootId === issue.rootId);
+      if (collection) openRelink(collection.id);
+      return;
+    }
+    if (issue.itemId) { openItemRepair(issue.itemId); return; }
+    if (issue.collectionId) requestSourceRefresh([issue.collectionId]);
+  }
+
+  function openItemRepair(itemId: string): void {
+    repairItemId = itemId;
+    sources.clearItemRepair();
+    sourceSurface = "item-repair";
   }
 
   async function navigate(next: MusicBuilderDestination): Promise<void> {
@@ -114,6 +192,7 @@
 
   function handleWindowKeydown(event: KeyboardEvent): void {
     if (event.key === "Escape") {
+      if (sourceSurface || pendingRefreshPlan) { event.stopPropagation(); closeSourceSurface(); pendingRefreshPlan = null; return; }
       if (navigationOpen) { event.stopPropagation(); navigationOpen = false; return; }
       if (history.current.inspectorItemId) { event.stopPropagation(); void closeInspector(); }
     }
@@ -128,7 +207,7 @@
     catch (error) { library.error = error instanceof Error ? error : new Error(String(error)); }
     unsubscribeVault = onActiveVaultIdentityChange((_previous, next) => {
       if (next) void loadVault(next);
-      else library.setVault(null);
+      else { library.setVault(null); sources.setVault(null); }
     });
   });
 
@@ -150,6 +229,7 @@
     onSearch={(search) => patchFilters({ search })}
     onRefresh={() => { void library.refresh(); }}
     onUndo={() => { void library.undoLast(); }}
+    onPrimary={primaryAction}
     onToggleNavigation={() => navigationOpen = !navigationOpen}
   />
 
@@ -192,20 +272,33 @@
             onScrollTop={(scrollTop) => library.setScrollTop(scrollTop)}
           />
         {/if}
+      {:else if destination.kind === "sources"}
+        <MusicSourcesDashboard
+          controller={sources}
+          summaries={library.sourceSummaries}
+          onAdd={() => sourceSurface = "add"}
+          onRefreshAll={() => requestSourceRefresh()}
+          onRefreshSource={(collectionId) => requestSourceRefresh([collectionId])}
+          onRelink={openRelink}
+          onRemove={(collectionId) => { void openRemoval(collectionId); }}
+          onOpenIssues={() => { void navigate({ kind: "issues" }); }}
+        />
+      {:else if destination.kind === "issues"}
+        <MusicIssueBrowser issues={library.issues} onRepair={repairIssue} onRefresh={() => requestSourceRefresh()} />
       {:else}
         <MusicBuilderOverview {destination} playlists={library.playlistSummaries} sources={library.sourceSummaries} issues={library.issues} onNavigate={(next) => { void navigate(next); }} />
       {/if}
     </main>
 
     {#if layout.mode === "wide"}
-      <MusicBuilderInspector controller={inspector} />
+      <MusicBuilderInspector controller={inspector} onRepair={openItemRepair} />
     {:else if layout.mode === "medium" && history.current.inspectorItemId}
       <div class="absolute inset-0 z-30 bg-background/45 backdrop-blur-[1px]">
         <button type="button" class="absolute inset-0" onclick={() => { void closeInspector(); }} aria-label={t("music.builder.closeInspector")}></button>
-        <div class="relative ml-auto h-full w-[min(23rem,72%)] border-l border-border/70 shadow-2xl" transition:fly={{ x: 36, duration: 160 }}><MusicBuilderInspector controller={inspector} showClose onClose={() => { void closeInspector(); }} /></div>
+        <div class="relative ml-auto h-full w-[min(23rem,72%)] border-l border-border/70 shadow-2xl" transition:fly={{ x: 36, duration: 160 }}><MusicBuilderInspector controller={inspector} showClose onClose={() => { void closeInspector(); }} onRepair={openItemRepair} /></div>
       </div>
     {:else if layout.mode === "narrow" && history.current.inspectorItemId}
-      <div class="absolute inset-0 z-30 bg-background" transition:fly={{ x: 28, duration: 150 }}><MusicBuilderInspector controller={inspector} showClose onClose={() => { void closeInspector(); }} /></div>
+      <div class="absolute inset-0 z-30 bg-background" transition:fly={{ x: 28, duration: 150 }}><MusicBuilderInspector controller={inspector} showClose onClose={() => { void closeInspector(); }} onRepair={openItemRepair} /></div>
     {/if}
 
     {#if layout.mode === "narrow" && navigationOpen}
@@ -213,6 +306,19 @@
         <button type="button" class="absolute inset-0" onclick={() => navigationOpen = false} aria-label={t("music.builder.compactNavigation")}></button>
         <div class="relative h-full w-fit"><MusicBuilderNavigation compact {destination} playlists={library.playlistSummaries} {reviewCount} {issueCount} onNavigate={(next) => { void navigate(next); }} /></div>
       </div>
+    {/if}
+
+    {#if sourceSurface === "add"}
+      <MusicAddSourceDialog controller={sources} onClose={closeSourceSurface} onSaved={() => { closeSourceSurface(); void library.refresh(); }} />
+    {:else if sourceSurface === "relink" && sourceSurfaceCollection}
+      <MusicRelinkWizard controller={sources} collection={sourceSurfaceCollection} onClose={closeSourceSurface} onApplied={() => { sourceSurface = null; sourceSurfaceCollection = null; void library.refresh(); }} />
+    {:else if sourceSurface === "remove" && sourceSurfaceCollection}
+      <MusicSourceRemovalDialog controller={sources} collection={sourceSurfaceCollection} onClose={closeSourceSurface} onRemoved={() => { sourceSurface = null; sourceSurfaceCollection = null; void library.refresh(); }} />
+    {:else if sourceSurface === "item-repair" && repairItemId}
+      <MusicItemRepairDialog controller={sources} itemId={repairItemId} onClose={closeSourceSurface} onRepaired={() => { void library.refresh(); void inspector.select(repairItemId); }} />
+    {/if}
+    {#if pendingRefreshPlan}
+      <MusicNetworkRefreshDialog onlineCount={pendingRefreshPlan.onlineCount} onClose={() => pendingRefreshPlan = null} onLocalOnly={() => { void runSourceRefresh(pendingRefreshPlan!, false); }} onContinue={() => { void runSourceRefresh(pendingRefreshPlan!, true); }} />
     {/if}
   </div>
 </section>

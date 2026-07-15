@@ -17,11 +17,13 @@
     showClose = false,
     onClose = () => undefined,
     onPlay = () => undefined,
+    onRepair = () => undefined,
   }: {
     controller: MusicBuilderInspectorController;
     showClose?: boolean;
     onClose?: () => void;
     onPlay?: (itemId: string) => void;
+    onRepair?: (itemId: string) => void;
   } = $props();
 
   const { t } = getLocalization();
@@ -56,7 +58,7 @@
             <button type="button" onclick={onClose} class="absolute right-2 top-2 z-10 inline-flex h-7 w-7 items-center justify-center rounded-lg bg-background/75 text-muted-foreground backdrop-blur-sm hover:bg-accent hover:text-accent-foreground" aria-label={t("music.builder.closeInspector")}><X size={14} /></button>
           {/if}
           <div class="flex gap-3 pr-7">
-            <div class="grid h-18 w-18 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-primary/15 to-secondary text-muted-foreground shadow-inner"><Disc3 size={28} strokeWidth={1.25} /></div>
+            <div class="grid h-18 w-18 shrink-0 place-items-center rounded-xl bg-linear-to-br from-primary/15 to-secondary text-muted-foreground shadow-inner"><Disc3 size={28} strokeWidth={1.25} /></div>
             <div class="min-w-0 flex-1 self-center">
               <h2 class="line-clamp-2 text-sm font-semibold leading-snug text-foreground">{title}</h2>
               <p class="mt-1 truncate text-xs text-muted-foreground">{artist}</p>
@@ -67,6 +69,9 @@
             <button type="button" onclick={() => onPlay(item.id)} class="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg bg-primary text-xs font-semibold text-primary-foreground hover:bg-primary/90"><Play size={13} fill="currentColor" />{t("music.play")}</button>
             {#if item.sourceKind === "local-file"}
               <button type="button" class="inline-flex h-8 w-9 items-center justify-center rounded-lg bg-secondary text-secondary-foreground hover:bg-accent" aria-label={t("music.showCurrentFileLocation")}><FolderOpen size={14} /></button>
+            {/if}
+            {#if item.sourceKind === "local-file" && item.availability !== "available"}
+              <button type="button" onclick={() => onRepair(item.id)} class="inline-flex h-8 items-center justify-center rounded-lg bg-secondary px-2.5 text-[0.65rem] font-semibold text-secondary-foreground hover:bg-accent">{t("music.builder.repair")}</button>
             {/if}
           </div>
         </div>
