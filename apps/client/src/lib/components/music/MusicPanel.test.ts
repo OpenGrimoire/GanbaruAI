@@ -10,6 +10,19 @@ class ResizeObserverStub {
   disconnect(): void {}
 }
 
+function matchMediaStub(query: string): MediaQueryList {
+  return {
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: () => undefined,
+    removeListener: () => undefined,
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+    dispatchEvent: () => true,
+  };
+}
+
 describe("MusicPanel", () => {
   let target: HTMLDivElement | undefined;
   let component: ReturnType<typeof mount> | undefined;
@@ -65,6 +78,7 @@ describe("MusicPanel", () => {
 
   it("keeps the player DOM mounted while opening and reopening the lazy builder", async () => {
     vi.stubGlobal("ResizeObserver", ResizeObserverStub);
+    vi.stubGlobal("matchMedia", matchMediaStub);
     target = document.createElement("div");
     document.body.append(target);
     const { default: MusicPanel } = await import("./MusicPanel.svelte");
@@ -73,6 +87,10 @@ describe("MusicPanel", () => {
     await tick();
     const playerPage = target.querySelector<HTMLElement>("[data-music-player-page]");
     expect(playerPage).not.toBeNull();
+    expect(target.querySelector("#music-source")).toBeNull();
+    expect(target.querySelector("button[aria-label='Pick folder']")).toBeNull();
+    expect(target.querySelector("button[aria-label='Load source']")).toBeNull();
+    expect(target.querySelector("button[aria-label='Reset']")).toBeNull();
 
     target.querySelector<HTMLButtonElement>("[data-music-playlist-launcher]")?.click();
     await tick();
@@ -84,6 +102,16 @@ describe("MusicPanel", () => {
     }, { timeout: 5_000 });
     expect(target.querySelector("[data-music-player-page]")).toBe(playerPage);
     expect(playerPage?.classList.contains("hidden")).toBe(true);
+
+    target.querySelector<HTMLButtonElement>("button[aria-label='Builder destinations']")?.click();
+    await tick();
+    const navigationItems = target.querySelectorAll<HTMLButtonElement>("[data-builder-nav-item]");
+    const playlistsNavigation = navigationItems.item(1);
+    expect(playlistsNavigation.textContent).toContain("Playlists");
+    playlistsNavigation.click();
+    await vi.waitFor(() => {
+      expect(target?.querySelector("h1")?.textContent).toBe("Playlists");
+    });
 
     target.querySelector<HTMLButtonElement>(`[data-music-focus-key="builder:back-to-player"]`)?.click();
     await tick();

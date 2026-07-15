@@ -16,7 +16,7 @@
     compact = false,
     primaryLabel = null,
     canUndo = false,
-    onBack,
+    onOpenPlayer,
     onSearch,
     onRefresh,
     onPrimary = () => undefined,
@@ -30,7 +30,7 @@
     compact?: boolean;
     primaryLabel?: string | null;
     canUndo?: boolean;
-    onBack: () => void;
+    onOpenPlayer: () => void;
     onSearch: (search: string) => void;
     onRefresh: () => void;
     onPrimary?: () => void;
@@ -81,7 +81,7 @@
   <div class="flex min-h-11 items-center gap-2 px-2.5">
     <button
       type="button"
-      onclick={onBack}
+      onclick={onOpenPlayer}
       class="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-secondary px-2.5 text-xs font-medium text-secondary-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
       aria-label={t("music.backToPlayer")}
       data-music-focus-key="builder:back-to-player"

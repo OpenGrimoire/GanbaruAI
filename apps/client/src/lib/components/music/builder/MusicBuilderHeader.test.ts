@@ -28,7 +28,7 @@ describe("MusicBuilderHeader", () => {
         search: "",
         busy: false,
         resultCount: 12,
-        onBack: vi.fn(),
+        onOpenPlayer: vi.fn(),
         onSearch,
         onRefresh: vi.fn(),
       },
@@ -46,5 +46,28 @@ describe("MusicBuilderHeader", () => {
     await vi.advanceTimersByTimeAsync(180);
     expect(onSearch).toHaveBeenCalledOnce();
     expect(onSearch).toHaveBeenCalledWith("rain");
+  });
+
+  it("opens the media player directly", async () => {
+    target = document.createElement("div");
+    document.body.append(target);
+    const onOpenPlayer = vi.fn();
+    component = mount(MusicBuilderHeader, {
+      target,
+      props: {
+        title: "Playlists",
+        search: "",
+        busy: false,
+        resultCount: null,
+        onOpenPlayer,
+        onSearch: vi.fn(),
+        onRefresh: vi.fn(),
+      },
+    });
+    await tick();
+
+    target.querySelector<HTMLButtonElement>("[data-music-focus-key='builder:back-to-player']")?.click();
+
+    expect(onOpenPlayer).toHaveBeenCalledOnce();
   });
 });

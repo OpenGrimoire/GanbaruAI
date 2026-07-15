@@ -2,15 +2,12 @@
   import { onDestroy, onMount, tick } from "svelte";
   import AlertCircle from "@lucide/svelte/icons/alert-circle";
   import Check from "@lucide/svelte/icons/check";
-  import FolderOpen from "@lucide/svelte/icons/folder-open";
   import Gauge from "@lucide/svelte/icons/gauge";
-  import LinkIcon from "@lucide/svelte/icons/link";
   import ListMusic from "@lucide/svelte/icons/list-music";
   import CalendarClock from "@lucide/svelte/icons/calendar-clock";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import Pause from "@lucide/svelte/icons/pause";
   import Play from "@lucide/svelte/icons/play";
-  import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
   import Shuffle from "@lucide/svelte/icons/shuffle";
   import SkipBack from "@lucide/svelte/icons/skip-back";
   import SkipForward from "@lucide/svelte/icons/skip-forward";
@@ -682,7 +679,7 @@
   {#if PlaylistBuilder}
     <div class:hidden={musicPage !== "playlist-builder"} class="h-full min-h-0" aria-hidden={musicPage !== "playlist-builder"}>
       <PlaylistBuilder
-        onBack={closePlaylistBuilder}
+        onOpenPlayer={closePlaylistBuilder}
         initialAction={playlistBuilderInitialAction}
         onInitialActionHandled={() => { playlistBuilderInitialAction = null; }}
       />
@@ -756,63 +753,12 @@
         {/if}
       {/if}
     </div>
-    <form
-      class="relative z-10 ml-auto flex min-w-0 items-center justify-end gap-2 max-[720px]:flex-1"
-      onsubmit={(event) => { event.preventDefault(); void player.loadFromInput(); }}
-    >
-      <label class="sr-only" for="music-source">{t("music.sourceLabel")}</label>
-      <div class="music-source-field hidden h-7 min-w-0 items-center gap-2 rounded-md bg-card px-2.5 min-[540px]:flex">
-        <LinkIcon class="shrink-0 text-muted-foreground" size={musicIconSize} strokeWidth={musicIconStrokeWidth} />
-        <input
-          id="music-source"
-          bind:value={player.sourceInput}
-          class="min-w-0 flex-1 select-text bg-transparent text-[0.8rem] text-foreground outline-none placeholder:text-muted-foreground"
-          placeholder={t("music.youtubePlaceholder")}
-          autocomplete="off"
-          spellcheck="false"
-        />
+    {#if player.parseError || player.playerError}
+      <div class="relative z-10 ml-auto hidden min-w-0 max-w-56 items-center gap-1.5 text-[0.733333rem] text-destructive min-[720px]:flex" role="alert">
+        <AlertCircle class="shrink-0" size={musicIconSize} strokeWidth={musicIconStrokeWidth} />
+        <span class="truncate">{player.parseError ?? player.playerError}</span>
       </div>
-      {#if player.parseError || player.playerError}
-        <div class="hidden min-w-0 max-w-56 items-center gap-1.5 text-[0.733333rem] text-destructive min-[1000px]:flex">
-          <AlertCircle class="shrink-0" size={musicIconSize} strokeWidth={musicIconStrokeWidth} />
-          <span class="truncate">{player.parseError ?? player.playerError}</span>
-        </div>
-      {/if}
-      <div class="flex shrink-0 items-center gap-2">
-        <button
-          type="button"
-          onclick={() => { void player.loadFolder(); }}
-          disabled={player.sourceActionBusy}
-          class="inline-flex h-7 w-7 items-center justify-center rounded-md bg-secondary text-secondary-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
-          aria-label={t("music.pickFolder")}
-          title={t("music.pickFolder")}
-        >
-          <FolderOpen size={musicIconSize} strokeWidth={musicIconStrokeWidth} />
-        </button>
-        <button
-          type="submit"
-          disabled={player.sourceActionBusy}
-          class="inline-flex h-7 w-7 items-center justify-center rounded-md bg-secondary text-secondary-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
-          aria-label={player.sourceActionBusy ? t("music.loadingSource") : t("music.loadSource")}
-          title={player.sourceActionBusy ? t("music.loadingSource") : t("music.loadSource")}
-        >
-          {#if player.sourceActionBusy}
-            <LoaderCircle class="animate-spin" size={musicIconSize} strokeWidth={musicIconStrokeWidth} />
-          {:else}
-            <Play size={musicIconSize} strokeWidth={musicIconStrokeWidth} />
-          {/if}
-        </button>
-        <button
-          type="button"
-          onclick={() => { void player.resetPlayer(); }}
-          class="inline-flex h-7 w-7 items-center justify-center rounded-md bg-secondary text-secondary-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-          aria-label={t("music.reset")}
-          data-app-tooltip-disabled="true"
-        >
-          <RotateCcw size={musicIconSize} strokeWidth={musicIconStrokeWidth} />
-        </button>
-      </div>
-    </form>
+    {/if}
   </div>
 
   {#if savedQueueUnavailable || savedQueueOfflineSubset}

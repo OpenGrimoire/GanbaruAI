@@ -61,11 +61,11 @@
   import type { MusicBuilderInitialAction } from "$lib/music/music-builder-loader";
 
   let {
-    onBack,
+    onOpenPlayer,
     initialAction = null,
     onInitialActionHandled = () => undefined,
   }: {
-    onBack: () => void;
+    onOpenPlayer: () => void;
     initialAction?: MusicBuilderInitialAction | null;
     onInitialActionHandled?: () => void;
   } = $props();
@@ -279,7 +279,7 @@
   async function handleBack(): Promise<void> {
     if (history.current.inspectorItemId) { await closeInspector(); return; }
     const previous = backMusicBuilderRoute(history, routeContext);
-    if (!previous) { requestReviewExit(onBack); return; }
+    if (!previous) { requestReviewExit(onOpenPlayer); return; }
     if (destination.kind === "review" && previous.current.destination.kind !== "review") {
       requestReviewExit(() => {
         history = previous;
@@ -446,7 +446,7 @@
     compact={layout.mode === "narrow"}
     primaryLabel={primaryLabel()}
     canUndo={library.undoCount > 0}
-    onBack={() => { void handleBack(); }}
+    {onOpenPlayer}
     onSearch={(search) => patchFilters({ search })}
     onRefresh={() => { void library.refresh(); }}
     onUndo={() => { void library.undoLast(); }}
