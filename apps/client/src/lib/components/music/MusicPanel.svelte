@@ -21,6 +21,10 @@
   import { revealLocalFile } from "$lib/api/music";
   import { SPEED_PRESETS, clampRate, formatPlaybackTime, isSpeedPreset } from "$lib/music/playback";
   import { fittedSidePlaylistPanelHeight } from "$lib/music/panel-layout";
+  import {
+    MUSIC_PLAYLIST_ROW_HEIGHT_PX,
+    musicPlaylistWindow,
+  } from "$lib/music/playlist-window";
   import { getMusicPlayer } from "$lib/stores/music-player.svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { cn } from "$lib/utils";
@@ -55,7 +59,8 @@
   let playlistAutoScrollActive = false;
   let lastPlaylistAutoScrollIndex = -1;
   let lastPlaylistAutoScrollIdentity: string | null = null;
-  let playlistScrollRequestId = 0;
+  let playlistScrollTop = $state(0);
+  let playlistViewportHeight = $state(0);
   let mediaTitleMeasuredCenterPx = $state<number | null>(null);
   let panel = $state<HTMLElement | null>(null);
   let fittedPanelHeightPx = $state<number | null>(null);
@@ -83,6 +88,14 @@
   const musicIconStrokeWidth = 1.5;
   const panelMaximumHeight = $derived(
     playlistVisible && fittedPanelHeightPx !== null ? `${fittedPanelHeightPx}px` : "680px",
+  );
+  const renderedPlaylistWindow = $derived(musicPlaylistWindow(
+    player.queue.length,
+    playlistScrollTop,
+    playlistViewportHeight,
+  ));
+  const renderedPlaylistItems = $derived(
+    player.queue.slice(renderedPlaylistWindow.startIndex, renderedPlaylistWindow.endIndex),
   );
 
   $effect(() => {
@@ -541,21 +554,39 @@
   }
 
   function scrollPlaylistItemIntoView(index: number, block: "center" | "nearest"): void {
-    const requestId = ++playlistScrollRequestId;
-    void tick().then(() => {
-      if (requestId !== playlistScrollRequestId) return;
-      if (!playlistVisible || !playlistScrollContainer) return;
-      const item = playlistScrollContainer.querySelector<HTMLElement>(`[data-playlist-index="${index}"]`);
-      if (!item) return;
-      if (block === "nearest" && playlistItemFullyVisible(item, playlistScrollContainer)) return;
-      item.scrollIntoView({ block, inline: "nearest", behavior: "auto" });
-    });
+    const container = playlistScrollContainer;
+    if (!playlistVisible || !container || index < 0 || index >= player.queue.length) return;
+    const itemTop = index * MUSIC_PLAYLIST_ROW_HEIGHT_PX;
+    const itemBottom = itemTop + MUSIC_PLAYLIST_ROW_HEIGHT_PX;
+    const viewportTop = container.scrollTop;
+    const viewportBottom = viewportTop + container.clientHeight;
+    let nextScrollTop = viewportTop;
+    if (block === "center") {
+      nextScrollTop = itemTop - (container.clientHeight - MUSIC_PLAYLIST_ROW_HEIGHT_PX) / 2;
+    } else if (itemTop < viewportTop) {
+      nextScrollTop = itemTop;
+    } else if (itemBottom > viewportBottom) {
+      nextScrollTop = itemBottom - container.clientHeight;
+    }
+    container.scrollTop = Math.max(0, nextScrollTop);
+    playlistScrollTop = container.scrollTop;
   }
 
-  function playlistItemFullyVisible(item: HTMLElement, container: HTMLElement): boolean {
-    const itemRect = item.getBoundingClientRect();
-    const containerRect = container.getBoundingClientRect();
-    return itemRect.top >= containerRect.top && itemRect.bottom <= containerRect.bottom;
+  function playlistViewportAction(node: HTMLElement): { destroy: () => void } {
+    const updateViewport = () => {
+      playlistScrollTop = node.scrollTop;
+      playlistViewportHeight = node.clientHeight;
+    };
+    const observer = new ResizeObserver(updateViewport);
+    observer.observe(node);
+    node.addEventListener("scroll", updateViewport, { passive: true });
+    updateViewport();
+    return {
+      destroy: () => {
+        observer.disconnect();
+        node.removeEventListener("scroll", updateViewport);
+      },
+    };
   }
 
   function handleMediaSurfaceKeydown(event: KeyboardEvent): void {
@@ -766,6 +797,7 @@
           <div class="relative min-h-0 flex-1">
             <div
               bind:this={playlistScrollContainer}
+              use:playlistViewportAction
               class="hide-scrollbar h-full min-h-0 overflow-y-auto overflow-x-hidden px-3 pb-3 pt-0"
               data-music-scrollable="true"
             >
@@ -775,19 +807,24 @@
                 </div>
               {:else}
                 <div class="flex flex-col">
-                  {#each player.queue as item, index}
+                  <div class="shrink-0" aria-hidden="true" style={`height: ${renderedPlaylistWindow.topSpacerHeight}px;`}></div>
+                  {#each renderedPlaylistItems as item, offset}
+                    {@const index = renderedPlaylistWindow.startIndex + offset}
                     <button
                       type="button"
                       data-playlist-index={index}
                       onclick={() => { void player.playQueueItem(index); }}
                       class={cn(
-                        "flex w-full min-w-0 items-center px-2 py-2 text-left text-[0.8rem] first:rounded-t-md last:rounded-b-md",
+                        "flex h-9 w-full min-w-0 shrink-0 items-center px-2 text-left text-[0.8rem]",
+                        index === 0 && "rounded-t-md",
+                        index === player.queue.length - 1 && "rounded-b-md",
                         player.highlightedQueueIndex === index && "bg-accent text-accent-foreground",
                       )}
                     >
                       <span class="min-w-0 truncate">{item.title}</span>
                     </button>
                   {/each}
+                  <div class="shrink-0" aria-hidden="true" style={`height: ${renderedPlaylistWindow.bottomSpacerHeight}px;`}></div>
                 </div>
               {/if}
             </div>
