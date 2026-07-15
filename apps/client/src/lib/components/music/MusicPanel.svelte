@@ -20,6 +20,7 @@
   import MusicPlaylistBuilderPage from "$lib/components/music/MusicPlaylistBuilderPage.svelte";
   import { revealLocalFile } from "$lib/api/music";
   import { SPEED_PRESETS, clampRate, formatPlaybackTime, isSpeedPreset } from "$lib/music/playback";
+  import { fittedSidePlaylistPanelHeight } from "$lib/music/panel-layout";
   import { getMusicPlayer } from "$lib/stores/music-player.svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { cn } from "$lib/utils";
@@ -34,6 +35,9 @@
 
   let musicHeader = $state<HTMLElement | null>(null);
   let mediaSurface = $state<HTMLElement | null>(null);
+  let mediaCell = $state<HTMLElement | null>(null);
+  let playlistPanel = $state<HTMLElement | null>(null);
+  let playbackControls = $state<HTMLElement | null>(null);
   let playlistScrollContainer = $state<HTMLElement | undefined>();
   let speedMenuRoot = $state<HTMLElement | null>(null);
   let volumeMenuRoot = $state<HTMLElement | null>(null);
@@ -41,7 +45,7 @@
   let volumeMenuOpen = $state(false);
   let customSpeedOpen = $state(false);
   let customRateDraft = $state("1");
-  let playlistVisible = $state(false);
+  const playlistVisible = $derived(player.playlistVisible);
   let musicPage = $state<MusicPage>("player");
   let mediaSurfaceFullscreen = $state(false);
   let volumeFeedbackVisible = $state(false);
@@ -54,6 +58,7 @@
   let playlistScrollRequestId = 0;
   let mediaTitleMeasuredCenterPx = $state<number | null>(null);
   let panel = $state<HTMLElement | null>(null);
+  let fittedPanelHeightPx = $state<number | null>(null);
 
   const mediaSurfaceFullscreenEvent = "ganbaru-ai-music-media-surface-fullscreen";
   const volumeMax = $derived(player.volumeMax);
@@ -76,6 +81,9 @@
   const speedShortcutStep = 0.25;
   const musicIconSize = 14;
   const musicIconStrokeWidth = 1.5;
+  const panelMaximumHeight = $derived(
+    playlistVisible && fittedPanelHeightPx !== null ? `${fittedPanelHeightPx}px` : "680px",
+  );
 
   $effect(() => {
     player.setSurfaceElement(mediaSurface);
@@ -134,6 +142,51 @@
       if (animationFrameId !== null) {
         window.cancelAnimationFrame(animationFrameId);
       }
+    };
+  });
+
+  $effect(() => {
+    const visible = playlistVisible;
+    const header = musicHeader;
+    const media = mediaCell;
+    const playlist = playlistPanel;
+    const controls = playbackControls;
+    if (!visible || !header || !media || !playlist || !controls) {
+      fittedPanelHeightPx = null;
+      return;
+    }
+
+    let animationFrameId: number | null = null;
+    const updateHeight = () => {
+      const mediaRect = media.getBoundingClientRect();
+      const playlistRect = playlist.getBoundingClientRect();
+      fittedPanelHeightPx = fittedSidePlaylistPanelHeight({
+        mediaWidth: mediaRect.width,
+        headerHeight: header.getBoundingClientRect().height,
+        controlsHeight: controls.getBoundingClientRect().height,
+        sideBySide: Math.abs(mediaRect.top - playlistRect.top) < 1
+          && playlistRect.left >= mediaRect.right - 1,
+      });
+    };
+    const requestHeightUpdate = () => {
+      if (animationFrameId !== null) window.cancelAnimationFrame(animationFrameId);
+      animationFrameId = window.requestAnimationFrame(() => {
+        animationFrameId = null;
+        updateHeight();
+      });
+    };
+
+    updateHeight();
+    const observer = new ResizeObserver(requestHeightUpdate);
+    observer.observe(header);
+    observer.observe(media);
+    observer.observe(playlist);
+    observer.observe(controls);
+    window.addEventListener("resize", requestHeightUpdate);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", requestHeightUpdate);
+      if (animationFrameId !== null) window.cancelAnimationFrame(animationFrameId);
     };
   });
 
@@ -203,7 +256,7 @@
   });
 
   function togglePlaylist(): void {
-    playlistVisible = !playlistVisible;
+    player.setPlaylistVisible(!playlistVisible);
   }
 
   function openPlaylistBuilder(): void {
@@ -526,8 +579,8 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="fixed inset-0 z-40" onclick={(event) => { if (event.target === event.currentTarget) onclose(); }}></div>
 <div
-  class="pointer-events-none fixed right-2 z-50 w-[min(1000px,calc(100vw-1rem))] overflow-hidden rounded-xl border border-border shadow-lg"
-  style="top: calc(var(--titlebar-h) + 4px); height: min(680px, calc(100dvh - var(--titlebar-h) - 12px));"
+  class="pointer-events-none fixed right-2 z-50 w-[min(1000px,calc(100vw-1rem))] overflow-hidden rounded-xl shadow-lg"
+  style={`top: calc(var(--titlebar-h) + 4px); height: min(${panelMaximumHeight}, calc(100dvh - var(--titlebar-h) - 12px));`}
   aria-hidden="true"
 >
   <div class="h-full w-full" style="background-color: var(--cal-bg);"></div>
@@ -535,7 +588,7 @@
 <div
   bind:this={panel}
   class="fixed right-2 z-70 flex w-[min(1000px,calc(100vw-1rem))] flex-col overflow-hidden rounded-xl outline-none"
-  style="top: calc(var(--titlebar-h) + 4px); height: min(680px, calc(100dvh - var(--titlebar-h) - 12px));"
+  style={`top: calc(var(--titlebar-h) + 4px); height: min(${panelMaximumHeight}, calc(100dvh - var(--titlebar-h) - 12px));`}
   role="dialog"
   aria-modal="true"
   aria-label={t("music.title")}
@@ -650,7 +703,7 @@
         : "grid-cols-1 grid-rows-[minmax(0,1fr)_auto]",
     )}
   >
-    <div class="music-media-cell flex min-h-0 items-center justify-center overflow-hidden">
+    <div bind:this={mediaCell} class="music-media-cell flex min-h-0 items-center justify-center overflow-hidden">
       <div
         bind:this={mediaSurface}
         class="music-media-surface relative cursor-default overflow-hidden"
@@ -692,7 +745,7 @@
     </div>
 
     {#if playlistVisible}
-      <aside id="music-playlist" class="min-h-0" style="background-color: var(--cal-bg);">
+      <aside bind:this={playlistPanel} id="music-playlist" class="min-h-0" style="background-color: var(--cal-bg);">
         <div class="flex h-full min-h-0 flex-col">
           <div class="flex items-center justify-between gap-2 px-4 py-3">
             <div class="flex items-center gap-2 text-[0.8rem] font-medium text-muted-foreground">
@@ -745,6 +798,7 @@
     {/if}
 
     <div
+      bind:this={playbackControls}
       class={cn("px-2 py-2", playlistVisible && "col-span-2 max-[860px]:col-span-1")}
       style="background-color: var(--cal-bg);"
     >

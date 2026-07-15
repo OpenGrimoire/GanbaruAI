@@ -60,6 +60,7 @@ class MusicPlayerStore {
   shuffleEnabled = $state(initialPlayerSettings.shuffleEnabled);
   shuffleExplicit = $state(initialPlayerSettings.shuffleExplicit);
   muted = $state(initialPlayerSettings.muted);
+  playlistVisible = $state(initialPlayerSettings.playlistVisible);
   shuffleOrder = $state<number[]>([]);
   queueHistory = $state<number[]>([]);
   pendingQueueIndex = $state<number | null>(null);
@@ -510,6 +511,12 @@ class MusicPlayerStore {
     this.queueController.toggleShuffle();
   }
 
+  setPlaylistVisible(visible: boolean): void {
+    if (this.playlistVisible === visible) return;
+    this.playlistVisible = visible;
+    this.persistPlayerSettings();
+  }
+
   async playQueueItem(index: number): Promise<void> {
     await this.queueController.playItem(index);
   }
@@ -651,6 +658,7 @@ class MusicPlayerStore {
       shuffleEnabled: this.shuffleEnabled,
       shuffleExplicit: this.shuffleExplicit,
       muted: this.muted,
+      playlistVisible: this.playlistVisible,
     });
   }
 
