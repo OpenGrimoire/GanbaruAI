@@ -85,7 +85,7 @@
   );
   const speedShortcutStep = 0.25;
   const musicIconSize = 14;
-  const musicIconStrokeWidth = 1.5;
+  const musicIconStrokeWidth = 1.4;
   const panelMaximumHeight = $derived(
     playlistVisible && fittedPanelHeightPx !== null ? `${fittedPanelHeightPx}px` : "680px",
   );

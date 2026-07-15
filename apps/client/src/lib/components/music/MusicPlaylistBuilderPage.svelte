@@ -6,7 +6,7 @@
 
   const { t } = getLocalization();
   const musicIconSize = 14;
-  const musicIconStrokeWidth = 1.5;
+  const musicIconStrokeWidth = 1.4;
 </script>
 
 <section
