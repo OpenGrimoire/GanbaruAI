@@ -13,6 +13,7 @@ use crate::db_path::connect_sqlite;
 
 mod artwork;
 pub(crate) mod host;
+pub(crate) mod library;
 pub(crate) mod root_bindings;
 mod youtube_host;
 

@@ -1,0 +1,554 @@
+use serde::{Deserialize, Serialize};
+
+macro_rules! string_enum {
+    ($name:ident { $($variant:ident => $value:literal),+ $(,)? }) => {
+        #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+        pub enum $name {
+            $(#[serde(rename = $value)] $variant),+
+        }
+
+        impl AsRef<str> for $name {
+            fn as_ref(&self) -> &str {
+                match self {
+                    $(Self::$variant => $value),+
+                }
+            }
+        }
+
+        impl TryFrom<&str> for $name {
+            type Error = String;
+
+            fn try_from(value: &str) -> Result<Self, Self::Error> {
+                match value {
+                    $($value => Ok(Self::$variant),)+
+                    _ => Err(format!("unknown {} '{value}'", stringify!($name))),
+                }
+            }
+        }
+    };
+}
+
+string_enum!(MusicLibrarySourceKind {
+    LocalFile => "local-file",
+    YouTubeVideo => "youtube-video",
+});
+string_enum!(MusicMediaKind {
+    Audio => "audio",
+    Video => "video",
+    Unknown => "unknown",
+});
+string_enum!(MusicReviewState {
+    Unreviewed => "unreviewed",
+    Reviewed => "reviewed",
+    Deferred => "deferred",
+    Ignored => "ignored",
+});
+string_enum!(MusicItemAvailability {
+    Available => "available",
+    Missing => "missing",
+    Unavailable => "unavailable",
+    Ambiguous => "ambiguous",
+    Unknown => "unknown",
+});
+string_enum!(MusicLocationAvailability {
+    Available => "available",
+    Missing => "missing",
+    Ambiguous => "ambiguous",
+    Unsupported => "unsupported",
+    Unknown => "unknown",
+});
+string_enum!(MusicCollectionKind {
+    LocalRoot => "local-root",
+    YouTubePlaylist => "youtube-playlist",
+});
+string_enum!(MusicRefreshState {
+    Idle => "idle",
+    Queued => "queued",
+    Running => "running",
+    Partial => "partial",
+    Failed => "failed",
+});
+string_enum!(MusicWeight {
+    Rarely => "rarely",
+    LessOften => "less-often",
+    Normal => "normal",
+    MoreOften => "more-often",
+    MuchMoreOften => "much-more-often",
+});
+string_enum!(MusicFocusFit {
+    Helpful => "helpful",
+    Neutral => "neutral",
+    PotentiallyDistracting => "potentially-distracting",
+    Unknown => "unknown",
+});
+string_enum!(MusicIntendedUse {
+    General => "general",
+    Focus => "focus",
+    Reading => "reading",
+    Relaxation => "relaxation",
+    Energizing => "energizing",
+});
+string_enum!(MusicItemSignal {
+    Lyrics => "lyrics",
+    SuddenChanges => "sudden-changes",
+    HighIntensity => "high-intensity",
+    Calm => "calm",
+    Repetitive => "repetitive",
+    Energizing => "energizing",
+});
+string_enum!(MusicSnoozeScope {
+    Playlist => "playlist",
+    AllPlaylists => "all-playlists",
+});
+string_enum!(MusicRepeatMode {
+    Off => "off",
+    All => "all",
+    One => "one",
+});
+string_enum!(MusicListDestination {
+    Review => "review",
+    Library => "library",
+    Playlist => "playlist",
+});
+string_enum!(MusicItemSort {
+    Title => "title",
+    Artist => "artist",
+    Album => "album",
+    DiscoveredAt => "discovered-at",
+    LastPlayedAt => "last-played-at",
+    PlayCount => "play-count",
+    ManualPosition => "manual-position",
+});
+string_enum!(MusicSortDirection {
+    Ascending => "ascending",
+    Descending => "descending",
+});
+string_enum!(MusicGroupBy {
+    None => "none",
+    SourceKind => "source-kind",
+    ReviewState => "review-state",
+    Availability => "availability",
+    Album => "album",
+});
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicLibraryItem {
+    pub id: String,
+    pub identity_key: String,
+    pub source_kind: MusicLibrarySourceKind,
+    pub media_kind: MusicMediaKind,
+    pub youtube_video_id: Option<String>,
+    pub original_title: String,
+    pub original_artist: String,
+    pub original_album: String,
+    pub title_override: Option<String>,
+    pub artist_override: Option<String>,
+    pub album_override: Option<String>,
+    pub artwork_override: Option<String>,
+    pub duration_ms: Option<i64>,
+    pub availability: MusicItemAvailability,
+    pub review_state: MusicReviewState,
+    pub review_changed_at: Option<i64>,
+    pub discovered_at: i64,
+    pub updated_at: i64,
+    pub version: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicLocalRoot {
+    pub id: String,
+    pub name: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub version: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicLocalLocation {
+    pub id: String,
+    pub item_id: String,
+    pub root_id: String,
+    pub relative_path: String,
+    pub file_size_bytes: Option<i64>,
+    pub modified_at_ms: Option<i64>,
+    pub lightweight_fingerprint: Option<String>,
+    pub strong_fingerprint: Option<String>,
+    pub availability: MusicLocationAvailability,
+    pub last_seen_generation: Option<i64>,
+    pub first_seen_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicSourceCollection {
+    pub id: String,
+    pub kind: MusicCollectionKind,
+    pub identity_key: String,
+    pub name: String,
+    pub local_root_id: Option<String>,
+    pub youtube_playlist_id: Option<String>,
+    pub refresh_state: MusicRefreshState,
+    pub last_successful_refresh_at: Option<i64>,
+    pub last_refresh_error_code: Option<String>,
+    pub snapshot_generation: i64,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub version: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicPlaylist {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub shuffle_enabled: bool,
+    pub repeat_mode: MusicRepeatMode,
+    pub intended_uses: Vec<MusicIntendedUse>,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub version: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicPlaylistMembership {
+    pub id: String,
+    pub playlist_id: String,
+    pub item_id: String,
+    pub position: i64,
+    pub weight: MusicWeight,
+    pub enabled: bool,
+    pub focus_fit: MusicFocusFit,
+    pub start_ms: Option<i64>,
+    pub end_ms: Option<i64>,
+    pub volume: Option<f64>,
+    pub rate: Option<f64>,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub version: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicSnooze {
+    pub id: String,
+    pub item_id: String,
+    pub scope: MusicSnoozeScope,
+    pub playlist_id: Option<String>,
+    pub starts_at: i64,
+    pub ends_at: Option<i64>,
+    pub reason: String,
+    pub created_at: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicListeningStatistics {
+    pub item_id: String,
+    pub last_played_at: Option<i64>,
+    pub play_count: i64,
+    pub completion_count: i64,
+    pub skip_count: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicLibraryItemWrite {
+    pub id: String,
+    pub identity_key: String,
+    pub source_kind: MusicLibrarySourceKind,
+    pub media_kind: MusicMediaKind,
+    pub youtube_video_id: Option<String>,
+    pub original_title: String,
+    pub original_artist: String,
+    pub original_album: String,
+    pub duration_ms: Option<i64>,
+    pub availability: MusicItemAvailability,
+    pub discovered_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicLocalLocationWrite {
+    pub id: String,
+    pub item_id: String,
+    pub root_id: String,
+    pub relative_path: String,
+    pub file_size_bytes: Option<i64>,
+    pub modified_at_ms: Option<i64>,
+    pub lightweight_fingerprint: Option<String>,
+    pub strong_fingerprint: Option<String>,
+    pub availability: MusicLocationAvailability,
+    pub last_seen_generation: Option<i64>,
+    pub first_seen_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicCollectionWrite {
+    pub id: String,
+    pub kind: MusicCollectionKind,
+    pub identity_key: String,
+    pub name: String,
+    pub local_root_id: Option<String>,
+    pub youtube_playlist_id: Option<String>,
+    pub updated_at: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicPlaylistCreate {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub shuffle_enabled: bool,
+    pub repeat_mode: MusicRepeatMode,
+    pub intended_uses: Vec<MusicIntendedUse>,
+    pub created_at: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicPlaylistUpdate {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub shuffle_enabled: bool,
+    pub repeat_mode: MusicRepeatMode,
+    pub intended_uses: Vec<MusicIntendedUse>,
+    pub expected_version: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicMembershipWrite {
+    pub id: String,
+    pub playlist_id: String,
+    pub item_id: String,
+    pub position: i64,
+    pub weight: MusicWeight,
+    pub enabled: bool,
+    pub focus_fit: MusicFocusFit,
+    pub start_ms: Option<i64>,
+    pub end_ms: Option<i64>,
+    pub volume: Option<f64>,
+    pub rate: Option<f64>,
+    pub expected_version: Option<i64>,
+    pub updated_at: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicBulkMembershipWrite {
+    pub memberships: Vec<MusicMembershipWrite>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicSnoozeWrite {
+    pub id: String,
+    pub item_id: String,
+    pub scope: MusicSnoozeScope,
+    pub playlist_id: Option<String>,
+    pub starts_at: i64,
+    pub ends_at: Option<i64>,
+    pub reason: String,
+    pub created_at: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicWriteReceipt {
+    pub id: String,
+    pub version: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicPlaylistDuplicate {
+    pub source_playlist_id: String,
+    pub new_playlist_id: String,
+    pub name: String,
+    pub created_at: i64,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicPlaylistDeleteImpact {
+    pub membership_count: i64,
+    pub project_focus_assignment_count: i64,
+    pub project_break_assignment_count: i64,
+    pub calendar_assignment_count: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicPlaylistDelete {
+    pub playlist_id: String,
+    pub expected_version: i64,
+    pub expected_impact: MusicPlaylistDeleteImpact,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicReviewWrite {
+    pub item_id: String,
+    pub review_state: MusicReviewState,
+    pub expected_version: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicMembershipRemove {
+    pub membership_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicSnoozeRemove {
+    pub snooze_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicStatisticsReset {
+    pub item_ids: Vec<String>,
+    pub reset_recent_selections: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicItemWindowRequest {
+    pub destination: MusicListDestination,
+    pub playlist_id: Option<String>,
+    pub search: String,
+    pub source_kind: Option<MusicLibrarySourceKind>,
+    pub availability: Option<MusicItemAvailability>,
+    pub review_state: Option<MusicReviewState>,
+    pub source_collection_id: Option<String>,
+    pub snoozed: Option<bool>,
+    pub sort: MusicItemSort,
+    pub direction: MusicSortDirection,
+    pub group_by: MusicGroupBy,
+    pub now_ms: i64,
+    pub offset: i64,
+    pub limit: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicItemListEntry {
+    pub id: String,
+    pub identity_key: String,
+    pub source_kind: MusicLibrarySourceKind,
+    pub media_kind: MusicMediaKind,
+    pub title: String,
+    pub artist: String,
+    pub album: String,
+    pub duration_ms: Option<i64>,
+    pub availability: MusicItemAvailability,
+    pub review_state: MusicReviewState,
+    pub discovered_at: i64,
+    pub updated_at: i64,
+    pub version: i64,
+    pub playlist_count: i64,
+    pub active_snooze_count: i64,
+    pub last_played_at: Option<i64>,
+    pub play_count: i64,
+    pub membership_id: Option<String>,
+    pub membership_position: Option<i64>,
+    pub membership_weight: Option<MusicWeight>,
+    pub membership_enabled: Option<bool>,
+    pub membership_version: Option<i64>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicGroupCount {
+    pub key: String,
+    pub count: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicItemWindow {
+    pub items: Vec<MusicItemListEntry>,
+    pub groups: Vec<MusicGroupCount>,
+    pub total_count: i64,
+    pub offset: i64,
+    pub limit: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicPlaylistSummary {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub shuffle_enabled: bool,
+    pub repeat_mode: MusicRepeatMode,
+    pub total_count: i64,
+    pub eligible_count: i64,
+    pub unavailable_count: i64,
+    pub snoozed_count: i64,
+    pub local_count: i64,
+    pub online_count: i64,
+    pub version: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicSourceSummary {
+    pub id: String,
+    pub kind: MusicCollectionKind,
+    pub name: String,
+    pub refresh_state: MusicRefreshState,
+    pub last_successful_refresh_at: Option<i64>,
+    pub item_count: i64,
+    pub missing_count: i64,
+    pub new_count: i64,
+    pub open_issue_count: i64,
+    pub version: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicIssue {
+    pub id: String,
+    pub issue_kind: String,
+    pub item_id: Option<String>,
+    pub playlist_id: Option<String>,
+    pub message: String,
+    pub created_at: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicInspectorDetail {
+    pub item: MusicLibraryItem,
+    pub locations: Vec<MusicLocalLocation>,
+    pub memberships: Vec<MusicPlaylistMembership>,
+    pub snoozes: Vec<MusicSnooze>,
+    pub signals: Vec<MusicItemSignal>,
+    pub statistics: Option<MusicListeningStatistics>,
+    pub source_collection_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicSearchRebuildResult {
+    pub indexed_item_count: i64,
+    pub schema_version: i64,
+    pub fingerprint: String,
+    pub rebuilt_at: i64,
+}
