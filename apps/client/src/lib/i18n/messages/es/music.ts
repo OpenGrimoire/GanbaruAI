@@ -185,6 +185,7 @@ export const music = {
     sort: "Ordenar",
     group: "Agrupar",
     clearFilters: "Borrar filtros",
+    clearFilter: (name: string) => `Borrar el filtro ${name}`,
     resultCount: (count: number) => `${count} ${count === 1 ? "resultado" : "resultados"}`,
     unreviewedCount: (count: number) => `${count} pendientes de revisión`,
     issueCount: (count: number) => `${count} ${count === 1 ? "problema" : "problemas"}`,

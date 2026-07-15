@@ -151,9 +151,10 @@
   </span>
 
   <div class="relative shrink-0">
-    <button type="button" aria-haspopup="menu" aria-expanded={openMenu === "source"} class={cn("filter-pill", sourceKind && "filter-pill-active")} onclick={(event) => toggleMenu("source", event.currentTarget)}>
+    <button type="button" aria-haspopup="menu" aria-expanded={openMenu === "source"} class={cn("filter-pill", sourceKind && "filter-pill-active filter-pill-removable")} onclick={(event) => toggleMenu("source", event.currentTarget)}>
       {labelFor(sourceOptions, sourceKind)} <ChevronDown size={11} />
     </button>
+    {#if sourceKind}<button type="button" class="filter-remove" onclick={() => onChange({ sourceKind: null })} aria-label={t("music.builder.clearFilter", labelFor(sourceOptions, sourceKind))}><X size={10} /></button>{/if}
     {#if openMenu === "source"}
       <div class="filter-menu">
         {#each sourceOptions as option (option.value)}
@@ -165,24 +166,27 @@
 
   {#if playlists.length > 0}
     <div class="relative shrink-0">
-      <button type="button" aria-haspopup="menu" aria-expanded={openMenu === "membership"} class={cn("filter-pill", membershipPlaylistId && "filter-pill-active")} onclick={(event) => toggleMenu("membership", event.currentTarget)}>
+      <button type="button" aria-haspopup="menu" aria-expanded={openMenu === "membership"} class={cn("filter-pill", membershipPlaylistId && "filter-pill-active filter-pill-removable")} onclick={(event) => toggleMenu("membership", event.currentTarget)}>
         {labelFor(membershipOptions, membershipPlaylistId)} <ChevronDown size={11} />
       </button>
+      {#if membershipPlaylistId}<button type="button" class="filter-remove" onclick={() => onChange({ membershipPlaylistId: null })} aria-label={t("music.builder.clearFilter", labelFor(membershipOptions, membershipPlaylistId))}><X size={10} /></button>{/if}
       {#if openMenu === "membership"}<div class="filter-menu">{#each membershipOptions as option (option.value)}<button type="button" onclick={() => closeAfter(() => onChange({ membershipPlaylistId: option.value }))}>{option.label}{#if option.value === membershipPlaylistId}<Check size={12} />{/if}</button>{/each}</div>{/if}
     </div>
   {/if}
 
   <div class="relative shrink-0">
-    <button type="button" aria-haspopup="menu" aria-expanded={openMenu === "collection"} class={cn("filter-pill", sourceCollectionId && "filter-pill-active")} onclick={(event) => toggleMenu("collection", event.currentTarget)}>
+    <button type="button" aria-haspopup="menu" aria-expanded={openMenu === "collection"} class={cn("filter-pill", sourceCollectionId && "filter-pill-active filter-pill-removable")} onclick={(event) => toggleMenu("collection", event.currentTarget)}>
       {labelFor(collectionOptions, sourceCollectionId)} <ChevronDown size={11} />
     </button>
+    {#if sourceCollectionId}<button type="button" class="filter-remove" onclick={() => onChange({ sourceCollectionId: null })} aria-label={t("music.builder.clearFilter", labelFor(collectionOptions, sourceCollectionId))}><X size={10} /></button>{/if}
     {#if openMenu === "collection"}<div class="filter-menu">{#each collectionOptions as option (option.value)}<button type="button" onclick={() => closeAfter(() => onChange({ sourceCollectionId: option.value }))}>{option.label}{#if option.value === sourceCollectionId}<Check size={12} />{/if}</button>{/each}</div>{/if}
   </div>
 
   <div class="relative shrink-0">
-    <button type="button" aria-haspopup="menu" aria-expanded={openMenu === "availability"} class={cn("filter-pill", availability && "filter-pill-active")} onclick={(event) => toggleMenu("availability", event.currentTarget)}>
+    <button type="button" aria-haspopup="menu" aria-expanded={openMenu === "availability"} class={cn("filter-pill", availability && "filter-pill-active filter-pill-removable")} onclick={(event) => toggleMenu("availability", event.currentTarget)}>
       {labelFor(availabilityOptions, availability)} <ChevronDown size={11} />
     </button>
+    {#if availability}<button type="button" class="filter-remove" onclick={() => onChange({ availability: null })} aria-label={t("music.builder.clearFilter", labelFor(availabilityOptions, availability))}><X size={10} /></button>{/if}
     {#if openMenu === "availability"}
       <div class="filter-menu">
         {#each availabilityOptions as option (option.value)}
@@ -193,14 +197,16 @@
   </div>
 
   <div class="relative shrink-0">
-    <button type="button" aria-haspopup="menu" aria-expanded={openMenu === "snooze"} class={cn("filter-pill", snoozed !== null && "filter-pill-active")} onclick={(event) => toggleMenu("snooze", event.currentTarget)}>{labelFor(snoozeOptions, snoozeValue)} <ChevronDown size={11} /></button>
+    <button type="button" aria-haspopup="menu" aria-expanded={openMenu === "snooze"} class={cn("filter-pill", snoozed !== null && "filter-pill-active filter-pill-removable")} onclick={(event) => toggleMenu("snooze", event.currentTarget)}>{labelFor(snoozeOptions, snoozeValue)} <ChevronDown size={11} /></button>
+    {#if snoozed !== null}<button type="button" class="filter-remove" onclick={() => onChange({ snoozed: null })} aria-label={t("music.builder.clearFilter", labelFor(snoozeOptions, snoozeValue))}><X size={10} /></button>{/if}
     {#if openMenu === "snooze"}<div class="filter-menu">{#each snoozeOptions as option (option.value)}<button type="button" onclick={() => closeAfter(() => onChange({ snoozed: option.value === null ? null : option.value === "snoozed" }))}>{option.label}{#if option.value === snoozeValue}<Check size={12} />{/if}</button>{/each}</div>{/if}
   </div>
 
   <div class="relative shrink-0">
-    <button type="button" aria-haspopup="menu" aria-expanded={openMenu === "review"} class={cn("filter-pill", reviewState && "filter-pill-active")} onclick={(event) => toggleMenu("review", event.currentTarget)}>
+    <button type="button" aria-haspopup="menu" aria-expanded={openMenu === "review"} class={cn("filter-pill", reviewState && "filter-pill-active filter-pill-removable")} onclick={(event) => toggleMenu("review", event.currentTarget)}>
       {labelFor(reviewOptions, reviewState)} <ChevronDown size={11} />
     </button>
+    {#if reviewState}<button type="button" class="filter-remove" onclick={() => onChange({ reviewState: null })} aria-label={t("music.builder.clearFilter", labelFor(reviewOptions, reviewState))}><X size={10} /></button>{/if}
     {#if openMenu === "review"}
       <div class="filter-menu">
         {#each reviewOptions as option (option.value)}
@@ -250,6 +256,9 @@
   .filter-pill { display: inline-flex; height: 1.75rem; align-items: center; gap: 0.25rem; border: 1px solid color-mix(in srgb, var(--border) 75%, transparent); border-radius: 999px; background: color-mix(in srgb, var(--card) 78%, transparent); padding-inline: 0.6rem; color: var(--muted-foreground); font-size: 0.65rem; white-space: nowrap; }
   .filter-pill:hover, .filter-pill-active { border-color: color-mix(in srgb, var(--primary) 35%, var(--border)); color: var(--foreground); }
   .filter-pill-active { background: color-mix(in srgb, var(--primary) 9%, var(--card)); }
+  .filter-pill-removable { padding-right: 1.65rem; }
+  .filter-remove { position: absolute; right: 0.22rem; top: 50%; display: grid; height: 1.2rem; width: 1.2rem; translate: 0 -50%; place-items: center; border-radius: 999px; color: var(--muted-foreground); }
+  .filter-remove:hover, .filter-remove:focus-visible { background: var(--accent); color: var(--accent-foreground); outline: none; }
   .filter-menu { position: fixed; top: var(--filter-menu-top); left: var(--filter-menu-left); z-index: 70; min-width: 10.5rem; max-height: min(18rem, 55vh); overflow-y: auto; border: 1px solid color-mix(in srgb, var(--border) 85%, transparent); border-radius: 0.7rem; background: var(--popover); padding: 0.3rem; box-shadow: 0 12px 32px color-mix(in srgb, black 20%, transparent); }
   .filter-menu button { display: flex; width: 100%; min-height: 1.8rem; align-items: center; justify-content: space-between; gap: 0.75rem; border-radius: 0.45rem; padding-inline: 0.55rem; color: var(--popover-foreground); font-size: 0.68rem; text-align: left; }
   .filter-menu button:hover, .filter-menu button:focus-visible { background: var(--accent); outline: none; }

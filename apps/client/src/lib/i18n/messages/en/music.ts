@@ -182,6 +182,7 @@ export const music = {
     sort: "Sort",
     group: "Group",
     clearFilters: "Clear filters",
+    clearFilter: (name: string) => `Clear ${name} filter`,
     resultCount: (count: number) => `${count} ${count === 1 ? "result" : "results"}`,
     unreviewedCount: (count: number) => `${count} waiting for review`,
     issueCount: (count: number) => `${count} ${count === 1 ? "issue" : "issues"}`,
