@@ -109,6 +109,7 @@ export interface MusicPlaylistPlaybackEntry {
   identityKey: string;
   sourceKind: MusicLibrarySourceKind;
   youtubeVideoId: string | null;
+  youtubeResolutionState: MusicYouTubeResolutionState | null;
   title: string;
   availability: MusicItemAvailability;
   rootId: string | null;
@@ -121,7 +122,20 @@ export interface MusicPlaylistPlaybackEntry {
   volume: number | null;
   rate: number | null;
   snoozed: boolean;
+  snoozedUntil: number | null;
+  snoozedIndefinitely: boolean;
+  skipRanges: MusicMembershipSkipRange[];
 }
+export type MusicSelectionKind = "automatic" | "manual";
+export type MusicListeningOutcome = "started" | "completed" | "skipped";
+export interface MusicListeningUpdate {
+  playlistId: string | null;
+  itemId: string;
+  selectionKind: MusicSelectionKind;
+  outcome: MusicListeningOutcome;
+  occurredAt: number;
+}
+export interface MusicRecentSelection { itemId: string; selectedAt: number }
 export interface MusicVersionedItem { itemId: string; expectedVersion: number }
 export interface MusicBulkReviewWrite { items: MusicVersionedItem[]; reviewState: MusicReviewState; deferredUntil: number | null; updatedAt: number }
 export interface MusicBulkSnoozeWrite {
@@ -147,7 +161,7 @@ export interface MusicSnoozeWrite {
   reason: string;
   createdAt: number;
 }
-export interface MusicStatisticsReset { itemIds: string[]; resetRecentSelections: boolean }
+export interface MusicStatisticsReset { itemIds: string[]; resetAggregates: boolean; resetRecentSelections: boolean }
 export interface MusicCollectionWrite {
   id: string;
   kind: MusicCollectionKind;
@@ -202,7 +216,6 @@ export interface MusicItemRepairPreview {
   title: string;
   artist: string;
   album: string;
-  artworkOverride: string | null;
   durationMs: number | null;
   fileSizeBytes: number;
   lightweightFingerprint: string;
@@ -247,6 +260,7 @@ export interface MusicItemListEntry {
   title: string;
   artist: string;
   album: string;
+  artworkOverride: string | null;
   durationMs: number | null;
   availability: MusicItemAvailability;
   reviewState: MusicReviewState;
@@ -718,6 +732,7 @@ function parsePlaylistPlaybackEntry(value: unknown, label: string): MusicPlaylis
     identityKey: string(row.identityKey, `${label}.identityKey`),
     sourceKind: enumeration(row.sourceKind, sourceKinds, `${label}.sourceKind`),
     youtubeVideoId: nullable(row.youtubeVideoId, string, `${label}.youtubeVideoId`),
+    youtubeResolutionState: nullable(row.youtubeResolutionState, (entry, entryLabel) => enumeration(entry, youtubeResolutionStates, entryLabel), `${label}.youtubeResolutionState`),
     title: string(row.title, `${label}.title`),
     availability: enumeration(row.availability, itemAvailability, `${label}.availability`),
     rootId: nullable(row.rootId, string, `${label}.rootId`),
@@ -730,9 +745,16 @@ function parsePlaylistPlaybackEntry(value: unknown, label: string): MusicPlaylis
     volume: nullable(row.volume, number, `${label}.volume`),
     rate: nullable(row.rate, number, `${label}.rate`),
     snoozed: boolean(row.snoozed, `${label}.snoozed`),
+    snoozedUntil: nullable(row.snoozedUntil, number, `${label}.snoozedUntil`),
+    snoozedIndefinitely: boolean(row.snoozedIndefinitely, `${label}.snoozedIndefinitely`),
+    skipRanges: array(row.skipRanges, parseMembershipSkipRange, `${label}.skipRanges`),
   };
 }
 export const parsePlaylistPlaybackEntries = (value: unknown): MusicPlaylistPlaybackEntry[] => array(value, parsePlaylistPlaybackEntry, "playlist playback entries");
+export const parseRecentSelections = (value: unknown): MusicRecentSelection[] => array(value, (entry, label) => {
+  const row = object(entry, label);
+  return { itemId: string(row.itemId, `${label}.itemId`), selectedAt: number(row.selectedAt, `${label}.selectedAt`) };
+}, "recent music selections");
 export function parseRelinkPlanSummary(value: unknown): MusicRelinkPlanSummary {
   const row = object(value, "music relink plan");
   return {

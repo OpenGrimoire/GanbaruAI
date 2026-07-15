@@ -61,6 +61,8 @@ function createState(): MusicSourceState {
     localBackendKind: "none",
     localVideoReady: false,
     currentArtworkUrl: null,
+    activePlaylistId: null,
+    activeQueueItemIds: [],
   };
 }
 

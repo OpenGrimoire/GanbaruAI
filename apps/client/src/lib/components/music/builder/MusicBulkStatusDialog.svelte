@@ -5,6 +5,11 @@
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import type { MusicBulkEditController } from "$lib/music/music-bulk-edit-controller.svelte";
   import type { MusicReviewState, MusicSnoozeScope } from "$lib/music/library-contracts";
+  import {
+    isValidFutureSnoozeDate,
+    musicSnoozeEndsAt,
+    type MusicSnoozeDuration,
+  } from "$lib/music/music-snooze";
 
   let {
     controller,
@@ -21,6 +26,9 @@
   } = $props();
   const { t } = getLocalization();
   let scope = $state<MusicSnoozeScope>("all-playlists");
+  let customOpen = $state(false);
+  let customDate = $state("");
+  let customInvalid = $state(false);
 
   onMount(() => {
     scope = playlistId ? "playlist" : "all-playlists";
@@ -30,16 +38,14 @@
     if (await controller.setReviewState(state)) onSaved();
   }
 
-  async function snooze(duration: "today" | "day" | "week" | "until-resumed"): Promise<void> {
+  async function snooze(duration: MusicSnoozeDuration): Promise<void> {
     const now = Date.now();
-    let endsAt: number | null = null;
-    if (duration === "today") {
-      const tomorrow = new Date(now);
-      tomorrow.setHours(24, 0, 0, 0);
-      endsAt = tomorrow.getTime();
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (duration === "custom" && !isValidFutureSnoozeDate(customDate, now, timeZone)) {
+      customInvalid = true;
+      return;
     }
-    if (duration === "day") endsAt = now + 86_400_000;
-    if (duration === "week") endsAt = now + 604_800_000;
+    const endsAt = musicSnoozeEndsAt(duration, now, timeZone, customDate);
     const effectiveScope = scope === "playlist" && playlistId ? "playlist" : "all-playlists";
     if (await controller.snooze(effectiveScope, effectiveScope === "playlist" ? playlistId : null, endsAt)) onSaved();
   }
@@ -65,6 +71,15 @@
         <button type="button" onclick={() => { void snooze("today"); }} class="status-choice">{t("music.builder.restOfToday")}</button>
         <button type="button" onclick={() => { void snooze("day"); }} class="status-choice">{t("music.builder.oneDay")}</button>
         <button type="button" onclick={() => { void snooze("week"); }} class="status-choice">{t("music.builder.oneWeek")}</button>
+        <button type="button" onclick={() => { void snooze("month"); }} class="status-choice">{t("music.builder.oneMonth")}</button>
+        <button type="button" onclick={() => { customOpen = !customOpen; customInvalid = false; }} aria-expanded={customOpen} class="status-choice">{t("music.builder.customDate")}</button>
+        {#if customOpen}
+          <div class="rounded-lg border border-border/70 bg-background p-2.5">
+            <label for="music-snooze-custom-date" class="text-[0.68rem] font-medium">{t("music.builder.snoozeUntil")}</label>
+            <div class="mt-1.5 flex gap-2"><input id="music-snooze-custom-date" type="datetime-local" bind:value={customDate} oninput={() => customInvalid = false} aria-invalid={customInvalid} class="h-8 min-w-0 flex-1 rounded-md border border-border bg-card px-2 text-xs" /><button type="button" onclick={() => { void snooze("custom"); }} class="rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground">{t("music.builder.applyChanges")}</button></div>
+            {#if customInvalid}<p class="mt-1.5 text-[0.65rem] text-destructive" role="alert">{t("music.builder.futureDateRequired")}</p>{/if}
+          </div>
+        {/if}
         <button type="button" onclick={() => { void snooze("until-resumed"); }} class="status-choice">{t("music.builder.untilResumed")}</button>
       </div>
     {/if}

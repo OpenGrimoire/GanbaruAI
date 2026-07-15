@@ -582,6 +582,7 @@ pub struct MusicPlaylistPlaybackEntry {
     pub identity_key: String,
     pub source_kind: MusicLibrarySourceKind,
     pub youtube_video_id: Option<String>,
+    pub youtube_resolution_state: Option<MusicYouTubeResolutionState>,
     pub title: String,
     pub availability: MusicItemAvailability,
     pub root_id: Option<String>,
@@ -594,6 +595,37 @@ pub struct MusicPlaylistPlaybackEntry {
     pub volume: Option<f64>,
     pub rate: Option<f64>,
     pub snoozed: bool,
+    pub snoozed_until: Option<i64>,
+    pub snoozed_indefinitely: bool,
+    pub skip_ranges: Vec<MusicMembershipSkipRange>,
+}
+
+string_enum!(MusicSelectionKind {
+    Automatic => "automatic",
+    Manual => "manual",
+});
+
+string_enum!(MusicListeningOutcome {
+    Started => "started",
+    Completed => "completed",
+    Skipped => "skipped",
+});
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicListeningUpdate {
+    pub playlist_id: Option<String>,
+    pub item_id: String,
+    pub selection_kind: MusicSelectionKind,
+    pub outcome: MusicListeningOutcome,
+    pub occurred_at: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicRecentSelection {
+    pub item_id: String,
+    pub selected_at: i64,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -736,6 +768,7 @@ pub struct MusicSnoozeRemove {
 #[serde(rename_all = "camelCase")]
 pub struct MusicStatisticsReset {
     pub item_ids: Vec<String>,
+    pub reset_aggregates: bool,
     pub reset_recent_selections: bool,
 }
 

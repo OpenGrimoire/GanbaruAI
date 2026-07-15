@@ -824,11 +824,15 @@ pub(crate) async fn reset_statistics(
         if !item_exists(&mut transaction, item_id).await? {
             return Err(MusicLibraryError::not_found("music library item", item_id));
         }
-        sqlx::query("DELETE FROM music_listening_statistics WHERE item_id = ?")
-            .bind(item_id)
-            .execute(&mut *transaction)
-            .await
-            .map_err(|error| MusicLibraryError::database("reset listening statistics", error))?;
+        if request.reset_aggregates {
+            sqlx::query("DELETE FROM music_listening_statistics WHERE item_id = ?")
+                .bind(item_id)
+                .execute(&mut *transaction)
+                .await
+                .map_err(|error| {
+                    MusicLibraryError::database("reset listening statistics", error)
+                })?;
+        }
         if request.reset_recent_selections {
             sqlx::query("DELETE FROM music_recent_selections WHERE item_id = ?")
                 .bind(item_id)

@@ -6,7 +6,6 @@
   import Gauge from "@lucide/svelte/icons/gauge";
   import LinkIcon from "@lucide/svelte/icons/link";
   import ListMusic from "@lucide/svelte/icons/list-music";
-  import ListPlus from "@lucide/svelte/icons/list-plus";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import Pause from "@lucide/svelte/icons/pause";
   import Play from "@lucide/svelte/icons/play";
@@ -17,6 +16,8 @@
   import Volume2 from "@lucide/svelte/icons/volume-2";
   import VolumeX from "@lucide/svelte/icons/volume-x";
   import CalendarScrollbar from "$lib/components/calendar/CalendarScrollbar.svelte";
+  import MusicPlaylistLauncher from "$lib/components/music/MusicPlaylistLauncher.svelte";
+  import MusicCurrentItemMenu from "$lib/components/music/MusicCurrentItemMenu.svelte";
   import { revealLocalFile } from "$lib/api/music";
   import { SPEED_PRESETS, clampRate, formatPlaybackTime, isSpeedPreset } from "$lib/music/playback";
   import { fittedSidePlaylistPanelHeight } from "$lib/music/panel-layout";
@@ -31,6 +32,7 @@
   import {
     musicBuilderLoader,
     type MusicBuilderComponent,
+    type MusicBuilderInitialAction,
   } from "$lib/music/music-builder-loader";
 
   let { onclose }: { onclose: () => void } = $props();
@@ -57,6 +59,7 @@
   let playlistBuilderComponent = $state<MusicBuilderComponent | null>(musicBuilderLoader.peek());
   let playlistBuilderLoading = $state(false);
   let playlistBuilderLoadError = $state<string | null>(null);
+  let playlistBuilderInitialAction = $state<MusicBuilderInitialAction | null>(null);
   const PlaylistBuilder = $derived(playlistBuilderComponent);
   let mediaSurfaceFullscreen = $state(false);
   let volumeFeedbackVisible = $state(false);
@@ -104,6 +107,19 @@
   const renderedPlaylistItems = $derived(
     player.queue.slice(renderedPlaylistWindow.startIndex, renderedPlaylistWindow.endIndex),
   );
+  const savedQueueSkippedCount = $derived(Object.values(player.savedQueueSkipBreakdown).reduce((total, count) => total + count, 0));
+  const savedQueueUnavailable = $derived(Boolean(player.activePlaylistId && !player.currentSource));
+  const savedQueueOfflineSubset = $derived(Boolean(player.activePlaylistId && !player.online && player.savedQueueSkipBreakdown.offline > 0 && player.currentSource));
+  const savedQueueSkipDetails = $derived([
+    { label: t("music.queueState.disabled"), count: player.savedQueueSkipBreakdown.disabled },
+    { label: t("music.queueState.snoozed"), count: player.savedQueueSkipBreakdown.snoozed },
+    { label: t("music.queueState.offline"), count: player.savedQueueSkipBreakdown.offline },
+    { label: t("music.queueState.unavailable"), count: player.savedQueueSkipBreakdown.unavailable },
+    { label: t("music.queueState.embeddingBlocked"), count: player.savedQueueSkipBreakdown["embedding-blocked"] },
+    { label: t("music.queueState.phaseConstraint"), count: player.savedQueueSkipBreakdown["phase-constraint"] },
+    { label: t("music.queueState.unboundRoot"), count: player.savedQueueSkipBreakdown["unbound-root"] },
+    { label: t("music.queueState.invalidSource"), count: player.savedQueueSkipBreakdown["invalid-source"] },
+  ].filter((entry) => entry.count > 0));
 
   $effect(() => {
     player.setSurfaceElement(mediaSurface);
@@ -292,15 +308,20 @@
     }
   }
 
-  function openPlaylistBuilder(): void {
+  function openPlaylistBuilder(initialAction: MusicBuilderInitialAction | null = null): void {
     closeSpeedMenu();
     closeVolumeMenu();
+    playlistBuilderInitialAction = initialAction;
     musicPage = "playlist-builder";
     void loadPlaylistBuilder();
   }
 
   function closePlaylistBuilder(): void {
     musicPage = "player";
+  }
+
+  function openPlaylistChooser(): void {
+    panel?.querySelector<HTMLButtonElement>("[data-music-playlist-launcher]")?.click();
   }
 
   async function openCurrentLocalFileLocation(): Promise<void> {
@@ -649,7 +670,11 @@
 >
   {#if PlaylistBuilder}
     <div class:hidden={musicPage !== "playlist-builder"} class="h-full min-h-0" aria-hidden={musicPage !== "playlist-builder"}>
-      <PlaylistBuilder onBack={closePlaylistBuilder} />
+      <PlaylistBuilder
+        onBack={closePlaylistBuilder}
+        initialAction={playlistBuilderInitialAction}
+        onInitialActionHandled={() => { playlistBuilderInitialAction = null; }}
+      />
     </div>
   {:else if musicPage === "playlist-builder"}
     <section class="flex h-full min-h-0 flex-col text-foreground" style="background-color: var(--cal-bg);">
@@ -693,15 +718,10 @@
     >
   <div bind:this={musicHeader} class="relative flex h-(--cal-header-row-h) shrink-0 items-center gap-3 px-2" style="background-color: var(--cal-bg);">
     <div class="relative z-10 flex min-w-0 shrink-0 items-center gap-2">
-      <button
-        type="button"
-        onclick={openPlaylistBuilder}
-        class="inline-flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-md bg-secondary px-2.5 text-[0.8rem] font-medium text-secondary-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-        aria-label={t("music.playlistBuilder")}
-      >
-        <ListPlus size={musicIconSize} strokeWidth={musicIconStrokeWidth} />
-        <span class="hidden min-[960px]:inline">{t("music.playlistBuilder")}</span>
-      </button>
+      <MusicPlaylistLauncher
+        onOpenBuilder={() => openPlaylistBuilder()}
+        onNewPlaylist={() => openPlaylistBuilder("new-playlist")}
+      />
     </div>
     <div
       class="music-header-title absolute top-1/2 z-0 min-w-0 -translate-x-1/2 -translate-y-1/2 text-center text-[0.8rem] font-medium text-foreground"
@@ -783,6 +803,24 @@
       </div>
     </form>
   </div>
+
+  {#if savedQueueUnavailable || savedQueueOfflineSubset}
+    <div class="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-y border-border/60 bg-secondary/45 px-3 py-2 text-[0.68rem]" role="status">
+      <AlertCircle size={14} class="shrink-0 text-warning" />
+      <span class="min-w-40 flex-1 leading-relaxed">{savedQueueUnavailable ? t("music.queueState.nothingPlayable", player.activePlaylistName ?? "") : t("music.queueState.offlineSubset", player.savedQueueSkipBreakdown.offline)}</span>
+      {#if savedQueueSkippedCount > 0}
+        <span class="text-muted-foreground">{t("music.queueState.skippedTotal", savedQueueSkippedCount)}</span>
+        <span class="flex flex-wrap gap-1" aria-label={t("music.queueState.reasonBreakdown")}>
+          {#each savedQueueSkipDetails as detail (detail.label)}<span class="rounded-full bg-background/70 px-2 py-0.5 text-[0.62rem] text-muted-foreground">{detail.count} {detail.label}</span>{/each}
+        </span>
+      {/if}
+      {#if savedQueueUnavailable}
+        <button type="button" onclick={() => { void player.retrySavedPlaylist(); }} class="rounded-md bg-secondary px-2 py-1 font-medium hover:bg-accent">{t("music.queueState.retry")}</button>
+        <button type="button" onclick={() => openPlaylistBuilder()} class="rounded-md px-2 py-1 font-medium text-primary hover:bg-primary/10">{t("music.queueState.openIssues")}</button>
+        <button type="button" onclick={openPlaylistChooser} class="rounded-md px-2 py-1 font-medium text-primary hover:bg-primary/10">{t("music.queueState.chooseAnother")}</button>
+      {/if}
+    </div>
+  {/if}
 
   <div
     class={cn(
@@ -1018,6 +1056,7 @@
               {player.volumePercentLabel}
             </button>
           </div>
+          <MusicCurrentItemMenu onOpenItem={(itemId) => openPlaylistBuilder({ kind: "open-item", itemId })} />
           <div
             bind:this={volumeMenuRoot}
             class="music-compact-volume-control relative"

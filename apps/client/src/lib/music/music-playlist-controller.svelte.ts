@@ -174,20 +174,24 @@ export class MusicPlaylistController {
     this.playbackIssue = null;
     try {
       const entries = await getMusicPlaylistPlaybackEntries(detail.id, this.now());
-      const projection = projectMusicPlaylistPlayback(entries, bindings, explicitItemId);
+      const player = getMusicPlayer();
+      const projection = projectMusicPlaylistPlayback(entries, bindings, {
+        nowMs: this.now(),
+        online: player.online,
+        explicitItemId,
+      });
       this.playbackProjection = projection;
-      if (projection.sources.length === 0) {
-        this.playbackIssue = "no-eligible-items";
-        return false;
-      }
-      const initialIndex = explicitItemId ? projection.itemIds.indexOf(explicitItemId) : 0;
-      return getMusicPlayer().loadSavedPlaylist(
+      const loaded = await player.loadSavedPlaylist(
         detail.id,
-        projection.sources,
-        projection.itemIds,
+        detail.name,
+        projection.entries,
         detail.shuffleEnabled,
-        Math.max(0, initialIndex),
+        detail.repeatMode,
+        explicitItemId,
+        projection.structuralSkipped,
       );
+      if (!loaded) this.playbackIssue = "no-eligible-items";
+      return loaded;
     } catch (error) {
       this.error = error instanceof Error ? error.message : String(error);
       return false;
@@ -196,7 +200,7 @@ export class MusicPlaylistController {
     }
   }
 
-  async reorder(itemId: string, targetIndex: number): Promise<boolean> {
+  async reorder(itemId: string, targetIndex: number, bindings: readonly LocalRootBinding[]): Promise<boolean> {
     const detail = this.detail;
     if (!detail || this.saving) return false;
     const window = this.library.currentWindow;
@@ -221,9 +225,11 @@ export class MusicPlaylistController {
         undo: async () => {
           await reorderMusicPlaylist({ playlistId: detail.id, itemId, targetIndex: sourceIndex, updatedAt: this.now() });
           await this.library.refresh();
+          await this.refreshActivePlayback(bindings);
         },
       });
       await this.library.refresh();
+      await this.refreshActivePlayback(bindings);
       return true;
     } catch (error) {
       this.error = error instanceof Error ? error.message : String(error);
@@ -250,6 +256,18 @@ export class MusicPlaylistController {
     } finally {
       this.saving = false;
     }
+  }
+
+  async refreshActivePlayback(bindings: readonly LocalRootBinding[]): Promise<void> {
+    const detail = this.detail;
+    const player = getMusicPlayer();
+    if (!detail || player.activePlaylistId !== detail.id) return;
+    const entries = await getMusicPlaylistPlaybackEntries(detail.id, this.now());
+    const projection = projectMusicPlaylistPlayback(entries, bindings, {
+      nowMs: this.now(),
+      online: player.online,
+    });
+    player.reconcileSavedPlaylist(projection.entries, projection.structuralSkipped);
   }
 
   private patchSummary(playlistId: string, draft: MusicPlaylistDraft): void {

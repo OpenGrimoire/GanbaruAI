@@ -863,6 +863,33 @@ fn playlist_reorder_and_playback_projection_share_canonical_memberships() {
         .unwrap();
         assert_eq!(reordered.item_ids, vec!["item-3", "item-1", "item-2"]);
 
+        sqlx::query(
+            "INSERT INTO music_membership_skip_ranges
+                (id, membership_id, start_ms, end_ms, sort_order)
+             VALUES ('skip-1', 'membership-1', 1000, 2000, 0)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO music_snoozes
+                (id, item_id, scope, playlist_id, starts_at, ends_at, reason, created_at)
+             VALUES ('snooze-2', 'item-2', 'playlist', 'playlist-1',
+                1700000000000, 1700000001000, '', 1700000000000)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "UPDATE music_library_items
+             SET source_kind = 'youtube-video', youtube_video_id = 'abcdefghijk',
+                 youtube_resolution_state = 'embedding-blocked'
+             WHERE id = 'item-3'",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
         let entries =
             super::queries::playlist_playback_entries(&pool, "playlist-1", 1_700_000_000_200)
                 .await
@@ -874,7 +901,16 @@ fn playlist_reorder_and_playback_projection_share_canonical_memberships() {
                 .collect::<Vec<_>>(),
             vec!["item-3", "item-1", "item-2"]
         );
-        assert!(entries.iter().all(|entry| entry.enabled && !entry.snoozed));
+        assert!(entries.iter().all(|entry| entry.enabled));
+        assert_eq!(entries[0].youtube_video_id.as_deref(), Some("abcdefghijk"));
+        assert_eq!(
+            entries[0].youtube_resolution_state,
+            Some(MusicYouTubeResolutionState::EmbeddingBlocked)
+        );
+        assert_eq!(entries[1].skip_ranges.len(), 1);
+        assert_eq!(entries[1].skip_ranges[0].end_ms, 2_000);
+        assert!(entries[2].snoozed);
+        assert_eq!(entries[2].snoozed_until, Some(1_700_000_001_000));
     });
 }
 
@@ -936,5 +972,81 @@ fn bulk_review_and_snooze_updates_are_atomic() {
         .await
         .unwrap();
         assert_eq!(counts, (2, 2));
+    });
+}
+
+#[test]
+fn overlapping_snoozes_expire_and_resume_independently() {
+    tauri::async_runtime::block_on(async {
+        let pool = pool().await;
+        seed_item(&pool, "item-1", "local:item-1").await;
+        super::writes::create_playlist(&pool, playlist("playlist-1"))
+            .await
+            .unwrap();
+        super::writes::upsert_memberships(
+            &pool,
+            MusicBulkMembershipWrite {
+                memberships: vec![membership(1)],
+            },
+        )
+        .await
+        .unwrap();
+        for (id, scope, playlist_id, ends_at) in [
+            (
+                "snooze-global",
+                MusicSnoozeScope::AllPlaylists,
+                None,
+                Some(1_700_000_000_300),
+            ),
+            (
+                "snooze-playlist",
+                MusicSnoozeScope::Playlist,
+                Some("playlist-1".to_string()),
+                None,
+            ),
+        ] {
+            super::writes::upsert_snooze(
+                &pool,
+                MusicSnoozeWrite {
+                    id: id.to_string(),
+                    item_id: "item-1".to_string(),
+                    scope,
+                    playlist_id,
+                    starts_at: 1_700_000_000_000,
+                    ends_at,
+                    reason: String::new(),
+                    created_at: 1_700_000_000_000,
+                },
+            )
+            .await
+            .unwrap();
+        }
+        let active =
+            super::queries::playlist_playback_entries(&pool, "playlist-1", 1_700_000_000_200)
+                .await
+                .unwrap();
+        assert!(active[0].snoozed);
+        assert!(active[0].snoozed_indefinitely);
+
+        super::writes::remove_snooze(
+            &pool,
+            MusicSnoozeRemove {
+                snooze_id: "snooze-playlist".to_string(),
+            },
+        )
+        .await
+        .unwrap();
+        let overlapping =
+            super::queries::playlist_playback_entries(&pool, "playlist-1", 1_700_000_000_200)
+                .await
+                .unwrap();
+        assert!(overlapping[0].snoozed);
+        assert!(!overlapping[0].snoozed_indefinitely);
+
+        let expired =
+            super::queries::playlist_playback_entries(&pool, "playlist-1", 1_700_000_000_301)
+                .await
+                .unwrap();
+        assert!(!expired[0].snoozed);
     });
 }

@@ -50,6 +50,7 @@ interface MusicWebviewLocalAdapterContext {
   updateTray(): void;
   persist(force?: boolean): Promise<void>;
   playNext(): Promise<void>;
+  handlePosition(positionMs: number): void;
 }
 
 export interface MusicWebviewLocalAdapter {
@@ -307,6 +308,7 @@ export function createMusicWebviewLocalAdapter(
     }
     seekElement(element, position);
     state.snapshot = snapshotFromElement(element, state.snapshot.status);
+    context.handlePosition(state.snapshot.positionMs);
   }
 
   function elementFromEvent(event: Event): HTMLMediaElement | null {

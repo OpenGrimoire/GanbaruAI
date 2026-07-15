@@ -13,6 +13,7 @@ import {
   parsePlaylist,
   parsePlaylistSummaries,
   parsePlaylistPlaybackEntries,
+  parseRecentSelections,
   parseRefreshJobProgress,
   parseRelinkPlanSummary,
   parseRelinkPlanWindow,
@@ -54,6 +55,8 @@ import {
   type MusicPlaylistReorder,
   type MusicPlaylistReorderResult,
   type MusicPlaylistPlaybackEntry,
+  type MusicListeningUpdate,
+  type MusicRecentSelection,
   type MusicReviewWrite,
   type MusicRelinkApplyRequest,
   type MusicRelinkPlanRequest,
@@ -224,6 +227,10 @@ export const reorderMusicPlaylist = (request: MusicPlaylistReorder): Promise<Mus
   });
 export const getMusicPlaylistPlaybackEntries = (playlistId: string, nowMs: number): Promise<MusicPlaylistPlaybackEntry[]> =>
   call("music_library_playlist_playback_entries", databaseArgs({ playlistId, nowMs }), parsePlaylistPlaybackEntries);
+export const recordMusicListening = (request: MusicListeningUpdate): Promise<void> =>
+  call("music_library_record_listening", databaseArgs({ request }), parseVoid);
+export const getMusicRecentSelections = (playlistId: string | null, limit = 32): Promise<MusicRecentSelection[]> =>
+  call("music_library_recent_selections", databaseArgs({ playlistId, limit }), parseRecentSelections);
 export const bulkSetMusicReviewState = (request: MusicBulkReviewWrite): Promise<MusicBulkMembershipResult> =>
   call("music_library_bulk_set_review_state", databaseArgs({ request }), (value) => {
     if (typeof value !== "object" || value === null || !("changedCount" in value) || typeof value.changedCount !== "number") throw new Error("bulk review result must contain changedCount");

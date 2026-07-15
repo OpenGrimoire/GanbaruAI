@@ -2,6 +2,8 @@ import type { LocalRootBinding, MusicInspectorDetail } from "$lib/music/library-
 import type { PlaybackStatus } from "$lib/music/playback";
 import { musicReviewSource } from "$lib/music/music-review";
 import type { MusicSource } from "$lib/music/sources";
+import type { MusicSavedQueueEntry, MusicPlaylistSkipReason } from "$lib/music/music-playlist-playback";
+import type { MusicRepeatMode } from "$lib/music/library-contracts";
 import { getMusicPlayer, type MusicPlaybackContextOwner } from "$lib/stores/music-player.svelte";
 
 export const MUSIC_CONTEXT_BOUNDARY_EVENT = "ganbaru-ai-music-context-boundary";
@@ -17,7 +19,14 @@ interface MusicReviewPlaybackContext {
   pendingQueueIndex: number | null;
   contextOwner: MusicPlaybackContextOwner;
   activePlaylistId: string | null;
+  activePlaylistName: string | null;
+  activePlaylistRepeatMode: MusicRepeatMode;
   activeQueueItemIds: string[];
+  savedQueueEntries: MusicSavedQueueEntry[];
+  savedQueueRecentItemIds: string[];
+  savedQueueSkipBreakdown: Record<MusicPlaylistSkipReason, number>;
+  volume: number;
+  rate: number;
 }
 
 export class MusicReviewAuditionController {
@@ -45,7 +54,14 @@ export class MusicReviewAuditionController {
       pendingQueueIndex: this.player.pendingQueueIndex,
       contextOwner: this.player.contextOwner,
       activePlaylistId: this.player.activePlaylistId,
+      activePlaylistName: this.player.activePlaylistName,
+      activePlaylistRepeatMode: this.player.activePlaylistRepeatMode,
       activeQueueItemIds: [...this.player.activeQueueItemIds],
+      savedQueueEntries: [...this.player.savedQueueEntries],
+      savedQueueRecentItemIds: [...this.player.savedQueueRecentItemIds],
+      savedQueueSkipBreakdown: { ...this.player.savedQueueSkipBreakdown },
+      volume: this.player.snapshot.volume,
+      rate: this.player.snapshot.rate,
     };
     this.active = true;
   }
@@ -65,7 +81,10 @@ export class MusicReviewAuditionController {
     this.error = null;
     try {
       this.player.activePlaylistId = null;
+      this.player.activePlaylistName = null;
+      this.player.activePlaylistRepeatMode = "off";
       this.player.activeQueueItemIds = [];
+      this.player.savedQueueEntries = [];
       await this.player.loadSource(source, { autoplay, resume: false, preserveQueue: true });
       this.player.contextOwner = "review";
       this.reviewItemId = detail.item.id;
@@ -89,12 +108,19 @@ export class MusicReviewAuditionController {
     this.player.pendingQueueIndex = context.pendingQueueIndex;
     this.player.contextOwner = context.contextOwner;
     this.player.activePlaylistId = context.activePlaylistId;
+    this.player.activePlaylistName = context.activePlaylistName;
+    this.player.activePlaylistRepeatMode = context.activePlaylistRepeatMode;
     this.player.activeQueueItemIds = context.activeQueueItemIds;
+    this.player.savedQueueEntries = context.savedQueueEntries;
+    this.player.savedQueueRecentItemIds = context.savedQueueRecentItemIds;
+    this.player.savedQueueSkipBreakdown = context.savedQueueSkipBreakdown;
     if (!context.source) {
       await this.player.resetPlayer();
       return;
     }
     await this.player.loadSource(context.source, { autoplay: false, resume: false, preserveQueue: true });
+    await this.player.setTransientVolume(context.volume);
+    await this.player.setTransientRate(context.rate);
     if (context.positionMs > 0) await this.player.seekToMs(context.positionMs);
     if (context.status === "playing") await this.player.playPlayback();
     else if (context.status === "paused") await this.player.pausePlayback();
@@ -103,7 +129,10 @@ export class MusicReviewAuditionController {
   keep(): void {
     this.player.contextOwner = "manual";
     this.player.activePlaylistId = null;
+    this.player.activePlaylistName = null;
+    this.player.activePlaylistRepeatMode = "off";
     this.player.activeQueueItemIds = [];
+    this.player.savedQueueEntries = [];
     this.clearOwnership();
   }
 

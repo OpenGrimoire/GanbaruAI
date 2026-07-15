@@ -53,6 +53,7 @@ fn review_snooze_and_statistics_commands_preserve_independent_scopes() {
             &pool,
             MusicStatisticsReset {
                 item_ids: vec!["item-1".to_string()],
+                reset_aggregates: true,
                 reset_recent_selections: false,
             },
         )

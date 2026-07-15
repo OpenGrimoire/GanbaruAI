@@ -20,16 +20,16 @@
   $effect(() => {
     const requestedPath = path;
     version;
-    const version = ++requestVersion;
+    const request = ++requestVersion;
     if (!requestedPath) {
       currentUrl = null;
       return;
     }
     void musicArtworkDataUrl(requestedPath).then((url) => {
-      if (version !== requestVersion || !url) return;
+      if (request !== requestVersion || !url) return;
       const image = new Image();
       image.onload = () => {
-        if (version === requestVersion) currentUrl = url;
+        if (request === requestVersion) currentUrl = url;
       };
       image.src = url;
     });

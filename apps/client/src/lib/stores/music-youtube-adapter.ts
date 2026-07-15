@@ -61,6 +61,7 @@ interface MusicYouTubeAdapterContext {
   updateTray(): void;
   canPlayNext(): boolean;
   playNext(): Promise<void>;
+  handlePosition(positionMs: number): void;
   getHostUrl?: typeof getYouTubeHostUrl;
   persistYouTubeVideo?: (request: MusicYouTubeVideoWrite) => Promise<unknown>;
   persistYouTubePlaylist?: (request: MusicYouTubePlaylistSnapshotWrite) => Promise<unknown>;
@@ -417,6 +418,7 @@ export function createMusicYouTubeAdapter(
       durationMs: message.durationMs,
       error: null,
     };
+    context.handlePosition(message.positionMs);
     context.updateExternalControls();
     void context.persist();
     context.updateTray();

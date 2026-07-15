@@ -1,5 +1,6 @@
 use super::*;
 use sqlx::{QueryBuilder, Sqlite, SqlitePool};
+use std::collections::HashMap;
 
 pub(crate) async fn membership_matrix(
     pool: &SqlitePool,
@@ -48,6 +49,7 @@ pub(crate) async fn playlist_playback_entries(
             item.identity_key,
             item.source_kind,
             item.youtube_video_id,
+            item.youtube_resolution_state,
             COALESCE(NULLIF(item.title_override, ''), item.original_title) AS title,
             item.availability,
             (SELECT location.root_id FROM music_local_locations AS location
@@ -69,7 +71,20 @@ pub(crate) async fn playlist_playback_entries(
                   AND snooze.starts_at <= ?
                   AND (snooze.ends_at IS NULL OR snooze.ends_at > ?)
                   AND (snooze.scope = 'all-playlists' OR snooze.playlist_id = membership.playlist_id)
-            ) AS snoozed
+            ) AS snoozed,
+            (SELECT MAX(snooze.ends_at) FROM music_snoozes AS snooze
+             WHERE snooze.item_id = item.id
+               AND snooze.starts_at <= ?
+               AND snooze.ends_at > ?
+               AND (snooze.scope = 'all-playlists' OR snooze.playlist_id = membership.playlist_id)
+            ) AS snoozed_until,
+            EXISTS(
+                SELECT 1 FROM music_snoozes AS snooze
+                WHERE snooze.item_id = item.id
+                  AND snooze.starts_at <= ?
+                  AND snooze.ends_at IS NULL
+                  AND (snooze.scope = 'all-playlists' OR snooze.playlist_id = membership.playlist_id)
+            ) AS snoozed_indefinitely
          FROM music_playlist_memberships AS membership
          JOIN music_library_items AS item ON item.id = membership.item_id
          WHERE membership.playlist_id = ?
@@ -77,11 +92,47 @@ pub(crate) async fn playlist_playback_entries(
     )
     .bind(now_ms)
     .bind(now_ms)
+    .bind(now_ms)
+    .bind(now_ms)
+    .bind(now_ms)
     .bind(playlist_id)
     .fetch_all(pool)
     .await
     .map_err(|error| MusicLibraryError::database("load playlist playback entries", error))?;
-    rows.into_iter().map(TryInto::try_into).collect()
+    let mut entries = rows
+        .into_iter()
+        .map(TryInto::try_into)
+        .collect::<MusicLibraryResult<Vec<MusicPlaylistPlaybackEntry>>>()?;
+    let skip_ranges = sqlx::query_as::<_, (String, String, i64, i64, i64)>(
+        "SELECT skip.id, skip.membership_id, skip.start_ms, skip.end_ms, skip.sort_order
+         FROM music_membership_skip_ranges AS skip
+         JOIN music_playlist_memberships AS membership ON membership.id = skip.membership_id
+         WHERE membership.playlist_id = ?
+         ORDER BY skip.membership_id, skip.sort_order",
+    )
+    .bind(playlist_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|error| MusicLibraryError::database("load playlist playback skip ranges", error))?;
+    let mut by_membership: HashMap<String, Vec<MusicMembershipSkipRange>> = HashMap::new();
+    for (id, membership_id, start_ms, end_ms, sort_order) in skip_ranges {
+        by_membership
+            .entry(membership_id.clone())
+            .or_default()
+            .push(MusicMembershipSkipRange {
+                id,
+                membership_id,
+                start_ms,
+                end_ms,
+                sort_order,
+            });
+    }
+    for entry in &mut entries {
+        entry.skip_ranges = by_membership
+            .remove(&entry.membership_id)
+            .unwrap_or_default();
+    }
+    Ok(entries)
 }
 
 fn push_item_from(builder: &mut QueryBuilder<'_, Sqlite>, request: &MusicItemWindowRequest) {

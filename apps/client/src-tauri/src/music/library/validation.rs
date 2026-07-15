@@ -626,7 +626,14 @@ pub(crate) fn validate_snooze_remove(request: &MusicSnoozeRemove) -> MusicLibrar
 }
 
 pub(crate) fn validate_statistics_reset(request: &MusicStatisticsReset) -> MusicLibraryResult<()> {
-    validate_bounded_unique_ids(&request.item_ids, "itemIds")
+    validate_bounded_unique_ids(&request.item_ids, "itemIds")?;
+    if !request.reset_aggregates && !request.reset_recent_selections {
+        return Err(MusicLibraryError::validation(
+            "reset",
+            "must select aggregates, recent selections, or both",
+        ));
+    }
+    Ok(())
 }
 
 pub(crate) fn validate_bounded_unique_ids(

@@ -1,73 +1,244 @@
-import type { LocalRootBinding, MusicPlaylistPlaybackEntry } from "$lib/music/library-contracts";
+import type {
+  LocalRootBinding,
+  MusicItemAvailability,
+  MusicMembershipSkipRange,
+  MusicPlaylistPlaybackEntry,
+  MusicRepeatMode,
+  MusicWeight,
+  MusicYouTubeResolutionState,
+} from "$lib/music/library-contracts";
 import { localFileSourceFromPath, youtubeVideoSourceFromId, type MusicSource } from "$lib/music/sources";
 
-export type MusicPlaylistSkipReason = "disabled" | "snoozed" | "unavailable" | "unbound-root" | "invalid-source";
+export type MusicPlaylistSkipReason =
+  | "disabled"
+  | "snoozed"
+  | "offline"
+  | "unavailable"
+  | "embedding-blocked"
+  | "phase-constraint"
+  | "unbound-root"
+  | "invalid-source";
 
-export interface MusicPlaylistPlaybackProjection {
-  sources: MusicSource[];
-  itemIds: string[];
-  skipped: Record<MusicPlaylistSkipReason, number>;
+export interface MusicSavedQueueEntry {
+  membershipId: string;
+  itemId: string;
+  identityKey: string;
+  source: MusicSource;
+  sourceKind: MusicPlaylistPlaybackEntry["sourceKind"];
+  availability: MusicItemAvailability;
+  youtubeResolutionState: MusicYouTubeResolutionState | null;
+  weight: MusicWeight;
+  enabled: boolean;
+  snoozedUntil: number | null;
+  snoozedIndefinitely: boolean;
+  skipRanges: MusicMembershipSkipRange[];
+  volume: number | null;
+  rate: number | null;
 }
 
-const emptySkipped = (): Record<MusicPlaylistSkipReason, number> => ({
+export interface MusicEligibilityContext {
+  nowMs: number;
+  online: boolean;
+  explicitItemId?: string | null;
+  phaseAllowedItemIds?: ReadonlySet<string> | null;
+}
+
+export interface MusicQueueEligibility {
+  eligible: boolean;
+  reason: MusicPlaylistSkipReason | null;
+}
+
+export interface MusicPlaylistPlaybackProjection {
+  entries: MusicSavedQueueEntry[];
+  sources: MusicSource[];
+  itemIds: string[];
+  eligibleIndices: number[];
+  skipped: Record<MusicPlaylistSkipReason, number>;
+  structuralSkipped: Record<MusicPlaylistSkipReason, number>;
+}
+
+const weightValues: Record<MusicWeight, number> = {
+  rarely: 1,
+  "less-often": 2,
+  normal: 4,
+  "more-often": 7,
+  "much-more-often": 11,
+};
+
+export const emptyMusicSkipBreakdown = (): Record<MusicPlaylistSkipReason, number> => ({
   disabled: 0,
   snoozed: 0,
+  offline: 0,
   unavailable: 0,
+  "embedding-blocked": 0,
+  "phase-constraint": 0,
   "unbound-root": 0,
   "invalid-source": 0,
 });
 
+export function evaluateMusicQueueEntry(
+  entry: MusicSavedQueueEntry,
+  context: MusicEligibilityContext,
+): MusicQueueEligibility {
+  if (!entry.enabled) return { eligible: false, reason: "disabled" };
+  if (context.phaseAllowedItemIds && !context.phaseAllowedItemIds.has(entry.itemId)) {
+    return { eligible: false, reason: "phase-constraint" };
+  }
+  const explicit = context.explicitItemId === entry.itemId;
+  const activelySnoozed = entry.snoozedIndefinitely
+    || (entry.snoozedUntil !== null && entry.snoozedUntil > context.nowMs);
+  if (activelySnoozed && !explicit) return { eligible: false, reason: "snoozed" };
+  if (entry.sourceKind === "youtube-video") {
+    if (!context.online) return { eligible: false, reason: "offline" };
+    if (entry.youtubeResolutionState === "embedding-blocked") {
+      return { eligible: false, reason: "embedding-blocked" };
+    }
+    if (entry.availability !== "available" || ["unavailable", "timed-out"].includes(entry.youtubeResolutionState ?? "")) {
+      return { eligible: false, reason: "unavailable" };
+    }
+  } else if (entry.availability !== "available") {
+    return { eligible: false, reason: "unavailable" };
+  }
+  return { eligible: true, reason: null };
+}
+
 export function projectMusicPlaylistPlayback(
   entries: readonly MusicPlaylistPlaybackEntry[],
   bindings: readonly LocalRootBinding[],
-  explicitItemId: string | null = null,
+  context: MusicEligibilityContext,
 ): MusicPlaylistPlaybackProjection {
-  const sources: MusicSource[] = [];
-  const itemIds: string[] = [];
-  const skipped = emptySkipped();
+  const projected: MusicSavedQueueEntry[] = [];
+  const skipped = emptyMusicSkipBreakdown();
+  const structuralSkipped = emptyMusicSkipBreakdown();
   const bindingPaths = new Map(bindings.map((binding) => [binding.rootId, binding.folderPath]));
-  for (const entry of entries) {
-    const reason = ineligibleReason(entry, bindingPaths, explicitItemId);
-    if (reason) { skipped[reason] += 1; continue; }
-    const source = playbackSource(entry, bindingPaths);
-    if (!source) { skipped["invalid-source"] += 1; continue; }
-    sources.push(source);
-    itemIds.push(entry.itemId);
+  for (const entry of [...entries].sort((left, right) => left.position - right.position || left.membershipId.localeCompare(right.membershipId))) {
+    const sourceResult = playbackSource(entry, bindingPaths);
+    if (!sourceResult.source) {
+      skipped[sourceResult.reason] += 1;
+      structuralSkipped[sourceResult.reason] += 1;
+      continue;
+    }
+    projected.push({
+      membershipId: entry.membershipId,
+      itemId: entry.itemId,
+      identityKey: entry.identityKey,
+      source: sourceResult.source,
+      sourceKind: entry.sourceKind,
+      availability: entry.availability,
+      youtubeResolutionState: entry.youtubeResolutionState,
+      weight: entry.weight,
+      enabled: entry.enabled,
+      snoozedUntil: entry.snoozedUntil,
+      snoozedIndefinitely: entry.snoozedIndefinitely,
+      skipRanges: [...entry.skipRanges].sort((left, right) => left.startMs - right.startMs),
+      volume: entry.volume,
+      rate: entry.rate,
+    });
   }
-  return { sources, itemIds, skipped };
+  const eligibleIndices: number[] = [];
+  for (const [index, entry] of projected.entries()) {
+    const eligibility = evaluateMusicQueueEntry(entry, context);
+    if (eligibility.eligible) eligibleIndices.push(index);
+    else if (eligibility.reason) skipped[eligibility.reason] += 1;
+  }
+  return {
+    entries: projected,
+    sources: projected.map((entry) => entry.source),
+    itemIds: projected.map((entry) => entry.itemId),
+    eligibleIndices,
+    skipped,
+    structuralSkipped,
+  };
 }
 
-function ineligibleReason(
-  entry: MusicPlaylistPlaybackEntry,
-  bindingPaths: ReadonlyMap<string, string | null>,
-  explicitItemId: string | null,
-): MusicPlaylistSkipReason | null {
-  if (!entry.enabled) return "disabled";
-  if (entry.snoozed && entry.itemId !== explicitItemId) return "snoozed";
-  if (entry.availability !== "available") return "unavailable";
-  if (entry.sourceKind === "local-file" && (!entry.rootId || !bindingPaths.get(entry.rootId))) return "unbound-root";
-  return null;
+export function eligibleMusicQueueIndices(
+  entries: readonly MusicSavedQueueEntry[],
+  context: MusicEligibilityContext,
+): number[] {
+  return entries.flatMap((entry, index) => evaluateMusicQueueEntry(entry, context).eligible ? [index] : []);
+}
+
+export function buildWeightedShuffleCycle(
+  entries: readonly MusicSavedQueueEntry[],
+  eligibleIndices: readonly number[],
+  currentIndex: number,
+  recentItemIds: readonly string[],
+  random: () => number = Math.random,
+): number[] {
+  const recentRanks = new Map<string, number>();
+  recentItemIds.forEach((itemId, index) => {
+    if (!recentRanks.has(itemId)) recentRanks.set(itemId, index);
+  });
+  const candidates = eligibleIndices.filter((index) => index !== currentIndex || eligibleIndices.length === 1);
+  const scored = candidates.map((index) => {
+    const entry = entries[index];
+    const rank = entry ? recentRanks.get(entry.itemId) : undefined;
+    const recencyPenalty = rank === undefined ? 1 : Math.max(1.25, 7 - Math.min(5, rank));
+    const weight = entry ? weightValues[entry.weight] / recencyPenalty : 1;
+    const sample = Math.min(1 - Number.EPSILON, Math.max(Number.EPSILON, random()));
+    return { index, score: -Math.log(sample) / Math.max(Number.EPSILON, weight) };
+  });
+  scored.sort((left, right) => left.score - right.score || left.index - right.index);
+  return scored.map(({ index }) => index);
+}
+
+export function nextSequentialQueueIndex(
+  eligibleIndices: readonly number[],
+  currentIndex: number,
+  repeatMode: MusicRepeatMode,
+): number | null {
+  if (eligibleIndices.length === 0) return null;
+  if (repeatMode === "one" && eligibleIndices.includes(currentIndex)) return currentIndex;
+  const next = eligibleIndices.find((index) => index > currentIndex);
+  if (next !== undefined) return next;
+  return repeatMode === "all" ? eligibleIndices[0] ?? null : null;
+}
+
+export function previousSequentialQueueIndex(
+  eligibleIndices: readonly number[],
+  currentIndex: number,
+  repeatMode: MusicRepeatMode,
+): number | null {
+  if (eligibleIndices.length === 0) return null;
+  if (repeatMode === "one" && eligibleIndices.includes(currentIndex)) return currentIndex;
+  const previous = [...eligibleIndices].reverse().find((index) => index < currentIndex);
+  if (previous !== undefined) return previous;
+  return repeatMode === "all" ? eligibleIndices.at(-1) ?? null : null;
+}
+
+export function skipRangeTargetMs(
+  positionMs: number,
+  ranges: readonly MusicMembershipSkipRange[],
+): number | null {
+  const range = ranges.find((candidate) => positionMs >= candidate.startMs && positionMs < candidate.endMs);
+  return range?.endMs ?? null;
 }
 
 function playbackSource(
   entry: MusicPlaylistPlaybackEntry,
   bindingPaths: ReadonlyMap<string, string | null>,
-): MusicSource | null {
+): { source: MusicSource | null; reason: "unbound-root" | "invalid-source" } {
   if (entry.sourceKind === "youtube-video") {
-    if (!entry.youtubeVideoId) return null;
+    if (!entry.youtubeVideoId) return { source: null, reason: "invalid-source" };
     return {
-      ...youtubeVideoSourceFromId(entry.youtubeVideoId, { startMs: entry.startMs, endMs: entry.endMs }),
-      title: entry.title,
+      source: {
+        ...youtubeVideoSourceFromId(entry.youtubeVideoId, { startMs: entry.startMs, endMs: entry.endMs }),
+        title: entry.title,
+      },
+      reason: "invalid-source",
     };
   }
-  if (!entry.rootId || !entry.relativePath) return null;
+  if (!entry.rootId || !entry.relativePath) return { source: null, reason: "unbound-root" };
   const folder = bindingPaths.get(entry.rootId);
-  if (!folder) return null;
+  if (!folder) return { source: null, reason: "unbound-root" };
   const separator = folder.includes("\\") && !folder.includes("/") ? "\\" : "/";
   const path = `${folder.replace(/[\\/]+$/, "")}${separator}${entry.relativePath.replace(/[\\/]+/g, separator)}`;
   return {
-    ...localFileSourceFromPath(path, entry.title),
-    startMs: entry.startMs,
-    endMs: entry.endMs,
+    source: {
+      ...localFileSourceFromPath(path, entry.title),
+      startMs: entry.startMs,
+      endMs: entry.endMs,
+    },
+    reason: "invalid-source",
   };
 }

@@ -30,6 +30,7 @@
   import type { MusicIssue, MusicSourceCollection } from "$lib/music/library-contracts";
   import type { MusicSourceRefreshPlan } from "$lib/music/music-source-refresh";
   import { restoreMusicFocus } from "$lib/music/music-focus-recovery";
+  import { onMusicLibraryChanged } from "$lib/music/music-library-events";
   import { onActiveVaultIdentityChange, requireActiveVaultIdentity } from "$lib/vault/active-vault";
   import { getConfigKey, setConfigKey } from "$lib/vault/config";
   import MusicBuilderAsyncState from "./builder/MusicBuilderAsyncState.svelte";
@@ -53,8 +54,17 @@
   import MusicBulkMembershipDialog from "./builder/MusicBulkMembershipDialog.svelte";
   import MusicBulkWeightDialog from "./builder/MusicBulkWeightDialog.svelte";
   import MusicBulkStatusDialog from "./builder/MusicBulkStatusDialog.svelte";
+  import type { MusicBuilderInitialAction } from "$lib/music/music-builder-loader";
 
-  let { onBack }: { onBack: () => void } = $props();
+  let {
+    onBack,
+    initialAction = null,
+    onInitialActionHandled = () => undefined,
+  }: {
+    onBack: () => void;
+    initialAction?: MusicBuilderInitialAction | null;
+    onInitialActionHandled?: () => void;
+  } = $props();
   const { t } = getLocalization();
   const library = createMusicLibraryController();
   const inspector = createMusicBuilderInspectorController();
@@ -72,6 +82,7 @@
   let navigationOpen = $state(false);
   let history = $state<MusicBuilderHistory>(initialMusicBuilderRoute(1, null, { playlistIds: new Set() }));
   let unsubscribeVault: (() => void) | null = null;
+  let unsubscribeLibraryChanges: (() => void) | null = null;
   let sourceSurface = $state<"add" | "relink" | "remove" | "item-repair" | null>(null);
   let sourceSurfaceCollection = $state<MusicSourceCollection | null>(null);
   let repairItemId = $state<string | null>(null);
@@ -93,6 +104,16 @@
   const playingItemId = $derived(audition.musicPlayer.activeQueueItemIds[audition.musicPlayer.currentQueueIndex] ?? null);
   const playlistNames = $derived(Object.fromEntries(library.playlistSummaries.map((entry) => [entry.id, entry.name])));
   const sourceNames = $derived(Object.fromEntries(library.sourceSummaries.map((entry) => [entry.id, entry.name])));
+
+  $effect(() => {
+    const action = initialAction;
+    if (!action || !library.vaultId) return;
+    if (action === "new-playlist") playlistSurface = "create";
+    else {
+      void navigateNow({ kind: "library" }).then(() => selectItem(action.itemId));
+    }
+    onInitialActionHandled();
+  });
 
   function destinationTitle(): string {
     if (destination.kind === "review") return t("music.builder.review");
@@ -362,7 +383,7 @@
   }
 
   async function resetInspectorStatistics(itemId: string): Promise<void> {
-    await resetMusicStatistics({ itemIds: [itemId], resetRecentSelections: true });
+    await resetMusicStatistics({ itemIds: [itemId], resetAggregates: true, resetRecentSelections: true });
     await inspector.select(null);
     await inspector.select(itemId);
     await library.refresh();
@@ -392,10 +413,12 @@
       if (next) void loadVault(next);
       else { library.setVault(null); sources.setVault(null); }
     });
+    unsubscribeLibraryChanges = onMusicLibraryChanged(() => { void library.refresh(); });
   });
 
   onDestroy(() => {
     unsubscribeVault?.();
+    unsubscribeLibraryChanges?.();
     if (audition.active) void audition.restore();
   });
 </script>
@@ -522,7 +545,7 @@
             onSelect={(item) => { void selectItem(item.id); }}
             onSelectionChange={(itemIds, activeItemId) => library.setItemSelection(itemIds, activeItemId)}
             onScrollTop={(scrollTop) => library.setScrollTop(scrollTop)}
-            onReorder={(item, targetIndex) => { void playlist.reorder(item.id, targetIndex); }}
+            onReorder={(item, targetIndex) => { void playlist.reorder(item.id, targetIndex, sources.bindings); }}
             onPlay={(item) => {
               const activeIndex = audition.musicPlayer.activeQueueItemIds.indexOf(item.id);
               if (audition.musicPlayer.activePlaylistId === (destination.kind === "playlist" ? destination.playlistId : null) && activeIndex >= 0) void audition.musicPlayer.playQueueItem(activeIndex);
@@ -604,7 +627,7 @@
     {:else if sourceSurface === "remove" && sourceSurfaceCollection}
       <MusicSourceRemovalDialog controller={sources} collection={sourceSurfaceCollection} onClose={closeSourceSurface} onRemoved={() => { sourceSurface = null; sourceSurfaceCollection = null; void library.refresh(); }} />
     {:else if sourceSurface === "item-repair" && repairItemId}
-      <MusicItemRepairDialog controller={sources} itemId={repairItemId} onClose={closeSourceSurface} onRepaired={() => { void library.refresh(); void inspector.select(repairItemId); }} />
+      <MusicItemRepairDialog controller={sources} itemId={repairItemId} onClose={closeSourceSurface} onRepaired={() => { void library.refresh(); void inspector.select(repairItemId); void playlist.refreshActivePlayback(sources.bindings); }} />
     {/if}
     {#if pendingRefreshPlan}
       <MusicNetworkRefreshDialog onlineCount={pendingRefreshPlan.onlineCount} onClose={() => pendingRefreshPlan = null} onLocalOnly={() => { void runSourceRefresh(pendingRefreshPlan!, false); }} onContinue={() => { void runSourceRefresh(pendingRefreshPlan!, true); }} />
@@ -634,7 +657,7 @@
           const deletedPlaylistId = destination.kind === "playlist" ? destination.playlistId : null;
           playlistSurface = null;
           if (deletedPlaylistId && audition.musicPlayer.activePlaylistId === deletedPlaylistId) {
-            audition.musicPlayer.activePlaylistId = null;
+            audition.musicPlayer.detachDeletedPlaylist(deletedPlaylistId);
             if (replacementPlaylistId) {
               void navigateNow({ kind: "playlist", playlistId: replacementPlaylistId }).then(() => playlist.play(sources.bindings));
               return;
@@ -651,14 +674,14 @@
         controller={bulk}
         playlists={library.playlistSummaries}
         onClose={closeBulkSurface}
-        onSaved={() => { closeBulkSurface(); library.setItemSelection([], null); }}
+        onSaved={() => { closeBulkSurface(); library.setItemSelection([], null); void playlist.refreshActivePlayback(sources.bindings); }}
       />
     {:else if bulkSurface === "weight" && destination.kind === "playlist"}
       <MusicBulkWeightDialog
         controller={bulk}
         playlistId={destination.playlistId}
         onClose={closeBulkSurface}
-        onSaved={closeBulkSurface}
+        onSaved={() => { closeBulkSurface(); void playlist.refreshActivePlayback(sources.bindings); }}
       />
     {:else if bulkSurface === "review" || bulkSurface === "snooze"}
       <MusicBulkStatusDialog
@@ -666,7 +689,7 @@
         mode={bulkSurface}
         playlistId={destination.kind === "playlist" ? destination.playlistId : null}
         onClose={closeBulkSurface}
-        onSaved={() => { closeBulkSurface(); library.setItemSelection([], null); }}
+        onSaved={() => { closeBulkSurface(); library.setItemSelection([], null); void playlist.refreshActivePlayback(sources.bindings); }}
       />
     {/if}
   </div>

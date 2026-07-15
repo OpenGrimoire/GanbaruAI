@@ -74,7 +74,11 @@ describe("MusicPanel", () => {
     const playerPage = target.querySelector<HTMLElement>("[data-music-player-page]");
     expect(playerPage).not.toBeNull();
 
-    target.querySelector<HTMLButtonElement>(`button[aria-label="Playlist builder"]`)?.click();
+    target.querySelector<HTMLButtonElement>("[data-music-playlist-launcher]")?.click();
+    await tick();
+    const firstOpenBuilder = [...target.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent?.includes("Open builder"));
+    firstOpenBuilder?.click();
     await vi.waitFor(() => {
       expect(target?.querySelector(".builder-root"), target?.textContent ?? "").not.toBeNull();
     }, { timeout: 5_000 });
@@ -86,7 +90,11 @@ describe("MusicPanel", () => {
     expect(target.querySelector("[data-music-player-page]")).toBe(playerPage);
     expect(playerPage?.classList.contains("hidden")).toBe(false);
 
-    target.querySelector<HTMLButtonElement>(`button[aria-label="Playlist builder"]`)?.click();
+    target.querySelector<HTMLButtonElement>("[data-music-playlist-launcher]")?.click();
+    await tick();
+    const openBuilder = [...target.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent?.includes("Open builder"));
+    openBuilder?.click();
     await tick();
     expect(target.querySelector(".builder-root")).not.toBeNull();
     expect(target.querySelector("[data-music-player-page]")).toBe(playerPage);

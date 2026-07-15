@@ -9,7 +9,7 @@ function window(id: string, title = id): MusicItemWindow {
   return {
     items: [{
       id, identityKey: `local:${id}`, sourceKind: "local-file", mediaKind: "audio",
-      title, artist: "", album: "", durationMs: null, availability: "available",
+      title, artist: "", album: "", artworkOverride: null, durationMs: null, availability: "available",
       reviewState: "unreviewed", discoveredAt: 1, updatedAt: 1, version: 1,
       playlistCount: 0, activeSnoozeCount: 0, lastPlayedAt: null, playCount: 0,
       membershipId: null, membershipPosition: null, membershipWeight: null,

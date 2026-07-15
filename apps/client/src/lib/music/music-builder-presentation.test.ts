@@ -15,6 +15,7 @@ const item: MusicItemListEntry = {
   title: "Track",
   artist: "",
   album: "",
+  artworkOverride: null,
   durationMs: 65_000,
   availability: "available",
   reviewState: "unreviewed",

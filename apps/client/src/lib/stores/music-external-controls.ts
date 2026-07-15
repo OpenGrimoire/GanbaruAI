@@ -196,8 +196,14 @@ export function createMusicExternalControls(
     updateBrowserPositionState(snapshot);
     navigator.mediaSession.setActionHandler("play", () => { void context.play(); });
     navigator.mediaSession.setActionHandler("pause", () => { void context.pause(); });
-    navigator.mediaSession.setActionHandler("previoustrack", () => { void context.previous(); });
-    navigator.mediaSession.setActionHandler("nexttrack", () => { void context.next(); });
+    navigator.mediaSession.setActionHandler(
+      "previoustrack",
+      context.canPrevious() ? () => { void context.previous(); } : null,
+    );
+    navigator.mediaSession.setActionHandler(
+      "nexttrack",
+      context.canNext() ? () => { void context.next(); } : null,
+    );
     navigator.mediaSession.setActionHandler("stop", () => { void context.stop(); });
   }
 

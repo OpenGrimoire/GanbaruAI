@@ -29,6 +29,7 @@ interface MusicNativeLocalAdapterContext {
   updateTray(): void;
   persist(force?: boolean): Promise<void>;
   playNext(): Promise<void>;
+  handlePosition(positionMs: number): void;
 }
 
 export interface MusicNativeLocalAdapter {
@@ -67,6 +68,7 @@ export function createMusicNativeLocalAdapter(
       error: localSnapshot.error,
     };
     state.playerError = localSnapshot.error;
+    context.handlePosition(localSnapshot.positionMs);
   }
 
   function applyError(error: unknown): void {

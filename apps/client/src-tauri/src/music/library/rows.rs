@@ -164,6 +164,7 @@ pub(crate) struct MusicPlaylistPlaybackRow {
     pub identity_key: String,
     pub source_kind: String,
     pub youtube_video_id: Option<String>,
+    pub youtube_resolution_state: Option<String>,
     pub title: String,
     pub availability: String,
     pub root_id: Option<String>,
@@ -176,6 +177,8 @@ pub(crate) struct MusicPlaylistPlaybackRow {
     pub volume: Option<f64>,
     pub rate: Option<f64>,
     pub snoozed: i64,
+    pub snoozed_until: Option<i64>,
+    pub snoozed_indefinitely: i64,
 }
 
 impl TryFrom<MusicPlaylistPlaybackRow> for MusicPlaylistPlaybackEntry {
@@ -188,6 +191,11 @@ impl TryFrom<MusicPlaylistPlaybackRow> for MusicPlaylistPlaybackEntry {
             identity_key: row.identity_key,
             source_kind: parse_enum(&row.source_kind, "sourceKind")?,
             youtube_video_id: row.youtube_video_id,
+            youtube_resolution_state: row
+                .youtube_resolution_state
+                .as_deref()
+                .map(|value| parse_enum(value, "youtubeResolutionState"))
+                .transpose()?,
             title: row.title,
             availability: parse_enum(&row.availability, "availability")?,
             root_id: row.root_id,
@@ -200,6 +208,9 @@ impl TryFrom<MusicPlaylistPlaybackRow> for MusicPlaylistPlaybackEntry {
             volume: row.volume,
             rate: row.rate,
             snoozed: parse_bool(row.snoozed, "snoozed")?,
+            snoozed_until: row.snoozed_until,
+            snoozed_indefinitely: parse_bool(row.snoozed_indefinitely, "snoozedIndefinitely")?,
+            skip_ranges: Vec::new(),
         })
     }
 }

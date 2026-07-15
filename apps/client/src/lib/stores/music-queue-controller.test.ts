@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { localFileSourceFromPath } from "$lib/music/sources";
+import type { MusicSavedQueueEntry } from "$lib/music/music-playlist-playback";
+import { localFileSourceFromPath, youtubeVideoSourceFromId } from "$lib/music/sources";
 import { createMusicQueueController, type MusicQueueState } from "./music-queue-controller";
 
 function createState(): MusicQueueState {
@@ -16,6 +17,33 @@ function createState(): MusicQueueState {
     shuffleOrder: [],
     queueHistory: [],
     pendingQueueIndex: null,
+    savedQueueEntries: [],
+    savedQueueRecentItemIds: [],
+    activePlaylistRepeatMode: "off",
+  };
+}
+
+function savedEntry(
+  state: MusicQueueState,
+  index: number,
+  overrides: Partial<MusicSavedQueueEntry> = {},
+): MusicSavedQueueEntry {
+  return {
+    membershipId: `membership-${index}`,
+    itemId: `item-${index}`,
+    identityKey: `local:item-${index}`,
+    source: state.queue[index]!,
+    sourceKind: "local-file",
+    availability: "available",
+    youtubeResolutionState: null,
+    weight: "normal",
+    enabled: true,
+    snoozedUntil: null,
+    snoozedIndefinitely: false,
+    skipRanges: [],
+    volume: null,
+    rate: null,
+    ...overrides,
   };
 }
 
@@ -35,7 +63,7 @@ describe("Music queue controller", () => {
     await controller.playNext();
     expect(state.queueHistory).toEqual([0]);
     expect(state.pendingQueueIndex).toBe(1);
-    expect(loadSource).toHaveBeenCalledWith(state.queue[1]);
+    expect(loadSource).toHaveBeenCalledWith(state.queue[1], 1);
   });
 
   it("uses history before linear previous navigation", async () => {
@@ -54,6 +82,97 @@ describe("Music queue controller", () => {
 
     await controller.playPrevious();
     expect(state.queueHistory).toEqual([]);
-    expect(loadSource).toHaveBeenCalledWith(state.queue[0]);
+    expect(loadSource).toHaveBeenCalledWith(state.queue[0], 0);
+  });
+
+  it("skips queue history entries that became ineligible", async () => {
+    const state = createState();
+    state.currentSource = state.queue[2];
+    state.queueHistory = [0, 1];
+    state.savedQueueEntries = state.queue.map((_, index) => savedEntry(state, index));
+    state.savedQueueEntries[1]!.enabled = false;
+    const loadSource = vi.fn(async () => undefined);
+    const controller = createMusicQueueController({
+      state,
+      isBusy: () => false,
+      loadSource,
+      persistSettings: vi.fn(),
+      updateExternalControls: vi.fn(),
+      updateTray: vi.fn(),
+    });
+
+    await controller.playPrevious();
+    expect(state.queueHistory).toEqual([]);
+    expect(loadSource).toHaveBeenCalledWith(state.queue[0], 0);
+  });
+
+  it("uses the eligible local subset while offline", async () => {
+    const state = createState();
+    const youtube = youtubeVideoSourceFromId("dQw4w9WgXcQ");
+    state.queue[1] = youtube;
+    state.savedQueueEntries = state.queue.map((_, index) => savedEntry(state, index));
+    state.savedQueueEntries[1] = savedEntry(state, 1, {
+      source: youtube,
+      sourceKind: "youtube-video",
+      identityKey: "youtube:dQw4w9WgXcQ",
+    });
+    const loadSource = vi.fn(async () => undefined);
+    const controller = createMusicQueueController({
+      state,
+      isBusy: () => false,
+      loadSource,
+      persistSettings: vi.fn(),
+      updateExternalControls: vi.fn(),
+      updateTray: vi.fn(),
+      online: () => false,
+    });
+
+    await controller.playNext();
+    expect(loadSource).toHaveBeenCalledWith(state.queue[2], 2);
+  });
+
+  it("restarts repeat-one automatically but advances on an explicit next action", async () => {
+    const state = createState();
+    state.savedQueueEntries = state.queue.map((_, index) => savedEntry(state, index));
+    state.activePlaylistRepeatMode = "one";
+    const loadSource = vi.fn(async () => undefined);
+    const onSelection = vi.fn();
+    const controller = createMusicQueueController({
+      state,
+      isBusy: () => false,
+      loadSource,
+      persistSettings: vi.fn(),
+      updateExternalControls: vi.fn(),
+      updateTray: vi.fn(),
+      onSelection,
+    });
+
+    await controller.playNext(true);
+    expect(loadSource).toHaveBeenLastCalledWith(state.queue[0], 0);
+    expect(onSelection).toHaveBeenLastCalledWith(0, true);
+    await controller.playNext(false);
+    expect(loadSource).toHaveBeenLastCalledWith(state.queue[1], 1);
+  });
+
+  it("lets an explicit item bypass Snooze without making automatic navigation select it", async () => {
+    const state = createState();
+    state.savedQueueEntries = state.queue.map((_, index) => savedEntry(state, index));
+    state.savedQueueEntries[1]!.snoozedIndefinitely = true;
+    const loadSource = vi.fn(async () => undefined);
+    const controller = createMusicQueueController({
+      state,
+      isBusy: () => false,
+      loadSource,
+      persistSettings: vi.fn(),
+      updateExternalControls: vi.fn(),
+      updateTray: vi.fn(),
+    });
+
+    await controller.playItem(1);
+    expect(loadSource).toHaveBeenCalledWith(state.queue[1], 1);
+    state.currentSource = state.queue[0];
+    loadSource.mockClear();
+    await controller.playNext();
+    expect(loadSource).toHaveBeenCalledWith(state.queue[2], 2);
   });
 });

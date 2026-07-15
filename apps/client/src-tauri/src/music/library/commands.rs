@@ -358,6 +358,31 @@ pub async fn music_library_playlist_playback_entries(
 }
 
 #[tauri::command]
+pub async fn music_library_record_listening(
+    app: tauri::AppHandle,
+    db_url: String,
+    request: MusicListeningUpdate,
+) -> MusicLibraryResult<()> {
+    let pool = connect_sqlite(app, db_url)
+        .await
+        .map_err(connection_error)?;
+    super::playback::record_listening(&pool, request).await
+}
+
+#[tauri::command]
+pub async fn music_library_recent_selections(
+    app: tauri::AppHandle,
+    db_url: String,
+    playlist_id: Option<String>,
+    limit: i64,
+) -> MusicLibraryResult<Vec<MusicRecentSelection>> {
+    let pool = connect_sqlite(app, db_url)
+        .await
+        .map_err(connection_error)?;
+    super::playback::recent_selections(&pool, playlist_id, limit).await
+}
+
+#[tauri::command]
 pub async fn music_library_bulk_set_review_state(
     app: tauri::AppHandle,
     db_url: String,
