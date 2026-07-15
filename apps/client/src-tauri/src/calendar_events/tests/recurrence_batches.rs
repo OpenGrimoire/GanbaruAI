@@ -245,6 +245,8 @@ fn recurrence_commit_batch_rolls_back_when_later_operation_fails() {
                         transparency: "opaque".to_string(),
                         status: "confirmed".to_string(),
                         now: "2026-05-09T10:30:00Z".to_string(),
+                        music_snapshot_assignments: Vec::new(),
+                        music_override_assignments: Vec::new(),
                     }),
                 },
             ],

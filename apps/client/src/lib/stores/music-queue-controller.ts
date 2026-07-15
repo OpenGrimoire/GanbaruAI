@@ -161,7 +161,10 @@ export function createMusicQueueController(
       nextIndex = activeIndex;
     } else if (hasSavedQueue() && state.shuffleEnabled) {
       state.shuffleOrder = state.shuffleOrder.filter((index) => eligibleIndices().includes(index) && index !== activeIndex);
-      if (state.shuffleOrder.length === 0 && state.activePlaylistRepeatMode !== "off") {
+      if (
+        state.shuffleOrder.length === 0
+        && (activeIndex < 0 || state.activePlaylistRepeatMode !== "off")
+      ) {
         state.shuffleOrder = rebuildSavedShuffle(activeIndex);
       }
       nextIndex = state.shuffleOrder[0] ?? null;

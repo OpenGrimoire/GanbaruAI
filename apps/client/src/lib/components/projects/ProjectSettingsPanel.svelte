@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy, tick } from "svelte";
+  import { getMusicContextAssignments, getMusicPlaylistSummaries } from "$lib/api/music-library";
   import { FALLBACK_COLOR_INDEX, type EventColor } from "$lib/components/calendar/types";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import type { PomodoroPresetKey } from "$lib/pomodoro/rhythm";
@@ -47,6 +48,13 @@
     ProjectStatus,
     ProjectStatusCategory,
   } from "$lib/projects/types";
+  import {
+    completeMusicAssignmentDrafts,
+    musicAssignmentDraftsEqual,
+    persistedMusicAssignmentDrafts,
+  } from "$lib/music/music-assignment-draft";
+  import type { MusicContextAssignmentDraft } from "$lib/music/music-context-assignment";
+  import type { MusicPlaylistSummary } from "$lib/music/library-contracts";
   import { getProjects } from "$lib/stores/projects.svelte";
   import { getTheme } from "$lib/stores/theme.svelte";
   import ProjectSettingsCustomFieldsSection from "./ProjectSettingsCustomFieldsSection.svelte";
@@ -100,6 +108,13 @@
   let newPriorityRowElement = $state<HTMLDivElement | undefined>();
   let newTagRowElement = $state<HTMLDivElement | undefined>();
   let newCustomFieldRowElement = $state<HTMLDivElement | undefined>();
+  let musicAssignments = $state<MusicContextAssignmentDraft[]>(completeMusicAssignmentDrafts([]));
+  let savedMusicAssignments = $state<MusicContextAssignmentDraft[]>(completeMusicAssignmentDrafts([]));
+  let musicPlaylists = $state<MusicPlaylistSummary[]>([]);
+  let musicAssignmentsProjectId = $state<string | null>(null);
+  let musicAssignmentsLoading = $state(false);
+  let musicAssignmentsError = $state<string | null>(null);
+  let musicLoadGeneration = 0;
 
   const selectedProject = $derived(projects.projectById(projectId));
   const selectedProjectId = $derived(selectedProject?.id ?? null);
@@ -138,9 +153,13 @@
   const projectSettingsDraftReady = $derived(
     Boolean(selectedProject && sessionState.projectDraftId === selectedProject.id),
   );
-  const projectSettingsDirty = $derived.by(() =>
-    selectedProject ? session.dirty(selectedProject, sessionCollections()) : false
+  const musicAssignmentsDirty = $derived(
+    Boolean(selectedProject && musicAssignmentsProjectId === selectedProject.id)
+      && !musicAssignmentDraftsEqual(musicAssignments, savedMusicAssignments),
   );
+  const projectSettingsDirty = $derived.by(() => selectedProject
+    ? session.dirty(selectedProject, sessionCollections()) || musicAssignmentsDirty
+    : false);
   const customFields = createProjectSettingsCustomFieldController({
     state: sessionState,
     fields: () => projectCustomFields,
@@ -215,6 +234,7 @@
   });
 
   onDestroy(() => {
+    musicLoadGeneration += 1;
     onDirtyChange(false);
   });
 
@@ -226,6 +246,29 @@
     customFields.resetTransientState();
     clearCustomFieldDrag();
     clearCustomFieldOptionDrag();
+    void loadMusicAssignments(project.id);
+  }
+
+  async function loadMusicAssignments(projectId: string): Promise<void> {
+    const generation = ++musicLoadGeneration;
+    musicAssignmentsLoading = true;
+    musicAssignmentsError = null;
+    const [assignmentsResult, playlistsResult] = await Promise.allSettled([
+      getMusicContextAssignments("project-default", projectId),
+      getMusicPlaylistSummaries(Date.now(), 0, 500),
+    ]);
+    if (generation !== musicLoadGeneration || selectedProject?.id !== projectId) return;
+    if (assignmentsResult.status === "fulfilled") {
+      savedMusicAssignments = completeMusicAssignmentDrafts(assignmentsResult.value);
+      musicAssignments = completeMusicAssignmentDrafts(assignmentsResult.value);
+      musicAssignmentsProjectId = projectId;
+    }
+    if (playlistsResult.status === "fulfilled") musicPlaylists = playlistsResult.value;
+    const failures = [assignmentsResult, playlistsResult]
+      .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+      .map((result) => result.reason instanceof Error ? result.reason.message : String(result.reason));
+    musicAssignmentsError = failures.length > 0 ? failures.join(" ") : null;
+    musicAssignmentsLoading = false;
   }
 
   function sessionCollections() {
@@ -253,6 +296,7 @@
   function discardProjectSettings(): void {
     if (selectedProject) {
       session.discard(selectedProject, sessionCollections(), initialCreateColors());
+      musicAssignments = completeMusicAssignmentDrafts(savedMusicAssignments);
     }
   }
 
@@ -735,11 +779,16 @@
 
   async function saveProjectSettings(): Promise<void> {
     if (!selectedProject) return;
-    await session.save(
+    const musicUpdate = musicAssignmentsDirty
+      ? { assignments: persistedMusicAssignmentDrafts(musicAssignments), updatedAt: Date.now() }
+      : undefined;
+    const saved = await session.save(
       selectedProject,
       new Set(visibleProjectGroups.map((group) => group.id)),
       sessionCollections(),
+      musicUpdate,
     );
+    if (saved && musicUpdate) savedMusicAssignments = completeMusicAssignmentDrafts(musicAssignments);
   }
 
 </script>
@@ -791,8 +840,15 @@
             bind:projectIdleSettingsSourceDraft={sessionState.projectDraft.defaultIdleSettingsSource}
             bind:projectIdlePauseEnabledDraft={sessionState.projectDraft.defaultIdlePauseEnabled}
             bind:projectIdleThresholdMinutesDraft={sessionState.projectDraft.defaultIdleThresholdMinutes}
-            bind:projectFocusPlaylistDraft={sessionState.projectDraft.focusPlaylistId}
-            bind:projectBreakPlaylistDraft={sessionState.projectDraft.breakPlaylistId}
+            {musicAssignments}
+            {musicPlaylists}
+            onMusicAssignmentsChange={(assignments) => { musicAssignments = assignments; }}
+            loadingMusicPlaylists={musicAssignmentsLoading}
+            {musicAssignmentsError}
+            musicAssignmentsDisabled={musicAssignmentsProjectId !== selectedProject.id}
+            onRetryMusicAssignments={() => {
+              if (selectedProject) void loadMusicAssignments(selectedProject.id);
+            }}
           />
 
           <div class="h-px bg-border/70" aria-hidden="true"></div>

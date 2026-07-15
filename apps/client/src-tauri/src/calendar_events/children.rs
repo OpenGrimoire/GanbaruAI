@@ -400,6 +400,10 @@ pub(super) async fn apply_update_field(
             .map_err(|e| format!("update calendar guest permissions: {e}"))?;
             Ok(())
         }
+        CalendarEventUpdateField::MusicSnapshotAssignments(_)
+        | CalendarEventUpdateField::MusicOverrideAssignments(_) => {
+            Err("music assignment fields require the contextual update path".to_string())
+        }
     }
 }
 pub(super) fn parse_i64_list(value: &Option<String>, field: &str) -> Result<Vec<i64>, String> {

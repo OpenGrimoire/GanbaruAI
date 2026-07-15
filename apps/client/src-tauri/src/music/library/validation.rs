@@ -516,6 +516,10 @@ pub(crate) fn validate_playlist_delete(request: &MusicPlaylistDelete) -> MusicLi
             "calendarAssignmentCount",
             request.expected_impact.calendar_assignment_count,
         ),
+        (
+            "contextAssignmentCount",
+            request.expected_impact.context_assignment_count,
+        ),
     ] {
         if value < 0 {
             return Err(MusicLibraryError::validation(

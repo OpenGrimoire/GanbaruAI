@@ -119,6 +119,8 @@ export async function applyCalendarRecurrenceCommitPlan(
         transparency: parent.transparency ?? "opaque",
         status: parent.status ?? "confirmed",
         now,
+        musicSnapshotAssignments: parent.musicSnapshotAssignments ?? [],
+        musicOverrideAssignments: parent.musicOverrideAssignments ?? [],
       },
     });
 
@@ -133,6 +135,8 @@ export async function applyCalendarRecurrenceCommitPlan(
       projectId: parent.projectId,
       environmentId: parent.environmentId,
       playlistId: parent.playlistId,
+      musicSnapshotAssignments: parent.musicSnapshotAssignments,
+      musicOverrideAssignments: parent.musicOverrideAssignments,
       color: instanceEvent.color,
       allDay: parent.allDay,
       location: parent.location,
@@ -228,6 +232,8 @@ export async function applyCalendarRecurrenceCommitPlan(
         copyPomodoroConfig: pomodoroState.copyFromParent,
         pomodoroConfig: pomodoroState.payloadConfig,
         now,
+        musicSnapshotAssignments: merged.musicSnapshotAssignments ?? [],
+        musicOverrideAssignments: merged.musicOverrideAssignments ?? [],
       },
     });
 

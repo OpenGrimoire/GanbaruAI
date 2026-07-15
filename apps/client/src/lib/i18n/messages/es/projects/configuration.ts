@@ -33,6 +33,8 @@ export const configuration = {
     idleThreshold: "Umbral de inactividad",
     focusPlaylist: "Playlist de enfoque predeterminada",
     breakPlaylist: "Playlist de descanso predeterminada",
+    soundtrackDefaults: "Banda sonora predeterminada de la actividad",
+    soundtrackDefaultsDescription: "Elige qué ocurre en cada cambio de enfoque y descanso. Los eventos copian estas opciones al seleccionar el proyecto, para que cambios posteriores no modifiquen planes existentes de forma inesperada.",
     tags: "Tags",
     tagName: "Nombre del tag",
     tagColor: "Color",

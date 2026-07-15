@@ -41,6 +41,27 @@ const base = {
 };
 
 describe("music context assignment resolver", () => {
+  it.each((["focus", "short-break", "long-break"] as const).flatMap((phase) => [
+    [phase, "event-override" as const],
+    [phase, "work-environment" as const],
+    [phase, "project-snapshot" as const],
+  ]))("resolves %s with %s precedence", (phase, expectedSource) => {
+    const eventOverride = expectedSource === "event-override"
+      ? assignment("event-override", "play-automatically", phase)
+      : assignment("event-override", "inherit", phase);
+    const environmentAssignment = expectedSource === "work-environment"
+      ? assignment("work-environment", "prepare-silently", phase)
+      : assignment("work-environment", "inherit", phase);
+    const projectSnapshot = assignment("event-snapshot", "pause-music", phase);
+    expect(resolveMusicContextAssignment({
+      ...base,
+      phase,
+      eventOverride,
+      environmentAssignment,
+      projectSnapshot,
+    }).source).toBe(expectedSource);
+  });
+
   it.each([
     ["event override", assignment("event-override", "play-automatically"), assignment("work-environment", "pause-music"), assignment("event-snapshot", "keep-current-music"), "event-override"],
     ["environment", assignment("event-override", "inherit"), assignment("work-environment", "prepare-silently"), assignment("event-snapshot", "pause-music"), "work-environment"],
@@ -68,6 +89,23 @@ describe("music context assignment resolver", () => {
       eventOverride: assignment("event-override", "play-automatically", "focus", "deleted"),
     }).availability).toBe("missing-playlist");
     expect(resolveMusicContextAssignment(base).availability).toBe("no-assignment");
+  });
+
+  it("reports a deleted soundscape independently from a playable playlist", () => {
+    const withSoundscape = {
+      ...assignment("event-override", "play-automatically"),
+      soundscapeId: "deleted-rain",
+    };
+    expect(resolveMusicContextAssignment({
+      ...base,
+      eventOverride: withSoundscape,
+      availableSoundscapeIds: new Set(),
+    })).toMatchObject({ availability: "ready", soundscapeAvailability: "missing-soundscape" });
+    expect(resolveMusicContextAssignment({
+      ...base,
+      eventOverride: withSoundscape,
+      availableSoundscapeIds: new Set(["deleted-rain"]),
+    }).soundscapeAvailability).toBe("ready");
   });
 
   it("applies only focus to a timed event without Pomodoro", () => {

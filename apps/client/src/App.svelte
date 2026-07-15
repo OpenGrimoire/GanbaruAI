@@ -57,6 +57,7 @@
   import CalendarView from "$lib/components/calendar/CalendarView.svelte";
   import CompletionOverlay from "$lib/components/pomodoro/CompletionOverlay.svelte";
   import MusicPlaybackHost from "$lib/components/music/MusicPlaybackHost.svelte";
+  import MusicContextCoordinator from "$lib/components/music/MusicContextCoordinator.svelte";
   import NotesView from "$lib/components/notes/NotesView.svelte";
   import ProjectsView from "$lib/components/projects/ProjectsView.svelte";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
@@ -264,6 +265,18 @@
         void updates.checkAutomatically({ kind: "periodic" });
       }, UPDATE_AUTO_CHECK_INTERVAL_MS + AUTOMATIC_UPDATE_CHECK_DELAY_MS + 1_000)
       : null;
+    const handleMusicAssignmentInspection = (event: Event) => {
+      if (!(event instanceof CustomEvent) || event.detail?.ready === true || nav.current === "calendar") return;
+      const eventId = typeof event.detail?.eventId === "string" ? event.detail.eventId : null;
+      if (!eventId) return;
+      nav.navigate("calendar");
+      window.setTimeout(() => {
+        window.dispatchEvent(new CustomEvent("ganbaru-ai:inspect-music-assignment", {
+          detail: { eventId, ready: true },
+        }));
+      }, 0);
+    };
+    window.addEventListener("ganbaru-ai:inspect-music-assignment", handleMusicAssignmentInspection);
     if (isMainWindow) {
       notesProjectHistoryScheduler.setEnabled(true);
       listen("calendar-notification-open", () => {
@@ -408,6 +421,7 @@
       window.removeEventListener("hashchange", navigateToNotesHash);
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("focus", onFocus);
+      window.removeEventListener("ganbaru-ai:inspect-music-assignment", handleMusicAssignmentInspection);
       if (automaticUpdateCheckTimerId) clearTimeout(automaticUpdateCheckTimerId);
       if (automaticUpdateCheckIntervalId) clearInterval(automaticUpdateCheckIntervalId);
       clearTimeout(startupMemoryTimerId);
@@ -706,7 +720,7 @@
       const faded = await fadeMusicVolume(0, COMPLETION_MUSIC_FADE_OUT_MS, generation);
       if (!faded) return null;
 
-      await music.pausePlayback();
+      await music.pausePlayback("system");
       await delayMs(COMPLETION_MUSIC_PAUSE_SETTLE_MS);
       return {
         generation,
@@ -737,7 +751,7 @@
       await delayMs(completionSoundDurationMs(kind) + COMPLETION_SOUND_RESUME_PAD_MS);
       if (duck.generation !== completionMusicDuckingGeneration) return;
       if (!music.currentSource) return;
-      await music.playPlayback();
+      await music.playPlayback("system");
       await fadeMusicVolume(duck.restoreVolume, COMPLETION_MUSIC_FADE_IN_MS, duck.generation);
       if (duck.generation === completionMusicDuckingGeneration) {
         await music.setTransientVolume(duck.restoreVolume);
@@ -1102,6 +1116,7 @@
   {/if}
 
   <MusicPlaybackHost />
+  {#if isMainWindow}<MusicContextCoordinator />{/if}
   <TooltipHost />
   <WindowResizeHandles disabled={isMaximized || !!idleInfo} />
 </div>

@@ -1,5 +1,5 @@
 use super::*;
-use sqlx::SqlitePool;
+use sqlx::{Sqlite, SqlitePool, Transaction};
 use std::collections::{HashMap, HashSet};
 
 type AssignmentRow = (
@@ -44,24 +44,49 @@ pub(crate) async fn replace_assignments(
     let mut transaction = pool.begin().await.map_err(|error| {
         MusicLibraryError::database("begin music context assignment update", error)
     })?;
+    replace_assignments_in_transaction(
+        &mut transaction,
+        request.owner_kind,
+        &request.owner_id,
+        request.assignments,
+        request.updated_at,
+    )
+    .await?;
+    super::writes::commit(transaction, "commit music context assignment update").await?;
+    assignments(pool, request.owner_kind, &request.owner_id).await
+}
+
+pub(crate) async fn replace_assignments_in_transaction(
+    transaction: &mut Transaction<'_, Sqlite>,
+    owner_kind: MusicAssignmentOwnerKind,
+    owner_id: &str,
+    assignments: Vec<MusicContextAssignmentDraft>,
+    updated_at: i64,
+) -> MusicLibraryResult<()> {
+    validate_set(&MusicContextAssignmentSet {
+        owner_kind,
+        owner_id: owner_id.to_string(),
+        assignments: assignments.clone(),
+        updated_at,
+    })?;
     let prior_versions = sqlx::query_as::<_, (String, i64)>(
         "SELECT phase, version FROM music_context_assignments
          WHERE owner_kind = ? AND owner_id = ?",
     )
-    .bind(request.owner_kind.as_ref())
-    .bind(&request.owner_id)
-    .fetch_all(&mut *transaction)
+    .bind(owner_kind.as_ref())
+    .bind(owner_id)
+    .fetch_all(&mut **transaction)
     .await
     .map_err(|error| MusicLibraryError::database("load music context assignment versions", error))?
     .into_iter()
     .collect::<HashMap<_, _>>();
     sqlx::query("DELETE FROM music_context_assignments WHERE owner_kind = ? AND owner_id = ?")
-        .bind(request.owner_kind.as_ref())
-        .bind(&request.owner_id)
-        .execute(&mut *transaction)
+        .bind(owner_kind.as_ref())
+        .bind(owner_id)
+        .execute(&mut **transaction)
         .await
         .map_err(|error| MusicLibraryError::database("replace music context assignments", error))?;
-    for assignment in request.assignments {
+    for assignment in assignments {
         let version = prior_versions
             .get(assignment.phase.as_ref())
             .copied()
@@ -73,22 +98,21 @@ pub(crate) async fn replace_assignments(
                  provenance_kind, provenance_id, updated_at, version)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
-        .bind(request.owner_kind.as_ref())
-        .bind(&request.owner_id)
+        .bind(owner_kind.as_ref())
+        .bind(owner_id)
         .bind(assignment.phase.as_ref())
         .bind(assignment.behavior.as_ref())
         .bind(assignment.playlist_id)
         .bind(assignment.soundscape_id)
         .bind(assignment.provenance_kind.as_ref())
         .bind(assignment.provenance_id)
-        .bind(request.updated_at)
+        .bind(updated_at)
         .bind(version)
-        .execute(&mut *transaction)
+        .execute(&mut **transaction)
         .await
         .map_err(|error| MusicLibraryError::database("write music context assignment", error))?;
     }
-    super::writes::commit(transaction, "commit music context assignment update").await?;
-    assignments(pool, request.owner_kind, &request.owner_id).await
+    Ok(())
 }
 
 fn validate_set(request: &MusicContextAssignmentSet) -> MusicLibraryResult<()> {

@@ -33,6 +33,7 @@ function createContext() {
     setVolume: vi.fn(async () => undefined),
     setRate: vi.fn(async () => undefined),
     toggleShuffle: vi.fn(),
+    inspectAssignment: vi.fn(),
     handleWindowMessage: vi.fn(),
     listen: listenMock,
   };
@@ -52,9 +53,9 @@ describe("Music external controls", () => {
     controls.init();
     await Promise.resolve();
 
-    expect(listenMock).toHaveBeenCalledTimes(4);
+    expect(listenMock).toHaveBeenCalledTimes(5);
     controls.destroy();
-    expect(unlisten).toHaveBeenCalledTimes(4);
+    expect(unlisten).toHaveBeenCalledTimes(5);
     expect(controls.isInitialized()).toBe(false);
   });
 

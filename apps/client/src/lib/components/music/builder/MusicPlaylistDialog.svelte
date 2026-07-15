@@ -100,10 +100,11 @@
       {#if mode === "delete"}
         {#if controller.deleteImpact}
           <p class="text-xs leading-relaxed">{t("music.builder.deletePlaylistWarning", controller.detail?.name ?? "")}</p>
-          <div class="mt-3 grid grid-cols-2 gap-2 text-[0.68rem]">
+          <div class="mt-3 grid grid-cols-2 gap-2 text-[0.68rem] sm:grid-cols-3">
             <div class="rounded-lg bg-secondary/65 p-2"><strong class="block text-sm">{controller.deleteImpact.membershipCount}</strong><span class="text-muted-foreground">{t("music.builder.memberships")}</span></div>
             <div class="rounded-lg bg-secondary/65 p-2"><strong class="block text-sm">{controller.deleteImpact.projectFocusAssignmentCount + controller.deleteImpact.projectBreakAssignmentCount}</strong><span class="text-muted-foreground">{t("music.builder.projectAssignments")}</span></div>
             <div class="rounded-lg bg-secondary/65 p-2"><strong class="block text-sm">{controller.deleteImpact.calendarAssignmentCount}</strong><span class="text-muted-foreground">{t("music.builder.eventAssignments")}</span></div>
+            <div class="rounded-lg bg-secondary/65 p-2"><strong class="block text-sm">{controller.deleteImpact.contextAssignmentCount}</strong><span class="text-muted-foreground">{t("music.builder.contextAssignments")}</span></div>
             <div class="rounded-lg bg-secondary/65 p-2"><strong class="block text-sm">0</strong><span class="text-muted-foreground">{t("music.builder.mediaFilesDeleted")}</span></div>
           </div>
           <p class="mt-3 rounded-lg bg-warning/10 p-2.5 text-[0.68rem] leading-relaxed text-warning">{t("music.builder.deleteAssignmentFallback")}</p>
@@ -115,7 +116,7 @@
               {/each}
             </div>
           {/if}
-          {#if controller.deleteImpact.projectFocusAssignmentCount + controller.deleteImpact.projectBreakAssignmentCount + controller.deleteImpact.calendarAssignmentCount > 0}
+          {#if controller.deleteImpact.projectFocusAssignmentCount + controller.deleteImpact.projectBreakAssignmentCount + controller.deleteImpact.calendarAssignmentCount + controller.deleteImpact.contextAssignmentCount > 0}
             <label class="mt-3 block text-[0.7rem] font-medium" for="music-delete-replacement">{t("music.builder.replacementPlaylist")}</label>
             <select id="music-delete-replacement" bind:value={replacementPlaylistId} class="mt-1.5 h-9 w-full rounded-md border border-border/70 bg-background px-2 text-xs">
               <option value="">{t("music.builder.safeNoPlaylist")}</option>

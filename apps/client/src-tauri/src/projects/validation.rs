@@ -143,6 +143,15 @@ pub(super) fn validate_project_update(project: &ProjectUpdate) -> Result<(), Str
     )?;
     validate_optional_identifier(&project.focus_playlist_id, "focus_playlist_id")?;
     validate_optional_identifier(&project.break_playlist_id, "break_playlist_id")?;
+    if project.music_assignments.is_some() != project.music_assignments_updated_at.is_some() {
+        return Err("music assignments and their timestamp must be provided together".to_string());
+    }
+    if project
+        .music_assignments_updated_at
+        .is_some_and(|value| value <= 0)
+    {
+        return Err("music_assignments_updated_at must be positive".to_string());
+    }
     validate_optional_identifier(&project.work_environment_id, "work_environment_id")?;
     validate_optional_identifier(&project.blocker_ruleset_id, "blocker_ruleset_id")?;
     Ok(())

@@ -32,6 +32,7 @@ interface MusicExternalControlsContext {
   setRate(rate: number): Promise<void>;
   toggleShuffle(): void;
   handleWindowMessage(event: MessageEvent<unknown>): void;
+  inspectAssignment(): void;
   listen?: typeof listen;
 }
 
@@ -118,6 +119,7 @@ export function createMusicExternalControls(
     trackListener("tray-music-play-pause", () => { void context.togglePlay(); });
     trackListener("tray-music-previous", () => { void context.previous(); });
     trackListener("tray-music-next", () => { void context.next(); });
+    trackListener("tray-music-inspect-assignment", () => { context.inspectAssignment(); });
     trackListener("music-hardware-control", (event) => {
       const payload = parseMusicHardwareControlPayload(event.payload);
       if (payload) void handleHardwareControl(payload);

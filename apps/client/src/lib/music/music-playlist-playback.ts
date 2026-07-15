@@ -57,6 +57,11 @@ export interface MusicPlaylistPlaybackProjection {
   structuralSkipped: Record<MusicPlaylistSkipReason, number>;
 }
 
+export interface MusicInitialQueueSelection {
+  index: number | null;
+  remainingShuffleOrder: number[];
+}
+
 const weightValues: Record<MusicWeight, number> = {
   rarely: 1,
   "less-often": 2,
@@ -180,6 +185,51 @@ export function buildWeightedShuffleCycle(
   });
   scored.sort((left, right) => left.score - right.score || left.index - right.index);
   return scored.map(({ index }) => index);
+}
+
+/** Selects a boundary track, avoiding the interrupted item whenever another item is eligible. */
+export function selectFreshMusicQueueItem(
+  entries: readonly MusicSavedQueueEntry[],
+  eligibleIndices: readonly number[],
+  options: {
+    shuffle: boolean;
+    explicitItemId?: string | null;
+    avoidItemId?: string | null;
+    recentItemIds?: readonly string[];
+    random?: () => number;
+  },
+): MusicInitialQueueSelection {
+  const explicitIndex = options.explicitItemId
+    ? entries.findIndex((entry, index) => entry.itemId === options.explicitItemId && eligibleIndices.includes(index))
+    : -1;
+  const avoidedIndex = options.avoidItemId
+    ? entries.findIndex((entry) => entry.itemId === options.avoidItemId)
+    : -1;
+  if (explicitIndex >= 0) {
+    return {
+      index: explicitIndex,
+      remainingShuffleOrder: options.shuffle
+        ? buildWeightedShuffleCycle(entries, eligibleIndices, explicitIndex, options.recentItemIds ?? [], options.random)
+        : [],
+    };
+  }
+  if (options.shuffle) {
+    const cycle = buildWeightedShuffleCycle(
+      entries,
+      eligibleIndices,
+      avoidedIndex,
+      options.recentItemIds ?? [],
+      options.random,
+    );
+    return { index: cycle.shift() ?? null, remainingShuffleOrder: cycle };
+  }
+  return {
+    index: eligibleIndices.find((index) => index > avoidedIndex)
+      ?? eligibleIndices.find((index) => index !== avoidedIndex)
+      ?? eligibleIndices[0]
+      ?? null,
+    remainingShuffleOrder: [],
+  };
 }
 
 export function nextSequentialQueueIndex(

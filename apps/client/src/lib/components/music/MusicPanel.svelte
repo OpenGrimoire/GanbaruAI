@@ -6,6 +6,7 @@
   import Gauge from "@lucide/svelte/icons/gauge";
   import LinkIcon from "@lucide/svelte/icons/link";
   import ListMusic from "@lucide/svelte/icons/list-music";
+  import CalendarClock from "@lucide/svelte/icons/calendar-clock";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import Pause from "@lucide/svelte/icons/pause";
   import Play from "@lucide/svelte/icons/play";
@@ -108,7 +109,11 @@
     player.queue.slice(renderedPlaylistWindow.startIndex, renderedPlaylistWindow.endIndex),
   );
   const savedQueueSkippedCount = $derived(Object.values(player.savedQueueSkipBreakdown).reduce((total, count) => total + count, 0));
-  const savedQueueUnavailable = $derived(Boolean(player.activePlaylistId && !player.currentSource));
+  const savedQueueUnavailable = $derived(Boolean(
+    player.activePlaylistId
+    && !player.currentSource
+    && player.contextPlayback?.state !== "unavailable",
+  ));
   const savedQueueOfflineSubset = $derived(Boolean(player.activePlaylistId && !player.online && player.savedQueueSkipBreakdown.offline > 0 && player.currentSource));
   const savedQueueSkipDetails = $derived([
     { label: t("music.queueState.disabled"), count: player.savedQueueSkipBreakdown.disabled },
@@ -120,6 +125,11 @@
     { label: t("music.queueState.unboundRoot"), count: player.savedQueueSkipBreakdown["unbound-root"] },
     { label: t("music.queueState.invalidSource"), count: player.savedQueueSkipBreakdown["invalid-source"] },
   ].filter((entry) => entry.count > 0));
+  const visibleContext = $derived(player.contextPlayback?.state === "overridden" ? null : player.contextPlayback);
+  const contextPhaseLabel = $derived(visibleContext ? t(`music.assignment.phase.${visibleContext.phase}`) : "");
+  const contextSummary = $derived(visibleContext
+    ? t("music.assignment.context.selectedBy", contextPhaseLabel, visibleContext.eventTitle)
+    : "");
 
   $effect(() => {
     player.setSurfaceElement(mediaSurface);
@@ -819,6 +829,33 @@
         <button type="button" onclick={() => openPlaylistBuilder()} class="rounded-md px-2 py-1 font-medium text-primary hover:bg-primary/10">{t("music.queueState.openIssues")}</button>
         <button type="button" onclick={openPlaylistChooser} class="rounded-md px-2 py-1 font-medium text-primary hover:bg-primary/10">{t("music.queueState.chooseAnother")}</button>
       {/if}
+    </div>
+  {/if}
+
+  {#if visibleContext}
+    <div
+      class={cn(
+        "flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-y border-border/55 px-3 py-2 text-[0.68rem]",
+        visibleContext.state === "unavailable" || visibleContext.issue ? "bg-warning/10" : "bg-primary/6",
+      )}
+      role={visibleContext.state === "unavailable" || visibleContext.issue ? "alert" : "status"}
+    >
+      {#if visibleContext.state === "unavailable" || visibleContext.issue}<AlertCircle size={14} class="shrink-0 text-warning" />{:else}<CalendarClock size={14} class="shrink-0 text-primary" />{/if}
+      <div class="min-w-40 flex-1 leading-relaxed">
+        <p class="font-semibold text-foreground">{contextSummary}</p>
+        <p class="text-muted-foreground">
+          {t(`music.assignment.context.state.${visibleContext.state}`)}
+          {#if visibleContext.issue} {t(`music.assignment.context.issue.${visibleContext.issue}`)}{/if}
+        </p>
+      </div>
+      {#if visibleContext.state === "prepared"}
+        <button type="button" onclick={() => { void player.playPlayback(); }} class="rounded-md bg-primary px-2.5 py-1 font-semibold text-primary-foreground hover:bg-primary/90">{t("music.assignment.context.preparedPlay")}</button>
+      {/if}
+      {#if visibleContext.state === "unavailable"}
+        <button type="button" onclick={() => player.requestContextRetry()} class="rounded-md bg-secondary px-2.5 py-1 font-semibold hover:bg-accent">{t("music.assignment.context.retry")}</button>
+        <button type="button" onclick={() => openPlaylistBuilder()} class="rounded-md px-2.5 py-1 font-semibold text-primary hover:bg-primary/10">{t("music.assignment.context.openIssues")}</button>
+      {/if}
+      <button type="button" onclick={() => player.inspectContextAssignment()} class="rounded-md px-2.5 py-1 font-semibold text-primary hover:bg-primary/10">{t("music.assignment.context.inspect")}</button>
     </div>
   {/if}
 

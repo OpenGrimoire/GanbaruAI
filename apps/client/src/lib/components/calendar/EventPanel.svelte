@@ -36,6 +36,15 @@
     canRunEventPanelSave,
   } from "./event-panel-actions-controller.svelte";
   import type { PanelSaveData } from "./event-panel-payloads";
+  import { getMusicContextAssignments, getMusicPlaylistSummaries } from "$lib/api/music-library";
+  import MusicSoundtrackAssignmentEditor from "$lib/components/music/MusicSoundtrackAssignmentEditor.svelte";
+  import {
+    completeMusicAssignmentDrafts,
+    musicAssignmentDraftsEqual,
+    persistedMusicAssignmentDrafts,
+  } from "$lib/music/music-assignment-draft";
+  import type { MusicContextAssignmentDraft } from "$lib/music/music-context-assignment";
+  import type { MusicPlaylistSummary } from "$lib/music/library-contracts";
 
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import Archive from "@lucide/svelte/icons/archive";
@@ -77,6 +86,7 @@
     skipInlineDeleteConfirm = false,
     inlineEndEventConfirm = false,
     lockStartControls = false,
+    openMusicSection = false,
     calendarIdentityEmail,
     loadFullEvent,
     onSave,
@@ -107,6 +117,7 @@
     skipInlineDeleteConfirm?: boolean;
     inlineEndEventConfirm?: boolean;
     lockStartControls?: boolean;
+    openMusicSection?: boolean;
     calendarIdentityEmail?: string;
     /**
      * Fetches the panel detail row (description, attendees, organizer, etc.)
@@ -166,11 +177,121 @@
         : t("calendar.eventPanel.deleteDelete"),
   );
 
-  const handleProjectSelect = (projectId: string | undefined): void => session.handleProjectSelect(projectId);
+  const handleProjectSelect = (projectId: string | undefined): void => {
+    const changed = session.projectId !== projectId;
+    session.handleProjectSelect(projectId);
+    if (changed) void adoptProjectMusicSnapshot(projectId);
+  };
+
+  let musicSnapshots = $state<MusicContextAssignmentDraft[]>(completeMusicAssignmentDrafts([]));
+  let savedMusicSnapshots = $state<MusicContextAssignmentDraft[]>(completeMusicAssignmentDrafts([]));
+  let musicOverrides = $state<MusicContextAssignmentDraft[]>(completeMusicAssignmentDrafts([]));
+  let savedMusicOverrides = $state<MusicContextAssignmentDraft[]>(completeMusicAssignmentDrafts([]));
+  let musicPlaylists = $state<MusicPlaylistSummary[]>([]);
+  let musicAssignmentsLoading = $state(false);
+  let musicAssignmentsError = $state<string | null>(null);
+  let musicAssignmentsReadyKey = $state<string | null>(null);
+  let musicLoadGeneration = 0;
+  let musicSnapshotGeneration = 0;
+  let musicOverrideGeneration = 0;
+  const musicAssignmentsDirty = $derived(
+    musicAssignmentsReadyKey === session.lastInitKey
+      && (!musicAssignmentDraftsEqual(musicSnapshots, savedMusicSnapshots)
+        || !musicAssignmentDraftsEqual(musicOverrides, savedMusicOverrides)),
+  );
+
+  function copiedProjectSnapshot(
+    assignments: readonly MusicContextAssignmentDraft[],
+    projectId: string,
+  ): MusicContextAssignmentDraft[] {
+    return completeMusicAssignmentDrafts(assignments).map((assignment) => ({
+      ...assignment,
+      provenanceKind: "copied-project",
+      provenanceId: projectId,
+    }));
+  }
+
+  async function initializeMusicAssignments(key: string): Promise<void> {
+    const generation = ++musicLoadGeneration;
+    const snapshotGeneration = ++musicSnapshotGeneration;
+    const overrideGeneration = ++musicOverrideGeneration;
+    musicAssignmentsLoading = true;
+    musicAssignmentsError = null;
+    const eventId = mode === "edit" && event ? event.recurringParentId ?? event.id : null;
+    const assignmentRequests = eventId
+      ? Promise.all([
+          getMusicContextAssignments("event-snapshot", eventId),
+          getMusicContextAssignments("event-override", eventId),
+        ])
+      : session.projectId
+        ? getMusicContextAssignments("project-default", session.projectId).then((assignments) => [
+            copiedProjectSnapshot(assignments, session.projectId as string),
+            [],
+          ] as const)
+        : Promise.resolve([[], []] as const);
+    const [assignmentResult, playlistResult] = await Promise.allSettled([
+      assignmentRequests,
+      getMusicPlaylistSummaries(Date.now(), 0, 500),
+    ]);
+    if (generation !== musicLoadGeneration || key !== session.lastInitKey) return;
+    if (assignmentResult.status === "fulfilled") {
+      const [snapshots, overrides] = assignmentResult.value;
+      savedMusicSnapshots = completeMusicAssignmentDrafts(snapshots);
+      if (snapshotGeneration === musicSnapshotGeneration) {
+        musicSnapshots = completeMusicAssignmentDrafts(snapshots);
+      }
+      savedMusicOverrides = completeMusicAssignmentDrafts(overrides);
+      if (overrideGeneration === musicOverrideGeneration) {
+        musicOverrides = completeMusicAssignmentDrafts(overrides);
+      }
+      musicAssignmentsReadyKey = key;
+    }
+    if (playlistResult.status === "fulfilled") musicPlaylists = playlistResult.value;
+    const failures = [assignmentResult, playlistResult]
+      .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+      .map((result) => result.reason instanceof Error ? result.reason.message : String(result.reason));
+    musicAssignmentsError = failures.length > 0 ? failures.join(" ") : null;
+    musicAssignmentsLoading = false;
+  }
+
+  async function adoptProjectMusicSnapshot(projectId: string | undefined): Promise<void> {
+    const generation = ++musicSnapshotGeneration;
+    musicAssignmentsLoading = true;
+    musicAssignmentsError = null;
+    try {
+      const [assignments, playlists] = await Promise.all([
+        projectId ? getMusicContextAssignments("project-default", projectId) : Promise.resolve([]),
+        musicPlaylists.length === 0
+          ? getMusicPlaylistSummaries(Date.now(), 0, 500)
+          : Promise.resolve(musicPlaylists),
+      ]);
+      if (generation !== musicSnapshotGeneration) return;
+      musicPlaylists = playlists;
+      musicSnapshots = projectId
+        ? copiedProjectSnapshot(assignments, projectId)
+        : completeMusicAssignmentDrafts([]).map((assignment) => ({
+            ...assignment,
+            provenanceKind: "copied-project" as const,
+            provenanceId: null,
+          }));
+    } catch (cause) {
+      if (generation !== musicSnapshotGeneration) return;
+      musicAssignmentsError = cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      if (generation === musicSnapshotGeneration) musicAssignmentsLoading = false;
+    }
+  }
 
   // ─── Tab system ─────────────────────────────────────────────────
   type Section = "meeting" | "pomodoro" | "notifications" | "repeat" | "music";
   let openSection: Section | null = $state(null);
+  let lastAutoOpenedMusicSession: number | null = null;
+
+  $effect(() => {
+    if (!openMusicSection || panelSessionKey === undefined || panelSessionKey === lastAutoOpenedMusicSession) return;
+    lastAutoOpenedMusicSession = panelSessionKey;
+    openSection = "music";
+  });
 
   const geometry = new EventPanelGeometryController({
     anchor: () => anchor,
@@ -328,6 +449,7 @@
       (onInitialSync ?? onChange)?.(session.changesPayload());
     }
     session.initialized = true;
+    if (!parked) void initializeMusicAssignments(key);
 
     if (!parked && mode === "create") {
       const selectKey = key;
@@ -389,7 +511,7 @@
   // In edit mode it tracks the session's diff-based dirty flag so that
   // reverting all edits back to the original values disables the button
   // again, matching the click-outside cancellation behavior.
-  const saveReady = $derived(mode === "create" || externalDirty || dateTime.hasSaveableTimeDraft);
+  const saveReady = $derived(mode === "create" || externalDirty || musicAssignmentsDirty || dateTime.hasSaveableTimeDraft);
   const saveControlsDisabled = $derived(
     (controlsDisabled && !pomodoroReadOnlyInteractive) || session.savePending || !saveReady,
   );
@@ -448,12 +570,18 @@
     })) return;
     const hadSaveableTimeDraft = dateTime.hasSaveableTimeDraft;
     const committedTimeDraft = dateTime.commitSaveableTimeDrafts();
-    if (!externalDirty && mode !== "create" && (!hadSaveableTimeDraft || !committedTimeDraft)) return;
-    const data = session.saveData();
+    if (!externalDirty && !musicAssignmentsDirty && mode !== "create" && (!hadSaveableTimeDraft || !committedTimeDraft)) return;
+    const data: PanelSaveData = {
+      ...session.saveData(),
+      musicSnapshotAssignments: persistedMusicAssignmentDrafts(musicSnapshots),
+      musicOverrideAssignments: persistedMusicAssignmentDrafts(musicOverrides),
+    };
     const s = isRecurring ? session.scope : undefined;
     session.savePending = true;
     try {
       await onSave(data, s);
+      savedMusicSnapshots = completeMusicAssignmentDrafts(musicSnapshots);
+      savedMusicOverrides = completeMusicAssignmentDrafts(musicOverrides);
     } finally {
       session.savePending = false;
     }
@@ -663,7 +791,12 @@
 
     function handleKeydown(e: KeyboardEvent) { actions.handleKeydown(e); }
     window.addEventListener("keydown", handleKeydown);
-    return () => window.removeEventListener("keydown", handleKeydown);
+    return () => {
+      musicLoadGeneration += 1;
+      musicSnapshotGeneration += 1;
+      musicOverrideGeneration += 1;
+      window.removeEventListener("keydown", handleKeydown);
+    };
   });
 </script>
 
@@ -1081,7 +1214,26 @@
             </button>
           </div>
           {#if openSection === "music"}
-            <div transition:slide={{ duration: 180, easing: cubicOut }} data-section="music" class="px-3.5 py-3 text-center text-[0.866667rem] text-muted-foreground/60" style="background-color: var(--panel-bg);">{t("calendar.eventPanel.comingSoon")}</div>
+            <div transition:slide={{ duration: 180, easing: cubicOut }} data-section="music" class="px-2.5 py-2.5" style="background-color: var(--panel-bg);">
+              {#if musicAssignmentsError}
+                <div class="mb-2 flex items-start justify-between gap-2 rounded-lg border border-destructive/25 bg-destructive/8 px-2.5 py-2 text-[0.65rem]" role="alert">
+                  <span class="min-w-0 leading-relaxed text-destructive">{musicAssignmentsError}</span>
+                  <button type="button" onclick={() => { void initializeMusicAssignments(session.lastInitKey); }} class="shrink-0 font-semibold text-primary hover:underline">{t("common.retry")}</button>
+                </div>
+              {/if}
+              <MusicSoundtrackAssignmentEditor
+                assignments={musicOverrides}
+                inheritedAssignments={musicSnapshots}
+                playlists={musicPlaylists}
+                onChange={(assignments) => {
+                  musicOverrideGeneration += 1;
+                  musicOverrides = assignments;
+                }}
+                disabled={controlsDisabled || musicAssignmentsReadyKey !== session.lastInitKey}
+                loadingPlaylists={musicAssignmentsLoading}
+                description={t("calendar.eventPanel.musicDescription")}
+              />
+            </div>
           {/if}
         </div>
       {/if}

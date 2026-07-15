@@ -46,6 +46,7 @@ export interface MusicContextAssignmentSet {
 
 export type MusicAssignmentSource = "event-override" | "work-environment" | "project-snapshot" | "none";
 export type MusicAssignmentAvailability = "ready" | "missing-playlist" | "no-assignment" | "not-applicable";
+export type MusicSoundscapeAssignmentAvailability = "ready" | "missing-soundscape" | "none";
 
 export interface MusicAssignmentResolverInput {
   phase: MusicActivityPhase;
@@ -53,6 +54,7 @@ export interface MusicAssignmentResolverInput {
   environmentAssignment: MusicContextAssignment | null;
   projectSnapshot: MusicContextAssignment | null;
   availablePlaylistIds: ReadonlySet<string>;
+  availableSoundscapeIds?: ReadonlySet<string>;
   timedEvent: boolean;
   pomodoroEnabled: boolean;
   activation: "boundary" | "catch-up";
@@ -63,6 +65,7 @@ export interface ResolvedMusicAssignment {
   assignment: MusicContextAssignment | null;
   source: MusicAssignmentSource;
   availability: MusicAssignmentAvailability;
+  soundscapeAvailability: MusicSoundscapeAssignmentAvailability;
   startFreshTrack: boolean;
   catchUp: boolean;
   consecutiveEvent: boolean;
@@ -105,6 +108,9 @@ function result(
     assignment,
     source,
     availability,
+    soundscapeAvailability: assignment?.soundscapeId
+      ? input.availableSoundscapeIds?.has(assignment.soundscapeId) ? "ready" : "missing-soundscape"
+      : "none",
     startFreshTrack: startsTrack,
     catchUp: input.activation === "catch-up",
     consecutiveEvent: input.consecutiveEvent,

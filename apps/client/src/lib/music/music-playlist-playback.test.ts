@@ -5,6 +5,7 @@ import {
   evaluateMusicQueueEntry,
   nextSequentialQueueIndex,
   projectMusicPlaylistPlayback,
+  selectFreshMusicQueueItem,
   skipRangeTargetMs,
 } from "./music-playlist-playback";
 
@@ -78,6 +79,34 @@ describe("saved playlist playback policy", () => {
     expect(cycle).toHaveLength(2);
     expect(new Set(cycle)).toEqual(new Set([0, 2]));
     expect(cycle[0]).toBe(2);
+  });
+
+  it("advances sequentially at a phase boundary and wraps without resuming the interrupted item", () => {
+    const projection = projectMusicPlaylistPlayback([
+      entry({ itemId: "first", membershipId: "first" }),
+      entry({ itemId: "second", membershipId: "second", position: 1 }),
+      entry({ itemId: "third", membershipId: "third", position: 2 }),
+    ], [{ rootId: "root", folderPath: "/music", status: "available" }], context);
+    expect(selectFreshMusicQueueItem(projection.entries, projection.eligibleIndices, {
+      shuffle: false,
+      avoidItemId: "second",
+    }).index).toBe(2);
+    expect(selectFreshMusicQueueItem(projection.entries, projection.eligibleIndices, {
+      shuffle: false,
+      avoidItemId: "third",
+    }).index).toBe(0);
+  });
+
+  it("draws another eligible shuffle membership at a phase boundary", () => {
+    const projection = projectMusicPlaylistPlayback([
+      entry({ itemId: "first", membershipId: "first" }),
+      entry({ itemId: "second", membershipId: "second", position: 1 }),
+    ], [{ rootId: "root", folderPath: "/music", status: "available" }], context);
+    expect(selectFreshMusicQueueItem(projection.entries, projection.eligibleIndices, {
+      shuffle: true,
+      avoidItemId: "first",
+      random: () => 0.5,
+    }).index).toBe(1);
   });
 
   it("gives higher weights more first-selection opportunities without starving lower weights", () => {

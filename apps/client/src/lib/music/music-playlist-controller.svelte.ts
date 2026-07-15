@@ -187,8 +187,10 @@ export class MusicPlaylistController {
         projection.entries,
         detail.shuffleEnabled,
         detail.repeatMode,
-        explicitItemId,
-        projection.structuralSkipped,
+        {
+          explicitItemId,
+          structuralSkipped: projection.structuralSkipped,
+        },
       );
       if (!loaded) this.playbackIssue = "no-eligible-items";
       return loaded;

@@ -103,7 +103,7 @@
     `${isActive ? t("titleBar.pomodoro.remaining", pomodoro.formattedTime) : t("titleBar.control.pomodoro")}\n${musicVolumeTooltipLine}`,
   );
   const musicButtonTooltip = $derived(
-    `${t("titleBar.control.music")}\n${musicVolumeTooltipLine}`,
+    `${t("titleBar.control.music")}\n${musicVolumeTooltipLine}${musicPlayer.contextPlayback && musicPlayer.contextPlayback.state !== "overridden" ? `\n${t("titleBar.music.contextual", t(`music.assignment.phase.${musicPlayer.contextPlayback.phase}`), musicPlayer.contextPlayback.eventTitle)}` : ""}`,
   );
 
   function musicStatusLabel(status: PlaybackStatus): string {
@@ -288,6 +288,16 @@
             </button>
             {#if isMainWindow}
               <div class="mx-3 my-1.5 h-px bg-border"></div>
+              {#if musicPlayer.contextPlayback && musicPlayer.contextPlayback.state !== "overridden"}
+                <button
+                  type="button"
+                  onclick={() => { musicPlayer.inspectContextAssignment(); showMenu = false; }}
+                  class="mx-1 mb-1 flex w-[calc(100%-0.5rem)] items-start gap-2 rounded-md bg-primary/7 px-2 py-2 text-left hover:bg-primary/12"
+                >
+                  <span class="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-primary"></span>
+                  <span class="min-w-0"><span class="block truncate text-xs font-medium">{t("titleBar.music.contextual", t(`music.assignment.phase.${musicPlayer.contextPlayback.phase}`), musicPlayer.contextPlayback.eventTitle)}</span><span class="block text-[0.65rem] text-muted-foreground">{t("titleBar.music.inspectAssignment")}</span></span>
+                </button>
+              {/if}
               <div class="px-3 pb-1.5 pt-2 text-xs text-muted-foreground">
                 <span class="block truncate">{musicStatusText}</span>
               </div>
@@ -403,7 +413,7 @@
         onclick={onToggleMusic}
         onwheel={handleVolumeWheel}
         class={cn(
-          "titlebar-icon-button flex items-center justify-center rounded-lg transition-colors",
+          "titlebar-icon-button relative flex items-center justify-center rounded-lg transition-colors",
           musicPanelOpen
             ? "bg-background text-foreground dark:bg-accent dark:text-white"
             : `${TITLE_BAR_ICON_COLOR_CLASS} hover:bg-sidebar-accent`,
@@ -414,6 +424,9 @@
         aria-expanded={musicPanelOpen}
       >
         <Music size={TITLE_BAR_ICON_SIZE} strokeWidth={TITLE_BAR_ICON_STROKE_WIDTH} />
+        {#if musicPlayer.contextPlayback && musicPlayer.contextPlayback.state !== "overridden"}
+          <span class="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-primary ring-2 ring-sidebar" aria-hidden="true"></span>
+        {/if}
       </button>
     {/if}
 

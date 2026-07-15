@@ -175,4 +175,24 @@ describe("Music queue controller", () => {
     await controller.playNext();
     expect(loadSource).toHaveBeenCalledWith(state.queue[2], 2);
   });
+
+  it("recovers a shuffle playlist when an item becomes eligible before anything is loaded", async () => {
+    const state = createState();
+    state.currentSource = null;
+    state.shuffleEnabled = true;
+    state.savedQueueEntries = state.queue.map((_, index) => savedEntry(state, index));
+    const loadSource = vi.fn(async () => undefined);
+    const controller = createMusicQueueController({
+      state,
+      isBusy: () => false,
+      loadSource,
+      persistSettings: vi.fn(),
+      updateExternalControls: vi.fn(),
+      updateTray: vi.fn(),
+      random: () => 0.5,
+    });
+
+    await controller.playNext(true);
+    expect(loadSource).toHaveBeenCalledOnce();
+  });
 });

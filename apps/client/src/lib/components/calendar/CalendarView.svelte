@@ -568,6 +568,7 @@
       calendarsStore.list.find((calendar) => calendar.id === panelRender.event.calendarId),
     );
   });
+  let musicInspectionEventId = $state<string | null>(null);
 
   function isRecurring(event: CalendarEvent): boolean {
     return !!event.recurringParentId || !!event.recurrence;
@@ -676,6 +677,16 @@
 
   onMount(() => {
     const removeNavigationListeners = navigationController.installWindowListeners();
+    const inspectMusicAssignment = (event: Event) => {
+      if (!(event instanceof CustomEvent) || typeof event.detail?.eventId !== "string") return;
+      const eventId = event.detail.eventId;
+      const selected = currentVisibleStoreEvents().find((candidate) => candidate.id === eventId)
+        ?? calendarStore.rawBlocks.find((candidate) => candidate.id === eventId);
+      if (!selected) return;
+      musicInspectionEventId = selected.id;
+      void handleEventClick(selected, new DOMRect(window.innerWidth / 2, window.innerHeight / 3, 0, 0));
+    };
+    window.addEventListener("ganbaru-ai:inspect-music-assignment", inspectMusicAssignment);
 
     tick().then(() => {
       requestAnimationFrame(() => {
@@ -706,6 +717,7 @@
     return () => {
       unregisterNav();
       removeNavigationListeners();
+      window.removeEventListener("ganbaru-ai:inspect-music-assignment", inspectMusicAssignment);
       targetController.clearPending();
     };
   });
@@ -1141,6 +1153,7 @@
       skipInlineDeleteConfirm={render.skipInlineDeleteConfirm}
       inlineEndEventConfirm={render.mode === "edit" ? render.inlineEndEventConfirm : false}
       lockStartControls={render.mode === "edit" ? render.endActiveEventAvailable : false}
+      openMusicSection={render.mode === "edit" && render.event.id === musicInspectionEventId}
       calendarIdentityEmail={panelCalendarIdentityEmail}
       loadFullEvent={calendarStore.loadPanelEvent}
       onSave={handlePanelSave}

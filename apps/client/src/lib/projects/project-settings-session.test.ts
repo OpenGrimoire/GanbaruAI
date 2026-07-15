@@ -133,4 +133,36 @@ describe("project settings session", () => {
     expect(session.state.projectDraft.groupId).toBe("group-routine");
     expect(session.state.projectDraft.defaultEventName).toBe("Lunch");
   });
+
+  it("saves soundtrack-only edits through the project transaction", async () => {
+    const updateProject = vi.fn(async () => undefined);
+    const projects = {
+      projectsForGroupIncludingInactive: () => [],
+      updateProject,
+    } as unknown as ReturnType<typeof getProjects>;
+    const session = createProjectSettingsSession({
+      projects,
+      translate: translate(),
+      onRevealInactive: () => undefined,
+    });
+    const currentProject = project();
+    session.load(currentProject, emptyCollections);
+    const saved = await session.save(currentProject, new Set(["group-1"]), emptyCollections, {
+      assignments: [{
+        phase: "focus",
+        behavior: "play-automatically",
+        playlistId: "playlist-1",
+        soundscapeId: null,
+        provenanceKind: "explicit",
+        provenanceId: null,
+      }],
+      updatedAt: 1_700_000_000_000,
+    });
+
+    expect(saved).toBe(true);
+    expect(updateProject).toHaveBeenCalledWith(expect.objectContaining({
+      musicAssignments: [expect.objectContaining({ phase: "focus", playlistId: "playlist-1" })],
+      musicAssignmentsUpdatedAt: 1_700_000_000_000,
+    }));
+  });
 });

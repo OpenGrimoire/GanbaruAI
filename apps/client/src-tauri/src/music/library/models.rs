@@ -171,6 +171,7 @@ string_enum!(MusicPlaylistAssignmentKind {
     ProjectFocus => "project-focus",
     ProjectBreak => "project-break",
     CalendarEvent => "calendar-event",
+    ContextAssignment => "context-assignment",
 });
 string_enum!(MusicListDestination {
     Review => "review",
@@ -751,6 +752,7 @@ pub struct MusicPlaylistDeleteImpact {
     pub project_focus_assignment_count: i64,
     pub project_break_assignment_count: i64,
     pub calendar_assignment_count: i64,
+    pub context_assignment_count: i64,
     pub assignments: Vec<MusicPlaylistAssignmentReference>,
 }
 

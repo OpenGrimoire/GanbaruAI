@@ -9,6 +9,7 @@ import {
   DEFAULT_FOCUS_IDLE_THRESHOLD_MINUTES,
   type FocusIdleThresholdMinutes,
 } from "$lib/stores/preferences";
+import type { MusicContextAssignmentDraft } from "$lib/music/music-context-assignment";
 import type { ProjectDefaultEventTimeMode } from "$lib/projects/project-settings-duration";
 import type { NotesPageOpenMode } from "$lib/notes/page-open-mode";
 import type { NotesHistoryRetentionDays } from "$lib/notes/history-retention";
@@ -784,6 +785,8 @@ export interface ProjectUpdate {
   breakPlaylistId: string | null;
   workEnvironmentId: string | null;
   blockerRulesetId: string | null;
+  musicAssignments?: MusicContextAssignmentDraft[];
+  musicAssignmentsUpdatedAt?: number;
 }
 
 export interface ProjectSectionCreate {

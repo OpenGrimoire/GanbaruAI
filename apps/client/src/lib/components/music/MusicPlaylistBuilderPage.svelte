@@ -330,7 +330,7 @@
     if (!inspector.detail) return;
     const source = musicReviewSource(inspector.detail, sources.bindings);
     if (!source) { openItemRepair(itemId); return; }
-    audition.musicPlayer.contextOwner = "manual";
+    audition.musicPlayer.clearContextPlayback();
     await audition.musicPlayer.loadSource(source, { autoplay: true, resume: false });
     audition.musicPlayer.activeQueueItemIds = [itemId];
   }

@@ -1,5 +1,5 @@
 pub(crate) mod commands;
-mod contexts;
+pub(crate) mod contexts;
 mod error;
 pub(crate) mod fixtures;
 mod item_repair;

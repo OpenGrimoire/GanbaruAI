@@ -39,6 +39,7 @@ import {
   type ProjectStatusCategory,
   type ProjectTag,
 } from "./types";
+import type { MusicContextAssignmentDraft } from "$lib/music/music-context-assignment";
 
 export interface ProjectSettingsSessionState {
   projectDraftId: string | null;
@@ -89,6 +90,11 @@ export interface ProjectSettingsSessionOptions {
   onRevealInactive: () => void;
   projects?: ReturnType<typeof getProjects>;
   translate?: ReturnType<typeof getLocalization>["t"];
+}
+
+export interface ProjectSettingsMusicUpdate {
+  assignments: MusicContextAssignmentDraft[];
+  updatedAt: number;
 }
 
 /**
@@ -265,8 +271,10 @@ export function createProjectSettingsSession(options: ProjectSettingsSessionOpti
     project: Project,
     visibleGroupIds: ReadonlySet<string>,
     collections: ProjectSettingsSessionCollections,
-  ): Promise<void> {
-    const shouldUpdateProject = projectSettingsProjectDraftDirty(project, state.projectDraft);
+    musicUpdate?: ProjectSettingsMusicUpdate,
+  ): Promise<boolean> {
+    const shouldUpdateProject = projectSettingsProjectDraftDirty(project, state.projectDraft)
+      || Boolean(musicUpdate);
     const projectUpdateResult = shouldUpdateProject
       ? projectSettingsProjectUpdateFromDraft({
           project,
@@ -277,7 +285,7 @@ export function createProjectSettingsSession(options: ProjectSettingsSessionOpti
       : null;
     if (projectUpdateResult && !projectUpdateResult.ok) {
       state.projectSettingsError = projectDraftErrorMessage(projectUpdateResult.error);
-      return;
+      return false;
     }
     const statusResult = projectSettingsStatusSaveDrafts(collections.statuses, {
       nameDrafts: state.statusNameDrafts,
@@ -287,7 +295,7 @@ export function createProjectSettingsSession(options: ProjectSettingsSessionOpti
     });
     if (!statusResult.ok) {
       state.projectSettingsError = t("projects.settings.statusNameRequired");
-      return;
+      return false;
     }
     const priorityResult = projectSettingsPrioritySaveDrafts(collections.priorities, {
       nameDrafts: state.priorityNameDrafts,
@@ -296,7 +304,7 @@ export function createProjectSettingsSession(options: ProjectSettingsSessionOpti
     });
     if (!priorityResult.ok) {
       state.projectSettingsError = t("projects.settings.priorityNameRequired");
-      return;
+      return false;
     }
     const tagResult = projectSettingsTagSaveDrafts(collections.tags, {
       nameDrafts: state.tagNameDrafts,
@@ -307,7 +315,7 @@ export function createProjectSettingsSession(options: ProjectSettingsSessionOpti
       state.projectSettingsError = tagResult.error === "name_exists"
         ? t("projects.settings.tagNameExists")
         : t("projects.settings.tagNameRequired");
-      return;
+      return false;
     }
     const customFieldResult = projectSettingsCustomFieldSaveDrafts({
       fields: collections.customFields,
@@ -316,7 +324,7 @@ export function createProjectSettingsSession(options: ProjectSettingsSessionOpti
     });
     if (!customFieldResult.ok) {
       state.projectSettingsError = customFieldDraftErrorMessage(customFieldResult.error);
-      return;
+      return false;
     }
     const customFieldOptionResult = projectSettingsCustomFieldOptionSaveDrafts({
       fields: collections.customFields,
@@ -326,14 +334,22 @@ export function createProjectSettingsSession(options: ProjectSettingsSessionOpti
     });
     if (!customFieldOptionResult.ok) {
       state.projectSettingsError = customFieldDraftErrorMessage(customFieldOptionResult.error);
-      return;
+      return false;
     }
 
     const shouldRevealInactive = shouldUpdateProject && state.projectDraft.status !== "active";
     state.projectSettingsSaving = true;
     state.projectSettingsError = null;
     try {
-      if (projectUpdateResult?.ok) await projects.updateProject(projectUpdateResult.value);
+      if (projectUpdateResult?.ok) {
+        await projects.updateProject({
+          ...projectUpdateResult.value,
+          ...(musicUpdate ? {
+            musicAssignments: musicUpdate.assignments,
+            musicAssignmentsUpdatedAt: musicUpdate.updatedAt,
+          } : {}),
+        });
+      }
       for (const draft of statusResult.drafts) {
         await projects.updateStatus(draft.status, {
           name: draft.name,
@@ -413,11 +429,13 @@ export function createProjectSettingsSession(options: ProjectSettingsSessionOpti
         };
       }
       if (shouldRevealInactive) options.onRevealInactive();
+      return true;
     } catch (error) {
       state.projectSettingsError = t(
         "projects.settings.saveFailed",
         error instanceof Error ? error.message : String(error),
       );
+      return false;
     } finally {
       state.projectSettingsSaving = false;
     }

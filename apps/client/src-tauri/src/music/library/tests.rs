@@ -559,14 +559,33 @@ fn deletion_requires_current_impact_and_repairs_assignments_atomically() {
         .execute(&pool)
         .await
         .unwrap();
+        super::contexts::replace_assignments(
+            &pool,
+            MusicContextAssignmentSet {
+                owner_kind: MusicAssignmentOwnerKind::EventOverride,
+                owner_id: "event-1".to_string(),
+                assignments: vec![MusicContextAssignmentDraft {
+                    phase: MusicActivityPhase::Focus,
+                    behavior: MusicAssignmentBehavior::PlayAutomatically,
+                    playlist_id: Some("playlist-1".to_string()),
+                    soundscape_id: None,
+                    provenance_kind: MusicAssignmentProvenanceKind::Explicit,
+                    provenance_id: None,
+                }],
+                updated_at: 1_700_000_000_000,
+            },
+        )
+        .await
+        .unwrap();
 
         let impact = super::writes::playlist_delete_impact(&pool, "playlist-1")
             .await
             .unwrap();
         assert_eq!(impact.membership_count, 1);
-        assert_eq!(impact.calendar_assignment_count, 1);
+        assert_eq!(impact.calendar_assignment_count, 0);
+        assert_eq!(impact.context_assignment_count, 1);
         let mut stale_impact = impact.clone();
-        stale_impact.calendar_assignment_count = 0;
+        stale_impact.context_assignment_count = 0;
         let conflict = super::writes::delete_playlist(
             &pool,
             MusicPlaylistDelete {
@@ -597,6 +616,14 @@ fn deletion_requires_current_impact_and_repairs_assignments_atomically() {
                 .await
                 .unwrap();
         assert_eq!(assignment.as_deref(), Some("playlist-2"));
+        let context_assignment: Option<String> = sqlx::query_scalar(
+            "SELECT playlist_id FROM music_context_assignments
+             WHERE owner_kind = 'event-override' AND owner_id = 'event-1' AND phase = 'focus'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(context_assignment.as_deref(), Some("playlist-2"));
         let playlist_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM music_playlists")
             .fetch_one(&pool)
             .await

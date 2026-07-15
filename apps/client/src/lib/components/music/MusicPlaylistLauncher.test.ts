@@ -113,8 +113,7 @@ describe("Music playlist launcher", () => {
       expect.any(Array),
       false,
       "all",
-      null,
-      expect.any(Object),
+      { structuralSkipped: expect.any(Object) },
     ));
     expect(openBuilder).not.toHaveBeenCalled();
     expect(newPlaylist).not.toHaveBeenCalled();

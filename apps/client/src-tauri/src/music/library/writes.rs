@@ -374,13 +374,27 @@ async fn delete_impact_in_transaction(
     if !playlist_exists(transaction, playlist_id).await? {
         return Err(MusicLibraryError::not_found("music playlist", playlist_id));
     }
-    let counts: (i64, i64, i64, i64) = sqlx::query_as(
+    let counts: (i64, i64, i64, i64, i64) = sqlx::query_as(
         "SELECT
             (SELECT COUNT(*) FROM music_playlist_memberships WHERE playlist_id = ?),
-            (SELECT COUNT(*) FROM projects WHERE focus_playlist_id = ?),
-            (SELECT COUNT(*) FROM projects WHERE break_playlist_id = ?),
-            (SELECT COUNT(*) FROM calendar_events WHERE playlist_id = ?)",
+            (SELECT COUNT(*) FROM projects p WHERE focus_playlist_id = ?
+             AND NOT EXISTS (SELECT 1 FROM music_context_assignments a
+                 WHERE a.owner_kind = 'project-default' AND a.owner_id = p.id
+                   AND a.phase = 'focus' AND a.playlist_id = ?)),
+            (SELECT COUNT(*) FROM projects p WHERE break_playlist_id = ?
+             AND NOT EXISTS (SELECT 1 FROM music_context_assignments a
+                 WHERE a.owner_kind = 'project-default' AND a.owner_id = p.id
+                   AND a.phase IN ('short-break', 'long-break') AND a.playlist_id = ?)),
+            (SELECT COUNT(*) FROM calendar_events e WHERE playlist_id = ?
+             AND NOT EXISTS (SELECT 1 FROM music_context_assignments a
+                 WHERE a.owner_kind = 'event-override' AND a.owner_id = e.id
+                   AND a.phase = 'focus' AND a.playlist_id = ?)),
+            (SELECT COUNT(*) FROM music_context_assignments WHERE playlist_id = ?)",
     )
+    .bind(playlist_id)
+    .bind(playlist_id)
+    .bind(playlist_id)
+    .bind(playlist_id)
     .bind(playlist_id)
     .bind(playlist_id)
     .bind(playlist_id)
@@ -389,11 +403,31 @@ async fn delete_impact_in_transaction(
     .await
     .map_err(|error| MusicLibraryError::database("load playlist delete impact", error))?;
     let assignment_rows: Vec<(String, String, String)> = sqlx::query_as(
-        "SELECT 'project-focus', id, name FROM projects WHERE focus_playlist_id = ?
-         UNION ALL SELECT 'project-break', id, name FROM projects WHERE break_playlist_id = ?
-         UNION ALL SELECT 'calendar-event', id, title FROM calendar_events WHERE playlist_id = ?
+        "SELECT 'project-focus', p.id, p.name FROM projects p WHERE focus_playlist_id = ?
+           AND NOT EXISTS (SELECT 1 FROM music_context_assignments a
+             WHERE a.owner_kind = 'project-default' AND a.owner_id = p.id
+               AND a.phase = 'focus' AND a.playlist_id = ?)
+         UNION ALL SELECT 'project-break', p.id, p.name FROM projects p WHERE break_playlist_id = ?
+           AND NOT EXISTS (SELECT 1 FROM music_context_assignments a
+             WHERE a.owner_kind = 'project-default' AND a.owner_id = p.id
+               AND a.phase IN ('short-break', 'long-break') AND a.playlist_id = ?)
+         UNION ALL SELECT 'calendar-event', e.id, e.title FROM calendar_events e WHERE playlist_id = ?
+           AND NOT EXISTS (SELECT 1 FROM music_context_assignments a
+             WHERE a.owner_kind = 'event-override' AND a.owner_id = e.id
+               AND a.phase = 'focus' AND a.playlist_id = ?)
+         UNION ALL SELECT 'context-assignment',
+           a.owner_kind || ':' || a.owner_id || ':' || a.phase,
+           COALESCE(p.name, e.title, a.owner_id) || ' · ' || a.phase
+           FROM music_context_assignments a
+           LEFT JOIN projects p ON a.owner_kind = 'project-default' AND p.id = a.owner_id
+           LEFT JOIN calendar_events e ON a.owner_kind IN ('event-snapshot', 'event-override') AND e.id = a.owner_id
+           WHERE a.playlist_id = ?
          ORDER BY 1, 3, 2",
     )
+    .bind(playlist_id)
+    .bind(playlist_id)
+    .bind(playlist_id)
+    .bind(playlist_id)
     .bind(playlist_id)
     .bind(playlist_id)
     .bind(playlist_id)
@@ -417,6 +451,7 @@ async fn delete_impact_in_transaction(
         project_focus_assignment_count: counts.1,
         project_break_assignment_count: counts.2,
         calendar_assignment_count: counts.3,
+        context_assignment_count: counts.4,
         assignments,
     })
 }
@@ -485,6 +520,18 @@ pub(crate) async fn delete_playlist(
         .map_err(|error| {
             MusicLibraryError::database("clear calendar playlist assignments", error)
         })?;
+    sqlx::query(
+        "UPDATE music_context_assignments
+         SET playlist_id = ?, version = version + 1
+         WHERE playlist_id = ?",
+    )
+    .bind(&request.replacement_playlist_id)
+    .bind(&request.playlist_id)
+    .execute(&mut *transaction)
+    .await
+    .map_err(|error| {
+        MusicLibraryError::database("repair contextual playlist assignments", error)
+    })?;
     let deleted = sqlx::query("DELETE FROM music_playlists WHERE id = ? AND version = ?")
         .bind(&request.playlist_id)
         .bind(request.expected_version)

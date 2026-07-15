@@ -29,9 +29,10 @@ export interface MusicPlaylistDeleteImpact {
   projectFocusAssignmentCount: number;
   projectBreakAssignmentCount: number;
   calendarAssignmentCount: number;
+  contextAssignmentCount: number;
   assignments: MusicPlaylistAssignmentReference[];
 }
-export type MusicPlaylistAssignmentKind = "project-focus" | "project-break" | "calendar-event";
+export type MusicPlaylistAssignmentKind = "project-focus" | "project-break" | "calendar-event" | "context-assignment";
 export interface MusicPlaylistAssignmentReference { kind: MusicPlaylistAssignmentKind; id: string; label: string }
 export interface MusicPlaylistCreate {
   id: string;
@@ -560,7 +561,7 @@ const signals = ["lyrics", "sudden-changes", "high-intensity", "calm", "repetiti
 const snoozeScopes = ["playlist", "all-playlists"] as const;
 const repeatModes = ["off", "all", "one"] as const;
 const rootStatuses = ["available", "missing", "needs-relink"] as const;
-const playlistAssignmentKinds = ["project-focus", "project-break", "calendar-event"] as const;
+const playlistAssignmentKinds = ["project-focus", "project-break", "calendar-event", "context-assignment"] as const;
 
 function object(value: unknown, label: string): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error(`${label} must be an object`);
@@ -638,6 +639,7 @@ export function parseDeleteImpact(value: unknown, label = "playlist delete impac
     projectFocusAssignmentCount: number(row.projectFocusAssignmentCount, `${label}.projectFocusAssignmentCount`),
     projectBreakAssignmentCount: number(row.projectBreakAssignmentCount, `${label}.projectBreakAssignmentCount`),
     calendarAssignmentCount: number(row.calendarAssignmentCount, `${label}.calendarAssignmentCount`),
+    contextAssignmentCount: number(row.contextAssignmentCount, `${label}.contextAssignmentCount`),
     assignments: array(row.assignments, (entry, entryLabel) => {
       const assignment = object(entry, entryLabel);
       return { kind: enumeration(assignment.kind, playlistAssignmentKinds, `${entryLabel}.kind`), id: string(assignment.id, `${entryLabel}.id`), label: string(assignment.label, `${entryLabel}.label`) };

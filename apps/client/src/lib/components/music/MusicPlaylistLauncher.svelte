@@ -117,8 +117,7 @@
         projection.entries,
         playlist.shuffleEnabled,
         playlist.repeatMode,
-        null,
-        projection.structuralSkipped,
+        { structuralSkipped: projection.structuralSkipped },
       );
       if (loaded) close();
       else noEligiblePlaylist = playlist;

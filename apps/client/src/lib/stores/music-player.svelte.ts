@@ -1,9 +1,16 @@
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { MusicRepeatMode, MusicSelectionKind } from "$lib/music/library-contracts";
+import type {
+  MusicActivityPhase,
+  MusicAssignmentBehavior,
+  MusicAssignmentSource,
+} from "$lib/music/music-context-assignment";
 import {
   buildWeightedShuffleCycle,
   eligibleMusicQueueIndices,
   emptyMusicSkipBreakdown,
+  selectFreshMusicQueueItem,
   type MusicPlaylistSkipReason,
   type MusicSavedQueueEntry,
 } from "$lib/music/music-playlist-playback";
@@ -28,6 +35,7 @@ import {
 import { getConfigKey, setConfigKey } from "$lib/vault/config";
 import { onActiveVaultIdentityChange } from "$lib/vault/active-vault";
 import { planMusicQueueMutation } from "$lib/music/music-queue-mutation";
+import { musicContextStateAfterAction } from "$lib/music/music-automation-ownership";
 import { MusicSavedPlaylistRuntime } from "./music-saved-playlist-runtime";
 import { MusicSurfaceClaims } from "./music-surface-claims";
 import {
@@ -56,6 +64,34 @@ import {
 
 export type { MusicStaleVisual } from "./music-hosted-media-controller";
 export type MusicPlaybackContextOwner = "manual" | "review" | "calendar-event" | "pomodoro" | "soundscape";
+
+export type MusicPlaybackActionOrigin = "manual" | "context" | "pomodoro-pause" | "system";
+export type MusicContextPlaybackState = "playing" | "prepared" | "paused" | "kept" | "unavailable" | "overridden";
+export type MusicContextPlaybackIssue = "missing-playlist" | "no-eligible-items" | "offline-only" | "deleted-soundscape" | "activation-failed" | null;
+
+export interface MusicContextPlayback {
+  owner: "calendar-event" | "pomodoro";
+  activationKey: string;
+  eventId: string;
+  eventTitle: string;
+  displayLabel: string;
+  phase: MusicActivityPhase;
+  behavior: MusicAssignmentBehavior;
+  assignmentSource: MusicAssignmentSource;
+  playlistId: string | null;
+  playlistName: string | null;
+  state: MusicContextPlaybackState;
+  issue: MusicContextPlaybackIssue;
+}
+
+export interface MusicSavedPlaylistLoadOptions {
+  explicitItemId?: string | null;
+  structuralSkipped?: Record<MusicPlaylistSkipReason, number>;
+  autoplay?: boolean;
+  autoRecovery?: boolean;
+  avoidItemId?: string | null;
+  context?: MusicContextPlayback | null;
+}
 
 const progressMaxFallback = 1;
 
@@ -96,6 +132,9 @@ class MusicPlayerStore {
   sourceActionBusy = $state(false);
   volumeFeedbackId = $state(0);
   contextOwner = $state<MusicPlaybackContextOwner>("manual");
+  contextPlayback = $state<MusicContextPlayback | null>(null);
+  contextRetryRequest = $state(0);
+  manualPlaybackActionVersion = $state(0);
   activePlaylistId = $state<string | null>(null);
   activePlaylistName = $state<string | null>(null);
   activeQueueItemIds = $state<string[]>([]);
@@ -108,11 +147,15 @@ class MusicPlayerStore {
 
   private playlistVolumeIntent = initialMusicSnapshot(initialPlayerSettings).volume;
   private playlistRateIntent = initialMusicSnapshot(initialPlayerSettings).rate;
+  private savedQueueAutoplay = true;
+  private savedQueueAutoRecoveryEnabled = true;
   private unsubscribeVaultIdentity: (() => void) | null = null;
 
   private readonly savedPlaylistRuntime = new MusicSavedPlaylistRuntime(() => {
     this.refreshSavedQueueBreakdown();
-    if (this.activePlaylistId && !this.currentSource) void this.queueController.playNext(true);
+    if (this.savedQueueAutoRecoveryEnabled && this.activePlaylistId && !this.currentSource) {
+      this.recoverSavedPlaylist();
+    }
   });
 
   private readonly loadRuntime = new MusicLoadRuntime();
@@ -192,6 +235,7 @@ class MusicPlayerStore {
     setVolume: (volume) => this.setVolume(volume),
     setRate: (rate) => this.setRate(rate),
     toggleShuffle: () => this.toggleShuffle(),
+    inspectAssignment: () => this.inspectContextAssignment(),
     handleWindowMessage: this.youtubeAdapter.handleMessage,
   });
   private readonly playbackRuntime = createMusicPlaybackRuntime({
@@ -264,6 +308,10 @@ class MusicPlayerStore {
 
   get currentQueueIndex(): number {
     return this.queueController.currentIndex();
+  }
+
+  get currentSavedItemId(): string | null {
+    return this.currentSavedQueueEntry()?.itemId ?? null;
   }
 
   get highlightedQueueIndex(): number {
@@ -383,9 +431,11 @@ class MusicPlayerStore {
     entries: MusicSavedQueueEntry[],
     shuffleEnabled: boolean,
     repeatMode: MusicRepeatMode,
-    explicitItemId: string | null = null,
-    structuralSkipped: Record<MusicPlaylistSkipReason, number> = emptyMusicSkipBreakdown(),
+    options: MusicSavedPlaylistLoadOptions = {},
   ): Promise<boolean> {
+    const explicitItemId = options.explicitItemId ?? null;
+    const structuralSkipped = options.structuralSkipped ?? emptyMusicSkipBreakdown();
+    if (!options.context) this.manualPlaybackActionVersion += 1;
     const priorIndex = this.currentQueueIndex;
     if (priorIndex >= 0 && this.activePlaylistId) this.recordQueueOutcome(priorIndex, "skipped");
     this.playlistVolumeIntent = this.activePlaylistId ? this.playlistVolumeIntent : this.snapshot.volume;
@@ -397,7 +447,9 @@ class MusicPlayerStore {
     this.activePlaylistName = playlistName;
     this.activePlaylistRepeatMode = repeatMode;
     this.savedPlaylistRuntime.setStructuralSkipped(structuralSkipped);
-    this.contextOwner = "manual";
+    this.contextPlayback = options.context ?? null;
+    this.contextOwner = options.context?.owner ?? "manual";
+    this.savedQueueAutoRecoveryEnabled = options.autoRecovery ?? options.autoplay ?? true;
     this.recentPlaylistIds = [playlistId, ...this.recentPlaylistIds.filter((id) => id !== playlistId)].slice(0, 8);
     setConfigKey("music.recentPlaylistIds", this.recentPlaylistIds);
     this.shuffleEnabled = shuffleEnabled;
@@ -412,7 +464,7 @@ class MusicPlayerStore {
     this.refreshSavedQueueBreakdown();
     this.savedPlaylistRuntime.scheduleSnoozeExpiry(entries);
     if (eligibleIndices.length === 0) {
-      if (this.currentSource) await this.stopPlayback();
+      if (this.currentSource) await this.stopPlayback(options.context ? "context" : "manual");
       this.currentSource = null;
       this.pendingQueueIndex = null;
       this.snapshot = { ...this.snapshot, status: "idle", positionMs: 0, error: null };
@@ -422,26 +474,65 @@ class MusicPlayerStore {
       this.updateMusicTray();
       return false;
     }
-    let initialIndex = explicitItemId
-      ? entries.findIndex((entry, index) => entry.itemId === explicitItemId && eligibleIndices.includes(index))
-      : -1;
-    if (initialIndex < 0 && shuffleEnabled) {
-      const cycle = buildWeightedShuffleCycle(entries, eligibleIndices, -1, this.savedQueueRecentItemIds);
-      initialIndex = cycle.shift() ?? -1;
-      this.shuffleOrder = cycle;
-    } else {
-      initialIndex = initialIndex >= 0 ? initialIndex : eligibleIndices[0] ?? -1;
-      this.shuffleOrder = shuffleEnabled
-        ? buildWeightedShuffleCycle(entries, eligibleIndices, initialIndex, this.savedQueueRecentItemIds)
-        : [];
-    }
+    const selection = selectFreshMusicQueueItem(entries, eligibleIndices, {
+      shuffle: shuffleEnabled,
+      explicitItemId,
+      avoidItemId: options.avoidItemId,
+      recentItemIds: this.savedQueueRecentItemIds,
+    });
+    const initialIndex = selection.index ?? -1;
+    this.shuffleOrder = selection.remainingShuffleOrder;
     const first = this.queue[initialIndex];
     if (!first || initialIndex < 0) return false;
     this.pendingQueueIndex = initialIndex;
     this.persistPlayerSettings();
-    await this.loadSavedQueueEntry(first, initialIndex);
-    this.recordQueueSelection(initialIndex, "manual");
+    this.savedQueueAutoplay = options.autoplay ?? true;
+    try {
+      await this.loadSavedQueueEntry(first, initialIndex);
+    } finally {
+      this.savedQueueAutoplay = true;
+    }
+    this.recordQueueSelection(initialIndex, options.context ? "automatic" : "manual");
     return true;
+  }
+
+  setContextPlayback(context: MusicContextPlayback): void {
+    this.contextPlayback = context;
+    this.contextOwner = context.owner;
+    if (context.behavior !== "play-automatically") this.savedQueueAutoRecoveryEnabled = false;
+    this.updateMusicTray();
+  }
+
+  clearContextPlayback(): void {
+    if (this.contextPlayback) this.savedQueueAutoRecoveryEnabled = false;
+    this.contextPlayback = null;
+    this.contextOwner = "manual";
+    this.updateMusicTray();
+  }
+
+  requestContextRetry(): void {
+    this.contextRetryRequest += 1;
+  }
+
+  inspectContextAssignment(): void {
+    const context = this.contextPlayback;
+    if (!context || typeof window === "undefined") return;
+    window.dispatchEvent(new CustomEvent("ganbaru-ai:inspect-music-assignment", {
+      detail: { eventId: context.eventId },
+    }));
+    const appWindow = getCurrentWindow();
+    void appWindow.show().then(() => appWindow.setFocus()).catch(() => {});
+  }
+
+  private registerManualContextAction(origin: MusicPlaybackActionOrigin): void {
+    if (origin !== "manual") return;
+    this.manualPlaybackActionVersion += 1;
+    if (!this.contextPlayback) return;
+    const state = musicContextStateAfterAction(this.contextPlayback.state, origin);
+    if (!state || state === this.contextPlayback.state) return;
+    this.contextPlayback = { ...this.contextPlayback, state };
+    this.contextOwner = "manual";
+    this.updateMusicTray();
   }
   async retrySavedPlaylist(): Promise<void> {
     if (!this.activePlaylistId) return;
@@ -493,6 +584,15 @@ class MusicPlayerStore {
   }
 
   detachDeletedPlaylist(playlistId: string): void {
+    if (this.contextPlayback?.playlistId === playlistId) {
+      this.setContextPlayback({
+        ...this.contextPlayback,
+        playlistId: null,
+        playlistName: null,
+        state: "unavailable",
+        issue: "missing-playlist",
+      });
+    }
     const currentEntry = this.currentSavedQueueEntry();
     const plan = planMusicQueueMutation({
       playlistId: this.activePlaylistId,
@@ -513,17 +613,18 @@ class MusicPlayerStore {
     this.updateSystemMediaControls();
     this.updateMusicTray();
   }
-  async togglePlay(): Promise<void> {
+  async togglePlay(origin: MusicPlaybackActionOrigin = "manual"): Promise<void> {
     if (!this.currentSource || this.snapshot.status === "loading") return;
     if (this.snapshot.status === "playing") {
-      await this.pausePlayback();
+      await this.pausePlayback(origin);
       return;
     }
-    await this.playPlayback();
+    await this.playPlayback(origin);
   }
 
-  async playPlayback(): Promise<void> {
+  async playPlayback(origin: MusicPlaybackActionOrigin = "manual"): Promise<void> {
     if (!this.currentSource) return;
+    this.registerManualContextAction(origin);
     this.playerError = null;
     if (this.currentSource.kind === "local-file") {
       if (this.usesNativeLocalBackend()) {
@@ -543,8 +644,9 @@ class MusicPlayerStore {
     this.updateMusicTray();
   }
 
-  async pausePlayback(): Promise<void> {
+  async pausePlayback(origin: MusicPlaybackActionOrigin = "manual"): Promise<void> {
     if (!this.currentSource) return;
+    this.registerManualContextAction(origin);
     if (this.currentSource.kind === "local-file") {
       if (this.usesNativeLocalBackend()) {
         await this.nativeLocalAdapter.pause();
@@ -561,8 +663,9 @@ class MusicPlayerStore {
     this.updateMusicTray();
   }
 
-  async stopPlayback(): Promise<void> {
+  async stopPlayback(origin: MusicPlaybackActionOrigin = "manual"): Promise<void> {
     if (!this.currentSource) return;
+    this.registerManualContextAction(origin);
     if (this.currentSource.kind === "local-file") {
       if (this.usesNativeLocalBackend()) {
         await this.nativeLocalAdapter.stop();
@@ -731,14 +834,17 @@ class MusicPlayerStore {
   }
 
   async playQueueItem(index: number): Promise<void> {
+    this.registerManualContextAction("manual");
     await this.queueController.playItem(index);
   }
 
   async playNextTrack(): Promise<void> {
+    this.registerManualContextAction("manual");
     await this.queueController.playNext(false);
   }
 
   async playPreviousTrack(): Promise<void> {
+    this.registerManualContextAction("manual");
     await this.queueController.playPrevious();
   }
 
@@ -786,12 +892,25 @@ class MusicPlayerStore {
   private readonly handleConnectivityChange = (): void => {
     this.online = typeof navigator === "undefined" || navigator.onLine;
     this.refreshSavedQueueBreakdown();
-    if (this.activePlaylistId && !this.currentSource && this.online) {
-      void this.queueController.playNext(true);
+    if (this.savedQueueAutoRecoveryEnabled && this.activePlaylistId && !this.currentSource && this.online) {
+      this.recoverSavedPlaylist();
     }
   };
 
+  private recoverSavedPlaylist(): void {
+    void this.queueController.playNext(true).then(() => {
+      const context = this.contextPlayback;
+      if (!this.currentSource || context?.behavior !== "play-automatically" || context.state === "overridden") return;
+      this.setContextPlayback({
+        ...context,
+        state: "playing",
+        issue: context.issue === "deleted-soundscape" ? context.issue : null,
+      });
+    });
+  }
+
   private prepareTemporaryQueue(): void {
+    this.manualPlaybackActionVersion += 1;
     const priorIndex = this.currentQueueIndex;
     if (priorIndex >= 0 && this.activePlaylistId) this.recordQueueOutcome(priorIndex, "skipped");
     if (this.activePlaylistId) {
@@ -809,6 +928,7 @@ class MusicPlayerStore {
     this.savedQueueSkipBreakdown = emptyMusicSkipBreakdown();
     this.savedPlaylistRuntime.reset();
     this.activeQueueItemIds = [];
+    this.clearContextPlayback();
   }
 
   private async loadSavedQueueEntry(source: MusicSource, index: number): Promise<void> {
@@ -819,7 +939,7 @@ class MusicPlayerStore {
     this.snapshot = { ...this.snapshot, volume: clampVolume(volume), rate: clampRate(rate) };
     this.savedPlaylistRuntime.resetSkipRange();
     await this.sourceController.loadSource(source, {
-      autoplay: true,
+      autoplay: this.savedQueueAutoplay,
       resume: false,
       preserveQueue: true,
     });
@@ -948,6 +1068,7 @@ class MusicPlayerStore {
       this.snapshot.status,
       this.canPlayPreviousTrack ? "prev" : "no-prev",
       this.canPlayNextTrack ? "next" : "no-next",
+      this.contextPlayback?.state !== "overridden" ? this.contextPlayback?.displayLabel ?? "manual" : "manual",
     ].join("|");
     if (signature === this.lastTraySignature) return;
     this.lastTraySignature = signature;
@@ -958,6 +1079,9 @@ class MusicPlayerStore {
         canPlayPause: Boolean(this.currentSource) && !this.isBusy,
         canPrevious: this.canPlayPreviousTrack,
         canNext: this.canPlayNextTrack,
+        contextLabel: this.contextPlayback?.state !== "overridden"
+          ? this.contextPlayback?.displayLabel ?? null
+          : null,
       },
     }).catch(() => {});
   }
