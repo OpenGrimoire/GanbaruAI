@@ -54,4 +54,36 @@ describe("MusicReviewTree", () => {
 
     expect(onAssign).toHaveBeenCalledWith(["one", "two"]);
   });
+
+  it("opens every nested folder when Review first appears", async () => {
+    target = document.createElement("div");
+    document.body.append(target);
+    component = mount(MusicReviewTree, {
+      target,
+      props: {
+        items: [
+          item("theme", "Theme", "Games/Nier/Disc 1/theme.flac"),
+          item("ending", "Ending", "Games/Nier/ending.flac"),
+        ],
+        totalCount: 2,
+        loading: false,
+        activeItemId: null,
+        onActivate: vi.fn(),
+        onAssign: vi.fn(),
+      },
+    });
+    await tick();
+
+    expect(
+      [...target.querySelectorAll<HTMLButtonElement>("button[aria-expanded]")]
+        .map((button) => button.getAttribute("aria-label")),
+    ).toEqual([
+      "Collapse Music",
+      "Collapse Games",
+      "Collapse Nier",
+      "Collapse Disc 1",
+    ]);
+    expect(target.textContent).toContain("Theme");
+    expect(target.textContent).toContain("Ending");
+  });
 });

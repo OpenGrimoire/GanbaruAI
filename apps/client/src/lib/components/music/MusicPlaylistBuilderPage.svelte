@@ -104,6 +104,7 @@
   let pendingReviewExit: (() => void) | null = null;
   let choosingFirstUseFolder = $state(false);
   let firstUseFolderError = $state<string | null>(null);
+  let firstUsePreparationActive = $state(false);
   const layout = $derived(projectMusicBuilderLayout({ width, height }));
   const destination = $derived(history.current.destination);
   const selectedItemId = $derived(history.current.inspectorItemId ?? library.currentState.selectedItemId);
@@ -114,7 +115,9 @@
   const playingItemId = $derived(audition.musicPlayer.activeQueueItemIds[audition.musicPlayer.currentQueueIndex] ?? null);
   const playlistNames = $derived(Object.fromEntries(library.playlistSummaries.map((entry) => [entry.id, entry.name])));
   const sourceNames = $derived(Object.fromEntries(library.sourceSummaries.map((entry) => [entry.id, entry.name])));
-  const firstUsePreparation = $derived(sources.preparingDefaultFolder && library.currentWindow.items.length === 0);
+  const firstUsePreparation = $derived(
+    sources.preparingDefaultFolder || firstUsePreparationActive,
+  );
   const firstUseNeedsFolder = $derived(
     destination.kind === "review"
       && sources.loaded
@@ -124,6 +127,16 @@
       && library.currentWindow.items.length === 0,
   );
   const firstUseRefreshProgress = $derived(Object.values(sources.refreshStatuses).find((status) => status.kind === "local-root"));
+
+  $effect(() => {
+    if (sources.preparingDefaultFolder) {
+      firstUsePreparationActive = true;
+      return;
+    }
+    if (firstUsePreparationActive && !library.busy) {
+      firstUsePreparationActive = false;
+    }
+  });
 
   $effect(() => {
     const action = initialAction;

@@ -12,7 +12,7 @@ use super::super::MusicMediaKind;
 use super::metadata::{read_container_duration_ms, read_tags, LocalTags};
 
 pub(super) const DISCOVERY_BATCH_SIZE: usize = 128;
-pub(super) const RECONCILE_BATCH_SIZE: i64 = 64;
+pub(super) const RECONCILE_BATCH_SIZE: i64 = 256;
 const FINGERPRINT_SAMPLE_BYTES: usize = 64 * 1024;
 
 pub(in crate::music::library) type ArtworkCache = HashMap<PathBuf, Vec<PathBuf>>;

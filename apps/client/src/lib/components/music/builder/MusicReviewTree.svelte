@@ -10,6 +10,7 @@
   import {
     buildMusicReviewTree,
     flattenMusicReviewTree,
+    musicReviewTreeFolderIds,
     toggleMusicReviewTreeSelection,
   } from "$lib/music/music-review-tree";
   import { cn } from "$lib/utils";
@@ -32,6 +33,7 @@
 
   const { t } = getLocalization();
   let expandedIds = $state<Set<string>>(new Set());
+  let expansionInitialized = $state(false);
   let selectedIds = $state<Set<string>>(new Set());
   const tree = $derived(buildMusicReviewTree(items));
   const rows = $derived(flattenMusicReviewTree(tree, expandedIds));
@@ -44,8 +46,9 @@
   });
 
   $effect(() => {
-    if (expandedIds.size > 0 || tree.length === 0) return;
-    expandedIds = new Set(tree.map((node) => node.id));
+    if (expansionInitialized || tree.length === 0) return;
+    expandedIds = musicReviewTreeFolderIds(tree);
+    expansionInitialized = true;
   });
 
   function toggleExpanded(nodeId: string): void {

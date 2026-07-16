@@ -72,6 +72,21 @@ export function buildMusicReviewTree(items: readonly MusicItemListEntry[]): Musi
   return [local, online].filter((node) => node.directItems.length > 0 || node.children.size > 0).map(freezeNode);
 }
 
+/** Returns every folder id so the initial Review tree can open completely. */
+export function musicReviewTreeFolderIds(
+  nodes: readonly MusicReviewTreeNode[],
+): Set<string> {
+  const ids = new Set<string>();
+  const visit = (entries: readonly MusicReviewTreeNode[]): void => {
+    for (const node of entries) {
+      ids.add(node.id);
+      visit(node.children);
+    }
+  };
+  visit(nodes);
+  return ids;
+}
+
 /** Flattens expanded tree nodes into keyboard-friendly visual rows. */
 export function flattenMusicReviewTree(
   nodes: readonly MusicReviewTreeNode[],

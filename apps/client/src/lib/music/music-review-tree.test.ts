@@ -3,6 +3,7 @@ import type { MusicItemListEntry } from "$lib/music/library-contracts";
 import {
   buildMusicReviewTree,
   flattenMusicReviewTree,
+  musicReviewTreeFolderIds,
   toggleMusicReviewTreeSelection,
 } from "$lib/music/music-review-tree";
 
@@ -39,5 +40,24 @@ describe("music review tree", () => {
     expect(rows.map((row) => row.kind === "folder" ? row.node.name : row.item.id)).toEqual(["Music", "Album", "one", "two"]);
     expect([...toggleMusicReviewTreeSelection(new Set(["other"]), album.itemIds)]).toEqual(["other", "one", "two"]);
     expect([...toggleMusicReviewTreeSelection(new Set(["one", "two", "other"]), album.itemIds)]).toEqual(["other"]);
+  });
+
+  it("collects every nested folder for the initial expanded state", () => {
+    const tree = buildMusicReviewTree([
+      item("theme", "Games/Nier/Disc 1/theme.flac"),
+      item("video", null, "youtube-video"),
+    ]);
+
+    expect([...musicReviewTreeFolderIds(tree)]).toEqual([
+      "review-root:local",
+      "review-folder:Games",
+      "review-folder:Games/Nier",
+      "review-folder:Games/Nier/Disc 1",
+      "review-root:online",
+    ]);
+    expect(
+      flattenMusicReviewTree(tree, musicReviewTreeFolderIds(tree))
+        .map((row) => row.kind === "folder" ? row.node.name : row.item.id),
+    ).toEqual(["Music", "Games", "Nier", "Disc 1", "theme", "Online", "video"]);
   });
 });

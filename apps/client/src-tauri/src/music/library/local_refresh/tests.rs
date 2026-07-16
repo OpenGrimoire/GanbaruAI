@@ -244,7 +244,7 @@ fn id3_title(title: &str) -> Vec<u8> {
 }
 
 #[test]
-fn staged_identity_distinguishes_collisions_and_merges_confirmed_copies_across_roots() {
+fn local_paths_remain_distinct_even_when_content_matches() {
     tauri::async_runtime::block_on(async {
         let pool = migrated_pool().await;
         seed_root(&pool).await;
@@ -301,6 +301,12 @@ fn staged_identity_distinguishes_collisions_and_merges_confirmed_copies_across_r
             1_700_000_200_000,
         )
         .await;
+        let distinct_after_copy: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM music_library_items")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(distinct_after_copy, 3);
         let copied_item_locations: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM music_local_locations
              WHERE item_id = (
@@ -311,7 +317,42 @@ fn staged_identity_distinguishes_collisions_and_merges_confirmed_copies_across_r
         .fetch_one(&pool)
         .await
         .unwrap();
-        assert_eq!(copied_item_locations, 2);
+        assert_eq!(copied_item_locations, 1);
+
+        let root_1_item: String = sqlx::query_scalar(
+            "SELECT item_id FROM music_local_locations
+             WHERE root_id = 'root-1' AND relative_path = 'Theme.mp3'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "UPDATE music_local_locations SET item_id = ?
+             WHERE root_id = 'root-3' AND relative_path = 'Copied theme.mp3'",
+        )
+        .bind(&root_1_item)
+        .execute(&pool)
+        .await
+        .unwrap();
+        run_root_refresh(
+            &pool,
+            "identity-repair",
+            "root-3",
+            "collection-3",
+            &root_3,
+            roots.clone(),
+            1_700_000_250_000,
+        )
+        .await;
+        let repaired_distinct_items: i64 = sqlx::query_scalar(
+            "SELECT COUNT(DISTINCT item_id) FROM music_local_locations
+             WHERE (root_id = 'root-1' AND relative_path = 'Theme.mp3')
+                OR (root_id = 'root-3' AND relative_path = 'Copied theme.mp3')",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(repaired_distinct_items, 2);
 
         fs::rename(root_1.join("Theme.mp3"), root_1.join("Renamed theme.mp3")).unwrap();
         run_root_refresh(
@@ -332,7 +373,7 @@ fn staged_identity_distinguishes_collisions_and_merges_confirmed_copies_across_r
         .fetch_one(&pool)
         .await
         .unwrap();
-        assert_eq!(renamed_item_matches, 1);
+        assert_eq!(renamed_item_matches, 2);
         let old_location: String = sqlx::query_scalar(
             "SELECT availability FROM music_local_locations
              WHERE root_id = 'root-1' AND relative_path = 'Theme.mp3'",
@@ -397,7 +438,7 @@ fn refresh_normalizes_cross_platform_separators_without_collapsing_path_case() {
 }
 
 #[test]
-fn unavailable_identity_candidates_remain_ambiguous_instead_of_merging() {
+fn unavailable_matching_content_remains_distinct_and_available() {
     tauri::async_runtime::block_on(async {
         let pool = migrated_pool().await;
         seed_root(&pool).await;
@@ -433,7 +474,7 @@ fn unavailable_identity_candidates_remain_ambiguous_instead_of_merging() {
         .fetch_one(&pool)
         .await
         .unwrap();
-        assert_eq!(ambiguous, 1);
+        assert_eq!(ambiguous, 0);
         let canonical_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM music_library_items")
             .fetch_one(&pool)
             .await

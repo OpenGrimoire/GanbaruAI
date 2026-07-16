@@ -66,14 +66,7 @@ pub(super) fn new_item_id(
     request: &MusicLocalRefreshRequest,
     media: &LocalMediaEvidence,
 ) -> String {
-    stable_id(
-        "item",
-        &[
-            &request.root_id,
-            &media.relative_path,
-            &media.lightweight_fingerprint,
-        ],
-    )
+    stable_id("item", &[&request.root_id, &media.relative_path])
 }
 
 pub(super) fn stable_id(kind: &str, values: &[&str]) -> String {

@@ -1,10 +1,9 @@
 use sqlx::{Row, Sqlite, SqlitePool, Transaction};
-use std::collections::HashSet;
 use std::path::Path;
 
 use super::super::*;
 use super::helpers::{map_conflict, new_item_id, now_ms, stable_id, validate_request};
-use super::traversal::{join_relative, strong_fingerprint, LocalMediaEvidence};
+use super::traversal::LocalMediaEvidence;
 
 #[derive(Debug, sqlx::FromRow)]
 struct RefreshJobRow {
@@ -710,6 +709,16 @@ async fn resolve_item_identity(
     {
         let item_id: String = location.get("item_id");
         let stored_path: String = location.get("relative_path");
+        let keeper: Option<(String, String)> = sqlx::query_as(
+            "SELECT root_id, relative_path FROM music_local_locations
+             WHERE item_id = ? ORDER BY root_id, relative_path LIMIT 1",
+        )
+        .bind(&item_id)
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(|error| {
+            MusicLibraryError::database("select local music identity keeper", error)
+        })?;
         if stored_path != media.relative_path {
             sqlx::query(
                 "UPDATE music_local_locations SET relative_path = ?
@@ -722,91 +731,13 @@ async fn resolve_item_identity(
             .await
             .map_err(|error| map_conflict("normalize local music path", error))?;
         }
-        return Ok((item_id, None, false));
-    }
-    let candidates = sqlx::query(
-        "SELECT item_id, root_id, relative_path, strong_fingerprint
-         FROM music_local_locations
-         WHERE lightweight_fingerprint = ? AND file_size_bytes = ?
-         ORDER BY item_id, root_id, relative_path LIMIT 32",
-    )
-    .bind(&media.lightweight_fingerprint)
-    .bind(media.file_size_bytes)
-    .fetch_all(&mut **transaction)
-    .await
-    .map_err(|error| MusicLibraryError::database("match local music evidence", error))?;
-    if candidates.is_empty() {
-        return Ok((new_item_id(request, media), None, false));
-    }
-    let incoming_path = join_relative(Path::new(&request.folder_path), &media.relative_path)
-        .map_err(|message| MusicLibraryError::runtime("resolve incoming media", message))?;
-    let incoming_strong = strong_fingerprint(&incoming_path)
-        .map_err(|message| MusicLibraryError::runtime("hash incoming media", message))?;
-    let mut matched_items = HashSet::new();
-    let mut unresolved_candidates = 0_usize;
-    for candidate in candidates {
-        let item_id: String = candidate.get("item_id");
-        let candidate_root: String = candidate.get("root_id");
-        let candidate_relative: String = candidate.get("relative_path");
-        let stored_strong: Option<String> = candidate.get("strong_fingerprint");
-        let candidate_strong = match stored_strong {
-            Some(value) => Some(value),
-            None => {
-                let root_path = request
-                    .available_roots
-                    .iter()
-                    .find(|binding| binding.root_id == candidate_root)
-                    .map(|binding| Path::new(&binding.folder_path));
-                let Some(root_path) = root_path else {
-                    unresolved_candidates += 1;
-                    continue;
-                };
-                let Ok(candidate_path) = join_relative(root_path, &candidate_relative) else {
-                    unresolved_candidates += 1;
-                    continue;
-                };
-                match strong_fingerprint(&candidate_path) {
-                    Ok(value) => {
-                        sqlx::query(
-                            "UPDATE music_local_locations SET strong_fingerprint = ?
-                             WHERE root_id = ? AND relative_path = ?",
-                        )
-                        .bind(&value)
-                        .bind(&candidate_root)
-                        .bind(&candidate_relative)
-                        .execute(&mut **transaction)
-                        .await
-                        .map_err(|error| {
-                            MusicLibraryError::database(
-                                "save confirmed local music fingerprint",
-                                error,
-                            )
-                        })?;
-                        Some(value)
-                    }
-                    Err(_) => {
-                        unresolved_candidates += 1;
-                        None
-                    }
-                }
-            }
-        };
-        if candidate_strong.as_deref() == Some(incoming_strong.as_str()) {
-            matched_items.insert(item_id);
+        if keeper.as_ref().is_some_and(|(root_id, relative_path)| {
+            root_id == &request.root_id && relative_path.replace('\\', "/") == media.relative_path
+        }) {
+            return Ok((item_id, None, false));
         }
     }
-    if matched_items.len() == 1 {
-        return Ok((
-            matched_items.into_iter().next().unwrap(),
-            Some(incoming_strong),
-            false,
-        ));
-    }
-    Ok((
-        new_item_id(request, media),
-        Some(incoming_strong),
-        matched_items.len() > 1 || unresolved_candidates > 0,
-    ))
+    Ok((new_item_id(request, media), None, false))
 }
 
 async fn upsert_item(
