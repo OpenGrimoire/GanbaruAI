@@ -33,10 +33,12 @@
     type MusicBuilderComponent,
     type MusicBuilderInitialAction,
   } from "$lib/music/music-builder-loader";
+  import { getMusicSourcesController } from "$lib/music/music-sources-controller.svelte";
 
   let { onclose }: { onclose: () => void } = $props();
 
   const player = getMusicPlayer();
+  const sources = getMusicSourcesController();
   const { t } = getLocalization();
 
   type MusicPage = "player" | "playlist-builder";
@@ -54,7 +56,8 @@
   let customSpeedOpen = $state(false);
   let customRateDraft = $state("1");
   const playlistVisible = $derived(player.playlistVisible);
-  let musicPage = $state<MusicPage>("player");
+  let musicPage = $state<MusicPage>(sources.firstUseSession ? "playlist-builder" : "player");
+  let firstUseRedirectHandled = $state(sources.firstUseSession);
   let playlistBuilderComponent = $state<MusicBuilderComponent | null>(musicBuilderLoader.peek());
   let playlistBuilderLoading = $state(false);
   let playlistBuilderLoadError = $state<string | null>(null);
@@ -128,6 +131,17 @@
   const contextSummary = $derived(visibleContext
     ? t("music.assignment.context.selectedBy", contextPhaseLabel, visibleContext.eventTitle)
     : "");
+
+  $effect(() => {
+    if (!sources.firstUseSession || firstUseRedirectHandled) return;
+    firstUseRedirectHandled = true;
+    musicPage = "playlist-builder";
+    void loadPlaylistBuilder();
+  });
+
+  $effect(() => {
+    if (musicPage === "playlist-builder") void loadPlaylistBuilder();
+  });
 
   $effect(() => {
     player.setSurfaceElement(mediaSurface);

@@ -390,6 +390,7 @@ pub(super) async fn reconcile_batch(
         .await
         .map_err(|error| MusicLibraryError::database("begin music reconciliation batch", error))?;
     let mut issue_count = 0_i64;
+    let mut refreshed_item_ids = Vec::with_capacity(evidence.len());
     for media in evidence {
         let (item_id, strong_hash, ambiguous) =
             resolve_item_identity(&mut transaction, request, media).await?;
@@ -460,8 +461,9 @@ pub(super) async fn reconcile_batch(
             )
             .await?;
         }
-        super::super::search::refresh_item(&mut transaction, &item_id).await?;
+        refreshed_item_ids.push(item_id);
     }
+    super::super::search::refresh_items(&mut transaction, &refreshed_item_ids).await?;
     sqlx::query(
         "UPDATE music_refresh_jobs
          SET processed_count = processed_count + ?, issue_count = issue_count + ?,

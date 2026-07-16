@@ -117,6 +117,7 @@ export class MusicSourcesController {
   preparingDefaultFolder = $state(false);
   preparingDefaultFolderPath = $state<string | null>(null);
   defaultFolderPreparationError = $state<string | null>(null);
+  firstUseSession = $state(false);
 
   private readonly api: MusicSourcesControllerApi;
   private readonly now: () => number;
@@ -126,6 +127,7 @@ export class MusicSourcesController {
   private loadGeneration = 0;
   private defaultFolderChecked = false;
   private defaultFolderDismissed = false;
+  private lastNotifiedProcessed: Record<string, number> = {};
 
   constructor(
     api: MusicSourcesControllerApi = defaultApi,
@@ -159,7 +161,16 @@ export class MusicSourcesController {
           resolvedAt: this.now(),
         });
       },
-      { onStatus: (status) => { this.refreshStatuses[status.collectionId] = status; } },
+      {
+        onStatus: (status) => {
+          this.refreshStatuses[status.collectionId] = status;
+          const processed = status.progress?.processedCount ?? 0;
+          if (processed > (this.lastNotifiedProcessed[status.collectionId] ?? 0)) {
+            this.lastNotifiedProcessed[status.collectionId] = processed;
+            notifyMusicLibraryChanged();
+          }
+        },
+      },
     );
   }
 
@@ -181,8 +192,10 @@ export class MusicSourcesController {
     this.preparingDefaultFolder = false;
     this.preparingDefaultFolderPath = null;
     this.defaultFolderPreparationError = null;
+    this.firstUseSession = false;
     this.defaultFolderChecked = false;
     this.defaultFolderDismissed = false;
+    this.lastNotifiedProcessed = {};
   }
 
   async load(): Promise<boolean> {
@@ -202,6 +215,7 @@ export class MusicSourcesController {
       this.collections = collections;
       this.bindings = bindings;
       if (roots.length === 0 && !this.defaultFolderChecked && !this.defaultFolderDismissed) {
+        this.firstUseSession = true;
         void this.detectSystemMusicFolder();
       } else if (roots.length > 0) {
         this.detectedDefaultFolder = null;
@@ -538,4 +552,12 @@ export function createMusicSourcesController(
   refreshOverride: MusicSourceRefreshController | null = null,
 ): MusicSourcesController {
   return new MusicSourcesController(api, now, id, refreshOverride);
+}
+
+let sharedMusicSourcesController: MusicSourcesController | null = null;
+
+/** Returns the process-wide source controller shared by startup discovery and the builder. */
+export function getMusicSourcesController(): MusicSourcesController {
+  sharedMusicSourcesController ??= createMusicSourcesController();
+  return sharedMusicSourcesController;
 }

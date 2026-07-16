@@ -109,7 +109,6 @@ async fn catalog(
     root: &Path,
     generation: i64,
 ) -> MusicLibraryResult<()> {
-    let mut artwork_cache = traversal::ArtworkCache::new();
     loop {
         if !persistence::is_current(pool, &request.job_id).await? {
             return Ok(());
@@ -120,12 +119,13 @@ async fn catalog(
         if paths.is_empty() {
             return Ok(());
         }
-        let mut evidence = Vec::with_capacity(paths.len());
-        for relative_path in paths {
-            match traversal::inspect_media(root, &relative_path, &mut artwork_cache) {
+        let inspected = inspect_batch(root, &paths)?;
+        let mut evidence = Vec::with_capacity(inspected.len());
+        for (relative_path, result) in inspected {
+            match result {
                 Ok(media) => evidence.push(media),
                 Err(message) => {
-                    persistence::record_media_failure(pool, request, &relative_path, &message)
+                    persistence::record_media_failure(pool, request, relative_path, &message)
                         .await?;
                 }
             }
@@ -134,6 +134,53 @@ async fn catalog(
             persistence::reconcile_batch(pool, request, generation, &evidence).await?;
         }
     }
+}
+
+fn inspection_worker_count(item_count: usize, available_parallelism: usize) -> usize {
+    item_count.min(available_parallelism.clamp(1, 4)).max(1)
+}
+
+fn inspect_batch<'a>(
+    root: &'a Path,
+    paths: &'a [String],
+) -> MusicLibraryResult<Vec<(&'a str, Result<traversal::LocalMediaEvidence, String>)>> {
+    if paths.is_empty() {
+        return Ok(Vec::new());
+    }
+    let available = std::thread::available_parallelism()
+        .map(usize::from)
+        .unwrap_or(1);
+    let worker_count = inspection_worker_count(paths.len(), available);
+    let chunk_size = paths.len().div_ceil(worker_count);
+    std::thread::scope(|scope| {
+        let handles = paths
+            .chunks(chunk_size)
+            .map(|chunk| {
+                scope.spawn(move || {
+                    let mut artwork_cache = traversal::ArtworkCache::new();
+                    chunk
+                        .iter()
+                        .map(|relative_path| {
+                            (
+                                relative_path.as_str(),
+                                traversal::inspect_media(root, relative_path, &mut artwork_cache),
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect::<Vec<_>>();
+        let mut inspected = Vec::with_capacity(paths.len());
+        for handle in handles {
+            inspected.extend(handle.join().map_err(|_| {
+                MusicLibraryError::runtime(
+                    "inspect local music",
+                    "a media inspection worker stopped unexpectedly",
+                )
+            })?);
+        }
+        Ok(inspected)
+    })
 }
 
 #[cfg(test)]

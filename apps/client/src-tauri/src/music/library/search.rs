@@ -143,23 +143,43 @@ pub(crate) async fn refresh_item(
     transaction: &mut Transaction<'_, Sqlite>,
     item_id: &str,
 ) -> MusicLibraryResult<()> {
-    sqlx::query("DELETE FROM music_search_fts WHERE item_id = ?")
-        .bind(item_id)
+    refresh_items(transaction, &[item_id.to_string()]).await
+}
+
+pub(crate) async fn refresh_items(
+    transaction: &mut Transaction<'_, Sqlite>,
+    item_ids: &[String],
+) -> MusicLibraryResult<()> {
+    if item_ids.is_empty() {
+        return Ok(());
+    }
+    let mut delete = QueryBuilder::<Sqlite>::new("DELETE FROM music_search_fts WHERE item_id IN (");
+    let mut separated = delete.separated(", ");
+    for item_id in item_ids {
+        separated.push_bind(item_id);
+    }
+    separated.push_unseparated(")");
+    delete
+        .build()
         .execute(&mut **transaction)
         .await
-        .map_err(|error| MusicLibraryError::database("remove stale music search row", error))?;
+        .map_err(|error| MusicLibraryError::database("remove stale music search rows", error))?;
     let mut insert = QueryBuilder::<Sqlite>::new(
         "INSERT INTO music_search_fts
             (item_id, title, artist, album, source_collections, relative_paths, signals, playlist_metadata) ",
     );
     push_projection(&mut insert);
-    insert.push(" WHERE item.id = ");
-    insert.push_bind(item_id.to_string());
+    insert.push(" WHERE item.id IN (");
+    let mut separated = insert.separated(", ");
+    for item_id in item_ids {
+        separated.push_bind(item_id);
+    }
+    separated.push_unseparated(")");
     insert
         .build()
         .execute(&mut **transaction)
         .await
-        .map_err(|error| MusicLibraryError::database("refresh music search row", error))?;
+        .map_err(|error| MusicLibraryError::database("refresh music search rows", error))?;
     Ok(())
 }
 

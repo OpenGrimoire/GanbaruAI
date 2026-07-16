@@ -130,6 +130,7 @@ describe("MusicSourcesController", () => {
     expect(createRoot).toHaveBeenCalledOnce();
     expect(controller.detectedDefaultFolder).toBeNull();
     expect(controller.preparingDefaultFolder).toBe(false);
+    expect(controller.firstUseSession).toBe(true);
   });
 
   it("does not detect a default folder when a local root already exists", async () => {
@@ -143,6 +144,7 @@ describe("MusicSourcesController", () => {
     await controller.load();
 
     expect(detectDefaultFolder).not.toHaveBeenCalled();
+    expect(controller.firstUseSession).toBe(false);
   });
 
   it("adds the detected Music folder with one confirmed action", async () => {

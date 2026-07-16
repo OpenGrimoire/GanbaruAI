@@ -4,6 +4,7 @@ import { mount, tick, unmount } from "svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { localFileSourceFromPath } from "$lib/music/sources";
 import { getMusicPlayer } from "$lib/stores/music-player.svelte";
+import { getMusicSourcesController } from "$lib/music/music-sources-controller.svelte";
 
 class ResizeObserverStub {
   observe(): void {}
@@ -33,6 +34,7 @@ describe("MusicPanel", () => {
     component = undefined;
     target = undefined;
     vi.unstubAllGlobals();
+    getMusicSourcesController().firstUseSession = false;
   });
 
   it("mounts an interactive dialog above its persistent media layer and closes with Escape", async () => {
@@ -129,5 +131,21 @@ describe("MusicPanel", () => {
     await tick();
     expect(target.querySelector(".builder-root")).not.toBeNull();
     expect(target.querySelector("[data-music-player-page]")).toBe(playerPage);
+  });
+
+  it("opens the preloaded builder directly during the first-use music session", async () => {
+    vi.stubGlobal("ResizeObserver", ResizeObserverStub);
+    vi.stubGlobal("matchMedia", matchMediaStub);
+    getMusicSourcesController().firstUseSession = true;
+    target = document.createElement("div");
+    document.body.append(target);
+    const { default: MusicPanel } = await import("./MusicPanel.svelte");
+
+    component = mount(MusicPanel, { target, props: { onclose: vi.fn() } });
+
+    await vi.waitFor(() => {
+      expect(target?.querySelector(".builder-root"), target?.textContent ?? "").not.toBeNull();
+    }, { timeout: 5_000 });
+    expect(target.querySelector("[data-music-player-page]")?.classList.contains("hidden")).toBe(true);
   });
 });

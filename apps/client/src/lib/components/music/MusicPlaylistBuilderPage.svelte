@@ -19,7 +19,7 @@
     type MusicBuilderHistory,
   } from "$lib/music/music-builder-routing";
   import { createMusicLibraryController, type MusicDestinationState } from "$lib/music/music-library-controller.svelte";
-  import { createMusicSourcesController } from "$lib/music/music-sources-controller.svelte";
+  import { getMusicSourcesController } from "$lib/music/music-sources-controller.svelte";
   import { createMusicReviewAuditionController } from "$lib/music/music-review-audition.svelte";
   import { createMusicReviewController } from "$lib/music/music-review-controller.svelte";
   import { createMusicPlaylistController } from "$lib/music/music-playlist-controller.svelte";
@@ -76,7 +76,7 @@
   const { t } = getLocalization();
   const library = createMusicLibraryController();
   const inspector = createMusicBuilderInspectorController();
-  const sources = createMusicSourcesController();
+  const sources = getMusicSourcesController();
   const audition = createMusicReviewAuditionController();
   const review = createMusicReviewController(library, inspector);
   const playlist = createMusicPlaylistController(library);

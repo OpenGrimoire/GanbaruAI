@@ -205,20 +205,48 @@ pub async fn music_detect_default_folder(
         let Some(folder) = music_folder_start_directory(&app) else {
             return Ok(None);
         };
-        let generation = MEDIA_FOLDER_SCAN_GENERATION.fetch_add(1, Ordering::AcqRel) + 1;
-        let selection = scan_media_folder_with_cancel(&folder, || {
-            MEDIA_FOLDER_SCAN_GENERATION.load(Ordering::Acquire) != generation
-        })?;
-        Ok(non_empty_media_folder_selection(selection))
+        detect_non_empty_media_folder(&folder)
     })
     .await
     .map_err(|error| format!("default music folder scan failed: {error}"))?
 }
 
-fn non_empty_media_folder_selection(
-    selection: MediaFolderSelection,
-) -> Option<MediaFolderSelection> {
-    (!selection.tracks.is_empty()).then_some(selection)
+fn detect_non_empty_media_folder(folder: &Path) -> Result<Option<MediaFolderSelection>, String> {
+    require_absolute_directory(folder)?;
+    let mut queue = VecDeque::from([folder.to_path_buf()]);
+    while let Some(directory) = queue.pop_front() {
+        let entries = fs::read_dir(&directory).map_err(|error| {
+            format!(
+                "failed to read media folder '{}': {error}",
+                directory.display()
+            )
+        })?;
+        for entry in entries {
+            let entry =
+                entry.map_err(|error| format!("failed to read media folder entry: {error}"))?;
+            let path = entry.path();
+            let file_type = entry
+                .file_type()
+                .map_err(|error| format!("failed to inspect '{}': {error}", path.display()))?;
+            if file_type.is_symlink() {
+                continue;
+            }
+            if file_type.is_dir() {
+                queue.push_back(path);
+            } else if file_type.is_file() && is_supported_media_path(&path) {
+                return Ok(Some(MediaFolderSelection {
+                    folder_path: folder.to_string_lossy().into_owned(),
+                    tracks: vec![MediaFolderTrack {
+                        title: media_title_from_path(&path),
+                        path: path.to_string_lossy().into_owned(),
+                        artwork_path: None,
+                    }],
+                    truncated: true,
+                }));
+            }
+        }
+    }
+    Ok(None)
 }
 
 #[tauri::command]
@@ -759,24 +787,20 @@ mod tests {
     }
 
     #[test]
-    fn automatic_music_folder_preview_ignores_empty_folders() {
-        let empty = MediaFolderSelection {
-            folder_path: "/music".to_string(),
-            tracks: Vec::new(),
-            truncated: false,
-        };
-        let populated = MediaFolderSelection {
-            folder_path: "/music".to_string(),
-            tracks: vec![MediaFolderTrack {
-                path: "/music/focus.flac".to_string(),
-                title: "focus".to_string(),
-                artwork_path: None,
-            }],
-            truncated: false,
-        };
+    fn automatic_music_folder_detection_stops_after_the_first_supported_file() {
+        let root = unique_temp_dir("ganbaru-ai-music-detection");
+        fs::create_dir_all(root.join("album")).unwrap();
+        fs::write(root.join("notes.txt"), []).unwrap();
+        assert!(detect_non_empty_media_folder(&root).unwrap().is_none());
+        fs::write(root.join("album/track.flac"), []).unwrap();
+        fs::write(root.join("album/second.mp3"), []).unwrap();
 
-        assert!(non_empty_media_folder_selection(empty).is_none());
-        assert!(non_empty_media_folder_selection(populated).is_some());
+        let detected = detect_non_empty_media_folder(&root).unwrap().unwrap();
+        assert_eq!(detected.tracks.len(), 1);
+        assert!(detected.truncated);
+        assert!(detected.tracks[0].artwork_path.is_none());
+
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

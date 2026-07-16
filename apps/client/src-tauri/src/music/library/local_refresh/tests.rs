@@ -588,3 +588,10 @@ fn collision_fixture(middle: u8) -> Vec<u8> {
     bytes[64 * 1024..128 * 1024].fill(middle);
     bytes
 }
+#[test]
+fn inspection_workers_are_bounded_by_files_cpus_and_disk_pressure_cap() {
+    assert_eq!(inspection_worker_count(1, 16), 1);
+    assert_eq!(inspection_worker_count(64, 1), 1);
+    assert_eq!(inspection_worker_count(64, 2), 2);
+    assert_eq!(inspection_worker_count(64, 16), 4);
+}
