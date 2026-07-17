@@ -24,8 +24,10 @@
     playlists,
     checkedIds,
     mixedIds = new Set<string>(),
-    search,
-    onSearch,
+    search = "",
+    onSearch = () => undefined,
+    showSearch = false,
+    showSections = false,
     onToggle,
     weights = {},
     onCycleWeight = () => undefined,
@@ -45,8 +47,10 @@
     playlists: MusicPlaylistSummary[];
     checkedIds: Set<string>;
     mixedIds?: Set<string>;
-    search: string;
-    onSearch: (value: string) => void;
+    search?: string;
+    onSearch?: (value: string) => void;
+    showSearch?: boolean;
+    showSections?: boolean;
     onToggle: (playlist: MusicPlaylistSummary) => void;
     weights?: Record<string, MusicWeight>;
     onCycleWeight?: (playlist: MusicPlaylistSummary) => void;
@@ -65,11 +69,17 @@
   } = $props();
 
   const { t } = getLocalization();
-  const visible = $derived(sortReviewPlaylists(playlists, checkedIds, "").filter((playlist) => {
+  const visible = $derived(sortReviewPlaylists(playlists, "").filter((playlist) => {
     const query = search.trim().toLocaleLowerCase();
     return !query || `${systemMusicPlaylistName(playlist.id, playlist.name, t)} ${playlist.description}`.toLocaleLowerCase().includes(query);
   }));
   const sections = $derived(partitionMusicPlaylists(visible));
+  const displayedSections = $derived(showSections
+    ? [
+        { title: t("music.builder.defaultPlaylists"), playlists: sections.defaults },
+        { title: t("music.builder.customPlaylists"), playlists: sections.custom },
+      ]
+    : [{ title: null, playlists: visible }]);
 
   function triStateAction(node: HTMLInputElement, mixed: boolean): { update: (value: boolean) => void } {
     node.indeterminate = mixed;
@@ -83,17 +93,19 @@
 </script>
 
 <div class="flex min-h-0 flex-1 flex-col">
-  <label class="mx-3 mt-3 flex h-9 shrink-0 items-center gap-2 border-b border-border/55 px-1">
-    <Search size={14} class="text-muted-foreground" />
-    <input use:searchInputAction value={search} oninput={(event) => onSearch(event.currentTarget.value)} aria-label={t("music.builder.searchPlaylists")} class="min-w-0 flex-1 bg-transparent text-xs outline-none" placeholder={t("music.builder.searchPlaylists")} />
-  </label>
+  {#if showSearch}
+    <label class="mx-3 mt-3 flex h-9 shrink-0 items-center gap-2 border-b border-border/55 px-1">
+      <Search size={14} class="text-muted-foreground" />
+      <input use:searchInputAction value={search} oninput={(event) => onSearch(event.currentTarget.value)} aria-label={t("music.builder.searchPlaylists")} class="min-w-0 flex-1 bg-transparent text-xs outline-none" placeholder={t("music.builder.searchPlaylists")} />
+    </label>
+  {/if}
   <div class="min-h-0 flex-1 overflow-y-auto p-3" data-music-scrollable="true">
     {#if visible.length === 0}
       <p class="p-4 text-center text-xs text-muted-foreground">{t("music.builder.noPlaylistMatches")}</p>
     {:else}
-    {#each [{ title: t("music.builder.defaultPlaylists"), playlists: sections.defaults }, { title: t("music.builder.customPlaylists"), playlists: sections.custom }] as section (section.title)}
+    {#each displayedSections as section (section.title ?? "all")}
       {#if section.playlists.length > 0}
-        <h3 class="mb-2 mt-1 text-[0.7rem] font-semibold text-muted-foreground">{section.title}</h3>
+        {#if section.title}<h3 class="mb-2 mt-1 text-[0.7rem] font-semibold text-muted-foreground">{section.title}</h3>{/if}
         <div class="playlist-grid mb-4 grid gap-2">
     {#each section.playlists as playlist (playlist.id)}
       {@const checked = checkedIds.has(playlist.id)}

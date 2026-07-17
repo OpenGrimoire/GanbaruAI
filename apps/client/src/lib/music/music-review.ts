@@ -36,16 +36,12 @@ export function musicReviewSource(
 
 export function sortReviewPlaylists(
   playlists: readonly MusicPlaylistSummary[],
-  checkedIds: ReadonlySet<string>,
   search: string,
 ): MusicPlaylistSummary[] {
   const query = search.trim().toLocaleLowerCase();
   return playlists
     .filter((playlist) => !query || `${playlist.name} ${playlist.description}`.toLocaleLowerCase().includes(query))
-    .toSorted((left, right) => {
-      const checkedDifference = Number(checkedIds.has(right.id)) - Number(checkedIds.has(left.id));
-      return checkedDifference || left.name.localeCompare(right.name);
-    });
+    .toSorted((left, right) => left.name.localeCompare(right.name));
 }
 
 export function nextMusicWeight(weight: MusicWeight): MusicWeight {

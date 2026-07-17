@@ -46,10 +46,10 @@ describe("music review helpers", () => {
       .toMatchObject({ kind: "youtube-video", videoId: "abc12345" });
   });
 
-  it("keeps checked playlists first while filtering", () => {
-    expect(sortReviewPlaylists([playlist("a", "Work"), playlist("b", "Reading")], new Set(["a"]), "")
-      .map((entry) => entry.id)).toEqual(["a", "b"]);
-    expect(sortReviewPlaylists([playlist("a", "Work"), playlist("b", "Reading")], new Set(), "read")
+  it("keeps playlist ordering independent from selection while filtering", () => {
+    expect(sortReviewPlaylists([playlist("a", "Work"), playlist("b", "Reading")], "")
+      .map((entry) => entry.id)).toEqual(["b", "a"]);
+    expect(sortReviewPlaylists([playlist("a", "Work"), playlist("b", "Reading")], "read")
       .map((entry) => entry.id)).toEqual(["b"]);
   });
 

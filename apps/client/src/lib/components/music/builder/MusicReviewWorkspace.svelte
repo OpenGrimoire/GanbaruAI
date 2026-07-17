@@ -51,7 +51,6 @@
 
   const { t } = getLocalization();
   let surface = $state<HTMLElement | null>(null);
-  let playlistSearch = $state("");
   let newPlaylistName = $state("");
   let newPlaylistDescription = $state("");
   let inlineCreateOpen = $state(false);
@@ -63,7 +62,6 @@
   let lastSelectedId = $state<string | null>(null);
   let lastAutoplayedId = $state<string | null>(null);
   let sessionTotal = $state(0);
-  let playlistSearchInput = $state<HTMLInputElement | null>(null);
   let newPlaylistNameInput = $state<HTMLInputElement | null>(null);
   let checklistRoot = $state<HTMLElement | null>(null);
   let dismissedAdvisoryItemId = $state<string | null>(null);
@@ -261,8 +259,6 @@
       event.preventDefault(); void player.setRate(clampRate(player.snapshot.rate - 0.25));
     } else if (!event.shiftKey && /^[07-9]$/.test(event.key) && player.snapshot.durationMs) {
       event.preventDefault(); void player.seekToMs(Math.round(player.snapshot.durationMs * Number(event.key) / 10));
-    } else if (event.key === "/") {
-      event.preventDefault(); playlistSearchInput?.focus();
     }
   }
 </script>
@@ -345,7 +341,7 @@
   <section class="review-classify flex min-h-0 flex-col">
     <div class="shrink-0 p-3">
       <div class="flex items-center justify-between gap-2">
-        <div><h2 class="text-sm font-semibold">{t("music.builder.classifyPlaylists")}</h2><p class="text-[0.68rem] text-muted-foreground">{t("music.builder.classifyHint")}</p></div>
+        <h2 class="text-sm font-semibold">{t("music.builder.classifyPlaylists")}</h2>
         {#if checkedIds.size > 0}<button type="button" onclick={() => { void review.clearMemberships(); }} class="text-[0.68rem] text-muted-foreground hover:text-foreground">{t("music.builder.clearMemberships")}</button>{/if}
       </div>
       {#if inlineCreateOpen}
@@ -367,9 +363,6 @@
       <MusicPlaylistPicker
         playlists={library.playlistSummaries}
         {checkedIds}
-        search={playlistSearch}
-        onSearch={(value) => playlistSearch = value}
-        onSearchInput={(element) => playlistSearchInput = element}
         onToggle={(playlist) => { void review.toggleMembership(playlist); }}
         weights={membershipWeights}
         focusFits={membershipFocusFits}

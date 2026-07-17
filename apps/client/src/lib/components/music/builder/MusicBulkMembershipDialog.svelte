@@ -42,6 +42,8 @@
         mixedIds={controller.mixedIds}
         search={controller.search}
         onSearch={(value) => controller.search = value}
+        showSearch
+        showSections
         onToggle={(playlist) => controller.toggle(playlist.id)}
       />
     {/if}

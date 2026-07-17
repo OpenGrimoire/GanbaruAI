@@ -396,7 +396,6 @@ export const music = {
     playlistSearchTitle: (shortcut: string) => `Search playlists (${shortcut})`,
     markReviewedTitle: (shortcut: string) => `Mark reviewed (${shortcut})`,
     classifyPlaylists: "Add to playlists",
-    classifyHint: "Choose every moment where this track belongs.",
     clearMemberships: "Clear checked",
     searchPlaylists: "Search playlists",
     inlinePlaylistName: "New playlist name",
