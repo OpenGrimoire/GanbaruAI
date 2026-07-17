@@ -5,12 +5,15 @@
   import ListPlus from "@lucide/svelte/icons/list-plus";
   import Music2 from "@lucide/svelte/icons/music-2";
   import Minus from "@lucide/svelte/icons/minus";
+  import Search from "@lucide/svelte/icons/search";
+  import X from "@lucide/svelte/icons/x";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import type { MusicItemListEntry } from "$lib/music/library-contracts";
   import {
     buildMusicReviewTree,
     flattenMusicReviewTree,
     musicReviewTreeFolderIds,
+    searchMusicReviewTree,
     toggleMusicReviewTreeSelection,
   } from "$lib/music/music-review-tree";
   import { cn } from "$lib/utils";
@@ -18,14 +21,12 @@
   let {
     items,
     totalCount,
-    loading,
     activeItemId,
     onActivate,
     onAssign,
   }: {
     items: MusicItemListEntry[];
     totalCount: number;
-    loading: boolean;
     activeItemId: string | null;
     onActivate: (itemId: string) => void;
     onAssign: (itemIds: string[]) => void;
@@ -35,8 +36,11 @@
   let expandedIds = $state<Set<string>>(new Set());
   let expansionInitialized = $state(false);
   let selectedIds = $state<Set<string>>(new Set());
+  let search = $state("");
   const tree = $derived(buildMusicReviewTree(items));
-  const rows = $derived(flattenMusicReviewTree(tree, expandedIds));
+  const searching = $derived(search.trim().length > 0);
+  const searchResult = $derived(searchMusicReviewTree(tree, search));
+  const rows = $derived(searching ? searchResult.rows : flattenMusicReviewTree(tree, expandedIds));
   const folderSelectionReady = $derived(items.length >= totalCount);
 
   $effect(() => {
@@ -52,6 +56,7 @@
   });
 
   function toggleExpanded(nodeId: string): void {
+    if (searching) return;
     const next = new Set(expandedIds);
     if (next.has(nodeId)) next.delete(nodeId);
     else next.add(nodeId);
@@ -73,23 +78,37 @@
     node.indeterminate = value;
     return { update: (next) => { node.indeterminate = next; } };
   }
+
+  function handleSearchKeydown(event: KeyboardEvent): void {
+    if (event.key !== "Escape" || !searching) return;
+    event.preventDefault();
+    search = "";
+  }
 </script>
 
 <section class="review-tree flex min-h-0 flex-col" aria-label={t("music.builder.reviewFolders")}>
-  <div class="flex min-h-10 shrink-0 items-center gap-2 px-3">
-    <Folder size={15} class="text-primary" strokeWidth={1.7} />
-    <h2 class="min-w-0 flex-1 truncate text-xs font-semibold">{t("music.builder.reviewFolders")}</h2>
-    <span class="text-[0.65rem] tabular-nums text-muted-foreground">{#if loading || !folderSelectionReady}{items.length}/{totalCount}{:else}{items.length}{/if}</span>
+  <div class="shrink-0 p-2">
+    <div class="flex h-8 items-center gap-2 rounded-full bg-secondary/35 px-2.5 focus-within:bg-secondary/55">
+      <Search size={13} class="shrink-0 text-muted-foreground" />
+      <input bind:value={search} onkeydown={handleSearchKeydown} type="text" inputmode="search" enterkeyhint="search" autocomplete="off" aria-label={t("music.builder.searchReviewTree")} placeholder={t("music.builder.searchReviewTree")} class="min-w-0 flex-1 bg-transparent text-[0.7rem] outline-none placeholder:text-muted-foreground" />
+      {#if searching}
+        <span class="shrink-0 text-[0.6rem] tabular-nums text-muted-foreground" aria-live="polite" aria-label={t("music.builder.reviewSearchMatchCount", searchResult.matchCount)} title={t("music.builder.reviewSearchMatchCount", searchResult.matchCount)}>{searchResult.matchCount}</span>
+        <button type="button" onclick={() => search = ""} class="grid h-6 w-6 shrink-0 place-items-center rounded-full text-muted-foreground hover:bg-background/60 hover:text-foreground" aria-label={t("music.builder.clearReviewSearch")}><X size={12} /></button>
+      {/if}
+    </div>
   </div>
 
   <div class="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2" data-music-scrollable="true">
+    {#if searching && rows.length === 0}
+      <p class="px-3 py-6 text-center text-[0.68rem] text-muted-foreground">{t("music.builder.noReviewSearchMatches")}</p>
+    {/if}
     {#each rows as row (row.kind === "folder" ? row.node.id : row.item.id)}
       {#if row.kind === "folder"}
         {@const selectedCount = row.node.itemIds.filter((itemId) => selectedIds.has(itemId)).length}
         {@const checked = row.node.itemIds.length > 0 && selectedCount === row.node.itemIds.length}
         <div class="group flex h-8 min-w-0 items-center rounded-lg hover:bg-accent/60" style={`padding-left: ${row.depth * 0.75}rem`}>
-          <button type="button" onclick={() => toggleExpanded(row.node.id)} class="grid h-7 w-7 shrink-0 place-items-center rounded-md text-muted-foreground" aria-label={expandedIds.has(row.node.id) ? t("music.builder.collapseFolder", row.node.name) : t("music.builder.expandFolder", row.node.name)} aria-expanded={expandedIds.has(row.node.id)}>
-            <ChevronRight size={14} class={cn("transition-transform motion-reduce:transition-none", expandedIds.has(row.node.id) && "rotate-90")} />
+          <button type="button" onclick={() => toggleExpanded(row.node.id)} disabled={searching} class="grid h-7 w-7 shrink-0 place-items-center rounded-md text-muted-foreground" aria-label={(searching || expandedIds.has(row.node.id)) ? t("music.builder.collapseFolder", row.node.name) : t("music.builder.expandFolder", row.node.name)} aria-expanded={searching || expandedIds.has(row.node.id)}>
+            <ChevronRight size={14} class={cn("transition-transform motion-reduce:transition-none", (searching || expandedIds.has(row.node.id)) && "rotate-90")} />
           </button>
           <label class="relative grid h-7 w-7 shrink-0 cursor-pointer place-items-center">
             <input type="checkbox" checked={checked} disabled={!folderSelectionReady} use:indeterminate={selectedCount > 0 && !checked} onchange={() => toggleFolder(row.node.itemIds)} class="peer absolute h-4 w-4 opacity-0" aria-label={t("music.builder.selectFolder", row.node.name, row.node.itemIds.length)} />
@@ -97,7 +116,7 @@
               {#if checked}<Check size={11} strokeWidth={2.5} />{:else if selectedCount > 0}<Minus size={10} strokeWidth={2.5} />{/if}
             </span>
           </label>
-          <button type="button" onclick={() => toggleExpanded(row.node.id)} class="flex min-w-0 flex-1 items-center gap-2 pr-2 text-left">
+          <button type="button" onclick={() => toggleExpanded(row.node.id)} disabled={searching} class="flex min-w-0 flex-1 items-center gap-2 pr-2 text-left">
             <Folder size={14} class="shrink-0 text-primary/80" />
             <span class="min-w-0 flex-1 truncate text-[0.7rem] font-medium">{row.node.name}</span>
             <span class="text-[0.6rem] tabular-nums text-muted-foreground">{row.node.itemIds.length}</span>

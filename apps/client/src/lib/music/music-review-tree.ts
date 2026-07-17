@@ -13,6 +13,11 @@ export type MusicReviewTreeRow =
   | { kind: "folder"; depth: number; node: MusicReviewTreeNode }
   | { kind: "item"; depth: number; item: MusicItemListEntry };
 
+export interface MusicReviewTreeSearchResult {
+  rows: MusicReviewTreeRow[];
+  matchCount: number;
+}
+
 interface MutableNode {
   id: string;
   name: string;
@@ -101,6 +106,58 @@ export function flattenMusicReviewTree(
     rows.push(...flattenMusicReviewTree(node.children, expandedIds, depth + 1));
   }
   return rows;
+}
+
+function reviewTreeItemMatches(item: MusicItemListEntry, query: string): boolean {
+  return [item.title, item.artist, item.album, item.relativePath ?? ""]
+    .some((value) => value.toLocaleLowerCase().includes(query));
+}
+
+function reviewTreeMatchCount(node: MusicReviewTreeNode, query: string): number {
+  return Number(node.name.toLocaleLowerCase().includes(query))
+    + node.directItems.filter((item) => reviewTreeItemMatches(item, query)).length
+    + node.children.reduce((total, child) => total + reviewTreeMatchCount(child, query), 0);
+}
+
+function searchReviewTreeNode(
+  node: MusicReviewTreeNode,
+  query: string,
+  depth: number,
+): MusicReviewTreeSearchResult {
+  if (node.name.toLocaleLowerCase().includes(query)) {
+    return {
+      rows: flattenMusicReviewTree([node], musicReviewTreeFolderIds([node]), depth),
+      matchCount: reviewTreeMatchCount(node, query),
+    };
+  }
+
+  const matchingItems = node.directItems.filter((item) => reviewTreeItemMatches(item, query));
+  const childResults = node.children.map((child) => searchReviewTreeNode(child, query, depth + 1));
+  const matchingChildren = childResults.filter((result) => result.rows.length > 0);
+  if (matchingItems.length === 0 && matchingChildren.length === 0) return { rows: [], matchCount: 0 };
+  return {
+    rows: [
+      { kind: "folder", depth, node },
+      ...matchingItems.map((item) => ({ kind: "item" as const, depth: depth + 1, item })),
+      ...matchingChildren.flatMap((result) => result.rows),
+    ],
+    matchCount: matchingItems.length
+      + matchingChildren.reduce((total, result) => total + result.matchCount, 0),
+  };
+}
+
+/** Searches folders and track metadata while preserving ancestor rows as context. */
+export function searchMusicReviewTree(
+  nodes: readonly MusicReviewTreeNode[],
+  search: string,
+): MusicReviewTreeSearchResult {
+  const query = search.trim().toLocaleLowerCase();
+  if (!query) return { rows: [], matchCount: 0 };
+  const results = nodes.map((node) => searchReviewTreeNode(node, query, 0));
+  return {
+    rows: results.flatMap((result) => result.rows),
+    matchCount: results.reduce((total, result) => total + result.matchCount, 0),
+  };
 }
 
 /** Toggles every descendant of a folder while preserving unrelated selections. */

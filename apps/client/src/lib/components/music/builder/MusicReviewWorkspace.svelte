@@ -269,7 +269,6 @@
   <MusicReviewTree
     items={library.currentWindow.items}
     totalCount={library.currentWindow.totalCount}
-    loading={library.loadingMore}
     activeItemId={item?.id ?? null}
     onActivate={(itemId) => library.selectItem(itemId)}
     onAssign={onAssignSelection}

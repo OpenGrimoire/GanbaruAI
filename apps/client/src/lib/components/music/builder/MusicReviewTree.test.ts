@@ -35,7 +35,6 @@ describe("MusicReviewTree", () => {
       props: {
         items: [item("one", "One", "Album/one.flac"), item("two", "Two", "Album/two.flac")],
         totalCount: 2,
-        loading: false,
         activeItemId: "one",
         onActivate: vi.fn(),
         onAssign,
@@ -66,7 +65,6 @@ describe("MusicReviewTree", () => {
           item("ending", "Ending", "Games/Nier/ending.flac"),
         ],
         totalCount: 2,
-        loading: false,
         activeItemId: null,
         onActivate: vi.fn(),
         onAssign: vi.fn(),
@@ -84,6 +82,43 @@ describe("MusicReviewTree", () => {
       "Collapse Disc 1",
     ]);
     expect(target.textContent).toContain("Theme");
+    expect(target.textContent).toContain("Ending");
+  });
+
+  it("shows every search match with folder context and clears with Escape", async () => {
+    target = document.createElement("div");
+    document.body.append(target);
+    component = mount(MusicReviewTree, {
+      target,
+      props: {
+        items: [
+          item("morning", "Morning Theme", "Albums/Morning/theme.flac"),
+          item("night", "Night Theme", "Albums/Night/theme.flac"),
+          item("ending", "Ending", "Albums/Ending/ending.flac"),
+        ],
+        totalCount: 3,
+        activeItemId: null,
+        onActivate: vi.fn(),
+        onAssign: vi.fn(),
+      },
+    });
+    await tick();
+
+    const search = target.querySelector<HTMLInputElement>('input[aria-label="Search folders and tracks"]');
+    expect(search).not.toBeNull();
+    if (!search) return;
+    search.value = "theme";
+    search.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    await tick();
+
+    expect(target.textContent).toContain("Morning Theme");
+    expect(target.textContent).toContain("Night Theme");
+    expect(target.textContent).not.toContain("Ending");
+    expect(target.querySelector('[aria-label="2 matches"]')).not.toBeNull();
+
+    search.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await tick();
+    expect(search.value).toBe("");
     expect(target.textContent).toContain("Ending");
   });
 });

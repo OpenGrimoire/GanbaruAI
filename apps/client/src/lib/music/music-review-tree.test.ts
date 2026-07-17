@@ -4,6 +4,7 @@ import {
   buildMusicReviewTree,
   flattenMusicReviewTree,
   musicReviewTreeFolderIds,
+  searchMusicReviewTree,
   toggleMusicReviewTreeSelection,
 } from "$lib/music/music-review-tree";
 
@@ -59,5 +60,24 @@ describe("music review tree", () => {
       flattenMusicReviewTree(tree, musicReviewTreeFolderIds(tree))
         .map((row) => row.kind === "folder" ? row.node.name : row.item.id),
     ).toEqual(["Music", "Games", "Nier", "Disc 1", "theme", "Online", "video"]);
+  });
+
+  it("returns every match with ancestor folders while expanding matching folders", () => {
+    const tree = buildMusicReviewTree([
+      item("theme", "Games/Nier/Disc 1/theme.flac"),
+      item("ending", "Games/Nier/ending.flac"),
+      item("other", "Games/Other/other.flac"),
+    ]);
+
+    const trackResult = searchMusicReviewTree(tree, "theme");
+    expect(trackResult.matchCount).toBe(1);
+    expect(trackResult.rows.map((row) => row.kind === "folder" ? row.node.name : row.item.id))
+      .toEqual(["Music", "Games", "Nier", "Disc 1", "theme"]);
+
+    const folderResult = searchMusicReviewTree(tree, "nier");
+    expect(folderResult.matchCount).toBe(3);
+    expect(folderResult.rows.map((row) => row.kind === "folder" ? row.node.name : row.item.id))
+      .toEqual(["Music", "Games", "Nier", "ending", "Disc 1", "theme"]);
+    expect(searchMusicReviewTree(tree, "missing")).toEqual({ rows: [], matchCount: 0 });
   });
 });
