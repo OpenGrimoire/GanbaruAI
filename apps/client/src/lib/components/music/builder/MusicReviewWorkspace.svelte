@@ -20,7 +20,6 @@
     isMusicReviewEditableTarget,
   } from "$lib/music/music-review";
   import type { MusicWeight } from "$lib/music/library-contracts";
-  import { formatMusicDuration } from "$lib/music/music-builder-presentation";
   import { clampRate, formatPlaybackTime } from "$lib/music/playback";
   import { cn } from "$lib/utils";
   import { formatShortcut } from "$lib/keyboard-shortcuts";
@@ -82,6 +81,9 @@
   const currentIndex = $derived(item ? library.currentWindow.items.findIndex((entry) => entry.id === item.id) : -1);
   const progressCurrent = $derived(Math.max(1, sessionTotal - library.currentWindow.totalCount + currentIndex + 1));
   const player = $derived(audition.musicPlayer);
+  const seekSliderProgress = $derived(player.progressMax > 0
+    ? `${Math.min(100, Math.max(0, (player.progressValue / player.progressMax) * 100))}%`
+    : "0%");
   const focusAdvisory = $derived(detail && guidanceEnabled && dismissedAdvisoryItemId !== detail.item.id
     ? getMusicFocusAdvisory(detail.signals, checkedIds, library.playlistSummaries)
     : null);
@@ -301,51 +303,40 @@
       </div>
     {/if}
 
-    <div bind:this={surface} class="review-media mt-3 h-28 w-full overflow-hidden rounded-xl bg-card/75 shadow-sm">
-      {#if detail && audition.reviewItemId === detail.item.id && !player.localHasVideo && detail.item.sourceKind === "local-file"}
-        <div class="relative grid h-full place-items-center overflow-hidden bg-secondary/35">
-          {#if player.currentArtworkUrl}
-            <img src={player.currentArtworkUrl} alt="" class="absolute inset-0 h-full w-full object-contain" draggable="false" />
-          {:else}
-            <div class="grid h-16 w-16 place-items-center rounded-2xl bg-card text-muted-foreground shadow-sm"><Disc3 size={28} strokeWidth={1.3} /></div>
+    {#if inspector.busy && !detail}
+      <div class="mt-3 h-20 animate-pulse rounded-lg bg-card motion-reduce:animate-none"></div>
+    {:else if detail}
+      <div class="review-player mt-4 flex min-w-0 items-center gap-4">
+        <div bind:this={surface} class="review-media relative grid h-28 w-28 shrink-0 place-items-center overflow-hidden rounded-xl">
+          {#if audition.reviewItemId === detail.item.id && !player.localHasVideo && detail.item.sourceKind === "local-file"}
+            {#if player.currentArtworkUrl}
+              <img src={player.currentArtworkUrl} alt="" class="absolute inset-0 h-full w-full object-contain" draggable="false" />
+            {:else}
+              <Disc3 class="text-muted-foreground" size={38} strokeWidth={1.3} />
+            {/if}
+          {:else if !player.currentSource || audition.reviewItemId !== detail.item.id}
+            <Disc3 class="text-muted-foreground" size={38} strokeWidth={1.3} />
           {/if}
         </div>
-      {:else if !detail || !player.currentSource || audition.reviewItemId !== detail.item.id}
-        <div class="grid h-full place-items-center p-5 text-center">
-          <button type="button" onclick={() => { if (detail) void audition.preview(detail, sources.bindings, true); }} disabled={!detail || detail.item.availability !== "available"} class="grid h-14 w-14 place-items-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-105 active:scale-95 disabled:opacity-40 motion-reduce:transform-none" aria-label={t("music.builder.previewTrack")}>
-            <Play size={22} fill="currentColor" />
-          </button>
-        </div>
-      {/if}
-    </div>
 
-    {#if inspector.busy && !detail}
-      <div class="mt-4 h-20 animate-pulse rounded-lg bg-card motion-reduce:animate-none"></div>
-    {:else if detail}
-      <div class="mt-4 min-w-0">
-        <div class="flex items-start gap-3">
-          <div class="min-w-0 flex-1">
+        <div class="min-w-0 flex-1">
+          <div class="min-w-0">
             <h2 class="truncate text-base font-semibold">{detail.item.titleOverride ?? detail.item.originalTitle}</h2>
             <p class="mt-0.5 truncate text-xs text-muted-foreground">{(detail.item.artistOverride ?? detail.item.originalArtist) || t("music.builder.noArtist")}</p>
           </div>
-          <span class={cn("rounded-full px-2 py-1 text-[0.65rem] font-medium", detail.item.availability === "available" ? "bg-success/12 text-success" : "bg-destructive/12 text-destructive")}>{availabilityLabel()}</span>
-        </div>
-        <div class="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[0.7rem] text-muted-foreground">
-          <span>{(detail.item.albumOverride ?? detail.item.originalAlbum) || t("music.builder.noAlbum")}</span>
-          <span>{detail.item.sourceKind === "local-file" ? t("music.builder.local") : t("music.builder.youtube")}</span>
-          <span>{formatMusicDuration(detail.item.durationMs)}</span>
-        </div>
-      </div>
 
-      <div class="mt-4 rounded-xl border border-border/70 bg-card/70 p-3">
-        <input type="range" min="0" max={player.progressMax} value={player.progressValue} disabled={audition.reviewItemId !== detail.item.id} oninput={(event) => { void player.seekToMs(Number(event.currentTarget.value)); }} class="w-full accent-primary" aria-label={t("music.seek")} />
-        <div class="mt-1 flex justify-between text-[0.65rem] tabular-nums text-muted-foreground"><span>{formatPlaybackTime(player.snapshot.positionMs)}</span><span>{formatPlaybackTime(player.snapshot.durationMs)}</span></div>
-        <div class="mt-2 flex items-center justify-center gap-3">
-          <button type="button" onclick={() => { void selectRelative(-1); }} disabled={currentIndex <= 0} class="review-control" aria-label={t("music.builder.previousReviewItem")} title={t("music.builder.previousReviewItemTitle", formatShortcut("Mod + ←"))}><ChevronLeft size={17} /></button>
-          <button type="button" onclick={() => { if (audition.reviewItemId !== detail.item.id) void audition.preview(detail, sources.bindings, true); else void player.togglePlay(); }} class="review-play" aria-label={player.isPlaying ? t("music.pause") : t("music.play")} title={t("music.builder.reviewPlayTitle", formatShortcut("Space"))}>
-            {#if player.isPlaying && audition.reviewItemId === detail.item.id}<Pause size={18} fill="currentColor" />{:else}<Play size={18} fill="currentColor" />{/if}
-          </button>
-          <button type="button" onclick={() => { void selectRelative(1); }} disabled={currentIndex >= library.currentWindow.items.length - 1} class="review-control" aria-label={t("music.builder.nextReviewItem")} title={t("music.builder.nextReviewItemTitle", formatShortcut("Mod + →"))}><ChevronRight size={17} /></button>
+          <div class="mt-4 flex items-center gap-3">
+            <div class="min-w-0 flex-1 text-[0.68rem] tabular-nums text-muted-foreground">
+              <input type="range" min="0" max={player.progressMax} value={player.progressValue} disabled={audition.reviewItemId !== detail.item.id} oninput={(event) => { void player.seekToMs(Number(event.currentTarget.value)); }} class="music-seek-slider music-seek-slider-edge-aligned block disabled:opacity-40" style={`--music-seek-progress: ${seekSliderProgress}; --music-seek-thumb-size: 1rem; --music-seek-track-height: 0.3rem;`} aria-label={t("music.seek")} />
+              <div class="mt-1 flex justify-between">
+                <span>{formatPlaybackTime(player.snapshot.positionMs)}</span>
+                <span>{formatPlaybackTime(player.snapshot.durationMs)}</span>
+              </div>
+            </div>
+            <button type="button" onclick={() => { if (audition.reviewItemId !== detail.item.id) void audition.preview(detail, sources.bindings, true); else void player.togglePlay(); }} disabled={detail.item.availability !== "available"} class="review-play shrink-0" aria-label={player.isPlaying ? t("music.pause") : t("music.play")} title={t("music.builder.reviewPlayTitle", formatShortcut("Space"))}>
+              {#if player.isPlaying && audition.reviewItemId === detail.item.id}<Pause size={18} fill="currentColor" />{:else}<Play size={18} fill="currentColor" />{/if}
+            </button>
+          </div>
         </div>
       </div>
     {/if}
@@ -421,11 +412,10 @@
   .review-workspace { grid-template-columns: minmax(13rem, 0.72fr) minmax(22rem, 2fr); }
   .review-tree { grid-column: 1; min-height: 0; box-shadow: 1px 0 color-mix(in srgb, var(--border) 46%, transparent); }
   .review-main { grid-column: 2; min-height: 0; }
-  .review-audition { flex: 0 1 23rem; }
+  .review-audition { flex: 0 0 auto; }
   .review-classify { min-height: 14rem; flex: 1 1 0; }
-  .review-control { display: grid; height: 2rem; width: 2rem; place-items: center; border-radius: 9999px; background: var(--secondary); color: var(--secondary-foreground); }
-  .review-control:disabled { opacity: 0.35; }
   .review-play { display: grid; height: 2.5rem; width: 2.5rem; place-items: center; border-radius: 9999px; background: var(--primary); color: var(--primary-foreground); }
+  .review-play:disabled { opacity: 0.4; }
   .review-action { display: inline-flex; min-height: 2.25rem; align-items: center; justify-content: center; gap: 0.375rem; border-radius: 0.5rem; padding: 0 0.5rem; font-size: 0.72rem; font-weight: 600; }
   .review-action:disabled { opacity: 0.4; }
   @container (width < 620px) {
@@ -437,6 +427,11 @@
     .review-classify { flex: 1 0 18rem; border-left: 0; }
     .review-classify > :global(div:nth-child(2)) { min-height: 9rem; }
     .review-actions { position: sticky; bottom: 0; z-index: 5; }
+  }
+  @container (width < 380px) {
+    .review-player { align-items: flex-start; }
+    .review-media { height: 5rem; width: 5rem; }
+    .review-play { height: 2rem; width: 2rem; }
   }
   @container (width >= 620px) and (width < 860px) {
     .review-workspace { grid-template-columns: minmax(11rem, 0.72fr) minmax(16rem, 1.15fr); }

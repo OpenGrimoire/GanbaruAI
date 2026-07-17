@@ -82,6 +82,9 @@
   const volumeSliderProgress = $derived(volumeMax > 0
     ? `${Math.min(100, Math.max(0, (player.volumeControlValue / volumeMax) * 100))}%`
     : "0%");
+  const seekSliderProgress = $derived(player.progressMax > 0
+    ? `${Math.min(100, Math.max(0, (player.progressValue / player.progressMax) * 100))}%`
+    : "0%");
   const activeSpeedIsPreset = $derived(isSpeedPreset(player.snapshot.rate));
   const topBarMediaTitleMaxLength = 42;
   const volumeShortcutStep = 0.05;
@@ -942,7 +945,8 @@
             max={player.progressMax}
             value={player.progressValue}
             disabled={!player.currentSource}
-            class="h-2 min-w-0 flex-1 accent-primary disabled:opacity-50"
+            class="music-seek-slider min-w-0 flex-1 disabled:opacity-50"
+            style={`--music-seek-progress: ${seekSliderProgress};`}
             aria-label={t("music.seek")}
             tabindex="-1"
             oninput={(event) => { void player.seekToMs(Number(event.currentTarget.value)); }}

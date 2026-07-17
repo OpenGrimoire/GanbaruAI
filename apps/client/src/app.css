@@ -2,6 +2,67 @@
 
 @custom-variant dark (&:is(.dark *));
 
+.music-seek-slider {
+  --music-seek-thumb-size: 0.875rem;
+  --music-seek-track-height: 0.25rem;
+  --music-seek-track-color: color-mix(in srgb, var(--foreground) 22%, transparent);
+  --music-seek-thumb-border: color-mix(in srgb, var(--foreground) 18%, transparent);
+
+  height: var(--music-seek-thumb-size);
+  appearance: none;
+  cursor: pointer;
+  background:
+    linear-gradient(
+      to right,
+      var(--primary) 0%,
+      var(--primary) var(--music-seek-progress),
+      var(--music-seek-track-color) var(--music-seek-progress),
+      var(--music-seek-track-color) 100%
+    )
+    center / calc(100% - var(--music-seek-thumb-size)) var(--music-seek-track-height) no-repeat;
+}
+
+.music-seek-slider:disabled {
+  cursor: default;
+}
+
+.music-seek-slider-edge-aligned {
+  width: calc(100% + 0.5rem);
+  margin-inline: -0.25rem;
+  background-size: calc(100% - 0.5rem) var(--music-seek-track-height);
+}
+
+.music-seek-slider::-webkit-slider-runnable-track {
+  height: var(--music-seek-track-height);
+  border-radius: 999px;
+  background: transparent;
+}
+
+.music-seek-slider::-webkit-slider-thumb {
+  width: var(--music-seek-thumb-size);
+  height: var(--music-seek-thumb-size);
+  margin-top: calc((var(--music-seek-track-height) - var(--music-seek-thumb-size)) / 2);
+  appearance: none;
+  border: 1px solid var(--music-seek-thumb-border);
+  border-radius: 999px;
+  background: var(--card);
+}
+
+.music-seek-slider::-moz-range-track,
+.music-seek-slider::-moz-range-progress {
+  height: var(--music-seek-track-height);
+  border-radius: 999px;
+  background: transparent;
+}
+
+.music-seek-slider::-moz-range-thumb {
+  width: var(--music-seek-thumb-size);
+  height: var(--music-seek-thumb-size);
+  border: 1px solid var(--music-seek-thumb-border);
+  border-radius: 999px;
+  background: var(--card);
+}
+
 :root {
   --radius: 0.5rem;
 
