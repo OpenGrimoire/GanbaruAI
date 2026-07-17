@@ -380,6 +380,7 @@ export const music = {
     clearReviewSearch: "Clear folder and track search",
     reviewSearchMatchCount: (count: number) => `${count} ${count === 1 ? "match" : "matches"}`,
     noReviewSearchMatches: "No folders or tracks match.",
+    refreshLocalFolders: "Refresh local folders",
     expandFolder: (name: string) => `Expand ${name}`,
     collapseFolder: (name: string) => `Collapse ${name}`,
     selectFolder: (name: string, count: number) => `Select all ${count} tracks in ${name}`,

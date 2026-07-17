@@ -128,6 +128,10 @@
       && library.currentWindow.items.length === 0,
   );
   const firstUseRefreshProgress = $derived(Object.values(sources.refreshStatuses).find((status) => status.kind === "local-root"));
+  const localSourceCollectionIds = $derived(sources.collections.filter((collection) => collection.kind === "local-root").map((collection) => collection.id));
+  const localSourceRefreshActive = $derived(Object.values(sources.refreshStatuses).some((status) =>
+    status.kind === "local-root" && (status.state === "queued" || status.state === "running"),
+  ));
 
   $effect(() => {
     if (sources.preparingDefaultFolder) {
@@ -196,6 +200,10 @@
     const plan = sources.prepareRefresh(collectionIds);
     if (plan.requiresNetworkConfirmation) pendingRefreshPlan = plan;
     else void runSourceRefresh(plan, false);
+  }
+
+  function refreshReviewFolders(): void {
+    requestSourceRefresh(localSourceCollectionIds);
   }
 
   async function runSourceRefresh(plan: MusicSourceRefreshPlan, allowNetwork: boolean): Promise<void> {
@@ -574,7 +582,7 @@
             {/if}
           </div>
         {:else}
-          <MusicReviewWorkspace {library} {inspector} {sources} {audition} {review} autoplay={reviewAutoplay} onAutoplayChange={setReviewAutoplay} onAssignSelection={(itemIds) => { void assignReviewSelection(itemIds); }} {onOpenPlayer} />
+          <MusicReviewWorkspace {library} {inspector} {sources} {audition} {review} autoplay={reviewAutoplay} onAutoplayChange={setReviewAutoplay} onAssignSelection={(itemIds) => { void assignReviewSelection(itemIds); }} canRefreshFolders={localSourceCollectionIds.length > 0} refreshingFolders={localSourceRefreshActive} onRefreshFolders={refreshReviewFolders} {onOpenPlayer} />
         {/if}
       {:else if hasList}
         {#if destination.kind === "playlist" && playlist.detail}

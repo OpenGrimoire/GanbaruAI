@@ -383,6 +383,7 @@ export const music = {
     clearReviewSearch: "Limpiar búsqueda de carpetas y pistas",
     reviewSearchMatchCount: (count: number) => `${count} ${count === 1 ? "coincidencia" : "coincidencias"}`,
     noReviewSearchMatches: "Ninguna carpeta o pista coincide.",
+    refreshLocalFolders: "Actualizar carpetas locales",
     expandFolder: (name: string) => `Expandir ${name}`,
     collapseFolder: (name: string) => `Contraer ${name}`,
     selectFolder: (name: string, count: number) => `Seleccionar las ${count} pistas de ${name}`,

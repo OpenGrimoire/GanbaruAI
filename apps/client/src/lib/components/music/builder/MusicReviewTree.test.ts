@@ -54,6 +54,43 @@ describe("MusicReviewTree", () => {
     expect(onAssign).toHaveBeenCalledWith(["one", "two"]);
   });
 
+  it("propagates folder selection downward without marking ancestors", async () => {
+    target = document.createElement("div");
+    document.body.append(target);
+    component = mount(MusicReviewTree, {
+      target,
+      props: {
+        items: [item("one", "One", "Album/one.flac"), item("two", "Two", "Album/two.flac")],
+        totalCount: 2,
+        activeItemId: null,
+        onActivate: vi.fn(),
+        onAssign: vi.fn(),
+      },
+    });
+    await tick();
+
+    const music = target.querySelector<HTMLInputElement>('input[aria-label="Select all 2 tracks in Music"]');
+    const album = target.querySelector<HTMLInputElement>('input[aria-label="Select all 2 tracks in Album"]');
+    const one = target.querySelector<HTMLInputElement>('input[aria-label="Select One"]');
+    expect(music).not.toBeNull();
+    expect(album).not.toBeNull();
+    expect(one).not.toBeNull();
+
+    one?.click();
+    await tick();
+    expect(one?.checked).toBe(true);
+    expect(album?.checked).toBe(false);
+    expect(album?.indeterminate).toBe(false);
+    expect(music?.checked).toBe(false);
+    expect(music?.indeterminate).toBe(false);
+
+    album?.click();
+    await tick();
+    expect(album?.checked).toBe(true);
+    expect(music?.checked).toBe(false);
+    expect(music?.indeterminate).toBe(false);
+  });
+
   it("opens every nested folder when Review first appears", async () => {
     target = document.createElement("div");
     document.body.append(target);
@@ -120,5 +157,26 @@ describe("MusicReviewTree", () => {
     await tick();
     expect(search.value).toBe("");
     expect(target.textContent).toContain("Ending");
+  });
+
+  it("requests a local-folder refresh from the search toolbar", async () => {
+    const onRefresh = vi.fn();
+    target = document.createElement("div");
+    document.body.append(target);
+    component = mount(MusicReviewTree, {
+      target,
+      props: {
+        items: [item("one", "One", "Album/one.flac")],
+        totalCount: 1,
+        activeItemId: null,
+        onActivate: vi.fn(),
+        onAssign: vi.fn(),
+        onRefresh,
+      },
+    });
+    await tick();
+
+    target.querySelector<HTMLButtonElement>('button[aria-label="Refresh local folders"]')?.click();
+    expect(onRefresh).toHaveBeenCalledOnce();
   });
 });

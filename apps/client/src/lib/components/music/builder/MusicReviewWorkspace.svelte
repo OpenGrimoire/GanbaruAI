@@ -36,6 +36,9 @@
     autoplay,
     onAutoplayChange,
     onAssignSelection,
+    canRefreshFolders,
+    refreshingFolders,
+    onRefreshFolders,
     onOpenPlayer,
   }: {
     library: MusicLibraryController;
@@ -46,6 +49,9 @@
     autoplay: boolean;
     onAutoplayChange: (value: boolean) => void;
     onAssignSelection: (itemIds: string[]) => void;
+    canRefreshFolders: boolean;
+    refreshingFolders: boolean;
+    onRefreshFolders: () => void;
     onOpenPlayer: () => void;
   } = $props();
 
@@ -272,6 +278,9 @@
     activeItemId={item?.id ?? null}
     onActivate={(itemId) => library.selectItem(itemId)}
     onAssign={onAssignSelection}
+    canRefresh={canRefreshFolders}
+    refreshing={refreshingFolders}
+    onRefresh={onRefreshFolders}
   />
   <div class="review-main flex min-h-0 min-w-0 flex-col overflow-hidden">
   <section class="review-audition min-h-0 overflow-y-auto px-4 py-3" data-music-scrollable="true">
