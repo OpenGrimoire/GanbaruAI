@@ -83,7 +83,7 @@
 </script>
 
 <div class="flex min-h-0 flex-1 flex-col">
-  <label class="mx-3 mt-3 flex h-9 shrink-0 items-center gap-2 rounded-lg bg-secondary/55 px-3">
+  <label class="mx-3 mt-3 flex h-9 shrink-0 items-center gap-2 border-b border-border/55 px-1">
     <Search size={14} class="text-muted-foreground" />
     <input use:searchInputAction value={search} oninput={(event) => onSearch(event.currentTarget.value)} aria-label={t("music.builder.searchPlaylists")} class="min-w-0 flex-1 bg-transparent text-xs outline-none" placeholder={t("music.builder.searchPlaylists")} />
   </label>
@@ -100,9 +100,9 @@
       {@const mixed = mixedIds.has(playlist.id)}
       {@const playlistName = systemMusicPlaylistName(playlist.id, playlist.name, t)}
       {@const errorId = errors[playlist.id] ? `music-playlist-membership-error-${playlist.id}` : undefined}
-      <div class={cn("playlist-card flex min-w-0 flex-wrap items-center gap-2 rounded-xl border px-3 py-2.5 transition-colors", checked || mixed ? "border-primary/40 bg-primary/8" : "border-border/55 bg-card/55 hover:border-primary/25 hover:bg-accent/40")}>
+      <div class={cn("playlist-card flex min-w-0 flex-wrap items-center gap-2 rounded-lg px-3 py-2.5 transition-colors", checked || mixed ? "bg-primary/10" : "bg-secondary/35 hover:bg-secondary/55")}>
         <button type="button" data-review-playlist-id={playlist.id} onclick={() => onToggle(playlist)} aria-describedby={errorId} class="flex min-w-0 flex-1 items-center gap-3 text-left">
-          <span class="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-secondary text-muted-foreground">
+          <span class={cn("grid h-8 w-8 shrink-0 place-items-center", checked || mixed ? "text-primary" : "text-muted-foreground")}>
             {#if playlist.id === "playlist-default-reading"}<BookOpen size={16} />
             {:else if playlist.id === "playlist-default-exercise"}<Dumbbell size={16} />
             {:else if playlist.id === "playlist-default-hygiene"}<Bath size={16} />

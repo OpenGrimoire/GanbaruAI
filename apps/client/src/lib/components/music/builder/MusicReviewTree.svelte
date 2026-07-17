@@ -75,7 +75,7 @@
   }
 </script>
 
-<section class="review-tree flex min-h-0 flex-col bg-background/25" aria-label={t("music.builder.reviewFolders")}>
+<section class="review-tree flex min-h-0 flex-col" aria-label={t("music.builder.reviewFolders")}>
   <div class="flex min-h-10 shrink-0 items-center gap-2 px-3">
     <Folder size={15} class="text-primary" strokeWidth={1.7} />
     <h2 class="min-w-0 flex-1 truncate text-xs font-semibold">{t("music.builder.reviewFolders")}</h2>

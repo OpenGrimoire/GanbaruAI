@@ -342,7 +342,7 @@
     {/if}
   </section>
 
-  <section class="review-classify flex min-h-0 flex-col bg-background/20">
+  <section class="review-classify flex min-h-0 flex-col">
     <div class="shrink-0 p-3">
       <div class="flex items-center justify-between gap-2">
         <div><h2 class="text-sm font-semibold">{t("music.builder.classifyPlaylists")}</h2><p class="text-[0.68rem] text-muted-foreground">{t("music.builder.classifyHint")}</p></div>
@@ -359,7 +359,7 @@
           </div>
         </form>
       {:else}
-        <button type="button" onclick={openInlineCreate} class="mt-2 inline-flex h-8 items-center gap-1.5 rounded-md bg-secondary px-2.5 text-xs font-medium"><ListPlus size={14} />{t("music.builder.newPlaylist")}</button>
+        <button type="button" onclick={openInlineCreate} class="mt-2 inline-flex h-8 items-center gap-1.5 rounded-full bg-primary px-3 text-xs font-medium text-primary-foreground"><ListPlus size={14} />{t("music.builder.newPlaylist")}</button>
       {/if}
     </div>
 
@@ -387,7 +387,7 @@
       />
     </div>
 
-    <div class="review-actions grid shrink-0 grid-cols-2 gap-3 bg-card/80 p-3 backdrop-blur-sm">
+    <div class="review-actions grid shrink-0 grid-cols-2 gap-3 p-3">
       <div class="relative">
         <button bind:this={laterButton} type="button" aria-haspopup="dialog" aria-expanded={laterMenuOpen} onclick={() => { if (laterMenuOpen) closeLaterMenu(false); else void openLaterMenu(); }} disabled={!detail || review.actionBusy} class="review-action h-full w-full border border-border/70 bg-background text-foreground">{t("music.builder.skipTrack")}</button>
         {#if laterMenuOpen}
@@ -410,7 +410,7 @@
 
 <style>
   .review-workspace { grid-template-columns: minmax(13rem, 0.72fr) minmax(22rem, 2fr); }
-  .review-tree { grid-column: 1; min-height: 0; box-shadow: 1px 0 color-mix(in srgb, var(--border) 46%, transparent); }
+  .review-tree { grid-column: 1; min-height: 0; border-right: 1px solid color-mix(in srgb, var(--border) 46%, transparent); }
   .review-main { grid-column: 2; min-height: 0; }
   .review-audition { flex: 0 0 auto; }
   .review-classify { min-height: 14rem; flex: 1 1 0; }
@@ -420,7 +420,7 @@
   .review-action:disabled { opacity: 0.4; }
   @container (width < 620px) {
     .review-workspace { display: flex; flex-direction: column; overflow-y: auto; }
-    .review-tree { min-height: 12rem; flex: 0 0 42%; }
+    .review-tree { min-height: 12rem; flex: 0 0 42%; border-right: 0; border-bottom: 1px solid color-mix(in srgb, var(--border) 46%, transparent); }
     .review-main { min-height: 32rem; flex: 1 0 auto; overflow: visible; }
     .review-audition, .review-classify { min-height: auto; overflow: visible; }
     .review-audition { flex: 0 0 auto; padding: 0.625rem; }
