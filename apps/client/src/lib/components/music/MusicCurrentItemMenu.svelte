@@ -21,6 +21,7 @@
   import { notifyMusicLibraryChanged } from "$lib/music/music-library-events";
   import type { MusicPlaylistSummary, MusicSnoozeScope } from "$lib/music/library-contracts";
   import { musicSnoozeEndsAt } from "$lib/music/music-snooze";
+  import { systemMusicPlaylistName } from "$lib/music/music-system-playlists";
   import { getMusicPlayer } from "$lib/stores/music-player.svelte";
 
   let { onOpenItem }: { onOpenItem: (itemId: string) => void } = $props();
@@ -189,7 +190,7 @@
         {#if addOpen}
           <div class="mx-1 mb-1 max-h-40 overflow-y-auto rounded-lg bg-secondary/55 p-1">
             {#if playlists.length === 0}<p class="px-2 py-2 text-[0.68rem] text-muted-foreground">{t("music.itemMenu.noPlaylists")}</p>{/if}
-            {#each playlists as playlist (playlist.id)}<button type="button" onclick={() => { void addToPlaylist(playlist.id); }} disabled={membershipPlaylistIds.has(playlist.id) || busy} class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[0.68rem] hover:bg-accent disabled:opacity-60"><span class="min-w-0 flex-1 truncate">{playlist.name}</span>{#if membershipPlaylistIds.has(playlist.id)}<Check size={12} />{/if}</button>{/each}
+            {#each playlists as playlist (playlist.id)}<button type="button" onclick={() => { void addToPlaylist(playlist.id); }} disabled={membershipPlaylistIds.has(playlist.id) || busy} class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[0.68rem] hover:bg-accent disabled:opacity-60"><span class="min-w-0 flex-1 truncate">{systemMusicPlaylistName(playlist.id, playlist.name, t)}</span>{#if membershipPlaylistIds.has(playlist.id)}<Check size={12} />{/if}</button>{/each}
           </div>
         {/if}
         <button type="button" role="menuitem" onclick={() => { void snooze("playlist", "today"); }} class="menu-action"><Clock3 size={14} />{t("music.itemMenu.notToday")}</button>

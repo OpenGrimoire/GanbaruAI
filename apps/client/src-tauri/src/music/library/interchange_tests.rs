@@ -144,7 +144,7 @@ fn interchange_import_rejects_unsafe_paths_before_writing() {
                 .fetch_one(&pool)
                 .await
                 .unwrap(),
-            0
+            super::defaults::BUILT_IN_MUSIC_PLAYLISTS.len() as i64
         );
     });
 }

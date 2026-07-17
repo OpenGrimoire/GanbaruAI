@@ -12,6 +12,7 @@
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import type { MusicIssue, MusicPlaylistSummary, MusicSourceSummary } from "$lib/music/library-contracts";
   import type { MusicBuilderDestination } from "$lib/music/music-builder-routing";
+  import { partitionMusicPlaylists, systemMusicPlaylistName } from "$lib/music/music-system-playlists";
   import MusicBuilderAsyncState from "./MusicBuilderAsyncState.svelte";
   import MusicSoundscapeBuilder from "../MusicSoundscapeBuilder.svelte";
 
@@ -41,8 +42,9 @@
   let reducedMotion = $state(false);
   const visiblePlaylists = $derived(playlists.filter((playlist) => {
     const query = search.trim().toLocaleLowerCase();
-    return !query || `${playlist.name} ${playlist.description}`.toLocaleLowerCase().includes(query);
+    return !query || `${systemMusicPlaylistName(playlist.id, playlist.name, t)} ${playlist.description}`.toLocaleLowerCase().includes(query);
   }));
+  const playlistSections = $derived(partitionMusicPlaylists(visiblePlaylists));
 
   onMount(() => {
     const query = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -53,7 +55,7 @@
   });
 </script>
 
-<div class="overview-scroll h-full min-h-0 overflow-y-auto p-3">
+<div class="overview-scroll h-full min-h-0 overflow-y-auto overscroll-contain p-3" data-music-scrollable="true">
   {#if destination.kind === "playlists"}
     <div class="mb-3 flex flex-wrap items-center justify-end gap-2"><button type="button" onclick={onImport} class="inline-flex h-8 items-center gap-1.5 rounded-lg bg-secondary px-3 text-xs font-medium"><Upload size={13} />{t("music.builder.importPlaylists")}</button><button type="button" onclick={onExport} disabled={playlists.length === 0} class="inline-flex h-8 items-center gap-1.5 rounded-lg bg-secondary px-3 text-xs font-medium disabled:opacity-40"><Download size={13} />{t("music.builder.exportPlaylists")}</button></div>
     {#if playlists.length === 0}
@@ -61,12 +63,13 @@
     {:else if visiblePlaylists.length === 0}
       <MusicBuilderAsyncState kind="empty" title={t("music.builder.noPlaylistFilterResults")} description={t("music.builder.adjustPlaylistFilters")} />
     {:else}
-      <div class="grid grid-cols-[repeat(auto-fill,minmax(min(14rem,100%),1fr))] gap-2.5">
-        {#each visiblePlaylists as playlist (playlist.id)}
+      {#each [{ title: t("music.builder.defaultPlaylists"), playlists: playlistSections.defaults }, { title: t("music.builder.customPlaylists"), playlists: playlistSections.custom }] as section (section.title)}
+        {#if section.playlists.length > 0}<h2 class="mb-2 mt-4 text-xs font-semibold text-muted-foreground first:mt-0">{section.title}</h2><div class="grid grid-cols-[repeat(auto-fill,minmax(min(14rem,100%),1fr))] gap-2.5">
+        {#each section.playlists as playlist (playlist.id)}
           <button type="button" class="overview-card group" animate:flip={{ duration: reducedMotion ? 0 : 140 }} onclick={() => onNavigate({ kind: "playlist", playlistId: playlist.id })}>
             <span class="overview-icon"><ListMusic size={18} strokeWidth={1.45} /></span>
             <span class="min-w-0 flex-1 text-left">
-              <strong class="block truncate text-xs font-semibold text-foreground">{playlist.name}</strong>
+              <strong class="block truncate text-xs font-semibold text-foreground">{systemMusicPlaylistName(playlist.id, playlist.name, t)}</strong>
               <span class="mt-1 block line-clamp-2 min-h-7 text-[0.68rem] leading-relaxed text-muted-foreground">{playlist.description || t("music.tracks", playlist.totalCount)}</span>
               <span class="mt-2 flex flex-wrap gap-1.5 text-[0.62rem] text-muted-foreground">
                 <span>{t("music.tracks", playlist.totalCount)}</span><span>·</span><span>{playlist.localCount} {t("music.builder.local")}</span><span>·</span><span>{playlist.onlineCount} {t("music.builder.youtube")}</span>
@@ -74,8 +77,9 @@
             </span>
           </button>
         {/each}
-        <button type="button" class="overview-card overview-add" onclick={onPrimary}><span class="overview-icon"><Plus size={18} /></span><span class="text-xs font-semibold">{t("music.builder.newPlaylist")}</span></button>
-      </div>
+        </div>{/if}
+      {/each}
+      <button type="button" class="overview-card overview-add mt-2.5 w-full" onclick={onPrimary}><span class="overview-icon"><Plus size={18} /></span><span class="text-xs font-semibold">{t("music.builder.newPlaylist")}</span></button>
     {/if}
   {:else if destination.kind === "sources"}
     {#if sources.length === 0}

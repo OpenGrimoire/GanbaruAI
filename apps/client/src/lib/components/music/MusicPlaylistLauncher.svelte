@@ -17,6 +17,7 @@
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import type { MusicPlaylistSummary } from "$lib/music/library-contracts";
   import { projectMusicPlaylistPlayback } from "$lib/music/music-playlist-playback";
+  import { systemMusicPlaylistName } from "$lib/music/music-system-playlists";
   import { getMusicPlayer } from "$lib/stores/music-player.svelte";
   import { requireActiveVaultIdentity } from "$lib/vault/active-vault";
   import { cn } from "$lib/utils";
@@ -46,7 +47,7 @@
   const matching = $derived.by(() => {
     const query = search.trim().toLocaleLowerCase();
     return playlists.filter((playlist) => !query
-      || playlist.name.toLocaleLowerCase().includes(query)
+      || systemMusicPlaylistName(playlist.id, playlist.name, t).toLocaleLowerCase().includes(query)
       || playlist.description.toLocaleLowerCase().includes(query));
   });
   const recent = $derived(player.recentPlaylistIds
@@ -121,7 +122,7 @@
       });
       const loaded = await player.loadSavedPlaylist(
         playlist.id,
-        playlist.name,
+        systemMusicPlaylistName(playlist.id, playlist.name, t),
         projection.entries,
         playlist.shuffleEnabled,
         playlist.repeatMode,
@@ -180,7 +181,7 @@
         </div>
       </div>
 
-      <div class="min-h-0 flex-1 overflow-y-auto p-2">
+      <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2" data-music-scrollable="true">
         {#if loading && playlists.length === 0}
           <div class="grid min-h-32 place-items-center text-center text-xs text-muted-foreground"><div><LoaderCircle class="mx-auto mb-2 animate-spin motion-reduce:animate-none" size={18} /><p>{t("music.launcher.loading")}</p></div></div>
         {:else if error}
@@ -199,7 +200,7 @@
             {#each recent as playlist (playlist.id)}
               <button type="button" onclick={() => { void play(playlist); }} disabled={Boolean(playingId)} class="group flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left hover:bg-accent disabled:opacity-60">
                 <span class={cn("grid h-7 w-7 shrink-0 place-items-center rounded-md bg-secondary text-muted-foreground", player.activePlaylistId === playlist.id && "bg-primary/15 text-primary")}>{#if playingId === playlist.id}<LoaderCircle class="animate-spin motion-reduce:animate-none" size={13} />{:else if player.activePlaylistId === playlist.id}<Check size={13} />{:else}<Play size={13} />{/if}</span>
-                <span class="min-w-0 flex-1"><span class="block truncate text-xs font-medium">{playlist.name}</span><span class="block truncate text-[0.64rem] text-muted-foreground">{t("music.launcher.playlistCounts", playlist.eligibleCount, playlist.totalCount)}{#if playlist.unavailableCount + playlist.snoozedCount > 0} · {t("music.launcher.issueCount", playlist.unavailableCount + playlist.snoozedCount)}{/if}</span></span>
+                <span class="min-w-0 flex-1"><span class="block truncate text-xs font-medium">{systemMusicPlaylistName(playlist.id, playlist.name, t)}</span><span class="block truncate text-[0.64rem] text-muted-foreground">{t("music.launcher.playlistCounts", playlist.eligibleCount, playlist.totalCount)}{#if playlist.unavailableCount + playlist.snoozedCount > 0} · {t("music.launcher.issueCount", playlist.unavailableCount + playlist.snoozedCount)}{/if}</span></span>
               </button>
             {/each}
           {/if}
@@ -208,7 +209,7 @@
             {#each remaining as playlist (playlist.id)}
               <button type="button" onclick={() => { void play(playlist); }} disabled={Boolean(playingId)} class="group flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left hover:bg-accent disabled:opacity-60">
                 <span class={cn("grid h-7 w-7 shrink-0 place-items-center rounded-md bg-secondary text-muted-foreground", player.activePlaylistId === playlist.id && "bg-primary/15 text-primary")}>{#if playingId === playlist.id}<LoaderCircle class="animate-spin motion-reduce:animate-none" size={13} />{:else if player.activePlaylistId === playlist.id}<Check size={13} />{:else}<Play size={13} />{/if}</span>
-                <span class="min-w-0 flex-1"><span class="block truncate text-xs font-medium">{playlist.name}</span><span class="block truncate text-[0.64rem] text-muted-foreground">{t("music.launcher.playlistCounts", playlist.eligibleCount, playlist.totalCount)}{#if playlist.unavailableCount + playlist.snoozedCount > 0} · {t("music.launcher.issueCount", playlist.unavailableCount + playlist.snoozedCount)}{/if}</span></span>
+                <span class="min-w-0 flex-1"><span class="block truncate text-xs font-medium">{systemMusicPlaylistName(playlist.id, playlist.name, t)}</span><span class="block truncate text-[0.64rem] text-muted-foreground">{t("music.launcher.playlistCounts", playlist.eligibleCount, playlist.totalCount)}{#if playlist.unavailableCount + playlist.snoozedCount > 0} · {t("music.launcher.issueCount", playlist.unavailableCount + playlist.snoozedCount)}{/if}</span></span>
               </button>
             {/each}
           {/if}

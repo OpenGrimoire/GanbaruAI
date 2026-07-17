@@ -418,6 +418,7 @@ pub(crate) async fn playlist_summaries(
     if now_ms <= 0 {
         return Err(MusicLibraryError::validation("nowMs", "must be positive"));
     }
+    super::defaults::ensure_built_in_music_playlists(pool).await?;
     let rows = sqlx::query_as::<_, PlaylistSummaryRow>(
         "SELECT playlist.id, playlist.name, playlist.description, playlist.shuffle_enabled,
                 playlist.repeat_mode,

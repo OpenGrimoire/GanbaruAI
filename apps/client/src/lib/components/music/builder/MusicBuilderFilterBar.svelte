@@ -14,6 +14,7 @@
     MusicSourceSummary,
   } from "$lib/music/library-contracts";
   import { cn } from "$lib/utils";
+  import { systemMusicPlaylistName } from "$lib/music/music-system-playlists";
 
   type MenuKind = "source" | "collection" | "membership" | "availability" | "review" | "snooze" | "sort" | "group";
   interface Option<T extends string | null> { value: T; label: string }
@@ -94,7 +95,7 @@
   ]);
   const membershipOptions = $derived<Option<string | null>[]>([
     { value: null, label: t("music.builder.anyPlaylistMembership") },
-    ...playlists.map((playlist) => ({ value: playlist.id, label: playlist.name })),
+    ...playlists.map((playlist) => ({ value: playlist.id, label: systemMusicPlaylistName(playlist.id, playlist.name, t) })),
   ]);
   const snoozeOptions = $derived<Option<"snoozed" | "active" | null>[]>([
     { value: null, label: t("music.builder.allSnoozeStates") },

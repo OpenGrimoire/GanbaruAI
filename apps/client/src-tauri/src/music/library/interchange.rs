@@ -253,10 +253,13 @@ async fn import_playlist(
             playlist.id.clone()
         };
     if exists && request.playlist_conflict == MusicImportPlaylistConflict::ReplaceExisting {
+        let protected_name = super::defaults::built_in_music_playlist(&target_id)
+            .map(|playlist| playlist.name)
+            .unwrap_or(playlist.name.trim());
         sqlx::query(
             "UPDATE music_playlists SET name = ?, description = ?, shuffle_enabled = ?, repeat_mode = ?, updated_at = ?, version = version + 1 WHERE id = ?",
         )
-        .bind(playlist.name.trim())
+        .bind(protected_name)
         .bind(playlist.description.trim())
         .bind(i64::from(playlist.shuffle_enabled))
         .bind(playlist.repeat_mode.as_ref())

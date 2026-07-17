@@ -7,6 +7,7 @@
   import { containMusicDialogFocus } from "$lib/music/music-dialog-focus";
   import type { MusicPlaylistController, MusicPlaylistDraft } from "$lib/music/music-playlist-controller.svelte";
   import type { MusicIntendedUse, MusicRepeatMode } from "$lib/music/library-contracts";
+  import { isSystemMusicPlaylistId, systemMusicPlaylistName } from "$lib/music/music-system-playlists";
 
   let {
     controller,
@@ -34,11 +35,13 @@
   let intendedUses = $state<MusicIntendedUse[]>([]);
   let replacementPlaylistId = $state("");
   const useOptions: MusicIntendedUse[] = ["general", "focus", "reading", "relaxation", "energizing"];
+  const protectedIdentity = $derived(Boolean(controller.detail && isSystemMusicPlaylistId(controller.detail.id)));
 
   onMount(() => {
     const detail = controller.detail;
     if (detail) {
-      name = mode === "duplicate" ? t("music.builder.playlistCopyName", detail.name) : detail.name;
+      const displayName = systemMusicPlaylistName(detail.id, detail.name, t);
+      name = mode === "duplicate" ? t("music.builder.playlistCopyName", displayName) : displayName;
       description = detail.description;
       shuffleEnabled = detail.shuffleEnabled;
       repeatMode = detail.repeatMode;
@@ -118,7 +121,7 @@
             <label class="mt-3 block text-[0.7rem] font-medium" for="music-delete-replacement">{t("music.builder.replacementPlaylist")}</label>
             <select id="music-delete-replacement" bind:value={replacementPlaylistId} class="mt-1.5 h-9 w-full rounded-md border border-border/70 bg-background px-2 text-xs">
               <option value="">{t("music.builder.safeNoPlaylist")}</option>
-              {#each playlists.filter((entry) => entry.id !== controller.detail?.id) as playlist}<option value={playlist.id}>{playlist.name}</option>{/each}
+              {#each playlists.filter((entry) => entry.id !== controller.detail?.id) as playlist}<option value={playlist.id}>{systemMusicPlaylistName(playlist.id, playlist.name, t)}</option>{/each}
             </select>
           {/if}
         {:else}
@@ -126,7 +129,7 @@
         {/if}
       {:else}
         <label class="block text-[0.7rem] font-medium" for="music-playlist-name">{t("music.builder.playlistName")}</label>
-        <input data-dialog-autofocus id="music-playlist-name" bind:value={name} class="mt-1.5 h-9 w-full rounded-md border border-border/70 bg-background px-3 text-xs outline-none focus:border-primary" />
+        <input data-dialog-autofocus id="music-playlist-name" bind:value={name} disabled={protectedIdentity && mode === "edit"} class="mt-1.5 h-9 w-full rounded-md border border-border/70 bg-background px-3 text-xs outline-none focus:border-primary disabled:opacity-60" />
         {#if mode !== "duplicate"}
           <label class="mt-3 block text-[0.7rem] font-medium" for="music-playlist-description">{t("music.builder.playlistDescription")}</label>
           <textarea id="music-playlist-description" bind:value={description} rows="3" class="mt-1.5 w-full resize-none rounded-md border border-border/70 bg-background p-3 text-xs outline-none focus:border-primary"></textarea>

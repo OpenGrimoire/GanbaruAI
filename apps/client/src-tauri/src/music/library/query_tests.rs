@@ -403,7 +403,13 @@ fn summaries_issues_and_inspector_return_composed_data_without_row_queries() {
             .await
             .unwrap();
 
-        assert_eq!(playlists[0].total_count, 1);
+        assert_eq!(
+            playlists
+                .iter()
+                .find(|playlist| playlist.id == "playlist-1")
+                .map(|playlist| playlist.total_count),
+            Some(1),
+        );
         assert_eq!(sources[0].item_count, 1);
         assert_eq!(sources[0].open_issue_count, 1);
         assert_eq!(roots[0].name, "Soundtracks");

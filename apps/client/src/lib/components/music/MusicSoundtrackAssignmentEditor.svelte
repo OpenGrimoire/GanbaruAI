@@ -14,6 +14,7 @@
     updateMusicAssignmentDraft,
   } from "$lib/music/music-assignment-draft";
   import type { MusicPlaylistSummary } from "$lib/music/library-contracts";
+  import { systemMusicPlaylistName } from "$lib/music/music-system-playlists";
   import type { MusicSoundscapeDefinition } from "$lib/music/soundscape-contracts";
   import type {
     MusicActivityPhase,
@@ -121,7 +122,7 @@
     if (!inherited || inherited.behavior === "inherit") return t("music.assignment.noInheritedValue");
     const playlist = inherited.playlistId ? playlists.find((entry) => entry.id === inherited.playlistId) : null;
     return playlist
-      ? `${t(`music.assignment.behavior.${inherited.behavior}`)} · ${playlist.name}`
+      ? `${t(`music.assignment.behavior.${inherited.behavior}`)} · ${systemMusicPlaylistName(playlist.id, playlist.name, t)}`
       : t(`music.assignment.behavior.${inherited.behavior}`);
   }
 

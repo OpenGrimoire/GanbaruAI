@@ -216,6 +216,9 @@ pub(crate) async fn update_playlist(
     request: MusicPlaylistUpdate,
 ) -> MusicLibraryResult<MusicWriteReceipt> {
     validate_playlist_update(&request)?;
+    let protected_name = super::defaults::built_in_music_playlist(&request.id)
+        .map(|playlist| playlist.name)
+        .unwrap_or(request.name.trim());
     let mut transaction = pool
         .begin()
         .await
@@ -226,7 +229,7 @@ pub(crate) async fn update_playlist(
              updated_at = ?, version = version + 1
          WHERE id = ? AND version = ?",
     )
-    .bind(request.name.trim())
+    .bind(protected_name)
     .bind(request.description.trim())
     .bind(request.shuffle_enabled)
     .bind(request.repeat_mode.as_ref())
@@ -371,6 +374,7 @@ async fn delete_impact_in_transaction(
     transaction: &mut Transaction<'_, Sqlite>,
     playlist_id: &str,
 ) -> MusicLibraryResult<MusicPlaylistDeleteImpact> {
+    super::defaults::reject_built_in_playlist_delete(playlist_id)?;
     if !playlist_exists(transaction, playlist_id).await? {
         return Err(MusicLibraryError::not_found("music playlist", playlist_id));
     }

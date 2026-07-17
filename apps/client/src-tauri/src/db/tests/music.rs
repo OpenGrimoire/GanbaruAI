@@ -360,7 +360,7 @@ fn failed_legacy_music_conversion_rolls_back_when_migration_is_transactional() {
 }
 
 #[test]
-fn empty_playlist_tables_do_not_block_playback_state_persistence() {
+fn default_playlists_without_tracks_do_not_block_playback_state_persistence() {
     tauri::async_runtime::block_on(async {
         let pool = migrated_memory_pool().await;
 
@@ -372,7 +372,7 @@ fn empty_playlist_tables_do_not_block_playback_state_persistence() {
             .fetch_one(&pool)
             .await
             .unwrap();
-        assert_eq!(playlists, 0);
+        assert_eq!(playlists, 10);
         assert_eq!(tracks, 0);
 
         sqlx::query(
@@ -402,7 +402,7 @@ fn empty_playlist_tables_do_not_block_playback_state_persistence() {
             .fetch_one(&pool)
             .await
             .unwrap();
-        assert_eq!(playlists_after, 0);
+        assert_eq!(playlists_after, 10);
         assert_eq!(tracks_after, 0);
     });
 }

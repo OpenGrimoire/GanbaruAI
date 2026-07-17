@@ -37,6 +37,7 @@
     autoplay,
     onAutoplayChange,
     onAssignSelection,
+    onOpenPlayer,
   }: {
     library: MusicLibraryController;
     inspector: MusicBuilderInspectorController;
@@ -46,6 +47,7 @@
     autoplay: boolean;
     onAutoplayChange: (value: boolean) => void;
     onAssignSelection: (itemIds: string[]) => void;
+    onOpenPlayer: () => void;
   } = $props();
 
   const { t } = getLocalization();
@@ -274,9 +276,13 @@
     onActivate={(itemId) => library.selectItem(itemId)}
     onAssign={onAssignSelection}
   />
+  <div class="review-main flex min-h-0 min-w-0 flex-col overflow-hidden">
   <section class="review-audition min-h-0 overflow-y-auto px-4 py-3" data-music-scrollable="true">
     <div class="flex items-center justify-between gap-3">
-      <p class="text-[0.7rem] font-medium text-muted-foreground" role="status" aria-live="polite">{t("music.builder.reviewProgress", progressCurrent, sessionTotal)}</p>
+      <div class="flex min-w-0 items-center gap-2">
+        <button type="button" onclick={onOpenPlayer} class="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-secondary px-2.5 text-[0.7rem] font-medium" aria-label={t("music.backToPlayer")}><ChevronLeft size={14} />{t("music.mediaPlayer")}</button>
+        <p class="truncate text-[0.68rem] font-medium text-muted-foreground" role="status" aria-live="polite">{t("music.builder.reviewProgress", progressCurrent, sessionTotal)}</p>
+      </div>
       <div class="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
         {#if audition.active}
           <button type="button" onclick={() => { void audition.restore(); }} class="h-7 rounded-md bg-secondary px-2 text-[0.68rem] font-medium text-secondary-foreground">{t("music.builder.returnPreviousPlayback")}</button>
@@ -284,6 +290,7 @@
         <button type="button" onclick={() => setIncludeLater(library.currentState.reviewState !== null)} aria-pressed={library.currentState.reviewState === null} class={cn("h-7 rounded-full px-2.5 text-[0.65rem] font-medium", library.currentState.reviewState === null ? "bg-primary/12 text-primary" : "bg-secondary/70 text-muted-foreground")}>{t("music.builder.includeLater")}</button>
         <button type="button" onclick={() => onAutoplayChange(!autoplay)} aria-pressed={autoplay} class={cn("h-7 rounded-full px-2.5 text-[0.65rem] font-medium", autoplay ? "bg-primary/12 text-primary" : "bg-secondary/70 text-muted-foreground")}>{t("music.builder.reviewAutoplay")}</button>
         {#if !guidanceEnabled}<button type="button" onclick={enableFocusGuidance} class="h-7 rounded-md bg-secondary px-2 text-[0.65rem] text-secondary-foreground">{t("music.builder.enableFocusGuidance")}</button>{/if}
+        <button type="button" onclick={() => { void finishReviewState("ignored"); }} disabled={!detail || review.actionBusy} class="h-7 rounded-md px-2 text-[0.65rem] text-muted-foreground hover:bg-secondary disabled:opacity-40">{t("music.builder.ignore")}</button>
       </div>
     </div>
     {#if library.currentState.groupBy !== "none" && library.currentWindow.groups.length > 0}
@@ -294,7 +301,7 @@
       </div>
     {/if}
 
-    <div bind:this={surface} class="mt-3 aspect-video w-full overflow-hidden rounded-xl border border-border/70 bg-card shadow-inner">
+    <div bind:this={surface} class="review-media mt-3 h-28 w-full overflow-hidden rounded-xl bg-card/75 shadow-sm">
       {#if detail && audition.reviewItemId === detail.item.id && !player.localHasVideo && detail.item.sourceKind === "local-file"}
         <div class="relative grid h-full place-items-center overflow-hidden bg-secondary/35">
           {#if player.currentArtworkUrl}
@@ -344,7 +351,7 @@
     {/if}
   </section>
 
-  <section class="review-classify flex min-h-0 flex-col bg-card/25">
+  <section class="review-classify flex min-h-0 flex-col bg-background/20">
     <div class="shrink-0 p-3">
       <div class="flex items-center justify-between gap-2">
         <div><h2 class="text-sm font-semibold">{t("music.builder.classifyPlaylists")}</h2><p class="text-[0.68rem] text-muted-foreground">{t("music.builder.classifyHint")}</p></div>
@@ -389,10 +396,9 @@
       />
     </div>
 
-    <div class="review-actions grid shrink-0 grid-cols-3 gap-2 bg-card/80 p-3 backdrop-blur-sm">
-      <button type="button" onclick={() => { void finishReviewState("ignored"); }} disabled={!detail || review.actionBusy} class="review-action bg-secondary text-secondary-foreground">{t("music.builder.ignore")}</button>
+    <div class="review-actions grid shrink-0 grid-cols-2 gap-3 bg-card/80 p-3 backdrop-blur-sm">
       <div class="relative">
-        <button bind:this={laterButton} type="button" aria-haspopup="dialog" aria-expanded={laterMenuOpen} onclick={() => { if (laterMenuOpen) closeLaterMenu(false); else void openLaterMenu(); }} disabled={!detail || review.actionBusy} class="review-action h-full w-full bg-secondary text-secondary-foreground">{t("music.builder.later")}</button>
+        <button bind:this={laterButton} type="button" aria-haspopup="dialog" aria-expanded={laterMenuOpen} onclick={() => { if (laterMenuOpen) closeLaterMenu(false); else void openLaterMenu(); }} disabled={!detail || review.actionBusy} class="review-action h-full w-full border border-border/70 bg-background text-foreground">{t("music.builder.skipTrack")}</button>
         {#if laterMenuOpen}
           <div bind:this={laterPopover} role="dialog" aria-label={t("music.builder.returnDate")} tabindex="-1" onfocusout={handleLaterFocusOut} class="later-popover absolute bottom-[calc(100%+0.5rem)] left-1/2 z-20 w-56 -translate-x-1/2 rounded-xl border border-border/70 bg-card p-3 text-left shadow-xl">
             <label for="music-review-return-date" class="block text-[0.68rem] font-medium">{t("music.builder.returnDate")}</label>
@@ -405,14 +411,18 @@
           </div>
         {/if}
       </div>
-      <button type="button" onclick={() => { void finishReviewState("reviewed"); }} disabled={!detail || review.actionBusy} class="review-action bg-primary text-primary-foreground" title={t("music.builder.markReviewedTitle", formatShortcut("Mod + Enter"))}><Check size={14} />{t("music.builder.markReviewed")}</button>
+      <button type="button" onclick={() => { void finishReviewState("reviewed"); }} disabled={!detail || review.actionBusy} class="review-action bg-primary text-primary-foreground" title={t("music.builder.markReviewedTitle", formatShortcut("Mod + Enter"))}><Check size={14} />{t("music.builder.saveAndNext")}<ChevronRight size={14} /></button>
     </div>
   </section>
+  </div>
 </div>
 
 <style>
-  .review-workspace { grid-template-columns: minmax(12rem, 0.72fr) minmax(17rem, 1.18fr) minmax(17rem, 1fr); }
-  .review-tree, .review-audition { box-shadow: 1px 0 color-mix(in srgb, var(--border) 46%, transparent); }
+  .review-workspace { grid-template-columns: minmax(13rem, 0.72fr) minmax(22rem, 2fr); }
+  .review-tree { grid-column: 1; min-height: 0; box-shadow: 1px 0 color-mix(in srgb, var(--border) 46%, transparent); }
+  .review-main { grid-column: 2; min-height: 0; }
+  .review-audition { flex: 0 1 23rem; }
+  .review-classify { min-height: 14rem; flex: 1 1 0; }
   .review-control { display: grid; height: 2rem; width: 2rem; place-items: center; border-radius: 9999px; background: var(--secondary); color: var(--secondary-foreground); }
   .review-control:disabled { opacity: 0.35; }
   .review-play { display: grid; height: 2.5rem; width: 2.5rem; place-items: center; border-radius: 9999px; background: var(--primary); color: var(--primary-foreground); }
@@ -421,15 +431,16 @@
   @container (width < 620px) {
     .review-workspace { display: flex; flex-direction: column; overflow-y: auto; }
     .review-tree { min-height: 12rem; flex: 0 0 42%; }
+    .review-main { min-height: 32rem; flex: 1 0 auto; overflow: visible; }
     .review-audition, .review-classify { min-height: auto; overflow: visible; }
-    .review-audition { flex: 0 0 min(44%, 18rem); padding: 0.625rem; }
-    .review-classify { flex: 1 0 18rem; border-left: 0; border-top: 1px solid var(--border); }
+    .review-audition { flex: 0 0 auto; padding: 0.625rem; }
+    .review-classify { flex: 1 0 18rem; border-left: 0; }
     .review-classify > :global(div:nth-child(2)) { min-height: 9rem; }
     .review-actions { position: sticky; bottom: 0; z-index: 5; }
   }
   @container (width >= 620px) and (width < 860px) {
     .review-workspace { grid-template-columns: minmax(11rem, 0.72fr) minmax(16rem, 1.15fr); }
-    .review-classify { grid-column: 1 / -1; min-height: 15rem; }
+    .review-classify { min-height: 15rem; }
   }
   @container (height < 300px) and (width >= 620px) {
     .review-audition { padding-block: 0.5rem; }

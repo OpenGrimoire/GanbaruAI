@@ -63,6 +63,7 @@
   import MusicBulkClassificationDialog from "./builder/MusicBulkClassificationDialog.svelte";
   import MusicInterchangeDialog from "./builder/MusicInterchangeDialog.svelte";
   import type { MusicBuilderInitialAction } from "$lib/music/music-builder-loader";
+  import { systemMusicPlaylistName } from "$lib/music/music-system-playlists";
 
   let {
     onOpenPlayer,
@@ -113,7 +114,7 @@
   const reviewCount = $derived(destination.kind === "review" ? library.currentWindow.totalCount : library.sourceSummaries.reduce((total, source) => total + source.unreviewedCount, 0));
   const routeContext = $derived({ playlistIds: new Set(library.playlistSummaries.map((playlist) => playlist.id)), itemIds: new Set(library.currentWindow.items.map((item) => item.id)) });
   const playingItemId = $derived(audition.musicPlayer.activeQueueItemIds[audition.musicPlayer.currentQueueIndex] ?? null);
-  const playlistNames = $derived(Object.fromEntries(library.playlistSummaries.map((entry) => [entry.id, entry.name])));
+  const playlistNames = $derived(Object.fromEntries(library.playlistSummaries.map((entry) => [entry.id, systemMusicPlaylistName(entry.id, entry.name, t)])));
   const sourceNames = $derived(Object.fromEntries(library.sourceSummaries.map((entry) => [entry.id, entry.name])));
   const firstUsePreparation = $derived(
     sources.preparingDefaultFolder || firstUsePreparationActive,
@@ -501,7 +502,7 @@
 <svelte:window onkeydown={handleWindowKeydown} />
 
 <section bind:this={root} use:observeRoot class="builder-root flex h-full min-h-0 flex-col overflow-hidden text-foreground" style="background-color: var(--cal-bg);">
-  {#if !firstUsePreparation && !firstUseNeedsFolder}<MusicBuilderHeader
+  {#if !firstUsePreparation && !firstUseNeedsFolder && (destination.kind !== "review" || library.currentWindow.items.length === 0)}<MusicBuilderHeader
     {destination}
     search={library.currentState.search}
     searchAvailable={destination.kind === "review" || destination.kind === "playlists" || hasList}
@@ -573,7 +574,7 @@
             {/if}
           </div>
         {:else}
-          <MusicReviewWorkspace {library} {inspector} {sources} {audition} {review} autoplay={reviewAutoplay} onAutoplayChange={setReviewAutoplay} onAssignSelection={(itemIds) => { void assignReviewSelection(itemIds); }} />
+          <MusicReviewWorkspace {library} {inspector} {sources} {audition} {review} autoplay={reviewAutoplay} onAutoplayChange={setReviewAutoplay} onAssignSelection={(itemIds) => { void assignReviewSelection(itemIds); }} {onOpenPlayer} />
         {/if}
       {:else if hasList}
         {#if destination.kind === "playlist" && playlist.detail}

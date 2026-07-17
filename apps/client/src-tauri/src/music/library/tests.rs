@@ -89,6 +89,65 @@ fn typed_enums_reject_unknown_external_values() {
 }
 
 #[test]
+fn built_in_music_playlists_are_protected_localizable_and_repaired() {
+    tauri::async_runtime::block_on(async {
+        let pool = pool().await;
+        let summaries = queries::playlist_summaries(&pool, 1_700_000_000_000, 0, 50)
+            .await
+            .unwrap();
+        assert_eq!(
+            summaries
+                .iter()
+                .filter(|playlist| playlist.id.starts_with("playlist-default-"))
+                .count(),
+            defaults::BUILT_IN_MUSIC_PLAYLISTS.len(),
+        );
+
+        let detail = queries::playlist_detail(&pool, "playlist-default-reading")
+            .await
+            .unwrap();
+        writes::update_playlist(
+            &pool,
+            MusicPlaylistUpdate {
+                id: detail.id.clone(),
+                name: "Renamed".to_string(),
+                description: "Quiet".to_string(),
+                shuffle_enabled: detail.shuffle_enabled,
+                repeat_mode: detail.repeat_mode,
+                intended_uses: detail.intended_uses,
+                expected_version: detail.version,
+                updated_at: 1_700_000_000_100,
+            },
+        )
+        .await
+        .unwrap();
+        let repaired_name: String = sqlx::query_scalar(
+            "SELECT name FROM music_playlists WHERE id = 'playlist-default-reading'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(repaired_name, "Reading");
+        assert!(
+            writes::playlist_delete_impact(&pool, "playlist-default-reading")
+                .await
+                .is_err()
+        );
+
+        sqlx::query("DELETE FROM music_playlists WHERE id = 'playlist-default-reading'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let repaired = queries::playlist_summaries(&pool, 1_700_000_000_000, 0, 50)
+            .await
+            .unwrap();
+        assert!(repaired
+            .iter()
+            .any(|playlist| playlist.id == "playlist-default-reading"));
+    });
+}
+
+#[test]
 fn library_items_require_source_specific_identity() {
     let item = MusicLibraryItemWrite {
         id: "item-1".to_string(),
@@ -629,7 +688,10 @@ fn deletion_requires_current_impact_and_repairs_assignments_atomically() {
             .fetch_one(&pool)
             .await
             .unwrap();
-        assert_eq!(playlist_count, 1);
+        assert_eq!(
+            playlist_count,
+            defaults::BUILT_IN_MUSIC_PLAYLISTS.len() as i64 + 1,
+        );
     });
 }
 
