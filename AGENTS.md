@@ -105,7 +105,7 @@ apps/
           writes/: split Notes write command modules and shared write helpers
           tests/: split Notes backend test modules and shared helpers
         notification.rs, notification/: notification commands, scheduling, and platform delivery
-        pomodoro_enforcement.rs, tray.rs, window_shape.rs: timer overlays, tray, and window integration
+        pomodoro_enforcement.rs, tray.rs: timer overlays and tray integration
         doomscrolling.rs, doomscrolling/: browser and desktop blocking commands, runtime helpers, and tests
         media_player.rs, media_controls.rs, music.rs, music/: local playback, media controls, metadata, and music commands
         project_icons.rs: managed project icon assets

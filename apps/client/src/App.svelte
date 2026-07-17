@@ -1050,7 +1050,6 @@
 
 <div
   class="app-shell h-screen w-screen"
-  class:app-rounded={!isMaximized}
   data-size-class={viewport.sizeClass}
 >
   <div class="flex h-full flex-col overflow-hidden bg-sidebar">
@@ -1124,10 +1123,3 @@
   <TooltipHost />
   <WindowResizeHandles disabled={isMaximized || !!idleInfo} />
 </div>
-
-<style>
-  .app-rounded {
-    border-radius: var(--content-radius);
-    overflow: hidden;
-  }
-</style>

@@ -31,20 +31,52 @@ mod themes;
 mod tray;
 mod updates;
 mod vault;
-mod window_shape;
 
 static PROCESS_START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
 static PLATFORM_LABEL: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+static MAIN_WINDOW_FRONTEND_READY: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 const DELAYED_RELAUNCH_MS_ENV: &str = "GANBARU_AI_DELAYED_RELAUNCH_MS";
 const DELAYED_RELAUNCH_MAX_MS: u64 = 10 * 60 * 1000;
+const MAIN_WINDOW_REVEAL_FALLBACK_MS: u64 = 15_000;
 
 #[cfg(any(target_os = "linux", target_os = "macos", windows))]
 fn focus_main_window_for_second_launch(app: &tauri::AppHandle) {
+    if !MAIN_WINDOW_FRONTEND_READY.load(std::sync::atomic::Ordering::Acquire) {
+        return;
+    }
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
     }
+}
+
+#[tauri::command]
+fn reveal_main_window(app: tauri::AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "main window is unavailable".to_string())?;
+    window.show().map_err(|error| error.to_string())?;
+    MAIN_WINDOW_FRONTEND_READY.store(true, std::sync::atomic::Ordering::Release);
+    window.set_focus().map_err(|error| error.to_string())
+}
+
+fn schedule_main_window_reveal_fallback(app: &tauri::AppHandle) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(
+            MAIN_WINDOW_REVEAL_FALLBACK_MS,
+        ));
+        if MAIN_WINDOW_FRONTEND_READY.load(std::sync::atomic::Ordering::Acquire) {
+            return;
+        }
+        eprintln!("frontend readiness timed out; revealing the main window");
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
+    });
 }
 
 #[tauri::command]
@@ -852,6 +884,7 @@ pub fn run() {
             toggle_devtools,
             get_memory_report,
             get_startup_elapsed_ms,
+            reveal_main_window,
             vault::vault_read_app_state,
             vault::vault_device_id,
             vault::vault_default_location,
@@ -1140,7 +1173,7 @@ pub fn run() {
         ])
         .setup(|app| {
             clear_doomscrolling_enforcement_state_best_effort(app.handle(), "during startup");
-            window_shape::setup_main_window(app.handle())?;
+            schedule_main_window_reveal_fallback(app.handle());
             music::setup_youtube_host(app.handle())?;
             media_controls::setup_media_controls(app.handle())?;
             if let Err(err) = notification::restore_stale_shortcuts(app.handle()) {

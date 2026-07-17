@@ -144,7 +144,6 @@
 
 <main
   class="setup-shell app-shell relative h-screen w-screen overflow-hidden bg-background text-foreground"
-  class:app-rounded={!isMaximized}
 >
   <div class="flex h-full min-h-0 flex-col">
     <header
@@ -281,10 +280,6 @@
 </main>
 
 <style>
-  .app-rounded {
-    border-radius: var(--content-radius);
-  }
-
   .setup-content-grid {
     grid-template-rows: minmax(4.5rem, 1fr) auto minmax(4.5rem, 1fr);
   }
