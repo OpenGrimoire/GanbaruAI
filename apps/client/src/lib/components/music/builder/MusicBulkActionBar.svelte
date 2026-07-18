@@ -18,7 +18,6 @@
     onSnooze,
     onReviewState,
     onSignals,
-    onFocusFit = () => undefined,
     onAvailability,
   }: {
     selectedCount: number;
@@ -32,7 +31,6 @@
     onSnooze?: () => void;
     onReviewState?: () => void;
     onSignals?: () => void;
-    onFocusFit?: () => void;
     onAvailability?: () => void;
   } = $props();
   const { t } = getLocalization();
@@ -47,7 +45,6 @@
     {#if onSnooze}<button type="button" onclick={onSnooze} class="bulk-button">{t("music.builder.snoozeAction")}</button>{/if}
     {#if onReviewState}<button type="button" onclick={onReviewState} class="bulk-button">{t("music.builder.reviewState")}</button>{/if}
     {#if onSignals}<button type="button" onclick={onSignals} class="bulk-button">{t("music.builder.descriptiveSignals")}</button>{/if}
-    {#if playlistMode}<button type="button" onclick={onFocusFit} class="bulk-button">{t("music.builder.focusFit")}</button>{/if}
     {#if onAvailability}<button type="button" onclick={onAvailability} class="bulk-button"><CircleAlert size={12} />{t("music.builder.availability")}</button>{/if}
   </div>
   <button type="button" onclick={onClear} class="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-secondary" aria-label={t("music.builder.clearSelection")}><X size={13} /></button>

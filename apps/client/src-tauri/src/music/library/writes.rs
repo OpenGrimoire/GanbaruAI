@@ -317,10 +317,10 @@ pub(crate) async fn duplicate_playlist(
     .map_err(|error| MusicLibraryError::database("duplicate playlist intended uses", error))?;
     sqlx::query(
         "INSERT INTO music_playlist_memberships
-            (id, playlist_id, item_id, position, weight, enabled, focus_fit,
+            (id, playlist_id, item_id, position, weight, enabled,
              start_ms, end_ms, volume, rate, created_at, updated_at, version)
          SELECT 'duplicate-membership:' || ? || ':' || id, ?, item_id, position, weight, enabled,
-                focus_fit, start_ms, end_ms, volume, rate, ?, ?, 1
+                start_ms, end_ms, volume, rate, ?, ?, 1
          FROM music_playlist_memberships WHERE playlist_id = ?",
     )
     .bind(&request.new_playlist_id)
@@ -695,14 +695,13 @@ async fn upsert_membership_in_transaction(
     if let Some(expected_version) = membership.expected_version {
         let updated = sqlx::query(
             "UPDATE music_playlist_memberships
-             SET position = ?, weight = ?, enabled = ?, focus_fit = ?, start_ms = ?, end_ms = ?,
+             SET position = ?, weight = ?, enabled = ?, start_ms = ?, end_ms = ?,
                  volume = ?, rate = ?, updated_at = ?, version = version + 1
              WHERE id = ? AND playlist_id = ? AND item_id = ? AND version = ?",
         )
         .bind(membership.position)
         .bind(membership.weight.as_ref())
         .bind(membership.enabled)
-        .bind(membership.focus_fit.as_ref())
         .bind(membership.start_ms)
         .bind(membership.end_ms)
         .bind(membership.volume)
@@ -736,14 +735,13 @@ async fn upsert_membership_in_transaction(
     }
     sqlx::query(
         "INSERT INTO music_playlist_memberships
-            (id, playlist_id, item_id, position, weight, enabled, focus_fit,
+            (id, playlist_id, item_id, position, weight, enabled,
              start_ms, end_ms, volume, rate, created_at, updated_at, version)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
          ON CONFLICT(playlist_id, item_id) DO UPDATE SET
             position = excluded.position,
             weight = excluded.weight,
             enabled = excluded.enabled,
-            focus_fit = excluded.focus_fit,
             start_ms = excluded.start_ms,
             end_ms = excluded.end_ms,
             volume = excluded.volume,
@@ -757,7 +755,6 @@ async fn upsert_membership_in_transaction(
     .bind(membership.position)
     .bind(membership.weight.as_ref())
     .bind(membership.enabled)
-    .bind(membership.focus_fit.as_ref())
     .bind(membership.start_ms)
     .bind(membership.end_ms)
     .bind(membership.volume)

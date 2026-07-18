@@ -37,7 +37,6 @@ export interface MusicInterchangeMembership {
   position: number;
   weight: string;
   enabled: boolean;
-  focusFit: string;
   startMs: number | null;
   endMs: number | null;
   volume: number | null;
@@ -152,7 +151,7 @@ function parseMembership(value: unknown, label: string): MusicInterchangeMembers
   return {
     item: parseItem(row.item, `${label}.item`), position: integer(row.position, `${label}.position`),
     weight: choice(row.weight, ["rarely", "less-often", "normal", "more-often", "much-more-often"] as const, `${label}.weight`), enabled: flag(row.enabled, `${label}.enabled`),
-    focusFit: choice(row.focusFit, ["helpful", "neutral", "potentially-distracting", "unknown"] as const, `${label}.focusFit`), startMs: nullableNumber(row.startMs, `${label}.startMs`), endMs: nullableNumber(row.endMs, `${label}.endMs`),
+    startMs: nullableNumber(row.startMs, `${label}.startMs`), endMs: nullableNumber(row.endMs, `${label}.endMs`),
     volume: nullableNumber(row.volume, `${label}.volume`), rate: nullableNumber(row.rate, `${label}.rate`),
     skipRanges: list(row.skipRanges, `${label}.skipRanges`, (entry, entryLabel) => { const range = record(entry, entryLabel); return { startMs: integer(range.startMs, `${entryLabel}.startMs`), endMs: integer(range.endMs, `${entryLabel}.endMs`) }; }, 100),
     snoozes: list(row.snoozes, `${label}.snoozes`, (entry, entryLabel) => { const snooze = record(entry, entryLabel); return { scope: choice(snooze.scope, ["playlist", "all-playlists"] as const, `${entryLabel}.scope`), startsAt: integer(snooze.startsAt, `${entryLabel}.startsAt`), endsAt: nullableNumber(snooze.endsAt, `${entryLabel}.endsAt`), reason: text(snooze.reason, `${entryLabel}.reason`, 500) }; }, 100),
@@ -275,7 +274,7 @@ export function inspectorToInterchangeMembership(detail: MusicInspectorDetail, p
       album: detail.item.albumOverride ?? detail.item.originalAlbum, durationMs: detail.item.durationMs, signals: [...detail.signals],
       locations: detail.locations.map((location) => ({ rootId: location.rootId, relativePath: location.relativePath, availability: location.availability })),
     },
-    position: membership.position, weight: membership.weight, enabled: membership.enabled, focusFit: membership.focusFit,
+    position: membership.position, weight: membership.weight, enabled: membership.enabled,
     startMs: membership.startMs, endMs: membership.endMs, volume: membership.volume, rate: membership.rate,
     skipRanges: detail.membershipSkipRanges.filter((range) => range.membershipId === membership.id).map(({ startMs, endMs }) => ({ startMs, endMs })),
     snoozes: detail.snoozes.filter((snooze) => snooze.scope === "all-playlists" || snooze.playlistId === playlistId).map(({ scope, startsAt, endsAt, reason }) => ({ scope, startsAt, endsAt, reason })),

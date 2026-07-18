@@ -98,7 +98,7 @@
   let pendingRefreshPlan = $state<MusicSourceRefreshPlan | null>(null);
   let reviewExitOpen = $state(false);
   let playlistSurface = $state<"create" | "edit" | "duplicate" | "delete" | null>(null);
-  let bulkSurface = $state<"memberships" | "weight" | "review" | "snooze" | "signals" | "focus-fit" | null>(null);
+  let bulkSurface = $state<"memberships" | "weight" | "review" | "snooze" | "signals" | null>(null);
   let rememberReviewExit = $state(false);
   let reviewAutoplay = $state(parseMusicReviewAutoplay(getConfigKey<unknown>("music.review.autoplay", undefined)));
   let reviewExitPreference = $state<MusicReviewExitPreference>(parseMusicReviewExitPreference(getConfigKey<unknown>("music.review.exitPreference", undefined)));
@@ -422,9 +422,9 @@
     await bulk.open(actionableItemIds, library.playlistSummaries);
   }
 
-  async function openBulkClassification(mode: "signals" | "focus-fit"): Promise<void> {
-    if (actionableItemIds.length === 0 || (mode === "focus-fit" && destination.kind !== "playlist")) return;
-    bulkSurface = mode;
+  async function openBulkClassification(): Promise<void> {
+    if (actionableItemIds.length === 0) return;
+    bulkSurface = "signals";
     await bulk.open(actionableItemIds, library.playlistSummaries);
   }
 
@@ -686,8 +686,7 @@
               onWeight={() => { void openBulkWeight(); }}
               onSnooze={() => openBulkStatus("snooze")}
               onReviewState={() => openBulkStatus("review")}
-              onSignals={() => { void openBulkClassification("signals"); }}
-              onFocusFit={() => { void openBulkClassification("focus-fit"); }}
+              onSignals={() => { void openBulkClassification(); }}
               onAvailability={actionableItemIds.some((itemId) => library.currentWindow.items.find((item) => item.id === itemId)?.availability !== "available") ? () => { void navigate({ kind: "issues" }); } : undefined}
             />
           {/if}
@@ -805,8 +804,8 @@
         onClose={closeBulkSurface}
         onSaved={() => { closeBulkSurface(); library.setItemSelection([], null); void playlist.refreshActivePlayback(sources.bindings); }}
       />
-    {:else if bulkSurface === "signals" || (bulkSurface === "focus-fit" && destination.kind === "playlist")}
-      <MusicBulkClassificationDialog controller={bulk} mode={bulkSurface} playlistId={destination.kind === "playlist" ? destination.playlistId : null} onClose={closeBulkSurface} onSaved={() => { closeBulkSurface(); library.setItemSelection([], null); void playlist.refreshActivePlayback(sources.bindings); }} />
+    {:else if bulkSurface === "signals"}
+      <MusicBulkClassificationDialog controller={bulk} onClose={closeBulkSurface} onSaved={() => { closeBulkSurface(); library.setItemSelection([], null); void playlist.refreshActivePlayback(sources.bindings); }} />
     {/if}
     {#if interchange.open}<MusicInterchangeDialog controller={interchange} playlists={library.playlistSummaries} onClose={() => interchange.close()} onImported={() => { void library.refreshAfterMutation(); void sources.load(); }} />{/if}
   </div>

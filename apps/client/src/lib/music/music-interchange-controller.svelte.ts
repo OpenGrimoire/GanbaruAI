@@ -306,7 +306,7 @@ export class MusicInterchangeController {
   }
 
   private basicMembership(position: number, item: MusicInterchangeMembership["item"]): MusicInterchangeMembership {
-    return { item, position, weight: "normal", enabled: true, focusFit: "unknown", startMs: null, endMs: null, volume: null, rate: null, skipRanges: [], snoozes: [] };
+    return { item, position, weight: "normal", enabled: true, startMs: null, endMs: null, volume: null, rate: null, skipRanges: [], snoozes: [] };
   }
 
   private async exportM3u8(playlistIds: string[]): Promise<boolean> {

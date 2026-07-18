@@ -432,9 +432,9 @@ async fn import_membership(
     );
     sqlx::query(
         "INSERT INTO music_playlist_memberships
-            (id, playlist_id, item_id, position, weight, enabled, focus_fit, start_ms, end_ms,
+            (id, playlist_id, item_id, position, weight, enabled, start_ms, end_ms,
              volume, rate, created_at, updated_at, version)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)",
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)",
     )
     .bind(&membership_id)
     .bind(playlist_id)
@@ -442,7 +442,6 @@ async fn import_membership(
     .bind(membership.position)
     .bind(membership.weight.as_ref())
     .bind(i64::from(membership.enabled))
-    .bind(membership.focus_fit.as_ref())
     .bind(membership.start_ms)
     .bind(membership.end_ms)
     .bind(membership.volume)

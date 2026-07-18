@@ -12,7 +12,6 @@ export type MusicRelinkPlanState = "planning" | "ready" | "applied" | "cancelled
 export type MusicRelinkMatchKind = "exact" | "likely" | "ambiguous" | "missing" | "new";
 export type MusicRepairMatchStrength = "exact" | "likely" | "weak";
 export type MusicWeight = "rarely" | "less-often" | "normal" | "more-often" | "much-more-often";
-export type MusicFocusFit = "helpful" | "neutral" | "potentially-distracting" | "unknown";
 export type MusicIntendedUse = "general" | "focus" | "reading" | "relaxation" | "energizing";
 export type MusicItemSignal = "lyrics" | "sudden-changes" | "high-intensity" | "calm" | "repetitive" | "energizing";
 export type MusicSnoozeScope = "playlist" | "all-playlists";
@@ -82,7 +81,6 @@ export interface MusicMembershipWrite {
   position: number;
   weight: MusicWeight;
   enabled: boolean;
-  focusFit: MusicFocusFit;
   startMs: number | null;
   endMs: number | null;
   volume: number | null;
@@ -98,12 +96,10 @@ export interface MusicBulkMembershipEdit {
   removePlaylistIds: string[];
   weightPlaylistIds: string[];
   weight: MusicWeight | null;
-  focusFitPlaylistIds: string[];
-  focusFit: MusicFocusFit | null;
   updatedAt: number;
 }
 export interface MusicBulkMembershipResult { changedCount: number }
-export interface MusicMembershipMatrixEntry { itemId: string; playlistId: string; weight: MusicWeight; focusFit: MusicFocusFit }
+export interface MusicMembershipMatrixEntry { itemId: string; playlistId: string; weight: MusicWeight }
 export interface MusicPlaylistReorder { playlistId: string; itemId: string; targetIndex: number; updatedAt: number }
 export interface MusicPlaylistReorderResult { itemIds: string[] }
 export interface MusicPlaylistPlaybackEntry {
@@ -560,7 +556,6 @@ const relinkPlanStates = ["planning", "ready", "applied", "cancelled"] as const;
 const relinkMatchKinds = ["exact", "likely", "ambiguous", "missing", "new"] as const;
 const repairMatchStrengths = ["exact", "likely", "weak"] as const;
 const weights = ["rarely", "less-often", "normal", "more-often", "much-more-often"] as const;
-const focusFits = ["helpful", "neutral", "potentially-distracting", "unknown"] as const;
 const intendedUses = ["general", "focus", "reading", "relaxation", "energizing"] as const;
 const signals = ["lyrics", "sudden-changes", "high-intensity", "calm", "repetitive", "energizing"] as const;
 const snoozeScopes = ["playlist", "all-playlists"] as const;
@@ -709,7 +704,7 @@ function parseLocation(value: unknown, label: string): MusicLocalLocation {
   const row = object(value, label); return { id: string(row.id, `${label}.id`), itemId: string(row.itemId, `${label}.itemId`), rootId: string(row.rootId, `${label}.rootId`), relativePath: string(row.relativePath, `${label}.relativePath`), fileSizeBytes: nullable(row.fileSizeBytes, number, `${label}.fileSizeBytes`), modifiedAtMs: nullable(row.modifiedAtMs, number, `${label}.modifiedAtMs`), lightweightFingerprint: nullable(row.lightweightFingerprint, string, `${label}.lightweightFingerprint`), strongFingerprint: nullable(row.strongFingerprint, string, `${label}.strongFingerprint`), availability: enumeration(row.availability, locationAvailability, `${label}.availability`), lastSeenGeneration: nullable(row.lastSeenGeneration, number, `${label}.lastSeenGeneration`), firstSeenAt: number(row.firstSeenAt, `${label}.firstSeenAt`), updatedAt: number(row.updatedAt, `${label}.updatedAt`) };
 }
 function parseMembership(value: unknown, label: string): MusicPlaylistMembership {
-  const row = object(value, label); return { id: string(row.id, `${label}.id`), playlistId: string(row.playlistId, `${label}.playlistId`), itemId: string(row.itemId, `${label}.itemId`), position: number(row.position, `${label}.position`), weight: enumeration(row.weight, weights, `${label}.weight`), enabled: boolean(row.enabled, `${label}.enabled`), focusFit: enumeration(row.focusFit, focusFits, `${label}.focusFit`), startMs: nullable(row.startMs, number, `${label}.startMs`), endMs: nullable(row.endMs, number, `${label}.endMs`), volume: nullable(row.volume, finite, `${label}.volume`), rate: nullable(row.rate, finite, `${label}.rate`), updatedAt: number(row.updatedAt, `${label}.updatedAt`), createdAt: number(row.createdAt, `${label}.createdAt`), version: number(row.version, `${label}.version`) };
+  const row = object(value, label); return { id: string(row.id, `${label}.id`), playlistId: string(row.playlistId, `${label}.playlistId`), itemId: string(row.itemId, `${label}.itemId`), position: number(row.position, `${label}.position`), weight: enumeration(row.weight, weights, `${label}.weight`), enabled: boolean(row.enabled, `${label}.enabled`), startMs: nullable(row.startMs, number, `${label}.startMs`), endMs: nullable(row.endMs, number, `${label}.endMs`), volume: nullable(row.volume, finite, `${label}.volume`), rate: nullable(row.rate, finite, `${label}.rate`), updatedAt: number(row.updatedAt, `${label}.updatedAt`), createdAt: number(row.createdAt, `${label}.createdAt`), version: number(row.version, `${label}.version`) };
 }
 function parseMembershipSkipRange(value: unknown, label: string): MusicMembershipSkipRange {
   const row = object(value, label); return { id: string(row.id, `${label}.id`), membershipId: string(row.membershipId, `${label}.membershipId`), startMs: number(row.startMs, `${label}.startMs`), endMs: number(row.endMs, `${label}.endMs`), sortOrder: number(row.sortOrder, `${label}.sortOrder`) };

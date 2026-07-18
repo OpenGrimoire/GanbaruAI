@@ -5,7 +5,7 @@
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import type { MusicBuilderInspectorController } from "$lib/music/music-builder-inspector.svelte";
   import { formatMusicTimecode, parseMusicTimecode, validateMusicSkipRanges } from "$lib/music/music-membership-settings";
-  import type { MusicFocusFit, MusicMembershipSkipRange, MusicPlaylistMembership } from "$lib/music/library-contracts";
+  import type { MusicMembershipSkipRange, MusicPlaylistMembership } from "$lib/music/library-contracts";
 
   let {
     controller,
@@ -25,7 +25,6 @@
   let volumeDraft = $state("");
   let rateDraft = $state("");
   let enabled = $state(true);
-  let focusFit = $state<MusicFocusFit>("unknown");
   let ranges = $state<Array<{ id: string; start: string; end: string }>>([]);
   let error = $state<string | null>(null);
 
@@ -37,7 +36,6 @@
     volumeDraft = membership.volume === null ? "" : String(membership.volume);
     rateDraft = membership.rate === null ? "" : String(membership.rate);
     enabled = membership.enabled;
-    focusFit = membership.focusFit;
     ranges = (controller.detail?.membershipSkipRanges ?? [])
       .filter((range) => range.membershipId === membership.id)
       .map((range) => ({ id: range.id, start: formatMusicTimecode(range.startMs), end: formatMusicTimecode(range.endMs) }));
@@ -74,7 +72,7 @@
     }
     if (validateMusicSkipRanges(parsedRanges)) { error = t("music.builder.skipRangesOverlap"); return; }
     const previous = { ...membership };
-    Object.assign(membership, { startMs, endMs, volume, rate, enabled, focusFit });
+    Object.assign(membership, { startMs, endMs, volume, rate, enabled });
     if (await controller.saveAdvancedMembership(membership, parsedRanges)) {
       error = null;
     } else {
@@ -92,8 +90,6 @@
     <label class="text-[0.63rem] text-muted-foreground">{t("music.builder.rateOverride")}<input bind:value={rateDraft} inputmode="decimal" placeholder={t("music.builder.itemDefault")} class="membership-input" /></label>
   </div>
   <label class="flex items-center gap-2 rounded-md bg-secondary/55 p-2 text-[0.65rem]"><input type="checkbox" bind:checked={enabled} class="accent-primary" />{t("music.builder.membershipEnabled")}</label>
-  <label class="block text-[0.63rem] text-muted-foreground">{t("music.builder.focusFit")}<select bind:value={focusFit} class="membership-input"><option value="unknown">{t("music.builder.focusFitValue.unknown")}</option><option value="helpful">{t("music.builder.focusFitValue.helpful")}</option><option value="neutral">{t("music.builder.focusFitValue.neutral")}</option><option value="potentially-distracting">{t("music.builder.focusFitValue.potentially-distracting")}</option></select></label>
-  <p class="text-[0.6rem] leading-relaxed text-muted-foreground">{t("music.builder.focusFitHint")}</p>
   <div class="rounded-lg border border-border/55 p-2">
     <div class="flex items-center justify-between"><strong class="text-[0.65rem]">{t("music.builder.skipRanges")}</strong><button type="button" onclick={addRange} class="inline-flex h-7 items-center gap-1 rounded-md bg-secondary px-2 text-[0.62rem]"><Plus size={11} />{t("music.builder.addRange")}</button></div>
     {#each ranges as range (range.id)}

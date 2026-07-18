@@ -122,6 +122,17 @@ fn canonical_music_schema_keeps_device_paths_out_of_logical_roots() {
         assert!(item_columns
             .iter()
             .any(|column| column == "review_deferred_until"));
+        let membership_columns =
+            sqlx::query("SELECT name FROM pragma_table_info('music_playlist_memberships')")
+                .fetch_all(&pool)
+                .await
+                .unwrap()
+                .into_iter()
+                .map(|row| row.get::<String, _>("name"))
+                .collect::<Vec<_>>();
+        assert!(!membership_columns
+            .iter()
+            .any(|column| column == "focus_fit"));
     });
 }
 

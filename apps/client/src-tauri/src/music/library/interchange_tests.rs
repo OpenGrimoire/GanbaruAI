@@ -40,7 +40,6 @@ fn request(conflict: MusicImportPlaylistConflict) -> MusicInterchangeImportReque
                     position: 0,
                     weight: MusicWeight::LessOften,
                     enabled: true,
-                    focus_fit: MusicFocusFit::Helpful,
                     start_ms: Some(1_000),
                     end_ms: Some(50_000),
                     volume: Some(0.8),
@@ -79,8 +78,8 @@ fn interchange_import_commits_full_playlist_state_transactionally() {
         assert_eq!(result.item_count, 1);
         assert_eq!(result.membership_count, 1);
 
-        let row: (String, String, String, Option<i64>, Option<i64>, f64) = sqlx::query_as(
-            "SELECT weight, focus_fit, p.name, start_ms, end_ms, volume
+        let row: (String, String, Option<i64>, Option<i64>, f64) = sqlx::query_as(
+            "SELECT weight, p.name, start_ms, end_ms, volume
              FROM music_playlist_memberships AS m
              JOIN music_playlists AS p ON p.id = m.playlist_id",
         )
@@ -91,7 +90,6 @@ fn interchange_import_commits_full_playlist_state_transactionally() {
             row,
             (
                 "less-often".to_string(),
-                "helpful".to_string(),
                 "Focus".to_string(),
                 Some(1_000),
                 Some(50_000),

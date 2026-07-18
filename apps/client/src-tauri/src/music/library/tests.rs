@@ -71,7 +71,6 @@ pub(super) fn membership(index: usize) -> MusicMembershipWrite {
         position: index as i64,
         weight: MusicWeight::Normal,
         enabled: true,
-        focus_fit: MusicFocusFit::Unknown,
         start_ms: None,
         end_ms: None,
         volume: None,
@@ -423,7 +422,6 @@ fn row_mapping_rejects_unknown_persisted_enums_with_field_context() {
         position: 0,
         weight: "sometimes-ish".to_string(),
         enabled: 1,
-        focus_fit: "unknown".to_string(),
         start_ms: None,
         end_ms: None,
         volume: None,
@@ -917,8 +915,6 @@ fn bulk_membership_edits_preserve_existing_settings_and_commit_as_one_change() {
                 remove_playlist_ids: vec![],
                 weight_playlist_ids: vec![],
                 weight: None,
-                focus_fit_playlist_ids: vec![],
-                focus_fit: None,
                 updated_at: 1_700_000_000_100,
             },
         )
@@ -942,38 +938,12 @@ fn bulk_membership_edits_preserve_existing_settings_and_commit_as_one_change() {
                 remove_playlist_ids: vec![],
                 weight_playlist_ids: vec!["playlist-1".to_string()],
                 weight: Some(MusicWeight::MoreOften),
-                focus_fit_playlist_ids: vec![],
-                focus_fit: None,
                 updated_at: 1_700_000_000_200,
             },
         )
         .await
         .unwrap();
         assert_eq!(weighted.changed_count, 2);
-
-        let focused = super::playlist_edits::bulk_edit_memberships(
-            &pool,
-            MusicBulkMembershipEdit {
-                action_id: "bulk-focus-fit".to_string(),
-                item_ids: vec!["item-1".to_string(), "item-2".to_string()],
-                add_playlist_ids: vec![],
-                remove_playlist_ids: vec![],
-                weight_playlist_ids: vec![],
-                weight: None,
-                focus_fit_playlist_ids: vec!["playlist-1".to_string()],
-                focus_fit: Some(MusicFocusFit::Helpful),
-                updated_at: 1_700_000_000_250,
-            },
-        )
-        .await
-        .unwrap();
-        assert_eq!(focused.changed_count, 2);
-        let focus_fits: Vec<String> =
-            sqlx::query_scalar("SELECT focus_fit FROM music_playlist_memberships ORDER BY item_id")
-                .fetch_all(&pool)
-                .await
-                .unwrap();
-        assert_eq!(focus_fits, vec!["helpful", "helpful"]);
 
         let removed = super::playlist_edits::bulk_edit_memberships(
             &pool,
@@ -984,8 +954,6 @@ fn bulk_membership_edits_preserve_existing_settings_and_commit_as_one_change() {
                 remove_playlist_ids: vec!["playlist-1".to_string()],
                 weight_playlist_ids: vec![],
                 weight: None,
-                focus_fit_playlist_ids: vec![],
-                focus_fit: None,
                 updated_at: 1_700_000_000_300,
             },
         )

@@ -222,14 +222,13 @@ export const getMusicMembershipMatrix = (itemIds: string[]): Promise<MusicMember
   call("music_library_membership_matrix", databaseArgs({ itemIds }), (value) => {
     if (!Array.isArray(value)) throw new Error("membership matrix must be an array");
     const weights = new Set(["rarely", "less-often", "normal", "more-often", "much-more-often"]);
-    const focusFits = new Set(["helpful", "neutral", "potentially-distracting", "unknown"]);
     return value.map((entry, index) => {
       if (typeof entry !== "object" || entry === null) throw new Error(`membership matrix[${index}] must be an object`);
       const row = entry as Record<string, unknown>;
-      if (typeof row.itemId !== "string" || typeof row.playlistId !== "string" || typeof row.weight !== "string" || !weights.has(row.weight) || typeof row.focusFit !== "string" || !focusFits.has(row.focusFit)) {
+      if (typeof row.itemId !== "string" || typeof row.playlistId !== "string" || typeof row.weight !== "string" || !weights.has(row.weight)) {
         throw new Error(`membership matrix[${index}] is invalid`);
       }
-      return { itemId: row.itemId, playlistId: row.playlistId, weight: row.weight as MusicMembershipMatrixEntry["weight"], focusFit: row.focusFit as MusicMembershipMatrixEntry["focusFit"] };
+      return { itemId: row.itemId, playlistId: row.playlistId, weight: row.weight as MusicMembershipMatrixEntry["weight"] };
     });
   });
 export const reorderMusicPlaylist = (request: MusicPlaylistReorder): Promise<MusicPlaylistReorderResult> =>

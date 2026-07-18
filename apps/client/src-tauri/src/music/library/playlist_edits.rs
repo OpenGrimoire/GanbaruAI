@@ -23,9 +23,9 @@ pub(crate) async fn bulk_edit_memberships(
             let membership_id = format!("{}:{}:{}", request.action_id, item_index, playlist_id);
             let result = sqlx::query(
                 "INSERT INTO music_playlist_memberships
-                    (id, playlist_id, item_id, position, weight, enabled, focus_fit,
+                    (id, playlist_id, item_id, position, weight, enabled,
                      created_at, updated_at, version)
-                 VALUES (?, ?, ?, ?, 'normal', 1, 'unknown', ?, ?, 1)
+                 VALUES (?, ?, ?, ?, 'normal', 1, ?, ?, 1)
                  ON CONFLICT(playlist_id, item_id) DO NOTHING",
             )
             .bind(membership_id)
@@ -82,29 +82,6 @@ pub(crate) async fn bulk_edit_memberships(
                 if result.rows_affected() > 0 {
                     changed_count += result.rows_affected() as i64;
                     super::search::refresh_item(&mut transaction, item_id).await?;
-                }
-            }
-        }
-    }
-    if let Some(focus_fit) = request.focus_fit {
-        for playlist_id in &request.focus_fit_playlist_ids {
-            for item_id in &request.item_ids {
-                let result = sqlx::query(
-                    "UPDATE music_playlist_memberships
-                     SET focus_fit = ?, updated_at = ?, version = version + 1
-                     WHERE playlist_id = ? AND item_id = ?",
-                )
-                .bind(focus_fit.as_ref())
-                .bind(request.updated_at)
-                .bind(playlist_id)
-                .bind(item_id)
-                .execute(&mut *transaction)
-                .await
-                .map_err(|error| {
-                    MusicLibraryError::database("bulk update membership focus fit", error)
-                })?;
-                if result.rows_affected() > 0 {
-                    changed_count += result.rows_affected() as i64;
                 }
             }
         }

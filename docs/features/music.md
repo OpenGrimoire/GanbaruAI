@@ -24,6 +24,8 @@ YouTube IFrame errors `101` and `150` mean the owner does not allow the video to
 
 **Spotify is not supported.** As of 2025-2026, Spotify's API policies make indie integration impractical: development mode caps at 5 users, extended quota requires 250,000 MAU and a registered business, and the gap is a deliberate exclusion of indie developers. This is documented publicly so users understand the gap is policy-driven, not a missing feature.
 
+Playlist memberships do not store distraction judgments. The former development-only focus-fit field, controls, bulk action, and guidance were removed. Acoustic properties cannot reliably predict whether an individual listener will find a song distracting, so the application does not present an automatic distraction classification.
+
 ## Per-session-block configuration
 
 Each calendar event with a music assignment carries: which video, playlist, or local file to load; start and end timestamps; parts to skip (timestamp ranges); volume; playback speed; and whether to switch to a different source during breaks.

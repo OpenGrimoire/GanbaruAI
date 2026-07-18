@@ -398,7 +398,6 @@ async fn seed_memberships(tx: &mut Transaction<'_, Sqlite>) -> MusicLibraryResul
         "more-often",
         "much-more-often",
     ];
-    let fits = ["helpful", "neutral", "potentially-distracting", "unknown"];
     let mut total = 0;
 
     for playlist_index in 0..PLAYLIST_COUNT {
@@ -409,7 +408,7 @@ async fn seed_memberships(tx: &mut Transaction<'_, Sqlite>) -> MusicLibraryResul
         for (chunk_index, chunk) in included.chunks(INSERT_BATCH_SIZE).enumerate() {
             let mut query = QueryBuilder::<Sqlite>::new(
                 "INSERT INTO music_playlist_memberships
-                    (id, playlist_id, item_id, position, weight, enabled, focus_fit,
+                    (id, playlist_id, item_id, position, weight, enabled,
                      start_ms, end_ms, volume, rate, created_at, updated_at) ",
             );
             query.push_values(chunk.iter().enumerate(), |mut row, (offset, item_index)| {
@@ -422,7 +421,6 @@ async fn seed_memberships(tx: &mut Transaction<'_, Sqlite>) -> MusicLibraryResul
                 .push_bind(position as i64)
                 .push_bind(weights[(item_index + playlist_index) % weights.len()])
                 .push_bind(i64::from(!(item_index + playlist_index).is_multiple_of(19)))
-                .push_bind(fits[(item_index + playlist_index) % fits.len()])
                 .push_bind(item_index.is_multiple_of(97).then_some(5_000_i64))
                 .push_bind(item_index.is_multiple_of(97).then_some(85_000_i64))
                 .push_bind(item_index.is_multiple_of(43).then_some(0.82_f64))

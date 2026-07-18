@@ -8,7 +8,7 @@ pub(crate) async fn membership_matrix(
 ) -> MusicLibraryResult<Vec<MusicMembershipMatrixEntry>> {
     validate_bounded_unique_ids(&item_ids, "itemIds")?;
     let mut query = QueryBuilder::<Sqlite>::new(
-        "SELECT item_id, playlist_id, weight, focus_fit FROM music_playlist_memberships WHERE item_id IN (",
+        "SELECT item_id, playlist_id, weight FROM music_playlist_memberships WHERE item_id IN (",
     );
     let mut separated = query.separated(", ");
     for item_id in &item_ids {
@@ -16,20 +16,17 @@ pub(crate) async fn membership_matrix(
     }
     separated.push_unseparated(") ORDER BY playlist_id, item_id");
     let rows = query
-        .build_query_as::<(String, String, String, String)>()
+        .build_query_as::<(String, String, String)>()
         .fetch_all(pool)
         .await
         .map_err(|error| MusicLibraryError::database("load membership matrix", error))?;
     rows.into_iter()
-        .map(|(item_id, playlist_id, weight, focus_fit)| {
+        .map(|(item_id, playlist_id, weight)| {
             Ok(MusicMembershipMatrixEntry {
                 item_id,
                 playlist_id,
                 weight: MusicWeight::try_from(weight.as_str()).map_err(|message| {
                     MusicLibraryError::runtime("decode membership weight", message)
-                })?,
-                focus_fit: MusicFocusFit::try_from(focus_fit.as_str()).map_err(|message| {
-                    MusicLibraryError::runtime("decode membership focus fit", message)
                 })?,
             })
         })
@@ -781,7 +778,7 @@ pub(crate) async fn inspector_detail(
     .map(MusicLocalLocation::try_from)
     .collect::<MusicLibraryResult<Vec<_>>>()?;
     let memberships = sqlx::query_as::<_, MusicMembershipRow>(
-        "SELECT id, playlist_id, item_id, position, weight, enabled, focus_fit,
+        "SELECT id, playlist_id, item_id, position, weight, enabled,
                 start_ms, end_ms, volume, rate, created_at, updated_at, version
          FROM music_playlist_memberships WHERE item_id = ? ORDER BY playlist_id",
     )

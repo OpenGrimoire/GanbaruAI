@@ -482,6 +482,8 @@ Music files remain outside the Ganbaru AI folder. SQLite stores playlist definit
 - **`music_track_break_sources`:** track_id, source_kind, source_uri, source_identity, title, start_ms, end_ms, volume, rate.
 - **`music_playback_states`:** source_identity, source_kind, position_ms, duration_ms, status, updated_at.
 
+Playlist membership does not own a distraction value. The obsolete development-only membership field was removed before users existed, together with its UI and contracts. Membership identity, position, weight, enabled state, skip ranges, and every other playlist choice remain independent.
+
 ## Doomscrolling
 
 ### `doomscrolling_usage_samples`

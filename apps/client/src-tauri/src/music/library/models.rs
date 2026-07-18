@@ -114,12 +114,6 @@ string_enum!(MusicWeight {
     MoreOften => "more-often",
     MuchMoreOften => "much-more-often",
 });
-string_enum!(MusicFocusFit {
-    Helpful => "helpful",
-    Neutral => "neutral",
-    PotentiallyDistracting => "potentially-distracting",
-    Unknown => "unknown",
-});
 string_enum!(MusicIntendedUse {
     General => "general",
     Focus => "focus",
@@ -323,7 +317,6 @@ pub struct MusicPlaylistMembership {
     pub position: i64,
     pub weight: MusicWeight,
     pub enabled: bool,
-    pub focus_fit: MusicFocusFit,
     pub start_ms: Option<i64>,
     pub end_ms: Option<i64>,
     pub volume: Option<f64>,
@@ -563,7 +556,6 @@ pub struct MusicMembershipWrite {
     pub position: i64,
     pub weight: MusicWeight,
     pub enabled: bool,
-    pub focus_fit: MusicFocusFit,
     pub start_ms: Option<i64>,
     pub end_ms: Option<i64>,
     pub volume: Option<f64>,
@@ -587,8 +579,6 @@ pub struct MusicBulkMembershipEdit {
     pub remove_playlist_ids: Vec<String>,
     pub weight_playlist_ids: Vec<String>,
     pub weight: Option<MusicWeight>,
-    pub focus_fit_playlist_ids: Vec<String>,
-    pub focus_fit: Option<MusicFocusFit>,
     pub updated_at: i64,
 }
 
@@ -604,7 +594,6 @@ pub struct MusicMembershipMatrixEntry {
     pub item_id: String,
     pub playlist_id: String,
     pub weight: MusicWeight,
-    pub focus_fit: MusicFocusFit,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -1186,7 +1175,6 @@ pub struct MusicInterchangeMembership {
     pub position: i64,
     pub weight: MusicWeight,
     pub enabled: bool,
-    pub focus_fit: MusicFocusFit,
     pub start_ms: Option<i64>,
     pub end_ms: Option<i64>,
     pub volume: Option<f64>,

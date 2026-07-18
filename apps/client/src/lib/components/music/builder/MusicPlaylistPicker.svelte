@@ -13,11 +13,10 @@
   import ShoppingCart from "@lucide/svelte/icons/shopping-cart";
   import Sunrise from "@lucide/svelte/icons/sunrise";
   import TreePine from "@lucide/svelte/icons/tree-pine";
-  import CircleAlert from "@lucide/svelte/icons/circle-alert";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { sortReviewPlaylists } from "$lib/music/music-review";
   import { partitionMusicPlaylists, systemMusicPlaylistName } from "$lib/music/music-system-playlists";
-  import type { MusicFocusFit, MusicPlaylistSummary, MusicWeight } from "$lib/music/library-contracts";
+  import type { MusicPlaylistSummary, MusicWeight } from "$lib/music/library-contracts";
   import { cn } from "$lib/utils";
 
   let {
@@ -31,13 +30,6 @@
     onToggle,
     weights = {},
     onCycleWeight = () => undefined,
-    focusFits = {},
-    onFocusFit = () => undefined,
-    advisoryPlaylistId = null,
-    advisoryText = "",
-    onAdvisoryKeep = () => undefined,
-    onAdvisoryMark = () => undefined,
-    onDisableGuidance = () => undefined,
     busyIds = new Set<string>(),
     errors = {},
     showIssue = false,
@@ -54,13 +46,6 @@
     onToggle: (playlist: MusicPlaylistSummary) => void;
     weights?: Record<string, MusicWeight>;
     onCycleWeight?: (playlist: MusicPlaylistSummary) => void;
-    focusFits?: Record<string, MusicFocusFit>;
-    onFocusFit?: (playlist: MusicPlaylistSummary, focusFit: MusicFocusFit) => void;
-    advisoryPlaylistId?: string | null;
-    advisoryText?: string;
-    onAdvisoryKeep?: () => void;
-    onAdvisoryMark?: () => void;
-    onDisableGuidance?: () => void;
     busyIds?: Set<string>;
     errors?: Record<string, string>;
     showIssue?: boolean;
@@ -139,13 +124,9 @@
         {#if weights[playlist.id]}
           <div class="flex w-full items-center gap-2 pl-11">
             <button type="button" onclick={() => onCycleWeight(playlist)} disabled={busyIds.has(playlist.id)} class="shrink-0 rounded-md bg-secondary px-2 py-1 text-[0.62rem] text-secondary-foreground disabled:opacity-40" title={t("music.builder.changeProbability")}>{t(`music.builder.weight.${weights[playlist.id]}`)}</button>
-            <select value={focusFits[playlist.id] ?? "unknown"} onchange={(event) => onFocusFit(playlist, event.currentTarget.value as MusicFocusFit)} disabled={busyIds.has(playlist.id)} class="h-7 min-w-0 flex-1 rounded-md border border-border/60 bg-secondary px-1 text-[0.6rem] text-secondary-foreground disabled:opacity-40" aria-label={t("music.builder.focusFitForPlaylist", playlistName)}><option value="unknown">{t("music.builder.focusFitValue.unknown")}</option><option value="helpful">{t("music.builder.focusFitValue.helpful")}</option><option value="neutral">{t("music.builder.focusFitValue.neutral")}</option><option value="potentially-distracting">{t("music.builder.focusFitValue.potentially-distracting")}</option></select>
           </div>
         {/if}
       </div>
-      {#if advisoryPlaylistId === playlist.id}
-        <div class="mb-2 ml-7 rounded-lg border border-warning/20 bg-warning/8 p-2.5 text-[0.65rem] leading-relaxed"><div class="flex items-start gap-2 text-warning"><CircleAlert class="mt-0.5 shrink-0" size={13} /><span>{advisoryText}</span></div><div class="mt-2 flex flex-wrap gap-1.5 pl-5"><button type="button" onclick={onAdvisoryKeep} class="h-7 rounded-md bg-secondary px-2 text-[0.61rem]">{t("music.builder.addAnyway")}</button><button type="button" onclick={onAdvisoryMark} class="h-7 rounded-md bg-secondary px-2 text-[0.61rem]">{t("music.builder.markPotentiallyDistracting")}</button><button type="button" onclick={onDisableGuidance} class="h-7 rounded-md px-2 text-[0.61rem] text-muted-foreground hover:bg-secondary">{t("music.builder.disableFocusGuidance")}</button></div></div>
-      {/if}
       {#if errors[playlist.id]}<p id={errorId} class="mb-1 px-2 text-[0.62rem] text-destructive" role="alert">{errors[playlist.id]}</p>{/if}
     {/each}
         </div>

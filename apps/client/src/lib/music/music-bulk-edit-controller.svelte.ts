@@ -1,6 +1,6 @@
 import { bulkEditMusicMemberships, bulkSetMusicReviewState, bulkSnoozeMusicItems, getMusicInspectorDetail, getMusicMembershipMatrix, setMusicItemSignals } from "$lib/api/music-library";
 import type { MusicLibraryController } from "$lib/music/music-library-controller.svelte";
-import type { MusicFocusFit, MusicItemSignal, MusicPlaylistSummary, MusicReviewState, MusicSnoozeScope, MusicWeight } from "$lib/music/library-contracts";
+import type { MusicItemSignal, MusicPlaylistSummary, MusicReviewState, MusicSnoozeScope, MusicWeight } from "$lib/music/library-contracts";
 
 export type MusicBulkPlaylistState = "checked" | "mixed" | "unchecked";
 
@@ -8,7 +8,6 @@ export class MusicBulkEditController {
   itemIds = $state<string[]>([]);
   states = $state<Record<string, MusicBulkPlaylistState>>({});
   initialCounts = $state<Record<string, number>>({});
-  focusFits = $state<Record<string, MusicFocusFit | "mixed" | "none">>({});
   search = $state("");
   loading = $state(false);
   saving = $state(false);
@@ -46,10 +45,6 @@ export class MusicBulkEditController {
       const counts: Record<string, number> = {};
       for (const entry of matrix) counts[entry.playlistId] = (counts[entry.playlistId] ?? 0) + 1;
       this.initialCounts = counts;
-      this.focusFits = Object.fromEntries(playlists.map((playlist) => {
-        const values = new Set(matrix.filter((entry) => entry.playlistId === playlist.id).map((entry) => entry.focusFit));
-        return [playlist.id, values.size === 0 ? "none" : values.size === 1 ? [...values][0] : "mixed"];
-      }));
       this.states = Object.fromEntries(playlists.map((playlist) => {
         const count = counts[playlist.id] ?? 0;
         return [playlist.id, count === 0 ? "unchecked" : count === this.itemIds.length ? "checked" : "mixed"];
@@ -81,19 +76,15 @@ export class MusicBulkEditController {
       if (state === "unchecked" && initialCount > 0) removePlaylistIds.push(playlistId);
     }
     if (addPlaylistIds.length === 0 && removePlaylistIds.length === 0) return true;
-    return this.persist({ addPlaylistIds, removePlaylistIds, weightPlaylistIds: [], weight: null, focusFitPlaylistIds: [], focusFit: null });
+    return this.persist({ addPlaylistIds, removePlaylistIds, weightPlaylistIds: [], weight: null });
   }
 
   async setWeight(playlistId: string, weight: MusicWeight): Promise<boolean> {
-    return this.persist({ addPlaylistIds: [], removePlaylistIds: [], weightPlaylistIds: [playlistId], weight, focusFitPlaylistIds: [], focusFit: null });
+    return this.persist({ addPlaylistIds: [], removePlaylistIds: [], weightPlaylistIds: [playlistId], weight });
   }
 
   async removeFromPlaylist(playlistId: string): Promise<boolean> {
-    return this.persist({ addPlaylistIds: [], removePlaylistIds: [playlistId], weightPlaylistIds: [], weight: null, focusFitPlaylistIds: [], focusFit: null });
-  }
-
-  async setFocusFit(playlistId: string, focusFit: MusicFocusFit): Promise<boolean> {
-    return this.persist({ addPlaylistIds: [], removePlaylistIds: [], weightPlaylistIds: [], weight: null, focusFitPlaylistIds: [playlistId], focusFit });
+    return this.persist({ addPlaylistIds: [], removePlaylistIds: [playlistId], weightPlaylistIds: [], weight: null });
   }
 
   async setSignals(signals: MusicItemSignal[]): Promise<boolean> {
@@ -172,7 +163,6 @@ export class MusicBulkEditController {
     this.itemIds = [];
     this.states = {};
     this.initialCounts = {};
-    this.focusFits = {};
     this.search = "";
     this.error = null;
     this.selectionStale = false;
@@ -183,8 +173,6 @@ export class MusicBulkEditController {
     removePlaylistIds: string[];
     weightPlaylistIds: string[];
     weight: MusicWeight | null;
-    focusFitPlaylistIds: string[];
-    focusFit: MusicFocusFit | null;
   }): Promise<boolean> {
     if (this.saving || this.itemIds.length === 0) return false;
     this.saving = true;

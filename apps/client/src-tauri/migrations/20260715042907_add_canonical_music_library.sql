@@ -118,8 +118,6 @@ CREATE TABLE music_playlist_memberships (
     weight TEXT NOT NULL DEFAULT 'normal'
         CHECK (weight IN ('rarely', 'less-often', 'normal', 'more-often', 'much-more-often')),
     enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
-    focus_fit TEXT NOT NULL DEFAULT 'unknown'
-        CHECK (focus_fit IN ('helpful', 'neutral', 'potentially-distracting', 'unknown')),
     start_ms INTEGER CHECK (start_ms IS NULL OR start_ms >= 0),
     end_ms INTEGER CHECK (end_ms IS NULL OR end_ms >= 0),
     volume REAL CHECK (volume IS NULL OR (volume >= 0 AND volume <= 1)),

@@ -337,7 +337,6 @@ pub(crate) fn validate_bulk_membership_edit(
     if request.add_playlist_ids.is_empty()
         && request.remove_playlist_ids.is_empty()
         && request.weight_playlist_ids.is_empty()
-        && request.focus_fit_playlist_ids.is_empty()
     {
         return Err(MusicLibraryError::validation(
             "playlistIds",
@@ -352,9 +351,6 @@ pub(crate) fn validate_bulk_membership_edit(
     }
     if !request.weight_playlist_ids.is_empty() {
         validate_bounded_unique_ids(&request.weight_playlist_ids, "weightPlaylistIds")?;
-    }
-    if !request.focus_fit_playlist_ids.is_empty() {
-        validate_bounded_unique_ids(&request.focus_fit_playlist_ids, "focusFitPlaylistIds")?;
     }
     if request
         .add_playlist_ids
@@ -385,20 +381,7 @@ pub(crate) fn validate_bulk_membership_edit(
         }
         _ => {}
     }
-    match (
-        request.focus_fit_playlist_ids.is_empty(),
-        request.focus_fit.is_some(),
-    ) {
-        (false, false) => Err(MusicLibraryError::validation(
-            "focusFit",
-            "is required when setting focus fit",
-        )),
-        (true, true) => Err(MusicLibraryError::validation(
-            "focusFit",
-            "must be empty when focus fit is not changing",
-        )),
-        _ => Ok(()),
-    }
+    Ok(())
 }
 
 pub(crate) fn validate_playlist_reorder(request: &MusicPlaylistReorder) -> MusicLibraryResult<()> {
