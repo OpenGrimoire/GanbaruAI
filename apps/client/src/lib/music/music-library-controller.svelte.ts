@@ -91,7 +91,7 @@ function defaultDestinationState(location: MusicBuilderLocation): MusicDestinati
     search: "",
     sourceKind: null,
     availability: null,
-    reviewState: location.kind === "review" ? "unreviewed" : null,
+    reviewState: null,
     sourceCollectionId: null,
     membershipPlaylistId: null,
     snoozed: null,

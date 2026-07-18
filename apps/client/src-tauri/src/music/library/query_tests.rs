@@ -80,6 +80,44 @@ fn review_snooze_and_statistics_commands_preserve_independent_scopes() {
 }
 
 #[test]
+fn review_window_retains_reviewed_items_and_excludes_ignored_and_future_deferred_items() {
+    tauri::async_runtime::block_on(async {
+        let pool = pool().await;
+        for id in ["unreviewed", "reviewed", "ignored", "due", "future"] {
+            seed_item(&pool, id, &format!("local:{id}")).await;
+        }
+        sqlx::query(
+            "UPDATE music_library_items
+             SET review_state = CASE id
+                 WHEN 'reviewed' THEN 'reviewed'
+                 WHEN 'ignored' THEN 'ignored'
+                 WHEN 'due' THEN 'deferred'
+                 WHEN 'future' THEN 'deferred'
+                 ELSE review_state END,
+                 review_deferred_until = CASE id
+                 WHEN 'due' THEN 1700000000000
+                 WHEN 'future' THEN 1800000000000
+                 ELSE NULL END",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let mut request = library_window();
+        request.destination = MusicListDestination::Review;
+        request.limit = 20;
+        let result = super::queries::item_window(&pool, request).await.unwrap();
+        let ids = result
+            .items
+            .iter()
+            .map(|item| item.id.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(ids, vec!["due", "reviewed", "unreviewed"]);
+    });
+}
+
+#[test]
 fn item_windows_are_bounded_stable_filterable_and_grouped() {
     tauri::async_runtime::block_on(async {
         let pool = pool().await;

@@ -88,4 +88,17 @@ describe("MusicReviewController", () => {
     expect(api.upsertMusicMemberships).toHaveBeenCalledOnce();
     expect(api.removeMusicMemberships).toHaveBeenCalledOnce();
   });
+
+  it("keeps the requested next tree item selected while refreshing review state", async () => {
+    const library = new MusicLibraryController(emptyLibraryApi, () => 2);
+    const inspector = new MusicBuilderInspectorController();
+    inspector.detail = detail();
+    const review = new MusicReviewController(library, inspector, () => 2);
+
+    expect(await review.changeReviewState("reviewed", null, "literal-next")).toBe(true);
+
+    expect(library.currentState.selectedItemId).toBe("literal-next");
+    expect(api.setMusicReviewState).toHaveBeenCalledWith(expect.objectContaining({ itemId: "item" }));
+    expect(emptyLibraryApi.itemWindow).not.toHaveBeenCalled();
+  });
 });

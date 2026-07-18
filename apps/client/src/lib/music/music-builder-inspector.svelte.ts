@@ -15,6 +15,9 @@ const defaultApi: MusicBuilderInspectorApi = {
   },
 };
 
+const MAX_CACHED_DETAILS = 12;
+const MAX_PREFETCH_BATCH = 6;
+
 export class MusicBuilderInspectorController {
   itemId = $state<string | null>(null);
   detail = $state<MusicInspectorDetail | null>(null);
@@ -25,6 +28,9 @@ export class MusicBuilderInspectorController {
   signalUndo = $state<MusicItemSignal[] | null>(null);
 
   private generation = 0;
+  private cacheEpoch = 0;
+  private readonly detailCache = new Map<string, MusicInspectorDetail>();
+  private readonly pendingDetails = new Map<string, Promise<MusicInspectorDetail>>();
   private readonly api: MusicBuilderInspectorApi;
 
   constructor(api: MusicBuilderInspectorApi = defaultApi) {
@@ -39,10 +45,16 @@ export class MusicBuilderInspectorController {
     if (this.itemId === itemId && this.detail) return true;
     const generation = ++this.generation;
     this.itemId = itemId;
-    this.busy = true;
     this.error = null;
+    const cached = this.readCachedDetail(itemId);
+    if (cached) {
+      this.detail = cached;
+      this.busy = false;
+      return true;
+    }
+    this.busy = true;
     try {
-      const detail = await this.api.detail(itemId);
+      const detail = await this.loadDetail(itemId);
       if (generation !== this.generation || this.itemId !== itemId) return false;
       this.detail = detail;
       return true;
@@ -56,12 +68,44 @@ export class MusicBuilderInspectorController {
     }
   }
 
+  /** Switch synchronously to an already-prefetched builder detail. */
+  selectCached(itemId: string): boolean {
+    const cached = this.readCachedDetail(itemId);
+    if (!cached) return false;
+    this.generation += 1;
+    this.itemId = itemId;
+    this.detail = cached;
+    this.busy = false;
+    this.error = null;
+    return true;
+  }
+
+  /** Preload a small set of likely builder selections without changing presentation state. */
+  async prefetch(itemIds: readonly string[]): Promise<MusicInspectorDetail[]> {
+    const uniqueIds = [...new Set(itemIds.filter((itemId) => itemId.trim()))]
+      .slice(0, MAX_PREFETCH_BATCH);
+    const results = await Promise.allSettled(uniqueIds.map((itemId) => this.loadDetail(itemId)));
+    return results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
+  }
+
   clear(): void {
     this.generation += 1;
     this.itemId = null;
     this.detail = null;
     this.error = null;
     this.busy = false;
+  }
+
+  /** Clear selection and all builder-only cached details when the active vault changes. */
+  reset(): void {
+    this.cacheEpoch += 1;
+    this.detailCache.clear();
+    this.pendingDetails.clear();
+    this.clear();
+  }
+
+  invalidate(itemId: string): void {
+    this.detailCache.delete(itemId);
   }
 
   toggleSection(section: string): void {
@@ -163,6 +207,40 @@ export class MusicBuilderInspectorController {
     } finally {
       this.saving = false;
     }
+  }
+
+  private readCachedDetail(itemId: string): MusicInspectorDetail | null {
+    const cached = this.detailCache.get(itemId);
+    if (!cached) return null;
+    this.detailCache.delete(itemId);
+    this.detailCache.set(itemId, cached);
+    return cached;
+  }
+
+  private cacheDetail(detail: MusicInspectorDetail): void {
+    this.detailCache.delete(detail.item.id);
+    this.detailCache.set(detail.item.id, detail);
+    while (this.detailCache.size > MAX_CACHED_DETAILS) {
+      const oldestId = this.detailCache.keys().next().value;
+      if (typeof oldestId !== "string") break;
+      this.detailCache.delete(oldestId);
+    }
+  }
+
+  private loadDetail(itemId: string): Promise<MusicInspectorDetail> {
+    const cached = this.readCachedDetail(itemId);
+    if (cached) return Promise.resolve(cached);
+    const pending = this.pendingDetails.get(itemId);
+    if (pending) return pending;
+    const epoch = this.cacheEpoch;
+    const request = this.api.detail(itemId).then((detail) => {
+      if (epoch === this.cacheEpoch) this.cacheDetail(detail);
+      return detail;
+    }).finally(() => {
+      if (this.pendingDetails.get(itemId) === request) this.pendingDetails.delete(itemId);
+    });
+    this.pendingDetails.set(itemId, request);
+    return request;
   }
 }
 

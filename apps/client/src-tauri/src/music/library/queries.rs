@@ -159,7 +159,7 @@ fn push_item_filters(builder: &mut QueryBuilder<'_, Sqlite>, request: &MusicItem
     builder.push(" WHERE 1 = 1 ");
     if request.destination == MusicListDestination::Review {
         builder.push(
-            "AND (item.review_state = 'unreviewed' OR (
+            "AND (item.review_state IN ('unreviewed', 'reviewed') OR (
             item.review_state = 'deferred'
             AND (item.review_deferred_until IS NULL OR item.review_deferred_until <= ",
         );

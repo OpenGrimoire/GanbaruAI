@@ -170,6 +170,7 @@
   }
 
   async function loadVault(vaultId: string): Promise<void> {
+    inspector.reset();
     library.setVault(vaultId);
     sources.setVault(vaultId);
     await Promise.all([library.preloadCoreDestinations(), sources.load()]);
@@ -509,7 +510,7 @@
 
 <svelte:window onkeydown={handleWindowKeydown} />
 
-<section bind:this={root} use:observeRoot class="builder-root flex h-full min-h-0 flex-col overflow-hidden text-foreground" style="background-color: var(--cal-bg);">
+<section bind:this={root} use:observeRoot class="builder-root flex h-full min-h-0 select-none flex-col overflow-hidden text-foreground" style="background-color: var(--cal-bg);">
   {#if !firstUsePreparation && !firstUseNeedsFolder && (destination.kind !== "review" || library.currentWindow.items.length === 0)}<MusicBuilderHeader
     {destination}
     search={library.currentState.search}
@@ -813,6 +814,9 @@
 
 <style>
   .builder-root { container-type: size; }
+  .builder-root :global(input),
+  .builder-root :global(textarea),
+  .builder-root :global([contenteditable="true"]) { user-select: text; }
   .builder-wide { grid-template-columns: minmax(20rem, 1.7fr) minmax(15rem, 0.85fr); }
   .builder-medium { grid-template-columns: minmax(0, 1fr); }
   .builder-narrow { grid-template-columns: minmax(0, 1fr); }

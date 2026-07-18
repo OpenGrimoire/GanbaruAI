@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import type { MusicItemListEntry } from "$lib/music/library-contracts";
 import {
   buildMusicReviewTree,
+  firstMusicReviewTreeItemId,
   flattenMusicReviewTree,
+  musicReviewTreeAncestorFolderIds,
+  musicReviewTreeItemIds,
   musicReviewTreeFolderIds,
   searchMusicReviewTree,
   toggleMusicReviewTreeSelection,
@@ -33,6 +36,21 @@ describe("music review tree", () => {
     expect(tree[1]?.itemIds).toEqual(["video"]);
   });
 
+  it("chooses the first pending item in visible tree order instead of input order", () => {
+    const deepItem = item("dogfight", "Soundtracks/Anime/Album/dogfight.flac");
+    const rootItem = item("brown-noise", "brown_noise.flac");
+    const reviewedRootItem = item("alpha-reviewed", "alpha_reviewed.flac");
+    reviewedRootItem.reviewState = "reviewed";
+    const items = [deepItem, rootItem, reviewedRootItem];
+
+    expect(musicReviewTreeItemIds(items)).toEqual([
+      "alpha-reviewed",
+      "brown-noise",
+      "dogfight",
+    ]);
+    expect(firstMusicReviewTreeItemId(items)).toBe("brown-noise");
+  });
+
   it("flattens only expanded branches and toggles complete descendants", () => {
     const tree = buildMusicReviewTree([item("one", "Album/one.flac"), item("two", "Album/two.flac")]);
     const root = tree[0]!;
@@ -60,6 +78,21 @@ describe("music review tree", () => {
       flattenMusicReviewTree(tree, musicReviewTreeFolderIds(tree))
         .map((row) => row.kind === "folder" ? row.node.name : row.item.id),
     ).toEqual(["Music", "Games", "Nier", "Disc 1", "theme", "Online", "video"]);
+  });
+
+  it("returns every ancestor needed to reveal an active track", () => {
+    const tree = buildMusicReviewTree([
+      item("theme", "Games/Nier/Disc 1/theme.flac"),
+      item("root", "loose.mp3"),
+    ]);
+
+    expect(musicReviewTreeAncestorFolderIds(tree, "theme")).toEqual([
+      "review-root:local",
+      "review-folder:Games",
+      "review-folder:Games/Nier",
+      "review-folder:Games/Nier/Disc 1",
+    ]);
+    expect(musicReviewTreeAncestorFolderIds(tree, "root")).toEqual(["review-root:local"]);
   });
 
   it("returns every match with ancestor folders while expanding matching folders", () => {

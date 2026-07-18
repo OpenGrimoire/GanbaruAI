@@ -32,6 +32,58 @@ describe("music builder inspector controller", () => {
     expect(controller.detail?.item.id).toBe("new");
   });
 
+  it("reuses a prefetched detail for the next selection", async () => {
+    const requestedIds: string[] = [];
+    const controller = new MusicBuilderInspectorController({
+      detail: async (id) => {
+        requestedIds.push(id);
+        return detail(id);
+      },
+      setSignals: async () => 2,
+    });
+
+    await controller.prefetch(["next"]);
+    expect(await controller.select("next")).toBe(true);
+
+    expect(controller.detail?.item.id).toBe("next");
+    expect(controller.busy).toBe(false);
+    expect(requestedIds).toEqual(["next"]);
+  });
+
+  it("switches synchronously to a prefetched detail", async () => {
+    const controller = new MusicBuilderInspectorController({
+      detail: async (id) => detail(id),
+      setSignals: async () => 2,
+    });
+    await controller.prefetch(["next"]);
+
+    expect(controller.selectCached("next")).toBe(true);
+    expect(controller.itemId).toBe("next");
+    expect(controller.detail?.item.id).toBe("next");
+    expect(controller.busy).toBe(false);
+  });
+
+  it("shares an in-flight detail request between prefetch and selection", async () => {
+    let resolveDetail!: (value: MusicInspectorDetail) => void;
+    const pendingDetail = new Promise<MusicInspectorDetail>((resolve) => { resolveDetail = resolve; });
+    let requestCount = 0;
+    const controller = new MusicBuilderInspectorController({
+      detail: () => {
+        requestCount += 1;
+        return pendingDetail;
+      },
+      setSignals: async () => 2,
+    });
+
+    const prefetch = controller.prefetch(["next"]);
+    const selection = controller.select("next");
+    resolveDetail(detail("next"));
+
+    await prefetch;
+    expect(await selection).toBe(true);
+    expect(requestCount).toBe(1);
+  });
+
   it("saves canonical signals optimistically and restores them on failure", async () => {
     let shouldFail = false;
     const controller = new MusicBuilderInspectorController({

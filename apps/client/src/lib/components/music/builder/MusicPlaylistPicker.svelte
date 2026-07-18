@@ -16,7 +16,7 @@
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { sortReviewPlaylists } from "$lib/music/music-review";
   import { partitionMusicPlaylists, systemMusicPlaylistName } from "$lib/music/music-system-playlists";
-  import type { MusicPlaylistSummary, MusicWeight } from "$lib/music/library-contracts";
+  import type { MusicPlaylistSummary } from "$lib/music/library-contracts";
   import { cn } from "$lib/utils";
 
   let {
@@ -28,9 +28,6 @@
     showSearch = false,
     showSections = false,
     onToggle,
-    weights = {},
-    onCycleWeight = () => undefined,
-    busyIds = new Set<string>(),
     errors = {},
     showIssue = false,
     issueLabel = "",
@@ -44,9 +41,6 @@
     showSearch?: boolean;
     showSections?: boolean;
     onToggle: (playlist: MusicPlaylistSummary) => void;
-    weights?: Record<string, MusicWeight>;
-    onCycleWeight?: (playlist: MusicPlaylistSummary) => void;
-    busyIds?: Set<string>;
     errors?: Record<string, string>;
     showIssue?: boolean;
     issueLabel?: string;
@@ -97,8 +91,8 @@
       {@const mixed = mixedIds.has(playlist.id)}
       {@const playlistName = systemMusicPlaylistName(playlist.id, playlist.name, t)}
       {@const errorId = errors[playlist.id] ? `music-playlist-membership-error-${playlist.id}` : undefined}
-      <div class={cn("playlist-card flex min-w-0 flex-wrap items-center gap-2 rounded-lg px-3 py-2.5 transition-colors", checked || mixed ? "bg-primary/10" : "bg-secondary/35 hover:bg-secondary/55")}>
-        <button type="button" data-review-playlist-id={playlist.id} onclick={() => onToggle(playlist)} aria-describedby={errorId} class="flex min-w-0 flex-1 items-center gap-3 text-left">
+      <label class={cn("playlist-card flex min-w-0 cursor-pointer flex-wrap items-center gap-2 rounded-lg px-3 py-2.5 transition-colors", checked || mixed ? "bg-primary/10" : "bg-secondary/35 hover:bg-secondary/55")}>
+        <span class="flex min-w-0 flex-1 items-center gap-3 text-left">
           <span class={cn("grid h-8 w-8 shrink-0 place-items-center", checked || mixed ? "text-primary" : "text-muted-foreground")}>
             {#if playlist.id === "playlist-default-reading"}<BookOpen size={16} />
             {:else if playlist.id === "playlist-default-exercise"}<Dumbbell size={16} />
@@ -113,20 +107,15 @@
             {:else}<ListMusic size={16} />{/if}
           </span>
           <span class="min-w-0 flex-1"><strong class="block truncate text-xs font-medium">{playlistName}</strong><span class="block text-[0.62rem] tabular-nums text-muted-foreground">{t("music.tracks", playlist.totalCount)}</span></span>
-        </button>
-        <label class="relative grid h-6 w-6 shrink-0 place-items-center">
-          <input type="checkbox" checked={checked} use:triStateAction={mixed} onchange={() => onToggle(playlist)} aria-label={checked ? t("music.builder.removeFromPlaylist", playlist.name) : t("music.builder.addToPlaylist", playlist.name)} aria-describedby={errorId} class="peer absolute inset-0 opacity-0" />
-          <span class={cn("pointer-events-none grid h-5 w-5 place-items-center rounded border", checked || mixed ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background/80")}>
+        </span>
+        <span class="relative grid h-6 w-6 shrink-0 place-items-center">
+          <input type="checkbox" data-review-playlist-id={playlist.id} checked={checked} use:triStateAction={mixed} onchange={() => onToggle(playlist)} aria-label={checked ? t("music.builder.removeFromPlaylist", playlist.name) : t("music.builder.addToPlaylist", playlist.name)} aria-describedby={errorId} class="peer absolute inset-0 opacity-0" />
+          <span class={cn("pointer-events-none grid h-5 w-5 place-items-center rounded border peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ring", checked || mixed ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background/80")}>
             {#if mixed}<Minus size={12} strokeWidth={2.5} />{:else if checked}<Check size={13} strokeWidth={2.5} />{/if}
           </span>
-        </label>
+        </span>
         {#if showIssue}<span class="shrink-0 text-[0.6rem] text-warning" title={issueLabel}>{issueLabel}</span>{/if}
-        {#if weights[playlist.id]}
-          <div class="flex w-full items-center gap-2 pl-11">
-            <button type="button" onclick={() => onCycleWeight(playlist)} disabled={busyIds.has(playlist.id)} class="shrink-0 rounded-md bg-secondary px-2 py-1 text-[0.62rem] text-secondary-foreground disabled:opacity-40" title={t("music.builder.changeProbability")}>{t(`music.builder.weight.${weights[playlist.id]}`)}</button>
-          </div>
-        {/if}
-      </div>
+      </label>
       {#if errors[playlist.id]}<p id={errorId} class="mb-1 px-2 text-[0.62rem] text-destructive" role="alert">{errors[playlist.id]}</p>{/if}
     {/each}
         </div>

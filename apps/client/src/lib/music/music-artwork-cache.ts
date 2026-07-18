@@ -1,7 +1,9 @@
-import { loadArtworkDataUrl } from "$lib/api/music";
+import { loadArtworkDataUrl, loadEmbeddedArtworkDataUrl } from "$lib/api/music";
 
 const MAX_CACHED_ARTWORK = 96;
+const MAX_CACHED_EMBEDDED_ARTWORK = 12;
 const artworkCache = new Map<string, Promise<string | null>>();
+const embeddedArtworkCache = new Map<string, Promise<string | null>>();
 
 /** Loads a validated artwork image once and bounds retained data URLs. */
 export function musicArtworkDataUrl(path: string): Promise<string | null> {
@@ -23,6 +25,25 @@ export function musicArtworkDataUrl(path: string): Promise<string | null> {
 
 export function clearMusicArtworkCache(): void {
   artworkCache.clear();
+  embeddedArtworkCache.clear();
+}
+
+/** Extracts embedded artwork once and bounds retained builder preview data URLs. */
+export function musicEmbeddedArtworkDataUrl(path: string): Promise<string | null> {
+  const cached = embeddedArtworkCache.get(path);
+  if (cached) {
+    embeddedArtworkCache.delete(path);
+    embeddedArtworkCache.set(path, cached);
+    return cached;
+  }
+  const request = loadEmbeddedArtworkDataUrl(path).catch(() => null);
+  embeddedArtworkCache.set(path, request);
+  while (embeddedArtworkCache.size > MAX_CACHED_EMBEDDED_ARTWORK) {
+    const oldest = embeddedArtworkCache.keys().next().value;
+    if (typeof oldest !== "string") break;
+    embeddedArtworkCache.delete(oldest);
+  }
+  return request;
 }
 
 export function invalidateMusicArtwork(path: string): void {

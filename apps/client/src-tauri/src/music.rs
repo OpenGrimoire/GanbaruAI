@@ -21,7 +21,7 @@ mod youtube_host;
 
 pub(crate) use host::setup_youtube_host;
 
-use artwork::find_track_artwork;
+use artwork::{extract_embedded_artwork, find_track_artwork};
 
 const VALID_SOURCE_KINDS: &[&str] = &["local-file", "youtube-video", "youtube-playlist"];
 const VALID_PLAYBACK_STATUSES: &[&str] = &[
@@ -436,6 +436,27 @@ pub async fn music_artwork_data_url(path: String) -> Result<String, String> {
     .map_err(|error| format!("artwork loading task failed: {error}"))?
 }
 
+#[tauri::command]
+pub async fn music_embedded_artwork_data_url(path: String) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = PathBuf::from(path);
+        require_absolute_file(&path)?;
+        let Some(artwork) = extract_embedded_artwork(&path)? else {
+            return Ok(None);
+        };
+        if artwork.bytes.len() as u64 > MAX_ARTWORK_BYTES {
+            return Err("embedded artwork exceeds the 12 MB display limit".to_string());
+        }
+        Ok(Some(format!(
+            "data:{};base64,{}",
+            artwork.content_type,
+            general_purpose::STANDARD.encode(artwork.bytes)
+        )))
+    })
+    .await
+    .map_err(|error| format!("embedded artwork loading task failed: {error}"))?
+}
+
 fn artwork_content_type(bytes: &[u8]) -> Option<&'static str> {
     if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
         Some("image/png")
@@ -652,8 +673,8 @@ fn validate_playback_state(state: &PlaybackStateWrite) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::artwork::{
-        artwork_rank_for_track, extract_embedded_artwork, find_track_artwork, parse_apic_frame,
-        parse_flac_picture_block, remove_id3_unsynchronization,
+        artwork_rank_for_track, find_track_artwork, parse_apic_frame, parse_flac_picture_block,
+        remove_id3_unsynchronization,
     };
     use super::host::{media_content_type, parse_byte_range, ByteRange};
     use super::youtube_host::youtube_host_html;

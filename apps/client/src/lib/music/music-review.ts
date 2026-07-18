@@ -4,7 +4,8 @@ import type {
   MusicPlaylistSummary,
   MusicWeight,
 } from "$lib/music/library-contracts";
-import { parseMusicSourceInput, type MusicSource } from "$lib/music/sources";
+import { musicArtworkDataUrl, musicEmbeddedArtworkDataUrl } from "$lib/music/music-artwork-cache";
+import { localFileSourceFromPath, parseMusicSourceInput, type MusicSource } from "$lib/music/sources";
 
 export type MusicReviewExitPreference = "ask" | "restore" | "keep";
 
@@ -31,7 +32,30 @@ export function musicReviewSource(
   const separator = folder.includes("\\") && !folder.includes("/") ? "\\" : "/";
   const root = folder.replace(/[\\/]+$/, "");
   const relative = available.relativePath.replace(/[\\/]+/g, separator);
-  return parseMusicSourceInput(`${root}${separator}${relative}`).source;
+  const originalSidecar = item.originalArtworkIdentity?.startsWith("sidecar:")
+    ? item.originalArtworkIdentity.slice("sidecar:".length).replace(/[\\/]+/g, separator)
+    : null;
+  const artworkPath = item.artworkOverride
+    ?? (originalSidecar ? `${root}${separator}${originalSidecar}` : null);
+  return localFileSourceFromPath(
+    `${root}${separator}${relative}`,
+    item.titleOverride ?? item.originalTitle,
+    artworkPath,
+  );
+}
+
+/** Loads builder-only review artwork without starting another media decoder. */
+export function musicReviewArtworkDataUrl(
+  detail: MusicInspectorDetail,
+  bindings: readonly LocalRootBinding[],
+): Promise<string | null> {
+  const source = musicReviewSource(detail, bindings);
+  if (!source || source.kind !== "local-file") return Promise.resolve(null);
+  if (source.artworkPath) return musicArtworkDataUrl(source.artworkPath);
+  if (detail.item.originalArtworkIdentity?.startsWith("embedded:")) {
+    return musicEmbeddedArtworkDataUrl(source.path);
+  }
+  return Promise.resolve(null);
 }
 
 export function sortReviewPlaylists(

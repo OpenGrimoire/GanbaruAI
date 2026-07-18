@@ -18,8 +18,12 @@
   import type { MusicSourcesController } from "$lib/music/music-sources-controller.svelte";
   import {
     isMusicReviewEditableTarget,
+    musicReviewArtworkDataUrl,
   } from "$lib/music/music-review";
-  import type { MusicWeight } from "$lib/music/library-contracts";
+  import {
+    firstMusicReviewTreeItemId,
+    musicReviewTreeItemIds,
+  } from "$lib/music/music-review-tree";
   import { clampRate, formatPlaybackTime } from "$lib/music/playback";
   import { cn } from "$lib/utils";
   import { formatShortcut } from "$lib/keyboard-shortcuts";
@@ -69,16 +73,38 @@
   let sessionTotal = $state(0);
   let newPlaylistNameInput = $state<HTMLInputElement | null>(null);
   let checklistRoot = $state<HTMLElement | null>(null);
-  const item = $derived(library.selectedItem ?? library.currentWindow.items[0] ?? null);
+  let prefetchedArtworkUrls = $state<Record<string, string>>({});
+  let prefetchedArtworkReadyIds = $state<Set<string>>(new Set());
+  let artworkPrefetchGeneration = 0;
+  let preparingNext = $state(false);
+  const reviewItemsFullyLoaded = $derived(
+    library.currentWindow.items.length >= library.currentWindow.totalCount,
+  );
+  const reviewItemIds = $derived(musicReviewTreeItemIds(library.currentWindow.items));
+  const initialReviewItemId = $derived(reviewItemsFullyLoaded
+    ? firstMusicReviewTreeItemId(library.currentWindow.items)
+    : null);
+  const initialReviewItem = $derived(initialReviewItemId
+    ? library.currentWindow.items.find((entry) => entry.id === initialReviewItemId) ?? null
+    : null);
+  const item = $derived(library.selectedItem ?? initialReviewItem);
   const detail = $derived(inspector.detail?.item.id === item?.id ? inspector.detail : null);
   const checkedIds = $derived(new Set(detail?.memberships.map((membership) => membership.playlistId) ?? []));
-  const membershipWeights = $derived(Object.fromEntries(
-    (detail?.memberships ?? []).map((membership) => [membership.playlistId, membership.weight]),
-  ) as Record<string, MusicWeight>);
-  const currentIndex = $derived(item ? library.currentWindow.items.findIndex((entry) => entry.id === item.id) : -1);
-  const progressCurrent = $derived(Math.max(1, sessionTotal - library.currentWindow.totalCount + currentIndex + 1));
+  const reviewTreeIndex = $derived(item ? reviewItemIds.indexOf(item.id) : -1);
   const player = $derived(audition.musicPlayer);
-  const seekSliderProgress = $derived(player.progressMax > 0
+  const previewTitle = $derived(detail
+    ? detail.item.titleOverride ?? detail.item.originalTitle
+    : item?.title ?? "");
+  const previewArtist = $derived(detail
+    ? (detail.item.artistOverride ?? detail.item.originalArtist) || t("music.builder.noArtist")
+    : item?.artist || t("music.builder.noArtist"));
+  const reviewPlayerReady = $derived(audition.reviewItemId === item?.id);
+  const prefetchedArtworkUrl = $derived(item ? prefetchedArtworkUrls[item.id] ?? null : null);
+  const previewDurationMs = $derived(reviewPlayerReady
+    ? player.snapshot.durationMs
+    : detail?.item.durationMs ?? item?.durationMs ?? 0);
+  const progressCurrent = $derived(Math.max(1, reviewTreeIndex + 1));
+  const seekSliderProgress = $derived(reviewPlayerReady && player.progressMax > 0
     ? `${Math.min(100, Math.max(0, (player.progressValue / player.progressMax) * 100))}%`
     : "0%");
 
@@ -127,6 +153,23 @@
   });
 
   $effect(() => {
+    if (reviewTreeIndex < 0) return;
+    const nearbyIds = reviewItemIds
+      .slice(Math.max(0, reviewTreeIndex - 1), reviewTreeIndex + 4)
+    const generation = ++artworkPrefetchGeneration;
+    const bindings = [...sources.bindings];
+    void inspector.prefetch(nearbyIds).then(async (details) => {
+      const entries = await Promise.all(details.map(async (entry) => {
+        const url = await loadDecodedReviewArtwork(entry, bindings);
+        return url ? [entry.item.id, url] as const : null;
+      }));
+      if (generation !== artworkPrefetchGeneration) return;
+      prefetchedArtworkUrls = Object.fromEntries(entries.filter((entry) => entry !== null));
+      prefetchedArtworkReadyIds = new Set(details.map((entry) => entry.item.id));
+    });
+  });
+
+  $effect(() => {
     if (!detail || lastAutoplayedId === detail.item.id) return;
     lastAutoplayedId = detail.item.id;
     void audition.preview(detail, sources.bindings, autoplay);
@@ -153,14 +196,6 @@
     void tick().then(() => newPlaylistNameInput?.focus());
   }
 
-  function setIncludeLater(include: boolean): void {
-    sessionTotal = 0;
-    library.patchCurrentState({ reviewState: include ? null : "unreviewed", offset: 0, selectedItemId: null });
-    inspector.clear();
-    lastSelectedId = null;
-    void library.refresh();
-  }
-
   async function createPlaylistAndAdd(): Promise<void> {
     const playlistId = await review.createPlaylistAndAdd(newPlaylistName, newPlaylistDescription);
     if (!playlistId) return;
@@ -171,10 +206,39 @@
     checklistRoot?.querySelector<HTMLElement>(`[data-review-playlist-id="${playlistId}"]`)?.focus();
   }
 
+  async function loadDecodedReviewArtwork(
+    entry: NonNullable<typeof inspector.detail>,
+    bindings = sources.bindings,
+  ): Promise<string | null> {
+    const url = await musicReviewArtworkDataUrl(entry, bindings);
+    if (url && typeof Image !== "undefined") {
+      const image = new Image();
+      image.src = url;
+      await image.decode().catch(() => undefined);
+    }
+    return url;
+  }
+
+  async function ensureReviewArtwork(itemId: string | null): Promise<void> {
+    if (!itemId) return;
+    const details = await inspector.prefetch([itemId]);
+    if (prefetchedArtworkReadyIds.has(itemId)) return;
+    const entry = details.find((candidate) => candidate.item.id === itemId);
+    if (!entry) return;
+    const url = await loadDecodedReviewArtwork(entry);
+    if (url) prefetchedArtworkUrls = { ...prefetchedArtworkUrls, [itemId]: url };
+    prefetchedArtworkReadyIds = new Set([...prefetchedArtworkReadyIds, itemId]);
+  }
+
   async function finishReviewState(reviewState: "reviewed" | "deferred" | "ignored", deferredUntil: number | null = null): Promise<void> {
-    if (await review.changeReviewState(reviewState, deferredUntil)) {
-      lastSelectedId = null;
-      lastAutoplayedId = null;
+    if (preparingNext || review.actionBusy) return;
+    const nextItemId = reviewTreeIndex >= 0 ? reviewItemIds[reviewTreeIndex + 1] ?? null : null;
+    preparingNext = true;
+    try {
+      await ensureReviewArtwork(nextItemId);
+      await review.changeReviewState(reviewState, deferredUntil, nextItemId);
+    } finally {
+      preparingNext = false;
     }
   }
 
@@ -202,9 +266,9 @@
   }
 
   async function selectRelative(delta: number): Promise<void> {
-    const target = library.currentWindow.items[currentIndex + delta];
-    if (!target) return;
-    library.selectItem(target.id);
+    const targetId = reviewItemIds[reviewTreeIndex + delta];
+    if (!targetId) return;
+    library.selectItem(targetId);
     lastSelectedId = null;
   }
 
@@ -273,9 +337,8 @@
         {#if audition.active}
           <button type="button" onclick={() => { void audition.restore(); }} class="h-7 rounded-md bg-secondary px-2 text-[0.68rem] font-medium text-secondary-foreground">{t("music.builder.returnPreviousPlayback")}</button>
         {/if}
-        <button type="button" onclick={() => setIncludeLater(library.currentState.reviewState !== null)} aria-pressed={library.currentState.reviewState === null} class={cn("h-7 rounded-full px-2.5 text-[0.65rem] font-medium", library.currentState.reviewState === null ? "bg-primary/12 text-primary" : "bg-secondary/70 text-muted-foreground")}>{t("music.builder.includeLater")}</button>
         <button type="button" onclick={() => onAutoplayChange(!autoplay)} aria-pressed={autoplay} class={cn("h-7 rounded-full px-2.5 text-[0.65rem] font-medium", autoplay ? "bg-primary/12 text-primary" : "bg-secondary/70 text-muted-foreground")}>{t("music.builder.reviewAutoplay")}</button>
-        <button type="button" onclick={() => { void finishReviewState("ignored"); }} disabled={!detail || review.actionBusy} class="h-7 rounded-md px-2 text-[0.65rem] text-muted-foreground hover:bg-secondary disabled:opacity-40">{t("music.builder.ignore")}</button>
+        <button type="button" onclick={() => { void finishReviewState("ignored"); }} disabled={!detail || review.actionBusy || preparingNext} class="h-7 rounded-md px-2 text-[0.65rem] text-muted-foreground hover:bg-secondary disabled:opacity-40">{t("music.builder.ignore")}</button>
       </div>
     </div>
     {#if library.currentState.groupBy !== "none" && library.currentWindow.groups.length > 0}
@@ -286,38 +349,38 @@
       </div>
     {/if}
 
-    {#if inspector.busy && !detail}
-      <div class="mt-3 h-20 animate-pulse rounded-lg bg-card motion-reduce:animate-none"></div>
-    {:else if detail}
+    {#if item}
       <div class="review-player mt-4 flex min-w-0 items-center gap-4">
         <div bind:this={surface} class="review-media relative grid h-28 w-28 shrink-0 place-items-center overflow-hidden rounded-xl">
-          {#if audition.reviewItemId === detail.item.id && !player.localHasVideo && detail.item.sourceKind === "local-file"}
-            {#if player.currentArtworkUrl}
-              <img src={player.currentArtworkUrl} alt="" class="absolute inset-0 h-full w-full object-contain" draggable="false" />
+          {#if item.sourceKind === "local-file" && !player.localHasVideo}
+            {#if prefetchedArtworkUrl}
+              <img src={prefetchedArtworkUrl} alt="" class="absolute inset-0 h-full w-full object-contain" draggable="false" onload={() => player.handleArtworkLoaded()} />
+            {:else if reviewPlayerReady && player.currentArtworkUrl}
+              <img src={player.currentArtworkUrl} alt="" class="absolute inset-0 h-full w-full object-contain" draggable="false" onload={() => player.handleArtworkLoaded()} onerror={() => player.handleArtworkError()} />
             {:else}
               <Disc3 class="text-muted-foreground" size={38} strokeWidth={1.3} />
             {/if}
-          {:else if !player.currentSource || audition.reviewItemId !== detail.item.id}
+          {:else if !player.currentSource || !reviewPlayerReady}
             <Disc3 class="text-muted-foreground" size={38} strokeWidth={1.3} />
           {/if}
         </div>
 
         <div class="min-w-0 flex-1">
           <div class="min-w-0">
-            <h2 class="truncate text-base font-semibold">{detail.item.titleOverride ?? detail.item.originalTitle}</h2>
-            <p class="mt-0.5 truncate text-xs text-muted-foreground">{(detail.item.artistOverride ?? detail.item.originalArtist) || t("music.builder.noArtist")}</p>
+            <h2 class="truncate text-base font-semibold">{previewTitle}</h2>
+            <p class="mt-0.5 truncate text-xs text-muted-foreground">{previewArtist}</p>
           </div>
 
           <div class="mt-4 flex items-center gap-3">
             <div class="min-w-0 flex-1 text-[0.68rem] tabular-nums text-muted-foreground">
-              <input type="range" min="0" max={player.progressMax} value={player.progressValue} disabled={audition.reviewItemId !== detail.item.id} oninput={(event) => { void player.seekToMs(Number(event.currentTarget.value)); }} class="music-seek-slider music-seek-slider-edge-aligned block disabled:opacity-40" style={`--music-seek-progress: ${seekSliderProgress}; --music-seek-thumb-size: 1rem; --music-seek-track-height: 0.3rem;`} aria-label={t("music.seek")} />
+              <input type="range" min="0" max={reviewPlayerReady ? player.progressMax : previewDurationMs} value={reviewPlayerReady ? player.progressValue : 0} disabled={!reviewPlayerReady} oninput={(event) => { void player.seekToMs(Number(event.currentTarget.value)); }} class="music-seek-slider music-seek-slider-edge-aligned block" style={`--music-seek-progress: ${seekSliderProgress}; --music-seek-thumb-size: 1rem; --music-seek-track-height: 0.3rem;`} aria-label={t("music.seek")} />
               <div class="mt-1 flex justify-between">
-                <span>{formatPlaybackTime(player.snapshot.positionMs)}</span>
-                <span>{formatPlaybackTime(player.snapshot.durationMs)}</span>
+                <span>{formatPlaybackTime(reviewPlayerReady ? player.snapshot.positionMs : 0)}</span>
+                <span>{formatPlaybackTime(previewDurationMs)}</span>
               </div>
             </div>
-            <button type="button" onclick={() => { if (audition.reviewItemId !== detail.item.id) void audition.preview(detail, sources.bindings, true); else void player.togglePlay(); }} disabled={detail.item.availability !== "available"} class="review-play shrink-0" aria-label={player.isPlaying ? t("music.pause") : t("music.play")} title={t("music.builder.reviewPlayTitle", formatShortcut("Space"))}>
-              {#if player.isPlaying && audition.reviewItemId === detail.item.id}<Pause size={18} fill="currentColor" />{:else}<Play size={18} fill="currentColor" />{/if}
+            <button type="button" onclick={() => { if (detail && !reviewPlayerReady) void audition.preview(detail, sources.bindings, true); else void player.togglePlay(); }} disabled={!detail || item.availability !== "available"} class="review-play shrink-0" aria-label={reviewPlayerReady && player.isPlaying ? t("music.pause") : t("music.play")} title={t("music.builder.reviewPlayTitle", formatShortcut("Space"))}>
+              {#if reviewPlayerReady && player.isPlaying}<Pause size={18} fill="currentColor" />{:else}<Play size={18} fill="currentColor" />{/if}
             </button>
           </div>
         </div>
@@ -327,10 +390,7 @@
 
   <section class="review-classify flex min-h-0 flex-col">
     <div class="shrink-0 p-3">
-      <div class="flex items-center justify-between gap-2">
-        <h2 class="text-sm font-semibold">{t("music.builder.classifyPlaylists")}</h2>
-        {#if checkedIds.size > 0}<button type="button" onclick={() => { void review.clearMemberships(); }} class="text-[0.68rem] text-muted-foreground hover:text-foreground">{t("music.builder.clearMemberships")}</button>{/if}
-      </div>
+      <h2 class="text-sm font-semibold">{t("music.builder.classifyPlaylists")}</h2>
       {#if inlineCreateOpen}
         <form class="mt-2 rounded-lg border border-border/70 bg-background/75 p-2" onsubmit={(event) => { event.preventDefault(); void createPlaylistAndAdd(); }}>
           <input bind:this={newPlaylistNameInput} bind:value={newPlaylistName} aria-label={t("music.builder.inlinePlaylistName")} class="h-8 w-full rounded-md border border-border/70 bg-background px-2.5 text-xs outline-none focus:border-primary" placeholder={t("music.builder.inlinePlaylistName")} />
@@ -351,9 +411,6 @@
         playlists={library.playlistSummaries}
         {checkedIds}
         onToggle={(playlist) => { void review.toggleMembership(playlist); }}
-        weights={membershipWeights}
-        onCycleWeight={(playlist) => { const membership = review.membershipFor(playlist.id); if (membership) void review.cycleMembershipWeight(membership); }}
-        busyIds={review.membershipBusy}
         errors={review.membershipErrors}
         showIssue={detail?.item.availability !== "available"}
         issueLabel={availabilityLabel()}
@@ -362,7 +419,7 @@
 
     <div class="review-actions grid shrink-0 grid-cols-2 gap-3 p-3">
       <div class="relative">
-        <button bind:this={laterButton} type="button" aria-haspopup="dialog" aria-expanded={laterMenuOpen} onclick={() => { if (laterMenuOpen) closeLaterMenu(false); else void openLaterMenu(); }} disabled={!detail || review.actionBusy} class="review-action h-full w-full border border-border/70 bg-background text-foreground">{t("music.builder.skipTrack")}</button>
+        <button bind:this={laterButton} type="button" aria-haspopup="dialog" aria-expanded={laterMenuOpen} onclick={() => { if (laterMenuOpen) closeLaterMenu(false); else void openLaterMenu(); }} disabled={!detail || review.actionBusy || preparingNext} class="review-action h-full w-full border border-border/70 bg-background text-foreground">{t("music.builder.skipTrack")}</button>
         {#if laterMenuOpen}
           <div bind:this={laterPopover} role="dialog" aria-label={t("music.builder.returnDate")} tabindex="-1" onfocusout={handleLaterFocusOut} class="later-popover absolute bottom-[calc(100%+0.5rem)] left-1/2 z-20 w-56 -translate-x-1/2 rounded-xl border border-border/70 bg-card p-3 text-left shadow-xl">
             <label for="music-review-return-date" class="block text-[0.68rem] font-medium">{t("music.builder.returnDate")}</label>
@@ -375,7 +432,7 @@
           </div>
         {/if}
       </div>
-      <button type="button" onclick={() => { void finishReviewState("reviewed"); }} disabled={!detail || review.actionBusy} class="review-action bg-primary text-primary-foreground" title={t("music.builder.markReviewedTitle", formatShortcut("Mod + Enter"))}><Check size={14} />{t("music.builder.saveAndNext")}<ChevronRight size={14} /></button>
+      <button type="button" onclick={() => { void finishReviewState("reviewed"); }} disabled={!detail || review.actionBusy || preparingNext} class="review-action bg-primary text-primary-foreground" title={t("music.builder.markReviewedTitle", formatShortcut("Mod + Enter"))}><Check size={14} />{t("music.builder.saveAndNext")}<ChevronRight size={14} /></button>
     </div>
   </section>
   </div>

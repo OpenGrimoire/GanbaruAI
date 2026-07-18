@@ -10,6 +10,7 @@
   import {
     buildMusicReviewTree,
     flattenMusicReviewTree,
+    musicReviewTreeAncestorFolderIds,
     musicReviewTreeFolderIds,
     searchMusicReviewTree,
     type MusicReviewTreeNode,
@@ -38,7 +39,8 @@
 
   const { t } = getLocalization();
   let expandedIds = $state<Set<string>>(new Set());
-  let expansionInitialized = $state(false);
+  let explicitlyCollapsedIds = $state<Set<string>>(new Set());
+  let lastExpandedActiveItemId = $state<string | null>(null);
   let selectedIds = $state<Set<string>>(new Set());
   let selectedFolderIds = $state<Set<string>>(new Set());
   let search = $state("");
@@ -56,22 +58,50 @@
 
   $effect(() => {
     const validFolderIds = musicReviewTreeFolderIds(tree);
-    const retained = [...selectedFolderIds].filter((folderId) => validFolderIds.has(folderId));
-    if (retained.length !== selectedFolderIds.size) selectedFolderIds = new Set(retained);
+    const retainedSelected = [...selectedFolderIds].filter((folderId) => validFolderIds.has(folderId));
+    if (retainedSelected.length !== selectedFolderIds.size) selectedFolderIds = new Set(retainedSelected);
+    const retainedCollapsed = new Set([...explicitlyCollapsedIds]
+      .filter((folderId) => validFolderIds.has(folderId)));
+    if (retainedCollapsed.size !== explicitlyCollapsedIds.size) {
+      explicitlyCollapsedIds = retainedCollapsed;
+    }
+    const nextExpanded = new Set([...validFolderIds]
+      .filter((folderId) => !retainedCollapsed.has(folderId)));
+    if (nextExpanded.size !== expandedIds.size
+      || [...nextExpanded].some((folderId) => !expandedIds.has(folderId))) {
+      expandedIds = nextExpanded;
+    }
   });
 
   $effect(() => {
-    if (expansionInitialized || tree.length === 0) return;
-    expandedIds = musicReviewTreeFolderIds(tree);
-    expansionInitialized = true;
+    const itemId = activeItemId;
+    if (!itemId || itemId === lastExpandedActiveItemId) return;
+    lastExpandedActiveItemId = itemId;
+    const ancestorIds = musicReviewTreeAncestorFolderIds(tree, itemId);
+    if (ancestorIds.length === 0) return;
+    const nextExpanded = new Set(expandedIds);
+    const nextCollapsed = new Set(explicitlyCollapsedIds);
+    for (const folderId of ancestorIds) {
+      nextExpanded.add(folderId);
+      nextCollapsed.delete(folderId);
+    }
+    expandedIds = nextExpanded;
+    explicitlyCollapsedIds = nextCollapsed;
   });
 
   function toggleExpanded(nodeId: string): void {
     if (searching) return;
     const next = new Set(expandedIds);
-    if (next.has(nodeId)) next.delete(nodeId);
-    else next.add(nodeId);
+    const nextCollapsed = new Set(explicitlyCollapsedIds);
+    if (next.has(nodeId)) {
+      next.delete(nodeId);
+      nextCollapsed.add(nodeId);
+    } else {
+      next.add(nodeId);
+      nextCollapsed.delete(nodeId);
+    }
     expandedIds = next;
+    explicitlyCollapsedIds = nextCollapsed;
   }
 
   function toggleFolder(node: MusicReviewTreeNode): void {
@@ -135,32 +165,37 @@
     {#each rows as row (row.kind === "folder" ? row.node.id : row.item.id)}
       {#if row.kind === "folder"}
         {@const checked = selectedFolderIds.has(row.node.id)}
-        <div class="group flex h-8 min-w-0 items-center rounded-lg hover:bg-accent/60" style={`padding-left: ${row.depth * 0.75}rem`}>
-          <button type="button" onclick={() => toggleExpanded(row.node.id)} disabled={searching} class="grid h-7 w-7 shrink-0 place-items-center rounded-md text-muted-foreground" aria-label={(searching || expandedIds.has(row.node.id)) ? t("music.builder.collapseFolder", row.node.name) : t("music.builder.expandFolder", row.node.name)} aria-expanded={searching || expandedIds.has(row.node.id)}>
+        <div class="group relative flex h-8 min-w-0 items-center rounded-lg hover:bg-accent/60" style={`padding-left: ${row.depth * 0.75}rem`}>
+          <button type="button" onclick={() => toggleExpanded(row.node.id)} disabled={searching} class="absolute inset-0 rounded-lg focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring disabled:cursor-default" aria-label={(searching || expandedIds.has(row.node.id)) ? t("music.builder.collapseFolder", row.node.name) : t("music.builder.expandFolder", row.node.name)} aria-expanded={searching || expandedIds.has(row.node.id)}></button>
+          <span class="pointer-events-none grid h-8 w-7 shrink-0 place-items-center text-muted-foreground">
             <ChevronRight size={14} class={cn("transition-transform motion-reduce:transition-none", (searching || expandedIds.has(row.node.id)) && "rotate-90")} />
-          </button>
-          <label class="relative grid h-7 w-7 shrink-0 cursor-pointer place-items-center">
+          </span>
+          <label class="relative z-10 grid h-full w-7 shrink-0 cursor-pointer place-items-center">
             <input type="checkbox" checked={checked} disabled={!folderSelectionReady} onchange={() => toggleFolder(row.node)} class="peer absolute h-4 w-4 opacity-0" aria-label={t("music.builder.selectFolder", row.node.name, row.node.itemIds.length)} />
-            <span class={cn("pointer-events-none grid h-4 w-4 place-items-center rounded border", checked ? "border-primary bg-primary text-primary-foreground" : "border-border/80 bg-background/70", !folderSelectionReady && "opacity-35")}>
+            <span class={cn("pointer-events-none grid h-4 w-4 place-items-center rounded border peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ring", checked ? "border-primary bg-primary text-primary-foreground" : "border-border/80 bg-background/70", !folderSelectionReady && "opacity-35")}>
               {#if checked}<Check size={11} strokeWidth={2.5} />{/if}
             </span>
           </label>
-          <button type="button" onclick={() => toggleExpanded(row.node.id)} disabled={searching} class="flex min-w-0 flex-1 items-center pr-2 text-left">
+          <span class="pointer-events-none flex min-w-0 flex-1 items-center pr-2 text-left">
             <span class="min-w-0 flex-1 truncate text-[0.7rem] font-medium">{row.node.name}</span>
             <span class="text-[0.6rem] tabular-nums text-muted-foreground">{row.node.itemIds.length}</span>
-          </button>
+          </span>
         </div>
       {:else}
-        <div class={cn("flex h-8 min-w-0 items-center rounded-lg", activeItemId === row.item.id ? "bg-primary/10 text-foreground" : "hover:bg-accent/50")} style={`padding-left: ${row.depth * 0.75 + 1.75}rem`}>
-          <label class="relative grid h-7 w-7 shrink-0 cursor-pointer place-items-center">
+        <div class={cn("relative flex h-8 min-w-0 items-center rounded-lg", activeItemId === row.item.id ? "bg-primary/10 text-foreground" : "hover:bg-accent/50")} style={`padding-left: ${row.depth * 0.75 + 1.75}rem`}>
+          <button type="button" onclick={() => onActivate(row.item.id)} class="absolute inset-0 rounded-lg focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring" aria-label={row.item.reviewState === "reviewed" ? `${row.item.title}, ${t("music.builder.markReviewed")}` : row.item.title} aria-current={activeItemId === row.item.id ? "true" : undefined}></button>
+          <label class="relative z-10 grid h-full w-7 shrink-0 cursor-pointer place-items-center">
             <input type="checkbox" checked={selectedIds.has(row.item.id)} onchange={() => toggleItem(row.item.id)} class="peer absolute h-4 w-4 opacity-0" aria-label={t("music.builder.selectTrack", row.item.title)} />
-            <span class={cn("pointer-events-none grid h-4 w-4 place-items-center rounded border", selectedIds.has(row.item.id) ? "border-primary bg-primary text-primary-foreground" : "border-border/80 bg-background/70")}>
+            <span class={cn("pointer-events-none grid h-4 w-4 place-items-center rounded border peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ring", selectedIds.has(row.item.id) ? "border-primary bg-primary text-primary-foreground" : "border-border/80 bg-background/70")}>
               {#if selectedIds.has(row.item.id)}<Check size={11} strokeWidth={2.5} />{/if}
             </span>
           </label>
-          <button type="button" onclick={() => onActivate(row.item.id)} class="flex min-w-0 flex-1 items-center pr-2 text-left" aria-current={activeItemId === row.item.id ? "true" : undefined}>
+          <span class="pointer-events-none flex min-w-0 flex-1 items-center pr-2 text-left">
             <span class="min-w-0 flex-1 truncate text-[0.68rem]">{row.item.title}</span>
-          </button>
+            {#if row.item.reviewState === "reviewed"}
+              <span class="ml-2 grid h-5 w-5 shrink-0 place-items-center text-primary" aria-hidden="true"><Check size={12} strokeWidth={2.5} /></span>
+            {/if}
+          </span>
         </div>
       {/if}
     {/each}

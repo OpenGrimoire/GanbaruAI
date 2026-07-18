@@ -46,6 +46,18 @@ describe("music review helpers", () => {
       .toMatchObject({ kind: "youtube-video", videoId: "abc12345" });
   });
 
+  it("resolves scanner-detected sidecar artwork for review playback", () => {
+    const localDetail = detail("local-file");
+    localDetail.item.originalArtworkIdentity = "sidecar:album/cover.jpg";
+
+    expect(musicReviewSource(localDetail, [{ rootId: "root", folderPath: "/Music", status: "available" }]))
+      .toMatchObject({
+        kind: "local-file",
+        path: "/Music/album/song.flac",
+        artworkPath: "/Music/album/cover.jpg",
+      });
+  });
+
   it("keeps playlist ordering independent from selection while filtering", () => {
     expect(sortReviewPlaylists([playlist("a", "Work"), playlist("b", "Reading")], "")
       .map((entry) => entry.id)).toEqual(["b", "a"]);

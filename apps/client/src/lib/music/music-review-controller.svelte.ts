@@ -173,17 +173,46 @@ export class MusicReviewController {
     }
   }
 
-  async changeReviewState(reviewState: MusicReviewState, deferredUntil: number | null = null): Promise<boolean> {
+  async changeReviewState(
+    reviewState: MusicReviewState,
+    deferredUntil: number | null = null,
+    nextItemId: string | null = null,
+  ): Promise<boolean> {
     const detail = this.inspector.detail;
     if (!detail || this.actionBusy) return false;
+    const previousReviewState = detail.item.reviewState;
     this.actionBusy = true;
     try {
-      await setMusicReviewState({
+      const updatedAt = this.now();
+      const receipt = await setMusicReviewState({
         itemId: detail.item.id, reviewState, deferredUntil,
-        expectedVersion: detail.item.version, updatedAt: this.now(),
+        expectedVersion: detail.item.version, updatedAt,
       });
+      detail.item.reviewState = reviewState;
+      detail.item.reviewDeferredUntil = deferredUntil;
+      detail.item.reviewChangedAt = updatedAt;
+      detail.item.updatedAt = updatedAt;
+      detail.item.version = receipt.version;
+      const listItem = this.library.currentWindow.items.find((item) => item.id === detail.item.id);
+      if (listItem) {
+        listItem.reviewState = reviewState;
+        listItem.updatedAt = updatedAt;
+        listItem.version = receipt.version;
+      }
+      if (reviewState === "reviewed") {
+        if (previousReviewState !== "reviewed") {
+          for (const sourceId of detail.sourceCollectionIds) {
+            const source = this.library.sourceSummaries.find((entry) => entry.id === sourceId);
+            if (source) source.unreviewedCount = Math.max(0, source.unreviewedCount - 1);
+          }
+        }
+        if (nextItemId) this.inspector.selectCached(nextItemId);
+        this.library.selectItem(nextItemId);
+        return true;
+      }
+      this.inspector.invalidate(detail.item.id);
       this.inspector.clear();
-      this.library.selectItem(null);
+      this.library.selectItem(nextItemId);
       await this.library.refreshAfterMutation();
       return true;
     } catch (error) {

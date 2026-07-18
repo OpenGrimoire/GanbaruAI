@@ -773,6 +773,7 @@ pub fn run() {
             music::music_pick_and_read_interchange_file,
             music::music_pick_and_write_interchange_file,
             music::music_artwork_data_url,
+            music::music_embedded_artwork_data_url,
             music::library::commands::music_library_upsert_item,
             music::library::commands::music_library_upsert_local_location,
             music::library::commands::music_library_start_local_refresh,

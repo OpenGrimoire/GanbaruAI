@@ -77,6 +77,20 @@ export function buildMusicReviewTree(items: readonly MusicItemListEntry[]): Musi
   return [local, online].filter((node) => node.directItems.length > 0 || node.children.size > 0).map(freezeNode);
 }
 
+/** Returns track ids in the same folder-first, title-sorted order shown by the review tree. */
+export function musicReviewTreeItemIds(items: readonly MusicItemListEntry[]): string[] {
+  return buildMusicReviewTree(items).flatMap((node) => node.itemIds);
+}
+
+/** Selects the first pending track in visible tree order, falling back to the first reviewed track. */
+export function firstMusicReviewTreeItemId(items: readonly MusicItemListEntry[]): string | null {
+  const orderedIds = musicReviewTreeItemIds(items);
+  const itemsById = new Map(items.map((item) => [item.id, item]));
+  return orderedIds.find((itemId) => itemsById.get(itemId)?.reviewState !== "reviewed")
+    ?? orderedIds[0]
+    ?? null;
+}
+
 /** Returns every folder id so the initial Review tree can open completely. */
 export function musicReviewTreeFolderIds(
   nodes: readonly MusicReviewTreeNode[],
@@ -90,6 +104,19 @@ export function musicReviewTreeFolderIds(
   };
   visit(nodes);
   return ids;
+}
+
+/** Returns the root-to-leaf folder path containing one review item. */
+export function musicReviewTreeAncestorFolderIds(
+  nodes: readonly MusicReviewTreeNode[],
+  itemId: string,
+): string[] {
+  for (const node of nodes) {
+    if (!node.itemIds.includes(itemId)) continue;
+    const childPath = musicReviewTreeAncestorFolderIds(node.children, itemId);
+    return [node.id, ...childPath];
+  }
+  return [];
 }
 
 /** Flattens expanded tree nodes into keyboard-friendly visual rows. */
