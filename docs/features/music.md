@@ -41,7 +41,7 @@ Playlists tied to work environments inherit to all session blocks using that env
 
 ## Storage
 
-The first-use Preparing your Music folder screen owns the complete handoff into playlist review. Before it disappears, the final library refresh and every review item window finish loading, the first pending track is selected in visible tree order, its inspector detail and nearby details are cached, their artwork is fetched and decoded, and the active preview source is ready. The playlist builder then appears in its final layout instead of progressively adding tree rows, playlist cards, metadata, artwork, folder expansion, progress totals, or player state after preparation closes.
+The first-use Preparing your Music folder screen owns the complete handoff into playlist review. The selected directory remains visible until this screen closes, including while the prepared library is finalized after scanning. A small neutral activity indicator uses restrained continuous motion even when file progress pauses during a long scan. Before the screen disappears, the final library refresh and every review item window finish loading, the first pending track is selected in visible tree order, its inspector detail and nearby details are cached, their artwork is fetched and decoded, and the active preview source is ready. The playlist builder then appears in its final layout instead of progressively adding tree rows, playlist cards, metadata, artwork, folder expansion, progress totals, or player state after preparation closes.
 
 Music files stay wherever the user keeps them; the Ganbaru AI folder stores only playlist definitions (lists of file paths, YouTube IDs, and per-track config). Backups go to the user's chosen path, not into the Ganbaru AI folder.
 

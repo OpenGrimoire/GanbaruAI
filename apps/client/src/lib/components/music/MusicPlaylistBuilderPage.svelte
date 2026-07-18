@@ -48,6 +48,7 @@
   import MusicBuilderFilterBar from "./builder/MusicBuilderFilterBar.svelte";
   import MusicBuilderHeader from "./builder/MusicBuilderHeader.svelte";
   import MusicBuilderInspectorSurface from "./builder/MusicBuilderInspectorSurface.svelte";
+  import MusicPreparationActivity from "./builder/MusicPreparationActivity.svelte";
   import MusicBuilderOverview from "./builder/MusicBuilderOverview.svelte";
   import MusicDetectedFolderCard from "./builder/MusicDetectedFolderCard.svelte";
   import MusicVirtualItemList from "./builder/MusicVirtualItemList.svelte";
@@ -586,13 +587,9 @@
       {#if destination.kind === "review"}
         {#if firstUsePreparation}
           <div class="relative grid h-full min-h-40 place-items-center overflow-hidden p-5">
-            <button type="button" onclick={onOpenPlayer} class="absolute left-3 top-3 grid h-9 w-9 place-items-center rounded-full bg-secondary/75 text-secondary-foreground hover:bg-accent" aria-label={t("music.backToPlayer")}><ArrowLeft size={17} /></button>
             <div class="w-full max-w-lg text-center">
-              <div class="relative mx-auto grid h-20 w-20 place-items-center rounded-3xl bg-primary/10 text-primary">
-                <FolderSearch size={32} strokeWidth={1.35} />
-                <LoaderCircle class="absolute -bottom-1 -right-1 animate-spin rounded-full bg-background p-1.5 motion-reduce:animate-none" size={28} />
-              </div>
-              <h1 class="mt-5 text-lg font-semibold tracking-tight">{t("music.builder.preparingMusicFolder")}</h1>
+              <MusicPreparationActivity />
+              <h1 class="mt-3 text-lg font-semibold tracking-tight">{t("music.builder.preparingMusicFolder")}</h1>
               {#if sources.preparingDefaultFolderPath}<p class="mx-auto mt-2 max-w-md truncate text-xs text-muted-foreground" title={sources.preparingDefaultFolderPath}>{sources.preparingDefaultFolderPath}</p>{/if}
               {#if firstUseRefreshProgress}
                 <div class="mx-auto mt-5 max-w-sm">

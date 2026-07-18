@@ -257,7 +257,6 @@ export class MusicSourcesController {
       if (vaultId === this.vaultId) {
         this.detectingDefaultFolder = false;
         this.preparingDefaultFolder = false;
-        this.preparingDefaultFolderPath = null;
       }
     }
   }

@@ -130,6 +130,7 @@ describe("MusicSourcesController", () => {
     expect(createRoot).toHaveBeenCalledOnce();
     expect(controller.detectedDefaultFolder).toBeNull();
     expect(controller.preparingDefaultFolder).toBe(false);
+    expect(controller.preparingDefaultFolderPath).toBe("/home/user/Music");
     expect(controller.firstUseSession).toBe(true);
   });
 
