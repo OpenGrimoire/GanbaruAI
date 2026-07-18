@@ -107,6 +107,8 @@ describe("MusicReviewTree", () => {
         onAssign: vi.fn(),
       },
     });
+    expect(target.textContent).toContain("Theme");
+    expect(target.textContent).toContain("Ending");
     await tick();
 
     expect(
@@ -118,8 +120,6 @@ describe("MusicReviewTree", () => {
       "Collapse Nier",
       "Collapse Disc 1",
     ]);
-    expect(target.textContent).toContain("Theme");
-    expect(target.textContent).toContain("Ending");
   });
 
   it("shows every search match with folder context and clears with Escape", async () => {

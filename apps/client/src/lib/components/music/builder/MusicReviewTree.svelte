@@ -38,13 +38,14 @@
   } = $props();
 
   const { t } = getLocalization();
-  let expandedIds = $state<Set<string>>(new Set());
   let explicitlyCollapsedIds = $state<Set<string>>(new Set());
   let lastExpandedActiveItemId = $state<string | null>(null);
   let selectedIds = $state<Set<string>>(new Set());
   let selectedFolderIds = $state<Set<string>>(new Set());
   let search = $state("");
   const tree = $derived(buildMusicReviewTree(items));
+  const expandedIds = $derived(new Set([...musicReviewTreeFolderIds(tree)]
+    .filter((folderId) => !explicitlyCollapsedIds.has(folderId))));
   const searching = $derived(search.trim().length > 0);
   const searchResult = $derived(searchMusicReviewTree(tree, search));
   const rows = $derived(searching ? searchResult.rows : flattenMusicReviewTree(tree, expandedIds));
@@ -65,12 +66,6 @@
     if (retainedCollapsed.size !== explicitlyCollapsedIds.size) {
       explicitlyCollapsedIds = retainedCollapsed;
     }
-    const nextExpanded = new Set([...validFolderIds]
-      .filter((folderId) => !retainedCollapsed.has(folderId)));
-    if (nextExpanded.size !== expandedIds.size
-      || [...nextExpanded].some((folderId) => !expandedIds.has(folderId))) {
-      expandedIds = nextExpanded;
-    }
   });
 
   $effect(() => {
@@ -79,28 +74,18 @@
     lastExpandedActiveItemId = itemId;
     const ancestorIds = musicReviewTreeAncestorFolderIds(tree, itemId);
     if (ancestorIds.length === 0) return;
-    const nextExpanded = new Set(expandedIds);
     const nextCollapsed = new Set(explicitlyCollapsedIds);
     for (const folderId of ancestorIds) {
-      nextExpanded.add(folderId);
       nextCollapsed.delete(folderId);
     }
-    expandedIds = nextExpanded;
     explicitlyCollapsedIds = nextCollapsed;
   });
 
   function toggleExpanded(nodeId: string): void {
     if (searching) return;
-    const next = new Set(expandedIds);
     const nextCollapsed = new Set(explicitlyCollapsedIds);
-    if (next.has(nodeId)) {
-      next.delete(nodeId);
-      nextCollapsed.add(nodeId);
-    } else {
-      next.add(nodeId);
-      nextCollapsed.delete(nodeId);
-    }
-    expandedIds = next;
+    if (expandedIds.has(nodeId)) nextCollapsed.add(nodeId);
+    else nextCollapsed.delete(nodeId);
     explicitlyCollapsedIds = nextCollapsed;
   }
 

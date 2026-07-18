@@ -26,11 +26,16 @@
   import { createMusicBulkEditController } from "$lib/music/music-bulk-edit-controller.svelte";
   import { createMusicInterchangeController } from "$lib/music/music-interchange-controller.svelte";
   import {
+    musicReviewArtworkDataUrl,
+    musicReviewSource,
     parseMusicReviewAutoplay,
     parseMusicReviewExitPreference,
     type MusicReviewExitPreference,
   } from "$lib/music/music-review";
-  import { musicReviewSource } from "$lib/music/music-review";
+  import {
+    firstMusicReviewTreeItemId,
+    musicReviewTreeItemIds,
+  } from "$lib/music/music-review-tree";
   import type { MusicPlaylistMembership } from "$lib/music/library-contracts";
   import type { MusicIssue, MusicSourceCollection } from "$lib/music/library-contracts";
   import type { MusicSourceRefreshPlan } from "$lib/music/music-source-refresh";
@@ -106,6 +111,8 @@
   let choosingFirstUseFolder = $state(false);
   let firstUseFolderError = $state<string | null>(null);
   let firstUsePreparationActive = $state(false);
+  let firstUseFinalizing = false;
+  let firstUseFinalizationGeneration = 0;
   const layout = $derived(projectMusicBuilderLayout({ width, height }));
   const destination = $derived(history.current.destination);
   const selectedItemId = $derived(history.current.inspectorItemId ?? library.currentState.selectedItemId);
@@ -136,12 +143,58 @@
   $effect(() => {
     if (sources.preparingDefaultFolder) {
       firstUsePreparationActive = true;
+      firstUseFinalizationGeneration += 1;
       return;
     }
-    if (firstUsePreparationActive && !library.busy) {
-      firstUsePreparationActive = false;
-    }
+    if (firstUsePreparationActive && !firstUseFinalizing) void finalizeFirstUsePreparation();
   });
+
+  async function finalizeFirstUsePreparation(): Promise<void> {
+    if (!firstUsePreparationActive || sources.preparingDefaultFolder || firstUseFinalizing) return;
+    const generation = firstUseFinalizationGeneration;
+    const vaultId = library.vaultId;
+    firstUseFinalizing = true;
+    try {
+      const refreshed = await library.refreshAfterMutation();
+      if (generation !== firstUseFinalizationGeneration || vaultId !== library.vaultId) return;
+      if (!refreshed) throw library.error ?? new Error("The prepared music library could not be loaded.");
+      while (library.currentWindow.items.length < library.currentWindow.totalCount) {
+        const loaded = await library.loadMore();
+        if (generation !== firstUseFinalizationGeneration || vaultId !== library.vaultId) return;
+        if (!loaded) throw library.loadMoreError ?? new Error("The prepared review list could not be completed.");
+      }
+      const itemId = firstMusicReviewTreeItemId(library.currentWindow.items);
+      if (itemId) {
+        library.selectItem(itemId);
+        const selected = await inspector.select(itemId);
+        if (!selected || generation !== firstUseFinalizationGeneration || vaultId !== library.vaultId) return;
+        const orderedIds = musicReviewTreeItemIds(library.currentWindow.items);
+        const itemIndex = orderedIds.indexOf(itemId);
+        const nearbyIds = orderedIds.slice(Math.max(0, itemIndex - 1), itemIndex + 4);
+        const details = await inspector.prefetch(nearbyIds);
+        await Promise.all(details.map(async (detail) => {
+          const url = await musicReviewArtworkDataUrl(detail, sources.bindings).catch(() => null);
+          if (!url || typeof Image === "undefined") return;
+          const image = new Image();
+          image.src = url;
+          await image.decode().catch(() => undefined);
+        }));
+        const detail = inspector.detail;
+        if (detail?.item.id === itemId) {
+          await audition.preview(detail, sources.bindings, reviewAutoplay);
+        }
+      }
+      if (generation !== firstUseFinalizationGeneration || vaultId !== library.vaultId) return;
+      firstUsePreparationActive = false;
+    } catch (error) {
+      if (generation === firstUseFinalizationGeneration && vaultId === library.vaultId) {
+        library.error = error instanceof Error ? error : new Error(String(error));
+        firstUsePreparationActive = false;
+      }
+    } finally {
+      firstUseFinalizing = false;
+    }
+  }
 
   $effect(() => {
     const action = initialAction;

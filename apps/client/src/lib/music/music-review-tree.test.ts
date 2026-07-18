@@ -7,6 +7,7 @@ import {
   musicReviewTreeAncestorFolderIds,
   musicReviewTreeItemIds,
   musicReviewTreeFolderIds,
+  nextPendingMusicReviewTreeItemId,
   searchMusicReviewTree,
   toggleMusicReviewTreeSelection,
 } from "$lib/music/music-review-tree";
@@ -49,6 +50,17 @@ describe("music review tree", () => {
       "dogfight",
     ]);
     expect(firstMusicReviewTreeItemId(items)).toBe("brown-noise");
+  });
+
+  it("finds the next pending item while wrapping around reviewed and session-skipped tracks", () => {
+    const first = item("first", "first.flac");
+    const second = item("second", "second.flac");
+    const third = item("third", "third.flac");
+    second.reviewState = "reviewed";
+
+    expect(nextPendingMusicReviewTreeItemId([first, second, third], "first", new Set(["third"]))).toBe("first");
+    expect(nextPendingMusicReviewTreeItemId([first, second, third], "first", new Set(["first", "third"]))).toBeNull();
+    expect(nextPendingMusicReviewTreeItemId([first, second, third], "third", new Set())).toBe("first");
   });
 
   it("flattens only expanded branches and toggles complete descendants", () => {

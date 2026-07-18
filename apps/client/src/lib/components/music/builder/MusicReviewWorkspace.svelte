@@ -23,6 +23,7 @@
   import {
     firstMusicReviewTreeItemId,
     musicReviewTreeItemIds,
+    nextPendingMusicReviewTreeItemId,
   } from "$lib/music/music-review-tree";
   import { clampRate, formatPlaybackTime } from "$lib/music/playback";
   import { cn } from "$lib/utils";
@@ -63,20 +64,17 @@
   let newPlaylistName = $state("");
   let newPlaylistDescription = $state("");
   let inlineCreateOpen = $state(false);
-  let laterMenuOpen = $state(false);
-  let laterButton = $state<HTMLButtonElement | null>(null);
-  let laterPopover = $state<HTMLElement | null>(null);
-  let laterDateInput = $state<HTMLInputElement | null>(null);
-  let laterDate = $state("");
   let lastSelectedId = $state<string | null>(null);
   let lastAutoplayedId = $state<string | null>(null);
-  let sessionTotal = $state(0);
+  let retainedSessionTotal = $state<number | null>(null);
   let newPlaylistNameInput = $state<HTMLInputElement | null>(null);
   let checklistRoot = $state<HTMLElement | null>(null);
   let prefetchedArtworkUrls = $state<Record<string, string>>({});
   let prefetchedArtworkReadyIds = $state<Set<string>>(new Set());
   let artworkPrefetchGeneration = 0;
   let preparingNext = $state(false);
+  let sessionSkippedIds = $state<Set<string>>(new Set());
+  let membershipBaselines = $state<Record<string, string>>({});
   const reviewItemsFullyLoaded = $derived(
     library.currentWindow.items.length >= library.currentWindow.totalCount,
   );
@@ -90,6 +88,12 @@
   const item = $derived(library.selectedItem ?? initialReviewItem);
   const detail = $derived(inspector.detail?.item.id === item?.id ? inspector.detail : null);
   const checkedIds = $derived(new Set(detail?.memberships.map((membership) => membership.playlistId) ?? []));
+  const membershipSignature = $derived([...checkedIds].sort().join("\n"));
+  const membershipsChanged = $derived(Boolean(item)
+    && membershipBaselines[item!.id] !== undefined
+    && membershipBaselines[item!.id] !== membershipSignature);
+  const needsSave = $derived(Boolean(item) && (item!.reviewState !== "reviewed" || membershipsChanged));
+  const sessionTotal = $derived(retainedSessionTotal ?? library.currentWindow.totalCount);
   const reviewTreeIndex = $derived(item ? reviewItemIds.indexOf(item.id) : -1);
   const player = $derived(audition.musicPlayer);
   const previewTitle = $derived(detail
@@ -114,19 +118,8 @@
   });
 
   $effect(() => {
-    if (!laterMenuOpen) return;
-    const handlePointerDown = (event: PointerEvent): void => {
-      if (!(event.target instanceof Node)) return;
-      if (laterPopover?.contains(event.target) || laterButton?.contains(event.target)) return;
-      closeLaterMenu(false);
-    };
-    window.addEventListener("pointerdown", handlePointerDown, true);
-    return () => window.removeEventListener("pointerdown", handlePointerDown, true);
-  });
-
-  $effect(() => {
-    if (sessionTotal === 0 && library.currentWindow.totalCount > 0) {
-      sessionTotal = library.currentWindow.totalCount;
+    if (retainedSessionTotal === null && library.currentWindow.totalCount > 0) {
+      retainedSessionTotal = library.currentWindow.totalCount;
     }
   });
 
@@ -173,6 +166,11 @@
     if (!detail || lastAutoplayedId === detail.item.id) return;
     lastAutoplayedId = detail.item.id;
     void audition.preview(detail, sources.bindings, autoplay);
+  });
+
+  $effect(() => {
+    if (!detail || membershipBaselines[detail.item.id] !== undefined) return;
+    membershipBaselines = { ...membershipBaselines, [detail.item.id]: membershipSignature };
   });
 
   onDestroy(() => {
@@ -230,39 +228,60 @@
     prefetchedArtworkReadyIds = new Set([...prefetchedArtworkReadyIds, itemId]);
   }
 
-  async function finishReviewState(reviewState: "reviewed" | "deferred" | "ignored", deferredUntil: number | null = null): Promise<void> {
+  async function finishReviewState(reviewState: "reviewed" | "ignored"): Promise<void> {
     if (preparingNext || review.actionBusy) return;
     const nextItemId = reviewTreeIndex >= 0 ? reviewItemIds[reviewTreeIndex + 1] ?? null : null;
     preparingNext = true;
     try {
       await ensureReviewArtwork(nextItemId);
-      await review.changeReviewState(reviewState, deferredUntil, nextItemId);
+      await review.changeReviewState(reviewState, null, nextItemId);
     } finally {
       preparingNext = false;
     }
   }
 
-  function deferCurrentItem(): void {
-    const deferredUntil = laterDate ? new Date(`${laterDate}T09:00:00`).getTime() : null;
-    closeLaterMenu();
-    void finishReviewState("deferred", Number.isFinite(deferredUntil) ? deferredUntil : null);
+  async function skipCurrentItem(): Promise<void> {
+    if (!item || preparingNext || review.actionBusy) return;
+    preparingNext = true;
+    try {
+      const skipped = new Set(sessionSkippedIds).add(item.id);
+      let nextItemId = nextPendingMusicReviewTreeItemId(library.currentWindow.items, item.id, skipped);
+      if (!nextItemId) {
+        sessionSkippedIds = new Set();
+        nextItemId = nextPendingMusicReviewTreeItemId(library.currentWindow.items, item.id, new Set());
+      } else {
+        sessionSkippedIds = skipped;
+      }
+      await ensureReviewArtwork(nextItemId);
+      if (nextItemId) inspector.selectCached(nextItemId);
+      library.selectItem(nextItemId);
+    } finally {
+      preparingNext = false;
+    }
   }
 
-  async function openLaterMenu(): Promise<void> {
-    laterMenuOpen = true;
-    await tick();
-    laterDateInput?.focus();
+  async function continueCurrentItem(): Promise<void> {
+    if (!item || preparingNext || review.actionBusy || review.membershipBusy.size > 0) return;
+    const nextItemId = reviewTreeIndex >= 0 ? reviewItemIds[reviewTreeIndex + 1] ?? null : null;
+    membershipBaselines = { ...membershipBaselines, [item.id]: membershipSignature };
+    preparingNext = true;
+    try {
+      await ensureReviewArtwork(nextItemId);
+      if (nextItemId) inspector.selectCached(nextItemId);
+      library.selectItem(nextItemId);
+    } finally {
+      preparingNext = false;
+    }
   }
 
-  function closeLaterMenu(restoreFocus = true): void {
-    laterMenuOpen = false;
-    if (restoreFocus && laterButton?.isConnected) queueMicrotask(() => laterButton?.focus());
-  }
-
-  function handleLaterFocusOut(event: FocusEvent): void {
-    const next = event.relatedTarget;
-    if (!(next instanceof Node) || laterPopover?.contains(next) || laterButton?.contains(next)) return;
-    closeLaterMenu(false);
+  async function saveAndContinue(): Promise<void> {
+    if (!item || !needsSave || preparingNext || review.actionBusy || review.membershipBusy.size > 0) return;
+    if (item.reviewState !== "reviewed") {
+      membershipBaselines = { ...membershipBaselines, [item.id]: membershipSignature };
+      await finishReviewState("reviewed");
+      return;
+    }
+    await continueCurrentItem();
   }
 
   async function selectRelative(delta: number): Promise<void> {
@@ -273,12 +292,6 @@
   }
 
   function handleKeydown(event: KeyboardEvent): void {
-    if (event.key === "Escape" && laterMenuOpen) {
-      event.preventDefault();
-      event.stopPropagation();
-      closeLaterMenu();
-      return;
-    }
     if (event.isComposing || event.altKey || isMusicReviewEditableTarget(event.target)) return;
     const modified = event.ctrlKey || event.metaKey;
     if (event.code === "Space" && !modified) {
@@ -290,7 +303,9 @@
     } else if (event.key === "ArrowRight" && modified) {
       event.preventDefault(); void selectRelative(1);
     } else if (event.key === "Enter" && modified) {
-      event.preventDefault(); void finishReviewState("reviewed");
+      event.preventDefault();
+      if (needsSave) void saveAndContinue();
+      else void continueCurrentItem();
     } else if (modified) {
       return;
     } else if (event.key === "ArrowLeft") {
@@ -418,21 +433,12 @@
     </div>
 
     <div class="review-actions grid shrink-0 grid-cols-2 gap-3 p-3">
-      <div class="relative">
-        <button bind:this={laterButton} type="button" aria-haspopup="dialog" aria-expanded={laterMenuOpen} onclick={() => { if (laterMenuOpen) closeLaterMenu(false); else void openLaterMenu(); }} disabled={!detail || review.actionBusy || preparingNext} class="review-action h-full w-full border border-border/70 bg-background text-foreground">{t("music.builder.skipTrack")}</button>
-        {#if laterMenuOpen}
-          <div bind:this={laterPopover} role="dialog" aria-label={t("music.builder.returnDate")} tabindex="-1" onfocusout={handleLaterFocusOut} class="later-popover absolute bottom-[calc(100%+0.5rem)] left-1/2 z-20 w-56 -translate-x-1/2 rounded-xl border border-border/70 bg-card p-3 text-left shadow-xl">
-            <label for="music-review-return-date" class="block text-[0.68rem] font-medium">{t("music.builder.returnDate")}</label>
-            <input bind:this={laterDateInput} id="music-review-return-date" type="date" bind:value={laterDate} min={new Date(Date.now() + 86_400_000).toISOString().slice(0, 10)} class="mt-1.5 h-8 w-full rounded-md border border-border/70 bg-background px-2 text-xs outline-none" />
-            <p class="mt-1.5 text-[0.62rem] leading-relaxed text-muted-foreground">{t("music.builder.returnDateHint")}</p>
-            <div class="mt-2 flex justify-end gap-2">
-              <button type="button" onclick={() => closeLaterMenu()} class="h-7 rounded-md bg-secondary px-2 text-[0.68rem]">{t("music.builder.cancel")}</button>
-              <button type="button" onclick={deferCurrentItem} class="h-7 rounded-md bg-primary px-2 text-[0.68rem] font-medium text-primary-foreground">{t("music.builder.confirmLater")}</button>
-            </div>
-          </div>
-        {/if}
-      </div>
-      <button type="button" onclick={() => { void finishReviewState("reviewed"); }} disabled={!detail || review.actionBusy || preparingNext} class="review-action bg-primary text-primary-foreground" title={t("music.builder.markReviewedTitle", formatShortcut("Mod + Enter"))}><Check size={14} />{t("music.builder.saveAndNext")}<ChevronRight size={14} /></button>
+      {#if item?.reviewState === "reviewed"}
+        <button type="button" onclick={() => { void continueCurrentItem(); }} disabled={!detail || review.actionBusy || preparingNext || review.membershipBusy.size > 0} class="review-action h-full w-full border border-border/70 bg-background text-foreground">{t("music.builder.continue")}</button>
+      {:else}
+        <button type="button" onclick={() => { void skipCurrentItem(); }} disabled={!detail || review.actionBusy || preparingNext} class="review-action h-full w-full border border-border/70 bg-background text-foreground">{t("music.builder.skipTrack")}</button>
+      {/if}
+      <button type="button" onclick={() => { void saveAndContinue(); }} disabled={!detail || !needsSave || review.actionBusy || preparingNext || review.membershipBusy.size > 0} class="review-action bg-primary text-primary-foreground" title={t("music.builder.markReviewedTitle", formatShortcut("Mod + Enter"))}><Check size={14} />{t("music.builder.saveAndContinue")}<ChevronRight size={14} /></button>
     </div>
   </section>
   </div>
@@ -447,7 +453,7 @@
   .review-play { display: grid; height: 2.5rem; width: 2.5rem; place-items: center; border-radius: 9999px; background: var(--primary); color: var(--primary-foreground); }
   .review-play:disabled { opacity: 0.4; }
   .review-action { display: inline-flex; min-height: 2.25rem; align-items: center; justify-content: center; gap: 0.375rem; border-radius: 0.5rem; padding: 0 0.5rem; font-size: 0.72rem; font-weight: 600; }
-  .review-action:disabled { opacity: 0.4; }
+  .review-action:disabled { cursor: not-allowed; opacity: 0.4; }
   @container (width < 620px) {
     .review-workspace { display: flex; flex-direction: column; overflow-y: auto; }
     .review-tree { min-height: 12rem; flex: 0 0 42%; border-right: 0; border-bottom: 1px solid color-mix(in srgb, var(--border) 46%, transparent); }
@@ -470,8 +476,5 @@
   @container (height < 300px) and (width >= 620px) {
     .review-audition { padding-block: 0.5rem; }
     .review-audition > :global(.aspect-video) { max-height: 7rem; }
-  }
-  @container (height < 260px) {
-    .later-popover { position: fixed; inset: 0.5rem; width: auto; max-height: calc(100vh - 1rem); overflow-y: auto; transform: none; }
   }
 </style>

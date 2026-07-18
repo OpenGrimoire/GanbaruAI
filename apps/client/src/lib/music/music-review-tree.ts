@@ -91,6 +91,24 @@ export function firstMusicReviewTreeItemId(items: readonly MusicItemListEntry[])
     ?? null;
 }
 
+/** Finds the next unreviewed track in tree order, wrapping once and honoring session skips. */
+export function nextPendingMusicReviewTreeItemId(
+  items: readonly MusicItemListEntry[],
+  currentItemId: string,
+  skippedItemIds: ReadonlySet<string>,
+): string | null {
+  const orderedIds = musicReviewTreeItemIds(items);
+  const currentIndex = orderedIds.indexOf(currentItemId);
+  const itemsById = new Map(items.map((item) => [item.id, item]));
+  for (let offset = 1; offset <= orderedIds.length; offset += 1) {
+    const index = currentIndex >= 0 ? (currentIndex + offset) % orderedIds.length : offset - 1;
+    const itemId = orderedIds[index];
+    if (!itemId || skippedItemIds.has(itemId)) continue;
+    if (itemsById.get(itemId)?.reviewState !== "reviewed") return itemId;
+  }
+  return null;
+}
+
 /** Returns every folder id so the initial Review tree can open completely. */
 export function musicReviewTreeFolderIds(
   nodes: readonly MusicReviewTreeNode[],
