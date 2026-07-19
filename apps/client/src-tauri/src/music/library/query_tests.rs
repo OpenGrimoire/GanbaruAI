@@ -589,7 +589,7 @@ fn search_rebuild_repairs_stale_rows_and_incremental_membership_metadata() {
             MusicPlaylistUpdate {
                 id: "playlist-1".to_string(),
                 name: "Dawn routine".to_string(),
-                description: String::new(),
+                icon: "lucide:sunrise".to_string(),
                 shuffle_enabled: true,
                 repeat_mode: MusicRepeatMode::All,
                 intended_uses: vec![MusicIntendedUse::General],

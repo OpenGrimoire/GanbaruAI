@@ -48,7 +48,7 @@ export interface MusicInterchangeMembership {
 export interface MusicInterchangePlaylist {
   id: string;
   name: string;
-  description: string;
+  icon: string;
   shuffleEnabled: boolean;
   repeatMode: string;
   intendedUses: string[];
@@ -180,7 +180,7 @@ export function parseMusicInterchangeJson(json: string): MusicInterchangeDocumen
       }
     });
     return {
-      id: text(playlist.id, `${label}.id`, 200), name: text(playlist.name, `${label}.name`, 200), description: text(playlist.description, `${label}.description`, 2_000),
+      id: text(playlist.id, `${label}.id`, 200), name: text(playlist.name, `${label}.name`, 200), icon: text(playlist.icon, `${label}.icon`, 500),
       shuffleEnabled: flag(playlist.shuffleEnabled, `${label}.shuffleEnabled`), repeatMode: choice(playlist.repeatMode, ["off", "all", "one"] as const, `${label}.repeatMode`),
       intendedUses: list(playlist.intendedUses, `${label}.intendedUses`, (use, useLabel) => choice(use, ["general", "focus", "reading", "relaxation", "energizing"] as const, useLabel), 5),
       memberships,
@@ -282,7 +282,7 @@ export function inspectorToInterchangeMembership(detail: MusicInspectorDetail, p
 }
 
 export function playlistToInterchange(playlist: MusicPlaylist, memberships: MusicInterchangeMembership[]): MusicInterchangePlaylist {
-  return { id: playlist.id, name: playlist.name, description: playlist.description, shuffleEnabled: playlist.shuffleEnabled, repeatMode: playlist.repeatMode, intendedUses: [...playlist.intendedUses], memberships };
+  return { id: playlist.id, name: playlist.name, icon: playlist.icon, shuffleEnabled: playlist.shuffleEnabled, repeatMode: playlist.repeatMode, intendedUses: [...playlist.intendedUses], memberships };
 }
 
 export function rootsToInterchange(roots: readonly MusicLocalRoot[]): Array<{ id: string; name: string }> {

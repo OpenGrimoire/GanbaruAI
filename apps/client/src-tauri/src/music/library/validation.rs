@@ -6,7 +6,7 @@ use std::path::{Component, Path};
 pub(crate) const MAX_BULK_MEMBERSHIPS: usize = 500;
 const MAX_ID_BYTES: usize = 200;
 const MAX_NAME_CHARS: usize = 200;
-const MAX_DESCRIPTION_CHARS: usize = 2_000;
+const MAX_ICON_CHARS: usize = 500;
 const MAX_REASON_CHARS: usize = 500;
 const MAX_RELATIVE_PATH_BYTES: usize = 4_096;
 pub(crate) const MAX_ITEM_WINDOW: i64 = 200;
@@ -216,7 +216,7 @@ pub(crate) fn validate_item_repair_apply(request: &MusicItemRepairApply) -> Musi
 pub(crate) fn validate_playlist_create(playlist: &MusicPlaylistCreate) -> MusicLibraryResult<()> {
     validate_id(&playlist.id, "id")?;
     validate_name(&playlist.name)?;
-    validate_optional_text(&playlist.description, "description", MAX_DESCRIPTION_CHARS)?;
+    validate_icon(&playlist.icon)?;
     validate_timestamp(playlist.created_at, "createdAt")?;
     validate_unique_intended_uses(&playlist.intended_uses)
 }
@@ -224,7 +224,7 @@ pub(crate) fn validate_playlist_create(playlist: &MusicPlaylistCreate) -> MusicL
 pub(crate) fn validate_playlist_update(playlist: &MusicPlaylistUpdate) -> MusicLibraryResult<()> {
     validate_id(&playlist.id, "id")?;
     validate_name(&playlist.name)?;
-    validate_optional_text(&playlist.description, "description", MAX_DESCRIPTION_CHARS)?;
+    validate_icon(&playlist.icon)?;
     if playlist.expected_version <= 0 {
         return Err(MusicLibraryError::validation(
             "expectedVersion",
@@ -233,6 +233,12 @@ pub(crate) fn validate_playlist_update(playlist: &MusicPlaylistUpdate) -> MusicL
     }
     validate_timestamp(playlist.updated_at, "updatedAt")?;
     validate_unique_intended_uses(&playlist.intended_uses)
+}
+
+pub(crate) fn validate_icon(icon: &str) -> MusicLibraryResult<()> {
+    validate_optional_text(icon, "icon", MAX_ICON_CHARS)?;
+    crate::projects::validation::validate_project_icon(icon)
+        .map_err(|message| MusicLibraryError::validation("icon", message))
 }
 
 fn validate_unique_intended_uses(uses: &[MusicIntendedUse]) -> MusicLibraryResult<()> {

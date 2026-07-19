@@ -1,4 +1,4 @@
-ALTER TABLE music_playlists ADD COLUMN description TEXT NOT NULL DEFAULT '';
+ALTER TABLE music_playlists ADD COLUMN icon TEXT NOT NULL DEFAULT 'lucide:list-music';
 ALTER TABLE music_playlists ADD COLUMN shuffle_enabled INTEGER NOT NULL DEFAULT 0 CHECK (shuffle_enabled IN (0, 1));
 ALTER TABLE music_playlists ADD COLUMN repeat_mode TEXT NOT NULL DEFAULT 'all' CHECK (repeat_mode IN ('off', 'all', 'one'));
 ALTER TABLE music_playlists ADD COLUMN version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0);

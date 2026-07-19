@@ -98,6 +98,7 @@
     ariaLabel,
     trigger,
     uploadAdapter,
+    showUpload = true,
     class: className = "",
   }: {
     value: string;
@@ -105,6 +106,7 @@
     ariaLabel: string;
     trigger?: Snippet<[IconPickerTriggerContext]>;
     uploadAdapter?: IconPickerUploadAdapter;
+    showUpload?: boolean;
     class?: string;
   } = $props();
 
@@ -960,7 +962,7 @@
   >
     <div class="flex h-12 shrink-0 items-center justify-between border-b border-border/70 px-3">
       <div class="flex min-w-0 items-center gap-3">
-        {#each (["icons", "emoji", "upload"] as const) as tab}
+        {#each (showUpload ? ["icons", "emoji", "upload"] as const : ["icons", "emoji"] as const) as tab}
           <button
             type="button"
             class={cn(

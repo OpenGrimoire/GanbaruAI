@@ -195,3 +195,20 @@
     </div>
   {/if}
 </section>
+
+<style>
+  .review-tree {
+    grid-column: 1;
+    min-height: 0;
+    border-right: 1px solid color-mix(in srgb, var(--border) 46%, transparent);
+  }
+
+  @container (width < 620px) {
+    .review-tree {
+      min-height: 12rem;
+      flex: 0 0 42%;
+      border-right: 0;
+      border-bottom: 1px solid color-mix(in srgb, var(--border) 46%, transparent);
+    }
+  }
+</style>

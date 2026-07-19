@@ -11,7 +11,7 @@ pub(crate) mod structure_commands;
 pub(crate) mod task_commands;
 mod task_views;
 mod templates;
-mod validation;
+pub(crate) mod validation;
 pub(crate) mod workspace;
 
 // Keep the established DTO import surface while command modules use explicit model ownership.

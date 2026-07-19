@@ -7,6 +7,7 @@
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import type { MusicPlaylist, MusicPlaylistSummary } from "$lib/music/library-contracts";
   import { isSystemMusicPlaylistId, systemMusicPlaylistName } from "$lib/music/music-system-playlists";
+  import MusicPlaylistIcon from "./MusicPlaylistIcon.svelte";
 
   let {
     detail,
@@ -34,9 +35,9 @@
 
 <section class="shrink-0 border-b border-border/60 bg-card/35 px-3 py-3">
   <div class="flex min-w-0 items-start gap-3">
+    <span class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-secondary text-muted-foreground"><MusicPlaylistIcon icon={detail.icon} size={17} /></span>
     <div class="min-w-0 flex-1">
       <div class="flex min-w-0 items-center gap-2"><h2 class="truncate text-base font-semibold">{displayName}</h2>{#if protectedIdentity}<span class="shrink-0 rounded-full bg-secondary px-2 py-0.5 text-[0.6rem] text-muted-foreground">{t("music.builder.protectedPlaylist")}</span>{/if}{#if playing}<span class="shrink-0 rounded-full bg-success/12 px-2 py-0.5 text-[0.62rem] font-medium text-success">{t("music.builder.playing")}</span>{/if}</div>
-      {#if detail.description}<p class="mt-1 line-clamp-2 max-w-2xl text-[0.7rem] leading-relaxed text-muted-foreground">{detail.description}</p>{/if}
       <div class="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[0.65rem] text-muted-foreground">
         {#if detail.intendedUses.length > 0}<span>{t("music.builder.playlistIntent", detail.intendedUses.map((use) => t(`music.builder.intendedUse.${use}`)).join(", "))}</span>{/if}
         <span>{t("music.builder.eligibleOfTotal", summary.eligibleCount, summary.totalCount)}</span>

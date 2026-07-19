@@ -65,7 +65,7 @@ describe("music library contracts", () => {
     expect(() => parsePlaylistSummaries([{
       id: "playlist-1",
       name: "Focus",
-      description: "",
+      icon: "lucide:list-music",
       shuffleEnabled: false,
       repeatMode: "all",
       intendedUses: [],

@@ -40,7 +40,7 @@ fn valid_project_icon_asset_path(value: &str) -> bool {
         )
 }
 
-fn validate_project_icon(value: &str) -> Result<(), String> {
+pub(crate) fn validate_project_icon(value: &str) -> Result<(), String> {
     let value = value.trim();
     let valid = value == "none"
         || value

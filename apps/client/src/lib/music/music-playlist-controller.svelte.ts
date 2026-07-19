@@ -21,7 +21,7 @@ import type {
 
 export interface MusicPlaylistDraft {
   name: string;
-  description: string;
+  icon: string;
   shuffleEnabled: boolean;
   repeatMode: MusicRepeatMode;
   intendedUses: MusicIntendedUse[];
@@ -112,7 +112,7 @@ export class MusicPlaylistController {
         }),
         undo: async () => {
           const receipt = await updateMusicPlaylist({
-            id: previous.id, name: previous.name, description: previous.description,
+            id: previous.id, name: previous.name, icon: previous.icon,
             shuffleEnabled: previous.shuffleEnabled, repeatMode: previous.repeatMode,
             intendedUses: previous.intendedUses, expectedVersion: detail.version, updatedAt: this.now(),
           });
@@ -276,7 +276,7 @@ export class MusicPlaylistController {
     const summary = this.library.playlistSummaries.find((entry) => entry.id === playlistId);
     if (!summary) return;
     summary.name = draft.name;
-    summary.description = draft.description;
+    summary.icon = draft.icon;
     summary.shuffleEnabled = draft.shuffleEnabled;
     summary.repeatMode = draft.repeatMode;
     summary.intendedUses = [...draft.intendedUses];
@@ -286,7 +286,7 @@ export class MusicPlaylistController {
 function normalizedDraft(draft: MusicPlaylistDraft): MusicPlaylistDraft {
   return {
     name: draft.name.trim(),
-    description: draft.description.trim(),
+    icon: draft.icon.trim(),
     shuffleEnabled: draft.shuffleEnabled,
     repeatMode: draft.repeatMode,
     intendedUses: [...new Set(draft.intendedUses)],

@@ -148,7 +148,7 @@ export class MusicReviewController {
     }
   }
 
-  async createPlaylistAndAdd(nameInput: string, descriptionInput: string): Promise<string | null> {
+  async createPlaylistAndAdd(nameInput: string, iconInput: string): Promise<string | null> {
     const detail = this.inspector.detail;
     const name = nameInput.trim();
     if (!detail || !name || this.creatingPlaylist) return null;
@@ -157,7 +157,7 @@ export class MusicReviewController {
     const playlistId = this.id();
     try {
       await createMusicPlaylist({
-        id: playlistId, name, description: descriptionInput.trim(), shuffleEnabled: true,
+        id: playlistId, name, icon: iconInput.trim(), shuffleEnabled: true,
         repeatMode: "all", intendedUses: [], createdAt: this.now(),
       });
       await this.library.refreshAfterMutation();

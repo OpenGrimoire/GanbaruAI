@@ -24,7 +24,7 @@ vi.mock("$lib/api/music-library", async (importOriginal) => {
 const summary = (id: string, name: string): MusicPlaylistSummary => ({
   id,
   name,
-  description: `${name} description`,
+  icon: "lucide:list-music",
   shuffleEnabled: false,
   repeatMode: "all",
   intendedUses: [],

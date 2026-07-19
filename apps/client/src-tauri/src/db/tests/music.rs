@@ -32,8 +32,8 @@ fn repeated_migration_startup_preserves_music_data() {
     tauri::async_runtime::block_on(async {
         let pool = migrated_memory_pool().await;
         sqlx::query(
-            "INSERT INTO music_playlists (id, name, description, created_at, updated_at)
-             VALUES ('playlist-1', 'Deep focus', 'User-authored description', 1, 1)",
+            "INSERT INTO music_playlists (id, name, icon, created_at, updated_at)
+             VALUES ('playlist-1', 'Deep focus', 'emoji:🎧', 1, 1)",
         )
         .execute(&pool)
         .await
@@ -45,8 +45,8 @@ fn repeated_migration_startup_preserves_music_data() {
 
         run_migrations(&pool).await.unwrap();
 
-        let playlist: (String, Option<String>) =
-            sqlx::query_as("SELECT name, description FROM music_playlists WHERE id = 'playlist-1'")
+        let playlist: (String, String) =
+            sqlx::query_as("SELECT name, icon FROM music_playlists WHERE id = 'playlist-1'")
                 .fetch_one(&pool)
                 .await
                 .unwrap();
@@ -54,13 +54,7 @@ fn repeated_migration_startup_preserves_music_data() {
             .fetch_one(&pool)
             .await
             .unwrap();
-        assert_eq!(
-            playlist,
-            (
-                "Deep focus".into(),
-                Some("User-authored description".into())
-            )
-        );
+        assert_eq!(playlist, ("Deep focus".into(), "emoji:🎧".into()));
         assert_eq!(repeated_count, migration_count);
     });
 }

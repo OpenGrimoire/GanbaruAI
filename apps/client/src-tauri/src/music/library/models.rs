@@ -299,7 +299,7 @@ pub struct MusicSourceCollection {
 pub struct MusicPlaylist {
     pub id: String,
     pub name: String,
-    pub description: String,
+    pub icon: String,
     pub shuffle_enabled: bool,
     pub repeat_mode: MusicRepeatMode,
     pub intended_uses: Vec<MusicIntendedUse>,
@@ -527,7 +527,7 @@ pub struct MusicCollectionWrite {
 pub struct MusicPlaylistCreate {
     pub id: String,
     pub name: String,
-    pub description: String,
+    pub icon: String,
     pub shuffle_enabled: bool,
     pub repeat_mode: MusicRepeatMode,
     pub intended_uses: Vec<MusicIntendedUse>,
@@ -539,7 +539,7 @@ pub struct MusicPlaylistCreate {
 pub struct MusicPlaylistUpdate {
     pub id: String,
     pub name: String,
-    pub description: String,
+    pub icon: String,
     pub shuffle_enabled: bool,
     pub repeat_mode: MusicRepeatMode,
     pub intended_uses: Vec<MusicIntendedUse>,
@@ -975,7 +975,7 @@ pub struct MusicItemWindow {
 pub struct MusicPlaylistSummary {
     pub id: String,
     pub name: String,
-    pub description: String,
+    pub icon: String,
     pub shuffle_enabled: bool,
     pub repeat_mode: MusicRepeatMode,
     pub intended_uses: Vec<MusicIntendedUse>,
@@ -1188,7 +1188,7 @@ pub struct MusicInterchangeMembership {
 pub struct MusicInterchangePlaylist {
     pub id: String,
     pub name: String,
-    pub description: String,
+    pub icon: String,
     pub shuffle_enabled: bool,
     pub repeat_mode: MusicRepeatMode,
     pub intended_uses: Vec<MusicIntendedUse>,

@@ -31,7 +31,7 @@ fn request(conflict: MusicImportPlaylistConflict) -> MusicInterchangeImportReque
             playlists: vec![MusicInterchangePlaylist {
                 id: "playlist-1".to_string(),
                 name: "Focus".to_string(),
-                description: "Steady music".to_string(),
+                icon: "lucide:laptop".to_string(),
                 shuffle_enabled: true,
                 repeat_mode: MusicRepeatMode::All,
                 intended_uses: vec![MusicIntendedUse::Focus],

@@ -431,7 +431,6 @@ export const music = {
     rememberExitChoice: "Remember this choice",
     keepReviewMusic: "Keep review music",
     restorePreviousMusic: "Restore previous music",
-    inlinePlaylistDescription: "Optional description",
     intendedUse: {
       general: "General",
       focus: "Focus",
@@ -455,7 +454,8 @@ export const music = {
     playlistDialogDescription: "Shape this playlist around a real moment in your day.",
     playlistCopyName: (name: string) => `${name} copy`,
     playlistName: "Playlist name",
-    playlistDescription: "Description",
+    playlistIcon: "Icon",
+    selectPlaylistIcon: "Select playlist icon",
     intendedUses: "Intended uses",
     playlistIntent: (uses: string) => `Made for: ${uses}`,
     shuffleDefault: "Shuffle by default",

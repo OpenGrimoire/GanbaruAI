@@ -42,7 +42,7 @@
   let reducedMotion = $state(false);
   const visiblePlaylists = $derived(playlists.filter((playlist) => {
     const query = search.trim().toLocaleLowerCase();
-    return !query || `${systemMusicPlaylistName(playlist.id, playlist.name, t)} ${playlist.description}`.toLocaleLowerCase().includes(query);
+    return !query || systemMusicPlaylistName(playlist.id, playlist.name, t).toLocaleLowerCase().includes(query);
   }));
   const playlistSections = $derived(partitionMusicPlaylists(visiblePlaylists));
 
@@ -67,10 +67,9 @@
         {#if section.playlists.length > 0}<h2 class="mb-2 mt-4 text-xs font-semibold text-muted-foreground first:mt-0">{section.title}</h2><div class="grid grid-cols-[repeat(auto-fill,minmax(min(14rem,100%),1fr))] gap-2.5">
         {#each section.playlists as playlist (playlist.id)}
           <button type="button" class="overview-card group" animate:flip={{ duration: reducedMotion ? 0 : 140 }} onclick={() => onNavigate({ kind: "playlist", playlistId: playlist.id })}>
-            <span class="overview-icon"><MusicPlaylistIcon playlistId={playlist.id} size={18} strokeWidth={1.45} /></span>
+            <span class="overview-icon"><MusicPlaylistIcon icon={playlist.icon} size={18} strokeWidth={1.45} /></span>
             <span class="min-w-0 flex-1 text-left">
               <strong class="block truncate text-xs font-semibold text-foreground">{systemMusicPlaylistName(playlist.id, playlist.name, t)}</strong>
-              <span class="mt-1 block line-clamp-2 min-h-7 text-[0.68rem] leading-relaxed text-muted-foreground">{playlist.description || t("music.tracks", playlist.totalCount)}</span>
               <span class="mt-2 flex flex-wrap gap-1.5 text-[0.62rem] text-muted-foreground">
                 <span>{t("music.tracks", playlist.totalCount)}</span><span>·</span><span>{playlist.localCount} {t("music.builder.local")}</span><span>·</span><span>{playlist.onlineCount} {t("music.builder.youtube")}</span>
               </span>

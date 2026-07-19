@@ -171,12 +171,12 @@ async fn seed_playlists(tx: &mut Transaction<'_, Sqlite>) -> MusicLibraryResult<
     for (index, name) in NAMES.into_iter().enumerate() {
         sqlx::query(
             "INSERT INTO music_playlists
-                (id, name, description, shuffle_enabled, repeat_mode, created_at, updated_at)
+                (id, name, icon, shuffle_enabled, repeat_mode, created_at, updated_at)
              VALUES (?, ?, ?, ?, 'all', ?, ?)",
         )
         .bind(playlist_id(index))
         .bind(name)
-        .bind(format!("Deterministic {name} benchmark playlist"))
+        .bind("lucide:list-music")
         .bind(i64::from(index.is_multiple_of(2)))
         .bind(SEEDED_AT)
         .bind(SEEDED_AT)

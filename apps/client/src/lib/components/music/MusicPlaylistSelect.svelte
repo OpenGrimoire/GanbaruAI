@@ -46,8 +46,7 @@
   const matching = $derived.by(() => {
     const query = search.trim().toLocaleLowerCase();
     return playlists.filter((playlist) => !query
-      || systemMusicPlaylistName(playlist.id, playlist.name, t).toLocaleLowerCase().includes(query)
-      || playlist.description.toLocaleLowerCase().includes(query));
+      || systemMusicPlaylistName(playlist.id, playlist.name, t).toLocaleLowerCase().includes(query));
   });
 
   async function toggle(): Promise<void> {

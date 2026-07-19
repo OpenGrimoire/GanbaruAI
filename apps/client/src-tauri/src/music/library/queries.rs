@@ -386,7 +386,7 @@ pub(crate) async fn item_window(
 struct PlaylistSummaryRow {
     id: String,
     name: String,
-    description: String,
+    icon: String,
     shuffle_enabled: i64,
     repeat_mode: String,
     intended_uses: String,
@@ -411,7 +411,7 @@ pub(crate) async fn playlist_summaries(
     }
     super::defaults::ensure_built_in_music_playlists(pool).await?;
     let rows = sqlx::query_as::<_, PlaylistSummaryRow>(
-        "SELECT playlist.id, playlist.name, playlist.description, playlist.shuffle_enabled,
+        "SELECT playlist.id, playlist.name, playlist.icon, playlist.shuffle_enabled,
                 playlist.repeat_mode,
                 COALESCE((
                     SELECT group_concat(intended.intended_use, ',')
@@ -459,7 +459,7 @@ pub(crate) async fn playlist_summaries(
             Ok(MusicPlaylistSummary {
                 id: row.id,
                 name: row.name,
-                description: row.description,
+                icon: row.icon,
                 shuffle_enabled: match row.shuffle_enabled {
                     0 => false,
                     1 => true,
@@ -961,7 +961,7 @@ pub(crate) async fn playlist_detail(
     playlist_id: &str,
 ) -> MusicLibraryResult<MusicPlaylist> {
     let row = sqlx::query_as::<_, MusicPlaylistRow>(
-        "SELECT id, name, description, shuffle_enabled, repeat_mode,
+        "SELECT id, name, icon, shuffle_enabled, repeat_mode,
                 created_at, updated_at, version
          FROM music_playlists WHERE id = ?",
     )

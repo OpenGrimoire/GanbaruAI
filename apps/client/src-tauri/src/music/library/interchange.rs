@@ -128,6 +128,7 @@ fn validate_import(request: &MusicInterchangeImportRequest) -> MusicLibraryResul
                 "must contain unique playlists with names",
             ));
         }
+        validate_icon(&playlist.icon)?;
         for membership in &playlist.memberships {
             validate_item(&membership.item, &root_ids)?;
             if membership.position < 0
@@ -253,14 +254,18 @@ async fn import_playlist(
             playlist.id.clone()
         };
     if exists && request.playlist_conflict == MusicImportPlaylistConflict::ReplaceExisting {
-        let protected_name = super::defaults::built_in_music_playlist(&target_id)
+        let protected_identity = super::defaults::built_in_music_playlist(&target_id);
+        let protected_name = protected_identity
             .map(|playlist| playlist.name)
             .unwrap_or(playlist.name.trim());
+        let protected_icon = protected_identity
+            .map(|playlist| playlist.icon)
+            .unwrap_or(playlist.icon.trim());
         sqlx::query(
-            "UPDATE music_playlists SET name = ?, description = ?, shuffle_enabled = ?, repeat_mode = ?, updated_at = ?, version = version + 1 WHERE id = ?",
+            "UPDATE music_playlists SET name = ?, icon = ?, shuffle_enabled = ?, repeat_mode = ?, updated_at = ?, version = version + 1 WHERE id = ?",
         )
         .bind(protected_name)
-        .bind(playlist.description.trim())
+        .bind(protected_icon)
         .bind(i64::from(playlist.shuffle_enabled))
         .bind(playlist.repeat_mode.as_ref())
         .bind(request.imported_at)
@@ -282,11 +287,11 @@ async fn import_playlist(
             })?;
     } else {
         sqlx::query(
-            "INSERT INTO music_playlists (id, name, description, shuffle_enabled, repeat_mode, created_at, updated_at, version) VALUES (?, ?, ?, ?, ?, ?, ?, 1)",
+            "INSERT INTO music_playlists (id, name, icon, shuffle_enabled, repeat_mode, created_at, updated_at, version) VALUES (?, ?, ?, ?, ?, ?, ?, 1)",
         )
         .bind(&target_id)
         .bind(playlist.name.trim())
-        .bind(playlist.description.trim())
+        .bind(playlist.icon.trim())
         .bind(i64::from(playlist.shuffle_enabled))
         .bind(playlist.repeat_mode.as_ref())
         .bind(request.imported_at)

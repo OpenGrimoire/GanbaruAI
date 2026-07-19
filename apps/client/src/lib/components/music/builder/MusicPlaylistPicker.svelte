@@ -40,7 +40,7 @@
   const { t } = getLocalization();
   const visible = $derived(sortReviewPlaylists(playlists, "").filter((playlist) => {
     const query = search.trim().toLocaleLowerCase();
-    return !query || `${systemMusicPlaylistName(playlist.id, playlist.name, t)} ${playlist.description}`.toLocaleLowerCase().includes(query);
+    return !query || systemMusicPlaylistName(playlist.id, playlist.name, t).toLocaleLowerCase().includes(query);
   }));
   const sections = $derived(partitionMusicPlaylists(visible));
   const displayedSections = $derived(showSections
@@ -84,7 +84,7 @@
       <label class={cn("playlist-card flex min-w-0 cursor-pointer flex-wrap items-center gap-2 rounded-lg px-3 py-2.5 transition-colors", checked || mixed ? "bg-primary/10" : "bg-secondary/35")}>
         <span class="flex min-w-0 flex-1 items-center gap-3 text-left">
           <span class={cn("grid h-8 w-8 shrink-0 place-items-center", checked || mixed ? "text-primary" : "text-muted-foreground")}>
-            <MusicPlaylistIcon playlistId={playlist.id} size={16} />
+            <MusicPlaylistIcon icon={playlist.icon} size={16} />
           </span>
           <span class="min-w-0 flex-1"><strong class="block truncate text-xs font-medium">{playlistName}</strong><span class="block text-[0.62rem] tabular-nums text-muted-foreground">{t("music.tracks", playlist.totalCount)}</span></span>
         </span>

@@ -8,52 +8,64 @@ use super::{MusicLibraryError, MusicLibraryResult};
 pub(super) struct BuiltInMusicPlaylist {
     pub(super) id: &'static str,
     pub(super) name: &'static str,
+    pub(super) icon: &'static str,
 }
 
 pub(super) const BUILT_IN_MUSIC_PLAYLISTS: &[BuiltInMusicPlaylist] = &[
     BuiltInMusicPlaylist {
         id: "playlist-default-start-of-day",
         name: "Start of the day!",
+        icon: "lucide:sunrise",
     },
     BuiltInMusicPlaylist {
         id: "playlist-default-work-focus",
         name: "Work (focus)",
+        icon: "lucide:laptop",
     },
     BuiltInMusicPlaylist {
         id: "playlist-default-work-ganbare",
         name: "Work (ganbare!)",
+        icon: "lucide:coffee",
     },
     BuiltInMusicPlaylist {
         id: "playlist-default-break-calm",
         name: "Break (calm)",
+        icon: "lucide:tree-pine",
     },
     BuiltInMusicPlaylist {
         id: "playlist-default-break-active",
         name: "Break (active)",
+        icon: "lucide:footprints",
     },
     BuiltInMusicPlaylist {
         id: "playlist-default-meditate",
         name: "Meditate",
+        icon: "lucide:smile",
     },
     BuiltInMusicPlaylist {
         id: "playlist-default-exercise",
         name: "Exercise",
+        icon: "lucide:sport-shoe",
     },
     BuiltInMusicPlaylist {
         id: "playlist-default-hygiene",
         name: "Hygiene",
+        icon: "lucide:bath",
     },
     BuiltInMusicPlaylist {
         id: "playlist-default-chores",
         name: "Chores",
+        icon: "lucide:shopping-cart",
     },
     BuiltInMusicPlaylist {
         id: "playlist-default-cooking",
         name: "Cooking",
+        icon: "lucide:apple",
     },
     BuiltInMusicPlaylist {
         id: "playlist-default-commute",
         name: "Commute",
+        icon: "lucide:bike",
     },
 ];
 
@@ -99,11 +111,12 @@ pub(super) async fn ensure_built_in_music_playlists(pool: &SqlitePool) -> MusicL
     for playlist in BUILT_IN_MUSIC_PLAYLISTS {
         sqlx::query(
             "INSERT OR IGNORE INTO music_playlists
-                (id, name, description, shuffle_enabled, repeat_mode, created_at, updated_at, version)
-             VALUES (?, ?, '', 1, 'all', 1, 1, 1)",
+                (id, name, icon, shuffle_enabled, repeat_mode, created_at, updated_at, version)
+             VALUES (?, ?, ?, 1, 'all', 1, 1, 1)",
         )
         .bind(playlist.id)
         .bind(playlist.name)
+        .bind(playlist.icon)
         .execute(&mut *transaction)
         .await
         .map_err(|error| MusicLibraryError::database("restore built-in music playlist", error))?;

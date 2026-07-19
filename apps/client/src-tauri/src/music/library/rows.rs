@@ -89,7 +89,7 @@ impl TryFrom<MusicLibraryItemRow> for MusicLibraryItem {
 pub(crate) struct MusicPlaylistRow {
     pub id: String,
     pub name: String,
-    pub description: String,
+    pub icon: String,
     pub shuffle_enabled: i64,
     pub repeat_mode: String,
     pub created_at: i64,
@@ -105,7 +105,7 @@ impl MusicPlaylistRow {
         Ok(MusicPlaylist {
             id: self.id,
             name: self.name,
-            description: self.description,
+            icon: self.icon,
             shuffle_enabled: parse_bool(self.shuffle_enabled, "shuffleEnabled")?,
             repeat_mode: parse_enum(&self.repeat_mode, "repeatMode")?,
             intended_uses,

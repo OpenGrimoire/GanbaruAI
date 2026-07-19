@@ -65,7 +65,7 @@ export function sortReviewPlaylists(
 ): MusicPlaylistSummary[] {
   const query = search.trim().toLocaleLowerCase();
   return orderMusicPlaylists(
-    playlists.filter((playlist) => !query || `${playlist.name} ${playlist.description}`.toLocaleLowerCase().includes(query)),
+    playlists.filter((playlist) => !query || playlist.name.toLocaleLowerCase().includes(query)),
   );
 }
 

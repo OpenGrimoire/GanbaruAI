@@ -35,7 +35,7 @@ pub(super) fn playlist(id: &str) -> MusicPlaylistCreate {
     MusicPlaylistCreate {
         id: id.to_string(),
         name: "Focus".to_string(),
-        description: "Quiet soundtrack".to_string(),
+        icon: "lucide:laptop".to_string(),
         shuffle_enabled: true,
         repeat_mode: MusicRepeatMode::All,
         intended_uses: vec![MusicIntendedUse::Focus],
@@ -110,7 +110,7 @@ fn built_in_music_playlists_are_protected_localizable_and_repaired() {
             MusicPlaylistUpdate {
                 id: detail.id.clone(),
                 name: "Renamed".to_string(),
-                description: "Quiet".to_string(),
+                icon: "lucide:rocket".to_string(),
                 shuffle_enabled: detail.shuffle_enabled,
                 repeat_mode: detail.repeat_mode,
                 intended_uses: detail.intended_uses,
@@ -120,13 +120,16 @@ fn built_in_music_playlists_are_protected_localizable_and_repaired() {
         )
         .await
         .unwrap();
-        let repaired_name: String = sqlx::query_scalar(
-            "SELECT name FROM music_playlists WHERE id = 'playlist-default-work-focus'",
+        let repaired_identity: (String, String) = sqlx::query_as(
+            "SELECT name, icon FROM music_playlists WHERE id = 'playlist-default-work-focus'",
         )
         .fetch_one(&pool)
         .await
         .unwrap();
-        assert_eq!(repaired_name, "Work (focus)");
+        assert_eq!(
+            repaired_identity,
+            ("Work (focus)".into(), "lucide:laptop".into())
+        );
         assert!(
             writes::playlist_delete_impact(&pool, "playlist-default-work-focus")
                 .await
@@ -450,7 +453,7 @@ fn playlist_create_update_and_stale_detection_are_transactional() {
             MusicPlaylistUpdate {
                 id: "playlist-1".to_string(),
                 name: "Deep focus".to_string(),
-                description: "No vocals".to_string(),
+                icon: "emoji:🎧".to_string(),
                 shuffle_enabled: false,
                 repeat_mode: MusicRepeatMode::Off,
                 intended_uses: vec![MusicIntendedUse::Focus, MusicIntendedUse::Reading],
@@ -467,7 +470,7 @@ fn playlist_create_update_and_stale_detection_are_transactional() {
             MusicPlaylistUpdate {
                 id: "playlist-1".to_string(),
                 name: "Stale edit".to_string(),
-                description: String::new(),
+                icon: "lucide:list-music".to_string(),
                 shuffle_enabled: false,
                 repeat_mode: MusicRepeatMode::All,
                 intended_uses: Vec::new(),
@@ -487,6 +490,13 @@ fn playlist_create_update_and_stale_detection_are_transactional() {
         .await
         .unwrap();
         assert_eq!(uses, vec!["focus", "reading"]);
+        assert_eq!(
+            queries::playlist_detail(&pool, "playlist-1")
+                .await
+                .unwrap()
+                .icon,
+            "emoji:🎧",
+        );
     });
 }
 

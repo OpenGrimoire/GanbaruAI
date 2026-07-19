@@ -10,6 +10,7 @@
   import Slash from "@lucide/svelte/icons/slash";
   import X from "@lucide/svelte/icons/x";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
+  import IconPicker from "$lib/components/icon-picker/IconPicker.svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import type { MusicBuilderInspectorController } from "$lib/music/music-builder-inspector.svelte";
   import type { MusicLibraryController } from "$lib/music/music-library-controller.svelte";
@@ -64,7 +65,7 @@
   const { t } = getLocalization();
   let surface = $state<HTMLElement | null>(null);
   let newPlaylistName = $state("");
-  let newPlaylistDescription = $state("");
+  let newPlaylistIcon = $state("lucide:list-music");
   let inlineCreateOpen = $state(false);
   let lastSelectedId = $state<string | null>(null);
   let lastAutoplayedId = $state<string | null>(null);
@@ -190,10 +191,10 @@
   }
 
   async function createPlaylistAndAdd(): Promise<void> {
-    const playlistId = await review.createPlaylistAndAdd(newPlaylistName, newPlaylistDescription);
+    const playlistId = await review.createPlaylistAndAdd(newPlaylistName, newPlaylistIcon);
     if (!playlistId) return;
     newPlaylistName = "";
-    newPlaylistDescription = "";
+    newPlaylistIcon = "lucide:list-music";
     inlineCreateOpen = false;
     await tick();
     checklistRoot?.querySelector<HTMLElement>(`[data-review-playlist-id="${playlistId}"]`)?.focus();
@@ -415,7 +416,7 @@
       {#if inlineCreateOpen}
         <form class="mt-2 rounded-lg border border-border/70 bg-background/75 p-2" onsubmit={(event) => { event.preventDefault(); void createPlaylistAndAdd(); }}>
           <input bind:this={newPlaylistNameInput} bind:value={newPlaylistName} aria-label={t("music.builder.inlinePlaylistName")} class="h-8 w-full rounded-md border border-border/70 bg-background px-2.5 text-xs outline-none focus:border-primary" placeholder={t("music.builder.inlinePlaylistName")} />
-          <input bind:value={newPlaylistDescription} aria-label={t("music.builder.inlinePlaylistDescription")} class="mt-2 h-8 w-full rounded-md border border-border/70 bg-background px-2.5 text-xs outline-none focus:border-primary" placeholder={t("music.builder.inlinePlaylistDescription")} />
+          <div class="mt-2 flex items-center justify-between gap-3"><span class="text-[0.68rem] font-medium">{t("music.builder.playlistIcon")}</span><IconPicker value={newPlaylistIcon} onChange={(value) => newPlaylistIcon = value} ariaLabel={t("music.builder.selectPlaylistIcon")} showUpload={false} class="w-40" /></div>
           {#if review.createError}<p class="mt-1.5 text-[0.65rem] text-destructive" role="alert">{review.createError}</p>{/if}
           <div class="mt-2 flex justify-end gap-2">
             <button type="button" onclick={() => { inlineCreateOpen = false; review.createError = null; }} class="h-8 rounded-md bg-secondary px-2.5 text-xs font-medium">{t("music.builder.cancel")}</button>
@@ -463,7 +464,6 @@
 
 <style>
   .review-workspace { grid-template-columns: minmax(13rem, 0.72fr) minmax(22rem, 2fr); }
-  .review-tree { grid-column: 1; min-height: 0; border-right: 1px solid color-mix(in srgb, var(--border) 46%, transparent); }
   .review-main { grid-column: 2; min-height: 0; }
   .review-audition { flex: 0 0 auto; }
   .review-classify { min-height: 14rem; flex: 1 1 0; }
@@ -473,7 +473,6 @@
   .review-action:disabled { cursor: not-allowed; opacity: 0.4; }
   @container (width < 620px) {
     .review-workspace { display: flex; flex-direction: column; overflow-y: auto; }
-    .review-tree { min-height: 12rem; flex: 0 0 42%; border-right: 0; border-bottom: 1px solid color-mix(in srgb, var(--border) 46%, transparent); }
     .review-main { min-height: 32rem; flex: 1 0 auto; overflow: visible; }
     .review-audition, .review-classify { min-height: auto; overflow: visible; }
     .review-audition { flex: 0 0 auto; padding: 0.625rem; }

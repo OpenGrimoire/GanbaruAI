@@ -38,7 +38,7 @@ fn push_projection(builder: &mut QueryBuilder<'_, Sqlite>) {
             ), ''),
             COALESCE((
                 SELECT group_concat(metadata, ' ') FROM (
-                    SELECT playlist.name || ' ' || playlist.description || ' ' ||
+                    SELECT playlist.name || ' ' ||
                            COALESCE((
                                SELECT group_concat(intended_use, ' ')
                                FROM music_playlist_intended_uses AS intended
