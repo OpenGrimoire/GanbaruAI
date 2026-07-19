@@ -102,7 +102,7 @@ fn built_in_music_playlists_are_protected_localizable_and_repaired() {
             defaults::BUILT_IN_MUSIC_PLAYLISTS.len(),
         );
 
-        let detail = queries::playlist_detail(&pool, "playlist-default-reading")
+        let detail = queries::playlist_detail(&pool, "playlist-default-work-focus")
             .await
             .unwrap();
         writes::update_playlist(
@@ -121,19 +121,19 @@ fn built_in_music_playlists_are_protected_localizable_and_repaired() {
         .await
         .unwrap();
         let repaired_name: String = sqlx::query_scalar(
-            "SELECT name FROM music_playlists WHERE id = 'playlist-default-reading'",
+            "SELECT name FROM music_playlists WHERE id = 'playlist-default-work-focus'",
         )
         .fetch_one(&pool)
         .await
         .unwrap();
-        assert_eq!(repaired_name, "Reading");
+        assert_eq!(repaired_name, "Work (focus)");
         assert!(
-            writes::playlist_delete_impact(&pool, "playlist-default-reading")
+            writes::playlist_delete_impact(&pool, "playlist-default-work-focus")
                 .await
                 .is_err()
         );
 
-        sqlx::query("DELETE FROM music_playlists WHERE id = 'playlist-default-reading'")
+        sqlx::query("DELETE FROM music_playlists WHERE id = 'playlist-default-work-focus'")
             .execute(&pool)
             .await
             .unwrap();
@@ -142,7 +142,7 @@ fn built_in_music_playlists_are_protected_localizable_and_repaired() {
             .unwrap();
         assert!(repaired
             .iter()
-            .any(|playlist| playlist.id == "playlist-default-reading"));
+            .any(|playlist| playlist.id == "playlist-default-work-focus"));
     });
 }
 

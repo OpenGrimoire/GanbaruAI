@@ -261,7 +261,7 @@
   }
 
   async function continueCurrentItem(): Promise<void> {
-    if (!item || preparingNext || review.actionBusy || review.membershipBusy.size > 0) return;
+    if (!item || preparingNext || review.actionBusy) return;
     const nextItemId = reviewTreeIndex >= 0 ? reviewItemIds[reviewTreeIndex + 1] ?? null : null;
     membershipBaselines = { ...membershipBaselines, [item.id]: membershipSignature };
     preparingNext = true;
@@ -275,7 +275,7 @@
   }
 
   async function saveAndContinue(): Promise<void> {
-    if (!item || !needsSave || preparingNext || review.actionBusy || review.membershipBusy.size > 0) return;
+    if (!item || !needsSave || preparingNext || review.actionBusy) return;
     if (item.reviewState !== "reviewed") {
       membershipBaselines = { ...membershipBaselines, [item.id]: membershipSignature };
       await finishReviewState("reviewed");
@@ -344,10 +344,8 @@
   <div class="review-main flex min-h-0 min-w-0 flex-col overflow-hidden">
   <section class="review-audition min-h-0 overflow-y-auto px-4 pb-3 pt-2" data-music-scrollable="true">
     <div class="flex items-center justify-between gap-3">
-      <div class="flex min-w-0 items-center gap-2">
-        <button type="button" onclick={onOpenPlayer} class="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-secondary px-2.5 text-[0.7rem]" aria-label={t("music.backToPlayer")}><ChevronLeft size={14} />{t("music.backToPlayer")}</button>
-        <p class="truncate text-[0.68rem] font-medium text-muted-foreground" role="status" aria-live="polite">{t("music.builder.reviewProgress", reviewedCount, library.currentWindow.totalCount)}</p>
-      </div>
+      <button type="button" onclick={onOpenPlayer} class="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-secondary px-2.5 text-[0.7rem]" aria-label={t("music.backToPlayer")}><ChevronLeft size={14} />{t("music.backToPlayer")}</button>
+      <p class="min-w-0 flex-1 truncate text-center text-[0.68rem] font-medium text-muted-foreground" role="status" aria-live="polite">{t("music.builder.reviewProgress", reviewedCount, library.currentWindow.totalCount)}</p>
       <div class="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
         <button type="button" onclick={() => onAutoplayChange(!autoplay)} aria-pressed={autoplay} class="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[0.65rem] text-foreground transition-colors hover:bg-secondary">
           {#if autoplay}
@@ -442,11 +440,11 @@
 
     <div class="review-actions grid shrink-0 grid-cols-2 gap-3 p-3">
       {#if item?.reviewState === "reviewed"}
-        <button type="button" onclick={() => { void continueCurrentItem(); }} disabled={!detail || review.actionBusy || preparingNext || review.membershipBusy.size > 0} class="review-action h-full w-full border border-border/70 bg-background text-foreground">{t("music.builder.continue")}</button>
+        <button type="button" onclick={() => { void continueCurrentItem(); }} disabled={!detail || review.actionBusy || preparingNext} class="review-action h-full w-full border border-border/70 bg-background text-foreground">{t("music.builder.continue")}</button>
       {:else}
         <button type="button" onclick={() => { void skipCurrentItem(); }} disabled={!detail || review.actionBusy || preparingNext} class="review-action h-full w-full border border-border/70 bg-background text-foreground">{t("music.builder.skipTrack")}</button>
       {/if}
-      <button type="button" onclick={() => { void saveAndContinue(); }} disabled={!detail || !needsSave || review.actionBusy || preparingNext || review.membershipBusy.size > 0} class="review-action bg-primary text-primary-foreground" title={t("music.builder.markReviewedTitle", formatShortcut("Mod + Enter"))}><Check size={14} />{t("music.builder.saveAndContinue")}<ChevronRight size={14} /></button>
+      <button type="button" onclick={() => { void saveAndContinue(); }} disabled={!detail || !needsSave || review.actionBusy || preparingNext} class="review-action bg-primary text-primary-foreground" title={t("music.builder.markReviewedTitle", formatShortcut("Mod + Enter"))}><Check size={14} />{t("music.builder.saveAndContinue")}<ChevronRight size={14} /></button>
     </div>
   </section>
   </div>

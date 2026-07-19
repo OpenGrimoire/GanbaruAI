@@ -1,23 +1,13 @@
 <script lang="ts">
   import Check from "@lucide/svelte/icons/check";
-  import Bath from "@lucide/svelte/icons/bath";
-  import Bike from "@lucide/svelte/icons/bike";
-  import BookOpen from "@lucide/svelte/icons/book-open";
-  import Coffee from "@lucide/svelte/icons/coffee";
-  import Dumbbell from "@lucide/svelte/icons/dumbbell";
-  import Flower2 from "@lucide/svelte/icons/flower-2";
-  import Laptop from "@lucide/svelte/icons/laptop";
-  import ListMusic from "@lucide/svelte/icons/list-music";
   import Minus from "@lucide/svelte/icons/minus";
   import Search from "@lucide/svelte/icons/search";
-  import ShoppingCart from "@lucide/svelte/icons/shopping-cart";
-  import Sunrise from "@lucide/svelte/icons/sunrise";
-  import TreePine from "@lucide/svelte/icons/tree-pine";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { sortReviewPlaylists } from "$lib/music/music-review";
   import { partitionMusicPlaylists, systemMusicPlaylistName } from "$lib/music/music-system-playlists";
   import type { MusicPlaylistSummary } from "$lib/music/library-contracts";
   import { cn } from "$lib/utils";
+  import MusicPlaylistIcon from "./MusicPlaylistIcon.svelte";
 
   let {
     playlists,
@@ -91,20 +81,10 @@
       {@const mixed = mixedIds.has(playlist.id)}
       {@const playlistName = systemMusicPlaylistName(playlist.id, playlist.name, t)}
       {@const errorId = errors[playlist.id] ? `music-playlist-membership-error-${playlist.id}` : undefined}
-      <label class={cn("playlist-card flex min-w-0 cursor-pointer flex-wrap items-center gap-2 rounded-lg px-3 py-2.5 transition-colors", checked || mixed ? "bg-primary/10" : "bg-secondary/35 hover:bg-secondary/55")}>
+      <label class={cn("playlist-card flex min-w-0 cursor-pointer flex-wrap items-center gap-2 rounded-lg px-3 py-2.5 transition-colors", checked || mixed ? "bg-primary/10" : "bg-secondary/35")}>
         <span class="flex min-w-0 flex-1 items-center gap-3 text-left">
           <span class={cn("grid h-8 w-8 shrink-0 place-items-center", checked || mixed ? "text-primary" : "text-muted-foreground")}>
-            {#if playlist.id === "playlist-default-reading"}<BookOpen size={16} />
-            {:else if playlist.id === "playlist-default-exercise"}<Dumbbell size={16} />
-            {:else if playlist.id === "playlist-default-hygiene"}<Bath size={16} />
-            {:else if playlist.id === "playlist-default-commute"}<Bike size={16} />
-            {:else if playlist.id === "playlist-default-chores"}<ShoppingCart size={16} />
-            {:else if playlist.id === "playlist-default-meditate"}<Flower2 size={16} />
-            {:else if playlist.id === "playlist-default-start-of-day"}<Sunrise size={16} />
-            {:else if playlist.id === "playlist-default-working"}<Laptop size={16} />
-            {:else if playlist.id === "playlist-default-short-breaks"}<Coffee size={16} />
-            {:else if playlist.id === "playlist-default-long-breaks"}<TreePine size={16} />
-            {:else}<ListMusic size={16} />{/if}
+            <MusicPlaylistIcon playlistId={playlist.id} size={16} />
           </span>
           <span class="min-w-0 flex-1"><strong class="block truncate text-xs font-medium">{playlistName}</strong><span class="block text-[0.62rem] tabular-nums text-muted-foreground">{t("music.tracks", playlist.totalCount)}</span></span>
         </span>

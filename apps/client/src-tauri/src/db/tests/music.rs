@@ -383,7 +383,7 @@ fn default_playlists_without_tracks_do_not_block_playback_state_persistence() {
             .fetch_one(&pool)
             .await
             .unwrap();
-        assert_eq!(playlists, 10);
+        assert_eq!(playlists, 11);
         assert_eq!(tracks, 0);
 
         sqlx::query(
@@ -413,7 +413,7 @@ fn default_playlists_without_tracks_do_not_block_playback_state_persistence() {
             .fetch_one(&pool)
             .await
             .unwrap();
-        assert_eq!(playlists_after, 10);
+        assert_eq!(playlists_after, 11);
         assert_eq!(tracks_after, 0);
     });
 }

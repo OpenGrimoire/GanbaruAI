@@ -12,8 +12,28 @@ pub(super) struct BuiltInMusicPlaylist {
 
 pub(super) const BUILT_IN_MUSIC_PLAYLISTS: &[BuiltInMusicPlaylist] = &[
     BuiltInMusicPlaylist {
-        id: "playlist-default-reading",
-        name: "Reading",
+        id: "playlist-default-start-of-day",
+        name: "Start of the day!",
+    },
+    BuiltInMusicPlaylist {
+        id: "playlist-default-work-focus",
+        name: "Work (focus)",
+    },
+    BuiltInMusicPlaylist {
+        id: "playlist-default-work-ganbare",
+        name: "Work (ganbare!)",
+    },
+    BuiltInMusicPlaylist {
+        id: "playlist-default-break-calm",
+        name: "Break (calm)",
+    },
+    BuiltInMusicPlaylist {
+        id: "playlist-default-break-active",
+        name: "Break (active)",
+    },
+    BuiltInMusicPlaylist {
+        id: "playlist-default-meditate",
+        name: "Meditate",
     },
     BuiltInMusicPlaylist {
         id: "playlist-default-exercise",
@@ -24,32 +44,16 @@ pub(super) const BUILT_IN_MUSIC_PLAYLISTS: &[BuiltInMusicPlaylist] = &[
         name: "Hygiene",
     },
     BuiltInMusicPlaylist {
-        id: "playlist-default-commute",
-        name: "Commute",
-    },
-    BuiltInMusicPlaylist {
         id: "playlist-default-chores",
         name: "Chores",
     },
     BuiltInMusicPlaylist {
-        id: "playlist-default-meditate",
-        name: "Meditate",
+        id: "playlist-default-cooking",
+        name: "Cooking",
     },
     BuiltInMusicPlaylist {
-        id: "playlist-default-start-of-day",
-        name: "Start of the day!",
-    },
-    BuiltInMusicPlaylist {
-        id: "playlist-default-working",
-        name: "Working",
-    },
-    BuiltInMusicPlaylist {
-        id: "playlist-default-short-breaks",
-        name: "Short breaks",
-    },
-    BuiltInMusicPlaylist {
-        id: "playlist-default-long-breaks",
-        name: "Long breaks",
+        id: "playlist-default-commute",
+        name: "Commute",
     },
 ];
 

@@ -5,6 +5,7 @@ import type {
   MusicWeight,
 } from "$lib/music/library-contracts";
 import { musicArtworkDataUrl, musicEmbeddedArtworkDataUrl } from "$lib/music/music-artwork-cache";
+import { orderMusicPlaylists } from "$lib/music/music-system-playlists";
 import { localFileSourceFromPath, parseMusicSourceInput, type MusicSource } from "$lib/music/sources";
 
 export type MusicReviewExitPreference = "ask" | "restore" | "keep";
@@ -63,9 +64,9 @@ export function sortReviewPlaylists(
   search: string,
 ): MusicPlaylistSummary[] {
   const query = search.trim().toLocaleLowerCase();
-  return playlists
-    .filter((playlist) => !query || `${playlist.name} ${playlist.description}`.toLocaleLowerCase().includes(query))
-    .toSorted((left, right) => left.name.localeCompare(right.name));
+  return orderMusicPlaylists(
+    playlists.filter((playlist) => !query || `${playlist.name} ${playlist.description}`.toLocaleLowerCase().includes(query)),
+  );
 }
 
 export function nextMusicWeight(weight: MusicWeight): MusicWeight {

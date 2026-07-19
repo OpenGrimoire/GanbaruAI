@@ -2,7 +2,6 @@
   import AlertTriangle from "@lucide/svelte/icons/triangle-alert";
   import AudioLines from "@lucide/svelte/icons/audio-lines";
   import FolderSearch from "@lucide/svelte/icons/folder-search";
-  import ListMusic from "@lucide/svelte/icons/list-music";
   import Plus from "@lucide/svelte/icons/plus";
   import Download from "@lucide/svelte/icons/download";
   import Upload from "@lucide/svelte/icons/upload";
@@ -14,6 +13,7 @@
   import type { MusicBuilderDestination } from "$lib/music/music-builder-routing";
   import { partitionMusicPlaylists, systemMusicPlaylistName } from "$lib/music/music-system-playlists";
   import MusicBuilderAsyncState from "./MusicBuilderAsyncState.svelte";
+  import MusicPlaylistIcon from "./MusicPlaylistIcon.svelte";
   import MusicSoundscapeBuilder from "../MusicSoundscapeBuilder.svelte";
 
   let {
@@ -67,7 +67,7 @@
         {#if section.playlists.length > 0}<h2 class="mb-2 mt-4 text-xs font-semibold text-muted-foreground first:mt-0">{section.title}</h2><div class="grid grid-cols-[repeat(auto-fill,minmax(min(14rem,100%),1fr))] gap-2.5">
         {#each section.playlists as playlist (playlist.id)}
           <button type="button" class="overview-card group" animate:flip={{ duration: reducedMotion ? 0 : 140 }} onclick={() => onNavigate({ kind: "playlist", playlistId: playlist.id })}>
-            <span class="overview-icon"><ListMusic size={18} strokeWidth={1.45} /></span>
+            <span class="overview-icon"><MusicPlaylistIcon playlistId={playlist.id} size={18} strokeWidth={1.45} /></span>
             <span class="min-w-0 flex-1 text-left">
               <strong class="block truncate text-xs font-semibold text-foreground">{systemMusicPlaylistName(playlist.id, playlist.name, t)}</strong>
               <span class="mt-1 block line-clamp-2 min-h-7 text-[0.68rem] leading-relaxed text-muted-foreground">{playlist.description || t("music.tracks", playlist.totalCount)}</span>
