@@ -46,6 +46,8 @@ export interface MusicPlaylistUpdate extends Omit<MusicPlaylistCreate, "createdA
   expectedVersion: number;
   updatedAt: number;
 }
+export interface MusicPlaylistOrderEntry { playlistId: string; expectedVersion: number }
+export interface MusicPlaylistsReorder { playlists: MusicPlaylistOrderEntry[]; updatedAt: number }
 export interface MusicPlaylistDuplicate {
   sourcePlaylistId: string;
   newPlaylistId: string;
@@ -294,6 +296,7 @@ export interface MusicPlaylistSummary {
   shuffleEnabled: boolean;
   repeatMode: MusicRepeatMode;
   intendedUses: MusicIntendedUse[];
+  sortOrder: number;
   totalCount: number;
   eligibleCount: number;
   unavailableCount: number;
@@ -535,6 +538,7 @@ export interface MusicPlaylist {
   shuffleEnabled: boolean;
   repeatMode: MusicRepeatMode;
   intendedUses: MusicIntendedUse[];
+  sortOrder: number;
   createdAt: number;
   updatedAt: number;
   version: number;
@@ -674,6 +678,7 @@ function parsePlaylistSummary(value: unknown, label: string): MusicPlaylistSumma
     id: string(row.id, `${label}.id`), name: string(row.name, `${label}.name`), icon: string(row.icon, `${label}.icon`),
     shuffleEnabled: boolean(row.shuffleEnabled, `${label}.shuffleEnabled`), repeatMode: enumeration(row.repeatMode, repeatModes, `${label}.repeatMode`),
     intendedUses: array(row.intendedUses, (entry, entryLabel) => enumeration(entry, intendedUses, entryLabel), `${label}.intendedUses`),
+    sortOrder: number(row.sortOrder, `${label}.sortOrder`),
     totalCount: number(row.totalCount, `${label}.totalCount`), eligibleCount: number(row.eligibleCount, `${label}.eligibleCount`), unavailableCount: number(row.unavailableCount, `${label}.unavailableCount`),
     snoozedCount: number(row.snoozedCount, `${label}.snoozedCount`), localCount: number(row.localCount, `${label}.localCount`), onlineCount: number(row.onlineCount, `${label}.onlineCount`), version: number(row.version, `${label}.version`),
   };
@@ -722,7 +727,7 @@ function parseRoot(value: unknown, label: string): MusicLocalRoot { const row = 
 export const parseRoots = (value: unknown): MusicLocalRoot[] => array(value, parseRoot, "music roots");
 function parseCollection(value: unknown, label: string): MusicSourceCollection { const row = object(value, label); return { id: string(row.id, `${label}.id`), kind: enumeration(row.kind, collectionKinds, `${label}.kind`), identityKey: string(row.identityKey, `${label}.identityKey`), name: string(row.name, `${label}.name`), localRootId: nullable(row.localRootId, string, `${label}.localRootId`), youtubePlaylistId: nullable(row.youtubePlaylistId, string, `${label}.youtubePlaylistId`), refreshState: enumeration(row.refreshState, refreshStates, `${label}.refreshState`), lastSuccessfulRefreshAt: nullable(row.lastSuccessfulRefreshAt, number, `${label}.lastSuccessfulRefreshAt`), previousSuccessfulRefreshAt: nullable(row.previousSuccessfulRefreshAt, number, `${label}.previousSuccessfulRefreshAt`), lastRefreshErrorCode: nullable(row.lastRefreshErrorCode, string, `${label}.lastRefreshErrorCode`), snapshotGeneration: number(row.snapshotGeneration, `${label}.snapshotGeneration`), createdAt: number(row.createdAt, `${label}.createdAt`), updatedAt: number(row.updatedAt, `${label}.updatedAt`), version: number(row.version, `${label}.version`), discoveryEnabled: boolean(row.discoveryEnabled, `${label}.discoveryEnabled`), removedAt: nullable(row.removedAt, number, `${label}.removedAt`) }; }
 export const parseCollections = (value: unknown): MusicSourceCollection[] => array(value, parseCollection, "music collections");
-export function parsePlaylist(value: unknown): MusicPlaylist { const row = object(value, "music playlist"); return { id: string(row.id, "music playlist.id"), name: string(row.name, "music playlist.name"), icon: string(row.icon, "music playlist.icon"), shuffleEnabled: boolean(row.shuffleEnabled, "music playlist.shuffleEnabled"), repeatMode: enumeration(row.repeatMode, repeatModes, "music playlist.repeatMode"), intendedUses: array(row.intendedUses, (entry, label) => enumeration(entry, intendedUses, label), "music playlist.intendedUses"), createdAt: number(row.createdAt, "music playlist.createdAt"), updatedAt: number(row.updatedAt, "music playlist.updatedAt"), version: number(row.version, "music playlist.version") }; }
+export function parsePlaylist(value: unknown): MusicPlaylist { const row = object(value, "music playlist"); return { id: string(row.id, "music playlist.id"), name: string(row.name, "music playlist.name"), icon: string(row.icon, "music playlist.icon"), shuffleEnabled: boolean(row.shuffleEnabled, "music playlist.shuffleEnabled"), repeatMode: enumeration(row.repeatMode, repeatModes, "music playlist.repeatMode"), intendedUses: array(row.intendedUses, (entry, label) => enumeration(entry, intendedUses, label), "music playlist.intendedUses"), sortOrder: number(row.sortOrder, "music playlist.sortOrder"), createdAt: number(row.createdAt, "music playlist.createdAt"), updatedAt: number(row.updatedAt, "music playlist.updatedAt"), version: number(row.version, "music playlist.version") }; }
 export function parseSearchRebuild(value: unknown): MusicSearchRebuildResult { const row = object(value, "music search rebuild"); return { indexedItemCount: number(row.indexedItemCount, "music search rebuild.indexedItemCount"), schemaVersion: number(row.schemaVersion, "music search rebuild.schemaVersion"), fingerprint: string(row.fingerprint, "music search rebuild.fingerprint"), rebuiltAt: number(row.rebuiltAt, "music search rebuild.rebuiltAt") }; }
 function parseBinding(value: unknown, label: string): LocalRootBinding { const row = object(value, label); return { rootId: string(row.rootId, `${label}.rootId`), folderPath: nullable(row.folderPath, string, `${label}.folderPath`), status: enumeration(row.status, rootStatuses, `${label}.status`) }; }
 export const parseBindings = (value: unknown): LocalRootBinding[] => array(value, parseBinding, "music root bindings");

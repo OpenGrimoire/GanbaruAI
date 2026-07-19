@@ -287,7 +287,8 @@ async fn import_playlist(
             })?;
     } else {
         sqlx::query(
-            "INSERT INTO music_playlists (id, name, icon, shuffle_enabled, repeat_mode, created_at, updated_at, version) VALUES (?, ?, ?, ?, ?, ?, ?, 1)",
+            "INSERT INTO music_playlists (id, name, icon, shuffle_enabled, repeat_mode, sort_order, created_at, updated_at, version)
+             VALUES (?, ?, ?, ?, ?, (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM music_playlists), ?, ?, 1)",
         )
         .bind(&target_id)
         .bind(playlist.name.trim())

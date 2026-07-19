@@ -181,8 +181,8 @@ pub(crate) async fn create_playlist(
         .map_err(|error| MusicLibraryError::database("begin create music playlist", error))?;
     sqlx::query(
         "INSERT INTO music_playlists
-            (id, name, icon, shuffle_enabled, repeat_mode, created_at, updated_at, version)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 1)",
+            (id, name, icon, shuffle_enabled, repeat_mode, sort_order, created_at, updated_at, version)
+         VALUES (?, ?, ?, ?, ?, (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM music_playlists), ?, ?, 1)",
     )
     .bind(&request.id)
     .bind(request.name.trim())
@@ -297,8 +297,8 @@ pub(crate) async fn duplicate_playlist(
     };
     sqlx::query(
         "INSERT INTO music_playlists
-            (id, name, icon, shuffle_enabled, repeat_mode, created_at, updated_at, version)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 1)",
+            (id, name, icon, shuffle_enabled, repeat_mode, sort_order, created_at, updated_at, version)
+         VALUES (?, ?, ?, ?, ?, (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM music_playlists), ?, ?, 1)",
     )
     .bind(&request.new_playlist_id)
     .bind(request.name.trim())

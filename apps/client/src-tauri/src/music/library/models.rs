@@ -303,6 +303,7 @@ pub struct MusicPlaylist {
     pub shuffle_enabled: bool,
     pub repeat_mode: MusicRepeatMode,
     pub intended_uses: Vec<MusicIntendedUse>,
+    pub sort_order: i64,
     pub created_at: i64,
     pub updated_at: i64,
     pub version: i64,
@@ -544,6 +545,20 @@ pub struct MusicPlaylistUpdate {
     pub repeat_mode: MusicRepeatMode,
     pub intended_uses: Vec<MusicIntendedUse>,
     pub expected_version: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicPlaylistOrderEntry {
+    pub playlist_id: String,
+    pub expected_version: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicPlaylistsReorder {
+    pub playlists: Vec<MusicPlaylistOrderEntry>,
     pub updated_at: i64,
 }
 
@@ -979,6 +994,7 @@ pub struct MusicPlaylistSummary {
     pub shuffle_enabled: bool,
     pub repeat_mode: MusicRepeatMode,
     pub intended_uses: Vec<MusicIntendedUse>,
+    pub sort_order: i64,
     pub total_count: i64,
     pub eligible_count: i64,
     pub unavailable_count: i64,

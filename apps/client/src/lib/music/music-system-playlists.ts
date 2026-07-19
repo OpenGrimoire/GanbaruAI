@@ -21,18 +21,9 @@ export function isSystemMusicPlaylistId(id: string): id is SystemMusicPlaylistId
   return SYSTEM_MUSIC_PLAYLIST_IDS.includes(id as SystemMusicPlaylistId);
 }
 
-const SYSTEM_MUSIC_PLAYLIST_ORDER = new Map<string, number>(
-  SYSTEM_MUSIC_PLAYLIST_IDS.map((id, index) => [id, index]),
-);
-
 export function orderMusicPlaylists(playlists: readonly MusicPlaylistSummary[]): MusicPlaylistSummary[] {
   return playlists.toSorted((left, right) => {
-    const leftOrder = SYSTEM_MUSIC_PLAYLIST_ORDER.get(left.id);
-    const rightOrder = SYSTEM_MUSIC_PLAYLIST_ORDER.get(right.id);
-    if (leftOrder !== undefined && rightOrder !== undefined) return leftOrder - rightOrder;
-    if (leftOrder !== undefined) return -1;
-    if (rightOrder !== undefined) return 1;
-    return left.name.localeCompare(right.name);
+    return left.sortOrder - right.sortOrder || left.name.localeCompare(right.name) || left.id.localeCompare(right.id);
   });
 }
 
@@ -57,10 +48,10 @@ export function partitionMusicPlaylists(playlists: MusicPlaylistSummary[]): {
 } {
   const byId = new Map(playlists.map((playlist) => [playlist.id, playlist]));
   return {
-    defaults: SYSTEM_MUSIC_PLAYLIST_IDS.flatMap((id) => {
+    defaults: orderMusicPlaylists(SYSTEM_MUSIC_PLAYLIST_IDS.flatMap((id) => {
       const playlist = byId.get(id);
       return playlist ? [playlist] : [];
-    }),
-    custom: playlists.filter((playlist) => !isSystemMusicPlaylistId(playlist.id)),
+    })),
+    custom: orderMusicPlaylists(playlists.filter((playlist) => !isSystemMusicPlaylistId(playlist.id))),
   };
 }

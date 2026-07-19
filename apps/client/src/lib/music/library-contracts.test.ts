@@ -69,6 +69,7 @@ describe("music library contracts", () => {
       shuffleEnabled: false,
       repeatMode: "all",
       intendedUses: [],
+      sortOrder: 0,
       totalCount: 1,
     }])).toThrow("eligibleCount must be a safe integer");
   });

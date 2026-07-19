@@ -981,6 +981,87 @@ fn bulk_membership_edits_preserve_existing_settings_and_commit_as_one_change() {
 }
 
 #[test]
+fn playlist_collection_reorder_persists_all_positions_atomically() {
+    tauri::async_runtime::block_on(async {
+        let pool = pool().await;
+        super::writes::create_playlist(&pool, playlist("playlist-1"))
+            .await
+            .unwrap();
+        super::writes::create_playlist(&pool, playlist("playlist-2"))
+            .await
+            .unwrap();
+        let rows: Vec<(String, i64)> =
+            sqlx::query_as("SELECT id, version FROM music_playlists ORDER BY sort_order, id")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            rows.iter()
+                .take(super::defaults::BUILT_IN_MUSIC_PLAYLISTS.len())
+                .map(|(playlist_id, _)| playlist_id.as_str())
+                .collect::<Vec<_>>(),
+            super::defaults::BUILT_IN_MUSIC_PLAYLISTS
+                .iter()
+                .map(|playlist| playlist.id)
+                .collect::<Vec<_>>()
+        );
+        let original = rows.clone();
+        let mut reordered = rows;
+        let last = reordered.pop().unwrap();
+        reordered.insert(0, last);
+
+        let receipts = super::playlist_edits::reorder_playlists(
+            &pool,
+            MusicPlaylistsReorder {
+                playlists: reordered
+                    .iter()
+                    .map(|(playlist_id, expected_version)| MusicPlaylistOrderEntry {
+                        playlist_id: playlist_id.clone(),
+                        expected_version: *expected_version,
+                    })
+                    .collect(),
+                updated_at: 1_700_000_000_100,
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(receipts.len(), reordered.len());
+        let stored: Vec<String> =
+            sqlx::query_scalar("SELECT id FROM music_playlists ORDER BY sort_order, id")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        let reordered_ids = reordered
+            .iter()
+            .map(|(playlist_id, _)| playlist_id.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(stored, reordered_ids);
+
+        let stale_result = super::playlist_edits::reorder_playlists(
+            &pool,
+            MusicPlaylistsReorder {
+                playlists: original
+                    .into_iter()
+                    .map(|(playlist_id, expected_version)| MusicPlaylistOrderEntry {
+                        playlist_id,
+                        expected_version,
+                    })
+                    .collect(),
+                updated_at: 1_700_000_000_200,
+            },
+        )
+        .await;
+        assert!(stale_result.is_err());
+        let stored_after_conflict: Vec<String> =
+            sqlx::query_scalar("SELECT id FROM music_playlists ORDER BY sort_order, id")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert_eq!(stored_after_conflict, reordered_ids);
+    });
+}
+
+#[test]
 fn playlist_reorder_and_playback_projection_share_canonical_memberships() {
     tauri::async_runtime::block_on(async {
         let pool = pool().await;

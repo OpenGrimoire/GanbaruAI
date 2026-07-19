@@ -143,6 +143,60 @@ pub(crate) async fn reorder_playlist(
     })
 }
 
+pub(crate) async fn reorder_playlists(
+    pool: &SqlitePool,
+    request: MusicPlaylistsReorder,
+) -> MusicLibraryResult<Vec<MusicWriteReceipt>> {
+    validate_playlists_reorder(&request)?;
+    let mut transaction = pool
+        .begin()
+        .await
+        .map_err(|error| MusicLibraryError::database("begin playlists reorder", error))?;
+    let existing: Vec<String> = sqlx::query_scalar("SELECT id FROM music_playlists ORDER BY id")
+        .fetch_all(&mut *transaction)
+        .await
+        .map_err(|error| MusicLibraryError::database("load playlists for reorder", error))?;
+    let mut requested = request
+        .playlists
+        .iter()
+        .map(|playlist| playlist.playlist_id.as_str())
+        .collect::<Vec<_>>();
+    requested.sort_unstable();
+    if existing.iter().map(String::as_str).collect::<Vec<_>>() != requested {
+        return Err(MusicLibraryError::conflict(
+            "the playlist collection changed while it was being reordered",
+        ));
+    }
+
+    let mut receipts = Vec::with_capacity(request.playlists.len());
+    for (position, playlist) in request.playlists.iter().enumerate() {
+        let result = sqlx::query(
+            "UPDATE music_playlists
+             SET sort_order = ?, updated_at = ?, version = version + 1
+             WHERE id = ? AND version = ?",
+        )
+        .bind(position as i64)
+        .bind(request.updated_at)
+        .bind(&playlist.playlist_id)
+        .bind(playlist.expected_version)
+        .execute(&mut *transaction)
+        .await
+        .map_err(|error| MusicLibraryError::database("persist playlist order", error))?;
+        if result.rows_affected() != 1 {
+            return Err(MusicLibraryError::conflict(format!(
+                "playlist {} changed while it was being reordered",
+                playlist.playlist_id
+            )));
+        }
+        receipts.push(MusicWriteReceipt {
+            id: playlist.playlist_id.clone(),
+            version: playlist.expected_version + 1,
+        });
+    }
+    super::writes::commit(transaction, "commit playlists reorder").await?;
+    Ok(receipts)
+}
+
 pub(crate) async fn bulk_set_review_state(
     pool: &SqlitePool,
     request: MusicBulkReviewWrite,

@@ -237,6 +237,18 @@ pub async fn music_library_update_playlist(
 }
 
 #[tauri::command]
+pub async fn music_library_reorder_playlists(
+    app: tauri::AppHandle,
+    db_url: String,
+    request: MusicPlaylistsReorder,
+) -> MusicLibraryResult<Vec<MusicWriteReceipt>> {
+    let pool = connect_sqlite(app, db_url)
+        .await
+        .map_err(connection_error)?;
+    super::playlist_edits::reorder_playlists(&pool, request).await
+}
+
+#[tauri::command]
 pub async fn music_library_duplicate_playlist(
     app: tauri::AppHandle,
     db_url: String,

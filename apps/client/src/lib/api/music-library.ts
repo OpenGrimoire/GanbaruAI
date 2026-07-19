@@ -60,6 +60,7 @@ import {
   type MusicPlaylistDuplicate,
   type MusicPlaylistSummary,
   type MusicPlaylistUpdate,
+  type MusicPlaylistsReorder,
   type MusicPlaylistReorder,
   type MusicPlaylistReorderResult,
   type MusicPlaylistPlaybackEntry,
@@ -191,6 +192,11 @@ export const createMusicPlaylist = (request: MusicPlaylistCreate): Promise<Music
   call("music_library_create_playlist", databaseArgs({ request }), parseWriteReceipt);
 export const updateMusicPlaylist = (request: MusicPlaylistUpdate): Promise<MusicWriteReceipt> =>
   call("music_library_update_playlist", databaseArgs({ request }), parseWriteReceipt);
+export const reorderMusicPlaylists = (request: MusicPlaylistsReorder): Promise<MusicWriteReceipt[]> =>
+  call("music_library_reorder_playlists", databaseArgs({ request }), (value) => {
+    if (!Array.isArray(value)) throw new Error("playlist reorder receipts must be an array");
+    return value.map((entry, index) => parseWriteReceipt(entry, `playlist reorder receipts[${index}]`));
+  });
 export const duplicateMusicPlaylist = (request: MusicPlaylistDuplicate): Promise<MusicWriteReceipt> =>
   call("music_library_duplicate_playlist", databaseArgs({ request }), parseWriteReceipt);
 export const getMusicPlaylistDeleteImpact = (playlistId: string): Promise<MusicPlaylistDeleteImpact> =>

@@ -11,7 +11,7 @@
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import type { MusicIssue, MusicPlaylistSummary, MusicSourceSummary } from "$lib/music/library-contracts";
   import type { MusicBuilderDestination } from "$lib/music/music-builder-routing";
-  import { partitionMusicPlaylists, systemMusicPlaylistName } from "$lib/music/music-system-playlists";
+  import { orderMusicPlaylists, systemMusicPlaylistName } from "$lib/music/music-system-playlists";
   import MusicBuilderAsyncState from "./MusicBuilderAsyncState.svelte";
   import MusicPlaylistIcon from "./MusicPlaylistIcon.svelte";
   import MusicSoundscapeBuilder from "../MusicSoundscapeBuilder.svelte";
@@ -40,11 +40,10 @@
 
   const { t } = getLocalization();
   let reducedMotion = $state(false);
-  const visiblePlaylists = $derived(playlists.filter((playlist) => {
+  const visiblePlaylists = $derived(orderMusicPlaylists(playlists.filter((playlist) => {
     const query = search.trim().toLocaleLowerCase();
     return !query || systemMusicPlaylistName(playlist.id, playlist.name, t).toLocaleLowerCase().includes(query);
-  }));
-  const playlistSections = $derived(partitionMusicPlaylists(visiblePlaylists));
+  })));
 
   onMount(() => {
     const query = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -63,9 +62,8 @@
     {:else if visiblePlaylists.length === 0}
       <MusicBuilderAsyncState kind="empty" title={t("music.builder.noPlaylistFilterResults")} description={t("music.builder.adjustPlaylistFilters")} />
     {:else}
-      {#each [{ title: t("music.builder.defaultPlaylists"), playlists: playlistSections.defaults }, { title: t("music.builder.customPlaylists"), playlists: playlistSections.custom }] as section (section.title)}
-        {#if section.playlists.length > 0}<h2 class="mb-2 mt-4 text-xs font-semibold text-muted-foreground first:mt-0">{section.title}</h2><div class="grid grid-cols-[repeat(auto-fill,minmax(min(14rem,100%),1fr))] gap-2.5">
-        {#each section.playlists as playlist (playlist.id)}
+      <div class="grid grid-cols-[repeat(auto-fill,minmax(min(14rem,100%),1fr))] gap-2.5">
+        {#each visiblePlaylists as playlist (playlist.id)}
           <button type="button" class="overview-card group" animate:flip={{ duration: reducedMotion ? 0 : 140 }} onclick={() => onNavigate({ kind: "playlist", playlistId: playlist.id })}>
             <span class="overview-icon"><MusicPlaylistIcon icon={playlist.icon} size={18} strokeWidth={1.45} /></span>
             <span class="min-w-0 flex-1 text-left">
@@ -76,8 +74,7 @@
             </span>
           </button>
         {/each}
-        </div>{/if}
-      {/each}
+      </div>
       <button type="button" class="overview-card overview-add mt-2.5 w-full" onclick={onPrimary}><span class="overview-icon"><Plus size={18} /></span><span class="text-xs font-semibold">{t("music.builder.newPlaylist")}</span></button>
     {/if}
   {:else if destination.kind === "sources"}

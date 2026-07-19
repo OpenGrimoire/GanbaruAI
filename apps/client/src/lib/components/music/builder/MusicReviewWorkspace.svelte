@@ -5,6 +5,7 @@
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import Disc3 from "@lucide/svelte/icons/disc-3";
   import ListPlus from "@lucide/svelte/icons/list-plus";
+  import Pencil from "@lucide/svelte/icons/pencil";
   import Pause from "@lucide/svelte/icons/pause";
   import Play from "@lucide/svelte/icons/play";
   import Slash from "@lucide/svelte/icons/slash";
@@ -32,6 +33,7 @@
   import { clampRate, formatPlaybackTime } from "$lib/music/playback";
   import { formatShortcut } from "$lib/keyboard-shortcuts";
   import MusicPlaylistIcon from "./MusicPlaylistIcon.svelte";
+  import MusicPlaylistManager from "./MusicPlaylistManager.svelte";
   import MusicPlaylistPicker from "./MusicPlaylistPicker.svelte";
   import MusicReviewTree from "./MusicReviewTree.svelte";
 
@@ -48,6 +50,9 @@
     refreshingFolders,
     onRefreshFolders,
     onOpenPlayer,
+    onEditPlaylist,
+    onDeletePlaylist,
+    onReorderPlaylists,
   }: {
     library: MusicLibraryController;
     inspector: MusicBuilderInspectorController;
@@ -61,6 +66,9 @@
     refreshingFolders: boolean;
     onRefreshFolders: () => void;
     onOpenPlayer: () => void;
+    onEditPlaylist: (playlistId: string) => void;
+    onDeletePlaylist: (playlistId: string) => void;
+    onReorderPlaylists: (playlistIds: string[]) => Promise<boolean>;
   } = $props();
 
   const { t } = getLocalization();
@@ -68,6 +76,7 @@
   let newPlaylistName = $state("");
   let newPlaylistIcon = $state("lucide:list-music");
   let inlineCreateOpen = $state(false);
+  let managingPlaylists = $state(false);
   let lastSelectedId = $state<string | null>(null);
   let lastAutoplayedId = $state<string | null>(null);
   let newPlaylistNameInput = $state<HTMLInputElement | null>(null);
@@ -412,8 +421,19 @@
   </section>
 
   <section class="review-classify flex min-h-0 flex-col">
-    <div class="shrink-0 p-3">
-      <h2 class="text-sm font-semibold">{t("music.builder.classifyPlaylists")}</h2>
+    {#if managingPlaylists}
+      <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3" data-music-scrollable="true">
+        <MusicPlaylistManager
+          playlists={library.playlistSummaries}
+          onEdit={onEditPlaylist}
+          onDelete={onDeletePlaylist}
+          onReorder={onReorderPlaylists}
+          onDone={() => managingPlaylists = false}
+        />
+      </div>
+    {:else}
+      <div class="shrink-0 p-3">
+        <h2 class="text-sm font-semibold">{t("music.builder.classifyPlaylists")}</h2>
       {#if inlineCreateOpen}
         <form class="mt-2" onsubmit={(event) => { event.preventDefault(); void createPlaylistAndAdd(); }}>
           <div class="flex items-center gap-2">
@@ -440,20 +460,24 @@
           </div>
         </form>
       {:else}
-        <button type="button" onclick={openInlineCreate} class="mt-2 inline-flex h-8 items-center gap-1.5 rounded-full bg-primary px-3 text-xs font-medium text-primary-foreground"><ListPlus size={14} />{t("music.builder.newPlaylist")}</button>
+        <div class="mt-2 flex flex-wrap items-center gap-2">
+          <button type="button" onclick={openInlineCreate} class="inline-flex h-8 items-center gap-1.5 rounded-full bg-primary px-3 text-xs font-medium text-primary-foreground"><ListPlus size={14} />{t("music.builder.newPlaylist")}</button>
+          <button type="button" onclick={() => { inlineCreateOpen = false; review.createError = null; managingPlaylists = true; }} class="inline-flex h-8 items-center gap-1.5 rounded-full bg-secondary px-3 text-xs font-medium text-foreground"><Pencil size={13} />{t("music.builder.managePlaylists")}</button>
+        </div>
       {/if}
-    </div>
+      </div>
 
-    <div bind:this={checklistRoot} class="flex min-h-0 flex-1 flex-col">
-      <MusicPlaylistPicker
-        playlists={library.playlistSummaries}
-        {checkedIds}
-        onToggle={(playlist) => { void review.toggleMembership(playlist); }}
-        errors={review.membershipErrors}
-        showIssue={detail?.item.availability !== "available"}
-        issueLabel={availabilityLabel()}
-      />
-    </div>
+      <div bind:this={checklistRoot} class="flex min-h-0 flex-1 flex-col">
+        <MusicPlaylistPicker
+          playlists={library.playlistSummaries}
+          {checkedIds}
+          onToggle={(playlist) => { void review.toggleMembership(playlist); }}
+          errors={review.membershipErrors}
+          showIssue={detail?.item.availability !== "available"}
+          issueLabel={availabilityLabel()}
+        />
+      </div>
+    {/if}
 
     <div class="review-actions grid shrink-0 grid-cols-2 gap-3 p-3">
       {#if item?.reviewState === "reviewed"}

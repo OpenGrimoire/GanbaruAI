@@ -7,7 +7,7 @@
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { registerMediaFile, revealLocalFile } from "$lib/api/music";
   import { invalidateMusicArtwork } from "$lib/music/music-artwork-cache";
-  import { resetMusicStatistics } from "$lib/api/music-library";
+  import { reorderMusicPlaylists, resetMusicStatistics } from "$lib/api/music-library";
   import { createMusicBuilderInspectorController } from "$lib/music/music-builder-inspector.svelte";
   import { projectMusicBuilderLayout } from "$lib/music/music-builder-layout";
   import {
@@ -69,7 +69,7 @@
   import MusicBulkClassificationDialog from "./builder/MusicBulkClassificationDialog.svelte";
   import MusicInterchangeDialog from "./builder/MusicInterchangeDialog.svelte";
   import type { MusicBuilderInitialAction } from "$lib/music/music-builder-loader";
-  import { systemMusicPlaylistName } from "$lib/music/music-system-playlists";
+  import { orderMusicPlaylists, systemMusicPlaylistName } from "$lib/music/music-system-playlists";
 
   let {
     onOpenPlayer,
@@ -104,6 +104,8 @@
   let pendingRefreshPlan = $state<MusicSourceRefreshPlan | null>(null);
   let reviewExitOpen = $state(false);
   let playlistSurface = $state<"create" | "edit" | "duplicate" | "delete" | null>(null);
+  let playlistSurfaceReturnsToCurrentView = $state(false);
+  let playlistSurfaceTargetId = $state<string | null>(null);
   let bulkSurface = $state<"memberships" | "weight" | "review" | "snooze" | "signals" | null>(null);
   let rememberReviewExit = $state(false);
   let reviewAutoplay = $state(parseMusicReviewAutoplay(getConfigKey<unknown>("music.review.autoplay", undefined)));
@@ -236,7 +238,7 @@
   }
 
   function primaryAction(): void {
-    if (destination.kind === "playlists") { playlist.clear(); playlistSurface = "create"; return; }
+    if (destination.kind === "playlists") { playlist.clear(); playlistSurfaceReturnsToCurrentView = false; playlistSurfaceTargetId = null; playlistSurface = "create"; return; }
     if (destination.kind === "sources" || destination.kind === "library") sourceSurface = "add";
   }
 
@@ -390,6 +392,36 @@
   function updateSearch(search: string): void {
     library.patchCurrentState({ search, offset: 0 });
     if (destination.kind !== "playlists") void library.refresh();
+  }
+
+  async function openPlaylistManagementSurface(playlistId: string, mode: "edit" | "delete"): Promise<void> {
+    if (!await playlist.load(playlistId)) return;
+    if (mode === "delete" && !await playlist.inspectDelete()) return;
+    playlistSurfaceReturnsToCurrentView = true;
+    playlistSurfaceTargetId = playlistId;
+    playlistSurface = mode;
+  }
+
+  async function reorderPlaylistSummaries(playlistIds: string[]): Promise<boolean> {
+    const previous = orderMusicPlaylists(library.playlistSummaries).map((entry) => ({ ...entry, intendedUses: [...entry.intendedUses] }));
+    const byId = new Map(previous.map((entry) => [entry.id, entry]));
+    if (playlistIds.length !== previous.length || playlistIds.some((id) => !byId.has(id))) return false;
+    const next = playlistIds.map((id, sortOrder) => ({ ...byId.get(id)!, sortOrder }));
+    library.playlistSummaries = next;
+    try {
+      const receipts = await reorderMusicPlaylists({
+        playlists: next.map((entry) => ({ playlistId: entry.id, expectedVersion: entry.version })),
+        updatedAt: Date.now(),
+      });
+      const versions = new Map(receipts.map((receipt) => [receipt.id, receipt.version]));
+      library.playlistSummaries = next.map((entry) => ({ ...entry, version: versions.get(entry.id) ?? entry.version }));
+      playlist.clear();
+      return true;
+    } catch {
+      library.playlistSummaries = previous;
+      await library.refreshAfterMutation();
+      return false;
+    }
   }
 
   async function syncInspectorMetadata(): Promise<void> {
@@ -633,7 +665,7 @@
             {/if}
           </div>
         {:else}
-          <MusicReviewWorkspace {library} {inspector} {sources} {audition} {review} autoplay={reviewAutoplay} onAutoplayChange={setReviewAutoplay} onAssignSelection={(itemIds) => { void assignReviewSelection(itemIds); }} canRefreshFolders={localSourceCollectionIds.length > 0} refreshingFolders={localSourceRefreshActive} onRefreshFolders={refreshReviewFolders} {onOpenPlayer} />
+          <MusicReviewWorkspace {library} {inspector} {sources} {audition} {review} autoplay={reviewAutoplay} onAutoplayChange={setReviewAutoplay} onAssignSelection={(itemIds) => { void assignReviewSelection(itemIds); }} canRefreshFolders={localSourceCollectionIds.length > 0} refreshingFolders={localSourceRefreshActive} onRefreshFolders={refreshReviewFolders} {onOpenPlayer} onEditPlaylist={(playlistId) => { void openPlaylistManagementSurface(playlistId, "edit"); }} onDeletePlaylist={(playlistId) => { void openPlaylistManagementSurface(playlistId, "delete"); }} onReorderPlaylists={reorderPlaylistSummaries} />
         {/if}
       {:else if hasList}
         {#if destination.kind === "playlist" && playlist.detail}
@@ -815,18 +847,29 @@
         mode={playlistSurface}
         playlists={library.playlistSummaries}
         activeInPlayer={Boolean(playlist.detail && audition.musicPlayer.activePlaylistId === playlist.detail.id)}
-        onClose={() => playlistSurface = null}
-        onSaved={(playlistId) => { playlistSurface = null; void navigateNow({ kind: "playlist", playlistId }); }}
-        onDeleted={(replacementPlaylistId) => {
-          const deletedPlaylistId = destination.kind === "playlist" ? destination.playlistId : null;
+        onClose={() => { playlistSurface = null; playlistSurfaceReturnsToCurrentView = false; playlistSurfaceTargetId = null; }}
+        onSaved={(playlistId) => {
+          const returnToCurrentView = playlistSurfaceReturnsToCurrentView;
           playlistSurface = null;
+          playlistSurfaceReturnsToCurrentView = false;
+          playlistSurfaceTargetId = null;
+          if (!returnToCurrentView) void navigateNow({ kind: "playlist", playlistId });
+        }}
+        onDeleted={(replacementPlaylistId) => {
+          const returnToCurrentView = playlistSurfaceReturnsToCurrentView;
+          const deletedPlaylistId = playlistSurfaceTargetId ?? (destination.kind === "playlist" ? destination.playlistId : null);
+          playlistSurface = null;
+          playlistSurfaceReturnsToCurrentView = false;
+          playlistSurfaceTargetId = null;
           if (deletedPlaylistId && audition.musicPlayer.activePlaylistId === deletedPlaylistId) {
             audition.musicPlayer.detachDeletedPlaylist(deletedPlaylistId);
             if (replacementPlaylistId) {
-              void navigateNow({ kind: "playlist", playlistId: replacementPlaylistId }).then(() => playlist.play(sources.bindings));
+              if (returnToCurrentView) void playlist.load(replacementPlaylistId).then(() => playlist.play(sources.bindings));
+              else void navigateNow({ kind: "playlist", playlistId: replacementPlaylistId }).then(() => playlist.play(sources.bindings));
               return;
             }
           }
+          if (returnToCurrentView) return;
           const neighboringPlaylistId = replacementPlaylistId ?? library.playlistSummaries[0]?.id ?? null;
           if (neighboringPlaylistId) void navigateNow({ kind: "playlist", playlistId: neighboringPlaylistId });
           else void navigateNow({ kind: "playlists" });

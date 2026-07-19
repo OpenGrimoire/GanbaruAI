@@ -32,21 +32,21 @@ describe("system music playlists", () => {
     ]);
   });
 
-  it("orders built-in playlists before alphabetical custom playlists", () => {
-    const playlist = (id: string, name: string) => ({ id, name }) as MusicPlaylistSummary;
+  it("orders default and custom playlists by their persisted positions", () => {
+    const playlist = (id: string, name: string, sortOrder: number) => ({ id, name, sortOrder }) as MusicPlaylistSummary;
     const ordered = orderMusicPlaylists([
-      playlist("custom-z", "Zen"),
-      playlist("playlist-default-commute", "Commute"),
-      playlist("custom-a", "Ambient"),
-      playlist("playlist-default-start-of-day", "Start of the day!"),
-      playlist("playlist-default-work-focus", "Work (focus)"),
+      playlist("custom-z", "Zen", 4),
+      playlist("playlist-default-commute", "Commute", 1),
+      playlist("custom-a", "Ambient", 0),
+      playlist("playlist-default-start-of-day", "Start of the day!", 2),
+      playlist("playlist-default-work-focus", "Work (focus)", 3),
     ]);
 
     expect(ordered.map(({ id }) => id)).toEqual([
+      "custom-a",
+      "playlist-default-commute",
       "playlist-default-start-of-day",
       "playlist-default-work-focus",
-      "playlist-default-commute",
-      "custom-a",
       "custom-z",
     ]);
   });

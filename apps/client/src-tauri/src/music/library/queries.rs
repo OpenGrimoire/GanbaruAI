@@ -390,6 +390,7 @@ struct PlaylistSummaryRow {
     shuffle_enabled: i64,
     repeat_mode: String,
     intended_uses: String,
+    sort_order: i64,
     total_count: i64,
     eligible_count: i64,
     unavailable_count: i64,
@@ -412,7 +413,7 @@ pub(crate) async fn playlist_summaries(
     super::defaults::ensure_built_in_music_playlists(pool).await?;
     let rows = sqlx::query_as::<_, PlaylistSummaryRow>(
         "SELECT playlist.id, playlist.name, playlist.icon, playlist.shuffle_enabled,
-                playlist.repeat_mode,
+                playlist.repeat_mode, playlist.sort_order,
                 COALESCE((
                     SELECT group_concat(intended.intended_use, ',')
                     FROM music_playlist_intended_uses AS intended
@@ -442,7 +443,7 @@ pub(crate) async fn playlist_summaries(
          LEFT JOIN music_playlist_memberships AS membership ON membership.playlist_id = playlist.id
          LEFT JOIN music_library_items AS item ON item.id = membership.item_id
          GROUP BY playlist.id
-         ORDER BY playlist.name COLLATE NOCASE, playlist.id
+         ORDER BY playlist.sort_order, playlist.name COLLATE NOCASE, playlist.id
          LIMIT ? OFFSET ?",
     )
     .bind(now_ms)
@@ -482,6 +483,7 @@ pub(crate) async fn playlist_summaries(
                         })
                     })
                     .collect::<MusicLibraryResult<Vec<_>>>()?,
+                sort_order: row.sort_order,
                 total_count: row.total_count,
                 eligible_count: row.eligible_count,
                 unavailable_count: row.unavailable_count,
@@ -961,7 +963,7 @@ pub(crate) async fn playlist_detail(
     playlist_id: &str,
 ) -> MusicLibraryResult<MusicPlaylist> {
     let row = sqlx::query_as::<_, MusicPlaylistRow>(
-        "SELECT id, name, icon, shuffle_enabled, repeat_mode,
+        "SELECT id, name, icon, shuffle_enabled, repeat_mode, sort_order,
                 created_at, updated_at, version
          FROM music_playlists WHERE id = ?",
     )

@@ -792,6 +792,7 @@ pub fn run() {
             music::library::commands::music_library_restore_source,
             music::library::commands::music_library_create_playlist,
             music::library::commands::music_library_update_playlist,
+            music::library::commands::music_library_reorder_playlists,
             music::library::commands::music_library_duplicate_playlist,
             music::library::commands::music_library_playlist_delete_impact,
             music::library::commands::music_library_delete_playlist,

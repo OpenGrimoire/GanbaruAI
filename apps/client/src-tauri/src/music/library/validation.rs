@@ -402,6 +402,34 @@ pub(crate) fn validate_playlist_reorder(request: &MusicPlaylistReorder) -> Music
     validate_timestamp(request.updated_at, "updatedAt")
 }
 
+pub(crate) fn validate_playlists_reorder(
+    request: &MusicPlaylistsReorder,
+) -> MusicLibraryResult<()> {
+    if request.playlists.is_empty() || request.playlists.len() > MAX_SUMMARY_WINDOW as usize {
+        return Err(MusicLibraryError::validation(
+            "playlists",
+            format!("must contain between 1 and {MAX_SUMMARY_WINDOW} playlists"),
+        ));
+    }
+    let mut ids = HashSet::with_capacity(request.playlists.len());
+    for playlist in &request.playlists {
+        validate_id(&playlist.playlist_id, "playlistId")?;
+        if playlist.expected_version <= 0 {
+            return Err(MusicLibraryError::validation(
+                "expectedVersion",
+                "must be greater than zero",
+            ));
+        }
+        if !ids.insert(playlist.playlist_id.as_str()) {
+            return Err(MusicLibraryError::validation(
+                "playlists",
+                "must not contain duplicate playlist ids",
+            ));
+        }
+    }
+    validate_timestamp(request.updated_at, "updatedAt")
+}
+
 pub(crate) fn validate_bulk_review_write(request: &MusicBulkReviewWrite) -> MusicLibraryResult<()> {
     if request.items.is_empty() || request.items.len() > MAX_BULK_MEMBERSHIPS {
         return Err(MusicLibraryError::validation(
