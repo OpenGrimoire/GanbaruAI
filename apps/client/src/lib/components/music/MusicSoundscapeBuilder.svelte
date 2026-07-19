@@ -16,6 +16,18 @@
   let editingId = $state<string | null>(null);
   let nameDraft = $state("");
   let pendingDelete = $state<MusicSoundscapeDefinition | null>(null);
+  let {
+    filter = "all",
+    compact = false,
+    addRequest = 0,
+    onPlaybackStart = () => undefined,
+  }: {
+    filter?: "all" | "generated" | "local";
+    compact?: boolean;
+    addRequest?: number;
+    onPlaybackStart?: () => void;
+  } = $props();
+  let handledAddRequest = $state(0);
 
   const generated = $derived(soundscape.definitions.filter((entry) => entry.sourceKind === "generated-noise"));
   const local = $derived(soundscape.definitions.filter((entry) => entry.sourceKind === "local-loop"));
@@ -45,6 +57,12 @@
     });
   }
 
+  $effect(() => {
+    if (addRequest <= handledAddRequest) return;
+    handledAddRequest = addRequest;
+    void addLoop();
+  });
+
   function beginRename(definition: MusicSoundscapeDefinition): void {
     editingId = definition.id;
     nameDraft = definition.name;
@@ -68,10 +86,10 @@
 </script>
 
 <div class="h-full min-h-0 overflow-y-auto p-3" aria-busy={soundscape.loading || soundscape.saving}>
-  <header class="mb-3 rounded-xl border border-border/60 bg-card/60 p-3">
+  {#if !compact}<header class="mb-3 rounded-xl border border-border/60 bg-card/60 p-3">
     <h2 class="text-sm font-semibold">{t("music.soundscape.title")}</h2>
     <p class="mt-1 text-xs leading-relaxed text-muted-foreground">{t("music.soundscape.oneLayerExplanation")}</p>
-  </header>
+  </header>{/if}
 
   {#if soundscape.error}
     <div class="mb-3 flex items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-2 text-xs" role="alert">
@@ -79,23 +97,23 @@
     </div>
   {/if}
 
-  <section aria-labelledby="generated-soundscapes">
+  {#if filter !== "local"}<section aria-labelledby="generated-soundscapes">
     <h3 id="generated-soundscapes" class="mb-2 text-xs font-semibold text-muted-foreground">{t("music.soundscape.generated")}</h3>
     <div class="grid grid-cols-[repeat(auto-fit,minmax(min(13rem,100%),1fr))] gap-2.5">
       {#each generated as definition (definition.id)}
         <article class:active-card={soundscape.snapshot.sourceId === definition.id} class="soundscape-card">
           <span class="soundscape-icon"><CloudRain size={19} strokeWidth={1.45} /></span>
           <span class="min-w-0 flex-1"><strong class="block text-xs font-semibold">{displayName(definition)}</strong><span class="mt-1 block text-[0.68rem] leading-relaxed text-muted-foreground">{t(`music.soundscape.description.${definition.generatedKind ?? "white"}`)}</span></span>
-          <button type="button" class="soundscape-action" aria-label={isPlaying(definition) ? t("music.soundscape.pause") : t("music.soundscape.play", displayName(definition))} onclick={() => { void (isPlaying(definition) ? soundscape.pause() : soundscape.play(definition.id)); }}>
+          <button type="button" class="soundscape-action" aria-label={isPlaying(definition) ? t("music.soundscape.pause") : t("music.soundscape.play", displayName(definition))} onclick={() => { if (!isPlaying(definition)) onPlaybackStart(); void (isPlaying(definition) ? soundscape.pause() : soundscape.play(definition.id)); }}>
             {#if isPlaying(definition)}<Pause size={15} />{:else}<Play size={15} />{/if}
           </button>
         </article>
       {/each}
     </div>
-  </section>
+  </section>{/if}
 
-  <section class="mt-5" aria-labelledby="local-soundscapes">
-    <div class="mb-2 flex items-center justify-between gap-3"><h3 id="local-soundscapes" class="text-xs font-semibold text-muted-foreground">{t("music.soundscape.localLoops")}</h3><button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-md bg-secondary px-2.5 text-xs font-medium hover:bg-accent" onclick={() => { void addLoop(); }}><Plus size={14} />{t("music.soundscape.addLoop")}</button></div>
+  {#if filter !== "generated"}<section class:mt-5={filter === "all"} aria-labelledby="local-soundscapes">
+    <div class="mb-2 flex items-center justify-between gap-3"><h3 id="local-soundscapes" class="text-xs font-semibold text-muted-foreground">{t("music.soundscape.localLoops")}</h3>{#if !compact}<button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-md bg-secondary px-2.5 text-xs font-medium hover:bg-accent" onclick={() => { void addLoop(); }}><Plus size={14} />{t("music.soundscape.addLoop")}</button>{/if}</div>
     {#if local.length === 0}
       <button type="button" class="flex w-full flex-col items-center justify-center rounded-xl border border-dashed border-border p-5 text-center hover:bg-accent/30" onclick={() => { void addLoop(); }}>
         <FolderOpen size={22} class="text-muted-foreground" /><strong class="mt-2 text-xs">{t("music.soundscape.addFirstLoop")}</strong><span class="mt-1 max-w-md text-[0.68rem] leading-relaxed text-muted-foreground">{t("music.soundscape.filesStayInPlace")}</span>
@@ -114,7 +132,7 @@
               {/if}
             </span>
             {#if definition.availability === "available"}
-              <button type="button" class="soundscape-action" aria-label={isPlaying(definition) ? t("music.soundscape.pause") : t("music.soundscape.play", displayName(definition))} onclick={() => { void (isPlaying(definition) ? soundscape.pause() : soundscape.play(definition.id)); }}>{#if isPlaying(definition)}<Pause size={15} />{:else}<Play size={15} />{/if}</button>
+              <button type="button" class="soundscape-action" aria-label={isPlaying(definition) ? t("music.soundscape.pause") : t("music.soundscape.play", displayName(definition))} onclick={() => { if (!isPlaying(definition)) onPlaybackStart(); void (isPlaying(definition) ? soundscape.pause() : soundscape.play(definition.id)); }}>{#if isPlaying(definition)}<Pause size={15} />{:else}<Play size={15} />{/if}</button>
               <button type="button" class="soundscape-action" aria-label={t("music.soundscape.showFile")} title={t("music.soundscape.showFile")} onclick={() => definition.localPath && void revealLocalFile(definition.localPath)}><FolderOpen size={15} /></button>
             {:else}<button type="button" class="rounded-md bg-secondary px-2 py-1.5 text-xs" onclick={() => { void addLoop(definition); }}>{t("music.soundscape.repair")}</button>{/if}
             <button type="button" class="soundscape-action text-destructive" aria-label={t("music.soundscape.remove")} title={t("music.soundscape.remove")} onclick={() => { pendingDelete = definition; }}><Trash2 size={15} /></button>
@@ -122,7 +140,7 @@
         {/each}
       </div>
     {/if}
-  </section>
+  </section>{/if}
 </div>
 
 {#if pendingDelete}

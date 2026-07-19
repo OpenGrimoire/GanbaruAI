@@ -5,8 +5,10 @@
   import Search from "@lucide/svelte/icons/search";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import X from "@lucide/svelte/icons/x";
+  import { untrack } from "svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import type { MusicItemListEntry } from "$lib/music/library-contracts";
+  import { createMusicReviewTreeViewState, type MusicReviewTreeViewState } from "$lib/music/music-builder-view-state";
   import {
     buildMusicReviewTree,
     flattenMusicReviewTree,
@@ -26,6 +28,8 @@
     canRefresh = true,
     refreshing = false,
     onRefresh = () => undefined,
+    viewState = createMusicReviewTreeViewState(),
+    onViewStateChange = () => undefined,
   }: {
     items: MusicItemListEntry[];
     totalCount: number;
@@ -35,14 +39,18 @@
     canRefresh?: boolean;
     refreshing?: boolean;
     onRefresh?: () => void;
+    viewState?: MusicReviewTreeViewState;
+    onViewStateChange?: (state: MusicReviewTreeViewState) => void;
   } = $props();
 
   const { t } = getLocalization();
-  let explicitlyCollapsedIds = $state<Set<string>>(new Set());
+  let explicitlyCollapsedIds = $state<Set<string>>(new Set(untrack(() => viewState.collapsedFolderIds)));
   let lastExpandedActiveItemId = $state<string | null>(null);
-  let selectedIds = $state<Set<string>>(new Set());
-  let selectedFolderIds = $state<Set<string>>(new Set());
-  let search = $state("");
+  let selectedIds = $state<Set<string>>(new Set(untrack(() => viewState.selectedItemIds)));
+  let selectedFolderIds = $state<Set<string>>(new Set(untrack(() => viewState.selectedFolderIds)));
+  let search = $state(untrack(() => viewState.search));
+  let scrollTop = $state(untrack(() => viewState.scrollTop));
+  let scrollNode = $state<HTMLElement | null>(null);
   const tree = $derived(buildMusicReviewTree(items));
   const expandedIds = $derived(new Set([...musicReviewTreeFolderIds(tree)]
     .filter((folderId) => !explicitlyCollapsedIds.has(folderId))));
@@ -128,9 +136,23 @@
     event.preventDefault();
     search = "";
   }
+
+  $effect(() => {
+    if (scrollNode && Math.abs(scrollNode.scrollTop - scrollTop) > 1) scrollNode.scrollTop = scrollTop;
+  });
+
+  $effect(() => {
+    onViewStateChange({
+      search,
+      collapsedFolderIds: [...explicitlyCollapsedIds],
+      selectedItemIds: [...selectedIds],
+      selectedFolderIds: [...selectedFolderIds],
+      scrollTop,
+    });
+  });
 </script>
 
-<section class="review-tree flex min-h-0 flex-col" aria-label={t("music.builder.reviewFolders")}>
+<section class="review-tree flex min-h-0 flex-1 flex-col" aria-label={t("music.builder.reviewFolders")}>
   <div class="shrink-0 p-2">
     <div class="flex h-8 items-center gap-2 rounded-full bg-secondary/35 px-2.5 focus-within:bg-secondary/55">
       <Search size={13} class="shrink-0 text-muted-foreground" />
@@ -143,7 +165,7 @@
     </div>
   </div>
 
-  <div class="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2" data-music-scrollable="true">
+  <div bind:this={scrollNode} onscroll={(event) => scrollTop = event.currentTarget.scrollTop} class="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2" data-music-scrollable="true">
     {#if searching && rows.length === 0}
       <p class="px-3 py-6 text-center text-[0.68rem] text-muted-foreground">{t("music.builder.noReviewSearchMatches")}</p>
     {/if}
@@ -200,14 +222,12 @@
   .review-tree {
     grid-column: 1;
     min-height: 0;
-    border-right: 1px solid color-mix(in srgb, var(--border) 46%, transparent);
   }
 
   @container (width < 620px) {
     .review-tree {
       min-height: 12rem;
       flex: 0 0 42%;
-      border-right: 0;
       border-bottom: 1px solid color-mix(in srgb, var(--border) 46%, transparent);
     }
   }

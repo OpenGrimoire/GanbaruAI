@@ -11,10 +11,27 @@
   import type { MusicIssue } from "$lib/music/library-contracts";
   import MusicBuilderAsyncState from "./MusicBuilderAsyncState.svelte";
 
-  let { issues, onRepair, onRefresh }: { issues: MusicIssue[]; onRepair: (issue: MusicIssue) => void; onRefresh: () => void } = $props();
+  let {
+    issues,
+    filter = "all",
+    expandedGroups,
+    compact = false,
+    onFilterChange = () => undefined,
+    onExpandedGroupsChange,
+    onRepair,
+    onRefresh,
+  }: {
+    issues: MusicIssue[];
+    filter?: MusicIssueGroup | "all";
+    expandedGroups: MusicIssueGroup[];
+    compact?: boolean;
+    onFilterChange?: (filter: MusicIssueGroup | "all") => void;
+    onExpandedGroupsChange: (groups: MusicIssueGroup[]) => void;
+    onRepair: (issue: MusicIssue) => void;
+    onRefresh: () => void;
+  } = $props();
   const { t } = getLocalization();
-  let filter = $state<MusicIssueGroup | "all">("all");
-  let expanded = $state<Set<MusicIssueGroup>>(new Set(["missing-local-file", "root-unavailable", "ambiguous-match", "youtube-unavailable", "embedding-blocked", "refresh-incomplete"]));
+  const expanded = $derived(new Set(expandedGroups));
   const grouped = $derived(groupMusicIssues(issues));
   const groups = $derived([...grouped.entries()].filter(([group]) => filter === "all" || filter === group));
 
@@ -30,21 +47,21 @@
   function toggle(group: MusicIssueGroup): void {
     const next = new Set(expanded);
     if (next.has(group)) next.delete(group); else next.add(group);
-    expanded = next;
+    onExpandedGroupsChange([...next]);
   }
 </script>
 
 <div class="issue-browser flex h-full min-h-0 flex-col">
-  <div class="flex shrink-0 items-center gap-2 border-b border-border/45 px-3 py-2">
+  {#if !compact}<div class="flex shrink-0 items-center gap-2 border-b border-border/45 px-3 py-2">
     <div class="min-w-0 flex-1"><h2 class="text-sm font-semibold">{t("music.builder.issues")}</h2><p class="mt-0.5 text-[0.65rem] text-muted-foreground">{t("music.builder.dataPreserved")}</p></div>
     <button type="button" onclick={onRefresh} class="inline-flex h-8 items-center gap-1.5 rounded-lg bg-secondary px-2.5 text-[0.68rem] font-semibold text-secondary-foreground hover:bg-accent"><RefreshCw size={12} />{t("music.builder.refresh")}</button>
-  </div>
-  <div class="flex shrink-0 gap-1.5 overflow-x-auto px-3 py-2">
-    <button type="button" onclick={() => filter = "all"} class:active-filter={filter === "all"} class="issue-filter">{t("music.builder.issues")} <span>{issues.length}</span></button>
-    {#each [...grouped.entries()] as [group, entries] (group)}<button type="button" onclick={() => filter = group} class:active-filter={filter === group} class="issue-filter">{label(group)} <span>{entries.length}</span></button>{/each}
-  </div>
+  </div>{/if}
+  {#if !compact}<div class="flex shrink-0 gap-1.5 overflow-x-auto px-3 py-2">
+    <button type="button" onclick={() => onFilterChange("all")} class:active-filter={filter === "all"} class="issue-filter">{t("music.builder.issues")} <span>{issues.length}</span></button>
+    {#each [...grouped.entries()] as [group, entries] (group)}<button type="button" onclick={() => onFilterChange(group)} class:active-filter={filter === group} class="issue-filter">{label(group)} <span>{entries.length}</span></button>{/each}
+  </div>{/if}
   <div class="issue-scroll min-h-0 flex-1 overflow-y-auto px-3 pb-3">
-    {#if issues.length === 0}
+    {#if issues.length === 0 || groups.length === 0}
       <MusicBuilderAsyncState kind="empty" title={t("music.builder.emptyIssuesTitle")} description={t("music.builder.emptyIssuesDescription")} />
     {:else}
       <div class="space-y-2">

@@ -105,17 +105,17 @@ describe("MusicPanel", () => {
     expect(target.querySelector("[data-music-player-page]")).toBe(playerPage);
     expect(playerPage?.classList.contains("hidden")).toBe(true);
 
-    const navigationItems = target.querySelectorAll<HTMLButtonElement>("[data-builder-nav-item]");
+    const navigationItems = target.querySelectorAll<HTMLButtonElement>("[data-builder-dock-item]");
     const playlistsNavigation = navigationItems.item(1);
-    expect(playlistsNavigation.textContent).toContain("Playlists");
+    expect(playlistsNavigation.getAttribute("aria-label")).toContain("Playlists");
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "2", bubbles: true, cancelable: true }));
     await vi.waitFor(() => {
-      expect(playlistsNavigation.getAttribute("aria-pressed")).toBe("true");
+      expect(playlistsNavigation.getAttribute("aria-current")).toBe("page");
     });
 
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "3", bubbles: true, cancelable: true }));
     await vi.waitFor(() => {
-      expect(navigationItems.item(2).getAttribute("aria-pressed")).toBe("true");
+      expect(navigationItems.item(2).getAttribute("aria-current")).toBe("page");
     });
 
     target.querySelector<HTMLButtonElement>(`[data-music-focus-key="builder:back-to-player"]`)?.click();

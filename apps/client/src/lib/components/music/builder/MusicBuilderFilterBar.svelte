@@ -33,6 +33,7 @@
     sources = [],
     playlists = [],
     playlistMode = false,
+    orientation = "horizontal",
     onChange,
   }: {
     sourceKind: MusicLibrarySourceKind | null;
@@ -48,6 +49,7 @@
     sources?: MusicSourceSummary[];
     playlists?: import("$lib/music/library-contracts").MusicPlaylistSummary[];
     playlistMode?: boolean;
+    orientation?: "horizontal" | "sidebar";
     onChange: (patch: {
       sourceKind?: MusicLibrarySourceKind | null;
       availability?: MusicItemAvailability | null;
@@ -186,7 +188,7 @@
 
 <svelte:window onkeydown={(event) => { if (event.key === "Escape" && openMenu) { event.stopPropagation(); closeMenu(true); } }} onpointerdown={handleWindowPointerDown} />
 
-<div class="flex min-h-10 shrink-0 items-center gap-1.5 overflow-x-auto border-b border-border/45 px-2 py-1.5" style={`--filter-menu-top:${menuTop}px;--filter-menu-left:${menuLeft}px`} aria-label={t("music.builder.filters")}>
+<div class:sidebar={orientation === "sidebar"} class="filter-root flex min-h-10 shrink-0 items-center gap-1.5 overflow-x-auto border-b border-border/45 px-2 py-1.5" style={`--filter-menu-top:${menuTop}px;--filter-menu-left:${menuLeft}px`} aria-label={t("music.builder.filters")}>
   <span class="mr-0.5 inline-flex shrink-0 items-center gap-1 text-[0.66rem] font-medium text-muted-foreground">
     <Filter size={12} strokeWidth={1.7} />
     {filterCount > 0 ? filterCount : ""}
@@ -295,6 +297,8 @@
 </div>
 
 <style>
+  .filter-root.sidebar { align-content: flex-start; flex-wrap: wrap; overflow-x: visible; overflow-y: auto; border-bottom: 0; padding: 0.5rem; }
+  .filter-root.sidebar :global(.ml-auto) { margin-left: 0; }
   .filter-pill { display: inline-flex; height: 1.75rem; align-items: center; gap: 0.25rem; border: 1px solid color-mix(in srgb, var(--border) 75%, transparent); border-radius: 999px; background: color-mix(in srgb, var(--card) 78%, transparent); padding-inline: 0.6rem; color: var(--muted-foreground); font-size: 0.65rem; white-space: nowrap; }
   .filter-pill:hover, .filter-pill-active { border-color: color-mix(in srgb, var(--primary) 35%, var(--border)); color: var(--foreground); }
   .filter-pill-active { background: color-mix(in srgb, var(--primary) 9%, var(--card)); }

@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import { projectMusicBuilderLayout } from "./music-builder-layout";
 
 describe("music builder layout projection", () => {
-  it("uses the persistent-inspector workspace at the normal panel size", () => {
-    expect(projectMusicBuilderLayout({ width: 1000, height: 680 })).toMatchObject({
+  it("uses three panes only when the contextual panel, list, and inspector fit", () => {
+    expect(projectMusicBuilderLayout({ width: 1200, height: 680 })).toMatchObject({
       mode: "wide",
       inspectorPresentation: "persistent",
+      contextPanelPresentation: "persistent",
+      dockPresentation: "sidebar",
       comfortable: true,
     });
   });
@@ -14,6 +16,8 @@ describe("music builder layout projection", () => {
     expect(projectMusicBuilderLayout({ width: 700, height: 420 })).toMatchObject({
       mode: "medium",
       inspectorPresentation: "overlay",
+      contextPanelPresentation: "persistent",
+      dockPresentation: "sidebar",
     });
     expect(projectMusicBuilderLayout({ width: 1000, height: 280 }).mode).toBe("narrow");
   });
@@ -22,6 +26,8 @@ describe("music builder layout projection", () => {
     expect(projectMusicBuilderLayout({ width: 280, height: 180 })).toEqual({
       mode: "narrow",
       inspectorPresentation: "page",
+      contextPanelPresentation: "sheet",
+      dockPresentation: "bottom",
       comfortable: false,
     });
   });

@@ -55,7 +55,7 @@
   });
 </script>
 
-{#if mode === "wide"}
+{#if mode === "wide" && open}
   <MusicBuilderInspector {controller} {activePlaylistId} {playlistNames} {sourceNames} {onPlay} {onShowFile} {onReviewState} {onSnooze} {onEditMembership} {onResetStatistics} {onRepair} {onMetadataSaved} {onPreviewMembership} {onOpenSource} />
 {:else if open && mode === "medium"}
   <div class="absolute inset-0 z-30 bg-background/45 backdrop-blur-[1px]">

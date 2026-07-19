@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, onMount, tick } from "svelte";
+  import { onDestroy, tick } from "svelte";
   import Check from "@lucide/svelte/icons/check";
   import ChevronLeft from "@lucide/svelte/icons/chevron-left";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
@@ -7,6 +7,7 @@
   import ListPlus from "@lucide/svelte/icons/list-plus";
   import Pencil from "@lucide/svelte/icons/pencil";
   import Pause from "@lucide/svelte/icons/pause";
+  import PanelLeft from "@lucide/svelte/icons/panel-left";
   import Play from "@lucide/svelte/icons/play";
   import Slash from "@lucide/svelte/icons/slash";
   import X from "@lucide/svelte/icons/x";
@@ -15,11 +16,9 @@
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import type { MusicBuilderInspectorController } from "$lib/music/music-builder-inspector.svelte";
   import type { MusicLibraryController } from "$lib/music/music-library-controller.svelte";
-  import {
-    MUSIC_CONTEXT_BOUNDARY_EVENT,
-    type MusicReviewAuditionController,
-  } from "$lib/music/music-review-audition.svelte";
+  import type { MusicReviewAuditionController } from "$lib/music/music-review-audition.svelte";
   import type { MusicReviewController } from "$lib/music/music-review-controller.svelte";
+  import type { MusicReviewWorkspaceViewState } from "$lib/music/music-builder-view-state";
   import type { MusicSourcesController } from "$lib/music/music-sources-controller.svelte";
   import {
     isMusicReviewEditableTarget,
@@ -35,7 +34,6 @@
   import MusicPlaylistIcon from "./MusicPlaylistIcon.svelte";
   import MusicPlaylistManager from "./MusicPlaylistManager.svelte";
   import MusicPlaylistPicker from "./MusicPlaylistPicker.svelte";
-  import MusicReviewTree from "./MusicReviewTree.svelte";
 
   let {
     library,
@@ -45,14 +43,13 @@
     review,
     autoplay,
     onAutoplayChange,
-    onAssignSelection,
-    canRefreshFolders,
-    refreshingFolders,
-    onRefreshFolders,
     onOpenPlayer,
+    showPanelButton = false,
+    onOpenPanel = () => undefined,
     onEditPlaylist,
     onDeletePlaylist,
     onReorderPlaylists,
+    viewState,
   }: {
     library: MusicLibraryController;
     inspector: MusicBuilderInspectorController;
@@ -61,22 +58,17 @@
     review: MusicReviewController;
     autoplay: boolean;
     onAutoplayChange: (value: boolean) => void;
-    onAssignSelection: (itemIds: string[]) => void;
-    canRefreshFolders: boolean;
-    refreshingFolders: boolean;
-    onRefreshFolders: () => void;
     onOpenPlayer: () => void;
+    showPanelButton?: boolean;
+    onOpenPanel?: () => void;
     onEditPlaylist: (playlistId: string) => void;
     onDeletePlaylist: (playlistId: string) => void;
     onReorderPlaylists: (playlistIds: string[]) => Promise<boolean>;
+    viewState: MusicReviewWorkspaceViewState;
   } = $props();
 
   const { t } = getLocalization();
   let surface = $state<HTMLElement | null>(null);
-  let newPlaylistName = $state("");
-  let newPlaylistIcon = $state("lucide:list-music");
-  let inlineCreateOpen = $state(false);
-  let managingPlaylists = $state(false);
   let lastSelectedId = $state<string | null>(null);
   let lastAutoplayedId = $state<string | null>(null);
   let newPlaylistNameInput = $state<HTMLInputElement | null>(null);
@@ -86,8 +78,7 @@
   let artworkPrefetchGeneration = 0;
   let preparingNext = $state(false);
   let ignoreConfirmOpen = $state(false);
-  let sessionSkippedIds = $state<Set<string>>(new Set());
-  let membershipBaselines = $state<Record<string, string>>({});
+  const sessionSkippedIds = $derived(new Set(viewState.sessionSkippedIds));
   const reviewItemsFullyLoaded = $derived(
     library.currentWindow.items.length >= library.currentWindow.totalCount,
   );
@@ -103,8 +94,8 @@
   const checkedIds = $derived(new Set(detail?.memberships.map((membership) => membership.playlistId) ?? []));
   const membershipSignature = $derived([...checkedIds].sort().join("\n"));
   const membershipsChanged = $derived(Boolean(item)
-    && membershipBaselines[item!.id] !== undefined
-    && membershipBaselines[item!.id] !== membershipSignature);
+    && viewState.membershipBaselines[item!.id] !== undefined
+    && viewState.membershipBaselines[item!.id] !== membershipSignature);
   const needsSave = $derived(Boolean(item) && (item!.reviewState !== "reviewed" || membershipsChanged));
   const reviewTreeIndex = $derived(item ? reviewItemIds.indexOf(item.id) : -1);
   const reviewedCount = $derived(library.currentWindow.items.filter((entry) => entry.reviewState === "reviewed").length);
@@ -175,37 +166,27 @@
   });
 
   $effect(() => {
-    if (!detail || membershipBaselines[detail.item.id] !== undefined) return;
-    membershipBaselines = { ...membershipBaselines, [detail.item.id]: membershipSignature };
+    if (!detail || viewState.membershipBaselines[detail.item.id] !== undefined) return;
+    viewState.membershipBaselines = { ...viewState.membershipBaselines, [detail.item.id]: membershipSignature };
   });
 
   onDestroy(() => {
     inspector.clear();
   });
 
-  onMount(() => {
-    const handleBoundary = (event: Event) => {
-      if (!(event instanceof CustomEvent)) return;
-      const owner = event.detail?.owner;
-      if (owner === "calendar-event" || owner === "pomodoro") audition.supersedeForBoundary(owner);
-    };
-    window.addEventListener(MUSIC_CONTEXT_BOUNDARY_EVENT, handleBoundary);
-    return () => window.removeEventListener(MUSIC_CONTEXT_BOUNDARY_EVENT, handleBoundary);
-  });
-
 
   function openInlineCreate(): void {
-    inlineCreateOpen = true;
+    viewState.inlineCreateOpen = true;
     review.createError = null;
     void tick().then(() => newPlaylistNameInput?.focus());
   }
 
   async function createPlaylistAndAdd(): Promise<void> {
-    const playlistId = await review.createPlaylistAndAdd(newPlaylistName, newPlaylistIcon);
+    const playlistId = await review.createPlaylistAndAdd(viewState.newPlaylistName, viewState.newPlaylistIcon);
     if (!playlistId) return;
-    newPlaylistName = "";
-    newPlaylistIcon = "lucide:list-music";
-    inlineCreateOpen = false;
+    viewState.newPlaylistName = "";
+    viewState.newPlaylistIcon = "lucide:list-music";
+    viewState.inlineCreateOpen = false;
     await tick();
     checklistRoot?.querySelector<HTMLElement>(`[data-review-playlist-id="${playlistId}"]`)?.focus();
   }
@@ -258,10 +239,10 @@
       const skipped = new Set(sessionSkippedIds).add(item.id);
       let nextItemId = nextPendingMusicReviewTreeItemId(library.currentWindow.items, item.id, skipped);
       if (!nextItemId) {
-        sessionSkippedIds = new Set();
+        viewState.sessionSkippedIds = [];
         nextItemId = nextPendingMusicReviewTreeItemId(library.currentWindow.items, item.id, new Set());
       } else {
-        sessionSkippedIds = skipped;
+        viewState.sessionSkippedIds = [...skipped];
       }
       await ensureReviewArtwork(nextItemId);
       if (nextItemId) inspector.selectCached(nextItemId);
@@ -274,7 +255,7 @@
   async function continueCurrentItem(): Promise<void> {
     if (!item || preparingNext || review.actionBusy) return;
     const nextItemId = reviewTreeIndex >= 0 ? reviewItemIds[reviewTreeIndex + 1] ?? null : null;
-    membershipBaselines = { ...membershipBaselines, [item.id]: membershipSignature };
+    viewState.membershipBaselines = { ...viewState.membershipBaselines, [item.id]: membershipSignature };
     preparingNext = true;
     try {
       await ensureReviewArtwork(nextItemId);
@@ -288,7 +269,7 @@
   async function saveAndContinue(): Promise<void> {
     if (!item || !needsSave || preparingNext || review.actionBusy) return;
     if (item.reviewState !== "reviewed") {
-      membershipBaselines = { ...membershipBaselines, [item.id]: membershipSignature };
+      viewState.membershipBaselines = { ...viewState.membershipBaselines, [item.id]: membershipSignature };
       await finishReviewState("reviewed");
       return;
     }
@@ -341,21 +322,11 @@
 
 <svelte:window onkeydown={handleKeydown} />
 
-<div class="review-workspace grid min-h-0 flex-1 overflow-hidden">
-  <MusicReviewTree
-    items={library.currentWindow.items}
-    totalCount={library.currentWindow.totalCount}
-    activeItemId={item?.id ?? null}
-    onActivate={(itemId) => library.selectItem(itemId)}
-    onAssign={onAssignSelection}
-    canRefresh={canRefreshFolders}
-    refreshing={refreshingFolders}
-    onRefresh={onRefreshFolders}
-  />
-  <div class="review-main flex min-h-0 min-w-0 flex-col overflow-hidden">
+<div class="review-main flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
   <section class="review-audition min-h-0 overflow-y-auto px-4 pb-3 pt-2" data-music-scrollable="true">
     <div class="flex items-center justify-between gap-3">
-      <button type="button" onclick={onOpenPlayer} class="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-secondary px-2.5 text-[0.7rem]" aria-label={t("music.backToPlayer")}><ChevronLeft size={14} />{t("music.backToPlayer")}</button>
+      {#if showPanelButton}<button type="button" onclick={onOpenPanel} class="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground" aria-label={t("music.builder.openContextPanel")} title={t("music.builder.openContextPanel")}><PanelLeft size={14} /></button>{/if}
+      <button type="button" onclick={onOpenPlayer} class="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-secondary px-2.5 text-[0.7rem]" aria-label={t("music.backToPlayer")} data-music-focus-key="builder:back-to-player"><ChevronLeft size={14} />{t("music.backToPlayer")}</button>
       <p class="min-w-0 flex-1 truncate text-center text-[0.68rem] font-medium text-muted-foreground" role="status" aria-live="polite">{t("music.builder.reviewProgress", reviewedCount, library.currentWindow.totalCount)}</p>
       <div class="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
         <button type="button" onclick={() => onAutoplayChange(!autoplay)} aria-pressed={autoplay} class="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[0.65rem] text-foreground transition-colors hover:bg-secondary">
@@ -421,23 +392,23 @@
   </section>
 
   <section class="review-classify flex min-h-0 flex-col">
-    {#if managingPlaylists}
+    {#if viewState.managingPlaylists}
       <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3" data-music-scrollable="true">
         <MusicPlaylistManager
           playlists={library.playlistSummaries}
           onEdit={onEditPlaylist}
           onDelete={onDeletePlaylist}
           onReorder={onReorderPlaylists}
-          onDone={() => managingPlaylists = false}
+          onDone={() => viewState.managingPlaylists = false}
         />
       </div>
     {:else}
       <div class="shrink-0 p-3">
         <h2 class="text-sm font-semibold">{t("music.builder.classifyPlaylists")}</h2>
-      {#if inlineCreateOpen}
+      {#if viewState.inlineCreateOpen}
         <form class="mt-2" onsubmit={(event) => { event.preventDefault(); void createPlaylistAndAdd(); }}>
           <div class="flex items-center gap-2">
-            <IconPicker value={newPlaylistIcon} onChange={(value) => newPlaylistIcon = value} ariaLabel={t("music.builder.selectPlaylistIcon")} showUpload={false}>
+            <IconPicker value={viewState.newPlaylistIcon} onChange={(value) => viewState.newPlaylistIcon = value} ariaLabel={t("music.builder.selectPlaylistIcon")} showUpload={false}>
               {#snippet trigger({ open, toggle })}
                 <button
                   type="button"
@@ -447,22 +418,22 @@
                   title={t("music.builder.selectPlaylistIcon")}
                   onclick={toggle}
                 >
-                  <MusicPlaylistIcon icon={newPlaylistIcon} size={16} strokeWidth={1.6} />
+                  <MusicPlaylistIcon icon={viewState.newPlaylistIcon} size={16} strokeWidth={1.6} />
                 </button>
               {/snippet}
             </IconPicker>
-            <input bind:this={newPlaylistNameInput} bind:value={newPlaylistName} aria-label={t("music.builder.inlinePlaylistName")} class="h-8 min-w-0 flex-1 rounded-md border border-border/70 bg-background px-2.5 text-xs outline-none focus:border-primary" placeholder={t("music.builder.inlinePlaylistName")} />
+            <input bind:this={newPlaylistNameInput} bind:value={viewState.newPlaylistName} aria-label={t("music.builder.inlinePlaylistName")} class="h-8 min-w-0 flex-1 rounded-md border border-border/70 bg-background px-2.5 text-xs outline-none focus:border-primary" placeholder={t("music.builder.inlinePlaylistName")} />
           </div>
           {#if review.createError}<p class="mt-1.5 text-[0.65rem] text-destructive" role="alert">{review.createError}</p>{/if}
           <div class="mt-2 flex justify-end gap-2">
-            <button type="button" onclick={() => { inlineCreateOpen = false; review.createError = null; }} class="h-8 rounded-md bg-secondary px-2.5 text-xs font-medium">{t("music.builder.cancel")}</button>
-            <button type="submit" disabled={!newPlaylistName.trim() || review.creatingPlaylist} class="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-2.5 text-xs font-medium text-primary-foreground disabled:opacity-40"><ListPlus size={14} />{t("music.builder.createAndAdd")}</button>
+            <button type="button" onclick={() => { viewState.inlineCreateOpen = false; review.createError = null; }} class="h-8 rounded-md bg-secondary px-2.5 text-xs font-medium">{t("music.builder.cancel")}</button>
+            <button type="submit" disabled={!viewState.newPlaylistName.trim() || review.creatingPlaylist} class="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-2.5 text-xs font-medium text-primary-foreground disabled:opacity-40"><ListPlus size={14} />{t("music.builder.createAndAdd")}</button>
           </div>
         </form>
       {:else}
         <div class="mt-2 flex flex-wrap items-center gap-2">
           <button type="button" onclick={openInlineCreate} class="inline-flex h-8 items-center gap-1.5 rounded-full bg-primary px-3 text-xs font-medium text-primary-foreground"><ListPlus size={14} />{t("music.builder.newPlaylist")}</button>
-          <button type="button" onclick={() => { inlineCreateOpen = false; review.createError = null; managingPlaylists = true; }} class="inline-flex h-8 items-center gap-1.5 rounded-full bg-secondary px-3 text-xs font-medium text-foreground"><Pencil size={13} />{t("music.builder.managePlaylists")}</button>
+          <button type="button" onclick={() => { viewState.inlineCreateOpen = false; review.createError = null; viewState.managingPlaylists = true; }} class="inline-flex h-8 items-center gap-1.5 rounded-full bg-secondary px-3 text-xs font-medium text-foreground"><Pencil size={13} />{t("music.builder.managePlaylists")}</button>
         </div>
       {/if}
       </div>
@@ -488,7 +459,6 @@
       <button type="button" onclick={() => { void saveAndContinue(); }} disabled={!detail || !needsSave || review.actionBusy || preparingNext} class="review-action bg-primary text-primary-foreground" title={t("music.builder.markReviewedTitle", formatShortcut("Mod + Enter"))}><Check size={14} />{t("music.builder.saveAndContinue")}<ChevronRight size={14} /></button>
     </div>
   </section>
-  </div>
 </div>
 
 {#if ignoreConfirmOpen}
@@ -503,8 +473,7 @@
 {/if}
 
 <style>
-  .review-workspace { grid-template-columns: minmax(13rem, 0.72fr) minmax(22rem, 2fr); }
-  .review-main { grid-column: 2; min-height: 0; }
+  .review-main { min-height: 0; }
   .review-audition { flex: 0 0 auto; }
   .review-classify { min-height: 14rem; flex: 1 1 0; }
   .review-play { display: grid; height: 2.5rem; width: 2.5rem; place-items: center; border-radius: 9999px; background: var(--primary); color: var(--primary-foreground); }
@@ -512,7 +481,6 @@
   .review-action { display: inline-flex; min-height: 2.25rem; align-items: center; justify-content: center; gap: 0.375rem; border-radius: 0.5rem; padding: 0 0.5rem; font-size: 0.72rem; font-weight: 600; }
   .review-action:disabled { cursor: not-allowed; opacity: 0.4; }
   @container (width < 620px) {
-    .review-workspace { display: flex; flex-direction: column; overflow-y: auto; }
     .review-main { min-height: 32rem; flex: 1 0 auto; overflow: visible; }
     .review-audition, .review-classify { min-height: auto; overflow: visible; }
     .review-audition { flex: 0 0 auto; padding: 0.625rem; }
@@ -526,7 +494,6 @@
     .review-play { height: 2rem; width: 2rem; }
   }
   @container (width >= 620px) and (width < 860px) {
-    .review-workspace { grid-template-columns: minmax(11rem, 0.72fr) minmax(16rem, 1.15fr); }
     .review-classify { min-height: 15rem; }
   }
   @container (height < 300px) and (width >= 620px) {

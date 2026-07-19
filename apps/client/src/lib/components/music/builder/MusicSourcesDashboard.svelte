@@ -21,6 +21,8 @@
     onRemove,
     onOpenIssues,
     onDetectedFolderAdded = () => undefined,
+    selectedCollectionId = null,
+    compact = false,
   }: {
     controller: MusicSourcesController;
     summaries: MusicSourceSummary[];
@@ -31,6 +33,8 @@
     onRemove: (collectionId: string) => void;
     onOpenIssues: () => void;
     onDetectedFolderAdded?: () => void;
+    selectedCollectionId?: string | null;
+    compact?: boolean;
   } = $props();
 
   const { t, locale } = getLocalization();
@@ -56,7 +60,7 @@
 </script>
 
 <div class="source-dashboard h-full min-h-0 overflow-y-auto p-3">
-  <div class="mb-3 flex flex-wrap items-start gap-3">
+  {#if !compact}<div class="mb-3 flex flex-wrap items-start gap-3">
     <div class="min-w-48 flex-1">
       <h2 class="text-sm font-semibold text-foreground">{t("music.builder.sourceDashboardTitle")}</h2>
       <p class="mt-1 max-w-2xl text-[0.7rem] leading-relaxed text-muted-foreground">{t("music.builder.sourceDashboardDescription")}</p>
@@ -65,7 +69,7 @@
       <button type="button" onclick={onRefreshAll} disabled={controller.collections.length === 0} class="source-secondary"><RefreshCw size={13} />{t("music.builder.refreshAll")}</button>
       <button type="button" onclick={onAdd} class="source-primary"><Plus size={13} />{t("music.builder.addSource")}</button>
     </div>
-  </div>
+  </div>{/if}
 
   {#if controller.detectedDefaultFolder}
     <div class="mb-3"><MusicDetectedFolderCard {controller} onAdded={onDetectedFolderAdded} /></div>
@@ -89,7 +93,7 @@
     {/if}
 
     <div class="grid grid-cols-[repeat(auto-fill,minmax(min(17rem,100%),1fr))] gap-2.5">
-      {#each controller.collections as collection (collection.id)}
+      {#each controller.collections.filter((collection) => !selectedCollectionId || collection.id === selectedCollectionId) as collection (collection.id)}
         {@const summary = summaryById.get(collection.id)}
         {@const status = controller.refreshStatuses[collection.id]}
         <article class="source-card">
