@@ -7,6 +7,9 @@
   import ListPlus from "@lucide/svelte/icons/list-plus";
   import Pause from "@lucide/svelte/icons/pause";
   import Play from "@lucide/svelte/icons/play";
+  import Slash from "@lucide/svelte/icons/slash";
+  import X from "@lucide/svelte/icons/x";
+  import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import type { MusicBuilderInspectorController } from "$lib/music/music-builder-inspector.svelte";
   import type { MusicLibraryController } from "$lib/music/music-library-controller.svelte";
@@ -26,7 +29,6 @@
     nextPendingMusicReviewTreeItemId,
   } from "$lib/music/music-review-tree";
   import { clampRate, formatPlaybackTime } from "$lib/music/playback";
-  import { cn } from "$lib/utils";
   import { formatShortcut } from "$lib/keyboard-shortcuts";
   import MusicPlaylistPicker from "./MusicPlaylistPicker.svelte";
   import MusicReviewTree from "./MusicReviewTree.svelte";
@@ -66,13 +68,13 @@
   let inlineCreateOpen = $state(false);
   let lastSelectedId = $state<string | null>(null);
   let lastAutoplayedId = $state<string | null>(null);
-  let retainedSessionTotal = $state<number | null>(null);
   let newPlaylistNameInput = $state<HTMLInputElement | null>(null);
   let checklistRoot = $state<HTMLElement | null>(null);
   let prefetchedArtworkUrls = $state<Record<string, string>>({});
   let prefetchedArtworkReadyIds = $state<Set<string>>(new Set());
   let artworkPrefetchGeneration = 0;
   let preparingNext = $state(false);
+  let ignoreConfirmOpen = $state(false);
   let sessionSkippedIds = $state<Set<string>>(new Set());
   let membershipBaselines = $state<Record<string, string>>({});
   const reviewItemsFullyLoaded = $derived(
@@ -93,8 +95,8 @@
     && membershipBaselines[item!.id] !== undefined
     && membershipBaselines[item!.id] !== membershipSignature);
   const needsSave = $derived(Boolean(item) && (item!.reviewState !== "reviewed" || membershipsChanged));
-  const sessionTotal = $derived(retainedSessionTotal ?? library.currentWindow.totalCount);
   const reviewTreeIndex = $derived(item ? reviewItemIds.indexOf(item.id) : -1);
+  const reviewedCount = $derived(library.currentWindow.items.filter((entry) => entry.reviewState === "reviewed").length);
   const player = $derived(audition.musicPlayer);
   const previewTitle = $derived(detail
     ? detail.item.titleOverride ?? detail.item.originalTitle
@@ -107,7 +109,6 @@
   const previewDurationMs = $derived(reviewPlayerReady
     ? player.snapshot.durationMs
     : detail?.item.durationMs ?? item?.durationMs ?? 0);
-  const progressCurrent = $derived(Math.max(1, reviewTreeIndex + 1));
   const seekSliderProgress = $derived(reviewPlayerReady && player.progressMax > 0
     ? `${Math.min(100, Math.max(0, (player.progressValue / player.progressMax) * 100))}%`
     : "0%");
@@ -115,12 +116,6 @@
   $effect(() => {
     if (library.loadingMore || library.loadMoreError || library.currentWindow.items.length >= library.currentWindow.totalCount) return;
     void library.loadMore();
-  });
-
-  $effect(() => {
-    if (retainedSessionTotal === null && library.currentWindow.totalCount > 0) {
-      retainedSessionTotal = library.currentWindow.totalCount;
-    }
   });
 
   function availabilityLabel(): string {
@@ -240,6 +235,11 @@
     }
   }
 
+  function confirmIgnore(): void {
+    ignoreConfirmOpen = false;
+    void finishReviewState("ignored");
+  }
+
   async function skipCurrentItem(): Promise<void> {
     if (!item || preparingNext || review.actionBusy) return;
     preparingNext = true;
@@ -342,18 +342,22 @@
     onRefresh={onRefreshFolders}
   />
   <div class="review-main flex min-h-0 min-w-0 flex-col overflow-hidden">
-  <section class="review-audition min-h-0 overflow-y-auto px-4 py-3" data-music-scrollable="true">
+  <section class="review-audition min-h-0 overflow-y-auto px-4 pb-3 pt-2" data-music-scrollable="true">
     <div class="flex items-center justify-between gap-3">
       <div class="flex min-w-0 items-center gap-2">
-        <button type="button" onclick={onOpenPlayer} class="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-secondary px-2.5 text-[0.7rem] font-medium" aria-label={t("music.backToPlayer")}><ChevronLeft size={14} />{t("music.mediaPlayer")}</button>
-        <p class="truncate text-[0.68rem] font-medium text-muted-foreground" role="status" aria-live="polite">{t("music.builder.reviewProgress", progressCurrent, sessionTotal)}</p>
+        <button type="button" onclick={onOpenPlayer} class="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-secondary px-2.5 text-[0.7rem]" aria-label={t("music.backToPlayer")}><ChevronLeft size={14} />{t("music.backToPlayer")}</button>
+        <p class="truncate text-[0.68rem] font-medium text-muted-foreground" role="status" aria-live="polite">{t("music.builder.reviewProgress", reviewedCount, library.currentWindow.totalCount)}</p>
       </div>
       <div class="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
-        {#if audition.active}
-          <button type="button" onclick={() => { void audition.restore(); }} class="h-7 rounded-md bg-secondary px-2 text-[0.68rem] font-medium text-secondary-foreground">{t("music.builder.returnPreviousPlayback")}</button>
-        {/if}
-        <button type="button" onclick={() => onAutoplayChange(!autoplay)} aria-pressed={autoplay} class={cn("h-7 rounded-full px-2.5 text-[0.65rem] font-medium", autoplay ? "bg-primary/12 text-primary" : "bg-secondary/70 text-muted-foreground")}>{t("music.builder.reviewAutoplay")}</button>
-        <button type="button" onclick={() => { void finishReviewState("ignored"); }} disabled={!detail || review.actionBusy || preparingNext} class="h-7 rounded-md px-2 text-[0.65rem] text-muted-foreground hover:bg-secondary disabled:opacity-40">{t("music.builder.ignore")}</button>
+        <button type="button" onclick={() => onAutoplayChange(!autoplay)} aria-pressed={autoplay} class="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[0.65rem] text-foreground transition-colors hover:bg-secondary">
+          {#if autoplay}
+            <Play size={13} />
+          {:else}
+            <span class="relative size-3.25 shrink-0" aria-hidden="true"><Play class="absolute inset-0" size={13} /><Slash class="absolute inset-0" size={13} /></span>
+          {/if}
+          {autoplay ? t("music.builder.reviewAutoplayOn") : t("music.builder.reviewAutoplayOff")}
+        </button>
+        <button type="button" onclick={() => ignoreConfirmOpen = true} disabled={!detail || review.actionBusy || preparingNext} class="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[0.65rem] text-foreground hover:bg-secondary"><X size={13} />{t("music.builder.ignore")}</button>
       </div>
     </div>
     {#if library.currentState.groupBy !== "none" && library.currentWindow.groups.length > 0}
@@ -373,10 +377,14 @@
             {:else if reviewPlayerReady && player.currentArtworkUrl}
               <img src={player.currentArtworkUrl} alt="" class="absolute inset-0 h-full w-full object-contain" draggable="false" onload={() => player.handleArtworkLoaded()} onerror={() => player.handleArtworkError()} />
             {:else}
-              <Disc3 class="text-muted-foreground" size={38} strokeWidth={1.3} />
+              <div class="grid h-full w-full place-items-center rounded-xl bg-primary/10 text-primary">
+                <Disc3 size={38} strokeWidth={1.3} />
+              </div>
             {/if}
           {:else if !player.currentSource || !reviewPlayerReady}
-            <Disc3 class="text-muted-foreground" size={38} strokeWidth={1.3} />
+            <div class="grid h-full w-full place-items-center rounded-xl bg-primary/10 text-primary">
+              <Disc3 size={38} strokeWidth={1.3} />
+            </div>
           {/if}
         </div>
 
@@ -443,6 +451,17 @@
   </section>
   </div>
 </div>
+
+{#if ignoreConfirmOpen}
+  <ConfirmDialog
+    title={t("music.builder.ignoreTrackTitle")}
+    message={t("music.builder.ignoreTrackDescription")}
+    confirmLabel={t("music.builder.ignoreTrackConfirm")}
+    cancelLabel={t("common.cancel")}
+    onConfirm={confirmIgnore}
+    onCancel={() => ignoreConfirmOpen = false}
+  />
+{/if}
 
 <style>
   .review-workspace { grid-template-columns: minmax(13rem, 0.72fr) minmax(22rem, 2fr); }
