@@ -31,6 +31,7 @@
   } from "$lib/music/music-review-tree";
   import { clampRate, formatPlaybackTime } from "$lib/music/playback";
   import { formatShortcut } from "$lib/keyboard-shortcuts";
+  import MusicPlaylistIcon from "./MusicPlaylistIcon.svelte";
   import MusicPlaylistPicker from "./MusicPlaylistPicker.svelte";
   import MusicReviewTree from "./MusicReviewTree.svelte";
 
@@ -414,9 +415,24 @@
     <div class="shrink-0 p-3">
       <h2 class="text-sm font-semibold">{t("music.builder.classifyPlaylists")}</h2>
       {#if inlineCreateOpen}
-        <form class="mt-2 rounded-lg border border-border/70 bg-background/75 p-2" onsubmit={(event) => { event.preventDefault(); void createPlaylistAndAdd(); }}>
-          <input bind:this={newPlaylistNameInput} bind:value={newPlaylistName} aria-label={t("music.builder.inlinePlaylistName")} class="h-8 w-full rounded-md border border-border/70 bg-background px-2.5 text-xs outline-none focus:border-primary" placeholder={t("music.builder.inlinePlaylistName")} />
-          <div class="mt-2 flex items-center justify-between gap-3"><span class="text-[0.68rem] font-medium">{t("music.builder.playlistIcon")}</span><IconPicker value={newPlaylistIcon} onChange={(value) => newPlaylistIcon = value} ariaLabel={t("music.builder.selectPlaylistIcon")} showUpload={false} class="w-40" /></div>
+        <form class="mt-2" onsubmit={(event) => { event.preventDefault(); void createPlaylistAndAdd(); }}>
+          <div class="flex items-center gap-2">
+            <IconPicker value={newPlaylistIcon} onChange={(value) => newPlaylistIcon = value} ariaLabel={t("music.builder.selectPlaylistIcon")} showUpload={false}>
+              {#snippet trigger({ open, toggle })}
+                <button
+                  type="button"
+                  class={`grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-secondary text-foreground transition-colors hover:bg-accent ${open ? "bg-accent" : ""}`}
+                  aria-label={t("music.builder.selectPlaylistIcon")}
+                  aria-expanded={open}
+                  title={t("music.builder.selectPlaylistIcon")}
+                  onclick={toggle}
+                >
+                  <MusicPlaylistIcon icon={newPlaylistIcon} size={16} strokeWidth={1.6} />
+                </button>
+              {/snippet}
+            </IconPicker>
+            <input bind:this={newPlaylistNameInput} bind:value={newPlaylistName} aria-label={t("music.builder.inlinePlaylistName")} class="h-8 min-w-0 flex-1 rounded-md border border-border/70 bg-background px-2.5 text-xs outline-none focus:border-primary" placeholder={t("music.builder.inlinePlaylistName")} />
+          </div>
           {#if review.createError}<p class="mt-1.5 text-[0.65rem] text-destructive" role="alert">{review.createError}</p>{/if}
           <div class="mt-2 flex justify-end gap-2">
             <button type="button" onclick={() => { inlineCreateOpen = false; review.createError = null; }} class="h-8 rounded-md bg-secondary px-2.5 text-xs font-medium">{t("music.builder.cancel")}</button>

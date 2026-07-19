@@ -121,7 +121,7 @@
   .overview-scroll { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--foreground) 18%, transparent) transparent; }
   .overview-card { display: flex; min-width: 0; align-items: flex-start; gap: 0.75rem; overflow: hidden; border: 1px solid color-mix(in srgb, var(--border) 62%, transparent); border-radius: 0.85rem; background: color-mix(in srgb, var(--card) 75%, transparent); padding: 0.75rem; color: var(--foreground); box-shadow: 0 1px 0 color-mix(in srgb, white 3%, transparent); transition: border-color 130ms ease, background-color 130ms ease, transform 130ms ease; }
   button.overview-card:hover { border-color: color-mix(in srgb, var(--primary) 30%, var(--border)); background: color-mix(in srgb, var(--accent) 45%, var(--card)); transform: translateY(-1px); }
-  .overview-icon { display: grid; height: 2.35rem; width: 2.35rem; flex: none; place-items: center; border-radius: 0.7rem; background: color-mix(in srgb, var(--primary) 10%, var(--secondary)); color: var(--muted-foreground); }
+  .overview-icon { display: grid; height: 2.35rem; width: 2.35rem; flex: none; place-items: center; border-radius: 0.7rem; background: color-mix(in srgb, var(--primary) 10%, var(--secondary)); color: var(--foreground); }
   .overview-icon-warning { color: var(--destructive); }
   .overview-add { min-height: 5.5rem; align-items: center; justify-content: center; border-style: dashed; color: var(--muted-foreground); }
   .source-health { height: 0.45rem; width: 0.45rem; flex: none; border-radius: 999px; background: color-mix(in srgb, var(--primary) 70%, var(--muted)); }

@@ -5,6 +5,7 @@
   import { onMount } from "svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import IconPicker from "$lib/components/icon-picker/IconPicker.svelte";
+  import MusicPlaylistIcon from "./MusicPlaylistIcon.svelte";
   import { containMusicDialogFocus } from "$lib/music/music-dialog-focus";
   import type { MusicPlaylistController, MusicPlaylistDraft } from "$lib/music/music-playlist-controller.svelte";
   import type { MusicIntendedUse, MusicRepeatMode } from "$lib/music/library-contracts";
@@ -130,14 +131,26 @@
         {/if}
       {:else}
         <label class="block text-[0.7rem] font-medium" for="music-playlist-name">{t("music.builder.playlistName")}</label>
-        <input data-dialog-autofocus id="music-playlist-name" bind:value={name} disabled={protectedIdentity && mode === "edit"} class="mt-1.5 h-9 w-full rounded-md border border-border/70 bg-background px-3 text-xs outline-none focus:border-primary disabled:opacity-60" />
-        {#if mode !== "duplicate"}
-          {#if !protectedIdentity}
-            <div class="mt-3 flex items-center justify-between gap-3">
-              <span class="text-[0.7rem] font-medium">{t("music.builder.playlistIcon")}</span>
-              <IconPicker value={icon} onChange={(value) => icon = value} ariaLabel={t("music.builder.selectPlaylistIcon")} showUpload={false} class="w-44" />
-            </div>
+        <div class="mt-1.5 flex items-center gap-2">
+          {#if mode !== "duplicate" && !protectedIdentity}
+            <IconPicker value={icon} onChange={(value) => icon = value} ariaLabel={t("music.builder.selectPlaylistIcon")} showUpload={false}>
+              {#snippet trigger({ open, toggle })}
+                <button
+                  type="button"
+                  class={`grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-secondary text-foreground transition-colors hover:bg-accent ${open ? "bg-accent" : ""}`}
+                  aria-label={t("music.builder.selectPlaylistIcon")}
+                  aria-expanded={open}
+                  title={t("music.builder.selectPlaylistIcon")}
+                  onclick={toggle}
+                >
+                  <MusicPlaylistIcon {icon} size={18} strokeWidth={1.6} />
+                </button>
+              {/snippet}
+            </IconPicker>
           {/if}
+          <input data-dialog-autofocus id="music-playlist-name" bind:value={name} disabled={protectedIdentity && mode === "edit"} class="h-9 min-w-0 flex-1 rounded-md border border-border/70 bg-background px-3 text-xs outline-none focus:border-primary disabled:opacity-60" />
+        </div>
+        {#if mode !== "duplicate"}
           <fieldset class="mt-3"><legend class="text-[0.7rem] font-medium">{t("music.builder.intendedUses")}</legend><div class="mt-1.5 flex flex-wrap gap-1.5">{#each useOptions as use}<button type="button" aria-pressed={intendedUses.includes(use)} onclick={() => toggleUse(use)} title={t(`music.builder.intendedUseDescription.${use}`)} class="rounded-full border border-border/70 px-2.5 py-1 text-[0.68rem] aria-pressed:border-primary aria-pressed:bg-primary/10">{useLabel(use)}</button>{/each}</div>{#if intendedUses.length > 0}<div class="mt-2 space-y-1 rounded-lg bg-secondary/45 p-2">{#each intendedUses as use}<p class="text-[0.62rem] leading-relaxed text-muted-foreground"><strong class="text-foreground">{useLabel(use)}:</strong> {t(`music.builder.intendedUseDescription.${use}`)}</p>{/each}</div>{/if}</fieldset>
           <div class="mt-3 grid grid-cols-2 gap-3">
             <label class="flex items-center gap-2 rounded-lg bg-secondary/55 p-2 text-[0.68rem]"><input type="checkbox" bind:checked={shuffleEnabled} class="accent-primary" />{t("music.builder.shuffleDefault")}</label>
