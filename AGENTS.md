@@ -67,6 +67,9 @@ apps/
         api/: typed wrappers around Tauri commands and asset URL handling
         benchmark/: benchmark runner, samplers, output, scenarios
         calendar/: shared calendar logic and iCalendar parser/serializer
+        chat/: local coding-agent wire contracts and runtime validation
+          contracts/: provider-neutral commands, events, models, and read DTOs
+          validation/: bounded parsers for untrusted Chat responses and events
         data/: shared static/domain data helpers
         doomscrolling/: shared browser and desktop blocking rules
         hooks/: reusable Svelte hooks
@@ -98,6 +101,7 @@ apps/
         vault.rs, db_path.rs, sqlite_row.rs: data folder, database path, and row helpers
         calendar_events/, calendar_import/, calendar_reads/: split calendar persistence, import, and query services
         calendar_description.rs, calendar_import.rs, calendar_reads.rs, calendars.rs, recurrence.rs: calendar command roots and shared logic
+        chat.rs, chat/: local coding-agent contracts, canonical events, driver boundary, metadata registry, and state machines
         pomodoro.rs, pomodoro/: timer commands, DTOs, persistence, validation, reads, and tests
         projects.rs, projects/: project commands, DTOs, persistence, validation, history, custom fields, and templates
         quick_notes/: Quick notes commands, normalized text runs, lifecycle, search, and tests

@@ -1,38 +1,39 @@
 # AI integration
 
-Ganbaru AI's AI features are entirely opt-in. The app is fully functional with no AI configured. When users do opt in, three paths cover different audiences: an integrated terminal for developers, a BYOK chat widget for non-developer users, and MCP for external clients only.
-
-This doc is a placeholder. Deeper design comes in a later pass.
+Ganbaru AI's AI features are entirely opt-in. The app is fully functional with no AI configured. When users opt in, three separate paths cover local coding work, a future general assistant, and external clients. These paths may reuse presentation primitives, but they have different permissions and runtime contracts.
 
 ## Three paths
 
-### 1. Integrated terminal (developer path)
+### 1. Local coding-agent Chat
 
-An xterm.js terminal embedded in the app, running Codex or another CLI coding agent with full capabilities (file editing, bash, subagents). The user installs the agent separately and signs in with their own account or API key. Ganbaru AI provides:
+The Chat tab is a Ganbaru-owned local workspace over coding-agent harnesses that the user installs and authenticates separately. The first provider families are Codex, Claude, Cursor, and OpenCode. Rust owns each provider transport, process tree, credential references, filesystem access, Git checkpoints, terminal sessions, and durable event ingestion. Svelte renders validated canonical data and never receives a generic shell or arbitrary filesystem capability.
 
-- **Context injection** through the launch prompt or standard input, populated from the active project, current project tasks, recent progress, calendar events, and related notes.
-- **Per-project conversation threads** persisted in SQLite. When a calendar event starts, the terminal saves the current conversation and resumes the conversation for the new event's project.
-- **Background agents** for delegated or parallel work, run through the selected agent's documented non-interactive mode. Codex uses `codex exec`.
-- **Workflow phase prompts** that adapt the agent's behavior to the current project phase (brainstorming, evaluation, planning, execution).
+Chat provides:
 
-`AGENTS.md` remains as project-level conventions. Per-task context comes from Ganbaru AI dynamically, not from the markdown file.
+- **Native harness fidelity** through Codex app-server, the selected Claude transport, Cursor ACP, and OpenCode HTTP plus event streams. Provider sessions, approvals, questions, plans, models, usage, and errors remain provider-native facts.
+- **Project workspaces** that link existing Ganbaru Projects or explicit standalone contexts to device-local folders. Project records do not gain machine paths.
+- **Durable conversations** in the active vault SQLite database, with incremental projections, native resume identity, archive and recovery, managed attachments, and explicit incompatible-session forks.
+- **Safety controls** for Supervised, Auto-accept edits, and Full access, mapped truthfully to provider capabilities. Full access requires confirmation for each provider-instance and workspace trust boundary.
+- **Workspace tools** for bounded file inspection, changed-file diffs, thread-scoped terminals, explicit terminal context, and hidden Git checkpoints that do not alter the current branch or real index.
 
-### 2. BYOK chat widget (general-user path)
+Chat does not use `codex exec`, terminal scraping, a resident Node server, or a Ganbaru-hosted relay for interactive turns. Provider-reported subagents and tasks appear as normalized activity, but background autonomous scheduling is outside the initial Chat scope. The reviewed dependency choices and addition phases live in [Chat dependency decisions](chat-dependency-decisions.md).
 
-A chat interface that connects to the user's chosen LLM provider. Three provider categories cover most users:
+### 2. BYOK general assistant (future general-user path)
+
+A separate assistant interface can connect to the user's chosen model API. Three provider categories cover most users:
 
 - **OpenAI API**.
 - **OpenAI-compatible API** (Groq, Together, Mistral, and any provider using a compatible chat format).
 - **Ollama** for local models (Llama, Mistral, Gemma) running on the user's machine, no API key needed.
 - Other provider APIs when users supply their own credentials and the integration is implemented explicitly.
 
-The chat widget can read and write Ganbaru AI data (calendar events, project tasks, notes) via the same CLI bridge the terminal uses. It cannot edit arbitrary files or run arbitrary bash commands; the developer path is the surface for those capabilities.
+The general assistant can read and write authorized Ganbaru AI data through the planned CLI bridge. It cannot edit arbitrary workspace files or execute commands. Those capabilities belong only to the coding-agent Chat and its explicit workspace and safety boundaries.
 
 ### 3. MCP (external clients only)
 
 Ganbaru AI exposes calendar, project, and notes data via an MCP server for use by external AI clients (ChatGPT, teammate agents, and other MCP-compatible clients on a different machine). MCP is also consumed for integrations with external systems (email, external calendars).
 
-MCP is **not** the path for internal agent interaction. Internal agents (the embedded terminal, background agents) use the CLI directly, which is faster, simpler, and avoids the JSON-RPC overhead.
+MCP is **not** the path for internal provider interaction. Coding-agent Chat speaks each harness's native local protocol, while the future general assistant uses its own provider API contract.
 
 ## The CLI as the data bridge
 
@@ -57,16 +58,16 @@ Each project lifecycle phase (see `features/project-management.md`) has a struct
 - **Planning:** assists with specifications and resource estimation.
 - **Execution:** helps with implementation and blockers.
 
-These prompts work with both the terminal and the chat widget. One general agent per project carries context across all phases.
+These prompts can become explicit context actions for both coding-agent Chat and the future general assistant. They never bypass the selected workspace, provider, model, interaction mode, or safety confirmation.
 
 ## Prompt buttons
 
-The UI shows contextual action buttons alongside the AI panel: "Plan this sprint," "Research competitors," "Create calendar events for these tasks." Each button inserts a structured prompt into the terminal input or chat widget. The user can review, edit, and execute.
+The UI can show contextual actions such as "Plan this sprint," "Research competitors," and "Create calendar events for these tasks." Each action inserts a reviewable draft into the compatible AI surface. It does not dispatch automatically.
 
 ## Privacy and data flow
 
-- The terminal path: data flows through the selected CLI agent. With Codex's hosted models, prompts and tool output are sent to OpenAI under the user's account or API key. With local open models, data can stay on-device if the agent and model support that setup.
-- The BYOK path: data flows to whatever provider the user configured. Local providers (Ollama) keep all data on-device.
+- The coding-agent Chat path: data flows through the selected installed harness under the user's provider account and configuration. Ganbaru stores normalized history locally, but the provider may send prompts, files, and tool output to its own service.
+- The future BYOK path: data flows to the provider the user configured. Local providers such as Ollama can keep model traffic on-device.
 - The MCP path: external clients receive only the data the user authorizes them to see.
 
 No AI features are required to use Ganbaru AI. All data is processed locally by default. AI is an enhancement, not an infrastructure dependency.

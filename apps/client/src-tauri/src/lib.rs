@@ -10,6 +10,8 @@ mod calendar_events;
 mod calendar_import;
 mod calendar_reads;
 mod calendars;
+#[allow(dead_code)]
+mod chat;
 mod db;
 mod db_path;
 mod doomscrolling;

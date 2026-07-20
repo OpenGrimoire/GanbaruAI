@@ -54,6 +54,18 @@ File import and export flows are backend-owned commands. Rust opens the native d
 
 When a feature needs broader access (e.g. work environment management needs to launch other apps), the capability is added narrowly to the specific window or command, not granted globally.
 
+### Coding-agent Chat boundary
+
+The local coding-agent Chat treats provider CLIs, provider protocol data, repository content, Git metadata, model labels, Markdown, terminal output, URLs, and errors as untrusted. Rust is the policy boundary. Svelte receives validated canonical DTOs and cannot spawn a generic process, read an arbitrary workspace file, access provider credentials, or connect directly to a provider's local server.
+
+Provider instance configuration stores only nonsecret values and opaque credential references. Tokens, server passwords, and sensitive environment values belong in Linux Secret Service, Windows Credential Manager, or the corresponding native store on a future platform. Absolute workspace bindings and executable paths are device-local. Durable conversation records and provider continuation IDs live in the active vault SQLite database without secrets or device paths.
+
+Owned provider processes launch from an executable plus tokenized arguments without shell concatenation. Each process is tied to a validated workspace and an owned process group or Windows Job Object. The Rust supervisor owns bounded output, cancellation, graceful deadlines, forced tree cleanup, and application shutdown. OpenCode loopback HTTP and provider event streams remain Rust-owned, so Chat does not widen the webview CSP.
+
+Supervised, Auto-accept edits, and Full access are canonical product modes with provider-specific native mappings. Full access requires explicit confirmation for each provider-instance and workspace trust boundary. Approvals remain bound to a thread, live session, provider request, request type, and expected revision, and Ganbaru can return only decisions the provider offered.
+
+The initial contract phase registers no Chat Tauri command and contains no provider process launch path. Reviewed production dependency choices are recorded in [Chat dependency decisions](../features/chat-dependency-decisions.md) and enter manifests only in the phase that first imports them.
+
 The Tauri webview itself is hardened: production CSP allows bundled local assets and Tauri IPC only, blocks object and frame sources, disallows inline scripts, and currently allows inline styles for Svelte layout, theme, and calendar geometry bindings. The dev CSP remains more permissive for Vite and HMR, including local dev origins and `unsafe-eval`. IPC channels are validated by command name and parameter shape.
 
 Notes project history treats stored compressed data as untrusted before parsing. Every row and manifest is addressed by the SHA-256 digest of its canonical uncompressed JSON. Reads validate the stored encoding, declared byte size, bounded decompression result, and digest before JSON parsing. Compression uses the already-audited `flate2` crate directly and is retained only when it reduces stored size. Payloads above the per-chunk limit are split into ordered bounded chunks, and reconstructed history has a hard total limit. Restore runs canonical writes inside one SQLite transaction, preserves append-only collaboration sequence rows, suppresses historical notification delivery, and rebuilds disposable indexes from restored canonical rows.
