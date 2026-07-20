@@ -2,7 +2,7 @@
   import Book from "@lucide/svelte/icons/book";
   import Calendar from "@lucide/svelte/icons/calendar";
   import Folder from "@lucide/svelte/icons/folder";
-  import MessageCircle from "@lucide/svelte/icons/message-circle";
+  import MessageSquare from "@lucide/svelte/icons/message-square";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { mainTabViews, type DetachableTabView } from "$lib/navigation";
   import { getDetachedWindows } from "$lib/stores/detached-windows.svelte";
@@ -41,7 +41,7 @@
     { view: "calendar", label: () => t("titleBar.tab.calendar"), icon: Calendar },
     { view: "projects", label: () => t("titleBar.tab.projects"), icon: Folder },
     { view: "notes", label: () => t("titleBar.tab.notes"), icon: Book },
-    { view: "chat", label: () => t("titleBar.tab.chat"), icon: MessageCircle },
+    { view: "chat", label: () => t("titleBar.tab.chat"), icon: MessageSquare },
   ];
   const visibleTabs = $derived.by(() => {
     if (detachedWindowView) return tabs.filter((tab) => tab.view === detachedWindowView);
