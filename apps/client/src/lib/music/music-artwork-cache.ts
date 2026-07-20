@@ -29,15 +29,15 @@ export function clearMusicArtworkCache(): void {
 }
 
 /** Extracts embedded artwork once and bounds retained builder preview data URLs. */
-export function musicEmbeddedArtworkDataUrl(path: string): Promise<string | null> {
-  const cached = embeddedArtworkCache.get(path);
+export function musicEmbeddedArtworkDataUrl(path: string, identity = path): Promise<string | null> {
+  const cached = embeddedArtworkCache.get(identity);
   if (cached) {
-    embeddedArtworkCache.delete(path);
-    embeddedArtworkCache.set(path, cached);
+    embeddedArtworkCache.delete(identity);
+    embeddedArtworkCache.set(identity, cached);
     return cached;
   }
   const request = loadEmbeddedArtworkDataUrl(path).catch(() => null);
-  embeddedArtworkCache.set(path, request);
+  embeddedArtworkCache.set(identity, request);
   while (embeddedArtworkCache.size > MAX_CACHED_EMBEDDED_ARTWORK) {
     const oldest = embeddedArtworkCache.keys().next().value;
     if (typeof oldest !== "string") break;

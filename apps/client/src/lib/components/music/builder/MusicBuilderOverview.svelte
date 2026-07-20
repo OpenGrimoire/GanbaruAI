@@ -66,13 +66,11 @@
     {:else}
       <div class="grid grid-cols-[repeat(auto-fill,minmax(min(14rem,100%),1fr))] gap-2.5">
         {#each visiblePlaylists as playlist (playlist.id)}
-          <button type="button" class="overview-card group" animate:flip={{ duration: reducedMotion ? 0 : 140 }} onclick={() => onNavigate({ kind: "playlist", playlistId: playlist.id })}>
+          <button type="button" class="overview-card" onclick={() => onNavigate({ kind: "playlist", playlistId: playlist.id })}>
             <span class="overview-icon"><MusicPlaylistIcon icon={playlist.icon} size={18} strokeWidth={1.45} /></span>
             <span class="min-w-0 flex-1 text-left">
               <strong class="block truncate text-xs font-semibold text-foreground">{systemMusicPlaylistName(playlist.id, playlist.name, t)}</strong>
-              <span class="mt-2 flex flex-wrap gap-1.5 text-[0.62rem] text-muted-foreground">
-                <span>{t("music.tracks", playlist.totalCount)}</span><span>·</span><span>{playlist.localCount} {t("music.builder.local")}</span><span>·</span><span>{playlist.onlineCount} {t("music.builder.youtube")}</span>
-              </span>
+              <span class="mt-1.5 block text-[0.62rem] text-muted-foreground">{t("music.tracks", playlist.totalCount)}</span>
             </span>
           </button>
         {/each}
@@ -102,10 +100,10 @@
     {:else}
       <div class="space-y-2">
         {#each issues as issue (issue.id)}
-          <button type="button" class="overview-card w-full" animate:flip={{ duration: reducedMotion ? 0 : 140 }} onclick={() => issue.itemId && onNavigate({ kind: "library" })}>
+          <article class="overview-card w-full" animate:flip={{ duration: reducedMotion ? 0 : 140 }}>
             <span class="overview-icon overview-icon-warning"><AlertTriangle size={17} strokeWidth={1.5} /></span>
             <span class="min-w-0 flex-1 text-left"><strong class="block text-xs font-semibold text-foreground">{issue.issueKind}</strong><span class="mt-1 block text-[0.68rem] leading-relaxed text-muted-foreground">{issue.message}</span></span>
-          </button>
+          </article>
         {/each}
       </div>
     {/if}
@@ -118,12 +116,12 @@
 
 <style>
   .overview-scroll { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--foreground) 18%, transparent) transparent; }
-  .overview-card { display: flex; min-width: 0; align-items: flex-start; gap: 0.75rem; overflow: hidden; border: 1px solid color-mix(in srgb, var(--border) 62%, transparent); border-radius: 0.85rem; background: color-mix(in srgb, var(--card) 75%, transparent); padding: 0.75rem; color: var(--foreground); box-shadow: 0 1px 0 color-mix(in srgb, white 3%, transparent); transition: border-color 130ms ease, background-color 130ms ease, transform 130ms ease; }
-  button.overview-card:hover { border-color: color-mix(in srgb, var(--primary) 30%, var(--border)); background: color-mix(in srgb, var(--accent) 45%, var(--card)); transform: translateY(-1px); }
-  .overview-icon { display: grid; height: 2.35rem; width: 2.35rem; flex: none; place-items: center; border-radius: 0.7rem; background: color-mix(in srgb, var(--primary) 10%, var(--secondary)); color: var(--foreground); }
+  .overview-card { display: flex; min-width: 0; align-items: flex-start; gap: 0.75rem; overflow: hidden; border: 1px solid color-mix(in srgb, var(--border) 62%, transparent); border-radius: 0.85rem; background: color-mix(in srgb, var(--card) 75%, transparent); padding: 0.75rem; color: var(--foreground); transition: background-color 100ms ease; }
+  button.overview-card:hover { background: var(--accent); }
+  .overview-icon { display: grid; height: 2.35rem; width: 2rem; flex: none; place-items: center; color: var(--foreground); }
   .overview-icon-warning { color: var(--destructive); }
   .overview-add { min-height: 5.5rem; align-items: center; justify-content: center; border-style: dashed; color: var(--muted-foreground); }
   .source-health { height: 0.45rem; width: 0.45rem; flex: none; border-radius: 999px; background: color-mix(in srgb, var(--primary) 70%, var(--muted)); }
   .source-warning { background: var(--destructive); }
-  @media (prefers-reduced-motion: reduce) { .overview-card, button.overview-card:hover { transition: none; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { .overview-card { transition: none; } }
 </style>

@@ -7,7 +7,6 @@ export interface MusicBuilderLayoutInput {
 
 export interface MusicBuilderLayoutProjection {
   mode: MusicBuilderLayoutMode;
-  inspectorPresentation: "persistent" | "overlay" | "page";
   contextPanelPresentation: "persistent" | "sheet";
   dockPresentation: "sidebar" | "bottom";
   comfortable: boolean;
@@ -21,7 +20,6 @@ export function projectMusicBuilderLayout(
   if (width >= 1120 && height >= 440) {
     return {
       mode: "wide",
-      inspectorPresentation: "persistent",
       contextPanelPresentation: "persistent",
       dockPresentation: "sidebar",
       comfortable: true,
@@ -30,7 +28,6 @@ export function projectMusicBuilderLayout(
   if (width >= 620 && height >= 300) {
     return {
       mode: "medium",
-      inspectorPresentation: "overlay",
       contextPanelPresentation: "persistent",
       dockPresentation: "sidebar",
       comfortable: height >= 380,
@@ -38,7 +35,6 @@ export function projectMusicBuilderLayout(
   }
   return {
     mode: "narrow",
-    inspectorPresentation: "page",
     contextPanelPresentation: "sheet",
     dockPresentation: "bottom",
     comfortable: width >= 360 && height >= 300,

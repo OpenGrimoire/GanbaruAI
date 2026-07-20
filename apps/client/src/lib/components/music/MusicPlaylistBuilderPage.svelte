@@ -5,14 +5,14 @@
   import FolderSearch from "@lucide/svelte/icons/folder-search";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import MoreHorizontal from "@lucide/svelte/icons/ellipsis";
+  import Pause from "@lucide/svelte/icons/pause";
   import Play from "@lucide/svelte/icons/play";
   import Plus from "@lucide/svelte/icons/plus";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Undo2 from "@lucide/svelte/icons/undo-2";
   import { getLocalization } from "$lib/i18n/translator.svelte";
-  import { registerMediaFile, revealLocalFile } from "$lib/api/music";
-  import { invalidateMusicArtwork } from "$lib/music/music-artwork-cache";
-  import { reorderMusicPlaylists, resetMusicStatistics } from "$lib/api/music-library";
+  import { revealLocalFile } from "$lib/api/music";
+  import { bulkEditMusicMemberships, bulkSnoozeMusicItems, reorderMusicPlaylists } from "$lib/api/music-library";
   import { createMusicBuilderInspectorController } from "$lib/music/music-builder-inspector.svelte";
   import { projectMusicBuilderLayout } from "$lib/music/music-builder-layout";
   import {
@@ -32,7 +32,6 @@
   import { createMusicInterchangeController } from "$lib/music/music-interchange-controller.svelte";
   import {
     musicReviewArtworkDataUrl,
-    musicReviewSource,
     parseMusicReviewAutoplay,
     parseMusicReviewExitPreference,
     type MusicReviewExitPreference,
@@ -41,11 +40,11 @@
     firstMusicReviewTreeItemId,
     musicReviewTreeItemIds,
   } from "$lib/music/music-review-tree";
-  import type { MusicPlaylistMembership } from "$lib/music/library-contracts";
+  import type { MusicItemListEntry, MusicWeight } from "$lib/music/library-contracts";
   import type { MusicIssue, MusicSourceCollection } from "$lib/music/library-contracts";
   import type { MusicSourceRefreshPlan } from "$lib/music/music-source-refresh";
-  import { restoreMusicFocus } from "$lib/music/music-focus-recovery";
   import { musicBuilderPlaybackDecision } from "$lib/music/music-builder-playback-transition";
+  import { musicSnoozeEndsAt, type MusicSnoozeDuration } from "$lib/music/music-snooze";
   import {
     createMusicBuilderContextViewState,
     createMusicReviewTreeViewState,
@@ -57,7 +56,6 @@
   import { getConfigKey, setConfigKey } from "$lib/vault/config";
   import MusicBuilderAsyncState from "./builder/MusicBuilderAsyncState.svelte";
   import MusicBuilderFilterBar from "./builder/MusicBuilderFilterBar.svelte";
-  import MusicBuilderInspectorSurface from "./builder/MusicBuilderInspectorSurface.svelte";
   import MusicPreparationActivity from "./builder/MusicPreparationActivity.svelte";
   import MusicBuilderOverview from "./builder/MusicBuilderOverview.svelte";
   import MusicDetectedFolderCard from "./builder/MusicDetectedFolderCard.svelte";
@@ -77,11 +75,7 @@
   import MusicPlaylistManager from "./builder/MusicPlaylistManager.svelte";
   import MusicSoundscapeBuilder from "./MusicSoundscapeBuilder.svelte";
   import MusicPlaylistDialog from "./builder/MusicPlaylistDialog.svelte";
-  import MusicBulkActionBar from "./builder/MusicBulkActionBar.svelte";
   import MusicBulkMembershipDialog from "./builder/MusicBulkMembershipDialog.svelte";
-  import MusicBulkWeightDialog from "./builder/MusicBulkWeightDialog.svelte";
-  import MusicBulkStatusDialog from "./builder/MusicBulkStatusDialog.svelte";
-  import MusicBulkClassificationDialog from "./builder/MusicBulkClassificationDialog.svelte";
   import MusicInterchangeDialog from "./builder/MusicInterchangeDialog.svelte";
   import type { MusicBuilderInitialAction } from "$lib/music/music-builder-loader";
   import { isSystemMusicPlaylistId, orderMusicPlaylists, systemMusicPlaylistName } from "$lib/music/music-system-playlists";
@@ -104,9 +98,6 @@
   const playlist = createMusicPlaylistController(library);
   const bulk = createMusicBulkEditController(library);
   const interchange = createMusicInterchangeController(() => library.playlistSummaries, () => sources.bindings, () => library.vaultId);
-  const actionableItemIds = $derived(library.currentState.selectedItemIds.filter((itemId) =>
-    library.currentWindow.items.some((item) => item.id === itemId),
-  ));
   let root = $state<HTMLElement | null>(null);
   let width = $state(1000);
   let height = $state(680);
@@ -121,7 +112,7 @@
   let playlistSurface = $state<"create" | "edit" | "duplicate" | "delete" | null>(null);
   let playlistSurfaceReturnsToCurrentView = $state(false);
   let playlistSurfaceTargetId = $state<string | null>(null);
-  let bulkSurface = $state<"memberships" | "weight" | "review" | "snooze" | "signals" | null>(null);
+  let bulkSurface = $state<"memberships" | null>(null);
   let rememberReviewExit = $state(false);
   let reviewAutoplay = $state(parseMusicReviewAutoplay(getConfigKey<unknown>("music.review.autoplay", undefined)));
   let reviewExitPreference = $state<MusicReviewExitPreference>(parseMusicReviewExitPreference(getConfigKey<unknown>("music.review.exitPreference", undefined)));
@@ -139,14 +130,14 @@
   const reviewWorkspaceViewState = $state(createMusicReviewWorkspaceViewState());
   const layout = $derived(projectMusicBuilderLayout({ width, height }));
   const destination = $derived(history.current.destination);
-  const selectedItemId = $derived(history.current.inspectorItemId ?? library.currentState.selectedItemId);
-  const hasList = $derived(destination.kind === "library" || destination.kind === "playlist");
+  const hasList = $derived(destination.kind === "playlist");
   const issueCount = $derived(library.sourceSummaries.reduce((total, source) => total + source.openIssueCount, 0));
   const reviewCount = $derived(library.sourceSummaries.reduce((total, source) => total + source.unreviewedCount, 0));
   const routeContext = $derived({ playlistIds: new Set(library.playlistSummaries.map((playlist) => playlist.id)), itemIds: new Set(library.currentWindow.items.map((item) => item.id)) });
   const playingItemId = $derived(audition.musicPlayer.activeQueueItemIds[audition.musicPlayer.currentQueueIndex] ?? null);
-  const playlistNames = $derived(Object.fromEntries(library.playlistSummaries.map((entry) => [entry.id, systemMusicPlaylistName(entry.id, entry.name, t)])));
-  const sourceNames = $derived(Object.fromEntries(library.sourceSummaries.map((entry) => [entry.id, entry.name])));
+  const activePlaylistSummary = $derived(destination.kind === "playlist" ? library.playlistSummaries.find((entry) => entry.id === destination.playlistId) ?? null : null);
+  const activePlaylistInPlayer = $derived(Boolean(activePlaylistSummary && audition.musicPlayer.activePlaylistId === activePlaylistSummary.id && audition.musicPlayer.currentSource));
+  const activePlaylistPlaying = $derived(activePlaylistInPlayer && audition.musicPlayer.isPlaying);
   const firstUsePreparation = $derived(
     sources.preparingDefaultFolder || firstUsePreparationActive,
   );
@@ -230,9 +221,7 @@
     if (!action || !library.vaultId) return;
     if (action === "new-playlist") playlistSurface = "create";
     else if (action.kind === "open-soundscapes") void navigateNow({ kind: "soundscapes" });
-    else {
-      void navigateNow({ kind: "library" }).then(() => selectItem(action.itemId));
-    }
+    else void openInitialItem(action.itemId);
     onInitialActionHandled();
   });
 
@@ -263,7 +252,7 @@
 
   function primaryAction(): void {
     if (destination.kind === "playlists") { playlist.clear(); playlistSurfaceReturnsToCurrentView = false; playlistSurfaceTargetId = null; playlistSurface = "create"; return; }
-    if (destination.kind === "sources" || destination.kind === "library") sourceSurface = "add";
+    if (destination.kind === "sources") sourceSurface = "add";
   }
 
   function createPlaylistFromWorkspace(): void {
@@ -279,7 +268,6 @@
       const summary = library.playlistSummaries.find((entry) => entry.id === destination.playlistId);
       return summary ? `${systemMusicPlaylistName(summary.id, summary.name, t)} · ${t("music.tracks", summary.totalCount)}` : t("music.builder.playlists");
     }
-    if (destination.kind === "library") return t("music.builder.resultCount", library.currentWindow.totalCount);
     if (destination.kind === "sources") return t("music.builder.sourceCount", library.sourceSummaries.length);
     if (destination.kind === "issues") return t("music.builder.issueCount", library.issues.length);
     return t("music.builder.soundscapes");
@@ -361,6 +349,15 @@
     else playlist.clear();
   }
 
+  async function openInitialItem(_itemId: string): Promise<void> {
+    const activePlaylistId = audition.musicPlayer.activePlaylistId;
+    const next: MusicBuilderDestination = activePlaylistId
+      && library.playlistSummaries.some((entry) => entry.id === activePlaylistId)
+      ? { kind: "playlist", playlistId: activePlaylistId }
+      : { kind: "playlists" };
+    await navigateNow(next);
+  }
+
   function requestReviewExit(continuation: () => void): void {
     if (musicBuilderPlaybackDecision(audition.active, "external-exit") !== "resolve-review-exit") { continuation(); return; }
     if (reviewExitPreference === "restore") { void audition.restore().then(continuation); return; }
@@ -405,23 +402,7 @@
     setConfigKey("music.review.autoplay", value);
   }
 
-  async function selectItem(itemId: string): Promise<void> {
-    library.patchCurrentState({ selectedItemId: itemId });
-    history = pushMusicBuilderRoute(history, { destination, inspectorItemId: itemId }, routeContext);
-    await inspector.select(itemId);
-  }
-
-  async function closeInspector(): Promise<void> {
-    const focusKey = inspector.itemId ? `item:${inspector.itemId}` : null;
-    history = { ...history, current: { ...history.current, inspectorItemId: null } };
-    inspector.clear();
-    library.selectItem(null);
-    await tick();
-    if (focusKey) restoreMusicFocus(focusKey);
-  }
-
   async function handleBack(): Promise<void> {
-    if (history.current.inspectorItemId) { await closeInspector(); return; }
     const previous = backMusicBuilderRoute(history, routeContext);
     if (!previous) { requestReviewExit(onOpenPlayer); return; }
     history = previous;
@@ -429,7 +410,6 @@
     await library.ensureCurrentDestination();
     if (history.current.destination.kind === "playlist") await playlist.load(history.current.destination.playlistId);
     else playlist.clear();
-    if (history.current.inspectorItemId) await inspector.select(history.current.inspectorItemId);
   }
 
   function patchFilters(patch: Partial<MusicDestinationState>): void {
@@ -472,60 +452,26 @@
     }
   }
 
-  async function syncInspectorMetadata(): Promise<void> {
-    const item = inspector.detail?.item;
-    if (!item) return;
-    const listItem = library.currentWindow.items.find((entry) => entry.id === item.id);
-    if (listItem) {
-      listItem.title = item.titleOverride?.trim() || item.originalTitle;
-      listItem.artist = item.artistOverride?.trim() || item.originalArtist;
-      listItem.album = item.albumOverride?.trim() || item.originalAlbum;
-      listItem.artworkOverride = item.artworkOverride;
-      listItem.updatedAt = item.updatedAt;
-    }
-    if (item.artworkOverride) invalidateMusicArtwork(item.artworkOverride);
-    library.markRetainedWindowsStale();
-    const artworkUrl = item.artworkOverride ? await registerMediaFile(item.artworkOverride, Date.now()).catch(() => null) : null;
-    audition.musicPlayer.applyLibraryMetadata(item.id, item.identityKey, item.titleOverride?.trim() || item.originalTitle, artworkUrl);
-  }
-
-  async function previewMembership(membership: MusicPlaylistMembership): Promise<void> {
-    const detail = inspector.detail;
-    if (!detail) return;
-    const source = musicReviewSource(detail, sources.bindings);
-    if (!source) return;
-    takePlaybackOwnership();
-    await audition.musicPlayer.loadSource({
-      ...source,
-      startMs: membership.startMs,
-      endMs: membership.endMs,
-    }, { autoplay: true, resume: false, preserveQueue: true });
-    if (membership.volume !== null) await audition.musicPlayer.setVolume(membership.volume);
-    if (membership.rate !== null) await audition.musicPlayer.setRate(membership.rate);
-  }
-
-  async function playLibraryItem(itemId: string): Promise<void> {
-    await inspector.select(itemId);
-    if (!inspector.detail) return;
-    const source = musicReviewSource(inspector.detail, sources.bindings);
-    if (!source) { openItemRepair(itemId); return; }
-    takePlaybackOwnership();
-    audition.musicPlayer.clearContextPlayback();
-    await audition.musicPlayer.loadSource(source, { autoplay: true, resume: false });
-    audition.musicPlayer.activeQueueItemIds = [itemId];
-  }
-
   async function playCurrentPlaylist(itemId?: string): Promise<void> {
     takePlaybackOwnership();
     await playlist.play(sources.bindings, itemId);
   }
 
-  async function openBulkMemberships(removeCurrent = false): Promise<void> {
-    if (actionableItemIds.length === 0) return;
-    bulkSurface = "memberships";
-    const loaded = await bulk.open(actionableItemIds, library.playlistSummaries);
-    if (!loaded) return;
-    if (removeCurrent && destination.kind === "playlist") bulk.toggle(destination.playlistId);
+  async function toggleCurrentPlaylist(): Promise<void> {
+    if (activePlaylistInPlayer) {
+      await audition.musicPlayer.togglePlay();
+      return;
+    }
+    await playCurrentPlaylist();
+  }
+
+  async function togglePlaylistItem(item: MusicItemListEntry): Promise<void> {
+    const currentItemId = audition.musicPlayer.activeQueueItemIds[audition.musicPlayer.currentQueueIndex] ?? null;
+    if (activePlaylistInPlayer && currentItemId === item.id) {
+      await audition.musicPlayer.togglePlay();
+      return;
+    }
+    await playCurrentPlaylist(item.id);
   }
 
   async function assignReviewSelection(itemIds: string[]): Promise<void> {
@@ -552,22 +498,54 @@
     }
   }
 
-  async function openItemMembership(itemId: string): Promise<void> {
-    library.setItemSelection([itemId], itemId);
-    bulkSurface = "memberships";
-    await bulk.open([itemId], library.playlistSummaries);
+  async function removePlaylistItem(item: MusicItemListEntry): Promise<void> {
+    if (destination.kind !== "playlist") return;
+    await bulkEditMusicMemberships({
+      actionId: crypto.randomUUID(),
+      itemIds: [item.id],
+      addPlaylistIds: [],
+      removePlaylistIds: [destination.playlistId],
+      weightPlaylistIds: [],
+      weight: null,
+      updatedAt: Date.now(),
+    });
+    await library.refreshAfterMutation();
+    await playlist.refreshActivePlayback(sources.bindings);
   }
 
-  async function openBulkWeight(): Promise<void> {
-    if (destination.kind !== "playlist" || actionableItemIds.length === 0) return;
-    bulkSurface = "weight";
-    await bulk.open(actionableItemIds, library.playlistSummaries);
+  async function setPlaylistItemWeight(item: MusicItemListEntry, weight: MusicWeight): Promise<void> {
+    if (destination.kind !== "playlist") return;
+    await bulkEditMusicMemberships({
+      actionId: crypto.randomUUID(),
+      itemIds: [item.id],
+      addPlaylistIds: [],
+      removePlaylistIds: [],
+      weightPlaylistIds: [destination.playlistId],
+      weight,
+      updatedAt: Date.now(),
+    });
+    await library.refreshAfterMutation();
+    await playlist.refreshActivePlayback(sources.bindings);
   }
 
-  async function openBulkClassification(): Promise<void> {
-    if (actionableItemIds.length === 0) return;
-    bulkSurface = "signals";
-    await bulk.open(actionableItemIds, library.playlistSummaries);
+  async function snoozePlaylistItem(item: MusicItemListEntry, duration: MusicSnoozeDuration, everywhere: boolean): Promise<void> {
+    if (destination.kind !== "playlist") return;
+    const now = Date.now();
+    const endsAt = musicSnoozeEndsAt(duration, now, Intl.DateTimeFormat().resolvedOptions().timeZone);
+    await bulkSnoozeMusicItems({
+      actionId: crypto.randomUUID(),
+      itemIds: [item.id],
+      scope: everywhere ? "all-playlists" : "playlist",
+      playlistId: everywhere ? null : destination.playlistId,
+      startsAt: now,
+      endsAt,
+      reason: "",
+      createdAt: now,
+    });
+    const currentItemId = audition.musicPlayer.activeQueueItemIds[audition.musicPlayer.currentQueueIndex] ?? null;
+    if (currentItemId === item.id) audition.musicPlayer.applyCurrentQueueSnooze(endsAt);
+    await library.refreshAfterMutation();
+    await playlist.refreshActivePlayback(sources.bindings);
   }
 
   function closeBulkSurface(): void {
@@ -575,33 +553,15 @@
     bulk.clear();
   }
 
-  function openBulkStatus(surface: "review" | "snooze"): void {
-    bulk.useSelection(actionableItemIds);
-    bulkSurface = surface;
-  }
-
-  function openItemStatus(itemId: string, surface: "review" | "snooze"): void {
-    library.setItemSelection([itemId], itemId);
-    bulk.useSelection([itemId]);
-    bulkSurface = surface;
-  }
-
-  async function showInspectorFile(itemId: string): Promise<void> {
-    if (inspector.itemId !== itemId) await inspector.select(itemId);
+  async function showItemLocation(item: MusicItemListEntry): Promise<void> {
+    if (inspector.itemId !== item.id) await inspector.select(item.id);
     const location = inspector.detail?.locations.find((entry) => entry.availability === "available");
-    if (!location) { openItemRepair(itemId); return; }
+    if (!location) { openItemRepair(item.id); return; }
     const folder = sources.bindings.find((binding) => binding.rootId === location.rootId)?.folderPath;
-    if (!folder) { openItemRepair(itemId); return; }
+    if (!folder) { openItemRepair(item.id); return; }
     const separator = folder.includes("\\") && !folder.includes("/") ? "\\" : "/";
     const path = `${folder.replace(/[\\/]+$/, "")}${separator}${location.relativePath.replace(/[\\/]+/g, separator)}`;
     await revealLocalFile(path);
-  }
-
-  async function resetInspectorStatistics(itemId: string, mode: "recent" | "all"): Promise<void> {
-    await resetMusicStatistics({ itemIds: [itemId], resetAggregates: mode === "all", resetRecentSelections: true });
-    await inspector.select(null);
-    await inspector.select(itemId);
-    await library.refreshAfterMutation();
   }
 
   function handleWindowKeydown(event: KeyboardEvent): void {
@@ -611,7 +571,6 @@
       if (reviewExitOpen) { event.preventDefault(); event.stopPropagation(); reviewExitOpen = false; pendingReviewExit = null; return; }
       if (bulkSurface) { event.stopPropagation(); closeBulkSurface(); return; }
       if (sourceSurface || pendingRefreshPlan) { event.stopPropagation(); closeSourceSurface(); pendingRefreshPlan = null; return; }
-      if (history.current.inspectorItemId) { event.stopPropagation(); void closeInspector(); return; }
       event.stopPropagation();
       void handleBack();
     }
@@ -668,7 +627,7 @@
 <svelte:window onkeydown={handleWindowKeydown} onpointerdown={handleWindowPointerDown} />
 
 <section bind:this={root} use:observeRoot class="builder-root flex h-full min-h-0 select-none flex-col overflow-hidden text-foreground" style="background-color: var(--cal-bg);">
-  <div class="builder-shell relative grid min-h-0 flex-1" class:builder-wide={layout.mode === "wide"} class:builder-medium={layout.mode === "medium"} class:builder-narrow={layout.mode === "narrow"} class:builder-with-inspector={destination.kind !== "review" && Boolean(history.current.inspectorItemId)}>
+  <div class="builder-shell relative grid min-h-0 flex-1" class:builder-wide={layout.mode === "wide"} class:builder-medium={layout.mode === "medium"} class:builder-narrow={layout.mode === "narrow"}>
     {#if !firstUsePreparation && !firstUseNeedsFolder}
       <aside class:context-open={contextViewState.contextPanelOpen} class="builder-context-panel relative z-20 flex min-h-0 flex-col overflow-hidden bg-background/20">
         {#if destination.kind === "review"}
@@ -688,7 +647,6 @@
           <MusicBuilderContextPanel
             {destination}
             state={library.currentState}
-            resultCount={library.currentWindow.totalCount}
             playlists={library.playlistSummaries}
             sources={library.sourceSummaries}
             issues={library.issues}
@@ -696,11 +654,9 @@
             issueFilter={contextViewState.issueFilter}
             soundscapeFilter={contextViewState.soundscapeFilter}
             onSearch={updateSearch}
-            onFilterChange={patchFilters}
             onNavigate={navigate}
             onCreatePlaylist={createPlaylistFromWorkspace}
             onManagePlaylists={() => playlistManagementOpen = true}
-            onAddMusic={() => sourceSurface = "add"}
             onSelectSource={(sourceId) => contextViewState.selectedSourceId = sourceId}
             onIssueFilter={(filter) => contextViewState.issueFilter = filter}
             onSoundscapeFilter={(filter) => contextViewState.soundscapeFilter = filter}
@@ -717,12 +673,11 @@
               <button type="button" onclick={createPlaylistFromWorkspace} class="toolbar-primary"><Plus size={13} />{t("music.builder.newPlaylist")}</button>
               <div class="relative"><button type="button" onclick={() => toolbarMenuOpen = !toolbarMenuOpen} class="toolbar-icon" aria-label={t("music.builder.moreActions")}><MoreHorizontal size={15} /></button>{#if toolbarMenuOpen}<div class="toolbar-menu"><button type="button" onclick={() => { toolbarMenuOpen = false; interchange.show("import"); }}>{t("music.builder.importPlaylists")}</button><button type="button" disabled={library.playlistSummaries.length === 0} onclick={() => { toolbarMenuOpen = false; interchange.show("export", null); }}>{t("music.builder.exportPlaylists")}</button></div>{/if}</div>
             {:else if destination.kind === "playlist"}
-              <button type="button" onclick={() => { void playCurrentPlaylist(); }} class="toolbar-icon" aria-label={t("music.play")}><Play size={14} /></button>
-              <div class="relative"><button type="button" onclick={() => toolbarMenuOpen = !toolbarMenuOpen} class="toolbar-icon" aria-label={t("music.builder.moreActions")}><MoreHorizontal size={15} /></button>{#if toolbarMenuOpen}<div class="toolbar-menu"><button type="button" onclick={() => { toolbarMenuOpen = false; playlistSurface = "edit"; }}>{t("music.builder.editPlaylist")}</button><button type="button" onclick={() => { toolbarMenuOpen = false; playlistSurface = "duplicate"; }}>{t("music.builder.duplicatePlaylist")}</button><button type="button" onclick={() => { toolbarMenuOpen = false; interchange.show("export", destination.playlistId); }}>{t("music.builder.exportPlaylists")}</button><button type="button" class="text-destructive" disabled={isSystemMusicPlaylistId(destination.playlistId)} title={isSystemMusicPlaylistId(destination.playlistId) ? t("music.builder.defaultPlaylistDeleteProtected") : undefined} onclick={() => { toolbarMenuOpen = false; void playlist.inspectDelete().then((loaded) => { if (loaded) playlistSurface = "delete"; }); }}>{t("music.builder.deletePlaylist")}</button></div>{/if}</div>
-            {:else if destination.kind === "library"}
               {#if library.undoCount > 0}<button type="button" onclick={() => { void library.undoLast(); }} class="toolbar-icon" aria-label={t("music.builder.undo")}><Undo2 size={14} /></button>{/if}
-              <button type="button" onclick={() => { void library.refresh(); }} disabled={library.busy} class="toolbar-icon" aria-label={t("music.builder.refresh")}><RefreshCw class={library.busy ? "animate-spin motion-reduce:animate-none" : ""} size={14} /></button>
-              <button type="button" onclick={() => sourceSurface = "add"} class="toolbar-primary"><Plus size={13} />{t("music.builder.addMusic")}</button>
+              <button type="button" onclick={() => { void toggleCurrentPlaylist(); }} class="toolbar-icon" aria-label={activePlaylistPlaying ? t("music.pause") : t("music.play")}>
+                {#if activePlaylistPlaying}<Pause size={14} fill="currentColor" />{:else}<Play size={14} />{/if}
+              </button>
+              <div class="relative"><button type="button" onclick={() => toolbarMenuOpen = !toolbarMenuOpen} class="toolbar-icon" aria-label={t("music.builder.moreActions")}><MoreHorizontal size={15} /></button>{#if toolbarMenuOpen}<div class="toolbar-menu"><button type="button" onclick={() => { toolbarMenuOpen = false; playlistSurface = "edit"; }}>{t("music.builder.editPlaylist")}</button><button type="button" onclick={() => { toolbarMenuOpen = false; playlistSurface = "duplicate"; }}>{t("music.builder.duplicatePlaylist")}</button><button type="button" onclick={() => { toolbarMenuOpen = false; interchange.show("export", destination.playlistId); }}>{t("music.builder.exportPlaylists")}</button><button type="button" class="text-destructive" disabled={isSystemMusicPlaylistId(destination.playlistId)} title={isSystemMusicPlaylistId(destination.playlistId) ? t("music.builder.defaultPlaylistDeleteProtected") : undefined} onclick={() => { toolbarMenuOpen = false; void playlist.inspectDelete().then((loaded) => { if (loaded) playlistSurface = "delete"; }); }}>{t("music.builder.deletePlaylist")}</button></div>{/if}</div>
             {:else if destination.kind === "sources"}
               <button type="button" onclick={() => requestSourceRefresh()} disabled={sources.collections.length === 0} class="toolbar-secondary"><RefreshCw size={13} />{t("music.builder.refreshAll")}</button>
               <button type="button" onclick={() => sourceSurface = "add"} class="toolbar-primary"><Plus size={13} />{t("music.builder.addSource")}</button>
@@ -777,7 +732,7 @@
                   {#if library.currentState.reviewState !== null}
                     <button type="button" onclick={() => { library.patchCurrentState({ reviewState: null }); void library.refresh(); }} class="h-8 rounded-md bg-secondary px-3 text-xs font-medium text-secondary-foreground">{t("music.builder.reviewDeferred")}</button>
                   {/if}
-                  <button type="button" onclick={() => navigate({ kind: "library" })} class="h-8 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground">{t("music.builder.browseLibrary")}</button>
+                  <button type="button" onclick={() => navigate({ kind: "sources" })} class="h-8 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground">{t("music.builder.sources")}</button>
                 </div>
               </div>
             {/if}
@@ -798,24 +753,12 @@
         <MusicBuilderFilterBar
           sourceKind={library.currentState.sourceKind}
           availability={library.currentState.availability}
-          reviewState={library.currentState.reviewState}
           sort={library.currentState.sort}
           direction={library.currentState.direction}
-          groupBy={library.currentState.groupBy}
           resultCount={library.currentWindow.totalCount}
-          sourceCollectionId={library.currentState.sourceCollectionId}
-          membershipPlaylistId={library.currentState.membershipPlaylistId}
           snoozed={library.currentState.snoozed}
-          sources={library.sourceSummaries}
-          playlists={library.playlistSummaries}
-          playlistMode={destination.kind === "playlist"}
           onChange={patchFilters}
         />
-        {/if}
-        {#if library.currentState.groupBy !== "none" && library.currentWindow.groups.length > 0}
-          <div class="flex shrink-0 gap-1.5 overflow-x-auto border-b border-border/40 px-3 py-1.5" aria-label={t("music.builder.reviewGroups")}>
-            {#each library.currentWindow.groups as group (group.key)}<span class="shrink-0 rounded-full bg-secondary px-2 py-1 text-[0.62rem] text-secondary-foreground">{group.key} · {group.count}</span>{/each}
-          </div>
         {/if}
         {#if library.error && library.currentWindow.items.length === 0}
           <MusicBuilderAsyncState kind="error" title={library.error.message} onRetry={() => { void library.refresh(); }} />
@@ -827,60 +770,35 @@
               <div class="max-w-sm rounded-2xl border border-border/60 bg-card/55 p-5 shadow-sm">
                 <h2 class="text-sm font-semibold">{t("music.builder.emptyPlaylistActionTitle")}</h2>
                 <p class="mt-1.5 text-xs leading-relaxed text-muted-foreground">{t("music.builder.emptyPlaylistActionDescription")}</p>
-                <div class="mt-4 flex flex-wrap justify-center gap-2"><button type="button" onclick={() => { void navigate({ kind: "library" }); }} class="h-8 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground">{t("music.builder.addFromLibrary")}</button><button type="button" onclick={() => { void navigate({ kind: "review" }); }} class="h-8 rounded-md bg-secondary px-3 text-xs font-medium">{t("music.builder.startReview")}</button></div>
+                <div class="mt-4 flex flex-wrap justify-center gap-2"><button type="button" onclick={() => { void navigate({ kind: "review" }); }} class="h-8 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground">{t("music.builder.startReview")}</button></div>
               </div>
             </div>
           {:else}
-            {#if destination.kind === "library" && sources.detectedDefaultFolder}
-              <div class="grid min-h-0 flex-1 place-items-center p-4"><MusicDetectedFolderCard controller={sources} onAdded={detectedFolderAdded} /></div>
-            {:else}
-              <MusicBuilderAsyncState
-                kind="empty"
-                title={destination.kind === "playlist" ? t("music.builder.noPlaylistFilterResults") : t("music.builder.emptyLibraryTitle")}
-                description={destination.kind === "playlist" ? t("music.builder.adjustPlaylistFilters") : t("music.builder.emptyLibraryDescription")}
-              />
-            {/if}
+            <MusicBuilderAsyncState
+              kind="empty"
+              title={t("music.builder.noPlaylistFilterResults")}
+              description={t("music.builder.adjustPlaylistFilters")}
+            />
           {/if}
         {:else}
           {#if library.busy}<div class="absolute inset-x-0 top-10 z-10 bg-secondary/90 px-3 py-1 text-center text-[0.62rem] text-muted-foreground backdrop-blur-sm">{t("music.builder.staleData")}</div>{/if}
           <MusicVirtualItemList
             items={library.currentWindow.items}
-            {selectedItemId}
-            selectedItemIds={library.currentState.selectedItemIds}
-            playlistMode={destination.kind === "playlist"}
-            reorderEnabled={destination.kind === "playlist" && library.currentState.sort === "manual-position" && library.currentState.groupBy === "none"}
-            {playingItemId}
+            bindings={sources.bindings}
+            playlistName={activePlaylistSummary ? systemMusicPlaylistName(activePlaylistSummary.id, activePlaylistSummary.name, t) : playlist.detail?.name ?? ""}
+            playingItemId={activePlaylistInPlayer ? playingItemId : null}
+            playbackActive={activePlaylistPlaying}
             initialScrollTop={library.currentState.scrollTop}
-            onSelect={(item) => { void selectItem(item.id); }}
-            onSelectionChange={(itemIds, activeItemId) => library.setItemSelection(itemIds, activeItemId)}
             onScrollTop={(scrollTop) => library.setScrollTop(scrollTop)}
-            onReorder={(item, targetIndex) => { void playlist.reorder(item.id, targetIndex, sources.bindings); }}
-            onPlay={(item) => {
-              const activeIndex = audition.musicPlayer.activeQueueItemIds.indexOf(item.id);
-              if (audition.musicPlayer.activePlaylistId === (destination.kind === "playlist" ? destination.playlistId : null) && activeIndex >= 0) void audition.musicPlayer.playQueueItem(activeIndex);
-              else if (destination.kind === "playlist") void playCurrentPlaylist(item.id);
-              else void playLibraryItem(item.id);
-            }}
+            onTogglePlayback={(item) => { void togglePlaylistItem(item); }}
+            onShowLocation={showItemLocation}
+            onSnooze={snoozePlaylistItem}
+            onWeight={setPlaylistItemWeight}
+            onRemove={removePlaylistItem}
             hasMore={library.currentWindow.items.length < library.currentWindow.totalCount}
             loadingMore={library.loadingMore}
             onLoadMore={() => { void library.loadMore(); }}
           />
-          {#if actionableItemIds.length > 1}
-            <MusicBulkActionBar
-              selectedCount={actionableItemIds.length}
-              allVisibleSelected={library.currentWindow.items.length > 0 && library.currentWindow.items.every((item) => library.currentState.selectedItemIds.includes(item.id))}
-              playlistMode={destination.kind === "playlist"}
-              onSelectVisible={() => library.setItemSelection(library.currentWindow.items.map((item) => item.id), library.currentState.selectedItemId)}
-              onClear={() => library.setItemSelection([], null)}
-              onAddToPlaylists={() => { void openBulkMemberships(); }}
-              onRemove={() => { void openBulkMemberships(true); }}
-              onWeight={() => { void openBulkWeight(); }}
-              onSnooze={() => openBulkStatus("snooze")}
-              onReviewState={() => openBulkStatus("review")}
-              onSignals={() => { void openBulkClassification(); }}
-              onAvailability={actionableItemIds.some((itemId) => library.currentWindow.items.find((item) => item.id === itemId)?.availability !== "available") ? () => { void navigate({ kind: "issues" }); } : undefined}
-            />
-          {/if}
         {/if}
       {:else if destination.kind === "sources"}
         <MusicSourcesDashboard
@@ -904,29 +822,6 @@
         <MusicBuilderOverview {destination} search={library.currentState.search} playlists={library.playlistSummaries} sources={library.sourceSummaries} issues={library.issues} onNavigate={(next) => { void navigate(next); }} onPrimary={primaryAction} onImport={() => interchange.show("import")} onExport={() => interchange.show("export", destination.kind === "playlist" ? destination.playlistId : null)} compact />
       {/if}
     </main>
-
-    {#if destination.kind !== "review"}
-      <MusicBuilderInspectorSurface
-        mode={layout.mode}
-        open={Boolean(history.current.inspectorItemId)}
-        controller={inspector}
-        activePlaylistId={destination.kind === "playlist" ? destination.playlistId : null}
-        {playlistNames}
-        {sourceNames}
-        closeLabel={t("music.builder.closeInspector")}
-        onClose={() => { void closeInspector(); }}
-        onPlay={(itemId) => { if (destination.kind === "playlist") void playCurrentPlaylist(itemId); else void playLibraryItem(itemId); }}
-        onShowFile={(itemId) => { void showInspectorFile(itemId); }}
-        onReviewState={(itemId) => openItemStatus(itemId, "review")}
-        onSnooze={(itemId) => openItemStatus(itemId, "snooze")}
-        onEditMembership={(itemId) => { void openItemMembership(itemId); }}
-        onResetStatistics={(itemId, mode) => { void resetInspectorStatistics(itemId, mode); }}
-        onRepair={openItemRepair}
-        onMetadataSaved={syncInspectorMetadata}
-        onPreviewMembership={(membership) => { void previewMembership(membership); }}
-        onOpenSource={() => { void navigate({ kind: "sources" }); }}
-      />
-    {/if}
 
     {#if layout.dockPresentation === "bottom" && !firstUsePreparation && !firstUseNeedsFolder}
       <div class="builder-mobile-dock"><MusicBuilderDock {destination} {reviewCount} {issueCount} compact onNavigate={navigate} /></div>
@@ -999,23 +894,6 @@
         onClose={closeBulkSurface}
         onSaved={() => { closeBulkSurface(); library.setItemSelection([], null); void playlist.refreshActivePlayback(sources.bindings); }}
       />
-    {:else if bulkSurface === "weight" && destination.kind === "playlist"}
-      <MusicBulkWeightDialog
-        controller={bulk}
-        playlistId={destination.playlistId}
-        onClose={closeBulkSurface}
-        onSaved={() => { closeBulkSurface(); void playlist.refreshActivePlayback(sources.bindings); }}
-      />
-    {:else if bulkSurface === "review" || bulkSurface === "snooze"}
-      <MusicBulkStatusDialog
-        controller={bulk}
-        mode={bulkSurface}
-        playlistId={destination.kind === "playlist" ? destination.playlistId : null}
-        onClose={closeBulkSurface}
-        onSaved={() => { closeBulkSurface(); library.setItemSelection([], null); void playlist.refreshActivePlayback(sources.bindings); }}
-      />
-    {:else if bulkSurface === "signals"}
-      <MusicBulkClassificationDialog controller={bulk} onClose={closeBulkSurface} onSaved={() => { closeBulkSurface(); library.setItemSelection([], null); void playlist.refreshActivePlayback(sources.bindings); }} />
     {/if}
     {#if interchange.open}<MusicInterchangeDialog controller={interchange} playlists={library.playlistSummaries} onClose={() => interchange.close()} onImported={() => { void library.refreshAfterMutation(); void sources.load(); }} />{/if}
   </div>
@@ -1029,7 +907,6 @@
   .builder-context-panel { grid-column: 1; border-right: 1px solid color-mix(in srgb, var(--border) 46%, transparent); }
   .builder-shell > main { grid-column: 2; }
   .builder-wide, .builder-medium { grid-template-columns: minmax(14rem, 0.72fr) minmax(22rem, 2fr); }
-  .builder-wide.builder-with-inspector { grid-template-columns: minmax(14rem, 0.72fr) minmax(22rem, 2fr) minmax(18rem, 0.85fr); }
   .builder-narrow { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
   .builder-narrow > main { grid-column: 1; grid-row: 1; }
   .builder-narrow .builder-context-panel { position: absolute; inset: 0 0 2.75rem; grid-column: 1; border-right: 0; background: var(--background); transform: translateX(-102%); transition: transform 150ms ease; }

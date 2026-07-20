@@ -181,6 +181,14 @@ fn item_windows_are_bounded_stable_filterable_and_grouped() {
         .execute(&mut *transaction)
         .await
         .unwrap();
+        sqlx::query(
+            "UPDATE music_library_items
+             SET original_artwork_identity = 'sidecar:Games/Nier/cover.jpg'
+             WHERE id = 'item-0001'",
+        )
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
         transaction.commit().await.unwrap();
 
         let first = super::queries::item_window(&pool, library_window())
@@ -193,6 +201,11 @@ fn item_windows_are_bounded_stable_filterable_and_grouped() {
         assert_eq!(
             first.items[1].relative_path.as_deref(),
             Some("Games/Nier/theme.flac")
+        );
+        assert_eq!(first.items[1].local_root_id.as_deref(), Some("window-root"));
+        assert_eq!(
+            first.items[1].original_artwork_identity.as_deref(),
+            Some("sidecar:Games/Nier/cover.jpg")
         );
 
         let mut filtered = library_window();

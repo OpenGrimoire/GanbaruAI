@@ -15,7 +15,6 @@
   import type { MusicBuilderDestination } from "$lib/music/music-builder-routing";
   import { orderMusicPlaylists, systemMusicPlaylistName } from "$lib/music/music-system-playlists";
   import { getSoundscapeStore } from "$lib/stores/soundscape.svelte";
-  import MusicBuilderFilterBar from "./MusicBuilderFilterBar.svelte";
   import MusicPlaylistIcon from "./MusicPlaylistIcon.svelte";
 
   type SoundscapeFilter = "all" | "generated" | "local";
@@ -23,7 +22,6 @@
   let {
     destination,
     state,
-    resultCount,
     playlists,
     sources,
     issues,
@@ -31,18 +29,15 @@
     issueFilter,
     soundscapeFilter,
     onSearch,
-    onFilterChange,
     onNavigate,
     onCreatePlaylist,
     onManagePlaylists,
-    onAddMusic,
     onSelectSource,
     onIssueFilter,
     onSoundscapeFilter,
   }: {
     destination: MusicBuilderDestination;
     state: MusicDestinationState;
-    resultCount: number;
     playlists: MusicPlaylistSummary[];
     sources: MusicSourceSummary[];
     issues: MusicIssue[];
@@ -50,11 +45,9 @@
     issueFilter: MusicIssueGroup | "all";
     soundscapeFilter: SoundscapeFilter;
     onSearch: (search: string) => void;
-    onFilterChange: (patch: Partial<MusicDestinationState>) => void;
     onNavigate: (destination: MusicBuilderDestination) => void;
     onCreatePlaylist: () => void;
     onManagePlaylists: () => void;
-    onAddMusic: () => void;
     onSelectSource: (sourceId: string | null) => void;
     onIssueFilter: (filter: MusicIssueGroup | "all") => void;
     onSoundscapeFilter: (filter: SoundscapeFilter) => void;
@@ -63,7 +56,7 @@
   const { t } = getLocalization();
   const soundscape = getSoundscapeStore();
   const orderedPlaylists = $derived(orderMusicPlaylists(playlists).filter((playlist) => {
-    const query = state.search.trim().toLocaleLowerCase();
+    const query = destination.kind === "playlists" ? state.search.trim().toLocaleLowerCase() : "";
     return !query || systemMusicPlaylistName(playlist.id, playlist.name, t).toLocaleLowerCase().includes(query);
   }));
   const issueGroups = $derived(groupMusicIssues(issues));
@@ -98,14 +91,6 @@
       {/each}
     </div>
     <div class="shrink-0 p-2 pt-0"><button type="button" onclick={onManagePlaylists} class="flex h-8 w-full items-center justify-center gap-1.5 rounded-lg bg-secondary text-[0.68rem] font-medium hover:bg-accent"><Pencil size={12} />{t("music.builder.managePlaylists")}</button></div>
-  {:else if destination.kind === "library"}
-    <div class="shrink-0 p-2">
-      <div class="flex h-8 items-center gap-2 rounded-full bg-secondary/35 px-2.5 focus-within:bg-secondary/55"><Search size={13} class="text-muted-foreground" /><input data-builder-context-search value={state.search} oninput={(event) => onSearch(event.currentTarget.value)} type="search" aria-label={t("music.builder.search")} placeholder={t("music.builder.search")} class="min-w-0 flex-1 bg-transparent text-[0.7rem] outline-none" />{#if state.search}<button type="button" onclick={() => onSearch("")} aria-label={t("music.builder.clearSearch")}><X size={12} /></button>{/if}</div>
-    </div>
-    <div class="min-h-0 flex-1 overflow-y-auto">
-      <MusicBuilderFilterBar sourceKind={state.sourceKind} availability={state.availability} reviewState={state.reviewState} sort={state.sort} direction={state.direction} groupBy={state.groupBy} {resultCount} sourceCollectionId={state.sourceCollectionId} membershipPlaylistId={state.membershipPlaylistId} snoozed={state.snoozed} {sources} {playlists} orientation="sidebar" onChange={onFilterChange} />
-    </div>
-    <div class="shrink-0 p-2 pt-0"><button type="button" onclick={onAddMusic} class="flex h-8 w-full items-center justify-center gap-1.5 rounded-lg bg-secondary text-[0.68rem] font-medium hover:bg-accent"><Plus size={12} />{t("music.builder.addMusic")}</button></div>
   {:else if destination.kind === "sources"}
     <div class="shrink-0 p-2"><h2 class="px-1 text-[0.68rem] font-semibold text-muted-foreground">{t("music.builder.sources")}</h2></div>
     <div class="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">

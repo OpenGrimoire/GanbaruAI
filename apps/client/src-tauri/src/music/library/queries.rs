@@ -312,10 +312,15 @@ pub(crate) async fn item_window(
             COALESCE(item.title_override, item.original_title) AS title,
             COALESCE(item.artist_override, item.original_artist) AS artist,
             COALESCE(item.album_override, item.original_album) AS album,
+            (SELECT location.root_id FROM music_local_locations AS location
+             WHERE location.item_id = item.id
+             ORDER BY location.availability = 'available' DESC, location.updated_at DESC, location.id
+             LIMIT 1) AS local_root_id,
             (SELECT location.relative_path FROM music_local_locations AS location
              WHERE location.item_id = item.id
              ORDER BY location.availability = 'available' DESC, location.updated_at DESC, location.id
              LIMIT 1) AS relative_path,
+            item.original_artwork_identity,
             item.artwork_override,
             item.duration_ms, item.availability, item.review_state,
             item.discovered_at, item.updated_at, item.version,

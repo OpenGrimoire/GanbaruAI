@@ -2,7 +2,6 @@ export type MusicBuilderDestination =
   | { kind: "review" }
   | { kind: "playlists" }
   | { kind: "playlist"; playlistId: string }
-  | { kind: "library" }
   | { kind: "sources" }
   | { kind: "issues" }
   | { kind: "soundscapes" };
@@ -22,12 +21,11 @@ export interface MusicBuilderRouteContext {
   itemIds?: ReadonlySet<string>;
 }
 
-export type MusicBuilderPrimaryDestinationKind = "review" | "playlists" | "library" | "sources" | "issues" | "soundscapes";
+export type MusicBuilderPrimaryDestinationKind = "review" | "playlists" | "sources" | "issues" | "soundscapes";
 
 export const MUSIC_BUILDER_PRIMARY_DESTINATIONS: readonly MusicBuilderPrimaryDestinationKind[] = [
   "review",
   "playlists",
-  "library",
   "sources",
   "issues",
   "soundscapes",
@@ -35,7 +33,7 @@ export const MUSIC_BUILDER_PRIMARY_DESTINATIONS: readonly MusicBuilderPrimaryDes
 
 /** Resolves a bare numeric key to a primary builder destination. */
 export function musicBuilderDestinationForKey(key: string): MusicBuilderDestination | null {
-  if (!/^[1-6]$/u.test(key)) return null;
+  if (!/^[1-5]$/u.test(key)) return null;
   const kind = MUSIC_BUILDER_PRIMARY_DESTINATIONS[Number(key) - 1];
   return kind ? { kind } : null;
 }

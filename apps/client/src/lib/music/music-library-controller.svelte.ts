@@ -95,7 +95,7 @@ function defaultDestinationState(location: MusicBuilderLocation): MusicDestinati
     sourceCollectionId: null,
     membershipPlaylistId: null,
     snoozed: null,
-    sort: location.kind === "playlist" ? "manual-position" : location.kind === "review" ? "discovered-at" : "title",
+    sort: location.kind === "review" ? "discovered-at" : "title",
     direction: "ascending",
     groupBy: "none",
     offset: 0,

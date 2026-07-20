@@ -1,7 +1,6 @@
 <script lang="ts">
   import AlertTriangle from "@lucide/svelte/icons/triangle-alert";
   import CloudRain from "@lucide/svelte/icons/cloud-rain";
-  import Library from "@lucide/svelte/icons/library";
   import ListChecks from "@lucide/svelte/icons/list-checks";
   import ListMusic from "@lucide/svelte/icons/list-music";
   import RadioTower from "@lucide/svelte/icons/radio-tower";
@@ -29,7 +28,6 @@
   function label(kind: MusicBuilderPrimaryDestinationKind): string {
     if (kind === "review") return t("music.builder.review");
     if (kind === "playlists") return t("music.builder.playlists");
-    if (kind === "library") return t("music.builder.library");
     if (kind === "sources") return t("music.builder.sources");
     if (kind === "issues") return t("music.builder.issues");
     return t("music.builder.soundscapes");
@@ -71,7 +69,6 @@
     >
       {#if item.kind === "review"}<ListChecks size={15} />
       {:else if item.kind === "playlists"}<ListMusic size={15} />
-      {:else if item.kind === "library"}<Library size={15} />
       {:else if item.kind === "sources"}<RadioTower size={15} />
       {:else if item.kind === "issues"}<AlertTriangle size={15} />
       {:else}<CloudRain size={15} />{/if}

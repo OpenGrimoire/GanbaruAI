@@ -1,31 +1,31 @@
 <script lang="ts">
   import Music2 from "@lucide/svelte/icons/music-2";
   import Youtube from "@lucide/svelte/icons/youtube";
-  import type { MusicLibrarySourceKind } from "$lib/music/library-contracts";
-  import { musicArtworkDataUrl } from "$lib/music/music-artwork-cache";
+  import type { LocalRootBinding, MusicItemListEntry } from "$lib/music/library-contracts";
+  import { musicArtworkDataUrl, musicEmbeddedArtworkDataUrl } from "$lib/music/music-artwork-cache";
+  import { musicListArtworkSource } from "$lib/music/music-list-artwork";
 
   let {
-    path = null,
-    sourceKind,
-    version,
+    item,
+    bindings,
   }: {
-    path?: string | null;
-    sourceKind: MusicLibrarySourceKind;
-    version: number;
+    item: MusicItemListEntry;
+    bindings: readonly LocalRootBinding[];
   } = $props();
 
   let currentUrl = $state<string | null>(null);
   let requestVersion = 0;
 
   $effect(() => {
-    const requestedPath = path;
-    version;
+    const source = musicListArtworkSource(item, bindings);
+    item.updatedAt;
     const request = ++requestVersion;
-    if (!requestedPath) {
-      currentUrl = null;
-      return;
-    }
-    void musicArtworkDataUrl(requestedPath).then((url) => {
+    currentUrl = null;
+    if (!source) return;
+    const load = source.kind === "file"
+      ? musicArtworkDataUrl(source.path)
+      : musicEmbeddedArtworkDataUrl(source.path, source.identity);
+    void load.then((url) => {
       if (request !== requestVersion || !url) return;
       const image = new Image();
       image.onload = () => {
@@ -38,7 +38,7 @@
 
 {#if currentUrl}
   <img src={currentUrl} alt="" aria-hidden="true" class="h-full w-full object-cover" />
-{:else if sourceKind === "youtube-video"}
+{:else if item.sourceKind === "youtube-video"}
   <Youtube size={17} strokeWidth={1.5} />
 {:else}
   <Music2 size={16} strokeWidth={1.5} />

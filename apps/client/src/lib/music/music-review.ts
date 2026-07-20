@@ -54,7 +54,7 @@ export function musicReviewArtworkDataUrl(
   if (!source || source.kind !== "local-file") return Promise.resolve(null);
   if (source.artworkPath) return musicArtworkDataUrl(source.artworkPath);
   if (detail.item.originalArtworkIdentity?.startsWith("embedded:")) {
-    return musicEmbeddedArtworkDataUrl(source.path);
+    return musicEmbeddedArtworkDataUrl(source.path, detail.item.originalArtworkIdentity);
   }
   return Promise.resolve(null);
 }

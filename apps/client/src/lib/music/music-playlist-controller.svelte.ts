@@ -6,7 +6,6 @@ import {
   getMusicPlaylistDeleteImpact,
   getMusicPlaylistPlaybackEntries,
   updateMusicPlaylist,
-  reorderMusicPlaylist,
 } from "$lib/api/music-library";
 import { getMusicPlayer } from "$lib/stores/music-player.svelte";
 import { projectMusicPlaylistPlayback, type MusicPlaylistPlaybackProjection } from "$lib/music/music-playlist-playback";
@@ -194,45 +193,6 @@ export class MusicPlaylistController {
       );
       if (!loaded) this.playbackIssue = "no-eligible-items";
       return loaded;
-    } catch (error) {
-      this.error = error instanceof Error ? error.message : String(error);
-      return false;
-    } finally {
-      this.saving = false;
-    }
-  }
-
-  async reorder(itemId: string, targetIndex: number, bindings: readonly LocalRootBinding[]): Promise<boolean> {
-    const detail = this.detail;
-    if (!detail || this.saving) return false;
-    const window = this.library.currentWindow;
-    const sourceIndex = window.items.findIndex((item) => item.id === itemId);
-    if (sourceIndex < 0 || targetIndex < 0 || targetIndex >= window.totalCount || sourceIndex === targetIndex) return false;
-    const previousItems = [...window.items];
-    this.saving = true;
-    this.error = null;
-    try {
-      await this.library.runOptimistic({
-        key: `playlist:${detail.id}:order`,
-        label: `Reorder ${detail.name}`,
-        apply: () => {
-          if (targetIndex >= window.items.length) return;
-          const next = [...window.items];
-          const [moved] = next.splice(sourceIndex, 1);
-          if (moved) next.splice(targetIndex, 0, moved);
-          window.items = next.map((item, index) => ({ ...item, membershipPosition: index }));
-        },
-        rollback: () => { window.items = previousItems; },
-        persist: () => reorderMusicPlaylist({ playlistId: detail.id, itemId, targetIndex, updatedAt: this.now() }),
-        undo: async () => {
-          await reorderMusicPlaylist({ playlistId: detail.id, itemId, targetIndex: sourceIndex, updatedAt: this.now() });
-          await this.library.refreshAfterMutation();
-          await this.refreshActivePlayback(bindings);
-        },
-      });
-      await this.library.refreshAfterMutation();
-      await this.refreshActivePlayback(bindings);
-      return true;
     } catch (error) {
       this.error = error instanceof Error ? error.message : String(error);
       return false;

@@ -13,7 +13,9 @@ const item: MusicItemListEntry = {
   title: "Quiet morning",
   artist: "Composer",
   album: "Soundtrack",
+  localRootId: "root-1",
   relativePath: "Soundtrack/Quiet morning.flac",
+  originalArtworkIdentity: null,
   artworkOverride: null,
   durationMs: 120_000,
   availability: "available",
@@ -56,21 +58,21 @@ describe("MusicVirtualItemList", () => {
     target = null;
   });
 
-  it("exposes interactive rows as positioned list items and ignores editor arrows", async () => {
-    const onSelect = vi.fn();
-    const onReorder = vi.fn();
+  it("plays from the row and keeps track actions in the overflow menu", async () => {
+    const onTogglePlayback = vi.fn();
     target = document.createElement("div");
     document.body.append(target);
     component = mount(MusicVirtualItemList, {
       target,
       props: {
         items: [item],
-        selectedItemId: item.id,
-        selectedItemIds: [item.id],
-        playlistMode: true,
-        reorderEnabled: true,
-        onSelect,
-        onReorder,
+        bindings: [{ rootId: "root-1", folderPath: "/Music", status: "available" }],
+        playlistName: "Work (focus)",
+        onTogglePlayback,
+        onShowLocation: vi.fn(async () => undefined),
+        onSnooze: vi.fn(async () => undefined),
+        onWeight: vi.fn(async () => undefined),
+        onRemove: vi.fn(async () => undefined),
       },
     });
     await tick();
@@ -80,14 +82,26 @@ describe("MusicVirtualItemList", () => {
     expect(row?.getAttribute("aria-posinset")).toBe("1");
     expect(row?.getAttribute("aria-setsize")).toBe("1");
     expect(target.querySelector('[role="option"]')).toBeNull();
-    expect(target.querySelector<HTMLButtonElement>('button[aria-pressed="true"]')).not.toBeNull();
+    const playButton = target.querySelector<HTMLButtonElement>('button[aria-label="Play"]');
+    expect(playButton).not.toBeNull();
+    expect(playButton?.dataset.appTooltipDisabled).toBe("true");
+    playButton?.click();
+    expect(onTogglePlayback).toHaveBeenCalledWith(item);
 
-    target.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')?.click();
+    expect(target.querySelector('[draggable="true"]')).toBeNull();
+    const actionButton = target.querySelector<HTMLButtonElement>('[aria-haspopup="dialog"]');
+    expect(actionButton).not.toBeNull();
+    actionButton?.click();
     await tick();
-    const positionInput = target.querySelector<HTMLInputElement>('input[inputmode="numeric"]');
-    positionInput?.focus();
-    positionInput?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
-    expect(onSelect).not.toHaveBeenCalled();
-    expect(onReorder).not.toHaveBeenCalled();
+    expect(document.body.querySelectorAll('[role="dialog"]')).toHaveLength(1);
+    expect(document.body.textContent).toContain("Remove from Work (focus)");
+
+    const detailsButton = Array.from(document.body.querySelectorAll<HTMLButtonElement>("button"))
+      .find((button) => button.textContent?.includes("Details"));
+    detailsButton?.click();
+    await tick();
+    expect(document.body.querySelectorAll('[role="dialog"]')).toHaveLength(1);
+    expect(document.body.textContent).toContain("Soundtrack");
+    expect(target.textContent).not.toContain("Reviewed");
   });
 });

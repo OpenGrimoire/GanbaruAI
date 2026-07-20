@@ -45,4 +45,12 @@ describe("music artwork cache", () => {
     await musicEmbeddedArtworkDataUrl("/music/0.flac");
     expect(loadEmbeddedArtworkDataUrl).toHaveBeenCalledTimes(14);
   });
+
+  it("shares embedded cover extraction across tracks with the same artwork identity", async () => {
+    const first = await musicEmbeddedArtworkDataUrl("/music/album/track-1.flac", "embedded:sha256:cover");
+    const second = await musicEmbeddedArtworkDataUrl("/music/album/track-2.flac", "embedded:sha256:cover");
+
+    expect(first).toBe(second);
+    expect(loadEmbeddedArtworkDataUrl).toHaveBeenCalledOnce();
+  });
 });
