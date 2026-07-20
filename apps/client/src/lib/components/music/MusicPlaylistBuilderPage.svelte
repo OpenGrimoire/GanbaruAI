@@ -33,8 +33,6 @@
   import {
     musicReviewArtworkDataUrl,
     parseMusicReviewAutoplay,
-    parseMusicReviewExitPreference,
-    type MusicReviewExitPreference,
   } from "$lib/music/music-review";
   import {
     firstMusicReviewTreeItemId,
@@ -50,7 +48,6 @@
     createMusicReviewTreeViewState,
     createMusicReviewWorkspaceViewState,
   } from "$lib/music/music-builder-view-state";
-  import { containMusicDialogFocus } from "$lib/music/music-dialog-focus";
   import { onMusicLibraryChanged } from "$lib/music/music-library-events";
   import { onActiveVaultIdentityChange, requireActiveVaultIdentity } from "$lib/vault/active-vault";
   import { getConfigKey, setConfigKey } from "$lib/vault/config";
@@ -75,7 +72,6 @@
   import MusicPlaylistManager from "./builder/MusicPlaylistManager.svelte";
   import MusicSoundscapeBuilder from "./MusicSoundscapeBuilder.svelte";
   import MusicPlaylistDialog from "./builder/MusicPlaylistDialog.svelte";
-  import MusicBulkMembershipDialog from "./builder/MusicBulkMembershipDialog.svelte";
   import MusicInterchangeDialog from "./builder/MusicInterchangeDialog.svelte";
   import type { MusicBuilderInitialAction } from "$lib/music/music-builder-loader";
   import { musicIssueGroup } from "$lib/music/music-issue-presentation";
@@ -109,15 +105,13 @@
   let sourceSurfaceCollection = $state<MusicSourceCollection | null>(null);
   let repairItemId = $state<string | null>(null);
   let pendingRefreshPlan = $state<MusicSourceRefreshPlan | null>(null);
-  let reviewExitOpen = $state(false);
   let playlistSurface = $state<"create" | "edit" | "duplicate" | "delete" | null>(null);
   let playlistSurfaceReturnsToCurrentView = $state(false);
   let playlistSurfaceTargetId = $state<string | null>(null);
-  let bulkSurface = $state<"memberships" | null>(null);
-  let rememberReviewExit = $state(false);
   let reviewAutoplay = $state(parseMusicReviewAutoplay(getConfigKey<unknown>("music.review.autoplay", undefined)));
-  let reviewExitPreference = $state<MusicReviewExitPreference>(parseMusicReviewExitPreference(getConfigKey<unknown>("music.review.exitPreference", undefined)));
-  let pendingReviewExit: (() => void) | null = null;
+  if (getConfigKey<unknown>("music.review.exitPreference", undefined) !== undefined) {
+    setConfigKey("music.review.exitPreference", undefined);
+  }
   let choosingFirstUseFolder = $state(false);
   let firstUseFolderError = $state<string | null>(null);
   let firstUsePreparationActive = $state(false);
@@ -126,6 +120,7 @@
   let playlistManagementOpen = $state(false);
   let soundscapeAddRequest = $state(0);
   let toolbarMenuOpen = $state(false);
+  let reviewSelectionClearRequest = $state(0);
   const contextViewState = $state(createMusicBuilderContextViewState());
   const reviewTreeViewState = $state(createMusicReviewTreeViewState());
   const reviewWorkspaceViewState = $state(createMusicReviewWorkspaceViewState());
@@ -238,6 +233,7 @@
     const action = initialAction;
     if (!action || !library.vaultId) return;
     if (action === "new-playlist") playlistSurface = "create";
+    else if (action === "open-playlists") void navigateNow({ kind: "playlists" });
     else if (action.kind === "open-issues") void openReviewIssues();
     else if (action.kind === "open-soundscapes") void navigateNow({ kind: "soundscapes" });
     else void openInitialItem(action.itemId);
@@ -257,6 +253,8 @@
     Object.assign(contextViewState, createMusicBuilderContextViewState());
     Object.assign(reviewTreeViewState, createMusicReviewTreeViewState());
     Object.assign(reviewWorkspaceViewState, createMusicReviewWorkspaceViewState());
+    bulk.clear();
+    reviewSelectionClearRequest += 1;
     playlistManagementOpen = false;
     inspector.reset();
     library.setVault(vaultId);
@@ -376,15 +374,6 @@
     await navigateNow(next);
   }
 
-  function requestReviewExit(continuation: () => void): void {
-    if (musicBuilderPlaybackDecision(audition.active, "external-exit") !== "resolve-review-exit") { continuation(); return; }
-    if (reviewExitPreference === "restore") { void audition.restore().then(continuation); return; }
-    if (reviewExitPreference === "keep") { audition.keep(); continuation(); return; }
-    pendingReviewExit = continuation;
-    rememberReviewExit = false;
-    reviewExitOpen = true;
-  }
-
   function navigate(next: MusicBuilderDestination): void {
     contextViewState.contextPanelOpen = false;
     toolbarMenuOpen = false;
@@ -407,28 +396,19 @@
       && library.currentWindow.items.length < library.currentWindow.totalCount) {
       if (!await library.loadMore()) break;
     }
-    if (library.currentWindow.items.some((item) => item.id === issue.itemId)) library.selectItem(issue.itemId);
+    if (library.currentWindow.items.some((item) => item.id === issue.itemId)) {
+      clearReviewSelection();
+      library.selectItem(issue.itemId);
+    }
   }
 
   function openPlayerFromBuilder(): void {
-    requestReviewExit(onOpenPlayer);
+    if (audition.active) audition.keep();
+    onOpenPlayer();
   }
 
   function takePlaybackOwnership(): void {
     if (musicBuilderPlaybackDecision(audition.active, "explicit-playback") === "release-review") audition.keep();
-  }
-
-  async function resolveReviewExit(choice: "restore" | "keep"): Promise<void> {
-    if (rememberReviewExit) {
-      reviewExitPreference = choice;
-      setConfigKey("music.review.exitPreference", choice);
-    }
-    if (choice === "restore") await audition.restore();
-    else audition.keep();
-    const continuation = pendingReviewExit;
-    pendingReviewExit = null;
-    reviewExitOpen = false;
-    continuation?.();
   }
 
   function setReviewAutoplay(value: boolean): void {
@@ -438,7 +418,7 @@
 
   async function handleBack(): Promise<void> {
     const previous = backMusicBuilderRoute(history, routeContext);
-    if (!previous) { requestReviewExit(onOpenPlayer); return; }
+    if (!previous) { openPlayerFromBuilder(); return; }
     history = previous;
     library.navigate(history.current.destination);
     await library.ensureCurrentDestination();
@@ -508,12 +488,16 @@
     await playCurrentPlaylist(item.id);
   }
 
-  async function assignReviewSelection(itemIds: string[]): Promise<void> {
-    const uniqueIds = [...new Set(itemIds)].filter((itemId) => library.currentWindow.items.some((item) => item.id === itemId));
-    if (uniqueIds.length === 0) return;
-    library.setItemSelection(uniqueIds, uniqueIds.at(-1) ?? null);
-    bulkSurface = "memberships";
-    await bulk.open(uniqueIds, library.playlistSummaries);
+  function clearReviewSelection(): void {
+    reviewTreeViewState.selectedItemIds = [];
+    reviewTreeViewState.selectedFolderIds = [];
+    reviewSelectionClearRequest += 1;
+    bulk.clear();
+  }
+
+  function activateReviewItem(itemId: string): void {
+    if (reviewTreeViewState.selectedItemIds.length > 0) clearReviewSelection();
+    library.selectItem(itemId);
   }
 
   async function chooseFirstUseFolder(): Promise<void> {
@@ -582,11 +566,6 @@
     await playlist.refreshActivePlayback(sources.bindings);
   }
 
-  function closeBulkSurface(): void {
-    bulkSurface = null;
-    bulk.clear();
-  }
-
   async function showItemLocation(item: MusicItemListEntry): Promise<void> {
     if (inspector.itemId !== item.id) await inspector.select(item.id);
     const location = inspector.detail?.locations.find((entry) => entry.availability === "available");
@@ -602,9 +581,8 @@
     if (event.key === "Escape") {
       if (contextViewState.contextPanelOpen) { event.preventDefault(); event.stopPropagation(); contextViewState.contextPanelOpen = false; return; }
       if (toolbarMenuOpen) { event.preventDefault(); event.stopPropagation(); toolbarMenuOpen = false; return; }
-      if (reviewExitOpen) { event.preventDefault(); event.stopPropagation(); reviewExitOpen = false; pendingReviewExit = null; return; }
-      if (bulkSurface) { event.stopPropagation(); closeBulkSurface(); return; }
       if (sourceSurface || pendingRefreshPlan) { event.stopPropagation(); closeSourceSurface(); pendingRefreshPlan = null; return; }
+      if (destination.kind === "review" && reviewTreeViewState.selectedItemIds.length > 0) { event.preventDefault(); event.stopPropagation(); clearReviewSelection(); return; }
       event.stopPropagation();
       void handleBack();
     }
@@ -612,7 +590,7 @@
     const shortcutDestination = musicBuilderDestinationForKey(event.key);
     const shortcutBlocked = event.ctrlKey || event.metaKey || event.altKey || event.shiftKey
       || Boolean(target?.closest("input, textarea, [contenteditable='true'], [role='dialog']"))
-      || Boolean(reviewExitOpen || bulkSurface || sourceSurface || pendingRefreshPlan || playlistSurface || interchange.open);
+      || Boolean(sourceSurface || pendingRefreshPlan || playlistSurface || interchange.open);
     if (shortcutDestination && !shortcutBlocked) {
       event.preventDefault();
       event.stopImmediatePropagation();
@@ -654,14 +632,14 @@
   onDestroy(() => {
     unsubscribeVault?.();
     unsubscribeLibraryChanges?.();
-    if (audition.active) void audition.restore();
+    if (audition.active) audition.keep();
   });
 </script>
 
 <svelte:window onkeydown={handleWindowKeydown} onpointerdown={handleWindowPointerDown} />
 
 <section bind:this={root} use:observeRoot class="builder-root flex h-full min-h-0 select-none flex-col overflow-hidden text-foreground" style="background-color: var(--cal-bg);">
-  <div class="builder-shell relative grid min-h-0 flex-1" class:builder-wide={layout.mode === "wide"} class:builder-medium={layout.mode === "medium"} class:builder-narrow={layout.mode === "narrow"}>
+  <div class="builder-shell relative grid min-h-0 flex-1" class:builder-wide={layout.mode === "wide"} class:builder-medium={layout.mode === "medium"} class:builder-narrow={layout.mode === "narrow"} class:builder-contextless={firstUsePreparation || firstUseNeedsFolder}>
     {#if !firstUsePreparation && !firstUseNeedsFolder}
       <aside class:context-open={contextViewState.contextPanelOpen} class="builder-context-panel relative z-20 flex min-h-0 flex-col overflow-hidden bg-background/20">
         {#if destination.kind === "review"}
@@ -683,12 +661,13 @@
             <MusicReviewTree
               items={library.currentWindow.items}
               totalCount={library.currentWindow.totalCount}
-              activeItemId={library.selectedItem?.id ?? null}
-              onActivate={(itemId) => library.selectItem(itemId)}
-              onAssign={(itemIds) => { void assignReviewSelection(itemIds); }}
+              activeItemId={reviewTreeViewState.selectedItemIds.length > 0 ? null : library.selectedItem?.id ?? null}
+              onActivate={activateReviewItem}
               issueCount={issueCount}
               issueItemIds={reviewIssueItemIds}
               onOpenIssues={() => { void openReviewIssues(); }}
+              selectionClearRequest={reviewSelectionClearRequest}
+              selectionDisabled={bulk.saving}
               canRefresh={localSourceCollectionIds.length > 0}
               refreshing={localSourceRefreshActive}
               onRefresh={refreshReviewFolders}
@@ -786,7 +765,7 @@
             {/if}
           </div>
         {:else}
-          <MusicReviewWorkspace {library} {inspector} {sources} {audition} {review} autoplay={reviewAutoplay} onAutoplayChange={setReviewAutoplay} onOpenPlayer={openPlayerFromBuilder} showPanelButton={layout.contextPanelPresentation === "sheet"} onOpenPanel={() => contextViewState.contextPanelOpen = true} onEditPlaylist={(playlistId) => { void openPlaylistManagementSurface(playlistId, "edit"); }} onDeletePlaylist={(playlistId) => { void openPlaylistManagementSurface(playlistId, "delete"); }} onReorderPlaylists={reorderPlaylistSummaries} issue={activeReviewIssue} onRepairIssue={repairIssue} viewState={reviewWorkspaceViewState} />
+          <MusicReviewWorkspace {library} {inspector} {sources} {audition} {review} {bulk} selectedItemIds={reviewTreeViewState.selectedItemIds} selectedFolderIds={reviewTreeViewState.selectedFolderIds} onClearSelection={clearReviewSelection} autoplay={reviewAutoplay} onAutoplayChange={setReviewAutoplay} onOpenPlayer={openPlayerFromBuilder} showPanelButton={layout.contextPanelPresentation === "sheet"} onOpenPanel={() => contextViewState.contextPanelOpen = true} onEditPlaylist={(playlistId) => { void openPlaylistManagementSurface(playlistId, "edit"); }} onDeletePlaylist={(playlistId) => { void openPlaylistManagementSurface(playlistId, "delete"); }} onReorderPlaylists={reorderPlaylistSummaries} issue={activeReviewIssue} onRepairIssue={repairIssue} viewState={reviewWorkspaceViewState} />
         {/if}
       {:else if playlistManagementOpen && (destination.kind === "playlists" || destination.kind === "playlist")}
         <div class="min-h-0 flex-1 overflow-y-auto p-3" data-music-scrollable="true"><MusicPlaylistManager playlists={library.playlistSummaries} onEdit={(playlistId) => { void openPlaylistManagementSurface(playlistId, "edit"); }} onDelete={(playlistId) => { void openPlaylistManagementSurface(playlistId, "delete"); }} onReorder={reorderPlaylistSummaries} onDone={() => playlistManagementOpen = false} /></div>
@@ -884,19 +863,6 @@
     {#if pendingRefreshPlan}
       <MusicNetworkRefreshDialog onlineCount={pendingRefreshPlan.onlineCount} onClose={() => pendingRefreshPlan = null} onLocalOnly={() => { void runSourceRefresh(pendingRefreshPlan!, false); }} onContinue={() => { void runSourceRefresh(pendingRefreshPlan!, true); }} />
     {/if}
-    {#if reviewExitOpen}
-      <div class="absolute inset-0 z-60 grid place-items-center bg-background/65 p-3 backdrop-blur-sm" role="presentation">
-        <div use:containMusicDialogFocus={{ onEscape: () => { reviewExitOpen = false; pendingReviewExit = null; } }} class="w-full max-w-sm rounded-xl border border-border/70 bg-card p-4 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="music-review-exit-title" tabindex="-1">
-          <h2 id="music-review-exit-title" class="text-sm font-semibold">{t("music.builder.reviewExitTitle")}</h2>
-          <p class="mt-1 text-xs leading-relaxed text-muted-foreground">{t("music.builder.reviewExitDescription")}</p>
-          <label class="mt-3 flex items-center gap-2 text-xs text-muted-foreground"><input type="checkbox" bind:checked={rememberReviewExit} class="accent-primary" />{t("music.builder.rememberExitChoice")}</label>
-          <div class="mt-4 grid grid-cols-2 gap-2">
-            <button type="button" onclick={() => { void resolveReviewExit("keep"); }} class="h-9 rounded-md bg-secondary px-3 text-xs font-medium text-secondary-foreground">{t("music.builder.keepReviewMusic")}</button>
-            <button type="button" onclick={() => { void resolveReviewExit("restore"); }} class="h-9 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground">{t("music.builder.restorePreviousMusic")}</button>
-          </div>
-        </div>
-      </div>
-    {/if}
     {#if playlistSurface}
       <MusicPlaylistDialog
         controller={playlist}
@@ -932,14 +898,6 @@
         }}
       />
     {/if}
-    {#if bulkSurface === "memberships"}
-      <MusicBulkMembershipDialog
-        controller={bulk}
-        playlists={library.playlistSummaries}
-        onClose={closeBulkSurface}
-        onSaved={() => { closeBulkSurface(); library.setItemSelection([], null); void playlist.refreshActivePlayback(sources.bindings); }}
-      />
-    {/if}
     {#if interchange.open}<MusicInterchangeDialog controller={interchange} playlists={library.playlistSummaries} onClose={() => interchange.close()} onImported={() => { void library.refreshAfterMutation(); void sources.load(); }} />{/if}
   </div>
 </section>
@@ -952,6 +910,8 @@
   .builder-context-panel { grid-column: 1; border-right: 1px solid color-mix(in srgb, var(--border) 46%, transparent); }
   .builder-shell > main { grid-column: 2; }
   .builder-wide, .builder-medium { grid-template-columns: minmax(14rem, 0.72fr) minmax(22rem, 2fr); }
+  .builder-contextless { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+  .builder-contextless > main { grid-column: 1; grid-row: 1; }
   .builder-narrow { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
   .builder-narrow > main { grid-column: 1; grid-row: 1; }
   .builder-narrow .builder-context-panel { position: absolute; inset: 0 0 2.75rem; grid-column: 1; border-right: 0; background: var(--background); transform: translateX(-102%); transition: transform 150ms ease; }

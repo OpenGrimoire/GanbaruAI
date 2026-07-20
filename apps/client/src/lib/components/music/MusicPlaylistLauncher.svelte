@@ -1,26 +1,25 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
   import AlertCircle from "@lucide/svelte/icons/alert-circle";
-  import Check from "@lucide/svelte/icons/check";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import ListMusic from "@lucide/svelte/icons/list-music";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
-  import Play from "@lucide/svelte/icons/play";
   import Plus from "@lucide/svelte/icons/plus";
   import Search from "@lucide/svelte/icons/search";
   import Settings2 from "@lucide/svelte/icons/settings-2";
   import {
     getLocalRootBindings,
     getMusicPlaylistPlaybackEntries,
-    getMusicPlaylistSummaries,
   } from "$lib/api/music-library";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import type { MusicPlaylistSummary } from "$lib/music/library-contracts";
   import { projectMusicPlaylistPlayback } from "$lib/music/music-playlist-playback";
-  import { systemMusicPlaylistName } from "$lib/music/music-system-playlists";
+  import { getMusicPlaylistSummaryCache } from "$lib/music/music-playlist-summary-cache.svelte";
+  import { orderMusicPlaylists, systemMusicPlaylistName } from "$lib/music/music-system-playlists";
   import { getMusicPlayer } from "$lib/stores/music-player.svelte";
   import { requireActiveVaultIdentity } from "$lib/vault/active-vault";
   import { cn } from "$lib/utils";
+  import MusicPlaylistIcon from "$lib/components/music/builder/MusicPlaylistIcon.svelte";
 
   let {
     onOpenBuilder,
@@ -34,29 +33,31 @@
 
   const { t } = getLocalization();
   const player = getMusicPlayer();
+  const playlistCache = getMusicPlaylistSummaryCache();
   let root = $state<HTMLElement | null>(null);
   let trigger = $state<HTMLButtonElement | null>(null);
   let searchInput = $state<HTMLInputElement | null>(null);
   let open = $state(false);
   let search = $state("");
-  let playlists = $state<MusicPlaylistSummary[]>([]);
-  let loading = $state(false);
+  let opening = $state(false);
   let playingId = $state<string | null>(null);
   let error = $state<string | null>(null);
   let noEligiblePlaylist = $state<MusicPlaylistSummary | null>(null);
 
-  const recentIdSet = $derived(new Set(player.recentPlaylistIds));
+  const playlists = $derived(playlistCache.playlists);
   const matching = $derived.by(() => {
     const query = search.trim().toLocaleLowerCase();
-    return playlists.filter((playlist) => !query
+    return orderMusicPlaylists(playlists).filter((playlist) => !query
       || systemMusicPlaylistName(playlist.id, playlist.name, t).toLocaleLowerCase().includes(query));
   });
-  const recent = $derived(player.recentPlaylistIds
-    .map((id) => matching.find((playlist) => playlist.id === id))
-    .filter((playlist): playlist is MusicPlaylistSummary => Boolean(playlist)));
-  const remaining = $derived(matching.filter((playlist) => !recentIdSet.has(playlist.id)));
 
   onMount(() => {
+    try {
+      playlistCache.setVault(requireActiveVaultIdentity());
+      void playlistCache.load();
+    } catch {
+      // The active vault can publish after this panel mounts; startup preload will connect it.
+    }
     const handlePointer = (event: PointerEvent) => {
       if (open && event.target instanceof Node && root && !root.contains(event.target)) close();
     };
@@ -77,12 +78,22 @@
   });
 
   async function toggle(): Promise<void> {
-    open = !open;
-    if (!open) return;
+    if (open) {
+      close();
+      return;
+    }
+    if (opening) return;
+    opening = true;
     error = null;
     noEligiblePlaylist = null;
-    await Promise.all([refresh(), tick()]);
-    searchInput?.focus();
+    try {
+      if (!playlistCache.loaded && !await playlistCache.load()) error = playlistCache.error;
+      open = true;
+      await tick();
+      searchInput?.focus();
+    } finally {
+      opening = false;
+    }
   }
 
   function close(): void {
@@ -96,14 +107,8 @@
   }
 
   async function refresh(): Promise<void> {
-    loading = true;
-    try {
-      playlists = await getMusicPlaylistSummaries(Date.now(), 0, 500);
-    } catch (cause) {
-      error = cause instanceof Error ? cause.message : String(cause);
-    } finally {
-      loading = false;
-    }
+    error = null;
+    if (!await playlistCache.refresh()) error = playlistCache.error;
   }
 
   async function play(playlist: MusicPlaylistSummary): Promise<void> {
@@ -165,6 +170,7 @@
     )}
     aria-haspopup="dialog"
     aria-expanded={open}
+    aria-busy={opening}
     aria-label={t("music.launcher.choosePlaylist")}
     data-music-playlist-launcher
   >
@@ -188,9 +194,7 @@
       </div>
 
       <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2" data-music-scrollable="true">
-        {#if loading && playlists.length === 0}
-          <div class="grid min-h-32 place-items-center text-center text-xs text-muted-foreground"><div><LoaderCircle class="mx-auto mb-2 animate-spin motion-reduce:animate-none" size={18} /><p>{t("music.launcher.loading")}</p></div></div>
-        {:else if error}
+        {#if error}
           <div class="rounded-lg border border-destructive/25 bg-destructive/8 p-3 text-xs"><div class="flex gap-2"><AlertCircle size={15} class="mt-0.5 shrink-0 text-destructive" /><p class="min-w-0 wrap-break-word">{error}</p></div><button type="button" onclick={() => { void refresh(); }} class="mt-2 font-medium text-primary hover:underline">{t("music.launcher.retry")}</button></div>
         {:else if noEligiblePlaylist}
           <div class="rounded-lg border border-warning/30 bg-warning/8 p-3 text-xs">
@@ -201,24 +205,13 @@
         {:else if matching.length === 0}
           <div class="grid min-h-32 place-items-center px-5 text-center"><div><ListMusic class="mx-auto mb-2 text-muted-foreground" size={20} /><p class="text-xs font-medium">{playlists.length === 0 ? t("music.launcher.empty") : t("music.launcher.noMatches")}</p><p class="mt-1 text-[0.68rem] leading-relaxed text-muted-foreground">{playlists.length === 0 ? t("music.launcher.emptyHint") : t("music.launcher.noMatchesHint")}</p></div></div>
         {:else}
-          {#if recent.length > 0}
-            <p class="px-2 pb-1 pt-0.5 text-[0.62rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{t("music.launcher.recent")}</p>
-            {#each recent as playlist (playlist.id)}
-              <button type="button" onclick={() => { void play(playlist); }} disabled={Boolean(playingId)} class="group flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left hover:bg-accent disabled:opacity-60">
-                <span class={cn("grid h-7 w-7 shrink-0 place-items-center rounded-md bg-secondary text-muted-foreground", player.activePlaylistId === playlist.id && "bg-primary/15 text-primary")}>{#if playingId === playlist.id}<LoaderCircle class="animate-spin motion-reduce:animate-none" size={13} />{:else if player.activePlaylistId === playlist.id}<Check size={13} />{:else}<Play size={13} />{/if}</span>
-                <span class="min-w-0 flex-1"><span class="block truncate text-xs font-medium">{systemMusicPlaylistName(playlist.id, playlist.name, t)}</span><span class="block truncate text-[0.64rem] text-muted-foreground">{t("music.launcher.playlistCounts", playlist.eligibleCount, playlist.totalCount)}{#if playlist.unavailableCount + playlist.snoozedCount > 0} · {t("music.launcher.issueCount", playlist.unavailableCount + playlist.snoozedCount)}{/if}</span></span>
-              </button>
-            {/each}
-          {/if}
-          {#if remaining.length > 0}
-            <p class="px-2 pb-1 pt-2 text-[0.62rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{t("music.launcher.allPlaylists")}</p>
-            {#each remaining as playlist (playlist.id)}
-              <button type="button" onclick={() => { void play(playlist); }} disabled={Boolean(playingId)} class="group flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left hover:bg-accent disabled:opacity-60">
-                <span class={cn("grid h-7 w-7 shrink-0 place-items-center rounded-md bg-secondary text-muted-foreground", player.activePlaylistId === playlist.id && "bg-primary/15 text-primary")}>{#if playingId === playlist.id}<LoaderCircle class="animate-spin motion-reduce:animate-none" size={13} />{:else if player.activePlaylistId === playlist.id}<Check size={13} />{:else}<Play size={13} />{/if}</span>
-                <span class="min-w-0 flex-1"><span class="block truncate text-xs font-medium">{systemMusicPlaylistName(playlist.id, playlist.name, t)}</span><span class="block truncate text-[0.64rem] text-muted-foreground">{t("music.launcher.playlistCounts", playlist.eligibleCount, playlist.totalCount)}{#if playlist.unavailableCount + playlist.snoozedCount > 0} · {t("music.launcher.issueCount", playlist.unavailableCount + playlist.snoozedCount)}{/if}</span></span>
-              </button>
-            {/each}
-          {/if}
+          {#each matching as playlist (playlist.id)}
+            <button type="button" onclick={() => { void play(playlist); }} disabled={Boolean(playingId)} class={cn("group flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left hover:bg-accent disabled:opacity-60", player.activePlaylistId === playlist.id && "bg-accent")}>
+              <span class="grid h-7 w-7 shrink-0 place-items-center text-foreground"><MusicPlaylistIcon icon={playlist.icon} size={15} /></span>
+              <span class="min-w-0 flex-1 truncate text-xs font-medium">{systemMusicPlaylistName(playlist.id, playlist.name, t)}</span>
+              <span class="shrink-0 text-[0.64rem] tabular-nums text-muted-foreground">{#if playingId === playlist.id}<LoaderCircle class="animate-spin motion-reduce:animate-none" size={13} />{:else}{playlist.totalCount}{/if}</span>
+            </button>
+          {/each}
         {/if}
       </div>
 

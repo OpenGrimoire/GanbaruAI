@@ -88,6 +88,16 @@ fn typed_enums_reject_unknown_external_values() {
 }
 
 #[test]
+fn review_selection_accepts_folders_larger_than_the_generic_bulk_limit() {
+    let item_ids = (0..1_152)
+        .map(|index| format!("item-{index}"))
+        .collect::<Vec<_>>();
+
+    assert!(validate_review_selection_ids(&item_ids, "itemIds").is_ok());
+    assert!(validate_bounded_unique_ids(&item_ids, "itemIds").is_err());
+}
+
+#[test]
 fn built_in_music_playlists_are_protected_localizable_and_repaired() {
     tauri::async_runtime::block_on(async {
         let pool = pool().await;
@@ -1206,6 +1216,205 @@ fn bulk_review_and_snooze_updates_are_atomic() {
         .await
         .unwrap();
         assert_eq!(counts, (2, 2));
+    });
+}
+
+#[test]
+fn review_selection_applies_memberships_and_review_state_in_one_transaction() {
+    tauri::async_runtime::block_on(async {
+        let pool = pool().await;
+        for index in 1..=2 {
+            seed_item(
+                &pool,
+                &format!("item-{index}"),
+                &format!("local:item-{index}"),
+            )
+            .await;
+        }
+        super::writes::create_playlist(&pool, playlist("playlist-1"))
+            .await
+            .unwrap();
+
+        let result = super::playlist_edits::apply_review_selection(
+            &pool,
+            MusicReviewSelectionWrite {
+                action_id: "review-selection".to_string(),
+                items: vec![
+                    MusicVersionedItem {
+                        item_id: "item-1".to_string(),
+                        expected_version: 1,
+                    },
+                    MusicVersionedItem {
+                        item_id: "item-2".to_string(),
+                        expected_version: 1,
+                    },
+                ],
+                review_state: MusicReviewState::Reviewed,
+                add_playlist_ids: vec!["playlist-1".to_string()],
+                remove_playlist_ids: vec![],
+                updated_at: 1_700_000_000_100,
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(result.membership_changed_count, 2);
+        assert_eq!(result.review_changed_count, 2);
+        assert!(result.items.iter().all(|receipt| receipt.version == 2));
+        let counts: (i64, i64) = sqlx::query_as(
+            "SELECT
+                (SELECT COUNT(*) FROM music_library_items WHERE review_state = 'reviewed'),
+                (SELECT COUNT(*) FROM music_playlist_memberships WHERE playlist_id = 'playlist-1')",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(counts, (2, 2));
+    });
+}
+
+#[test]
+fn stale_review_selection_does_not_apply_partial_memberships() {
+    tauri::async_runtime::block_on(async {
+        let pool = pool().await;
+        for index in 1..=2 {
+            seed_item(
+                &pool,
+                &format!("item-{index}"),
+                &format!("local:item-{index}"),
+            )
+            .await;
+        }
+        super::writes::create_playlist(&pool, playlist("playlist-1"))
+            .await
+            .unwrap();
+
+        let error = super::playlist_edits::apply_review_selection(
+            &pool,
+            MusicReviewSelectionWrite {
+                action_id: "stale-review-selection".to_string(),
+                items: vec![
+                    MusicVersionedItem {
+                        item_id: "item-1".to_string(),
+                        expected_version: 1,
+                    },
+                    MusicVersionedItem {
+                        item_id: "item-2".to_string(),
+                        expected_version: 2,
+                    },
+                ],
+                review_state: MusicReviewState::Reviewed,
+                add_playlist_ids: vec!["playlist-1".to_string()],
+                remove_playlist_ids: vec![],
+                updated_at: 1_700_000_000_100,
+            },
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(error.code, MusicLibraryErrorCode::StaleWrite);
+        let counts: (i64, i64) = sqlx::query_as(
+            "SELECT
+                (SELECT COUNT(*) FROM music_library_items WHERE review_state = 'reviewed'),
+                (SELECT COUNT(*) FROM music_playlist_memberships WHERE playlist_id = 'playlist-1')",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(counts, (0, 0));
+    });
+}
+
+#[test]
+fn review_selection_ignores_unassigned_items_in_one_transaction() {
+    tauri::async_runtime::block_on(async {
+        let pool = pool().await;
+        for index in 1..=2 {
+            seed_item(
+                &pool,
+                &format!("item-{index}"),
+                &format!("local:item-{index}"),
+            )
+            .await;
+        }
+
+        let result = super::playlist_edits::apply_review_selection(
+            &pool,
+            MusicReviewSelectionWrite {
+                action_id: "ignore-review-selection".to_string(),
+                items: vec![
+                    MusicVersionedItem {
+                        item_id: "item-1".to_string(),
+                        expected_version: 1,
+                    },
+                    MusicVersionedItem {
+                        item_id: "item-2".to_string(),
+                        expected_version: 1,
+                    },
+                ],
+                review_state: MusicReviewState::Ignored,
+                add_playlist_ids: vec![],
+                remove_playlist_ids: vec![],
+                updated_at: 1_700_000_000_100,
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(result.membership_changed_count, 0);
+        assert_eq!(result.review_changed_count, 2);
+        assert!(result.items.iter().all(|receipt| receipt.version == 2));
+        let ignored_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM music_library_items WHERE review_state = 'ignored'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(ignored_count, 2);
+    });
+}
+
+#[test]
+fn review_selection_rejects_ignoring_items_assigned_to_playlists() {
+    tauri::async_runtime::block_on(async {
+        let pool = pool().await;
+        seed_item(&pool, "item-1", "local:item-1").await;
+        super::writes::create_playlist(&pool, playlist("playlist-1"))
+            .await
+            .unwrap();
+        super::writes::upsert_memberships(
+            &pool,
+            MusicBulkMembershipWrite {
+                memberships: vec![membership(1)],
+            },
+        )
+        .await
+        .unwrap();
+
+        let error = super::playlist_edits::apply_review_selection(
+            &pool,
+            MusicReviewSelectionWrite {
+                action_id: "blocked-ignore-selection".to_string(),
+                items: vec![MusicVersionedItem {
+                    item_id: "item-1".to_string(),
+                    expected_version: 1,
+                }],
+                review_state: MusicReviewState::Ignored,
+                add_playlist_ids: vec![],
+                remove_playlist_ids: vec![],
+                updated_at: 1_700_000_000_100,
+            },
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(error.code, MusicLibraryErrorCode::Validation);
+        let state: String =
+            sqlx::query_scalar("SELECT review_state FROM music_library_items WHERE id = 'item-1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(state, "unreviewed");
     });
 }
 

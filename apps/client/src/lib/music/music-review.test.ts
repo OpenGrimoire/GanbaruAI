@@ -3,7 +3,6 @@ import {
   musicReviewSource,
   nextMusicWeight,
   parseMusicReviewAutoplay,
-  parseMusicReviewExitPreference,
   sortReviewPlaylists,
 } from "./music-review";
 import type { MusicInspectorDetail, MusicPlaylistSummary } from "./library-contracts";
@@ -34,8 +33,7 @@ function detail(sourceKind: "local-file" | "youtube-video"): MusicInspectorDetai
 }
 
 describe("music review helpers", () => {
-  it("defaults unsafe stored preferences", () => {
-    expect(parseMusicReviewExitPreference("unexpected")).toBe("ask");
+  it("defaults unsafe stored autoplay values", () => {
     expect(parseMusicReviewAutoplay("true")).toBe(false);
   });
 

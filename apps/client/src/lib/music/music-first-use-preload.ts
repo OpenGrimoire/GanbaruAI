@@ -1,4 +1,6 @@
 import { musicBuilderLoader } from "$lib/music/music-builder-loader";
+import { onMusicLibraryChanged } from "$lib/music/music-library-events";
+import { getMusicPlaylistSummaryCache } from "$lib/music/music-playlist-summary-cache.svelte";
 import { getMusicSourcesController } from "$lib/music/music-sources-controller.svelte";
 import {
   onActiveVaultIdentityChange,
@@ -10,12 +12,14 @@ let queuedVaultId: string | null = null;
 
 async function preloadVault(vaultId: string): Promise<void> {
   const sources = getMusicSourcesController();
+  const playlists = getMusicPlaylistSummaryCache();
   sources.setVault(vaultId);
-  await sources.load();
+  playlists.setVault(vaultId);
+  await Promise.all([sources.load(), playlists.load()]);
   if (sources.firstUseSession) await musicBuilderLoader.load();
 }
 
-/** Starts first-use music discovery at app startup and follows active-vault changes. */
+/** Preloads core Music data at app startup and follows active-vault changes. */
 export function startMusicFirstUsePreload(): () => void {
   const start = (vaultId: string): void => {
     queuedVaultId = vaultId;
@@ -39,7 +43,14 @@ export function startMusicFirstUsePreload(): () => void {
   } catch {
     // Startup can mount before vault validation publishes the active identity.
   }
-  return onActiveVaultIdentityChange((_previous, next) => {
+  const stopVaultListener = onActiveVaultIdentityChange((_previous, next) => {
     if (next) start(next);
   });
+  const stopLibraryListener = onMusicLibraryChanged(() => {
+    void getMusicPlaylistSummaryCache().refresh();
+  });
+  return () => {
+    stopVaultListener();
+    stopLibraryListener();
+  };
 }

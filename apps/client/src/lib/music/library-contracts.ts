@@ -139,6 +139,19 @@ export interface MusicListeningUpdate {
 export interface MusicRecentSelection { itemId: string; selectedAt: number }
 export interface MusicVersionedItem { itemId: string; expectedVersion: number }
 export interface MusicBulkReviewWrite { items: MusicVersionedItem[]; reviewState: MusicReviewState; deferredUntil: number | null; updatedAt: number }
+export interface MusicReviewSelectionWrite {
+  actionId: string;
+  items: MusicVersionedItem[];
+  reviewState: Extract<MusicReviewState, "reviewed" | "ignored">;
+  addPlaylistIds: string[];
+  removePlaylistIds: string[];
+  updatedAt: number;
+}
+export interface MusicReviewSelectionResult {
+  membershipChangedCount: number;
+  reviewChangedCount: number;
+  items: MusicWriteReceipt[];
+}
 export interface MusicBulkSnoozeWrite {
   actionId: string;
   itemIds: string[];

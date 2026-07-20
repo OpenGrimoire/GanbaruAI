@@ -4,6 +4,7 @@ use std::collections::HashSet;
 use std::path::{Component, Path};
 
 pub(crate) const MAX_BULK_MEMBERSHIPS: usize = 500;
+pub(crate) const MAX_REVIEW_SELECTION_ITEMS: usize = 20_000;
 const MAX_ID_BYTES: usize = 200;
 const MAX_NAME_CHARS: usize = 200;
 const MAX_ICON_CHARS: usize = 500;
@@ -463,6 +464,47 @@ pub(crate) fn validate_bulk_review_write(request: &MusicBulkReviewWrite) -> Musi
     Ok(())
 }
 
+pub(crate) fn validate_review_selection_write(
+    request: &MusicReviewSelectionWrite,
+) -> MusicLibraryResult<()> {
+    validate_id(&request.action_id, "actionId")?;
+    validate_review_selection_items(&request.items, "items")?;
+    if !matches!(
+        request.review_state,
+        MusicReviewState::Reviewed | MusicReviewState::Ignored
+    ) {
+        return Err(MusicLibraryError::validation(
+            "reviewState",
+            "must be reviewed or ignored",
+        ));
+    }
+    if request.review_state == MusicReviewState::Ignored
+        && (!request.add_playlist_ids.is_empty() || !request.remove_playlist_ids.is_empty())
+    {
+        return Err(MusicLibraryError::validation(
+            "playlistIds",
+            "must be empty when ignoring a review selection",
+        ));
+    }
+    if !request.add_playlist_ids.is_empty() {
+        validate_bounded_unique_ids(&request.add_playlist_ids, "addPlaylistIds")?;
+    }
+    if !request.remove_playlist_ids.is_empty() {
+        validate_bounded_unique_ids(&request.remove_playlist_ids, "removePlaylistIds")?;
+    }
+    if request
+        .add_playlist_ids
+        .iter()
+        .any(|playlist_id| request.remove_playlist_ids.contains(playlist_id))
+    {
+        return Err(MusicLibraryError::validation(
+            "playlistIds",
+            "cannot add and remove the same playlist",
+        ));
+    }
+    validate_timestamp(request.updated_at, "updatedAt")
+}
+
 pub(crate) fn validate_bulk_snooze_write(request: &MusicBulkSnoozeWrite) -> MusicLibraryResult<()> {
     validate_id(&request.action_id, "actionId")?;
     validate_bounded_unique_ids(&request.item_ids, "itemIds")?;
@@ -722,6 +764,55 @@ pub(crate) fn validate_bounded_unique_ids(
             return Err(MusicLibraryError::validation(
                 field,
                 format!("contains duplicate id '{value}'"),
+            ));
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_review_selection_ids(
+    values: &[String],
+    field: &str,
+) -> MusicLibraryResult<()> {
+    if values.is_empty() {
+        return Err(MusicLibraryError::validation(
+            field,
+            "must contain at least one id",
+        ));
+    }
+    if values.len() > MAX_REVIEW_SELECTION_ITEMS {
+        return Err(MusicLibraryError::validation(
+            field,
+            format!("exceeds the {MAX_REVIEW_SELECTION_ITEMS} item limit"),
+        ));
+    }
+    let mut unique = HashSet::with_capacity(values.len());
+    for value in values {
+        validate_id(value, field)?;
+        if !unique.insert(value) {
+            return Err(MusicLibraryError::validation(
+                field,
+                format!("contains duplicate id '{value}'"),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_review_selection_items(
+    items: &[MusicVersionedItem],
+    field: &str,
+) -> MusicLibraryResult<()> {
+    let ids = items
+        .iter()
+        .map(|item| item.item_id.clone())
+        .collect::<Vec<_>>();
+    validate_review_selection_ids(&ids, field)?;
+    for item in items {
+        if item.expected_version <= 0 {
+            return Err(MusicLibraryError::validation(
+                "expectedVersion",
+                "must be positive",
             ));
         }
     }

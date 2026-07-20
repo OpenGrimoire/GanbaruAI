@@ -18,6 +18,12 @@ export interface MusicReviewTreeSearchResult {
   matchCount: number;
 }
 
+export interface MusicReviewSelectionSummary {
+  itemCount: number;
+  contextLabels: string[];
+  hiddenContextCount: number;
+}
+
 interface MutableNode {
   id: string;
   name: string;
@@ -109,6 +115,76 @@ export function nextPendingMusicReviewTreeItemId(
   return null;
 }
 
+/** Finds the next pending track after a grouped Review selection. */
+export function nextPendingMusicReviewSelectionItemId(
+  items: readonly MusicItemListEntry[],
+  selectedItemIds: ReadonlySet<string>,
+): string | null {
+  const orderedIds = musicReviewTreeItemIds(items);
+  let lastSelectedIndex = -1;
+  for (const itemId of selectedItemIds) {
+    lastSelectedIndex = Math.max(lastSelectedIndex, orderedIds.indexOf(itemId));
+  }
+  const anchorId = orderedIds[lastSelectedIndex] ?? "";
+  return nextPendingMusicReviewTreeItemId(items, anchorId, selectedItemIds);
+}
+
+/** Summarizes a tree selection without repeating descendant folder names. */
+export function summarizeMusicReviewSelection(
+  items: readonly MusicItemListEntry[],
+  selectedItemIds: ReadonlySet<string>,
+  selectedFolderIds: ReadonlySet<string>,
+  contextLimit = 2,
+): MusicReviewSelectionSummary {
+  return summarizeMusicReviewTreeSelection(
+    buildMusicReviewTree(items),
+    items,
+    selectedItemIds,
+    selectedFolderIds,
+    contextLimit,
+  );
+}
+
+/** Summarizes a selection from an existing Review tree projection. */
+export function summarizeMusicReviewTreeSelection(
+  tree: readonly MusicReviewTreeNode[],
+  items: readonly MusicItemListEntry[],
+  selectedItemIds: ReadonlySet<string>,
+  selectedFolderIds: ReadonlySet<string>,
+  contextLimit = 2,
+): MusicReviewSelectionSummary {
+  const selectedItems = items.filter((item) => selectedItemIds.has(item.id));
+  const coveredItemIds = new Set<string>();
+  const folderLabels: string[] = [];
+
+  const collectFolders = (nodes: readonly MusicReviewTreeNode[], ancestorSelected: boolean): void => {
+    for (const node of nodes) {
+      const selected = selectedFolderIds.has(node.id);
+      if (selected && !ancestorSelected) {
+        folderLabels.push(node.name);
+        for (const itemId of node.itemIds) coveredItemIds.add(itemId);
+      }
+      collectFolders(node.children, ancestorSelected || selected);
+    }
+  };
+  collectFolders(tree, false);
+
+  const itemsById = new Map(items.map((item) => [item.id, item]));
+  const standaloneTrackLabels = tree.flatMap((node) => node.itemIds)
+    .filter((itemId) => selectedItemIds.has(itemId) && !coveredItemIds.has(itemId))
+    .flatMap((itemId) => {
+      const item = itemsById.get(itemId);
+      return item ? [item.title] : [];
+    });
+  const labels = [...folderLabels, ...standaloneTrackLabels];
+  const limit = Math.max(0, contextLimit);
+  return {
+    itemCount: selectedItems.length,
+    contextLabels: labels.slice(0, limit),
+    hiddenContextCount: Math.max(0, labels.length - limit),
+  };
+}
+
 /** Returns every folder id so the initial Review tree can open completely. */
 export function musicReviewTreeFolderIds(
   nodes: readonly MusicReviewTreeNode[],
@@ -135,6 +211,17 @@ export function musicReviewTreeAncestorFolderIds(
     return [node.id, ...childPath];
   }
   return [];
+}
+
+/** Centers an active row only when it is outside the visible tree viewport. */
+export function musicReviewTreeRevealScrollTop(
+  currentScrollTop: number,
+  viewportHeight: number,
+  rowTop: number,
+  rowHeight: number,
+): number | null {
+  if (rowTop >= 0 && rowTop + rowHeight <= viewportHeight) return null;
+  return Math.max(0, currentScrollTop + rowTop - (viewportHeight - rowHeight) / 2);
 }
 
 /** Flattens expanded tree nodes into keyboard-friendly visual rows. */

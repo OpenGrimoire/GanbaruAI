@@ -4,7 +4,9 @@
   import ChevronLeft from "@lucide/svelte/icons/chevron-left";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import Disc3 from "@lucide/svelte/icons/disc-3";
+  import Files from "@lucide/svelte/icons/files";
   import ListPlus from "@lucide/svelte/icons/list-plus";
+  import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import Pencil from "@lucide/svelte/icons/pencil";
   import Pause from "@lucide/svelte/icons/pause";
   import PanelLeft from "@lucide/svelte/icons/panel-left";
@@ -15,7 +17,9 @@
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
   import IconPicker from "$lib/components/icon-picker/IconPicker.svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { formatList } from "$lib/i18n/formatters";
   import type { MusicBuilderInspectorController } from "$lib/music/music-builder-inspector.svelte";
+  import type { MusicBulkEditController } from "$lib/music/music-bulk-edit-controller.svelte";
   import type { MusicLibraryController } from "$lib/music/music-library-controller.svelte";
   import type { MusicReviewAuditionController } from "$lib/music/music-review-audition.svelte";
   import type { MusicReviewController } from "$lib/music/music-review-controller.svelte";
@@ -27,9 +31,11 @@
     musicReviewArtworkDataUrl,
   } from "$lib/music/music-review";
   import {
+    buildMusicReviewTree,
     firstMusicReviewTreeItemId,
-    musicReviewTreeItemIds,
+    nextPendingMusicReviewSelectionItemId,
     nextPendingMusicReviewTreeItemId,
+    summarizeMusicReviewTreeSelection,
   } from "$lib/music/music-review-tree";
   import { clampRate, formatPlaybackTime } from "$lib/music/playback";
   import { formatShortcut } from "$lib/keyboard-shortcuts";
@@ -43,6 +49,10 @@
     sources,
     audition,
     review,
+    bulk,
+    selectedItemIds,
+    selectedFolderIds,
+    onClearSelection,
     autoplay,
     onAutoplayChange,
     onOpenPlayer,
@@ -60,6 +70,10 @@
     sources: MusicSourcesController;
     audition: MusicReviewAuditionController;
     review: MusicReviewController;
+    bulk: MusicBulkEditController;
+    selectedItemIds: string[];
+    selectedFolderIds: string[];
+    onClearSelection: () => void;
     autoplay: boolean;
     onAutoplayChange: (value: boolean) => void;
     onOpenPlayer: () => void;
@@ -73,7 +87,7 @@
     viewState: MusicReviewWorkspaceViewState;
   } = $props();
 
-  const { t } = getLocalization();
+  const { t, locale } = getLocalization();
   let surface = $state<HTMLElement | null>(null);
   let lastSelectedId = $state<string | null>(null);
   let lastAutoplayedId = $state<string | null>(null);
@@ -84,11 +98,44 @@
   let artworkPrefetchGeneration = 0;
   let preparingNext = $state(false);
   let ignoreConfirmOpen = $state(false);
+  let selectionPlaybackHandled = $state(false);
+  const selectedIdSet = $derived(new Set(selectedItemIds));
+  const selectedFolderIdSet = $derived(new Set(selectedFolderIds));
+  const selectionMode = $derived(selectedItemIds.length > 0);
+  const reviewTree = $derived(buildMusicReviewTree(library.currentWindow.items));
+  const selectionSummary = $derived(summarizeMusicReviewTreeSelection(
+    reviewTree,
+    library.currentWindow.items,
+    selectedIdSet,
+    selectedFolderIdSet,
+  ));
+  const selectionContext = $derived.by(() => {
+    const labels = [...selectionSummary.contextLabels];
+    if (selectionSummary.hiddenContextCount > 0) {
+      labels.push(t("music.builder.reviewSelectionMore", selectionSummary.hiddenContextCount));
+    }
+    return labels.length > 0 ? formatList(locale, labels) : t("music.builder.reviewSelectionItems");
+  });
+  const selectionNeedsSave = $derived(bulk.membershipsChanged);
+  const selectionMatchesBulk = $derived(selectedItemIds.length === bulk.itemIds.length
+    && selectedItemIds.every((itemId, index) => bulk.itemIds[index] === itemId));
+  const selectionProjectionReady = $derived(Object.keys(bulk.states).length > 0
+    || (selectionMatchesBulk && !bulk.loading));
+  const selectionReady = $derived(selectionMode && selectionMatchesBulk
+    && !bulk.loading && !bulk.error && !bulk.selectionStale);
+  const selectionIgnoreDisabledReason = $derived.by(() => {
+    if (!selectionMatchesBulk || bulk.loading) return t("music.builder.ignoreSelectionChecking");
+    if (bulk.error || bulk.selectionStale) return t("music.builder.ignoreSelectionUnavailable");
+    if (bulk.hasExistingMemberships) return t("music.builder.ignoreSelectionHasPlaylists");
+    if (selectionNeedsSave) return t("music.builder.ignoreSelectionHasChanges");
+    return null;
+  });
+  const selectionCanIgnore = $derived(selectionMode && selectionIgnoreDisabledReason === null);
   const sessionSkippedIds = $derived(new Set(viewState.sessionSkippedIds));
   const reviewItemsFullyLoaded = $derived(
     library.currentWindow.items.length >= library.currentWindow.totalCount,
   );
-  const reviewItemIds = $derived(musicReviewTreeItemIds(library.currentWindow.items));
+  const reviewItemIds = $derived(reviewTree.flatMap((node) => node.itemIds));
   const initialReviewItemId = $derived(reviewItemsFullyLoaded
     ? firstMusicReviewTreeItemId(library.currentWindow.items)
     : null);
@@ -102,7 +149,8 @@
   const membershipsChanged = $derived(Boolean(item)
     && viewState.membershipBaselines[item!.id] !== undefined
     && viewState.membershipBaselines[item!.id] !== membershipSignature);
-  const needsSave = $derived(Boolean(item) && (item!.reviewState !== "reviewed" || membershipsChanged));
+  const needsSave = $derived(Boolean(item) && membershipsChanged);
+  const membershipSaving = $derived(review.membershipBusy.size > 0);
   const reviewTreeIndex = $derived(item ? reviewItemIds.indexOf(item.id) : -1);
   const reviewedCount = $derived(library.currentWindow.items.filter((entry) => entry.reviewState === "reviewed").length);
   const player = $derived(audition.musicPlayer);
@@ -120,6 +168,29 @@
   const seekSliderProgress = $derived(reviewPlayerReady && player.progressMax > 0
     ? `${Math.min(100, Math.max(0, (player.progressValue / player.progressMax) * 100))}%`
     : "0%");
+
+  $effect(() => {
+    const validItemIds = new Set(library.currentWindow.items.map((item) => item.id));
+    const nextIds = selectedItemIds.filter((itemId) => validItemIds.has(itemId));
+    const matchesCurrent = nextIds.length === bulk.itemIds.length
+      && nextIds.every((itemId, index) => bulk.itemIds[index] === itemId);
+    if (matchesCurrent) return;
+    if (nextIds.length === 0) {
+      bulk.clear();
+      return;
+    }
+    void bulk.open(nextIds, library.playlistSummaries, bulk.itemIds.length > 0);
+  });
+
+  $effect(() => {
+    if (!selectionMode) {
+      selectionPlaybackHandled = false;
+      return;
+    }
+    if (selectionPlaybackHandled) return;
+    selectionPlaybackHandled = true;
+    if (audition.active && player.isPlaying) void player.pausePlayback();
+  });
 
   $effect(() => {
     if (library.loadingMore || library.loadMoreError || library.currentWindow.items.length >= library.currentWindow.totalCount) return;
@@ -147,14 +218,14 @@
 
   $effect(() => {
     const nextId = item?.id ?? null;
-    if (!nextId || nextId === lastSelectedId) return;
+    if (selectionMode || !nextId || nextId === lastSelectedId) return;
     lastSelectedId = nextId;
     library.selectItem(nextId);
     void inspector.select(nextId);
   });
 
   $effect(() => {
-    if (reviewTreeIndex < 0) return;
+    if (selectionMode || reviewTreeIndex < 0) return;
     const nearbyIds = reviewItemIds
       .slice(Math.max(0, reviewTreeIndex - 1), reviewTreeIndex + 4)
     const generation = ++artworkPrefetchGeneration;
@@ -171,13 +242,13 @@
   });
 
   $effect(() => {
-    if (!detail || lastAutoplayedId === detail.item.id) return;
+    if (selectionMode || !detail || lastAutoplayedId === detail.item.id) return;
     lastAutoplayedId = detail.item.id;
     void audition.preview(detail, sources.bindings, autoplay);
   });
 
   $effect(() => {
-    if (!detail || viewState.membershipBaselines[detail.item.id] !== undefined) return;
+    if (selectionMode || !detail || viewState.membershipBaselines[detail.item.id] !== undefined) return;
     viewState.membershipBaselines = { ...viewState.membershipBaselines, [detail.item.id]: membershipSignature };
   });
 
@@ -189,17 +260,25 @@
   function openInlineCreate(): void {
     viewState.inlineCreateOpen = true;
     review.createError = null;
+    bulk.createError = null;
     void tick().then(() => newPlaylistNameInput?.focus());
   }
 
   async function createPlaylistAndAdd(): Promise<void> {
-    const playlistId = await review.createPlaylistAndAdd(viewState.newPlaylistName, viewState.newPlaylistIcon);
+    const playlistId = selectionMode
+      ? await bulk.createPlaylistAndSelect(viewState.newPlaylistName, viewState.newPlaylistIcon)
+      : await review.createPlaylistAndAdd(viewState.newPlaylistName, viewState.newPlaylistIcon);
     if (!playlistId) return;
     viewState.newPlaylistName = "";
     viewState.newPlaylistIcon = "lucide:list-music";
     viewState.inlineCreateOpen = false;
     await tick();
     checklistRoot?.querySelector<HTMLElement>(`[data-review-playlist-id="${playlistId}"]`)?.focus();
+  }
+
+  function reloadSelection(): void {
+    if (!selectionMode || bulk.loading) return;
+    void bulk.open(selectedItemIds, library.playlistSummaries, true);
   }
 
   async function loadDecodedReviewArtwork(
@@ -240,7 +319,8 @@
 
   function confirmIgnore(): void {
     ignoreConfirmOpen = false;
-    void finishReviewState("ignored");
+    if (selectionMode) void ignoreSelection();
+    else void finishReviewState("ignored");
   }
 
   async function skipCurrentItem(): Promise<void> {
@@ -278,13 +358,51 @@
   }
 
   async function saveAndContinue(): Promise<void> {
-    if (!item || !needsSave || preparingNext || review.actionBusy) return;
+    if (!item || !needsSave || membershipSaving || preparingNext || review.actionBusy) return;
     if (item.reviewState !== "reviewed") {
       viewState.membershipBaselines = { ...viewState.membershipBaselines, [item.id]: membershipSignature };
       await finishReviewState("reviewed");
       return;
     }
     await continueCurrentItem();
+  }
+
+  async function saveSelectionAndContinue(): Promise<void> {
+    if (!selectionReady || !selectionNeedsSave || bulk.saving || preparingNext) return;
+    const savedItemIds = new Set(selectedIdSet);
+    const nextItemId = nextPendingMusicReviewSelectionItemId(library.currentWindow.items, savedItemIds);
+    preparingNext = true;
+    try {
+      if (!await bulk.saveReviewSelection()) return;
+      await ensureReviewArtwork(nextItemId);
+      for (const itemId of savedItemIds) inspector.invalidate(itemId);
+      onClearSelection();
+      const targetItemId = nextItemId ?? firstMusicReviewTreeItemId(library.currentWindow.items);
+      if (targetItemId) inspector.selectCached(targetItemId);
+      lastSelectedId = null;
+      library.selectItem(targetItemId);
+    } finally {
+      preparingNext = false;
+    }
+  }
+
+  async function ignoreSelection(): Promise<void> {
+    if (!selectionCanIgnore || bulk.saving || preparingNext) return;
+    const ignoredItemIds = new Set(selectedIdSet);
+    const nextItemId = nextPendingMusicReviewSelectionItemId(library.currentWindow.items, ignoredItemIds);
+    preparingNext = true;
+    try {
+      if (!await bulk.ignoreReviewSelection()) return;
+      await ensureReviewArtwork(nextItemId);
+      for (const itemId of ignoredItemIds) inspector.invalidate(itemId);
+      onClearSelection();
+      const targetItemId = nextItemId ?? firstMusicReviewTreeItemId(library.currentWindow.items);
+      if (targetItemId) inspector.selectCached(targetItemId);
+      lastSelectedId = null;
+      library.selectItem(targetItemId);
+    } finally {
+      preparingNext = false;
+    }
   }
 
   async function selectRelative(delta: number): Promise<void> {
@@ -297,6 +415,13 @@
   function handleKeydown(event: KeyboardEvent): void {
     if (event.isComposing || event.altKey || isMusicReviewEditableTarget(event.target)) return;
     const modified = event.ctrlKey || event.metaKey;
+    if (selectionMode) {
+      if (event.key === "Enter" && modified) {
+        event.preventDefault();
+        void saveSelectionAndContinue();
+      }
+      return;
+    }
     if (event.code === "Space" && !modified) {
       event.preventDefault();
       if (detail && audition.reviewItemId !== detail.item.id) void audition.preview(detail, sources.bindings, true);
@@ -308,7 +433,7 @@
     } else if (event.key === "Enter" && modified) {
       event.preventDefault();
       if (needsSave) void saveAndContinue();
-      else void continueCurrentItem();
+      else if (item?.reviewState === "reviewed") void continueCurrentItem();
     } else if (modified) {
       return;
     } else if (event.key === "ArrowLeft") {
@@ -340,18 +465,30 @@
       <button type="button" onclick={onOpenPlayer} class="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-secondary px-2.5 text-[0.7rem]" aria-label={t("music.backToPlayer")} data-music-focus-key="builder:back-to-player"><ChevronLeft size={14} />{t("music.backToPlayer")}</button>
       <p class="min-w-0 flex-1 truncate text-center text-[0.68rem] font-medium text-muted-foreground" role="status" aria-live="polite">{t("music.builder.reviewProgress", reviewedCount, library.currentWindow.totalCount)}</p>
       <div class="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
-        <button type="button" onclick={() => onAutoplayChange(!autoplay)} aria-pressed={autoplay} class="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[0.65rem] text-foreground transition-colors hover:bg-secondary">
-          {#if autoplay}
-            <Play size={13} />
-          {:else}
-            <span class="relative size-3.25 shrink-0" aria-hidden="true"><Play class="absolute inset-0" size={13} /><Slash class="absolute inset-0" size={13} /></span>
-          {/if}
-          {autoplay ? t("music.builder.reviewAutoplayOn") : t("music.builder.reviewAutoplayOff")}
-        </button>
-        <button type="button" onclick={() => ignoreConfirmOpen = true} disabled={!detail || review.actionBusy || preparingNext} class="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[0.65rem] text-foreground hover:bg-secondary"><X size={13} />{t("music.builder.ignore")}</button>
+        {#if selectionMode}
+          <span class="inline-flex h-8 items-center gap-1.5 px-2 text-[0.65rem] font-medium text-foreground" aria-live="polite"><Files size={13} />{t("music.builder.reviewSelectionTracks", selectionSummary.itemCount)}</span>
+          <button
+            type="button"
+            onclick={() => ignoreConfirmOpen = true}
+            disabled={!selectionCanIgnore || bulk.saving || preparingNext}
+            class="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[0.65rem] text-foreground hover:bg-secondary disabled:cursor-not-allowed disabled:text-muted-foreground disabled:hover:bg-transparent"
+            title={selectionIgnoreDisabledReason ?? undefined}
+            aria-label={selectionIgnoreDisabledReason ? `${t("music.builder.ignore")}. ${selectionIgnoreDisabledReason}` : t("music.builder.ignore")}
+          ><X size={13} />{t("music.builder.ignore")}</button>
+        {:else}
+          <button type="button" onclick={() => onAutoplayChange(!autoplay)} aria-pressed={autoplay} class="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[0.65rem] text-foreground transition-colors hover:bg-secondary">
+            {#if autoplay}
+              <Play size={13} />
+            {:else}
+              <span class="relative size-3.25 shrink-0" aria-hidden="true"><Play class="absolute inset-0" size={13} /><Slash class="absolute inset-0" size={13} /></span>
+            {/if}
+            {autoplay ? t("music.builder.reviewAutoplayOn") : t("music.builder.reviewAutoplayOff")}
+          </button>
+          <button type="button" onclick={() => ignoreConfirmOpen = true} disabled={!detail || review.actionBusy || preparingNext} class="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[0.65rem] text-foreground hover:bg-secondary"><X size={13} />{t("music.builder.ignore")}</button>
+        {/if}
       </div>
     </div>
-    {#if library.currentState.groupBy !== "none" && library.currentWindow.groups.length > 0}
+    {#if !selectionMode && library.currentState.groupBy !== "none" && library.currentWindow.groups.length > 0}
       <div class="mt-2 flex gap-1.5 overflow-x-auto pb-1" aria-label={t("music.builder.reviewGroups")}>
         {#each library.currentWindow.groups as group (group.key)}
           <span class="shrink-0 rounded-full bg-secondary px-2 py-1 text-[0.62rem] text-secondary-foreground">{group.key} · {group.count}</span>
@@ -359,7 +496,20 @@
       </div>
     {/if}
 
-    {#if item}
+    {#if selectionMode}
+      <div class="review-player mt-4 flex min-w-0 items-center gap-4">
+        <div class="review-media relative grid h-28 w-28 shrink-0 place-items-center overflow-hidden rounded-xl bg-primary/10 text-primary" aria-hidden="true">
+          <span class="absolute left-6 top-5 h-13 w-15 rounded-lg border border-primary/20"></span>
+          <span class="absolute bottom-5 right-6 h-13 w-15 rounded-lg border border-primary/35 bg-background/45"></span>
+          <Files class="relative" size={34} strokeWidth={1.35} />
+          <span class="absolute bottom-3 right-3 grid h-6 w-6 place-items-center rounded-full bg-primary text-primary-foreground"><Check size={13} strokeWidth={2.6} /></span>
+        </div>
+        <div class="min-w-0 flex-1">
+          <h2 class="truncate text-base font-semibold">{t("music.builder.reviewSelectionTracks", selectionSummary.itemCount)}</h2>
+          <p class="mt-1 truncate text-xs text-muted-foreground" title={selectionContext}>{selectionContext}</p>
+        </div>
+      </div>
+    {:else if item}
       <div class="review-player mt-4 flex min-w-0 items-center gap-4">
         <div bind:this={surface} class="review-media relative grid h-28 w-28 shrink-0 place-items-center overflow-hidden rounded-xl">
           {#if item.sourceKind === "local-file" && !player.localHasVideo}
@@ -423,6 +573,7 @@
     {:else}
       <div class="shrink-0 p-3">
         <h2 class="text-sm font-semibold">{t("music.builder.classifyPlaylists")}</h2>
+        {#if selectionMode}<p class="mt-0.5 text-[0.65rem] text-muted-foreground">{t("music.builder.reviewSelectionApplyHint")}</p>{/if}
       {#if viewState.inlineCreateOpen}
         <form class="mt-2" onsubmit={(event) => { event.preventDefault(); void createPlaylistAndAdd(); }}>
           <div class="flex items-center gap-2">
@@ -442,16 +593,16 @@
             </IconPicker>
             <input bind:this={newPlaylistNameInput} bind:value={viewState.newPlaylistName} aria-label={t("music.builder.inlinePlaylistName")} class="h-8 min-w-0 flex-1 rounded-md border border-border/70 bg-background px-2.5 text-xs outline-none focus:border-primary" placeholder={t("music.builder.inlinePlaylistName")} />
           </div>
-          {#if review.createError}<p class="mt-1.5 text-[0.65rem] text-destructive" role="alert">{review.createError}</p>{/if}
+          {#if selectionMode ? bulk.createError : review.createError}<p class="mt-1.5 text-[0.65rem] text-destructive" role="alert">{selectionMode ? bulk.createError : review.createError}</p>{/if}
           <div class="mt-2 flex justify-end gap-2">
-            <button type="button" onclick={() => { viewState.inlineCreateOpen = false; review.createError = null; }} class="h-8 rounded-md bg-secondary px-2.5 text-xs font-medium">{t("music.builder.cancel")}</button>
-            <button type="submit" disabled={!viewState.newPlaylistName.trim() || review.creatingPlaylist} class="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-2.5 text-xs font-medium text-primary-foreground disabled:opacity-40"><ListPlus size={14} />{t("music.builder.createAndAdd")}</button>
+            <button type="button" onclick={() => { viewState.inlineCreateOpen = false; review.createError = null; bulk.createError = null; }} class="h-8 rounded-md bg-secondary px-2.5 text-xs font-medium">{t("music.builder.cancel")}</button>
+            <button type="submit" disabled={!viewState.newPlaylistName.trim() || (selectionMode ? bulk.creatingPlaylist : review.creatingPlaylist)} class="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-2.5 text-xs font-medium text-primary-foreground disabled:opacity-40"><ListPlus size={14} />{t("music.builder.createAndAdd")}</button>
           </div>
         </form>
       {:else}
         <div class="mt-2 flex flex-wrap items-center gap-2">
           <button type="button" onclick={openInlineCreate} class="inline-flex h-8 items-center gap-1.5 rounded-full bg-primary px-3 text-xs font-medium text-primary-foreground"><ListPlus size={14} />{t("music.builder.newPlaylist")}</button>
-          <button type="button" onclick={() => { viewState.inlineCreateOpen = false; review.createError = null; viewState.managingPlaylists = true; }} class="inline-flex h-8 items-center gap-1.5 rounded-full bg-secondary px-3 text-xs font-medium text-foreground"><Pencil size={13} />{t("music.builder.managePlaylists")}</button>
+          <button type="button" onclick={() => { viewState.inlineCreateOpen = false; review.createError = null; bulk.createError = null; viewState.managingPlaylists = true; }} class="inline-flex h-8 items-center gap-1.5 rounded-full bg-secondary px-3 text-xs font-medium text-foreground"><Pencil size={13} />{t("music.builder.managePlaylists")}</button>
         </div>
       {/if}
       </div>
@@ -459,29 +610,47 @@
       <div bind:this={checklistRoot} class="flex min-h-0 flex-1 flex-col">
         <MusicPlaylistPicker
           playlists={library.playlistSummaries}
-          {checkedIds}
-          onToggle={(playlist) => { void review.toggleMembership(playlist); }}
-          errors={review.membershipErrors}
+          checkedIds={selectionMode && selectionProjectionReady ? bulk.checkedIds : checkedIds}
+          mixedIds={selectionMode && selectionProjectionReady ? bulk.mixedIds : new Set<string>()}
+          mixedCounts={selectionMode && selectionProjectionReady ? bulk.initialCounts : {}}
+          selectionSize={selectionMode ? selectionSummary.itemCount : 0}
+          onToggle={(playlist) => { if (selectionMode) bulk.toggle(playlist.id); else void review.toggleMembership(playlist); }}
+          disabled={selectionMode && !selectionProjectionReady}
+          errors={selectionMode ? {} : review.membershipErrors}
         />
+        {#if selectionMode && (bulk.error || bulk.selectionStale)}
+          <div class="mx-3 mb-2 flex shrink-0 items-center gap-2 rounded-lg bg-destructive/8 px-2.5 py-2 text-[0.68rem] text-destructive" role="alert">
+            <span class="min-w-0 flex-1">{bulk.selectionStale ? t("music.builder.selectionChanged") : bulk.error}</span>
+            <button type="button" onclick={reloadSelection} disabled={bulk.loading} class="shrink-0 font-semibold hover:underline">{t("common.retry")}</button>
+          </div>
+        {/if}
       </div>
     {/if}
 
     <div class="review-actions grid shrink-0 grid-cols-2 gap-3 p-3">
-      {#if item?.reviewState === "reviewed"}
+      {#if selectionMode}
+        <button type="button" onclick={onClearSelection} disabled={bulk.saving || preparingNext} class="review-action h-full w-full border border-border/70 bg-background text-foreground">{t("music.builder.clearReviewSelection")}</button>
+      {:else if item?.reviewState === "reviewed"}
         <button type="button" onclick={() => { void continueCurrentItem(); }} disabled={!detail || review.actionBusy || preparingNext} class="review-action h-full w-full border border-border/70 bg-background text-foreground">{t("music.builder.continue")}</button>
       {:else}
         <button type="button" onclick={() => { void skipCurrentItem(); }} disabled={!detail || review.actionBusy || preparingNext} class="review-action h-full w-full border border-border/70 bg-background text-foreground">{t("music.builder.skipTrack")}</button>
       {/if}
-      <button type="button" onclick={() => { void saveAndContinue(); }} disabled={!detail || !needsSave || review.actionBusy || preparingNext} class="review-action bg-primary text-primary-foreground" title={t("music.builder.markReviewedTitle", formatShortcut("Mod + Enter"))}><Check size={14} />{t("music.builder.saveAndContinue")}<ChevronRight size={14} /></button>
+      {#if selectionMode}
+        <button type="button" onclick={() => { void saveSelectionAndContinue(); }} disabled={!selectionReady || !selectionNeedsSave || bulk.saving || preparingNext} class={`review-action review-save ${selectionNeedsSave ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground"}`} title={selectionNeedsSave ? t("music.builder.markReviewedTitle", formatShortcut("Mod + Enter")) : undefined}>
+          {#if bulk.saving}<LoaderCircle class="animate-spin motion-reduce:animate-none" size={14} />{t("music.builder.saving")}{:else}<Check size={14} />{t("music.builder.saveAndContinue")}<ChevronRight size={14} />{/if}
+        </button>
+      {:else}
+        <button type="button" onclick={() => { void saveAndContinue(); }} disabled={!detail || !needsSave || membershipSaving || review.actionBusy || preparingNext} class={`review-action review-save ${needsSave ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground"}`} title={needsSave ? t("music.builder.markReviewedTitle", formatShortcut("Mod + Enter")) : undefined}><Check size={14} />{t("music.builder.saveAndContinue")}<ChevronRight size={14} /></button>
+      {/if}
     </div>
   </section>
 </div>
 
 {#if ignoreConfirmOpen}
   <ConfirmDialog
-    title={t("music.builder.ignoreTrackTitle")}
-    message={t("music.builder.ignoreTrackDescription")}
-    confirmLabel={t("music.builder.ignoreTrackConfirm")}
+    title={selectionMode ? t("music.builder.ignoreSelectionTitle", selectionSummary.itemCount) : t("music.builder.ignoreTrackTitle")}
+    message={selectionMode ? t("music.builder.ignoreSelectionDescription") : t("music.builder.ignoreTrackDescription")}
+    confirmLabel={selectionMode ? t("music.builder.ignoreSelectionConfirm") : t("music.builder.ignoreTrackConfirm")}
     cancelLabel={t("common.cancel")}
     onConfirm={confirmIgnore}
     onCancel={() => ignoreConfirmOpen = false}
@@ -495,7 +664,8 @@
   .review-play { display: grid; height: 2.5rem; width: 2.5rem; place-items: center; border-radius: 9999px; background: var(--primary); color: var(--primary-foreground); }
   .review-play:disabled { opacity: 0.4; }
   .review-action { display: inline-flex; min-height: 2.25rem; align-items: center; justify-content: center; gap: 0.375rem; border-radius: 0.5rem; padding: 0 0.5rem; font-size: 0.72rem; font-weight: 600; }
-  .review-action:disabled { cursor: not-allowed; opacity: 0.4; }
+  .review-action:disabled { cursor: not-allowed; }
+  .review-action:disabled:not(.review-save) { opacity: 0.4; }
   @container (width < 620px) {
     .review-main { min-height: 32rem; flex: 1 0 auto; overflow: visible; }
     .review-audition, .review-classify { min-height: auto; overflow: visible; }

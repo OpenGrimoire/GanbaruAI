@@ -1,12 +1,11 @@
 <script lang="ts">
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import Check from "@lucide/svelte/icons/check";
-  import ListPlus from "@lucide/svelte/icons/list-plus";
   import Search from "@lucide/svelte/icons/search";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
   import X from "@lucide/svelte/icons/x";
-  import { untrack } from "svelte";
+  import { tick, untrack } from "svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import type { MusicItemListEntry } from "$lib/music/library-contracts";
   import { createMusicReviewTreeViewState, type MusicReviewTreeViewState } from "$lib/music/music-builder-view-state";
@@ -15,6 +14,7 @@
     flattenMusicReviewTree,
     musicReviewTreeAncestorFolderIds,
     musicReviewTreeFolderIds,
+    musicReviewTreeRevealScrollTop,
     searchMusicReviewTree,
     type MusicReviewTreeNode,
   } from "$lib/music/music-review-tree";
@@ -25,10 +25,11 @@
     totalCount,
     activeItemId,
     onActivate,
-    onAssign,
     issueCount = 0,
     issueItemIds = new Set<string>(),
     onOpenIssues = () => undefined,
+    selectionClearRequest = 0,
+    selectionDisabled = false,
     canRefresh = true,
     refreshing = false,
     onRefresh = () => undefined,
@@ -39,10 +40,11 @@
     totalCount: number;
     activeItemId: string | null;
     onActivate: (itemId: string) => void;
-    onAssign: (itemIds: string[]) => void;
     issueCount?: number;
     issueItemIds?: ReadonlySet<string>;
     onOpenIssues?: () => void;
+    selectionClearRequest?: number;
+    selectionDisabled?: boolean;
     canRefresh?: boolean;
     refreshing?: boolean;
     onRefresh?: () => void;
@@ -55,9 +57,11 @@
   let lastExpandedActiveItemId = $state<string | null>(null);
   let selectedIds = $state<Set<string>>(new Set(untrack(() => viewState.selectedItemIds)));
   let selectedFolderIds = $state<Set<string>>(new Set(untrack(() => viewState.selectedFolderIds)));
+  let handledSelectionClearRequest = $state(untrack(() => selectionClearRequest));
   let search = $state(untrack(() => viewState.search));
   let scrollTop = $state(untrack(() => viewState.scrollTop));
   let scrollNode = $state<HTMLElement | null>(null);
+  let revealGeneration = 0;
   const tree = $derived(buildMusicReviewTree(items));
   const expandedIds = $derived(new Set([...musicReviewTreeFolderIds(tree)]
     .filter((folderId) => !explicitlyCollapsedIds.has(folderId))));
@@ -84,17 +88,46 @@
   });
 
   $effect(() => {
+    if (selectionClearRequest === handledSelectionClearRequest) return;
+    handledSelectionClearRequest = selectionClearRequest;
+    selectedIds = new Set();
+    selectedFolderIds = new Set();
+  });
+
+  $effect(() => {
     const itemId = activeItemId;
     if (!itemId || itemId === lastExpandedActiveItemId) return;
     lastExpandedActiveItemId = itemId;
     const ancestorIds = musicReviewTreeAncestorFolderIds(tree, itemId);
-    if (ancestorIds.length === 0) return;
-    const nextCollapsed = new Set(explicitlyCollapsedIds);
-    for (const folderId of ancestorIds) {
-      nextCollapsed.delete(folderId);
+    if (ancestorIds.length > 0) {
+      const nextCollapsed = new Set(explicitlyCollapsedIds);
+      for (const folderId of ancestorIds) {
+        nextCollapsed.delete(folderId);
+      }
+      explicitlyCollapsedIds = nextCollapsed;
     }
-    explicitlyCollapsedIds = nextCollapsed;
+    void revealActiveItem(itemId);
   });
+
+  async function revealActiveItem(itemId: string): Promise<void> {
+    const generation = ++revealGeneration;
+    await tick();
+    if (generation !== revealGeneration || !scrollNode || activeItemId !== itemId) return;
+    const row = [...scrollNode.querySelectorAll<HTMLElement>("[data-review-item-id]")]
+      .find((candidate) => candidate.dataset.reviewItemId === itemId);
+    if (!row) return;
+    const viewport = scrollNode.getBoundingClientRect();
+    const rowBounds = row.getBoundingClientRect();
+    const target = musicReviewTreeRevealScrollTop(
+      scrollNode.scrollTop,
+      scrollNode.clientHeight,
+      rowBounds.top - viewport.top,
+      rowBounds.height,
+    );
+    if (target === null) return;
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    scrollNode.scrollTo({ top: target, behavior: reducedMotion ? "auto" : "smooth" });
+  }
 
   function toggleExpanded(nodeId: string): void {
     if (searching) return;
@@ -188,14 +221,14 @@
     {#each rows as row (row.kind === "folder" ? row.node.id : row.item.id)}
       {#if row.kind === "folder"}
         {@const checked = selectedFolderIds.has(row.node.id)}
-        <div class="group relative flex h-8 min-w-0 items-center rounded-lg hover:bg-accent/60" style={`padding-left: ${row.depth * 0.75}rem`}>
+        <div class={cn("group relative flex h-8 min-w-0 items-center rounded-lg", checked ? "bg-primary/10" : "hover:bg-accent/60")} style={`padding-left: ${row.depth * 0.75}rem`}>
           <button type="button" onclick={() => toggleExpanded(row.node.id)} disabled={searching} class="absolute inset-0 rounded-lg focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring disabled:cursor-default" aria-label={(searching || expandedIds.has(row.node.id)) ? t("music.builder.collapseFolder", row.node.name) : t("music.builder.expandFolder", row.node.name)} aria-expanded={searching || expandedIds.has(row.node.id)}></button>
           <span class="pointer-events-none grid h-8 w-7 shrink-0 place-items-center text-muted-foreground">
             <ChevronRight size={14} class={cn("transition-transform motion-reduce:transition-none", (searching || expandedIds.has(row.node.id)) && "rotate-90")} />
           </span>
           <label class="relative z-10 grid h-full w-7 shrink-0 cursor-pointer place-items-center">
-            <input type="checkbox" checked={checked} disabled={!folderSelectionReady} onchange={() => toggleFolder(row.node)} class="peer absolute h-4 w-4 opacity-0" aria-label={t("music.builder.selectFolder", row.node.name, row.node.itemIds.length)} />
-            <span class={cn("pointer-events-none grid h-4 w-4 place-items-center rounded border peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ring", checked ? "border-primary bg-primary text-primary-foreground" : "border-border/80 bg-background/70", !folderSelectionReady && "opacity-35")}>
+            <input type="checkbox" checked={checked} disabled={!folderSelectionReady || selectionDisabled} onchange={() => toggleFolder(row.node)} class="peer absolute h-4 w-4 opacity-0" aria-label={t("music.builder.selectFolder", row.node.name, row.node.itemIds.length)} />
+            <span class={cn("pointer-events-none grid h-4 w-4 place-items-center rounded border peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ring", checked ? "border-primary bg-primary text-primary-foreground" : "border-border/80 bg-background/70", (!folderSelectionReady || selectionDisabled) && "opacity-35")}>
               {#if checked}<Check size={11} strokeWidth={2.5} />{/if}
             </span>
           </label>
@@ -205,11 +238,11 @@
           </span>
         </div>
       {:else}
-        <div class={cn("relative flex h-8 min-w-0 items-center rounded-lg", activeItemId === row.item.id ? "bg-primary/10 text-foreground" : "hover:bg-accent/50")} style={`padding-left: ${row.depth * 0.75 + 1.75}rem`}>
+        <div data-review-item-id={row.item.id} class={cn("relative flex h-8 min-w-0 items-center rounded-lg", selectedIds.has(row.item.id) || activeItemId === row.item.id ? "bg-primary/10 text-foreground" : "hover:bg-accent/50")} style={`padding-left: ${row.depth * 0.75 + 1.75}rem`}>
           <button type="button" onclick={() => onActivate(row.item.id)} class="absolute inset-0 rounded-lg focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring" aria-label={row.item.reviewState === "reviewed" ? `${row.item.title}, ${t("music.builder.markReviewed")}` : row.item.title} aria-current={activeItemId === row.item.id ? "true" : undefined}></button>
           <label class="relative z-10 grid h-full w-7 shrink-0 cursor-pointer place-items-center">
-            <input type="checkbox" checked={selectedIds.has(row.item.id)} onchange={() => toggleItem(row.item.id)} class="peer absolute h-4 w-4 opacity-0" aria-label={t("music.builder.selectTrack", row.item.title)} />
-            <span class={cn("pointer-events-none grid h-4 w-4 place-items-center rounded border peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ring", selectedIds.has(row.item.id) ? "border-primary bg-primary text-primary-foreground" : "border-border/80 bg-background/70")}>
+            <input type="checkbox" checked={selectedIds.has(row.item.id)} disabled={selectionDisabled} onchange={() => toggleItem(row.item.id)} class="peer absolute h-4 w-4 opacity-0" aria-label={t("music.builder.selectTrack", row.item.title)} />
+            <span class={cn("pointer-events-none grid h-4 w-4 place-items-center rounded border peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ring", selectedIds.has(row.item.id) ? "border-primary bg-primary text-primary-foreground" : "border-border/80 bg-background/70", selectionDisabled && "opacity-35")}>
               {#if selectedIds.has(row.item.id)}<Check size={11} strokeWidth={2.5} />{/if}
             </span>
           </label>
@@ -226,14 +259,6 @@
     {/each}
   </div>
 
-  {#if selectedIds.size > 0}
-    <div class="shrink-0 p-2">
-      <button type="button" onclick={() => onAssign([...selectedIds])} class="flex min-h-9 w-full items-center justify-center gap-2 rounded-lg bg-primary px-3 text-xs font-semibold text-primary-foreground shadow-sm hover:bg-primary/90">
-        <ListPlus size={14} />
-        {t("music.builder.assignSelected", selectedIds.size)}
-      </button>
-    </div>
-  {/if}
 </section>
 
 <style>

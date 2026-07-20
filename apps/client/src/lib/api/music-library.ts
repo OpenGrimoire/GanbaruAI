@@ -67,6 +67,8 @@ import {
   type MusicListeningUpdate,
   type MusicRecentSelection,
   type MusicReviewWrite,
+  type MusicReviewSelectionResult,
+  type MusicReviewSelectionWrite,
   type MusicRelinkApplyRequest,
   type MusicRelinkPlanRequest,
   type MusicRelinkPlanSummary,
@@ -265,6 +267,27 @@ export const bulkSetMusicReviewState = (request: MusicBulkReviewWrite): Promise<
   call("music_library_bulk_set_review_state", databaseArgs({ request }), (value) => {
     if (typeof value !== "object" || value === null || !("changedCount" in value) || typeof value.changedCount !== "number") throw new Error("bulk review result must contain changedCount");
     return { changedCount: value.changedCount };
+  });
+export const applyMusicReviewSelection = (request: MusicReviewSelectionWrite): Promise<MusicReviewSelectionResult> =>
+  call("music_library_apply_review_selection", databaseArgs({ request }), (value) => {
+    if (!isRecord(value)) throw new Error("review selection result must be an object");
+    if (typeof value.membershipChangedCount !== "number" || !Number.isSafeInteger(value.membershipChangedCount)) {
+      throw new Error("review selection membership count must be an integer");
+    }
+    if (typeof value.reviewChangedCount !== "number" || !Number.isSafeInteger(value.reviewChangedCount)) {
+      throw new Error("review selection review count must be an integer");
+    }
+    if (!Array.isArray(value.items)) throw new Error("review selection receipts must be an array");
+    const items = value.items.map((entry) => parseWriteReceipt(entry, "review selection receipt"));
+    const requestedIds = new Set(request.items.map((item) => item.itemId));
+    if (items.length !== requestedIds.size || items.some((item) => !requestedIds.has(item.id)) || new Set(items.map((item) => item.id)).size !== items.length) {
+      throw new Error("review selection receipts do not match the requested items");
+    }
+    return {
+      membershipChangedCount: value.membershipChangedCount,
+      reviewChangedCount: value.reviewChangedCount,
+      items,
+    };
   });
 export const bulkSnoozeMusicItems = (request: MusicBulkSnoozeWrite): Promise<MusicBulkMembershipResult> =>
   call("music_library_bulk_snooze", databaseArgs({ request }), (value) => {

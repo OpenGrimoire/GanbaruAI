@@ -96,10 +96,8 @@ export interface MusicSavedPlaylistLoadOptions {
 const progressMaxFallback = 1;
 
 const initialPlayerSettings = loadMusicPlayerSettings();
-
-function storedRecentPlaylistIds(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0).slice(0, 8);
+if (getConfigKey<unknown>("music.recentPlaylistIds", undefined) !== undefined) {
+  setConfigKey("music.recentPlaylistIds", undefined);
 }
 
 class MusicPlayerStore {
@@ -143,7 +141,6 @@ class MusicPlayerStore {
   savedQueueRecentItemIds = $state<string[]>([]);
   savedQueueSkipBreakdown = $state<Record<MusicPlaylistSkipReason, number>>(emptyMusicSkipBreakdown());
   online = $state(typeof navigator === "undefined" || navigator.onLine);
-  recentPlaylistIds = $state<string[]>(storedRecentPlaylistIds(getConfigKey<unknown>("music.recentPlaylistIds", [])));
 
   private playlistVolumeIntent = initialMusicSnapshot(initialPlayerSettings).volume;
   private playlistRateIntent = initialMusicSnapshot(initialPlayerSettings).rate;
@@ -450,8 +447,6 @@ class MusicPlayerStore {
     this.contextPlayback = options.context ?? null;
     this.contextOwner = options.context?.owner ?? "manual";
     this.savedQueueAutoRecoveryEnabled = options.autoRecovery ?? options.autoplay ?? true;
-    this.recentPlaylistIds = [playlistId, ...this.recentPlaylistIds.filter((id) => id !== playlistId)].slice(0, 8);
-    setConfigKey("music.recentPlaylistIds", this.recentPlaylistIds);
     this.shuffleEnabled = shuffleEnabled;
     this.queueHistory = [];
     this.savedQueueRecentItemIds = await this.savedPlaylistRuntime.recentItemIds(playlistId);

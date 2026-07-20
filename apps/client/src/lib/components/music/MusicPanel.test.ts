@@ -95,7 +95,10 @@ describe("MusicPanel", () => {
     expect(target.querySelector("button[aria-label='Reset']")).toBeNull();
 
     target.querySelector<HTMLButtonElement>("[data-music-playlist-launcher]")?.click();
-    await tick();
+    await vi.waitFor(() => {
+      expect([...target!.querySelectorAll<HTMLButtonElement>("button")]
+        .some((button) => button.textContent?.includes("Open builder"))).toBe(true);
+    });
     const firstOpenBuilder = [...target.querySelectorAll<HTMLButtonElement>("button")]
       .find((button) => button.textContent?.includes("Open builder"));
     firstOpenBuilder?.click();
@@ -124,7 +127,10 @@ describe("MusicPanel", () => {
     expect(playerPage?.classList.contains("hidden")).toBe(false);
 
     target.querySelector<HTMLButtonElement>("[data-music-playlist-launcher]")?.click();
-    await tick();
+    await vi.waitFor(() => {
+      expect([...target!.querySelectorAll<HTMLButtonElement>("button")]
+        .some((button) => button.textContent?.includes("Open builder"))).toBe(true);
+    });
     const openBuilder = [...target.querySelectorAll<HTMLButtonElement>("button")]
       .find((button) => button.textContent?.includes("Open builder"));
     openBuilder?.click();

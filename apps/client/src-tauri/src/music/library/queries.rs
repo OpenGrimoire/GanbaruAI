@@ -6,7 +6,7 @@ pub(crate) async fn membership_matrix(
     pool: &SqlitePool,
     item_ids: Vec<String>,
 ) -> MusicLibraryResult<Vec<MusicMembershipMatrixEntry>> {
-    validate_bounded_unique_ids(&item_ids, "itemIds")?;
+    validate_review_selection_ids(&item_ids, "itemIds")?;
     let mut query = QueryBuilder::<Sqlite>::new(
         "SELECT item_id, playlist_id, weight FROM music_playlist_memberships WHERE item_id IN (",
     );

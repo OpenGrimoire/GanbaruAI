@@ -85,6 +85,22 @@ describe("Music library controller", () => {
     expect(controller.currentWindow.items[0]?.id).toBe("library-4");
   });
 
+  it("refreshes mutation summaries without replacing a locally updated Review window", async () => {
+    const itemWindow = vi.fn(async (request) => window(request.destination));
+    const controllerApi = api(itemWindow);
+    const controller = createMusicLibraryController(controllerApi);
+    controller.setVault("vault-1");
+    await controller.preloadCoreDestinations();
+    controller.navigate({ kind: "review" });
+    controller.currentWindow.items[0]!.reviewState = "reviewed";
+
+    expect(await controller.refreshSummariesAfterMutation()).toBe(true);
+
+    expect(itemWindow).toHaveBeenCalledTimes(2);
+    expect(controller.currentWindow.items[0]?.reviewState).toBe("reviewed");
+    expect(controllerApi.playlistSummaries).toHaveBeenCalledTimes(2);
+  });
+
   it("supports stable toggle and range selection without clearing it on filters", async () => {
     const controller = createMusicLibraryController(api(async () => ({
       ...window("first"),

@@ -810,6 +810,7 @@ pub fn run() {
             music::library::commands::music_library_context_assignments_for_playlists,
             music::library::commands::music_library_replace_context_assignments,
             music::library::commands::music_library_bulk_set_review_state,
+            music::library::commands::music_library_apply_review_selection,
             music::library::commands::music_library_bulk_snooze,
             music::library::commands::music_library_save_advanced_membership,
             music::library::commands::music_library_remove_memberships,

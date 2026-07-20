@@ -9,6 +9,7 @@ import {
 } from "$lib/api/music-library";
 import { setActiveVaultIdentity } from "$lib/vault/active-vault";
 import { getMusicPlayer } from "$lib/stores/music-player.svelte";
+import { getMusicPlaylistSummaryCache } from "$lib/music/music-playlist-summary-cache.svelte";
 import type { MusicPlaylistPlaybackEntry, MusicPlaylistSummary } from "$lib/music/library-contracts";
 
 vi.mock("$lib/api/music-library", async (importOriginal) => {
@@ -25,7 +26,7 @@ const summary = (id: string, name: string): MusicPlaylistSummary => ({
   id,
   sortOrder: 0,
   name,
-  icon: "lucide:list-music",
+  icon: "emoji:♪",
   shuffleEnabled: false,
   repeatMode: "all",
   intendedUses: [],
@@ -72,6 +73,7 @@ describe("Music playlist launcher", () => {
     component = null;
     target = null;
     vi.restoreAllMocks();
+    getMusicPlaylistSummaryCache().setVault(null);
     setActiveVaultIdentity(null);
   });
 
@@ -99,6 +101,8 @@ describe("Music playlist launcher", () => {
 
     target.querySelector<HTMLButtonElement>("[data-music-playlist-launcher]")?.click();
     await vi.waitFor(() => expect(target?.textContent).toContain("Deep focus"));
+    expect(target.textContent).toContain("♪");
+    expect(target.textContent).not.toContain("playable of");
     const search = target.querySelector<HTMLInputElement>('input[placeholder="Search playlists"]');
     if (!search) throw new Error("Expected playlist search input");
     search.value = "Morning";

@@ -456,6 +456,18 @@ pub async fn music_library_bulk_set_review_state(
 }
 
 #[tauri::command]
+pub async fn music_library_apply_review_selection(
+    app: tauri::AppHandle,
+    db_url: String,
+    request: MusicReviewSelectionWrite,
+) -> MusicLibraryResult<MusicReviewSelectionResult> {
+    let pool = connect_sqlite(app, db_url)
+        .await
+        .map_err(connection_error)?;
+    super::playlist_edits::apply_review_selection(&pool, request).await
+}
+
+#[tauri::command]
 pub async fn music_library_bulk_snooze(
     app: tauri::AppHandle,
     db_url: String,

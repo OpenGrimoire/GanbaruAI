@@ -1,6 +1,5 @@
 <script lang="ts">
   import Check from "@lucide/svelte/icons/check";
-  import Minus from "@lucide/svelte/icons/minus";
   import Search from "@lucide/svelte/icons/search";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { sortReviewPlaylists } from "$lib/music/music-review";
@@ -13,22 +12,28 @@
     playlists,
     checkedIds,
     mixedIds = new Set<string>(),
+    mixedCounts = {},
+    selectionSize = 0,
     search = "",
     onSearch = () => undefined,
     showSearch = false,
     showSections = false,
     onToggle,
+    disabled = false,
     errors = {},
     onSearchInput = () => undefined,
   }: {
     playlists: MusicPlaylistSummary[];
     checkedIds: Set<string>;
     mixedIds?: Set<string>;
+    mixedCounts?: Record<string, number>;
+    selectionSize?: number;
     search?: string;
     onSearch?: (value: string) => void;
     showSearch?: boolean;
     showSections?: boolean;
     onToggle: (playlist: MusicPlaylistSummary) => void;
+    disabled?: boolean;
     errors?: Record<string, string>;
     onSearchInput?: (element: HTMLInputElement | null) => void;
   } = $props();
@@ -77,17 +82,17 @@
       {@const mixed = mixedIds.has(playlist.id)}
       {@const playlistName = systemMusicPlaylistName(playlist.id, playlist.name, t)}
       {@const errorId = errors[playlist.id] ? `music-playlist-membership-error-${playlist.id}` : undefined}
-      <label class={cn("playlist-card flex min-w-0 cursor-pointer flex-wrap items-center gap-2 rounded-lg px-3 py-2.5 transition-colors", checked || mixed ? "bg-primary/10" : "bg-secondary/35")}>
+      <label class={cn("playlist-card flex min-w-0 flex-wrap items-center gap-2 rounded-lg px-3 py-2.5 transition-colors", disabled ? "cursor-default" : "cursor-pointer", checked ? "bg-primary/10" : mixed ? "bg-secondary/55" : "bg-secondary/35")}>
         <span class="flex min-w-0 flex-1 items-center gap-3 text-left">
           <span class="grid h-8 w-8 shrink-0 place-items-center text-foreground">
             <MusicPlaylistIcon icon={playlist.icon} size={16} />
           </span>
-          <span class="min-w-0 flex-1"><strong class="block truncate text-xs font-medium">{playlistName}</strong><span class="block text-[0.62rem] tabular-nums text-muted-foreground">{t("music.tracks", playlist.totalCount)}</span></span>
+          <span class="min-w-0 flex-1"><strong class="block truncate text-xs font-medium">{playlistName}</strong><span class="block text-[0.62rem] tabular-nums text-muted-foreground">{mixed && selectionSize > 0 ? t("music.builder.bulkExistingMembership", mixedCounts[playlist.id] ?? 0, selectionSize) : t("music.tracks", playlist.totalCount)}</span></span>
         </span>
         <span class="relative grid h-6 w-6 shrink-0 place-items-center">
-          <input type="checkbox" data-review-playlist-id={playlist.id} checked={checked} use:triStateAction={mixed} onchange={() => onToggle(playlist)} aria-label={checked ? t("music.builder.removeFromPlaylist", playlist.name) : t("music.builder.addToPlaylist", playlist.name)} aria-describedby={errorId} class="peer absolute inset-0 opacity-0" />
-          <span class={cn("pointer-events-none grid h-5 w-5 place-items-center rounded border peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ring", checked || mixed ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background/80")}>
-            {#if mixed}<Minus size={12} strokeWidth={2.5} />{:else if checked}<Check size={13} strokeWidth={2.5} />{/if}
+          <input type="checkbox" data-review-playlist-id={playlist.id} checked={checked} {disabled} use:triStateAction={mixed} onchange={() => onToggle(playlist)} aria-label={checked ? t("music.builder.removeFromPlaylist", playlist.name) : t("music.builder.addToPlaylist", playlist.name)} aria-describedby={errorId} class="peer absolute inset-0 opacity-0" />
+          <span class={cn("pointer-events-none grid h-5 w-5 place-items-center rounded border peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ring", checked ? "border-primary bg-primary text-primary-foreground" : mixed ? "border-primary bg-background/80" : "border-border bg-background/80")}>
+            {#if checked}<Check size={13} strokeWidth={2.5} />{/if}
           </span>
         </span>
       </label>

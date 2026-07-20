@@ -784,6 +784,25 @@ pub struct MusicBulkReviewWrite {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct MusicReviewSelectionWrite {
+    pub action_id: String,
+    pub items: Vec<MusicVersionedItem>,
+    pub review_state: MusicReviewState,
+    pub add_playlist_ids: Vec<String>,
+    pub remove_playlist_ids: Vec<String>,
+    pub updated_at: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicReviewSelectionResult {
+    pub membership_changed_count: i64,
+    pub review_changed_count: i64,
+    pub items: Vec<MusicWriteReceipt>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MusicBulkSnoozeWrite {
     pub action_id: String,
     pub item_ids: Vec<String>,

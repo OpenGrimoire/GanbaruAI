@@ -5,7 +5,6 @@
   import Gauge from "@lucide/svelte/icons/gauge";
   import ListMusic from "@lucide/svelte/icons/list-music";
   import CalendarClock from "@lucide/svelte/icons/calendar-clock";
-  import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import Pause from "@lucide/svelte/icons/pause";
   import Play from "@lucide/svelte/icons/play";
   import Shuffle from "@lucide/svelte/icons/shuffle";
@@ -17,6 +16,7 @@
   import MusicPlaylistLauncher from "$lib/components/music/MusicPlaylistLauncher.svelte";
   import MusicCurrentItemMenu from "$lib/components/music/MusicCurrentItemMenu.svelte";
   import MusicSoundscapeControl from "$lib/components/music/MusicSoundscapeControl.svelte";
+  import MusicPreparationActivity from "$lib/components/music/builder/MusicPreparationActivity.svelte";
   import { revealLocalFile } from "$lib/api/music";
   import { SPEED_PRESETS, clampRate, formatPlaybackTime, isSpeedPreset } from "$lib/music/playback";
   import { fittedSidePlaylistPanelHeight } from "$lib/music/panel-layout";
@@ -702,35 +702,21 @@
       />
     </div>
   {:else if musicPage === "playlist-builder"}
-    <section class="flex h-full min-h-0 flex-col text-foreground" style="background-color: var(--cal-bg);">
-      <header class="flex h-(--cal-header-row-h) shrink-0 items-center px-2">
-        <button
-          type="button"
-          onclick={closePlaylistBuilder}
-          class="inline-flex h-7 items-center gap-1.5 rounded-md bg-secondary px-2.5 text-[0.8rem] font-medium text-secondary-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-        >
-          {t("music.mediaPlayer")}
-        </button>
-      </header>
-      <div class="grid min-h-0 flex-1 place-items-center px-5 text-center">
-        <div class="max-w-sm rounded-xl border border-border/70 bg-card/70 p-5 shadow-sm">
-          {#if playlistBuilderLoadError}
-            <AlertCircle class="mx-auto mb-3 text-destructive" size={22} strokeWidth={1.5} />
-            <p class="text-sm font-medium">{t("music.builder.loadFailed")}</p>
-            <p class="mt-1 text-xs leading-relaxed text-muted-foreground">{playlistBuilderLoadError}</p>
-            <button
-              type="button"
-              onclick={() => { void loadPlaylistBuilder(); }}
-              class="mt-4 inline-flex h-8 items-center rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-            >
-              {t("music.builder.retry")}
-            </button>
-          {:else}
-            <LoaderCircle class="mx-auto mb-3 animate-spin text-muted-foreground motion-reduce:animate-none" size={22} strokeWidth={1.5} />
-            <p class="text-sm font-medium">{t("music.builder.loading")}</p>
-          {/if}
+    <section class="relative grid h-full min-h-40 place-items-center overflow-hidden p-5 text-center text-foreground" style="background-color: var(--cal-bg);">
+      {#if playlistBuilderLoadError}
+        <button type="button" onclick={closePlaylistBuilder} class="absolute left-3 top-3 inline-flex h-8 items-center rounded-full bg-secondary px-3 text-[0.7rem] font-medium text-secondary-foreground hover:bg-accent hover:text-accent-foreground">{t("music.mediaPlayer")}</button>
+        <div class="w-full max-w-sm">
+          <AlertCircle class="mx-auto text-destructive" size={24} strokeWidth={1.5} />
+          <h1 class="mt-3 text-lg font-semibold tracking-tight">{t("music.builder.loadFailed")}</h1>
+          <p class="mt-2 text-xs leading-relaxed text-muted-foreground">{playlistBuilderLoadError}</p>
+          <button type="button" onclick={() => { void loadPlaylistBuilder(); }} class="mt-4 inline-flex h-8 items-center rounded-full bg-primary px-3 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90">{t("music.builder.retry")}</button>
         </div>
-      </div>
+      {:else}
+        <div class="w-full max-w-lg">
+          <MusicPreparationActivity />
+          <h1 class="mt-3 text-lg font-semibold tracking-tight">{t("music.builder.loading")}</h1>
+        </div>
+      {/if}
     </section>
   {/if}
   <section
@@ -1059,7 +1045,7 @@
               {player.volumePercentLabel}
             </button>
           </div>
-          <MusicCurrentItemMenu onOpenItem={(itemId) => openPlaylistBuilder({ kind: "open-item", itemId })} />
+          <MusicCurrentItemMenu onOpenItem={(itemId) => openPlaylistBuilder({ kind: "open-item", itemId })} onOpenPlaylists={() => openPlaylistBuilder("open-playlists")} />
           <MusicSoundscapeControl onOpenSoundscapes={() => openPlaylistBuilder({ kind: "open-soundscapes" })} />
           <div
             bind:this={volumeMenuRoot}
@@ -1136,7 +1122,7 @@
             </button>
             {#if speedMenuOpen}
               <div
-                class="absolute bottom-full right-0 z-30 mb-2 w-36 overflow-y-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-lg"
+                class="absolute bottom-full right-0 z-30 mb-2 w-36 overflow-y-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md"
                 style="max-height: min(14rem, calc(100vh - 2rem));"
               >
                 {#if !customSpeedOpen}

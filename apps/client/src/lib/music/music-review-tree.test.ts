@@ -7,8 +7,11 @@ import {
   musicReviewTreeAncestorFolderIds,
   musicReviewTreeItemIds,
   musicReviewTreeFolderIds,
+  musicReviewTreeRevealScrollTop,
+  nextPendingMusicReviewSelectionItemId,
   nextPendingMusicReviewTreeItemId,
   searchMusicReviewTree,
+  summarizeMusicReviewSelection,
   toggleMusicReviewTreeSelection,
 } from "$lib/music/music-review-tree";
 
@@ -61,6 +64,44 @@ describe("music review tree", () => {
     expect(nextPendingMusicReviewTreeItemId([first, second, third], "first", new Set(["third"]))).toBe("first");
     expect(nextPendingMusicReviewTreeItemId([first, second, third], "first", new Set(["first", "third"]))).toBeNull();
     expect(nextPendingMusicReviewTreeItemId([first, second, third], "third", new Set())).toBe("first");
+  });
+
+  it("continues after a grouped selection without returning to one of its tracks", () => {
+    const items = [
+      item("one", "Album/one.flac"),
+      item("two", "Album/two.flac"),
+      item("three", "Other/three.flac"),
+    ];
+    expect(nextPendingMusicReviewSelectionItemId(items, new Set(["one", "two"]))).toBe("three");
+    expect(nextPendingMusicReviewSelectionItemId(items, new Set(["one", "two", "three"]))).toBeNull();
+  });
+
+  it("keeps visible active rows still and centers rows outside the tree viewport", () => {
+    expect(musicReviewTreeRevealScrollTop(400, 300, 40, 32)).toBeNull();
+    expect(musicReviewTreeRevealScrollTop(400, 300, 350, 32)).toBe(616);
+    expect(musicReviewTreeRevealScrollTop(400, 300, -40, 32)).toBe(226);
+    expect(musicReviewTreeRevealScrollTop(20, 300, -100, 32)).toBe(0);
+  });
+
+  it("summarizes selected folders once without repeating descendants", () => {
+    const reviewed = item("one", "Album/Disc 1/one.flac");
+    reviewed.reviewState = "reviewed";
+    const items = [reviewed, item("two", "Album/Disc 1/two.flac"), item("three", "Other/three.flac")];
+    const tree = buildMusicReviewTree(items);
+    const album = tree[0]?.children.find((node) => node.name === "Album");
+    const disc = album?.children.find((node) => node.name === "Disc 1");
+    expect(album).toBeDefined();
+    expect(disc).toBeDefined();
+
+    expect(summarizeMusicReviewSelection(
+      items,
+      new Set(["one", "two", "three"]),
+      new Set([album!.id, disc!.id]),
+    )).toEqual({
+      itemCount: 3,
+      contextLabels: ["Album", "three"],
+      hiddenContextCount: 0,
+    });
   });
 
   it("flattens only expanded branches and toggles complete descendants", () => {

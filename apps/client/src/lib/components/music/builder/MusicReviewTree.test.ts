@@ -26,8 +26,8 @@ describe("MusicReviewTree", () => {
     target = null;
   });
 
-  it("selects a complete folder and submits its descendants for playlist assignment", async () => {
-    const onAssign = vi.fn();
+  it("selects a complete folder as the active review selection", async () => {
+    const onViewStateChange = vi.fn();
     target = document.createElement("div");
     document.body.append(target);
     component = mount(MusicReviewTree, {
@@ -37,7 +37,7 @@ describe("MusicReviewTree", () => {
         totalCount: 2,
         activeItemId: "one",
         onActivate: vi.fn(),
-        onAssign,
+        onViewStateChange,
       },
     });
     await tick();
@@ -46,12 +46,10 @@ describe("MusicReviewTree", () => {
     expect(album).not.toBeNull();
     album?.click();
     await tick();
-    const assign = [...target.querySelectorAll<HTMLButtonElement>("button")]
-      .find((button) => button.textContent?.includes("Add 2 selected to playlists"));
-    expect(assign).not.toBeNull();
-    assign?.click();
-
-    expect(onAssign).toHaveBeenCalledWith(["one", "two"]);
+    expect(onViewStateChange).toHaveBeenLastCalledWith(expect.objectContaining({
+      selectedItemIds: ["one", "two"],
+    }));
+    expect(target.textContent).not.toContain("Add 2 selected to playlists");
   });
 
   it("propagates folder selection downward without marking ancestors", async () => {
@@ -64,7 +62,6 @@ describe("MusicReviewTree", () => {
         totalCount: 2,
         activeItemId: null,
         onActivate: vi.fn(),
-        onAssign: vi.fn(),
       },
     });
     await tick();
@@ -104,7 +101,6 @@ describe("MusicReviewTree", () => {
         totalCount: 2,
         activeItemId: null,
         onActivate: vi.fn(),
-        onAssign: vi.fn(),
       },
     });
     expect(target.textContent).toContain("Theme");
@@ -136,7 +132,6 @@ describe("MusicReviewTree", () => {
         totalCount: 3,
         activeItemId: null,
         onActivate: vi.fn(),
-        onAssign: vi.fn(),
       },
     });
     await tick();
@@ -170,7 +165,6 @@ describe("MusicReviewTree", () => {
         totalCount: 1,
         activeItemId: null,
         onActivate: vi.fn(),
-        onAssign: vi.fn(),
         onRefresh,
       },
     });
@@ -191,7 +185,6 @@ describe("MusicReviewTree", () => {
         totalCount: 2,
         activeItemId: "one",
         onActivate: vi.fn(),
-        onAssign: vi.fn(),
         issueCount: 1,
         issueItemIds: new Set(["two"]),
         onOpenIssues,

@@ -8,12 +8,6 @@ import { musicArtworkDataUrl, musicEmbeddedArtworkDataUrl } from "$lib/music/mus
 import { orderMusicPlaylists } from "$lib/music/music-system-playlists";
 import { localFileSourceFromPath, parseMusicSourceInput, type MusicSource } from "$lib/music/sources";
 
-export type MusicReviewExitPreference = "ask" | "restore" | "keep";
-
-export function parseMusicReviewExitPreference(value: unknown): MusicReviewExitPreference {
-  return value === "restore" || value === "keep" ? value : "ask";
-}
-
 export function parseMusicReviewAutoplay(value: unknown): boolean {
   return value === true;
 }

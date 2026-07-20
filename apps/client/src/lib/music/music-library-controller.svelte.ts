@@ -310,6 +310,32 @@ export class MusicLibraryController {
     return this.refresh();
   }
 
+  /** Refreshes shared counts after a local window was updated without replacing its visible rows. */
+  async refreshSummariesAfterMutation(): Promise<boolean> {
+    if (!this.vaultId) return false;
+    this.markRetainedWindowsStale();
+    const generation = ++this.refreshGeneration;
+    const vaultId = this.vaultId;
+    const nowMs = this.now();
+    this.error = null;
+    try {
+      const [playlists, sources, issues] = await Promise.all([
+        this.api.playlistSummaries(nowMs, 0, 500),
+        this.api.sourceSummaries(nowMs, 0, 500),
+        this.api.issues(0, 500),
+      ]);
+      if (!this.isCurrent(generation, vaultId)) return false;
+      this.playlistSummaries = playlists;
+      this.sourceSummaries = sources;
+      this.issues = issues;
+      return true;
+    } catch (error) {
+      if (!this.isCurrent(generation, vaultId)) return false;
+      this.error = error instanceof Error ? error : new Error(String(error));
+      return false;
+    }
+  }
+
   async refresh(): Promise<boolean> {
     if (!this.vaultId) return false;
     const generation = ++this.refreshGeneration;

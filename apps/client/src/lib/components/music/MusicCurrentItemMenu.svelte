@@ -24,7 +24,13 @@
   import { systemMusicPlaylistName } from "$lib/music/music-system-playlists";
   import { getMusicPlayer } from "$lib/stores/music-player.svelte";
 
-  let { onOpenItem }: { onOpenItem: (itemId: string) => void } = $props();
+  let {
+    onOpenItem,
+    onOpenPlaylists,
+  }: {
+    onOpenItem: (itemId: string) => void;
+    onOpenPlaylists: () => void;
+  } = $props();
   const { t } = getLocalization();
   const player = getMusicPlayer();
   let root = $state<HTMLElement | null>(null);
@@ -92,6 +98,14 @@
     } finally {
       busy = false;
     }
+  }
+
+  function activate(): void {
+    if (!available) {
+      onOpenPlaylists();
+      return;
+    }
+    void toggle();
   }
 
   function close(): void {
@@ -178,9 +192,9 @@
 </script>
 
 <div bind:this={root} class="relative">
-  <button bind:this={trigger} type="button" onclick={() => { void toggle(); }} disabled={!available} class="inline-flex h-9 w-9 items-center justify-center rounded-md bg-secondary text-secondary-foreground transition-colors hover:bg-accent disabled:pointer-events-none disabled:opacity-50" aria-label={t("music.itemMenu.actions")} aria-expanded={open} aria-haspopup="menu"><MoreHorizontal size={15} /></button>
+  <button bind:this={trigger} type="button" onclick={activate} class="inline-flex h-9 w-9 items-center justify-center rounded-md bg-secondary text-secondary-foreground transition-colors hover:bg-accent" aria-label={available ? t("music.itemMenu.actions") : t("music.launcher.playlists")} aria-expanded={open} aria-haspopup={available ? "menu" : undefined}><MoreHorizontal size={15} /></button>
   {#if open}
-    <div role="menu" aria-label={t("music.itemMenu.actions")} class="absolute bottom-[calc(100%+0.45rem)] right-0 z-40 max-h-[calc(100vh-1rem)] w-[min(20rem,calc(100vw-1rem))] overflow-y-auto rounded-xl border border-border/80 bg-popover p-1.5 text-popover-foreground shadow-2xl">
+    <div role="menu" aria-label={t("music.itemMenu.actions")} class="absolute bottom-[calc(100%+0.45rem)] right-0 z-40 max-h-[calc(100vh-1rem)] w-[min(20rem,calc(100vw-1rem))] overflow-y-auto rounded-xl border border-border/80 bg-popover p-1.5 text-popover-foreground shadow-md">
       {#if busy && playlists.length === 0}<div class="flex items-center gap-2 px-3 py-4 text-xs text-muted-foreground"><LoaderCircle class="animate-spin motion-reduce:animate-none" size={14} />{t("music.itemMenu.loading")}</div>{/if}
       {#if error}<p class="m-1 rounded-md bg-destructive/10 px-2.5 py-2 text-[0.68rem] text-destructive" role="alert">{error}</p>{/if}
       {#if itemId}
