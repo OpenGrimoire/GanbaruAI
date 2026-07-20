@@ -4,6 +4,7 @@
   import ListPlus from "@lucide/svelte/icons/list-plus";
   import Search from "@lucide/svelte/icons/search";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
+  import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
   import X from "@lucide/svelte/icons/x";
   import { untrack } from "svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
@@ -25,6 +26,9 @@
     activeItemId,
     onActivate,
     onAssign,
+    issueCount = 0,
+    issueItemIds = new Set<string>(),
+    onOpenIssues = () => undefined,
     canRefresh = true,
     refreshing = false,
     onRefresh = () => undefined,
@@ -36,6 +40,9 @@
     activeItemId: string | null;
     onActivate: (itemId: string) => void;
     onAssign: (itemIds: string[]) => void;
+    issueCount?: number;
+    issueItemIds?: ReadonlySet<string>;
+    onOpenIssues?: () => void;
     canRefresh?: boolean;
     refreshing?: boolean;
     onRefresh?: () => void;
@@ -165,6 +172,15 @@
     </div>
   </div>
 
+  {#if issueCount > 0}
+    <button type="button" onclick={onOpenIssues} class="mx-2 mb-1 flex h-7 shrink-0 items-center gap-2 rounded-lg px-2 text-left hover:bg-accent/55" aria-label={t("music.builder.reviewIssuesCount", issueCount)}>
+      <TriangleAlert size={12} class="shrink-0 text-destructive" />
+      <span class="min-w-0 flex-1 truncate text-[0.66rem] font-medium">{t("music.builder.sourceIssues")}</span>
+      <span class="text-[0.6rem] tabular-nums text-destructive">{issueCount}</span>
+      <ChevronRight size={11} class="shrink-0 text-muted-foreground" />
+    </button>
+  {/if}
+
   <div bind:this={scrollNode} onscroll={(event) => scrollTop = event.currentTarget.scrollTop} class="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2" data-music-scrollable="true">
     {#if searching && rows.length === 0}
       <p class="px-3 py-6 text-center text-[0.68rem] text-muted-foreground">{t("music.builder.noReviewSearchMatches")}</p>
@@ -199,7 +215,9 @@
           </label>
           <span class="pointer-events-none flex min-w-0 flex-1 items-center pr-2 text-left">
             <span class="min-w-0 flex-1 truncate text-[0.68rem]">{row.item.title}</span>
-            {#if row.item.reviewState === "reviewed"}
+            {#if issueItemIds.has(row.item.id)}
+              <span class="ml-2 grid h-5 w-5 shrink-0 place-items-center text-destructive" aria-label={t("music.builder.trackNeedsAttention", row.item.title)}><TriangleAlert size={12} /></span>
+            {:else if row.item.reviewState === "reviewed"}
               <span class="ml-2 grid h-5 w-5 shrink-0 place-items-center text-primary" aria-hidden="true"><Check size={12} strokeWidth={2.5} /></span>
             {/if}
           </span>

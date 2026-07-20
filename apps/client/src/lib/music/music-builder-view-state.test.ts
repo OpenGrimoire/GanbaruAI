@@ -20,7 +20,8 @@ describe("music builder view state", () => {
     expect(createMusicBuilderContextViewState()).toMatchObject({
       contextPanelOpen: false,
       selectedSourceId: null,
-      issueFilter: "all",
+      reviewPanel: "folders",
+      reviewIssueGroup: null,
       soundscapeFilter: "all",
     });
   });

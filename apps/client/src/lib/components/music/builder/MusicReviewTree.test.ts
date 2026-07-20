@@ -179,4 +179,28 @@ describe("MusicReviewTree", () => {
     target.querySelector<HTMLButtonElement>('button[aria-label="Refresh local folders"]')?.click();
     expect(onRefresh).toHaveBeenCalledOnce();
   });
+
+  it("opens attention work from one quiet entry and marks affected tracks", async () => {
+    const onOpenIssues = vi.fn();
+    target = document.createElement("div");
+    document.body.append(target);
+    component = mount(MusicReviewTree, {
+      target,
+      props: {
+        items: [item("one", "One", "Album/one.flac"), item("two", "Two", "Album/two.flac")],
+        totalCount: 2,
+        activeItemId: "one",
+        onActivate: vi.fn(),
+        onAssign: vi.fn(),
+        issueCount: 1,
+        issueItemIds: new Set(["two"]),
+        onOpenIssues,
+      },
+    });
+    await tick();
+
+    expect(target.querySelector('[aria-label="Two needs attention"]')).not.toBeNull();
+    target.querySelector<HTMLButtonElement>('button[aria-label="1 item needs attention"]')?.click();
+    expect(onOpenIssues).toHaveBeenCalledOnce();
+  });
 });

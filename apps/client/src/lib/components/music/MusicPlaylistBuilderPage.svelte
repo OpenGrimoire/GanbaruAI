@@ -61,7 +61,7 @@
   import MusicDetectedFolderCard from "./builder/MusicDetectedFolderCard.svelte";
   import MusicVirtualItemList from "./builder/MusicVirtualItemList.svelte";
   import MusicAddSourceDialog from "./builder/MusicAddSourceDialog.svelte";
-  import MusicIssueBrowser from "./builder/MusicIssueBrowser.svelte";
+  import MusicReviewIssuesPanel from "./builder/MusicReviewIssuesPanel.svelte";
   import MusicItemRepairDialog from "./builder/MusicItemRepairDialog.svelte";
   import MusicNetworkRefreshDialog from "./builder/MusicNetworkRefreshDialog.svelte";
   import MusicRelinkWizard from "./builder/MusicRelinkWizard.svelte";
@@ -78,6 +78,7 @@
   import MusicBulkMembershipDialog from "./builder/MusicBulkMembershipDialog.svelte";
   import MusicInterchangeDialog from "./builder/MusicInterchangeDialog.svelte";
   import type { MusicBuilderInitialAction } from "$lib/music/music-builder-loader";
+  import { musicIssueGroup } from "$lib/music/music-issue-presentation";
   import { isSystemMusicPlaylistId, orderMusicPlaylists, systemMusicPlaylistName } from "$lib/music/music-system-playlists";
 
   let {
@@ -131,8 +132,15 @@
   const layout = $derived(projectMusicBuilderLayout({ width, height }));
   const destination = $derived(history.current.destination);
   const hasList = $derived(destination.kind === "playlist");
-  const issueCount = $derived(library.sourceSummaries.reduce((total, source) => total + source.openIssueCount, 0));
+  const issueCount = $derived(library.issues.length);
   const reviewCount = $derived(library.sourceSummaries.reduce((total, source) => total + source.unreviewedCount, 0));
+  const reviewIssueItemIds = $derived(new Set(library.issues.flatMap((issue) => issue.itemId ? [issue.itemId] : [])));
+  const activeReviewItemId = $derived(library.selectedItem?.id ?? firstMusicReviewTreeItemId(library.currentWindow.items));
+  const activeReviewIssue = $derived(activeReviewItemId
+    ? library.issues.find((issue) => issue.itemId === activeReviewItemId && issue.actionRequired)
+      ?? library.issues.find((issue) => issue.itemId === activeReviewItemId)
+      ?? null
+    : null);
   const routeContext = $derived({ playlistIds: new Set(library.playlistSummaries.map((playlist) => playlist.id)), itemIds: new Set(library.currentWindow.items.map((item) => item.id)) });
   const playingItemId = $derived(audition.musicPlayer.activeQueueItemIds[audition.musicPlayer.currentQueueIndex] ?? null);
   const activePlaylistSummary = $derived(destination.kind === "playlist" ? library.playlistSummaries.find((entry) => entry.id === destination.playlistId) ?? null : null);
@@ -151,9 +159,8 @@
   );
   const firstUseRefreshProgress = $derived(Object.values(sources.refreshStatuses).find((status) => status.kind === "local-root"));
   const localSourceCollectionIds = $derived(sources.collections.filter((collection) => collection.kind === "local-root").map((collection) => collection.id));
-  const localSourceRefreshActive = $derived(Object.values(sources.refreshStatuses).some((status) =>
-    status.kind === "local-root" && (status.state === "queued" || status.state === "running"),
-  ));
+  const sourceRefreshActive = $derived(Object.values(sources.refreshStatuses).some((status) => status.state === "queued" || status.state === "running"));
+  const localSourceRefreshActive = $derived(Object.values(sources.refreshStatuses).some((status) => status.kind === "local-root" && (status.state === "queued" || status.state === "running")));
 
   $effect(() => {
     if (sources.preparingDefaultFolder) {
@@ -167,6 +174,17 @@
   $effect(() => {
     const selectedSourceId = contextViewState.selectedSourceId;
     if (selectedSourceId && !library.sourceSummaries.some((source) => source.id === selectedSourceId)) contextViewState.selectedSourceId = null;
+  });
+
+  $effect(() => {
+    if (contextViewState.reviewPanel !== "issues") return;
+    if (library.issues.length === 0) {
+      contextViewState.reviewPanel = "folders";
+      contextViewState.reviewIssueGroup = null;
+      return;
+    }
+    const selectedGroup = contextViewState.reviewIssueGroup;
+    if (selectedGroup && !library.issues.some((issue) => musicIssueGroup(issue) === selectedGroup)) contextViewState.reviewIssueGroup = null;
   });
 
   async function finalizeFirstUsePreparation(): Promise<void> {
@@ -220,6 +238,7 @@
     const action = initialAction;
     if (!action || !library.vaultId) return;
     if (action === "new-playlist") playlistSurface = "create";
+    else if (action.kind === "open-issues") void openReviewIssues();
     else if (action.kind === "open-soundscapes") void navigateNow({ kind: "soundscapes" });
     else void openInitialItem(action.itemId);
     onInitialActionHandled();
@@ -269,7 +288,6 @@
       return summary ? `${systemMusicPlaylistName(summary.id, summary.name, t)} · ${t("music.tracks", summary.totalCount)}` : t("music.builder.playlists");
     }
     if (destination.kind === "sources") return t("music.builder.sourceCount", library.sourceSummaries.length);
-    if (destination.kind === "issues") return t("music.builder.issueCount", library.issues.length);
     return t("music.builder.soundscapes");
   }
 
@@ -374,6 +392,22 @@
     if (next.kind === destination.kind && next.kind !== "playlist") return;
     if (next.kind === "playlist" && destination.kind === "playlist" && next.playlistId === destination.playlistId) return;
     void navigateNow(next);
+  }
+
+  async function openReviewIssues(): Promise<void> {
+    if (destination.kind !== "review") await navigateNow({ kind: "review" });
+    contextViewState.reviewPanel = "issues";
+    contextViewState.reviewIssueGroup = null;
+    if (layout.contextPanelPresentation === "sheet") contextViewState.contextPanelOpen = true;
+  }
+
+  async function selectReviewIssue(issue: MusicIssue): Promise<void> {
+    if (!issue.itemId) return;
+    while (!library.currentWindow.items.some((item) => item.id === issue.itemId)
+      && library.currentWindow.items.length < library.currentWindow.totalCount) {
+      if (!await library.loadMore()) break;
+    }
+    if (library.currentWindow.items.some((item) => item.id === issue.itemId)) library.selectItem(issue.itemId);
   }
 
   function openPlayerFromBuilder(): void {
@@ -631,38 +665,54 @@
     {#if !firstUsePreparation && !firstUseNeedsFolder}
       <aside class:context-open={contextViewState.contextPanelOpen} class="builder-context-panel relative z-20 flex min-h-0 flex-col overflow-hidden bg-background/20">
         {#if destination.kind === "review"}
-          <MusicReviewTree
-            items={library.currentWindow.items}
-            totalCount={library.currentWindow.totalCount}
-            activeItemId={library.selectedItem?.id ?? null}
-            onActivate={(itemId) => library.selectItem(itemId)}
-            onAssign={(itemIds) => { void assignReviewSelection(itemIds); }}
-            canRefresh={localSourceCollectionIds.length > 0}
-            refreshing={localSourceRefreshActive}
-            onRefresh={refreshReviewFolders}
-            viewState={reviewTreeViewState}
-            onViewStateChange={(state) => Object.assign(reviewTreeViewState, state)}
-          />
+          {#if contextViewState.reviewPanel === "issues" && issueCount > 0}
+            <MusicReviewIssuesPanel
+              issues={library.issues}
+              items={library.currentWindow.items}
+              sources={library.sourceSummaries}
+              selectedGroup={contextViewState.reviewIssueGroup}
+              activeItemId={activeReviewItemId}
+              refreshing={sourceRefreshActive}
+              onSelectGroup={(group) => contextViewState.reviewIssueGroup = group}
+              onBack={() => { contextViewState.reviewPanel = "folders"; contextViewState.reviewIssueGroup = null; }}
+              onSelectIssue={(issue) => { void selectReviewIssue(issue); }}
+              onRepair={repairIssue}
+              onRefresh={() => requestSourceRefresh()}
+            />
+          {:else}
+            <MusicReviewTree
+              items={library.currentWindow.items}
+              totalCount={library.currentWindow.totalCount}
+              activeItemId={library.selectedItem?.id ?? null}
+              onActivate={(itemId) => library.selectItem(itemId)}
+              onAssign={(itemIds) => { void assignReviewSelection(itemIds); }}
+              issueCount={issueCount}
+              issueItemIds={reviewIssueItemIds}
+              onOpenIssues={() => { void openReviewIssues(); }}
+              canRefresh={localSourceCollectionIds.length > 0}
+              refreshing={localSourceRefreshActive}
+              onRefresh={refreshReviewFolders}
+              viewState={reviewTreeViewState}
+              onViewStateChange={(state) => Object.assign(reviewTreeViewState, state)}
+            />
+          {/if}
         {:else}
           <MusicBuilderContextPanel
             {destination}
             state={library.currentState}
             playlists={library.playlistSummaries}
             sources={library.sourceSummaries}
-            issues={library.issues}
             selectedSourceId={contextViewState.selectedSourceId}
-            issueFilter={contextViewState.issueFilter}
             soundscapeFilter={contextViewState.soundscapeFilter}
             onSearch={updateSearch}
             onNavigate={navigate}
             onCreatePlaylist={createPlaylistFromWorkspace}
             onManagePlaylists={() => playlistManagementOpen = true}
             onSelectSource={(sourceId) => contextViewState.selectedSourceId = sourceId}
-            onIssueFilter={(filter) => contextViewState.issueFilter = filter}
             onSoundscapeFilter={(filter) => contextViewState.soundscapeFilter = filter}
           />
         {/if}
-        {#if layout.dockPresentation === "sidebar"}<MusicBuilderDock {destination} {reviewCount} {issueCount} onNavigate={navigate} />{/if}
+        {#if layout.dockPresentation === "sidebar"}<MusicBuilderDock {destination} {reviewCount} onNavigate={navigate} />{/if}
       </aside>
     {/if}
     <main class="relative flex min-h-0 min-w-0 flex-col overflow-hidden bg-background/30">
@@ -681,8 +731,6 @@
             {:else if destination.kind === "sources"}
               <button type="button" onclick={() => requestSourceRefresh()} disabled={sources.collections.length === 0} class="toolbar-secondary"><RefreshCw size={13} />{t("music.builder.refreshAll")}</button>
               <button type="button" onclick={() => sourceSurface = "add"} class="toolbar-primary"><Plus size={13} />{t("music.builder.addSource")}</button>
-            {:else if destination.kind === "issues"}
-              <button type="button" onclick={() => requestSourceRefresh()} class="toolbar-secondary"><RefreshCw size={13} />{t("music.builder.refresh")}</button>
             {:else if destination.kind === "soundscapes"}
               <button type="button" onclick={() => soundscapeAddRequest += 1} class="toolbar-primary"><Plus size={13} />{t("music.soundscape.addLoop")}</button>
             {/if}
@@ -738,7 +786,7 @@
             {/if}
           </div>
         {:else}
-          <MusicReviewWorkspace {library} {inspector} {sources} {audition} {review} autoplay={reviewAutoplay} onAutoplayChange={setReviewAutoplay} onOpenPlayer={openPlayerFromBuilder} showPanelButton={layout.contextPanelPresentation === "sheet"} onOpenPanel={() => contextViewState.contextPanelOpen = true} onEditPlaylist={(playlistId) => { void openPlaylistManagementSurface(playlistId, "edit"); }} onDeletePlaylist={(playlistId) => { void openPlaylistManagementSurface(playlistId, "delete"); }} onReorderPlaylists={reorderPlaylistSummaries} viewState={reviewWorkspaceViewState} />
+          <MusicReviewWorkspace {library} {inspector} {sources} {audition} {review} autoplay={reviewAutoplay} onAutoplayChange={setReviewAutoplay} onOpenPlayer={openPlayerFromBuilder} showPanelButton={layout.contextPanelPresentation === "sheet"} onOpenPanel={() => contextViewState.contextPanelOpen = true} onEditPlaylist={(playlistId) => { void openPlaylistManagementSurface(playlistId, "edit"); }} onDeletePlaylist={(playlistId) => { void openPlaylistManagementSurface(playlistId, "delete"); }} onReorderPlaylists={reorderPlaylistSummaries} issue={activeReviewIssue} onRepairIssue={repairIssue} viewState={reviewWorkspaceViewState} />
         {/if}
       {:else if playlistManagementOpen && (destination.kind === "playlists" || destination.kind === "playlist")}
         <div class="min-h-0 flex-1 overflow-y-auto p-3" data-music-scrollable="true"><MusicPlaylistManager playlists={library.playlistSummaries} onEdit={(playlistId) => { void openPlaylistManagementSurface(playlistId, "edit"); }} onDelete={(playlistId) => { void openPlaylistManagementSurface(playlistId, "delete"); }} onReorder={reorderPlaylistSummaries} onDone={() => playlistManagementOpen = false} /></div>
@@ -746,7 +794,7 @@
         {#if destination.kind === "playlist" && playlist.detail && playlist.playbackIssue === "no-eligible-items"}
               <div class="mx-3 mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-warning/30 bg-warning/8 px-3 py-2 text-[0.68rem] text-warning" role="status">
                 <span class="min-w-0 flex-1">{t("music.builder.noEligiblePlaylistItems")}</span>
-                <button type="button" onclick={() => { void navigate({ kind: "issues" }); }} class="h-7 rounded-md bg-secondary px-2.5 font-medium text-secondary-foreground">{t("music.builder.openIssues")}</button>
+                {#if issueCount > 0}<button type="button" onclick={() => { void openReviewIssues(); }} class="h-7 rounded-md bg-secondary px-2.5 font-medium text-secondary-foreground">{t("music.builder.openIssues")}</button>{/if}
               </div>
         {/if}
         {#if destination.kind === "playlist"}
@@ -811,20 +859,17 @@
           onRefreshSource={(collectionId) => requestSourceRefresh([collectionId])}
           onRelink={openRelink}
           onRemove={(collectionId) => { void openRemoval(collectionId); }}
-          onOpenIssues={() => { void navigate({ kind: "issues" }); }}
           onDetectedFolderAdded={detectedFolderAdded}
         />
-      {:else if destination.kind === "issues"}
-        <MusicIssueBrowser issues={library.issues} filter={contextViewState.issueFilter} expandedGroups={contextViewState.issueExpandedGroups} compact onFilterChange={(filter) => contextViewState.issueFilter = filter} onExpandedGroupsChange={(groups) => contextViewState.issueExpandedGroups = groups} onRepair={repairIssue} onRefresh={() => requestSourceRefresh()} />
       {:else if destination.kind === "soundscapes"}
         <MusicSoundscapeBuilder filter={contextViewState.soundscapeFilter} compact addRequest={soundscapeAddRequest} onPlaybackStart={takePlaybackOwnership} />
       {:else}
-        <MusicBuilderOverview {destination} search={library.currentState.search} playlists={library.playlistSummaries} sources={library.sourceSummaries} issues={library.issues} onNavigate={(next) => { void navigate(next); }} onPrimary={primaryAction} onImport={() => interchange.show("import")} onExport={() => interchange.show("export", destination.kind === "playlist" ? destination.playlistId : null)} compact />
+        <MusicBuilderOverview {destination} search={library.currentState.search} playlists={library.playlistSummaries} sources={library.sourceSummaries} onNavigate={(next) => { void navigate(next); }} onPrimary={primaryAction} onImport={() => interchange.show("import")} onExport={() => interchange.show("export", destination.kind === "playlist" ? destination.playlistId : null)} compact />
       {/if}
     </main>
 
     {#if layout.dockPresentation === "bottom" && !firstUsePreparation && !firstUseNeedsFolder}
-      <div class="builder-mobile-dock"><MusicBuilderDock {destination} {reviewCount} {issueCount} compact onNavigate={navigate} /></div>
+      <div class="builder-mobile-dock"><MusicBuilderDock {destination} {reviewCount} compact onNavigate={navigate} /></div>
     {/if}
 
     {#if sourceSurface === "add"}

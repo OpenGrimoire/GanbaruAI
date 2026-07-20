@@ -24,9 +24,11 @@
 
   let {
     onOpenBuilder,
+    onOpenIssues,
     onNewPlaylist,
   }: {
     onOpenBuilder: () => void;
+    onOpenIssues: () => void;
     onNewPlaylist: () => void;
   } = $props();
 
@@ -141,6 +143,11 @@
     onOpenBuilder();
   }
 
+  function openIssues(): void {
+    close();
+    onOpenIssues();
+  }
+
   function newPlaylist(): void {
     close();
     onNewPlaylist();
@@ -189,7 +196,7 @@
           <div class="rounded-lg border border-warning/30 bg-warning/8 p-3 text-xs">
             <p class="font-semibold">{t("music.launcher.nothingPlayable")}</p>
             <p class="mt-1 leading-relaxed text-muted-foreground">{player.online ? t("music.launcher.blockedExplanation") : t("music.launcher.offlineExplanation")}</p>
-            <div class="mt-2 flex flex-wrap gap-2"><button type="button" onclick={openBuilder} class="rounded-md bg-secondary px-2.5 py-1.5 font-medium hover:bg-accent">{t("music.launcher.openIssues")}</button><button type="button" onclick={() => { noEligiblePlaylist = null; }} class="rounded-md px-2.5 py-1.5 font-medium text-primary hover:bg-primary/10">{t("music.launcher.chooseAnother")}</button></div>
+            <div class="mt-2 flex flex-wrap gap-2"><button type="button" onclick={openIssues} class="rounded-md bg-secondary px-2.5 py-1.5 font-medium hover:bg-accent">{t("music.launcher.openIssues")}</button><button type="button" onclick={() => { noEligiblePlaylist = null; }} class="rounded-md px-2.5 py-1.5 font-medium text-primary hover:bg-primary/10">{t("music.launcher.chooseAnother")}</button></div>
           </div>
         {:else if matching.length === 0}
           <div class="grid min-h-32 place-items-center px-5 text-center"><div><ListMusic class="mx-auto mb-2 text-muted-foreground" size={20} /><p class="text-xs font-medium">{playlists.length === 0 ? t("music.launcher.empty") : t("music.launcher.noMatches")}</p><p class="mt-1 text-[0.68rem] leading-relaxed text-muted-foreground">{playlists.length === 0 ? t("music.launcher.emptyHint") : t("music.launcher.noMatchesHint")}</p></div></div>

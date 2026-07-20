@@ -745,6 +745,7 @@
     <div class="relative z-10 flex min-w-0 shrink-0 items-center gap-2">
       <MusicPlaylistLauncher
         onOpenBuilder={() => openPlaylistBuilder()}
+        onOpenIssues={() => openPlaylistBuilder({ kind: "open-issues" })}
         onNewPlaylist={() => openPlaylistBuilder("new-playlist")}
       />
     </div>
@@ -790,7 +791,7 @@
       {/if}
       {#if savedQueueUnavailable}
         <button type="button" onclick={() => { void player.retrySavedPlaylist(); }} class="rounded-md bg-secondary px-2 py-1 font-medium hover:bg-accent">{t("music.queueState.retry")}</button>
-        <button type="button" onclick={() => openPlaylistBuilder()} class="rounded-md px-2 py-1 font-medium text-primary hover:bg-primary/10">{t("music.queueState.openIssues")}</button>
+        <button type="button" onclick={() => openPlaylistBuilder({ kind: "open-issues" })} class="rounded-md px-2 py-1 font-medium text-primary hover:bg-primary/10">{t("music.queueState.openIssues")}</button>
         <button type="button" onclick={openPlaylistChooser} class="rounded-md px-2 py-1 font-medium text-primary hover:bg-primary/10">{t("music.queueState.chooseAnother")}</button>
       {/if}
     </div>
@@ -817,7 +818,7 @@
       {/if}
       {#if visibleContext.state === "unavailable"}
         <button type="button" onclick={() => player.requestContextRetry()} class="rounded-md bg-secondary px-2.5 py-1 font-semibold hover:bg-accent">{t("music.assignment.context.retry")}</button>
-        <button type="button" onclick={() => openPlaylistBuilder()} class="rounded-md px-2.5 py-1 font-semibold text-primary hover:bg-primary/10">{t("music.assignment.context.openIssues")}</button>
+        <button type="button" onclick={() => openPlaylistBuilder({ kind: "open-issues" })} class="rounded-md px-2.5 py-1 font-semibold text-primary hover:bg-primary/10">{t("music.assignment.context.openIssues")}</button>
       {/if}
       <button type="button" onclick={() => player.inspectContextAssignment()} class="rounded-md px-2.5 py-1 font-semibold text-primary hover:bg-primary/10">{t("music.assignment.context.inspect")}</button>
     </div>

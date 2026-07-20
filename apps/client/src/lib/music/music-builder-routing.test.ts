@@ -14,18 +14,17 @@ const context = {
 };
 
 describe("music builder routing", () => {
-  it("maps primary destinations to the visible 1 through 5 shortcuts", () => {
-    expect(["1", "2", "3", "4", "5"].map(musicBuilderDestinationForKey)).toEqual([
+  it("maps primary destinations to the visible 1 through 4 shortcuts", () => {
+    expect(["1", "2", "3", "4"].map(musicBuilderDestinationForKey)).toEqual([
       { kind: "review" },
       { kind: "playlists" },
       { kind: "sources" },
-      { kind: "issues" },
       { kind: "soundscapes" },
     ]);
     expect(musicBuilderDestinationForKey("0")).toBeNull();
     expect(musicBuilderDestinationForKey("Digit1")).toBeNull();
     expect(musicBuilderDestinationShortcut("playlist")).toBe("2");
-    expect(musicBuilderDestinationShortcut("soundscapes")).toBe("5");
+    expect(musicBuilderDestinationShortcut("soundscapes")).toBe("4");
   });
 
   it("opens Review first only when work is waiting", () => {

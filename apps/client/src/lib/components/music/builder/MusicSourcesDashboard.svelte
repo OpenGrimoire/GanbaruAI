@@ -1,5 +1,4 @@
 <script lang="ts">
-  import AlertTriangle from "@lucide/svelte/icons/triangle-alert";
   import FolderOpen from "@lucide/svelte/icons/folder-open";
   import MoreHorizontal from "@lucide/svelte/icons/ellipsis";
   import Plus from "@lucide/svelte/icons/plus";
@@ -19,7 +18,6 @@
     onRefreshSource,
     onRelink,
     onRemove,
-    onOpenIssues,
     onDetectedFolderAdded = () => undefined,
     selectedCollectionId = null,
     compact = false,
@@ -31,7 +29,6 @@
     onRefreshSource: (collectionId: string) => void;
     onRelink: (collectionId: string) => void;
     onRemove: (collectionId: string) => void;
-    onOpenIssues: () => void;
     onDetectedFolderAdded?: () => void;
     selectedCollectionId?: string | null;
     compact?: boolean;
@@ -39,11 +36,6 @@
 
   const { t, locale } = getLocalization();
   const summaryById = $derived(new Map(summaries.map((summary) => [summary.id, summary])));
-  const totalIssues = $derived(summaries.reduce((total, summary) => total + summary.openIssueCount, 0));
-  const totalNew = $derived(summaries.reduce((total, summary) => total + summary.newCount, 0));
-  const totalMissing = $derived(summaries.reduce((total, summary) => total + summary.missingCount, 0));
-  const totalAmbiguous = $derived(summaries.reduce((total, summary) => total + summary.ambiguousCount, 0));
-  const totalUnavailable = $derived(summaries.reduce((total, summary) => total + summary.unavailableCount, 0));
 
   function healthLabel(summary: MusicSourceSummary | undefined): string {
     if (!summary) return t("music.builder.unknownAvailability");
@@ -84,14 +76,6 @@
       <MusicBuilderAsyncState kind="empty" title={t("music.builder.emptySourcesTitle")} description={t("music.builder.emptySourcesDescription")} actionLabel={t("music.builder.addSource")} onAction={onAdd} />
     {/if}
   {:else}
-    {#if totalIssues > 0 || totalNew > 0}
-      <button type="button" onclick={onOpenIssues} class="mb-3 flex w-full items-center gap-3 rounded-xl border border-border/65 bg-card/65 p-2.5 text-left hover:border-primary/30 hover:bg-accent/35">
-        <span class="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-destructive/10 text-destructive"><AlertTriangle size={17} strokeWidth={1.5} /></span>
-        <span class="min-w-0 flex-1"><strong class="block text-xs font-semibold">{t("music.builder.issueSummary")}</strong><span class="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-[0.65rem] text-muted-foreground"><span>{t("music.builder.unreviewedCount", totalNew)}</span><span>{t("music.builder.missingFiles")}: {totalMissing}</span><span>{t("music.builder.ambiguousMatches")}: {totalAmbiguous}</span><span>{t("music.builder.unavailableVideos")}: {totalUnavailable}</span></span></span>
-        <span class="rounded-full bg-destructive/10 px-2 py-0.5 text-[0.65rem] font-semibold tabular-nums text-destructive">{totalIssues}</span>
-      </button>
-    {/if}
-
     <div class="grid grid-cols-[repeat(auto-fill,minmax(min(17rem,100%),1fr))] gap-2.5">
       {#each controller.collections.filter((collection) => !selectedCollectionId || collection.id === selectedCollectionId) as collection (collection.id)}
         {@const summary = summaryById.get(collection.id)}

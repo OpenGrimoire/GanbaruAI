@@ -10,6 +10,7 @@
   import PanelLeft from "@lucide/svelte/icons/panel-left";
   import Play from "@lucide/svelte/icons/play";
   import Slash from "@lucide/svelte/icons/slash";
+  import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
   import X from "@lucide/svelte/icons/x";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
   import IconPicker from "$lib/components/icon-picker/IconPicker.svelte";
@@ -20,6 +21,7 @@
   import type { MusicReviewController } from "$lib/music/music-review-controller.svelte";
   import type { MusicReviewWorkspaceViewState } from "$lib/music/music-builder-view-state";
   import type { MusicSourcesController } from "$lib/music/music-sources-controller.svelte";
+  import type { MusicIssue } from "$lib/music/library-contracts";
   import {
     isMusicReviewEditableTarget,
     musicReviewArtworkDataUrl,
@@ -49,6 +51,8 @@
     onEditPlaylist,
     onDeletePlaylist,
     onReorderPlaylists,
+    issue = null,
+    onRepairIssue = () => undefined,
     viewState,
   }: {
     library: MusicLibraryController;
@@ -64,6 +68,8 @@
     onEditPlaylist: (playlistId: string) => void;
     onDeletePlaylist: (playlistId: string) => void;
     onReorderPlaylists: (playlistIds: string[]) => Promise<boolean>;
+    issue?: MusicIssue | null;
+    onRepairIssue?: (issue: MusicIssue) => void;
     viewState: MusicReviewWorkspaceViewState;
   } = $props();
 
@@ -127,6 +133,11 @@
     if (detail.item.availability === "unavailable") return t("music.builder.unavailable");
     if (detail.item.availability === "ambiguous") return t("music.builder.ambiguous");
     return t("music.builder.unknownAvailability");
+  }
+
+  function attentionLabel(): string {
+    if (detail?.item.availability !== "available") return availabilityLabel();
+    return issue?.message ?? "";
   }
 
   $effect(() => {
@@ -372,6 +383,13 @@
           <div class="min-w-0">
             <h2 class="truncate text-base font-semibold">{previewTitle}</h2>
             <p class="mt-0.5 truncate text-xs text-muted-foreground">{previewArtist}</p>
+            {#if detail && (detail.item.availability !== "available" || issue)}
+              <div class="mt-1 flex min-w-0 items-center gap-1.5 text-[0.65rem]">
+                <TriangleAlert size={12} class="shrink-0 text-destructive" />
+                <span class="min-w-0 truncate text-muted-foreground">{attentionLabel()}</span>
+                {#if issue?.actionRequired}<button type="button" onclick={() => onRepairIssue(issue)} class="shrink-0 font-semibold text-primary hover:underline">{t("music.builder.repair")}</button>{/if}
+              </div>
+            {/if}
           </div>
 
           <div class="mt-4 flex items-center gap-3">
@@ -444,8 +462,6 @@
           {checkedIds}
           onToggle={(playlist) => { void review.toggleMembership(playlist); }}
           errors={review.membershipErrors}
-          showIssue={detail?.item.availability !== "available"}
-          issueLabel={availabilityLabel()}
         />
       </div>
     {/if}

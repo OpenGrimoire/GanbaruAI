@@ -15,7 +15,7 @@ describe("MusicBuilderDock", () => {
     target = null;
   });
 
-  it("renders six destinations with one active label and useful badges", async () => {
+  it("renders four destinations with one active label and the Review badge", async () => {
     target = document.createElement("div");
     document.body.append(target);
     component = mount(MusicBuilderDock, {
@@ -23,19 +23,17 @@ describe("MusicBuilderDock", () => {
       props: {
         destination: { kind: "review" },
         reviewCount: 12,
-        issueCount: 3,
         onNavigate: vi.fn(),
       },
     });
     await tick();
 
     const items = [...target.querySelectorAll<HTMLButtonElement>("[data-builder-dock-item]")];
-    expect(items).toHaveLength(6);
+    expect(items).toHaveLength(4);
     expect(items[0]?.getAttribute("aria-current")).toBe("page");
     expect(items[0]?.textContent).toContain("Review");
     expect(items[1]?.textContent).not.toContain("Playlists");
     expect(target.textContent).toContain("12");
-    expect(target.textContent).toContain("3");
   });
 
   it("moves focus with arrows and activates the selected destination", async () => {
@@ -47,7 +45,6 @@ describe("MusicBuilderDock", () => {
       props: {
         destination: { kind: "review" },
         reviewCount: 0,
-        issueCount: 0,
         onNavigate,
       },
     });

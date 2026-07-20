@@ -22,4 +22,17 @@ describe("music issue presentation", () => {
     const grouped = groupMusicIssues([issue("missing-first"), issue("missing-second")]);
     expect(grouped.get("missing-local-file")?.map((entry) => entry.id)).toEqual(["missing-first", "missing-second"]);
   });
+
+  it("keeps categories stable when newer issues arrive in a different order", () => {
+    const grouped = groupMusicIssues([
+      issue("refresh-partial"),
+      issue("youtube-unavailable"),
+      issue("missing-local-file"),
+    ]);
+    expect([...grouped.keys()]).toEqual([
+      "missing-local-file",
+      "youtube-unavailable",
+      "refresh-incomplete",
+    ]);
+  });
 });

@@ -18,8 +18,8 @@ export interface MusicReviewWorkspaceViewState {
 export interface MusicBuilderContextViewState {
   contextPanelOpen: boolean;
   selectedSourceId: string | null;
-  issueFilter: import("$lib/music/music-issue-presentation").MusicIssueGroup | "all";
-  issueExpandedGroups: import("$lib/music/music-issue-presentation").MusicIssueGroup[];
+  reviewPanel: "folders" | "issues";
+  reviewIssueGroup: import("$lib/music/music-issue-presentation").MusicIssueGroup | null;
   soundscapeFilter: "all" | "generated" | "local";
 }
 
@@ -42,8 +42,8 @@ export function createMusicBuilderContextViewState(): MusicBuilderContextViewSta
   return {
     contextPanelOpen: false,
     selectedSourceId: null,
-    issueFilter: "all",
-    issueExpandedGroups: ["missing-local-file", "root-unavailable", "ambiguous-match", "youtube-unavailable", "embedding-blocked", "refresh-incomplete"],
+    reviewPanel: "folders",
+    reviewIssueGroup: null,
     soundscapeFilter: "all",
   };
 }

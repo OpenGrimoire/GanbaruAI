@@ -16,17 +16,12 @@ export interface MusicBuilderDockItem {
 export function projectMusicBuilderDockItems(
   destination: MusicBuilderDestination,
   reviewCount: number,
-  issueCount: number,
 ): MusicBuilderDockItem[] {
   const activeKind = destination.kind === "playlist" ? "playlists" : destination.kind;
   return MUSIC_BUILDER_PRIMARY_DESTINATIONS.map((kind) => ({
     kind,
     active: kind === activeKind,
-    badge: kind === "review"
-      ? positiveBadge(reviewCount)
-      : kind === "issues"
-        ? positiveBadge(issueCount)
-        : null,
+    badge: kind === "review" ? positiveBadge(reviewCount) : null,
     shortcut: musicBuilderDestinationShortcut(kind) ?? "",
   }));
 }

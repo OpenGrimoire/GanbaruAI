@@ -1,5 +1,4 @@
 <script lang="ts">
-  import AlertTriangle from "@lucide/svelte/icons/triangle-alert";
   import CloudRain from "@lucide/svelte/icons/cloud-rain";
   import ListChecks from "@lucide/svelte/icons/list-checks";
   import ListMusic from "@lucide/svelte/icons/list-music";
@@ -11,25 +10,22 @@
   let {
     destination,
     reviewCount,
-    issueCount,
     compact = false,
     onNavigate,
   }: {
     destination: MusicBuilderDestination;
     reviewCount: number;
-    issueCount: number;
     compact?: boolean;
     onNavigate: (destination: MusicBuilderDestination) => void;
   } = $props();
 
   const { t } = getLocalization();
-  const items = $derived(projectMusicBuilderDockItems(destination, reviewCount, issueCount));
+  const items = $derived(projectMusicBuilderDockItems(destination, reviewCount));
 
   function label(kind: MusicBuilderPrimaryDestinationKind): string {
     if (kind === "review") return t("music.builder.review");
     if (kind === "playlists") return t("music.builder.playlists");
     if (kind === "sources") return t("music.builder.sources");
-    if (kind === "issues") return t("music.builder.issues");
     return t("music.builder.soundscapes");
   }
 
@@ -70,10 +66,9 @@
       {#if item.kind === "review"}<ListChecks size={15} />
       {:else if item.kind === "playlists"}<ListMusic size={15} />
       {:else if item.kind === "sources"}<RadioTower size={15} />
-      {:else if item.kind === "issues"}<AlertTriangle size={15} />
       {:else}<CloudRain size={15} />{/if}
       {#if item.active}<span class="active-label truncate text-[0.65rem] font-medium text-foreground">{itemLabel}</span>{/if}
-      {#if item.badge !== null}<span class:issue-badge={item.kind === "issues"} class="dock-badge absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-secondary px-1 text-center text-[0.52rem] font-semibold leading-4 tabular-nums">{item.badge > 999 ? "999+" : item.badge}</span>{/if}
+      {#if item.badge !== null}<span class="dock-badge absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-secondary px-1 text-center text-[0.52rem] font-semibold leading-4 tabular-nums">{item.badge > 999 ? "999+" : item.badge}</span>{/if}
     </button>
   {/each}
 </nav>
@@ -81,7 +76,6 @@
 <style>
   .builder-dock { container-type: inline-size; border-top: 1px solid color-mix(in srgb, var(--border) 46%, transparent); }
   .dock-button.active { background: var(--secondary); color: var(--foreground); }
-  .issue-badge { color: var(--destructive); }
   .compact { border-top: 0; }
   @container (width < 340px) { .active-label { display: none; } }
 </style>

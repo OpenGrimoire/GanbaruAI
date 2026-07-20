@@ -19,8 +19,6 @@
     showSections = false,
     onToggle,
     errors = {},
-    showIssue = false,
-    issueLabel = "",
     onSearchInput = () => undefined,
   }: {
     playlists: MusicPlaylistSummary[];
@@ -32,8 +30,6 @@
     showSections?: boolean;
     onToggle: (playlist: MusicPlaylistSummary) => void;
     errors?: Record<string, string>;
-    showIssue?: boolean;
-    issueLabel?: string;
     onSearchInput?: (element: HTMLInputElement | null) => void;
   } = $props();
 
@@ -94,7 +90,6 @@
             {#if mixed}<Minus size={12} strokeWidth={2.5} />{:else if checked}<Check size={13} strokeWidth={2.5} />{/if}
           </span>
         </span>
-        {#if showIssue}<span class="shrink-0 text-[0.6rem] text-warning" title={issueLabel}>{issueLabel}</span>{/if}
       </label>
       {#if errors[playlist.id]}<p id={errorId} class="mb-1 px-2 text-[0.62rem] text-destructive" role="alert">{errors[playlist.id]}</p>{/if}
     {/each}

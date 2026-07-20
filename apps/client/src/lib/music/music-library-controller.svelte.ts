@@ -25,7 +25,6 @@ export type MusicBuilderLocation =
   | { kind: "library" }
   | { kind: "playlist"; playlistId: string }
   | { kind: "sources" }
-  | { kind: "issues" }
   | { kind: "soundscapes" };
 
 export interface MusicDestinationState {
@@ -142,7 +141,6 @@ export class MusicLibraryController {
     playlists: defaultDestinationState({ kind: "playlists" }),
     library: defaultDestinationState({ kind: "library" }),
     sources: defaultDestinationState({ kind: "sources" }),
-    issues: defaultDestinationState({ kind: "issues" }),
     soundscapes: defaultDestinationState({ kind: "soundscapes" }),
   });
   windows = $state<Record<string, MusicItemWindow>>({});

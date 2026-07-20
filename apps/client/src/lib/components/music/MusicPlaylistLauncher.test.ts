@@ -94,7 +94,7 @@ describe("Music playlist launcher", () => {
     document.body.append(target);
     component = mount(MusicPlaylistLauncher, {
       target,
-      props: { onOpenBuilder: openBuilder, onNewPlaylist: newPlaylist },
+      props: { onOpenBuilder: openBuilder, onOpenIssues: vi.fn(), onNewPlaylist: newPlaylist },
     });
 
     target.querySelector<HTMLButtonElement>("[data-music-playlist-launcher]")?.click();
@@ -118,5 +118,31 @@ describe("Music playlist launcher", () => {
     ));
     expect(openBuilder).not.toHaveBeenCalled();
     expect(newPlaylist).not.toHaveBeenCalled();
+  });
+
+  it("opens Review attention when a playlist has nothing playable", async () => {
+    vi.mocked(getMusicPlaylistSummaries).mockResolvedValue([summary("focus", "Deep focus")]);
+    vi.mocked(getMusicPlaylistPlaybackEntries).mockResolvedValue([playbackEntry]);
+    vi.mocked(getLocalRootBindings).mockResolvedValue([]);
+    setActiveVaultIdentity("vault-1");
+    vi.spyOn(getMusicPlayer(), "loadSavedPlaylist").mockResolvedValue(false);
+    const onOpenIssues = vi.fn();
+    const { default: MusicPlaylistLauncher } = await import("./MusicPlaylistLauncher.svelte");
+    target = document.createElement("div");
+    document.body.append(target);
+    component = mount(MusicPlaylistLauncher, {
+      target,
+      props: { onOpenBuilder: vi.fn(), onOpenIssues, onNewPlaylist: vi.fn() },
+    });
+
+    target.querySelector<HTMLButtonElement>("[data-music-playlist-launcher]")?.click();
+    await vi.waitFor(() => expect(target?.textContent).toContain("Deep focus"));
+    [...target.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent?.includes("Deep focus"))?.click();
+    await vi.waitFor(() => expect(target?.textContent).toContain("Open issues"));
+    [...target.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent?.trim() === "Open issues")?.click();
+
+    expect(onOpenIssues).toHaveBeenCalledOnce();
   });
 });

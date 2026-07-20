@@ -8,6 +8,15 @@ export type MusicIssueGroup =
   | "embedding-blocked"
   | "refresh-incomplete";
 
+export const MUSIC_ISSUE_GROUPS: readonly MusicIssueGroup[] = [
+  "missing-local-file",
+  "root-unavailable",
+  "ambiguous-match",
+  "youtube-unavailable",
+  "embedding-blocked",
+  "refresh-incomplete",
+];
+
 export function musicIssueGroup(issue: MusicIssue): MusicIssueGroup {
   const kind = issue.issueKind.toLocaleLowerCase();
   if (kind.includes("root") && (kind.includes("missing") || kind.includes("unavailable"))) return "root-unavailable";
@@ -19,10 +28,13 @@ export function musicIssueGroup(issue: MusicIssue): MusicIssueGroup {
 }
 
 export function groupMusicIssues(issues: readonly MusicIssue[]): Map<MusicIssueGroup, MusicIssue[]> {
-  const grouped = new Map<MusicIssueGroup, MusicIssue[]>();
+  const collected = new Map<MusicIssueGroup, MusicIssue[]>();
   for (const issue of issues) {
     const group = musicIssueGroup(issue);
-    grouped.set(group, [...(grouped.get(group) ?? []), issue]);
+    collected.set(group, [...(collected.get(group) ?? []), issue]);
   }
-  return grouped;
+  return new Map(MUSIC_ISSUE_GROUPS.flatMap((group) => {
+    const entries = collected.get(group);
+    return entries ? [[group, entries] as const] : [];
+  }));
 }

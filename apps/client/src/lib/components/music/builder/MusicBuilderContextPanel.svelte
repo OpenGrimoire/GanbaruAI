@@ -1,5 +1,4 @@
 <script lang="ts">
-  import AlertTriangle from "@lucide/svelte/icons/triangle-alert";
   import Check from "@lucide/svelte/icons/check";
   import CloudRain from "@lucide/svelte/icons/cloud-rain";
   import ListMusic from "@lucide/svelte/icons/list-music";
@@ -10,8 +9,7 @@
   import X from "@lucide/svelte/icons/x";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import type { MusicDestinationState } from "$lib/music/music-library-controller.svelte";
-  import type { MusicIssue, MusicPlaylistSummary, MusicSourceSummary } from "$lib/music/library-contracts";
-  import { groupMusicIssues, type MusicIssueGroup } from "$lib/music/music-issue-presentation";
+  import type { MusicPlaylistSummary, MusicSourceSummary } from "$lib/music/library-contracts";
   import type { MusicBuilderDestination } from "$lib/music/music-builder-routing";
   import { orderMusicPlaylists, systemMusicPlaylistName } from "$lib/music/music-system-playlists";
   import { getSoundscapeStore } from "$lib/stores/soundscape.svelte";
@@ -24,32 +22,26 @@
     state,
     playlists,
     sources,
-    issues,
     selectedSourceId,
-    issueFilter,
     soundscapeFilter,
     onSearch,
     onNavigate,
     onCreatePlaylist,
     onManagePlaylists,
     onSelectSource,
-    onIssueFilter,
     onSoundscapeFilter,
   }: {
     destination: MusicBuilderDestination;
     state: MusicDestinationState;
     playlists: MusicPlaylistSummary[];
     sources: MusicSourceSummary[];
-    issues: MusicIssue[];
     selectedSourceId: string | null;
-    issueFilter: MusicIssueGroup | "all";
     soundscapeFilter: SoundscapeFilter;
     onSearch: (search: string) => void;
     onNavigate: (destination: MusicBuilderDestination) => void;
     onCreatePlaylist: () => void;
     onManagePlaylists: () => void;
     onSelectSource: (sourceId: string | null) => void;
-    onIssueFilter: (filter: MusicIssueGroup | "all") => void;
     onSoundscapeFilter: (filter: SoundscapeFilter) => void;
   } = $props();
 
@@ -59,17 +51,7 @@
     const query = destination.kind === "playlists" ? state.search.trim().toLocaleLowerCase() : "";
     return !query || systemMusicPlaylistName(playlist.id, playlist.name, t).toLocaleLowerCase().includes(query);
   }));
-  const issueGroups = $derived(groupMusicIssues(issues));
   const activePlaylistId = $derived(destination.kind === "playlist" ? destination.playlistId : null);
-
-  function issueLabel(group: MusicIssueGroup): string {
-    if (group === "missing-local-file") return t("music.builder.missingFiles");
-    if (group === "root-unavailable") return t("music.builder.relinkRoot");
-    if (group === "ambiguous-match") return t("music.builder.ambiguousMatches");
-    if (group === "youtube-unavailable") return t("music.builder.unavailableVideos");
-    if (group === "embedding-blocked") return t("music.builder.unavailable");
-    return t("music.builder.incompleteRefreshes");
-  }
 </script>
 
 <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -96,12 +78,6 @@
     <div class="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">
       <button type="button" class:active-row={selectedSourceId === null} class="context-row" onclick={() => onSelectSource(null)}><span class="context-icon"><RadioTower size={14} /></span><span class="min-w-0 flex-1 truncate">{t("music.builder.allSources")}</span><span class="context-count">{sources.length}</span></button>
       {#each sources as source (source.id)}<button type="button" class:active-row={selectedSourceId === source.id} class="context-row" onclick={() => onSelectSource(source.id)}><span class="relative context-icon"><RadioTower size={13} /><i class:warning-dot={source.health === "issues"} class="health-dot"></i></span><span class="min-w-0 flex-1 truncate">{source.name}</span><span class="context-count">{source.openIssueCount}</span></button>{/each}
-    </div>
-  {:else if destination.kind === "issues"}
-    <div class="shrink-0 p-2"><h2 class="px-1 text-[0.68rem] font-semibold text-muted-foreground">{t("music.builder.issues")}</h2></div>
-    <div class="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">
-      <button type="button" class:active-row={issueFilter === "all"} class="context-row" onclick={() => onIssueFilter("all")}><span class="context-icon"><AlertTriangle size={14} /></span><span class="min-w-0 flex-1 truncate">{t("music.builder.allIssues")}</span><span class="context-count">{issues.length}</span></button>
-      {#each [...issueGroups.entries()] as [group, entries] (group)}<button type="button" class:active-row={issueFilter === group} class="context-row" onclick={() => onIssueFilter(group)}><span class="context-icon"><AlertTriangle size={13} /></span><span class="min-w-0 flex-1 truncate">{issueLabel(group)}</span><span class="context-count">{entries.length}</span></button>{/each}
     </div>
   {:else if destination.kind === "soundscapes"}
     <div class="shrink-0 p-2"><h2 class="px-1 text-[0.68rem] font-semibold text-muted-foreground">{t("music.builder.soundscapes")}</h2></div>
