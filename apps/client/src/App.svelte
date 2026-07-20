@@ -1059,8 +1059,10 @@
         <CalendarView />
       {:else if nav.current === "projects"}
         <ProjectsView />
-      {:else}
+      {:else if nav.current === "notes"}
         <NotesView />
+      {:else}
+        <div class="h-full" style="background-color: var(--cal-bg);"></div>
       {/if}
     </main>
   </div>

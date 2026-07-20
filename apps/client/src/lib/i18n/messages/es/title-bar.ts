@@ -6,6 +6,7 @@ export const titleBar = {
     calendar: "Calendario",
     projects: "Proyectos",
     notes: "Notas",
+    chat: "Chat",
     withShortcut: (label: string, shortcut: string) => `${label} (${shortcut})`,
   },
   control: {

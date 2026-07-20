@@ -3,6 +3,7 @@ export const titleBar = {
     calendar: "Calendar",
     projects: "Projects",
     notes: "Notes",
+    chat: "Chat",
     withShortcut: (label: string, shortcut: string) => `${label} (${shortcut})`,
   },
   control: {
