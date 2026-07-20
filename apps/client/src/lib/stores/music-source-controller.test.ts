@@ -1,4 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { loadLocalMedia } from "$lib/api/media-player";
+import { getPlaybackState, pickMediaFolder } from "$lib/api/music";
 import { DEFAULT_PLAYBACK_SNAPSHOT } from "$lib/music/playback";
 import {
   localFileSourceFromPath,
@@ -59,6 +61,8 @@ function createState(): MusicSourceState {
     localBackendKind: "none",
     localVideoReady: false,
     currentArtworkUrl: null,
+    activePlaylistId: null,
+    activeQueueItemIds: [],
   };
 }
 
@@ -100,6 +104,78 @@ function createContext(state: MusicSourceState) {
 }
 
 describe("Music source controller", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("loads a selected local folder into one deterministic queue", async () => {
+    vi.mocked(pickMediaFolder).mockResolvedValueOnce({
+      folderPath: "/music/soundtracks",
+      tracks: [
+        { path: "/music/soundtracks/01-intro.flac", title: "Intro", artworkPath: null },
+        { path: "/music/soundtracks/02-focus.mp3", title: "Focus", artworkPath: "/music/cover.jpg" },
+      ],
+      truncated: false,
+    });
+    const state = createState();
+    const context = createContext(state);
+    const controller = createMusicSourceController(context);
+
+    await controller.loadFolder();
+
+    expect(state.queue.map((source) => source.identity)).toEqual([
+      "local:/music/soundtracks/01-intro.flac",
+      "local:/music/soundtracks/02-focus.mp3",
+    ]);
+    expect(state.currentSource?.identity).toBe("local:/music/soundtracks/01-intro.flac");
+    expect(state.folderScanTruncated).toBe(false);
+    expect(loadLocalMedia).toHaveBeenCalledWith(expect.objectContaining({
+      source: expect.objectContaining({ path: "/music/soundtracks/01-intro.flac" }),
+      startMs: 0,
+    }));
+    expect(context.playNative).toHaveBeenCalledOnce();
+  });
+
+  it("restores saved playback when loading a source normally", async () => {
+    vi.mocked(getPlaybackState).mockResolvedValueOnce({
+      sourceIdentity: "local:/music/focus.flac",
+      sourceKind: "local-file",
+      positionMs: 42_000,
+      durationMs: 180_000,
+      status: "paused",
+      updatedAt: 1_700_000_000_000,
+    });
+    const state = createState();
+    const context = createContext(state);
+    const controller = createMusicSourceController(context);
+    const source = localFileSourceFromPath("/music/focus.flac", "Focus");
+
+    await controller.loadSource(source);
+
+    expect(context.setLoadedPlaybackState).toHaveBeenCalledWith(expect.objectContaining({
+      positionMs: 42_000,
+      status: "paused",
+    }));
+    expect(loadLocalMedia).toHaveBeenCalledWith(expect.objectContaining({ startMs: 42_000 }));
+  });
+
+  it("switches from local playback to YouTube through the shared source owner", async () => {
+    const state = createState();
+    const context = createContext(state);
+    const controller = createMusicSourceController(context);
+    const local = localFileSourceFromPath("/music/focus.flac", "Focus");
+    const youtube = youtubeVideoSourceFromId("video-2");
+
+    await controller.loadSource(local, { autoplay: false });
+    await controller.loadSource(youtube, { autoplay: true });
+
+    expect(state.currentSource).toEqual(youtube);
+    expect(state.queue).toEqual([youtube]);
+    expect(context.resetLocalPlayback).toHaveBeenCalledTimes(2);
+    expect(context.destroyYouTube).toHaveBeenCalledTimes(2);
+    expect(context.loadYouTube).toHaveBeenCalledWith(youtube, null, expect.any(Number), true);
+  });
+
   it("prevents a slower local load from replacing a newer YouTube source", async () => {
     const state = createState();
     const context = createContext(state);

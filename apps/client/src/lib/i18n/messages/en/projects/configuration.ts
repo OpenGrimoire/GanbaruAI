@@ -30,6 +30,8 @@ export const configuration = {
     idleThreshold: "Idle threshold",
     focusPlaylist: "Default focus playlist",
     breakPlaylist: "Default break playlist",
+    soundtrackDefaults: "Activity soundtrack defaults",
+    soundtrackDefaultsDescription: "Choose what happens at each focus and break boundary. Events copy these choices when the project is selected, so later project edits do not unexpectedly change existing plans.",
     tags: "Tags",
     tagName: "Tag name",
     tagColor: "Color",

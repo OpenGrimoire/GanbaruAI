@@ -1,37 +1,53 @@
 <script lang="ts">
-  import { onDestroy, tick } from "svelte";
+  import { onDestroy, onMount, tick } from "svelte";
   import AlertCircle from "@lucide/svelte/icons/alert-circle";
   import Check from "@lucide/svelte/icons/check";
-  import FolderOpen from "@lucide/svelte/icons/folder-open";
   import Gauge from "@lucide/svelte/icons/gauge";
-  import LinkIcon from "@lucide/svelte/icons/link";
   import ListMusic from "@lucide/svelte/icons/list-music";
-  import ListPlus from "@lucide/svelte/icons/list-plus";
-  import LoaderCircle from "@lucide/svelte/icons/loader-circle";
+  import CalendarClock from "@lucide/svelte/icons/calendar-clock";
   import Pause from "@lucide/svelte/icons/pause";
   import Play from "@lucide/svelte/icons/play";
-  import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
   import Shuffle from "@lucide/svelte/icons/shuffle";
   import SkipBack from "@lucide/svelte/icons/skip-back";
   import SkipForward from "@lucide/svelte/icons/skip-forward";
   import Volume2 from "@lucide/svelte/icons/volume-2";
   import VolumeX from "@lucide/svelte/icons/volume-x";
   import CalendarScrollbar from "$lib/components/calendar/CalendarScrollbar.svelte";
-  import MusicPlaylistBuilderView from "$lib/components/music/MusicPlaylistBuilderView.svelte";
+  import MusicPlaylistLauncher from "$lib/components/music/MusicPlaylistLauncher.svelte";
+  import MusicCurrentItemMenu from "$lib/components/music/MusicCurrentItemMenu.svelte";
+  import MusicSoundscapeControl from "$lib/components/music/MusicSoundscapeControl.svelte";
+  import MusicPreparationActivity from "$lib/components/music/builder/MusicPreparationActivity.svelte";
   import { revealLocalFile } from "$lib/api/music";
   import { SPEED_PRESETS, clampRate, formatPlaybackTime, isSpeedPreset } from "$lib/music/playback";
+  import { fittedSidePlaylistPanelHeight } from "$lib/music/panel-layout";
+  import {
+    MUSIC_PLAYLIST_ROW_HEIGHT_PX,
+    musicPlaylistWindow,
+  } from "$lib/music/playlist-window";
   import { getMusicPlayer } from "$lib/stores/music-player.svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { cn } from "$lib/utils";
   import { formatShortcut, hasShortcutModifier } from "$lib/keyboard-shortcuts";
+  import {
+    musicBuilderLoader,
+    type MusicBuilderComponent,
+    type MusicBuilderInitialAction,
+  } from "$lib/music/music-builder-loader";
+  import { getMusicSourcesController } from "$lib/music/music-sources-controller.svelte";
+
+  let { onclose }: { onclose: () => void } = $props();
 
   const player = getMusicPlayer();
+  const sources = getMusicSourcesController();
   const { t } = getLocalization();
 
   type MusicPage = "player" | "playlist-builder";
 
   let musicHeader = $state<HTMLElement | null>(null);
   let mediaSurface = $state<HTMLElement | null>(null);
+  let mediaCell = $state<HTMLElement | null>(null);
+  let playlistPanel = $state<HTMLElement | null>(null);
+  let playbackControls = $state<HTMLElement | null>(null);
   let playlistScrollContainer = $state<HTMLElement | undefined>();
   let speedMenuRoot = $state<HTMLElement | null>(null);
   let volumeMenuRoot = $state<HTMLElement | null>(null);
@@ -39,8 +55,14 @@
   let volumeMenuOpen = $state(false);
   let customSpeedOpen = $state(false);
   let customRateDraft = $state("1");
-  let playlistVisible = $state(false);
-  let musicPage = $state<MusicPage>("player");
+  const playlistVisible = $derived(player.playlistVisible);
+  let musicPage = $state<MusicPage>(sources.firstUseSession ? "playlist-builder" : "player");
+  let firstUseRedirectHandled = $state(sources.firstUseSession);
+  let playlistBuilderComponent = $state<MusicBuilderComponent | null>(musicBuilderLoader.peek());
+  let playlistBuilderLoading = $state(false);
+  let playlistBuilderLoadError = $state<string | null>(null);
+  let playlistBuilderInitialAction = $state<MusicBuilderInitialAction | null>(null);
+  const PlaylistBuilder = $derived(playlistBuilderComponent);
   let mediaSurfaceFullscreen = $state(false);
   let volumeFeedbackVisible = $state(false);
   let mediaSurfaceClickTimeoutId: number | null = null;
@@ -49,13 +71,19 @@
   let playlistAutoScrollActive = false;
   let lastPlaylistAutoScrollIndex = -1;
   let lastPlaylistAutoScrollIdentity: string | null = null;
-  let playlistScrollRequestId = 0;
+  let playlistScrollTop = $state(0);
+  let playlistViewportHeight = $state(0);
   let mediaTitleMeasuredCenterPx = $state<number | null>(null);
+  let panel = $state<HTMLElement | null>(null);
+  let fittedPanelHeightPx = $state<number | null>(null);
 
   const mediaSurfaceFullscreenEvent = "ganbaru-ai-music-media-surface-fullscreen";
   const volumeMax = $derived(player.volumeMax);
   const volumeSliderProgress = $derived(volumeMax > 0
     ? `${Math.min(100, Math.max(0, (player.volumeControlValue / volumeMax) * 100))}%`
+    : "0%");
+  const seekSliderProgress = $derived(player.progressMax > 0
+    ? `${Math.min(100, Math.max(0, (player.progressValue / player.progressMax) * 100))}%`
     : "0%");
   const activeSpeedIsPreset = $derived(isSpeedPreset(player.snapshot.rate));
   const topBarMediaTitleMaxLength = 42;
@@ -72,7 +100,51 @@
   );
   const speedShortcutStep = 0.25;
   const musicIconSize = 14;
-  const musicIconStrokeWidth = 1.5;
+  const musicIconStrokeWidth = 1.4;
+  const panelMaximumHeight = $derived(
+    playlistVisible && fittedPanelHeightPx !== null ? `${fittedPanelHeightPx}px` : "680px",
+  );
+  const renderedPlaylistWindow = $derived(musicPlaylistWindow(
+    player.queue.length,
+    playlistScrollTop,
+    playlistViewportHeight,
+  ));
+  const renderedPlaylistItems = $derived(
+    player.queue.slice(renderedPlaylistWindow.startIndex, renderedPlaylistWindow.endIndex),
+  );
+  const savedQueueSkippedCount = $derived(Object.values(player.savedQueueSkipBreakdown).reduce((total, count) => total + count, 0));
+  const savedQueueUnavailable = $derived(Boolean(
+    player.activePlaylistId
+    && !player.currentSource
+    && player.contextPlayback?.state !== "unavailable",
+  ));
+  const savedQueueOfflineSubset = $derived(Boolean(player.activePlaylistId && !player.online && player.savedQueueSkipBreakdown.offline > 0 && player.currentSource));
+  const savedQueueSkipDetails = $derived([
+    { label: t("music.queueState.disabled"), count: player.savedQueueSkipBreakdown.disabled },
+    { label: t("music.queueState.snoozed"), count: player.savedQueueSkipBreakdown.snoozed },
+    { label: t("music.queueState.offline"), count: player.savedQueueSkipBreakdown.offline },
+    { label: t("music.queueState.unavailable"), count: player.savedQueueSkipBreakdown.unavailable },
+    { label: t("music.queueState.embeddingBlocked"), count: player.savedQueueSkipBreakdown["embedding-blocked"] },
+    { label: t("music.queueState.phaseConstraint"), count: player.savedQueueSkipBreakdown["phase-constraint"] },
+    { label: t("music.queueState.unboundRoot"), count: player.savedQueueSkipBreakdown["unbound-root"] },
+    { label: t("music.queueState.invalidSource"), count: player.savedQueueSkipBreakdown["invalid-source"] },
+  ].filter((entry) => entry.count > 0));
+  const visibleContext = $derived(player.contextPlayback?.state === "overridden" ? null : player.contextPlayback);
+  const contextPhaseLabel = $derived(visibleContext ? t(`music.assignment.phase.${visibleContext.phase}`) : "");
+  const contextSummary = $derived(visibleContext
+    ? t("music.assignment.context.selectedBy", contextPhaseLabel, visibleContext.eventTitle)
+    : "");
+
+  $effect(() => {
+    if (!sources.firstUseSession || firstUseRedirectHandled) return;
+    firstUseRedirectHandled = true;
+    musicPage = "playlist-builder";
+    void loadPlaylistBuilder();
+  });
+
+  $effect(() => {
+    if (musicPage === "playlist-builder") void loadPlaylistBuilder();
+  });
 
   $effect(() => {
     player.setSurfaceElement(mediaSurface);
@@ -134,9 +206,62 @@
     };
   });
 
+  $effect(() => {
+    const visible = playlistVisible;
+    const header = musicHeader;
+    const media = mediaCell;
+    const playlist = playlistPanel;
+    const controls = playbackControls;
+    if (!visible || !header || !media || !playlist || !controls) {
+      fittedPanelHeightPx = null;
+      return;
+    }
+
+    let animationFrameId: number | null = null;
+    const updateHeight = () => {
+      const mediaRect = media.getBoundingClientRect();
+      const playlistRect = playlist.getBoundingClientRect();
+      fittedPanelHeightPx = fittedSidePlaylistPanelHeight({
+        mediaWidth: mediaRect.width,
+        headerHeight: header.getBoundingClientRect().height,
+        controlsHeight: controls.getBoundingClientRect().height,
+        sideBySide: Math.abs(mediaRect.top - playlistRect.top) < 1
+          && playlistRect.left >= mediaRect.right - 1,
+      });
+    };
+    const requestHeightUpdate = () => {
+      if (animationFrameId !== null) window.cancelAnimationFrame(animationFrameId);
+      animationFrameId = window.requestAnimationFrame(() => {
+        animationFrameId = null;
+        updateHeight();
+      });
+    };
+
+    updateHeight();
+    const observer = new ResizeObserver(requestHeightUpdate);
+    observer.observe(header);
+    observer.observe(media);
+    observer.observe(playlist);
+    observer.observe(controls);
+    window.addEventListener("resize", requestHeightUpdate);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", requestHeightUpdate);
+      if (animationFrameId !== null) window.cancelAnimationFrame(animationFrameId);
+    };
+  });
+
   onDestroy(() => {
     clearMediaSurfaceClickTimeout();
     clearVolumeFeedbackTimeout();
+  });
+
+  onMount(() => {
+    const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    void tick().then(() => panel?.focus());
+    return () => {
+      queueMicrotask(() => returnFocus?.focus());
+    };
   });
 
   $effect(() => {
@@ -192,17 +317,36 @@
   });
 
   function togglePlaylist(): void {
-    playlistVisible = !playlistVisible;
+    player.setPlaylistVisible(!playlistVisible);
   }
 
-  function openPlaylistBuilder(): void {
+  async function loadPlaylistBuilder(): Promise<void> {
+    if (playlistBuilderComponent || playlistBuilderLoading) return;
+    playlistBuilderLoading = true;
+    playlistBuilderLoadError = null;
+    try {
+      playlistBuilderComponent = await musicBuilderLoader.load();
+    } catch (error) {
+      playlistBuilderLoadError = error instanceof Error ? error.message : String(error);
+    } finally {
+      playlistBuilderLoading = false;
+    }
+  }
+
+  function openPlaylistBuilder(initialAction: MusicBuilderInitialAction | null = null): void {
     closeSpeedMenu();
     closeVolumeMenu();
+    playlistBuilderInitialAction = initialAction;
     musicPage = "playlist-builder";
+    void loadPlaylistBuilder();
   }
 
   function closePlaylistBuilder(): void {
     musicPage = "player";
+  }
+
+  function openPlaylistChooser(): void {
+    panel?.querySelector<HTMLButtonElement>("[data-music-playlist-launcher]")?.click();
   }
 
   async function openCurrentLocalFileLocation(): Promise<void> {
@@ -238,6 +382,17 @@
   }
 
   function handleKeydown(event: KeyboardEvent): void {
+    if (event.key === "Escape" && !mediaSurfaceFullscreen) {
+      if (musicPage === "playlist-builder") return;
+      event.preventDefault();
+      event.stopPropagation();
+      onclose();
+      return;
+    }
+    if (event.key === "Tab") {
+      trapPanelFocus(event);
+      return;
+    }
     if (musicPage !== "player") return;
     if (event.altKey) return;
     if (isEditableTarget(event.target)) return;
@@ -326,6 +481,23 @@
     if (event.key === "-" || event.code === "NumpadSubtract") {
       event.preventDefault();
       void player.setRate(clampRate(player.snapshot.rate - speedShortcutStep));
+    }
+  }
+
+  function trapPanelFocus(event: KeyboardEvent): void {
+    if (!panel) return;
+    const focusable = [...panel.querySelectorAll<HTMLElement>(
+      "button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex='-1'])",
+    )].filter((element) => element.offsetParent !== null);
+    const first = focusable[0];
+    const last = focusable.at(-1);
+    if (!first || !last) return;
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
     }
   }
 
@@ -450,21 +622,39 @@
   }
 
   function scrollPlaylistItemIntoView(index: number, block: "center" | "nearest"): void {
-    const requestId = ++playlistScrollRequestId;
-    void tick().then(() => {
-      if (requestId !== playlistScrollRequestId) return;
-      if (!playlistVisible || !playlistScrollContainer) return;
-      const item = playlistScrollContainer.querySelector<HTMLElement>(`[data-playlist-index="${index}"]`);
-      if (!item) return;
-      if (block === "nearest" && playlistItemFullyVisible(item, playlistScrollContainer)) return;
-      item.scrollIntoView({ block, inline: "nearest", behavior: "auto" });
-    });
+    const container = playlistScrollContainer;
+    if (!playlistVisible || !container || index < 0 || index >= player.queue.length) return;
+    const itemTop = index * MUSIC_PLAYLIST_ROW_HEIGHT_PX;
+    const itemBottom = itemTop + MUSIC_PLAYLIST_ROW_HEIGHT_PX;
+    const viewportTop = container.scrollTop;
+    const viewportBottom = viewportTop + container.clientHeight;
+    let nextScrollTop = viewportTop;
+    if (block === "center") {
+      nextScrollTop = itemTop - (container.clientHeight - MUSIC_PLAYLIST_ROW_HEIGHT_PX) / 2;
+    } else if (itemTop < viewportTop) {
+      nextScrollTop = itemTop;
+    } else if (itemBottom > viewportBottom) {
+      nextScrollTop = itemBottom - container.clientHeight;
+    }
+    container.scrollTop = Math.max(0, nextScrollTop);
+    playlistScrollTop = container.scrollTop;
   }
 
-  function playlistItemFullyVisible(item: HTMLElement, container: HTMLElement): boolean {
-    const itemRect = item.getBoundingClientRect();
-    const containerRect = container.getBoundingClientRect();
-    return itemRect.top >= containerRect.top && itemRect.bottom <= containerRect.bottom;
+  function playlistViewportAction(node: HTMLElement): { destroy: () => void } {
+    const updateViewport = () => {
+      playlistScrollTop = node.scrollTop;
+      playlistViewportHeight = node.clientHeight;
+    };
+    const observer = new ResizeObserver(updateViewport);
+    observer.observe(node);
+    node.addEventListener("scroll", updateViewport, { passive: true });
+    updateViewport();
+    return {
+      destroy: () => {
+        observer.disconnect();
+        node.removeEventListener("scroll", updateViewport);
+      },
+    };
   }
 
   function handleMediaSurfaceKeydown(event: KeyboardEvent): void {
@@ -484,26 +674,66 @@
 
 <svelte:window onkeydown={handleKeydown} onpointerdown={handleWindowPointerDown} />
 
-{#if musicPage === "playlist-builder"}
-  <MusicPlaylistBuilderView onBack={closePlaylistBuilder} />
-{:else}
-<section
-    class="flex h-full min-h-0 select-none flex-col text-foreground"
-    style="background-color: var(--cal-bg);"
-    use:releaseClickedButtonFocusAction
-    onwheel={(event) => player.handleVolumeWheel(event)}
-  >
-  <div bind:this={musicHeader} class="relative flex h-(--cal-header-row-h) shrink-0 items-center gap-3 px-2">
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="fixed inset-0 z-40" onclick={(event) => { if (event.target === event.currentTarget) onclose(); }}></div>
+<div
+  class="pointer-events-none fixed right-2 z-50 w-[min(1000px,calc(100vw-1rem))] overflow-hidden rounded-xl shadow-lg"
+  style={`top: calc(var(--titlebar-h) + 4px); height: min(${panelMaximumHeight}, calc(100dvh - var(--titlebar-h) - 12px));`}
+  aria-hidden="true"
+>
+  <div class="h-full w-full" style="background-color: var(--cal-bg);"></div>
+</div>
+<div
+  bind:this={panel}
+  class="music-panel-root fixed right-2 z-70 flex w-[min(1000px,calc(100vw-1rem))] flex-col overflow-hidden rounded-xl outline-none"
+  style={`top: calc(var(--titlebar-h) + 4px); height: min(${panelMaximumHeight}, calc(100dvh - var(--titlebar-h) - 12px));`}
+  role="dialog"
+  aria-modal="true"
+  aria-label={t("music.title")}
+  tabindex="-1"
+>
+  {#if PlaylistBuilder}
+    <div class:hidden={musicPage !== "playlist-builder"} class="h-full min-h-0" aria-hidden={musicPage !== "playlist-builder"}>
+      <PlaylistBuilder
+        onOpenPlayer={closePlaylistBuilder}
+        initialAction={playlistBuilderInitialAction}
+        onInitialActionHandled={() => { playlistBuilderInitialAction = null; }}
+      />
+    </div>
+  {:else if musicPage === "playlist-builder"}
+    <section class="relative grid h-full min-h-40 place-items-center overflow-hidden p-5 text-center text-foreground" style="background-color: var(--cal-bg);">
+      {#if playlistBuilderLoadError}
+        <button type="button" onclick={closePlaylistBuilder} class="absolute left-3 top-3 inline-flex h-8 items-center rounded-full bg-secondary px-3 text-[0.7rem] font-medium text-secondary-foreground hover:bg-accent hover:text-accent-foreground">{t("music.mediaPlayer")}</button>
+        <div class="w-full max-w-sm">
+          <AlertCircle class="mx-auto text-destructive" size={24} strokeWidth={1.5} />
+          <h1 class="mt-3 text-lg font-semibold tracking-tight">{t("music.builder.loadFailed")}</h1>
+          <p class="mt-2 text-xs leading-relaxed text-muted-foreground">{playlistBuilderLoadError}</p>
+          <button type="button" onclick={() => { void loadPlaylistBuilder(); }} class="mt-4 inline-flex h-8 items-center rounded-full bg-primary px-3 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90">{t("music.builder.retry")}</button>
+        </div>
+      {:else}
+        <div class="w-full max-w-lg">
+          <MusicPreparationActivity />
+          <h1 class="mt-3 text-lg font-semibold tracking-tight">{t("music.builder.loading")}</h1>
+        </div>
+      {/if}
+    </section>
+  {/if}
+  <section
+      class:hidden={musicPage === "playlist-builder"}
+      aria-hidden={musicPage === "playlist-builder"}
+      data-music-player-page
+      class="flex h-full min-h-0 select-none flex-col text-foreground"
+      use:releaseClickedButtonFocusAction
+      onwheel={(event) => player.handleVolumeWheel(event)}
+    >
+  <div bind:this={musicHeader} class="relative flex h-(--cal-header-row-h) shrink-0 items-center gap-3 px-2" style="background-color: var(--cal-bg);">
     <div class="relative z-10 flex min-w-0 shrink-0 items-center gap-2">
-      <button
-        type="button"
-        onclick={openPlaylistBuilder}
-        class="inline-flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-md border border-border bg-secondary px-2.5 text-[0.8rem] font-medium text-secondary-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-        aria-label={t("music.playlistBuilder")}
-      >
-        <ListPlus size={musicIconSize} strokeWidth={musicIconStrokeWidth} />
-        <span class="hidden min-[960px]:inline">{t("music.playlistBuilder")}</span>
-      </button>
+      <MusicPlaylistLauncher
+        onOpenBuilder={() => openPlaylistBuilder()}
+        onOpenIssues={() => openPlaylistBuilder({ kind: "open-issues" })}
+        onNewPlaylist={() => openPlaylistBuilder("new-playlist")}
+      />
     </div>
     <div
       class="music-header-title absolute top-1/2 z-0 min-w-0 -translate-x-1/2 -translate-y-1/2 text-center text-[0.8rem] font-medium text-foreground"
@@ -527,78 +757,71 @@
         {/if}
       {/if}
     </div>
-    <form
-      class="relative z-10 ml-auto flex min-w-0 items-center justify-end gap-2 max-[720px]:flex-1"
-      onsubmit={(event) => { event.preventDefault(); void player.loadFromInput(); }}
-    >
-      <label class="sr-only" for="music-source">{t("music.sourceLabel")}</label>
-      <div class="music-source-field hidden h-7 min-w-0 items-center gap-2 rounded-md border border-border bg-card px-2.5 min-[540px]:flex">
-        <LinkIcon class="shrink-0 text-muted-foreground" size={musicIconSize} strokeWidth={musicIconStrokeWidth} />
-        <input
-          id="music-source"
-          bind:value={player.sourceInput}
-          class="min-w-0 flex-1 select-text bg-transparent text-[0.8rem] text-foreground outline-none placeholder:text-muted-foreground"
-          placeholder={t("music.youtubePlaceholder")}
-          autocomplete="off"
-          spellcheck="false"
-        />
+    {#if player.parseError || player.playerError}
+      <div class="relative z-10 ml-auto hidden min-w-0 max-w-56 items-center gap-1.5 text-[0.733333rem] text-destructive min-[720px]:flex" role="alert">
+        <AlertCircle class="shrink-0" size={musicIconSize} strokeWidth={musicIconStrokeWidth} />
+        <span class="truncate">{player.parseError ?? player.playerError}</span>
       </div>
-      {#if player.parseError || player.playerError}
-        <div class="hidden min-w-0 max-w-56 items-center gap-1.5 text-[0.733333rem] text-destructive min-[1360px]:flex">
-          <AlertCircle class="shrink-0" size={musicIconSize} strokeWidth={musicIconStrokeWidth} />
-          <span class="truncate">{player.parseError ?? player.playerError}</span>
-        </div>
-      {/if}
-      <div class="flex shrink-0 items-center gap-2">
-        <button
-          type="button"
-          onclick={() => { void player.loadFolder(); }}
-          disabled={player.sourceActionBusy}
-          class="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border bg-secondary text-secondary-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
-          aria-label={t("music.pickFolder")}
-          title={t("music.pickFolder")}
-        >
-          <FolderOpen size={musicIconSize} strokeWidth={musicIconStrokeWidth} />
-        </button>
-        <button
-          type="submit"
-          disabled={player.sourceActionBusy}
-          class="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border bg-secondary text-secondary-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
-          aria-label={player.sourceActionBusy ? t("music.loadingSource") : t("music.loadSource")}
-          title={player.sourceActionBusy ? t("music.loadingSource") : t("music.loadSource")}
-        >
-          {#if player.sourceActionBusy}
-            <LoaderCircle class="animate-spin" size={musicIconSize} strokeWidth={musicIconStrokeWidth} />
-          {:else}
-            <Play size={musicIconSize} strokeWidth={musicIconStrokeWidth} />
-          {/if}
-        </button>
-        <button
-          type="button"
-          onclick={() => { void player.resetPlayer(); }}
-          class="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border bg-secondary text-secondary-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-          aria-label={t("music.reset")}
-          data-app-tooltip-disabled="true"
-        >
-          <RotateCcw size={musicIconSize} strokeWidth={musicIconStrokeWidth} />
-        </button>
-      </div>
-    </form>
+    {/if}
   </div>
+
+  {#if savedQueueUnavailable || savedQueueOfflineSubset}
+    <div class="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-y border-border/60 bg-secondary/45 px-3 py-2 text-[0.68rem]" role="status">
+      <AlertCircle size={14} class="shrink-0 text-warning" />
+      <span class="min-w-40 flex-1 leading-relaxed">{savedQueueUnavailable ? t("music.queueState.nothingPlayable", player.activePlaylistName ?? "") : t("music.queueState.offlineSubset", player.savedQueueSkipBreakdown.offline)}</span>
+      {#if savedQueueSkippedCount > 0}
+        <span class="text-muted-foreground">{t("music.queueState.skippedTotal", savedQueueSkippedCount)}</span>
+        <span class="flex flex-wrap gap-1" aria-label={t("music.queueState.reasonBreakdown")}>
+          {#each savedQueueSkipDetails as detail (detail.label)}<span class="rounded-full bg-background/70 px-2 py-0.5 text-[0.62rem] text-muted-foreground">{detail.count} {detail.label}</span>{/each}
+        </span>
+      {/if}
+      {#if savedQueueUnavailable}
+        <button type="button" onclick={() => { void player.retrySavedPlaylist(); }} class="rounded-md bg-secondary px-2 py-1 font-medium hover:bg-accent">{t("music.queueState.retry")}</button>
+        <button type="button" onclick={() => openPlaylistBuilder({ kind: "open-issues" })} class="rounded-md px-2 py-1 font-medium text-primary hover:bg-primary/10">{t("music.queueState.openIssues")}</button>
+        <button type="button" onclick={openPlaylistChooser} class="rounded-md px-2 py-1 font-medium text-primary hover:bg-primary/10">{t("music.queueState.chooseAnother")}</button>
+      {/if}
+    </div>
+  {/if}
+
+  {#if visibleContext}
+    <div
+      class={cn(
+        "flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-y border-border/55 px-3 py-2 text-[0.68rem]",
+        visibleContext.state === "unavailable" || visibleContext.issue ? "bg-warning/10" : "bg-primary/6",
+      )}
+      role={visibleContext.state === "unavailable" || visibleContext.issue ? "alert" : "status"}
+    >
+      {#if visibleContext.state === "unavailable" || visibleContext.issue}<AlertCircle size={14} class="shrink-0 text-warning" />{:else}<CalendarClock size={14} class="shrink-0 text-primary" />{/if}
+      <div class="min-w-40 flex-1 leading-relaxed">
+        <p class="font-semibold text-foreground">{contextSummary}</p>
+        <p class="text-muted-foreground">
+          {t(`music.assignment.context.state.${visibleContext.state}`)}
+          {#if visibleContext.issue} {t(`music.assignment.context.issue.${visibleContext.issue}`)}{/if}
+        </p>
+      </div>
+      {#if visibleContext.state === "prepared"}
+        <button type="button" onclick={() => { void player.playPlayback(); }} class="rounded-md bg-primary px-2.5 py-1 font-semibold text-primary-foreground hover:bg-primary/90">{t("music.assignment.context.preparedPlay")}</button>
+      {/if}
+      {#if visibleContext.state === "unavailable"}
+        <button type="button" onclick={() => player.requestContextRetry()} class="rounded-md bg-secondary px-2.5 py-1 font-semibold hover:bg-accent">{t("music.assignment.context.retry")}</button>
+        <button type="button" onclick={() => openPlaylistBuilder({ kind: "open-issues" })} class="rounded-md px-2.5 py-1 font-semibold text-primary hover:bg-primary/10">{t("music.assignment.context.openIssues")}</button>
+      {/if}
+      <button type="button" onclick={() => player.inspectContextAssignment()} class="rounded-md px-2.5 py-1 font-semibold text-primary hover:bg-primary/10">{t("music.assignment.context.inspect")}</button>
+    </div>
+  {/if}
 
   <div
     class={cn(
-      "grid min-h-0 flex-1",
+      "music-player-grid grid min-h-0 flex-1",
       playlistVisible
-        ? "grid-cols-[minmax(0,1fr)_minmax(16rem,20rem)] grid-rows-[minmax(0,1fr)_auto] max-[860px]:grid-cols-1 max-[860px]:grid-rows-[minmax(0,1fr)_minmax(7rem,35%)_auto]"
+        ? "grid-cols-[minmax(0,1fr)_minmax(16rem,20rem)] grid-rows-[minmax(0,1fr)_auto] max-[860px]:grid-cols-1 max-[860px]:grid-rows-[minmax(0,1fr)_minmax(0,35%)_auto]"
         : "grid-cols-1 grid-rows-[minmax(0,1fr)_auto]",
     )}
   >
-    <div class="min-h-0">
+    <div bind:this={mediaCell} class="music-media-cell flex min-h-0 items-center justify-center overflow-hidden">
       <div
         bind:this={mediaSurface}
-        class="music-media-surface relative h-full min-h-48 cursor-default overflow-hidden max-[520px]:min-h-36"
-        style="background-color: var(--cal-bg);"
+        class="music-media-surface relative cursor-default overflow-hidden"
         role="button"
         tabindex="-1"
         aria-label={player.isPlaying ? t("music.pause") : t("music.play")}
@@ -637,7 +860,7 @@
     </div>
 
     {#if playlistVisible}
-      <aside id="music-playlist" class="min-h-0" style="background-color: var(--cal-bg);">
+      <aside bind:this={playlistPanel} id="music-playlist" class="min-h-0" style="background-color: var(--cal-bg);">
         <div class="flex h-full min-h-0 flex-col">
           <div class="flex items-center justify-between gap-2 px-4 py-3">
             <div class="flex items-center gap-2 text-[0.8rem] font-medium text-muted-foreground">
@@ -658,6 +881,7 @@
           <div class="relative min-h-0 flex-1">
             <div
               bind:this={playlistScrollContainer}
+              use:playlistViewportAction
               class="hide-scrollbar h-full min-h-0 overflow-y-auto overflow-x-hidden px-3 pb-3 pt-0"
               data-music-scrollable="true"
             >
@@ -667,19 +891,24 @@
                 </div>
               {:else}
                 <div class="flex flex-col">
-                  {#each player.queue as item, index}
+                  <div class="shrink-0" aria-hidden="true" style={`height: ${renderedPlaylistWindow.topSpacerHeight}px;`}></div>
+                  {#each renderedPlaylistItems as item, offset}
+                    {@const index = renderedPlaylistWindow.startIndex + offset}
                     <button
                       type="button"
                       data-playlist-index={index}
                       onclick={() => { void player.playQueueItem(index); }}
                       class={cn(
-                        "flex w-full min-w-0 items-center px-2 py-2 text-left text-[0.8rem] first:rounded-t-md last:rounded-b-md",
+                        "flex h-9 w-full min-w-0 shrink-0 items-center px-2 text-left text-[0.8rem]",
+                        index === 0 && "rounded-t-md",
+                        index === player.queue.length - 1 && "rounded-b-md",
                         player.highlightedQueueIndex === index && "bg-accent text-accent-foreground",
                       )}
                     >
                       <span class="min-w-0 truncate">{item.title}</span>
                     </button>
                   {/each}
+                  <div class="shrink-0" aria-hidden="true" style={`height: ${renderedPlaylistWindow.bottomSpacerHeight}px;`}></div>
                 </div>
               {/if}
             </div>
@@ -690,6 +919,7 @@
     {/if}
 
     <div
+      bind:this={playbackControls}
       class={cn("px-2 py-2", playlistVisible && "col-span-2 max-[860px]:col-span-1")}
       style="background-color: var(--cal-bg);"
     >
@@ -702,7 +932,8 @@
             max={player.progressMax}
             value={player.progressValue}
             disabled={!player.currentSource}
-            class="h-2 min-w-0 flex-1 accent-primary disabled:opacity-50"
+            class="music-seek-slider min-w-0 flex-1 disabled:opacity-50"
+            style={`--music-seek-progress: ${seekSliderProgress};`}
             aria-label={t("music.seek")}
             tabindex="-1"
             oninput={(event) => { void player.seekToMs(Number(event.currentTarget.value)); }}
@@ -814,6 +1045,8 @@
               {player.volumePercentLabel}
             </button>
           </div>
+          <MusicCurrentItemMenu onOpenItem={(itemId) => openPlaylistBuilder({ kind: "open-item", itemId })} onOpenPlaylists={() => openPlaylistBuilder("open-playlists")} />
+          <MusicSoundscapeControl onOpenSoundscapes={() => openPlaylistBuilder({ kind: "open-soundscapes" })} />
           <div
             bind:this={volumeMenuRoot}
             class="music-compact-volume-control relative"
@@ -889,7 +1122,7 @@
             </button>
             {#if speedMenuOpen}
               <div
-                class="absolute bottom-full right-0 z-30 mb-2 w-36 overflow-y-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-lg"
+                class="absolute bottom-full right-0 z-30 mb-2 w-36 overflow-y-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md"
                 style="max-height: min(14rem, calc(100vh - 2rem));"
               >
                 {#if !customSpeedOpen}
@@ -954,11 +1187,20 @@
     </div>
   </div>
 </section>
-{/if}
+</div>
 
 <style>
   .music-header-title {
     width: clamp(3rem, 22vw, 16rem);
+  }
+
+  .music-media-cell {
+    container-type: size;
+  }
+
+  .music-media-surface {
+    aspect-ratio: 16 / 9;
+    width: min(100%, calc(100cqh * 16 / 9));
   }
 
   .music-source-field {
@@ -1015,6 +1257,16 @@
     .music-control-group {
       display: flex;
       width: 100%;
+    }
+  }
+
+  @media (max-height: 300px) {
+    .music-player-grid {
+      grid-template-rows: minmax(0, 1fr) auto;
+    }
+
+    .music-player-grid :global(#music-playlist) {
+      display: none;
     }
   }
 
@@ -1087,5 +1339,14 @@
   .music-volume-slider-vertical-frame {
     width: var(--music-volume-thumb-size);
     height: 8rem;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    :global(.music-panel-root *) {
+      scroll-behavior: auto !important;
+      transition-duration: 0.01ms !important;
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+    }
   }
 </style>

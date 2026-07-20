@@ -35,6 +35,8 @@ export const titleBar = {
     volume: "Volume",
     volumeLabel: "Music volume",
     volumeTooltip: (volume: string) => `Volume: ${volume}`,
+    contextual: (phase: string, event: string) => `${phase} soundtrack for ${event}`,
+    inspectAssignment: "Inspect soundtrack assignment",
     status: {
       playing: "Playing",
       paused: "Paused",
@@ -55,6 +57,7 @@ export const titleBar = {
   disabledBenchmark: "Disabled while a benchmark is active",
   moveBackToMainWindow: "Move back to main window",
   moveToNewWindow: "Move to new window",
+  keepOneTabInMainWindow: "At least one tab must remain in the main window",
   resetSequenceTitle: "Open reset confirmation?",
   resetSequenceMessage:
     "You pressed the hidden reset shortcut 10 times. Continue only if you meant to erase your local app data",

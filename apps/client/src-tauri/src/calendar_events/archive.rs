@@ -94,6 +94,14 @@ pub(super) async fn hard_delete_loaded_event(
         return Ok(());
     }
 
+    sqlx::query(
+        "DELETE FROM music_context_assignments
+         WHERE owner_id = ? AND owner_kind IN ('event-snapshot', 'event-override')",
+    )
+    .bind(&context.source_event_id)
+    .execute(&mut **tx)
+    .await
+    .map_err(|e| format!("delete calendar music assignments: {e}"))?;
     sqlx::query("DELETE FROM calendar_events WHERE id = ?")
         .bind(&context.source_event_id)
         .execute(&mut **tx)

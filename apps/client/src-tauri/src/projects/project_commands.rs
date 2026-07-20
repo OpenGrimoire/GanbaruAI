@@ -1,4 +1,5 @@
 use crate::db_path::connect_sqlite;
+use sqlx::SqlitePool;
 use tauri::{AppHandle, Runtime};
 
 use super::models::{
@@ -106,6 +107,14 @@ pub async fn projects_update_project<R: Runtime>(
 ) -> Result<ProjectsMutationRows, String> {
     validate_project_update(&project)?;
     let pool = connect_sqlite(app, db_url).await?;
+    update_project_in_pool(&pool, project).await
+}
+
+pub(crate) async fn update_project_in_pool(
+    pool: &SqlitePool,
+    project: ProjectUpdate,
+) -> Result<ProjectsMutationRows, String> {
+    validate_project_update(&project)?;
     let built_in = built_in_routine_project(&project.id);
     let group_id = built_in
         .map(|_| ROUTINE_GROUP_ID)
@@ -116,6 +125,10 @@ pub async fn projects_update_project<R: Runtime>(
     let sort_order = built_in
         .map(|default| default.sort_order)
         .unwrap_or(project.sort_order);
+    let mut transaction = pool
+        .begin()
+        .await
+        .map_err(|e| format!("begin project update: {e}"))?;
     let result = sqlx::query(
         "UPDATE projects
          SET group_id = ?,
@@ -180,13 +193,31 @@ pub async fn projects_update_project<R: Runtime>(
         project.blocker_ruleset_id.as_deref(),
     ))
     .bind(&project.id)
-    .execute(&pool)
+    .execute(&mut *transaction)
     .await
     .map_err(|e| format!("update project: {e}"))?;
     if result.rows_affected() == 0 {
         return Err("project not found".to_string());
     }
-    project_mutation(&pool, &project.id).await
+    if let (Some(assignments), Some(updated_at)) = (
+        project.music_assignments,
+        project.music_assignments_updated_at,
+    ) {
+        crate::music::library::contexts::replace_assignments_in_transaction(
+            &mut transaction,
+            crate::music::library::MusicAssignmentOwnerKind::ProjectDefault,
+            &project.id,
+            assignments,
+            updated_at,
+        )
+        .await
+        .map_err(|error| error.to_string())?;
+    }
+    transaction
+        .commit()
+        .await
+        .map_err(|e| format!("commit project update: {e}"))?;
+    project_mutation(pool, &project.id).await
 }
 
 #[tauri::command]

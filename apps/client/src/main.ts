@@ -4,6 +4,7 @@ import "@fontsource-variable/inter";
 import "./app.css";
 import { mount } from "svelte";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ensureConfigLoaded, flushConfig } from "./lib/vault/config";
 import { getActiveVaultInfo } from "./lib/vault/state";
 import {
@@ -162,5 +163,16 @@ const appPromise = (async () => {
     target: document.getElementById("app")!,
   });
 })();
+
+void appPromise
+  .then(async () => {
+    if (getCurrentWindow().label !== "main") return;
+    await document.fonts.ready;
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+    await invoke("reveal_main_window");
+  })
+  .catch((error: unknown) => {
+    console.error("Failed to reveal the initialized main window:", error);
+  });
 
 export default appPromise;

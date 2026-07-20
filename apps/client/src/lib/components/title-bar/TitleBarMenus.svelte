@@ -13,6 +13,7 @@
     tabContextView = $bindable(),
     tabContextMenuStyle,
     detachedWindow,
+    canDetachTab,
     showTitleBarMenu = $bindable(),
     titleBarMenuStyle,
     controls,
@@ -23,6 +24,7 @@
     tabContextView: DetachableTabView | null;
     tabContextMenuStyle: string;
     detachedWindow: boolean;
+    canDetachTab: boolean;
     showTitleBarMenu: boolean;
     titleBarMenuStyle: string;
     controls: Array<{ id: TitleBarControlId; label: string }>;
@@ -50,8 +52,10 @@
     <div class="p-1">
       <button
         role="menuitem"
+        disabled={!detachedWindow && !canDetachTab}
+        title={!detachedWindow && !canDetachTab ? t("titleBar.keepOneTabInMainWindow") : undefined}
         onclick={onTabContextAction}
-        class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-popover-foreground transition-colors hover:bg-accent"
+        class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-popover-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:text-muted-foreground disabled:opacity-60"
       >
         {#if detachedWindow}
           <SquareArrowLeft size={15} strokeWidth={2.2} />

@@ -83,6 +83,26 @@ pub async fn calendar_add_event<R: Runtime>(
     if let Some(config) = &event.pomodoro_config {
         insert_pomodoro_config(&mut tx, &event.id, config).await?;
     }
+    let music_updated_at = super::time::calendar_timestamp_millis(&event.updated_at)
+        .ok_or_else(|| "updated_at must be a valid calendar timestamp".to_string())?;
+    crate::music::library::contexts::replace_assignments_in_transaction(
+        &mut tx,
+        crate::music::library::MusicAssignmentOwnerKind::EventSnapshot,
+        &event.id,
+        event.music_snapshot_assignments.clone(),
+        music_updated_at,
+    )
+    .await
+    .map_err(|error| error.to_string())?;
+    crate::music::library::contexts::replace_assignments_in_transaction(
+        &mut tx,
+        crate::music::library::MusicAssignmentOwnerKind::EventOverride,
+        &event.id,
+        event.music_override_assignments.clone(),
+        music_updated_at,
+    )
+    .await
+    .map_err(|error| error.to_string())?;
 
     for (sort_order, attendee) in event.attendees.iter().enumerate() {
         sqlx::query(

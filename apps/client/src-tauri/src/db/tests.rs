@@ -2,6 +2,7 @@ mod calendar;
 mod core;
 mod doomscrolling;
 mod helpers;
+mod music;
 mod notes;
 mod pomodoro;
 mod projects;

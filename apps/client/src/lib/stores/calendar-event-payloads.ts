@@ -12,6 +12,7 @@ import { sanitizeCalendarTime } from "$lib/components/calendar/utils";
 import { sanitizeCalendarDescriptionHtml } from "$lib/calendar/description-sanitizer";
 import { configEquals } from "$lib/pomodoro/rhythm";
 import { toDbTime } from "./map-row";
+import type { MusicContextAssignmentDraft } from "$lib/music/music-context-assignment";
 
 export type CalendarUpdateField =
   | { field: "title"; value: string }
@@ -22,6 +23,8 @@ export type CalendarUpdateField =
   | { field: "projectId"; value: string | null }
   | { field: "environmentId"; value: string | null }
   | { field: "playlistId"; value: string | null }
+  | { field: "musicSnapshotAssignments"; value: MusicContextAssignmentDraft[] }
+  | { field: "musicOverrideAssignments"; value: MusicContextAssignmentDraft[] }
   | { field: "color"; value: number | null }
   | { field: "description"; value: string }
   | { field: "rrule"; value: string | null }
@@ -99,6 +102,8 @@ export interface CalendarDetachInstancePayload {
   transparency: EventTransparency;
   status: EventStatus;
   now: string;
+  musicSnapshotAssignments: MusicContextAssignmentDraft[];
+  musicOverrideAssignments: MusicContextAssignmentDraft[];
 }
 
 export interface CalendarSplitSeriesPayload {
@@ -129,6 +134,8 @@ export interface CalendarSplitSeriesPayload {
   copyPomodoroConfig: boolean;
   pomodoroConfig: PomodoroConfig | null;
   now: string;
+  musicSnapshotAssignments: MusicContextAssignmentDraft[];
+  musicOverrideAssignments: MusicContextAssignmentDraft[];
 }
 
 export type CalendarRecurrenceCommitOperationPayload =
@@ -321,6 +328,12 @@ export function prepareUpdateBlockPayload(
         break;
       case "playlistId":
         addField({ field: "playlistId", value: toUpdate.playlistId ?? null });
+        break;
+      case "musicSnapshotAssignments":
+        addField({ field: "musicSnapshotAssignments", value: toUpdate.musicSnapshotAssignments ?? [] });
+        break;
+      case "musicOverrideAssignments":
+        addField({ field: "musicOverrideAssignments", value: toUpdate.musicOverrideAssignments ?? [] });
         break;
       case "color":
         addField({ field: "color", value: toUpdate.color ?? null });

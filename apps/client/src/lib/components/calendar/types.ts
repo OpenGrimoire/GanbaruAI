@@ -1,3 +1,5 @@
+import type { MusicContextAssignmentDraft } from "$lib/music/music-context-assignment";
+
 export const CALENDAR_VIEW_MODES = ["day", "workweek", "week", "month"] as const;
 export type CalendarViewMode = (typeof CALENDAR_VIEW_MODES)[number];
 export const DEFAULT_CALENDAR_VIEW_MODE: CalendarViewMode = "week";
@@ -185,6 +187,8 @@ export interface CalendarEvent {
   projectId?: string;
   environmentId?: string;
   playlistId?: string;
+  musicSnapshotAssignments?: MusicContextAssignmentDraft[];
+  musicOverrideAssignments?: MusicContextAssignmentDraft[];
   color?: EventColor;
   description?: string;
   recurrence?: RecurrenceConfig;

@@ -132,8 +132,34 @@ pub(super) async fn update_calendar_event_unchecked_tx(
 ) -> Result<(), String> {
     validate_event_update(patch)?;
     ensure_update_pomodoro_matches_all_day(tx, patch).await?;
+    let music_updated_at = calendar_timestamp_millis(&patch.updated_at)
+        .ok_or_else(|| "updated_at must be a valid calendar timestamp".to_string())?;
     for field in &patch.fields {
-        apply_update_field(tx, &patch.id, field).await?;
+        match field {
+            CalendarEventUpdateField::MusicSnapshotAssignments(assignments) => {
+                crate::music::library::contexts::replace_assignments_in_transaction(
+                    tx,
+                    crate::music::library::MusicAssignmentOwnerKind::EventSnapshot,
+                    &patch.id,
+                    assignments.clone(),
+                    music_updated_at,
+                )
+                .await
+                .map_err(|error| error.to_string())?;
+            }
+            CalendarEventUpdateField::MusicOverrideAssignments(assignments) => {
+                crate::music::library::contexts::replace_assignments_in_transaction(
+                    tx,
+                    crate::music::library::MusicAssignmentOwnerKind::EventOverride,
+                    &patch.id,
+                    assignments.clone(),
+                    music_updated_at,
+                )
+                .await
+                .map_err(|error| error.to_string())?;
+            }
+            _ => apply_update_field(tx, &patch.id, field).await?,
+        }
     }
 
     if let Some(attendees) = &patch.attendees {
@@ -249,6 +275,35 @@ pub(super) async fn ensure_update_pomodoro_matches_all_day(
         return Err("all-day events cannot have a pomodoro config".to_string());
     }
     Ok(())
+}
+
+async fn replace_event_music_assignments(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    event_id: &str,
+    snapshots: Vec<crate::music::library::MusicContextAssignmentDraft>,
+    overrides: Vec<crate::music::library::MusicContextAssignmentDraft>,
+    updated_at: &str,
+) -> Result<(), String> {
+    let updated_at = calendar_timestamp_millis(updated_at)
+        .ok_or_else(|| "music assignment timestamp is invalid".to_string())?;
+    crate::music::library::contexts::replace_assignments_in_transaction(
+        tx,
+        crate::music::library::MusicAssignmentOwnerKind::EventSnapshot,
+        event_id,
+        snapshots,
+        updated_at,
+    )
+    .await
+    .map_err(|error| error.to_string())?;
+    crate::music::library::contexts::replace_assignments_in_transaction(
+        tx,
+        crate::music::library::MusicAssignmentOwnerKind::EventOverride,
+        event_id,
+        overrides,
+        updated_at,
+    )
+    .await
+    .map_err(|error| error.to_string())
 }
 pub(super) fn patch_all_day_value(fields: &[CalendarEventUpdateField]) -> Option<bool> {
     fields.iter().rev().find_map(|field| match field {
@@ -513,6 +568,14 @@ pub(super) async fn detach_calendar_instance_tx(
         copy_pomodoro_config(tx, &input.parent_id, &input.new_id).await?;
     }
     copy_attendees(tx, &input.parent_id, &input.new_id).await?;
+    replace_event_music_assignments(
+        tx,
+        &input.new_id,
+        input.music_snapshot_assignments.clone(),
+        input.music_override_assignments.clone(),
+        &input.now,
+    )
+    .await?;
 
     let original_occurrence_id = format!("{}::{}", input.parent_id, input.instance_date);
     sqlx::query(
@@ -614,6 +677,14 @@ pub(super) async fn split_calendar_series_tx(
     .await
     .map_err(|e| format!("insert split series event: {e}"))?;
     sanitize_stored_event_description(tx, &input.new_id).await?;
+    replace_event_music_assignments(
+        tx,
+        &input.new_id,
+        input.music_snapshot_assignments.clone(),
+        input.music_override_assignments.clone(),
+        &input.now,
+    )
+    .await?;
     replace_i64_list(
         tx,
         &input.new_id,

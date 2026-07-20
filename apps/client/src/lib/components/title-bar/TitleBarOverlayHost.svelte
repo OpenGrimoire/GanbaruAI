@@ -5,8 +5,10 @@
   import { getSettingsLauncher } from "$lib/stores/settingsLauncher.svelte";
   import { getThemeEditor } from "$lib/stores/themeEditor.svelte";
   import SettingsModal from "$lib/components/settings/SettingsModal.svelte";
+  import MusicPanel from "$lib/components/music/MusicPanel.svelte";
   import QuickNotesPanel from "$lib/components/quick-notes/QuickNotesPanel.svelte";
   import { preloadQuickNotesInitialSnapshot } from "$lib/quick-notes/initial-snapshot";
+  import { startMusicFirstUsePreload } from "$lib/music/music-first-use-preload";
 
   type PerformancePopoverComponent = typeof import("$lib/components/perf/PerformancePopover.svelte").default;
   type FloatingThemeEditorComponent = typeof import("$lib/components/settings/FloatingThemeEditor.svelte").default;
@@ -17,6 +19,7 @@
     performancePinned = $bindable(),
     showThemeQuickSwitcher = $bindable(),
     showQuickNotes = $bindable(),
+    showMusic = $bindable(),
     shellStartupMs,
     startupMemorySnapshot,
     ensureBenchmarkOverlay,
@@ -25,6 +28,7 @@
     performancePinned: boolean;
     showThemeQuickSwitcher: boolean;
     showQuickNotes: boolean;
+    showMusic: boolean;
     shellStartupMs: number | null;
     startupMemorySnapshot: StartupMemorySnapshot;
     ensureBenchmarkOverlay: () => Promise<void>;
@@ -72,9 +76,11 @@
   });
 
   onMount(() => {
+    const stopMusicPreload = startMusicFirstUsePreload();
     void preloadQuickNotesInitialSnapshot().catch((error: unknown) => {
       console.warn("Quick notes preload failed", error);
     });
+    return stopMusicPreload;
   });
 </script>
 
@@ -108,6 +114,10 @@
 
 {#if showQuickNotes}
   <QuickNotesPanel onclose={() => { showQuickNotes = false; }} />
+{/if}
+
+{#if showMusic}
+  <MusicPanel onclose={() => { showMusic = false; }} />
 {/if}
 
 {#if showThemeQuickSwitcher && ThemeQuickSwitcher}

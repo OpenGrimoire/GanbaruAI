@@ -277,6 +277,14 @@ pub(super) fn validate_update_field(field: &CalendarEventUpdateField) -> Result<
             validate_optional_attendee_status(value, "local_rsvp_status")
         }
         CalendarEventUpdateField::GuestPermissions(_) => Ok(()),
+        CalendarEventUpdateField::MusicSnapshotAssignments(assignments)
+        | CalendarEventUpdateField::MusicOverrideAssignments(assignments) => {
+            if assignments.len() > 3 {
+                Err("music assignments cannot contain more than three phases".to_string())
+            } else {
+                Ok(())
+            }
+        }
     }
 }
 pub(super) fn validate_optional_attendee_status(

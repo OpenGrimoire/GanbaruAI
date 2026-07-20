@@ -23,6 +23,7 @@ interface YouTubeHostStateMessage {
   durationMs: number | null;
   videoId: string | null;
   title: string | null;
+  channel: string | null;
 }
 
 interface YouTubeHostReadyMessage {
@@ -155,6 +156,7 @@ export function parseYouTubeHostMessage(value: unknown): YouTubeHostMessage | nu
     && (typeof record.durationMs === "number" || record.durationMs === null)
     && (typeof record.videoId === "string" || record.videoId === null)
     && (typeof record.title === "string" || record.title === null)
+    && (typeof record.channel === "string" || record.channel === null)
   ) {
     return {
       token: record.token,
@@ -165,6 +167,7 @@ export function parseYouTubeHostMessage(value: unknown): YouTubeHostMessage | nu
       durationMs: record.durationMs,
       videoId: record.videoId,
       title: record.title,
+      channel: record.channel,
     };
   }
   return null;

@@ -38,6 +38,8 @@ export const titleBar = {
     volume: "Volumen",
     volumeLabel: "Volumen de música",
     volumeTooltip: (volume: string) => `Volumen: ${volume}`,
+    contextual: (phase: string, event: string) => `Banda sonora de ${phase.toLocaleLowerCase()} para ${event}`,
+    inspectAssignment: "Inspeccionar asignación de banda sonora",
     status: {
       playing: "Reproduciendo",
       paused: "Pausado",
@@ -58,6 +60,7 @@ export const titleBar = {
   disabledBenchmark: "Desactivado mientras hay un benchmark activo",
   moveBackToMainWindow: "Mover de vuelta a la ventana principal",
   moveToNewWindow: "Mover a una ventana nueva",
+  keepOneTabInMainWindow: "Al menos una pestaña debe permanecer en la ventana principal",
   resetSequenceTitle: "¿Abrir confirmación de reinicio?",
   resetSequenceMessage:
     "Presionaste el atajo oculto de reinicio 10 veces. Continúa solo si querías borrar tus datos locales de la app",

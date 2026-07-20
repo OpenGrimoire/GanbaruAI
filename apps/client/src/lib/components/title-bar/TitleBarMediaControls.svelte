@@ -11,7 +11,6 @@
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import type { PlaybackStatus } from "$lib/music/playback";
   import { getMusicPlayer } from "$lib/stores/music-player.svelte";
-  import { getNavigation } from "$lib/stores/navigation.svelte";
   import { getPomodoro } from "$lib/stores/pomodoro.svelte";
   import { cn } from "$lib/utils";
 
@@ -19,22 +18,25 @@
     showPomodoro,
     showMusic,
     quickNotesOpen,
+    musicPanelOpen,
     showMenu = $bindable(),
     isMainWindow,
     onMenuOpened,
     onToggleQuickNotes,
+    onToggleMusic,
   }: {
     showPomodoro: boolean;
     showMusic: boolean;
     quickNotesOpen: boolean;
+    musicPanelOpen: boolean;
     showMenu: boolean;
     isMainWindow: boolean;
     onMenuOpened: () => void;
     onToggleQuickNotes: () => void;
+    onToggleMusic: () => void;
   } = $props();
 
   const musicPlayer = getMusicPlayer();
-  const nav = getNavigation();
   const pomodoro = getPomodoro();
   const { t } = getLocalization();
 
@@ -101,7 +103,7 @@
     `${isActive ? t("titleBar.pomodoro.remaining", pomodoro.formattedTime) : t("titleBar.control.pomodoro")}\n${musicVolumeTooltipLine}`,
   );
   const musicButtonTooltip = $derived(
-    `${t("titleBar.control.music")}\n${musicVolumeTooltipLine}`,
+    `${t("titleBar.control.music")}\n${musicVolumeTooltipLine}${musicPlayer.contextPlayback && musicPlayer.contextPlayback.state !== "overridden" ? `\n${t("titleBar.music.contextual", t(`music.assignment.phase.${musicPlayer.contextPlayback.phase}`), musicPlayer.contextPlayback.eventTitle)}` : ""}`,
   );
 
   function musicStatusLabel(status: PlaybackStatus): string {
@@ -144,7 +146,7 @@
 
   function openMusicFromTitleBarMenu(): void {
     showMenu = false;
-    nav.navigate("music");
+    onToggleMusic();
   }
 </script>
 
@@ -286,6 +288,16 @@
             </button>
             {#if isMainWindow}
               <div class="mx-3 my-1.5 h-px bg-border"></div>
+              {#if musicPlayer.contextPlayback && musicPlayer.contextPlayback.state !== "overridden"}
+                <button
+                  type="button"
+                  onclick={() => { musicPlayer.inspectContextAssignment(); showMenu = false; }}
+                  class="mx-1 mb-1 flex w-[calc(100%-0.5rem)] items-start gap-2 rounded-md bg-primary/7 px-2 py-2 text-left hover:bg-primary/12"
+                >
+                  <span class="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-primary"></span>
+                  <span class="min-w-0"><span class="block truncate text-xs font-medium">{t("titleBar.music.contextual", t(`music.assignment.phase.${musicPlayer.contextPlayback.phase}`), musicPlayer.contextPlayback.eventTitle)}</span><span class="block text-[0.65rem] text-muted-foreground">{t("titleBar.music.inspectAssignment")}</span></span>
+                </button>
+              {/if}
               <div class="px-3 pb-1.5 pt-2 text-xs text-muted-foreground">
                 <span class="block truncate">{musicStatusText}</span>
               </div>
@@ -398,18 +410,23 @@
     {#if isMainWindow && showMusic}
       <button
         type="button"
-        onclick={() => nav.navigate("music")}
+        onclick={onToggleMusic}
         onwheel={handleVolumeWheel}
         class={cn(
-          "titlebar-icon-button flex items-center justify-center rounded-lg transition-colors",
-          nav.current === "music"
+          "titlebar-icon-button relative flex items-center justify-center rounded-lg transition-colors",
+          musicPanelOpen
             ? "bg-background text-foreground dark:bg-accent dark:text-white"
             : `${TITLE_BAR_ICON_COLOR_CLASS} hover:bg-sidebar-accent`,
         )}
         title={musicButtonTooltip}
         aria-label={t("titleBar.control.music")}
+        aria-haspopup="dialog"
+        aria-expanded={musicPanelOpen}
       >
         <Music size={TITLE_BAR_ICON_SIZE} strokeWidth={TITLE_BAR_ICON_STROKE_WIDTH} />
+        {#if musicPlayer.contextPlayback && musicPlayer.contextPlayback.state !== "overridden"}
+          <span class="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-primary ring-2 ring-sidebar" aria-hidden="true"></span>
+        {/if}
       </button>
     {/if}
 

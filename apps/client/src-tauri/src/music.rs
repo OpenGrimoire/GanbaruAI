@@ -1,3 +1,4 @@
+use base64::{engine::general_purpose, Engine as _};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, VecDeque},
@@ -5,6 +6,7 @@ use std::{
     path::{Path, PathBuf},
     process::Stdio,
     sync::atomic::{AtomicU64, Ordering},
+    time::{SystemTime, UNIX_EPOCH},
 };
 use tauri::Manager;
 use tauri_plugin_dialog::{DialogExt, FilePath};
@@ -13,22 +15,63 @@ use crate::db_path::connect_sqlite;
 
 mod artwork;
 pub(crate) mod host;
+pub(crate) mod library;
+pub(crate) mod root_bindings;
 mod youtube_host;
 
 pub(crate) use host::setup_youtube_host;
 
-use artwork::find_track_artwork;
+use artwork::{extract_embedded_artwork, find_track_artwork};
 
 const VALID_SOURCE_KINDS: &[&str] = &["local-file", "youtube-video", "youtube-playlist"];
 const VALID_PLAYBACK_STATUSES: &[&str] = &[
     "idle", "loading", "ready", "playing", "paused", "ended", "error",
 ];
 const MAX_MEDIA_FOLDER_FILES: usize = 5_000;
+const MAX_ARTWORK_BYTES: u64 = 12 * 1024 * 1024;
+const MAX_INTERCHANGE_BYTES: u64 = 8 * 1024 * 1024;
 static MEDIA_FOLDER_SCAN_GENERATION: AtomicU64 = AtomicU64::new(0);
 const MEDIA_EXTENSIONS: &[&str] = &[
     "aac", "aif", "aiff", "alac", "ape", "avi", "flac", "flv", "m4a", "m4v", "mkv", "mov", "mp3",
     "mp4", "mpeg", "mpg", "ogg", "ogv", "opus", "wav", "webm", "wma", "wmv",
 ];
+const SOUNDSCAPE_AUDIO_EXTENSIONS: &[&str] = &["flac", "m4a", "mp3", "mp4", "oga", "ogg", "wav"];
+
+fn replace_music_export_file(path: &Path, contents: &[u8]) -> Result<(), String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| "music export path has no parent".to_string())?;
+    let file_name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("music-export");
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| format!("system clock is invalid: {error}"))?
+        .as_nanos();
+    let temporary = parent.join(format!(".{file_name}.{nonce}.tmp"));
+    let backup = parent.join(format!(".{file_name}.{nonce}.bak"));
+    fs::write(&temporary, contents)
+        .map_err(|error| format!("failed to write music export: {error}"))?;
+    let had_existing = path.exists();
+    if had_existing {
+        if let Err(error) = fs::rename(path, &backup) {
+            let _ = fs::remove_file(&temporary);
+            return Err(format!("failed to prepare existing music export: {error}"));
+        }
+    }
+    if let Err(error) = fs::rename(&temporary, path) {
+        let _ = fs::remove_file(&temporary);
+        if had_existing {
+            let _ = fs::rename(&backup, path);
+        }
+        return Err(format!("failed to finish music export: {error}"));
+    }
+    if had_existing {
+        let _ = fs::remove_file(backup);
+    }
+    Ok(())
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -152,6 +195,284 @@ pub async fn music_pick_media_folder(
     })
     .await
     .map_err(|e| format!("media folder picker failed: {e}"))?
+}
+
+#[tauri::command]
+pub async fn music_detect_default_folder(
+    app: tauri::AppHandle,
+) -> Result<Option<MediaFolderSelection>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(folder) = music_folder_start_directory(&app) else {
+            return Ok(None);
+        };
+        detect_non_empty_media_folder(&folder)
+    })
+    .await
+    .map_err(|error| format!("default music folder scan failed: {error}"))?
+}
+
+fn detect_non_empty_media_folder(folder: &Path) -> Result<Option<MediaFolderSelection>, String> {
+    require_absolute_directory(folder)?;
+    let mut queue = VecDeque::from([folder.to_path_buf()]);
+    while let Some(directory) = queue.pop_front() {
+        let entries = fs::read_dir(&directory).map_err(|error| {
+            format!(
+                "failed to read media folder '{}': {error}",
+                directory.display()
+            )
+        })?;
+        for entry in entries {
+            let entry =
+                entry.map_err(|error| format!("failed to read media folder entry: {error}"))?;
+            let path = entry.path();
+            let file_type = entry
+                .file_type()
+                .map_err(|error| format!("failed to inspect '{}': {error}", path.display()))?;
+            if file_type.is_symlink() {
+                continue;
+            }
+            if file_type.is_dir() {
+                queue.push_back(path);
+            } else if file_type.is_file() && is_supported_media_path(&path) {
+                return Ok(Some(MediaFolderSelection {
+                    folder_path: folder.to_string_lossy().into_owned(),
+                    tracks: vec![MediaFolderTrack {
+                        title: media_title_from_path(&path),
+                        path: path.to_string_lossy().into_owned(),
+                        artwork_path: None,
+                    }],
+                    truncated: true,
+                }));
+            }
+        }
+    }
+    Ok(None)
+}
+
+#[tauri::command]
+pub async fn music_pick_root_binding_folder(
+    app: tauri::AppHandle,
+) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut picker = app.dialog().file().set_title("Map imported music folder");
+        if let Some(directory) = music_folder_start_directory(&app) {
+            picker = picker.set_directory(directory);
+        }
+        picker
+            .blocking_pick_folder()
+            .map(dialog_path)
+            .transpose()
+            .map(|path| path.map(|value| value.to_string_lossy().into_owned()))
+    })
+    .await
+    .map_err(|error| format!("music folder mapping picker failed: {error}"))?
+}
+
+#[tauri::command]
+pub async fn music_pick_media_file(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let selected = tauri::async_runtime::spawn_blocking(move || {
+        let mut picker = app
+            .dialog()
+            .file()
+            .set_title("Select replacement media file")
+            .add_filter("Supported media", MEDIA_EXTENSIONS);
+        if let Some(directory) = music_folder_start_directory(&app) {
+            picker = picker.set_directory(directory);
+        }
+        picker.blocking_pick_file().map(dialog_path).transpose()
+    })
+    .await
+    .map_err(|error| format!("media file picker failed: {error}"))??;
+    Ok(selected.map(|path| path.to_string_lossy().into_owned()))
+}
+
+#[tauri::command]
+pub async fn music_pick_soundscape_file(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let selected = tauri::async_runtime::spawn_blocking(move || {
+        let mut picker = app
+            .dialog()
+            .file()
+            .set_title("Select background audio loop")
+            .add_filter("Supported audio", SOUNDSCAPE_AUDIO_EXTENSIONS);
+        if let Some(directory) = music_folder_start_directory(&app) {
+            picker = picker.set_directory(directory);
+        }
+        picker.blocking_pick_file().map(dialog_path).transpose()
+    })
+    .await
+    .map_err(|error| format!("background audio picker failed: {error}"))??;
+    Ok(selected.map(|path| path.to_string_lossy().into_owned()))
+}
+
+#[tauri::command]
+pub async fn music_pick_artwork_file(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let selected = tauri::async_runtime::spawn_blocking(move || {
+        app.dialog()
+            .file()
+            .set_title("Select playlist artwork")
+            .add_filter(
+                "Images",
+                &["png", "jpg", "jpeg", "webp", "gif", "bmp", "avif"],
+            )
+            .blocking_pick_file()
+            .map(dialog_path)
+            .transpose()
+    })
+    .await
+    .map_err(|error| format!("artwork file picker failed: {error}"))??;
+    Ok(selected.map(|path| path.to_string_lossy().into_owned()))
+}
+
+#[tauri::command]
+pub async fn music_pick_and_read_interchange_file(
+    app: tauri::AppHandle,
+) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(path) = app
+            .dialog()
+            .file()
+            .set_title("Import music playlists")
+            .add_filter("Music playlists", &["json", "m3u8", "m3u"])
+            .blocking_pick_file()
+            .map(dialog_path)
+            .transpose()?
+        else {
+            return Ok(None);
+        };
+        let extension = path
+            .extension()
+            .and_then(|value| value.to_str())
+            .map(str::to_ascii_lowercase);
+        if !matches!(extension.as_deref(), Some("json" | "m3u8" | "m3u")) {
+            return Err("music import must use .json, .m3u8, or .m3u".to_string());
+        }
+        let metadata = fs::metadata(&path)
+            .map_err(|error| format!("failed to inspect music import: {error}"))?;
+        if metadata.len() > MAX_INTERCHANGE_BYTES {
+            return Err("music import exceeds the 8 MB safety limit".to_string());
+        }
+        fs::read_to_string(&path)
+            .map(Some)
+            .map_err(|error| format!("failed to read UTF-8 music import: {error}"))
+    })
+    .await
+    .map_err(|error| format!("music import picker failed: {error}"))?
+}
+
+#[tauri::command]
+pub async fn music_pick_and_write_interchange_file(
+    app: tauri::AppHandle,
+    default_name: String,
+    contents: String,
+    format: String,
+) -> Result<bool, String> {
+    if contents.len() as u64 > MAX_INTERCHANGE_BYTES {
+        return Err("music export exceeds the 8 MB safety limit".to_string());
+    }
+    let (extension, label) = match format.as_str() {
+        "json" => ("json", "Ganbaru AI music JSON"),
+        "m3u8" => ("m3u8", "UTF-8 M3U playlist"),
+        _ => return Err("unsupported music export format".to_string()),
+    };
+    let safe_stem = default_name
+        .chars()
+        .map(|character| {
+            if character.is_alphanumeric() || matches!(character, ' ' | '-' | '_') {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    let file_name = format!("{}.{}", safe_stem.trim().trim_end_matches('.'), extension);
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(path) = app
+            .dialog()
+            .file()
+            .set_title("Export music playlists")
+            .set_file_name(file_name)
+            .add_filter(label, &[extension])
+            .blocking_save_file()
+            .map(dialog_path)
+            .transpose()?
+        else {
+            return Ok(false);
+        };
+        if path
+            .extension()
+            .and_then(|value| value.to_str())
+            .map(str::to_ascii_lowercase)
+            .as_deref()
+            != Some(extension)
+        {
+            return Err(format!("music export path must end in .{extension}"));
+        }
+        replace_music_export_file(&path, contents.as_bytes())?;
+        Ok(true)
+    })
+    .await
+    .map_err(|error| format!("music export picker failed: {error}"))?
+}
+
+#[tauri::command]
+pub async fn music_artwork_data_url(path: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = PathBuf::from(path);
+        require_absolute_file(&path)?;
+        let metadata = fs::metadata(&path)
+            .map_err(|error| format!("failed to inspect artwork file: {error}"))?;
+        if metadata.len() > MAX_ARTWORK_BYTES {
+            return Err("artwork file exceeds the 12 MB display limit".to_string());
+        }
+        let bytes = fs::read(&path).map_err(|error| format!("failed to read artwork: {error}"))?;
+        let content_type = artwork_content_type(&bytes)
+            .ok_or_else(|| "selected artwork is not a supported image".to_string())?;
+        Ok(format!(
+            "data:{content_type};base64,{}",
+            general_purpose::STANDARD.encode(bytes)
+        ))
+    })
+    .await
+    .map_err(|error| format!("artwork loading task failed: {error}"))?
+}
+
+#[tauri::command]
+pub async fn music_embedded_artwork_data_url(path: String) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = PathBuf::from(path);
+        require_absolute_file(&path)?;
+        let Some(artwork) = extract_embedded_artwork(&path)? else {
+            return Ok(None);
+        };
+        if artwork.bytes.len() as u64 > MAX_ARTWORK_BYTES {
+            return Err("embedded artwork exceeds the 12 MB display limit".to_string());
+        }
+        Ok(Some(format!(
+            "data:{};base64,{}",
+            artwork.content_type,
+            general_purpose::STANDARD.encode(artwork.bytes)
+        )))
+    })
+    .await
+    .map_err(|error| format!("embedded artwork loading task failed: {error}"))?
+}
+
+fn artwork_content_type(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some("image/png")
+    } else if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
+        Some("image/jpeg")
+    } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        Some("image/gif")
+    } else if bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        Some("image/webp")
+    } else if bytes.starts_with(b"BM") {
+        Some("image/bmp")
+    } else if bytes.len() >= 12 && &bytes[4..8] == b"ftyp" && &bytes[8..12] == b"avif" {
+        Some("image/avif")
+    } else {
+        None
+    }
 }
 
 fn music_folder_start_directory(app: &tauri::AppHandle) -> Option<PathBuf> {
@@ -352,8 +673,8 @@ fn validate_playback_state(state: &PlaybackStateWrite) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::artwork::{
-        artwork_rank_for_track, extract_embedded_artwork, find_track_artwork, parse_apic_frame,
-        parse_flac_picture_block, remove_id3_unsynchronization,
+        artwork_rank_for_track, find_track_artwork, parse_apic_frame, parse_flac_picture_block,
+        remove_id3_unsynchronization,
     };
     use super::host::{media_content_type, parse_byte_range, ByteRange};
     use super::youtube_host::youtube_host_html;
@@ -408,6 +729,8 @@ mod tests {
         assert!(host.contains("ganbaru-ai-youtube-playlist-error"));
         assert!(host.contains("event.source !== parent"));
         assert!(host.contains("activeSource.kind !== \"youtube-playlist\""));
+        assert!(host.contains("playbackActive = event.data === 1"));
+        assert!(host.contains("if (player && playbackActive) snapshot()"));
         assert!(host.contains("if (source.kind === \"youtube-video\" || source.videoId)"));
         assert!(!host.contains("videoId: source.kind"));
         assert!(!host.contains("modestbranding"));
@@ -480,6 +803,23 @@ mod tests {
         );
         assert_eq!(existing_music_start_directory(Some(file_path)), None);
         assert_eq!(existing_music_start_directory(None), None);
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn automatic_music_folder_detection_stops_after_the_first_supported_file() {
+        let root = unique_temp_dir("ganbaru-ai-music-detection");
+        fs::create_dir_all(root.join("album")).unwrap();
+        fs::write(root.join("notes.txt"), []).unwrap();
+        assert!(detect_non_empty_media_folder(&root).unwrap().is_none());
+        fs::write(root.join("album/track.flac"), []).unwrap();
+        fs::write(root.join("album/second.mp3"), []).unwrap();
+
+        let detected = detect_non_empty_media_folder(&root).unwrap().unwrap();
+        assert_eq!(detected.tracks.len(), 1);
+        assert!(detected.truncated);
+        assert!(detected.tracks[0].artwork_path.is_none());
 
         fs::remove_dir_all(root).unwrap();
     }
@@ -581,6 +921,19 @@ mod tests {
     }
 
     #[test]
+    fn artwork_data_url_sniffing_rejects_extension_only_files() {
+        assert_eq!(
+            artwork_content_type(b"\x89PNG\r\n\x1a\nrest"),
+            Some("image/png")
+        );
+        assert_eq!(
+            artwork_content_type(&[0xff, 0xd8, 0xff, 0xdb]),
+            Some("image/jpeg")
+        );
+        assert_eq!(artwork_content_type(b"not an image"), None);
+    }
+
+    #[test]
     fn artwork_lookup_uses_parent_album_front_image() {
         let root = unique_temp_dir("ganbaru-ai-artwork-parent");
         let album_dir = root.join("Anime/Made in Abyss/2017 - Made in Abyss OST");
@@ -630,6 +983,19 @@ mod tests {
         assert_eq!(picture_type, 3);
         assert_eq!(artwork.content_type, "image/jpeg");
         assert_eq!(artwork.bytes, vec![0xff, 0xd8, 0xff, 0xdb]);
+    }
+
+    #[test]
+    fn apic_frame_parser_rejects_oversized_artwork_without_rejecting_the_track() {
+        let mut frame = Vec::new();
+        frame.push(0);
+        frame.extend_from_slice(b"image/jpeg\0");
+        frame.push(3);
+        frame.push(0);
+        frame.extend_from_slice(&[0xff, 0xd8, 0xff]);
+        frame.resize(24 * 1024 * 1024 + 32, 0);
+
+        assert!(parse_apic_frame(&frame).is_none());
     }
 
     #[test]

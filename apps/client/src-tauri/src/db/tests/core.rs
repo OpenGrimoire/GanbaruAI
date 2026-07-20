@@ -2,6 +2,8 @@ use super::super::run_migrations;
 use super::helpers::{insert_event, insert_open_run, migrated_memory_pool};
 use sqlx::Row;
 
+const EXPECTED_MIGRATION_COUNT: i64 = 10;
+
 #[test]
 fn fresh_database_applies_baseline_and_additive_migrations() {
     tauri::async_runtime::block_on(async {
@@ -11,7 +13,7 @@ fn fresh_database_applies_baseline_and_additive_migrations() {
                 .fetch_one(&pool)
                 .await
                 .unwrap();
-        assert_eq!(migration_count, 2);
+        assert_eq!(migration_count, EXPECTED_MIGRATION_COUNT);
         let integrity: String = sqlx::query_scalar("PRAGMA integrity_check")
             .fetch_one(&pool)
             .await
@@ -29,6 +31,22 @@ fn fresh_database_applies_baseline_and_additive_migrations() {
             "project_tasks",
             "music_playlists",
             "music_playlist_tracks",
+            "music_library_items",
+            "music_local_roots",
+            "music_local_locations",
+            "music_source_collections",
+            "music_source_collection_items",
+            "music_playlist_memberships",
+            "music_membership_break_items",
+            "music_library_repair_issues",
+            "music_snoozes",
+            "music_listening_statistics",
+            "music_recent_selections",
+            "music_context_assignments",
+            "music_soundscapes",
+            "music_soundscape_locations",
+            "music_soundscape_state",
+            "music_search_fts",
             "music_track_skip_ranges",
             "music_track_break_sources",
             "notes_pages",
@@ -103,7 +121,7 @@ fn fresh_file_database_applies_baseline_and_additive_migrations() {
                 .fetch_one(&pool)
                 .await
                 .unwrap();
-        assert_eq!(migration_count, 2);
+        assert_eq!(migration_count, EXPECTED_MIGRATION_COUNT);
         pool.close().await;
         std::fs::remove_file(path).unwrap();
     });

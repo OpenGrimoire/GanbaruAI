@@ -17,6 +17,7 @@ import type {
   PomodoroConfig,
   RecurrenceConfig,
 } from "./types";
+import type { MusicContextAssignmentDraft } from "$lib/music/music-context-assignment";
 
 export type PanelSaveData = {
   title: string;
@@ -27,6 +28,8 @@ export type PanelSaveData = {
   linkedTaskIds?: string[];
   environmentId?: string;
   playlistId?: string;
+  musicSnapshotAssignments?: MusicContextAssignmentDraft[];
+  musicOverrideAssignments?: MusicContextAssignmentDraft[];
   description: string;
   recurrence?: RecurrenceConfig;
   notifications?: number[];

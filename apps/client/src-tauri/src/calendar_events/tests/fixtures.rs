@@ -53,6 +53,8 @@ pub(super) fn event_create() -> CalendarEventCreate {
         updated_at: "2026-05-09 10:00:00".to_string(),
         pomodoro_config: None,
         attendees: Vec::new(),
+        music_snapshot_assignments: Vec::new(),
+        music_override_assignments: Vec::new(),
     }
 }
 

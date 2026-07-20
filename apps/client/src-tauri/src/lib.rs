@@ -26,24 +26,57 @@ mod project_icons;
 mod projects;
 mod quick_notes;
 mod recurrence;
+mod soundscape;
 mod themes;
 mod tray;
 mod updates;
 mod vault;
-mod window_shape;
 
 static PROCESS_START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
 static PLATFORM_LABEL: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+static MAIN_WINDOW_FRONTEND_READY: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 const DELAYED_RELAUNCH_MS_ENV: &str = "GANBARU_AI_DELAYED_RELAUNCH_MS";
 const DELAYED_RELAUNCH_MAX_MS: u64 = 10 * 60 * 1000;
+const MAIN_WINDOW_REVEAL_FALLBACK_MS: u64 = 15_000;
 
 #[cfg(any(target_os = "linux", target_os = "macos", windows))]
 fn focus_main_window_for_second_launch(app: &tauri::AppHandle) {
+    if !MAIN_WINDOW_FRONTEND_READY.load(std::sync::atomic::Ordering::Acquire) {
+        return;
+    }
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
     }
+}
+
+#[tauri::command]
+fn reveal_main_window(app: tauri::AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "main window is unavailable".to_string())?;
+    window.show().map_err(|error| error.to_string())?;
+    MAIN_WINDOW_FRONTEND_READY.store(true, std::sync::atomic::Ordering::Release);
+    window.set_focus().map_err(|error| error.to_string())
+}
+
+fn schedule_main_window_reveal_fallback(app: &tauri::AppHandle) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(
+            MAIN_WINDOW_REVEAL_FALLBACK_MS,
+        ));
+        if MAIN_WINDOW_FRONTEND_READY.load(std::sync::atomic::Ordering::Acquire) {
+            return;
+        }
+        eprintln!("frontend readiness timed out; revealing the main window");
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
+    });
 }
 
 #[tauri::command]
@@ -708,6 +741,7 @@ pub fn run() {
         .manage(notification::AppSoundState::default())
         .manage(notification::PomodoroOverlayState::default())
         .manage(media_player::MediaPlayerState::default())
+        .manage(soundscape::SoundscapeEngineState::default())
         .plugin(tauri_plugin_dialog::init())
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -735,7 +769,82 @@ pub fn run() {
             notification::show_idle_overlay,
             notification::show_pomodoro_completion_overlay,
             music::music_get_playback_state,
+            music::music_pick_artwork_file,
+            music::music_pick_and_read_interchange_file,
+            music::music_pick_and_write_interchange_file,
+            music::music_artwork_data_url,
+            music::music_embedded_artwork_data_url,
+            music::library::commands::music_library_upsert_item,
+            music::library::commands::music_library_upsert_local_location,
+            music::library::commands::music_library_start_local_refresh,
+            music::library::commands::music_library_refresh_progress,
+            music::library::commands::music_library_cancel_refresh,
+            music::library::commands::music_library_upsert_youtube_video,
+            music::library::commands::music_library_youtube_duplicate_count,
+            music::library::commands::music_library_apply_youtube_playlist_snapshot,
+            music::library::commands::music_library_report_youtube_source_failure,
+            music::library::commands::music_library_create_relink_plan,
+            music::library::commands::music_library_relink_plan_entries,
+            music::library::commands::music_library_apply_relink_plan,
+            music::library::commands::music_library_cancel_relink_plan,
+            music::library::commands::music_library_source_removal_impact,
+            music::library::commands::music_library_remove_source,
+            music::library::commands::music_library_restore_source,
+            music::library::commands::music_library_create_playlist,
+            music::library::commands::music_library_update_playlist,
+            music::library::commands::music_library_reorder_playlists,
+            music::library::commands::music_library_duplicate_playlist,
+            music::library::commands::music_library_playlist_delete_impact,
+            music::library::commands::music_library_delete_playlist,
+            music::library::commands::music_library_set_review_state,
+            music::library::commands::music_library_set_metadata_overrides,
+            music::library::commands::music_library_set_item_signals,
+            music::library::commands::music_library_upsert_memberships,
+            music::library::commands::music_library_bulk_edit_memberships,
+            music::library::commands::music_library_membership_matrix,
+            music::library::commands::music_library_reorder_playlist,
+            music::library::commands::music_library_playlist_playback_entries,
+            music::library::commands::music_library_record_listening,
+            music::library::commands::music_library_recent_selections,
+            music::library::commands::music_library_context_assignments,
+            music::library::commands::music_library_context_assignments_for_playlists,
+            music::library::commands::music_library_replace_context_assignments,
+            music::library::commands::music_library_bulk_set_review_state,
+            music::library::commands::music_library_apply_review_selection,
+            music::library::commands::music_library_bulk_snooze,
+            music::library::commands::music_library_save_advanced_membership,
+            music::library::commands::music_library_remove_memberships,
+            music::library::commands::music_library_upsert_snooze,
+            music::library::commands::music_library_remove_snooze,
+            music::library::commands::music_library_reset_statistics,
+            music::library::commands::music_library_import_interchange,
+            music::library::commands::music_library_item_window,
+            music::library::commands::music_library_playlist_summaries,
+            music::library::commands::music_library_source_summaries,
+            music::library::commands::music_library_issues,
+            music::library::commands::music_library_inspector_detail,
+            music::library::commands::music_library_rebuild_search_index,
+            music::library::commands::music_library_local_roots,
+            music::library::commands::music_library_create_local_root,
+            music::library::commands::music_library_preview_item_repair,
+            music::library::commands::music_library_apply_item_repair,
+            music::library::commands::music_library_undo_item_repair,
+            music::library::commands::music_library_source_collections,
+            music::library::commands::music_library_playlist_detail,
+            music::library::commands::music_library_upsert_source_collection,
+            music::library::commands::music_library_soundscapes,
+            music::library::commands::music_library_upsert_soundscape,
+            music::library::commands::music_library_remove_soundscape,
+            music::library::commands::music_library_soundscape_state,
+            music::library::commands::music_library_update_soundscape_state,
+            music::root_bindings::music_get_local_root_bindings,
+            music::root_bindings::music_set_local_root_binding,
+            music::root_bindings::music_clear_local_root_binding,
             music::music_pick_media_folder,
+            music::music_detect_default_folder,
+            music::music_pick_root_binding_folder,
+            music::music_pick_media_file,
+            music::music_pick_soundscape_file,
             music::host::music_register_embedded_artwork,
             music::host::music_register_media_file,
             music::host::music_retain_hosted_media,
@@ -754,6 +863,13 @@ pub fn run() {
             media_player::media_player_set_muted,
             media_player::media_player_set_rate,
             media_player::media_player_snapshot,
+            soundscape::soundscape_start,
+            soundscape::soundscape_pause,
+            soundscape::soundscape_resume,
+            soundscape::soundscape_stop,
+            soundscape::soundscape_set_volume,
+            soundscape::soundscape_recover,
+            soundscape::soundscape_snapshot,
             tray::update_music_tray,
             tray::update_tray,
             force_quit,
@@ -764,13 +880,16 @@ pub fn run() {
             prepare_benchmark_db,
             teardown_benchmark_db,
             benchmark_seed::benchmark_seed_pomodoro_history,
+            benchmark_seed::benchmark_seed_dense_music_library,
             restart_app,
             updates::updater_install_context,
             restart_app_after_delay,
             toggle_devtools,
             get_memory_report,
             get_startup_elapsed_ms,
+            reveal_main_window,
             vault::vault_read_app_state,
+            vault::vault_device_id,
             vault::vault_default_location,
             vault::vault_use_default_folder,
             vault::vault_active_info,
@@ -1057,7 +1176,7 @@ pub fn run() {
         ])
         .setup(|app| {
             clear_doomscrolling_enforcement_state_best_effort(app.handle(), "during startup");
-            window_shape::setup_main_window(app.handle())?;
+            schedule_main_window_reveal_fallback(app.handle());
             music::setup_youtube_host(app.handle())?;
             media_controls::setup_media_controls(app.handle())?;
             if let Err(err) = notification::restore_stale_shortcuts(app.handle()) {

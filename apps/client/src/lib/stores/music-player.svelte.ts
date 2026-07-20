@@ -1,7 +1,21 @@
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import type { MusicRepeatMode, MusicSelectionKind } from "$lib/music/library-contracts";
+import type {
+  MusicActivityPhase,
+  MusicAssignmentBehavior,
+  MusicAssignmentSource,
+} from "$lib/music/music-context-assignment";
+import {
+  buildWeightedShuffleCycle,
+  eligibleMusicQueueIndices,
+  emptyMusicSkipBreakdown,
+  selectFreshMusicQueueItem,
+  type MusicPlaylistSkipReason,
+  type MusicSavedQueueEntry,
+} from "$lib/music/music-playlist-playback";
 import {
   type LocalBackendKind,
-  type LocalPlayerSnapshot,
 } from "$lib/api/media-player";
 import {
   clampRate,
@@ -18,7 +32,12 @@ import {
   sourceDisplayLabel,
   type MusicSource,
 } from "$lib/music/sources";
-import type { SchedulerRunContext } from "$lib/scheduling/lifecycle-scheduler";
+import { getConfigKey, setConfigKey } from "$lib/vault/config";
+import { onActiveVaultIdentityChange } from "$lib/vault/active-vault";
+import { planMusicQueueMutation } from "$lib/music/music-queue-mutation";
+import { musicContextStateAfterAction } from "$lib/music/music-automation-ownership";
+import { MusicSavedPlaylistRuntime } from "./music-saved-playlist-runtime";
+import { MusicSurfaceClaims } from "./music-surface-claims";
 import {
   initialMusicSnapshot,
   loadMusicPlayerSettings,
@@ -44,10 +63,42 @@ import {
 } from "./music-source-controller";
 
 export type { MusicStaleVisual } from "./music-hosted-media-controller";
+export type MusicPlaybackContextOwner = "manual" | "review" | "calendar-event" | "pomodoro" | "soundscape";
+
+export type MusicPlaybackActionOrigin = "manual" | "context" | "pomodoro-pause" | "system";
+export type MusicContextPlaybackState = "playing" | "prepared" | "paused" | "kept" | "unavailable" | "overridden";
+export type MusicContextPlaybackIssue = "missing-playlist" | "no-eligible-items" | "offline-only" | "deleted-soundscape" | "activation-failed" | null;
+
+export interface MusicContextPlayback {
+  owner: "calendar-event" | "pomodoro";
+  activationKey: string;
+  eventId: string;
+  eventTitle: string;
+  displayLabel: string;
+  phase: MusicActivityPhase;
+  behavior: MusicAssignmentBehavior;
+  assignmentSource: MusicAssignmentSource;
+  playlistId: string | null;
+  playlistName: string | null;
+  state: MusicContextPlaybackState;
+  issue: MusicContextPlaybackIssue;
+}
+
+export interface MusicSavedPlaylistLoadOptions {
+  explicitItemId?: string | null;
+  structuralSkipped?: Record<MusicPlaylistSkipReason, number>;
+  autoplay?: boolean;
+  autoRecovery?: boolean;
+  avoidItemId?: string | null;
+  context?: MusicContextPlayback | null;
+}
 
 const progressMaxFallback = 1;
 
 const initialPlayerSettings = loadMusicPlayerSettings();
+if (getConfigKey<unknown>("music.recentPlaylistIds", undefined) !== undefined) {
+  setConfigKey("music.recentPlaylistIds", undefined);
+}
 
 class MusicPlayerStore {
   sourceInput = $state("");
@@ -60,6 +111,7 @@ class MusicPlayerStore {
   shuffleEnabled = $state(initialPlayerSettings.shuffleEnabled);
   shuffleExplicit = $state(initialPlayerSettings.shuffleExplicit);
   muted = $state(initialPlayerSettings.muted);
+  playlistVisible = $state(initialPlayerSettings.playlistVisible);
   shuffleOrder = $state<number[]>([]);
   queueHistory = $state<number[]>([]);
   pendingQueueIndex = $state<number | null>(null);
@@ -77,20 +129,47 @@ class MusicPlayerStore {
   surfaceElement = $state<HTMLElement | null>(null);
   sourceActionBusy = $state(false);
   volumeFeedbackId = $state(0);
+  contextOwner = $state<MusicPlaybackContextOwner>("manual");
+  contextPlayback = $state<MusicContextPlayback | null>(null);
+  contextRetryRequest = $state(0);
+  manualPlaybackActionVersion = $state(0);
+  activePlaylistId = $state<string | null>(null);
+  activePlaylistName = $state<string | null>(null);
+  activeQueueItemIds = $state<string[]>([]);
+  activePlaylistRepeatMode = $state<MusicRepeatMode>("off");
+  savedQueueEntries = $state<MusicSavedQueueEntry[]>([]);
+  savedQueueRecentItemIds = $state<string[]>([]);
+  savedQueueSkipBreakdown = $state<Record<MusicPlaylistSkipReason, number>>(emptyMusicSkipBreakdown());
+  online = $state(typeof navigator === "undefined" || navigator.onLine);
+
+  private playlistVolumeIntent = initialMusicSnapshot(initialPlayerSettings).volume;
+  private playlistRateIntent = initialMusicSnapshot(initialPlayerSettings).rate;
+  private savedQueueAutoplay = true;
+  private savedQueueAutoRecoveryEnabled = true;
+  private unsubscribeVaultIdentity: (() => void) | null = null;
+
+  private readonly savedPlaylistRuntime = new MusicSavedPlaylistRuntime(() => {
+    this.refreshSavedQueueBreakdown();
+    if (this.savedQueueAutoRecoveryEnabled && this.activePlaylistId && !this.currentSource) {
+      this.recoverSavedPlaylist();
+    }
+  });
 
   private readonly loadRuntime = new MusicLoadRuntime();
+  private readonly surfaceClaims = new MusicSurfaceClaims((element) => { this.surfaceElement = element; });
   private lastTraySignature = "";
   private readonly queueController = createMusicQueueController({
     state: this,
     isBusy: () => this.isBusy,
-    loadSource: (source) => this.loadSource(source, {
-      autoplay: true,
-      resume: false,
-      preserveQueue: true,
-    }),
+    loadSource: (source, index) => this.loadSavedQueueEntry(source, index),
     persistSettings: () => this.persistPlayerSettings(),
     updateExternalControls: () => this.updateNativeMediaControls(),
     updateTray: () => this.updateMusicTray(),
+    online: () => this.online,
+    onSelection: (index, automatic) => this.recordQueueSelection(index, automatic ? "automatic" : "manual"),
+    onBeforeNavigation: (index, automatic) => {
+      if (!automatic) this.recordQueueOutcome(index, "skipped");
+    },
   });
   private readonly hostedMediaController = createMusicHostedMediaController({
     state: this,
@@ -109,14 +188,16 @@ class MusicPlayerStore {
     updateExternalControls: () => this.updateSystemMediaControls(),
     updateTray: () => this.updateMusicTray(),
     canPlayNext: () => this.canPlayNextTrack,
-    playNext: () => this.playNextTrack(),
+    playNext: () => this.handleTrackCompleted(),
+    handlePosition: (positionMs) => this.enforceSkipRanges(positionMs),
   });
   private readonly nativeLocalAdapter = createMusicNativeLocalAdapter({
     state: this,
     updateExternalControls: () => this.updateSystemMediaControls(),
     updateTray: () => this.updateMusicTray(),
     persist: (force) => this.persistCurrentPlaybackState(force),
-    playNext: () => this.playNextTrack(),
+    playNext: () => this.handleTrackCompleted(),
+    handlePosition: (positionMs) => this.enforceSkipRanges(positionMs),
   });
   private readonly webviewLocalAdapter = createMusicWebviewLocalAdapter({
     state: this,
@@ -125,7 +206,8 @@ class MusicPlayerStore {
     updateNativeControls: () => this.updateNativeMediaControls(),
     updateTray: () => this.updateMusicTray(),
     persist: (force) => this.persistCurrentPlaybackState(force),
-    playNext: () => this.playNextTrack(),
+    playNext: () => this.handleTrackCompleted(),
+    handlePosition: (positionMs) => this.enforceSkipRanges(positionMs),
   });
   private readonly externalControls = createMusicExternalControls({
     currentSource: () => this.currentSource,
@@ -150,6 +232,7 @@ class MusicPlayerStore {
     setVolume: (volume) => this.setVolume(volume),
     setRate: (rate) => this.setRate(rate),
     toggleShuffle: () => this.toggleShuffle(),
+    inspectAssignment: () => this.inspectContextAssignment(),
     handleWindowMessage: this.youtubeAdapter.handleMessage,
   });
   private readonly playbackRuntime = createMusicPlaybackRuntime({
@@ -159,8 +242,7 @@ class MusicPlayerStore {
     isInitialized: this.externalControls.isInitialized,
     usesNativeLocalBackend: () => this.usesNativeLocalBackend(),
     postYouTubeSnapshot: () => this.postYouTubeCommand({ action: "snapshot" }),
-    refreshNativeLocalSnapshot: (context) =>
-      this.refreshNativeLocalSnapshot(context),
+    refreshNativeLocalSnapshot: (context) => this.nativeLocalAdapter.refresh(context),
   });
   private readonly sourceController = createMusicSourceController({
     state: this,
@@ -168,8 +250,11 @@ class MusicPlayerStore {
     hostedMedia: this.hostedMediaController,
     destroyYouTube: this.youtubeAdapter.destroy,
     clearYouTubePlaylist: this.youtubeAdapter.clearPlaylistResolution,
-    resetLocalPlayback: () => this.resetLocalPlayback(),
-    shouldUseVideoElement: (snapshot) => this.shouldUseVideoElement(snapshot),
+    resetLocalPlayback: async () => {
+      await this.nativeLocalAdapter.reset();
+      this.webviewLocalAdapter.reset();
+    },
+    shouldUseVideoElement: shouldUseWebviewLocalVideo,
     prepareWebview: this.webviewLocalAdapter.prepare,
     configureWebview: this.webviewLocalAdapter.configure,
     playWebview: this.webviewLocalAdapter.play,
@@ -222,6 +307,10 @@ class MusicPlayerStore {
     return this.queueController.currentIndex();
   }
 
+  get currentSavedItemId(): string | null {
+    return this.currentSavedQueueEntry()?.itemId ?? null;
+  }
+
   get highlightedQueueIndex(): number {
     return this.queueController.highlightedIndex();
   }
@@ -264,6 +353,13 @@ class MusicPlayerStore {
 
   init(): void {
     this.externalControls.init();
+    if (typeof window !== "undefined") {
+      window.addEventListener("online", this.handleConnectivityChange);
+      window.addEventListener("offline", this.handleConnectivityChange);
+    }
+    this.unsubscribeVaultIdentity = onActiveVaultIdentityChange((previous, next) => {
+      if (previous && previous !== next) void this.resetPlayer();
+    });
     this.updateMusicTray();
   }
 
@@ -272,10 +368,31 @@ class MusicPlayerStore {
     this.youtubeAdapter.destroy();
     this.playbackRuntime.stopScheduler();
     this.hostedMediaController.destroy();
+    this.savedPlaylistRuntime.destroy();
+    this.unsubscribeVaultIdentity?.();
+    this.unsubscribeVaultIdentity = null;
+    if (typeof window !== "undefined") {
+      window.removeEventListener("online", this.handleConnectivityChange);
+      window.removeEventListener("offline", this.handleConnectivityChange);
+    }
   }
 
   setSurfaceElement(element: HTMLElement | null): void {
-    this.surfaceElement = element;
+    this.surfaceClaims.setLegacy(element);
+  }
+
+  applyLibraryMetadata(itemId: string, identityKey: string, title: string, artworkUrl?: string | null): void {
+    const queueIndex = this.activeQueueItemIds.indexOf(itemId);
+    if (queueIndex >= 0 && this.queue[queueIndex]) this.queue[queueIndex] = { ...this.queue[queueIndex], title };
+    if (!this.currentSource || (queueIndex !== this.currentQueueIndex && this.currentSource.identity !== identityKey)) return;
+    this.currentSource = { ...this.currentSource, title };
+    if (artworkUrl !== undefined) this.currentArtworkUrl = artworkUrl;
+    this.updateSystemMediaControls();
+    this.updateMusicTray();
+  }
+
+  claimSurface(owner: string, element: HTMLElement, priority = 0): () => void {
+    return this.surfaceClaims.claim(owner, element, priority);
   }
 
   registerYouTubeFrame(frame: HTMLIFrameElement | null): void {
@@ -291,34 +408,224 @@ class MusicPlayerStore {
   }
 
   async loadFromInput(): Promise<void> {
+    this.prepareTemporaryQueue();
     await this.sourceController.loadFromInput();
   }
   async loadFolder(): Promise<void> {
+    this.prepareTemporaryQueue();
     await this.sourceController.loadFolder();
   }
   async loadSource(
     source: MusicSource,
     options: LoadSourceOptions = {},
   ): Promise<void> {
+    if (!options.preserveQueue) this.prepareTemporaryQueue();
     await this.sourceController.loadSource(source, options);
   }
-  async togglePlay(): Promise<void> {
-    if (!this.currentSource || this.snapshot.status === "loading") return;
-    if (this.snapshot.status === "playing") {
-      await this.pausePlayback();
-      return;
+  async loadSavedPlaylist(
+    playlistId: string,
+    playlistName: string,
+    entries: MusicSavedQueueEntry[],
+    shuffleEnabled: boolean,
+    repeatMode: MusicRepeatMode,
+    options: MusicSavedPlaylistLoadOptions = {},
+  ): Promise<boolean> {
+    const explicitItemId = options.explicitItemId ?? null;
+    const structuralSkipped = options.structuralSkipped ?? emptyMusicSkipBreakdown();
+    if (!options.context) this.manualPlaybackActionVersion += 1;
+    const priorIndex = this.currentQueueIndex;
+    if (priorIndex >= 0 && this.activePlaylistId) this.recordQueueOutcome(priorIndex, "skipped");
+    this.playlistVolumeIntent = this.activePlaylistId ? this.playlistVolumeIntent : this.snapshot.volume;
+    this.playlistRateIntent = this.activePlaylistId ? this.playlistRateIntent : this.snapshot.rate;
+    this.savedQueueEntries = [...entries];
+    this.queue = entries.map((entry) => entry.source);
+    this.activeQueueItemIds = entries.map((entry) => entry.itemId);
+    this.activePlaylistId = playlistId;
+    this.activePlaylistName = playlistName;
+    this.activePlaylistRepeatMode = repeatMode;
+    this.savedPlaylistRuntime.setStructuralSkipped(structuralSkipped);
+    this.contextPlayback = options.context ?? null;
+    this.contextOwner = options.context?.owner ?? "manual";
+    this.savedQueueAutoRecoveryEnabled = options.autoRecovery ?? options.autoplay ?? true;
+    this.shuffleEnabled = shuffleEnabled;
+    this.queueHistory = [];
+    this.savedQueueRecentItemIds = await this.savedPlaylistRuntime.recentItemIds(playlistId);
+    const eligibilityContext = {
+      nowMs: Date.now(),
+      online: this.online,
+      explicitItemId,
+    };
+    const eligibleIndices = eligibleMusicQueueIndices(entries, eligibilityContext);
+    this.refreshSavedQueueBreakdown();
+    this.savedPlaylistRuntime.scheduleSnoozeExpiry(entries);
+    if (eligibleIndices.length === 0) {
+      if (this.currentSource) await this.stopPlayback(options.context ? "context" : "manual");
+      this.currentSource = null;
+      this.pendingQueueIndex = null;
+      this.snapshot = { ...this.snapshot, status: "idle", positionMs: 0, error: null };
+      this.hostedMediaController.clearStaleVisual();
+      this.hostedMediaController.releaseAll();
+      this.updateSystemMediaControls();
+      this.updateMusicTray();
+      return false;
     }
-    await this.playPlayback();
+    const selection = selectFreshMusicQueueItem(entries, eligibleIndices, {
+      shuffle: shuffleEnabled,
+      explicitItemId,
+      avoidItemId: options.avoidItemId,
+      recentItemIds: this.savedQueueRecentItemIds,
+    });
+    const initialIndex = selection.index ?? -1;
+    this.shuffleOrder = selection.remainingShuffleOrder;
+    const first = this.queue[initialIndex];
+    if (!first || initialIndex < 0) return false;
+    this.pendingQueueIndex = initialIndex;
+    this.persistPlayerSettings();
+    this.savedQueueAutoplay = options.autoplay ?? true;
+    try {
+      await this.loadSavedQueueEntry(first, initialIndex);
+    } finally {
+      this.savedQueueAutoplay = true;
+    }
+    this.recordQueueSelection(initialIndex, options.context ? "automatic" : "manual");
+    return true;
   }
 
-  async playPlayback(): Promise<void> {
+  setContextPlayback(context: MusicContextPlayback): void {
+    this.contextPlayback = context;
+    this.contextOwner = context.owner;
+    if (context.behavior !== "play-automatically") this.savedQueueAutoRecoveryEnabled = false;
+    this.updateMusicTray();
+  }
+
+  clearContextPlayback(): void {
+    if (this.contextPlayback) this.savedQueueAutoRecoveryEnabled = false;
+    this.contextPlayback = null;
+    this.contextOwner = "manual";
+    this.updateMusicTray();
+  }
+
+  requestContextRetry(): void {
+    this.contextRetryRequest += 1;
+  }
+
+  inspectContextAssignment(): void {
+    const context = this.contextPlayback;
+    if (!context || typeof window === "undefined") return;
+    window.dispatchEvent(new CustomEvent("ganbaru-ai:inspect-music-assignment", {
+      detail: { eventId: context.eventId },
+    }));
+    const appWindow = getCurrentWindow();
+    void appWindow.show().then(() => appWindow.setFocus()).catch(() => {});
+  }
+
+  private registerManualContextAction(origin: MusicPlaybackActionOrigin): void {
+    if (origin !== "manual") return;
+    this.manualPlaybackActionVersion += 1;
+    if (!this.contextPlayback) return;
+    const state = musicContextStateAfterAction(this.contextPlayback.state, origin);
+    if (!state || state === this.contextPlayback.state) return;
+    this.contextPlayback = { ...this.contextPlayback, state };
+    this.contextOwner = "manual";
+    this.updateMusicTray();
+  }
+  async retrySavedPlaylist(): Promise<void> {
+    if (!this.activePlaylistId) return;
+    this.refreshSavedQueueBreakdown();
+    await this.queueController.playNext(true);
+  }
+  reconcileSavedPlaylist(
+    entries: MusicSavedQueueEntry[],
+    structuralSkipped: Record<MusicPlaylistSkipReason, number> = emptyMusicSkipBreakdown(),
+  ): void {
+    if (!this.activePlaylistId) return;
+    const currentEntry = this.currentSavedQueueEntry();
+    const historyMembershipIds = this.queueHistory
+      .map((index) => this.savedQueueEntries[index]?.membershipId)
+      .filter((membershipId): membershipId is string => Boolean(membershipId));
+    const plan = planMusicQueueMutation({
+      playlistId: this.activePlaylistId,
+      membershipId: currentEntry?.membershipId ?? null,
+      itemId: currentEntry?.itemId ?? null,
+    }, {
+      kind: "playlist-reordered",
+      playlistId: this.activePlaylistId,
+      orderedItemIds: entries.map((entry) => entry.itemId),
+    });
+    if (plan.action !== "reorder") return;
+    if (currentEntry && !entries.some((entry) => entry.membershipId === currentEntry.membershipId)) {
+      this.recordQueueOutcome(this.currentQueueIndex, "skipped");
+    }
+    this.savedQueueEntries = [...entries];
+    this.queue = entries.map((entry) => entry.source);
+    this.activeQueueItemIds = entries.map((entry) => entry.itemId);
+    this.savedPlaylistRuntime.setStructuralSkipped(structuralSkipped);
+    const activeIndex = this.currentQueueIndex;
+    this.shuffleOrder = this.shuffleEnabled
+      ? buildWeightedShuffleCycle(entries, eligibleMusicQueueIndices(entries, { nowMs: Date.now(), online: this.online }), activeIndex, this.savedQueueRecentItemIds)
+      : [];
+    this.queueHistory = historyMembershipIds.flatMap((membershipId) => {
+      const index = entries.findIndex((entry) => entry.membershipId === membershipId);
+      return index >= 0 ? [index] : [];
+    });
+    this.refreshSavedQueueBreakdown();
+    this.savedPlaylistRuntime.scheduleSnoozeExpiry(entries);
+    this.updateSystemMediaControls();
+    this.updateMusicTray();
+    if (!this.currentSource && eligibleMusicQueueIndices(entries, {
+      nowMs: Date.now(),
+      online: this.online,
+    }).length > 0) void this.queueController.playNext(true);
+  }
+
+  detachDeletedPlaylist(playlistId: string): void {
+    if (this.contextPlayback?.playlistId === playlistId) {
+      this.setContextPlayback({
+        ...this.contextPlayback,
+        playlistId: null,
+        playlistName: null,
+        state: "unavailable",
+        issue: "missing-playlist",
+      });
+    }
+    const currentEntry = this.currentSavedQueueEntry();
+    const plan = planMusicQueueMutation({
+      playlistId: this.activePlaylistId,
+      membershipId: currentEntry?.membershipId ?? null,
+      itemId: currentEntry?.itemId ?? null,
+    }, { kind: "playlist-deleted", playlistId, replacementPlaylistId: null });
+    if (plan.action !== "detach-playlist") return;
+    this.activePlaylistId = null;
+    this.activePlaylistName = null;
+    this.activePlaylistRepeatMode = "off";
+    this.activeQueueItemIds = [];
+    this.savedQueueEntries = [];
+    this.savedQueueRecentItemIds = [];
+    this.savedQueueSkipBreakdown = emptyMusicSkipBreakdown();
+    this.savedPlaylistRuntime.reset();
+    this.queueHistory = [];
+    this.shuffleOrder = [];
+    this.updateSystemMediaControls();
+    this.updateMusicTray();
+  }
+  async togglePlay(origin: MusicPlaybackActionOrigin = "manual"): Promise<void> {
+    if (!this.currentSource || this.snapshot.status === "loading") return;
+    if (this.snapshot.status === "playing") {
+      await this.pausePlayback(origin);
+      return;
+    }
+    await this.playPlayback(origin);
+  }
+
+  async playPlayback(origin: MusicPlaybackActionOrigin = "manual"): Promise<void> {
     if (!this.currentSource) return;
+    this.registerManualContextAction(origin);
     this.playerError = null;
     if (this.currentSource.kind === "local-file") {
       if (this.usesNativeLocalBackend()) {
-        await this.playNativeLocalMedia();
+        await this.nativeLocalAdapter.play();
       } else {
-        await this.playLocalMediaElement();
+        await this.webviewLocalAdapter.play();
       }
       await this.persistCurrentPlaybackState();
       this.updateMusicTray();
@@ -332,13 +639,14 @@ class MusicPlayerStore {
     this.updateMusicTray();
   }
 
-  async pausePlayback(): Promise<void> {
+  async pausePlayback(origin: MusicPlaybackActionOrigin = "manual"): Promise<void> {
     if (!this.currentSource) return;
+    this.registerManualContextAction(origin);
     if (this.currentSource.kind === "local-file") {
       if (this.usesNativeLocalBackend()) {
-        await this.pauseNativeLocalMedia();
+        await this.nativeLocalAdapter.pause();
       } else {
-        this.pauseLocalMediaElement();
+        this.webviewLocalAdapter.pause();
       }
     } else {
       this.youtubeAdapter.beginOptimisticPause();
@@ -350,13 +658,14 @@ class MusicPlayerStore {
     this.updateMusicTray();
   }
 
-  async stopPlayback(): Promise<void> {
+  async stopPlayback(origin: MusicPlaybackActionOrigin = "manual"): Promise<void> {
     if (!this.currentSource) return;
+    this.registerManualContextAction(origin);
     if (this.currentSource.kind === "local-file") {
       if (this.usesNativeLocalBackend()) {
-        await this.stopNativeLocalMedia();
+        await this.nativeLocalAdapter.stop();
       } else {
-        this.stopLocalMediaElement();
+        this.webviewLocalAdapter.stop();
       }
     } else {
       this.postYouTubeCommand({ action: "stop" });
@@ -371,9 +680,9 @@ class MusicPlayerStore {
     const bounded = Math.max(0, Math.min(positionMs, this.progressMax));
     if (this.currentSource.kind === "local-file") {
       if (this.usesNativeLocalBackend()) {
-        await this.seekNativeLocalMedia(bounded);
+        await this.nativeLocalAdapter.seek(bounded);
       } else {
-        this.seekLocalMediaElement(bounded);
+        this.webviewLocalAdapter.seek(bounded);
       }
     } else {
       this.postYouTubeCommand({ action: "seek", positionMs: bounded });
@@ -385,6 +694,7 @@ class MusicPlayerStore {
 
   async setVolume(value: number): Promise<void> {
     const volume = clampVolume(value);
+    if (this.activePlaylistId) this.playlistVolumeIntent = volume;
     this.snapshot = { ...this.snapshot, volume };
     this.muted = false;
     this.announceVolumeFeedback();
@@ -395,7 +705,7 @@ class MusicPlayerStore {
     }
     if (this.currentSource.kind === "local-file") {
       if (this.usesNativeLocalBackend()) {
-        await this.applyNativeLocalVolume();
+        await this.nativeLocalAdapter.applyVolume(true);
       } else {
         this.applyLocalVolume();
       }
@@ -416,7 +726,7 @@ class MusicPlayerStore {
     }
     if (this.currentSource.kind === "local-file") {
       if (this.usesNativeLocalBackend()) {
-        await this.applyNativeLocalTransientVolume();
+        await this.nativeLocalAdapter.applyVolume(false);
       } else {
         this.applyLocalVolume();
       }
@@ -437,7 +747,7 @@ class MusicPlayerStore {
     }
     if (this.currentSource.kind === "local-file") {
       if (this.usesNativeLocalBackend()) {
-        await this.applyNativeLocalMute();
+        await this.nativeLocalAdapter.applyMute();
       } else {
         this.applyLocalVolume();
       }
@@ -484,6 +794,7 @@ class MusicPlayerStore {
 
   async setRate(value: number): Promise<void> {
     const rate = clampRate(value);
+    if (this.activePlaylistId) this.playlistRateIntent = rate;
     this.snapshot = { ...this.snapshot, rate };
     this.persistPlayerSettings();
     if (!this.currentSource) {
@@ -504,21 +815,31 @@ class MusicPlayerStore {
   }
 
   async resetPlayer(): Promise<void> {
+    this.prepareTemporaryQueue();
     await this.sourceController.resetPlayer();
   }
   toggleShuffle(): void {
     this.queueController.toggleShuffle();
   }
 
+  setPlaylistVisible(visible: boolean): void {
+    if (this.playlistVisible === visible) return;
+    this.playlistVisible = visible;
+    this.persistPlayerSettings();
+  }
+
   async playQueueItem(index: number): Promise<void> {
+    this.registerManualContextAction("manual");
     await this.queueController.playItem(index);
   }
 
   async playNextTrack(): Promise<void> {
-    await this.queueController.playNext();
+    this.registerManualContextAction("manual");
+    await this.queueController.playNext(false);
   }
 
   async playPreviousTrack(): Promise<void> {
+    this.registerManualContextAction("manual");
     await this.queueController.playPrevious();
   }
 
@@ -559,77 +880,140 @@ class MusicPlayerStore {
     this.hostedMediaController.syncRetention();
   }
 
-  private applyLocalSnapshot(localSnapshot: LocalPlayerSnapshot): void {
-    this.nativeLocalAdapter.applySnapshot(localSnapshot);
-  }
-
-  private async playNativeLocalMedia(): Promise<void> {
-    await this.nativeLocalAdapter.play();
-  }
-
-  private async pauseNativeLocalMedia(): Promise<void> {
-    await this.nativeLocalAdapter.pause();
-  }
-
-  private async stopNativeLocalMedia(): Promise<void> {
-    await this.nativeLocalAdapter.stop();
-  }
-
-  private async seekNativeLocalMedia(positionMs: number): Promise<void> {
-    await this.nativeLocalAdapter.seek(positionMs);
-  }
-
-  private async applyNativeLocalVolume(): Promise<void> {
-    await this.nativeLocalAdapter.applyVolume(true);
-  }
-
-  private async applyNativeLocalTransientVolume(): Promise<void> {
-    await this.nativeLocalAdapter.applyVolume(false);
-  }
-
-  private async applyNativeLocalMute(): Promise<void> {
-    await this.nativeLocalAdapter.applyMute();
-  }
-
-  private async refreshNativeLocalSnapshot(context?: SchedulerRunContext): Promise<void> {
-    await this.nativeLocalAdapter.refresh(context);
-  }
-
-  private configureLocalMediaElement(): void {
-    this.webviewLocalAdapter.configure();
-  }
-
-  private async playLocalMediaElement(): Promise<void> {
-    await this.webviewLocalAdapter.play();
-  }
-
-  private pauseLocalMediaElement(): void {
-    this.webviewLocalAdapter.pause();
-  }
-
-  private stopLocalMediaElement(): void {
-    this.webviewLocalAdapter.stop();
-  }
-
-  private seekLocalMediaElement(positionMs: number): void {
-    this.webviewLocalAdapter.seek(positionMs);
-  }
-
-  private shouldUseVideoElement(localSnapshot: LocalPlayerSnapshot): boolean {
-    return shouldUseWebviewLocalVideo(localSnapshot);
-  }
-
   private usesNativeLocalBackend(): boolean {
     return this.nativeLocalAdapter.isActive();
   }
 
-  private async resetLocalPlayback(): Promise<void> {
-    await this.nativeLocalAdapter.reset();
-    this.resetLocalMediaElement();
+  private readonly handleConnectivityChange = (): void => {
+    this.online = typeof navigator === "undefined" || navigator.onLine;
+    this.refreshSavedQueueBreakdown();
+    if (this.savedQueueAutoRecoveryEnabled && this.activePlaylistId && !this.currentSource && this.online) {
+      this.recoverSavedPlaylist();
+    }
+  };
+
+  private recoverSavedPlaylist(): void {
+    void this.queueController.playNext(true).then(() => {
+      const context = this.contextPlayback;
+      if (!this.currentSource || context?.behavior !== "play-automatically" || context.state === "overridden") return;
+      this.setContextPlayback({
+        ...context,
+        state: "playing",
+        issue: context.issue === "deleted-soundscape" ? context.issue : null,
+      });
+    });
   }
 
-  private resetLocalMediaElement(): void {
-    this.webviewLocalAdapter.reset();
+  private prepareTemporaryQueue(): void {
+    this.manualPlaybackActionVersion += 1;
+    const priorIndex = this.currentQueueIndex;
+    if (priorIndex >= 0 && this.activePlaylistId) this.recordQueueOutcome(priorIndex, "skipped");
+    if (this.activePlaylistId) {
+      this.snapshot = {
+        ...this.snapshot,
+        volume: this.playlistVolumeIntent,
+        rate: this.playlistRateIntent,
+      };
+    }
+    this.activePlaylistId = null;
+    this.activePlaylistName = null;
+    this.activePlaylistRepeatMode = "off";
+    this.savedQueueEntries = [];
+    this.savedQueueRecentItemIds = [];
+    this.savedQueueSkipBreakdown = emptyMusicSkipBreakdown();
+    this.savedPlaylistRuntime.reset();
+    this.activeQueueItemIds = [];
+    this.clearContextPlayback();
+  }
+
+  private async loadSavedQueueEntry(source: MusicSource, index: number): Promise<void> {
+    const entry = this.savedQueueEntries[index];
+    if (!entry) return;
+    const volume = entry.volume ?? this.playlistVolumeIntent;
+    const rate = entry.rate ?? this.playlistRateIntent;
+    this.snapshot = { ...this.snapshot, volume: clampVolume(volume), rate: clampRate(rate) };
+    this.savedPlaylistRuntime.resetSkipRange();
+    await this.sourceController.loadSource(source, {
+      autoplay: this.savedQueueAutoplay,
+      resume: false,
+      preserveQueue: true,
+    });
+    await this.setTransientVolume(volume);
+    await this.setTransientRate(rate);
+  }
+
+  async setTransientRate(value: number): Promise<void> {
+    const rate = clampRate(value);
+    this.snapshot = { ...this.snapshot, rate };
+    if (!this.currentSource) return;
+    if (this.currentSource.kind === "local-file") {
+      if (this.usesNativeLocalBackend()) await this.nativeLocalAdapter.applyRate(rate);
+      else if (this.localMediaElement) this.localMediaElement.playbackRate = rate;
+    } else {
+      this.postYouTubeCommand({ action: "rate", rate });
+    }
+    this.updateSystemMediaControls();
+  }
+
+  applyCurrentQueueSnooze(endsAt: number | null): void {
+    const index = this.currentQueueIndex;
+    const entry = this.currentSavedQueueEntry(index);
+    if (!entry) return;
+    this.savedQueueEntries[index] = {
+      ...entry,
+      snoozedUntil: endsAt,
+      snoozedIndefinitely: endsAt === null,
+    };
+    this.refreshSavedQueueBreakdown();
+    this.savedPlaylistRuntime.scheduleSnoozeExpiry(this.savedQueueEntries);
+  }
+
+  clearCurrentQueueSnooze(): void {
+    const index = this.currentQueueIndex;
+    const entry = this.currentSavedQueueEntry(index);
+    if (!entry) return;
+    this.savedQueueEntries[index] = {
+      ...entry,
+      snoozedUntil: null,
+      snoozedIndefinitely: false,
+    };
+    this.refreshSavedQueueBreakdown();
+    this.savedPlaylistRuntime.scheduleSnoozeExpiry(this.savedQueueEntries);
+  }
+
+  private currentSavedQueueEntry(index = this.currentQueueIndex): MusicSavedQueueEntry | null {
+    return index >= 0 ? this.savedQueueEntries[index] ?? null : null;
+  }
+
+  private recordQueueSelection(index: number, selectionKind: MusicSelectionKind): void {
+    const entry = this.currentSavedQueueEntry(index);
+    if (!entry || !this.activePlaylistId) return;
+    this.savedQueueRecentItemIds = [entry.itemId, ...this.savedQueueRecentItemIds.filter((itemId) => itemId !== entry.itemId)].slice(0, 32);
+    this.savedPlaylistRuntime.recordSelection(this.activePlaylistId, entry, selectionKind);
+  }
+
+  private recordQueueOutcome(index: number, outcome: "completed" | "skipped"): void {
+    const entry = this.currentSavedQueueEntry(index);
+    if (!entry || !this.activePlaylistId) return;
+    this.savedPlaylistRuntime.recordOutcome(this.activePlaylistId, entry, outcome);
+  }
+
+  private async handleTrackCompleted(): Promise<void> {
+    const index = this.currentQueueIndex;
+    if (index >= 0) this.recordQueueOutcome(index, "completed");
+    await this.queueController.playNext(true);
+  }
+
+  private enforceSkipRanges(positionMs: number): void {
+    const target = this.savedPlaylistRuntime.skipTarget(positionMs, this.currentSavedQueueEntry());
+    if (target !== null) void this.seekToMs(target);
+  }
+
+  private refreshSavedQueueBreakdown(): void {
+    this.savedQueueSkipBreakdown = this.savedPlaylistRuntime.breakdown(
+      this.savedQueueEntries,
+      this.online,
+    );
   }
 
   private postYouTubeCommand(payload: Record<string, unknown> & { action: YouTubeCommandAction | "snapshot" }): void {
@@ -640,10 +1024,6 @@ class MusicPlayerStore {
     await this.playbackRuntime.persist(force);
   }
 
-  private destroyYouTubePlayer(): void {
-    this.youtubeAdapter.destroy();
-  }
-
   private persistPlayerSettings(): void {
     persistMusicPlayerSettings({
       volume: this.snapshot.volume,
@@ -651,6 +1031,7 @@ class MusicPlayerStore {
       shuffleEnabled: this.shuffleEnabled,
       shuffleExplicit: this.shuffleExplicit,
       muted: this.muted,
+      playlistVisible: this.playlistVisible,
     });
   }
 
@@ -682,6 +1063,7 @@ class MusicPlayerStore {
       this.snapshot.status,
       this.canPlayPreviousTrack ? "prev" : "no-prev",
       this.canPlayNextTrack ? "next" : "no-next",
+      this.contextPlayback?.state !== "overridden" ? this.contextPlayback?.displayLabel ?? "manual" : "manual",
     ].join("|");
     if (signature === this.lastTraySignature) return;
     this.lastTraySignature = signature;
@@ -692,6 +1074,9 @@ class MusicPlayerStore {
         canPlayPause: Boolean(this.currentSource) && !this.isBusy,
         canPrevious: this.canPlayPreviousTrack,
         canNext: this.canPlayNextTrack,
+        contextLabel: this.contextPlayback?.state !== "overridden"
+          ? this.contextPlayback?.displayLabel ?? null
+          : null,
       },
     }).catch(() => {});
   }

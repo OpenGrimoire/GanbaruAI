@@ -5,6 +5,7 @@ import { APP_SOUND_IDS, playAppSound } from "$lib/app-sounds";
 import { getMusicPlayer } from "$lib/stores/music-player.svelte";
 import { getPreferences } from "$lib/stores/preferences.svelte";
 import { createPomodoroNativeTrayPolicy } from "./pomodoro-native-update-policy";
+import { shouldResumePomodoroPausedMusic } from "$lib/music/music-automation-ownership";
 
 interface PomodoroTrayUpdateOptions {
   publishSnapshot?: boolean;
@@ -71,6 +72,7 @@ export function createPomodoroEffects(context: PomodoroEffectsContext): Pomodoro
   let breakEndWarningTimeoutId: ReturnType<typeof setTimeout> | null = null;
   let musicPausedByPomodoroPause = false;
   let musicPauseInFlight: Promise<void> | null = null;
+  let musicManualActionVersionAtPause: number | null = null;
   let pausedFocusNotificationTimeoutId: ReturnType<typeof setTimeout> | null = null;
   let pausedFocusNotificationSuppressed = false;
 
@@ -230,6 +232,7 @@ export function createPomodoroEffects(context: PomodoroEffectsContext): Pomodoro
   function clearMusicPausedByPomodoro(): void {
     musicPausedByPomodoroPause = false;
     musicPauseInFlight = null;
+    musicManualActionVersionAtPause = null;
   }
 
   function pauseMusicForPomodoroPause(): void {
@@ -248,7 +251,8 @@ export function createPomodoroEffects(context: PomodoroEffectsContext): Pomodoro
       return;
     }
     musicPausedByPomodoroPause = true;
-    const trackedPause = music.pausePlayback().catch((error) => {
+    musicManualActionVersionAtPause = music.manualPlaybackActionVersion;
+    const trackedPause = music.pausePlayback("pomodoro-pause").catch((error) => {
       console.warn("Failed to pause music with pomodoro:", error);
     });
     musicPauseInFlight = trackedPause;
@@ -260,14 +264,28 @@ export function createPomodoroEffects(context: PomodoroEffectsContext): Pomodoro
   function resumeMusicFromPomodoroPause(): void {
     if (!musicPausedByPomodoroPause) return;
     musicPausedByPomodoroPause = false;
-    if (!context.isCoordinator() || !getPreferences().musicPauseOnPomodoroPause) return;
+    if (!context.isCoordinator() || !getPreferences().musicPauseOnPomodoroPause) {
+      clearMusicPausedByPomodoro();
+      return;
+    }
     const music = getMusicPlayer();
     const pausePromise = musicPauseInFlight;
+    const manualActionVersionAtPause = musicManualActionVersionAtPause;
     musicPauseInFlight = null;
+    musicManualActionVersionAtPause = null;
     void (async () => {
       if (pausePromise) await pausePromise;
-      if (!music.currentSource || music.isPlaying || music.isBusy) return;
-      await music.playPlayback();
+      if (!shouldResumePomodoroPausedMusic({
+        pauseOwned: true,
+        manualActionVersionAtPause,
+        currentManualActionVersion: music.manualPlaybackActionVersion,
+        coordinator: context.isCoordinator(),
+        preferenceEnabled: getPreferences().musicPauseOnPomodoroPause,
+        hasSource: Boolean(music.currentSource),
+        playing: music.isPlaying,
+        busy: music.isBusy,
+      })) return;
+      await music.playPlayback("pomodoro-pause");
     })().catch((error) => {
       console.warn("Failed to resume music with pomodoro:", error);
     });

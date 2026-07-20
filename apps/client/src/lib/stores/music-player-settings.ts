@@ -14,6 +14,7 @@ export interface MusicPlayerSettings {
   shuffleEnabled: boolean;
   shuffleExplicit: boolean;
   muted: boolean;
+  playlistVisible: boolean;
 }
 
 function defaultSettings(): MusicPlayerSettings {
@@ -23,6 +24,7 @@ function defaultSettings(): MusicPlayerSettings {
     shuffleEnabled: true,
     shuffleExplicit: false,
     muted: false,
+    playlistVisible: false,
   };
 }
 
@@ -52,6 +54,7 @@ export function loadMusicPlayerSettings(): MusicPlayerSettings {
         : true,
       shuffleExplicit,
       muted: record.muted === true,
+      playlistVisible: record.playlistVisible === true,
     };
   } catch {
     return defaultSettings();

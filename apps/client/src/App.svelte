@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getNavigation, type View } from "$lib/stores/navigation.svelte";
+  import { getNavigation } from "$lib/stores/navigation.svelte";
   import {
     firstMainView,
     isDetachableTabView,
@@ -57,7 +57,8 @@
   import CalendarView from "$lib/components/calendar/CalendarView.svelte";
   import CompletionOverlay from "$lib/components/pomodoro/CompletionOverlay.svelte";
   import MusicPlaybackHost from "$lib/components/music/MusicPlaybackHost.svelte";
-  import MusicView from "$lib/components/music/MusicView.svelte";
+  import MusicContextCoordinator from "$lib/components/music/MusicContextCoordinator.svelte";
+  import MusicSoundscapeCoordinator from "$lib/components/music/MusicSoundscapeCoordinator.svelte";
   import NotesView from "$lib/components/notes/NotesView.svelte";
   import ProjectsView from "$lib/components/projects/ProjectsView.svelte";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
@@ -71,7 +72,7 @@
     setShellStartupMs,
   } from "$lib/stores/perflog.svelte";
   import type { MemoryReport, StartupMemorySnapshot } from "$lib/components/perf/memoryReport";
-  import { isEditableKeyboardTarget, shouldUseKeyboardFocusIntent } from "$lib/utils";
+  import { shouldUseKeyboardFocusIntent } from "$lib/utils";
   import {
     createLifecycleScheduler,
     type SchedulerRunContext,
@@ -265,6 +266,18 @@
         void updates.checkAutomatically({ kind: "periodic" });
       }, UPDATE_AUTO_CHECK_INTERVAL_MS + AUTOMATIC_UPDATE_CHECK_DELAY_MS + 1_000)
       : null;
+    const handleMusicAssignmentInspection = (event: Event) => {
+      if (!(event instanceof CustomEvent) || event.detail?.ready === true || nav.current === "calendar") return;
+      const eventId = typeof event.detail?.eventId === "string" ? event.detail.eventId : null;
+      if (!eventId) return;
+      nav.navigate("calendar");
+      window.setTimeout(() => {
+        window.dispatchEvent(new CustomEvent("ganbaru-ai:inspect-music-assignment", {
+          detail: { eventId, ready: true },
+        }));
+      }, 0);
+    };
+    window.addEventListener("ganbaru-ai:inspect-music-assignment", handleMusicAssignmentInspection);
     if (isMainWindow) {
       notesProjectHistoryScheduler.setEnabled(true);
       listen("calendar-notification-open", () => {
@@ -409,6 +422,7 @@
       window.removeEventListener("hashchange", navigateToNotesHash);
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("focus", onFocus);
+      window.removeEventListener("ganbaru-ai:inspect-music-assignment", handleMusicAssignmentInspection);
       if (automaticUpdateCheckTimerId) clearTimeout(automaticUpdateCheckTimerId);
       if (automaticUpdateCheckIntervalId) clearInterval(automaticUpdateCheckIntervalId);
       clearTimeout(startupMemoryTimerId);
@@ -436,10 +450,7 @@
     if (detachedWindowView) return [detachedWindowView];
     return mainTabViews(detachedWindows.views);
   });
-  const keyboardViews = $derived.by<View[]>(() => {
-    if (!isMainWindow) return visibleTabViews;
-    return [...visibleTabViews, "music"];
-  });
+  const keyboardViews = $derived(visibleTabViews);
   let showStopConfirm = $state(false);
   let savedBlockState: CalendarEvent | null = null;
   let reverting = false;
@@ -608,13 +619,6 @@
       return;
     }
 
-    if (isMainWindow && hasOnlyShortcutModifier(e) && e.key.toLowerCase() === "m") {
-      if (isEditableKeyboardTarget(e.target)) return;
-      e.preventDefault();
-      nav.navigate("music");
-      return;
-    }
-
     if (hasShortcutModifier(e) && !e.altKey && e.code === "Tab") {
       e.preventDefault();
       if (e.shiftKey) navigatePrev();
@@ -717,7 +721,7 @@
       const faded = await fadeMusicVolume(0, COMPLETION_MUSIC_FADE_OUT_MS, generation);
       if (!faded) return null;
 
-      await music.pausePlayback();
+      await music.pausePlayback("system");
       await delayMs(COMPLETION_MUSIC_PAUSE_SETTLE_MS);
       return {
         generation,
@@ -748,7 +752,7 @@
       await delayMs(completionSoundDurationMs(kind) + COMPLETION_SOUND_RESUME_PAD_MS);
       if (duck.generation !== completionMusicDuckingGeneration) return;
       if (!music.currentSource) return;
-      await music.playPlayback();
+      await music.playPlayback("system");
       await fadeMusicVolume(duck.restoreVolume, COMPLETION_MUSIC_FADE_IN_MS, duck.generation);
       if (duck.generation === completionMusicDuckingGeneration) {
         await music.setTransientVolume(duck.restoreVolume);
@@ -1046,7 +1050,6 @@
 
 <div
   class="app-shell h-screen w-screen"
-  class:app-rounded={!isMaximized}
   data-size-class={viewport.sizeClass}
 >
   <div class="flex h-full flex-col overflow-hidden bg-sidebar">
@@ -1056,10 +1059,8 @@
         <CalendarView />
       {:else if nav.current === "projects"}
         <ProjectsView />
-      {:else if nav.current === "notes"}
-        <NotesView />
       {:else}
-        <MusicView />
+        <NotesView />
       {/if}
     </main>
   </div>
@@ -1115,13 +1116,10 @@
   {/if}
 
   <MusicPlaybackHost />
+  {#if isMainWindow}
+    <MusicContextCoordinator />
+    <MusicSoundscapeCoordinator />
+  {/if}
   <TooltipHost />
   <WindowResizeHandles disabled={isMaximized || !!idleInfo} />
 </div>
-
-<style>
-  .app-rounded {
-    border-radius: var(--content-radius);
-    overflow: hidden;
-  }
-</style>

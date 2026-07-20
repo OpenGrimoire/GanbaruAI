@@ -3,6 +3,7 @@ use sqlx::{Row, Sqlite, Transaction};
 use tauri::{AppHandle, Runtime};
 
 use crate::db_path::connect_sqlite;
+use crate::music::library::fixtures::{seed_dense_music_fixture, DenseMusicFixtureSummary};
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -98,6 +99,17 @@ pub async fn benchmark_seed_pomodoro_history<R: Runtime>(
 
     tx.commit().await.map_err(|e| format!("commit: {e}"))?;
     Ok(())
+}
+
+#[tauri::command]
+pub async fn benchmark_seed_dense_music_library<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+) -> Result<DenseMusicFixtureSummary, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    seed_dense_music_fixture(&pool)
+        .await
+        .map_err(|error| error.to_string())
 }
 
 async fn insert_config(

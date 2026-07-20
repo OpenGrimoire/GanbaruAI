@@ -1,6 +1,8 @@
 <script lang="ts">
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { invoke } from "@tauri-apps/api/core";
+  import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+  import { onMount } from "svelte";
   import { clearAssetUrlCache } from "$lib/api/asset-url-cache";
   import { getNavigation } from "$lib/stores/navigation.svelte";
   import { getPomodoro } from "$lib/stores/pomodoro.svelte";
@@ -59,6 +61,7 @@
   let showCloseConfirm = $state(false);
   let showPomodoroMenu = $state(false);
   let showQuickNotes = $state(false);
+  let showMusicPanel = $state(false);
   let showResetSequenceConfirm = $state(false);
   let showResetConfirm = $state(false);
   let showPerfMenu = $state(false);
@@ -81,6 +84,7 @@
     showPomodoroMenu = false;
     showUtilityOverflowMenu = false;
     showQuickNotes = false;
+    showMusicPanel = false;
   }
 
   function toggleTheme() {
@@ -88,6 +92,7 @@
     showPomodoroMenu = false;
     showUtilityOverflowMenu = false;
     showQuickNotes = false;
+    showMusicPanel = false;
     theme.toggle();
   }
 
@@ -107,6 +112,7 @@
       console.warn("Quick notes preload failed", error);
     }
     showQuickNotes = true;
+    showMusicPanel = false;
     showPomodoroMenu = false;
     showPerfMenu = false;
     showTitleBarMenu = false;
@@ -114,6 +120,48 @@
     showThemeQuickSwitcher = false;
     settingsLauncher.close();
   }
+
+  function openMusicPanel(): void {
+    if (!isMainWindow) return;
+    showMusicPanel = true;
+    showQuickNotes = false;
+    showPomodoroMenu = false;
+    showPerfMenu = false;
+    showTitleBarMenu = false;
+    showUtilityOverflowMenu = false;
+    showThemeQuickSwitcher = false;
+    settingsLauncher.close();
+  }
+
+  function toggleMusicPanel(): void {
+    if (showMusicPanel) {
+      showMusicPanel = false;
+      return;
+    }
+    openMusicPanel();
+  }
+
+  async function openMusicPanelFromTray(): Promise<void> {
+    openMusicPanel();
+    try {
+      await win.show();
+      await win.unminimize();
+      await win.setFocus();
+    } catch (error) {
+      console.error("Failed to focus the main window for Music:", error);
+    }
+  }
+
+  onMount(() => {
+    if (!isMainWindow) return;
+    let unlisten: UnlistenFn | undefined;
+    void listen("tray-music-open", () => { void openMusicPanelFromTray(); })
+      .then((nextUnlisten) => { unlisten = nextUnlisten; })
+      .catch((error: unknown) => {
+        console.error("Failed to listen for Music panel opens:", error);
+      });
+    return () => unlisten?.();
+  });
 
   let showThemeQuickSwitcher = $state(false);
 
@@ -125,6 +173,7 @@
     showTitleBarMenu = false;
     showUtilityOverflowMenu = false;
     showQuickNotes = false;
+    showMusicPanel = false;
     showThemeQuickSwitcher = true;
   }
 
@@ -132,6 +181,7 @@
     showPomodoroMenu = false;
     showUtilityOverflowMenu = false;
     showQuickNotes = false;
+    showMusicPanel = false;
     settingsLauncher.open(section);
   }
 
@@ -268,6 +318,18 @@
 
 
   function handleModalKeydown(e: KeyboardEvent) {
+    if (
+      isMainWindow
+      && hasOnlyShortcutModifier(e)
+      && e.key.toLowerCase() === "m"
+      && !isEditableKeyboardTarget(e.target)
+    ) {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleMusicPanel();
+      return;
+    }
+
     if (showPomodoroMenu && e.key === "Escape") {
       showPomodoroMenu = false;
       return;
@@ -319,6 +381,7 @@
     e.stopPropagation();
     showPomodoroMenu = false;
     showQuickNotes = false;
+    showMusicPanel = false;
     showTabContextMenu = false;
     tabContextView = null;
 
@@ -341,6 +404,7 @@
     e.stopPropagation();
     showPomodoroMenu = false;
     showQuickNotes = false;
+    showMusicPanel = false;
     showTitleBarMenu = false;
     showUtilityOverflowMenu = false;
     showTabContextMenu = true;
@@ -401,6 +465,7 @@
       showPomodoro={titleBarControlVisible("pomodoro")}
       showMusic={titleBarControlVisible("music")}
       quickNotesOpen={showQuickNotes}
+      musicPanelOpen={showMusicPanel}
       bind:showMenu={showPomodoroMenu}
       {isMainWindow}
       onMenuOpened={() => {
@@ -408,8 +473,10 @@
         showTitleBarMenu = false;
         showUtilityOverflowMenu = false;
         showQuickNotes = false;
+        showMusicPanel = false;
       }}
       onToggleQuickNotes={() => { void toggleQuickNotes(); }}
+      onToggleMusic={toggleMusicPanel}
     />
 
     <TitleBarUtilityControls
@@ -432,6 +499,7 @@
         showPomodoroMenu = false;
         showPerfMenu = false;
         showQuickNotes = false;
+        showMusicPanel = false;
       }}
     />
 
@@ -452,6 +520,7 @@
   bind:performancePinned={perfPinned}
   bind:showThemeQuickSwitcher
   bind:showQuickNotes
+  bind:showMusic={showMusicPanel}
   {shellStartupMs}
   {startupMemorySnapshot}
   {ensureBenchmarkOverlay}
@@ -462,6 +531,7 @@
   bind:tabContextView
   {tabContextMenuStyle}
   detachedWindow={!!detachedWindowView}
+  canDetachTab={detachedWindowView ? true : detachedController.canDetachContextView()}
   bind:showTitleBarMenu
   {titleBarMenuStyle}
   controls={titleBarControls.map((control) => ({

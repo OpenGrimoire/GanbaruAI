@@ -100,6 +100,8 @@ pub struct CalendarEventCreate {
     pub(super) updated_at: String,
     pub(super) pomodoro_config: Option<CalendarPomodoroConfig>,
     pub(super) attendees: Vec<CalendarEventAttendee>,
+    pub(super) music_snapshot_assignments: Vec<crate::music::library::MusicContextAssignmentDraft>,
+    pub(super) music_override_assignments: Vec<crate::music::library::MusicContextAssignmentDraft>,
 }
 
 #[derive(Deserialize)]
@@ -234,6 +236,10 @@ pub(super) enum CalendarEventUpdateField {
     LocalRsvpStatus(Option<String>),
     #[serde(rename = "guestPermissions")]
     GuestPermissions(CalendarGuestPermissions),
+    #[serde(rename = "musicSnapshotAssignments")]
+    MusicSnapshotAssignments(Vec<crate::music::library::MusicContextAssignmentDraft>),
+    #[serde(rename = "musicOverrideAssignments")]
+    MusicOverrideAssignments(Vec<crate::music::library::MusicContextAssignmentDraft>),
 }
 
 impl CalendarEventUpdateField {
@@ -270,6 +276,8 @@ impl CalendarEventUpdateField {
             CalendarEventUpdateField::MeetingEnabled(_) => "meetingEnabled",
             CalendarEventUpdateField::LocalRsvpStatus(_) => "localRsvpStatus",
             CalendarEventUpdateField::GuestPermissions(_) => "guestPermissions",
+            CalendarEventUpdateField::MusicSnapshotAssignments(_) => "musicSnapshotAssignments",
+            CalendarEventUpdateField::MusicOverrideAssignments(_) => "musicOverrideAssignments",
         }
     }
 }
@@ -325,6 +333,8 @@ pub struct CalendarDetachInstance {
     pub(super) transparency: String,
     pub(super) status: String,
     pub(super) now: String,
+    pub(super) music_snapshot_assignments: Vec<crate::music::library::MusicContextAssignmentDraft>,
+    pub(super) music_override_assignments: Vec<crate::music::library::MusicContextAssignmentDraft>,
 }
 
 #[derive(Deserialize)]
@@ -357,4 +367,6 @@ pub struct CalendarSplitSeries {
     pub(super) copy_pomodoro_config: bool,
     pub(super) pomodoro_config: Option<CalendarPomodoroConfig>,
     pub(super) now: String,
+    pub(super) music_snapshot_assignments: Vec<crate::music::library::MusicContextAssignmentDraft>,
+    pub(super) music_override_assignments: Vec<crate::music::library::MusicContextAssignmentDraft>,
 }

@@ -27,6 +27,7 @@ import {
   resolvedPomodoroConfigForTimedEvent,
 } from "./calendar-event-payloads";
 import { slimEvent } from "./calendar-event-hydration";
+import type { MusicContextAssignmentDraft } from "$lib/music/music-context-assignment";
 
 export interface CalendarAddBlockOptions {
   title: string;
@@ -38,6 +39,8 @@ export interface CalendarAddBlockOptions {
   projectId?: string;
   environmentId?: string;
   playlistId?: string;
+  musicSnapshotAssignments?: MusicContextAssignmentDraft[];
+  musicOverrideAssignments?: MusicContextAssignmentDraft[];
   color?: EventColor;
   description?: string;
   recurrence?: RecurrenceConfig;
@@ -191,6 +194,8 @@ export async function addCalendarBlock(opts: CalendarAddBlockOptions): Promise<C
         status: attendee.status,
         rsvp: attendee.rsvp,
       })),
+      musicSnapshotAssignments: opts.musicSnapshotAssignments ?? [],
+      musicOverrideAssignments: opts.musicOverrideAssignments ?? [],
     },
   });
   return slimEvent({
@@ -203,6 +208,8 @@ export async function addCalendarBlock(opts: CalendarAddBlockOptions): Promise<C
     projectId: opts.projectId,
     environmentId: opts.environmentId,
     playlistId: opts.playlistId,
+    musicSnapshotAssignments: opts.musicSnapshotAssignments,
+    musicOverrideAssignments: opts.musicOverrideAssignments,
     color: opts.color,
     recurrence: opts.recurrence,
     notifications: opts.notifications,
@@ -252,6 +259,8 @@ export async function detachCalendarInstance(
       transparency: parent.transparency ?? "opaque",
       status: parent.status ?? "confirmed",
       now,
+      musicSnapshotAssignments: parent.musicSnapshotAssignments ?? [],
+      musicOverrideAssignments: parent.musicOverrideAssignments ?? [],
     },
   });
 
@@ -265,6 +274,8 @@ export async function detachCalendarInstance(
     projectId: parent.projectId,
     environmentId: parent.environmentId,
     playlistId: parent.playlistId,
+    musicSnapshotAssignments: parent.musicSnapshotAssignments,
+    musicOverrideAssignments: parent.musicOverrideAssignments,
     color: instanceEvent.color,
     allDay: parent.allDay,
     location: parent.location,
@@ -357,6 +368,8 @@ export async function splitCalendarSeries(
       copyPomodoroConfig: pomodoroState.copyFromParent,
       pomodoroConfig: pomodoroState.payloadConfig,
       now,
+      musicSnapshotAssignments: merged.musicSnapshotAssignments ?? [],
+      musicOverrideAssignments: merged.musicOverrideAssignments ?? [],
     },
   });
 

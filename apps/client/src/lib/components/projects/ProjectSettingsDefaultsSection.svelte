@@ -39,6 +39,9 @@
     type FocusIdleThresholdMinutes,
   } from "$lib/stores/preferences";
   import type { Theme } from "$lib/stores/themes";
+  import MusicSoundtrackAssignmentEditor from "$lib/components/music/MusicSoundtrackAssignmentEditor.svelte";
+  import type { MusicPlaylistSummary } from "$lib/music/library-contracts";
+  import type { MusicContextAssignmentDraft } from "$lib/music/music-context-assignment";
 
   let {
     theme,
@@ -58,8 +61,13 @@
     projectIdleSettingsSourceDraft = $bindable<ProjectDefaultIdleSettingsSource>(),
     projectIdlePauseEnabledDraft = $bindable<boolean>(),
     projectIdleThresholdMinutesDraft = $bindable<FocusIdleThresholdMinutes>(),
-    projectFocusPlaylistDraft = $bindable<string>(),
-    projectBreakPlaylistDraft = $bindable<string>(),
+    musicAssignments,
+    musicPlaylists,
+    onMusicAssignmentsChange,
+    loadingMusicPlaylists = false,
+    musicAssignmentsError = null,
+    onRetryMusicAssignments,
+    musicAssignmentsDisabled = false,
   }: {
     theme: Theme;
     pomodoroOptions: readonly PomodoroPresetKey[];
@@ -78,8 +86,13 @@
     projectIdleSettingsSourceDraft: ProjectDefaultIdleSettingsSource;
     projectIdlePauseEnabledDraft: boolean;
     projectIdleThresholdMinutesDraft: FocusIdleThresholdMinutes;
-    projectFocusPlaylistDraft: string;
-    projectBreakPlaylistDraft: string;
+    musicAssignments: readonly MusicContextAssignmentDraft[];
+    musicPlaylists: readonly MusicPlaylistSummary[];
+    onMusicAssignmentsChange: (assignments: MusicContextAssignmentDraft[]) => void;
+    loadingMusicPlaylists?: boolean;
+    musicAssignmentsError?: string | null;
+    onRetryMusicAssignments: () => void;
+    musicAssignmentsDisabled?: boolean;
   } = $props();
 
   const { t } = getLocalization();
@@ -125,9 +138,6 @@
   const durationUnitOptions = $derived<SelectOption[]>([
     { value: "hours", label: t("projects.settings.durationUnitHours") },
     { value: "minutes", label: t("projects.settings.durationUnitMinutes") },
-  ]);
-  const playlistOptions = $derived<SelectOption[]>([
-    { value: "none", label: t("common.none") },
   ]);
   const idleThresholdOptions = $derived<SelectOption[]>(
     FOCUS_IDLE_THRESHOLD_MINUTES_OPTIONS.map((minutes) => ({
@@ -337,15 +347,6 @@
     if (!isDurationUnit(value)) return;
     customDurationUnit = value;
     syncCustomDurationDraft();
-  }
-
-  function setProjectPlaylistDraft(target: "focus" | "break", value: string): void {
-    const nextValue = value === "none" ? "" : value;
-    if (target === "focus") {
-      projectFocusPlaylistDraft = nextValue;
-    } else {
-      projectBreakPlaylistDraft = nextValue;
-    }
   }
 
   function setPomodoroPreset(value: string): void {
@@ -576,22 +577,23 @@
       />
     {/if}
 
-    <CustomSelect
-      label={t("projects.settings.focusPlaylist")}
-      value="none"
-      options={playlistOptions}
-      onChange={(value) => setProjectPlaylistDraft("focus", value)}
-      class="w-44"
-    />
-
-    <CustomSelect
-      label={t("projects.settings.breakPlaylist")}
-      value="none"
-      options={playlistOptions}
-      onChange={(value) => setProjectPlaylistDraft("break", value)}
-      class="w-44"
-    />
-
+    <div class="mt-2 rounded-xl border border-border/65 bg-secondary/20 p-2.5">
+      {#if musicAssignmentsError}
+        <div class="mb-2 flex items-start justify-between gap-3 rounded-lg border border-destructive/25 bg-destructive/8 px-3 py-2 text-[0.68rem]" role="alert">
+          <span class="min-w-0 leading-relaxed text-destructive">{musicAssignmentsError}</span>
+          <button type="button" onclick={onRetryMusicAssignments} class="shrink-0 font-semibold text-primary hover:underline">{t("common.retry")}</button>
+        </div>
+      {/if}
+      <MusicSoundtrackAssignmentEditor
+        assignments={musicAssignments}
+        playlists={musicPlaylists}
+        onChange={onMusicAssignmentsChange}
+        loadingPlaylists={loadingMusicPlaylists}
+        disabled={musicAssignmentsDisabled}
+        title={t("projects.settings.soundtrackDefaults")}
+        description={t("projects.settings.soundtrackDefaultsDescription")}
+      />
+    </div>
   </div>
 </section>
 

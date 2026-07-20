@@ -578,6 +578,7 @@ pub async fn project_icon_delete_assets_if_unreferenced<R: Runtime>(
     for row in sqlx::query_scalar::<_, String>(
         "SELECT icon FROM project_groups
          UNION ALL SELECT icon FROM projects
+         UNION ALL SELECT icon FROM music_playlists
          UNION ALL SELECT ('asset:' || asset_path) FROM project_custom_emojis",
     )
     .fetch_all(&pool)

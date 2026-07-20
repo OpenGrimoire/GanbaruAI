@@ -11,6 +11,77 @@ import {
 } from "./music-youtube-adapter";
 
 describe("Music YouTube adapter", () => {
+  it("expands a current YouTube playlist and loads its first video", async () => {
+    const parsed = parseMusicSourceInput(
+      "https://www.youtube.com/playlist?list=PL1234567890",
+    );
+    if (!parsed.source || parsed.source.kind !== "youtube-playlist") {
+      throw new Error("Expected a YouTube playlist fixture");
+    }
+    const contentWindow = { postMessage: vi.fn() };
+    const state: MusicYouTubeState = {
+      currentSource: parsed.source,
+      snapshot: { ...DEFAULT_PLAYBACK_SNAPSHOT, status: "loading" },
+      playerError: null,
+      queue: [parsed.source],
+      queueHistory: [2],
+      shuffleEnabled: false,
+      shuffleOrder: [1],
+      pendingQueueIndex: null,
+      youtubeHostUrl: null,
+      youtubeFrame: { contentWindow } as unknown as HTMLIFrameElement,
+      youtubeHostToken: null,
+      youtubeHostReady: false,
+    };
+    const loadRuntime = new MusicLoadRuntime();
+    const generation = loadRuntime.begin();
+    const loadSource = vi.fn(async () => undefined);
+    const persistYouTubePlaylist = vi.fn(async () => undefined);
+    const adapter = createMusicYouTubeAdapter({
+      state,
+      loadRuntime,
+      effectiveVolume: () => 1,
+      loadSource,
+      persist: vi.fn(async () => undefined),
+      updateExternalControls: vi.fn(),
+      updateTray: vi.fn(),
+      canPlayNext: () => false,
+      playNext: vi.fn(async () => undefined),
+      handlePosition: vi.fn(),
+      getHostUrl: vi.fn(async () => "http://127.0.0.1:1234/player?token=test-token"),
+      persistYouTubeVideo: vi.fn(async () => undefined),
+      persistYouTubePlaylist,
+      reportYouTubeFailure: vi.fn(async () => undefined),
+    });
+    await adapter.load(parsed.source, null, generation, true);
+
+    adapter.handleMessage({
+      source: contentWindow,
+      data: {
+        token: "test-token",
+        load: String(generation),
+        type: "ganbaru-ai-youtube-playlist",
+        playlistId: parsed.source.playlistId,
+        videoIds: ["video-a", "video-b", "video-c"],
+        index: 0,
+      },
+    } as unknown as MessageEvent<unknown>);
+    await vi.waitFor(() => expect(loadSource).toHaveBeenCalled());
+
+    expect(state.queue.map((source) => source.identity)).toEqual([
+      "youtube:video:video-a",
+      "youtube:video:video-b",
+      "youtube:video:video-c",
+    ]);
+    expect(state.queueHistory).toEqual([]);
+    expect(state.pendingQueueIndex).toBe(0);
+    expect(loadSource).toHaveBeenCalledWith(state.queue[0], true);
+    expect(persistYouTubePlaylist).toHaveBeenCalledWith(expect.objectContaining({
+      playlistId: parsed.source.playlistId,
+      videoIds: ["video-a", "video-b", "video-c"],
+    }));
+  });
+
   it("ignores stale playing snapshots during the optimistic pause window", async () => {
     let nowMs = 100;
     const source = youtubeVideoSourceFromId("video-1");
@@ -31,6 +102,7 @@ describe("Music YouTube adapter", () => {
     };
     const loadRuntime = new MusicLoadRuntime();
     const generation = loadRuntime.begin();
+    const persistYouTubeVideo = vi.fn(async () => undefined);
     const adapter = createMusicYouTubeAdapter({
       state,
       loadRuntime,
@@ -41,7 +113,11 @@ describe("Music YouTube adapter", () => {
       updateTray: vi.fn(),
       canPlayNext: () => false,
       playNext: vi.fn(async () => undefined),
+      handlePosition: vi.fn(),
       getHostUrl: vi.fn(async () => "http://127.0.0.1:1234/player?token=test-token"),
+      persistYouTubeVideo,
+      persistYouTubePlaylist: vi.fn(async () => undefined),
+      reportYouTubeFailure: vi.fn(async () => undefined),
       now: () => nowMs,
     });
     await adapter.load(source, null, generation, false);
@@ -55,6 +131,7 @@ describe("Music YouTube adapter", () => {
       durationMs: 10_000,
       videoId: "video-1",
       title: "Video 1",
+      channel: "Channel 1",
     };
 
     adapter.handleMessage({
@@ -69,6 +146,12 @@ describe("Music YouTube adapter", () => {
       data: message,
     } as unknown as MessageEvent<unknown>);
     expect(state.snapshot.status).toBe("playing");
+    expect(persistYouTubeVideo).toHaveBeenLastCalledWith(expect.objectContaining({
+      videoId: "video-1",
+      title: "Video 1",
+      channel: "Channel 1",
+      resolutionState: "ready",
+    }));
   });
 
   it("rejects a playlist result after a newer source generation starts", async () => {
@@ -106,7 +189,11 @@ describe("Music YouTube adapter", () => {
       updateTray: vi.fn(),
       canPlayNext: () => false,
       playNext: vi.fn(async () => undefined),
+      handlePosition: vi.fn(),
       getHostUrl: vi.fn(async () => "http://127.0.0.1:1234/player?token=test-token"),
+      persistYouTubeVideo: vi.fn(async () => undefined),
+      persistYouTubePlaylist: vi.fn(async () => undefined),
+      reportYouTubeFailure: vi.fn(async () => undefined),
     });
     await adapter.load(parsed.source, null, playlistGeneration, false);
     loadRuntime.begin();
@@ -126,5 +213,113 @@ describe("Music YouTube adapter", () => {
 
     expect(loadSource).not.toHaveBeenCalled();
     expect(state.queue).toEqual([parsed.source]);
+  });
+
+  it("persists embedding-blocked direct videos without losing the player error", async () => {
+    const source = youtubeVideoSourceFromId("dQw4w9WgXcQ");
+    const contentWindow = { postMessage: vi.fn() };
+    const state: MusicYouTubeState = {
+      currentSource: source,
+      snapshot: { ...DEFAULT_PLAYBACK_SNAPSHOT, status: "loading" },
+      playerError: null,
+      queue: [source],
+      queueHistory: [],
+      shuffleEnabled: false,
+      shuffleOrder: [],
+      pendingQueueIndex: null,
+      youtubeHostUrl: null,
+      youtubeFrame: { contentWindow } as unknown as HTMLIFrameElement,
+      youtubeHostToken: null,
+      youtubeHostReady: false,
+    };
+    const loadRuntime = new MusicLoadRuntime();
+    const generation = loadRuntime.begin();
+    const persistYouTubeVideo = vi.fn(async () => undefined);
+    const adapter = createMusicYouTubeAdapter({
+      state,
+      loadRuntime,
+      effectiveVolume: () => 1,
+      loadSource: vi.fn(async () => undefined),
+      persist: vi.fn(async () => undefined),
+      updateExternalControls: vi.fn(),
+      updateTray: vi.fn(),
+      canPlayNext: () => false,
+      playNext: vi.fn(async () => undefined),
+      handlePosition: vi.fn(),
+      getHostUrl: vi.fn(async () => "http://127.0.0.1:1234/player?token=test-token"),
+      persistYouTubeVideo,
+      persistYouTubePlaylist: vi.fn(async () => undefined),
+      reportYouTubeFailure: vi.fn(async () => undefined),
+      now: () => 100,
+    });
+    await adapter.load(source, null, generation, false);
+    adapter.handleMessage({
+      source: contentWindow,
+      data: {
+        token: "test-token",
+        load: String(generation),
+        type: "ganbaru-ai-youtube-error",
+        code: 150,
+      },
+    } as unknown as MessageEvent<unknown>);
+    expect(persistYouTubeVideo).toHaveBeenLastCalledWith(expect.objectContaining({
+      videoId: "dQw4w9WgXcQ",
+      resolutionState: "embedding-blocked",
+    }));
+    expect(state.snapshot.status).toBe("error");
+  });
+
+  it("reports unavailable playlist resolution without replacing its last snapshot", async () => {
+    const parsed = parseMusicSourceInput("https://www.youtube.com/playlist?list=PL1234567890");
+    if (!parsed.source || parsed.source.kind !== "youtube-playlist") throw new Error("Expected playlist");
+    const contentWindow = { postMessage: vi.fn() };
+    const state: MusicYouTubeState = {
+      currentSource: parsed.source,
+      snapshot: { ...DEFAULT_PLAYBACK_SNAPSHOT, status: "loading" },
+      playerError: null,
+      queue: [parsed.source],
+      queueHistory: [],
+      shuffleEnabled: false,
+      shuffleOrder: [],
+      pendingQueueIndex: null,
+      youtubeHostUrl: null,
+      youtubeFrame: { contentWindow } as unknown as HTMLIFrameElement,
+      youtubeHostToken: null,
+      youtubeHostReady: false,
+    };
+    const loadRuntime = new MusicLoadRuntime();
+    const generation = loadRuntime.begin();
+    const reportYouTubeFailure = vi.fn(async () => undefined);
+    const adapter = createMusicYouTubeAdapter({
+      state,
+      loadRuntime,
+      effectiveVolume: () => 1,
+      loadSource: vi.fn(async () => undefined),
+      persist: vi.fn(async () => undefined),
+      updateExternalControls: vi.fn(),
+      updateTray: vi.fn(),
+      canPlayNext: () => false,
+      playNext: vi.fn(async () => undefined),
+      handlePosition: vi.fn(),
+      getHostUrl: vi.fn(async () => "http://127.0.0.1:1234/player?token=test-token"),
+      persistYouTubeVideo: vi.fn(async () => undefined),
+      persistYouTubePlaylist: vi.fn(async () => undefined),
+      reportYouTubeFailure,
+      now: () => 100,
+    });
+    await adapter.load(parsed.source, null, generation, false);
+    adapter.handleMessage({
+      source: contentWindow,
+      data: {
+        token: "test-token",
+        load: String(generation),
+        type: "ganbaru-ai-youtube-error",
+        code: 100,
+      },
+    } as unknown as MessageEvent<unknown>);
+    expect(reportYouTubeFailure).toHaveBeenCalledWith(expect.objectContaining({
+      playlistId: "PL1234567890",
+      resolutionState: "unavailable",
+    }));
   });
 });
