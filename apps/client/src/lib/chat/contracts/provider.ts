@@ -1,4 +1,5 @@
 import type {
+  CredentialReferenceId,
   JsonValue,
   ModelAvailability,
   ModelCatalogSource,
@@ -23,7 +24,7 @@ export interface ProviderInstanceConfig {
   providerHome: string | null;
   launchArguments: string[];
   environment: Record<string, string>;
-  credentialReferences: Record<string, string>;
+  credentialReferences: Record<string, CredentialReferenceId>;
   visibleModelIds: ModelId[];
   favoriteModelIds: ModelId[];
   providerConfig: VersionedJson;

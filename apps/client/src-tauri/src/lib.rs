@@ -744,6 +744,7 @@ pub fn run() {
         .manage(notification::PomodoroOverlayState::default())
         .manage(media_player::MediaPlayerState::default())
         .manage(soundscape::SoundscapeEngineState::default())
+        .manage(chat::workspace::ChatWorkspaceCatalogState::default())
         .plugin(tauri_plugin_dialog::init())
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -755,6 +756,15 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            chat::workspace_commands::chat_list_workspaces,
+            chat::workspace_commands::chat_create_workspace,
+            chat::workspace_commands::chat_rename_workspace,
+            chat::workspace_commands::chat_bind_workspace,
+            chat::workspace_commands::chat_rebind_workspace,
+            chat::workspace_commands::chat_remove_workspace_binding,
+            chat::workspace_commands::chat_archive_workspace,
+            chat::workspace_commands::chat_restore_workspace,
+            chat::workspace_commands::chat_open_workspace_folder,
             notification::commands::show_pomodoro_notification,
             notification::commands::show_paused_focus_notification,
             notification::commands::show_event_notification,

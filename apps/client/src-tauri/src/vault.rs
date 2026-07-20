@@ -16,6 +16,8 @@ use std::path::{Path, PathBuf};
 use tauri::{Manager, Runtime};
 use tauri_plugin_dialog::{DialogExt, FilePath};
 
+static APP_STATE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 pub const APP_SQLITE_FILE: &str = "ganbaru-ai.sqlite";
 const PRODUCTION_DATA_FOLDER_NAME: &str = "Ganbaru AI";
 const DEVELOPMENT_DATA_FOLDER_NAME: &str = "Ganbaru AI Dev";
@@ -36,26 +38,28 @@ pub struct VaultAppState {
     pub recent_vault_paths: Vec<String>,
     #[serde(default)]
     pub music_root_bindings: BTreeMap<String, BTreeMap<String, String>>,
+    #[serde(default)]
+    pub chat: crate::chat::device_state::ChatDeviceState,
 }
 
 #[tauri::command]
 pub(crate) fn vault_device_id<R: Runtime>(app: tauri::AppHandle<R>) -> Result<String, String> {
-    let mut state = read_app_state(&app)?;
-    if let Some(device_id) = state
-        .device_id
-        .as_ref()
-        .filter(|value| !value.trim().is_empty())
-    {
-        return Ok(device_id.clone());
-    }
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(|error| format!("create device id timestamp: {error}"))?
         .as_nanos();
-    let device_id = format!("device-{timestamp:x}-{:x}", std::process::id());
-    state.device_id = Some(device_id.clone());
-    write_app_state(&app, &state)?;
-    Ok(device_id)
+    let candidate = format!("device-{timestamp:x}-{:x}", std::process::id());
+    update_app_state(&app, |state| {
+        if let Some(device_id) = state
+            .device_id
+            .as_ref()
+            .filter(|value| !value.trim().is_empty())
+        {
+            return Ok(device_id.clone());
+        }
+        state.device_id = Some(candidate.clone());
+        Ok(candidate)
+    })
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -112,14 +116,24 @@ fn write_app_state_to_path(path: &Path, state: &VaultAppState) -> Result<(), Str
 pub(crate) fn read_app_state<R: Runtime>(
     app: &tauri::AppHandle<R>,
 ) -> Result<VaultAppState, String> {
+    let _guard = APP_STATE_LOCK
+        .lock()
+        .map_err(|_| "app state lock is unavailable".to_string())?;
     read_app_state_from_path(&app_state_path(app)?)
 }
 
-pub(crate) fn write_app_state<R: Runtime>(
+pub(crate) fn update_app_state<R: Runtime, T>(
     app: &tauri::AppHandle<R>,
-    state: &VaultAppState,
-) -> Result<(), String> {
-    write_app_state_to_path(&app_state_path(app)?, state)
+    update: impl FnOnce(&mut VaultAppState) -> Result<T, String>,
+) -> Result<T, String> {
+    let _guard = APP_STATE_LOCK
+        .lock()
+        .map_err(|_| "app state lock is unavailable".to_string())?;
+    let path = app_state_path(app)?;
+    let mut state = read_app_state_from_path(&path)?;
+    let result = update(&mut state)?;
+    write_app_state_to_path(&path, &state)?;
+    Ok(result)
 }
 
 fn path_to_string(path: &Path, label: &str) -> Result<String, String> {
@@ -283,14 +297,15 @@ fn initialize_vault(path: &Path) -> Result<VaultInfo, String> {
 }
 
 fn select_vault<R: Runtime>(app: &tauri::AppHandle<R>, info: &VaultInfo) -> Result<(), String> {
-    let mut state = read_app_state(app)?;
-    state.active_vault_path = Some(info.path.clone());
-    state
-        .recent_vault_paths
-        .retain(|path| path != &info.path && !path.trim().is_empty());
-    state.recent_vault_paths.insert(0, info.path.clone());
-    state.recent_vault_paths.truncate(MAX_RECENT_VAULTS);
-    write_app_state(app, &state)
+    update_app_state(app, |state| {
+        state.active_vault_path = Some(info.path.clone());
+        state
+            .recent_vault_paths
+            .retain(|path| path != &info.path && !path.trim().is_empty());
+        state.recent_vault_paths.insert(0, info.path.clone());
+        state.recent_vault_paths.truncate(MAX_RECENT_VAULTS);
+        Ok(())
+    })
 }
 
 async fn pick_folder(
@@ -452,8 +467,10 @@ pub fn vault_read_config(app: tauri::AppHandle) -> Result<String, String> {
 /// input parses as JSON before persisting.
 #[tauri::command]
 pub fn vault_write_config(app: tauri::AppHandle, json: String) -> Result<(), String> {
-    serde_json::from_str::<serde_json::Value>(&json)
+    let value = serde_json::from_str::<serde_json::Value>(&json)
         .map_err(|e| format!("config payload is not valid JSON: {e}"))?;
+    crate::chat::config::parse_chat_config_branch(&value)
+        .map_err(|error| format!("config Chat branch is invalid: {error}"))?;
 
     write_text_file_atomically(&config_path(&active_vault_path(&app)?), &json)
 }
@@ -1009,6 +1026,7 @@ mod tests {
             active_vault_path: Some("/tmp/ganbaru-ai-vault".to_string()),
             recent_vault_paths: vec!["/tmp/ganbaru-ai-vault".to_string()],
             music_root_bindings,
+            chat: Default::default(),
         };
 
         write_app_state_to_path(&path, &state).expect("write app state");

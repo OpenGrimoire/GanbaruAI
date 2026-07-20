@@ -45,6 +45,8 @@ Do not add a general process-wrapper crate initially. On Unix, configure a proce
 
 Use [`keyring` 4.1.5](https://crates.io/crates/keyring/4.1.5) with its native version 1 store selection. Linux uses Secret Service through zbus, Windows uses Credential Manager, and a later macOS target can use Keychain. Calls that may block run outside the asynchronous session worker.
 
+Phase 2 added this dependency with its default native store selection. `pnpm -w run validate:full` passed after the addition. npm reported no vulnerabilities, and Rust reported only the repository's 18 documented allowed warnings. Chat imports the crate only behind a Rust-owned credential trait and does not register credential commands for the webview.
+
 - Maintenance: the crate is maintained by the Open Source Cooperative, uses MIT or Apache-2.0 licensing, and declares Rust 1.88 as its minimum version. The workspace toolchain is newer.
 - Advisories: run `cargo audit` when the crate enters the lockfile. Treat unavailable or locked stores as typed operational states, not reasons to fall back to plaintext.
 - Permissions: only the Rust credential service can read or replace a secret. Svelte receives opaque references and redacted status.

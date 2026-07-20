@@ -1,6 +1,7 @@
 use super::{
-    ModelCatalogSource, ModelId, ProbeState, ProviderCapability, ProviderFamilyId,
-    ProviderImplementationStatus, ProviderInstanceId, UtcTimestamp, VersionedJson,
+    CredentialReferenceId, ModelCatalogSource, ModelId, ProbeState, ProviderCapability,
+    ProviderFamilyId, ProviderImplementationStatus, ProviderInstanceId, UtcTimestamp,
+    VersionedJson,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -19,7 +20,7 @@ pub struct ProviderInstanceConfig {
     pub provider_home: Option<String>,
     pub launch_arguments: Vec<String>,
     pub environment: BTreeMap<String, String>,
-    pub credential_references: BTreeMap<String, String>,
+    pub credential_references: BTreeMap<String, CredentialReferenceId>,
     pub visible_model_ids: Vec<ModelId>,
     pub favorite_model_ids: Vec<ModelId>,
     pub provider_config: VersionedJson,

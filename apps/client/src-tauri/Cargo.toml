@@ -47,6 +47,7 @@ notify-rust = "4"
 # the import path stays narrow and the binary stays lean.
 zip = { version = "8", default-features = false, features = ["deflate"] }
 tauri-plugin-opener = "2.5.4"
+keyring = "4.1.5"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = "0.18"

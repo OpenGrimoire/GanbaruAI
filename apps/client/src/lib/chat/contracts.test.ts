@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  defaultChatVaultConfig,
+  parseChatConfigRoot,
+  parseChatVaultConfig,
   parseCanonicalRuntimeEvent,
   parseCanonicalStoredEvent,
   parseChatError,
   parseChatThreadShell,
+  parseChatWorkspaceRead,
   parseProviderFamilyMetadata,
   parseProviderInstanceConfig,
   parseProviderModelCatalog,
@@ -138,6 +142,137 @@ describe("Chat provider contracts", () => {
       discoveredAt: timestamp,
       stale: false,
     })).toThrow("contextLimit must be a safe integer");
+  });
+});
+
+describe("Chat vault configuration", () => {
+  it("uses explicit safe defaults when the Chat branch is absent", () => {
+    expect(parseChatConfigRoot({ language: "en" })).toEqual(defaultChatVaultConfig());
+  });
+
+  it("preserves portable unknown fields while validating known fields", () => {
+    const fixture = {
+      schemaVersion: 1,
+      providers: [{
+        schemaVersion: 1,
+        instanceId: "codex-personal",
+        familyId: "codex",
+        label: "Personal Codex",
+        accentColor: null,
+        enabled: true,
+        launchArguments: [],
+        environment: {},
+        credentialReferences: { API_TOKEN: "credential-1" },
+        visibleModelIds: ["gpt-5-codex"],
+        favoriteModelIds: ["gpt-5-codex"],
+        providerConfig: { schemaVersion: 1, value: {} },
+        futurePortableOption: { enabled: true },
+      }],
+      rememberedSelections: [{
+        workspaceId: "workspace-1",
+        providerInstanceId: "codex-personal",
+        modelId: "gpt-5-codex",
+        providerManagedModel: false,
+        modelOptions: [],
+        safetyMode: "supervised",
+        interactionMode: "build",
+      }],
+      panels: { railWidthPx: 280, inspectorWidthPx: 420 },
+      behavior: {
+        sendKey: "enter",
+        restoreLastSelectedThread: true,
+        showReasoningSummaries: true,
+        automaticallyFoldSettledWork: true,
+        terminalScrollbackLines: 12_000,
+        idleSessionTimeoutSeconds: 900,
+        confirmMultilineTerminalPaste: true,
+      },
+      futureRootOption: "preserved",
+    };
+
+    expect(parseChatVaultConfig(fixture)).toEqual(fixture);
+  });
+
+  it("rejects machine-specific paths and implicit model selection", () => {
+    expect(() => parseChatVaultConfig({
+      ...defaultChatVaultConfig(),
+      providers: [{
+        schemaVersion: 1,
+        instanceId: "codex-personal",
+        familyId: "codex",
+        label: "Personal Codex",
+        accentColor: null,
+        enabled: true,
+        executable: "/usr/bin/codex",
+        launchArguments: [],
+        environment: {},
+        credentialReferences: {},
+        visibleModelIds: [],
+        favoriteModelIds: [],
+        providerConfig: { schemaVersion: 1, value: {} },
+      }],
+    })).toThrow("contains machine-specific field executable");
+
+    expect(() => parseChatVaultConfig({
+      ...defaultChatVaultConfig(),
+      rememberedSelections: [{
+        workspaceId: "workspace-1",
+        providerInstanceId: "codex-personal",
+        modelId: null,
+        providerManagedModel: false,
+        modelOptions: [],
+        safetyMode: "supervised",
+        interactionMode: "build",
+      }],
+    })).toThrow("modelId or provider-managed model state is required");
+  });
+});
+
+describe("Chat workspace contracts", () => {
+  it("parses logical workspace identity separately from the device binding", () => {
+    const fixture = {
+      workspace: {
+        id: "workspace-1",
+        projectId: "project-1",
+        displayName: "Frontend",
+        repositoryKind: "git",
+        repositoryIdentity: "git-sha256:abc123",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        archivedAt: null,
+        revision: 2,
+      },
+      bindingStatus: "available",
+      canonicalPath: "/home/user/project",
+      lastVerifiedAt: timestamp,
+    };
+
+    expect(parseChatWorkspaceRead(fixture)).toEqual(fixture);
+  });
+
+  it("rejects unknown binding states and malformed timestamps", () => {
+    const fixture = {
+      workspace: {
+        id: "workspace-1",
+        projectId: null,
+        displayName: "Standalone",
+        repositoryKind: "none",
+        repositoryIdentity: null,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        archivedAt: null,
+        revision: 1,
+      },
+      bindingStatus: "trusted_forever",
+      canonicalPath: null,
+      lastVerifiedAt: null,
+    };
+    expect(() => parseChatWorkspaceRead(fixture)).toThrow("bindingStatus has an unsupported value");
+    expect(() => parseChatWorkspaceRead({
+      ...fixture,
+      bindingStatus: "unbound",
+      workspace: { ...fixture.workspace, updatedAt: "tomorrow" },
+    })).toThrow("updatedAt must be an RFC 3339 UTC timestamp");
   });
 });
 

@@ -4,7 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tauri::Runtime;
 
-use crate::vault::{active_vault_id, read_app_state, write_app_state, VaultAppState};
+use crate::vault::{active_vault_id, read_app_state, update_app_state, VaultAppState};
 
 const MAX_ROOT_IDS_PER_REQUEST: usize = 1_000;
 const MAX_ROOT_ID_BYTES: usize = 200;
@@ -148,10 +148,10 @@ pub fn music_set_local_root_binding(
         .to_str()
         .ok_or_else(|| "music root folder path contains non-utf8 characters".to_string())?
         .to_string();
-    let mut state = read_app_state(&app)?;
-    set_binding(&mut state, &vault_id, &root_id, folder_path);
-    write_app_state(&app, &state)?;
-    Ok(binding_read(&state, &vault_id, &root_id))
+    update_app_state(&app, |state| {
+        set_binding(state, &vault_id, &root_id, folder_path);
+        Ok(binding_read(state, &vault_id, &root_id))
+    })
 }
 
 #[tauri::command]
@@ -162,10 +162,10 @@ pub fn music_clear_local_root_binding(
 ) -> Result<LocalRootBindingRead, String> {
     let vault_id = require_active_vault(&app, &vault_id)?;
     let root_id = validate_root_id(&root_id)?.to_string();
-    let mut state = read_app_state(&app)?;
-    clear_binding(&mut state, &vault_id, &root_id);
-    write_app_state(&app, &state)?;
-    Ok(binding_read(&state, &vault_id, &root_id))
+    update_app_state(&app, |state| {
+        clear_binding(state, &vault_id, &root_id);
+        Ok(binding_read(state, &vault_id, &root_id))
+    })
 }
 
 #[cfg(test)]
@@ -178,6 +178,7 @@ mod tests {
             active_vault_path: None,
             recent_vault_paths: Vec::new(),
             music_root_bindings: BTreeMap::new(),
+            chat: Default::default(),
         }
     }
 

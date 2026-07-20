@@ -18,6 +18,10 @@ Chat provides:
 
 Chat does not use `codex exec`, terminal scraping, a resident Node server, or a Ganbaru-hosted relay for interactive turns. Provider-reported subagents and tasks appear as normalized activity, but background autonomous scheduling is outside the initial Chat scope. The reviewed dependency choices and addition phases live in [Chat dependency decisions](chat-dependency-decisions.md).
 
+Logical Chat workspaces are separate from Ganbaru Project records. A workspace can reference one existing project or declare an explicit standalone context, while its absolute folder binding remains scoped to the active vault and current device. Rust canonicalizes each selected folder, probes credential-stripped repository identity, and repeats both checks before any workspace-authorized operation. A different repository cannot silently replace an existing logical workspace.
+
+Provider secrets use opaque credential references. Secret values are nonserializable Rust values stored through the operating-system credential service. Folder-local `config.json` contains only validated portable provider preferences, while executable paths, provider home paths, probe caches, and workspace paths remain in device-local application state.
+
 ### 2. BYOK general assistant (future general-user path)
 
 A separate assistant interface can connect to the user's chosen model API. Three provider categories cover most users:
