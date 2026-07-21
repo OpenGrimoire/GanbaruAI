@@ -9,6 +9,7 @@ Package metadata is not evidence that a package is advisory-free. The repository
 | Capability | Decision | First use | Current manifest status |
 | --- | --- | --- | --- |
 | Async child processes | Tokio process, IO, runtime, sync, and time features | Runtime supervision | Added in Phase 4 |
+| Claude interactive transport | Native Rust JSON lines over the existing process owner | Claude provider | Added in Phase 10, no new dependency |
 | Process-tree cleanup | Standard process-group support, Unix libc, and existing Windows Job Object APIs | Runtime supervision | Added in Phase 4 |
 | Operating-system credentials | `keyring` 4.1.5 with native platform stores | Credential storage | Added in Phase 2 |
 | Pseudoterminals | `portable-pty` 0.9.0 | Terminal | Added in Phase 9 |
@@ -20,6 +21,8 @@ Package metadata is not evidence that a package is advisory-free. The repository
 Phase 1 did not import these packages. Phase 4 added only Tokio's narrow process-supervision features, a direct Unix `libc` dependency, and Windows binding features. Phase 9 added the reviewed pseudoterminal, diff, and terminal-emulation dependencies at their first use. The HTTP and event-stream dependencies remain deferred until OpenCode is implemented.
 
 The Phase 9 dependency audit found no known npm vulnerabilities and only the repository's 18 documented allowed Rust warnings. `portable-pty`, `diff`, `@xterm/xterm`, and `@xterm/addon-fit` introduced no advisory exception.
+
+Phase 10 added no package dependency. Claude Code 2.1.170 and the protocol types in the official Claude Agent SDK 0.3.170 expose every required interactive operation through bidirectional stream JSON. Ganbaru therefore uses the existing Tokio and process-tree boundary directly. The redacted compatibility matrix is stored beside the Claude driver. Claude Code 1.0.92 was observed locally but lacks required partial-message output, so it remains below the supported version floor. An Agent SDK sidecar was rejected because it would add a second runtime, another signed artifact, and a broader supply-chain boundary without adding protocol coverage.
 
 ## Async child processes
 

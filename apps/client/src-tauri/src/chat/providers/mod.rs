@@ -1,5 +1,6 @@
 //! Provider driver contracts and built-in implementations.
 
+mod claude;
 mod codex;
 mod driver;
 mod registry;

@@ -56,6 +56,14 @@ Codex safety settings are exact. Supervised uses `untrusted` with `read-only`, A
 
 Direct and shadow Codex homes derive continuation compatibility from the canonical shared session home. A shadow home may keep `auth.json` and `models_cache.json` private while verified links share session and state directories. Ganbaru never replaces an existing conflicting entry. Changing the shared home requires a thread fork. Launch arguments are restricted to Codex configuration and feature flags, and Windows command shims are accepted only when they resolve to the official `@openai/codex` entry point without invoking a shell.
 
+### Claude runtime boundary
+
+Claude runs through Claude Code's native bidirectional stream JSON protocol over a Rust-owned child process. Phase 10 selected native Rust standard IO after a redacted compatibility matrix covered partial messages, session and assistant UUIDs, native resume, permission callbacks, `AskUserQuestion`, interrupt, model changes, and native Plan mode for Claude Code 2.1.170. The matrix is derived from the public protocol types shipped with the official Claude Agent SDK 0.3.170. The locally observed Claude Code 1.0.92 lacks partial-message output and is rejected as unsupported instead of receiving a reduced integration. Ganbaru does not install an Agent SDK sidecar or a resident Node or Bun service.
+
+Rust launches one shell-free Claude process per live session with bounded JSON lines, correlated control requests, cancellation deadlines, bounded diagnostics, and the shared process-tree owner. `CLAUDE_CONFIG_DIR` forms the account and continuation boundary. A fresh session receives a Ganbaru-generated UUID, while continuation persists both the session UUID and the last assistant UUID. A confirmed missing native session remains a distinct recoverable error and requires an explicit thread fork. Windows command shims are accepted only when they resolve to the official Claude package executable or JavaScript entry point without invoking a shell.
+
+Claude safety modes remain native. Supervised uses permission callbacks, Auto-accept edits uses `acceptEdits`, Full access uses `bypassPermissions` plus Claude's dangerous-skip confirmation flag after Ganbaru's workspace trust check, and Plan uses Claude's `plan` permission mode. Ganbaru responds only to the exact pending permission request. `AskUserQuestion` uses a separate structured-input path. `ExitPlanMode` records a proposed-plan card and is denied for that turn so implementation waits for a later user request. The next turn reapplies its requested native mode, so Plan does not silently persist or become an emulated system prompt.
+
 ### 2. BYOK general assistant (future general-user path)
 
 A separate assistant interface can connect to the user's chosen model API. Three provider categories cover most users:

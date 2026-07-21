@@ -1,5 +1,6 @@
 use super::{
-    codex::CodexProviderDriver, ProviderDriver, ProviderDriverFactory, UnsupportedProviderDriver,
+    claude::ClaudeProviderDriver, codex::CodexProviderDriver, ProviderDriver,
+    ProviderDriverFactory, UnsupportedProviderDriver,
 };
 use crate::chat::models::{
     ChatResult, ProviderCapability, ProviderFamilyId, ProviderFamilyMetadataRead,
@@ -162,12 +163,10 @@ impl ProviderDriverRegistry {
         PROVIDER_METADATA
             .iter()
             .copied()
-            .map(|metadata| {
-                if metadata.family_id == "codex" {
-                    CodexProviderDriver::metadata_read()
-                } else {
-                    metadata.to_read()
-                }
+            .map(|metadata| match metadata.family_id {
+                "codex" => CodexProviderDriver::metadata_read(),
+                "claude" => ClaudeProviderDriver::metadata_read(),
+                _ => metadata.to_read(),
             })
             .collect()
     }
@@ -177,12 +176,10 @@ impl ProviderDriverRegistry {
             .iter()
             .find(|metadata| metadata.family_id == family_id.as_str())
             .copied()
-            .map(|metadata| {
-                if metadata.family_id == "codex" {
-                    CodexProviderDriver::metadata_read()
-                } else {
-                    metadata.to_read()
-                }
+            .map(|metadata| match metadata.family_id {
+                "codex" => CodexProviderDriver::metadata_read(),
+                "claude" => ClaudeProviderDriver::metadata_read(),
+                _ => metadata.to_read(),
             })
             .unwrap_or_else(|| unsupported_metadata(family_id))
     }
@@ -195,6 +192,10 @@ impl ProviderDriverFactory for ProviderDriverRegistry {
     ) -> ChatResult<Box<dyn ProviderDriver>> {
         if configuration.family_id.as_str() == "codex" {
             return CodexProviderDriver::new(configuration)
+                .map(|driver| Box::new(driver) as Box<dyn ProviderDriver>);
+        }
+        if configuration.family_id.as_str() == "claude" {
+            return ClaudeProviderDriver::new(configuration)
                 .map(|driver| Box::new(driver) as Box<dyn ProviderDriver>);
         }
         let metadata = self.metadata(&configuration.family_id);
