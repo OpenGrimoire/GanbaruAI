@@ -45,10 +45,35 @@ fn registry_lists_four_known_families_in_stable_order() {
         ProviderImplementationStatus::Available
     );
     assert!(metadata[1].unavailable_reason.is_none());
-    assert!(metadata[2..].iter().all(|entry| {
+    assert_eq!(
+        metadata[2].implementation_status,
+        ProviderImplementationStatus::Available
+    );
+    assert!(metadata[2].unavailable_reason.is_none());
+    assert!(metadata[3..].iter().all(|entry| {
         entry.implementation_status == ProviderImplementationStatus::MetadataOnly
             && entry.unavailable_reason.is_some()
     }));
+}
+
+#[test]
+fn cursor_driver_is_available_with_an_acp_version_floor() {
+    let mut configuration = configuration("cursor");
+    configuration.provider_config = crate::chat::models::VersionedJson {
+        schema_version: 1,
+        value: json!({}),
+    };
+    let driver = ProviderDriverRegistry.create_driver(configuration).unwrap();
+
+    assert_eq!(
+        driver.metadata().minimum_tested_cli_version.as_deref(),
+        Some("2026.04.08")
+    );
+    assert!(driver
+        .capabilities()
+        .entries
+        .iter()
+        .all(|entry| entry.supported));
 }
 
 #[test]

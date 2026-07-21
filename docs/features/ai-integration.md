@@ -64,6 +64,20 @@ Rust launches one shell-free Claude process per live session with bounded JSON l
 
 Claude safety modes remain native. Supervised uses permission callbacks, Auto-accept edits uses `acceptEdits`, Full access uses `bypassPermissions` plus Claude's dangerous-skip confirmation flag after Ganbaru's workspace trust check, and Plan uses Claude's `plan` permission mode. Ganbaru responds only to the exact pending permission request. `AskUserQuestion` uses a separate structured-input path. `ExitPlanMode` records a proposed-plan card and is denied for that turn so implementation waits for a later user request. The next turn reapplies its requested native mode, so Plan does not silently persist or become an emulated system prompt.
 
+### Cursor runtime boundary
+
+Cursor runs through ACP version 1 over a Rust-owned `cursor-agent acp` process. Ganbaru uses newline-delimited JSON-RPC 2.0 with bounded requests, response correlation, notifications, cancellation deadlines, malformed-frame termination, bounded stderr diagnostics, and the shared process-tree owner. The optional API endpoint is a tokenized `-e` argument and must use HTTPS or loopback HTTP without embedded credentials. Provider arguments cannot replace the endpoint, credentials, or ACP subcommand.
+
+The compatibility boundary follows T3 Code commit `5d34f9ff235115d43a6cb4b4561d10badf218b87` and Cursor's public ACP extension schemas. Cursor Agent `2026.04.08` is the minimum tested version for parameterized model selection. No Cursor executable was available in the local validation environment, so compatibility is proven through redacted ACP fixtures rather than claimed as a live local probe. Ganbaru added no ACP package or sidecar.
+
+Startup initializes ACP capabilities, authenticates through the advertised `cursor_login` method, creates or loads the native ACP session, applies validated model traits and mode before a prompt, then persists the ACP session ID as the resume cursor. Continuation compatibility includes the provider home, endpoint, and probed account identity. Only a provider error that specifically identifies a missing session becomes a recoverable resume-not-found result.
+
+Cursor model metadata exposes reasoning, context window, fast mode, and thinking only when corresponding configuration options are advertised. Model and trait values must exactly match provider-offered options. Ganbaru validates the complete requested configuration before sending any update, applies updates in stable order, and attempts to restore earlier values if a later provider update is rejected. Build and Plan use advertised native modes. The Plan control is disabled when Cursor does not advertise a Plan or Architect mode.
+
+ACP permission decisions use only exact option IDs offered by Cursor. Supervised always asks. Auto-accept edits selects an offered `allow_once` option only for an edit request whose existing path chain resolves inside the canonical workspace, including protection against symlink escapes. It never selects a session-wide option. Commands and external paths still ask. Full access may select only an offered `allow_always` or `allow_once` option. `cursor/ask_question` remains a separate structured-input request, while `cursor/create_plan` and `cursor/update_todos` become canonical plan events.
+
+Assistant text, displayable thoughts, tool lifecycle, bounded tool output, in-workspace diffs, plans, mode updates, permissions, questions, and Cursor extension data normalize into provider-neutral events with native identifiers. Unsupported session updates, tool content blocks, requests, and notifications become bounded unknown events or explicit method-not-supported responses. Negotiated unsupported capabilities remain disabled instead of being emulated.
+
 ### 2. BYOK general assistant (future general-user path)
 
 A separate assistant interface can connect to the user's chosen model API. Three provider categories cover most users:

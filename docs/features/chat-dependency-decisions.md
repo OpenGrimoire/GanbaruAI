@@ -1,6 +1,6 @@
 # Chat dependency decisions
 
-This document freezes the minimum dependency direction for the local coding-agent Chat workspace. It was reviewed on 2026-07-20. A reviewed dependency is not added until the phase that imports it. This keeps unused process, credential, terminal, and rendering code out of the application while preserving an explicit implementation choice.
+This document freezes the minimum dependency direction for the local coding-agent Chat workspace. It was reviewed on 2026-07-21. A reviewed dependency is not added until the phase that imports it. This keeps unused process, credential, terminal, and rendering code out of the application while preserving an explicit implementation choice.
 
 Package metadata is not evidence that a package is advisory-free. The repository audits are the authoritative advisory gate. Run `pnpm -w run audit` when a reviewed package is first added, and run `pnpm -w run validate:full` for that dependency-sensitive phase. Keep package-security protections enabled.
 
@@ -10,6 +10,7 @@ Package metadata is not evidence that a package is advisory-free. The repository
 | --- | --- | --- | --- |
 | Async child processes | Tokio process, IO, runtime, sync, and time features | Runtime supervision | Added in Phase 4 |
 | Claude interactive transport | Native Rust JSON lines over the existing process owner | Claude provider | Added in Phase 10, no new dependency |
+| Cursor interactive transport | Native Rust ACP version 1 over the existing process owner | Cursor provider | Added in Phase 11, no new dependency |
 | Process-tree cleanup | Standard process-group support, Unix libc, and existing Windows Job Object APIs | Runtime supervision | Added in Phase 4 |
 | Operating-system credentials | `keyring` 4.1.5 with native platform stores | Credential storage | Added in Phase 2 |
 | Pseudoterminals | `portable-pty` 0.9.0 | Terminal | Added in Phase 9 |
@@ -23,6 +24,8 @@ Phase 1 did not import these packages. Phase 4 added only Tokio's narrow process
 The Phase 9 dependency audit found no known npm vulnerabilities and only the repository's 18 documented allowed Rust warnings. `portable-pty`, `diff`, `@xterm/xterm`, and `@xterm/addon-fit` introduced no advisory exception.
 
 Phase 10 added no package dependency. Claude Code 2.1.170 and the protocol types in the official Claude Agent SDK 0.3.170 expose every required interactive operation through bidirectional stream JSON. Ganbaru therefore uses the existing Tokio and process-tree boundary directly. The redacted compatibility matrix is stored beside the Claude driver. Claude Code 1.0.92 was observed locally but lacks required partial-message output, so it remains below the supported version floor. An Agent SDK sidecar was rejected because it would add a second runtime, another signed artifact, and a broader supply-chain boundary without adding protocol coverage.
+
+Phase 11 added no package dependency. Cursor exposes ACP version 1 as newline-delimited JSON-RPC through `cursor-agent acp`, so Ganbaru implements the small bounded client directly with the existing Tokio IO, synchronization, time, process owner, Reqwest URL parser, and SHA-256 identity helper. The compatibility matrix and protocol fixtures are stored beside the Cursor driver. The version floor is Cursor Agent 2026.04.08, matching the parameterized model-picker floor in the pinned T3 Code reference. No Cursor executable was installed in the local validation environment, so live compatibility is not claimed. A generic ACP crate or JavaScript sidecar was rejected because the required surface is small, provider extensions still require validation, and either option would add supply-chain or runtime scope without improving the tested boundary.
 
 ## Async child processes
 

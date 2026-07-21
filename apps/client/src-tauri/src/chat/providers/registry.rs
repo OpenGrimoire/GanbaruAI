@@ -1,6 +1,6 @@
 use super::{
-    claude::ClaudeProviderDriver, codex::CodexProviderDriver, ProviderDriver,
-    ProviderDriverFactory, UnsupportedProviderDriver,
+    claude::ClaudeProviderDriver, codex::CodexProviderDriver, cursor::CursorProviderDriver,
+    ProviderDriver, ProviderDriverFactory, UnsupportedProviderDriver,
 };
 use crate::chat::models::{
     ChatResult, ProviderCapability, ProviderFamilyId, ProviderFamilyMetadataRead,
@@ -61,6 +61,7 @@ const CURSOR_CAPABILITIES: &[ProviderCapability] = &[
     ProviderCapability::ReasoningSummaries,
     ProviderCapability::StructuredPlans,
     ProviderCapability::ContextUsage,
+    ProviderCapability::ProviderDiffs,
 ];
 
 const OPENCODE_CAPABILITIES: &[ProviderCapability] = &[
@@ -166,6 +167,7 @@ impl ProviderDriverRegistry {
             .map(|metadata| match metadata.family_id {
                 "codex" => CodexProviderDriver::metadata_read(),
                 "claude" => ClaudeProviderDriver::metadata_read(),
+                "cursor" => CursorProviderDriver::metadata_read(),
                 _ => metadata.to_read(),
             })
             .collect()
@@ -179,6 +181,7 @@ impl ProviderDriverRegistry {
             .map(|metadata| match metadata.family_id {
                 "codex" => CodexProviderDriver::metadata_read(),
                 "claude" => ClaudeProviderDriver::metadata_read(),
+                "cursor" => CursorProviderDriver::metadata_read(),
                 _ => metadata.to_read(),
             })
             .unwrap_or_else(|| unsupported_metadata(family_id))
@@ -196,6 +199,10 @@ impl ProviderDriverFactory for ProviderDriverRegistry {
         }
         if configuration.family_id.as_str() == "claude" {
             return ClaudeProviderDriver::new(configuration)
+                .map(|driver| Box::new(driver) as Box<dyn ProviderDriver>);
+        }
+        if configuration.family_id.as_str() == "cursor" {
+            return CursorProviderDriver::new(configuration)
                 .map(|driver| Box::new(driver) as Box<dyn ProviderDriver>);
         }
         let metadata = self.metadata(&configuration.family_id);

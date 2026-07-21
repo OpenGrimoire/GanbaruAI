@@ -2,6 +2,7 @@
 
 mod claude;
 mod codex;
+mod cursor;
 mod driver;
 mod registry;
 mod unsupported;
