@@ -7,6 +7,7 @@ export const general = {
     calendars: "Calendar",
     projects: "Projects",
     notes: "Notes",
+    chat: "Chat",
     focus: "Focus",
     music: "Music",
     doomscrolling: "Doomscrolling",

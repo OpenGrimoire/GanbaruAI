@@ -6,6 +6,5 @@ mod registry;
 mod unsupported;
 
 pub use driver::*;
-#[cfg(test)]
-pub use registry::*;
+pub use registry::ProviderDriverRegistry;
 pub use unsupported::*;

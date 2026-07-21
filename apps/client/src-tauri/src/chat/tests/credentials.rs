@@ -1,7 +1,7 @@
 use crate::chat::{
     credentials::{
-        CredentialStore, CredentialStoreAvailability, CredentialStoreError,
-        CredentialStoreErrorCode, CredentialStoreOperation, SecretValue,
+        materialize_provider_environment, CredentialStore, CredentialStoreAvailability,
+        CredentialStoreError, CredentialStoreErrorCode, CredentialStoreOperation, SecretValue,
     },
     models::{CredentialReferenceId, ProviderInstanceConfig},
 };
@@ -11,6 +11,26 @@ use std::{
 };
 
 const SENTINEL_SECRET: &str = "ganbaru-chat-secret-sentinel-47b1";
+
+fn provider_configuration() -> ProviderInstanceConfig {
+    serde_json::from_value(serde_json::json!({
+        "schemaVersion": 1,
+        "instanceId": "provider-instance-1",
+        "familyId": "codex",
+        "label": "Local provider",
+        "accentColor": null,
+        "enabled": true,
+        "executable": "codex",
+        "providerHome": null,
+        "launchArguments": [],
+        "environment": {},
+        "credentialReferences": {},
+        "visibleModelIds": [],
+        "favoriteModelIds": [],
+        "providerConfig": { "schemaVersion": 1, "value": {} }
+    }))
+    .unwrap()
+}
 
 #[derive(Clone, Debug, Default)]
 struct MemoryCredentialStore {
@@ -116,4 +136,26 @@ fn serialized_provider_configuration_contains_only_opaque_references() {
     assert!(!serialized.contains(SENTINEL_SECRET));
     assert!(!diagnostic.contains(SENTINEL_SECRET));
     assert!(serialized.contains("credential-1"));
+}
+
+#[test]
+fn materialized_environment_reads_secrets_without_persisting_values() {
+    let store = MemoryCredentialStore::default();
+    let reference = CredentialReferenceId::new("provider:codex:environment:API_TOKEN").unwrap();
+    store
+        .replace(&reference, &SecretValue::new("secret-value").unwrap())
+        .unwrap();
+    let mut configuration = provider_configuration();
+    configuration
+        .credential_references
+        .insert("API_TOKEN".to_string(), reference);
+
+    let resolved = materialize_provider_environment(&configuration, &store).unwrap();
+
+    assert_eq!(
+        resolved.environment.get("API_TOKEN").map(String::as_str),
+        Some("secret-value")
+    );
+    assert!(resolved.credential_references.is_empty());
+    assert!(!configuration.environment.contains_key("API_TOKEN"));
 }

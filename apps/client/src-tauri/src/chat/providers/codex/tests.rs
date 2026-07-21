@@ -104,11 +104,22 @@ fn configuration(shared_home: &Path, shadow_home: Option<&Path>) -> ProviderInst
                 "shadowHomePath": shadow_home,
                 "refreshMcpBeforeTurn": true,
                 "allowCustomModels": false,
-                "customModelIds": []
+                "customModelIds": [],
+                "customModelLabels": {}
             }
         }
     }))
     .unwrap()
+}
+
+#[test]
+fn custom_model_keeps_its_optional_display_label() {
+    let model = custom_provider_model("exact-model-id", Some("Team model")).unwrap();
+
+    assert_eq!(model.id.as_str(), "exact-model-id");
+    assert_eq!(model.display_name, "Team model");
+    assert!(model.custom);
+    assert_eq!(model.availability, ModelAvailability::Unknown);
 }
 
 fn modes(safety_mode: SafetyMode, interaction_mode: InteractionMode) -> TurnModeSnapshot {

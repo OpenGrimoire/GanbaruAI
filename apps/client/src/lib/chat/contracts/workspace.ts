@@ -31,4 +31,5 @@ export interface ChatWorkspaceRead {
   bindingStatus: WorkspaceBindingStatus;
   canonicalPath: string | null;
   lastVerifiedAt: UtcTimestamp | null;
+  currentBranch: string | null;
 }

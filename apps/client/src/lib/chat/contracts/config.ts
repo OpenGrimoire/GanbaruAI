@@ -60,6 +60,7 @@ export interface ChatVaultConfig {
   schemaVersion: number;
   providers: ChatPortableProviderConfig[];
   rememberedSelections: RememberedComposerSelection[];
+  workspaceProviderPreferences: Record<ChatWorkspaceId, ProviderInstanceId>;
   panels: ChatPanelPreferences;
   behavior: ChatBehaviorPreferences;
   [unknownField: string]: JsonValue | unknown;

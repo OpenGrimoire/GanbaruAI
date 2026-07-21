@@ -1,0 +1,63 @@
+import { describe, expect, it } from "vitest";
+import {
+  createProviderSetupDraft,
+  providerConfigurationFromDraft,
+  providerInstanceIdFromLabel,
+  validateProviderSetup,
+} from "./provider-setup";
+
+describe("provider setup", () => {
+  it("creates stable editable instance IDs from labels", () => {
+    expect(providerInstanceIdFromLabel(" Víctor's Codex ")).toBe("victor-s-codex");
+  });
+
+  it("reports duplicate IDs, environment conflicts, and missing secret references by field", () => {
+    const draft = createProviderSetupDraft();
+    Object.assign(draft, {
+      familyId: "codex",
+      label: "Work",
+      instanceId: "work",
+      executable: "codex",
+      providerHome: "/tmp/codex",
+      environment: [
+        { key: "one", name: "CODEX_HOME", valueType: "text", value: "/other", credentialReference: "" },
+        { key: "two", name: "TOKEN", valueType: "secret", value: "", credentialReference: "" },
+      ],
+    });
+    const result = validateProviderSetup(draft, new Set(["work"]));
+    expect(result.valid).toBe(false);
+    expect(result.fields.instanceId).toContain("already");
+    expect(result.fields["environment.one.name"]).toContain("conflicts");
+    expect(result.fields["environment.two.value"]).toContain("Store");
+  });
+
+  it("keeps secret values out of provider configuration", () => {
+    const draft = createProviderSetupDraft();
+    Object.assign(draft, {
+      familyId: "codex",
+      label: "Codex",
+      instanceId: "codex",
+      executable: "codex",
+      environment: [
+        { key: "one", name: "TOKEN", valueType: "secret", value: "not-serialized", credentialReference: "provider:codex:TOKEN" },
+      ],
+    });
+    const configuration = providerConfigurationFromDraft(draft);
+    expect(JSON.stringify(configuration)).not.toContain("not-serialized");
+    expect(configuration.credentialReferences.TOKEN).toBe("provider:codex:TOKEN");
+  });
+
+  it("rejects insecure external endpoints while allowing loopback HTTP", () => {
+    const draft = createProviderSetupDraft();
+    Object.assign(draft, {
+      familyId: "opencode",
+      label: "OpenCode",
+      instanceId: "opencode",
+      executable: "opencode",
+      providerConfig: { schemaVersion: 1, value: { mode: "external", endpoint: "http://example.com" } },
+    });
+    expect(validateProviderSetup(draft, new Set()).fields["providerConfig.endpoint"]).toBeDefined();
+    draft.providerConfig = { schemaVersion: 1, value: { mode: "external", endpoint: "http://127.0.0.1:4096" } };
+    expect(validateProviderSetup(draft, new Set()).valid).toBe(true);
+  });
+});

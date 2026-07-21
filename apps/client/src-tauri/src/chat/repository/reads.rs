@@ -5,13 +5,14 @@ use crate::chat::models::{
     ProviderInstanceId, ProviderThreadId, SafetyMode, TurnModeSnapshot, UtcTimestamp,
     VersionedJson,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool};
 
 const MAX_PAGE_SIZE: u32 = 200;
 const MAX_SEARCH_LENGTH: usize = 240;
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ChatProjectShellRead {
     pub project_id: Option<String>,
     pub workspace_id: ChatWorkspaceId,
@@ -74,7 +75,7 @@ pub async fn read_thread_shells(
                 provider_instance_id, provider_thread_id, model_selection_data,
                 safety_mode, interaction_mode, state, latest_turn_state,
                 latest_preview, message_count, revision, last_event_sequence,
-                last_activity_at, archived_at
+                last_activity_at, unread_at, archived_at
          FROM chat_threads
          WHERE (? IS NULL OR workspace_id = ?)
            AND ((? = 1 AND archived_at IS NOT NULL) OR (? = 0 AND archived_at IS NULL AND state != 'closed'))
@@ -88,6 +89,27 @@ pub async fn read_thread_shells(
     .await
     .map_err(persistence_error)?;
     rows.into_iter().map(row_to_thread_shell).collect()
+}
+
+pub async fn read_thread_shell(
+    pool: &SqlitePool,
+    thread_id: &ChatThreadId,
+) -> ChatResult<ChatThreadShellRead> {
+    sqlx::query(
+        "SELECT id, workspace_id, project_id, title, provider_family_id,
+                provider_instance_id, provider_thread_id, model_selection_data,
+                safety_mode, interaction_mode, state, latest_turn_state,
+                latest_preview, message_count, revision, last_event_sequence,
+                last_activity_at, unread_at, archived_at
+         FROM chat_threads WHERE id = ?",
+    )
+    .bind(thread_id.as_str())
+    .fetch_optional(pool)
+    .await
+    .map_err(persistence_error)?
+    .map(row_to_thread_shell)
+    .transpose()?
+    .ok_or_else(not_found)
 }
 
 pub async fn search_thread_titles(
@@ -109,7 +131,7 @@ pub async fn search_thread_titles(
                 provider_instance_id, provider_thread_id, model_selection_data,
                 safety_mode, interaction_mode, state, latest_turn_state,
                 latest_preview, message_count, revision, last_event_sequence,
-                last_activity_at, archived_at
+                last_activity_at, unread_at, archived_at
          FROM chat_threads
          WHERE title_search LIKE ? ESCAPE '\\'
            AND (? IS NULL OR (? = 1 AND archived_at IS NOT NULL) OR (? = 0 AND archived_at IS NULL AND state != 'closed'))
@@ -290,6 +312,7 @@ fn row_to_thread_shell(row: sqlx::sqlite::SqliteRow) -> ChatResult<ChatThreadShe
                 .map_err(persistence_error)?,
         )
         .map_err(|_| corrupt_data())?,
+        unread_at: timestamp(row.try_get("unread_at").map_err(persistence_error)?)?,
         archived_at: timestamp(row.try_get("archived_at").map_err(persistence_error)?)?,
     })
 }

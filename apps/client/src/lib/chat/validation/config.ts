@@ -48,6 +48,7 @@ export function defaultChatVaultConfig(): ChatVaultConfig {
     schemaVersion: CHAT_VAULT_CONFIG_SCHEMA_VERSION,
     providers: [],
     rememberedSelections: [],
+    workspaceProviderPreferences: {},
     panels: { ...DEFAULT_PANELS },
     behavior: { ...DEFAULT_BEHAVIOR },
   };
@@ -196,11 +197,24 @@ export function parseChatVaultConfig(value: unknown, label = "chat"): ChatVaultC
   if (rememberedSelections.length > MAX_REMEMBERED_SELECTIONS) {
     throw new Error(`${label}.rememberedSelections exceeds the item limit`);
   }
+  const workspaceProviderPreferences = readStringRecord(
+    record.workspaceProviderPreferences ?? {},
+    `${label}.workspaceProviderPreferences`,
+  );
+  const providerIds = new Set(providers.map((provider) => provider.instanceId));
+  for (const [workspaceId, providerId] of Object.entries(workspaceProviderPreferences)) {
+    readIdentifier(workspaceId, `${label}.workspaceProviderPreferences workspace ID`);
+    readIdentifier(providerId, `${label}.workspaceProviderPreferences.${workspaceId}`);
+    if (!providerIds.has(providerId)) {
+      throw new Error(`${label}.workspaceProviderPreferences references an unknown provider`);
+    }
+  }
   return {
     ...record,
     schemaVersion,
     providers,
     rememberedSelections,
+    workspaceProviderPreferences,
     panels: parsePanels(record.panels ?? DEFAULT_PANELS, `${label}.panels`),
     behavior: parseBehavior(record.behavior ?? DEFAULT_BEHAVIOR, `${label}.behavior`),
   };

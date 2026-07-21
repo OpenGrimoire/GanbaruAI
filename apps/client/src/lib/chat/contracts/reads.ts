@@ -74,7 +74,17 @@ export interface ChatThreadShellRead {
   revision: number;
   lastEventSequence: number;
   lastActivityAt: UtcTimestamp;
+  unreadAt: UtcTimestamp | null;
   archivedAt: UtcTimestamp | null;
+}
+
+export interface ChatProjectShellRead {
+  projectId: string | null;
+  workspaceId: ChatWorkspaceId;
+  workspaceName: string;
+  workspaceArchivedAt: UtcTimestamp | null;
+  activeThreadCount: number;
+  archivedThreadCount: number;
 }
 
 export interface ChatChangeNotification {

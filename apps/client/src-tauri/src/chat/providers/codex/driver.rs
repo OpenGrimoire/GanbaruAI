@@ -213,7 +213,13 @@ impl CodexProviderDriver {
                 .collect::<BTreeSet<_>>();
             for custom in &self.settings.custom_model_ids {
                 if known.insert(custom.clone()) {
-                    models.push(custom_provider_model(custom)?);
+                    models.push(custom_provider_model(
+                        custom,
+                        self.settings
+                            .custom_model_labels
+                            .get(custom)
+                            .map(String::as_str),
+                    )?);
                 }
             }
         }

@@ -33,6 +33,7 @@ describe("shortcut search", () => {
       "Open calendar",
       "Open projects",
       "Open notes",
+      "Open Chat",
       "Toggle music panel",
       "Open or close settings",
       "Zoom in",

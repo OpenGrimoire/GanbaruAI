@@ -8,12 +8,12 @@ import type {
 export interface ChatWorkspaceApi {
   list(): Promise<ChatWorkspaceRead[]>;
   create(request: CreateChatWorkspaceRequest): Promise<ChatWorkspaceRead>;
-  rename(workspaceId: ChatWorkspaceId, displayName: string): Promise<ChatWorkspaceRead>;
-  bind(workspaceId: ChatWorkspaceId): Promise<ChatWorkspaceRead | null>;
-  rebind(workspaceId: ChatWorkspaceId): Promise<ChatWorkspaceRead | null>;
+  rename(workspaceId: ChatWorkspaceId, displayName: string, expectedRevision: number): Promise<ChatWorkspaceRead>;
+  bind(workspaceId: ChatWorkspaceId, title: string): Promise<ChatWorkspaceRead | null>;
+  rebind(workspaceId: ChatWorkspaceId, title: string): Promise<ChatWorkspaceRead | null>;
   removeBinding(workspaceId: ChatWorkspaceId): Promise<ChatWorkspaceRead>;
-  archive(workspaceId: ChatWorkspaceId): Promise<ChatWorkspaceRead>;
-  restore(workspaceId: ChatWorkspaceId): Promise<ChatWorkspaceRead>;
+  archive(workspaceId: ChatWorkspaceId, expectedRevision: number): Promise<ChatWorkspaceRead>;
+  restore(workspaceId: ChatWorkspaceId, expectedRevision: number): Promise<ChatWorkspaceRead>;
   openFolder(workspaceId: ChatWorkspaceId): Promise<void>;
 }
 
@@ -73,16 +73,16 @@ export class ChatWorkspaceController {
   }
 
   public async rename(workspaceId: ChatWorkspaceId, displayName: string): Promise<ChatWorkspaceRead> {
-    return this.apply(await this.api.rename(workspaceId, displayName));
+    return this.apply(await this.api.rename(workspaceId, displayName, this.revisionOf(workspaceId)));
   }
 
-  public async bind(workspaceId: ChatWorkspaceId): Promise<ChatWorkspaceRead | null> {
-    const workspace = await this.api.bind(workspaceId);
+  public async bind(workspaceId: ChatWorkspaceId, title: string): Promise<ChatWorkspaceRead | null> {
+    const workspace = await this.api.bind(workspaceId, title);
     return workspace === null ? null : this.apply(workspace);
   }
 
-  public async rebind(workspaceId: ChatWorkspaceId): Promise<ChatWorkspaceRead | null> {
-    const workspace = await this.api.rebind(workspaceId);
+  public async rebind(workspaceId: ChatWorkspaceId, title: string): Promise<ChatWorkspaceRead | null> {
+    const workspace = await this.api.rebind(workspaceId, title);
     return workspace === null ? null : this.apply(workspace);
   }
 
@@ -91,11 +91,11 @@ export class ChatWorkspaceController {
   }
 
   public async archive(workspaceId: ChatWorkspaceId): Promise<ChatWorkspaceRead> {
-    return this.apply(await this.api.archive(workspaceId));
+    return this.apply(await this.api.archive(workspaceId, this.revisionOf(workspaceId)));
   }
 
   public async restore(workspaceId: ChatWorkspaceId): Promise<ChatWorkspaceRead> {
-    return this.apply(await this.api.restore(workspaceId));
+    return this.apply(await this.api.restore(workspaceId, this.revisionOf(workspaceId)));
   }
 
   public async openFolder(workspaceId: ChatWorkspaceId): Promise<void> {
@@ -109,6 +109,12 @@ export class ChatWorkspaceController {
       : this.workspaces.map((candidate, candidateIndex) => candidateIndex === index ? workspace : candidate);
     this.error = null;
     return workspace;
+  }
+
+  private revisionOf(workspaceId: ChatWorkspaceId): number {
+    const workspace = this.workspaces.find((candidate) => candidate.workspace.id === workspaceId);
+    if (!workspace) throw new Error("Chat workspace was not found");
+    return workspace.workspace.revision;
   }
 }
 

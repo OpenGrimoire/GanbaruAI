@@ -1,8 +1,8 @@
 //! Device-local Chat bindings and provider runtime metadata.
 
 use super::models::{
-    ChatThreadId, ChatWorkspaceId, ProviderInstanceId, ProviderProbeResult, RepositoryKind,
-    UtcTimestamp,
+    ChatThreadId, ChatWorkspaceId, ProviderInstanceId, ProviderModelCatalog, ProviderProbeResult,
+    RepositoryKind, UtcTimestamp,
 };
 use crate::vault::{active_vault_id, read_app_state, update_app_state, vault_device_id};
 use serde::{Deserialize, Serialize};
@@ -26,6 +26,8 @@ pub struct ChatProviderDeviceState {
     pub executable_path: Option<String>,
     pub provider_home_path: Option<String>,
     pub last_probe: Option<ProviderProbeResult>,
+    pub last_successful_probe_at: Option<UtcTimestamp>,
+    pub model_catalog: Option<ProviderModelCatalog>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]

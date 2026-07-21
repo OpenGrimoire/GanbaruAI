@@ -12,6 +12,7 @@ use std::path::{Component, Path, PathBuf};
 
 const MAX_CUSTOM_MODELS: usize = 128;
 const MAX_CUSTOM_MODEL_BYTES: usize = 256;
+const MAX_CUSTOM_MODEL_LABEL_BYTES: usize = 160;
 const MAX_SHIM_BYTES: u64 = 64 * 1024;
 const SHARED_DIRECTORY_NAMES: &[&str] = &[
     "sessions",
@@ -35,6 +36,7 @@ pub struct CodexProviderSettings {
     pub refresh_mcp_before_turn: bool,
     pub allow_custom_models: bool,
     pub custom_model_ids: Vec<String>,
+    pub custom_model_labels: BTreeMap<String, String>,
 }
 
 impl CodexProviderSettings {
@@ -65,6 +67,22 @@ impl CodexProviderSettings {
             return Err(ChatError::validation(
                 "providerConfig.customModelIds",
                 "Codex custom models require the advanced custom-model option",
+            ));
+        }
+        let custom_ids = settings.custom_model_ids.iter().collect::<BTreeSet<_>>();
+        if settings
+            .custom_model_labels
+            .iter()
+            .any(|(model_id, label)| {
+                !custom_ids.contains(model_id)
+                    || label.trim().is_empty()
+                    || label.len() > MAX_CUSTOM_MODEL_LABEL_BYTES
+                    || label.chars().any(char::is_control)
+            })
+        {
+            return Err(ChatError::validation(
+                "providerConfig.customModelLabels",
+                "Codex custom model labels are invalid",
             ));
         }
         if settings

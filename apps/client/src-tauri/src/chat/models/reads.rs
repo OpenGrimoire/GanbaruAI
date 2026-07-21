@@ -72,6 +72,7 @@ pub struct ChatThreadShellRead {
     pub revision: u64,
     pub last_event_sequence: u64,
     pub last_activity_at: UtcTimestamp,
+    pub unread_at: Option<UtcTimestamp>,
     pub archived_at: Option<UtcTimestamp>,
 }
 

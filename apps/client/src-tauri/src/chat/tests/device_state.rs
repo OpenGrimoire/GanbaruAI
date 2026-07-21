@@ -28,6 +28,8 @@ fn bindings_and_provider_paths_are_scoped_by_vault_and_device() {
             executable_path: Some("/usr/bin/codex".to_string()),
             provider_home_path: Some("/home/user/.codex".to_string()),
             last_probe: None,
+            last_successful_probe_at: None,
+            model_catalog: None,
         },
     );
 

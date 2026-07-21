@@ -10,6 +10,7 @@ export const general = {
     calendars: "Calendario",
     projects: "Proyectos",
     notes: "Notas",
+    chat: "Chat",
     focus: "Enfoque",
     music: "Música",
     doomscrolling: "Doomscrolling",

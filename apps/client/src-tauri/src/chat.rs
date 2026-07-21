@@ -13,7 +13,9 @@ pub mod process;
 pub mod providers;
 pub mod repository;
 pub mod runtime;
+pub mod settings_commands;
 pub mod state;
+pub mod thread_commands;
 pub mod workspace;
 pub mod workspace_commands;
 

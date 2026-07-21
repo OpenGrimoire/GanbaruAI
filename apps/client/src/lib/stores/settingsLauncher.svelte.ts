@@ -12,16 +12,18 @@
  * stale targeting.
  */
 
-import type { DoomscrollingSettingsTab, SectionId } from "$lib/components/settings/types";
+import type { ChatSettingsSubsection, DoomscrollingSettingsTab, SectionId } from "$lib/components/settings/types";
 
 interface SettingsLaunchOptions {
   doomscrollingTab?: DoomscrollingSettingsTab;
+  chatSubsection?: ChatSettingsSubsection;
 }
 
 class SettingsLauncherStore {
   isOpen = $state(false);
   targetSection = $state<SectionId | undefined>(undefined);
   targetDoomscrollingTab = $state<DoomscrollingSettingsTab | undefined>(undefined);
+  targetChatSubsection = $state<ChatSettingsSubsection | undefined>(undefined);
 
   /**
    * Request that the Settings modal open. Pass `section` to land on a
@@ -33,6 +35,7 @@ class SettingsLauncherStore {
     this.targetDoomscrollingTab = section === "doomscrolling"
       ? options.doomscrollingTab
       : undefined;
+    this.targetChatSubsection = section === "chat" ? options.chatSubsection : undefined;
     this.isOpen = true;
   }
 
@@ -40,6 +43,7 @@ class SettingsLauncherStore {
     this.isOpen = false;
     this.targetSection = undefined;
     this.targetDoomscrollingTab = undefined;
+    this.targetChatSubsection = undefined;
   }
 }
 

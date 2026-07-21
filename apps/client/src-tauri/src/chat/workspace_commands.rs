@@ -1,105 +1,124 @@
-//! Narrow Tauri commands for logical Chat workspace management.
+//! Durable Tauri commands for logical Chat workspace management.
 
 use super::device_state::read_active_device_scope;
-use super::models::{ChatError, ChatErrorCode, ChatResult, ChatWorkspaceId};
+use super::models::{ChatError, ChatErrorCode, ChatResult, ChatWorkspaceId, UtcTimestamp};
+use super::repository::workspaces as repository;
 use super::workspace::{
-    authorize_workspace, bind_workspace_path, open_authorized_workspace, read_workspaces,
-    remove_active_device_binding, ChatWorkspaceCatalogState, ChatWorkspaceRead,
+    authorize_workspace, open_authorized_workspace, prepare_workspace_binding,
+    remove_active_device_binding, store_active_device_binding, workspace_read, ChatWorkspaceRead,
     CreateChatWorkspaceRequest, WorkspaceAuthorizationOperation,
 };
+use crate::db_path;
+use chrono::{SecondsFormat, Utc};
+use sqlx::SqlitePool;
 use std::path::PathBuf;
 use tauri_plugin_dialog::{DialogExt, FilePath};
 
 #[tauri::command]
-pub fn chat_list_workspaces(
+pub async fn chat_list_workspaces(
     app: tauri::AppHandle,
-    catalog: tauri::State<'_, ChatWorkspaceCatalogState>,
+    db_url: String,
 ) -> ChatResult<Vec<ChatWorkspaceRead>> {
+    let pool = chat_pool(app.clone(), db_url).await?;
     let scope = read_active_device_scope(&app).map_err(device_state_error)?;
-    read_workspaces(&catalog, &scope)
+    let workspaces = repository::list_workspaces(&pool).await?;
+    workspaces
+        .into_iter()
+        .map(|workspace| workspace_read(workspace, &scope))
+        .collect()
 }
 
 #[tauri::command]
-pub fn chat_create_workspace(
+pub async fn chat_create_workspace(
     app: tauri::AppHandle,
-    catalog: tauri::State<'_, ChatWorkspaceCatalogState>,
+    db_url: String,
     request: CreateChatWorkspaceRequest,
 ) -> ChatResult<ChatWorkspaceRead> {
-    let workspace = catalog.create(request)?;
-    let scope = read_active_device_scope(&app).map_err(device_state_error)?;
-    read_workspaces(&catalog, &scope)?
-        .into_iter()
-        .find(|candidate| candidate.workspace.id == workspace.id)
-        .ok_or_else(|| ChatError::new(ChatErrorCode::Internal, "read new Chat workspace", false))
+    let pool = chat_pool(app.clone(), db_url).await?;
+    let workspace = repository::create_workspace(&pool, &request, &now_timestamp()?).await?;
+    read_workspace(&app, workspace)
 }
 
 #[tauri::command]
-pub fn chat_rename_workspace(
+pub async fn chat_rename_workspace(
     app: tauri::AppHandle,
-    catalog: tauri::State<'_, ChatWorkspaceCatalogState>,
+    db_url: String,
     workspace_id: ChatWorkspaceId,
     display_name: String,
+    expected_revision: u64,
 ) -> ChatResult<ChatWorkspaceRead> {
-    catalog.rename(&workspace_id, &display_name)?;
-    read_workspace(&app, &catalog, &workspace_id)
+    let pool = chat_pool(app.clone(), db_url).await?;
+    let workspace = repository::rename_workspace(
+        &pool,
+        &workspace_id,
+        &display_name,
+        expected_revision,
+        &now_timestamp()?,
+    )
+    .await?;
+    read_workspace(&app, workspace)
 }
 
 #[tauri::command]
 pub async fn chat_bind_workspace(
     app: tauri::AppHandle,
-    catalog: tauri::State<'_, ChatWorkspaceCatalogState>,
+    db_url: String,
     workspace_id: ChatWorkspaceId,
+    title: String,
 ) -> ChatResult<Option<ChatWorkspaceRead>> {
-    pick_and_bind_workspace(&app, &catalog, &workspace_id).await
+    pick_and_bind_workspace(&app, &db_url, &workspace_id, &title).await
 }
 
 #[tauri::command]
 pub async fn chat_rebind_workspace(
     app: tauri::AppHandle,
-    catalog: tauri::State<'_, ChatWorkspaceCatalogState>,
+    db_url: String,
     workspace_id: ChatWorkspaceId,
+    title: String,
 ) -> ChatResult<Option<ChatWorkspaceRead>> {
-    pick_and_bind_workspace(&app, &catalog, &workspace_id).await
+    pick_and_bind_workspace(&app, &db_url, &workspace_id, &title).await
 }
 
 #[tauri::command]
-pub fn chat_remove_workspace_binding(
+pub async fn chat_remove_workspace_binding(
     app: tauri::AppHandle,
-    catalog: tauri::State<'_, ChatWorkspaceCatalogState>,
+    db_url: String,
     workspace_id: ChatWorkspaceId,
 ) -> ChatResult<ChatWorkspaceRead> {
-    catalog.get(&workspace_id)?;
+    let pool = chat_pool(app.clone(), db_url).await?;
+    let workspace = repository::read_workspace(&pool, &workspace_id).await?;
     remove_active_device_binding(&app, &workspace_id)?;
-    read_workspace(&app, &catalog, &workspace_id)
+    read_workspace(&app, workspace)
 }
 
 #[tauri::command]
-pub fn chat_archive_workspace(
+pub async fn chat_archive_workspace(
     app: tauri::AppHandle,
-    catalog: tauri::State<'_, ChatWorkspaceCatalogState>,
+    db_url: String,
     workspace_id: ChatWorkspaceId,
+    expected_revision: u64,
 ) -> ChatResult<ChatWorkspaceRead> {
-    catalog.set_archived(&workspace_id, true)?;
-    read_workspace(&app, &catalog, &workspace_id)
+    set_workspace_archived(app, db_url, workspace_id, expected_revision, true).await
 }
 
 #[tauri::command]
-pub fn chat_restore_workspace(
+pub async fn chat_restore_workspace(
     app: tauri::AppHandle,
-    catalog: tauri::State<'_, ChatWorkspaceCatalogState>,
+    db_url: String,
     workspace_id: ChatWorkspaceId,
+    expected_revision: u64,
 ) -> ChatResult<ChatWorkspaceRead> {
-    catalog.set_archived(&workspace_id, false)?;
-    read_workspace(&app, &catalog, &workspace_id)
+    set_workspace_archived(app, db_url, workspace_id, expected_revision, false).await
 }
 
 #[tauri::command]
-pub fn chat_open_workspace_folder(
+pub async fn chat_open_workspace_folder(
     app: tauri::AppHandle,
-    catalog: tauri::State<'_, ChatWorkspaceCatalogState>,
+    db_url: String,
     workspace_id: ChatWorkspaceId,
 ) -> ChatResult<()> {
-    let workspace = catalog.get(&workspace_id)?;
+    let pool = chat_pool(app.clone(), db_url).await?;
+    let workspace = repository::read_workspace(&pool, &workspace_id).await?;
     let scope = read_active_device_scope(&app).map_err(device_state_error)?;
     let authorized = authorize_workspace(
         &workspace,
@@ -109,21 +128,66 @@ pub fn chat_open_workspace_folder(
     open_authorized_workspace(&authorized)
 }
 
+async fn set_workspace_archived(
+    app: tauri::AppHandle,
+    db_url: String,
+    workspace_id: ChatWorkspaceId,
+    expected_revision: u64,
+    archived: bool,
+) -> ChatResult<ChatWorkspaceRead> {
+    let pool = chat_pool(app.clone(), db_url).await?;
+    let workspace = repository::set_workspace_archived(
+        &pool,
+        &workspace_id,
+        archived,
+        expected_revision,
+        &now_timestamp()?,
+    )
+    .await?;
+    read_workspace(&app, workspace)
+}
+
 async fn pick_and_bind_workspace(
     app: &tauri::AppHandle,
-    catalog: &ChatWorkspaceCatalogState,
+    db_url: &str,
     workspace_id: &ChatWorkspaceId,
+    title: &str,
 ) -> ChatResult<Option<ChatWorkspaceRead>> {
-    catalog.get(workspace_id)?;
+    let pool = chat_pool(app.clone(), db_url.to_string()).await?;
+    let workspace = repository::read_workspace(&pool, workspace_id).await?;
+    let Some(selection) = pick_workspace_folder(app, title).await? else {
+        return Ok(None);
+    };
+    let (probe, binding) = prepare_workspace_binding(&workspace, &selection)?;
+    let workspace = repository::set_workspace_repository(
+        &pool,
+        workspace_id,
+        probe.kind,
+        probe.identity.as_deref(),
+        &now_timestamp()?,
+    )
+    .await?;
+    store_active_device_binding(app, workspace_id, binding)?;
+    read_workspace(app, workspace).map(Some)
+}
+
+async fn pick_workspace_folder(app: &tauri::AppHandle, title: &str) -> ChatResult<Option<PathBuf>> {
+    let title = title.trim();
+    if title.is_empty() || title.len() > 160 || title.chars().any(char::is_control) {
+        return Err(ChatError::validation(
+            "title",
+            "Workspace picker title is invalid",
+        ));
+    }
     let (sender, mut receiver) = tauri::async_runtime::channel(1);
     app.dialog()
         .file()
-        .set_title("Select a Chat workspace folder")
+        .set_title(title)
         .pick_folder(move |selection| {
             let result = selection.map(file_path_to_path_buf).transpose();
             let _ = sender.try_send(result);
         });
-    let selection = receiver
+    receiver
         .recv()
         .await
         .ok_or_else(|| {
@@ -138,29 +202,27 @@ async fn pick_and_bind_workspace(
                 "workspacePath",
                 "Selected Chat workspace is not a local folder",
             )
-        })?;
-    selection
-        .as_deref()
-        .map(|path| bind_workspace_path(app, catalog, workspace_id, path))
-        .transpose()
+        })
 }
 
 fn read_workspace(
     app: &tauri::AppHandle,
-    catalog: &ChatWorkspaceCatalogState,
-    workspace_id: &ChatWorkspaceId,
+    workspace: super::workspace::LogicalChatWorkspace,
 ) -> ChatResult<ChatWorkspaceRead> {
     let scope = read_active_device_scope(app).map_err(device_state_error)?;
-    read_workspaces(catalog, &scope)?
-        .into_iter()
-        .find(|candidate| &candidate.workspace.id == workspace_id)
-        .ok_or_else(|| {
-            ChatError::new(
-                ChatErrorCode::NotFound,
-                "Chat workspace was not found",
-                true,
-            )
-        })
+    workspace_read(workspace, &scope)
+}
+
+async fn chat_pool(app: tauri::AppHandle, db_url: String) -> ChatResult<SqlitePool> {
+    db_path::connect_sqlite(app, db_url)
+        .await
+        .map_err(|_| ChatError::new(ChatErrorCode::Persistence, "open Chat database", true))
+}
+
+fn now_timestamp() -> ChatResult<UtcTimestamp> {
+    let now: chrono::DateTime<Utc> = std::time::SystemTime::now().into();
+    UtcTimestamp::new(now.to_rfc3339_opts(SecondsFormat::Millis, true))
+        .map_err(|_| ChatError::new(ChatErrorCode::Internal, "create Chat timestamp", false))
 }
 
 fn file_path_to_path_buf(path: FilePath) -> Result<PathBuf, String> {

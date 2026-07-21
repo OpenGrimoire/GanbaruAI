@@ -80,12 +80,14 @@ pub struct ChatWorkspaceRead {
     pub binding_status: WorkspaceBindingStatus,
     pub canonical_path: Option<String>,
     pub last_verified_at: Option<UtcTimestamp>,
+    pub current_branch: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RepositoryProbe {
     pub kind: RepositoryKind,
     pub identity: Option<String>,
+    pub current_branch: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -233,6 +235,19 @@ pub fn bind_workspace_path<R: Runtime>(
     selected_path: &Path,
 ) -> ChatResult<ChatWorkspaceRead> {
     let workspace = catalog.get(workspace_id)?;
+    let (probe, binding) = prepare_workspace_binding(&workspace, selected_path)?;
+    store_active_device_binding(app, workspace_id, binding)?;
+    let workspace = catalog.record_repository(workspace_id, &probe)?;
+    workspace_read(
+        workspace,
+        &read_active_device_scope(app).map_err(device_state_error)?,
+    )
+}
+
+pub(crate) fn prepare_workspace_binding(
+    workspace: &LogicalChatWorkspace,
+    selected_path: &Path,
+) -> ChatResult<(RepositoryProbe, ChatWorkspaceBindingState)> {
     let canonical_path = canonical_existing_directory(selected_path)?;
     let probe = probe_repository(&canonical_path)?;
     if workspace.repository_identity.is_some() && workspace.repository_identity != probe.identity {
@@ -242,25 +257,27 @@ pub fn bind_workspace_path<R: Runtime>(
     {
         return Err(repository_mismatch());
     }
-    let canonical_path_text = path_to_string(&canonical_path)?;
     let binding = ChatWorkspaceBindingState {
-        canonical_path: canonical_path_text,
+        canonical_path: path_to_string(&canonical_path)?,
         repository_kind: probe.kind,
         repository_identity: probe.identity.clone(),
         last_verified_at: now_timestamp()?,
     };
+    Ok((probe, binding))
+}
+
+pub(crate) fn store_active_device_binding<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    workspace_id: &ChatWorkspaceId,
+    binding: ChatWorkspaceBindingState,
+) -> ChatResult<()> {
     update_active_device_scope(app, |scope| {
         scope
             .workspace_bindings
-            .insert(workspace_id.clone(), binding.clone());
+            .insert(workspace_id.clone(), binding);
         Ok(())
     })
-    .map_err(device_state_error)?;
-    let workspace = catalog.record_repository(workspace_id, &probe)?;
-    workspace_read(
-        workspace,
-        &read_active_device_scope(app).map_err(device_state_error)?,
-    )
+    .map_err(device_state_error)
 }
 
 pub fn authorize_workspace(
@@ -340,15 +357,15 @@ pub fn remove_active_device_binding<R: Runtime>(
     .map_err(device_state_error)
 }
 
-fn workspace_read(
+pub(crate) fn workspace_read(
     workspace: LogicalChatWorkspace,
     scope: &ChatDeviceScope,
 ) -> ChatResult<ChatWorkspaceRead> {
     let binding = scope.workspace_bindings.get(&workspace.id);
-    let binding_status = match binding {
-        None => WorkspaceBindingStatus::Unbound,
+    let (binding_status, current_branch) = match binding {
+        None => (WorkspaceBindingStatus::Unbound, None),
         Some(binding) => match canonical_existing_directory(Path::new(&binding.canonical_path)) {
-            Err(_) => WorkspaceBindingStatus::Missing,
+            Err(_) => (WorkspaceBindingStatus::Missing, None),
             Ok(path) => match probe_repository(&path) {
                 Ok(probe)
                     if probe.kind == workspace.repository_kind
@@ -356,9 +373,9 @@ fn workspace_read(
                         && probe.kind == binding.repository_kind
                         && probe.identity == binding.repository_identity =>
                 {
-                    WorkspaceBindingStatus::Available
+                    (WorkspaceBindingStatus::Available, probe.current_branch)
                 }
-                _ => WorkspaceBindingStatus::RepositoryMismatch,
+                _ => (WorkspaceBindingStatus::RepositoryMismatch, None),
             },
         },
     };
@@ -367,6 +384,7 @@ fn workspace_read(
         binding_status,
         canonical_path: binding.map(|value| value.canonical_path.clone()),
         last_verified_at: binding.map(|value| value.last_verified_at.clone()),
+        current_branch,
     })
 }
 
@@ -407,6 +425,7 @@ pub(crate) fn probe_repository(path: &Path) -> ChatResult<RepositoryProbe> {
             return Ok(RepositoryProbe {
                 kind: RepositoryKind::None,
                 identity: None,
+                current_branch: None,
             });
         }
         Err(_) => {
@@ -437,6 +456,7 @@ pub(crate) fn probe_repository(path: &Path) -> ChatResult<RepositoryProbe> {
         return Err(repository_probe_error());
     }
     let config = fs::read_to_string(&config_path).map_err(|_| repository_probe_error())?;
+    let current_branch = read_current_branch(&git_directory)?;
     let remote = origin_remote(&config).map(normalize_remote_identity);
     let mut hasher = Sha256::new();
     hasher.update(b"ganbaru-chat-repository-v1\0");
@@ -450,7 +470,24 @@ pub(crate) fn probe_repository(path: &Path) -> ChatResult<RepositoryProbe> {
     Ok(RepositoryProbe {
         kind: RepositoryKind::Git,
         identity: Some(format!("git-sha256:{}", hex_digest(hasher.finalize()))),
+        current_branch,
     })
+}
+
+fn read_current_branch(git_directory: &Path) -> ChatResult<Option<String>> {
+    let head_path = git_directory.join("HEAD");
+    let metadata = fs::metadata(&head_path).map_err(|_| repository_probe_error())?;
+    if !metadata.is_file() || metadata.len() > 4_096 {
+        return Err(repository_probe_error());
+    }
+    let head = fs::read_to_string(head_path).map_err(|_| repository_probe_error())?;
+    let Some(reference) = head.trim().strip_prefix("ref: refs/heads/") else {
+        return Ok(None);
+    };
+    if reference.is_empty() || reference.chars().any(char::is_control) {
+        return Err(repository_probe_error());
+    }
+    Ok(Some(reference.to_string()))
 }
 
 fn resolve_git_directory_file(worktree: &Path, git_file: &Path) -> ChatResult<PathBuf> {

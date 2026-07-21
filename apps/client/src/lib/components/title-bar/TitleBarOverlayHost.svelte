@@ -130,6 +130,7 @@
     onClose={() => settingsLauncher.close()}
     initialSection={settingsLauncher.targetSection}
     initialDoomscrollingTab={settingsLauncher.targetDoomscrollingTab}
+    initialChatSubsection={settingsLauncher.targetChatSubsection}
   />
 {/if}
 

@@ -744,7 +744,7 @@ pub fn run() {
         .manage(notification::PomodoroOverlayState::default())
         .manage(media_player::MediaPlayerState::default())
         .manage(soundscape::SoundscapeEngineState::default())
-        .manage(chat::workspace::ChatWorkspaceCatalogState::default())
+        .manage(chat::settings_commands::ChatSettingsState::default())
         .manage(chat::runtime::ChatRuntimeRegistry::default())
         .plugin(tauri_plugin_dialog::init())
         .on_window_event(|window, event| {
@@ -766,6 +766,30 @@ pub fn run() {
             chat::workspace_commands::chat_archive_workspace,
             chat::workspace_commands::chat_restore_workspace,
             chat::workspace_commands::chat_open_workspace_folder,
+            chat::settings_commands::chat_read_settings,
+            chat::settings_commands::chat_set_last_selected_thread,
+            chat::settings_commands::chat_save_provider,
+            chat::settings_commands::chat_set_provider_enabled,
+            chat::settings_commands::chat_remove_provider,
+            chat::settings_commands::chat_test_provider,
+            chat::settings_commands::chat_probe_provider,
+            chat::settings_commands::chat_refresh_provider_models,
+            chat::settings_commands::chat_update_provider_models,
+            chat::settings_commands::chat_update_behavior,
+            chat::settings_commands::chat_update_panels,
+            chat::settings_commands::chat_set_workspace_provider_preference,
+            chat::settings_commands::chat_replace_credential,
+            chat::settings_commands::chat_remove_credential,
+            chat::settings_commands::chat_pick_provider_executable,
+            chat::settings_commands::chat_pick_provider_home,
+            chat::thread_commands::chat_list_project_shells,
+            chat::thread_commands::chat_list_threads,
+            chat::thread_commands::chat_search_thread_titles,
+            chat::thread_commands::chat_rename_thread,
+            chat::thread_commands::chat_set_thread_read,
+            chat::thread_commands::chat_archive_thread,
+            chat::thread_commands::chat_restore_thread,
+            chat::thread_commands::chat_delete_thread_permanently,
             notification::commands::show_pomodoro_notification,
             notification::commands::show_paused_focus_notification,
             notification::commands::show_event_notification,

@@ -158,6 +158,8 @@ pub struct ChatVaultConfig {
     #[serde(default)]
     pub remembered_selections: Vec<RememberedComposerSelection>,
     #[serde(default)]
+    pub workspace_provider_preferences: BTreeMap<ChatWorkspaceId, ProviderInstanceId>,
+    #[serde(default)]
     pub panels: ChatPanelPreferences,
     #[serde(default)]
     pub behavior: ChatBehaviorPreferences,
@@ -171,6 +173,7 @@ impl Default for ChatVaultConfig {
             schema_version: CHAT_VAULT_CONFIG_SCHEMA_VERSION,
             providers: Vec::new(),
             remembered_selections: Vec::new(),
+            workspace_provider_preferences: BTreeMap::new(),
             panels: ChatPanelPreferences::default(),
             behavior: ChatBehaviorPreferences::default(),
             unknown_fields: BTreeMap::new(),
@@ -215,6 +218,14 @@ impl ChatVaultConfig {
                 return Err(ChatError::validation(
                     format!("chat.rememberedSelections[{index}].modelId"),
                     "a model ID or provider-managed model state is required",
+                ));
+            }
+        }
+        for provider_id in self.workspace_provider_preferences.values() {
+            if !instance_ids.contains(provider_id.as_str()) {
+                return Err(ChatError::validation(
+                    "chat.workspaceProviderPreferences",
+                    "workspace provider preference references an unknown provider instance",
                 ));
             }
         }
@@ -295,18 +306,14 @@ fn validate_provider(provider: &ChatPortableProviderConfig, index: usize) -> Cha
             &format!("chat.providers[{index}].launchArguments[{argument_index}]"),
         )?;
     }
-    if provider.environment.len() > MAX_ENVIRONMENT_ROWS {
+    if provider.environment.len() + provider.credential_references.len() > MAX_ENVIRONMENT_ROWS {
         return Err(ChatError::validation(
             format!("chat.providers[{index}].environment"),
             format!("provider supports at most {MAX_ENVIRONMENT_ROWS} environment rows"),
         ));
     }
     for (name, value) in &provider.environment {
-        if name.is_empty()
-            || !name
-                .chars()
-                .all(|character| character == '_' || character.is_ascii_alphanumeric())
-        {
+        if !valid_environment_name(name) {
             return Err(ChatError::validation(
                 format!("chat.providers[{index}].environment"),
                 "environment variable names use ASCII letters, digits, and underscores",
@@ -317,6 +324,14 @@ fn validate_provider(provider: &ChatPortableProviderConfig, index: usize) -> Cha
             MAX_ENVIRONMENT_VALUE_BYTES,
             &format!("chat.providers[{index}].environment.{name}"),
         )?;
+    }
+    for name in provider.credential_references.keys() {
+        if !valid_environment_name(name) || provider.environment.contains_key(name) {
+            return Err(ChatError::validation(
+                format!("chat.providers[{index}].credentialReferences"),
+                "credential environment names must be valid and have one source",
+            ));
+        }
     }
     if provider.visible_model_ids.len() > MAX_MODELS_PER_SET
         || provider.favorite_model_ids.len() > MAX_MODELS_PER_SET
@@ -336,6 +351,14 @@ fn validate_provider(provider: &ChatPortableProviderConfig, index: usize) -> Cha
         ));
     }
     Ok(())
+}
+
+fn valid_environment_name(name: &str) -> bool {
+    let mut characters = name.chars();
+    characters
+        .next()
+        .is_some_and(|character| character == '_' || character.is_ascii_alphabetic())
+        && characters.all(|character| character == '_' || character.is_ascii_alphanumeric())
 }
 
 fn validate_bounded_string(value: &str, maximum: usize, field: &str) -> ChatResult<()> {

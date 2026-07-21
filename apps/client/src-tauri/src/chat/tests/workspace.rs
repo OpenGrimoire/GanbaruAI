@@ -40,6 +40,11 @@ impl TestDirectory {
             ),
         )
         .expect("Git config should be written");
+        fs::write(
+            directory.path().join(".git/HEAD"),
+            "ref: refs/heads/feat/chat\n",
+        )
+        .expect("Git HEAD should be written");
         directory
     }
 }
@@ -182,6 +187,7 @@ fn repository_identity_is_stable_and_redacts_remote_credentials() {
 
     assert_eq!(first_probe.kind, RepositoryKind::Git);
     assert_eq!(first_probe.identity, second_probe.identity);
+    assert_eq!(first_probe.current_branch.as_deref(), Some("feat/chat"));
     let identity = first_probe.identity.unwrap();
     assert!(!identity.contains("alice"));
     assert!(!identity.contains("secret-token"));

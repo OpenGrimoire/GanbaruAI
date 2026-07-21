@@ -23,6 +23,8 @@
     DoomscrollingLimitEditorTarget,
     DoomscrollingSettingsTab,
     NotesTransferOperation,
+    ChatProviderSetupTarget,
+    ChatSettingsSubsection,
     SectionId,
     SettingsDetailKind,
   } from "./types";
@@ -32,6 +34,7 @@
   import CalendarsSection from "./CalendarsSection.svelte";
   import ProjectsSection from "./ProjectsSection.svelte";
   import NotesSection from "./NotesSection.svelte";
+  import ChatSection from "./ChatSection.svelte";
   import FocusSection from "./FocusSection.svelte";
   import MusicSection from "./MusicSection.svelte";
   import DoomscrollingSection from "./DoomscrollingSection.svelte";
@@ -46,6 +49,7 @@
     calendars: CalendarsSection,
     projects: ProjectsSection,
     notes: NotesSection,
+    chat: ChatSection,
     focus: FocusSection,
     music: MusicSection,
     doomscrolling: DoomscrollingSection,
@@ -57,16 +61,19 @@
 
   type SettingsDetailView =
     | { kind: "doomscrolling-limit"; target: DoomscrollingLimitEditorTarget }
-    | { kind: "notes-transfer"; operation: NotesTransferOperation };
+    | { kind: "notes-transfer"; operation: NotesTransferOperation }
+    | { kind: "chat-provider"; target: ChatProviderSetupTarget };
 
   let {
     onClose,
     initialSection,
     initialDoomscrollingTab,
+    initialChatSubsection,
   }: {
     onClose: () => void;
     initialSection?: SectionId;
     initialDoomscrollingTab?: DoomscrollingSettingsTab;
+    initialChatSubsection?: ChatSettingsSubsection;
   } = $props();
 
   const themeEditor = getThemeEditor();
@@ -176,6 +183,16 @@
     detailScrollbarInsetTop = 0;
     detailScrollbarInsetBottom = 0;
     requestSettingsDetail("notes-transfer");
+    scrollSettingsToTop();
+  }
+
+  function openChatProviderSetup(target: ChatProviderSetupTarget): void {
+    activeSection = "chat";
+    detailView = { kind: "chat-provider", target };
+    detailScrollEl = undefined;
+    detailScrollbarInsetTop = 0;
+    detailScrollbarInsetBottom = 0;
+    requestSettingsDetail("chat-provider");
     scrollSettingsToTop();
   }
 
@@ -382,6 +399,21 @@
                   detailScrollbarInsetBottom = insets.bottom;
                 }}
               />
+            {:else if loadedDetail.kind === "chat-provider" && detailView.kind === "chat-provider"}
+              {@const DetailComponent = loadedDetail.component}
+              <DetailComponent
+                target={detailView.target}
+                onCancel={closeDetailView}
+                compactLayout={useTopNav}
+                iconRailLayout={useIconRail}
+                onScrollContainerChange={(scrollContainer: HTMLElement | undefined) => {
+                  detailScrollEl = scrollContainer;
+                }}
+                onScrollbarInsetsChange={(insets: { top: number; bottom: number }) => {
+                  detailScrollbarInsetTop = insets.top;
+                  detailScrollbarInsetBottom = insets.bottom;
+                }}
+              />
             {/if}
           {:else if activeDetailLoadState?.status === "failed"}
             {@const failedDetailKind = activeDetailLoadState.key}
@@ -412,6 +444,11 @@
             <DoomscrollingSection
               initialTab={initialDoomscrollingTab}
               onOpenLimitEditor={openDoomscrollingLimitEditor}
+            />
+        {:else if activeSection === "chat"}
+            <ChatSection
+              initialSubsection={initialChatSubsection}
+              onOpenProviderSetup={openChatProviderSetup}
             />
         {:else}
           {@const SectionComponent = activeSectionComponent}

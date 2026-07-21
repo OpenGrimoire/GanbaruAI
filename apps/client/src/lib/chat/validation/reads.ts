@@ -6,6 +6,7 @@ import {
   type ChatChangeNotification,
   type ChatError,
   type ChatThreadShellRead,
+  type ChatProjectShellRead,
   type ChatTimelineItemRead,
   type ChatTimelinePageRead,
   type DriverOperationReceipt,
@@ -40,6 +41,26 @@ export function parseChatError(value: unknown, label = "Chat error"): ChatError 
     recoverable: readBoolean(record.recoverable, `${label}.recoverable`),
     details: readNullable(record.details, `${label}.details`, readJsonValue),
   };
+}
+
+export function parseChatThreadShells(value: unknown, label = "Chat thread shells"): ChatThreadShellRead[] {
+  return readArray(value, label, parseChatThreadShell);
+}
+
+export function parseChatProjectShell(value: unknown, label = "Chat project shell"): ChatProjectShellRead {
+  const record = readRecord(value, label);
+  return {
+    projectId: readNullable(record.projectId, `${label}.projectId`, readString),
+    workspaceId: readIdentifier(record.workspaceId, `${label}.workspaceId`),
+    workspaceName: readString(record.workspaceName, `${label}.workspaceName`),
+    workspaceArchivedAt: readNullable(record.workspaceArchivedAt, `${label}.workspaceArchivedAt`, readUtcTimestamp),
+    activeThreadCount: readNonNegativeSafeInteger(record.activeThreadCount, `${label}.activeThreadCount`),
+    archivedThreadCount: readNonNegativeSafeInteger(record.archivedThreadCount, `${label}.archivedThreadCount`),
+  };
+}
+
+export function parseChatProjectShells(value: unknown): ChatProjectShellRead[] {
+  return readArray(value, "Chat project shells", parseChatProjectShell);
 }
 
 export function parseProviderSessionSnapshot(value: unknown, label = "provider session"): ProviderSessionSnapshot {
@@ -117,6 +138,7 @@ export function parseChatThreadShell(value: unknown, label = "Chat thread shell"
     revision: readNonNegativeSafeInteger(record.revision, `${label}.revision`),
     lastEventSequence: readNonNegativeSafeInteger(record.lastEventSequence, `${label}.lastEventSequence`),
     lastActivityAt: readUtcTimestamp(record.lastActivityAt, `${label}.lastActivityAt`),
+    unreadAt: readNullable(record.unreadAt, `${label}.unreadAt`, readUtcTimestamp),
     archivedAt: readNullable(record.archivedAt, `${label}.archivedAt`, readUtcTimestamp),
   };
 }

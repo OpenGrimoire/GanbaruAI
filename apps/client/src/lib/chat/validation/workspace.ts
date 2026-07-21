@@ -36,6 +36,7 @@ export function parseChatWorkspaceRead(value: unknown, label = "workspaceRead"):
     bindingStatus: readEnum(record.bindingStatus, WORKSPACE_BINDING_STATUSES, `${label}.bindingStatus`),
     canonicalPath: readNullable(record.canonicalPath, `${label}.canonicalPath`, readString),
     lastVerifiedAt: readNullable(record.lastVerifiedAt, `${label}.lastVerifiedAt`, readUtcTimestamp),
+    currentBranch: readNullable(record.currentBranch, `${label}.currentBranch`, readString),
   };
 }
 

@@ -9,6 +9,7 @@ export const SETTINGS_SECTION_IDS = [
   "calendars",
   "projects",
   "notes",
+  "chat",
   "focus",
   "music",
   "doomscrolling",
@@ -21,6 +22,7 @@ export const SETTINGS_SECTION_IDS = [
 export type SectionId = (typeof SETTINGS_SECTION_IDS)[number];
 
 export type DoomscrollingSettingsTab = "limits" | "browser" | "mobile" | "desktop";
+export type ChatSettingsSubsection = "providers" | "models" | "workspaces" | "behavior";
 
 export type DoomscrollingLimitEditorTarget =
   | { mode: "create" }
@@ -35,5 +37,9 @@ export const NOTES_TRANSFER_OPERATIONS = [
 
 export type NotesTransferOperation = (typeof NOTES_TRANSFER_OPERATIONS)[number];
 
-export const SETTINGS_DETAIL_KINDS = ["doomscrolling-limit", "notes-transfer"] as const;
+export type ChatProviderSetupTarget =
+  | { mode: "create" }
+  | { mode: "edit"; instanceId: string };
+
+export const SETTINGS_DETAIL_KINDS = ["doomscrolling-limit", "notes-transfer", "chat-provider"] as const;
 export type SettingsDetailKind = (typeof SETTINGS_DETAIL_KINDS)[number];

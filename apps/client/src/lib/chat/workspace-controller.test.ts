@@ -20,6 +20,7 @@ function workspace(id: string, displayName = "Frontend"): ChatWorkspaceRead {
     bindingStatus: "unbound",
     canonicalPath: null,
     lastVerifiedAt: null,
+    currentBranch: null,
   };
 }
 
@@ -70,7 +71,7 @@ describe("ChatWorkspaceController", () => {
     const controller = new ChatWorkspaceController(api);
     await controller.refresh();
 
-    expect(await controller.bind("workspace-1")).toBeNull();
+    expect(await controller.bind("workspace-1", "Choose workspace folder")).toBeNull();
     expect(controller.snapshot().workspaces[0].bindingStatus).toBe("unbound");
   });
 

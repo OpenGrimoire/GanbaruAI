@@ -34,6 +34,7 @@ fn valid_config() -> serde_json::Value {
             "safetyMode": "supervised",
             "interactionMode": "build"
         }],
+        "workspaceProviderPreferences": {},
         "panels": { "railWidthPx": 260, "inspectorWidthPx": 360 },
         "behavior": {
             "sendKey": "enter",

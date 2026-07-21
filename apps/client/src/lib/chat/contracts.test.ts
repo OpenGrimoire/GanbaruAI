@@ -177,6 +177,7 @@ describe("Chat vault configuration", () => {
         safetyMode: "supervised",
         interactionMode: "build",
       }],
+      workspaceProviderPreferences: {},
       panels: { railWidthPx: 280, inspectorWidthPx: 420 },
       behavior: {
         sendKey: "enter",
@@ -245,6 +246,7 @@ describe("Chat workspace contracts", () => {
       bindingStatus: "available",
       canonicalPath: "/home/user/project",
       lastVerifiedAt: timestamp,
+      currentBranch: "feat/chat",
     };
 
     expect(parseChatWorkspaceRead(fixture)).toEqual(fixture);
@@ -266,6 +268,7 @@ describe("Chat workspace contracts", () => {
       bindingStatus: "trusted_forever",
       canonicalPath: null,
       lastVerifiedAt: null,
+      currentBranch: null,
     };
     expect(() => parseChatWorkspaceRead(fixture)).toThrow("bindingStatus has an unsupported value");
     expect(() => parseChatWorkspaceRead({
@@ -354,6 +357,7 @@ describe("Chat read and error contracts", () => {
       revision: 4,
       lastEventSequence: 12,
       lastActivityAt: timestamp,
+      unreadAt: null,
       archivedAt: null,
     };
     expect(parseChatThreadShell(fixture)).toEqual(fixture);

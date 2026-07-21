@@ -1,12 +1,16 @@
 //! Native credential storage for provider secrets.
 
-use super::models::CredentialReferenceId;
+use super::models::{
+    ChatError, ChatErrorCode, ChatResult, CredentialReferenceId, ProviderInstanceConfig,
+};
+use serde::Serialize;
 use std::fmt;
 
 const CHAT_CREDENTIAL_SERVICE: &str = "com.ganbaru-ai.chat";
 const AVAILABILITY_PROBE_REFERENCE: &str = "credential-store-availability-probe";
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum CredentialStoreAvailability {
     Available,
     Unavailable,
@@ -95,6 +99,61 @@ pub trait CredentialStore: Send + Sync {
     ) -> Result<(), CredentialStoreError>;
 
     fn remove(&self, reference: &CredentialReferenceId) -> Result<bool, CredentialStoreError>;
+}
+
+pub fn materialize_provider_environment(
+    configuration: &ProviderInstanceConfig,
+    store: &impl CredentialStore,
+) -> ChatResult<ProviderInstanceConfig> {
+    let mut resolved = configuration.clone();
+    for (name, value) in &configuration.environment {
+        let Some(inherited_name) = value.strip_prefix("inherit:") else {
+            continue;
+        };
+        if inherited_name != name {
+            return Err(ChatError::new(
+                ChatErrorCode::ConfigurationInvalid,
+                format!("Inherited environment reference for {name} is invalid"),
+                true,
+            ));
+        }
+        let inherited = std::env::var(name).map_err(|_| {
+            ChatError::new(
+                ChatErrorCode::ConfigurationInvalid,
+                format!("Inherited environment variable {name} is unavailable"),
+                true,
+            )
+        })?;
+        resolved.environment.insert(name.clone(), inherited);
+    }
+    for (name, reference) in &configuration.credential_references {
+        if resolved.environment.contains_key(name) {
+            return Err(ChatError::new(
+                ChatErrorCode::ConfigurationInvalid,
+                format!("Environment variable {name} has more than one configured source"),
+                true,
+            ));
+        }
+        let secret = store.read(reference).map_err(|_| {
+            ChatError::new(
+                ChatErrorCode::ConfigurationInvalid,
+                format!("Stored credential for {name} could not be read"),
+                true,
+            )
+        })?;
+        let secret = secret.ok_or_else(|| {
+            ChatError::new(
+                ChatErrorCode::ConfigurationInvalid,
+                format!("Stored credential for {name} is missing"),
+                true,
+            )
+        })?;
+        resolved
+            .environment
+            .insert(name.clone(), secret.expose().to_string());
+    }
+    resolved.credential_references.clear();
+    Ok(resolved)
 }
 
 fn native_availability() -> CredentialStoreAvailability {
