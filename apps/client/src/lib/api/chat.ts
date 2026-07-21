@@ -7,6 +7,7 @@ import type {
   ChatSettingsRead,
   ChatThreadId,
   ChatThreadShellRead,
+  ChatTimelinePageRead,
   ChatWorkspaceId,
   ChatWorkspaceRead,
   CreateChatWorkspaceRequest,
@@ -25,6 +26,7 @@ import {
   parseChatSettingsRead,
   parseChatThreadShell,
   parseChatThreadShells,
+  parseChatTimelinePage,
   parseChatVaultConfig,
   parseChatWorkspaceRead,
   parseChatWorkspaceReads,
@@ -199,6 +201,23 @@ export async function searchChatThreadTitles(query: string, archived: boolean | 
     archived,
     limit,
   }));
+}
+
+export async function readChatTimelinePage(
+  threadId: ChatThreadId,
+  cursor: string | null = null,
+  limit = 100,
+): Promise<ChatTimelinePageRead> {
+  return parseChatTimelinePage(await invoke<unknown>("chat_read_timeline_page", {
+    dbUrl: await ensureDbUrl(),
+    threadId,
+    cursor,
+    limit,
+  }));
+}
+
+export async function openChatExternalUrl(url: string): Promise<void> {
+  await invoke("chat_open_external_url", { url });
 }
 
 async function threadMutation(command: string, args: Record<string, unknown>): Promise<ChatThreadShellRead> {

@@ -15,6 +15,7 @@
   import ChatConversationHeader from "./ChatConversationHeader.svelte";
   import ChatFirstUse from "./ChatFirstUse.svelte";
   import ChatThreadRail from "./ChatThreadRail.svelte";
+  import ChatTimeline from "./ChatTimeline.svelte";
 
   const { t } = getLocalization();
   const chat = getChat();
@@ -186,6 +187,8 @@
       <div role="alert" class="m-auto max-w-md p-4 text-center text-sm text-destructive">{loadError}<div><button type="button" class="chat-secondary-button mt-3" onclick={() => { loadError = null; void chat.reload().catch((error) => { loadError = error instanceof Error ? error.message : String(error); }); }}>{t("common.retry")}</button></div></div>
     {:else if chat.loading}
       <div class="m-auto text-sm text-muted-foreground">{t("common.loading")}</div>
+    {:else if chat.selectedThread}
+      <ChatTimeline />
     {:else}
       <ChatFirstUse />
     {/if}

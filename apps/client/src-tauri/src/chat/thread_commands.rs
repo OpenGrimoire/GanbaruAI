@@ -1,14 +1,15 @@
 //! Projection-backed commands for Chat thread navigation and lifecycle actions.
 
 use super::models::{
-    ChatError, ChatErrorCode, ChatResult, ChatThreadId, ChatThreadShellRead, ChatWorkspaceId,
-    UtcTimestamp,
+    ChatError, ChatErrorCode, ChatResult, ChatThreadId, ChatThreadShellRead, ChatTimelinePageRead,
+    ChatWorkspaceId, UtcTimestamp,
 };
 use super::repository::{lifecycle, reads};
 use crate::db_path;
 use chrono::{SecondsFormat, Utc};
 use sqlx::SqlitePool;
 use std::time::{Duration, SystemTime};
+use tauri_plugin_opener::OpenerExt;
 
 const PERMANENT_DELETE_CLEANUP_GRACE: Duration = Duration::from_secs(24 * 60 * 60);
 
@@ -44,6 +45,57 @@ pub async fn chat_search_thread_titles(
     limit: u32,
 ) -> ChatResult<Vec<ChatThreadShellRead>> {
     reads::search_thread_titles(&chat_pool(app, db_url).await?, &query, archived, limit).await
+}
+
+#[tauri::command]
+pub async fn chat_read_timeline_page(
+    app: tauri::AppHandle,
+    db_url: String,
+    thread_id: ChatThreadId,
+    cursor: Option<String>,
+    limit: u32,
+) -> ChatResult<ChatTimelinePageRead> {
+    let cursor = cursor
+        .as_deref()
+        .map(reads::parse_timeline_cursor)
+        .transpose()?;
+    reads::read_timeline_page(
+        &chat_pool(app, db_url).await?,
+        &thread_id,
+        cursor.as_ref(),
+        limit,
+    )
+    .await
+}
+
+#[tauri::command]
+pub fn chat_open_external_url(app: tauri::AppHandle, url: String) -> ChatResult<()> {
+    let parsed = validate_external_url(&url)?;
+    app.opener()
+        .open_url(parsed.as_str(), None::<&str>)
+        .map_err(|_| {
+            ChatError::new(
+                ChatErrorCode::Permission,
+                "Chat link could not be opened",
+                true,
+            )
+        })
+}
+
+fn validate_external_url(url: &str) -> ChatResult<reqwest::Url> {
+    if url.len() > 2_048 || url.chars().any(char::is_control) {
+        return Err(ChatError::validation("url", "Chat link is invalid"));
+    }
+    let parsed = reqwest::Url::parse(url)
+        .map_err(|_| ChatError::validation("url", "Chat link is invalid"))?;
+    if !matches!(parsed.scheme(), "http" | "https")
+        || parsed.host_str().is_none()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+    {
+        return Err(ChatError::validation("url", "Chat link is not allowed"));
+    }
+    Ok(parsed)
 }
 
 #[tauri::command]
@@ -169,4 +221,19 @@ fn timestamp(value: SystemTime) -> ChatResult<UtcTimestamp> {
     let value: chrono::DateTime<Utc> = value.into();
     UtcTimestamp::new(value.to_rfc3339_opts(SecondsFormat::Millis, true))
         .map_err(|_| ChatError::new(ChatErrorCode::Internal, "create Chat timestamp", false))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_external_url;
+
+    #[test]
+    fn external_chat_links_allow_only_uncredentialed_http_urls() {
+        assert!(validate_external_url("https://example.com/docs").is_ok());
+        assert!(validate_external_url("http://localhost:3000/path").is_ok());
+        assert!(validate_external_url("file:///etc/passwd").is_err());
+        assert!(validate_external_url("javascript:alert(1)").is_err());
+        assert!(validate_external_url("https://token@example.com").is_err());
+        assert!(validate_external_url("https://example.com/\nheader").is_err());
+    }
 }

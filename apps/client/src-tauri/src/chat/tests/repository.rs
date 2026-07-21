@@ -22,7 +22,8 @@ use crate::chat::repository::lifecycle::{
     LinkedChatDeletionDecision,
 };
 use crate::chat::repository::reads::{
-    read_project_shells, read_thread_shells, read_timeline_page, search_thread_titles,
+    parse_timeline_cursor, read_project_shells, read_thread_shells, read_timeline_page,
+    search_thread_titles,
 };
 use crate::chat::repository::rebuild::rebuild_thread_projections;
 use crate::chat::repository::receipts::{
@@ -331,6 +332,46 @@ fn shell_search_timeline_and_archive_reads_stay_lightweight() {
             read_thread_shells(&pool, None, false).await.unwrap().len(),
             1
         );
+    });
+}
+
+#[test]
+fn timeline_cursor_does_not_skip_rows_that_share_a_sequence() {
+    tauri::async_runtime::block_on(async {
+        let pool = pool_with_thread().await;
+        append_canonical_event(&pool, content_event("event-page", "Answer"))
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO chat_activities
+                (id, thread_id, sequence_anchor, item_kind, status, title,
+                 source_event_type, created_at, updated_at)
+             VALUES ('activity-same-sequence', 'thread-1', 1, 'web_search',
+                     'completed', 'Search', 'item_completed', ?, ?)",
+        )
+        .bind(NOW)
+        .bind(NOW)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let thread_id = ChatThreadId::new("thread-1").unwrap();
+        let newest = read_timeline_page(&pool, &thread_id, None, 1)
+            .await
+            .unwrap();
+        let cursor = parse_timeline_cursor(newest.previous_cursor.as_deref().unwrap()).unwrap();
+        let older = read_timeline_page(&pool, &thread_id, Some(&cursor), 1)
+            .await
+            .unwrap();
+
+        let ids = [
+            newest.items[0].activity_id.as_str(),
+            older.items[0].activity_id.as_str(),
+        ]
+        .into_iter()
+        .collect::<HashSet<_>>();
+        assert_eq!(ids.len(), 2);
+        assert!(older.previous_cursor.is_none());
     });
 }
 

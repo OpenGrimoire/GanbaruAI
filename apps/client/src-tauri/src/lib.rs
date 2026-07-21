@@ -785,6 +785,8 @@ pub fn run() {
             chat::thread_commands::chat_list_project_shells,
             chat::thread_commands::chat_list_threads,
             chat::thread_commands::chat_search_thread_titles,
+            chat::thread_commands::chat_read_timeline_page,
+            chat::thread_commands::chat_open_external_url,
             chat::thread_commands::chat_rename_thread,
             chat::thread_commands::chat_set_thread_read,
             chat::thread_commands::chat_archive_thread,

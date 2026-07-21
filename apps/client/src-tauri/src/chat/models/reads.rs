@@ -4,6 +4,7 @@ use super::{
     ProviderInstanceId, ProviderSessionId, ProviderSessionState, ProviderThreadId,
     TurnModeSnapshot, UtcTimestamp, VersionedJson,
 };
+use crate::chat::events::{ChangedFileSummary, ThreadUsageUpdatedEvent};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -97,9 +98,25 @@ pub struct ChatTimelineItemRead {
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ChatTimelineTurnRead {
+    pub turn_id: ChatTurnId,
+    pub state: ChatTurnState,
+    pub started_at: Option<UtcTimestamp>,
+    pub completed_at: Option<UtcTimestamp>,
+    pub stop_reason: Option<String>,
+    pub model_id: Option<ModelId>,
+    pub model_options: Vec<ModelOptionSelection>,
+    pub modes: TurnModeSnapshot,
+    pub usage: Option<ThreadUsageUpdatedEvent>,
+    pub changed_files: Vec<ChangedFileSummary>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ChatTimelinePageRead {
     pub thread_id: ChatThreadId,
     pub items: Vec<ChatTimelineItemRead>,
+    pub turns: Vec<ChatTimelineTurnRead>,
     pub previous_cursor: Option<String>,
     pub next_cursor: Option<String>,
     pub thread_revision: u64,

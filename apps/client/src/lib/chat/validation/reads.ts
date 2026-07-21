@@ -9,12 +9,14 @@ import {
   type ChatProjectShellRead,
   type ChatTimelineItemRead,
   type ChatTimelinePageRead,
+  type ChatTimelineTurnRead,
   type DriverOperationReceipt,
   type ProviderHistoryItem,
   type ProviderHistoryPage,
   type ProviderSessionSnapshot,
   type TurnDispatchReceipt,
 } from "../contracts";
+import { parseChangedFile, parseThreadUsage } from "./events";
 import { parseModelOptionSelection, parseProviderCapabilities } from "./provider";
 import {
   readArray,
@@ -164,11 +166,28 @@ function parseChatTimelineItem(value: unknown, label: string): ChatTimelineItemR
   };
 }
 
+function parseChatTimelineTurn(value: unknown, label: string): ChatTimelineTurnRead {
+  const record = readRecord(value, label);
+  return {
+    turnId: readIdentifier(record.turnId, `${label}.turnId`),
+    state: readEnum(record.state, CHAT_TURN_STATES, `${label}.state`),
+    startedAt: readNullable(record.startedAt, `${label}.startedAt`, readUtcTimestamp),
+    completedAt: readNullable(record.completedAt, `${label}.completedAt`, readUtcTimestamp),
+    stopReason: readNullable(record.stopReason, `${label}.stopReason`, readString),
+    modelId: readNullable(record.modelId, `${label}.modelId`, readIdentifier),
+    modelOptions: readArray(record.modelOptions, `${label}.modelOptions`, parseModelOptionSelection),
+    modes: readTurnModeSnapshot(record.modes, `${label}.modes`),
+    usage: readNullable(record.usage, `${label}.usage`, parseThreadUsage),
+    changedFiles: readArray(record.changedFiles, `${label}.changedFiles`, parseChangedFile),
+  };
+}
+
 export function parseChatTimelinePage(value: unknown, label = "Chat timeline page"): ChatTimelinePageRead {
   const record = readRecord(value, label);
   return {
     threadId: readIdentifier(record.threadId, `${label}.threadId`),
     items: readArray(record.items, `${label}.items`, parseChatTimelineItem),
+    turns: readArray(record.turns, `${label}.turns`, parseChatTimelineTurn),
     previousCursor: readNullable(record.previousCursor, `${label}.previousCursor`, readString),
     nextCursor: readNullable(record.nextCursor, `${label}.nextCursor`, readString),
     threadRevision: readNonNegativeSafeInteger(record.threadRevision, `${label}.threadRevision`),

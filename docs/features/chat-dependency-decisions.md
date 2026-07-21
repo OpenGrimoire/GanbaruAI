@@ -13,7 +13,7 @@ Package metadata is not evidence that a package is advisory-free. The repository
 | Operating-system credentials | `keyring` 4.1.5 with native platform stores | Credential storage | Added in Phase 2 |
 | Pseudoterminals | `portable-pty` 0.9.0 | Terminal | Deferred |
 | HTTP and event streams | Existing Reqwest and Rustls, plus `futures-util` and `eventsource-stream` 0.2.3 | OpenCode | Deferred |
-| Markdown parsing and sanitization | `marked` 18.0.6 plus existing DOMPurify | Timeline | Deferred |
+| Markdown parsing and sanitization | `marked` 18.0.6 plus existing DOMPurify | Timeline | Added in Phase 7 |
 | Diff parsing and rendering | `diff` 9.0.0 plus a bounded Ganbaru renderer | Inspector | Deferred |
 | Terminal emulation | `@xterm/xterm` 6.0.0 and `@xterm/addon-fit` 0.11.0 | Terminal | Deferred |
 
@@ -82,6 +82,10 @@ Keep the existing Reqwest 0.13 and Rustls 0.23 stack. When OpenCode is implement
 ## Markdown parsing and sanitization
 
 Use [`marked` 18.0.6](https://www.npmjs.com/package/marked) as a lazy timeline chunk. Sanitize every generated fragment with the existing DOMPurify dependency, reject raw HTML, bound source size and nesting, and route links through Ganbaru's scheme and workspace-path validation.
+
+Phase 7 added the exact reviewed Marked version. Chat uses a dedicated parser instance with renderer-object overrides, caps total source, line size, line count, indentation, and quote nesting, and sanitizes the generated fragment with a narrow DOMPurify allowlist. Remote Markdown images are reduced to inert alt text. Explicit HTTP and HTTPS links are revalidated by Rust before the operating system opens them.
+
+The Phase 7 dependency gate passed. npm reported no known vulnerabilities, Rust reported only the repository's documented allowed warnings, and the full static, test, editor, production build, and bundle-contract checks passed.
 
 - Maintenance: Marked is actively released, uses the MIT license, has zero production dependencies, and requires Node 20 or newer. The workspace Node range satisfies that requirement.
 - Advisories: run `pnpm audit` when it is added. DOMPurify remains the sanitizer even if parser defaults appear safe.

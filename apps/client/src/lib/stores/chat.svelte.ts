@@ -4,6 +4,8 @@ import type {
   ChatSettingsRead,
   ChatThreadId,
   ChatThreadShellRead,
+  ChatTimelineItemRead,
+  ChatTimelinePageRead,
   ChatWorkspaceId,
   ChatWorkspaceRead,
   CreateChatWorkspaceRequest,
@@ -15,6 +17,7 @@ import type {
   ProviderSetupTestRead,
   RemoveProviderResult,
 } from "$lib/chat/contracts";
+import { evictTimelinePages, mergeTimelineItems } from "$lib/chat/timeline-virtualization";
 
 class ChatStore {
   settings = $state<ChatSettingsRead | null>(null);
@@ -26,9 +29,14 @@ class ChatStore {
   selectedWorkspaceId = $state<ChatWorkspaceId | null>(null);
   selectedThreadId = $state<ChatThreadId | null>(null);
   draftWorkspaceId = $state<ChatWorkspaceId | null>(null);
+  timelinePages = $state<ChatTimelinePageRead[]>([]);
+  timelineItems = $state<ChatTimelineItemRead[]>([]);
+  timelineLoading = $state(false);
+  timelineError = $state<string | null>(null);
   railOpen = $state(true);
   inspectorOpen = $state(false);
   private loadRequest = 0;
+  private timelineRequest = 0;
   private loaded = false;
 
   get selectedWorkspace(): ChatWorkspaceRead | null {
@@ -173,12 +181,25 @@ class ChatStore {
   }
 
   selectThread(threadId: ChatThreadId | null): void {
+    if (threadId !== this.selectedThreadId) {
+      this.timelinePages = [];
+      this.timelineItems = [];
+      this.timelineError = null;
+    }
     this.selectedThreadId = threadId;
     const thread = this.selectedThread;
     if (thread) this.selectedWorkspaceId = thread.workspaceId;
     void chatApi.setLastSelectedChatThread(threadId).catch((error) => {
       console.error("Failed to persist selected Chat thread", error);
     });
+    if (threadId) void this.loadTimeline(threadId).catch(() => undefined);
+  }
+
+  async loadOlderTimeline(selectedSequence: number | null = null): Promise<void> {
+    const threadId = this.selectedThreadId;
+    const cursor = this.timelinePages[0]?.previousCursor;
+    if (!threadId || !cursor || this.timelineLoading) return;
+    await this.loadTimeline(threadId, cursor, true, selectedSequence);
   }
 
   newDraft(workspaceId: ChatWorkspaceId): void {
@@ -226,6 +247,7 @@ class ChatStore {
     if (remembered && [...this.activeThreads, ...this.archivedThreads].some((thread) => thread.id === remembered)) {
       this.selectedThreadId = remembered;
       this.selectedWorkspaceId = this.selectedThread?.workspaceId ?? null;
+      void this.loadTimeline(remembered).catch(() => undefined);
       return;
     }
     if (this.selectedWorkspaceId && this.workspaces.some((entry) => entry.workspace.id === this.selectedWorkspaceId)) return;
@@ -253,6 +275,32 @@ class ChatStore {
       : [thread, ...target];
     if (thread.archivedAt) this.archivedThreads = next;
     else this.activeThreads = next;
+  }
+
+  private async loadTimeline(
+    threadId: ChatThreadId,
+    cursor: string | null = null,
+    prepend = false,
+    selectedSequence: number | null = null,
+  ): Promise<void> {
+    const request = ++this.timelineRequest;
+    this.timelineLoading = true;
+    this.timelineError = null;
+    try {
+      const page = await chatApi.readChatTimelinePage(threadId, cursor);
+      if (request !== this.timelineRequest || this.selectedThreadId !== threadId) return;
+      const pages = prepend
+        ? evictTimelinePages([page, ...this.timelinePages], selectedSequence, 8)
+        : [page];
+      this.timelinePages = pages;
+      this.timelineItems = mergeTimelineItems([], pages.flatMap((entry) => entry.items));
+    } catch (error: unknown) {
+      if (request !== this.timelineRequest) return;
+      this.timelineError = errorMessage(error);
+      throw error;
+    } finally {
+      if (request === this.timelineRequest) this.timelineLoading = false;
+    }
   }
 }
 

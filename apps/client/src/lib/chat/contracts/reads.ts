@@ -18,6 +18,7 @@ import type {
   UtcTimestamp,
   VersionedJson,
 } from "./common";
+import type { ChangedFileSummary, ThreadUsageUpdatedEvent } from "./events";
 import type { ModelOptionSelection, ProviderCapabilities } from "./provider";
 
 export interface ProviderSessionSnapshot {
@@ -102,9 +103,23 @@ export interface ChatTimelineItemRead {
   data: VersionedJson;
 }
 
+export interface ChatTimelineTurnRead {
+  turnId: ChatTurnId;
+  state: ChatTurnState;
+  startedAt: UtcTimestamp | null;
+  completedAt: UtcTimestamp | null;
+  stopReason: string | null;
+  modelId: ModelId | null;
+  modelOptions: ModelOptionSelection[];
+  modes: TurnModeSnapshot;
+  usage: ThreadUsageUpdatedEvent | null;
+  changedFiles: ChangedFileSummary[];
+}
+
 export interface ChatTimelinePageRead {
   threadId: ChatThreadId;
   items: ChatTimelineItemRead[];
+  turns: ChatTimelineTurnRead[];
   previousCursor: string | null;
   nextCursor: string | null;
   threadRevision: number;

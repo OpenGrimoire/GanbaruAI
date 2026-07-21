@@ -170,7 +170,7 @@ function parseProviderCost(value: unknown, label: string): ProviderAttributedCos
   };
 }
 
-function parseThreadUsage(value: unknown, label: string): ThreadUsageUpdatedEvent {
+export function parseThreadUsage(value: unknown, label: string): ThreadUsageUpdatedEvent {
   const record = readRecord(value, label);
   return {
     inputTokens: readNullable(record.inputTokens, `${label}.inputTokens`, readNonNegativeSafeInteger),
@@ -193,7 +193,7 @@ function parseTurnStarted(value: unknown, label: string): TurnStartedEvent {
   };
 }
 
-function parseChangedFile(value: unknown, label: string): ChangedFileSummary {
+export function parseChangedFile(value: unknown, label: string): ChangedFileSummary {
   const record = readRecord(value, label);
   return {
     relativePath: readString(record.relativePath, `${label}.relativePath`),

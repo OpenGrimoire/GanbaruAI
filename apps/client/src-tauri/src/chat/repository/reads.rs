@@ -1,12 +1,14 @@
+use crate::chat::events::{ChangedFileSummary, ThreadUsageUpdatedEvent};
 use crate::chat::models::{
     ChatActivityId, ChatError, ChatErrorCode, ChatResult, ChatThreadId, ChatThreadShellRead,
-    ChatThreadState, ChatTimelineItemRead, ChatTimelinePageRead, ChatTurnId, ChatTurnState,
-    ChatWorkspaceId, InteractionMode, ModelId, ModelOptionSelection, ProviderFamilyId,
-    ProviderInstanceId, ProviderThreadId, SafetyMode, TurnModeSnapshot, UtcTimestamp,
-    VersionedJson,
+    ChatThreadState, ChatTimelineItemRead, ChatTimelinePageRead, ChatTimelineTurnRead, ChatTurnId,
+    ChatTurnState, ChatWorkspaceId, InteractionMode, ModelId, ModelOptionSelection,
+    ProviderFamilyId, ProviderInstanceId, ProviderThreadId, SafetyMode, TurnModeSnapshot,
+    UtcTimestamp, VersionedJson,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool};
+use std::collections::BTreeSet;
 
 const MAX_PAGE_SIZE: u32 = 200;
 const MAX_SEARCH_LENGTH: usize = 240;
@@ -30,6 +32,34 @@ struct StoredModelSelection {
     #[serde(default)]
     #[serde(alias = "options")]
     model_options: Vec<ModelOptionSelection>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatTimelineCursor {
+    sequence: u64,
+    row_id: Option<String>,
+}
+
+pub fn parse_timeline_cursor(value: &str) -> ChatResult<ChatTimelineCursor> {
+    if value.len() > 1_200 || value.chars().any(char::is_control) {
+        return Err(invalid_cursor());
+    }
+    if !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Ok(ChatTimelineCursor {
+            sequence: value.parse().map_err(|_| invalid_cursor())?,
+            row_id: None,
+        });
+    }
+    let cursor: ChatTimelineCursor = serde_json::from_str(value).map_err(|_| invalid_cursor())?;
+    if cursor
+        .row_id
+        .as_ref()
+        .is_some_and(|row_id| row_id.is_empty() || row_id.len() > 1_024)
+    {
+        return Err(invalid_cursor());
+    }
+    Ok(cursor)
 }
 
 pub async fn read_project_shells(pool: &SqlitePool) -> ChatResult<Vec<ChatProjectShellRead>> {
@@ -155,7 +185,7 @@ pub async fn search_thread_titles(
 pub async fn read_timeline_page(
     pool: &SqlitePool,
     thread_id: &ChatThreadId,
-    anchor_sequence: Option<u64>,
+    cursor: Option<&ChatTimelineCursor>,
     limit: u32,
 ) -> ChatResult<ChatTimelinePageRead> {
     let thread = sqlx::query("SELECT revision, last_event_sequence FROM chat_threads WHERE id = ?")
@@ -170,8 +200,12 @@ pub async fn read_timeline_page(
             .try_get("last_event_sequence")
             .map_err(persistence_error)?,
     )?;
-    let anchor = anchor_sequence.unwrap_or(last_sequence).min(last_sequence);
-    let rows = sqlx::query(
+    let anchor = cursor
+        .map_or(last_sequence, |value| value.sequence)
+        .min(last_sequence);
+    let anchor_row_id = cursor.and_then(|value| value.row_id.as_deref());
+    let page_limit = limit.clamp(1, MAX_PAGE_SIZE);
+    let mut rows = sqlx::query(
         "SELECT row_id, turn_id, sequence_anchor, item_kind, schema_version, item_data
          FROM (
            SELECT id AS row_id, turn_id, sequence_anchor, 'message' AS item_kind,
@@ -179,32 +213,40 @@ pub async fn read_timeline_page(
                   json_object('role', role, 'markdown', normalized_markdown,
                               'streamingState', streaming_state,
                               'providerItemId', provider_item_id,
-                              'metadata', json(content_metadata_data)) AS item_data
-           FROM chat_messages WHERE thread_id = ? AND sequence_anchor <= ?
+                              'metadata', json(content_metadata_data),
+                              'createdAt', created_at, 'updatedAt', updated_at) AS item_data
+           FROM chat_messages WHERE thread_id = ?
            UNION ALL
            SELECT id, turn_id, sequence_anchor, 'activity', safe_metadata_schema_version,
                   json_object('activityKind', item_kind, 'status', status, 'title', title,
                               'detail', detail, 'providerItemId', provider_item_id,
-                              'metadata', json(safe_metadata_data))
-           FROM chat_activities WHERE thread_id = ? AND sequence_anchor <= ?
+                              'metadata', json(safe_metadata_data),
+                              'createdAt', created_at, 'updatedAt', updated_at)
+           FROM chat_activities WHERE thread_id = ?
            UNION ALL
            SELECT id, origin_turn_id, sequence_anchor, 'plan', steps_schema_version,
-                  json_object('markdown', markdown, 'steps', json(steps_data), 'state', state)
-           FROM chat_plans WHERE thread_id = ? AND sequence_anchor <= ?
+                  json_object('markdown', markdown, 'steps', json(steps_data), 'state', state,
+                              'createdAt', created_at, 'updatedAt', updated_at)
+           FROM chat_plans WHERE thread_id = ?
          )
+         WHERE sequence_anchor < ?
+            OR (sequence_anchor = ? AND (? IS NULL OR row_id < ?))
          ORDER BY sequence_anchor DESC, row_id DESC
          LIMIT ?",
     )
     .bind(thread_id.as_str())
-    .bind(i64_value(anchor)?)
+    .bind(thread_id.as_str())
     .bind(thread_id.as_str())
     .bind(i64_value(anchor)?)
-    .bind(thread_id.as_str())
     .bind(i64_value(anchor)?)
-    .bind(i64::from(limit.clamp(1, MAX_PAGE_SIZE)))
+    .bind(anchor_row_id)
+    .bind(anchor_row_id)
+    .bind(i64::from(page_limit) + 1)
     .fetch_all(pool)
     .await
     .map_err(persistence_error)?;
+    let has_older = rows.len() > page_limit as usize;
+    rows.truncate(page_limit as usize);
     let mut items = rows
         .into_iter()
         .map(|row| {
@@ -234,18 +276,102 @@ pub async fn read_timeline_page(
         })
         .collect::<ChatResult<Vec<_>>>()?;
     items.reverse();
-    let first = items.first().map(|item| item.sequence_anchor);
+    let turn_ids = items
+        .iter()
+        .filter_map(|item| item.turn_id.as_ref().map(|turn_id| turn_id.as_str()))
+        .collect::<BTreeSet<_>>();
+    let turns = if turn_ids.is_empty() {
+        Vec::new()
+    } else {
+        let encoded_turn_ids = serde_json::to_string(&turn_ids).map_err(serialization_error)?;
+        sqlx::query(
+            "SELECT id, state, started_at, completed_at, stop_reason,
+                    model_selection_data, safety_mode, interaction_mode,
+                    usage_data, changed_file_summary_data
+             FROM chat_turns
+             WHERE thread_id = ? AND id IN (SELECT value FROM json_each(?))
+             ORDER BY ordinal, id",
+        )
+        .bind(thread_id.as_str())
+        .bind(encoded_turn_ids)
+        .fetch_all(pool)
+        .await
+        .map_err(persistence_error)?
+        .into_iter()
+        .map(row_to_timeline_turn)
+        .collect::<ChatResult<Vec<_>>>()?
+    };
     let last = items.last().map(|item| item.sequence_anchor);
     Ok(ChatTimelinePageRead {
         thread_id: thread_id.clone(),
-        previous_cursor: first
-            .filter(|value| *value > 1)
-            .map(|value| (value - 1).to_string()),
+        previous_cursor: has_older
+            .then(|| {
+                items.first().map(|item| {
+                    serde_json::to_string(&ChatTimelineCursor {
+                        sequence: item.sequence_anchor,
+                        row_id: Some(item.activity_id.as_str().to_string()),
+                    })
+                })
+            })
+            .flatten()
+            .transpose()
+            .map_err(serialization_error)?,
         next_cursor: last
             .filter(|value| *value < last_sequence)
             .map(|value| (value + 1).to_string()),
         items,
+        turns,
         thread_revision: revision,
+    })
+}
+
+fn invalid_cursor() -> ChatError {
+    ChatError::validation("cursor", "Chat timeline cursor is invalid")
+}
+
+fn row_to_timeline_turn(row: sqlx::sqlite::SqliteRow) -> ChatResult<ChatTimelineTurnRead> {
+    let model: StoredModelSelection = serde_json::from_str(
+        &row.try_get::<String, _>("model_selection_data")
+            .map_err(persistence_error)?,
+    )
+    .map_err(serialization_error)?;
+    let usage = row
+        .try_get::<Option<String>, _>("usage_data")
+        .map_err(persistence_error)?
+        .map(|value| serde_json::from_str::<ThreadUsageUpdatedEvent>(&value))
+        .transpose()
+        .map_err(serialization_error)?;
+    let changed_files = row
+        .try_get::<Option<String>, _>("changed_file_summary_data")
+        .map_err(persistence_error)?
+        .map(|value| serde_json::from_str::<Vec<ChangedFileSummary>>(&value))
+        .transpose()
+        .map_err(serialization_error)?
+        .unwrap_or_default();
+    Ok(ChatTimelineTurnRead {
+        turn_id: ChatTurnId::new(row.try_get::<String, _>("id").map_err(persistence_error)?)
+            .map_err(|_| corrupt_data())?,
+        state: parse_turn_state(
+            &row.try_get::<String, _>("state")
+                .map_err(persistence_error)?,
+        )?,
+        started_at: timestamp(row.try_get("started_at").map_err(persistence_error)?)?,
+        completed_at: timestamp(row.try_get("completed_at").map_err(persistence_error)?)?,
+        stop_reason: row.try_get("stop_reason").map_err(persistence_error)?,
+        model_id: model.model_id,
+        model_options: model.model_options,
+        modes: TurnModeSnapshot {
+            safety_mode: parse_safety(
+                &row.try_get::<String, _>("safety_mode")
+                    .map_err(persistence_error)?,
+            )?,
+            interaction_mode: parse_interaction(
+                &row.try_get::<String, _>("interaction_mode")
+                    .map_err(persistence_error)?,
+            )?,
+        },
+        usage,
+        changed_files,
     })
 }
 
