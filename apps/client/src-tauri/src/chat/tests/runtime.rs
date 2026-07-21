@@ -84,7 +84,7 @@ fn registry_returns_one_owner_and_one_operation_lock_per_thread() {
 fn bounded_runtime_queue_reports_busy_without_dropping_the_first_command() {
     tauri::async_runtime::block_on(async {
         let registry = ChatRuntimeRegistry::default();
-        let owner = registry
+        let (owner, start_worker) = registry
             .owner_for_test(ChatThreadId::new("thread-busy").unwrap(), 1)
             .unwrap();
         owner
@@ -94,6 +94,7 @@ fn bounded_runtime_queue_reports_busy_without_dropping_the_first_command() {
             .unwrap();
         let error = owner.try_command(ThreadRuntimeCommand::Touch).unwrap_err();
         assert_eq!(error.code, ChatErrorCode::Busy);
+        start_worker.send(()).unwrap();
         tokio::time::sleep(Duration::from_millis(10)).await;
         assert_eq!(
             owner.snapshot().unwrap().session_state,
@@ -107,7 +108,9 @@ fn idle_stop_requires_ready_unprotected_session_and_shutdown_is_visible() {
     tauri::async_runtime::block_on(async {
         let now = Instant::now();
         let mut snapshot = ThreadRuntimeSnapshot {
+            session_id: None,
             session_state: ProviderSessionState::Ready,
+            capabilities: crate::chat::models::ProviderCapabilities::default(),
             active_turn_id: None,
             turn_active: false,
             pending_request: false,

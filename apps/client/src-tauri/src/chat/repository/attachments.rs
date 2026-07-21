@@ -1,6 +1,7 @@
 use crate::chat::models::{
     ChatAttachmentId, ChatError, ChatErrorCode, ChatResult, ChatWorkspaceId, UtcTimestamp,
 };
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 use sqlx::{Row, SqlitePool};
 use std::fs;
@@ -9,13 +10,15 @@ use std::path::{Component, Path, PathBuf};
 const MAX_ATTACHMENT_BYTES: u64 = 50 * 1024 * 1024;
 const CHAT_ATTACHMENT_DIRECTORY: &str = "assets/chat/attachments";
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ChatAttachmentKind {
     Image,
     TextSnippet,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ChatAttachmentRead {
     pub id: ChatAttachmentId,
     pub workspace_id: ChatWorkspaceId,
@@ -27,6 +30,15 @@ pub struct ChatAttachmentRead {
     pub managed_relative_path: String,
     pub signature_kind: String,
     pub created_at: UtcTimestamp,
+}
+
+pub struct AttachmentBytesImport<'a> {
+    pub workspace_id: &'a ChatWorkspaceId,
+    pub attachment_id: ChatAttachmentId,
+    pub display_name: String,
+    pub bytes: &'a [u8],
+    pub requested_kind: ChatAttachmentKind,
+    pub now: &'a UtcTimestamp,
 }
 
 pub async fn import_attachment(
@@ -61,41 +73,91 @@ pub async fn import_attachment(
             "Attachment changed during import",
         ));
     }
-    let (mime_type, signature_kind, extension) = inspect_signature(&bytes, requested_kind)?;
-    let sha256 = format!("{:x}", Sha256::digest(&bytes));
+    persist_attachment_bytes(
+        pool,
+        vault_root,
+        AttachmentBytesImport {
+            workspace_id,
+            attachment_id,
+            display_name,
+            bytes: &bytes,
+            requested_kind,
+            now,
+        },
+    )
+    .await
+}
+
+pub async fn import_attachment_bytes(
+    pool: &SqlitePool,
+    vault_root: &Path,
+    request: AttachmentBytesImport<'_>,
+) -> ChatResult<ChatAttachmentRead> {
+    if request.bytes.len() as u64 > MAX_ATTACHMENT_BYTES {
+        return Err(invalid_attachment());
+    }
+    let display_name = request.display_name.trim();
+    if display_name.is_empty()
+        || display_name.len() > 1_000
+        || display_name.chars().any(char::is_control)
+    {
+        return Err(ChatError::validation(
+            "attachment.name",
+            "Attachment name is invalid",
+        ));
+    }
+    persist_attachment_bytes(
+        pool,
+        vault_root,
+        AttachmentBytesImport {
+            display_name: display_name.to_string(),
+            ..request
+        },
+    )
+    .await
+}
+
+async fn persist_attachment_bytes(
+    pool: &SqlitePool,
+    vault_root: &Path,
+    request: AttachmentBytesImport<'_>,
+) -> ChatResult<ChatAttachmentRead> {
+    let (mime_type, signature_kind, extension) =
+        inspect_signature(request.bytes, request.requested_kind)?;
+    let sha256 = format!("{:x}", Sha256::digest(request.bytes));
     let relative_path = format!(
         "{CHAT_ATTACHMENT_DIRECTORY}/{}-{}.{}",
         &sha256[..16],
-        safe_file_segment(attachment_id.as_str()),
+        safe_file_segment(request.attachment_id.as_str()),
         extension
     );
     let destination = resolve_managed_path(vault_root, &relative_path)?;
     let parent = destination.parent().ok_or_else(invalid_path)?;
     fs::create_dir_all(parent).map_err(io_error)?;
-    write_restrictive(&destination, &bytes)?;
+    write_restrictive(&destination, request.bytes)?;
     let inserted = sqlx::query(
         "INSERT INTO chat_attachments
             (id, workspace_id, kind, original_display_name, mime_type, byte_size,
              sha256, managed_relative_path, signature_kind, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
-    .bind(attachment_id.as_str())
-    .bind(workspace_id.as_str())
-    .bind(wire_kind(requested_kind))
-    .bind(&display_name)
+    .bind(request.attachment_id.as_str())
+    .bind(request.workspace_id.as_str())
+    .bind(wire_kind(request.requested_kind))
+    .bind(&request.display_name)
     .bind(mime_type)
-    .bind(i64::try_from(bytes.len()).map_err(|_| invalid_attachment())?)
+    .bind(i64::try_from(request.bytes.len()).map_err(|_| invalid_attachment())?)
     .bind(&sha256)
     .bind(&relative_path)
     .bind(signature_kind)
-    .bind(now.as_str())
+    .bind(request.now.as_str())
     .execute(pool)
     .await;
     if let Err(error) = inserted {
         let _ = fs::remove_file(&destination);
         return Err(persistence_error(error));
     }
-    read_attachment(pool, &attachment_id)
+    read_attachment(pool, &request.attachment_id)
         .await?
         .ok_or_else(corrupt_data)
 }
@@ -181,8 +243,10 @@ pub async fn run_due_attachment_cleanup(
         let still_referenced: bool = sqlx::query_scalar(
             "SELECT EXISTS(
                 SELECT 1 FROM chat_attachments a
-                JOIN chat_attachment_references r ON r.attachment_id = a.id
-                WHERE a.managed_relative_path = ?
+                WHERE a.managed_relative_path = ? AND (
+                    EXISTS (SELECT 1 FROM chat_attachment_references r WHERE r.attachment_id = a.id)
+                    OR EXISTS (SELECT 1 FROM chat_queued_attachment_references q WHERE q.attachment_id = a.id)
+                )
              )",
         )
         .bind(&relative_path)
@@ -216,7 +280,8 @@ pub async fn run_due_attachment_cleanup(
                 sqlx::query(
                     "UPDATE chat_attachments SET deletion_state = 'deleted', deleted_at = ?
                      WHERE managed_relative_path = ?
-                       AND NOT EXISTS (SELECT 1 FROM chat_attachment_references r WHERE r.attachment_id = chat_attachments.id)",
+                       AND NOT EXISTS (SELECT 1 FROM chat_attachment_references r WHERE r.attachment_id = chat_attachments.id)
+                       AND NOT EXISTS (SELECT 1 FROM chat_queued_attachment_references q WHERE q.attachment_id = chat_attachments.id)",
                 )
                 .bind(now.as_str())
                 .bind(&relative_path)

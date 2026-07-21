@@ -44,6 +44,16 @@ pub async fn claim_command_receipt(
     let mut transaction = pool.begin().await.map_err(persistence_error)?;
     if let Some(existing) = read_receipt_from_executor(&mut *transaction, client_command_id).await?
     {
+        if existing.thread_id != *thread_id
+            || existing.command_kind != command_kind
+            || existing.submitted_revision != submitted_revision
+        {
+            return Err(ChatError::new(
+                ChatErrorCode::Conflict,
+                "Chat command ID was already used for a different operation",
+                false,
+            ));
+        }
         transaction.commit().await.map_err(persistence_error)?;
         return Ok(CommandReceiptClaim::Replay(existing));
     }

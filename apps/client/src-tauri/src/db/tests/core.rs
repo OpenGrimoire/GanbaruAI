@@ -2,7 +2,7 @@ use super::super::run_migrations;
 use super::helpers::{insert_event, insert_open_run, migrated_memory_pool};
 use sqlx::Row;
 
-const EXPECTED_MIGRATION_COUNT: i64 = 11;
+const EXPECTED_MIGRATION_COUNT: i64 = 12;
 
 #[test]
 fn fresh_database_applies_baseline_and_additive_migrations() {
@@ -38,6 +38,9 @@ fn fresh_database_applies_baseline_and_additive_migrations() {
             "chat_drafts",
             "chat_attachments",
             "chat_attachment_references",
+            "chat_queued_followups",
+            "chat_queued_attachment_references",
+            "chat_user_input_drafts",
             "chat_events",
             "chat_command_receipts",
             "chat_checkpoints",

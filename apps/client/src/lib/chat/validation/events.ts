@@ -385,7 +385,7 @@ function parseAuthenticationStatus(value: unknown, label: string): Authenticatio
   };
 }
 
-function parseAccountStatus(value: unknown, label: string): AccountStatusEvent {
+export function parseAccountStatus(value: unknown, label: string): AccountStatusEvent {
   const record = readRecord(value, label);
   return {
     accountLabel: readNullable(record.accountLabel, `${label}.accountLabel`, readString),
@@ -394,7 +394,7 @@ function parseAccountStatus(value: unknown, label: string): AccountStatusEvent {
   };
 }
 
-function parseRateLimitStatus(value: unknown, label: string): RateLimitStatusEvent {
+export function parseRateLimitStatus(value: unknown, label: string): RateLimitStatusEvent {
   const record = readRecord(value, label);
   return {
     limited: readBoolean(record.limited, `${label}.limited`),

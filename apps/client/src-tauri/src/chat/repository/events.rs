@@ -502,8 +502,16 @@ pub(super) async fn apply_projection(
             .bind(thread_id)
             .bind(runtime.turn_id.as_ref().map(|value| value.as_str()))
             .bind(event.request_id.as_str())
-            .bind(i64::from(event.safe_payload.schema_version))
-            .bind(serde_json::to_string(&event.safe_payload.value).map_err(serialization_error)?)
+            .bind(1_i64)
+            .bind(
+                serde_json::to_string(&json!({
+                    "title": event.title,
+                    "detail": event.detail,
+                    "kind": event.kind,
+                    "payload": event.safe_payload,
+                }))
+                .map_err(serialization_error)?,
+            )
             .bind(serde_json::to_string(&event.allowed_decisions).map_err(serialization_error)?)
             .bind(sequence)
             .bind(runtime.created_at.as_str())

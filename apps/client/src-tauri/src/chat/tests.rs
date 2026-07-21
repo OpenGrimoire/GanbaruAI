@@ -7,7 +7,7 @@ mod process;
 #[cfg(windows)]
 mod process_windows;
 mod registry;
-mod repository;
+pub(crate) mod repository;
 mod runtime;
 mod state;
 mod workspace;

@@ -1,6 +1,9 @@
 import * as chatApi from "$lib/api/chat";
 import type {
   ChatBehaviorPreferences,
+  ChatAttachmentRead,
+  ChatDraftMention,
+  ChatInteractionStateRead,
   ChatSettingsRead,
   ChatThreadId,
   ChatThreadShellRead,
@@ -9,6 +12,7 @@ import type {
   ChatWorkspaceId,
   ChatWorkspaceRead,
   CreateChatWorkspaceRequest,
+  InteractionMode,
   ModelId,
   ProviderInstanceConfig,
   ProviderInstanceId,
@@ -16,10 +20,21 @@ import type {
   ProviderProbeResult,
   ProviderSetupTestRead,
   RemoveProviderResult,
+  SafetyMode,
+  UserInputAnswer,
+  VersionedJson,
 } from "$lib/chat/contracts";
 import { evictTimelinePages, mergeTimelineItems } from "$lib/chat/timeline-virtualization";
+import { ChatComposerController, parseDraftMentions, type ChatComposerSnapshot } from "$lib/chat/composer-controller";
+import { queuedFollowupDispatchReady, readComposerModelSelection } from "$lib/chat/composer-model";
 
 class ChatStore {
+  private readonly composerController = new ChatComposerController();
+  composer = $state<ChatComposerSnapshot>(this.composerController.snapshot());
+  composerAttachments = $state<ChatAttachmentRead[]>([]);
+  interaction = $state<ChatInteractionStateRead | null>(null);
+  interactionLoading = $state(false);
+  sendError = $state<string | null>(null);
   settings = $state<ChatSettingsRead | null>(null);
   workspaces = $state<ChatWorkspaceRead[]>([]);
   activeThreads = $state<ChatThreadShellRead[]>([]);
@@ -37,7 +52,22 @@ class ChatStore {
   inspectorOpen = $state(false);
   private loadRequest = 0;
   private timelineRequest = 0;
+  private attachmentRequest = 0;
+  private interactionRequest = 0;
+  private attachmentKey = "";
+  private readonly queuedDispatches = new Set<string>();
   private loaded = false;
+
+  constructor() {
+    this.composerController.subscribe((snapshot) => {
+      this.composer = snapshot;
+      const key = `${snapshot.workspaceId ?? ""}:${snapshot.attachmentIds.join("\0")}`;
+      if (key !== this.attachmentKey) {
+        this.attachmentKey = key;
+        void this.loadComposerAttachments(snapshot).catch(() => undefined);
+      }
+    });
+  }
 
   get selectedWorkspace(): ChatWorkspaceRead | null {
     return this.workspaces.find((entry) => entry.workspace.id === this.selectedWorkspaceId) ?? null;
@@ -70,6 +100,8 @@ class ChatStore {
       this.activeThreads = activeThreads;
       this.archivedThreads = archivedThreads;
       this.restoreSelection(settings);
+      const workspaceId = this.selectedWorkspaceId;
+      if (workspaceId) await this.composerController.bind(workspaceId, this.selectedThreadId);
       this.loaded = true;
     } catch (error: unknown) {
       if (request !== this.loadRequest) return;
@@ -178,6 +210,7 @@ class ChatStore {
   selectWorkspace(workspaceId: ChatWorkspaceId): void {
     this.selectedWorkspaceId = workspaceId;
     if (this.selectedThread?.workspaceId !== workspaceId) this.selectThread(null);
+    else void this.composerController.bind(workspaceId, this.selectedThreadId).catch(() => undefined);
   }
 
   selectThread(threadId: ChatThreadId | null): void {
@@ -189,10 +222,15 @@ class ChatStore {
     this.selectedThreadId = threadId;
     const thread = this.selectedThread;
     if (thread) this.selectedWorkspaceId = thread.workspaceId;
+    if (this.selectedWorkspaceId) {
+      void this.composerController.bind(this.selectedWorkspaceId, threadId).catch(() => undefined);
+    }
     void chatApi.setLastSelectedChatThread(threadId).catch((error) => {
       console.error("Failed to persist selected Chat thread", error);
     });
     if (threadId) void this.loadTimeline(threadId).catch(() => undefined);
+    if (threadId) void this.refreshInteraction(threadId).catch(() => undefined);
+    else this.interaction = null;
   }
 
   async loadOlderTimeline(selectedSequence: number | null = null): Promise<void> {
@@ -209,6 +247,248 @@ class ChatStore {
 
   discardDraft(): void {
     this.draftWorkspaceId = null;
+  }
+
+  setComposerText(text: string): void { this.composerController.setText(text); }
+  setComposerAttachments(attachmentIds: string[]): void { this.composerController.setAttachments(attachmentIds); }
+  setComposerMentions(mentions: ChatDraftMention[]): void { this.composerController.setMentions(mentions); }
+  setComposerProvider(instanceId: ProviderInstanceId | null): void { this.composerController.setProvider(instanceId); }
+  setComposerModel(selection: VersionedJson | null): void { this.composerController.setModelSelection(selection); }
+  setComposerModes(safety: SafetyMode | null, interaction: InteractionMode | null): void { this.composerController.setModes(safety, interaction); }
+  markComposerSent(): void { this.composerController.markSent(); }
+  flushComposer(): Promise<void> { return this.composerController.flush(); }
+
+  async refreshInteraction(threadId = this.selectedThreadId): Promise<void> {
+    const request = ++this.interactionRequest;
+    if (!threadId) { this.interaction = null; return; }
+    this.interactionLoading = true;
+    try {
+      const interaction = await chatApi.readChatInteractionState(threadId);
+      if (request === this.interactionRequest && threadId === this.selectedThreadId) {
+        this.interaction = interaction;
+        const latestTurnState = this.selectedThread?.latestTurnState ?? null;
+        if (queuedFollowupDispatchReady(interaction.sessionState, latestTurnState) && interaction.queuedFollowup) {
+          void this.dispatchQueuedFollowup(interaction.queuedFollowup).catch((error: unknown) => {
+            this.sendError = errorMessage(error);
+          });
+        }
+      }
+    } finally {
+      if (request === this.interactionRequest) this.interactionLoading = false;
+    }
+  }
+
+  async sendComposer(): Promise<void> {
+    const workspaceId = this.composer.workspaceId;
+    const providerInstanceId = this.composer.providerInstanceId;
+    const safetyMode = this.composer.safetyMode;
+    const interactionMode = this.composer.interactionMode;
+    const model = readComposerModelSelection(this.composer.modelSelection);
+    if (!workspaceId || !providerInstanceId || !safetyMode || !interactionMode) {
+      throw new Error("Complete every Chat composer selection before sending");
+    }
+    const prompt = this.composer.text;
+    const attachmentIds = [...this.composer.attachmentIds];
+    const mentions = this.composer.mentions.map((mention) => ({ relativePath: mention.relativePath, kind: mention.kind }));
+    await chatApi.validateChatWorkspaceMentions(workspaceId, mentions.map((mention) => mention.relativePath));
+    await this.composerController.flush();
+    this.sendError = null;
+    const current = this.selectedThread;
+    const result = await chatApi.sendChatTurn({
+      command: { clientCommandId: crypto.randomUUID(), expectedThreadRevision: current?.revision ?? null },
+      workspaceId,
+      threadId: current?.id ?? null,
+      newThreadId: current ? null : crypto.randomUUID(),
+      turnId: crypto.randomUUID(),
+      messageId: crypto.randomUUID(),
+      providerInstanceId,
+      providerManagedModel: model.providerManaged,
+      modelId: model.modelId,
+      modelOptions: model.options,
+      modes: { safetyMode, interactionMode },
+      prompt,
+      attachmentIds,
+      mentions,
+    });
+    this.composerController.markSent();
+    await this.composerController.flush();
+    this.upsertThread(result.thread);
+    await chatApi.rememberChatComposerSelection({
+      workspaceId,
+      providerInstanceId,
+      modelId: model.modelId,
+      providerManagedModel: model.providerManaged,
+      modelOptions: model.options,
+      safetyMode,
+      interactionMode,
+    });
+    this.settings = await chatApi.readChatSettings();
+    this.selectThread(result.thread.id);
+    this.sendError = result.launchError?.message ?? null;
+    await this.loadTimeline(result.thread.id);
+    await this.refreshInteraction(result.thread.id);
+  }
+
+  async retryFailedSend(): Promise<void> {
+    if (!this.composerController.restoreSentSnapshot()) return;
+    await this.sendComposer();
+  }
+
+  async editFailedSend(): Promise<void> {
+    if (!this.composerController.restoreSentSnapshot()) return;
+    await this.forkCurrentComposer(null);
+    this.sendError = null;
+  }
+
+  async changeProviderAfterFailure(): Promise<void> {
+    this.composerController.restoreSentSnapshot();
+    await this.forkCurrentComposer(null);
+    this.composerController.setProvider(null);
+    this.composerController.setModelSelection(null);
+    this.composerController.setModes(null, null);
+    this.sendError = null;
+  }
+
+  async forkComposerWithProvider(providerInstanceId: ProviderInstanceId): Promise<void> {
+    await this.forkCurrentComposer(providerInstanceId);
+  }
+
+  async steerComposer(): Promise<void> {
+    const thread = this.selectedThread;
+    const prompt = this.composer.text.trim();
+    if (!thread || !prompt) return;
+    await chatApi.steerChatTurn({
+      command: { clientCommandId: crypto.randomUUID(), expectedThreadRevision: thread.revision },
+      threadId: thread.id,
+      messageId: crypto.randomUUID(),
+      prompt,
+    });
+    this.composerController.markSent();
+    await this.composerController.flush();
+    await this.loadTimeline(thread.id);
+  }
+
+  async queueComposer(): Promise<void> {
+    const thread = this.selectedThread;
+    const prompt = this.composer.text;
+    if (!thread || !prompt.trim() || !this.composer.providerInstanceId || !this.composer.modelSelection
+      || !this.composer.safetyMode || !this.composer.interactionMode) return;
+    await chatApi.saveChatQueuedFollowup({
+      id: this.interaction?.queuedFollowup?.id ?? crypto.randomUUID(),
+      threadId: thread.id,
+      text: prompt,
+      providerInstanceId: this.composer.providerInstanceId,
+      modelSelection: this.composer.modelSelection,
+      safetyMode: this.composer.safetyMode,
+      interactionMode: this.composer.interactionMode,
+      attachmentIds: [...this.composer.attachmentIds],
+      mentions: {
+        schemaVersion: 1,
+        value: this.composer.mentions.map((mention) => ({
+          relativePath: mention.relativePath,
+          kind: mention.kind,
+          ignored: mention.ignored,
+        })),
+      },
+    });
+    this.composerController.markSent();
+    await this.composerController.flush();
+    await this.refreshInteraction(thread.id);
+  }
+
+  async cancelQueuedFollowup(): Promise<void> {
+    if (!this.selectedThreadId) return;
+    await chatApi.cancelChatQueuedFollowup(this.selectedThreadId);
+    await this.refreshInteraction(this.selectedThreadId);
+  }
+
+  async editQueuedFollowup(): Promise<void> {
+    const queued = this.interaction?.queuedFollowup;
+    if (!queued) return;
+    this.composerController.setText(queued.text);
+    this.composerController.setAttachments(queued.attachmentIds);
+    this.composerController.setMentions(parseDraftMentions(queued.mentions));
+    this.composerController.setProvider(queued.providerInstanceId);
+    this.composerController.setModelSelection(queued.modelSelection);
+    this.composerController.setModes(queued.safetyMode, queued.interactionMode);
+    await this.composerController.flush();
+    await this.cancelQueuedFollowup();
+  }
+
+  async stop(force = false): Promise<void> {
+    if (!this.selectedThreadId) return;
+    await chatApi.stopChatSession(this.selectedThreadId, force);
+    await this.refreshInteraction(this.selectedThreadId);
+  }
+
+  async resolveApproval(decision: import("$lib/chat/contracts").ApprovalDecision): Promise<void> {
+    const pending = this.interaction?.pendingRequest;
+    const thread = this.selectedThread;
+    if (!pending || !thread) return;
+    await chatApi.resolveChatApproval({
+      command: { clientCommandId: crypto.randomUUID(), expectedThreadRevision: thread.revision },
+      threadId: thread.id,
+      requestId: pending.id,
+      providerRequestId: pending.providerRequestId,
+      decision,
+    });
+    await this.refreshInteraction(thread.id);
+  }
+
+  async resolveUserInput(answers: UserInputAnswer[]): Promise<void> {
+    const pending = this.interaction?.pendingRequest;
+    const thread = this.selectedThread;
+    if (!pending || !thread) return;
+    await chatApi.resolveChatUserInput({
+      command: { clientCommandId: crypto.randomUUID(), expectedThreadRevision: thread.revision },
+      threadId: thread.id,
+      requestId: pending.id,
+      providerRequestId: pending.providerRequestId,
+      answers,
+    });
+    await this.refreshInteraction(thread.id);
+  }
+
+  async importComposerImages(files: File[]): Promise<void> {
+    const workspaceId = this.composer.workspaceId;
+    if (!workspaceId) throw new Error("Choose a Chat workspace before attaching images");
+    for (const file of files) {
+      const attachment = await chatApi.importChatImage(
+        workspaceId,
+        crypto.randomUUID(),
+        file.name,
+        [...new Uint8Array(await file.arrayBuffer())],
+      );
+      this.composerAttachments = [...this.composerAttachments, attachment];
+      this.composerController.setAttachments(this.composerAttachments.map((entry) => entry.id));
+    }
+  }
+
+  async pickComposerImages(title: string): Promise<void> {
+    const workspaceId = this.composer.workspaceId;
+    if (!workspaceId) throw new Error("Choose a Chat workspace before attaching images");
+    const available = Math.max(0, 8 - this.composerAttachments.length);
+    if (available === 0) throw new Error("Attach up to eight Chat images");
+    const imported = await chatApi.pickChatImages(
+      workspaceId,
+      Array.from({ length: available }, () => crypto.randomUUID()),
+      title,
+    );
+    this.composerAttachments = [...this.composerAttachments, ...imported];
+    this.composerController.setAttachments(this.composerAttachments.map((attachment) => attachment.id));
+  }
+
+  removeComposerAttachment(attachmentId: string): void {
+    this.composerAttachments = this.composerAttachments.filter((attachment) => attachment.id !== attachmentId);
+    this.composerController.setAttachments(this.composerAttachments.map((attachment) => attachment.id));
+  }
+
+  async handleNativeChange(threadId: string): Promise<void> {
+    if (threadId !== this.selectedThreadId) return;
+    await this.loadTimeline(threadId);
+    const active = await chatApi.listChatThreads(null, false);
+    this.activeThreads = active;
+    await this.refreshInteraction(threadId);
   }
 
   async renameThread(thread: ChatThreadShellRead, title: string): Promise<void> {
@@ -253,6 +533,84 @@ class ChatStore {
     if (this.selectedWorkspaceId && this.workspaces.some((entry) => entry.workspace.id === this.selectedWorkspaceId)) return;
     this.selectedThreadId = null;
     this.selectedWorkspaceId = null;
+  }
+
+  private async loadComposerAttachments(snapshot: ChatComposerSnapshot): Promise<void> {
+    const request = ++this.attachmentRequest;
+    if (!snapshot.workspaceId || snapshot.attachmentIds.length === 0) {
+      this.composerAttachments = [];
+      return;
+    }
+    try {
+      const attachments = await chatApi.readChatAttachments(snapshot.workspaceId, snapshot.attachmentIds);
+      if (request === this.attachmentRequest) this.composerAttachments = attachments;
+    } catch (error: unknown) {
+      if (request === this.attachmentRequest) {
+        this.composerAttachments = [];
+        this.sendError = errorMessage(error);
+      }
+    }
+  }
+
+  private async dispatchQueuedFollowup(queued: import("$lib/chat/contracts").ChatQueuedFollowupRead): Promise<void> {
+    if (this.queuedDispatches.has(queued.id)) return;
+    const thread = this.selectedThread;
+    const workspaceId = this.selectedWorkspaceId;
+    const providerInstanceId = queued.providerInstanceId;
+    const safetyMode = queued.safetyMode;
+    const interactionMode = queued.interactionMode;
+    const model = readComposerModelSelection(queued.modelSelection);
+    if (!thread || !workspaceId || !providerInstanceId || !safetyMode || !interactionMode) return;
+    this.queuedDispatches.add(queued.id);
+    try {
+      const mentions = parseDraftMentions(queued.mentions);
+      const result = await chatApi.sendChatTurn({
+        command: { clientCommandId: `queue-dispatch:${queued.id}`, expectedThreadRevision: null },
+        workspaceId,
+        threadId: thread.id,
+        newThreadId: null,
+        turnId: `queue-turn:${queued.id}`,
+        messageId: `queue-message:${queued.id}`,
+        providerInstanceId,
+        providerManagedModel: model.providerManaged,
+        modelId: model.modelId,
+        modelOptions: model.options,
+        modes: { safetyMode, interactionMode },
+        prompt: queued.text,
+        attachmentIds: [...queued.attachmentIds],
+        mentions: mentions.map((mention) => ({ relativePath: mention.relativePath, kind: mention.kind })),
+      });
+      await chatApi.markChatQueuedFollowupDispatched(thread.id, queued.id);
+      this.upsertThread(result.thread);
+      this.sendError = result.launchError?.message ?? null;
+      await this.loadTimeline(thread.id);
+      await this.refreshInteraction(thread.id);
+    } finally {
+      this.queuedDispatches.delete(queued.id);
+    }
+  }
+
+  private async forkCurrentComposer(providerInstanceId: ProviderInstanceId | null): Promise<void> {
+    const snapshot = this.composerController.snapshot();
+    if (!snapshot.workspaceId) return;
+    await this.composerController.flush();
+    this.selectedThreadId = null;
+    this.draftWorkspaceId = snapshot.workspaceId;
+    this.timelinePages = [];
+    this.timelineItems = [];
+    this.interaction = null;
+    await this.composerController.bind(snapshot.workspaceId, null);
+    this.composerController.setText(snapshot.text);
+    this.composerController.setAttachments(snapshot.attachmentIds);
+    this.composerController.setMentions(snapshot.mentions);
+    this.composerController.setProvider(providerInstanceId ?? snapshot.providerInstanceId);
+    this.composerController.setModelSelection(providerInstanceId === null ? snapshot.modelSelection : null);
+    this.composerController.setModes(
+      providerInstanceId === null ? snapshot.safetyMode : null,
+      providerInstanceId === null ? snapshot.interactionMode : null,
+    );
+    await this.composerController.flush();
+    await chatApi.setLastSelectedChatThread(null);
   }
 
   private workspace(workspaceId: ChatWorkspaceId): ChatWorkspaceRead {

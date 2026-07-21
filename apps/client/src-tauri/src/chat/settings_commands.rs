@@ -2,7 +2,7 @@
 
 use super::config::{
     parse_chat_config_branch, replace_chat_config_branch, ChatBehaviorPreferences,
-    ChatPanelPreferences, ChatPortableProviderConfig, ChatVaultConfig,
+    ChatPanelPreferences, ChatPortableProviderConfig, ChatVaultConfig, RememberedComposerSelection,
 };
 use super::credentials::{
     materialize_provider_environment, CredentialStore, CredentialStoreAvailability,
@@ -354,6 +354,29 @@ pub fn chat_set_workspace_provider_preference(
 }
 
 #[tauri::command]
+pub fn chat_remember_composer_selection(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, ChatSettingsState>,
+    selection: RememberedComposerSelection,
+) -> ChatResult<ChatVaultConfig> {
+    mutate_chat_config(&app, &state, |config| {
+        if !config
+            .providers
+            .iter()
+            .any(|provider| provider.instance_id == selection.provider_instance_id)
+        {
+            return Err(provider_not_found());
+        }
+        config.remembered_selections.retain(|existing| {
+            existing.workspace_id != selection.workspace_id
+                || existing.provider_instance_id != selection.provider_instance_id
+        });
+        config.remembered_selections.push(selection);
+        Ok(())
+    })
+}
+
+#[tauri::command]
 pub fn chat_replace_credential(
     app: tauri::AppHandle,
     reference_id: CredentialReferenceId,
@@ -462,7 +485,7 @@ fn file_path_to_local_path(path: FilePath) -> ChatResult<PathBuf> {
         .map_err(|_| ChatError::validation("providerPath", "Selected path is not local"))
 }
 
-fn read_provider(
+pub(crate) fn read_provider(
     app: &tauri::AppHandle,
     instance_id: &ProviderInstanceId,
 ) -> ChatResult<ProviderInstanceRead> {

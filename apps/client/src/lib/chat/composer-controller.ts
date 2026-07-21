@@ -1,0 +1,323 @@
+import * as chatApi from "$lib/api/chat";
+import type {
+  ChatAttachmentId,
+  ChatDraftMention,
+  ChatDraftRead,
+  ChatThreadId,
+  ChatWorkspaceId,
+  InteractionMode,
+  ProviderInstanceId,
+  SafetyMode,
+  SaveChatDraftRequest,
+  VersionedJson,
+} from "$lib/chat/contracts";
+
+export interface ChatDraftApi {
+  read(draftId: string): Promise<ChatDraftRead | null>;
+  save(draft: SaveChatDraftRequest): Promise<ChatDraftRead>;
+  delete(draftId: string): Promise<boolean>;
+}
+
+export interface ChatComposerSnapshot {
+  draftId: string | null;
+  workspaceId: ChatWorkspaceId | null;
+  threadId: ChatThreadId | null;
+  text: string;
+  attachmentIds: ChatAttachmentId[];
+  mentions: ChatDraftMention[];
+  providerInstanceId: ProviderInstanceId | null;
+  modelSelection: VersionedJson | null;
+  safetyMode: SafetyMode | null;
+  interactionMode: InteractionMode | null;
+  sentSnapshot: VersionedJson | null;
+  loading: boolean;
+  saving: boolean;
+  dirty: boolean;
+  error: string | null;
+}
+
+const DRAFT_SCHEMA_VERSION = 1;
+const SAVE_DEBOUNCE_MS = 300;
+
+const nativeApi: ChatDraftApi = {
+  read: chatApi.readChatDraft,
+  save: chatApi.saveChatDraft,
+  delete: chatApi.deleteChatDraft,
+};
+
+export class ChatComposerController {
+  private state: ChatComposerSnapshot = emptySnapshot();
+  private revision = 0;
+  private generation = 0;
+  private saveTimer: ReturnType<typeof setTimeout> | null = null;
+  private saveChain: Promise<void> = Promise.resolve();
+  private readonly listeners = new Set<(snapshot: ChatComposerSnapshot) => void>();
+
+  public constructor(
+    private readonly api: ChatDraftApi = nativeApi,
+    private readonly debounceMs = SAVE_DEBOUNCE_MS,
+  ) {}
+
+  public snapshot(): ChatComposerSnapshot {
+    return {
+      ...this.state,
+      attachmentIds: [...this.state.attachmentIds],
+      mentions: this.state.mentions.map((mention) => ({ ...mention })),
+    };
+  }
+
+  public subscribe(listener: (snapshot: ChatComposerSnapshot) => void): () => void {
+    this.listeners.add(listener);
+    listener(this.snapshot());
+    return () => this.listeners.delete(listener);
+  }
+
+  public async bind(workspaceId: ChatWorkspaceId, threadId: ChatThreadId | null): Promise<void> {
+    await this.flush();
+    const generation = ++this.generation;
+    const draftId = chatDraftId(workspaceId, threadId);
+    this.state = {
+      ...emptySnapshot(),
+      draftId,
+      workspaceId,
+      threadId,
+      loading: true,
+    };
+    this.notify();
+    try {
+      const stored = await this.api.read(draftId);
+      if (generation !== this.generation) return;
+      this.state = stored === null
+        ? { ...this.state, loading: false }
+        : snapshotFromDraft(stored);
+      this.revision = 0;
+      this.notify();
+    } catch (error: unknown) {
+      if (generation !== this.generation) return;
+      this.state = { ...this.state, loading: false, error: errorMessage(error) };
+      this.notify();
+      throw error;
+    }
+  }
+
+  public setText(text: string): void {
+    this.change({ text });
+  }
+
+  public setAttachments(attachmentIds: ChatAttachmentId[]): void {
+    this.change({ attachmentIds: [...attachmentIds] });
+  }
+
+  public setMentions(mentions: ChatDraftMention[]): void {
+    this.change({ mentions: mentions.map((mention) => ({ ...mention })) });
+  }
+
+  public setProvider(providerInstanceId: ProviderInstanceId | null): void {
+    this.change({ providerInstanceId });
+  }
+
+  public setModelSelection(modelSelection: VersionedJson | null): void {
+    this.change({ modelSelection });
+  }
+
+  public setModes(safetyMode: SafetyMode | null, interactionMode: InteractionMode | null): void {
+    this.change({ safetyMode, interactionMode });
+  }
+
+  public async clear(): Promise<void> {
+    this.cancelTimer();
+    const draftId = this.state.draftId;
+    if (draftId === null) return;
+    await this.saveChain;
+    await this.api.delete(draftId);
+    this.revision += 1;
+    this.state = {
+      ...emptySnapshot(),
+      draftId,
+      workspaceId: this.state.workspaceId,
+      threadId: this.state.threadId,
+    };
+    this.notify();
+  }
+
+  public markSent(): void {
+    const sentSnapshot: VersionedJson = {
+      schemaVersion: DRAFT_SCHEMA_VERSION,
+      value: {
+        text: this.state.text,
+        attachmentIds: [...this.state.attachmentIds],
+        mentions: this.state.mentions.map((mention) => ({ ...mention })),
+      },
+    };
+    this.change({ text: "", attachmentIds: [], mentions: [], sentSnapshot });
+  }
+
+  public restoreSentSnapshot(): boolean {
+    const sent = parseSentSnapshot(this.state.sentSnapshot);
+    if (sent === null) return false;
+    this.change({
+      text: sent.text,
+      attachmentIds: sent.attachmentIds,
+      mentions: sent.mentions,
+    });
+    return true;
+  }
+
+  public async flush(): Promise<void> {
+    this.cancelTimer();
+    if (!this.state.dirty) {
+      await this.saveChain;
+      return;
+    }
+    const payload = this.payload();
+    if (payload === null) return;
+    const revision = this.revision;
+    this.state = { ...this.state, saving: true, error: null };
+    this.notify();
+    this.saveChain = this.saveChain.then(async () => {
+      try {
+        await this.api.save(payload);
+        if (this.state.draftId === payload.id && this.revision === revision) {
+          this.state = { ...this.state, dirty: false, saving: false };
+          this.notify();
+        }
+      } catch (error: unknown) {
+        if (this.state.draftId === payload.id) {
+          this.state = { ...this.state, saving: false, error: errorMessage(error) };
+          this.notify();
+        }
+        throw error;
+      }
+    });
+    await this.saveChain;
+  }
+
+  public dispose(): Promise<void> {
+    this.generation += 1;
+    return this.flush();
+  }
+
+  private change(patch: Partial<ChatComposerSnapshot>): void {
+    if (this.state.draftId === null || this.state.loading) return;
+    this.revision += 1;
+    this.state = { ...this.state, ...patch, dirty: true, error: null };
+    this.notify();
+    this.cancelTimer();
+    this.saveTimer = setTimeout(() => {
+      void this.flush().catch(() => undefined);
+    }, this.debounceMs);
+  }
+
+  private payload(): SaveChatDraftRequest | null {
+    const { draftId: id, workspaceId, threadId } = this.state;
+    if (id === null || workspaceId === null) return null;
+    return {
+      id,
+      workspaceId,
+      threadId,
+      text: this.state.text,
+      attachmentIds: [...this.state.attachmentIds],
+      mentions: {
+        schemaVersion: DRAFT_SCHEMA_VERSION,
+        value: this.state.mentions.map((mention) => ({
+          relativePath: mention.relativePath,
+          kind: mention.kind,
+          ignored: mention.ignored,
+        })),
+      },
+      providerInstanceId: this.state.providerInstanceId,
+      modelSelection: this.state.modelSelection,
+      safetyMode: this.state.safetyMode,
+      interactionMode: this.state.interactionMode,
+      sentSnapshot: this.state.sentSnapshot,
+    };
+  }
+
+  private cancelTimer(): void {
+    if (this.saveTimer !== null) clearTimeout(this.saveTimer);
+    this.saveTimer = null;
+  }
+
+  private notify(): void {
+    const snapshot = this.snapshot();
+    for (const listener of this.listeners) listener(snapshot);
+  }
+}
+
+export function chatDraftId(workspaceId: ChatWorkspaceId, threadId: ChatThreadId | null): string {
+  return `workspace:${workspaceId}:thread:${threadId ?? "new"}`;
+}
+
+function emptySnapshot(): ChatComposerSnapshot {
+  return {
+    draftId: null,
+    workspaceId: null,
+    threadId: null,
+    text: "",
+    attachmentIds: [],
+    mentions: [],
+    providerInstanceId: null,
+    modelSelection: null,
+    safetyMode: null,
+    interactionMode: null,
+    sentSnapshot: null,
+    loading: false,
+    saving: false,
+    dirty: false,
+    error: null,
+  };
+}
+
+function snapshotFromDraft(draft: ChatDraftRead): ChatComposerSnapshot {
+  return {
+    draftId: draft.id,
+    workspaceId: draft.workspaceId,
+    threadId: draft.threadId,
+    text: draft.text,
+    attachmentIds: [...draft.attachmentIds],
+    mentions: parseDraftMentions(draft.mentions),
+    providerInstanceId: draft.providerInstanceId,
+    modelSelection: draft.modelSelection,
+    safetyMode: draft.safetyMode,
+    interactionMode: draft.interactionMode,
+    sentSnapshot: draft.sentSnapshot,
+    loading: false,
+    saving: false,
+    dirty: false,
+    error: null,
+  };
+}
+
+export function parseDraftMentions(value: VersionedJson): ChatDraftMention[] {
+  if (!Array.isArray(value.value)) return [];
+  return value.value.flatMap((entry) => {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return [];
+    const relativePath = entry.relativePath;
+    const kind = entry.kind;
+    const ignored = entry.ignored;
+    if (typeof relativePath !== "string" || (kind !== "file" && kind !== "directory") || typeof ignored !== "boolean") return [];
+    return [{ relativePath, kind, ignored }];
+  });
+}
+
+function parseSentSnapshot(value: VersionedJson | null): {
+  text: string;
+  attachmentIds: ChatAttachmentId[];
+  mentions: ChatDraftMention[];
+} | null {
+  if (!value || typeof value.value !== "object" || value.value === null || Array.isArray(value.value)) return null;
+  const { text, attachmentIds, mentions } = value.value;
+  if (typeof text !== "string" || !Array.isArray(attachmentIds) || !Array.isArray(mentions)) return null;
+  const parsedAttachmentIds = attachmentIds.filter((entry): entry is string => typeof entry === "string");
+  return {
+    text,
+    attachmentIds: parsedAttachmentIds,
+    mentions: parseDraftMentions({ schemaVersion: value.schemaVersion, value: mentions }),
+  };
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  return "Chat draft could not be saved";
+}

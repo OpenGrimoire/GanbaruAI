@@ -45,6 +45,8 @@ pub struct ChatDeviceScope {
     #[serde(default)]
     pub provider_instances: BTreeMap<ProviderInstanceId, ChatProviderDeviceState>,
     #[serde(default)]
+    pub full_access_trust: BTreeMap<ProviderInstanceId, BTreeMap<ChatWorkspaceId, UtcTimestamp>>,
+    #[serde(default)]
     pub preferences: ChatMachinePreferences,
 }
 

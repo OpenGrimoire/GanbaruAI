@@ -3,10 +3,10 @@
 use crate::chat::events::{CanonicalEvent, CanonicalRuntimeEvent, NotificationEvent};
 use crate::chat::models::{
     ChatCommandContext, ChatCommandId, ChatError, ChatErrorCode, ChatResult, ChatThreadId,
-    ChatTurnId, DriverOperationReceipt, InterruptTurnRequest, ProviderSessionSnapshot,
-    ProviderSessionState, ResolveApprovalRequest, ResolveUserInputRequest, ResumeSessionRequest,
-    SendTurnRequest, StartSessionRequest, SteerTurnRequest, StopSessionRequest,
-    TurnDispatchReceipt,
+    ChatTurnId, DriverOperationReceipt, InterruptTurnRequest, ProviderSessionId,
+    ProviderSessionSnapshot, ProviderSessionState, ResolveApprovalRequest, ResolveUserInputRequest,
+    ResumeSessionRequest, SendTurnRequest, StartSessionRequest, SteerTurnRequest,
+    StopSessionRequest, TurnDispatchReceipt,
 };
 use crate::chat::providers::{
     DriverCancellation, DriverFuture, DriverOperationContext, ProviderDriver, ProviderEventSink,
@@ -83,7 +83,9 @@ pub enum ThreadRuntimeCommand {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ThreadRuntimeSnapshot {
+    pub session_id: Option<ProviderSessionId>,
     pub session_state: ProviderSessionState,
+    pub capabilities: crate::chat::models::ProviderCapabilities,
     pub active_turn_id: Option<ChatTurnId>,
     pub turn_active: bool,
     pub pending_request: bool,
@@ -321,13 +323,24 @@ impl ChatRuntimeRegistry {
         thread_id: ChatThreadId,
         capacity: usize,
     ) -> ChatResult<Arc<ThreadRuntimeOwner>> {
+        self.owner_with_start_gate(thread_id, capacity, None)
+    }
+
+    fn owner_with_start_gate(
+        &self,
+        thread_id: ChatThreadId,
+        capacity: usize,
+        start_gate: Option<oneshot::Receiver<()>>,
+    ) -> ChatResult<Arc<ThreadRuntimeOwner>> {
         let mut owners = self.owners.lock().map_err(|_| runtime_state_error())?;
         if let Some(owner) = owners.get(&thread_id) {
             return Ok(Arc::clone(owner));
         }
         let (sender, receiver) = mpsc::channel(capacity.max(1));
         let snapshot = Arc::new(Mutex::new(ThreadRuntimeSnapshot {
+            session_id: None,
             session_state: ProviderSessionState::Stopped,
+            capabilities: crate::chat::models::ProviderCapabilities::default(),
             active_turn_id: None,
             turn_active: false,
             pending_request: false,
@@ -337,13 +350,22 @@ impl ChatRuntimeRegistry {
             last_activity: Instant::now(),
         }));
         let generation = Arc::new(AtomicU64::new(0));
-        let worker = tauri::async_runtime::spawn(run_thread_runtime(
-            thread_id.clone(),
-            receiver,
-            Arc::clone(&snapshot),
-            generation,
-            self.idle_timeout,
-        ));
+        let worker_thread_id = thread_id.clone();
+        let worker_snapshot = Arc::clone(&snapshot);
+        let idle_timeout = self.idle_timeout;
+        let worker = tauri::async_runtime::spawn(async move {
+            if let Some(start_gate) = start_gate {
+                let _ = start_gate.await;
+            }
+            run_thread_runtime(
+                worker_thread_id,
+                receiver,
+                worker_snapshot,
+                generation,
+                idle_timeout,
+            )
+            .await;
+        });
         let owner = Arc::new(ThreadRuntimeOwner {
             thread_id: thread_id.clone(),
             command_sender: sender,
@@ -462,7 +484,9 @@ impl RuntimeWorker {
                 self.driver.take();
                 self.session = None;
                 self.update(|state| {
+                    state.session_id = None;
                     state.session_state = ProviderSessionState::Starting;
+                    state.capabilities = crate::chat::models::ProviderCapabilities::default();
                     state.turn_active = false;
                     state.active_turn_id = None;
                     state.pending_request = false;
@@ -485,7 +509,11 @@ impl RuntimeWorker {
                 match &result {
                     Ok(session) => {
                         self.session = Some(session.clone());
-                        self.update(|state| state.session_state = session.state);
+                        self.update(|state| {
+                            state.session_id = Some(session.session_id.clone());
+                            state.session_state = session.state;
+                            state.capabilities = session.capabilities.clone();
+                        });
                     }
                     Err(_) => {
                         self.update(|state| state.session_state = ProviderSessionState::Failed)
@@ -516,7 +544,9 @@ impl RuntimeWorker {
                 self.driver.take();
                 self.session = None;
                 self.update(|state| {
+                    state.session_id = None;
                     state.session_state = ProviderSessionState::Starting;
+                    state.capabilities = crate::chat::models::ProviderCapabilities::default();
                     state.turn_active = false;
                     state.active_turn_id = None;
                     state.pending_request = false;
@@ -539,7 +569,11 @@ impl RuntimeWorker {
                 match &result {
                     Ok(session) => {
                         self.session = Some(session.clone());
-                        self.update(|state| state.session_state = session.state);
+                        self.update(|state| {
+                            state.session_id = Some(session.session_id.clone());
+                            state.session_state = session.state;
+                            state.capabilities = session.capabilities.clone();
+                        });
                     }
                     Err(_) => {
                         self.update(|state| state.session_state = ProviderSessionState::Failed)
@@ -670,6 +704,8 @@ impl RuntimeWorker {
                     )));
                     return false;
                 }
+                let previous_state = self.session_state();
+                self.update(|state| state.session_state = ProviderSessionState::Stopping);
                 let result = match self.driver.as_mut() {
                     Some(driver) => {
                         run_driver_operation(&context, driver.interrupt_turn(request, &context))
@@ -677,6 +713,9 @@ impl RuntimeWorker {
                     }
                     None => Err(runtime_unavailable()),
                 };
+                if result.is_err() {
+                    self.update(|state| state.session_state = previous_state);
+                }
                 let _ = response.send(result);
             }
             ThreadRuntimeCommand::StopSession {
@@ -713,7 +752,9 @@ impl RuntimeWorker {
             self.session = None;
             self.event_sink = None;
             self.update(|state| {
+                state.session_id = None;
                 state.session_state = ProviderSessionState::Stopped;
+                state.capabilities = crate::chat::models::ProviderCapabilities::default();
                 state.active_turn_id = None;
                 state.turn_active = false;
                 state.pending_request = false;
@@ -759,11 +800,13 @@ impl RuntimeWorker {
         self.session = None;
         self.event_sink = None;
         self.update(|state| {
+            state.session_id = None;
             state.session_state = if result.is_ok() {
                 ProviderSessionState::Stopped
             } else {
                 ProviderSessionState::Failed
             };
+            state.capabilities = crate::chat::models::ProviderCapabilities::default();
             state.active_turn_id = None;
             state.turn_active = false;
             state.pending_request = false;
@@ -990,9 +1033,14 @@ fn update_snapshot_for_event(
     };
     state.last_activity = Instant::now();
     match &event.event {
-        CanonicalEvent::SessionStarted(event) => state.session_state = event.state,
+        CanonicalEvent::SessionStarted(event) => {
+            state.session_id = Some(event.session_id.clone());
+            state.session_state = event.state;
+            state.capabilities = event.capability_overrides.clone();
+        }
         CanonicalEvent::SessionStateChanged(event) => state.session_state = event.state,
         CanonicalEvent::SessionExited(event) => {
+            state.session_id = None;
             state.session_state = if event.expected {
                 ProviderSessionState::Stopped
             } else {
@@ -1001,6 +1049,7 @@ fn update_snapshot_for_event(
             state.active_turn_id = None;
             state.turn_active = false;
             state.pending_request = false;
+            state.capabilities = crate::chat::models::ProviderCapabilities::default();
         }
         CanonicalEvent::TurnStarted(_) => {
             state.active_turn_id = event.turn_id.clone();
@@ -1124,8 +1173,10 @@ impl ChatRuntimeRegistry {
         &self,
         thread_id: ChatThreadId,
         capacity: usize,
-    ) -> ChatResult<Arc<ThreadRuntimeOwner>> {
-        self.owner_with_capacity(thread_id, capacity)
+    ) -> ChatResult<(Arc<ThreadRuntimeOwner>, oneshot::Sender<()>)> {
+        let (start, wait) = oneshot::channel();
+        self.owner_with_start_gate(thread_id, capacity, Some(wait))
+            .map(|owner| (owner, start))
     }
 
     pub fn with_idle_timeout_for_test(idle_timeout: Duration) -> Self {

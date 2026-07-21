@@ -72,6 +72,9 @@ fn schema_creates_chat_tables_indexes_and_no_device_paths() {
             "chat_drafts",
             "chat_attachments",
             "chat_attachment_references",
+            "chat_queued_followups",
+            "chat_queued_attachment_references",
+            "chat_user_input_drafts",
             "chat_events",
             "chat_command_receipts",
             "chat_checkpoints",
@@ -86,6 +89,8 @@ fn schema_creates_chat_tables_indexes_and_no_device_paths() {
             "idx_chat_turns_thread_ordinal",
             "idx_chat_checkpoints_thread_turn",
             "idx_chat_attachment_references_message",
+            "idx_chat_queued_followups_active",
+            "idx_chat_queued_attachment_references_attachment",
         ] {
             let exists: Option<i64> =
                 sqlx::query_scalar("SELECT 1 FROM sqlite_schema WHERE name = ?")

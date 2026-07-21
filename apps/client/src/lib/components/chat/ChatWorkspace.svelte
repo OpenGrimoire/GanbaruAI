@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { listen } from "@tauri-apps/api/event";
   import Command from "@lucide/svelte/icons/command";
   import MessageSquarePlus from "@lucide/svelte/icons/message-square-plus";
   import PanelRight from "@lucide/svelte/icons/panel-right";
@@ -7,12 +8,14 @@
   import Settings from "@lucide/svelte/icons/settings";
   import X from "@lucide/svelte/icons/x";
   import { nextThreadIndex } from "$lib/chat/shell-model";
+  import { parseChatChangeNotification } from "$lib/chat/validation";
   import { hasOnlyShortcutModifier } from "$lib/keyboard-shortcuts";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
   import { getProjects } from "$lib/stores/projects.svelte";
   import { getSettingsLauncher } from "$lib/stores/settingsLauncher.svelte";
   import ChatConversationHeader from "./ChatConversationHeader.svelte";
+  import ChatComposer from "./ChatComposer.svelte";
   import ChatFirstUse from "./ChatFirstUse.svelte";
   import ChatThreadRail from "./ChatThreadRail.svelte";
   import ChatTimeline from "./ChatTimeline.svelte";
@@ -36,6 +39,15 @@
     });
     railWidth = chat.settings?.configuration.panels.railWidthPx ?? 260;
     inspectorWidth = chat.settings?.configuration.panels.inspectorWidthPx ?? 360;
+    const unlisten = listen<unknown>("chat://change", (event) => {
+      try {
+        const change = parseChatChangeNotification(event.payload);
+        void chat.handleNativeChange(change.threadId).catch(() => undefined);
+      } catch (error: unknown) {
+        console.error("Invalid Chat change notification", error);
+      }
+    });
+    return () => { void unlisten.then((dispose) => dispose()); };
   });
 
   $effect(() => {
@@ -189,6 +201,7 @@
       <div class="m-auto text-sm text-muted-foreground">{t("common.loading")}</div>
     {:else if chat.selectedThread}
       <ChatTimeline />
+      {#if !chat.selectedThread.archivedAt}<ChatComposer />{/if}
     {:else}
       <ChatFirstUse />
     {/if}

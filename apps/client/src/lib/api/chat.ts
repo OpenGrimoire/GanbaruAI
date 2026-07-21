@@ -2,6 +2,13 @@ import { invoke } from "@tauri-apps/api/core";
 import { ensureDbUrl } from "$lib/api/db";
 import type {
   ChatBehaviorPreferences,
+  ChatDraftRead,
+  ChatAttachmentRead,
+  ChatInteractionStateRead,
+  ChatUserInputDraftRead,
+  ChatPromptCatalogEntry,
+  ChatQueuedFollowupRead,
+  ChatWorkspacePathPage,
   ChatPanelPreferences,
   ChatProjectShellRead,
   ChatSettingsRead,
@@ -20,9 +27,27 @@ import type {
   ProviderProbeResult,
   ProviderSetupTestRead,
   RemoveProviderResult,
+  RememberedComposerSelection,
+  SaveChatDraftRequest,
+  SaveQueuedFollowupRequest,
+  SendChatTurnCommand,
+  SendChatTurnResult,
+  SteerChatTurnCommand,
+  ResolveChatApprovalCommand,
+  ResolveChatUserInputCommand,
+  VersionedJson,
 } from "$lib/chat/contracts";
 import {
   parseChatProjectShells,
+  parseChatDraftRead,
+  parseChatAttachmentRead,
+  parseChatInteractionState,
+  parseChatUserInputDraft,
+  parseChatPromptCatalog,
+  parseChatQueuedFollowup,
+  parseChatWorkspacePathPage,
+  parseTurnDispatchReceipt,
+  parseChatError,
   parseChatSettingsRead,
   parseChatThreadShell,
   parseChatThreadShells,
@@ -163,6 +188,10 @@ export async function setChatWorkspaceProviderPreference(
   return parseChatVaultConfig(await invoke<unknown>("chat_set_workspace_provider_preference", { workspaceId, instanceId }));
 }
 
+export async function rememberChatComposerSelection(selection: RememberedComposerSelection): Promise<ChatSettingsRead["configuration"]> {
+  return parseChatVaultConfig(await invoke<unknown>("chat_remember_composer_selection", { selection }));
+}
+
 export async function replaceChatCredential(referenceId: CredentialReferenceId, secret: string): Promise<void> {
   await invoke("chat_replace_credential", { referenceId, secret });
 }
@@ -218,6 +247,166 @@ export async function readChatTimelinePage(
 
 export async function openChatExternalUrl(url: string): Promise<void> {
   await invoke("chat_open_external_url", { url });
+}
+
+export async function readChatDraft(draftId: string): Promise<ChatDraftRead | null> {
+  const value = await invoke<unknown>("chat_read_draft", { dbUrl: await ensureDbUrl(), draftId });
+  return value === null ? null : parseChatDraftRead(value);
+}
+
+export async function saveChatDraft(draft: SaveChatDraftRequest): Promise<ChatDraftRead> {
+  return parseChatDraftRead(await invoke<unknown>("chat_save_draft", {
+    dbUrl: await ensureDbUrl(),
+    draft,
+  }));
+}
+
+export async function deleteChatDraft(draftId: string): Promise<boolean> {
+  return invoke<boolean>("chat_delete_draft", { dbUrl: await ensureDbUrl(), draftId });
+}
+
+export async function importChatImage(
+  workspaceId: ChatWorkspaceId,
+  attachmentId: string,
+  displayName: string,
+  bytes: number[],
+): Promise<ChatAttachmentRead> {
+  return parseChatAttachmentRead(await invoke<unknown>("chat_import_image", {
+    dbUrl: await ensureDbUrl(),
+    request: { workspaceId, attachmentId, displayName, bytes },
+  }));
+}
+
+export async function pickChatImages(
+  workspaceId: ChatWorkspaceId,
+  attachmentIds: string[],
+  title: string,
+): Promise<ChatAttachmentRead[]> {
+  const value = await invoke<unknown>("chat_pick_images", {
+    dbUrl: await ensureDbUrl(),
+    request: { workspaceId, attachmentIds, title },
+  });
+  if (!Array.isArray(value)) throw new Error("Chat image picker response must be an array");
+  return value.map((entry, index) => parseChatAttachmentRead(entry, `Chat image picker response[${index}]`));
+}
+
+export async function chatAttachmentDataUrl(attachmentId: string): Promise<string> {
+  return invoke<string>("chat_attachment_data_url", { dbUrl: await ensureDbUrl(), attachmentId });
+}
+
+export async function readChatAttachments(
+  workspaceId: ChatWorkspaceId,
+  attachmentIds: string[],
+): Promise<ChatAttachmentRead[]> {
+  const value = await invoke<unknown>("chat_read_attachments", {
+    dbUrl: await ensureDbUrl(), workspaceId, attachmentIds,
+  });
+  if (!Array.isArray(value)) throw new Error("Chat attachments response must be an array");
+  return value.map((entry, index) => parseChatAttachmentRead(entry, `Chat attachments response[${index}]`));
+}
+
+export async function searchChatWorkspacePaths(
+  workspaceId: ChatWorkspaceId,
+  query: string,
+  includeIgnored: boolean,
+  cursor: string | null = null,
+  limit = 50,
+): Promise<ChatWorkspacePathPage> {
+  return parseChatWorkspacePathPage(await invoke<unknown>("chat_search_workspace_paths", {
+    dbUrl: await ensureDbUrl(), workspaceId, query, includeIgnored, cursor, limit,
+  }));
+}
+
+export async function validateChatWorkspaceMentions(
+  workspaceId: ChatWorkspaceId,
+  relativePaths: string[],
+): Promise<void> {
+  await invoke("chat_validate_workspace_mentions", {
+    dbUrl: await ensureDbUrl(), workspaceId, relativePaths,
+  });
+}
+
+export async function listChatPromptCatalog(providerInstanceId: ProviderInstanceId): Promise<ChatPromptCatalogEntry[]> {
+  return parseChatPromptCatalog(await invoke<unknown>("chat_list_prompt_catalog", { providerInstanceId }));
+}
+
+export async function readChatInteractionState(threadId: ChatThreadId): Promise<ChatInteractionStateRead> {
+  return parseChatInteractionState(await invoke<unknown>("chat_read_interaction_state", {
+    dbUrl: await ensureDbUrl(), threadId,
+  }));
+}
+
+export async function setChatFullAccessTrust(
+  providerInstanceId: ProviderInstanceId,
+  workspaceId: ChatWorkspaceId,
+  trusted: boolean,
+): Promise<boolean> {
+  return invoke<boolean>("chat_set_full_access_trust", { providerInstanceId, workspaceId, trusted });
+}
+
+export async function hasChatFullAccessTrust(
+  providerInstanceId: ProviderInstanceId,
+  workspaceId: ChatWorkspaceId,
+): Promise<boolean> {
+  return invoke<boolean>("chat_has_full_access_trust", { providerInstanceId, workspaceId });
+}
+
+export async function saveChatQueuedFollowup(request: SaveQueuedFollowupRequest): Promise<ChatQueuedFollowupRead> {
+  return parseChatQueuedFollowup(await invoke<unknown>("chat_save_queued_followup", {
+    dbUrl: await ensureDbUrl(), request,
+  }));
+}
+
+export async function cancelChatQueuedFollowup(threadId: ChatThreadId): Promise<boolean> {
+  return invoke<boolean>("chat_cancel_queued_followup", { dbUrl: await ensureDbUrl(), threadId });
+}
+
+export async function markChatQueuedFollowupDispatched(threadId: ChatThreadId, queuedFollowupId: string): Promise<boolean> {
+  return invoke<boolean>("chat_mark_queued_followup_dispatched", {
+    dbUrl: await ensureDbUrl(), threadId, queuedFollowupId,
+  });
+}
+
+export async function readChatUserInputDraft(requestId: string): Promise<ChatUserInputDraftRead | null> {
+  const value = await invoke<unknown>("chat_read_user_input_draft", {
+    dbUrl: await ensureDbUrl(), requestId,
+  });
+  return value === null ? null : parseChatUserInputDraft(value);
+}
+
+export async function saveChatUserInputDraft(requestId: string, answers: VersionedJson): Promise<ChatUserInputDraftRead> {
+  return parseChatUserInputDraft(await invoke<unknown>("chat_save_user_input_draft", {
+    dbUrl: await ensureDbUrl(), requestId, answers,
+  }));
+}
+
+export async function stopChatSession(threadId: ChatThreadId, force: boolean): Promise<void> {
+  await invoke("chat_stop_session", {
+    dbUrl: await ensureDbUrl(), threadId, force, clientCommandId: crypto.randomUUID(),
+  });
+}
+
+export async function sendChatTurn(request: SendChatTurnCommand): Promise<SendChatTurnResult> {
+  const value = await invoke<unknown>("chat_send_turn", { dbUrl: await ensureDbUrl(), request });
+  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error("Chat send response must be an object");
+  const record = value as Record<string, unknown>;
+  return {
+    thread: parseChatThreadShell(record.thread),
+    dispatch: record.dispatch === null ? null : parseTurnDispatchReceipt(record.dispatch, "Chat send response.dispatch"),
+    launchError: record.launchError === null ? null : parseChatError(record.launchError),
+  };
+}
+
+export async function steerChatTurn(request: SteerChatTurnCommand): Promise<void> {
+  await invoke("chat_steer_turn", { dbUrl: await ensureDbUrl(), request });
+}
+
+export async function resolveChatApproval(request: ResolveChatApprovalCommand): Promise<void> {
+  await invoke("chat_resolve_approval", { dbUrl: await ensureDbUrl(), request });
+}
+
+export async function resolveChatUserInput(request: ResolveChatUserInputCommand): Promise<void> {
+  await invoke("chat_resolve_user_input", { dbUrl: await ensureDbUrl(), request });
 }
 
 async function threadMutation(command: string, args: Record<string, unknown>): Promise<ChatThreadShellRead> {
