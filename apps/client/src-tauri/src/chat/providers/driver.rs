@@ -41,6 +41,10 @@ impl DriverOperationContext {
 
 pub trait ProviderEventSink: Send + Sync {
     fn emit<'a>(&'a self, event: CanonicalRuntimeEvent) -> DriverFuture<'a, ()>;
+
+    fn flush(&self) -> DriverFuture<'_, ()> {
+        Box::pin(async { Ok(()) })
+    }
 }
 
 pub trait ProviderDriver: Send {

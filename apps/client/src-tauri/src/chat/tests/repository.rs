@@ -2,12 +2,14 @@ use crate::chat::events::{
     CanonicalEvent, CanonicalRuntimeEvent, ContentDeltaEvent, ItemLifecycleEvent,
     RequestOpenedEvent, TurnCompletedEvent, TurnStartedEvent,
 };
+use crate::chat::ingestion::{ChatChangeEmitter, ChatEventIngestor};
 use crate::chat::models::{
     ActivityStatus, CanonicalItemKind, CanonicalRequestKind, ChatAttachmentId, ChatCommandId,
     ChatEventId, ChatThreadId, ChatTurnId, ChatTurnState, ChatWorkspaceId, ContentStreamKind,
     InteractionMode, ProviderFamilyId, ProviderInstanceId, ProviderRequestId, SafetyMode,
     TurnModeSnapshot, UtcTimestamp, VersionedJson,
 };
+use crate::chat::models::{ChatChangeNotification, ChatError, ChatResult};
 use crate::chat::repository::attachments::{
     import_attachment, run_due_attachment_cleanup, ChatAttachmentKind,
 };
@@ -26,14 +28,30 @@ use crate::chat::repository::rebuild::rebuild_thread_projections;
 use crate::chat::repository::receipts::{
     claim_command_receipt, complete_command_receipt, CommandReceiptClaim, CommandReceiptState,
 };
+use crate::chat::repository::recovery::recover_orphaned_turns;
 use crate::chat::repository::workspaces::{create_workspace, list_workspaces, rename_workspace};
 use crate::chat::workspace::CreateChatWorkspaceRequest;
 use sqlx::Row;
+use std::collections::HashSet;
 use std::fs;
+use std::sync::{Arc, Mutex};
+
+#[derive(Default)]
+struct RecordingEmitter(Mutex<Vec<ChatChangeNotification>>);
+
+impl ChatChangeEmitter for RecordingEmitter {
+    fn emit(&self, notification: &ChatChangeNotification) -> ChatResult<()> {
+        self.0
+            .lock()
+            .map_err(|_| ChatError::driver_unavailable("emitter lock"))?
+            .push(notification.clone());
+        Ok(())
+    }
+}
 
 const NOW: &str = "2026-07-20T12:00:00Z";
 
-async fn pool_with_thread() -> sqlx::SqlitePool {
+pub(crate) async fn pool_with_thread() -> sqlx::SqlitePool {
     let pool = sqlx::sqlite::SqlitePoolOptions::new()
         .max_connections(1)
         .connect("sqlite::memory:")
@@ -675,5 +693,194 @@ fn project_archive_preserves_chat_and_deletion_requires_detach_or_delete() {
             .execute(&pool)
             .await
             .unwrap();
+    });
+}
+
+#[test]
+fn ingestion_batches_adjacent_deltas_and_notifies_only_after_commit() {
+    tauri::async_runtime::block_on(async {
+        let pool = pool_with_thread().await;
+        let emitter = Arc::new(RecordingEmitter::default());
+        let mut ingestor = ChatEventIngestor::new(pool.clone(), emitter.clone());
+        ingestor
+            .ingest(content_event("event-batch-1", "Hello "))
+            .await
+            .unwrap();
+        ingestor
+            .ingest(content_event("event-batch-2", "world"))
+            .await
+            .unwrap();
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM chat_events")
+                .fetch_one(&pool)
+                .await
+                .unwrap(),
+            0
+        );
+        assert!(emitter.0.lock().unwrap().is_empty());
+        ingestor.flush().await.unwrap();
+        let text: String = sqlx::query_scalar(
+            "SELECT normalized_markdown FROM chat_messages WHERE id = 'assistant-message-1'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(text, "Hello world");
+        let notifications = emitter.0.lock().unwrap();
+        assert_eq!(notifications.len(), 1);
+        assert_eq!(notifications[0].sequence, 1);
+    });
+}
+
+#[test]
+fn ingestion_splits_delta_batches_at_the_memory_bound() {
+    tauri::async_runtime::block_on(async {
+        let pool = pool_with_thread().await;
+        let emitter = Arc::new(RecordingEmitter::default());
+        let mut ingestor = ChatEventIngestor::new(pool.clone(), emitter.clone());
+        let first = "a".repeat(40 * 1024);
+        let second = "b".repeat(40 * 1024);
+        ingestor
+            .ingest(content_event("event-bounded-1", &first))
+            .await
+            .unwrap();
+        ingestor
+            .ingest(content_event("event-bounded-2", &second))
+            .await
+            .unwrap();
+        ingestor.flush().await.unwrap();
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM chat_events")
+                .fetch_one(&pool)
+                .await
+                .unwrap(),
+            2
+        );
+        let text: String = sqlx::query_scalar(
+            "SELECT normalized_markdown FROM chat_messages WHERE id = 'assistant-message-1'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(text, format!("{first}{second}"));
+        let preview: String =
+            sqlx::query_scalar("SELECT latest_preview FROM chat_threads WHERE id = 'thread-1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(preview, "b".repeat(2000));
+        assert_eq!(emitter.0.lock().unwrap().len(), 2);
+    });
+}
+
+#[test]
+fn ingestion_retains_a_pending_batch_after_append_failure() {
+    tauri::async_runtime::block_on(async {
+        let pool = pool_with_thread().await;
+        let emitter = Arc::new(RecordingEmitter::default());
+        let mut ingestor = ChatEventIngestor::new(pool.clone(), emitter.clone());
+        ingestor
+            .ingest(content_event("event-retry", "retained"))
+            .await
+            .unwrap();
+        sqlx::query(
+            "CREATE TRIGGER reject_chat_event
+             BEFORE INSERT ON chat_events
+             BEGIN SELECT RAISE(ABORT, 'fixture rejection'); END",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert!(ingestor.flush().await.is_err());
+        assert!(emitter.0.lock().unwrap().is_empty());
+        sqlx::query("DROP TRIGGER reject_chat_event")
+            .execute(&pool)
+            .await
+            .unwrap();
+        ingestor.flush().await.unwrap();
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM chat_events")
+                .fetch_one(&pool)
+                .await
+                .unwrap(),
+            1
+        );
+        assert_eq!(emitter.0.lock().unwrap().len(), 1);
+    });
+}
+
+#[test]
+fn ingestion_rejects_diagnostics_that_are_not_redacted() {
+    tauri::async_runtime::block_on(async {
+        let pool = pool_with_thread().await;
+        let emitter = Arc::new(RecordingEmitter::default());
+        let mut ingestor = ChatEventIngestor::new(pool, emitter);
+        let mut request = content_event("event-secret", "ignored");
+        request.runtime.redacted_diagnostic = Some(VersionedJson {
+            schema_version: 1,
+            value: serde_json::json!({ "authorization": "Bearer private" }),
+        });
+        request.diagnostic_expires_at = Some(UtcTimestamp::new("2026-07-21T12:00:00Z").unwrap());
+        assert!(ingestor.ingest(request).await.is_err());
+
+        let mut request = content_event("event-home-path", "ignored");
+        request.runtime.redacted_diagnostic = Some(VersionedJson {
+            schema_version: 1,
+            value: serde_json::json!({ "detail": "c:\\users\\person\\secret.txt" }),
+        });
+        request.diagnostic_expires_at = Some(UtcTimestamp::new("2026-07-21T12:00:00Z").unwrap());
+        assert!(ingestor.ingest(request).await.is_err());
+    });
+}
+
+#[test]
+fn startup_recovery_interrupts_only_turns_without_proven_resumability() {
+    tauri::async_runtime::block_on(async {
+        let pool = pool_with_thread().await;
+        append_canonical_event(
+            &pool,
+            canonical_request(
+                "event-orphan-start",
+                Some("turn-orphan"),
+                CanonicalEvent::TurnStarted(TurnStartedEvent {
+                    provider_turn_id: None,
+                    state: ChatTurnState::Active,
+                    modes: TurnModeSnapshot {
+                        safety_mode: SafetyMode::Supervised,
+                        interaction_mode: InteractionMode::Build,
+                    },
+                    model_id: None,
+                    model_options: Vec::new(),
+                }),
+            ),
+        )
+        .await
+        .unwrap();
+        let mut resumable = HashSet::new();
+        resumable.insert(ChatThreadId::new("thread-1").unwrap());
+        assert_eq!(
+            recover_orphaned_turns(&pool, &resumable, &UtcTimestamp::new(NOW).unwrap())
+                .await
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            recover_orphaned_turns(&pool, &HashSet::new(), &UtcTimestamp::new(NOW).unwrap())
+                .await
+                .unwrap(),
+            1
+        );
+        let state: String =
+            sqlx::query_scalar("SELECT state FROM chat_turns WHERE id = 'turn-orphan'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(state, "interrupted");
+        let event_type: String =
+            sqlx::query_scalar("SELECT event_type FROM chat_events ORDER BY sequence DESC LIMIT 1")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(event_type, "turn_aborted");
     });
 }

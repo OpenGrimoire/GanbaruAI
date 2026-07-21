@@ -48,6 +48,10 @@ notify-rust = "4"
 zip = { version = "8", default-features = false, features = ["deflate"] }
 tauri-plugin-opener = "2.5.4"
 keyring = "4.1.5"
+tokio = { version = "1.48", default-features = false, features = ["io-util", "process", "rt", "sync", "time"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = "0.18"
@@ -60,7 +64,9 @@ windows = { version = "0.61", features = [
     "Foundation",
     "Media",
     "Win32_Foundation",
+    "Win32_Security",
     "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_JobObjects",
     "Win32_System_Power",
     "Win32_System_ProcessStatus",
     "Win32_System_SystemInformation",
@@ -71,7 +77,6 @@ windows = { version = "0.61", features = [
 ] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-libc = "0.2"
 objc2 = "0.6.4"
 objc2-app-kit = { version = "0.3.2", default-features = false, features = [
     "std",

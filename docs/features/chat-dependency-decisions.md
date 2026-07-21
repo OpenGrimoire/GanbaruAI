@@ -6,22 +6,24 @@ Package metadata is not evidence that a package is advisory-free. The repository
 
 ## Decision summary
 
-| Capability | Decision | First use | Manifest action in Phase 1 |
+| Capability | Decision | First use | Current manifest status |
 | --- | --- | --- | --- |
-| Async child processes | Tokio process, IO, sync, and time features | Runtime supervision | None |
-| Process-tree cleanup | Standard process-group support, Unix libc, and existing Windows Job Object APIs | Runtime supervision | None |
-| Operating-system credentials | `keyring` 4.1.5 with native platform stores | Credential storage | None |
-| Pseudoterminals | `portable-pty` 0.9.0 | Terminal | None |
-| HTTP and event streams | Existing Reqwest and Rustls, plus `futures-util` and `eventsource-stream` 0.2.3 | OpenCode | None |
-| Markdown parsing and sanitization | `marked` 18.0.6 plus existing DOMPurify | Timeline | None |
-| Diff parsing and rendering | `diff` 9.0.0 plus a bounded Ganbaru renderer | Inspector | None |
-| Terminal emulation | `@xterm/xterm` 6.0.0 and `@xterm/addon-fit` 0.11.0 | Terminal | None |
+| Async child processes | Tokio process, IO, runtime, sync, and time features | Runtime supervision | Added in Phase 4 |
+| Process-tree cleanup | Standard process-group support, Unix libc, and existing Windows Job Object APIs | Runtime supervision | Added in Phase 4 |
+| Operating-system credentials | `keyring` 4.1.5 with native platform stores | Credential storage | Added in Phase 2 |
+| Pseudoterminals | `portable-pty` 0.9.0 | Terminal | Deferred |
+| HTTP and event streams | Existing Reqwest and Rustls, plus `futures-util` and `eventsource-stream` 0.2.3 | OpenCode | Deferred |
+| Markdown parsing and sanitization | `marked` 18.0.6 plus existing DOMPurify | Timeline | Deferred |
+| Diff parsing and rendering | `diff` 9.0.0 plus a bounded Ganbaru renderer | Inspector | Deferred |
+| Terminal emulation | `@xterm/xterm` 6.0.0 and `@xterm/addon-fit` 0.11.0 | Terminal | Deferred |
 
-No Phase 1 contract or registry source imports these packages. Adding them now would create unused production attack surface and bundle weight, so the Phase 1 manifest and lockfiles remain unchanged.
+Phase 1 did not import these packages. Phase 4 adds only Tokio's narrow process-supervision features, a direct Unix `libc` dependency, and Windows binding features. The remaining reviewed dependencies stay deferred until their first implementation phase.
 
 ## Async child processes
 
-Use a direct Tokio dependency with only the `process`, `io-util`, `sync`, and `time` features when runtime supervision begins. Tauri and SQLx already use Tokio, but Chat must not rely on accidental transitive feature unification.
+Phase 4 added a direct Tokio dependency with only the `process`, `io-util`, `rt`, `sync`, and `time` features. The lockfile resolves Tokio 1.52.3. Tauri and SQLx already use Tokio, but Chat does not rely on accidental transitive feature unification. The `rt` feature is required to spawn the bounded stderr reader and per-thread session worker without enabling Tokio's multithreaded runtime or macros.
+
+The Phase 4 dependency audit found no npm vulnerabilities and only the repository's 18 documented allowed Rust warnings. Tokio, `libc`, and the added Windows binding features introduced no advisory exception.
 
 - Maintenance: Tokio is an established Rust asynchronous runtime with active releases and broad ecosystem use.
 - Advisories: run the Rust audit when the direct dependency and features are added. The Phase 1 audit covers only the current lockfile.
@@ -37,7 +39,7 @@ Do not add a general process-wrapper crate initially. On Unix, configure a proce
 - Maintenance: `libc` and the official Windows bindings are already established dependencies in the Rust ecosystem and this repository.
 - Advisories: audit the lockfile after changing target dependencies or features.
 - Permissions: the backend gains only the platform APIs needed to own and terminate children that it launched.
-- Platforms: Unix process groups and Windows Job Objects provide native tree semantics. Tests must cover the Windows spawn and assignment race before claiming full containment.
+- Platforms: Unix process groups and Windows Job Objects provide native tree semantics. Windows providers start suspended, enter a kill-on-close Job Object, and resume only after assignment, which closes the descendant spawn race. Unix fixtures execute on Linux. Windows-only self-executable fixtures type-check on the installed Windows GNU target and exercise normal exit, malformed output, immediate descendant creation, forced cleanup, and idempotence when run on Windows.
 - Size: no cross-platform supervisor framework is added. The incremental code is target-specific bindings and Ganbaru lifecycle logic.
 - Rejected alternatives: `command-group` is small and established, but it does not remove the need to prove Ganbaru's Windows ownership race, shutdown deadlines, and idempotent cleanup. Direct platform ownership keeps those guarantees visible.
 

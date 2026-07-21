@@ -745,6 +745,7 @@ pub fn run() {
         .manage(media_player::MediaPlayerState::default())
         .manage(soundscape::SoundscapeEngineState::default())
         .manage(chat::workspace::ChatWorkspaceCatalogState::default())
+        .manage(chat::runtime::ChatRuntimeRegistry::default())
         .plugin(tauri_plugin_dialog::init())
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -1202,6 +1203,12 @@ pub fn run() {
 
     app.run(|app_handle, event| {
         if let tauri::RunEvent::ExitRequested { .. } = event {
+            let runtime = app_handle.state::<chat::runtime::ChatRuntimeRegistry>();
+            if let Err(error) = tauri::async_runtime::block_on(
+                runtime.shutdown_and_wait(std::time::Duration::from_secs(4)),
+            ) {
+                eprintln!("Chat runtime shutdown failed with code {:?}", error.code);
+            }
             clear_doomscrolling_enforcement_state_best_effort(app_handle, "before app exit");
         }
     });

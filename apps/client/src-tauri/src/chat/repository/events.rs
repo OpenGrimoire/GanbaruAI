@@ -420,10 +420,17 @@ pub(super) async fn apply_projection(
                         .await
                         .map_err(persistence_error)?;
                 sqlx::query(
-                    "UPDATE chat_threads SET message_count = ?, latest_preview = ? WHERE id = ?",
+                    "UPDATE chat_threads
+                     SET message_count = ?,
+                         latest_preview = (
+                             SELECT substr(normalized_markdown, -2000)
+                             FROM chat_messages
+                             WHERE id = ?
+                         )
+                     WHERE id = ?",
                 )
                 .bind(message_count)
-                .bind(&event.delta)
+                .bind(item_id)
                 .bind(thread_id)
                 .execute(&mut **transaction)
                 .await

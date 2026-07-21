@@ -7,4 +7,5 @@ pub mod lifecycle;
 pub mod reads;
 pub mod rebuild;
 pub mod receipts;
+pub mod recovery;
 pub mod workspaces;
