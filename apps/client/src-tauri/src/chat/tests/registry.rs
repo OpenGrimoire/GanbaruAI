@@ -1,5 +1,5 @@
 use crate::chat::{
-    models::{ChatErrorCode, ProviderImplementationStatus, ProviderInstanceConfig},
+    models::{ProviderImplementationStatus, ProviderInstanceConfig},
     providers::{ProviderDriverFactory, ProviderDriverRegistry},
 };
 use serde_json::json;
@@ -35,7 +35,12 @@ fn registry_lists_four_known_families_in_stable_order() {
         .collect::<Vec<_>>();
 
     assert_eq!(family_ids, ["codex", "claude", "cursor", "opencode"]);
-    assert!(metadata.iter().all(|entry| {
+    assert_eq!(
+        metadata[0].implementation_status,
+        ProviderImplementationStatus::Available
+    );
+    assert!(metadata[0].unavailable_reason.is_none());
+    assert!(metadata[1..].iter().all(|entry| {
         entry.implementation_status == ProviderImplementationStatus::MetadataOnly
             && entry.unavailable_reason.is_some()
     }));
@@ -69,22 +74,29 @@ fn unknown_family_and_configuration_round_trip_without_loss() {
 }
 
 #[test]
-fn metadata_only_driver_reports_unavailable_without_starting_work() {
-    let mut driver = ProviderDriverRegistry
-        .create_driver(configuration("codex"))
-        .unwrap();
+fn codex_driver_is_available_with_declared_capabilities() {
+    let mut configuration = configuration("codex");
+    configuration.executable = "ganbaru-nonexistent-codex-executable".to_string();
+    configuration.provider_config = crate::chat::models::VersionedJson {
+        schema_version: 1,
+        value: json!({}),
+    };
+    let mut driver = ProviderDriverRegistry.create_driver(configuration).unwrap();
     assert!(!driver.capabilities().entries.is_empty());
     assert!(driver
         .capabilities()
         .entries
         .iter()
-        .all(|entry| !entry.supported));
+        .all(|entry| entry.supported));
 
     let context = crate::chat::providers::DriverOperationContext {
         operation_id: "probe-1".to_string(),
         deadline: Instant::now() + Duration::from_secs(1),
         cancellation: Default::default(),
     };
-    let error = tauri::async_runtime::block_on(driver.probe(&context)).unwrap_err();
-    assert_eq!(error.code, ChatErrorCode::DriverUnavailable);
+    let result = tauri::async_runtime::block_on(driver.probe(&context)).unwrap();
+    assert_eq!(
+        result.state,
+        crate::chat::models::ProbeState::ExecutableMissing
+    );
 }

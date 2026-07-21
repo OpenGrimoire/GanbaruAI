@@ -4,8 +4,9 @@ use crate::chat::events::{CanonicalEvent, CanonicalRuntimeEvent, NotificationEve
 use crate::chat::models::{
     ChatCommandContext, ChatCommandId, ChatError, ChatErrorCode, ChatResult, ChatThreadId,
     ChatTurnId, DriverOperationReceipt, InterruptTurnRequest, ProviderSessionSnapshot,
-    ProviderSessionState, ResolveApprovalRequest, SendTurnRequest, StartSessionRequest,
-    StopSessionRequest, TurnDispatchReceipt,
+    ProviderSessionState, ResolveApprovalRequest, ResolveUserInputRequest, ResumeSessionRequest,
+    SendTurnRequest, StartSessionRequest, SteerTurnRequest, StopSessionRequest,
+    TurnDispatchReceipt,
 };
 use crate::chat::providers::{
     DriverCancellation, DriverFuture, DriverOperationContext, ProviderDriver, ProviderEventSink,
@@ -37,13 +38,30 @@ pub enum ThreadRuntimeCommand {
         context: DriverOperationContext,
         response: oneshot::Sender<ChatResult<ProviderSessionSnapshot>>,
     },
+    ResumeSession {
+        driver: Box<dyn ProviderDriver>,
+        request: ResumeSessionRequest,
+        event_sink: Arc<dyn ProviderEventSink>,
+        context: DriverOperationContext,
+        response: oneshot::Sender<ChatResult<ProviderSessionSnapshot>>,
+    },
     SendTurn {
         request: SendTurnRequest,
         context: DriverOperationContext,
         response: oneshot::Sender<ChatResult<TurnDispatchReceipt>>,
     },
+    SteerTurn {
+        request: SteerTurnRequest,
+        context: DriverOperationContext,
+        response: oneshot::Sender<ChatResult<DriverOperationReceipt>>,
+    },
     ResolveApproval {
         request: ResolveApprovalRequest,
+        context: DriverOperationContext,
+        response: oneshot::Sender<ChatResult<DriverOperationReceipt>>,
+    },
+    ResolveUserInput {
+        request: ResolveUserInputRequest,
         context: DriverOperationContext,
         response: oneshot::Sender<ChatResult<DriverOperationReceipt>>,
     },
@@ -151,6 +169,40 @@ impl ThreadRuntimeOwner {
         receive_response(receiver).await
     }
 
+    pub async fn resume_session(
+        &self,
+        driver: Box<dyn ProviderDriver>,
+        request: ResumeSessionRequest,
+        event_sink: Arc<dyn ProviderEventSink>,
+        context: DriverOperationContext,
+    ) -> ChatResult<ProviderSessionSnapshot> {
+        let _guard = self.lock_operation().await;
+        let (response, receiver) = oneshot::channel();
+        self.try_command(ThreadRuntimeCommand::ResumeSession {
+            driver,
+            request,
+            event_sink,
+            context,
+            response,
+        })?;
+        receive_response(receiver).await
+    }
+
+    pub async fn steer_turn(
+        &self,
+        request: SteerTurnRequest,
+        context: DriverOperationContext,
+    ) -> ChatResult<DriverOperationReceipt> {
+        let _guard = self.lock_operation().await;
+        let (response, receiver) = oneshot::channel();
+        self.try_command(ThreadRuntimeCommand::SteerTurn {
+            request,
+            context,
+            response,
+        })?;
+        receive_response(receiver).await
+    }
+
     pub async fn resolve_approval(
         &self,
         request: ResolveApprovalRequest,
@@ -174,6 +226,21 @@ impl ThreadRuntimeOwner {
         let _guard = self.lock_operation().await;
         let (response, receiver) = oneshot::channel();
         self.try_command(ThreadRuntimeCommand::InterruptTurn {
+            request,
+            context,
+            response,
+        })?;
+        receive_response(receiver).await
+    }
+
+    pub async fn resolve_user_input(
+        &self,
+        request: ResolveUserInputRequest,
+        context: DriverOperationContext,
+    ) -> ChatResult<DriverOperationReceipt> {
+        let _guard = self.lock_operation().await;
+        let (response, receiver) = oneshot::channel();
+        self.try_command(ThreadRuntimeCommand::ResolveUserInput {
             request,
             context,
             response,
@@ -427,6 +494,60 @@ impl RuntimeWorker {
                 self.driver = Some(driver);
                 let _ = response.send(result);
             }
+            ThreadRuntimeCommand::ResumeSession {
+                mut driver,
+                request,
+                event_sink,
+                context,
+                response,
+            } => {
+                if self.driver.is_some()
+                    && !matches!(
+                        self.session_state(),
+                        ProviderSessionState::Stopped | ProviderSessionState::Failed
+                    )
+                {
+                    let _ = response.send(Err(runtime_invalid_state(
+                        "Chat provider session is already running",
+                    )));
+                    return false;
+                }
+                let generation = self.next_generation();
+                self.driver.take();
+                self.session = None;
+                self.update(|state| {
+                    state.session_state = ProviderSessionState::Starting;
+                    state.turn_active = false;
+                    state.active_turn_id = None;
+                    state.pending_request = false;
+                    state.generation = generation;
+                });
+                let sink: Arc<dyn ProviderEventSink> = Arc::new(GenerationEventSink {
+                    thread_id: self.thread_id.clone(),
+                    generation,
+                    current_generation: Arc::clone(&self.generation),
+                    snapshot: Arc::clone(&self.snapshot),
+                    inner: event_sink,
+                });
+                self.event_sink = Some(Arc::clone(&sink));
+                let result =
+                    run_driver_operation(&context, driver.resume_session(request, sink, &context))
+                        .await;
+                if result.is_err() {
+                    let _ = self.flush_events(&context).await;
+                }
+                match &result {
+                    Ok(session) => {
+                        self.session = Some(session.clone());
+                        self.update(|state| state.session_state = session.state);
+                    }
+                    Err(_) => {
+                        self.update(|state| state.session_state = ProviderSessionState::Failed)
+                    }
+                }
+                self.driver = Some(driver);
+                let _ = response.send(result);
+            }
             ThreadRuntimeCommand::SendTurn {
                 request,
                 context,
@@ -454,6 +575,25 @@ impl RuntimeWorker {
                     let _ = self.flush_events(&context).await;
                     self.update(|state| state.session_state = ProviderSessionState::Failed);
                 }
+                let _ = response.send(result);
+            }
+            ThreadRuntimeCommand::SteerTurn {
+                request,
+                context,
+                response,
+            } => {
+                if self.session_state() != ProviderSessionState::Active {
+                    let _ = response.send(Err(runtime_invalid_state(
+                        "Chat provider session has no steerable turn",
+                    )));
+                    return false;
+                }
+                let result = match self.driver.as_mut() {
+                    Some(driver) => {
+                        run_driver_operation(&context, driver.steer_turn(request, &context)).await
+                    }
+                    None => Err(runtime_unavailable()),
+                };
                 let _ = response.send(result);
             }
             ThreadRuntimeCommand::ResolveApproval {
@@ -484,6 +624,32 @@ impl RuntimeWorker {
                         ) {
                             state.session_state = ProviderSessionState::Active;
                         }
+                    });
+                }
+                let _ = response.send(result);
+            }
+            ThreadRuntimeCommand::ResolveUserInput {
+                request,
+                context,
+                response,
+            } => {
+                if self.session_state() != ProviderSessionState::WaitingForUserInput {
+                    let _ = response.send(Err(runtime_invalid_state(
+                        "Chat provider session has no pending user input request",
+                    )));
+                    return false;
+                }
+                let result = match self.driver.as_mut() {
+                    Some(driver) => {
+                        run_driver_operation(&context, driver.resolve_user_input(request, &context))
+                            .await
+                    }
+                    None => Err(runtime_unavailable()),
+                };
+                if result.is_ok() {
+                    self.update(|state| {
+                        state.pending_request = false;
+                        state.session_state = ProviderSessionState::Active;
                     });
                 }
                 let _ = response.send(result);

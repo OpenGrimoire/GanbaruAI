@@ -61,6 +61,16 @@ impl ProviderProcessHandle {
         })
     }
 
+    pub fn take_stdin(&mut self) -> ChatResult<ChildStdin> {
+        self.stdin.take().ok_or_else(|| {
+            ChatError::new(
+                ChatErrorCode::Conflict,
+                "Provider process stdin was already claimed",
+                false,
+            )
+        })
+    }
+
     pub async fn write_stdin(&mut self, bytes: &[u8]) -> ChatResult<()> {
         let stdin = self.stdin.as_mut().ok_or_else(|| {
             ChatError::new(

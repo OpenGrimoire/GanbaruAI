@@ -28,6 +28,14 @@ Canonical provider events are size checked, diagnostic fields are checked for pr
 
 Provider secrets use opaque credential references. Secret values are nonserializable Rust values stored through the operating-system credential service. Folder-local `config.json` contains only validated portable provider preferences, while executable paths, provider home paths, probe caches, and workspace paths remain in device-local application state.
 
+### Codex runtime boundary
+
+Codex runs through its native `app-server` JSONL protocol over a Rust-owned child process. Ganbaru performs the initialize handshake, correlates bounded requests, handles provider notifications and server requests, and stores the native thread identity required for resume. A confirmed missing native thread starts a fresh Codex thread with an explicit warning while preserving Ganbaru history. Transport, authentication, protocol, permission, and missing-thread failures remain distinct.
+
+Codex safety settings are exact. Supervised uses `untrusted` with `read-only`, Auto-accept edits uses `on-request` with `workspace-write`, and Full access uses `never` with `danger-full-access`. Ganbaru verifies the effective policy reported by Codex before declaring the session ready. Command and file approvals return only provider-offered native decisions. Runtime permission requests return only the requested permission profile, with turn or session scope. Secret structured answers are sent directly to the live provider request but omitted from canonical history.
+
+Direct and shadow Codex homes derive continuation compatibility from the canonical shared session home. A shadow home may keep `auth.json` and `models_cache.json` private while verified links share session and state directories. Ganbaru never replaces an existing conflicting entry. Changing the shared home requires a thread fork. Launch arguments are restricted to Codex configuration and feature flags, and Windows command shims are accepted only when they resolve to the official `@openai/codex` entry point without invoking a shell.
+
 ### 2. BYOK general assistant (future general-user path)
 
 A separate assistant interface can connect to the user's chosen model API. Three provider categories cover most users:

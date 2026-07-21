@@ -1,4 +1,6 @@
-use super::{ProviderDriver, ProviderDriverFactory, UnsupportedProviderDriver};
+use super::{
+    codex::CodexProviderDriver, ProviderDriver, ProviderDriverFactory, UnsupportedProviderDriver,
+};
 use crate::chat::models::{
     ChatResult, ProviderCapability, ProviderFamilyId, ProviderFamilyMetadataRead,
     ProviderImplementationStatus, ProviderInstanceConfig,
@@ -160,7 +162,13 @@ impl ProviderDriverRegistry {
         PROVIDER_METADATA
             .iter()
             .copied()
-            .map(ProviderMetadataDefinition::to_read)
+            .map(|metadata| {
+                if metadata.family_id == "codex" {
+                    CodexProviderDriver::metadata_read()
+                } else {
+                    metadata.to_read()
+                }
+            })
             .collect()
     }
 
@@ -169,7 +177,13 @@ impl ProviderDriverRegistry {
             .iter()
             .find(|metadata| metadata.family_id == family_id.as_str())
             .copied()
-            .map(ProviderMetadataDefinition::to_read)
+            .map(|metadata| {
+                if metadata.family_id == "codex" {
+                    CodexProviderDriver::metadata_read()
+                } else {
+                    metadata.to_read()
+                }
+            })
             .unwrap_or_else(|| unsupported_metadata(family_id))
     }
 }
@@ -179,6 +193,10 @@ impl ProviderDriverFactory for ProviderDriverRegistry {
         &self,
         configuration: ProviderInstanceConfig,
     ) -> ChatResult<Box<dyn ProviderDriver>> {
+        if configuration.family_id.as_str() == "codex" {
+            return CodexProviderDriver::new(configuration)
+                .map(|driver| Box::new(driver) as Box<dyn ProviderDriver>);
+        }
         let metadata = self.metadata(&configuration.family_id);
         Ok(Box::new(UnsupportedProviderDriver::new(
             metadata,
