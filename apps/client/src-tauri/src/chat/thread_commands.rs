@@ -9,6 +9,7 @@ use crate::db_path;
 use chrono::{SecondsFormat, Utc};
 use sqlx::SqlitePool;
 use std::time::{Duration, SystemTime};
+use tauri::Manager;
 use tauri_plugin_opener::OpenerExt;
 
 const PERMANENT_DELETE_CLEANUP_GRACE: Duration = Duration::from_secs(24 * 60 * 60);
@@ -106,7 +107,7 @@ pub async fn chat_rename_thread(
     title: String,
     expected_revision: u64,
 ) -> ChatResult<ChatThreadShellRead> {
-    let pool = chat_pool(app, db_url).await?;
+    let pool = chat_pool(app.clone(), db_url).await?;
     lifecycle::rename_thread(
         &pool,
         &thread_id,
@@ -166,7 +167,7 @@ pub async fn chat_delete_thread_permanently(
     expected_revision: u64,
     confirmed_title: String,
 ) -> ChatResult<()> {
-    let pool = chat_pool(app, db_url).await?;
+    let pool = chat_pool(app.clone(), db_url).await?;
     let shell = reads::read_thread_shell(&pool, &thread_id).await?;
     if shell.title != confirmed_title {
         return Err(ChatError::validation(
@@ -185,7 +186,10 @@ pub async fn chat_delete_thread_permanently(
         &timestamp(cleanup)?,
         &timestamp(now)?,
     )
-    .await
+    .await?;
+    app.state::<super::terminal::ChatTerminalRegistry>()
+        .shutdown_thread(&thread_id)?;
+    Ok(())
 }
 
 async fn set_thread_archived(

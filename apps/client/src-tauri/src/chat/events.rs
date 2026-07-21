@@ -49,6 +49,7 @@ pub enum CanonicalEvent {
     ThreadStarted(ThreadStartedEvent),
     ThreadStateChanged(ThreadStateChangedEvent),
     ThreadMetadataUpdated(ThreadMetadataUpdatedEvent),
+    ThreadReverted(ThreadRevertedEvent),
     ThreadUsageUpdated(ThreadUsageUpdatedEvent),
     TurnStarted(TurnStartedEvent),
     TurnCompleted(TurnCompletedEvent),
@@ -142,6 +143,14 @@ pub struct ThreadMetadataUpdatedEvent {
     pub provider_thread_id: Option<ProviderThreadId>,
     pub resume_cursor: Option<VersionedJson>,
     pub metadata: Option<VersionedJson>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadRevertedEvent {
+    pub checkpoint_id: super::models::ChatCheckpointId,
+    pub reverted_turn_ids: Vec<ChatTurnId>,
+    pub provider_history_action: String,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]

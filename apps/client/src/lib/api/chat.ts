@@ -9,6 +9,16 @@ import type {
   ChatPromptCatalogEntry,
   ChatQueuedFollowupRead,
   ChatWorkspacePathPage,
+  ChatWorkspaceDirectoryRead,
+  ChatWorkspaceFilePreview,
+  ChatTerminalCloseResult,
+  ChatTerminalContextRead,
+  ChatTerminalRead,
+  ChatTerminalSnapshotRead,
+  ChatCheckpointDiffRead,
+  ChatCheckpointFileDiffRead,
+  ChatRestorePreviewRead,
+  ChatRestoreResultRead,
   ChatPanelPreferences,
   ChatProjectShellRead,
   ChatSettingsRead,
@@ -46,6 +56,17 @@ import {
   parseChatPromptCatalog,
   parseChatQueuedFollowup,
   parseChatWorkspacePathPage,
+  parseChatWorkspaceDirectory,
+  parseChatWorkspaceFilePreview,
+  parseChatTerminalCloseResult,
+  parseChatTerminalContext,
+  parseChatTerminal,
+  parseChatTerminalSnapshot,
+  parseChatTerminals,
+  parseChatCheckpointDiff,
+  parseChatCheckpointFileDiff,
+  parseChatRestorePreview,
+  parseChatRestoreResult,
   parseTurnDispatchReceipt,
   parseChatError,
   parseChatSettingsRead,
@@ -123,6 +144,213 @@ export async function restoreChatWorkspace(
 
 export async function openChatWorkspaceFolder(workspaceId: ChatWorkspaceId): Promise<void> {
   await invoke("chat_open_workspace_folder", { dbUrl: await ensureDbUrl(), workspaceId });
+}
+
+export async function listChatWorkspaceDirectory(
+  workspaceId: ChatWorkspaceId,
+  relativePath: string,
+  includeIgnored = false,
+): Promise<ChatWorkspaceDirectoryRead> {
+  return parseChatWorkspaceDirectory(await invoke<unknown>("chat_list_workspace_directory", {
+    dbUrl: await ensureDbUrl(),
+    workspaceId,
+    relativePath,
+    includeIgnored,
+  }));
+}
+
+export async function previewChatWorkspaceFile(
+  workspaceId: ChatWorkspaceId,
+  relativePath: string,
+): Promise<ChatWorkspaceFilePreview> {
+  return parseChatWorkspaceFilePreview(await invoke<unknown>("chat_preview_workspace_file", {
+    dbUrl: await ensureDbUrl(),
+    workspaceId,
+    relativePath,
+  }));
+}
+
+export async function openChatWorkspaceFile(
+  workspaceId: ChatWorkspaceId,
+  relativePath: string,
+): Promise<void> {
+  await invoke("chat_open_workspace_file", { dbUrl: await ensureDbUrl(), workspaceId, relativePath });
+}
+
+export async function listChatTerminals(
+  threadId: ChatThreadId,
+  workspaceId: ChatWorkspaceId,
+): Promise<ChatTerminalRead[]> {
+  return parseChatTerminals(await invoke<unknown>("chat_list_terminals", {
+    dbUrl: await ensureDbUrl(),
+    threadId,
+    workspaceId,
+  }));
+}
+
+export async function createChatTerminal(request: {
+  terminalId: string;
+  threadId: ChatThreadId;
+  workspaceId: ChatWorkspaceId;
+  name: string;
+  columns: number;
+  rows: number;
+}): Promise<ChatTerminalSnapshotRead> {
+  return parseChatTerminalSnapshot(await invoke<unknown>("chat_terminal_create", {
+    dbUrl: await ensureDbUrl(),
+    request,
+  }));
+}
+
+export async function readChatTerminalSnapshot(
+  terminalId: string,
+  threadId: ChatThreadId,
+  workspaceId: ChatWorkspaceId,
+): Promise<ChatTerminalSnapshotRead> {
+  return parseChatTerminalSnapshot(await invoke<unknown>("chat_terminal_snapshot", {
+    dbUrl: await ensureDbUrl(),
+    terminalId,
+    threadId,
+    workspaceId,
+  }));
+}
+
+export async function writeChatTerminal(
+  terminalId: string,
+  threadId: ChatThreadId,
+  workspaceId: ChatWorkspaceId,
+  text: string,
+): Promise<void> {
+  await invoke("chat_terminal_input", {
+    dbUrl: await ensureDbUrl(),
+    request: { terminalId, threadId, workspaceId, text },
+  });
+}
+
+export async function resizeChatTerminal(
+  terminalId: string,
+  threadId: ChatThreadId,
+  workspaceId: ChatWorkspaceId,
+  columns: number,
+  rows: number,
+): Promise<void> {
+  await invoke("chat_terminal_resize", {
+    dbUrl: await ensureDbUrl(),
+    request: { terminalId, threadId, workspaceId, columns, rows },
+  });
+}
+
+export async function renameChatTerminal(
+  terminalId: string,
+  threadId: ChatThreadId,
+  workspaceId: ChatWorkspaceId,
+  name: string,
+): Promise<ChatTerminalRead> {
+  const value = await invoke<unknown>("chat_terminal_rename", {
+    dbUrl: await ensureDbUrl(),
+    terminalId,
+    threadId,
+    workspaceId,
+    name,
+  });
+  return parseChatTerminal(value);
+}
+
+export async function restartChatTerminal(
+  terminalId: string,
+  threadId: ChatThreadId,
+  workspaceId: ChatWorkspaceId,
+): Promise<ChatTerminalSnapshotRead> {
+  return parseChatTerminalSnapshot(await invoke<unknown>("chat_terminal_restart", {
+    dbUrl: await ensureDbUrl(),
+    terminalId,
+    threadId,
+    workspaceId,
+  }));
+}
+
+export async function closeChatTerminal(
+  terminalId: string,
+  threadId: ChatThreadId,
+  workspaceId: ChatWorkspaceId,
+  confirmed: boolean,
+): Promise<ChatTerminalCloseResult> {
+  return parseChatTerminalCloseResult(await invoke<unknown>("chat_terminal_close", {
+    dbUrl: await ensureDbUrl(),
+    terminalId,
+    threadId,
+    workspaceId,
+    confirmed,
+  }));
+}
+
+export async function importChatTerminalContext(request: {
+  terminalId: string;
+  threadId: ChatThreadId;
+  workspaceId: ChatWorkspaceId;
+  attachmentId: string;
+  sourceKind: "selection" | "last_command_output";
+  text: string;
+  startOutputSequence: number | null;
+  endOutputSequence: number | null;
+  truncated: boolean;
+}): Promise<ChatTerminalContextRead> {
+  return parseChatTerminalContext(await invoke<unknown>("chat_terminal_import_context", {
+    dbUrl: await ensureDbUrl(),
+    request,
+  }));
+}
+
+export async function readChatCheckpointDiff(
+  threadId: ChatThreadId,
+  scope: "current_turn" | "entire_thread",
+  turnId: string | null = null,
+): Promise<ChatCheckpointDiffRead> {
+  return parseChatCheckpointDiff(await invoke<unknown>("chat_read_checkpoint_diff", {
+    dbUrl: await ensureDbUrl(),
+    threadId,
+    scope,
+    turnId,
+  }));
+}
+
+export async function readChatCheckpointFileDiff(
+  threadId: ChatThreadId,
+  preCheckpointId: string,
+  postCheckpointId: string,
+  relativePath: string,
+  ignoreWhitespace: boolean,
+): Promise<ChatCheckpointFileDiffRead> {
+  return parseChatCheckpointFileDiff(await invoke<unknown>("chat_read_checkpoint_file_diff", {
+    dbUrl: await ensureDbUrl(),
+    threadId,
+    preCheckpointId,
+    postCheckpointId,
+    relativePath,
+    ignoreWhitespace,
+  }));
+}
+
+export async function previewChatCheckpointRestore(
+  threadId: ChatThreadId,
+  checkpointId: string,
+): Promise<ChatRestorePreviewRead> {
+  return parseChatRestorePreview(await invoke<unknown>("chat_preview_checkpoint_restore", {
+    dbUrl: await ensureDbUrl(),
+    request: { threadId, checkpointId },
+  }));
+}
+
+export async function executeChatCheckpointRestore(request: {
+  command: { clientCommandId: string; expectedThreadRevision: number | null };
+  threadId: ChatThreadId;
+  previewId: string;
+  confirmed: boolean;
+}): Promise<ChatRestoreResultRead> {
+  return parseChatRestoreResult(await invoke<unknown>("chat_execute_checkpoint_restore", {
+    dbUrl: await ensureDbUrl(),
+    request,
+  }));
 }
 
 export async function readChatSettings(): Promise<ChatSettingsRead> {
@@ -274,6 +502,18 @@ export async function importChatImage(
   return parseChatAttachmentRead(await invoke<unknown>("chat_import_image", {
     dbUrl: await ensureDbUrl(),
     request: { workspaceId, attachmentId, displayName, bytes },
+  }));
+}
+
+export async function importChatTextSnippet(
+  workspaceId: ChatWorkspaceId,
+  attachmentId: string,
+  displayName: string,
+  text: string,
+): Promise<ChatAttachmentRead> {
+  return parseChatAttachmentRead(await invoke<unknown>("chat_import_text_snippet", {
+    dbUrl: await ensureDbUrl(),
+    request: { workspaceId, attachmentId, displayName, text },
   }));
 }
 

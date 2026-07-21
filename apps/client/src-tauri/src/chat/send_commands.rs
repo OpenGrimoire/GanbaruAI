@@ -2,7 +2,7 @@
 
 use super::credentials::{materialize_provider_environment, PlatformCredentialStore};
 use super::device_state::read_active_device_scope;
-use super::events::CanonicalRuntimeEvent;
+use super::events::{CanonicalEvent, CanonicalRuntimeEvent};
 use super::ingestion::{ChatEventIngestor, TauriChatChangeEmitter};
 use super::models::*;
 use super::providers::{
@@ -17,7 +17,7 @@ use super::repository::receipts::{
 use super::repository::{attachments, reads, workspaces};
 use super::runtime::{ChatRuntimeRegistry, ThreadRuntimeOwner};
 use super::workspace::{authorize_workspace, WorkspaceAuthorizationOperation};
-use crate::db_path;
+use crate::{db_path, vault};
 use chrono::{SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -200,7 +200,8 @@ pub async fn chat_send_turn(
         continuation
     };
     let attachment_references =
-        read_attachment_references(&pool, &request.workspace_id, &request.attachment_ids).await?;
+        read_attachment_references(&app, &pool, &request.workspace_id, &request.attachment_ids)
+            .await?;
     let persistence_now = now_timestamp()?;
     persist_user_turn(PersistUserTurnContext {
         pool: &pool,
@@ -214,6 +215,14 @@ pub async fn chat_send_turn(
         now: &persistence_now,
     })
     .await?;
+    ensure_pre_turn_checkpoint(
+        &pool,
+        &authorized,
+        &thread_id,
+        &request.turn_id,
+        &persistence_now,
+    )
+    .await;
 
     let operation = async {
         let session = ensure_session(EnsureSessionContext {
@@ -524,6 +533,7 @@ async fn ensure_session(context: EnsureSessionContext<'_>) -> ChatResult<Provide
     let sink: Arc<dyn ProviderEventSink> = Arc::new(DurableChatEventSink::new(
         pool.clone(),
         Arc::new(TauriChatChangeEmitter::new(app.clone())),
+        workspace.clone(),
     ));
     if let Some(existing) = existing {
         if let (Some(provider_thread_id), Some(resume_cursor)) = (
@@ -573,13 +583,21 @@ async fn ensure_session(context: EnsureSessionContext<'_>) -> ChatResult<Provide
 }
 
 struct DurableChatEventSink {
+    pool: SqlitePool,
+    workspace: super::workspace::AuthorizedWorkspace,
     ingestor: Mutex<ChatEventIngestor>,
 }
 
 impl DurableChatEventSink {
-    fn new(pool: SqlitePool, emitter: Arc<dyn super::ingestion::ChatChangeEmitter>) -> Self {
+    fn new(
+        pool: SqlitePool,
+        emitter: Arc<dyn super::ingestion::ChatChangeEmitter>,
+        workspace: super::workspace::AuthorizedWorkspace,
+    ) -> Self {
         Self {
-            ingestor: Mutex::new(ChatEventIngestor::new(pool, emitter)),
+            ingestor: Mutex::new(ChatEventIngestor::new(pool.clone(), emitter)),
+            pool,
+            workspace,
         }
     }
 }
@@ -587,6 +605,12 @@ impl DurableChatEventSink {
 impl ProviderEventSink for DurableChatEventSink {
     fn emit<'a>(&'a self, event: CanonicalRuntimeEvent) -> DriverFuture<'a, ()> {
         Box::pin(async move {
+            let settled_turn = matches!(
+                &event.event,
+                CanonicalEvent::TurnCompleted(_) | CanonicalEvent::TurnAborted(_)
+            )
+            .then(|| (event.thread_id.clone(), event.turn_id.clone()))
+            .and_then(|(thread_id, turn_id)| turn_id.map(|turn_id| (thread_id, turn_id)));
             let diagnostic_expires_at = event
                 .redacted_diagnostic
                 .as_ref()
@@ -600,13 +624,190 @@ impl ProviderEventSink for DurableChatEventSink {
                     ingested_at: now_timestamp()?,
                     diagnostic_expires_at,
                 })
-                .await
+                .await?;
+            if let Some((thread_id, turn_id)) = settled_turn {
+                ensure_post_turn_checkpoint(
+                    &self.pool,
+                    &self.workspace,
+                    &thread_id,
+                    &turn_id,
+                    &now_timestamp()?,
+                )
+                .await;
+            }
+            Ok(())
         })
     }
 
     fn flush(&self) -> DriverFuture<'_, ()> {
         Box::pin(async move { self.ingestor.lock().await.flush().await })
     }
+}
+
+async fn ensure_pre_turn_checkpoint(
+    pool: &SqlitePool,
+    workspace: &super::workspace::AuthorizedWorkspace,
+    thread_id: &ChatThreadId,
+    turn_id: &ChatTurnId,
+    now: &UtcTimestamp,
+) {
+    if workspace.repository_kind != RepositoryKind::Git {
+        return;
+    }
+    let ordinal = match turn_ordinal(pool, thread_id, turn_id).await {
+        Ok(value) => value,
+        Err(error) => {
+            record_checkpoint_failure(pool, thread_id, Some(turn_id), "pre_turn", &error, now)
+                .await;
+            return;
+        }
+    };
+    let existing: Result<Option<String>, _> = sqlx::query_scalar(
+        "SELECT id FROM chat_checkpoints
+         WHERE thread_id = ? AND turn_count = ? AND status = 'available'
+           AND invalidated_at IS NULL",
+    )
+    .bind(thread_id.as_str())
+    .bind(i64::try_from(ordinal).unwrap_or(i64::MAX))
+    .fetch_optional(pool)
+    .await;
+    if let Ok(Some(checkpoint_id)) = existing {
+        let _ = sqlx::query(
+            "UPDATE chat_turns SET pre_checkpoint_id = ? WHERE id = ? AND thread_id = ?",
+        )
+        .bind(&checkpoint_id)
+        .bind(turn_id.as_str())
+        .bind(thread_id.as_str())
+        .execute(pool)
+        .await;
+        update_user_checkpoint_context(pool, turn_id, &checkpoint_id).await;
+        return;
+    }
+    let kind = if ordinal == 0 {
+        super::checkpoints::CheckpointKind::Initial
+    } else {
+        super::checkpoints::CheckpointKind::PreTurn
+    };
+    match super::checkpoints::capture_and_store(
+        pool,
+        workspace,
+        thread_id,
+        Some(turn_id),
+        ordinal,
+        kind,
+        now,
+    )
+    .await
+    {
+        Ok(checkpoint) => {
+            update_user_checkpoint_context(pool, turn_id, checkpoint.id.as_str()).await
+        }
+        Err(error) => {
+            let failure_kind = if ordinal == 0 { "initial" } else { "pre_turn" };
+            record_checkpoint_failure(pool, thread_id, Some(turn_id), failure_kind, &error, now)
+                .await;
+        }
+    }
+}
+
+async fn ensure_post_turn_checkpoint(
+    pool: &SqlitePool,
+    workspace: &super::workspace::AuthorizedWorkspace,
+    thread_id: &ChatThreadId,
+    turn_id: &ChatTurnId,
+    now: &UtcTimestamp,
+) {
+    if workspace.repository_kind != RepositoryKind::Git {
+        return;
+    }
+    let ordinal = match turn_ordinal(pool, thread_id, turn_id).await {
+        Ok(value) => value,
+        Err(error) => {
+            record_checkpoint_failure(pool, thread_id, Some(turn_id), "post_turn", &error, now)
+                .await;
+            return;
+        }
+    };
+    if let Err(error) = super::checkpoints::capture_and_store(
+        pool,
+        workspace,
+        thread_id,
+        Some(turn_id),
+        ordinal.saturating_add(1),
+        super::checkpoints::CheckpointKind::PostTurn,
+        now,
+    )
+    .await
+    {
+        if error.code != ChatErrorCode::Conflict {
+            record_checkpoint_failure(pool, thread_id, Some(turn_id), "post_turn", &error, now)
+                .await;
+        }
+    }
+}
+
+async fn turn_ordinal(
+    pool: &SqlitePool,
+    thread_id: &ChatThreadId,
+    turn_id: &ChatTurnId,
+) -> ChatResult<u64> {
+    let ordinal: i64 =
+        sqlx::query_scalar("SELECT ordinal FROM chat_turns WHERE id = ? AND thread_id = ?")
+            .bind(turn_id.as_str())
+            .bind(thread_id.as_str())
+            .fetch_optional(pool)
+            .await
+            .map_err(persistence_error)?
+            .ok_or_else(|| {
+                ChatError::new(ChatErrorCode::NotFound, "Chat turn was not found", true)
+            })?;
+    u64::try_from(ordinal).map_err(|_| corrupt_data())
+}
+
+async fn update_user_checkpoint_context(
+    pool: &SqlitePool,
+    turn_id: &ChatTurnId,
+    checkpoint_id: &str,
+) {
+    let _ = sqlx::query(
+        "UPDATE chat_messages
+         SET content_metadata_data = json_set(content_metadata_data, '$.preCheckpointId', ?)
+         WHERE turn_id = ? AND role = 'user'",
+    )
+    .bind(checkpoint_id)
+    .bind(turn_id.as_str())
+    .execute(pool)
+    .await;
+}
+
+async fn record_checkpoint_failure(
+    pool: &SqlitePool,
+    thread_id: &ChatThreadId,
+    turn_id: Option<&ChatTurnId>,
+    kind: &str,
+    error: &ChatError,
+    now: &UtcTimestamp,
+) {
+    let id = format!(
+        "checkpoint-failure:{}:{}:{}",
+        thread_id.as_str(),
+        turn_id.map(ChatTurnId::as_str).unwrap_or("initial"),
+        kind
+    );
+    let _ = sqlx::query(
+        "INSERT OR REPLACE INTO chat_checkpoint_failures
+            (id, thread_id, turn_id, checkpoint_kind, error_code, detail, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(id)
+    .bind(thread_id.as_str())
+    .bind(turn_id.map(ChatTurnId::as_str))
+    .bind(kind)
+    .bind(format!("{:?}", error.code).to_lowercase())
+    .bind(&error.message)
+    .bind(now.as_str())
+    .execute(pool)
+    .await;
 }
 
 #[derive(Clone, Debug)]
@@ -678,6 +879,7 @@ async fn read_thread_runtime_data(
 }
 
 async fn read_attachment_references(
+    app: &tauri::AppHandle,
     pool: &SqlitePool,
     workspace_id: &ChatWorkspaceId,
     attachment_ids: &[ChatAttachmentId],
@@ -690,6 +892,13 @@ async fn read_attachment_references(
     }
     let mut result = Vec::with_capacity(attachment_ids.len());
     let mut total_bytes = 0_u64;
+    let vault_root = vault::active_vault_path(app).map_err(|_| {
+        ChatError::new(
+            ChatErrorCode::Persistence,
+            "Active Ganbaru folder is unavailable",
+            true,
+        )
+    })?;
     for id in attachment_ids {
         let attachment = attachments::read_attachment(pool, id)
             .await?
@@ -718,6 +927,30 @@ async fn read_attachment_references(
                 "Chat attachments must total 50 MiB or less",
             ));
         }
+        let (local_path, bytes) =
+            attachments::read_managed_attachment_bytes(&vault_root, &attachment)?;
+        let (local_path, text_content) = match attachment.kind {
+            attachments::ChatAttachmentKind::Image => (
+                Some(
+                    local_path
+                        .to_str()
+                        .ok_or_else(|| {
+                            ChatError::validation(
+                                "attachments",
+                                "Managed attachment path is unsupported",
+                            )
+                        })?
+                        .to_string(),
+                ),
+                None,
+            ),
+            attachments::ChatAttachmentKind::TextSnippet => (
+                None,
+                Some(String::from_utf8(bytes).map_err(|_| {
+                    ChatError::validation("attachments", "Text context is invalid")
+                })?),
+            ),
+        };
         result.push(PromptAttachmentReference {
             attachment_id: id.clone(),
             kind: match attachment.kind {
@@ -729,6 +962,8 @@ async fn read_attachment_references(
             managed_relative_path: attachment.managed_relative_path,
             mime_type: Some(attachment.mime_type),
             byte_size: attachment.byte_size,
+            local_path,
+            text_content,
         });
     }
     Ok(result)
@@ -773,7 +1008,11 @@ async fn persist_user_turn(context: PersistUserTurnContext<'_>) -> ChatResult<()
             "status": "managed",
         })).collect::<Vec<_>>(),
         "mentions": request.mentions,
-        "terminalContext": [],
+        "terminalContext": attachments.iter().filter(|attachment| attachment.kind == "text_snippet").map(|attachment| json!({
+            "attachmentId": attachment.attachment_id,
+            "displayName": attachment.display_name,
+            "byteSize": attachment.byte_size,
+        })).collect::<Vec<_>>(),
         "preCheckpointId": null,
     }))
     .map_err(json_error)?;

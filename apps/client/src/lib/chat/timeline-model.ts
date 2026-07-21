@@ -235,6 +235,25 @@ export function projectCanonicalTimeline(events: readonly CanonicalStoredEvent[]
       case "thread_usage_updated":
         threadUsage = event.event.payload;
         break;
+      case "thread_reverted":
+        upsertActivity(
+          rows,
+          event,
+          `activity:restore:${event.eventId}`,
+          "notice",
+          "completed",
+          "thread_reverted",
+          null,
+          {
+            schemaVersion: 1,
+            value: {
+              checkpointId: event.event.payload.checkpointId,
+              revertedTurnIds: [...event.event.payload.revertedTurnIds],
+              providerHistoryAction: event.event.payload.providerHistoryAction,
+            },
+          },
+        );
+        break;
       case "model_rerouted": {
         const turn = ensureTurn(turns, event);
         if (turn) turn.effectiveModelId = event.event.payload.effectiveModelId;

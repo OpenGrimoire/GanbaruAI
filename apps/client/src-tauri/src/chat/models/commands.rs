@@ -32,6 +32,8 @@ pub struct PromptAttachmentReference {
     pub managed_relative_path: String,
     pub mime_type: Option<String>,
     pub byte_size: u64,
+    pub local_path: Option<String>,
+    pub text_content: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

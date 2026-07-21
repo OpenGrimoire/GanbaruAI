@@ -12,6 +12,7 @@ use crate::db_path;
 use chrono::{SecondsFormat, Utc};
 use sqlx::SqlitePool;
 use std::path::PathBuf;
+use tauri::Manager;
 use tauri_plugin_dialog::{DialogExt, FilePath};
 
 #[tauri::command]
@@ -87,6 +88,8 @@ pub async fn chat_remove_workspace_binding(
 ) -> ChatResult<ChatWorkspaceRead> {
     let pool = chat_pool(app.clone(), db_url).await?;
     let workspace = repository::read_workspace(&pool, &workspace_id).await?;
+    app.state::<super::terminal::ChatTerminalRegistry>()
+        .shutdown_workspace(&workspace_id)?;
     remove_active_device_binding(&app, &workspace_id)?;
     read_workspace(&app, workspace)
 }
@@ -158,6 +161,8 @@ async fn pick_and_bind_workspace(
     let Some(selection) = pick_workspace_folder(app, title).await? else {
         return Ok(None);
     };
+    app.state::<super::terminal::ChatTerminalRegistry>()
+        .shutdown_workspace(workspace_id)?;
     let (probe, binding) = prepare_workspace_binding(&workspace, &selection)?;
     let workspace = repository::set_workspace_repository(
         &pool,

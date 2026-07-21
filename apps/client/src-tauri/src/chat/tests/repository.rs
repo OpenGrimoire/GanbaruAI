@@ -1,13 +1,13 @@
 use crate::chat::events::{
     CanonicalEvent, CanonicalRuntimeEvent, ContentDeltaEvent, ItemLifecycleEvent,
-    RequestOpenedEvent, TurnCompletedEvent, TurnStartedEvent,
+    RequestOpenedEvent, ThreadRevertedEvent, TurnCompletedEvent, TurnStartedEvent,
 };
 use crate::chat::ingestion::{ChatChangeEmitter, ChatEventIngestor};
 use crate::chat::models::{
-    ActivityStatus, CanonicalItemKind, CanonicalRequestKind, ChatAttachmentId, ChatCommandId,
-    ChatEventId, ChatThreadId, ChatTurnId, ChatTurnState, ChatWorkspaceId, ContentStreamKind,
-    InteractionMode, ProviderFamilyId, ProviderInstanceId, ProviderRequestId, SafetyMode,
-    TurnModeSnapshot, UtcTimestamp, VersionedJson,
+    ActivityStatus, CanonicalItemKind, CanonicalRequestKind, ChatAttachmentId, ChatCheckpointId,
+    ChatCommandId, ChatEventId, ChatThreadId, ChatTurnId, ChatTurnState, ChatWorkspaceId,
+    ContentStreamKind, InteractionMode, ProviderFamilyId, ProviderInstanceId, ProviderRequestId,
+    SafetyMode, TurnModeSnapshot, UtcTimestamp, VersionedJson,
 };
 use crate::chat::models::{ChatChangeNotification, ChatError, ChatResult};
 use crate::chat::repository::attachments::{
@@ -580,6 +580,153 @@ fn canonical_events_rebuild_equivalent_projections() {
         .await
         .unwrap();
         assert_eq!(after, before);
+    });
+}
+
+#[test]
+fn reverted_turn_events_stay_invalid_after_projection_rebuild() {
+    tauri::async_runtime::block_on(async {
+        let pool = pool_with_thread().await;
+        sqlx::query(
+            "UPDATE chat_threads SET provider_thread_id = 'provider-thread',
+                    resume_cursor_schema_version = 1,
+                    resume_cursor_data = '{\"threadId\":\"provider-thread\"}'
+             WHERE id = 'thread-1'",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        append_canonical_event(
+            &pool,
+            canonical_request(
+                "event-invalid-turn-start",
+                Some("turn-invalid"),
+                CanonicalEvent::TurnStarted(TurnStartedEvent {
+                    provider_turn_id: None,
+                    state: ChatTurnState::Active,
+                    modes: TurnModeSnapshot {
+                        safety_mode: SafetyMode::Supervised,
+                        interaction_mode: InteractionMode::Build,
+                    },
+                    model_id: None,
+                    model_options: Vec::new(),
+                }),
+            ),
+        )
+        .await
+        .unwrap();
+        sqlx::query(
+            "UPDATE chat_turns SET user_message_id = 'user-invalid' WHERE id = 'turn-invalid'",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO chat_messages
+                (id, thread_id, turn_id, sequence_anchor, role, normalized_markdown,
+                 streaming_state, created_at, updated_at)
+             VALUES ('user-invalid', 'thread-1', 'turn-invalid', 0, 'user',
+                     'reverted prompt', 'complete', ?, ?)",
+        )
+        .bind(NOW)
+        .bind(NOW)
+        .execute(&pool)
+        .await
+        .unwrap();
+        let mut assistant = content_event("event-invalid-assistant", "reverted answer");
+        assistant.runtime.turn_id = Some(ChatTurnId::new("turn-invalid").unwrap());
+        append_canonical_event(&pool, assistant).await.unwrap();
+        append_canonical_event(
+            &pool,
+            canonical_request(
+                "event-invalid-turn-complete",
+                Some("turn-invalid"),
+                CanonicalEvent::TurnCompleted(TurnCompletedEvent {
+                    state: ChatTurnState::Completed,
+                    stop_reason: None,
+                    usage: None,
+                    changed_files: Vec::new(),
+                }),
+            ),
+        )
+        .await
+        .unwrap();
+        sqlx::query(
+            "UPDATE chat_events SET invalidated_at = ?, invalidation_reason = 'checkpoint_restore'
+             WHERE thread_id = 'thread-1' AND turn_id = 'turn-invalid'",
+        )
+        .bind(NOW)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "UPDATE chat_turns SET invalidated_at = ?, invalidation_reason = 'checkpoint_restore'
+             WHERE id = 'turn-invalid'",
+        )
+        .bind(NOW)
+        .execute(&pool)
+        .await
+        .unwrap();
+        append_canonical_event(
+            &pool,
+            canonical_request(
+                "event-thread-reverted",
+                None,
+                CanonicalEvent::ThreadReverted(ThreadRevertedEvent {
+                    checkpoint_id: ChatCheckpointId::new("checkpoint-target").unwrap(),
+                    reverted_turn_ids: vec![ChatTurnId::new("turn-invalid").unwrap()],
+                    provider_history_action: "fork_required".to_string(),
+                }),
+            ),
+        )
+        .await
+        .unwrap();
+
+        let events = read_canonical_events(&pool, &ChatThreadId::new("thread-1").unwrap(), 0)
+            .await
+            .unwrap();
+        assert_eq!(events.len(), 1);
+        assert!(matches!(
+            events[0].runtime.event,
+            CanonicalEvent::ThreadReverted(_)
+        ));
+        assert_eq!(
+            rebuild_thread_projections(&pool, &ChatThreadId::new("thread-1").unwrap())
+                .await
+                .unwrap(),
+            4
+        );
+        let invalidated_turns: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM chat_turns
+             WHERE id = 'turn-invalid' AND invalidated_at IS NOT NULL",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let raw_user_messages: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM chat_messages WHERE id = 'user-invalid'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        let assistant_messages: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM chat_messages WHERE role = 'assistant'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        let thread = sqlx::query(
+            "SELECT provider_thread_id, resume_cursor_data, message_count, latest_preview
+             FROM chat_threads WHERE id = 'thread-1'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(invalidated_turns, 1);
+        assert_eq!(raw_user_messages, 1);
+        assert_eq!(assistant_messages, 0);
+        assert_eq!(thread.get::<Option<String>, _>("provider_thread_id"), None);
+        assert_eq!(thread.get::<Option<String>, _>("resume_cursor_data"), None);
+        assert_eq!(thread.get::<i64, _>("message_count"), 0);
+        assert_eq!(thread.get::<Option<String>, _>("latest_preview"), None);
     });
 }
 

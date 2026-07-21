@@ -1,6 +1,9 @@
 use crate::chat::{
-    events::{CanonicalEvent, ContentDeltaEvent},
-    models::{ChatThreadId, ContentStreamKind, ModelOptionDefinition, SafetyMode, UtcTimestamp},
+    events::{CanonicalEvent, ContentDeltaEvent, ThreadRevertedEvent},
+    models::{
+        ChatCheckpointId, ChatThreadId, ChatTurnId, ContentStreamKind, ModelOptionDefinition,
+        SafetyMode, UtcTimestamp,
+    },
 };
 use serde_json::json;
 
@@ -10,6 +13,22 @@ fn identifiers_reject_empty_oversized_and_control_values() {
     assert!(ChatThreadId::new("thread\n1").is_err());
     assert!(ChatThreadId::new("x".repeat(1_025)).is_err());
     assert_eq!(ChatThreadId::new("thread-1").unwrap().as_str(), "thread-1");
+}
+
+#[test]
+fn reverted_events_round_trip_as_canonical_audit_events() {
+    let event = CanonicalEvent::ThreadReverted(ThreadRevertedEvent {
+        checkpoint_id: ChatCheckpointId::new("checkpoint:1").unwrap(),
+        reverted_turn_ids: vec![ChatTurnId::new("turn:2").unwrap()],
+        provider_history_action: "fork_required".to_string(),
+    });
+    let encoded = serde_json::to_value(&event).unwrap();
+    assert_eq!(encoded["type"], "thread_reverted");
+    assert_eq!(encoded["payload"]["checkpointId"], "checkpoint:1");
+    assert_eq!(
+        serde_json::from_value::<CanonicalEvent>(encoded).unwrap(),
+        event
+    );
 }
 
 #[test]

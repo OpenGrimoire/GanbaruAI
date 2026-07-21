@@ -189,7 +189,7 @@ pub async fn read_canonical_events(
                 created_at, ingested_at, redacted_diagnostic_schema_version,
                 redacted_diagnostic_data
          FROM chat_events
-         WHERE thread_id = ? AND sequence > ?
+         WHERE thread_id = ? AND sequence > ? AND invalidated_at IS NULL
          ORDER BY sequence ASC, id ASC",
     )
     .bind(thread_id.as_str())
@@ -595,6 +595,48 @@ pub(super) async fn apply_projection(
             .await
             .map_err(persistence_error)?;
             changed.push("plans".to_string());
+        }
+        CanonicalEvent::ThreadReverted(event) => {
+            if event.provider_history_action == "fork_required" {
+                sqlx::query(
+                    "UPDATE chat_threads
+                     SET provider_thread_id = NULL, resume_cursor_schema_version = NULL,
+                         resume_cursor_data = NULL
+                     WHERE id = ?",
+                )
+                .bind(thread_id)
+                .execute(&mut **transaction)
+                .await
+                .map_err(persistence_error)?;
+            }
+            sqlx::query(
+                "INSERT INTO chat_activities
+                    (id, thread_id, sequence_anchor, item_kind, status, title, detail,
+                     safe_metadata_data, source_event_type, completed_at, created_at, updated_at)
+                 VALUES (?, ?, ?, 'notice', 'completed', 'thread_reverted', NULL, ?,
+                         'thread_reverted', ?, ?, ?)
+                 ON CONFLICT(id) DO UPDATE SET
+                    safe_metadata_data = excluded.safe_metadata_data,
+                    updated_at = excluded.updated_at",
+            )
+            .bind(format!("activity:{}", runtime.event_id.as_str()))
+            .bind(thread_id)
+            .bind(sequence)
+            .bind(
+                serde_json::to_string(&json!({
+                    "checkpointId": event.checkpoint_id,
+                    "revertedTurnCount": event.reverted_turn_ids.len(),
+                    "providerHistoryAction": event.provider_history_action,
+                }))
+                .map_err(serialization_error)?,
+            )
+            .bind(runtime.created_at.as_str())
+            .bind(runtime.created_at.as_str())
+            .bind(runtime.created_at.as_str())
+            .execute(&mut **transaction)
+            .await
+            .map_err(persistence_error)?;
+            changed.extend(["thread".to_string(), "activities".to_string()]);
         }
         _ => {}
     }

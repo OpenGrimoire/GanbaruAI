@@ -1,6 +1,9 @@
 use crate::chat::ingestion::{ChatChangeEmitter, ChatEventIngestor};
 use crate::chat::models::{ChatChangeNotification, ChatError, ChatResult, UtcTimestamp};
-use crate::chat::models::{ChatErrorCode, ChatThreadId, ProviderSessionState};
+use crate::chat::models::{
+    ChatCheckpointId, ChatCommandContext, ChatCommandId, ChatErrorCode, ChatThreadId,
+    ProviderSessionState, RollbackRequest,
+};
 use crate::chat::repository::events::AppendCanonicalEventRequest;
 use crate::chat::repository::rebuild::rebuild_thread_projections;
 use crate::chat::repository::recovery::recover_orphaned_turns;
@@ -247,6 +250,49 @@ fn fake_driver_streams_approval_stops_restarts_and_rejects_late_events() {
             )
             .await
             .unwrap();
+        assert_eq!(
+            owner.snapshot().unwrap().session_state,
+            ProviderSessionState::Ready
+        );
+    });
+}
+
+#[test]
+fn unsupported_provider_rollback_fails_without_corrupting_the_session() {
+    tauri::async_runtime::block_on(async {
+        let registry = ChatRuntimeRegistry::default();
+        let owner = registry
+            .owner(ChatThreadId::new("thread-1").unwrap())
+            .unwrap();
+        let control = Arc::new(FakeDriverControl::default());
+        let sink: Arc<dyn ProviderEventSink> =
+            Arc::new(RecordingEventSink::new(Arc::clone(&control)));
+        let session = owner
+            .start_session(
+                fake_driver(control),
+                start_request(),
+                sink,
+                operation_context("rollback-start", Duration::from_secs(1)),
+            )
+            .await
+            .unwrap();
+        let error = owner
+            .rollback(
+                RollbackRequest {
+                    command: ChatCommandContext {
+                        client_command_id: ChatCommandId::new("rollback-command").unwrap(),
+                        expected_thread_revision: Some(1),
+                    },
+                    session_id: session.session_id,
+                    checkpoint_id: Some(ChatCheckpointId::new("checkpoint-1").unwrap()),
+                    provider_cursor: None,
+                    target_turn_id: None,
+                },
+                operation_context("rollback", Duration::from_secs(1)),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, ChatErrorCode::CapabilityUnsupported);
         assert_eq!(
             owner.snapshot().unwrap().session_state,
             ProviderSessionState::Ready

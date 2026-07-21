@@ -4,6 +4,7 @@ export * from "./events";
 export * from "./interactions";
 export * from "./provider";
 export * from "./workspace";
+export * from "./workspace-tools";
 export * from "./settings";
 export * from "./reads";
 export * from "./readers";

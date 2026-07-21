@@ -6,17 +6,19 @@
   import PanelRight from "@lucide/svelte/icons/panel-right";
   import Search from "@lucide/svelte/icons/search";
   import Settings from "@lucide/svelte/icons/settings";
-  import X from "@lucide/svelte/icons/x";
   import { nextThreadIndex } from "$lib/chat/shell-model";
+  import { inspectorFocusAction, inspectorPresentation } from "$lib/chat/inspector-model";
   import { parseChatChangeNotification } from "$lib/chat/validation";
   import { hasOnlyShortcutModifier } from "$lib/keyboard-shortcuts";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
   import { getProjects } from "$lib/stores/projects.svelte";
   import { getSettingsLauncher } from "$lib/stores/settingsLauncher.svelte";
+  import * as chatApi from "$lib/api/chat";
   import ChatConversationHeader from "./ChatConversationHeader.svelte";
   import ChatComposer from "./ChatComposer.svelte";
   import ChatFirstUse from "./ChatFirstUse.svelte";
+  import ChatInspector from "./ChatInspector.svelte";
   import ChatThreadRail from "./ChatThreadRail.svelte";
   import ChatTimeline from "./ChatTimeline.svelte";
 
@@ -30,6 +32,11 @@
   let resizingInspector = $state(false);
   let railWidth = $state(260);
   let inspectorWidth = $state(360);
+  let inspectorMaximized = $state(false);
+  let inspectorWasOpen = false;
+  let inspectorReturnFocus: HTMLElement | null = null;
+  let shellWidth = $state(1_200);
+  const inspectorMode = $derived(inspectorPresentation(shellWidth, inspectorMaximized));
   let loadError = $state<string | null>(null);
   let layoutError = $state<string | null>(null);
 
@@ -47,12 +54,39 @@
         console.error("Invalid Chat change notification", error);
       }
     });
-    return () => { void unlisten.then((dispose) => dispose()); };
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) shellWidth = entry.contentRect.width;
+    });
+    if (rootElement) observer.observe(rootElement);
+    const revertMessage = (event: Event) => {
+      if (!(event instanceof CustomEvent) || !isRevertMessageDetail(event.detail)) return;
+      void restoreMessageCheckpoint(event.detail.threadId, event.detail.checkpointId);
+    };
+    window.addEventListener("ganbaru-ai:chat-revert-message", revertMessage);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("ganbaru-ai:chat-revert-message", revertMessage);
+      void unlisten.then((dispose) => dispose());
+    };
   });
 
   $effect(() => {
     if (!resizingRail && chat.settings) railWidth = chat.settings.configuration.panels.railWidthPx;
     if (!resizingInspector && chat.settings) inspectorWidth = chat.settings.configuration.panels.inspectorWidthPx;
+  });
+
+  $effect(() => {
+    const open = chat.inspectorOpen;
+    const action = inspectorFocusAction(inspectorWasOpen, open);
+    if (action === "enter") {
+      inspectorReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      queueMicrotask(() => document.querySelector<HTMLElement>("[data-chat-inspector] [role='tab'][aria-selected='true']")?.focus());
+    } else if (action === "restore") {
+      const target = inspectorReturnFocus;
+      queueMicrotask(() => target?.isConnected && target.focus());
+      inspectorMaximized = false;
+    }
+    inspectorWasOpen = open;
   });
 
   function isEditingTarget(target: EventTarget | null): boolean {
@@ -169,19 +203,51 @@
       layoutError = error instanceof Error ? error.message : String(error);
     }
   }
+
+  function isRevertMessageDetail(value: unknown): value is { threadId: string; checkpointId: string } {
+    if (typeof value !== "object" || value === null) return false;
+    const record = value as Record<string, unknown>;
+    return typeof record.threadId === "string" && typeof record.checkpointId === "string";
+  }
+
+  async function restoreMessageCheckpoint(threadId: string, checkpointId: string): Promise<void> {
+    const thread = chat.selectedThread;
+    if (!thread || thread.id !== threadId) return;
+    layoutError = null;
+    try {
+      const preview = await chatApi.previewChatCheckpointRestore(threadId, checkpointId);
+      const affected = preview.files.map((file) => file.relativePath).join("\n");
+      const confirmed = window.confirm(
+        [t("chat.timeline.revert"), affected, ...preview.warnings].filter(Boolean).join("\n\n"),
+      );
+      if (!confirmed) return;
+      await chatApi.executeChatCheckpointRestore({
+        command: {
+          clientCommandId: crypto.randomUUID(),
+          expectedThreadRevision: thread.revision,
+        },
+        threadId,
+        previewId: preview.previewId,
+        confirmed: true,
+      });
+      await chat.handleNativeChange(threadId);
+    } catch (error: unknown) {
+      layoutError = error instanceof Error ? error.message : String(error);
+    }
+  }
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
 
 <div bind:this={rootElement} class="chat-workspace @container/chat-shell relative flex h-full min-h-0 overflow-hidden" style="background-color:var(--cal-bg);container-type:inline-size;container-name:chat-shell;">
   {#if layoutError}<div role="alert" class="absolute inset-x-2 top-2 z-50 rounded border border-destructive/40 bg-background p-2 text-xs text-destructive">{layoutError}</div>{/if}
-  <div class="chat-rail-shell" class:closed={!chat.railOpen} style={`--chat-rail-width:${railWidth}px`}>
+  <div class="chat-rail-shell" class:closed={!chat.railOpen} class:maximized-hidden={inspectorMaximized} style={`--chat-rail-width:${railWidth}px`}>
     <ChatThreadRail onCollapse={() => { chat.railOpen = false; }} />
   </div>
   <button
     type="button"
     class="chat-rail-separator"
-    class:hidden={!chat.railOpen}
+    class:hidden={!chat.railOpen || inspectorMaximized}
     aria-label={t("chat.resizeRail")}
     onpointerdown={beginRailResize}
     onkeydown={(event) => {
@@ -193,7 +259,7 @@
     }}
   ></button>
 
-  <main class="relative flex min-w-0 flex-1 flex-col bg-background/35">
+  <main class="relative flex min-w-0 flex-1 flex-col bg-background/35" class:maximized-hidden={inspectorMaximized}>
     <ChatConversationHeader onOpenRail={() => { chat.railOpen = true; }} />
     {#if loadError}
       <div role="alert" class="m-auto max-w-md p-4 text-center text-sm text-destructive">{loadError}<div><button type="button" class="chat-secondary-button mt-3" onclick={() => { loadError = null; void chat.reload().catch((error) => { loadError = error instanceof Error ? error.message : String(error); }); }}>{t("common.retry")}</button></div></div>
@@ -207,10 +273,9 @@
     {/if}
   </main>
 
-  <button type="button" class="chat-inspector-separator" class:hidden={!chat.inspectorOpen} aria-label={t("chat.resizeInspector")} onpointerdown={beginInspectorResize} onkeydown={(event) => { if (event.key === "ArrowLeft") { event.preventDefault(); resizeInspectorBy(16); } if (event.key === "ArrowRight") { event.preventDefault(); resizeInspectorBy(-16); } if (event.key === "Home") { event.preventDefault(); inspectorWidth = 240; void persistPanelWidths(); } if (event.key === "End") { event.preventDefault(); inspectorWidth = 960; void persistPanelWidths(); } if (event.key === "Enter") { event.preventDefault(); inspectorWidth = 360; void persistPanelWidths(); } }}></button>
-  <aside class="chat-inspector-shell" class:open={chat.inspectorOpen} aria-label={t("chat.openInspector")} style={`--chat-inspector-width:${inspectorWidth}px`}>
-    <header class="flex h-11 items-center border-b border-border px-3"><strong class="min-w-0 flex-1 truncate text-xs">{t("chat.inspector.title")}</strong><button type="button" class="chat-icon-button" aria-label={t("chat.closeInspector")} onclick={() => { chat.inspectorOpen = false; }}><X size={14} /></button></header>
-    <div class="p-4 text-xs text-muted-foreground">{t("chat.inspector.placeholder")}</div>
+  <button type="button" class="chat-inspector-separator" class:hidden={!chat.inspectorOpen || inspectorMaximized} aria-label={t("chat.resizeInspector")} onpointerdown={beginInspectorResize} onkeydown={(event) => { if (event.key === "ArrowLeft") { event.preventDefault(); resizeInspectorBy(16); } if (event.key === "ArrowRight") { event.preventDefault(); resizeInspectorBy(-16); } if (event.key === "Home") { event.preventDefault(); inspectorWidth = 240; void persistPanelWidths(); } if (event.key === "End") { event.preventDefault(); inspectorWidth = 960; void persistPanelWidths(); } if (event.key === "Enter") { event.preventDefault(); inspectorWidth = 360; void persistPanelWidths(); } }}></button>
+  <aside class="chat-inspector-shell" class:open={chat.inspectorOpen} class:maximized={inspectorMaximized} data-presentation={inspectorMode} role={inspectorMode === "column" ? undefined : "dialog"} aria-modal={inspectorMode === "column" ? undefined : "true"} aria-label={t("chat.openInspector")} style={`--chat-inspector-width:${inspectorWidth}px`}>
+    <ChatInspector onClose={() => { chat.inspectorOpen = false; }} onMaximizedChange={(value) => { inspectorMaximized = value; }} />
   </aside>
 
   {#if commandMenuOpen}
@@ -230,12 +295,14 @@
 <style>
   .chat-rail-shell { width: var(--chat-rail-width); min-width: var(--chat-rail-width); transition: width 140ms ease, min-width 140ms ease, transform 140ms ease; }
   .chat-rail-shell.closed { width: 0; min-width: 0; overflow: hidden; }
+  .maximized-hidden { display: none; }
   .chat-rail-separator { width: 4px; flex: 0 0 4px; cursor: col-resize; background: transparent; }
   .chat-rail-separator:hover, .chat-rail-separator:focus-visible { background: var(--ring); }
   .chat-inspector-separator { width: 4px; flex: 0 0 4px; cursor: col-resize; background: transparent; }
   .chat-inspector-separator:hover, .chat-inspector-separator:focus-visible { background: var(--ring); }
   .chat-inspector-shell { width: 0; min-width: 0; overflow: hidden; border-left: 0 solid var(--border); background: var(--background); transition: width 140ms ease, min-width 140ms ease; }
   .chat-inspector-shell.open { width: min(var(--chat-inspector-width), 34cqw); min-width: min(240px, 34cqw); border-left-width: 1px; }
+  .chat-inspector-shell.maximized { width: 100%; min-width: 0; border-left-width: 0; }
   .chat-command { display: flex; width: 100%; min-height: 2.25rem; align-items: center; gap: 0.5rem; border-radius: 0.375rem; padding: 0.375rem 0.5rem; font-size: 0.8rem; }
   .chat-command:hover { background: var(--accent); }
   @container chat-shell (max-width: 719px) {

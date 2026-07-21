@@ -26,6 +26,25 @@ function stored(sequence: number, event: CanonicalEvent, options: { eventId?: st
 }
 
 describe("canonical timeline projection", () => {
+  it("projects durable checkpoint restores as thread-level notices", () => {
+    const projection = projectCanonicalTimeline([
+      stored(1, {
+        type: "thread_reverted",
+        payload: {
+          checkpointId: "checkpoint:1",
+          revertedTurnIds: ["turn:2"],
+          providerHistoryAction: "fork_required",
+        },
+      }, { turnId: null }),
+    ]);
+    expect(projection.rows).toMatchObject([{
+      kind: "activity",
+      title: "thread_reverted",
+      status: "completed",
+      metadata: { value: { revertedTurnIds: ["turn:2"] } },
+    }]);
+  });
+
   it("keeps multiple assistant items and orders content parts by provider content index", () => {
     const events = [
       stored(4, { type: "content_delta", payload: { itemId: "assistant-a", streamKind: "assistant_text", contentIndex: 1, delta: "world" } }),

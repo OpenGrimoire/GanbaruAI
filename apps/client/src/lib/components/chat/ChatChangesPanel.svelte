@@ -1,0 +1,284 @@
+<script lang="ts">
+  import { onMount, tick } from "svelte";
+  import AlertTriangle from "@lucide/svelte/icons/triangle-alert";
+  import Copy from "@lucide/svelte/icons/copy";
+  import ExternalLink from "@lucide/svelte/icons/external-link";
+  import Paperclip from "@lucide/svelte/icons/paperclip";
+  import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
+  import * as chatApi from "$lib/api/chat";
+  import type {
+    ChatChangeScope,
+    ChatCheckpointDiffRead,
+    ChatCheckpointFileDiffRead,
+    ChatChangedFileRead,
+  } from "$lib/chat/contracts";
+  import { splitDiffFits } from "$lib/chat/inspector-model";
+  import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { getChat } from "$lib/stores/chat.svelte";
+  import ChatChangedFileTree from "./ChatChangedFileTree.svelte";
+
+  let {
+    scope,
+    selectedFile,
+    whitespaceIgnored,
+    diffView,
+    onStateChange,
+  }: {
+    scope: ChatChangeScope;
+    selectedFile: string | null;
+    whitespaceIgnored: boolean;
+    diffView: "auto" | "unified" | "split";
+    onStateChange: (update: {
+      scope?: ChatChangeScope;
+      selectedFile?: string | null;
+      whitespaceIgnored?: boolean;
+      diffView?: "auto" | "unified" | "split";
+    }) => void;
+  } = $props();
+
+  const { t } = getLocalization();
+  const chat = getChat();
+  let diff = $state<ChatCheckpointDiffRead | null>(null);
+  let fileDiff = $state<ChatCheckpointFileDiffRead | null>(null);
+  let renderedLines = $state<{ kind: "context" | "addition" | "deletion" | "header"; text: string; oldLine: number | null; newLine: number | null }[]>([]);
+  let loading = $state(false);
+  let error = $state<string | null>(null);
+  let restoring = $state(false);
+  let diffHost: HTMLElement | undefined = $state();
+  let diffScroller: HTMLElement | undefined = $state();
+  let diffWidth = $state(0);
+  const threadId = $derived(chat.selectedThreadId);
+  const workspaceId = $derived(chat.selectedWorkspaceId);
+  const splitView = $derived(diffView === "split" || (diffView === "auto" && splitDiffFits(diffWidth)));
+
+  onMount(() => {
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) diffWidth = entry.contentRect.width;
+    });
+    if (diffHost) observer.observe(diffHost);
+    return () => observer.disconnect();
+  });
+
+  $effect(() => {
+    const thread = threadId;
+    const currentScope = scope;
+    const revision = chat.selectedThread?.revision;
+    if (!thread || revision === undefined) return;
+    void loadDiff(thread, currentScope);
+  });
+
+  $effect(() => {
+    const thread = threadId;
+    const path = selectedFile;
+    const ignored = whitespaceIgnored;
+    const pre = diff?.preCheckpointId;
+    const post = diff?.postCheckpointId;
+    if (!thread || !path || !pre || !post) {
+      fileDiff = null;
+      renderedLines = [];
+      return;
+    }
+    void loadFileDiff(thread, pre, post, path, ignored);
+  });
+
+  async function loadDiff(thread: string, currentScope: ChatChangeScope): Promise<void> {
+    loading = true;
+    error = null;
+    try {
+      const result = await chatApi.readChatCheckpointDiff(thread, currentScope);
+      if (thread !== threadId || currentScope !== scope) return;
+      diff = result;
+      const retained = selectedFile && result.files.some((file) => file.relativePath === selectedFile)
+        ? selectedFile
+        : result.files[0]?.relativePath ?? null;
+      if (retained !== selectedFile) onStateChange({ selectedFile: retained });
+    } catch (reason: unknown) {
+      error = message(reason);
+    } finally {
+      loading = false;
+    }
+  }
+
+  async function loadFileDiff(
+    thread: string,
+    pre: string,
+    post: string,
+    path: string,
+    ignored: boolean,
+  ): Promise<void> {
+    const previousScrollTop = diffScroller?.scrollTop ?? 0;
+    fileDiff = null;
+    renderedLines = [];
+    try {
+      const result = await chatApi.readChatCheckpointFileDiff(thread, pre, post, path, ignored);
+      if (path !== selectedFile || ignored !== whitespaceIgnored) return;
+      fileDiff = result;
+      renderedLines = result.patch ? await parsePatchLines(result.patch) : [];
+      await tick();
+      if (path === selectedFile && diffScroller) diffScroller.scrollTop = previousScrollTop;
+    } catch (reason: unknown) {
+      error = message(reason);
+    }
+  }
+
+  async function parsePatchLines(patch: string): Promise<typeof renderedLines> {
+    const { parsePatch } = await import("diff");
+    const parsed = parsePatch(patch);
+    const lines: typeof renderedLines = [];
+    for (const file of parsed) {
+      lines.push({ kind: "header", text: file.newFileName || file.oldFileName || "", oldLine: null, newLine: null });
+      for (const hunk of file.hunks) {
+        lines.push({ kind: "header", text: `@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`, oldLine: null, newLine: null });
+        let oldLine = hunk.oldStart;
+        let newLine = hunk.newStart;
+        for (const line of hunk.lines) {
+          const marker = line[0];
+          lines.push({
+            kind: marker === "+" ? "addition" : marker === "-" ? "deletion" : "context",
+            text: line,
+            oldLine: marker === "+" ? null : oldLine,
+            newLine: marker === "-" ? null : newLine,
+          });
+          if (marker !== "+") oldLine += 1;
+          if (marker !== "-") newLine += 1;
+        }
+      }
+    }
+    return lines.slice(0, 12_000);
+  }
+
+  function select(file: ChatChangedFileRead): void {
+    onStateChange({ selectedFile: file.relativePath });
+  }
+
+  function attach(path: string): void {
+    const mentions = chat.composer.mentions.filter((entry) => entry.relativePath !== path);
+    chat.setComposerMentions([...mentions, { relativePath: path, kind: "file", ignored: false }]);
+  }
+
+  async function restoreCheckpoint(): Promise<void> {
+    if (!threadId || !diff?.preCheckpointId || !chat.selectedThread) return;
+    restoring = true;
+    error = null;
+    try {
+      const preview = await chatApi.previewChatCheckpointRestore(threadId, diff.preCheckpointId);
+      const affected = preview.files.map((file) => file.relativePath).join("\n");
+      const confirmed = window.confirm(
+        [t("chat.timeline.revert"), affected, ...preview.warnings].filter(Boolean).join("\n\n"),
+      );
+      if (!confirmed) return;
+      await chatApi.executeChatCheckpointRestore({
+        command: {
+          clientCommandId: crypto.randomUUID(),
+          expectedThreadRevision: chat.selectedThread.revision,
+        },
+        threadId,
+        previewId: preview.previewId,
+        confirmed: true,
+      });
+      await chat.handleNativeChange(threadId);
+      await loadDiff(threadId, scope);
+    } catch (reason: unknown) {
+      error = message(reason);
+    } finally {
+      restoring = false;
+    }
+  }
+
+  function message(reason: unknown): string {
+    return reason instanceof Error ? reason.message : String(reason);
+  }
+</script>
+
+<div class="flex h-full min-h-0 flex-col">
+  <div class="flex flex-wrap items-center gap-2 border-b border-border p-2">
+    <div class="flex rounded border border-border p-0.5" role="group">
+      <button type="button" class:active={scope === "current_turn"} class="chat-scope-button" onclick={() => onStateChange({ scope: "current_turn" })}>{t("chat.inspector.currentTurn")}</button>
+      <button type="button" class:active={scope === "entire_thread"} class="chat-scope-button" onclick={() => onStateChange({ scope: "entire_thread" })}>{t("chat.inspector.entireThread")}</button>
+    </div>
+    <label class="flex items-center gap-1 text-[0.666667rem] text-muted-foreground">
+      <input type="checkbox" checked={whitespaceIgnored} onchange={(event) => onStateChange({ whitespaceIgnored: event.currentTarget.checked })} />
+      {t("chat.inspector.ignoreWhitespace")}
+    </label>
+    {#if diff?.available}
+      <span class="ml-auto text-[0.666667rem]"><span class="text-emerald-600">{t("chat.inspector.additions", diff.additions)}</span> <span class="text-destructive">{t("chat.inspector.deletions", diff.deletions)}</span></span>
+      <button type="button" class="chat-icon-button" disabled={restoring} title={t("chat.timeline.revert")} onclick={() => { void restoreCheckpoint(); }}><RotateCcw size={13} /></button>
+    {/if}
+  </div>
+
+  {#if error}<p role="alert" class="border-b border-destructive/30 p-2 text-xs text-destructive">{error}</p>{/if}
+  {#if diff?.providerMismatch}
+    <p class="flex items-center gap-2 border-b border-amber-500/30 bg-amber-500/10 p-2 text-xs"><AlertTriangle size={13} />{t("chat.inspector.providerMismatch")}</p>
+  {/if}
+  {#if chat.selectedWorkspace?.workspace.repositoryKind === "none"}
+    <p class="border-b border-border p-2 text-xs text-muted-foreground">{t("chat.inspector.nonGitNotice")}</p>
+  {/if}
+
+  <div class="grid min-h-0 flex-1 grid-rows-[minmax(7rem,0.65fr)_minmax(12rem,1.35fr)]">
+    <div class="min-h-0 overflow-auto border-b border-border p-2">
+      {#if loading}
+        <p class="p-2 text-xs text-muted-foreground">{t("common.loading")}</p>
+      {:else if diff?.files.length}
+        <ChatChangedFileTree files={diff.files} {selectedFile} onSelect={select} />
+      {:else}
+        <p class="p-2 text-xs text-muted-foreground">{diff?.unavailableReason ?? t("chat.inspector.noChanges")}</p>
+      {/if}
+    </div>
+
+    <section bind:this={diffHost} class="flex min-h-0 flex-col">
+      {#if selectedFile}
+        <header class="flex items-center gap-1 border-b border-border p-2">
+          <strong class="min-w-0 flex-1 truncate text-xs" title={selectedFile}>{selectedFile}</strong>
+          <button type="button" class="chat-icon-button" title={t("chat.inspector.copyPath")} onclick={() => navigator.clipboard.writeText(selectedFile ?? "")}><Copy size={13} /></button>
+          <button type="button" class="chat-icon-button" title={t("chat.inspector.attachFile")} onclick={() => selectedFile && attach(selectedFile)}><Paperclip size={13} /></button>
+          <button type="button" class="chat-icon-button" title={t("chat.inspector.openExternally")} onclick={() => workspaceId && selectedFile && chatApi.openChatWorkspaceFile(workspaceId, selectedFile)}><ExternalLink size={13} /></button>
+          {#if splitDiffFits(diffWidth)}<button type="button" class="chat-secondary-button" onclick={() => onStateChange({ diffView: splitView ? "unified" : "split" })}>{splitView ? t("chat.inspector.unifiedDiff") : t("chat.inspector.splitDiff")}</button>{/if}
+        </header>
+      {/if}
+      {#if fileDiff?.binary}
+        <p class="m-auto p-4 text-xs text-muted-foreground">{t("chat.inspector.binary")}</p>
+      {:else if fileDiff?.patch}
+        <div bind:this={diffScroller} class="min-h-0 flex-1 overflow-auto font-mono text-[0.666667rem] leading-5">
+          {#if splitView}
+            {#each renderedLines as line}
+              {#if line.kind === "header"}
+                <div class="split-header">{line.text}</div>
+              {:else}
+                <div class="split-line">
+                  <span class="line-number">{line.oldLine ?? ""}</span><span class="split-code {line.kind === "addition" ? "empty" : line.kind}">{line.kind === "addition" ? "" : line.text.slice(1)}</span>
+                  <span class="line-number">{line.newLine ?? ""}</span><span class="split-code {line.kind === "deletion" ? "empty" : line.kind}">{line.kind === "deletion" ? "" : line.text.slice(1)}</span>
+                </div>
+              {/if}
+            {/each}
+          {:else}
+            {#each renderedLines as line}
+              <div class="diff-line {line.kind}">
+                <span class="line-number">{line.oldLine ?? ""}</span><span class="line-number">{line.newLine ?? ""}</span><span class="whitespace-pre">{line.text}</span>
+              </div>
+            {/each}
+          {/if}
+          {#if fileDiff.truncated}<p class="p-3 text-muted-foreground">{t("chat.inspector.largeDiff")}</p>{/if}
+        </div>
+      {:else}
+        <p class="m-auto p-4 text-xs text-muted-foreground">{selectedFile ? t("common.loading") : t("chat.inspector.noChanges")}</p>
+      {/if}
+    </section>
+  </div>
+</div>
+
+<style>
+  .chat-scope-button { border-radius: 0.2rem; padding: 0.2rem 0.4rem; font-size: 0.666667rem; }
+  .chat-scope-button.active { background: var(--accent); color: var(--accent-foreground); }
+  .diff-line { display: grid; min-width: max-content; grid-template-columns: 2.75rem 2.75rem minmax(0, 1fr); padding-right: 0.75rem; }
+  .diff-line.addition { background: color-mix(in srgb, var(--success, #16a34a) 13%, transparent); }
+  .diff-line.deletion { background: color-mix(in srgb, var(--destructive) 12%, transparent); }
+  .diff-line.header { background: var(--muted); color: var(--muted-foreground); }
+  .line-number { user-select: none; border-right: 1px solid var(--border); padding-right: 0.35rem; text-align: right; color: var(--muted-foreground); }
+  .whitespace-pre { white-space: pre; padding-left: 0.5rem; }
+  .split-header { min-width: max-content; background: var(--muted); padding: 0 0.5rem; color: var(--muted-foreground); }
+  .split-line { display: grid; min-width: 45rem; grid-template-columns: 2.75rem minmax(18rem, 1fr) 2.75rem minmax(18rem, 1fr); }
+  .split-code { min-height: 1.25rem; white-space: pre; border-right: 1px solid var(--border); padding-inline: 0.5rem; }
+  .split-code.addition { background: color-mix(in srgb, var(--success, #16a34a) 13%, transparent); }
+  .split-code.deletion { background: color-mix(in srgb, var(--destructive) 12%, transparent); }
+  .split-code.empty { background: color-mix(in srgb, var(--muted) 50%, transparent); }
+</style>

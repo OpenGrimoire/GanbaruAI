@@ -527,7 +527,9 @@ fn turn_builder_preserves_model_traits_modes_and_verified_images() {
             "displayName": "prompt.png",
             "managedRelativePath": "prompt.png",
             "mimeType": "image/png",
-            "byteSize": 14
+            "byteSize": 14,
+            "localPath": workspace.path().join("prompt.png").to_string_lossy(),
+            "textContent": null
         }],
         "mentions": [],
         "modelId": "gpt-5.4",
@@ -565,7 +567,7 @@ fn turn_builder_preserves_model_traits_modes_and_verified_images() {
         .starts_with(workspace.path().to_str().unwrap()));
 
     let mut escaping = request;
-    escaping.attachments[0].managed_relative_path = "../outside.png".to_string();
+    escaping.attachments[0].local_path = Some("../outside.png".to_string());
     assert!(turn_start_params(
         "provider-thread-1",
         workspace.path(),

@@ -5,7 +5,7 @@ use crate::chat::models::{
     ChatCommandContext, ChatCommandId, ChatError, ChatErrorCode, ChatResult, ChatThreadId,
     ChatTurnId, DriverOperationReceipt, InterruptTurnRequest, ProviderSessionId,
     ProviderSessionSnapshot, ProviderSessionState, ResolveApprovalRequest, ResolveUserInputRequest,
-    ResumeSessionRequest, SendTurnRequest, StartSessionRequest, SteerTurnRequest,
+    ResumeSessionRequest, RollbackRequest, SendTurnRequest, StartSessionRequest, SteerTurnRequest,
     StopSessionRequest, TurnDispatchReceipt,
 };
 use crate::chat::providers::{
@@ -67,6 +67,11 @@ pub enum ThreadRuntimeCommand {
     },
     InterruptTurn {
         request: InterruptTurnRequest,
+        context: DriverOperationContext,
+        response: oneshot::Sender<ChatResult<DriverOperationReceipt>>,
+    },
+    Rollback {
+        request: RollbackRequest,
         context: DriverOperationContext,
         response: oneshot::Sender<ChatResult<DriverOperationReceipt>>,
     },
@@ -243,6 +248,21 @@ impl ThreadRuntimeOwner {
         let _guard = self.lock_operation().await;
         let (response, receiver) = oneshot::channel();
         self.try_command(ThreadRuntimeCommand::ResolveUserInput {
+            request,
+            context,
+            response,
+        })?;
+        receive_response(receiver).await
+    }
+
+    pub async fn rollback(
+        &self,
+        request: RollbackRequest,
+        context: DriverOperationContext,
+    ) -> ChatResult<DriverOperationReceipt> {
+        let _guard = self.lock_operation().await;
+        let (response, receiver) = oneshot::channel();
+        self.try_command(ThreadRuntimeCommand::Rollback {
             request,
             context,
             response,
@@ -716,6 +736,25 @@ impl RuntimeWorker {
                 if result.is_err() {
                     self.update(|state| state.session_state = previous_state);
                 }
+                let _ = response.send(result);
+            }
+            ThreadRuntimeCommand::Rollback {
+                request,
+                context,
+                response,
+            } => {
+                if self.session_state() != ProviderSessionState::Ready {
+                    let _ = response.send(Err(runtime_invalid_state(
+                        "Chat provider session must be ready before rollback",
+                    )));
+                    return false;
+                }
+                let result = match self.driver.as_mut() {
+                    Some(driver) => {
+                        run_driver_operation(&context, driver.rollback(request, &context)).await
+                    }
+                    None => Err(runtime_unavailable()),
+                };
                 let _ = response.send(result);
             }
             ThreadRuntimeCommand::StopSession {

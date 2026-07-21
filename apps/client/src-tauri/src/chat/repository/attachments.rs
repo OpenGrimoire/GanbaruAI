@@ -212,6 +212,30 @@ pub async fn read_attachment(
     .transpose()
 }
 
+pub fn read_managed_attachment_bytes(
+    vault_root: &Path,
+    attachment: &ChatAttachmentRead,
+) -> ChatResult<(PathBuf, Vec<u8>)> {
+    let path = resolve_managed_path(vault_root, &attachment.managed_relative_path)?;
+    let metadata = fs::symlink_metadata(&path).map_err(io_error)?;
+    if metadata.file_type().is_symlink()
+        || !metadata.is_file()
+        || metadata.len() != attachment.byte_size
+        || metadata.len() > MAX_ATTACHMENT_BYTES
+    {
+        return Err(invalid_attachment());
+    }
+    let bytes = fs::read(&path).map_err(io_error)?;
+    if format!("{:x}", Sha256::digest(&bytes)) != attachment.sha256 {
+        return Err(ChatError::new(
+            ChatErrorCode::Conflict,
+            "Managed Chat attachment changed after import",
+            true,
+        ));
+    }
+    Ok((path, bytes))
+}
+
 pub async fn run_due_attachment_cleanup(
     pool: &SqlitePool,
     vault_root: &Path,

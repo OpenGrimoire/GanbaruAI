@@ -115,14 +115,21 @@ pub async fn permanently_delete_thread(
         Some(value) if value != i64_value(expected_revision) => return Err(stale()),
         Some(_) => {}
     }
-    let checkpoints = sqlx::query_as::<_, (String, String, String)>(
-        "SELECT id, hidden_ref_name, repository_identity FROM chat_checkpoints WHERE thread_id = ?",
+    let workspace_id: String =
+        sqlx::query_scalar("SELECT workspace_id FROM chat_threads WHERE id = ?")
+            .bind(thread_id.as_str())
+            .fetch_one(&mut *transaction)
+            .await
+            .map_err(persistence_error)?;
+    let checkpoints = sqlx::query_as::<_, (String, String, String, String)>(
+        "SELECT id, hidden_ref_name, repository_identity, git_object_id
+         FROM chat_checkpoints WHERE thread_id = ?",
     )
     .bind(thread_id.as_str())
     .fetch_all(&mut *transaction)
     .await
     .map_err(persistence_error)?;
-    for (checkpoint_id, hidden_ref, repository_identity) in checkpoints {
+    for (checkpoint_id, hidden_ref, repository_identity, object_id) in checkpoints {
         enqueue_cleanup(
             &mut transaction,
             CleanupRequest {
@@ -131,6 +138,8 @@ pub async fn permanently_delete_thread(
                 kind: "checkpoint_ref",
                 target: &hidden_ref,
                 repository_identity: Some(&repository_identity),
+                workspace_id: Some(&workspace_id),
+                expected_object_id: Some(&object_id),
                 not_before: now,
                 now,
             },
@@ -181,6 +190,8 @@ pub async fn permanently_delete_thread(
                     kind: "attachment_file",
                     target: &relative_path,
                     repository_identity: None,
+                    workspace_id: Some(&workspace_id),
+                    expected_object_id: None,
                     not_before: cleanup_not_before,
                     now,
                 },
@@ -270,6 +281,8 @@ struct CleanupRequest<'a> {
     kind: &'a str,
     target: &'a str,
     repository_identity: Option<&'a str>,
+    workspace_id: Option<&'a str>,
+    expected_object_id: Option<&'a str>,
     not_before: &'a UtcTimestamp,
     now: &'a UtcTimestamp,
 }
@@ -281,8 +294,8 @@ async fn enqueue_cleanup(
     sqlx::query(
         "INSERT INTO chat_cleanup_queue
             (id, source_thread_id, cleanup_kind, exact_target, repository_identity,
-             not_before, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+             not_before, created_at, updated_at, workspace_id, expected_object_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(cleanup_kind, exact_target) DO UPDATE SET
             state = CASE WHEN chat_cleanup_queue.state = 'completed' THEN 'completed' ELSE 'pending' END,
             not_before = MIN(chat_cleanup_queue.not_before, excluded.not_before),
@@ -295,6 +308,9 @@ async fn enqueue_cleanup(
     .bind(request.repository_identity)
     .bind(request.not_before.as_str())
     .bind(request.now.as_str())
+    .bind(request.now.as_str())
+    .bind(request.workspace_id)
+    .bind(request.expected_object_id)
     .execute(&mut **transaction)
     .await
     .map_err(persistence_error)?;

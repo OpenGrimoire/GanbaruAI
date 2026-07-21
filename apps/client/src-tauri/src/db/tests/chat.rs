@@ -79,6 +79,10 @@ fn schema_creates_chat_tables_indexes_and_no_device_paths() {
             "chat_command_receipts",
             "chat_checkpoints",
             "chat_cleanup_queue",
+            "chat_checkpoint_failures",
+            "chat_restore_previews",
+            "chat_restore_operations",
+            "chat_terminal_attachment_contexts",
             "idx_chat_threads_active_project",
             "idx_chat_threads_archived",
             "idx_chat_threads_title_search",
@@ -91,6 +95,10 @@ fn schema_creates_chat_tables_indexes_and_no_device_paths() {
             "idx_chat_attachment_references_message",
             "idx_chat_queued_followups_active",
             "idx_chat_queued_attachment_references_attachment",
+            "idx_chat_checkpoint_failures_thread",
+            "idx_chat_restore_previews_thread",
+            "idx_chat_restore_operations_thread",
+            "idx_chat_events_valid_thread_sequence",
         ] {
             let exists: Option<i64> =
                 sqlx::query_scalar("SELECT 1 FROM sqlite_schema WHERE name = ?")
@@ -122,6 +130,50 @@ fn schema_creates_chat_tables_indexes_and_no_device_paths() {
                     || column.contains("credential")
                     || column.contains("secret")
             }));
+        }
+    });
+}
+
+#[test]
+fn workspace_tool_schema_tracks_restore_invalidation_and_exact_cleanup() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        for (table, expected) in [
+            (
+                "chat_checkpoints",
+                vec![
+                    "checkpoint_kind",
+                    "turn_id",
+                    "index_commit_oid",
+                    "index_tree_oid",
+                    "worktree_tree_oid",
+                    "head_oid",
+                    "head_ref",
+                    "index_fingerprint",
+                    "invalidated_at",
+                    "invalidated_by_checkpoint_id",
+                ],
+            ),
+            ("chat_turns", vec!["invalidated_at", "invalidation_reason"]),
+            ("chat_events", vec!["invalidated_at", "invalidation_reason"]),
+            (
+                "chat_cleanup_queue",
+                vec!["workspace_id", "expected_object_id"],
+            ),
+        ] {
+            let columns = sqlx::query(&format!("SELECT name FROM pragma_table_info('{table}')"))
+                .fetch_all(&pool)
+                .await
+                .unwrap()
+                .into_iter()
+                .map(|row| row.get::<String, _>("name"))
+                .collect::<Vec<_>>();
+            for column in expected {
+                assert!(
+                    columns.iter().any(|value| value == column),
+                    "{table}.{column} should exist"
+                );
+            }
         }
     });
 }

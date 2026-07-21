@@ -61,6 +61,20 @@ describe("Chat provider contracts", () => {
     expect(parseProviderFamilyMetadata(metadataFixture())).toEqual(metadataFixture());
   });
 
+  it("validates internal checkpoint restore audit events", () => {
+    const fixture = runtimeEventFixture();
+    fixture.turnId = null;
+    fixture.event = {
+      type: "thread_reverted",
+      payload: {
+        checkpointId: "checkpoint:1",
+        revertedTurnIds: ["turn:2"],
+        providerHistoryAction: "fork_required",
+      },
+    };
+    expect(parseCanonicalRuntimeEvent(fixture).event).toEqual(fixture.event);
+  });
+
   it("preserves unknown provider instance fields and versioned configuration", () => {
     const fixture = {
       schemaVersion: 1,

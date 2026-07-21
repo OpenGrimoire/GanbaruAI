@@ -74,7 +74,11 @@
 
   onMount(() => {
     const stop = () => void stopTurn();
+    const continuePlan = () => preparePlanTurn("plan");
+    const implementPlan = () => preparePlanTurn("build");
     window.addEventListener("ganbaru-ai:chat-stop-requested", stop);
+    window.addEventListener("ganbaru-ai:chat-continue-plan", continuePlan);
+    window.addEventListener("ganbaru-ai:chat-implement-plan", implementPlan);
     if (restoreComposerFocus) {
       void tick().then(() => {
         textarea?.focus();
@@ -88,10 +92,22 @@
         restoreSelectionEnd = textarea.selectionEnd;
       }
       window.removeEventListener("ganbaru-ai:chat-stop-requested", stop);
+      window.removeEventListener("ganbaru-ai:chat-continue-plan", continuePlan);
+      window.removeEventListener("ganbaru-ai:chat-implement-plan", implementPlan);
       if (stopTimer !== null) clearTimeout(stopTimer);
       void chat.flushComposer().catch(() => undefined);
     };
   });
+
+  function preparePlanTurn(mode: "plan" | "build"): void {
+    const action = mode === "plan"
+      ? t("chat.inspector.continuePlanningPrompt")
+      : t("chat.inspector.implementPlanPrompt");
+    const existing = chat.composer.text.trim();
+    chat.setComposerText(existing ? `${existing}\n\n${action}` : action);
+    chat.setComposerModes(chat.composer.safetyMode, mode);
+    queueMicrotask(() => textarea?.focus());
+  }
 
   $effect(() => {
     chat.composer.text;

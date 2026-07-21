@@ -213,7 +213,22 @@
   }
 
   function activityTitle(activity: TimelineActivityRow): string {
-    return activity.id.startsWith("turn-pending:") ? t("chat.timeline.working") : activity.title;
+    if (activity.id.startsWith("turn-pending:")) return t("chat.timeline.working");
+    if (activity.title === "thread_reverted") return t("chat.timeline.threadRestored");
+    return activity.title;
+  }
+
+  function activityDetail(activity: TimelineActivityRow): string | null {
+    if (activity.title !== "thread_reverted") return activity.detail;
+    const value = activity.metadata?.value;
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+    const count = "revertedTurnCount" in value && typeof value.revertedTurnCount === "number"
+      ? value.revertedTurnCount
+      : 0;
+    const action = "providerHistoryAction" in value && value.providerHistoryAction === "rolled_back"
+      ? t("chat.timeline.providerHistoryRolledBack")
+      : t("chat.timeline.providerHistoryForkRequired");
+    return t("chat.timeline.threadRestoredDetail", count, action);
   }
 </script>
 
@@ -246,13 +261,13 @@
               <div class="mt-2 flex flex-wrap items-center gap-2 text-[0.666667rem] text-muted-foreground">
                 {#if message.role === "user" && message.markdown.length > 1200}<button type="button" onclick={() => { expandedMessages = toggle(expandedMessages, message.id); }}>{expandedMessages.includes(message.id) ? t("chat.timeline.showLess") : t("chat.timeline.showMore")}</button>{/if}
                 {#if message.role === "user"}<span title={t("chat.timeline.timestamp")}>{timestampLabel(message.createdAt)}</span>{/if}
-                {#if message.role === "user" && message.userContext?.preCheckpointId}<button type="button" class="inline-flex items-center gap-1" onclick={() => window.dispatchEvent(new CustomEvent("ganbaru-ai:chat-revert-message", { detail: { checkpointId: message.userContext?.preCheckpointId, turnId: message.turnId } }))}><RotateCcw size={11} />{t("chat.timeline.revert")}</button>{/if}
+                {#if message.role === "user" && message.userContext?.preCheckpointId}<button type="button" class="inline-flex items-center gap-1" onclick={() => window.dispatchEvent(new CustomEvent("ganbaru-ai:chat-revert-message", { detail: { threadId: chat.selectedThreadId, checkpointId: message.userContext?.preCheckpointId, turnId: message.turnId } }))}><RotateCcw size={11} />{t("chat.timeline.revert")}</button>{/if}
                 <button type="button" class="ml-auto inline-flex items-center gap-1" onclick={() => copy(message.markdown)}><Copy size={11} />{t("chat.timeline.copy")}</button>
                 {#if message.metadata}<span>{durationLabel(message.metadata.durationMs)}</span>{#if message.metadata.modelId}<span>{message.metadata.modelId}</span>{/if}{#if tokenUsageLabel(message)}<span>{tokenUsageLabel(message)}</span>{/if}{#if message.metadata.changedFiles.length > 0}<span>{t("chat.timeline.changedFiles", message.metadata.changedFiles.length)}</span>{/if}{/if}
               </div>
             </article>
           {:else if row.kind === "activity"}
-            {@const activity = row as TimelineActivityRow}<details class="chat-activity" class:failed={activity.status === "failed"}><summary>{#if activity.activityKind === "command_execution" || activity.activityKind === "command_output"}<Terminal size={13} />{:else if activity.activityKind === "file_change" || activity.activityKind === "file_change_output"}<FileText size={13} />{:else if activity.activityKind === "web_search"}<Globe size={13} />{:else if activity.activityKind === "image_view"}<ImageIcon size={13} />{:else if activity.id.startsWith("turn-pending:")}<LoaderCircle size={13} class="animate-spin" />{:else}<Wrench size={13} />{/if}<span class="min-w-0 flex-1 truncate">{activityTitle(activity)}</span><span>{statusLabel(activity.status)}</span></summary>{#if activity.detail}<pre>{activity.detail}</pre>{/if}</details>
+            {@const activity = row as TimelineActivityRow}<details class="chat-activity" class:failed={activity.status === "failed"}><summary>{#if activity.activityKind === "command_execution" || activity.activityKind === "command_output"}<Terminal size={13} />{:else if activity.activityKind === "file_change" || activity.activityKind === "file_change_output"}<FileText size={13} />{:else if activity.activityKind === "web_search"}<Globe size={13} />{:else if activity.activityKind === "image_view"}<ImageIcon size={13} />{:else if activity.id.startsWith("turn-pending:")}<LoaderCircle size={13} class="animate-spin" />{:else}<Wrench size={13} />{/if}<span class="min-w-0 flex-1 truncate">{activityTitle(activity)}</span><span>{statusLabel(activity.status)}</span></summary>{#if activityDetail(activity)}<pre>{activityDetail(activity)}</pre>{/if}</details>
           {:else if row.kind === "activity_group"}
             {@const group = row as TimelineActivityGroupRow}<button type="button" class="chat-activity-group" onclick={() => { expandedGroups = toggle(expandedGroups, group.id); }}>{#if group.expanded}<ChevronDown size={13} />{:else}<ChevronRight size={13} />{/if}<span class="min-w-0 flex-1 truncate">{group.latest.title}</span><span>{t("chat.timeline.earlierSteps", group.earlierRows.length)}</span></button>{#if group.expanded}{#each [...group.earlierRows, group.latest] as activity}<details class="chat-activity ml-4" class:failed={activity.status === "failed"}><summary><Wrench size={13} /><span class="min-w-0 flex-1 truncate">{activity.title}</span><span>{statusLabel(activity.status)}</span></summary>{#if activity.detail}<pre>{activity.detail}</pre>{/if}</details>{/each}{/if}
           {:else if row.kind === "turn_fold"}

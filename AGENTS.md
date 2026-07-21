@@ -52,7 +52,7 @@ apps/
         components/: reusable Svelte components
           benchmark/: benchmark overlay and diagnostics components
           calendar/: calendar views, event editing, recurrence, import, and session block rendering
-          chat/: local coding-agent shell, timeline, composer, interactive requests, navigation, and archive
+          chat/: local coding-agent shell, timeline, composer, interactive requests, inspector, file browser, terminal, navigation, and archive
           icon-picker/: shared icon, emoji, custom emoji, and image picker
           music/: player controls, source parsing, playlist management surfaces
           notes/: Notes navigation, editor, databases, history, transfer, and project surfaces
@@ -68,7 +68,7 @@ apps/
         api/: typed wrappers around Tauri commands and asset URL handling
         benchmark/: benchmark runner, samplers, output, scenarios
         calendar/: shared calendar logic and iCalendar parser/serializer
-        chat/: local coding-agent contracts, runtime validation, workspace controller, and API boundaries
+        chat/: local coding-agent contracts, runtime validation, workspace controller, inspector and terminal models, and API boundaries
           contracts/: provider-neutral commands, events, models, and read DTOs
           validation/: bounded parsers for untrusted Chat responses and events
         data/: shared static/domain data helpers
@@ -102,7 +102,7 @@ apps/
         vault.rs, db_path.rs, sqlite_row.rs: data folder, database path, and row helpers
         calendar_events/, calendar_import/, calendar_reads/: split calendar persistence, import, and query services
         calendar_description.rs, calendar_import.rs, calendar_reads.rs, calendars.rs, recurrence.rs: calendar command roots and shared logic
-        chat.rs, chat/: local coding-agent contracts, canonical events, SQLite repositories and projections, credentials, device state, workspace authorization, driver boundary, metadata registry, and state machines
+        chat.rs, chat/: local coding-agent contracts, canonical events, SQLite repositories and projections, credentials, device state, workspace authorization, checkpoints, file browsing, terminals, driver boundary, metadata registry, and state machines
         pomodoro.rs, pomodoro/: timer commands, DTOs, persistence, validation, reads, and tests
         projects.rs, projects/: project commands, DTOs, persistence, validation, history, custom fields, and templates
         quick_notes/: Quick notes commands, normalized text runs, lifecycle, search, and tests
@@ -178,7 +178,7 @@ Tauri's platform app config directory stores device-local bootstrap and runtime 
 - **Desktop/mobile shell:** Tauri v2
 - **License:** AGPL 3.0
 - **Data architecture:** two categories of data with different storage. Documents (diary entries, project docs, reports, and attachments) are files on disk; SQLite can index them for fast queries but the file is the source of truth where the document format is canonical. Structured data and document graphs (Notes pages and blocks, calendar events, project tasks, workspace configs, pomodoro configs, runs, segments, pauses, and run events) live in SQLite as the source of truth. Markdown for Notes is derivative import, export, or bridge output only.
-- **AI integration:** the architecture has three opt-in paths. (1) The local coding-agent Chat uses Rust-owned native harness transports, durable SQLite history, device-local workspace bindings, operating-system credential references, and a Svelte shell. Codex app-server, the functional shell, timeline, composer, and interactive requests are implemented; workspace tools and other provider transports remain in progress. (2) A BYOK chat widget supporting hosted and local user-configured providers is planned. (3) MCP for external AI clients only, not for internal agent interaction, is planned.
+- **AI integration:** the architecture has three opt-in paths. (1) The local coding-agent Chat uses Rust-owned native harness transports, durable SQLite history, device-local workspace bindings, operating-system credential references, and a Svelte shell. Codex app-server, the functional shell, timeline, composer, interactive requests, inspector, bounded file browsing, thread terminals, and Git checkpoints are implemented; other provider transports remain in progress. (2) A BYOK chat widget supporting hosted and local user-configured providers is planned. (3) MCP for external AI clients only, not for internal agent interaction, is planned.
 - **Agent data bridge:** the planned primary bridge is a Rust `ganbaru-ai` CLI that reads the same SQLite database and can export derivative project views for agents and collaborators. The CLI is not implemented yet. The current Notes UI provides a deterministic agent-bridge markdown export for selected Notes and related project context.
 - **State management:** Svelte 5 runes ($state, $derived, $effect), no external state manager
 - **Localization:** user-facing UI text must use the typed i18n catalog. Language selectors show explicit languages as autonyms, such as `English` and `Español`, while non-language options like system preference are localized. User-facing date, time, number, plural, relative-minute, and list formatting should use the current locale helpers.

@@ -4,6 +4,7 @@ import type {
   CanonicalItemKind,
   CanonicalRequestKind,
   ChatEventId,
+  ChatCheckpointId,
   ChatThreadId,
   ChatThreadState,
   ChatTurnId,
@@ -97,6 +98,12 @@ export interface ThreadMetadataUpdatedEvent {
   providerThreadId: ProviderThreadId | null;
   resumeCursor: VersionedJson | null;
   metadata: VersionedJson | null;
+}
+
+export interface ThreadRevertedEvent {
+  checkpointId: ChatCheckpointId;
+  revertedTurnIds: ChatTurnId[];
+  providerHistoryAction: "rolled_back" | "fork_required";
 }
 
 export interface ProviderAttributedCost {
@@ -330,6 +337,7 @@ export type CanonicalEvent =
   | { type: "thread_started"; payload: ThreadStartedEvent }
   | { type: "thread_state_changed"; payload: ThreadStateChangedEvent }
   | { type: "thread_metadata_updated"; payload: ThreadMetadataUpdatedEvent }
+  | { type: "thread_reverted"; payload: ThreadRevertedEvent }
   | { type: "thread_usage_updated"; payload: ThreadUsageUpdatedEvent }
   | { type: "turn_started"; payload: TurnStartedEvent }
   | { type: "turn_completed"; payload: TurnCompletedEvent }

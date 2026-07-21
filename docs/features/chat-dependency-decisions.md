@@ -11,13 +11,15 @@ Package metadata is not evidence that a package is advisory-free. The repository
 | Async child processes | Tokio process, IO, runtime, sync, and time features | Runtime supervision | Added in Phase 4 |
 | Process-tree cleanup | Standard process-group support, Unix libc, and existing Windows Job Object APIs | Runtime supervision | Added in Phase 4 |
 | Operating-system credentials | `keyring` 4.1.5 with native platform stores | Credential storage | Added in Phase 2 |
-| Pseudoterminals | `portable-pty` 0.9.0 | Terminal | Deferred |
+| Pseudoterminals | `portable-pty` 0.9.0 | Terminal | Added in Phase 9 |
 | HTTP and event streams | Existing Reqwest and Rustls, plus `futures-util` and `eventsource-stream` 0.2.3 | OpenCode | Deferred |
 | Markdown parsing and sanitization | `marked` 18.0.6 plus existing DOMPurify | Timeline | Added in Phase 7 |
-| Diff parsing and rendering | `diff` 9.0.0 plus a bounded Ganbaru renderer | Inspector | Deferred |
-| Terminal emulation | `@xterm/xterm` 6.0.0 and `@xterm/addon-fit` 0.11.0 | Terminal | Deferred |
+| Diff parsing and rendering | `diff` 9.0.0 plus a bounded Ganbaru renderer | Inspector | Added in Phase 9 |
+| Terminal emulation | `@xterm/xterm` 6.0.0 and `@xterm/addon-fit` 0.11.0 | Terminal | Added in Phase 9 |
 
-Phase 1 did not import these packages. Phase 4 adds only Tokio's narrow process-supervision features, a direct Unix `libc` dependency, and Windows binding features. The remaining reviewed dependencies stay deferred until their first implementation phase.
+Phase 1 did not import these packages. Phase 4 added only Tokio's narrow process-supervision features, a direct Unix `libc` dependency, and Windows binding features. Phase 9 added the reviewed pseudoterminal, diff, and terminal-emulation dependencies at their first use. The HTTP and event-stream dependencies remain deferred until OpenCode is implemented.
+
+The Phase 9 dependency audit found no known npm vulnerabilities and only the repository's 18 documented allowed Rust warnings. `portable-pty`, `diff`, `@xterm/xterm`, and `@xterm/addon-fit` introduced no advisory exception.
 
 ## Async child processes
 
@@ -60,6 +62,8 @@ Phase 2 added this dependency with its default native store selection. `pnpm -w 
 
 Use [`portable-pty` 0.9.0](https://crates.io/crates/portable-pty/0.9.0) behind a Ganbaru terminal service. Put its synchronous reader and writer on dedicated blocking tasks connected to bounded channels.
 
+Phase 9 added the exact reviewed version behind Rust-owned thread and workspace authorization. Terminal sessions are capped per thread and application. Input, output chunks, replay, names, and dimensions are bounded, while generation IDs reject output from restarted sessions. The application exit path terminates every owned pseudoterminal.
+
 - Maintenance: the crate is maintained in the active WezTerm repository and uses the MIT license.
 - Advisories: run the Rust audit after addition and test its Unix and Windows transitive backends.
 - Permissions: PTY creation, shell selection, input, resize, and termination remain narrow Rust commands tied to a validated workspace and thread.
@@ -98,6 +102,8 @@ The Phase 7 dependency gate passed. npm reported no known vulnerabilities, Rust 
 
 Use [`diff` 9.0.0](https://www.npmjs.com/package/diff) to parse bounded unified patches, then render unified and fitting split views in focused Svelte components. Rust remains authoritative for file identity, binary state, rename metadata, and checkpoint comparison.
 
+Phase 9 added the exact reviewed version. The Changes panel loads it dynamically only after a bounded Rust patch is selected, converts the parsed result into inert text rows, and caps the rendered line collection. The parser never determines file identity or restore scope.
+
 - Maintenance: jsdiff is actively released, uses BSD-3-Clause licensing, and has zero production dependencies.
 - Advisories: run `pnpm audit` when it is added and keep malformed-patch fixtures at the wrapper boundary.
 - Permissions: the parser receives already bounded text. It has no filesystem or process access.
@@ -108,6 +114,10 @@ Use [`diff` 9.0.0](https://www.npmjs.com/package/diff) to parse bounded unified 
 ## Terminal emulation
 
 Use [`@xterm/xterm` 6.0.0](https://www.npmjs.com/package/%40xterm/xterm) with the official [`@xterm/addon-fit` 0.11.0](https://www.npmjs.com/package/%40xterm/addon-fit). Load both only when the Terminal surface opens.
+
+Phase 9 added both exact reviewed versions. The terminal component dynamically imports the emulator, the fit addon, and xterm CSS only when a terminal view mounts. It accepts sequenced generation-scoped bytes from typed Tauri events and does not load network, link, clipboard, image, or WebGL addons.
+
+The Phase 9 dependency gate passed. npm reported no known vulnerabilities, Rust reported only the repository's 18 documented allowed warnings, and the full static, test, editor, production build, and bundle-contract checks passed.
 
 - Maintenance: xterm.js is actively maintained, used by established developer tools, and both selected packages use the MIT license with zero production dependencies.
 - Advisories: run `pnpm audit` when they are added. Keep experimental APIs out of the initial implementation.

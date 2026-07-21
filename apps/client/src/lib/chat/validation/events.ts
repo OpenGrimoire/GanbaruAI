@@ -38,6 +38,7 @@ import {
   type SessionStateChangedEvent,
   type TaskLifecycleEvent,
   type ThreadMetadataUpdatedEvent,
+  type ThreadRevertedEvent,
   type ThreadStartedEvent,
   type ThreadStateChangedEvent,
   type ThreadUsageUpdatedEvent,
@@ -158,6 +159,19 @@ function parseThreadMetadataUpdated(value: unknown, label: string): ThreadMetada
     providerThreadId: readNullable(record.providerThreadId, `${label}.providerThreadId`, readIdentifier),
     resumeCursor: readNullable(record.resumeCursor, `${label}.resumeCursor`, readVersionedJson),
     metadata: readNullable(record.metadata, `${label}.metadata`, readVersionedJson),
+  };
+}
+
+function parseThreadReverted(value: unknown, label: string): ThreadRevertedEvent {
+  const record = readRecord(value, label);
+  return {
+    checkpointId: readIdentifier(record.checkpointId, `${label}.checkpointId`),
+    revertedTurnIds: readArray(record.revertedTurnIds, `${label}.revertedTurnIds`, readIdentifier),
+    providerHistoryAction: readEnum(
+      record.providerHistoryAction,
+      ["rolled_back", "fork_required"] as const,
+      `${label}.providerHistoryAction`,
+    ),
   };
 }
 
@@ -476,6 +490,7 @@ export function parseCanonicalEvent(value: unknown, label = "canonical event"): 
     case "thread_started": return { type, payload: parseThreadStarted(record.payload, payloadLabel) };
     case "thread_state_changed": return { type, payload: parseThreadStateChanged(record.payload, payloadLabel) };
     case "thread_metadata_updated": return { type, payload: parseThreadMetadataUpdated(record.payload, payloadLabel) };
+    case "thread_reverted": return { type, payload: parseThreadReverted(record.payload, payloadLabel) };
     case "thread_usage_updated": return { type, payload: parseThreadUsage(record.payload, payloadLabel) };
     case "turn_started": return { type, payload: parseTurnStarted(record.payload, payloadLabel) };
     case "turn_completed": return { type, payload: parseTurnCompleted(record.payload, payloadLabel) };

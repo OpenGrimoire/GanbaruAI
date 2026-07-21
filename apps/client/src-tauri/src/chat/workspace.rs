@@ -667,10 +667,21 @@ fn device_state_error(_error: String) -> ChatError {
 }
 
 pub fn open_authorized_workspace(authorized: &AuthorizedWorkspace) -> ChatResult<()> {
-    spawn_file_manager(&authorized.canonical_path).map_err(|_| {
+    open_authorized_path(authorized, &authorized.canonical_path)
+}
+
+pub fn open_authorized_path(authorized: &AuthorizedWorkspace, path: &Path) -> ChatResult<()> {
+    if !path.starts_with(&authorized.canonical_path) {
+        return Err(ChatError::new(
+            ChatErrorCode::Permission,
+            "Workspace path resolves outside the bound folder",
+            false,
+        ));
+    }
+    spawn_file_manager(path).map_err(|_| {
         ChatError::new(
             ChatErrorCode::Internal,
-            "The Chat workspace folder could not be opened",
+            "The Chat workspace path could not be opened",
             true,
         )
     })

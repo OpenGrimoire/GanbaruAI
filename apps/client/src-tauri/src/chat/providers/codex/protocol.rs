@@ -201,7 +201,7 @@ pub fn thread_open_params(
 
 pub fn turn_start_params(
     provider_thread_id: &str,
-    workspace: &Path,
+    _workspace: &Path,
     fallback_model: &str,
     request: &SendTurnRequest,
 ) -> ChatResult<Value> {
@@ -221,16 +221,41 @@ pub fn turn_start_params(
         input.push(json!({ "type": "text", "text": request.prompt }));
     }
     for attachment in &request.attachments {
-        if attachment.kind != "image" {
-            return Err(ChatError::unsupported(
-                "Codex currently accepts only image prompt attachments",
-            ));
+        match attachment.kind.as_str() {
+            "image" => {
+                let path = attachment.local_path.as_deref().ok_or_else(|| {
+                    ChatError::validation("attachments", "Codex image attachment is unavailable")
+                })?;
+                let path = Path::new(path);
+                if !path.is_absolute() || !path.is_file() {
+                    return Err(ChatError::validation(
+                        "attachments",
+                        "Codex image attachment is unavailable",
+                    ));
+                }
+                input.push(json!({
+                    "type": "localImage",
+                    "path": path.to_string_lossy(),
+                }));
+            }
+            "text_snippet" => {
+                let text = attachment.text_content.as_deref().ok_or_else(|| {
+                    ChatError::validation("attachments", "Codex text context is unavailable")
+                })?;
+                if text.len() > 128 * 1024 || text.contains('\0') {
+                    return Err(ChatError::validation(
+                        "attachments",
+                        "Codex text context exceeds the supported limit",
+                    ));
+                }
+                input.push(json!({ "type": "text", "text": text }));
+            }
+            _ => {
+                return Err(ChatError::unsupported(
+                    "Codex prompt attachment kind is unsupported",
+                ));
+            }
         }
-        let path = resolve_workspace_image(workspace, &attachment.managed_relative_path)?;
-        input.push(json!({
-            "type": "localImage",
-            "path": path.to_string_lossy(),
-        }));
     }
     if input.is_empty() {
         return Err(ChatError::validation(
@@ -434,33 +459,6 @@ fn parse_model_options(
         }
     }
     Ok((effort, service_tier))
-}
-
-fn resolve_workspace_image(workspace: &Path, relative_path: &str) -> ChatResult<PathBuf> {
-    let path = Path::new(relative_path);
-    if path.is_absolute()
-        || path
-            .components()
-            .any(|part| matches!(part, std::path::Component::ParentDir))
-    {
-        return Err(ChatError::validation(
-            "attachments",
-            "Codex image path must be relative to the verified workspace",
-        ));
-    }
-    let workspace = std::fs::canonicalize(workspace).map_err(|_| {
-        ChatError::validation("workspace", "verified workspace could not be canonicalized")
-    })?;
-    let image = std::fs::canonicalize(workspace.join(path)).map_err(|_| {
-        ChatError::validation("attachments", "Codex image attachment is unavailable")
-    })?;
-    if !image.starts_with(&workspace) || !image.is_file() {
-        return Err(ChatError::validation(
-            "attachments",
-            "Codex image attachment escapes the verified workspace",
-        ));
-    }
-    Ok(image)
 }
 
 fn validate_model_id(value: &str) -> ChatResult<()> {

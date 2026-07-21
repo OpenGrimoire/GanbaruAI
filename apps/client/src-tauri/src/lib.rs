@@ -746,6 +746,7 @@ pub fn run() {
         .manage(soundscape::SoundscapeEngineState::default())
         .manage(chat::settings_commands::ChatSettingsState::default())
         .manage(chat::runtime::ChatRuntimeRegistry::default())
+        .manage(chat::terminal::ChatTerminalRegistry::default())
         .plugin(tauri_plugin_dialog::init())
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -766,6 +767,23 @@ pub fn run() {
             chat::workspace_commands::chat_archive_workspace,
             chat::workspace_commands::chat_restore_workspace,
             chat::workspace_commands::chat_open_workspace_folder,
+            chat::workspace_files::chat_list_workspace_directory,
+            chat::workspace_files::chat_preview_workspace_file,
+            chat::workspace_files::chat_open_workspace_file,
+            chat::terminal_commands::chat_list_terminals,
+            chat::terminal_commands::chat_terminal_create,
+            chat::terminal_commands::chat_terminal_snapshot,
+            chat::terminal_commands::chat_terminal_input,
+            chat::terminal_commands::chat_terminal_resize,
+            chat::terminal_commands::chat_terminal_rename,
+            chat::terminal_commands::chat_terminal_restart,
+            chat::terminal_commands::chat_terminal_close,
+            chat::terminal_commands::chat_terminal_import_context,
+            chat::checkpoint_commands::chat_read_checkpoint_diff,
+            chat::checkpoint_commands::chat_read_checkpoint_file_diff,
+            chat::checkpoint_commands::chat_run_checkpoint_cleanup,
+            chat::restore_commands::chat_preview_checkpoint_restore,
+            chat::restore_commands::chat_execute_checkpoint_restore,
             chat::settings_commands::chat_read_settings,
             chat::settings_commands::chat_set_last_selected_thread,
             chat::settings_commands::chat_save_provider,
@@ -800,6 +818,7 @@ pub fn run() {
             chat::interaction_commands::chat_pick_images,
             chat::interaction_commands::chat_attachment_data_url,
             chat::interaction_commands::chat_read_attachments,
+            chat::interaction_commands::chat_import_text_snippet,
             chat::interaction_commands::chat_search_workspace_paths,
             chat::interaction_commands::chat_validate_workspace_mentions,
             chat::interaction_commands::chat_list_prompt_catalog,
@@ -1253,6 +1272,10 @@ pub fn run() {
 
     app.run(|app_handle, event| {
         if let tauri::RunEvent::ExitRequested { .. } = event {
+            let terminals = app_handle.state::<chat::terminal::ChatTerminalRegistry>();
+            if let Err(error) = terminals.shutdown_all() {
+                eprintln!("Chat terminal shutdown failed with code {:?}", error.code);
+            }
             let runtime = app_handle.state::<chat::runtime::ChatRuntimeRegistry>();
             if let Err(error) = tauri::async_runtime::block_on(
                 runtime.shutdown_and_wait(std::time::Duration::from_secs(4)),

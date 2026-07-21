@@ -10,6 +10,7 @@ pub async fn rebuild_thread_projections(
     let mut transaction = pool.begin().await.map_err(persistence_error)?;
     let active_turns: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM chat_turns WHERE thread_id = ?
+         AND invalidated_at IS NULL
          AND state IN ('dispatching', 'active', 'waiting_for_approval', 'waiting_for_user_input')",
     )
     .bind(thread_id.as_str())
@@ -33,13 +34,7 @@ pub async fn rebuild_thread_projections(
     .fetch_all(&mut *transaction)
     .await
     .map_err(persistence_error)?;
-    for table in [
-        "chat_pending_requests",
-        "chat_activities",
-        "chat_messages",
-        "chat_plans",
-        "chat_turns",
-    ] {
+    for table in ["chat_pending_requests", "chat_activities", "chat_plans"] {
         let statement = format!("DELETE FROM {table} WHERE thread_id = ?");
         sqlx::query(&statement)
             .bind(thread_id.as_str())
@@ -47,8 +42,30 @@ pub async fn rebuild_thread_projections(
             .await
             .map_err(persistence_error)?;
     }
+    sqlx::query("DELETE FROM chat_messages WHERE thread_id = ? AND role != 'user'")
+        .bind(thread_id.as_str())
+        .execute(&mut *transaction)
+        .await
+        .map_err(persistence_error)?;
     sqlx::query(
-        "UPDATE chat_threads SET message_count = 0, latest_preview = NULL,
+        "UPDATE chat_threads SET message_count = (
+                    SELECT COUNT(*) FROM chat_messages
+                    WHERE thread_id = chat_threads.id AND (
+                        turn_id IS NULL OR EXISTS (
+                            SELECT 1 FROM chat_turns
+                            WHERE id = chat_messages.turn_id AND invalidated_at IS NULL
+                        )
+                    )
+                ), latest_preview = (
+                    SELECT substr(normalized_markdown, -2000) FROM chat_messages
+                    WHERE thread_id = chat_threads.id AND (
+                        turn_id IS NULL OR EXISTS (
+                            SELECT 1 FROM chat_turns
+                            WHERE id = chat_messages.turn_id AND invalidated_at IS NULL
+                        )
+                    )
+                    ORDER BY sequence_anchor DESC, id DESC LIMIT 1
+                ),
                 latest_turn_state = NULL, last_projected_sequence = 0
          WHERE id = ?",
     )
@@ -61,7 +78,7 @@ pub async fn rebuild_thread_projections(
     }
     for (id, attachment_id, message_id, created_at) in message_attachment_references {
         sqlx::query(
-            "INSERT INTO chat_attachment_references
+            "INSERT OR IGNORE INTO chat_attachment_references
                 (id, attachment_id, message_id, created_at)
              SELECT ?, ?, ?, ? WHERE EXISTS (
                 SELECT 1 FROM chat_messages WHERE id = ? AND thread_id = ?

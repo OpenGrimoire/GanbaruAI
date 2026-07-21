@@ -38,6 +38,8 @@ export interface PromptAttachmentReference {
   managedRelativePath: string;
   mimeType: string | null;
   byteSize: number;
+  localPath: string | null;
+  textContent: string | null;
 }
 
 export interface WorkspaceMentionReference {

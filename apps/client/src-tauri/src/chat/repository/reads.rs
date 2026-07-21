@@ -215,19 +215,29 @@ pub async fn read_timeline_page(
                               'providerItemId', provider_item_id,
                               'metadata', json(content_metadata_data),
                               'createdAt', created_at, 'updatedAt', updated_at) AS item_data
-           FROM chat_messages WHERE thread_id = ?
+           FROM chat_messages m WHERE thread_id = ?
+             AND (turn_id IS NULL OR EXISTS (
+               SELECT 1 FROM chat_turns t WHERE t.id = m.turn_id AND t.invalidated_at IS NULL
+             ))
            UNION ALL
            SELECT id, turn_id, sequence_anchor, 'activity', safe_metadata_schema_version,
                   json_object('activityKind', item_kind, 'status', status, 'title', title,
                               'detail', detail, 'providerItemId', provider_item_id,
                               'metadata', json(safe_metadata_data),
                               'createdAt', created_at, 'updatedAt', updated_at)
-           FROM chat_activities WHERE thread_id = ?
+           FROM chat_activities a WHERE thread_id = ?
+             AND (turn_id IS NULL OR EXISTS (
+               SELECT 1 FROM chat_turns t WHERE t.id = a.turn_id AND t.invalidated_at IS NULL
+             ))
            UNION ALL
            SELECT id, origin_turn_id, sequence_anchor, 'plan', steps_schema_version,
                   json_object('markdown', markdown, 'steps', json(steps_data), 'state', state,
                               'createdAt', created_at, 'updatedAt', updated_at)
-           FROM chat_plans WHERE thread_id = ?
+           FROM chat_plans p WHERE thread_id = ?
+             AND (origin_turn_id IS NULL OR EXISTS (
+               SELECT 1 FROM chat_turns t
+               WHERE t.id = p.origin_turn_id AND t.invalidated_at IS NULL
+             ))
          )
          WHERE sequence_anchor < ?
             OR (sequence_anchor = ? AND (? IS NULL OR row_id < ?))
@@ -289,7 +299,8 @@ pub async fn read_timeline_page(
                     model_selection_data, safety_mode, interaction_mode,
                     usage_data, changed_file_summary_data
              FROM chat_turns
-             WHERE thread_id = ? AND id IN (SELECT value FROM json_each(?))
+             WHERE thread_id = ? AND invalidated_at IS NULL
+               AND id IN (SELECT value FROM json_each(?))
              ORDER BY ordinal, id",
         )
         .bind(thread_id.as_str())

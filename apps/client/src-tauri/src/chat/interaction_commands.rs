@@ -54,6 +54,15 @@ pub struct PickChatImagesRequest {
     pub title: String,
 }
 
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportChatTextSnippetRequest {
+    pub workspace_id: ChatWorkspaceId,
+    pub attachment_id: ChatAttachmentId,
+    pub display_name: String,
+    pub text: String,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatWorkspacePathRead {
@@ -343,6 +352,42 @@ pub async fn chat_read_attachments(
         result.push(attachment);
     }
     Ok(result)
+}
+
+#[tauri::command]
+pub async fn chat_import_text_snippet(
+    app: tauri::AppHandle,
+    db_url: String,
+    request: ImportChatTextSnippetRequest,
+) -> ChatResult<attachments::ChatAttachmentRead> {
+    if request.text.is_empty() || request.text.len() > 128 * 1024 || request.text.contains('\0') {
+        return Err(ChatError::validation(
+            "text",
+            "Chat text context must be between 1 byte and 128 KiB",
+        ));
+    }
+    let pool = chat_pool(app.clone(), db_url).await?;
+    require_workspace(
+        &app,
+        &pool,
+        &request.workspace_id,
+        WorkspaceAuthorizationOperation::FileRead,
+    )
+    .await?;
+    let now = now_timestamp()?;
+    attachments::import_attachment_bytes(
+        &pool,
+        &vault::active_vault_path(&app).map_err(vault_error)?,
+        attachments::AttachmentBytesImport {
+            workspace_id: &request.workspace_id,
+            attachment_id: request.attachment_id,
+            display_name: request.display_name,
+            bytes: request.text.as_bytes(),
+            requested_kind: attachments::ChatAttachmentKind::TextSnippet,
+            now: &now,
+        },
+    )
+    .await
 }
 
 #[tauri::command]
