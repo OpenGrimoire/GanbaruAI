@@ -1,4 +1,5 @@
 mod calendar;
+mod chat;
 mod core;
 mod doomscrolling;
 mod helpers;

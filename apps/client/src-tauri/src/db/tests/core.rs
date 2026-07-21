@@ -2,7 +2,7 @@ use super::super::run_migrations;
 use super::helpers::{insert_event, insert_open_run, migrated_memory_pool};
 use sqlx::Row;
 
-const EXPECTED_MIGRATION_COUNT: i64 = 10;
+const EXPECTED_MIGRATION_COUNT: i64 = 11;
 
 #[test]
 fn fresh_database_applies_baseline_and_additive_migrations() {
@@ -28,6 +28,20 @@ fn fresh_database_applies_baseline_and_additive_migrations() {
 
         for object in [
             "calendar_events",
+            "chat_workspaces",
+            "chat_threads",
+            "chat_turns",
+            "chat_messages",
+            "chat_activities",
+            "chat_pending_requests",
+            "chat_plans",
+            "chat_drafts",
+            "chat_attachments",
+            "chat_attachment_references",
+            "chat_events",
+            "chat_command_receipts",
+            "chat_checkpoints",
+            "chat_cleanup_queue",
             "project_tasks",
             "music_playlists",
             "music_playlist_tracks",

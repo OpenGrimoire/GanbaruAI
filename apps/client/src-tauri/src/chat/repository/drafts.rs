@@ -1,0 +1,353 @@
+use crate::chat::models::{
+    ChatAttachmentId, ChatError, ChatErrorCode, ChatResult, ChatThreadId, ChatWorkspaceId,
+    InteractionMode, ProviderInstanceId, SafetyMode, UtcTimestamp, VersionedJson,
+};
+use serde::{Deserialize, Serialize};
+use sqlx::{Row, SqlitePool};
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatDraftWrite {
+    pub id: String,
+    pub workspace_id: ChatWorkspaceId,
+    pub thread_id: Option<ChatThreadId>,
+    pub text: String,
+    pub attachment_ids: Vec<ChatAttachmentId>,
+    pub mentions: VersionedJson,
+    pub provider_instance_id: Option<ProviderInstanceId>,
+    pub model_selection: Option<VersionedJson>,
+    pub safety_mode: Option<SafetyMode>,
+    pub interaction_mode: Option<InteractionMode>,
+    pub sent_snapshot: Option<VersionedJson>,
+    pub updated_at: UtcTimestamp,
+}
+
+pub type ChatDraftRead = ChatDraftWrite;
+
+pub async fn save_draft(pool: &SqlitePool, draft: &ChatDraftWrite) -> ChatResult<ChatDraftRead> {
+    validate_draft(draft)?;
+    let mentions = json_text(&draft.mentions.value)?;
+    let model = versioned_parts(draft.model_selection.as_ref())?;
+    let sent = versioned_parts(draft.sent_snapshot.as_ref())?;
+    let mut transaction = pool.begin().await.map_err(persistence_error)?;
+    validate_draft_owner(&mut transaction, draft).await?;
+    sqlx::query(
+        "INSERT INTO chat_drafts
+            (id, workspace_id, thread_id, text, mentions_schema_version, mentions_data,
+             provider_instance_id, model_selection_schema_version, model_selection_data,
+             safety_mode, interaction_mode, sent_snapshot_schema_version,
+             sent_snapshot_data, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+             workspace_id = excluded.workspace_id, thread_id = excluded.thread_id,
+             text = excluded.text, mentions_schema_version = excluded.mentions_schema_version,
+             mentions_data = excluded.mentions_data,
+             provider_instance_id = excluded.provider_instance_id,
+             model_selection_schema_version = excluded.model_selection_schema_version,
+             model_selection_data = excluded.model_selection_data,
+             safety_mode = excluded.safety_mode, interaction_mode = excluded.interaction_mode,
+             sent_snapshot_schema_version = excluded.sent_snapshot_schema_version,
+             sent_snapshot_data = excluded.sent_snapshot_data, updated_at = excluded.updated_at",
+    )
+    .bind(&draft.id)
+    .bind(draft.workspace_id.as_str())
+    .bind(draft.thread_id.as_ref().map(ChatThreadId::as_str))
+    .bind(&draft.text)
+    .bind(i64::from(draft.mentions.schema_version))
+    .bind(mentions)
+    .bind(
+        draft
+            .provider_instance_id
+            .as_ref()
+            .map(ProviderInstanceId::as_str),
+    )
+    .bind(model.0)
+    .bind(model.1)
+    .bind(draft.safety_mode.map(wire_safety))
+    .bind(draft.interaction_mode.map(wire_interaction))
+    .bind(sent.0)
+    .bind(sent.1)
+    .bind(draft.updated_at.as_str())
+    .execute(&mut *transaction)
+    .await
+    .map_err(persistence_error)?;
+    sqlx::query("DELETE FROM chat_attachment_references WHERE draft_id = ?")
+        .bind(&draft.id)
+        .execute(&mut *transaction)
+        .await
+        .map_err(persistence_error)?;
+    for (index, attachment_id) in draft.attachment_ids.iter().enumerate() {
+        let workspace: Option<String> = sqlx::query_scalar(
+            "SELECT workspace_id FROM chat_attachments WHERE id = ? AND deletion_state = 'active'",
+        )
+        .bind(attachment_id.as_str())
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(persistence_error)?;
+        if workspace.as_deref() != Some(draft.workspace_id.as_str()) {
+            return Err(ChatError::validation(
+                "attachmentIds",
+                "Draft attachment does not belong to the active Chat workspace",
+            ));
+        }
+        sqlx::query(
+            "INSERT INTO chat_attachment_references
+                (id, attachment_id, draft_id, created_at) VALUES (?, ?, ?, ?)",
+        )
+        .bind(format!("draft:{}:{index}", draft.id))
+        .bind(attachment_id.as_str())
+        .bind(&draft.id)
+        .bind(draft.updated_at.as_str())
+        .execute(&mut *transaction)
+        .await
+        .map_err(persistence_error)?;
+    }
+    transaction.commit().await.map_err(persistence_error)?;
+    read_draft(pool, &draft.id).await?.ok_or_else(corrupt_data)
+}
+
+pub async fn read_draft(pool: &SqlitePool, id: &str) -> ChatResult<Option<ChatDraftRead>> {
+    let row = sqlx::query(
+        "SELECT id, workspace_id, thread_id, text, mentions_schema_version, mentions_data,
+                provider_instance_id, model_selection_schema_version, model_selection_data,
+                safety_mode, interaction_mode, sent_snapshot_schema_version,
+                sent_snapshot_data, updated_at
+         FROM chat_drafts WHERE id = ?",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await
+    .map_err(persistence_error)?;
+    let Some(row) = row else { return Ok(None) };
+    let attachment_rows = sqlx::query(
+        "SELECT attachment_id FROM chat_attachment_references
+         WHERE draft_id = ? ORDER BY id",
+    )
+    .bind(id)
+    .fetch_all(pool)
+    .await
+    .map_err(persistence_error)?;
+    Ok(Some(ChatDraftRead {
+        id: row.try_get("id").map_err(persistence_error)?,
+        workspace_id: ChatWorkspaceId::new(
+            row.try_get::<String, _>("workspace_id")
+                .map_err(persistence_error)?,
+        )
+        .map_err(|_| corrupt_data())?,
+        thread_id: row
+            .try_get::<Option<String>, _>("thread_id")
+            .map_err(persistence_error)?
+            .map(ChatThreadId::new)
+            .transpose()
+            .map_err(|_| corrupt_data())?,
+        text: row.try_get("text").map_err(persistence_error)?,
+        attachment_ids: attachment_rows
+            .into_iter()
+            .map(|row| {
+                ChatAttachmentId::new(
+                    row.try_get::<String, _>("attachment_id")
+                        .map_err(persistence_error)?,
+                )
+                .map_err(|_| corrupt_data())
+            })
+            .collect::<ChatResult<_>>()?,
+        mentions: read_required_versioned(&row, "mentions_schema_version", "mentions_data")?,
+        provider_instance_id: row
+            .try_get::<Option<String>, _>("provider_instance_id")
+            .map_err(persistence_error)?
+            .map(ProviderInstanceId::new)
+            .transpose()
+            .map_err(|_| corrupt_data())?,
+        model_selection: read_versioned(
+            &row,
+            "model_selection_schema_version",
+            "model_selection_data",
+        )?,
+        safety_mode: row
+            .try_get::<Option<String>, _>("safety_mode")
+            .map_err(persistence_error)?
+            .map(|value| parse_safety(&value))
+            .transpose()?,
+        interaction_mode: row
+            .try_get::<Option<String>, _>("interaction_mode")
+            .map_err(persistence_error)?
+            .map(|value| parse_interaction(&value))
+            .transpose()?,
+        sent_snapshot: read_versioned(&row, "sent_snapshot_schema_version", "sent_snapshot_data")?,
+        updated_at: UtcTimestamp::new(
+            row.try_get::<String, _>("updated_at")
+                .map_err(persistence_error)?,
+        )
+        .map_err(|_| corrupt_data())?,
+    }))
+}
+
+pub async fn delete_draft(
+    pool: &SqlitePool,
+    id: &str,
+    unreferenced_at: &UtcTimestamp,
+) -> ChatResult<bool> {
+    let mut transaction = pool.begin().await.map_err(persistence_error)?;
+    let attachment_ids: Vec<String> = sqlx::query_scalar(
+        "SELECT attachment_id FROM chat_attachment_references WHERE draft_id = ?",
+    )
+    .bind(id)
+    .fetch_all(&mut *transaction)
+    .await
+    .map_err(persistence_error)?;
+    let deleted = sqlx::query("DELETE FROM chat_drafts WHERE id = ?")
+        .bind(id)
+        .execute(&mut *transaction)
+        .await
+        .map_err(persistence_error)?
+        .rows_affected()
+        == 1;
+    for attachment_id in attachment_ids {
+        sqlx::query(
+            "UPDATE chat_attachments SET unreferenced_at = ?
+             WHERE id = ? AND NOT EXISTS (
+                SELECT 1 FROM chat_attachment_references WHERE attachment_id = ?
+             )",
+        )
+        .bind(unreferenced_at.as_str())
+        .bind(&attachment_id)
+        .bind(&attachment_id)
+        .execute(&mut *transaction)
+        .await
+        .map_err(persistence_error)?;
+    }
+    transaction.commit().await.map_err(persistence_error)?;
+    Ok(deleted)
+}
+
+async fn validate_draft_owner(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    draft: &ChatDraftWrite,
+) -> ChatResult<()> {
+    if let Some(thread_id) = &draft.thread_id {
+        let workspace: Option<String> =
+            sqlx::query_scalar("SELECT workspace_id FROM chat_threads WHERE id = ?")
+                .bind(thread_id.as_str())
+                .fetch_optional(&mut **transaction)
+                .await
+                .map_err(persistence_error)?;
+        if workspace.as_deref() != Some(draft.workspace_id.as_str()) {
+            return Err(ChatError::validation(
+                "threadId",
+                "Draft thread does not belong to its workspace",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_draft(draft: &ChatDraftWrite) -> ChatResult<()> {
+    if draft.id.is_empty() || draft.id.len() > 1024 || draft.id.chars().any(char::is_control) {
+        return Err(ChatError::validation(
+            "draft.id",
+            "Chat draft ID is invalid",
+        ));
+    }
+    if draft.text.len() > 16_777_216 || draft.attachment_ids.len() > 20 {
+        return Err(ChatError::validation(
+            "draft",
+            "Chat draft exceeds supported limits",
+        ));
+    }
+    if !draft.mentions.value.is_array() {
+        return Err(ChatError::validation(
+            "mentions",
+            "Chat draft mentions must be an array",
+        ));
+    }
+    Ok(())
+}
+
+fn versioned_parts(value: Option<&VersionedJson>) -> ChatResult<(Option<i64>, Option<String>)> {
+    value
+        .map(|value| {
+            Ok((
+                Some(i64::from(value.schema_version)),
+                Some(json_text(&value.value)?),
+            ))
+        })
+        .unwrap_or(Ok((None, None)))
+}
+fn read_required_versioned(
+    row: &sqlx::sqlite::SqliteRow,
+    version: &str,
+    data: &str,
+) -> ChatResult<VersionedJson> {
+    read_versioned(row, version, data)?.ok_or_else(corrupt_data)
+}
+fn read_versioned(
+    row: &sqlx::sqlite::SqliteRow,
+    version: &str,
+    data: &str,
+) -> ChatResult<Option<VersionedJson>> {
+    match (
+        row.try_get::<Option<i64>, _>(version)
+            .map_err(persistence_error)?,
+        row.try_get::<Option<String>, _>(data)
+            .map_err(persistence_error)?,
+    ) {
+        (None, None) => Ok(None),
+        (Some(version), Some(data)) => Ok(Some(VersionedJson {
+            schema_version: u32::try_from(version).map_err(|_| corrupt_data())?,
+            value: serde_json::from_str(&data).map_err(serialization_error)?,
+        })),
+        _ => Err(corrupt_data()),
+    }
+}
+fn json_text(value: &serde_json::Value) -> ChatResult<String> {
+    serde_json::to_string(value).map_err(serialization_error)
+}
+fn wire_safety(value: SafetyMode) -> &'static str {
+    match value {
+        SafetyMode::Supervised => "supervised",
+        SafetyMode::AutoAcceptEdits => "auto_accept_edits",
+        SafetyMode::FullAccess => "full_access",
+    }
+}
+fn wire_interaction(value: InteractionMode) -> &'static str {
+    match value {
+        InteractionMode::Build => "build",
+        InteractionMode::Plan => "plan",
+    }
+}
+fn parse_safety(value: &str) -> ChatResult<SafetyMode> {
+    match value {
+        "supervised" => Ok(SafetyMode::Supervised),
+        "auto_accept_edits" => Ok(SafetyMode::AutoAcceptEdits),
+        "full_access" => Ok(SafetyMode::FullAccess),
+        _ => Err(corrupt_data()),
+    }
+}
+fn parse_interaction(value: &str) -> ChatResult<InteractionMode> {
+    match value {
+        "build" => Ok(InteractionMode::Build),
+        "plan" => Ok(InteractionMode::Plan),
+        _ => Err(corrupt_data()),
+    }
+}
+fn persistence_error<T>(_error: T) -> ChatError {
+    ChatError::new(
+        ChatErrorCode::Persistence,
+        "Chat draft persistence failed",
+        true,
+    )
+}
+fn serialization_error<T>(_error: T) -> ChatError {
+    ChatError::new(
+        ChatErrorCode::Persistence,
+        "Chat draft JSON is invalid",
+        false,
+    )
+}
+fn corrupt_data() -> ChatError {
+    ChatError::new(
+        ChatErrorCode::Persistence,
+        "Stored Chat draft is invalid",
+        false,
+    )
+}

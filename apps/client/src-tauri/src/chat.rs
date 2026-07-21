@@ -9,6 +9,7 @@ pub mod device_state;
 pub mod events;
 pub mod models;
 pub mod providers;
+pub mod repository;
 pub mod state;
 pub mod workspace;
 pub mod workspace_commands;

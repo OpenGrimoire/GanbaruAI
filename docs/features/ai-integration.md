@@ -20,6 +20,8 @@ Chat does not use `codex exec`, terminal scraping, a resident Node server, or a 
 
 Logical Chat workspaces are separate from Ganbaru Project records. A workspace can reference one existing project or declare an explicit standalone context, while its absolute folder binding remains scoped to the active vault and current device. Rust canonicalizes each selected folder, probes credential-stripped repository identity, and repeats both checks before any workspace-authorized operation. A different repository cannot silently replace an existing logical workspace.
 
+Chat persistence uses an append-only canonical event log plus transactionally maintained SQLite projections. Lightweight workspace and thread shells, indexed active and archived title search, and bounded sequence-anchor timeline pages do not load complete conversation history. Drafts persist text, versioned mentions and selections, and managed attachment references. Projection rebuild replays canonical events and preserves attachment links, while archive remains reversible and permanent deletion records deferred cleanup work before removing owned conversation rows.
+
 Provider secrets use opaque credential references. Secret values are nonserializable Rust values stored through the operating-system credential service. Folder-local `config.json` contains only validated portable provider preferences, while executable paths, provider home paths, probe caches, and workspace paths remain in device-local application state.
 
 ### 2. BYOK general assistant (future general-user path)
