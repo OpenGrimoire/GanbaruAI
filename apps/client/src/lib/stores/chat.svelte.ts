@@ -27,6 +27,7 @@ import type {
 import { evictTimelinePages, mergeTimelineItems } from "$lib/chat/timeline-virtualization";
 import { ChatComposerController, parseDraftMentions, type ChatComposerSnapshot } from "$lib/chat/composer-controller";
 import { queuedFollowupDispatchReady, readComposerModelSelection } from "$lib/chat/composer-model";
+import { AsyncFrameCoalescer } from "$lib/chat/frame-coalescer";
 
 class ChatStore {
   private readonly composerController = new ChatComposerController();
@@ -56,6 +57,9 @@ class ChatStore {
   private interactionRequest = 0;
   private attachmentKey = "";
   private readonly queuedDispatches = new Set<string>();
+  private readonly nativeChanges = new AsyncFrameCoalescer<string>(
+    (threadId) => this.refreshNativeChange(threadId),
+  );
   private loaded = false;
 
   constructor() {
@@ -485,7 +489,13 @@ class ChatStore {
 
   async handleNativeChange(threadId: string): Promise<void> {
     if (threadId !== this.selectedThreadId) return;
+    await this.nativeChanges.push(threadId);
+  }
+
+  private async refreshNativeChange(threadId: string): Promise<void> {
+    if (threadId !== this.selectedThreadId) return;
     await this.loadTimeline(threadId);
+    if (threadId !== this.selectedThreadId) return;
     const active = await chatApi.listChatThreads(null, false);
     this.activeThreads = active;
     await this.refreshInteraction(threadId);

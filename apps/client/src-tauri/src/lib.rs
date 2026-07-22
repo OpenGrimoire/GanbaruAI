@@ -731,6 +731,9 @@ pub fn run() {
     if run_delayed_relaunch_helper_if_needed() {
         return;
     }
+    if chat::benchmark::run_benchmark_child_if_requested() {
+        return;
+    }
     PROCESS_START.set(std::time::Instant::now()).ok();
 
     let app = tauri::Builder::default()
@@ -969,6 +972,9 @@ pub fn run() {
             teardown_benchmark_db,
             benchmark_seed::benchmark_seed_pomodoro_history,
             benchmark_seed::benchmark_seed_dense_music_library,
+            benchmark_seed::benchmark_seed_dense_chat_workspace,
+            benchmark_seed::benchmark_measure_chat_provider_stop,
+            benchmark_seed::benchmark_read_process_cpu_ms,
             restart_app,
             updates::updater_install_context,
             restart_app_after_delay,

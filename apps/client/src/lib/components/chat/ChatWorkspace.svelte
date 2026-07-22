@@ -6,7 +6,7 @@
   import PanelRight from "@lucide/svelte/icons/panel-right";
   import Search from "@lucide/svelte/icons/search";
   import Settings from "@lucide/svelte/icons/settings";
-  import { nextThreadIndex } from "$lib/chat/shell-model";
+  import { filterThreadTitles, nextThreadIndex } from "$lib/chat/shell-model";
   import { inspectorFocusAction } from "$lib/chat/inspector-model";
   import {
     chatLayoutDecision,
@@ -26,6 +26,7 @@
   import ChatInspector from "./ChatInspector.svelte";
   import ChatThreadRail from "./ChatThreadRail.svelte";
   import ChatTimeline from "./ChatTimeline.svelte";
+  import { getChatBenchmarkHandle } from "./benchmark-handle.svelte";
 
   const { t } = getLocalization();
   const chat = getChat();
@@ -94,12 +95,82 @@
       void restoreMessageCheckpoint(event.detail.threadId, event.detail.checkpointId);
     };
     window.addEventListener("ganbaru-ai:chat-revert-message", revertMessage);
+    const unregisterBenchmark = getChatBenchmarkHandle().register({
+      threadIds: () => chat.activeThreads.map((thread) => thread.id),
+      waitUntilUsable: () => waitForBenchmarkState(() => !chat.loading && chat.activeThreads.length > 0),
+      switchThread: async (threadId) => {
+        chat.selectThread(threadId);
+        await waitForBenchmarkState(() => (
+          chat.selectedThreadId === threadId
+          && !chat.timelineLoading
+          && chat.timelineItems.length > 0
+        ));
+        await nextAnimationFrame();
+      },
+      localSearch: (query) => filterThreadTitles(
+        [...chat.activeThreads, ...chat.archivedThreads],
+        query,
+      ).length,
+      streamFrames: (frameCount) => measureBenchmarkStreamFrames(frameCount),
+    });
     return () => {
+      unregisterBenchmark();
       observer.disconnect();
       window.removeEventListener("ganbaru-ai:chat-revert-message", revertMessage);
       void unlisten.then((dispose) => dispose());
     };
   });
+
+  function nextAnimationFrame(): Promise<number> {
+    return new Promise((resolve) => requestAnimationFrame(resolve));
+  }
+
+  async function waitForBenchmarkState(
+    predicate: () => boolean,
+    timeoutMs = 10_000,
+  ): Promise<void> {
+    const deadline = performance.now() + timeoutMs;
+    while (!predicate()) {
+      if (performance.now() >= deadline) throw new Error("Chat benchmark state timed out");
+      await nextAnimationFrame();
+    }
+  }
+
+  async function measureBenchmarkStreamFrames(frameCount: number): Promise<number[]> {
+    const targetIndex = chat.timelineItems.findLastIndex((item) => item.kind === "message");
+    const original = chat.timelineItems[targetIndex];
+    if (!original || targetIndex < 0) throw new Error("Chat benchmark requires a loaded message");
+    const originalValue = original.data.value;
+    if (!originalValue || typeof originalValue !== "object" || Array.isArray(originalValue)) {
+      throw new Error("Chat benchmark message payload is invalid");
+    }
+    const markdown = typeof originalValue.markdown === "string" ? originalValue.markdown : "";
+    const samples: number[] = [];
+    let previous = await nextAnimationFrame();
+    try {
+      for (let index = 0; index < frameCount; index++) {
+        chat.timelineItems = chat.timelineItems.map((item, itemIndex) => itemIndex === targetIndex
+          ? {
+              ...item,
+              data: {
+                ...item.data,
+                value: { ...originalValue, markdown: `${markdown}\nstream-${index}` },
+              },
+            }
+          : item);
+        await tick();
+        const painted = await nextAnimationFrame();
+        samples.push(painted - previous);
+        previous = painted;
+      }
+    } finally {
+      chat.timelineItems = chat.timelineItems.map((item, itemIndex) => itemIndex === targetIndex
+        ? { ...item, data: { ...item.data, value: originalValue } }
+        : item);
+      await tick();
+    }
+    return samples;
+  }
 
   $effect(() => {
     if (!resizingRail && chat.settings) railWidth = chat.settings.configuration.panels.railWidthPx;
@@ -412,7 +483,7 @@
 
 <svelte:window onkeydown={handleKeydown} />
 
-<div bind:this={rootElement} class="chat-workspace @container/chat-shell relative flex h-full min-h-0 overflow-hidden" data-layout={layout.variant} data-rail-presentation={layout.railPresentation} data-inspector-presentation={layout.inspectorPresentation} data-active-surface={layout.activeSurface} style="background-color:var(--cal-bg);container-type:inline-size;container-name:chat-shell;">
+<div bind:this={rootElement} class="chat-workspace @container/chat-shell relative flex h-full min-h-0 overflow-hidden" data-chat-workspace data-layout={layout.variant} data-rail-presentation={layout.railPresentation} data-inspector-presentation={layout.inspectorPresentation} data-active-surface={layout.activeSurface} style="background-color:var(--cal-bg);container-type:inline-size;container-name:chat-shell;">
   <div class="sr-only" aria-live="polite" aria-atomic="true">{politeAnnouncement}</div>
   <div class="sr-only" aria-live="assertive" aria-atomic="true">{assertiveAnnouncement}</div>
   {#if layoutError}<div role="alert" class="absolute inset-x-2 top-2 z-50 rounded border border-destructive/40 bg-background p-2 text-xs text-destructive">{layoutError}</div>{/if}
