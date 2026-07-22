@@ -52,6 +52,8 @@
   let importing = $state(false);
   let previewAttachmentId = $state<string | null>(null);
   let previewUrl = $state<string | null>(null);
+  let previewDialog: HTMLDivElement | undefined = $state();
+  let previewReturnFocus: HTMLElement | null = null;
   let thumbnailUrls = $state<Record<string, string>>({});
   let forceStopAvailable = $state(false);
   let stopTimer: ReturnType<typeof setTimeout> | null = null;
@@ -354,8 +356,31 @@
   }
 
   async function openPreview(attachmentId: string): Promise<void> {
+    previewReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     previewAttachmentId = attachmentId;
     previewUrl = thumbnailUrls[attachmentId] ?? await chatApi.chatAttachmentDataUrl(attachmentId);
+    await tick();
+    previewDialog?.querySelector<HTMLElement>("button")?.focus();
+  }
+
+  function closePreview(): void {
+    previewAttachmentId = null;
+    previewUrl = null;
+    const target = previewReturnFocus;
+    queueMicrotask(() => target?.isConnected && target.focus());
+  }
+
+  function handlePreviewKeydown(event: KeyboardEvent): void {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      closePreview();
+      return;
+    }
+    if (event.key === "Tab") {
+      event.preventDefault();
+      previewDialog?.querySelector<HTMLElement>("button")?.focus();
+    }
   }
 
   function contextLabel(): string | null {
@@ -399,7 +424,7 @@
   {#if operationError || chat.composer.error}<p role="alert" class="composer-error">{operationError ?? chat.composer.error}</p>{/if}
 </section>
 
-{#if previewAttachment && previewUrl}<div class="fixed inset-0 z-60 grid place-items-center bg-black/50 p-4"><button type="button" class="absolute inset-0" aria-label={t("chat.cancel")} onclick={() => { previewAttachmentId = null; previewUrl = null; }}></button><div class="relative flex max-h-full max-w-full flex-col rounded-lg border border-border bg-background p-3 shadow-2xl" role="dialog" aria-modal="true" aria-label={t("chat.composer.previewAttachment", previewAttachment.originalDisplayName)}><header class="mb-2 flex items-center gap-2"><strong class="min-w-0 flex-1 truncate text-sm">{previewAttachment.originalDisplayName}</strong><span class="text-xs text-muted-foreground">{formatNumber(localization.locale, previewAttachment.byteSize)} B</span><button type="button" onclick={() => { previewAttachmentId = null; previewUrl = null; }}><X size={14} /></button></header><img class="min-h-0 max-h-[75vh] max-w-[85vw] object-contain" src={previewUrl} alt={previewAttachment.originalDisplayName} /></div></div>{/if}
+{#if previewAttachment && previewUrl}<div class="fixed inset-0 z-60 grid place-items-center bg-black/50 p-4"><button type="button" class="absolute inset-0" aria-label={t("chat.cancel")} onclick={closePreview}></button><div bind:this={previewDialog} class="relative flex max-h-full max-w-full flex-col rounded-lg border border-border bg-background p-3 shadow-2xl" role="dialog" aria-modal="true" aria-label={t("chat.composer.previewAttachment", previewAttachment.originalDisplayName)} tabindex="-1" onkeydown={handlePreviewKeydown}><header class="mb-2 flex items-center gap-2"><strong class="min-w-0 flex-1 truncate text-sm">{previewAttachment.originalDisplayName}</strong><span class="text-xs text-muted-foreground">{formatNumber(localization.locale, previewAttachment.byteSize)} B</span><button type="button" aria-label={t("chat.cancel")} onclick={closePreview}><X size={14} /></button></header><img class="min-h-0 max-h-[75vh] max-w-[85vw] object-contain" src={previewUrl} alt={previewAttachment.originalDisplayName} /></div></div>{/if}
 
 <style>
   .chat-composer { container-type: inline-size; container-name: chat-composer; position: relative; display: grid; gap: 0.5rem; width: min(100% - 1rem, 52rem); margin: 0 auto 0.5rem; border: 1px solid var(--border); border-radius: 0.75rem; background: var(--card); padding: 0.65rem; box-shadow: 0 8px 24px rgb(0 0 0 / 0.08); }
@@ -412,7 +437,7 @@
   .toolbar-left button, .toolbar-right button { display: inline-flex; min-height: 1.9rem; align-items: center; justify-content: center; gap: 0.3rem; border-radius: 0.35rem; padding: 0.25rem 0.4rem; font-size: 0.7rem; }
   .toolbar-left button:hover, .toolbar-right button:hover { background: var(--accent); }
   .toolbar-left span { overflow: hidden; max-width: 12rem; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-foreground); font-size: 0.666667rem; }
-  .toolbar-left span.warning { color: var(--warning); }
+  .toolbar-left span.warning { color: var(--status-tentative); }
   .toolbar-left meter { width: 2.5rem; height: 0.35rem; }
   .provider-status { position: relative; }
   .provider-status summary { cursor: pointer; color: var(--muted-foreground); font-size: 0.666667rem; }
@@ -429,7 +454,7 @@
   .attachment-preview img { width: 100%; height: 100%; object-fit: cover; }
   .mention-chips { display: flex; flex-wrap: wrap; gap: 0.3rem; }
   .mention-chips > span { display: inline-flex; max-width: 100%; align-items: center; gap: 0.2rem; border: 1px solid var(--border); border-radius: 999px; padding: 0.2rem 0.4rem; font-size: 0.666667rem; }
-  .mention-chips small { color: var(--warning); }
+  .mention-chips small { color: var(--status-tentative); }
   .composer-menu { position: absolute; inset-inline: 0; bottom: calc(100% + 0.35rem); z-index: 25; max-height: min(20rem, 55vh); overflow: auto; border: 1px solid var(--border); border-radius: 0.5rem; background: var(--popover); padding: 0.35rem; box-shadow: 0 12px 30px rgb(0 0 0 / 0.22); }
   .composer-menu > label, .composer-menu > p { display: flex; align-items: center; gap: 0.35rem; padding: 0.35rem; color: var(--muted-foreground); font-size: 0.7rem; }
   .composer-menu > button { display: block; width: 100%; border-radius: 0.35rem; padding: 0.4rem; text-align: left; }

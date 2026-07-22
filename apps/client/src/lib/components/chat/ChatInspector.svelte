@@ -46,6 +46,21 @@
     state = chatInspectorSession.update(chat.selectedThreadId, updateValue);
     if (updateValue.maximized !== undefined) onMaximizedChange(updateValue.maximized);
   }
+
+  function handleTabKeydown(event: KeyboardEvent, index: number): void {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const next = event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? tabs.length - 1
+        : (index + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+    const tab = tabs[next];
+    if (!tab) return;
+    update({ tab: tab.id });
+    const buttons = (event.currentTarget as HTMLElement).parentElement?.querySelectorAll<HTMLElement>("[role='tab']");
+    queueMicrotask(() => buttons?.[next]?.focus());
+  }
 </script>
 
 <div class="flex h-full min-h-0 flex-col" data-chat-inspector>
@@ -57,16 +72,18 @@
     <button type="button" class="chat-icon-button" aria-label={t("chat.closeInspector")} onclick={onClose}><X size={14} /></button>
   </header>
   <div class="grid grid-cols-4 border-b border-border" role="tablist" aria-label={t("chat.inspector.title")}>
-    {#each tabs as tab (tab.id)}
+    {#each tabs as tab, index (tab.id)}
       {@const Icon = tab.icon}
       <button
         type="button"
         role="tab"
         data-inspector-tab={tab.id}
         aria-selected={state.tab === tab.id}
+        tabindex={state.tab === tab.id ? 0 : -1}
         class="inspector-tab"
         class:active={state.tab === tab.id}
         onclick={() => update({ tab: tab.id })}
+        onkeydown={(event) => handleTabKeydown(event, index)}
       ><Icon size={13} /><span>{t(`chat.inspector.${tab.label}`)}</span></button>
     {/each}
   </div>

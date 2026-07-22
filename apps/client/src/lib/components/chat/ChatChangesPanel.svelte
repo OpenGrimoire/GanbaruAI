@@ -13,6 +13,7 @@
     ChatChangedFileRead,
   } from "$lib/chat/contracts";
   import { splitDiffFits } from "$lib/chat/inspector-model";
+  import { formatNumber } from "$lib/i18n/formatters";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
   import ChatChangedFileTree from "./ChatChangedFileTree.svelte";
@@ -36,7 +37,8 @@
     }) => void;
   } = $props();
 
-  const { t } = getLocalization();
+  const localization = getLocalization();
+  const { t } = localization;
   const chat = getChat();
   let diff = $state<ChatCheckpointDiffRead | null>(null);
   let fileDiff = $state<ChatCheckpointFileDiffRead | null>(null);
@@ -201,14 +203,14 @@
       {t("chat.inspector.ignoreWhitespace")}
     </label>
     {#if diff?.available}
-      <span class="ml-auto text-[0.666667rem]"><span class="text-emerald-600">{t("chat.inspector.additions", diff.additions)}</span> <span class="text-destructive">{t("chat.inspector.deletions", diff.deletions)}</span></span>
+      <span class="ml-auto text-[0.666667rem]"><span class="text-action-confirm">{t("chat.inspector.additions", formatNumber(localization.locale, diff.additions))}</span> <span class="text-destructive">{t("chat.inspector.deletions", formatNumber(localization.locale, diff.deletions))}</span></span>
       <button type="button" class="chat-icon-button" disabled={restoring} title={t("chat.timeline.revert")} onclick={() => { void restoreCheckpoint(); }}><RotateCcw size={13} /></button>
     {/if}
   </div>
 
   {#if error}<p role="alert" class="border-b border-destructive/30 p-2 text-xs text-destructive">{error}</p>{/if}
   {#if diff?.providerMismatch}
-    <p class="flex items-center gap-2 border-b border-amber-500/30 bg-amber-500/10 p-2 text-xs"><AlertTriangle size={13} />{t("chat.inspector.providerMismatch")}</p>
+    <p class="flex items-center gap-2 border-b border-status-tentative/30 bg-status-tentative/10 p-2 text-xs text-status-tentative"><AlertTriangle size={13} />{t("chat.inspector.providerMismatch")}</p>
   {/if}
   {#if chat.selectedWorkspace?.workspace.repositoryKind === "none"}
     <p class="border-b border-border p-2 text-xs text-muted-foreground">{t("chat.inspector.nonGitNotice")}</p>
@@ -270,7 +272,7 @@
   .chat-scope-button { border-radius: 0.2rem; padding: 0.2rem 0.4rem; font-size: 0.666667rem; }
   .chat-scope-button.active { background: var(--accent); color: var(--accent-foreground); }
   .diff-line { display: grid; min-width: max-content; grid-template-columns: 2.75rem 2.75rem minmax(0, 1fr); padding-right: 0.75rem; }
-  .diff-line.addition { background: color-mix(in srgb, var(--success, #16a34a) 13%, transparent); }
+  .diff-line.addition { background: color-mix(in srgb, var(--action-confirm) 13%, transparent); }
   .diff-line.deletion { background: color-mix(in srgb, var(--destructive) 12%, transparent); }
   .diff-line.header { background: var(--muted); color: var(--muted-foreground); }
   .line-number { user-select: none; border-right: 1px solid var(--border); padding-right: 0.35rem; text-align: right; color: var(--muted-foreground); }
@@ -278,7 +280,7 @@
   .split-header { min-width: max-content; background: var(--muted); padding: 0 0.5rem; color: var(--muted-foreground); }
   .split-line { display: grid; min-width: 45rem; grid-template-columns: 2.75rem minmax(18rem, 1fr) 2.75rem minmax(18rem, 1fr); }
   .split-code { min-height: 1.25rem; white-space: pre; border-right: 1px solid var(--border); padding-inline: 0.5rem; }
-  .split-code.addition { background: color-mix(in srgb, var(--success, #16a34a) 13%, transparent); }
+  .split-code.addition { background: color-mix(in srgb, var(--action-confirm) 13%, transparent); }
   .split-code.deletion { background: color-mix(in srgb, var(--destructive) 12%, transparent); }
   .split-code.empty { background: color-mix(in srgb, var(--muted) 50%, transparent); }
 </style>

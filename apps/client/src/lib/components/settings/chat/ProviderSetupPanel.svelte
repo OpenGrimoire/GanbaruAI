@@ -20,6 +20,7 @@
     type ProviderSetupDraft,
     type ProviderSetupStep,
   } from "$lib/chat/provider-setup";
+  import { formatNumber } from "$lib/i18n/formatters";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
   import type { ChatProviderSetupTarget } from "../types";
@@ -40,7 +41,8 @@
     onScrollbarInsetsChange?: (insets: { top: number; bottom: number }) => void;
   } = $props();
 
-  const { t } = getLocalization();
+  const localization = getLocalization();
+  const { t } = localization;
   const chat = getChat();
   let draft = $state<ProviderSetupDraft>(createProviderSetupDraft());
   let scrollElement: HTMLDivElement | undefined = $state();
@@ -358,7 +360,7 @@
             <button type="button" class="rounded-lg border border-border bg-card p-4 text-left hover:bg-accent/50" onclick={() => selectFamily(providerFamily.familyId, providerFamily.defaultExecutableCandidates[0] ?? "")}>
               <span class="font-semibold text-foreground">{providerFamily.displayName}</span>
               <span class="mt-1 block text-[0.8rem] text-muted-foreground">{familyDescription(providerFamily.familyId)}</span>
-              {#if providerFamily.implementationStatus !== "available"}<span class="mt-2 block text-[0.733333rem] text-warning">{providerFamily.unavailableReason}</span>{/if}
+              {#if providerFamily.implementationStatus !== "available"}<span class="mt-2 block text-[0.733333rem] text-status-tentative">{providerFamily.unavailableReason}</span>{/if}
             </button>
           {/each}
         </div>
@@ -386,7 +388,7 @@
             <label class="setup-field"><span>{t("settings.chat.setup.endpoint")}</span><input value={openCodeServerUrl()} oninput={(event) => setProviderConfigValue("serverUrl", event.currentTarget.value)} />{#if fieldError("providerConfig.serverUrl")}<small>{fieldError("providerConfig.serverUrl")}</small>{/if}</label>
             <label class="flex items-start gap-2 text-sm"><input class="mt-0.5" type="checkbox" checked={providerConfigBoolean("confirmExternalWorkspaceAccess")} onchange={(event) => setProviderConfigBoolean("confirmExternalWorkspaceAccess", event.currentTarget.checked)} /><span>{t("settings.chat.setup.confirmExternalWorkspaceAccess")}{#if fieldError("providerConfig.confirmExternalWorkspaceAccess")}<small class="mt-1 block text-destructive">{fieldError("providerConfig.confirmExternalWorkspaceAccess")}</small>{/if}</span></label>
             {#if openCodeUsesInsecureExternalHttp()}
-              <div class="rounded-md border border-warning/50 bg-warning/10 p-3 text-sm text-warning"><p>{t("settings.chat.setup.insecureExternalHttpWarning")}</p><label class="mt-2 flex items-start gap-2"><input class="mt-0.5" type="checkbox" checked={providerConfigBoolean("allowInsecureExternalHttp")} onchange={(event) => setProviderConfigBoolean("allowInsecureExternalHttp", event.currentTarget.checked)} /><span>{t("settings.chat.setup.allowInsecureExternalHttp")}{#if fieldError("providerConfig.allowInsecureExternalHttp")}<small class="mt-1 block">{fieldError("providerConfig.allowInsecureExternalHttp")}</small>{/if}</span></label></div>
+              <div class="rounded-md border border-status-tentative/50 bg-status-tentative/10 p-3 text-sm text-status-tentative"><p>{t("settings.chat.setup.insecureExternalHttpWarning")}</p><label class="mt-2 flex items-start gap-2"><input class="mt-0.5" type="checkbox" checked={providerConfigBoolean("allowInsecureExternalHttp")} onchange={(event) => setProviderConfigBoolean("allowInsecureExternalHttp", event.currentTarget.checked)} /><span>{t("settings.chat.setup.allowInsecureExternalHttp")}{#if fieldError("providerConfig.allowInsecureExternalHttp")}<small class="mt-1 block">{fieldError("providerConfig.allowInsecureExternalHttp")}</small>{/if}</span></label></div>
             {/if}
             {#if openCodePassword}<div class="setup-field"><span>{t("settings.chat.setup.externalPassword")}</span><div class="flex gap-1"><input class="min-w-0 flex-1" type={revealSecrets[openCodePassword.key] ? "text" : "password"} value={pendingSecrets[openCodePassword.key] ?? ""} placeholder={openCodePassword.credentialReference ? t("settings.chat.setup.stored") : t("settings.chat.setup.missing")} oninput={(event) => { pendingSecrets[openCodePassword.key] = event.currentTarget.value; }} /><button type="button" class="setup-icon-button" onclick={() => { revealSecrets[openCodePassword.key] = !revealSecrets[openCodePassword.key]; }}>{#if revealSecrets[openCodePassword.key]}<EyeOff size={13} />{:else}<Eye size={13} />{/if}</button><button type="button" class="setup-icon-button" aria-label={t("settings.chat.setup.storeSecret")} onclick={() => void storeSecret(openCodePassword)}><Check size={13} /></button><button type="button" class="setup-icon-button" aria-label={t("settings.chat.setup.removeSecret")} onclick={() => { if (openCodePassword.credentialReference) void removeSecret(openCodePassword); removeEnvironment(openCodePassword.key); }}><Trash2 size={13} /></button></div>{#if fieldError(`environment.${openCodePassword.key}.value`)}<small>{fieldError(`environment.${openCodePassword.key}.value`)}</small>{/if}</div>{:else}<button type="button" class="setup-add-button" onclick={addOpenCodePassword}><Plus size={14} />{t("settings.chat.setup.addExternalPassword")}</button>{/if}
           {/if}
@@ -411,7 +413,7 @@
           </div>
         </details>
 
-        {#if testResult}<div class="rounded-md border p-3 text-sm {testSucceeded ? 'border-success/50 text-success' : 'border-warning/50 text-warning'}"><div>{testSucceeded ? t("settings.chat.setup.testPassed", testResult.modelCatalog?.models.length ?? 0) : t("settings.chat.setup.testFailed", testResult.probe.detail ?? testResult.probe.state)}</div><dl class="mt-2 grid gap-1 text-xs sm:grid-cols-2"><div><dt class="text-muted-foreground">{t("settings.chat.setup.executable")}</dt><dd>{draft.executable}</dd></div><div><dt class="text-muted-foreground">{t("settings.chat.providers.version")}</dt><dd>{testResult.probe.version ?? t("settings.chat.providers.neverChecked")}</dd></div><div><dt class="text-muted-foreground">{t("settings.chat.providers.account")}</dt><dd>{testResult.probe.accountLabel ?? t("settings.chat.providers.authenticationRequired")}</dd></div><div><dt class="text-muted-foreground">{t("settings.chat.models.heading")}</dt><dd>{testResult.modelCatalog?.models.length ?? 0}</dd></div></dl>{#if testResult.probe.detail}<p class="mt-2">{testResult.probe.detail}</p>{/if}</div>{/if}
+        {#if testResult}<div class="rounded-md border p-3 text-sm {testSucceeded ? 'border-action-confirm/50 text-action-confirm' : 'border-status-tentative/50 text-status-tentative'}"><div>{testSucceeded ? t("settings.chat.setup.testPassed", formatNumber(localization.locale, testResult.modelCatalog?.models.length ?? 0)) : t("settings.chat.setup.testFailed", testResult.probe.detail ?? testResult.probe.state)}</div><dl class="mt-2 grid gap-1 text-xs sm:grid-cols-2"><div><dt class="text-muted-foreground">{t("settings.chat.setup.executable")}</dt><dd>{draft.executable}</dd></div><div><dt class="text-muted-foreground">{t("settings.chat.providers.version")}</dt><dd>{testResult.probe.version ?? t("settings.chat.providers.neverChecked")}</dd></div><div><dt class="text-muted-foreground">{t("settings.chat.providers.account")}</dt><dd>{testResult.probe.accountLabel ?? t("settings.chat.providers.authenticationRequired")}</dd></div><div><dt class="text-muted-foreground">{t("settings.chat.models.heading")}</dt><dd>{formatNumber(localization.locale, testResult.modelCatalog?.models.length ?? 0)}</dd></div></dl>{#if testResult.probe.detail}<p class="mt-2">{testResult.probe.detail}</p>{/if}</div>{/if}
         {#if operationError}<div role="alert" class="rounded-md border border-destructive/40 p-3 text-sm text-destructive">{t("settings.chat.setup.testFailed", operationError)}</div>{/if}
       </section>
     {/if}

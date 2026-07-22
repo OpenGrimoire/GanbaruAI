@@ -92,9 +92,19 @@ describe("ChatComposer", () => {
     await tick();
     await Promise.resolve();
     await tick();
-    target.querySelector<HTMLButtonElement>(".attachment-preview")?.click();
+    const previewTrigger = target.querySelector<HTMLButtonElement>(".attachment-preview");
+    previewTrigger?.focus();
+    previewTrigger?.click();
     await tick();
-    expect(target.querySelector('[role="dialog"]')?.textContent).toContain("diagram.png");
+    await Promise.resolve();
+    await tick();
+    const previewDialog = target.querySelector<HTMLElement>('[role="dialog"]');
+    expect(previewDialog?.textContent).toContain("diagram.png");
+    expect(previewDialog?.contains(document.activeElement)).toBe(true);
+    previewDialog?.querySelector<HTMLButtonElement>("header button")?.click();
+    await tick();
+    await Promise.resolve();
+    expect(document.activeElement).toBe(previewTrigger);
 
     const fileInput = target.querySelector<HTMLInputElement>('input[type="file"]');
     if (!fileInput) throw new Error("Image input did not render");

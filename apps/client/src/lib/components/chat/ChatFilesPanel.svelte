@@ -8,6 +8,7 @@
   import * as chatApi from "$lib/api/chat";
   import type { ChatWorkspaceFileEntry, ChatWorkspaceFilePreview, ChatWorkspacePathRead } from "$lib/chat/contracts";
   import { boundTerminalContext } from "$lib/chat/terminal-model";
+  import { formatNumber } from "$lib/i18n/formatters";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
 
@@ -21,7 +22,8 @@
     onStateChange: (change: { directoryPath?: string; selectedPath?: string | null }) => void;
   } = $props();
 
-  const { t } = getLocalization();
+  const localization = getLocalization();
+  const { t } = localization;
   const chat = getChat();
   let entries = $state<ChatWorkspaceFileEntry[]>([]);
   let preview = $state<ChatWorkspaceFilePreview | null>(null);
@@ -178,7 +180,7 @@
         {:else}
           <div class="m-auto p-4 text-center text-xs text-muted-foreground">
             <p>{preview.binary ? t("chat.inspector.binary") : t("chat.inspector.previewUnavailable")}</p>
-            <p>{preview.byteSize.toLocaleString()} bytes</p>
+            <p>{t("chat.inspector.fileSizeBytes", formatNumber(localization.locale, preview.byteSize))}</p>
           </div>
         {/if}
       {:else}

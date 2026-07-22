@@ -100,6 +100,7 @@
     detailView && detailLoadState?.key === detailView.kind ? detailLoadState : null,
   );
   let detailScrollEl: HTMLElement | undefined = $state();
+  let modalPanel: HTMLElement | undefined = $state();
   let detailScrollbarInsetTop = $state(0);
   let detailScrollbarInsetBottom = $state(0);
   let settingsScrollEl: HTMLElement | undefined = $state();
@@ -156,6 +157,31 @@
     });
   }
 
+  function focusableElements(container: HTMLElement): HTMLElement[] {
+    return [...container.querySelectorAll<HTMLElement>(
+      "button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex='-1'])",
+    )].filter((element) => !element.hidden && element.getClientRects().length > 0);
+  }
+
+  function trapModalFocus(event: KeyboardEvent): void {
+    if (event.key !== "Tab" || !modalPanel) return;
+    const focusable = focusableElements(modalPanel);
+    if (focusable.length === 0) {
+      event.preventDefault();
+      modalPanel.focus();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
   function selectSection(section: SectionId): void {
     activeSection = section;
     detailView = null;
@@ -206,7 +232,15 @@
   }
 
   onMount(() => {
+    const returnFocus = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    queueMicrotask(() => {
+      const first = modalPanel ? focusableElements(modalPanel)[0] : undefined;
+      (first ?? modalPanel)?.focus();
+    });
     function handleKeydown(e: KeyboardEvent) {
+      trapModalFocus(e);
       if (hasOnlyShortcutModifier(e) && e.key === ",") {
         e.preventDefault();
         e.stopPropagation();
@@ -239,7 +273,12 @@
       e.stopPropagation();
     }
     window.addEventListener("keydown", handleKeydown, true);
-    return () => window.removeEventListener("keydown", handleKeydown, true);
+    return () => {
+      window.removeEventListener("keydown", handleKeydown, true);
+      queueMicrotask(() => {
+        if (returnFocus?.isConnected) returnFocus.focus();
+      });
+    };
   });
 </script>
 
@@ -257,7 +296,12 @@
 >
   <div class="absolute inset-0 bg-black/50"></div>
   <div
+    bind:this={modalPanel}
     data-settings-modal-panel
+    role="dialog"
+    aria-modal="true"
+    aria-label={t("settings.title")}
+    tabindex="-1"
     data-settings-section={activeSection}
     class={cn(
       "relative z-10 flex overflow-hidden border border-border bg-card shadow-2xl dark:bg-background",

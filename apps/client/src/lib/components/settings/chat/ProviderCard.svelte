@@ -49,7 +49,7 @@
     <div class="min-w-0 flex-1">
       <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
         <h3 class="truncate text-[0.866667rem] font-semibold text-foreground">{provider.configuration.label}</h3>
-        <span class="inline-flex items-center gap-1 text-[0.733333rem] {healthy ? 'text-success' : 'text-muted-foreground'}">
+        <span class="inline-flex items-center gap-1 text-[0.733333rem] {healthy ? 'text-action-confirm' : 'text-muted-foreground'}">
           {#if healthy}<CheckCircle2 size={12} />{:else if provider.configuration.enabled}<TriangleAlert size={12} />{:else}<CircleOff size={12} />{/if}
           {stateLabel}
         </span>
@@ -64,7 +64,7 @@
         <span>{provider.lastSuccessfulProbeAt ? t("settings.chat.providers.lastSuccessful", formatDateTime(localization.locale, new Date(provider.lastSuccessfulProbeAt), { dateStyle: "medium", timeStyle: "short" })) : provider.lastProbe ? t("settings.chat.providers.lastChecked", formatDateTime(localization.locale, new Date(provider.lastProbe.checkedAt), { dateStyle: "medium", timeStyle: "short" })) : ""}</span>
       </div>
       {#if provider.lastProbe?.state === "authentication_required"}
-        <p class="mt-2 text-[0.733333rem] text-warning">{t("settings.chat.providers.loginHelp")}</p>
+        <p class="mt-2 text-[0.733333rem] text-status-tentative">{t("settings.chat.providers.loginHelp")}</p>
       {/if}
     </div>
   </div>

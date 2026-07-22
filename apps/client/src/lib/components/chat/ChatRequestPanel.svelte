@@ -1,16 +1,18 @@
 <script lang="ts">
-  import { onDestroy } from "svelte";
+  import { onDestroy, tick } from "svelte";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import ShieldAlert from "@lucide/svelte/icons/shield-alert";
   import * as chatApi from "$lib/api/chat";
   import type { ChatPendingRequestRead, UserInputAnswer } from "$lib/chat/contracts";
   import { parseApprovalChoices, parseUserInputQuestions, validateUserInputAnswers } from "$lib/chat/composer-model";
+  import { formatList, formatNumber } from "$lib/i18n/formatters";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
 
   const { pending } = $props<{ pending: ChatPendingRequestRead }>();
-  const { t } = getLocalization();
+  const localization = getLocalization();
+  const { t } = localization;
   const chat = getChat();
   let requestId = $state("");
   let step = $state(0);
@@ -21,6 +23,7 @@
   let answerDraftReady = $state(false);
   let answerDraftRequest = 0;
   let answerSaveTimer: ReturnType<typeof setTimeout> | null = null;
+  let panel: HTMLElement | undefined = $state();
   const approvalChoices = $derived(parseApprovalChoices(pending.allowedDecisions));
   const questions = $derived(pending.requestKind === "user_input" ? parseUserInputQuestions(pending.safeDisplay) : []);
   const question = $derived(questions[step] ?? null);
@@ -38,6 +41,10 @@
     answerDraftReady = false;
     if (answerSaveTimer !== null) clearTimeout(answerSaveTimer);
     if (pending.requestKind === "user_input") void loadAnswerDraft(pending.id);
+    void tick().then(() => {
+      if (pending.requestKind === "user_input") panel?.querySelector<HTMLElement>("input, textarea")?.focus();
+      else panel?.focus();
+    });
   });
 
   onDestroy(() => {
@@ -131,7 +138,7 @@
     if (!current) return "";
     const labels = (selected[questionId] ?? []).map((id) => current.options.find((option) => option.id === id)?.label ?? id);
     const text = freeForm[questionId]?.trim();
-    return [...labels, ...(text ? [text] : [])].join(", ");
+    return formatList(localization.locale, [...labels, ...(text ? [text] : [])]);
   }
 
   function validAnswer(index: number): boolean {
@@ -144,6 +151,7 @@
     if (!question || resolving) return;
     if (!validAnswer(step)) {
       error = t("chat.composer.requiredAnswer");
+      void tick().then(() => panel?.querySelector<HTMLElement>("input, textarea")?.focus());
       return;
     }
     if (step < questions.length - 1) {
@@ -181,13 +189,13 @@
   }
 </script>
 
-<section class="chat-request-panel" aria-live="polite">
+<section bind:this={panel} class="chat-request-panel" tabindex="-1">
   {#if pending.requestKind === "approval"}
     <header><ShieldAlert size={16} /><div><strong>{approvalDisplay.title}</strong>{#if approvalDisplay.detail}<p>{approvalDisplay.detail}</p>{/if}</div></header>
     {#if approvalDisplay.payload}<details><summary>{t("chat.composer.details")}<ChevronDown size={13} /></summary><pre>{approvalDisplay.payload}</pre></details>{/if}
     <div class="request-actions">{#each approvalChoices as choice, index}<button type="button" disabled={resolving} class:danger={choice.decisionKind === "allow_session"} title={choice.description ?? undefined} onclick={() => void resolveApproval(index)}>{choice.label}</button>{/each}</div>
   {:else if question}
-    <header><div><strong>{t("chat.composer.question")}</strong><p>{t("chat.composer.questionProgress", step + 1, questions.length)}</p></div></header>
+    <header><div><strong>{t("chat.composer.question")}</strong><p>{t("chat.composer.questionProgress", formatNumber(localization.locale, step + 1), formatNumber(localization.locale, questions.length))}</p></div></header>
     {#if question.header}<small>{question.header}</small>{/if}<p class="question-text">{question.question}</p>
     <div class="question-options">{#each question.options as option}<label><input type={question.multiple ? "checkbox" : "radio"} name={`question-${question.id}`} checked={(selected[question.id] ?? []).includes(option.id)} onchange={() => toggleOption(question.id, option.id, question.multiple)} /><span><strong>{option.label}</strong>{#if option.description}<small>{option.description}</small>{/if}</span></label>{/each}</div>
     {#if question.freeFormAllowed}<label class="free-form"><span>{t("chat.composer.freeForm")}</span><textarea value={freeForm[question.id] ?? ""} oninput={(event) => { freeForm = { ...freeForm, [question.id]: event.currentTarget.value }; scheduleAnswerDraftSave(); }}></textarea></label>{/if}
@@ -199,7 +207,7 @@
 </section>
 
 <style>
-  .chat-request-panel { display: grid; gap: 0.65rem; border: 1px solid color-mix(in oklab, var(--warning) 50%, var(--border)); border-radius: 0.5rem; background: var(--background); padding: 0.7rem; }
+  .chat-request-panel { display: grid; gap: 0.65rem; border: 1px solid color-mix(in oklab, var(--status-tentative) 50%, var(--border)); border-radius: 0.5rem; background: var(--background); padding: 0.7rem; }
   header { display: flex; align-items: flex-start; gap: 0.5rem; }
   header div { min-width: 0; flex: 1; }
   header strong { font-size: 0.8rem; }

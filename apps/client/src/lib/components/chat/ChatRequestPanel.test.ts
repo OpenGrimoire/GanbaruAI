@@ -50,9 +50,12 @@ describe("ChatRequestPanel", () => {
     const resolve = vi.spyOn(getChat(), "resolveApproval").mockResolvedValue();
     const body = setup(approval());
     await tick();
+    await Promise.resolve();
+    await tick();
     const buttons = [...body.querySelectorAll<HTMLButtonElement>(".request-actions button")];
     expect(buttons.map((button) => button.textContent)).toEqual(["Allow once", "Deny"]);
     expect(document.activeElement).not.toBe(buttons[0]);
+    expect(body.querySelector("section")?.contains(document.activeElement)).toBe(true);
     buttons[1]?.click();
     await tick();
     expect(resolve).toHaveBeenCalledWith({
@@ -78,6 +81,7 @@ describe("ChatRequestPanel", () => {
     await tick();
     await Promise.resolve();
     await tick();
+    expect(document.activeElement).toBe(body.querySelector('input[type="radio"]'));
 
     const tests = body.querySelector<HTMLInputElement>('input[value="tests"]')
       ?? [...body.querySelectorAll<HTMLInputElement>('input[type="radio"]')][0];

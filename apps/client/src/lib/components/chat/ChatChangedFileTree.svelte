@@ -4,6 +4,7 @@
   import Folder from "@lucide/svelte/icons/folder";
   import { buildChangedFileTree, type ChatChangedFileTreeNode } from "$lib/chat/inspector-model";
   import type { ChatChangedFileRead } from "$lib/chat/contracts";
+  import { formatNumber } from "$lib/i18n/formatters";
   import { getLocalization } from "$lib/i18n/translator.svelte";
 
   let {
@@ -16,7 +17,8 @@
     onSelect: (file: ChatChangedFileRead) => void;
   } = $props();
 
-  const { t } = getLocalization();
+  const localization = getLocalization();
+  const { t } = localization;
   let collapsed = $state<string[]>([]);
   const tree = $derived(buildChangedFileTree(files));
 
@@ -49,8 +51,8 @@
           {#if node.file.gitObserved}<span class="source git" title={t("chat.inspector.gitSource")}>G</span>{/if}
         </span>
         {#if node.file.binary}<span class="text-[0.583333rem]">B</span>{/if}
-        {#if node.file.additions !== null}<span class="text-[0.583333rem] text-emerald-600">+{node.file.additions}</span>{/if}
-        {#if node.file.deletions !== null}<span class="text-[0.583333rem] text-destructive">−{node.file.deletions}</span>{/if}
+        {#if node.file.additions !== null}<span class="text-[0.583333rem] text-action-confirm">+{formatNumber(localization.locale, node.file.additions)}</span>{/if}
+        {#if node.file.deletions !== null}<span class="text-[0.583333rem] text-destructive">−{formatNumber(localization.locale, node.file.deletions)}</span>{/if}
       </button>
     {/if}
   {/each}
@@ -63,5 +65,5 @@
   .tree-row:hover, .tree-row.selected { background: var(--accent); }
   .source { border-radius: 0.15rem; padding: 0.05rem 0.18rem; font-weight: 700; }
   .source.provider { background: color-mix(in srgb, var(--primary) 15%, transparent); color: var(--primary); }
-  .source.git { background: color-mix(in srgb, var(--success, #16a34a) 15%, transparent); color: var(--success, #16a34a); }
+  .source.git { background: color-mix(in srgb, var(--action-confirm) 15%, transparent); color: var(--action-confirm); }
 </style>

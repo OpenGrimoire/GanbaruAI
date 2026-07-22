@@ -18,7 +18,8 @@
   import Terminal from "@lucide/svelte/icons/terminal";
   import Wrench from "@lucide/svelte/icons/wrench";
   import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
-  import { buildTimelineDisplayRows, projectTimelineReadModel, type TimelineActivityGroupRow, type TimelineActivityRow, type TimelineMessageRow, type TimelinePlanRow, type TimelineTurnFoldRow } from "$lib/chat/timeline-model";
+  import { chatScrollBehavior } from "$lib/chat/responsive-layout";
+  import { buildTimelineDisplayRows, projectTimelineReadModel, type TimelineActivityGroupRow, type TimelineActivityRow, type TimelineDisplayRow, type TimelineMessageRow, type TimelinePlanRow, type TimelineTurnFoldRow } from "$lib/chat/timeline-model";
   import { computeTimelineVirtualWindow, nextTimelineUnreadCount, scrollTopAfterPrepend, timelineMinimapRows, timelineScrollIntent, type TimelineScrollIntent } from "$lib/chat/timeline-virtualization";
   import { formatDateTime, formatNumber } from "$lib/i18n/formatters";
   import { getLocalization } from "$lib/i18n/translator.svelte";
@@ -45,6 +46,7 @@
   let loadingOlder = $state(false);
   let previousItemCount = $state(0);
   let restoredThreadId = $state<string | null>(null);
+  let reducedMotion = $state(false);
   const pageTurns = $derived(chat.timelinePages.flatMap((page) => page.turns));
   const projection = $derived(projectTimelineReadModel(chat.timelineItems, pageTurns));
   const displayRows = $derived(buildTimelineDisplayRows(projection.rows.filter((row) => row.kind !== "plan" || !dismissedPlans.includes(row.id)), projection.turns, new Set(expandedTurns), new Set(expandedGroups)));
@@ -62,7 +64,14 @@
       viewportWidth = entry.contentRect.width;
     });
     if (scroller) observer.observe(scroller);
-    return () => observer.disconnect();
+    const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const updateMotion = () => { reducedMotion = motion.matches; };
+    updateMotion();
+    motion.addEventListener("change", updateMotion);
+    return () => {
+      observer.disconnect();
+      motion.removeEventListener("change", updateMotion);
+    };
   });
 
   $effect(() => {
@@ -74,7 +83,7 @@
     const count = chat.timelineItems.length;
     if (count > previousItemCount) {
       unreadEvents = nextTimelineUnreadCount(unreadEvents, count - previousItemCount, intent, false);
-      if (intent === "following") void tick().then(() => scroller?.scrollTo({ top: scroller.scrollHeight }));
+      if (intent === "following") void tick().then(() => scroller?.scrollTo({ top: scroller.scrollHeight, behavior: chatScrollBehavior(reducedMotion) }));
     }
     previousItemCount = count;
   });
@@ -147,7 +156,7 @@
   }
 
   function jumpToLatest(): void {
-    scroller?.scrollTo({ top: scroller.scrollHeight, behavior: "smooth" });
+    scroller?.scrollTo({ top: scroller.scrollHeight, behavior: chatScrollBehavior(reducedMotion) });
     intent = "following";
     unreadEvents = 0;
   }
@@ -167,7 +176,7 @@
   function durationLabel(milliseconds: number | null): string {
     if (milliseconds === null) return t("chat.timeline.durationUnknown");
     const seconds = Math.max(1, Math.round(milliseconds / 1000));
-    return t("chat.timeline.seconds", seconds);
+    return t("chat.timeline.seconds", formatNumber(localization.locale, seconds));
   }
 
   function foldLabel(row: TimelineTurnFoldRow): string {
@@ -203,7 +212,7 @@
     const index = displayRows.findIndex((row) => row.id === rowId);
     if (index < 0) return;
     const denominator = Math.max(1, displayRows.length - 1);
-    scroller.scrollTo({ top: (index / denominator) * Math.max(0, scroller.scrollHeight - scroller.clientHeight), behavior: "smooth" });
+    scroller.scrollTo({ top: (index / denominator) * Math.max(0, scroller.scrollHeight - scroller.clientHeight), behavior: chatScrollBehavior(reducedMotion) });
     intent = index === displayRows.length - 1 ? "following" : "anchored";
   }
 
@@ -228,23 +237,34 @@
     const action = "providerHistoryAction" in value && value.providerHistoryAction === "rolled_back"
       ? t("chat.timeline.providerHistoryRolledBack")
       : t("chat.timeline.providerHistoryForkRequired");
-    return t("chat.timeline.threadRestoredDetail", count, action);
+    return t("chat.timeline.threadRestoredDetail", formatNumber(localization.locale, count), action);
+  }
+
+  function rowAriaLabel(row: TimelineDisplayRow): string {
+    if (row.kind === "message") {
+      const role = row.role === "user" ? t("chat.timeline.userMessage") : t("chat.timeline.assistantMessage");
+      return `${role}, ${timestampLabel(row.createdAt)}`;
+    }
+    if (row.kind === "activity") return `${activityTitle(row)}, ${statusLabel(row.status)}`;
+    if (row.kind === "activity_group") return `${row.latest.title}, ${statusLabel(row.latest.status)}`;
+    if (row.kind === "turn_fold") return foldLabel(row);
+    return t("chat.timeline.plan");
   }
 </script>
 
 <div class="relative min-h-0 flex-1">
   {#if selectedThread?.archivedAt}<div class="chat-timeline-banner"><span>{t("chat.firstUse.archivedDescription")}</span><button type="button" onclick={() => void chat.restoreThread(selectedThread).catch(reportError)}><RotateCcw size={13} />{t("chat.restore")}</button></div>{/if}
-  {#if selectedWorkspace && selectedWorkspace.bindingStatus !== "available"}<div class="chat-timeline-banner text-warning"><CircleAlert size={14} /><span>{t("chat.timeline.workspaceMissing")}</span><button type="button" onclick={() => void chat.rebindWorkspace(selectedWorkspace.workspace.id, t("chat.firstUse.chooseWorkspaceFolder")).catch(reportError)}>{t("chat.timeline.rebind")}</button></div>{/if}
-  {#if selectedProvider && (!selectedProvider.configuration.enabled || selectedProvider.lastProbe?.state !== "healthy")}<div class="chat-timeline-banner text-warning"><CircleAlert size={14} /><span>{selectedProvider.lastProbe?.detail ?? t("chat.status.providerUnavailable")}</span><button type="button" onclick={() => void chat.probeProvider(selectedProvider.configuration.instanceId).catch(reportError)}>{t("chat.timeline.retry")}</button><button type="button" onclick={() => settings.open("chat", { chatSubsection: "providers" })}><Settings size={13} />{t("chat.timeline.openSettings")}</button></div>{/if}
+  {#if selectedWorkspace && selectedWorkspace.bindingStatus !== "available"}<div class="chat-timeline-banner text-status-tentative"><CircleAlert size={14} /><span>{t("chat.timeline.workspaceMissing")}</span><button type="button" onclick={() => void chat.rebindWorkspace(selectedWorkspace.workspace.id, t("chat.firstUse.chooseWorkspaceFolder")).catch(reportError)}>{t("chat.timeline.rebind")}</button></div>{/if}
+  {#if selectedProvider && (!selectedProvider.configuration.enabled || selectedProvider.lastProbe?.state !== "healthy")}<div class="chat-timeline-banner text-status-tentative"><CircleAlert size={14} /><span>{selectedProvider.lastProbe?.detail ?? t("chat.status.providerUnavailable")}</span><button type="button" onclick={() => void chat.probeProvider(selectedProvider.configuration.instanceId).catch(reportError)}>{t("chat.timeline.retry")}</button><button type="button" onclick={() => settings.open("chat", { chatSubsection: "providers" })}><Settings size={13} />{t("chat.timeline.openSettings")}</button></div>{/if}
   {#if selectedThread?.state === "error"}<div class="chat-timeline-banner text-destructive"><CircleAlert size={14} /><span>{t("chat.timeline.threadError")}</span><button type="button" onclick={() => chat.newDraft(selectedThread.workspaceId)}><MessageSquare size={13} />{t("chat.timeline.startNewThread")}</button></div>{/if}
   {#if operationError || chat.timelineError}<div role="alert" class="chat-timeline-banner text-destructive"><span>{operationError ?? chat.timelineError}</span>{#if selectedThread}<button type="button" onclick={() => { operationError = null; chat.selectThread(selectedThread.id); }}>{t("chat.timeline.retry")}</button>{/if}</div>{/if}
-  <div bind:this={scroller} class="h-full overflow-y-auto" onscroll={handleScroll}>
+  <div bind:this={scroller} class="h-full overflow-y-auto" role="feed" aria-busy={chat.timelineLoading || undefined} aria-label={t("chat.title")} onscroll={handleScroll}>
     <div class="mx-auto w-full max-w-3xl px-4 py-6" style={`padding-top:${virtualWindow.paddingTop + 24}px;padding-bottom:${virtualWindow.paddingBottom + 96}px`}>
       {#if loadingOlder}<div class="mb-3 flex justify-center text-xs text-muted-foreground"><LoaderCircle size={14} class="animate-spin" />{t("chat.timeline.loadingOlder")}</div>{/if}
       {#if chat.timelineLoading && displayRows.length === 0}<div class="py-12 text-center text-sm text-muted-foreground">{t("common.loading")}</div>{/if}
       {#each virtualWindow.items as virtual (virtual.row.id)}
         {@const row = virtual.row}
-        <div data-timeline-row-id={row.id} class="mb-4">
+        <div data-timeline-row-id={row.id} class="mb-4" role="article" aria-label={rowAriaLabel(row)} aria-posinset={virtual.index + 1} aria-setsize={displayRows.length} tabindex="-1">
           {#if row.kind === "message"}
             {@const message = row as TimelineMessageRow}
             <article class={message.role === "user" ? "chat-user-message" : "chat-assistant-message"}>
@@ -263,13 +283,13 @@
                 {#if message.role === "user"}<span title={t("chat.timeline.timestamp")}>{timestampLabel(message.createdAt)}</span>{/if}
                 {#if message.role === "user" && message.userContext?.preCheckpointId}<button type="button" class="inline-flex items-center gap-1" onclick={() => window.dispatchEvent(new CustomEvent("ganbaru-ai:chat-revert-message", { detail: { threadId: chat.selectedThreadId, checkpointId: message.userContext?.preCheckpointId, turnId: message.turnId } }))}><RotateCcw size={11} />{t("chat.timeline.revert")}</button>{/if}
                 <button type="button" class="ml-auto inline-flex items-center gap-1" onclick={() => copy(message.markdown)}><Copy size={11} />{t("chat.timeline.copy")}</button>
-                {#if message.metadata}<span>{durationLabel(message.metadata.durationMs)}</span>{#if message.metadata.modelId}<span>{message.metadata.modelId}</span>{/if}{#if tokenUsageLabel(message)}<span>{tokenUsageLabel(message)}</span>{/if}{#if message.metadata.changedFiles.length > 0}<span>{t("chat.timeline.changedFiles", message.metadata.changedFiles.length)}</span>{/if}{/if}
+                {#if message.metadata}<span>{durationLabel(message.metadata.durationMs)}</span>{#if message.metadata.modelId}<span>{message.metadata.modelId}</span>{/if}{#if tokenUsageLabel(message)}<span>{tokenUsageLabel(message)}</span>{/if}{#if message.metadata.changedFiles.length > 0}<span>{t("chat.timeline.changedFiles", formatNumber(localization.locale, message.metadata.changedFiles.length))}</span>{/if}{/if}
               </div>
             </article>
           {:else if row.kind === "activity"}
             {@const activity = row as TimelineActivityRow}<details class="chat-activity" class:failed={activity.status === "failed"}><summary>{#if activity.activityKind === "command_execution" || activity.activityKind === "command_output"}<Terminal size={13} />{:else if activity.activityKind === "file_change" || activity.activityKind === "file_change_output"}<FileText size={13} />{:else if activity.activityKind === "web_search"}<Globe size={13} />{:else if activity.activityKind === "image_view"}<ImageIcon size={13} />{:else if activity.id.startsWith("turn-pending:")}<LoaderCircle size={13} class="animate-spin" />{:else}<Wrench size={13} />{/if}<span class="min-w-0 flex-1 truncate">{activityTitle(activity)}</span><span>{statusLabel(activity.status)}</span></summary>{#if activityDetail(activity)}<pre>{activityDetail(activity)}</pre>{/if}</details>
           {:else if row.kind === "activity_group"}
-            {@const group = row as TimelineActivityGroupRow}<button type="button" class="chat-activity-group" onclick={() => { expandedGroups = toggle(expandedGroups, group.id); }}>{#if group.expanded}<ChevronDown size={13} />{:else}<ChevronRight size={13} />{/if}<span class="min-w-0 flex-1 truncate">{group.latest.title}</span><span>{t("chat.timeline.earlierSteps", group.earlierRows.length)}</span></button>{#if group.expanded}{#each [...group.earlierRows, group.latest] as activity}<details class="chat-activity ml-4" class:failed={activity.status === "failed"}><summary><Wrench size={13} /><span class="min-w-0 flex-1 truncate">{activity.title}</span><span>{statusLabel(activity.status)}</span></summary>{#if activity.detail}<pre>{activity.detail}</pre>{/if}</details>{/each}{/if}
+            {@const group = row as TimelineActivityGroupRow}<button type="button" class="chat-activity-group" onclick={() => { expandedGroups = toggle(expandedGroups, group.id); }}>{#if group.expanded}<ChevronDown size={13} />{:else}<ChevronRight size={13} />{/if}<span class="min-w-0 flex-1 truncate">{group.latest.title}</span><span>{t("chat.timeline.earlierSteps", formatNumber(localization.locale, group.earlierRows.length))}</span></button>{#if group.expanded}{#each [...group.earlierRows, group.latest] as activity}<details class="chat-activity ml-4" class:failed={activity.status === "failed"}><summary><Wrench size={13} /><span class="min-w-0 flex-1 truncate">{activity.title}</span><span>{statusLabel(activity.status)}</span></summary>{#if activity.detail}<pre>{activity.detail}</pre>{/if}</details>{/each}{/if}
           {:else if row.kind === "turn_fold"}
             {@const fold = row as TimelineTurnFoldRow}<button type="button" class="chat-turn-fold" onclick={() => { expandedTurns = toggle(expandedTurns, fold.turnId); }}>{#if fold.expanded}<ChevronDown size={13} />{:else}<ChevronRight size={13} />{/if}{foldLabel(fold)}</button>
           {:else if row.kind === "plan"}

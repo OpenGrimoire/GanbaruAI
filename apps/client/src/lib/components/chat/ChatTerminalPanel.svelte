@@ -6,11 +6,13 @@
   import * as chatApi from "$lib/api/chat";
   import type { ChatTerminalRead } from "$lib/chat/contracts";
   import { selectedTerminalByThread } from "$lib/chat/terminal-model";
+  import { formatNumber } from "$lib/i18n/formatters";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
   import ChatTerminalView from "./ChatTerminalView.svelte";
 
-  const { t } = getLocalization();
+  const localization = getLocalization();
+  const { t } = localization;
   const chat = getChat();
   let terminals = $state<ChatTerminalRead[]>([]);
   let selectedId = $state<string | null>(null);
@@ -129,7 +131,7 @@
     <p class="m-auto text-xs text-muted-foreground">{t("common.loading")}</p>
   {:else if selected}
     <div class="flex min-h-0 flex-1 flex-col">
-      {#if !selected.running}<p class="border-b border-border px-2 py-1 text-[0.666667rem] text-muted-foreground">{selected.exitCode === null ? t("chat.inspector.terminalStopped") : t("chat.inspector.terminalExited", selected.exitCode)}</p>{/if}
+      {#if !selected.running}<p class="border-b border-border px-2 py-1 text-[0.666667rem] text-muted-foreground">{selected.exitCode === null ? t("chat.inspector.terminalStopped") : t("chat.inspector.terminalExited", formatNumber(localization.locale, selected.exitCode))}</p>{/if}
       {#key `${selected.id}:${selected.generation}`}
         <ChatTerminalView terminalRead={selected} onState={updateTerminal} />
       {/key}
@@ -146,5 +148,5 @@
   .terminal-tab { display: flex; min-height: 1.75rem; align-items: center; gap: 0.3rem; border-radius: 0.25rem; padding: 0.2rem 0.4rem; font-size: 0.666667rem; }
   .terminal-tab:hover, .terminal-tab.active { background: var(--accent); }
   .status-dot { width: 0.4rem; height: 0.4rem; flex: none; border-radius: 9999px; background: var(--muted-foreground); }
-  .status-dot.running { background: var(--success, #16a34a); }
+  .status-dot.running { background: var(--action-confirm); }
 </style>

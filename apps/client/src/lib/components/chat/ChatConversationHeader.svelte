@@ -8,13 +8,14 @@
   import Pencil from "@lucide/svelte/icons/pencil";
   import SquareArrowOutUpRight from "@lucide/svelte/icons/square-arrow-out-up-right";
   import { threadStatus } from "$lib/chat/shell-model";
+  import { middleTruncate } from "$lib/chat/responsive-layout";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
   import { getProjects } from "$lib/stores/projects.svelte";
   import { openDetachedViewWindow } from "$lib/windows/detached";
   import ChatTitleEditor from "./ChatTitleEditor.svelte";
 
-  let { onOpenRail }: { onOpenRail: () => void } = $props();
+  let { onOpenRail, showRailButton = false }: { onOpenRail: () => void; showRailButton?: boolean } = $props();
   const { t } = getLocalization();
   const chat = getChat();
   const projects = getProjects();
@@ -61,14 +62,14 @@
 </script>
 
 <header class="flex min-h-11 shrink-0 items-center gap-2 border-b border-border bg-background/50 px-2 @container">
-  <button type="button" class="chat-icon-button rail-open-button" aria-label={t("chat.openRail")} onclick={onOpenRail}><Menu size={16} /></button>
+  <button type="button" class="chat-icon-button rail-open-button" class:visible={showRailButton} aria-label={t("chat.openRail")} onclick={onOpenRail}><Menu size={16} /></button>
   <div class="min-w-0 flex-1">
     {#if actionError}<p role="alert" class="truncate text-[0.666667rem] text-destructive">{actionError}</p>{/if}
     {#if editing && thread}
       <ChatTitleEditor title={thread.title} onCommit={commitTitle} onCancel={cancelEdit} />
     {:else}
       <div class="flex min-w-0 items-center gap-1"><h1 class="truncate text-sm font-semibold">{thread?.title || t("chat.header.newChat")}</h1>{#if thread}<button type="button" class="chat-icon-button size-6" aria-label={t("chat.header.editTitle")} onclick={beginEdit}><Pencil size={12} /></button>{/if}</div>
-      <div class="hidden min-w-0 items-center gap-1 text-[0.666667rem] text-muted-foreground @min-[420px]:flex"><span class="truncate">{project?.name ?? t("chat.standalone")}</span>{#if workspace}<span>/</span><span class="truncate">{workspace.workspace.displayName}</span>{/if}</div>
+      <div class="hidden min-w-0 items-center gap-1 text-[0.666667rem] text-muted-foreground @min-[420px]:flex"><span class="truncate" title={project?.name ?? t("chat.standalone")}>{middleTruncate(project?.name ?? t("chat.standalone"), 32)}</span>{#if workspace}<span>/</span><span class="truncate" title={workspace.workspace.displayName}>{middleTruncate(workspace.workspace.displayName, 32)}</span>{/if}</div>
     {/if}
   </div>
   {#if provider}<span class="hidden max-w-32 items-center gap-1.5 truncate text-xs @min-[560px]:flex"><span class="size-2 rounded-full" style={`background:${provider.configuration.accentColor ?? "var(--primary)"}`}></span>{provider.configuration.label}</span>{/if}
@@ -80,6 +81,6 @@
 
 <style>
   .rail-open-button { display: none; }
-  @container chat-shell (max-width: 719px) { .rail-open-button { display: inline-flex; } }
+  .rail-open-button.visible { display: inline-flex; }
   :global(.chat-menu button) { display: flex; align-items: center; gap: 0.5rem; }
 </style>
