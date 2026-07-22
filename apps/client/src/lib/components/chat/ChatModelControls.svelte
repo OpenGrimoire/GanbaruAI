@@ -1,10 +1,10 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import Bot from "@lucide/svelte/icons/bot";
+  import CircleAlert from "@lucide/svelte/icons/circle-alert";
   import Check from "@lucide/svelte/icons/check";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
+  import Plus from "@lucide/svelte/icons/plus";
   import Search from "@lucide/svelte/icons/search";
-  import ShieldCheck from "@lucide/svelte/icons/shield-check";
   import Star from "@lucide/svelte/icons/star";
   import type { InteractionMode, ModelOptionDefinition, ModelOptionSelection, ModelOptionValue, SafetyMode } from "$lib/chat/contracts";
   import { composerModelSelection, rankedModels, readComposerModelSelection } from "$lib/chat/composer-model";
@@ -12,11 +12,15 @@
   import { formatNumber } from "$lib/i18n/formatters";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
+  import { getSettingsLauncher } from "$lib/stores/settingsLauncher.svelte";
+  import ChatControlMenu, { type ChatControlOption } from "./ChatControlMenu.svelte";
+  import ChatProviderIcon from "./ChatProviderIcon.svelte";
 
   const { compact = false } = $props<{ compact?: boolean }>();
   const localization = getLocalization();
   const { t } = localization;
   const chat = getChat();
+  const settings = getSettingsLauncher();
   let modelPickerOpen = $state(false);
   let modelPickerWasOpen = false;
   let modelPickerRoot: HTMLDivElement | undefined = $state();
@@ -32,8 +36,10 @@
   let trustKey = $state("");
   let restoredKey = $state("");
   let error = $state<string | null>(null);
-  const providers = $derived((chat.settings?.providerInstances ?? []).filter((entry) => entry.configuration.enabled && entry.lastProbe?.state === "healthy"));
+  const providers = $derived(chat.settings?.providerInstances ?? []);
+  const healthyProviders = $derived(providers.filter((entry) => entry.configuration.enabled && entry.lastProbe?.state === "healthy"));
   const provider = $derived(providers.find((entry) => entry.configuration.instanceId === chat.composer.providerInstanceId) ?? null);
+  const unconfiguredFamilies = $derived((chat.settings?.providerFamilies ?? []).filter((family) => !providers.some((entry) => entry.configuration.familyId === family.familyId)));
   const selection = $derived(readComposerModelSelection(chat.composer.modelSelection));
   const models = $derived(provider?.modelCatalog?.models.filter((model) => provider.configuration.visibleModelIds.length === 0 || provider.configuration.visibleModelIds.includes(model.id) || model.id === selection.modelId) ?? []);
   const recentIds = $derived(chat.settings?.configuration.rememberedSelections.filter((entry) => entry.providerInstanceId === provider?.configuration.instanceId && entry.modelId).map((entry) => entry.modelId as string) ?? []);
@@ -42,6 +48,17 @@
   const providerManagedOnly = $derived((provider?.modelCatalog?.models.length ?? 0) === 0);
   const capabilities = $derived(chat.interaction?.capabilities ?? provider?.lastProbe?.capabilities ?? { entries: [] });
   const supportsPlan = $derived(capabilities.entries.some((entry) => entry.capability === "native_plan" && entry.supported));
+  const safetyOptions = $derived<ChatControlOption[]>([
+    { value: "", label: t("chat.hero.chooseSafety"), icon: "shield" },
+    { value: "supervised", label: t("chat.hero.supervised"), description: t("chat.composer.supervisedDescription"), icon: "shield-check" },
+    { value: "auto_accept_edits", label: t("chat.hero.autoAccept"), description: t("chat.composer.autoAcceptDescription"), icon: "file-pen" },
+    { value: "full_access", label: t("chat.hero.fullAccess"), description: t("chat.composer.fullAccessShortDescription"), icon: "shield-off" },
+  ]);
+  const interactionOptions = $derived<ChatControlOption[]>([
+    { value: "", label: t("chat.hero.chooseInteraction"), icon: "bot" },
+    { value: "build", label: t("chat.hero.build"), description: t("chat.composer.buildDescription"), icon: "bot" },
+    { value: "plan", label: t("chat.hero.plan"), description: supportsPlan ? t("chat.composer.planDescription") : t("chat.composer.planUnavailable"), icon: "pencil-ruler", disabled: !supportsPlan },
+  ]);
 
   $effect(() => {
     if (modelPickerOpen && !modelPickerWasOpen) void tick().then(() => modelSearch?.focus());
@@ -64,7 +81,7 @@
     const workspaceId = chat.composer.workspaceId;
     if (!workspaceId || chat.composer.providerInstanceId) return;
     const preferred = chat.settings?.configuration.workspaceProviderPreferences[workspaceId];
-    if (preferred && providers.some((entry) => entry.configuration.instanceId === preferred)) chat.setComposerProvider(preferred);
+    if (preferred && healthyProviders.some((entry) => entry.configuration.instanceId === preferred)) chat.setComposerProvider(preferred);
   });
 
   $effect(() => {
@@ -104,6 +121,30 @@
     chat.setComposerProvider(instanceId || null);
     chat.setComposerModel(null);
     modelQuery = "";
+  }
+
+  function providerAvailable(entry: (typeof providers)[number]): boolean {
+    return entry.configuration.enabled && entry.lastProbe?.state === "healthy";
+  }
+
+  function selectProvider(entry: (typeof providers)[number]): void {
+    if (!providerAvailable(entry)) {
+      openProviderSettings();
+      return;
+    }
+    chooseProvider(entry.configuration.instanceId);
+  }
+
+  function openProviderSettings(): void {
+    modelPickerOpen = false;
+    settings.open("chat", { chatSubsection: "providers" });
+  }
+
+  function probeStatus(entry: (typeof providers)[number]): string {
+    if (!entry.configuration.enabled) return t("chat.composer.providerDisabled");
+    if (!entry.lastProbe) return t("chat.composer.providerNotChecked");
+    if (entry.lastProbe.state === "healthy") return t("chat.status.idle");
+    return entry.lastProbe.detail ?? t("chat.status.providerUnavailable");
   }
 
 
@@ -295,35 +336,51 @@
 <div class="chat-model-toolbar" data-compact={compact}>
   <div bind:this={modelPickerRoot} class="relative shrink-0">
     <button bind:this={modelTrigger} type="button" class="picker-trigger" data-chat-model-trigger aria-expanded={modelPickerOpen} onclick={() => { modelPickerOpen = !modelPickerOpen; }}>
-      <span class="provider-mark" style={`background:${provider?.configuration.accentColor ?? "var(--muted-foreground)"}`}></span>
+      <ChatProviderIcon familyId={provider?.configuration.familyId ?? ""} label={provider?.configuration.label ?? t("chat.hero.provider")} accentColor={provider?.configuration.accentColor} />
       <span class="truncate">{selection.providerManaged ? provider?.configuration.label ?? t("chat.composer.providerManagedModel") : selectedModel?.displayName ?? provider?.configuration.label ?? t("chat.hero.chooseProvider")}</span>
       <ChevronDown size={13} />
     </button>
     {#if modelPickerOpen}
       <div class="model-picker" role="dialog" aria-label={t("chat.hero.model")} tabindex="-1" onkeydown={handleModelPickerKeydown}>
-        <p class="picker-heading">{t("chat.hero.provider")}</p>
-        <div class="provider-list" role="group" aria-label={t("chat.hero.provider")}>
+        <aside class="provider-pane" role="group" aria-label={t("chat.hero.provider")}>
+          <p class="picker-heading">{t("chat.hero.provider")}</p>
           {#each providers as entry}
-            <button type="button" class="provider-row" class:selected={entry.configuration.instanceId === provider?.configuration.instanceId} onclick={() => chooseProvider(entry.configuration.instanceId)}>
-              <span class="provider-mark" style={`background:${entry.configuration.accentColor ?? "var(--muted-foreground)"}`}></span>
-              <span class="truncate">{entry.configuration.label}</span>
-              {#if entry.configuration.instanceId === provider?.configuration.instanceId}<Check size={14} />{/if}
+            <button type="button" class="provider-row" class:selected={entry.configuration.instanceId === provider?.configuration.instanceId} class:unavailable={!providerAvailable(entry)} onclick={() => selectProvider(entry)} title={probeStatus(entry)}>
+              <ChatProviderIcon familyId={entry.configuration.familyId} label={entry.configuration.label} accentColor={entry.configuration.accentColor} />
+              <span><strong>{entry.configuration.label}</strong><small>{probeStatus(entry)}</small></span>
+              {#if entry.configuration.instanceId === provider?.configuration.instanceId}<Check size={13} />{:else if !providerAvailable(entry)}<CircleAlert size={13} />{/if}
             </button>
           {/each}
-        </div>
-        {#if provider}
-          <label class="model-search"><Search size={13} /><input bind:this={modelSearch} bind:value={modelQuery} placeholder={t("chat.composer.modelSearch")} /></label>
-          {#if providerManagedOnly || selection.providerManaged}<button type="button" class="model-row" onclick={() => chooseModel(null, true)}><span><strong>{t("chat.composer.providerManagedModel")}</strong></span>{#if selection.providerManaged}<Check size={14} />{/if}</button>{/if}
-          {#each ranked as model}<button type="button" class="model-row" disabled={model.availability === "unavailable" || model.availability === "deprecated"} aria-disabled={model.availability === "unavailable" || model.availability === "deprecated"} title={model.availability === "available" ? undefined : modelMetadata(model.contextLimit, model.availability).join(" · ")} onclick={() => chooseModel(model.id, false)}><span><strong>{model.displayName}</strong><small>{[model.id, ...modelMetadata(model.contextLimit, model.availability)].join(" · ")}</small></span>{#if provider.configuration.favoriteModelIds.includes(model.id)}<Star size={12} />{/if}{#if selection.modelId === model.id}<Check size={14} />{/if}</button>{/each}
-        {/if}
+          {#each unconfiguredFamilies as family}
+            <button type="button" class="provider-row unavailable" onclick={openProviderSettings} title={t("chat.composer.configureProvider")}>
+              <ChatProviderIcon familyId={family.familyId} label={family.displayName} />
+              <span><strong>{family.displayName}</strong><small>{t("chat.composer.notConfigured")}</small></span>
+              <Plus size={13} />
+            </button>
+          {/each}
+        </aside>
+        <section class="model-pane">
+          {#if provider}
+            <div class="model-pane-heading"><div><strong>{provider.configuration.label}</strong><small>{t("chat.hero.model")}</small></div>{#if !providerAvailable(provider)}<button type="button" onclick={openProviderSettings}>{t("chat.composer.configureProvider")}</button>{/if}</div>
+            <label class="model-search"><Search size={14} /><input bind:this={modelSearch} bind:value={modelQuery} placeholder={t("chat.composer.modelSearch")} /></label>
+            <div class="model-list">
+              {#if !providerAvailable(provider)}<div class="provider-warning"><CircleAlert size={15} /><span>{probeStatus(provider)}</span></div>{/if}
+              {#if providerManagedOnly || selection.providerManaged}<button type="button" class="model-row" disabled={!providerAvailable(provider)} onclick={() => chooseModel(null, true)}><span><strong>{t("chat.composer.providerManagedModel")}</strong><small>{provider.configuration.label}</small></span>{#if selection.providerManaged}<Check size={14} />{/if}</button>{/if}
+              {#each ranked as model}<button type="button" class="model-row" disabled={!providerAvailable(provider) || model.availability === "unavailable" || model.availability === "deprecated"} aria-disabled={!providerAvailable(provider) || model.availability === "unavailable" || model.availability === "deprecated"} title={model.availability === "available" ? undefined : modelMetadata(model.contextLimit, model.availability).join(" · ")} onclick={() => chooseModel(model.id, false)}><span><strong>{model.displayName}</strong><small>{[model.id, ...modelMetadata(model.contextLimit, model.availability)].join(" · ")}</small></span>{#if provider.configuration.favoriteModelIds.includes(model.id)}<Star size={12} />{/if}{#if selection.modelId === model.id}<Check size={14} />{/if}</button>{/each}
+              {#if ranked.length === 0 && !providerManagedOnly}<p class="empty-models">{t("chat.composer.noModels")}</p>{/if}
+            </div>
+          {:else}
+            <div class="empty-provider"><ChatProviderIcon familyId="" label={t("chat.hero.provider")} size={18} /><strong>{t("chat.hero.chooseProvider")}</strong><span>{t("chat.composer.chooseProviderHint")}</span></div>
+          {/if}
+        </section>
       </div>
     {/if}
   </div>
-  {#if selectedModel?.options.length}<div class="chat-traits">{#each selectedModel.options as definition}{#if definition.kind !== "unknown"}<label title={definition.description ?? undefined}><span>{definition.label}</span>{#if definition.kind === "boolean"}<input type="checkbox" checked={booleanValue(definition.key)} onchange={(event) => updateOption(definition.key, { kind: "boolean", value: event.currentTarget.checked })} />{:else if definition.kind === "choice"}<select value={choiceValue(definition.key)} onchange={(event) => updateOption(definition.key, { kind: "choice", value: event.currentTarget.value })}>{#each definition.options as choice}<option value={choice.value}>{choice.label}</option>{/each}</select>{:else if definition.kind === "multiple_choice"}<span class="trait-options">{#each definition.options as choice}<label><input type="checkbox" checked={multipleIncludes(definition.key, choice.value)} onchange={(event) => toggleMultiple(definition.key, choice.value, event.currentTarget.checked)} />{choice.label}</label>{/each}</span>{:else if definition.kind === "integer_range"}<input type="range" min={definition.minimum} max={definition.maximum} step={definition.step} value={integerValue(definition.key, definition.defaultValue ?? definition.minimum)} oninput={(event) => updateOption(definition.key, { kind: "integer", value: event.currentTarget.valueAsNumber })} />{:else if definition.kind === "text"}<input type="text" value={textValue(definition.key)} oninput={(event) => updateOption(definition.key, { kind: "text", value: event.currentTarget.value })} />{/if}</label>{/if}{/each}</div>{/if}
+  {#if selectedModel?.options.length}<div class="chat-traits">{#each selectedModel.options as definition}{#if definition.kind !== "unknown"}<div class="trait-control" title={definition.description ?? undefined}>{#if definition.kind === "boolean"}<button type="button" class:active={booleanValue(definition.key)} aria-pressed={booleanValue(definition.key)} onclick={() => updateOption(definition.key, { kind: "boolean", value: !booleanValue(definition.key) })}>{definition.label}</button>{:else if definition.kind === "choice"}<ChatControlMenu value={choiceValue(definition.key)} options={[{ value: "", label: definition.label, icon: "brain" }, ...definition.options.map((choice) => ({ value: choice.value, label: choice.label, description: choice.description ?? undefined, icon: "brain" as const }))]} ariaLabel={definition.label} onChange={(value) => updateOption(definition.key, { kind: "choice", value })} compact />{:else if definition.kind === "multiple_choice"}<span class="trait-options">{#each definition.options as choice}<label><input type="checkbox" checked={multipleIncludes(definition.key, choice.value)} onchange={(event) => toggleMultiple(definition.key, choice.value, event.currentTarget.checked)} />{choice.label}</label>{/each}</span>{:else if definition.kind === "integer_range"}<label><span>{definition.label}</span><input type="range" min={definition.minimum} max={definition.maximum} step={definition.step} value={integerValue(definition.key, definition.defaultValue ?? definition.minimum)} oninput={(event) => updateOption(definition.key, { kind: "integer", value: event.currentTarget.valueAsNumber })} /></label>{:else if definition.kind === "text"}<label><span>{definition.label}</span><input type="text" value={textValue(definition.key)} oninput={(event) => updateOption(definition.key, { kind: "text", value: event.currentTarget.value })} /></label>{/if}</div>{/if}{/each}</div>{/if}
   <span class="toolbar-divider" aria-hidden="true"></span>
-  <label class="inline-control" title={t("chat.hero.safety")}><ShieldCheck size={14} /><span class="sr-only">{t("chat.hero.safety")}</span><select data-chat-field="safety" value={chat.composer.safetyMode ?? ""} onchange={(event) => chooseSafety(event.currentTarget.value as SafetyMode | "")}><option value="">{t("chat.hero.chooseSafety")}</option><option value="supervised">{t("chat.hero.supervised")}</option><option value="auto_accept_edits">{t("chat.hero.autoAccept")}</option><option value="full_access">{t("chat.hero.fullAccess")}</option></select></label>
+  <ChatControlMenu value={chat.composer.safetyMode ?? ""} options={safetyOptions} ariaLabel={t("chat.hero.safety")} dataField="safety" onChange={(value) => chooseSafety(value as SafetyMode | "")} {compact} />
   <span class="toolbar-divider" aria-hidden="true"></span>
-  <label class="inline-control" title={t("chat.hero.interaction")}><Bot size={14} /><span class="sr-only">{t("chat.hero.interaction")}</span><select data-chat-field="interaction" title={!supportsPlan ? t("chat.composer.planUnavailable") : undefined} value={chat.composer.interactionMode ?? ""} onchange={(event) => chooseInteraction(event.currentTarget.value as InteractionMode | "")}><option value="">{t("chat.hero.chooseInteraction")}</option><option value="build">{t("chat.hero.build")}</option><option value="plan" disabled={!supportsPlan}>{t("chat.hero.plan")}</option></select></label>
+  <ChatControlMenu value={chat.composer.interactionMode ?? ""} options={interactionOptions} ariaLabel={t("chat.hero.interaction")} dataField="interaction" onChange={(value) => chooseInteraction(value as InteractionMode | "")} {compact} />
 </div>
 
 {#if fullAccessDialogOpen}<div class="fixed inset-0 z-60 grid place-items-center bg-black/40 p-4"><button type="button" class="absolute inset-0" aria-label={t("chat.cancel")} onclick={closeFullAccessDialog}></button><div bind:this={fullAccessDialog} class="relative w-full max-w-md rounded-lg border border-border bg-background p-4 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="full-access-title" tabindex="-1" onkeydown={(event) => handleConfirmationKeydown(event, closeFullAccessDialog)}><h2 id="full-access-title" class="font-semibold">{t("chat.composer.fullAccessTitle")}</h2><p class="mt-2 text-sm text-muted-foreground">{t("chat.composer.fullAccessDescription", provider?.configuration.label ?? "", chat.selectedWorkspace?.workspace.displayName ?? "")}</p>{#if error}<p role="alert" class="mt-2 text-sm text-destructive">{error}</p>{/if}<div class="mt-4 flex justify-end gap-2"><button type="button" class="chat-secondary-button" onclick={closeFullAccessDialog}>{t("chat.cancel")}</button><button type="button" class="chat-primary-button" onclick={() => void confirmFullAccess()}>{t("chat.composer.confirmFullAccess")}</button></div></div></div>{/if}
@@ -331,34 +388,53 @@
 {#if pendingProviderId}<div class="fixed inset-0 z-60 grid place-items-center bg-black/40 p-4"><button type="button" class="absolute inset-0" aria-label={t("chat.cancel")} onclick={closeProviderForkDialog}></button><div bind:this={providerForkDialog} class="relative w-full max-w-md rounded-lg border border-border bg-background p-4 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="provider-fork-title" tabindex="-1" onkeydown={(event) => handleConfirmationKeydown(event, closeProviderForkDialog)}><h2 id="provider-fork-title" class="font-semibold">{t("chat.composer.changeProviderTitle")}</h2><p class="mt-2 text-sm text-muted-foreground">{t("chat.composer.changeProviderDescription")}</p><div class="mt-4 flex justify-end gap-2"><button type="button" class="chat-secondary-button" onclick={closeProviderForkDialog}>{t("chat.cancel")}</button><button type="button" class="chat-primary-button" onclick={() => void confirmProviderFork()}>{t("chat.composer.startProviderFork")}</button></div></div></div>{/if}
 
 <style>
-  .chat-model-toolbar { display: flex; min-width: 0; align-items: center; gap: 0.35rem; color: var(--muted-foreground); }
-  .picker-trigger, .inline-control { display: inline-flex; min-height: 1.9rem; max-width: 14rem; align-items: center; gap: 0.4rem; border-radius: 0.5rem; padding: 0.25rem 0.45rem; color: var(--muted-foreground); font-size: 0.733333rem; }
-  .picker-trigger:hover, .inline-control:hover { background: var(--accent); color: var(--foreground); }
-  .picker-trigger:focus-visible, .inline-control:focus-within { outline: 2px solid var(--ring); outline-offset: 1px; }
+  .chat-model-toolbar { display: flex; min-width: 0; max-width: 100%; align-items: center; gap: 0.25rem; color: var(--muted-foreground); }
+  .picker-trigger { display: inline-flex; min-width: 0; height: 1.9rem; max-width: 13rem; align-items: center; gap: 0.35rem; border-radius: 0.55rem; padding: 0.25rem 0.45rem; color: var(--muted-foreground); font-size: 0.733333rem; }
+  .picker-trigger:hover, .picker-trigger[aria-expanded="true"] { background: var(--accent); color: var(--foreground); }
+  .picker-trigger:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
   .picker-trigger > span:nth-child(2) { min-width: 0; flex: 1; }
-  .provider-mark { width: 0.55rem; height: 0.55rem; flex: 0 0 auto; border-radius: 999px; box-shadow: 0 0 0 1px color-mix(in srgb, var(--foreground) 12%, transparent); }
-  .inline-control select { min-width: 0; max-width: 9.5rem; appearance: none; border: 0; background: transparent; color: inherit; outline: 0; }
   .toolbar-divider { width: 1px; height: 1rem; flex: 0 0 auto; background: var(--border); }
-  .model-picker { position: absolute; left: 0; bottom: calc(100% + 0.5rem); z-index: 30; display: flex; width: min(28rem, 86vw); max-height: min(24rem, 60vh); flex-direction: column; overflow: auto; border: 1px solid var(--border); border-radius: 0.75rem; background: var(--popover); padding: 0.4rem; box-shadow: 0 18px 48px rgb(0 0 0 / 0.2); }
+  .model-picker { position: absolute; left: 0; bottom: calc(100% + 0.5rem); z-index: 35; display: grid; width: min(34rem, 86vw); height: min(25rem, 62vh); grid-template-columns: minmax(9.5rem, 0.78fr) minmax(15rem, 1.5fr); overflow: hidden; border: 1px solid var(--border); border-radius: 0.8rem; background: var(--popover); box-shadow: 0 18px 48px rgb(0 0 0 / 0.22); }
   .picker-heading { padding: 0.3rem 0.45rem 0.2rem; color: var(--muted-foreground); font-size: 0.666667rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
-  .provider-list { display: flex; flex-wrap: wrap; gap: 0.25rem; padding-bottom: 0.35rem; border-bottom: 1px solid var(--border); }
-  .provider-row { display: flex; min-width: 0; flex: 1 1 8rem; align-items: center; gap: 0.4rem; border-radius: 0.45rem; padding: 0.4rem 0.5rem; color: var(--muted-foreground); font-size: 0.733333rem; text-align: left; }
+  .provider-pane { min-width: 0; overflow-y: auto; border-right: 1px solid var(--border); padding: 0.4rem; background: color-mix(in srgb, var(--muted) 28%, var(--popover)); }
+  .provider-row { display: grid; width: 100%; min-width: 0; grid-template-columns: 1.25rem minmax(0, 1fr) 0.9rem; align-items: center; gap: 0.4rem; border-radius: 0.45rem; padding: 0.45rem; color: var(--muted-foreground); text-align: left; }
   .provider-row:hover, .provider-row.selected { background: var(--accent); color: var(--foreground); }
-  .provider-row > span:nth-child(2) { min-width: 0; flex: 1; }
-  .model-search { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 0.4rem; background: var(--popover); padding: 0.45rem 0.35rem 0.3rem; }
-  .model-search input { min-width: 0; flex: 1; border: 1px solid var(--border); border-radius: 0.375rem; padding: 0.35rem; color: var(--foreground); }
+  .provider-row.unavailable { opacity: 0.72; }
+  .provider-row > span:nth-child(2) { min-width: 0; }
+  .provider-row strong, .provider-row small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .provider-row strong { color: currentColor; font-size: 0.733333rem; font-weight: 500; }
+  .provider-row small { margin-top: 0.05rem; color: var(--muted-foreground); font-size: 0.6rem; }
+  .model-pane { display: flex; min-width: 0; min-height: 0; flex-direction: column; }
+  .model-pane-heading { display: flex; min-height: 3rem; align-items: center; gap: 0.5rem; border-bottom: 1px solid var(--border); padding: 0.45rem 0.65rem; }
+  .model-pane-heading > div { min-width: 0; flex: 1; }
+  .model-pane-heading strong, .model-pane-heading small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .model-pane-heading strong { font-size: 0.8rem; font-weight: 500; }
+  .model-pane-heading small { color: var(--muted-foreground); font-size: 0.633333rem; }
+  .model-pane-heading button { border-radius: 0.4rem; background: var(--accent); padding: 0.3rem 0.45rem; font-size: 0.666667rem; }
+  .model-search { display: flex; align-items: center; gap: 0.45rem; margin: 0.5rem 0.55rem 0.2rem; border: 1px solid var(--border); border-radius: 0.5rem; padding: 0.4rem 0.5rem; color: var(--muted-foreground); }
+  .model-search:focus-within { border-color: var(--ring); color: var(--foreground); }
+  .model-search input { min-width: 0; flex: 1; background: transparent; color: var(--foreground); font-size: 0.733333rem; outline: none; }
+  .model-list { min-height: 0; flex: 1; overflow-y: auto; padding: 0.3rem 0.45rem 0.45rem; }
   .model-row { display: flex; width: 100%; align-items: center; gap: 0.45rem; border-radius: 0.375rem; padding: 0.45rem; text-align: left; }
   .model-row:hover { background: var(--accent); }
   .model-row:disabled { opacity: 0.55; }
   .model-row span { min-width: 0; flex: 1; }
   .model-row strong, .model-row small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .model-row strong { font-size: 0.8rem; }
+  .model-row strong { font-size: 0.766667rem; font-weight: 500; }
   .model-row small { color: var(--muted-foreground); font-size: 0.666667rem; }
+  .provider-warning { display: flex; align-items: flex-start; gap: 0.45rem; margin: 0.2rem 0.1rem 0.4rem; border-radius: 0.45rem; background: color-mix(in srgb, var(--status-tentative) 10%, transparent); padding: 0.5rem; color: var(--status-tentative); font-size: 0.666667rem; line-height: 1rem; }
+  .provider-warning :global(svg) { flex: 0 0 auto; margin-top: 0.05rem; }
+  .empty-models { padding: 0.75rem; text-align: center; color: var(--muted-foreground); font-size: 0.7rem; }
+  .empty-provider { display: grid; min-height: 100%; place-content: center; justify-items: center; gap: 0.4rem; padding: 2rem; color: var(--muted-foreground); text-align: center; }
+  .empty-provider strong { color: var(--foreground); font-size: 0.8rem; font-weight: 500; }
+  .empty-provider span { max-width: 15rem; font-size: 0.666667rem; line-height: 1rem; }
   .chat-traits { display: flex; min-width: 0; align-items: center; gap: 0.35rem; }
-  .chat-traits > label { display: flex; align-items: center; gap: 0.3rem; white-space: nowrap; color: var(--muted-foreground); font-size: 0.666667rem; }
-  .chat-traits select, .chat-traits input[type="text"] { max-width: 8rem; border: 0; border-radius: 0.3rem; background: var(--muted); padding: 0.2rem 0.3rem; color: var(--foreground); }
+  .trait-control, .trait-control > label { display: flex; min-width: 0; align-items: center; gap: 0.3rem; white-space: nowrap; color: var(--muted-foreground); font-size: 0.666667rem; }
+  .trait-control > button { height: 1.9rem; border-radius: 0.5rem; padding-inline: 0.45rem; }
+  .trait-control > button:hover, .trait-control > button.active { background: var(--accent); color: var(--foreground); }
+  .chat-traits input[type="text"] { max-width: 8rem; border: 0; border-radius: 0.3rem; background: var(--muted); padding: 0.2rem 0.3rem; color: var(--foreground); }
   .trait-options { display: flex; flex-wrap: wrap; gap: 0.35rem; }
   .trait-options label { display: inline-flex; align-items: center; gap: 0.2rem; }
-  @container chat-composer (max-width: 640px) { .chat-model-toolbar { overflow-x: auto; scrollbar-width: none; } .chat-model-toolbar:has(.model-picker) { overflow: visible; } .chat-model-toolbar::-webkit-scrollbar { display: none; } .chat-traits { display: none; } .picker-trigger { max-width: 10rem; } .inline-control select { max-width: 7.5rem; } }
-  @container chat-composer (max-width: 340px) { .toolbar-divider { display: none; } .picker-trigger { max-width: 8rem; } .inline-control { padding-inline: 0.3rem; } .inline-control select { max-width: 5.5rem; } }
+  @container chat-composer (max-width: 640px) { .chat-traits { display: none; } .picker-trigger { max-width: 11rem; } }
+  @container chat-composer (max-width: 460px) { .toolbar-divider { display: none; } .picker-trigger { max-width: 9rem; } .model-picker { width: min(22rem, calc(100vw - 1rem)); grid-template-columns: 1fr; } .provider-pane { max-height: 8.5rem; border-right: 0; border-bottom: 1px solid var(--border); } .provider-pane .picker-heading { display: none; } .model-pane { min-height: 12rem; } }
 </style>

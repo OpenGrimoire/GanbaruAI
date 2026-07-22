@@ -1,4 +1,6 @@
 <script lang="ts">
+  import Eye from "@lucide/svelte/icons/eye";
+  import EyeOff from "@lucide/svelte/icons/eye-off";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Search from "@lucide/svelte/icons/search";
   import Star from "@lucide/svelte/icons/star";
@@ -6,6 +8,7 @@
   import { formatNumber } from "$lib/i18n/formatters";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
+  import CustomSelect from "../CustomSelect.svelte";
 
   const localization = getLocalization();
   const { t } = localization;
@@ -19,6 +22,10 @@
   let customError = $state<string | null>(null);
   let operationError = $state<string | null>(null);
   const providers = $derived(chat.settings?.providerInstances ?? []);
+  const providerOptions = $derived(providers.map((provider) => ({
+    value: provider.configuration.instanceId,
+    label: provider.configuration.label,
+  })));
   const selectedProvider = $derived(providers.find((entry) => entry.configuration.instanceId === selectedProviderId) ?? providers[0] ?? null);
   const models = $derived.by(() => {
     const query = search.trim().toLocaleLowerCase(localization.locale);
@@ -166,12 +173,22 @@
 
 <section class="flex flex-col gap-4">
   <div class="flex flex-wrap items-end justify-between gap-3">
-    <div><h2 class="text-[0.866667rem] font-semibold text-foreground">{t("settings.chat.models.heading")}</h2></div>
+    <div class="px-1"><h2 class="text-[0.866667rem] font-semibold text-foreground">{t("settings.chat.models.heading")}</h2><p class="mt-1 text-[0.8rem] text-muted-foreground">{t("settings.chat.models.description")}</p></div>
     <div class="flex gap-2">{#if acceptsCustomModels}<button type="button" class="chat-settings-button" disabled={busy} onclick={() => { customOpen = !customOpen; }}>{t("settings.chat.models.addCustom")}</button>{/if}<button type="button" class="chat-settings-button" disabled={!selectedProvider || busy} onclick={() => void refresh()}><RefreshCw size={13} />{t("settings.chat.models.refresh")}</button></div>
   </div>
   {#if providers.length > 0}
     <div class="grid gap-2 sm:grid-cols-[minmax(10rem,14rem)_1fr]">
-      <label class="setup-field"><span>{t("settings.chat.models.provider")}</span><select bind:value={selectedProviderId}>{#each providers as provider}<option value={provider.configuration.instanceId}>{provider.configuration.label}</option>{/each}</select></label>
+      <div class="setup-field">
+        <span>{t("settings.chat.models.provider")}</span>
+        <CustomSelect
+          inline
+          class="w-full"
+          value={selectedProvider?.configuration.instanceId ?? ""}
+          options={providerOptions}
+          onChange={(value) => { selectedProviderId = value; }}
+          ariaLabel={t("settings.chat.models.provider")}
+        />
+      </div>
       <label class="setup-field"><span>{t("settings.chat.models.search")}</span><div class="relative"><Search size={14} class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" /><input class="w-full pl-8" type="search" bind:value={search} /></div></label>
     </div>
   {/if}
@@ -188,14 +205,30 @@
   {#if models.length === 0}
     <p class="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">{t("settings.chat.models.empty")}</p>
   {:else}
-    <div class="divide-y divide-border rounded-lg border border-border">
+    <div class="divide-y divide-border rounded-lg border border-border bg-card/40">
       {#each models as model}
-        <div class="flex items-start gap-3 p-3">
-          <button type="button" class="mt-0.5 text-muted-foreground hover:text-status-tentative" aria-label={t("settings.chat.models.favorite")} aria-pressed={selectedProvider?.configuration.favoriteModelIds.includes(model.id)} onclick={() => void toggleFavorite(model.id)}><Star size={16} fill={selectedProvider?.configuration.favoriteModelIds.includes(model.id) ? "currentColor" : "none"} /></button>
+        <div class="flex min-w-0 items-start gap-2.5 px-3 py-2.5">
+          <button type="button" class="model-action mt-0.5 hover:text-status-tentative" aria-label={t("settings.chat.models.favorite")} aria-pressed={selectedProvider?.configuration.favoriteModelIds.includes(model.id)} onclick={() => void toggleFavorite(model.id)}><Star size={14} fill={selectedProvider?.configuration.favoriteModelIds.includes(model.id) ? "currentColor" : "none"} /></button>
           <div class="min-w-0 flex-1"><div class="flex flex-wrap gap-2"><span class="font-medium text-foreground">{model.displayName}</span>{#if model.availability !== "available"}<span class="text-xs text-status-tentative">{model.availability === "stale" ? t("settings.chat.models.stale") : model.availability === "deprecated" ? t("settings.chat.models.deprecated") : t("settings.chat.models.unavailable")}</span>{/if}{#if model.custom}<span class="text-xs text-muted-foreground">{t("settings.chat.models.custom")}</span>{/if}</div><div class="mt-0.5 text-xs text-muted-foreground">{t("settings.chat.models.rawId", model.id)}{#if model.contextLimit} · {t("settings.chat.models.context", formatNumber(localization.locale, model.contextLimit))}{/if}{#if model.capabilities.length > 0} · {t("settings.chat.models.capabilities", formatNumber(localization.locale, model.capabilities.length))}{/if}</div></div>
-          <div class="flex items-center gap-2"><label class="flex items-center gap-2 text-xs text-muted-foreground"><input type="checkbox" checked={isVisible(model.id)} onchange={() => void toggleVisible(model.id)} />{t("settings.chat.models.visible")}</label>{#if model.custom}<button type="button" class="chat-settings-button text-destructive" disabled={busy} onclick={() => void removeCustomModel(model.id)}>{t("settings.chat.models.removeCustom")}</button>{/if}</div>
+          <div class="flex shrink-0 items-center gap-1">
+            <button
+              type="button"
+              class="model-action"
+              class:text-foreground={isVisible(model.id)}
+              aria-label={isVisible(model.id) ? t("settings.chat.models.hide") : t("settings.chat.models.show")}
+              title={isVisible(model.id) ? t("settings.chat.models.hide") : t("settings.chat.models.show")}
+              aria-pressed={isVisible(model.id)}
+              onclick={() => void toggleVisible(model.id)}
+            >{#if isVisible(model.id)}<Eye size={14} />{:else}<EyeOff size={14} />{/if}</button>
+            {#if model.custom}<button type="button" class="chat-settings-button text-destructive" disabled={busy} onclick={() => void removeCustomModel(model.id)}>{t("settings.chat.models.removeCustom")}</button>{/if}
+          </div>
         </div>
       {/each}
     </div>
   {/if}
 </section>
+
+<style>
+  .model-action { display: inline-grid; width: 1.75rem; height: 1.75rem; flex: 0 0 auto; place-items: center; border-radius: 0.375rem; color: var(--muted-foreground); }
+  .model-action:hover { background: var(--accent); color: var(--foreground); }
+</style>

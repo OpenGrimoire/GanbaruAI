@@ -4,6 +4,7 @@ import {
   ChatInspectorSessionState,
   inspectorFocusAction,
   inspectorPresentation,
+  inspectorSessionKey,
   splitDiffFits,
 } from "./inspector-model";
 
@@ -15,6 +16,12 @@ describe("Chat inspector model", () => {
     expect(state.read("thread-a").tab).toBe("terminal");
     expect(state.read("thread-a").selectedFile).toBe("src/a.ts");
     expect(state.read("thread-b").tab).toBe("files");
+  });
+
+  it("keeps inspector state available for a workspace draft", () => {
+    expect(inspectorSessionKey(null, "workspace-a")).toBe("draft:workspace-a");
+    expect(inspectorSessionKey("thread-a", "workspace-a")).toBe("thread-a");
+    expect(inspectorSessionKey(null, null)).toBeNull();
   });
 
   it("derives a stable changed-file tree including renames", () => {

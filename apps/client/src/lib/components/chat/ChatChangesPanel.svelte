@@ -2,9 +2,14 @@
   import { onMount, tick } from "svelte";
   import AlertTriangle from "@lucide/svelte/icons/triangle-alert";
   import Copy from "@lucide/svelte/icons/copy";
+  import Columns2 from "@lucide/svelte/icons/columns-2";
   import ExternalLink from "@lucide/svelte/icons/external-link";
+  import GitCommitHorizontal from "@lucide/svelte/icons/git-commit-horizontal";
+  import History from "@lucide/svelte/icons/history";
   import Paperclip from "@lucide/svelte/icons/paperclip";
   import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
+  import Rows3 from "@lucide/svelte/icons/rows-3";
+  import Space from "@lucide/svelte/icons/space";
   import * as chatApi from "$lib/api/chat";
   import type {
     ChatChangeScope,
@@ -17,6 +22,7 @@
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
   import ChatChangedFileTree from "./ChatChangedFileTree.svelte";
+  import ChatFileIcon from "./ChatFileIcon.svelte";
 
   let {
     scope,
@@ -193,17 +199,14 @@
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
-  <div class="flex flex-wrap items-center gap-2 border-b border-border p-2">
-    <div class="flex rounded border border-border p-0.5" role="group">
-      <button type="button" class:active={scope === "current_turn"} class="chat-scope-button" onclick={() => onStateChange({ scope: "current_turn" })}>{t("chat.inspector.currentTurn")}</button>
-      <button type="button" class:active={scope === "entire_thread"} class="chat-scope-button" onclick={() => onStateChange({ scope: "entire_thread" })}>{t("chat.inspector.entireThread")}</button>
+  <div class="diff-toolbar">
+    <div class="scope-control" role="group">
+      <button type="button" class:active={scope === "current_turn"} class="chat-scope-button" title={t("chat.inspector.currentTurn")} onclick={() => onStateChange({ scope: "current_turn" })}><GitCommitHorizontal size={13} /><span>{t("chat.inspector.currentTurn")}</span></button>
+      <button type="button" class:active={scope === "entire_thread"} class="chat-scope-button" title={t("chat.inspector.entireThread")} onclick={() => onStateChange({ scope: "entire_thread" })}><History size={13} /><span>{t("chat.inspector.entireThread")}</span></button>
     </div>
-    <label class="flex items-center gap-1 text-[0.666667rem] text-muted-foreground">
-      <input type="checkbox" checked={whitespaceIgnored} onchange={(event) => onStateChange({ whitespaceIgnored: event.currentTarget.checked })} />
-      {t("chat.inspector.ignoreWhitespace")}
-    </label>
+    <button type="button" class="whitespace-toggle" class:active={whitespaceIgnored} aria-pressed={whitespaceIgnored} title={t("chat.inspector.ignoreWhitespace")} onclick={() => onStateChange({ whitespaceIgnored: !whitespaceIgnored })}><Space size={14} /></button>
     {#if diff?.available}
-      <span class="ml-auto text-[0.666667rem]"><span class="text-action-confirm">{t("chat.inspector.additions", formatNumber(localization.locale, diff.additions))}</span> <span class="text-destructive">{t("chat.inspector.deletions", formatNumber(localization.locale, diff.deletions))}</span></span>
+      <span class="diff-stat"><span class="text-action-confirm">{t("chat.inspector.additions", formatNumber(localization.locale, diff.additions))}</span><span class="text-destructive">{t("chat.inspector.deletions", formatNumber(localization.locale, diff.deletions))}</span></span>
       <button type="button" class="chat-icon-button" disabled={restoring} title={t("chat.timeline.revert")} onclick={() => { void restoreCheckpoint(); }}><RotateCcw size={13} /></button>
     {/if}
   </div>
@@ -229,18 +232,19 @@
 
     <section bind:this={diffHost} class="flex min-h-0 flex-col">
       {#if selectedFile}
-        <header class="flex items-center gap-1 border-b border-border p-2">
+        <header class="diff-heading">
+          <ChatFileIcon path={selectedFile} />
           <strong class="min-w-0 flex-1 truncate text-xs" title={selectedFile}>{selectedFile}</strong>
           <button type="button" class="chat-icon-button" title={t("chat.inspector.copyPath")} onclick={() => navigator.clipboard.writeText(selectedFile ?? "")}><Copy size={13} /></button>
           <button type="button" class="chat-icon-button" title={t("chat.inspector.attachFile")} onclick={() => selectedFile && attach(selectedFile)}><Paperclip size={13} /></button>
           <button type="button" class="chat-icon-button" title={t("chat.inspector.openExternally")} onclick={() => workspaceId && selectedFile && chatApi.openChatWorkspaceFile(workspaceId, selectedFile)}><ExternalLink size={13} /></button>
-          {#if splitDiffFits(diffWidth)}<button type="button" class="chat-secondary-button" onclick={() => onStateChange({ diffView: splitView ? "unified" : "split" })}>{splitView ? t("chat.inspector.unifiedDiff") : t("chat.inspector.splitDiff")}</button>{/if}
+          {#if splitDiffFits(diffWidth)}<button type="button" class="diff-view-toggle" title={splitView ? t("chat.inspector.unifiedDiff") : t("chat.inspector.splitDiff")} aria-label={splitView ? t("chat.inspector.unifiedDiff") : t("chat.inspector.splitDiff")} onclick={() => onStateChange({ diffView: splitView ? "unified" : "split" })}>{#if splitView}<Rows3 size={13} />{:else}<Columns2 size={13} />{/if}</button>{/if}
         </header>
       {/if}
       {#if fileDiff?.binary}
         <p class="m-auto p-4 text-xs text-muted-foreground">{t("chat.inspector.binary")}</p>
       {:else if fileDiff?.patch}
-        <div bind:this={diffScroller} class="min-h-0 flex-1 overflow-auto font-mono text-[0.666667rem] leading-5">
+        <div bind:this={diffScroller} class="diff-code">
           {#if splitView}
             {#each renderedLines as line}
               {#if line.kind === "header"}
@@ -269,8 +273,15 @@
 </div>
 
 <style>
-  .chat-scope-button { border-radius: 0.2rem; padding: 0.2rem 0.4rem; font-size: 0.666667rem; }
+  .diff-toolbar { display: flex; min-height: 2.7rem; flex: 0 0 auto; align-items: center; gap: 0.3rem; overflow-x: auto; border-bottom: 1px solid var(--border); padding: 0.35rem 0.4rem; }
+  .scope-control { display: flex; flex: 0 0 auto; border: 1px solid var(--border); border-radius: 0.45rem; padding: 0.15rem; }
+  .chat-scope-button { display: inline-flex; min-height: 1.65rem; align-items: center; gap: 0.3rem; border-radius: 0.3rem; padding: 0.2rem 0.4rem; color: var(--muted-foreground); font-size: 0.633333rem; }
   .chat-scope-button.active { background: var(--accent); color: var(--accent-foreground); }
+  .whitespace-toggle, .diff-view-toggle { display: inline-grid; width: 1.8rem; height: 1.8rem; flex: 0 0 auto; place-items: center; border-radius: 0.4rem; color: var(--muted-foreground); }
+  .whitespace-toggle:hover, .whitespace-toggle.active, .diff-view-toggle:hover { background: var(--accent); color: var(--foreground); }
+  .diff-stat { display: flex; margin-left: auto; gap: 0.35rem; font-family: "SF Mono", "SFMono-Regular", Consolas, monospace; font-size: 0.633333rem; }
+  .diff-heading { display: flex; min-height: 2.5rem; align-items: center; gap: 0.25rem; border-bottom: 1px solid var(--border); padding: 0.3rem 0.4rem 0.3rem 0.6rem; }
+  .diff-code { min-height: 0; flex: 1; overflow: auto; font-family: "SF Mono", "SFMono-Regular", "JetBrains Mono", "Cascadia Code", Consolas, "Liberation Mono", Menlo, monospace; font-size: 0.7rem; line-height: 1.35rem; }
   .diff-line { display: grid; min-width: max-content; grid-template-columns: 2.75rem 2.75rem minmax(0, 1fr); padding-right: 0.75rem; }
   .diff-line.addition { background: color-mix(in srgb, var(--action-confirm) 13%, transparent); }
   .diff-line.deletion { background: color-mix(in srgb, var(--destructive) 12%, transparent); }
@@ -283,4 +294,5 @@
   .split-code.addition { background: color-mix(in srgb, var(--action-confirm) 13%, transparent); }
   .split-code.deletion { background: color-mix(in srgb, var(--destructive) 12%, transparent); }
   .split-code.empty { background: color-mix(in srgb, var(--muted) 50%, transparent); }
+  @container chat-shell (max-width: 430px) { .chat-scope-button span { display: none; } }
 </style>

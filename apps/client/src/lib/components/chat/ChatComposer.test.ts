@@ -77,8 +77,9 @@ describe("ChatComposer", () => {
   it("keeps model, safety, interaction, attachments, and send directly discoverable", () => {
     const { target } = setup(false);
     expect(target.querySelector("[data-chat-model-trigger]")).not.toBeNull();
-    expect(target.querySelector('[data-chat-field="safety"]')).not.toBeNull();
-    expect(target.querySelector('[data-chat-field="interaction"]')).not.toBeNull();
+    expect(target.querySelector('[data-chat-field="safety"]')?.tagName).toBe("BUTTON");
+    expect(target.querySelector('[data-chat-field="interaction"]')?.tagName).toBe("BUTTON");
+    expect(target.querySelector("select")).toBeNull();
     expect(target.querySelector(".attachment-menu summary")?.getAttribute("aria-label")).toBe("Attach images");
     expect(target.querySelector("button.primary-action")?.getAttribute("aria-label")).toBe("Send");
   });

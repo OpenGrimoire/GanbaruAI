@@ -6,6 +6,7 @@
   import type { ChatChangedFileRead } from "$lib/chat/contracts";
   import { formatNumber } from "$lib/i18n/formatters";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import ChatFileIcon from "./ChatFileIcon.svelte";
 
   let {
     files,
@@ -31,6 +32,13 @@
   function statusLabel(file: ChatChangedFileRead): string {
     return file.status.slice(0, 1).toUpperCase();
   }
+
+  function sourceLabel(file: ChatChangedFileRead): string {
+    return [
+      file.providerReported ? t("chat.inspector.providerSource") : null,
+      file.gitObserved ? t("chat.inspector.gitSource") : null,
+    ].filter((entry): entry is string => entry !== null).join(", ");
+  }
 </script>
 
 {#snippet nodes(entries: ChatChangedFileTreeNode[], depth: number)}
@@ -42,17 +50,14 @@
       </button>
       {#if !collapsed.includes(node.relativePath)}{@render nodes(node.children, depth + 1)}{/if}
     {:else if node.file}
-      <button type="button" class="tree-row" class:selected={selectedFile === node.relativePath} style={`padding-left:${depth * 0.5 + 1.5}rem`} onclick={() => node.file && onSelect(node.file)} title={node.relativePath}>
-        <span class="w-3 font-mono text-[0.583333rem]">{statusLabel(node.file)}</span>
+      <button type="button" class="tree-row" class:selected={selectedFile === node.relativePath} style={`padding-left:${depth * 0.5 + 1.5}rem`} onclick={() => node.file && onSelect(node.file)} title={`${node.relativePath} · ${sourceLabel(node.file)}`}>
+        <ChatFileIcon path={node.relativePath} size={13} />
         <span class="min-w-0 flex-1 truncate text-left">{node.name}</span>
         {#if node.file.previousRelativePath}<span class="max-w-20 truncate text-[0.583333rem] text-muted-foreground" title={node.file.previousRelativePath}>← {node.file.previousRelativePath}</span>{/if}
-        <span class="flex gap-0.5 text-[0.5rem]" aria-label={t("chat.inspector.changeSources")}>
-          {#if node.file.providerReported}<span class="source provider" title={t("chat.inspector.providerSource")}>P</span>{/if}
-          {#if node.file.gitObserved}<span class="source git" title={t("chat.inspector.gitSource")}>G</span>{/if}
-        </span>
         {#if node.file.binary}<span class="text-[0.583333rem]">B</span>{/if}
         {#if node.file.additions !== null}<span class="text-[0.583333rem] text-action-confirm">+{formatNumber(localization.locale, node.file.additions)}</span>{/if}
         {#if node.file.deletions !== null}<span class="text-[0.583333rem] text-destructive">−{formatNumber(localization.locale, node.file.deletions)}</span>{/if}
+        <span class="file-status">{statusLabel(node.file)}</span>
       </button>
     {/if}
   {/each}
@@ -63,7 +68,5 @@
 <style>
   .tree-row { display: flex; width: 100%; min-height: 1.75rem; align-items: center; gap: 0.25rem; border-radius: 0.25rem; padding-block: 0.25rem; padding-right: 0.3rem; font-size: 0.75rem; }
   .tree-row:hover, .tree-row.selected { background: var(--accent); }
-  .source { border-radius: 0.15rem; padding: 0.05rem 0.18rem; font-weight: 700; }
-  .source.provider { background: color-mix(in srgb, var(--primary) 15%, transparent); color: var(--primary); }
-  .source.git { background: color-mix(in srgb, var(--action-confirm) 15%, transparent); color: var(--action-confirm); }
+  .file-status { display: inline-grid; min-width: 1rem; height: 1rem; place-items: center; border-radius: 0.25rem; background: var(--muted); color: var(--muted-foreground); font-family: "SF Mono", "SFMono-Regular", Consolas, monospace; font-size: 0.533333rem; font-weight: 600; }
 </style>

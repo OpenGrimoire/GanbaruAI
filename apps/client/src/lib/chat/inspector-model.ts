@@ -9,6 +9,7 @@ export interface ChatInspectorThreadState {
   selectedFile: string | null;
   fileBrowserPath: string;
   filePreviewPath: string | null;
+  fileTreeVisible: boolean;
   changeScope: "current_turn" | "entire_thread";
   whitespaceIgnored: boolean;
   diffView: "auto" | "unified" | "split";
@@ -28,6 +29,7 @@ const DEFAULT_STATE: ChatInspectorThreadState = {
   selectedFile: null,
   fileBrowserPath: "",
   filePreviewPath: null,
+  fileTreeVisible: true,
   changeScope: "current_turn",
   whitespaceIgnored: false,
   diffView: "auto",
@@ -50,6 +52,14 @@ export class ChatInspectorSessionState {
 }
 
 export const chatInspectorSession = new ChatInspectorSessionState();
+
+export function inspectorSessionKey(
+  threadId: ChatThreadId | null,
+  workspaceId: string | null,
+): string | null {
+  if (threadId) return threadId;
+  return workspaceId ? `draft:${workspaceId}` : null;
+}
 
 export function buildChangedFileTree(files: readonly ChatChangedFileRead[]): ChatChangedFileTreeNode[] {
   const root: ChatChangedFileTreeNode = {

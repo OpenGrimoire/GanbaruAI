@@ -2,6 +2,7 @@
   import Edit3 from "@lucide/svelte/icons/square-pen";
   import Plus from "@lucide/svelte/icons/plus";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
+  import SquareTerminal from "@lucide/svelte/icons/square-terminal";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import * as chatApi from "$lib/api/chat";
   import type { ChatTerminalRead } from "$lib/chat/contracts";
@@ -110,10 +111,11 @@
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
-  <div class="flex min-h-10 items-center gap-1 overflow-x-auto border-b border-border p-1">
+  <div class="terminal-tabbar">
     {#each terminals as terminal (terminal.id)}
       <button type="button" class="terminal-tab" class:active={selectedId === terminal.id} onclick={() => select(terminal.id)} title={terminal.name}>
         <span class:running={terminal.running} class="status-dot"></span>
+        <SquareTerminal size={12} />
         <span class="max-w-28 truncate">{terminal.name}</span>
       </button>
     {/each}
@@ -145,8 +147,10 @@
 </div>
 
 <style>
-  .terminal-tab { display: flex; min-height: 1.75rem; align-items: center; gap: 0.3rem; border-radius: 0.25rem; padding: 0.2rem 0.4rem; font-size: 0.666667rem; }
+  .terminal-tabbar { display: flex; min-height: 2.45rem; flex: 0 0 auto; align-items: center; gap: 0.1rem; overflow-x: auto; border-bottom: 1px solid var(--border); padding: 0.25rem 0.35rem; background: color-mix(in srgb, var(--muted) 20%, transparent); }
+  .terminal-tab { display: flex; min-height: 1.8rem; align-items: center; gap: 0.3rem; border-radius: 0.35rem; padding: 0.2rem 0.45rem; color: var(--muted-foreground); font-size: 0.666667rem; }
   .terminal-tab:hover, .terminal-tab.active { background: var(--accent); }
+  .terminal-tab.active { color: var(--foreground); }
   .status-dot { width: 0.4rem; height: 0.4rem; flex: none; border-radius: 9999px; background: var(--muted-foreground); }
   .status-dot.running { background: var(--action-confirm); }
 </style>

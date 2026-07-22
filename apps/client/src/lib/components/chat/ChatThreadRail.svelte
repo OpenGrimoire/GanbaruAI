@@ -236,28 +236,28 @@
 {#if deleteThread}<ConfirmDialog title={t("chat.deleteTitle")} message={t("chat.deleteMessage", deleteThread.title)} confirmLabel={t("chat.deletePermanently")} cancelLabel={t("chat.cancel")} onConfirm={confirmDelete} onCancel={() => { deleteThread = null; }} />{/if}
 
 <style>
-  .chat-rail { position: relative; display: flex; height: 100%; min-height: 0; flex-direction: column; border-right: 1px solid var(--border); background: color-mix(in srgb, var(--card) 88%, var(--cal-bg)); }
-  .chat-rail-header { display: flex; min-height: 3.25rem; flex: 0 0 auto; align-items: center; gap: 0.2rem; padding-inline: 0.55rem; }
-  .chat-rail-search { padding: 0.25rem 0.65rem 0.55rem; }
+  .chat-rail { position: relative; display: flex; height: 100%; min-height: 0; flex-direction: column; border-right: 1px solid var(--border); background: color-mix(in srgb, var(--cal-bg) 96%, var(--card)); }
+  .chat-rail-header { display: flex; min-height: 3.05rem; flex: 0 0 auto; align-items: center; gap: 0.15rem; padding-inline: 0.65rem 0.45rem; }
+  .chat-rail-search { padding: 0.15rem 0.7rem 0.5rem; }
   .chat-rail-search label { display: flex; min-height: 2rem; align-items: center; gap: 0.5rem; border-radius: 0.5rem; padding-inline: 0.55rem; color: var(--muted-foreground); }
   .chat-rail-search label:focus-within, .chat-rail-search label:hover { background: var(--accent); color: var(--foreground); }
   .chat-rail-search input { min-width: 0; flex: 1; border: 0; background: transparent; color: var(--foreground); font-size: 0.733333rem; outline: 0; }
   .chat-rail-search input::placeholder { color: var(--muted-foreground); }
   .chat-rail-search button { display: inline-flex; width: 1.5rem; height: 1.5rem; align-items: center; justify-content: center; border-radius: 0.35rem; }
-  .chat-project { margin-block: 0.2rem 0.55rem; }
-  .chat-project-header { display: flex; min-height: 2rem; align-items: center; gap: 0.5rem; border-radius: 0.45rem; padding: 0.25rem 0.4rem; color: color-mix(in srgb, var(--foreground) 90%, transparent); font-size: 0.8rem; font-weight: 500; }
+  .chat-project { margin-block: 0.15rem 0.45rem; }
+  .chat-project-header { display: flex; min-height: 1.9rem; align-items: center; gap: 0.5rem; border-radius: 0.45rem; padding: 0.2rem 0.4rem; color: color-mix(in srgb, var(--foreground) 90%, transparent); font-size: 0.8rem; font-weight: 500; }
   .chat-project-header:hover { background: color-mix(in srgb, var(--accent) 60%, transparent); }
-  .chat-rail-footer { flex: 0 0 auto; border-top: 1px solid color-mix(in srgb, var(--border) 65%, transparent); padding: 0.45rem 0.65rem; }
+  .chat-rail-footer { flex: 0 0 auto; border-top: 1px solid color-mix(in srgb, var(--border) 65%, transparent); padding: 0.4rem 0.65rem; }
   .chat-rail-footer button { display: flex; min-height: 2rem; width: 100%; align-items: center; gap: 0.55rem; border-radius: 0.45rem; padding-inline: 0.55rem; color: var(--muted-foreground); font-size: 0.733333rem; text-align: left; }
   .chat-rail-footer button:hover { background: var(--accent); color: var(--foreground); }
-  :global(.chat-icon-button) { display: inline-flex; width: 2rem; height: 2rem; flex: 0 0 auto; align-items: center; justify-content: center; border-radius: 0.375rem; color: var(--muted-foreground); }
+  :global(.chat-icon-button) { display: inline-flex; width: 1.9rem; height: 1.9rem; flex: 0 0 auto; align-items: center; justify-content: center; border-radius: 0.45rem; color: var(--muted-foreground); }
   :global(.chat-icon-button:hover) { background: var(--accent); color: var(--foreground); }
   :global(.chat-small-button) { min-height: 1.75rem; border-radius: 0.375rem; border: 1px solid var(--border); padding: 0.2rem 0.5rem; font-size: 0.666667rem; }
   :global(.chat-menu) { position: absolute; z-index: 50; display: flex; width: max-content; min-width: 10rem; flex-direction: column; border: 1px solid var(--border); border-radius: 0.375rem; background: var(--popover); padding: 0.25rem; box-shadow: 0 8px 24px rgb(0 0 0 / 0.18); }
   :global(.chat-menu button) { min-height: 1.875rem; border-radius: 0.25rem; padding: 0.25rem 0.5rem; text-align: left; font-size: 0.733333rem; }
   :global(.chat-menu button:hover) { background: var(--accent); }
-  .chat-thread-row { display: flex; width: calc(100% - 0.5rem); min-height: 1.8rem; margin-inline: 0.5rem 0; align-items: center; border-radius: 0.5rem; color: var(--muted-foreground); text-align: left; }
-  .chat-thread-row-main { display: flex; min-width: 0; flex: 1; align-items: center; gap: 0.45rem; padding: 0.25rem 0.4rem 0.25rem 0.65rem; text-align: left; }
+  .chat-thread-row { display: flex; width: calc(100% - 0.5rem); min-height: 1.75rem; margin-inline: 0.5rem 0; align-items: center; border-radius: 0.5rem; color: color-mix(in srgb, var(--foreground) 72%, transparent); text-align: left; }
+  .chat-thread-row-main { display: flex; min-width: 0; flex: 1; align-items: center; gap: 0.4rem; padding: 0.2rem 0.35rem 0.2rem 0.6rem; text-align: left; }
   .chat-thread-row:hover { background: color-mix(in srgb, var(--accent) 65%, transparent); color: var(--foreground); }
   .chat-thread-row.active { background: var(--accent); color: var(--foreground); font-weight: 500; }
   .thread-time { flex: 0 0 auto; color: color-mix(in srgb, var(--muted-foreground) 70%, transparent); font-size: 0.6rem; font-weight: 400; }

@@ -1,40 +1,72 @@
 <script lang="ts">
-  import ArrowLeft from "@lucide/svelte/icons/arrow-left";
-  import File from "@lucide/svelte/icons/file";
-  import Folder from "@lucide/svelte/icons/folder";
-  import Paperclip from "@lucide/svelte/icons/paperclip";
-  import ExternalLink from "@lucide/svelte/icons/external-link";
   import Copy from "@lucide/svelte/icons/copy";
+  import ExternalLink from "@lucide/svelte/icons/external-link";
+  import Eye from "@lucide/svelte/icons/eye";
+  import PanelLeftClose from "@lucide/svelte/icons/panel-left-close";
+  import PanelLeftOpen from "@lucide/svelte/icons/panel-left-open";
+  import Paperclip from "@lucide/svelte/icons/paperclip";
+  import RefreshCw from "@lucide/svelte/icons/refresh-cw";
+  import Search from "@lucide/svelte/icons/search";
+  import TextSelect from "@lucide/svelte/icons/text-select";
   import * as chatApi from "$lib/api/chat";
-  import type { ChatWorkspaceFileEntry, ChatWorkspaceFilePreview, ChatWorkspacePathRead } from "$lib/chat/contracts";
+  import type {
+    ChatWorkspaceFileEntry,
+    ChatWorkspaceFilePreview,
+    ChatWorkspacePathRead,
+  } from "$lib/chat/contracts";
+  import { flattenChatFileTree, type ChatFileTreeRow } from "$lib/chat/file-tree-model";
   import { boundTerminalContext } from "$lib/chat/terminal-model";
   import { formatNumber } from "$lib/i18n/formatters";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
+  import ChatCodePreview from "./ChatCodePreview.svelte";
+  import ChatFileIcon from "./ChatFileIcon.svelte";
+  import ChatWorkspaceFileTree from "./ChatWorkspaceFileTree.svelte";
 
   let {
     directoryPath,
     selectedPath,
+    treeVisible,
     onStateChange,
   }: {
     directoryPath: string;
     selectedPath: string | null;
-    onStateChange: (change: { directoryPath?: string; selectedPath?: string | null }) => void;
+    treeVisible: boolean;
+    onStateChange: (change: {
+      directoryPath?: string;
+      selectedPath?: string | null;
+      treeVisible?: boolean;
+    }) => void;
   } = $props();
 
   const localization = getLocalization();
   const { t } = localization;
   const chat = getChat();
-  let entries = $state<ChatWorkspaceFileEntry[]>([]);
+  let rootEntries = $state<ChatWorkspaceFileEntry[]>([]);
+  let childrenByDirectory = $state<Record<string, ChatWorkspaceFileEntry[]>>({});
+  let expandedPaths = $state<string[]>([]);
+  let loadingPaths = $state<string[]>([]);
   let preview = $state<ChatWorkspaceFilePreview | null>(null);
   let previewElement: HTMLElement | undefined = $state();
   let query = $state("");
   let searchResults = $state<ChatWorkspacePathRead[]>([]);
   let includeIgnored = $state(false);
-  let loading = $state(false);
+  let loadingRoot = $state(false);
+  let loadingPreview = $state(false);
   let error = $state<string | null>(null);
   let loadedScope = "";
+  let treeRequestId = 0;
+  let previewRequestId = 0;
   const workspaceId = $derived(chat.selectedWorkspaceId);
+  const treeRows = $derived(flattenChatFileTree(rootEntries, childrenByDirectory, expandedPaths));
+  const shownRows = $derived.by<ChatFileTreeRow[]>(() => {
+    if (!query.trim()) return treeRows;
+    return searchResults.map((entry) => ({
+      entry: { ...entry, byteSize: null },
+      depth: 0,
+      expanded: entry.kind === "directory" && expandedPaths.includes(entry.relativePath),
+    }));
+  });
   const changedPaths = $derived(new Set(
     chat.timelinePages.flatMap((page) => page.turns.flatMap((turn) => turn.changedFiles.map((file) => file.relativePath))),
   ));
@@ -44,68 +76,128 @@
     const scope = `${workspace ?? ""}:${chat.selectedThreadId ?? ""}`;
     if (!workspace || scope === loadedScope) return;
     loadedScope = scope;
+    rootEntries = [];
+    childrenByDirectory = {};
+    expandedPaths = [];
     preview = null;
-    void loadDirectory(directoryPath);
+    void loadRoot(workspace, directoryPath);
     if (selectedPath) void selectFile(selectedPath);
   });
 
   $effect(() => {
     const workspace = workspaceId;
     const value = query.trim();
+    const showIgnored = includeIgnored;
     if (!workspace || !value) {
       searchResults = [];
       return;
     }
     let cancelled = false;
     const timer = window.setTimeout(() => {
-      void chatApi.searchChatWorkspacePaths(workspace, value, includeIgnored, null, 100)
+      void chatApi.searchChatWorkspacePaths(workspace, value, showIgnored, null, 100)
         .then((page) => { if (!cancelled) searchResults = page.entries; })
         .catch((reason: unknown) => { if (!cancelled) error = message(reason); });
-    }, 120);
+    }, 160);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
     };
   });
 
-  async function loadDirectory(path: string): Promise<void> {
-    if (!workspaceId) return;
-    loading = true;
+  async function loadRoot(workspace: string, pathToReveal = ""): Promise<void> {
+    const requestId = ++treeRequestId;
+    loadingRoot = true;
     error = null;
     try {
-      const result = await chatApi.listChatWorkspaceDirectory(workspaceId, path, includeIgnored);
-      onStateChange({ directoryPath: result.relativePath });
-      entries = result.entries;
+      const result = await chatApi.listChatWorkspaceDirectory(workspace, "", includeIgnored);
+      if (requestId !== treeRequestId || workspace !== workspaceId) return;
+      rootEntries = result.entries;
+      if (pathToReveal) await revealDirectory(pathToReveal);
     } catch (reason: unknown) {
-      error = message(reason);
+      if (requestId === treeRequestId) error = message(reason);
     } finally {
-      loading = false;
+      if (requestId === treeRequestId) loadingRoot = false;
     }
+  }
+
+  async function loadDirectory(path: string): Promise<void> {
+    const workspace = workspaceId;
+    if (!workspace || childrenByDirectory[path] || loadingPaths.includes(path)) return;
+    const requestId = treeRequestId;
+    loadingPaths = [...loadingPaths, path];
+    try {
+      const result = await chatApi.listChatWorkspaceDirectory(workspace, path, includeIgnored);
+      if (requestId !== treeRequestId || workspace !== workspaceId) return;
+      childrenByDirectory = { ...childrenByDirectory, [path]: result.entries };
+    } catch (reason: unknown) {
+      if (requestId === treeRequestId) error = message(reason);
+    } finally {
+      if (requestId === treeRequestId) {
+        loadingPaths = loadingPaths.filter((entry) => entry !== path);
+      }
+    }
+  }
+
+  async function revealDirectory(path: string): Promise<void> {
+    const parts = path.split("/").filter(Boolean);
+    let current = "";
+    for (const part of parts) {
+      current = current ? `${current}/${part}` : part;
+      if (!expandedPaths.includes(current)) expandedPaths = [...expandedPaths, current];
+      await loadDirectory(current);
+    }
+  }
+
+  function toggleDirectory(entry: ChatWorkspaceFileEntry): void {
+    if (entry.kind !== "directory") return;
+    if (query.trim()) {
+      query = "";
+      void revealDirectory(entry.relativePath);
+      return;
+    }
+    if (expandedPaths.includes(entry.relativePath)) {
+      expandedPaths = expandedPaths.filter((path) => path !== entry.relativePath);
+      return;
+    }
+    expandedPaths = [...expandedPaths, entry.relativePath];
+    onStateChange({ directoryPath: entry.relativePath });
+    void loadDirectory(entry.relativePath);
   }
 
   async function selectFile(path: string): Promise<void> {
-    if (!workspaceId) return;
+    const workspace = workspaceId;
+    if (!workspace) return;
+    const requestId = ++previewRequestId;
     onStateChange({ selectedPath: path });
     preview = null;
+    loadingPreview = true;
     error = null;
     try {
-      preview = await chatApi.previewChatWorkspaceFile(workspaceId, path);
+      const result = await chatApi.previewChatWorkspaceFile(workspace, path);
+      if (requestId === previewRequestId && workspace === workspaceId) preview = result;
     } catch (reason: unknown) {
-      error = message(reason);
+      if (requestId === previewRequestId) error = message(reason);
+    } finally {
+      if (requestId === previewRequestId) loadingPreview = false;
     }
   }
 
-  function openEntry(entry: ChatWorkspaceFileEntry | ChatWorkspacePathRead): void {
-    if (entry.kind === "directory") {
-      query = "";
-      void loadDirectory(entry.relativePath);
-    } else {
-      void selectFile(entry.relativePath);
-    }
+  function openEntry(entry: ChatWorkspaceFileEntry): void {
+    if (entry.kind === "directory") toggleDirectory(entry);
+    else void selectFile(entry.relativePath);
   }
 
-  function parentPath(): string {
-    return directoryPath.split("/").slice(0, -1).join("/");
+  function reloadTree(): void {
+    const workspace = workspaceId;
+    if (!workspace) return;
+    childrenByDirectory = {};
+    expandedPaths = [];
+    void loadRoot(workspace);
+  }
+
+  function toggleIgnored(): void {
+    includeIgnored = !includeIgnored;
+    reloadTree();
   }
 
   function attachFileReference(path: string): void {
@@ -134,63 +226,77 @@
   }
 </script>
 
-<div class="flex h-full min-h-0 flex-col">
-  <div class="space-y-2 border-b border-border p-2">
-    <input class="chat-field h-8 w-full" type="search" bind:value={query} placeholder={t("chat.inspector.searchFiles")} aria-label={t("chat.inspector.searchFiles")} />
-    <label class="flex items-center gap-2 text-[0.666667rem] text-muted-foreground">
-      <input type="checkbox" bind:checked={includeIgnored} onchange={() => { void loadDirectory(directoryPath); }} />
-      {t("chat.inspector.showIgnored")}
-    </label>
-  </div>
-
-  <div class="grid min-h-0 flex-1 grid-rows-[minmax(8rem,0.8fr)_minmax(10rem,1.2fr)]">
-    <div class="min-h-0 overflow-auto border-b border-border p-2">
-      {#if directoryPath}
-        <button type="button" class="chat-file-row" onclick={() => { void loadDirectory(parentPath()); }}><ArrowLeft size={13} /><span class="truncate">..</span></button>
-      {/if}
-      {#if error}<p role="alert" class="p-2 text-xs text-destructive">{error}</p>{/if}
-      {#if loading}
-        <p class="p-2 text-xs text-muted-foreground">{t("common.loading")}</p>
-      {:else}
-        {@const shown = query.trim() ? searchResults : entries}
-        {#each shown as entry (entry.relativePath)}
-          <button type="button" class="chat-file-row" class:selected={selectedPath === entry.relativePath} onclick={() => openEntry(entry)} title={entry.relativePath}>
-            {#if entry.kind === "directory"}<Folder size={13} />{:else}<File size={13} />{/if}
-            <span class="min-w-0 flex-1 truncate text-left">{entry.displayName}</span>
-            {#if changedPaths.has(entry.relativePath)}<span class="rounded bg-primary/10 px-1 text-[0.583333rem] text-primary">{t("chat.inspector.changed")}</span>{/if}
-            {#if entry.ignored}<span class="text-[0.583333rem] text-muted-foreground">{t("chat.composer.ignored")}</span>{/if}
-          </button>
+<div class="files-panel">
+  <div class="files-layout" class:tree-hidden={!treeVisible}>
+    {#if treeVisible}
+      <aside class="file-tree-pane" aria-label={t("chat.inspector.files")}>
+        <div class="tree-toolbar">
+          <label class="file-search"><Search size={13} /><input type="search" bind:value={query} placeholder={t("chat.inspector.searchFiles")} aria-label={t("chat.inspector.searchFiles")} /></label>
+          <button type="button" class="tree-action" class:active={includeIgnored} aria-pressed={includeIgnored} title={t("chat.inspector.showIgnored")} aria-label={t("chat.inspector.showIgnored")} onclick={toggleIgnored}><Eye size={13} /></button>
+          <button type="button" class="tree-action" title={t("chat.inspector.refreshFiles")} aria-label={t("chat.inspector.refreshFiles")} onclick={reloadTree}><RefreshCw size={13} /></button>
+          <button type="button" class="tree-action" title={t("chat.inspector.hideFileTree")} aria-label={t("chat.inspector.hideFileTree")} onclick={() => onStateChange({ treeVisible: false })}><PanelLeftClose size={13} /></button>
+        </div>
+        {#if error}<p role="alert" class="border-b border-destructive/30 p-2 text-xs text-destructive">{error}</p>{/if}
+        {#if loadingRoot}
+          <p class="p-2 text-xs text-muted-foreground">{t("common.loading")}</p>
+        {:else if shownRows.length > 0}
+          <ChatWorkspaceFileTree
+            rows={shownRows}
+            {selectedPath}
+            {changedPaths}
+            {loadingPaths}
+            onToggle={toggleDirectory}
+            onSelect={openEntry}
+          />
         {:else}
-          <p class="p-2 text-xs text-muted-foreground">{t("chat.inspector.emptyDirectory")}</p>
-        {/each}
-      {/if}
-    </div>
-
-    <section bind:this={previewElement} class="flex min-h-0 flex-col" aria-label={t("chat.inspector.filePreview")}>
-      {#if preview}
-        <header class="flex items-center gap-1 border-b border-border p-2">
-          <strong class="min-w-0 flex-1 truncate text-xs" title={preview.relativePath}>{preview.relativePath}</strong>
-          <button type="button" class="chat-icon-button" title={t("chat.inspector.copyPath")} onclick={() => navigator.clipboard.writeText(selectedPath ?? "")}><Copy size={13} /></button>
-          <button type="button" class="chat-icon-button" title={t("chat.inspector.attachFile")} onclick={() => selectedPath && attachFileReference(selectedPath)}><Paperclip size={13} /></button>
-          <button type="button" class="chat-icon-button" title={t("chat.inspector.openExternally")} onclick={() => workspaceId && selectedPath && chatApi.openChatWorkspaceFile(workspaceId, selectedPath)}><ExternalLink size={13} /></button>
-        </header>
-        {#if preview.text !== null}
-          <pre class="min-h-0 flex-1 select-text overflow-auto p-3 font-mono text-[0.666667rem] leading-5">{#each preview.text.split("\n") as line, index}<span class="block"><span class="mr-3 inline-block w-8 select-none text-right text-muted-foreground">{index + 1}</span>{line}</span>{/each}</pre>
-          <button type="button" class="chat-secondary-button m-2 self-start" onclick={() => { void attachSelection().catch((reason) => { error = message(reason); }); }}>{t("chat.inspector.attachSelection")}</button>
-        {:else}
-          <div class="m-auto p-4 text-center text-xs text-muted-foreground">
-            <p>{preview.binary ? t("chat.inspector.binary") : t("chat.inspector.previewUnavailable")}</p>
-            <p>{t("chat.inspector.fileSizeBytes", formatNumber(localization.locale, preview.byteSize))}</p>
-          </div>
+          <p class="p-2 text-xs text-muted-foreground">{query.trim() ? t("chat.inspector.noFileResults") : t("chat.inspector.emptyDirectory")}</p>
         {/if}
+      </aside>
+    {/if}
+
+    <section bind:this={previewElement} class="file-editor" aria-label={t("chat.inspector.filePreview")}>
+      <header class="editor-heading">
+        {#if !treeVisible}<button type="button" class="chat-icon-button" title={t("chat.inspector.showFileTree")} aria-label={t("chat.inspector.showFileTree")} onclick={() => onStateChange({ treeVisible: true })}><PanelLeftOpen size={13} /></button>{/if}
+        {#if preview}
+          <ChatFileIcon path={preview.relativePath} />
+          <strong class="min-w-0 flex-1 truncate text-[0.733333rem] font-medium" title={preview.relativePath}>{preview.relativePath}</strong>
+          <button type="button" class="chat-icon-button" title={t("chat.inspector.copyPath")} aria-label={t("chat.inspector.copyPath")} onclick={() => navigator.clipboard.writeText(selectedPath ?? "")}><Copy size={13} /></button>
+          <button type="button" class="chat-icon-button" title={t("chat.inspector.attachFile")} aria-label={t("chat.inspector.attachFile")} onclick={() => selectedPath && attachFileReference(selectedPath)}><Paperclip size={13} /></button>
+          <button type="button" class="chat-icon-button" title={t("chat.inspector.attachSelection")} aria-label={t("chat.inspector.attachSelection")} onclick={() => { void attachSelection().catch((reason) => { error = message(reason); }); }}><TextSelect size={13} /></button>
+          <button type="button" class="chat-icon-button" title={t("chat.inspector.openExternally")} aria-label={t("chat.inspector.openExternally")} onclick={() => workspaceId && selectedPath && chatApi.openChatWorkspaceFile(workspaceId, selectedPath)}><ExternalLink size={13} /></button>
+        {:else}
+          <span class="min-w-0 flex-1 truncate text-[0.733333rem] text-muted-foreground">{t("chat.inspector.filePreview")}</span>
+        {/if}
+      </header>
+      {#if error && !treeVisible}<p role="alert" class="border-b border-destructive/30 p-2 text-xs text-destructive">{error}</p>{/if}
+      {#if loadingPreview}
+        <p class="m-auto text-xs text-muted-foreground">{t("common.loading")}</p>
+      {:else if preview && preview.text !== null}
+        <ChatCodePreview text={preview.text} language={preview.language} />
+      {:else if preview}
+        <div class="m-auto p-4 text-center text-xs text-muted-foreground">
+          <p>{preview.binary ? t("chat.inspector.binary") : preview.oversized ? t("chat.inspector.previewOversized") : t("chat.inspector.previewUnavailable")}</p>
+          <p>{t("chat.inspector.fileSizeBytes", formatNumber(localization.locale, preview.byteSize))}</p>
+        </div>
       {:else}
-        <p class="m-auto p-4 text-xs text-muted-foreground">{t("chat.inspector.filePreview")}</p>
+        <p class="m-auto p-4 text-xs text-muted-foreground">{t("chat.inspector.selectFile")}</p>
       {/if}
     </section>
   </div>
 </div>
 
 <style>
-  .chat-file-row { display: flex; width: 100%; align-items: center; gap: 0.375rem; border-radius: 0.25rem; padding: 0.3rem 0.4rem; font-size: 0.75rem; }
-  .chat-file-row:hover, .chat-file-row.selected { background: var(--accent); }
+  .files-panel { container: files-panel / inline-size; display: flex; height: 100%; min-height: 0; flex-direction: column; }
+  .files-layout { display: grid; min-height: 0; flex: 1; grid-template-columns: clamp(9rem, 38%, 16rem) minmax(0, 1fr); }
+  .files-layout.tree-hidden { grid-template-columns: minmax(0, 1fr); }
+  .file-tree-pane { display: flex; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden; border-right: 1px solid var(--border); background: color-mix(in srgb, var(--cal-bg) 96%, var(--muted)); }
+  .tree-toolbar { display: flex; min-height: 2.45rem; flex: 0 0 auto; align-items: center; gap: 0.15rem; border-bottom: 1px solid var(--border); padding: 0.3rem; }
+  .file-search { display: flex; min-width: 0; min-height: 1.75rem; flex: 1; align-items: center; gap: 0.35rem; border-radius: 0.4rem; padding-inline: 0.4rem; color: var(--muted-foreground); }
+  .file-search:focus-within { background: var(--background); box-shadow: inset 0 0 0 1px var(--ring); color: var(--foreground); }
+  .file-search input { min-width: 0; flex: 1; background: transparent; color: var(--foreground); font-size: 0.7rem; outline: none; }
+  .tree-action { display: inline-grid; width: 1.7rem; height: 1.7rem; flex: 0 0 auto; place-items: center; border-radius: 0.35rem; color: var(--muted-foreground); }
+  .tree-action:hover, .tree-action.active { background: var(--accent); color: var(--foreground); }
+  .file-editor { display: flex; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden; }
+  .editor-heading { display: flex; min-height: 2.45rem; flex: 0 0 auto; align-items: center; gap: 0.25rem; border-bottom: 1px solid var(--border); padding: 0.3rem 0.4rem; }
+  @container files-panel (max-width: 360px) { .files-layout { grid-template-columns: clamp(8rem, 42%, 10rem) minmax(0, 1fr); } }
 </style>

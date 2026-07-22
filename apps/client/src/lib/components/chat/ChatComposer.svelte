@@ -451,17 +451,19 @@
 {#if previewAttachment && previewUrl}<div class="fixed inset-0 z-60 grid place-items-center bg-black/50 p-4"><button type="button" class="absolute inset-0" aria-label={t("chat.cancel")} onclick={closePreview}></button><div bind:this={previewDialog} class="relative flex max-h-full max-w-full flex-col rounded-lg border border-border bg-background p-3 shadow-2xl" role="dialog" aria-modal="true" aria-label={t("chat.composer.previewAttachment", previewAttachment.originalDisplayName)} tabindex="-1" onkeydown={handlePreviewKeydown}><header class="mb-2 flex items-center gap-2"><strong class="min-w-0 flex-1 truncate text-sm">{previewAttachment.originalDisplayName}</strong><span class="text-xs text-muted-foreground">{formatNumber(localization.locale, previewAttachment.byteSize)} B</span><button type="button" aria-label={t("chat.cancel")} onclick={closePreview}><X size={14} /></button></header><img class="min-h-0 max-h-[75vh] max-w-[85vw] object-contain" src={previewUrl} alt={previewAttachment.originalDisplayName} /></div></div>{/if}
 
 <style>
-  .chat-composer { container-type: inline-size; container-name: chat-composer; position: relative; display: grid; width: min(100%, 48rem); margin: 0 auto; overflow: visible; border: 1px solid var(--border); border-radius: 1.35rem; background: color-mix(in srgb, var(--card) 88%, transparent); box-shadow: 0 18px 48px -20px rgb(0 0 0 / 0.32), 0 4px 14px -7px rgb(0 0 0 / 0.24); backdrop-filter: blur(16px); }
+  .chat-composer { container-type: inline-size; container-name: chat-composer; position: relative; display: grid; width: min(100%, 54rem); margin: 0 auto; overflow: visible; border: 1px solid color-mix(in srgb, var(--border) 88%, transparent); border-radius: 1.3rem; background: color-mix(in srgb, var(--card) 90%, transparent); box-shadow: 0 8px 22px -18px rgb(0 0 0 / 0.24), 0 1px 4px -3px rgb(0 0 0 / 0.16); backdrop-filter: blur(16px); }
   .chat-composer:focus-within { border-color: color-mix(in srgb, var(--ring) 50%, var(--border)); }
-  .chat-composer.hero { width: min(100%, 48rem); margin-top: 1.5rem; text-align: left; }
+  .chat-composer.hero { width: min(100%, 54rem); margin-top: 1.5rem; text-align: left; }
   .chat-composer > :not(.editor-shell) { margin-inline: 0.75rem; }
   .editor-shell { position: relative; }
   .active-turn-modes { margin-top: 0.6rem; color: var(--muted-foreground); font-size: 0.666667rem; }
   textarea[data-chat-composer] { display: block; width: 100%; min-height: 76px; resize: none; background: transparent; padding: 1rem 1.25rem 0.35rem; color: var(--foreground); font-size: 0.933333rem; line-height: 1.4rem; outline: none; }
   textarea[data-chat-composer]::placeholder { color: color-mix(in srgb, var(--muted-foreground) 52%, transparent); }
-  .composer-toolbar { display: flex; min-height: 3rem; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.3rem 0.65rem 0.65rem; }
+  .composer-toolbar { display: grid; min-height: 3rem; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0.5rem; padding: 0.3rem 0.75rem 0.65rem; }
   .toolbar-left, .toolbar-right { display: flex; min-width: 0; align-items: center; gap: 0.3rem; }
-  .toolbar-left { flex: 1; overflow: visible; }
+  .toolbar-left { overflow: hidden; }
+  .toolbar-left:has(.attachment-menu[open]) { overflow: visible; }
+  .toolbar-left:has(:global([data-chat-model-trigger][aria-expanded="true"])) { overflow: visible; }
   .toolbar-right { flex: 0 0 auto; }
   .attachment-menu { position: relative; flex: 0 0 auto; }
   .attachment-menu summary, .round-action { display: inline-flex; width: 1.9rem; height: 1.9rem; cursor: pointer; list-style: none; align-items: center; justify-content: center; border-radius: 0.5rem; color: var(--muted-foreground); }
@@ -478,8 +480,8 @@
   .provider-status > div { position: absolute; left: 0; bottom: calc(100% + 0.4rem); z-index: 30; width: min(20rem, 80vw); border: 1px solid var(--border); border-radius: 0.4rem; background: var(--popover); padding: 0.55rem; box-shadow: 0 8px 24px rgb(0 0 0 / 0.2); }
   .provider-status strong, .provider-status p { display: block; margin: 0.1rem 0; white-space: normal; font-size: 0.666667rem; }
   .toolbar-right small { max-width: 18rem; color: var(--muted-foreground); font-size: 0.666667rem; }
-  .primary-action { display: inline-flex; width: 2.2rem; height: 2.2rem; align-items: center; justify-content: center; border-radius: 999px; background: var(--primary); color: var(--primary-foreground); box-shadow: 0 2px 8px color-mix(in srgb, var(--primary) 25%, transparent); }
-  .primary-action:hover:not(:disabled) { filter: brightness(1.04); }
+  .primary-action { display: inline-flex; width: 2.1rem; height: 2.1rem; flex: 0 0 auto; align-items: center; justify-content: center; border-radius: 999px; background: color-mix(in srgb, var(--primary) 92%, transparent); color: var(--primary-foreground); box-shadow: 0 2px 7px color-mix(in srgb, var(--primary) 22%, transparent); transition: transform 120ms ease, filter 120ms ease; }
+  .primary-action:hover:not(:disabled) { filter: brightness(1.04); transform: scale(1.04); }
   .primary-action:disabled { opacity: 0.5; }
   .force-stop { color: var(--destructive); }
   .attachment-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(7rem, 1fr)); gap: 0.4rem; margin-top: 0.65rem; }
@@ -504,7 +506,7 @@
   .recovery-row { border-color: color-mix(in oklab, var(--destructive) 45%, var(--border)); color: var(--destructive); }
   .composer-error { margin-bottom: 0.65rem; color: var(--destructive); font-size: 0.733333rem; }
   .request-panel-shell { margin-bottom: 0.75rem; }
-  @container chat-composer (max-width: 640px) { .composer-toolbar { align-items: center; } .toolbar-left { overflow-x: auto; scrollbar-width: none; } .toolbar-left:has(:global([data-chat-model-trigger][aria-expanded="true"])) { overflow: visible; } .toolbar-left::-webkit-scrollbar { display: none; } .context-status, .provider-status { display: none; } .toolbar-right small { max-width: 8rem; } }
+  @container chat-composer (max-width: 640px) { .context-status, .provider-status { display: none; } .toolbar-right small { max-width: 8rem; } }
   @container chat-composer (max-width: 300px) { textarea[data-chat-composer] { padding-inline: 0.8rem; } .composer-toolbar { padding-inline: 0.4rem; } .attachment-grid { grid-template-columns: 1fr; } }
   @media (prefers-reduced-motion: reduce) { .chat-composer { scroll-behavior: auto; } }
   @supports not ((backdrop-filter: blur(1px))) { .chat-composer { background: var(--card); } }

@@ -21,14 +21,15 @@ function layout(
     railOpen: true,
     inspectorOpen: true,
     railWidth: 260,
-    inspectorWidth: 360,
+    inspectorWidth: 520,
     previousVariant,
   });
 }
 
 describe("Chat responsive layout", () => {
   it("selects all fit-based panel presentations", () => {
-    expect(layout(1_200).variant).toBe("three_column");
+    expect(layout(1_400).variant).toBe("three_column");
+    expect(layout(1_200).variant).toBe("inspector_sheet");
     expect(layout(950).variant).toBe("inspector_sheet");
     expect(layout(700).variant).toBe("rail_sheet");
     expect(layout(280, 180).variant).toBe("minimum_recovery");
@@ -49,14 +50,14 @@ describe("Chat responsive layout", () => {
   });
 
   it("uses hysteresis to avoid panel oscillation at fit thresholds", () => {
-    expect(layout(1_080, 700, "three_column").variant).toBe("three_column");
-    expect(layout(1_080, 700, "inspector_sheet").variant).toBe("inspector_sheet");
+    expect(layout(1_230, 700, "three_column").variant).toBe("three_column");
+    expect(layout(1_230, 700, "inspector_sheet").variant).toBe("inspector_sheet");
     expect(layout(695, 700, "no_inspector").railPresentation).toBe("column");
     expect(layout(695, 700, "rail_sheet").railPresentation).toBe("sheet");
   });
 
   it("keeps every primary recovery route in every layout", () => {
-    for (const decision of [layout(1_200), layout(950), layout(700), layout(280, 180)]) {
+    for (const decision of [layout(1_400), layout(950), layout(700), layout(280, 180)]) {
       expect(chatLayoutPrimaryActions(decision)).toEqual([
         "threads",
         "composer",

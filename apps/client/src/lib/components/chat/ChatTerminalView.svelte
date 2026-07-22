@@ -1,8 +1,9 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { listen } from "@tauri-apps/api/event";
-  import Paperclip from "@lucide/svelte/icons/paperclip";
   import Eraser from "@lucide/svelte/icons/eraser";
+  import ListEnd from "@lucide/svelte/icons/list-end";
+  import TextSelect from "@lucide/svelte/icons/text-select";
   import * as chatApi from "$lib/api/chat";
   import type { ChatTerminalRead } from "$lib/chat/contracts";
   import { parseChatTerminal, parseChatTerminalOutput } from "$lib/chat/validation";
@@ -32,6 +33,8 @@
   let commandOutput = "";
   let commandOutputTruncated = false;
   let outputDecoder = new TextDecoder();
+  const TERMINAL_FONT_FAMILY = '"SF Mono", "SFMono-Regular", "JetBrains Mono", "Cascadia Code", Consolas, "Liberation Mono", Menlo, monospace';
+  const TERMINAL_FONT_SIZE = 12;
 
   onMount(() => {
     let disposed = false;
@@ -44,16 +47,25 @@
       chatApi.readChatTerminalSnapshot(terminalRead.id, terminalRead.threadId, terminalRead.workspaceId),
     ]).then(async ([xtermModule, fitModule, snapshot]) => {
       if (disposed || !host) return;
+      const hostStyles = getComputedStyle(host);
+      const terminalBackground = hostStyles.getPropertyValue("--cal-bg").trim() || hostStyles.backgroundColor;
+      const terminalForeground = hostStyles.color;
       const terminal = new xtermModule.Terminal({
         allowProposedApi: false,
         convertEol: false,
         cursorBlink: true,
         scrollback: chat.settings?.configuration.behavior.terminalScrollbackLines ?? 10_000,
-        fontFamily: "var(--font-mono, monospace)",
-        fontSize: 12,
+        fontFamily: TERMINAL_FONT_FAMILY,
+        fontSize: TERMINAL_FONT_SIZE,
+        fontWeight: "400",
+        fontWeightBold: "600",
+        letterSpacing: 0,
+        lineHeight: 1.1,
         theme: {
-          background: "transparent",
-          foreground: getComputedStyle(host).color,
+          background: terminalBackground,
+          foreground: terminalForeground,
+          cursor: terminalForeground,
+          selectionBackground: hostStyles.getPropertyValue("--selection-background").trim(),
         },
       });
       const fit = new fitModule.FitAddon();
@@ -211,17 +223,25 @@
   }
 </script>
 
-<div class="flex h-full min-h-0 flex-col" data-terminal-capture>
+<div class="terminal-view" data-terminal-capture>
   {#if error}<p role="alert" class="border-b border-destructive/30 p-2 text-xs text-destructive">{error}</p>{/if}
-  <div class="min-h-0 flex-1 p-1 text-foreground" bind:this={host} onpaste={handlePaste}></div>
-  <div class="flex flex-wrap gap-1 border-t border-border p-1">
-    <button type="button" class="chat-secondary-button" onclick={() => xterm?.clear()}><Eraser size={12} />{t("chat.inspector.clearTerminal")}</button>
-    <button type="button" class="chat-secondary-button" onclick={() => { void attachContext("selection").catch((reason) => { error = message(reason); }); }}><Paperclip size={12} />{t("chat.inspector.attachSelection")}</button>
-    <button type="button" class="chat-secondary-button" onclick={() => { void attachContext("last_command_output").catch((reason) => { error = message(reason); }); }}><Paperclip size={12} />{t("chat.inspector.attachLastOutput")}</button>
+  <div class="terminal-host" bind:this={host} onpaste={handlePaste}></div>
+  <div class="terminal-actions">
+    <button type="button" title={t("chat.inspector.clearTerminal")} aria-label={t("chat.inspector.clearTerminal")} onclick={() => xterm?.clear()}><Eraser size={13} /><span>{t("chat.inspector.clearTerminal")}</span></button>
+    <button type="button" title={t("chat.inspector.attachSelection")} aria-label={t("chat.inspector.attachSelection")} onclick={() => { void attachContext("selection").catch((reason) => { error = message(reason); }); }}><TextSelect size={13} /><span>{t("chat.inspector.attachSelection")}</span></button>
+    <button type="button" title={t("chat.inspector.attachLastOutput")} aria-label={t("chat.inspector.attachLastOutput")} onclick={() => { void attachContext("last_command_output").catch((reason) => { error = message(reason); }); }}><ListEnd size={13} /><span>{t("chat.inspector.attachLastOutput")}</span></button>
   </div>
 </div>
 
 <style>
-  :global(.xterm) { height: 100%; padding: 0.25rem; }
-  :global(.xterm-viewport) { background: transparent !important; }
+  .terminal-view { container-type: inline-size; display: flex; height: 100%; min-height: 0; flex-direction: column; background: var(--cal-bg); }
+  .terminal-host { min-height: 0; flex: 1; overflow: hidden; color: var(--foreground); background: var(--cal-bg); }
+  .terminal-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 0.15rem; overflow-x: auto; border-top: 1px solid var(--border); padding: 0.3rem 0.4rem; }
+  .terminal-actions button { display: inline-flex; min-height: 1.8rem; flex: 0 0 auto; align-items: center; gap: 0.35rem; border-radius: 0.4rem; padding: 0.25rem 0.45rem; color: var(--muted-foreground); font-size: 0.666667rem; }
+  .terminal-actions button:hover { background: var(--accent); color: var(--foreground); }
+  :global(.xterm) { height: 100%; padding: 0.45rem 0.55rem; }
+  :global(.xterm-viewport), :global(.xterm-screen) { background: var(--cal-bg) !important; }
+  :global(.xterm .xterm-scrollable-element > .scrollbar.vertical) { width: 6px !important; }
+  :global(.xterm .xterm-scrollable-element > .scrollbar > .slider) { border-radius: 3px; }
+  @container (max-width: 360px) { .terminal-actions button { width: 1.8rem; justify-content: center; padding-inline: 0; } .terminal-actions span { display: none; } }
 </style>

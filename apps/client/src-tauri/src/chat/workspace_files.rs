@@ -359,15 +359,24 @@ fn git_ignored_paths<'a>(root: &Path, paths: impl Iterator<Item = &'a str>) -> H
 fn language_for_path(path: &Path) -> Option<String> {
     let extension = path.extension()?.to_str()?.to_ascii_lowercase();
     let language = match extension.as_str() {
+        "c" | "h" => "c",
+        "cc" | "cpp" | "cxx" | "hh" | "hpp" | "hxx" => "cpp",
+        "cs" => "csharp",
+        "go" => "go",
+        "java" => "java",
+        "kt" | "kts" => "kotlin",
         "rs" => "rust",
-        "ts" | "mts" | "cts" => "typescript",
-        "js" | "mjs" | "cjs" => "javascript",
+        "ts" | "tsx" | "mts" | "cts" => "typescript",
+        "js" | "jsx" | "mjs" | "cjs" => "javascript",
         "svelte" => "svelte",
+        "vue" => "vue",
         "json" => "json",
         "md" | "mdx" => "markdown",
-        "css" => "css",
-        "html" => "html",
+        "css" | "scss" | "sass" | "less" => "css",
+        "html" | "htm" | "xml" => "html",
         "py" => "python",
+        "rb" => "ruby",
+        "swift" => "swift",
         "toml" => "toml",
         "yaml" | "yml" => "yaml",
         "sql" => "sql",
@@ -429,6 +438,24 @@ mod tests {
     impl Drop for TestDirectory {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn common_code_extensions_receive_editor_languages() {
+        let cases = [
+            ("component.tsx", "typescript"),
+            ("component.jsx", "javascript"),
+            ("styles.scss", "css"),
+            ("main.go", "go"),
+            ("header.hpp", "cpp"),
+            ("view.vue", "vue"),
+        ];
+        for (path, expected) in cases {
+            assert_eq!(
+                language_for_path(Path::new(path)).as_deref(),
+                Some(expected)
+            );
         }
     }
 

@@ -1,13 +1,18 @@
+<script module lang="ts">
+  import { ChatInspectorSessionState } from "$lib/chat/inspector-model";
+
+  const bottomPanelSession = new ChatInspectorSessionState();
+  const initializedBottomKeys = new Set<string>();
+</script>
+
 <script lang="ts">
   import FileDiff from "@lucide/svelte/icons/file-diff";
   import Files from "@lucide/svelte/icons/files";
   import ListTodo from "@lucide/svelte/icons/list-todo";
-  import Maximize2 from "@lucide/svelte/icons/maximize-2";
-  import Minimize2 from "@lucide/svelte/icons/minimize-2";
+  import Terminal from "@lucide/svelte/icons/terminal";
   import X from "@lucide/svelte/icons/x";
   import type { ChatInspectorTab } from "$lib/chat/contracts";
   import {
-    chatInspectorSession,
     inspectorSessionKey,
     type ChatInspectorThreadState,
   } from "$lib/chat/inspector-model";
@@ -16,21 +21,18 @@
   import ChatChangesPanel from "./ChatChangesPanel.svelte";
   import ChatFilesPanel from "./ChatFilesPanel.svelte";
   import ChatPlanPanel from "./ChatPlanPanel.svelte";
+  import ChatTerminalPanel from "./ChatTerminalPanel.svelte";
 
-  let {
-    onClose,
-    onMaximizedChange,
-  }: {
-    onClose: () => void;
-    onMaximizedChange: (maximized: boolean) => void;
-  } = $props();
+  let { onClose }: { onClose: () => void } = $props();
 
   const { t } = getLocalization();
   const chat = getChat();
-  let state = $state<ChatInspectorThreadState>(chatInspectorSession.read(null));
-  let loadedSessionKey: string | null = null;
-  const sessionKey = $derived(inspectorSessionKey(chat.selectedThreadId, chat.selectedWorkspaceId));
-  const tabs: { id: ChatInspectorTab; label: "changes" | "plan" | "files"; icon: typeof FileDiff }[] = [
+  let state = $state<ChatInspectorThreadState>({ ...bottomPanelSession.read(null), tab: "terminal" });
+  let loadedKey: string | null = null;
+  const baseSessionKey = $derived(inspectorSessionKey(chat.selectedThreadId, chat.selectedWorkspaceId));
+  const sessionKey = $derived(baseSessionKey ? `bottom:${baseSessionKey}` : null);
+  const tabs: { id: ChatInspectorTab; label: "changes" | "plan" | "files" | "terminal"; icon: typeof FileDiff }[] = [
+    { id: "terminal", label: "terminal", icon: Terminal },
     { id: "changes", label: "changes", icon: FileDiff },
     { id: "plan", label: "plan", icon: ListTodo },
     { id: "files", label: "files", icon: Files },
@@ -38,22 +40,21 @@
 
   $effect(() => {
     const key = sessionKey;
-    if (key === loadedSessionKey) return;
-    loadedSessionKey = key;
-    const stored = chatInspectorSession.read(key);
-    state = stored.tab === "terminal"
-      ? key
-        ? chatInspectorSession.update(key, { tab: "files" })
-        : { ...stored, tab: "files" }
-      : stored;
-    onMaximizedChange(state.maximized);
+    if (key === loadedKey) return;
+    loadedKey = key;
+    const stored = bottomPanelSession.read(key);
+    if (key && !initializedBottomKeys.has(key)) {
+      initializedBottomKeys.add(key);
+      state = bottomPanelSession.update(key, { tab: "terminal" });
+    } else {
+      state = stored;
+    }
   });
 
   function update(updateValue: Partial<ChatInspectorThreadState>): void {
     const key = sessionKey;
     if (!key) return;
-    state = chatInspectorSession.update(key, updateValue);
-    if (updateValue.maximized !== undefined) onMaximizedChange(updateValue.maximized);
+    state = bottomPanelSession.update(key, updateValue);
   }
 
   function handleTabKeydown(event: KeyboardEvent, index: number): void {
@@ -72,30 +73,28 @@
   }
 </script>
 
-<div class="flex h-full min-h-0 flex-col" data-chat-inspector>
-  <div class="inspector-tabbar" role="tablist" aria-label={t("chat.inspector.title")}>
+<section class="bottom-panel" aria-label={t("chat.bottomPanel")}>
+  <div class="bottom-tabbar" role="tablist" aria-label={t("chat.bottomPanel")}>
     {#each tabs as tab, index (tab.id)}
       {@const Icon = tab.icon}
       <button
         type="button"
         role="tab"
-        data-inspector-tab={tab.id}
         aria-selected={state.tab === tab.id}
         tabindex={state.tab === tab.id ? 0 : -1}
-        class="inspector-tab"
+        class="bottom-tab"
         class:active={state.tab === tab.id}
         onclick={() => update({ tab: tab.id })}
         onkeydown={(event) => handleTabKeydown(event, index)}
       ><Icon size={13} /><span>{t(`chat.inspector.${tab.label}`)}</span></button>
     {/each}
     <span class="flex-1"></span>
-    <button type="button" class="chat-icon-button" aria-label={state.maximized ? t("chat.inspector.restore") : t("chat.inspector.maximize")} onclick={() => update({ maximized: !state.maximized })}>
-      {#if state.maximized}<Minimize2 size={14} />{:else}<Maximize2 size={14} />{/if}
-    </button>
-    <button type="button" class="chat-icon-button" aria-label={t("chat.closeInspector")} onclick={onClose}><X size={14} /></button>
+    <button type="button" class="chat-icon-button" aria-label={t("chat.closeBottomPanel")} onclick={onClose}><X size={14} /></button>
   </div>
   <div class="min-h-0 flex-1" role="tabpanel" aria-label={t(`chat.inspector.${state.tab}`)}>
-    {#if state.tab === "changes"}
+    {#if state.tab === "terminal"}
+      <ChatTerminalPanel />
+    {:else if state.tab === "changes"}
       <ChatChangesPanel
         scope={state.changeScope}
         selectedFile={state.selectedFile}
@@ -123,13 +122,14 @@
       />
     {/if}
   </div>
-</div>
+</section>
 
 <style>
-  .inspector-tabbar { display: flex; min-height: 3.05rem; flex: 0 0 auto; align-items: stretch; gap: 0.1rem; border-bottom: 1px solid var(--border); padding-inline: 0.35rem; }
-  .inspector-tabbar > :global(.chat-icon-button) { align-self: center; }
-  .inspector-tab { display: flex; min-width: 0; align-items: center; justify-content: center; gap: 0.35rem; border-bottom: 2px solid transparent; padding: 0.35rem 0.55rem; color: var(--muted-foreground); font-size: 0.666667rem; }
-  .inspector-tab:hover { background: var(--accent); color: var(--accent-foreground); }
-  .inspector-tab.active { border-bottom-color: var(--primary); color: var(--foreground); }
-  @container chat-shell (max-width: 480px) { .inspector-tab { padding-inline: 0.4rem; } .inspector-tab span { display: none; } }
+  .bottom-panel { display: flex; height: 100%; min-height: 0; flex-direction: column; background: var(--cal-bg); }
+  .bottom-tabbar { display: flex; min-height: 2.3rem; flex: 0 0 auto; align-items: stretch; gap: 0.1rem; border-bottom: 1px solid var(--border); padding-inline: 0.35rem; }
+  .bottom-tabbar > :global(.chat-icon-button) { align-self: center; }
+  .bottom-tab { display: flex; min-width: 0; align-items: center; gap: 0.35rem; border-bottom: 2px solid transparent; padding: 0.3rem 0.55rem; color: var(--muted-foreground); font-size: 0.666667rem; }
+  .bottom-tab:hover { background: var(--accent); color: var(--foreground); }
+  .bottom-tab.active { border-bottom-color: var(--primary); color: var(--foreground); }
+  @container chat-shell (max-width: 420px) { .bottom-tab span { display: none; } }
 </style>

@@ -306,7 +306,7 @@
 <style>
   .chat-timeline-banner { display: flex; min-height: 2.25rem; align-items: center; justify-content: center; gap: 0.5rem; border-bottom: 1px solid var(--border); background: var(--background); padding: 0.4rem 0.75rem; font-size: 0.733333rem; }
   .chat-timeline-banner button { display: inline-flex; align-items: center; gap: 0.25rem; border-radius: 0.25rem; border: 1px solid var(--border); padding: 0.2rem 0.45rem; }
-  .chat-user-message { margin-left: auto; max-width: min(80%, 42rem); border: 1px solid var(--border); border-radius: 1rem; background: var(--secondary); padding: 0.8rem 0.95rem; font-size: 0.9rem; line-height: 1.45; }
+  .chat-user-message { width: fit-content; margin-left: auto; max-width: min(80%, 42rem); border: 1px solid var(--border); border-radius: 1rem; background: color-mix(in srgb, var(--secondary) 72%, var(--cal-bg)); padding: 0.7rem 0.9rem; font-size: 0.9rem; line-height: 1.45; }
   .chat-assistant-message { padding-inline: 0.25rem; color: var(--foreground); font-size: 0.9rem; line-height: 1.5; }
   .chat-message-meta { font-size: 0.7rem; opacity: 0; transition: opacity 150ms ease; }
   .chat-user-message:hover .chat-message-meta, .chat-user-message:focus-within .chat-message-meta, .chat-assistant-message:hover .chat-message-meta, .chat-assistant-message:focus-within .chat-message-meta { opacity: 1; }

@@ -2,6 +2,7 @@
   import { onMount, tick } from "svelte";
   import ArrowLeft from "@lucide/svelte/icons/arrow-left";
   import Check from "@lucide/svelte/icons/check";
+  import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import Eye from "@lucide/svelte/icons/eye";
   import EyeOff from "@lucide/svelte/icons/eye-off";
   import FolderOpen from "@lucide/svelte/icons/folder-open";
@@ -10,6 +11,7 @@
   import X from "@lucide/svelte/icons/x";
   import * as chatApi from "$lib/api/chat";
   import type { JsonValue, ProviderInstanceConfig, ProviderSetupTestRead } from "$lib/chat/contracts";
+  import ChatProviderIcon from "$lib/components/chat/ChatProviderIcon.svelte";
   import {
     createProviderSetupDraft,
     PROVIDER_ACCENT_COLORS,
@@ -24,6 +26,8 @@
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
   import type { ChatProviderSetupTarget } from "../types";
+  import CustomSelect from "../CustomSelect.svelte";
+  import ToggleSetting from "../ToggleSetting.svelte";
 
   let {
     target,
@@ -52,6 +56,7 @@
   let operationError = $state<string | null>(null);
   let testResult = $state<ProviderSetupTestRead | null>(null);
   let testSucceeded = $state(false);
+  let advancedOpen = $state(false);
   let revealSecrets = $state<Record<string, boolean>>({});
   let pendingSecrets = $state<Record<string, string>>({});
   let nextRowId = 1;
@@ -62,6 +67,15 @@
   const activeStepIndex = $derived(stepOrder.indexOf(draft.step));
   const family = $derived(chat.settings?.providerFamilies.find((entry) => entry.familyId === draft.familyId) ?? null);
   const openCodePassword = $derived(draft.environment.find((row) => row.name === "OPENCODE_SERVER_PASSWORD") ?? null);
+  const openCodeModeOptions = $derived([
+    { value: "local", label: t("settings.chat.setup.localMode") },
+    { value: "external", label: t("settings.chat.setup.externalMode") },
+  ]);
+  const environmentValueTypeOptions = $derived([
+    { value: "text", label: t("settings.chat.setup.textValue") },
+    { value: "secret", label: t("settings.chat.setup.secretValue") },
+    { value: "inherit", label: t("settings.chat.setup.inheritedValue") },
+  ]);
 
   onMount(() => {
     onScrollContainerChange(scrollElement);
@@ -120,6 +134,12 @@
       credentialReference: "",
     };
     draft.environment = [...draft.environment, row];
+  }
+
+  function setEnvironmentValueType(row: ProviderEnvironmentDraft, value: string): void {
+    if (value === "text" || value === "secret" || value === "inherit") {
+      row.valueType = value;
+    }
   }
 
   function removeEnvironment(key: string): void {
@@ -358,8 +378,8 @@
         <div class="grid gap-3 sm:grid-cols-2">
           {#each chat.settings?.providerFamilies ?? [] as providerFamily}
             <button type="button" class="rounded-lg border border-border bg-card p-4 text-left hover:bg-accent/50" onclick={() => selectFamily(providerFamily.familyId, providerFamily.defaultExecutableCandidates[0] ?? "")}>
-              <span class="font-semibold text-foreground">{providerFamily.displayName}</span>
-              <span class="mt-1 block text-[0.8rem] text-muted-foreground">{familyDescription(providerFamily.familyId)}</span>
+              <span class="flex items-center gap-2 font-semibold text-foreground"><ChatProviderIcon familyId={providerFamily.familyId} label={providerFamily.displayName} size={16} /><span>{providerFamily.displayName}</span></span>
+              <span class="mt-2 block text-[0.8rem] text-muted-foreground">{familyDescription(providerFamily.familyId)}</span>
               {#if providerFamily.implementationStatus !== "available"}<span class="mt-2 block text-[0.733333rem] text-status-tentative">{providerFamily.unavailableReason}</span>{/if}
             </button>
           {/each}
@@ -379,30 +399,54 @@
         <label class="setup-field"><span>{t("settings.chat.setup.executable")}</span><div class="flex gap-2"><input class="min-w-0 flex-1" bind:value={draft.executable} /><button type="button" class="setup-icon-button border border-border" aria-label={t("settings.chat.setup.chooseExecutable")} onclick={() => void pickExecutable()}><FolderOpen size={15} /></button></div>{#if fieldError("executable")}<small>{fieldError("executable")}</small>{/if}</label>
         {#if draft.familyId === "codex"}
           <label class="setup-field"><span>{t("settings.chat.setup.codexShadowHome")}</span><input value={providerConfigValue("shadowHomePath")} oninput={(event) => setProviderConfigValue("shadowHomePath", event.currentTarget.value)} /></label>
-          <label class="flex items-center gap-2 text-sm"><input type="checkbox" checked={providerConfigBoolean("allowCustomModels")} onchange={(event) => setProviderConfigBoolean("allowCustomModels", event.currentTarget.checked)} />{t("settings.chat.setup.allowCustomModels")}</label>
+          <ToggleSetting label={t("settings.chat.setup.allowCustomModels")} checked={providerConfigBoolean("allowCustomModels")} onChange={(value) => setProviderConfigBoolean("allowCustomModels", value)} />
         {:else if draft.familyId === "cursor"}
           <label class="setup-field"><span>{t("settings.chat.setup.endpoint")}</span><input value={providerConfigValue("endpoint")} oninput={(event) => setProviderConfigValue("endpoint", event.currentTarget.value)} />{#if fieldError("providerConfig.endpoint")}<small>{fieldError("providerConfig.endpoint")}</small>{/if}</label>
         {:else if draft.familyId === "opencode"}
-          <label class="setup-field"><span>{t("settings.chat.setup.openCodeMode")}</span><select value={openCodeMode()} onchange={(event) => setOpenCodeMode(event.currentTarget.value === "external" ? "external" : "local")}><option value="local">{t("settings.chat.setup.localMode")}</option><option value="external">{t("settings.chat.setup.externalMode")}</option></select></label>
+          <div class="setup-field">
+            <span>{t("settings.chat.setup.openCodeMode")}</span>
+            <CustomSelect
+              inline
+              class="w-full"
+              value={openCodeMode()}
+              options={openCodeModeOptions}
+              onChange={(value) => setOpenCodeMode(value === "external" ? "external" : "local")}
+              ariaLabel={t("settings.chat.setup.openCodeMode")}
+            />
+          </div>
           {#if openCodeMode() === "external"}
             <label class="setup-field"><span>{t("settings.chat.setup.endpoint")}</span><input value={openCodeServerUrl()} oninput={(event) => setProviderConfigValue("serverUrl", event.currentTarget.value)} />{#if fieldError("providerConfig.serverUrl")}<small>{fieldError("providerConfig.serverUrl")}</small>{/if}</label>
-            <label class="flex items-start gap-2 text-sm"><input class="mt-0.5" type="checkbox" checked={providerConfigBoolean("confirmExternalWorkspaceAccess")} onchange={(event) => setProviderConfigBoolean("confirmExternalWorkspaceAccess", event.currentTarget.checked)} /><span>{t("settings.chat.setup.confirmExternalWorkspaceAccess")}{#if fieldError("providerConfig.confirmExternalWorkspaceAccess")}<small class="mt-1 block text-destructive">{fieldError("providerConfig.confirmExternalWorkspaceAccess")}</small>{/if}</span></label>
+            <div>
+              <ToggleSetting label={t("settings.chat.setup.confirmExternalWorkspaceAccess")} checked={providerConfigBoolean("confirmExternalWorkspaceAccess")} onChange={(value) => setProviderConfigBoolean("confirmExternalWorkspaceAccess", value)} />
+              {#if fieldError("providerConfig.confirmExternalWorkspaceAccess")}<small class="mt-1 block px-1 text-destructive">{fieldError("providerConfig.confirmExternalWorkspaceAccess")}</small>{/if}
+            </div>
             {#if openCodeUsesInsecureExternalHttp()}
-              <div class="rounded-md border border-status-tentative/50 bg-status-tentative/10 p-3 text-sm text-status-tentative"><p>{t("settings.chat.setup.insecureExternalHttpWarning")}</p><label class="mt-2 flex items-start gap-2"><input class="mt-0.5" type="checkbox" checked={providerConfigBoolean("allowInsecureExternalHttp")} onchange={(event) => setProviderConfigBoolean("allowInsecureExternalHttp", event.currentTarget.checked)} /><span>{t("settings.chat.setup.allowInsecureExternalHttp")}{#if fieldError("providerConfig.allowInsecureExternalHttp")}<small class="mt-1 block">{fieldError("providerConfig.allowInsecureExternalHttp")}</small>{/if}</span></label></div>
+              <div class="rounded-md border border-status-tentative/50 bg-status-tentative/10 p-3 text-sm text-status-tentative"><p>{t("settings.chat.setup.insecureExternalHttpWarning")}</p><div class="mt-2"><ToggleSetting label={t("settings.chat.setup.allowInsecureExternalHttp")} checked={providerConfigBoolean("allowInsecureExternalHttp")} onChange={(value) => setProviderConfigBoolean("allowInsecureExternalHttp", value)} />{#if fieldError("providerConfig.allowInsecureExternalHttp")}<small class="mt-1 block px-1">{fieldError("providerConfig.allowInsecureExternalHttp")}</small>{/if}</div></div>
             {/if}
             {#if openCodePassword}<div class="setup-field"><span>{t("settings.chat.setup.externalPassword")}</span><div class="flex gap-1"><input class="min-w-0 flex-1" type={revealSecrets[openCodePassword.key] ? "text" : "password"} value={pendingSecrets[openCodePassword.key] ?? ""} placeholder={openCodePassword.credentialReference ? t("settings.chat.setup.stored") : t("settings.chat.setup.missing")} oninput={(event) => { pendingSecrets[openCodePassword.key] = event.currentTarget.value; }} /><button type="button" class="setup-icon-button" onclick={() => { revealSecrets[openCodePassword.key] = !revealSecrets[openCodePassword.key]; }}>{#if revealSecrets[openCodePassword.key]}<EyeOff size={13} />{:else}<Eye size={13} />{/if}</button><button type="button" class="setup-icon-button" aria-label={t("settings.chat.setup.storeSecret")} onclick={() => void storeSecret(openCodePassword)}><Check size={13} /></button><button type="button" class="setup-icon-button" aria-label={t("settings.chat.setup.removeSecret")} onclick={() => { if (openCodePassword.credentialReference) void removeSecret(openCodePassword); removeEnvironment(openCodePassword.key); }}><Trash2 size={13} /></button></div>{#if fieldError(`environment.${openCodePassword.key}.value`)}<small>{fieldError(`environment.${openCodePassword.key}.value`)}</small>{/if}</div>{:else}<button type="button" class="setup-add-button" onclick={addOpenCodePassword}><Plus size={14} />{t("settings.chat.setup.addExternalPassword")}</button>{/if}
           {/if}
         {/if}
 
-        <details class="rounded-lg border border-border p-3">
-          <summary class="cursor-pointer text-sm font-medium">{t("settings.chat.setup.advanced")}</summary>
-          <div class="mt-4 flex flex-col gap-4">
+        <div class="rounded-lg border border-border">
+          <button type="button" class="flex w-full items-center gap-2 p-3 text-left text-sm font-medium hover:bg-accent/40" aria-expanded={advancedOpen} onclick={() => { advancedOpen = !advancedOpen; }}>
+            <ChevronRight size={14} class="transition-transform {advancedOpen ? 'rotate-90' : ''}" />
+            <span>{t("settings.chat.setup.advanced")}</span>
+          </button>
+          {#if advancedOpen}
+          <div class="flex flex-col gap-4 border-t border-border p-3">
             <div class="setup-field"><span>{t("settings.chat.setup.launchArguments")}</span>{#each draft.launchArguments as argument, index}<div><div class="flex gap-2"><input class="min-w-0 flex-1" value={argument} oninput={(event) => { draft.launchArguments[index] = event.currentTarget.value; }} /><button type="button" class="setup-icon-button" onclick={() => { draft.launchArguments = draft.launchArguments.filter((_, candidate) => candidate !== index); }}><Trash2 size={14} /></button></div>{#if fieldError(`launchArguments.${index}`)}<small>{fieldError(`launchArguments.${index}`)}</small>{/if}</div>{/each}{#if fieldError("launchArguments")}<small>{fieldError("launchArguments")}</small>{/if}<button type="button" class="setup-add-button" onclick={addArgument}><Plus size={14} />{t("settings.chat.setup.addArgument")}</button></div>
             <div class="setup-field"><span>{t("settings.chat.setup.environment")}</span>
               {#each draft.environment.filter((row) => row.name !== "OPENCODE_SERVER_PASSWORD") as row (row.key)}
                 <div class="grid gap-2 rounded-md border border-border p-2 sm:grid-cols-[1fr_8rem_1.2fr_auto]">
                   <input aria-label={t("settings.chat.setup.variableName")} bind:value={row.name} />
-                  <select aria-label={t("settings.chat.setup.valueType")} bind:value={row.valueType}><option value="text">{t("settings.chat.setup.textValue")}</option><option value="secret">{t("settings.chat.setup.secretValue")}</option><option value="inherit">{t("settings.chat.setup.inheritedValue")}</option></select>
+                  <CustomSelect
+                    inline
+                    class="w-full"
+                    value={row.valueType}
+                    options={environmentValueTypeOptions}
+                    onChange={(value) => setEnvironmentValueType(row, value)}
+                    ariaLabel={t("settings.chat.setup.valueType")}
+                  />
                   {#if row.valueType === "text"}<input bind:value={row.value} />{:else if row.valueType === "secret"}<div class="flex gap-1"><input class="min-w-0 flex-1" type={revealSecrets[row.key] ? "text" : "password"} value={pendingSecrets[row.key] ?? ""} placeholder={row.credentialReference ? t("settings.chat.setup.stored") : t("settings.chat.setup.missing")} oninput={(event) => { pendingSecrets[row.key] = event.currentTarget.value; }} /><button type="button" class="setup-icon-button" onclick={() => { revealSecrets[row.key] = !revealSecrets[row.key]; }}>{#if revealSecrets[row.key]}<EyeOff size={13} />{:else}<Eye size={13} />{/if}</button><button type="button" class="setup-icon-button" aria-label={t("settings.chat.setup.storeSecret")} onclick={() => void storeSecret(row)}><Check size={13} /></button></div>{:else}<span class="self-center text-xs text-muted-foreground">{row.name || t("common.none")}</span>{/if}
                   <button type="button" class="setup-icon-button" onclick={() => { if (row.valueType === "secret" && row.credentialReference) void removeSecret(row); removeEnvironment(row.key); }}><Trash2 size={14} /></button>
                   {#if fieldError(`environment.${row.key}.name`) || fieldError(`environment.${row.key}.value`)}<small class="sm:col-span-4">{fieldError(`environment.${row.key}.name`) ?? fieldError(`environment.${row.key}.value`)}</small>{/if}
@@ -411,7 +455,8 @@
               <button type="button" class="setup-add-button" onclick={addEnvironment}><Plus size={14} />{t("settings.chat.setup.addEnvironment")}</button>
             </div>
           </div>
-        </details>
+          {/if}
+        </div>
 
         {#if testResult}<div class="rounded-md border p-3 text-sm {testSucceeded ? 'border-action-confirm/50 text-action-confirm' : 'border-status-tentative/50 text-status-tentative'}"><div>{testSucceeded ? t("settings.chat.setup.testPassed", formatNumber(localization.locale, testResult.modelCatalog?.models.length ?? 0)) : t("settings.chat.setup.testFailed", testResult.probe.detail ?? testResult.probe.state)}</div><dl class="mt-2 grid gap-1 text-xs sm:grid-cols-2"><div><dt class="text-muted-foreground">{t("settings.chat.setup.executable")}</dt><dd>{draft.executable}</dd></div><div><dt class="text-muted-foreground">{t("settings.chat.providers.version")}</dt><dd>{testResult.probe.version ?? t("settings.chat.providers.neverChecked")}</dd></div><div><dt class="text-muted-foreground">{t("settings.chat.providers.account")}</dt><dd>{testResult.probe.accountLabel ?? t("settings.chat.providers.authenticationRequired")}</dd></div><div><dt class="text-muted-foreground">{t("settings.chat.models.heading")}</dt><dd>{formatNumber(localization.locale, testResult.modelCatalog?.models.length ?? 0)}</dd></div></dl>{#if testResult.probe.detail}<p class="mt-2">{testResult.probe.detail}</p>{/if}</div>{/if}
         {#if operationError}<div role="alert" class="rounded-md border border-destructive/40 p-3 text-sm text-destructive">{t("settings.chat.setup.testFailed", operationError)}</div>{/if}

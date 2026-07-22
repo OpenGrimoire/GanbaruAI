@@ -1,10 +1,12 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import * as chatApi from "$lib/api/chat";
   import type { ChatDiagnosticsRead } from "$lib/chat/contracts";
   import { formatNumber } from "$lib/i18n/formatters";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
+  import CustomSelect from "../CustomSelect.svelte";
   import ToggleSetting from "../ToggleSetting.svelte";
 
   const localization = getLocalization();
@@ -16,7 +18,12 @@
   let diagnostics = $state<ChatDiagnosticsRead | null>(null);
   let maintenance = $state<"stop" | "rebuild" | null>(null);
   let confirmation = $state("");
+  let advancedOpen = $state(false);
   const behavior = $derived(chat.settings?.configuration.behavior ?? null);
+  const sendKeyOptions = $derived([
+    { value: "enter", label: t("settings.chat.behavior.enter") },
+    { value: "mod_enter", label: t("settings.chat.behavior.modEnter") },
+  ]);
 
   async function update(patch: Partial<NonNullable<typeof behavior>>): Promise<void> {
     if (!behavior || saving) return;
@@ -103,16 +110,33 @@
 </script>
 
 <section class="flex flex-col gap-4">
-  <h2 class="text-[0.866667rem] font-semibold text-foreground">{t("settings.chat.behavior.heading")}</h2>
+  <div class="px-1">
+    <h2 class="text-[0.866667rem] font-semibold text-foreground">{t("settings.chat.behavior.heading")}</h2>
+    <p class="mt-1 text-[0.8rem] text-muted-foreground">{t("settings.chat.behavior.description")}</p>
+  </div>
   {#if error}<p role="alert" class="text-sm text-destructive">{error}</p>{/if}
   {#if status}<p role="status" class="text-sm text-action-confirm">{status}</p>{/if}
   {#if behavior}
-    <div class="grid gap-3 sm:grid-cols-2">
-      <label class="setup-field"><span>{t("settings.chat.behavior.sendKey")}</span><select value={behavior.sendKey} onchange={(event) => void update({ sendKey: event.currentTarget.value === "mod_enter" ? "mod_enter" : "enter" })}><option value="enter">{t("settings.chat.behavior.enter")}</option><option value="mod_enter">{t("settings.chat.behavior.modEnter")}</option></select></label>
-      <label class="setup-field"><span>{t("settings.chat.behavior.terminalScrollback")}</span><input type="number" min="1000" max="100000" step="1000" value={behavior.terminalScrollbackLines} onchange={(event) => void update({ terminalScrollbackLines: event.currentTarget.valueAsNumber })} /></label>
-      <label class="setup-field"><span>{t("settings.chat.behavior.idleTimeout")}</span><input type="number" min="60" max="7200" step="60" value={behavior.idleSessionTimeoutSeconds} onchange={(event) => void update({ idleSessionTimeoutSeconds: event.currentTarget.valueAsNumber })} /></label>
+    <div class="flex flex-col gap-3">
+      <CustomSelect
+        label={t("settings.chat.behavior.sendKey")}
+        description={t("settings.chat.behavior.sendKeyDescription")}
+        value={behavior.sendKey}
+        options={sendKeyOptions}
+        onChange={(value) => void update({ sendKey: value === "mod_enter" ? "mod_enter" : "enter" })}
+        disabled={saving}
+      />
+      <label class="number-setting">
+        <span class="min-w-0 flex-1"><span class="block text-[0.866667rem] text-foreground">{t("settings.chat.behavior.terminalScrollback")}</span><span class="mt-0.5 block text-[0.8rem] text-muted-foreground">{t("settings.chat.behavior.terminalScrollbackDescription")}</span></span>
+        <input type="number" min="1000" max="100000" step="1000" value={behavior.terminalScrollbackLines} disabled={saving} onchange={(event) => void update({ terminalScrollbackLines: event.currentTarget.valueAsNumber })} />
+      </label>
+      <label class="number-setting">
+        <span class="min-w-0 flex-1"><span class="block text-[0.866667rem] text-foreground">{t("settings.chat.behavior.idleTimeout")}</span><span class="mt-0.5 block text-[0.8rem] text-muted-foreground">{t("settings.chat.behavior.idleTimeoutDescription")}</span></span>
+        <input type="number" min="60" max="7200" step="60" value={behavior.idleSessionTimeoutSeconds} disabled={saving} onchange={(event) => void update({ idleSessionTimeoutSeconds: event.currentTarget.valueAsNumber })} />
+      </label>
     </div>
-    <div class="grid gap-3 sm:grid-cols-2">
+    <div class="h-px shrink-0 scale-y-50 bg-border" aria-hidden="true"></div>
+    <div class="flex flex-col gap-3">
       <ToggleSetting label={t("settings.chat.behavior.restoreThread")} checked={behavior.restoreLastSelectedThread} disabled={saving} onChange={(value) => void update({ restoreLastSelectedThread: value })} />
       <ToggleSetting label={t("settings.chat.behavior.reasoning")} checked={behavior.showReasoningSummaries} disabled={saving} onChange={(value) => void update({ showReasoningSummaries: value })} />
       <ToggleSetting label={t("settings.chat.behavior.foldWork")} checked={behavior.automaticallyFoldSettledWork} disabled={saving} onChange={(value) => void update({ automaticallyFoldSettledWork: value })} />
@@ -120,7 +144,19 @@
     </div>
   {/if}
   {#if diagnostics}
-    <div class="grid gap-3 rounded-lg border border-border bg-card/40 p-4 sm:grid-cols-2">
+    <div class="rounded-lg border border-border bg-card/30">
+      <button
+        type="button"
+        class="flex w-full items-center gap-2 px-3 py-2.5 text-left text-[0.8rem] font-medium text-foreground hover:bg-accent/40"
+        aria-expanded={advancedOpen}
+        onclick={() => { advancedOpen = !advancedOpen; }}
+      >
+        <ChevronRight size={13} class="transition-transform {advancedOpen ? 'rotate-90' : ''}" />
+        <span>{t("settings.chat.behavior.advanced")}</span>
+      </button>
+      {#if advancedOpen}
+      <div class="flex flex-col gap-3 border-t border-border p-3">
+    <div class="grid gap-3 rounded-lg border border-border bg-background/50 p-3 sm:grid-cols-2">
       <div><div class="text-xs text-muted-foreground">{t("settings.chat.behavior.credentialStore")}</div><div class="mt-1 text-sm font-medium">{diagnostics.credentialStoreAvailable ? t("settings.chat.behavior.credentialAvailable") : t("settings.chat.behavior.credentialUnavailable")}</div></div>
       <div><div class="text-xs text-muted-foreground">{t("settings.chat.behavior.projectionHealth")}</div><div class="mt-1 text-sm font-medium">{diagnostics.projectionHealthy ? t("settings.chat.behavior.projectionHealthy") : t("settings.chat.behavior.projectionUnhealthy", formatNumber(localization.locale, diagnostics.inconsistentProjectionCount))}</div></div>
       <div><div class="text-xs text-muted-foreground">{t("settings.chat.behavior.processes")}</div><div class="mt-1 text-sm">{t("settings.chat.behavior.processCounts", formatNumber(localization.locale, diagnostics.liveProviderProcesses), formatNumber(localization.locale, diagnostics.activeTurns), formatNumber(localization.locale, diagnostics.liveTerminals))}</div></div>
@@ -152,6 +188,9 @@
         </div>
       {/if}
     </div>
+      </div>
+      {/if}
+    </div>
   {:else}
     <p class="text-sm text-muted-foreground">{t("common.loading")}</p>
   {/if}
@@ -160,4 +199,9 @@
 <style>
   .chat-settings-action { border: 1px solid var(--border); border-radius: 0.375rem; padding: 0.35rem 0.65rem; font-size: 0.733333rem; }
   .chat-settings-action:disabled { cursor: not-allowed; opacity: 0.5; }
+  .number-setting { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.25rem; }
+  .number-setting input { width: 7rem; min-height: 1.75rem; border-radius: 0.375rem; border: 1px solid var(--border); background: var(--card); padding-inline: 0.5rem; color: var(--foreground); font-size: 0.8rem; outline: none; }
+  .number-setting input:focus { border-color: var(--ring); box-shadow: 0 0 0 1px var(--ring); }
+  .number-setting input:disabled { cursor: not-allowed; opacity: 0.5; }
+  @media (max-width: 480px) { .number-setting { align-items: flex-start; flex-direction: column; } }
 </style>
