@@ -35,8 +35,8 @@ describe("ChatChangedFileTree", () => {
     );
     const selected = target.querySelector<HTMLButtonElement>("button.selected");
     expect(selected?.textContent).toContain("src/old.ts");
-    expect(selected?.textContent).toContain("P");
-    expect(selected?.textContent).toContain("G");
+    expect(selected?.title).toContain("Provider reported");
+    expect(selected?.title).toContain("Git observed");
     selected?.click();
     expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ relativePath: "src/new.ts" }));
   });

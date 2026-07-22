@@ -1,8 +1,11 @@
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { chatFilePresentation } from "./file-icon-theme";
 import { CHAT_FILE_ICON_IDS, chatFileIconUrl } from "./file-icons.generated";
+
+const iconSources = import.meta.glob<string>(
+  "../../../static/file-icons/icons/*.svg",
+  { eager: true, query: "?raw", import: "default" },
+);
 
 describe("Chat file icon theme", () => {
   it("uses recognizable framework and language icons", () => {
@@ -50,10 +53,9 @@ describe("Chat file icon theme", () => {
 
   it("ships every generated local image without active SVG content", () => {
     for (const iconId of CHAT_FILE_ICON_IDS) {
-      const icon = readFileSync(
-        path.resolve(process.cwd(), "static", "file-icons", "icons", `${iconId}.svg`),
-        "utf8",
-      );
+      const icon = iconSources[`../../../static/file-icons/icons/${iconId}.svg`];
+      expect(icon).toBeTypeOf("string");
+      if (typeof icon !== "string") continue;
       expect(icon).toMatch(/^<svg\b/);
       expect(icon).not.toMatch(/<(?:script|foreignObject|iframe|object|embed)\b/i);
       expect(icon).not.toMatch(/\son[a-z]+\s*=/i);

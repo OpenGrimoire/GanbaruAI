@@ -71,6 +71,7 @@
     "jenkins": "file_type_jenkins.svg",
     "jest": "file_type_jest.svg",
     "jinja": "file_type_jinja.svg",
+    "json": "file_type_json.svg",
     "julia": "file_type_julia.svg",
     "jupyter": "file_type_jupyter.svg",
     "just": "file_type_just.svg",
