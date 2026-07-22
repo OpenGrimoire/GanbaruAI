@@ -1,14 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { chatCodeColumns, chatFilePresentation, highlightChatCode } from "./code-presentation";
+import { chatCodeColumns, highlightChatCode } from "./code-presentation";
 
 describe("Chat code presentation", () => {
-  it("assigns distinct presentations to common coding files", () => {
-    expect(chatFilePresentation("src/app.ts")).toMatchObject({ kind: "glyph", glyph: "TS", tone: "typed" });
-    expect(chatFilePresentation("src/App.svelte")).toMatchObject({ glyph: "S", tone: "markup" });
-    expect(chatFilePresentation("Cargo.toml")).toMatchObject({ glyph: "R", tone: "systems" });
-    expect(chatFilePresentation("assets/logo.png").kind).toBe("image");
-  });
-
   it("preserves source text while distinguishing CSS and TypeScript tokens", () => {
     const css = '@import "tailwindcss";\n--size: 0.875rem;';
     const cssLines = highlightChatCode(css, "css");

@@ -21,24 +21,6 @@ export interface ChatHighlightedLine {
   tokens: ChatSyntaxToken[];
 }
 
-export type ChatFileIconKind = "glyph" | "image" | "archive" | "text" | "file";
-export type ChatFileIconTone =
-  | "typed"
-  | "script"
-  | "style"
-  | "markup"
-  | "data"
-  | "systems"
-  | "docs"
-  | "config"
-  | "default";
-
-export interface ChatFilePresentation {
-  kind: ChatFileIconKind;
-  glyph: string;
-  tone: ChatFileIconTone;
-}
-
 const KEYWORDS = new Set([
   "abstract", "and", "as", "async", "await", "break", "case", "catch", "class", "const",
   "chan", "continue", "crate", "def", "default", "defer", "delete", "do", "elif", "else", "enum",
@@ -57,69 +39,6 @@ const TYPE_WORDS = new Set([
   "i16", "i32", "i64", "i128", "int", "long", "never", "number", "object", "rune", "short", "str",
   "string", "u8", "u16", "u32", "u64", "u128", "uint", "usize", "unknown",
 ]);
-
-const IMAGE_EXTENSIONS = new Set(["avif", "gif", "ico", "jpeg", "jpg", "png", "svg", "webp"]);
-const ARCHIVE_EXTENSIONS = new Set(["7z", "bz2", "gz", "rar", "tar", "tgz", "xz", "zip"]);
-const TEXT_EXTENSIONS = new Set(["csv", "log", "pdf", "txt"]);
-
-const GLYPHS: Readonly<Record<string, { glyph: string; tone: ChatFileIconTone }>> = {
-  c: { glyph: "C", tone: "systems" },
-  cc: { glyph: "C+", tone: "systems" },
-  cpp: { glyph: "C+", tone: "systems" },
-  cs: { glyph: "C#", tone: "typed" },
-  css: { glyph: "#", tone: "style" },
-  go: { glyph: "Go", tone: "typed" },
-  h: { glyph: "H", tone: "systems" },
-  hpp: { glyph: "H+", tone: "systems" },
-  html: { glyph: "<>", tone: "markup" },
-  java: { glyph: "J", tone: "systems" },
-  js: { glyph: "JS", tone: "script" },
-  json: { glyph: "{}", tone: "data" },
-  jsx: { glyph: "JX", tone: "typed" },
-  kt: { glyph: "Kt", tone: "systems" },
-  lock: { glyph: "L", tone: "config" },
-  md: { glyph: "M", tone: "docs" },
-  mdx: { glyph: "M+", tone: "docs" },
-  py: { glyph: "Py", tone: "script" },
-  rb: { glyph: "Rb", tone: "script" },
-  rs: { glyph: "R", tone: "systems" },
-  sass: { glyph: "S", tone: "style" },
-  scss: { glyph: "S#", tone: "style" },
-  sh: { glyph: "$", tone: "script" },
-  sql: { glyph: "DB", tone: "data" },
-  svelte: { glyph: "S", tone: "markup" },
-  swift: { glyph: "Sw", tone: "systems" },
-  toml: { glyph: "T", tone: "config" },
-  ts: { glyph: "TS", tone: "typed" },
-  tsx: { glyph: "TX", tone: "typed" },
-  vue: { glyph: "V", tone: "markup" },
-  xml: { glyph: "<>", tone: "markup" },
-  yaml: { glyph: "Y", tone: "config" },
-  yml: { glyph: "Y", tone: "config" },
-  zsh: { glyph: "$", tone: "script" },
-};
-
-/**
- * Resolves a compact, extension-aware presentation for common coding files.
- *
- * @param path Workspace-relative file path.
- * @returns Icon kind, short glyph, and semantic color tone.
- */
-export function chatFilePresentation(path: string): ChatFilePresentation {
-  const name = path.split("/").at(-1)?.toLowerCase() ?? path.toLowerCase();
-  if (name === "dockerfile") return { kind: "glyph", glyph: "D", tone: "typed" };
-  if (name === "makefile") return { kind: "glyph", glyph: "M", tone: "config" };
-  if (name === ".gitignore" || name === ".gitattributes") return { kind: "glyph", glyph: "G", tone: "config" };
-  if (name === "package.json") return { kind: "glyph", glyph: "N", tone: "data" };
-  if (name === "cargo.toml") return { kind: "glyph", glyph: "R", tone: "systems" };
-  const extension = name.includes(".") ? name.split(".").at(-1) ?? "" : "";
-  const glyph = GLYPHS[extension];
-  if (glyph) return { kind: "glyph", ...glyph };
-  if (IMAGE_EXTENSIONS.has(extension)) return { kind: "image", glyph: "", tone: "markup" };
-  if (ARCHIVE_EXTENSIONS.has(extension)) return { kind: "archive", glyph: "", tone: "config" };
-  if (TEXT_EXTENSIONS.has(extension)) return { kind: "text", glyph: "", tone: "docs" };
-  return { kind: "file", glyph: "", tone: "default" };
-}
 
 /**
  * Produces safe syntax token runs without creating HTML or loading an editor runtime.

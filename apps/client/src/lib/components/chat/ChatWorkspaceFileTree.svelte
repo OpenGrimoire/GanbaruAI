@@ -77,16 +77,16 @@
             <button type="button" class="tree-disclosure" aria-label={row.expanded ? t("chat.inspector.collapseFolder", entry.displayName) : t("chat.inspector.expandFolder", entry.displayName)} onclick={() => onToggle(entry)}>
               {#if loading}<LoaderCircle size={12} class="animate-spin" />{:else if row.expanded}<ChevronDown size={13} />{:else}<ChevronRight size={13} />{/if}
             </button>
-            <button type="button" class="tree-label" onclick={() => onToggle(entry)} title={entry.relativePath}>
+            <button type="button" class="tree-label" onclick={() => onToggle(entry)}>
               {#if row.expanded}<FolderOpen size={14} class="folder-icon" />{:else}<Folder size={14} class="folder-icon" />{/if}
               <span class="truncate">{entry.displayName}</span>
             </button>
           {:else}
             <span class="tree-disclosure" aria-hidden="true"></span>
-            <button type="button" class="tree-label" onclick={() => onSelect(entry)} title={entry.relativePath}>
+            <button type="button" class="tree-label" onclick={() => onSelect(entry)}>
               <ChatFileIcon path={entry.relativePath} size={14} />
               <span class="truncate">{entry.displayName}</span>
-              {#if changedPaths.has(entry.relativePath)}<span class="changed-dot" title={t("chat.inspector.changed")} aria-label={t("chat.inspector.changed")}></span>{/if}
+              {#if changedPaths.has(entry.relativePath)}<span class="changed-dot" aria-label={t("chat.inspector.changed")}></span>{/if}
             </button>
           {/if}
         </div>
@@ -106,6 +106,6 @@
   .tree-disclosure { display: inline-grid; width: 1.4rem; height: 1.4rem; flex: 0 0 auto; place-items: center; border-radius: 0.25rem; color: var(--muted-foreground); }
   button.tree-disclosure:hover { background: color-mix(in srgb, var(--background) 72%, transparent); color: var(--foreground); }
   .tree-label { display: flex; min-width: 0; height: 100%; flex: 1; align-items: center; gap: 0.35rem; padding-right: 0.35rem; text-align: left; font-size: 0.733333rem; }
-  .folder-icon { flex: 0 0 auto; color: color-mix(in srgb, var(--muted-foreground) 72%, var(--status-tentative)); }
+  .tree-label :global(.folder-icon) { flex: 0 0 auto; color: color-mix(in srgb, var(--muted-foreground) 72%, var(--status-tentative)); }
   .changed-dot { width: 0.38rem; height: 0.38rem; flex: 0 0 auto; border-radius: 9999px; background: var(--primary); }
 </style>
