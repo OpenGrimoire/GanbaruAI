@@ -11,6 +11,7 @@
   import { inspectorFocusAction } from "$lib/chat/inspector-model";
   import {
     chatLayoutDecision,
+    chatInspectorResizeMaximum,
     panelWidthFromKey,
     type ChatLayoutDecision,
   } from "$lib/chat/responsive-layout";
@@ -23,22 +24,24 @@
   import * as chatApi from "$lib/api/chat";
   import ChatConversationHeader from "./ChatConversationHeader.svelte";
   import ChatComposer from "./ChatComposer.svelte";
-  import ChatBottomPanel from "./ChatBottomPanel.svelte";
   import ChatFirstUse from "./ChatFirstUse.svelte";
-  import ChatInspector from "./ChatInspector.svelte";
   import ChatThreadRail from "./ChatThreadRail.svelte";
   import ChatTimeline from "./ChatTimeline.svelte";
+  import ChatWorkspacePanel from "./ChatWorkspacePanel.svelte";
   import { getChatBenchmarkHandle } from "./benchmark-handle.svelte";
 
   const { t } = getLocalization();
   const chat = getChat();
   const projects = getProjects();
   const settings = getSettingsLauncher();
-  const DEFAULT_RAIL_WIDTH = 260;
+  const LEGACY_RAIL_WIDTH = 260;
+  const LEGACY_INSPECTOR_WIDTH = 360;
+  const DEFAULT_RAIL_WIDTH = 320;
   const DEFAULT_INSPECTOR_WIDTH = 520;
-  const MIN_INSPECTOR_WIDTH = 420;
-  const DEFAULT_BOTTOM_PANEL_HEIGHT = 260;
-  const MIN_BOTTOM_PANEL_HEIGHT = 120;
+  const MIN_INSPECTOR_WIDTH = 240;
+  const DEFAULT_BOTTOM_PANEL_HEIGHT = 190;
+  const MIN_BOTTOM_PANEL_HEIGHT = 96;
+  const MIN_CONVERSATION_WIDTH = 440;
   const INITIAL_SHELL_WIDTH = 1_200;
   const INITIAL_SHELL_HEIGHT = 700;
   const INITIAL_FONT_SCALE = 1;
@@ -55,6 +58,7 @@
   let bottomPanelHeight = $state(DEFAULT_BOTTOM_PANEL_HEIGHT);
   let bottomPanelOpen = $state(false);
   let bottomInitializedThreadIds = $state<string[]>([]);
+  let inspectorInitializedScopeIds = $state<string[]>([]);
   let inspectorMaximized = $state(false);
   let inspectorWasOpen = false;
   let inspectorReturnFocus: HTMLElement | null = null;
@@ -84,15 +88,26 @@
   let railResizeFrame: number | null = null;
   let inspectorResizeFrame: number | null = null;
   let bottomResizeFrame: number | null = null;
+  let panelPreferencesInitialized = false;
+  let railUsesPromotedDefault = false;
+  let inspectorUsesPromotedDefault = false;
 
   onMount(() => {
     void Promise.all([chat.ensureLoaded(), projects.ensureLoaded()]).catch((error) => {
       loadError = error instanceof Error ? error.message : String(error);
     });
-    railWidth = chat.settings?.configuration.panels.railWidthPx ?? DEFAULT_RAIL_WIDTH;
+    railWidth = preferredPanelWidth(
+      chat.settings?.configuration.panels.railWidthPx,
+      LEGACY_RAIL_WIDTH,
+      DEFAULT_RAIL_WIDTH,
+    );
     inspectorWidth = Math.max(
       MIN_INSPECTOR_WIDTH,
-      chat.settings?.configuration.panels.inspectorWidthPx ?? DEFAULT_INSPECTOR_WIDTH,
+      preferredPanelWidth(
+        chat.settings?.configuration.panels.inspectorWidthPx,
+        LEGACY_INSPECTOR_WIDTH,
+        DEFAULT_INSPECTOR_WIDTH,
+      ),
     );
     const unlisten = listen<unknown>("chat://change", (event) => {
       try {
@@ -196,17 +211,41 @@
   }
 
   $effect(() => {
-    if (!resizingRail && chat.settings) railWidth = chat.settings.configuration.panels.railWidthPx;
+    if (!chat.settings) return;
+    const configuredRailWidth = chat.settings.configuration.panels.railWidthPx;
+    const configuredInspectorWidth = chat.settings.configuration.panels.inspectorWidthPx;
+    if (!panelPreferencesInitialized) {
+      railUsesPromotedDefault = configuredRailWidth === LEGACY_RAIL_WIDTH;
+      inspectorUsesPromotedDefault = configuredInspectorWidth === LEGACY_INSPECTOR_WIDTH;
+      panelPreferencesInitialized = true;
+    }
+    if (configuredRailWidth !== LEGACY_RAIL_WIDTH) railUsesPromotedDefault = false;
+    if (configuredInspectorWidth !== LEGACY_INSPECTOR_WIDTH) inspectorUsesPromotedDefault = false;
+    if (!resizingRail && chat.settings) {
+      railWidth = railUsesPromotedDefault ? DEFAULT_RAIL_WIDTH : configuredRailWidth;
+    }
     if (!resizingInspector && chat.settings) {
-      inspectorWidth = Math.max(MIN_INSPECTOR_WIDTH, chat.settings.configuration.panels.inspectorWidthPx);
+      inspectorWidth = Math.max(
+        MIN_INSPECTOR_WIDTH,
+        inspectorUsesPromotedDefault ? DEFAULT_INSPECTOR_WIDTH : configuredInspectorWidth,
+      );
     }
   });
 
   $effect(() => {
-    const threadId = chat.selectedThreadId;
+    const threadId = chat.selectedThreadId ?? chat.draftThreadId;
     if (!threadId || bottomInitializedThreadIds.includes(threadId)) return;
     bottomInitializedThreadIds = [...bottomInitializedThreadIds, threadId];
     bottomPanelOpen = true;
+  });
+
+  $effect(() => {
+    const scopeId = chat.selectedThreadId ?? chat.draftThreadId;
+    if (!scopeId || inspectorInitializedScopeIds.includes(scopeId)) return;
+    const requiredWidth = railWidth + DEFAULT_INSPECTOR_WIDTH + MIN_CONVERSATION_WIDTH;
+    if (shellWidth < requiredWidth) return;
+    inspectorInitializedScopeIds = [...inspectorInitializedScopeIds, scopeId];
+    chat.inspectorOpen = true;
   });
 
   $effect(() => {
@@ -397,6 +436,14 @@
       && left.activeSurface === right.activeSurface;
   }
 
+  function preferredPanelWidth(
+    configured: number | undefined,
+    legacyDefault: number,
+    currentDefault: number,
+  ): number {
+    return configured === undefined || configured === legacyDefault ? currentDefault : configured;
+  }
+
   function beginRailResize(event: PointerEvent): void {
     event.preventDefault();
     resizingRail = true;
@@ -439,7 +486,10 @@
     target.setPointerCapture(event.pointerId);
     let pendingWidth = startWidth;
     const move = (moveEvent: PointerEvent) => {
-      pendingWidth = Math.max(MIN_INSPECTOR_WIDTH, Math.min(960, startWidth + startX - moveEvent.clientX));
+      pendingWidth = Math.max(
+        MIN_INSPECTOR_WIDTH,
+        Math.min(inspectorResizeMaximum(), startWidth + startX - moveEvent.clientX),
+      );
       if (inspectorResizeFrame !== null) return;
       inspectorResizeFrame = window.requestAnimationFrame(() => {
         inspectorWidth = pendingWidth;
@@ -471,7 +521,7 @@
     target.focus();
     target.setPointerCapture(event.pointerId);
     const move = (moveEvent: PointerEvent) => {
-      const maximum = Math.max(MIN_BOTTOM_PANEL_HEIGHT, shellHeight * 0.7);
+      const maximum = Math.max(MIN_BOTTOM_PANEL_HEIGHT, shellHeight * 0.55);
       pendingHeight = Math.max(
         MIN_BOTTOM_PANEL_HEIGHT,
         Math.min(maximum, startHeight + startY - moveEvent.clientY),
@@ -505,7 +555,7 @@
           current: railWidth,
           minimum: 160,
           maximum: 520,
-          defaultValue: 260,
+          defaultValue: DEFAULT_RAIL_WIDTH,
           step: 16,
           direction: "standard",
           key: event.key,
@@ -513,7 +563,7 @@
       : {
           current: inspectorWidth,
           minimum: MIN_INSPECTOR_WIDTH,
-          maximum: 960,
+          maximum: inspectorResizeMaximum(),
           defaultValue: DEFAULT_INSPECTOR_WIDTH,
           step: 16,
           direction: "reversed",
@@ -526,8 +576,19 @@
     void persistPanelWidths();
   }
 
+  function inspectorResizeMaximum(): number {
+    if (layout.inspectorPresentation !== "column") return 960;
+    return chatInspectorResizeMaximum({
+      containerWidth: shellWidth,
+      railVisible: layout.railPresentation === "column" && chat.railOpen,
+      railWidth,
+      minimum: MIN_INSPECTOR_WIDTH,
+      maximum: 960,
+    });
+  }
+
   function resizeBottomPanelFromKey(event: KeyboardEvent): void {
-    const maximum = Math.max(MIN_BOTTOM_PANEL_HEIGHT, Math.round(shellHeight * 0.7));
+    const maximum = Math.max(MIN_BOTTOM_PANEL_HEIGHT, Math.round(shellHeight * 0.55));
     let next: number;
     switch (event.key) {
       case "ArrowUp": next = bottomPanelHeight + 16; break;
@@ -544,10 +605,16 @@
   async function persistPanelWidths(): Promise<void> {
     if (!chat.settings) return;
     layoutError = null;
+    const savedRailWidth = Math.round(railWidth);
+    const savedInspectorWidth = Math.round(inspectorWidth);
     try {
       const { updateChatPanels } = await import("$lib/api/chat");
-      await updateChatPanels({ railWidthPx: Math.round(railWidth), inspectorWidthPx: Math.round(inspectorWidth) });
+      await updateChatPanels({ railWidthPx: savedRailWidth, inspectorWidthPx: savedInspectorWidth });
       await chat.refreshSettings();
+      railUsesPromotedDefault = false;
+      inspectorUsesPromotedDefault = false;
+      railWidth = savedRailWidth;
+      inspectorWidth = savedInspectorWidth;
     } catch (error: unknown) {
       layoutError = error instanceof Error ? error.message : String(error);
     }
@@ -623,6 +690,7 @@
     <div class="workspace-top">
       <main class="main-shell relative flex min-w-0 flex-1 flex-col" class:maximized-hidden={inspectorMaximized}>
         <ChatConversationHeader
+          draft={!chat.selectedThread}
           showRailButton={layout.railPresentation === "sheet" || !chat.railOpen}
           onOpenRail={() => { chat.railOpen = true; }}
           {bottomPanelOpen}
@@ -647,16 +715,16 @@
         {/if}
       </main>
 
-      <input type="range" class="chat-inspector-separator" class:hidden={!chat.inspectorOpen || inspectorMaximized} min={MIN_INSPECTOR_WIDTH} max="960" value={Math.round(inspectorWidth)} aria-label={t("chat.resizeInspector")} onpointerdown={beginInspectorResize} onkeydown={(event) => resizePanelFromKey(event, "inspector")} />
+      <input type="range" class="chat-inspector-separator" class:hidden={!chat.inspectorOpen || inspectorMaximized} min={MIN_INSPECTOR_WIDTH} max={inspectorResizeMaximum()} value={Math.round(inspectorWidth)} aria-label={t("chat.resizeInspector")} onpointerdown={beginInspectorResize} onkeydown={(event) => resizePanelFromKey(event, "inspector")} />
       <aside bind:this={inspectorShell} class="chat-inspector-shell" class:open={chat.inspectorOpen} class:maximized={inspectorMaximized} data-presentation={layout.inspectorPresentation} role={layout.inspectorPresentation === "sheet" ? "dialog" : undefined} aria-modal={layout.inspectorPresentation === "sheet" ? "true" : undefined} aria-label={t("chat.openInspector")} onkeydown={(event) => { if (layout.inspectorPresentation === "sheet") handleSheetKeydown(event, () => { chat.inspectorOpen = false; }); }} style={`--chat-inspector-width:${inspectorWidth}px`}>
-        <ChatInspector onClose={() => { chat.inspectorOpen = false; }} onMaximizedChange={(value) => { inspectorMaximized = value; }} />
+        <ChatWorkspacePanel placement="inspector" onClose={() => { chat.inspectorOpen = false; }} onMaximizedChange={(value) => { inspectorMaximized = value; }} />
       </aside>
     </div>
 
     {#if bottomPanelOpen && !inspectorMaximized && layout.variant !== "minimum_recovery"}
-      <input type="range" class="chat-bottom-separator" min={MIN_BOTTOM_PANEL_HEIGHT} max={Math.max(MIN_BOTTOM_PANEL_HEIGHT, Math.round(shellHeight * 0.7))} value={Math.round(bottomPanelHeight)} aria-label={t("chat.resizeBottomPanel")} onpointerdown={beginBottomPanelResize} onkeydown={resizeBottomPanelFromKey} />
+      <input type="range" class="chat-bottom-separator" min={MIN_BOTTOM_PANEL_HEIGHT} max={Math.max(MIN_BOTTOM_PANEL_HEIGHT, Math.round(shellHeight * 0.55))} value={Math.round(bottomPanelHeight)} aria-label={t("chat.resizeBottomPanel")} onpointerdown={beginBottomPanelResize} onkeydown={resizeBottomPanelFromKey} />
       <div class="chat-bottom-shell" style={`--chat-bottom-height:${bottomPanelHeight}px`}>
-        <ChatBottomPanel onClose={() => { bottomPanelOpen = false; }} />
+        <ChatWorkspacePanel placement="bottom" onClose={() => { bottomPanelOpen = false; }} />
       </div>
     {/if}
   </div>
@@ -687,15 +755,15 @@
   .workspace-content { display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; }
   .workspace-top { position: relative; display: flex; min-width: 0; min-height: 0; flex: 1; }
   .chat-inspector-shell { width: 0; min-width: 0; overflow: hidden; border-left: 0 solid var(--border); background: var(--cal-bg); transition: width 140ms ease, min-width 140ms ease; }
-  .chat-inspector-shell.open { width: min(var(--chat-inspector-width), 46cqw); min-width: min(420px, 46cqw); border-left-width: 1px; }
+  .chat-inspector-shell.open { width: var(--chat-inspector-width); min-width: min(240px, 46cqw); border-left-width: 1px; }
   .chat-inspector-shell.maximized { width: 100%; min-width: 0; border-left-width: 0; }
   .chat-bottom-separator { width: 100%; height: 4px; min-height: 4px; flex: 0 0 4px; appearance: none; border: 0; border-radius: 0; padding: 0; cursor: row-resize; background: transparent; }
   .chat-bottom-separator:hover, .chat-bottom-separator:focus-visible { background: var(--ring); }
-  .chat-bottom-shell { height: min(var(--chat-bottom-height), 45%); min-height: min(120px, 45%); flex: 0 0 min(var(--chat-bottom-height), 45%); overflow: hidden; border-top: 1px solid var(--border); }
+  .chat-bottom-shell { height: min(var(--chat-bottom-height), 38%); min-height: min(96px, 38%); flex: 0 0 min(var(--chat-bottom-height), 38%); overflow: hidden; border-top: 1px solid var(--border); }
   .chat-workspace.resizing-panels, .chat-workspace.resizing-panels * { user-select: none; }
   .chat-workspace.resizing-panels .chat-rail-shell, .chat-workspace.resizing-panels .chat-inspector-shell { transition: none; }
   .chat-sheet-backdrop { position: absolute; inset: 0; z-index: 30; background: rgb(0 0 0 / 0.28); }
-  .main-shell { background: var(--cal-bg); }
+  .main-shell { min-width: min(440px, 100cqw); background: var(--cal-bg); }
   .chat-conversation-shell { position: relative; display: flex; min-height: 0; flex: 1; flex-direction: column; overflow: hidden; }
   .chat-composer-dock { pointer-events: none; position: absolute; inset-inline: 0; bottom: 0; z-index: 20; padding: 0.5rem 0.75rem 0.75rem; }
   .chat-composer-backdrop { position: absolute; inset: -1.5rem 0 -2rem; background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--cal-bg) 72%, transparent) 35%, var(--cal-bg) 74%); backdrop-filter: blur(10px); -webkit-mask-image: linear-gradient(to bottom, transparent, black 35%); mask-image: linear-gradient(to bottom, transparent, black 35%); }

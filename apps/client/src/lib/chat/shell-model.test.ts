@@ -109,10 +109,9 @@ describe("Chat shell model", () => {
   it("groups Projects without copying their identity and subdivides multiple workspaces", () => {
     const groups: ProjectGroup[] = [{ id: "group", name: "Work", icon: "lucide:folder", sortOrder: 1, collapsed: true, createdAt: timestamp, updatedAt: timestamp }];
     const projects: Project[] = [{ id: "project", groupId: "group", name: "Ganbaru", icon: "lucide:folder", sortOrder: 1, status: "active", defaultEventName: null, defaultEventTimeMode: "timed", defaultEventDurationMinutes: null, defaultPomodoroMode: "preset", defaultIdleSettingsSource: "global", defaultIdlePauseEnabled: true, defaultIdleThresholdMinutes: 5, createdAt: timestamp, updatedAt: timestamp }];
-    const model = buildChatRailModel(groups, projects, [workspace("workspace"), workspace("second"), workspace("standalone", null)], [thread()], "workspace", "thread");
+    const model = buildChatRailModel(groups, projects, [workspace("workspace"), workspace("second"), workspace("standalone", null)], [thread()], "thread");
     expect(model.groups[0].projects[0].project).toBe(projects[0]);
     expect(model.groups[0].projects[0].workspaces.every((entry) => entry.showSubdivision)).toBe(true);
-    expect(model.groups[0].projects[0].workspaces[0].hasDraft).toBe(true);
     expect(model.standalone).toHaveLength(1);
     expect(model.retainedThreadId).toBe("thread");
   });

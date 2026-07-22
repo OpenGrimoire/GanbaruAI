@@ -1,6 +1,5 @@
 import type {
   ChatThreadShellRead,
-  ChatWorkspaceId,
   ChatWorkspaceRead,
   ProviderInstanceRead,
 } from "./contracts";
@@ -22,7 +21,6 @@ export interface ChatRailWorkspace {
   workspace: ChatWorkspaceRead;
   showSubdivision: boolean;
   threads: ChatThreadShellRead[];
-  hasDraft: boolean;
 }
 
 export interface ChatRailProject {
@@ -103,7 +101,6 @@ export function buildChatRailModel(
   projects: readonly Project[],
   workspaces: readonly ChatWorkspaceRead[],
   threads: readonly ChatThreadShellRead[],
-  draftWorkspaceId: ChatWorkspaceId | null,
   selectedThreadId: string | null,
 ): ChatRailModel {
   const activeWorkspaces = workspaces.filter((entry) => entry.workspace.archivedAt === null);
@@ -116,7 +113,6 @@ export function buildChatRailModel(
           workspace,
           threads,
           projectWorkspaces.length > 1,
-          draftWorkspaceId,
         )),
       };
     })
@@ -152,7 +148,7 @@ export function buildChatRailModel(
     groups: orderedGroups,
     standalone: activeWorkspaces
       .filter((entry) => entry.workspace.projectId === null)
-      .map((workspace) => railWorkspace(workspace, threads, true, draftWorkspaceId)),
+      .map((workspace) => railWorkspace(workspace, threads, true)),
     retainedThreadId,
   };
 }
@@ -196,7 +192,6 @@ function railWorkspace(
   workspace: ChatWorkspaceRead,
   threads: readonly ChatThreadShellRead[],
   showSubdivision: boolean,
-  draftWorkspaceId: ChatWorkspaceId | null,
 ): ChatRailWorkspace {
   return {
     workspace,
@@ -204,7 +199,6 @@ function railWorkspace(
     threads: threads
       .filter((thread) => thread.workspaceId === workspace.workspace.id && thread.archivedAt === null)
       .sort((left, right) => right.lastActivityAt.localeCompare(left.lastActivityAt)),
-    hasDraft: draftWorkspaceId === workspace.workspace.id,
   };
 }
 

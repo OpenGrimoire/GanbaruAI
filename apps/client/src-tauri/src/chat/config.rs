@@ -31,11 +31,11 @@ fn current_schema_version() -> u32 {
 }
 
 fn default_rail_width_px() -> u32 {
-    260
+    320
 }
 
 fn default_inspector_width_px() -> u32 {
-    360
+    520
 }
 
 fn default_terminal_scrollback_lines() -> u32 {

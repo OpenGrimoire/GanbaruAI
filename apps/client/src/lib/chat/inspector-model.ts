@@ -6,6 +6,7 @@ import type {
 
 export interface ChatInspectorThreadState {
   tab: ChatInspectorTab;
+  openTabs: ChatInspectorTab[];
   selectedFile: string | null;
   fileBrowserPath: string;
   filePreviewPath: string | null;
@@ -25,7 +26,8 @@ export interface ChatChangedFileTreeNode {
 }
 
 const DEFAULT_STATE: ChatInspectorThreadState = {
-  tab: "changes",
+  tab: "files",
+  openTabs: ["files"],
   selectedFile: null,
   fileBrowserPath: "",
   filePreviewPath: null,
@@ -39,19 +41,72 @@ const DEFAULT_STATE: ChatInspectorThreadState = {
 export class ChatInspectorSessionState {
   private readonly threads = new Map<ChatThreadId, ChatInspectorThreadState>();
 
+  constructor(private readonly initialTab: ChatInspectorTab = "files") {}
+
+  private initialState(): ChatInspectorThreadState {
+    return {
+      ...DEFAULT_STATE,
+      tab: this.initialTab,
+      openTabs: [this.initialTab],
+      fileTreeVisible: this.initialTab === "files",
+    };
+  }
+
   read(threadId: ChatThreadId | null): ChatInspectorThreadState {
-    if (!threadId) return { ...DEFAULT_STATE };
-    return { ...(this.threads.get(threadId) ?? DEFAULT_STATE) };
+    const state = threadId ? this.threads.get(threadId) ?? this.initialState() : this.initialState();
+    return { ...state, openTabs: [...state.openTabs] };
   }
 
   update(threadId: ChatThreadId, update: Partial<ChatInspectorThreadState>): ChatInspectorThreadState {
-    const next = { ...this.read(threadId), ...update };
+    const current = this.read(threadId);
+    const next = {
+      ...current,
+      ...update,
+      openTabs: [...(update.openTabs ?? current.openTabs)],
+    };
     this.threads.set(threadId, next);
-    return { ...next };
+    return { ...next, openTabs: [...next.openTabs] };
   }
 }
 
 export const chatInspectorSession = new ChatInspectorSessionState();
+
+/**
+ * Opens a workspace panel without duplicating an existing tab.
+ *
+ * @param tabs Currently open panel tabs.
+ * @param tab Panel to open or select.
+ * @returns Tabs with the requested panel present once.
+ */
+export function openInspectorTab(
+  tabs: readonly ChatInspectorTab[],
+  tab: ChatInspectorTab,
+): ChatInspectorTab[] {
+  return tabs.includes(tab) ? [...tabs] : [...tabs, tab];
+}
+
+/**
+ * Closes a workspace panel and selects its nearest remaining neighbor.
+ *
+ * @param tabs Currently open panel tabs.
+ * @param tab Panel to close.
+ * @param selectedTab Currently selected panel.
+ * @returns Remaining tabs and the next selected panel, if one exists.
+ */
+export function closeInspectorTab(
+  tabs: readonly ChatInspectorTab[],
+  tab: ChatInspectorTab,
+  selectedTab: ChatInspectorTab,
+): { tabs: ChatInspectorTab[]; selectedTab: ChatInspectorTab | null } {
+  const closedIndex = tabs.indexOf(tab);
+  const nextTabs = tabs.filter((entry) => entry !== tab);
+  if (selectedTab !== tab) return { tabs: nextTabs, selectedTab };
+  if (nextTabs.length === 0) return { tabs: [], selectedTab: null };
+  return {
+    tabs: nextTabs,
+    selectedTab: nextTabs[Math.min(Math.max(0, closedIndex), nextTabs.length - 1)] ?? null,
+  };
+}
 
 export function inspectorSessionKey(
   threadId: ChatThreadId | null,

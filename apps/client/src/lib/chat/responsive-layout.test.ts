@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   chatLayoutDecision,
   chatLayoutPrimaryActions,
+  chatInspectorResizeMaximum,
   chatScrollBehavior,
   middleTruncate,
   panelWidthFromKey,
@@ -125,6 +126,20 @@ describe("Chat responsive layout", () => {
     expect(resize("End")).toBe(520);
     expect(resize("Enter")).toBe(260);
     expect(resize("Escape")).toBeNull();
+  });
+
+  it("lets the inspector use spare width without shrinking the conversation", () => {
+    const maximum = (containerWidth: number, railVisible = true) => chatInspectorResizeMaximum({
+      containerWidth,
+      railVisible,
+      railWidth: 260,
+      minimum: 240,
+      maximum: 960,
+    });
+    expect(maximum(1_400)).toBe(692);
+    expect(maximum(1_400, false)).toBe(956);
+    expect(maximum(2_000)).toBe(960);
+    expect(maximum(700)).toBe(240);
   });
 
   it("removes smooth scrolling when reduced motion is requested", () => {

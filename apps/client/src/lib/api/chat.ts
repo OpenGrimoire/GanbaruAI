@@ -200,7 +200,6 @@ export async function createChatTerminal(request: {
   terminalId: string;
   threadId: ChatThreadId;
   workspaceId: ChatWorkspaceId;
-  name: string;
   columns: number;
   rows: number;
 }): Promise<ChatTerminalSnapshotRead> {
@@ -246,35 +245,6 @@ export async function resizeChatTerminal(
     dbUrl: await ensureDbUrl(),
     request: { terminalId, threadId, workspaceId, columns, rows },
   });
-}
-
-export async function renameChatTerminal(
-  terminalId: string,
-  threadId: ChatThreadId,
-  workspaceId: ChatWorkspaceId,
-  name: string,
-): Promise<ChatTerminalRead> {
-  const value = await invoke<unknown>("chat_terminal_rename", {
-    dbUrl: await ensureDbUrl(),
-    terminalId,
-    threadId,
-    workspaceId,
-    name,
-  });
-  return parseChatTerminal(value);
-}
-
-export async function restartChatTerminal(
-  terminalId: string,
-  threadId: ChatThreadId,
-  workspaceId: ChatWorkspaceId,
-): Promise<ChatTerminalSnapshotRead> {
-  return parseChatTerminalSnapshot(await invoke<unknown>("chat_terminal_restart", {
-    dbUrl: await ensureDbUrl(),
-    terminalId,
-    threadId,
-    workspaceId,
-  }));
 }
 
 export async function closeChatTerminal(

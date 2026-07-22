@@ -162,7 +162,9 @@ describe("Chat provider contracts", () => {
 
 describe("Chat vault configuration", () => {
   it("uses explicit safe defaults when the Chat branch is absent", () => {
-    expect(parseChatConfigRoot({ language: "en" })).toEqual(defaultChatVaultConfig());
+    const defaults = defaultChatVaultConfig();
+    expect(parseChatConfigRoot({ language: "en" })).toEqual(defaults);
+    expect(defaults.panels).toEqual({ railWidthPx: 320, inspectorWidthPx: 520 });
   });
 
   it("preserves portable unknown fields while validating known fields", () => {

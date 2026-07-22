@@ -31,6 +31,29 @@ const BASE_MINIMUM_EXIT_HEIGHT = 240;
 const BASE_HYSTERESIS = 24;
 const SEPARATOR_WIDTH = 4;
 
+export interface ChatInspectorResizeInput {
+  containerWidth: number;
+  railVisible: boolean;
+  railWidth: number;
+  minimum: number;
+  maximum: number;
+}
+
+/**
+ * Bounds a column inspector while reserving the conversation reading width.
+ *
+ * @param input Current shell, rail, and inspector constraints.
+ * @returns The largest inspector width that keeps the conversation usable.
+ */
+export function chatInspectorResizeMaximum(input: ChatInspectorResizeInput): number {
+  const occupiedByRail = input.railVisible ? input.railWidth + SEPARATOR_WIDTH : 0;
+  const available = input.containerWidth
+    - occupiedByRail
+    - BASE_CONVERSATION_MIN
+    - SEPARATOR_WIDTH;
+  return Math.max(input.minimum, Math.min(input.maximum, available));
+}
+
 /**
  * Selects the Chat shell layout from measured fit while preserving the prior
  * layout inside a hysteresis band.

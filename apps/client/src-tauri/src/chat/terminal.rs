@@ -67,7 +67,6 @@ pub(crate) struct ChatTerminalCreateInput {
     pub thread_id: ChatThreadId,
     pub workspace_id: ChatWorkspaceId,
     pub workspace_path: PathBuf,
-    pub name: String,
     pub columns: u16,
     pub rows: u16,
 }
@@ -282,7 +281,6 @@ impl ChatTerminalRegistry {
         input: ChatTerminalCreateInput,
     ) -> ChatResult<ChatTerminalSnapshotRead> {
         validate_dimensions(input.columns, input.rows)?;
-        validate_name(&input.name)?;
         if !self.accepting.load(Ordering::Acquire) {
             return Err(ChatError::new(
                 ChatErrorCode::InvalidStateTransition,
@@ -312,6 +310,7 @@ impl ChatTerminalRegistry {
             ));
         }
         let terminal_id = input.terminal_id.clone();
+        let terminal_name = default_terminal_name(&input.workspace_path);
         let session = spawn_session(
             app,
             TerminalSpawnSpec {
@@ -319,7 +318,7 @@ impl ChatTerminalRegistry {
                 thread_id: input.thread_id,
                 workspace_id: input.workspace_id,
                 workspace_path: input.workspace_path,
-                name: input.name,
+                name: terminal_name,
                 columns: input.columns,
                 rows: input.rows,
                 generation: 1,
@@ -396,17 +395,6 @@ impl ChatTerminalRegistry {
         Ok(())
     }
 
-    pub fn rename(&self, terminal_id: &str, name: &str) -> ChatResult<ChatTerminalRead> {
-        validate_name(name)?;
-        let session = self.session(terminal_id)?;
-        session
-            .mutable
-            .lock()
-            .map_err(|_| terminal_state_error())?
-            .name = name.trim().to_string();
-        session.read()
-    }
-
     pub fn close(&self, terminal_id: &str, confirmed: bool) -> ChatResult<ChatTerminalCloseResult> {
         let session = self.session(terminal_id)?;
         if session.read()?.running && !confirmed {
@@ -424,36 +412,6 @@ impl ChatTerminalRegistry {
             closed: true,
             confirmation_required: false,
         })
-    }
-
-    pub fn restart(
-        &self,
-        app: tauri::AppHandle,
-        terminal_id: &str,
-        workspace_path: &Path,
-    ) -> ChatResult<ChatTerminalSnapshotRead> {
-        let mut sessions = self.sessions.lock().map_err(|_| terminal_state_error())?;
-        let previous = sessions.get(terminal_id).cloned().ok_or_else(|| {
-            ChatError::new(ChatErrorCode::NotFound, "Chat terminal was not found", true)
-        })?;
-        let read = previous.read()?;
-        previous.terminate()?;
-        let session = spawn_session(
-            app,
-            TerminalSpawnSpec {
-                terminal_id: terminal_id.to_string(),
-                thread_id: read.thread_id,
-                workspace_id: read.workspace_id,
-                workspace_path: workspace_path.to_path_buf(),
-                name: read.name,
-                columns: read.columns,
-                rows: read.rows,
-                generation: read.generation.saturating_add(1),
-            },
-        )?;
-        let snapshot = session.snapshot()?;
-        sessions.insert(terminal_id.to_string(), session);
-        Ok(snapshot)
     }
 
     pub fn shutdown_all(&self) -> ChatResult<()> {
@@ -642,23 +600,80 @@ fn validate_dimensions(columns: u16, rows: u16) -> ChatResult<()> {
     Ok(())
 }
 
-fn validate_name(name: &str) -> ChatResult<()> {
-    let name = name.trim();
-    if name.is_empty() || name.len() > 240 || name.chars().any(char::is_control) {
-        return Err(ChatError::validation(
-            "name",
-            "Chat terminal name is invalid",
-        ));
-    }
-    Ok(())
-}
-
 fn default_shell_label() -> String {
     #[cfg(windows)]
     let key = "ComSpec";
     #[cfg(not(windows))]
     let key = "SHELL";
     std::env::var(key).unwrap_or_else(|_| "Default shell".to_string())
+}
+
+fn default_terminal_name(workspace_path: &Path) -> String {
+    let user = first_environment_value(&["USER", "USERNAME"]).unwrap_or_else(|| "user".to_string());
+    let host = system_hostname()
+        .or_else(|| first_environment_value(&["HOSTNAME", "COMPUTERNAME"]))
+        .unwrap_or_else(|| user.clone());
+    let home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from);
+    format_terminal_name(&user, &host, workspace_path, home.as_deref())
+}
+
+fn first_environment_value(keys: &[&str]) -> Option<String> {
+    keys.iter().find_map(|key| {
+        let value = std::env::var(key).ok()?;
+        normalized_identity(&value)
+    })
+}
+
+fn normalized_identity(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    (!trimmed.is_empty() && !trimmed.chars().any(char::is_control)).then(|| trimmed.to_string())
+}
+
+#[cfg(unix)]
+fn system_hostname() -> Option<String> {
+    let mut buffer = [0_u8; 256];
+    // SAFETY: The writable buffer is valid for the exact length passed to libc.
+    let result =
+        unsafe { libc::gethostname(buffer.as_mut_ptr().cast::<libc::c_char>(), buffer.len()) };
+    if result != 0 {
+        return None;
+    }
+    let length = buffer
+        .iter()
+        .position(|byte| *byte == 0)
+        .unwrap_or(buffer.len());
+    normalized_identity(&String::from_utf8_lossy(&buffer[..length]))
+}
+
+#[cfg(not(unix))]
+fn system_hostname() -> Option<String> {
+    let output = std::process::Command::new("hostname").output().ok()?;
+    output
+        .status
+        .success()
+        .then(|| String::from_utf8_lossy(&output.stdout).into_owned())
+        .and_then(|value| normalized_identity(&value))
+}
+
+fn format_terminal_name(
+    user: &str,
+    host: &str,
+    workspace_path: &Path,
+    home: Option<&Path>,
+) -> String {
+    let path = home
+        .and_then(|home_path| workspace_path.strip_prefix(home_path).ok())
+        .map(|relative| {
+            if relative.as_os_str().is_empty() {
+                "~".to_string()
+            } else {
+                format!("~{}{}", std::path::MAIN_SEPARATOR, relative.display())
+            }
+        })
+        .unwrap_or_else(|| workspace_path.display().to_string());
+    format!("{user}@{host}: {path}")
 }
 
 fn terminal_not_running() -> ChatError {
@@ -761,14 +776,10 @@ mod tests {
     }
 
     #[test]
-    fn terminal_validation_rejects_unsafe_dimensions_names_and_input() {
+    fn terminal_validation_rejects_unsafe_dimensions_and_input() {
         assert!(validate_dimensions(19, 24).is_err());
         assert!(validate_dimensions(80, 1).is_err());
         assert!(validate_dimensions(80, 24).is_ok());
-        assert!(validate_name("").is_err());
-        assert!(validate_name("bad\nname").is_err());
-        assert!(validate_name("Build").is_ok());
-
         let registry = ChatTerminalRegistry::default();
         registry
             .sessions
@@ -776,5 +787,26 @@ mod tests {
             .expect("registry should lock")
             .insert("terminal:test".to_string(), session(true));
         assert!(registry.input("terminal:test", "bad\0input").is_err());
+    }
+
+    #[test]
+    fn terminal_name_uses_the_local_identity_and_home_relative_workspace_path() {
+        let home = PathBuf::from("home").join("victor");
+        let workspace = home.join("Documents").join("ganbaru-ai");
+        let separator = std::path::MAIN_SEPARATOR;
+        assert_eq!(
+            format_terminal_name("victor", "workstation", &workspace, Some(&home)),
+            format!("victor@workstation: ~{separator}Documents{separator}ganbaru-ai")
+        );
+    }
+
+    #[test]
+    fn terminal_identity_rejects_empty_and_control_character_values() {
+        assert_eq!(normalized_identity("vic\ntor"), None);
+        assert_eq!(normalized_identity("   "), None);
+        assert_eq!(
+            normalized_identity(" victor \n"),
+            Some("victor".to_string())
+        );
     }
 }

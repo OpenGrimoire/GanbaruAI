@@ -778,8 +778,6 @@ pub fn run() {
             chat::terminal_commands::chat_terminal_snapshot,
             chat::terminal_commands::chat_terminal_input,
             chat::terminal_commands::chat_terminal_resize,
-            chat::terminal_commands::chat_terminal_rename,
-            chat::terminal_commands::chat_terminal_restart,
             chat::terminal_commands::chat_terminal_close,
             chat::terminal_commands::chat_terminal_import_context,
             chat::checkpoint_commands::chat_read_checkpoint_diff,

@@ -15,7 +15,6 @@
   import { buildChatRailModel, filterThreadTitles, partitionThreadSearchResults, threadStatus } from "$lib/chat/shell-model";
   import * as chatApi from "$lib/api/chat";
   import { getLocalization } from "$lib/i18n/translator.svelte";
-  import { formatRelativeMinutes } from "$lib/i18n/formatters";
   import { getChat } from "$lib/stores/chat.svelte";
   import { getProjects } from "$lib/stores/projects.svelte";
   import { getSettingsLauncher } from "$lib/stores/settingsLauncher.svelte";
@@ -30,6 +29,7 @@
   const projects = getProjects();
   const settings = getSettingsLauncher();
   let search = $state("");
+  let searchOpen = $state(false);
   let remoteResults = $state<ChatThreadShellRead[]>([]);
   let showArchive = $state(false);
   let showWorkspaceChooser = $state(false);
@@ -38,21 +38,18 @@
   let renameValue = $state("");
   let railError = $state<string | null>(null);
   let searchInput: HTMLInputElement | undefined = $state();
-  let now = $state(Date.now());
   const localResults = $derived(filterThreadTitles([...chat.activeThreads, ...chat.archivedThreads], search));
   const searchResults = $derived(search.trim() ? mergeResults(localResults, remoteResults) : []);
   const partitionedSearchResults = $derived(partitionThreadSearchResults(searchResults));
   const activeSearchResults = $derived(partitionedSearchResults.active);
   const archivedSearchResults = $derived(partitionedSearchResults.archived);
-  const rail = $derived(buildChatRailModel(projects.groups, projects.projects, chat.workspaces, chat.activeThreads, chat.draftWorkspaceId, chat.selectedThreadId));
+  const rail = $derived(buildChatRailModel(projects.groups, projects.projects, chat.workspaces, chat.activeThreads, chat.selectedThreadId));
 
   onMount(() => {
     const focusSearch = () => { void openSearch(); };
     window.addEventListener("ganbaru-ai:chat-focus-search", focusSearch);
-    const timer = window.setInterval(() => { now = Date.now(); }, 60_000);
     return () => {
       window.removeEventListener("ganbaru-ai:chat-focus-search", focusSearch);
-      window.clearInterval(timer);
     };
   });
 
@@ -68,6 +65,7 @@
   });
 
   async function openSearch(): Promise<void> {
+    searchOpen = true;
     await tick();
     searchInput?.focus();
   }
@@ -113,15 +111,10 @@
     }
   }
 
-  function activityTimeLabel(thread: ChatThreadShellRead): string {
-    const timestamp = Date.parse(thread.lastActivityAt);
-    if (!Number.isFinite(timestamp)) return "";
-    return formatRelativeMinutes(t, (timestamp - now) / 60_000);
-  }
-
   function selectSearchResult(thread: ChatThreadShellRead): void {
     chat.selectThread(thread.id);
     search = "";
+    searchOpen = false;
     if (thread.archivedAt) showArchive = true;
   }
 
@@ -186,35 +179,35 @@
 
 <aside class="chat-rail" aria-label={t("chat.title")}>
   <header class="chat-rail-header">
-    <strong class="min-w-0 flex-1 truncate px-1 text-sm font-medium">{t("chat.title")}</strong>
-    <button type="button" class="chat-icon-button" aria-label={t("chat.newChat")} onclick={() => newChat()}><MessageSquarePlus size={15} /></button>
+    <strong class="min-w-0 flex-1 truncate px-1 text-base font-medium">{t("chat.title")}</strong>
+    <button type="button" class="chat-icon-button" aria-label={t("chat.search")} onclick={() => void openSearch()}><Search size={15} /></button>
     <details class="relative"><summary class="chat-icon-button list-none" aria-label={t("chat.moreActions")}><Ellipsis size={15} /></summary><div class="chat-menu right-0"><button type="button" onclick={() => { showArchive = true; }}>{t("chat.archivedChats")}</button><button type="button" onclick={() => settings.open("chat", { chatSubsection: "workspaces" })}>{t("chat.manageWorkspaces")}</button><button type="button" onclick={() => settings.open("chat")}>{t("chat.settings")}</button></div></details>
     <button type="button" class="chat-icon-button" aria-label={t("chat.collapseRail")} onclick={onCollapse}><ChevronsLeft size={15} /></button>
   </header>
-  <div class="chat-rail-search"><label><Search size={14} /><input bind:this={searchInput} type="search" bind:value={search} placeholder={t("chat.search")} />{#if search}<button type="button" aria-label={t("chat.clearSearch")} onclick={() => { search = ""; }}><X size={13} /></button>{/if}</label></div>
+  <button type="button" class="new-chat-action" onclick={() => newChat()}><MessageSquarePlus size={16} /><span>{t("chat.newChat")}</span></button>
+  {#if searchOpen || search}<div class="chat-rail-search"><label><Search size={14} /><input bind:this={searchInput} type="search" bind:value={search} placeholder={t("chat.search")} /> <button type="button" aria-label={t("chat.clearSearch")} onclick={() => { search = ""; searchOpen = false; }}><X size={13} /></button></label></div>{/if}
   {#if railError}<div role="alert" class="border-b border-destructive/30 px-3 py-2 text-xs text-destructive">{railError}</div>{/if}
 
   {#if search.trim()}
-    <div class="min-h-0 flex-1 overflow-y-auto p-2">
+    <div class="min-h-0 flex-1 overflow-y-auto px-3 py-2">
       {#if searchResults.length === 0}<p class="p-3 text-xs text-muted-foreground">{t("chat.noSearchResults")}</p>{/if}
-      {#if activeSearchResults.length > 0}<h2 class="px-2 pb-1 pt-2 text-[0.666667rem] font-semibold uppercase text-muted-foreground">{t("chat.activeChats")}</h2>{#each activeSearchResults as thread}<button type="button" data-chat-search-result class="w-full rounded-md p-2 text-left hover:bg-accent" onkeydown={searchResultKeydown} onclick={() => selectSearchResult(thread)}><span class="block truncate text-xs font-medium">{thread.title}</span><span class="block truncate text-[0.666667rem] text-muted-foreground">{chat.workspaces.find((entry) => entry.workspace.id === thread.workspaceId)?.workspace.displayName}</span></button>{/each}{/if}
-      {#if archivedSearchResults.length > 0}<h2 class="px-2 pb-1 pt-3 text-[0.666667rem] font-semibold uppercase text-muted-foreground">{t("chat.archivedChats")}</h2>{#each archivedSearchResults as thread}<button type="button" data-chat-search-result class="w-full rounded-md p-2 text-left hover:bg-accent" onkeydown={searchResultKeydown} onclick={() => selectSearchResult(thread)}><span class="block truncate text-xs font-medium">{thread.title}</span><span class="block truncate text-[0.666667rem] text-muted-foreground">{chat.workspaces.find((entry) => entry.workspace.id === thread.workspaceId)?.workspace.displayName}</span></button>{/each}{/if}
+      {#if activeSearchResults.length > 0}<h2 class="px-2 pb-1 pt-2 text-[0.733333rem] font-medium text-muted-foreground">{t("chat.activeChats")}</h2>{#each activeSearchResults as thread}<button type="button" data-chat-search-result class="w-full rounded-md p-2 text-left hover:bg-accent" onkeydown={searchResultKeydown} onclick={() => selectSearchResult(thread)}><span class="block truncate text-xs font-medium">{thread.title}</span><span class="block truncate text-[0.666667rem] text-muted-foreground">{chat.workspaces.find((entry) => entry.workspace.id === thread.workspaceId)?.workspace.displayName}</span></button>{/each}{/if}
+      {#if archivedSearchResults.length > 0}<h2 class="px-2 pb-1 pt-3 text-[0.733333rem] font-medium text-muted-foreground">{t("chat.archivedChats")}</h2>{#each archivedSearchResults as thread}<button type="button" data-chat-search-result class="w-full rounded-md p-2 text-left hover:bg-accent" onkeydown={searchResultKeydown} onclick={() => selectSearchResult(thread)}><span class="block truncate text-xs font-medium">{thread.title}</span><span class="block truncate text-[0.666667rem] text-muted-foreground">{chat.workspaces.find((entry) => entry.workspace.id === thread.workspaceId)?.workspace.displayName}</span></button>{/each}{/if}
     </div>
   {:else}
-    <div class="min-h-0 flex-1 overflow-y-auto p-2">
+    <div class="min-h-0 flex-1 overflow-y-auto px-3 py-2">
       {#each rail.groups as group}
         <section class="mb-2">
-          <button type="button" class="flex w-full items-center gap-1 rounded px-1 py-1 text-left text-[0.666667rem] font-semibold uppercase tracking-wide text-muted-foreground hover:bg-accent" disabled={group.id === "ungrouped"} onclick={() => toggleGroup(group.id, group.collapsed)}>{#if group.collapsed}<ChevronRight size={12} />{:else}<ChevronDown size={12} />{/if}<span class="truncate">{group.label}</span>{#if group.hidden}<span>{t("chat.hiddenGroup")}</span>{/if}{#if group.archived}<span>{t("chat.status.archived")}</span>{/if}</button>
+          <button type="button" class="chat-group-header" disabled={group.id === "ungrouped"} onclick={() => toggleGroup(group.id, group.collapsed)}>{#if group.collapsed}<ChevronRight size={12} />{:else}<ChevronDown size={12} />{/if}<span class="truncate">{group.label}</span>{#if group.hidden}<span>{t("chat.hiddenGroup")}</span>{/if}{#if group.archived}<span>{t("chat.status.archived")}</span>{/if}</button>
           {#each group.projects as projectModel}
             {@const selectedInProject = projectModel.workspaces.some((workspace) => workspace.threads.some((thread) => thread.id === chat.selectedThreadId))}
             {#if !group.collapsed || selectedInProject}
               <div class="chat-project"><div class="chat-project-header"><ProjectIcon name={projectModel.project.icon} size={14} /><span class="truncate">{projectModel.project.name}</span><button type="button" class="ml-auto chat-icon-button size-6" aria-label={t("chat.newChat")} onclick={() => newChat(projectModel.workspaces[0]?.workspace.workspace.id)}><MessageSquarePlus size={12} /></button></div>
                 {#each projectModel.workspaces as workspaceModel}
-                  {#if workspaceModel.showSubdivision}<div class="px-3 py-1 text-[0.666667rem] text-muted-foreground">{workspaceModel.workspace.workspace.displayName}</div>{/if}
-                  {#if workspaceModel.hasDraft}<button type="button" class="chat-thread-row chat-thread-row-main" class:active={chat.selectedThreadId === null && chat.draftWorkspaceId === workspaceModel.workspace.workspace.id} onclick={() => chat.selectWorkspace(workspaceModel.workspace.workspace.id)}><CircleDot size={12} /><span class="truncate">{t("chat.draft")}</span></button>{/if}
+                  {#if workspaceModel.showSubdivision}<div class="workspace-subdivision">{workspaceModel.workspace.workspace.displayName}</div>{/if}
                   {#each workspaceModel.threads as thread}
                     <div class="chat-thread-row group" class:active={chat.selectedThreadId === thread.id}>
-                      {#if renameThreadId === thread.id}<input class="mx-2 h-7 min-w-0 flex-1 rounded border border-ring bg-background px-1 text-xs" bind:value={renameValue} onkeydown={(event) => { if (event.key === "Enter") void commitRename(thread); if (event.key === "Escape") renameThreadId = null; }} onblur={() => void commitRename(thread)} />{:else}<button type="button" class="chat-thread-row-main" data-chat-thread-id={thread.id} title={statusLabel(thread)} onkeydown={(event) => rowKeydown(event, thread)} onclick={() => chat.selectThread(thread.id)}>{#if threadStatus(thread) === "working"}<LoaderCircle size={12} class="animate-spin" />{:else if threadStatus(thread) === "error"}<CircleAlert size={12} />{:else if threadStatus(thread) === "unread" || threadStatus(thread).startsWith("waiting")}<CircleDot size={12} />{/if}<span class="min-w-0 flex-1 truncate text-xs">{thread.title}</span><span class="thread-time">{activityTimeLabel(thread)}</span></button>{/if}
+                      {#if renameThreadId === thread.id}<input class="mx-2 h-7 min-w-0 flex-1 rounded border border-ring bg-background px-1 text-xs" bind:value={renameValue} onkeydown={(event) => { if (event.key === "Enter") void commitRename(thread); if (event.key === "Escape") renameThreadId = null; }} onblur={() => void commitRename(thread)} />{:else}<button type="button" class="chat-thread-row-main" data-chat-thread-id={thread.id} title={statusLabel(thread)} onkeydown={(event) => rowKeydown(event, thread)} onclick={() => chat.selectThread(thread.id)}>{#if threadStatus(thread) === "working"}<LoaderCircle size={12} class="animate-spin" />{:else if threadStatus(thread) === "error"}<CircleAlert size={12} />{:else if threadStatus(thread) === "unread" || threadStatus(thread).startsWith("waiting")}<CircleDot size={12} />{/if}<span class="thread-title">{thread.title}</span></button>{/if}
                       <details class="relative"><summary class="chat-icon-button size-6 list-none opacity-100 @min-[500px]:opacity-0 @min-[500px]:group-hover:opacity-100" aria-label={t("chat.moreActions")}><Ellipsis size={12} /></summary><div class="chat-menu right-0 top-6"><button type="button" onclick={() => beginRename(thread)}>{t("chat.rename")}</button><button type="button" onclick={() => runRailOperation(() => chat.setThreadRead(thread, Boolean(thread.unreadAt)))}>{thread.unreadAt ? t("chat.markRead") : t("chat.markUnread")}</button><button type="button" onclick={() => void detach(thread)}>{t("chat.detach")}</button><button type="button" onclick={() => copyThreadId(thread.id)}>{t("chat.copyThreadId")}</button><button type="button" onclick={() => runRailOperation(() => chat.openWorkspaceFolder(thread.workspaceId))}>{t("chat.openFolder")}</button><button type="button" onclick={() => runRailOperation(() => chat.archiveThread(thread))}>{t("chat.archive")}</button><button type="button" class="text-destructive" onclick={() => { deleteThread = thread; }}>{t("chat.deletePermanently")}</button></div></details>
                     </div>
                   {/each}
@@ -224,7 +217,7 @@
           {/each}
         </section>
       {/each}
-      {#if rail.standalone.length > 0}<section><div class="px-2 py-1 text-[0.666667rem] font-semibold uppercase text-muted-foreground">{t("chat.standalone")}</div>{#each rail.standalone as workspaceModel}<div class="flex items-center px-3 py-1 text-[0.666667rem] text-muted-foreground"><span class="min-w-0 flex-1 truncate">{workspaceModel.workspace.workspace.displayName}</span><button type="button" class="chat-icon-button size-6" aria-label={t("chat.newChat")} onclick={() => newChat(workspaceModel.workspace.workspace.id)}><MessageSquarePlus size={12} /></button></div>{#if workspaceModel.hasDraft}<button type="button" class="chat-thread-row chat-thread-row-main" class:active={chat.selectedThreadId === null && chat.draftWorkspaceId === workspaceModel.workspace.workspace.id} onclick={() => chat.selectWorkspace(workspaceModel.workspace.workspace.id)}><CircleDot size={12} /><span class="truncate">{t("chat.draft")}</span></button>{/if}{#each workspaceModel.threads as thread}<div class="chat-thread-row group" class:active={chat.selectedThreadId === thread.id}>{#if renameThreadId === thread.id}<input class="mx-2 h-7 min-w-0 flex-1 rounded border border-ring bg-background px-1 text-xs" bind:value={renameValue} onkeydown={(event) => { if (event.key === "Enter") void commitRename(thread); if (event.key === "Escape") renameThreadId = null; }} onblur={() => void commitRename(thread)} />{:else}<button type="button" class="chat-thread-row-main" data-chat-thread-id={thread.id} title={statusLabel(thread)} onkeydown={(event) => rowKeydown(event, thread)} onclick={() => chat.selectThread(thread.id)}>{#if threadStatus(thread) === "working"}<LoaderCircle size={12} class="animate-spin" />{:else if threadStatus(thread) === "error"}<CircleAlert size={12} />{:else if threadStatus(thread) === "unread" || threadStatus(thread).startsWith("waiting")}<CircleDot size={12} />{/if}<span class="min-w-0 flex-1 truncate text-xs">{thread.title}</span><span class="thread-time">{activityTimeLabel(thread)}</span></button>{/if}<details class="relative"><summary class="chat-icon-button size-6 list-none opacity-100 @min-[500px]:opacity-0 @min-[500px]:group-hover:opacity-100" aria-label={t("chat.moreActions")}><Ellipsis size={12} /></summary><div class="chat-menu right-0 top-6"><button type="button" onclick={() => beginRename(thread)}>{t("chat.rename")}</button><button type="button" onclick={() => runRailOperation(() => chat.setThreadRead(thread, Boolean(thread.unreadAt)))}>{thread.unreadAt ? t("chat.markRead") : t("chat.markUnread")}</button><button type="button" onclick={() => void detach(thread)}>{t("chat.detach")}</button><button type="button" onclick={() => copyThreadId(thread.id)}>{t("chat.copyThreadId")}</button><button type="button" onclick={() => runRailOperation(() => chat.openWorkspaceFolder(thread.workspaceId))}>{t("chat.openFolder")}</button><button type="button" onclick={() => runRailOperation(() => chat.archiveThread(thread))}>{t("chat.archive")}</button><button type="button" class="text-destructive" onclick={() => { deleteThread = thread; }}>{t("chat.deletePermanently")}</button></div></details></div>{/each}{/each}</section>{/if}
+      {#if rail.standalone.length > 0}<section><div class="standalone-heading">{t("chat.standalone")}</div>{#each rail.standalone as workspaceModel}<div class="standalone-workspace"><span class="min-w-0 flex-1 truncate">{workspaceModel.workspace.workspace.displayName}</span><button type="button" class="chat-icon-button size-6" aria-label={t("chat.newChat")} onclick={() => newChat(workspaceModel.workspace.workspace.id)}><MessageSquarePlus size={12} /></button></div>{#each workspaceModel.threads as thread}<div class="chat-thread-row group" class:active={chat.selectedThreadId === thread.id}>{#if renameThreadId === thread.id}<input class="mx-2 h-7 min-w-0 flex-1 rounded border border-ring bg-background px-1 text-xs" bind:value={renameValue} onkeydown={(event) => { if (event.key === "Enter") void commitRename(thread); if (event.key === "Escape") renameThreadId = null; }} onblur={() => void commitRename(thread)} />{:else}<button type="button" class="chat-thread-row-main" data-chat-thread-id={thread.id} title={statusLabel(thread)} onkeydown={(event) => rowKeydown(event, thread)} onclick={() => chat.selectThread(thread.id)}>{#if threadStatus(thread) === "working"}<LoaderCircle size={12} class="animate-spin" />{:else if threadStatus(thread) === "error"}<CircleAlert size={12} />{:else if threadStatus(thread) === "unread" || threadStatus(thread).startsWith("waiting")}<CircleDot size={12} />{/if}<span class="thread-title">{thread.title}</span></button>{/if}<details class="relative"><summary class="chat-icon-button size-6 list-none opacity-100 @min-[500px]:opacity-0 @min-[500px]:group-hover:opacity-100" aria-label={t("chat.moreActions")}><Ellipsis size={12} /></summary><div class="chat-menu right-0 top-6"><button type="button" onclick={() => beginRename(thread)}>{t("chat.rename")}</button><button type="button" onclick={() => runRailOperation(() => chat.setThreadRead(thread, Boolean(thread.unreadAt)))}>{thread.unreadAt ? t("chat.markRead") : t("chat.markUnread")}</button><button type="button" onclick={() => void detach(thread)}>{t("chat.detach")}</button><button type="button" onclick={() => copyThreadId(thread.id)}>{t("chat.copyThreadId")}</button><button type="button" onclick={() => runRailOperation(() => chat.openWorkspaceFolder(thread.workspaceId))}>{t("chat.openFolder")}</button><button type="button" onclick={() => runRailOperation(() => chat.archiveThread(thread))}>{t("chat.archive")}</button><button type="button" class="text-destructive" onclick={() => { deleteThread = thread; }}>{t("chat.deletePermanently")}</button></div></details></div>{/each}{/each}</section>{/if}
     </div>
   {/if}
 
@@ -236,29 +229,36 @@
 {#if deleteThread}<ConfirmDialog title={t("chat.deleteTitle")} message={t("chat.deleteMessage", deleteThread.title)} confirmLabel={t("chat.deletePermanently")} cancelLabel={t("chat.cancel")} onConfirm={confirmDelete} onCancel={() => { deleteThread = null; }} />{/if}
 
 <style>
-  .chat-rail { position: relative; display: flex; height: 100%; min-height: 0; flex-direction: column; border-right: 1px solid var(--border); background: color-mix(in srgb, var(--cal-bg) 96%, var(--card)); }
-  .chat-rail-header { display: flex; min-height: 3.05rem; flex: 0 0 auto; align-items: center; gap: 0.15rem; padding-inline: 0.65rem 0.45rem; }
-  .chat-rail-search { padding: 0.15rem 0.7rem 0.5rem; }
-  .chat-rail-search label { display: flex; min-height: 2rem; align-items: center; gap: 0.5rem; border-radius: 0.5rem; padding-inline: 0.55rem; color: var(--muted-foreground); }
-  .chat-rail-search label:focus-within, .chat-rail-search label:hover { background: var(--accent); color: var(--foreground); }
-  .chat-rail-search input { min-width: 0; flex: 1; border: 0; background: transparent; color: var(--foreground); font-size: 0.733333rem; outline: 0; }
+  .chat-rail { position: relative; display: flex; height: 100%; min-height: 0; flex-direction: column; border-right: 1px solid var(--border); background: color-mix(in srgb, var(--cal-bg) 97%, var(--card)); }
+  .chat-rail-header { display: flex; min-height: 3.4rem; flex: 0 0 auto; align-items: center; gap: 0.15rem; padding-inline: 0.9rem 0.65rem; }
+  .new-chat-action { display: flex; min-height: 2.4rem; flex: 0 0 auto; align-items: center; gap: 0.7rem; margin: 0.1rem 0.75rem 0.4rem; border-radius: 0.6rem; padding-inline: 0.7rem; color: color-mix(in srgb, var(--foreground) 92%, transparent); font-size: 0.9rem; text-align: left; }
+  .new-chat-action:hover { background: var(--accent); color: var(--foreground); }
+  .chat-rail-search { padding: 0 0.65rem 0.5rem; }
+  .chat-rail-search label { display: flex; min-height: 2.15rem; align-items: center; gap: 0.5rem; border: 1px solid var(--border); border-radius: 0.55rem; padding-inline: 0.55rem; color: var(--muted-foreground); background: var(--background); }
+  .chat-rail-search label:focus-within { border-color: var(--ring); color: var(--foreground); }
+  .chat-rail-search input { min-width: 0; flex: 1; border: 0; background: transparent; color: var(--foreground); font-size: 0.8rem; outline: 0; }
   .chat-rail-search input::placeholder { color: var(--muted-foreground); }
   .chat-rail-search button { display: inline-flex; width: 1.5rem; height: 1.5rem; align-items: center; justify-content: center; border-radius: 0.35rem; }
-  .chat-project { margin-block: 0.15rem 0.45rem; }
-  .chat-project-header { display: flex; min-height: 1.9rem; align-items: center; gap: 0.5rem; border-radius: 0.45rem; padding: 0.2rem 0.4rem; color: color-mix(in srgb, var(--foreground) 90%, transparent); font-size: 0.8rem; font-weight: 500; }
+  .chat-group-header { display: flex; width: 100%; min-height: 1.9rem; align-items: center; gap: 0.4rem; border-radius: 0.45rem; padding: 0.4rem 0.3rem 0.2rem; color: var(--muted-foreground); font-size: 0.7rem; font-weight: 600; letter-spacing: 0.035em; text-align: left; text-transform: uppercase; }
+  .chat-group-header:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 65%, transparent); color: var(--foreground); }
+  .chat-project { margin-block: 0.1rem 0.4rem; }
+  .chat-project-header { display: flex; min-height: 2.25rem; align-items: center; gap: 0.6rem; border-radius: 0.55rem; padding: 0.25rem 0.45rem; color: color-mix(in srgb, var(--foreground) 94%, transparent); font-size: 0.9rem; font-weight: 500; }
   .chat-project-header:hover { background: color-mix(in srgb, var(--accent) 60%, transparent); }
-  .chat-rail-footer { flex: 0 0 auto; border-top: 1px solid color-mix(in srgb, var(--border) 65%, transparent); padding: 0.4rem 0.65rem; }
-  .chat-rail-footer button { display: flex; min-height: 2rem; width: 100%; align-items: center; gap: 0.55rem; border-radius: 0.45rem; padding-inline: 0.55rem; color: var(--muted-foreground); font-size: 0.733333rem; text-align: left; }
+  .chat-project .chat-thread-row { width: calc(100% - 1.65rem); margin-left: 1.65rem; }
+  .workspace-subdivision, .standalone-workspace { display: flex; align-items: center; padding: 0.25rem 0.75rem; color: var(--muted-foreground); font-size: 0.766667rem; }
+  .standalone-heading { padding: 0.55rem 0.3rem 0.3rem; color: var(--muted-foreground); font-size: 0.7rem; font-weight: 600; letter-spacing: 0.035em; text-transform: uppercase; }
+  .chat-rail-footer { flex: 0 0 auto; border-top: 1px solid color-mix(in srgb, var(--border) 65%, transparent); padding: 0.5rem 0.65rem; }
+  .chat-rail-footer button { display: flex; min-height: 2.2rem; width: 100%; align-items: center; gap: 0.6rem; border-radius: 0.5rem; padding-inline: 0.55rem; color: var(--muted-foreground); font-size: 0.8rem; text-align: left; }
   .chat-rail-footer button:hover { background: var(--accent); color: var(--foreground); }
   :global(.chat-icon-button) { display: inline-flex; width: 1.9rem; height: 1.9rem; flex: 0 0 auto; align-items: center; justify-content: center; border-radius: 0.45rem; color: var(--muted-foreground); }
   :global(.chat-icon-button:hover) { background: var(--accent); color: var(--foreground); }
   :global(.chat-small-button) { min-height: 1.75rem; border-radius: 0.375rem; border: 1px solid var(--border); padding: 0.2rem 0.5rem; font-size: 0.666667rem; }
-  :global(.chat-menu) { position: absolute; z-index: 50; display: flex; width: max-content; min-width: 10rem; flex-direction: column; border: 1px solid var(--border); border-radius: 0.375rem; background: var(--popover); padding: 0.25rem; box-shadow: 0 8px 24px rgb(0 0 0 / 0.18); }
-  :global(.chat-menu button) { min-height: 1.875rem; border-radius: 0.25rem; padding: 0.25rem 0.5rem; text-align: left; font-size: 0.733333rem; }
+  :global(.chat-menu) { position: absolute; z-index: 50; display: flex; width: max-content; min-width: 10rem; flex-direction: column; border: 1px solid var(--border); border-radius: 0.6rem; background: var(--popover); padding: 0.3rem; box-shadow: 0 10px 28px rgb(0 0 0 / 0.18); }
+  :global(.chat-menu button) { min-height: 2rem; border-radius: 0.4rem; padding: 0.3rem 0.55rem; text-align: left; font-size: 0.8rem; }
   :global(.chat-menu button:hover) { background: var(--accent); }
-  .chat-thread-row { display: flex; width: calc(100% - 0.5rem); min-height: 1.75rem; margin-inline: 0.5rem 0; align-items: center; border-radius: 0.5rem; color: color-mix(in srgb, var(--foreground) 72%, transparent); text-align: left; }
-  .chat-thread-row-main { display: flex; min-width: 0; flex: 1; align-items: center; gap: 0.4rem; padding: 0.2rem 0.35rem 0.2rem 0.6rem; text-align: left; }
+  .chat-thread-row { display: flex; width: calc(100% - 0.5rem); min-height: 2.15rem; margin-inline: 0.5rem 0; align-items: center; border-radius: 0.55rem; color: color-mix(in srgb, var(--foreground) 82%, transparent); text-align: left; }
+  .chat-thread-row-main { display: flex; min-width: 0; flex: 1; align-items: center; gap: 0.5rem; padding: 0.35rem 0.45rem 0.35rem 0.65rem; text-align: left; }
+  .thread-title { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.833333rem; }
   .chat-thread-row:hover { background: color-mix(in srgb, var(--accent) 65%, transparent); color: var(--foreground); }
-  .chat-thread-row.active { background: var(--accent); color: var(--foreground); font-weight: 500; }
-  .thread-time { flex: 0 0 auto; color: color-mix(in srgb, var(--muted-foreground) 70%, transparent); font-size: 0.6rem; font-weight: 400; }
+  .chat-thread-row.active { background: var(--accent); color: var(--foreground); }
 </style>

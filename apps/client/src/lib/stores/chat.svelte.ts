@@ -45,6 +45,7 @@ class ChatStore {
   selectedWorkspaceId = $state<ChatWorkspaceId | null>(null);
   selectedThreadId = $state<ChatThreadId | null>(null);
   draftWorkspaceId = $state<ChatWorkspaceId | null>(null);
+  draftThreadId = $state<ChatThreadId | null>(null);
   timelinePages = $state<ChatTimelinePageRead[]>([]);
   timelineItems = $state<ChatTimelineItemRead[]>([]);
   timelineLoading = $state(false);
@@ -213,8 +214,8 @@ class ChatStore {
 
   selectWorkspace(workspaceId: ChatWorkspaceId): void {
     this.selectedWorkspaceId = workspaceId;
-    if (this.selectedThread?.workspaceId !== workspaceId) this.selectThread(null);
-    else void this.composerController.bind(workspaceId, this.selectedThreadId).catch(() => undefined);
+    this.selectThread(null);
+    this.ensureDraftThread(workspaceId);
   }
 
   selectThread(threadId: ChatThreadId | null): void {
@@ -246,11 +247,11 @@ class ChatStore {
 
   newDraft(workspaceId: ChatWorkspaceId): void {
     this.selectWorkspace(workspaceId);
-    this.draftWorkspaceId = workspaceId;
   }
 
   discardDraft(): void {
     this.draftWorkspaceId = null;
+    this.draftThreadId = null;
   }
 
   setComposerText(text: string): void { this.composerController.setText(text); }
@@ -298,11 +299,12 @@ class ChatStore {
     await this.composerController.flush();
     this.sendError = null;
     const current = this.selectedThread;
+    const newThreadId = current ? null : this.ensureDraftThread(workspaceId);
     const result = await chatApi.sendChatTurn({
       command: { clientCommandId: crypto.randomUUID(), expectedThreadRevision: current?.revision ?? null },
       workspaceId,
       threadId: current?.id ?? null,
-      newThreadId: current ? null : crypto.randomUUID(),
+      newThreadId,
       turnId: crypto.randomUUID(),
       messageId: crypto.randomUUID(),
       providerInstanceId,
@@ -327,6 +329,10 @@ class ChatStore {
       interactionMode,
     });
     this.settings = await chatApi.readChatSettings();
+    if (!current) {
+      this.draftWorkspaceId = null;
+      this.draftThreadId = null;
+    }
     this.selectThread(result.thread.id);
     this.sendError = result.launchError?.message ?? null;
     await this.loadTimeline(result.thread.id);
@@ -545,6 +551,14 @@ class ChatStore {
     this.selectedWorkspaceId = null;
   }
 
+  private ensureDraftThread(workspaceId: ChatWorkspaceId): ChatThreadId {
+    if (this.draftWorkspaceId !== workspaceId || !this.draftThreadId) {
+      this.draftWorkspaceId = workspaceId;
+      this.draftThreadId = crypto.randomUUID();
+    }
+    return this.draftThreadId;
+  }
+
   private async loadComposerAttachments(snapshot: ChatComposerSnapshot): Promise<void> {
     const request = ++this.attachmentRequest;
     if (!snapshot.workspaceId || snapshot.attachmentIds.length === 0) {
@@ -606,6 +620,7 @@ class ChatStore {
     await this.composerController.flush();
     this.selectedThreadId = null;
     this.draftWorkspaceId = snapshot.workspaceId;
+    this.draftThreadId = crypto.randomUUID();
     this.timelinePages = [];
     this.timelineItems = [];
     this.interaction = null;

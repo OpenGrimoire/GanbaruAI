@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   buildChangedFileTree,
   ChatInspectorSessionState,
+  closeInspectorTab,
   inspectorFocusAction,
   inspectorPresentation,
   inspectorSessionKey,
+  openInspectorTab,
   splitDiffFits,
 } from "./inspector-model";
 
@@ -16,6 +18,36 @@ describe("Chat inspector model", () => {
     expect(state.read("thread-a").tab).toBe("terminal");
     expect(state.read("thread-a").selectedFile).toBe("src/a.ts");
     expect(state.read("thread-b").tab).toBe("files");
+  });
+
+  it("starts the inspector with the file browser and adds each panel once", () => {
+    const state = new ChatInspectorSessionState();
+    expect(state.read("thread-a").tab).toBe("files");
+    expect(state.read("thread-a").openTabs).toEqual(["files"]);
+    expect(openInspectorTab(["files"], "changes")).toEqual(["files", "changes"]);
+    expect(openInspectorTab(["files", "changes"], "files")).toEqual(["files", "changes"]);
+  });
+
+  it("supports a terminal-first bottom panel without inheriting the inspector default", () => {
+    const state = new ChatInspectorSessionState("terminal");
+    expect(state.read(null).tab).toBe("terminal");
+    expect(state.read("thread-a").openTabs).toEqual(["terminal"]);
+    expect(state.read("thread-a").fileTreeVisible).toBe(false);
+  });
+
+  it("selects the nearest tab when a workspace panel closes", () => {
+    expect(closeInspectorTab(["files", "changes", "plan"], "changes", "changes")).toEqual({
+      tabs: ["files", "plan"],
+      selectedTab: "plan",
+    });
+    expect(closeInspectorTab(["files", "changes"], "changes", "files")).toEqual({
+      tabs: ["files"],
+      selectedTab: "files",
+    });
+    expect(closeInspectorTab(["files"], "files", "files")).toEqual({
+      tabs: [],
+      selectedTab: null,
+    });
   });
 
   it("keeps inspector state available for a workspace draft", () => {

@@ -32,7 +32,7 @@ const MAX_LABEL_BYTES = 160;
 const MAX_ARGUMENT_BYTES = 4_096;
 const MAX_ENVIRONMENT_VALUE_BYTES = 16_384;
 
-const DEFAULT_PANELS: ChatPanelPreferences = { railWidthPx: 260, inspectorWidthPx: 360 };
+const DEFAULT_PANELS: ChatPanelPreferences = { railWidthPx: 320, inspectorWidthPx: 520 };
 const DEFAULT_BEHAVIOR: ChatBehaviorPreferences = {
   sendKey: "enter",
   restoreLastSelectedThread: true,

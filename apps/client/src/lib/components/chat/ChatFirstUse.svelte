@@ -1,5 +1,8 @@
 <script lang="ts">
+  import Folder from "@lucide/svelte/icons/folder";
   import FolderSearch from "@lucide/svelte/icons/folder-search";
+  import GitBranch from "@lucide/svelte/icons/git-branch";
+  import Laptop from "@lucide/svelte/icons/laptop";
   import MessageSquare from "@lucide/svelte/icons/message-square";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Settings from "@lucide/svelte/icons/settings";
@@ -14,6 +17,7 @@
   const settings = getSettingsLauncher();
   let operationError = $state<string | null>(null);
   const firstUse = $derived(resolveChatFirstUseState({ providers: chat.settings?.providerInstances ?? [], workspaces: chat.workspaces, selectedWorkspaceId: chat.selectedWorkspaceId, selectedThreadId: chat.selectedThreadId, threads: [...chat.activeThreads, ...chat.archivedThreads] }));
+  const workspace = $derived(chat.selectedWorkspace);
 
   function run(action: () => Promise<unknown>): void {
     operationError = null;
@@ -32,8 +36,8 @@
   }
 </script>
 
-<div class="flex min-h-0 flex-1 items-center justify-center overflow-y-auto p-4">
-  <section class="flex w-full max-w-2xl flex-col items-center text-center">
+<div class="first-use-shell" class:new-thread={firstUse.kind === "no_thread"}>
+  <section class="first-use-content" class:new-thread={firstUse.kind === "no_thread"}>
     {#if operationError}<p role="alert" class="mb-3 text-sm text-destructive">{operationError}</p>{/if}
     {#if firstUse.kind !== "no_thread"}<div class="mb-4 flex size-12 items-center justify-center rounded-2xl border border-border bg-card"><MessageSquare size={22} /></div>{/if}
     {#if firstUse.kind === "no_provider"}
@@ -50,8 +54,18 @@
     {:else if firstUse.kind === "archived_thread"}
       <h2 class="text-lg font-semibold">{t("chat.firstUse.archivedTitle")}</h2><p class="mt-2 max-w-lg text-sm text-muted-foreground">{t("chat.firstUse.archivedDescription")}</p><button type="button" class="chat-primary-button mt-5" onclick={() => run(() => chat.restoreThread(firstUse.thread))}>{t("chat.restore")}</button>
     {:else if firstUse.kind === "no_thread"}
-      <h2 class="text-2xl font-medium tracking-tight">{t("chat.firstUse.noThreadTitle")}</h2><p class="mt-2 max-w-lg text-sm text-muted-foreground">{t("chat.firstUse.noThreadDescription")}</p>
-      <ChatComposer hero />
+      <div class="hero-composer-shell">
+        {#if workspace}
+          <div class="workspace-context" aria-label={t("chat.hero.workspace")}>
+            <button type="button" title={t("chat.openFolder")} onclick={() => run(() => chat.openWorkspaceFolder(workspace.workspace.id))}>
+              <Folder size={15} /><span>{workspace.workspace.displayName}</span>
+            </button>
+            <span><Laptop size={15} />{t("chat.header.local")}</span>
+            {#if workspace.currentBranch}<span title={t("chat.header.branch", workspace.currentBranch)}><GitBranch size={15} /><span>{workspace.currentBranch}</span></span>{/if}
+          </div>
+        {/if}
+        <ChatComposer hero />
+      </div>
     {:else}
       <h2 class="text-lg font-semibold">{firstUse.thread.title}</h2>
       <p class="mt-2 max-w-lg text-sm text-muted-foreground">{t("chat.hero.conversationPending")}</p>
@@ -60,7 +74,21 @@
 </div>
 
 <style>
+  .first-use-shell { display: flex; min-height: 0; flex: 1; align-items: center; justify-content: center; overflow-y: auto; padding: 1rem; }
+  .first-use-content { display: flex; width: 100%; max-width: 42rem; flex-direction: column; align-items: center; text-align: center; }
+  .first-use-shell.new-thread { align-items: stretch; }
+  .first-use-content.new-thread { max-width: none; justify-content: flex-end; padding-bottom: clamp(0.25rem, 2vh, 1.5rem); }
+  .hero-composer-shell { width: min(100%, 46rem); text-align: left; }
+  .workspace-context { display: flex; min-width: 0; min-height: 3.15rem; align-items: center; gap: 1.2rem; margin-inline: 1.35rem; border-radius: 1.2rem 1.2rem 0 0; background: color-mix(in srgb, var(--muted) 72%, transparent); padding: 0.45rem 1.1rem 0.7rem; color: var(--foreground); font-size: 0.8rem; }
+  .workspace-context > button, .workspace-context > span { display: flex; min-width: 0; align-items: center; gap: 0.45rem; }
+  .workspace-context > button { max-width: 45%; border-radius: 0.4rem; }
+  .workspace-context > button:hover { color: var(--primary); }
+  .workspace-context span span, .workspace-context button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .workspace-context :global(svg) { flex: 0 0 auto; }
+  .hero-composer-shell :global(.chat-composer.hero) { margin-top: -0.45rem; }
   :global(.chat-primary-button), :global(.chat-secondary-button) { display: inline-flex; min-height: 2.25rem; align-items: center; justify-content: center; gap: 0.4rem; border-radius: 0.375rem; padding: 0.4rem 0.8rem; font-size: 0.8rem; font-weight: 600; }
   :global(.chat-primary-button) { background: var(--primary); color: var(--primary-foreground); }
   :global(.chat-secondary-button) { border: 1px solid var(--border); background: var(--background); color: var(--foreground); }
+  @container chat-shell (max-width: 560px) { .workspace-context { gap: 0.75rem; margin-inline: 0.65rem; } .workspace-context > button { max-width: 55%; } .workspace-context > span:nth-child(2) { display: none; } }
+  @media (max-height: 520px) { .first-use-content.new-thread { padding-bottom: 0; } }
 </style>

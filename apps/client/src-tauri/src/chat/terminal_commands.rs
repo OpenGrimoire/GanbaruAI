@@ -26,7 +26,6 @@ pub struct CreateChatTerminalRequest {
     pub terminal_id: String,
     pub thread_id: ChatThreadId,
     pub workspace_id: ChatWorkspaceId,
-    pub name: String,
     pub columns: u16,
     pub rows: u16,
 }
@@ -106,7 +105,6 @@ pub async fn chat_terminal_create(
             thread_id: request.thread_id,
             workspace_id: request.workspace_id,
             workspace_path: authorized.canonical_path,
-            name: request.name,
             columns: request.columns,
             rows: request.rows,
         },
@@ -160,37 +158,6 @@ pub async fn chat_terminal_resize(
         &request.workspace_id,
     )?;
     registry.resize(&request.terminal_id, request.columns, request.rows)
-}
-
-#[tauri::command]
-pub async fn chat_terminal_rename(
-    app: tauri::AppHandle,
-    db_url: String,
-    terminal_id: String,
-    thread_id: ChatThreadId,
-    workspace_id: ChatWorkspaceId,
-    name: String,
-) -> ChatResult<ChatTerminalRead> {
-    let pool = chat_pool(app.clone(), db_url).await?;
-    authorize_thread_workspace(&app, &pool, &thread_id, &workspace_id).await?;
-    let registry = app.state::<ChatTerminalRegistry>();
-    registry.require_scope(&terminal_id, &thread_id, &workspace_id)?;
-    registry.rename(&terminal_id, &name)
-}
-
-#[tauri::command]
-pub async fn chat_terminal_restart(
-    app: tauri::AppHandle,
-    db_url: String,
-    terminal_id: String,
-    thread_id: ChatThreadId,
-    workspace_id: ChatWorkspaceId,
-) -> ChatResult<ChatTerminalSnapshotRead> {
-    let pool = chat_pool(app.clone(), db_url).await?;
-    let authorized = authorize_thread_workspace(&app, &pool, &thread_id, &workspace_id).await?;
-    let registry = app.state::<ChatTerminalRegistry>();
-    registry.require_scope(&terminal_id, &thread_id, &workspace_id)?;
-    registry.restart(app.clone(), &terminal_id, &authorized.canonical_path)
 }
 
 #[tauri::command]
@@ -281,23 +248,23 @@ async fn authorize_thread_workspace(
     thread_id: &ChatThreadId,
     workspace_id: &ChatWorkspaceId,
 ) -> ChatResult<AuthorizedWorkspace> {
-    let row =
-        sqlx::query("SELECT workspace_id FROM chat_threads WHERE id = ? AND state != 'closed'")
-            .bind(thread_id.as_str())
-            .fetch_optional(pool)
-            .await
-            .map_err(persistence_error)?
-            .ok_or_else(|| {
-                ChatError::new(ChatErrorCode::NotFound, "Chat thread was not found", true)
-            })?;
-    let stored_workspace: String = row.try_get("workspace_id").map_err(persistence_error)?;
-    if stored_workspace != workspace_id.as_str() {
-        return Err(ChatError::new(
-            ChatErrorCode::Permission,
-            "Chat terminal workspace does not match the thread",
-            false,
-        ));
-    }
+    let row = sqlx::query("SELECT workspace_id, state FROM chat_threads WHERE id = ?")
+        .bind(thread_id.as_str())
+        .fetch_optional(pool)
+        .await
+        .map_err(persistence_error)?;
+    let stored_scope = row
+        .as_ref()
+        .map(|row| -> ChatResult<(String, String)> {
+            Ok((
+                row.try_get::<String, _>("workspace_id")
+                    .map_err(persistence_error)?,
+                row.try_get::<String, _>("state")
+                    .map_err(persistence_error)?,
+            ))
+        })
+        .transpose()?;
+    validate_terminal_thread_scope(stored_scope.as_ref(), workspace_id)?;
     let workspace = workspaces::read_workspace(pool, workspace_id).await?;
     let scope = read_active_device_scope(app).map_err(device_state_error)?;
     authorize_workspace(
@@ -305,6 +272,30 @@ async fn authorize_thread_workspace(
         &scope,
         WorkspaceAuthorizationOperation::TerminalStart,
     )
+}
+
+fn validate_terminal_thread_scope(
+    stored_scope: Option<&(String, String)>,
+    workspace_id: &ChatWorkspaceId,
+) -> ChatResult<()> {
+    let Some((stored_workspace, state)) = stored_scope else {
+        return Ok(());
+    };
+    if state == "closed" {
+        return Err(ChatError::new(
+            ChatErrorCode::NotFound,
+            "Chat thread was not found",
+            true,
+        ));
+    }
+    if stored_workspace != workspace_id.as_str() {
+        return Err(ChatError::new(
+            ChatErrorCode::Permission,
+            "Chat terminal workspace does not match the thread",
+            false,
+        ));
+    }
+    Ok(())
 }
 
 fn validate_context(request: &ImportChatTerminalContextRequest) -> ChatResult<()> {
@@ -416,5 +407,31 @@ mod tests {
         let preview = bounded_preview(&text);
         assert!(preview.is_char_boundary(preview.len()));
         assert!(preview.len() <= MAX_CONTEXT_PREVIEW_BYTES);
+    }
+
+    #[test]
+    fn terminal_scope_allows_provisional_threads_but_rejects_closed_or_cross_workspace_threads() {
+        let workspace =
+            ChatWorkspaceId::new("workspace:test").expect("workspace ID should be valid");
+        assert!(validate_terminal_thread_scope(None, &workspace).is_ok());
+        assert!(validate_terminal_thread_scope(
+            Some(&("workspace:test".to_string(), "active".to_string())),
+            &workspace,
+        )
+        .is_ok());
+
+        let closed = validate_terminal_thread_scope(
+            Some(&("workspace:test".to_string(), "closed".to_string())),
+            &workspace,
+        )
+        .expect_err("closed threads must not authorize terminals");
+        assert_eq!(closed.code, ChatErrorCode::NotFound);
+
+        let mismatched = validate_terminal_thread_scope(
+            Some(&("workspace:other".to_string(), "active".to_string())),
+            &workspace,
+        )
+        .expect_err("cross-workspace threads must not authorize terminals");
+        assert_eq!(mismatched.code, ChatErrorCode::Permission);
     }
 }
