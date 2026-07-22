@@ -78,6 +78,18 @@ ACP permission decisions use only exact option IDs offered by Cursor. Supervised
 
 Assistant text, displayable thoughts, tool lifecycle, bounded tool output, in-workspace diffs, plans, mode updates, permissions, questions, and Cursor extension data normalize into provider-neutral events with native identifiers. Unsupported session updates, tool content blocks, requests, and notifications become bounded unknown events or explicit method-not-supported responses. Negotiated unsupported capabilities remain disabled instead of being emulated.
 
+### OpenCode runtime boundary
+
+OpenCode runs through its HTTP API and Server-Sent Events protocol. In local mode, Ganbaru launches `opencode serve` on an ephemeral loopback port, verifies the exact readiness origin, adds an optional credential-store password only to the child environment and Rust-owned authorization header, and terminates the complete owned process tree when the session or application stops. Startup has bounded output, early-exit handling, and a fixed deadline. Ganbaru never installs OpenCode or runs its installation script.
+
+External mode accepts only an HTTP or HTTPS origin without embedded credentials, paths, queries, or fragments. HTTPS is required for non-loopback servers unless the user explicitly acknowledges the unencrypted connection. A separate confirmation is required before Ganbaru sends a local workspace path to any external server. External servers are never treated as owned processes and are not stopped by Ganbaru.
+
+The Rust client creates or resumes native sessions, reasserts the selected permission rules, forks the OpenCode session when its recorded directory differs from the canonical workspace, and starts fresh only after a confirmed not-found response. Prompts preserve model, agent, variant, scoped instructions, text, and validated local attachments. Native operations cover steering, abort, paged history, permission replies, structured questions, and message or part revert cursors.
+
+The event stream is cancelable and incrementally decoded with strict size limits. After a disconnect, Ganbaru reconciles bounded native message history before reconnecting and deduplicates replayed message and part updates. Session, assistant, reasoning, tools, commands, files, permissions, questions, todos, diffs, usage, cost, model, agent, MCP, warning, error, and unknown provider events normalize into the canonical event model with native identifiers.
+
+OpenCode 1.14.19 is the minimum supported version. The compatibility boundary follows OpenCode v1.14.19 and the pinned T3 Code reference commit `5d34f9ff235115d43a6cb4b4561d10badf218b87`. No compatible OpenCode executable was available in the local validation environment, so local process behavior and the declared capability suite are verified through deterministic executable, HTTP, event-stream, and lifecycle fixtures rather than claimed as a live provider run. The implementation adds no package dependency.
+
 ### 2. BYOK general assistant (future general-user path)
 
 A separate assistant interface can connect to the user's chosen model API. Three provider categories cover most users:

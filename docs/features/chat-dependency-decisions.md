@@ -14,18 +14,20 @@ Package metadata is not evidence that a package is advisory-free. The repository
 | Process-tree cleanup | Standard process-group support, Unix libc, and existing Windows Job Object APIs | Runtime supervision | Added in Phase 4 |
 | Operating-system credentials | `keyring` 4.1.5 with native platform stores | Credential storage | Added in Phase 2 |
 | Pseudoterminals | `portable-pty` 0.9.0 | Terminal | Added in Phase 9 |
-| HTTP and event streams | Existing Reqwest and Rustls, plus `futures-util` and `eventsource-stream` 0.2.3 | OpenCode | Deferred |
+| HTTP and event streams | Existing Reqwest and Rustls with a bounded Ganbaru SSE decoder | OpenCode | Added in Phase 12, no new dependency |
 | Markdown parsing and sanitization | `marked` 18.0.6 plus existing DOMPurify | Timeline | Added in Phase 7 |
 | Diff parsing and rendering | `diff` 9.0.0 plus a bounded Ganbaru renderer | Inspector | Added in Phase 9 |
 | Terminal emulation | `@xterm/xterm` 6.0.0 and `@xterm/addon-fit` 0.11.0 | Terminal | Added in Phase 9 |
 
-Phase 1 did not import these packages. Phase 4 added only Tokio's narrow process-supervision features, a direct Unix `libc` dependency, and Windows binding features. Phase 9 added the reviewed pseudoterminal, diff, and terminal-emulation dependencies at their first use. The HTTP and event-stream dependencies remain deferred until OpenCode is implemented.
+Phase 1 did not import these packages. Phase 4 added only Tokio's narrow process-supervision features, a direct Unix `libc` dependency, and Windows binding features. Phase 9 added the reviewed pseudoterminal, diff, and terminal-emulation dependencies at their first use. Phase 12 implemented OpenCode with existing Reqwest and Rustls dependencies and a repository-owned bounded event-stream decoder.
 
 The Phase 9 dependency audit found no known npm vulnerabilities and only the repository's 18 documented allowed Rust warnings. `portable-pty`, `diff`, `@xterm/xterm`, and `@xterm/addon-fit` introduced no advisory exception.
 
 Phase 10 added no package dependency. Claude Code 2.1.170 and the protocol types in the official Claude Agent SDK 0.3.170 expose every required interactive operation through bidirectional stream JSON. Ganbaru therefore uses the existing Tokio and process-tree boundary directly. The redacted compatibility matrix is stored beside the Claude driver. Claude Code 1.0.92 was observed locally but lacks required partial-message output, so it remains below the supported version floor. An Agent SDK sidecar was rejected because it would add a second runtime, another signed artifact, and a broader supply-chain boundary without adding protocol coverage.
 
 Phase 11 added no package dependency. Cursor exposes ACP version 1 as newline-delimited JSON-RPC through `cursor-agent acp`, so Ganbaru implements the small bounded client directly with the existing Tokio IO, synchronization, time, process owner, Reqwest URL parser, and SHA-256 identity helper. The compatibility matrix and protocol fixtures are stored beside the Cursor driver. The version floor is Cursor Agent 2026.04.08, matching the parameterized model-picker floor in the pinned T3 Code reference. No Cursor executable was installed in the local validation environment, so live compatibility is not claimed. A generic ACP crate or JavaScript sidecar was rejected because the required surface is small, provider extensions still require validation, and either option would add supply-chain or runtime scope without improving the tested boundary.
+
+Phase 12 added no package dependency. Reqwest 0.13 already exposes bounded incremental response chunks, so Ganbaru implements the small Server-Sent Events grammar directly and layers reconnection, deduplication, history reconciliation, cancellation, and payload caps around it. This avoids adding `futures-util` and `eventsource-stream` solely for one transport. The compatibility matrix and redacted protocol fixtures are stored beside the OpenCode driver. OpenCode 1.14.19 is the minimum supported version. No compatible OpenCode executable was installed in the local validation environment, so local compatibility is proven through deterministic process and HTTP fixtures rather than claimed as a live provider probe.
 
 ## Async child processes
 
@@ -80,14 +82,14 @@ Phase 9 added the exact reviewed version behind Rust-owned thread and workspace 
 
 ## HTTP and event streams
 
-Keep the existing Reqwest 0.13 and Rustls 0.23 stack. When OpenCode is implemented, declare the Reqwest `json` and `stream` features directly, add direct `futures-util`, and use [`eventsource-stream` 0.2.3](https://crates.io/crates/eventsource-stream/0.2.3) as the bounded Server-Sent Events parser.
+Keep the existing Reqwest 0.13 and Rustls 0.23 stack. OpenCode uses Reqwest's incremental response chunks with a repository-owned bounded Server-Sent Events decoder. No additional HTTP, stream, or parser dependency is needed.
 
-- Maintenance: Reqwest, Rustls, and futures are active foundational crates. `eventsource-stream` is small and stable, but its release cadence is slower, so its narrow parser boundary needs fixture coverage.
-- Advisories: run the Rust audit when features and direct dependencies change. Do not substitute `reqwest-eventsource` while it would duplicate the repository's Reqwest major version.
+- Maintenance: Reqwest and Rustls are active foundational crates already used by the application. The local decoder is small, protocol-specific, and covered by split-chunk, multiline, malformed, replay, and size-bound fixtures.
+- Advisories: no manifest or lockfile changed in Phase 12. Continue to run the normal repository audit before pull requests and releases. Do not substitute another event-source client that duplicates the HTTP stack.
 - Permissions: Rust owns loopback and explicitly configured external connections. The webview CSP gains no provider transport access.
 - Platforms: the selected stack is portable across the supported desktop targets and uses the repository's existing ring-backed Rustls provider.
-- Size: Reqwest and Rustls already exist. The incremental parser graph is small compared with another HTTP client, but the final binary delta must still be recorded.
-- Existing-code gap: Reqwest does not provide Chat's reconnect, event-ID deduplication, readiness, cancellation, or payload bounds. Ganbaru owns those policies around the parser.
+- Size: Reqwest and Rustls already exist. The decoder adds only repository code and no transitive package graph. The final Chat binary delta must still be recorded.
+- Existing-code gap: Reqwest provides bounded response chunks but not Chat's event framing, reconnect, event-ID deduplication, readiness, cancellation, or payload bounds. Ganbaru owns those policies around the decoder.
 
 ## Markdown parsing and sanitization
 

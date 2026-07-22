@@ -1,6 +1,7 @@
 use super::{
     claude::ClaudeProviderDriver, codex::CodexProviderDriver, cursor::CursorProviderDriver,
-    ProviderDriver, ProviderDriverFactory, UnsupportedProviderDriver,
+    opencode::OpenCodeProviderDriver, ProviderDriver, ProviderDriverFactory,
+    UnsupportedProviderDriver,
 };
 use crate::chat::models::{
     ChatResult, ProviderCapability, ProviderFamilyId, ProviderFamilyMetadataRead,
@@ -67,12 +68,15 @@ const CURSOR_CAPABILITIES: &[ProviderCapability] = &[
 const OPENCODE_CAPABILITIES: &[ProviderCapability] = &[
     ProviderCapability::NativeResume,
     ProviderCapability::NativeRollback,
+    ProviderCapability::NativePlan,
     ProviderCapability::Steering,
+    ProviderCapability::DynamicModelChange,
     ProviderCapability::Images,
     ProviderCapability::FileReferences,
     ProviderCapability::Approvals,
     ProviderCapability::StructuredQuestions,
     ProviderCapability::ReasoningSummaries,
+    ProviderCapability::StructuredPlans,
     ProviderCapability::ContextUsage,
     ProviderCapability::CostReporting,
     ProviderCapability::McpStatus,
@@ -168,6 +172,7 @@ impl ProviderDriverRegistry {
                 "codex" => CodexProviderDriver::metadata_read(),
                 "claude" => ClaudeProviderDriver::metadata_read(),
                 "cursor" => CursorProviderDriver::metadata_read(),
+                "opencode" => OpenCodeProviderDriver::metadata_read(),
                 _ => metadata.to_read(),
             })
             .collect()
@@ -182,6 +187,7 @@ impl ProviderDriverRegistry {
                 "codex" => CodexProviderDriver::metadata_read(),
                 "claude" => ClaudeProviderDriver::metadata_read(),
                 "cursor" => CursorProviderDriver::metadata_read(),
+                "opencode" => OpenCodeProviderDriver::metadata_read(),
                 _ => metadata.to_read(),
             })
             .unwrap_or_else(|| unsupported_metadata(family_id))
@@ -203,6 +209,10 @@ impl ProviderDriverFactory for ProviderDriverRegistry {
         }
         if configuration.family_id.as_str() == "cursor" {
             return CursorProviderDriver::new(configuration)
+                .map(|driver| Box::new(driver) as Box<dyn ProviderDriver>);
+        }
+        if configuration.family_id.as_str() == "opencode" {
+            return OpenCodeProviderDriver::new(configuration)
                 .map(|driver| Box::new(driver) as Box<dyn ProviderDriver>);
         }
         let metadata = self.metadata(&configuration.family_id);

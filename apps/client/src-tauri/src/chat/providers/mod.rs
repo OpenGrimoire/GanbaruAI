@@ -4,6 +4,7 @@ mod claude;
 mod codex;
 mod cursor;
 mod driver;
+mod opencode;
 mod registry;
 mod unsupported;
 

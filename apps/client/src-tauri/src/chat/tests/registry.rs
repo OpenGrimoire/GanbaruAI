@@ -50,10 +50,34 @@ fn registry_lists_four_known_families_in_stable_order() {
         ProviderImplementationStatus::Available
     );
     assert!(metadata[2].unavailable_reason.is_none());
-    assert!(metadata[3..].iter().all(|entry| {
-        entry.implementation_status == ProviderImplementationStatus::MetadataOnly
-            && entry.unavailable_reason.is_some()
-    }));
+    assert_eq!(
+        metadata[3].implementation_status,
+        ProviderImplementationStatus::Available
+    );
+    assert!(metadata[3].unavailable_reason.is_none());
+}
+
+#[test]
+fn opencode_driver_is_available_with_a_version_floor() {
+    let mut configuration = configuration("opencode");
+    configuration.provider_config = crate::chat::models::VersionedJson {
+        schema_version: 1,
+        value: json!({ "mode": "local" }),
+    };
+    let driver = ProviderDriverRegistry.create_driver(configuration).unwrap();
+
+    assert_eq!(
+        driver.metadata().minimum_tested_cli_version.as_deref(),
+        Some("1.14.19")
+    );
+    assert!(driver
+        .capabilities()
+        .supports(crate::chat::models::ProviderCapability::NativePlan));
+    assert!(driver
+        .capabilities()
+        .entries
+        .iter()
+        .all(|entry| entry.supported));
 }
 
 #[test]

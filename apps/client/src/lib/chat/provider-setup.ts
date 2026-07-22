@@ -173,20 +173,42 @@ function validateProviderSpecificFields(
       fields["providerConfig.mode"] = "Choose local or external mode.";
     }
     if (mode === "external") {
-      const endpoint = config.endpoint;
-      if (typeof endpoint !== "string" || !safeHttpEndpoint(endpoint)) {
-        fields["providerConfig.endpoint"] = "Enter an HTTPS endpoint or a loopback HTTP endpoint.";
+      const serverUrl = config.serverUrl ?? config.endpoint;
+      const origin = typeof serverUrl === "string" ? parseHttpOrigin(serverUrl) : null;
+      if (!origin) {
+        fields["providerConfig.serverUrl"] = "Enter an HTTP or HTTPS server origin.";
+      } else if (!origin.secure && !origin.loopback && config.allowInsecureExternalHttp !== true) {
+        fields["providerConfig.allowInsecureExternalHttp"] = "Confirm the insecure external HTTP connection.";
+      }
+      if (config.confirmExternalWorkspaceAccess !== true) {
+        fields["providerConfig.confirmExternalWorkspaceAccess"] = "Confirm external workspace access.";
       }
     }
   }
 }
 
 function safeHttpEndpoint(value: string): boolean {
+  const origin = parseHttpOrigin(value);
+  return origin !== null && (origin.secure || origin.loopback);
+}
+
+function parseHttpOrigin(value: string): { secure: boolean; loopback: boolean } | null {
   try {
     const url = new URL(value);
-    return url.protocol === "https:"
-      || (url.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname));
+    if (
+      !["http:", "https:"].includes(url.protocol)
+      || url.username
+      || url.password
+      || url.search
+      || url.hash
+      || !["", "/"].includes(url.pathname)
+    ) {
+      return null;
+    }
+    const hostname = url.hostname.toLowerCase();
+    const loopback = hostname === "localhost" || hostname === "[::1]" || /^127(?:\.\d{1,3}){3}$/.test(hostname);
+    return { secure: url.protocol === "https:", loopback };
   } catch {
-    return false;
+    return null;
   }
 }

@@ -9,7 +9,7 @@
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import X from "@lucide/svelte/icons/x";
   import * as chatApi from "$lib/api/chat";
-  import type { ProviderInstanceConfig, ProviderSetupTestRead } from "$lib/chat/contracts";
+  import type { JsonValue, ProviderInstanceConfig, ProviderSetupTestRead } from "$lib/chat/contracts";
   import {
     createProviderSetupDraft,
     PROVIDER_ACCENT_COLORS,
@@ -126,16 +126,20 @@
   }
 
   function setOpenCodeMode(mode: "local" | "external"): void {
-    setProviderConfigValue("mode", mode);
-    if (mode === "external" && !openCodePassword) {
-      draft.environment = [...draft.environment, {
-        key: `row-${nextRowId++}`,
-        name: "OPENCODE_SERVER_PASSWORD",
-        valueType: "secret",
-        value: "",
-        credentialReference: "",
-      }];
+    const current = draft.providerConfig.value;
+    const value: { [key: string]: JsonValue } = typeof current === "object" && current !== null && !Array.isArray(current)
+      ? { ...current, mode }
+      : { mode };
+    if (mode === "local") {
+      delete value.serverUrl;
+      delete value.endpoint;
+      delete value.allowInsecureExternalHttp;
+      delete value.confirmExternalWorkspaceAccess;
+    } else if (typeof value.endpoint === "string" && typeof value.serverUrl !== "string") {
+      value.serverUrl = value.endpoint;
+      delete value.endpoint;
     }
+    draft.providerConfig = { schemaVersion: 1, value };
     if (mode === "local" && openCodePassword) {
       const row = openCodePassword;
       if (row.credentialReference) {
@@ -143,6 +147,17 @@
       }
       removeEnvironment(row.key);
     }
+  }
+
+  function addOpenCodePassword(): void {
+    if (openCodePassword) return;
+    draft.environment = [...draft.environment, {
+      key: `row-${nextRowId++}`,
+      name: "OPENCODE_SERVER_PASSWORD",
+      valueType: "secret",
+      value: "",
+      credentialReference: "",
+    }];
   }
 
   async function storeSecret(row: ProviderEnvironmentDraft): Promise<void> {
@@ -207,6 +222,28 @@
       : "";
   }
 
+  function openCodeMode(): "local" | "external" {
+    const mode = providerConfigValue("mode");
+    if (mode === "external") return "external";
+    if (mode === "local") return "local";
+    return openCodeServerUrl() ? "external" : "local";
+  }
+
+  function openCodeServerUrl(): string {
+    return providerConfigValue("serverUrl") || providerConfigValue("endpoint");
+  }
+
+  function openCodeUsesInsecureExternalHttp(): boolean {
+    try {
+      const url = new URL(openCodeServerUrl());
+      const hostname = url.hostname.toLowerCase();
+      const loopback = hostname === "localhost" || hostname === "[::1]" || /^127(?:\.\d{1,3}){3}$/.test(hostname);
+      return url.protocol === "http:" && !loopback;
+    } catch {
+      return false;
+    }
+  }
+
   function providerConfigBoolean(key: string): boolean {
     const value = draft.providerConfig.value;
     return typeof value === "object" && value !== null && !Array.isArray(value) && value[key] === true;
@@ -247,7 +284,9 @@
         ? t("settings.chat.setup.validation.secret")
         : t("settings.chat.setup.validation.environmentValue");
     }
-    if (field === "providerConfig.endpoint") return t("settings.chat.setup.validation.endpoint");
+    if (field === "providerConfig.endpoint" || field === "providerConfig.serverUrl") return t("settings.chat.setup.validation.endpoint");
+    if (field === "providerConfig.allowInsecureExternalHttp") return t("settings.chat.setup.validation.insecureExternalHttp");
+    if (field === "providerConfig.confirmExternalWorkspaceAccess") return t("settings.chat.setup.validation.externalWorkspaceAccess");
     return t("settings.chat.setup.validation.providerConfig");
   }
 
@@ -342,10 +381,14 @@
         {:else if draft.familyId === "cursor"}
           <label class="setup-field"><span>{t("settings.chat.setup.endpoint")}</span><input value={providerConfigValue("endpoint")} oninput={(event) => setProviderConfigValue("endpoint", event.currentTarget.value)} />{#if fieldError("providerConfig.endpoint")}<small>{fieldError("providerConfig.endpoint")}</small>{/if}</label>
         {:else if draft.familyId === "opencode"}
-          <label class="setup-field"><span>{t("settings.chat.setup.openCodeMode")}</span><select value={providerConfigValue("mode") || "local"} onchange={(event) => setOpenCodeMode(event.currentTarget.value === "external" ? "external" : "local")}><option value="local">{t("settings.chat.setup.localMode")}</option><option value="external">{t("settings.chat.setup.externalMode")}</option></select></label>
-          {#if providerConfigValue("mode") === "external"}
-            <label class="setup-field"><span>{t("settings.chat.setup.endpoint")}</span><input value={providerConfigValue("endpoint")} oninput={(event) => setProviderConfigValue("endpoint", event.currentTarget.value)} />{#if fieldError("providerConfig.endpoint")}<small>{fieldError("providerConfig.endpoint")}</small>{/if}</label>
-            {#if openCodePassword}<div class="setup-field"><span>{t("settings.chat.setup.externalPassword")}</span><div class="flex gap-1"><input class="min-w-0 flex-1" type={revealSecrets[openCodePassword.key] ? "text" : "password"} value={pendingSecrets[openCodePassword.key] ?? ""} placeholder={openCodePassword.credentialReference ? t("settings.chat.setup.stored") : t("settings.chat.setup.missing")} oninput={(event) => { pendingSecrets[openCodePassword.key] = event.currentTarget.value; }} /><button type="button" class="setup-icon-button" onclick={() => { revealSecrets[openCodePassword.key] = !revealSecrets[openCodePassword.key]; }}>{#if revealSecrets[openCodePassword.key]}<EyeOff size={13} />{:else}<Eye size={13} />{/if}</button><button type="button" class="setup-icon-button" aria-label={t("settings.chat.setup.storeSecret")} onclick={() => void storeSecret(openCodePassword)}><Check size={13} /></button></div>{#if fieldError(`environment.${openCodePassword.key}.value`)}<small>{fieldError(`environment.${openCodePassword.key}.value`)}</small>{/if}</div>{/if}
+          <label class="setup-field"><span>{t("settings.chat.setup.openCodeMode")}</span><select value={openCodeMode()} onchange={(event) => setOpenCodeMode(event.currentTarget.value === "external" ? "external" : "local")}><option value="local">{t("settings.chat.setup.localMode")}</option><option value="external">{t("settings.chat.setup.externalMode")}</option></select></label>
+          {#if openCodeMode() === "external"}
+            <label class="setup-field"><span>{t("settings.chat.setup.endpoint")}</span><input value={openCodeServerUrl()} oninput={(event) => setProviderConfigValue("serverUrl", event.currentTarget.value)} />{#if fieldError("providerConfig.serverUrl")}<small>{fieldError("providerConfig.serverUrl")}</small>{/if}</label>
+            <label class="flex items-start gap-2 text-sm"><input class="mt-0.5" type="checkbox" checked={providerConfigBoolean("confirmExternalWorkspaceAccess")} onchange={(event) => setProviderConfigBoolean("confirmExternalWorkspaceAccess", event.currentTarget.checked)} /><span>{t("settings.chat.setup.confirmExternalWorkspaceAccess")}{#if fieldError("providerConfig.confirmExternalWorkspaceAccess")}<small class="mt-1 block text-destructive">{fieldError("providerConfig.confirmExternalWorkspaceAccess")}</small>{/if}</span></label>
+            {#if openCodeUsesInsecureExternalHttp()}
+              <div class="rounded-md border border-warning/50 bg-warning/10 p-3 text-sm text-warning"><p>{t("settings.chat.setup.insecureExternalHttpWarning")}</p><label class="mt-2 flex items-start gap-2"><input class="mt-0.5" type="checkbox" checked={providerConfigBoolean("allowInsecureExternalHttp")} onchange={(event) => setProviderConfigBoolean("allowInsecureExternalHttp", event.currentTarget.checked)} /><span>{t("settings.chat.setup.allowInsecureExternalHttp")}{#if fieldError("providerConfig.allowInsecureExternalHttp")}<small class="mt-1 block">{fieldError("providerConfig.allowInsecureExternalHttp")}</small>{/if}</span></label></div>
+            {/if}
+            {#if openCodePassword}<div class="setup-field"><span>{t("settings.chat.setup.externalPassword")}</span><div class="flex gap-1"><input class="min-w-0 flex-1" type={revealSecrets[openCodePassword.key] ? "text" : "password"} value={pendingSecrets[openCodePassword.key] ?? ""} placeholder={openCodePassword.credentialReference ? t("settings.chat.setup.stored") : t("settings.chat.setup.missing")} oninput={(event) => { pendingSecrets[openCodePassword.key] = event.currentTarget.value; }} /><button type="button" class="setup-icon-button" onclick={() => { revealSecrets[openCodePassword.key] = !revealSecrets[openCodePassword.key]; }}>{#if revealSecrets[openCodePassword.key]}<EyeOff size={13} />{:else}<Eye size={13} />{/if}</button><button type="button" class="setup-icon-button" aria-label={t("settings.chat.setup.storeSecret")} onclick={() => void storeSecret(openCodePassword)}><Check size={13} /></button><button type="button" class="setup-icon-button" aria-label={t("settings.chat.setup.removeSecret")} onclick={() => { if (openCodePassword.credentialReference) void removeSecret(openCodePassword); removeEnvironment(openCodePassword.key); }}><Trash2 size={13} /></button></div>{#if fieldError(`environment.${openCodePassword.key}.value`)}<small>{fieldError(`environment.${openCodePassword.key}.value`)}</small>{/if}</div>{:else}<button type="button" class="setup-add-button" onclick={addOpenCodePassword}><Plus size={14} />{t("settings.chat.setup.addExternalPassword")}</button>{/if}
           {/if}
         {/if}
 
