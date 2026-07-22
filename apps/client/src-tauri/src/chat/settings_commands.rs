@@ -13,8 +13,8 @@ use super::device_state::{
 };
 use super::models::{
     ChatError, ChatErrorCode, ChatResult, ChatThreadId, ChatWorkspaceId, CredentialReferenceId,
-    ModelId, ProbeState, ProviderFamilyMetadataRead, ProviderInstanceConfig, ProviderInstanceId,
-    ProviderModelCatalog, ProviderProbeResult,
+    ModelId, ProbeState, ProviderFamilyId, ProviderFamilyMetadataRead, ProviderInstanceConfig,
+    ProviderInstanceId, ProviderModelCatalog, ProviderProbeResult, VersionedJson,
 };
 use super::providers::{
     DriverCancellation, DriverOperationContext, ProviderDriverFactory, ProviderDriverRegistry,
@@ -75,7 +75,11 @@ pub struct ProviderSetupTestRead {
 }
 
 #[tauri::command]
-pub fn chat_read_settings(app: tauri::AppHandle) -> ChatResult<ChatSettingsRead> {
+pub async fn chat_read_settings(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, ChatSettingsState>,
+) -> ChatResult<ChatSettingsRead> {
+    configure_default_codex_if_available(&app, &state).await?;
     let configuration = read_chat_config(&app)?;
     let scope = read_active_device_scope(&app).map_err(device_state_error)?;
     let provider_instances = configuration
@@ -89,6 +93,98 @@ pub fn chat_read_settings(app: tauri::AppHandle) -> ChatResult<ChatSettingsRead>
         provider_instances,
         credential_store_availability: PlatformCredentialStore::default().availability(),
         last_selected_thread_id: scope.preferences.last_selected_thread_id,
+    })
+}
+
+async fn configure_default_codex_if_available(
+    app: &tauri::AppHandle,
+    state: &ChatSettingsState,
+) -> ChatResult<()> {
+    let current = read_chat_config(app)?;
+    if !should_configure_default_codex(&current) {
+        return Ok(());
+    }
+
+    let configuration = default_codex_configuration()?;
+    let mut driver = ProviderDriverRegistry.create_driver(configuration.clone())?;
+    let probe = driver
+        .probe(&operation_context("discover-default-codex"))
+        .await?;
+    if probe.state == ProbeState::ExecutableMissing {
+        return Ok(());
+    }
+    let model_catalog = (probe.state == ProbeState::Healthy)
+        .then(|| driver.cached_model_catalog())
+        .flatten();
+
+    let portable = portable_configuration(&configuration);
+    let mut inserted = false;
+    mutate_chat_config(app, state, |config| {
+        if config
+            .providers
+            .iter()
+            .any(|provider| provider.family_id.as_str() == "codex")
+        {
+            return Ok(());
+        }
+        config.providers.push(portable);
+        inserted = true;
+        Ok(())
+    })?;
+    if !inserted {
+        return Ok(());
+    }
+
+    update_active_device_scope(app, |scope| {
+        scope.provider_instances.insert(
+            configuration.instance_id.clone(),
+            ChatProviderDeviceState {
+                executable_path: Some(configuration.executable.clone()),
+                provider_home_path: None,
+                last_successful_probe_at: (probe.state == ProbeState::Healthy)
+                    .then(|| probe.checked_at.clone()),
+                last_probe: Some(probe),
+                model_catalog,
+            },
+        );
+        Ok(())
+    })
+    .map_err(device_state_error)
+}
+
+fn should_configure_default_codex(config: &ChatVaultConfig) -> bool {
+    !config
+        .automatic_provider_setup_disabled
+        .iter()
+        .any(|family_id| family_id.as_str() == "codex")
+        && !config
+            .providers
+            .iter()
+            .any(|provider| provider.family_id.as_str() == "codex")
+}
+
+fn default_codex_configuration() -> ChatResult<ProviderInstanceConfig> {
+    Ok(ProviderInstanceConfig {
+        schema_version: 1,
+        instance_id: ProviderInstanceId::new("codex")
+            .map_err(|_| default_provider_configuration_error())?,
+        family_id: ProviderFamilyId::new("codex")
+            .map_err(|_| default_provider_configuration_error())?,
+        label: "Codex".to_string(),
+        accent_color: Some("#2563eb".to_string()),
+        enabled: true,
+        executable: "codex".to_string(),
+        provider_home: None,
+        launch_arguments: Vec::new(),
+        environment: BTreeMap::new(),
+        credential_references: BTreeMap::new(),
+        visible_model_ids: Vec::new(),
+        favorite_model_ids: Vec::new(),
+        provider_config: VersionedJson {
+            schema_version: 1,
+            value: serde_json::json!({}),
+        },
+        unknown_fields: BTreeMap::new(),
     })
 }
 
@@ -122,6 +218,9 @@ pub fn chat_save_provider(
     let portable = portable_configuration(&request.configuration);
     let device = device_configuration(&request.configuration);
     mutate_chat_config(&app, &state, |config| {
+        config
+            .automatic_provider_setup_disabled
+            .remove(&portable.family_id);
         if let Some(existing) = config
             .providers
             .iter_mut()
@@ -184,6 +283,15 @@ pub fn chat_remove_provider(
         config
             .providers
             .retain(|candidate| candidate.instance_id != instance_id);
+        if !config
+            .providers
+            .iter()
+            .any(|candidate| candidate.family_id == provider.family_id)
+        {
+            config
+                .automatic_provider_setup_disabled
+                .insert(provider.family_id.clone());
+        }
         config
             .remembered_selections
             .retain(|selection| selection.provider_instance_id != instance_id);
@@ -673,6 +781,14 @@ fn provider_not_found() -> ChatError {
     )
 }
 
+fn default_provider_configuration_error() -> ChatError {
+    ChatError::new(
+        ChatErrorCode::Internal,
+        "The built-in Codex provider configuration is invalid",
+        false,
+    )
+}
+
 fn device_state_error(_error: String) -> ChatError {
     ChatError::new(
         ChatErrorCode::Persistence,
@@ -703,4 +819,46 @@ fn credential_error<T>(_error: T) -> ChatError {
         "Chat credential operation failed",
         true,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_codex_uses_the_installed_cli_and_native_account_home() {
+        let configuration = default_codex_configuration().unwrap();
+
+        assert_eq!(configuration.instance_id.as_str(), "codex");
+        assert_eq!(configuration.family_id.as_str(), "codex");
+        assert_eq!(configuration.executable, "codex");
+        assert_eq!(configuration.provider_home, None);
+        assert!(configuration.environment.is_empty());
+        assert!(configuration.credential_references.is_empty());
+        ProviderDriverRegistry
+            .create_driver(configuration)
+            .expect("the built-in Codex configuration must remain valid");
+    }
+
+    #[test]
+    fn an_existing_codex_instance_prevents_automatic_replacement() {
+        let mut config = ChatVaultConfig::default();
+        assert!(should_configure_default_codex(&config));
+
+        config.providers.push(portable_configuration(
+            &default_codex_configuration().unwrap(),
+        ));
+
+        assert!(!should_configure_default_codex(&config));
+    }
+
+    #[test]
+    fn removing_the_default_family_can_disable_automatic_replacement() {
+        let mut config = ChatVaultConfig::default();
+        config
+            .automatic_provider_setup_disabled
+            .insert(ProviderFamilyId::new("codex").unwrap());
+
+        assert!(!should_configure_default_codex(&config));
+    }
 }

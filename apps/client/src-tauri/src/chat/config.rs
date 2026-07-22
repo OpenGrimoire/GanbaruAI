@@ -6,7 +6,7 @@ use super::models::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub const CHAT_VAULT_CONFIG_SCHEMA_VERSION: u32 = 1;
 const MAX_PROVIDERS: usize = 64;
@@ -156,6 +156,8 @@ pub struct ChatVaultConfig {
     #[serde(default)]
     pub providers: Vec<ChatPortableProviderConfig>,
     #[serde(default)]
+    pub automatic_provider_setup_disabled: BTreeSet<ProviderFamilyId>,
+    #[serde(default)]
     pub remembered_selections: Vec<RememberedComposerSelection>,
     #[serde(default)]
     pub workspace_provider_preferences: BTreeMap<ChatWorkspaceId, ProviderInstanceId>,
@@ -172,6 +174,7 @@ impl Default for ChatVaultConfig {
         Self {
             schema_version: CHAT_VAULT_CONFIG_SCHEMA_VERSION,
             providers: Vec::new(),
+            automatic_provider_setup_disabled: BTreeSet::new(),
             remembered_selections: Vec::new(),
             workspace_provider_preferences: BTreeMap::new(),
             panels: ChatPanelPreferences::default(),
@@ -193,6 +196,12 @@ impl ChatVaultConfig {
             return Err(ChatError::validation(
                 "chat.providers",
                 format!("Chat config supports at most {MAX_PROVIDERS} provider instances"),
+            ));
+        }
+        if self.automatic_provider_setup_disabled.len() > MAX_PROVIDERS {
+            return Err(ChatError::validation(
+                "chat.automaticProviderSetupDisabled",
+                format!("Chat config supports at most {MAX_PROVIDERS} disabled provider families"),
             ));
         }
         let mut instance_ids = std::collections::BTreeSet::new();

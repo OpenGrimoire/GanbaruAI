@@ -32,6 +32,11 @@
   const chat = getChat();
   const projects = getProjects();
   const settings = getSettingsLauncher();
+  const DEFAULT_RAIL_WIDTH = 260;
+  const DEFAULT_INSPECTOR_WIDTH = 360;
+  const INITIAL_SHELL_WIDTH = 1_200;
+  const INITIAL_SHELL_HEIGHT = 700;
+  const INITIAL_FONT_SCALE = 1;
   let rootElement: HTMLDivElement | undefined = $state();
   let railShell: HTMLDivElement | undefined = $state();
   let inspectorShell: HTMLElement | undefined = $state();
@@ -39,8 +44,8 @@
   let commandMenuOpen = $state(false);
   let resizingRail = $state(false);
   let resizingInspector = $state(false);
-  let railWidth = $state(260);
-  let inspectorWidth = $state(360);
+  let railWidth = $state(DEFAULT_RAIL_WIDTH);
+  let inspectorWidth = $state(DEFAULT_INSPECTOR_WIDTH);
   let inspectorMaximized = $state(false);
   let inspectorWasOpen = false;
   let inspectorReturnFocus: HTMLElement | null = null;
@@ -48,17 +53,17 @@
   let railReturnFocus: HTMLElement | null = null;
   let commandMenuWasOpen = false;
   let commandReturnFocus: HTMLElement | null = null;
-  let shellWidth = $state(1_200);
-  let shellHeight = $state(700);
-  let fontScale = $state(1);
+  let shellWidth = $state(INITIAL_SHELL_WIDTH);
+  let shellHeight = $state(INITIAL_SHELL_HEIGHT);
+  let fontScale = $state(INITIAL_FONT_SCALE);
   let layout = $state<ChatLayoutDecision>(chatLayoutDecision({
-    containerWidth: shellWidth,
-    containerHeight: shellHeight,
-    fontScale,
+    containerWidth: INITIAL_SHELL_WIDTH,
+    containerHeight: INITIAL_SHELL_HEIGHT,
+    fontScale: INITIAL_FONT_SCALE,
     railOpen: true,
     inspectorOpen: false,
-    railWidth,
-    inspectorWidth,
+    railWidth: DEFAULT_RAIL_WIDTH,
+    inspectorWidth: DEFAULT_INSPECTOR_WIDTH,
   }));
   let loadError = $state<string | null>(null);
   let layoutError = $state<string | null>(null);
@@ -72,8 +77,8 @@
     void Promise.all([chat.ensureLoaded(), projects.ensureLoaded()]).catch((error) => {
       loadError = error instanceof Error ? error.message : String(error);
     });
-    railWidth = chat.settings?.configuration.panels.railWidthPx ?? 260;
-    inspectorWidth = chat.settings?.configuration.panels.inspectorWidthPx ?? 360;
+    railWidth = chat.settings?.configuration.panels.railWidthPx ?? DEFAULT_RAIL_WIDTH;
+    inspectorWidth = chat.settings?.configuration.panels.inspectorWidthPx ?? DEFAULT_INSPECTOR_WIDTH;
     const unlisten = listen<unknown>("chat://change", (event) => {
       try {
         const change = parseChatChangeNotification(event.payload);
@@ -366,10 +371,12 @@
   }
 
   function beginRailResize(event: PointerEvent): void {
+    event.preventDefault();
     resizingRail = true;
     const startX = event.clientX;
     const startWidth = railWidth;
     const target = event.currentTarget as HTMLElement;
+    target.focus();
     target.setPointerCapture(event.pointerId);
     const move = (moveEvent: PointerEvent) => { railWidth = Math.max(160, Math.min(520, startWidth + moveEvent.clientX - startX)); };
     const end = () => {
@@ -383,10 +390,12 @@
   }
 
   function beginInspectorResize(event: PointerEvent): void {
+    event.preventDefault();
     resizingInspector = true;
     const startX = event.clientX;
     const startWidth = inspectorWidth;
     const target = event.currentTarget as HTMLElement;
+    target.focus();
     target.setPointerCapture(event.pointerId);
     const move = (moveEvent: PointerEvent) => { inspectorWidth = Math.max(240, Math.min(960, startWidth + startX - moveEvent.clientX)); };
     const end = () => {
@@ -492,22 +501,20 @@
   {:else if layout.railPresentation === "sheet" && chat.railOpen}
     <button type="button" class="chat-sheet-backdrop" aria-label={t("chat.collapseRail")} onclick={() => { chat.railOpen = false; }}></button>
   {/if}
-  <div bind:this={railShell} class="chat-rail-shell" class:closed={!chat.railOpen} class:maximized-hidden={inspectorMaximized} role={layout.railPresentation === "sheet" && chat.railOpen ? "dialog" : undefined} aria-modal={layout.railPresentation === "sheet" && chat.railOpen ? "true" : undefined} aria-label={layout.railPresentation === "sheet" && chat.railOpen ? t("chat.title") : undefined} tabindex={layout.railPresentation === "sheet" && chat.railOpen ? -1 : undefined} onkeydown={(event) => { if (layout.railPresentation === "sheet") handleSheetKeydown(event, () => { chat.railOpen = false; }); }} style={`--chat-rail-width:${railWidth}px`}>
+  <div bind:this={railShell} class="chat-rail-shell" class:closed={!chat.railOpen} class:maximized-hidden={inspectorMaximized} role={layout.railPresentation === "sheet" && chat.railOpen ? "dialog" : undefined} aria-modal={layout.railPresentation === "sheet" && chat.railOpen ? "true" : undefined} aria-label={layout.railPresentation === "sheet" && chat.railOpen ? t("chat.title") : undefined} onkeydown={(event) => { if (layout.railPresentation === "sheet") handleSheetKeydown(event, () => { chat.railOpen = false; }); }} style={`--chat-rail-width:${railWidth}px`}>
     <ChatThreadRail onCollapse={() => { chat.railOpen = false; }} />
   </div>
-  <button
-    type="button"
+  <input
+    type="range"
     class="chat-rail-separator"
     class:hidden={!chat.railOpen || inspectorMaximized}
-    role="separator"
-    aria-orientation="vertical"
-    aria-valuemin="160"
-    aria-valuemax="520"
-    aria-valuenow={Math.round(railWidth)}
+    min="160"
+    max="520"
+    value={Math.round(railWidth)}
     aria-label={t("chat.resizeRail")}
     onpointerdown={beginRailResize}
     onkeydown={(event) => resizePanelFromKey(event, "rail")}
-  ></button>
+  />
 
   <main class="main-shell relative flex min-w-0 flex-1 flex-col bg-background/35" class:maximized-hidden={inspectorMaximized}>
     <ChatConversationHeader showRailButton={layout.railPresentation === "sheet" || !chat.railOpen} onOpenRail={() => { chat.railOpen = true; }} />
@@ -523,8 +530,8 @@
     {/if}
   </main>
 
-  <button type="button" class="chat-inspector-separator" class:hidden={!chat.inspectorOpen || inspectorMaximized} role="separator" aria-orientation="vertical" aria-valuemin="240" aria-valuemax="960" aria-valuenow={Math.round(inspectorWidth)} aria-label={t("chat.resizeInspector")} onpointerdown={beginInspectorResize} onkeydown={(event) => resizePanelFromKey(event, "inspector")}></button>
-  <aside bind:this={inspectorShell} class="chat-inspector-shell" class:open={chat.inspectorOpen} class:maximized={inspectorMaximized} data-presentation={layout.inspectorPresentation} role={layout.inspectorPresentation === "sheet" ? "dialog" : undefined} aria-modal={layout.inspectorPresentation === "sheet" ? "true" : undefined} aria-label={t("chat.openInspector")} tabindex={layout.inspectorPresentation === "sheet" ? -1 : undefined} onkeydown={(event) => { if (layout.inspectorPresentation === "sheet") handleSheetKeydown(event, () => { chat.inspectorOpen = false; }); }} style={`--chat-inspector-width:${inspectorWidth}px`}>
+  <input type="range" class="chat-inspector-separator" class:hidden={!chat.inspectorOpen || inspectorMaximized} min="240" max="960" value={Math.round(inspectorWidth)} aria-label={t("chat.resizeInspector")} onpointerdown={beginInspectorResize} onkeydown={(event) => resizePanelFromKey(event, "inspector")} />
+  <aside bind:this={inspectorShell} class="chat-inspector-shell" class:open={chat.inspectorOpen} class:maximized={inspectorMaximized} data-presentation={layout.inspectorPresentation} role={layout.inspectorPresentation === "sheet" ? "dialog" : undefined} aria-modal={layout.inspectorPresentation === "sheet" ? "true" : undefined} aria-label={t("chat.openInspector")} onkeydown={(event) => { if (layout.inspectorPresentation === "sheet") handleSheetKeydown(event, () => { chat.inspectorOpen = false; }); }} style={`--chat-inspector-width:${inspectorWidth}px`}>
     <ChatInspector onClose={() => { chat.inspectorOpen = false; }} onMaximizedChange={(value) => { inspectorMaximized = value; }} />
   </aside>
 
@@ -546,9 +553,9 @@
   .chat-rail-shell { width: var(--chat-rail-width); min-width: var(--chat-rail-width); transition: width 140ms ease, min-width 140ms ease, transform 140ms ease; }
   .chat-rail-shell.closed { width: 0; min-width: 0; overflow: hidden; }
   .maximized-hidden { display: none; }
-  .chat-rail-separator { width: 4px; flex: 0 0 4px; cursor: col-resize; background: transparent; }
+  .chat-rail-separator { width: 4px; min-width: 0; flex: 0 0 4px; appearance: none; border: 0; border-radius: 0; padding: 0; cursor: col-resize; background: transparent; }
   .chat-rail-separator:hover, .chat-rail-separator:focus-visible { background: var(--ring); }
-  .chat-inspector-separator { width: 4px; flex: 0 0 4px; cursor: col-resize; background: transparent; }
+  .chat-inspector-separator { width: 4px; min-width: 0; flex: 0 0 4px; appearance: none; border: 0; border-radius: 0; padding: 0; cursor: col-resize; background: transparent; }
   .chat-inspector-separator:hover, .chat-inspector-separator:focus-visible { background: var(--ring); }
   .chat-inspector-shell { width: 0; min-width: 0; overflow: hidden; border-left: 0 solid var(--border); background: var(--background); transition: width 140ms ease, min-width 140ms ease; }
   .chat-inspector-shell.open { width: min(var(--chat-inspector-width), 34cqw); min-width: min(240px, 34cqw); border-left-width: 1px; }

@@ -59,6 +59,7 @@ export interface ChatBehaviorPreferences {
 export interface ChatVaultConfig {
   schemaVersion: number;
   providers: ChatPortableProviderConfig[];
+  automaticProviderSetupDisabled: ProviderFamilyId[];
   rememberedSelections: RememberedComposerSelection[];
   workspaceProviderPreferences: Record<ChatWorkspaceId, ProviderInstanceId>;
   panels: ChatPanelPreferences;

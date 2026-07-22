@@ -1376,6 +1376,21 @@ fn driver_probe_distinguishes_authentication_and_protocol_failure() {
 }
 
 #[test]
+fn healthy_probe_retains_the_discovered_model_catalog() {
+    tauri::async_runtime::block_on(async {
+        let workspace = TestDirectory::new("driver-probe-models");
+        let (mut driver, _fixture) = fixture_driver(workspace.path(), FixtureScenario::Healthy);
+
+        let probe = driver.probe(&context("probe-models")).await.unwrap();
+        let catalog = driver.cached_model_catalog().unwrap();
+
+        assert_eq!(probe.state, ProbeState::Healthy);
+        assert!(!catalog.models.is_empty());
+        assert_eq!(catalog.instance_id, probe.instance_id);
+    });
+}
+
+#[test]
 fn process_environment_cannot_override_codex_home() {
     let shared = TestDirectory::new("environment-shared");
     let mut config = configuration(shared.path(), None);
@@ -1387,4 +1402,26 @@ fn process_environment_cannot_override_codex_home() {
         shadowed: false,
     };
     assert!(codex_process_environment(&config, &layout).is_err());
+}
+
+#[cfg(unix)]
+#[test]
+fn provider_path_falls_back_to_the_standard_pnpm_user_directory() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let home = TestDirectory::new("provider-path-home");
+    let bin = home.path().join(".local").join("share").join("pnpm");
+    fs::create_dir_all(&bin).unwrap();
+    let executable = bin.join("codex");
+    fs::write(&executable, "#!/bin/sh\nexit 0\n").unwrap();
+    let mut permissions = fs::metadata(&executable).unwrap().permissions();
+    permissions.set_mode(0o700);
+    fs::set_permissions(&executable, permissions).unwrap();
+    let mut environment = BTreeMap::from([("PATH".to_string(), "/usr/bin".to_string())]);
+
+    append_fallback_executable_directories(&mut environment, home.path());
+    let resolved = resolve_codex_executable("codex", &environment).unwrap();
+
+    assert_eq!(resolved.executable, executable);
+    assert!(resolved.prefix_arguments.is_empty());
 }

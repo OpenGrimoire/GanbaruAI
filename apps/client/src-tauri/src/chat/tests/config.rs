@@ -25,6 +25,7 @@ fn valid_config() -> serde_json::Value {
             "providerConfig": { "schemaVersion": 1, "value": {} },
             "futurePortableField": { "preserved": true }
         }],
+        "automaticProviderSetupDisabled": [],
         "rememberedSelections": [{
             "workspaceId": "workspace-1",
             "providerInstanceId": "codex-personal",

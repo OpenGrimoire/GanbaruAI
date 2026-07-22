@@ -183,6 +183,7 @@ describe("Chat vault configuration", () => {
         providerConfig: { schemaVersion: 1, value: {} },
         futurePortableOption: { enabled: true },
       }],
+      automaticProviderSetupDisabled: [],
       rememberedSelections: [{
         workspaceId: "workspace-1",
         providerInstanceId: "codex-personal",

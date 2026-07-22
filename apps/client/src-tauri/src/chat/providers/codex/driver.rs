@@ -515,6 +515,10 @@ impl ProviderDriver for CodexProviderDriver {
         codex_capabilities()
     }
 
+    fn cached_model_catalog(&self) -> Option<ProviderModelCatalog> {
+        self.cached_models.clone()
+    }
+
     fn probe<'a>(
         &'a mut self,
         context: &'a DriverOperationContext,

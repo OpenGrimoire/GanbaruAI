@@ -8,7 +8,7 @@ The provider transport and broader AI architecture live in [AI integration](ai-i
 
 Chat supports:
 
-- Multiple explicitly configured provider instances.
+- An automatically discovered default Codex instance plus explicitly configured provider instances.
 - Existing Ganbaru Projects and standalone coding workspaces.
 - Durable local threads, drafts, attachments, search, archive, and restart recovery.
 - Streamed assistant messages, reasoning summaries, commands, file changes, tools, tasks, warnings, usage, and cost when the provider reports them.
@@ -21,16 +21,17 @@ Remote clients, Slack, a general BYOK assistant, hosted execution, embedded web 
 
 ## First use
 
-Opening Chat never starts or probes a provider. The empty workspace directs the user to the exact missing step:
+On the first Chat load for a vault without a Codex instance, Ganbaru checks the installed `codex` command on the application path and conventional user CLI directories, including the standard pnpm location. When it is available, Ganbaru creates the default Codex instance, reuses the CLI's normal home and existing authentication, probes account status, and caches the provider model catalog. A person who already installed and authenticated Codex can therefore bind a workspace and start chatting without entering an executable, provider home, credential, or instance ID.
 
-1. Add a provider in the existing Settings modal.
-2. Choose the provider family, identity boundary, executable, home, arguments, environment, and credential references that apply.
-3. Test the setup and discover supported models and capabilities.
-4. Link an existing Ganbaru Project or create a standalone Chat workspace.
-5. Bind that logical workspace to a local folder on this device.
-6. Explicitly choose the provider instance, model or provider-managed model, safety mode, and Build or Plan before the first send.
+If `codex` is unavailable, Chat directs the user to provider setup and official installation guidance. The advanced provider setup remains available for additional Codex accounts, custom homes, other provider families, arguments, environment variables, and credential references. Removing the last Codex instance records an explicit opt-out so automatic setup does not recreate it. Adding Codex manually enables the family again.
 
-Failed probes preserve entered fields. Missing folders, changed repository identity, unavailable providers, unsupported capabilities, and another device without a binding have distinct recovery actions. No fallback provider, model, workspace, or permissive mode is selected silently.
+After provider discovery:
+
+1. Link an existing Ganbaru Project or create a standalone Chat workspace.
+2. Bind that logical workspace to a local folder on this device.
+3. Review the visible provider and model selection, safety mode, and Build or Plan before the first send.
+
+Failed probes preserve entered fields. Missing folders, changed repository identity, unavailable providers, unsupported capabilities, and another device without a binding have distinct recovery actions. Automatic discovery never supplies credentials, changes the CLI home, installs software, chooses Full access, or hides the active provider and model from the composer.
 
 ## Workspace shell
 
@@ -96,6 +97,6 @@ Separators support pointer and keyboard resizing with accessible values and rese
 
 ## Performance contract
 
-Chat is lazy-loaded and does not probe or start providers at app boot or route activation. The deterministic `dense-chat-v1` benchmark covers 20 projects, 100 threads, 2,000 turns, 4,000 messages, 4,000 activities, 1,000 plans, 500 attachments, 200 checkpoints, and 10,000 canonical events in the isolated benchmark database.
+Chat is lazy-loaded and does not probe or start providers at app boot. The first Chat load may run the bounded default Codex discovery described above. Configured vaults and the deterministic benchmark fixture use cached provider state and do not repeat that discovery during ordinary route activation. The `dense-chat-v1` benchmark covers 20 projects, 100 threads, 2,000 turns, 4,000 messages, 4,000 activities, 1,000 plans, 500 attachments, 200 checkpoints, and 10,000 canonical events in the isolated benchmark database.
 
 The benchmark measures route activation, recent-thread switching, latest-page SQLite read and projection, loaded and indexed rail search, streamed paint cadence, app process-tree idle CPU, memory, and owned process stop. The target latest-page read is normally below 100 ms, indexed search below 150 ms, normal stop below two seconds, and streaming is coalesced to paint frames. Performance results are recorded only from the installed release benchmark harness using the method in [Performance benchmark harness](performance-benchmark.md).

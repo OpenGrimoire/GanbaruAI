@@ -47,6 +47,7 @@ export function defaultChatVaultConfig(): ChatVaultConfig {
   return {
     schemaVersion: CHAT_VAULT_CONFIG_SCHEMA_VERSION,
     providers: [],
+    automaticProviderSetupDisabled: [],
     rememberedSelections: [],
     workspaceProviderPreferences: {},
     panels: { ...DEFAULT_PANELS },
@@ -184,6 +185,17 @@ export function parseChatVaultConfig(value: unknown, label = "chat"): ChatVaultC
   if (schemaVersion !== CHAT_VAULT_CONFIG_SCHEMA_VERSION) throw new Error(`${label}.schemaVersion is unsupported`);
   const providers = readArray(record.providers ?? [], `${label}.providers`, parsePortableProvider);
   if (providers.length > MAX_PROVIDERS) throw new Error(`${label}.providers exceeds the item limit`);
+  const automaticProviderSetupDisabled = readArray(
+    record.automaticProviderSetupDisabled ?? [],
+    `${label}.automaticProviderSetupDisabled`,
+    readIdentifier,
+  );
+  if (
+    automaticProviderSetupDisabled.length > MAX_PROVIDERS
+    || new Set(automaticProviderSetupDisabled).size !== automaticProviderSetupDisabled.length
+  ) {
+    throw new Error(`${label}.automaticProviderSetupDisabled is invalid`);
+  }
   const instanceIds = new Set<string>();
   for (const provider of providers) {
     if (instanceIds.has(provider.instanceId)) throw new Error(`${label}.providers contains a duplicate instance ID`);
@@ -213,6 +225,7 @@ export function parseChatVaultConfig(value: unknown, label = "chat"): ChatVaultC
     ...record,
     schemaVersion,
     providers,
+    automaticProviderSetupDisabled,
     rememberedSelections,
     workspaceProviderPreferences,
     panels: parsePanels(record.panels ?? DEFAULT_PANELS, `${label}.panels`),

@@ -54,6 +54,10 @@ pub trait ProviderDriver: Send {
 
     fn capabilities(&self) -> ProviderCapabilities;
 
+    fn cached_model_catalog(&self) -> Option<ProviderModelCatalog> {
+        None
+    }
+
     fn probe<'a>(
         &'a mut self,
         context: &'a DriverOperationContext,

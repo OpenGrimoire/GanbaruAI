@@ -235,6 +235,9 @@ pub fn codex_process_environment(
             }
         }
     }
+    if let Some(home) = platform_user_home() {
+        append_fallback_executable_directories(&mut environment, &home);
+    }
     for (name, value) in &configuration.environment {
         if name.is_empty()
             || name.contains(['=', '\0'])
@@ -253,6 +256,67 @@ pub fn codex_process_environment(
         layout.effective_home.to_string_lossy().into_owned(),
     );
     Ok(environment)
+}
+
+fn platform_user_home() -> Option<PathBuf> {
+    #[cfg(windows)]
+    let variable = "USERPROFILE";
+    #[cfg(not(windows))]
+    let variable = "HOME";
+    std::env::var_os(variable)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+}
+
+pub(super) fn append_fallback_executable_directories(
+    environment: &mut BTreeMap<String, String>,
+    home: &Path,
+) {
+    let path_key = environment
+        .keys()
+        .find(|key| key.eq_ignore_ascii_case("PATH"))
+        .cloned()
+        .unwrap_or_else(|| "PATH".to_string());
+    let mut directories = environment
+        .get(&path_key)
+        .map(|value| std::env::split_paths(OsStr::new(value)).collect::<Vec<_>>())
+        .unwrap_or_default();
+    for candidate in fallback_executable_directories(home) {
+        if candidate.is_dir() && !directories.iter().any(|entry| entry == &candidate) {
+            directories.push(candidate);
+        }
+    }
+    let Ok(joined) = std::env::join_paths(directories) else {
+        return;
+    };
+    if let Some(joined) = joined.to_str() {
+        environment.insert(path_key, joined.to_string());
+    }
+}
+
+fn fallback_executable_directories(home: &Path) -> Vec<PathBuf> {
+    #[cfg(windows)]
+    {
+        vec![
+            home.join("AppData").join("Roaming").join("npm"),
+            home.join("AppData").join("Local").join("pnpm"),
+            home.join(".bun").join("bin"),
+            home.join(".cargo").join("bin"),
+        ]
+    }
+    #[cfg(not(windows))]
+    {
+        vec![
+            home.join(".local").join("bin"),
+            home.join(".local").join("share").join("pnpm"),
+            home.join(".npm-global").join("bin"),
+            home.join(".bun").join("bin"),
+            home.join(".cargo").join("bin"),
+            home.join(".volta").join("bin"),
+            PathBuf::from("/opt/homebrew/bin"),
+            PathBuf::from("/home/linuxbrew/.linuxbrew/bin"),
+        ]
+    }
 }
 
 pub fn resolve_codex_executable(
