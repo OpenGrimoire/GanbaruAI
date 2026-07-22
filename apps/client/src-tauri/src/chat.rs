@@ -8,6 +8,7 @@ pub mod checkpoints;
 pub mod config;
 pub mod credentials;
 pub mod device_state;
+pub mod diagnostics_commands;
 pub mod draft_commands;
 pub mod events;
 pub mod ingestion;

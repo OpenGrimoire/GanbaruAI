@@ -5,6 +5,7 @@ const MAX_CHAT_MARKDOWN_CHARS = 2_000_000;
 const MAX_CHAT_MARKDOWN_LINES = 50_000;
 const MAX_CHAT_MARKDOWN_LINE_CHARS = 32_768;
 const MAX_MARKDOWN_NESTING = 16;
+const UNSAFE_CONTROL_CHARACTERS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
 const SAFE_LINK_PROTOCOLS = new Set(["http:", "https:"]);
 const SANITIZER_CONFIG: Config = {
   ALLOWED_TAGS: [
@@ -53,7 +54,9 @@ export function boundChatMarkdown(markdown: string): string {
   const source = markdown.slice(0, MAX_CHAT_MARKDOWN_CHARS);
   const lines = source.split("\n", MAX_CHAT_MARKDOWN_LINES);
   return lines.map((sourceLine) => {
-    let line = sourceLine.slice(0, MAX_CHAT_MARKDOWN_LINE_CHARS);
+    let line = sourceLine
+      .slice(0, MAX_CHAT_MARKDOWN_LINE_CHARS)
+      .replace(UNSAFE_CONTROL_CHARACTERS, "");
     const quotePrefix = line.match(/^(?:>\s*)+/)?.[0] ?? "";
     if (quotePrefix) {
       const quotes = quotePrefix.match(/>/g)?.length ?? 0;

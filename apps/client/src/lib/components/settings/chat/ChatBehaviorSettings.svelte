@@ -1,12 +1,21 @@
 <script lang="ts">
+  import { onMount } from "svelte";
+  import * as chatApi from "$lib/api/chat";
+  import type { ChatDiagnosticsRead } from "$lib/chat/contracts";
+  import { formatNumber } from "$lib/i18n/formatters";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
   import ToggleSetting from "../ToggleSetting.svelte";
 
-  const { t } = getLocalization();
+  const localization = getLocalization();
+  const { t } = localization;
   const chat = getChat();
   let saving = $state(false);
   let error = $state<string | null>(null);
+  let status = $state<string | null>(null);
+  let diagnostics = $state<ChatDiagnosticsRead | null>(null);
+  let maintenance = $state<"stop" | "rebuild" | null>(null);
+  let confirmation = $state("");
   const behavior = $derived(chat.settings?.configuration.behavior ?? null);
 
   async function update(patch: Partial<NonNullable<typeof behavior>>): Promise<void> {
@@ -21,11 +30,82 @@
       saving = false;
     }
   }
+
+  async function loadDiagnostics(): Promise<void> {
+    diagnostics = await chatApi.readChatDiagnostics();
+  }
+
+  async function updateDiagnosticPreferences(patch: Partial<ChatDiagnosticsRead["preferences"]>): Promise<string> {
+    const current = diagnostics;
+    if (!current) throw new Error(t("settings.chat.behavior.diagnosticsUnavailable"));
+    await chatApi.updateChatDiagnosticPreferences({ ...current.preferences, ...patch });
+    return t("settings.chat.behavior.preferencesSaved");
+  }
+
+  async function run(action: () => Promise<string | null>): Promise<void> {
+    if (saving) return;
+    saving = true;
+    error = null;
+    status = null;
+    try {
+      status = await action();
+      await loadDiagnostics();
+    } catch (cause: unknown) {
+      error = cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      saving = false;
+    }
+  }
+
+  function expectedConfirmation(): string {
+    return maintenance === "stop" ? "STOP ALL CHAT PROCESSES" : "REBUILD CHAT PROJECTIONS";
+  }
+
+  function openMaintenance(kind: "stop" | "rebuild"): void {
+    maintenance = kind;
+    confirmation = "";
+    status = null;
+  }
+
+  function cancelMaintenance(): void {
+    maintenance = null;
+    confirmation = "";
+  }
+
+  function diagnosticFieldLabel(field: string): string {
+    const labels: Record<string, string> = {
+      provider_family: t("settings.chat.behavior.diagnosticProviderFamily"),
+      provider_instance: t("settings.chat.behavior.diagnosticProviderInstance"),
+      thread_id: t("settings.chat.behavior.diagnosticThreadId"),
+      turn_id: t("settings.chat.behavior.diagnosticTurnId"),
+      event_type: t("settings.chat.behavior.diagnosticEventType"),
+      protocol_label: t("settings.chat.behavior.diagnosticProtocolLabel"),
+      timestamp: t("settings.chat.behavior.diagnosticTimestamp"),
+      prompts_responses: t("settings.chat.behavior.diagnosticPromptsResponses"),
+      tool_content: t("settings.chat.behavior.diagnosticToolContent"),
+      paths: t("settings.chat.behavior.diagnosticPaths"),
+      environment_credentials: t("settings.chat.behavior.diagnosticEnvironmentCredentials"),
+    };
+    return labels[field] ?? field;
+  }
+
+  function diagnosticStorageLabel(storage: string): string {
+    return storage === "active_vault_sqlite"
+      ? t("settings.chat.behavior.activeVaultSqlite")
+      : storage;
+  }
+
+  onMount(() => {
+    void loadDiagnostics().catch((cause: unknown) => {
+      error = cause instanceof Error ? cause.message : String(cause);
+    });
+  });
 </script>
 
 <section class="flex flex-col gap-4">
   <h2 class="text-[0.866667rem] font-semibold text-foreground">{t("settings.chat.behavior.heading")}</h2>
   {#if error}<p role="alert" class="text-sm text-destructive">{error}</p>{/if}
+  {#if status}<p role="status" class="text-sm text-action-confirm">{status}</p>{/if}
   {#if behavior}
     <div class="grid gap-3 sm:grid-cols-2">
       <label class="setup-field"><span>{t("settings.chat.behavior.sendKey")}</span><select value={behavior.sendKey} onchange={(event) => void update({ sendKey: event.currentTarget.value === "mod_enter" ? "mod_enter" : "enter" })}><option value="enter">{t("settings.chat.behavior.enter")}</option><option value="mod_enter">{t("settings.chat.behavior.modEnter")}</option></select></label>
@@ -39,9 +119,45 @@
       <ToggleSetting label={t("settings.chat.behavior.confirmPaste")} checked={behavior.confirmMultilineTerminalPaste} disabled={saving} onChange={(value) => void update({ confirmMultilineTerminalPaste: value })} />
     </div>
   {/if}
-  <div class="grid gap-3 rounded-lg border border-border bg-card/40 p-4 sm:grid-cols-2">
-    <div><div class="text-xs text-muted-foreground">{t("settings.chat.behavior.credentialStore")}</div><div class="mt-1 text-sm font-medium">{chat.settings?.credentialStoreAvailability === "available" ? t("settings.chat.behavior.credentialAvailable") : t("settings.chat.behavior.credentialUnavailable")}</div></div>
-    <div><div class="text-xs text-muted-foreground">{t("settings.chat.behavior.projectionHealth")}</div><div class="mt-1 text-sm font-medium">{t("settings.chat.behavior.projectionHealthy")}</div></div>
-    <p class="text-xs text-muted-foreground sm:col-span-2">{t("settings.chat.behavior.diagnosticsDescription")}</p>
-  </div>
+  {#if diagnostics}
+    <div class="grid gap-3 rounded-lg border border-border bg-card/40 p-4 sm:grid-cols-2">
+      <div><div class="text-xs text-muted-foreground">{t("settings.chat.behavior.credentialStore")}</div><div class="mt-1 text-sm font-medium">{diagnostics.credentialStoreAvailable ? t("settings.chat.behavior.credentialAvailable") : t("settings.chat.behavior.credentialUnavailable")}</div></div>
+      <div><div class="text-xs text-muted-foreground">{t("settings.chat.behavior.projectionHealth")}</div><div class="mt-1 text-sm font-medium">{diagnostics.projectionHealthy ? t("settings.chat.behavior.projectionHealthy") : t("settings.chat.behavior.projectionUnhealthy", formatNumber(localization.locale, diagnostics.inconsistentProjectionCount))}</div></div>
+      <div><div class="text-xs text-muted-foreground">{t("settings.chat.behavior.processes")}</div><div class="mt-1 text-sm">{t("settings.chat.behavior.processCounts", formatNumber(localization.locale, diagnostics.liveProviderProcesses), formatNumber(localization.locale, diagnostics.activeTurns), formatNumber(localization.locale, diagnostics.liveTerminals))}</div></div>
+      <div><div class="text-xs text-muted-foreground">{t("settings.chat.behavior.probes")}</div><div class="mt-1 text-sm">{t("settings.chat.behavior.probeCounts", formatNumber(localization.locale, diagnostics.providerProbeHealthy), formatNumber(localization.locale, diagnostics.providerProbeUnhealthy), formatNumber(localization.locale, diagnostics.providerProbeUnknown))}</div></div>
+      <div><div class="text-xs text-muted-foreground">{t("settings.chat.behavior.attachments")}</div><div class="mt-1 text-sm">{t("settings.chat.behavior.storageCounts", formatNumber(localization.locale, diagnostics.counts.attachmentCount), formatNumber(localization.locale, diagnostics.counts.attachmentBytes))}</div><div class="text-xs text-muted-foreground">{t("settings.chat.behavior.cleanupCounts", formatNumber(localization.locale, diagnostics.counts.pendingAttachmentCleanup), formatNumber(localization.locale, diagnostics.counts.failedAttachmentCleanup))}</div></div>
+      <div><div class="text-xs text-muted-foreground">{t("settings.chat.behavior.commandArtifacts")}</div><div class="mt-1 text-sm">{t("settings.chat.behavior.storageCounts", formatNumber(localization.locale, diagnostics.counts.commandOutputEvents), formatNumber(localization.locale, diagnostics.counts.commandOutputBytes))}</div><div class="text-xs text-muted-foreground">{t("settings.chat.behavior.outputBound")}</div></div>
+      <div class="sm:col-span-2"><div class="text-xs text-muted-foreground">{t("settings.chat.behavior.checkpoints")}</div><div class="mt-1 text-sm">{t("settings.chat.behavior.checkpointCounts", formatNumber(localization.locale, diagnostics.counts.checkpointFailures), formatNumber(localization.locale, diagnostics.counts.pendingCheckpointCleanup), formatNumber(localization.locale, diagnostics.counts.failedCheckpointCleanup))}</div></div>
+    </div>
+
+    <div class="space-y-3 rounded-lg border border-border p-4">
+      <ToggleSetting label={t("settings.chat.behavior.captureDiagnostics")} checked={diagnostics.preferences.captureEnabled} disabled={saving} onChange={(captureEnabled) => void run(() => updateDiagnosticPreferences({ captureEnabled }))} />
+      <label class="setup-field"><span>{t("settings.chat.behavior.retentionDays")}</span><input type="number" min="1" max="30" value={diagnostics.preferences.retentionDays} onchange={(event) => void run(() => updateDiagnosticPreferences({ retentionDays: event.currentTarget.valueAsNumber }))} /></label>
+      <p class="text-xs text-muted-foreground">{t("settings.chat.behavior.captureFields", diagnostics.capturedFields.map(diagnosticFieldLabel).join(", "))}</p>
+      <p class="text-xs text-muted-foreground">{t("settings.chat.behavior.excludeFields", diagnostics.excludedFields.map(diagnosticFieldLabel).join(", "))}</p>
+      <p class="text-xs text-muted-foreground">{t("settings.chat.behavior.diagnosticStorage", diagnosticStorageLabel(diagnostics.storageLocation))}</p>
+      <p class="text-xs text-muted-foreground">{t("settings.chat.behavior.diagnosticUsage", formatNumber(localization.locale, diagnostics.counts.retainedEvents), formatNumber(localization.locale, diagnostics.counts.retainedBytes))}</p>
+      <div class="flex flex-wrap gap-2"><button type="button" class="chat-settings-action" disabled={saving} onclick={() => void run(async () => { await chatApi.exportRedactedChatDiagnostics(t("settings.chat.behavior.exportDiagnostics")); return t("settings.chat.behavior.exportComplete"); })}>{t("settings.chat.behavior.exportDiagnostics")}</button><button type="button" class="chat-settings-action" disabled={saving} onclick={() => void run(async () => { const count = await chatApi.deleteChatDiagnostics(); return t("settings.chat.behavior.deletedDiagnostics", formatNumber(localization.locale, count)); })}>{t("settings.chat.behavior.deleteDiagnostics")}</button></div>
+    </div>
+
+    <div class="space-y-3 rounded-lg border border-border p-4">
+      <h3 class="text-sm font-medium">{t("settings.chat.behavior.maintenance")}</h3>
+      <p class="text-xs text-muted-foreground">{t("settings.chat.behavior.maintenanceDescription")}</p>
+      <div class="flex flex-wrap gap-2"><button type="button" class="chat-settings-action" disabled={saving} onclick={() => openMaintenance("stop")}>{t("settings.chat.behavior.stopAll")}</button><button type="button" class="chat-settings-action" disabled={saving} onclick={() => openMaintenance("rebuild")}>{t("settings.chat.behavior.rebuild")}</button><button type="button" class="chat-settings-action" disabled={saving} onclick={() => void run(async () => { const count = await chatApi.retryChatCheckpointCleanup(); return t("settings.chat.behavior.cleanupRetried", formatNumber(localization.locale, count)); })}>{t("settings.chat.behavior.retryCleanup")}</button></div>
+      {#if maintenance}
+        <div class="space-y-2 rounded-md border border-status-tentative/60 p-3">
+          <p class="text-xs">{maintenance === "stop" ? t("settings.chat.behavior.stopImpact") : t("settings.chat.behavior.rebuildImpact")}</p>
+          <label class="setup-field"><span>{t("settings.chat.behavior.typeConfirmation", expectedConfirmation())}</span><input bind:value={confirmation} autocomplete="off" spellcheck="false" /></label>
+          <div class="flex gap-2"><button type="button" class="chat-settings-action" disabled={saving || confirmation !== expectedConfirmation()} onclick={() => void run(async () => { if (maintenance === "stop") { const result = await chatApi.stopAllChatProcesses(confirmation); cancelMaintenance(); return t("settings.chat.behavior.stopped", formatNumber(localization.locale, result.providerProcessesStopped), formatNumber(localization.locale, result.terminalsStopped)); } const result = await chatApi.rebuildChatProjections(confirmation); cancelMaintenance(); return t("settings.chat.behavior.rebuilt", formatNumber(localization.locale, result.rebuiltThreads)); })}>{t("settings.chat.behavior.confirm")}</button><button type="button" class="chat-settings-action" disabled={saving} onclick={cancelMaintenance}>{t("common.cancel")}</button></div>
+        </div>
+      {/if}
+    </div>
+  {:else}
+    <p class="text-sm text-muted-foreground">{t("common.loading")}</p>
+  {/if}
 </section>
+
+<style>
+  .chat-settings-action { border: 1px solid var(--border); border-radius: 0.375rem; padding: 0.35rem 0.65rem; font-size: 0.733333rem; }
+  .chat-settings-action:disabled { cursor: not-allowed; opacity: 0.5; }
+</style>

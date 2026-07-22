@@ -995,6 +995,44 @@ fn ingestion_splits_delta_batches_at_the_memory_bound() {
 }
 
 #[test]
+fn ingestion_bounds_command_output_with_a_visible_notice() {
+    tauri::async_runtime::block_on(async {
+        let pool = pool_with_thread().await;
+        let emitter = Arc::new(RecordingEmitter::default());
+        let mut ingestor = ChatEventIngestor::new(pool.clone(), emitter);
+        let mut first = content_event("event-output-1", &"a".repeat(2 * 1024 * 1024 - 10));
+        let mut second = content_event("event-output-2", &"b".repeat(100));
+        let mut discarded = content_event("event-output-3", "must not be retained");
+        for request in [&mut first, &mut second, &mut discarded] {
+            let CanonicalEvent::ContentDelta(delta) = &mut request.runtime.event else {
+                unreachable!()
+            };
+            delta.item_id = "command-1".to_string();
+            delta.stream_kind = ContentStreamKind::CommandOutput;
+        }
+        ingestor.ingest(first).await.unwrap();
+        ingestor.ingest(second).await.unwrap();
+        ingestor.ingest(discarded).await.unwrap();
+        ingestor.flush().await.unwrap();
+        let payloads: Vec<String> = sqlx::query_scalar(
+            "SELECT payload_data FROM chat_events WHERE event_type = 'content_delta' ORDER BY sequence",
+        ).fetch_all(&pool).await.unwrap();
+        let retained = payloads
+            .into_iter()
+            .map(|payload| {
+                serde_json::from_str::<serde_json::Value>(&payload).unwrap()["payload"]["delta"]
+                    .as_str()
+                    .unwrap()
+                    .to_string()
+            })
+            .collect::<String>();
+        assert!(retained.contains("[Output truncated at the 2 MiB Chat artifact limit]"));
+        assert!(!retained.contains("must not be retained"));
+        assert!(retained.len() <= 2 * 1024 * 1024 + 64);
+    });
+}
+
+#[test]
 fn ingestion_retains_a_pending_batch_after_append_failure() {
     tauri::async_runtime::block_on(async {
         let pool = pool_with_thread().await;

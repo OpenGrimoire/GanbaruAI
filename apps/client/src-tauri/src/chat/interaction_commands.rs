@@ -549,18 +549,12 @@ pub fn chat_set_full_access_trust(
 ) -> ChatResult<bool> {
     let timestamp = now_timestamp()?;
     update_active_device_scope(&app, |scope| {
-        let workspaces = scope
-            .full_access_trust
-            .entry(provider_instance_id.clone())
-            .or_default();
-        if trusted {
-            workspaces.insert(workspace_id.clone(), timestamp);
-        } else {
-            workspaces.remove(&workspace_id);
-            if workspaces.is_empty() {
-                scope.full_access_trust.remove(&provider_instance_id);
-            }
-        }
+        super::device_state::set_full_access_trust(
+            scope,
+            provider_instance_id,
+            workspace_id,
+            trusted.then_some(timestamp),
+        );
         Ok(())
     })
     .map_err(device_state_error)?;
@@ -574,10 +568,11 @@ pub fn chat_has_full_access_trust(
     workspace_id: ChatWorkspaceId,
 ) -> ChatResult<bool> {
     let scope = read_active_device_scope(&app).map_err(device_state_error)?;
-    Ok(scope
-        .full_access_trust
-        .get(&provider_instance_id)
-        .is_some_and(|workspaces| workspaces.contains_key(&workspace_id)))
+    Ok(super::device_state::full_access_is_trusted(
+        &scope,
+        &provider_instance_id,
+        &workspace_id,
+    ))
 }
 
 #[tauri::command]

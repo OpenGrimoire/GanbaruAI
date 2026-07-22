@@ -1,7 +1,8 @@
 use crate::chat::{
     device_state::{
-        ChatDeviceState, ChatProviderDeviceState, ChatWorkspaceBindingState,
-        CHAT_DEVICE_STATE_SCHEMA_VERSION,
+        full_access_is_trusted, set_full_access_trust, ChatDeviceScope, ChatDeviceState,
+        ChatProviderDeviceState, ChatWorkspaceBindingState, CHAT_DEVICE_STATE_SCHEMA_VERSION,
+        DEFAULT_DIAGNOSTIC_RETENTION_DAYS,
     },
     models::{ChatWorkspaceId, ProviderInstanceId, RepositoryKind, UtcTimestamp},
 };
@@ -86,4 +87,69 @@ fn missing_legacy_chat_state_defaults_to_the_current_schema() {
         CHAT_DEVICE_STATE_SCHEMA_VERSION
     );
     assert!(restored.chat.vaults.is_empty());
+}
+
+#[test]
+fn legacy_device_scope_defaults_to_disabled_bounded_diagnostics() {
+    let scope: ChatDeviceScope = serde_json::from_value(serde_json::json!({})).unwrap();
+    assert!(!scope.diagnostics.capture_enabled);
+    assert_eq!(
+        scope.diagnostics.retention_days,
+        DEFAULT_DIAGNOSTIC_RETENTION_DAYS
+    );
+}
+
+#[test]
+fn full_access_trust_never_crosses_provider_workspace_vault_or_device_boundaries() {
+    let mut state = ChatDeviceState::default();
+    let trusted_provider = ProviderInstanceId::new("codex-personal").unwrap();
+    let incompatible_provider = ProviderInstanceId::new("codex-other-home").unwrap();
+    let trusted_workspace = ChatWorkspaceId::new("workspace-1").unwrap();
+    let new_workspace = ChatWorkspaceId::new("workspace-2").unwrap();
+    let timestamp = UtcTimestamp::new("2026-07-21T12:00:00Z").unwrap();
+    set_full_access_trust(
+        state.scope_mut("vault-1", "device-1"),
+        trusted_provider.clone(),
+        trusted_workspace.clone(),
+        Some(timestamp),
+    );
+
+    let trusted_scope = state.scope("vault-1", "device-1").unwrap();
+    assert!(full_access_is_trusted(
+        trusted_scope,
+        &trusted_provider,
+        &trusted_workspace,
+    ));
+    assert!(!full_access_is_trusted(
+        trusted_scope,
+        &trusted_provider,
+        &new_workspace,
+    ));
+    assert!(!full_access_is_trusted(
+        trusted_scope,
+        &incompatible_provider,
+        &trusted_workspace,
+    ));
+    assert!(!full_access_is_trusted(
+        state.scope_mut("vault-1", "device-2"),
+        &trusted_provider,
+        &trusted_workspace,
+    ));
+    assert!(!full_access_is_trusted(
+        state.scope_mut("vault-2", "device-1"),
+        &trusted_provider,
+        &trusted_workspace,
+    ));
+
+    set_full_access_trust(
+        state.scope_mut("vault-1", "device-1"),
+        trusted_provider.clone(),
+        trusted_workspace.clone(),
+        None,
+    );
+    assert!(!full_access_is_trusted(
+        state.scope("vault-1", "device-1").unwrap(),
+        &trusted_provider,
+        &trusted_workspace,
+    ));
 }

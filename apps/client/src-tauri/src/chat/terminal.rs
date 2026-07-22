@@ -465,6 +465,28 @@ impl ChatTerminalRegistry {
         Ok(())
     }
 
+    pub fn live_count(&self) -> ChatResult<usize> {
+        let sessions = self.sessions.lock().map_err(|_| terminal_state_error())?;
+        sessions.values().try_fold(0usize, |count, session| {
+            Ok(count + usize::from(session.read()?.running))
+        })
+    }
+
+    pub fn stop_all(&self) -> ChatResult<u64> {
+        let sessions = {
+            let mut registry = self.sessions.lock().map_err(|_| terminal_state_error())?;
+            registry
+                .drain()
+                .map(|(_, session)| session)
+                .collect::<Vec<_>>()
+        };
+        let count = u64::try_from(sessions.len()).unwrap_or(u64::MAX);
+        for session in sessions {
+            session.terminate()?;
+        }
+        Ok(count)
+    }
+
     pub fn shutdown_workspace(&self, workspace_id: &ChatWorkspaceId) -> ChatResult<()> {
         let mut sessions = self.sessions.lock().map_err(|_| terminal_state_error())?;
         let terminal_ids = sessions

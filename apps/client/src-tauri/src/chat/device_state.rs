@@ -37,6 +37,25 @@ pub struct ChatMachinePreferences {
     pub last_selected_thread_id: Option<ChatThreadId>,
 }
 
+pub const DEFAULT_DIAGNOSTIC_RETENTION_DAYS: u16 = 7;
+pub const MAX_DIAGNOSTIC_RETENTION_DAYS: u16 = 30;
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatDiagnosticPreferences {
+    pub capture_enabled: bool,
+    pub retention_days: u16,
+}
+
+impl Default for ChatDiagnosticPreferences {
+    fn default() -> Self {
+        Self {
+            capture_enabled: false,
+            retention_days: DEFAULT_DIAGNOSTIC_RETENTION_DAYS,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatDeviceScope {
@@ -48,6 +67,8 @@ pub struct ChatDeviceScope {
     pub full_access_trust: BTreeMap<ProviderInstanceId, BTreeMap<ChatWorkspaceId, UtcTimestamp>>,
     #[serde(default)]
     pub preferences: ChatMachinePreferences,
+    #[serde(default)]
+    pub diagnostics: ChatDiagnosticPreferences,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -80,6 +101,40 @@ impl ChatDeviceState {
             .or_default()
             .entry(device_id.to_string())
             .or_default()
+    }
+}
+
+pub fn full_access_is_trusted(
+    scope: &ChatDeviceScope,
+    provider_instance_id: &ProviderInstanceId,
+    workspace_id: &ChatWorkspaceId,
+) -> bool {
+    scope
+        .full_access_trust
+        .get(provider_instance_id)
+        .is_some_and(|workspaces| workspaces.contains_key(workspace_id))
+}
+
+pub fn set_full_access_trust(
+    scope: &mut ChatDeviceScope,
+    provider_instance_id: ProviderInstanceId,
+    workspace_id: ChatWorkspaceId,
+    trusted_at: Option<UtcTimestamp>,
+) {
+    if let Some(timestamp) = trusted_at {
+        scope
+            .full_access_trust
+            .entry(provider_instance_id)
+            .or_default()
+            .insert(workspace_id, timestamp);
+        return;
+    }
+    let Some(workspaces) = scope.full_access_trust.get_mut(&provider_instance_id) else {
+        return;
+    };
+    workspaces.remove(&workspace_id);
+    if workspaces.is_empty() {
+        scope.full_access_trust.remove(&provider_instance_id);
     }
 }
 

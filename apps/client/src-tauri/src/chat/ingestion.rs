@@ -1,15 +1,19 @@
 use crate::chat::events::{CanonicalEvent, CanonicalRuntimeEvent};
 use crate::chat::models::{
-    ChatChangeNotification, ChatError, ChatErrorCode, ChatResult, UtcTimestamp,
+    ChatChangeNotification, ChatError, ChatErrorCode, ChatResult, ContentStreamKind, UtcTimestamp,
 };
 use crate::chat::repository::events::{append_canonical_event, AppendCanonicalEventRequest};
 use serde_json::Value;
 use sqlx::SqlitePool;
+use std::collections::{hash_map::Entry, HashMap};
 use std::sync::Arc;
 use tauri::{Emitter, Runtime};
 
 const MAX_CANONICAL_EVENT_BYTES: usize = 4 * 1024 * 1024;
 const MAX_DELTA_BATCH_BYTES: usize = 64 * 1024;
+const MAX_COMMAND_ARTIFACT_BYTES: usize = 2 * 1024 * 1024;
+const MAX_OUTPUT_ARTIFACTS_PER_SESSION: usize = 4_096;
+const OUTPUT_TRUNCATION_NOTICE: &str = "\n[Output truncated at the 2 MiB Chat artifact limit]\n";
 pub const CHAT_CHANGE_EVENT: &str = "chat://change";
 
 pub trait ChatChangeEmitter: Send + Sync {
@@ -42,6 +46,7 @@ pub struct ChatEventIngestor {
     pool: SqlitePool,
     emitter: Arc<dyn ChatChangeEmitter>,
     pending_delta: Option<AppendCanonicalEventRequest>,
+    output_bytes: HashMap<String, usize>,
 }
 
 impl ChatEventIngestor {
@@ -50,11 +55,15 @@ impl ChatEventIngestor {
             pool,
             emitter,
             pending_delta: None,
+            output_bytes: HashMap::new(),
         }
     }
 
-    pub async fn ingest(&mut self, request: AppendCanonicalEventRequest) -> ChatResult<()> {
+    pub async fn ingest(&mut self, mut request: AppendCanonicalEventRequest) -> ChatResult<()> {
         validate_event(&request.runtime)?;
+        if !self.bound_output_artifact(&mut request) {
+            return Ok(());
+        }
         if matches!(request.runtime.event, CanonicalEvent::ContentDelta(_)) {
             if let Some(pending) = self.pending_delta.as_mut() {
                 if merge_adjacent_delta(pending, &request) {
@@ -67,6 +76,48 @@ impl ChatEventIngestor {
         }
         self.flush().await?;
         self.append_and_notify(request).await
+    }
+
+    fn bound_output_artifact(&mut self, request: &mut AppendCanonicalEventRequest) -> bool {
+        let CanonicalEvent::ContentDelta(delta) = &mut request.runtime.event else {
+            return true;
+        };
+        if !matches!(
+            delta.stream_kind,
+            ContentStreamKind::CommandOutput | ContentStreamKind::FileChangeOutput
+        ) {
+            return true;
+        }
+        let key = format!(
+            "{}\0{}\0{}",
+            request.runtime.thread_id.as_str(),
+            delta.item_id.as_str(),
+            match delta.stream_kind {
+                ContentStreamKind::CommandOutput => "command",
+                _ => "file",
+            }
+        );
+        let artifact_count = self.output_bytes.len();
+        let retained = match self.output_bytes.entry(key) {
+            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Vacant(_) if artifact_count >= MAX_OUTPUT_ARTIFACTS_PER_SESSION => return false,
+            Entry::Vacant(entry) => entry.insert(0),
+        };
+        let remaining = MAX_COMMAND_ARTIFACT_BYTES.saturating_sub(*retained);
+        if remaining == 0 {
+            return false;
+        }
+        if delta.delta.len() > remaining {
+            delta.delta = format!(
+                "{}{}",
+                truncate_utf8(&delta.delta, remaining),
+                OUTPUT_TRUNCATION_NOTICE
+            );
+            *retained = MAX_COMMAND_ARTIFACT_BYTES;
+        } else {
+            *retained += delta.delta.len();
+        }
+        true
     }
 
     pub async fn flush(&mut self) -> ChatResult<()> {
@@ -184,6 +235,25 @@ fn serialization_error<T>(_error: T) -> ChatError {
         "Canonical Chat event could not be encoded",
         false,
     )
+}
+
+fn truncate_utf8(value: &str, maximum_bytes: usize) -> &str {
+    let mut boundary = maximum_bytes.min(value.len());
+    while boundary > 0 && !value.is_char_boundary(boundary) {
+        boundary -= 1;
+    }
+    &value[..boundary]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::truncate_utf8;
+
+    #[test]
+    fn output_truncation_preserves_utf8_boundaries() {
+        assert_eq!(truncate_utf8("aé日", 4), "aé");
+        assert_eq!(truncate_utf8("aé日", 7), "aé日");
+    }
 }
 
 pub fn ingestion_timestamp(value: &str) -> ChatResult<UtcTimestamp> {

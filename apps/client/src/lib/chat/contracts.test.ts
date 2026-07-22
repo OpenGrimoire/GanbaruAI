@@ -6,6 +6,7 @@ import {
   parseCanonicalRuntimeEvent,
   parseCanonicalStoredEvent,
   parseChatError,
+  parseChatDiagnosticsRead,
   parseChatThreadShell,
   parseChatWorkspaceRead,
   parseProviderFamilyMetadata,
@@ -352,6 +353,24 @@ describe("Chat event contracts", () => {
 });
 
 describe("Chat read and error contracts", () => {
+  it("parses bounded Chat diagnostics and rejects invalid retention", () => {
+    const fixture = {
+      preferences: { captureEnabled: false, retentionDays: 7 },
+      capturedFields: ["event type"], excludedFields: ["credentials"], storageLocation: "SQLite",
+      projectionHealthy: true, inconsistentProjectionCount: 0, credentialStoreAvailable: true,
+      providerProbeHealthy: 1, providerProbeUnhealthy: 0, providerProbeUnknown: 1,
+      liveProviderProcesses: 1, activeTurns: 0, liveTerminals: 0,
+      counts: {
+        retainedEvents: 0, retainedBytes: 0, attachmentCount: 1, attachmentBytes: 12,
+        pendingAttachmentCleanup: 0, failedAttachmentCleanup: 0, commandOutputEvents: 2,
+        commandOutputBytes: 20, checkpointFailures: 0, pendingCheckpointCleanup: 0,
+        failedCheckpointCleanup: 0,
+      },
+    };
+    expect(parseChatDiagnosticsRead(fixture)).toEqual(fixture);
+    expect(() => parseChatDiagnosticsRead({ ...fixture, preferences: { captureEnabled: true, retentionDays: 31 } })).toThrow("between 1 and 30");
+  });
+
   it("parses lightweight thread shells without message history", () => {
     const fixture = {
       id: "thread-1",

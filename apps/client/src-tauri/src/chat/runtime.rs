@@ -404,6 +404,70 @@ impl ChatRuntimeRegistry {
             .map_err(|_| runtime_state_error())
     }
 
+    pub fn process_counts(&self) -> ChatResult<(usize, usize)> {
+        let owners = self.owners()?;
+        let mut live_processes = 0;
+        let mut active_turns = 0;
+        for owner in &owners {
+            let snapshot = owner.snapshot()?;
+            if !matches!(
+                snapshot.session_state,
+                ProviderSessionState::Stopped | ProviderSessionState::Failed
+            ) {
+                live_processes += 1;
+            }
+            if snapshot.turn_active {
+                active_turns += 1;
+            }
+        }
+        Ok((live_processes, active_turns))
+    }
+
+    pub async fn stop_all_and_reset(&self, timeout: Duration) -> ChatResult<u64> {
+        let owners = {
+            let mut registry = self.owners.lock().map_err(|_| runtime_state_error())?;
+            registry.drain().map(|(_, owner)| owner).collect::<Vec<_>>()
+        };
+        let mut count = 0u64;
+        for owner in &owners {
+            if !matches!(
+                owner.snapshot()?.session_state,
+                ProviderSessionState::Stopped | ProviderSessionState::Failed
+            ) {
+                count = count.saturating_add(1);
+            }
+        }
+        for owner in &owners {
+            owner.stop_accepting()?;
+        }
+        let shutdown = async {
+            let deadline = Instant::now() + timeout;
+            let mut receivers = Vec::with_capacity(owners.len());
+            for owner in &owners {
+                let (response, receiver) = oneshot::channel();
+                owner
+                    .command_sender
+                    .send(ThreadRuntimeCommand::Shutdown { deadline, response })
+                    .await
+                    .map_err(|_| runtime_unavailable())?;
+                receivers.push(receiver);
+            }
+            for receiver in receivers {
+                receive_response(receiver).await?;
+            }
+            Ok(())
+        };
+        match tokio::time::timeout(timeout, shutdown).await {
+            Ok(result) => result.map(|()| count),
+            Err(_) => {
+                for owner in owners {
+                    owner.abort_worker()?;
+                }
+                Err(runtime_timeout())
+            }
+        }
+    }
+
     pub async fn shutdown_and_wait(&self, timeout: Duration) -> ChatResult<()> {
         let owners = self.owners()?;
         for owner in &owners {

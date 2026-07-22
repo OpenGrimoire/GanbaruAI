@@ -1,5 +1,6 @@
 export * from "./config";
 export * from "./drafts";
+export * from "./diagnostics";
 export * from "./events";
 export * from "./interactions";
 export * from "./provider";

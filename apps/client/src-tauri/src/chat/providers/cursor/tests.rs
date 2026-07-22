@@ -435,6 +435,9 @@ fn compatibility_fixture_normalizes_core_and_cursor_extensions() {
         .iter()
         .filter(|event| matches!(event.event, CanonicalEvent::ItemStarted(_)))
         .all(|event| event.provider_item_id.is_some()));
+    assert!(!serde_json::to_string(&events)
+        .unwrap()
+        .contains("not-canonicalized"));
 }
 
 #[test]

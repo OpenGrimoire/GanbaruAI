@@ -144,6 +144,31 @@ fn idle_stop_requires_ready_unprotected_session_and_shutdown_is_visible() {
 }
 
 #[test]
+fn maintenance_stop_drains_owners_and_allows_new_sessions() {
+    tauri::async_runtime::block_on(async {
+        let registry = ChatRuntimeRegistry::default();
+        let thread_id = ChatThreadId::new("thread-maintenance").unwrap();
+        let previous = registry.owner(thread_id.clone()).unwrap();
+        assert_eq!(registry.process_counts().unwrap(), (0, 0));
+        assert_eq!(
+            registry
+                .stop_all_and_reset(Duration::from_millis(50))
+                .await
+                .unwrap(),
+            0
+        );
+        assert!(!previous.snapshot().unwrap().accepting_commands);
+        let replacement = registry.owner(thread_id).unwrap();
+        assert!(replacement.snapshot().unwrap().accepting_commands);
+        assert!(!Arc::ptr_eq(&previous, &replacement));
+        registry
+            .shutdown_and_wait(Duration::from_millis(50))
+            .await
+            .unwrap();
+    });
+}
+
+#[test]
 fn fake_driver_streams_approval_stops_restarts_and_rejects_late_events() {
     tauri::async_runtime::block_on(async {
         let registry = ChatRuntimeRegistry::default();

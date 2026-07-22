@@ -1,7 +1,7 @@
 //! Durable send, steer, approval, and structured-input command routing.
 
 use super::credentials::{materialize_provider_environment, PlatformCredentialStore};
-use super::device_state::read_active_device_scope;
+use super::device_state::{full_access_is_trusted, read_active_device_scope};
 use super::events::{CanonicalEvent, CanonicalRuntimeEvent};
 use super::ingestion::{ChatEventIngestor, TauriChatChangeEmitter};
 use super::models::*;
@@ -16,7 +16,7 @@ use super::repository::receipts::{
 };
 use super::repository::{attachments, reads, workspaces};
 use super::runtime::{ChatRuntimeRegistry, ThreadRuntimeOwner};
-use super::workspace::{authorize_workspace, WorkspaceAuthorizationOperation};
+use super::workspace::{authorize_workspace, AuthorizedWorkspace, WorkspaceAuthorizationOperation};
 use crate::{db_path, vault};
 use chrono::{SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
@@ -121,10 +121,7 @@ pub async fn chat_send_turn(
         WorkspaceAuthorizationOperation::ProviderStart,
     )?;
     if request.modes.safety_mode == SafetyMode::FullAccess
-        && !scope
-            .full_access_trust
-            .get(&request.provider_instance_id)
-            .is_some_and(|workspaces| workspaces.contains_key(&request.workspace_id))
+        && !full_access_is_trusted(&scope, &request.provider_instance_id, &request.workspace_id)
     {
         return Err(ChatError::new(
             ChatErrorCode::Permission,
@@ -132,25 +129,7 @@ pub async fn chat_send_turn(
             true,
         ));
     }
-    for mention in &request.mentions {
-        let path =
-            super::workspace::resolve_workspace_relative_path(&authorized, &mention.relative_path)?;
-        let metadata = std::fs::metadata(path).map_err(|_| {
-            ChatError::new(
-                ChatErrorCode::NotFound,
-                "A mentioned workspace path is missing",
-                true,
-            )
-        })?;
-        if (mention.kind == "file") != metadata.is_file()
-            || (mention.kind == "directory") != metadata.is_dir()
-        {
-            return Err(ChatError::validation(
-                "mentions",
-                "A workspace mention changed type before send",
-            ));
-        }
-    }
+    validate_send_mentions(&authorized, &request.mentions)?;
     let provider = super::settings_commands::read_provider(&app, &request.provider_instance_id)?;
     validate_provider_selection(&provider, &request)?;
     let configuration = materialize_provider_environment(
@@ -530,7 +509,9 @@ async fn ensure_session(context: EnsureSessionContext<'_>) -> ChatResult<Provide
         repository_kind: workspace.repository_kind,
         repository_identity: workspace.repository_identity.clone(),
     };
+    super::diagnostics_commands::prune_expired_diagnostics(pool).await?;
     let sink: Arc<dyn ProviderEventSink> = Arc::new(DurableChatEventSink::new(
+        app.clone(),
         pool.clone(),
         Arc::new(TauriChatChangeEmitter::new(app.clone())),
         workspace.clone(),
@@ -583,6 +564,7 @@ async fn ensure_session(context: EnsureSessionContext<'_>) -> ChatResult<Provide
 }
 
 struct DurableChatEventSink {
+    app: tauri::AppHandle,
     pool: SqlitePool,
     workspace: super::workspace::AuthorizedWorkspace,
     ingestor: Mutex<ChatEventIngestor>,
@@ -590,11 +572,13 @@ struct DurableChatEventSink {
 
 impl DurableChatEventSink {
     fn new(
+        app: tauri::AppHandle,
         pool: SqlitePool,
         emitter: Arc<dyn super::ingestion::ChatChangeEmitter>,
         workspace: super::workspace::AuthorizedWorkspace,
     ) -> Self {
         Self {
+            app,
             ingestor: Mutex::new(ChatEventIngestor::new(pool.clone(), emitter)),
             pool,
             workspace,
@@ -603,7 +587,7 @@ impl DurableChatEventSink {
 }
 
 impl ProviderEventSink for DurableChatEventSink {
-    fn emit<'a>(&'a self, event: CanonicalRuntimeEvent) -> DriverFuture<'a, ()> {
+    fn emit<'a>(&'a self, mut event: CanonicalRuntimeEvent) -> DriverFuture<'a, ()> {
         Box::pin(async move {
             let settled_turn = matches!(
                 &event.event,
@@ -611,11 +595,8 @@ impl ProviderEventSink for DurableChatEventSink {
             )
             .then(|| (event.thread_id.clone(), event.turn_id.clone()))
             .and_then(|(thread_id, turn_id)| turn_id.map(|turn_id| (thread_id, turn_id)));
-            let diagnostic_expires_at = event
-                .redacted_diagnostic
-                .as_ref()
-                .map(|_| diagnostic_expiry())
-                .transpose()?;
+            let diagnostic_expires_at =
+                super::diagnostics_commands::attach_opt_in_diagnostic(&self.app, &mut event)?;
             self.ingestor
                 .lock()
                 .await
@@ -1602,6 +1583,32 @@ fn validate_mentions(mentions: &[WorkspaceMentionReference]) -> ChatResult<()> {
     Ok(())
 }
 
+fn validate_send_mentions(
+    authorized: &AuthorizedWorkspace,
+    mentions: &[WorkspaceMentionReference],
+) -> ChatResult<()> {
+    for mention in mentions {
+        let path =
+            super::workspace::resolve_workspace_relative_path(authorized, &mention.relative_path)?;
+        let metadata = std::fs::metadata(path).map_err(|_| {
+            ChatError::new(
+                ChatErrorCode::NotFound,
+                "A mentioned workspace path is missing",
+                true,
+            )
+        })?;
+        if (mention.kind == "file") != metadata.is_file()
+            || (mention.kind == "directory") != metadata.is_dir()
+        {
+            return Err(ChatError::validation(
+                "mentions",
+                "A workspace mention changed type before send",
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn validate_answers(answers: &[UserInputAnswer]) -> ChatResult<()> {
     if answers.is_empty()
         || answers.len() > 100
@@ -1671,15 +1678,6 @@ fn now_timestamp() -> ChatResult<UtcTimestamp> {
         .map_err(|_| ChatError::new(ChatErrorCode::Internal, "create Chat timestamp", false))
 }
 
-fn diagnostic_expiry() -> ChatResult<UtcTimestamp> {
-    let expires: chrono::DateTime<Utc> = std::time::SystemTime::now()
-        .checked_add(Duration::from_secs(7 * 24 * 60 * 60))
-        .ok_or_else(|| ChatError::new(ChatErrorCode::Internal, "create diagnostic expiry", false))?
-        .into();
-    UtcTimestamp::new(expires.to_rfc3339_opts(SecondsFormat::Millis, true))
-        .map_err(|_| ChatError::new(ChatErrorCode::Internal, "create diagnostic expiry", false))
-}
-
 async fn chat_pool(app: tauri::AppHandle, db_url: String) -> ChatResult<SqlitePool> {
     db_path::connect_sqlite(app, db_url)
         .await
@@ -1726,6 +1724,31 @@ fn corrupt_data() -> ChatError {
 mod tests {
     use super::*;
     use crate::chat::tests::repository::pool_with_thread;
+
+    #[cfg(unix)]
+    struct TestDirectory(std::path::PathBuf);
+
+    #[cfg(unix)]
+    impl TestDirectory {
+        fn new(label: &str) -> Self {
+            use std::sync::atomic::{AtomicU64, Ordering};
+            static NEXT: AtomicU64 = AtomicU64::new(1);
+            let path = std::env::temp_dir().join(format!(
+                "ganbaru-chat-{label}-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed),
+            ));
+            std::fs::create_dir_all(&path).unwrap();
+            Self(path)
+        }
+    }
+
+    #[cfg(unix)]
+    impl Drop for TestDirectory {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
 
     #[test]
     fn user_intent_and_receipt_commit_before_provider_dispatch() {
@@ -1858,6 +1881,159 @@ mod tests {
             ],
         ] {
             assert!(validate_model_options(&definitions, &invalid).is_err());
+        }
+    }
+
+    #[test]
+    fn approval_validation_rejects_cross_thread_expired_and_fabricated_requests() {
+        tauri::async_runtime::block_on(async {
+            let pool = pool_with_thread().await;
+            sqlx::query(
+                "INSERT INTO chat_pending_requests
+                    (id, thread_id, provider_request_id, request_kind,
+                     safe_display_data, allowed_decisions_data, opened_sequence, opened_at)
+                 VALUES ('approval-1', 'thread-1', 'provider-approval-1', 'approval',
+                         '{}', ?, 1, '2026-07-21T12:00:00Z')",
+            )
+            .bind(
+                serde_json::json!([{
+                    "id": "allow-once",
+                    "label": "Allow once",
+                    "decisionKind": "allow_once",
+                    "description": null
+                }])
+                .to_string(),
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+            let thread = ChatThreadId::new("thread-1").unwrap();
+            let request = ChatRequestId::new("approval-1").unwrap();
+            let provider_request = ProviderRequestId::new("provider-approval-1").unwrap();
+
+            validate_pending_request(&pool, &thread, &request, &provider_request, "approval")
+                .await
+                .unwrap();
+            for (candidate_thread, candidate_request, candidate_provider) in [
+                (
+                    ChatThreadId::new("thread-other").unwrap(),
+                    request.clone(),
+                    provider_request.clone(),
+                ),
+                (
+                    thread.clone(),
+                    ChatRequestId::new("fabricated-request").unwrap(),
+                    provider_request.clone(),
+                ),
+                (
+                    thread.clone(),
+                    request.clone(),
+                    ProviderRequestId::new("fabricated-provider-request").unwrap(),
+                ),
+            ] {
+                let error = validate_pending_request(
+                    &pool,
+                    &candidate_thread,
+                    &candidate_request,
+                    &candidate_provider,
+                    "approval",
+                )
+                .await
+                .unwrap_err();
+                assert_eq!(error.code, ChatErrorCode::Conflict);
+            }
+
+            validate_approval_decision(
+                &pool,
+                &request,
+                &ApprovalDecision {
+                    kind: ApprovalDecisionKind::AllowOnce,
+                    provider_option_id: Some("allow-once".to_string()),
+                    updated_tool_input: None,
+                },
+            )
+            .await
+            .unwrap();
+            for decision in [
+                ApprovalDecision {
+                    kind: ApprovalDecisionKind::AllowSession,
+                    provider_option_id: Some("allow-once".to_string()),
+                    updated_tool_input: None,
+                },
+                ApprovalDecision {
+                    kind: ApprovalDecisionKind::AllowOnce,
+                    provider_option_id: Some("fabricated-option".to_string()),
+                    updated_tool_input: None,
+                },
+            ] {
+                let error = validate_approval_decision(&pool, &request, &decision)
+                    .await
+                    .unwrap_err();
+                assert_eq!(error.code, ChatErrorCode::Permission);
+            }
+
+            sqlx::query(
+                "UPDATE chat_pending_requests
+                 SET resolution_state = 'stale', resolved_at = '2026-07-21T12:01:00Z'
+                 WHERE id = 'approval-1'",
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+            let expired =
+                validate_pending_request(&pool, &thread, &request, &provider_request, "approval")
+                    .await
+                    .unwrap_err();
+            assert_eq!(expired.code, ChatErrorCode::Conflict);
+        });
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn send_time_validation_rejects_file_and_directory_symlink_swaps() {
+        use std::os::unix::fs::symlink;
+
+        let workspace = TestDirectory::new("mention-swap-workspace");
+        let outside = TestDirectory::new("mention-swap-outside");
+        std::fs::write(workspace.0.join("selected.txt"), "inside").unwrap();
+        std::fs::write(outside.0.join("secret.txt"), "outside").unwrap();
+        std::fs::create_dir(workspace.0.join("selected-directory")).unwrap();
+        std::fs::create_dir(outside.0.join("outside-directory")).unwrap();
+        let authorized = AuthorizedWorkspace {
+            workspace_id: ChatWorkspaceId::new("workspace-1").unwrap(),
+            canonical_path: workspace.0.clone(),
+            repository_kind: RepositoryKind::None,
+            repository_identity: None,
+        };
+        let file_mention = WorkspaceMentionReference {
+            relative_path: "selected.txt".to_string(),
+            kind: "file".to_string(),
+        };
+        let directory_mention = WorkspaceMentionReference {
+            relative_path: "selected-directory".to_string(),
+            kind: "directory".to_string(),
+        };
+
+        validate_send_mentions(&authorized, std::slice::from_ref(&file_mention)).unwrap();
+        validate_send_mentions(&authorized, std::slice::from_ref(&directory_mention)).unwrap();
+
+        std::fs::remove_file(workspace.0.join("selected.txt")).unwrap();
+        symlink(
+            outside.0.join("secret.txt"),
+            workspace.0.join("selected.txt"),
+        )
+        .unwrap();
+        std::fs::remove_dir(workspace.0.join("selected-directory")).unwrap();
+        symlink(
+            outside.0.join("outside-directory"),
+            workspace.0.join("selected-directory"),
+        )
+        .unwrap();
+
+        for mention in [file_mention, directory_mention] {
+            let error = validate_send_mentions(&authorized, &[mention]).unwrap_err();
+            assert_eq!(error.code, ChatErrorCode::Permission);
+            assert!(!error.message.contains("secret.txt"));
         }
     }
 }

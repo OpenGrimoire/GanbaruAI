@@ -34,4 +34,34 @@ describe("Chat Markdown", () => {
     expect(bounded.split("\n")[1]?.length).toBe(32_768);
     expect(renderChatMarkdown("[incomplete](https://example")).toContain("[incomplete]");
   });
+
+  it("renders script variants, terminal escapes, and crafted local links inertly", () => {
+    const rendered = renderChatMarkdown([
+      '<svg onload="globalThis.compromised=true"><script>alert(1)</script></svg>',
+      "\u001b]8;;https://malicious.example\u0007terminal link\u001b]8;;\u0007",
+      "[workspace escape](file:///etc/passwd)",
+      "[command](javascript:globalThis.compromised=true)",
+      "[data](data:text/html,<script>alert(1)</script>)",
+      "`<img src=x onerror=alert(1)>`",
+    ].join("\n\n"));
+
+    expect(rendered).not.toMatch(/<script|<svg|<img|javascript:|file:|data:text/i);
+    expect(rendered).not.toContain("\u001b");
+    expect(rendered).toContain("workspace escape");
+    expect(rendered).toContain("&lt;img src=x onerror=alert(1)&gt;");
+  });
+
+  it("bounds huge tables, deep mixed nesting, long lines, and pathological Unicode", () => {
+    const columns = Array.from({ length: 2_000 }, (_, index) => `column-${index}`);
+    const table = `${columns.join("|")}\n${columns.map(() => "---").join("|")}\n${columns.join("|")}`;
+    const nested = `${"> ".repeat(1_000)}${"    ".repeat(1_000)}deep`;
+    const unicode = "🚀́‏👩‍💻".repeat(20_000);
+    const bounded = boundChatMarkdown(`${table}\n${nested}\n${unicode}`);
+    const lines = bounded.split("\n");
+
+    expect(lines.every((line) => line.length <= 32_768)).toBe(true);
+    expect(lines[3]?.match(/>/g)?.length).toBeLessThanOrEqual(16);
+    expect(() => renderChatMarkdown(bounded)).not.toThrow();
+    expect(renderChatMarkdown(table)).toContain("<table>");
+  });
 });
