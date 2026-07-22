@@ -11,6 +11,7 @@
   import ImagePlus from "@lucide/svelte/icons/image-plus";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import Paperclip from "@lucide/svelte/icons/paperclip";
+  import Plus from "@lucide/svelte/icons/plus";
   import Square from "@lucide/svelte/icons/square";
   import X from "@lucide/svelte/icons/x";
   import * as chatApi from "$lib/api/chat";
@@ -40,6 +41,7 @@
   let textarea: HTMLTextAreaElement | undefined = $state();
   let textareaFocused = false;
   let fileInput: HTMLInputElement | undefined = $state();
+  let attachmentMenu: HTMLDetailsElement | undefined = $state();
   let menuEntries = $state<(ChatWorkspacePathRead | ChatPromptCatalogEntry)[]>([]);
   let menuKind = $state<"mention" | "skill" | "command" | null>(null);
   let menuIndex = $state(0);
@@ -279,9 +281,11 @@
         ? t("chat.composer.invalidTrait")
         : t("chat.composer.messageRequired");
       const targetField = field === "trust" ? "safety" : field;
-      const target = targetField
-        ? document.querySelector<HTMLElement>(`[data-chat-field="${targetField}"]`)
-        : textarea;
+      const target = targetField === "provider" || targetField === "model"
+        ? document.querySelector<HTMLElement>("[data-chat-model-trigger]")
+        : targetField
+          ? document.querySelector<HTMLElement>(`[data-chat-field="${targetField}"]`)
+          : textarea;
       target?.focus();
       return;
     }
@@ -411,48 +415,79 @@
 <section class:hero class="chat-composer" data-chat-composer-container role="group" ondragover={(event) => event.preventDefault()} ondrop={handleDrop}>
   {#if chat.interaction?.queuedFollowup}<div class="queued-row"><div><strong>{t("chat.composer.queued")}</strong><p>{chat.interaction.queuedFollowup.text}</p></div><button type="button" onclick={() => void chat.editQueuedFollowup()}>{t("chat.composer.editQueued")}</button><button type="button" onclick={() => void chat.cancelQueuedFollowup()}>{t("chat.composer.cancelQueued")}</button></div>{/if}
   {#if chat.sendError}<div role="alert" class="recovery-row"><strong>{t("chat.composer.launchFailed")}</strong><span>{chat.sendError}</span><button type="button" onclick={() => void run(() => chat.retryFailedSend())}>{t("chat.timeline.retry")}</button><button type="button" onclick={() => void chat.editFailedSend()}>{t("chat.composer.editDraft")}</button><button type="button" onclick={() => void chat.changeProviderAfterFailure()}>{t("chat.composer.changeProvider")}</button></div>{/if}
-  <ChatModelControls compact={!hero} />
   {#if activeTurn}<p class="active-turn-modes">{t("chat.composer.activeTurnModes", activeTurn.modes.safetyMode === "supervised" ? t("chat.hero.supervised") : activeTurn.modes.safetyMode === "auto_accept_edits" ? t("chat.hero.autoAccept") : t("chat.hero.fullAccess"), activeTurn.modes.interactionMode === "plan" ? t("chat.hero.plan") : t("chat.hero.build"))}</p>{/if}
   {#if chat.composerAttachments.length > 0}<div class="attachment-grid">{#each chat.composerAttachments as attachment}<article><button type="button" class="attachment-preview" aria-label={t("chat.composer.previewAttachment", attachment.originalDisplayName)} onclick={() => void openPreview(attachment.id)}>{#if thumbnailUrls[attachment.id]}<img src={thumbnailUrls[attachment.id]} alt={attachment.originalDisplayName} />{:else}<LoaderCircle size={16} class="animate-spin" />{/if}</button><span title={attachment.originalDisplayName}>{attachment.originalDisplayName}</span><button type="button" aria-label={t("chat.composer.removeAttachment", attachment.originalDisplayName)} onclick={() => chat.removeComposerAttachment(attachment.id)}><X size={12} /></button></article>{/each}</div>{/if}
   {#if chat.composer.mentions.length > 0}<div class="mention-chips">{#each chat.composer.mentions as mention}<span title={mention.relativePath}><AtSign size={11} />{mention.relativePath}{#if mention.ignored}<small>{t("chat.composer.ignored")}</small>{/if}<button type="button" aria-label={t("chat.composer.removeAttachment", mention.relativePath)} onclick={() => chat.setComposerMentions(chat.composer.mentions.filter((entry) => entry.relativePath !== mention.relativePath))}><X size={10} /></button></span>{/each}</div>{/if}
   <div class="editor-shell">
     <textarea bind:this={textarea} data-chat-composer value={chat.composer.text} placeholder={action.primary === "stop" ? t("chat.composer.placeholderWorking") : t("chat.composer.placeholder")} disabled={chat.selectedThread?.archivedAt !== null && chat.selectedThread !== null} aria-label={t("chat.composer.placeholder")} onfocus={() => { textareaFocused = true; restoreComposerFocus = true; }} onblur={(event) => { const target = event.currentTarget; queueMicrotask(() => { if (target.isConnected) { textareaFocused = false; restoreComposerFocus = false; } }); }} onselect={(event) => rememberSelection(event.currentTarget)} onkeyup={(event) => rememberSelection(event.currentTarget)} oninput={handleInput} onkeydown={handleKeydown} onpaste={handlePaste}></textarea>
     {#if menuKind}<div class="composer-menu" role="listbox" aria-label={menuKind === "mention" ? t("chat.composer.mentionFiles") : menuKind === "skill" ? "$ skills" : "/ commands"}>{#if menuKind === "mention"}<label><input type="checkbox" bind:checked={includeIgnored} onchange={() => textarea && void updateMenu(textarea.value, textarea.selectionStart)} />{t("chat.composer.showIgnored")}</label>{/if}{#if menuLoading}<p><LoaderCircle size={13} class="animate-spin" />{t("common.loading")}</p>{:else if menuEntries.length === 0}<p>{t("chat.composer.noMatches")}</p>{:else}{#each menuEntries as entry, index}<button type="button" class:selected={index === menuIndex} role="option" aria-selected={index === menuIndex} onclick={() => chooseMenuEntry(index)}>{#if "relativePath" in entry}<strong>{entry.displayName}</strong><small>{entry.relativePath}{#if entry.ignored} · {t("chat.composer.ignored")}{/if}</small>{:else}<strong>{entry.value} · {entry.label}</strong>{#if entry.description}<small>{entry.description}</small>{/if}{#if entry.stale}<small>{t("chat.composer.staleEntry")}</small>{/if}{/if}</button>{/each}{#if menuCursor}<button type="button" onclick={() => void loadMoreMentions()}>{t("chat.composer.loadMore")}</button>{/if}{/if}</div>{/if}
-    <div class="composer-toolbar"><div class="toolbar-left"><input bind:this={fileInput} class="sr-only" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple onchange={(event) => void importFiles([...(event.currentTarget.files ?? [])])} /><button type="button" aria-label={t("chat.composer.attachImages")} title={t("chat.composer.imageLimit")} disabled={importing} onclick={() => fileInput?.click()}>{#if importing}<LoaderCircle size={14} class="animate-spin" />{:else}<Paperclip size={14} />{/if}</button><button type="button" aria-label={t("chat.composer.attachImages")} onclick={() => void run(() => chat.pickComposerImages(t("chat.composer.imagePickerTitle")))}><ImagePlus size={14} /></button><button type="button" aria-label={t("chat.composer.mentionFiles")} onclick={() => { const start = textarea?.selectionStart ?? chat.composer.text.length; chat.setComposerText(`${chat.composer.text.slice(0, start)}@${chat.composer.text.slice(start)}`); void tick().then(() => { if (textarea) { textarea.focus(); textarea.setSelectionRange(start + 1, start + 1); void updateMenu(textarea.value, start + 1); } }); }}><AtSign size={14} /></button>{#if contextLabel()}<span class:warning={meter?.warning} title={chat.interaction?.automaticCompactionReported ? t("chat.composer.automaticCompactionReported") : meter?.warning ? t("chat.composer.contextCompaction") : undefined}>{#if meter?.ratio !== null}<meter min="0" max="1" value={meter?.ratio ?? 0} aria-label={contextLabel() ?? undefined}></meter>{/if}{contextLabel()}</span>{/if}{#if hasProviderStatus}<details class="provider-status"><summary>{t("chat.composer.providerStatus")}</summary><div>{#if chat.interaction?.accountStatus}<strong>{t("chat.composer.account")}</strong>{#if chat.interaction.accountStatus.accountLabel}<p>{chat.interaction.accountStatus.accountLabel}</p>{/if}{#if chat.interaction.accountStatus.planLabel}<p>{chat.interaction.accountStatus.planLabel}</p>{/if}{/if}{#if chat.interaction?.rateLimitStatus}<strong>{t("chat.composer.rateLimit")}</strong><p>{chat.interaction.rateLimitStatus.limited ? t("chat.composer.rateLimited") : t("chat.composer.rateAvailable")}</p>{#if chat.interaction.rateLimitStatus.detail}<p>{chat.interaction.rateLimitStatus.detail}</p>{/if}{#if resetLabel()}<p>{resetLabel()}</p>{/if}{/if}{#if costLabel()}<strong>{costLabel()}</strong>{/if}</div></details>{/if}</div><div class="toolbar-right">{#if action.followup === "retain"}<small>{t("chat.composer.retained")}</small>{/if}{#if action.followup === "steer"}<button type="button" onclick={() => void run(() => chat.steerComposer())}><ArrowUp size={14} />{t("chat.composer.steer")}</button>{:else if action.followup === "queue"}<button type="button" onclick={() => void run(() => chat.queueComposer())}><ArrowUp size={14} />{t("chat.composer.queue")}</button>{/if}{#if forceStopAvailable}<button type="button" class="force-stop" title={t("chat.composer.forceStopDescription")} onclick={() => void run(() => chat.stop(true))}>{t("chat.composer.forceStop")}</button>{/if}{#if action.primary !== "resolve_request"}<button type="button" class="primary-action" disabled={sending || action.primary === "stopping" || (action.primary === "send" && !action.sendEnabled)} aria-label={action.primary === "stop" ? t("chat.composer.stop") : t("chat.composer.send")} onclick={() => void performPrimaryAction()}>{#if sending}<LoaderCircle size={14} class="animate-spin" />{:else if action.primary === "stop"}<Square size={13} />{t("chat.composer.stop")}{:else if action.primary === "stopping"}<LoaderCircle size={14} class="animate-spin" />{t("chat.composer.stopping")}{:else}<ArrowUp size={14} />{t("chat.composer.send")}{/if}</button>{/if}</div></div>
+    <div class="composer-toolbar">
+      <div class="toolbar-left">
+        <input bind:this={fileInput} class="sr-only" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple onchange={(event) => void importFiles([...(event.currentTarget.files ?? [])])} />
+        <details bind:this={attachmentMenu} class="attachment-menu">
+          <summary aria-label={t("chat.composer.attachImages")}><Plus size={15} /></summary>
+          <div>
+            <button type="button" title={t("chat.composer.imageLimit")} disabled={importing} onclick={() => { attachmentMenu?.removeAttribute("open"); fileInput?.click(); }}>{#if importing}<LoaderCircle size={14} class="animate-spin" />{:else}<Paperclip size={14} />{/if}{t("chat.composer.attachImages")}</button>
+            <button type="button" onclick={() => { attachmentMenu?.removeAttribute("open"); void run(() => chat.pickComposerImages(t("chat.composer.imagePickerTitle"))); }}><ImagePlus size={14} />{t("chat.composer.imagePickerTitle")}</button>
+            <button type="button" onclick={() => { attachmentMenu?.removeAttribute("open"); const start = textarea?.selectionStart ?? chat.composer.text.length; chat.setComposerText(`${chat.composer.text.slice(0, start)}@${chat.composer.text.slice(start)}`); void tick().then(() => { if (textarea) { textarea.focus(); textarea.setSelectionRange(start + 1, start + 1); void updateMenu(textarea.value, start + 1); } }); }}><AtSign size={14} />{t("chat.composer.mentionFiles")}</button>
+          </div>
+        </details>
+        <ChatModelControls compact={!hero} />
+        {#if contextLabel()}<span class="context-status" class:warning={meter?.warning} title={chat.interaction?.automaticCompactionReported ? t("chat.composer.automaticCompactionReported") : meter?.warning ? t("chat.composer.contextCompaction") : undefined}>{#if meter?.ratio !== null}<meter min="0" max="1" value={meter?.ratio ?? 0} aria-label={contextLabel() ?? undefined}></meter>{/if}{contextLabel()}</span>{/if}
+        {#if hasProviderStatus}<details class="provider-status"><summary>{t("chat.composer.providerStatus")}</summary><div>{#if chat.interaction?.accountStatus}<strong>{t("chat.composer.account")}</strong>{#if chat.interaction.accountStatus.accountLabel}<p>{chat.interaction.accountStatus.accountLabel}</p>{/if}{#if chat.interaction.accountStatus.planLabel}<p>{chat.interaction.accountStatus.planLabel}</p>{/if}{/if}{#if chat.interaction?.rateLimitStatus}<strong>{t("chat.composer.rateLimit")}</strong><p>{chat.interaction.rateLimitStatus.limited ? t("chat.composer.rateLimited") : t("chat.composer.rateAvailable")}</p>{#if chat.interaction.rateLimitStatus.detail}<p>{chat.interaction.rateLimitStatus.detail}</p>{/if}{#if resetLabel()}<p>{resetLabel()}</p>{/if}{/if}{#if costLabel()}<strong>{costLabel()}</strong>{/if}</div></details>{/if}
+      </div>
+      <div class="toolbar-right">
+        {#if action.followup === "retain"}<small>{t("chat.composer.retained")}</small>{/if}
+        {#if action.followup === "steer"}<button type="button" class="round-action" title={t("chat.composer.steer")} aria-label={t("chat.composer.steer")} onclick={() => void run(() => chat.steerComposer())}><ArrowUp size={14} /></button>{:else if action.followup === "queue"}<button type="button" class="round-action" title={t("chat.composer.queue")} aria-label={t("chat.composer.queue")} onclick={() => void run(() => chat.queueComposer())}><ArrowUp size={14} /></button>{/if}
+        {#if forceStopAvailable}<button type="button" class="force-stop" title={t("chat.composer.forceStopDescription")} onclick={() => void run(() => chat.stop(true))}>{t("chat.composer.forceStop")}</button>{/if}
+        {#if action.primary !== "resolve_request"}<button type="button" class="primary-action" disabled={sending || action.primary === "stopping" || (action.primary === "send" && !action.sendEnabled)} aria-label={action.primary === "stop" ? t("chat.composer.stop") : t("chat.composer.send")} title={action.primary === "stop" ? t("chat.composer.stop") : t("chat.composer.send")} onclick={() => void performPrimaryAction()}>{#if sending}<LoaderCircle size={15} class="animate-spin" />{:else if action.primary === "stop"}<Square size={13} />{:else if action.primary === "stopping"}<LoaderCircle size={15} class="animate-spin" />{:else}<ArrowUp size={16} />{/if}</button>{/if}
+      </div>
+    </div>
   </div>
-  {#if pending}<ChatRequestPanel {pending} />{/if}
+  {#if pending}<div class="request-panel-shell"><ChatRequestPanel {pending} /></div>{/if}
   {#if operationError || chat.composer.error}<p role="alert" class="composer-error">{operationError ?? chat.composer.error}</p>{/if}
 </section>
 
 {#if previewAttachment && previewUrl}<div class="fixed inset-0 z-60 grid place-items-center bg-black/50 p-4"><button type="button" class="absolute inset-0" aria-label={t("chat.cancel")} onclick={closePreview}></button><div bind:this={previewDialog} class="relative flex max-h-full max-w-full flex-col rounded-lg border border-border bg-background p-3 shadow-2xl" role="dialog" aria-modal="true" aria-label={t("chat.composer.previewAttachment", previewAttachment.originalDisplayName)} tabindex="-1" onkeydown={handlePreviewKeydown}><header class="mb-2 flex items-center gap-2"><strong class="min-w-0 flex-1 truncate text-sm">{previewAttachment.originalDisplayName}</strong><span class="text-xs text-muted-foreground">{formatNumber(localization.locale, previewAttachment.byteSize)} B</span><button type="button" aria-label={t("chat.cancel")} onclick={closePreview}><X size={14} /></button></header><img class="min-h-0 max-h-[75vh] max-w-[85vw] object-contain" src={previewUrl} alt={previewAttachment.originalDisplayName} /></div></div>{/if}
 
 <style>
-  .chat-composer { container-type: inline-size; container-name: chat-composer; position: relative; display: grid; gap: 0.5rem; width: min(100% - 1rem, 52rem); margin: 0 auto 0.5rem; border: 1px solid var(--border); border-radius: 0.75rem; background: var(--card); padding: 0.65rem; box-shadow: 0 8px 24px rgb(0 0 0 / 0.08); }
-  .chat-composer.hero { width: min(100%, 52rem); margin-top: 1.25rem; margin-bottom: 0; text-align: left; }
-  .editor-shell { position: relative; border: 1px solid var(--border); border-radius: 0.55rem; background: var(--background); }
-  .active-turn-modes { color: var(--muted-foreground); font-size: 0.666667rem; }
-  textarea[data-chat-composer] { display: block; width: 100%; min-height: 44px; resize: none; background: transparent; padding: 0.65rem 0.7rem 0.25rem; color: var(--foreground); font-size: 0.866667rem; line-height: 1.35rem; outline: none; }
-  .composer-toolbar { display: flex; min-height: 2.25rem; align-items: center; justify-content: space-between; gap: 0.4rem; padding: 0.25rem 0.35rem; }
-  .toolbar-left, .toolbar-right { display: flex; min-width: 0; align-items: center; gap: 0.25rem; }
-  .toolbar-left button, .toolbar-right button { display: inline-flex; min-height: 1.9rem; align-items: center; justify-content: center; gap: 0.3rem; border-radius: 0.35rem; padding: 0.25rem 0.4rem; font-size: 0.7rem; }
-  .toolbar-left button:hover, .toolbar-right button:hover { background: var(--accent); }
-  .toolbar-left span { overflow: hidden; max-width: 12rem; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-foreground); font-size: 0.666667rem; }
-  .toolbar-left span.warning { color: var(--status-tentative); }
-  .toolbar-left meter { width: 2.5rem; height: 0.35rem; }
+  .chat-composer { container-type: inline-size; container-name: chat-composer; position: relative; display: grid; width: min(100%, 48rem); margin: 0 auto; overflow: visible; border: 1px solid var(--border); border-radius: 1.35rem; background: color-mix(in srgb, var(--card) 88%, transparent); box-shadow: 0 18px 48px -20px rgb(0 0 0 / 0.32), 0 4px 14px -7px rgb(0 0 0 / 0.24); backdrop-filter: blur(16px); }
+  .chat-composer:focus-within { border-color: color-mix(in srgb, var(--ring) 50%, var(--border)); }
+  .chat-composer.hero { width: min(100%, 48rem); margin-top: 1.5rem; text-align: left; }
+  .chat-composer > :not(.editor-shell) { margin-inline: 0.75rem; }
+  .editor-shell { position: relative; }
+  .active-turn-modes { margin-top: 0.6rem; color: var(--muted-foreground); font-size: 0.666667rem; }
+  textarea[data-chat-composer] { display: block; width: 100%; min-height: 76px; resize: none; background: transparent; padding: 1rem 1.25rem 0.35rem; color: var(--foreground); font-size: 0.933333rem; line-height: 1.4rem; outline: none; }
+  textarea[data-chat-composer]::placeholder { color: color-mix(in srgb, var(--muted-foreground) 52%, transparent); }
+  .composer-toolbar { display: flex; min-height: 3rem; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.3rem 0.65rem 0.65rem; }
+  .toolbar-left, .toolbar-right { display: flex; min-width: 0; align-items: center; gap: 0.3rem; }
+  .toolbar-left { flex: 1; overflow: visible; }
+  .toolbar-right { flex: 0 0 auto; }
+  .attachment-menu { position: relative; flex: 0 0 auto; }
+  .attachment-menu summary, .round-action { display: inline-flex; width: 1.9rem; height: 1.9rem; cursor: pointer; list-style: none; align-items: center; justify-content: center; border-radius: 0.5rem; color: var(--muted-foreground); }
+  .attachment-menu summary::-webkit-details-marker { display: none; }
+  .attachment-menu summary:hover, .round-action:hover { background: var(--accent); color: var(--foreground); }
+  .attachment-menu > div { position: absolute; left: 0; bottom: calc(100% + 0.5rem); z-index: 35; display: grid; min-width: 13rem; gap: 0.15rem; border: 1px solid var(--border); border-radius: 0.7rem; background: var(--popover); padding: 0.35rem; box-shadow: 0 14px 36px rgb(0 0 0 / 0.2); }
+  .attachment-menu > div button { display: flex; min-height: 2rem; align-items: center; gap: 0.55rem; border-radius: 0.4rem; padding: 0.35rem 0.5rem; color: var(--foreground); font-size: 0.733333rem; text-align: left; }
+  .attachment-menu > div button:hover { background: var(--accent); }
+  .context-status { overflow: hidden; max-width: 9rem; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-foreground); font-size: 0.666667rem; }
+  .context-status.warning { color: var(--status-tentative); }
+  .context-status meter { width: 2.5rem; height: 0.35rem; }
   .provider-status { position: relative; }
   .provider-status summary { cursor: pointer; color: var(--muted-foreground); font-size: 0.666667rem; }
   .provider-status > div { position: absolute; left: 0; bottom: calc(100% + 0.4rem); z-index: 30; width: min(20rem, 80vw); border: 1px solid var(--border); border-radius: 0.4rem; background: var(--popover); padding: 0.55rem; box-shadow: 0 8px 24px rgb(0 0 0 / 0.2); }
   .provider-status strong, .provider-status p { display: block; margin: 0.1rem 0; white-space: normal; font-size: 0.666667rem; }
   .toolbar-right small { max-width: 18rem; color: var(--muted-foreground); font-size: 0.666667rem; }
-  .primary-action { background: var(--primary); color: var(--primary-foreground); }
+  .primary-action { display: inline-flex; width: 2.2rem; height: 2.2rem; align-items: center; justify-content: center; border-radius: 999px; background: var(--primary); color: var(--primary-foreground); box-shadow: 0 2px 8px color-mix(in srgb, var(--primary) 25%, transparent); }
+  .primary-action:hover:not(:disabled) { filter: brightness(1.04); }
   .primary-action:disabled { opacity: 0.5; }
   .force-stop { color: var(--destructive); }
-  .attachment-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(7rem, 1fr)); gap: 0.4rem; }
+  .attachment-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(7rem, 1fr)); gap: 0.4rem; margin-top: 0.65rem; }
   .attachment-grid article { position: relative; display: grid; grid-template-columns: 2.5rem minmax(0, 1fr) auto; align-items: center; gap: 0.35rem; border: 1px solid var(--border); border-radius: 0.45rem; padding: 0.3rem; }
   .attachment-grid article > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.666667rem; }
   .attachment-preview { display: grid; width: 2.5rem; height: 2.5rem; place-items: center; overflow: hidden; border-radius: 0.3rem; background: var(--muted); }
   .attachment-preview img { width: 100%; height: 100%; object-fit: cover; }
-  .mention-chips { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+  .mention-chips { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.65rem; }
   .mention-chips > span { display: inline-flex; max-width: 100%; align-items: center; gap: 0.2rem; border: 1px solid var(--border); border-radius: 999px; padding: 0.2rem 0.4rem; font-size: 0.666667rem; }
   .mention-chips small { color: var(--status-tentative); }
   .composer-menu { position: absolute; inset-inline: 0; bottom: calc(100% + 0.35rem); z-index: 25; max-height: min(20rem, 55vh); overflow: auto; border: 1px solid var(--border); border-radius: 0.5rem; background: var(--popover); padding: 0.35rem; box-shadow: 0 12px 30px rgb(0 0 0 / 0.22); }
@@ -462,13 +497,15 @@
   .composer-menu strong, .composer-menu small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .composer-menu strong { font-size: 0.733333rem; }
   .composer-menu small { color: var(--muted-foreground); font-size: 0.666667rem; }
-  .queued-row, .recovery-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; border: 1px solid var(--border); border-radius: 0.45rem; padding: 0.45rem; font-size: 0.7rem; }
+  .queued-row, .recovery-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin-top: 0.65rem; border: 1px solid var(--border); border-radius: 0.55rem; padding: 0.45rem; font-size: 0.7rem; }
   .queued-row div { min-width: 0; flex: 1; }
   .queued-row p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-foreground); }
   .queued-row button, .recovery-row button { border-radius: 0.3rem; padding: 0.25rem 0.4rem; }
   .recovery-row { border-color: color-mix(in oklab, var(--destructive) 45%, var(--border)); color: var(--destructive); }
-  .composer-error { color: var(--destructive); font-size: 0.733333rem; }
-  @container chat-composer (max-width: 500px) { .composer-toolbar { align-items: flex-end; } .toolbar-left, .toolbar-right { flex-wrap: wrap; } .toolbar-left span { max-width: 8rem; } .toolbar-right small { max-width: 10rem; } }
-  @container chat-composer (max-width: 300px) { .chat-composer { padding: 0.4rem; } .composer-toolbar { align-items: stretch; flex-direction: column; } .toolbar-right { justify-content: flex-end; } .attachment-grid { grid-template-columns: 1fr; } }
+  .composer-error { margin-bottom: 0.65rem; color: var(--destructive); font-size: 0.733333rem; }
+  .request-panel-shell { margin-bottom: 0.75rem; }
+  @container chat-composer (max-width: 640px) { .composer-toolbar { align-items: center; } .toolbar-left { overflow-x: auto; scrollbar-width: none; } .toolbar-left:has(:global([data-chat-model-trigger][aria-expanded="true"])) { overflow: visible; } .toolbar-left::-webkit-scrollbar { display: none; } .context-status, .provider-status { display: none; } .toolbar-right small { max-width: 8rem; } }
+  @container chat-composer (max-width: 300px) { textarea[data-chat-composer] { padding-inline: 0.8rem; } .composer-toolbar { padding-inline: 0.4rem; } .attachment-grid { grid-template-columns: 1fr; } }
   @media (prefers-reduced-motion: reduce) { .chat-composer { scroll-behavior: auto; } }
+  @supports not ((backdrop-filter: blur(1px))) { .chat-composer { background: var(--card); } }
 </style>

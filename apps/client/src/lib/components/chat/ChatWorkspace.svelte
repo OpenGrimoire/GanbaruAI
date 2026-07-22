@@ -516,15 +516,22 @@
     onkeydown={(event) => resizePanelFromKey(event, "rail")}
   />
 
-  <main class="main-shell relative flex min-w-0 flex-1 flex-col bg-background/35" class:maximized-hidden={inspectorMaximized}>
+  <main class="main-shell relative flex min-w-0 flex-1 flex-col" class:maximized-hidden={inspectorMaximized}>
     <ChatConversationHeader showRailButton={layout.railPresentation === "sheet" || !chat.railOpen} onOpenRail={() => { chat.railOpen = true; }} />
     {#if loadError}
       <div role="alert" class="m-auto max-w-md p-4 text-center text-sm text-destructive">{loadError}<div><button type="button" class="chat-secondary-button mt-3" onclick={() => { loadError = null; void chat.reload().catch((error) => { loadError = error instanceof Error ? error.message : String(error); }); }}>{t("common.retry")}</button></div></div>
     {:else if chat.loading}
       <div class="m-auto text-sm text-muted-foreground">{t("common.loading")}</div>
     {:else if chat.selectedThread}
-      <ChatTimeline />
-      {#if !chat.selectedThread.archivedAt}<ChatComposer />{/if}
+      <div class="chat-conversation-shell">
+        <ChatTimeline />
+        {#if !chat.selectedThread.archivedAt}
+          <div class="chat-composer-dock">
+            <div class="chat-composer-backdrop" aria-hidden="true"></div>
+            <ChatComposer />
+          </div>
+        {/if}
+      </div>
     {:else}
       <ChatFirstUse />
     {/if}
@@ -561,6 +568,11 @@
   .chat-inspector-shell.open { width: min(var(--chat-inspector-width), 34cqw); min-width: min(240px, 34cqw); border-left-width: 1px; }
   .chat-inspector-shell.maximized { width: 100%; min-width: 0; border-left-width: 0; }
   .chat-sheet-backdrop { position: absolute; inset: 0; z-index: 30; background: rgb(0 0 0 / 0.28); }
+  .main-shell { background: var(--cal-bg); }
+  .chat-conversation-shell { position: relative; display: flex; min-height: 0; flex: 1; flex-direction: column; overflow: hidden; }
+  .chat-composer-dock { pointer-events: none; position: absolute; inset-inline: 0; bottom: 0; z-index: 20; padding: 0.5rem 0.75rem 0.75rem; }
+  .chat-composer-backdrop { position: absolute; inset: -1.5rem 0 -2rem; background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--cal-bg) 72%, transparent) 35%, var(--cal-bg) 74%); backdrop-filter: blur(10px); -webkit-mask-image: linear-gradient(to bottom, transparent, black 35%); mask-image: linear-gradient(to bottom, transparent, black 35%); }
+  .chat-composer-dock :global(.chat-composer) { pointer-events: auto; }
   .chat-command { display: flex; width: 100%; min-height: 2.25rem; align-items: center; gap: 0.5rem; border-radius: 0.375rem; padding: 0.375rem 0.5rem; font-size: 0.8rem; }
   .chat-command:hover { background: var(--accent); }
   .chat-workspace[data-rail-presentation="sheet"] .chat-rail-shell {

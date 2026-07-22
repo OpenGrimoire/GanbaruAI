@@ -101,8 +101,8 @@ export const chat = {
     conversationPending: "This chat is ready. Its durable timeline is added in the next implementation phase.",
   },
   composer: {
-    placeholder: "Describe what you want the coding agent to do",
-    placeholderWorking: "Add a follow-up while the agent is working",
+    placeholder: "Ask anything, @tag files or folders, $use skills, or / for commands",
+    placeholderWorking: "Add a follow-up, steer the current turn, or queue next",
     send: "Send",
     steer: "Steer current turn",
     queue: "Queue next",

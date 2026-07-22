@@ -104,8 +104,8 @@ export const chat = {
     conversationPending: "Este chat está listo. Su historial durable se agrega en la siguiente fase de implementación.",
   },
   composer: {
-    placeholder: "Describe lo que quieres que haga el agente de programación",
-    placeholderWorking: "Agrega un seguimiento mientras el agente trabaja",
+    placeholder: "Pregunta lo que quieras, etiqueta con @, usa habilidades con $ o comandos con /",
+    placeholderWorking: "Agrega un seguimiento, redirige el turno actual o pon el siguiente en cola",
     send: "Enviar",
     steer: "Redirigir turno actual",
     queue: "Poner en cola",

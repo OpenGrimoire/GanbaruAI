@@ -35,7 +35,7 @@
 <div class="flex min-h-0 flex-1 items-center justify-center overflow-y-auto p-4">
   <section class="flex w-full max-w-2xl flex-col items-center text-center">
     {#if operationError}<p role="alert" class="mb-3 text-sm text-destructive">{operationError}</p>{/if}
-    <div class="mb-4 flex size-12 items-center justify-center rounded-2xl border border-border bg-card"><MessageSquare size={22} /></div>
+    {#if firstUse.kind !== "no_thread"}<div class="mb-4 flex size-12 items-center justify-center rounded-2xl border border-border bg-card"><MessageSquare size={22} /></div>{/if}
     {#if firstUse.kind === "no_provider"}
       <h2 class="text-lg font-semibold">{t("chat.firstUse.noProviderTitle")}</h2><p class="mt-2 max-w-lg text-sm text-muted-foreground">{t("chat.firstUse.noProviderDescription")}</p><div class="mt-5 flex flex-wrap justify-center gap-2"><button type="button" class="chat-primary-button" onclick={() => settings.open("chat", { chatSubsection: "providers" })}><Settings size={15} />{t("chat.firstUse.setUpProvider")}</button></div><div class="mt-5 flex flex-wrap justify-center gap-2 text-xs text-muted-foreground"><span>Codex</span><span>Claude</span><span>Cursor</span><span>OpenCode</span></div>
     {:else if firstUse.kind === "no_workspace"}
@@ -50,7 +50,7 @@
     {:else if firstUse.kind === "archived_thread"}
       <h2 class="text-lg font-semibold">{t("chat.firstUse.archivedTitle")}</h2><p class="mt-2 max-w-lg text-sm text-muted-foreground">{t("chat.firstUse.archivedDescription")}</p><button type="button" class="chat-primary-button mt-5" onclick={() => run(() => chat.restoreThread(firstUse.thread))}>{t("chat.restore")}</button>
     {:else if firstUse.kind === "no_thread"}
-      <h2 class="text-xl font-semibold">{t("chat.firstUse.noThreadTitle")}</h2><p class="mt-2 max-w-lg text-sm text-muted-foreground">{t("chat.firstUse.noThreadDescription")}</p>
+      <h2 class="text-2xl font-medium tracking-tight">{t("chat.firstUse.noThreadTitle")}</h2><p class="mt-2 max-w-lg text-sm text-muted-foreground">{t("chat.firstUse.noThreadDescription")}</p>
       <ChatComposer hero />
     {:else}
       <h2 class="text-lg font-semibold">{firstUse.thread.title}</h2>

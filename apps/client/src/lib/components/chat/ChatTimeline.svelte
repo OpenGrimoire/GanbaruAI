@@ -259,7 +259,7 @@
   {#if selectedThread?.state === "error"}<div class="chat-timeline-banner text-destructive"><CircleAlert size={14} /><span>{t("chat.timeline.threadError")}</span><button type="button" onclick={() => chat.newDraft(selectedThread.workspaceId)}><MessageSquare size={13} />{t("chat.timeline.startNewThread")}</button></div>{/if}
   {#if operationError || chat.timelineError}<div role="alert" class="chat-timeline-banner text-destructive"><span>{operationError ?? chat.timelineError}</span>{#if selectedThread}<button type="button" onclick={() => { operationError = null; chat.selectThread(selectedThread.id); }}>{t("chat.timeline.retry")}</button>{/if}</div>{/if}
   <div bind:this={scroller} class="h-full overflow-y-auto" role="feed" aria-busy={chat.timelineLoading || undefined} aria-label={t("chat.title")} onscroll={handleScroll}>
-    <div class="mx-auto w-full max-w-3xl px-4 py-6" style={`padding-top:${virtualWindow.paddingTop + 24}px;padding-bottom:${virtualWindow.paddingBottom + 96}px`}>
+    <div class="mx-auto w-full max-w-3xl px-3 py-4 @min-[560px]:px-5" style={`padding-top:${virtualWindow.paddingTop + 16}px;padding-bottom:${virtualWindow.paddingBottom + 180}px`}>
       {#if loadingOlder}<div class="mb-3 flex justify-center text-xs text-muted-foreground"><LoaderCircle size={14} class="animate-spin" />{t("chat.timeline.loadingOlder")}</div>{/if}
       {#if chat.timelineLoading && displayRows.length === 0}<div class="py-12 text-center text-sm text-muted-foreground">{t("common.loading")}</div>{/if}
       {#each virtualWindow.items as virtual (virtual.row.id)}
@@ -278,11 +278,11 @@
                   {#each message.userContext.terminalContext as context}<button type="button" title={t("chat.timeline.terminalContext")} onclick={() => copy(context)}><Terminal size={12} /><span>{context}</span></button>{/each}
                 </div>
               {/if}
-              <div class="mt-2 flex flex-wrap items-center gap-2 text-[0.666667rem] text-muted-foreground">
+              <div class="chat-message-meta mt-2 flex flex-wrap items-center gap-2 text-muted-foreground">
                 {#if message.role === "user" && message.markdown.length > 1200}<button type="button" onclick={() => { expandedMessages = toggle(expandedMessages, message.id); }}>{expandedMessages.includes(message.id) ? t("chat.timeline.showLess") : t("chat.timeline.showMore")}</button>{/if}
                 {#if message.role === "user"}<span title={t("chat.timeline.timestamp")}>{timestampLabel(message.createdAt)}</span>{/if}
                 {#if message.role === "user" && message.userContext?.preCheckpointId}<button type="button" class="inline-flex items-center gap-1" onclick={() => window.dispatchEvent(new CustomEvent("ganbaru-ai:chat-revert-message", { detail: { threadId: chat.selectedThreadId, checkpointId: message.userContext?.preCheckpointId, turnId: message.turnId } }))}><RotateCcw size={11} />{t("chat.timeline.revert")}</button>{/if}
-                <button type="button" class="ml-auto inline-flex items-center gap-1" onclick={() => copy(message.markdown)}><Copy size={11} />{t("chat.timeline.copy")}</button>
+                <button type="button" class="inline-flex items-center gap-1" class:ml-auto={message.role === "user"} onclick={() => copy(message.markdown)}><Copy size={11} />{t("chat.timeline.copy")}</button>
                 {#if message.metadata}<span>{durationLabel(message.metadata.durationMs)}</span>{#if message.metadata.modelId}<span>{message.metadata.modelId}</span>{/if}{#if tokenUsageLabel(message)}<span>{tokenUsageLabel(message)}</span>{/if}{#if message.metadata.changedFiles.length > 0}<span>{t("chat.timeline.changedFiles", formatNumber(localization.locale, message.metadata.changedFiles.length))}</span>{/if}{/if}
               </div>
             </article>
@@ -291,7 +291,7 @@
           {:else if row.kind === "activity_group"}
             {@const group = row as TimelineActivityGroupRow}<button type="button" class="chat-activity-group" onclick={() => { expandedGroups = toggle(expandedGroups, group.id); }}>{#if group.expanded}<ChevronDown size={13} />{:else}<ChevronRight size={13} />{/if}<span class="min-w-0 flex-1 truncate">{group.latest.title}</span><span>{t("chat.timeline.earlierSteps", formatNumber(localization.locale, group.earlierRows.length))}</span></button>{#if group.expanded}{#each [...group.earlierRows, group.latest] as activity}<details class="chat-activity ml-4" class:failed={activity.status === "failed"}><summary><Wrench size={13} /><span class="min-w-0 flex-1 truncate">{activity.title}</span><span>{statusLabel(activity.status)}</span></summary>{#if activity.detail}<pre>{activity.detail}</pre>{/if}</details>{/each}{/if}
           {:else if row.kind === "turn_fold"}
-            {@const fold = row as TimelineTurnFoldRow}<button type="button" class="chat-turn-fold" onclick={() => { expandedTurns = toggle(expandedTurns, fold.turnId); }}>{#if fold.expanded}<ChevronDown size={13} />{:else}<ChevronRight size={13} />{/if}{foldLabel(fold)}</button>
+            {@const fold = row as TimelineTurnFoldRow}<button type="button" class="chat-turn-fold" onclick={() => { expandedTurns = toggle(expandedTurns, fold.turnId); }}>{foldLabel(fold)}{#if fold.expanded}<ChevronDown size={13} />{:else}<ChevronRight size={13} />{/if}</button>
           {:else if row.kind === "plan"}
             {@const plan = row as TimelinePlanRow}<article class="chat-plan-card"><h3>{t("chat.timeline.plan")}</h3><ChatMarkdown markdown={plan.markdown} onError={reportError} />{#if plan.steps.length > 0}<ol>{#each plan.steps as step}<li>{step.text} <span>{statusLabel(step.status)}</span></li>{/each}</ol>{/if}<div class="mt-3 flex flex-wrap gap-2"><button type="button" onclick={() => copy(plan.markdown)}>{t("chat.timeline.copy")}</button><button type="button" onclick={() => window.dispatchEvent(new CustomEvent("ganbaru-ai:chat-continue-plan", { detail: { planId: plan.id } }))}>{t("chat.timeline.continuePlanning")}</button><button type="button" onclick={() => window.dispatchEvent(new CustomEvent("ganbaru-ai:chat-implement-plan", { detail: { planId: plan.id } }))}>{t("chat.timeline.implementPlan")}</button><button type="button" onclick={() => { dismissedPlans = [...dismissedPlans, plan.id]; }}>{t("chat.timeline.dismiss")}</button></div></article>
           {/if}
@@ -306,19 +306,22 @@
 <style>
   .chat-timeline-banner { display: flex; min-height: 2.25rem; align-items: center; justify-content: center; gap: 0.5rem; border-bottom: 1px solid var(--border); background: var(--background); padding: 0.4rem 0.75rem; font-size: 0.733333rem; }
   .chat-timeline-banner button { display: inline-flex; align-items: center; gap: 0.25rem; border-radius: 0.25rem; border: 1px solid var(--border); padding: 0.2rem 0.45rem; }
-  .chat-user-message { margin-left: auto; max-width: min(86%, 42rem); border: 1px solid var(--border); border-radius: 0.75rem; background: var(--card); padding: 0.75rem 0.9rem; font-size: 0.866667rem; }
-  .chat-assistant-message { color: var(--foreground); font-size: 0.866667rem; }
+  .chat-user-message { margin-left: auto; max-width: min(80%, 42rem); border: 1px solid var(--border); border-radius: 1rem; background: var(--secondary); padding: 0.8rem 0.95rem; font-size: 0.9rem; line-height: 1.45; }
+  .chat-assistant-message { padding-inline: 0.25rem; color: var(--foreground); font-size: 0.9rem; line-height: 1.5; }
+  .chat-message-meta { font-size: 0.7rem; opacity: 0; transition: opacity 150ms ease; }
+  .chat-user-message:hover .chat-message-meta, .chat-user-message:focus-within .chat-message-meta, .chat-assistant-message:hover .chat-message-meta, .chat-assistant-message:focus-within .chat-message-meta { opacity: 1; }
   .chat-user-context { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.55rem; }
   .chat-user-context button { display: inline-flex; max-width: 100%; align-items: center; gap: 0.3rem; border: 1px solid var(--border); border-radius: 999px; padding: 0.18rem 0.45rem; color: var(--muted-foreground); font-size: 0.666667rem; }
   .chat-user-context button span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .chat-user-context small { font-size: inherit; opacity: 0.8; }
   .chat-message-collapsed { position: relative; max-height: 14rem; overflow: hidden; }
-  .chat-message-collapsed::after { position: absolute; inset: auto 0 0; height: 3rem; background: linear-gradient(transparent, var(--card)); content: ""; pointer-events: none; }
-  .chat-activity { margin-block: 0.25rem; border-radius: 0.375rem; color: var(--muted-foreground); font-size: 0.733333rem; }
+  .chat-message-collapsed::after { position: absolute; inset: auto 0 0; height: 3rem; background: linear-gradient(transparent, var(--secondary)); content: ""; pointer-events: none; }
+  .chat-activity { margin-block: 0.15rem; border-radius: 0.375rem; color: var(--muted-foreground); font-size: 0.733333rem; }
   .chat-activity summary { display: flex; cursor: pointer; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.35rem 0.5rem; }
   .chat-activity.failed { color: var(--destructive); }
   .chat-activity pre { max-height: 18rem; overflow: auto; border-left: 2px solid var(--border); padding: 0.5rem; white-space: pre-wrap; }
-  .chat-activity-group, .chat-turn-fold { display: flex; width: 100%; align-items: center; gap: 0.4rem; border-radius: 0.375rem; padding: 0.4rem 0.5rem; color: var(--muted-foreground); font-size: 0.733333rem; text-align: left; }
+  .chat-activity-group, .chat-turn-fold { display: flex; width: 100%; align-items: center; gap: 0.35rem; border-radius: 0.375rem; padding: 0.35rem 0.25rem; color: var(--muted-foreground); font-size: 0.733333rem; text-align: left; }
+  .chat-turn-fold { border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent); border-radius: 0; padding-block: 0.35rem 0.65rem; }
   .chat-activity-group:hover, .chat-turn-fold:hover { background: var(--accent); color: var(--foreground); }
   .chat-plan-card { border: 1px solid var(--border); border-radius: 0.75rem; background: var(--card); padding: 1rem; }
   .chat-plan-card h3 { margin-bottom: 0.6rem; font-weight: 650; }
@@ -331,4 +334,5 @@
   .chat-timeline-minimap button.current { outline: 1px solid var(--ring); opacity: 1; }
   .chat-timeline-minimap button:focus-visible { width: 0.8rem; outline: 2px solid var(--ring); }
   .chat-jump-latest { position: absolute; bottom: 1rem; left: 50%; display: inline-flex; min-height: 2.25rem; transform: translateX(-50%); align-items: center; gap: 0.4rem; border: 1px solid var(--border); border-radius: 999px; background: var(--popover); padding: 0.35rem 0.75rem; box-shadow: 0 6px 20px rgb(0 0 0 / 0.16); font-size: 0.733333rem; }
+  @media (hover: none) { .chat-message-meta { opacity: 1; } }
 </style>

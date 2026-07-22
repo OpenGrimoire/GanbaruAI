@@ -113,6 +113,7 @@ describe("Chat composer model", () => {
   it("implements send keys, bounded autosize, and image limits", () => {
     expect(shouldSendComposerKey({ key: "Enter", shiftKey: false, ctrlKey: false, metaKey: false, isComposing: false }, "enter")).toBe(true);
     expect(shouldSendComposerKey({ key: "Enter", shiftKey: true, ctrlKey: false, metaKey: false, isComposing: false }, "enter")).toBe(false);
+    expect(autosizeComposerHeight(1, 20)).toBe(76);
     expect(autosizeComposerHeight(1_000, 20)).toBe(216);
     expect(validateImageFiles(Array.from({ length: 2 }, (_, index) => ({ name: `${index}.png`, size: 10, type: "image/png" })) as File[], 7)).toContain("8 images");
     expect(validateImageFiles([{ name: "large.png", size: 2 * 1024 * 1024, type: "image/png" }] as File[], 1, 49 * 1024 * 1024)).toContain("50 MiB");

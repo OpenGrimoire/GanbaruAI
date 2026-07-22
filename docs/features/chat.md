@@ -39,6 +39,10 @@ The internal thread rail groups workspaces by current Ganbaru project groups and
 
 The conversation header shows the thread title, project and workspace breadcrumb, provider identity, branch when available, status, inspector control, and contextual actions. Keyboard shortcuts cover new chat, search, composer focus, next and previous thread, rail, inspector, Stop, and the command menu.
 
+The desktop visual hierarchy follows the interaction patterns reviewed in T3 Code commit `62cf4617594c2a0d8c9c5dc4bbc2012d0ead802d`, adapted to Ganbaru rather than copied as a separate product shell. The rail uses a persistent search row, compact project headings, one-line thread rows, quiet timestamps, and a pinned settings action. The conversation keeps one compact header and a wide centered reading column. User messages use bounded right-aligned bubbles, assistant work stays open on the main surface, and secondary message metadata appears on hover or keyboard focus while remaining visible on touch input.
+
+Ganbaru keeps its own main tabs, project groups, semantic theme tokens, local workspace identity, inspector, and responsive recovery model. It does not reproduce T3 Code branding, Electron window chrome, remote environment controls, or project management that already belongs elsewhere in Ganbaru.
+
 Thread and workspace shells load without message history. Selecting a thread reads only its latest bounded timeline page. Older pages load around sequence cursors, and the client retains no more than eight loaded pages while preserving selected content and the scroll anchor.
 
 ## Timeline
@@ -53,7 +57,7 @@ Provider change notifications are coalesced to one serialized refresh per paint 
 
 ## Composer and provider interaction
 
-The new-draft hero and docked composer share one persistent controller, so responsive layout changes do not replace the draft or undo state. Draft persistence includes text, mentions, attachment references, and explicit provider, model, trait, safety, and interaction selections.
+The new-draft hero and docked composer share one persistent controller, so responsive layout changes do not replace the draft or undo state. Draft persistence includes text, mentions, attachment references, and explicit provider, model, trait, safety, and interaction selections. The docked composer floats over a protected bottom timeline inset. Its prompt is the dominant surface, while attachments, provider and model, traits, safety, interaction mode, context, and Send or Stop form one compact footer. This keeps routine conversation immediate without hiding the selections that define provider behavior.
 
 Images can be chosen, pasted, or dropped. File and folder mentions are searched inside the authorized workspace and revalidated at send time. Provider skills and commands appear only when discovered, with stale entries rejected or retained as plain text. The composer exposes provider, model, typed traits, safety, Build or Plan, context, attachments, and Send or Stop directly.
 

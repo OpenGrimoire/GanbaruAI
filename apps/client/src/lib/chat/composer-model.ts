@@ -270,7 +270,7 @@ export function shouldSendComposerKey(event: Pick<KeyboardEvent, "key" | "shiftK
 }
 
 export function autosizeComposerHeight(scrollHeight: number, lineHeight: number): number {
-  const minimum = Math.max(44, lineHeight * 2 + 16);
+  const minimum = Math.max(64, lineHeight * 3 + 16);
   const maximum = Math.max(minimum, lineHeight * 10 + 16);
   return Math.min(maximum, Math.max(minimum, scrollHeight));
 }

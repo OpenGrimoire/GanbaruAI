@@ -74,11 +74,12 @@ describe("ChatComposer", () => {
     expect([second.textarea.selectionStart, second.textarea.selectionEnd]).toEqual([3, 7]);
   });
 
-  it("keeps direct provider and model controls discoverable with compact secondary controls", () => {
+  it("keeps model, safety, interaction, attachments, and send directly discoverable", () => {
     const { target } = setup(false);
-    expect(target.querySelector('[data-chat-field="provider"]')).not.toBeNull();
-    expect(target.querySelector('[data-chat-field="model"]')).not.toBeNull();
-    expect(target.querySelector(".compact-controls summary")?.textContent).toContain("Safety");
+    expect(target.querySelector("[data-chat-model-trigger]")).not.toBeNull();
+    expect(target.querySelector('[data-chat-field="safety"]')).not.toBeNull();
+    expect(target.querySelector('[data-chat-field="interaction"]')).not.toBeNull();
+    expect(target.querySelector(".attachment-menu summary")?.getAttribute("aria-label")).toBe("Attach images");
     expect(target.querySelector("button.primary-action")?.getAttribute("aria-label")).toBe("Send");
   });
 
