@@ -34,3 +34,10 @@ export interface ProviderSetupTestRead {
   probe: ProviderProbeResult;
   modelCatalog: ProviderModelCatalog | null;
 }
+
+export interface ProviderRefreshResult {
+  familiesScanned: number;
+  providersChecked: number;
+  providersDiscovered: number;
+  issues: number;
+}

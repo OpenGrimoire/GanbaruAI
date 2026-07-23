@@ -209,6 +209,7 @@ describe("ChatComposer", () => {
     const advancedRows = [...target.querySelectorAll<HTMLButtonElement>(".advanced-list button")];
     expect(advancedRows.some((button) => button.textContent?.includes("EffortLight"))).toBe(true);
     expect(advancedRows.some((button) => button.textContent?.includes("SpeedStandard"))).toBe(true);
+    expect(advancedRows.some((button) => button.textContent?.includes("ProviderCodex"))).toBe(true);
     const speedRow = advancedRows.find((button) => button.textContent?.includes("SpeedStandard"));
     speedRow?.click();
     await tick();
@@ -222,6 +223,10 @@ describe("ChatComposer", () => {
     await new Promise((resolve) => setTimeout(resolve, 90));
     await tick();
     expect(target.querySelector(".model-flyout")).toBeNull();
+    const providerRow = advancedRows.find((button) => button.textContent?.includes("ProviderCodex"));
+    providerRow?.click();
+    await tick();
+    expect(target.querySelector(".model-flyout")?.textContent).toContain("ClaudeNot configured");
     expect(target.querySelector('[data-chat-field="interaction"]')).toBeNull();
   });
 });
@@ -289,7 +294,17 @@ function modelSettings(): ChatSettingsRead {
         confirmMultilineTerminalPaste: true,
       },
     },
-    providerFamilies: [],
+    providerFamilies: [{
+      familyId: "claude",
+      displayName: "Claude",
+      configurationSchemaVersion: 1,
+      supportedPlatforms: ["linux", "windows", "macos"],
+      minimumTestedCliVersion: null,
+      defaultExecutableCandidates: ["claude"],
+      implementationStatus: "available",
+      potentialCapabilities: [],
+      unavailableReason: null,
+    }],
     providerInstances: [{
       configuration: {
         schemaVersion: 1,

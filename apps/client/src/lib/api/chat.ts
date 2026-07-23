@@ -39,6 +39,7 @@ import type {
   ProviderInstanceRead,
   ProviderModelCatalog,
   ProviderProbeResult,
+  ProviderRefreshResult,
   ProviderSetupTestRead,
   RemoveProviderResult,
   RememberedComposerSelection,
@@ -87,6 +88,7 @@ import {
   parseProviderInstanceRead,
   parseProviderModelCatalog,
   parseProviderProbeResult,
+  parseProviderRefreshResult,
   parseProviderSetupTestRead,
   parseRemoveProviderResult,
 } from "$lib/chat/validation";
@@ -333,6 +335,10 @@ export async function executeChatCheckpointRestore(request: {
 
 export async function readChatSettings(): Promise<ChatSettingsRead> {
   return parseChatSettingsRead(await invoke<unknown>("chat_read_settings"));
+}
+
+export async function refreshAllChatProviders(): Promise<ProviderRefreshResult> {
+  return parseProviderRefreshResult(await invoke<unknown>("chat_refresh_all_providers"));
 }
 
 export async function readChatDiagnostics(): Promise<ChatDiagnosticsRead> {

@@ -18,6 +18,7 @@ import type {
   ProviderInstanceId,
   ProviderInstanceRead,
   ProviderProbeResult,
+  ProviderRefreshResult,
   ProviderSetupTestRead,
   RemoveProviderResult,
   SafetyMode,
@@ -133,6 +134,12 @@ class ChatStore {
 
   async probeProvider(instanceId: ProviderInstanceId): Promise<ProviderProbeResult> {
     const result = await chatApi.probeChatProvider(instanceId);
+    await this.refreshSettings();
+    return result;
+  }
+
+  async refreshAllProviders(): Promise<ProviderRefreshResult> {
+    const result = await chatApi.refreshAllChatProviders();
     await this.refreshSettings();
     return result;
   }

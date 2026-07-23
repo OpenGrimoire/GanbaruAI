@@ -2,6 +2,7 @@ import {
   CREDENTIAL_STORE_AVAILABILITIES,
   type ChatSettingsRead,
   type ProviderInstanceRead,
+  type ProviderRefreshResult,
   type ProviderSetupTestRead,
   type RemoveProviderResult,
 } from "../contracts";
@@ -12,7 +13,16 @@ import {
   parseProviderModelCatalog,
   parseProviderProbeResult,
 } from "./provider";
-import { readArray, readBoolean, readEnum, readIdentifier, readNullable, readRecord, readUtcTimestamp } from "./readers";
+import {
+  readArray,
+  readBoolean,
+  readEnum,
+  readIdentifier,
+  readNonNegativeSafeInteger,
+  readNullable,
+  readRecord,
+  readUtcTimestamp,
+} from "./readers";
 
 export function parseProviderInstanceRead(value: unknown, label = "provider instance"): ProviderInstanceRead {
   const record = readRecord(value, label);
@@ -63,5 +73,24 @@ export function parseProviderSetupTestRead(value: unknown): ProviderSetupTestRea
       "provider setup test.modelCatalog",
       parseProviderModelCatalog,
     ),
+  };
+}
+
+export function parseProviderRefreshResult(value: unknown): ProviderRefreshResult {
+  const record = readRecord(value, "provider refresh result");
+  return {
+    familiesScanned: readNonNegativeSafeInteger(
+      record.familiesScanned,
+      "provider refresh result.familiesScanned",
+    ),
+    providersChecked: readNonNegativeSafeInteger(
+      record.providersChecked,
+      "provider refresh result.providersChecked",
+    ),
+    providersDiscovered: readNonNegativeSafeInteger(
+      record.providersDiscovered,
+      "provider refresh result.providersDiscovered",
+    ),
+    issues: readNonNegativeSafeInteger(record.issues, "provider refresh result.issues"),
   };
 }

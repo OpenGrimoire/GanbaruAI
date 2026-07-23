@@ -10,6 +10,9 @@ export const chatSettings = {
     description: "Ganbaru inicia únicamente la instancia que eliges para un chat.",
     add: "Agregar proveedor",
     refreshAll: "Actualizar todos",
+    scanning: "Buscando...",
+    refreshSummary: (families: string, checked: string, discovered: string, issues: string) =>
+      `Búsqueda completa: ${families} familias analizadas, ${checked} proveedores configurados comprobados, ${discovered} nuevos descubiertos, ${issues} requieren atención.`,
     empty: "No hay un proveedor de programación configurado.",
     healthy: "Disponible",
     unavailable: "No disponible",

@@ -798,6 +798,7 @@ pub fn run() {
             chat::settings_commands::chat_remove_provider,
             chat::settings_commands::chat_test_provider,
             chat::settings_commands::chat_probe_provider,
+            chat::settings_commands::chat_refresh_all_providers,
             chat::settings_commands::chat_refresh_provider_models,
             chat::settings_commands::chat_update_provider_models,
             chat::settings_commands::chat_update_behavior,

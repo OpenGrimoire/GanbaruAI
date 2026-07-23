@@ -6,6 +6,8 @@
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import SlidersHorizontal from "@lucide/svelte/icons/sliders-horizontal";
   import type { Component } from "svelte";
+  import type { ProviderRefreshResult } from "$lib/chat/contracts";
+  import { formatNumber } from "$lib/i18n/formatters";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
@@ -23,9 +25,12 @@
     initialSubsection?: ChatSettingsSubsection;
     onOpenProviderSetup?: (target: ChatProviderSetupTarget) => void;
   } = $props();
-  const { t } = getLocalization();
+  const localization = getLocalization();
+  const { t } = localization;
   const chat = getChat();
   let busyIds = $state<string[]>([]);
+  let refreshingAll = $state(false);
+  let refreshResult = $state<ProviderRefreshResult | null>(null);
   let error = $state<string | null>(null);
   let removeId = $state<string | null>(null);
   let activeTab = $state<ChatSettingsSubsection>("providers");
@@ -60,13 +65,27 @@
   }
 
   async function refreshAll(): Promise<void> {
-    const providers = chat.settings?.providerInstances ?? [];
-    for (let index = 0; index < providers.length; index += 2) {
-      await Promise.allSettled(providers.slice(index, index + 2).map((provider) => perform(
-        provider.configuration.instanceId,
-        async () => { await chat.probeProvider(provider.configuration.instanceId); },
-      )));
+    if (refreshingAll) return;
+    refreshingAll = true;
+    refreshResult = null;
+    error = null;
+    try {
+      refreshResult = await chat.refreshAllProviders();
+    } catch (cause: unknown) {
+      error = errorMessage(cause);
+    } finally {
+      refreshingAll = false;
     }
+  }
+
+  function refreshSummary(result: ProviderRefreshResult): string {
+    return t(
+      "settings.chat.providers.refreshSummary",
+      formatNumber(localization.locale, result.familiesScanned),
+      formatNumber(localization.locale, result.providersChecked),
+      formatNumber(localization.locale, result.providersDiscovered),
+      formatNumber(localization.locale, result.issues),
+    );
   }
 
   async function confirmRemove(): Promise<void> {
@@ -115,9 +134,10 @@
     <section class="flex flex-col gap-4" data-chat-settings-subsection="providers">
       <div class="flex flex-wrap items-start justify-between gap-3">
         <div class="min-w-0 px-1"><h2 class="text-[0.866667rem] font-semibold text-foreground">{t("settings.chat.providers.heading")}</h2><p class="mt-1 text-[0.8rem] text-muted-foreground">{t("settings.chat.providers.description")}</p></div>
-        <div class="flex gap-2"><button type="button" class="chat-settings-button" disabled={(chat.settings?.providerInstances.length ?? 0) === 0} onclick={() => void refreshAll()}><RefreshCw size={13} />{t("settings.chat.providers.refreshAll")}</button><button type="button" class="chat-settings-button" onclick={() => onOpenProviderSetup({ mode: "create" })}><Plus size={13} />{t("settings.chat.providers.add")}</button></div>
+        <div class="flex gap-2"><button type="button" class="chat-settings-button" disabled={refreshingAll} onclick={() => void refreshAll()}><RefreshCw size={13} class={refreshingAll ? "animate-spin" : undefined} />{refreshingAll ? t("settings.chat.providers.scanning") : t("settings.chat.providers.refreshAll")}</button><button type="button" class="chat-settings-button" onclick={() => onOpenProviderSetup({ mode: "create" })}><Plus size={13} />{t("settings.chat.providers.add")}</button></div>
       </div>
       {#if error}<p role="alert" class="text-sm text-destructive">{error}</p>{/if}
+      {#if refreshResult}<p role="status" class={cn("px-1 text-xs text-muted-foreground", refreshResult.issues > 0 && "text-status-tentative")}>{refreshSummary(refreshResult)}</p>{/if}
       {#if (chat.settings?.providerInstances.length ?? 0) === 0}
         <p class="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">{t("settings.chat.providers.empty")}</p>
       {:else}
@@ -125,7 +145,7 @@
           {#each chat.settings?.providerInstances ?? [] as provider (provider.configuration.instanceId)}
             <ProviderCard
               {provider}
-              busy={busyIds.includes(provider.configuration.instanceId)}
+              busy={refreshingAll || busyIds.includes(provider.configuration.instanceId)}
               onRefresh={() => void perform(provider.configuration.instanceId, async () => { await chat.probeProvider(provider.configuration.instanceId); })}
               onEdit={() => onOpenProviderSetup({ mode: "edit", instanceId: provider.configuration.instanceId })}
               onToggle={() => void perform(provider.configuration.instanceId, () => chat.setProviderEnabled(provider.configuration.instanceId, !provider.configuration.enabled))}

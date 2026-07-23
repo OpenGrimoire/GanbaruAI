@@ -7,6 +7,9 @@ export const chatSettings = {
     description: "Ganbaru starts only the provider instance you choose for a chat.",
     add: "Add provider",
     refreshAll: "Refresh all",
+    scanning: "Scanning...",
+    refreshSummary: (families: string, checked: string, discovered: string, issues: string) =>
+      `Scan complete: ${families} provider families scanned, ${checked} configured providers checked, ${discovered} newly discovered, ${issues} need attention.`,
     empty: "No coding-agent provider is configured.",
     healthy: "Healthy",
     unavailable: "Unavailable",

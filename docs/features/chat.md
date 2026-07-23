@@ -8,7 +8,7 @@ The provider transport and broader AI architecture live in [AI integration](ai-i
 
 Chat supports:
 
-- An automatically discovered default Codex instance plus explicitly configured provider instances.
+- Automatically discovered local instances for implemented provider families plus explicitly configured provider instances.
 - Existing Ganbaru Projects and standalone coding workspaces.
 - Durable local threads, drafts, attachments, search, archive, and restart recovery.
 - Streamed assistant messages, reasoning summaries, commands, file changes, tools, tasks, warnings, usage, and cost when the provider reports them.
@@ -21,9 +21,11 @@ Remote clients, Slack, a general BYOK assistant, hosted execution, embedded web 
 
 ## First use
 
-On the first Chat load for a vault without a Codex instance, Ganbaru checks the installed `codex` command on the application path and conventional user CLI directories, including the standard pnpm location. When it is available, Ganbaru creates the default Codex instance, reuses the CLI's normal home and existing authentication, probes account status, and caches the provider model catalog. A person who already installed and authenticated Codex can therefore bind a workspace and start chatting without entering an executable, provider home, credential, or instance ID.
+On the first Chat load for a vault in each app session, Ganbaru runs one bounded discovery pass for every implemented provider family that is not configured or explicitly opted out. It checks each family's known command names on the application path and conventional user CLI directories, including standard pnpm, npm, Bun, Cargo, and Volta locations. When it finds an installed CLI, Ganbaru creates a default instance with the resolved device-local executable path, reuses the CLI's normal home and existing authentication, probes its status, and caches its model catalog when available. A person who already installed and authenticated Codex, Claude Code, Cursor Agent, or OpenCode can therefore bind a workspace and start chatting without entering an executable, provider home, credential, or instance ID.
 
-If `codex` is unavailable, Chat directs the user to provider setup and official installation guidance. The advanced provider setup remains available for additional Codex accounts, custom homes, other provider families, arguments, environment variables, and credential references. Removing the last Codex instance records an explicit opt-out so automatic setup does not recreate it. Adding Codex manually enables the family again.
+Refresh all forces a new discovery pass before it re-probes every configured instance, so a CLI installed after Ganbaru started or after the first Chat visit appears without resetting application data. An installed CLI with a broken package, unsupported version, missing authentication, or another probe problem remains visible with a recovery status instead of being treated as absent. A command that is genuinely missing is not added.
+
+If no supported CLI is available, Chat directs the user to provider setup and official installation guidance. The advanced provider setup remains available for additional accounts, custom homes, arguments, environment variables, and credential references. Removing the last instance for a family records an explicit opt-out so later automatic scans do not recreate it. Adding an instance manually enables the family again. The Advanced provider selector lists unconfigured implemented families as setup actions even when only one provider is currently configured.
 
 After provider discovery:
 
@@ -107,6 +109,6 @@ Separators support pointer and keyboard resizing with accessible values and rese
 
 ## Performance contract
 
-Chat is lazy-loaded and does not probe or start providers at app boot. The first Chat load may run the bounded default Codex discovery described above. Configured vaults and the deterministic benchmark fixture use cached provider state and do not repeat that discovery during ordinary route activation. The `dense-chat-v1` benchmark covers 20 projects, 100 threads, 2,000 turns, 4,000 messages, 4,000 activities, 1,000 plans, 500 attachments, 200 checkpoints, and 10,000 canonical events in the isolated benchmark database.
+Chat is lazy-loaded and does not probe or start providers at app boot. The first Chat load may run the bounded provider discovery described above. Each active vault runs that automatic pass at most once per app session, and ordinary Settings refreshes reuse cached provider state. Refresh all is the explicit forced rescan. The deterministic benchmark fixture uses cached provider state. The `dense-chat-v1` benchmark covers 20 projects, 100 threads, 2,000 turns, 4,000 messages, 4,000 activities, 1,000 plans, 500 attachments, 200 checkpoints, and 10,000 canonical events in the isolated benchmark database.
 
 The benchmark measures route activation, recent-thread switching, latest-page SQLite read and projection, loaded and indexed rail search, streamed paint cadence, app process-tree idle CPU, memory, and owned process stop. The target latest-page read is normally below 100 ms, indexed search below 150 ms, normal stop below two seconds, and streaming is coalesced to paint frames. Performance results are recorded only from the installed release benchmark harness using the method in [Performance benchmark harness](performance-benchmark.md).

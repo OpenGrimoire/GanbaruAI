@@ -13,8 +13,9 @@ use super::device_state::{
 };
 use super::models::{
     ChatError, ChatErrorCode, ChatResult, ChatThreadId, ChatWorkspaceId, CredentialReferenceId,
-    ModelId, ProbeState, ProviderFamilyId, ProviderFamilyMetadataRead, ProviderInstanceConfig,
-    ProviderInstanceId, ProviderModelCatalog, ProviderProbeResult, VersionedJson,
+    ModelId, ProbeState, ProviderFamilyId, ProviderFamilyMetadataRead,
+    ProviderImplementationStatus, ProviderInstanceConfig, ProviderInstanceId, ProviderModelCatalog,
+    ProviderProbeResult, VersionedJson,
 };
 use super::providers::{
     DriverCancellation, DriverOperationContext, ProviderDriverFactory, ProviderDriverRegistry,
@@ -23,16 +24,19 @@ use crate::vault;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tauri_plugin_dialog::{DialogExt, FilePath};
 
 const PROVIDER_OPERATION_TIMEOUT: Duration = Duration::from_secs(30);
+const DEFAULT_PROVIDER_ACCENT_COLOR: &str = "#2563eb";
 
 #[derive(Default)]
 pub struct ChatSettingsState {
     mutation_lock: Mutex<()>,
+    discovery_lock: tokio::sync::Mutex<()>,
+    discovered_vaults: Mutex<BTreeSet<String>>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -74,12 +78,27 @@ pub struct ProviderSetupTestRead {
     pub model_catalog: Option<ProviderModelCatalog>,
 }
 
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderRefreshResult {
+    pub families_scanned: u32,
+    pub providers_checked: u32,
+    pub providers_discovered: u32,
+    pub issues: u32,
+}
+
+#[derive(Default)]
+struct ProviderDiscoveryRun {
+    families_scanned: u32,
+    discovered_probes: BTreeMap<ProviderInstanceId, ProviderProbeResult>,
+}
+
 #[tauri::command]
 pub async fn chat_read_settings(
     app: tauri::AppHandle,
     state: tauri::State<'_, ChatSettingsState>,
 ) -> ChatResult<ChatSettingsRead> {
-    configure_default_codex_if_available(&app, &state).await?;
+    discover_default_providers_once(&app, &state).await?;
     let configuration = read_chat_config(&app)?;
     let scope = read_active_device_scope(&app).map_err(device_state_error)?;
     let provider_instances = configuration
@@ -96,84 +115,220 @@ pub async fn chat_read_settings(
     })
 }
 
-async fn configure_default_codex_if_available(
+async fn discover_default_providers_once(
     app: &tauri::AppHandle,
     state: &ChatSettingsState,
 ) -> ChatResult<()> {
-    let current = read_chat_config(app)?;
-    if !should_configure_default_codex(&current) {
+    let vault_id = vault::active_vault_id(app).map_err(config_io_error)?;
+    if discovery_finished(state, &vault_id)? {
         return Ok(());
     }
 
-    let configuration = default_codex_configuration()?;
-    let mut driver = ProviderDriverRegistry.create_driver(configuration.clone())?;
-    let probe = driver
-        .probe(&operation_context("discover-default-codex"))
-        .await?;
-    if probe.state == ProbeState::ExecutableMissing {
+    let _guard = state.discovery_lock.lock().await;
+    if discovery_finished(state, &vault_id)? {
         return Ok(());
     }
-    let model_catalog = (probe.state == ProbeState::Healthy)
-        .then(|| driver.cached_model_catalog())
-        .flatten();
-
-    let portable = portable_configuration(&configuration);
-    let mut inserted = false;
-    mutate_chat_config(app, state, |config| {
-        if config
-            .providers
-            .iter()
-            .any(|provider| provider.family_id.as_str() == "codex")
-        {
-            return Ok(());
-        }
-        config.providers.push(portable);
-        inserted = true;
-        Ok(())
-    })?;
-    if !inserted {
-        return Ok(());
-    }
-
-    update_active_device_scope(app, |scope| {
-        scope.provider_instances.insert(
-            configuration.instance_id.clone(),
-            ChatProviderDeviceState {
-                executable_path: Some(configuration.executable.clone()),
-                provider_home_path: None,
-                last_successful_probe_at: (probe.state == ProbeState::Healthy)
-                    .then(|| probe.checked_at.clone()),
-                last_probe: Some(probe),
-                model_catalog,
-            },
-        );
-        Ok(())
-    })
-    .map_err(device_state_error)
+    discover_default_providers(app, state).await?;
+    mark_discovery_finished(state, vault_id)
 }
 
-fn should_configure_default_codex(config: &ChatVaultConfig) -> bool {
-    !config
-        .automatic_provider_setup_disabled
-        .iter()
-        .any(|family_id| family_id.as_str() == "codex")
+#[tauri::command]
+pub async fn chat_refresh_all_providers(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, ChatSettingsState>,
+) -> ChatResult<ProviderRefreshResult> {
+    let _guard = state.discovery_lock.lock().await;
+    let discovery = discover_default_providers(&app, &state).await?;
+    let vault_id = vault::active_vault_id(&app).map_err(config_io_error)?;
+    mark_discovery_finished(&state, vault_id)?;
+
+    let provider_ids = read_chat_config(&app)?
+        .providers
+        .into_iter()
+        .map(|provider| provider.instance_id)
+        .collect::<Vec<_>>();
+    let mut issues = 0;
+    for instance_id in &provider_ids {
+        let probe = match discovery.discovered_probes.get(instance_id) {
+            Some(probe) => Ok(probe.clone()),
+            None => chat_probe_provider(app.clone(), instance_id.clone()).await,
+        };
+        if probe.is_err() || probe.is_ok_and(|probe| probe.state != ProbeState::Healthy) {
+            issues += 1;
+        }
+    }
+
+    Ok(ProviderRefreshResult {
+        families_scanned: discovery.families_scanned,
+        providers_checked: provider_ids.len() as u32,
+        providers_discovered: discovery.discovered_probes.len() as u32,
+        issues,
+    })
+}
+
+async fn discover_default_providers(
+    app: &tauri::AppHandle,
+    state: &ChatSettingsState,
+) -> ChatResult<ProviderDiscoveryRun> {
+    let metadata = ProviderDriverRegistry
+        .list_metadata()
+        .into_iter()
+        .filter(provider_family_is_discoverable)
+        .collect::<Vec<_>>();
+    let mut run = ProviderDiscoveryRun {
+        families_scanned: metadata.len() as u32,
+        ..ProviderDiscoveryRun::default()
+    };
+    let mut current = read_chat_config(app)?;
+    let search_directories = executable_search_directories();
+
+    for family in metadata {
+        if !should_discover_default_provider(&current, &family.family_id) {
+            continue;
+        }
+        let Some((configuration, probe, model_catalog)) =
+            probe_installed_provider(&family, &current, &search_directories).await?
+        else {
+            continue;
+        };
+
+        let portable = portable_configuration(&configuration);
+        let mut inserted = false;
+        mutate_chat_config(app, state, |config| {
+            if !should_discover_default_provider(config, &family.family_id)
+                || config
+                    .providers
+                    .iter()
+                    .any(|provider| provider.instance_id == portable.instance_id)
+            {
+                return Ok(());
+            }
+            config.providers.push(portable.clone());
+            inserted = true;
+            Ok(())
+        })?;
+        if !inserted {
+            continue;
+        }
+
+        update_active_device_scope(app, |scope| {
+            scope.provider_instances.insert(
+                configuration.instance_id.clone(),
+                ChatProviderDeviceState {
+                    executable_path: Some(configuration.executable.clone()),
+                    provider_home_path: None,
+                    last_successful_probe_at: (probe.state == ProbeState::Healthy)
+                        .then(|| probe.checked_at.clone()),
+                    last_probe: Some(probe.clone()),
+                    model_catalog,
+                },
+            );
+            Ok(())
+        })
+        .map_err(device_state_error)?;
+        current.providers.push(portable);
+        run.discovered_probes
+            .insert(configuration.instance_id, probe);
+    }
+
+    Ok(run)
+}
+
+async fn probe_installed_provider(
+    metadata: &ProviderFamilyMetadataRead,
+    config: &ChatVaultConfig,
+    search_directories: &[PathBuf],
+) -> ChatResult<
+    Option<(
+        ProviderInstanceConfig,
+        ProviderProbeResult,
+        Option<ProviderModelCatalog>,
+    )>,
+> {
+    let instance_id = automatic_provider_instance_id(config, &metadata.family_id)?;
+    let mut fallback = None;
+    for executable in installed_provider_executables(metadata, search_directories) {
+        let configuration =
+            default_provider_configuration(metadata, instance_id.clone(), executable)?;
+        let mut driver = ProviderDriverRegistry.create_driver(configuration.clone())?;
+        let Ok(probe) = driver
+            .probe(&operation_context("discover-default-provider"))
+            .await
+        else {
+            continue;
+        };
+        if probe.state == ProbeState::ExecutableMissing {
+            continue;
+        }
+        let model_catalog = (probe.state == ProbeState::Healthy)
+            .then(|| driver.cached_model_catalog())
+            .flatten();
+        let candidate = (configuration, probe.clone(), model_catalog);
+        if matches!(
+            probe.state,
+            ProbeState::Healthy | ProbeState::AuthenticationRequired
+        ) {
+            return Ok(Some(candidate));
+        }
+        fallback.get_or_insert(candidate);
+    }
+    Ok(fallback)
+}
+
+fn provider_family_is_discoverable(metadata: &ProviderFamilyMetadataRead) -> bool {
+    metadata.implementation_status == ProviderImplementationStatus::Available
+        && metadata
+            .supported_platforms
+            .iter()
+            .any(|platform| platform == std::env::consts::OS)
+}
+
+fn should_discover_default_provider(
+    config: &ChatVaultConfig,
+    family_id: &ProviderFamilyId,
+) -> bool {
+    !config.automatic_provider_setup_disabled.contains(family_id)
         && !config
             .providers
             .iter()
-            .any(|provider| provider.family_id.as_str() == "codex")
+            .any(|provider| &provider.family_id == family_id)
 }
 
-fn default_codex_configuration() -> ChatResult<ProviderInstanceConfig> {
+fn automatic_provider_instance_id(
+    config: &ChatVaultConfig,
+    family_id: &ProviderFamilyId,
+) -> ChatResult<ProviderInstanceId> {
+    let base = family_id.as_str();
+    let candidates = std::iter::once(base.to_string())
+        .chain(std::iter::once(format!("{base}-local")))
+        .chain((2..=100).map(|suffix| format!("{base}-local-{suffix}")));
+    for candidate in candidates {
+        let instance_id = ProviderInstanceId::new(candidate)
+            .map_err(|_| default_provider_configuration_error())?;
+        if !config
+            .providers
+            .iter()
+            .any(|provider| provider.instance_id == instance_id)
+        {
+            return Ok(instance_id);
+        }
+    }
+    Err(default_provider_configuration_error())
+}
+
+fn default_provider_configuration(
+    metadata: &ProviderFamilyMetadataRead,
+    instance_id: ProviderInstanceId,
+    executable: String,
+) -> ChatResult<ProviderInstanceConfig> {
     Ok(ProviderInstanceConfig {
         schema_version: 1,
-        instance_id: ProviderInstanceId::new("codex")
-            .map_err(|_| default_provider_configuration_error())?,
-        family_id: ProviderFamilyId::new("codex")
-            .map_err(|_| default_provider_configuration_error())?,
-        label: "Codex".to_string(),
-        accent_color: Some("#2563eb".to_string()),
+        instance_id,
+        family_id: metadata.family_id.clone(),
+        label: metadata.display_name.clone(),
+        accent_color: Some(DEFAULT_PROVIDER_ACCENT_COLOR.to_string()),
         enabled: true,
-        executable: "codex".to_string(),
+        executable,
         provider_home: None,
         launch_arguments: Vec::new(),
         environment: BTreeMap::new(),
@@ -181,11 +336,137 @@ fn default_codex_configuration() -> ChatResult<ProviderInstanceConfig> {
         visible_model_ids: Vec::new(),
         favorite_model_ids: Vec::new(),
         provider_config: VersionedJson {
-            schema_version: 1,
+            schema_version: metadata.configuration_schema_version,
             value: serde_json::json!({}),
         },
         unknown_fields: BTreeMap::new(),
     })
+}
+
+fn discovery_finished(state: &ChatSettingsState, vault_id: &str) -> ChatResult<bool> {
+    state
+        .discovered_vaults
+        .lock()
+        .map(|vaults| vaults.contains(vault_id))
+        .map_err(|_| discovery_state_error())
+}
+
+fn mark_discovery_finished(state: &ChatSettingsState, vault_id: String) -> ChatResult<()> {
+    state
+        .discovered_vaults
+        .lock()
+        .map(|mut vaults| {
+            vaults.insert(vault_id);
+        })
+        .map_err(|_| discovery_state_error())
+}
+
+fn executable_search_directories() -> Vec<PathBuf> {
+    let mut directories = std::env::var_os("PATH")
+        .map(|path| std::env::split_paths(&path).collect::<Vec<_>>())
+        .unwrap_or_default();
+    if let Some(home) = platform_user_home() {
+        directories.extend(fallback_executable_directories(&home));
+    }
+    let mut seen = BTreeSet::new();
+    directories
+        .into_iter()
+        .filter(|directory| seen.insert(directory.clone()))
+        .collect()
+}
+
+fn installed_provider_executables(
+    metadata: &ProviderFamilyMetadataRead,
+    search_directories: &[PathBuf],
+) -> Vec<String> {
+    let mut found = BTreeSet::new();
+    let mut executables = Vec::new();
+    for name in &metadata.default_executable_candidates {
+        for directory in search_directories {
+            for candidate_name in executable_candidate_names(name) {
+                let candidate = directory.join(candidate_name);
+                if !candidate.is_file()
+                    || !is_executable(&candidate)
+                    || !found.insert(candidate.clone())
+                {
+                    continue;
+                }
+                if let Some(path) = candidate.to_str() {
+                    executables.push(path.to_string());
+                }
+            }
+        }
+    }
+    executables
+}
+
+#[cfg(windows)]
+fn executable_candidate_names(name: &str) -> Vec<String> {
+    if Path::new(name).extension().is_some() {
+        return vec![name.to_string()];
+    }
+    let extensions = std::env::var("PATHEXT")
+        .ok()
+        .map(|value| value.split(';').map(str::to_ascii_lowercase).collect())
+        .unwrap_or_else(|| vec![".exe".to_string(), ".cmd".to_string(), ".bat".to_string()]);
+    extensions
+        .into_iter()
+        .map(|extension| format!("{name}{extension}"))
+        .collect()
+}
+
+#[cfg(not(windows))]
+fn executable_candidate_names(name: &str) -> Vec<String> {
+    vec![name.to_string()]
+}
+
+fn platform_user_home() -> Option<PathBuf> {
+    #[cfg(windows)]
+    let variable = "USERPROFILE";
+    #[cfg(not(windows))]
+    let variable = "HOME";
+    std::env::var_os(variable)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+}
+
+fn fallback_executable_directories(home: &Path) -> Vec<PathBuf> {
+    #[cfg(windows)]
+    {
+        vec![
+            home.join("AppData").join("Roaming").join("npm"),
+            home.join("AppData").join("Local").join("pnpm"),
+            home.join(".local").join("bin"),
+            home.join(".bun").join("bin"),
+            home.join(".cargo").join("bin"),
+        ]
+    }
+    #[cfg(not(windows))]
+    {
+        vec![
+            home.join(".local").join("bin"),
+            home.join(".local").join("share").join("pnpm"),
+            home.join(".npm-global").join("bin"),
+            home.join(".bun").join("bin"),
+            home.join(".cargo").join("bin"),
+            home.join(".volta").join("bin"),
+            PathBuf::from("/opt/homebrew/bin"),
+            PathBuf::from("/home/linuxbrew/.linuxbrew/bin"),
+        ]
+    }
+}
+
+#[cfg(unix)]
+fn is_executable(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    path.metadata()
+        .map(|metadata| metadata.permissions().mode() & 0o111 != 0)
+        .unwrap_or(false)
+}
+
+#[cfg(not(unix))]
+fn is_executable(path: &Path) -> bool {
+    path.is_file()
 }
 
 #[tauri::command]
@@ -784,8 +1065,16 @@ fn provider_not_found() -> ChatError {
 fn default_provider_configuration_error() -> ChatError {
     ChatError::new(
         ChatErrorCode::Internal,
-        "The built-in Codex provider configuration is invalid",
+        "The built-in provider configuration is invalid",
         false,
+    )
+}
+
+fn discovery_state_error() -> ChatError {
+    ChatError::new(
+        ChatErrorCode::Internal,
+        "Chat provider discovery state is unavailable",
+        true,
     )
 }
 
@@ -826,30 +1115,59 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_codex_uses_the_installed_cli_and_native_account_home() {
-        let configuration = default_codex_configuration().unwrap();
+    fn default_provider_configurations_use_the_installed_cli_and_native_account_home() {
+        for metadata in ProviderDriverRegistry
+            .list_metadata()
+            .into_iter()
+            .filter(provider_family_is_discoverable)
+        {
+            let instance_id = ProviderInstanceId::new(metadata.family_id.as_str()).unwrap();
+            let executable = format!("/installed/{}", metadata.family_id.as_str());
+            let configuration =
+                default_provider_configuration(&metadata, instance_id, executable.clone()).unwrap();
 
-        assert_eq!(configuration.instance_id.as_str(), "codex");
-        assert_eq!(configuration.family_id.as_str(), "codex");
-        assert_eq!(configuration.executable, "codex");
-        assert_eq!(configuration.provider_home, None);
-        assert!(configuration.environment.is_empty());
-        assert!(configuration.credential_references.is_empty());
-        ProviderDriverRegistry
-            .create_driver(configuration)
-            .expect("the built-in Codex configuration must remain valid");
+            assert_eq!(
+                configuration.instance_id.as_str(),
+                metadata.family_id.as_str()
+            );
+            assert_eq!(configuration.family_id, metadata.family_id);
+            assert_eq!(configuration.label, metadata.display_name);
+            assert_eq!(configuration.executable, executable);
+            assert_eq!(configuration.provider_home, None);
+            assert!(configuration.environment.is_empty());
+            assert!(configuration.credential_references.is_empty());
+            ProviderDriverRegistry
+                .create_driver(configuration)
+                .expect("each built-in provider configuration must remain valid");
+        }
     }
 
     #[test]
-    fn an_existing_codex_instance_prevents_automatic_replacement() {
+    fn an_existing_family_prevents_automatic_replacement() {
         let mut config = ChatVaultConfig::default();
-        assert!(should_configure_default_codex(&config));
-
-        config.providers.push(portable_configuration(
-            &default_codex_configuration().unwrap(),
+        let metadata = ProviderDriverRegistry
+            .list_metadata()
+            .into_iter()
+            .find(|metadata| metadata.family_id.as_str() == "claude")
+            .unwrap();
+        assert!(should_discover_default_provider(
+            &config,
+            &metadata.family_id
         ));
 
-        assert!(!should_configure_default_codex(&config));
+        config.providers.push(portable_configuration(
+            &default_provider_configuration(
+                &metadata,
+                ProviderInstanceId::new("claude-custom").unwrap(),
+                "/installed/claude".to_string(),
+            )
+            .unwrap(),
+        ));
+
+        assert!(!should_discover_default_provider(
+            &config,
+            &metadata.family_id
+        ));
     }
 
     #[test]
@@ -857,8 +1175,47 @@ mod tests {
         let mut config = ChatVaultConfig::default();
         config
             .automatic_provider_setup_disabled
-            .insert(ProviderFamilyId::new("codex").unwrap());
+            .insert(ProviderFamilyId::new("claude").unwrap());
 
-        assert!(!should_configure_default_codex(&config));
+        assert!(!should_discover_default_provider(
+            &config,
+            &ProviderFamilyId::new("claude").unwrap()
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn installed_provider_search_uses_metadata_candidates_in_order() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = std::env::temp_dir().join(format!(
+            "ganbaru-provider-discovery-{}-{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ));
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).unwrap();
+        let second = directory.join("second-provider");
+        let first = directory.join("first-provider");
+        for executable in [&second, &first] {
+            std::fs::write(executable, "#!/bin/sh\nexit 0\n").unwrap();
+            let mut permissions = std::fs::metadata(executable).unwrap().permissions();
+            permissions.set_mode(0o700);
+            std::fs::set_permissions(executable, permissions).unwrap();
+        }
+        let mut metadata = ProviderDriverRegistry.list_metadata().remove(0);
+        metadata.default_executable_candidates =
+            vec!["first-provider".to_string(), "second-provider".to_string()];
+
+        let found = installed_provider_executables(&metadata, std::slice::from_ref(&directory));
+
+        assert_eq!(
+            found,
+            vec![
+                first.to_string_lossy().into_owned(),
+                second.to_string_lossy().into_owned()
+            ]
+        );
+        std::fs::remove_dir_all(directory).unwrap();
     }
 }

@@ -12,6 +12,7 @@ import {
   parseProviderFamilyMetadata,
   parseProviderInstanceConfig,
   parseProviderModelCatalog,
+  parseProviderRefreshResult,
 } from "./validation";
 
 const timestamp = "2026-07-20T12:00:00Z";
@@ -60,6 +61,20 @@ function runtimeEventFixture(): Record<string, unknown> {
 describe("Chat provider contracts", () => {
   it("parses metadata-only provider registry entries", () => {
     expect(parseProviderFamilyMetadata(metadataFixture())).toEqual(metadataFixture());
+  });
+
+  it("validates provider discovery refresh counts", () => {
+    const fixture = {
+      familiesScanned: 4,
+      providersChecked: 2,
+      providersDiscovered: 1,
+      issues: 1,
+    };
+
+    expect(parseProviderRefreshResult(fixture)).toEqual(fixture);
+    expect(() => parseProviderRefreshResult({ ...fixture, issues: -1 })).toThrow(
+      "issues must not be negative",
+    );
   });
 
   it("validates internal checkpoint restore audit events", () => {
