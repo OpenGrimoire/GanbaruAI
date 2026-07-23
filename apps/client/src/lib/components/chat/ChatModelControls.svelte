@@ -85,6 +85,8 @@
   const flyoutGraceDelayMs = 340;
   const modelControlResizeMs = 280;
   const effortDragThresholdPx = 5;
+  const effortTrackHeightRem = 1.75;
+  const effortEndpointInsetRem = effortTrackHeightRem / 2;
   const providers = $derived(chat.settings?.providerInstances ?? []);
   const healthyProviders = $derived(providers.filter((entry) => providerAvailable(entry)));
   const provider = $derived(providers.find((entry) => entry.configuration.instanceId === chat.composer.providerInstanceId) ?? null);
@@ -175,6 +177,14 @@
     if (!remembered) return;
     chat.setComposerModel(composerModelSelection(remembered.modelId, remembered.providerManagedModel, remembered.modelOptions));
     chat.setComposerModes(remembered.safetyMode, remembered.interactionMode);
+  });
+
+  $effect(() => {
+    if (!provider || chat.composer.loading || selection.modelId || models.length === 0) return;
+    const recommended = models.find((model) => model.id === "default") ?? models[0];
+    if (!recommended) return;
+    chat.setComposerModel(composerModelSelection(recommended.id, false, defaultOptions(recommended.options)));
+    quickAnchorModelId = recommended.id;
   });
 
   function togglePicker(): void {
@@ -640,17 +650,17 @@
   }
 
   function isUltraSelected(): boolean {
-    return selectedEffortValue()?.toLowerCase() === "ultra";
+    return selectedQuickEffortIndex >= 0 && selectedQuickEffortIndex === quickEffortChoices.length - 1;
   }
 
   function quickStopPosition(index: number, count: number): string {
     const progress = count <= 1 ? 0.5 : index / (count - 1);
     const percent = progress * 100;
-    const radiusOffset = (1 - 2 * progress) * 1.075;
-    if (Math.abs(radiusOffset) < 0.0001) return `${percent}%`;
-    return radiusOffset > 0
-      ? `calc(${percent}% + ${radiusOffset}rem)`
-      : `calc(${percent}% - ${Math.abs(radiusOffset)}rem)`;
+    const endpointOffset = (1 - 2 * progress) * effortEndpointInsetRem;
+    if (Math.abs(endpointOffset) < 0.0001) return `${percent}%`;
+    return endpointOffset > 0
+      ? `calc(${percent}% + ${endpointOffset}rem)`
+      : `calc(${percent}% - ${Math.abs(endpointOffset)}rem)`;
   }
 
   function isFastSelected(): boolean {
@@ -678,10 +688,8 @@
 
   function humanizeOptionLabel(label: string): string {
     const normalized = label.replaceAll("_", " ").trim();
-    if (provider?.configuration.familyId === "codex") {
-      if (normalized.toLowerCase() === "low") return t("chat.composer.light");
-      if (["xhigh", "extra high"].includes(normalized.toLowerCase())) return t("chat.composer.extraHigh");
-    }
+    if (provider?.configuration.familyId === "codex" && normalized.toLowerCase() === "low") return t("chat.composer.light");
+    if (["xhigh", "extra high"].includes(normalized.toLowerCase())) return t("chat.composer.extraHigh");
     if (!normalized || normalized !== normalized.toLowerCase()) return normalized;
     return `${normalized[0]?.toUpperCase() ?? ""}${normalized.slice(1)}`;
   }
@@ -809,7 +817,7 @@
       <div class="picker-stage" style:height={pickerStageHeight === null ? undefined : `${pickerStageHeight}px`}>
         <div bind:this={overviewPanel} class="picker-view overview-view" class:active={view === "overview"} inert={view !== "overview"} aria-hidden={view !== "overview"}>
         {#if quickEffortChoices.length > 0}
-          <div class="effort-ladder" class:fast={isFastSelected()} class:ultra={isUltraSelected()} class:holding={effortPressing} class:handle-hovered={effortHandleHovered} role="group" aria-label={t("chat.composer.quickModelEffort")} onpointerdown={handleEffortPointerDown} onpointermove={handleEffortPointerMove} onpointerleave={handleEffortPointerLeave} onpointerup={(event) => finishEffortPointer(event, true)} onpointercancel={(event) => finishEffortPointer(event, false)} onlostpointercapture={(event) => finishEffortPointer(event, false)}>
+          <div class="effort-ladder" class:fast={isFastSelected()} class:ultra={isUltraSelected()} class:holding={effortPressing} class:handle-hovered={effortHandleHovered} style={`--effort-track-height:${effortTrackHeightRem}rem`} role="group" aria-label={t("chat.composer.quickModelEffort")} onpointerdown={handleEffortPointerDown} onpointermove={handleEffortPointerMove} onpointerleave={handleEffortPointerLeave} onpointerup={(event) => finishEffortPointer(event, true)} onpointercancel={(event) => finishEffortPointer(event, false)} onlostpointercapture={(event) => finishEffortPointer(event, false)}>
             <span class="effort-fill" style={`width:${selectedQuickEffortIndex < 0 ? "0" : isUltraSelected() ? "100%" : quickStopPosition(selectedQuickEffortIndex, quickEffortChoices.length)}`} aria-hidden="true">
               <span class="effort-particles calm"></span>
               <span class="effort-particles rapid"></span>
@@ -909,8 +917,7 @@
   .overview-view { padding-top: 0.45rem; transform: translateY(-0.7rem) scale(0.99); }
   .advanced-view { transform: translateY(0.8rem) scale(0.99); }
   .picker-view.active { position: relative; opacity: 1; pointer-events: auto; transform: translateY(0) scale(1); transition-delay: 55ms, 0ms; }
-  .effort-ladder { position: relative; height: 1.75rem; overflow: visible; border: 1px solid color-mix(in srgb, var(--border) 88%, transparent); border-radius: 999px; background: #e4e5e9; cursor: grab; touch-action: none; user-select: none; transition: border-color 260ms ease, background-color 260ms ease; }
-  .effort-ladder.holding { cursor: grabbing; }
+  .effort-ladder { position: relative; height: var(--effort-track-height); overflow: visible; border: 1px solid color-mix(in srgb, var(--border) 88%, transparent); border-radius: 999px; background: #e4e5e9; cursor: default; touch-action: none; user-select: none; transition: border-color 260ms ease, background-color 260ms ease; }
   .effort-fill { position: absolute; inset-block: 0; left: 0; overflow: hidden; border-radius: inherit; background: #0c78d0; transition: width 240ms cubic-bezier(0.22, 0.75, 0.18, 1), background-color 280ms ease; }
   .effort-fill::before { position: absolute; content: ""; inset: 0; opacity: 0; background-image: linear-gradient(105deg, #6ea8ff 0%, #7457f5 48%, #a83cf2 100%); background-size: 180% 100%; animation: ultra-color-flow 3.6s ease-in-out infinite alternate; pointer-events: none; transition: opacity 300ms ease; }
   .effort-particles { position: absolute; inset: 0; opacity: 0; background-image: radial-gradient(circle at 23% 22%, rgb(255 255 255 / 0.78) 0 0.7px, transparent 1.45px), radial-gradient(circle at 68% 72%, rgb(255 255 255 / 0.58) 0 1px, transparent 1.85px), radial-gradient(circle at 37% 44%, rgb(255 255 255 / 0.88) 0 0.6px, transparent 1.3px), radial-gradient(circle at 79% 31%, rgb(255 255 255 / 0.64) 0 1.2px, transparent 2px), radial-gradient(circle at 14% 66%, rgb(255 255 255 / 0.7) 0 0.8px, transparent 1.55px), radial-gradient(circle at 53% 19%, rgb(255 255 255 / 0.54) 0 0.65px, transparent 1.35px), radial-gradient(circle at 86% 58%, rgb(255 255 255 / 0.82) 0 0.9px, transparent 1.7px), radial-gradient(circle at 42% 81%, rgb(255 255 255 / 0.62) 0 0.75px, transparent 1.45px); background-repeat: repeat-x; background-size: 83px 100%, 107px 100%, 131px 100%, 157px 100%, 191px 100%, 223px 100%, 269px 100%, 311px 100%; pointer-events: none; transition: opacity 240ms ease; }

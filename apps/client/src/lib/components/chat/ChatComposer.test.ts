@@ -4,7 +4,7 @@ import { mount, tick, unmount } from "svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatComposerSnapshot } from "$lib/chat/composer-controller";
 import type { ChatAttachmentRead, ChatSettingsRead } from "$lib/chat/contracts";
-import { composerModelSelection } from "$lib/chat/composer-model";
+import { composerModelSelection, readComposerModelSelection } from "$lib/chat/composer-model";
 import { getChat } from "$lib/stores/chat.svelte";
 import ChatComposer from "./ChatComposer.svelte";
 
@@ -155,8 +155,8 @@ describe("ChatComposer", () => {
     expect(effortChoices.every((choice) => choice.dataset.appTooltipDisabled === "true")).toBe(true);
     const effortKnob = target.querySelector<HTMLElement>(".effort-knob");
     expect(effortKnob).not.toBeNull();
-    expect(effortChoices[0]?.style.left).toContain("0% + 1.075rem");
-    expect(effortChoices.at(-1)?.style.left).toContain("100% - 1.075rem");
+    expect(effortChoices[0]?.style.left).toContain("0% + 0.875rem");
+    expect(effortChoices.at(-1)?.style.left).toContain("100% - 0.875rem");
     effortChoices.forEach((choice, index) => {
       vi.spyOn(choice, "getBoundingClientRect").mockReturnValue(new DOMRect(index * 40, 0, 20, 20));
     });
@@ -193,13 +193,13 @@ describe("ChatComposer", () => {
     expect(target.querySelector(".effort-name.ultra")).not.toBeNull();
     expect(target.querySelector(".effort-ladder.fast.ultra")).not.toBeNull();
     expect(target.querySelector(".fast-button.active.ultra")).not.toBeNull();
-    expect(effortKnob?.style.left).toContain("100% - 1.075rem");
+    expect(effortKnob?.style.left).toContain("100% - 0.875rem");
     effortChoices[0]?.click();
     await tick();
     expect(trigger?.textContent).toContain("5.6 Terra");
     expect(trigger?.textContent).toContain("Light");
     expect(target.querySelectorAll<HTMLButtonElement>(".effort-options button")[0]?.getAttribute("aria-pressed")).toBe("true");
-    expect(effortKnob?.style.left).toContain("0% + 1.075rem");
+    expect(effortKnob?.style.left).toContain("0% + 0.875rem");
     const advanced = target.querySelector<HTMLButtonElement>(".advanced-toggle");
     expect(advanced?.textContent).toContain("Advanced");
     advanced?.click();
@@ -228,6 +228,50 @@ describe("ChatComposer", () => {
     await tick();
     expect(target.querySelector(".model-flyout")?.textContent).toContain("ClaudeNot configured");
     expect(target.querySelector('[data-chat-field="interaction"]')).toBeNull();
+  });
+
+  it("selects a provider's recommended model and effort for a fresh composer", async () => {
+    const chat = getChat();
+    chat.settings = claudeModelSettings();
+    chat.composer = {
+      ...composer(),
+      providerInstanceId: "claude",
+      safetyMode: "supervised",
+      interactionMode: "build",
+    };
+    vi.spyOn(chat, "setComposerModel").mockImplementation((modelSelection) => {
+      chat.composer = { ...chat.composer, modelSelection };
+    });
+
+    const { target } = setup(false);
+    await tick();
+    await tick();
+
+    const selection = readComposerModelSelection(chat.composer.modelSelection);
+    expect(selection.modelId).toBe("default");
+    expect(selection.providerManaged).toBe(false);
+    expect(selection.options).toEqual([{
+      key: "effort",
+      value: { kind: "choice", value: "high" },
+    }]);
+    const trigger = target.querySelector<HTMLButtonElement>("[data-chat-model-trigger]");
+    expect(trigger?.textContent).toContain("Default (Opus 4.8)");
+    expect(trigger?.textContent).toContain("High");
+
+    trigger?.click();
+    await tick();
+    const choices = [...target.querySelectorAll<HTMLButtonElement>(".effort-options button")];
+    expect(choices).toHaveLength(5);
+    expect(choices[2]?.getAttribute("aria-pressed")).toBe("true");
+    expect(choices[0]?.style.left).toContain("0% + 0.875rem");
+    expect(choices.at(-1)?.style.left).toContain("100% - 0.875rem");
+    const knob = target.querySelector<HTMLElement>(".effort-knob");
+    choices[0]?.click();
+    await tick();
+    expect(knob?.style.left).toContain("0% + 0.875rem");
+    choices.at(-1)?.click();
+    await tick();
+    expect(knob?.style.left).toContain("100% - 0.875rem");
   });
 });
 
@@ -399,4 +443,43 @@ function modelSettings(): ChatSettingsRead {
     credentialStoreAvailability: "available",
     lastSelectedThreadId: null,
   };
+}
+
+function claudeModelSettings(): ChatSettingsRead {
+  const settings = modelSettings();
+  const provider = settings.providerInstances[0];
+  if (!provider) throw new Error("Model settings require a provider fixture");
+  provider.configuration.instanceId = "claude";
+  provider.configuration.familyId = "claude";
+  provider.configuration.label = "Claude";
+  provider.configuration.executable = "claude";
+  provider.lastProbe = provider.lastProbe ? { ...provider.lastProbe, instanceId: "claude" } : null;
+  provider.modelCatalog = {
+    instanceId: "claude",
+    source: "provider",
+    discoveredAt: "2026-07-23T12:00:00.000Z",
+    stale: false,
+    models: [{
+      id: "default",
+      displayName: "Default (Opus 4.8)",
+      description: "Use the default model (currently Opus 4.8)",
+      contextLimit: null,
+      availability: "available",
+      capabilities: [],
+      custom: false,
+      options: [{
+        kind: "choice",
+        key: "effort",
+        label: "Effort",
+        description: "Provider-supported reasoning effort",
+        defaultValue: "high",
+        options: ["low", "medium", "high", "xhigh", "max"].map((value) => ({
+          value,
+          label: value,
+          description: null,
+        })),
+      }],
+    }],
+  };
+  return settings;
 }

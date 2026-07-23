@@ -12,6 +12,7 @@ use crate::chat::providers::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{
@@ -165,6 +166,56 @@ fn compatibility_matrix_selects_native_transport_only_for_complete_protocol() {
     assert_eq!(matrix.decision, "native_rust_stdio");
     assert!(!matrix.installed_local_version_supported);
     assert!(ensure_supported_version(parse_version("1.0.92").unwrap()).is_err());
+}
+
+#[test]
+fn native_model_metadata_resolves_names_and_supported_effort_levels() {
+    let models: Vec<ClaudeModel> = serde_json::from_value(json!([{
+        "value": "default",
+        "resolvedModel": "claude-opus-4-8",
+        "displayName": "Default (recommended)",
+        "description": "Use the default model (currently Opus 4.8)",
+        "supportsEffort": true,
+        "supportedEffortLevels": ["low", "medium", "high", "xhigh", "max"]
+    }, {
+        "value": "sonnet",
+        "resolvedModel": "claude-sonnet-5",
+        "displayName": "Sonnet",
+        "description": "Sonnet 5 · Efficient for routine tasks",
+        "supportsEffort": true,
+        "supportedEffortLevels": ["low", "medium", "high", "xhigh", "max"]
+    }, {
+        "value": "haiku",
+        "resolvedModel": "claude-haiku-4-5-20251001",
+        "displayName": "Haiku",
+        "description": "Haiku 4.5 · Fastest for quick answers",
+        "supportsEffort": false,
+        "supportedEffortLevels": []
+    }]))
+    .unwrap();
+
+    let models = provider_models(models, &[], &BTreeMap::new()).unwrap();
+
+    assert_eq!(models[0].display_name, "Default (Opus 4.8)");
+    assert_eq!(models[1].display_name, "Sonnet 5");
+    assert_eq!(models[2].display_name, "Haiku 4.5");
+    let ModelOptionDefinition::Choice {
+        options,
+        default_value,
+        ..
+    } = &models[0].options[0]
+    else {
+        panic!("Claude effort metadata must remain a choice");
+    };
+    assert_eq!(
+        options
+            .iter()
+            .map(|option| option.value.as_str())
+            .collect::<Vec<_>>(),
+        vec!["low", "medium", "high", "xhigh", "max"]
+    );
+    assert_eq!(default_value.as_deref(), Some("high"));
+    assert!(models[2].options.is_empty());
 }
 
 #[test]

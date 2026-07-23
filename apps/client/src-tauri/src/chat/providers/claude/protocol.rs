@@ -64,8 +64,13 @@ pub struct ClaudeCommand {
 #[serde(rename_all = "camelCase")]
 pub struct ClaudeModel {
     pub value: String,
+    pub resolved_model: Option<String>,
     pub display_name: String,
     pub description: Option<String>,
+    #[serde(default)]
+    pub supports_effort: bool,
+    #[serde(default)]
+    pub supported_effort_levels: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -451,18 +456,20 @@ pub fn provider_models(
         if !seen.insert(model.value.clone()) {
             continue;
         }
+        let display_name = claude_model_display_name(&model);
+        let options = claude_model_options(model.supports_effort, &model.supported_effort_levels);
         output.push(ProviderModel {
             id: ModelId::new(model.value.clone()).map_err(|_| protocol_error("model ID"))?,
-            display_name: if model.display_name.trim().is_empty() {
+            display_name: if display_name.is_empty() {
                 model.value
             } else {
-                model.display_name
+                display_name
             },
             description: model.description.filter(|value| !value.trim().is_empty()),
             context_limit: None,
             availability: ModelAvailability::Available,
             capabilities: claude_model_capabilities(),
-            options: claude_model_options(),
+            options,
             custom: false,
         });
     }
@@ -478,7 +485,10 @@ pub fn provider_models(
             context_limit: None,
             availability: ModelAvailability::Unknown,
             capabilities: claude_model_capabilities(),
-            options: claude_model_options(),
+            options: claude_model_options(
+                true,
+                &["low", "medium", "high", "xhigh", "max"].map(str::to_string),
+            ),
             custom: true,
         });
     }
@@ -502,20 +512,108 @@ fn claude_model_capabilities() -> Vec<ProviderCapability> {
     ]
 }
 
-fn claude_model_options() -> Vec<ModelOptionDefinition> {
+fn claude_model_display_name(model: &ClaudeModel) -> String {
+    let display_name = model.display_name.trim();
+    if display_name.is_empty() {
+        return String::new();
+    }
+    if display_name
+        .chars()
+        .any(|character| character.is_ascii_digit())
+    {
+        return display_name.to_string();
+    }
+    if model.value == "default" {
+        if let Some(resolved) = model
+            .resolved_model
+            .as_deref()
+            .and_then(resolved_claude_model_label)
+        {
+            return format!("Default ({resolved})");
+        }
+    }
+    if let Some(versioned_name) = model
+        .description
+        .as_deref()
+        .and_then(|description| description.split('·').next())
+        .map(str::trim)
+        .filter(|candidate| {
+            candidate.len() > display_name.len()
+                && candidate
+                    .get(..display_name.len())
+                    .is_some_and(|prefix| prefix.eq_ignore_ascii_case(display_name))
+                && candidate
+                    .get(display_name.len()..)
+                    .is_some_and(|suffix| suffix.chars().next().is_some_and(char::is_whitespace))
+        })
+    {
+        return versioned_name.to_string();
+    }
+    display_name.to_string()
+}
+
+fn resolved_claude_model_label(model_id: &str) -> Option<String> {
+    let without_context = model_id.strip_suffix("[1m]").unwrap_or(model_id);
+    let mut parts = without_context.strip_prefix("claude-")?.split('-');
+    let family = parts.next()?;
+    if family.is_empty()
+        || !family
+            .chars()
+            .all(|character| character.is_ascii_alphabetic())
+    {
+        return None;
+    }
+    let version = parts
+        .take(2)
+        .take_while(|part| {
+            !part.is_empty()
+                && part.len() <= 2
+                && part.chars().all(|character| character.is_ascii_digit())
+        })
+        .collect::<Vec<_>>();
+    if version.is_empty() {
+        return None;
+    }
+    let mut label = family.to_string();
+    if let Some(first) = label.get_mut(..1) {
+        first.make_ascii_uppercase();
+    }
+    label.push(' ');
+    label.push_str(&version.join("."));
+    Some(label)
+}
+
+fn claude_model_options(
+    supports_effort: bool,
+    supported_effort_levels: &[String],
+) -> Vec<ModelOptionDefinition> {
+    if !supports_effort {
+        return Vec::new();
+    }
+    let mut seen = BTreeSet::new();
+    let levels = supported_effort_levels
+        .iter()
+        .filter(|level| matches!(level.as_str(), "low" | "medium" | "high" | "xhigh" | "max"))
+        .filter(|level| seen.insert(level.as_str()))
+        .map(|level| ModelChoiceOption {
+            value: level.clone(),
+            label: level.clone(),
+            description: None,
+        })
+        .collect::<Vec<_>>();
+    if levels.is_empty() {
+        return Vec::new();
+    }
+    let default_value = levels
+        .iter()
+        .find(|level| level.value == "high")
+        .map(|level| level.value.clone());
     vec![ModelOptionDefinition::Choice {
         key: "effort".to_string(),
         label: "Effort".to_string(),
         description: Some("Provider-supported reasoning effort".to_string()),
-        options: ["low", "medium", "high", "xhigh", "max"]
-            .into_iter()
-            .map(|value| ModelChoiceOption {
-                value: value.to_string(),
-                label: value.to_string(),
-                description: None,
-            })
-            .collect(),
-        default_value: None,
+        options: levels,
+        default_value,
     }]
 }
 

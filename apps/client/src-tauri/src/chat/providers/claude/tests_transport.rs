@@ -359,6 +359,35 @@ fn driver_starts_dispatches_and_stops_a_native_session() {
     });
 }
 
+#[test]
+fn healthy_probe_exposes_the_native_model_catalog() {
+    tauri::async_runtime::block_on(async {
+        let home = TestDirectory::new("probe-model-catalog-home");
+        let mut driver = ClaudeProviderDriver::new(configuration(home.path())).unwrap();
+        let pair = Arc::new(Mutex::new(Some(native_fixture_connection(
+            home.path().to_path_buf(),
+        ))));
+        driver.set_connection_factory(Arc::new(move |_| {
+            pair.lock().unwrap().take().ok_or_else(|| {
+                ChatError::new(
+                    ChatErrorCode::Conflict,
+                    "test connection already consumed",
+                    false,
+                )
+            })
+        }));
+
+        let probe = driver.probe(&context("probe-model-catalog")).await.unwrap();
+        let catalog = driver.cached_model_catalog().unwrap();
+
+        assert_eq!(probe.state, ProbeState::Healthy);
+        assert_eq!(catalog.instance_id, probe.instance_id);
+        assert_eq!(catalog.models.len(), 1);
+        assert_eq!(catalog.models[0].id.as_str(), "claude-sonnet-4-5");
+        assert_eq!(catalog.models[0].display_name, "Claude Sonnet 4.5");
+    });
+}
+
 fn native_fixture_connection(home: PathBuf) -> (ClaudeJsonlConnection, ClaudeHome, ClaudeVersion) {
     let (driver_reader, mut server_writer) = tokio::io::duplex(128 * 1024);
     let (server_reader, driver_writer) = tokio::io::duplex(128 * 1024);
@@ -382,8 +411,11 @@ fn native_fixture_connection(home: PathBuf) -> (ClaudeJsonlConnection, ClaudeHom
                         "commands": [{ "name": "help", "description": "Help", "argumentHint": null }],
                         "models": [{
                             "value": "claude-sonnet-4-5",
+                            "resolvedModel": "claude-sonnet-4-5",
                             "displayName": "Claude Sonnet 4.5",
-                            "description": "Fixture model"
+                            "description": "Fixture model",
+                            "supportsEffort": true,
+                            "supportedEffortLevels": ["low", "medium", "high", "max"]
                         }],
                         "account": {
                             "email": "redacted@example.invalid",

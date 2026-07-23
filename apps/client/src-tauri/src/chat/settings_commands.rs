@@ -260,9 +260,7 @@ async fn probe_installed_provider(
         if probe.state == ProbeState::ExecutableMissing {
             continue;
         }
-        let model_catalog = (probe.state == ProbeState::Healthy)
-            .then(|| driver.cached_model_catalog())
-            .flatten();
+        let model_catalog = driver.cached_model_catalog();
         let candidate = (configuration, probe.clone(), model_catalog);
         if matches!(
             probe.state,
@@ -634,16 +632,28 @@ pub async fn chat_probe_provider(
         materialize_provider_environment(&read.configuration, &PlatformCredentialStore::default())?;
     let mut driver = ProviderDriverRegistry.create_driver(configuration)?;
     let probe = driver.probe(&operation_context("probe-provider")).await?;
+    let model_catalog = driver.cached_model_catalog();
     update_active_device_scope(&app, |scope| {
         let device = scope.provider_instances.entry(instance_id).or_default();
-        device.last_probe = Some(probe.clone());
-        if probe.state == ProbeState::Healthy {
-            device.last_successful_probe_at = Some(probe.checked_at.clone());
-        }
+        apply_provider_probe(device, &probe, model_catalog.clone());
         Ok(())
     })
     .map_err(device_state_error)?;
     Ok(probe)
+}
+
+fn apply_provider_probe(
+    device: &mut ChatProviderDeviceState,
+    probe: &ProviderProbeResult,
+    model_catalog: Option<ProviderModelCatalog>,
+) {
+    device.last_probe = Some(probe.clone());
+    if probe.state == ProbeState::Healthy {
+        device.last_successful_probe_at = Some(probe.checked_at.clone());
+    }
+    if let Some(catalog) = model_catalog {
+        device.model_catalog = Some(catalog);
+    }
 }
 
 #[tauri::command]
@@ -1181,6 +1191,35 @@ mod tests {
             &config,
             &ProviderFamilyId::new("claude").unwrap()
         ));
+    }
+
+    #[test]
+    fn successful_provider_probe_persists_its_model_catalog() {
+        let probe: ProviderProbeResult = serde_json::from_value(serde_json::json!({
+            "instanceId": "claude",
+            "state": "healthy",
+            "version": "2.1.218",
+            "accountLabel": null,
+            "capabilities": { "entries": [] },
+            "checkedAt": "2026-07-23T03:18:50.240Z",
+            "detail": null
+        }))
+        .unwrap();
+        let catalog: ProviderModelCatalog = serde_json::from_value(serde_json::json!({
+            "instanceId": "claude",
+            "models": [],
+            "source": "provider",
+            "discoveredAt": "2026-07-23T03:18:50.240Z",
+            "stale": false
+        }))
+        .unwrap();
+        let mut device = ChatProviderDeviceState::default();
+
+        apply_provider_probe(&mut device, &probe, Some(catalog.clone()));
+
+        assert_eq!(device.last_probe, Some(probe.clone()));
+        assert_eq!(device.last_successful_probe_at, Some(probe.checked_at));
+        assert_eq!(device.model_catalog, Some(catalog));
     }
 
     #[cfg(unix)]
