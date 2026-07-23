@@ -561,6 +561,17 @@ fn turn_builder_preserves_model_traits_modes_and_verified_images() {
     );
     assert_eq!(params["input"][0]["type"], "text");
     assert_eq!(params["input"][1]["type"], "localImage");
+
+    let mut standard_request = request.clone();
+    standard_request.model_options[1].value = ModelOptionValue::Choice("standard".to_string());
+    let standard_params = turn_start_params(
+        "provider-thread-1",
+        workspace.path(),
+        "fallback-model",
+        &standard_request,
+    )
+    .unwrap();
+    assert!(standard_params.get("serviceTier").is_none());
     assert!(params["input"][1]["path"]
         .as_str()
         .unwrap()
@@ -607,6 +618,22 @@ fn model_catalog_keeps_options_and_image_capability() {
         .capabilities
         .contains(&ProviderCapability::StructuredPlans));
     assert_eq!(model.options.len(), 2);
+    let ModelOptionDefinition::Choice {
+        options,
+        default_value,
+        ..
+    } = &model.options[1]
+    else {
+        panic!("service tier must be a choice option");
+    };
+    assert_eq!(
+        options
+            .iter()
+            .map(|option| option.value.as_str())
+            .collect::<Vec<_>>(),
+        ["standard", "fast"]
+    );
+    assert_eq!(default_value.as_deref(), Some("fast"));
 }
 
 #[test]

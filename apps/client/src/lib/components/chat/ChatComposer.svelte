@@ -28,9 +28,10 @@
     validateImageFiles,
     validateModelOptions,
   } from "$lib/chat/composer-model";
-  import { formatDateTime, formatNumber } from "$lib/i18n/formatters";
+  import { formatNumber } from "$lib/i18n/formatters";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
+  import ChatAccessControl from "./ChatAccessControl.svelte";
   import ChatModelControls from "./ChatModelControls.svelte";
   import ChatRequestPanel from "./ChatRequestPanel.svelte";
 
@@ -69,11 +70,6 @@
     .flatMap((page) => page.turns)
     .find((turn) => turn.turnId === chat.interaction?.activeTurnId) ?? null);
   const meter = $derived(contextMeter(latestUsage?.contextTokens ?? null, latestUsage?.contextLimit ?? null));
-  const hasProviderStatus = $derived(Boolean(
-    chat.interaction?.accountStatus
-    || chat.interaction?.rateLimitStatus
-    || latestUsage?.cost?.providerReported,
-  ));
   const previewAttachment = $derived(chat.composerAttachments.find((attachment) => attachment.id === previewAttachmentId) ?? null);
 
   onMount(() => {
@@ -281,7 +277,7 @@
         ? t("chat.composer.invalidTrait")
         : t("chat.composer.messageRequired");
       const targetField = field === "trust" ? "safety" : field;
-      const target = targetField === "provider" || targetField === "model"
+      const target = targetField === "provider" || targetField === "model" || targetField === "interaction"
         ? document.querySelector<HTMLElement>("[data-chat-model-trigger]")
         : targetField
           ? document.querySelector<HTMLElement>(`[data-chat-field="${targetField}"]`)
@@ -395,20 +391,8 @@
       : t("chat.composer.contextUsed", used, formatNumber(localization.locale, meter.maximumTokens));
   }
 
-  function costLabel(): string | null {
-    const cost = latestUsage?.cost;
-    if (!cost?.providerReported) return null;
-    const amount = formatNumber(localization.locale, cost.amount, { maximumFractionDigits: 6 });
-    return t("chat.composer.cost", amount, cost.currency);
-  }
-
-  function resetLabel(): string | null {
-    const resetsAt = chat.interaction?.rateLimitStatus?.resetsAt;
-    if (!resetsAt) return null;
-    const timestamp = Date.parse(resetsAt);
-    return Number.isNaN(timestamp)
-      ? null
-      : t("chat.composer.resetsAt", formatDateTime(localization.locale, timestamp, { dateStyle: "medium", timeStyle: "short" }));
+  function contextPercentage(value: number): string {
+    return formatNumber(localization.locale, value * 100, { maximumFractionDigits: 0 });
   }
 </script>
 
@@ -432,13 +416,16 @@
             <button type="button" onclick={() => { attachmentMenu?.removeAttribute("open"); const start = textarea?.selectionStart ?? chat.composer.text.length; chat.setComposerText(`${chat.composer.text.slice(0, start)}@${chat.composer.text.slice(start)}`); void tick().then(() => { if (textarea) { textarea.focus(); textarea.setSelectionRange(start + 1, start + 1); void updateMenu(textarea.value, start + 1); } }); }}><AtSign size={14} />{t("chat.composer.mentionFiles")}</button>
           </div>
         </details>
-        <ChatModelControls compact={!hero} />
-        {#if contextLabel()}<span class="context-status" class:warning={meter?.warning} title={chat.interaction?.automaticCompactionReported ? t("chat.composer.automaticCompactionReported") : meter?.warning ? t("chat.composer.contextCompaction") : undefined}>{#if meter?.ratio !== null}<meter min="0" max="1" value={meter?.ratio ?? 0} aria-label={contextLabel() ?? undefined}></meter>{/if}{contextLabel()}</span>{/if}
-        {#if hasProviderStatus}<details class="provider-status"><summary>{t("chat.composer.providerStatus")}</summary><div>{#if chat.interaction?.accountStatus}<strong>{t("chat.composer.account")}</strong>{#if chat.interaction.accountStatus.accountLabel}<p>{chat.interaction.accountStatus.accountLabel}</p>{/if}{#if chat.interaction.accountStatus.planLabel}<p>{chat.interaction.accountStatus.planLabel}</p>{/if}{/if}{#if chat.interaction?.rateLimitStatus}<strong>{t("chat.composer.rateLimit")}</strong><p>{chat.interaction.rateLimitStatus.limited ? t("chat.composer.rateLimited") : t("chat.composer.rateAvailable")}</p>{#if chat.interaction.rateLimitStatus.detail}<p>{chat.interaction.rateLimitStatus.detail}</p>{/if}{#if resetLabel()}<p>{resetLabel()}</p>{/if}{/if}{#if costLabel()}<strong>{costLabel()}</strong>{/if}</div></details>{/if}
+        <ChatAccessControl />
       </div>
       <div class="toolbar-right">
         {#if action.followup === "retain"}<small>{t("chat.composer.retained")}</small>{/if}
         {#if action.followup === "steer"}<button type="button" class="round-action" title={t("chat.composer.steer")} aria-label={t("chat.composer.steer")} onclick={() => void run(() => chat.steerComposer())}><ArrowUp size={14} /></button>{:else if action.followup === "queue"}<button type="button" class="round-action" title={t("chat.composer.queue")} aria-label={t("chat.composer.queue")} onclick={() => void run(() => chat.queueComposer())}><ArrowUp size={14} /></button>{/if}
+        <span class="context-ring" class:warning={meter?.warning} style={`--context-progress:${Math.max(0, Math.min(1, meter?.ratio ?? 0))}`}>
+          <svg viewBox="0 0 20 20" role="img" aria-label={contextLabel() ?? t("chat.composer.contextUnavailable")}><circle class="context-track" cx="10" cy="10" r="7"></circle><circle class="context-fill" cx="10" cy="10" r="7"></circle></svg>
+          <span class="context-tooltip" role="tooltip"><strong>{t("chat.composer.contextWindow")}</strong>{#if meter?.ratio !== null}<span>{t("chat.composer.contextPercentage", contextPercentage(meter?.ratio ?? 0), contextPercentage(1 - (meter?.ratio ?? 0)))}</span>{/if}<span>{contextLabel() ?? t("chat.composer.contextUnavailable")}</span>{#if chat.interaction?.automaticCompactionReported || meter?.warning}<small>{t("chat.composer.contextCompaction")}</small>{/if}</span>
+        </span>
+        <ChatModelControls />
         {#if forceStopAvailable}<button type="button" class="force-stop" title={t("chat.composer.forceStopDescription")} onclick={() => void run(() => chat.stop(true))}>{t("chat.composer.forceStop")}</button>{/if}
         {#if action.primary !== "resolve_request"}<button type="button" class="primary-action" disabled={sending || action.primary === "stopping" || (action.primary === "send" && !action.sendEnabled)} aria-label={action.primary === "stop" ? t("chat.composer.stop") : t("chat.composer.send")} title={action.primary === "stop" ? t("chat.composer.stop") : t("chat.composer.send")} onclick={() => void performPrimaryAction()}>{#if sending}<LoaderCircle size={15} class="animate-spin" />{:else if action.primary === "stop"}<Square size={13} />{:else if action.primary === "stopping"}<LoaderCircle size={15} class="animate-spin" />{:else}<ArrowUp size={16} />{/if}</button>{/if}
       </div>
@@ -452,7 +439,6 @@
 
 <style>
   .chat-composer { container-type: inline-size; container-name: chat-composer; position: relative; display: grid; width: min(100%, 46rem); margin: 0 auto; overflow: visible; border: 1px solid color-mix(in srgb, var(--border) 88%, transparent); border-radius: 1.3rem; background: color-mix(in srgb, var(--card) 90%, transparent); box-shadow: 0 8px 22px -18px rgb(0 0 0 / 0.24), 0 1px 4px -3px rgb(0 0 0 / 0.16); backdrop-filter: blur(16px); }
-  .chat-composer:focus-within { border-color: color-mix(in srgb, var(--ring) 50%, var(--border)); }
   .chat-composer.hero { width: min(100%, 46rem); text-align: left; }
   .chat-composer > :not(.editor-shell) { margin-inline: 0.75rem; }
   .editor-shell { position: relative; }
@@ -463,8 +449,7 @@
   .toolbar-left, .toolbar-right { display: flex; min-width: 0; align-items: center; gap: 0.3rem; }
   .toolbar-left { overflow: hidden; }
   .toolbar-left:has(.attachment-menu[open]) { overflow: visible; }
-  .toolbar-left:has(:global([data-chat-model-trigger][aria-expanded="true"])) { overflow: visible; }
-  .toolbar-right { flex: 0 0 auto; }
+  .toolbar-right { flex: 0 1 auto; justify-content: flex-end; }
   .attachment-menu { position: relative; flex: 0 0 auto; }
   .attachment-menu summary, .round-action { display: inline-flex; width: 1.9rem; height: 1.9rem; cursor: pointer; list-style: none; align-items: center; justify-content: center; border-radius: 0.5rem; color: var(--muted-foreground); }
   .attachment-menu summary::-webkit-details-marker { display: none; }
@@ -472,15 +457,19 @@
   .attachment-menu > div { position: absolute; left: 0; bottom: calc(100% + 0.5rem); z-index: 35; display: grid; min-width: 13rem; gap: 0.15rem; border: 1px solid var(--border); border-radius: 0.7rem; background: var(--popover); padding: 0.35rem; box-shadow: 0 14px 36px rgb(0 0 0 / 0.2); }
   .attachment-menu > div button { display: flex; min-height: 2rem; align-items: center; gap: 0.55rem; border-radius: 0.4rem; padding: 0.35rem 0.5rem; color: var(--foreground); font-size: 0.733333rem; text-align: left; }
   .attachment-menu > div button:hover { background: var(--accent); }
-  .context-status { overflow: hidden; max-width: 9rem; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-foreground); font-size: 0.666667rem; }
-  .context-status.warning { color: var(--status-tentative); }
-  .context-status meter { width: 2.5rem; height: 0.35rem; }
-  .provider-status { position: relative; }
-  .provider-status summary { cursor: pointer; color: var(--muted-foreground); font-size: 0.666667rem; }
-  .provider-status > div { position: absolute; left: 0; bottom: calc(100% + 0.4rem); z-index: 30; width: min(20rem, 80vw); border: 1px solid var(--border); border-radius: 0.4rem; background: var(--popover); padding: 0.55rem; box-shadow: 0 8px 24px rgb(0 0 0 / 0.2); }
-  .provider-status strong, .provider-status p { display: block; margin: 0.1rem 0; white-space: normal; font-size: 0.666667rem; }
+  .context-ring { position: relative; display: grid; width: 1.45rem; height: 1.45rem; flex: 0 0 auto; place-items: center; border-radius: 999px; color: var(--muted-foreground); outline: none; }
+  .context-ring.warning { color: var(--status-tentative); }
+  .context-ring svg { width: 1.2rem; height: 1.2rem; transform: rotate(-90deg); overflow: visible; }
+  .context-ring circle { fill: none; stroke-width: 3; }
+  .context-track { stroke: color-mix(in srgb, var(--muted-foreground) 22%, transparent); }
+  .context-fill { stroke: currentColor; stroke-linecap: round; stroke-dasharray: 43.9823; stroke-dashoffset: calc(43.9823 * (1 - var(--context-progress))); transition: stroke-dashoffset 180ms ease; }
+  .context-tooltip { position: absolute; right: 50%; bottom: calc(100% + 0.55rem); z-index: 55; display: none; width: max-content; max-width: min(18rem, 80vw); transform: translateX(50%); border: 1px solid var(--border); border-radius: 0.75rem; background: var(--popover); padding: 0.55rem 0.75rem; color: var(--popover-foreground); box-shadow: 0 12px 30px rgb(0 0 0 / 0.18); text-align: center; }
+  .context-ring:hover .context-tooltip { display: grid; gap: 0.15rem; }
+  .context-tooltip strong { color: var(--muted-foreground); font-size: 0.7rem; font-weight: 400; }
+  .context-tooltip span { font-size: 0.733333rem; }
+  .context-tooltip small { max-width: 15rem; color: var(--muted-foreground); font-size: 0.633333rem; line-height: 0.9rem; }
   .toolbar-right small { max-width: 18rem; color: var(--muted-foreground); font-size: 0.666667rem; }
-  .primary-action { display: inline-flex; width: 2.45rem; height: 2.45rem; flex: 0 0 auto; align-items: center; justify-content: center; border-radius: 999px; background: color-mix(in srgb, var(--primary) 92%, transparent); color: var(--primary-foreground); box-shadow: 0 2px 7px color-mix(in srgb, var(--primary) 22%, transparent); transition: transform 120ms ease, filter 120ms ease; }
+  .primary-action { display: inline-flex; width: 2.1rem; height: 2.1rem; flex: 0 0 auto; align-items: center; justify-content: center; border-radius: 999px; background: color-mix(in srgb, var(--primary) 92%, transparent); color: var(--primary-foreground); box-shadow: 0 2px 7px color-mix(in srgb, var(--primary) 22%, transparent); transition: transform 120ms ease, filter 120ms ease; }
   .primary-action:hover:not(:disabled) { filter: brightness(1.04); transform: scale(1.04); }
   .primary-action:disabled { opacity: 0.5; }
   .force-stop { color: var(--destructive); }
@@ -506,7 +495,8 @@
   .recovery-row { border-color: color-mix(in oklab, var(--destructive) 45%, var(--border)); color: var(--destructive); }
   .composer-error { margin-bottom: 0.65rem; color: var(--destructive); font-size: 0.733333rem; }
   .request-panel-shell { margin-bottom: 0.75rem; }
-  @container chat-composer (max-width: 640px) { .context-status, .provider-status { display: none; } .toolbar-right small { max-width: 8rem; } }
+  @container chat-composer (max-width: 640px) { .toolbar-right small { max-width: 8rem; } }
+  @container chat-composer (max-width: 390px) { .toolbar-left { gap: 0.1rem; } .context-ring { display: none; } }
   @container chat-composer (max-width: 300px) { textarea[data-chat-composer] { padding-inline: 0.8rem; } .composer-toolbar { padding-inline: 0.4rem; } .attachment-grid { grid-template-columns: 1fr; } }
   @media (prefers-reduced-motion: reduce) { .chat-composer { scroll-behavior: auto; } }
   @supports not ((backdrop-filter: blur(1px))) { .chat-composer { background: var(--card); } }

@@ -41,7 +41,6 @@
   const MIN_INSPECTOR_WIDTH = 240;
   const DEFAULT_BOTTOM_PANEL_HEIGHT = 190;
   const MIN_BOTTOM_PANEL_HEIGHT = 96;
-  const MIN_CONVERSATION_WIDTH = 440;
   const INITIAL_SHELL_WIDTH = 1_200;
   const INITIAL_SHELL_HEIGHT = 700;
   const INITIAL_FONT_SCALE = 1;
@@ -57,8 +56,6 @@
   let inspectorWidth = $state(DEFAULT_INSPECTOR_WIDTH);
   let bottomPanelHeight = $state(DEFAULT_BOTTOM_PANEL_HEIGHT);
   let bottomPanelOpen = $state(false);
-  let bottomInitializedThreadIds = $state<string[]>([]);
-  let inspectorInitializedScopeIds = $state<string[]>([]);
   let inspectorMaximized = $state(false);
   let inspectorWasOpen = false;
   let inspectorReturnFocus: HTMLElement | null = null;
@@ -230,22 +227,6 @@
         inspectorUsesPromotedDefault ? DEFAULT_INSPECTOR_WIDTH : configuredInspectorWidth,
       );
     }
-  });
-
-  $effect(() => {
-    const threadId = chat.selectedThreadId ?? chat.draftThreadId;
-    if (!threadId || bottomInitializedThreadIds.includes(threadId)) return;
-    bottomInitializedThreadIds = [...bottomInitializedThreadIds, threadId];
-    bottomPanelOpen = true;
-  });
-
-  $effect(() => {
-    const scopeId = chat.selectedThreadId ?? chat.draftThreadId;
-    if (!scopeId || inspectorInitializedScopeIds.includes(scopeId)) return;
-    const requiredWidth = railWidth + DEFAULT_INSPECTOR_WIDTH + MIN_CONVERSATION_WIDTH;
-    if (shellWidth < requiredWidth) return;
-    inspectorInitializedScopeIds = [...inspectorInitializedScopeIds, scopeId];
-    chat.inspectorOpen = true;
   });
 
   $effect(() => {

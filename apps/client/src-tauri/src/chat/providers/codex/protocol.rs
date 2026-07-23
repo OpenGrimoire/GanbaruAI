@@ -14,6 +14,7 @@ const MAX_PROMPT_BYTES: usize = 4 * 1024 * 1024;
 const MAX_DEVELOPER_INSTRUCTIONS_BYTES: usize = 64 * 1024;
 const MAX_MODEL_ID_BYTES: usize = 256;
 const MAX_MODEL_OPTIONS: usize = 32;
+const STANDARD_SERVICE_TIER: &str = "standard";
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -294,7 +295,7 @@ pub fn turn_start_params(
     if let Some(effort) = effort.as_deref() {
         params.insert("effort".to_string(), Value::String(effort.to_string()));
     }
-    if let Some(service_tier) = service_tier {
+    if let Some(service_tier) = service_tier.filter(|tier| tier != STANDARD_SERVICE_TIER) {
         params.insert("serviceTier".to_string(), Value::String(service_tier));
     }
     let collaboration_model = request
@@ -348,7 +349,7 @@ pub fn provider_model(model: CodexModel) -> ChatResult<ProviderModel> {
             description: nonempty(effort.description),
         })
         .collect::<Vec<_>>();
-    let service_tier_options = model
+    let mut service_tier_options = model
         .service_tiers
         .into_iter()
         .map(|tier| ModelChoiceOption {
@@ -357,6 +358,20 @@ pub fn provider_model(model: CodexModel) -> ChatResult<ProviderModel> {
             description: nonempty(tier.description),
         })
         .collect::<Vec<_>>();
+    if !service_tier_options.is_empty()
+        && !service_tier_options
+            .iter()
+            .any(|tier| tier.value == STANDARD_SERVICE_TIER)
+    {
+        service_tier_options.insert(
+            0,
+            ModelChoiceOption {
+                value: STANDARD_SERVICE_TIER.to_string(),
+                label: "Standard".to_string(),
+                description: Some("Default speed and usage".to_string()),
+            },
+        );
+    }
     let mut options = Vec::new();
     if !reasoning_options.is_empty() {
         options.push(ModelOptionDefinition::Choice {
@@ -373,7 +388,11 @@ pub fn provider_model(model: CodexModel) -> ChatResult<ProviderModel> {
             label: "Service tier".to_string(),
             description: None,
             options: service_tier_options,
-            default_value: model.default_service_tier,
+            default_value: Some(
+                model
+                    .default_service_tier
+                    .unwrap_or_else(|| STANDARD_SERVICE_TIER.to_string()),
+            ),
         });
     }
     let mut capabilities = vec![

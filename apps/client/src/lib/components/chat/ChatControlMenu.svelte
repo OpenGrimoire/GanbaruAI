@@ -42,6 +42,7 @@
     dataField,
     onChange,
     compact = false,
+    minimal = false,
     disabled = false,
   }: {
     value: string;
@@ -50,6 +51,7 @@
     dataField?: string;
     onChange: (value: string) => void;
     compact?: boolean;
+    minimal?: boolean;
     disabled?: boolean;
   } = $props();
 
@@ -184,6 +186,7 @@
   type="button"
   class="control-trigger"
   class:compact
+  class:minimal
   {disabled}
   aria-label={ariaLabel}
   aria-haspopup="listbox"
@@ -195,7 +198,7 @@
 >
   {@render controlIcon(current?.icon ?? "sliders")}
   <span class="control-label">{current?.label ?? ariaLabel}</span>
-  <ChevronDown size={12} class={open ? "open" : ""} />
+  {#if !minimal}<ChevronDown size={12} class={open ? "open" : ""} />{/if}
 </button>
 
 {#if open}
@@ -229,6 +232,7 @@
 <style>
   .control-trigger { display: inline-flex; min-width: 0; height: 1.9rem; max-width: 10rem; flex: 0 1 auto; align-items: center; gap: 0.4rem; border-radius: 0.55rem; padding: 0.25rem 0.45rem; color: var(--muted-foreground); font-size: 0.733333rem; white-space: nowrap; }
   .control-trigger:hover, .control-trigger[aria-expanded="true"] { background: var(--accent); color: var(--foreground); }
+  .control-trigger.minimal { padding-inline: 0.35rem; }
   .control-trigger:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
   .control-trigger:disabled { cursor: not-allowed; opacity: 0.45; }
   .control-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }

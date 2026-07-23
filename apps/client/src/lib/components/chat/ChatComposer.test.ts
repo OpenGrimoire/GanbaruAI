@@ -3,7 +3,8 @@
 import { mount, tick, unmount } from "svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatComposerSnapshot } from "$lib/chat/composer-controller";
-import type { ChatAttachmentRead } from "$lib/chat/contracts";
+import type { ChatAttachmentRead, ChatSettingsRead } from "$lib/chat/contracts";
+import { composerModelSelection } from "$lib/chat/composer-model";
 import { getChat } from "$lib/stores/chat.svelte";
 import ChatComposer from "./ChatComposer.svelte";
 
@@ -74,14 +75,16 @@ describe("ChatComposer", () => {
     expect([second.textarea.selectionStart, second.textarea.selectionEnd]).toEqual([3, 7]);
   });
 
-  it("keeps model, safety, interaction, attachments, and send directly discoverable", () => {
+  it("keeps the simplified composer actions directly discoverable", () => {
     const { target } = setup(false);
     expect(target.querySelector("[data-chat-model-trigger]")).not.toBeNull();
     expect(target.querySelector('[data-chat-field="safety"]')?.tagName).toBe("BUTTON");
-    expect(target.querySelector('[data-chat-field="interaction"]')?.tagName).toBe("BUTTON");
+    expect(target.querySelector('[data-chat-field="interaction"]')).toBeNull();
+    expect(target.querySelector(".context-ring svg")?.getAttribute("role")).toBe("img");
     expect(target.querySelector("select")).toBeNull();
     expect(target.querySelector(".attachment-menu summary")?.getAttribute("aria-label")).toBe("Attach images");
     expect(target.querySelector("button.primary-action")?.getAttribute("aria-label")).toBe("Send");
+    expect(target.querySelector('[aria-label*="microphone" i]')).toBeNull();
   });
 
   it("opens a managed image preview and preserves a failed import error", async () => {
@@ -119,6 +122,108 @@ describe("ChatComposer", () => {
     expect(importImages).toHaveBeenCalledWith([file]);
     expect(target.querySelector('[role="alert"]')?.textContent).toContain("Image signature is invalid");
   });
+
+  it("keeps effort and speed inside the compact model control", async () => {
+    const chat = getChat();
+    chat.settings = modelSettings();
+    chat.composer = {
+      ...composer(),
+      providerInstanceId: "codex-local",
+      modelSelection: composerModelSelection("gpt-5.6-sol", false, [
+        { key: "reasoning_effort", value: { kind: "choice", value: "medium" } },
+        { key: "service_tier", value: { kind: "choice", value: "standard" } },
+      ]),
+      safetyMode: "supervised",
+      interactionMode: "build",
+    };
+    vi.spyOn(chat, "setComposerModel").mockImplementation((modelSelection) => {
+      chat.composer = { ...chat.composer, modelSelection };
+    });
+    const { target } = setup(false);
+    const trigger = target.querySelector<HTMLButtonElement>("[data-chat-model-trigger]");
+    expect(trigger?.textContent).toContain("5.6 Sol");
+    expect(trigger?.textContent).toContain("Medium");
+    trigger?.click();
+    await tick();
+    expect(target.querySelector(".model-control.measured")).not.toBeNull();
+    expect(trigger?.querySelector(".model-chevron")?.classList.contains("open")).toBe(false);
+    const effortChoices = [...target.querySelectorAll<HTMLButtonElement>(".effort-options button")];
+    expect(effortChoices).toHaveLength(7);
+    expect(effortChoices[0]?.getAttribute("aria-label")).toBe("5.6 Terra Light");
+    expect(effortChoices[2]?.getAttribute("aria-pressed")).toBe("true");
+    expect(effortChoices.every((choice) => !choice.hasAttribute("title"))).toBe(true);
+    expect(effortChoices.every((choice) => choice.dataset.appTooltipDisabled === "true")).toBe(true);
+    const effortKnob = target.querySelector<HTMLElement>(".effort-knob");
+    expect(effortKnob).not.toBeNull();
+    expect(effortChoices[0]?.style.left).toContain("0% + 1.075rem");
+    expect(effortChoices.at(-1)?.style.left).toContain("100% - 1.075rem");
+    effortChoices.forEach((choice, index) => {
+      vi.spyOn(choice, "getBoundingClientRect").mockReturnValue(new DOMRect(index * 40, 0, 20, 20));
+    });
+    const effortLadder = target.querySelector<HTMLElement>(".effort-ladder");
+    effortLadder?.dispatchEvent(pointerEvent("pointerdown", 90));
+    await tick();
+    expect(target.querySelector(".effort-footer.holding")).toBeNull();
+    effortLadder?.dispatchEvent(pointerEvent("pointermove", 130));
+    await tick();
+    expect(target.querySelector(".effort-footer.holding")?.textContent).toContain("Faster");
+    expect(target.querySelector(".effort-footer.holding")?.textContent).toContain("Smarter");
+    effortLadder?.dispatchEvent(pointerEvent("pointermove", 250));
+    await tick();
+    expect(trigger?.textContent).toContain("Ultra");
+    effortLadder?.dispatchEvent(pointerEvent("pointerup", 250));
+    await tick();
+    expect(target.querySelector(".effort-footer.holding")).toBeNull();
+    expect(effortLadder?.classList.contains("handle-hovered")).toBe(true);
+    effortLadder?.dispatchEvent(pointerEvent("pointermove", 10));
+    await tick();
+    expect(effortLadder?.classList.contains("handle-hovered")).toBe(false);
+    effortChoices[2]?.click();
+    await tick();
+    expect(trigger?.textContent).toContain("Medium");
+    const fastButton = target.querySelector<HTMLButtonElement>(".fast-button");
+    expect(fastButton?.getAttribute("aria-label")).toBe("Enable Fast mode");
+    fastButton?.click();
+    await tick();
+    expect(target.querySelector(".effort-ladder.fast")).not.toBeNull();
+    expect(fastButton?.getAttribute("aria-pressed")).toBe("true");
+    effortChoices.at(-1)?.click();
+    await tick();
+    expect(trigger?.textContent).toContain("Ultra");
+    expect(target.querySelector(".effort-name.ultra")).not.toBeNull();
+    expect(target.querySelector(".effort-ladder.fast.ultra")).not.toBeNull();
+    expect(target.querySelector(".fast-button.active.ultra")).not.toBeNull();
+    expect(effortKnob?.style.left).toContain("100% - 1.075rem");
+    effortChoices[0]?.click();
+    await tick();
+    expect(trigger?.textContent).toContain("5.6 Terra");
+    expect(trigger?.textContent).toContain("Light");
+    expect(target.querySelectorAll<HTMLButtonElement>(".effort-options button")[0]?.getAttribute("aria-pressed")).toBe("true");
+    expect(effortKnob?.style.left).toContain("0% + 1.075rem");
+    const advanced = target.querySelector<HTMLButtonElement>(".advanced-toggle");
+    expect(advanced?.textContent).toContain("Advanced");
+    advanced?.click();
+    await tick();
+    expect(target.querySelector(".advanced-view.active")).not.toBeNull();
+    expect(target.querySelector<HTMLElement>(".overview-view")?.inert).toBe(true);
+    const advancedRows = [...target.querySelectorAll<HTMLButtonElement>(".advanced-list button")];
+    expect(advancedRows.some((button) => button.textContent?.includes("EffortLight"))).toBe(true);
+    expect(advancedRows.some((button) => button.textContent?.includes("SpeedStandard"))).toBe(true);
+    const speedRow = advancedRows.find((button) => button.textContent?.includes("SpeedStandard"));
+    speedRow?.click();
+    await tick();
+    expect(target.querySelector(".model-flyout")?.textContent).toContain("Standard");
+    expect(target.querySelector(".model-flyout")?.textContent).toContain("Fast");
+    const effortRow = advancedRows.find((button) => button.textContent?.includes("EffortLight"));
+    effortRow?.click();
+    await tick();
+    expect(target.querySelector(".model-flyout")?.textContent).toContain("High");
+    effortRow?.dispatchEvent(new MouseEvent("pointerleave", { clientX: 999, clientY: 999 }));
+    await new Promise((resolve) => setTimeout(resolve, 90));
+    await tick();
+    expect(target.querySelector(".model-flyout")).toBeNull();
+    expect(target.querySelector('[data-chat-field="interaction"]')).toBeNull();
+  });
 });
 
 function composer(): ChatComposerSnapshot {
@@ -141,6 +246,15 @@ function composer(): ChatComposerSnapshot {
   };
 }
 
+function pointerEvent(type: string, clientX: number): PointerEvent {
+  const event = new MouseEvent(type, { bubbles: true, button: 0, clientX }) as PointerEvent;
+  Object.defineProperties(event, {
+    isPrimary: { value: true },
+    pointerId: { value: 1 },
+  });
+  return event;
+}
+
 function imageAttachment(): ChatAttachmentRead {
   return {
     id: "attachment-1",
@@ -153,5 +267,121 @@ function imageAttachment(): ChatAttachmentRead {
     managedRelativePath: "assets/chat/attachments/diagram.png",
     signatureKind: "png",
     createdAt: "2026-07-21T12:00:00.000Z",
+  };
+}
+
+function modelSettings(): ChatSettingsRead {
+  return {
+    configuration: {
+      schemaVersion: 1,
+      providers: [],
+      automaticProviderSetupDisabled: [],
+      rememberedSelections: [],
+      workspaceProviderPreferences: {},
+      panels: { railWidthPx: 320, inspectorWidthPx: 520 },
+      behavior: {
+        sendKey: "enter",
+        restoreLastSelectedThread: true,
+        showReasoningSummaries: true,
+        automaticallyFoldSettledWork: true,
+        terminalScrollbackLines: 10_000,
+        idleSessionTimeoutSeconds: 1_800,
+        confirmMultilineTerminalPaste: true,
+      },
+    },
+    providerFamilies: [],
+    providerInstances: [{
+      configuration: {
+        schemaVersion: 1,
+        instanceId: "codex-local",
+        familyId: "codex",
+        label: "Codex",
+        accentColor: null,
+        enabled: true,
+        executable: "codex",
+        providerHome: null,
+        launchArguments: [],
+        environment: {},
+        credentialReferences: {},
+        visibleModelIds: [],
+        favoriteModelIds: [],
+        providerConfig: { schemaVersion: 1, value: {} },
+      },
+      lastProbe: {
+        instanceId: "codex-local",
+        state: "healthy",
+        version: "1.0.0",
+        accountLabel: null,
+        capabilities: { entries: [{ capability: "native_plan", supported: true, explanation: null }] },
+        checkedAt: "2026-07-22T12:00:00.000Z",
+        detail: null,
+      },
+      lastSuccessfulProbeAt: "2026-07-22T12:00:00.000Z",
+      modelCatalog: {
+        instanceId: "codex-local",
+        source: "provider",
+        discoveredAt: "2026-07-22T12:00:00.000Z",
+        stale: false,
+        models: [{
+          id: "gpt-5.6-sol",
+          displayName: "5.6 Sol",
+          description: null,
+          contextLimit: 258_000,
+          availability: "available",
+          capabilities: [],
+          custom: false,
+          options: [{
+            kind: "choice",
+            key: "reasoning_effort",
+            label: "Reasoning effort",
+            description: null,
+            defaultValue: "medium",
+            options: [
+              { value: "low", label: "low", description: null },
+              { value: "medium", label: "Medium", description: null },
+              { value: "high", label: "High", description: null },
+              { value: "xhigh", label: "xhigh", description: null },
+              { value: "max", label: "max", description: null },
+              { value: "ultra", label: "ultra", description: null },
+            ],
+          }],
+        }, {
+          id: "gpt-5.6-terra",
+          displayName: "GPT-5.6-Terra",
+          description: null,
+          contextLimit: 258_000,
+          availability: "available",
+          capabilities: [],
+          custom: false,
+          options: [{
+            kind: "choice",
+            key: "reasoning_effort",
+            label: "Reasoning effort",
+            description: null,
+            defaultValue: "medium",
+            options: [
+              { value: "low", label: "low", description: null },
+              { value: "medium", label: "Medium", description: null },
+              { value: "high", label: "High", description: null },
+              { value: "xhigh", label: "xhigh", description: null },
+              { value: "max", label: "max", description: null },
+              { value: "ultra", label: "ultra", description: null },
+            ],
+          }, {
+            kind: "choice",
+            key: "service_tier",
+            label: "Service tier",
+            description: null,
+            defaultValue: "standard",
+            options: [
+              { value: "standard", label: "Standard", description: "Default speed" },
+              { value: "fast", label: "Fast", description: "Faster responses" },
+            ],
+          }],
+        }],
+      },
+    }],
+    credentialStoreAvailability: "available",
+    lastSelectedThreadId: null,
   };
 }
